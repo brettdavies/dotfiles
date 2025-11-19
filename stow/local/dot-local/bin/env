@@ -1,0 +1,19 @@
+#!/bin/sh
+# Purpose: Ensures ~/.local/bin is in PATH for user-installed binaries
+# This allows local binaries to override system binaries when needed
+# and provides a standard location for user-installed scripts/tools
+#
+# Note: This file is sourced by .profile to make ~/.local/bin available
+# in all shell sessions. The script checks if the path is already present
+# to avoid duplicate entries.
+
+# add binaries to PATH if they aren't added yet
+# affix colons on either side of $PATH to simplify matching
+case ":${PATH}:" in
+    *:"$HOME/.local/bin":*)
+        ;;
+    *)
+        # Prepending path in case a system-installed binary needs to be overridden
+        export PATH="$HOME/.local/bin:$PATH"
+        ;;
+esac

@@ -1,0 +1,144 @@
+packages:
+  ripgrep:
+    brew: ripgrep
+    linux:
+      pkg: ripgrep
+  
+  jq:
+    brew: jq
+    linux:
+      pkg: jq
+  
+  tree:
+    brew: tree
+    linux:
+      pkg: tree
+  
+  wget:
+    brew: wget
+    linux:
+      pkg: wget
+  
+  coreutils:
+    brew: coreutils
+    linux:
+      pkg: coreutils
+  
+  libpq:
+    brew: libpq
+    linux:
+      apt: postgresql-client libpq-dev
+      yum: postgresql postgresql-devel
+      dnf: postgresql postgresql-devel
+      apk: postgresql-client postgresql-dev
+  
+  yamllint:
+    brew: yamllint
+    linux:
+      pip: yamllint
+  
+  gh:
+    brew: gh
+    linux:
+      installer: gh
+      note: Install from https://github.com/cli/cli/blob/trunk/docs/install_linux.md
+  
+  bun:
+    brew: oven-sh/bun/bun
+    taps:
+      - oven-sh/bun
+    linux:
+      installer: curl -fsSL https://bun.sh/install | bash
+  
+  uv:
+    brew: uv
+    linux:
+      installer: curl -LsSf https://astral.sh/uv/install.sh | sh
+  
+  ast-grep:
+    brew: ast-grep
+    linux:
+      installer: ast-grep
+      note: Install from https://github.com/ast-grep/ast-grep
+  
+  yq:
+    brew: yq
+    linux:
+      installer: yq
+      note: Install from https://github.com/mikefarah/yq
+  
+  powerlevel10k:
+    brew: powerlevel10k
+    linux:
+      git: https://github.com/romkatv/powerlevel10k.git
+      type: theme
+  
+  zsh-autosuggestions:
+    brew: zsh-autosuggestions
+    linux:
+      git: https://github.com/zsh-users/zsh-autosuggestions
+      type: plugin
+  
+  zsh-syntax-highlighting:
+    brew: zsh-syntax-highlighting
+    linux:
+      git: https://github.com/zsh-users/zsh-syntax-highlighting.git
+      type: plugin
+  
+  zsh-completions:
+    brew: zsh-completions
+    linux:
+      git: https://github.com/zsh-users/zsh-completions
+      type: plugin
+  
+  terminal-notifier:
+    brew: terminal-notifier
+    macos_only: true
+  
+  taproom:
+    brew: gromgit/brewtils/taproom
+    taps:
+      - gromgit/brewtils
+    macos_only: true
+
+casks:
+  1password-cli:
+    brew: 1password-cli
+    macos_only: true
+  
+  claude-code:
+    brew: claude-code
+    macos_only: true
+  
+  ghostty:
+    brew: ghostty
+    macos_only: true
+  
+  font-meslo-lg-nerd-font:
+    brew: font-meslo-lg-nerd-font
+    macos_only: true
+  
+  appcleaner:
+    brew: appcleaner
+    macos_only: true
+  
+  docker-desktop:
+    brew: docker-desktop
+    macos_only: true
+
+vscode_extensions:
+  - anthropic.claude-code
+  - bierner.markdown-mermaid
+  # Note: databricks.neon-local-connect has no release version available - removed
+  - dbaeumer.vscode-eslint
+  - editorconfig.editorconfig
+  - esbenp.prettier-vscode
+  - github.vscode-github-actions
+  - mechatroner.rainbow-csv
+  - ms-azuretools.vscode-containers
+  - ms-azuretools.vscode-docker
+  - openai.chatgpt
+  - samuelcolvin.jinjahtml
+  - tamasfe.even-better-toml
+  - tomoki1207.pdf
+  - yzhang.markdown-all-in-one

@@ -1,0 +1,6 @@
+Include ~/.colima/ssh_config
+
+Host *
+  # 1Password SSH agent - macOS path
+  # On Linux, comment out or adjust path if using 1Password SSH agent
+  IdentityAgent "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"

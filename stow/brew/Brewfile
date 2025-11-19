@@ -1,0 +1,59 @@
+# Essential packages for dotfiles setup
+# Generated from packages.yaml - DO NOT EDIT MANUALLY
+# Run ./stow/brew/generate-brewfile.sh after updating packages.yaml
+
+# Required taps
+tap "gromgit/brewtils"
+tap "oven-sh/bun"
+
+# oh-my-zsh theme
+brew "powerlevel10k"
+
+# oh-my-zsh plugins
+brew "zsh-autosuggestions"
+brew "zsh-syntax-highlighting"
+brew "zsh-completions"
+
+# Development tools
+brew "libpq"
+brew "gh"
+brew "oven-sh/bun/bun"
+brew "uv"
+
+# Code quality & utilities
+brew "ripgrep"
+brew "jq"
+brew "tree"
+brew "wget"
+brew "coreutils"
+brew "yamllint"
+brew "ast-grep"
+brew "yq"
+
+# macOS-specific utilities
+brew "terminal-notifier"
+brew "gromgit/brewtils/taproom"
+
+# macOS casks
+cask "1password-cli"
+cask "claude-code"
+cask "ghostty"
+cask "font-meslo-lg-nerd-font"
+cask "appcleaner"
+cask "docker-desktop"
+
+# VS Code extensions (essential)
+vscode "anthropic.claude-code"
+vscode "bierner.markdown-mermaid"
+vscode "dbaeumer.vscode-eslint"
+vscode "editorconfig.editorconfig"
+vscode "esbenp.prettier-vscode"
+vscode "github.vscode-github-actions"
+vscode "mechatroner.rainbow-csv"
+vscode "ms-azuretools.vscode-containers"
+vscode "ms-azuretools.vscode-docker"
+vscode "openai.chatgpt"
+vscode "samuelcolvin.jinjahtml"
+vscode "tamasfe.even-better-toml"
+vscode "tomoki1207.pdf"
+vscode "yzhang.markdown-all-in-one"

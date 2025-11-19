@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  alpine-test:
+    image: alpine:latest
+    container_name: dotfiles-test-alpine
+    stdin_open: true
+    tty: true
+    volumes:
+      - ~/dotfiles:/root/dotfiles:ro
+    working_dir: /root
+    command: /bin/sh -c "cd /root/dotfiles && sh test-in-docker.sh && sh"
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+
+  ubuntu-test:
+    image: ubuntu:22.04
+    container_name: dotfiles-test-ubuntu
+    stdin_open: true
+    tty: true
+    volumes:
+      - ~/dotfiles:/root/dotfiles:ro
+    working_dir: /root
+    command: /bin/bash -c "cd /root/dotfiles && bash test-in-docker.sh && bash"
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+
+
