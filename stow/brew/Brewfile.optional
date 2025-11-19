@@ -1,0 +1,40 @@
+# Optional packages - uncomment to install
+# These are organized by category for easy selection
+
+# Development Tools
+# tap "cameroncooke/axe"
+# brew "cameroncooke/axe/axe"
+
+# tap "supabase/tap"
+# brew "supabase/tap/supabase"
+
+# brew "node"
+# brew "python@3.12"
+# brew "deno"
+# brew "cmake"
+# brew "awscli"
+# brew "cloudflare-wrangler"
+# brew "docker"
+# brew "docker-compose"
+# brew "kubernetes-cli"
+# brew "codex"
+# brew "huggingface-cli"
+# brew "protobuf"
+# brew "grpc"
+# brew "grpcurl"
+# brew "protoc-gen-grpc-java"
+# brew "ffmpeg"
+# brew "qpdf"
+
+# VS Code Extensions (optional)
+# vscode "christian-kohler.npm-intellisense"
+# vscode "denoland.vscode-deno"
+# vscode "ms-python.debugpy"
+# vscode "ms-python.python"
+# vscode "ms-python.vscode-pylance"
+# vscode "saoudrizwan.claude-dev"
+
+# To enable optional packages:
+# 1. Uncomment the tap line (if required) and the brew/vscode line
+# 2. Run: brew bundle --file=~/dotfiles/stow/brew/Brewfile.optional
+# Or use the install script which will prompt you

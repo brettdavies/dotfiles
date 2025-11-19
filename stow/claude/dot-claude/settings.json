@@ -1,0 +1,84 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch",
+      "Bash(bun install:*)",
+      "Bash(bun run lint)",
+      "Bash(bun run:*)",
+      "Bash(bun test)",
+      "Bash(bun update:*)",
+      "Bash(bun upgrade:*)",
+      "Bash(bunx eslint:*)",
+      "Bash(bunx prettier:*)",
+      "Bash(bunx tsc:*)",
+      "Bash(chmod:*)",
+      "Bash(eslint:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(git log:*)",
+      "Bash(git worktree:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git fetch:*)",
+      "Bash(git grep:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(mkdir:*)",
+      "Bash(rg:*)",
+      "Bash(trash:*)",
+      "Bash(tree:*)",
+      "Bash(uv add:*)",
+      "Bash(uv add:*)",
+      "Bash(uv info:*)",
+      "Bash(uv init:*)",
+      "Bash(uv list:*)",
+      "Bash(uv remove:*)",
+      "Bash(uv run:*)",
+      "Bash(uv show:*)",
+      "Bash(uv update:*)",
+      "Bash(uv upgrade:*)"
+    ],
+    "deny": [
+      "Bash(rm:*)"
+    ],
+    "ask": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
+    ]
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "terminal-notifier -sound Funky -title \"🔔 Claude Code\" -message \"Claude needs your input\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "terminal-notifier -sound Mezzo -title \"✅ Claude Code\" -message \"The task has been completed\""
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
+  }
+}
