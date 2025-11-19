@@ -1,0 +1,44 @@
+# Sensitive files - never commit these
+.secrets
+*.secret
+*.key
+*.pem
+*.p12
+
+# History files
+*.zsh_history
+*.bash_history
+*.history
+*.zcompdump*
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# Backup files
+*.backup
+*.backup.*
+
+# Claude/other AI tool configs (may contain sensitive info)
+.claude.json
+.claude.json.backup
+
+# Other potentially sensitive files
+.webui_secret_key
+.lmstudio-home-pointer
+
