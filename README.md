@@ -7,16 +7,31 @@ Personal dotfiles managed with GNU Stow for syncing across macOS and Linux machi
 This repository uses [GNU Stow](https://www.gnu.org/software/stow/) to manage symlinks for configuration files. Each directory in `stow/` contains files that will be symlinked to your home directory.
 
 The installation process is modular, with `install.sh` orchestrating several single-purpose scripts in the `scripts/` directory:
-- `lib.sh` - Shared library with common functions and variables
+
+**Shared Libraries** (modular function libraries):
+
+- `lib-core.sh` - Core functions (OS detection, colors, argument parsing, verbose output)
+- `lib-file.sh` - File operations and permissions
+- `lib-packages.sh` - Package checking (Homebrew, VS Code, Cursor)
+- `lib-stow.sh` - Stow-specific operations and symlink checking
+- `lib-sync.sh` - Sync operations for bidirectional updates
+
+**Installation Scripts**:
+
 - `check-dependencies.sh` - Installs required dependencies
 - `stow-packages.sh` - Creates symlinks using `stow --dotfiles`
 - `create-secrets.sh` - Creates `.secrets` file
 - `create-lmstudio-pointer.sh` - Creates LM Studio pointer file
 - `install-packages.sh` - Installs packages from Brewfile
 
+**Verification Scripts**:
+
+- `check-implementation.sh` - Verifies dotfiles are fully implemented
+- `test-in-docker.sh` - Tests installation in Docker containers
+
 **Dotfile Convention**: Files in the repository use `dot-` prefix (e.g., `dot-bashrc`) to keep them visible in file managers. The `stow --dotfiles` option automatically converts these to `.` prefixed symlinks (e.g., `.bashrc`) in your home directory.
 
-```
+```plaintext
 stow/
 ├── zsh/          # Zsh configs (.zshrc, .zprofile, .p10k.zsh)
 ├── bash/         # Bash configs (.bashrc, .bash_profile)
@@ -41,21 +56,39 @@ stow/
 - Git
 - GNU Stow (will be installed automatically if missing)
 - Homebrew (macOS only - for package installation)
+- `diff3` (part of `diffutils` package) - Required only if using `--sync-local --merge` mode. Will be prompted to install automatically if missing.
+
+**Check prerequisites**:
+
+   ```bash
+   echo "Checking prerequisites..."; echo "----"; MISSING=0; for cmd in git stow; do command -v $cmd >/dev/null 2>&1 && echo "✓ $cmd" || (echo "✗ $cmd missing" && MISSING=$((MISSING+1))); done; [[ "$OSTYPE" == "darwin"* ]] && (command -v brew >/dev/null 2>&1 && echo "✓ homebrew" || (echo "✗ homebrew missing" && MISSING=$((MISSING+1)))) || echo "○ homebrew (not required on Linux)"; command -v diff3 >/dev/null 2>&1 && echo "✓ diff3" || echo "⚠ diff3 missing (required for --merge mode)"; echo "----"; [ $MISSING -eq 0 ] && echo "✓ All required prerequisites installed" || echo "✗ Some prerequisites are missing"
+   ```
 
 ### Installation
 
 1. Clone this repository:
-```bash
-git clone <your-repo-url> ~/dotfiles
-cd ~/dotfiles
-```
+
+   ```bash
+   git clone <your-repo-url> ~/dotfiles
+   cd ~/dotfiles
+   ```
 
 2. Run the install script:
-```bash
-./install.sh
-```
+
+   ```bash
+   ./install.sh
+   ```
+
+   **Installation Options**:
+   - `./install.sh` - Run full installation
+   - `./install.sh --dry-run` - Preview what would be done without making changes
+   - `./install.sh --check` - Check current implementation status (no installation)
+   - `./install.sh --verbose` or `-v` - Show detailed output
+   - `./install.sh --sync-local` - Sync local changes back into repository before installation
+   - `./install.sh --sync-local --merge` - Sync with merge mode (merges conflicts instead of overwriting)
 
 The script orchestrates several modular scripts in the `scripts/` directory:
+
 - **check-dependencies.sh**: Installs GNU Stow, shells (zsh/bash), and oh-my-zsh if missing
 - **stow-packages.sh**: Creates symlinks for all configuration files using `stow --dotfiles`
 - **create-secrets.sh**: Creates an empty `.secrets` file with proper permissions (600)
@@ -64,43 +97,131 @@ The script orchestrates several modular scripts in the `scripts/` directory:
 
 **Note**: The installer uses `stow --dotfiles` which automatically converts `dot-*` prefixed files in the repository to `.*` prefixed symlinks in your home directory. This keeps files visible in the repository while creating proper hidden dotfiles.
 
+### Verifying Installation
+
+After installation, you can verify that everything is set up correctly:
+
+   ```bash
+   ./install.sh --check
+   ```
+
+Or run the verification script directly:
+
+   ```bash
+   ./scripts/check-implementation.sh
+   ```
+
+The verification script checks:
+
+- Dependencies (stow, shells, oh-my-zsh)
+- All stow package symlinks
+- Special files (.secrets with correct permissions)
+- Homebrew packages (macOS only)
+- VS Code extensions (macOS only)
+- Cursor extensions
+
+Options for `check-implementation.sh`:
+
+- `--quiet` or `-q` - Suppress output except for summary
+- `--verbose` or `-v` - Show detailed output for each check
+- `--output FILE` or `-o FILE` - Save results to a file
+
 ### Manual Installation (if you prefer)
 
 If you don't want to use the install script, you can manually stow each package:
 
-```bash
-cd ~/dotfiles/stow
-stow -t ~ zsh bash git ssh ghostty gh oh-my-zsh
-```
+   ```bash
+   cd ~/dotfiles/stow
+   stow -t ~ zsh bash git ssh ghostty gh oh-my-zsh
+   ```
 
 For VS Code on macOS:
-```bash
-stow -t ~/Library/Application\ Support/Code/User -d ~/dotfiles/stow vscode
-```
+
+   ```bash
+   stow -t ~/Library/Application\ Support/Code/User -d ~/dotfiles/stow vscode
+   ```
 
 ## Updating
 
-After making changes to your dotfiles:
+### Syncing Changes from Repository
+
+After making changes to your dotfiles in the repository:
 
 1. Commit and push changes:
-```bash
-cd ~/dotfiles
-git add .
-git commit -m "Update dotfiles"
-git push
-```
+
+   ```bash
+   cd ~/dotfiles
+   git add .
+   git commit -m "Update dotfiles"
+   git push
+   ```
 
 2. On other machines, pull the latest changes:
-```bash
-cd ~/dotfiles
-git pull
-```
+
+   ```bash
+   cd ~/dotfiles
+   git pull
+   ```
 
 3. Restow packages if needed:
-```bash
-cd ~/dotfiles/stow
-stow -t ~ -R zsh bash git ssh ghostty gh oh-my-zsh
-```
+
+   ```bash
+   cd ~/dotfiles/stow
+   stow -t ~ -R zsh bash git ssh ghostty gh oh-my-zsh
+   ```
+
+   Or simply run the install script again:
+
+   ```bash
+   ./install.sh
+   ```
+
+### Syncing Local Changes Back to Repository
+
+If you've made local changes to your dotfiles and want to sync them back into the repository:
+
+1. **Preview what would be synced** (recommended first step):
+
+   ```bash
+   ./install.sh --sync-local --dry-run
+   ```
+
+2. **Sync with overwrite mode** (replaces repo files with local versions):
+
+   ```bash
+   ./install.sh --sync-local
+   ```
+
+3. **Sync with merge mode** (attempts to merge changes, creates conflict markers if needed):
+
+   ```bash
+   ./install.sh --sync-local --merge
+   ```
+
+   **Merge Mode Requirements**:
+   - Merge mode requires `diff3` (part of `diffutils` package)
+   - If `diff3` is not installed, the script will prompt to install it automatically
+   - Merge mode uses git-based three-way merging: it uses the last committed version from git HEAD as the base file for more accurate merges
+   - If a file is not tracked by git, an empty file is used as the base
+
+4. **Review and commit the synced changes**:
+
+   ```bash
+   git status
+   git diff
+   git add .
+   git commit -m "Sync local changes"
+   git push
+   ```
+
+**Notes**:
+
+- The sync feature only syncs text files. Binary files are automatically skipped.
+- Files that are already correctly symlinked are also skipped.
+- Merge mode requires `diff3`. Installation commands:
+
+  - macOS: `brew install diffutils`
+  - Linux: `sudo apt-get install diffutils` (Debian/Ubuntu) or equivalent for your distribution
 
 ## Included Configurations
 
@@ -175,20 +296,22 @@ This file contains environment variables to disable telemetry for various tools 
 - `stow/brew/Brewfile` - List of Homebrew packages to install
 
 The Brewfile includes oh-my-zsh plugins and themes:
+
 - `powerlevel10k` - Zsh theme
 - `zsh-autosuggestions` - Zsh plugin
 - `zsh-syntax-highlighting` - Zsh plugin
 - `zsh-completions` - Zsh plugin
 
 To update the Brewfile:
-```bash
-cd ~/dotfiles/stow/brew
-brew bundle dump --force
-```
+
+   ```bash
+   cd ~/dotfiles/stow/brew
+   brew bundle dump --force
+   ```
 
 ## Secrets Management
 
-The `.secrets` file is created empty with 600 permissions. This file is **not** tracked in git (see `.gitignore`). 
+The `.secrets` file is created empty with 600 permissions. This file is **not** tracked in git (see `.gitignore`).
 
 **Important**: Never commit secrets to this repository. The `.secrets` file should be managed separately on each machine.
 
@@ -220,6 +343,7 @@ These dotfiles are designed to work on both **macOS** and **Linux**. The install
 ## Model Location Configurations
 
 The dotfiles include configurations for model locations (e.g., HuggingFace, Ollama, PyTorch) that point to `~/models`. These are configured in:
+
 - `.local/bin/env` - Environment variables for model paths
 - `.lmstudio-home-pointer` - LM Studio home directory pointer (created automatically if LM Studio is installed)
 
@@ -230,28 +354,32 @@ The `.lmstudio-home-pointer` file is only created if LM Studio is detected (via 
 To add a new configuration:
 
 1. Create a new directory in `stow/`:
-```bash
-mkdir -p ~/dotfiles/stow/newconfig
-```
+
+   ```bash
+   mkdir -p ~/dotfiles/stow/newconfig
+   ```
 
 2. Copy your config file(s) to the new directory, maintaining the directory structure. **Important**: For dotfiles (files starting with `.`), rename them to use `dot-` prefix in the repository (e.g., `.newconfig` → `dot-newconfig`). The `stow --dotfiles` option will automatically restore the `.` prefix when creating symlinks:
-```bash
-cp ~/.newconfig ~/dotfiles/stow/newconfig/dot-newconfig
-```
+
+   ```bash
+   cp ~/.newconfig ~/dotfiles/stow/newconfig/dot-newconfig
+   ```
 
 3. Add the package to `scripts/stow-packages.sh` by adding a call to `stow_package`:
-```bash
-echo "  - New config"
-stow_package newconfig
-```
+
+   ```bash
+   echo "  - New config"
+   stow_package newconfig
+   ```
 
 4. Commit and push:
-```bash
-cd ~/dotfiles
-git add stow/newconfig scripts/stow-packages.sh
-git commit -m "Add newconfig"
-git push
-```
+
+   ```bash
+   cd ~/dotfiles
+   git add stow/newconfig scripts/stow-packages.sh
+   git commit -m "Add newconfig"
+   git push
+   ```
 
 **Note**: The `stow_package` function in `scripts/stow-packages.sh` handles the `stow --dotfiles` command automatically. For special cases (like VS Code), see the exceptions documented in that script.
 
@@ -260,6 +388,7 @@ git push
 ### Symlinks not working
 
 If symlinks aren't created correctly, you can restow:
+
 ```bash
 cd ~/dotfiles/stow
 stow -t ~ -R <package-name>
@@ -268,12 +397,14 @@ stow -t ~ -R <package-name>
 ### Conflicts with existing files
 
 If a file already exists and isn't a symlink, stow will skip it. You can either:
+
 - Backup and remove the existing file
 - Use `stow --override` to force (be careful!)
 
 ### VS Code settings not updating
 
 Make sure you're stowing from the correct directory:
+
 ```bash
 cd ~/dotfiles/stow/vscode
 stow -t ~/Library/Application\ Support/Code/User .
@@ -282,22 +413,28 @@ stow -t ~/Library/Application\ Support/Code/User .
 ### oh-my-zsh plugins/themes not working
 
 If plugins or themes aren't loading:
+
 1. Make sure brew packages are installed:
+
    ```bash
    brew bundle --file=~/dotfiles/stow/brew/Brewfile
    ```
+
 2. Verify symlinks exist:
+
    ```bash
    ls -la ~/.oh-my-zsh/custom/plugins/
    ls -la ~/.oh-my-zsh/custom/themes/
    ```
+
 3. Check that plugins are enabled in `.zshrc`:
+
    ```bash
    grep "plugins=" ~/.zshrc
    ```
+
 4. Restart your terminal or run `source ~/.zshrc`
 
 ## License
 
 Personal dotfiles - use at your own risk.
-

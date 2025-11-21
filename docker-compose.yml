@@ -9,7 +9,7 @@ services:
     volumes:
       - ~/dotfiles:/root/dotfiles:ro
     working_dir: /root
-    command: /bin/sh -c "cd /root/dotfiles && sh test-in-docker.sh && sh"
+    command: /bin/sh -c "cd /root/dotfiles && bash scripts/test-in-docker.sh && sh"
     environment:
       - DEBIAN_FRONTEND=noninteractive
 
@@ -21,7 +21,7 @@ services:
     volumes:
       - ~/dotfiles:/root/dotfiles:ro
     working_dir: /root
-    command: /bin/bash -c "cd /root/dotfiles && bash test-in-docker.sh && bash"
+    command: /bin/bash -c "cd /root/dotfiles && bash scripts/test-in-docker.sh && bash"
     environment:
       - DEBIAN_FRONTEND=noninteractive
 

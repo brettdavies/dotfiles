@@ -1,0 +1,14 @@
+alias dcup='docker-compose -f docker-compose.yml up -d' #brings up all containers if one is not defined after dcup
+alias dcdown='docker-compose -f docker-compose.yml stop' #brings down all containers if one is not defined after dcdown
+alias dcpull='docker-compose -f docker-compose.yml pull' #pulls all new images unless one is specified
+alias dclogs='docker-compose -f docker-compose.yml logs -tf --tail="250" '
+alias dtail='docker logs -tf --tail="250" "$@"'
+
+alias dhealth='_dhealth() { docker inspect --format "{{json .State.Health }}" "$1" | jq ;}; _dhealth'
+
+alias dip='_dip() { docker exec -it "$1" curl -w "\n" ifconfig.me ;}; _dip'
+alias cip='curl -w "\n" ifconfig.me'
+alias aup='. ~/.bash_aliases'
+
+alias wg='docker exec -it vpn wg'
+
