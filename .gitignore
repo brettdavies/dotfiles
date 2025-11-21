@@ -26,6 +26,7 @@
 .Trashes
 
 # IDE files
+.cursor/
 .vscode/
 .idea/
 *.sublime-*
@@ -42,3 +43,4 @@
 .webui_secret_key
 .lmstudio-home-pointer
 
+stow/ssh/dot-ssh/config
