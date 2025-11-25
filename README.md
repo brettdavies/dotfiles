@@ -6,17 +6,74 @@ Personal dotfiles managed with GNU Stow for syncing across macOS and Linux machi
 
 This repository uses [GNU Stow](https://www.gnu.org/software/stow/) to manage symlinks for configuration files. Each directory in `stow/` contains files that will be symlinked to your home directory.
 
-The installation process is modular, with `install.sh` orchestrating several single-purpose scripts in the `scripts/` directory:
+The installation process is modular, with `install.sh` orchestrating several single-purpose scripts organized in subdirectories.
 
-**Shared Libraries** (modular function libraries):
+**Documentation:**
 
-- `lib-core.sh` - Core functions (OS detection, colors, argument parsing, verbose output)
-- `lib-file.sh` - File operations and permissions
-- `lib-packages.sh` - Package checking (Homebrew, VS Code, Cursor)
-- `lib-stow.sh` - Stow-specific operations and symlink checking
-- `lib-sync.sh` - Sync operations for bidirectional updates
+- **[FILE_TREE.md](FILE_TREE.md)** - Complete repository structure and file organization
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Architecture documentation, design principles, and extension points
 
-**Installation Scripts**:
+**Shared Libraries** (`scripts/lib/`):
+
+The library system uses a modular, layered architecture with three loader options:
+
+**Loaders** (choose based on needs):
+
+- `loaders/minimal.sh` - Minimal loader for simple scripts (colors, basic output, argument parsing)
+- `loaders/standard.sh` - Standard loader for most install scripts (adds paths, traps, temp, logging, verbose, progress)
+- `loaders/full.sh` - Full loader with all functionality (includes package management, filesystem, domain operations)
+
+**Core Layer** (`core/`):
+
+- `core/constants.sh` - Color constants and file permission constants
+- `core/detect-os.sh` - OS detection (macOS, Linux)
+- `core/detect-shell.sh` - Shell detection and version checking (zsh, bash)
+
+**Utility Layer** (`util/`):
+
+- `util/output.sh` - Basic output functions (err, die, warn, info)
+- `util/timestamp.sh` - Timestamp generation
+- `util/paths.sh` - Path utilities and common variable initialization
+- `util/args.sh` - Common command-line argument parsing
+
+**Feature Layer** (`feature/`):
+
+- `feature/traps.sh` - Trap handlers and signal handling
+- `feature/temp.sh` - Temporary directory management
+- `feature/logging.sh` - Structured logging system
+- `feature/verbose.sh` - Standardized verbose output helpers
+- `feature/progress.sh` - Progress indicators using ConEmu OSC 9;4 protocol
+- `feature/validation.sh` - Input validation and sanitization
+- `feature/rollback.sh` - Rollback/undo functionality
+
+**Filesystem Layer** (`fs/`):
+
+- `fs/file-ops.sh` - File operations and permissions
+- `fs/find.sh` - Optimized file system operations with directory caching
+- `fs/zsh-globs.sh` - Zsh-specific glob operations
+
+**Shell Layer** (`shell/`):
+
+- `shell/zsh-modules.sh` - Zsh module loading
+- `shell/arrays.sh` - Array manipulation helpers
+- `shell/strings.sh` - String manipulation functions
+
+**Package Management Layer** (`pkg/`):
+
+- `pkg/cache.sh` - Package status caching infrastructure
+- `pkg/brew.sh` - Homebrew package/cask checking
+- `pkg/extensions.sh` - VS Code/Cursor extension checking
+- `pkg/version.sh` - Version comparison functions
+- `pkg/version-constraints.sh` - Version constraints and YAML parsing
+
+**Domain Layer** (`domain/`):
+
+- `domain/stow.sh` - Stow-specific operations and symlink checking
+- `domain/sync.sh` - Basic sync operations
+- `domain/sync-backup.sh` - Backup creation for sync operations
+- `domain/sync-merge.sh` - Merge/diff3 operations for sync
+
+**Installation Scripts** (`scripts/install/`):
 
 - `check-dependencies.sh` - Installs required dependencies
 - `stow-packages.sh` - Creates symlinks using `stow --dotfiles`
@@ -24,10 +81,18 @@ The installation process is modular, with `install.sh` orchestrating several sin
 - `create-lmstudio-pointer.sh` - Creates LM Studio pointer file
 - `install-packages.sh` - Installs packages from Brewfile
 
-**Verification Scripts**:
+**Verification Scripts** (`scripts/check/`):
 
 - `check-implementation.sh` - Verifies dotfiles are fully implemented
+
+**Test Scripts** (`scripts/test/`):
+
 - `test-in-docker.sh` - Tests installation in Docker containers
+- `bats/` - BATS (Bash Automated Testing System) test suite
+  - `test_helper.bash` - Common test utilities and setup
+  - `run_tests.sh` - Test runner script
+  - `test_lib_*.bats` - Unit tests for library functions
+  - Run tests with: `./scripts/test/bats/run_tests.sh` or `bats scripts/test/bats/`
 
 **Dotfile Convention**: Files in the repository use `dot-` prefix (e.g., `dot-bashrc`) to keep them visible in file managers. The `stow --dotfiles` option automatically converts these to `.` prefixed symlinks (e.g., `.bashrc`) in your home directory.
 
@@ -86,14 +151,17 @@ stow/
    - `./install.sh --verbose` or `-v` - Show detailed output
    - `./install.sh --sync-local` - Sync local changes back into repository before installation
    - `./install.sh --sync-local --merge` - Sync with merge mode (merges conflicts instead of overwriting)
+   - `./install.sh --log-file FILE` - Enable logging to a file (for debugging and audit trails)
 
-The script orchestrates several modular scripts in the `scripts/` directory:
+The script orchestrates several modular scripts in the `scripts/install/` directory:
 
 - **check-dependencies.sh**: Installs GNU Stow, shells (zsh/bash), and oh-my-zsh if missing
 - **stow-packages.sh**: Creates symlinks for all configuration files using `stow --dotfiles`
 - **create-secrets.sh**: Creates an empty `.secrets` file with proper permissions (600)
 - **create-lmstudio-pointer.sh**: Creates `.lmstudio-home-pointer` if LM Studio is installed (optional)
 - **install-packages.sh**: Optionally installs packages from Brewfile (macOS: via Homebrew, Linux: via package manager) and sets up oh-my-zsh plugins/themes
+
+**Note**: See [FILE_TREE.md](FILE_TREE.md) for the complete repository structure and file organization.
 
 **Note**: The installer uses `stow --dotfiles` which automatically converts `dot-*` prefixed files in the repository to `.*` prefixed symlinks in your home directory. This keeps files visible in the repository while creating proper hidden dotfiles.
 
@@ -108,7 +176,7 @@ After installation, you can verify that everything is set up correctly:
 Or run the verification script directly:
 
    ```bash
-   ./scripts/check-implementation.sh
+   ./scripts/check/check-implementation.sh
    ```
 
 The verification script checks:
@@ -365,7 +433,7 @@ To add a new configuration:
    cp ~/.newconfig ~/dotfiles/stow/newconfig/dot-newconfig
    ```
 
-3. Add the package to `scripts/stow-packages.sh` by adding a call to `stow_package`:
+3. Add the package to `scripts/install/stow-packages.sh` by adding a call to `stow_package`:
 
    ```bash
    echo "  - New config"
@@ -376,64 +444,328 @@ To add a new configuration:
 
    ```bash
    cd ~/dotfiles
-   git add stow/newconfig scripts/stow-packages.sh
+   git add stow/newconfig scripts/install/stow-packages.sh
    git commit -m "Add newconfig"
    git push
    ```
 
-**Note**: The `stow_package` function in `scripts/stow-packages.sh` handles the `stow --dotfiles` command automatically. For special cases (like VS Code), see the exceptions documented in that script.
+**Note**: The `stow_package` function in `scripts/install/stow-packages.sh` handles the `stow --dotfiles` command automatically. For special cases (like VS Code), see the exceptions documented in that script.
+
+## Features and Improvements
+
+### Error Handling and Logging
+
+The scripts include comprehensive error handling and structured logging:
+
+- **Error Reporting**: Functions like `err()`, `die()`, `warn()`, and `info()` provide consistent error messages with context
+- **Structured Logging**: Use `--log-file FILE` to enable logging to a file for debugging and audit trails
+- **Automatic Cleanup**: Temporary files and directories are automatically tracked and cleaned up on exit
+- **Graceful Shutdown**: Scripts handle interrupts (Ctrl+C) and termination signals gracefully
+
+### Performance Optimizations
+
+- **Package Status Caching**: Package installation status is cached using associative arrays, providing 10-100x faster checks for large package lists
+- **Efficient File Operations**: Optimized file system operations reduce redundant system calls
+
+### Modern Shell Features
+
+The scripts leverage modern shell features where available:
+
+- **Modular Library Architecture**: Core functionality is split into focused, single-responsibility libraries
+- **Associative Arrays**: Used for package status caching (Bash 4+ or zsh typeset -A)
+- **Zsh Optimizations**: Automatic detection and use of zsh-specific features for better performance
+- **Improved Error Handling**: Comprehensive trap handlers for cleanup and error reporting
+- **Cross-Platform Compatibility**: Works on both macOS and Linux with automatic OS detection
+- **Bash 3.2 Compatibility**: Fallbacks for older Bash versions (e.g., macOS default)
+
+#### Shell Version Requirements
+
+The codebase is optimized for modern shells while maintaining backward compatibility:
+
+**Bash:**
+
+- **Bash 5.2+**: Full feature support (namerefs, wait -n, BASH_XTRACEFD, mapfile -d)
+- **Bash 5.1+**: Most features supported (wait -n, BASH_XTRACEFD)
+- **Bash 5.0+**: Enhanced features available
+- **Bash 4.4+**: mapfile with null delimiter support
+- **Bash 4.3+**: Nameref variable support
+- **Bash 4.0+**: Associative arrays, readarray
+- **Bash 3.2**: Basic functionality with fallbacks
+
+**Zsh:**
+
+- **Zsh 5.9+**: All features supported
+- **Zsh 5.1+**: Parameter expansion flags (:u, :l)
+- **Zsh 5.0.8+**: HIST_FCNTL_LOCK for better history locking
+- **Zsh 5.0+**: All zsh modules and glob qualifiers
+
+#### Advanced Features
+
+**Bash 5.2+ Features:**
+
+- Nameref variables (`local -n`) for safer array manipulation
+- `wait -n` for waiting on any background process
+- `BASH_XTRACEFD` for separated debug output
+- Enhanced error context with `BASH_LINENO` arrays
+
+**Zsh Features:**
+
+- **Zsh Modules**: Automatically loads `zsh/files`, `zsh/stat`, `zsh/datetime`, `zsh/parameter` for built-in operations
+- **Glob Qualifiers**: Uses zsh glob qualifiers (`**/*.sh(.)`) for faster file finding
+- **Parameter Expansion**: Advanced parameter expansion flags (`${(s:,:)string}`, `${(j:,:)array}`)
+- **Built-in File Operations**: Uses `zf_*` functions and `zstat` for better performance
+
+**Error Handling:**
+
+- RETURN trap support for function-level cleanup
+- Enhanced error messages with call stack information
+- Debug tracing with `--debug` flag and `BASH_XTRACEFD`
+- Better error context using `FUNCNAME`/`funcfiletrace` arrays
+
+**Terminal Integration:**
+
+- OSC 7 support for current directory reporting (Ghostty and other modern terminals)
+- OSC 9;4 protocol for progress indicators
+- Enhanced Ghostty configuration with modern features
 
 ## Troubleshooting
 
-### Symlinks not working
+### General Debugging
 
-If symlinks aren't created correctly, you can restow:
+1. **Use verbose mode** to see detailed output:
 
-```bash
-cd ~/dotfiles/stow
-stow -t ~ -R <package-name>
-```
+   ```bash
+   ./install.sh --verbose
+   ```
 
-### Conflicts with existing files
+2. **Enable logging** to capture all operations:
 
-If a file already exists and isn't a symlink, stow will skip it. You can either:
+   ```bash
+   ./install.sh --log-file install.log
+   ```
 
-- Backup and remove the existing file
-- Use `stow --override` to force (be careful!)
+3. **Check implementation status**:
 
-### VS Code settings not updating
+   ```bash
+   ./install.sh --check
+   ```
 
-Make sure you're stowing from the correct directory:
+4. **Preview changes** before making them:
 
-```bash
-cd ~/dotfiles/stow/vscode
-stow -t ~/Library/Application\ Support/Code/User .
-```
+   ```bash
+   ./install.sh --dry-run --verbose
+   ```
 
-### oh-my-zsh plugins/themes not working
+### Common Issues
 
-If plugins or themes aren't loading:
+#### Scripts can't find libraries
 
-1. Make sure brew packages are installed:
+**Error**: `Error: Cannot find loaders/full.sh` (or similar)
+
+**Solution**:
+
+- Ensure you're running scripts from the dotfiles directory
+- Check that `scripts/lib/loaders/full.sh` (or `standard.sh`/`minimal.sh`) exists
+- Verify `SCRIPTS_DIR` is set correctly in the script
+
+#### Permission errors
+
+**Error**: `Permission denied` when creating files or directories
+
+**Solution**:
+
+- Check file permissions on scripts (should be executable: `chmod +x install.sh`)
+- Verify write permissions in target directories (e.g., `~/.config`)
+- On Linux, may need `sudo` for system-wide installations (not typically needed for dotfiles)
+
+#### Symlinks not working
+
+**Symptom**: Files aren't being symlinked correctly
+
+**Solution**:
+
+1. Check if files already exist (not symlinks):
+
+   ```bash
+   ls -la ~/.zshrc
+   ```
+
+2. If file exists and isn't a symlink, backup and remove it:
+
+   ```bash
+   mv ~/.zshrc ~/.zshrc.backup
+   ```
+
+3. Restow the package:
+
+   ```bash
+   cd ~/dotfiles/stow
+   stow -t ~ -R <package-name>
+   ```
+
+4. Or run the install script again:
+
+   ```bash
+   ./install.sh
+   ```
+
+#### Conflicts with existing files
+
+**Symptom**: Stow skips files that already exist
+
+**Solution**:
+
+- **Option 1**: Backup and remove existing files manually
+- **Option 2**: Use `--sync-local` to merge local changes into the repo:
+
+  ```bash
+  ./install.sh --sync-local --merge
+  ```
+
+- **Option 3**: Use `stow --override` (be careful - this will overwrite!):
+
+  ```bash
+  cd ~/dotfiles/stow
+  stow -t ~ --override <package-name>
+  ```
+
+#### VS Code settings not updating
+
+**Symptom**: VS Code settings changes aren't reflected
+
+**Solution**:
+
+1. Verify the stow package is correctly set up:
+
+   ```bash
+   ls -la ~/Library/Application\ Support/Code/User/settings.json
+   ```
+
+2. Check if it's a symlink pointing to the repo:
+
+   ```bash
+   readlink ~/Library/Application\ Support/Code/User/settings.json
+   ```
+
+3. If not a symlink, remove and restow:
+
+   ```bash
+   cd ~/dotfiles/stow/vscode
+   stow -t ~/Library/Application\ Support/Code/User .
+   ```
+
+#### oh-my-zsh plugins/themes not working
+
+**Symptom**: Plugins or themes aren't loading in zsh
+
+**Solution**:
+
+1. Verify brew packages are installed (macOS):
 
    ```bash
    brew bundle --file=~/dotfiles/stow/brew/Brewfile
    ```
 
-2. Verify symlinks exist:
+2. Check symlinks exist:
 
    ```bash
    ls -la ~/.oh-my-zsh/custom/plugins/
    ls -la ~/.oh-my-zsh/custom/themes/
    ```
 
-3. Check that plugins are enabled in `.zshrc`:
+3. Verify plugins are enabled in `.zshrc`:
 
    ```bash
    grep "plugins=" ~/.zshrc
    ```
 
-4. Restart your terminal or run `source ~/.zshrc`
+4. On Linux, verify plugins/themes were installed via git:
+
+   ```bash
+   ls -la ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions
+   ```
+
+5. Restart your terminal or reload zsh:
+
+   ```bash
+   source ~/.zshrc
+   ```
+
+#### Package installation failures
+
+**Symptom**: Packages fail to install via Homebrew or package manager
+
+**Solution**:
+
+1. Check if package manager is working:
+
+   ```bash
+   brew doctor  # macOS
+   sudo apt-get update  # Linux
+   ```
+
+2. Review verbose output:
+
+   ```bash
+   ./install.sh --verbose
+   ```
+
+3. Check log file if logging was enabled:
+
+   ```bash
+   cat install.log
+   ```
+
+4. Install packages manually if needed:
+
+   ```bash
+   brew install <package-name>  # macOS
+   sudo apt-get install <package-name>  # Linux
+   ```
+
+#### Sync-local merge conflicts
+
+**Symptom**: Merge mode creates conflict markers in files
+
+**Solution**:
+
+1. Review the conflicted files:
+
+   ```bash
+   git status
+   git diff
+   ```
+
+2. Manually resolve conflicts using your editor
+3. Remove conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`)
+4. Test the merged configuration
+5. Commit the resolved files:
+
+   ```bash
+   git add .
+   git commit -m "Resolve merge conflicts"
+   ```
+
+#### Temporary file cleanup issues
+
+**Symptom**: Temporary files aren't being cleaned up
+
+**Solution**:
+
+- Temporary files are automatically cleaned up on script exit
+- If script is interrupted (Ctrl+C), cleanup should still run via trap handlers
+- Manual cleanup if needed:
+
+  ```bash
+  rm -rf /tmp/dotfiles.*
+  ```
+
+### Getting Help
+
+1. **Check the logs**: If you used `--log-file`, review the log file for detailed error messages
+2. **Run with verbose mode**: `./install.sh --verbose` shows detailed output
+3. **Check implementation status**: `./install.sh --check` verifies current state
+4. **Review architecture docs**: See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for system design details
 
 ## License
 

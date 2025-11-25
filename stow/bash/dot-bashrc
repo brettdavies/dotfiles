@@ -8,3 +8,13 @@ fi
 export PATH="$PATH:$HOME/.lmstudio/bin"
 # End of LM Studio CLI section
 
+# OSC 7 support: Report current directory to terminal (for better terminal integration)
+# This allows terminals like Ghostty to track the current working directory
+# Format: \033]7;file://hostname/path\033\\
+_osc7_prompt_command() {
+    printf '\033]7;file://%s%s\033\\' "${HOSTNAME:-localhost}" "$PWD"
+}
+# Add to PROMPT_COMMAND if not already present
+if [[ "$PROMPT_COMMAND" != *"_osc7_prompt_command"* ]]; then
+    PROMPT_COMMAND="_osc7_prompt_command${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+fi
