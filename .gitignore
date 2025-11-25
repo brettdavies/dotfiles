@@ -44,3 +44,4 @@
 .lmstudio-home-pointer
 
 stow/ssh/dot-ssh/config
+**/test/results

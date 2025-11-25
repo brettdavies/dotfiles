@@ -83,14 +83,38 @@ SAVEHIST=10000
 HISTFILE=~/.zsh_history
 
 # History options: ignore duplicates, ignore commands starting with space, add timestamps
-setopt HIST_IGNORE_DUPS
-setopt HIST_IGNORE_SPACE
-setopt HIST_FIND_NO_DUPS
-setopt HIST_REDUCE_BLANKS
-setopt HIST_VERIFY
-setopt SHARE_HISTORY
-setopt APPEND_HISTORY
-setopt EXTENDED_HISTORY
+setopt HIST_IGNORE_DUPS     # Ignore duplicate commands
+setopt HIST_IGNORE_SPACE    # Ignore commands starting with space
+setopt HIST_FIND_NO_DUPS    # Ignore duplicate commands in history
+setopt HIST_REDUCE_BLANKS   # Remove unnecessary blanks
+setopt HIST_VERIFY          # Verify history commands before execution
+setopt SHARE_HISTORY        # Share history between sessions
+setopt APPEND_HISTORY       # Append history instead of overwriting
+setopt EXTENDED_HISTORY     # Add timestamps to history
+
+# Additional useful zsh options
+setopt AUTO_CD              # Auto cd to directories (type directory name to cd)
+setopt AUTO_PUSHD           # Auto push directories onto stack
+setopt PUSHD_IGNORE_DUPS    # Ignore duplicates in directory stack
+setopt PUSHD_SILENT         # Don't print directory stack after pushd/popd
+setopt INTERACTIVE_COMMENTS # Allow comments in interactive shell
+setopt LONG_LIST_JOBS       # List jobs in long format
+setopt MULTIOS              # Multiple output redirection
+setopt GLOB_STAR_SHORT      # Enable **/*.txt syntax (shorter than **/*.txt)
+setopt NUMERIC_GLOB_SORT    # Sort numeric filenames numerically
+setopt EXTENDED_GLOB        # Enable extended glob patterns (used by dotfiles scripts)
+
+# Modern history options (zsh 5.0.8+)
+# Use fcntl for history locking (better performance and reliability)
+if [[ "${ZSH_VERSION%%.*}" -ge 5 ]] && [[ "${ZSH_VERSION#*.}" =~ ^[0-9]+ ]] && [[ "${ZSH_VERSION#*.}" -ge 8 ]]; then
+    setopt HIST_FCNTL_LOCK
+fi
+
+# Better word splitting in history (zsh 5.0+)
+setopt HIST_LEX_WORDS
+
+# Don't store history command itself in history
+setopt HIST_NO_STORE
 
 # History filtering: only save successful commands (exit code 0)
 # Store commands temporarily and only add successful ones to history
@@ -120,6 +144,14 @@ _add_successful_cmd() {
 # Add hook
 autoload -Uz add-zsh-hook
 add-zsh-hook precmd _add_successful_cmd
+
+# OSC 7 support: Report current directory to terminal (for better terminal integration)
+# This allows terminals like Ghostty to track the current working directory
+# Format: \033]7;file://hostname/path\033\\
+_precmd_osc7() {
+    printf '\033]7;file://%s%s\033\\' "${HOST:-localhost}" "$PWD"
+}
+add-zsh-hook precmd _precmd_osc7
 
 # User configuration
 
@@ -174,6 +206,27 @@ if [[ "$OSTYPE" == "darwin"* ]] && command -v brew &> /dev/null; then
         export PATH="$BREW_PREFIX/opt/libpq/bin:$PATH"
     fi
 fi
+# Load zsh modules for enhanced functionality
+# zsh/parameter: Advanced parameter expansion
+zmodload zsh/parameter 2>/dev/null && export ZSH_PARAMETER_LOADED=1
+
+# zsh/datetime: Date/time functions
+zmodload zsh/datetime 2>/dev/null && export ZSH_DATETIME_LOADED=1
+
+# zsh/files: Built-in file operations (optional, for performance)
+if zmodload -F zsh/files b:zf_ln b:zf_mkdir b:zf_rm b:zf_chmod 2>/dev/null || zmodload zsh/files 2>/dev/null; then
+    export ZSH_FILES_LOADED=1
+fi
+
+# zsh/stat: Built-in stat command (zstat) - used by dotfiles scripts
+zmodload zsh/stat 2>/dev/null && export ZSH_STAT_LOADED=1
+
+# zsh/mapfile: Enhanced mapfile (if available)
+zmodload zsh/mapfile 2>/dev/null && export ZSH_MAPFILE_LOADED=1
+
+# zsh/complist: Enhanced completion listing (better menu navigation)
+zmodload zsh/complist 2>/dev/null
+
 # Completion configuration - optimized with caching
 # Add zsh-completions to fpath (macOS Homebrew only)
 if [[ "$OSTYPE" == "darwin"* ]] && type brew &>/dev/null; then
@@ -183,22 +236,50 @@ fi
 # Docker completions
 fpath=($HOME/.docker/completions $fpath)
 
+# Create completion cache directory if it doesn't exist
+[[ ! -d ~/.zsh/cache ]] && mkdir -p ~/.zsh/cache
+
 # Optimize compinit: only rebuild cache if needed (checks daily)
-# Use OS-agnostic stat command
+# Use zsh built-in zstat if available, otherwise fall back to external stat
 autoload -Uz compinit
+local zcompdump=~/.zsh/cache/zcompdump
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS uses stat -f
-    if [[ ! -s ~/.zcompdump ]] || (( $(($(date +%s) - $(stat -f %m ~/.zcompdump 2>/dev/null || echo 0))) > 86400 )); then
-        compinit
+    # macOS: use zstat if available, otherwise stat -f
+    if [[ -n "${ZSH_STAT_LOADED:-}" ]]; then
+        # Use zsh built-in zstat
+        local mtime=0
+        [[ -f "$zcompdump" ]] && zstat -A mtime +mtime "$zcompdump" 2>/dev/null
+        if [[ ! -s "$zcompdump" ]] || (( $(($(date +%s) - mtime)) > 86400 )); then
+            compinit -d "$zcompdump"
+        else
+            compinit -C -d "$zcompdump"
+        fi
     else
-        compinit -C
+        # Fallback to external stat -f
+        if [[ ! -s "$zcompdump" ]] || (( $(($(date +%s) - $(stat -f %m "$zcompdump" 2>/dev/null || echo 0))) > 86400 )); then
+            compinit -d "$zcompdump"
+        else
+            compinit -C -d "$zcompdump"
+        fi
     fi
 else
-    # Linux uses stat -c
-    if [[ ! -s ~/.zcompdump ]] || (( $(($(date +%s) - $(stat -c %Y ~/.zcompdump 2>/dev/null || echo 0))) > 86400 )); then
-        compinit
+    # Linux: use zstat if available, otherwise stat -c
+    if [[ -n "${ZSH_STAT_LOADED:-}" ]]; then
+        # Use zsh built-in zstat
+        local mtime=0
+        [[ -f "$zcompdump" ]] && zstat -A mtime +mtime "$zcompdump" 2>/dev/null
+        if [[ ! -s "$zcompdump" ]] || (( $(($(date +%s) - mtime)) > 86400 )); then
+            compinit -d "$zcompdump"
+        else
+            compinit -C -d "$zcompdump"
+        fi
     else
-        compinit -C
+        # Fallback to external stat -c
+        if [[ ! -s "$zcompdump" ]] || (( $(($(date +%s) - $(stat -c %Y "$zcompdump" 2>/dev/null || echo 0))) > 86400 )); then
+            compinit -d "$zcompdump"
+        else
+            compinit -C -d "$zcompdump"
+        fi
     fi
 fi
 
@@ -208,6 +289,27 @@ zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}       # Colored completion
 zstyle ':completion:*' menu select                         # Menu selection
 zstyle ':completion:*' special-dirs true                    # Complete . and ..
 zstyle ':completion:*' rehash true                          # Rehash on completion
+
+# Enable completion caching for better performance
+zstyle ':completion:*' use-cache yes
+zstyle ':completion:*' cache-path ~/.zsh/cache
+
+# Enhanced completion menu navigation (requires zsh/complist)
+# Use vi-style navigation in completion menu: j/k for down/up, h/l for left/right
+zstyle ':completion:*' menu yes select interactive
+zstyle ':completion:*' list-prompt '%SAt %p: Hit TAB for more, or the character to insert%s'
+zstyle ':completion:*' select-prompt '%SScrolling active: current selection at %p%s'
+
+# Group completions by category
+zstyle ':completion:*' group-name ''
+zstyle ':completion:*' format ' %F{yellow}-- %d --%f'
+
+# Better completion for kill command
+zstyle ':completion:*:*:kill:*:processes' list-colors '=(#b) #([0-9]#)*=0=01;31'
+zstyle ':completion:*:kill:*' command 'ps -u $USER -o pid,%cpu,tty,cputime,cmd'
+
+# Optional: Enable zsh profiling (uncomment to profile startup time)
+# zmodload zsh/zprof
 
 # UV and UVX completions (keep existing)
 eval "$(uv generate-shell-completion zsh)"
