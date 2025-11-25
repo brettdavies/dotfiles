@@ -1,4 +1,29 @@
 packages:
+  # Version constraints: optional min_version, max_version, and target_version at package or platform level
+  # Platform-level constraints (brew_min_version, brew_max_version, brew_target_version) override package-level constraints
+  # target_version supports "^" syntax for patch-level constraints (e.g., "5.2^" means >=5.2.0, <5.3.0)
+  # target_version takes precedence over min_version/max_version when specified
+  # Example:
+  #   jq:
+  #     brew: jq
+  #     target_version: "1.6^"      # Package-level target version (>=1.6.0, <1.7.0)
+  #     min_version: "1.6"          # Package-level min version (fallback)
+  #     max_version: "2.0"          # Package-level max version (fallback)
+  #     brew_target_version: "1.7^" # Overrides target_version for brew platform
+  #     brew_min_version: "1.7"     # Overrides min_version for brew platform
+  #     brew_max_version: "2.1"     # Overrides max_version for brew platform
+  #     linux:
+  #       pkg: jq
+  #       min_version: "1.8"        # Overrides for linux platform
+  #       max_version: "2.2"        # Overrides for linux platform
+  bash:
+    brew: bash
+    target_version: "5.3^"
+    min_version: "3.2"
+    max_version: "5.4"
+    linux:
+      pkg: bash
+  
   ripgrep:
     brew: ripgrep
     linux:
