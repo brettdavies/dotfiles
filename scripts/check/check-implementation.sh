@@ -395,7 +395,6 @@ check_stow_package "claude" "Claude IDE config"
 check_stow_package "codex" "Codex config"
 check_stow_package "cursor" "Cursor config"
 check_stow_package "opencode" "OpenCode config"
-check_stow_package "telemetry" "Telemetry settings"
 
 # Check special files
 if [ "$QUIET" = false ]; then

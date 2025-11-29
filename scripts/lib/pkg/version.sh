@@ -357,3 +357,194 @@ find_matching_version() {
     return 1
 }
 
+# ============================================================================
+# Dependency checking functions
+# ============================================================================
+
+# Extract version from command output using regex pattern
+# Parameters: $1 - command name or path (e.g., "bash", "/bin/bash", "yq")
+#             $2 - version flag (e.g., "--version", "-v")
+#             $3 - regex pattern to extract version (e.g., `version[[:space:]]+v?([0-9]+\.[0-9]+(\.[0-9]+)?)`)
+#             $4 - optional: additional command arguments
+# Returns: version string via echo, empty string if not found
+extract_version_from_command() {
+    local cmd="$1"
+    local version_flag="$2"
+    local pattern="$3"
+    local extra_args="${4:-}"
+    
+    # Check if command exists
+    if ! command -v "$cmd" &> /dev/null && [ ! -x "$cmd" ]; then
+        echo ""
+        return 1
+    fi
+    
+    # Build command with version flag
+    local full_cmd="$cmd $version_flag"
+    [ -n "$extra_args" ] && full_cmd="$full_cmd $extra_args"
+    
+    # Get version output (first line only)
+    local version_output
+    version_output=$(eval "$full_cmd" 2>/dev/null | head -n1)
+    
+    if [ -z "$version_output" ]; then
+        echo ""
+        return 1
+    fi
+    
+    # Extract version using regex pattern
+    if [[ "$version_output" =~ $pattern ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    
+    echo ""
+    return 1
+}
+
+# Verify installed version meets minimum requirement
+# Parameters: $1 - tool name (for logging, e.g., "bash", "yq")
+#             $2 - minimum version (e.g., "5.2", "4.0")
+#             $3 - command name/path
+#             $4 - version flag (e.g., "--version")
+#             $5 - version regex pattern
+#             $6 - optional: find executable function name (for tools like bash with custom paths)
+# Returns: 0 if meets requirement, 1 otherwise
+verify_installed_version() {
+    local tool_name="$1"
+    local min_version="$2"
+    local cmd="$3"
+    local version_flag="$4"
+    local pattern="$5"
+    local find_func="${6:-}"
+    
+    # Use find function if provided (e.g., for bash with custom paths)
+    if [ -n "$find_func" ] && command -v "$find_func" &> /dev/null; then
+        cmd=$("$find_func")
+    fi
+    
+    # Extract version
+    local installed_version
+    installed_version=$(extract_version_from_command "$cmd" "$version_flag" "$pattern")
+    
+    if [ -z "$installed_version" ]; then
+        warn "$tool_name was installed but version check failed. Please verify manually."
+        return 1
+    fi
+    
+    # Use existing validate_package_version function (reuses version_ge internally)
+    if validate_package_version "$installed_version" "$min_version" "" ""; then
+        log_info "$tool_name upgraded to version $installed_version"
+        return 0
+    else
+        warn "$tool_name was installed but version $installed_version does not meet requirement >= $min_version"
+        return 1
+    fi
+}
+
+# Check versioned dependency and install/upgrade if needed
+# Parameters: $1 - tool name (e.g., "bash", "yq")
+#             $2 - minimum version (e.g., "5.2", "4.0")
+#             $3 - command name/path (e.g., "bash", "/bin/bash", "yq")
+#             $4 - version flag (e.g., "--version")
+#             $5 - version regex pattern
+#             $6 - install function name (e.g., "install_bash")
+#             $7 - upgrade function name (e.g., "upgrade_yq") - optional, uses install if not provided
+#             $8 - optional: find executable function name (for tools like bash with custom paths)
+# Returns: 0 if satisfied, 1 if missing/needs upgrade
+check_versioned_dependency() {
+    local tool_name="$1"
+    local min_version="$2"
+    local cmd="$3"
+    local version_flag="$4"
+    local pattern="$5"
+    local install_func="$6"
+    local upgrade_func="${7:-}"
+    local find_func="${8:-}"
+    
+    # Use find function if provided
+    if [ -n "$find_func" ] && command -v "$find_func" &> /dev/null; then
+        cmd=$("$find_func")
+    fi
+    
+    # Get current version
+    local current_version
+    current_version=$(extract_version_from_command "$cmd" "$version_flag" "$pattern")
+    
+    # Check if tool is installed
+    if [ -z "$current_version" ]; then
+        if [ "${DRY_RUN:-false}" = true ]; then
+            verbose_missing "$tool_name" "not found"
+            return 1
+        else
+            log_info "$tool_name not found. Installing..."
+            if ! command -v "$install_func" &> /dev/null; then
+                err "Install function '$install_func' not found" 1
+                return 1
+            fi
+            "$install_func" || return 1
+            verify_installed_version "$tool_name" "$min_version" "$cmd" "$version_flag" "$pattern" "$find_func"
+            return $?
+        fi
+    fi
+    
+    # Check if version meets minimum requirement (reuses validate_package_version)
+    if validate_package_version "$current_version" "$min_version" "" ""; then
+        if [ "${VERBOSE:-false}" = true ]; then
+            verbose_found "$tool_name" "version $current_version (>= $min_version)"
+        elif [ "${DRY_RUN:-false}" != true ]; then
+            log_info "$tool_name version $current_version found (meets requirement >= $min_version)"
+        fi
+        return 0
+    fi
+    
+    # Version is too old, need to install/upgrade
+    if [ "${DRY_RUN:-false}" = true ]; then
+        verbose_missing "$tool_name" "version $current_version (requires >= $min_version)"
+        return 1
+    fi
+    
+    log_info "$tool_name version $current_version found, but requires >= $min_version. Installing/upgrading..."
+    
+    # Use upgrade function if provided, otherwise use install function
+    local upgrade_cmd="${upgrade_func:-$install_func}"
+    if ! command -v "$upgrade_cmd" &> /dev/null; then
+        err "Upgrade/install function '$upgrade_cmd' not found" 1
+        return 1
+    fi
+    "$upgrade_cmd" || return 1
+    verify_installed_version "$tool_name" "$min_version" "$cmd" "$version_flag" "$pattern" "$find_func"
+}
+
+# Check simple dependency without version requirements
+# Parameters: $1 - tool name (e.g., "GNU Stow")
+#             $2 - command name (e.g., "stow")
+#             $3 - install function name (e.g., "install_stow")
+# Returns: 0 if present, 1 if missing
+check_simple_dependency() {
+    local tool_name="$1"
+    local cmd="$2"
+    local install_func="$3"
+    
+    if ! command -v "$cmd" &> /dev/null; then
+        if [ "${DRY_RUN:-false}" = true ]; then
+            verbose_missing "$tool_name"
+            return 1
+        else
+            log_info "$tool_name not found. Installing..."
+            if ! command -v "$install_func" &> /dev/null; then
+                err "Install function '$install_func' not found" 1
+                return 1
+            fi
+            "$install_func" || return 1
+        fi
+    else
+        if [ "${VERBOSE:-false}" = true ]; then
+            verbose_found "$tool_name"
+        elif [ "${DRY_RUN:-false}" != true ]; then
+            log_info "$tool_name found"
+        fi
+        return 0
+    fi
+}
+

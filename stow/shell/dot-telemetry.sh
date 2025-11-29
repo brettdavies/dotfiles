@@ -42,7 +42,7 @@ export HOMEBREW_NO_ANALYTICS=1
 export NEXT_TELEMETRY_DISABLED=1
 
 # npm
-export NPM_CONFIG_METRICS_REGISTRY="off"
+# Note: npm doesn't have built-in telemetry. The deprecated metrics-registry config has been removed.
 
 # pnpm
 export PNPM_TELEMETRY_DISABLED=1

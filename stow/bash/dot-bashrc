@@ -1,18 +1,20 @@
 # ~/.bashrc
 
 # Source .profile if it exists
+# This also sets up Homebrew PATH for all shells
 if [ -f "$HOME/.profile" ]; then
     . "$HOME/.profile"
-fi 
-# Added by LM Studio CLI (lms)
-export PATH="$PATH:$HOME/.lmstudio/bin"
-# End of LM Studio CLI section
+fi
+
+# Source shared shell functions
+if [ -f "$HOME/.shell-functions" ]; then
+    . "$HOME/.shell-functions"
+fi
 
 # OSC 7 support: Report current directory to terminal (for better terminal integration)
-# This allows terminals like Ghostty to track the current working directory
-# Format: \033]7;file://hostname/path\033\\
+# Uses shared function from .shell-functions
 _osc7_prompt_command() {
-    printf '\033]7;file://%s%s\033\\' "${HOSTNAME:-localhost}" "$PWD"
+    _osc7_report_directory
 }
 # Add to PROMPT_COMMAND if not already present
 if [[ "$PROMPT_COMMAND" != *"_osc7_prompt_command"* ]]; then

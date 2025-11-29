@@ -594,16 +594,19 @@ if [ "$DRY_RUN" != true ] && [ "$SYNC_LOCAL" != true ]; then
     [ -d "$STOW_DIR/vscode" ] && ((total_packages++))
 fi
 
-# Shell configs
+# Shell configs (shared and shell-specific)
 if [ "$DRY_RUN" = true ]; then
+    stow_package shell "Shared shell configs (.profile)"
     stow_package zsh "Shell configs (zsh, bash)"
     stow_package bash ""
 else
+    output_shell=$(stow_package shell 2>&1)
     output_zsh=$(stow_package zsh 2>&1)
     output_bash=$(stow_package bash 2>&1)
-    if [ -n "${output_zsh// }" ] || [ -n "${output_bash// }" ]; then
-        echo "  - Shell configs (zsh, bash)"
-        log_info "Shell configs (zsh, bash)"
+    if [ -n "${output_shell// }" ] || [ -n "${output_zsh// }" ] || [ -n "${output_bash// }" ]; then
+        echo "  - Shell configs (shared, zsh, bash)"
+        log_info "Shell configs (shared, zsh, bash)"
+        [ -n "${output_shell// }" ] && echo "$output_shell" && log_info "$output_shell"
         [ -n "${output_zsh// }" ] && echo "$output_zsh" && log_info "$output_zsh"
         [ -n "${output_bash// }" ] && echo "$output_bash" && log_info "$output_bash"
     fi
@@ -679,12 +682,12 @@ else
         GHOSTTY_MACOS_DIR="$HOME/Library/Application Support/com.mitchellh.ghostty"
         GHOSTTY_CONFIG_TARGET="$GHOSTTY_MACOS_DIR/config"
         if [ -f "$GHOSTTY_CONFIG_SOURCE" ]; then
-            mkdir -p "$GHOSTTY_MACOS_DIR"
+            safe_mkdir "$GHOSTTY_MACOS_DIR" "-p"
             if [ -e "$GHOSTTY_CONFIG_TARGET" ] && [ ! -L "$GHOSTTY_CONFIG_TARGET" ]; then
                 remove_conflicting_file "$GHOSTTY_CONFIG_TARGET"
             fi
             if [ ! -L "$GHOSTTY_CONFIG_TARGET" ] || ! is_symlink_correct "$GHOSTTY_CONFIG_TARGET" "$GHOSTTY_CONFIG_SOURCE"; then
-                ln -sf "$GHOSTTY_CONFIG_SOURCE" "$GHOSTTY_CONFIG_TARGET"
+                safe_ln "-sf" "$GHOSTTY_CONFIG_SOURCE" "$GHOSTTY_CONFIG_TARGET"
                 echo "    Created symlink: ${GHOSTTY_CONFIG_TARGET#$HOME/} -> ${GHOSTTY_CONFIG_SOURCE#$STOW_DIR/}"
                 log_info "Created symlink: ${GHOSTTY_CONFIG_TARGET#$HOME/} -> ${GHOSTTY_CONFIG_SOURCE#$STOW_DIR/}"
             fi
@@ -730,20 +733,63 @@ else
     fi
 fi
 
-# Local bin configs
-if [ "$DRY_RUN" = true ]; then
-    stow_package local "Local bin configs"
-else
-    output=$(stow_package local 2>&1)
-    if [ -n "${output// }" ]; then
+# Local bin configs (dot-local) - cross-platform
+# Stow normally using --dotfiles transformation
+if [ -d "$STOW_DIR/local/dot-local" ]; then
+    if [ "$DRY_RUN" = true ]; then
+        if [ "$VERBOSE" = true ]; then
+            echo "  - Local bin configs"
+        fi
+        # Use stow -d to change directory and stow from dot-local
+        cd "$STOW_DIR/local" || true
+        stow --dotfiles -n -t "$HOME" dot-local 2>/dev/null | while read -r line; do
+            if [[ "$line" =~ ^LINK: ]]; then
+                ((SYMLINKS_TO_CREATE++))
+            fi
+        done || true
+        cd "$STOW_DIR" || true
+    else
         echo "  - Local bin configs"
         log_info "Local bin configs"
-        echo "$output"
-        log_info "$output"
+        cd "$STOW_DIR/local" || true
+        stow --dotfiles -t "$HOME" dot-local 2>/dev/null || true
+        cd "$STOW_DIR" || true
+        if [ "$SYNC_LOCAL" != true ] && [ "$total_packages" -gt 0 ]; then
+            ((current_package++))
+            progress_update_item "$current_package" "$total_packages" "Stowing package %d of %d..."
+        fi
     fi
-    if [ "$SYNC_LOCAL" != true ] && [ "$total_packages" -gt 0 ]; then
-        ((current_package++))
-        progress_update_item "$current_package" "$total_packages" "Stowing package %d of %d..."
+fi
+
+# macOS-only: LaunchAgent for iCloud sync (dot-Library)
+# Handle separately because it should NOT use --dotfiles transformation
+if [[ "$OS" == "macos" ]]; then
+    LAUNCH_AGENT_SOURCE="$STOW_DIR/local/dot-Library/LaunchAgents/com.user.devtosync.plist"
+    LAUNCH_AGENT_TARGET="$HOME/Library/LaunchAgents/com.user.devtosync.plist"
+    
+    if [ -f "$LAUNCH_AGENT_SOURCE" ]; then
+        if [ "$DRY_RUN" = true ]; then
+            if [ "$VERBOSE" = true ]; then
+                echo "  - iCloud sync LaunchAgent (macOS only)"
+            fi
+            status=$(check_file_dry_run "$LAUNCH_AGENT_SOURCE" "local" "$LAUNCH_AGENT_TARGET")
+            case "$status" in
+                conflict) ((CONFLICTS_FOUND++)) ;;
+                symlink) ((SYMLINKS_TO_CREATE++)) ;;
+            esac
+        else
+            echo "  - iCloud sync LaunchAgent (macOS only)"
+            log_info "iCloud sync LaunchAgent (macOS only)"
+            safe_mkdir "$HOME/Library/LaunchAgents" "-p"
+            if [ -e "$LAUNCH_AGENT_TARGET" ] && [ ! -L "$LAUNCH_AGENT_TARGET" ]; then
+                remove_conflicting_file "$LAUNCH_AGENT_TARGET"
+            fi
+            if [ ! -L "$LAUNCH_AGENT_TARGET" ] || ! is_symlink_correct "$LAUNCH_AGENT_TARGET" "$LAUNCH_AGENT_SOURCE"; then
+                safe_ln "-sf" "$LAUNCH_AGENT_SOURCE" "$LAUNCH_AGENT_TARGET"
+                echo "    Created symlink: ${LAUNCH_AGENT_TARGET#$HOME/} -> ${LAUNCH_AGENT_SOURCE#$STOW_DIR/}"
+                log_info "Created symlink: ${LAUNCH_AGENT_TARGET#$HOME/} -> ${LAUNCH_AGENT_SOURCE#$STOW_DIR/}"
+            fi
+        fi
     fi
 fi
 
@@ -815,14 +861,14 @@ else
     fi
 fi
 
-# Telemetry settings
+# Python package manager configs
 if [ "$DRY_RUN" = true ]; then
-    stow_package telemetry "Telemetry settings"
+    stow_package pip "Python package manager configs (pip)"
 else
-    output=$(stow_package telemetry 2>&1)
+    output=$(stow_package pip 2>&1)
     if [ -n "${output// }" ]; then
-        echo "  - Telemetry settings"
-        log_info "Telemetry settings"
+        echo "  - Python package manager configs (pip)"
+        log_info "Python package manager configs (pip)"
         echo "$output"
         log_info "$output"
     fi

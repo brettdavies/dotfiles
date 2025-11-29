@@ -7,16 +7,43 @@ tap "gromgit/brewtils"
 tap "oven-sh/bun"
 
 # oh-my-zsh theme
+brew "powerlevel10k"
 
 # oh-my-zsh plugins
+brew "zsh-autosuggestions"
+brew "zsh-syntax-highlighting"
+brew "zsh-completions"
 
 # Development tools
+brew "libpq"
+brew "gh"
+brew "node"
+brew "oven-sh/bun/bun"
+brew "uv"
 
 # Code quality & utilities
+brew "bash@5.3.3"
+brew "ripgrep"
+brew "jq"
+brew "tree"
+brew "wget"
+brew "coreutils"
+brew "git-crypt"
+brew "yamllint"
+brew "ast-grep"
+brew "yq"
 
 # macOS-specific utilities
+brew "terminal-notifier"
+brew "gromgit/brewtils/taproom"
 
 # macOS casks
+cask "1password-cli"
+cask "claude-code"
+cask "ghostty"
+cask "font-meslo-lg-nerd-font"
+cask "appcleaner"
+cask "docker-desktop"
 
 # VS Code extensions (essential)
 vscode "anthropic.claude-code"
