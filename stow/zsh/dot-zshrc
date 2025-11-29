@@ -5,7 +5,11 @@
 export ZSH="$HOME/.oh-my-zsh"
 
 # Source profile to get MODELS_HOME and other environment variables
+# This also sets up Homebrew PATH for all shells
 [ -f "$HOME/.profile" ] && source "$HOME/.profile"
+
+# Source shared shell functions
+[ -f "$HOME/.shell-functions" ] && source "$HOME/.shell-functions"
 
 # Set name of the theme to load --- if set to "random", it will
 # load a random theme each time Oh My Zsh is loaded, in which case,
@@ -146,10 +150,9 @@ autoload -Uz add-zsh-hook
 add-zsh-hook precmd _add_successful_cmd
 
 # OSC 7 support: Report current directory to terminal (for better terminal integration)
-# This allows terminals like Ghostty to track the current working directory
-# Format: \033]7;file://hostname/path\033\\
+# Uses shared function from .shell-functions
 _precmd_osc7() {
-    printf '\033]7;file://%s%s\033\\' "${HOST:-localhost}" "$PWD"
+    _osc7_report_directory
 }
 add-zsh-hook precmd _precmd_osc7
 
@@ -182,23 +185,15 @@ add-zsh-hook precmd _precmd_osc7
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 
-. "$HOME/.local/bin/env"
-eval "$(uv generate-shell-completion zsh)"
-eval "$(uvx --generate-shell-completion zsh)"
-
 # Task Master aliases added on 6/26/2025
 alias tm='task-master'
 alias taskmaster='task-master'
 
-# Added by LM Studio CLI (lms)
-export PATH="$PATH:$HOME/.lmstudio/bin"
-# End of LM Studio CLI section
-
-
-#THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
-export SDKMAN_DIR="$HOME/.sdkman"
-[[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
-export PATH="$HOME/.local/bin:$PATH"
+# Switch to Homebrew's bash (if available)
+# Usage: type 'bash' or 'hbash' to switch to bash, then 'exit' to return to zsh
+if [ -f /opt/homebrew/bin/bash ]; then
+    alias hbash='/opt/homebrew/bin/bash'
+fi
 # Add libpq to PATH if installed via Homebrew (macOS only)
 if [[ "$OSTYPE" == "darwin"* ]] && command -v brew &> /dev/null; then
     BREW_PREFIX=$(brew --prefix)
@@ -311,9 +306,13 @@ zstyle ':completion:*:kill:*' command 'ps -u $USER -o pid,%cpu,tty,cputime,cmd'
 # Optional: Enable zsh profiling (uncomment to profile startup time)
 # zmodload zsh/zprof
 
-# UV and UVX completions (keep existing)
-eval "$(uv generate-shell-completion zsh)"
-eval "$(uvx --generate-shell-completion zsh)"
+# UV and UVX completions (only if commands are available)
+if command -v uv &> /dev/null; then
+    eval "$(uv generate-shell-completion zsh 2>/dev/null)" || true
+fi
+if command -v uvx &> /dev/null; then
+    eval "$(uvx --generate-shell-completion zsh 2>/dev/null)" || true
+fi
 
 # Source Powerlevel10k configuration
 [[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh

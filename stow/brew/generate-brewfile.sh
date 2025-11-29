@@ -78,18 +78,14 @@ get_brew_package_with_version() {
     local version_to_use=""
     
     # Get brew name - handle both string and object forms
-    brew_name=$(echo "$pkg_entry" | yq -r 'if .value.brew | type == "string" then .value.brew else .value.brew.name // empty end')
+    # Try string first, then object.name, using yq v4 compatible syntax
+    brew_name=$(echo "$pkg_entry" | yq eval -r '.value.brew | (select(type == "!!str") // .name // "")' 2>/dev/null || echo "$pkg_entry" | yq eval -r '.value.brew.name // .value.brew // ""')
     [ -z "$brew_name" ] && return 1
     
     # Check for target_version first (highest priority)
     # Check brew_target_version first, then target_version
-    target_version=$(echo "$pkg_entry" | yq -r '
-        if .value.brew | type == "object" then
-            .value.brew.target_version // .value.target_version // empty
-        else
-            .value.brew_target_version // .value.target_version // empty
-        end
-    ')
+    # Use fallback pattern compatible with yq v4
+    target_version=$(echo "$pkg_entry" | yq eval -r '.value.brew.target_version // .value.target_version // .value.brew_target_version // ""')
     
     # If target_version is set and contains caret, query Homebrew
     if [ -n "$target_version" ] && [ "$target_version" != "null" ]; then
@@ -148,13 +144,7 @@ get_brew_package_with_version() {
         fi
     else
         # No target_version, check for min_version (fallback)
-        min_version=$(echo "$pkg_entry" | yq -r '
-            if .value.brew | type == "object" then
-                .value.brew.min_version // .value.min_version // empty
-            else
-                .value.brew_min_version // .value.min_version // empty
-            end
-        ')
+        min_version=$(echo "$pkg_entry" | yq eval -r '.value.brew.min_version // .value.min_version // .value.brew_min_version // ""')
         
         if [ -n "$min_version" ] && [ "$min_version" != "null" ]; then
             version_to_use="$min_version"
@@ -170,7 +160,7 @@ get_brew_package_with_version() {
 
 # oh-my-zsh theme
 echo "# oh-my-zsh theme" >> "$BREWFILE"
-yq -c '.packages | to_entries[] | select(.value.linux.git != null and .value.linux.type == "theme")' "$PACKAGES_YAML" | while read -r pkg_entry; do
+yq eval -o=json -I=0 '.packages | to_entries[] | select(.value.linux.git != null and .value.linux.type == "theme")' "$PACKAGES_YAML" | while read -r pkg_entry; do
     brew_pkg=$(get_brew_package_with_version "$pkg_entry")
     [ -n "$brew_pkg" ] && echo "brew \"$brew_pkg\"" >> "$BREWFILE"
 done
@@ -178,7 +168,7 @@ echo "" >> "$BREWFILE"
 
 # oh-my-zsh plugins
 echo "# oh-my-zsh plugins" >> "$BREWFILE"
-yq -c '.packages | to_entries[] | select(.value.linux.git != null and .value.linux.type == "plugin")' "$PACKAGES_YAML" | while read -r pkg_entry; do
+yq eval -o=json -I=0 '.packages | to_entries[] | select(.value.linux.git != null and .value.linux.type == "plugin")' "$PACKAGES_YAML" | while read -r pkg_entry; do
     brew_pkg=$(get_brew_package_with_version "$pkg_entry")
     [ -n "$brew_pkg" ] && echo "brew \"$brew_pkg\"" >> "$BREWFILE"
 done
@@ -186,7 +176,7 @@ echo "" >> "$BREWFILE"
 
 # Development tools
 echo "# Development tools" >> "$BREWFILE"
-yq -c '.packages | to_entries[] | select(.key == "bun" or .key == "uv" or .key == "gh" or .key == "libpq")' "$PACKAGES_YAML" | while read -r pkg_entry; do
+yq eval -o=json -I=0 '.packages | to_entries[] | select(.key == "node" or .key == "bun" or .key == "uv" or .key == "gh" or .key == "libpq")' "$PACKAGES_YAML" | while read -r pkg_entry; do
     brew_pkg=$(get_brew_package_with_version "$pkg_entry")
     [ -n "$brew_pkg" ] && echo "brew \"$brew_pkg\"" >> "$BREWFILE"
 done
@@ -194,11 +184,11 @@ echo "" >> "$BREWFILE"
 
 # Code quality & utilities
 echo "# Code quality & utilities" >> "$BREWFILE"
-yq -c '.packages | to_entries[] | select(.value.linux.pkg != null and .key != "bun" and .key != "uv" and .key != "gh" and .key != "libpq" and (.value.linux.git == null))' "$PACKAGES_YAML" | while read -r pkg_entry; do
+yq eval -o=json -I=0 '.packages | to_entries[] | select(.value.linux.pkg != null and .key != "node" and .key != "bun" and .key != "uv" and .key != "gh" and .key != "libpq" and (.value.linux.git == null))' "$PACKAGES_YAML" | while read -r pkg_entry; do
     brew_pkg=$(get_brew_package_with_version "$pkg_entry")
     [ -n "$brew_pkg" ] && echo "brew \"$brew_pkg\"" >> "$BREWFILE"
 done
-yq -c '.packages | to_entries[] | select((.value.linux.pip != null or .value.linux.installer != null) and .value.macos_only != true and .key != "bun" and .key != "uv" and .key != "gh" and (.value.linux.git == null))' "$PACKAGES_YAML" | while read -r pkg_entry; do
+yq eval -o=json -I=0 '.packages | to_entries[] | select((.value.linux.pip != null or .value.linux.installer != null) and .value.macos_only != true and .key != "node" and .key != "bun" and .key != "uv" and .key != "gh" and (.value.linux.git == null))' "$PACKAGES_YAML" | while read -r pkg_entry; do
     brew_pkg=$(get_brew_package_with_version "$pkg_entry")
     [ -n "$brew_pkg" ] && echo "brew \"$brew_pkg\"" >> "$BREWFILE"
 done
@@ -206,7 +196,7 @@ echo "" >> "$BREWFILE"
 
 # macOS-specific utilities
 echo "# macOS-specific utilities" >> "$BREWFILE"
-yq -c '.packages | to_entries[] | select(.value.macos_only == true)' "$PACKAGES_YAML" | while read -r pkg_entry; do
+yq eval -o=json -I=0 '.packages | to_entries[] | select(.value.macos_only == true)' "$PACKAGES_YAML" | while read -r pkg_entry; do
     brew_pkg=$(get_brew_package_with_version "$pkg_entry")
     [ -n "$brew_pkg" ] && echo "brew \"$brew_pkg\"" >> "$BREWFILE"
 done
@@ -214,23 +204,17 @@ echo "" >> "$BREWFILE"
 
 # macOS casks
 echo "# macOS casks" >> "$BREWFILE"
-yq -c '.casks | to_entries[] | select(.value.macos_only == true)' "$PACKAGES_YAML" | while read -r pkg_entry; do
+yq eval -o=json -I=0 '.casks | to_entries[] | select(.value.macos_only == true)' "$PACKAGES_YAML" | while read -r pkg_entry; do
     # Handle both string and object forms of brew
-    brew_name=$(echo "$pkg_entry" | yq -r 'if .value.brew | type == "string" then .value.brew else .value.brew.name // empty end')
+    brew_name=$(echo "$pkg_entry" | yq eval -r '.value.brew | (select(type == "!!str") // .name // "")' 2>/dev/null || echo "$pkg_entry" | yq eval -r '.value.brew.name // .value.brew // ""')
     [ -z "$brew_name" ] && continue
     
-    local target_version
-    local min_version
-    local version_to_use=""
+    target_version=""
+    min_version=""
+    version_to_use=""
     
     # Check for target_version first (highest priority)
-    target_version=$(echo "$pkg_entry" | yq -r '
-        if .value.brew | type == "object" then
-            .value.brew.target_version // .value.target_version // empty
-        else
-            .value.brew_target_version // .value.target_version // empty
-        end
-    ')
+    target_version=$(echo "$pkg_entry" | yq eval -r '.value.brew.target_version // .value.target_version // .value.brew_target_version // ""')
     
     # If target_version is set and contains caret, query Homebrew
     if [ -n "$target_version" ] && [ "$target_version" != "null" ]; then
@@ -289,13 +273,7 @@ yq -c '.casks | to_entries[] | select(.value.macos_only == true)' "$PACKAGES_YAM
         fi
     else
         # No target_version, check for min_version (fallback)
-        min_version=$(echo "$pkg_entry" | yq -r '
-            if .value.brew | type == "object" then
-                .value.brew.min_version // .value.min_version // empty
-            else
-                .value.brew_min_version // .value.min_version // empty
-            end
-        ')
+        min_version=$(echo "$pkg_entry" | yq eval -r '.value.brew.min_version // .value.min_version // .value.brew_min_version // ""')
         
         if [ -n "$min_version" ] && [ "$min_version" != "null" ]; then
             version_to_use="$min_version"

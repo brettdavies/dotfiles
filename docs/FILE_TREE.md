@@ -96,7 +96,6 @@ dotfiles/
     ├── local/                            # Local bin configs
     ├── opencode/                         # OpenCode configs
     ├── ssh/                              # SSH config
-    ├── telemetry/                        # Telemetry settings
     └── zsh/                              # Zsh configs
 ```
 

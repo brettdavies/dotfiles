@@ -49,6 +49,11 @@ packages:
     linux:
       pkg: coreutils
   
+  git-crypt:
+    brew: git-crypt
+    linux:
+      pkg: git-crypt
+  
   libpq:
     brew: libpq
     linux:
@@ -67,6 +72,11 @@ packages:
     linux:
       installer: gh
       note: Install from https://github.com/cli/cli/blob/trunk/docs/install_linux.md
+  
+  node:
+    brew: node
+    linux:
+      pkg: nodejs npm
   
   bun:
     brew: oven-sh/bun/bun
@@ -88,6 +98,7 @@ packages:
   
   yq:
     brew: yq
+    min_version: "4.0"
     linux:
       installer: yq
       note: Install from https://github.com/mikefarah/yq

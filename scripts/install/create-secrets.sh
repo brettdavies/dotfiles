@@ -43,18 +43,27 @@ else
     echo "  - Creating .secrets file"
     log_info "Creating .secrets file"
     if [ ! -f ~/.secrets ]; then
-        touch ~/.secrets
-        log_info "Created empty .secrets file with $PERM_SECRET_FILE permissions"
-        warn "Note: .secrets file should be managed separately on each machine"
+        # Check if it's a symlink from stow (which means it's managed by stow)
+        if [ -L ~/.secrets ]; then
+            log_info ".secrets is a symlink from stow, skipping creation"
+        else
+            touch ~/.secrets
+            log_info "Created empty .secrets file with $PERM_SECRET_FILE permissions"
+            warn "Note: .secrets file is now managed via stow (stow/secrets/dot-secrets) and encrypted with git-crypt"
+        fi
     else
-        log_info ".secrets file already exists, skipping"
-    fi
-    
-    # Always enforce correct permissions (even if file pre-existed)
-    # Use safe_chmod if available, otherwise fallback to chmod
-    if command -v safe_chmod &> /dev/null; then
-        safe_chmod "$PERM_SECRET_FILE" ~/.secrets || chmod "$PERM_SECRET_FILE" ~/.secrets
-    else
-        chmod "$PERM_SECRET_FILE" ~/.secrets
+        # File exists - check if it's a symlink (stow-managed) or regular file
+        if [ -L ~/.secrets ]; then
+            log_info ".secrets is a symlink from stow, skipping permission update"
+        else
+            log_info ".secrets file already exists, ensuring correct permissions"
+            # Always enforce correct permissions (even if file pre-existed)
+            # Use safe_chmod if available, otherwise fallback to chmod
+            if command -v safe_chmod &> /dev/null; then
+                safe_chmod "$PERM_SECRET_FILE" ~/.secrets || chmod "$PERM_SECRET_FILE" ~/.secrets
+            else
+                chmod "$PERM_SECRET_FILE" ~/.secrets
+            fi
+        fi
     fi
 fi
