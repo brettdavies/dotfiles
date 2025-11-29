@@ -56,7 +56,7 @@ fi
 model_short=$(echo "$model" | sed 's/Claude //' | sed 's/Sonnet/S/' | sed 's/Opus/O/' | sed 's/Haiku/H/')
 model_info=$(printf "\033[0;35m🤖 %s\033[0m" "$model_short")
 
-# Active environment - check for virtualenv, nvm, etc.
+# Active environment - check for virtualenv, node, etc.
 env_info=""
 if [ -n "$VIRTUAL_ENV" ]; then
     venv_name=$(basename "$VIRTUAL_ENV")

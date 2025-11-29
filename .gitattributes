@@ -1,0 +1,5 @@
+# git-crypt encrypted files
+stow/secrets/dot-secrets filter=git-crypt diff=git-crypt
+stow/ssh/dot-ssh/config filter=git-crypt diff=git-crypt
+stow/git/dot-config/git/allowed_signers filter=git-crypt diff=git-crypt
+

@@ -3,6 +3,10 @@
     "allow": [
       "WebSearch",
       "WebFetch",
+      "Bash(ast-grep:*)",
+      "Bash(awk:*)",
+      "Bash(biome:*)",
+      "Bash(brew list:*)",
       "Bash(bun install:*)",
       "Bash(bun run lint)",
       "Bash(bun run:*)",
@@ -12,28 +16,36 @@
       "Bash(bunx eslint:*)",
       "Bash(bunx prettier:*)",
       "Bash(bunx tsc:*)",
-      "Bash(chmod:*)",
-      "Bash(eslint:*)",
       "Bash(cat:*)",
+      "Bash(chmod:*)",
+      "Bash(cp:*)",
+      "Bash(eslint:*)",
       "Bash(find:*)",
-      "Bash(git log:*)",
-      "Bash(git worktree:*)",
       "Bash(gh issue list:*)",
       "Bash(gh pr diff:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr view:*)",
       "Bash(git branch:*)",
       "Bash(git checkout:*)",
+      "Bash(git config:*)",
+      "Bash(git diff:*)",
       "Bash(git fetch:*)",
       "Bash(git grep:*)",
+      "Bash(git log:*)",
       "Bash(git ls-tree:*)",
+      "Bash(git mv:*)",
       "Bash(git pull:*)",
+      "Bash(git show:*)",
       "Bash(git stash:*)",
+      "Bash(git status:*)",
+      "Bash(git worktree:*)",
+      "Bash(ln:*)",
       "Bash(mkdir:*)",
       "Bash(rg:*)",
+      "Bash(sed:*)",
+      "Bash(touch:*)",
       "Bash(trash:*)",
       "Bash(tree:*)",
-      "Bash(uv add:*)",
       "Bash(uv add:*)",
       "Bash(uv info:*)",
       "Bash(uv init:*)",
@@ -45,12 +57,15 @@
       "Bash(uv upgrade:*)"
     ],
     "deny": [
+      "Bash(git rm:*)",
+      "Bash(grep:*)",
       "Bash(rm:*)"
     ],
     "ask": [
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(mv:*)"
     ]
   },
   "hooks": {
@@ -80,5 +95,6 @@
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh"
-  }
+  },
+  "model": "opus"
 }

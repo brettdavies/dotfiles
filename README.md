@@ -98,6 +98,7 @@ The library system uses a modular, layered architecture with three loader option
 
 ```plaintext
 stow/
+├── shell/        # Shared shell configs (.profile, .telemetry.sh, .models.sh, .caches.sh)
 ├── zsh/          # Zsh configs (.zshrc, .zprofile, .p10k.zsh)
 ├── bash/         # Bash configs (.bashrc, .bash_profile)
 ├── git/          # Git config (.gitconfig, .config/git/*)
@@ -110,7 +111,6 @@ stow/
 ├── claude/       # Claude IDE configs (.claude/settings.json, statusline.sh)
 ├── codex/        # Codex configs (.codex/config.toml)
 ├── opencode/     # OpenCode configs (.config/opencode/config.json)
-├── telemetry/    # Telemetry settings (.telemetry.sh)
 └── brew/         # Brewfile for Homebrew packages
 ```
 
@@ -121,6 +121,7 @@ stow/
 - Git
 - GNU Stow (will be installed automatically if missing)
 - Homebrew (macOS only - for package installation)
+- yq 4.0+ (will be installed/upgraded automatically if needed - required for `generate-brewfile.sh`)
 - `diff3` (part of `diffutils` package) - Required only if using `--sync-local --merge` mode. Will be prompted to install automatically if missing.
 
 **Check prerequisites**:
@@ -155,7 +156,7 @@ stow/
 
 The script orchestrates several modular scripts in the `scripts/install/` directory:
 
-- **check-dependencies.sh**: Installs GNU Stow, shells (zsh/bash), and oh-my-zsh if missing
+- **check-dependencies.sh**: Installs GNU Stow, shells (zsh/bash), yq 4.0+, and oh-my-zsh if missing
 - **stow-packages.sh**: Creates symlinks for all configuration files using `stow --dotfiles`
 - **create-secrets.sh**: Creates an empty `.secrets` file with proper permissions (600)
 - **create-lmstudio-pointer.sh**: Creates `.lmstudio-home-pointer` if LM Studio is installed (optional)
@@ -200,7 +201,7 @@ If you don't want to use the install script, you can manually stow each package:
 
    ```bash
    cd ~/dotfiles/stow
-   stow -t ~ zsh bash git ssh ghostty gh oh-my-zsh
+   stow -t ~ shell zsh bash git ssh ghostty gh oh-my-zsh
    ```
 
 For VS Code on macOS:
@@ -235,7 +236,7 @@ After making changes to your dotfiles in the repository:
 
    ```bash
    cd ~/dotfiles/stow
-   stow -t ~ -R zsh bash git ssh ghostty gh oh-my-zsh
+   stow -t ~ -R shell zsh bash git ssh ghostty gh oh-my-zsh
    ```
 
    Or simply run the install script again:
@@ -338,7 +339,8 @@ The install script automatically creates symlinks from brew packages to `~/.oh-m
 
 ### Local Bin
 
-- `.local/bin/env` - Local bin environment configuration
+- `.local/bin/env` - Local bin environment configuration (cross-platform)
+- `scripts/sync/sync_dev_to_icloud.sh` - Script to sync `~/dev` to iCloud Drive using rsync with hardlinks (**macOS only** - LaunchAgent points directly to it)
 
 ### Claude IDE
 
@@ -353,11 +355,15 @@ The install script automatically creates symlinks from brew packages to `~/.oh-m
 
 - `.config/opencode/config.json` - OpenCode configuration
 
-### Telemetry
+### Shell Configuration
 
+- `.profile` - Shared shell profile (sourced by both bash and zsh)
 - `.telemetry.sh` - Telemetry and analytics disable settings (sourced by `.profile`)
+- `.models.sh` - AI/ML model directory configurations (sourced by `.profile`)
+- `.caches.sh` - Package manager and tool cache directory configurations (sourced by `.profile`)
+- `.shell-functions` - Shell utility functions
 
-This file contains environment variables to disable telemetry for various tools (Gatsby, Homebrew, Steam, etc.). It's automatically sourced by `.profile` for both bash and zsh.
+The telemetry file contains environment variables to disable telemetry for various tools (Gatsby, Homebrew, Steam, etc.). All shell configuration files are automatically sourced by `.profile` for both bash and zsh.
 
 ### Homebrew
 
@@ -377,11 +383,128 @@ To update the Brewfile:
    brew bundle dump --force
    ```
 
+## iCloud Drive Sync (macOS Only)
+
+This repository includes an automated sync solution that syncs your `~/dev` directory to iCloud Drive using hardlinks. This allows files to exist in both locations while sharing disk space.
+
+### Features
+
+- **Automatic Sync**: Syncs every 5 minutes via macOS LaunchAgent
+- **Hardlinks**: Uses `rsync --link-dest` to create hardlinks, saving disk space
+- **Bidirectional**: Files exist in both `~/dev` and iCloud Drive
+- **Persistent**: Automatically starts on login and runs in the background
+
+### Components
+
+1. **Sync Script**: `~/dotfiles/scripts/sync/sync_dev_to_icloud.sh`
+   - Located in the `scripts/sync/` directory (outside of stow)
+   - Uses `rsync` with `--link-dest` to create hardlinks
+   - Syncs from `~/dev` to `~/Library/Mobile Documents/com~apple~CloudDocs/dev`
+   - Handles new files, deletions, moves, and renames
+
+2. **LaunchAgent**: `~/Library/LaunchAgents/com.user.devtosync.plist`
+   - Points directly to the script in the dotfiles repository
+   - Runs sync script every 5 minutes (300 seconds)
+   - Runs immediately on login (`RunAtLoad: true`)
+   - Logs to `~/dotfiles/scripts/sync/logs/devtosync.log`
+
+### Installation
+
+The LaunchAgent is automatically installed when you run `./install.sh` on macOS. It will **not** be installed on Linux systems.
+
+### Manual Setup (if needed)
+
+If you need to manually load the LaunchAgent:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.user.devtosync.plist
+```
+
+To unload (stop syncing):
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.user.devtosync.plist
+```
+
+### Logs
+
+Sync logs are written to:
+
+- Standard output: `~/dotfiles/scripts/sync/logs/devtosync.log`
+- Standard error: `~/dotfiles/scripts/sync/logs/devtosync.error.log`
+
+### Important Notes
+
+- **macOS Only**: This feature requires macOS and iCloud Drive. It will not work on Linux.
+- **Hardlinks**: Files are hardlinked, meaning they share the same disk space. Deleting from one location doesn't delete from the other until both links are removed.
+- **iCloud Sync Time**: Large files may take time to upload to iCloud. The sync script creates the files locally immediately, but iCloud upload happens asynchronously.
+- **Disk Space**: Hardlinks save disk space since files share the same inode. However, iCloud may treat hardlinks as separate files in the cloud.
+
+### Troubleshooting
+
+1. **Check if service is running**:
+
+   ```bash
+   launchctl list | grep com.user.devtosync
+   ```
+
+2. **View recent sync activity**:
+
+   ```bash
+   tail -20 ~/dotfiles/scripts/sync/logs/devtosync.log
+   ```
+
+3. **Check for errors**:
+
+   ```bash
+   cat ~/dotfiles/scripts/sync/logs/devtosync.error.log
+   ```
+
+4. **Manually trigger a sync**:
+
+   ```bash
+   ~/dotfiles/scripts/sync/sync_dev_to_icloud.sh
+   ```
+
+5. **Verify hardlinks are working**:
+
+   ```bash
+   # Check if files share the same inode
+   stat -f %i ~/dev/some-file
+   stat -f %i ~/Library/Mobile\ Documents/com~apple~CloudDocs/dev/some-file
+   # If inode numbers match, hardlinks are working
+   ```
+
 ## Secrets Management
 
-The `.secrets` file is created empty with 600 permissions. This file is **not** tracked in git (see `.gitignore`).
+Sensitive files are encrypted using `git-crypt` with symmetric key encryption. The following files are encrypted:
 
-**Important**: Never commit secrets to this repository. The `.secrets` file should be managed separately on each machine.
+- `stow/secrets/dot-secrets` - Primary secrets file (API keys, tokens, passwords)
+- `stow/ssh/dot-ssh/config` - SSH host configurations
+- `stow/git/dot-config/git/allowed_signers` - SSH allowed signers
+
+### Setup
+
+1. **First-time setup:**
+   - The install script will automatically install `git-crypt` if needed
+   - Copy your git-crypt key file to `~/.config/git-crypt/key`
+   - The install script will automatically unlock encrypted files during installation
+
+2. **On new machines:**
+   - Clone the repository
+   - Copy your git-crypt key file to `~/.config/git-crypt/key`
+   - Run the install script - it will automatically unlock encrypted files
+
+3. **Key file backup:**
+   - **IMPORTANT:** Backup your git-crypt key file (`~/.config/git-crypt/key`) to a password manager
+   - This key file is required to decrypt the encrypted files
+   - Store it securely - if lost, you cannot decrypt the files
+
+### Automatic Unlock
+
+Git hooks automatically unlock encrypted files on `git checkout` and `git pull` operations, making encryption/decryption transparent during normal git operations.
+
+**Note:** The git-crypt key file should be stored securely (password manager recommended) and backed up. Never commit the key file to the repository.
 
 ## Cross-Platform Compatibility
 
@@ -392,6 +515,7 @@ These dotfiles are designed to work on both **macOS** and **Linux**. The install
 - **VS Code settings**: Only installed on macOS (uses `Library/Application Support/Code/User`)
 - **1Password SSH signing**: The `.gitconfig` includes a macOS path for 1Password SSH signing (`/Applications/1Password.app/...`). On Linux, you may need to adjust this path or comment it out if using a different SSH signing method.
 - **1Password SSH agent**: The `.ssh/config` includes macOS-specific 1Password agent path. On Linux, comment it out or adjust as needed.
+- **iCloud Drive Sync**: A LaunchAgent (`com.user.devtosync.plist`) is configured to automatically sync `~/dev` to iCloud Drive every 5 minutes using `rsync` with hardlinks. This feature is **macOS-only** and will not be installed on Linux systems. See [iCloud Drive Sync](#icloud-drive-sync) section for details.
 
 ### Linux-Specific Notes
 
@@ -498,6 +622,14 @@ The codebase is optimized for modern shells while maintaining backward compatibi
 - **Zsh 5.1+**: Parameter expansion flags (:u, :l)
 - **Zsh 5.0.8+**: HIST_FCNTL_LOCK for better history locking
 - **Zsh 5.0+**: All zsh modules and glob qualifiers
+
+#### Tool Version Requirements
+
+**yq:**
+
+- **yq 4.0+**: Required for `generate-brewfile.sh` script (uses yq v4 syntax)
+- The `check-dependencies.sh` script automatically checks and installs/upgrades yq if needed
+- yq v3 is not supported due to syntax differences (e.g., `-c` flag removed in v4)
 
 #### Advanced Features
 

@@ -1,6 +1,4 @@
 # Sensitive files - never commit these
-.secrets
-*.secret
 *.key
 *.pem
 *.p12
@@ -43,5 +41,13 @@
 .webui_secret_key
 .lmstudio-home-pointer
 
-stow/ssh/dot-ssh/config
+# Note: stow/ssh/dot-ssh/config is now encrypted with git-crypt, so it's safe to commit
+# Note: stow/secrets/dot-secrets is now encrypted with git-crypt, so it's safe to commit
+# Note: stow/git/dot-config/git/allowed_signers is now encrypted with git-crypt, so it's safe to commit
+
 **/test/results
+
+# Log files
+scripts/sync/logs/*.log
+/stow/claude/dot-claude/**/*
+

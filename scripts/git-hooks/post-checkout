@@ -1,0 +1,9 @@
+#!/bin/bash
+if command -v git-crypt &> /dev/null; then
+    if [ -f ~/.config/git-crypt/key ]; then
+        if git-crypt status 2>/dev/null | grep -q "not unlocked"; then
+            git-crypt unlock ~/.config/git-crypt/key 2>/dev/null || true
+        fi
+    fi
+fi
+

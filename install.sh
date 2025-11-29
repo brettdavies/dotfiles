@@ -151,6 +151,11 @@ echo ""
 
 echo ""
 
+# Step 1.5: Setup git-crypt (before stow, so files are unlocked)
+"$SCRIPTS_DIR/install/setup-git-crypt.sh" "${ARGS[@]}"
+
+echo ""
+
 # Step 2: Stow all packages
 "$SCRIPTS_DIR/install/stow-packages.sh" "${ARGS[@]}"
 

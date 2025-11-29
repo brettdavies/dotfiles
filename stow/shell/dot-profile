@@ -1,0 +1,62 @@
+# Load telemetry settings
+if [ -f ~/.telemetry.sh ]; then
+    . ~/.telemetry.sh
+fi
+
+# Load secrets from ~/.secrets
+if [ -f ~/.secrets ]; then
+    . ~/.secrets
+fi
+
+# Load model directory configurations
+if [ -f ~/.models.sh ]; then
+    . ~/.models.sh
+fi
+
+# Load cache directory configurations
+if [ -f ~/.caches.sh ]; then
+    . ~/.caches.sh
+fi
+
+
+# Initialize Homebrew shell environment (macOS only)
+# This ensures Homebrew PATH is available in all shells (login and interactive)
+# Supports both /opt/homebrew (Apple Silicon) and /usr/local (Intel)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # Only set up if not already set (avoid duplicate PATH entries)
+    # This prevents issues if .zprofile or .bash_profile already set it up
+    if [[ -z "${HOMEBREW_PREFIX:-}" ]]; then
+        export HOMEBREW_NO_ENV_HINTS=1
+        # Check for brew in standard locations (don't rely on PATH)
+        if [ -f /opt/homebrew/bin/brew ]; then
+            eval "$(/opt/homebrew/bin/brew shellenv)"
+        elif [ -f /usr/local/bin/brew ]; then
+            eval "$(/usr/local/bin/brew shellenv)"
+        fi
+    fi
+fi
+
+# Enable background tasks for Claude Code
+export ENABLE_BACKGROUND_TASKS=1
+
+# Enable maintaining project working directory
+export CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1
+
+# Ensure ~/.local/bin is in PATH for user-installed binaries
+# This script adds ~/.local/bin to PATH if not already present, allowing
+# locally installed binaries to override system ones and providing a standard
+# location for user scripts and tools.
+. "$HOME/.local/bin/env"
+
+# Rust/Cargo environment
+if [ -f "$HOME/.cargo/env" ]; then
+    . "$HOME/.cargo/env"
+fi
+
+# Added by LM Studio CLI (lms)
+export PATH="$PATH:$HOME/.lmstudio/bin"
+# End of LM Studio CLI section
+
+# GitHub PR line comments alias
+alias gh-pr-comments='gh api repos/$(gh repo view --json owner,name --jq '"'"'.owner.login + "/" + .name'"'"')/pulls/$1/comments --jq '"'"'.[] | {author: .user.login, body: .body, path: .path, line: .line, position: .position}'"'"''
+

@@ -1,0 +1,13 @@
+# Shared shell functions for bash and zsh
+# This file is sourced by both .bashrc and .zshrc
+
+# OSC 7 support: Report current directory to terminal (for better terminal integration)
+# This allows terminals like Ghostty to track the current working directory
+# Format: \033]7;file://hostname/path\033\\
+# Usage: Call this function from shell-specific prompt hooks
+_osc7_report_directory() {
+    # Try HOSTNAME first (bash default), then HOST (zsh default), fallback to localhost
+    local hostname="${HOSTNAME:-${HOST:-localhost}}"
+    printf '\033]7;file://%s%s\033\\' "$hostname" "$PWD"
+}
+
