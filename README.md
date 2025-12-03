@@ -1,5 +1,7 @@
 # Dotfiles
 
+> **[View Project Overview](PROJECT.md)** - High-level summary for quick reference
+
 Personal dotfiles managed with GNU Stow for syncing across macOS and Linux machines.
 
 ## Structure

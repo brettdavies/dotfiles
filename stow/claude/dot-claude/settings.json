@@ -25,10 +25,16 @@
       "Bash(gh pr diff:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr view:*)",
+      "Bash(jq:*)",
+      "Bash(git -C:*)",
+      "Bash(git archive:*)",
       "Bash(git branch:*)",
+      "Bash(git bisect:*)",
+      "Bash(git blame:*)",
       "Bash(git checkout:*)",
       "Bash(git config:*)",
       "Bash(git diff:*)",
+      "Bash(git describe:*)",
       "Bash(git fetch:*)",
       "Bash(git grep:*)",
       "Bash(git log:*)",
@@ -36,13 +42,16 @@
       "Bash(git mv:*)",
       "Bash(git pull:*)",
       "Bash(git show:*)",
+      "Bash(git shortlog:*)",
       "Bash(git stash:*)",
       "Bash(git status:*)",
       "Bash(git worktree:*)",
       "Bash(ln:*)",
       "Bash(mkdir:*)",
+      "Bash(pandoc:*)",
       "Bash(rg:*)",
       "Bash(sed:*)",
+      "Bash(test:*)",
       "Bash(touch:*)",
       "Bash(trash:*)",
       "Bash(tree:*)",
@@ -54,7 +63,9 @@
       "Bash(uv run:*)",
       "Bash(uv show:*)",
       "Bash(uv update:*)",
-      "Bash(uv upgrade:*)"
+      "Bash(uv upgrade:*)",
+      "Bash(xcbeautify:*)",
+      "Bash(yq:*)"
     ],
     "deny": [
       "Bash(git rm:*)",
@@ -62,13 +73,34 @@
       "Bash(rm:*)"
     ],
     "ask": [
+      "Bash(brew install:*)",
       "Bash(git add:*)",
+      "Bash(git clone:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(mv:*)"
+      "Bash(git remote:*)",
+      "Bash(git-crypt:*)",
+      "Bash(git-lfs:*)",
+      "Bash(mv:*)",
+      "Bash(supabase:*)",
+      "Bash(swiftformat:*)",
+      "Bash(wget:*)",
+      "Bash(xargs:*)"
     ]
   },
+  "model": "opus",
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/session-context.sh"
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "matcher": "",
@@ -96,5 +128,5 @@
     "type": "command",
     "command": "~/.claude/statusline.sh"
   },
-  "model": "opus"
+  "alwaysThinkingEnabled": false
 }
