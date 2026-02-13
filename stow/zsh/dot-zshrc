@@ -319,3 +319,6 @@ fi
 
 # bun completions
 [ -s "/Users/brett/.oh-my-zsh/completions/_bun" ] && source "/Users/brett/.oh-my-zsh/completions/_bun"
+
+# Added by Antigravity
+export PATH="/Users/brett/.antigravity/antigravity/bin:$PATH"
