@@ -1,15 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "WebSearch",
-      "WebFetch",
+      "Bash(alias:*)",
       "Bash(ast-grep:*)",
       "Bash(awk:*)",
+      "Bash(basename:*)",
       "Bash(biome:*)",
+      "Bash(brew install:*)",
       "Bash(brew list:*)",
+      "Bash(brew uninstall:*)",
+      "Bash(brew update:*)",
+      "Bash(brew upgrade:*)",
       "Bash(bun install:*)",
       "Bash(bun run lint)",
-      "Bash(bun run:*)",
       "Bash(bun test)",
       "Bash(bun update:*)",
       "Bash(bun upgrade:*)",
@@ -17,79 +20,189 @@
       "Bash(bunx prettier:*)",
       "Bash(bunx tsc:*)",
       "Bash(cat:*)",
-      "Bash(chmod:*)",
+      "Bash(chmod +x:*)",
+      "Bash(compgen:*)",
       "Bash(cp:*)",
+      "Bash(date:*)",
+      "Bash(diff:*)",
+      "Bash(dirname:*)",
+      "Bash(done:*)",
+      "Bash(dpkg:*)",
+      "Bash(du:*)",
+      "Bash(echo:*)",
       "Bash(eslint:*)",
+      "Bash(file:*)",
       "Bash(find:*)",
+      "Bash(free:*)",
       "Bash(gh issue list:*)",
       "Bash(gh pr diff:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr view:*)",
-      "Bash(jq:*)",
+      "Bash(gio trash:*)",
       "Bash(git -C:*)",
       "Bash(git archive:*)",
-      "Bash(git branch:*)",
       "Bash(git bisect:*)",
       "Bash(git blame:*)",
+      "Bash(git branch:*)",
       "Bash(git checkout:*)",
+      "Bash(git clone:*)",
       "Bash(git config:*)",
-      "Bash(git diff:*)",
       "Bash(git describe:*)",
+      "Bash(git diff-tree:*)",
+      "Bash(git diff:*)",
       "Bash(git fetch:*)",
       "Bash(git grep:*)",
       "Bash(git log:*)",
       "Bash(git ls-tree:*)",
       "Bash(git mv:*)",
       "Bash(git pull:*)",
-      "Bash(git show:*)",
       "Bash(git shortlog:*)",
+      "Bash(git show:*)",
       "Bash(git stash:*)",
       "Bash(git status:*)",
       "Bash(git worktree:*)",
+      "Bash(git-crypt:*)",
+      "Bash(git-lfs:*)",
+      "Bash(head:*)",
+      "Bash(hostname:*)",
+      "Bash(id:*)",
+      "Bash(jaq:*)",
       "Bash(ln:*)",
+      "Bash(ls:*)",
+      "Bash(lsof:*)",
       "Bash(mkdir:*)",
+      "Bash(nproc:*)",
+      "Bash(nvidia-smi:*)",
       "Bash(pandoc:*)",
+      "Bash(pwd:*)",
+      "Bash(readlink:*)",
+      "Bash(realpath:*)",
       "Bash(rg:*)",
       "Bash(sed:*)",
+      "Bash(sort:*)",
+      "Bash(ss:*)",
+      "Bash(stat:*)",
+      "Bash(tail:*)",
+      "Bash(tee:*)",
       "Bash(test:*)",
+      "Bash(top:*)",
       "Bash(touch:*)",
+      "Bash(tr:*)",
       "Bash(trash:*)",
       "Bash(tree:*)",
+      "Bash(type:*)",
+      "Bash(uname:*)",
+      "Bash(uniq:*)",
+      "Bash(uptime:*)",
       "Bash(uv add:*)",
-      "Bash(uv info:*)",
+      "Bash(uv build:*)",
+      "Bash(uv cache:*)",
+      "Bash(uv export:*)",
       "Bash(uv init:*)",
-      "Bash(uv list:*)",
+      "Bash(uv lock:*)",
+      "Bash(uv pip:*)",
+      "Bash(uv python:*)",
       "Bash(uv remove:*)",
-      "Bash(uv run:*)",
-      "Bash(uv show:*)",
-      "Bash(uv update:*)",
-      "Bash(uv upgrade:*)",
+      "Bash(uv self:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv tool:*)",
+      "Bash(uv tree:*)",
+      "Bash(uv venv:*)",
+      "Bash(uv version:*)",
+      "Bash(uvx:*)",
+      "Bash(wc:*)",
+      "Bash(which:*)",
+      "Bash(whoami:*)",
       "Bash(xcbeautify:*)",
-      "Bash(yq:*)"
+      "Bash(yq:*)",
+      "WebFetch",
+      "WebSearch"
     ],
     "deny": [
+      "Bash(env:*)",
       "Bash(git rm:*)",
       "Bash(grep:*)",
+      "Bash(jq:*)",
+      "Bash(pip3:*)",
+      "Bash(pip:*)",
+      "Bash(pipx:*)",
+      "Bash(printenv:*)",
+      "Bash(python -m pip:*)",
+      "Bash(python3 -m pip:*)",
       "Bash(rm:*)"
     ],
     "ask": [
-      "Bash(brew install:*)",
+      "Bash(apt:*)",
+      "Bash(bun run:*)",
+      "Bash(docker:*)",
       "Bash(git add:*)",
-      "Bash(git clone:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(git remote:*)",
-      "Bash(git-crypt:*)",
-      "Bash(git-lfs:*)",
       "Bash(mv:*)",
+      "Bash(python3:*)",
+      "Bash(python:*)",
       "Bash(supabase:*)",
+      "Bash(uv run:*)",
       "Bash(swiftformat:*)",
       "Bash(wget:*)",
       "Bash(xargs:*)"
     ]
   },
-  "model": "opus",
   "hooks": {
+    "Notification": [
+      {
+        "matcher": "permission_prompt|idle_prompt|elicitation_dialog",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "terminal-notifier -sound Funky -title \"🔔 Claude Code\" -message \"Claude needs your input\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/auto-format.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bd prime"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mkdir -p \"${XDG_CACHE_HOME:-$HOME/.cache}/claude\" && brew list --formula > \"${XDG_CACHE_HOME:-$HOME/.cache}/claude/brew-list.cache\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mkdir -p \"${XDG_CACHE_HOME:-$HOME/.cache}/claude\" && brew list --formula > \"${XDG_CACHE_HOME:-$HOME/.cache}/claude/brew-list.cache\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "",
@@ -99,15 +212,13 @@
             "command": "~/.claude/session-context.sh"
           }
         ]
-      }
-    ],
-    "Notification": [
+      },
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "terminal-notifier -sound Funky -title \"🔔 Claude Code\" -message \"Claude needs your input\""
+            "command": "bd prime"
           }
         ]
       }
@@ -128,5 +239,8 @@
     "type": "command",
     "command": "~/.claude/statusline.sh"
   },
-  "alwaysThinkingEnabled": false
+  "enabledPlugins": {
+    "compound-engineering@every-marketplace": true
+  },
+  "alwaysThinkingEnabled": true
 }

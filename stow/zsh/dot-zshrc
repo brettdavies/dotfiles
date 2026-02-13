@@ -8,8 +8,10 @@ export ZSH="$HOME/.oh-my-zsh"
 # This also sets up Homebrew PATH for all shells
 [ -f "$HOME/.profile" ] && source "$HOME/.profile"
 
-# Source shared shell functions
-[ -f "$HOME/.shell-functions" ] && source "$HOME/.shell-functions"
+# Source shared shell functions from repo (no symlink needed)
+if [ -n "${DOTFILES_SHELL_DIR:-}" ] && [ -f "${DOTFILES_SHELL_DIR}/shell-functions" ]; then
+    source "${DOTFILES_SHELL_DIR}/shell-functions"
+fi
 
 # Set name of the theme to load --- if set to "random", it will
 # load a random theme each time Oh My Zsh is loaded, in which case,
@@ -319,3 +321,6 @@ fi
 
 # bun completions
 [ -s "/Users/brett/.oh-my-zsh/completions/_bun" ] && source "/Users/brett/.oh-my-zsh/completions/_bun"
+
+# Added by Antigravity
+export PATH="/Users/brett/.antigravity/antigravity/bin:$PATH"
