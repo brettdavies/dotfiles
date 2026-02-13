@@ -1,6 +1,4 @@
 # Essential packages for dotfiles setup
-# Generated from packages.yaml - DO NOT EDIT MANUALLY
-# Run ./stow/brew/generate-brewfile.sh after updating packages.yaml
 
 # Required taps
 tap "gromgit/brewtils"
