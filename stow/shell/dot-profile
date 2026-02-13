@@ -18,6 +18,9 @@ if [ -f ~/.caches.sh ]; then
     . ~/.caches.sh
 fi
 
+# Python: create virtual environments in project directory (.venv)
+export POETRY_VIRTUALENVS_IN_PROJECT=true
+
 
 # Initialize Homebrew shell environment (macOS only)
 # This ensures Homebrew PATH is available in all shells (login and interactive)
@@ -59,4 +62,9 @@ export PATH="$PATH:$HOME/.lmstudio/bin"
 
 # GitHub PR line comments alias
 alias gh-pr-comments='gh api repos/$(gh repo view --json owner,name --jq '"'"'.owner.login + "/" + .name'"'"')/pulls/$1/comments --jq '"'"'.[] | {author: .user.login, body: .body, path: .path, line: .line, position: .position}'"'"''
+
+# LiteLLM Configuration for Claude Code
+# export ANTHROPIC_BASE_URL="http://localhost:4000"
+# export ANTHROPIC_API_KEY="sk-mlx-local-12345"
+# export ANTHROPIC_MODEL="qwen-1.7b"
 

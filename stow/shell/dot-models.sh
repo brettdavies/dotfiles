@@ -38,6 +38,11 @@ export NLTK_DATA="$MODELS_HOME/nltk"
 # Keras models and data
 export KERAS_HOME="$MODELS_HOME/keras"
 
+# MLX and mlx-lm cache
+# Note: MLX and mlx-lm use Hugging Face's cache system for model storage
+# Models are downloaded and cached via HF_HOME/HUGGINGFACE_HUB_CACHE (configured above)
+# MLX doesn't have separate cache environment variables; it uses HuggingFace's infrastructure
+
 # ============================================================================
 # Create Model Directories
 # ============================================================================

@@ -73,6 +73,11 @@ export FIREBASE_CACHE_DIR="$XDG_CACHE_HOME/firebase"
 # PyTorch cache
 # Note: PyTorch cache is configured in ~/.models.sh
 
+# MLX and mlx-lm cache
+# Note: MLX and mlx-lm use Hugging Face's cache system for model storage
+# Models are downloaded and cached via HF_HOME/HUGGINGFACE_HUB_CACHE (configured in ~/.models.sh)
+# MLX doesn't have separate cache environment variables; it uses HuggingFace's infrastructure
+
 # Prisma ORM cache
 # Note: Prisma doesn't have an official environment variable for cache location
 # The cache is typically at ~/.cache/prisma, but we can't easily redirect it
