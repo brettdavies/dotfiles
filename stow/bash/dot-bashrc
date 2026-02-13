@@ -7,12 +7,13 @@ if [ -f "$HOME/.profile" ]; then
 fi
 
 # Source shared shell functions
-if [ -f "$HOME/.shell-functions" ]; then
-    . "$HOME/.shell-functions"
+# Source directly from repository (no symlink needed)
+if [ -n "${DOTFILES_SHELL_DIR:-}" ] && [ -f "${DOTFILES_SHELL_DIR}/shell-functions" ]; then
+    . "${DOTFILES_SHELL_DIR}/shell-functions"
 fi
 
 # OSC 7 support: Report current directory to terminal (for better terminal integration)
-# Uses shared function from .shell-functions
+# Uses shared function from shell-functions (sourced from repository)
 _osc7_prompt_command() {
     _osc7_report_directory
 }
@@ -20,3 +21,4 @@ _osc7_prompt_command() {
 if [[ "$PROMPT_COMMAND" != *"_osc7_prompt_command"* ]]; then
     PROMPT_COMMAND="_osc7_prompt_command${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
 fi
+
