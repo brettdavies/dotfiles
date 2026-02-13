@@ -1,1 +1,30 @@
+# Environment variables
+.env
+.env.*
+!**/.env.example
+
+# AI Agents
+.ai/
+.claude/
+.cursor/
+**/CLAUDE.md
+**/AGENT.md
+**/AGENTS.md
 **/.claude/settings.local.json
+
+# Notes
+.idea/
+
+#Compound Engineering
+/todos
+
+# Production builds
+target/
+build/
+dist/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+.Spotlight-V100
+.Trashes
