@@ -51,3 +51,8 @@
 scripts/sync/logs/*.log
 /stow/claude/dot-claude/**/*
 
+# Compiled dotfiles CLI binary (deployed from ~/dev/dotfiles-cli)
+/dotfiles
+
+/stow/codex/dot-codex/tmp
+/stow/codex/dot-codex/skills/.system
