@@ -50,4 +50,15 @@
 # Log files
 scripts/sync/logs/*.log
 /stow/claude/dot-claude/**/*
+!/stow/claude/dot-claude/CLAUDE.md
+!/stow/claude/dot-claude/templates/commit-message.md
+!/stow/claude/dot-claude/templates/pull-request.md
 
+# Project CLAUDE.md is intentionally tracked in this repo
+!CLAUDE.md
+
+# Compiled dotfiles CLI binary (deployed from ~/dev/dotfiles-cli)
+/dotfiles
+
+/stow/codex/dot-codex/tmp
+/stow/codex/dot-codex/skills/.system

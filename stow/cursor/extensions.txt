@@ -1,5 +1,4 @@
 # Cursor IDE Extensions
-# These extensions are installed automatically by install-packages.sh
 # One extension ID per line (comments start with #)
 
 anysphere.cursorpyright
