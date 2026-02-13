@@ -88,8 +88,60 @@
       "Bash(xargs:*)"
     ]
   },
-  "model": "opus",
   "hooks": {
+    "Notification": [
+      {
+        "matcher": "permission_prompt|idle_prompt|elicitation_dialog",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "terminal-notifier -sound Funky -title \"🔔 Claude Code\" -message \"Claude needs your input\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/auto-format.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bd prime"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mkdir -p \"${XDG_CACHE_HOME:-$HOME/.cache}/claude\" && brew list --formula > \"${XDG_CACHE_HOME:-$HOME/.cache}/claude/brew-list.cache\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mkdir -p \"${XDG_CACHE_HOME:-$HOME/.cache}/claude\" && brew list --formula > \"${XDG_CACHE_HOME:-$HOME/.cache}/claude/brew-list.cache\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "",
@@ -99,15 +151,13 @@
             "command": "~/.claude/session-context.sh"
           }
         ]
-      }
-    ],
-    "Notification": [
+      },
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "terminal-notifier -sound Funky -title \"🔔 Claude Code\" -message \"Claude needs your input\""
+            "command": "bd prime"
           }
         ]
       }
@@ -128,5 +178,8 @@
     "type": "command",
     "command": "~/.claude/statusline.sh"
   },
-  "alwaysThinkingEnabled": false
+  "enabledPlugins": {
+    "compound-engineering@every-marketplace": true
+  },
+  "alwaysThinkingEnabled": true
 }
