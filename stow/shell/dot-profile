@@ -1,25 +1,52 @@
-# Load telemetry settings
-if [ -f ~/.telemetry.sh ]; then
-    . ~/.telemetry.sh
+# Resolve the directory containing this file (works whether symlinked or not)
+# Needed because helper files live alongside dot-profile in the repo,
+# not as independent symlinks in $HOME
+if [ -n "${BASH_SOURCE[0]}" ]; then
+    # BASH_SOURCE doesn't resolve symlinks — follow the link manually
+    _PROFILE_REAL="${BASH_SOURCE[0]}"
+    if [ -L "$_PROFILE_REAL" ]; then
+        _PROFILE_REAL=$(readlink "$_PROFILE_REAL")
+        if [[ "$_PROFILE_REAL" != /* ]]; then
+            _PROFILE_REAL="$(dirname "${BASH_SOURCE[0]}")/$_PROFILE_REAL"
+        fi
+    fi
+    _PROFILE_DIR="$(cd "$(dirname "$_PROFILE_REAL")" && pwd)"
+elif [ -L "$HOME/.profile" ]; then
+    # Zsh and other shells: resolve the ~/.profile symlink
+    _PROFILE_SOURCE=$(readlink "$HOME/.profile")
+    if [[ "$_PROFILE_SOURCE" != /* ]]; then
+        _PROFILE_SOURCE="$HOME/$_PROFILE_SOURCE"
+    fi
+    _PROFILE_DIR="$(cd "$(dirname "$_PROFILE_SOURCE")" && pwd)"
+else
+    _PROFILE_DIR="$HOME"
 fi
 
-# Load secrets from ~/.secrets
+# Exported so bashrc/zshrc can source shell-functions from the same directory
+export DOTFILES_SHELL_DIR="$_PROFILE_DIR"
+
+if [ -f "$_PROFILE_DIR/telemetry.sh" ]; then
+    . "$_PROFILE_DIR/telemetry.sh"
+fi
+
+if [ -f "$_PROFILE_DIR/models.sh" ]; then
+    . "$_PROFILE_DIR/models.sh"
+fi
+
+if [ -f "$_PROFILE_DIR/caches.sh" ]; then
+    . "$_PROFILE_DIR/caches.sh"
+fi
+
+if [ -f "$_PROFILE_DIR/python.sh" ]; then
+    . "$_PROFILE_DIR/python.sh"
+fi
+
+unset _PROFILE_DIR _PROFILE_REAL _PROFILE_SOURCE
+
+# Secrets symlinked via stow (stow/secrets/dot-secrets -> ~/.secrets)
 if [ -f ~/.secrets ]; then
     . ~/.secrets
 fi
-
-# Load model directory configurations
-if [ -f ~/.models.sh ]; then
-    . ~/.models.sh
-fi
-
-# Load cache directory configurations
-if [ -f ~/.caches.sh ]; then
-    . ~/.caches.sh
-fi
-
-# Python: create virtual environments in project directory (.venv)
-export POETRY_VIRTUALENVS_IN_PROJECT=true
 
 
 # Initialize Homebrew shell environment (macOS only)

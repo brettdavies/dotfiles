@@ -49,6 +49,7 @@
       "Bash(ln:*)",
       "Bash(mkdir:*)",
       "Bash(pandoc:*)",
+      "Bash(readlink:*)",
       "Bash(rg:*)",
       "Bash(sed:*)",
       "Bash(test:*)",

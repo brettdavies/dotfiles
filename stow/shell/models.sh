@@ -17,6 +17,9 @@ export HF_HOME="$MODELS_HOME/huggingface"
 export HUGGINGFACE_HUB_CACHE="$MODELS_HOME/huggingface/hub"
 export TRANSFORMERS_CACHE="$MODELS_HOME/huggingface/transformers"
 
+# MLX and mlx-lm use HuggingFace's cache (HF_HOME above); no separate env vars
+
+
 # PyTorch models
 export TORCH_HOME="$MODELS_HOME/torch"
 
@@ -37,11 +40,6 @@ export NLTK_DATA="$MODELS_HOME/nltk"
 
 # Keras models and data
 export KERAS_HOME="$MODELS_HOME/keras"
-
-# MLX and mlx-lm cache
-# Note: MLX and mlx-lm use Hugging Face's cache system for model storage
-# Models are downloaded and cached via HF_HOME/HUGGINGFACE_HUB_CACHE (configured above)
-# MLX doesn't have separate cache environment variables; it uses HuggingFace's infrastructure
 
 # ============================================================================
 # Create Model Directories

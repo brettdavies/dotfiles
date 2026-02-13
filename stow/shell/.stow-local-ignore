@@ -1,0 +1,21 @@
+# Re-include stow defaults (overridden by this file's existence)
+RCS
+CVS
+\.svn
+_darcs
+\.hg
+\.git
+\.gitignore
+\.gitmodules
+.+~
+\#.*\#
+^/README.*
+^/LICENSE.*
+^/COPYING
+
+# Shell helper files - sourced by dot-profile via _PROFILE_DIR, not individually stowed
+^/caches\.sh$
+^/models\.sh$
+^/telemetry\.sh$
+^/python\.sh$
+^/shell-functions$
