@@ -1,6 +1,4 @@
-# Resolve the directory containing this file (works whether symlinked or not)
-# Needed because helper files live alongside dot-profile in the repo,
-# not as independent symlinks in $HOME
+# Resolve the dotfiles repo root by following this file's symlink back to stow/shell/
 if [ -n "${BASH_SOURCE[0]}" ]; then
     # BASH_SOURCE doesn't resolve symlinks — follow the link manually
     _PROFILE_REAL="${BASH_SOURCE[0]}"
@@ -10,38 +8,32 @@ if [ -n "${BASH_SOURCE[0]}" ]; then
             _PROFILE_REAL="$(dirname "${BASH_SOURCE[0]}")/$_PROFILE_REAL"
         fi
     fi
-    _PROFILE_DIR="$(cd "$(dirname "$_PROFILE_REAL")" && pwd)"
+    _DOTFILES_ROOT="$(cd "$(dirname "$_PROFILE_REAL")/../.." && pwd)"
 elif [ -L "$HOME/.profile" ]; then
     # Zsh and other shells: resolve the ~/.profile symlink
     _PROFILE_SOURCE=$(readlink "$HOME/.profile")
     if [[ "$_PROFILE_SOURCE" != /* ]]; then
         _PROFILE_SOURCE="$HOME/$_PROFILE_SOURCE"
     fi
-    _PROFILE_DIR="$(cd "$(dirname "$_PROFILE_SOURCE")" && pwd)"
+    _DOTFILES_ROOT="$(cd "$(dirname "$_PROFILE_SOURCE")/../.." && pwd)"
 else
-    _PROFILE_DIR="$HOME"
+    _DOTFILES_ROOT=""
 fi
+
+# Shell helpers live in config/shell/, separate from stow-managed dotfiles
+_CONFIG_DIR="$_DOTFILES_ROOT/config/shell"
 
 # Exported so bashrc/zshrc can source shell-functions from the same directory
-export DOTFILES_SHELL_DIR="$_PROFILE_DIR"
+export DOTFILES_SHELL_DIR="$_CONFIG_DIR"
 
-if [ -f "$_PROFILE_DIR/telemetry.sh" ]; then
-    . "$_PROFILE_DIR/telemetry.sh"
+if [ -n "$_DOTFILES_ROOT" ] && [ -d "$_CONFIG_DIR" ]; then
+    for _f in "$_CONFIG_DIR"/*.sh; do
+        [ -f "$_f" ] && . "$_f"
+    done
+    unset _f
 fi
 
-if [ -f "$_PROFILE_DIR/models.sh" ]; then
-    . "$_PROFILE_DIR/models.sh"
-fi
-
-if [ -f "$_PROFILE_DIR/caches.sh" ]; then
-    . "$_PROFILE_DIR/caches.sh"
-fi
-
-if [ -f "$_PROFILE_DIR/python.sh" ]; then
-    . "$_PROFILE_DIR/python.sh"
-fi
-
-unset _PROFILE_DIR _PROFILE_REAL _PROFILE_SOURCE
+unset _DOTFILES_ROOT _CONFIG_DIR _PROFILE_REAL _PROFILE_SOURCE
 
 # Secrets symlinked via stow (stow/secrets/dot-secrets -> ~/.secrets)
 if [ -f ~/.secrets ]; then
@@ -66,12 +58,6 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     fi
 fi
 
-# Enable background tasks for Claude Code
-export ENABLE_BACKGROUND_TASKS=1
-
-# Enable maintaining project working directory
-export CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1
-
 # Ensure ~/.local/bin is in PATH for user-installed binaries
 # This script adds ~/.local/bin to PATH if not already present, allowing
 # locally installed binaries to override system ones and providing a standard
@@ -82,16 +68,3 @@ export CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1
 if [ -f "$HOME/.cargo/env" ]; then
     . "$HOME/.cargo/env"
 fi
-
-# Added by LM Studio CLI (lms)
-export PATH="$PATH:$HOME/.lmstudio/bin"
-# End of LM Studio CLI section
-
-# GitHub PR line comments alias
-alias gh-pr-comments='gh api repos/$(gh repo view --json owner,name --jq '"'"'.owner.login + "/" + .name'"'"')/pulls/$1/comments --jq '"'"'.[] | {author: .user.login, body: .body, path: .path, line: .line, position: .position}'"'"''
-
-# LiteLLM Configuration for Claude Code
-# export ANTHROPIC_BASE_URL="http://localhost:4000"
-# export ANTHROPIC_API_KEY="sk-mlx-local-12345"
-# export ANTHROPIC_MODEL="qwen-1.7b"
-
