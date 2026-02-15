@@ -14,7 +14,6 @@
 [tag]
 	gpgsign = true
 [gpg "ssh"]
-	# 1Password SSH signing - macOS path
-	# On Linux, adjust path if 1Password CLI is installed differently
-	program = /Applications/1Password.app/Contents/MacOS/op-ssh-sign
+	# Cross-platform wrapper in ~/.local/bin/ (on PATH via .profile)
+	program = op-ssh-sign-wrapper
 	allowedSignersFile = ~/.config/git/allowed_signers
