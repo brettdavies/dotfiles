@@ -1,7 +1,7 @@
 ---
 title: Deploy dotfiles to bigdaddy (Ubuntu server)
 type: feat
-status: active
+status: completed
 date: 2026-02-13
 ---
 
@@ -576,18 +576,18 @@ sudo chsh -s /bin/bash brett
 ## Acceptance Criteria
 
 - [x] Cross-platform fixes committed (SSH `Match exec`, git `op-ssh-sign-wrapper`, zshrc `$HOME`)
-- [ ] Emergency shell access created on bigdaddy
-- [ ] Stow packages deployed: shell, bash, git, secrets, ssh, gh, pip, claude, zsh
-- [ ] macOS-only packages skipped: brew, cursor, ghostty, local
-- [ ] `~/.local/bin/env` deployed manually (for `.profile` dependency)
-- [ ] `.profile` correctly resolves `DOTFILES_SHELL_DIR` on Linux
-- [ ] `config/shell/*.sh` fragments source without errors on Linux
-- [ ] git-crypt unlocked, secrets and SSH config decrypted
-- [ ] oh-my-zsh installed with plugins and powerlevel10k theme
-- [ ] Default shell changed to zsh via `sudo chsh`
-- [ ] File permissions hardened (`.ssh/`, `.secrets`, git-crypt key)
-- [ ] SSH outbound connections work (test: `ssh -T git@github.com`)
-- [ ] No macOS artifacts on server (`~/Library/`, `~/Brewfile`)
+- [x] Emergency shell access created on bigdaddy
+- [x] Stow packages deployed: shell, bash, git, secrets, ssh, gh, pip, claude, zsh
+- [x] macOS-only packages skipped: brew, cursor, ghostty, local
+- [x] `~/.local/bin/env` deployed manually (for `.profile` dependency)
+- [x] `.profile` correctly resolves `DOTFILES_SHELL_DIR` on Linux
+- [x] `config/shell/*.sh` fragments source without errors on Linux
+- [x] git-crypt unlocked, secrets and SSH config decrypted
+- [x] oh-my-zsh installed with plugins and powerlevel10k theme
+- [x] Default shell changed to zsh via `sudo chsh`
+- [x] File permissions hardened (`.ssh/`, `.secrets`, git-crypt key)
+- [x] SSH outbound connections work (test: `ssh -T git@github.com`)
+- [x] No macOS artifacts on server (`~/Library/`, `~/Brewfile`)
 
 ## Risks and Mitigations
 
