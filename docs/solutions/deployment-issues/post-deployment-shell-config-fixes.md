@@ -118,7 +118,7 @@ Moved Homebrew/Linuxbrew `shellenv` setup **before** `~/.secrets` sourcing. The 
 
 #### 3. Secrets migration (`stow/secrets/dot-secrets`)
 
-Moved `OP_SERVICE_ACCOUNT_TOKEN` (hardcoded) and `X_API_*` tokens (via `op read`) from backup `.bashrc` to `~/.secrets`. This file is git-crypt encrypted and sourced by `.profile` before any interactive guard.
+Moved `OP_SERVICE_ACCOUNT_TOKEN` (hardcoded) and `X_API_*` tokens (via `op inject`) from backup `.bashrc` to `~/.secrets`. This file is git-crypt encrypted and sourced by `.profile` before any interactive guard. The `op inject` pattern resolves all secrets via stdin/stdout with zero disk writes — see `docs/solutions/performance-issues/shell-startup-secrets-loading-optimization.md`.
 
 #### 4. Bash rewrite (`stow/bash/dot-bashrc`)
 
@@ -266,6 +266,8 @@ This table should be consulted whenever modifying shell configuration:
 ## Cross-References
 
 - Initial deployment solution: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
+- Secrets loading optimization: `docs/solutions/performance-issues/shell-startup-secrets-loading-optimization.md`
 - Deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-bigdaddy-plan.md`
 - Post-deployment fix plan: `docs/plans/2026-02-15-fix-shell-config-gaps-post-deployment-plan.md`
+- Secrets optimization plan: `docs/plans/2026-02-15-perf-secrets-loading-no-disk-writes-plan.md`
 - Shell config chain: documented in project `CLAUDE.md` under "Shell Config Chain"
