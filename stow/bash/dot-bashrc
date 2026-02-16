@@ -1,8 +1,7 @@
 # ~/.bashrc
 
-# Source .profile if it exists
-# This also sets up Homebrew PATH for all shells
-if [ -f "$HOME/.profile" ]; then
+# Source .profile if not already loaded (login shells source it via .bash_profile)
+if [ -z "${DOTFILES_SHELL_DIR:-}" ] && [ -f "$HOME/.profile" ]; then
     . "$HOME/.profile"
 fi
 
