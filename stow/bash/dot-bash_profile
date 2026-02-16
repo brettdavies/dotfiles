@@ -1,3 +1,9 @@
+# Source .profile for login shell setup (PATH, Homebrew, shell config fragments)
+# Bash login shells read .bash_profile and skip .profile, so we source it explicitly.
+[ -f "$HOME/.profile" ] && . "$HOME/.profile"
+
+# Source .bashrc for interactive settings (prompt, aliases, completions)
+[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
 
 #THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
 export SDKMAN_DIR="$HOME/.sdkman"
