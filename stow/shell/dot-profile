@@ -35,15 +35,8 @@ fi
 
 unset _DOTFILES_ROOT _CONFIG_DIR _PROFILE_REAL _PROFILE_SOURCE
 
-# Secrets symlinked via stow (stow/secrets/dot-secrets -> ~/.secrets)
-if [ -f ~/.secrets ]; then
-    . ~/.secrets
-fi
-
-
 # Initialize Homebrew/Linuxbrew shell environment
-# This ensures Homebrew PATH is available in all shells (login and interactive)
-# Supports macOS (Apple Silicon + Intel) and Linux (Linuxbrew)
+# Must come before ~/.secrets because secrets use `op read` from Homebrew PATH
 if [[ -z "${HOMEBREW_PREFIX:-}" ]]; then
     export HOMEBREW_NO_ENV_HINTS=1
     if [ -f /opt/homebrew/bin/brew ]; then
@@ -53,6 +46,12 @@ if [[ -z "${HOMEBREW_PREFIX:-}" ]]; then
     elif [ -f /home/linuxbrew/.linuxbrew/bin/brew ]; then
         eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
     fi
+fi
+
+# Secrets symlinked via stow (stow/secrets/dot-secrets -> ~/.secrets)
+# Requires Homebrew PATH above for `op` CLI (1Password service account)
+if [ -f ~/.secrets ]; then
+    . ~/.secrets
 fi
 
 # Ensure ~/.local/bin is in PATH for user-installed binaries
