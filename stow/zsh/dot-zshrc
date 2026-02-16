@@ -8,6 +8,10 @@ export ZSH="$HOME/.oh-my-zsh"
 # This also sets up Homebrew PATH for all shells
 [ -f "$HOME/.profile" ] && source "$HOME/.profile"
 
+# If not running interactively, don't do anything further.
+# Secrets and environment are already loaded via .profile above.
+[[ $- == *i* ]] || return
+
 # Source shared shell functions from repo (no symlink needed)
 if [ -n "${DOTFILES_SHELL_DIR:-}" ] && [ -f "${DOTFILES_SHELL_DIR}/shell-functions" ]; then
     source "${DOTFILES_SHELL_DIR}/shell-functions"
@@ -320,7 +324,7 @@ fi
 [[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh
 
 # bun completions
-[ -s "/Users/brett/.oh-my-zsh/completions/_bun" ] && source "/Users/brett/.oh-my-zsh/completions/_bun"
+[ -s "$HOME/.oh-my-zsh/completions/_bun" ] && source "$HOME/.oh-my-zsh/completions/_bun"
 
 # Added by Antigravity
-export PATH="/Users/brett/.antigravity/antigravity/bin:$PATH"
+export PATH="$HOME/.antigravity/antigravity/bin:$PATH"

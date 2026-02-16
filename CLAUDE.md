@@ -100,18 +100,30 @@ To add a new package:
 
 `.profile` is symlinked to `stow/shell/dot-profile` and sets `DOTFILES_SHELL_DIR` pointing to the stow/shell directory. Helper files are sourced directly from the repo — no symlink needed for individual shell helpers:
 
-```
+```text
 ~/.profile (symlink) --> stow/shell/dot-profile
-  sources: telemetry.sh, models.sh, caches.sh, python.sh
-  sources: ~/.secrets (local, not in repo)
-  sets up: Homebrew, PATH, Cargo
+  sources: config/shell/*.sh (telemetry, models, caches, python, paths, etc.)
+  sources: ~/.secrets (git-crypt encrypted, tokens + API keys)
+  sets up: Homebrew, PATH, Cargo, GPG_TTY
 
-~/.zshrc (symlink) --> stow/zsh/dot-zshrc
-  sources: $DOTFILES_SHELL_DIR/shell-functions
+~/.zshenv (symlink) --> stow/zsh/dot-zshenv
+  sources: ~/.profile (if not already loaded)
+  PURPOSE: ensures non-interactive zsh (SSH commands, cron) has environment
 
 ~/.bashrc (symlink) --> stow/bash/dot-bashrc
-  sources: $DOTFILES_SHELL_DIR/shell-functions
+  sources: ~/.profile (if not already loaded)
+  INTERACTIVE GUARD: case $- in *i*) ;; *) return;; esac
+  sources: $DOTFILES_SHELL_DIR/shell-functions (interactive only)
+  sets up: history, completion, prompt, aliases, OSC 7
+
+~/.zshrc (symlink) --> stow/zsh/dot-zshrc
+  sources: ~/.profile (redundant with .zshenv, sentinel guard skips)
+  INTERACTIVE GUARD: [[ $- == *i* ]] || return
+  sources: $DOTFILES_SHELL_DIR/shell-functions (interactive only)
+  sets up: oh-my-zsh, history, modules, completions, p10k
 ```
+
+**Critical:** `.zshenv` is the ONLY file zsh sources for non-interactive invocations. Without it, `ssh host 'command'` with zsh as default shell gets zero environment. See `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` for the full zsh vs bash startup file reference.
 
 ---
 
