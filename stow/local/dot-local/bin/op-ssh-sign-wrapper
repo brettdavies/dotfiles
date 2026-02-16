@@ -1,0 +1,12 @@
+#!/bin/sh
+# Cross-platform wrapper for 1Password SSH signing
+# macOS: /Applications/1Password.app/Contents/MacOS/op-ssh-sign
+# Linux: /opt/1Password/op-ssh-sign
+if [ -x /Applications/1Password.app/Contents/MacOS/op-ssh-sign ]; then
+    exec /Applications/1Password.app/Contents/MacOS/op-ssh-sign "$@"
+elif [ -x /opt/1Password/op-ssh-sign ]; then
+    exec /opt/1Password/op-ssh-sign "$@"
+else
+    echo "op-ssh-sign not found" >&2
+    exit 1
+fi

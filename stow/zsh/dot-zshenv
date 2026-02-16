@@ -1,0 +1,5 @@
+# ~/.zshenv - sourced by ALL zsh invocations (interactive + non-interactive)
+# Ensures secrets and environment are available to SSH commands, cron, etc.
+if [ -z "${DOTFILES_SHELL_DIR:-}" ] && [ -f "$HOME/.profile" ]; then
+    . "$HOME/.profile"
+fi
