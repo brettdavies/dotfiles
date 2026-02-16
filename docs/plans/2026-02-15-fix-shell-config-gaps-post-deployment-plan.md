@@ -310,16 +310,16 @@ The `helper =` (empty) followed by `helper = !gh auth git-credential` is the [st
 ### Bash
 
 - [x] Non-interactive bash has access to `OP_SERVICE_ACCOUNT_TOKEN` — verified `SECRETS=SET`
-- [ ] Non-interactive bash has access to `X_API_*` tokens — **FAIL**: `op read` vault/item references in `.secrets` are incorrect (data issue, not shell config)
+- [x] Non-interactive bash has access to `X_API_*` tokens — verified `X_API_BIRD=SET X_API_USER=SET` (required fixing: vault references in `.secrets` + Homebrew PATH ordering in `.profile`)
 - [x] Non-interactive bash does NOT load completion, aliases, prompt, etc. — verified HISTSIZE=unset, PS1 empty
 - [x] Interactive bash has: history settings (HISTSIZE=1000), aliases (ll) — verified
-- [ ] Interactive bash has: completion — **FAIL**: `bash-completion` package not installed on bigdaddy (`.bashrc` correctly checks and skips)
+- [ ] Interactive bash has: completion — **BLOCKED**: `bash-completion` package not installed on bigdaddy (requires `sudo apt install bash-completion`; `.bashrc` correctly checks and skips when absent)
 - [x] Interactive bash has GPG_TTY set (via .profile) — verified (shows "not a tty" via SSH, correct with real TTY)
 
 ### Zsh
 
 - [x] Non-interactive zsh has access to `OP_SERVICE_ACCOUNT_TOKEN` (via .zshenv → .profile) — verified `SECRETS=SET`
-- [ ] Non-interactive zsh has access to `X_API_*` tokens — **FAIL**: same `op read` data issue as bash
+- [x] Non-interactive zsh has access to `X_API_*` tokens — verified `X_API_BIRD=SET X_API_USER=SET`
 - [x] Non-interactive zsh does NOT load oh-my-zsh, completion, aliases, prompt, etc. — verified ZSH unset
 - [x] Interactive zsh has secrets — verified `SECRETS=SET`
 - [x] Interactive zsh has GPG_TTY set (via .profile) — verified (shows "not a tty" via SSH, correct with real TTY)
@@ -331,9 +331,8 @@ The `helper =` (empty) followed by `helper = !gh auth git-credential` is the [st
 - [x] `ssh pool.tailscale` and `ssh pool-lan` resolve correctly from bigdaddy — verified
 - [x] All shell config changes deployed and verified on bigdaddy
 
-### Outstanding (not shell config issues)
+### Outstanding (requires user action)
 
-- [ ] Fix `op read` vault/item references in `stow/secrets/dot-secrets` — item "X Twitter API MEUM" not found in "secrets-dev" vault
 - [ ] Install `bash-completion` package on bigdaddy: `sudo apt install bash-completion`
 
 ## Files Modified

@@ -73,8 +73,8 @@ If the user's default shell is bash, this becomes `bash -c 'command'` — normal
 ```text
 .profile (environment for all shells, all modes)
 ├── config/shell/*.sh  (env vars, caches, telemetry, paths)
-├── ~/.secrets          (tokens, API keys)
-├── Homebrew shellenv
+├── Homebrew shellenv   ← MUST come before ~/.secrets (op CLI needs PATH)
+├── ~/.secrets          (tokens, API keys — uses `op read` from Homebrew)
 ├── ~/.local/bin/env
 ├── ~/.cargo/env
 └── GPG_TTY
@@ -110,11 +110,17 @@ fi
 
 The `DOTFILES_SHELL_DIR` sentinel prevents double-sourcing when `.zshrc` also sources `.profile` for interactive sessions.
 
-#### 2. Secrets migration (`stow/secrets/dot-secrets`)
+#### 2. PATH ordering fix (`stow/shell/dot-profile`)
+
+Moved Homebrew/Linuxbrew `shellenv` setup **before** `~/.secrets` sourcing. The `~/.secrets` file uses `op read` (1Password CLI) which is installed via Homebrew. With the original ordering, `op` wasn't on PATH when `.secrets` was sourced, so all `$(op read ... 2>/dev/null)` commands failed silently and X_API_* tokens were empty.
+
+**Rule:** Any tool used inside `.secrets` (or any file sourced by `.profile`) must have its PATH set up earlier in `.profile`.
+
+#### 3. Secrets migration (`stow/secrets/dot-secrets`)
 
 Moved `OP_SERVICE_ACCOUNT_TOKEN` (hardcoded) and `X_API_*` tokens (via `op read`) from backup `.bashrc` to `~/.secrets`. This file is git-crypt encrypted and sourced by `.profile` before any interactive guard.
 
-#### 3. Bash rewrite (`stow/bash/dot-bashrc`)
+#### 4. Bash rewrite (`stow/bash/dot-bashrc`)
 
 Rewrote from 23 to 82 lines:
 
@@ -134,7 +140,7 @@ esac
 # bash completion, OSC 7
 ```
 
-#### 4. Zsh interactive guard (`stow/zsh/dot-zshrc`)
+#### 5. Zsh interactive guard (`stow/zsh/dot-zshrc`)
 
 Added after `.profile` source:
 
@@ -144,7 +150,7 @@ Added after `.profile` source:
 
 Defense-in-depth: zsh only sources `.zshrc` for interactive shells by design, but the guard provides an explicit contract.
 
-#### 5. Shared GPG_TTY (`stow/shell/dot-profile`)
+#### 6. Shared GPG_TTY (`stow/shell/dot-profile`)
 
 ```bash
 export GPG_TTY=$(tty)
@@ -152,7 +158,7 @@ export GPG_TTY=$(tty)
 
 Placed in `.profile` so both bash and zsh get it without duplication.
 
-#### 6. Git credential helpers (`stow/git/dot-gitconfig`)
+#### 7. Git credential helpers (`stow/git/dot-gitconfig`)
 
 ```gitconfig
 [credential "https://github.com"]
@@ -165,7 +171,7 @@ Placed in `.profile` so both bash and zsh get it without duplication.
 
 Bare `!gh` (no absolute path) is the correct cross-platform pattern (cli/cli#9438). The empty `helper =` resets the credential chain.
 
-#### 7. SSH pool entries (`stow/ssh/dot-ssh/config`)
+#### 8. SSH pool entries (`stow/ssh/dot-ssh/config`)
 
 ```ssh-config
 Host pool.tailscale
@@ -225,7 +231,18 @@ diff ~/.config-backup-*/.ssh/config ~/.ssh/config
 
 Secrets belong in `~/.secrets` (sourced by `.profile`), never in `.bashrc` or `.zshrc`.
 
-### 5. Syntax check before deployment
+### 5. PATH before secrets — sourcing order in `.profile` matters
+
+`.profile` is sourced top-to-bottom. If `~/.secrets` uses CLI tools (like `op read`), those tools must be on PATH before `.secrets` is sourced. The correct order:
+
+1. `config/shell/*.sh` (env vars, constants)
+2. Homebrew/Linuxbrew `shellenv` (adds `op`, `gh`, etc. to PATH)
+3. `~/.secrets` (can now use `op read`)
+4. `~/.local/bin/env`, `~/.cargo/env`
+
+Symptom of getting this wrong: variables set via `$(command 2>/dev/null)` are silently empty. The `2>/dev/null` hides the "command not found" error.
+
+### 6. Syntax check before deployment
 
 ```bash
 bash -n stow/bash/dot-bashrc
