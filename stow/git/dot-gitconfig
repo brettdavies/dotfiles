@@ -23,3 +23,6 @@
 [credential "https://gist.github.com"]
 	helper =
 	helper = !gh auth git-credential
+[include]
+	# Per-host overrides (e.g., user.signingkey on headless Linux)
+	path = ~/.config/git/local

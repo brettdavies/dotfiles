@@ -1,12 +1,32 @@
 #!/bin/sh
-# Cross-platform wrapper for 1Password SSH signing
-# macOS: /Applications/1Password.app/Contents/MacOS/op-ssh-sign
-# Linux: /opt/1Password/op-ssh-sign
+# Cross-platform wrapper for SSH commit signing
+# Priority:
+#   1. 1Password desktop app binary (macOS/Linux)
+#   2. ssh-keygen on Linux (when signing key exists as local file)
+#
+# On macOS, 1Password is always required — no silent fallback to ssh-keygen.
+# This prevents accidental downgrade from vault-protected to local-file signing.
+#
+# ssh-keygen fallback requires:
+#   - OpenSSH 8.2+ (for -Y sign support)
+#   - Passphrase-free key OR key loaded in ssh-agent (non-interactive contexts
+#     like Claude Code cannot prompt for a passphrase via /dev/tty)
+#
+# Note: Git writes the literal signing key (from user.signingkey) to a temp
+# file before passing -f to this program, so ssh-keygen always receives a
+# file path — not a key literal.
+
 if [ -x /Applications/1Password.app/Contents/MacOS/op-ssh-sign ]; then
     exec /Applications/1Password.app/Contents/MacOS/op-ssh-sign "$@"
 elif [ -x /opt/1Password/op-ssh-sign ]; then
     exec /opt/1Password/op-ssh-sign "$@"
+elif [ "$(uname -s)" = "Linux" ] && command -v ssh-keygen >/dev/null 2>&1; then
+    # Headless Linux fallback: sign with local key file via ssh-keygen
+    exec ssh-keygen "$@"
 else
-    echo "op-ssh-sign not found" >&2
+    echo "op-ssh-sign-wrapper: no signing method available" >&2
+    echo "  Tried: 1Password desktop app (op-ssh-sign), ssh-keygen" >&2
+    echo "  On macOS: install 1Password desktop app" >&2
+    echo "  On Linux: ensure ssh-keygen is installed (openssh-client)" >&2
     exit 1
 fi
