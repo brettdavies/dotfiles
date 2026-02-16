@@ -1,77 +1,120 @@
 ---
-title: "Restore missing interactive shell configuration and migrate hardcoded secrets"
+title: "Restore missing shell configuration and fix non-interactive zsh environment"
 category: deployment-issues
-tags: [shell-configuration, bashrc, zshrc, interactive-guard, secrets-management, credential-helpers, ssh-config, cross-platform]
+tags: [shell-configuration, bashrc, zshrc, zshenv, interactive-guard, secrets-management, credential-helpers, ssh-config, cross-platform, non-interactive-shell]
 module: shell/bash/zsh/git/ssh/secrets
-symptom: "Stowed .bashrc critically minimal (23 lines vs 130+ in backup) missing interactive guards, history, completion, aliases, prompt, GPG_TTY; hardcoded secrets in .bashrc; missing git credential helpers; missing SSH pool entries"
-root_cause: "Dotfiles repo .bashrc was developed on macOS where zsh is default, so bash config was minimal. When deployed to Ubuntu where bash is the fallback shell, the missing features became apparent. Secrets were in the old .bashrc rather than the centralized .secrets file."
+symptom: "Stowed .bashrc critically minimal (23 lines vs 130+); no .zshenv so non-interactive zsh had zero environment; hardcoded secrets in .bashrc; missing git credential helpers; missing SSH pool entries"
+root_cause: "Dotfiles repo was developed on macOS where zsh is default, so bash config was minimal. No .zshenv existed, so non-interactive zsh (SSH commands, cron) had no access to secrets or environment. Secrets were in old .bashrc rather than centralized .secrets file."
 date: 2026-02-15
 ---
 
-# Restore missing interactive shell configuration and migrate hardcoded secrets
+# Restore missing shell configuration and fix non-interactive zsh environment
 
 ## Problem Symptom
 
-After deploying dotfiles via GNU Stow from macOS to Ubuntu 24.04 (bigdaddy), a backup comparison (`~/.config-backup-20260215/`) revealed:
+After deploying dotfiles via GNU Stow from macOS to Ubuntu 24.04 (bigdaddy), two categories of problems emerged:
 
-- The stowed `.bashrc` was only 23 lines, missing:
-  - Interactive shell guard
-  - History configuration (HISTCONTROL, histappend, HISTSIZE)
-  - Bash completion
-  - Colored prompt with debian_chroot support
-  - lesspipe and dircolors (Linux-only)
-  - Standard aliases (ll, la, l, color ls/grep)
-  - GPG_TTY for commit signing
+**Found via backup comparison (`~/.config-backup-20260215/`):**
+
+- The stowed `.bashrc` was only 23 lines, missing interactive shell guard, history, completion, aliases, prompt, GPG_TTY
 - The old `.bashrc` had secrets hardcoded (`OP_SERVICE_ACCOUNT_TOKEN`, `X_API_*` tokens)
 - The stowed `.gitconfig` was missing `gh auth git-credential` helpers
 - The stowed SSH config was missing `pool.tailscale` and `pool-lan` entries
 
+**Found via post-deployment verification:**
+
+- Non-interactive zsh had **zero environment** — `ssh host 'echo SECRETS=${OP_SERVICE_ACCOUNT_TOKEN:+SET}'` returned empty
+- No `.zshenv` existed, so non-interactive zsh sessions (SSH commands, cron jobs) never sourced `.profile`
+
 ## Root Cause
 
-The dotfiles repo was developed on macOS where zsh is the default shell and oh-my-zsh handles all interactive features. The `.bashrc` was a minimal stub (source `.profile`, source shell-functions, OSC 7). When deployed to Ubuntu where bash is the fallback shell, the missing interactive features became apparent.
+### Missing bash features
 
-Additionally:
+The dotfiles repo was developed on macOS where zsh is the default shell and oh-my-zsh handles all interactive features. The `.bashrc` was a minimal stub. When deployed to Ubuntu where bash is the fallback shell, the missing interactive features became apparent.
 
-- Secrets were hardcoded in the old `.bashrc` instead of the centralized `~/.secrets` file
-- The git credential helper used a hardcoded Linuxbrew path (`!/home/linuxbrew/.linuxbrew/bin/gh`) instead of bare `!gh`
-- SSH pool entries for Tailscale and LAN access weren't in the repo
+### Non-interactive zsh had no environment (the critical bug)
+
+Zsh has a strict startup file hierarchy that differs fundamentally from bash. Understanding this hierarchy is essential for cross-platform dotfiles:
+
+| File | When sourced | Bash equivalent |
+|------|-------------|-----------------|
+| `.zshenv` | **ALL zsh invocations** (interactive, non-interactive, login, non-login) | No equivalent (bash has no file sourced for all invocations) |
+| `.zprofile` | Login shells only | `.bash_profile` / `.profile` |
+| `.zshrc` | Interactive shells only | `.bashrc` |
+| `.zlogin` | Login shells only (after `.zshrc`) | No equivalent |
+| `.zlogout` | Login shell exit | `.bash_logout` |
+
+**The critical difference:** Bash has a special case where it sources `.bashrc` when invoked by sshd (remote shell daemon), even for non-interactive commands. **Zsh has no such special case.** For non-interactive `zsh -c 'command'` (which is what sshd runs when zsh is the default shell), **only `.zshenv` is sourced.**
+
+Without `.zshenv`, non-interactive zsh gets:
+
+- No `$PATH` modifications
+- No environment variables
+- No secrets
+- No Homebrew
+- Nothing
+
+### What SSH commands actually run
+
+When you run `ssh host 'command'`, sshd executes:
+
+```text
+$SHELL -c 'command'
+```
+
+If the user's default shell is zsh, this becomes `zsh -c 'command'` — a non-interactive, non-login shell. Only `.zshenv` is sourced.
+
+If the user's default shell is bash, this becomes `bash -c 'command'` — normally nothing is sourced, BUT bash has a special case: when it detects it's invoked by sshd (via `$SSH_CLIENT`/`$SSH_CONNECTION`), it sources `.bashrc`.
 
 ## Solution
 
-### Architecture Decision
-
-The key principle: `.profile` handles environment (all shells, all modes). RC files handle interactive features only.
+### Architecture
 
 ```text
-.profile (all shells, login + non-interactive)
+.profile (environment for all shells, all modes)
 ├── config/shell/*.sh  (env vars, caches, telemetry, paths)
-├── ~/.secrets          (tokens, API keys) -- BEFORE interactive guard
+├── ~/.secrets          (tokens, API keys)
 ├── Homebrew shellenv
 ├── ~/.local/bin/env
 ├── ~/.cargo/env
-└── GPG_TTY            (shared -- needed by both bash and zsh)
+└── GPG_TTY
 
-.bashrc (bash only)
-├── source .profile (if not already loaded, via DOTFILES_SHELL_DIR sentinel)
+.zshenv (ALL zsh invocations — the non-interactive entry point)
+└── source .profile (if not already loaded, via DOTFILES_SHELL_DIR sentinel)
+
+.bashrc (bash — interactive + sshd special case)
+├── source .profile (if not already loaded)
 ├── INTERACTIVE GUARD (case $- in *i*) ;; *) return;; esac)
 ├── shell-functions, history, lesspipe, dircolors
 ├── prompt, aliases, bash completion
 └── OSC 7
 
-.zshrc (zsh only)
-├── source .profile
-├── INTERACTIVE GUARD ([[ $- == *i* ]] || return)  -- defense-in-depth
+.zshrc (zsh — interactive only)
+├── source .profile (redundant with .zshenv, but sentinel guard makes it safe)
+├── INTERACTIVE GUARD ([[ $- == *i* ]] || return)
 ├── shell-functions, oh-my-zsh, history, modules
 └── completions, p10k
 ```
 
 ### Changes Made
 
-#### 1. Secrets migration (`stow/secrets/dot-secrets`)
+#### 1. Non-interactive zsh fix (`stow/zsh/dot-zshenv`) — NEW FILE
+
+```bash
+# ~/.zshenv - sourced by ALL zsh invocations (interactive + non-interactive)
+# Ensures secrets and environment are available to SSH commands, cron, etc.
+if [ -z "${DOTFILES_SHELL_DIR:-}" ] && [ -f "$HOME/.profile" ]; then
+    . "$HOME/.profile"
+fi
+```
+
+The `DOTFILES_SHELL_DIR` sentinel prevents double-sourcing when `.zshrc` also sources `.profile` for interactive sessions.
+
+#### 2. Secrets migration (`stow/secrets/dot-secrets`)
 
 Moved `OP_SERVICE_ACCOUNT_TOKEN` (hardcoded) and `X_API_*` tokens (via `op read`) from backup `.bashrc` to `~/.secrets`. This file is git-crypt encrypted and sourced by `.profile` before any interactive guard.
 
-#### 2. Bash rewrite (`stow/bash/dot-bashrc`)
+#### 3. Bash rewrite (`stow/bash/dot-bashrc`)
 
 Rewrote from 23 to 82 lines:
 
@@ -81,7 +124,7 @@ if [ -z "${DOTFILES_SHELL_DIR:-}" ] && [ -f "$HOME/.profile" ]; then
     . "$HOME/.profile"
 fi
 
-# Interactive guard -- secrets/env already loaded via .profile above
+# Interactive guard — secrets/env already loaded via .profile above
 case $- in
     *i*) ;;
       *) return;;
@@ -91,29 +134,25 @@ esac
 # bash completion, OSC 7
 ```
 
-The `DOTFILES_SHELL_DIR` sentinel prevents double-sourcing `.profile`. The `case $- in` pattern is POSIX-compatible (Ubuntu's default `/etc/skel/.bashrc` uses it).
+#### 4. Zsh interactive guard (`stow/zsh/dot-zshrc`)
 
-#### 3. Zsh guard (`stow/zsh/dot-zshrc`)
-
-Added 4 lines after `.profile` source:
+Added after `.profile` source:
 
 ```zsh
 [[ $- == *i* ]] || return
 ```
 
-This is defense-in-depth: zsh only sources `.zshrc` for interactive shells by design, but the guard provides an explicit contract and consistency with bash.
+Defense-in-depth: zsh only sources `.zshrc` for interactive shells by design, but the guard provides an explicit contract.
 
-#### 4. Shared GPG_TTY (`stow/shell/dot-profile`)
-
-Added at end of `.profile`:
+#### 5. Shared GPG_TTY (`stow/shell/dot-profile`)
 
 ```bash
 export GPG_TTY=$(tty)
 ```
 
-Previously missing from both shells. Placed in `.profile` so both bash and zsh get it without duplication.
+Placed in `.profile` so both bash and zsh get it without duplication.
 
-#### 5. Git credential helpers (`stow/git/dot-gitconfig`)
+#### 6. Git credential helpers (`stow/git/dot-gitconfig`)
 
 ```gitconfig
 [credential "https://github.com"]
@@ -124,9 +163,9 @@ Previously missing from both shells. Placed in `.profile` so both bash and zsh g
     helper = !gh auth git-credential
 ```
 
-The bare `!gh` (no absolute path) is the correct cross-platform pattern, confirmed by GitHub CLI maintainers (cli/cli#9438). The empty `helper =` resets the credential chain.
+Bare `!gh` (no absolute path) is the correct cross-platform pattern (cli/cli#9438). The empty `helper =` resets the credential chain.
 
-#### 6. SSH pool entries (`stow/ssh/dot-ssh/config`)
+#### 7. SSH pool entries (`stow/ssh/dot-ssh/config`)
 
 ```ssh-config
 Host pool.tailscale
@@ -140,13 +179,41 @@ Host pool-lan
     Port 5922
 ```
 
-`pool.tailscale` uses Tailscale MagicDNS. `pool-lan` provides explicit LAN fallback.
-
 ## Prevention Strategies
 
-### 1. Post-deployment backup comparison
+### 1. Always test non-interactive shells for BOTH bash and zsh
 
-Always compare stowed files against the backup immediately after deployment:
+The most important verification after any shell config change:
+
+```bash
+# Non-interactive zsh (what SSH commands actually run)
+ssh host 'echo SECRETS=${OP_SERVICE_ACCOUNT_TOKEN:+SET}'
+
+# Non-interactive bash
+ssh host 'bash -c "echo SECRETS=\${OP_SERVICE_ACCOUNT_TOKEN:+SET}"'
+
+# Interactive bash
+ssh host 'bash -i -l -c "echo HIST=\$HISTSIZE"'
+
+# Interactive zsh
+ssh -t host 'zsh -i -c "echo SECRETS=\${OP_SERVICE_ACCOUNT_TOKEN:+SET}"'
+```
+
+These tests are **binary pass/fail**. If `SECRETS=` is empty, the test failed. Do not rationalize the failure.
+
+### 2. AC tests are binary — never rationalize a failure
+
+When an acceptance test fails, the only valid responses are:
+
+| Scenario | Action |
+|----------|--------|
+| Implementation is wrong | Fix the implementation, re-run the test |
+| Test is wrong | Fix the test, document why, re-run |
+| Unexpected limitation | Document as a constraint, do not mark AC complete |
+
+**Never:** "The test failed, but this is expected behavior, so AC is complete." A failed test that gets rationalized away is more dangerous than having no test at all — it creates a false sense of safety.
+
+### 3. Post-deployment backup comparison
 
 ```bash
 diff ~/.config-backup-*/.bashrc ~/.bashrc
@@ -154,34 +221,30 @@ diff ~/.config-backup-*/.gitconfig ~/.gitconfig
 diff ~/.config-backup-*/.ssh/config ~/.ssh/config
 ```
 
-### 2. Secrets never in RC files
+### 4. Secrets never in RC files
 
-Secrets belong in `~/.secrets` (sourced by `.profile`), never in `.bashrc` or `.zshrc`. The git-crypt encryption on `stow/secrets/dot-secrets` ensures they're safe in the repo.
+Secrets belong in `~/.secrets` (sourced by `.profile`), never in `.bashrc` or `.zshrc`.
 
-### 3. Test both shells before deployment
-
-Before deploying to a new machine, verify both RC files work:
+### 5. Syntax check before deployment
 
 ```bash
-bash -n stow/bash/dot-bashrc    # Syntax check
-zsh -n stow/zsh/dot-zshrc       # Syntax check
+bash -n stow/bash/dot-bashrc
+zsh -n stow/zsh/dot-zshrc
+zsh -n stow/zsh/dot-zshenv
 ```
 
-### 4. Verification commands after deployment
+## Zsh vs Bash Startup File Reference
 
-```bash
-# Non-interactive secrets available
-ssh host 'echo SECRETS=${OP_SERVICE_ACCOUNT_TOKEN:+SET}'
+This table should be consulted whenever modifying shell configuration:
 
-# Interactive bash features
-ssh host 'bash -l -c "echo HIST=$HISTSIZE GPG=$GPG_TTY"'
+| Need | Bash location | Zsh location | Why |
+|------|--------------|-------------|-----|
+| Environment for ALL invocations | `.bashrc` (sshd special case) + `.bash_profile` (login) | **`.zshenv`** | Only file zsh sources for non-interactive |
+| Secrets, PATH, Homebrew | `.profile` (sourced by `.bashrc` and `.bash_profile`) | `.profile` (sourced by `.zshenv`) | Single source of truth |
+| Interactive features (prompt, aliases, completion) | `.bashrc` (after interactive guard) | `.zshrc` | Only needed for interactive use |
+| Login-only setup | `.bash_profile` | `.zprofile` | Rarely needed |
 
-# Git credential helper configured
-ssh host 'git config --get-all credential.https://github.com.helper'
-
-# SSH config resolves
-ssh host 'ssh -G pool.tailscale | head -3'
-```
+**Rule:** If it must work in `ssh host 'command'` with zsh as default shell, it **must** be reachable from `.zshenv`.
 
 ## Cross-References
 
