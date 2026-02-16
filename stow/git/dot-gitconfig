@@ -17,3 +17,9 @@
 	# Cross-platform wrapper in ~/.local/bin/ (on PATH via .profile)
 	program = op-ssh-sign-wrapper
 	allowedSignersFile = ~/.config/git/allowed_signers
+[credential "https://github.com"]
+	helper =
+	helper = !gh auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !gh auth git-credential

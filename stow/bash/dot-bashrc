@@ -5,19 +5,78 @@ if [ -z "${DOTFILES_SHELL_DIR:-}" ] && [ -f "$HOME/.profile" ]; then
     . "$HOME/.profile"
 fi
 
+# If not running interactively, don't do anything further.
+# Secrets and environment are already loaded via .profile above.
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# --- Everything below is interactive-only ---
+
 # Source shared shell functions
-# Source directly from repository (no symlink needed)
 if [ -n "${DOTFILES_SHELL_DIR:-}" ] && [ -f "${DOTFILES_SHELL_DIR}/shell-functions" ]; then
     . "${DOTFILES_SHELL_DIR}/shell-functions"
 fi
 
-# OSC 7 support: Report current directory to terminal (for better terminal integration)
-# Uses shared function from shell-functions (sourced from repository)
+# Shell options
+HISTCONTROL=ignoreboth
+shopt -s histappend
+HISTSIZE=1000
+HISTFILESIZE=2000
+shopt -s checkwinsize
+
+# lesspipe for non-text input files
+[ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
+
+# dircolors + color aliases
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    alias ls='ls --color=auto'
+    alias grep='grep --color=auto'
+    alias fgrep='fgrep --color=auto'
+    alias egrep='egrep --color=auto'
+fi
+
+# ls aliases
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+
+# Colored prompt with debian_chroot support
+if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
+    debian_chroot=$(cat /etc/debian_chroot)
+fi
+case "$TERM" in
+    xterm-color|*-256color) color_prompt=yes;;
+esac
+if [ "$color_prompt" = yes ]; then
+    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+else
+    PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+fi
+unset color_prompt
+# Set terminal title for xterm
+case "$TERM" in
+xterm*|rxvt*) PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]$PS1" ;;
+esac
+
+# Source bash aliases
+[ -f ~/.bash_aliases ] && . ~/.bash_aliases
+
+# Bash completion
+if ! shopt -oq posix; then
+    if [ -f /usr/share/bash-completion/bash_completion ]; then
+        . /usr/share/bash-completion/bash_completion
+    elif [ -f /etc/bash_completion ]; then
+        . /etc/bash_completion
+    fi
+fi
+
+# OSC 7: Report current directory to terminal
 _osc7_prompt_command() {
     _osc7_report_directory
 }
-# Add to PROMPT_COMMAND if not already present
 if [[ "$PROMPT_COMMAND" != *"_osc7_prompt_command"* ]]; then
     PROMPT_COMMAND="_osc7_prompt_command${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
 fi
-

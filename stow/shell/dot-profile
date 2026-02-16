@@ -65,3 +65,6 @@ fi
 if [ -f "$HOME/.cargo/env" ]; then
     . "$HOME/.cargo/env"
 fi
+
+# GPG terminal for commit signing (shared across all shells)
+export GPG_TTY=$(tty)
