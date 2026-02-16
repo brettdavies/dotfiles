@@ -41,20 +41,17 @@ if [ -f ~/.secrets ]; then
 fi
 
 
-# Initialize Homebrew shell environment (macOS only)
+# Initialize Homebrew/Linuxbrew shell environment
 # This ensures Homebrew PATH is available in all shells (login and interactive)
-# Supports both /opt/homebrew (Apple Silicon) and /usr/local (Intel)
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # Only set up if not already set (avoid duplicate PATH entries)
-    # This prevents issues if .zprofile or .bash_profile already set it up
-    if [[ -z "${HOMEBREW_PREFIX:-}" ]]; then
-        export HOMEBREW_NO_ENV_HINTS=1
-        # Check for brew in standard locations (don't rely on PATH)
-        if [ -f /opt/homebrew/bin/brew ]; then
-            eval "$(/opt/homebrew/bin/brew shellenv)"
-        elif [ -f /usr/local/bin/brew ]; then
-            eval "$(/usr/local/bin/brew shellenv)"
-        fi
+# Supports macOS (Apple Silicon + Intel) and Linux (Linuxbrew)
+if [[ -z "${HOMEBREW_PREFIX:-}" ]]; then
+    export HOMEBREW_NO_ENV_HINTS=1
+    if [ -f /opt/homebrew/bin/brew ]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [ -f /usr/local/bin/brew ]; then
+        eval "$(/usr/local/bin/brew shellenv)"
+    elif [ -f /home/linuxbrew/.linuxbrew/bin/brew ]; then
+        eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
     fi
 fi
 
