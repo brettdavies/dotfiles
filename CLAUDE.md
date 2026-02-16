@@ -4,7 +4,7 @@
 
 The library lives in `scripts/lib/` and is organized into 4 dependency layers:
 
-```
+```text
 Layer 0: core/         No dependencies (constants, OS/shell detection)
 Layer 1: util/         Depends on core/ (output, paths, args, timestamp)
 Layer 2: feature/      Depends on core/, util/ (traps, temp, logging, verbose, progress, validation, rollback)
@@ -174,6 +174,16 @@ When modifying a library file, run its corresponding test file to verify changes
 - **Namerefs:** Prefer `local -n` / `typeset -n` over `eval` for array manipulation (gated behind `has_nameref_support`).
 - **Permission constants:** Use `PERM_SECRET_FILE`, `PERM_SECRET_DIR`, `PERM_EXECUTABLE`, `PERM_REGULAR_FILE` from `core/constants.sh` instead of raw octal strings.
 - **Benchmarks:** Run `scripts/test/benchmark.sh` to measure performance of different implementations.
+
+---
+
+## Branch Workflow
+
+- **`main`** — stable release branch, deployed to all machines. Protected by GitHub ruleset: requires PR to merge, no direct pushes.
+- **`development`** — integration branch. Feature branches merge here first.
+- **Feature branches** — created from `development` (e.g., `feat/user-auth`, `fix/shell-startup`). Merged to `development` via PR, then `development` merged to `main` when ready.
+
+Never commit directly to `main`. All work goes through feature branches and PRs.
 
 ---
 

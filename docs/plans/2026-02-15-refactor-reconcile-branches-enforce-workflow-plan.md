@@ -1,7 +1,7 @@
 ---
 title: "refactor: Reconcile main/development branches and enforce git workflow"
 type: refactor
-status: active
+status: completed
 date: 2026-02-15
 ---
 
@@ -63,18 +63,18 @@ Update the project CLAUDE.md to document the branch workflow:
 
 ## Implementation Tasks
 
-- [ ] Merge `main` into `development`, resolve conflicts
-- [ ] Verify merged `development` works on macOS and bigdaddy
-- [ ] Fast-forward `main` to `development`
-- [ ] Change GitHub default branch to `main`
-- [ ] Create repository ruleset protecting `main`
-- [ ] Update CLAUDE.md with branch workflow
+- [x] Merge `main` into `development`, resolve conflicts
+- [x] Verify merged `development` works on macOS and bigdaddy
+- [x] Fast-forward `main` to `development`
+- [x] Change GitHub default branch to `main`
+- [x] Create repository ruleset protecting `main`
+- [x] Update CLAUDE.md with branch workflow
 - [ ] Update bigdaddy to final state
 
 ## Acceptance Criteria
 
-- [ ] `main` and `development` point to the same commit
-- [ ] GitHub default branch is `main`
-- [ ] Direct push to `main` is blocked by ruleset
-- [ ] All 9 X_API tokens work on macOS (3 shells) and bigdaddy (2 shells)
-- [ ] CLAUDE.md documents the branch workflow
+- [x] `main` and `development` point to the same commit
+- [x] GitHub default branch is `main`
+- [x] Direct push to `main` is blocked by ruleset
+- [x] All 9 X_API tokens work on macOS (3 shells) and bigdaddy (2 shells)
+- [x] CLAUDE.md documents the branch workflow
