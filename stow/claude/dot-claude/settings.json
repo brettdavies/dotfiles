@@ -155,7 +155,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "terminal-notifier -sound Funky -title \"🔔 Claude Code\" -message \"Claude needs your input\""
+            "command": "command -v terminal-notifier >/dev/null 2>&1 && terminal-notifier -sound Funky -title \"🔔 Claude Code\" -message \"Claude needs your input\" || true"
           }
         ]
       }
@@ -177,7 +177,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bd prime"
+            "command": "command -v bd >/dev/null 2>&1 && bd prime || true"
           }
         ]
       },
@@ -217,7 +217,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bd prime"
+            "command": "command -v bd >/dev/null 2>&1 && bd prime || true"
           }
         ]
       }
@@ -228,7 +228,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "terminal-notifier -sound Mezzo -title \"✅ Claude Code\" -message \"The task has been completed\""
+            "command": "command -v terminal-notifier >/dev/null 2>&1 && terminal-notifier -sound Mezzo -title \"✅ Claude Code\" -message \"The task has been completed\" || true"
           }
         ]
       }
