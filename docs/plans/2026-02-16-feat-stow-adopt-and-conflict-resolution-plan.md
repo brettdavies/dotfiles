@@ -13,13 +13,25 @@ date: 2026-02-16
 **Sections enhanced:** 6
 **Agents used:** security-sentinel, code-simplicity-reviewer, architecture-strategist, pattern-recognition-specialist, deployment-verification-agent, learnings-researcher (x2), web-search (x2)
 
-### Key Improvements
+**SpecFlow analysis on:** 2026-02-16
+**Agents used:** repo-research-analyst, learnings-researcher, spec-flow-analyzer
+**Gaps found:** 18 (4 critical, 4 important, 10 nice-to-have)
+
+### Key Improvements (deepening round)
 
 1. Replaced `grep -oP` (GNU-only PCRE) with POSIX-portable `sed` -- script was broken on macOS
 2. Added `--headless` mode that auto-restores repo versions after adopt (critical for fleet deployment)
 3. Added `-R` (restow) for idempotent re-runs on already-stowed packages
 4. Removed auto-discovery of packages (deploying ALL packages to Ubuntu would stow macOS-only packages)
 5. Added `command -v stow` guard, stow version warning, and bash 3.2 compatibility
+
+### Key Improvements (SpecFlow round)
+
+1. Added pre-flight checks: `local` package rejection, git-crypt lock detection, dirty working tree guard
+2. Added error classification -- non-conflict stow errors fail immediately instead of cascading through conflict resolution
+3. Headless mode now uses best-effort (continues on failure, summary at end) instead of fail-fast
+4. Added `.profile` resilience fix -- `~/.local/bin/env` sourcing guarded to prevent SSH lockout
+5. Adopt failures now handled gracefully instead of crashing the script
 
 ### Bugs Found in Original Script
 
@@ -114,12 +126,37 @@ git add stow/<package>/           # keep local changes
 
 Create a `scripts/stow-deploy` wrapper script that:
 
-1. Verifies stow is installed and checks version
-2. Tries `stow -R` directly (fast path for no conflicts)
-3. On failure, removes non-stow symlinks and retries
-4. On further failure, uses `--adopt` then auto-restores or shows diff
-5. Always uses `--no-folding` to prevent tree folding
-6. Supports `--headless` mode for automated fleet deployment
+1. Runs pre-flight checks (stow installed, clean working tree, git-crypt unlocked)
+2. Rejects the `local` package with an informative message (requires manual sub-package stowing)
+3. Tries `stow -R` directly (fast path for no conflicts)
+4. On conflict failure, removes non-stow symlinks and retries
+5. On further conflict failure, uses `--adopt` then auto-restores or shows diff
+6. On non-conflict failure, fails immediately with the original error (no cascade)
+7. Always uses `--no-folding` to prevent tree folding
+8. Supports `--headless` mode for automated fleet deployment (best-effort per package)
+
+### Pre-flight checks
+
+Before processing any packages, the script validates:
+
+1. **Stow installed:** `command -v stow` guard (fatal if missing)
+2. **Stow version:** Warn about 2.3.1 nested `dot-` bug (non-fatal)
+3. **`local` package rejected:** If `local` is in the package list, print error pointing to README manual steps and exit
+4. **git-crypt unlocked:** If any of `secrets`, `ssh`, `git` are in the package list, check that `stow/secrets/dot-secrets` is a valid text file (not encrypted binary). Fatal if locked -- deploying encrypted blobs breaks shell login and SSH.
+5. **Clean stow directory:** In `--headless` mode, check `git -C "$REPO_ROOT" status --porcelain stow/` and refuse if dirty (prevents `git checkout` from destroying uncommitted changes). In interactive mode, warn but continue.
+
+### Error classification
+
+The current script swallows all stderr on the fast path (`2>/dev/null`). When stow fails for a non-conflict reason (permission denied, stow internal error, 2.3.1 nested `dot-` bug), the error cascades through the conflict resolution pipeline with confusing results.
+
+**Fix:** After the fast-path failure, capture stderr and check if it contains conflict indicators (`existing target is not owned by stow` or `existing target is neither a link nor a directory`). If stderr does NOT contain conflict indicators, fail immediately with the full error output -- don't enter the resolution pipeline.
+
+### Failure mode by operating mode
+
+| Mode | On package failure | Summary |
+|------|-------------------|---------|
+| Interactive | Fail-fast (`set -e`) | Abort on first error, user investigates |
+| Headless | Best-effort (continue loop) | Track failures, report summary, exit non-zero if any failed |
 
 ### `scripts/stow-deploy`
 
@@ -152,6 +189,8 @@ if [ $# -eq 0 ]; then
   exit 1
 fi
 
+# --- Pre-flight checks ---
+
 # Verify stow is installed
 if ! command -v stow >/dev/null 2>&1; then
   echo "FATAL: GNU Stow is not installed" >&2
@@ -167,21 +206,62 @@ case "$stow_version" in
     ;;
 esac
 
-STOW_FLAGS=(--dotfiles --no-folding --target="$TARGET")
-
-cd "$STOW_DIR"
-
-# Validate package names (no path traversal)
+# Validate package names (no path traversal) and reject special-case packages
 for pkg in "$@"; do
   if [[ "$pkg" =~ [./] ]] || [[ ! -d "$STOW_DIR/$pkg" ]]; then
     echo "ERROR: Invalid package name: $pkg" >&2
     exit 1
   fi
+  if [ "$pkg" = "local" ]; then
+    echo "ERROR: The 'local' package requires manual sub-package stowing." >&2
+    echo "       dot-Library conflicts with --dotfiles (creates .Library instead of Library)." >&2
+    echo "       See README step 4 for manual instructions." >&2
+    exit 1
+  fi
 done
 
-# Track adopted packages (use temp file to avoid subshell variable loss)
+# Check git-crypt unlock status for encrypted packages
+for pkg in "$@"; do
+  case "$pkg" in
+    secrets|ssh|git)
+      if [ -f "$STOW_DIR/secrets/dot-secrets" ]; then
+        if file "$STOW_DIR/secrets/dot-secrets" | grep -q "data\|encrypted"; then
+          echo "FATAL: git-crypt is locked. Encrypted files would be deployed as binary blobs." >&2
+          echo "       Run: git-crypt unlock ~/.config/git-crypt/key" >&2
+          exit 1
+        fi
+      fi
+      break  # only need to check once
+      ;;
+  esac
+done
+
+# In headless mode, refuse to run with dirty stow directory
+if [ "$HEADLESS" = true ]; then
+  dirty=$(git -C "$REPO_ROOT" status --porcelain stow/ 2>/dev/null || true)
+  if [ -n "$dirty" ]; then
+    echo "FATAL: stow/ has uncommitted changes. In --headless mode, --adopt followed" >&2
+    echo "       by git checkout would destroy these changes. Commit first." >&2
+    exit 1
+  fi
+else
+  dirty=$(git -C "$REPO_ROOT" status --porcelain stow/ 2>/dev/null || true)
+  if [ -n "$dirty" ]; then
+    echo "WARNING: stow/ has uncommitted changes. If --adopt runs, git diff will" >&2
+    echo "         mix your edits with adopted files. Consider committing first." >&2
+  fi
+fi
+
+# --- Deploy ---
+
+STOW_FLAGS=(--dotfiles --no-folding --target="$TARGET")
+
+cd "$STOW_DIR"
+
+# Track adopted packages and failures (temp files avoid subshell variable loss)
 adopted_file=$(mktemp)
-trap 'rm -f "$adopted_file"' EXIT
+failed_file=$(mktemp)
+trap 'rm -f "$adopted_file" "$failed_file"' EXIT
 
 for pkg in "$@"; do
   echo "==> Stowing $pkg"
@@ -194,6 +274,20 @@ for pkg in "$@"; do
 
   # Stow failed. Collect conflict details from stderr.
   err=$(stow "${STOW_FLAGS[@]}" -R "$pkg" 2>&1 || true)
+
+  # Error classification: only enter conflict resolution if stderr
+  # contains conflict indicators. Other errors (permissions, stow bugs)
+  # should fail immediately with the original error message.
+  if ! echo "$err" | grep -q "existing target"; then
+    echo "  ERROR: $pkg failed (not a conflict):" >&2
+    echo "$err" | sed 's/^/    /' >&2
+    if [ "$HEADLESS" = true ]; then
+      echo "$pkg" >> "$failed_file"
+      continue  # best-effort: try remaining packages
+    else
+      exit 1  # fail-fast in interactive mode
+    fi
+  fi
 
   # Remove non-stow symlinks (absolute symlinks stow cannot own)
   echo "$err" | sed -n 's/.*existing target is not owned by stow: //p' | while read -r target; do
@@ -213,7 +307,17 @@ for pkg in "$@"; do
 
   # Still failing: adopt existing plain files
   echo "  Adopting existing files for $pkg..."
-  stow "${STOW_FLAGS[@]}" -R --adopt "$pkg"
+  if ! stow "${STOW_FLAGS[@]}" -R --adopt "$pkg" 2>/dev/null; then
+    adopt_err=$(stow "${STOW_FLAGS[@]}" -R --adopt "$pkg" 2>&1 || true)
+    echo "  ERROR: $pkg adopt failed:" >&2
+    echo "$adopt_err" | sed 's/^/    /' >&2
+    if [ "$HEADLESS" = true ]; then
+      echo "$pkg" >> "$failed_file"
+      continue
+    else
+      exit 1
+    fi
+  fi
   echo "$pkg" >> "$adopted_file"
 
   if [ "$HEADLESS" = true ]; then
@@ -239,6 +343,16 @@ if [ "$HEADLESS" = false ] && [ -s "$adopted_file" ]; then
   echo ""
   echo "To keep local changes:   git add stow/<package>/"
   echo "To discard and use repo: git checkout -- stow/<package>/"
+fi
+
+# Headless summary
+if [ "$HEADLESS" = true ] && [ -s "$failed_file" ]; then
+  echo ""
+  echo "=== FAILURES ==="
+  while read -r pkg; do
+    echo "  FAILED: $pkg"
+  done < "$failed_file"
+  exit 1
 fi
 ```
 
@@ -275,6 +389,8 @@ fi
 
 ## Acceptance Criteria
 
+### Script behavior
+
 - [ ] `scripts/stow-deploy` handles all three conflict types automatically
 - [ ] Non-stow symlinks are removed and logged before restowing
 - [ ] Existing plain files are adopted via `--adopt`, with `git diff` output for review (interactive) or auto-restored (headless)
@@ -285,6 +401,22 @@ fi
 - [ ] `command -v stow` guard and stow version warning included
 - [ ] Package names validated (no path traversal via `../`)
 - [ ] POSIX-portable parsing (no `grep -P`, no bash 3.2 incompatibilities)
+
+### Pre-flight checks
+
+- [ ] `local` package rejected with informative message pointing to README
+- [ ] git-crypt lock status checked before stowing `secrets`, `ssh`, or `git` packages
+- [ ] Dirty `stow/` directory: fatal in `--headless` mode, warning in interactive mode
+
+### Error handling
+
+- [ ] Non-conflict stow errors (permissions, stow bugs) fail immediately with original error -- no cascade through conflict resolution
+- [ ] Interactive mode: fail-fast on first error
+- [ ] Headless mode: best-effort (continue loop), failure summary at end, exit non-zero
+
+### Companion changes
+
+- [ ] `stow/shell/dot-profile`: make `~/.local/bin/env` sourcing resilient (`[ -f ... ] && .` instead of unconditional `.`)
 - [ ] README bootstrap section updated to reference `scripts/stow-deploy`
 - [ ] CLAUDE.md Stow Packages section updated with conflict resolution docs
 
@@ -296,6 +428,7 @@ fi
 - **GNU Stow 2.3.1 bug on Ubuntu:** Nested `dot-` directories don't convert correctly. The deployment plan for Ubuntu already accounts for this with manual `ln -sf` fallbacks. The script warns but does not attempt to work around this bug -- that responsibility belongs to `dotfiles-cli` or platform-specific deploy scripts.
 - **Not self-stowable:** The script lives in `scripts/` (repo infrastructure), not `stow/` (config payloads). It cannot be stowed because it is needed before stowing begins. If a user-facing CLI command is needed, that belongs in `dotfiles-cli` (Rust).
 - **Bash 3.2 compatibility:** macOS ships bash 3.2. The script avoids empty array expansion under `set -u` by using a temp file for `adopted` tracking instead of a bash array.
+- **`.profile` resilience:** Line 61 of `stow/shell/dot-profile` unconditionally sources `~/.local/bin/env` (provided by the `local` package). If this file is missing, every shell login fails -- potentially causing SSH lockout on headless servers. Fix: change `. "$HOME/.local/bin/env"` to `[ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"`. This 1-line change eliminates the deployment ordering dependency between `local` and `shell` packages.
 
 ## Stow Flag Reference
 
