@@ -73,7 +73,7 @@ case "$ext" in
     fi
 
     # Capture (not pipe) so unfixable issues are reported to Claude, not silently swallowed
-    lint_output=$(bunx markdownlint-cli2 "${config_args[@]}" --no-globs --fix "$file" 2>&1) || true
+    lint_output=$(markdownlint-cli2 "${config_args[@]}" --no-globs --fix "$file" 2>&1) || true
     [[ -n "$tmp_config" ]] && rm -f "$tmp_config"
     report_errors "$lint_output"
     ;;

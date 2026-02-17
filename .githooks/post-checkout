@@ -1,5 +1,6 @@
 #!/bin/bash
-if command -v git-crypt &> /dev/null; then
+# Auto-unlock git-crypt if key is available
+if command -v git-crypt >/dev/null 2>&1; then
     if [ -f ~/.config/git-crypt/key ]; then
         if git-crypt status 2>/dev/null | grep -q "not unlocked"; then
             git-crypt unlock ~/.config/git-crypt/key 2>/dev/null || true
@@ -7,3 +8,5 @@ if command -v git-crypt &> /dev/null; then
     fi
 fi
 
+# Chain Git LFS hook (core.hooksPath overrides .git/hooks/)
+command -v git-lfs >/dev/null 2>&1 && git lfs post-checkout "$@"
