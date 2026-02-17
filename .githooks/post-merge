@@ -1,8 +1,14 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Auto-unlock git-crypt if key is available
+
+set -euo pipefail
+
 if command -v git-crypt >/dev/null 2>&1; then
     if [ -f ~/.config/git-crypt/key ]; then
-        if git-crypt status 2>/dev/null | grep -q "not unlocked"; then
+        # Fast sentinel check: if a known encrypted file is binary, repo is locked.
+        # Avoids expensive `git-crypt status` which scans every file (200-500ms).
+        sentinel="stow/secrets/dot-secrets"
+        if [ -f "$sentinel" ] && ! file "$sentinel" | grep -q "text"; then
             git-crypt unlock ~/.config/git-crypt/key 2>/dev/null || true
         fi
     fi
