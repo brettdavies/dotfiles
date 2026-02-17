@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Chain Git LFS pre-push hook (core.hooksPath overrides .git/hooks/)
+command -v git-lfs >/dev/null 2>&1 && git lfs pre-push "$@"

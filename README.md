@@ -9,7 +9,9 @@ Personal dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/) fo
 ```text
 stow/           Stow packages — each subdirectory symlinks into $HOME
 config/shell/   Shell environment fragments sourced by .profile
-scripts/        Sync scripts and git hooks
+.githooks/      Repo-local git hooks (activated via core.hooksPath)
+.github/        GitHub platform config (rulesets)
+scripts/sync/   iCloud sync scripts
 ```
 
 ### Stow Packages
@@ -74,6 +76,16 @@ git-crypt unlock ~/.config/git-crypt/key
 ```
 
 > The git-crypt key must be copied from a secure backup (password manager). Without it, `stow/secrets/dot-secrets` and `stow/ssh/dot-ssh/config` remain encrypted.
+
+### 3.5. Activate git hooks
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Or run: `bash .githooks/setup`
+
+This enables repo-local hooks (pre-commit branch protection, git-crypt auto-unlock, Git LFS chaining).
 
 ### 4. Stow packages
 
@@ -197,7 +209,7 @@ Sensitive files are encrypted with [git-crypt](https://github.com/AGWA/git-crypt
 - `stow/ssh/dot-ssh/config` — SSH host configurations
 - `stow/git/dot-config/git/allowed_signers` — SSH allowed signers
 
-Git hooks in `scripts/git-hooks/` auto-unlock on checkout and merge.
+Git hooks in `.githooks/` auto-unlock on checkout and merge.
 
 Back up the key file (`~/.config/git-crypt/key`) in a password manager. If lost, encrypted files cannot be recovered.
 
