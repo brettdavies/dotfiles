@@ -33,6 +33,25 @@ To add a new package:
 1. Create `stow/<package-name>/` with `dot-` prefixed files
 2. The package is auto-discovered during deployment
 
+### Conflict Resolution (`scripts/stow-deploy`)
+
+GNU Stow has no `--force` flag. The `scripts/stow-deploy` wrapper handles three conflict types:
+
+| Conflict | Cause | Resolution |
+|----------|-------|------------|
+| Non-stow symlink | Manually created absolute symlink | Remove symlink, restow |
+| Existing plain file | Config created by installer | `--adopt` moves file into package, then review or auto-restore |
+| Tree folding | Directory-level symlink pollutes repo | `--no-folding` prevents this (always enabled) |
+
+**Usage:**
+
+```bash
+scripts/stow-deploy shell zsh bash git ssh    # interactive (shows git diff for adopted files)
+scripts/stow-deploy --headless shell bash git  # headless (auto-restores repo versions after adopt)
+```
+
+**Restrictions:** The `local` package is rejected (requires manual sub-package stowing). Encrypted packages (`secrets`, `ssh`, `git`) require git-crypt unlock first.
+
 ---
 
 ## Shell Config Chain

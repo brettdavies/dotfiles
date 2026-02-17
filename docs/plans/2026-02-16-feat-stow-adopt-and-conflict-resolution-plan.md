@@ -391,34 +391,34 @@ fi
 
 ### Script behavior
 
-- [ ] `scripts/stow-deploy` handles all three conflict types automatically
-- [ ] Non-stow symlinks are removed and logged before restowing
-- [ ] Existing plain files are adopted via `--adopt`, with `git diff` output for review (interactive) or auto-restored (headless)
-- [ ] `--no-folding` is always used to prevent directory-level symlinks
-- [ ] `-R` (restow) used for idempotent first-deploy and re-deploy
-- [ ] Script requires explicit package names (no auto-discovery)
-- [ ] `--headless` flag auto-restores repo versions after adopt
-- [ ] `command -v stow` guard and stow version warning included
-- [ ] Package names validated (no path traversal via `../`)
-- [ ] POSIX-portable parsing (no `grep -P`, no bash 3.2 incompatibilities)
+- [x] `scripts/stow-deploy` handles all three conflict types automatically
+- [x] Non-stow symlinks are removed and logged before restowing
+- [x] Existing plain files are adopted via `--adopt`, with `git diff` output for review (interactive) or auto-restored (headless)
+- [x] `--no-folding` is always used to prevent directory-level symlinks
+- [x] `-R` (restow) used for idempotent first-deploy and re-deploy
+- [x] Script requires explicit package names (no auto-discovery)
+- [x] `--headless` flag auto-restores repo versions after adopt
+- [x] `command -v stow` guard and stow version warning included
+- [x] Package names validated (no path traversal via `../`)
+- [x] POSIX-portable parsing (no `grep -P`, no bash 3.2 incompatibilities)
 
 ### Pre-flight checks
 
-- [ ] `local` package rejected with informative message pointing to README
-- [ ] git-crypt lock status checked before stowing `secrets`, `ssh`, or `git` packages
-- [ ] Dirty `stow/` directory: fatal in `--headless` mode, warning in interactive mode
+- [x] `local` package rejected with informative message pointing to README
+- [x] git-crypt lock status checked before stowing `secrets`, `ssh`, or `git` packages
+- [x] Dirty `stow/` directory: fatal in `--headless` mode, warning in interactive mode
 
 ### Error handling
 
-- [ ] Non-conflict stow errors (permissions, stow bugs) fail immediately with original error -- no cascade through conflict resolution
-- [ ] Interactive mode: fail-fast on first error
-- [ ] Headless mode: best-effort (continue loop), failure summary at end, exit non-zero
+- [x] Non-conflict stow errors (permissions, stow bugs) fail immediately with original error -- no cascade through conflict resolution
+- [x] Interactive mode: fail-fast on first error
+- [x] Headless mode: best-effort (continue loop), failure summary at end, exit non-zero
 
 ### Companion changes
 
-- [ ] `stow/shell/dot-profile`: make `~/.local/bin/env` sourcing resilient (`[ -f ... ] && .` instead of unconditional `.`)
-- [ ] README bootstrap section updated to reference `scripts/stow-deploy`
-- [ ] CLAUDE.md Stow Packages section updated with conflict resolution docs
+- [x] `stow/shell/dot-profile`: make `~/.local/bin/env` sourcing resilient (`[ -f ... ] && .` instead of unconditional `.`)
+- [x] README bootstrap section updated to reference `scripts/stow-deploy`
+- [x] CLAUDE.md Stow Packages section updated with conflict resolution docs
 
 ## Technical Considerations
 
