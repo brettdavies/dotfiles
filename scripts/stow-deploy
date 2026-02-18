@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Stow deployment wrapper with automatic conflict resolution
+# Handles: non-stow symlinks, existing plain files, tree folding
+#
+# Usage: scripts/stow-deploy [--headless] <package> [package ...]
+# Requires explicit package names. No auto-discovery.
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+STOW_DIR="$REPO_ROOT/stow"
+TARGET="$HOME"
+HEADLESS=false
+
+# Parse flags
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --headless) HEADLESS=true; shift ;;
+    *) echo "Unknown flag: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [ $# -eq 0 ]; then
+  echo "Usage: scripts/stow-deploy [--headless] <package> [package ...]" >&2
+  echo "Example: scripts/stow-deploy shell zsh bash git ssh" >&2
+  exit 1
+fi
+
+# --- Pre-flight checks ---
+
+# Verify stow is installed
+if ! command -v stow >/dev/null 2>&1; then
+  echo "FATAL: GNU Stow is not installed" >&2
+  exit 1
+fi
+
+# Warn about known stow 2.3.1 nested dot- bug
+stow_version=$(stow --version 2>&1 | sed -n 's/.*version //p')
+case "$stow_version" in
+  2.3.*|2.2.*|2.1.*|2.0.*)
+    echo "WARNING: Stow $stow_version has known --dotfiles bug with nested directories" >&2
+    echo "         Packages with nested dot- dirs (git, ssh, gh, pip, claude) may fail" >&2
+    ;;
+esac
+
+# Validate package names (no path traversal) and reject special-case packages
+for pkg in "$@"; do
+  if [[ "$pkg" =~ [./] ]] || [[ ! -d "$STOW_DIR/$pkg" ]]; then
+    echo "ERROR: Invalid package name: $pkg" >&2
+    exit 1
+  fi
+  if [ "$pkg" = "local" ]; then
+    echo "ERROR: The 'local' package requires manual sub-package stowing." >&2
+    echo "       dot-Library conflicts with --dotfiles (creates .Library instead of Library)." >&2
+    echo "       See README step 4 for manual instructions." >&2
+    exit 1
+  fi
+done
+
+# Check git-crypt unlock status for encrypted packages
+for pkg in "$@"; do
+  case "$pkg" in
+    secrets|ssh|git)
+      if [ -f "$STOW_DIR/secrets/dot-secrets" ]; then
+        if ! file "$STOW_DIR/secrets/dot-secrets" | grep -q "text"; then
+          echo "FATAL: git-crypt is locked. Encrypted files would be deployed as binary blobs." >&2
+          echo "       Run: git-crypt unlock ~/.config/git-crypt/key" >&2
+          exit 1
+        fi
+      fi
+      break  # only need to check once
+      ;;
+  esac
+done
+
+# Check for dirty stow directory
+dirty=$(git -C "$REPO_ROOT" status --porcelain stow/ 2>/dev/null || true)
+if [ -n "$dirty" ]; then
+  if [ "$HEADLESS" = true ]; then
+    echo "FATAL: stow/ has uncommitted changes. In --headless mode, --adopt followed" >&2
+    echo "       by git checkout would destroy these changes. Commit first." >&2
+    exit 1
+  else
+    echo "WARNING: stow/ has uncommitted changes. If --adopt runs, git diff will" >&2
+    echo "         mix your edits with adopted files. Consider committing first." >&2
+  fi
+fi
+
+# --- Deploy ---
+
+STOW_FLAGS=(--dotfiles --no-folding --target="$TARGET")
+
+cd "$STOW_DIR"
+
+# Track adopted packages and failures (temp files avoid subshell variable loss)
+adopted_file=$(mktemp)
+failed_file=$(mktemp)
+trap 'rm -f "$adopted_file" "$failed_file"' EXIT
+
+for pkg in "$@"; do
+  echo "==> Stowing $pkg"
+
+  # Try restow, capturing stderr for conflict analysis on failure
+  if err=$(stow "${STOW_FLAGS[@]}" -R "$pkg" 2>&1); then
+    echo "  Done: $pkg"
+    continue
+  fi
+
+  # Error classification: only enter conflict resolution if stderr
+  # contains conflict indicators. Other errors (permissions, stow bugs)
+  # should fail immediately with the original error message.
+  if ! grep -q "existing target" <<< "$err"; then
+    echo "  ERROR: $pkg failed (not a conflict):" >&2
+    # shellcheck disable=SC2001
+    sed 's/^/    /' <<< "$err" >&2
+    if [ "$HEADLESS" = true ]; then
+      echo "$pkg" >> "$failed_file"
+      continue  # best-effort: try remaining packages
+    else
+      exit 1  # fail-fast in interactive mode
+    fi
+  fi
+
+  # Remove non-stow symlinks (absolute symlinks stow cannot own)
+  sed -n 's/.*existing target is not owned by stow: //p' <<< "$err" | while read -r target; do
+    full="$TARGET/$target"
+    if [ -L "$full" ]; then
+      dest=$(readlink "$full")
+      echo "  Removing non-stow symlink: $target -> $dest"
+      rm -f "$full"
+    fi
+  done
+
+  # Retry after symlink cleanup
+  if stow "${STOW_FLAGS[@]}" -R "$pkg" 2>/dev/null; then
+    echo "  Done: $pkg (after symlink cleanup)"
+    continue
+  fi
+
+  # Still failing: adopt existing plain files
+  echo "  Adopting existing files for $pkg..."
+  if ! adopt_err=$(stow "${STOW_FLAGS[@]}" -R --adopt "$pkg" 2>&1); then
+    echo "  ERROR: $pkg adopt failed:" >&2
+    # shellcheck disable=SC2001
+    sed 's/^/    /' <<< "$adopt_err" >&2
+    if [ "$HEADLESS" = true ]; then
+      echo "$pkg" >> "$failed_file"
+      continue
+    else
+      exit 1
+    fi
+  fi
+  echo "$pkg" >> "$adopted_file"
+
+  if [ "$HEADLESS" = true ]; then
+    # Headless: auto-restore repo versions (proven pattern from bigdaddy deployment)
+    git -C "$REPO_ROOT" checkout -- "stow/$pkg/"
+    echo "  Done: $pkg (adopted + auto-restored repo version)"
+  else
+    echo "  Done: $pkg (adopted — review diff below)"
+  fi
+done
+
+# Show diffs for adopted files (interactive mode only)
+if [ "$HEADLESS" = false ] && [ -s "$adopted_file" ]; then
+  echo ""
+  echo "=== Files adopted from target into repo ==="
+  echo "Review changes below. Local file content now overwrites repo versions."
+  echo ""
+  cd "$REPO_ROOT"
+  while read -r pkg; do
+    echo "--- $pkg ---"
+    git diff "stow/$pkg/" 2>/dev/null || echo "  (no changes or untracked)"
+  done < "$adopted_file"
+  echo ""
+  echo "To keep local changes:   git add stow/<package>/"
+  echo "To discard and use repo: git checkout -- stow/<package>/"
+fi
+
+# Headless summary
+if [ "$HEADLESS" = true ] && [ -s "$failed_file" ]; then
+  echo ""
+  echo "=== FAILURES ==="
+  while read -r pkg; do
+    echo "  FAILED: $pkg"
+  done < "$failed_file"
+  exit 1
+fi

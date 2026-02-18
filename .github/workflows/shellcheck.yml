@@ -25,5 +25,8 @@ jobs:
       - name: Check shell config fragments
         run: shellcheck --shell=bash config/shell/*.sh
 
+      - name: Check scripts
+        run: shellcheck scripts/stow-deploy
+
       - name: Check dot-profile
         run: shellcheck --shell=bash --exclude=SC1090,SC1091 stow/shell/dot-profile

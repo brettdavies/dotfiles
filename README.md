@@ -7,11 +7,12 @@ Personal dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/) fo
 ## Repository Layout
 
 ```text
-stow/           Stow packages — each subdirectory symlinks into $HOME
-config/shell/   Shell environment fragments sourced by .profile
-.githooks/      Repo-local git hooks (activated via core.hooksPath)
-.github/        GitHub platform config (rulesets)
-scripts/sync/   iCloud sync scripts
+stow/              Stow packages — each subdirectory symlinks into $HOME
+config/shell/      Shell environment fragments sourced by .profile
+.githooks/         Repo-local git hooks (activated via core.hooksPath)
+.github/           GitHub platform config (rulesets, CI)
+scripts/stow-deploy  Stow wrapper with automatic conflict resolution
+scripts/sync/      iCloud sync scripts
 ```
 
 ### Stow Packages
@@ -89,18 +90,26 @@ This enables repo-local hooks (pre-commit branch protection, git-crypt auto-unlo
 
 ### 4. Stow packages
 
-Most packages use `--dotfiles` to convert `dot-` prefixes to `.` prefixes:
+Use the `stow-deploy` wrapper for automatic conflict resolution:
+
+```bash
+cd ~/dotfiles
+scripts/stow-deploy shell zsh bash git ssh ghostty gh claude codex cursor opencode pip brew secrets
+```
+
+The wrapper handles non-stow symlinks, existing plain files (`--adopt`), and always uses `--no-folding`. For headless servers, add `--headless` to auto-restore repo versions after adopt.
+
+**Manual alternative** (without conflict resolution):
 
 ```bash
 cd ~/dotfiles/stow
-stow --dotfiles --target="$HOME" \
+stow --dotfiles --no-folding --target="$HOME" \
   shell zsh bash git ssh ghostty gh claude codex cursor opencode pip brew secrets
 ```
 
-The `local` package requires separate handling because `--dotfiles` would incorrectly convert `dot-local` and `dot-Library` to hidden directories:
+The `local` package requires separate handling because `--dotfiles` would incorrectly convert `dot-Library` to `.Library`:
 
 ```bash
-# .local/bin/env (this one is fine with --dotfiles)
 cd ~/dotfiles/stow/local
 stow --dotfiles --target="$HOME" dot-local
 ```
