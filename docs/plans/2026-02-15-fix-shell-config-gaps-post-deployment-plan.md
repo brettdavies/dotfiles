@@ -1,7 +1,7 @@
 ---
 title: "fix: Restore shell config features lost during cross-platform deployment"
 type: fix
-status: active
+status: completed
 date: 2026-02-15
 deepened: 2026-02-15
 ---

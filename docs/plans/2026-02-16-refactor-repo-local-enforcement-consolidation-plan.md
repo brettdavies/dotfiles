@@ -1,7 +1,7 @@
 ---
 title: Consolidate repo-local enforcement (hooks, rulesets, config)
 type: refactor
-status: active
+status: completed
 date: 2026-02-16
 ---
 
