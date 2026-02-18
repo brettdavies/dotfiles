@@ -12,7 +12,7 @@ date: 2026-02-15
 
 ## Problem Symptom
 
-After deploying dotfiles via GNU Stow from macOS to Ubuntu 24.04 (bigdaddy), two categories of problems emerged:
+After deploying dotfiles via GNU Stow from macOS to Ubuntu 24.04, two categories of problems emerged:
 
 **Found via backup comparison (`~/.config-backup-20260215/`):**
 
@@ -158,18 +158,18 @@ export GPG_TTY=$(tty)
 
 Placed in `.profile` so both bash and zsh get it without duplication.
 
-#### 7. Git credential helpers (`stow/git/dot-gitconfig`)
+#### 7. SSH-only GitHub access (`stow/git/dot-gitconfig`)
 
 ```gitconfig
-[credential "https://github.com"]
-    helper =
-    helper = !gh auth git-credential
-[credential "https://gist.github.com"]
-    helper =
-    helper = !gh auth git-credential
+[url "git@github.com:"]
+    insteadOf = https://github.com/
+[url "git@gist.github.com:"]
+    insteadOf = https://gist.github.com/
 ```
 
-Bare `!gh` (no absolute path) is the correct cross-platform pattern (cli/cli#9438). The empty `helper =` resets the credential chain.
+All GitHub and Gist URLs are transparently rewritten from HTTPS to SSH at the git transport layer. This eliminates the need for HTTPS credential helpers (`gh auth git-credential`) and the `gh` CLI dependency for git operations. Authentication flows entirely through SSH keys (`~/.ssh/brett_ed25519`) managed by 1Password (macOS) or local key files (headless Linux).
+
+**Note:** The `insteadOf` rules only take effect after the gitconfig is stowed. The initial `git clone` of the dotfiles repo can use either HTTPS or SSH -- HTTPS works fine since the rewrite rules aren't active yet.
 
 #### 8. SSH pool entries (`stow/ssh/dot-ssh/config`)
 
@@ -267,7 +267,7 @@ This table should be consulted whenever modifying shell configuration:
 
 - Initial deployment solution: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
 - Secrets loading optimization: `docs/solutions/performance-issues/shell-startup-secrets-loading-optimization.md`
-- Deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-bigdaddy-plan.md`
+- Initial deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-ubuntu-server-plan.md`
 - Post-deployment fix plan: `docs/plans/2026-02-15-fix-shell-config-gaps-post-deployment-plan.md`
 - Secrets optimization plan: `docs/plans/2026-02-15-perf-secrets-loading-no-disk-writes-plan.md`
 - Shell config chain: documented in project `CLAUDE.md` under "Shell Config Chain"

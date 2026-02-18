@@ -12,7 +12,7 @@ date: 2026-02-15
 
 ## Problem Symptom
 
-After deploying dotfiles to a second machine (bigdaddy), post-deployment fixes went directly to `main` while earlier feature work had gone to `development`. The branches diverged with 24 combined unique commits (10 on main, 14 on development) since merge-base `09f26e6`. Critical shell config files had incompatible versions on each branch.
+After deploying dotfiles to a second machine, post-deployment fixes went directly to `main` while earlier feature work had gone to `development`. The branches diverged with 24 combined unique commits (10 on main, 14 on development) since merge-base `09f26e6`. Critical shell config files had incompatible versions on each branch.
 
 ## Root Cause
 

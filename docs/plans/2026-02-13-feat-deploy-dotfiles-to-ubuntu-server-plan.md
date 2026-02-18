@@ -1,11 +1,11 @@
 ---
-title: Deploy dotfiles to bigdaddy (Ubuntu server)
+title: Deploy dotfiles to Ubuntu server
 type: feat
 status: completed
 date: 2026-02-13
 ---
 
-# Deploy dotfiles to bigdaddy (Ubuntu server)
+# Deploy dotfiles to a headless Ubuntu server
 
 ## Enhancement Summary
 
@@ -31,20 +31,19 @@ date: 2026-02-13
 
 ## Overview
 
-Deploy the dotfiles repository to bigdaddy, an Ubuntu server with existing configuration. The approach is: fix cross-platform issues in the repo first, then clone on bigdaddy, install oh-my-zsh, and stow packages in a safe order with rollback capability.
+Deploy the dotfiles repository to a headless Ubuntu server with existing configuration. The approach is: fix cross-platform issues in the repo first, then clone on the target server, install oh-my-zsh, and stow packages in a safe order with rollback capability.
 
 ## Connection Details
 
-- **SSH alias:** `bigdaddy_wifi`
-- **Host:** 192.168.1.112, port 22, user `brett`
+- **SSH alias:** Configure an alias in `~/.ssh/config` for the target server
 - **Auth:** `~/.ssh/brett_ed25519` key file
 - **OS:** Ubuntu Server
 
 ## Strategy
 
 ```text
-Local (macOS)                          bigdaddy (Ubuntu)
-─────────────                          ─────────────────
+Local (macOS)                          Target server (Ubuntu)
+─────────────                          ──────────────────────
 1. Fix cross-platform issues
    in repo (SSH, git, zsh)
 2. Push to development
@@ -100,7 +99,7 @@ Host *
     ServerAliveCountMax 3
 ```
 
-Also remove the per-host `IdentityAgent` macOS paths from individual host blocks where `IdentityFile` is already specified (e.g., `bigdaddy_10`, `bigdaddy_wifi`). The platform-conditional `Match exec` blocks handle agent selection globally.
+Also remove the per-host `IdentityAgent` macOS paths from individual host blocks where `IdentityFile` is already specified (e.g., `the server_10`, `server`). The platform-conditional `Match exec` blocks handle agent selection globally.
 
 **Cross-platform verification:** `Match exec` is supported in OpenSSH 7.3+ (August 2016). macOS ships 9.9, Ubuntu 18.04+ ships 7.6+. The `uname -s` command returns `Darwin` on macOS and `Linux` on Ubuntu. Only the matching block activates -- the other is silently ignored.
 
@@ -158,12 +157,12 @@ git commit -m "fix: make zsh, ssh, and git configs cross-platform for Linux depl
 git push origin development
 ```
 
-## Phase 1: Audit bigdaddy's current state
+## Phase 1: Audit the server's current state
 
-SSH into bigdaddy and inventory what exists before making any changes:
+SSH into the server and inventory what exists before making any changes:
 
 ```bash
-ssh bigdaddy_wifi 'bash -s' << 'AUDIT'
+ssh server 'bash -s' << 'AUDIT'
 echo "=== OS ==="
 lsb_release -a 2>/dev/null || cat /etc/os-release
 
@@ -200,22 +199,22 @@ df -h ~ | tail -1
 AUDIT
 ```
 
-Review the output. If bigdaddy has customizations worth preserving, diff them on the server:
+Review the output. If the server has customizations worth preserving, diff them on the server:
 
 ```bash
-# Example: compare bigdaddy's .bashrc against the repo version
-ssh bigdaddy_wifi 'diff ~/.bashrc ~/dotfiles/stow/bash/dot-bashrc 2>/dev/null || echo "Cannot diff yet (repo not cloned)"'
+# Example: compare the server's .bashrc against the repo version
+ssh server 'diff ~/.bashrc ~/dotfiles/stow/bash/dot-bashrc 2>/dev/null || echo "Cannot diff yet (repo not cloned)"'
 ```
 
-## Phase 2: Prepare bigdaddy
+## Phase 2: Prepare the server
 
 ### 2.0 Create emergency shell access (CRITICAL -- do this first)
 
 If `.profile` or `.bashrc` break, SSH login shells may fail. Create a fallback:
 
 ```bash
-ssh bigdaddy_wifi 'bash -s' << 'EMERGENCY'
-# Emergency bashrc -- use: ssh bigdaddy 'bash --rcfile ~/.bashrc.emergency'
+ssh server 'bash -s' << 'EMERGENCY'
+# Emergency bashrc -- use: ssh the server 'bash --rcfile ~/.bashrc.emergency'
 cat > "$HOME/.bashrc.emergency" << 'EOF'
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PS1='[EMERGENCY] \u@\h:\w\$ '
@@ -234,7 +233,7 @@ EMERGENCY
 ### 2.1 Install prerequisites
 
 ```bash
-ssh bigdaddy_wifi 'bash -s' << 'INSTALL'
+ssh server 'bash -s' << 'INSTALL'
 sudo apt update
 sudo apt install -y stow git-crypt zsh curl git
 
@@ -253,18 +252,18 @@ INSTALL
 ### 2.2 Verify SSH host key, then copy git-crypt key
 
 ```bash
-# Verify bigdaddy's host key fingerprint before transferring secrets
+# Verify the server's host key fingerprint before transferring secrets
 ssh-keygen -l -F 192.168.1.112
 
-# Create config directory on bigdaddy
-ssh bigdaddy_wifi 'mkdir -p ~/.config/git-crypt && chmod 700 ~/.config/git-crypt'
+# Create config directory on the server
+ssh server 'mkdir -p ~/.config/git-crypt && chmod 700 ~/.config/git-crypt'
 
 # Copy key
-scp ~/.config/git-crypt/key bigdaddy_wifi:~/.config/git-crypt/key
+scp ~/.config/git-crypt/key server:~/.config/git-crypt/key
 
 # Lock down permissions and verify integrity
 LOCAL_HASH=$(shasum -a 256 ~/.config/git-crypt/key | cut -d' ' -f1)
-ssh bigdaddy_wifi "chmod 600 ~/.config/git-crypt/key && echo \$(sha256sum ~/.config/git-crypt/key | cut -d' ' -f1)"
+ssh server "chmod 600 ~/.config/git-crypt/key && echo \$(sha256sum ~/.config/git-crypt/key | cut -d' ' -f1)"
 # Compare the two hashes manually
 echo "Local hash: $LOCAL_HASH"
 ```
@@ -279,7 +278,7 @@ echo "Local hash: $LOCAL_HASH"
 ### 2.3 Clone repo via HTTPS
 
 ```bash
-ssh bigdaddy_wifi 'bash -s' << 'CLONE'
+ssh server 'bash -s' << 'CLONE'
 git clone https://github.com/brettdavies/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 git-crypt unlock ~/.config/git-crypt/key
@@ -299,7 +298,7 @@ CLONE
 oh-my-zsh must be installed before stowing the `zsh` package. The `.zshrc` sources `$ZSH/oh-my-zsh.sh` on line 84 and references plugins that must exist. The oh-my-zsh installer replaces `.zshrc` by default -- use `--keep-zshrc` to prevent this.
 
 ```bash
-ssh bigdaddy_wifi 'bash -s' << 'OMZ'
+ssh server 'bash -s' << 'OMZ'
 # Install oh-my-zsh (--keep-zshrc prevents it from overwriting .zshrc)
 if [ ! -d "$HOME/.oh-my-zsh" ]; then
   RUNZSH=no CHSH=no KEEP_ZSHRC=yes \
@@ -341,7 +340,7 @@ OMZ
 `.profile` (line 65) unconditionally sources `$HOME/.local/bin/env`. This file must exist before `.profile` is stowed, or all login shells will fail.
 
 ```bash
-ssh bigdaddy_wifi 'bash -s' << 'LOCAL'
+ssh server 'bash -s' << 'LOCAL'
 mkdir -p "$HOME/.local/bin"
 ln -sf ~/dotfiles/stow/local/dot-local/bin/env "$HOME/.local/bin/env"
 chmod +x "$HOME/.local/bin/env"
@@ -376,7 +375,7 @@ Deploy packages one category at a time, verifying bash login works before procee
 | `local` | Skip | Handled manually in 3.2; `dot-Library/` is macOS-only |
 
 ```bash
-ssh bigdaddy_wifi 'bash -s' << 'STOW'
+ssh server 'bash -s' << 'STOW'
 cd ~/dotfiles/stow
 
 # Step 1: Use --adopt to handle existing files, then revert to repo versions
@@ -402,7 +401,7 @@ STOW
 
 ```bash
 # From LOCAL machine -- new SSH session
-ssh bigdaddy_wifi 'bash --login -c "
+ssh server 'bash --login -c "
   echo BASH_LOGIN_OK
   echo DOTFILES_SHELL_DIR=\$DOTFILES_SHELL_DIR
   echo PATH_INCLUDES_LOCAL_BIN=\$(echo \$PATH | grep -q .local/bin && echo yes || echo no)
@@ -424,7 +423,7 @@ If this fails, debug before proceeding. You still have bash access.
 Only after bash login is verified:
 
 ```bash
-ssh bigdaddy_wifi 'bash -s' << 'STOW_ZSH'
+ssh server 'bash -s' << 'STOW_ZSH'
 cd ~/dotfiles/stow
 
 # Remove any .zshrc that oh-my-zsh may have created
@@ -446,7 +445,7 @@ STOW_ZSH
 Stow creates symlinks, but the target files may have overly permissive modes from git checkout (typically 644). Sensitive files need restricted permissions:
 
 ```bash
-ssh bigdaddy_wifi 'bash -s' << 'PERMS'
+ssh server 'bash -s' << 'PERMS'
 chmod 700 ~/.ssh 2>/dev/null
 chmod 600 ~/.ssh/config 2>/dev/null
 chmod 600 ~/.secrets 2>/dev/null
@@ -465,7 +464,7 @@ PERMS
 On Ubuntu, `chsh` requires a password via PAM. Use `sudo chsh` to bypass:
 
 ```bash
-ssh bigdaddy_wifi 'sudo chsh -s $(which zsh) brett'
+ssh server 'sudo chsh -s $(which zsh) brett'
 ```
 
 ### 4.2 Verify via new SSH session
@@ -473,7 +472,7 @@ ssh bigdaddy_wifi 'sudo chsh -s $(which zsh) brett'
 Open a completely new SSH session to exercise the full login chain:
 
 ```bash
-ssh bigdaddy_wifi 'bash -s' << 'VERIFY'
+ssh server 'bash -s' << 'VERIFY'
 echo "=== Session info ==="
 echo "Shell: $SHELL"
 echo "User: $(whoami)"
@@ -514,7 +513,7 @@ VERIFY
 ### 4.3 Test zsh login specifically
 
 ```bash
-ssh bigdaddy_wifi 'zsh -l -c "
+ssh server 'zsh -l -c "
   echo ZSH_LOGIN_OK
   echo DOTFILES_SHELL_DIR=\$DOTFILES_SHELL_DIR
   echo ZSH_THEME=\$ZSH_THEME
@@ -535,10 +534,10 @@ ssh bigdaddy_wifi 'zsh -l -c "
 
 ```bash
 # Option 1: Force bare shell
-ssh bigdaddy_wifi 'bash --norc --noprofile'
+ssh server 'bash --norc --noprofile'
 
 # Option 2: Use emergency rcfile
-ssh -t bigdaddy_wifi 'bash --rcfile ~/.bashrc.emergency'
+ssh -t server 'bash --rcfile ~/.bashrc.emergency'
 
 # Then unstow and restore:
 cd ~/dotfiles/stow
@@ -576,7 +575,7 @@ sudo chsh -s /bin/bash brett
 ## Acceptance Criteria
 
 - [x] Cross-platform fixes committed (SSH `Match exec`, git `op-ssh-sign-wrapper`, zshrc `$HOME`)
-- [x] Emergency shell access created on bigdaddy
+- [x] Emergency shell access created on the server
 - [x] Stow packages deployed: shell, bash, git, secrets, ssh, gh, pip, claude, zsh
 - [x] macOS-only packages skipped: brew, cursor, ghostty, local
 - [x] `~/.local/bin/env` deployed manually (for `.profile` dependency)

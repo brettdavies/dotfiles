@@ -102,7 +102,7 @@ git add stow/<package>/           # keep local changes
 **Best practices from community and existing solutions:**
 
 - Always commit before using `--adopt` to protect against unwanted overwrites. If something goes wrong, `git checkout` restores the repo version instantly because the symlink still points to the same file.
-- The pattern `--adopt` then `git checkout` is already documented in our own `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md` (lines 159-169) and was battle-tested during the bigdaddy Ubuntu deployment.
+- The pattern `--adopt` then `git checkout` is already documented in our own `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md` (lines 159-169) and was battle-tested during the initial headless Ubuntu deployment.
 - On headless servers, `--adopt` followed by interactive review is not feasible. The script must auto-restore repo versions in non-interactive contexts.
 
 **Edge case -- `--adopt` security risk:**
@@ -321,7 +321,7 @@ for pkg in "$@"; do
   echo "$pkg" >> "$adopted_file"
 
   if [ "$HEADLESS" = true ]; then
-    # Headless: auto-restore repo versions (proven pattern from bigdaddy deployment)
+    # Headless: auto-restore repo versions (proven pattern from headless server deployment)
     git -C "$REPO_ROOT" checkout -- "stow/$pkg/"
     echo "  Done: $pkg (adopted + auto-restored repo version)"
   else
@@ -362,7 +362,7 @@ fi
 
 - The `local` package requires special handling -- README documents manual steps for it
 - macOS-only packages (ghostty, cursor, brew) should not be stowed on Ubuntu servers
-- The bigdaddy deployment plan explicitly lists which packages to deploy per platform
+- The headless Linux deployment plan explicitly lists which packages to deploy per platform
 - Auto-discovery would silently stow everything, which is dangerous for cross-platform repos
 
 **Why `-R` (restow) instead of `-S` (stow):**
@@ -385,7 +385,7 @@ fi
 **Why `--headless` flag:**
 
 - macOS (interactive): User wants to review diffs and decide to keep or discard local changes
-- Ubuntu servers (headless): No human is watching. Auto-restore repo versions to prevent config contamination. This matches the proven bigdaddy deployment pattern: `stow --adopt` then `git checkout`.
+- Ubuntu servers (headless): No human is watching. Auto-restore repo versions to prevent config contamination. This matches the proven headless server deployment pattern: `stow --adopt` then `git checkout`.
 
 ## Acceptance Criteria
 
@@ -485,7 +485,7 @@ cd ~/dotfiles && git status --porcelain stow/
 ## References
 
 - Existing solution: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
-- Ubuntu deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-bigdaddy-plan.md`
+- Ubuntu deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-ubuntu-server-plan.md`
 - GNU Stow source: `Stow.pm` lines 531-648 (`stow_node`), 1017-1053 (`find_stowed_path`)
 - GNU Stow manual: <https://www.gnu.org/software/stow/manual/stow.html>
 - Tree folding + dotfiles bug: <https://lists.gnu.org/archive/html/bug-stow/2019-09/msg00000.html>

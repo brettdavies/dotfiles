@@ -85,6 +85,23 @@ scripts/stow-deploy --headless shell bash git  # headless (auto-restores repo ve
 
 ---
 
+## Git Authentication
+
+All GitHub and Gist access uses SSH. The `.gitconfig` enforces this globally:
+
+```gitconfig
+[url "git@github.com:"]
+    insteadOf = https://github.com/
+[url "git@gist.github.com:"]
+    insteadOf = https://gist.github.com/
+```
+
+This transparently rewrites HTTPS URLs to SSH at the git transport layer. No HTTPS credential helpers are needed.
+
+**SSH key convention:** The key must be named `~/.ssh/brett_ed25519` on all machines (macOS and Linux). The SSH config explicitly references this path with `IdentitiesOnly yes`, so no other key name will be tried.
+
+**Ordering constraint:** After stowing the `git` package, all GitHub operations require SSH authentication. The SSH key must be deployed and authorized on GitHub before stowing.
+
 ## Git Signing
 
 All commits must be signed. The signing infrastructure is cross-platform:
@@ -139,6 +156,8 @@ When adding or modifying configuration:
 - Gate macOS-only features behind `[[ "$OSTYPE" == darwin* ]]` or `uname -s` checks
 - Gate Homebrew paths: check both `/opt/homebrew` (macOS) and `/home/linuxbrew/.linuxbrew` (Linux)
 - SSH config uses `Match exec` for platform-conditional 1Password agent paths
+- All GitHub/Gist URLs are forced through SSH via `url.insteadOf` in `.gitconfig`
+- SSH key must be `~/.ssh/brett_ed25519` on all machines (standardized name)
 - Assume no GUI, no desktop app, no interactive prompts on Ubuntu servers
 - Default shell is zsh everywhere -- `.zshenv` is the non-interactive entry point
 

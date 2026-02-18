@@ -61,7 +61,7 @@ Each commit message follows Conventional Commits with a body summarizing the ori
 - `development` currently points to the same commits as `main` (identical SHAs)
 - After rewriting main, reset development to new main (same as initial squash)
 - Force-push both branches
-- bigdaddy needs `git fetch --all && git reset --hard origin/main`
+- The headless server needs `git fetch --all && git reset --hard origin/main`
 
 ### GitHub ruleset
 
@@ -82,7 +82,7 @@ Each commit message follows Conventional Commits with a body summarizing the ori
 - [x] `git diff` between new main tip and old main tip shows zero changes (trees identical)
 - [x] Development branch synced to new main
 - [x] GitHub ruleset re-enabled with squash-only merges
-- [x] bigdaddy synced
+- [x] Headless server synced
 
 ## Commit Messages
 
@@ -201,7 +201,7 @@ scripts/git-hooks/ (git-crypt), Brewfile, Brewfile.optional.
 ```text
 feat: cross-platform deployment to Ubuntu server
 
-Deploy dotfiles to bigdaddy Ubuntu 24.04 with cross-platform support.
+Deploy dotfiles to headless Ubuntu 24.04 server with cross-platform support.
 
 Shell: add .zshenv for non-interactive zsh environment, add interactive
 guards to .bashrc/.zshrc, source .profile from .bash_profile, add
@@ -225,7 +225,7 @@ inject calls that resolve secrets via stdin/stdout -- no plaintext
 ever touches disk.
 
 Verified on all 5 shell targets: macOS bash 3.2 (~1.2s), bash 5.3
-(~1.2s), zsh 5.9 (~1.3s), bigdaddy zsh (~1.1s), bash (~1.0s).
+(~1.2s), zsh 5.9 (~1.3s), headless Linux zsh (~1.1s), bash (~1.0s).
 All 9 tokens set, zero temp files created.
 ```
 
@@ -272,14 +272,14 @@ so they silently no-op on systems where those tools are not installed.
 8. Reset and force-push development
 9. Re-enable GitHub ruleset
 10. Clean up temp message files
-11. Sync bigdaddy
+11. Sync the headless server
 
 ## Dependencies and Risks
 
 - **1Password desktop app must be running** for SSH signing on macOS
 - **Force-push to main**: Mitigated by backup tags (both `backup/main-pre-cleanup` and new `backup/main-pre-resign`)
 - **Development sync**: Same approach as initial squash (reset --hard)
-- **bigdaddy sync**: `git fetch --all && git reset --hard origin/main`
+- **Headless server sync**: `git fetch --all && git reset --hard origin/main`
 
 ## References
 

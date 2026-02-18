@@ -187,11 +187,27 @@ cd ~/dotfiles && git checkout -- stow/<package>/
 - [ ] Back up existing configs (`~/.config-backup-$(date +%Y%m%d)`)
 - [ ] Check stow version (2.3.1 has nested `dot-` bug)
 
+### SSH-only GitHub access after stow
+
+The stowed gitconfig uses `url.insteadOf` rules to rewrite all HTTPS GitHub URLs to SSH:
+
+```gitconfig
+[url "git@github.com:"]
+    insteadOf = https://github.com/
+[url "git@gist.github.com:"]
+    insteadOf = https://gist.github.com/
+```
+
+**Ordering constraint:** After stowing the `git` package, all GitHub operations (including cloning public repos) require SSH authentication. The SSH key (`~/.ssh/brett_ed25519`) must be deployed to the server and authorized on GitHub **before** stowing the git package.
+
+**Initial clone is exempt:** The `insteadOf` rules aren't active until the gitconfig is stowed, so the initial `git clone` of the dotfiles repo can use either HTTPS or SSH. SSH is preferred, but HTTPS won't break anything.
+
 ### Cross-platform patterns
 
 | Pattern | Use case | Example |
 |---------|----------|---------|
 | `Match exec` | SSH config platform conditionals | `Match host * exec "test $(uname -s) = Darwin"` |
+| `url.insteadOf` | Force SSH for all GitHub access | `[url "git@github.com:"] insteadOf = https://github.com/` |
 | Wrapper script | Tool binary path differences | `op-ssh-sign-wrapper` detects macOS vs Linux binary |
 | `$HOME` | Home directory references | Never hardcode `/Users/brett` |
 | `$OSTYPE` | Shell config conditionals | `if [[ "$OSTYPE" == "darwin"* ]]; then` |
@@ -203,4 +219,4 @@ cd ~/dotfiles && git checkout -- stow/<package>/
 - [1Password SSH Agent -- Linux path](https://developer.1password.com/docs/ssh/agent/)
 - [oh-my-zsh install flags](https://github.com/ohmyzsh/ohmyzsh/blob/master/tools/install.sh)
 - [GNU Stow --adopt](https://www.gnu.org/software/stow/manual/stow.html)
-- Deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-bigdaddy-plan.md`
+- Initial deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-ubuntu-server-plan.md`

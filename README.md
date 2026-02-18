@@ -71,11 +71,13 @@ brew install stow git-crypt
 ### 3. Clone and unlock
 
 ```bash
-git clone <your-repo-url> ~/dotfiles
+git clone git@github.com:brettdavies/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 git-crypt unlock ~/.config/git-crypt/key
 ```
 
+> **SSH preferred:** After the gitconfig is stowed, all GitHub URLs are rewritten to SSH via `url.insteadOf`. Using SSH for the initial clone keeps things consistent. HTTPS also works for the initial clone since the rewrite rules aren't active yet.
+>
 > The git-crypt key must be copied from a secure backup (password manager). Without it, `stow/secrets/dot-secrets` and `stow/ssh/dot-ssh/config` remain encrypted.
 
 ### 3.5. Activate git hooks
@@ -227,7 +229,10 @@ Back up the key file (`~/.config/git-crypt/key`) in a password manager. If lost,
 - Shell configs use `$HOME` and conditional `$OSTYPE` checks
 - Homebrew setup in `.profile` is gated behind `darwin*` detection
 - VS Code stow targets `Library/Application Support/` (macOS only)
-- 1Password SSH agent paths in `.ssh/config` and `.gitconfig` are macOS-specific
+- SSH config uses `Match exec` for platform-conditional 1Password agent paths (macOS and Linux)
+- Git signing uses `op-ssh-sign-wrapper` with cross-platform fallback (1Password on macOS, `ssh-keygen` on Linux)
+- All GitHub/Gist URLs are rewritten from HTTPS to SSH via `url.insteadOf` in `.gitconfig`
+- SSH key must be named `~/.ssh/brett_ed25519` on all machines
 - oh-my-zsh plugins: brew symlinks on macOS, git clones on Linux
 
 ## License
