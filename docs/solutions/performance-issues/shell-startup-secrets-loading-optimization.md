@@ -130,7 +130,7 @@ Run `op item get <item-name> --format json | jq '.fields[] | .label'` to confirm
 
 ## Performance Comparison
 
-| Approach | macOS bash 3.2 | macOS bash 5.3 | macOS zsh 5.9 | bigdaddy zsh | bigdaddy bash |
+| Approach | macOS bash 3.2 | macOS bash 5.3 | macOS zsh 5.9 | Linux zsh | Linux bash |
 |----------|---------------|----------------|---------------|-------------|--------------|
 | Sequential `op read` (original) | ~5.7s | ~5.7s | ~5.7s | ~5.7s | ~5.7s |
 | Parallel `op read` + tmpfiles | ~0.9s | ~0.9s | ~0.9s | ~0.55s | ~0.55s |

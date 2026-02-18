@@ -55,10 +55,10 @@ if [ -f ~/.secrets ]; then
 fi
 
 # Ensure ~/.local/bin is in PATH for user-installed binaries
-# This script adds ~/.local/bin to PATH if not already present, allowing
-# locally installed binaries to override system ones and providing a standard
-# location for user scripts and tools.
-. "$HOME/.local/bin/env"
+# Guarded: the local stow package may not be deployed yet (e.g. fresh clone)
+if [ -f "$HOME/.local/bin/env" ]; then
+    . "$HOME/.local/bin/env"
+fi
 
 # Rust/Cargo environment
 if [ -f "$HOME/.cargo/env" ]; then
@@ -66,4 +66,5 @@ if [ -f "$HOME/.cargo/env" ]; then
 fi
 
 # GPG terminal for commit signing (shared across all shells)
-export GPG_TTY=$(tty)
+GPG_TTY=$(tty)
+export GPG_TTY

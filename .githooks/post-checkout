@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Auto-unlock git-crypt if key is available
+# Bypass: git checkout --no-verify (if supported by your git version)
+
+set -euo pipefail
+
+if command -v git-crypt >/dev/null 2>&1; then
+    if [ -f ~/.config/git-crypt/key ]; then
+        # Fast sentinel check: if a known encrypted file is binary, repo is locked.
+        # Avoids expensive `git-crypt status` which scans every file (200-500ms).
+        sentinel="stow/secrets/dot-secrets"
+        if [ -f "$sentinel" ] && ! file "$sentinel" | grep -q "text"; then
+            git-crypt unlock ~/.config/git-crypt/key 2>/dev/null || true
+        fi
+    fi
+fi
+
+# Chain Git LFS hook (core.hooksPath overrides .git/hooks/)
+command -v git-lfs >/dev/null 2>&1 && git lfs post-checkout "$@"

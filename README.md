@@ -7,9 +7,12 @@ Personal dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/) fo
 ## Repository Layout
 
 ```text
-stow/           Stow packages — each subdirectory symlinks into $HOME
-config/shell/   Shell environment fragments sourced by .profile
-scripts/        Sync scripts and git hooks
+stow/              Stow packages — each subdirectory symlinks into $HOME
+config/shell/      Shell environment fragments sourced by .profile
+.githooks/         Repo-local git hooks (activated via core.hooksPath)
+.github/           GitHub platform config (rulesets, CI)
+scripts/stow-deploy  Stow wrapper with automatic conflict resolution
+scripts/sync/      iCloud sync scripts
 ```
 
 ### Stow Packages
@@ -65,30 +68,52 @@ eval "$(/opt/homebrew/bin/brew shellenv)"   # Apple Silicon
 brew install stow git-crypt
 ```
 
+> **Stow >= 2.4.0 required.** Versions 2.3.x have a [bug with `--dotfiles` and nested directories](https://github.com/aspiers/stow/issues/33) that breaks packages like `ssh`, `git`, and `gh`. Install via Homebrew/Linuxbrew to get the latest version. Ubuntu 24.04's apt repo only has 2.3.1.
+
 ### 3. Clone and unlock
 
 ```bash
-git clone <your-repo-url> ~/dotfiles
+git clone git@github.com:brettdavies/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 git-crypt unlock ~/.config/git-crypt/key
 ```
 
+> **SSH preferred:** After the gitconfig is stowed, all GitHub URLs are rewritten to SSH via `url.insteadOf`. Using SSH for the initial clone keeps things consistent. HTTPS also works for the initial clone since the rewrite rules aren't active yet.
+>
 > The git-crypt key must be copied from a secure backup (password manager). Without it, `stow/secrets/dot-secrets` and `stow/ssh/dot-ssh/config` remain encrypted.
+
+### 3.5. Activate git hooks
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Or run: `bash .githooks/setup`
+
+This enables repo-local hooks (pre-commit branch protection, git-crypt auto-unlock, Git LFS chaining).
 
 ### 4. Stow packages
 
-Most packages use `--dotfiles` to convert `dot-` prefixes to `.` prefixes:
+Use the `stow-deploy` wrapper for automatic conflict resolution:
+
+```bash
+cd ~/dotfiles
+scripts/stow-deploy shell zsh bash git ssh ghostty gh claude codex cursor opencode pip brew secrets
+```
+
+The wrapper handles non-stow symlinks, existing plain files (`--adopt`), and always uses `--no-folding`. For headless servers, add `--headless` to auto-restore repo versions after adopt.
+
+**Manual alternative** (without conflict resolution):
 
 ```bash
 cd ~/dotfiles/stow
-stow --dotfiles --target="$HOME" \
+stow --dotfiles --no-folding --target="$HOME" \
   shell zsh bash git ssh ghostty gh claude codex cursor opencode pip brew secrets
 ```
 
-The `local` package requires separate handling because `--dotfiles` would incorrectly convert `dot-local` and `dot-Library` to hidden directories:
+The `local` package requires separate handling because `--dotfiles` would incorrectly convert `dot-Library` to `.Library`:
 
 ```bash
-# .local/bin/env (this one is fine with --dotfiles)
 cd ~/dotfiles/stow/local
 stow --dotfiles --target="$HOME" dot-local
 ```
@@ -197,7 +222,7 @@ Sensitive files are encrypted with [git-crypt](https://github.com/AGWA/git-crypt
 - `stow/ssh/dot-ssh/config` — SSH host configurations
 - `stow/git/dot-config/git/allowed_signers` — SSH allowed signers
 
-Git hooks in `scripts/git-hooks/` auto-unlock on checkout and merge.
+Git hooks in `.githooks/` auto-unlock on checkout and merge.
 
 Back up the key file (`~/.config/git-crypt/key`) in a password manager. If lost, encrypted files cannot be recovered.
 
@@ -206,7 +231,10 @@ Back up the key file (`~/.config/git-crypt/key`) in a password manager. If lost,
 - Shell configs use `$HOME` and conditional `$OSTYPE` checks
 - Homebrew setup in `.profile` is gated behind `darwin*` detection
 - VS Code stow targets `Library/Application Support/` (macOS only)
-- 1Password SSH agent paths in `.ssh/config` and `.gitconfig` are macOS-specific
+- SSH config uses `Match exec` for platform-conditional 1Password agent paths (macOS and Linux)
+- Git signing uses `op-ssh-sign-wrapper` with cross-platform fallback (1Password on macOS, `ssh-keygen` on Linux)
+- All GitHub/Gist URLs are rewritten from HTTPS to SSH via `url.insteadOf` in `.gitconfig`
+- SSH key must be named `~/.ssh/brett_ed25519` on all machines
 - oh-my-zsh plugins: brew symlinks on macOS, git clones on Linux
 
 ## License

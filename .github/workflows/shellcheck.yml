@@ -1,0 +1,32 @@
+name: ShellCheck
+
+on:
+  pull_request:
+    paths:
+      - '.githooks/**'
+      - 'config/shell/**'
+      - 'stow/shell/**'
+      - 'stow/bash/**'
+      - 'stow/zsh/**'
+      - 'scripts/**'
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Check hooks
+        run: shellcheck .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push
+
+      - name: Check shell config fragments
+        run: shellcheck --shell=bash config/shell/*.sh
+
+      - name: Check scripts
+        run: shellcheck scripts/stow-deploy
+
+      - name: Check dot-profile
+        run: shellcheck --shell=bash --exclude=SC1090,SC1091 stow/shell/dot-profile

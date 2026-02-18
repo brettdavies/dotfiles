@@ -19,7 +19,7 @@ severity: high
 
 ## Problem
 
-After deploying dotfiles to a headless Ubuntu server (bigdaddy), Claude Code could not commit because:
+After deploying dotfiles to a headless Ubuntu server, Claude Code could not commit because:
 
 1. `op-ssh-sign-wrapper` only checked for the 1Password desktop app binary (`/opt/1Password/op-ssh-sign`), which isn't installed on headless Linux
 2. Claude Code hooks called `terminal-notifier` (macOS-only) and `bd` without checking if they exist
@@ -31,7 +31,7 @@ Three separate cross-platform assumptions in stowed configs:
 
 - **op-ssh-sign-wrapper:** Only knew about 1Password desktop paths, no fallback for systems with just the `op` CLI or a local SSH key
 - **settings.json hooks:** `terminal-notifier` and `bd prime` called unconditionally — no `command -v` guard
-- **user.signingkey config:** The literal public key string in gitconfig causes git to pass `-U` to the signing program, which forces ssh-agent-based signing. On bigdaddy, there is no ssh-agent, so `ssh-keygen -U` fails even though the private key exists on disk
+- **user.signingkey config:** The literal public key string in gitconfig causes git to pass `-U` to the signing program, which forces ssh-agent-based signing. On headless servers, there is no ssh-agent, so `ssh-keygen -U` fails even though the private key exists on disk
 
 ## Solution
 
@@ -71,14 +71,16 @@ Add to stowed gitconfig:
     path = ~/.config/git/local
 ```
 
-On bigdaddy, create `~/.config/git/local` (NOT stowed):
+On headless servers, create `~/.config/git/local` (NOT stowed):
 
 ```gitconfig
 [user]
-    signingkey = ~/.ssh/id_ed25519
+    signingkey = ~/.ssh/brett_ed25519
 ```
 
-This overrides the literal public key with the private key file path. Git then calls `ssh-keygen -Y sign -f ~/.ssh/id_ed25519` without `-U`, and `ssh-keygen` reads the key directly from disk without needing an agent.
+This overrides the literal public key with the private key file path. Git then calls `ssh-keygen -Y sign -f ~/.ssh/brett_ed25519` without `-U`, and `ssh-keygen` reads the key directly from disk without needing an agent.
+
+**Key naming convention:** The SSH key must be named `brett_ed25519` on all machines (macOS and Linux). This matches the `IdentityFile` directive in the stowed SSH config.
 
 ## Key Insights
 
@@ -87,8 +89,8 @@ This overrides the literal public key with the private key file path. Git then c
 | `user.signingkey` value | Git passes `-U`? | Agent required? | Use case |
 |---|---|---|---|
 | Literal public key (`ssh-ed25519 AAAA...`) | Yes | Yes | macOS with 1Password agent |
-| Private key file path (`~/.ssh/id_ed25519`) | No | No | Headless Linux with local key |
-| Public key file path (`~/.ssh/id_ed25519.pub`) | Yes | Yes | When key is only in agent |
+| Private key file path (`~/.ssh/brett_ed25519`) | No | No | Headless Linux with local key |
+| Public key file path (`~/.ssh/brett_ed25519.pub`) | Yes | Yes | When key is only in agent |
 
 ### ssh-keygen as signing program requirements
 
@@ -98,10 +100,15 @@ This overrides the literal public key with the private key file path. Git then c
 
 ### Cross-platform trust model
 
-On bigdaddy, SSH authentication and git signing use different trust paths:
+On headless servers, SSH authentication and git signing both use the local key file:
 
-- **SSH auth:** 1Password agent socket (`~/.1password/agent.sock`) when available
-- **Git signing:** Local key file via `ssh-keygen` (no 1Password involvement)
+- **SSH auth:** `~/.ssh/brett_ed25519` via `IdentityFile` directive (1Password agent as secondary if available)
+- **Git signing:** `~/.ssh/brett_ed25519` via `ssh-keygen` (no 1Password involvement)
+
+On macOS, both use the 1Password SSH agent (biometric-protected):
+
+- **SSH auth:** 1Password agent via `IdentityAgent` (`Match exec` for macOS)
+- **Git signing:** 1Password `op-ssh-sign` via `op-ssh-sign-wrapper`
 
 This is documented and intentional — the 1Password desktop app is not available on headless servers.
 
