@@ -26,7 +26,7 @@ Packages live in `stow/<package-name>/`. Files use the `dot-` prefix convention:
 - `stow/git/dot-config/git/ignore` becomes `~/.config/git/ignore`
 - `stow/zsh/dot-zshrc` becomes `~/.zshrc`
 
-Stow's `--dotfiles` flag converts `dot-` to `.` automatically.
+Stow's `--dotfiles` flag converts `dot-` to `.` automatically. **Requires Stow >= 2.4.0** — versions 2.3.x have a bug where `--dotfiles` fails with nested `dot-` directories. Install via Homebrew/Linuxbrew (Ubuntu 24.04 apt only has 2.3.1).
 
 To add a new package:
 

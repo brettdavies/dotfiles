@@ -95,9 +95,9 @@ Before entering the conflict resolution pipeline, the script checks whether stde
 The script validates five conditions before processing any packages:
 
 1. **Stow installed** -- `command -v stow` (fatal if missing)
-2. **Stow version** -- warns about the 2.3.1 nested `dot-` bug (non-fatal)
+2. **Stow version** -- warns if < 2.4.0 (nested `dot-` directory bug; install via `brew install stow`)
 3. **Package validation** -- rejects path traversal (`../`), nonexistent packages, and the `local` package
-4. **git-crypt unlocked** -- checks `file stow/secrets/dot-secrets | grep "text"` for encrypted packages (`secrets`, `ssh`, `git`)
+4. **git-crypt unlocked** -- checks `grep -qI` on `stow/secrets/dot-secrets` to detect binary (encrypted) content for packages `secrets`, `ssh`, `git`
 5. **Clean working tree** -- `git status --porcelain stow/` (fatal in headless mode, warning in interactive)
 
 ### Failure modes

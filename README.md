@@ -68,6 +68,8 @@ eval "$(/opt/homebrew/bin/brew shellenv)"   # Apple Silicon
 brew install stow git-crypt
 ```
 
+> **Stow >= 2.4.0 required.** Versions 2.3.x have a [bug with `--dotfiles` and nested directories](https://github.com/aspiers/stow/issues/33) that breaks packages like `ssh`, `git`, and `gh`. Install via Homebrew/Linuxbrew to get the latest version. Ubuntu 24.04's apt repo only has 2.3.1.
+
 ### 3. Clone and unlock
 
 ```bash

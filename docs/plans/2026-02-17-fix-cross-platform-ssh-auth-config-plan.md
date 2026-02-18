@@ -119,9 +119,9 @@ When deploying to a new server, the SSH key must be named `~/.ssh/brett_ed25519`
 ## Acceptance Criteria
 
 - [x] `ssh -T git@github.com` succeeds on macOS
-- [ ] `ssh -T git@github.com` succeeds on the headless server (after restow)
+- [x] `ssh -T git@github.com` succeeds on the headless server (after restow)
 - [x] `git push/pull` works without `GIT_SSH_COMMAND` on macOS
-- [ ] `git push/pull` works without `GIT_SSH_COMMAND` on the headless server (after restow)
+- [x] `git push/pull` works without `GIT_SSH_COMMAND` on the headless server (after restow)
 - [x] Git commit signing works on the headless server with renamed key
 - [ ] Other hosts with missing IdentityFile audited and fixed
 - [x] Post-stow validation added to stow-deploy

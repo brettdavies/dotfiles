@@ -98,7 +98,7 @@ export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
 
 **Detection:** `grep -r "/Users/" stow/` to find all hardcoded macOS paths.
 
-### 4. GNU Stow 2.3.1 --dotfiles bug with nested directories
+### 4. GNU Stow --dotfiles bug with nested directories (fixed in 2.4.0)
 
 **Symptom:** `stow --dotfiles` fails with:
 
@@ -106,13 +106,13 @@ export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
 stow: ERROR: stow_contents() called with non-directory path: dotfiles/stow/git/.config
 ```
 
-**Root cause:** Bug in Stow 2.3.1 where `--dotfiles` flag's `dot-` to `.` conversion fails for nested directories. Only top-level `dot-` prefixed files/dirs are converted correctly.
+**Root cause:** Bug in Stow 2.3.x where `--dotfiles` flag's `dot-` to `.` conversion fails for nested directories. Only top-level `dot-` prefixed files/dirs are converted correctly. [Fixed in Stow 2.4.0](https://github.com/aspiers/stow/issues/33).
 
-**Affected packages:** Any with nested `dot-` dirs (git/`dot-config`, ssh/`dot-ssh`, gh/`dot-config`, pip/`dot-config`, claude/`dot-claude`).
+**Fix:** Install Stow >= 2.4.0 via Homebrew/Linuxbrew (`brew install stow`). Ubuntu 24.04's apt repo only ships 2.3.1. The `stow-deploy` script warns when it detects a pre-2.4.0 version.
 
-**Unaffected packages:** Those with only top-level `dot-` files (shell/`dot-profile`, bash/`dot-bashrc`, secrets/`dot-secrets`, zsh/`dot-zshrc`).
+**Affected packages (on 2.3.x only):** Any with nested `dot-` dirs (git/`dot-config`, ssh/`dot-ssh`, gh/`dot-config`, pip/`dot-config`, claude/`dot-claude`).
 
-**Workaround:** Manual `ln -sf` for affected packages:
+**Legacy workaround (if stuck on 2.3.x):** Manual `ln -sf` for affected packages:
 
 ```bash
 # Instead of: stow --dotfiles -t "$HOME" git
@@ -174,7 +174,7 @@ cd ~/dotfiles && git checkout -- stow/<package>/
 
 - [ ] No hardcoded `/Users/` or `/home/` paths (use `$HOME`)
 - [ ] No macOS-specific binary paths without platform detection
-- [ ] Test `stow --dotfiles --simulate` for nested `dot-` directory bugs
+- [ ] Verify Stow >= 2.4.0 (`stow --version`; install via `brew install stow` if needed)
 - [ ] Gate platform-specific config behind `$OSTYPE`, `uname -s`, or `Match exec`
 - [ ] Verify tool supports tilde expansion if using `~` in config values
 
@@ -185,7 +185,7 @@ cd ~/dotfiles && git checkout -- stow/<package>/
 - [ ] Install oh-my-zsh before stowing zsh
 - [ ] Verify bash login before stowing zsh
 - [ ] Back up existing configs (`~/.config-backup-$(date +%Y%m%d)`)
-- [ ] Check stow version (2.3.1 has nested `dot-` bug)
+- [ ] Verify Stow >= 2.4.0 (`brew install stow`; Ubuntu apt only has 2.3.1)
 
 ### SSH-only GitHub access after stow
 
