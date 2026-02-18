@@ -62,7 +62,8 @@ for pkg in "$@"; do
   case "$pkg" in
     secrets|ssh|git)
       if [ -f "$STOW_DIR/secrets/dot-secrets" ]; then
-        if ! file "$STOW_DIR/secrets/dot-secrets" | grep -q "text"; then
+        # grep -qI treats binary files as non-matching (no `file` command needed)
+        if ! grep -qI '' "$STOW_DIR/secrets/dot-secrets" 2>/dev/null; then
           echo "FATAL: git-crypt is locked. Encrypted files would be deployed as binary blobs." >&2
           echo "       Run: git-crypt unlock ~/.config/git-crypt/key" >&2
           exit 1
