@@ -82,16 +82,6 @@ git-crypt unlock ~/.config/git-crypt/key
 >
 > The git-crypt key must be copied from a secure backup (password manager). Without it, `stow/secrets/dot-secrets` and `stow/ssh/dot-ssh/config` remain encrypted.
 
-### 3.5. Activate git hooks
-
-```bash
-git config core.hooksPath .githooks
-```
-
-Or run: `bash .githooks/setup`
-
-This enables repo-local hooks (pre-commit branch protection, git-crypt auto-unlock, Git LFS chaining).
-
 ### 4. Stow packages
 
 Use the `stow-deploy` wrapper for automatic conflict resolution:
@@ -101,7 +91,7 @@ cd ~/dotfiles
 scripts/stow-deploy shell zsh bash git ssh ghostty gh claude codex cursor opencode pip brew secrets
 ```
 
-The wrapper handles non-stow symlinks, existing plain files (`--adopt`), and always uses `--no-folding`. For headless servers, add `--headless` to auto-restore repo versions after adopt.
+The wrapper handles non-stow symlinks, existing plain files (`--adopt`), and always uses `--no-folding`. It also auto-configures `core.hooksPath=.githooks` for repo-local hooks (pre-commit branch protection, git-crypt auto-unlock, Git LFS chaining). For headless servers, add `--headless` to auto-restore repo versions after adopt.
 
 **Manual alternative** (without conflict resolution):
 

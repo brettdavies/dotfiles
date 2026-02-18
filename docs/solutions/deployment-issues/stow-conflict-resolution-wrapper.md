@@ -143,7 +143,7 @@ On unattended servers, nobody reads `git diff` output. Headless mode auto-restor
 
 ### Sentinel file check for git-crypt detection
 
-Checking whether encrypted packages are unlocked uses `file ... | grep "text"` on a known encrypted file. This completes in under 1ms. The alternative, `git-crypt status`, takes 200-500ms per invocation because it scans the entire repo.
+Checking whether encrypted packages are unlocked uses `grep -qI '' "$file"` on a known encrypted file. The `-I` flag treats binary files as non-matching, returning exit code 1 for locked (binary) files and 0 for unlocked (text) files. This completes in under 1ms and is POSIX-portable (no `file` command dependency). The alternative, `git-crypt status`, takes 200-500ms per invocation because it scans the entire repo.
 
 ### local package rejection
 
@@ -153,11 +153,11 @@ The `local` package contains `dot-Library` which `--dotfiles` converts to `.Libr
 
 ### Do not run git-crypt status in pre-flight checks
 
-`git-crypt status` scans every file in the repo against `.gitattributes` patterns. On this repo it takes 200-500ms. The `file` command on a single known-encrypted file achieves the same result in under 1ms. Use the sentinel file pattern: pick one file you know is encrypted and check its type.
+`git-crypt status` scans every file in the repo against `.gitattributes` patterns. On this repo it takes 200-500ms. Use `grep -qI '' "$file"` on a single known-encrypted file instead — it returns exit code 1 for binary (locked) files and 0 for text (unlocked) files in under 1ms, with no dependency on the `file` command.
 
-### The file command output varies across platforms
+### Use `grep -qI` instead of `file` for binary detection
 
-macOS and Linux report encrypted (git-crypt locked) files differently. Check for the positive case (`grep "text"` = unlocked) rather than the negative case (`grep "data\|encrypted"` = locked). Text files consistently report as "text" on both platforms.
+The `file` command is not installed on minimal Ubuntu server images and its output varies across platforms. The portable replacement is `grep -qI '' "$file"` — the `-I` flag treats binary files as non-matching, works on GNU grep (Linux) and BSD grep (macOS), and requires no output parsing. See `docs/solutions/deployment-issues/portable-binary-detection-sentinel-fix-and-auto-hooks.md` for full details.
 
 ### Temp files instead of arrays to avoid subshell variable loss
 
