@@ -112,7 +112,7 @@ The 9 secrets come from only 2 1Password items. The `op` CLI daemon caches items
 
 ### Research Insights: Performance
 
-| Approach | macOS bash 3.2 | macOS bash 5.3 | macOS zsh 5.9 | bigdaddy zsh | bigdaddy bash |
+| Approach | macOS bash 3.2 | macOS bash 5.3 | macOS zsh 5.9 | headless Linux zsh | headless Linux bash |
 |----------|---------------|----------------|---------------|-------------|--------------|
 | Sequential `op read` (original) | ~5.7s | ~5.7s | ~5.7s | ~5.7s | ~5.7s |
 | Parallel `op read` + tmpfiles | ~0.9s | ~0.9s | ~0.9s | ~0.55s | ~0.55s |
@@ -210,8 +210,8 @@ TEMPLATE
 
 - [x] Replace parallel `op read` block in `stow/secrets/dot-secrets` with 2x `op inject` + `eval`
 - [x] Fix field reference: `X_API_OAUTH2_REFRESH_TOKEN` (not `X_API_OAUTH2_USER_ACCESS_REFRESH_TOKEN`)
-- [x] Benchmark: `time (source ~/.secrets)` on macOS (all 3 shells) and bigdaddy
-- [x] Deploy to bigdaddy and verify
+- [x] Benchmark: `time (source ~/.secrets)` on macOS (all 3 shells) and the headless server
+- [x] Deploy to the headless server and verify
 
 ## Acceptance Criteria
 
@@ -222,10 +222,10 @@ TEMPLATE
 - [x] All 9 X_API tokens set after sourcing `.secrets` under `zsh` (5.9)
 - [x] Shell startup ≤ 1.5s (`time zsh -i -c exit`)
 
-### bigdaddy (Ubuntu)
+### Headless Linux (Ubuntu)
 
-- [x] All 9 X_API tokens set in non-interactive zsh: `ssh brett@bigdaddy 'echo ${X_API_BIRD_DEV_BEARER_TOKEN:+SET}'`
-- [x] All 9 X_API tokens set in non-interactive bash: `ssh brett@bigdaddy 'bash -c "echo \${X_API_BIRD_DEV_BEARER_TOKEN:+SET}"'`
+- [x] All 9 X_API tokens set in non-interactive zsh: `ssh user@server 'echo ${X_API_BIRD_DEV_BEARER_TOKEN:+SET}'`
+- [x] All 9 X_API tokens set in non-interactive bash: `ssh user@server 'bash -c "echo \${X_API_BIRD_DEV_BEARER_TOKEN:+SET}"'`
 
 ### Shared
 

@@ -64,17 +64,17 @@ Update the project CLAUDE.md to document the branch workflow:
 ## Implementation Tasks
 
 - [x] Merge `main` into `development`, resolve conflicts
-- [x] Verify merged `development` works on macOS and bigdaddy
+- [x] Verify merged `development` works on macOS and the headless server
 - [x] Fast-forward `main` to `development`
 - [x] Change GitHub default branch to `main`
 - [x] Create repository ruleset protecting `main`
 - [x] Update CLAUDE.md with branch workflow
-- [ ] Update bigdaddy to final state
+- [ ] Update the headless server to final state
 
 ## Acceptance Criteria
 
 - [x] `main` and `development` point to the same commit
 - [x] GitHub default branch is `main`
 - [x] Direct push to `main` is blocked by ruleset
-- [x] All 9 X_API tokens work on macOS (3 shells) and bigdaddy (2 shells)
+- [x] All 9 X_API tokens work on macOS (3 shells) and the headless server (2 shells)
 - [x] CLAUDE.md documents the branch workflow
