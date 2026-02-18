@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Configure core.hooksPath to use repo-local hooks
+# Uses relative path so it works regardless of clone location
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT" || exit 1
+git config core.hooksPath .githooks

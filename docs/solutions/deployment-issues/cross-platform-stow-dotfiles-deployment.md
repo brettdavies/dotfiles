@@ -98,7 +98,7 @@ export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
 
 **Detection:** `grep -r "/Users/" stow/` to find all hardcoded macOS paths.
 
-### 4. GNU Stow 2.3.1 --dotfiles bug with nested directories
+### 4. GNU Stow --dotfiles bug with nested directories (fixed in 2.4.0)
 
 **Symptom:** `stow --dotfiles` fails with:
 
@@ -106,13 +106,13 @@ export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
 stow: ERROR: stow_contents() called with non-directory path: dotfiles/stow/git/.config
 ```
 
-**Root cause:** Bug in Stow 2.3.1 where `--dotfiles` flag's `dot-` to `.` conversion fails for nested directories. Only top-level `dot-` prefixed files/dirs are converted correctly.
+**Root cause:** Bug in Stow 2.3.x where `--dotfiles` flag's `dot-` to `.` conversion fails for nested directories. Only top-level `dot-` prefixed files/dirs are converted correctly. [Fixed in Stow 2.4.0](https://github.com/aspiers/stow/issues/33).
 
-**Affected packages:** Any with nested `dot-` dirs (git/`dot-config`, ssh/`dot-ssh`, gh/`dot-config`, pip/`dot-config`, claude/`dot-claude`).
+**Fix:** Install Stow >= 2.4.0 via Homebrew/Linuxbrew (`brew install stow`). Ubuntu 24.04's apt repo only ships 2.3.1. The `stow-deploy` script warns when it detects a pre-2.4.0 version.
 
-**Unaffected packages:** Those with only top-level `dot-` files (shell/`dot-profile`, bash/`dot-bashrc`, secrets/`dot-secrets`, zsh/`dot-zshrc`).
+**Affected packages (on 2.3.x only):** Any with nested `dot-` dirs (git/`dot-config`, ssh/`dot-ssh`, gh/`dot-config`, pip/`dot-config`, claude/`dot-claude`).
 
-**Workaround:** Manual `ln -sf` for affected packages:
+**Legacy workaround (if stuck on 2.3.x):** Manual `ln -sf` for affected packages:
 
 ```bash
 # Instead of: stow --dotfiles -t "$HOME" git
@@ -174,7 +174,7 @@ cd ~/dotfiles && git checkout -- stow/<package>/
 
 - [ ] No hardcoded `/Users/` or `/home/` paths (use `$HOME`)
 - [ ] No macOS-specific binary paths without platform detection
-- [ ] Test `stow --dotfiles --simulate` for nested `dot-` directory bugs
+- [ ] Verify Stow >= 2.4.0 (`stow --version`; install via `brew install stow` if needed)
 - [ ] Gate platform-specific config behind `$OSTYPE`, `uname -s`, or `Match exec`
 - [ ] Verify tool supports tilde expansion if using `~` in config values
 
@@ -185,13 +185,29 @@ cd ~/dotfiles && git checkout -- stow/<package>/
 - [ ] Install oh-my-zsh before stowing zsh
 - [ ] Verify bash login before stowing zsh
 - [ ] Back up existing configs (`~/.config-backup-$(date +%Y%m%d)`)
-- [ ] Check stow version (2.3.1 has nested `dot-` bug)
+- [ ] Verify Stow >= 2.4.0 (`brew install stow`; Ubuntu apt only has 2.3.1)
+
+### SSH-only GitHub access after stow
+
+The stowed gitconfig uses `url.insteadOf` rules to rewrite all HTTPS GitHub URLs to SSH:
+
+```gitconfig
+[url "git@github.com:"]
+    insteadOf = https://github.com/
+[url "git@gist.github.com:"]
+    insteadOf = https://gist.github.com/
+```
+
+**Ordering constraint:** After stowing the `git` package, all GitHub operations (including cloning public repos) require SSH authentication. The SSH key (`~/.ssh/brett_ed25519`) must be deployed to the server and authorized on GitHub **before** stowing the git package.
+
+**Initial clone is exempt:** The `insteadOf` rules aren't active until the gitconfig is stowed, so the initial `git clone` of the dotfiles repo can use either HTTPS or SSH. SSH is preferred, but HTTPS won't break anything.
 
 ### Cross-platform patterns
 
 | Pattern | Use case | Example |
 |---------|----------|---------|
 | `Match exec` | SSH config platform conditionals | `Match host * exec "test $(uname -s) = Darwin"` |
+| `url.insteadOf` | Force SSH for all GitHub access | `[url "git@github.com:"] insteadOf = https://github.com/` |
 | Wrapper script | Tool binary path differences | `op-ssh-sign-wrapper` detects macOS vs Linux binary |
 | `$HOME` | Home directory references | Never hardcode `/Users/brett` |
 | `$OSTYPE` | Shell config conditionals | `if [[ "$OSTYPE" == "darwin"* ]]; then` |
@@ -203,4 +219,4 @@ cd ~/dotfiles && git checkout -- stow/<package>/
 - [1Password SSH Agent -- Linux path](https://developer.1password.com/docs/ssh/agent/)
 - [oh-my-zsh install flags](https://github.com/ohmyzsh/ohmyzsh/blob/master/tools/install.sh)
 - [GNU Stow --adopt](https://www.gnu.org/software/stow/manual/stow.html)
-- Deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-bigdaddy-plan.md`
+- Initial deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-ubuntu-server-plan.md`

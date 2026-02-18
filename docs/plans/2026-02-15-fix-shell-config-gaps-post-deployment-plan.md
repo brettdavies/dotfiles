@@ -1,7 +1,7 @@
 ---
 title: "fix: Restore shell config features lost during cross-platform deployment"
 type: fix
-status: active
+status: completed
 date: 2026-02-15
 deepened: 2026-02-15
 ---
@@ -26,17 +26,17 @@ deepened: 2026-02-15
 
 - Bash completion check can be simplified from 5 lines to 1 line (minor)
 - Shared aliases could theoretically move to `config/shell/aliases.sh`, but aliases are interactive-only and `.profile` loads for all modes — keeping them in `.bashrc` is correct
-- Stow 2.3.1 `--dotfiles` bug with nested `dot-` dirs remains; manual `ln -sf` workaround still needed for secrets/ssh/git on bigdaddy
+- Stow 2.3.1 `--dotfiles` bug with nested `dot-` dirs remains; manual `ln -sf` workaround still needed for secrets/ssh/git on the headless server
 
 ## Overview
 
-After deploying dotfiles from macOS to Ubuntu 24.04 (bigdaddy), a backup comparison revealed the stowed `.bashrc` is critically minimal — missing interactive shell guards, history settings, completion, aliases, prompt, and more. Additionally, secrets from the old `.bashrc` need migrating to `~/.secrets`, git credential helpers are missing, and the SSH config lacks two pool host entries.
+After deploying dotfiles from macOS to Ubuntu 24.04 on the headless server, a backup comparison revealed the stowed `.bashrc` is critically minimal — missing interactive shell guards, history settings, completion, aliases, prompt, and more. Additionally, secrets from the old `.bashrc` need migrating to `~/.secrets`, git credential helpers are missing, and the SSH config lacks two pool host entries.
 
 Zsh is the default shell on both machines, but bash must work properly as a fallback. Both shells need interactive guards. Secrets **must** load before the interactive guard so non-interactive programs (cron, SSH commands, CI) have access to tokens.
 
 ## Problem Statement
 
-The backup at `~/.config-backup-20260215/` on bigdaddy shows the old `.bashrc` had ~130 lines of interactive shell configuration that the current stowed version (23 lines) lacks entirely. The old `.gitconfig` had `gh auth git-credential` helpers that the stowed version is missing. The old `.ssh/config` had `pool.tailscale` and `pool-lan` host entries not present in the repo.
+The backup at `~/.config-backup-20260215/` on the headless server shows the old `.bashrc` had ~130 lines of interactive shell configuration that the current stowed version (23 lines) lacks entirely. The old `.gitconfig` had `gh auth git-credential` helpers that the stowed version is missing. The old `.ssh/config` had `pool.tailscale` and `pool-lan` host entries not present in the repo.
 
 ## Proposed Solution
 
@@ -81,7 +81,7 @@ The key principle: `.profile` handles environment (all shells, all modes). RC fi
 
 - [x] Add `OP_SERVICE_ACCOUNT_TOKEN` to `stow/secrets/dot-secrets` (the hardcoded token from backup `.bashrc`)
 - [x] Add `X_API_*` token entries to `stow/secrets/dot-secrets` (the `op read` commands from backup `.bashrc`)
-- [ ] Deploy updated `.secrets` to bigdaddy via `git pull` + restow
+- [ ] Deploy updated `.secrets` to the headless server via `git pull` + restow
 
 ### Research Insights: Secrets
 
@@ -259,11 +259,11 @@ Host pool-lan
 
 The `pool.tailscale` entry uses `HostName pool` which resolves via Tailscale's MagicDNS. The `pool-lan` entry duplicates the existing `pool` entry but provides an explicit alias for direct LAN access.
 
-### Phase 5: Deploy to bigdaddy
+### Phase 5: Deploy to the headless server
 
 - [x] Commit all changes
 - [x] Push to main
-- [x] SSH to bigdaddy, `git pull`
+- [x] SSH to the headless server, `git pull`
 - [x] Restow secrets package (manual `ln -sf` due to Stow 2.3.1 bug)
 - [x] Restow bash package: `cd ~/dotfiles && stow --dotfiles --adopt -t "$HOME" bash && git checkout -- stow/bash/`
 - [x] Restow SSH package (manual `ln -sf`)
@@ -276,12 +276,12 @@ The `pool.tailscale` entry uses `HostName pool` which resolves via Tailscale's M
 
 ### Research Insights: Deployment
 
-- **Stow 2.3.1 `--dotfiles` bug**: On bigdaddy, `stow --dotfiles` fails with nested `dot-` directories (e.g., `dot-ssh/config`). Use manual `ln -sf` for secrets, ssh, and git packages. Bash package works fine with stow since `dot-bashrc` is a flat file.
+- **Stow 2.3.1 `--dotfiles` bug**: On the headless server, `stow --dotfiles` fails with nested `dot-` directories (e.g., `dot-ssh/config`). Use manual `ln -sf` for secrets, ssh, and git packages. Bash package works fine with stow since `dot-bashrc` is a flat file.
 - **Verification order matters**: Test non-interactive secrets first (Phase 1 validation), then interactive features. If secrets fail, interactive features will too (since `.profile` is the foundation).
 - **Additional verification commands**:
-  - `ssh brett@bigdaddy 'bash -c "echo SECRETS=\${OP_SERVICE_ACCOUNT_TOKEN:+SET}"'` — non-interactive bash (no `-l` flag) should still have secrets via `.bashrc` sourcing `.profile`
-  - `ssh brett@bigdaddy 'git -C ~/dotfiles credential-helper-test 2>&1 || echo "gh credential helper configured"'` — verify git credential helper is active
-  - `ssh brett@bigdaddy 'ssh -G pool.tailscale | head -3'` — verify SSH config resolves pool.tailscale
+  - `ssh brett@server 'bash -c "echo SECRETS=\${OP_SERVICE_ACCOUNT_TOKEN:+SET}"'` — non-interactive bash (no `-l` flag) should still have secrets via `.bashrc` sourcing `.profile`
+  - `ssh brett@server 'git -C ~/dotfiles credential-helper-test 2>&1 || echo "gh credential helper configured"'` — verify git credential helper is active
+  - `ssh brett@server 'ssh -G pool.tailscale | head -3'` — verify SSH config resolves pool.tailscale
 
 ## Technical Considerations
 
@@ -313,7 +313,7 @@ The `helper =` (empty) followed by `helper = !gh auth git-credential` is the [st
 - [x] Non-interactive bash has access to `X_API_*` tokens — verified `X_API_BIRD=SET X_API_USER=SET` (required fixing: vault references in `.secrets` + Homebrew PATH ordering in `.profile`)
 - [x] Non-interactive bash does NOT load completion, aliases, prompt, etc. — verified HISTSIZE=unset, PS1 empty
 - [x] Interactive bash has: history settings (HISTSIZE=1000), aliases (ll) — verified
-- [ ] Interactive bash has: completion — **BLOCKED**: `bash-completion` package not installed on bigdaddy (requires `sudo apt install bash-completion`; `.bashrc` correctly checks and skips when absent)
+- [ ] Interactive bash has: completion — **BLOCKED**: `bash-completion` package not installed on the headless server (requires `sudo apt install bash-completion`; `.bashrc` correctly checks and skips when absent)
 - [x] Interactive bash has GPG_TTY set (via .profile) — verified (shows "not a tty" via SSH, correct with real TTY)
 
 ### Zsh
@@ -328,12 +328,12 @@ The `helper =` (empty) followed by `helper = !gh auth git-credential` is the [st
 
 - [x] `~/.secrets` contains OP_SERVICE_ACCOUNT_TOKEN and X_API_* entries (9 entries) — verified
 - [x] `git credential-helper` works for HTTPS GitHub operations — verified `!gh auth git-credential`
-- [x] `ssh pool.tailscale` and `ssh pool-lan` resolve correctly from bigdaddy — verified
-- [x] All shell config changes deployed and verified on bigdaddy
+- [x] `ssh pool.tailscale` and `ssh pool-lan` resolve correctly from the headless server — verified
+- [x] All shell config changes deployed and verified on the headless server
 
 ### Outstanding (requires user action)
 
-- [ ] Install `bash-completion` package on bigdaddy: `sudo apt install bash-completion`
+- [ ] Install `bash-completion` package on the headless server: `sudo apt install bash-completion`
 
 ## Files Modified
 
@@ -349,7 +349,7 @@ The `helper =` (empty) followed by `helper = !gh auth git-credential` is the [st
 
 ## References
 
-- Backup location: `bigdaddy:~/.config-backup-20260215/`
+- Backup location: `server:~/.config-backup-20260215/`
 - Solution doc: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
-- Deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-bigdaddy-plan.md`
+- Deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-ubuntu-server-plan.md`
 - Shell config chain: documented in project `CLAUDE.md` under "Shell Config Chain"
