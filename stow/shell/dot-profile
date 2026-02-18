@@ -23,8 +23,9 @@ fi
 # Shell helpers live in config/shell/, separate from stow-managed dotfiles
 _CONFIG_DIR="$_DOTFILES_ROOT/config/shell"
 
-# Exported so bashrc/zshrc can source shell-functions from the same directory
-export DOTFILES_SHELL_DIR="$_CONFIG_DIR"
+# NOT exported: sentinel must only prevent double-sourcing within the same
+# shell process, not leak into child processes (which need their own .profile)
+DOTFILES_SHELL_DIR="$_CONFIG_DIR"
 
 if [ -n "$_DOTFILES_ROOT" ] && [ -d "$_CONFIG_DIR" ]; then
     for _f in "$_CONFIG_DIR"/*.sh; do
