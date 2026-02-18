@@ -62,7 +62,7 @@ for pkg in "$@"; do
   case "$pkg" in
     secrets|ssh|git)
       if [ -f "$STOW_DIR/secrets/dot-secrets" ]; then
-        if file "$STOW_DIR/secrets/dot-secrets" | grep -q "data\|encrypted"; then
+        if ! file "$STOW_DIR/secrets/dot-secrets" | grep -q "text"; then
           echo "FATAL: git-crypt is locked. Encrypted files would be deployed as binary blobs." >&2
           echo "       Run: git-crypt unlock ~/.config/git-crypt/key" >&2
           exit 1
@@ -73,17 +73,14 @@ for pkg in "$@"; do
   esac
 done
 
-# In headless mode, refuse to run with dirty stow directory
-if [ "$HEADLESS" = true ]; then
-  dirty=$(git -C "$REPO_ROOT" status --porcelain stow/ 2>/dev/null || true)
-  if [ -n "$dirty" ]; then
+# Check for dirty stow directory
+dirty=$(git -C "$REPO_ROOT" status --porcelain stow/ 2>/dev/null || true)
+if [ -n "$dirty" ]; then
+  if [ "$HEADLESS" = true ]; then
     echo "FATAL: stow/ has uncommitted changes. In --headless mode, --adopt followed" >&2
     echo "       by git checkout would destroy these changes. Commit first." >&2
     exit 1
-  fi
-else
-  dirty=$(git -C "$REPO_ROOT" status --porcelain stow/ 2>/dev/null || true)
-  if [ -n "$dirty" ]; then
+  else
     echo "WARNING: stow/ has uncommitted changes. If --adopt runs, git diff will" >&2
     echo "         mix your edits with adopted files. Consider committing first." >&2
   fi
@@ -103,21 +100,19 @@ trap 'rm -f "$adopted_file" "$failed_file"' EXIT
 for pkg in "$@"; do
   echo "==> Stowing $pkg"
 
-  # Fast path: try restow directly. If no conflicts, done.
-  if stow "${STOW_FLAGS[@]}" -R "$pkg" 2>/dev/null; then
+  # Try restow, capturing stderr for conflict analysis on failure
+  if err=$(stow "${STOW_FLAGS[@]}" -R "$pkg" 2>&1); then
     echo "  Done: $pkg"
     continue
   fi
 
-  # Stow failed. Collect conflict details from stderr.
-  err=$(stow "${STOW_FLAGS[@]}" -R "$pkg" 2>&1 || true)
-
   # Error classification: only enter conflict resolution if stderr
   # contains conflict indicators. Other errors (permissions, stow bugs)
   # should fail immediately with the original error message.
-  if ! echo "$err" | grep -q "existing target"; then
+  if ! grep -q "existing target" <<< "$err"; then
     echo "  ERROR: $pkg failed (not a conflict):" >&2
-    echo "$err" | sed 's/^/    /' >&2
+    # shellcheck disable=SC2001
+    sed 's/^/    /' <<< "$err" >&2
     if [ "$HEADLESS" = true ]; then
       echo "$pkg" >> "$failed_file"
       continue  # best-effort: try remaining packages
@@ -127,7 +122,7 @@ for pkg in "$@"; do
   fi
 
   # Remove non-stow symlinks (absolute symlinks stow cannot own)
-  echo "$err" | sed -n 's/.*existing target is not owned by stow: //p' | while read -r target; do
+  sed -n 's/.*existing target is not owned by stow: //p' <<< "$err" | while read -r target; do
     full="$TARGET/$target"
     if [ -L "$full" ]; then
       dest=$(readlink "$full")
@@ -144,10 +139,10 @@ for pkg in "$@"; do
 
   # Still failing: adopt existing plain files
   echo "  Adopting existing files for $pkg..."
-  if ! stow "${STOW_FLAGS[@]}" -R --adopt "$pkg" 2>/dev/null; then
-    adopt_err=$(stow "${STOW_FLAGS[@]}" -R --adopt "$pkg" 2>&1 || true)
+  if ! adopt_err=$(stow "${STOW_FLAGS[@]}" -R --adopt "$pkg" 2>&1); then
     echo "  ERROR: $pkg adopt failed:" >&2
-    echo "$adopt_err" | sed 's/^/    /' >&2
+    # shellcheck disable=SC2001
+    sed 's/^/    /' <<< "$adopt_err" >&2
     if [ "$HEADLESS" = true ]; then
       echo "$pkg" >> "$failed_file"
       continue
