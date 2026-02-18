@@ -184,6 +184,16 @@ fi
 
 # --- Post-stow validation ---
 
+# Git hooks: ensure core.hooksPath is set for this repo
+if [ -d "$REPO_ROOT/.githooks" ]; then
+  _hooks_path=$(git -C "$REPO_ROOT" config --local core.hooksPath 2>/dev/null || true)
+  if [ "$_hooks_path" != ".githooks" ]; then
+    git -C "$REPO_ROOT" config --local core.hooksPath .githooks
+    echo ""
+    echo "==> Configured core.hooksPath = .githooks"
+  fi
+fi
+
 # SSH: verify config parses and identity file exists
 if grep -qx "ssh" "$deployed_file" 2>/dev/null; then
   echo ""
