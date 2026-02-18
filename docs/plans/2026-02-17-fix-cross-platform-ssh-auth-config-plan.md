@@ -124,8 +124,8 @@ When deploying to a new server, the SSH key must be named `~/.ssh/brett_ed25519`
 - [ ] `git push/pull` works without `GIT_SSH_COMMAND` on the headless server (after restow)
 - [x] Git commit signing works on the headless server with renamed key
 - [ ] Other hosts with missing IdentityFile audited and fixed
-- [ ] Post-stow validation added to stow-deploy
-- [ ] Documentation updated
+- [x] Post-stow validation added to stow-deploy
+- [x] Documentation updated
 
 ## References
 

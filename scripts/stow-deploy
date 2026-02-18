@@ -92,10 +92,11 @@ STOW_FLAGS=(--dotfiles --no-folding --target="$TARGET")
 
 cd "$STOW_DIR"
 
-# Track adopted packages and failures (temp files avoid subshell variable loss)
+# Track adopted, deployed, and failed packages (temp files avoid subshell variable loss)
 adopted_file=$(mktemp)
+deployed_file=$(mktemp)
 failed_file=$(mktemp)
-trap 'rm -f "$adopted_file" "$failed_file"' EXIT
+trap 'rm -f "$adopted_file" "$deployed_file" "$failed_file"' EXIT
 
 for pkg in "$@"; do
   echo "==> Stowing $pkg"
@@ -103,6 +104,7 @@ for pkg in "$@"; do
   # Try restow, capturing stderr for conflict analysis on failure
   if err=$(stow "${STOW_FLAGS[@]}" -R "$pkg" 2>&1); then
     echo "  Done: $pkg"
+    echo "$pkg" >> "$deployed_file"
     continue
   fi
 
@@ -134,6 +136,7 @@ for pkg in "$@"; do
   # Retry after symlink cleanup
   if stow "${STOW_FLAGS[@]}" -R "$pkg" 2>/dev/null; then
     echo "  Done: $pkg (after symlink cleanup)"
+    echo "$pkg" >> "$deployed_file"
     continue
   fi
 
@@ -153,12 +156,13 @@ for pkg in "$@"; do
   echo "$pkg" >> "$adopted_file"
 
   if [ "$HEADLESS" = true ]; then
-    # Headless: auto-restore repo versions (proven pattern from bigdaddy deployment)
+    # Headless: auto-restore repo versions (adopted files replaced with repo content)
     git -C "$REPO_ROOT" checkout -- "stow/$pkg/"
     echo "  Done: $pkg (adopted + auto-restored repo version)"
   else
     echo "  Done: $pkg (adopted — review diff below)"
   fi
+  echo "$pkg" >> "$deployed_file"
 done
 
 # Show diffs for adopted files (interactive mode only)
@@ -175,6 +179,26 @@ if [ "$HEADLESS" = false ] && [ -s "$adopted_file" ]; then
   echo ""
   echo "To keep local changes:   git add stow/<package>/"
   echo "To discard and use repo: git checkout -- stow/<package>/"
+fi
+
+# --- Post-stow validation ---
+
+# SSH: verify config parses and identity file exists
+if grep -qx "ssh" "$deployed_file" 2>/dev/null; then
+  echo ""
+  echo "==> Validating SSH config"
+  if ! ssh -G github.com >/dev/null 2>&1; then
+    echo "  WARNING: SSH config may be invalid -- 'ssh -G github.com' failed" >&2
+  else
+    _id_file=$(ssh -G github.com 2>/dev/null | awk '/^identityfile /{print $2; exit}')
+    _id_file="${_id_file/#\~/$HOME}"
+    if [ -n "$_id_file" ] && [ ! -f "$_id_file" ]; then
+      echo "  WARNING: SSH IdentityFile '$_id_file' does not exist" >&2
+      echo "           Key must be named brett_ed25519 on all machines" >&2
+    else
+      echo "  SSH config OK (IdentityFile: ${_id_file##*/})"
+    fi
+  fi
 fi
 
 # Headless summary
