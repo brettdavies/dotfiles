@@ -55,17 +55,17 @@ else
   # Extra args extend shared defaults; no args = shared only
   set -- "${SHARED_PACKAGES[@]}" "$@"
 
-  # Deduplicate while preserving order
-  declare -A _seen
+  # Deduplicate while preserving order (bash 3.2 compatible — no associative arrays)
   _deduped=()
   for _pkg in "$@"; do
-    if [[ -z "${_seen[$_pkg]:-}" ]]; then
-      _seen[$_pkg]=1
-      _deduped+=("$_pkg")
-    fi
+    _dup=false
+    for _existing in "${_deduped[@]+"${_deduped[@]}"}"; do
+      if [[ "$_pkg" == "$_existing" ]]; then _dup=true; break; fi
+    done
+    if ! $_dup; then _deduped+=("$_pkg"); fi
   done
   set -- "${_deduped[@]}"
-  unset _seen _deduped _pkg
+  unset _deduped _pkg _dup _existing
 fi
 
 # --- Pre-flight checks ---
@@ -179,12 +179,14 @@ resolve_tree_fold() {
   rm -rf "$aside"
 
   # 6. Clean untracked files from the stow package dir
-  #    Tracked files are intact (cp, not mv). Use -fd (not -fdx) to respect
-  #    .gitignore defense-in-depth patterns. Gitignored remnants are harmless.
+  #    Tracked files are intact (cp, not mv). Use -fdx to also remove gitignored
+  #    files — .gitignore patterns (e.g. /stow/claude/dot-claude/**/*) were
+  #    defense-in-depth for the tree-fold scenario and block -fd from cleaning.
+  #    Double -f removes nested git repos (e.g. claude plugins/marketplaces)
   if [ "$HEADLESS" = false ]; then
-    git -C "$REPO_ROOT" clean -fdn -- "stow/$pkg" | head -20
+    git -C "$REPO_ROOT" clean -ffdxn -- "stow/$pkg" | head -20
   fi
-  if ! git -C "$REPO_ROOT" clean -fd -- "stow/$pkg"; then
+  if ! git -C "$REPO_ROOT" clean -ffdx -- "stow/$pkg"; then
     echo "  WARNING: git clean failed for stow/$pkg" >&2
   fi
 
