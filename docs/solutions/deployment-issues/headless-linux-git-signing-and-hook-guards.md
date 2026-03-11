@@ -3,6 +3,7 @@ title: Headless Linux git signing and Claude Code hook guards
 category: deployment-issues
 tags:
   - git-signing
+  - ssh-auth
   - ssh-keygen
   - 1password
   - cross-platform
@@ -112,12 +113,65 @@ On macOS, both use the 1Password SSH agent (biometric-protected):
 
 This is documented and intentional — the 1Password desktop app is not available on headless servers.
 
+## SSH Authentication: IdentitiesOnly Requires Explicit IdentityFile
+
+### Problem
+
+Multiple SSH hosts had `IdentitiesOnly yes` without an `IdentityFile` directive. This works on macOS where the 1Password SSH agent offers keys via `IdentityAgent`, but fails on headless Linux where the agent socket may not exist — SSH has zero keys to try.
+
+The `Host github.com` block also had `IdentityFile` commented out, breaking `git push` on all platforms (the key is named `brett_ed25519`, not a default name SSH would try).
+
+### Fix
+
+Every host with `IdentitiesOnly yes` must have an explicit `IdentityFile`. The standardized key name is `brett_ed25519` on all machines:
+
+```ssh-config
+Host github.com gist.github.com
+  User git
+  IdentityFile ~/.ssh/brett_ed25519
+  IdentitiesOnly yes
+```
+
+On headless Linux, the key was also renamed from `id_ed25519` to `brett_ed25519` (same key material, fingerprint `SHA256:n4UpR9oDUpPZ/Z5WFDr34cpp7qHiZzoSk2GIuEr9Cc4`).
+
+### Host audit
+
+| Host | IdentityFile | Status |
+|------|-------------|--------|
+| `github.com` | `~/.ssh/brett_ed25519` | Fixed (was commented out) |
+| `arouter` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
+| `pool` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
+| `speedy` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
+| `bigdaddy_wifi` | `~/.ssh/brett_ed25519` | Already correct |
+| `raspberry` | `~/.ssh/brett_ed25519` | Already correct |
+| `gauntlet_ec2` | `~/.ssh/brettdavies-ec2.pem` | Already correct (different key) |
+
+### Tailscale conditional hostnames
+
+Hosts with Tailscale VPN overrides use `Match originalhost` with an `exec` check, placed before `Host` blocks (SSH first-match-wins for `HostName`):
+
+```ssh-config
+Match originalhost pool exec "ifconfig | grep -q 'inet 100.65.10.65'"
+    HostName 100.75.41.53
+
+Host pool
+  HostName 192.168.1.5
+```
+
+Key details:
+
+- **`originalhost` not `host`** — `host` matches the resolved `HostName` (an IP), not the alias
+- **Before `Host` blocks** — SSH uses first-match-wins; if `Host` sets `HostName` first, `Match` can't override it
+
 ## Prevention
 
 - Always guard tool-specific commands with `command -v tool >/dev/null 2>&1 &&` in stowed configs that deploy to multiple platforms
 - Use `[include] path = ~/.config/git/local` for per-host git config overrides instead of modifying stowed files
 - When using `ssh-keygen` as a signing fallback, ensure `user.signingkey` points to the private key file (not a literal key) on systems without ssh-agent
 - Add `uname -s` platform guards to prevent security-sensitive fallbacks from activating on the wrong OS
+- Every host with `IdentitiesOnly yes` must have an explicit `IdentityFile` — agent-only auth fails silently on headless servers
+- SSH key must be named `brett_ed25519` on all machines (not default `id_ed25519`); rename with `mv` (same key material)
+- Tailscale `Match` blocks must use `originalhost` and appear before `Host` blocks (first-match-wins)
 
 ## Related
 

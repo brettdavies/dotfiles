@@ -1,7 +1,7 @@
 ---
 title: "fix: Cross-platform SSH authentication for github.com"
 type: fix
-status: active
+status: completed
 date: 2026-02-17
 ---
 
@@ -52,11 +52,11 @@ Several hosts have `IdentitiesOnly yes` without an explicit `IdentityFile`:
 | Host | IdentityFile | IdentitiesOnly | Status |
 |---|---|---|---|
 | `github.com` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
-| `arouter` | (none) | yes | Broken -- agent-only, no fallback |
-| `server_25` | (none) | yes | Broken -- agent-only, no fallback |
-| `dnsdhcp` | (none) | yes | Broken -- agent-only, no fallback |
-| `pool` | (none) | yes | Broken -- agent-only, no fallback |
-| `speedy` | (none) | yes | Broken -- agent-only, no fallback |
+| `arouter` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
+| `server_25` | N/A | N/A | Removed from config |
+| `dnsdhcp` | N/A | N/A | Removed from config |
+| `pool` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
+| `speedy` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
 | `server_10` | `~/.ssh/brett_ed25519` | yes | OK |
 | `server_wifi` | `~/.ssh/brett_ed25519` | yes | OK |
 | `raspberry` | `~/.ssh/brett_ed25519` | yes | OK |
@@ -123,7 +123,7 @@ When deploying to a new server, the SSH key must be named `~/.ssh/brett_ed25519`
 - [x] `git push/pull` works without `GIT_SSH_COMMAND` on macOS
 - [x] `git push/pull` works without `GIT_SSH_COMMAND` on the headless server (after restow)
 - [x] Git commit signing works on the headless server with renamed key
-- [ ] Other hosts with missing IdentityFile audited and fixed
+- [x] Other hosts with missing IdentityFile audited and fixed
 - [x] Post-stow validation added to stow-deploy
 - [x] Documentation updated
 
