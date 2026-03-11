@@ -352,33 +352,33 @@ after `--no-folding` was added).
 
 ### Phase 2: stow-deploy enhancements
 
-- [ ] Add distinct exit code constants at top of script (EXIT_USAGE=2 through EXIT_PLATFORM=6)
-- [ ] Replace all `exit 1` with appropriate exit code
-- [ ] Add platform guard for desktop-only packages (warn and skip on non-macOS)
-- [ ] Add header comment explaining single-file exception to 200-line trigger
-- [ ] Add `SHARED_PACKAGES` and `DESKTOP_PACKAGES` arrays at top of script
-- [ ] Add cross-reference comment noting Rust CLI `PACKAGE_ORDER` divergence
-- [ ] Add `--all` and `ALL=false` to flag parsing (matches `HEADLESS` naming convention)
-- [ ] Add package expansion logic after flag parsing (with `--all` + explicit error)
-- [ ] Add unknown platform guard
-- [ ] Remove `local` package rejection block (lines 52-57)
-- [ ] Add `get_fold_target()` hardcoded map (4 known packages, not generic discovery)
-- [ ] Add `is_tree_folded()` check function (absolute path comparison via `cd && pwd -P`)
-- [ ] Add `resolve_tree_fold()` function (rename-aside pattern, `cp -a`, `git clean -fd`)
-- [ ] Add tree-fold detection loop before deploy loop (with headless-gated process-stop reminder)
-- [ ] Add callsite error handling: check `resolve_tree_fold()` return, log and skip on failure
-- [ ] Update usage message to show `--all` flag
-- [ ] Run `shellcheck scripts/stow-deploy` and fix any findings
+- [x] Add distinct exit code constants at top of script (EXIT_USAGE=2 through EXIT_PLATFORM=6)
+- [x] Replace all `exit 1` with appropriate exit code
+- [x] Add platform guard for desktop-only packages (warn and skip on non-macOS)
+- [x] Add header comment explaining single-file exception to 200-line trigger
+- [x] Add `SHARED_PACKAGES` and `DESKTOP_PACKAGES` arrays at top of script
+- [x] Add cross-reference comment noting Rust CLI `PACKAGE_ORDER` divergence
+- [x] Add `--all` and `ALL=false` to flag parsing (matches `HEADLESS` naming convention)
+- [x] Add package expansion logic after flag parsing (with `--all` + explicit error)
+- [x] Add unknown platform guard
+- [x] Remove `local` package rejection block (lines 52-57)
+- [x] Add `get_fold_target()` hardcoded map (4 known packages, not generic discovery)
+- [x] Add `is_tree_folded()` check function (absolute path comparison via `cd && pwd -P`)
+- [x] Add `resolve_tree_fold()` function (rename-aside pattern, `cp -a`, `git clean -fd`)
+- [x] Add tree-fold detection loop before deploy loop (with headless-gated process-stop reminder)
+- [x] Add callsite error handling: check `resolve_tree_fold()` return, log and skip on failure
+- [x] Update usage message to show `--all` flag
+- [x] Run `shellcheck scripts/stow-deploy` and fix any findings
 
 ### Phase 3: Documentation
 
-- [ ] Update README package table (split `local` → `local` + `launchagent`)
-- [ ] Update README step 4 (use `--all` examples with PACKAGES variable)
-- [ ] Remove README `local` special handling section
-- [ ] Update README step 8 LaunchAgent path
-- [ ] Update CLAUDE.md `local` rejection note and stow-deploy table
-- [ ] Update `stow-conflict-resolution-wrapper.md` usage examples
-- [ ] Mark brainstorm as `status: planned`
+- [x] Update README package table (split `local` → `local` + `launchagent`)
+- [x] Update README step 4 (use `--all` examples with PACKAGES variable)
+- [x] Remove README `local` special handling section
+- [x] Update README step 8 LaunchAgent path
+- [x] Update CLAUDE.md `local` rejection note and stow-deploy table
+- [x] Update `stow-conflict-resolution-wrapper.md` usage examples
+- [x] Mark brainstorm as `status: planned`
 
 ### Phase 4: Corrective action
 

@@ -4,46 +4,76 @@ set -euo pipefail
 # Stow deployment wrapper with automatic conflict resolution
 # Handles: non-stow symlinks, existing plain files, tree folding
 #
-# Usage: scripts/stow-deploy [--headless] <package> [package ...]
-# Requires explicit package names. No auto-discovery.
+# This script is intentionally kept as a single file (no sourced helpers)
+# to ensure reliable execution on freshly cloned repos across thousands
+# of headless servers. See docs/solutions/.../stow-conflict-resolution-wrapper.md
+#
+# Usage: scripts/stow-deploy [--headless] [--all] [package ...]
+
+# Exit codes — distinct values for automation/CI (all non-zero still indicate failure)
+EXIT_USAGE=2        # Bad arguments or flags
+EXIT_DEPENDENCY=3   # Missing required tools (stow, git-crypt)
+EXIT_PRECONDITION=4 # Pre-flight check failed (dirty stow dir, git-crypt lock)
+EXIT_PACKAGE=5      # Package-specific failure (stow error, tree-fold failure)
+EXIT_PLATFORM=6     # Platform mismatch (launchagent on Linux)
+
+# Package sets — single source of truth
+# Ordering: secrets first (git-crypt dep), shell (PATH/env), then the rest
+# Cross-reference: dotfiles-cli has its own PACKAGE_ORDER in src/link/mod.rs
+SHARED_PACKAGES=(secrets shell zsh bash git ssh gh local claude codex opencode pip brew)
+DESKTOP_PACKAGES=(ghostty cursor launchagent)
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STOW_DIR="$REPO_ROOT/stow"
 TARGET="$HOME"
 HEADLESS=false
+ALL=false
 
 # Parse flags
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --headless) HEADLESS=true; shift ;;
-    *) echo "Unknown flag: $1" >&2; exit 1 ;;
+    --all) ALL=true; shift ;;
+    *) echo "ERROR: Unknown flag: $1" >&2; exit "$EXIT_USAGE" ;;
   esac
 done
 
-# Default shared packages (all platforms)
-DEFAULT_PACKAGES=(shell zsh bash git ssh gh claude codex opencode pip brew secrets)
-
-# Extra args extend defaults; no args = defaults only
-set -- "${DEFAULT_PACKAGES[@]}" "$@"
-
-# Deduplicate while preserving order
-declare -A _seen
-_deduped=()
-for _pkg in "$@"; do
-  if [[ -z "${_seen[$_pkg]:-}" ]]; then
-    _seen[$_pkg]=1
-    _deduped+=("$_pkg")
+# Package expansion
+if [ "$ALL" = true ]; then
+  if [ $# -gt 0 ]; then
+    echo "ERROR: --all cannot be combined with explicit package names" >&2
+    exit "$EXIT_USAGE"
   fi
-done
-set -- "${_deduped[@]}"
-unset _seen _deduped _pkg
+  platform=$(uname -s)
+  case "$platform" in
+    Darwin) set -- "${SHARED_PACKAGES[@]}" "${DESKTOP_PACKAGES[@]}" ;;
+    Linux)  set -- "${SHARED_PACKAGES[@]}" ;;
+    *)      echo "FATAL: unsupported platform: $platform. Use explicit package names." >&2
+            exit "$EXIT_PLATFORM" ;;
+  esac
+else
+  # Extra args extend shared defaults; no args = shared only
+  set -- "${SHARED_PACKAGES[@]}" "$@"
+
+  # Deduplicate while preserving order
+  declare -A _seen
+  _deduped=()
+  for _pkg in "$@"; do
+    if [[ -z "${_seen[$_pkg]:-}" ]]; then
+      _seen[$_pkg]=1
+      _deduped+=("$_pkg")
+    fi
+  done
+  set -- "${_deduped[@]}"
+  unset _seen _deduped _pkg
+fi
 
 # --- Pre-flight checks ---
 
 # Verify stow is installed
 if ! command -v stow >/dev/null 2>&1; then
   echo "FATAL: GNU Stow is not installed" >&2
-  exit 1
+  exit "$EXIT_DEPENDENCY"
 fi
 
 # Warn about known stow 2.3.1 nested dot- bug
@@ -55,17 +85,11 @@ case "$stow_version" in
     ;;
 esac
 
-# Validate package names (no path traversal) and reject special-case packages
+# Validate package names (no path traversal)
 for pkg in "$@"; do
   if [[ "$pkg" =~ [./] ]] || [[ ! -d "$STOW_DIR/$pkg" ]]; then
     echo "ERROR: Invalid package name: $pkg" >&2
-    exit 1
-  fi
-  if [ "$pkg" = "local" ]; then
-    echo "ERROR: The 'local' package requires manual sub-package stowing." >&2
-    echo "       dot-Library conflicts with --dotfiles (creates .Library instead of Library)." >&2
-    echo "       See README step 4 for manual instructions." >&2
-    exit 1
+    exit "$EXIT_USAGE"
   fi
 done
 
@@ -78,7 +102,7 @@ for pkg in "$@"; do
         if ! grep -qI '' "$STOW_DIR/secrets/dot-secrets" 2>/dev/null; then
           echo "FATAL: git-crypt is locked. Encrypted files would be deployed as binary blobs." >&2
           echo "       Run: git-crypt unlock ~/.config/git-crypt/key" >&2
-          exit 1
+          exit "$EXIT_PRECONDITION"
         fi
       fi
       break  # only need to check once
@@ -92,12 +116,109 @@ if [ -n "$dirty" ]; then
   if [ "$HEADLESS" = true ]; then
     echo "FATAL: stow/ has uncommitted changes. In --headless mode, --adopt followed" >&2
     echo "       by git checkout would destroy these changes. Commit first." >&2
-    exit 1
+    exit "$EXIT_PRECONDITION"
   else
     echo "WARNING: stow/ has uncommitted changes. If --adopt runs, git diff will" >&2
     echo "         mix your edits with adopted files. Consider committing first." >&2
   fi
 fi
+
+# --- Tree-fold detection and resolution ---
+
+# Returns the tree-fold target path for a package, or returns 1 if not applicable.
+# Only the 4 packages that were tree-folded before --no-folding are listed.
+get_fold_target() {
+  case "$1" in
+    claude)   echo "$HOME/.claude" ;;
+    codex)    echo "$HOME/.codex" ;;
+    git)      echo "$HOME/.config/git" ;;
+    opencode) echo "$HOME/.config/opencode" ;;
+    *)        return 1 ;;
+  esac
+}
+
+# Check if a target is actually tree-folded (directory-level symlink into stow)
+is_tree_folded() {
+  local target="$1" pkg="$2"
+  [ -L "$target" ] || return 1
+  local canonical_pkg
+  canonical_pkg=$(cd "$STOW_DIR/$pkg" && pwd -P)
+  local abs_link
+  abs_link=$(cd "$(dirname "$target")" && cd "$(readlink "$target")" && pwd -P 2>/dev/null) || return 1
+  [[ "$abs_link" == "$canonical_pkg/"* ]]
+}
+
+# Resolve a tree-folded directory symlink into a real directory
+resolve_tree_fold() {
+  local target="$1" pkg="$2"
+  local tmpdir pre_count post_count
+
+  echo "  Resolving tree-fold: $target"
+  pre_count=$(find "$target" -type f | wc -l)
+
+  # 1. Create staging directory with random suffix (mktemp, no recovery infra)
+  tmpdir=$(mktemp -d "${target}.XXXXXX")
+
+  # 2. Copy all contents (runtime data + tracked files are co-mingled)
+  #    cp -a src/. dst/ copies hidden files without needing shopt dotglob
+  #    Use cp (not mv) so tracked files remain in the stow package dir
+  if ! cp -a "$target"/. "$tmpdir"/; then
+    echo "  ERROR: Failed to copy contents of $target" >&2
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  # 3. Rename-aside: move symlink out of the way (no data-loss window)
+  local aside="${target}.stow-old-$$"
+  mv "$target" "$aside"
+
+  # 4. Move staging dir to final target (atomic rename)
+  mv "$tmpdir" "$target"
+
+  # 5. Clean up the old symlink
+  rm -rf "$aside"
+
+  # 6. Clean untracked files from the stow package dir
+  #    Tracked files are intact (cp, not mv). Use -fd (not -fdx) to respect
+  #    .gitignore defense-in-depth patterns. Gitignored remnants are harmless.
+  if [ "$HEADLESS" = false ]; then
+    git -C "$REPO_ROOT" clean -fdn -- "stow/$pkg" | head -20
+  fi
+  if ! git -C "$REPO_ROOT" clean -fd -- "stow/$pkg"; then
+    echo "  WARNING: git clean failed for stow/$pkg" >&2
+  fi
+
+  post_count=$(find "$target" -type f | wc -l)
+  if [ "$post_count" -lt "$pre_count" ]; then
+    echo "  WARNING: File count dropped from $pre_count to $post_count" >&2
+  fi
+
+  echo "  Done: $target is now a real directory"
+}
+
+# Detect and resolve tree-folded packages before stowing
+tree_fold_found=false
+for pkg in "$@"; do
+  fold_target=$(get_fold_target "$pkg") || continue
+  if is_tree_folded "$fold_target" "$pkg"; then
+    if [ "$tree_fold_found" = false ]; then
+      tree_fold_found=true
+      echo ""
+      echo "=== Tree-folded directories detected ==="
+      if [ "$HEADLESS" = false ]; then
+        echo "NOTE: Stop any tools that write to tree-folded directories before proceeding."
+        read -r -p "Press Enter to continue or Ctrl-C to abort..."
+      else
+        echo "ERROR: Tree-folded directories detected in headless mode. Aborting." >&2
+        echo "  Resolve tree-folds interactively first, then re-deploy headless." >&2
+        exit "$EXIT_PRECONDITION"
+      fi
+    fi
+    if ! resolve_tree_fold "$fold_target" "$pkg"; then
+      echo "  ERROR: Failed to resolve tree-fold for $pkg, skipping" >&2
+    fi
+  fi
+done
 
 # --- Deploy ---
 
@@ -112,6 +233,16 @@ failed_file=$(mktemp)
 trap 'rm -f "$adopted_file" "$deployed_file" "$failed_file"' EXIT
 
 for pkg in "$@"; do
+  # Platform guard for desktop-only packages
+  if [ "$(uname -s)" != "Darwin" ]; then
+    case "$pkg" in
+      ghostty|cursor|launchagent)
+        echo "WARNING: $pkg is macOS-only, skipping on $(uname -s)" >&2
+        continue
+        ;;
+    esac
+  fi
+
   echo "==> Stowing $pkg"
 
   # Try restow, capturing stderr for conflict analysis on failure
@@ -132,7 +263,7 @@ for pkg in "$@"; do
       echo "$pkg" >> "$failed_file"
       continue  # best-effort: try remaining packages
     else
-      exit 1  # fail-fast in interactive mode
+      exit "$EXIT_PACKAGE"
     fi
   fi
 
@@ -163,7 +294,7 @@ for pkg in "$@"; do
       echo "$pkg" >> "$failed_file"
       continue
     else
-      exit 1
+      exit "$EXIT_PACKAGE"
     fi
   fi
   echo "$pkg" >> "$adopted_file"
@@ -231,5 +362,5 @@ if [ "$HEADLESS" = true ] && [ -s "$failed_file" ]; then
   while read -r pkg; do
     echo "  FAILED: $pkg"
   done < "$failed_file"
-  exit 1
+  exit "$EXIT_PACKAGE"
 fi

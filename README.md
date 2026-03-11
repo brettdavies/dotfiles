@@ -90,34 +90,35 @@ Use the `stow-deploy` wrapper for automatic conflict resolution:
 ```bash
 cd ~/dotfiles
 
-# macOS: default packages + desktop-only packages
-scripts/stow-deploy ghostty cursor
+# macOS: all packages (shared + desktop)
+scripts/stow-deploy --all
 
-# Headless servers: default packages only
-scripts/stow-deploy --headless
+# Headless servers: shared packages only
+scripts/stow-deploy --headless --all
 ```
 
-When no packages are specified, `stow-deploy` deploys its built-in default set (see `DEFAULT_PACKAGES` in `scripts/stow-deploy`). Passing package names deploys only those specific packages.
+`--all` deploys `SHARED_PACKAGES` on Linux and `SHARED_PACKAGES + DESKTOP_PACKAGES` on macOS (see `scripts/stow-deploy` for the lists). Without `--all`, extra args extend the shared defaults:
 
-The wrapper handles non-stow symlinks, existing plain files (`--adopt`), and always uses `--no-folding`. It also auto-configures `core.hooksPath=.githooks` for repo-local hooks (pre-commit branch protection, git-crypt auto-unlock, Git LFS chaining). The `--headless` flag auto-restores repo versions after adopt.
+```bash
+scripts/stow-deploy                   # shared packages only
+scripts/stow-deploy ghostty cursor    # shared + ghostty + cursor
+```
 
-**Manual alternative** (without conflict resolution — package list must match `DEFAULT_PACKAGES` in `scripts/stow-deploy`):
+The wrapper handles non-stow symlinks, existing plain files (`--adopt`), tree-fold detection/resolution, and always uses `--no-folding`. It also auto-configures `core.hooksPath=.githooks` for repo-local hooks (pre-commit branch protection, git-crypt auto-unlock, Git LFS chaining). The `--headless` flag auto-restores repo versions after adopt.
+
+**Manual alternative** (without conflict resolution — package lists must match arrays in `scripts/stow-deploy`):
 
 ```bash
 cd ~/dotfiles/stow
 
-# macOS
-stow --dotfiles --no-folding --target="$HOME" shell zsh bash git ssh gh claude codex opencode pip brew secrets ghostty cursor
+# macOS (shared + desktop)
+stow --dotfiles --no-folding --target="$HOME" \
+  secrets shell zsh bash git ssh gh local claude codex opencode pip brew \
+  ghostty cursor launchagent
 
-# Headless
-stow --dotfiles --no-folding --target="$HOME" shell zsh bash git ssh gh claude codex opencode pip brew secrets
-```
-
-The `local` package requires manual stowing (rejected by `stow-deploy` due to the `dot-Library` bug in Stow <2.4.0):
-
-```bash
-cd ~/dotfiles/stow
-stow --dotfiles --no-folding --target="$HOME" local
+# Headless (shared only)
+stow --dotfiles --no-folding --target="$HOME" \
+  secrets shell zsh bash git ssh gh local claude codex opencode pip brew
 ```
 
 ### 5. Install packages from Brewfile

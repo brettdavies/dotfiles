@@ -41,16 +41,17 @@ GNU Stow has no `--force` flag. The `scripts/stow-deploy` wrapper handles three 
 |----------|-------|------------|
 | Non-stow symlink | Manually created absolute symlink | Remove symlink, restow |
 | Existing plain file | Config created by installer | `--adopt` moves file into package, then review or auto-restore |
-| Tree folding | Directory-level symlink pollutes repo | `--no-folding` prevents this (always enabled) |
+| Tree folding | Directory-level symlink pollutes repo | Detected and resolved pre-deploy; `--no-folding` prevents recurrence |
 
 **Usage:**
 
 ```bash
-scripts/stow-deploy shell zsh bash git ssh    # interactive (shows git diff for adopted files)
-scripts/stow-deploy --headless shell bash git  # headless (auto-restores repo versions after adopt)
+scripts/stow-deploy --all                     # macOS: shared + desktop packages
+scripts/stow-deploy --headless --all          # headless: shared packages only
+scripts/stow-deploy ghostty cursor            # shared defaults + explicit extras
 ```
 
-**Restrictions:** The `local` package is rejected (requires manual sub-package stowing). Encrypted packages (`secrets`, `ssh`, `git`) require git-crypt unlock first.
+**Flags:** `--all` expands to `SHARED_PACKAGES` + `DESKTOP_PACKAGES` (macOS) or `SHARED_PACKAGES` only (Linux). Without `--all`, extra args extend `SHARED_PACKAGES`. `--headless` auto-restores repo versions after adopt. Encrypted packages (`secrets`, `ssh`, `git`) require git-crypt unlock first.
 
 ---
 

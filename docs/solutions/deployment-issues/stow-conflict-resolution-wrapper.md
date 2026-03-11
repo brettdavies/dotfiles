@@ -44,14 +44,14 @@ The script always passes `--no-folding` to prevent tree folding entirely (phase 
 ### Usage
 
 ```bash
-# Shared packages (all platforms)
-PACKAGES="shell zsh bash git ssh gh claude codex opencode pip brew secrets"
+# macOS: all packages (shared + desktop)
+scripts/stow-deploy --all
 
-# Interactive (macOS): append desktop-only packages, shows git diff for adopted files
-scripts/stow-deploy $PACKAGES ghostty cursor
+# Headless servers: shared packages only
+scripts/stow-deploy --headless --all
 
-# Headless (Ubuntu): shared packages only, auto-restores repo versions after adopt
-scripts/stow-deploy --headless $PACKAGES
+# Shared defaults + explicit extras
+scripts/stow-deploy ghostty cursor
 ```
 
 ### Three-phase conflict resolution

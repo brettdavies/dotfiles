@@ -1,7 +1,7 @@
 # Stow Deploy: Platform Defaults, Tree-Fold Fix, and Local Package Split
 
 **Date:** 2026-02-17
-**Status:** Brainstorm
+**Status:** Planned
 **Trigger:** Claude Code `PostToolUse:Edit hook error` on headless Ubuntu server -- `~/.claude/auto-format.sh` missing because `claude` package was never in the Ubuntu deployment list.
 
 ## What We're Building
