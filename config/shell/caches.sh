@@ -24,7 +24,7 @@ fi
 
 # Python package managers and tools
 export POETRY_CACHE_DIR="$XDG_CACHE_HOME/pypoetry"
-export PIP_CACHE_DIR="$XDG_CACHE_HOME/pip"
+export PIP_CACHE_DIR="$XDG_CACHE_HOME/pip"  # also set in stow/pip/dot-config/pip/pip.conf
 export PIPX_HOME="$XDG_CACHE_HOME/pipx"
 export UV_CACHE_DIR="$XDG_CACHE_HOME/uv"
 # Note: uvx (uv's tool runner) uses the same UV_CACHE_DIR

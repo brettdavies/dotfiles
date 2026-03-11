@@ -452,11 +452,14 @@ fi
 
 ### Deploy sequence
 
+Shared packages (all platforms): `shell zsh bash git ssh gh claude codex opencode pip brew secrets`
+Desktop-only (macOS): `ghostty cursor`
+
 1. Deploy to macOS first (stow 2.4.1, no nested `dot-` bug)
 2. Run single non-critical package first: `scripts/stow-deploy pip`
-3. If successful, run all: `scripts/stow-deploy shell zsh bash git ssh ghostty gh claude codex cursor opencode pip brew secrets`
+3. If successful, run all: `scripts/stow-deploy shell zsh bash git ssh gh claude codex opencode pip brew secrets ghostty cursor`
 4. Review `git diff` for adopted files
-5. For Ubuntu: `scripts/stow-deploy --headless shell bash git ssh secrets`
+5. For Ubuntu: `scripts/stow-deploy --headless shell zsh bash git ssh gh claude codex opencode pip brew secrets`
 
 ### Post-deploy verification
 

@@ -74,8 +74,8 @@ If the user's default shell is bash, this becomes `bash -c 'command'` — normal
 .profile (environment for all shells, all modes)
 ├── config/shell/*.sh  (env vars, caches, telemetry, paths)
 ├── Homebrew shellenv   ← MUST come before ~/.secrets (op CLI needs PATH)
-├── ~/.secrets          (tokens, API keys — uses `op read` from Homebrew)
-├── ~/.local/bin/env
+├── ~/.secrets          (tokens, API keys — uses `op inject` from Homebrew)
+├── ~/.local/bin → PATH (inline, no sourced file)
 ├── ~/.cargo/env
 └── GPG_TTY
 
@@ -171,19 +171,9 @@ All GitHub and Gist URLs are transparently rewritten from HTTPS to SSH at the gi
 
 **Note:** The `insteadOf` rules only take effect after the gitconfig is stowed. The initial `git clone` of the dotfiles repo can use either HTTPS or SSH -- HTTPS works fine since the rewrite rules aren't active yet.
 
-#### 8. SSH pool entries (`stow/ssh/dot-ssh/config`)
+#### 8. SSH host entries (`stow/ssh/dot-ssh/config`)
 
-```ssh-config
-Host pool.tailscale
-    HostName pool
-    User root
-    Port 5922
-
-Host pool-lan
-    HostName 192.168.1.5
-    User root
-    Port 5922
-```
+Added missing local network hosts (`arouter`, `pool`, `speedy`, `bigdaddy_wifi`) with `IdentityFile` and `IdentitiesOnly` to ensure SSH authentication works on headless servers without 1Password agent. Added Tailscale VPN `Match originalhost` blocks for automatic IP switching when connected to Tailscale.
 
 ## Prevention Strategies
 
@@ -237,8 +227,8 @@ Secrets belong in `~/.secrets` (sourced by `.profile`), never in `.bashrc` or `.
 
 1. `config/shell/*.sh` (env vars, constants)
 2. Homebrew/Linuxbrew `shellenv` (adds `op`, `gh`, etc. to PATH)
-3. `~/.secrets` (can now use `op read`)
-4. `~/.local/bin/env`, `~/.cargo/env`
+3. `~/.secrets` (can now use `op inject`)
+4. `~/.local/bin` → PATH (inline), `~/.cargo/env`
 
 Symptom of getting this wrong: variables set via `$(command 2>/dev/null)` are silently empty. The `2>/dev/null` hides the "command not found" error.
 

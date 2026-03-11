@@ -241,5 +241,6 @@
   "enabledPlugins": {
     "compound-engineering@every-marketplace": true
   },
-  "alwaysThinkingEnabled": true
+  "alwaysThinkingEnabled": true,
+  "effortLevel": "high"
 }
