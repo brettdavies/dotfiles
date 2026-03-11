@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Create a standard 3-pane dev session for a repo
+# Usage: tmux-new-session.sh <session-name> <repo-path>
+#
+# Layout:
+#   ┌──────────┬──────────────────────────┐
+#   │          │   Claude Code  (top)     │
+#   │  yazi    │                          │
+#   │ (full    ├──────────────────────────┤
+#   │ height)  │   lazygit  (bottom)      │
+#   └──────────┴──────────────────────────┘
+
+set -euo pipefail
+
+SESSION="${1:?Usage: $0 <session-name> <repo-path>}"
+REPO="${2:?Usage: $0 <session-name> <repo-path>}"
+
+if [ ! -d "$REPO" ]; then
+  echo "Error: repo path '$REPO' does not exist" >&2
+  exit 1
+fi
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  echo "Session '$SESSION' already exists — attaching"
+  tmux attach -t "$SESSION"
+  exit 0
+fi
+
+# Create session — first pane will become yazi (left column, full height)
+tmux new-session -d -s "$SESSION" -c "$REPO" -x 220 -y 50
+
+# Split right column off (yazi stays left at 30%, right column gets 70%)
+tmux split-window -t "$SESSION:1.1" -h -p 70 -c "$REPO"
+
+# Split right column: Claude Code top (60%), lazygit bottom (40%)
+tmux split-window -t "$SESSION:1.2" -v -p 40 -c "$REPO"
+
+# Start tools
+tmux send-keys -t "$SESSION:1.1" "yazi" Enter
+tmux send-keys -t "$SESSION:1.2" "" ""   # Claude Code pane — clean shell
+tmux send-keys -t "$SESSION:1.3" "lazygit" Enter
+
+# Leave Claude Code pane selected (ready for: claude)
+tmux select-pane -t "$SESSION:1.2"
+
+echo "✅ Session '$SESSION' created at $REPO"
+echo "   Attach with: tmux attach -t $SESSION"
+echo "   Or from SSH: ssh -t bigdaddy \"tmux attach -t $SESSION\""
