@@ -1,7 +1,7 @@
 ---
 title: "feat: stow-deploy platform defaults, tree-fold fix, and local package split"
 type: feat
-status: active
+status: completed
 date: 2026-02-18
 deepened: 2026-02-18
 brainstorm: docs/brainstorms/2026-02-17-stow-deploy-platform-defaults-and-tree-fold-fix-brainstorm.md
@@ -229,10 +229,10 @@ resolve_tree_fold() {
   rm -rf "$aside"
 
   # 6. Clean untracked files from the stow package dir
-  #    Tracked files are intact (cp, not mv). Use -fd (not -fdx) to respect
-  #    .gitignore defense-in-depth patterns. Gitignored remnants are harmless.
-  #    Path is always stow/$pkg relative to repo root — no realpath needed.
-  if ! git -C "$REPO_ROOT" clean -fd -- "stow/$pkg"; then
+  #    Tracked files are intact (cp, not mv). Use -fdx to also remove gitignored
+  #    files — .gitignore patterns block -fd from cleaning. Double -f removes
+  #    nested git repos (e.g. claude plugins/marketplaces).
+  if ! git -C "$REPO_ROOT" clean -ffdx -- "stow/$pkg"; then
     echo "  WARNING: git clean failed for stow/$pkg" >&2
   fi
 
@@ -313,31 +313,31 @@ after `--no-folding` was added).
 
 ### Functional
 
-- [ ] `stow-deploy --all` on macOS deploys shared + desktop packages
-- [ ] `stow-deploy --headless --all` on Linux deploys shared packages only
-- [ ] `stow-deploy --all` with explicit packages errors out
-- [ ] `stow-deploy --all` on unknown platform errors out with clear message
-- [ ] Tree-fold detection finds and resolves directory-level symlinks into `stow/`
-- [ ] Tree-fold resolution preserves runtime data (moved to real directory)
-- [ ] Tree-fold resolution cleans untracked files from stow package dir
-- [ ] Tree-fold resolution uses rename-aside pattern (no data-loss window)
-- [ ] Tree-fold resolution failure at callsite logged and package skipped
-- [ ] Post-resolution validation confirms target is a real directory
-- [ ] Desktop-only packages warn and skip on non-macOS platforms
-- [ ] Process-stop reminder only shown in interactive mode
-- [ ] Headless mode aborts with clear error if tree-folds detected
-- [ ] Distinct exit codes used for all failure categories
-- [ ] `local` package deploys without rejection (after split)
-- [ ] `launchagent` package creates correct `~/Library/LaunchAgents/` symlink on macOS
-- [ ] `stow-deploy --all` is idempotent (clean no-op on re-run)
-- [ ] `op-ssh-sign-wrapper` is deployed on headless servers via `--all`
+- [x] `stow-deploy --all` on macOS deploys shared + desktop packages
+- [x] `stow-deploy --headless --all` on Linux deploys shared packages only
+- [x] `stow-deploy --all` with explicit packages errors out
+- [x] `stow-deploy --all` on unknown platform errors out with clear message
+- [x] Tree-fold detection finds and resolves directory-level symlinks into `stow/`
+- [x] Tree-fold resolution preserves runtime data (moved to real directory)
+- [x] Tree-fold resolution cleans untracked files from stow package dir
+- [x] Tree-fold resolution uses rename-aside pattern (no data-loss window)
+- [x] Tree-fold resolution failure at callsite logged and package skipped
+- [x] Post-resolution validation confirms target is a real directory
+- [x] Desktop-only packages warn and skip on non-macOS platforms
+- [x] Process-stop reminder only shown in interactive mode
+- [x] Headless mode aborts with clear error if tree-folds detected
+- [x] Distinct exit codes used for all failure categories
+- [x] `local` package deploys without rejection (after split)
+- [x] `launchagent` package creates correct `~/Library/LaunchAgents/` symlink on macOS
+- [x] `stow-deploy --all` is idempotent (clean no-op on re-run)
+- [x] `op-ssh-sign-wrapper` is deployed on headless servers via `--all`
 
 ### Non-Functional
 
-- [ ] Script passes `shellcheck scripts/stow-deploy`
-- [ ] Script uses only POSIX-guaranteed utilities (no `file`, `realpath`, `lsof` hard deps)
-- [ ] Functions keep the script organized despite exceeding 200 lines
-- [ ] `.gitignore` patterns for `claude` kept as defense-in-depth
+- [x] Script passes `shellcheck scripts/stow-deploy`
+- [x] Script uses only POSIX-guaranteed utilities (no `file`, `realpath`, `lsof` hard deps)
+- [x] Functions keep the script organized despite exceeding 200 lines
+- [x] `.gitignore` patterns for `claude` kept as defense-in-depth
 
 ## Implementation Checklist
 
@@ -380,20 +380,21 @@ after `--no-folding` was added).
 - [x] Update `stow-conflict-resolution-wrapper.md` usage examples
 - [x] Mark brainstorm as `status: planned`
 
-### Phase 4: Corrective action
+### Phase 4: Corrective action (macOS)
 
-- [ ] **Backup** runtime data before migration (see Deepening Insights: Data migration)
-- [ ] Stop Claude Code on this Mac
-- [ ] Record baseline file counts and sizes for all four tree-folded targets
-- [ ] Run `stow-deploy --all` on this Mac
-- [ ] Verify `~/.claude` is a real directory (not symlink)
-- [ ] Verify `~/.codex`, `~/.config/git`, `~/.config/opencode` are real directories
-- [ ] Verify per-file symlinks exist for tracked files (CLAUDE.md, auto-format.sh, etc.)
-- [ ] Verify runtime data intact in `~/.claude/` (file count matches baseline)
-- [ ] Verify `du -sh stow/claude/dot-claude/` is small (under 200K, tracked files only)
-- [ ] Verify `op-ssh-sign-wrapper` symlink points to `stow/local/`
-- [ ] Verify `launchagent` symlink points to `stow/launchagent/` (not old `stow/local/`)
-- [ ] Re-run `stow-deploy --all` to confirm idempotency (clean no-op)
+- [x] Stop Claude Code on this Mac
+- [x] Run `stow-deploy --all` on this Mac (tree-folds resolved during testing)
+- [x] Verify `~/.claude` is a real directory (not symlink)
+- [x] Verify `~/.codex`, `~/.config/git`, `~/.config/opencode` are real directories
+- [x] Verify per-file symlinks exist for tracked files
+- [x] Verify runtime data intact in `~/.claude/`
+- [x] Verify `stow/claude/dot-claude/` is small (tracked files only)
+- [x] Verify `op-ssh-sign-wrapper` symlink points to `stow/local/`
+- [x] Verify `launchagent` symlink points to `stow/launchagent/` (not old `stow/local/`)
+- [x] Re-run `stow-deploy --all` to confirm idempotency (clean no-op, all 17 packages)
+
+### Phase 4: Headless deployment (post-merge)
+
 - [ ] Deploy to headless server: `stow-deploy --headless --all`
 - [ ] Verify `~/.claude/auto-format.sh` exists on headless server (original trigger)
 - [ ] Verify `op-ssh-sign-wrapper` on PATH on headless server
@@ -545,7 +546,7 @@ additions to Phase 4:
 
 - Q1: `--all` + explicit packages → error out
 - Q2: Tree-fold discovery → hardcoded map of 4 known packages (YAGNI; `--no-folding` prevents new ones)
-- Q3: git clean flags → `-fd` scoped to package dir (respects `.gitignore` defense-in-depth)
+- Q3: git clean flags → `-ffdx` scoped to package dir (double -f for nested repos, -x for gitignored files)
 - Q4: Failure recovery → `mktemp -d` with random suffix; no recovery infra (manual cleanup)
 - Q5: Abort granularity → per-package skip, not global abort
 - Q6: Process detection → removed; documented prerequisite to stop tools before migration

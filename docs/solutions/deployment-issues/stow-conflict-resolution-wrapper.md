@@ -8,10 +8,13 @@ tags:
   - symlinks
   - deployment
   - headless
+  - tree-folding
+  - platform-detection
 module: dotfiles deployment
 symptom: GNU Stow refuses to deploy packages when existing symlinks, plain files, or directory-level symlinks conflict with the target
 root_cause: GNU Stow has no --force flag. Three distinct conflict types require different resolution strategies that stow cannot handle alone.
 date: 2026-02-17
+updated: 2026-03-11
 severity: high
 ---
 
@@ -47,12 +50,34 @@ The script always passes `--no-folding` to prevent tree folding entirely (phase 
 # macOS: all packages (shared + desktop)
 scripts/stow-deploy --all
 
-# Headless servers: shared packages only
+# Headless servers: shared packages only (--all auto-detects platform)
 scripts/stow-deploy --headless --all
 
-# Shared defaults + explicit extras
+# Shared defaults only (no args = shared packages)
+scripts/stow-deploy
+
+# Shared defaults + explicit extras (deduped, order preserved)
 scripts/stow-deploy ghostty cursor
 ```
+
+### Platform-aware package sets
+
+The script defines two package arrays as the single source of truth:
+
+```bash
+SHARED_PACKAGES=(secrets shell zsh bash git ssh gh local claude codex opencode pip brew)
+DESKTOP_PACKAGES=(ghostty cursor launchagent)
+```
+
+| Flag | macOS (Darwin) | Linux | Unknown |
+|------|---------------|-------|---------|
+| `--all` | shared + desktop | shared only | Fatal error (exit 6) |
+| No args | shared only | shared only | shared only |
+| Explicit args | shared + args (deduped) | shared + args (deduped) | shared + args (deduped) |
+
+Desktop-only packages (`ghostty`, `cursor`, `launchagent`) are skipped with a warning on non-macOS platforms even when explicitly requested. This prevents creating meaningless directories like `~/Library/` on Linux.
+
+**Package ordering:** `secrets` first (git-crypt dependency), then `shell` (PATH/env setup), then `zsh`/`bash` (source shell helpers), then everything else. The ordering respects the dependency chain documented in `cross-platform-stow-dotfiles-deployment.md`.
 
 ### Three-phase conflict resolution
 
@@ -97,11 +122,13 @@ Before entering the conflict resolution pipeline, the script checks whether stde
 
 The script validates five conditions before processing any packages:
 
-1. **Stow installed** -- `command -v stow` (fatal if missing)
+1. **Stow installed** -- `command -v stow` (fatal if missing, exit 3)
 2. **Stow version** -- warns if < 2.4.0 (nested `dot-` directory bug; install via `brew install stow`)
-3. **Package validation** -- rejects path traversal (`../`), nonexistent packages, and the `local` package
-4. **git-crypt unlocked** -- checks `grep -qI` on `stow/secrets/dot-secrets` to detect binary (encrypted) content for packages `secrets`, `ssh`, `git`
-5. **Clean working tree** -- `git status --porcelain stow/` (fatal in headless mode, warning in interactive)
+3. **Package validation** -- rejects path traversal (`../`) and nonexistent packages (exit 2)
+4. **git-crypt unlocked** -- checks `grep -qI` on `stow/secrets/dot-secrets` to detect binary (encrypted) content for packages `secrets`, `ssh`, `git` (exit 4)
+5. **Clean working tree** -- `git status --porcelain stow/` (fatal in headless mode exit 4, warning in interactive)
+
+After pre-flight checks, the script runs **tree-fold detection** on all requested packages before entering the deploy loop. See the Tree-fold detection section below.
 
 ### Failure modes
 
@@ -148,9 +175,46 @@ On unattended servers, nobody reads `git diff` output. Headless mode auto-restor
 
 Checking whether encrypted packages are unlocked uses `grep -qI '' "$file"` on a known encrypted file. The `-I` flag treats binary files as non-matching, returning exit code 1 for locked (binary) files and 0 for unlocked (text) files. This completes in under 1ms and is POSIX-portable (no `file` command dependency). The alternative, `git-crypt status`, takes 200-500ms per invocation because it scans the entire repo.
 
-### local package rejection
+### Tree-fold detection and resolution
 
-The `local` package contains `dot-Library` which `--dotfiles` converts to `.Library` instead of the intended `Library`. This is a fundamental limitation of the `dot-` prefix convention. The script rejects `local` with a message pointing to manual sub-package stowing instructions.
+Tree folding is when stow creates a directory-level symlink (e.g., `~/.claude -> dotfiles/stow/claude/dot-claude`) instead of per-file symlinks. Any tool that writes to that directory then writes directly into the git repo. The `--no-folding` flag prevents new tree-folds, but existing ones from before `--no-folding` was added must be resolved.
+
+The script detects and resolves tree-folds in a pre-deploy phase using a hardcoded map of the 4 packages that were historically tree-folded. This is a one-time migration — `--no-folding` prevents recurrence, so generic discovery is YAGNI.
+
+```bash
+get_fold_target() {
+  case "$1" in
+    claude)   echo "$HOME/.claude" ;;
+    codex)    echo "$HOME/.codex" ;;
+    git)      echo "$HOME/.config/git" ;;
+    opencode) echo "$HOME/.config/opencode" ;;
+    *)        return 1 ;;
+  esac
+}
+```
+
+**Detection:** Check if the target is a symlink whose resolved path points into the stow package directory. Uses `cd && pwd -P` for absolute path comparison (portable, no `realpath` dependency).
+
+**Resolution (rename-aside pattern):**
+
+1. `cp -a` all contents to a staging directory (`mktemp -d` with random suffix)
+2. Rename-aside: `mv` symlink to `${target}.stow-old-$$` (no data-loss window)
+3. `mv` staging directory to final target (atomic rename)
+4. Remove the old symlink
+5. `git clean -ffdx` untracked files from the stow package directory
+
+Uses `cp` (not `mv`) so tracked files remain in the stow package directory for re-stowing. The double `-f` in `git clean -ffdx` removes nested git repos (e.g., Claude Code marketplace plugins). The `-x` flag removes gitignored files that `-fd` alone would skip.
+
+**Headless gating:** Tree-fold resolution requires interactive confirmation (the user must stop tools that write to those directories). In headless mode, tree-folds cause an immediate abort (exit 4) with instructions to resolve interactively first.
+
+### Package split: `local` + `launchagent`
+
+The original `local` package contained `dot-Library/LaunchAgents/...` which `--dotfiles` converts to `.Library` instead of the intended `Library`. This was resolved by splitting into two packages:
+
+- **`local`** (shared, all platforms): `dot-local/bin/env`, `dot-local/bin/op-ssh-sign-wrapper`
+- **`launchagent`** (macOS desktop-only): `Library/LaunchAgents/com.user.devtosync.plist`
+
+`Library/` has no `dot-` prefix because `~/Library` doesn't start with a dot. `stow --dotfiles` has nothing to convert, so the target path is correct.
 
 ## Gotchas and Lessons Learned
 
@@ -188,11 +252,53 @@ echo "$pkg" >> "$adopted_file"
 
 In interactive mode, adopted files remain in the working tree as uncommitted changes. The user sees a `git diff` and decides whether to keep local changes (`git add`) or discard them (`git checkout --`). This is intentional -- the user may want to incorporate machine-specific config into the repo.
 
+### Use `git clean -ffdx` (not `-fd`) for tree-fold cleanup
+
+After resolving a tree-fold, the stow package directory contains untracked runtime files that were co-mingled with tracked files via the directory symlink. Three flags are required:
+
+- `-x` removes gitignored files. The `.gitignore` has defense-in-depth patterns (e.g., `/stow/claude/dot-claude/**/*`) that were added to mask the tree-fold problem. Without `-x`, `git clean -fd` skips these files entirely.
+- Double `-f` removes nested git repositories. Claude Code marketplace plugins are nested git repos that `git clean -fd` skips with `Would skip repository`.
+- `-d` removes untracked directories.
+
+```bash
+# Wrong: skips gitignored files and nested git repos
+git clean -fd -- "stow/$pkg"
+
+# Correct: removes everything untracked including gitignored and nested repos
+git clean -ffdx -- "stow/$pkg"
+```
+
+### Avoid `declare -A` for macOS bash 3.2 compatibility
+
+macOS ships bash 3.2 as `/bin/bash`, and `#!/usr/bin/env bash` resolves to it unless Homebrew bash is first on PATH. Bash 3.2 lacks associative arrays (`declare -A`). Use loop-based deduplication instead:
+
+```bash
+# Wrong: fails on macOS bash 3.2
+declare -A _seen
+for _pkg in "$@"; do
+  [[ -z "${_seen[$_pkg]:-}" ]] && _seen[$_pkg]=1 && _deduped+=("$_pkg")
+done
+
+# Correct: O(n²) but works on bash 3.2 (package lists are small)
+_deduped=()
+for _pkg in "$@"; do
+  _dup=false
+  for _existing in "${_deduped[@]+"${_deduped[@]}"}"; do
+    [[ "$_pkg" == "$_existing" ]] && _dup=true && break
+  done
+  $_dup || _deduped+=("$_pkg")
+done
+```
+
+The `"${_deduped[@]+"${_deduped[@]}"}"` pattern prevents `unbound variable` errors under `set -u` when the array is empty (another bash 3.2 limitation).
+
 ## References
 
-- Plan document: `docs/plans/2026-02-16-feat-stow-adopt-and-conflict-resolution-plan.md`
+- Plan (conflict resolution): `docs/plans/2026-02-16-feat-stow-adopt-and-conflict-resolution-plan.md`
+- Plan (platform defaults + tree-fold): `docs/plans/2026-02-18-feat-stow-deploy-platform-defaults-tree-fold-fix-plan.md`
 - Implementation: `scripts/stow-deploy`
 - Related solution (cross-platform deployment): `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
 - Related solution (headless git signing): `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`
+- Related solution (portable binary detection): `docs/solutions/deployment-issues/portable-binary-detection-sentinel-fix-and-auto-hooks.md`
 - GNU Stow manual: <https://www.gnu.org/software/stow/manual/stow.html>
 - Tree folding + dotfiles bug: <https://lists.gnu.org/archive/html/bug-stow/2019-09/msg00000.html>
