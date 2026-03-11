@@ -53,12 +53,12 @@ Several hosts have `IdentitiesOnly yes` without an explicit `IdentityFile`:
 |---|---|---|---|
 | `github.com` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
 | `arouter` | (none) | yes | Broken -- agent-only, no fallback |
-| `bigdaddy_25` | (none) | yes | Broken -- agent-only, no fallback |
+| `server_25` | (none) | yes | Broken -- agent-only, no fallback |
 | `dnsdhcp` | (none) | yes | Broken -- agent-only, no fallback |
 | `pool` | (none) | yes | Broken -- agent-only, no fallback |
 | `speedy` | (none) | yes | Broken -- agent-only, no fallback |
-| `bigdaddy_10` | `~/.ssh/brett_ed25519` | yes | OK |
-| `bigdaddy_wifi` | `~/.ssh/brett_ed25519` | yes | OK |
+| `server_10` | `~/.ssh/brett_ed25519` | yes | OK |
+| `server_wifi` | `~/.ssh/brett_ed25519` | yes | OK |
 | `raspberry` | `~/.ssh/brett_ed25519` | yes | OK |
 | `gauntlet_ec2` | `~/.ssh/brettdavies-ec2.pem` | yes | OK |
 

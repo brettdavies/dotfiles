@@ -44,11 +44,14 @@ The script always passes `--no-folding` to prevent tree folding entirely (phase 
 ### Usage
 
 ```bash
-# Interactive: shows git diff for adopted files, user decides to keep or discard
-scripts/stow-deploy shell zsh bash git ssh
+# Shared packages (all platforms)
+PACKAGES="shell zsh bash git ssh gh claude codex opencode pip brew secrets"
 
-# Headless: auto-restores repo versions after adopt, best-effort per package
-scripts/stow-deploy --headless shell bash git ssh secrets
+# Interactive (macOS): append desktop-only packages, shows git diff for adopted files
+scripts/stow-deploy $PACKAGES ghostty cursor
+
+# Headless (Ubuntu): shared packages only, auto-restores repo versions after adopt
+scripts/stow-deploy --headless $PACKAGES
 ```
 
 ### Three-phase conflict resolution
