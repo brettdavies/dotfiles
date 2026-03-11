@@ -343,11 +343,11 @@ after `--no-folding` was added).
 
 ### Phase 1: Package split
 
-- [ ] Create `stow/launchagent/Library/LaunchAgents/` directory
-- [ ] Move `stow/local/dot-Library/LaunchAgents/com.user.devtosync.plist` to
+- [x] Create `stow/launchagent/Library/LaunchAgents/` directory
+- [x] Move `stow/local/dot-Library/LaunchAgents/com.user.devtosync.plist` to
       `stow/launchagent/Library/LaunchAgents/com.user.devtosync.plist`
-- [ ] Remove empty `stow/local/dot-Library/` directory tree
-- [ ] Verify `stow/local/` only contains `dot-local/bin/env` and
+- [x] Remove empty `stow/local/dot-Library/` directory tree
+- [x] Verify `stow/local/` only contains `dot-local/bin/env` and
       `dot-local/bin/op-ssh-sign-wrapper`
 
 ### Phase 2: stow-deploy enhancements

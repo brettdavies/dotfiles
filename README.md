@@ -26,10 +26,11 @@ Each directory under `stow/` is a stow package. Files prefixed with `dot-` are c
 | `claude`   | `.claude/` (settings, hooks, statusline, CLAUDE.md) |
 | `codex`    | `.codex/config.toml` |
 | `cursor`   | `.cursor/`, `extensions.txt` |
-| `gh`       | `.config/gh/` (GitHub CLI) |
+| `gh`       | `.config/gh/` (GitHub CLI), `.local/bin/gh` (merge guard wrapper) |
 | `ghostty`  | `.config/ghostty/config` |
 | `git`      | `.gitconfig`, `.config/git/` (ignore, allowed_signers) |
-| `local`    | `.local/bin/env`, macOS LaunchAgent (requires special handling) |
+| `launchagent` | `~/Library/LaunchAgents/` (macOS only, no `dot-` prefix needed) |
+| `local`    | `.local/bin/env`, `.local/bin/op-ssh-sign-wrapper` |
 | `opencode` | `.config/opencode/config.json` |
 | `pip`      | `.config/pip/` |
 | `secrets`  | `.secrets` (encrypted via git-crypt) |
@@ -112,11 +113,11 @@ stow --dotfiles --no-folding --target="$HOME" shell zsh bash git ssh gh claude c
 stow --dotfiles --no-folding --target="$HOME" shell zsh bash git ssh gh claude codex opencode pip brew secrets
 ```
 
-The `local` package requires separate handling because `--dotfiles` would incorrectly convert `dot-Library` to `.Library`:
+The `local` package requires manual stowing (rejected by `stow-deploy` due to the `dot-Library` bug in Stow <2.4.0):
 
 ```bash
-cd ~/dotfiles/stow/local
-stow --dotfiles --target="$HOME" dot-local
+cd ~/dotfiles/stow
+stow --dotfiles --no-folding --target="$HOME" local
 ```
 
 ### 5. Install packages from Brewfile
@@ -184,12 +185,13 @@ ln -sf ~/dotfiles/stow/ghostty/dot-config/ghostty/config \
 
 ### 8. macOS — iCloud sync LaunchAgent
 
-The LaunchAgent cannot be stowed with `--dotfiles` (it would create `~/.Library/` instead of `~/Library/`). Symlink it manually:
+The `launchagent` package uses `Library/` (no `dot-` prefix) because `~/Library` doesn't start with a dot. Stow it normally — included in `stow-deploy` desktop packages on macOS:
 
 ```bash
-mkdir -p "$HOME/Library/LaunchAgents"
-ln -sf ~/dotfiles/stow/local/dot-Library/LaunchAgents/com.user.devtosync.plist \
-  "$HOME/Library/LaunchAgents/com.user.devtosync.plist"
+# Already handled by: scripts/stow-deploy ghostty cursor launchagent
+# Or manually:
+cd ~/dotfiles/stow
+stow --dotfiles --no-folding --target="$HOME" launchagent
 launchctl load "$HOME/Library/LaunchAgents/com.user.devtosync.plist"
 ```
 
