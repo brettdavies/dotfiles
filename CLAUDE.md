@@ -31,7 +31,7 @@ Stow's `--dotfiles` flag converts `dot-` to `.` automatically. **Requires Stow >
 To add a new package:
 
 1. Create `stow/<package-name>/` with `dot-` prefixed files
-2. The package is auto-discovered during deployment
+2. Add the package name to `SHARED_PACKAGES` or `DESKTOP_PACKAGES` in `scripts/stow-deploy`
 
 ### Conflict Resolution (`scripts/stow-deploy`)
 

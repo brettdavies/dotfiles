@@ -134,7 +134,7 @@ After pre-flight checks, the script runs **tree-fold detection** on all requeste
 
 | Mode | On package failure | Rationale |
 |---|---|---|
-| Interactive | Fail-fast (exit 1) | User is present to investigate |
+| Interactive | Fail-fast (exit 5) | User is present to investigate |
 | Headless | Best-effort (continue loop, summary at end) | Deploy as many packages as possible on unattended servers |
 
 ## Key Patterns
