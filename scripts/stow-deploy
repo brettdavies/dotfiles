@@ -20,11 +20,23 @@ while [[ "${1:-}" == --* ]]; do
   esac
 done
 
-if [ $# -eq 0 ]; then
-  echo "Usage: scripts/stow-deploy [--headless] <package> [package ...]" >&2
-  echo "Example: scripts/stow-deploy shell zsh bash git ssh" >&2
-  exit 1
-fi
+# Default shared packages (all platforms)
+DEFAULT_PACKAGES=(shell zsh bash git ssh gh claude codex opencode pip brew secrets)
+
+# Extra args extend defaults; no args = defaults only
+set -- "${DEFAULT_PACKAGES[@]}" "$@"
+
+# Deduplicate while preserving order
+declare -A _seen
+_deduped=()
+for _pkg in "$@"; do
+  if [[ -z "${_seen[$_pkg]:-}" ]]; then
+    _seen[$_pkg]=1
+    _deduped+=("$_pkg")
+  fi
+done
+set -- "${_deduped[@]}"
+unset _seen _deduped _pkg
 
 # --- Pre-flight checks ---
 
