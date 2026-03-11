@@ -144,7 +144,7 @@ On headless Linux, the key was also renamed from `id_ed25519` to `brett_ed25519`
 | `speedy` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
 | `bigdaddy_wifi` | `~/.ssh/brett_ed25519` | Already correct |
 | `raspberry` | `~/.ssh/brett_ed25519` | Already correct |
-| `gauntlet_ec2` | `~/.ssh/brettdavies-ec2.pem` | Already correct (different key) |
+| ~~`gauntlet_ec2`~~ | ~~`~/.ssh/brettdavies-ec2.pem`~~ | Decommissioned |
 
 ### Tailscale conditional hostnames
 
