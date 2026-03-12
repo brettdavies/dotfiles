@@ -76,4 +76,17 @@ fi
 
 # GPG terminal for commit signing (shared across all shells)
 GPG_TTY=$(tty)
+# Preferred editor — set here so both bash and zsh inherit it
+if command -v micro >/dev/null 2>&1; then
+    export EDITOR=$(command -v micro)
+    export VISUAL=$EDITOR
+fi
+
+# Print aliases — duplex must be specified explicitly (IPP Everywhere global config doesn't stick)
+alias lp='lp -d Lunik -o sides=two-sided-long-edge'
+alias lp1='lp -d Lunik -o sides=one-sided'
+
+# Ollama updater (requires sudo — replaces root-owned binary and restarts systemd service)
+alias ollama-update='curl -fsSL https://ollama.com/install.sh | sudo sh'
+
 export GPG_TTY
