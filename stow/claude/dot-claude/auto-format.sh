@@ -74,6 +74,21 @@ case "$ext" in
 
     # Capture (not pipe) so unfixable issues are reported to Claude, not silently swallowed
     lint_output=$(markdownlint-cli2 "${config_args[@]}" --no-globs --fix "$file" 2>&1) || true
+
+    # When MD013 (line length) violations remain, extract the configured limit
+    # and append it as context so Claude wraps at the correct column instead of
+    # guessing a shorter width.
+    if [[ "$lint_output" == *"MD013"* ]]; then
+      active_cfg="${tmp_config:-${config_args[1]:-}}"
+      if [[ -n "$active_cfg" ]] && command -v yq &>/dev/null; then
+        max_len=$(yq '.config.MD013.line_length // 80' "$active_cfg")
+      else
+        max_len=80
+      fi
+      lint_output="${lint_output}
+MD013 fix hint: line length limit is ${max_len} characters. Wrap lines to fill up to this limit — do not wrap shorter."
+    fi
+
     [[ -n "$tmp_config" ]] && rm -f "$tmp_config"
     report_errors "$lint_output"
     ;;

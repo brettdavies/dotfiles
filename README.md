@@ -2,7 +2,8 @@
 
 Personal dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/) for syncing across macOS and Linux machines.
 
-> **Note:** Active development of the dotfiles CLI tool has moved to [dotfiles-cli](https://github.com/brettdavies/dotfiles-cli) (Rust). This repository is now a configuration store.
+> **Note:** Active development of the dotfiles CLI tool has moved to
+> [dotfiles-cli](https://github.com/brettdavies/dotfiles-cli) (Rust). This repository is now a configuration store.
 
 ## Repository Layout
 
@@ -17,7 +18,8 @@ scripts/sync/      iCloud sync scripts
 
 ### Stow Packages
 
-Each directory under `stow/` is a stow package. Files prefixed with `dot-` are converted to dotfiles (`.` prefix) when symlinked via `stow --dotfiles`.
+Each directory under `stow/` is a stow package. Files prefixed with `dot-` are converted to dotfiles (`.` prefix)
+when symlinked via `stow --dotfiles`.
 
 | Package    | What it manages |
 |------------|-----------------|
@@ -40,7 +42,8 @@ Each directory under `stow/` is a stow package. Files prefixed with `dot-` are c
 
 ### Shell Environment (`config/shell/`)
 
-`.profile` resolves the repo root via its own symlink, then sources every `*.sh` file in `config/shell/`. Adding a new file to this directory automatically picks it up — no manifest to maintain.
+`.profile` resolves the repo root via its own symlink, then sources every `*.sh` file in `config/shell/`. Adding a
+new file to this directory automatically picks it up — no manifest to maintain.
 
 | File              | Purpose |
 |-------------------|---------|
@@ -69,7 +72,11 @@ eval "$(/opt/homebrew/bin/brew shellenv)"   # Apple Silicon
 brew install stow git-crypt
 ```
 
-> **Stow >= 2.4.0 required.** Versions 2.3.x have a [bug with `--dotfiles` and nested directories](https://github.com/aspiers/stow/issues/33) that breaks packages like `ssh`, `git`, and `gh`. Install via Homebrew/Linuxbrew to get the latest version. Ubuntu 24.04's apt repo only has 2.3.1.
+> **Stow >= 2.4.0 required.** Versions 2.3.x have a [bug with `--dotfiles` and nested directories][stow-bug] that
+> breaks packages like `ssh`, `git`, and `gh`. Install via Homebrew/Linuxbrew to get the latest version. Ubuntu
+> 24.04's apt repo only has 2.3.1.
+
+[stow-bug]: https://github.com/aspiers/stow/issues/33
 
 ### 3. Clone and unlock
 
@@ -79,9 +86,12 @@ cd ~/dotfiles
 git-crypt unlock ~/.config/git-crypt/key
 ```
 
-> **SSH preferred:** After the gitconfig is stowed, all GitHub URLs are rewritten to SSH via `url.insteadOf`. Using SSH for the initial clone keeps things consistent. HTTPS also works for the initial clone since the rewrite rules aren't active yet.
+> **SSH preferred:** After the gitconfig is stowed, all GitHub URLs are rewritten to SSH via `url.insteadOf`. Using
+> SSH for the initial clone keeps things consistent. HTTPS also works for the initial clone since the rewrite rules
+> aren't active yet.
 >
-> The git-crypt key must be copied from a secure backup (password manager). Without it, `stow/secrets/dot-secrets` and `stow/ssh/dot-ssh/config` remain encrypted.
+> The git-crypt key must be copied from a secure backup (password manager). Without it, `stow/secrets/dot-secrets`
+> and `stow/ssh/dot-ssh/config` remain encrypted.
 
 ### 4. Stow packages
 
@@ -97,14 +107,17 @@ scripts/stow-deploy --all
 scripts/stow-deploy --headless --all
 ```
 
-`--all` deploys `SHARED_PACKAGES` on Linux and `SHARED_PACKAGES + DESKTOP_PACKAGES` on macOS (see `scripts/stow-deploy` for the lists). Without `--all`, extra args extend the shared defaults:
+`--all` deploys `SHARED_PACKAGES` on Linux and `SHARED_PACKAGES + DESKTOP_PACKAGES` on macOS (see
+`scripts/stow-deploy` for the lists). Without `--all`, extra args extend the shared defaults:
 
 ```bash
 scripts/stow-deploy                   # shared packages only
 scripts/stow-deploy ghostty cursor    # shared + ghostty + cursor
 ```
 
-The wrapper handles non-stow symlinks, existing plain files (`--adopt`), tree-fold detection/resolution, and always uses `--no-folding`. It also auto-configures `core.hooksPath=.githooks` for repo-local hooks (pre-commit branch protection, git-crypt auto-unlock, Git LFS chaining). The `--headless` flag auto-restores repo versions after adopt.
+The wrapper handles non-stow symlinks, existing plain files (`--adopt`), tree-fold detection/resolution, and always
+uses `--no-folding`. It also auto-configures `core.hooksPath=.githooks` for repo-local hooks (pre-commit branch
+protection, git-crypt auto-unlock, Git LFS chaining). The `--headless` flag auto-restores repo versions after adopt.
 
 **Manual alternative** (without conflict resolution — package lists must match arrays in `scripts/stow-deploy`):
 
@@ -176,7 +189,8 @@ git clone --depth=1 https://github.com/romkatv/powerlevel10k   "$OMZ_CUSTOM/them
 
 ### 7. macOS — Ghostty Application Support symlink
 
-Ghostty on macOS checks both `~/.config/ghostty/` (created by stow) and `~/Library/Application Support/com.mitchellh.ghostty/`. Create the second symlink manually:
+Ghostty on macOS checks both `~/.config/ghostty/` (created by stow) and
+`~/Library/Application Support/com.mitchellh.ghostty/`. Create the second symlink manually:
 
 ```bash
 mkdir -p "$HOME/Library/Application Support/com.mitchellh.ghostty"
@@ -186,7 +200,8 @@ ln -sf ~/dotfiles/stow/ghostty/dot-config/ghostty/config \
 
 ### 8. macOS — iCloud sync LaunchAgent
 
-The `launchagent` package uses `Library/` (no `dot-` prefix) because `~/Library` doesn't start with a dot. Stow it normally — included in `stow-deploy` desktop packages on macOS:
+The `launchagent` package uses `Library/` (no `dot-` prefix) because `~/Library` doesn't start with a dot. Stow it
+normally — included in `stow-deploy` desktop packages on macOS:
 
 ```bash
 # Already handled by: scripts/stow-deploy ghostty cursor launchagent
@@ -229,6 +244,43 @@ Sensitive files are encrypted with [git-crypt](https://github.com/AGWA/git-crypt
 Git hooks in `.githooks/` auto-unlock on checkout and merge.
 
 Back up the key file (`~/.config/git-crypt/key`) in a password manager. If lost, encrypted files cannot be recovered.
+
+## Release Automation
+
+Every squash merge to `main` triggers a GitHub Action that:
+
+1. Computes a CalVer version (`YYYY.MM.DD`, with `.N` suffix
+   for same-day releases, in `America/Los_Angeles` timezone)
+2. Generates `CHANGELOG.md` from conventional commits via
+   [git-cliff](https://git-cliff.org/)
+3. Commits the changelog, tags the release, and creates a
+   GitHub Release
+
+### RELEASE_TOKEN secret
+
+The workflow pushes back to protected `main`, which requires a
+fine-grained PAT stored as the `RELEASE_TOKEN` repo secret.
+
+**Create / rotate the token:**
+
+```bash
+# Token is stored in 1Password
+op read "op://secrets-dev/dotfiles_RELEASE_TOKEN/credential" \
+  | gh secret set RELEASE_TOKEN
+```
+
+If the token expires or is revoked, the release workflow will
+fail silently (the merge itself still succeeds). Re-run the
+command above to restore it.
+
+**Creating a new PAT** (if the 1Password entry doesn't exist):
+
+1. Go to <https://github.com/settings/personal-access-tokens/new>
+2. **Repository access:** `brettdavies/dotfiles` only
+3. **Permissions:** Contents: Read and write
+4. Save the token to 1Password at
+   `secrets-dev/dotfiles_RELEASE_TOKEN`
+5. Run the `gh secret set` command above
 
 ## Cross-Platform Notes
 
