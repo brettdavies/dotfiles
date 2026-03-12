@@ -132,3 +132,40 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   [ "$status" -eq 0 ]
   [[ "$output" == *"DIR=SET"* ]]
 }
+
+# ---------------------------------------------------------------------------
+# Startup performance (budget: 500ms interactive, 200ms non-interactive)
+# ---------------------------------------------------------------------------
+
+# Helper: measure wall-clock time for a shell invocation (prints ms to stdout)
+_measure_ms() {
+  local start end
+  start=$(/usr/bin/perl -MTime::HiRes=time -e 'printf "%.6f", time()')
+  eval "$1" >/dev/null 2>&1
+  end=$(/usr/bin/perl -MTime::HiRes=time -e 'printf "%.6f", time()')
+  /usr/bin/perl -e "printf '%.0f', ($end - $start) * 1000"
+}
+
+@test "non-interactive zsh starts under 200ms" {
+  ms=$(_measure_ms "zsh -c exit")
+  echo "# non-interactive zsh: ${ms}ms" >&3
+  [ "$ms" -lt 200 ]
+}
+
+@test "non-interactive bash starts under 200ms" {
+  ms=$(_measure_ms "bash -c exit")
+  echo "# non-interactive bash: ${ms}ms" >&3
+  [ "$ms" -lt 200 ]
+}
+
+@test "interactive zsh starts under 500ms" {
+  ms=$(_measure_ms "zsh -i -c exit")
+  echo "# interactive zsh: ${ms}ms" >&3
+  [ "$ms" -lt 500 ]
+}
+
+@test "interactive bash starts under 500ms" {
+  ms=$(_measure_ms "bash -i -c exit")
+  echo "# interactive bash: ${ms}ms" >&3
+  [ "$ms" -lt 500 ]
+}
