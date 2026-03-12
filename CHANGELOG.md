@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026.03.12.1] - 2026-03-12
+
+### Fixed
+
+- Force Node.js 24 for GitHub Actions (#20)
+
 ## [2026.03.12] - 2026-03-12
 
 ### Added
