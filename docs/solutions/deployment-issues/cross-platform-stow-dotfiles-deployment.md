@@ -126,21 +126,20 @@ done
 
 **Critical dependency chain:**
 
-1. `.profile` (line 65) unconditionally sources `~/.local/bin/env` -- deploy this file BEFORE stowing shell package
-2. oh-my-zsh must be installed BEFORE stowing zsh (`.zshrc` sources `$ZSH/oh-my-zsh.sh` on load)
-3. Verify bash login BEFORE stowing zsh (safety gate)
-4. Create emergency shell BEFORE any config changes
+1. oh-my-zsh must be installed BEFORE stowing zsh (`.zshrc` sources `$ZSH/oh-my-zsh.sh` on load)
+2. Verify bash login BEFORE stowing zsh (safety gate)
+3. Create emergency shell BEFORE any config changes
 
 **Safe deployment order:**
 
 ```text
 1. Create ~/.bashrc.emergency (escape hatch)
-2. Deploy ~/.local/bin/env (profile dependency)
-3. Stow: shell, bash, git, secrets, ssh, gh, pip, claude
-4. Verify bash login via new SSH session
-5. Install oh-my-zsh (KEEP_ZSHRC=yes CHSH=no RUNZSH=no)
-6. Stow: zsh
-7. Change default shell (sudo chsh)
+2. Stow: secrets, shell, bash, git, ssh, gh, local, claude, codex, opencode, pip, brew
+   (or: scripts/stow-deploy --headless --all)
+3. Verify bash login via new SSH session
+4. Install oh-my-zsh (KEEP_ZSHRC=yes CHSH=no RUNZSH=no)
+5. Stow: zsh
+6. Change default shell (sudo chsh)
 ```
 
 ### 6. oh-my-zsh installer flags
@@ -181,7 +180,7 @@ cd ~/dotfiles && git checkout -- stow/<package>/
 ### Before deploying to a new machine
 
 - [ ] Create emergency shell access first
-- [ ] Deploy critical dependencies (`.local/bin/env`) before stowing shell
+- [ ] Deploy all shared packages (`scripts/stow-deploy --headless --all`)
 - [ ] Install oh-my-zsh before stowing zsh
 - [ ] Verify bash login before stowing zsh
 - [ ] Back up existing configs (`~/.config-backup-$(date +%Y%m%d)`)

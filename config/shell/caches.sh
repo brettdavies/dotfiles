@@ -24,18 +24,16 @@ fi
 
 # Python package managers and tools
 export POETRY_CACHE_DIR="$XDG_CACHE_HOME/pypoetry"
-export PIP_CACHE_DIR="$XDG_CACHE_HOME/pip"
+export PIP_CACHE_DIR="$XDG_CACHE_HOME/pip"  # also set in stow/pip/dot-config/pip/pip.conf
 export PIPX_HOME="$XDG_CACHE_HOME/pipx"
 export UV_CACHE_DIR="$XDG_CACHE_HOME/uv"
 # Note: uvx (uv's tool runner) uses the same UV_CACHE_DIR
 
 # Node.js package managers
-# Note: npm cache is configured via npm config, not environment variable
-# The cache directory will be set if npm is available
-# npx uses the same cache location as npm, so it will use $XDG_CACHE_HOME/npm/_npx
-if command -v npm &> /dev/null; then
-    npm config set cache "$XDG_CACHE_HOME/npm" 2>/dev/null || true
-fi
+# npm cache set via env var (belt-and-suspenders: also in ~/.npmrc via `npm config set cache`)
+# NPM_CONFIG_CACHE env var avoids slow `npm config set` on every shell start (~105ms)
+# npx uses the same cache location as npm ($XDG_CACHE_HOME/npm/_npx)
+export NPM_CONFIG_CACHE="$XDG_CACHE_HOME/npm"
 export YARN_CACHE_FOLDER="$XDG_CACHE_HOME/yarn"
 export PNPM_HOME="$XDG_CACHE_HOME/pnpm"
 export BUN_INSTALL="$XDG_CACHE_HOME/bun"

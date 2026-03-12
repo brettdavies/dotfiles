@@ -17,75 +17,31 @@ if [ -n "${DOTFILES_SHELL_DIR:-}" ] && [ -f "${DOTFILES_SHELL_DIR}/shell-functio
     source "${DOTFILES_SHELL_DIR}/shell-functions"
 fi
 
-# Set name of the theme to load --- if set to "random", it will
-# load a random theme each time Oh My Zsh is loaded, in which case,
-# to know which specific one was loaded, run: echo $RANDOM_THEME
-# See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
 ZSH_THEME="powerlevel10k/powerlevel10k"
-
-# Set list of themes to pick from when loading at random
-# Setting this variable when ZSH_THEME=random will cause zsh to load
-# a theme from this variable instead of looking in $ZSH/themes/
-# If set to an empty array, this variable will have no effect.
-# ZSH_THEME_RANDOM_CANDIDATES=( "robbyrussell" "agnoster" )
-
-# Uncomment the following line to use case-sensitive completion.
-# CASE_SENSITIVE="true"
-
-# Uncomment the following line to use hyphen-insensitive completion.
-# Case-sensitive completion must be off. _ and - will be interchangeable.
-# HYPHEN_INSENSITIVE="true"
-
-# Uncomment one of the following lines to change the auto-update behavior
-# zstyle ':omz:update' mode disabled  # disable automatic updates
-# zstyle ':omz:update' mode auto      # update automatically without asking
-# zstyle ':omz:update' mode reminder  # just remind me to update when it's time
-
-# Uncomment the following line to change how often to auto-update (in days).
-# zstyle ':omz:update' frequency 13
-
-# Uncomment the following line if pasting URLs and other text is messed up.
-# DISABLE_MAGIC_FUNCTIONS="true"
-
-# Uncomment the following line to disable colors in ls.
-# DISABLE_LS_COLORS="true"
-
-# Uncomment the following line to disable auto-setting terminal title.
-# DISABLE_AUTO_TITLE="true"
-
-# Uncomment the following line to enable command auto-correction.
-# ENABLE_CORRECTION="true"
-
-# Uncomment the following line to display red dots whilst waiting for completion.
-# You can also set it to another string to have that shown instead of the default red dots.
-# e.g. COMPLETION_WAITING_DOTS="%F{yellow}waiting...%f"
-# Caution: this setting can cause issues with multiline prompts in zsh < 5.7.1 (see #5765)
-# COMPLETION_WAITING_DOTS="true"
-
-# Uncomment the following line if you want to disable marking untracked files
-# under VCS as dirty. This makes repository status check for large repositories
-# much, much faster.
-# DISABLE_UNTRACKED_FILES_DIRTY="true"
-
-# Uncomment the following line if you want to change the command execution time
-# stamp shown in the history command output.
-# You can set one of the optional three formats:
-# "mm/dd/yyyy"|"dd.mm.yyyy"|"yyyy-mm-dd"
-# or set a custom format using the strftime function format specifications,
-# see 'man strftime' for details.
-# HIST_STAMPS="mm/dd/yyyy"
-
-# Would you like to use another custom folder than $ZSH/custom?
-# ZSH_CUSTOM=/path/to/new-custom-folder
-
-# Which plugins would you like to load?
-# Standard plugins can be found in $ZSH/plugins/
-# Custom plugins may be added to $ZSH_CUSTOM/plugins/
-# Example format: plugins=(rails git textmate ruby lighthouse)
-# Add wisely, as too many plugins slow down shell startup.
 plugins=(git zsh-autosuggestions zsh-syntax-highlighting)
 
+# Unified compinit: set ZSH_COMPDUMP before sourcing oh-my-zsh so it uses our
+# cache path. This avoids a redundant second compinit call (~170ms savings).
+# oh-my-zsh also handles zrecompile via a lock-dir pattern.
+[[ ! -d ~/.zsh/cache ]] && mkdir -p ~/.zsh/cache
+export ZSH_COMPDUMP=~/.zsh/cache/zcompdump
+
+# Add completion directories to fpath BEFORE oh-my-zsh's compinit sees them.
+# Uses $HOMEBREW_PREFIX (set by brew shellenv in .profile) instead of slow
+# `brew --prefix` subprocess (~16ms each call).
+if [[ -n "${HOMEBREW_PREFIX:-}" && -d "$HOMEBREW_PREFIX/share/zsh-completions" ]]; then
+    fpath=("$HOMEBREW_PREFIX/share/zsh-completions" $fpath)
+fi
+fpath=($HOME/.docker/completions $fpath)
+
 source $ZSH/oh-my-zsh.sh
+
+# Safety net: compile the completion dump if oh-my-zsh's lock-dir pattern
+# failed (stale .lock dir blocks zrecompile). A compiled .zwc loads in ~2ms
+# vs ~170ms for the uncompiled text dump.
+if [[ -s "$ZSH_COMPDUMP" && ( ! -s "${ZSH_COMPDUMP}.zwc" || "$ZSH_COMPDUMP" -nt "${ZSH_COMPDUMP}.zwc" ) ]]; then
+    zcompile "$ZSH_COMPDUMP" 2>/dev/null
+fi
 
 # History configuration
 HISTSIZE=10000
@@ -201,11 +157,9 @@ if [ -f /opt/homebrew/bin/bash ]; then
     alias hbash='/opt/homebrew/bin/bash'
 fi
 # Add libpq to PATH if installed via Homebrew (macOS only)
-if [[ "$OSTYPE" == "darwin"* ]] && command -v brew &> /dev/null; then
-    BREW_PREFIX=$(brew --prefix)
-    if [ -d "$BREW_PREFIX/opt/libpq/bin" ]; then
-        export PATH="$BREW_PREFIX/opt/libpq/bin:$PATH"
-    fi
+# Uses $HOMEBREW_PREFIX (set by brew shellenv) instead of slow `brew --prefix` (~16ms)
+if [[ -n "${HOMEBREW_PREFIX:-}" && -d "$HOMEBREW_PREFIX/opt/libpq/bin" ]]; then
+    export PATH="$HOMEBREW_PREFIX/opt/libpq/bin:$PATH"
 fi
 # Load zsh modules for enhanced functionality
 # zsh/parameter: Advanced parameter expansion
@@ -228,61 +182,7 @@ zmodload zsh/mapfile 2>/dev/null && export ZSH_MAPFILE_LOADED=1
 # zsh/complist: Enhanced completion listing (better menu navigation)
 zmodload zsh/complist 2>/dev/null
 
-# Completion configuration - optimized with caching
-# Add zsh-completions to fpath (macOS Homebrew only)
-if [[ "$OSTYPE" == "darwin"* ]] && type brew &>/dev/null; then
-    FPATH=$(brew --prefix)/share/zsh-completions:$FPATH
-fi
-
-# Docker completions
-fpath=($HOME/.docker/completions $fpath)
-
-# Create completion cache directory if it doesn't exist
-[[ ! -d ~/.zsh/cache ]] && mkdir -p ~/.zsh/cache
-
-# Optimize compinit: only rebuild cache if needed (checks daily)
-# Use zsh built-in zstat if available, otherwise fall back to external stat
-autoload -Uz compinit
-local zcompdump=~/.zsh/cache/zcompdump
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS: use zstat if available, otherwise stat -f
-    if [[ -n "${ZSH_STAT_LOADED:-}" ]]; then
-        # Use zsh built-in zstat
-        local mtime=0
-        [[ -f "$zcompdump" ]] && zstat -A mtime +mtime "$zcompdump" 2>/dev/null
-        if [[ ! -s "$zcompdump" ]] || (( $(($(date +%s) - mtime)) > 86400 )); then
-            compinit -d "$zcompdump"
-        else
-            compinit -C -d "$zcompdump"
-        fi
-    else
-        # Fallback to external stat -f
-        if [[ ! -s "$zcompdump" ]] || (( $(($(date +%s) - $(stat -f %m "$zcompdump" 2>/dev/null || echo 0))) > 86400 )); then
-            compinit -d "$zcompdump"
-        else
-            compinit -C -d "$zcompdump"
-        fi
-    fi
-else
-    # Linux: use zstat if available, otherwise stat -c
-    if [[ -n "${ZSH_STAT_LOADED:-}" ]]; then
-        # Use zsh built-in zstat
-        local mtime=0
-        [[ -f "$zcompdump" ]] && zstat -A mtime +mtime "$zcompdump" 2>/dev/null
-        if [[ ! -s "$zcompdump" ]] || (( $(($(date +%s) - mtime)) > 86400 )); then
-            compinit -d "$zcompdump"
-        else
-            compinit -C -d "$zcompdump"
-        fi
-    else
-        # Fallback to external stat -c
-        if [[ ! -s "$zcompdump" ]] || (( $(($(date +%s) - $(stat -c %Y "$zcompdump" 2>/dev/null || echo 0))) > 86400 )); then
-            compinit -d "$zcompdump"
-        else
-            compinit -C -d "$zcompdump"
-        fi
-    fi
-fi
+# Completion configuration
 
 # Additional completion settings
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'  # Case insensitive
