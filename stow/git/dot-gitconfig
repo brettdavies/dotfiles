@@ -21,8 +21,6 @@
 	insteadOf = https://github.com/
 [url "git@gist.github.com:"]
 	insteadOf = https://gist.github.com/
-[core]
-	editor = micro
 [include]
 	# Per-host overrides (e.g., user.signingkey on headless Linux)
 	path = ~/.config/git/local

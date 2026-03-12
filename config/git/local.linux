@@ -1,0 +1,9 @@
+# Linux git overrides — deployed by stow-deploy
+# To update: delete this file and re-run stow-deploy
+#
+# Signing key: private key file path enables ssh-keygen direct
+# signing without an SSH agent (required for headless servers).
+[user]
+	signingkey = ~/.ssh/brett_ed25519
+[core]
+	editor = micro
