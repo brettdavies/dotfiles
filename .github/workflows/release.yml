@@ -54,12 +54,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Get release body
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          git-cliff --config cliff.toml \
-            --tag "$VERSION" --unreleased --strip header \
-            > /tmp/release-body.md
+        id: release-body
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --tag ${{ steps.version.outputs.version }} --unreleased --strip header
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Commit changelog
         run: |
@@ -76,6 +77,6 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.version }}
           name: ${{ steps.version.outputs.version }}
-          body_path: /tmp/release-body.md
+          body: ${{ steps.release-body.outputs.content }}
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
