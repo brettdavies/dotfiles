@@ -357,6 +357,29 @@ if grep -qx "ssh" "$deployed_file" 2>/dev/null; then
   fi
 fi
 
+# Git local config: deploy platform-specific template if absent
+if grep -qx "git" "$deployed_file" 2>/dev/null; then
+  echo ""
+  echo "==> Checking git local config"
+  _local_cfg="$TARGET/.config/git/local"
+  _platform=$(uname -s | tr '[:upper:]' '[:lower:]')
+  _template="$REPO_ROOT/config/git/local.$_platform"
+
+  if [ -L "$TARGET/.config/git" ]; then
+    echo "  WARNING: ~/.config/git is tree-folded (symlink), skipping template" >&2
+  elif [ -f "$_local_cfg" ]; then
+    echo "  Git local config exists, skipping template deploy"
+  elif [ -f "$_template" ]; then
+    if cp "$_template" "$_local_cfg"; then
+      echo "  Deployed git local config from local.$_platform"
+    else
+      echo "  WARNING: Failed to deploy git config template" >&2
+    fi
+  else
+    echo "  No git config template for $_platform (not needed)"
+  fi
+fi
+
 # Headless summary
 if [ "$HEADLESS" = true ] && [ -s "$failed_file" ]; then
   echo ""

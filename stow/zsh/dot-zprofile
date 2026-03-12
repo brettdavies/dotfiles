@@ -1,6 +1,9 @@
+# shellcheck disable=all  # zsh syntax — shellcheck only understands bash/sh
 #THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
 export SDKMAN_DIR="$HOME/.sdkman"
 [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
 
-# Added by Obsidian
-export PATH="$PATH:/Applications/Obsidian.app/Contents/MacOS"
+# Added by Obsidian (macOS only)
+if [ "$(uname -s)" = "Darwin" ]; then
+    export PATH="$PATH:/Applications/Obsidian.app/Contents/MacOS"
+fi

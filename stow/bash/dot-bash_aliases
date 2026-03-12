@@ -11,4 +11,3 @@ alias cip='curl -w "\n" ifconfig.me'
 alias aup='. ~/.bash_aliases'
 
 alias wg='docker exec -it vpn wg'
-

@@ -3,7 +3,7 @@ title: "Restore missing shell configuration and fix non-interactive zsh environm
 category: deployment-issues
 tags: [shell-configuration, bashrc, zshrc, zshenv, interactive-guard, secrets-management, credential-helpers, ssh-config, cross-platform, non-interactive-shell]
 module: shell/bash/zsh/git/ssh/secrets
-symptom: "Stowed .bashrc critically minimal (23 lines vs 130+); no .zshenv so non-interactive zsh had zero environment; hardcoded secrets in .bashrc; missing git credential helpers; missing SSH pool entries"
+symptom: "Stowed .bashrc critically minimal (23 lines vs 130+); no .zshenv so non-interactive zsh had zero environment; hardcoded secrets in .bashrc; missing git credential helpers; missing SSH host entries"
 root_cause: "Dotfiles repo was developed on macOS where zsh is default, so bash config was minimal. No .zshenv existed, so non-interactive zsh (SSH commands, cron) had no access to secrets or environment. Secrets were in old .bashrc rather than centralized .secrets file."
 date: 2026-02-15
 ---
@@ -16,25 +16,30 @@ After deploying dotfiles via GNU Stow from macOS to Ubuntu 24.04, two categories
 
 **Found via backup comparison (`~/.config-backup-20260215/`):**
 
-- The stowed `.bashrc` was only 23 lines, missing interactive shell guard, history, completion, aliases, prompt, GPG_TTY
+- The stowed `.bashrc` was only 23 lines, missing interactive shell guard, history, completion, aliases, prompt,
+  GPG_TTY
 - The old `.bashrc` had secrets hardcoded (`OP_SERVICE_ACCOUNT_TOKEN`, `X_API_*` tokens)
 - The stowed `.gitconfig` was missing `gh auth git-credential` helpers
-- The stowed SSH config was missing `pool.tailscale` and `pool-lan` entries
+- The stowed SSH config was missing `host-a.tailscale` and `host-a-lan` entries
 
 **Found via post-deployment verification:**
 
-- Non-interactive zsh had **zero environment** — `ssh host 'echo SECRETS=${OP_SERVICE_ACCOUNT_TOKEN:+SET}'` returned empty
+- Non-interactive zsh had **zero environment** —
+  `ssh host 'echo SECRETS=${OP_SERVICE_ACCOUNT_TOKEN:+SET}'` returned empty
 - No `.zshenv` existed, so non-interactive zsh sessions (SSH commands, cron jobs) never sourced `.profile`
 
 ## Root Cause
 
 ### Missing bash features
 
-The dotfiles repo was developed on macOS where zsh is the default shell and oh-my-zsh handles all interactive features. The `.bashrc` was a minimal stub. When deployed to Ubuntu where bash is the fallback shell, the missing interactive features became apparent.
+The dotfiles repo was developed on macOS where zsh is the default shell and oh-my-zsh handles all interactive
+features. The `.bashrc` was a minimal stub. When deployed to Ubuntu where bash is the fallback shell, the missing
+interactive features became apparent.
 
 ### Non-interactive zsh had no environment (the critical bug)
 
-Zsh has a strict startup file hierarchy that differs fundamentally from bash. Understanding this hierarchy is essential for cross-platform dotfiles:
+Zsh has a strict startup file hierarchy that differs fundamentally from bash. Understanding this hierarchy is
+essential for cross-platform dotfiles:
 
 | File | When sourced | Bash equivalent |
 |------|-------------|-----------------|
@@ -44,7 +49,9 @@ Zsh has a strict startup file hierarchy that differs fundamentally from bash. Un
 | `.zlogin` | Login shells only (after `.zshrc`) | No equivalent |
 | `.zlogout` | Login shell exit | `.bash_logout` |
 
-**The critical difference:** Bash has a special case where it sources `.bashrc` when invoked by sshd (remote shell daemon), even for non-interactive commands. **Zsh has no such special case.** For non-interactive `zsh -c 'command'` (which is what sshd runs when zsh is the default shell), **only `.zshenv` is sourced.**
+**The critical difference:** Bash has a special case where it sources `.bashrc` when invoked by sshd (remote shell
+daemon), even for non-interactive commands. **Zsh has no such special case.** For non-interactive
+`zsh -c 'command'` (which is what sshd runs when zsh is the default shell), **only `.zshenv` is sourced.**
 
 Without `.zshenv`, non-interactive zsh gets:
 
@@ -62,9 +69,11 @@ When you run `ssh host 'command'`, sshd executes:
 $SHELL -c 'command'
 ```
 
-If the user's default shell is zsh, this becomes `zsh -c 'command'` — a non-interactive, non-login shell. Only `.zshenv` is sourced.
+If the user's default shell is zsh, this becomes `zsh -c 'command'` — a non-interactive, non-login shell. Only
+`.zshenv` is sourced.
 
-If the user's default shell is bash, this becomes `bash -c 'command'` — normally nothing is sourced, BUT bash has a special case: when it detects it's invoked by sshd (via `$SSH_CLIENT`/`$SSH_CONNECTION`), it sources `.bashrc`.
+If the user's default shell is bash, this becomes `bash -c 'command'` — normally nothing is sourced, BUT bash has
+a special case: when it detects it's invoked by sshd (via `$SSH_CLIENT`/`$SSH_CONNECTION`), it sources `.bashrc`.
 
 ## Solution
 
@@ -108,17 +117,24 @@ if [ -z "${DOTFILES_SHELL_DIR:-}" ] && [ -f "$HOME/.profile" ]; then
 fi
 ```
 
-The `DOTFILES_SHELL_DIR` sentinel prevents double-sourcing when `.zshrc` also sources `.profile` for interactive sessions.
+The `DOTFILES_SHELL_DIR` sentinel prevents double-sourcing when `.zshrc` also sources `.profile` for interactive
+sessions.
 
 #### 2. PATH ordering fix (`stow/shell/dot-profile`)
 
-Moved Homebrew/Linuxbrew `shellenv` setup **before** `~/.secrets` sourcing. The `~/.secrets` file uses `op read` (1Password CLI) which is installed via Homebrew. With the original ordering, `op` wasn't on PATH when `.secrets` was sourced, so all `$(op read ... 2>/dev/null)` commands failed silently and X_API_* tokens were empty.
+Moved Homebrew/Linuxbrew `shellenv` setup **before** `~/.secrets` sourcing. The `~/.secrets` file uses `op read`
+(1Password CLI) which is installed via Homebrew. With the original ordering, `op` wasn't on PATH when `.secrets`
+was sourced, so all `$(op read ... 2>/dev/null)` commands failed silently and X_API_* tokens were empty.
 
-**Rule:** Any tool used inside `.secrets` (or any file sourced by `.profile`) must have its PATH set up earlier in `.profile`.
+**Rule:** Any tool used inside `.secrets` (or any file sourced by `.profile`) must have its PATH set up earlier in
+`.profile`.
 
 #### 3. Secrets migration (`stow/secrets/dot-secrets`)
 
-Moved `OP_SERVICE_ACCOUNT_TOKEN` (hardcoded) and `X_API_*` tokens (via `op inject`) from backup `.bashrc` to `~/.secrets`. This file is git-crypt encrypted and sourced by `.profile` before any interactive guard. The `op inject` pattern resolves all secrets via stdin/stdout with zero disk writes — see `docs/solutions/performance-issues/shell-startup-secrets-loading-optimization.md`.
+Moved `OP_SERVICE_ACCOUNT_TOKEN` (hardcoded) and `X_API_*` tokens (via `op inject`) from backup `.bashrc` to
+`~/.secrets`. This file is git-crypt encrypted and sourced by `.profile` before any interactive guard. The
+`op inject` pattern resolves all secrets via stdin/stdout with zero disk writes — see
+`docs/solutions/performance-issues/shell-startup-secrets-loading-optimization.md`.
 
 #### 4. Bash rewrite (`stow/bash/dot-bashrc`)
 
@@ -148,7 +164,8 @@ Added after `.profile` source:
 [[ $- == *i* ]] || return
 ```
 
-Defense-in-depth: zsh only sources `.zshrc` for interactive shells by design, but the guard provides an explicit contract.
+Defense-in-depth: zsh only sources `.zshrc` for interactive shells by design, but the guard provides an explicit
+contract.
 
 #### 6. Shared GPG_TTY (`stow/shell/dot-profile`)
 
@@ -167,13 +184,19 @@ Placed in `.profile` so both bash and zsh get it without duplication.
     insteadOf = https://gist.github.com/
 ```
 
-All GitHub and Gist URLs are transparently rewritten from HTTPS to SSH at the git transport layer. This eliminates the need for HTTPS credential helpers (`gh auth git-credential`) and the `gh` CLI dependency for git operations. Authentication flows entirely through SSH keys (`~/.ssh/brett_ed25519`) managed by 1Password (macOS) or local key files (headless Linux).
+All GitHub and Gist URLs are transparently rewritten from HTTPS to SSH at the git transport layer. This eliminates
+the need for HTTPS credential helpers (`gh auth git-credential`) and the `gh` CLI dependency for git operations.
+Authentication flows entirely through SSH keys (`~/.ssh/brett_ed25519`) managed by 1Password (macOS) or local key
+files (headless Linux).
 
-**Note:** The `insteadOf` rules only take effect after the gitconfig is stowed. The initial `git clone` of the dotfiles repo can use either HTTPS or SSH -- HTTPS works fine since the rewrite rules aren't active yet.
+**Note:** The `insteadOf` rules only take effect after the gitconfig is stowed. The initial `git clone` of the
+dotfiles repo can use either HTTPS or SSH -- HTTPS works fine since the rewrite rules aren't active yet.
 
 #### 8. SSH host entries (`stow/ssh/dot-ssh/config`)
 
-Added missing local network hosts (`arouter`, `pool`, `speedy`, `bigdaddy_wifi`) with `IdentityFile` and `IdentitiesOnly` to ensure SSH authentication works on headless servers without 1Password agent. Added Tailscale VPN `Match originalhost` blocks for automatic IP switching when connected to Tailscale.
+Added missing local network hosts with `IdentityFile` and `IdentitiesOnly` to ensure SSH authentication works on
+headless servers without 1Password agent. Added Tailscale VPN `Match originalhost` blocks for automatic IP
+switching when connected to Tailscale.
 
 ## Prevention Strategies
 
@@ -207,7 +230,8 @@ When an acceptance test fails, the only valid responses are:
 | Test is wrong | Fix the test, document why, re-run |
 | Unexpected limitation | Document as a constraint, do not mark AC complete |
 
-**Never:** "The test failed, but this is expected behavior, so AC is complete." A failed test that gets rationalized away is more dangerous than having no test at all — it creates a false sense of safety.
+**Never:** "The test failed, but this is expected behavior, so AC is complete." A failed test that gets
+rationalized away is more dangerous than having no test at all — it creates a false sense of safety.
 
 ### 3. Post-deployment backup comparison
 
@@ -223,14 +247,16 @@ Secrets belong in `~/.secrets` (sourced by `.profile`), never in `.bashrc` or `.
 
 ### 5. PATH before secrets — sourcing order in `.profile` matters
 
-`.profile` is sourced top-to-bottom. If `~/.secrets` uses CLI tools (like `op read`), those tools must be on PATH before `.secrets` is sourced. The correct order:
+`.profile` is sourced top-to-bottom. If `~/.secrets` uses CLI tools (like `op read`), those tools must be on PATH
+before `.secrets` is sourced. The correct order:
 
 1. `config/shell/*.sh` (env vars, constants)
 2. Homebrew/Linuxbrew `shellenv` (adds `op`, `gh`, etc. to PATH)
 3. `~/.secrets` (can now use `op inject`)
 4. `~/.local/bin` → PATH (inline), `~/.cargo/env`
 
-Symptom of getting this wrong: variables set via `$(command 2>/dev/null)` are silently empty. The `2>/dev/null` hides the "command not found" error.
+Symptom of getting this wrong: variables set via `$(command 2>/dev/null)` are silently empty. The `2>/dev/null`
+hides the "command not found" error.
 
 ### 6. Syntax check before deployment
 
@@ -251,12 +277,14 @@ This table should be consulted whenever modifying shell configuration:
 | Interactive features (prompt, aliases, completion) | `.bashrc` (after interactive guard) | `.zshrc` | Only needed for interactive use |
 | Login-only setup | `.bash_profile` | `.zprofile` | Rarely needed |
 
-**Rule:** If it must work in `ssh host 'command'` with zsh as default shell, it **must** be reachable from `.zshenv`.
+**Rule:** If it must work in `ssh host 'command'` with zsh as default shell, it **must** be reachable from
+`.zshenv`.
 
 ## Cross-References
 
 - Initial deployment solution: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
-- Secrets loading optimization: `docs/solutions/performance-issues/shell-startup-secrets-loading-optimization.md`
+- Secrets loading optimization:
+  `docs/solutions/performance-issues/shell-startup-secrets-loading-optimization.md`
 - Initial deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-ubuntu-server-plan.md`
 - Post-deployment fix plan: `docs/plans/2026-02-15-fix-shell-config-gaps-post-deployment-plan.md`
 - Secrets optimization plan: `docs/plans/2026-02-15-perf-secrets-loading-no-disk-writes-plan.md`

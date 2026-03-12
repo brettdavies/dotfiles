@@ -22,17 +22,22 @@ severity: high
 
 After deploying dotfiles to a headless Ubuntu server, Claude Code could not commit because:
 
-1. `op-ssh-sign-wrapper` only checked for the 1Password desktop app binary (`/opt/1Password/op-ssh-sign`), which isn't installed on headless Linux
+1. `op-ssh-sign-wrapper` only checked for the 1Password desktop app binary (`/opt/1Password/op-ssh-sign`), which
+   isn't installed on headless Linux
 2. Claude Code hooks called `terminal-notifier` (macOS-only) and `bd` without checking if they exist
-3. Even after adding `ssh-keygen` as a fallback, signing failed with "Couldn't get agent socket?" because git passes `-U` when `user.signingkey` is a literal public key string
+3. Even after adding `ssh-keygen` as a fallback, signing failed with "Couldn't get agent socket?" because git
+   passes `-U` when `user.signingkey` is a literal public key string
 
 ## Root Cause
 
 Three separate cross-platform assumptions in stowed configs:
 
-- **op-ssh-sign-wrapper:** Only knew about 1Password desktop paths, no fallback for systems with just the `op` CLI or a local SSH key
+- **op-ssh-sign-wrapper:** Only knew about 1Password desktop paths, no fallback for systems with just the `op` CLI
+  or a local SSH key
 - **settings.json hooks:** `terminal-notifier` and `bd prime` called unconditionally — no `command -v` guard
-- **user.signingkey config:** The literal public key string in gitconfig causes git to pass `-U` to the signing program, which forces ssh-agent-based signing. On headless servers, there is no ssh-agent, so `ssh-keygen -U` fails even though the private key exists on disk
+- **user.signingkey config:** The literal public key string in gitconfig causes git to pass `-U` to the signing
+  program, which forces ssh-agent-based signing. On headless servers, there is no ssh-agent, so `ssh-keygen -U`
+  fails even though the private key exists on disk
 
 ## Solution
 
@@ -52,7 +57,9 @@ else
 fi
 ```
 
-**Critical:** The `uname -s = Linux` guard prevents macOS from silently falling back to `ssh-keygen` if 1Password is temporarily unavailable (e.g., during an update). This would downgrade from vault-protected signing (biometric required) to unprotected local-file signing.
+**Critical:** The `uname -s = Linux` guard prevents macOS from silently falling back to `ssh-keygen` if 1Password
+is temporarily unavailable (e.g., during an update). This would downgrade from vault-protected signing (biometric
+required) to unprotected local-file signing.
 
 ### 2. Hook guards: `command -v` pattern
 
@@ -61,7 +68,8 @@ fi
 "command": "command -v bd >/dev/null 2>&1 && bd prime || true"
 ```
 
-Use POSIX `>/dev/null 2>&1` (not bash-ism `&>/dev/null`) since hooks may execute under `/bin/sh`. The `|| true` ensures hook failures never block Claude Code.
+Use POSIX `>/dev/null 2>&1` (not bash-ism `&>/dev/null`) since hooks may execute under `/bin/sh`. The `|| true`
+ensures hook failures never block Claude Code.
 
 ### 3. Per-host git config include for signing key override
 
@@ -72,16 +80,24 @@ Add to stowed gitconfig:
     path = ~/.config/git/local
 ```
 
-On headless servers, create `~/.config/git/local` (NOT stowed):
+On Linux, `stow-deploy` automatically copies `config/git/local.linux`
+to `~/.config/git/local` (copy-if-absent). The template contains:
 
 ```gitconfig
 [user]
     signingkey = ~/.ssh/brett_ed25519
+[core]
+    editor = micro
 ```
 
-This overrides the literal public key with the private key file path. Git then calls `ssh-keygen -Y sign -f ~/.ssh/brett_ed25519` without `-U`, and `ssh-keygen` reads the key directly from disk without needing an agent.
+This overrides the literal public key with the private key file path. Git then calls
+`ssh-keygen -Y sign -f ~/.ssh/brett_ed25519` without `-U`, and `ssh-keygen` reads the key directly from disk
+without needing an agent.
 
-**Key naming convention:** The SSH key must be named `brett_ed25519` on all machines (macOS and Linux). This matches the `IdentityFile` directive in the stowed SSH config.
+To update the deployed file after template changes, delete `~/.config/git/local` and re-run `stow-deploy`.
+
+**Key naming convention:** The SSH key must be named `brett_ed25519` on all machines (macOS and Linux). This
+matches the `IdentityFile` directive in the stowed SSH config.
 
 ## Key Insights
 
@@ -96,7 +112,8 @@ This overrides the literal public key with the private key file path. Git then c
 ### ssh-keygen as signing program requirements
 
 - OpenSSH 8.2+ required (for `-Y sign` support)
-- If key has a passphrase and no agent: `ssh-keygen` prompts on `/dev/tty`, which fails in non-interactive contexts (Claude Code, IDE terminals, CI)
+- If key has a passphrase and no agent: `ssh-keygen` prompts on `/dev/tty`, which fails in non-interactive
+  contexts (Claude Code, IDE terminals, CI)
 - Passphrase-free keys work without an agent when `user.signingkey` points to the private key file
 
 ### Cross-platform trust model
@@ -117,13 +134,17 @@ This is documented and intentional — the 1Password desktop app is not availabl
 
 ### Problem
 
-Multiple SSH hosts had `IdentitiesOnly yes` without an `IdentityFile` directive. This works on macOS where the 1Password SSH agent offers keys via `IdentityAgent`, but fails on headless Linux where the agent socket may not exist — SSH has zero keys to try.
+Multiple SSH hosts had `IdentitiesOnly yes` without an `IdentityFile` directive. This works on macOS where the
+1Password SSH agent offers keys via `IdentityAgent`, but fails on headless Linux where the agent socket may not
+exist — SSH has zero keys to try.
 
-The `Host github.com` block also had `IdentityFile` commented out, breaking `git push` on all platforms (the key is named `brett_ed25519`, not a default name SSH would try).
+The `Host github.com` block also had `IdentityFile` commented out, breaking `git push` on all platforms (the key
+is named `brett_ed25519`, not a default name SSH would try).
 
 ### Fix
 
-Every host with `IdentitiesOnly yes` must have an explicit `IdentityFile`. The standardized key name is `brett_ed25519` on all machines:
+Every host with `IdentitiesOnly yes` must have an explicit `IdentityFile`. The standardized key name is
+`brett_ed25519` on all machines:
 
 ```ssh-config
 Host github.com gist.github.com
@@ -132,45 +153,51 @@ Host github.com gist.github.com
   IdentitiesOnly yes
 ```
 
-On headless Linux, the key was also renamed from `id_ed25519` to `brett_ed25519` (same key material, fingerprint `SHA256:n4UpR9oDUpPZ/Z5WFDr34cpp7qHiZzoSk2GIuEr9Cc4`).
+On headless Linux, the key was also renamed from `id_ed25519` to `brett_ed25519` (same key material, fingerprint
+`SHA256:n4UpR9oDUpPZ/Z5WFDr34cpp7qHiZzoSk2GIuEr9Cc4`).
 
 ### Host audit
 
 | Host | IdentityFile | Status |
 |------|-------------|--------|
 | `github.com` | `~/.ssh/brett_ed25519` | Fixed (was commented out) |
-| `arouter` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
-| `pool` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
-| `speedy` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
-| `bigdaddy_wifi` | `~/.ssh/brett_ed25519` | Already correct |
-| `raspberry` | `~/.ssh/brett_ed25519` | Already correct |
-| ~~`gauntlet_ec2`~~ | ~~`~/.ssh/brettdavies-ec2.pem`~~ | Decommissioned |
+| `router` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
+| `host-a` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
+| `host-b` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
+| `host-c` | `~/.ssh/brett_ed25519` | Already correct |
+| `host-d` | `~/.ssh/brett_ed25519` | Already correct |
+| ~~`decommissioned-ec2`~~ | ~~`~/.ssh/user-ec2.pem`~~ | Decommissioned |
 
 ### Tailscale conditional hostnames
 
-Hosts with Tailscale VPN overrides use `Match originalhost` with an `exec` check, placed before `Host` blocks (SSH first-match-wins for `HostName`):
+Hosts with Tailscale VPN overrides use `Match originalhost` with an `exec` check, placed before `Host` blocks
+(SSH first-match-wins for `HostName`):
 
 ```ssh-config
-Match originalhost pool exec "ifconfig | grep -q 'inet 100.65.10.65'"
-    HostName 100.75.41.53
+Match originalhost host-a exec "ifconfig | grep -q 'inet 100.x.x.x'"
+    HostName 100.y.y.y
 
-Host pool
-  HostName 192.168.1.5
+Host host-a
+  HostName 192.168.1.x
 ```
 
 Key details:
 
 - **`originalhost` not `host`** — `host` matches the resolved `HostName` (an IP), not the alias
-- **Before `Host` blocks** — SSH uses first-match-wins; if `Host` sets `HostName` first, `Match` can't override it
+- **Before `Host` blocks** — SSH uses first-match-wins; if `Host` sets `HostName` first, `Match` can't override
 
 ## Prevention
 
-- Always guard tool-specific commands with `command -v tool >/dev/null 2>&1 &&` in stowed configs that deploy to multiple platforms
+- Always guard tool-specific commands with `command -v tool >/dev/null 2>&1 &&` in stowed configs that deploy
+  to multiple platforms
 - Use `[include] path = ~/.config/git/local` for per-host git config overrides instead of modifying stowed files
-- When using `ssh-keygen` as a signing fallback, ensure `user.signingkey` points to the private key file (not a literal key) on systems without ssh-agent
+- When using `ssh-keygen` as a signing fallback, ensure `user.signingkey` points to the private key file (not a
+  literal key) on systems without ssh-agent
 - Add `uname -s` platform guards to prevent security-sensitive fallbacks from activating on the wrong OS
-- Every host with `IdentitiesOnly yes` must have an explicit `IdentityFile` — agent-only auth fails silently on headless servers
-- SSH key must be named `brett_ed25519` on all machines (not default `id_ed25519`); rename with `mv` (same key material)
+- Every host with `IdentitiesOnly yes` must have an explicit `IdentityFile` — agent-only auth fails silently
+  on headless servers
+- SSH key must be named `brett_ed25519` on all machines (not default `id_ed25519`); rename with `mv` (same key
+  material)
 - Tailscale `Match` blocks must use `originalhost` and appear before `Host` blocks (first-match-wins)
 
 ## Related
