@@ -1,0 +1,68 @@
+#!/usr/bin/env bats
+# Integration tests for stow-deploy (actually stows to $HOME)
+#
+# Run: bats tests/stow-deploy-integration.bats
+#
+# These tests run the real stow-deploy against $HOME. They are safe to run
+# repeatedly (idempotent) but do modify symlinks under $HOME.
+
+SCRIPT="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
+
+# ---------------------------------------------------------------------------
+# Full deployment
+# ---------------------------------------------------------------------------
+
+@test "--all deploys all expected packages" {
+  run "$SCRIPT" --all
+  [ "$status" -eq 0 ]
+
+  [[ "$output" == *"Stowing secrets"* ]]
+  [[ "$output" == *"Stowing shell"* ]]
+  [[ "$output" == *"Stowing claude"* ]]
+  [[ "$output" == *"Stowing local"* ]]
+  [[ "$output" == *"Stowing brew"* ]]
+
+  if [ "$(uname -s)" = "Darwin" ]; then
+    [[ "$output" == *"Stowing ghostty"* ]]
+    [[ "$output" == *"Stowing cursor"* ]]
+    [[ "$output" == *"Stowing launchagent"* ]]
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Idempotency
+# ---------------------------------------------------------------------------
+
+@test "--all is idempotent (re-run produces no conflicts)" {
+  run "$SCRIPT" --all
+  [ "$status" -eq 0 ]
+
+  run "$SCRIPT" --all
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Adopting"* ]]
+  [[ "$output" != *"ERROR"* ]]
+  [[ "$output" != *"FATAL"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Post-stow validation
+# ---------------------------------------------------------------------------
+
+@test "SSH validation runs and passes" {
+  run "$SCRIPT" --all
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Validating SSH config"* ]]
+  [[ "$output" == *"SSH config OK"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Shellcheck
+# ---------------------------------------------------------------------------
+
+@test "script passes shellcheck" {
+  if ! command -v shellcheck >/dev/null 2>&1; then
+    skip "shellcheck not installed"
+  fi
+  run shellcheck "$SCRIPT"
+  [ "$status" -eq 0 ]
+}

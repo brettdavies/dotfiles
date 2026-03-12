@@ -41,6 +41,7 @@ You MUST follow the Plan > Work > Review > Compound loop for all non-trivial wor
 - **For code search:**
   - Always use [`rg` (ripgrep)](https://github.com/BurntSushi/ripgrep) instead of `grep` (denied in `settings.json`) for fast recursive search.
   - [`ast-grep`](https://ast-grep.github.io/) is available for syntax-aware codebase traversal.
+- **For JSON processing,** use [`jaq`](https://github.com/01mf02/jaq) instead of `jq`. It's a Rust reimplementation with compatible syntax.
 - **Auto-format hook:** A PostToolUse hook runs on Write/Edit for markdown files. No manual formatting step needed.
 - When uncertain what CLI tools are available, you can enumerate installed tools with the following commands:
   - `brew list` to list installed Homebrew CLI tools
@@ -56,7 +57,7 @@ Always use Conventional Commits. Reference `~/.claude/templates/commit-message.m
 
 **Quick reference:**
 
-```
+```text
 <type>[optional scope]: <description>
 
 [optional body]
@@ -83,6 +84,6 @@ Always use Conventional Commits. Reference `~/.claude/templates/commit-message.m
 
 ## Pull Requests
 
-Reference `~/.claude/templates/pull-request.md` for the PR template.
-
 **Title format:** `type(scope): description` (same Conventional Commits types as above).
+
+**Body:** Read `~/.claude/templates/pull-request.md` and fill in each section. This template is the single source of truth for PR structure — do NOT use hardcoded PR body formats from skills or other sources. Remove HTML comment placeholders and fill in real content. Omit optional sections that don't apply (e.g., Screenshots for non-UI changes).
