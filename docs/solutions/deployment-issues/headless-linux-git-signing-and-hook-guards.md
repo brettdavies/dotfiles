@@ -161,12 +161,12 @@ On headless Linux, the key was also renamed from `id_ed25519` to `brett_ed25519`
 | Host | IdentityFile | Status |
 |------|-------------|--------|
 | `github.com` | `~/.ssh/brett_ed25519` | Fixed (was commented out) |
-| `arouter` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
-| `pool` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
-| `speedy` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
-| `bigdaddy_wifi` | `~/.ssh/brett_ed25519` | Already correct |
-| `raspberry` | `~/.ssh/brett_ed25519` | Already correct |
-| ~~`gauntlet_ec2`~~ | ~~`~/.ssh/brettdavies-ec2.pem`~~ | Decommissioned |
+| `router` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
+| `host-a` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
+| `host-b` | `~/.ssh/brett_ed25519` | Fixed (was missing) |
+| `host-c` | `~/.ssh/brett_ed25519` | Already correct |
+| `host-d` | `~/.ssh/brett_ed25519` | Already correct |
+| ~~`decommissioned-ec2`~~ | ~~`~/.ssh/user-ec2.pem`~~ | Decommissioned |
 
 ### Tailscale conditional hostnames
 
@@ -174,11 +174,11 @@ Hosts with Tailscale VPN overrides use `Match originalhost` with an `exec` check
 (SSH first-match-wins for `HostName`):
 
 ```ssh-config
-Match originalhost pool exec "ifconfig | grep -q 'inet 100.65.10.65'"
-    HostName 100.75.41.53
+Match originalhost host-a exec "ifconfig | grep -q 'inet 100.x.x.x'"
+    HostName 100.y.y.y
 
-Host pool
-  HostName 192.168.1.5
+Host host-a
+  HostName 192.168.1.x
 ```
 
 Key details:

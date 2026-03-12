@@ -234,7 +234,7 @@ known limitation, not an unsolved problem.
 
 **Risks:**
 
-- **Low**: copy-if-absent means existing manual `local` files on bigdaddy are preserved. First deploy on a fresh
+- **Low**: copy-if-absent means existing manual `local` files on deployed servers are preserved. First deploy on a fresh
   machine gets the template automatically.
 - **Low**: template drift on long-lived servers (see known limitation above). Mitigated by stable template content and
   in-file update instructions.

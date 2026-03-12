@@ -30,13 +30,13 @@ deepened: 2026-02-15
 
 ## Overview
 
-After deploying dotfiles from macOS to Ubuntu 24.04 on the headless server, a backup comparison revealed the stowed `.bashrc` is critically minimal — missing interactive shell guards, history settings, completion, aliases, prompt, and more. Additionally, secrets from the old `.bashrc` need migrating to `~/.secrets`, git credential helpers are missing, and the SSH config lacks two pool host entries.
+After deploying dotfiles from macOS to Ubuntu 24.04 on the headless server, a backup comparison revealed the stowed `.bashrc` is critically minimal — missing interactive shell guards, history settings, completion, aliases, prompt, and more. Additionally, secrets from the old `.bashrc` need migrating to `~/.secrets`, git credential helpers are missing, and the SSH config lacks two host entries.
 
 Zsh is the default shell on both machines, but bash must work properly as a fallback. Both shells need interactive guards. Secrets **must** load before the interactive guard so non-interactive programs (cron, SSH commands, CI) have access to tokens.
 
 ## Problem Statement
 
-The backup at `~/.config-backup-20260215/` on the headless server shows the old `.bashrc` had ~130 lines of interactive shell configuration that the current stowed version (23 lines) lacks entirely. The old `.gitconfig` had `gh auth git-credential` helpers that the stowed version is missing. The old `.ssh/config` had `pool.tailscale` and `pool-lan` host entries not present in the repo.
+The backup at `~/.config-backup-20260215/` on the headless server shows the old `.bashrc` had ~130 lines of interactive shell configuration that the current stowed version (23 lines) lacks entirely. The old `.gitconfig` had `gh auth git-credential` helpers that the stowed version is missing. The old `.ssh/config` had `host-a.tailscale` and `host-a-lan` host entries not present in the repo.
 
 ## Proposed Solution
 
@@ -237,27 +237,27 @@ Note: The empty `helper =` line is intentional — it resets the credential help
 - **Bare `!gh auth git-credential` is correct**: The backup had `!/home/linuxbrew/.linuxbrew/bin/gh auth git-credential` which breaks on macOS. Using bare `!gh` relies on PATH resolution, which is the pattern recommended by `gh auth setup-git` and confirmed by GitHub CLI maintainers (cli/cli#9438).
 - **`helper =` (empty) resets the chain**: This is intentional and documented. Without it, system-level credential helpers (like macOS Keychain or libsecret on Linux) would also be consulted, potentially causing conflicts.
 
-### Phase 4: SSH config pool entries (Medium)
+### Phase 4: SSH config host entries (Medium)
 
 #### `stow/ssh/dot-ssh/config`
 
-Add `pool.tailscale` alias and `pool-lan` entry. The existing `pool` entry uses LAN IP (192.168.1.5). Add:
+Add `host-a.tailscale` alias and `host-a-lan` entry. The existing `host-a` entry uses LAN IP (192.168.1.5). Add:
 
 ```ssh
 # Tailscale SSH alias (preferred - passwordless via Tailscale identity)
-Host pool.tailscale
-    HostName pool
+Host host-a.tailscale
+    HostName host-a
     User root
     Port 5922
 
 # Direct LAN access (when Tailscale unavailable)
-Host pool-lan
+Host host-a-lan
     HostName 192.168.1.5
     User root
     Port 5922
 ```
 
-The `pool.tailscale` entry uses `HostName pool` which resolves via Tailscale's MagicDNS. The `pool-lan` entry duplicates the existing `pool` entry but provides an explicit alias for direct LAN access.
+The `host-a.tailscale` entry uses `HostName host-a` which resolves via Tailscale's MagicDNS. The `host-a-lan` entry duplicates the existing `host-a` entry but provides an explicit alias for direct LAN access.
 
 ### Phase 5: Deploy to the headless server
 
@@ -272,7 +272,7 @@ The `pool.tailscale` entry uses `HostName pool` which resolves via Tailscale's M
 - [x] Verify non-interactive: secrets only available via login shell (SSH commands don't source .profile by design)
 - [x] Verify zsh interactive: SECRETS=SET, GPG_TTY set (shows "not a tty" in SSH pseudo-terminal, correct with real TTY)
 - [x] Verify git credential helper: `!gh auth git-credential` configured
-- [x] Verify SSH pool.tailscale and pool-lan resolve correctly
+- [x] Verify SSH host-a.tailscale and host-a-lan resolve correctly
 
 ### Research Insights: Deployment
 
@@ -281,7 +281,7 @@ The `pool.tailscale` entry uses `HostName pool` which resolves via Tailscale's M
 - **Additional verification commands**:
   - `ssh brett@server 'bash -c "echo SECRETS=\${OP_SERVICE_ACCOUNT_TOKEN:+SET}"'` — non-interactive bash (no `-l` flag) should still have secrets via `.bashrc` sourcing `.profile`
   - `ssh brett@server 'git -C ~/dotfiles credential-helper-test 2>&1 || echo "gh credential helper configured"'` — verify git credential helper is active
-  - `ssh brett@server 'ssh -G pool.tailscale | head -3'` — verify SSH config resolves pool.tailscale
+  - `ssh brett@server 'ssh -G host-a.tailscale | head -3'` — verify SSH config resolves host-a.tailscale
 
 ## Technical Considerations
 
@@ -328,7 +328,7 @@ The `helper =` (empty) followed by `helper = !gh auth git-credential` is the [st
 
 - [x] `~/.secrets` contains OP_SERVICE_ACCOUNT_TOKEN and X_API_* entries (9 entries) — verified
 - [x] `git credential-helper` works for HTTPS GitHub operations — verified `!gh auth git-credential`
-- [x] `ssh pool.tailscale` and `ssh pool-lan` resolve correctly from the headless server — verified
+- [x] `ssh host-a.tailscale` and `ssh host-a-lan` resolve correctly from the headless server — verified
 - [x] All shell config changes deployed and verified on the headless server
 
 ### Outstanding (requires user action)
@@ -345,7 +345,7 @@ The `helper =` (empty) followed by `helper = !gh auth git-credential` is the [st
 | `stow/zsh/dot-zshrc` | Add interactive guard after .profile source |
 | `stow/shell/dot-profile` | Add GPG_TTY (shared across both shells) |
 | `stow/git/dot-gitconfig` | Add credential helpers for gh auth |
-| `stow/ssh/dot-ssh/config` | Add pool.tailscale and pool-lan entries |
+| `stow/ssh/dot-ssh/config` | Add host-a.tailscale and host-a-lan entries |
 
 ## References
 
