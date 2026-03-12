@@ -1,7 +1,7 @@
 ---
 title: "feat: CalVer changelog automation with git-cliff"
 type: feat
-status: active
+status: completed
 date: 2026-03-12
 deepened: 2026-03-12
 origin: docs/brainstorms/2026-03-12-calver-changelog-automation-brainstorm.md
