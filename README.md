@@ -26,10 +26,11 @@ Each directory under `stow/` is a stow package. Files prefixed with `dot-` are c
 | `claude`   | `.claude/` (settings, hooks, statusline, CLAUDE.md) |
 | `codex`    | `.codex/config.toml` |
 | `cursor`   | `.cursor/`, `extensions.txt` |
-| `gh`       | `.config/gh/` (GitHub CLI) |
+| `gh`       | `.config/gh/` (GitHub CLI), `.local/bin/gh` (merge guard wrapper) |
 | `ghostty`  | `.config/ghostty/config` |
 | `git`      | `.gitconfig`, `.config/git/` (ignore, allowed_signers) |
-| `local`    | `.local/bin/env`, macOS LaunchAgent (requires special handling) |
+| `launchagent` | `~/Library/LaunchAgents/` (macOS only, no `dot-` prefix needed) |
+| `local`    | `.local/bin/env`, `.local/bin/op-ssh-sign-wrapper` |
 | `opencode` | `.config/opencode/config.json` |
 | `pip`      | `.config/pip/` |
 | `secrets`  | `.secrets` (encrypted via git-crypt) |
@@ -88,24 +89,36 @@ Use the `stow-deploy` wrapper for automatic conflict resolution:
 
 ```bash
 cd ~/dotfiles
-scripts/stow-deploy shell zsh bash git ssh ghostty gh claude codex cursor opencode pip brew secrets
+
+# macOS: all packages (shared + desktop)
+scripts/stow-deploy --all
+
+# Headless servers: shared packages only
+scripts/stow-deploy --headless --all
 ```
 
-The wrapper handles non-stow symlinks, existing plain files (`--adopt`), and always uses `--no-folding`. It also auto-configures `core.hooksPath=.githooks` for repo-local hooks (pre-commit branch protection, git-crypt auto-unlock, Git LFS chaining). For headless servers, add `--headless` to auto-restore repo versions after adopt.
+`--all` deploys `SHARED_PACKAGES` on Linux and `SHARED_PACKAGES + DESKTOP_PACKAGES` on macOS (see `scripts/stow-deploy` for the lists). Without `--all`, extra args extend the shared defaults:
 
-**Manual alternative** (without conflict resolution):
+```bash
+scripts/stow-deploy                   # shared packages only
+scripts/stow-deploy ghostty cursor    # shared + ghostty + cursor
+```
+
+The wrapper handles non-stow symlinks, existing plain files (`--adopt`), tree-fold detection/resolution, and always uses `--no-folding`. It also auto-configures `core.hooksPath=.githooks` for repo-local hooks (pre-commit branch protection, git-crypt auto-unlock, Git LFS chaining). The `--headless` flag auto-restores repo versions after adopt.
+
+**Manual alternative** (without conflict resolution — package lists must match arrays in `scripts/stow-deploy`):
 
 ```bash
 cd ~/dotfiles/stow
+
+# macOS (shared + desktop)
 stow --dotfiles --no-folding --target="$HOME" \
-  shell zsh bash git ssh ghostty gh claude codex cursor opencode pip brew secrets
-```
+  secrets shell zsh bash git ssh gh local claude codex opencode pip brew \
+  ghostty cursor launchagent
 
-The `local` package requires separate handling because `--dotfiles` would incorrectly convert `dot-Library` to `.Library`:
-
-```bash
-cd ~/dotfiles/stow/local
-stow --dotfiles --target="$HOME" dot-local
+# Headless (shared only)
+stow --dotfiles --no-folding --target="$HOME" \
+  secrets shell zsh bash git ssh gh local claude codex opencode pip brew
 ```
 
 ### 5. Install packages from Brewfile
@@ -173,12 +186,13 @@ ln -sf ~/dotfiles/stow/ghostty/dot-config/ghostty/config \
 
 ### 8. macOS — iCloud sync LaunchAgent
 
-The LaunchAgent cannot be stowed with `--dotfiles` (it would create `~/.Library/` instead of `~/Library/`). Symlink it manually:
+The `launchagent` package uses `Library/` (no `dot-` prefix) because `~/Library` doesn't start with a dot. Stow it normally — included in `stow-deploy` desktop packages on macOS:
 
 ```bash
-mkdir -p "$HOME/Library/LaunchAgents"
-ln -sf ~/dotfiles/stow/local/dot-Library/LaunchAgents/com.user.devtosync.plist \
-  "$HOME/Library/LaunchAgents/com.user.devtosync.plist"
+# Already handled by: scripts/stow-deploy ghostty cursor launchagent
+# Or manually:
+cd ~/dotfiles/stow
+stow --dotfiles --no-folding --target="$HOME" launchagent
 launchctl load "$HOME/Library/LaunchAgents/com.user.devtosync.plist"
 ```
 

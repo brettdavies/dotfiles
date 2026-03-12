@@ -1,3 +1,6 @@
+# shellcheck shell=bash
+# Sourced by both bash and zsh — both support [[ ]] and BASH_SOURCE
+
 # Resolve the dotfiles repo root by following this file's symlink back to stow/shell/
 if [ -n "${BASH_SOURCE[0]}" ]; then
     # BASH_SOURCE doesn't resolve symlinks — follow the link manually
@@ -25,10 +28,12 @@ _CONFIG_DIR="$_DOTFILES_ROOT/config/shell"
 
 # NOT exported: sentinel must only prevent double-sourcing within the same
 # shell process, not leak into child processes (which need their own .profile)
+# shellcheck disable=SC2034  # used by .zshenv, .zshrc, .bashrc
 DOTFILES_SHELL_DIR="$_CONFIG_DIR"
 
 if [ -n "$_DOTFILES_ROOT" ] && [ -d "$_CONFIG_DIR" ]; then
     for _f in "$_CONFIG_DIR"/*.sh; do
+        # shellcheck disable=SC1090
         [ -f "$_f" ] && . "$_f"
     done
     unset _f
@@ -52,17 +57,20 @@ fi
 # Secrets symlinked via stow (stow/secrets/dot-secrets -> ~/.secrets)
 # Requires Homebrew PATH above for `op` CLI (1Password service account)
 if [ -f ~/.secrets ]; then
+    # shellcheck disable=SC1090
     . ~/.secrets
 fi
 
 # Ensure ~/.local/bin is in PATH for user-installed binaries
-# Guarded: the local stow package may not be deployed yet (e.g. fresh clone)
-if [ -f "$HOME/.local/bin/env" ]; then
-    . "$HOME/.local/bin/env"
-fi
+# Must come after Homebrew so local wrappers can shadow Homebrew binaries
+case ":${PATH}:" in
+    *:"$HOME/.local/bin":*) ;;
+    *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
 
 # Rust/Cargo environment
 if [ -f "$HOME/.cargo/env" ]; then
+    # shellcheck disable=SC1091
     . "$HOME/.cargo/env"
 fi
 
