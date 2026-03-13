@@ -52,15 +52,15 @@ Several hosts have `IdentitiesOnly yes` without an explicit `IdentityFile`:
 | Host | IdentityFile | IdentitiesOnly | Status |
 |---|---|---|---|
 | `github.com` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
-| `arouter` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
-| `server_25` | N/A | N/A | Removed from config |
-| `dnsdhcp` | N/A | N/A | Removed from config |
-| `pool` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
-| `speedy` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
-| `server_10` | `~/.ssh/brett_ed25519` | yes | OK |
-| `server_wifi` | `~/.ssh/brett_ed25519` | yes | OK |
-| `raspberry` | `~/.ssh/brett_ed25519` | yes | OK |
-| `gauntlet_ec2` | `~/.ssh/brettdavies-ec2.pem` | yes | OK |
+| `router` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
+| `host-e` | N/A | N/A | Removed from config |
+| `host-f` | N/A | N/A | Removed from config |
+| `host-a` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
+| `host-b` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
+| `host-c` | `~/.ssh/brett_ed25519` | yes | OK |
+| `host-d` | `~/.ssh/brett_ed25519` | yes | OK |
+| `host-g` | `~/.ssh/brett_ed25519` | yes | OK |
+| `decommissioned-ec2` | `~/.ssh/user-ec2.pem` | yes | OK |
 
 **Decision needed:** For hosts with `IdentitiesOnly yes` but no `IdentityFile`, either:
 

@@ -1,3 +1,4 @@
+# shellcheck disable=all  # zsh syntax — shellcheck only understands bash/sh
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
@@ -34,7 +35,7 @@ if [[ -n "${HOMEBREW_PREFIX:-}" && -d "$HOMEBREW_PREFIX/share/zsh-completions" ]
 fi
 fpath=($HOME/.docker/completions $fpath)
 
-source $ZSH/oh-my-zsh.sh
+source "$ZSH/oh-my-zsh.sh"
 
 # Safety net: compile the completion dump if oh-my-zsh's lock-dir pattern
 # failed (stale .lock dir blocks zrecompile). A compiled .zwc loads in ~2ms
@@ -155,8 +156,10 @@ alias taskmaster='task-master'
 # Usage: type 'bash' or 'hbash' to switch to bash, then 'exit' to return to zsh
 if [ -f /opt/homebrew/bin/bash ]; then
     alias hbash='/opt/homebrew/bin/bash'
+elif [ -f /home/linuxbrew/.linuxbrew/bin/bash ]; then
+    alias hbash='/home/linuxbrew/.linuxbrew/bin/bash'
 fi
-# Add libpq to PATH if installed via Homebrew (macOS only)
+# Add libpq to PATH if installed via Homebrew (keg-only, not linked into HOMEBREW_PREFIX/bin)
 # Uses $HOMEBREW_PREFIX (set by brew shellenv) instead of slow `brew --prefix` (~16ms)
 if [[ -n "${HOMEBREW_PREFIX:-}" && -d "$HOMEBREW_PREFIX/opt/libpq/bin" ]]; then
     export PATH="$HOMEBREW_PREFIX/opt/libpq/bin:$PATH"
@@ -228,3 +231,6 @@ fi
 
 # Added by Antigravity
 export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
+
+# OpenClaw Completion
+[ -f "$HOME/.openclaw/completions/openclaw.zsh" ] && source "$HOME/.openclaw/completions/openclaw.zsh"

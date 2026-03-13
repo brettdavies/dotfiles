@@ -80,3 +80,6 @@ _osc7_prompt_command() {
 if [[ "$PROMPT_COMMAND" != *"_osc7_prompt_command"* ]]; then
     PROMPT_COMMAND="_osc7_prompt_command${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
 fi
+
+# OpenClaw Completion
+[ -f "$HOME/.openclaw/completions/openclaw.bash" ] && source "$HOME/.openclaw/completions/openclaw.bash"

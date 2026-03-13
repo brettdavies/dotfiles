@@ -56,6 +56,26 @@ SCRIPT="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
 }
 
 # ---------------------------------------------------------------------------
+# Git local config template
+# ---------------------------------------------------------------------------
+
+@test "git local config template is deployed or skipped" {
+  run "$SCRIPT" --all
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Checking git local config"* ]]
+
+  if [ "$(uname -s)" = "Linux" ]; then
+    # On Linux, template should be deployed (or already exist)
+    [[ "$output" == *"Deployed git local config"* ]] || \
+      [[ "$output" == *"Git local config exists"* ]]
+  else
+    # On macOS, no template exists — informational message
+    [[ "$output" == *"not needed"* ]] || \
+      [[ "$output" == *"Git local config exists"* ]]
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Shellcheck
 # ---------------------------------------------------------------------------
 
