@@ -179,10 +179,10 @@ resolve_tree_fold() {
   rm -rf "$aside"
 
   # 6. Clean untracked files from the stow package dir
-  #    Tracked files are intact (cp, not mv). Use -fdx to also remove gitignored
-  #    files — .gitignore patterns (e.g. /stow/claude/dot-claude/**/*) were
-  #    defense-in-depth for the tree-fold scenario and block -fd from cleaning.
-  #    Double -f removes nested git repos (e.g. claude plugins/marketplaces)
+  #    Tracked files are intact (cp, not mv). Use -fdx to remove all untracked
+  #    files including any gitignored artifacts left behind after un-tree-folding
+  #    (the real data moved to $HOME, so stow dirs should only have tracked files).
+  #    Double -f removes nested git repos (e.g. claude plugins/marketplaces).
   if [ "$HEADLESS" = false ]; then
     git -C "$REPO_ROOT" clean -ffdxn -- "stow/$pkg" | head -20
   fi
@@ -197,6 +197,22 @@ resolve_tree_fold() {
 
   echo "  Done: $target is now a real directory"
 }
+
+# Pre-flight: ensure enough disk space for tree-fold resolution (~155 MB
+# actual need; 512 MB minimum provides a generous buffer).
+check_disk_space() {
+  local min_mb=512
+  local avail_kb
+  avail_kb=$(df -Pk "$HOME" | awk 'NR==2 {print $4}')
+  local avail_mb=$(( avail_kb / 1024 ))
+  if [ "$avail_mb" -lt "$min_mb" ]; then
+    echo "FATAL: Insufficient disk space for tree-fold resolution." >&2
+    echo "  Available: ${avail_mb} MB, required: ${min_mb} MB minimum." >&2
+    echo "  Free disk space and retry." >&2
+    exit "$EXIT_PRECONDITION"
+  fi
+}
+check_disk_space
 
 # Detect and resolve tree-folded packages before stowing
 tree_fold_found=false

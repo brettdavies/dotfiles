@@ -182,6 +182,17 @@ When adding or modifying configuration:
 
 ---
 
+## Shell Script Conventions
+
+All shell scripts and hooks in this repo follow these conventions:
+
+- **Error prefixes:** Use UPPERCASE severity — `ERROR:`, `WARNING:`, `NOTE:`, `FATAL:` — followed by a space and
+  the message. Always output to stderr via `>&2`.
+- **Binary wrappers** (e.g., `op-ssh-sign-wrapper`) use `programname: message` format instead, which is the
+  standard Unix convention for utilities identifying themselves.
+
+---
+
 ## GitHub Actions
 
 All workflows live in `.github/workflows/`. When adding or modifying actions:

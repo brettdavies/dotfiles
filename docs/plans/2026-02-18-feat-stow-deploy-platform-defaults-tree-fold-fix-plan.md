@@ -415,8 +415,6 @@ learnings researcher, and best practices researcher.
 | `readlink \| grep` substring match is fragile | Security, Architecture, Pattern recognition | Replaced with `cd && pwd -P` absolute path comparison |
 | `2>/dev/null \|\| true` on destructive `mv`/`git clean` hides failures | Security, Data migration | Added explicit error checks with `if !` and `return 1` |
 | `shopt -s dotglob` + `mv` error suppression | Security, Data migration | Replaced with `cp -a src/. dst/` (handles hidden files without `shopt`) |
-| `fuser` checks symlink inode, not directory contents | Security, Data migration | Removed runtime detection; documented prerequisite instead |
-| Interrupted migration recovery infrastructure | Code simplicity | Replaced predictable `.stow-migrate` with `mktemp -d` random suffix |
 | Post-resolution validation loop | Code simplicity | Removed (cannot fire if resolution succeeds; `set -e` handles failures) |
 
 ### Simplification summary

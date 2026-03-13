@@ -10,7 +10,7 @@ find_real_gh() {
         [[ "$dir/gh" == "$self" ]] && continue
         [[ -x "$dir/gh" ]] && { echo "$dir/gh"; return; }
     done
-    echo "Error: cannot find real gh binary" >&2
+    echo "ERROR: cannot find real gh binary" >&2
     return 1
 }
 
