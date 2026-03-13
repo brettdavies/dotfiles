@@ -9,12 +9,13 @@ CACHE_TTL=3600  # 1 hour
 
 # `brew list --formula` takes 1-3s; other tools (pipx, uv, cargo, bun) are fast enough live
 cached() {
-    local name="$1" cache_file="$CACHE_DIR/$name.cache"
+    local name="$1"
+    local cache_file="$CACHE_DIR/$name.cache"
     shift
     if [ -f "$cache_file" ]; then
         local age now mtime
         now=$(date +%s)
-        mtime=$(stat -f %m "$cache_file" 2>/dev/null || echo 0)
+        mtime=$(stat -f %m "$cache_file" 2>/dev/null || stat -c %Y "$cache_file" 2>/dev/null || echo 0)
         age=$((now - mtime))
         if [ "$age" -lt "$CACHE_TTL" ]; then
             cat "$cache_file"
