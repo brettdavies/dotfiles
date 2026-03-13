@@ -203,6 +203,8 @@ Key details:
 ## Related
 
 - `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md` — original deployment issues
+- [`cross-platform-shell-idiom-and-config-hardening.md`](cross-platform-shell-idiom-and-config-hardening.md)
+  — second-wave portability fixes (per-platform git config templates, SSH socket guard)
 - `stow/local/dot-local/bin/op-ssh-sign-wrapper` — the signing wrapper
 - `stow/claude/dot-claude/settings.json` — Claude Code hooks
 - `stow/git/dot-gitconfig` — git signing config with include

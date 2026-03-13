@@ -285,6 +285,8 @@ This table should be consulted whenever modifying shell configuration:
 - Initial deployment solution: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
 - Secrets loading optimization:
   `docs/solutions/performance-issues/shell-startup-secrets-loading-optimization.md`
+- Second-wave portability fixes (stat, bc, sed, tty):
+  [`cross-platform-shell-idiom-and-config-hardening.md`](cross-platform-shell-idiom-and-config-hardening.md)
 - Initial deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-ubuntu-server-plan.md`
 - Post-deployment fix plan: `docs/plans/2026-02-15-fix-shell-config-gaps-post-deployment-plan.md`
 - Secrets optimization plan: `docs/plans/2026-02-15-perf-secrets-loading-no-disk-writes-plan.md`
