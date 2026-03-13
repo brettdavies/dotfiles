@@ -4,7 +4,8 @@
 
 ## Overview
 
-Personal dotfiles configuration store for macOS and Linux. Manages shell configs, editor settings, git/ssh config, secrets, and package lists using GNU Stow with git-crypt encryption. Active CLI tooling development has moved to [dotfiles-cli](https://github.com/brettdavies/dotfiles-cli) (Rust).
+Personal dotfiles configuration store for macOS and Linux. Manages shell configs, editor settings, git/ssh config,
+secrets, and package lists using GNU Stow with git-crypt encryption.
 
 ## Quick Reference
 
@@ -25,8 +26,9 @@ Personal dotfiles configuration store for macOS and Linux. Manages shell configs
 
 ## What This Repo Contains
 
-- **15 stow packages** — shell, zsh, bash, git, ssh, ghostty, gh, claude, codex, cursor, opencode, pip, local, brew, secrets
-- **9 shell environment fragments** — sourced automatically by `.profile` from `config/shell/`
+- **17 stow packages** — shell, zsh, bash, git, ssh, ghostty, gh, claude, codex, cursor,
+  opencode, pip, local, brew, secrets, tmux, launchagent
+- **11 shell environment fragments** — sourced automatically by `.profile` from `config/shell/`
 - **Brewfile + Brewfile.optional** — declarative macOS package lists
 - **git-crypt encrypted secrets** — API keys, SSH config, allowed signers
 - **iCloud Drive sync** — rsync with hardlinks via LaunchAgent
@@ -40,4 +42,4 @@ Personal dotfiles configuration store for macOS and Linux. Manages shell configs
 
 ---
 
-*For bootstrap steps, see [README.md](README.md).*
+*For bootstrap steps, see [BOOTSTRAP.md](BOOTSTRAP.md).*
