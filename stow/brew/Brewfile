@@ -31,9 +31,10 @@ brew "yamllint"
 brew "ast-grep"
 brew "yq"
 
-# macOS-only utilities (skipped by `brew bundle` on Linux — cask/tap dependencies are macOS-only)
-brew "terminal-notifier"
-brew "gromgit/brewtils/taproom"
+# macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
+# but listing them separately documents intent and avoids confusing "not found" warnings.
+brew "terminal-notifier" if OS.mac?
+brew "gromgit/brewtils/taproom" if OS.mac?
 
 # macOS-only casks (Homebrew Cask is macOS-only)
 cask "1password-cli"

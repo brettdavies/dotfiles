@@ -75,7 +75,8 @@ if [ -f "$HOME/.cargo/env" ]; then
 fi
 
 # GPG terminal for commit signing (shared across all shells)
-GPG_TTY=$(tty)
+# tty fails in non-interactive shells (cron, some SSH commands) — suppress gracefully
+GPG_TTY=$(tty 2>/dev/null) || true
 # Preferred editor — set here so both bash and zsh inherit it
 if command -v micro >/dev/null 2>&1; then
     EDITOR=$(command -v micro)
