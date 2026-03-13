@@ -15,7 +15,7 @@ context_remaining_pct=$(echo "$input" | jq -r '.context_window.remaining_percent
 user_host="$(whoami):$(hostname -s)"
 
 # Get current directory (shortened for display)
-current_dir=$(echo "$cwd" | sed "s|^${HOME}|~|")
+current_dir="${cwd/#"$HOME"/\~}"
 # If path is too long, show only last 3 components
 if [ ${#current_dir} -gt 40 ]; then
     current_dir="...$(echo "$current_dir" | awk -F/ '{print "/"$(NF-2)"/"$(NF-1)"/"$NF}')"
@@ -68,10 +68,12 @@ fi
 # Context window usage
 context_info=""
 if [ -n "$context_remaining_pct" ] && [ "$context_remaining_pct" != "null" ]; then
-    # Color code based on remaining percentage
-    if [ "$(echo "$context_remaining_pct >= 70" | bc -l 2>/dev/null || echo 0)" -eq 1 ]; then
+    # Truncate to integer for shell arithmetic (no bc dependency)
+    pct_int=${context_remaining_pct%.*}
+    pct_int=${pct_int:-0}
+    if [ "$pct_int" -ge 70 ]; then
         context_color="\033[0;32m"  # green
-    elif [ "$(echo "$context_remaining_pct >= 30" | bc -l 2>/dev/null || echo 0)" -eq 1 ]; then
+    elif [ "$pct_int" -ge 30 ]; then
         context_color="\033[0;33m"  # yellow
     else
         context_color="\033[0;31m"  # red

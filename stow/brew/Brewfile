@@ -31,11 +31,12 @@ brew "yamllint"
 brew "ast-grep"
 brew "yq"
 
-# macOS-specific utilities
-brew "terminal-notifier"
-brew "gromgit/brewtils/taproom"
+# macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
+# but listing them separately documents intent and avoids confusing "not found" warnings.
+brew "terminal-notifier" if OS.mac?
+brew "gromgit/brewtils/taproom" if OS.mac?
 
-# macOS casks
+# macOS-only casks (Homebrew Cask is macOS-only)
 cask "1password-cli"
 cask "claude-code"
 cask "ghostty"
@@ -43,7 +44,7 @@ cask "font-meslo-lg-nerd-font"
 cask "appcleaner"
 cask "docker-desktop"
 
-# VS Code extensions (essential)
+# VS Code extensions (macOS — Cursor on Linux uses its own extension sync)
 vscode "anthropic.claude-code"
 vscode "bierner.markdown-mermaid"
 vscode "dbaeumer.vscode-eslint"

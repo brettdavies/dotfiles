@@ -21,7 +21,9 @@ severity: critical
 
 ## Problem
 
-Deploying a GNU Stow-managed dotfiles repository from macOS to an Ubuntu 24.04 server revealed 7 cross-platform issues that caused SSH lockout risk, git signing failures, and stow deployment errors.
+Deploying a GNU Stow-managed dotfiles repository from macOS to an Ubuntu 24.04 server
+revealed 7 cross-platform issues that caused SSH lockout risk, git signing failures,
+and stow deployment errors.
 
 ## Issues and Solutions
 
@@ -55,7 +57,8 @@ Remove per-host `IdentityAgent` directives -- the global Match exec handles agen
 
 ### 2. Git commit signing fails on Linux
 
-**Symptom:** `gpg.ssh.program` pointed to `/Applications/1Password.app/Contents/MacOS/op-ssh-sign` which doesn't exist on Linux.
+**Symptom:** `gpg.ssh.program` pointed to
+`/Applications/1Password.app/Contents/MacOS/op-ssh-sign` which doesn't exist on Linux.
 
 **Fix:** Create a wrapper script at `~/.local/bin/op-ssh-sign-wrapper`:
 
@@ -78,7 +81,10 @@ Reference it by bare name in `.gitconfig`:
   program = op-ssh-sign-wrapper
 ```
 
-**Critical detail:** Git's `gpg.ssh.program` uses `exec()`, not a shell. Tilde (`~`) is NOT expanded. The wrapper must be on `$PATH` and referenced by bare name. Using `program = ~/.config/git/op-ssh-sign-wrapper` will fail with `cannot exec: No such file or directory`.
+**Critical detail:** Git's `gpg.ssh.program` uses `exec()`, not a shell. Tilde (`~`) is
+NOT expanded. The wrapper must be on `$PATH` and referenced by bare name. Using
+`program = ~/.config/git/op-ssh-sign-wrapper` will fail with
+`cannot exec: No such file or directory`.
 
 ### 3. Hardcoded home directory paths in .zshrc
 
@@ -106,11 +112,16 @@ export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
 stow: ERROR: stow_contents() called with non-directory path: dotfiles/stow/git/.config
 ```
 
-**Root cause:** Bug in Stow 2.3.x where `--dotfiles` flag's `dot-` to `.` conversion fails for nested directories. Only top-level `dot-` prefixed files/dirs are converted correctly. [Fixed in Stow 2.4.0](https://github.com/aspiers/stow/issues/33).
+**Root cause:** Bug in Stow 2.3.x where `--dotfiles` flag's `dot-` to `.` conversion
+fails for nested directories. Only top-level `dot-` prefixed files/dirs are converted
+correctly. [Fixed in Stow 2.4.0](https://github.com/aspiers/stow/issues/33).
 
-**Fix:** Install Stow >= 2.4.0 via Homebrew/Linuxbrew (`brew install stow`). Ubuntu 24.04's apt repo only ships 2.3.1. The `stow-deploy` script warns when it detects a pre-2.4.0 version.
+**Fix:** Install Stow >= 2.4.0 via Homebrew/Linuxbrew (`brew install stow`). Ubuntu
+24.04's apt repo only ships 2.3.1. The `stow-deploy` script warns when it detects a
+pre-2.4.0 version.
 
-**Affected packages (on 2.3.x only):** Any with nested `dot-` dirs (git/`dot-config`, ssh/`dot-ssh`, gh/`dot-config`, pip/`dot-config`, claude/`dot-claude`).
+**Affected packages (on 2.3.x only):** Any with nested `dot-` dirs (git/`dot-config`,
+ssh/`dot-ssh`, gh/`dot-config`, pip/`dot-config`, claude/`dot-claude`).
 
 **Legacy workaround (if stuck on 2.3.x):** Manual `ln -sf` for affected packages:
 
@@ -197,9 +208,13 @@ The stowed gitconfig uses `url.insteadOf` rules to rewrite all HTTPS GitHub URLs
     insteadOf = https://gist.github.com/
 ```
 
-**Ordering constraint:** After stowing the `git` package, all GitHub operations (including cloning public repos) require SSH authentication. The SSH key (`~/.ssh/brett_ed25519`) must be deployed to the server and authorized on GitHub **before** stowing the git package.
+**Ordering constraint:** After stowing the `git` package, all GitHub operations (including
+cloning public repos) require SSH authentication. The SSH key (`~/.ssh/brett_ed25519`)
+must be deployed to the server and authorized on GitHub **before** stowing the git package.
 
-**Initial clone is exempt:** The `insteadOf` rules aren't active until the gitconfig is stowed, so the initial `git clone` of the dotfiles repo can use either HTTPS or SSH. SSH is preferred, but HTTPS won't break anything.
+**Initial clone is exempt:** The `insteadOf` rules aren't active until the gitconfig is
+stowed, so the initial `git clone` of the dotfiles repo can use either HTTPS or SSH. SSH
+is preferred, but HTTPS won't break anything.
 
 ### Cross-platform patterns
 
@@ -219,3 +234,5 @@ The stowed gitconfig uses `url.insteadOf` rules to rewrite all HTTPS GitHub URLs
 - [oh-my-zsh install flags](https://github.com/ohmyzsh/ohmyzsh/blob/master/tools/install.sh)
 - [GNU Stow --adopt](https://www.gnu.org/software/stow/manual/stow.html)
 - Initial deployment plan: `docs/plans/2026-02-13-feat-deploy-dotfiles-to-ubuntu-server-plan.md`
+- Second-wave portability fixes:
+  [`cross-platform-shell-idiom-and-config-hardening.md`](cross-platform-shell-idiom-and-config-hardening.md)
