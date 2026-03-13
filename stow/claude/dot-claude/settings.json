@@ -54,6 +54,7 @@
       "Bash(git ls-tree:*)",
       "Bash(git mv:*)",
       "Bash(git pull:*)",
+      "Bash(git rev-list:*)",
       "Bash(git rev-parse:*)",
       "Bash(git shortlog:*)",
       "Bash(git show:*)",
