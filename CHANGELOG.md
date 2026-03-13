@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026.03.13] - 2026-03-13
+
+### Fixed
+
+- Cross-platform hardening, per-platform git templates, and compound docs (#22)
+
 ## [2026.03.12.1] - 2026-03-12
 
 ### Fixed
