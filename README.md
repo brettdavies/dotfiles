@@ -74,6 +74,7 @@ dotfiles (`.` prefix) when symlinked via `stow --dotfiles`.
 | `ghostty`     | `.config/ghostty/config`                                                   |
 | `git`         | `.gitconfig`, `.config/git/` (ignore, allowed\_signers)                    |
 | `launchagent` | `~/Library/LaunchAgents/` (macOS only)                                     |
+| `lazygit`     | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52              |
 | `local`       | `.local/bin/` (env, op-ssh-sign-wrapper, tmux-new-session)                 |
 | `opencode`    | `.config/opencode/config.json`                                             |
 | `pip`         | `.config/pip/pip.conf`                                                     |
@@ -81,6 +82,7 @@ dotfiles (`.` prefix) when symlinked via `stow --dotfiles`.
 | `shell`       | `.profile`                                                                 |
 | `ssh`         | `.ssh/config` (git-crypt encrypted)                                        |
 | `tmux`        | `.config/tmux/tmux.conf`                                                   |
+| `yazi`        | `.config/yazi/` — file manager config, keymaps, theme, packages            |
 | `zsh`         | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                              |
 
 ### Shell Environment (`config/shell/`)

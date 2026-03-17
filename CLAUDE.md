@@ -37,6 +37,10 @@ To add a new package:
 1. Create `stow/<package-name>/` with `dot-` prefixed files
 2. Add the package name to `SHARED_PACKAGES` or `DESKTOP_PACKAGES` in `scripts/stow-deploy`
 
+**Tree folding:** `stow-deploy` passes `--no-folding` globally. This prevents stow from creating directory-level
+symlinks (which would pollute the repo when programs write into symlinked dirs). Individual file symlinks are
+created instead. No per-package opt-in is needed.
+
 ### Conflict Resolution (`scripts/stow-deploy`)
 
 GNU Stow has no `--force` flag. The `scripts/stow-deploy` wrapper handles three conflict types:
