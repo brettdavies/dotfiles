@@ -33,7 +33,8 @@ if [[ "$*" == *"pr merge"* ]]; then
     base_branch=$("$real_gh" pr view ${pr_ref:+"$pr_ref"} --json baseRefName --jq '.baseRefName' 2>/dev/null)
 
     if [[ "$base_branch" == "main" || "$base_branch" == "master" ]]; then
-        echo "Blocked: merging into $base_branch requires human approval" >&2
+        echo "Blocked: merging into $base_branch requires human approval." >&2
+        echo "Please provide a ready-to-paste squash merge commit message for the human to use." >&2
         exit 1
     fi
 fi
