@@ -1,0 +1,12 @@
+# yazi theme config
+# Stow package: dotfiles/stow/yazi/dot-config/yazi/theme.toml
+# Symlinked to: ~/.config/yazi/theme.toml
+#
+# Flavor: catppuccin-mocha — dark theme matching Ghostty's #1e1e1e background.
+# Installed via: ya pkg add yazi-rs/flavors:catppuccin-mocha
+# To change flavor: update `use` below and run `ya pkg install`.
+
+"$schema" = "https://yazi-rs.github.io/schemas/theme.json"
+
+[flavor]
+use = "catppuccin-mocha"

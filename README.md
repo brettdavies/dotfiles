@@ -76,6 +76,7 @@ dotfiles (`.` prefix) when symlinked via `stow --dotfiles`.
 | `launchagent` | `~/Library/LaunchAgents/` (macOS only)                                     |
 | `lazygit`     | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52              |
 | `local`       | `.local/bin/` (env, op-ssh-sign-wrapper, tmux-new-session)                 |
+| `micro`       | `.config/micro/settings.json` — editor settings                            |
 | `opencode`    | `.config/opencode/config.json`                                             |
 | `pip`         | `.config/pip/pip.conf`                                                     |
 | `secrets`     | `.secrets` (git-crypt encrypted)                                           |

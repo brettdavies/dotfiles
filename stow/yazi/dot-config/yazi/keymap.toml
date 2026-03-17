@@ -1,0 +1,46 @@
+# yazi keymap config
+# Stow package: dotfiles/stow/yazi/dot-config/yazi/keymap.toml
+# Symlinked to: ~/.config/yazi/keymap.toml
+#
+# Uses `prepend_keymap` — overrides run BEFORE defaults, so these take priority.
+# Section name is [mgr] NOT [manager] — wrong name is silently ignored.
+#
+# Default keybindings worth knowing:
+#   l / →     enter directory or open file (same as smart-enter)
+#   h / ←     go up to parent directory
+#   o         open with default opener
+#   e         open in editor (nano)
+#   O         open-with picker
+#   y/x/p     yank (copy) / cut / paste
+#   d         trash   D = delete permanently
+#   a         create file (append / for directory)
+#   r         rename
+#   .         toggle hidden files
+#   ,         sort menu
+#   K/J       scroll preview up/down (built-in)
+#   Space     toggle selection
+#   v         visual/range select
+#   t         new tab   1-9 switch tabs   [ ] cycle tabs
+#   z         zoxide jump   Z = fzf jump
+
+"$schema" = "https://yazi-rs.github.io/schemas/keymap.json"
+
+# smart-enter: navigate into directory OR open file with opener — whichever applies.
+# Replaces default `open` (opener-only) and `enter` (directory-only) with a unified action.
+# Plugin source: yazi-rs/plugins:smart-enter
+[[mgr.prepend_keymap]]
+on = "<Enter>"
+run = "plugin smart-enter"
+desc = "Navigate into directory or open file"
+
+# Preview pane scrolling (Ctrl+E/Y mirrors vim convention).
+# Note: K and J also scroll the preview by default.
+[[mgr.prepend_keymap]]
+on = "<C-e>"
+run = "seek 5"
+desc = "Scroll preview down"
+
+[[mgr.prepend_keymap]]
+on = "<C-y>"
+run = "seek -5"
+desc = "Scroll preview up"
