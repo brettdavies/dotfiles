@@ -78,8 +78,23 @@ fi
 # tty fails in non-interactive shells (cron, some SSH commands) — suppress gracefully
 GPG_TTY=$(tty 2>/dev/null) || true
 # Preferred editor — set here so both bash and zsh inherit it
-if command -v micro >/dev/null 2>&1; then
-    EDITOR=$(command -v micro)
+# macOS (desktop): VS Code with --wait so blocking callers (git, yazi) pause until tab closes
+# Linux (headless): micro (terminal editor, no GUI)
+case "$(uname -s)" in
+    Darwin)
+        if command -v code >/dev/null 2>&1; then
+            EDITOR="code --wait"
+        elif command -v micro >/dev/null 2>&1; then
+            EDITOR=$(command -v micro)
+        fi
+        ;;
+    *)
+        if command -v micro >/dev/null 2>&1; then
+            EDITOR=$(command -v micro)
+        fi
+        ;;
+esac
+if [ -n "${EDITOR:-}" ]; then
     export EDITOR
     export VISUAL=$EDITOR
 fi

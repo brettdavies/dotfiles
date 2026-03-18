@@ -3,6 +3,10 @@
 *.pem
 *.p12
 
+# Note: stow/ssh/dot-ssh/config is now encrypted with git-crypt, so it's safe to commit
+# Note: stow/secrets/dot-secrets is now encrypted with git-crypt, so it's safe to commit
+# Note: stow/git/dot-config/git/allowed_signers is now encrypted with git-crypt, so it's safe to commit
+
 # History files
 *.zsh_history
 *.bash_history
@@ -15,6 +19,9 @@
 *.swp
 *.swo
 *~
+
+# Log files
+scripts/sync/logs/*.log
 
 # OS files
 .DS_Store
@@ -40,19 +47,3 @@
 # Other potentially sensitive files
 .webui_secret_key
 .lmstudio-home-pointer
-
-# Note: stow/ssh/dot-ssh/config is now encrypted with git-crypt, so it's safe to commit
-# Note: stow/secrets/dot-secrets is now encrypted with git-crypt, so it's safe to commit
-# Note: stow/git/dot-config/git/allowed_signers is now encrypted with git-crypt, so it's safe to commit
-
-**/test/results
-
-# Log files
-scripts/sync/logs/*.log
-/stow/claude/dot-claude/**/*
-
-# Compiled dotfiles CLI binary (deployed from ~/dev/dotfiles-cli)
-/dotfiles
-
-/stow/codex/dot-codex/tmp
-/stow/codex/dot-codex/skills/.system

@@ -86,8 +86,6 @@ to `~/.config/git/local` (copy-if-absent). The template contains:
 ```gitconfig
 [user]
     signingkey = ~/.ssh/brett_ed25519
-[core]
-    editor = micro
 ```
 
 This overrides the literal public key with the private key file path. Git then calls
