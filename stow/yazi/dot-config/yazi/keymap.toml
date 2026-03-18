@@ -9,7 +9,7 @@
 #   l / →     enter directory or open file (same as smart-enter)
 #   h / ←     go up to parent directory
 #   o         open with default opener
-#   e         open in editor (nano)
+#   e         open in editor ($EDITOR)
 #   O         open-with picker
 #   y/x/p     yank (copy) / cut / paste
 #   d         trash   D = delete permanently

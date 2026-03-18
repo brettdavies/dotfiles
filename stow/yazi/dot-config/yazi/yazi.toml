@@ -18,11 +18,11 @@ ratio = [1, 2, 5]
 show_hidden = true
 
 [opener]
-# Override default editor (vi) with micro.
-# `block = true` pauses yazi while micro is open, resumes on exit.
+# Use $EDITOR from shell profile (macOS: code --wait, Linux: micro).
+# `block = true` pauses yazi while the editor is open, resumes on exit.
 # `%s` is yazi's placeholder for selected file path(s).
 edit = [
-  { run = 'micro %s', block = true, desc = "micro", for = "unix" },
+  { run = "$EDITOR %s", block = true, desc = "$EDITOR", for = "unix" },
 ]
 
 # Markdown preview via piper plugin + glow

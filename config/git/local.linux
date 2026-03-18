@@ -5,5 +5,3 @@
 # signing without an SSH agent (required for headless servers).
 [user]
 	signingkey = ~/.ssh/brett_ed25519
-[core]
-	editor = micro
