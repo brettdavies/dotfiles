@@ -3,7 +3,13 @@
     "allow": [
       "Bash(bats:*)",
       "Bash(shellcheck:*)",
-      "Bash(stow:*)"
+      "Bash(stow:*)",
+      "Bash(bash scripts/stow-deploy --all 2>&1)",
+      "Bash(command -v bat)",
+      "Bash(command -v file)",
+      "Bash(command -v ffmpeg)",
+      "Bash(command -v magick)",
+      "Bash(yazi --help)"
     ]
   }
 }

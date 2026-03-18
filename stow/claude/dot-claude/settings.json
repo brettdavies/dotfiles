@@ -1,4 +1,8 @@
 {
+  "env": {
+    "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
+    "MAX_THINKING_TOKENS": "31999"
+  },
   "permissions": {
     "allow": [
       "Bash(alias:*)",
@@ -240,12 +244,18 @@
     "command": "~/.claude/statusline.sh"
   },
   "enabledPlugins": {
-    "compound-engineering@every-marketplace": true
+    "compound-engineering@every-marketplace": true,
+    "obsidian@obsidian-skills": true
+  },
+  "extraKnownMarketplaces": {
+    "obsidian-skills": {
+      "source": {
+        "source": "github",
+        "repo": "kepano/obsidian-skills"
+      },
+      "autoUpdate": true
+    }
   },
   "alwaysThinkingEnabled": false,
-  "effortLevel": "high",
-  "env": {
-    "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": 1,
-    "MAX_THINKING_TOKENS": 31999
-  }
+  "effortLevel": "high"
 }
