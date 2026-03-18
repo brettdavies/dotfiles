@@ -1,0 +1,14 @@
+# lazygit config
+# Stow package: dotfiles/stow/lazygit/dot-config/lazygit/config.yml
+# Symlinked to: ~/.config/lazygit/config.yml
+#
+# clipboard: OSC 52 escape sequence via /dev/tty
+#   - Works over SSH (Ghostty forwards OSC 52 to macOS clipboard)
+#   - tmux must have `set-clipboard on` (see stow/tmux)
+#   - Use Ctrl+O in lazygit to copy; Cmd+V to paste on macOS
+#   - {{text}} is substituted by lazygit with the text to copy
+#   - DCS passthrough (\033Ptmux;...) was tried but broke things — keep plain OSC 52
+
+os:
+  editPreset: "micro"
+  copyToClipboardCmd: printf '\033]52;c;%s\007' "$(printf '%s' {{text}} | base64)" > /dev/tty

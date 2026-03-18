@@ -1,4 +1,8 @@
 {
+  "env": {
+    "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
+    "MAX_THINKING_TOKENS": "31999"
+  },
   "permissions": {
     "allow": [
       "Bash(alias:*)",
@@ -6,11 +10,7 @@
       "Bash(awk:*)",
       "Bash(basename:*)",
       "Bash(biome:*)",
-      "Bash(brew install:*)",
-      "Bash(brew list:*)",
-      "Bash(brew update:*)",
-      "Bash(brew uninstall:*)",
-      "Bash(brew upgrade:*)",
+      "Bash(brew:*)",
       "Bash(bun install:*)",
       "Bash(bun run lint)",
       "Bash(bun test)",
@@ -26,7 +26,6 @@
       "Bash(date:*)",
       "Bash(diff:*)",
       "Bash(dirname:*)",
-      "Bash(done:*)",
       "Bash(dpkg:*)",
       "Bash(du:*)",
       "Bash(echo:*)",
@@ -44,12 +43,14 @@
       "Bash(git bisect:*)",
       "Bash(git blame:*)",
       "Bash(git branch:*)",
+      "Bash(git check-ignore:*)",
       "Bash(git checkout:*)",
       "Bash(git clone:*)",
       "Bash(git config:*)",
       "Bash(git-crypt:*)",
       "Bash(git describe:*)",
       "Bash(git diff:*)",
+      "Bash(git diff-tree:*)",
       "Bash(git fetch:*)",
       "Bash(git grep:*)",
       "Bash(git-lfs:*)",
@@ -57,10 +58,13 @@
       "Bash(git ls-tree:*)",
       "Bash(git mv:*)",
       "Bash(git pull:*)",
+      "Bash(git rev-list:*)",
+      "Bash(git rev-parse:*)",
       "Bash(git shortlog:*)",
       "Bash(git show:*)",
       "Bash(git stash:*)",
       "Bash(git status:*)",
+      "Bash(git tag:*)",
       "Bash(git worktree:*)",
       "Bash(head:*)",
       "Bash(hostname:*)",
@@ -73,6 +77,7 @@
       "Bash(nproc:*)",
       "Bash(nvidia-smi:*)",
       "Bash(pandoc:*)",
+      "Bash(printf:*)",
       "Bash(pwd:*)",
       "Bash(readlink:*)",
       "Bash(realpath:*)",
@@ -81,6 +86,7 @@
       "Bash(sort:*)",
       "Bash(ss:*)",
       "Bash(stat:*)",
+      "Bash(swiftformat:*)",
       "Bash(tail:*)",
       "Bash(tee:*)",
       "Bash(test:*)",
@@ -143,7 +149,6 @@
       "Bash(python:*)",
       "Bash(supabase:*)",
       "Bash(uv run:*)",
-      "Bash(swiftformat:*)",
       "Bash(wget:*)",
       "Bash(xargs:*)"
     ]
@@ -239,12 +244,18 @@
     "command": "~/.claude/statusline.sh"
   },
   "enabledPlugins": {
-    "compound-engineering@every-marketplace": true
+    "compound-engineering@every-marketplace": true,
+    "obsidian@obsidian-skills": true
+  },
+  "extraKnownMarketplaces": {
+    "obsidian-skills": {
+      "source": {
+        "source": "github",
+        "repo": "kepano/obsidian-skills"
+      },
+      "autoUpdate": true
+    }
   },
   "alwaysThinkingEnabled": false,
-  "effortLevel": "high",
-  "env": {
-    "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": 1,
-    "MAX_THINKING_TOKENS": 31999
-  }
+  "effortLevel": "high"
 }

@@ -1,0 +1,17 @@
+{
+    "colorscheme": "monokai",
+    "tabsize": 4,
+    "tabstospaces": true,
+    "autoclose": false,
+    "mouse": true,
+    "savecursor": false,
+    "saveundo": false,
+    "scrollbar": false,
+    "softwrap": true,
+    "ruler": true,
+    "autoindent": true,
+    "hlsearch": true,
+    "rmtrailingws": true,
+    "ftoptions": true,
+    "ignorecase": true
+}
