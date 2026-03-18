@@ -19,7 +19,7 @@ symptom: >
   that silently failed or errored on headless Ubuntu servers
 root_cause: >
   BSD vs GNU tool incompatibilities (stat, sed, bc), missing non-interactive guards (tty),
-  and shared configs lacking per-platform overrides (git signing key, editor, Brewfile,
+  and shared configs lacking per-platform overrides (git signing key, Brewfile,
   SSH agent socket existence check)
 date: 2026-03-12
 severity: high
@@ -74,16 +74,17 @@ command name but accept incompatible flags:
 
 The deploy script (`scripts/stow-deploy`) now has a post-stow step that copies
 platform-specific git config templates. On Linux, `config/git/local.linux` is deployed
-to `~/.config/git/local` (copy-if-absent), providing the signing key file path and
-editor override:
+to `~/.config/git/local` (copy-if-absent), providing the signing key file path override:
 
 ```ini
 # config/git/local.linux
 [user]
     signingkey = ~/.ssh/brett_ed25519
-[core]
-    editor = micro
 ```
+
+Editor configuration is handled separately via `$EDITOR` env var set platform-aware in
+`.profile` and referenced by `core.editor = $EDITOR` in `.gitconfig`. See
+[cross-platform editor configuration](../configuration-fixes/cross-platform-editor-configuration-via-editor-env-var.md).
 
 The stow-deploy logic includes a tree-fold guard (skips if `~/.config/git` is a symlink
 rather than a directory) and respects existing configs:
@@ -224,7 +225,7 @@ configuration is deployed to all machines (macOS and headless Linux).
 | `/opt/homebrew/bin/tool` | Path does not exist on Linux | Add `elif [ -f /home/linuxbrew/.linuxbrew/bin/tool ]` fallback |
 | `brew "macos-formula"` | Warning: formula not found on Linux | `brew "formula" if OS.mac?` (Ruby conditional) |
 | SSH `IdentityAgent /path/to/sock` | Agent socket may not exist | `Match ... exec "test -S $HOME/.1password/agent.sock"` |
-| Shared `.gitconfig` values | Wrong signing key format / editor on Linux | `config/git/local.<platform>` template via stow-deploy (copy-if-absent) |
+| Shared `.gitconfig` values | Wrong signing key format on Linux | `config/git/local.<platform>` template via stow-deploy (signing key); `$EDITOR` env var via `.profile` (editor) |
 
 ## Prevention Strategies
 

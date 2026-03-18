@@ -1,0 +1,34 @@
+# yazi config
+# Stow package: dotfiles/stow/yazi/dot-config/yazi/yazi.toml
+# Symlinked to: ~/.config/yazi/yazi.toml
+#
+# Packages (plugins/flavors) are managed by `ya pkg` and NOT tracked in stow.
+# On a new machine, run `ya pkg install` to restore from package.toml.
+#
+# Section names: yazi.toml uses [mgr], keymap.toml uses [mgr] — NOT [manager].
+# This is a common gotcha; wrong section names are silently ignored.
+
+"$schema" = "https://yazi-rs.github.io/schemas/yazi.json"
+
+[mgr]
+# Panel ratios: [parent-dir, current-dir, preview]
+# Default is [1, 4, 3]. Bumped preview for wider markdown rendering.
+ratio = [1, 2, 5]
+# Show hidden files (dotfiles) by default. Toggle with `.` key.
+show_hidden = true
+
+[opener]
+# Use $EDITOR from shell profile (macOS: code --wait, Linux: micro).
+# `block = true` pauses yazi while the editor is open, resumes on exit.
+# `%s` is yazi's placeholder for selected file path(s).
+edit = [
+  { run = "$EDITOR %s", block = true, desc = "$EDITOR", for = "unix" },
+]
+
+# Markdown preview via piper plugin + glow
+# piper pipes the file through glow for rendered markdown in the preview pane.
+# $w = preview pane width (injected by piper). Requires: glow (brew install glow).
+# Note: glow's dark style shows ## / ### prefixes on h2/h3 — this is intentional glamour behavior.
+[[plugin.prepend_previewers]]
+url = "*.md"
+run = 'piper -- CLICOLOR_FORCE=1 glow -w=$w -s=dark "$1"'

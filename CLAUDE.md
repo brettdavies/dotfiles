@@ -37,6 +37,10 @@ To add a new package:
 1. Create `stow/<package-name>/` with `dot-` prefixed files
 2. Add the package name to `SHARED_PACKAGES` or `DESKTOP_PACKAGES` in `scripts/stow-deploy`
 
+**Tree folding:** `stow-deploy` passes `--no-folding` globally. This prevents stow from creating directory-level
+symlinks (which would pollute the repo when programs write into symlinked dirs). Individual file symlinks are
+created instead. No per-package opt-in is needed.
+
 ### Conflict Resolution (`scripts/stow-deploy`)
 
 GNU Stow has no `--force` flag. The `scripts/stow-deploy` wrapper handles three conflict types:
@@ -179,6 +183,17 @@ When adding or modifying configuration:
 - SSH key must be `~/.ssh/brett_ed25519` on all machines (standardized name)
 - Assume no GUI, no desktop app, no interactive prompts on Ubuntu servers
 - Default shell is zsh everywhere -- `.zshenv` is the non-interactive entry point
+
+---
+
+## Shell Script Conventions
+
+All shell scripts and hooks in this repo follow these conventions:
+
+- **Error prefixes:** Use UPPERCASE severity — `ERROR:`, `WARNING:`, `NOTE:`, `FATAL:` — followed by a space and
+  the message. Always output to stderr via `>&2`.
+- **Binary wrappers** (e.g., `op-ssh-sign-wrapper`) use `programname: message` format instead, which is the
+  standard Unix convention for utilities identifying themselves.
 
 ---
 

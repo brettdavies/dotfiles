@@ -30,6 +30,7 @@ brew "git-crypt"
 brew "yamllint"
 brew "ast-grep"
 brew "yq"
+brew "markdownlint-cli2"
 
 # macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
 # but listing them separately documents intent and avoids confusing "not found" warnings.
