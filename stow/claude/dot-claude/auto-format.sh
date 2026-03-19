@@ -100,6 +100,18 @@ MD013 fix hint: line length limit is ${max_len} characters. Wrap lines to fill u
       report_errors "$lint_output"
     fi
     ;;
+  rb)
+    if command -v rubocop &>/dev/null; then
+      lint_output=$(rubocop -a --format simple "$file" 2>&1) || true
+      report_errors "$lint_output"
+    fi
+    ;;
+  yml|yaml)
+    if [[ "$file" == *".github/workflows/"* ]] && command -v actionlint &>/dev/null; then
+      lint_output=$(actionlint "$file" 2>&1) || true
+      report_errors "$lint_output"
+    fi
+    ;;
 esac
 
 exit 0
