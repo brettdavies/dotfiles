@@ -56,12 +56,26 @@ case "$ext" in
     ;;
   md)
     cd "$CLAUDE_PROJECT_DIR"
+
+    # --- Step 1: auto-wrap prose to configured line width ---
+    md_wrap="$HOME/.claude/md-wrap.py"
     global_config="$HOME/.claude/.markdownlint-cli2.yaml"
+
+    # Read the configured line width (default 120)
+    max_len=120
+    if [[ -f "$global_config" ]] && command -v yq &>/dev/null; then
+      max_len=$(yq '.config.MD013.line_length // 120' "$global_config")
+    fi
+
+    if [[ -x "$md_wrap" ]]; then
+      python3 "$md_wrap" -i -w "$max_len" "$file" 2>/dev/null || true
+    fi
+
+    # --- Step 2: run markdownlint ---
     local_config=""
     [[ -f .markdownlint-cli2.yaml ]] && local_config=".markdownlint-cli2.yaml"
     [[ -f .markdownlint.yaml ]] && local_config=".markdownlint.yaml"
 
-    # Array avoids duplicating the markdownlint invocation across three config branches
     config_args=()
     tmp_config=""
     if [[ -n "$local_config" ]] && command -v yq &>/dev/null; then
@@ -72,21 +86,13 @@ case "$ext" in
       config_args=(--config "$global_config")
     fi
 
-    # Capture (not pipe) so unfixable issues are reported to Claude, not silently swallowed
     lint_output=$(markdownlint-cli2 "${config_args[@]}" --no-globs --fix "$file" 2>&1) || true
 
-    # When MD013 (line length) violations remain, extract the configured limit
-    # and append it as context so Claude wraps at the correct column instead of
-    # guessing a shorter width.
+    # Any remaining MD013 violations are unbreakable lines (long URLs, code spans).
+    # Tell the agent the limit and that these are acceptable exceptions.
     if [[ "$lint_output" == *"MD013"* ]]; then
-      active_cfg="${tmp_config:-${config_args[1]:-}}"
-      if [[ -n "$active_cfg" ]] && command -v yq &>/dev/null; then
-        max_len=$(yq '.config.MD013.line_length // 80' "$active_cfg")
-      else
-        max_len=80
-      fi
       lint_output="${lint_output}
-MD013 fix hint: line length limit is ${max_len} characters. Wrap lines to fill up to this limit — do not wrap shorter."
+MD013 fix hint: line length limit is ${max_len} characters. Wrap lines to fill up to this limit — do not wrap shorter. Remaining MD013 violations are likely unbreakable tokens (long URLs or inline code) — these are acceptable."
     fi
 
     [[ -n "$tmp_config" ]] && rm -f "$tmp_config"
