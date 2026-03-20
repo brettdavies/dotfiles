@@ -19,6 +19,20 @@ You MUST follow the Plan > Work > Review > Compound loop for all non-trivial wor
 
 ---
 
+## Shared Solutions Repo
+
+`docs/solutions/` in every repo is a symlink to `~/dev/solutions-docs` — a separate private git repo (`brettdavies/solutions-docs`). This centralizes all compounded solutions so the learnings-researcher agent can search across all repos from any working directory.
+
+**After writing to `docs/solutions/`** (e.g., via `/compound`), you MUST commit and push in the shared repo:
+
+```bash
+cd ~/dev/solutions-docs && git add -A && git commit -m "docs: <description>" && git push
+```
+
+The consuming repo's `git status` will show nothing for `docs/solutions/` because the symlink target is gitignored. If the symlink is missing, recreate it: `ln -s ~/dev/solutions-docs docs/solutions`
+
+---
+
 ## Core Coding Principles
 
 - **DRY (Don't Repeat Yourself):** Avoid duplicating logic or data; abstract and reuse code where possible.
