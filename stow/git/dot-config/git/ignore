@@ -16,7 +16,7 @@
 .idea/
 
 #Compound Engineering
-/todos
+**/todos/
 
 # Production builds
 target/
