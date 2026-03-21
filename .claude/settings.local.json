@@ -9,7 +9,13 @@
       "Bash(command -v file)",
       "Bash(command -v ffmpeg)",
       "Bash(command -v magick)",
-      "Bash(yazi --help)"
+      "Bash(yazi --help)",
+      "Bash(gh run view:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(bash /Users/brett/.claude/skills/rust-tool-release/pin-actions.sh /Users/brett/dotfiles)",
+      "Bash(/opt/homebrew/bin/bash /Users/brett/.claude/skills/rust-tool-release/pin-actions.sh /Users/brett/dotfiles)",
+      "Bash(~/.claude/skills/github-repo-setup/scripts/repo-settings.sh report:*)",
+      "Bash(/opt/homebrew/bin/bash ~/.claude/skills/github-repo-setup/scripts/repo-settings.sh report:*)"
     ]
   }
 }
