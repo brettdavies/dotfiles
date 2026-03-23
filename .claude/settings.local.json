@@ -15,7 +15,21 @@
       "Bash(bash /Users/brett/.claude/skills/rust-tool-release/pin-actions.sh /Users/brett/dotfiles)",
       "Bash(/opt/homebrew/bin/bash /Users/brett/.claude/skills/rust-tool-release/pin-actions.sh /Users/brett/dotfiles)",
       "Bash(~/.claude/skills/github-repo-setup/scripts/repo-settings.sh report:*)",
-      "Bash(/opt/homebrew/bin/bash ~/.claude/skills/github-repo-setup/scripts/repo-settings.sh report:*)"
+      "Bash(/opt/homebrew/bin/bash ~/.claude/skills/github-repo-setup/scripts/repo-settings.sh report:*)",
+      "Bash(rclone version:*)",
+      "Bash(rclone listremotes:*)",
+      "Bash(systemctl --user list-timers)",
+      "Bash(scripts/stow-deploy rclone:*)",
+      "Bash(/home/brett/.claude/skills/onepassword/scripts/list_items.sh)",
+      "Bash(/home/brett/.claude/skills/onepassword/scripts/get_item.sh \"Box CLI — OAuth \\(default app\\)\")",
+      "Read(//home/brett/**)",
+      "Bash(box configure:get)",
+      "Bash(source ~/.profile)",
+      "Bash(npm list:*)",
+      "Bash(bun pm:*)",
+      "Bash(/home/brett/dotfiles/scripts/sync/box-bisync.sh --resync 2>&1)",
+      "Bash(/home/linuxbrew/.linuxbrew/bin/rclone listremotes:*)",
+      "Bash(yazi --version)"
     ]
   }
 }
