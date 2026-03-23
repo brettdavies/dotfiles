@@ -234,3 +234,9 @@ export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
 
 # OpenClaw Completion
 [ -f "$HOME/.openclaw/completions/openclaw.zsh" ] && source "$HOME/.openclaw/completions/openclaw.zsh"
+
+# gogcli (Google Workspace CLI) — keyring password from 1Password
+gog() {
+  export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-$(op item get 'Google Workspace CLI OAuth' --vault secrets-dev --fields client_secret --reveal 2>/dev/null)}"
+  command gog "$@"
+}
