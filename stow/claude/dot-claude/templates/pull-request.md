@@ -2,11 +2,34 @@
 
 <!-- Provide a brief overview of the changes in this PR. What feature/fix/improvement does this introduce? -->
 
-## Changes
+## Changelog
 
-## <!-- List the key changes made in this PR -->
+<!-- These entries are extracted by generate-changelog.sh into CHANGELOG.md.
+     Write for USERS and OPERATORS — what changed from their perspective?
+
+     INCLUDE: new features, changed behavior, breaking changes, fixed bugs,
+     new/removed config, new dependencies users need to know about.
+
+     EXCLUDE: internal refactors, test changes, code cleanup, regenerated files,
+     implementation details (unreachable!() arms, import reordering, etc.).
+     Those belong in Files Modified or the commit history.
+
+     Aim for 2-5 bullets per PR. Delete empty sections. -->
+
+### Added
 
 -
+
+### Changed
+
+-
+
+### Fixed
+
+-
+
+### Documentation
+
 -
 
 ## Type of Change
@@ -53,11 +76,11 @@
 
 <!-- List the main files modified in this PR -->
 
-## **Modified:**
+**Modified:**
 
-## **Created:**
+**Created:**
 
-## **Deleted:**
+**Deleted:**
 
 ## Key Features
 
@@ -94,11 +117,9 @@
 - [ ] Code follows project conventions and style guidelines
 - [ ] Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
 - [ ] Self-review of code completed
-- [ ] Code is documented (comments, JSDoc, etc.)
 - [ ] Tests added/updated and passing
 - [ ] No new warnings or errors introduced
 - [ ] Changes are backward compatible (or breaking changes documented)
-- [ ] Related documentation updated
 
 ## Additional Context
 
