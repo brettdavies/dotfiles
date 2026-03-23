@@ -96,7 +96,7 @@ done
 # Check git-crypt unlock status for encrypted packages
 for pkg in "$@"; do
   case "$pkg" in
-    secrets|ssh|git)
+    secrets|ssh|git|rclone)
       if [ -f "$STOW_DIR/secrets/dot-secrets" ]; then
         # grep -qI treats binary files as non-matching (no `file` command needed)
         if ! grep -qI '' "$STOW_DIR/secrets/dot-secrets" 2>/dev/null; then

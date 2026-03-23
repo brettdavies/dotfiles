@@ -1,0 +1,5 @@
+# rclone filter rules for Box bisync
+# Syntax: + include, - exclude
+# See: https://rclone.org/filtering/
+
+- *.tmp
