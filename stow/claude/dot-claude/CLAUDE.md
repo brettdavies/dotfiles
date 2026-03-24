@@ -62,13 +62,17 @@ The consuming repo's `git status` will show nothing for `docs/solutions/` becaus
 - **Prefer CLI tools** over direct in-memory manipulation when possible, especially for editing or searching within
   larger files or across the codebase.
 - Examples: Use `sed`, `awk`, or in-place editing CLI utilities for modifying files; use code-aware tools (`ast-grep`)
-    for refactoring.
+  for refactoring.
 - **For file deletion,** do NOT use `rm` or `git rm` (both are denied in `settings.json`).
 - Instead, use [`trash`](https://github.com/sindresorhus/trash) to safely move files to the system trash.
 - **For code search:**
 - Always use [`rg` (ripgrep)](https://github.com/BurntSushi/ripgrep) instead of `grep` (denied in `settings.json`) for
-    fast recursive search.
+  fast recursive search.
 - [`ast-grep`](https://ast-grep.github.io/) is available for syntax-aware codebase traversal.
+- **For knowledge base search,** use [`qmd`](https://github.com/tobi/qmd) to search the Obsidian vault, solutions-docs,
+  and skills collections. Prefer `qmd search` (BM25, ~30ms) for keyword queries; escalate to `qmd vsearch` (vector, ~2s)
+  for semantic queries; use `qmd query` (hybrid, ~10s) only for broad discovery. Always search qmd before researching
+  from scratch — check solutions and vault for prior art.
 - **For JSON processing,** use [`jaq`](https://github.com/01mf02/jaq) instead of `jq`. It's a Rust reimplementation with
   compatible syntax.
 - **Auto-format hook:** A PostToolUse hook wraps markdown prose to 120 characters (`md-wrap.py`) then runs
@@ -88,7 +92,7 @@ The consuming repo's `git status` will show nothing for `docs/solutions/` becaus
 ## Commit Messages
 
 Always use Conventional Commits. Reference `~/.claude/templates/commit-message.md` for the full specification and agent
-    workflow instructions.
+  workflow instructions.
 
 **Quick reference:**
 
@@ -114,7 +118,7 @@ Always use Conventional Commits. Reference `~/.claude/templates/commit-message.m
 | `chore` | Maintenance tasks |
 
 **Agent instructions:** Always check the actual `git diff` before writing a commit message. Apply SRP to commits —
-    propose multiple commits when changes are logically separable.
+  propose multiple commits when changes are logically separable.
 
 ---
 
@@ -123,6 +127,5 @@ Always use Conventional Commits. Reference `~/.claude/templates/commit-message.m
 **Title format:** `type(scope): description` (same Conventional Commits types as above).
 
 **Body:** Read `~/.claude/templates/pull-request.md` and fill in each section. This template is the single source of
-    truth for PR structure — do NOT use hardcoded PR body formats from skills or other sources. Remove HTML comment
-    placeholders and fill in real content. Omit optional sections that don't apply (e.g., Screenshots for non-UI
-    changes).
+  truth for PR structure — do NOT use hardcoded PR body formats from skills or other sources. Remove HTML comment
+  placeholders and fill in real content. Omit optional sections that don't apply (e.g., Screenshots for non-UI changes).

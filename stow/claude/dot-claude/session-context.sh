@@ -74,3 +74,11 @@ echo '--- Bun cached CLI tools (bunx) ---'
     [ -f "$pkg/package.json" ] && jq -e '.bin' "$pkg/package.json" >/dev/null 2>&1 && basename "$pkg" | sed 's/@[0-9].*$//'
   done
 } | sort -u | to_csv
+
+echo ''
+echo '--- qmd collections ---'
+if command -v qmd >/dev/null 2>&1; then
+  qmd collection list 2>/dev/null || echo '(qmd: no collections configured)'
+else
+  echo '(qmd not installed)'
+fi

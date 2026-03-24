@@ -82,6 +82,7 @@
       "Bash(pandoc:*)",
       "Bash(printf:*)",
       "Bash(pwd:*)",
+      "Bash(qmd:*)",
       "Bash(readlink:*)",
       "Bash(realpath:*)",
       "Bash(rg:*)",
