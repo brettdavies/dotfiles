@@ -15,7 +15,7 @@ cached() {
     if [ -f "$cache_file" ]; then
         local age now mtime
         now=$(date +%s)
-        mtime=$(stat -f %m "$cache_file" 2>/dev/null || stat -c %Y "$cache_file" 2>/dev/null || echo 0)
+        mtime=$(stat -f %m "$cache_file" 2>/dev/null) || mtime=$(stat -c %Y "$cache_file" 2>/dev/null) || mtime=0
         age=$((now - mtime))
         if [ "$age" -lt "$CACHE_TTL" ]; then
             cat "$cache_file"
