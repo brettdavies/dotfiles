@@ -7,7 +7,7 @@
 set -euo pipefail
 
 VAULT="secrets-dev"
-ITEM="Google Workspace CLI OAuth"
+ITEM="Google Workspace CLI OAuth (Streams)"
 CONFIG_DIR="${HOME}/.config/gogcli"
 
 echo "Installing gogcli..."
@@ -55,6 +55,6 @@ echo ""
 echo "Done! Add this to your shell profile:"
 echo ""
 echo 'gog() {'
-echo '  export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-$(op item get '\''Google Workspace CLI OAuth'\'' --vault secrets-dev --fields client_secret --reveal 2>/dev/null)}"'
+echo '  export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-$(op item get '\''Google Workspace CLI OAuth (Streams)'\'' --vault secrets-dev --fields client_secret --reveal 2>/dev/null)}"'
 echo '  command gog "$@"'
 echo '}'
