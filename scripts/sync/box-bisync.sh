@@ -23,7 +23,7 @@ BISYNC_ARGS=(
     --conflict-resolve newer  # if both sides changed, keep the newer file
     --conflict-loser num   # rename the loser with a numeric suffix
     --log-file "$LOG_DIR/box-bisync.log"
-    # --filters-from "$HOME/.config/rclone/box-filters.txt"
+    --filter-from "$HOME/.config/rclone/box-filters.txt"
 )
 
 # Pass --resync for initial sync (required on first run)
