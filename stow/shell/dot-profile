@@ -68,6 +68,19 @@ case ":${PATH}:" in
     *) export PATH="$HOME/.local/bin:$PATH" ;;
 esac
 
+# Obsidian CLI
+if [ "$(uname -s)" = "Darwin" ]; then
+    # macOS: Obsidian.app bundles the CLI binary
+    case ":${PATH}:" in
+        *:"/Applications/Obsidian.app/Contents/MacOS":*) ;;
+        *) export PATH="$PATH:/Applications/Obsidian.app/Contents/MacOS" ;;
+    esac
+elif [ "$(uname -s)" = "Linux" ] && [ -f "$HOME/.config/obsidian/Xauthority" ]; then
+    # Headless Linux: CLI needs Xvfb display and auth for IPC
+    export DISPLAY=:99
+    export XAUTHORITY="$HOME/.config/obsidian/Xauthority"
+fi
+
 # Rust/Cargo environment
 if [ -f "$HOME/.cargo/env" ]; then
     # shellcheck disable=SC1091
