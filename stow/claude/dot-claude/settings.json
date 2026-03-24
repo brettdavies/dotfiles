@@ -124,6 +124,7 @@
       "Bash(whoami:*)",
       "Bash(xcbeautify:*)",
       "Bash(yq:*)",
+      "Read(/tmp/*)",
       "WebFetch",
       "WebSearch"
     ],
