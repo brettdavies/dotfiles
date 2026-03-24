@@ -79,6 +79,8 @@ elif [ "$(uname -s)" = "Linux" ] && [ -f "$HOME/.config/obsidian/Xauthority" ]; 
     # Headless Linux: CLI needs Xvfb display and auth for IPC
     export DISPLAY=:99
     export XAUTHORITY="$HOME/.config/obsidian/Xauthority"
+    # TODO: support multiple vaults per machine (e.g., OBSIDIAN_VAULT_PATH from a config file)
+    export OBSIDIAN_VAULT_PATH="$HOME/box/TX-AI/streams-vault"
 fi
 
 # Rust/Cargo environment

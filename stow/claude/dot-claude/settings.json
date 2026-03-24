@@ -16,6 +16,7 @@
       "Bash(bun test)",
       "Bash(bun update:*)",
       "Bash(bun upgrade:*)",
+      "Bash(bunx defuddle:*)",
       "Bash(bunx eslint:*)",
       "Bash(bunx prettier:*)",
       "Bash(bunx tsc:*)",
@@ -79,6 +80,7 @@
       "Bash(mkdir:*)",
       "Bash(nproc:*)",
       "Bash(nvidia-smi:*)",
+      "Bash(obsidian:*)",
       "Bash(pandoc:*)",
       "Bash(printf:*)",
       "Bash(pwd:*)",
@@ -125,7 +127,6 @@
       "Bash(xcbeautify:*)",
       "Bash(yq:*)",
       "Read(/tmp/*)",
-      "WebFetch",
       "WebSearch"
     ],
     "deny": [
@@ -163,6 +164,18 @@
           {
             "type": "command",
             "command": "command -v terminal-notifier >/dev/null 2>&1 && terminal-notifier -sound Funky -title \"🔔 Claude Code\" -message \"Claude needs your input\" || true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/defuddle-webfetch.sh",
+            "timeout": 10
           }
         ]
       }
