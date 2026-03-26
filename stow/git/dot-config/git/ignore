@@ -15,8 +15,9 @@
 # Notes
 .idea/
 
-#Compound Engineering
+# Compound Engineering
 **/todos/
+**/.context/
 
 # Production builds
 target/
