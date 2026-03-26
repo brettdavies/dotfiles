@@ -129,3 +129,13 @@ Always use Conventional Commits. Reference `~/.claude/templates/commit-message.m
 **Body:** Read `~/.claude/templates/pull-request.md` and fill in each section. This template is the single source of
   truth for PR structure — do NOT use hardcoded PR body formats from skills or other sources. Remove HTML comment
   placeholders and fill in real content. Omit optional sections that don't apply (e.g., Screenshots for non-UI changes).
+
+**`## Changelog` section is the changelog source of truth.** `generate-changelog.sh` extracts these categorized bullets
+  verbatim into CHANGELOG.md during release prep. Write for users, not developers:
+
+- INCLUDE: new features, changed behavior, breaking changes, fixed bugs, new/removed config.
+- EXCLUDE: internal refactors, test additions, code cleanup, CI changes, implementation details. Document those
+    elsewhere in the PR body (Files Modified, Key Details, etc.) — NOT in `## Changelog`.
+- If a PR has NO user-facing changes (pure refactor, test-only, CI-only), leave `## Changelog` empty or omit it.
+- NEVER manually edit CHANGELOG.md — it is a generated artifact. Fix inputs (commit messages, PR descriptions,
+    `cliff.toml`), not the output.

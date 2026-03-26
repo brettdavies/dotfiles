@@ -4,17 +4,27 @@
 
 ## Changelog
 
-<!-- These entries are extracted by generate-changelog.sh into CHANGELOG.md.
-     Write for USERS and OPERATORS — what changed from their perspective?
+<!-- CRITICAL: This section is the source of truth for CHANGELOG.md.
+     generate-changelog.sh extracts these categorized bullets verbatim
+     into the release changelog. Write carefully — this IS the changelog.
+
+     AUDIENCE: Users and operators. Write from their perspective.
 
      INCLUDE: new features, changed behavior, breaking changes, fixed bugs,
      new/removed config, new dependencies users need to know about.
 
-     EXCLUDE: internal refactors, test changes, code cleanup, regenerated files,
-     implementation details (unreachable!() arms, import reordering, etc.).
-     Those belong in Files Modified or the commit history.
+     EXCLUDE: internal refactors, test additions, code cleanup, CI changes,
+     regenerated files, implementation details (unreachable!() arms, import
+     reordering, cargo_bin migration, cfg gates, etc.). Document those in
+     the PR body text or Files Modified section — NOT here.
 
-     Aim for 2-5 bullets per PR. Delete empty sections. -->
+     RULES:
+- 1-5 bullets per PR. Fewer is better. One-line fixes get one bullet.
+- Delete empty ### sections entirely — don't leave blank categories.
+- Each bullet starts with a verb: Add, Fix, Change, Remove, Deprecate.
+- Don't duplicate the PR title — expand on it or provide context.
+- If the PR has NO user-facing changes (pure refactor, test-only, CI), leave this section empty or omit it. The PR still
+       appears in git history; it just won't clutter the changelog. -->
 
 ### Added
 
