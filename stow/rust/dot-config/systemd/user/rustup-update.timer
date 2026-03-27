@@ -1,0 +1,10 @@
+[Unit]
+Description=Update Rust stable toolchain nightly
+
+[Timer]
+OnCalendar=*-*-* 03:23
+Persistent=true
+RandomizedDelaySec=20m
+
+[Install]
+WantedBy=timers.target
