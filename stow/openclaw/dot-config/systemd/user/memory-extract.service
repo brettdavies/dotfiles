@@ -1,0 +1,15 @@
+[Unit]
+Description=Extract session logs into daily memory notes
+# Requires: ~/obsidian-vault/OpenClaw/scripts/memory-extract.sh
+
+[Service]
+Type=oneshot
+ExecStart=/home/brett/obsidian-vault/OpenClaw/scripts/memory-extract.sh
+TimeoutStartSec=300
+Environment=HOME=/home/brett
+Environment=PATH=/home/brett/.local/bin:/home/brett/.npm-global/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
