@@ -10,5 +10,8 @@
 - **/.obsidian/workspace-mobile.json
 - **/.obsidian/cache/**
 
+# Git directories — version control is local-only, not synced to Box
+- **/.git/**
+
 # Include everything else
 + **
