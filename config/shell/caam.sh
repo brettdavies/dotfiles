@@ -2,7 +2,17 @@
 # Prechecks usage before launching; auto-retries on rate limit for -p invocations
 # On machines without caam, claude resolves to the real binary via PATH
 if command -v caam >/dev/null 2>&1; then
-    claude() { caam run claude -- "$@"; }
+    claude() {
+        # Only wrap non-interactive invocations (-p flag) for auto-retry on rate limit.
+        # Interactive sessions need direct TTY access — caam run breaks keystroke passthrough.
+        case " $* " in
+            *" -p "*) caam run claude -- "$@" ;;
+            *)        command claude "$@" ;;
+        esac
+    }
+
+    # Quick switch: rotate to best profile and launch interactive session
+    claude-switch() { caam activate claude --auto && command claude "$@"; }
 
     # Auto-start daemon for proactive token refresh across all profiles
     # Daemon config: ~/.caam/config.yaml (auth_pool.enabled, check_interval, refresh_threshold)
