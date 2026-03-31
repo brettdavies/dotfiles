@@ -53,7 +53,9 @@ The consuming repo's `git status` will show nothing for `docs/solutions/` becaus
 - **Fail Fast:** Catch missing environment variables or invalid states at startup whenever possible.
 - **Explicit is Better:** Prefer clear, type-safe code and explicit imports over magic or implicit behaviors.
 - **200-Line Refactor Trigger:** Any single file exceeding 200 lines of code (excluding comments) should trigger a
-  refactor review to evaluate splitting responsibilities into smaller, focused modules.
+  refactor review to evaluate splitting responsibilities into smaller, focused modules. Files containing uniform
+  functions (e.g., API shortcuts) or pure declarations (e.g., clap derives) may exceed this threshold and remain
+  idiomatic — evaluate by SRP, trigger by line count.
 
 ---
 
@@ -135,7 +137,7 @@ Always use Conventional Commits. Reference `~/.claude/templates/commit-message.m
 
 - INCLUDE: new features, changed behavior, breaking changes, fixed bugs, new/removed config.
 - EXCLUDE: internal refactors, test additions, code cleanup, CI changes, implementation details. Document those
-    elsewhere in the PR body (Files Modified, Key Details, etc.) — NOT in `## Changelog`.
+  elsewhere in the PR body (Files Modified, Key Details, etc.) — NOT in `## Changelog`.
 - If a PR has NO user-facing changes (pure refactor, test-only, CI-only), leave `## Changelog` empty or omit it.
 - NEVER manually edit CHANGELOG.md — it is a generated artifact. Fix inputs (commit messages, PR descriptions,
-    `cliff.toml`), not the output.
+  `cliff.toml`), not the output.

@@ -60,7 +60,18 @@
       "Bash(journalctl --no-pager -n 50 --grep:*)",
       "Bash(journalctl:*)",
       "Bash(bunx defuddle:*)",
-      "Bash(gh repo list:*)"
+      "Bash(gh repo list:*)",
+      "Bash(/home/brett/.claude/skills/1password/scripts/get_item.sh:*)",
+      "Bash(op item:*)",
+      "Bash(/home/brett/.claude/skills/1password/scripts/search_by_tag.sh:*)",
+      "Bash(/home/brett/.claude/skills/1password/scripts/read_field.sh:*)",
+      "Bash(npm:*)",
+      "mcp__plugin_compound-engineering_context7__resolve-library-id",
+      "mcp__plugin_compound-engineering_context7__query-docs",
+      "WebFetch(domain:docs.npmjs.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(bun --version)",
+      "Bash(/home/brett/dotfiles/scripts/stow-deploy --all)"
     ]
   }
 }

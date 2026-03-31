@@ -106,6 +106,11 @@ MD013 fix hint: line length limit is ${max_len} characters. Wrap lines to fill u
       report_errors "$lint_output"
     fi
     ;;
+  rs)
+    if command -v rustfmt &>/dev/null; then
+      rustfmt "$file" 2>&1 || true
+    fi
+    ;;
   rb)
     if command -v rubocop &>/dev/null; then
       lint_output=$(rubocop -a --format simple "$file" 2>&1) || true

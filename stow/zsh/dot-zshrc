@@ -237,6 +237,6 @@ export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
 
 # gogcli (Google Workspace CLI) — keyring password from 1Password
 gog() {
-  export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-$(op item get 'Google Workspace CLI OAuth' --vault secrets-dev --fields client_secret --reveal 2>/dev/null)}"
+  export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-$(op item get 'Google Workspace CLI OAuth (Streams)' --vault secrets-dev --fields client_secret --reveal 2>/dev/null)}"
   command gog "$@"
 }
