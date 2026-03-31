@@ -20,7 +20,7 @@ EXIT_PLATFORM=6     # Platform mismatch (launchagent on Linux)
 # Package sets — single source of truth
 # Ordering: secrets first (git-crypt dep), shell (PATH/env), then the rest
 # Cross-reference: dotfiles-cli has its own PACKAGE_ORDER in src/link/mod.rs
-SHARED_PACKAGES=(secrets shell zsh bash git ssh gh local claude codex opencode pip brew tmux lazygit micro yazi rclone qmd obsidian)
+SHARED_PACKAGES=(secrets shell zsh bash git ssh gh local claude codex opencode pip bun brew tmux lazygit micro yazi rclone qmd obsidian)
 DESKTOP_PACKAGES=(ghostty cursor launchagent)
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
