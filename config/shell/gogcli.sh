@@ -2,7 +2,7 @@
 # On machines without gog, this file is a no-op (no function defined, no error)
 if command -v gog >/dev/null 2>&1; then
     gog() {
-        export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-$(op item get 'Google Workspace CLI OAuth (Streams)' --vault secrets-dev --fields client_secret --reveal 2>/dev/null)}"
+        export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-$("$HOME/.claude/skills/1password/scripts/read_field.sh" 'Google Workspace CLI OAuth (Streams)' 'client_secret' 2>/dev/null)}"
         command gog "$@"
     }
 
