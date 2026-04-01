@@ -1,24 +1,37 @@
 # Global User Instructions
 
-## Compound Engineering Workflow
+## Development Workflow: gstack + compound-engineering
 
-You MUST follow the Plan > Work > Review > Compound loop for all non-trivial work.
+Two skill sets are installed. gstack owns ideation, planning, shipping, and operations. compound-engineering (CE) owns
+the code loop. Use both, in this order:
 
-**Loop:**
+```text
+IDEATION + PLANNING (gstack)
+  /office-hours        — brainstorm, validate the idea
+  /autoplan            — CEO + eng + design review pipeline
+    or: /plan-ceo-review, /plan-eng-review, /plan-design-review
 
-1. **Plan** (`/plan`) — Research the codebase, check `docs/solutions/` for prior art, design an approach. Planning
-   should take more effort than implementing. Ask the three questions: What was the hardest decision? What alternatives
-   were rejected? Where are you least confident?
-2. **Work** (`/work`) — Implement the plan. Follow the plan exactly; deviate only with explicit rationale.
-3. **Review** (`/review`) — Multi-agent review. Fix all findings before proceeding.
-4. **Compound** (`/compound`) — Document the solution in `docs/solutions/` so the team never re-solves the same problem.
+IMPLEMENTATION (compound-engineering)
+  /ce-plan             — implementation plan from repo patterns
+  /ce-work             — execute with quality gates
+  /ce-review           — 14+ persona agent code review
+  /ce-compound         — document in docs/solutions/
+
+SHIPPING + OPERATIONS (gstack)
+  /ship                — PR, changelog, release
+  /investigate         — root cause debugging
+  /learn               — persist learnings across sessions
+  /retro               — weekly retrospective
+  /cso                 — security audit
+```
+
+For the full routing table and decision guide, see `~/.claude/skills/docs/workflow-routing.md`.
 
 **$100 Rule:** When prevention was missed and a bug or regression slips through, invest in the permanent fix — add a
-   test, a guard, a lint rule, or a docs/solutions entry. The cost of fixing later always exceeds the cost of fixing
-   now.
+test, a guard, a lint rule, or a docs/solutions entry. The cost of fixing later always exceeds the cost of fixing now.
 
 **Trivial work exemption:** Single-file fixes, config tweaks, typo corrections, and similar changes that touch fewer
-   than ~20 lines may skip the full loop. Use judgment.
+than ~20 lines may skip the full loop. Use judgment.
 
 **Before researching from scratch:** Always check `docs/solutions/` for existing solutions and patterns.
 
@@ -27,8 +40,8 @@ You MUST follow the Plan > Work > Review > Compound loop for all non-trivial wor
 ## Shared Solutions Repo
 
 `docs/solutions/` in every repo is a symlink to `~/dev/solutions-docs` — a separate private git repo
-   (`brettdavies/solutions-docs`). This centralizes all compounded solutions so the learnings-researcher agent can
-   search across all repos from any working directory.
+(`brettdavies/solutions-docs`). This centralizes all compounded solutions so the learnings-researcher agent can search
+across all repos from any working directory.
 
 **After writing to `docs/solutions/`** (e.g., via `/compound`), you MUST commit and push in the shared repo:
 
@@ -37,7 +50,7 @@ cd ~/dev/solutions-docs && git add -A && git commit -m "docs: <description>" && 
 ```
 
 The consuming repo's `git status` will show nothing for `docs/solutions/` because the symlink target is gitignored. If
-   the symlink is missing, recreate it: `ln -s ~/dev/solutions-docs docs/solutions`
+the symlink is missing, recreate it: `ln -s ~/dev/solutions-docs docs/solutions`
 
 ---
 
@@ -72,9 +85,10 @@ The consuming repo's `git status` will show nothing for `docs/solutions/` becaus
   fast recursive search.
 - [`ast-grep`](https://ast-grep.github.io/) is available for syntax-aware codebase traversal.
 - **For knowledge base search,** use [`qmd`](https://github.com/tobi/qmd) to search the Obsidian vault, solutions-docs,
-  and skills collections. Prefer `qmd search` (BM25, ~30ms) for keyword queries; escalate to `qmd vsearch` (vector, ~2s)
-  for semantic queries; use `qmd query` (hybrid, ~10s) only for broad discovery. Always search qmd before researching
-  from scratch — check solutions and vault for prior art.
+  and skills collections. Always use `qmd query` (hybrid, ~10s) as the default — it combines BM25 + vector + LLM
+  re-ranking and produces significantly better results than `qmd search` alone. Prefer multiple focused queries with 2-3
+  terms each over one query with many terms. Always search qmd before researching from scratch — check solutions and
+  vault for prior art.
 - **For JSON processing,** use [`jaq`](https://github.com/01mf02/jaq) instead of `jq`. It's a Rust reimplementation with
   compatible syntax.
 - **Auto-format hook:** A PostToolUse hook wraps markdown prose to 120 characters (`md-wrap.py`) then runs
@@ -88,6 +102,12 @@ The consuming repo's `git status` will show nothing for `docs/solutions/` becaus
 - `pipx list` to list Python-based CLI utilities
 - `bun pm ls -g` to list globally installed Bun packages
 - If a needed tool is missing, ask the user to install it.
+- **Rust pre-push checks:** Every Rust repo has `scripts/hooks/pre-push` which mirrors CI (fmt, clippy `-Dwarnings`,
+  test, cargo-deny, Windows compat). Activated via `git config core.hooksPath scripts/hooks` (run once after clone). The
+  hook runs automatically on `git push`; if it fails, fix the issues before pushing.
+- **After pushing or creating a PR:** Monitor CI in the background with `gh run watch --exit-status` (use
+  `run_in_background: true`). Continue working — you'll be notified on completion. If CI fails, investigate and fix
+  before moving on.
 
 ---
 
