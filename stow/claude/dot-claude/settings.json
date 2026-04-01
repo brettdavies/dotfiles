@@ -70,10 +70,13 @@
       "Bash(git status:*)",
       "Bash(git tag:*)",
       "Bash(git worktree:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
       "Bash(head:*)",
       "Bash(hostname:*)",
       "Bash(id:*)",
       "Bash(jaq:*)",
+      "Bash(jq:*)",
       "Bash(ln:*)",
       "Bash(ls:*)",
       "Bash(lsof:*)",
@@ -126,14 +129,13 @@
       "Bash(whoami:*)",
       "Bash(xcbeautify:*)",
       "Bash(yq:*)",
+      "Read(/home/brett/*)",
       "Read(/tmp/*)",
       "WebSearch"
     ],
     "deny": [
       "Bash(env:*)",
       "Bash(git rm:*)",
-      "Bash(grep:*)",
-      "Bash(jq:*)",
       "Bash(pip3:*)",
       "Bash(pip:*)",
       "Bash(pipx:*)",
@@ -260,7 +262,8 @@
   },
   "enabledPlugins": {
     "compound-engineering@every-marketplace": true,
-    "obsidian@obsidian-skills": true
+    "obsidian@obsidian-skills": true,
+    "rust-analyzer-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "obsidian-skills": {

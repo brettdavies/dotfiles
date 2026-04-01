@@ -19,4 +19,7 @@ if command -v caam >/dev/null 2>&1; then
     if ! caam daemon status 2>/dev/null | grep -q 'is running'; then
         caam daemon start >/dev/null 2>&1
     fi
+
+    # Adopt caam config back into stow source (daemon may rewrite config.yaml, breaking symlink)
+    stow --dotfiles --no-folding --target="$HOME" --dir="$HOME/dotfiles/stow" -R --adopt caam 2>/dev/null || true
 fi
