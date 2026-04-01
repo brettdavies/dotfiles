@@ -43,14 +43,27 @@ unset _DOTFILES_ROOT _CONFIG_DIR _PROFILE_REAL _PROFILE_SOURCE
 
 # Initialize Homebrew/Linuxbrew shell environment
 # Must come before ~/.secrets because secrets use `op read` from Homebrew PATH
+# Inlined: avoids forking Ruby on every shell start (~200ms macOS, can hang on Linux)
+# Output is deterministic per prefix — only HOMEBREW_REPOSITORY varies
 if [[ -z "${HOMEBREW_PREFIX:-}" ]]; then
     export HOMEBREW_NO_ENV_HINTS=1
-    if [ -f /opt/homebrew/bin/brew ]; then
-        eval "$(/opt/homebrew/bin/brew shellenv)"
+    if [ -d /opt/homebrew ]; then
+        export HOMEBREW_PREFIX="/opt/homebrew"
+        export HOMEBREW_CELLAR="/opt/homebrew/Cellar"
+        export HOMEBREW_REPOSITORY="/opt/homebrew"
     elif [ -f /usr/local/bin/brew ]; then
-        eval "$(/usr/local/bin/brew shellenv)"
-    elif [ -f /home/linuxbrew/.linuxbrew/bin/brew ]; then
-        eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+        export HOMEBREW_PREFIX="/usr/local"
+        export HOMEBREW_CELLAR="/usr/local/Cellar"
+        export HOMEBREW_REPOSITORY="/usr/local/Homebrew"
+    elif [ -d /home/linuxbrew/.linuxbrew ]; then
+        export HOMEBREW_PREFIX="/home/linuxbrew/.linuxbrew"
+        export HOMEBREW_CELLAR="/home/linuxbrew/.linuxbrew/Cellar"
+        export HOMEBREW_REPOSITORY="/home/linuxbrew/.linuxbrew/Homebrew"
+    fi
+    if [ -n "${HOMEBREW_PREFIX:-}" ]; then
+        export PATH="$HOMEBREW_PREFIX/bin:$HOMEBREW_PREFIX/sbin${PATH+:$PATH}"
+        [ -z "${MANPATH-}" ] || export MANPATH=":${MANPATH#:}"
+        export INFOPATH="$HOMEBREW_PREFIX/share/info:${INFOPATH:-}"
     fi
 fi
 
@@ -68,6 +81,21 @@ case ":${PATH}:" in
     *) export PATH="$HOME/.local/bin:$PATH" ;;
 esac
 
+# Obsidian CLI
+if [ "$(uname -s)" = "Darwin" ]; then
+    # macOS: Obsidian.app bundles the CLI binary
+    case ":${PATH}:" in
+        *:"/Applications/Obsidian.app/Contents/MacOS":*) ;;
+        *) export PATH="$PATH:/Applications/Obsidian.app/Contents/MacOS" ;;
+    esac
+elif [ "$(uname -s)" = "Linux" ] && [ -f "$HOME/.config/obsidian/Xauthority" ]; then
+    # Headless Linux: CLI needs Xvfb display and auth for IPC
+    export DISPLAY=:99
+    export XAUTHORITY="$HOME/.config/obsidian/Xauthority"
+    # TODO: support multiple vaults per machine (e.g., OBSIDIAN_VAULT_PATH from a config file)
+    export OBSIDIAN_VAULT_PATH="$HOME/box/TX-AI/streams-control"
+fi
+
 # Rust/Cargo environment
 if [ -f "$HOME/.cargo/env" ]; then
     # shellcheck disable=SC1091
@@ -78,12 +106,12 @@ fi
 # tty fails in non-interactive shells (cron, some SSH commands) — suppress gracefully
 GPG_TTY=$(tty 2>/dev/null) || true
 # Preferred editor — set here so both bash and zsh inherit it
-# macOS (desktop): VS Code with --wait so blocking callers (git, yazi) pause until tab closes
+# macOS (desktop): VS Code
 # Linux (headless): micro (terminal editor, no GUI)
 case "$(uname -s)" in
     Darwin)
         if command -v code >/dev/null 2>&1; then
-            EDITOR="code --wait"
+            EDITOR="code"
         elif command -v micro >/dev/null 2>&1; then
             EDITOR=$(command -v micro)
         fi

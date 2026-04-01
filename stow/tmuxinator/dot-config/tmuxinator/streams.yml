@@ -1,0 +1,5 @@
+name: streams
+root: ~/box/TX-AI/streams-control
+
+windows:
+  - main:

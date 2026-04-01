@@ -15,7 +15,7 @@ cached() {
     if [ -f "$cache_file" ]; then
         local age now mtime
         now=$(date +%s)
-        mtime=$(stat -f %m "$cache_file" 2>/dev/null || stat -c %Y "$cache_file" 2>/dev/null || echo 0)
+        mtime=$(stat -f %m "$cache_file" 2>/dev/null) || mtime=$(stat -c %Y "$cache_file" 2>/dev/null) || mtime=0
         age=$((now - mtime))
         if [ "$age" -lt "$CACHE_TTL" ]; then
             cat "$cache_file"
@@ -74,3 +74,11 @@ echo '--- Bun cached CLI tools (bunx) ---'
     [ -f "$pkg/package.json" ] && jq -e '.bin' "$pkg/package.json" >/dev/null 2>&1 && basename "$pkg" | sed 's/@[0-9].*$//'
   done
 } | sort -u | to_csv
+
+echo ''
+echo '--- qmd collections ---'
+if command -v qmd >/dev/null 2>&1; then
+  qmd collection list 2>/dev/null || echo '(qmd: no collections configured)'
+else
+  echo '(qmd not installed)'
+fi

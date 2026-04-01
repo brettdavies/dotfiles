@@ -1,0 +1,5 @@
+name: homebrewcore
+root: /home/linuxbrew/.linuxbrew/Homebrew/Library/Taps/homebrew/homebrew-core
+
+windows:
+  - main:

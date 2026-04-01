@@ -20,7 +20,7 @@ EXIT_PLATFORM=6     # Platform mismatch (launchagent on Linux)
 # Package sets — single source of truth
 # Ordering: secrets first (git-crypt dep), shell (PATH/env), then the rest
 # Cross-reference: dotfiles-cli has its own PACKAGE_ORDER in src/link/mod.rs
-SHARED_PACKAGES=(secrets shell zsh bash git ssh gh local claude codex opencode pip brew tmux lazygit micro yazi)
+SHARED_PACKAGES=(secrets shell zsh bash git ssh gh local claude codex opencode pip bun brew tmux tmuxinator lazygit micro yazi rclone qmd obsidian caam gogcli)
 DESKTOP_PACKAGES=(ghostty cursor launchagent)
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -96,7 +96,7 @@ done
 # Check git-crypt unlock status for encrypted packages
 for pkg in "$@"; do
   case "$pkg" in
-    secrets|ssh|git)
+    secrets|ssh|git|rclone|caam)
       if [ -f "$STOW_DIR/secrets/dot-secrets" ]; then
         # grep -qI treats binary files as non-matching (no `file` command needed)
         if ! grep -qI '' "$STOW_DIR/secrets/dot-secrets" 2>/dev/null; then
@@ -251,11 +251,19 @@ failed_file=$(mktemp)
 trap 'rm -f "$adopted_file" "$deployed_file" "$failed_file"' EXIT
 
 for pkg in "$@"; do
-  # Platform guard for desktop-only packages
+  # Platform guards
   if [ "$(uname -s)" != "Darwin" ]; then
     case "$pkg" in
       ghostty|cursor|launchagent)
         echo "WARNING: $pkg is macOS-only, skipping on $(uname -s)" >&2
+        continue
+        ;;
+    esac
+  fi
+  if [ "$(uname -s)" != "Linux" ]; then
+    case "$pkg" in
+      rclone|qmd|obsidian)
+        echo "WARNING: $pkg is Linux-only, skipping on $(uname -s)" >&2
         continue
         ;;
     esac

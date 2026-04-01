@@ -1,0 +1,5 @@
+name: openclaw
+root: ~/dev/openclaw
+
+windows:
+  - main:

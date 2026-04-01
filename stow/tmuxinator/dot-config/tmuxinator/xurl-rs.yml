@@ -1,0 +1,5 @@
+name: xurl-rs
+root: ~/dev/xurl-rs
+
+windows:
+  - main:
