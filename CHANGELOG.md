@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026.03.18] - 2026-03-18
+
+### Fixed
+
+- Release workflow fixes and action SHA pinning (#24)
+
 ## [2026.03.13] - 2026-03-13
 
 ### Fixed
