@@ -52,9 +52,5 @@ export GOG_KEYRING_PASSWORD="${CLIENT_SECRET}"
 gog auth list
 
 echo ""
-echo "Done! Add this to your shell profile:"
-echo ""
-echo 'gog() {'
-echo '  export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-$(op item get '\''Google Workspace CLI OAuth (Streams)'\'' --vault secrets-dev --fields client_secret --reveal 2>/dev/null)}"'
-echo '  command gog "$@"'
-echo '}'
+echo "Done! The gog() shell wrapper is provided by config/shell/gogcli.sh."
+echo "Run 'scripts/stow-deploy gogcli' to deploy, then open a new shell."
