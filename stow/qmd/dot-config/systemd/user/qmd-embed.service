@@ -1,0 +1,14 @@
+[Unit]
+Description=QMD vector embedding update
+After=qmd-update.service
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/brett/.bun/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+# Unload Ollama models to free VRAM before embedding, then run qmd embed
+ExecStartPre=/bin/sh -c 'curl -s -X POST http://localhost:11434/api/generate -d "{\"model\":\"qwen3-coder:30b\",\"keep_alive\":0}" > /dev/null 2>&1 || true'
+ExecStart=/home/brett/.bun/bin/qmd embed
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true

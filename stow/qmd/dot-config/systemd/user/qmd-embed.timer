@@ -1,0 +1,9 @@
+[Unit]
+Description=Run QMD vector embedding every 5 minutes (offset from update)
+
+[Timer]
+OnCalendar=*:1/5
+Persistent=true
+
+[Install]
+WantedBy=timers.target

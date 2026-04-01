@@ -1,7 +1,6 @@
 # Bootstrap Guide
 
-Detailed setup instructions for new machines. For a quick overview, see
-[README.md](README.md).
+Detailed setup instructions for new machines. For a quick overview, see [README.md](README.md).
 
 ## Prerequisites
 
@@ -42,9 +41,8 @@ cd ~/dotfiles
 git-crypt unlock ~/.config/git-crypt/key
 ```
 
-The git-crypt key must be copied from a secure backup (password manager).
-Without it, `stow/secrets/dot-secrets` and `stow/ssh/dot-ssh/config`
-remain encrypted.
+The git-crypt key must be copied from a secure backup (password manager). Without it, `stow/secrets/dot-secrets` and
+`stow/ssh/dot-ssh/config` remain encrypted.
 
 > **SSH preferred:** After the gitconfig is stowed, all GitHub URLs are
 > rewritten to SSH via `url.insteadOf`. Using SSH for the initial clone
@@ -66,10 +64,9 @@ scripts/stow-deploy --headless --all
 scripts/stow-deploy ghostty cursor
 ```
 
-The wrapper handles non-stow symlinks, existing plain files (`--adopt`),
-and tree-fold detection. It always uses `--no-folding` and auto-configures
-`core.hooksPath=.githooks`. The `--headless` flag auto-restores repo
-versions after adopt.
+The wrapper handles non-stow symlinks, existing plain files (`--adopt`), and tree-fold detection. It always uses
+`--no-folding` and auto-configures `core.hooksPath=.githooks`. The `--headless` flag auto-restores repo versions after
+adopt.
 
 **Manual alternative** (without conflict resolution):
 
@@ -78,19 +75,20 @@ cd ~/dotfiles/stow
 
 # macOS (shared + desktop)
 stow --dotfiles --no-folding --target="$HOME" \
-  secrets shell zsh bash git ssh gh local claude codex opencode pip brew tmux \
-  ghostty cursor launchagent
+  secrets shell zsh bash git ssh gh local claude codex opencode pip bun brew \
+  tmux tmuxinator lazygit micro yazi caam gogcli ghostty cursor launchagent
 
 # Headless (shared only)
 stow --dotfiles --no-folding --target="$HOME" \
-  secrets shell zsh bash git ssh gh local claude codex opencode pip brew tmux
+  secrets shell zsh bash git ssh gh local claude codex opencode pip bun brew \
+  tmux tmuxinator lazygit micro yazi rclone qmd obsidian caam gogcli
 ```
 
 ### Restow After Changes
 
 ```bash
 cd ~/dotfiles/stow
-stow --dotfiles --target="$HOME" -R <package>
+stow --dotfiles --no-folding --target="$HOME" -R <package>
 ```
 
 ## Install Packages from Brewfile
@@ -113,8 +111,7 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/too
 
 ### macOS — Symlink Brew Packages
 
-Homebrew installs plugins and the theme as formulae. Symlink them into
-oh-my-zsh's custom directory:
+Homebrew installs plugins and the theme as formulae. Symlink them into oh-my-zsh's custom directory:
 
 ```bash
 BREW_SHARE="$(brew --prefix)/share"
@@ -145,12 +142,20 @@ git clone https://github.com/zsh-users/zsh-completions         "$OMZ_CUSTOM/plug
 git clone --depth=1 https://github.com/romkatv/powerlevel10k   "$OMZ_CUSTOM/themes/powerlevel10k"
 ```
 
+## Tmux Plugins
+
+```bash
+git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+~/.tmux/plugins/tpm/scripts/install_plugins.sh
+```
+
+> TPM reads the plugin list from `~/.config/tmux/tmux.conf` (deployed by the `tmux` stow package).
+
 ## macOS-Only Setup
 
 ### Ghostty Application Support Symlink
 
-Ghostty checks both `~/.config/ghostty/` (created by stow) and
-`~/Library/Application Support/com.mitchellh.ghostty/`:
+Ghostty checks both `~/.config/ghostty/` (created by stow) and `~/Library/Application Support/com.mitchellh.ghostty/`:
 
 ```bash
 mkdir -p "$HOME/Library/Application Support/com.mitchellh.ghostty"

@@ -1,0 +1,5 @@
+name: skills
+root: ~/.claude/skills
+
+windows:
+  - main:

@@ -32,3 +32,8 @@ edit = [
 [[plugin.prepend_previewers]]
 url = "*.md"
 run = 'piper -- CLICOLOR_FORCE=1 glow -w=$w -s=dark "$1"'
+
+# PDF preview via piper + pdftotext (text extraction, legible in TTY)
+[[plugin.prepend_previewers]]
+url = "*.pdf"
+run = 'piper -- pdftotext -layout "$1" - 2>/dev/null'

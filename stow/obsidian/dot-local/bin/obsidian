@@ -1,0 +1,6 @@
+#!/bin/sh
+# Wrapper for Obsidian CLI that sets DISPLAY for headless Xvfb sessions.
+# The bundled obsidian-cli connects to the running Obsidian Electron app
+# via its IPC socket, which requires the correct DISPLAY variable.
+export DISPLAY="${DISPLAY:-:99}"
+exec /opt/Obsidian/obsidian-cli "$@"

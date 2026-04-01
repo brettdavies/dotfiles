@@ -1,0 +1,13 @@
+[Unit]
+Description=Update Rust stable toolchain via rustup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/brett/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/brett/.cargo/bin/rustup update stable --no-self-update
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true

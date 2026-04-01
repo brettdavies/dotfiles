@@ -1,0 +1,112 @@
+# caam Smart Profile Management configuration
+# Documentation: https://github.com/Dicklesworthstone/coding_agent_account_manager/blob/main/docs/SMART_PROFILE_MANAGEMENT.md
+
+version: 1
+health:
+    refresh_threshold: 10m0s
+    warning_threshold: 1h0m0s
+    penalty_decay_rate: 0.8
+    penalty_decay_interval: 5m0s
+analytics:
+    enabled: true
+    retention_days: 90
+    aggregate_retention_days: 365
+    cleanup_on_startup: true
+runtime:
+    file_watching: true
+    reload_on_sighup: true
+    pid_file: true
+    pid_file_path: ""
+project:
+    enabled: true
+    auto_activate: false
+stealth:
+    switch_delay:
+        enabled: false
+        min_seconds: 5
+        max_seconds: 30
+        show_countdown: true
+    cooldown:
+        enabled: false
+        default_minutes: 60
+        track_limit_hits: true
+    rotation:
+        enabled: false
+        algorithm: smart
+safety:
+    auto_backup_before_switch: smart
+    max_auto_backups: 5
+alerts:
+    enabled: true
+    warning_threshold: 70
+    critical_threshold: 85
+    notifications:
+        terminal: true
+        desktop: true
+        webhook: ""
+handoff:
+    auto_trigger: true
+    debounce_delay: 2s
+    max_retries: 1
+    fallback_to_manual: true
+rate_limits:
+    claude:
+        - rate limit
+        - usage limit reached
+        - too many requests
+        - "429"
+    codex:
+        - rate limit exceeded
+        - quota exceeded
+        - too many requests
+    gemini:
+        - RESOURCE_EXHAUSTED
+        - quota exceeded
+        - rate limit
+login_patterns:
+    claude:
+        success:
+            - successfully logged in
+            - authenticated
+            - login complete
+        failure:
+            - authentication failed
+            - invalid token
+            - expired
+            - login failed
+    codex:
+        success:
+            - logged in
+            - authentication successful
+        failure:
+            - authentication failed
+            - login failed
+    gemini:
+        success:
+            - authenticated
+            - logged in
+        failure:
+            - authentication failed
+            - invalid credentials
+subscriptions:
+    gemini:
+        plan: ultra
+        monthly_cost: 275
+daemon:
+    auth_pool:
+        enabled: true
+        max_concurrent_refresh: 3
+        refresh_retry_delay: 30s
+        max_refresh_retries: 3
+    check_interval: 5m0s
+    refresh_threshold: 30m0s
+    verbose: false
+tui:
+    theme: auto
+    high_contrast: false
+    reduced_motion: false
+    toasts: true
+    mouse: true
+    show_key_hints: true
+    density: cozy
+    no_tui: false
