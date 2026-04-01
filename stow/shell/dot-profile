@@ -43,14 +43,27 @@ unset _DOTFILES_ROOT _CONFIG_DIR _PROFILE_REAL _PROFILE_SOURCE
 
 # Initialize Homebrew/Linuxbrew shell environment
 # Must come before ~/.secrets because secrets use `op read` from Homebrew PATH
+# Inlined: avoids forking Ruby on every shell start (~200ms macOS, can hang on Linux)
+# Output is deterministic per prefix — only HOMEBREW_REPOSITORY varies
 if [[ -z "${HOMEBREW_PREFIX:-}" ]]; then
     export HOMEBREW_NO_ENV_HINTS=1
-    if [ -f /opt/homebrew/bin/brew ]; then
-        eval "$(/opt/homebrew/bin/brew shellenv)"
+    if [ -d /opt/homebrew ]; then
+        export HOMEBREW_PREFIX="/opt/homebrew"
+        export HOMEBREW_CELLAR="/opt/homebrew/Cellar"
+        export HOMEBREW_REPOSITORY="/opt/homebrew"
     elif [ -f /usr/local/bin/brew ]; then
-        eval "$(/usr/local/bin/brew shellenv)"
-    elif [ -f /home/linuxbrew/.linuxbrew/bin/brew ]; then
-        eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+        export HOMEBREW_PREFIX="/usr/local"
+        export HOMEBREW_CELLAR="/usr/local/Cellar"
+        export HOMEBREW_REPOSITORY="/usr/local/Homebrew"
+    elif [ -d /home/linuxbrew/.linuxbrew ]; then
+        export HOMEBREW_PREFIX="/home/linuxbrew/.linuxbrew"
+        export HOMEBREW_CELLAR="/home/linuxbrew/.linuxbrew/Cellar"
+        export HOMEBREW_REPOSITORY="/home/linuxbrew/.linuxbrew/Homebrew"
+    fi
+    if [ -n "${HOMEBREW_PREFIX:-}" ]; then
+        export PATH="$HOMEBREW_PREFIX/bin:$HOMEBREW_PREFIX/sbin${PATH+:$PATH}"
+        [ -z "${MANPATH-}" ] || export MANPATH=":${MANPATH#:}"
+        export INFOPATH="$HOMEBREW_PREFIX/share/info:${INFOPATH:-}"
     fi
 fi
 
