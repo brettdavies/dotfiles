@@ -94,7 +94,7 @@ subscriptions:
         monthly_cost: 275
 daemon:
     auth_pool:
-        enabled: false
+        enabled: true
         max_concurrent_refresh: 3
         refresh_retry_delay: 30s
         max_refresh_retries: 3
