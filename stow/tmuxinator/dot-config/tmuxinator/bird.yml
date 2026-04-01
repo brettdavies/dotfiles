@@ -1,0 +1,5 @@
+name: bird
+root: ~/dev/bird
+
+windows:
+  - main:

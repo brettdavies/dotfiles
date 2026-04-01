@@ -1,0 +1,5 @@
+name: payg
+root: ~/dev/payg
+
+windows:
+  - main:
