@@ -76,12 +76,12 @@ cd ~/dotfiles/stow
 # macOS (shared + desktop)
 stow --dotfiles --no-folding --target="$HOME" \
   secrets shell zsh bash git ssh gh local claude codex opencode pip bun brew \
-  tmux lazygit micro yazi caam gogcli ghostty cursor launchagent
+  tmux tmuxinator lazygit micro yazi caam gogcli ghostty cursor launchagent
 
 # Headless (shared only)
 stow --dotfiles --no-folding --target="$HOME" \
   secrets shell zsh bash git ssh gh local claude codex opencode pip bun brew \
-  tmux lazygit micro yazi rclone qmd obsidian caam gogcli
+  tmux tmuxinator lazygit micro yazi rclone qmd obsidian caam gogcli
 ```
 
 ### Restow After Changes
@@ -141,6 +141,15 @@ git clone https://github.com/zsh-users/zsh-completions         "$OMZ_CUSTOM/plug
 # Theme
 git clone --depth=1 https://github.com/romkatv/powerlevel10k   "$OMZ_CUSTOM/themes/powerlevel10k"
 ```
+
+## Tmux Plugins
+
+```bash
+git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+~/.tmux/plugins/tpm/scripts/install_plugins.sh
+```
+
+> TPM reads the plugin list from `~/.config/tmux/tmux.conf` (deployed by the `tmux` stow package).
 
 ## macOS-Only Setup
 

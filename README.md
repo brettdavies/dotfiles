@@ -88,6 +88,7 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `shell`       | `.profile`                                                                 |
 | `ssh`         | `.ssh/config` (git-crypt encrypted)                                        |
 | `tmux`        | `.config/tmux/tmux.conf`                                                   |
+| `tmuxinator`  | `.config/tmuxinator/*.yml` — declarative session configs (13 projects)      |
 | `yazi`        | `.config/yazi/` — file manager config, keymaps, theme, packages            |
 | `zsh`         | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                              |
 
@@ -111,6 +112,7 @@ needed.
 | `python.sh`          | Python tooling config                    |
 | `supply-chain.sh`    | Supply-chain safety (package age gates)  |
 | `telemetry.sh`       | Telemetry opt-out environment variables  |
+| `tmuxinator.sh`      | `mux` and `mux-all` tmuxinator wrappers  |
 | `shell-functions`    | Interactive shell utilities (sourced by bashrc/zshrc) |
 
 ## Secrets Management
