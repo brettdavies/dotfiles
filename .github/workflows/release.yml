@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_TOKEN }}
+          token: ${{ secrets.CI_RELEASE_TOKEN }}
 
       - name: Compute CalVer version
         id: version
@@ -54,7 +54,7 @@ jobs:
           args: --tag ${{ steps.version.outputs.version }}
         env:
           OUTPUT: CHANGELOG.md
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
 
       - name: Get release body
         id: release-body
@@ -63,7 +63,7 @@ jobs:
           config: cliff.toml
           args: --tag ${{ steps.version.outputs.version }} --unreleased --strip header
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
 
       - name: Commit changelog and tag
         run: |
@@ -82,4 +82,4 @@ jobs:
           tag_name: ${{ steps.version.outputs.version }}
           name: ${{ steps.version.outputs.version }}
           body: ${{ steps.release-body.outputs.content }}
-          token: ${{ secrets.RELEASE_TOKEN }}
+          token: ${{ secrets.CI_RELEASE_TOKEN }}
