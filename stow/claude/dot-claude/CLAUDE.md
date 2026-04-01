@@ -27,6 +27,23 @@ SHIPPING + OPERATIONS (gstack)
 
 For the full routing table and decision guide, see `~/.claude/skills/docs/workflow-routing.md`.
 
+When the user's request matches an available skill, ALWAYS invoke it using the Skill tool as your FIRST action. Do NOT
+answer directly, do NOT use other tools first. The skill has specialized workflows that produce better results than
+ad-hoc answers.
+
+Key routing rules:
+
+- Product ideas, "is this worth building", brainstorming → invoke office-hours
+- Bugs, errors, "why is this broken", 500 errors → invoke investigate
+- Ship, deploy, push, create PR → invoke ship
+- QA, test the site, find bugs → invoke qa
+- Code review, check my diff → invoke review
+- Update docs after shipping → invoke document-release
+- Weekly retro → invoke retro
+- Design system, brand → invoke design-consultation
+- Visual audit, design polish → invoke design-review
+- Architecture review → invoke plan-eng-review
+
 **$100 Rule:** When prevention was missed and a bug or regression slips through, invest in the permanent fix — add a
 test, a guard, a lint rule, or a docs/solutions entry. The cost of fixing later always exceeds the cost of fixing now.
 
@@ -74,6 +91,7 @@ the symlink is missing, recreate it: `ln -s ~/dev/solutions-docs docs/solutions`
 
 ## CLI Tool Preferences
 
+- **Priority order for CLI tools:** brew > bunx/uvx > python3/node (last resorts only).
 - **Prefer CLI tools** over direct in-memory manipulation when possible, especially for editing or searching within
   larger files or across the codebase.
 - Examples: Use `sed`, `awk`, or in-place editing CLI utilities for modifying files; use code-aware tools (`ast-grep`)
