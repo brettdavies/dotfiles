@@ -1,7 +1,7 @@
 ---
 title: "feat: Add gogcli stow package with shell wrapper"
 type: feat
-status: active
+status: completed
 date: 2026-04-01
 ---
 
@@ -88,7 +88,7 @@ functions-not-aliases rule and means `gog` is unavailable in bash sessions, non-
 
 ## Implementation Units
 
-- [ ] **Unit 1: Create stow package and shell wrapper**
+- [x] **Unit 1: Create stow package and shell wrapper**
 
   **Goal:** Create the `stow/gogcli/` package with `config.json` and the `config/shell/gogcli.sh` wrapper function.
 
@@ -128,7 +128,7 @@ functions-not-aliases rule and means `gog` is unavailable in bash sessions, non-
 - `gog auth list` works (keyring password auto-injected)
 - `.zshrc` no longer contains any `gog` reference
 
-- [ ] **Unit 2: Register package in stow-deploy**
+- [x] **Unit 2: Register package in stow-deploy**
 
   **Goal:** Add `gogcli` to `SHARED_PACKAGES` so `stow-deploy --all` deploys it.
 
@@ -155,7 +155,7 @@ functions-not-aliases rule and means `gog` is unavailable in bash sessions, non-
 - `ls -la ~/.config/gogcli/config.json` shows symlink to `dotfiles/stow/gogcli/dot-config/gogcli/config.json`
 - `scripts/stow-deploy --all` completes without error
 
-- [ ] **Unit 3: Update bootstrap script**
+- [x] **Unit 3: Update bootstrap script**
 
   **Goal:** Remove the manual "add this to your shell profile" instruction from `setup_gogcli.sh` since the shell
   wrapper is now stow-managed.
