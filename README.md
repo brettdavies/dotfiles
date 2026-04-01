@@ -1,8 +1,7 @@
 # Dotfiles
 
 Cross-platform dotfiles for macOS and headless Ubuntu servers — managed with
-[GNU Stow](https://www.gnu.org/software/stow/), secured with
-[git-crypt](https://github.com/AGWA/git-crypt).
+[GNU Stow](https://www.gnu.org/software/stow/), secured with [git-crypt](https://github.com/AGWA/git-crypt).
 
 ## Quick Start
 
@@ -31,8 +30,8 @@ scripts/stow-deploy --headless --all   # Linux: shared packages only
 > **Stow >= 2.4.0 required.** Ubuntu 24.04 apt only has 2.3.1, which has a
 > [bug with nested `dot-` directories][stow-bug]. Use Homebrew/Linuxbrew.
 
-For detailed platform-specific setup (oh-my-zsh, Ghostty, Cursor extensions,
-iCloud sync), see [BOOTSTRAP.md](BOOTSTRAP.md).
+For detailed platform-specific setup (oh-my-zsh, Ghostty, Cursor extensions, iCloud sync), see
+[BOOTSTRAP.md](BOOTSTRAP.md).
 
 [stow-bug]: https://github.com/aspiers/stow/issues/33
 
@@ -60,25 +59,31 @@ dotfiles/
 
 ### Stow Packages
 
-Each directory under `stow/` is a package. Files prefixed with `dot-` become
-dotfiles (`.` prefix) when symlinked via `stow --dotfiles`.
+Each directory under `stow/` is a package. Files prefixed with `dot-` become dotfiles (`.` prefix) when symlinked via
+`stow --dotfiles`.
 
 | Package       | What it manages                                                            |
 |---------------|----------------------------------------------------------------------------|
 | `bash`        | `.bashrc`, `.bash_profile`, `.bash_aliases`                                |
 | `brew`        | `Brewfile`, `Brewfile.optional`                                            |
+| `bun`         | `.bunfig.toml`                                                             |
+| `caam`        | `.caam/` (Claude account rotation config + vault, git-crypt encrypted)     |
 | `claude`      | `.claude/` (settings, hooks, statusline, templates), `.markdownlint-cli2.yaml` |
 | `codex`       | `.codex/config.toml`                                                       |
 | `cursor`      | `.cursor/rules/`, `extensions.txt`                                         |
 | `gh`          | `.config/gh/` (GitHub CLI config), `.local/bin/gh` (merge guard wrapper)   |
 | `ghostty`     | `.config/ghostty/config`                                                   |
 | `git`         | `.gitconfig`, `.config/git/` (ignore, allowed\_signers)                    |
+| `gogcli`      | `.config/gogcli/config.json` — Google Workspace CLI config                 |
 | `launchagent` | `~/Library/LaunchAgents/` (macOS only)                                     |
 | `lazygit`     | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52              |
 | `local`       | `.local/bin/` (env, op-ssh-sign-wrapper, tmux-new-session)                 |
 | `micro`       | `.config/micro/settings.json` — editor settings                            |
+| `obsidian`    | `.config/obsidian/`, systemd service, CLI wrapper (Linux only)             |
 | `opencode`    | `.config/opencode/config.json`                                             |
 | `pip`         | `.config/pip/pip.conf`                                                     |
+| `qmd`         | systemd timers for qmd embed and update (Linux only)                       |
+| `rclone`      | `.config/rclone/`, Box bisync systemd service + timer (Linux only)         |
 | `secrets`     | `.secrets` (git-crypt encrypted)                                           |
 | `shell`       | `.profile`                                                                 |
 | `ssh`         | `.ssh/config` (git-crypt encrypted)                                        |
@@ -88,20 +93,23 @@ dotfiles (`.` prefix) when symlinked via `stow --dotfiles`.
 
 ### Shell Environment (`config/shell/`)
 
-`.profile` sources every `*.sh` file in `config/shell/` automatically — drop a
-file in and it's picked up, no manifest needed.
+`.profile` sources every `*.sh` file in `config/shell/` automatically — drop a file in and it's picked up, no manifest
+needed.
 
 | File                 | Purpose                                  |
 |----------------------|------------------------------------------|
+| `caam.sh`            | Claude account rotation wrapper + daemon |
 | `caches.sh`          | XDG cache directory locations            |
 | `claude-code.sh`     | Claude Code environment variables        |
 | `github.sh`          | GitHub CLI aliases                       |
+| `gogcli.sh`          | Google Workspace CLI keyring password injection |
 | `litellm.sh`         | LiteLLM proxy configuration              |
 | `lm-studio.sh`       | LM Studio PATH setup                    |
 | `local-paths.sh`     | Custom local PATH additions              |
 | `models.sh`          | AI/ML model storage locations            |
 | `platform-linux.sh`  | Linux-specific platform checks and config |
 | `python.sh`          | Python tooling config                    |
+| `supply-chain.sh`    | Supply-chain safety (package age gates)  |
 | `telemetry.sh`       | Telemetry opt-out environment variables  |
 | `shell-functions`    | Interactive shell utilities (sourced by bashrc/zshrc) |
 
@@ -114,8 +122,7 @@ Sensitive files are encrypted with git-crypt:
 - `stow/git/dot-config/git/allowed_signers` — SSH allowed signers
 
 Git hooks auto-unlock on checkout and merge. Back up
-`~/.config/git-crypt/key` in a password manager — if lost, encrypted
-files cannot be recovered.
+`~/.config/git-crypt/key` in a password manager — if lost, encrypted files cannot be recovered.
 
 ## Git Hooks
 
@@ -135,13 +142,12 @@ Activated via `core.hooksPath` (set automatically by `stow-deploy`):
 | `release.yml`     | Squash merge to main | CalVer tag, changelog via git-cliff, release |
 | `shellcheck.yml`  | Push / PR            | Lints shell scripts                         |
 
-Shell scripts are tested with [bats-core](https://github.com/bats-core/bats-core)
-(`bats tests/`). Suites cover stow-deploy, git hooks, shell config, symlinks,
-and CLI wrappers.
+Shell scripts are tested with [bats-core](https://github.com/bats-core/bats-core) (`bats tests/`). Suites cover
+stow-deploy, git hooks, shell config, symlinks, and CLI wrappers.
 
 ## Performance
 
-Shell startup budgets are enforced — non-interactive shells must start under 200ms, interactive shells under 500ms.  
+Shell startup budgets are enforced — non-interactive shells must start under 200ms, interactive shells under 500ms.
   
 See `docs/solutions/performance-issues/` for optimization details.
 
@@ -149,8 +155,7 @@ See `docs/solutions/performance-issues/` for optimization details.
 
 - `$OSTYPE` checks gate macOS-specific features; `$HOME` used everywhere
 - Homebrew paths: `/opt/homebrew` (macOS) vs `/home/linuxbrew/.linuxbrew` (Linux)
-- Git signing: 1Password on macOS, `ssh-keygen` fallback on Linux
-  (via `op-ssh-sign-wrapper`)
+- Git signing: 1Password on macOS, `ssh-keygen` fallback on Linux (via `op-ssh-sign-wrapper`)
 - SSH config uses `Match exec` for platform-conditional 1Password agent paths
 - All GitHub/Gist URLs rewritten to SSH via `url.insteadOf` in `.gitconfig`
 - SSH key: `~/.ssh/brett_ed25519` on all machines
@@ -159,13 +164,13 @@ See `docs/solutions/performance-issues/` for optimization details.
 ## Release Automation
 
 Every squash merge to `main` triggers a GitHub Action that computes a
-CalVer version (`YYYY.MM.DD`), generates a changelog via
-[git-cliff](https://git-cliff.org/), and creates a GitHub Release.
+CalVer version (`YYYY.MM.DD`), generates a changelog via [git-cliff](https://git-cliff.org/), and creates a GitHub
+Release.
 
 ### RELEASE_TOKEN Secret
 
-The workflow pushes back to protected `main`, which requires a
-fine-grained PAT stored as the `RELEASE_TOKEN` repo secret.
+The workflow pushes back to protected `main`, which requires a fine-grained PAT stored as the `RELEASE_TOKEN` repo
+secret.
 
 **Create / rotate the token:**
 
@@ -186,8 +191,7 @@ op read "op://secrets-dev/dotfiles_RELEASE_TOKEN/credential" \
 
 Past solutions and design decisions live in `docs/solutions/`:
 
-- **Deployment** — cross-platform stow deployment, shell config fixes,
-  headless git signing, conflict resolution
+- **Deployment** — cross-platform stow deployment, shell config fixes, headless git signing, conflict resolution
 - **Configuration** — branch divergence reconciliation, workflow enforcement
 - **Performance** — shell startup optimization, zsh interactive startup tuning
 
