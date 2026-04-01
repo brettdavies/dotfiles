@@ -30,8 +30,9 @@ export ZSH_COMPDUMP=~/.zsh/cache/zcompdump
 # Add completion directories to fpath BEFORE oh-my-zsh's compinit sees them.
 # Uses $HOMEBREW_PREFIX (set by brew shellenv in .profile) instead of slow
 # `brew --prefix` subprocess (~16ms each call).
-if [[ -n "${HOMEBREW_PREFIX:-}" && -d "$HOMEBREW_PREFIX/share/zsh-completions" ]]; then
-    fpath=("$HOMEBREW_PREFIX/share/zsh-completions" $fpath)
+if [[ -n "${HOMEBREW_PREFIX:-}" ]]; then
+    [[ -d "$HOMEBREW_PREFIX/share/zsh/site-functions" ]] && fpath=("$HOMEBREW_PREFIX/share/zsh/site-functions" $fpath)
+    [[ -d "$HOMEBREW_PREFIX/share/zsh-completions" ]]    && fpath=("$HOMEBREW_PREFIX/share/zsh-completions" $fpath)
 fi
 fpath=($HOME/.docker/completions $fpath)
 
@@ -43,6 +44,9 @@ source "$ZSH/oh-my-zsh.sh"
 if [[ -s "$ZSH_COMPDUMP" && ( ! -s "${ZSH_COMPDUMP}.zwc" || "$ZSH_COMPDUMP" -nt "${ZSH_COMPDUMP}.zwc" ) ]]; then
     zcompile "$ZSH_COMPDUMP" 2>/dev/null
 fi
+
+# Wire tmuxinator completions to the mux wrapper
+(( $+functions[_tmuxinator] || $+commands[tmuxinator] )) && compdef mux=tmuxinator
 
 # History configuration
 HISTSIZE=10000

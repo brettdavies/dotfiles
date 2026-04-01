@@ -1,0 +1,5 @@
+name: dotgithub
+root: ~/dev/dot-github
+
+windows:
+  - main:

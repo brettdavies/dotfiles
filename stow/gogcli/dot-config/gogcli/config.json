@@ -1,0 +1,6 @@
+{
+  "keyring_backend": "file",
+  "account_clients": {
+    "davies.brett@gmail.com": "personal"
+  }
+}

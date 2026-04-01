@@ -1,0 +1,17 @@
+# rclone filter rules for Box bisync
+# Syntax: + include, - exclude
+# See: https://rclone.org/filtering/
+
+- *.tmp
+
+# Obsidian per-device state — exclude to prevent bisync conflicts
+# when multiple machines have Obsidian open on the same vault
+- **/.obsidian/workspace.json
+- **/.obsidian/workspace-mobile.json
+- **/.obsidian/cache/**
+
+# Git directories — version control is local-only, not synced to Box
+- **/.git/**
+
+# Include everything else
++ **

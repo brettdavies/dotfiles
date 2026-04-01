@@ -1,0 +1,23 @@
+[Unit]
+Description=Obsidian (headless via Xvfb)
+After=default.target
+
+[Service]
+Type=simple
+
+# Clean up stale Electron singleton files from previous crashes
+ExecStartPre=/bin/sh -c 'rm -f %h/.config/obsidian/SingletonLock %h/.config/obsidian/SingletonSocket %h/.config/obsidian/SingletonCookie'
+
+ExecStart=/usr/bin/xvfb-run \
+  --auth-file=%h/.config/obsidian/Xauthority \
+  --server-num=99 \
+  /opt/Obsidian/obsidian \
+  --disable-gpu \
+  --disable-software-rasterizer
+
+Environment=DISPLAY=:99
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

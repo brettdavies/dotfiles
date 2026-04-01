@@ -16,6 +16,7 @@
       "Bash(bun test)",
       "Bash(bun update:*)",
       "Bash(bun upgrade:*)",
+      "Bash(bunx defuddle:*)",
       "Bash(bunx eslint:*)",
       "Bash(bunx prettier:*)",
       "Bash(bunx tsc:*)",
@@ -39,6 +40,7 @@
       "Bash(gh pr view:*)",
       "Bash(gio trash:*)",
       "Bash(git -C:*)",
+      "Bash(git add:*)",
       "Bash(git archive:*)",
       "Bash(git bisect:*)",
       "Bash(git blame:*)",
@@ -46,6 +48,7 @@
       "Bash(git check-ignore:*)",
       "Bash(git checkout:*)",
       "Bash(git clone:*)",
+      "Bash(git commit:*)",
       "Bash(git config:*)",
       "Bash(git-crypt:*)",
       "Bash(git describe:*)",
@@ -58,6 +61,7 @@
       "Bash(git ls-tree:*)",
       "Bash(git mv:*)",
       "Bash(git pull:*)",
+      "Bash(git push:*)",
       "Bash(git rev-list:*)",
       "Bash(git rev-parse:*)",
       "Bash(git shortlog:*)",
@@ -66,19 +70,24 @@
       "Bash(git status:*)",
       "Bash(git tag:*)",
       "Bash(git worktree:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
       "Bash(head:*)",
       "Bash(hostname:*)",
       "Bash(id:*)",
       "Bash(jaq:*)",
+      "Bash(jq:*)",
       "Bash(ln:*)",
       "Bash(ls:*)",
       "Bash(lsof:*)",
       "Bash(mkdir:*)",
       "Bash(nproc:*)",
       "Bash(nvidia-smi:*)",
+      "Bash(obsidian:*)",
       "Bash(pandoc:*)",
       "Bash(printf:*)",
       "Bash(pwd:*)",
+      "Bash(qmd:*)",
       "Bash(readlink:*)",
       "Bash(realpath:*)",
       "Bash(rg:*)",
@@ -120,14 +129,13 @@
       "Bash(whoami:*)",
       "Bash(xcbeautify:*)",
       "Bash(yq:*)",
-      "WebFetch",
+      "Read(/home/brett/*)",
+      "Read(/tmp/*)",
       "WebSearch"
     ],
     "deny": [
       "Bash(env:*)",
       "Bash(git rm:*)",
-      "Bash(grep:*)",
-      "Bash(jq:*)",
       "Bash(pip3:*)",
       "Bash(pip:*)",
       "Bash(pipx:*)",
@@ -140,9 +148,6 @@
       "Bash(apt:*)",
       "Bash(bun run:*)",
       "Bash(docker:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git push:*)",
       "Bash(git remote:*)",
       "Bash(mv:*)",
       "Bash(python3:*)",
@@ -161,6 +166,18 @@
           {
             "type": "command",
             "command": "command -v terminal-notifier >/dev/null 2>&1 && terminal-notifier -sound Funky -title \"🔔 Claude Code\" -message \"Claude needs your input\" || true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/defuddle-webfetch.sh",
+            "timeout": 10
           }
         ]
       }
@@ -245,7 +262,8 @@
   },
   "enabledPlugins": {
     "compound-engineering@every-marketplace": true,
-    "obsidian@obsidian-skills": true
+    "obsidian@obsidian-skills": true,
+    "rust-analyzer-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "obsidian-skills": {

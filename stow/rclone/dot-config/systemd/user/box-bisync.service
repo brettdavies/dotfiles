@@ -1,0 +1,12 @@
+[Unit]
+Description=Box bidirectional sync (rclone bisync)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/brett/dotfiles/scripts/sync/box-bisync.sh
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
