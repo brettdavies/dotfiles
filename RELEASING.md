@@ -80,3 +80,6 @@ Ensure `GITHUB_TOKEN` is set (the script falls back to `gh auth token`).
 
 **Unsigned commit errors when pushing release branch:** Release branches aren't protected by the development branch
 ruleset. If push fails, check that your SSH signing key is configured.
+
+**Direct hotfixes to main create accidental releases:** The release workflow triggers on any push to main. If you must
+push directly (e.g., emergency docs fix), add `[skip ci]` to the commit message to prevent the workflow from running.
