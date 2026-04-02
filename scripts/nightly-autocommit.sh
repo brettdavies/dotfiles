@@ -2,8 +2,11 @@
 set -euo pipefail
 
 # Nightly autocommit: commit and push pending changes in selected repos.
-# Runs via systemd timer at 23:45 CT. Uses claude -p for commit messages
-# with fallback to generic messages on failure.
+# Runs via systemd timer between 2-4 AM CT. Delegates staging and commit
+# message generation to claude -p, which follows the project's Conventional
+# Commits template and applies SRP (multiple commits when appropriate).
+#
+# Falls back to git add -A + generic message only if claude is unavailable.
 #
 # Usage: nightly-autocommit.sh [--dry-run]
 
@@ -23,6 +26,9 @@ REPOS=(
     "$HOME/dev/solutions-docs|main"
     "$HOME/dev/agent-skills|main"
 )
+
+# Claude timeout: 2 minutes per repo (enough time to read diffs, split commits, write messages)
+CLAUDE_TIMEOUT=120
 
 COMMITTED=0
 SKIPPED=0
@@ -66,7 +72,7 @@ for entry in "${REPOS[@]}"; do
         fi
     fi
 
-    # Check for changes
+    # Check for changes (unstaged, staged, or untracked)
     if git -C "$repo_path" diff --quiet && git -C "$repo_path" diff --cached --quiet && \
        [[ -z "$(git -C "$repo_path" ls-files --others --exclude-standard)" ]]; then
         log "SKIP: $repo_name — no changes"
@@ -74,49 +80,68 @@ for entry in "${REPOS[@]}"; do
         continue
     fi
 
+    changes=$(git -C "$repo_path" status --porcelain | wc -l)
+    log "  $changes file(s) changed"
+
     if $DRY_RUN; then
-        log "DRY-RUN: $repo_name — would commit and push"
-        changes=$(git -C "$repo_path" status --porcelain | wc -l)
-        log "  $changes file(s) changed"
+        log "DRY-RUN: $repo_name — would commit and push ($changes files)"
         COMMITTED=$((COMMITTED + 1))
         continue
     fi
 
-    # Stage all changes
-    git -C "$repo_path" add -A
-
-    # Generate commit message via claude -p (with timeout and fallback)
-    FALLBACK_MSG="chore: nightly autocommit $(date +%Y-%m-%d)"
-    COMMIT_MSG=""
+    # --- Commit via claude -p (primary) or fallback ---
+    CLAUDE_SUCCESS=false
 
     if command -v claude >/dev/null 2>&1; then
-        DIFF_STAT=$(git -C "$repo_path" diff --cached --stat 2>/dev/null | tail -1)
-        DIFF_NAMES=$(git -C "$repo_path" diff --cached --name-only 2>/dev/null | head -20)
-        PROMPT="You are generating a git commit message. Here is the staged diff summary:
+        PROMPT="You are running a nightly autocommit for the $repo_name repo at $repo_path.
 
-$DIFF_STAT
+Your job:
+1. Run git status and git diff to understand what changed
+2. Stage and commit the changes following Conventional Commits format
+3. Apply SRP: if changes are logically separable, make multiple commits
+4. Each commit message should be concise and describe the actual change
+5. Do NOT use generic messages like 'chore: nightly autocommit' — read the diff and write a real message
+6. After committing, do NOT push (the caller handles push)
 
-Files changed:
-$DIFF_NAMES
+Important: stage all changes. Do not leave anything unstaged. Use git add -A if all changes are related, or stage selectively if making multiple commits."
 
-Write a single conventional commit message (type(scope): description). Be concise — one line, no body. If the changes span multiple concerns, pick the dominant one. Use 'chore' for mixed/housekeeping changes."
-
-        COMMIT_MSG=$(timeout 30 claude -p "$PROMPT" --allowedTools "" 2>/dev/null || true)
+        log "  Running claude -p for staging and commit..."
+        if timeout "$CLAUDE_TIMEOUT" claude -p "$PROMPT" \
+            --allowedTools "Bash(git *)" \
+            -d "$repo_path" \
+            --verbose 2>>"$LOG_FILE" >>"$LOG_FILE"; then
+            # Verify claude actually committed (check if working tree is clean)
+            if git -C "$repo_path" diff --quiet && git -C "$repo_path" diff --cached --quiet && \
+               [[ -z "$(git -C "$repo_path" ls-files --others --exclude-standard)" ]]; then
+                CLAUDE_SUCCESS=true
+                # Log what claude committed
+                latest_commits=$(git -C "$repo_path" log --oneline -5 --since="5 minutes ago" 2>/dev/null || true)
+                if [[ -n "$latest_commits" ]]; then
+                    log "  Claude committed:"
+                    while IFS= read -r line; do
+                        log "    $line"
+                    done <<< "$latest_commits"
+                fi
+            else
+                log "  WARNING: claude ran but left uncommitted changes — falling back"
+            fi
+        else
+            log "  WARNING: claude -p failed or timed out — falling back"
+        fi
     fi
 
-    # Validate commit message (non-empty, single line, reasonable length)
-    if [[ -z "$COMMIT_MSG" ]] || [[ $(echo "$COMMIT_MSG" | wc -l) -gt 3 ]] || [[ ${#COMMIT_MSG} -gt 200 ]]; then
-        COMMIT_MSG="$FALLBACK_MSG"
-        log "  Using fallback message (claude unavailable or produced bad output)"
+    # Fallback: git add -A + generic message
+    if ! $CLAUDE_SUCCESS; then
+        log "  Using fallback: git add -A + generic message"
+        git -C "$repo_path" add -A
+        FALLBACK_MSG="chore($repo_name): nightly autocommit $(date +%Y-%m-%d)"
+        if ! git -C "$repo_path" commit -m "$FALLBACK_MSG" 2>>"$LOG_FILE"; then
+            log "ERROR: $repo_name — commit failed"
+            FAILED=$((FAILED + 1))
+            continue
+        fi
+        log "  Committed (fallback): $FALLBACK_MSG"
     fi
-
-    # Commit
-    if ! git -C "$repo_path" commit -m "$COMMIT_MSG" 2>>"$LOG_FILE"; then
-        log "ERROR: $repo_name — commit failed"
-        FAILED=$((FAILED + 1))
-        continue
-    fi
-    log "  Committed: $COMMIT_MSG"
 
     # Push (no pull/rebase — just push, log failure)
     if ! git -C "$repo_path" push 2>>"$LOG_FILE"; then
