@@ -93,17 +93,42 @@ for entry in "${REPOS[@]}"; do
     CLAUDE_SUCCESS=false
 
     if command -v claude >/dev/null 2>&1; then
-        PROMPT="You are running a nightly autocommit for the $repo_name repo at $repo_path.
+        PROMPT="You are running a nightly autocommit for the $repo_name repo.
 
-Your job:
+## Your job
+
 1. Run git status and git diff to understand what changed
-2. Stage and commit the changes following Conventional Commits format
-3. Apply SRP: if changes are logically separable, make multiple commits
-4. Each commit message should be concise and describe the actual change
-5. Do NOT use generic messages like 'chore: nightly autocommit' — read the diff and write a real message
-6. After committing, do NOT push (the caller handles push)
+2. Stage and commit the changes
+3. After committing, do NOT push (the caller handles push)
+4. Stage ALL changes. Do not leave anything unstaged or untracked.
 
-Important: stage all changes. Do not leave anything unstaged. Use git add -A if all changes are related, or stage selectively if making multiple commits."
+## Commit message rules (from Conventional Commits specification)
+
+Structure: <type>[optional scope]: <description>
+
+Types: feat (new feature), fix (bug fix), docs (documentation), style (formatting),
+refactor (code change, no new feature/fix), perf (performance), test (tests),
+build (build system), ci (CI config), chore (maintenance).
+
+Scope: optional context in parens, e.g. feat(parser): add array support
+
+## Single Responsibility Principle
+
+Each commit should do ONE thing. If changes are logically separable:
+- Separate feature additions from refactors
+- Separate documentation updates from code changes
+- Separate formatting/style from functional changes
+
+When splitting: stage files selectively with git add <files>, commit, then stage
+the next group. Use git add -p <file> if a single file has unrelated changes.
+
+## Quality bar
+
+- NEVER use generic messages like 'chore: nightly autocommit' or 'chore: update files'
+- Read the actual diff content to understand WHAT changed and WHY
+- Name the specific thing: 'docs(tailscale): rewrite setup guide with CLI examples'
+  not 'docs: update documentation'
+- If multiple skills/modules changed independently, make separate commits for each"
 
         log "  Running claude -p for staging and commit..."
         if timeout "$CLAUDE_TIMEOUT" claude -p "$PROMPT" \
