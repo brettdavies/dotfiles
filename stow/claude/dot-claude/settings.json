@@ -71,12 +71,10 @@
       "Bash(git tag:*)",
       "Bash(git worktree:*)",
       "Bash(grep:*)",
-      "Bash(find:*)",
       "Bash(head:*)",
       "Bash(hostname:*)",
       "Bash(id:*)",
       "Bash(jaq:*)",
-      "Bash(jq:*)",
       "Bash(ln:*)",
       "Bash(ls:*)",
       "Bash(lsof:*)",
@@ -129,7 +127,6 @@
       "Bash(whoami:*)",
       "Bash(xcbeautify:*)",
       "Bash(yq:*)",
-      "Read(/home/brett/*)",
       "Read(/tmp/*)",
       "WebSearch"
     ],
@@ -262,8 +259,7 @@
   },
   "enabledPlugins": {
     "compound-engineering@every-marketplace": true,
-    "obsidian@obsidian-skills": true,
-    "rust-analyzer-lsp@claude-plugins-official": true
+    "obsidian@obsidian-skills": true
   },
   "extraKnownMarketplaces": {
     "obsidian-skills": {
