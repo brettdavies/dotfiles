@@ -91,24 +91,26 @@ the symlink is missing, recreate it: `ln -s ~/dev/solutions-docs docs/solutions`
 
 ## CLI Tool Preferences
 
-- **Priority order for CLI tools:** brew > bunx/uvx > python3/node (last resorts only).
-- **Prefer CLI tools** over direct in-memory manipulation when possible, especially for editing or searching within
-  larger files or across the codebase.
-- Examples: Use `sed`, `awk`, or in-place editing CLI utilities for modifying files; use code-aware tools (`ast-grep`)
-  for refactoring.
-- **For file deletion,** do NOT use `rm` or `git rm` (both are denied in `settings.json`).
-- Instead, use [`trash`](https://github.com/sindresorhus/trash) to safely move files to the system trash.
-- **For code search:**
-- Always use [`rg` (ripgrep)](https://github.com/BurntSushi/ripgrep) instead of `grep` (denied in `settings.json`) for
-  fast recursive search.
-- [`ast-grep`](https://ast-grep.github.io/) is available for syntax-aware codebase traversal.
-- **For knowledge base search,** use [`qmd`](https://github.com/tobi/qmd) to search the Obsidian vault, solutions-docs,
-  and skills collections. Always use `qmd query` (hybrid, ~10s) as the default — it combines BM25 + vector + LLM
-  re-ranking and produces significantly better results than `qmd search` alone. Prefer multiple focused queries with 2-3
-  terms each over one query with many terms. Always search qmd before researching from scratch — check solutions and
-  vault for prior art.
-- **For JSON processing,** use [`jaq`](https://github.com/01mf02/jaq) instead of `jq`. It's a Rust reimplementation with
-  compatible syntax.
+- **Priority order for installing CLI tools:** brew > bunx/uvx > python3/node (last resorts only).
+- **ALWAYS use CLI tools via Bash over built-in tools.** This overrides Claude Code's default preference for
+  Read/Edit/Grep/Glob. The built-in tools are fallbacks, not defaults. Concrete rules:
+- **Searching code:** `rg` (via Bash), not Grep. `ast-grep` for structural matches.
+- **Searching files:** `find` or `fd` (via Bash), not Glob.
+- **Reading files:** `cat`, `head`, `tail`, `bat` (via Bash), not Read. Exception: Read for images/PDFs.
+- **Editing files:** `sed`, `awk`, or in-place CLI utilities (via Bash), not Edit. Exception: Edit for surgical
+  single-line replacements where `sed` addressing would be fragile.
+- **Writing files:** heredoc with `cat` or `tee` (via Bash), not Write. Exception: Write for new files where the entire
+  content is being generated.
+- **JSON processing:** `jaq` (via Bash), not manual parsing.
+- **Refactoring:** `ast-grep` or `sed` with find, not Edit with replace_all.
+- CLI tools produce better output for review, compose with pipes, and match how this user works. When in doubt, reach
+  for Bash.
+- **File deletion:** `trash` (via Bash), never `rm` or `git rm` (both denied in `settings.json`).
+- **Knowledge base search:** use [`qmd`](https://github.com/tobi/qmd) to search the Obsidian vault, solutions-docs, and
+  skills collections. Always use `qmd query` (hybrid, ~10s) as the default — it combines BM25 + vector + LLM re-ranking
+  and produces significantly better results than `qmd search` alone. Prefer multiple focused queries with 2-3 terms each
+  over one query with many terms. Always search qmd before researching from scratch — check solutions and vault for
+  prior art.
 - **Auto-format hook:** A PostToolUse hook wraps markdown prose to 120 characters (`md-wrap.py`) then runs
   `markdownlint-cli2 --fix`. Do NOT manually wrap markdown lines — the hook handles it. Do NOT use `mdformat`, `pandoc`,
   or `prettier` for markdown formatting.
