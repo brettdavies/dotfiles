@@ -64,6 +64,22 @@ scripts/stow-deploy ghostty cursor            # shared defaults + explicit extra
 `--all`, extra args extend `SHARED_PACKAGES`. `--headless` auto-restores repo versions after adopt. Encrypted packages
 (`secrets`, `ssh`, `git`) require git-crypt unlock first.
 
+### System-Level Units (`config/systemd/system/`)
+
+System-level systemd units (targeting `/etc/systemd/system/`) are **not** managed by stow. Stow targets `$HOME` and
+creating symlinks from root-owned system paths into a user-owned directory is a security concern. Instead, these units
+are version-controlled in `config/systemd/system/` and deployed via dedicated scripts that `sudo cp` them into place.
+
+**Current units:**
+
+- `mnt-nas.mount` + `mnt-nas.automount` — deployed by `scripts/nas-deploy.sh`
+
+**Pattern for adding new system-level units:**
+
+1. Create the unit file in `config/systemd/system/`
+2. Create or extend a deploy script in `scripts/` that copies and activates the unit
+3. Do NOT add to `stow/` or `SHARED_PACKAGES`
+
 ---
 
 ## Shell Config Chain
