@@ -42,9 +42,11 @@ dotfiles/
 ├── stow/                  Stow packages (symlinked into $HOME)
 ├── config/
 │   ├── shell/             Shell fragments auto-sourced by .profile
-│   └── git/               Per-platform git config templates
+│   ├── git/               Per-platform git config templates
+│   └── systemd/system/    System-level units (deployed via nas-deploy.sh)
 ├── scripts/
 │   ├── stow-deploy        Stow wrapper with conflict resolution
+│   ├── nas-deploy.sh      System-level NAS mount/automount deploy
 │   └── sync/              iCloud sync scripts
 ├── .githooks/             Repo-local git hooks (core.hooksPath)
 ├── .github/
@@ -91,6 +93,18 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `tmuxinator`  | `.config/tmuxinator/*.yml` — declarative session configs (13 projects)      |
 | `yazi`        | `.config/yazi/` — file manager config, keymaps, theme, packages            |
 | `zsh`         | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                              |
+
+### System-Level Units (`config/systemd/system/`)
+
+System-level systemd units are **not** managed by stow (which targets `$HOME`). They live in `config/systemd/system/`
+and are deployed via `scripts/nas-deploy.sh`, which copies them to `/etc/systemd/system/` and activates them.
+
+| Unit                 | Purpose                                                         |
+|----------------------|-----------------------------------------------------------------|
+| `mnt-nas.mount`      | SMB mount for Pool NAS (`//192.168.1.5/openclaw`)              |
+| `mnt-nas.automount`  | On-demand automount, solves WiFi boot race                     |
+
+**Deploy:** `sudo scripts/nas-deploy.sh` (requires `/root/.smbcredentials-pool-nas` from 1Password).
 
 ### Shell Environment (`config/shell/`)
 

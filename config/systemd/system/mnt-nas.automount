@@ -1,0 +1,16 @@
+[Unit]
+Description=Pool NAS SMB Automount (openclaw share)
+# Automount creates /mnt/nas as an automount point. When any process accesses
+# /mnt/nas, systemd triggers mnt-nas.mount on demand. This solves the WiFi boot
+# race: the mount only happens when something actually needs the NAS, by which
+# time the network is up.
+After=network-online.target
+
+[Automount]
+Where=/mnt/nas
+# TimeoutIdleSec=0: never auto-unmount. The NAS is used by qmd for periodic
+# indexing — idle unmount would add fragility for minimal resource savings.
+TimeoutIdleSec=0
+
+[Install]
+WantedBy=multi-user.target
