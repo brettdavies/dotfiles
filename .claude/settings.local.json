@@ -107,7 +107,10 @@
       "Bash(/home/brett/obsidian-vault/Areas/infrastructure/scripts/sync-to-pool.sh:*)",
       "Bash(/home/brett/obsidian-vault/Areas/infrastructure/scripts/pool-sync-check.sh:*)",
       "Bash([ -L /home/brett/dotfiles/docs/solutions ])",
-      "Bash([ -d /home/brett/dev/solutions-docs ])"
+      "Bash([ -d /home/brett/dev/solutions-docs ])",
+      "Bash(findmnt -n /mnt/nas)",
+      "Read(//tmp/**)",
+      "Bash(sudo systemctl:*)"
     ]
   }
 }

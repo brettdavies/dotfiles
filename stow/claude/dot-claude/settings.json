@@ -38,6 +38,7 @@
       "Bash(gh:*)",
       "Bash(gio trash:*)",
       "Bash(git:*)",
+      "Bash(git rm --cached:*)",
       "Bash(git-cliff:*)",
       "Bash(git-crypt:*)",
       "Bash(git-lfs:*)",
