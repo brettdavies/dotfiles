@@ -10,7 +10,7 @@ branch=$(git symbolic-ref --short HEAD 2>/dev/null || true)
 if [ "$branch" = "main" ]; then
     echo "ERROR: direct commits to 'main' are blocked." >&2
     echo "       Create a feature branch and submit a PR instead." >&2
-    echo "       git checkout -b feat/your-feature development" >&2
+    echo "       git checkout -b feat/your-feature dev" >&2
     exit 1
 fi
 
