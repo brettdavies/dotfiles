@@ -170,6 +170,16 @@
             "command": "~/.claude/auto-format.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/ci-watch-prompt.sh",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PreCompact": [

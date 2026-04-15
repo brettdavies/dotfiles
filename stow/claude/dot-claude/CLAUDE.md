@@ -200,9 +200,29 @@ leak while owning it re-leaks it.
 - **Rust pre-push checks:** Every Rust repo has `scripts/hooks/pre-push` which mirrors CI (fmt, clippy `-Dwarnings`,
   test, cargo-deny, Windows compat). Activated via `git config core.hooksPath scripts/hooks` (run once after clone). The
   hook runs automatically on `git push`; if it fails, fix the issues before pushing.
-- **After pushing or creating a PR:** Monitor CI in the background with `gh run watch --exit-status` (use
-  `run_in_background: true`). Continue working — you'll be notified on completion. If CI fails, investigate and fix
-  before moving on.
+
+---
+
+## CI monitoring is automated
+
+After `git push`, `gh pr create`, `gh pr merge`, `gh release create`, `gh workflow run`, or any
+`gh api .../dispatches` call, a PostToolUse hook (`~/.claude/ci-watch-prompt.sh`) enumerates currently-active workflow
+runs and injects a system reminder listing each run id with the exact `gh run watch <id> --exit-status` command to
+spawn. Comply with the prompt: spawn one Bash call per active run with `run_in_background: true` (in parallel), so the
+harness notifies you when each finishes — no polling needed.
+
+For PR-scoped checks (after `gh pr create`/`gh pr merge`), prefer `gh pr checks <pr> --watch` — it covers all checks
+across all triggered workflows on the PR head in a single watcher.
+
+After every batch of watchers finishes, re-run `gh run list --branch <branch>` to catch dispatched chains (e.g.
+`release.yml` → homebrew dispatch → `finalize-release`). The hook only fires after the original action; chained runs
+need a manual re-check.
+
+If you push CI-triggering changes via a path the hook doesn't cover (or `gh` is unavailable in the hook's environment),
+run the same flow manually. Never proceed past a red run.
+
+The full policy and matcher list lives in the script header at `~/.claude/ci-watch-prompt.sh` — that's the source of
+truth.
 
 ---
 
