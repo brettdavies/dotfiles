@@ -180,9 +180,9 @@ This is set during bootstrap (see README) or via `bash .githooks/setup`.
 
 - **`main`** -- stable release branch, deployed to all machines. Protected by GitHub ruleset: requires PR to merge,
   squash-only, signed commits.
-- **`development`** -- integration branch. Protected by GitHub ruleset: signed commits required.
-- **Feature branches** -- created from `development` (e.g., `feat/user-auth`, `fix/shell-startup`). Merged to
-  `development` via PR, then `development` merged to `main` when ready.
+- **`dev`** -- integration branch. Protected by GitHub ruleset: signed commits required.
+- **Feature branches** -- created from `dev` (e.g., `feat/user-auth`, `fix/shell-startup`). Merged to
+  `dev` via PR, then `dev` merged to `main` when ready.
 
 Never commit directly to `main`. All work goes through feature branches and PRs.
 
@@ -227,9 +227,9 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
 
 - **Node.js 24 required:** Set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a top-level `env` in every workflow.
   Node.js 20 actions are deprecated and will stop working after June 2, 2026.
-- **Commit signing:** The release bot (`github-actions[bot]`) creates unsigned commits. The `development` branch ruleset
-  requires signed commits, so bot commits from `main` cannot be merged into `development` directly. Sync `main` into
-  `development` via GitHub UI merge or cherry-pick only signed commits.
+- **Commit signing:** The release bot (`github-actions[bot]`) creates unsigned commits. The `dev` branch ruleset
+  requires signed commits, so bot commits from `main` cannot be merged into `dev` directly. Sync `main` into
+  `dev` via GitHub UI merge or cherry-pick only signed commits.
 
 ---
 
