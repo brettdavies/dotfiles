@@ -58,10 +58,19 @@ today's date and any existing same-day tags.
 git fetch origin
 git checkout -b "release/$(date +%Y.%m.%d)" origin/main
 
-# 2. Merge development to bring all individual commits into the release branch.
-#    git-cliff needs the conventional-commit messages to categorize entries —
-#    the squash commit on main alone is not enough.
-git merge origin/development
+# 2. Cherry-pick PR squash commits from development onto the release branch.
+#    Each pick creates a new commit carrying the PR's conventional-commit
+#    subject — exactly what git-cliff needs to categorize entries. Unlike
+#    `git merge origin/development`, this does NOT drag in orphan SHAs from
+#    prior releases, so the generated changelog covers only the true delta.
+#    Direct commits on development are intentionally excluded; per the
+#    branches table, direct commits to development are not permitted, and
+#    any fix must come in via its own PR.
+LAST_TAG=$(git describe --tags --abbrev=0 origin/main)
+git log --first-parent --grep='(#[0-9]\+)$' --format='%H %s' \
+  "$LAST_TAG..origin/development"
+# Review the list, then cherry-pick in chronological order (oldest first):
+git cherry-pick <oldest-sha> <next-sha> ... <newest-sha>
 
 # 3. Generate CHANGELOG.md. Pass --tag explicitly: the script's branch detection
 #    expects `release/vN.N.N` (SemVer) and does not parse CalVer branch names.
@@ -85,11 +94,19 @@ gh pr create --base main --title "release: $(date +%Y.%m.%d)" \
 When the PR merges (squash-only, enforced by `protect-main.json`), the push to `main` triggers `release.yml`. The
 release branch can be deleted from the GitHub UI after merge; `development` is untouched.
 
-### Why branch from main, not development
+### Why branch from main and cherry-pick, not merge development
 
-Branching from `development` seems simpler but produces `add/add` merge conflicts whenever `development` and `main` have
-diverged (which they always do after the first squash merge). The same file appears "added" on both sides with different
-content. Always branch from `origin/main` and merge `development` onto it.
+Two compounding problems made the earlier "branch from main, merge development" flow break on every release:
+
+1. **`add/add` conflicts.** Branching from `development` produces `add/add` merge conflicts whenever `development` and
+   `main` have diverged (which they always do after the first squash merge). The same file appears "added" on both sides
+   with different content.
+2. **Orphan history leaking into the changelog.** `git merge origin/development` pulls in every ancestor SHA on dev —
+   including individual commits that were collapsed into prior release squashes on `main`. Those SHAs aren't reachable
+   from the last tag, so `git-cliff --unreleased` re-emits them in every new release's changelog.
+
+Cherry-picking solves both: branching from `origin/main` avoids the conflicts, and picking only PR squash commits
+creates fresh SHAs on the release branch that represent exactly the delta being shipped — no prior-release noise.
 
 ## Tagging and publishing
 
