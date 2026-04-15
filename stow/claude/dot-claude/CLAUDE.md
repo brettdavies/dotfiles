@@ -50,7 +50,10 @@ test, a guard, a lint rule, or a docs/solutions entry. The cost of fixing later 
 **Trivial work exemption:** Single-file fixes, config tweaks, typo corrections, and similar changes that touch fewer
 than ~20 lines may skip the full loop. Use judgment.
 
-**Before researching from scratch:** Always check `docs/solutions/` for existing solutions and patterns.
+**Query solutions first:** Before answering questions, diagnosing issues, researching options, or proposing changes, run
+`qmd query "<topic>" --collection solutions` to surface existing decisions and patterns. Solutions contain hard-won
+decisions that cannot be inferred from the file layout alone. This applies to all interactions — questions, debugging,
+code review, and architecture discussions — not just implementation.
 
 ---
 
@@ -86,6 +89,78 @@ the symlink is missing, recreate it: `ln -s ~/dev/solutions-docs docs/solutions`
   refactor review to evaluate splitting responsibilities into smaller, focused modules. Files containing uniform
   functions (e.g., API shortcuts) or pure declarations (e.g., clap derives) may exceed this threshold and remain
   idiomatic — evaluate by SRP, trigger by line count.
+
+---
+
+## Supply-Chain Pinning: SHA pins, never version/tag pins
+
+Always pin to immutable commit SHAs wherever a SHA can substitute for a mutable tag or version. This is a hard rule,
+not a preference. Mutable refs (`@v4`, `@main`, `@latest`) can be force-moved to point at different code — a live
+supply-chain attack surface (`tj-actions/changed-files`, March 2025).
+
+**Where it applies:**
+
+- **GitHub Actions `uses:`** — `uses: actions/checkout@<40-char-sha> # v4.2.2`. Trailing comment names the version so
+  humans can read it at a glance; the pin itself is the SHA.
+- **Reusable workflows** — `uses: owner/repo/.github/workflows/x.yml@<sha>`.
+- **Docker images** — `FROM node@sha256:<digest>`, not `FROM node:20`.
+- **Git submodules / subtrees** — full commit SHA.
+- Anywhere else a mutable tag is normally accepted — choose the SHA.
+
+**Exception — package managers with lockfiles:** npm / bun / cargo / pip version constraints in manifest files are
+fine when a lockfile (`bun.lock`, `package-lock.json`, `Cargo.lock`, `uv.lock`) captures the integrity hash. The
+lockfile IS the SHA. Do NOT try to replace `"react": "^18"` with a commit SHA — that breaks package managers.
+
+**How to resolve a tag to a SHA:**
+
+```bash
+gh api repos/<owner>/<repo>/git/refs/tags/<tag> --jq '.object.sha'
+# if the ref points at a tag object (annotated tag), dereference:
+gh api repos/<owner>/<repo>/git/tags/<tag-object-sha> --jq '.object.sha'
+# or simpler, resolve commit directly:
+gh api repos/<owner>/<repo>/commits/<tag> --jq '.sha'
+```
+
+**How to apply when updating:** resolve the new SHA explicitly rather than bumping the tag. Update the trailing comment
+to match.
+
+**Audit + auto-fix script:** `~/.claude/skills/github-repo-setup/scripts/pin-actions.sh` — run in any repo to audit
+every workflow for unpinned actions and (optionally) fix them to canonical SHAs shared across brettdavies repos. Also
+supports cross-repo alignment mode (`--align dir1 dir2 …`) to catch drift when the same action is pinned to different
+SHAs across projects. The script holds the authoritative pinned-SHA table — update there when bumping versions, then
+re-run across all repos.
+
+---
+
+## Secrets and identifiers: never echo, refer by location
+
+When handling any value pulled from a secret store (`op`, `gh secret`, `printenv`, `aws ssm`, etc.), refer to it by
+**location** or **name** — never reproduce the literal value in chat, commit messages, PR descriptions, summaries, or
+retrospectives.
+
+This applies uniformly to formal secrets (API tokens, passwords, keys) AND to identifiers the user took any step to keep
+private (account IDs, tenant IDs, internal URLs). The "not formally a secret" carve-out does not exist at the echo
+boundary — if the user routed it through `op` or a GitHub secret, they have a reason, and reproducing the value defeats
+the intent regardless of formal classification.
+
+Examples:
+
+- ✅ "the `account_id` field in `Cloudflare API Token - Wrangler (bigdaddy)`"
+- ✅ "piped from 1Password to `gh secret set CF_ACCOUNT_ID`"
+- ❌ "set `CF_ACCOUNT_ID` to `<the literal value>`"
+- ❌ in a retrospective: "I echoed `<literal>` in my summary" — repeats the leak
+
+**The retrospective trap:** when acknowledging a prior leak, the reflex is to quote the leaked value to show what
+happened. Don't. Name the field, describe the location, or use `<the value>` / `<the ID>` as a placeholder. Quoting a
+leak while owning it re-leaks it.
+
+**How to apply:**
+
+- Before echoing any value returned by `op`, `gh secret`, `printenv`, `scripts/read_field.sh`, or similar, ask: would I
+  be comfortable with this in a public gist or training transcript? If not, use the name.
+- In commit / PR bodies, describe the change referentially: "rotated `CF_ACCOUNT_ID`", not "set `CF_ACCOUNT_ID` to X".
+- In retrospectives or debug logs that discuss a leaked value, never re-quote it. Reference it by name.
+- Reflex rule, no exceptions. The chat transcript is not the trust boundary you think it is.
 
 ---
 
@@ -128,6 +203,25 @@ the symlink is missing, recreate it: `ln -s ~/dev/solutions-docs docs/solutions`
 - **After pushing or creating a PR:** Monitor CI in the background with `gh run watch --exit-status` (use
   `run_in_background: true`). Continue working — you'll be notified on completion. If CI fails, investigate and fix
   before moving on.
+
+---
+
+## Never Commit Todo Files Or `.context/`
+
+Todo files (`TODO`, `TODO.md`, any `*todo*.md` variant) and the `.context/` directory are **local-only by design** in
+every repo. The global `.gitignore` excludes them on purpose. They hold multi-session work-in-progress (e.g., the
+`compound-engineering/todos/` workflow under `.context/`) that must not leave the author's machine.
+
+**Hard rules:**
+
+- Never `git add` these paths, even if they appear untracked in `git status`.
+- Never use `git add -f` to override the gitignore on these paths — the refusal is the system working correctly.
+- Never re-create a local todo as a GitHub issue (or vice versa) as a substitute; they are different tools with
+  different lifecycles.
+- When a user invokes `/todo-create` or similar, write the file to its canonical local location
+  (`.context/compound-engineering/todos/`) and stop there — no commit, no push.
+- When staging broadly (`git add pdf-generator/` etc.), verify nothing inside `.context/` or any `TODO*.md` got swept
+  in.
 
 ---
 

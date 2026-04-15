@@ -110,7 +110,9 @@
       "Bash([ -d /home/brett/dev/solutions-docs ])",
       "Bash(findmnt -n /mnt/nas)",
       "Read(//tmp/**)",
-      "Bash(sudo systemctl:*)"
+      "Bash(sudo systemctl:*)",
+      "Bash(ollama:*)",
+      "Bash(curl -s http://127.0.0.1:7832/health)"
     ]
   }
 }

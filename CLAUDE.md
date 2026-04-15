@@ -115,6 +115,10 @@ with zsh as default shell gets zero environment. See
 `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` for the full zsh vs bash startup file
 reference.
 
+**Environment variables needed by all contexts** (Claude Code, SSH commands, cron, interactive shells) belong in
+`.profile` or `config/shell/*.sh` — never in `.zshrc`/`.bashrc`. Consult the startup file matrix in
+`docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` before choosing a location.
+
 **`config/shell/*.sh` must use functions, not aliases.** These files are sourced by `.profile` under POSIX `sh` where
 aliases don't exist. Aliases belong in `.zshrc`/`.bashrc` (after the interactive guard) only.
 
@@ -234,3 +238,5 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
 - Signing architecture: `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`
 - Shell config fixes: `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md`
 - Cross-platform deployment: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
+- Headless Cloudflare wrangler + scoped API token in 1P:
+  `docs/solutions/developer-experience/cloudflare-api-token-headless-wrangler-1password-2026-04-13.md`
