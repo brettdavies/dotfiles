@@ -21,6 +21,10 @@ config:
   MD007:
     indent: 2
 
+  # MD009: Trailing spaces - allow 2 spaces for line breaks
+  MD009:
+    br_spaces: 2
+
   # MD013: Line length - 120 chars (more reasonable for code docs)
   MD013:
     line_length: 120

@@ -81,6 +81,18 @@ case ":${PATH}:" in
     *) export PATH="$HOME/.local/bin:$PATH" ;;
 esac
 
+# Bun: bun itself lives in ~/.bun/bin (curl installer); globally-installed
+# packages from `bun add -g` land in ~/.cache/bun/bin (same on Linux and macOS).
+for _bun_bin in "$HOME/.bun/bin" "$HOME/.cache/bun/bin"; do
+    if [ -d "$_bun_bin" ]; then
+        case ":${PATH}:" in
+            *:"$_bun_bin":*) ;;
+            *) export PATH="$_bun_bin:$PATH" ;;
+        esac
+    fi
+done
+unset _bun_bin
+
 # Obsidian CLI
 if [ "$(uname -s)" = "Darwin" ]; then
     # macOS: Obsidian.app bundles the CLI binary
@@ -131,3 +143,8 @@ fi
 alias ollama-update='curl -fsSL https://ollama.com/install.sh | sudo sh'
 
 export GPG_TTY
+
+# Route qmd CLI queries through the persistent qmd-serve daemon (sequential
+# model loading — one heavy model at a time, peak ~2.6 GB instead of ~5.4 GB).
+# Service: ~/.config/systemd/user/qmd-serve.service
+export QMD_SERVER=http://127.0.0.1:7832

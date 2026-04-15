@@ -18,6 +18,7 @@
 # Compound Engineering
 **/todos/
 **/.context/
+**/TODOS.md
 
 # Production builds
 target/

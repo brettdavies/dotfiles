@@ -1,5 +1,8 @@
 # Do Not Track / Disable Telemetry for Popular Tools
 
+# Universal Do Not Track signal (https://consoledonottrack.com)
+export DO_NOT_TRACK=1
+
 # .NET CLI
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
 
@@ -9,6 +12,9 @@ export SAM_CLI_TELEMETRY=0
 # Azure SDK
 export AZURE_CORE_COLLECT_TELEMETRY=0
 export AZURE_TELEMETRY_DISABLED=1
+
+# Azure Functions Core Tools
+export FUNCTIONS_CORE_TOOLS_TELEMETRY_OPTOUT=1
 
 # Claude Code
 export DISABLE_TELEMETRY=1
@@ -44,6 +50,9 @@ export NEXT_TELEMETRY_DISABLED=1
 # npm
 # Note: npm doesn't have built-in telemetry. The deprecated metrics-registry config has been removed.
 
+# PowerShell
+export POWERSHELL_TELEMETRY_OPTOUT=1
+
 # pnpm
 export PNPM_TELEMETRY_DISABLED=1
 
@@ -62,6 +71,9 @@ export TF_CLI_CONFIG_FILE=/dev/null
 
 # TypeScript
 export TSC_COMPILE_ON_SAVE_DISABLED=1
+
+# VS Code
+export VSCODE_TELEMETRY_LEVEL=off
 
 # Vite
 export VITE_DISABLE_TELEMETRY=1

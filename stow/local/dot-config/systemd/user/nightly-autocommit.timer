@@ -1,0 +1,11 @@
+[Unit]
+Description=Run nightly autocommit between 2:00-3:59 AM CT
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 America/Chicago
+RandomizedDelaySec=7200
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

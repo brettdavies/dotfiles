@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026.04.15]
+
+### Added
+
+- Add `DO_NOT_TRACK=1` universal telemetry opt-out (consoledonottrack.com) plus targeted opt-outs for VS Code (`VSCODE_TELEMETRY_LEVEL=off`), PowerShell (`POWERSHELL_TELEMETRY_OPTOUT=1`), and Azure Functions Core Tools (`FUNCTIONS_CORE_TOOLS_TELEMETRY_OPTOUT=1`) by @brettdavies in [#31](https://github.com/brettdavies/dotfiles/pull/31) and [#32](https://github.com/brettdavies/dotfiles/pull/32)
+- Add nightly autocommit for `obsidian-vault`, `solutions-docs`, and agent-skills with a systemd timer randomized to 2-4 AM CT by @brettdavies in [#33](https://github.com/brettdavies/dotfiles/pull/33)
+- Add `mnt-nas.automount` for on-demand NAS mounting (fixes the WiFi boot race) and `scripts/nas-deploy.sh` for copy-deploying system-level systemd units by @brettdavies in [#34](https://github.com/brettdavies/dotfiles/pull/34)
+- Add `github/` stow package targeting `~/.config/github/` for repo-workflow templates; `SHARED_PACKAGES` in `scripts/stow-deploy` now includes it by @brettdavies in [#35](https://github.com/brettdavies/dotfiles/pull/35)
+
+### Changed
+
+- Rename `RELEASING.md` to `RELEASES.md` and restructure to the canonical release-doc layout shared across brettdavies repos by @brettdavies in [#35](https://github.com/brettdavies/dotfiles/pull/35)
+- Move the canonical PR template from `stow/claude/dot-claude/templates/pull-request.md` to `stow/github/dot-config/github/pull_request_template.md`; `.github/pull_request_template.md` is now a real inlined file so GitHub's PR-template discovery works
+- Prohibit AI-attribution trailers on commit messages and PR bodies via global CLAUDE.md directive
+- Move `QMD_SERVER` and Bun PATH exports from `.zshrc` to `.profile` so cron, SSH commands, and other non-interactive contexts see them
+- Support markdown hard line breaks (two trailing spaces) in the `md-wrap.py` PostToolUse hook and in the markdownlint config; prefer the project-local `markdownlint-cli2.yaml` over the global one for line-width
+- Strengthen the query-solutions-first instruction in global CLAUDE.md
+- Stop tracking `TODOS.md` (added to global gitignore)
+
+### Fixed
+
+- Fix nightly autocommit to embed the Conventional Commits spec and SRP rules in the prompt, and delegate full add+commit to `claude -p` rather than staging in shell
+
+### Documentation
+
+- Document the system-level systemd units pattern in CLAUDE.md (copy-deploy, not stow) and add a matching section to README.md by @brettdavies in [#34](https://github.com/brettdavies/dotfiles/pull/34)
+
+**Full Changelog**: [2026.04.01...2026.04.15](https://github.com/brettdavies/dotfiles/compare/2026.04.01...2026.04.15)
+
 ## [2026.04.01]
 
 ### Added

@@ -64,6 +64,22 @@ scripts/stow-deploy ghostty cursor            # shared defaults + explicit extra
 `--all`, extra args extend `SHARED_PACKAGES`. `--headless` auto-restores repo versions after adopt. Encrypted packages
 (`secrets`, `ssh`, `git`) require git-crypt unlock first.
 
+### System-Level Units (`config/systemd/system/`)
+
+System-level systemd units (targeting `/etc/systemd/system/`) are **not** managed by stow. Stow targets `$HOME` and
+creating symlinks from root-owned system paths into a user-owned directory is a security concern. Instead, these units
+are version-controlled in `config/systemd/system/` and deployed via dedicated scripts that `sudo cp` them into place.
+
+**Current units:**
+
+- `mnt-nas.mount` + `mnt-nas.automount` — deployed by `scripts/nas-deploy.sh`
+
+**Pattern for adding new system-level units:**
+
+1. Create the unit file in `config/systemd/system/`
+2. Create or extend a deploy script in `scripts/` that copies and activates the unit
+3. Do NOT add to `stow/` or `SHARED_PACKAGES`
+
 ---
 
 ## Shell Config Chain
@@ -98,6 +114,10 @@ Helper files are sourced directly from the repo -- no symlink needed for individ
 with zsh as default shell gets zero environment. See
 `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` for the full zsh vs bash startup file
 reference.
+
+**Environment variables needed by all contexts** (Claude Code, SSH commands, cron, interactive shells) belong in
+`.profile` or `config/shell/*.sh` — never in `.zshrc`/`.bashrc`. Consult the startup file matrix in
+`docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` before choosing a location.
 
 **`config/shell/*.sh` must use functions, not aliases.** These files are sourced by `.profile` under POSIX `sh` where
 aliases don't exist. Aliases belong in `.zshrc`/`.bashrc` (after the interactive guard) only.
@@ -218,3 +238,5 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
 - Signing architecture: `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`
 - Shell config fixes: `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md`
 - Cross-platform deployment: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
+- Headless Cloudflare wrangler + scoped API token in 1P:
+  `docs/solutions/developer-experience/cloudflare-api-token-headless-wrangler-1password-2026-04-13.md`
