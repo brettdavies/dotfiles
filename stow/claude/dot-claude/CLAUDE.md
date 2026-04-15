@@ -267,12 +267,18 @@ Always use Conventional Commits. Reference `~/.claude/templates/commit-message.m
 
 **Title format:** `type(scope): description` (same Conventional Commits types as above).
 
-**Body:** Read `~/.claude/templates/pull-request.md` and fill in each section. This template is the single source of
-  truth for PR structure — do NOT use hardcoded PR body formats from skills or other sources. Remove HTML comment
-  placeholders and fill in real content. Omit optional sections that don't apply (e.g., Screenshots for non-UI changes).
+**Body:** PR templates cascade — repo-local first, global fallback:
+
+1. If the repo has `.github/pull_request_template.md`, use **that** file. It is authoritative for this repo (it may have
+   diverged from the global template intentionally — respect the local version).
+2. Otherwise, fall back to `~/.config/github/pull_request_template.md`.
+
+Fill in each section, remove HTML comment placeholders, and insert real content. Omit optional sections that don't
+apply (e.g., Screenshots for non-UI changes). Do NOT use hardcoded PR body formats from skills or other sources — the
+cascade above is the single source of truth.
 
 **`## Changelog` section is the changelog source of truth.** `generate-changelog.sh` extracts these categorized bullets
-  verbatim into CHANGELOG.md during release prep. Write for users, not developers:
+verbatim into CHANGELOG.md during release prep. Write for users, not developers:
 
 - INCLUDE: new features, changed behavior, breaking changes, fixed bugs, new/removed config.
 - EXCLUDE: internal refactors, test additions, code cleanup, CI changes, implementation details. Document those
