@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly autocommit for knowledge repos (obsidian-vault, solutions-docs, agent-skills)
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/home/brett/.bun/bin:/home/brett/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/home/brett
+ExecStart=/home/brett/dotfiles/scripts/nightly-autocommit.sh
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true

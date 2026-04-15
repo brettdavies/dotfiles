@@ -17,7 +17,7 @@ from pathlib import Path
 
 # Patterns
 HEADING_RE = re.compile(r"^#{1,6}\s")
-ULIST_RE = re.compile(r"^(\s*[-*+]\s)")
+ULIST_RE = re.compile(r"^(\s*[-*+]\s|\s*\[[ xX]\]\s)")
 OLIST_RE = re.compile(r"^(\s*\d+[.)]\s)")
 HRULE_RE = re.compile(r"^([-*_])\s*\1\s*\1[\s\-*_]*$")
 HTML_RE = re.compile(r"^</?[a-zA-Z]")
@@ -70,24 +70,49 @@ def _restore_links(text: str) -> str:
 
 
 def flush(buf: list[str], width: int, indent: str = "") -> str:
-    """Join buffered lines and reflow to target width."""
-    text = " ".join(l.strip() for l in buf)
-    text = re.sub(r"\s+", " ", text).strip()
+    """Join buffered lines and reflow to target width.
+
+    Lines ending with two trailing spaces (markdown hard line breaks)
+    are flushed individually to preserve the break.
+    """
+    # Split buffer at hard line breaks (lines ending with 2+ spaces)
+    segments: list[str] = []
+    current: list[str] = []
+    for l in buf:
+        if l.rstrip() != l and l.endswith("  "):
+            # This line has a hard break — flush current + this line separately
+            current.append(l.rstrip())
+            segments.append(current)
+            current = []
+        else:
+            current.append(l)
+    if current:
+        segments.append(current)
     buf.clear()
-    if not text:
-        return ""
-    # Protect spaces inside markdown links so textwrap treats each
-    # link as a single unbreakable token
-    text = _protect_links(text)
-    wrapped = textwrap.fill(
-        text,
-        width=width,
-        initial_indent="",
-        subsequent_indent=indent,
-        break_long_words=False,
-        break_on_hyphens=False,
-    )
-    return _restore_links(wrapped)
+
+    results: list[str] = []
+    for seg in segments:
+        text = " ".join(l.strip() for l in seg)
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            continue
+        # Protect spaces inside markdown links so textwrap treats each
+        # link as a single unbreakable token
+        text = _protect_links(text)
+        wrapped = textwrap.fill(
+            text,
+            width=width,
+            initial_indent="" if not results else indent,
+            subsequent_indent=indent,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+        results.append(_restore_links(wrapped))
+
+    # Re-join with trailing double-space line breaks between segments
+    if len(results) <= 1:
+        return results[0] if results else ""
+    return "  \n".join(results)
 
 
 def wrap_markdown(content: str, width: int = 120) -> str:

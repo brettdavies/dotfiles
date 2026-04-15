@@ -24,7 +24,7 @@
 - Each bullet starts with a verb: Add, Fix, Change, Remove, Deprecate.
 - Don't duplicate the PR title — expand on it or provide context.
 - If the PR has NO user-facing changes (pure refactor, test-only, CI), leave this section empty or omit it. The PR still
-       appears in git history; it just won't clutter the changelog. -->
+  appears in git history; it just won't clutter the changelog. -->
 
 ### Added
 
