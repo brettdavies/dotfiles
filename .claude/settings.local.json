@@ -99,7 +99,20 @@
       "Bash(caam --version)",
       "Bash(caam activate:*)",
       "Bash(git:*)",
-      "Bash(gh:*)"
+      "Bash(gh:*)",
+      "Bash(/home/brett/dotfiles/scripts/nightly-autocommit.sh:*)",
+      "Bash(mount:*)",
+      "Read(//mnt/nas/**)",
+      "Read(//mnt/nas/bigdaddy-backup/**)",
+      "Bash(/home/brett/obsidian-vault/Areas/infrastructure/scripts/sync-to-pool.sh:*)",
+      "Bash(/home/brett/obsidian-vault/Areas/infrastructure/scripts/pool-sync-check.sh:*)",
+      "Bash([ -L /home/brett/dotfiles/docs/solutions ])",
+      "Bash([ -d /home/brett/dev/solutions-docs ])",
+      "Bash(findmnt -n /mnt/nas)",
+      "Read(//tmp/**)",
+      "Bash(sudo systemctl:*)",
+      "Bash(ollama:*)",
+      "Bash(curl -s http://127.0.0.1:7832/health)"
     ]
   }
 }

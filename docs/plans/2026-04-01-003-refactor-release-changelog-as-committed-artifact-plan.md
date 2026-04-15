@@ -1,7 +1,7 @@
 ---
 title: "refactor: Adopt changelog-as-committed-artifact release process"
 type: refactor
-status: active
+status: completed
 date: 2026-04-01
 ---
 

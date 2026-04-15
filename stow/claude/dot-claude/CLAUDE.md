@@ -50,7 +50,10 @@ test, a guard, a lint rule, or a docs/solutions entry. The cost of fixing later 
 **Trivial work exemption:** Single-file fixes, config tweaks, typo corrections, and similar changes that touch fewer
 than ~20 lines may skip the full loop. Use judgment.
 
-**Before researching from scratch:** Always check `docs/solutions/` for existing solutions and patterns.
+**Query solutions first:** Before answering questions, diagnosing issues, researching options, or proposing changes, run
+`qmd query "<topic>" --collection solutions` to surface existing decisions and patterns. Solutions contain hard-won
+decisions that cannot be inferred from the file layout alone. This applies to all interactions — questions, debugging,
+code review, and architecture discussions — not just implementation.
 
 ---
 
@@ -89,26 +92,100 @@ the symlink is missing, recreate it: `ln -s ~/dev/solutions-docs docs/solutions`
 
 ---
 
+## Supply-Chain Pinning: SHA pins, never version/tag pins
+
+Always pin to immutable commit SHAs wherever a SHA can substitute for a mutable tag or version. This is a hard rule,
+not a preference. Mutable refs (`@v4`, `@main`, `@latest`) can be force-moved to point at different code — a live
+supply-chain attack surface (`tj-actions/changed-files`, March 2025).
+
+**Where it applies:**
+
+- **GitHub Actions `uses:`** — `uses: actions/checkout@<40-char-sha> # v4.2.2`. Trailing comment names the version so
+  humans can read it at a glance; the pin itself is the SHA.
+- **Reusable workflows** — `uses: owner/repo/.github/workflows/x.yml@<sha>`.
+- **Docker images** — `FROM node@sha256:<digest>`, not `FROM node:20`.
+- **Git submodules / subtrees** — full commit SHA.
+- Anywhere else a mutable tag is normally accepted — choose the SHA.
+
+**Exception — package managers with lockfiles:** npm / bun / cargo / pip version constraints in manifest files are
+fine when a lockfile (`bun.lock`, `package-lock.json`, `Cargo.lock`, `uv.lock`) captures the integrity hash. The
+lockfile IS the SHA. Do NOT try to replace `"react": "^18"` with a commit SHA — that breaks package managers.
+
+**How to resolve a tag to a SHA:**
+
+```bash
+gh api repos/<owner>/<repo>/git/refs/tags/<tag> --jq '.object.sha'
+# if the ref points at a tag object (annotated tag), dereference:
+gh api repos/<owner>/<repo>/git/tags/<tag-object-sha> --jq '.object.sha'
+# or simpler, resolve commit directly:
+gh api repos/<owner>/<repo>/commits/<tag> --jq '.sha'
+```
+
+**How to apply when updating:** resolve the new SHA explicitly rather than bumping the tag. Update the trailing comment
+to match.
+
+**Audit + auto-fix script:** `~/.claude/skills/github-repo-setup/scripts/pin-actions.sh` — run in any repo to audit
+every workflow for unpinned actions and (optionally) fix them to canonical SHAs shared across brettdavies repos. Also
+supports cross-repo alignment mode (`--align dir1 dir2 …`) to catch drift when the same action is pinned to different
+SHAs across projects. The script holds the authoritative pinned-SHA table — update there when bumping versions, then
+re-run across all repos.
+
+---
+
+## Secrets and identifiers: never echo, refer by location
+
+When handling any value pulled from a secret store (`op`, `gh secret`, `printenv`, `aws ssm`, etc.), refer to it by
+**location** or **name** — never reproduce the literal value in chat, commit messages, PR descriptions, summaries, or
+retrospectives.
+
+This applies uniformly to formal secrets (API tokens, passwords, keys) AND to identifiers the user took any step to keep
+private (account IDs, tenant IDs, internal URLs). The "not formally a secret" carve-out does not exist at the echo
+boundary — if the user routed it through `op` or a GitHub secret, they have a reason, and reproducing the value defeats
+the intent regardless of formal classification.
+
+Examples:
+
+- ✅ "the `account_id` field in `Cloudflare API Token - Wrangler (bigdaddy)`"
+- ✅ "piped from 1Password to `gh secret set CF_ACCOUNT_ID`"
+- ❌ "set `CF_ACCOUNT_ID` to `<the literal value>`"
+- ❌ in a retrospective: "I echoed `<literal>` in my summary" — repeats the leak
+
+**The retrospective trap:** when acknowledging a prior leak, the reflex is to quote the leaked value to show what
+happened. Don't. Name the field, describe the location, or use `<the value>` / `<the ID>` as a placeholder. Quoting a
+leak while owning it re-leaks it.
+
+**How to apply:**
+
+- Before echoing any value returned by `op`, `gh secret`, `printenv`, `scripts/read_field.sh`, or similar, ask: would I
+  be comfortable with this in a public gist or training transcript? If not, use the name.
+- In commit / PR bodies, describe the change referentially: "rotated `CF_ACCOUNT_ID`", not "set `CF_ACCOUNT_ID` to X".
+- In retrospectives or debug logs that discuss a leaked value, never re-quote it. Reference it by name.
+- Reflex rule, no exceptions. The chat transcript is not the trust boundary you think it is.
+
+---
+
 ## CLI Tool Preferences
 
-- **Priority order for CLI tools:** brew > bunx/uvx > python3/node (last resorts only).
-- **Prefer CLI tools** over direct in-memory manipulation when possible, especially for editing or searching within
-  larger files or across the codebase.
-- Examples: Use `sed`, `awk`, or in-place editing CLI utilities for modifying files; use code-aware tools (`ast-grep`)
-  for refactoring.
-- **For file deletion,** do NOT use `rm` or `git rm` (both are denied in `settings.json`).
-- Instead, use [`trash`](https://github.com/sindresorhus/trash) to safely move files to the system trash.
-- **For code search:**
-- Always use [`rg` (ripgrep)](https://github.com/BurntSushi/ripgrep) instead of `grep` (denied in `settings.json`) for
-  fast recursive search.
-- [`ast-grep`](https://ast-grep.github.io/) is available for syntax-aware codebase traversal.
-- **For knowledge base search,** use [`qmd`](https://github.com/tobi/qmd) to search the Obsidian vault, solutions-docs,
-  and skills collections. Always use `qmd query` (hybrid, ~10s) as the default — it combines BM25 + vector + LLM
-  re-ranking and produces significantly better results than `qmd search` alone. Prefer multiple focused queries with 2-3
-  terms each over one query with many terms. Always search qmd before researching from scratch — check solutions and
-  vault for prior art.
-- **For JSON processing,** use [`jaq`](https://github.com/01mf02/jaq) instead of `jq`. It's a Rust reimplementation with
-  compatible syntax.
+- **Priority order for installing CLI tools:** brew > bunx/uvx > python3/node (last resorts only).
+- **ALWAYS use CLI tools via Bash over built-in tools.** This overrides Claude Code's default preference for
+  Read/Edit/Grep/Glob. The built-in tools are fallbacks, not defaults. Concrete rules:
+- **Searching code:** `rg` (via Bash), not Grep. `ast-grep` for structural matches.
+- **Searching files:** `find` or `fd` (via Bash), not Glob.
+- **Reading files:** `cat`, `head`, `tail`, `bat` (via Bash), not Read. Exception: Read for images/PDFs.
+- **Editing files:** `sed`, `awk`, or in-place CLI utilities (via Bash), not Edit. Exception: Edit for surgical
+  single-line replacements where `sed` addressing would be fragile.
+- **Writing files:** heredoc with `cat` or `tee` (via Bash), not Write. Exception: Write for new files where the entire
+  content is being generated.
+- **JSON processing:** `jaq` (via Bash), not manual parsing.
+- **Refactoring:** `ast-grep` or `sed` with find, not Edit with replace_all.
+- CLI tools produce better output for review, compose with pipes, and match how this user works. When in doubt, reach
+  for Bash.
+- **File deletion:** `trash` (via Bash), never `rm` or `git rm` (both denied in `settings.json`).
+- **Knowledge base search:** use [`qmd`](https://github.com/tobi/qmd) to search the Obsidian vault, solutions-docs, and
+  skills collections. Always use `qmd query` (hybrid, ~10s) as the default — it combines BM25 + vector + LLM re-ranking
+  and produces significantly better results than `qmd search` alone. Prefer multiple focused queries with 2-3 terms each
+  over one query with many terms. Always search qmd before researching from scratch — check solutions and vault for
+  prior art.
 - **Auto-format hook:** A PostToolUse hook wraps markdown prose to 120 characters (`md-wrap.py`) then runs
   `markdownlint-cli2 --fix`. Do NOT manually wrap markdown lines — the hook handles it. Do NOT use `mdformat`, `pandoc`,
   or `prettier` for markdown formatting.
@@ -123,9 +200,48 @@ the symlink is missing, recreate it: `ln -s ~/dev/solutions-docs docs/solutions`
 - **Rust pre-push checks:** Every Rust repo has `scripts/hooks/pre-push` which mirrors CI (fmt, clippy `-Dwarnings`,
   test, cargo-deny, Windows compat). Activated via `git config core.hooksPath scripts/hooks` (run once after clone). The
   hook runs automatically on `git push`; if it fails, fix the issues before pushing.
-- **After pushing or creating a PR:** Monitor CI in the background with `gh run watch --exit-status` (use
-  `run_in_background: true`). Continue working — you'll be notified on completion. If CI fails, investigate and fix
-  before moving on.
+
+---
+
+## CI monitoring is automated
+
+After `git push`, `gh pr create`, `gh pr merge`, `gh release create`, `gh workflow run`, or any
+`gh api .../dispatches` call, a PostToolUse hook (`~/.claude/ci-watch-prompt.sh`) enumerates currently-active workflow
+runs and injects a system reminder listing each run id with the exact `gh run watch <id> --exit-status` command to
+spawn. Comply with the prompt: spawn one Bash call per active run with `run_in_background: true` (in parallel), so the
+harness notifies you when each finishes — no polling needed.
+
+For PR-scoped checks (after `gh pr create`/`gh pr merge`), prefer `gh pr checks <pr> --watch` — it covers all checks
+across all triggered workflows on the PR head in a single watcher.
+
+After every batch of watchers finishes, re-run `gh run list --branch <branch>` to catch dispatched chains (e.g.
+`release.yml` → homebrew dispatch → `finalize-release`). The hook only fires after the original action; chained runs
+need a manual re-check.
+
+If you push CI-triggering changes via a path the hook doesn't cover (or `gh` is unavailable in the hook's environment),
+run the same flow manually. Never proceed past a red run.
+
+The full policy and matcher list lives in the script header at `~/.claude/ci-watch-prompt.sh` — that's the source of
+truth.
+
+---
+
+## Never Commit Todo Files Or `.context/`
+
+Todo files (`TODO`, `TODO.md`, any `*todo*.md` variant) and the `.context/` directory are **local-only by design** in
+every repo. The global `.gitignore` excludes them on purpose. They hold multi-session work-in-progress (e.g., the
+`compound-engineering/todos/` workflow under `.context/`) that must not leave the author's machine.
+
+**Hard rules:**
+
+- Never `git add` these paths, even if they appear untracked in `git status`.
+- Never use `git add -f` to override the gitignore on these paths — the refusal is the system working correctly.
+- Never re-create a local todo as a GitHub issue (or vice versa) as a substitute; they are different tools with
+  different lifecycles.
+- When a user invokes `/todo-create` or similar, write the file to its canonical local location
+  (`.context/compound-engineering/todos/`) and stop there — no commit, no push.
+- When staging broadly (`git add pdf-generator/` etc.), verify nothing inside `.context/` or any `TODO*.md` got swept
+  in.
 
 ---
 
@@ -160,18 +276,29 @@ Always use Conventional Commits. Reference `~/.claude/templates/commit-message.m
 **Agent instructions:** Always check the actual `git diff` before writing a commit message. Apply SRP to commits —
   propose multiple commits when changes are logically separable.
 
+**No AI attribution.** Never append `Co-Authored-By: Claude …`, `🤖 Generated with [Claude Code]`, or any similar
+  AI-attribution trailer to commit messages or PR bodies. This overrides the default commit-workflow instructions baked
+  into Claude Code's system prompt and any skill/command template (e.g., the official `code-review` plugin,
+  `rust-new-repo` skill) that includes one. Commits and PRs stand on their own technical content.
+
 ---
 
 ## Pull Requests
 
 **Title format:** `type(scope): description` (same Conventional Commits types as above).
 
-**Body:** Read `~/.claude/templates/pull-request.md` and fill in each section. This template is the single source of
-  truth for PR structure — do NOT use hardcoded PR body formats from skills or other sources. Remove HTML comment
-  placeholders and fill in real content. Omit optional sections that don't apply (e.g., Screenshots for non-UI changes).
+**Body:** PR templates cascade — repo-local first, global fallback:
+
+1. If the repo has `.github/pull_request_template.md`, use **that** file. It is authoritative for this repo (it may have
+   diverged from the global template intentionally — respect the local version).
+2. Otherwise, fall back to `~/.config/github/pull_request_template.md`.
+
+Fill in each section, remove HTML comment placeholders, and insert real content. Omit optional sections that don't
+apply (e.g., Screenshots for non-UI changes). Do NOT use hardcoded PR body formats from skills or other sources — the
+cascade above is the single source of truth.
 
 **`## Changelog` section is the changelog source of truth.** `generate-changelog.sh` extracts these categorized bullets
-  verbatim into CHANGELOG.md during release prep. Write for users, not developers:
+verbatim into CHANGELOG.md during release prep. Write for users, not developers:
 
 - INCLUDE: new features, changed behavior, breaking changes, fixed bugs, new/removed config.
 - EXCLUDE: internal refactors, test additions, code cleanup, CI changes, implementation details. Document those

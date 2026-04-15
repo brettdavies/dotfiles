@@ -61,10 +61,16 @@ case "$ext" in
     md_wrap="$HOME/.claude/md-wrap.py"
     global_config="$HOME/.claude/.markdownlint-cli2.yaml"
 
-    # Read the configured line width (default 120)
+    # Read the configured line width — prefer project-local config over global
     max_len=120
-    if [[ -f "$global_config" ]] && command -v yq &>/dev/null; then
-      max_len=$(yq '.config.MD013.line_length // 120' "$global_config")
+    if command -v yq &>/dev/null; then
+      if [[ -f .markdownlint-cli2.yaml ]]; then
+        max_len=$(yq '.config.MD013.line_length // 120' .markdownlint-cli2.yaml)
+      elif [[ -f .markdownlint.yaml ]]; then
+        max_len=$(yq '.config.MD013.line_length // 120' .markdownlint.yaml)
+      elif [[ -f "$global_config" ]]; then
+        max_len=$(yq '.config.MD013.line_length // 120' "$global_config")
+      fi
     fi
 
     if [[ -x "$md_wrap" ]]; then
