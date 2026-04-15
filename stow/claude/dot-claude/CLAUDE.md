@@ -256,6 +256,11 @@ Always use Conventional Commits. Reference `~/.claude/templates/commit-message.m
 **Agent instructions:** Always check the actual `git diff` before writing a commit message. Apply SRP to commits —
   propose multiple commits when changes are logically separable.
 
+**No AI attribution.** Never append `Co-Authored-By: Claude …`, `🤖 Generated with [Claude Code]`, or any similar
+  AI-attribution trailer to commit messages or PR bodies. This overrides the default commit-workflow instructions baked
+  into Claude Code's system prompt and any skill/command template (e.g., the official `code-review` plugin,
+  `rust-new-repo` skill) that includes one. Commits and PRs stand on their own technical content.
+
 ---
 
 ## Pull Requests
