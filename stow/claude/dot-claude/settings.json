@@ -14,8 +14,9 @@
       "Bash(bird:*)",
       "Bash(brew:*)",
       "Bash(bun install:*)",
-      "Bash(bun run lint)",
-      "Bash(bun test)",
+      "Bash(bun run build:*)",
+      "Bash(bun run lint:*)",
+      "Bash(bun test:*)",
       "Bash(bun update:*)",
       "Bash(bun upgrade:*)",
       "Bash(bunx:*)",
@@ -38,7 +39,6 @@
       "Bash(gh:*)",
       "Bash(gio trash:*)",
       "Bash(git:*)",
-      "Bash(git rm --cached:*)",
       "Bash(git-cliff:*)",
       "Bash(git-crypt:*)",
       "Bash(git-lfs:*)",
@@ -241,13 +241,21 @@
   },
   "enabledPlugins": {
     "compound-engineering@every-marketplace": true,
-    "obsidian@obsidian-skills": true
+    "obsidian@obsidian-skills": true,
+    "cloudflare@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "obsidian-skills": {
       "source": {
         "source": "github",
         "repo": "kepano/obsidian-skills"
+      },
+      "autoUpdate": true
+    },
+    "cloudflare": {
+      "source": {
+        "source": "github",
+        "repo": "cloudflare/skills"
       },
       "autoUpdate": true
     }
