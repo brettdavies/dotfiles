@@ -80,6 +80,23 @@ are version-controlled in `config/systemd/system/` and deployed via dedicated sc
 2. Create or extend a deploy script in `scripts/` that copies and activates the unit
 3. Do NOT add to `stow/` or `SHARED_PACKAGES`
 
+### AppArmor Profiles (`config/apparmor.d/`)
+
+System-level AppArmor profiles follow the same "not managed by stow" rationale as systemd units. They live in
+`config/apparmor.d/` and are deployed via `scripts/apparmor-deploy.sh`, which copies every file to `/etc/apparmor.d/`
+and reloads it with `apparmor_parser -r`. Profiles persist across reboots.
+
+**Current profiles:**
+
+- `playwright` — grants `userns` to Playwright's bundled Chromium binaries so the browse tool works on Ubuntu 24.04.
+  Without this, Chromium fails sandbox init under `kernel.apparmor_restrict_unprivileged_userns=1`.
+
+**Pattern for adding new profiles:**
+
+1. Drop the profile file in `config/apparmor.d/` (filename must match the `/etc/apparmor.d/` target exactly)
+2. Re-run `sudo scripts/apparmor-deploy.sh` — it copies every file in the directory and reloads each one
+3. Do NOT add to `stow/` or `SHARED_PACKAGES`
+
 ---
 
 ## Shell Config Chain
@@ -181,8 +198,8 @@ This is set during bootstrap (see README) or via `bash .githooks/setup`.
 - **`main`** -- stable release branch, deployed to all machines. Protected by GitHub ruleset: requires PR to merge,
   squash-only, signed commits.
 - **`dev`** -- integration branch. Protected by GitHub ruleset: signed commits required.
-- **Feature branches** -- created from `dev` (e.g., `feat/user-auth`, `fix/shell-startup`). Merged to
-  `dev` via PR, then `dev` merged to `main` when ready.
+- **Feature branches** -- created from `dev` (e.g., `feat/user-auth`, `fix/shell-startup`). Merged to `dev` via PR, then
+  `dev` merged to `main` when ready.
 
 Never commit directly to `main`. All work goes through feature branches and PRs.
 
@@ -228,8 +245,8 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
 - **Node.js 24 required:** Set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a top-level `env` in every workflow.
   Node.js 20 actions are deprecated and will stop working after June 2, 2026.
 - **Commit signing:** The release bot (`github-actions[bot]`) creates unsigned commits. The `dev` branch ruleset
-  requires signed commits, so bot commits from `main` cannot be merged into `dev` directly. Sync `main` into
-  `dev` via GitHub UI merge or cherry-pick only signed commits.
+  requires signed commits, so bot commits from `main` cannot be merged into `dev` directly. Sync `main` into `dev` via
+  GitHub UI merge or cherry-pick only signed commits.
 
 ---
 
