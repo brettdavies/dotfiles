@@ -43,10 +43,12 @@ dotfiles/
 ├── config/
 │   ├── shell/             Shell fragments auto-sourced by .profile
 │   ├── git/               Per-platform git config templates
+│   ├── apparmor.d/        System-level AppArmor profiles (deployed via apparmor-deploy.sh)
 │   └── systemd/system/    System-level units (deployed via nas-deploy.sh)
 ├── scripts/
 │   ├── stow-deploy        Stow wrapper with conflict resolution
 │   ├── nas-deploy.sh      System-level NAS mount/automount deploy
+│   ├── apparmor-deploy.sh System-level AppArmor profile deploy (Playwright/Chromium)
 │   └── sync/              iCloud sync scripts
 ├── .githooks/             Repo-local git hooks (core.hooksPath)
 ├── .github/
@@ -105,6 +107,18 @@ and are deployed via `scripts/nas-deploy.sh`, which copies them to `/etc/systemd
 | `mnt-nas.automount`  | On-demand automount, solves WiFi boot race                     |
 
 **Deploy:** `sudo scripts/nas-deploy.sh` (requires `/root/.smbcredentials-pool-nas` from 1Password).
+
+### AppArmor Profiles (`config/apparmor.d/`)
+
+System-level AppArmor profiles live in `config/apparmor.d/` and are deployed via `scripts/apparmor-deploy.sh`, which
+copies every file to `/etc/apparmor.d/` and reloads it with `apparmor_parser -r`. Profiles persist across reboots
+because AppArmor loads `/etc/apparmor.d/` at boot.
+
+| Profile      | Purpose                                                                                   |
+|--------------|-------------------------------------------------------------------------------------------|
+| `playwright` | Grants `userns` to Playwright's bundled Chromium so the browse tool works on Ubuntu 24.04 |
+
+**Deploy:** `sudo scripts/apparmor-deploy.sh` (Linux only; requires the `apparmor` package).
 
 ### Shell Environment (`config/shell/`)
 

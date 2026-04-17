@@ -1,0 +1,23 @@
+abi <abi/4.0>,
+include <tunables/global>
+
+# Grants the userns capability to Playwright's bundled Chromium binaries on
+# Ubuntu 24.04, where the restricted unprivileged user namespace policy
+# (kernel.apparmor_restrict_unprivileged_userns=1) otherwise blocks Chromium
+# sandbox initialization. Globs cover all installed versions in ~/.cache/playwright.
+#
+# Without this profile, Chromium fails with:
+#   "Failed to move to new namespace: PID namespaces supported, Network namespace
+#    supported, but failed: errno = Permission denied"
+#
+# The Chromium team recommends AppArmor profiles over --no-sandbox; the browse
+# tool (~/.claude/skills/gstack/browse) only disables the sandbox when CI=true
+# or CONTAINER=true, so local interactive runs need this profile to work.
+
+profile playwright-chromium-headless /home/*/.cache/playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell flags=(unconfined) {
+  userns,
+}
+
+profile playwright-chromium /home/*/.cache/playwright/chromium-*/chrome-linux64/chrome flags=(unconfined) {
+  userns,
+}
