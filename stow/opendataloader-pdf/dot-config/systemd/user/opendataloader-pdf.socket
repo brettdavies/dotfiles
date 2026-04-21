@@ -1,0 +1,11 @@
+[Unit]
+Description=opendataloader-pdf hybrid OCR server socket
+
+[Socket]
+# Loopback only — the backend speaks plaintext HTTP with no auth.
+ListenStream=127.0.0.1:5002
+# Accept=no passes a single listening socket to the service as FD 3.
+Accept=no
+
+[Install]
+WantedBy=sockets.target

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Socket-activation-aware launcher for opendataloader-pdf-hybrid.
+#
+# Dispatches to the Python implementation via the uv-tool venv's interpreter.
+# The venv path is stable across `uv tool upgrade opendataloader-pdf`.
+#
+# The sh wrapper (rather than a hardcoded Python shebang) lets the same
+# script work for any user on any Linux host — $HOME expands at runtime.
+exec "$HOME/.local/share/uv/tools/opendataloader-pdf/bin/python" \
+     "$HOME/.local/bin/opendataloader-pdf-hybrid-sa.py" "$@"
