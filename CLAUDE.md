@@ -252,6 +252,10 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
 
 ## Reference
 
+- `docs/solutions/` (symlink to `~/dev/solutions-docs`) — documented solutions organized by category
+  (`deployment-issues/`, `integration-issues/`, `configuration-fixes/`, etc.) with YAML frontmatter (`module`, `tags`,
+  `problem_type`, `applies_when`). Relevant when debugging or implementing in documented areas; search with `qmd query
+  "<topic>" --collection solutions`.
 - Signing architecture: `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`
 - Shell config fixes: `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md`
 - Cross-platform deployment: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
