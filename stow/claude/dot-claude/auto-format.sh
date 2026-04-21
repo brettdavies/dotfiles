@@ -53,6 +53,15 @@ case "$ext" in
       cd "$CLAUDE_PROJECT_DIR"
       bunx prettier --write "$file" 2>&1 | tail -1 || true
     fi
+    # actionlint for GitHub Actions workflow files — must live here,
+    # not in a later `yml|yaml)` arm, because bash `case` stops at the
+    # first match and `yaml|yml` already matches above.
+    if [[ "$ext" == "yml" || "$ext" == "yaml" ]] \
+        && [[ "$file" == *".github/workflows/"* ]] \
+        && command -v actionlint &>/dev/null; then
+      lint_output=$(actionlint "$file" 2>&1) || true
+      report_errors "$lint_output"
+    fi
     ;;
   md)
     cd "$CLAUDE_PROJECT_DIR"
@@ -120,12 +129,6 @@ MD013 fix hint: line length limit is ${max_len} characters. Wrap lines to fill u
   rb)
     if command -v rubocop &>/dev/null; then
       lint_output=$(rubocop -a --format simple "$file" 2>&1) || true
-      report_errors "$lint_output"
-    fi
-    ;;
-  yml|yaml)
-    if [[ "$file" == *".github/workflows/"* ]] && command -v actionlint &>/dev/null; then
-      lint_output=$(actionlint "$file" 2>&1) || true
       report_errors "$lint_output"
     fi
     ;;
