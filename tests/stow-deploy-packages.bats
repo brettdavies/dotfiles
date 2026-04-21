@@ -19,6 +19,11 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
   [[ "$shared" == *"claude"* ]]
   [[ "$shared" == *"local"* ]]
   [[ "$shared" == *"brew"* ]]
+  [[ "$shared" == *"opendataloader-pdf"* ]]
+}
+
+@test "Linux-only case block covers expected packages" {
+  grep -q 'rclone|qmd|obsidian|opendataloader-pdf)' "$SCRIPT"
 }
 
 @test "DESKTOP_PACKAGES contains expected packages" {
