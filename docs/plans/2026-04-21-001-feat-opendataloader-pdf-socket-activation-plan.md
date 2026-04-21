@@ -1,9 +1,12 @@
 ---
 title: "feat: Socket-activate opendataloader-pdf-hybrid with idle-exit"
 type: feat
-status: active
+status: completed
 date: 2026-04-21
-origin: .context/compound-engineering/todos/014-pending-p3-spike-opendataloader-pdf-systemd-wrapper.md
+completed: 2026-04-21
+origin: .context/compound-engineering/todos/014-complete-p3-spike-opendataloader-pdf-systemd-wrapper.md
+pr: brettdavies/dotfiles#40
+solution_doc: docs/solutions/deployment-issues/systemd-socket-activation-uv-tool-python-service-2026-04-21.md
 ---
 
 # feat: Socket-activate opendataloader-pdf-hybrid with idle-exit
@@ -170,7 +173,7 @@ activation + launcher-level idle-exit is the recommended implementation path.
 
 ## Implementation Units
 
-- [ ] **Unit 1: Stow package skeleton**
+- [x] **Unit 1: Stow package skeleton**
 
 **Goal:** Create the `stow/opendataloader-pdf/` package with socket unit, service
 unit, and a placeholder launcher. The launcher in this unit is a minimal passthrough (no idle-exit, no FD handling) that
@@ -214,7 +217,7 @@ logic.
 - After stow, `systemd-analyze --user verify opendataloader-pdf.socket opendataloader-pdf.service` reports no errors.
 - `~/.local/bin/opendataloader-pdf-hybrid-sa` is executable and shebang points at a real interpreter.
 
-- [ ] **Unit 2: Launcher with FD handling and idle-exit watchdog**
+- [x] **Unit 2: Launcher with FD handling and idle-exit watchdog**
 
 **Goal:** Replace the Unit 1 placeholder with the real launcher: honors
 `LISTEN_FDS` to pass FD 3 to `uvicorn.run(fd=...)` (socket-activated path), adds `--idle-timeout` flag, installs ASGI
@@ -302,7 +305,7 @@ Launcher startup
 - VRAM query (`nvidia-smi --query-compute-apps=pid,used_memory --format=csv`) shows zero MiB for the launcher process
   during idle periods.
 
-- [ ] **Unit 3: stow-deploy integration**
+- [x] **Unit 3: stow-deploy integration**
 
 **Goal:** Wire the new package into `scripts/stow-deploy` so `--all` includes
 it on Linux and skips it on macOS. Verify existing bats tests still pass.
@@ -341,7 +344,7 @@ it on Linux and skips it on macOS. Verify existing bats tests still pass.
 - `bats tests/stow-deploy-*.bats` green.
 - After `--all` on Linux: all three symlinks present under `$HOME` per Unit 1's verification.
 
-- [ ] **Unit 4: Migration + enable companion script**
+- [x] **Unit 4: Migration + enable companion script**
 
 **Goal:** One-shot script that stops any orphan `opendataloader-pdf-hybrid`
 process on :5002, reloads systemd user units, enables the socket unit (`--now`), and confirms `/health` responds.
@@ -399,7 +402,7 @@ Idempotent and safe to re-run.
   returns 200. VRAM query shows the launcher process holding its expected footprint (or zero if the watchdog has already
   fired post-smoke).
 
-- [ ] **Unit 5: Bats test coverage + manual smoke checklist**
+- [x] **Unit 5: Bats test coverage + manual smoke checklist**
 
 **Goal:** Bats coverage for the static parts of the package (layout,
 stow-deploy wiring, enable-script structural sanity). A manual smoke checklist documents the live-behavior tests that
@@ -437,16 +440,16 @@ require a working uv-tool install.
    expect it to list the new `--idle-timeout` flag.
 
 - Manual smoke checklist (as a comment header in the bats file and as a plan appendix):
-- [ ] Cold start: fresh boot, `systemctl --user start opendataloader-pdf.socket`, `curl /health` < 15 s.
-- [ ] Conversion: `curl -X POST -F "files=@test.pdf" /v1/convert/file` returns 200 with JSON body.
-- [ ] Idle-exit: no requests for idle-timeout + 30 s; `ss -tnlp` shows systemd (not python) as the listener owner.
-- [ ] Re-activation: after idle-exit, next `curl /health` triggers cold start and succeeds.
-- [ ] VRAM reclaim: `nvidia-smi` shows 0 MiB for the launcher PID between idle-exits.
-- [ ] Concurrent requests: two parallel `curl` POSTs both complete (serialized by the upstream `threading.Lock`, no
+- [x] Cold start: fresh boot, `systemctl --user start opendataloader-pdf.socket`, `curl /health` < 15 s.
+- [x] Conversion: `curl -X POST -F "files=@test.pdf" /v1/convert/file` returns 200 with JSON body.
+- [x] Idle-exit: no requests for idle-timeout + 30 s; `ss -tnlp` shows systemd (not python) as the listener owner.
+- [x] Re-activation: after idle-exit, next `curl /health` triggers cold start and succeeds.
+- [x] VRAM reclaim: `nvidia-smi` shows 0 MiB for the launcher PID between idle-exits.
+- [x] Concurrent requests: two parallel `curl` POSTs both complete (serialized by the upstream `threading.Lock`, no
   crashes).
 - [ ] Teardown: `systemctl --user disable --now opendataloader-pdf.socket` cleanly stops everything and does not leave
-  orphans.
-- [ ] mc-pdf integration: run a known OCR-required PDF through the `mc-pdf` skill; output matches pre-migration
+  orphans. *(not live-tested — systemd disable-unit semantics trusted; run if/when removing the feature.)*
+- [x] mc-pdf integration: run a known OCR-required PDF through the `mc-pdf` skill; output matches pre-migration
   behavior.
 
 **Patterns to follow:**
@@ -504,8 +507,50 @@ require a working uv-tool install.
 
 ## Sources & References
 
-- **Origin document:** `.context/compound-engineering/todos/014-pending-p3-spike-opendataloader-pdf-systemd-wrapper.md`
+- **Origin document:** `.context/compound-engineering/todos/014-complete-p3-spike-opendataloader-pdf-systemd-wrapper.md`
 - Related code: `stow/obsidian/`, `scripts/stow-deploy`, `~/.claude/skills/markdown-convert/skills/mc-pdf/mc-pdf.sh`
 - Related todos: `008-pending-p3-stow-ollama-systemd-override.md`, `009-pending-p2-integrate-qmd-serve-sequential.md`
 - External docs: `systemd.socket(5)`, [uvicorn CLI reference](https://www.uvicorn.org/settings/)
 - Prior-art plan: `docs/plans/2026-04-01-001-feat-gogcli-stow-package-plan.md`
+
+## Post-ship notes (2026-04-21)
+
+All five implementation units landed in a single squashed merge:
+
+- **PR:** [brettdavies/dotfiles#40](https://github.com/brettdavies/dotfiles/pull/40) — merged to `dev` at `6982037`.
+- **Follow-on docs PR:** [brettdavies/dotfiles#41](https://github.com/brettdavies/dotfiles/pull/41) — surfaces
+  `docs/solutions/` in the project `CLAUDE.md` Reference section, merged at `35e2627`.
+- **Compounded solution:**
+  `docs/solutions/deployment-issues/systemd-socket-activation-uv-tool-python-service-2026-04-21.md` — reusable pattern
+  write-up for the next uv-tool Python daemon that needs supervision.
+- **New feedback memory:** `feedback_gpu_service_idle_tuning.md` — captures the aggressive-TTL preference that drove
+  `--idle-timeout 60` so todos `008` (ollama `KEEP_ALIVE`) and future GPU-shared services inherit the same bar.
+
+Deviations from the plan (all minor, captured for traceability):
+
+- **Launcher split into two files.** Plan described a single Python launcher with a hardcoded shebang. Implementation
+  uses an `sh` wrapper (`opendataloader-pdf-hybrid-sa`) + `.py` module (`…-sa.py`). The `sh` wrapper expands `$HOME` at
+  runtime, avoiding a per-user-hardcoded shebang that would break fleet portability. Pattern documented in the solution
+  doc.
+- **`mc-pdf-setup.sh` hint dropped.** The plan proposed appending a pointer to `scripts/opendataloader-pdf-enable.sh`
+  inside `mc-pdf-setup.sh`. That file lives outside this repo (it's in the `markdown-convert` skill, not stow-managed),
+  so the modification was skipped. The enable script's own error message already points users at `mc-pdf-setup.sh` on
+  smoke failure, which covers the fresh-host case.
+- **Smoke-checklist `Teardown` left unchecked.** Intentional — disabling the socket on the dev host would interrupt live
+  use. Systemd's `disable --now` semantics are well-known; the item is documented for anyone removing the feature, not
+  as a required pre-ship test.
+
+Measurements on bigdaddy post-deploy (repeated from the Work Log for locality):
+
+- SIGTERM → exit: 0.51 s (4378 MiB VRAM freed)
+- Boot → `/health 200`: 3.35 s cold start
+- First `/v1/convert/file`: 7.11 s (cold, EasyOCR + TableFormer lazy-load)
+- Warm `/v1/convert/file`: 1.3–2.0 s
+- Idle-exit: triggers at 60 s + up to 5 s poll jitter; VRAM fully reclaimed, systemd retains the listener
+- Re-activation: next `/health` cold-starts a fresh PID in ~2.9 s
+- `mc-pdf` e2e via the SA listener: skill saw the listener as "already running", reused it, produced valid markdown
+  output with frontmatter — zero caller changes required.
+
+Remaining three-way VRAM contention (ollama `gemma4:26b` + warm ODL + qmd concurrent) is **not** solved by this plan.
+That needs todo `008` (flip `OLLAMA_KEEP_ALIVE` to a finite value). This plan addresses the idle-squat failure mode
+only.
