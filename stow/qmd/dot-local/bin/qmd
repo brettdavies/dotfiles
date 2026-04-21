@@ -1,0 +1,8 @@
+#!/bin/sh
+# Dispatch to the brettdavies/qmd fork launcher at ~/dev/qmd/qmd.
+#
+# The sh wrapper (rather than a hardcoded symlink managed by bun) keeps the
+# qmd CLI binary invariant across bun reinstalls and makes the path identical
+# for interactive shells and systemd user services that use %h/.local/bin/qmd.
+# $HOME expands at invocation so the wrapper is user-portable.
+exec "$HOME/dev/qmd/qmd" "$@"
