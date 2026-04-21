@@ -6,8 +6,14 @@
 # permissionDecision: "deny" requires WebFetch NOT be in permissions.allow (Issue #18312).
 set -euo pipefail
 
-# Read hook input (bash builtin, no subprocess)
-INPUT=$(</dev/stdin)
+# Read hook input from fd 0.
+#
+# Do NOT use `$(</dev/stdin)`. Claude Code's hook runner spawns this script with
+# fd 0 connected via a pipe in a way where `open("/dev/stdin")` returns ENXIO
+# ("No such device or address"). `cat` reads fd 0 directly via read(2) without
+# opening /dev/stdin, so it works in every context where bash's `</dev/stdin`
+# works and also in the hook-runner context where the latter fails.
+INPUT=$(cat)
 
 # Guard: jaq required for JSON parsing
 command -v jaq >/dev/null 2>&1 || exit 0
