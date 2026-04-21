@@ -19,6 +19,11 @@
 **/todos/
 **/.context/
 **/TODOS.md
+# docs/solutions is a symlink to ~/dev/solutions-docs in every brettdavies repo.
+# Ignore it here so the symlink itself never appears in `git status`.
+# The solutions-docs repo negates this rule with `!docs/solutions` in its own
+# .gitignore so its contents remain tracked when working inside that repo.
+docs/solutions
 
 # Production builds
 target/
