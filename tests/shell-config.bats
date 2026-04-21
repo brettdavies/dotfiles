@@ -118,6 +118,24 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 }
 
 # ---------------------------------------------------------------------------
+# config/shell/qmd.sh: QMD_SERVER owned here, not in dot-profile
+# ---------------------------------------------------------------------------
+
+@test "qmd.sh exports QMD_SERVER pointing at the sequential-mode daemon" {
+  grep -q '^export QMD_SERVER=http://127.0.0.1:7832$' "$CONFIG_DIR/qmd.sh"
+}
+
+@test "dot-profile no longer exports QMD_SERVER (owned by config/shell/qmd.sh)" {
+  ! grep -q 'QMD_SERVER' "$STOW_DIR/shell/dot-profile"
+}
+
+@test "sourcing profile in a fresh shell exports QMD_SERVER" {
+  run bash -c 'unset QMD_SERVER; . "$HOME/.profile" >/dev/null 2>&1; echo "$QMD_SERVER"'
+  [ "$status" -eq 0 ]
+  [ "$output" = "http://127.0.0.1:7832" ]
+}
+
+# ---------------------------------------------------------------------------
 # Non-interactive environment (functional test)
 # ---------------------------------------------------------------------------
 
