@@ -75,13 +75,13 @@ cd ~/dotfiles/stow
 
 # macOS (shared + desktop)
 stow --dotfiles --no-folding --target="$HOME" \
-  secrets shell zsh bash git ssh gh local claude codex opencode pip bun brew \
+  secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
   tmux tmuxinator lazygit micro yazi caam gogcli ghostty cursor launchagent
 
 # Headless (shared only)
 stow --dotfiles --no-folding --target="$HOME" \
-  secrets shell zsh bash git ssh gh local claude codex opencode pip bun brew \
-  tmux tmuxinator lazygit micro yazi rclone qmd obsidian caam gogcli
+  secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
+  tmux tmuxinator lazygit micro yazi rclone qmd obsidian opendataloader-pdf caam gogcli
 ```
 
 ### Restow After Changes
