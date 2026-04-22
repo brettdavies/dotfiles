@@ -112,7 +112,18 @@
       "Read(//tmp/**)",
       "Bash(sudo systemctl:*)",
       "Bash(ollama:*)",
-      "Bash(curl -s http://127.0.0.1:7832/health)"
+      "Bash(curl -s http://127.0.0.1:7832/health)",
+      "Bash(ps:*)",
+      "Bash(systemd-analyze:*)",
+      "Bash(curl -s -o /dev/null -w \"health #1 @t=4s: HTTP %{http_code}\\\\n\" http://127.0.0.1:5003/health)",
+      "Bash(curl -s -o /dev/null -w \"health #2 @t=8s \\(after idle timer would have fired if not refreshed\\): HTTP %{http_code}\\\\n\" http://127.0.0.1:5003/health)",
+      "Bash(curl -s -o /dev/null -w \"health #3 @t=16s \\(should now be gone, 8s past last request\\): HTTP %{http_code}\\\\n\" http://127.0.0.1:5003/health)",
+      "Bash(curl -s -w \"HTTP %{http_code} total=%{time_total}s\\\\n\" -X POST -F \"files=@/tmp/test_full.pdf\" http://127.0.0.1:5002/v1/convert/file -o /tmp/smoke-conv.json)",
+      "Bash(curl -s -w \"job1: HTTP %{http_code} total=%{time_total}s\\\\n\" -X POST -F \"files=@/tmp/test_full.pdf\" http://127.0.0.1:5002/v1/convert/file -o /dev/null)",
+      "Bash(curl -s -w \"job2: HTTP %{http_code} total=%{time_total}s\\\\n\" -X POST -F \"files=@/tmp/test_full.pdf\" http://127.0.0.1:5002/v1/convert/file -o /dev/null)",
+      "Bash(wait)",
+      "Bash(curl -s -w \"HTTP %{http_code} total=%{time_total}s\\\\n\" http://127.0.0.1:5002/health)",
+      "Bash(bash ~/.claude/skills/markdown-convert/skills/mc-pdf/mc-pdf.sh:*)"
     ]
   }
 }

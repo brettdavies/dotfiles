@@ -20,7 +20,7 @@ EXIT_PLATFORM=6     # Platform mismatch (launchagent on Linux)
 # Package sets — single source of truth
 # Ordering: secrets first (git-crypt dep), shell (PATH/env), then the rest
 # Cross-reference: dotfiles-cli has its own PACKAGE_ORDER in src/link/mod.rs
-SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew tmux tmuxinator lazygit micro yazi rclone qmd obsidian caam gogcli)
+SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew tmux tmuxinator lazygit micro yazi rclone qmd obsidian opendataloader-pdf caam gogcli)
 DESKTOP_PACKAGES=(ghostty cursor launchagent)
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -262,7 +262,7 @@ for pkg in "$@"; do
   fi
   if [ "$(uname -s)" != "Linux" ]; then
     case "$pkg" in
-      rclone|qmd|obsidian)
+      rclone|qmd|obsidian|opendataloader-pdf)
         echo "WARNING: $pkg is Linux-only, skipping on $(uname -s)" >&2
         continue
         ;;

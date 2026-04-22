@@ -36,6 +36,9 @@ export EXPO_NO_TELEMETRY=1
 # Gatsby
 export GATSBY_TELEMETRY_DISABLED=1
 
+# GitHub CLI
+export GH_TELEMETRY=false
+
 # Google Cloud CLI
 export CLOUDSDK_CORE_DISABLE_USAGE_REPORTING=1
 # Alternative for some situations:
