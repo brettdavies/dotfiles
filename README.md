@@ -43,10 +43,12 @@ dotfiles/
 ├── config/
 │   ├── shell/             Shell fragments auto-sourced by .profile
 │   ├── git/               Per-platform git config templates
+│   ├── apparmor.d/        System-level AppArmor profiles (deployed via apparmor-deploy.sh)
 │   └── systemd/system/    System-level units (deployed via nas-deploy.sh)
 ├── scripts/
 │   ├── stow-deploy        Stow wrapper with conflict resolution
 │   ├── nas-deploy.sh      System-level NAS mount/automount deploy
+│   ├── apparmor-deploy.sh System-level AppArmor profile deploy (Playwright/Chromium)
 │   └── sync/              iCloud sync scripts
 ├── .githooks/             Repo-local git hooks (core.hooksPath)
 ├── .github/
@@ -64,70 +66,87 @@ dotfiles/
 Each directory under `stow/` is a package. Files prefixed with `dot-` become dotfiles (`.` prefix) when symlinked via
 `stow --dotfiles`.
 
-| Package       | What it manages                                                            |
-|---------------|----------------------------------------------------------------------------|
-| `bash`        | `.bashrc`, `.bash_profile`, `.bash_aliases`                                |
-| `brew`        | `Brewfile`, `Brewfile.optional`                                            |
-| `bun`         | `.bunfig.toml`                                                             |
-| `caam`        | `.caam/` (Claude account rotation config + vault, git-crypt encrypted)     |
-| `claude`      | `.claude/` (settings, hooks, statusline, templates), `.markdownlint-cli2.yaml` |
-| `codex`       | `.codex/config.toml`                                                       |
-| `cursor`      | `.cursor/rules/`, `extensions.txt`                                         |
-| `gh`          | `.config/gh/` (GitHub CLI config), `.local/bin/gh` (merge guard wrapper)   |
-| `ghostty`     | `.config/ghostty/config`                                                   |
-| `git`         | `.gitconfig`, `.config/git/` (ignore, allowed\_signers)                    |
-| `gogcli`      | `.config/gogcli/config.json` — Google Workspace CLI config                 |
-| `launchagent` | `~/Library/LaunchAgents/` (macOS only)                                     |
-| `lazygit`     | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52              |
-| `local`       | `.local/bin/` (env, op-ssh-sign-wrapper, tmux-new-session)                 |
-| `micro`       | `.config/micro/settings.json` — editor settings                            |
-| `obsidian`    | `.config/obsidian/`, systemd service, CLI wrapper (Linux only)             |
-| `opencode`    | `.config/opencode/config.json`                                             |
-| `pip`         | `.config/pip/pip.conf`                                                     |
-| `qmd`         | systemd timers for qmd embed and update (Linux only)                       |
-| `rclone`      | `.config/rclone/`, Box bisync systemd service + timer (Linux only)         |
-| `secrets`     | `.secrets` (git-crypt encrypted)                                           |
-| `shell`       | `.profile`                                                                 |
-| `ssh`         | `.ssh/config` (git-crypt encrypted)                                        |
-| `tmux`        | `.config/tmux/tmux.conf`                                                   |
-| `tmuxinator`  | `.config/tmuxinator/*.yml` — declarative session configs (13 projects)      |
-| `yazi`        | `.config/yazi/` — file manager config, keymaps, theme, packages            |
-| `zsh`         | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                              |
+| Package              | What it manages                                                                                     |
+|----------------------|-----------------------------------------------------------------------------------------------------|
+| `bash`               | `.bashrc`, `.bash_profile`, `.bash_aliases`                                                         |
+| `brew`               | `Brewfile`, `Brewfile.optional`                                                                     |
+| `bun`                | `.bunfig.toml`                                                                                      |
+| `caam`               | `.caam/` (Claude account rotation config + vault, git-crypt encrypted)                              |
+| `claude`             | `.claude/` (settings, hooks, statusline, templates), `.markdownlint-cli2.yaml`                      |
+| `codex`              | `.codex/config.toml`                                                                                |
+| `cursor`             | `.cursor/rules/`, `extensions.txt`                                                                  |
+| `gh`                 | `.config/gh/` (GitHub CLI config), `.local/bin/gh` (merge guard wrapper)                            |
+| `ghostty`            | `.config/ghostty/config`                                                                            |
+| `git`                | `.gitconfig`, `.config/git/` (ignore, allowed\_signers)                                             |
+| `github`             | `.config/github/` (PR template and other repo-workflow assets)                                      |
+| `gogcli`             | `.config/gogcli/config.json` — Google Workspace CLI config                                          |
+| `launchagent`        | `~/Library/LaunchAgents/` (macOS only)                                                              |
+| `lazygit`            | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52                                        |
+| `local`              | `.local/bin/` (env, op-ssh-sign-wrapper, tmux-new-session)                                          |
+| `micro`              | `.config/micro/settings.json` — editor settings                                                     |
+| `obsidian`           | `.config/obsidian/`, systemd service, CLI wrapper (Linux only)                                      |
+| `openclaw`           | systemd user units for memory extract/distill and morning briefing (Linux, opt-in)                  |
+| `opencode`           | `.config/opencode/config.json`                                                                      |
+| `opendataloader-pdf` | Socket-activated hybrid PDF server with idle-exit, systemd user units (Linux only)                  |
+| `pip`                | `.config/pip/pip.conf`                                                                              |
+| `qmd`                | `.local/bin/qmd` wrapper + systemd user units (qmd-serve daemon, embed + update timers, Linux only) |
+| `rclone`             | `.config/rclone/`, Box bisync systemd service + timer (Linux only)                                  |
+| `rust`               | `rustup-update.service` + `.timer` (nightly rustup self-update, Linux, opt-in)                      |
+| `secrets`            | `.secrets` (git-crypt encrypted)                                                                    |
+| `shell`              | `.profile`                                                                                          |
+| `ssh`                | `.ssh/config` (git-crypt encrypted)                                                                 |
+| `tmux`               | `.config/tmux/tmux.conf`                                                                            |
+| `tmuxinator`         | `.config/tmuxinator/*.yml` — declarative session configs (13 projects)                              |
+| `yazi`               | `.config/yazi/` — file manager config, keymaps, theme, packages                                     |
+| `zsh`                | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                                                       |
 
 ### System-Level Units (`config/systemd/system/`)
 
 System-level systemd units are **not** managed by stow (which targets `$HOME`). They live in `config/systemd/system/`
 and are deployed via `scripts/nas-deploy.sh`, which copies them to `/etc/systemd/system/` and activates them.
 
-| Unit                 | Purpose                                                         |
-|----------------------|-----------------------------------------------------------------|
-| `mnt-nas.mount`      | SMB mount for Pool NAS (`//192.168.1.5/openclaw`)              |
-| `mnt-nas.automount`  | On-demand automount, solves WiFi boot race                     |
+| Unit                | Purpose                                           |
+|---------------------|---------------------------------------------------|
+| `mnt-nas.mount`     | SMB mount for Pool NAS (`//192.168.1.5/openclaw`) |
+| `mnt-nas.automount` | On-demand automount, solves WiFi boot race        |
 
 **Deploy:** `sudo scripts/nas-deploy.sh` (requires `/root/.smbcredentials-pool-nas` from 1Password).
+
+### AppArmor Profiles (`config/apparmor.d/`)
+
+System-level AppArmor profiles live in `config/apparmor.d/` and are deployed via `scripts/apparmor-deploy.sh`, which
+copies every file to `/etc/apparmor.d/` and reloads it with `apparmor_parser -r`. Profiles persist across reboots
+because AppArmor loads `/etc/apparmor.d/` at boot.
+
+| Profile      | Purpose                                                                                   |
+|--------------|-------------------------------------------------------------------------------------------|
+| `playwright` | Grants `userns` to Playwright's bundled Chromium so the browse tool works on Ubuntu 24.04 |
+
+**Deploy:** `sudo scripts/apparmor-deploy.sh` (Linux only; requires the `apparmor` package).
 
 ### Shell Environment (`config/shell/`)
 
 `.profile` sources every `*.sh` file in `config/shell/` automatically — drop a file in and it's picked up, no manifest
 needed.
 
-| File                 | Purpose                                  |
-|----------------------|------------------------------------------|
-| `caam.sh`            | Claude account rotation wrapper + daemon |
-| `caches.sh`          | XDG cache directory locations            |
-| `claude-code.sh`     | Claude Code environment variables        |
-| `github.sh`          | GitHub CLI aliases                       |
-| `gogcli.sh`          | Google Workspace CLI keyring password injection |
-| `litellm.sh`         | LiteLLM proxy configuration              |
-| `lm-studio.sh`       | LM Studio PATH setup                    |
-| `local-paths.sh`     | Custom local PATH additions              |
-| `models.sh`          | AI/ML model storage locations            |
-| `platform-linux.sh`  | Linux-specific platform checks and config |
-| `python.sh`          | Python tooling config                    |
-| `supply-chain.sh`    | Supply-chain safety (package age gates)  |
-| `telemetry.sh`       | Telemetry opt-out environment variables  |
-| `tmuxinator.sh`      | `mux` and `mux-all` tmuxinator wrappers  |
-| `shell-functions`    | Interactive shell utilities (sourced by bashrc/zshrc) |
+| File                | Purpose                                               |
+|---------------------|-------------------------------------------------------|
+| `caam.sh`           | Claude account rotation wrapper + daemon              |
+| `caches.sh`         | XDG cache directory locations                         |
+| `claude-code.sh`    | Claude Code environment variables                     |
+| `github.sh`         | GitHub CLI aliases                                    |
+| `gogcli.sh`         | Google Workspace CLI keyring password injection       |
+| `litellm.sh`        | LiteLLM proxy configuration                           |
+| `lm-studio.sh`      | LM Studio PATH setup                                  |
+| `local-paths.sh`    | Custom local PATH additions                           |
+| `models.sh`         | AI/ML model storage locations                         |
+| `platform-linux.sh` | Linux-specific platform checks and config             |
+| `python.sh`         | Python tooling config                                 |
+| `qmd.sh`            | `QMD_SERVER` export (qmd-serve daemon URL)            |
+| `supply-chain.sh`   | Supply-chain safety (package age gates)               |
+| `telemetry.sh`      | Telemetry opt-out environment variables               |
+| `tmuxinator.sh`     | `mux` and `mux-all` tmuxinator wrappers               |
+| `shell-functions`   | Interactive shell utilities (sourced by bashrc/zshrc) |
 
 ## Secrets Management
 
@@ -144,19 +163,19 @@ Git hooks auto-unlock on checkout and merge. Back up
 
 Activated via `core.hooksPath` (set automatically by `stow-deploy`):
 
-| Hook            | Purpose                                                  |
-|-----------------|----------------------------------------------------------|
-| `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign`      |
-| `post-checkout` | Auto-unlocks git-crypt, chains Git LFS                   |
-| `post-merge`    | Auto-unlocks git-crypt, chains Git LFS                   |
-| `pre-push`      | Chains Git LFS pre-push                                  |
+| Hook            | Purpose                                             |
+|-----------------|-----------------------------------------------------|
+| `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign` |
+| `post-checkout` | Auto-unlocks git-crypt, chains Git LFS              |
+| `post-merge`    | Auto-unlocks git-crypt, chains Git LFS              |
+| `pre-push`      | Chains Git LFS pre-push                             |
 
 ## CI and Testing
 
-| Workflow          | Trigger              | Purpose                                     |
-|-------------------|----------------------|---------------------------------------------|
-| `release.yml`     | Squash merge to main | CalVer tag, changelog via git-cliff, release |
-| `shellcheck.yml`  | Push / PR            | Lints shell scripts                         |
+| Workflow         | Trigger              | Purpose                                      |
+|------------------|----------------------|----------------------------------------------|
+| `release.yml`    | Squash merge to main | CalVer tag, changelog via git-cliff, release |
+| `shellcheck.yml` | Push / PR            | Lints shell scripts                          |
 
 Shell scripts are tested with [bats-core](https://github.com/bats-core/bats-core) (`bats tests/`). Suites cover
 stow-deploy, git hooks, shell config, symlinks, and CLI wrappers.
@@ -179,20 +198,20 @@ See `docs/solutions/performance-issues/` for optimization details.
 
 ## Release Automation
 
-Every squash merge to `main` triggers a GitHub Action that computes a
-CalVer version (`YYYY.MM.DD`), generates a changelog via [git-cliff](https://git-cliff.org/), and creates a GitHub
-Release.
+Every squash merge to `main` triggers a GitHub Action that computes a CalVer version (`YYYY.MM.DD`), tags the commit,
+and creates a GitHub Release. Release notes are extracted from the topmost section of the committed `CHANGELOG.md`. See
+[RELEASES.md](RELEASES.md) for the end-to-end flow (feature branch → dev → `release/*` cherry-pick branch → main).
 
-### RELEASE_TOKEN Secret
+### CI_RELEASE_TOKEN Secret
 
-The workflow pushes back to protected `main`, which requires a fine-grained PAT stored as the `RELEASE_TOKEN` repo
+The workflow pushes back to protected `main`, which requires a fine-grained PAT stored as the `CI_RELEASE_TOKEN` repo
 secret.
 
 **Create / rotate the token:**
 
 ```bash
 op read "op://secrets-dev/dotfiles_RELEASE_TOKEN/credential" \
-  | gh secret set RELEASE_TOKEN
+  | gh secret set CI_RELEASE_TOKEN
 ```
 
 **Creating a new PAT** (if the 1Password entry doesn't exist):

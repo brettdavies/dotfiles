@@ -143,8 +143,3 @@ fi
 alias ollama-update='curl -fsSL https://ollama.com/install.sh | sudo sh'
 
 export GPG_TTY
-
-# Route qmd CLI queries through the persistent qmd-serve daemon (sequential
-# model loading — one heavy model at a time, peak ~2.6 GB instead of ~5.4 GB).
-# Service: ~/.config/systemd/user/qmd-serve.service
-export QMD_SERVER=http://127.0.0.1:7832

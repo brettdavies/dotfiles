@@ -1,0 +1,17 @@
+[Unit]
+Description=opendataloader-pdf hybrid OCR server (on-demand, socket-activated)
+Requires=opendataloader-pdf.socket
+After=opendataloader-pdf.socket
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/opendataloader-pdf-hybrid-sa --force-ocr --log-level warning --idle-timeout 60
+
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
