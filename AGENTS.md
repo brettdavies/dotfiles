@@ -46,11 +46,11 @@ instead. No per-package opt-in is needed.
 
 GNU Stow has no `--force` flag. The `scripts/stow-deploy` wrapper handles three conflict types:
 
-| Conflict | Cause | Resolution |
-|----------|-------|------------|
-| Non-stow symlink | Manually created absolute symlink | Remove symlink, restow |
-| Existing plain file | Config created by installer | `--adopt` moves file into package, then review or auto-restore |
-| Tree folding | Directory-level symlink pollutes repo | Detected and resolved pre-deploy; `--no-folding` prevents recurrence |
+| Conflict            | Cause                                 | Resolution                                                           |
+|---------------------|---------------------------------------|----------------------------------------------------------------------|
+| Non-stow symlink    | Manually created absolute symlink     | Remove symlink, restow                                               |
+| Existing plain file | Config created by installer           | `--adopt` moves file into package, then review or auto-restore       |
+| Tree folding        | Directory-level symlink pollutes repo | Detected and resolved pre-deploy; `--no-folding` prevents recurrence |
 
 **Usage:**
 
@@ -184,12 +184,12 @@ git config core.hooksPath .githooks
 
 This is set during bootstrap (see README) or via `bash .githooks/setup`.
 
-| Hook | Purpose |
-|------|---------|
-| `pre-commit` | Blocks commits on `main`, verifies `commit.gpgsign = true` |
+| Hook            | Purpose                                                    |
+|-----------------|------------------------------------------------------------|
+| `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign = true` |
 | `post-checkout` | Auto-unlocks git-crypt if key is available, chains Git LFS |
-| `post-merge` | Auto-unlocks git-crypt if key is available, chains Git LFS |
-| `pre-push` | Chains Git LFS pre-push |
+| `post-merge`    | Auto-unlocks git-crypt if key is available, chains Git LFS |
+| `pre-push`      | Chains Git LFS pre-push                                    |
 
 ---
 
