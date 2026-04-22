@@ -3,6 +3,7 @@ Description=QMD index update (cleanup + re-index all collections)
 
 [Service]
 Type=oneshot
+Environment="PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart=/bin/sh -c '%h/.local/bin/qmd cleanup 2>/dev/null; %h/.local/bin/qmd update'
 
 # Hardening
