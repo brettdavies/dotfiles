@@ -68,7 +68,7 @@ case "$ext" in
 
     # --- Step 1: auto-wrap prose to configured line width ---
     md_wrap="$HOME/.claude/md-wrap.py"
-    global_config="$HOME/.claude/.markdownlint-cli2.yaml"
+    global_config="$HOME/.markdownlint-cli2.yaml"
 
     # Read the configured line width — prefer project-local config over global
     max_len=120

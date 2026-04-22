@@ -1,5 +1,9 @@
 # Global markdownlint-cli2 configuration
+# Canonical version: 2026.04.15
 # Symlinked to ~/.markdownlint-cli2.yaml via stow
+#
+# Per-repo copies should preserve the `Canonical version` line above and bump it on resync;
+# a stale calver compared to this file is the signal that the per-repo copy has drifted.
 #
 # Documentation: https://github.com/DavidAnson/markdownlint-cli2
 # Rules: https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
@@ -73,6 +77,7 @@ ignores:
   - "node_modules/**"
   - "**/node_modules/**"
   - "vendor/**"
+  - "target/**"  # Rust build artifacts; harmless for non-Rust projects
   - ".git/**"
   - "*.min.md"
 
