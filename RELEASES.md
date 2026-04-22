@@ -1,28 +1,27 @@
 # Releasing `dotfiles`
 
-Every change reaches `main` via this pipeline. Direct commits to `dev` or `main` are not permitted — every
-change has a PR number in its squash commit message, which keeps the history scannable, attributable, and
-changelog-ready.
+Every change reaches `main` via this pipeline. Direct commits to `dev` or `main` are not permitted — every change has a
+PR number in its squash commit message, which keeps the history scannable, attributable, and changelog-ready.
 
 ```text
 feature branch → PR to dev (squash merge)
-              → release/YYYY.MM.DD branch (merge dev in)
+              → release/YYYY.MM.DD branch (cherry-pick PR squashes from dev onto main)
               → PR to main (squash merge)
               → push to main triggers CI: compute CalVer → tag → GitHub Release
 ```
 
 ## Branches
 
-| Branch        | Role                              | Lifetime                       | Protection                                    |
-| ------------- | --------------------------------- | ------------------------------ | --------------------------------------------- |
-| `main`        | Production. Only release commits. | Forever.                       | `.github/rulesets/protect-main.json`          |
-| `dev` | Integration. All feature PRs land here. | Forever. Never delete.   | `.github/rulesets/protect-dev.json`   |
-| `feat/*`, `fix/*`, `chore/*`, `docs/*` | Feature work. | One PR's worth. Delete after merge. | None — squash into dev freely. |
-| `release/*`   | Head of a dev → main PR.  | One release's worth. Delete after merge. | None.                               |
+| Branch                                 | Role                                    | Lifetime                                 | Protection                           |
+|----------------------------------------|-----------------------------------------|------------------------------------------|--------------------------------------|
+| `main`                                 | Production. Only release commits.       | Forever.                                 | `.github/rulesets/protect-main.json` |
+| `dev`                                  | Integration. All feature PRs land here. | Forever. Never delete.                   | `.github/rulesets/protect-dev.json`  |
+| `feat/*`, `fix/*`, `chore/*`, `docs/*` | Feature work.                           | One PR's worth. Delete after merge.      | None — squash into dev freely.       |
+| `release/*`                            | Head of a dev → main PR.                | One release's worth. Delete after merge. | None.                                |
 
-`dev` is a **forever branch**. Never delete it locally or remotely, even after a `release/* → main` merge. The
-next release cycle reuses the same `dev`. Using a short-lived `release/*` head is what lets `dev` stay
-around forever while still going through a PR into `main`.
+`dev` is a **forever branch**. Never delete it locally or remotely, even after a `release/* → main` merge. The next
+release cycle reuses the same `dev`. Using a short-lived `release/*` head is what lets `dev` stay around forever while
+still going through a PR into `main`.
 
 ## Daily dev (feature → dev)
 
@@ -39,8 +38,8 @@ gh pr create --base dev --title "feat(scope): what changed"
   `~/.claude/templates/commit-message.md` for the full spec.
 - **PR body**: follow `.github/pull_request_template.md`. The `## Changelog` section is the source of truth for
   user-facing release notes — `git-cliff` extracts these bullets verbatim into `CHANGELOG.md` during release prep.
-- **Signing**: `dev` requires signed commits per `protect-dev.json`. The `pre-commit` hook verifies
-  `commit.gpgsign = true` locally before push.
+- **Signing**: `dev` requires signed commits per `protect-dev.json`. The `pre-commit` hook verifies `commit.gpgsign =
+  true` locally before push.
 
 ## Releasing dev to main
 
@@ -98,12 +97,12 @@ release branch can be deleted from the GitHub UI after merge; `dev` is untouched
 
 Two compounding problems made the earlier "branch from main, merge dev" flow break on every release:
 
-1. **`add/add` conflicts.** Branching from `dev` produces `add/add` merge conflicts whenever `dev` and
-   `main` have diverged (which they always do after the first squash merge). The same file appears "added" on both sides
-   with different content.
-2. **Orphan history leaking into the changelog.** `git merge origin/dev` pulls in every ancestor SHA on dev —
-   including individual commits that were collapsed into prior release squashes on `main`. Those SHAs aren't reachable
-   from the last tag, so `git-cliff --unreleased` re-emits them in every new release's changelog.
+1. **`add/add` conflicts.** Branching from `dev` produces `add/add` merge conflicts whenever `dev` and `main` have
+   diverged (which they always do after the first squash merge). The same file appears "added" on both sides with
+   different content.
+2. **Orphan history leaking into the changelog.** `git merge origin/dev` pulls in every ancestor SHA on dev — including
+   individual commits that were collapsed into prior release squashes on `main`. Those SHAs aren't reachable from the
+   last tag, so `git-cliff --unreleased` re-emits them in every new release's changelog.
 
 Cherry-picking solves both: branching from `origin/main` avoids the conflicts, and picking only PR squash commits
 creates fresh SHAs on the release branch that represent exactly the delta being shipped — no prior-release noise.
@@ -112,12 +111,12 @@ creates fresh SHAs on the release branch that represent exactly the delta being 
 
 The tag is **not** created locally. `release.yml` triggers on any push to `main` and runs:
 
-| Step | What |
-|------|------|
-| `Compute CalVer version` | `YYYY.MM.DD` in America/Los_Angeles. If tags for today already exist, append `.N` (e.g. `2026.04.15.1`). |
-| `Extract release notes` | Read the topmost `## [version]` section from the committed `CHANGELOG.md`. Falls back to `"Release <version>"` if empty. |
-| `Tag and push` | `git tag <version> && git push origin <version>`. Bare (non-annotated) because the workflow runs as `github-actions[bot]` without a signing key configured. |
-| `Create GitHub Release` | `softprops/action-gh-release` publishes a release with the extracted notes as the body. |
+| Step                     | What                                                                                                                                                        |
+|--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Compute CalVer version` | `YYYY.MM.DD` in America/Los_Angeles. If tags for today already exist, append `.N` (e.g. `2026.04.15.1`).                                                    |
+| `Extract release notes`  | Read the topmost `## [version]` section from the committed `CHANGELOG.md`. Falls back to `"Release <version>"` if empty.                                    |
+| `Tag and push`           | `git tag <version> && git push origin <version>`. Bare (non-annotated) because the workflow runs as `github-actions[bot]` without a signing key configured. |
+| `Create GitHub Release`  | `softprops/action-gh-release` publishes a release with the extracted notes as the body.                                                                     |
 
 No crates, no cross-compiled binaries, no Homebrew dispatch — this repo is config-only.
 
@@ -134,9 +133,9 @@ single source of truth for user-facing release notes.
 
 `generate-changelog.sh` (which wraps `git-cliff` per `cliff.toml`) reads:
 
-1. The individual conventional-commit messages on the release branch (merged from `dev`), categorized per
-   `cliff.toml`'s `commit_parsers` (`feat` → Added, `fix` → Fixed, `refactor`/`perf` → Changed, `docs` → Documentation,
-   everything else skipped).
+1. The individual conventional-commit messages on the release branch (merged from `dev`), categorized per `cliff.toml`'s
+   `commit_parsers` (`feat` → Added, `fix` → Fixed, `refactor`/`perf` → Changed, `docs` → Documentation, everything else
+   skipped).
 2. The `## Changelog` section of each squash-merged PR body, pulled via the GitHub API and used to expand bullets past
    the single-line commit summary.
 
@@ -150,8 +149,8 @@ Two rulesets are committed under `.github/rulesets/` and applied to the repo via
 
 - `protect-main.json` — required signatures, linear history, squash-only merges via PR, creation/deletion blocked,
   non-fast-forward blocked. No required status checks (shellcheck is advisory; `release.yml` runs post-merge).
-- `protect-dev.json` — required signatures, deletion blocked, non-fast-forward blocked. No PR requirement at the
-  ruleset level; the PR-only norm is enforced by convention.
+- `protect-dev.json` — required signatures, deletion blocked, non-fast-forward blocked. No PR requirement at the ruleset
+  level; the PR-only norm is enforced by convention.
 
 ### Applying changes
 
@@ -170,8 +169,8 @@ Committing the JSON alongside config means ruleset changes land via the same rev
 
 ## Required secrets
 
-| Secret | Purpose | Lifecycle |
-|--------|---------|-----------|
+| Secret             | Purpose                                                                                                                                                                                                 | Lifecycle         |
+|--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------|
 | `CI_RELEASE_TOKEN` | Fine-grained PAT, Contents R+W. Used by `release.yml` to push the tag and create the GitHub Release. The default `GITHUB_TOKEN` cannot push to `main` because `protect-main.json` blocks non-PR writes. | Rotated annually. |
 
 ## Troubleshooting
@@ -182,9 +181,9 @@ script's branch detection expects `release/vN.N.N` (SemVer) and does not parse C
 **Empty changelog sections:** Ensure `cliff.toml` has `[remote.github]` with `owner` and `repo` for PR body expansion,
 and that `GITHUB_TOKEN` is exported (the command above falls back to `gh auth token`).
 
-**Push to `release/*` rejected for unsigned commits:** Release branches aren't listed in `protect-dev.json`'s
-ref pattern, but `gitconfig` sets `commit.gpgsign = true` globally and `.githooks/pre-commit` enforces it. Ensure your
-SSH signing key is configured (1Password on macOS, ssh-keygen on headless Linux — see
+**Push to `release/*` rejected for unsigned commits:** Release branches aren't listed in `protect-dev.json`'s ref
+pattern, but `gitconfig` sets `commit.gpgsign = true` globally and `.githooks/pre-commit` enforces it. Ensure your SSH
+signing key is configured (1Password on macOS, ssh-keygen on headless Linux — see
 `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`).
 
 **Same-day re-release:** If today already has a `YYYY.MM.DD` tag, CI auto-bumps to `YYYY.MM.DD.1`, `YYYY.MM.DD.2`, etc.
@@ -196,6 +195,6 @@ No local action required — just merge another `release/*` PR.
 ## Related docs
 
 - [`.github/pull_request_template.md`](.github/pull_request_template.md) — PR body structure with changelog sections
-- [`CLAUDE.md`](CLAUDE.md) — project conventions, stow packages, shell config chain
+- [`AGENTS.md`](AGENTS.md) — project conventions, stow packages, shell config chain
 - [`README.md`](README.md) — bootstrap, stow deploy, cross-platform notes
 - [`cliff.toml`](cliff.toml) — git-cliff configuration: commit parsers, tag pattern, remote metadata
