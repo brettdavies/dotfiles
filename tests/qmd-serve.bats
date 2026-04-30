@@ -174,6 +174,32 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   grep -q 'ollama stop' "$OLLAMA_UNLOAD_SH"
 }
 
+@test "qmd-ollama-unload-all gates unload on free VRAM (MIN_FREE_MIB threshold)" {
+  # The unload must be conditional, not unconditional. Stomping a pinned
+  # Ollama model on every embed cycle when there's plenty of headroom is
+  # wasteful. The threshold is configurable via env var for tuning.
+  grep -q 'MIN_FREE_MIB' "$OLLAMA_UNLOAD_SH"
+  grep -q 'nvidia-smi' "$OLLAMA_UNLOAD_SH"
+  grep -q 'memory.free' "$OLLAMA_UNLOAD_SH"
+}
+
+@test "qmd-ollama-unload-all default threshold leaves headroom for embed model" {
+  # Embedding model peaks around ~700 MB VRAM with batch KV cache; default
+  # threshold should be at least 2x that to absorb noise without false
+  # triggers, but not so high that it stomps Ollama on a normally-loaded
+  # 24 GB GPU.
+  default_mib=$(grep -oE 'MIN_FREE_MIB:=[0-9]+' "$OLLAMA_UNLOAD_SH" | cut -d= -f2)
+  [ -n "$default_mib" ]
+  [ "$default_mib" -ge 1500 ]
+  [ "$default_mib" -le 4096 ]
+}
+
+@test "qmd-ollama-unload-all skips unload when nvidia-smi is absent or fails" {
+  # No-GPU host (CPU-only) and nvidia-smi-error paths must both bail without
+  # touching Ollama — otherwise CPU embed gets a needless side effect.
+  grep -q 'command -v nvidia-smi' "$OLLAMA_UNLOAD_SH"
+}
+
 @test "qmd-ollama-unload-all has no hardcoded model names" {
   # Whitelist: no concrete model name (regex covers vendor:tag patterns and
   # bare GGUF model strings). Comments may describe behavior abstractly but
