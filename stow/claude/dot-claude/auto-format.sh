@@ -68,6 +68,7 @@ case "$ext" in
 
     # --- Step 1: auto-wrap prose to configured line width ---
     md_wrap="$HOME/.claude/md-wrap.py"
+    md_align="$HOME/.claude/md-align-tables.py"
     global_config="$HOME/.markdownlint-cli2.yaml"
 
     # Read the configured line width — prefer project-local config over global
@@ -86,7 +87,14 @@ case "$ext" in
       python3 "$md_wrap" -i -w "$max_len" "$file" 2>/dev/null || true
     fi
 
-    # --- Step 2: run markdownlint ---
+    # --- Step 2: align GFM tables (MD060 autofix; upstream gap tracked at
+    # DavidAnson/markdownlint#1980). Script uses a `uv run --script` shebang so
+    # PEP 723 inline metadata drives its own interpreter resolution. ---
+    if [[ -x "$md_align" ]] && command -v uv &>/dev/null; then
+      "$md_align" "$file" 2>/dev/null || true
+    fi
+
+    # --- Step 3: run markdownlint ---
     local_config=""
     [[ -f .markdownlint-cli2.yaml ]] && local_config=".markdownlint-cli2.yaml"
     [[ -f .markdownlint.yaml ]] && local_config=".markdownlint.yaml"
