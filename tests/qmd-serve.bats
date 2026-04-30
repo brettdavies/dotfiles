@@ -39,9 +39,12 @@ PKG_DIR="$REPO_ROOT/stow/qmd"
 SERVE_UNIT="$PKG_DIR/dot-config/systemd/user/qmd-serve.service"
 EMBED_UNIT="$PKG_DIR/dot-config/systemd/user/qmd-embed.service"
 UPDATE_UNIT="$PKG_DIR/dot-config/systemd/user/qmd-update.service"
+CLEANUP_UNIT="$PKG_DIR/dot-config/systemd/user/qmd-cleanup.service"
 EMBED_TIMER="$PKG_DIR/dot-config/systemd/user/qmd-embed.timer"
 UPDATE_TIMER="$PKG_DIR/dot-config/systemd/user/qmd-update.timer"
+CLEANUP_TIMER="$PKG_DIR/dot-config/systemd/user/qmd-cleanup.timer"
 WRAPPER_SH="$PKG_DIR/dot-local/bin/qmd"
+OLLAMA_UNLOAD_SH="$PKG_DIR/dot-local/bin/qmd-ollama-unload-all"
 ENABLE_SCRIPT="$REPO_ROOT/scripts/qmd-serve-enable.sh"
 SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 
@@ -67,6 +70,14 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 
 @test "qmd-update.timer file exists" {
   [ -f "$UPDATE_TIMER" ]
+}
+
+@test "qmd-cleanup.service file exists" {
+  [ -f "$CLEANUP_UNIT" ]
+}
+
+@test "qmd-cleanup.timer file exists" {
+  [ -f "$CLEANUP_TIMER" ]
 }
 
 @test "qmd wrapper sh exists and is executable" {
@@ -145,10 +156,68 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   ! grep -E '^ExecStart(Pre|Post)?=' "$EMBED_UNIT" | grep -q '/home/[a-z]*/'
 }
 
-@test "qmd-embed retains Ollama-unload ExecStartPre (intentional; Ollama is a separate process)" {
-  grep -q '^ExecStartPre=' "$EMBED_UNIT"
-  grep -q '11434' "$EMBED_UNIT"
-  grep -q 'qwen3-coder:30b' "$EMBED_UNIT"
+@test "qmd-embed ExecStartPre delegates to qmd-ollama-unload-all helper" {
+  # The unload step must call the dynamic-discovery helper script. Hardcoding
+  # a model name in the unit (the prior bug) either no-oped or, worse, loaded
+  # the wrong model just to unload it once the env-pinned model changed.
+  grep -q '^ExecStartPre=%h/.local/bin/qmd-ollama-unload-all$' "$EMBED_UNIT"
+  ! grep -qE '^ExecStartPre=.*(curl|api/generate|--data|-d ).*model' "$EMBED_UNIT"
+}
+
+@test "qmd-ollama-unload-all helper exists and is executable" {
+  [ -f "$OLLAMA_UNLOAD_SH" ]
+  [ -x "$OLLAMA_UNLOAD_SH" ]
+}
+
+@test "qmd-ollama-unload-all uses dynamic discovery (ollama ps + ollama stop)" {
+  grep -q 'ollama ps' "$OLLAMA_UNLOAD_SH"
+  grep -q 'ollama stop' "$OLLAMA_UNLOAD_SH"
+}
+
+@test "qmd-ollama-unload-all gates unload on free VRAM (MIN_FREE_MIB threshold)" {
+  # The unload must be conditional, not unconditional. Stomping a pinned
+  # Ollama model on every embed cycle when there's plenty of headroom is
+  # wasteful. The threshold is configurable via env var for tuning.
+  grep -q 'MIN_FREE_MIB' "$OLLAMA_UNLOAD_SH"
+  grep -q 'nvidia-smi' "$OLLAMA_UNLOAD_SH"
+  grep -q 'memory.free' "$OLLAMA_UNLOAD_SH"
+}
+
+@test "qmd-ollama-unload-all default threshold leaves headroom for embed model" {
+  # Embedding model peaks around ~700 MB VRAM with batch KV cache; default
+  # threshold should be at least 2x that to absorb noise without false
+  # triggers, but not so high that it stomps Ollama on a normally-loaded
+  # 24 GB GPU.
+  default_mib=$(grep -oE 'MIN_FREE_MIB:=[0-9]+' "$OLLAMA_UNLOAD_SH" | cut -d= -f2)
+  [ -n "$default_mib" ]
+  [ "$default_mib" -ge 1500 ]
+  [ "$default_mib" -le 4096 ]
+}
+
+@test "qmd-ollama-unload-all skips unload when nvidia-smi is absent or fails" {
+  # No-GPU host (CPU-only) and nvidia-smi-error paths must both bail without
+  # touching Ollama — otherwise CPU embed gets a needless side effect.
+  grep -q 'command -v nvidia-smi' "$OLLAMA_UNLOAD_SH"
+}
+
+@test "qmd-ollama-unload-all has no hardcoded model names" {
+  # Whitelist: no concrete model name (regex covers vendor:tag patterns and
+  # bare GGUF model strings). Comments may describe behavior abstractly but
+  # must not pin a specific model.
+  ! grep -qE '"[a-z0-9._-]+:[0-9a-z._-]+"' "$OLLAMA_UNLOAD_SH"
+  ! grep -qE "'[a-z0-9._-]+:[0-9a-z._-]+'" "$OLLAMA_UNLOAD_SH"
+}
+
+@test "qmd-ollama-unload-all always exits 0 (callers proceed even on failure)" {
+  grep -q '^exit 0$' "$OLLAMA_UNLOAD_SH"
+}
+
+@test "qmd-ollama-unload-all passes shellcheck" {
+  if ! command -v shellcheck >/dev/null 2>&1; then
+    skip "shellcheck not installed"
+  fi
+  run shellcheck "$OLLAMA_UNLOAD_SH"
+  [ "$status" -eq 0 ]
 }
 
 @test "qmd-embed hardening: NoNewPrivileges + PrivateTmp" {
@@ -176,6 +245,49 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 @test "qmd-update hardening: NoNewPrivileges + PrivateTmp" {
   grep -q '^NoNewPrivileges=true$' "$UPDATE_UNIT"
   grep -q '^PrivateTmp=true$' "$UPDATE_UNIT"
+}
+
+# ---------------------------------------------------------------------------
+# qmd-cleanup.service contents
+# ---------------------------------------------------------------------------
+
+@test "qmd-cleanup ExecStart invokes %h/.local/bin/qmd cleanup" {
+  grep -q 'ExecStart=/bin/sh -c .*%h/.local/bin/qmd cleanup' "$CLEANUP_UNIT"
+}
+
+@test "qmd-cleanup has no hardcoded /home/<user>/ path" {
+  ! grep -q '/home/[a-z]*/' "$CLEANUP_UNIT"
+}
+
+@test "qmd-cleanup has Type=oneshot" {
+  grep -q '^Type=oneshot$' "$CLEANUP_UNIT"
+}
+
+@test "qmd-cleanup hardening: NoNewPrivileges + PrivateTmp" {
+  grep -q '^NoNewPrivileges=true$' "$CLEANUP_UNIT"
+  grep -q '^PrivateTmp=true$' "$CLEANUP_UNIT"
+}
+
+# ---------------------------------------------------------------------------
+# qmd-cleanup.timer contents — nightly base + randomized fuzz so the cleanup
+# fires inside a low-activity window without correlating with anything else
+# scheduled on the same wall clock.
+# ---------------------------------------------------------------------------
+
+@test "qmd-cleanup.timer fires nightly via OnCalendar" {
+  grep -qE '^OnCalendar=\*-\*-\* [0-9]{2}:[0-9]{2}:[0-9]{2}$' "$CLEANUP_TIMER"
+}
+
+@test "qmd-cleanup.timer randomizes fire time (RandomizedDelaySec set)" {
+  grep -qE '^RandomizedDelaySec=' "$CLEANUP_TIMER"
+}
+
+@test "qmd-cleanup.timer is persistent (catches up after downtime)" {
+  grep -q '^Persistent=true$' "$CLEANUP_TIMER"
+}
+
+@test "qmd-cleanup.timer install: WantedBy=timers.target" {
+  grep -q '^WantedBy=timers.target$' "$CLEANUP_TIMER"
 }
 
 # ---------------------------------------------------------------------------
