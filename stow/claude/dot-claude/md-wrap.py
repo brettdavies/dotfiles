@@ -126,8 +126,10 @@ def wrap_markdown(content: str, width: int = 120) -> str:
     at_start = True
 
     def drain():
+        nonlocal buf_indent
         if buf:
             out.append(flush(buf, width, buf_indent))
+        buf_indent = ""
 
     for raw in lines:
         line = raw.rstrip("\r")
