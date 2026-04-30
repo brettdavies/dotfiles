@@ -39,8 +39,10 @@ PKG_DIR="$REPO_ROOT/stow/qmd"
 SERVE_UNIT="$PKG_DIR/dot-config/systemd/user/qmd-serve.service"
 EMBED_UNIT="$PKG_DIR/dot-config/systemd/user/qmd-embed.service"
 UPDATE_UNIT="$PKG_DIR/dot-config/systemd/user/qmd-update.service"
+CLEANUP_UNIT="$PKG_DIR/dot-config/systemd/user/qmd-cleanup.service"
 EMBED_TIMER="$PKG_DIR/dot-config/systemd/user/qmd-embed.timer"
 UPDATE_TIMER="$PKG_DIR/dot-config/systemd/user/qmd-update.timer"
+CLEANUP_TIMER="$PKG_DIR/dot-config/systemd/user/qmd-cleanup.timer"
 WRAPPER_SH="$PKG_DIR/dot-local/bin/qmd"
 ENABLE_SCRIPT="$REPO_ROOT/scripts/qmd-serve-enable.sh"
 SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
@@ -67,6 +69,14 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 
 @test "qmd-update.timer file exists" {
   [ -f "$UPDATE_TIMER" ]
+}
+
+@test "qmd-cleanup.service file exists" {
+  [ -f "$CLEANUP_UNIT" ]
+}
+
+@test "qmd-cleanup.timer file exists" {
+  [ -f "$CLEANUP_TIMER" ]
 }
 
 @test "qmd wrapper sh exists and is executable" {
@@ -176,6 +186,49 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 @test "qmd-update hardening: NoNewPrivileges + PrivateTmp" {
   grep -q '^NoNewPrivileges=true$' "$UPDATE_UNIT"
   grep -q '^PrivateTmp=true$' "$UPDATE_UNIT"
+}
+
+# ---------------------------------------------------------------------------
+# qmd-cleanup.service contents
+# ---------------------------------------------------------------------------
+
+@test "qmd-cleanup ExecStart invokes %h/.local/bin/qmd cleanup" {
+  grep -q 'ExecStart=/bin/sh -c .*%h/.local/bin/qmd cleanup' "$CLEANUP_UNIT"
+}
+
+@test "qmd-cleanup has no hardcoded /home/<user>/ path" {
+  ! grep -q '/home/[a-z]*/' "$CLEANUP_UNIT"
+}
+
+@test "qmd-cleanup has Type=oneshot" {
+  grep -q '^Type=oneshot$' "$CLEANUP_UNIT"
+}
+
+@test "qmd-cleanup hardening: NoNewPrivileges + PrivateTmp" {
+  grep -q '^NoNewPrivileges=true$' "$CLEANUP_UNIT"
+  grep -q '^PrivateTmp=true$' "$CLEANUP_UNIT"
+}
+
+# ---------------------------------------------------------------------------
+# qmd-cleanup.timer contents — nightly base + randomized fuzz so the cleanup
+# fires inside a low-activity window without correlating with anything else
+# scheduled on the same wall clock.
+# ---------------------------------------------------------------------------
+
+@test "qmd-cleanup.timer fires nightly via OnCalendar" {
+  grep -qE '^OnCalendar=\*-\*-\* [0-9]{2}:[0-9]{2}:[0-9]{2}$' "$CLEANUP_TIMER"
+}
+
+@test "qmd-cleanup.timer randomizes fire time (RandomizedDelaySec set)" {
+  grep -qE '^RandomizedDelaySec=' "$CLEANUP_TIMER"
+}
+
+@test "qmd-cleanup.timer is persistent (catches up after downtime)" {
+  grep -q '^Persistent=true$' "$CLEANUP_TIMER"
+}
+
+@test "qmd-cleanup.timer install: WantedBy=timers.target" {
+  grep -q '^WantedBy=timers.target$' "$CLEANUP_TIMER"
 }
 
 # ---------------------------------------------------------------------------
