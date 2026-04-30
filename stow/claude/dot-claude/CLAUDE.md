@@ -41,6 +41,7 @@ Key routing rules:
 - Update docs after shipping → invoke document-release
 - Weekly retro → invoke retro
 - Design system, brand → invoke design-consultation
+- Typography, fonts, type hierarchy, readability → invoke typeset
 - Visual audit, design polish → invoke design-review
 - Architecture review → invoke plan-eng-review
 
@@ -54,6 +55,16 @@ than ~20 lines may skip the full loop. Use judgment.
 `qmd query "<topic>" --collection solutions` to surface existing decisions and patterns. Solutions contain hard-won
 decisions that cannot be inferred from the file layout alone. This applies to all interactions — questions, debugging,
 code review, and architecture discussions — not just implementation.
+
+**During CE skill dispatches:** When `/ce-plan`, `/ce-ideate`, `/ce-code-review`, or `/ce-optimize` instructs you to
+dispatch `compound-engineering:ce-learnings-researcher` (agent name as of CE v3.0.0 — was
+`compound-engineering:research:learnings-researcher` in ≤2.68.x), ALSO dispatch the user-level `qmd-learnings-researcher`
+(`~/.claude/agents/qmd-learnings-researcher.md`) in the same parallel batch with the same query context. Merge both
+result sets — prefer qmd's findings where they disagree, since qmd's hybrid retrieval is tolerant of the tag-vocabulary
+drift that defeats the plugin's grep pre-filter on the ~230-doc shared corpus. The plugin agent still runs (it has a
+mandatory critical-patterns.md read that's worth keeping); the qmd agent catches what grep misses. This is a local hack
+around [compound-engineering-plugin#655](https://github.com/EveryInc/compound-engineering-plugin/issues/655) — remove
+this directive once that lands upstream.
 
 ---
 
@@ -243,6 +254,24 @@ every repo. The global `.gitignore` excludes them on purpose. They hold multi-se
 - When staging broadly (`git add pdf-generator/` etc.), verify nothing inside `.context/` or any `TODO*.md` got swept
   in.
 
+**Handoff documents** (multi-session kickoff prompts that brief a future agent on state-of-the-world before they pick
+up work) live at `.context/handoffs/` and follow the CE plan filename convention:
+
+```text
+.context/handoffs/YYYY-MM-DD-NNN-<slug>-handoff.md
+```
+
+- `YYYY-MM-DD` is the date the handoff was written.
+- `NNN` is a zero-padded per-day counter (`001`, `002`, …) so multiple handoffs on the same day sort deterministically.
+- `<slug>` is a kebab-case topic identifier matching the unit/phase/PoC the handoff covers
+  (e.g., `pipeline-unit-10`, `gmail-backfill-poc`).
+- The `-handoff.md` suffix mirrors how plans use `-plan.md` — the kind is part of the filename so a directory listing
+  reveals artifact type at a glance.
+
+Handoffs are local-only by design (same `.context/` rule above): never commit, never push, never recreate as a GitHub
+issue. When writing a handoff, summarize in chat with the file path; do not paste the full body inline (per the "Long
+artifacts go to files" rule below).
+
 ---
 
 ## Commit Messages
@@ -297,6 +326,10 @@ Fill in each section, remove HTML comment placeholders, and insert real content.
 apply (e.g., Screenshots for non-UI changes). Do NOT use hardcoded PR body formats from skills or other sources — the
 cascade above is the single source of truth.
 
+**Pre-flight before every `gh pr create` / `gh pr edit --body`:** read the template file first (`cat
+.github/pull_request_template.md`, or the global fallback) and use its content as the body skeleton. If you're about
+to `--body` a hand-written string instead of filling in the template, stop — that's the bypass.
+
 **`## Changelog` section is the changelog source of truth.** `generate-changelog.sh` extracts these categorized bullets
 verbatim into CHANGELOG.md during release prep. Write for users, not developers:
 
@@ -306,3 +339,48 @@ verbatim into CHANGELOG.md during release prep. Write for users, not developers:
 - If a PR has NO user-facing changes (pure refactor, test-only, CI-only), leave `## Changelog` empty or omit it.
 - NEVER manually edit CHANGELOG.md — it is a generated artifact. Fix inputs (commit messages, PR descriptions,
   `cliff.toml`), not the output.
+
+---
+
+## Branch discipline
+
+Code changes always go on a feature branch (`feat/...` or `fix/...`) cut from `dev`, then PR'd back. `dev` and `main`
+receive code only via PR.
+
+**Exception — plan/docs-only commits:** Edits to `docs/plans/**`, `docs/brainstorms/**`, `docs/reviews/**`, `docs/solutions/**`, and similar planning-only docs commit directly to `dev`. No feature branch, no PR. Plans are inert text — they don't ship. Feature-branch ceremony adds friction without reducing risk.
+
+**The exception is bounded by audience, not extension.** Markdown that ships verbatim to consumers — skill bundles (`bundle/**.md`), top-level repo-facing files (`README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `SECURITY.md`, `RELEASES.md`, `CHANGELOG.md`), in-repo runbooks an end user or agent reads at runtime — does NOT qualify for the exception. Those are public-facing artifacts and go through the standard feature-branch + PR flow even though they're "just markdown". The test is: would skipping review here put a typo, factual error, or stale instruction in front of a consumer? If yes, PR.
+
+Ambiguous cases (docs + code in the same change, or planning + shipped docs in the same change) → use a feature branch. When a single logical change spans both audiences, prefer two commits: direct-push the planning bits, PR the consumer-facing bits.
+
+---
+
+## Long artifacts go to files, not chat
+
+When the user asks for a substantial artifact (detailed prompt, plan, spec, long code block, multi-section doc), write
+it to a file with the Write tool. Summarize in chat in a sentence or two; do not paste the full content.
+
+**Why:** Long artifacts in chat waste tokens on both sides, are harder to re-read, and usually get re-written to a file
+anyway. Reading long output in terminal scrollback is worse than opening the file in an editor.
+
+**How to apply:**
+
+- Pick a sensible path (`~/.gstack/projects/<slug>/ceo-plans/` for repo-scoped planning artifacts; repo root for
+  artifacts that belong with the code) or ask the user.
+- Summarize in chat: what's in the file, where it lives, any caveats.
+- If the user asks to see changes, show diffs. Never re-paste the whole file.
+- Trigger threshold: ~30 lines or any multi-section structured document. Short snippets, single commands, or targeted
+  diffs are fine inline.
+
+---
+
+## System configs go in dotfiles, not ad-hoc
+
+Machine-level config files (AppArmor profiles, sysctl settings, udev rules, etc.) live in `~/dotfiles/` and deploy via
+stow. Never solve a problem by writing one-off `sudo bash -c` files into `/etc/`.
+
+**Why:** Reproducibility. Ad-hoc writes to `/etc/` are invisible to version control and forgotten on the next machine.
+The dotfiles repo is the canonical source for machine provisioning.
+
+**How to apply:** When a fix needs a system config file, the canonical location is `~/dotfiles/` with a stow target.
+Document the fix in `docs/solutions/` (via `/compound`) pointing to the dotfiles location.
