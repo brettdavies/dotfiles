@@ -1,0 +1,13 @@
+[Unit]
+Description=Run QMD cleanup nightly with randomized fire time
+
+[Timer]
+# Fire each night between 03:00 and 05:00 (base + up to 2h randomized delay).
+# Low-activity window for the dev box; randomization avoids correlation with
+# anything else scheduled on the same wall clock.
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

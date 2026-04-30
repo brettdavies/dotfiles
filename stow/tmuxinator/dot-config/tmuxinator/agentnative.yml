@@ -1,5 +1,0 @@
-name: agentnative
-root: ~/dev/agentnative
-
-windows:
-  - main:
