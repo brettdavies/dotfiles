@@ -1,0 +1,29 @@
+#!/bin/sh
+# Unload every currently-resident Ollama model.
+#
+# Used as ExecStartPre for qmd-embed.service to free GPU VRAM before
+# `qmd embed` runs. Discovering loaded models from `ollama ps` (rather than
+# hardcoding a name) is the whole point — the env-pinned ollama model can
+# change over time, and a stale hardcoded model name either silently no-ops
+# or, worse, loads the wrong model briefly just to unload it.
+#
+# Always exits 0 so the calling service proceeds even when ollama is offline,
+# has nothing loaded, or is not installed at all. With OLLAMA_KEEP_ALIVE=-1
+# in effect, the next ollama request reloads the model on demand.
+
+set -u
+
+if ! command -v ollama >/dev/null 2>&1; then
+  exit 0
+fi
+
+# `ollama ps` prints a header row plus one row per loaded model. NR>1 skips
+# the header; NF>0 skips blank lines. First field is the model name.
+ollama ps 2>/dev/null \
+  | awk 'NR>1 && NF>0 {print $1}' \
+  | while IFS= read -r model; do
+      [ -n "$model" ] || continue
+      ollama stop "$model" >/dev/null 2>&1 || true
+    done
+
+exit 0

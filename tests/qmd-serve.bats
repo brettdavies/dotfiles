@@ -44,6 +44,7 @@ EMBED_TIMER="$PKG_DIR/dot-config/systemd/user/qmd-embed.timer"
 UPDATE_TIMER="$PKG_DIR/dot-config/systemd/user/qmd-update.timer"
 CLEANUP_TIMER="$PKG_DIR/dot-config/systemd/user/qmd-cleanup.timer"
 WRAPPER_SH="$PKG_DIR/dot-local/bin/qmd"
+OLLAMA_UNLOAD_SH="$PKG_DIR/dot-local/bin/qmd-ollama-unload-all"
 ENABLE_SCRIPT="$REPO_ROOT/scripts/qmd-serve-enable.sh"
 SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 
@@ -155,10 +156,42 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   ! grep -E '^ExecStart(Pre|Post)?=' "$EMBED_UNIT" | grep -q '/home/[a-z]*/'
 }
 
-@test "qmd-embed retains Ollama-unload ExecStartPre (intentional; Ollama is a separate process)" {
-  grep -q '^ExecStartPre=' "$EMBED_UNIT"
-  grep -q '11434' "$EMBED_UNIT"
-  grep -q 'qwen3-coder:30b' "$EMBED_UNIT"
+@test "qmd-embed ExecStartPre delegates to qmd-ollama-unload-all helper" {
+  # The unload step must call the dynamic-discovery helper script. Hardcoding
+  # a model name in the unit (the prior bug) either no-oped or, worse, loaded
+  # the wrong model just to unload it once the env-pinned model changed.
+  grep -q '^ExecStartPre=%h/.local/bin/qmd-ollama-unload-all$' "$EMBED_UNIT"
+  ! grep -qE '^ExecStartPre=.*(curl|api/generate|--data|-d ).*model' "$EMBED_UNIT"
+}
+
+@test "qmd-ollama-unload-all helper exists and is executable" {
+  [ -f "$OLLAMA_UNLOAD_SH" ]
+  [ -x "$OLLAMA_UNLOAD_SH" ]
+}
+
+@test "qmd-ollama-unload-all uses dynamic discovery (ollama ps + ollama stop)" {
+  grep -q 'ollama ps' "$OLLAMA_UNLOAD_SH"
+  grep -q 'ollama stop' "$OLLAMA_UNLOAD_SH"
+}
+
+@test "qmd-ollama-unload-all has no hardcoded model names" {
+  # Whitelist: no concrete model name (regex covers vendor:tag patterns and
+  # bare GGUF model strings). Comments may describe behavior abstractly but
+  # must not pin a specific model.
+  ! grep -qE '"[a-z0-9._-]+:[0-9a-z._-]+"' "$OLLAMA_UNLOAD_SH"
+  ! grep -qE "'[a-z0-9._-]+:[0-9a-z._-]+'" "$OLLAMA_UNLOAD_SH"
+}
+
+@test "qmd-ollama-unload-all always exits 0 (callers proceed even on failure)" {
+  grep -q '^exit 0$' "$OLLAMA_UNLOAD_SH"
+}
+
+@test "qmd-ollama-unload-all passes shellcheck" {
+  if ! command -v shellcheck >/dev/null 2>&1; then
+    skip "shellcheck not installed"
+  fi
+  run shellcheck "$OLLAMA_UNLOAD_SH"
+  [ "$status" -eq 0 ]
 }
 
 @test "qmd-embed hardening: NoNewPrivileges + PrivateTmp" {
