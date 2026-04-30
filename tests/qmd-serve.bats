@@ -235,7 +235,12 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 }
 
 @test "qmd-update has no hardcoded /home/<user>/ path" {
-  ! grep -q '/home/[a-z]*/' "$UPDATE_UNIT"
+  # /home/linuxbrew/ is Homebrew's standard install prefix on Linux —
+  # not a user homedir, and legitimate to reference in unit files.
+  # Reject any other /home/<name>/ pattern (e.g. /home/brett/).
+  hardcoded=$(grep -oE '/home/[a-z]+/' "$UPDATE_UNIT" 2>/dev/null \
+    | grep -vxE '/home/linuxbrew/' || true)
+  [ -z "$hardcoded" ]
 }
 
 @test "qmd-update has no Environment=PATH=... (absolute paths suffice)" {

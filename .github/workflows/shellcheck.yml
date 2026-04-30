@@ -8,7 +8,9 @@ on:
       - 'stow/shell/**'
       - 'stow/bash/**'
       - 'stow/zsh/**'
+      - 'stow/*/dot-local/bin/**'
       - 'scripts/**'
+      - '.github/workflows/shellcheck.yml'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -33,3 +35,16 @@ jobs:
 
       - name: Check dot-profile
         run: shellcheck --shell=bash --exclude=SC1090,SC1091 stow/shell/dot-profile
+
+      - name: Check stow-managed bin helpers
+        # Shellcheck every executable under stow/<pkg>/dot-local/bin/ that
+        # has a sh/bash shebang. Catches regressions in package-bundled
+        # helpers (e.g. stow/qmd/dot-local/bin/qmd-ollama-unload-all) that
+        # the path filters above would otherwise miss.
+        run: |
+          while IFS= read -r f; do
+            if head -n1 "$f" | grep -qE '^#!.*\b(sh|bash)\b'; then
+              echo "shellcheck: $f"
+              shellcheck "$f"
+            fi
+          done < <(find stow -type f -path 'stow/*/dot-local/bin/*')
