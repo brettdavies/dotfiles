@@ -123,7 +123,13 @@
       "Bash(curl -s -w \"job2: HTTP %{http_code} total=%{time_total}s\\\\n\" -X POST -F \"files=@/tmp/test_full.pdf\" http://127.0.0.1:5002/v1/convert/file -o /dev/null)",
       "Bash(wait)",
       "Bash(curl -s -w \"HTTP %{http_code} total=%{time_total}s\\\\n\" http://127.0.0.1:5002/health)",
-      "Bash(bash ~/.claude/skills/markdown-convert/skills/mc-pdf/mc-pdf.sh:*)"
+      "Bash(bash ~/.claude/skills/markdown-convert/skills/mc-pdf/mc-pdf.sh:*)",
+      "Read(//Users/brett/.claude/**)",
+      "Bash(scripts/stow-deploy *)",
+      "Bash(ssh :*)",
+      "Bash(ssh:*)",
+      "Bash(ping:*)",
+      "Bash(scp:*)"
     ]
   }
 }
