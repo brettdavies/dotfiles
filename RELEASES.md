@@ -133,16 +133,8 @@ git cherry HEAD origin/dev | grep '^+' || echo "(none — release is patch-equiv
 GITHUB_TOKEN=$(gh auth token) \
   ~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh --tag "$(date +%Y.%m.%d)"
 
-# 5. Review CHANGELOG.md. The script runs git-cliff for base entries, then
-#    expands squash commits by pulling `## Changelog` sections from each PR body
-#    via the GitHub API. cliff.toml SKIPS chore/style/test/ci/build commits
-#    regardless of PR-body content — if a cherry-picked PR has user-facing
-#    `## Changelog` content but its commit subject starts with one of those
-#    types, its bullets get silently dropped. Cross-check the generated
-#    `## [<version>]` section against `gh pr view <num> --json body` for each
-#    cherry-picked PR; correct mistyped PR titles (e.g. `chore` → `feat`) and
-#    re-amend the cherry-pick subject before re-running step 4. See the
-#    "Prefer feat/fix over chore" rule in global CLAUDE.md for prevention.
+# 5. Review CHANGELOG.md. See the "CHANGELOG is generated, never hand-written"
+#    subsection below for the cliff.toml chore-skip footgun and how to recover.
 
 # 6. Commit and push:
 git add CHANGELOG.md
@@ -171,6 +163,25 @@ Two compounding problems made the earlier "branch from main, merge dev" flow bre
 Cherry-picking solves both: branching from `origin/main` avoids the conflicts, and picking only PR squash commits
 creates fresh SHAs on the release branch that represent exactly the delta being shipped — no prior-release noise.
 
+### CHANGELOG is generated, never hand-written
+
+`~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh` (with `cliff.toml`) is the only sanctioned way to
+update `CHANGELOG.md`. The script runs `git-cliff` to prepend a versioned entry for commits since the last tag, then
+walks each squash-merged PR's body to extract the `## Changelog` section's `### Added` / `### Changed` / `### Fixed` /
+`### Documentation` subsections, replacing the auto-generated bullets with the curated PR-body content (with author and
+PR-link attribution).
+
+If a PR's `## Changelog` section is empty, that PR's entry is omitted from the changelog (the convention in
+[`.github/pull_request_template.md`](.github/pull_request_template.md): empty section = no user-facing change). To fix a
+wrong CHANGELOG entry, fix the input — edit the squash-merged PR body, then re-run the script. Do **not** edit
+`CHANGELOG.md` directly.
+
+**`cliff.toml` skips `chore`/`style`/`test`/`ci`/`build` commits regardless of PR-body content.** If a cherry-picked PR
+has user-facing `## Changelog` content but its commit subject starts with one of those types, its bullets get silently
+dropped. After running the script, cross-check the generated section against `gh pr view <num> --json body` for each
+cherry-picked PR; correct mistyped PR titles (e.g. `chore` → `feat`) and re-amend the cherry-pick subject before
+re-running. See "Prefer `feat`/`fix` over `chore`" in global CLAUDE.md for prevention.
+
 ## Tagging and publishing
 
 The tag is **not** created locally. `release.yml` triggers on any push to `main` and runs:
@@ -192,20 +203,17 @@ whenever possible.
 
 ## PRs and changelog generation
 
-Every PR **must** follow `.github/pull_request_template.md`. The template has a `## Changelog` section that is the
-single source of truth for user-facing release notes.
+Every PR **must** follow `.github/pull_request_template.md`. The template's `## Changelog` section has these
+subsections:
 
-`generate-changelog.sh` (which wraps `git-cliff` per `cliff.toml`) reads:
+- `### Added` — new user-visible features or capabilities.
+- `### Changed` — changes to existing behavior.
+- `### Fixed` — bug fixes.
+- `### Documentation` — documentation-only updates.
 
-1. The individual conventional-commit messages on the release branch (merged from `dev`), categorized per `cliff.toml`'s
-   `commit_parsers` (`feat` → Added, `fix` → Fixed, `refactor`/`perf` → Changed, `docs` → Documentation, everything else
-   skipped).
-2. The `## Changelog` section of each squash-merged PR body, pulled via the GitHub API and used to expand bullets past
-   the single-line commit summary.
-
-A PR that lands with an empty or missing `## Changelog` section silently drops its user-facing notes from the next
-release. **Never manually edit `CHANGELOG.md`** — it is a generated artifact. Fix the inputs (commit messages, PR
-bodies, `cliff.toml`), not the output.
+A PR that has no user-facing impact (pure refactor, test-only, CI-only) should leave the `## Changelog` section empty or
+omit it — the PR still appears in git history but won't clutter the changelog. See "CHANGELOG is generated, never
+hand-written" above for how the script consumes these sections at release time and the cliff.toml chore-skip footgun.
 
 ## Branch protection
 
