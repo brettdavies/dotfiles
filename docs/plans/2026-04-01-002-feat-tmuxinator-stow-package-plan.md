@@ -3,7 +3,18 @@ title: "feat: Add tmuxinator stow package for declarative tmux session managemen
 type: feat
 status: completed
 date: 2026-04-01
+completed: 2026-04-01
+pr: brettdavies/dotfiles#28
+release: 2026.04.01
 ---
+
+## Post-ship notes (2026-04-01)
+
+Shipped in [PR #28](https://github.com/brettdavies/dotfiles/pull/28) as part of release
+[`2026.04.01`](https://github.com/brettdavies/dotfiles/releases/tag/2026.04.01). All three implementation units landed:
+`stow/tmuxinator/` package with 13 session YAML configs, `config/shell/tmuxinator.sh` (`mux` / `mux-all` functions),
+`scripts/stow-deploy` `SHARED_PACKAGES` registration, and BOOTSTRAP.md / README.md updates including the TPM bootstrap
+section.
 
 # feat: Add tmuxinator stow package for declarative tmux session management
 
@@ -50,21 +61,21 @@ files define the session shape, and the same configs work on any machine.
 
 ### Session Directory Mapping
 
-| Session | Root Directory |
-|---------|---------------|
-| agentnative | `~/dev/agentnative` |
-| bird | `~/dev/bird` |
-| dot-github | `~/dev/dot-github` |
-| dotfiles | `~/dotfiles` |
+| Session      | Root Directory                                                            |
+| ------------ | ------------------------------------------------------------------------- |
+| agentnative  | `~/dev/agentnative`                                                       |
+| bird         | `~/dev/bird`                                                              |
+| dot-github   | `~/dev/dot-github`                                                        |
+| dotfiles     | `~/dotfiles`                                                              |
 | homebrewcore | `/home/linuxbrew/.linuxbrew/Homebrew/Library/Taps/homebrew/homebrew-core` |
-| homebrewtap | `~/dev/homebrew-tap` |
-| openclaw | `~/dev/openclaw` |
-| payg | `~/dev/payg` |
-| skills | `~/.claude/skills` |
-| solutions | `~/dev/solutions-docs` |
-| streams | `~/box/TX-AI/streams-control` |
-| vault | `~/obsidian-vault` |
-| xurl-rs | `~/dev/xurl-rs` |
+| homebrewtap  | `~/dev/homebrew-tap`                                                      |
+| openclaw     | `~/dev/openclaw`                                                          |
+| payg         | `~/dev/payg`                                                              |
+| skills       | `~/.claude/skills`                                                        |
+| solutions    | `~/dev/solutions-docs`                                                    |
+| streams      | `~/box/TX-AI/streams-control`                                             |
+| vault        | `~/obsidian-vault`                                                        |
+| xurl-rs      | `~/dev/xurl-rs`                                                           |
 
 Note: `homebrewcore` path is Linux-specific (Linuxbrew tap location). On macOS this would be
 `/opt/homebrew/Library/Taps/homebrew/homebrew-core`. The Linuxbrew path is hardcoded (see Key Technical Decisions).
@@ -223,10 +234,10 @@ Tmuxinator handles missing roots gracefully — it falls back to `$HOME` with a 
 
 ## Risks & Dependencies
 
-| Risk | Mitigation |
-|------|------------|
-| `homebrewcore` path is Linux-specific | tmuxinator handles missing roots gracefully (falls back to $HOME with warning). Cross-platform ERB can be added later if needed. |
-| tmuxinator Ruby gem may conflict with system Ruby | Installed via Homebrew which manages its own Ruby — no conflict expected. |
+| Risk                                                                                    | Mitigation                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `homebrewcore` path is Linux-specific                                                   | tmuxinator handles missing roots gracefully (falls back to $HOME with warning). Cross-platform ERB can be added later if needed.                                                      |
+| tmuxinator Ruby gem may conflict with system Ruby                                       | Installed via Homebrew which manages its own Ruby — no conflict expected.                                                                                                             |
 | tmuxinator in SHARED_PACKAGES deploys Ruby dependency (~100MB+) to all headless servers | Acceptable: headless servers already have Homebrew and the YAML configs are tiny. The Ruby dependency is only pulled if `brew bundle` is run. Revisit if footprint becomes a concern. |
 
 ## Sources & References

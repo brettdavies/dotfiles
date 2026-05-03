@@ -3,7 +3,17 @@ title: "feat: Add gogcli stow package with shell wrapper"
 type: feat
 status: completed
 date: 2026-04-01
+completed: 2026-04-01
+pr: brettdavies/dotfiles#27
+release: 2026.04.01
 ---
+
+## Post-ship notes (2026-04-01)
+
+Shipped in [PR #27](https://github.com/brettdavies/dotfiles/pull/27) as part of release
+[`2026.04.01`](https://github.com/brettdavies/dotfiles/releases/tag/2026.04.01). All three units landed:
+`stow/gogcli/dot-config/gogcli/config.json`, `config/shell/gogcli.sh` wrapper with adopt-back, and
+`scripts/setup_gogcli.sh` cleanup. `gogcli` is in `SHARED_PACKAGES`.
 
 # feat: Add gogcli stow package with shell wrapper
 
@@ -195,11 +205,11 @@ functions-not-aliases rule and means `gog` is unavailable in bash sessions, non-
 
 ## Risks & Dependencies
 
-| Risk | Mitigation |
-|------|------------|
-| gogcli rewrites config.json, breaking symlink | Adopt-back in shell wrapper (proven pattern from caam) |
-| 1Password unavailable on some machines | `gog()` wrapper uses `${:-}` fallback — if op fails, password is empty and gog prompts or fails gracefully |
-| config.json content drift between stow source and live | Adopt-back captures drift; periodic commits sync it |
+| Risk                                                   | Mitigation                                                                                                 |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| gogcli rewrites config.json, breaking symlink          | Adopt-back in shell wrapper (proven pattern from caam)                                                     |
+| 1Password unavailable on some machines                 | `gog()` wrapper uses `${:-}` fallback — if op fails, password is empty and gog prompts or fails gracefully |
+| config.json content drift between stow source and live | Adopt-back captures drift; periodic commits sync it                                                        |
 
 ## Sources & References
 
