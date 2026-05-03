@@ -1,24 +1,31 @@
 # Stow Deploy: Platform Defaults, Tree-Fold Fix, and Local Package Split
 
-**Date:** 2026-02-17
-**Status:** Implemented
-**Trigger:** Claude Code `PostToolUse:Edit hook error` on headless Ubuntu server -- `~/.claude/auto-format.sh` missing because `claude` package was never in the Ubuntu deployment list.
+**Date:** 2026-02-17 **Status:** closed (shipped) **Trigger:** Claude Code `PostToolUse:Edit hook error` on headless
+Ubuntu server -- `~/.claude/auto-format.sh` missing because `claude` package was never in the Ubuntu deployment list.
 
 ## What We're Building
 
 Four changes to `scripts/stow-deploy`, one package restructure, and one corrective action on macOS:
 
-1. **`--all` flag** -- Auto-detects platform (`uname -s`) and expands to the correct package set. Shared packages deploy everywhere; desktop-only packages (`ghostty`, `cursor`, `launchagent`) only on macOS.
+1. **`--all` flag** -- Auto-detects platform (`uname -s`) and expands to the correct package set. Shared packages deploy
+   everywhere; desktop-only packages (`ghostty`, `cursor`, `launchagent`) only on macOS.
 
-2. **Tree-fold detection** -- Pre-flight check that identifies directory-level symlinks pointing into `stow/`. Resolves them by moving runtime data to a real directory, removing the symlink, then re-stowing with `--no-folding`. Includes Claude Code process detection (abort if running, since it writes to `~/.claude/` constantly).
+2. **Tree-fold detection** -- Pre-flight check that identifies directory-level symlinks pointing into `stow/`. Resolves
+   them by moving runtime data to a real directory, removing the symlink, then re-stowing with `--no-folding`. Includes
+   Claude Code process detection (abort if running, since it writes to `~/.claude/` constantly).
 
-3. **Split `local` package** -- The current `local` package is rejected by stow-deploy because `dot-Library` conflicts with `--dotfiles` (converts to `.Library` instead of `Library`). Split into:
-   - `local` -- `dot-local/bin/env` and `dot-local/bin/op-ssh-sign-wrapper` (shared, all platforms)
-   - `launchagent` -- `Library/LaunchAgents/com.user.devtosync.plist` (macOS desktop-only, no `dot-` prefix needed since `~/Library` doesn't start with a dot)
+3. **Split `local` package** -- The current `local` package is rejected by stow-deploy because `dot-Library` conflicts
+   with `--dotfiles` (converts to `.Library` instead of `Library`). Split into:
 
-4. **Repo cleanup** -- After un-tree-folding, `git clean` untracked runtime files from the repo's `stow/claude/dot-claude/` directory.
+- `local` -- `dot-local/bin/env` and `dot-local/bin/op-ssh-sign-wrapper` (shared, all platforms)
+- `launchagent` -- `Library/LaunchAgents/com.user.devtosync.plist` (macOS desktop-only, no `dot-` prefix needed since
+     `~/Library` doesn't start with a dot)
 
-5. **Fix this Mac** -- Re-stow the four tree-folded packages (`claude`, `codex`, `git`, `opencode`) to eliminate 311 MB of runtime data living inside the git repo.
+1. **Repo cleanup** -- After un-tree-folding, `git clean` untracked runtime files from the repo's
+   `stow/claude/dot-claude/` directory.
+
+2. **Fix this Mac** -- Re-stow the four tree-folded packages (`claude`, `codex`, `git`, `opencode`) to eliminate 311 MB
+   of runtime data living inside the git repo.
 
 ## Why This Approach
 
@@ -30,7 +37,8 @@ Four changes to `scripts/stow-deploy`, one package restructure, and one correcti
 4. Claude Code writes runtime data into `~/.claude/` -> physically lands in git repo via tree-fold
 5. `.gitignore` masks the problem but doesn't solve it (311 MB, 9,083 files in working tree)
 6. Headless server deployed with minimal list -> `claude` package missing -> hook references nonexistent script -> error
-7. `local` package excluded from deployment entirely due to `dot-Library` conflict -> `op-ssh-sign-wrapper` missing on headless servers -> git signing broken
+7. `local` package excluded from deployment entirely due to `dot-Library` conflict -> `op-ssh-sign-wrapper` missing on
+   headless servers -> git signing broken
 
 ### Why `--all` instead of keeping stow-deploy "dumb"
 
@@ -54,17 +62,17 @@ Four changes to `scripts/stow-deploy`, one package restructure, and one correcti
 
 ## Key Decisions
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Package list location | In `stow-deploy` script | Single source of truth; docs reference the flag, not a list |
-| Platform detection | `uname -s` auto-detect | Simpler than `--platform` flag; no user input needed |
-| Tree-fold resolution | Move data, remove symlink, re-stow | Preserves runtime data (session history, caches) |
-| Desktop-only packages | `ghostty`, `cursor`, `launchagent` | GUI apps + macOS LaunchAgent; everything else works headless |
-| Fix scope on this Mac | All four tree-folded packages | `claude` (311 MB), `codex`, `git`, `opencode` |
-| Runtime data handling | Move to real `~/.claude/` (not delete) | Preserves session history and plugin state |
-| `local` package | Split into `local` + `launchagent` | Eliminates `dot-Library` conflict; `local` joins `--all` |
-| Repo cleanup | `git clean` after un-tree-folding | Script cleans untracked files from stow package dirs |
-| Claude Code safety | Detect running process, abort | Prevents data corruption during `~/.claude` migration |
+| Decision              | Choice                                 | Rationale                                                    |
+| --------------------- | -------------------------------------- | ------------------------------------------------------------ |
+| Package list location | In `stow-deploy` script                | Single source of truth; docs reference the flag, not a list  |
+| Platform detection    | `uname -s` auto-detect                 | Simpler than `--platform` flag; no user input needed         |
+| Tree-fold resolution  | Move data, remove symlink, re-stow     | Preserves runtime data (session history, caches)             |
+| Desktop-only packages | `ghostty`, `cursor`, `launchagent`     | GUI apps + macOS LaunchAgent; everything else works headless |
+| Fix scope on this Mac | All four tree-folded packages          | `claude` (311 MB), `codex`, `git`, `opencode`                |
+| Runtime data handling | Move to real `~/.claude/` (not delete) | Preserves session history and plugin state                   |
+| `local` package       | Split into `local` + `launchagent`     | Eliminates `dot-Library` conflict; `local` joins `--all`     |
+| Repo cleanup          | `git clean` after un-tree-folding      | Script cleans untracked files from stow package dirs         |
+| Claude Code safety    | Detect running process, abort          | Prevents data corruption during `~/.claude` migration        |
 
 ## Package Sets
 
@@ -101,12 +109,12 @@ For each package to be stowed:
 
 ### Current tree-folded state on macOS
 
-| Symlink | Points to | Runtime data |
-|---------|-----------|-------------|
-| `~/.claude` | `dotfiles/stow/claude/dot-claude` | 9,083 files, 311 MB |
-| `~/.codex` | `dotfiles/stow/codex/dot-codex` | 20 files, 132 KB |
-| `~/.config/git` | `../dotfiles/stow/git/dot-config/git` | 2 tracked files, low risk |
-| `~/.config/opencode` | `../dotfiles/stow/opencode/dot-config/opencode` | 1 tracked file, low risk |
+| Symlink              | Points to                                       | Runtime data              |
+| -------------------- | ----------------------------------------------- | ------------------------- |
+| `~/.claude`          | `dotfiles/stow/claude/dot-claude`               | 9,083 files, 311 MB       |
+| `~/.codex`           | `dotfiles/stow/codex/dot-codex`                 | 20 files, 132 KB          |
+| `~/.config/git`      | `../dotfiles/stow/git/dot-config/git`           | 2 tracked files, low risk |
+| `~/.config/opencode` | `../dotfiles/stow/opencode/dot-config/opencode` | 1 tracked file, low risk  |
 
 ## Package Split: `local` -> `local` + `launchagent`
 
@@ -119,7 +127,8 @@ stow/local/
   dot-Library/LaunchAgents/com.user.devtosync.plist
 ```
 
-Problem: `stow --dotfiles` converts `dot-Library` to `.Library` (wrong). Package rejected by stow-deploy entirely. `op-ssh-sign-wrapper` never deployed to headless servers.
+Problem: `stow --dotfiles` converts `dot-Library` to `.Library` (wrong). Package rejected by stow-deploy entirely.
+`op-ssh-sign-wrapper` never deployed to headless servers.
 
 ### After
 
@@ -132,7 +141,8 @@ stow/launchagent/
   Library/LaunchAgents/com.user.devtosync.plist
 ```
 
-`local` works with `--dotfiles` (only `dot-local` needs conversion). `launchagent` works with `--dotfiles` (no `dot-` prefix on `Library`, so nothing to convert). Both are normal packages with no special handling.
+`local` works with `--dotfiles` (only `dot-local` needs conversion). `launchagent` works with `--dotfiles` (no `dot-`
+prefix on `Library`, so nothing to convert). Both are normal packages with no special handling.
 
 ## Open Questions
 
@@ -149,7 +159,8 @@ stow/launchagent/
 - **Platform list storage:** Hardcoded arrays in stow-deploy (not marker files)
 - **Claude Code safety:** Script detects running Claude Code process and aborts
 - **`local` package:** Split into `local` (shared) + `launchagent` (macOS desktop-only)
-- **`local` in tree-fold detection:** Not needed -- `local` was never tree-folded, and fresh VMs with `--no-folding` won't tree-fold it
+- **`local` in tree-fold detection:** Not needed -- `local` was never tree-folded, and fresh VMs with `--no-folding`
+  won't tree-fold it
 
 ## Next Steps
 
