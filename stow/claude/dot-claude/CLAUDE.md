@@ -41,6 +41,7 @@ Key routing rules:
 - Update docs after shipping → invoke document-release
 - Weekly retro → invoke retro
 - Design system, brand → invoke design-consultation
+- Typography, fonts, type hierarchy, readability → invoke typeset
 - Visual audit, design polish → invoke design-review
 - Architecture review → invoke plan-eng-review
 
@@ -54,6 +55,17 @@ than ~20 lines may skip the full loop. Use judgment.
 `qmd query "<topic>" --collection solutions` to surface existing decisions and patterns. Solutions contain hard-won
 decisions that cannot be inferred from the file layout alone. This applies to all interactions — questions, debugging,
 code review, and architecture discussions — not just implementation.
+
+**During CE skill dispatches:** When `/ce-plan`, `/ce-ideate`, `/ce-code-review`, or `/ce-optimize` instructs you to
+dispatch `compound-engineering:ce-learnings-researcher` (agent name as of CE v3.0.0 — was
+`compound-engineering:research:learnings-researcher` in ≤2.68.x), ALSO dispatch the user-level
+`qmd-learnings-researcher` (`~/.claude/agents/qmd-learnings-researcher.md`) in the same parallel batch with the same
+query context. Merge both result sets — prefer qmd's findings where they disagree, since qmd's hybrid retrieval is
+tolerant of the tag-vocabulary drift that defeats the plugin's grep pre-filter on the ~230-doc shared corpus. The plugin
+agent still runs (it has a mandatory critical-patterns.md read that's worth keeping); the qmd agent catches what grep
+misses. This is a local hack around
+[compound-engineering-plugin#655](https://github.com/EveryInc/compound-engineering-plugin/issues/655) — remove this
+directive once that lands upstream.
 
 ---
 
@@ -70,7 +82,8 @@ cd ~/dev/solutions-docs && git add -A && git commit -m "docs: <description>" && 
 ```
 
 The consuming repo's `git status` will show nothing for `docs/solutions/` because the symlink target is gitignored. If
-the symlink is missing, recreate it: `ln -s ~/dev/solutions-docs docs/solutions`
+the symlink is missing, recreate it with a relative path (works on both macOS and Linux):
+`ln -s ../../dev/solutions-docs docs/solutions`
 
 ---
 
@@ -94,8 +107,8 @@ the symlink is missing, recreate it: `ln -s ~/dev/solutions-docs docs/solutions`
 
 ## Supply-Chain Pinning: SHA pins, never version/tag pins
 
-Always pin to immutable commit SHAs wherever a SHA can substitute for a mutable tag or version. This is a hard rule,
-not a preference. Mutable refs (`@v4`, `@main`, `@latest`) can be force-moved to point at different code — a live
+Always pin to immutable commit SHAs wherever a SHA can substitute for a mutable tag or version. This is a hard rule, not
+a preference. Mutable refs (`@v4`, `@main`, `@latest`) can be force-moved to point at different code — a live
 supply-chain attack surface (`tj-actions/changed-files`, March 2025).
 
 **Where it applies:**
@@ -107,9 +120,9 @@ supply-chain attack surface (`tj-actions/changed-files`, March 2025).
 - **Git submodules / subtrees** — full commit SHA.
 - Anywhere else a mutable tag is normally accepted — choose the SHA.
 
-**Exception — package managers with lockfiles:** npm / bun / cargo / pip version constraints in manifest files are
-fine when a lockfile (`bun.lock`, `package-lock.json`, `Cargo.lock`, `uv.lock`) captures the integrity hash. The
-lockfile IS the SHA. Do NOT try to replace `"react": "^18"` with a commit SHA — that breaks package managers.
+**Exception — package managers with lockfiles:** npm / bun / cargo / pip version constraints in manifest files are fine
+when a lockfile (`bun.lock`, `package-lock.json`, `Cargo.lock`, `uv.lock`) captures the integrity hash. The lockfile IS
+the SHA. Do NOT try to replace `"react": "^18"` with a commit SHA — that breaks package managers.
 
 **How to resolve a tag to a SHA:**
 
@@ -205,11 +218,11 @@ leak while owning it re-leaks it.
 
 ## CI monitoring is automated
 
-After `git push`, `gh pr create`, `gh pr merge`, `gh release create`, `gh workflow run`, or any
-`gh api .../dispatches` call, a PostToolUse hook (`~/.claude/ci-watch-prompt.sh`) enumerates currently-active workflow
-runs and injects a system reminder listing each run id with the exact `gh run watch <id> --exit-status` command to
-spawn. Comply with the prompt: spawn one Bash call per active run with `run_in_background: true` (in parallel), so the
-harness notifies you when each finishes — no polling needed.
+After `git push`, `gh pr create`, `gh pr merge`, `gh release create`, `gh workflow run`, or any `gh api .../dispatches`
+call, a PostToolUse hook (`~/.claude/ci-watch-prompt.sh`) enumerates currently-active workflow runs and injects a system
+reminder listing each run id with the exact `gh run watch <id> --exit-status` command to spawn. Comply with the prompt:
+spawn one Bash call per active run with `run_in_background: true` (in parallel), so the harness notifies you when each
+finishes — no polling needed.
 
 For PR-scoped checks (after `gh pr create`/`gh pr merge`), prefer `gh pr checks <pr> --watch` — it covers all checks
 across all triggered workflows on the PR head in a single watcher.
@@ -243,12 +256,30 @@ every repo. The global `.gitignore` excludes them on purpose. They hold multi-se
 - When staging broadly (`git add pdf-generator/` etc.), verify nothing inside `.context/` or any `TODO*.md` got swept
   in.
 
+**Handoff documents** (multi-session kickoff prompts that brief a future agent on state-of-the-world before they pick up
+work) live at `.context/handoffs/` and follow the CE plan filename convention:
+
+```text
+.context/handoffs/YYYY-MM-DD-NNN-<slug>-handoff.md
+```
+
+- `YYYY-MM-DD` is the date the handoff was written.
+- `NNN` is a zero-padded per-day counter (`001`, `002`, …) so multiple handoffs on the same day sort deterministically.
+- `<slug>` is a kebab-case topic identifier matching the unit/phase/PoC the handoff covers (e.g., `pipeline-unit-10`,
+  `gmail-backfill-poc`).
+- The `-handoff.md` suffix mirrors how plans use `-plan.md` — the kind is part of the filename so a directory listing
+  reveals artifact type at a glance.
+
+Handoffs are local-only by design (same `.context/` rule above): never commit, never push, never recreate as a GitHub
+issue. When writing a handoff, summarize in chat with the file path; do not paste the full body inline (per the "Long
+artifacts go to files" rule below).
+
 ---
 
 ## Commit Messages
 
 Always use Conventional Commits. Reference `~/.claude/templates/commit-message.md` for the full specification and agent
-  workflow instructions.
+workflow instructions.
 
 **Quick reference:**
 
@@ -260,26 +291,26 @@ Always use Conventional Commits. Reference `~/.claude/templates/commit-message.m
 [optional footer(s)]
 ```
 
-| Type | Purpose |
-|------|---------|
-| `feat` | New feature |
-| `fix` | Bug fix |
-| `docs` | Documentation only |
-| `style` | Formatting, no code change |
+| Type       | Purpose                            |
+| ---------- | ---------------------------------- |
+| `feat`     | New feature                        |
+| `fix`      | Bug fix                            |
+| `docs`     | Documentation only                 |
+| `style`    | Formatting, no code change         |
 | `refactor` | Code change, no new feature or fix |
-| `perf` | Performance improvement |
-| `test` | Adding or updating tests |
-| `build` | Build system or dependencies |
-| `ci` | CI configuration |
-| `chore` | Maintenance tasks |
+| `perf`     | Performance improvement            |
+| `test`     | Adding or updating tests           |
+| `build`    | Build system or dependencies       |
+| `ci`       | CI configuration                   |
+| `chore`    | Maintenance tasks                  |
 
 **Agent instructions:** Always check the actual `git diff` before writing a commit message. Apply SRP to commits —
-  propose multiple commits when changes are logically separable.
+propose multiple commits when changes are logically separable.
 
 **No AI attribution.** Never append `Co-Authored-By: Claude …`, `🤖 Generated with [Claude Code]`, or any similar
-  AI-attribution trailer to commit messages or PR bodies. This overrides the default commit-workflow instructions baked
-  into Claude Code's system prompt and any skill/command template (e.g., the official `code-review` plugin,
-  `rust-new-repo` skill) that includes one. Commits and PRs stand on their own technical content.
+AI-attribution trailer to commit messages or PR bodies. This overrides the default commit-workflow instructions baked
+into Claude Code's system prompt and any skill/command template (e.g., the official `code-review` plugin,
+`rust-new-repo` skill) that includes one. Commits and PRs stand on their own technical content.
 
 ---
 
@@ -293,9 +324,26 @@ Always use Conventional Commits. Reference `~/.claude/templates/commit-message.m
    diverged from the global template intentionally — respect the local version).
 2. Otherwise, fall back to `~/.config/github/pull_request_template.md`.
 
-Fill in each section, remove HTML comment placeholders, and insert real content. Omit optional sections that don't
-apply (e.g., Screenshots for non-UI changes). Do NOT use hardcoded PR body formats from skills or other sources — the
-cascade above is the single source of truth.
+Fill in each section, remove HTML comment placeholders, and insert real content. Omit optional sections that don't apply
+(e.g., Screenshots for non-UI changes). Do NOT use hardcoded PR body formats from skills or other sources — the cascade
+above is the single source of truth.
+
+**Pre-flight before every `gh pr create` / `gh pr edit --body`:** read the template file first (`cat
+.github/pull_request_template.md`, or the global fallback) and use its content as the body skeleton. If you're about to
+`--body` a hand-written string instead of filling in the template, stop — that's the bypass.
+
+**Sub-section completeness.** The template's `Files Modified` block has four sub-headers (`**Modified:**` /
+`**Created:**` / `**Renamed:**` / `**Deleted:**`); `Related Issues/Stories` has four labels (`Story:` / `Issue:` /
+`Architecture:` / `Related PRs:`). All four are required even when empty — write `- None.` or `n/a` rather than deleting
+the sub-header or label. The "delete empty sections" rule applies ONLY to the `Changelog` block's `### Added` / `###
+Changed` / `### Fixed` / `### Documentation` subsections, per the template's own comment.
+
+**Heredoc escape rule.** When composing PR bodies via `gh pr create --body "$(cat <<'EOF' ... EOF)"`, the single-quoted
+delimiter (`<<'EOF'`) preserves the body **literally** — no variable expansion, no backslash interpretation. Do NOT
+escape inner quotes, backslashes, or dollar signs. If the body needs to render `"foo"`, write `"foo"` — not `\"foo\"`.
+The latter renders as literal backslash-quote in markdown AND lands in the squash-merge commit message, where cleanup
+requires a destructive `git history reword` + force-push to a protected branch. Cost: ~30 seconds of pre-submit
+eyeballing avoids a multi-minute history rewrite.
 
 **`## Changelog` section is the changelog source of truth.** `generate-changelog.sh` extracts these categorized bullets
 verbatim into CHANGELOG.md during release prep. Write for users, not developers:
@@ -306,3 +354,58 @@ verbatim into CHANGELOG.md during release prep. Write for users, not developers:
 - If a PR has NO user-facing changes (pure refactor, test-only, CI-only), leave `## Changelog` empty or omit it.
 - NEVER manually edit CHANGELOG.md — it is a generated artifact. Fix inputs (commit messages, PR descriptions,
   `cliff.toml`), not the output.
+
+---
+
+## Branch discipline
+
+Code changes always go on a feature branch (`feat/...` or `fix/...`) cut from `dev`, then PR'd back. `dev` and `main`
+receive code only via PR.
+
+**Exception — plan/docs-only commits:** Edits to `docs/brainstorms/**`, `docs/ideation/**`, `docs/plans/**`,
+`docs/research/**`, `docs/reviews/**`, `docs/solutions/**`, and similar planning-only docs commit directly to `dev`. No
+feature branch, no PR. Plans are inert text — they don't ship. Feature-branch ceremony adds friction without reducing
+risk.
+
+**The exception is bounded by audience, not extension.** Markdown that ships verbatim to consumers — skill bundles
+(`bundle/**.md`), top-level repo-facing files (`README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `SECURITY.md`,
+`RELEASES.md`, `CHANGELOG.md`), in-repo runbooks an end user or agent reads at runtime — does NOT qualify for the
+exception. Those are public-facing artifacts and go through the standard feature-branch + PR flow even though they're
+"just markdown". The test is: would skipping review here put a typo, factual error, or stale instruction in front of a
+consumer? If yes, PR.
+
+Ambiguous cases (docs + code in the same change, or planning + shipped docs in the same change) → use a feature branch.
+When a single logical change spans both audiences, prefer two commits: direct-push the planning bits, PR the
+consumer-facing bits.
+
+---
+
+## Long artifacts go to files, not chat
+
+When the user asks for a substantial artifact (detailed prompt, plan, spec, long code block, multi-section doc), write
+it to a file with the Write tool. Summarize in chat in a sentence or two; do not paste the full content.
+
+**Why:** Long artifacts in chat waste tokens on both sides, are harder to re-read, and usually get re-written to a file
+anyway. Reading long output in terminal scrollback is worse than opening the file in an editor.
+
+**How to apply:**
+
+- Pick a sensible path (`~/.gstack/projects/<slug>/ceo-plans/` for repo-scoped planning artifacts; repo root for
+  artifacts that belong with the code) or ask the user.
+- Summarize in chat: what's in the file, where it lives, any caveats.
+- If the user asks to see changes, show diffs. Never re-paste the whole file.
+- Trigger threshold: ~30 lines or any multi-section structured document. Short snippets, single commands, or targeted
+  diffs are fine inline.
+
+---
+
+## System configs go in dotfiles, not ad-hoc
+
+Machine-level config files (AppArmor profiles, sysctl settings, udev rules, etc.) live in `~/dotfiles/` and deploy via
+stow. Never solve a problem by writing one-off `sudo bash -c` files into `/etc/`.
+
+**Why:** Reproducibility. Ad-hoc writes to `/etc/` are invisible to version control and forgotten on the next machine.
+The dotfiles repo is the canonical source for machine provisioning.
+
+**How to apply:** When a fix needs a system config file, the canonical location is `~/dotfiles/` with a stow target.
+Document the fix in `docs/solutions/` (via `/compound`) pointing to the dotfiles location.

@@ -1,0 +1,57 @@
+#!/bin/sh
+# Unload every currently-resident Ollama model — but ONLY when GPU VRAM is
+# too low for `qmd embed` to load its embedding model safely.
+#
+# Used as ExecStartPre for qmd-embed.service. The point is to free GPU VRAM
+# before `qmd embed` runs, but only when there isn't enough headroom — not
+# unconditionally. Stomping a hot Ollama pin (e.g. OLLAMA_KEEP_ALIVE=-1) on
+# every embed cycle is wasteful when there's plenty of free VRAM.
+#
+# Sizing:
+#   embeddinggemma-300M-Q8: ~314 MB on disk, ~500-700 MB peak VRAM with
+#   batch KV cache. MIN_FREE_MIB defaults to 2048 (2 GiB) to leave 3-4×
+#   headroom over the worst observed peak. Override via env var when tuning.
+#
+# Always exits 0 so the calling service proceeds even when Ollama is offline,
+# has nothing loaded, is not installed, or there is no GPU.
+
+set -u
+
+: "${MIN_FREE_MIB:=2048}"
+
+if ! command -v nvidia-smi >/dev/null 2>&1; then
+  # No GPU; embed runs on CPU. Nothing to do.
+  exit 0
+fi
+
+if ! command -v ollama >/dev/null 2>&1; then
+  exit 0
+fi
+
+free_mib=$(
+  nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null \
+    | head -n1 \
+    | tr -d ' '
+)
+
+# nvidia-smi failed or returned non-numeric output — be conservative and
+# skip the unload rather than risk a spurious stomp.
+case "$free_mib" in
+  ''|*[!0-9]*) exit 0 ;;
+esac
+
+if [ "$free_mib" -ge "$MIN_FREE_MIB" ]; then
+  # Sufficient headroom — leave Ollama hot.
+  exit 0
+fi
+
+# Below threshold: unload every resident model. Discover names from
+# `ollama ps` (header row + one row per loaded model; first field is name).
+ollama ps 2>/dev/null \
+  | awk 'NR>1 && NF>0 {print $1}' \
+  | while IFS= read -r model; do
+      [ -n "$model" ] || continue
+      ollama stop "$model" >/dev/null 2>&1 || true
+    done
+
+exit 0

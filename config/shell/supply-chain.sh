@@ -1,4 +1,6 @@
 # Supply-chain safety: only install packages published at least 7 days ago
+#
+# bun — no env-var support; configured via stow/bun/dot-bunfig.toml (~/.bunfig.toml)
 
 # uv/uvx/uv run — native relative duration (v0.9.17+)
 export UV_EXCLUDE_NEWER="7 days"

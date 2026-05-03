@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026.05.02]
+
+### Added
+
+- `qmd-cleanup.timer` + `qmd-cleanup.service`: nightly `qmd cleanup` with `RandomizedDelaySec=2h` so fires land in a [03:00, 05:00] window. by @brettdavies in [#51](https://github.com/brettdavies/dotfiles/pull/51)
+- `qmd-ollama-unload-all` helper: dynamically frees Ollama VRAM only when GPU has less than `MIN_FREE_MIB` (default 2048) free, leaving hot pins alone when headroom is sufficient.
+- `stow/claude/dot-claude/md-align-tables.py`: GFM table aligner with PEP 723 inline metadata (uv run --script). Reflows mixed compact/aligned tables into consistent aligned-pipe style; preserves alignment hints, escaped pipes, frontmatter, fenced code, and HTML. by @brettdavies in [#52](https://github.com/brettdavies/dotfiles/pull/52)
+- `stow/github/dot-config/github/pull_request_template.md`: `**Renamed:**` field in the `## Files Modified` section so rename-style changes get their own bullet category instead of splitting into create+delete or hiding under modified.
+- 14 new telemetry opt-outs in `config/shell/telemetry.sh`: Apollo Rover, Astro, AWS CDK, Cloudflare Wrangler, .NET Interactive, .NET svcutil, Gemini CLI, Go runtime (1.23+), Hugging Face Hub, Nuxt, Stripe CLI, Supabase, Turborepo, Vercel. by @brettdavies in [#55](https://github.com/brettdavies/dotfiles/pull/55)
+- Discoverability comment in `config/shell/supply-chain.sh` pointing at `stow/bun/dot-bunfig.toml` so future-me doesn't go looking for bun in this file (bun has no env-var equivalent for `minimumReleaseAge`).
+- `copy-on-select = clipboard` in `stow/ghostty/dot-config/ghostty/config` so text selected with the mouse is auto-copied to the system clipboard (no Cmd+C needed), parity with tmux behavior. by @brettdavies in [#56](https://github.com/brettdavies/dotfiles/pull/56)
+
+### Changed
+
+- `stow/claude/dot-claude/auto-format.sh`: new Step 2 invokes `md-align-tables.py` (gated on `command -v uv`) between md-wrap and markdownlint; prior Step 2 (markdownlint) renumbered to Step 3. by @brettdavies in [#52](https://github.com/brettdavies/dotfiles/pull/52)
+- `stow/claude/dot-claude/CLAUDE.md`: five workflow expansions — parallel CE + qmd learnings dispatch (workaround for EveryInc/compound-engineering-plugin#655), `.context/handoffs/` filename convention, pre-flight PR template read before `gh pr create`, branch-discipline scope refinement (audience, not extension), and two new principle sections (long artifacts go to files; system configs go in dotfiles).
+- Re-sorted `telemetry.sh` to strict ASCII alphabetical order. Fixes two pre-existing minor disorderings: `Azure SDK` was before `Azure Functions Core Tools`, and `Sentry` was before `Segment`. by @brettdavies in [#55](https://github.com/brettdavies/dotfiles/pull/55)
+- Annotated version-gated entries inline (`GH_TELEMETRY` v2.91.0+, `GOTELEMETRY` Go 1.23+).
+
+### Fixed
+
+- `qmd-embed.service` no longer references the stale `qwen3-coder:30b` model name. Pre-embed VRAM step now adapts to whatever Ollama is actually running, on whichever host. by @brettdavies in [#51](https://github.com/brettdavies/dotfiles/pull/51)
+- `stow/claude/dot-claude/md-wrap.py`: `wrap_paragraph.drain()` no longer leaks `buf_indent` across paragraphs. Adds the missing `nonlocal` declaration plus a post-flush reset. by @brettdavies in [#52](https://github.com/brettdavies/dotfiles/pull/52)
+- Cross-platform `docs/solutions` symlink: now resolves on both macOS and Linux without per-host re-creation. by @brettdavies in [#54](https://github.com/brettdavies/dotfiles/pull/54)
+
+### Documentation
+
+- Update `stow/claude/dot-claude/CLAUDE.md` recreate-symlink command to use the relative form. by @brettdavies in [#54](https://github.com/brettdavies/dotfiles/pull/54)
+- Document PR template sub-section completeness — `Files Modified` and `Related Issues/Stories` sub-headers must appear with `- None.` or `n/a` when empty; only the `Changelog` block's `### Added`/`Changed`/`Fixed`/`Documentation` sections may be deleted when empty. by @brettdavies in [#58](https://github.com/brettdavies/dotfiles/pull/58)
+- Document the heredoc escape rule for `gh pr create --body "$(cat <<'EOF' ... EOF)"` — single-quoted delimiters preserve the body literally, so do not escape inner quotes, backslashes, or `$`.
+- Expand the plan/docs-only direct-commit exception to cover `docs/ideation/**` and `docs/research/**`.
+
+**Full Changelog**: [2026.04.22...2026.05.02](https://github.com/brettdavies/dotfiles/compare/2026.04.22...2026.05.02)
+
 ## [2026.04.22]
 
 ### Added
