@@ -6,20 +6,38 @@ export DO_NOT_TRACK=1
 # .NET CLI
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
 
+# .NET Interactive
+export DOTNET_INTERACTIVE_CLI_TELEMETRY_OPTOUT=1
+
+# .NET svcutil (WCF tooling)
+export DOTNET_SVCUTIL_TELEMETRY_OPTOUT=1
+
+# AWS CDK
+export CDK_DISABLE_CLI_TELEMETRY=true
+
 # AWS SAM CLI
 export SAM_CLI_TELEMETRY=0
+
+# Apollo Rover (GraphQL CLI)
+export APOLLO_TELEMETRY_DISABLED=1
+
+# Astro
+export ASTRO_TELEMETRY_DISABLED=1
+
+# Azure Functions Core Tools
+export FUNCTIONS_CORE_TOOLS_TELEMETRY_OPTOUT=1
 
 # Azure SDK
 export AZURE_CORE_COLLECT_TELEMETRY=0
 export AZURE_TELEMETRY_DISABLED=1
 
-# Azure Functions Core Tools
-export FUNCTIONS_CORE_TOOLS_TELEMETRY_OPTOUT=1
-
 # Claude Code
 export DISABLE_TELEMETRY=1
 export DISABLE_ERROR_REPORTING=1
 export DISABLE_BUG_COMMAND=1
+
+# Cloudflare Wrangler
+export WRANGLER_SEND_METRICS=false
 
 # Cypress
 export CYPRESS_RECORD_KEY=""
@@ -36,8 +54,14 @@ export EXPO_NO_TELEMETRY=1
 # Gatsby
 export GATSBY_TELEMETRY_DISABLED=1
 
-# GitHub CLI
+# Gemini CLI
+export GEMINI_TELEMETRY_ENABLED=false
+
+# GitHub CLI (v2.91.0+, April 2026)
 export GH_TELEMETRY=false
+
+# Go (runtime telemetry, Go 1.23+)
+export GOTELEMETRY=off
 
 # Google Cloud CLI
 export CLOUDSDK_CORE_DISABLE_USAGE_REPORTING=1
@@ -47,8 +71,14 @@ export CLOUDSDK_CORE_DISABLE_USAGE_REPORTING=1
 # Homebrew
 export HOMEBREW_NO_ANALYTICS=1
 
+# Hugging Face Hub
+export HF_HUB_DISABLE_TELEMETRY=1
+
 # Next.js
 export NEXT_TELEMETRY_DISABLED=1
+
+# Nuxt
+export NUXT_TELEMETRY_DISABLED=1
 
 # npm
 # Note: npm doesn't have built-in telemetry. The deprecated metrics-registry config has been removed.
@@ -59,24 +89,36 @@ export POWERSHELL_TELEMETRY_OPTOUT=1
 # pnpm
 export PNPM_TELEMETRY_DISABLED=1
 
-# Sentry
-export SENTRY_DSN=""
-
 # Segment
 export SEGMENT_DISABLE=1
+
+# Sentry
+export SENTRY_DSN=""
 
 # Steam (do not auto-upgrade)
 export STNOUPGRADE=1
 
+# Stripe CLI
+export STRIPE_CLI_TELEMETRY_OPTOUT=1
+
+# Supabase
+export SUPABASE_TELEMETRY_DISABLED=1
+
 # Terraform
 export CHECKPOINT_DISABLE=1
 export TF_CLI_CONFIG_FILE=/dev/null
+
+# Turborepo
+export TURBO_TELEMETRY_DISABLED=1
 
 # TypeScript
 export TSC_COMPILE_ON_SAVE_DISABLED=1
 
 # VS Code
 export VSCODE_TELEMETRY_LEVEL=off
+
+# Vercel
+export VERCEL_TELEMETRY_DISABLED=1
 
 # Vite
 export VITE_DISABLE_TELEMETRY=1
