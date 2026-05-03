@@ -59,6 +59,11 @@ cursor-color = #abb2bf
 window-padding-x = 10
 window-padding-y = 10
 
+# Auto-copy selection to system clipboard (default true on macOS, but make it
+# explicit and use `clipboard` to populate both selection + system clipboards
+# for cross-platform consistency)
+copy-on-select = clipboard
+
 # Keybinds
 keybind = shift+enter=text:\x1b\r
 
