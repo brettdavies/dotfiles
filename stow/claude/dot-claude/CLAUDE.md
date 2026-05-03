@@ -82,8 +82,8 @@ cd ~/dev/solutions-docs && git add -A && git commit -m "docs: <description>" && 
 ```
 
 The consuming repo's `git status` will show nothing for `docs/solutions/` because the symlink target is gitignored. If
-the symlink is missing, recreate it with a relative path (works on both macOS and Linux):
-`ln -s ../../dev/solutions-docs docs/solutions`
+the symlink is missing, recreate it with a relative path (works on both macOS and Linux): `ln -s
+../../dev/solutions-docs docs/solutions`
 
 ---
 
@@ -306,6 +306,14 @@ workflow instructions.
 
 **Agent instructions:** Always check the actual `git diff` before writing a commit message. Apply SRP to commits —
 propose multiple commits when changes are logically separable.
+
+**Prefer `feat`/`fix` over `chore` when the change has any user-observable effect.** `chore` is for truly internal
+maintenance (dependency bumps, refactors with no behavior change, CI tweaks invisible to users). If a change adds,
+removes, or modifies anything a user can observe — including config defaults, env vars, shell aliases, templates, or
+default behaviors — use `feat` (new) or `fix` (correction). The `cliff.toml` parser used in brettdavies repos drops
+`chore`, `style`, `test`, `ci`, and `build` commits from the changelog regardless of `## Changelog` body content;
+mistyping a user-facing change as `chore` silently strips it from release notes. Same rule for the PR title used as the
+squash-commit subject.
 
 **No AI attribution.** Never append `Co-Authored-By: Claude …`, `🤖 Generated with [Claude Code]`, or any similar
 AI-attribution trailer to commit messages or PR bodies. This overrides the default commit-workflow instructions baked
