@@ -129,7 +129,14 @@
       "Bash(ssh :*)",
       "Bash(ssh:*)",
       "Bash(ping:*)",
-      "Bash(scp:*)"
+      "Bash(scp:*)",
+      "Bash(curl -s --max-time 3 http://127.0.0.1:7832/health)",
+      "Read(//usr/bin/**)",
+      "Bash(/bin/sh -c 'echo \"default sh PATH: $PATH\"; command -v curl')",
+      "Bash(GITHUB_TOKEN=$\\(gh auth token\\) ~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh:*)",
+      "Bash(bash /home/brett/.claude/plugins/cache/every-marketplace/compound-engineering/2.68.1/skills/git-clean-gone-branches/scripts/clean-gone)",
+      "Skill(repo-recon)",
+      "Bash(command -v nvidia-smi)"
     ]
   }
 }
