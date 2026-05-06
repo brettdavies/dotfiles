@@ -235,6 +235,15 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rtk hook claude"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -347,5 +356,35 @@
     }
   },
   "effortLevel": "high",
-  "awaySummaryEnabled": false
+  "awaySummaryEnabled": false,
+  "skillListingBudgetFraction": 0.03,
+  "skillOverrides": {
+    "disk-cleanup": "off",
+    "gstack-upgrade": "off",
+    "plan-tune": "off",
+    "setup-browser-cookies": "off",
+    "setup-deploy": "off",
+    "setup-gbrain": "off",
+    "sync-gbrain": "off",
+
+    "bird": "off",
+    "x-api": "off",
+
+    "box": "off",
+    "canary": "off",
+    "gogcli": "off",
+    "ollama-local": "off",
+    "tailscale": "off",
+
+    "benchmark": "off",
+    "benchmark-models": "off",
+    "letterhead-to-typst": "off",
+    "mike-davies": "off",
+    "pair-agent": "off",
+    "pdf-annotate-diagrams": "off",
+    "repo-recon": "off",
+
+    "scrape": "off",
+    "skillify": "off"
+  }
 }
