@@ -202,6 +202,11 @@ leak while owning it re-leaks it.
 - **Auto-format hook:** A PostToolUse hook wraps markdown prose to 120 characters (`md-wrap.py`) then runs
   `markdownlint-cli2 --fix`. Do NOT manually wrap markdown lines — the hook handles it. Do NOT use `mdformat`, `pandoc`,
   or `prettier` for markdown formatting.
+- **rtk auto-rewrite hook:** A PreToolUse hook on Bash transparently rewrites supported commands (`git`, `cargo`, `gh`,
+  `pytest`, `docker`, etc.) through [`rtk`](https://github.com/rtk-ai/rtk) for 60-90% token compression. Three meta
+  commands are NOT auto-rewritten and must be invoked explicitly: `rtk gain` (savings analytics), `rtk discover` (find
+  missed compression opportunities), `rtk proxy <cmd>` (run unfiltered for debugging). Idempotent — already-`rtk`
+  commands pass through unchanged.
 - **GitHub CLI auth:** `gh` uses OAuth (not a fine-grained PAT) for interactive use. This allows creating issues, PRs,
   and forks on any public repo. Do NOT run `gh auth login --with-token` — use the default `gh auth login` OAuth flow.
   Fine-grained PATs are only for CI/CD (`CI_RELEASE_TOKEN` in GitHub Actions).
