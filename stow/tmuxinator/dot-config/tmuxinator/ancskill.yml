@@ -1,0 +1,5 @@
+name: ancskill
+root: ~/dev/agentnative-skill
+
+windows:
+  - main:
