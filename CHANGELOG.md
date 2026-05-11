@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026.05.11]
+
+### Added
+
+- Install `rtk-ai/rtk` `PreToolUse` Bash hook for ~60-90% token compression on supported commands (`git`, `cargo`, `gh`, `pytest`, `docker`, etc.). by @brettdavies in [#62](https://github.com/brettdavies/dotfiles/pull/62)
+- Document rtk meta commands in global `CLAUDE.md`: `rtk gain` (savings analytics), `rtk discover` (find missed compression opportunities), `rtk proxy <cmd>` (run unfiltered for debugging).
+- Add `ancsite`, `ancspec`, `ancskill` tmuxinator configs pointing at `~/dev/agentnative-{site,spec,skill}`. by @brettdavies in [#63](https://github.com/brettdavies/dotfiles/pull/63)
+
+### Changed
+
+- Rename `agentnative-cli` tmuxinator session to `anc` (project root unchanged: `~/dev/agentnative-cli`). by @brettdavies in [#63](https://github.com/brettdavies/dotfiles/pull/63)
+- `tmux-new-session` now writes a tmuxinator config under `stow/tmuxinator/dot-config/tmuxinator/<name>.yml` and re-stows the package before launching the session, so every session it creates is reproducible and source-controlled. Sessions are started via `tmuxinator start` instead of raw `tmux new-session`. by @brettdavies in [#67](https://github.com/brettdavies/dotfiles/pull/67)
+
+### Fixed
+
+- Stop auto-formatting files under `/tmp`, `/var/tmp`, and `$TMPDIR` so PR-body drafts and other scratch files paste verbatim into downstream forms. by @brettdavies in [#64](https://github.com/brettdavies/dotfiles/pull/64)
+- Restore the 3-pane default layout (yazi, shell, lazygit) to every tmuxinator config — sessions started via `mux start <name>` now reopen with the expected working layout instead of a single bare pane. by @brettdavies in [#66](https://github.com/brettdavies/dotfiles/pull/66)
+- Replace deprecated `post:` hook with `on_project_exit:` in every tmuxinator config and in the config template emitted by `tmux-new-session`. Sessions still get the 3-pane resize, but `tmuxinator start` no longer prints the deprecation warning. by @brettdavies in [#68](https://github.com/brettdavies/dotfiles/pull/68)
+
+### Documentation
+
+- Document the triple-diff verification step in `RELEASES.md` (main→release, release→dev, dev→main + guarded-paths grep + `git cherry` patch-id sweep) so missed cherry-picks get caught before the release tag goes out instead of after. by @brettdavies in [#60](https://github.com/brettdavies/dotfiles/pull/60)
+- Document the cliff.toml chore-skip footgun in the `RELEASES.md` review step — generated changelog must be cross-checked against PR bodies for cherry-picked PRs whose commit subject starts with a skipped type.
+- Add "Prefer `feat`/`fix` over `chore` when the change has any user-observable effect" rule to global CLAUDE.md `## Commit Messages` section, with the `cliff.toml` rationale.
+- Restructure `RELEASES.md` to consolidate cliff.toml `chore`-skip guidance into a dedicated `### CHANGELOG is generated, never hand-written` subsection under `## Releasing dev to main` (mirrors sibling brettdavies repos); trim `## PRs and changelog generation` to PR-author-facing content only. by @brettdavies in [#61](https://github.com/brettdavies/dotfiles/pull/61)
+- Add a `### Tmuxinator Sessions` section to `README.md` documenting the 3-pane layout intent and `tmuxinator start <name>` (and the `mux start <name>` shell alias, and the SSH form `ssh <host> -t tmuxinator start <name>`) as the preferred launch / connection idiom. Correct the stale "13 projects" count in the stow package row to "16 projects". by @brettdavies in [#68](https://github.com/brettdavies/dotfiles/pull/68)
+
+**Full Changelog**: [2026.05.02...2026.05.11](https://github.com/brettdavies/dotfiles/compare/2026.05.02...2026.05.11)
+
 ## [2026.05.02]
 
 ### Added
