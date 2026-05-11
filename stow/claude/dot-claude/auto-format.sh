@@ -9,6 +9,15 @@ file=$(jq -r '.tool_input.file_path // .tool_input.notebook_path // empty')
 [[ -z "$file" ]] && exit 0
 [[ ! -f "$file" ]] && exit 0
 
+# Skip ephemeral scratch paths (e.g., PR bodies drafted in /tmp before
+# `gh pr edit --body-file`). The auto-format pipeline targets tracked
+# repo content; transient drafts should keep their authored shape so
+# they paste cleanly into GitHub forms or similar destinations.
+case "$file" in
+  /tmp/*|/var/tmp/*) exit 0 ;;
+esac
+[[ -n "${TMPDIR:-}" && "${TMPDIR%/}" != "/" && "$file" == "${TMPDIR%/}"/* ]] && exit 0
+
 ext="${file##*.}"
 
 # JSON output (not plain text) because PostToolUse hooks feed additionalContext
