@@ -1,5 +1,34 @@
 #!/usr/bin/env bash
-# Chain Git LFS pre-push hook (core.hooksPath overrides .git/hooks/)
+# Pre-push hook: mirror CI checks locally so we catch failures before
+# they fail in GitHub Actions. Currently mirrors `.github/workflows/shellcheck.yml`.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# --- ShellCheck (mirrors .github/workflows/shellcheck.yml) ---
+if command -v shellcheck >/dev/null 2>&1; then
+    echo "pre-push: running shellcheck"
+
+    shellcheck .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push
+    shellcheck --shell=bash config/shell/*.sh
+    shellcheck scripts/stow-deploy
+    shellcheck --shell=bash --exclude=SC1090,SC1091 stow/shell/dot-profile
+
+    # Stow-managed bin helpers — find every executable under stow/<pkg>/dot-local/bin/
+    # that has a sh/bash shebang and shellcheck it. Mirrors the workflow's find-loop.
+    while IFS= read -r f; do
+        if head -n1 "$f" | grep -qE '^#!.*\b(sh|bash)\b'; then
+            shellcheck "$f"
+        fi
+    done < <(find stow -type f -path 'stow/*/dot-local/bin/*')
+else
+    echo "pre-push: shellcheck not installed — skipping shell linting" >&2
+    echo "         install with: brew install shellcheck" >&2
+fi
+
+# --- Chain Git LFS pre-push hook (core.hooksPath overrides .git/hooks/) ---
 if command -v git-lfs >/dev/null 2>&1; then
     git lfs pre-push "$@"
 fi
