@@ -9,6 +9,6 @@ windows:
         -
         - lazygit
 
-post: |
+on_project_exit: |
   tmux resize-pane -t streams:main.1 -x "33%"
   tmux resize-pane -t streams:main.3 -y "33%"
