@@ -67,7 +67,7 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 `stow --dotfiles`.
 
 | Package              | What it manages                                                                                     |
-|----------------------|-----------------------------------------------------------------------------------------------------|
+| -------------------- | --------------------------------------------------------------------------------------------------- |
 | `bash`               | `.bashrc`, `.bash_profile`, `.bash_aliases`                                                         |
 | `brew`               | `Brewfile`, `Brewfile.optional`                                                                     |
 | `bun`                | `.bunfig.toml`                                                                                      |
@@ -96,9 +96,31 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `shell`              | `.profile`                                                                                          |
 | `ssh`                | `.ssh/config` (git-crypt encrypted)                                                                 |
 | `tmux`               | `.config/tmux/tmux.conf`                                                                            |
-| `tmuxinator`         | `.config/tmuxinator/*.yml` — declarative session configs (13 projects)                              |
+| `tmuxinator`         | `.config/tmuxinator/*.yml` — declarative session configs (16 projects, see below)                   |
 | `yazi`               | `.config/yazi/` — file manager config, keymaps, theme, packages                                     |
 | `zsh`                | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                                                       |
+
+### Tmuxinator Sessions
+
+Every `.config/tmuxinator/*.yml` config defines the same 3-pane working layout: yazi on the left (1/3 width, full
+height), a bare shell top-right (2/3 × 2/3), and lazygit bottom-right (2/3 × 1/3). All three panes start in the
+project's root.
+
+Start or attach to a configured session with `tmuxinator start <name>` — it creates the session on the first call and
+attaches on every subsequent call, so the same command works whether or not the session is already running:
+
+```bash
+tmuxinator start anc                          # local terminal
+mux start anc                                 # zsh shell alias (same thing)
+ssh bigdaddy_wifi -t tmuxinator start anc     # over SSH (preferred connection idiom)
+```
+
+Raw `tmux attach -t <name>` only works after the session has already been started, which makes it the wrong default for
+SSH.
+
+To create a new session from scratch (config + symlink + first start in one shot), use `tmux-new-session <name>
+<repo-path>` — it writes a new tmuxinator config into `stow/tmuxinator/dot-config/tmuxinator/`, re-stows the package,
+then runs `tmuxinator start`.
 
 ### System-Level Units (`config/systemd/system/`)
 
@@ -106,7 +128,7 @@ System-level systemd units are **not** managed by stow (which targets `$HOME`). 
 and are deployed via `scripts/nas-deploy.sh`, which copies them to `/etc/systemd/system/` and activates them.
 
 | Unit                | Purpose                                           |
-|---------------------|---------------------------------------------------|
+| ------------------- | ------------------------------------------------- |
 | `mnt-nas.mount`     | SMB mount for Pool NAS (`//192.168.1.5/openclaw`) |
 | `mnt-nas.automount` | On-demand automount, solves WiFi boot race        |
 
@@ -119,7 +141,7 @@ copies every file to `/etc/apparmor.d/` and reloads it with `apparmor_parser -r`
 because AppArmor loads `/etc/apparmor.d/` at boot.
 
 | Profile      | Purpose                                                                                   |
-|--------------|-------------------------------------------------------------------------------------------|
+| ------------ | ----------------------------------------------------------------------------------------- |
 | `playwright` | Grants `userns` to Playwright's bundled Chromium so the browse tool works on Ubuntu 24.04 |
 
 **Deploy:** `sudo scripts/apparmor-deploy.sh` (Linux only; requires the `apparmor` package).
@@ -130,7 +152,7 @@ because AppArmor loads `/etc/apparmor.d/` at boot.
 needed.
 
 | File                | Purpose                                               |
-|---------------------|-------------------------------------------------------|
+| ------------------- | ----------------------------------------------------- |
 | `caam.sh`           | Claude account rotation wrapper + daemon              |
 | `caches.sh`         | XDG cache directory locations                         |
 | `claude-code.sh`    | Claude Code environment variables                     |
@@ -156,15 +178,15 @@ Sensitive files are encrypted with git-crypt:
 - `stow/ssh/dot-ssh/config` — SSH host configurations
 - `stow/git/dot-config/git/allowed_signers` — SSH allowed signers
 
-Git hooks auto-unlock on checkout and merge. Back up
-`~/.config/git-crypt/key` in a password manager — if lost, encrypted files cannot be recovered.
+Git hooks auto-unlock on checkout and merge. Back up `~/.config/git-crypt/key` in a password manager — if lost,
+encrypted files cannot be recovered.
 
 ## Git Hooks
 
 Activated via `core.hooksPath` (set automatically by `stow-deploy`):
 
 | Hook            | Purpose                                             |
-|-----------------|-----------------------------------------------------|
+| --------------- | --------------------------------------------------- |
 | `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign` |
 | `post-checkout` | Auto-unlocks git-crypt, chains Git LFS              |
 | `post-merge`    | Auto-unlocks git-crypt, chains Git LFS              |
@@ -173,7 +195,7 @@ Activated via `core.hooksPath` (set automatically by `stow-deploy`):
 ## CI and Testing
 
 | Workflow         | Trigger              | Purpose                                      |
-|------------------|----------------------|----------------------------------------------|
+| ---------------- | -------------------- | -------------------------------------------- |
 | `release.yml`    | Squash merge to main | CalVer tag, changelog via git-cliff, release |
 | `shellcheck.yml` | Push / PR            | Lints shell scripts                          |
 

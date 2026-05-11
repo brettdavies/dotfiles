@@ -32,7 +32,10 @@ TMUXINATOR_PKG="$DOTFILES/stow/tmuxinator/dot-config/tmuxinator"
 CONFIG_FILE="$TMUXINATOR_PKG/$SESSION.yml"
 
 # Tilde-relativize REPO when it sits under $HOME so the generated config
-# stays portable across machines with different $HOME values.
+# stays portable across machines with different $HOME values. The literal
+# `~/` is intentional — it gets written into the YAML config and tmuxinator
+# expands it at session-start time, not the script's shell.
+# shellcheck disable=SC2088
 case "$REPO" in
   "$HOME"/*) ROOT="~/${REPO#"$HOME"/}" ;;
   *)         ROOT="$REPO" ;;
@@ -52,7 +55,7 @@ windows:
         -
         - lazygit
 
-post: |
+on_project_exit: |
   tmux resize-pane -t $SESSION:main.1 -x "33%"
   tmux resize-pane -t $SESSION:main.3 -y "33%"
 EOF
