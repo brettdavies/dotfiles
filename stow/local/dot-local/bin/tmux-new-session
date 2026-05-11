@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# Create a standard 3-pane dev session for a repo
-# Usage: tmux-new-session.sh <session-name> <repo-path>
+# Create or attach to a tmuxinator-managed 3-pane dev session for a repo.
+# Usage: tmux-new-session <session-name> <repo-path>
 #
 # Layout:
 #   ┌──────────┬──────────────────────────┐
-#   │          │   Claude Code  (top)     │
+#   │          │   shell  (top,    2/3 h) │
 #   │  yazi    │                          │
-#   │ (full    ├──────────────────────────┤
-#   │ height)  │   lazygit  (bottom)      │
+#   │ (1/3 w,  ├──────────────────────────┤
+#   │ full h)  │   lazygit (bottom, 1/3 h)│
 #   └──────────┴──────────────────────────┘
+#
+# Behavior:
+#   1. If no tmuxinator config exists for <session-name> in the dotfiles
+#      tmuxinator package, generate one and re-stow.
+#   2. If the session is already running, attach. Otherwise start it via
+#      `tmuxinator start` (invoked directly so shell-function aliases like
+#      `mux` aren't required in the script's subshell).
 
 set -euo pipefail
 
@@ -20,29 +27,45 @@ if [ ! -d "$REPO" ]; then
   exit 1
 fi
 
-if tmux has-session -t "$SESSION" 2>/dev/null; then
-  echo "Session '$SESSION' already exists — attaching"
-  tmux attach -t "$SESSION"
-  exit 0
+DOTFILES="${DOTFILES:-$HOME/dotfiles}"
+TMUXINATOR_PKG="$DOTFILES/stow/tmuxinator/dot-config/tmuxinator"
+CONFIG_FILE="$TMUXINATOR_PKG/$SESSION.yml"
+
+# Tilde-relativize REPO when it sits under $HOME so the generated config
+# stays portable across machines with different $HOME values. The literal
+# `~/` is intentional — it gets written into the YAML config and tmuxinator
+# expands it at session-start time, not the script's shell.
+# shellcheck disable=SC2088
+case "$REPO" in
+  "$HOME"/*) ROOT="~/${REPO#"$HOME"/}" ;;
+  *)         ROOT="$REPO" ;;
+esac
+
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "Creating tmuxinator config: $CONFIG_FILE"
+  cat > "$CONFIG_FILE" <<EOF
+name: $SESSION
+root: $ROOT
+
+windows:
+  - main:
+      layout: main-vertical
+      panes:
+        - yazi
+        -
+        - lazygit
+
+on_project_exit: |
+  tmux resize-pane -t $SESSION:main.1 -x "33%"
+  tmux resize-pane -t $SESSION:main.3 -y "33%"
+EOF
+  "$DOTFILES/scripts/stow-deploy" tmuxinator >/dev/null
+  echo "✅ Config created and stowed"
 fi
 
-# Create session — first pane will become yazi (left column, full height)
-tmux new-session -d -s "$SESSION" -c "$REPO" -x 220 -y 50
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  echo "Session '$SESSION' already running — attaching"
+  exec tmux attach -t "$SESSION"
+fi
 
-# Split right column off (yazi stays left at 30%, right column gets 70%)
-tmux split-window -t "$SESSION:1.1" -h -p 70 -c "$REPO"
-
-# Split right column: Claude Code top (60%), lazygit bottom (40%)
-tmux split-window -t "$SESSION:1.2" -v -p 40 -c "$REPO"
-
-# Start tools
-tmux send-keys -t "$SESSION:1.1" "yazi" Enter
-tmux send-keys -t "$SESSION:1.2" "" ""   # Claude Code pane — clean shell
-tmux send-keys -t "$SESSION:1.3" "lazygit" Enter
-
-# Leave Claude Code pane selected (ready for: claude)
-tmux select-pane -t "$SESSION:1.2"
-
-echo "✅ Session '$SESSION' created at $REPO"
-echo "   Attach with: tmux attach -t $SESSION"
-echo "   Or from SSH: ssh -t bigdaddy \"tmux attach -t $SESSION\""
+exec tmuxinator start "$SESSION"

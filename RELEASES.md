@@ -13,7 +13,7 @@ feature branch → PR to dev (squash merge)
 ## Branches
 
 | Branch                                 | Role                                    | Lifetime                                 | Protection                           |
-|----------------------------------------|-----------------------------------------|------------------------------------------|--------------------------------------|
+| -------------------------------------- | --------------------------------------- | ---------------------------------------- | ------------------------------------ |
 | `main`                                 | Production. Only release commits.       | Forever.                                 | `.github/rulesets/protect-main.json` |
 | `dev`                                  | Integration. All feature PRs land here. | Forever. Never delete.                   | `.github/rulesets/protect-dev.json`  |
 | `feat/*`, `fix/*`, `chore/*`, `docs/*` | Feature work.                           | One PR's worth. Delete after merge.      | None — squash into dev freely.       |
@@ -71,21 +71,77 @@ git log --first-parent --grep='(#[0-9]\+)$' --format='%H %s' \
 # Review the list, then cherry-pick in chronological order (oldest first):
 git cherry-pick <oldest-sha> <next-sha> ... <newest-sha>
 
-# 3. Generate CHANGELOG.md. Pass --tag explicitly: the script's branch detection
+# 3. Triple-diff verification — belt-and-suspenders sweep that catches both
+#    directions of drift before the release tag goes out:
+#
+#    A. main → release  (what users will see; the intended ship surface)
+#    B. release → dev   (should be empty for non-doc paths until the
+#                        CHANGELOG commit lands, and even then should
+#                        only list that release-prep file — anything else
+#                        is a missed cherry-pick)
+#    C. dev → main      (sanity: phantom commits dev "appears ahead" on
+#                        because cherry-pick rewrites SHAs post-squash)
+git diff origin/main..HEAD --stat                                                # A
+git diff HEAD..origin/dev --name-only | grep -v '^docs/' || echo "(none)"        # B
+git diff origin/dev..origin/main --stat | tail -5                                # C
+#
+# Re-confirm no guarded paths leaked (planning docs are dev-only and must
+# never reach main per the branch-discipline exception in CLAUDE.md):
+git diff origin/main..HEAD --name-only \
+  | grep -E '^(docs/plans|docs/brainstorms|docs/ideation|docs/research|docs/reviews|docs/solutions|\.context)' \
+  && echo "LEAKED — reset and redo" || echo "(clean — no guarded paths)"
+#
+# Patch-id cherry check — catches commits on dev that have NO patch-id
+# equivalent on release. The file-level diff in B misses this class when
+# the same content happens to land via a different commit.
+#
+# IMPORTANT: in a squash-merge workflow this output is noisy. Every '+'
+# line needs human triage — it does NOT auto-block the release. Expected
+# sources of '+' lines that are NOT real misses:
+#
+#   1. Historical commits squash-merged in prior releases. The squash
+#      commit on main has a different patch-id than the dev commits it
+#      consolidates, so old commits show as '+' forever. Anything older
+#      than the previous release tag is almost always this.
+#   2. Cherry-picks where conflict resolution stripped guarded paths
+#      (docs/plans, docs/brainstorms, etc.) or otherwise altered the
+#      tree. Same source-code intent, different patch-id.
+#   3. Intentionally skipped commits — docs-only commits, release-prep
+#      backports, revert-and-redo prep steps (see release 2026.05.02
+#      where PR #57's revert was excluded because main had nothing to
+#      revert).
+#
+# A real miss looks like: a recent feat/fix/chore commit on dev whose
+# *file content* is not yet on main. To triage a '+' line:
+#
+#   git show <sha> --stat                       # what did it touch?
+#   git diff origin/main..HEAD -- <those-files> # already on release?
+#
+# If every touched file is guarded (docs/plans/, docs/brainstorms/, etc.)
+# OR the content is already on main via a prior squash, it's a false
+# positive — no action. Otherwise cherry-pick the commit and re-run the
+# triple-diff.
+git cherry HEAD origin/dev | grep '^+' || echo "(none — release is patch-equivalent through dev)"
+#
+# If B lists any non-docs path you didn't expect, fetch dev, identify the
+# commit (`git log dev --not origin/main`), cherry-pick it, re-run the
+# triple-diff. Missed cherry-picks have shipped to main on sibling repos
+# before — this step is the cheap way to catch them.
+
+# 4. Generate CHANGELOG.md. Pass --tag explicitly: the script's branch detection
 #    expects `release/vN.N.N` (SemVer) and does not parse CalVer branch names.
 GITHUB_TOKEN=$(gh auth token) \
   ~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh --tag "$(date +%Y.%m.%d)"
 
-# 4. Review CHANGELOG.md. The script runs git-cliff for base entries, then
-#    expands squash commits by pulling `## Changelog` sections from each PR body
-#    via the GitHub API.
+# 5. Review CHANGELOG.md. See the "CHANGELOG is generated, never hand-written"
+#    subsection below for the cliff.toml chore-skip footgun and how to recover.
 
-# 5. Commit and push:
+# 6. Commit and push:
 git add CHANGELOG.md
 git commit -m "docs: update CHANGELOG.md"
 git push -u origin "release/$(date +%Y.%m.%d)"
 
-# 6. Open the PR:
+# 7. Open the PR:
 gh pr create --base main --title "release: $(date +%Y.%m.%d)" \
              --body "Release $(date +%Y.%m.%d)"
 ```
@@ -107,12 +163,31 @@ Two compounding problems made the earlier "branch from main, merge dev" flow bre
 Cherry-picking solves both: branching from `origin/main` avoids the conflicts, and picking only PR squash commits
 creates fresh SHAs on the release branch that represent exactly the delta being shipped — no prior-release noise.
 
+### CHANGELOG is generated, never hand-written
+
+`~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh` (with `cliff.toml`) is the only sanctioned way to
+update `CHANGELOG.md`. The script runs `git-cliff` to prepend a versioned entry for commits since the last tag, then
+walks each squash-merged PR's body to extract the `## Changelog` section's `### Added` / `### Changed` / `### Fixed` /
+`### Documentation` subsections, replacing the auto-generated bullets with the curated PR-body content (with author and
+PR-link attribution).
+
+If a PR's `## Changelog` section is empty, that PR's entry is omitted from the changelog (the convention in
+[`.github/pull_request_template.md`](.github/pull_request_template.md): empty section = no user-facing change). To fix a
+wrong CHANGELOG entry, fix the input — edit the squash-merged PR body, then re-run the script. Do **not** edit
+`CHANGELOG.md` directly.
+
+**`cliff.toml` skips `chore`/`style`/`test`/`ci`/`build` commits regardless of PR-body content.** If a cherry-picked PR
+has user-facing `## Changelog` content but its commit subject starts with one of those types, its bullets get silently
+dropped. After running the script, cross-check the generated section against `gh pr view <num> --json body` for each
+cherry-picked PR; correct mistyped PR titles (e.g. `chore` → `feat`) and re-amend the cherry-pick subject before
+re-running. See "Prefer `feat`/`fix` over `chore`" in global CLAUDE.md for prevention.
+
 ## Tagging and publishing
 
 The tag is **not** created locally. `release.yml` triggers on any push to `main` and runs:
 
 | Step                     | What                                                                                                                                                        |
-|--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Compute CalVer version` | `YYYY.MM.DD` in America/Los_Angeles. If tags for today already exist, append `.N` (e.g. `2026.04.15.1`).                                                    |
 | `Extract release notes`  | Read the topmost `## [version]` section from the committed `CHANGELOG.md`. Falls back to `"Release <version>"` if empty.                                    |
 | `Tag and push`           | `git tag <version> && git push origin <version>`. Bare (non-annotated) because the workflow runs as `github-actions[bot]` without a signing key configured. |
@@ -128,20 +203,17 @@ whenever possible.
 
 ## PRs and changelog generation
 
-Every PR **must** follow `.github/pull_request_template.md`. The template has a `## Changelog` section that is the
-single source of truth for user-facing release notes.
+Every PR **must** follow `.github/pull_request_template.md`. The template's `## Changelog` section has these
+subsections:
 
-`generate-changelog.sh` (which wraps `git-cliff` per `cliff.toml`) reads:
+- `### Added` — new user-visible features or capabilities.
+- `### Changed` — changes to existing behavior.
+- `### Fixed` — bug fixes.
+- `### Documentation` — documentation-only updates.
 
-1. The individual conventional-commit messages on the release branch (merged from `dev`), categorized per `cliff.toml`'s
-   `commit_parsers` (`feat` → Added, `fix` → Fixed, `refactor`/`perf` → Changed, `docs` → Documentation, everything else
-   skipped).
-2. The `## Changelog` section of each squash-merged PR body, pulled via the GitHub API and used to expand bullets past
-   the single-line commit summary.
-
-A PR that lands with an empty or missing `## Changelog` section silently drops its user-facing notes from the next
-release. **Never manually edit `CHANGELOG.md`** — it is a generated artifact. Fix the inputs (commit messages, PR
-bodies, `cliff.toml`), not the output.
+A PR that has no user-facing impact (pure refactor, test-only, CI-only) should leave the `## Changelog` section empty or
+omit it — the PR still appears in git history but won't clutter the changelog. See "CHANGELOG is generated, never
+hand-written" above for how the script consumes these sections at release time and the cliff.toml chore-skip footgun.
 
 ## Branch protection
 
@@ -170,7 +242,7 @@ Committing the JSON alongside config means ruleset changes land via the same rev
 ## Required secrets
 
 | Secret             | Purpose                                                                                                                                                                                                 | Lifecycle         |
-|--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------|
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | `CI_RELEASE_TOKEN` | Fine-grained PAT, Contents R+W. Used by `release.yml` to push the tag and create the GitHub Release. The default `GITHUB_TOKEN` cannot push to `main` because `protect-main.json` blocks non-PR writes. | Rotated annually. |
 
 ## Troubleshooting

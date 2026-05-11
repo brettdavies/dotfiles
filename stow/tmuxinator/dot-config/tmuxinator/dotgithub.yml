@@ -3,3 +3,12 @@ root: ~/dev/dot-github
 
 windows:
   - main:
+      layout: main-vertical
+      panes:
+        - yazi
+        -
+        - lazygit
+
+on_project_exit: |
+  tmux resize-pane -t dotgithub:main.1 -x "33%"
+  tmux resize-pane -t dotgithub:main.3 -y "33%"
