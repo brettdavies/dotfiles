@@ -140,7 +140,10 @@
       "Bash(rtk --version)",
       "Bash(rtk init *)",
       "Bash(rtk hook *)",
-      "Bash(rtk git *)"
+      "Bash(rtk git *)",
+      "Bash(tmux kill-session *)",
+      "Bash(mux start *)",
+      "Bash(tmux list-panes *)"
     ]
   }
 }

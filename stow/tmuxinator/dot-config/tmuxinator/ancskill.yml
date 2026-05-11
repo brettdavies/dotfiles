@@ -3,3 +3,12 @@ root: ~/dev/agentnative-skill
 
 windows:
   - main:
+      layout: main-vertical
+      panes:
+        - yazi
+        -
+        - lazygit
+
+post: |
+  tmux resize-pane -t ancskill:main.1 -x "33%"
+  tmux resize-pane -t ancskill:main.3 -y "33%"
