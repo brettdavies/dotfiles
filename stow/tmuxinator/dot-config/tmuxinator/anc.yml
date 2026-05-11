@@ -1,4 +1,4 @@
-name: agentnative-cli
+name: anc
 root: ~/dev/agentnative-cli
 
 windows:

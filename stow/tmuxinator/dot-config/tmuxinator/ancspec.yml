@@ -1,0 +1,5 @@
+name: ancspec
+root: ~/dev/agentnative-spec
+
+windows:
+  - main:
