@@ -1,0 +1,5 @@
+name: ancsite
+root: ~/dev/agentnative-site
+
+windows:
+  - main:
