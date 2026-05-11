@@ -3,3 +3,12 @@ root: ~/dev/xurl-rs
 
 windows:
   - main:
+      layout: main-vertical
+      panes:
+        - yazi
+        -
+        - lazygit
+
+post: |
+  tmux resize-pane -t xurl-rs:main.1 -x "33%"
+  tmux resize-pane -t xurl-rs:main.3 -y "33%"
