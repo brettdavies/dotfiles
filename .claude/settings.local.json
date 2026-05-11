@@ -143,7 +143,17 @@
       "Bash(rtk git *)",
       "Bash(tmux kill-session *)",
       "Bash(mux start *)",
-      "Bash(tmux list-panes *)"
+      "Bash(tmux list-panes *)",
+      "Bash(tmux new-session *)",
+      "Bash(tmux list-windows *)",
+      "Bash(tmux split-window *)",
+      "Bash(tmux select-layout *)",
+      "Bash(rtk read *)",
+      "Bash(tmuxinator *)",
+      "Bash(tmux *)",
+      "Bash(/home/brett/.local/bin/tmux-new-session tmp1 *)",
+      "Bash(kill %1)",
+      "Bash(/home/linuxbrew/.linuxbrew/bin/rg *)"
     ]
   }
 }
