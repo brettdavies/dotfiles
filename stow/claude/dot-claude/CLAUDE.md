@@ -351,31 +351,52 @@ above is the single source of truth.
 the sub-header or label. The "delete empty sections" rule applies ONLY to the `Changelog` block's `### Added` / `###
 Changed` / `### Fixed` / `### Documentation` subsections, per the template's own comment.
 
-**Prefer `--body-file /tmp/<path>` over inline `--body`.** Author every PR body in a `/tmp/` file first, then submit
-with `gh pr create --body-file /tmp/<path>.md` (or `gh pr edit <num> --body-file /tmp/<path>.md`). Reasons:
+### Authoring GitHub correspondence: `/tmp/` + `--body-file` + `/unslop`
 
-- **No heredoc escape gymnastics.** `--body-file` reads bytes directly; no `<<'EOF'` quoting rules, no
-  backslash-interpretation traps, no `\"foo\"` rendering as literal backslash-quote.
-- **No auto-format wrapping.** The `md-wrap.py` PostToolUse hook wraps repo-tracked markdown to 120 chars on save. Hard
-  wraps inside prose produce visible mid-sentence breaks in some renderers and (for repos with the agentnative prose
-  pipeline) interfere with Vale's line-anchored output and LanguageTool's input handling. The auto-format hook **skips
-  `/tmp/` paths**, so a body authored there keeps its shape. Write each paragraph and each bullet as one logical line,
-  however long — GitHub soft-wraps for display.
-- **Single round-trip.** Scrub locally before submit; the public PR sees only the final text. Avoids the "submit →
-  notice typo → edit → re-submit" cycle that leaves messy revisions in the PR's edit history.
-- **Reusable by editors.** Need to make a one-character fix to an open PR? `gh pr view <num> --json body --jq .body >
-  /tmp/body.md`, edit, `gh pr edit <num> --body-file /tmp/body.md`. No re-typing the whole body into a heredoc.
+**Mandatory workflow for all server-side artifacts that ship text to GitHub.** Applies to PR bodies, PR comments, PR
+reviews, issue bodies, issue comments, release notes, and any future `gh` command that takes a `--body` or `--notes`
+flag. Also covers `git commit -m` (the squash-merge commit message lands in public history alongside the PR body).
+
+Three steps. The first two are mandatory in every repo; the third is mandatory in every repo regardless of whether the
+repo has its own prose-linting pipeline.
+
+1. **Author in `/tmp/`.** Write the body to `/tmp/pr-body.md` (or `/tmp/commit-msg.md`, `/tmp/release-notes.md`, etc.).
+   The auto-format hook (`md-wrap.py`) skips `/tmp/` paths, so the file keeps its authored shape — no 120-char wrapping
+   inside prose. Write each paragraph and each bullet as **one logical line**; GitHub soft-wraps for display.
+2. **Run `/unslop /tmp/<path>.md`.** The `unslop` skill (`~/.claude/skills/unslop/`) is required for every body before
+   submission. It runs `scripts/score.py` as a deterministic gate, then recasts only the lines the script flags —
+   em-dash density, formulaic structures ("It's not X, it's Y", "Here's the thing", etc.), filler openers, AI
+   self-references, pseudo-profound openers. Score `0` exits silently; non-zero scores produce recast diffs the agent
+   reviews. This rule is universal — even repos without Vale + LanguageTool wired up still run `/unslop` so the prose
+   floor is in place.
+3. **Submit via file flag.** `gh pr create --body-file /tmp/<path>.md`, `gh pr edit --body-file ...`, `gh pr comment
+   --body-file ...`, `gh issue create --body-file ...`, `gh release create --notes-file ...`, `git commit --file ...`.
+   Never inline the body via `--body "..."`, `-m "..."`, or a `--body "$(cat <<'EOF' ... EOF)"` heredoc.
 
 Typical flow:
 
 ```bash
-$EDITOR /tmp/pr-body.md
+$EDITOR /tmp/pr-body.md             # author the body, one logical line per paragraph
+/unslop /tmp/pr-body.md             # mandatory scrub pass
 gh pr create --base dev --title "type(scope): description" --body-file /tmp/pr-body.md
 ```
 
-For repos that ship a prose-linting pipeline (currently `agentnative-skill`, `agentnative-cli`, `agentnative-site`,
-`agentnative-spec`), run Vale + LanguageTool + unslop against `/tmp/pr-body.md` before `--body-file`. See those repos'
-`RELEASES.md` "Prose scrubbing" sections for the exact commands.
+**Why mandatory `/unslop`:** every repo benefits from the slop floor, even ones without the broader Vale + LT pipeline.
+The Vale + LanguageTool + unslop *full stack* remains repo-local (currently `agentnative-skill`, `agentnative-cli`,
+`agentnative-site`, `agentnative-spec` — see those repos' `RELEASES.md` "Prose scrubbing" sections). Repos without
+Vale/LT still run `/unslop` as the minimum acceptable scrub.
+
+**Enforcement.** The `~/.claude/heredoc-pr-guard.sh` PreToolUse Bash hook rejects `gh pr (create|edit|comment|review)
+--body "<heredoc>"`, `gh issue (create|edit|comment) --body "<heredoc>"`, `gh release (create|edit) --notes
+"<heredoc>"`, and `git commit -m "<heredoc>"`. The hook is wired into `stow/claude/dot-claude/settings.json` and runs on
+every Bash tool call. Tests covering 41 cases (positive, negative, and adversarial red-team bypasses) live at
+`tests/heredoc-pr-guard.bats` — run with `bats tests/heredoc-pr-guard.bats`. If a legitimate use is blocked, fix the
+regex; do NOT bypass the hook for individual commands.
+
+Why hook + docs (not docs alone): inline heredoc into `--body` produces wrapped-and-escape-trapped text that lands in
+the PR body AND in the squash-merge commit message. Cleanup after the fact requires either re-submitting via
+`--body-file` (acceptable) or a destructive `git history reword` + force-push to a protected branch (not acceptable).
+~30 seconds of pre-submit `/tmp/` work avoids both.
 
 **Heredoc escape rule (fallback for when `--body-file` is impractical).** If you still compose a body inline via `gh pr
 create --body "$(cat <<'EOF' ... EOF)"`, the single-quoted delimiter (`<<'EOF'`) preserves the body **literally** — no
