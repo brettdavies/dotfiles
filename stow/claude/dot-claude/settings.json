@@ -241,6 +241,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "~/.claude/heredoc-pr-guard.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "rtk hook claude"
           }
         ]
