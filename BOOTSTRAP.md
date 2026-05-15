@@ -180,6 +180,26 @@ while IFS= read -r ext; do
 done < ~/dotfiles/stow/cursor/extensions.txt
 ```
 
+### QMD LaunchAgents (Knowledge-Base Index Maintenance)
+
+macOS port of the Linux systemd timers under `stow/qmd/dot-config/systemd/user/`. Three LaunchAgents keep the qmd
+knowledge-base index fresh:
+
+| Agent                  | Schedule              | What it does                                                            |
+| ---------------------- | --------------------- | ----------------------------------------------------------------------- |
+| `com.user.qmd-update`  | every 5 min + at load | `qmd cleanup` then `qmd update` (re-index changed files)                |
+| `com.user.qmd-embed`   | every 5 min + at load | `qmd embed` with throttled batches (avoids Apple Silicon KV-cache wall) |
+| `com.user.qmd-cleanup` | nightly 03:00         | `qmd cleanup` (deeper vacuum, drop stale rerank cache)                  |
+
+After `stow-deploy --all` symlinks the plists into `~/Library/LaunchAgents/`, bootstrap them into the user's GUI domain:
+
+```bash
+bash ~/dotfiles/scripts/qmd-launchd-enable.sh
+```
+
+The script is idempotent — safe to re-run after editing a plist. Logs land in `~/dotfiles/scripts/qmd-launchd/logs/`
+(gitignored). Stop an agent with `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.user.qmd-<name>.plist`.
+
 ### Rectangle Window Manager
 
 Installed by `brew bundle` from the Brewfile. First-launch requires Accessibility permission, then run the defaults
