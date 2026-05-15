@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    QMD vector embedding — macOS port of qmd-embed.service + qmd-embed.timer
+    (Linux systemd, see stow/qmd/dot-config/systemd/user/).
+
+    Runs `qmd embed` every 5 minutes and at load time. Each invocation
+    picks up wherever the previous one left off (qmd skips already-embedded
+    content hashes).
+
+    Throttles vs the Linux equivalent: --max-docs-per-batch 50 and
+    --max-batch-mb 10 prevent the "session expired" KV-cache wall observed
+    on Apple Silicon with the default batch size. See PR #70 retro for the
+    diagnosis. On a typical 5-minute window these caps still process
+    several hundred docs per run, so they don't materially slow throughput.
+
+    Note: unlike the Linux service, no Ollama unload pre-step is needed —
+    on macOS we're not running Ollama alongside qmd.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.qmd-embed</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>PATH="$HOME/.local/bin:$HOME/.cache/bun/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec qmd embed --max-docs-per-batch 50 --max-batch-mb 10 &gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-embed.log" 2&gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-embed.error.log"</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
