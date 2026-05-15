@@ -203,6 +203,8 @@ whenever possible.
 
 ## PRs and changelog generation
 
+- **No explainer prose anywhere in the body.** Every section is user-facing substance only — what is changing for the consumer that was not already there. `## Summary` is one short paragraph. Do NOT recap the workflow (cherry-pick / regenerate / pre-push gate / CI behavior is documented in this file and `.github/`). Do NOT paste triple-diff output, pre-push gate results, CI check status, exclusion rationale, or other verification artifacts into the body. Those stay local; anomalies get fixed before push, not audit-trailed in the body.
+
 Every PR **must** follow `.github/pull_request_template.md`. The template's `## Changelog` section has these
 subsections:
 
