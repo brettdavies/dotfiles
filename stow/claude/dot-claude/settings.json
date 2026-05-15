@@ -57,6 +57,7 @@
       "Bash(git-crypt:*)",
       "Bash(git-lfs:*)",
       "Bash(git:*)",
+      "Bash(GITHUB_TOKEN=$\\(gh auth token\\) ~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh:*)",
       "Bash(gog auth:*)",
       "Bash(gog gmail --help:*)",
       "Bash(gog gmail attachment:*)",

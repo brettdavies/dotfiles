@@ -47,7 +47,6 @@
       "Bash(curl -s http://127.0.0.1:7832/health)",
       "Bash(defaults read *)",
       "Bash(findmnt -n /mnt/nas)",
-      "Bash(GITHUB_TOKEN=$\\(gh auth token\\) ~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh:*)",
       "Bash(go build:*)",
       "Bash(go test:*)",
       "Bash(kill %1)",
