@@ -164,7 +164,14 @@
       "Bash(rtk ls *)",
       "Bash(zsh -n /Users/brett/dotfiles/stow/zsh/dot-zshrc)",
       "Bash(zsh -l -c 'true')",
-      "Bash(zsh -l -i -c 'echo \"ZSH_AUTOSUGGEST_STRATEGY=$ZSH_AUTOSUGGEST_STRATEGY\"; typeset -p ZSH_HIGHLIGHT_HIGHLIGHTERS 2>&1')"
+      "Bash(zsh -l -i -c 'echo \"ZSH_AUTOSUGGEST_STRATEGY=$ZSH_AUTOSUGGEST_STRATEGY\"; typeset -p ZSH_HIGHLIGHT_HIGHLIGHTERS 2>&1')",
+      "Bash(sh -n /Users/brett/dotfiles/config/shell/local-paths.sh)",
+      "Bash(sh -n /Users/brett/dotfiles/config/shell/lm-studio.sh)",
+      "Bash(zsh -l -c 'echo $PATH')",
+      "Bash(zsh -l -c 'command -v rg')",
+      "Bash(zsh -l -c 'rg --version | head -1')",
+      "Bash(rtk shellcheck *)",
+      "Bash(bash /Users/brett/dotfiles/.githooks/pre-push)"
     ]
   }
 }
