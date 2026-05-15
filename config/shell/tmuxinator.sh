@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # tmuxinator: declarative tmux session management
 # mux() passes all arguments to tmuxinator; mux-all() starts every configured session
 # On machines without tmuxinator, this file is a no-op
