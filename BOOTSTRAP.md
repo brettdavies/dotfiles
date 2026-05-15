@@ -109,38 +109,30 @@ brew bundle --file=~/dotfiles/stow/brew/Brewfile.optional
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 ```
 
-### macOS — Symlink Brew Packages
+### Zsh plugins and theme
 
-Homebrew installs plugins and the theme as formulae. Symlink them into oh-my-zsh's custom directory:
+`zsh-autosuggestions`, `zsh-syntax-highlighting`, `zsh-completions`, and `powerlevel10k` are all installed by `brew
+bundle` (Brewfile entries on both macOS and Linux). They live under `$HOMEBREW_PREFIX/share/`.
+
+- **`zsh-autosuggestions` and `zsh-syntax-highlighting`** are NOT wired through oh-my-zsh's `plugins=(...)` array. Brew
+  ships them without the `<name>.plugin.zsh` file omz's `is_plugin()` requires, so `plugins=(zsh-autosuggestions ...)`
+  produces `plugin '...' not found` warnings. Instead, `stow/zsh/dot-zshrc` sources them directly from
+  `$HOMEBREW_PREFIX/share/...` at the end of the file (with syntax-highlighting last, per its install docs). No symlink
+  needed.
+- **`zsh-completions`** is loaded via `fpath` (already wired in `stow/zsh/dot-zshrc`). No symlink needed.
+- **`powerlevel10k`** is the theme — needs a symlink into `$OMZ_CUSTOM/themes/` so omz's `ZSH_THEME` resolver finds it:
 
 ```bash
 BREW_SHARE="$(brew --prefix)/share"
 OMZ_CUSTOM="$HOME/.oh-my-zsh/custom"
 
-# Plugins
-mkdir -p "$OMZ_CUSTOM/plugins"
-ln -sf "$BREW_SHARE/zsh-autosuggestions"     "$OMZ_CUSTOM/plugins/zsh-autosuggestions"
-ln -sf "$BREW_SHARE/zsh-syntax-highlighting" "$OMZ_CUSTOM/plugins/zsh-syntax-highlighting"
-ln -sf "$BREW_SHARE/zsh-completions"         "$OMZ_CUSTOM/plugins/zsh-completions"
-
-# Theme
 mkdir -p "$OMZ_CUSTOM/themes"
 ln -sf "$BREW_SHARE/powerlevel10k" "$OMZ_CUSTOM/themes/powerlevel10k"
 ```
 
-### Linux — Git Clone
-
-```bash
-OMZ_CUSTOM="$HOME/.oh-my-zsh/custom"
-
-# Plugins
-git clone https://github.com/zsh-users/zsh-autosuggestions     "$OMZ_CUSTOM/plugins/zsh-autosuggestions"
-git clone https://github.com/zsh-users/zsh-syntax-highlighting "$OMZ_CUSTOM/plugins/zsh-syntax-highlighting"
-git clone https://github.com/zsh-users/zsh-completions         "$OMZ_CUSTOM/plugins/zsh-completions"
-
-# Theme
-git clone --depth=1 https://github.com/romkatv/powerlevel10k   "$OMZ_CUSTOM/themes/powerlevel10k"
-```
+That's the only manual symlink step. If you're migrating from the old git-clone layout, trash any leftover
+`$OMZ_CUSTOM/plugins/zsh-autosuggestions` and `$OMZ_CUSTOM/plugins/zsh-syntax-highlighting` directories — they're unused
+now.
 
 ## Tmux Plugins
 

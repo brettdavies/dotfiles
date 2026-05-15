@@ -5,9 +5,14 @@
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 
-# Source profile to get MODELS_HOME and other environment variables
-# This also sets up Homebrew PATH for all shells
-[ -f "$HOME/.profile" ] && source "$HOME/.profile"
+# Source .profile if not already loaded — .zshenv normally handles this,
+# but tools that bypass .zshenv (rare) still need env+PATH. Matches the
+# sentinel pattern in stow/bash/dot-bashrc. Skipping the redundant
+# re-source is what prevents the config/shell/*.sh files from running
+# twice and duplicating PATH entries.
+if [ -z "${DOTFILES_SHELL_DIR:-}" ] && [ -f "$HOME/.profile" ]; then
+    source "$HOME/.profile"
+fi
 
 # If not running interactively, don't do anything further.
 # Secrets and environment are already loaded via .profile above.
@@ -19,7 +24,12 @@ if [ -n "${DOTFILES_SHELL_DIR:-}" ] && [ -f "${DOTFILES_SHELL_DIR}/shell-functio
 fi
 
 ZSH_THEME="powerlevel10k/powerlevel10k"
-plugins=(git zsh-autosuggestions zsh-syntax-highlighting)
+# zsh-autosuggestions and zsh-syntax-highlighting are NOT loaded via omz
+# plugins because brew ships them without the `<name>.plugin.zsh` file
+# omz's is_plugin() expects. Both are sourced directly at the end of
+# this file from $HOMEBREW_PREFIX/share/ instead (Homebrew's documented
+# approach). See BOOTSTRAP.md "macOS — Brew Zsh Plugins" for context.
+plugins=(git)
 
 # Unified compinit: set ZSH_COMPDUMP before sourcing oh-my-zsh so it uses our
 # cache path. This avoids a redundant second compinit call (~170ms savings).
@@ -238,3 +248,15 @@ export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
 
 # OpenClaw Completion
 [ -f "$HOME/.openclaw/completions/openclaw.zsh" ] && source "$HOME/.openclaw/completions/openclaw.zsh"
+
+# Homebrew zsh plugins — sourced directly because brew doesn't ship the
+# `<name>.plugin.zsh` file that omz's plugin loader requires. Order matters:
+# zsh-syntax-highlighting MUST be sourced LAST so it can wrap every widget
+# already defined (including autosuggestions'). Cross-platform — both
+# /opt/homebrew and /home/linuxbrew/.linuxbrew expose the same layout.
+if [[ -n "${HOMEBREW_PREFIX:-}" ]]; then
+    [[ -f "$HOMEBREW_PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh" ]] \
+        && source "$HOMEBREW_PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+    [[ -f "$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]] \
+        && source "$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+fi
