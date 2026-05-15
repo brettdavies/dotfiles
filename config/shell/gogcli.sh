@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # gogcli: Google Workspace CLI — auto-inject keyring password from 1Password
 # On machines without gog, this file is a no-op (no function defined, no error)
 if command -v gog >/dev/null 2>&1; then

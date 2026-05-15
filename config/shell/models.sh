@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Central AI model cache directory
 # This file configures environment variables for AI/ML model storage locations
 # All models are stored under a central MODELS_HOME directory for easy management

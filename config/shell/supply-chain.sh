@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Supply-chain safety: only install packages published at least 7 days ago
 #
 # bun — no env-var support; configured via stow/bun/dot-bunfig.toml (~/.bunfig.toml)

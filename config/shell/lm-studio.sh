@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Added by LM Studio CLI (lms) — dedupe-guarded to stay idempotent across
 # re-sources. Original installer line appended unconditionally.
 if [ -d "$HOME/.lmstudio/bin" ]; then
