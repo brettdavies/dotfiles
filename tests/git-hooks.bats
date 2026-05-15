@@ -106,6 +106,9 @@ HOOKS_DIR="$BATS_TEST_DIRNAME/../.githooks"
 # ---------------------------------------------------------------------------
 
 @test "core.hooksPath is set to .githooks" {
+  # stow-deploy sets this on first deploy. On a fresh CI checkout it's
+  # unset and the hooks aren't active — skip rather than misreport.
   hookspath=$(git -C "$BATS_TEST_DIRNAME/.." config --get core.hooksPath 2>/dev/null || true)
+  [ -n "$hookspath" ] || skip "core.hooksPath not set (CI checkout without stow-deploy)"
   [ "$hookspath" = ".githooks" ]
 }

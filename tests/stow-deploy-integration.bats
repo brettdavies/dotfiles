@@ -8,6 +8,16 @@
 
 SCRIPT="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
 
+setup() {
+  # Integration tests modify $HOME — only run on deployed hosts (where
+  # ~/.profile is already a stow-managed symlink). On a fresh CI runner
+  # without git-crypt unlock for encrypted packages, the script would
+  # fail on preflight; skip cleanly.
+  if [ ! -L "$HOME/.profile" ]; then
+    skip "dotfiles not deployed (no ~/.profile symlink) — run scripts/stow-deploy first"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Full deployment
 # ---------------------------------------------------------------------------

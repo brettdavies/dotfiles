@@ -5,6 +5,16 @@
 #
 # These tests verify that stow-deploy has created the expected symlinks.
 # Run after `stow-deploy --all`.
+#
+# Skipped entirely when ~/.profile is not a symlink (e.g., on a clean CI
+# runner that hasn't run stow-deploy). The sentinel makes the skip
+# deterministic across all hosts.
+
+setup() {
+  if [ ! -L "$HOME/.profile" ]; then
+    skip "dotfiles not deployed (no ~/.profile symlink) — run scripts/stow-deploy first"
+  fi
+}
 
 # ---------------------------------------------------------------------------
 # Core shell config symlinks
