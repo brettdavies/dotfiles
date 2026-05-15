@@ -1,3 +1,4 @@
+# shellcheck disable=all  # zsh syntax — shellcheck only understands bash/sh
 # ~/.zprofile — sourced by zsh login shells AFTER /etc/zprofile.
 #
 # On macOS, /etc/zprofile runs `/usr/libexec/path_helper -s`, which
@@ -5,9 +6,9 @@
 # Homebrew bin ordering established by .zshenv → .profile and pushing
 # /opt/homebrew/bin behind system paths. `brew doctor` flags this.
 #
-# This file re-prepends $HOMEBREW_PREFIX/bin and /sbin to the front of
-# PATH, stripping any existing entries first so it's idempotent across
-# repeated sourcing. POSIX sh-compatible — no zsh-only syntax.
+# This file repairs the order by removing any existing brew bin entries
+# from $path (zsh's array-tied view of PATH) and prepending a fresh pair
+# at positions 1-2. Idempotent: rerunning produces the same result.
 #
 # Darwin-gated: Linux has no path_helper and Linuxbrew already lands at
 # the front via .profile. Running this on Linux would be a harmless
@@ -17,16 +18,9 @@
 [ "$(uname -s)" = "Darwin" ] || return 0
 [ -n "${HOMEBREW_PREFIX:-}" ] || return 0
 
-_zprofile_new_path=
-_zprofile_ifs=$IFS
-IFS=:
-for _zprofile_p in $PATH; do
-    case "$_zprofile_p" in
-        "$HOMEBREW_PREFIX/bin"|"$HOMEBREW_PREFIX/sbin") ;;
-        *) _zprofile_new_path="${_zprofile_new_path:+$_zprofile_new_path:}$_zprofile_p" ;;
-    esac
-done
-IFS=$_zprofile_ifs
-
-export PATH="$HOMEBREW_PREFIX/bin:$HOMEBREW_PREFIX/sbin:$_zprofile_new_path"
-unset _zprofile_new_path _zprofile_ifs _zprofile_p
+# zsh ties $PATH to the array $path. ${path[@]:#PATTERN} excludes elements
+# matching PATTERN — used here to strip any existing brew entries before
+# prepending fresh ones at the front.
+path=("${path[@]:#$HOMEBREW_PREFIX/bin}")
+path=("${path[@]:#$HOMEBREW_PREFIX/sbin}")
+path=("$HOMEBREW_PREFIX/bin" "$HOMEBREW_PREFIX/sbin" "${path[@]}")
