@@ -161,7 +161,10 @@
       "Bash(zsh -l -c 'brew doctor 2>&1 | grep -E \"Warning|/opt/homebrew|/usr/bin\" | head -10')",
       "Bash(zsh -c 'echo \"$PATH\"')",
       "Bash(bash /Users/brett/dotfiles/scripts/stow-deploy zsh bash)",
-      "Bash(rtk ls *)"
+      "Bash(rtk ls *)",
+      "Bash(zsh -n /Users/brett/dotfiles/stow/zsh/dot-zshrc)",
+      "Bash(zsh -l -c 'true')",
+      "Bash(zsh -l -i -c 'echo \"ZSH_AUTOSUGGEST_STRATEGY=$ZSH_AUTOSUGGEST_STRATEGY\"; typeset -p ZSH_HIGHLIGHT_HIGHLIGHTERS 2>&1')"
     ]
   }
 }
