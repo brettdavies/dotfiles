@@ -1,4 +1,32 @@
-# shellcheck disable=all  # zsh syntax — shellcheck only understands bash/sh
-#THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
-export SDKMAN_DIR="$HOME/.sdkman"
-[[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
+# ~/.zprofile — sourced by zsh login shells AFTER /etc/zprofile.
+#
+# On macOS, /etc/zprofile runs `/usr/libexec/path_helper -s`, which
+# PREPENDS /usr/bin, /bin, /usr/local/bin to PATH — clobbering the
+# Homebrew bin ordering established by .zshenv → .profile and pushing
+# /opt/homebrew/bin behind system paths. `brew doctor` flags this.
+#
+# This file re-prepends $HOMEBREW_PREFIX/bin and /sbin to the front of
+# PATH, stripping any existing entries first so it's idempotent across
+# repeated sourcing. POSIX sh-compatible — no zsh-only syntax.
+#
+# Darwin-gated: Linux has no path_helper and Linuxbrew already lands at
+# the front via .profile. Running this on Linux would be a harmless
+# no-op, but the gate makes intent explicit and matches the platform
+# checks in stow/shell/dot-profile.
+
+[ "$(uname -s)" = "Darwin" ] || return 0
+[ -n "${HOMEBREW_PREFIX:-}" ] || return 0
+
+_zprofile_new_path=
+_zprofile_ifs=$IFS
+IFS=:
+for _zprofile_p in $PATH; do
+    case "$_zprofile_p" in
+        "$HOMEBREW_PREFIX/bin"|"$HOMEBREW_PREFIX/sbin") ;;
+        *) _zprofile_new_path="${_zprofile_new_path:+$_zprofile_new_path:}$_zprofile_p" ;;
+    esac
+done
+IFS=$_zprofile_ifs
+
+export PATH="$HOMEBREW_PREFIX/bin:$HOMEBREW_PREFIX/sbin:$_zprofile_new_path"
+unset _zprofile_new_path _zprofile_ifs _zprofile_p
