@@ -42,6 +42,7 @@ esac
 # Marker-based passthrough: each URL gets one defuddle redirect per session.
 # Marker means "defuddle was attempted" (not "defuddle failed").
 MARKER_DIR="/tmp/.defuddle-markers"
+# shellcheck disable=SC2174  # mode applies to the leaf only by design — that's the dir we want 700 on
 mkdir -p -m 700 "$MARKER_DIR" 2>/dev/null || true
 URL_HASH=$(printf '%s' "$URL" | sha256sum | cut -c1-16)
 MARKER="$MARKER_DIR/$URL_HASH"
@@ -53,6 +54,7 @@ touch "$MARKER"
 # Construct deny JSON via jaq for proper escaping (prevents JSON injection from URLs
 # containing quotes, backslashes, or newlines). Both permissionDecisionReason and
 # systemMessage are set for reliable delivery (Issue #12446).
+# shellcheck disable=SC2016  # jaq filter uses single quotes; $url and $msg are jaq variables, not shell
 jaq -n --arg url "$URL" '
   ("WebFetch intercepted. Use `bunx defuddle parse " + $url + " --md` via Bash for clean markdown (first call may take a few seconds). If defuddle fails or returns empty, retry with WebFetch — the hook will allow the retry. If this content is worth saving, clip it with ~/.claude/skills/clip/scripts/clip.sh " + $url + ".") as $msg |
   {
