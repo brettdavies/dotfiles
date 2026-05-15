@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Local tool paths — adds directories to PATH/LD_LIBRARY_PATH if they exist
 # This covers tools installed outside of Homebrew (CUDA, npm, Bun, etc.)
 #

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Python tool configurations
 # This file configures environment variables for Python package managers and tools
 
