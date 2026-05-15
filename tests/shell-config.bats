@@ -130,6 +130,7 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 }
 
 @test "sourcing profile in a fresh shell exports QMD_SERVER" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
   run bash -c 'unset QMD_SERVER; . "$HOME/.profile" >/dev/null 2>&1; echo "$QMD_SERVER"'
   [ "$status" -eq 0 ]
   [ "$output" = "http://127.0.0.1:7832" ]
@@ -140,12 +141,14 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 # ---------------------------------------------------------------------------
 
 @test "non-interactive zsh has DOTFILES_SHELL_DIR set" {
+  [ -L "$HOME/.zshenv" ] || skip "dotfiles not deployed (~/.zshenv not a symlink)"
   run zsh -c 'source "$HOME/.zshenv" 2>/dev/null; echo "DIR=${DOTFILES_SHELL_DIR:+SET}"'
   [ "$status" -eq 0 ]
   [[ "$output" == *"DIR=SET"* ]]
 }
 
 @test "non-interactive bash has DOTFILES_SHELL_DIR set" {
+  [ -L "$HOME/.bashrc" ] || skip "dotfiles not deployed (~/.bashrc not a symlink)"
   run bash -c 'source "$HOME/.bashrc" 2>/dev/null; echo "DIR=${DOTFILES_SHELL_DIR:+SET}"'
   [ "$status" -eq 0 ]
   [[ "$output" == *"DIR=SET"* ]]
