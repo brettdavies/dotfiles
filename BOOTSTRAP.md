@@ -180,6 +180,24 @@ while IFS= read -r ext; do
 done < ~/dotfiles/stow/cursor/extensions.txt
 ```
 
+### Rectangle Window Manager
+
+Installed by `brew bundle` from the Brewfile. First-launch requires Accessibility permission, then run the defaults
+script to lock in the Recommended preset, enable size-cycling on repeated presses, and disable macOS native tiling so
+Rectangle is the sole snapper.
+
+```bash
+# 1. Launch Rectangle once and grant Accessibility permission
+open -a Rectangle
+# System Settings → Privacy & Security → Accessibility → toggle Rectangle ON
+
+# 2. Apply preferences (idempotent; re-run any time)
+bash ~/dotfiles/scripts/rectangle-defaults.sh
+```
+
+Hotkeys after setup: `⌃⌥←/→/↑/↓` for halves, `⌃⌥U/I/J/K` for quarters, `⌃⌥↵` maximize, `⌃⌥⌫` restore previous size.
+Repeat the same arrow to cycle 1/2 → 2/3 → 1/3 width.
+
 ## Restart Shell
 
 ```bash
