@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Enable background tasks for Claude Code
 export ENABLE_BACKGROUND_TASKS=1
 

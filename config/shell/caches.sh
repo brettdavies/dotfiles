@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Central package and tool cache directory
 # This file configures environment variables for package manager and tool cache locations
 # All caches are stored under XDG_CACHE_HOME (XDG Base Directory Specification) for easy management and cleanup

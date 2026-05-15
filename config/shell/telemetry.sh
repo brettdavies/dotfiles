@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Do Not Track / Disable Telemetry for Popular Tools
 
 # Universal Do Not Track signal (https://consoledonottrack.com)

@@ -243,8 +243,12 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   [ -z "$hardcoded" ]
 }
 
-@test "qmd-update has no Environment=PATH=... (absolute paths suffice)" {
-  ! grep -q '^Environment=PATH=' "$UPDATE_UNIT"
+@test "qmd-update sets Environment=PATH for brew tool resolution" {
+  # PR #74 added Environment=PATH=... to user units after a deployed-server
+  # audit found that systemd's minimal inherited PATH couldn't resolve brew
+  # tools (rg, etc.). Same class of bug as cron PATH issues. The PATH must
+  # include /home/linuxbrew/.linuxbrew/bin first.
+  grep -q '^Environment=PATH=/home/linuxbrew/\.linuxbrew/bin:' "$UPDATE_UNIT"
 }
 
 @test "qmd-update hardening: NoNewPrivileges + PrivateTmp" {
@@ -261,7 +265,13 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 }
 
 @test "qmd-cleanup has no hardcoded /home/<user>/ path" {
-  ! grep -q '/home/[a-z]*/' "$CLEANUP_UNIT"
+  # /home/linuxbrew/ is Homebrew's standard install prefix on Linux —
+  # not a user homedir, and legitimate to reference in unit files
+  # (Environment=PATH added in PR #74 for brew tool resolution).
+  # Reject any other /home/<name>/ pattern (e.g. /home/brett/).
+  hardcoded=$(grep -oE '/home/[a-z]+/' "$CLEANUP_UNIT" 2>/dev/null \
+    | grep -vxE '/home/linuxbrew/' || true)
+  [ -z "$hardcoded" ]
 }
 
 @test "qmd-cleanup has Type=oneshot" {
