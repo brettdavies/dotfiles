@@ -115,5 +115,8 @@
       "Skill(repo-recon)",
       "WebFetch(domain:docs.npmjs.com)"
     ]
+  },
+  "skillOverrides": {
+    "tailscale": "on"
   }
 }
