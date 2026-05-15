@@ -9,6 +9,12 @@ export UV_EXCLUDE_NEWER="7 days"
 # npm — native relative age in days (v11.10.0+)
 export npm_config_min_release_age=7
 
+# pnpm — minimumReleaseAge in minutes (v9.15+); env var maps to .npmrc key
+export npm_config_minimum_release_age=10080
+
+# yarn — npmMinimalAgeGate in time-string form (v4.6+)
+export YARN_NPM_MINIMAL_AGE_GATE="168h"
+
 # pip — no relative duration support; compute date dynamically (v26.0+)
 if command -v date >/dev/null 2>&1; then
     case "$(uname -s)" in
