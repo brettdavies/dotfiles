@@ -41,13 +41,14 @@ brew "tmuxinator"
 brew "terminal-notifier" if OS.mac?
 brew "gromgit/brewtils/taproom" if OS.mac?
 
-# macOS-only casks (Homebrew Cask is macOS-only)
+# macOS-only casks (Homebrew Cask is macOS-only — `brew bundle` skips these on Linux)
 cask "1password-cli"
 cask "claude-code"
 cask "ghostty"
 cask "font-meslo-lg-nerd-font"
 cask "appcleaner"
 cask "docker-desktop"
+cask "rectangle"
 
 # VS Code extensions (macOS — Cursor on Linux uses its own extension sync)
 vscode "anthropic.claude-code"
