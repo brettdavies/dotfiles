@@ -5,6 +5,7 @@
   },
   "permissions": {
     "allow": [
+      "Bash(./.githooks/pre-push)",
       "Bash(actionlint *)",
       "Bash(alias:*)",
       "Bash(anc:*)",

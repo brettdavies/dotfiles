@@ -2,7 +2,6 @@
   "permissions": {
     "allow": [
       "Bash(. ~/dotfiles/config/shell/caam.sh)",
-      "Bash(./.githooks/pre-push)",
       "Bash(.tools/golangci-lint cache:*)",
       "Bash(.tools/golangci-lint run:*)",
       "Bash(/bin/sh -c 'echo \"default sh PATH: $PATH\"; command -v curl')",
