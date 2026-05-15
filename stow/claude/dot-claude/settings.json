@@ -11,6 +11,7 @@
       "Bash(ast-grep:*)",
       "Bash(awk:*)",
       "Bash(basename:*)",
+      "Bash(bash ~/.claude/skills/markdown-convert/skills/mc-pdf/mc-pdf.sh:*)",
       "Bash(bats:*)",
       "Bash(bc)",
       "Bash(biome:*)",
