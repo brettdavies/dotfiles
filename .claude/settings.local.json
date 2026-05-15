@@ -73,7 +73,6 @@
       "Bash(tmuxinator *)",
       "Bash(yazi --help)",
       "Bash(yazi --version)",
-      "Bash(~/.claude/skills/1password/scripts/list_items.sh)",
       "Bash(~/dotfiles/scripts/nightly-autocommit.sh:*)",
       "Bash(~/obsidian-vault/Areas/infrastructure/scripts/pool-sync-check.sh:*)",
       "Read(//mnt/nas/**)",
