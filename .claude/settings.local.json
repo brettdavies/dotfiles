@@ -153,7 +153,20 @@
       "Bash(tmux *)",
       "Bash(/home/brett/.local/bin/tmux-new-session tmp1 *)",
       "Bash(kill %1)",
-      "Bash(/home/linuxbrew/.linuxbrew/bin/rg *)"
+      "Bash(/home/linuxbrew/.linuxbrew/bin/rg *)",
+      "Bash(sw_vers)",
+      "Bash(defaults read *)",
+      "Bash(launchctl list *)",
+      "Bash(open -a Rectangle)",
+      "Read(//Users/brett/Library/Preferences/**)",
+      "Bash(bash /Users/brett/dotfiles/scripts/rectangle-defaults.sh)",
+      "Read(//Users/brett/.local/bin/**)",
+      "Read(//Users/brett/.cache/bun/install/global/node_modules/@tobilu/qmd/bin/**)",
+      "Read(//Users/brett/.config/**)",
+      "Read(//Users/brett/**)",
+      "Bash(rtk grep *)",
+      "Bash(bash /Users/brett/dotfiles/scripts/stow-deploy *)",
+      "Bash(rtk *)"
     ]
   }
 }
