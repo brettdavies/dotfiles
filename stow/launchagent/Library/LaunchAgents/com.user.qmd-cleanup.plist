@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    QMD nightly cleanup — macOS port of qmd-cleanup.service + qmd-cleanup.timer
+    (Linux systemd, see stow/qmd/dot-config/systemd/user/).
+
+    Runs `qmd cleanup` nightly at 03:00 (vacuum index, drop stale rerank
+    cache). The Linux equivalent adds RandomizedDelaySec=2h; launchd has
+    no native equivalent. If correlation with other 03:00 tasks becomes a
+    concern on a multi-machine cron landscape, wrap with a shell sleep
+    `sleep $((RANDOM % 7200))` before the qmd call. Not needed on a single
+    laptop.
+
+    Distinct from the 5-minute cleanup that runs as part of qmd-update —
+    this is the deeper nightly vacuum.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.qmd-cleanup</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>PATH="$HOME/.local/bin:$HOME/.cache/bun/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec qmd cleanup &gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-cleanup.log" 2&gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-cleanup.error.log"</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
