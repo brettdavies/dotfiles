@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Pre-push hook: mirror CI checks locally so we catch failures before
-# they fail in GitHub Actions. Currently mirrors `.github/workflows/shellcheck.yml`.
+# they fail in GitHub Actions. Mirrors `.github/workflows/shellcheck.yml`
+# and `.github/workflows/bats.yml`.
 
 set -euo pipefail
 
@@ -16,6 +17,16 @@ if command -v shellcheck >/dev/null 2>&1; then
     shellcheck scripts/stow-deploy
     shellcheck --shell=bash --exclude=SC1090,SC1091 stow/shell/dot-profile
 
+    # Claude hooks under stow/claude/dot-claude/*.sh (auto-format,
+    # ci-watch-prompt, defuddle-webfetch, heredoc-pr-guard,
+    # session-context, statusline). Match shebang to skip any
+    # non-shell *.sh future entries.
+    while IFS= read -r f; do
+        if head -n1 "$f" | grep -qE '^#!.*\b(sh|bash)\b'; then
+            shellcheck "$f"
+        fi
+    done < <(find stow/claude/dot-claude -maxdepth 1 -type f -name '*.sh')
+
     # Stow-managed bin helpers — find every executable under stow/<pkg>/dot-local/bin/
     # that has a sh/bash shebang and shellcheck it. Mirrors the workflow's find-loop.
     while IFS= read -r f; do
@@ -26,6 +37,17 @@ if command -v shellcheck >/dev/null 2>&1; then
 else
     echo "pre-push: shellcheck not installed — skipping shell linting" >&2
     echo "         install with: brew install shellcheck" >&2
+fi
+
+# --- Bats (mirrors .github/workflows/bats.yml) ---
+if command -v bats >/dev/null 2>&1; then
+    if compgen -G "tests/*.bats" >/dev/null; then
+        echo "pre-push: running bats tests/*.bats"
+        bats tests/*.bats
+    fi
+else
+    echo "pre-push: bats-core not installed — skipping bats tests" >&2
+    echo "         install with: brew install bats-core" >&2
 fi
 
 # --- Chain Git LFS pre-push hook (core.hooksPath overrides .git/hooks/) ---

@@ -1,0 +1,35 @@
+name: bats
+
+on:
+  pull_request:
+    paths:
+      - 'tests/**'
+      - 'stow/**'
+      - 'scripts/**'
+      - '.githooks/**'
+      - '.github/workflows/bats.yml'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  bats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install bats-core
+        run: sudo apt-get install -y bats
+
+      - name: Install jaq
+        # heredoc-pr-guard.bats invokes jaq to construct fake hook
+        # inputs. shellcheck.yml runs on ubuntu-latest which already
+        # has jq but not jaq — install jaq via cargo for reproducibility.
+        run: |
+          sudo apt-get install -y jq
+          # Symlink jq as jaq so the bats helper works (jaq is a jq-compatible
+          # Rust reimplementation; tests use it interchangeably for `--arg` + filter).
+          sudo ln -sf "$(command -v jq)" /usr/local/bin/jaq
+
+      - name: Run bats tests
+        run: bats tests/*.bats
