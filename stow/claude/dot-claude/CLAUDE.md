@@ -351,12 +351,38 @@ above is the single source of truth.
 the sub-header or label. The "delete empty sections" rule applies ONLY to the `Changelog` block's `### Added` / `###
 Changed` / `### Fixed` / `### Documentation` subsections, per the template's own comment.
 
-**Heredoc escape rule.** When composing PR bodies via `gh pr create --body "$(cat <<'EOF' ... EOF)"`, the single-quoted
-delimiter (`<<'EOF'`) preserves the body **literally** — no variable expansion, no backslash interpretation. Do NOT
-escape inner quotes, backslashes, or dollar signs. If the body needs to render `"foo"`, write `"foo"` — not `\"foo\"`.
-The latter renders as literal backslash-quote in markdown AND lands in the squash-merge commit message, where cleanup
-requires a destructive `git history reword` + force-push to a protected branch. Cost: ~30 seconds of pre-submit
-eyeballing avoids a multi-minute history rewrite.
+**Prefer `--body-file /tmp/<path>` over inline `--body`.** Author every PR body in a `/tmp/` file first, then submit
+with `gh pr create --body-file /tmp/<path>.md` (or `gh pr edit <num> --body-file /tmp/<path>.md`). Reasons:
+
+- **No heredoc escape gymnastics.** `--body-file` reads bytes directly; no `<<'EOF'` quoting rules, no
+  backslash-interpretation traps, no `\"foo\"` rendering as literal backslash-quote.
+- **No auto-format wrapping.** The `md-wrap.py` PostToolUse hook wraps repo-tracked markdown to 120 chars on save. Hard
+  wraps inside prose produce visible mid-sentence breaks in some renderers and (for repos with the agentnative prose
+  pipeline) interfere with Vale's line-anchored output and LanguageTool's input handling. The auto-format hook **skips
+  `/tmp/` paths**, so a body authored there keeps its shape. Write each paragraph and each bullet as one logical line,
+  however long — GitHub soft-wraps for display.
+- **Single round-trip.** Scrub locally before submit; the public PR sees only the final text. Avoids the "submit →
+  notice typo → edit → re-submit" cycle that leaves messy revisions in the PR's edit history.
+- **Reusable by editors.** Need to make a one-character fix to an open PR? `gh pr view <num> --json body --jq .body >
+  /tmp/body.md`, edit, `gh pr edit <num> --body-file /tmp/body.md`. No re-typing the whole body into a heredoc.
+
+Typical flow:
+
+```bash
+$EDITOR /tmp/pr-body.md
+gh pr create --base dev --title "type(scope): description" --body-file /tmp/pr-body.md
+```
+
+For repos that ship a prose-linting pipeline (currently `agentnative-skill`, `agentnative-cli`, `agentnative-site`,
+`agentnative-spec`), run Vale + LanguageTool + unslop against `/tmp/pr-body.md` before `--body-file`. See those repos'
+`RELEASES.md` "Prose scrubbing" sections for the exact commands.
+
+**Heredoc escape rule (fallback for when `--body-file` is impractical).** If you still compose a body inline via `gh pr
+create --body "$(cat <<'EOF' ... EOF)"`, the single-quoted delimiter (`<<'EOF'`) preserves the body **literally** — no
+variable expansion, no backslash interpretation. Do NOT escape inner quotes, backslashes, or dollar signs. If the body
+needs to render `"foo"`, write `"foo"` — not `\"foo\"`. The latter renders as literal backslash-quote in markdown AND
+lands in the squash-merge commit message, where cleanup requires a destructive `git history reword` + force-push to a
+protected branch. The `--body-file` approach above sidesteps this entire class of problem.
 
 **`## Changelog` section is the changelog source of truth.** `generate-changelog.sh` extracts these categorized bullets
 verbatim into CHANGELOG.md during release prep. Write for users, not developers:
