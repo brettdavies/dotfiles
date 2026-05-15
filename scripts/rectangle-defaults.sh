@@ -36,12 +36,38 @@ echo "==> Writing Rectangle preferences"
 # uses ⌥⌘+arrows which collide with browser tab nav and text cursor jumps.
 defaults write com.knollsoft.Rectangle alternateDefaultShortcuts -int 1
 
-# Cycle 1/2 → 2/3 → 1/3 on repeated presses of the same direction.
-# Value 1 = cycle sizes; 0 = no special behavior on repeat.
-defaults write com.knollsoft.Rectangle subsequentExecutionMode -int 1
+# Cycle 1/2 → 2/3 → 1/3 on repeated presses of the same direction
+# (Spectacle-style resize). Rectangle's SubsequentExecutionMode enum:
+#   0 = resize          ← Spectacle-style size cycling (what we want)
+#   1 = acrossMonitor   ← Rectangle Recommended preset default (moves to next display)
+#   2 = none
+#   3 = acrossAndResize
+#   4 = cycleMonitor
+#   5 = resizeAndCycleQuadrants
+# Source: github.com/rxhanson/Rectangle Rectangle/SubsequentExecutionMode.swift
+defaults write com.knollsoft.Rectangle subsequentExecutionMode -int 0
 
 # Brew handles updates — disable Rectangle's Sparkle auto-check.
 defaults write com.knollsoft.Rectangle SUEnableAutomaticChecks -bool false
+
+# Repurpose ⌃⌥C: bind centerHalf (centered vertical column, cycles 1/2 →
+# 2/3 → 1/3 on repeat — picked up automatically from subsequentExecutionMode=0)
+# instead of the default `center` action (translate-only, no resize, no
+# cycling). Same chord, more useful behavior.
+#
+# Modifier math: control (1<<18 = 0x40000) + option (1<<19 = 0x80000)
+#                = 0xC0000 = 786432.
+# keyCode 8 = 'C' (HIToolbox/Events.h).
+# Source: Rectangle WindowAction.name + ShortcutManager.swift use MASShortcut
+# dicts under each action's case-name as the UserDefaults key.
+defaults write com.knollsoft.Rectangle centerHalf '{keyCode = 8; modifierFlags = 786432;}'
+
+# Clear the default `center` binding so it doesn't fight `centerHalf` on
+# the same chord. MASShortcut.isValid returns `keyCode >= 0 && keyCode !=
+# NSNotFound`, so any negative keyCode is treated as "no shortcut" and
+# won't bind. keyCode=0 would NOT work here — that's the 'A' key on macOS
+# HIToolbox (which I learned the hard way; bound bare-A to `center` once).
+defaults write com.knollsoft.Rectangle center '{keyCode = -1; modifierFlags = 0;}'
 
 # --- macOS native tiling — disable so Rectangle owns snap behavior ---
 echo "==> Disabling macOS native window tiling"
@@ -76,6 +102,11 @@ echo "==> Verifying applied settings"
 echo "    Rectangle:"
 for key in alternateDefaultShortcuts subsequentExecutionMode SUEnableAutomaticChecks; do
   v=$(defaults read com.knollsoft.Rectangle "$key" 2>/dev/null || echo "<unset>")
+  echo "      $key = $v"
+done
+echo "    Rectangle shortcuts (overridden from preset defaults):"
+for key in centerHalf center; do
+  v=$(defaults read com.knollsoft.Rectangle "$key" 2>/dev/null | tr -d '\n' || echo "<default>")
   echo "      $key = $v"
 done
 echo "    com.apple.WindowManager:"
