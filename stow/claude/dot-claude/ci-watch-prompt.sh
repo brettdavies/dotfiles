@@ -111,6 +111,7 @@ reminder=$({
 })
 
 # Emit as Claude Code hook JSON (hookSpecificOutput.additionalContext)
+# shellcheck disable=SC2016  # jaq filter uses single quotes; $ctx is a jaq variable, not shell
 "$JQ" -n --arg ctx "$reminder" '{
   hookSpecificOutput: {
     hookEventName: "PostToolUse",

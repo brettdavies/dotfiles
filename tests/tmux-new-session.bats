@@ -54,19 +54,27 @@ SCRIPT="$BATS_TEST_DIRNAME/../stow/local/dot-local/bin/tmux-new-session"
 }
 
 # ---------------------------------------------------------------------------
-# Layout structure (verify script creates expected panes)
+# Layout structure (verify generated tmuxinator YAML has expected panes)
+#
+# PR #67 refactored the script to generate a tmuxinator YAML config instead
+# of issuing tmux commands directly. The tests below check the YAML template
+# embedded in the heredoc inside the script.
 # ---------------------------------------------------------------------------
 
-@test "script creates 3-pane layout" {
-  # Verify split-window is called twice (creating 3 total panes)
-  count=$(grep -c 'split-window' "$SCRIPT")
-  [ "$count" -eq 2 ]
+@test "script generates main-vertical 3-pane layout" {
+  # The generated YAML has three pane entries under `panes:` — yazi, an
+  # empty placeholder, and lazygit. Count lines that look like pane entries.
+  grep -q 'layout: main-vertical' "$SCRIPT"
+  pane_count=$(awk '/panes:/{flag=1; next} flag && /^[^[:space:]]/{flag=0} flag && /^[[:space:]]+-/' "$SCRIPT" | wc -l)
+  [ "$pane_count" -eq 3 ]
 }
 
-@test "script starts yazi in first pane" {
-  grep -q 'send-keys.*yazi' "$SCRIPT"
+@test "script puts yazi in the first pane" {
+  # `- yazi` is the first pane entry in the YAML
+  grep -q '^[[:space:]]*- yazi$' "$SCRIPT"
 }
 
-@test "script starts lazygit in third pane" {
-  grep -q 'send-keys.*lazygit' "$SCRIPT"
+@test "script puts lazygit in the third pane" {
+  # `- lazygit` is the third pane entry in the YAML
+  grep -q '^[[:space:]]*- lazygit$' "$SCRIPT"
 }
