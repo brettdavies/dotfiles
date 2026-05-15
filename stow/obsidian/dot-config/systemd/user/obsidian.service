@@ -16,6 +16,7 @@ ExecStart=/usr/bin/xvfb-run \
   --disable-software-rasterizer
 
 Environment=DISPLAY=:99
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
 Restart=always
 RestartSec=10
 
