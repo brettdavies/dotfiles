@@ -73,9 +73,9 @@ functions-not-aliases rule and means `gog` is unavailable in bash sessions, non-
   fragile since gogcli may rewrite them. Only `config.json` (static backend selection) belongs in the stow package.
 
 - **`config.json` content:** The live file has
-  `{"keyring_backend":"file","account_clients":{"davies.brett@gmail.com":"personal"}}`. The `account_clients` key was
-  added by gogcli at runtime. Since gogcli writes to this file, consider the atomic-write risk — if gogcli replaces the
-  symlink, add an adopt-on-trigger in the shell wrapper (same pattern as caam).
+  `{"keyring_backend":"file","account_clients":{"<account-email>":"personal"}}`. The `account_clients` key was added by
+  gogcli at runtime. Since gogcli writes to this file, consider the atomic-write risk — if gogcli replaces the symlink,
+  add an adopt-on-trigger in the shell wrapper (same pattern as caam).
 
 - **1Password item name:** The wrapper currently uses `'Google Workspace CLI OAuth (Streams)'`. The `.zshrc` references
   this with `--fields client_secret`. Keep this as-is.
@@ -93,8 +93,8 @@ functions-not-aliases rule and means `gog` is unavailable in bash sessions, non-
 
 ### Deferred to Implementation
 
-- **Q: Does the personal account (`davies.brett@gmail.com`) need bootstrap support?** → Check if `setup_gogcli.sh`
-  should handle multiple accounts. Out of scope for this plan but note for future.
+- **Q: Does the personal account (`<account-email>`) need bootstrap support?** → Check if `setup_gogcli.sh` should
+  handle multiple accounts. Out of scope for this plan but note for future.
 
 ## Implementation Units
 

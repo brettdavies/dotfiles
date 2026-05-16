@@ -405,6 +405,7 @@ they haven't been pulled yet at diff time. The corrected lifecycle:
 
 - Show `diff -ru` between old staging dir and temp dir
 - If sentinel is absent: `WARNING: prior sync was incomplete, skipping diff`
+
 1. Atomically replace: `mv "$staging_dir" "${staging_dir}.old" && mv "$tmpdir" "$staging_dir"`
 2. Clean up: `rm -rf "${staging_dir}.old"`
 3. Write `.sync-complete` sentinel to `"$staging_dir/.sync-complete"`
@@ -497,7 +498,7 @@ From the documented learnings in this repo:
 - **Tool existence**: Use `command -v tool >/dev/null 2>&1` (never `which`)
 - **Avoid `sed -i`**: BSD vs GNU incompatibility. Use parameter expansion for simple substitutions
 - **Avoid `grep -oP`**: macOS BSD grep lacks PCRE. Use `sed -n 's/.../p'` for extraction
-- **`$HOME` not hardcoded paths**: Never use `/Users/brett/` or `/home/brett/`
+- **`$HOME` not hardcoded paths**: Never use `/Users/<you>/` or `/home/<you>/`
 - **Non-interactive remote shells**: When running `ssh host 'command'`, zsh sources only `.zshenv`. If the remote
   command needs `$PATH` or other env vars, rely on the `.zshenv` -> `.profile` chain
 - **Subshell variable loss**: Avoid `cmd | while read` when accumulating results -- use process substitution (`while
@@ -646,7 +647,9 @@ REMOTE_SCRIPT
 - [Slant: Best Linux diff tools](https://www.slant.co/topics/5882/~linux-diff-tools)
 - [Resilio: How to rsync large numbers of files faster](https://www.resilio.com/blog/rsync-large-number-of-files)
 -
-  [Jeff Geerling: 4x faster sync with rclone vs rsync](https://www.jeffgeerling.com/blog/2025/4x-faster-network-file-sync-rclone-vs-rsync/)
+
+[Jeff Geerling: 4x faster sync with rclone vs rsync](https://www.jeffgeerling.com/blog/2025/4x-faster-network-file-sync-rclone-vs-rsync/)
+
 - [NixCraft: tar over SSH](https://www.cyberciti.biz/faq/howto-use-tar-command-through-network-over-ssh-session/)
 - [CSC Docs: tar + SSH for many small files](https://docs.csc.fi/data/moving/tar_ssh/)
 - [rsync man page -- `--files-from`](https://man7.org/linux/man-pages/man1/rsync.1.html)
