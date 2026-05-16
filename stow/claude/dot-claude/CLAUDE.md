@@ -158,7 +158,7 @@ the intent regardless of formal classification.
 
 Examples:
 
-- ✅ "the `account_id` field in `Cloudflare API Token - Wrangler (bigdaddy)`"
+- ✅ "the `account_id` field in `Cloudflare API Token - Wrangler (<server>)`"
 - ✅ "piped from 1Password to `gh secret set CF_ACCOUNT_ID`"
 - ❌ "set `CF_ACCOUNT_ID` to `<the literal value>`"
 - ❌ in a retrospective: "I echoed `<literal>` in my summary" — repeats the leak
@@ -174,6 +174,57 @@ leak while owning it re-leaks it.
 - In commit / PR bodies, describe the change referentially: "rotated `CF_ACCOUNT_ID`", not "set `CF_ACCOUNT_ID` to X".
 - In retrospectives or debug logs that discuss a leaked value, never re-quote it. Reference it by name.
 - Reflex rule, no exceptions. The chat transcript is not the trust boundary you think it is.
+
+---
+
+## Personal paths and machine names: relative or generic in all written artifacts
+
+The "Secrets and identifiers" rule above covers values from secret stores. This rule covers two broader categories that
+frequently leak into commit messages, PR bodies, and docs without anyone noticing:
+
+**Personally-identifying paths.** Any path containing a username (`/Users/<user>/...`, `/home/<user>/...`,
+`/c/Users/<user>/...`) reveals the developer's local layout and identity. Replace with relative or environment-variable
+forms. Examples:
+
+- `/Users/<user>/dotfiles/...` → `~/dotfiles/...`
+- `/home/<user>/.bun/bin` → `$HOME/.bun/bin`
+- If you must show a path that the runtime stores absolutely (systemd `Environment=`, plist `PATH=`, etc.), substitute
+  `$HOME` in the rendered text and note that the literal file expands it.
+
+Standard-system absolute paths without identifying segments stay as-is: `/opt/homebrew/bin`, `/usr/local/bin`,
+`/usr/bin`, `/etc/...`, `/home/linuxbrew/.linuxbrew/bin` (Linuxbrew's install path is shared across all installations
+and isn't PII).
+
+**Machine and host names.** Don't reference internal hostnames (development boxes, home-network machines, Tailscale
+magic DNS names, cloud-account labels) by their literal name in any written artifact. Use generic descriptors that
+communicate the role. Examples:
+
+- `<internal-hostname>`, `<internal-hostname>_wifi` → "the Linux server", "the deployed server", "the headless server",
+  "this Mac" (Mac itself isn't identifying since every macOS dev box is "a Mac")
+- Cloud account names, tenant identifiers, internal subdomains → describe by role
+
+**Scope:** commit messages, PR titles and bodies, issue bodies, issue comments, release notes, docs in `docs/solutions/`
+(which sync to a separate public repo), READMEs, plan files in `docs/plans/`, chat transcripts that may get pasted into
+issues, retrospective notes. The 1Password entry name in the Cloudflare example above is itself written `(<server>)`,
+not the literal hostname — the rule applies even to "harmless-looking" examples in docs.
+
+**Exception — functional code and config:** SSH config entries, hostname-dependent scripts, systemd unit files that need
+the literal `/home/<user>/` path because the runtime doesn't expand `$HOME`, and similar code that NEEDS the literal
+value to function are fine. The rule applies to written artifacts about the code, not the code itself.
+
+**How to apply:**
+
+- Before submitting any commit message, PR body, or doc, scan the draft. A practical grep guard before `gh pr edit
+  --body-file`:
+
+  ```bash
+  rg '/Users/[^/]+/|/home/[^/]+/|<your-known-hostnames>' /tmp/pr-body.md
+  ```
+
+  If anything fires, replace with relative or generic equivalents before submit.
+- The `/unslop` skill doesn't detect these patterns yet — treat the guard above as your own pre-submit pass until it
+  does.
+- For solutions-docs entries (which ship to a public repo), the bar is the same as PRs: generic descriptors only.
 
 ---
 
@@ -351,12 +402,59 @@ above is the single source of truth.
 the sub-header or label. The "delete empty sections" rule applies ONLY to the `Changelog` block's `### Added` / `###
 Changed` / `### Fixed` / `### Documentation` subsections, per the template's own comment.
 
-**Heredoc escape rule.** When composing PR bodies via `gh pr create --body "$(cat <<'EOF' ... EOF)"`, the single-quoted
-delimiter (`<<'EOF'`) preserves the body **literally** — no variable expansion, no backslash interpretation. Do NOT
-escape inner quotes, backslashes, or dollar signs. If the body needs to render `"foo"`, write `"foo"` — not `\"foo\"`.
-The latter renders as literal backslash-quote in markdown AND lands in the squash-merge commit message, where cleanup
-requires a destructive `git history reword` + force-push to a protected branch. Cost: ~30 seconds of pre-submit
-eyeballing avoids a multi-minute history rewrite.
+### Authoring GitHub correspondence: `/tmp/` + `--body-file` + `/unslop`
+
+**Mandatory workflow for all server-side artifacts that ship text to GitHub.** Applies to PR bodies, PR comments, PR
+reviews, issue bodies, issue comments, release notes, and any future `gh` command that takes a `--body` or `--notes`
+flag. Also covers `git commit -m` (the squash-merge commit message lands in public history alongside the PR body).
+
+Three steps. The first two are mandatory in every repo; the third is mandatory in every repo regardless of whether the
+repo has its own prose-linting pipeline.
+
+1. **Author in `/tmp/`.** Write the body to `/tmp/pr-body.md` (or `/tmp/commit-msg.md`, `/tmp/release-notes.md`, etc.).
+   The auto-format hook (`md-wrap.py`) skips `/tmp/` paths, so the file keeps its authored shape — no 120-char wrapping
+   inside prose. Write each paragraph and each bullet as **one logical line**; GitHub soft-wraps for display.
+2. **Run `/unslop /tmp/<path>.md`.** The `unslop` skill (`~/.claude/skills/unslop/`) is required for every body before
+   submission. It runs `scripts/score.py` as a deterministic gate, then recasts only the lines the script flags —
+   em-dash density, formulaic structures ("It's not X, it's Y", "Here's the thing", etc.), filler openers, AI
+   self-references, pseudo-profound openers. Score `0` exits silently; non-zero scores produce recast diffs the agent
+   reviews. This rule is universal — even repos without Vale + LanguageTool wired up still run `/unslop` so the prose
+   floor is in place.
+3. **Submit via file flag.** `gh pr create --body-file /tmp/<path>.md`, `gh pr edit --body-file ...`, `gh pr comment
+   --body-file ...`, `gh issue create --body-file ...`, `gh release create --notes-file ...`, `git commit --file ...`.
+   Never inline the body via `--body "..."`, `-m "..."`, or a `--body "$(cat <<'EOF' ... EOF)"` heredoc.
+
+Typical flow:
+
+```bash
+$EDITOR /tmp/pr-body.md             # author the body, one logical line per paragraph
+/unslop /tmp/pr-body.md             # mandatory scrub pass
+gh pr create --base dev --title "type(scope): description" --body-file /tmp/pr-body.md
+```
+
+**Why mandatory `/unslop`:** every repo benefits from the slop floor, even ones without the broader Vale + LT pipeline.
+The Vale + LanguageTool + unslop *full stack* remains repo-local (currently `agentnative-skill`, `agentnative-cli`,
+`agentnative-site`, `agentnative-spec` — see those repos' `RELEASES.md` "Prose scrubbing" sections). Repos without
+Vale/LT still run `/unslop` as the minimum acceptable scrub.
+
+**Enforcement.** The `~/.claude/heredoc-pr-guard.sh` PreToolUse Bash hook rejects `gh pr (create|edit|comment|review)
+--body "<heredoc>"`, `gh issue (create|edit|comment) --body "<heredoc>"`, `gh release (create|edit) --notes
+"<heredoc>"`, and `git commit -m "<heredoc>"`. The hook is wired into `stow/claude/dot-claude/settings.json` and runs on
+every Bash tool call. Tests covering 41 cases (positive, negative, and adversarial red-team bypasses) live at
+`tests/heredoc-pr-guard.bats` — run with `bats tests/heredoc-pr-guard.bats`. If a legitimate use is blocked, fix the
+regex; do NOT bypass the hook for individual commands.
+
+Why hook + docs (not docs alone): inline heredoc into `--body` produces wrapped-and-escape-trapped text that lands in
+the PR body AND in the squash-merge commit message. Cleanup after the fact requires either re-submitting via
+`--body-file` (acceptable) or a destructive `git history reword` + force-push to a protected branch (not acceptable).
+~30 seconds of pre-submit `/tmp/` work avoids both.
+
+**Heredoc escape rule (fallback for when `--body-file` is impractical).** If you still compose a body inline via `gh pr
+create --body "$(cat <<'EOF' ... EOF)"`, the single-quoted delimiter (`<<'EOF'`) preserves the body **literally** — no
+variable expansion, no backslash interpretation. Do NOT escape inner quotes, backslashes, or dollar signs. If the body
+needs to render `"foo"`, write `"foo"` — not `\"foo\"`. The latter renders as literal backslash-quote in markdown AND
+lands in the squash-merge commit message, where cleanup requires a destructive `git history reword` + force-push to a
+protected branch. The `--body-file` approach above sidesteps this entire class of problem.
 
 **`## Changelog` section is the changelog source of truth.** `generate-changelog.sh` extracts these categorized bullets
 verbatim into CHANGELOG.md during release prep. Write for users, not developers:

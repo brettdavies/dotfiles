@@ -22,6 +22,8 @@
 
 # Log files
 scripts/sync/logs/*.log
+scripts/qmd-launchd/logs/*.log
+scripts/qmd-launchd/logs/*.error.log
 
 # OS files
 .DS_Store

@@ -29,8 +29,8 @@ Packages live in `stow/<package-name>/`. Files use the `dot-` prefix convention:
 - `stow/git/dot-config/git/ignore` becomes `~/.config/git/ignore`
 - `stow/zsh/dot-zshrc` becomes `~/.zshrc`
 
-Stow's `--dotfiles` flag converts `dot-` to `.` automatically. **Requires Stow >= 2.4.0** — versions 2.3.x have a
-bug where `--dotfiles` fails with nested `dot-` directories. Install via Homebrew/Linuxbrew (Ubuntu 24.04 apt only has
+Stow's `--dotfiles` flag converts `dot-` to `.` automatically. **Requires Stow >= 2.4.0** — versions 2.3.x have a bug
+where `--dotfiles` fails with nested `dot-` directories. Install via Homebrew/Linuxbrew (Ubuntu 24.04 apt only has
 2.3.1).
 
 To add a new package:
@@ -47,7 +47,7 @@ instead. No per-package opt-in is needed.
 GNU Stow has no `--force` flag. The `scripts/stow-deploy` wrapper handles three conflict types:
 
 | Conflict            | Cause                                 | Resolution                                                           |
-|---------------------|---------------------------------------|----------------------------------------------------------------------|
+| ------------------- | ------------------------------------- | -------------------------------------------------------------------- |
 | Non-stow symlink    | Manually created absolute symlink     | Remove symlink, restow                                               |
 | Existing plain file | Config created by installer           | `--adopt` moves file into package, then review or auto-restore       |
 | Tree folding        | Directory-level symlink pollutes repo | Detected and resolved pre-deploy; `--no-folding` prevents recurrence |
@@ -113,6 +113,13 @@ Helper files are sourced directly from the repo -- no symlink needed for individ
 ~/.zshenv (symlink) --> stow/zsh/dot-zshenv
   sources: ~/.profile (if not already loaded)
   PURPOSE: ensures non-interactive zsh (SSH commands, cron) has environment
+
+~/.zprofile (symlink) --> stow/zsh/dot-zprofile
+  fires AFTER /etc/zprofile in zsh login shells
+  PURPOSE: macOS-only — repairs PATH after Apple's /etc/zprofile runs
+  /usr/libexec/path_helper -s, which pushes /opt/homebrew/bin behind
+  /usr/bin. Re-prepends $HOMEBREW_PREFIX/{bin,sbin}. POSIX-safe,
+  idempotent, Darwin-gated (returns 0 on Linux).
 
 ~/.bashrc (symlink) --> stow/bash/dot-bashrc
   sources: ~/.profile (if not already loaded)
@@ -185,7 +192,7 @@ git config core.hooksPath .githooks
 This is set during bootstrap (see README) or via `bash .githooks/setup`.
 
 | Hook            | Purpose                                                    |
-|-----------------|------------------------------------------------------------|
+| --------------- | ---------------------------------------------------------- |
 | `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign = true` |
 | `post-checkout` | Auto-unlocks git-crypt if key is available, chains Git LFS |
 | `post-merge`    | Auto-unlocks git-crypt if key is available, chains Git LFS |
@@ -216,7 +223,7 @@ Never commit directly to `main`. All work goes through feature branches and PRs.
 
 When adding or modifying configuration:
 
-- Use `$HOME`, never hardcoded paths like `/Users/brett/` or `/home/brett/`
+- Use `$HOME`, never hardcoded user-home paths like `/Users/<you>/` or `/home/<you>/`
 - Gate macOS-only features behind `[[ "$OSTYPE" == darwin* ]]` or `uname -s` checks
 - Gate Homebrew paths: check both `/opt/homebrew` (macOS) and `/home/linuxbrew/.linuxbrew` (Linux)
 - SSH config uses `Match exec` for platform-conditional 1Password agent paths

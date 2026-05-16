@@ -20,7 +20,7 @@ brew "oven-sh/bun/bun"
 brew "uv"
 
 # Code quality & utilities
-brew "bash@5.3.3"
+brew "bash"
 brew "ripgrep"
 brew "jq"
 brew "tree"
@@ -32,6 +32,11 @@ brew "ast-grep"
 brew "yq"
 brew "markdownlint-cli2"
 
+# Agent token compression — `rtk` PreToolUse hook for Claude Code lives in
+# stow/claude/dot-claude/settings.json. PR #62 installed the hook; this
+# line installs the binary so the hook actually runs on every machine.
+brew "rtk"
+
 # Terminal multiplexer
 brew "tmux"
 brew "tmuxinator"
@@ -41,13 +46,14 @@ brew "tmuxinator"
 brew "terminal-notifier" if OS.mac?
 brew "gromgit/brewtils/taproom" if OS.mac?
 
-# macOS-only casks (Homebrew Cask is macOS-only)
+# macOS-only casks (Homebrew Cask is macOS-only — `brew bundle` skips these on Linux)
 cask "1password-cli"
 cask "claude-code"
 cask "ghostty"
 cask "font-meslo-lg-nerd-font"
 cask "appcleaner"
 cask "docker-desktop"
+cask "rectangle"
 
 # VS Code extensions (macOS — Cursor on Linux uses its own extension sync)
 vscode "anthropic.claude-code"
@@ -58,7 +64,6 @@ vscode "esbenp.prettier-vscode"
 vscode "github.vscode-github-actions"
 vscode "mechatroner.rainbow-csv"
 vscode "ms-azuretools.vscode-containers"
-vscode "ms-azuretools.vscode-docker"
 vscode "openai.chatgpt"
 vscode "samuelcolvin.jinjahtml"
 vscode "tamasfe.even-better-toml"

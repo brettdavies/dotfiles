@@ -112,7 +112,7 @@ attaches on every subsequent call, so the same command works whether or not the 
 ```bash
 tmuxinator start anc                          # local terminal
 mux start anc                                 # zsh shell alias (same thing)
-ssh bigdaddy_wifi -t tmuxinator start anc     # over SSH (preferred connection idiom)
+ssh <dev-host> -t tmuxinator start anc        # over SSH (preferred connection idiom)
 ```
 
 Raw `tmux attach -t <name>` only works after the session has already been started, which makes it the wrong default for
@@ -127,12 +127,12 @@ then runs `tmuxinator start`.
 System-level systemd units are **not** managed by stow (which targets `$HOME`). They live in `config/systemd/system/`
 and are deployed via `scripts/nas-deploy.sh`, which copies them to `/etc/systemd/system/` and activates them.
 
-| Unit                | Purpose                                           |
-| ------------------- | ------------------------------------------------- |
-| `mnt-nas.mount`     | SMB mount for Pool NAS (`//192.168.1.5/openclaw`) |
-| `mnt-nas.automount` | On-demand automount, solves WiFi boot race        |
+| Unit                | Purpose                                         |
+| ------------------- | ----------------------------------------------- |
+| `mnt-nas.mount`     | SMB mount for the NAS (`//<nas-host>/openclaw`) |
+| `mnt-nas.automount` | On-demand automount, solves WiFi boot race      |
 
-**Deploy:** `sudo scripts/nas-deploy.sh` (requires `/root/.smbcredentials-pool-nas` from 1Password).
+**Deploy:** `sudo scripts/nas-deploy.sh` (requires `/root/.smbcredentials-<nas-host>` from 1Password).
 
 ### AppArmor Profiles (`config/apparmor.d/`)
 
