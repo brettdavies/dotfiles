@@ -223,7 +223,7 @@ Never commit directly to `main`. All work goes through feature branches and PRs.
 
 When adding or modifying configuration:
 
-- Use `$HOME`, never hardcoded paths like `/Users/brett/` or `/home/brett/`
+- Use `$HOME`, never hardcoded user-home paths like `/Users/<you>/` or `/home/<you>/`
 - Gate macOS-only features behind `[[ "$OSTYPE" == darwin* ]]` or `uname -s` checks
 - Gate Homebrew paths: check both `/opt/homebrew` (macOS) and `/home/linuxbrew/.linuxbrew` (Linux)
 - SSH config uses `Match exec` for platform-conditional 1Password agent paths

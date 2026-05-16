@@ -43,9 +43,9 @@ an unconditional removal — see PR #51 for rationale.
 
 Track the manually-configured qmd-serve daemon (the persistent `qmd serve --sequential` HTTP server at `127.0.0.1:7832`)
 in dotfiles so it survives reinstalls and deploys to new hosts via `scripts/stow-deploy`. The service is already running
-live on bigdaddy; this plan formalizes the three manual pieces (service unit, env var, binary dispatch) as stow-managed
-assets and unifies three sibling qmd services (`qmd-embed`, `qmd-update`, `qmd-serve`) on a single binary-resolution
-pattern.
+live on the dev workstation; this plan formalizes the three manual pieces (service unit, env var, binary dispatch) as
+stow-managed assets and unifies three sibling qmd services (`qmd-embed`, `qmd-update`, `qmd-serve`) on a single
+binary-resolution pattern.
 
 The work reuses four established patterns shipped in PR #40 (opendataloader-pdf socket activation) — stow-managed sh
 wrapper in `dot-local/bin`, hardened systemd user service, idempotent enable script under `scripts/`, and static bats
@@ -53,7 +53,7 @@ assertions with a manual smoke checklist. No new patterns are introduced.
 
 ## Problem Frame
 
-Three pieces that were set up by hand on bigdaddy need to live in the repo (origin todo, lines 11–21):
+Three pieces that were set up by hand on the dev workstation need to live in the repo (origin todo, lines 11–21):
 
 1. `qmd-serve.service` — systemd user service at `~/.config/systemd/user/qmd-serve.service` running `qmd serve
    --sequential` (sequential-mode owns VRAM coexistence in-process — peak ~2.6 GB instead of ~5.4 GB).
@@ -181,8 +181,8 @@ also cleaning up two pre-existing inconsistencies in `stow/qmd/` uncovered durin
 - **Is the `ExecStartPre` Ollama-unload in `qmd-embed.service` still needed?** — Validate during implementation by
   running `qmd embed` with the step disabled under realistic VRAM load; if embedding completes without OOM, remove. (See
   Unit 4.)
-- **Does qmd-serve's `/health` endpoint exist and return within reasonable time?** — Resolved: verified live on
-  bigdaddy, returns JSON `{"ok":true,"version":"2","backend":"local","models":{...}}` within the curl budget.
+- **Does qmd-serve's `/health` endpoint exist and return within reasonable time?** — Resolved: verified live on the dev
+  workstation, returns JSON `{"ok":true,"version":"2","backend":"local","models":{...}}` within the curl budget.
 - **Does the fork launcher `~/dev/qmd/qmd` exist and work from a fresh shell?** — Resolved: confirmed present (1471
   bytes, `Apr 11 01:42`), exec's bun against the TypeScript source; the wrapper's `exec "$HOME/dev/qmd/qmd" "$@"`
   forwards cleanly.
@@ -194,7 +194,7 @@ also cleaning up two pre-existing inconsistencies in `stow/qmd/` uncovered durin
   (`7832`).
 - **Restart policy for qmd-serve (on-failure vs always).** Match opendataloader-pdf's `Restart=on-failure`
   `RestartSec=5`, unless live behavior suggests `always`. Decide at implementation by checking what the hand-made unit
-  on bigdaddy uses.
+  on the dev workstation uses.
 - **Whether to keep `Environment=PATH=...` in `qmd-update.service` after switching to `%h/.local/bin/qmd`.** The
   variable becomes unnecessary when ExecStart uses absolute paths, but leaving it is harmless belt-and-suspenders.
   Prefer removing for consistency with qmd-serve + qmd-embed (which won't need it either).
@@ -287,7 +287,7 @@ in `config/shell/*.sh`. Delete the direct export from `.profile`.
 - [ ] **Unit 3: Stow `qmd-serve.service` systemd user unit**
 
 **Goal:** Track the qmd-serve unit as a stow-managed file so it survives reinstalls. Unit shape mirrors the
-currently-running hand-made unit on bigdaddy but uses `%h/.local/bin/qmd` for binary dispatch.
+currently-running hand-made unit on the dev workstation but uses `%h/.local/bin/qmd` for binary dispatch.
 
 **Requirements:** R1
 
@@ -305,8 +305,8 @@ currently-running hand-made unit on bigdaddy but uses `%h/.local/bin/qmd` for bi
   `[Install]` `WantedBy=default.target`.
 - No `After=network-online.target` needed — binds loopback.
 - Port 7832 must match `QMD_SERVER`. Bind 127.0.0.1 is explicit (no external exposure).
-- Before committing, compare against `~/.config/systemd/user/qmd-serve.service` on bigdaddy and capture any field the
-  hand-made unit has that this plan missed (e.g., `Environment=` lines, ordering relative to Ollama).
+- Before committing, compare against `~/.config/systemd/user/qmd-serve.service` on the dev workstation and capture any
+  field the hand-made unit has that this plan missed (e.g., `Environment=` lines, ordering relative to Ollama).
 
 **Patterns to follow:**
 
@@ -487,7 +487,7 @@ checklist in the file header captures the live verification steps CI can't run.
 
 **Verification:**
 
-- `bats tests/qmd-serve.bats` passes with no skips when run on bigdaddy.
+- `bats tests/qmd-serve.bats` passes with no skips when run on the dev workstation.
 - `bats tests/` as a whole still passes (no regressions in the other 10 bats files).
 
 ## System-Wide Impact
@@ -517,14 +517,14 @@ checklist in the file header captures the live verification steps CI can't run.
 
 ## Risks & Dependencies
 
-| Risk                                                                                      | Mitigation                                                                                                                                                                                                                                  |
-| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Fork launcher at `~/dev/qmd/qmd` is missing on the target host                            | Enable script should fail loudly in the `/health` smoke; print remediation NOTE pointing at how to clone the fork. Not in scope to auto-clone — that's the "rejected Option 2".                                                             |
-| `QMD_SERVER` disappears for one shell-session during the migration                        | Land `config/shell/qmd.sh` add + `.profile` delete in the same commit so no in-between state.                                                                                                                                               |
-| Ollama-unload removal causes VRAM OOM for qmd-embed                                       | Revert the removal if smoke fails; keep the `ExecStartPre` with a comment documenting why qmd-serve doesn't subsume it. Test before removing.                                                                                               |
-| bun reinstalls `~/.bun/bin/qmd` between enable-script runs                                | Enable script is idempotent — re-running handles it. Document in the enable-script NOTE.                                                                                                                                                    |
-| Live bigdaddy unit has a field this plan misses (e.g., custom `Environment=` or `After=`) | Unit 3 explicitly compares the new file against the live `~/.config/systemd/user/qmd-serve.service` before commit.                                                                                                                          |
-| PATH ordering still has `~/.bun/bin` winning over `~/.local/bin` in all child processes   | Acknowledged scope exclusion. Child processes that resolve `qmd` before the shadow removal will find `~/.bun/bin/qmd` — but after enable-script runs, the symlink is gone, so `~/.local/bin/qmd` wins regardless of PATH order. Acceptable. |
+| Risk                                                                                             | Mitigation                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fork launcher at `~/dev/qmd/qmd` is missing on the target host                                   | Enable script should fail loudly in the `/health` smoke; print remediation NOTE pointing at how to clone the fork. Not in scope to auto-clone — that's the "rejected Option 2".                                                             |
+| `QMD_SERVER` disappears for one shell-session during the migration                               | Land `config/shell/qmd.sh` add + `.profile` delete in the same commit so no in-between state.                                                                                                                                               |
+| Ollama-unload removal causes VRAM OOM for qmd-embed                                              | Revert the removal if smoke fails; keep the `ExecStartPre` with a comment documenting why qmd-serve doesn't subsume it. Test before removing.                                                                                               |
+| bun reinstalls `~/.bun/bin/qmd` between enable-script runs                                       | Enable script is idempotent — re-running handles it. Document in the enable-script NOTE.                                                                                                                                                    |
+| Live dev-workstation unit has a field this plan misses (e.g., custom `Environment=` or `After=`) | Unit 3 explicitly compares the new file against the live `~/.config/systemd/user/qmd-serve.service` before commit.                                                                                                                          |
+| PATH ordering still has `~/.bun/bin` winning over `~/.local/bin` in all child processes          | Acknowledged scope exclusion. Child processes that resolve `qmd` before the shadow removal will find `~/.bun/bin/qmd` — but after enable-script runs, the symlink is gone, so `~/.local/bin/qmd` wins regardless of PATH order. Acceptable. |
 
 ## Documentation / Operational Notes
 
