@@ -41,9 +41,14 @@ brew "rtk"
 brew "tmux"
 brew "tmuxinator"
 
-# Yazi previewer dependencies — yazi's built-in svg previewer shells out to
-# resvg (Rust SVG → PNG renderer). Without it, *.svg files show blank in the
-# yazi preview pane on both macOS and Linux.
+# Terminal file manager + its previewer dependencies. The stowed yazi config
+# pipes markdown through glow and PDFs through pdftotext (from poppler) via
+# the piper plugin, and yazi's own built-in svg previewer shells out to resvg.
+# Tracking all four here so `brew bundle` provisions a working preview pane
+# end-to-end on a fresh machine.
+brew "yazi"
+brew "glow"
+brew "poppler"
 brew "resvg"
 
 # macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
