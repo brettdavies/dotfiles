@@ -1,8 +1,23 @@
 #!/bin/sh
-# Dispatch to the brettdavies/qmd fork launcher at ~/dev/qmd/qmd.
+# qmd dispatcher — selects the right backend per OS.
 #
-# The sh wrapper (rather than a hardcoded symlink managed by bun) keeps the
-# qmd CLI binary invariant across bun reinstalls and makes the path identical
-# for interactive shells and systemd user services that use %h/.local/bin/qmd.
-# $HOME expands at invocation so the wrapper is user-portable.
-exec "$HOME/dev/qmd/qmd" "$@"
+# Linux:  brettdavies/qmd fork launcher at ~/dev/qmd/qmd (provides qmd serve)
+# macOS:  @tobilu/qmd installed via `bun install -g`, lands at ~/.cache/bun/bin/qmd
+#
+# Both paths expose the same CLI; the Mac doesn't need the fork's serve
+# feature so the upstream package is sufficient. The wrapper itself is
+# stowed at ~/.local/bin/qmd (PATH-priority) so callers get a stable path
+# on either OS, invariant to bun reinstalls or repo moves.
+
+case "$(uname -s)" in
+  Darwin)
+    exec "$HOME/.cache/bun/bin/qmd" "$@"
+    ;;
+  Linux)
+    exec "$HOME/dev/qmd/qmd" "$@"
+    ;;
+  *)
+    echo "qmd: unsupported OS: $(uname -s)" >&2
+    exit 1
+    ;;
+esac
