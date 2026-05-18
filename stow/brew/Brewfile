@@ -56,6 +56,13 @@ brew "resvg"
 brew "imagemagick"
 brew "sevenzip"
 
+# Web content extraction. Defuddle pulls clean article markdown + metadata
+# from web pages — used by the WebFetch-intercept hook, the clip skill, and
+# the markdown-convert mc-web flow. Installed via brew (not bunx) so the
+# binary is on PATH with zero per-call resolve overhead. The bunx invocation
+# still works as a fallback on machines without brew.
+brew "defuddle"
+
 # macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
 # but listing them separately documents intent and avoids confusing "not found" warnings.
 brew "terminal-notifier" if OS.mac?

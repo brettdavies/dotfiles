@@ -56,7 +56,7 @@ touch "$MARKER"
 # systemMessage are set for reliable delivery (Issue #12446).
 # shellcheck disable=SC2016  # jaq filter uses single quotes; $url and $msg are jaq variables, not shell
 jaq -n --arg url "$URL" '
-  ("WebFetch intercepted. Use `bunx defuddle parse " + $url + " --md` via Bash for clean markdown (first call may take a few seconds). If defuddle fails or returns empty, retry with WebFetch — the hook will allow the retry. If this content is worth saving, clip it with ~/.claude/skills/clip/scripts/clip.sh " + $url + ".") as $msg |
+  ("WebFetch intercepted. Use `defuddle parse " + $url + " --md` via Bash for clean markdown. If defuddle fails or returns empty, retry with WebFetch — the hook will allow the retry. If this content is worth saving, clip it with ~/.claude/skills/clip/scripts/clip.sh " + $url + ".") as $msg |
   {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
