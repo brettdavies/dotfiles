@@ -55,3 +55,17 @@ run = 'piper -- CLICOLOR_FORCE=1 glow -w=$w -s=dark "$1"'
 [[plugin.prepend_previewers]]
 url = "*.pdf"
 run = 'piper -- pdftotext -layout "$1" - 2>/dev/null'
+
+# git.yazi fetchers — populate each file (and the parent dir entry) with git
+# status so the linemode registered in init.lua can render M/A/D/? markers
+# next to filenames. The `id` field is omitted because yazi >= v26.1.22 doesn't
+# require it. See: https://github.com/yazi-rs/plugins/tree/main/git.yazi
+[[plugin.prepend_fetchers]]
+url = "*"
+run = "git"
+group = "git"
+
+[[plugin.prepend_fetchers]]
+url = "*/"
+run = "git"
+group = "git"
