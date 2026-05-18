@@ -4,16 +4,22 @@
 
 # y: yazi wrapper that cds the shell to yazi's last directory on exit.
 # Without this, quitting yazi leaves the shell in its original cwd; with it,
-# yazi becomes a real navigation tool — browse to any tree, press Q, the
-# shell is there. Canonical pattern from the yazi README. Use `y` instead of
-# `yazi` for interactive sessions.
+# yazi becomes a real navigation tool — browse to any tree, press q, the
+# shell is there. Use `y` instead of `yazi` for interactive sessions.
+#
+# Quit keys (yazi defaults — documented at yazi-rs.github.io/docs/quick-start):
+#   q   quit AND write cwd-file (shell follows)
+#   Q   quit WITHOUT writing cwd-file (shell stays put)
+#
+# Canonical pattern from the yazi README, plus `[ -d "$cwd" ]` defensive
+# guard to reject any malformed cwd (e.g., trailing-whitespace edge cases).
 y() {
     local tmp cwd
     tmp="$(mktemp -t yazi-cwd.XXXXXX)"
     yazi "$@" --cwd-file="$tmp"
     IFS= read -r -d '' cwd < "$tmp" 2>/dev/null
     rm -f -- "$tmp"
-    if [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+    if [ -n "$cwd" ] && [ "$cwd" != "$PWD" ] && [ -d "$cwd" ]; then
         builtin cd -- "$cwd" || return
     fi
 }
