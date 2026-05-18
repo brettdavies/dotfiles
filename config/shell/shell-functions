@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared shell functions for bash and zsh
 # This file is sourced by both .bashrc and .zshrc
 
@@ -11,8 +12,10 @@ y() {
     tmp="$(mktemp -t yazi-cwd.XXXXXX)"
     yazi "$@" --cwd-file="$tmp"
     IFS= read -r -d '' cwd < "$tmp" 2>/dev/null
-    [ -n "$cwd" ] && [ "$cwd" != "$PWD" ] && builtin cd -- "$cwd"
     rm -f -- "$tmp"
+    if [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+        builtin cd -- "$cwd" || return
+    fi
 }
 
 # OSC 7 support: Report current directory to terminal (for better terminal integration)
