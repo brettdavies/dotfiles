@@ -41,6 +41,21 @@ brew "rtk"
 brew "tmux"
 brew "tmuxinator"
 
+# Terminal file manager + its previewer dependencies. The stowed yazi config
+# pipes markdown through glow and PDFs through pdftotext (from poppler) via
+# the piper plugin. Yazi's built-in previewers shell out to additional tools:
+# resvg (SVG), imagemagick (AVIF/HEIC/JXL images + font samples), and 7zz
+# from sevenzip (archive contents listing). Tracking all of them here so
+# `brew bundle` provisions a working preview pane end-to-end on a fresh
+# machine. Note: ffmpeg (video previews) is already pulled in transitively
+# elsewhere; if that changes, add it here too.
+brew "yazi"
+brew "glow"
+brew "poppler"
+brew "resvg"
+brew "imagemagick"
+brew "sevenzip"
+
 # macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
 # but listing them separately documents intent and avoids confusing "not found" warnings.
 brew "terminal-notifier" if OS.mac?
