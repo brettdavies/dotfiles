@@ -76,15 +76,23 @@ branch=$(git branch --show-current 2>/dev/null)
 # Need gh
 command -v gh >/dev/null 2>&1 || exit 0
 
-# Give GitHub a moment to register the new runs (push → API visibility lag)
+# Give GitHub a moment to register the new runs (push → API visibility lag),
+# then retry up to 5 times with a 2 s delay between attempts. The API can be
+# slow to surface newly-triggered runs — especially after `gh pr create`,
+# where the PR-creation call returns before workflow runs are visible to
+# `gh run list`. Worst-case total wait is 2 + 4×2 = 10 s, within the 15 s
+# hook timeout.
 sleep 2
+runs=""
+for attempt in 1 2 3 4 5; do
+  runs=$(gh run list --branch "$branch" --limit 10 \
+    --json databaseId,name,status,workflowName,event,createdAt \
+    --jq '[.[] | select(.status == "in_progress" or .status == "queued")]' 2>/dev/null)
+  [[ -n "$runs" && "$runs" != "[]" ]] && break
+  [[ "$attempt" -lt 5 ]] && sleep 2
+done
 
-# Enumerate active runs on this branch (in_progress or queued)
-runs=$(gh run list --branch "$branch" --limit 10 \
-  --json databaseId,name,status,workflowName,event,createdAt \
-  --jq '[.[] | select(.status == "in_progress" or .status == "queued")]' 2>/dev/null)
-
-# If gh failed or no active runs, stay silent
+# If gh failed or no active runs after all retries, stay silent
 [[ -n "$runs" && "$runs" != "[]" ]] || exit 0
 
 # Build the agent-facing reminder text

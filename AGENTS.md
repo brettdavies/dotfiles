@@ -266,5 +266,7 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
 - Signing architecture: `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`
 - Shell config fixes: `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md`
 - Cross-platform deployment: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
+- Cross-platform stow package gating (file-level `--ignore` for scattered OS-specific content):
+  `docs/solutions/architecture-patterns/cross-platform-stow-package-gating-2026-05-17.md`
 - Headless Cloudflare wrangler + scoped API token in 1P:
   `docs/solutions/developer-experience/cloudflare-api-token-headless-wrangler-1password-2026-04-13.md`

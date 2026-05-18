@@ -23,7 +23,27 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
 }
 
 @test "Linux-only case block covers expected packages" {
-  grep -q 'rclone|qmd|obsidian|opendataloader-pdf)' "$SCRIPT"
+  # qmd was removed from this list when it became cross-platform (file-level
+  # OS gating via STOW_FLAGS --ignore handles its Linux-only systemd units,
+  # which now live in stow/local/). See docs/solutions/architecture-patterns/
+  # cross-platform-stow-package-gating-2026-05-17.md.
+  grep -q 'rclone|obsidian|opendataloader-pdf)' "$SCRIPT"
+}
+
+@test "STOW_FLAGS always ignores .DS_Store" {
+  # Finder turds should never be symlinked across any package on any OS.
+  grep -q "STOW_FLAGS+=(--ignore='\\\\.DS_Store\$')" "$SCRIPT"
+}
+
+@test "STOW_FLAGS ignores systemd units on macOS only" {
+  # Linux .service/.timer files scattered inside otherwise-shared packages
+  # (stow/local, stow/openclaw, stow/rclone, stow/rust, stow/obsidian,
+  # stow/opendataloader-pdf) must not symlink to ~/.config/systemd/user/
+  # on a Mac. File-extension regex is required because stow's --ignore
+  # filters file basenames, not directory names. The pattern lives inside
+  # an explicit Darwin gate.
+  grep -q 'if \[ "\$(uname -s)" = "Darwin" \]; then' "$SCRIPT"
+  grep -q "STOW_FLAGS+=(--ignore='\\\\.(service|timer)\$')" "$SCRIPT"
 }
 
 @test "DESKTOP_PACKAGES contains expected packages" {
