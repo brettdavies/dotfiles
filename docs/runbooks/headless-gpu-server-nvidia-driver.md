@@ -57,8 +57,16 @@ sudo apt install -y dkms linux-headers-generic "linux-headers-$(uname -r)"
 # needrestart (no interactive prompt). Note: this does NOT automatically remove the
 # `nvidia-headless-no-dkms-NNN-server-open` package from the prior branch — they coexist.
 # Explicit cleanup happens in A.5.
-sudo NEEDRESTART_MODE=a apt install -y nvidia-headless-580-server-open
+sudo NEEDRESTART_MODE=a apt install -y \
+    nvidia-headless-580-server-open \
+    libnvidia-gl-580-server \
+    vulkan-tools
 ```
+
+The `libnvidia-gl-NNN-server` package ships the matching Vulkan ICD
+(`/usr/share/vulkan/icd.d/nvidia_icd.json`). Without it, Vulkan-using apps on the box (anything built on
+`node-llama-cpp`, LM Studio, etc.) silently fall back to CPU or fail to enumerate the GPU as a Vulkan device.
+`vulkan-tools` is a 3 MB diagnostic kit (`vulkaninfo`, `vkcube`) — optional but handy when debugging.
 
 DKMS builds the nvidia module for **every installed kernel**, not just the running one. On a typical box with current +
 prior + (possibly) a newly-pulled latest kernel, expect 3-9 minutes of CPU and three "Building initial module
@@ -84,6 +92,17 @@ sleep 2
 # Run a tiny model query, then:
 curl -s localhost:11434/api/ps | jaq '.models[]? | {name, size_vram}'
 # size_vram > 0 confirms the model is in VRAM, not CPU RAM.
+
+# 5. nvidia-persistenced daemon is running. The nvidia-headless-NNN-server-open
+#    package pulls it in as a dependency and systemd starts it automatically,
+#    but verify it survived the swap. Keeps the driver state loaded between
+#    processes so cold CUDA app starts skip the ~1-3s driver re-init cost.
+#    Idle power impact on consumer GPUs (e.g., 3090 Ti) is negligible (~0 W).
+systemctl status nvidia-persistenced.service --no-pager | head -5
+nvidia-smi --query-gpu=persistence_mode --format=csv
+# Note: persistence_mode reports "Disabled" because nvidia-persistenced uses
+# a different mechanism than the legacy `nvidia-smi -pm 1` flag. That is
+# expected; the daemon is the modern recommended approach.
 ```
 
 ### A.4 Lock in the toolchain against autoremove
