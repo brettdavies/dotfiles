@@ -25,6 +25,24 @@ edit = [
   { run = "$EDITOR %s", block = true, desc = "$EDITOR", for = "unix" },
 ]
 
+# PDF "read" opener — pressing `o` on a PDF gives a fully selectable, searchable
+# text view, not the cramped preview pane. Per-platform routing via `for`:
+#   macOS → Preview.app (visual rendering, native text selection)
+#   Linux → pdftotext into a tempfile, opened in micro
+# Linux needs the tempfile hop because micro can't initialize its TUI when
+# stdin is consumed by a pipe; the trailing `rm -f` cleans up after micro exits.
+read-pdf = [
+  { run = 'open %s', desc = "Preview.app", for = "macos" },
+  { run = 'tmp=$(mktemp) && pdftotext -layout %s "$tmp" && micro "$tmp"; rm -f "$tmp"', block = true, desc = "text in micro", for = "linux" },
+]
+
+# Route PDFs to `read-pdf` instead of the generic `open`. `prepend_rules` adds
+# this in front of yazi's default rules without replacing them.
+[open]
+prepend_rules = [
+  { mime = "application/pdf", use = "read-pdf" },
+]
+
 # Markdown preview via piper plugin + glow
 # piper pipes the file through glow for rendered markdown in the preview pane.
 # $w = preview pane width (injected by piper). Requires: glow (brew install glow).
