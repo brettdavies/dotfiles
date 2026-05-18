@@ -5,7 +5,7 @@ windows:
   - main:
       layout: main-vertical
       panes:
-        - yazi
+        - command -v y >/dev/null && y || yazi
         -
         - lazygit
 

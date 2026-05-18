@@ -70,8 +70,9 @@ SCRIPT="$BATS_TEST_DIRNAME/../stow/local/dot-local/bin/tmux-new-session"
 }
 
 @test "script puts yazi in the first pane" {
-  # `- yazi` is the first pane entry in the YAML
-  grep -q '^[[:space:]]*- yazi$' "$SCRIPT"
+  # First pane runs `y` (the exit-cd wrapper from shell-functions) with a
+  # silent fallback to plain `yazi` if `y` isn't defined in the pane's shell.
+  grep -qFe '- command -v y >/dev/null && y || yazi' "$SCRIPT"
 }
 
 @test "script puts lazygit in the third pane" {
