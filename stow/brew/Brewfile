@@ -41,6 +41,11 @@ brew "rtk"
 brew "tmux"
 brew "tmuxinator"
 
+# Yazi previewer dependencies — yazi's built-in svg previewer shells out to
+# resvg (Rust SVG → PNG renderer). Without it, *.svg files show blank in the
+# yazi preview pane on both macOS and Linux.
+brew "resvg"
+
 # macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
 # but listing them separately documents intent and avoids confusing "not found" warnings.
 brew "terminal-notifier" if OS.mac?
