@@ -111,6 +111,40 @@ After this, `dpkg -l | grep nvidia-headless` should show only the new `nvidia-he
 
 ---
 
+### A.6 Verify downstream GPU consumers picked up the new driver
+
+Driver branch swaps can silently regress applications that detect the GPU through Vulkan / OpenCL / OpenGL prebuilt
+binaries. Their auto-selected backend may now be linked against ICDs that no longer match the installed driver branch.
+The app keeps running — it falls back to CPU or a slower backend — and the failure is silent.
+
+Quick check per GPU consumer, run a representative workload and watch:
+
+```bash
+nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+```
+
+The consumer process should appear in the list while it is using the GPU. If the workload runs but the process never
+appears, the auto-selected backend is not CUDA and is probably broken or has fallen through to CPU.
+
+**Known cases on this box:**
+
+- `node-llama-cpp` (used by qmd and similar inference servers) prefers Vulkan when both Vulkan and CUDA prebuilt
+  binaries are present. Vulkan ICDs ship per driver branch, so a 570 -> 580 swap (or any branch change) leaves the
+  Vulkan binary linked against the wrong ICD. The fix is to pin the backend via env var in the systemd unit:
+
+  ```ini
+  Environment=NODE_LLAMA_CPP_GPU=cuda
+  ```
+
+  Then `systemctl --user daemon-reload && systemctl --user restart <service>`. Verified with
+  `nvidia-smi --query-compute-apps` showing the bun PID as a CUDA client.
+
+The pattern generalizes: if you find another app falling back to CPU after a driver swap, look for its backend-pin
+env var (`OLLAMA_*`, `CUDA_VISIBLE_DEVICES`, `GGML_CUDA_FORCE_MMQ`, etc.) and set it explicitly in the unit file
+rather than relying on auto-detect.
+
+---
+
 ## Procedure B — future kernel upgrade health check
 
 Unattended-upgrades will install future kernels automatically. DKMS will rebuild the nvidia module as part of the kernel
