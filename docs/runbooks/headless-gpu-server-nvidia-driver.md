@@ -38,21 +38,31 @@ uname -r
 nvidia-smi 2>&1 | head -3        # may report "driver not loaded" — expected if drifted
 
 # 3. Drop stale kernels so DKMS will not have to build for every one of them.
+#    Note: autoremove only drops kernels that became leaves naturally. Kernels installed
+#    explicitly (or held by linger metadata) survive. Inspect with `ls /boot/vmlinuz-*` after.
 sudo apt autoremove --purge -y
 
 # 4. Confirm headers for the running kernel are present (DKMS dependency).
+#    HEADS UP: installing `linux-headers-generic` will upgrade it to the LATEST kernel ABI
+#    available — which can drag a newer linux-image-* in as a transitive dependency. That is
+#    fine (DKMS will build for it in step A.2) but expect to see a kernel install here and a
+#    "Pending kernel upgrade!" message from needrestart afterward.
 sudo apt install -y dkms linux-headers-generic "linux-headers-$(uname -r)"
 ```
 
 ### A.2 Swap
 
 ```bash
-# Single apt run: dpkg removes the no-DKMS package and installs the DKMS variant.
-# NEEDRESTART_MODE=a auto-restarts services flagged by needrestart (no interactive prompt).
+# Installs the DKMS-backed package. NEEDRESTART_MODE=a auto-restarts services flagged by
+# needrestart (no interactive prompt). Note: this does NOT automatically remove the
+# `nvidia-headless-no-dkms-NNN-server-open` package from the prior branch — they coexist.
+# Explicit cleanup happens in A.5.
 sudo NEEDRESTART_MODE=a apt install -y nvidia-headless-580-server-open
 ```
 
-DKMS builds the nvidia module for the running kernel as part of the install. Expect 1-3 minutes of CPU.
+DKMS builds the nvidia module for **every installed kernel**, not just the running one. On a typical box with current +
+prior + (possibly) a newly-pulled latest kernel, expect 3-9 minutes of CPU and three "Building initial module
+nvidia/X.Y.Z for 6.8.0-N-generic" blocks.
 
 ### A.3 Verify
 
@@ -83,6 +93,21 @@ sudo apt-mark manual dkms linux-headers-generic
 ```
 
 That is the entire "lockdown". No apt pinning, no unattended-upgrades blacklist, no systemd timers.
+
+### A.5 Cleanup orphaned packages from the prior driver branch
+
+The A.2 swap leaves the old `nvidia-headless-no-dkms-NNN-server-open` package and its
+`nvidia-kernel-source-NNN-server-open` dependency installed (they were not strict conflicts with the new DKMS variant).
+Remove them explicitly, then a final autoremove for stale kernels that may now be eligible:
+
+```bash
+# Replace NNN with the prior branch number (e.g., 570 if you migrated from 570 → 580).
+sudo apt remove --purge -y nvidia-headless-no-dkms-NNN-server-open nvidia-kernel-source-NNN-server-open
+sudo apt autoremove --purge -y
+```
+
+After this, `dpkg -l | grep nvidia-headless` should show only the new `nvidia-headless-NNN-server-open` and
+`nvidia-headless-no-dkms-NNN-server-open` (the latter pulled in as a dep of the former — leave it).
 
 ---
 
@@ -144,10 +169,16 @@ boot-time fallback.
 - `lsof /dev/nvidia*` must be empty before any `modprobe` swap. Any leaked handle from a previous driver generation will
   block the load.
 - `NEEDRESTART_MODE=a` matters in scripted contexts; in an interactive shell it is fine to answer the prompt manually.
-- DKMS builds for **every** installed kernel on `dkms autoinstall`. Always run `apt autoremove --purge` first if
-  multiple kernels have accumulated.
-- The package swap from `-no-dkms-` to the DKMS variant is two dpkg steps in one apt transaction. If apt aborts mid-way
-  (network loss, disk full, signal), `dpkg --audit` will reveal it; rerun apt to finish.
+- DKMS builds for **every** installed kernel on `dkms autoinstall`. `apt autoremove --purge` does NOT always drop stale
+  kernels (it only removes leaves that became unreferenced naturally); kernels installed explicitly may need `apt remove
+  --purge linux-image-6.8.0-N-generic linux-modules-6.8.0-N-generic` to clear.
+- Installing `linux-headers-generic` (or upgrading it) can transitively pull in a newer `linux-image-*` package as a
+  dependency. This is expected and fine — DKMS will build for the new kernel as part of its install — but be ready for a
+  "Pending kernel upgrade!" notice from needrestart afterward.
+- The A.2 swap does NOT remove the prior branch's `nvidia-headless-no-dkms-NNN-server-open` package. A.5 cleanup is
+  required; skipping it leaves harmless cruft on disk but does not break the new install.
+- If apt aborts mid-swap (network loss, disk full, signal), `dpkg --audit` will reveal it; rerun apt to finish or use
+  `dpkg --configure -a` to recover partially-configured packages.
 
 ---
 
