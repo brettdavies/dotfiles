@@ -10,3 +10,16 @@
 
 [flavor]
 use = "catppuccin-mocha"
+
+# git.yazi sign overrides — defaults for modified/added/deleted/updated are
+# blank spaces with colored backgrounds (color-only indicator). Overridden to
+# plain letters matching `git status -s` shorthand so the indicator is legible
+# on any background. Each sign is two columns wide (letter + space) so they
+# align across rows. Colors inherit from catppuccin-mocha's git defaults.
+[git]
+modified_sign  = "M "
+added_sign     = "A "
+deleted_sign   = "D "
+updated_sign   = "U "
+untracked_sign = "? "
+ignored_sign   = "! "
