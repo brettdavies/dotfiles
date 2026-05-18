@@ -34,7 +34,7 @@ if [[ "$*" == *"pr merge"* ]]; then
 
     if [[ "$base_branch" == "main" || "$base_branch" == "master" ]]; then
         echo "Blocked: merging into $base_branch requires human approval." >&2
-        echo "Please provide a ready-to-paste squash merge commit message for the human to use." >&2
+        echo "Ask the human to perform the merge; the PR body is used as the squash commit message." >&2
         exit 1
     fi
 fi
