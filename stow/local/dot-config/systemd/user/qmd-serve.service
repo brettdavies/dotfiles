@@ -5,6 +5,11 @@ After=network.target
 [Service]
 Type=simple
 Environment=PATH=/home/brett/.bun/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+# Force CUDA backend in node-llama-cpp. Auto-selection prefers Vulkan, but its prebuilt
+# binary breaks when the NVIDIA driver branch changes (Vulkan ICDs go out of ABI sync).
+# CUDA is the stable choice on this headless ML/AI box and registers as a CUDA compute app,
+# which makes GPU usage visible via `nvidia-smi --query-compute-apps`.
+Environment=NODE_LLAMA_CPP_GPU=cuda
 ExecStart=/home/brett/.bun/bin/qmd serve --port 7832 --bind 127.0.0.1 --low-vram
 Restart=on-failure
 RestartSec=5
