@@ -139,6 +139,16 @@ appears, the auto-selected backend is not CUDA and is probably broken or has fal
   Then `systemctl --user daemon-reload && systemctl --user restart <service>`. Verified with
   `nvidia-smi --query-compute-apps` showing the bun PID as a CUDA client.
 
+  **Belt-and-suspenders:** rebuild node-llama-cpp prebuilt bindings against the current system libs so both Vulkan
+  and CUDA paths are healthy. Use the included script:
+
+  ```bash
+  ~/dotfiles/scripts/qmd-llama-rebuild.sh
+  ```
+
+  The env-var pin remains the load-bearing fix; the rebuild adds a working Vulkan fallback so a future regression
+  on the CUDA prebuilt does not strand the box again. Re-run the script after any future driver branch change.
+
 The pattern generalizes: if you find another app falling back to CPU after a driver swap, look for its backend-pin
 env var (`OLLAMA_*`, `CUDA_VISIBLE_DEVICES`, `GGML_CUDA_FORCE_MMQ`, etc.) and set it explicitly in the unit file
 rather than relying on auto-detect.
