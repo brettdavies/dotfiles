@@ -8,7 +8,7 @@
 # Section names: yazi.toml uses [mgr], keymap.toml uses [mgr] — NOT [manager].
 # This is a common gotcha; wrong section names are silently ignored.
 
-"$schema" = "https://yazi-rs.github.io/schemas/yazi.json"
+#:schema https://yazi-rs.github.io/schemas/yazi.json
 
 [mgr]
 # Panel ratios: [parent-dir, current-dir, preview]

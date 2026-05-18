@@ -6,7 +6,7 @@
 # Installed via: ya pkg add yazi-rs/flavors:catppuccin-mocha
 # To change flavor: update `use` below and run `ya pkg install`.
 
-"$schema" = "https://yazi-rs.github.io/schemas/theme.json"
+#:schema https://yazi-rs.github.io/schemas/theme.json
 
 [flavor]
 use = "catppuccin-mocha"

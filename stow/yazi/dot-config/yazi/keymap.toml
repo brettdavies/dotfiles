@@ -23,7 +23,7 @@
 #   t         new tab   1-9 switch tabs   [ ] cycle tabs
 #   z         zoxide jump   Z = fzf jump
 
-"$schema" = "https://yazi-rs.github.io/schemas/keymap.json"
+#:schema https://yazi-rs.github.io/schemas/keymap.json
 
 # smart-enter: navigate into directory OR open file with opener — whichever applies.
 # Replaces default `open` (opener-only) and `enter` (directory-only) with a unified action.
