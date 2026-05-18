@@ -242,6 +242,21 @@ done
 
 STOW_FLAGS=(--dotfiles --no-folding --target="$TARGET")
 
+# Always skip macOS Finder turds. Stow has no way to know they're gitignored
+# and will try to symlink them, which usually fails because Finder also drops
+# them in the target dirs.
+STOW_FLAGS+=(--ignore='\.DS_Store$')
+
+# macOS: skip Linux-only systemd user units that share packages with cross-platform
+# content (e.g. stow/local holds both ~/.local/bin/* helpers AND ~/.config/systemd/user/*
+# units). Stow's --ignore matches file basenames (not directories), so we pattern on
+# the file extension. Every .service and .timer file in this repo is a systemd unit
+# (verified across stow/{local,openclaw,rclone,rust,obsidian,opendataloader-pdf}),
+# so the pattern is safe to apply broadly. No-op on Linux.
+if [ "$(uname -s)" = "Darwin" ]; then
+  STOW_FLAGS+=(--ignore='\.(service|timer)$')
+fi
+
 cd "$STOW_DIR"
 
 # Track adopted, deployed, and failed packages (temp files avoid subshell variable loss)
@@ -262,7 +277,7 @@ for pkg in "$@"; do
   fi
   if [ "$(uname -s)" != "Linux" ]; then
     case "$pkg" in
-      rclone|qmd|obsidian|opendataloader-pdf)
+      rclone|obsidian|opendataloader-pdf)
         echo "WARNING: $pkg is Linux-only, skipping on $(uname -s)" >&2
         continue
         ;;

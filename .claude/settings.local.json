@@ -73,7 +73,16 @@
       "Read(//mnt/nas/**)",
       "Read(//mnt/nas/bigdaddy-backup/**)",
       "Skill(repo-recon)",
-      "WebFetch(domain:docs.npmjs.com)"
+      "WebFetch(domain:docs.npmjs.com)",
+      "Bash(pmset -g batt)",
+      "Bash(pmset -g ps)",
+      "Bash(pmset -g log)",
+      "Bash(osascript -e 'tell application \"System Events\" to count windows of \\(every process whose visible is true\\)')",
+      "Bash(osascript -e 'tell application \"System Events\" to get {name, count of windows} of \\(every process whose visible is true\\)')",
+      "Bash(/usr/bin/find ~/dotfiles/stow/qmd \\\\\\( -type f -o -type l \\\\\\))",
+      "Bash(/usr/bin/find ~/dotfiles/stow/launchagent \\\\\\( -type f -o -type l \\\\\\))",
+      "Bash(info *)",
+      "Skill(compound-engineering:ce-compound-refresh)"
     ]
   },
   "skillOverrides": {

@@ -36,15 +36,20 @@
 
 REPO_ROOT="$BATS_TEST_DIRNAME/.."
 PKG_DIR="$REPO_ROOT/stow/qmd"
-SERVE_UNIT="$PKG_DIR/dot-config/systemd/user/qmd-serve.service"
-EMBED_UNIT="$PKG_DIR/dot-config/systemd/user/qmd-embed.service"
-UPDATE_UNIT="$PKG_DIR/dot-config/systemd/user/qmd-update.service"
-CLEANUP_UNIT="$PKG_DIR/dot-config/systemd/user/qmd-cleanup.service"
-EMBED_TIMER="$PKG_DIR/dot-config/systemd/user/qmd-embed.timer"
-UPDATE_TIMER="$PKG_DIR/dot-config/systemd/user/qmd-update.timer"
-CLEANUP_TIMER="$PKG_DIR/dot-config/systemd/user/qmd-cleanup.timer"
+# Linux-only artifacts (systemd units + ollama helper) live in stow/local/
+# alongside nightly-autocommit, not in stow/qmd. The stow/qmd package now
+# holds only the OS-aware wrapper. See docs/solutions/architecture-patterns/
+# cross-platform-stow-package-gating-2026-05-17.md.
+LOCAL_PKG_DIR="$REPO_ROOT/stow/local"
+SERVE_UNIT="$LOCAL_PKG_DIR/dot-config/systemd/user/qmd-serve.service"
+EMBED_UNIT="$LOCAL_PKG_DIR/dot-config/systemd/user/qmd-embed.service"
+UPDATE_UNIT="$LOCAL_PKG_DIR/dot-config/systemd/user/qmd-update.service"
+CLEANUP_UNIT="$LOCAL_PKG_DIR/dot-config/systemd/user/qmd-cleanup.service"
+EMBED_TIMER="$LOCAL_PKG_DIR/dot-config/systemd/user/qmd-embed.timer"
+UPDATE_TIMER="$LOCAL_PKG_DIR/dot-config/systemd/user/qmd-update.timer"
+CLEANUP_TIMER="$LOCAL_PKG_DIR/dot-config/systemd/user/qmd-cleanup.timer"
 WRAPPER_SH="$PKG_DIR/dot-local/bin/qmd"
-OLLAMA_UNLOAD_SH="$PKG_DIR/dot-local/bin/qmd-ollama-unload-all"
+OLLAMA_UNLOAD_SH="$LOCAL_PKG_DIR/dot-local/bin/qmd-ollama-unload-all"
 ENABLE_SCRIPT="$REPO_ROOT/scripts/qmd-serve-enable.sh"
 SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 
