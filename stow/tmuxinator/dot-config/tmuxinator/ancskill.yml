@@ -9,6 +9,9 @@ windows:
         -
         - lazygit
 
-on_project_exit: |
-  tmux resize-pane -t ancskill:main.1 -x "33%"
-  tmux resize-pane -t ancskill:main.3 -y "33%"
+on_project_first_start: |
+  (
+    sleep 0.3
+    tmux resize-pane -t ancskill:main.1 -x "33%"
+    tmux resize-pane -t ancskill:main.3 -y "33%"
+  ) & disown
