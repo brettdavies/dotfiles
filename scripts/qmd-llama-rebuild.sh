@@ -13,6 +13,13 @@
 # `Environment=NODE_LLAMA_CPP_GPU=cuda` pin in the qmd-serve systemd unit.
 # The env var pin is sufficient on its own when the CUDA prebuilt is
 # healthy; this script makes Vulkan healthy too as a fallback path.
+#
+# Note: the resulting binary is meaningfully more optimized when
+# `config/shell/build-flags.sh` is sourced before this script runs
+# (CFLAGS=-march=native lets gcc emit AVX-512; CMAKE_CUDA_ARCHITECTURES=86
+# pins nvcc to Ampere only, cutting compile time ~5x). The dotfiles
+# .profile auto-loader sources it on every interactive and SSH-driven
+# zsh, so this normally happens for free.
 
 set -euo pipefail
 
