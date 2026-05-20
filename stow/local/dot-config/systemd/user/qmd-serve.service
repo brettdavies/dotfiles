@@ -1,11 +1,11 @@
 [Unit]
-Description=QMD model server (sequential mode for VRAM coexistence)
+Description=QMD model server (low-vram mode for VRAM coexistence)
 After=network.target
 
 [Service]
 Type=simple
 Environment=PATH=/home/brett/.bun/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/home/brett/.bun/bin/qmd serve --port 7832 --bind 127.0.0.1 --sequential
+ExecStart=/home/brett/.bun/bin/qmd serve --port 7832 --bind 127.0.0.1 --low-vram
 Restart=on-failure
 RestartSec=5
 
