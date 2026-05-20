@@ -23,8 +23,8 @@
 #   [ ] qmd-embed OK    systemctl --user start qmd-embed.service completes
 #                       without OOM; nvidia-smi shows no VRAM exhaustion
 #                       after Ollama-unload ExecStartPre fires.
-#   [ ] CLI routing     qmd query "test" with QMD_SERVER set routes through
-#                       the daemon; unsetting QMD_SERVER falls back to local
+#   [ ] CLI routing     qmd query "test" with QMD_REMOTE_URL set routes through
+#                       the daemon; unsetting QMD_REMOTE_URL falls back to local
 #                       mode (slower, loads model in-process).
 #   [ ] CLI resolution  command -v qmd resolves to ~/.local/bin/qmd (stow
 #                       wrapper wins on current PATH order). qmd-serve keeps
@@ -121,11 +121,11 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 # qmd still resolves via the stow wrapper at ~/.local/bin/qmd.
 # ---------------------------------------------------------------------------
 
-@test "qmd-serve ExecStart invokes qmd serve with sequential mode" {
+@test "qmd-serve ExecStart invokes qmd serve with low-vram mode" {
   grep -qE '^ExecStart=\S*/qmd serve ' "$SERVE_UNIT"
   grep -q 'ExecStart=.* --port 7832 ' "$SERVE_UNIT"
   grep -q 'ExecStart=.* --bind 127.0.0.1 ' "$SERVE_UNIT"
-  grep -q 'ExecStart=.* --sequential' "$SERVE_UNIT"
+  grep -q 'ExecStart=.* --low-vram' "$SERVE_UNIT"
 }
 
 @test "qmd-serve has Type=simple" {
@@ -314,8 +314,8 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 # config/shell/qmd.sh
 # ---------------------------------------------------------------------------
 
-@test "config/shell/qmd.sh exports QMD_SERVER on port 7832 (matches service)" {
-  grep -q '^export QMD_SERVER=http://127.0.0.1:7832$' "$SHELL_ENV"
+@test "config/shell/qmd.sh exports QMD_REMOTE_URL on port 7832 (matches service)" {
+  grep -q '^export QMD_REMOTE_URL=http://127.0.0.1:7832$' "$SHELL_ENV"
 }
 
 # ---------------------------------------------------------------------------

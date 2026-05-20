@@ -164,7 +164,7 @@ needed.
 | `models.sh`         | AI/ML model storage locations                         |
 | `platform-linux.sh` | Linux-specific platform checks and config             |
 | `python.sh`         | Python tooling config                                 |
-| `qmd.sh`            | `QMD_SERVER` export (qmd-serve daemon URL)            |
+| `qmd.sh`            | `QMD_REMOTE_URL` export (qmd-serve daemon URL)        |
 | `supply-chain.sh`   | Supply-chain safety (package age gates)               |
 | `telemetry.sh`      | Telemetry opt-out environment variables               |
 | `tmuxinator.sh`     | `mux` and `mux-all` tmuxinator wrappers               |
