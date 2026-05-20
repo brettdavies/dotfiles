@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot enable script for the qmd-serve sequential daemon.
+# One-shot enable script for the qmd-serve low-vram daemon.
 #
 # Stops any orphan listener on :7832, reloads the user systemd manager,
 # enables --now the service unit, and smoke-tests /health. Idempotent and
