@@ -118,20 +118,20 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 }
 
 # ---------------------------------------------------------------------------
-# config/shell/qmd.sh: QMD_SERVER owned here, not in dot-profile
+# config/shell/qmd.sh: QMD_REMOTE_URL owned here, not in dot-profile
 # ---------------------------------------------------------------------------
 
-@test "qmd.sh exports QMD_SERVER pointing at the sequential-mode daemon" {
-  grep -q '^export QMD_SERVER=http://127.0.0.1:7832$' "$CONFIG_DIR/qmd.sh"
+@test "qmd.sh exports QMD_REMOTE_URL pointing at the low-vram-mode daemon" {
+  grep -q '^export QMD_REMOTE_URL=http://127.0.0.1:7832$' "$CONFIG_DIR/qmd.sh"
 }
 
-@test "dot-profile no longer exports QMD_SERVER (owned by config/shell/qmd.sh)" {
-  ! grep -q 'QMD_SERVER' "$STOW_DIR/shell/dot-profile"
+@test "dot-profile no longer exports QMD_REMOTE_URL (owned by config/shell/qmd.sh)" {
+  ! grep -q 'QMD_REMOTE_URL' "$STOW_DIR/shell/dot-profile"
 }
 
-@test "sourcing profile in a fresh shell exports QMD_SERVER" {
+@test "sourcing profile in a fresh shell exports QMD_REMOTE_URL" {
   [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
-  run bash -c 'unset QMD_SERVER; . "$HOME/.profile" >/dev/null 2>&1; echo "$QMD_SERVER"'
+  run bash -c 'unset QMD_REMOTE_URL; . "$HOME/.profile" >/dev/null 2>&1; echo "$QMD_REMOTE_URL"'
   [ "$status" -eq 0 ]
   [ "$output" = "http://127.0.0.1:7832" ]
 }

@@ -1,5 +1,5 @@
 ---
-title: "feat(qmd): integrate qmd-serve sequential-mode daemon into dotfiles"
+title: "feat(qmd): integrate qmd-serve low-vram-mode daemon into dotfiles"
 type: feat
 status: completed
 date: 2026-04-21
@@ -15,10 +15,10 @@ All six implementation units landed in [PR #44](https://github.com/brettdavies/d
 shipped in release [`2026.04.22`](https://github.com/brettdavies/dotfiles/releases/tag/2026.04.22):
 
 - `stow/qmd/dot-local/bin/qmd` — sh wrapper dispatching to `~/dev/qmd/qmd` fork launcher (Unit 2).
-- `stow/qmd/dot-config/systemd/user/qmd-serve.service` — sequential-mode systemd user unit on `:7832` (Unit 3).
+- `stow/qmd/dot-config/systemd/user/qmd-serve.service` — low-vram-mode systemd user unit on `:7832` (Unit 3).
 - `stow/qmd/dot-config/systemd/user/qmd-embed.service` and `qmd-update.service` unified on `%h/.local/bin/qmd` binary
   dispatch (Unit 4); hardcoded `/home/brett/.bun/bin/qmd` removed.
-- `config/shell/qmd.sh` exports `QMD_SERVER=http://127.0.0.1:7832` (Unit 1); the direct export was deleted from
+- `config/shell/qmd.sh` exports `QMD_REMOTE_URL=http://127.0.0.1:7832` (Unit 1); the direct export was deleted from
   `stow/shell/dot-profile` in the same commit.
 - `scripts/qmd-serve-enable.sh` — idempotent activator: shadow-removes `~/.bun/bin/qmd`, reloads systemd, enables +
   starts the unit, smokes `/health` (Unit 5).
@@ -37,11 +37,11 @@ Follow-on work after the initial ship:
 Deviations from the plan: none material. The Ollama-unload review (R7) landed as a conditional `ExecStartPre` instead of
 an unconditional removal — see PR #51 for rationale.
 
-# feat(qmd): integrate qmd-serve sequential-mode daemon into dotfiles
+# feat(qmd): integrate qmd-serve low-vram-mode daemon into dotfiles
 
 ## Overview
 
-Track the manually-configured qmd-serve daemon (the persistent `qmd serve --sequential` HTTP server at `127.0.0.1:7832`)
+Track the manually-configured qmd-serve daemon (the persistent `qmd serve --low-vram` HTTP server at `127.0.0.1:7832`)
 in dotfiles so it survives reinstalls and deploys to new hosts via `scripts/stow-deploy`. The service is already running
 live on the dev workstation; this plan formalizes the three manual pieces (service unit, env var, binary dispatch) as
 stow-managed assets and unifies three sibling qmd services (`qmd-embed`, `qmd-update`, `qmd-serve`) on a single
@@ -56,8 +56,8 @@ assertions with a manual smoke checklist. No new patterns are introduced.
 Three pieces that were set up by hand on the dev workstation need to live in the repo (origin todo, lines 11–21):
 
 1. `qmd-serve.service` — systemd user service at `~/.config/systemd/user/qmd-serve.service` running `qmd serve
-   --sequential` (sequential-mode owns VRAM coexistence in-process — peak ~2.6 GB instead of ~5.4 GB).
-2. `QMD_SERVER=http://127.0.0.1:7832` — exported so the qmd CLI routes through the daemon.
+   --low-vram` (low-vram-mode owns VRAM coexistence in-process — peak ~2.6 GB instead of ~5.4 GB).
+2. `QMD_REMOTE_URL=http://127.0.0.1:7832` — exported so the qmd CLI routes through the daemon.
 3. A stable way to invoke the **fork** `qmd` binary (`~/dev/qmd/qmd`, brettdavies/qmd `feat/ollama-backend` branch)
    instead of whatever `bun add -g qmd` installs — currently via a fragile `~/.bun/bin/qmd -> ~/dev/qmd/qmd` symlink
    that bun may overwrite.
@@ -72,7 +72,7 @@ also cleaning up two pre-existing inconsistencies in `stow/qmd/` uncovered durin
 
 - **R1.** `qmd-serve.service` lives in `stow/qmd/dot-config/systemd/user/` and deploys via `scripts/stow-deploy` without
   manual steps. (origin: Acceptance Criteria #1, #3)
-- **R2.** `QMD_SERVER` is exported in all shell contexts (interactive, non-interactive zsh, cron, Claude Code, systemd
+- **R2.** `QMD_REMOTE_URL` is exported in all shell contexts (interactive, non-interactive zsh, cron, Claude Code, systemd
   child processes that source `.profile`) and tracked in the repo. (origin: Acceptance Criteria #2; origin Revision 1;
   CLAUDE.md "Shell Config Chain")
 - **R3.** The qmd binary used by both humans and services resolves to the brettdavies/qmd fork without relying on a
@@ -88,7 +88,7 @@ also cleaning up two pre-existing inconsistencies in `stow/qmd/` uncovered durin
 
 ## Scope Boundaries
 
-- Not a socket-activated service. Unlike opendataloader-pdf, qmd-serve stays always-on — sequential mode owns VRAM
+- Not a socket-activated service. Unlike opendataloader-pdf, qmd-serve stays always-on — low-vram mode owns VRAM
   coexistence in-process. (origin: note after "Approved 2026-04-21.")
 - No idle-exit. qmd-serve must stay resident to keep models warm.
 - No bootstrap-from-scratch script that clones the fork. (origin: "Why NOT the full bootstrap script (Option 2)")
@@ -101,7 +101,7 @@ also cleaning up two pre-existing inconsistencies in `stow/qmd/` uncovered durin
 
 - **Fork launcher script commit to `brettdavies/qmd`.** The `~/dev/qmd/qmd` bash launcher was hand-written; it should
   live in the fork repo. Tracked on the fork, not here. (origin: Deferred/still-open bullet 1)
-- **Fork URL/branch pinning & upstream PR #511 follow-up.** If upstream lands sequential mode, flip the wrapper back to
+- **Fork URL/branch pinning & upstream PR #511 follow-up.** If upstream lands low-vram mode, flip the wrapper back to
   upstream; revisit post-ship. (origin: Deferred/still-open bullet 2)
 - **PATH-prepend dedupe in `config/shell/local-paths.sh`.** Redundant with `.profile`; spun off as todo
   `015-pending-p3-dedupe-path-prepends-local-paths-sh.md`.
@@ -131,7 +131,7 @@ also cleaning up two pre-existing inconsistencies in `stow/qmd/` uncovered durin
   **must change to** `ExecStart=/bin/sh -c '%h/.local/bin/qmd cleanup 2>/dev/null; %h/.local/bin/qmd update'` for
   pattern unification. `Environment=PATH=...` line (line 6) becomes unnecessary but can stay — belt-and-suspenders.
 - `qmd-embed.timer` / `qmd-update.timer` — untouched; timers orchestrate, don't execute.
-- **Shell env authority:** `stow/shell/dot-profile:147-150` currently holds the `QMD_SERVER` export directly. Convention
+- **Shell env authority:** `stow/shell/dot-profile:147-150` currently holds the `QMD_REMOTE_URL` export directly. Convention
   in `config/shell/*.sh` is feature-named files (`caam.sh`, `gogcli.sh`, `python.sh`, `models.sh`, `telemetry.sh`).
   Moving to `config/shell/qmd.sh` aligns with that convention.
 - **Shared-package registration:** `scripts/stow-deploy:23` already lists `qmd`. No change needed.
@@ -148,7 +148,7 @@ also cleaning up two pre-existing inconsistencies in `stow/qmd/` uncovered durin
 - **`docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`** — stow dot-prefix + Linux-only gate
   pattern already embedded in `scripts/stow-deploy`.
 - **`docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md`** — zsh vs bash startup file matrix.
-  Reinforces: `QMD_SERVER` must live somewhere sourced by `.profile` (so non-interactive zsh and systemd-invoked scripts
+  Reinforces: `QMD_REMOTE_URL` must live somewhere sourced by `.profile` (so non-interactive zsh and systemd-invoked scripts
   see it).
 
 ### External References
@@ -157,7 +157,7 @@ also cleaning up two pre-existing inconsistencies in `stow/qmd/` uncovered durin
 
 ## Key Technical Decisions
 
-- **`QMD_SERVER` location: `config/shell/qmd.sh`, not `.profile`.** (user decision 1a, this session)
+- **`QMD_REMOTE_URL` location: `config/shell/qmd.sh`, not `.profile`.** (user decision 1a, this session)
 - Rationale: `config/shell/*.sh` uses feature-named files by convention. `.profile` should carry only base plumbing
   (Homebrew, PATH skeleton, GPG_TTY). Feature env vars belong in `config/shell/<tool>.sh`.
 - Net movement: delete 4 lines from `stow/shell/dot-profile`, create `config/shell/qmd.sh` with the same export and
@@ -170,7 +170,7 @@ also cleaning up two pre-existing inconsistencies in `stow/qmd/` uncovered durin
 - Rationale: reordering PATH in `.profile` is a whole-environment change. Scope this PR to qmd; the enable script
   removing `~/.bun/bin/qmd` is a one-shot that's idempotent on re-run.
 - **qmd-serve stays always-on, not socket-activated.** (origin doc)
-- Rationale: sequential-mode owns VRAM coexistence in-process; idle-exit would cold-start models on every query.
+- Rationale: low-vram-mode owns VRAM coexistence in-process; idle-exit would cold-start models on every query.
 - **sh wrapper dispatches to fork via `$HOME`, not hardcoded user path.** (origin Revision 2; matches ODL pattern)
 - Rationale: wrapper works for any user, portable across dev/prod-deployment hosts.
 
@@ -190,7 +190,7 @@ also cleaning up two pre-existing inconsistencies in `stow/qmd/` uncovered durin
 ### Deferred to Implementation
 
 - **Exact port/bind flags for qmd-serve's ExecStart.** The live service runs `qmd serve --port 7832 --bind 127.0.0.1
-  --sequential`. The stowed unit should match — verify against the live unit during Unit 3. Port must match `QMD_SERVER`
+  --low-vram`. The stowed unit should match — verify against the live unit during Unit 3. Port must match `QMD_REMOTE_URL`
   (`7832`).
 - **Restart policy for qmd-serve (on-failure vs always).** Match opendataloader-pdf's `Restart=on-failure`
   `RestartSec=5`, unless live behavior suggests `always`. Decide at implementation by checking what the hand-made unit
@@ -201,7 +201,7 @@ also cleaning up two pre-existing inconsistencies in `stow/qmd/` uncovered durin
 
 ## Implementation Units
 
-- [ ] **Unit 1: Move `QMD_SERVER` export to `config/shell/qmd.sh`**
+- [ ] **Unit 1: Move `QMD_REMOTE_URL` export to `config/shell/qmd.sh`**
 
 **Goal:** Establish `config/shell/qmd.sh` as the single home for qmd-related shell env, per the feature-named convention
 in `config/shell/*.sh`. Delete the direct export from `.profile`.
@@ -214,12 +214,12 @@ in `config/shell/*.sh`. Delete the direct export from `.profile`.
 
 - Create: `config/shell/qmd.sh`
 - Modify: `stow/shell/dot-profile` (remove lines 147–150)
-- Test: `tests/shell-config.bats` (add assertion that `QMD_SERVER` is exported post-profile sourcing)
+- Test: `tests/shell-config.bats` (add assertion that `QMD_REMOTE_URL` is exported post-profile sourcing)
 
 **Approach:**
 
 - New file is a plain POSIX `sh`-compatible export (no aliases — `config/shell/*.sh` is sourced by `.profile` under
-  POSIX `sh`, per CLAUDE.md). Preserve the existing comment explaining sequential-mode VRAM math + linking to the
+  POSIX `sh`, per CLAUDE.md). Preserve the existing comment explaining low-vram-mode VRAM math + linking to the
   service unit.
 - `.profile` change is a 4-line deletion (comment + blank + export); verify `.profile`'s `config/shell/*.sh` glob loop
   (lines 34–40) picks up the new file.
@@ -231,13 +231,13 @@ in `config/shell/*.sh`. Delete the direct export from `.profile`.
 
 **Test scenarios:**
 
-- *Happy path:* Sourcing `.profile` on a fresh shell sets `QMD_SERVER=http://127.0.0.1:7832`.
-- *Edge case:* Non-interactive shell (`bash -c 'source ~/.profile && env | grep QMD'`) still exports `QMD_SERVER`.
-- *Regression:* `stow/shell/dot-profile` no longer contains `QMD_SERVER` (grep asserts absence).
+- *Happy path:* Sourcing `.profile` on a fresh shell sets `QMD_REMOTE_URL=http://127.0.0.1:7832`.
+- *Edge case:* Non-interactive shell (`bash -c 'source ~/.profile && env | grep QMD'`) still exports `QMD_REMOTE_URL`.
+- *Regression:* `stow/shell/dot-profile` no longer contains `QMD_REMOTE_URL` (grep asserts absence).
 
 **Verification:**
 
-- `env | grep QMD_SERVER` prints `QMD_SERVER=http://127.0.0.1:7832` in a fresh zsh and a fresh bash.
+- `env | grep QMD_REMOTE_URL` prints `QMD_REMOTE_URL=http://127.0.0.1:7832` in a fresh zsh and a fresh bash.
 - `bats tests/shell-config.bats` passes.
 
 ---
@@ -301,10 +301,10 @@ currently-running hand-made unit on the dev workstation but uses `%h/.local/bin/
 **Approach:**
 
 - Unit shape: `[Unit]` Description; `[Service]` `Type=simple`, `ExecStart=%h/.local/bin/qmd serve --port 7832 --bind
-  127.0.0.1 --sequential`, `Restart=on-failure`, `RestartSec=5`; hardening `NoNewPrivileges=true`, `PrivateTmp=true`;
+  127.0.0.1 --low-vram`, `Restart=on-failure`, `RestartSec=5`; hardening `NoNewPrivileges=true`, `PrivateTmp=true`;
   `[Install]` `WantedBy=default.target`.
 - No `After=network-online.target` needed — binds loopback.
-- Port 7832 must match `QMD_SERVER`. Bind 127.0.0.1 is explicit (no external exposure).
+- Port 7832 must match `QMD_REMOTE_URL`. Bind 127.0.0.1 is explicit (no external exposure).
 - Before committing, compare against `~/.config/systemd/user/qmd-serve.service` on the dev workstation and capture any
   field the hand-made unit has that this plan missed (e.g., `Environment=` lines, ordering relative to Ollama).
 
@@ -318,7 +318,7 @@ currently-running hand-made unit on the dev workstation but uses `%h/.local/bin/
 
 - *Happy path:* `qmd-serve.service` exists at the expected path in the stow package.
 - *Structure:* `ExecStart=%h/.local/bin/qmd serve` is present (leading anchor + trailing space to avoid false matches).
-- *Structure:* `--sequential`, `--port 7832`, `--bind 127.0.0.1` all present on the ExecStart line.
+- *Structure:* `--low-vram`, `--port 7832`, `--bind 127.0.0.1` all present on the ExecStart line.
 - *Hardening:* `NoNewPrivileges=true` and `PrivateTmp=true` present.
 - *Restart policy:* `Restart=on-failure` present, `RestartSec=` present with a numeric value.
 - *Install:* `WantedBy=default.target` present so the service autostarts on login.
@@ -463,7 +463,7 @@ checklist in the file header captures the live verification steps CI can't run.
    `active` and `/health` responds.
 4. qmd-embed.service still works: `systemctl --user start qmd-embed.service` completes without OOM; nvidia-smi shows
    qmd-serve retains its baseline model allocation.
-5. qmd CLI routes through serve: `qmd query "test"` with `QMD_SERVER` set; compare against unsetting `QMD_SERVER`
+5. qmd CLI routes through serve: `qmd query "test"` with `QMD_REMOTE_URL` set; compare against unsetting `QMD_REMOTE_URL`
    (should fall back to local mode).
 6. Shadow removal is correct: `command -v qmd` → `~/.local/bin/qmd`, not `~/.bun/bin/qmd`.
 7. Teardown: `systemctl --user disable --now qmd-serve.service` is clean.
@@ -474,7 +474,7 @@ checklist in the file header captures the live verification steps CI can't run.
 - qmd-serve.service contents (ExecStart shape, hardening, WantedBy).
 - qmd-embed.service + qmd-update.service contents (no hardcoded `/home/brett/`, uses `%h/.local/bin/qmd`).
 - Enable script shape (Linux gate, /health smoke, shadow-removal line).
-- Optional shell-env assertion: `config/shell/qmd.sh` exists and exports `QMD_SERVER=http://127.0.0.1:7832`.
+- Optional shell-env assertion: `config/shell/qmd.sh` exists and exports `QMD_REMOTE_URL=http://127.0.0.1:7832`.
 
 **Patterns to follow:**
 
@@ -493,7 +493,7 @@ checklist in the file header captures the live verification steps CI can't run.
 ## System-Wide Impact
 
 - **Interaction graph:** `config/shell/qmd.sh` joins the `.profile` glob chain (sourced alongside `caam.sh`,
-  `gogcli.sh`, etc.). Non-interactive zsh, cron, and systemd services that source `.profile` now get `QMD_SERVER` there
+  `gogcli.sh`, etc.). Non-interactive zsh, cron, and systemd services that source `.profile` now get `QMD_REMOTE_URL` there
   instead of directly from `.profile`.
 - **Error propagation:** qmd-serve's `Restart=on-failure` + `RestartSec=5` means transient OOM or network failure
   restarts automatically. If the binary itself is broken (e.g., fork launcher exits 1 immediately), systemd enters
@@ -502,12 +502,12 @@ checklist in the file header captures the live verification steps CI can't run.
 - `~/.bun/bin/qmd` shadow removal is destructive (rm). On hosts where the user wants to keep bun-managed qmd (e.g., the
   upstream binary, not the fork), the shadow would be recreated by the next `bun add -g qmd`. Acceptable: this host
   explicitly prefers the fork.
-- `QMD_SERVER` move from `.profile` to `config/shell/qmd.sh`: until both changes land together (single atomic
-  commit/PR), a stale clone would have `QMD_SERVER` exported from neither. Mitigate by landing both in the same PR.
-- **API surface parity:** qmd CLI behavior unchanged — same binary, same `QMD_SERVER`, same service. No breaking change
+- `QMD_REMOTE_URL` move from `.profile` to `config/shell/qmd.sh`: until both changes land together (single atomic
+  commit/PR), a stale clone would have `QMD_REMOTE_URL` exported from neither. Mitigate by landing both in the same PR.
+- **API surface parity:** qmd CLI behavior unchanged — same binary, same `QMD_REMOTE_URL`, same service. No breaking change
   to external consumers.
 - **Integration coverage:** Cross-layer scenarios that static bats can't prove (sequential VRAM cycling under
-  simultaneous embed+rerank+generate load; reboot persistence; fallback when `QMD_SERVER` is unset) live in the manual
+  simultaneous embed+rerank+generate load; reboot persistence; fallback when `QMD_REMOTE_URL` is unset) live in the manual
   smoke checklist per Unit 6.
 - **Unchanged invariants:**
 - `scripts/stow-deploy` SHARED_PACKAGES list and Linux-only gate are already correct for `qmd`; not touched.
@@ -520,7 +520,7 @@ checklist in the file header captures the live verification steps CI can't run.
 | Risk                                                                                             | Mitigation                                                                                                                                                                                                                                  |
 | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Fork launcher at `~/dev/qmd/qmd` is missing on the target host                                   | Enable script should fail loudly in the `/health` smoke; print remediation NOTE pointing at how to clone the fork. Not in scope to auto-clone — that's the "rejected Option 2".                                                             |
-| `QMD_SERVER` disappears for one shell-session during the migration                               | Land `config/shell/qmd.sh` add + `.profile` delete in the same commit so no in-between state.                                                                                                                                               |
+| `QMD_REMOTE_URL` disappears for one shell-session during the migration                               | Land `config/shell/qmd.sh` add + `.profile` delete in the same commit so no in-between state.                                                                                                                                               |
 | Ollama-unload removal causes VRAM OOM for qmd-embed                                              | Revert the removal if smoke fails; keep the `ExecStartPre` with a comment documenting why qmd-serve doesn't subsume it. Test before removing.                                                                                               |
 | bun reinstalls `~/.bun/bin/qmd` between enable-script runs                                       | Enable script is idempotent — re-running handles it. Document in the enable-script NOTE.                                                                                                                                                    |
 | Live dev-workstation unit has a field this plan misses (e.g., custom `Environment=` or `After=`) | Unit 3 explicitly compares the new file against the live `~/.config/systemd/user/qmd-serve.service` before commit.                                                                                                                          |
@@ -545,7 +545,7 @@ checklist in the file header captures the live verification steps CI can't run.
 - **Pattern precedent:**
   [`docs/solutions/deployment-issues/systemd-socket-activation-uv-tool-python-service-2026-04-21.md`](../solutions/deployment-issues/systemd-socket-activation-uv-tool-python-service-2026-04-21.md)
 - **Related code:** `stow/opendataloader-pdf/` (pattern template), `stow/qmd/` (existing sibling services),
-  `stow/shell/dot-profile:147-150` (existing `QMD_SERVER` export), `config/shell/*.sh` (feature-named shell files).
+  `stow/shell/dot-profile:147-150` (existing `QMD_REMOTE_URL` export), `config/shell/*.sh` (feature-named shell files).
 - **Related PR:**
   [#40 — feat(opendataloader-pdf): socket-activated hybrid server with idle-exit](https://github.com/brettdavies/dotfiles/pull/40)
 - **Spin-off todo:** `.context/compound-engineering/todos/015-pending-p3-dedupe-path-prepends-local-paths-sh.md`
