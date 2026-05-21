@@ -290,7 +290,7 @@ value to function are fine. The rule applies to written artifacts about the code
   --body-file`:
 
   ```bash
-  rg '/Users/[^/]+/|/home/[^/]+/|<your-known-hostnames>' /tmp/pr-body.md
+  rg '/Users/[^/]+/|/home/[^/]+/|<your-known-hostnames>' "$BODY"   # or whichever /tmp/<naming-rule>.md path
   ```
 
   If anything fires, replace with relative or generic equivalents before submit.
@@ -483,25 +483,52 @@ flag. Also covers `git commit -m` (the squash-merge commit message lands in publ
 Three steps. The first two are mandatory in every repo; the third is mandatory in every repo regardless of whether the
 repo has its own prose-linting pipeline.
 
-1. **Author in `/tmp/`.** Write the body to `/tmp/pr-body.md` (or `/tmp/commit-msg.md`, `/tmp/release-notes.md`, etc.).
-   The auto-format hook (`md-wrap.py`) skips `/tmp/` paths, so the file keeps its authored shape — no 120-char wrapping
-   inside prose. Write each paragraph and each bullet as **one logical line**; GitHub soft-wraps for display.
+1. **Author in `/tmp/` with a collision-proof name.** Generic names like `/tmp/pr-body.md` clobber parallel sessions,
+   and reused tmp files from earlier turns ship stale content. Use one of two filename forms — no exceptions. For
+   PR-scoped artifacts (PR body, PR comment, PR review), name the file `/tmp/pr-body-<repo>.<branch>.md` where `<repo>`
+   is `$(basename "$(git rev-parse --show-toplevel)")` and `<branch>` is `$(git rev-parse --abbrev-ref HEAD | tr / -)`
+   (slashes in branch names → `-`). The repo+branch key scopes the file to the current work, so re-runs on the same
+   branch overwrite in place — desired, since resubmitting replaces server-side. For everything else (commit messages,
+   issue bodies, issue comments, release notes, one-off bodies), name the file `/tmp/<kind>-$(uuidv7).md`. The `uuidv7`
+   helper lives at `stow/local/dot-local/bin/uuidv7` (deploys to `~/.local/bin/uuidv7` via `scripts/stow-deploy local`);
+   it's a three-line `python3.14` script around `uuid.uuid7()` (stdlib uuid7 was added in 3.14, so the shebang pins that
+   version). UUIDv7 is time-ordered, so `ls /tmp/commit-msg-*.md` sorts by creation. Use a fresh UUID per file — never
+   reuse one across two artifacts. The auto-format hook (`md-wrap.py`) skips `/tmp/` paths, so the file keeps its
+   authored shape — no 120-char wrapping inside prose. Write each paragraph and each bullet as **one logical line**;
+   GitHub soft-wraps for display.
 2. **Run `/unslop /tmp/<path>.md`.** The `unslop` skill (`~/.claude/skills/unslop/`) is required for every body before
    submission. It runs `scripts/score.py` as a deterministic gate, then recasts only the lines the script flags —
    em-dash density, formulaic structures ("It's not X, it's Y", "Here's the thing", etc.), filler openers, AI
    self-references, pseudo-profound openers. Score `0` exits silently; non-zero scores produce recast diffs the agent
    reviews. This rule is universal — even repos without Vale + LanguageTool wired up still run `/unslop` so the prose
    floor is in place.
-3. **Submit via file flag.** `gh pr create --body-file /tmp/<path>.md`, `gh pr edit --body-file ...`, `gh pr comment
-   --body-file ...`, `gh issue create --body-file ...`, `gh release create --notes-file ...`, `git commit --file ...`.
-   Never inline the body via `--body "..."`, `-m "..."`, or a `--body "$(cat <<'EOF' ... EOF)"` heredoc.
+3. **Submit via file flag, then delete the tmp file.** `gh pr create --body-file <path>`, `gh pr edit --body-file ...`,
+   `gh pr comment --body-file ...`, `gh issue create --body-file ...`, `gh release create --notes-file ...`, `git commit
+   --file ...`. Never inline the body via `--body "..."`, `-m "..."`, or a `--body "$(cat <<'EOF' ... EOF)"` heredoc.
+   **As soon as the `gh` (or `git commit`) call returns success, delete the tmp file with `trash <path>`.** The file is
+   single-use; leaving it around invites accidental reuse with stale content on the next turn and clutters `/tmp/`. If
+   the submit fails, keep the file, fix, resubmit, then delete on success.
 
-Typical flow:
+Typical flow (PR body):
 
 ```bash
-$EDITOR /tmp/pr-body.md             # author the body, one logical line per paragraph
-/unslop /tmp/pr-body.md             # mandatory scrub pass
-gh pr create --base dev --title "type(scope): description" --body-file /tmp/pr-body.md
+REPO=$(basename "$(git rev-parse --show-toplevel)")
+BRANCH=$(git rev-parse --abbrev-ref HEAD | tr / -)
+BODY=/tmp/pr-body-${REPO}.${BRANCH}.md
+$EDITOR "$BODY"                                  # one logical line per paragraph
+/unslop "$BODY"                                  # mandatory scrub pass
+gh pr create --base dev --title "type(scope): description" --body-file "$BODY"
+trash "$BODY"                                    # delete after successful submit
+```
+
+Typical flow (commit message):
+
+```bash
+MSG=/tmp/commit-msg-$(uuidv7).md
+$EDITOR "$MSG"
+/unslop "$MSG"
+git commit --file "$MSG"
+trash "$MSG"                                     # delete after successful commit
 ```
 
 **Why mandatory `/unslop`:** every repo benefits from the slop floor, even ones without the broader Vale + LT pipeline.
