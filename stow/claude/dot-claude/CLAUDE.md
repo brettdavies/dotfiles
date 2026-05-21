@@ -105,6 +105,78 @@ the symlink is missing, recreate it with a relative path (works on both macOS an
 
 ---
 
+## Code Comments
+
+**Default: write no comment.** Code earns clarity from naming, structure, and types — not prose. Only add a comment when
+removing it would leave a non-obvious WHY unanswered for a future reader who lacks your conversation context.
+
+**Legitimate reasons to comment** (the only ones):
+
+- **Hidden constraint or invariant** the type system can't express.
+- **Workaround for a specific upstream bug.** Link the upstream issue URL, not a local ticket slug.
+- **Performance choice backed by data** (`O(1) lookup — benchmarked 3x faster than .find() at n>100`).
+- **Magic value's origin** (`MAX_RETRIES = 3 // p99 transient failure rate from SLO dashboard`).
+- **Surprising behavior** (null vs undefined, UTC-only handling, side effect the function name doesn't promise).
+- **Business rule whose source isn't traceable from the call site.**
+
+**Hard bans — never write these:**
+
+- **Temporal or historical context.** No `refactored`, `previously`, `formerly`, `used to`, `legacy`, `was`,
+  `originally`, `now uses`, `replaced with`, `improved`, `enhanced`, `new approach`, `old approach`. Git history holds
+  change history; comments describe present state.
+- **References to local-only artifacts.** No `see plan/X`, `see unit 10`, `from the Y handoff`, `per docs/plans/...`,
+  `docs/brainstorms/...`, `.context/` paths, `TODO.md`, internal-only doc slugs. These files live only on the author's
+  machine (per the "Never Commit Todo Files Or `.context/`" rule) — referencing them in code is guaranteed rot.
+- **Task-flow references.** No `added for the X flow`, `used by Y`, `handles the case from issue #123`, `part of the
+  auth refactor`. Belongs in the PR description.
+- **Instructional voice.** No `use this instead of`, `copy this pattern`, `migrate to this`, `prefer this over`. Code
+  stands on its own; comments document, they don't lecture.
+- **Comparative claims about replaced code.** No `better than the previous`, `cleaner than the old`, `more efficient
+  than before`. If the new code is better, the diff shows it.
+- **Restating what the next code block does.** If the comment paraphrases the code it sits above — whether that's one
+  line or several lines implementing a single conceptual operation — delete the comment or rename the symbol. A comment
+  over a 5-line if-block that says only "Check if X exists" is restating just as much as the same comment over a single
+  line. Section headers that label a *composite* block of distinct steps (parse-then-validate-then- normalize) are
+  allowed; comments that paraphrase one operation across several lines are not.
+
+**Stable external references ARE allowed** when durable enough to outlive several refactors and resolvable by someone
+outside the team:
+
+- RFCs (`per RFC 7231 §6.5.4`)
+- CVEs (`CVE-2024-12345`)
+- Public upstream issue URLs (`https://github.com/owner/repo/issues/N` in a third-party library)
+- Vendor bug-tracker URLs, specification sections
+- JIRA / Linear ticket IDs **when the project's tracker is the canonical record** for that requirement
+
+**File headers:** none by default. Add a 1-2 line top-of-file comment only when the file's role isn't obvious from its
+name and exports. No `ABOUTME:` convention unless the project already uses it.
+
+**Refactoring rule:** preserve existing comments unless they're demonstrably wrong. Existing comments encode
+institutional knowledge written for a reason. Don't strip context just because you're touching the file. Don't add a new
+comment about the change itself — describe the resulting code's present state.
+
+**Language conventions override the default** for documented public surface area, not for in-function code:
+
+- **Rust** — `///` doc comments on public items (`pub fn`, `pub struct`, public modules). Required for `pub` items if
+  the project enables `missing_docs`.
+- **Python** — module / class / public-function docstrings. Format follows the project's choice (Google, NumPy, PEP
+  257); never mix formats within one project. Type hints replace `:param:` / `:returns:` lines.
+- **Go** — exported-identifier doc comments per Effective Go: first sentence starts with the identifier name.
+- **TypeScript / JavaScript** — TSDoc only on public exports where signature isn't self-explanatory. Type annotations
+  replace `@param` / `@returns` type info.
+- **Ruby** — YARD comments on public methods of gems / libraries; not required for application code.
+- **Bash** — function-level `#` block when the script is itself a tool (CLI surface); not required for ad-hoc scripts.
+
+These conventions cover the documented surface only — comments inside function bodies still follow the default ("write
+no comment unless WHY is non-obvious").
+
+**Audit:** the [`code-comments` skill](~/.claude/skills/code-comments/SKILL.md) ships `scripts/scan.sh` to flag the
+hard-banned patterns across changed files. Invoke `/code-comments` during code review or before commit. The skill also
+holds the full pattern catalog (`references/forbidden-patterns.md`), per-language guides in
+`references/languages/<lang>.md` (load only the language you need), and good/bad examples (`references/examples.md`).
+
+---
+
 ## Supply-Chain Pinning: SHA pins, never version/tag pins
 
 Always pin to immutable commit SHAs wherever a SHA can substitute for a mutable tag or version. This is a hard rule, not
@@ -218,7 +290,7 @@ value to function are fine. The rule applies to written artifacts about the code
   --body-file`:
 
   ```bash
-  rg '/Users/[^/]+/|/home/[^/]+/|<your-known-hostnames>' /tmp/pr-body.md
+  rg '/Users/[^/]+/|/home/[^/]+/|<your-known-hostnames>' "$BODY"   # or whichever /tmp/<naming-rule>.md path
   ```
 
   If anything fires, replace with relative or generic equivalents before submit.
@@ -411,25 +483,52 @@ flag. Also covers `git commit -m` (the squash-merge commit message lands in publ
 Three steps. The first two are mandatory in every repo; the third is mandatory in every repo regardless of whether the
 repo has its own prose-linting pipeline.
 
-1. **Author in `/tmp/`.** Write the body to `/tmp/pr-body.md` (or `/tmp/commit-msg.md`, `/tmp/release-notes.md`, etc.).
-   The auto-format hook (`md-wrap.py`) skips `/tmp/` paths, so the file keeps its authored shape — no 120-char wrapping
-   inside prose. Write each paragraph and each bullet as **one logical line**; GitHub soft-wraps for display.
+1. **Author in `/tmp/` with a collision-proof name.** Generic names like `/tmp/pr-body.md` clobber parallel sessions,
+   and reused tmp files from earlier turns ship stale content. Use one of two filename forms — no exceptions. For
+   PR-scoped artifacts (PR body, PR comment, PR review), name the file `/tmp/pr-body-<repo>.<branch>.md` where `<repo>`
+   is `$(basename "$(git rev-parse --show-toplevel)")` and `<branch>` is `$(git rev-parse --abbrev-ref HEAD | tr / -)`
+   (slashes in branch names → `-`). The repo+branch key scopes the file to the current work, so re-runs on the same
+   branch overwrite in place — desired, since resubmitting replaces server-side. For everything else (commit messages,
+   issue bodies, issue comments, release notes, one-off bodies), name the file `/tmp/<kind>-$(uuidv7).md`. The `uuidv7`
+   helper lives at `stow/local/dot-local/bin/uuidv7` (deploys to `~/.local/bin/uuidv7` via `scripts/stow-deploy local`);
+   it's a three-line `python3.14` script around `uuid.uuid7()` (stdlib uuid7 was added in 3.14, so the shebang pins that
+   version). UUIDv7 is time-ordered, so `ls /tmp/commit-msg-*.md` sorts by creation. Use a fresh UUID per file — never
+   reuse one across two artifacts. The auto-format hook (`md-wrap.py`) skips `/tmp/` paths, so the file keeps its
+   authored shape — no 120-char wrapping inside prose. Write each paragraph and each bullet as **one logical line**;
+   GitHub soft-wraps for display.
 2. **Run `/unslop /tmp/<path>.md`.** The `unslop` skill (`~/.claude/skills/unslop/`) is required for every body before
    submission. It runs `scripts/score.py` as a deterministic gate, then recasts only the lines the script flags —
    em-dash density, formulaic structures ("It's not X, it's Y", "Here's the thing", etc.), filler openers, AI
    self-references, pseudo-profound openers. Score `0` exits silently; non-zero scores produce recast diffs the agent
    reviews. This rule is universal — even repos without Vale + LanguageTool wired up still run `/unslop` so the prose
    floor is in place.
-3. **Submit via file flag.** `gh pr create --body-file /tmp/<path>.md`, `gh pr edit --body-file ...`, `gh pr comment
-   --body-file ...`, `gh issue create --body-file ...`, `gh release create --notes-file ...`, `git commit --file ...`.
-   Never inline the body via `--body "..."`, `-m "..."`, or a `--body "$(cat <<'EOF' ... EOF)"` heredoc.
+3. **Submit via file flag, then delete the tmp file.** `gh pr create --body-file <path>`, `gh pr edit --body-file ...`,
+   `gh pr comment --body-file ...`, `gh issue create --body-file ...`, `gh release create --notes-file ...`, `git commit
+   --file ...`. Never inline the body via `--body "..."`, `-m "..."`, or a `--body "$(cat <<'EOF' ... EOF)"` heredoc.
+   **As soon as the `gh` (or `git commit`) call returns success, delete the tmp file with `trash <path>`.** The file is
+   single-use; leaving it around invites accidental reuse with stale content on the next turn and clutters `/tmp/`. If
+   the submit fails, keep the file, fix, resubmit, then delete on success.
 
-Typical flow:
+Typical flow (PR body):
 
 ```bash
-$EDITOR /tmp/pr-body.md             # author the body, one logical line per paragraph
-/unslop /tmp/pr-body.md             # mandatory scrub pass
-gh pr create --base dev --title "type(scope): description" --body-file /tmp/pr-body.md
+REPO=$(basename "$(git rev-parse --show-toplevel)")
+BRANCH=$(git rev-parse --abbrev-ref HEAD | tr / -)
+BODY=/tmp/pr-body-${REPO}.${BRANCH}.md
+$EDITOR "$BODY"                                  # one logical line per paragraph
+/unslop "$BODY"                                  # mandatory scrub pass
+gh pr create --base dev --title "type(scope): description" --body-file "$BODY"
+trash "$BODY"                                    # delete after successful submit
+```
+
+Typical flow (commit message):
+
+```bash
+MSG=/tmp/commit-msg-$(uuidv7).md
+$EDITOR "$MSG"
+/unslop "$MSG"
+git commit --file "$MSG"
+trash "$MSG"                                     # delete after successful commit
 ```
 
 **Why mandatory `/unslop`:** every repo benefits from the slop floor, even ones without the broader Vale + LT pipeline.

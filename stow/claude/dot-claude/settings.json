@@ -150,6 +150,7 @@
       "Bash(uniq:*)",
       "Bash(unzip:*)",
       "Bash(uptime:*)",
+      "Bash(uuidv7)",
       "Bash(uv:*)",
       "Bash(uvx:*)",
       "Bash(vale *)",
