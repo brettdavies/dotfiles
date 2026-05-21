@@ -38,23 +38,29 @@ esac
 # Slow path: classify which artifact (if any) is being fed a heredoc.
 # Use bash regex with word boundaries to distinguish --body from --body-file
 # and -m / --message from longer flags that share a prefix.
+#
+# The deny reasons below contain literal "$(uuidv7)" template text inside
+# single quotes; that text is displayed verbatim to the agent as a filename
+# template, not evaluated.
+# shellcheck disable=SC2016
 reason=
+# shellcheck disable=SC2016
 if [[ "$CMD" =~ gh[[:space:]]+pr[[:space:]]+(create|edit|comment|review)[[:space:]] ]] \
    && [[ "$CMD" =~ --body([[:space:]]|=)[^-] ]] \
    && [[ "$CMD" =~ \<\< ]]; then
-    reason='gh pr create/edit/comment/review with a heredoc piped into --body produces wrapped + escaped output on GitHub. Write the body to /tmp/<artifact>.md, run /unslop /tmp/<artifact>.md (mandatory — recasts AI-slop patterns), then submit via --body-file /tmp/<artifact>.md. See CLAUDE.md "Pull Requests" section.'
+    reason='gh pr create/edit/comment/review with a heredoc piped into --body produces wrapped + escaped output on GitHub. Author to /tmp/pr-body-<repo>.<branch>.md (e.g. /tmp/pr-body-dotfiles.feat-foo.md), run /unslop on it, submit via --body-file, then trash the file. See ~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop".'
 elif [[ "$CMD" =~ gh[[:space:]]+issue[[:space:]]+(create|edit|comment)[[:space:]] ]] \
      && [[ "$CMD" =~ --body([[:space:]]|=)[^-] ]] \
      && [[ "$CMD" =~ \<\< ]]; then
-    reason='gh issue create/edit/comment with a heredoc piped into --body produces wrapped + escaped output on GitHub. Write the body to /tmp/<artifact>.md, run /unslop /tmp/<artifact>.md, then submit via --body-file /tmp/<artifact>.md. See CLAUDE.md "GitHub correspondence".'
+    reason='gh issue create/edit/comment with a heredoc piped into --body produces wrapped + escaped output on GitHub. Author to /tmp/issue-body-$(uuidv7).md, run /unslop on it, submit via --body-file, then trash the file. See ~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop".'
 elif [[ "$CMD" =~ gh[[:space:]]+release[[:space:]]+(create|edit)[[:space:]] ]] \
      && [[ "$CMD" =~ --notes([[:space:]]|=)[^-] ]] \
      && [[ "$CMD" =~ \<\< ]]; then
-    reason='gh release create/edit with a heredoc piped into --notes produces wrapped + escaped release notes. Write the notes to /tmp/release-notes.md, run /unslop /tmp/release-notes.md, then submit via --notes-file /tmp/release-notes.md. See CLAUDE.md "GitHub correspondence".'
+    reason='gh release create/edit with a heredoc piped into --notes produces wrapped + escaped release notes. Author to /tmp/release-notes-$(uuidv7).md, run /unslop on it, submit via --notes-file, then trash the file. See ~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop".'
 elif [[ "$CMD" =~ git[[:space:]]+commit[[:space:]] ]] \
      && [[ "$CMD" =~ (^|[[:space:]])(-m|--message)([[:space:]]|=) ]] \
      && [[ "$CMD" =~ \<\< ]]; then
-    reason='git commit with a heredoc piped into -m / --message embeds escape-trap text in the commit object and the squash-merge commit. Write the message to /tmp/commit-msg.md and use git commit --file /tmp/commit-msg.md instead. See CLAUDE.md "Commit Messages".'
+    reason='git commit with a heredoc piped into -m / --message embeds escape-trap text in the commit object and the squash-merge commit. Author to /tmp/commit-msg-$(uuidv7).md (e.g. /tmp/commit-msg-018f3c2a-7b1e-7a44-9e10-2bd84a5c0001.md), run /unslop on it, commit via --file, then trash the file. See ~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop".'
 else
     exit 0
 fi
