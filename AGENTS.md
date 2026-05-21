@@ -146,6 +146,27 @@ reference.
 **`config/shell/*.sh` must use functions, not aliases.** These files are sourced by `.profile` under POSIX `sh` where
 aliases don't exist. Aliases belong in `.zshrc`/`.bashrc` (after the interactive guard) only.
 
+**External scripts that need a helper must source it explicitly.** `.profile`'s auto-source loop in
+`stow/shell/dot-profile` runs only for shells that read `.profile` (interactive zsh/bash; non-interactive zsh via the
+`.zshenv` → `.profile` chain). A script invoked as `bash scripts/foo.sh` (e.g. from a git pre-push hook, CI runner, or
+`gh` action) is **non-login bash** and reads no startup files at all — `DOTFILES_SHELL_DIR` is unset and the helper
+functions are not defined. Such scripts must source the file themselves:
+
+```bash
+LT_LIB="${DOTFILES_SHELL_DIR:-$HOME/dotfiles/config/shell}/languagetool.sh"
+if [[ ! -f "$LT_LIB" ]]; then
+  echo "scripts/foo: required helper $LT_LIB not found (install brettdavies/dotfiles)" >&2
+  exit 2
+fi
+# shellcheck disable=SC1090
+source "$LT_LIB"
+```
+
+The `DOTFILES_SHELL_DIR` fallback to `$HOME/dotfiles/config/shell` works when the script is invoked from any shell —
+interactive (var is set by `.profile`) or non-interactive (var is unset; the literal path resolves on both Linux and
+macOS since the dotfiles repo lives at `~/dotfiles` on both). See `scripts/prose-check.sh` in any agentnative-* repo for
+the live pattern.
+
 ---
 
 ## Git Authentication
