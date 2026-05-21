@@ -531,6 +531,12 @@ git commit --file "$MSG"
 trash "$MSG"                                     # delete after successful commit
 ```
 
+**Don't sidecar the tmp path.** Bash tool calls run in fresh shells, so `$MSG` doesn't survive between calls. Do NOT
+write the path to a sidecar file (`echo "$MSG" > /tmp/last-msg-path.txt` or any equivalent) and re-read it later.
+Re-paste the literal path in each call, or recompute it deterministically (the PR-body form already does, from
+`<repo>.<branch>`). Sidecar paths outlive the current turn and `/clear`, silently pointing new work at stale targets.
+Applies to **any** sidecar filename — picking a different name doesn't make it safe.
+
 **Why mandatory `/unslop`:** every repo benefits from the slop floor, even ones without the broader Vale + LT pipeline.
 The Vale + LanguageTool + unslop *full stack* remains repo-local (currently `agentnative-skill`, `agentnative-cli`,
 `agentnative-site`, `agentnative-spec` — see those repos' `RELEASES.md` "Prose scrubbing" sections). Repos without
