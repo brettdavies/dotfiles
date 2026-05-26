@@ -57,8 +57,16 @@ sudo apt install -y dkms linux-headers-generic "linux-headers-$(uname -r)"
 # needrestart (no interactive prompt). Note: this does NOT automatically remove the
 # `nvidia-headless-no-dkms-NNN-server-open` package from the prior branch — they coexist.
 # Explicit cleanup happens in A.5.
-sudo NEEDRESTART_MODE=a apt install -y nvidia-headless-580-server-open
+sudo NEEDRESTART_MODE=a apt install -y \
+    nvidia-headless-580-server-open \
+    libnvidia-gl-580-server \
+    vulkan-tools
 ```
+
+The `libnvidia-gl-NNN-server` package ships the matching Vulkan ICD
+(`/usr/share/vulkan/icd.d/nvidia_icd.json`). Without it, Vulkan-using apps on the box (anything built on
+`node-llama-cpp`, LM Studio, etc.) silently fall back to CPU or fail to enumerate the GPU as a Vulkan device.
+`vulkan-tools` is a 3 MB diagnostic kit (`vulkaninfo`, `vkcube`) — optional but handy when debugging.
 
 DKMS builds the nvidia module for **every installed kernel**, not just the running one. On a typical box with current +
 prior + (possibly) a newly-pulled latest kernel, expect 3-9 minutes of CPU and three "Building initial module
@@ -84,6 +92,17 @@ sleep 2
 # Run a tiny model query, then:
 curl -s localhost:11434/api/ps | jaq '.models[]? | {name, size_vram}'
 # size_vram > 0 confirms the model is in VRAM, not CPU RAM.
+
+# 5. nvidia-persistenced daemon is running. The nvidia-headless-NNN-server-open
+#    package pulls it in as a dependency and systemd starts it automatically,
+#    but verify it survived the swap. Keeps the driver state loaded between
+#    processes so cold CUDA app starts skip the ~1-3s driver re-init cost.
+#    Idle power impact on consumer GPUs (e.g., 3090 Ti) is negligible (~0 W).
+systemctl status nvidia-persistenced.service --no-pager | head -5
+nvidia-smi --query-gpu=persistence_mode --format=csv
+# Note: persistence_mode reports "Disabled" because nvidia-persistenced uses
+# a different mechanism than the legacy `nvidia-smi -pm 1` flag. That is
+# expected; the daemon is the modern recommended approach.
 ```
 
 ### A.4 Lock in the toolchain against autoremove
@@ -108,6 +127,50 @@ sudo apt autoremove --purge -y
 
 After this, `dpkg -l | grep nvidia-headless` should show only the new `nvidia-headless-NNN-server-open` and
 `nvidia-headless-no-dkms-NNN-server-open` (the latter pulled in as a dep of the former — leave it).
+
+---
+
+### A.6 Verify downstream GPU consumers picked up the new driver
+
+Driver branch swaps can silently regress applications that detect the GPU through Vulkan / OpenCL / OpenGL prebuilt
+binaries. Their auto-selected backend may now be linked against ICDs that no longer match the installed driver branch.
+The app keeps running — it falls back to CPU or a slower backend — and the failure is silent.
+
+Quick check per GPU consumer, run a representative workload and watch:
+
+```bash
+nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+```
+
+The consumer process should appear in the list while it is using the GPU. If the workload runs but the process never
+appears, the auto-selected backend is not CUDA and is probably broken or has fallen through to CPU.
+
+**Known cases on this box:**
+
+- `node-llama-cpp` (used by qmd and similar inference servers) prefers Vulkan when both Vulkan and CUDA prebuilt
+  binaries are present. Vulkan ICDs ship per driver branch, so a 570 -> 580 swap (or any branch change) leaves the
+  Vulkan binary linked against the wrong ICD. The fix is to pin the backend via env var in the systemd unit:
+
+  ```ini
+  Environment=NODE_LLAMA_CPP_GPU=cuda
+  ```
+
+  Then `systemctl --user daemon-reload && systemctl --user restart <service>`. Verified with
+  `nvidia-smi --query-compute-apps` showing the bun PID as a CUDA client.
+
+  **Belt-and-suspenders:** rebuild node-llama-cpp prebuilt bindings against the current system libs so both Vulkan
+  and CUDA paths are healthy. Use the included script:
+
+  ```bash
+  ~/dotfiles/scripts/qmd-llama-rebuild.sh
+  ```
+
+  The env-var pin remains the load-bearing fix; the rebuild adds a working Vulkan fallback so a future regression
+  on the CUDA prebuilt does not strand the box again. Re-run the script after any future driver branch change.
+
+The pattern generalizes: if you find another app falling back to CPU after a driver swap, look for its backend-pin
+env var (`OLLAMA_*`, `CUDA_VISIBLE_DEVICES`, `GGML_CUDA_FORCE_MMQ`, etc.) and set it explicitly in the unit file
+rather than relying on auto-detect.
 
 ---
 
