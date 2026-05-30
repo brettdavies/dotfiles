@@ -56,6 +56,12 @@ than ~20 lines may skip the full loop. Use judgment.
 decisions that cannot be inferred from the file layout alone. This applies to all interactions — questions, debugging,
 code review, and architecture discussions — not just implementation.
 
+**This explicitly includes `/investigate` and any gstack debugging skill.** Their built-in prior-learnings step runs
+`gstack-learnings-search`, which queries the gstack brain, NOT `docs/solutions/` — a different store. Run `qmd query
+"<symptoms>" --collection solutions` yourself during symptom-collection, before forming a hypothesis. The skill's
+history search does not cover the shared corpus, and treating it as if it does has cost a full re-derivation of an
+already-documented root cause and fix.
+
 **During CE skill dispatches:** When `/ce-plan`, `/ce-ideate`, `/ce-code-review`, or `/ce-optimize` instructs you to
 dispatch `compound-engineering:ce-learnings-researcher` (agent name as of CE v3.0.0 — was
 `compound-engineering:research:learnings-researcher` in ≤2.68.x), ALSO dispatch the user-level
@@ -66,6 +72,11 @@ agent still runs (it has a mandatory critical-patterns.md read that's worth keep
 misses. This is a local hack around
 [compound-engineering-plugin#655](https://github.com/EveryInc/compound-engineering-plugin/issues/655) — remove this
 directive once that lands upstream.
+
+**Extend the same dispatch to `/investigate` and other gstack debugging skills.** They are not CE skills, so the rule
+above does not auto-apply, and their `gstack-learnings-search` step does not reach `docs/solutions/`. When investigating
+a bug, dispatch `qmd-learnings-researcher` (or run `qmd query "<symptoms>" --collection solutions`) during the skill's
+Phase 1 symptom-collection, before the first hypothesis — the shared corpus is where prior root causes and fixes live.
 
 ---
 
