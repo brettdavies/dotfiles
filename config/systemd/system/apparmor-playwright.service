@@ -1,0 +1,17 @@
+[Unit]
+Description=Load the Playwright Chromium AppArmor userns profile at boot
+Documentation=man:apparmor_parser(8)
+# Ubuntu's own apparmor.service is skipped at boot on minimized server images
+# (its ConditionResult is no, so /etc/apparmor.d/ is never reloaded), which
+# silently drops this profile on every reboot and breaks Chromium's sandbox.
+# This unit loads it independently. Deployed + enabled by scripts/apparmor-deploy.sh.
+ConditionPathExists=/etc/apparmor.d/playwright
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/apparmor_parser -r -W /etc/apparmor.d/playwright
+
+[Install]
+WantedBy=multi-user.target
