@@ -323,7 +323,35 @@
       "Bash(wrangler workflows delete *)",
       "Bash(xargs:*)"
     ],
+    "additionalDirectories": [
+      "/tmp"
+    ],
     "defaultMode": "acceptEdits"
+  },
+  "skillOverrides": {
+    "disk-cleanup": "off",
+    "gstack-upgrade": "off",
+    "plan-tune": "off",
+    "setup-browser-cookies": "off",
+    "setup-deploy": "off",
+    "setup-gbrain": "off",
+    "sync-gbrain": "off",
+    "bird": "off",
+    "x-api": "off",
+    "box": "off",
+    "canary": "off",
+    "gogcli": "off",
+    "ollama-local": "off",
+    "tailscale": "off",
+    "benchmark": "off",
+    "benchmark-models": "off",
+    "letterhead-to-typst": "off",
+    "mike-davies": "off",
+    "pair-agent": "off",
+    "pdf-annotate-diagrams": "off",
+    "repo-recon": "off",
+    "scrape": "off",
+    "skillify": "off"
   },
   "hooks": {
     "Notification": [
@@ -365,6 +393,11 @@
           {
             "type": "command",
             "command": "~/.claude/heredoc-pr-guard.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/skills/1password/hooks/op-skill-nudge.sh",
             "timeout": 5
           },
           {
@@ -483,32 +516,10 @@
       "autoUpdate": true
     }
   },
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
   "awaySummaryEnabled": false,
   "skillListingBudgetFraction": 0.03,
-  "skillOverrides": {
-    "disk-cleanup": "off",
-    "gstack-upgrade": "off",
-    "plan-tune": "off",
-    "setup-browser-cookies": "off",
-    "setup-deploy": "off",
-    "setup-gbrain": "off",
-    "sync-gbrain": "off",
-    "bird": "off",
-    "x-api": "off",
-    "box": "off",
-    "canary": "off",
-    "gogcli": "off",
-    "ollama-local": "off",
-    "tailscale": "off",
-    "benchmark": "off",
-    "benchmark-models": "off",
-    "letterhead-to-typst": "off",
-    "mike-davies": "off",
-    "pair-agent": "off",
-    "pdf-annotate-diagrams": "off",
-    "repo-recon": "off",
-    "scrape": "off",
-    "skillify": "off"
-  }
+  "autoUpdatesChannel": "stable",
+  "enableWorkflows": false,
+  "workflowKeywordTriggerEnabled": false
 }
