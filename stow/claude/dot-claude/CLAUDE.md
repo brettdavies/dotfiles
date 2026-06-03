@@ -117,8 +117,16 @@ cascade (repo `.github/pull_request_template.md` → global `~/.config/github/pu
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse
 hook lists active runs with the exact `gh run watch <id> --exit-status` to spawn — run one per active run in the
-background (or `gh pr checks <pr> --watch` for PR-scoped). Re-run `gh run list --branch <branch>` afterward to catch
-chained runs. **Never proceed past a red run.** Policy source of truth: the `~/.claude/ci-watch-prompt.sh` header.
+background (or `gh pr checks <pr> --watch` for PR-scoped). **A completed watcher is NOT a green watcher**: `gh pr checks
+--watch` exits 0 when all checks finish regardless of pass/fail. After every completion notification, verify explicitly:
+`gh pr view <num> --json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus, checks:
+[.statusCheckRollup[] | {name, conclusion}]}'` and assert every conclusion is `SUCCESS`. Same for run-scoped: `gh run
+view <id> --json conclusion --jq .conclusion` must be `success`. Then re-enumerate to catch chained runs — both
+same-repo (`workflow_run` triggers, visible to `gh run list --branch`) AND cross-repo dispatches (`repository_dispatch`
+into another repo, e.g. agentnative-cli release → brettdavies/homebrew-tap → callback to cli's finalize-release; these
+need `gh run list -R <target>` and `gh run watch <id> -R <target>`, then a re-query of the originating repo for the
+callback). The chain can bounce multiple times — repeat until both repos quiesce. **Never proceed past a red run on any
+link in the chain.** Policy source of truth: the `~/.claude/ci-watch-prompt.sh` header.
 
 ## CLI tools
 
