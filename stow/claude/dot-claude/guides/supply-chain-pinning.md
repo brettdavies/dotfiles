@@ -23,6 +23,29 @@ npm / bun / cargo / pip version constraints in manifest files are fine when a lo
 `Cargo.lock`, `uv.lock`) captures the integrity hash. The lockfile IS the SHA. Do NOT try to replace `"react": "^18"`
 with a commit SHA — that breaks package managers.
 
+## Resolution-time aging window (cooldown)
+
+Lockfiles protect a version *after* it has been resolved, not at the moment of resolution itself. The classic
+supply-chain attack (compromise a maintainer's account, publish a malicious version, wait for any `bundle install` /
+`npm install` / `uv add` that resolves a fresh dep to pick it up) slips in during that gap; the lockfile integrity hash
+then pins the compromised artifact in place.
+
+The mitigation is a minimum-age filter that refuses to resolve to a version until it has been public for N days
+(community-suggested default: 7).
+
+- **Bundler 4.0.13+ (RubyGems)** — `source "https://rubygems.org", cooldown: 7` in the `Gemfile`, or globally via
+  `bundle config set cooldown 7` / `BUNDLE_COOLDOWN=7`. Enforced during resolution (`bundle install` without a lockfile,
+  `bundle update`); existing `Gemfile.lock` entries are honored as-is. `bundle outdated` annotates in-window versions
+  with the days remaining before they become resolvable. Reference:
+  <https://blog.rubygems.org/2026/06/03/cooldown-let-new-gems-be-vetted.html>.
+- **uv (Python)** — `tool.uv.exclude-newer = "<RFC3339 timestamp>"` in `pyproject.toml`, or `UV_EXCLUDE_NEWER=...`.
+  Date-based rather than days-based; same intent.
+- **pnpm (JS)** — `minimumReleaseAge` in `.npmrc` / `pnpm-workspace.yaml` (days). npm and bun have no native equivalent.
+
+**Emergency override** for actively-exploited 0-days where the freshest release IS the patch: each tool accepts a
+one-off bypass (Bundler `--cooldown 0`, uv `--no-exclude-newer`, etc.). Use sparingly; the policy should stay in place
+for the rest of the team.
+
 ## How to resolve a tag to a SHA
 
 ```bash
