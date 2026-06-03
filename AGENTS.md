@@ -280,6 +280,8 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
 
 ## Reference
 
+- `CONCEPTS.md` — shared domain vocabulary (entities, named processes, status concepts) with project-specific meaning.
+  Relevant when orienting to the codebase or discussing domain concepts.
 - `docs/solutions/` (symlink to `~/dev/solutions-docs`) — documented solutions organized by category
   (`deployment-issues/`, `integration-issues/`, `configuration-fixes/`, etc.) with YAML frontmatter (`module`, `tags`,
   `problem_type`, `applies_when`). Relevant when debugging or implementing in documented areas; search with `qmd query
