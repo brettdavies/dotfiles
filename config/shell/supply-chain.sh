@@ -47,3 +47,8 @@ if command -v date >/dev/null 2>&1; then
     export PIP_UPLOADED_PRIOR_TO="$_sc_date"
     unset _sc_date
 fi
+
+# Bundler — native cooldown in days (v4.0.13+)
+if command -v bundle >/dev/null 2>&1; then
+    export BUNDLE_COOLDOWN=7
+fi
