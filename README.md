@@ -44,11 +44,12 @@ dotfiles/
 │   ├── shell/             Shell fragments auto-sourced by .profile
 │   ├── git/               Per-platform git config templates
 │   ├── apparmor.d/        System-level AppArmor profiles (deployed via apparmor-deploy.sh)
-│   └── systemd/system/    System-level units (deployed via nas-deploy.sh)
+│   └── systemd/system/    System-level units (NAS mounts via nas-deploy.sh, apparmor-playwright via apparmor-deploy.sh)
 ├── scripts/
 │   ├── stow-deploy        Stow wrapper with conflict resolution
 │   ├── nas-deploy.sh      System-level NAS mount/automount deploy
-│   ├── apparmor-deploy.sh System-level AppArmor profile deploy (Playwright/Chromium)
+│   ├── apparmor-deploy.sh System-level AppArmor profile deploy + boot unit (Playwright/Chromium)
+│   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (apparmor + opt-in browser deps)
 │   └── sync/              iCloud sync scripts
 ├── .githooks/             Repo-local git hooks (core.hooksPath)
 ├── .github/
@@ -134,17 +135,31 @@ and are deployed via `scripts/nas-deploy.sh`, which copies them to `/etc/systemd
 
 **Deploy:** `sudo scripts/nas-deploy.sh` (requires `/root/.smbcredentials-<nas-host>` from 1Password).
 
-### AppArmor Profiles (`config/apparmor.d/`)
+### Playwright / browse browser launch (`scripts/playwright-deps-deploy.sh`)
 
-System-level AppArmor profiles live in `config/apparmor.d/` and are deployed via `scripts/apparmor-deploy.sh`, which
-copies every file to `/etc/apparmor.d/` and reloads it with `apparmor_parser -r`. Profiles persist across reboots
-because AppArmor loads `/etc/apparmor.d/` at boot.
+On Linux the `browse` tool and Playwright e2e need two things to launch browsers: an AppArmor profile (for Chromium's
+sandbox) and, for Safari/iOS testing, WebKit system libraries. One script provisions both, run as your normal user (it
+escalates to sudo where needed):
+
+```bash
+scripts/playwright-deps-deploy.sh            # AppArmor profile + boot persistence (Chromium / browse)
+scripts/playwright-deps-deploy.sh --webkit   # + Safari/iOS deps (WebKit, heavy ~380 MB)
+scripts/playwright-deps-deploy.sh --all       # + Chromium and WebKit deps
+```
+
+WebKit deps are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios` /
+`tablet` projects). See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for
+failure signatures and recovery.
+
+**AppArmor profiles** (`config/apparmor.d/`) are deployed by `scripts/apparmor-deploy.sh` (called by the script above,
+or run standalone as `sudo scripts/apparmor-deploy.sh`), which copies each file to `/etc/apparmor.d/`, loads it with
+`apparmor_parser -r`, and installs `apparmor-playwright.service` to reload it at boot. The boot unit is required because
+Ubuntu's own `apparmor.service` is skipped at boot on minimized server images, so `/etc/apparmor.d/` is otherwise never
+reloaded and the profile drops on reboot.
 
 | Profile      | Purpose                                                                                   |
 | ------------ | ----------------------------------------------------------------------------------------- |
 | `playwright` | Grants `userns` to Playwright's bundled Chromium so the browse tool works on Ubuntu 24.04 |
-
-**Deploy:** `sudo scripts/apparmor-deploy.sh` (Linux only; requires the `apparmor` package).
 
 ### Shell Environment (`config/shell/`)
 
@@ -164,7 +179,7 @@ needed.
 | `models.sh`         | AI/ML model storage locations                         |
 | `platform-linux.sh` | Linux-specific platform checks and config             |
 | `python.sh`         | Python tooling config                                 |
-| `qmd.sh`            | `QMD_SERVER` export (qmd-serve daemon URL)            |
+| `qmd.sh`            | `QMD_REMOTE_URL` export (qmd-serve daemon URL)        |
 | `supply-chain.sh`   | Supply-chain safety (package age gates)               |
 | `telemetry.sh`      | Telemetry opt-out environment variables               |
 | `tmuxinator.sh`     | `mux` and `mux-all` tmuxinator wrappers               |

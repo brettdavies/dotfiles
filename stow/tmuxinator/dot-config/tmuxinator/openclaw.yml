@@ -5,10 +5,13 @@ windows:
   - main:
       layout: main-vertical
       panes:
-        - yazi
+        - command -v y >/dev/null && y || yazi
         -
         - lazygit
 
-on_project_exit: |
-  tmux resize-pane -t openclaw:main.1 -x "33%"
-  tmux resize-pane -t openclaw:main.3 -y "33%"
+on_project_first_start: |
+  (
+    sleep 0.3
+    tmux resize-pane -t openclaw:main.1 -x "33%"
+    tmux resize-pane -t openclaw:main.3 -y "33%"
+  ) & disown

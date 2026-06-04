@@ -166,7 +166,9 @@
       "Read(//Users/brett/**)",
       "Bash(rtk grep *)",
       "Bash(bash /Users/brett/dotfiles/scripts/stow-deploy *)",
-      "Bash(rtk *)"
+      "Bash(rtk *)",
+      "Bash(/home/linuxbrew/.linuxbrew/bin/git add *)",
+      "Bash(/home/linuxbrew/.linuxbrew/bin/git status *)"
     ]
   }
 }

@@ -1,5 +1,28 @@
+# shellcheck shell=bash
 # Shared shell functions for bash and zsh
 # This file is sourced by both .bashrc and .zshrc
+
+# y: yazi wrapper that cds the shell to yazi's last directory on exit.
+# Without this, quitting yazi leaves the shell in its original cwd; with it,
+# yazi becomes a real navigation tool — browse to any tree, press q, the
+# shell is there. Use `y` instead of `yazi` for interactive sessions.
+#
+# Quit keys (yazi defaults — documented at yazi-rs.github.io/docs/quick-start):
+#   q   quit AND write cwd-file (shell follows)
+#   Q   quit WITHOUT writing cwd-file (shell stays put)
+#
+# Canonical pattern from the yazi README, plus `[ -d "$cwd" ]` defensive
+# guard to reject any malformed cwd (e.g., trailing-whitespace edge cases).
+y() {
+    local tmp cwd
+    tmp="$(mktemp -t yazi-cwd.XXXXXX)"
+    yazi "$@" --cwd-file="$tmp"
+    IFS= read -r -d '' cwd < "$tmp" 2>/dev/null
+    rm -f -- "$tmp"
+    if [ -n "$cwd" ] && [ "$cwd" != "$PWD" ] && [ -d "$cwd" ]; then
+        builtin cd -- "$cwd" || return
+    fi
+}
 
 # OSC 7 support: Report current directory to terminal (for better terminal integration)
 # This allows terminals like Ghostty to track the current working directory

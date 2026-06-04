@@ -146,6 +146,27 @@ reference.
 **`config/shell/*.sh` must use functions, not aliases.** These files are sourced by `.profile` under POSIX `sh` where
 aliases don't exist. Aliases belong in `.zshrc`/`.bashrc` (after the interactive guard) only.
 
+**External scripts that need a helper must source it explicitly.** `.profile`'s auto-source loop in
+`stow/shell/dot-profile` runs only for shells that read `.profile` (interactive zsh/bash; non-interactive zsh via the
+`.zshenv` → `.profile` chain). A script invoked as `bash scripts/foo.sh` (e.g. from a git pre-push hook, CI runner, or
+`gh` action) is **non-login bash** and reads no startup files at all — `DOTFILES_SHELL_DIR` is unset and the helper
+functions are not defined. Such scripts must source the file themselves:
+
+```bash
+LT_LIB="${DOTFILES_SHELL_DIR:-$HOME/dotfiles/config/shell}/languagetool.sh"
+if [[ ! -f "$LT_LIB" ]]; then
+  echo "scripts/foo: required helper $LT_LIB not found (install brettdavies/dotfiles)" >&2
+  exit 2
+fi
+# shellcheck disable=SC1090
+source "$LT_LIB"
+```
+
+The `DOTFILES_SHELL_DIR` fallback to `$HOME/dotfiles/config/shell` works when the script is invoked from any shell —
+interactive (var is set by `.profile`) or non-interactive (var is unset; the literal path resolves on both Linux and
+macOS since the dotfiles repo lives at `~/dotfiles` on both). See `scripts/prose-check.sh` in any agentnative-* repo for
+the live pattern.
+
 ---
 
 ## Git Authentication
@@ -259,6 +280,8 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
 
 ## Reference
 
+- `CONCEPTS.md` — shared domain vocabulary (entities, named processes, status concepts) with project-specific meaning.
+  Relevant when orienting to the codebase or discussing domain concepts.
 - `docs/solutions/` (symlink to `~/dev/solutions-docs`) — documented solutions organized by category
   (`deployment-issues/`, `integration-issues/`, `configuration-fixes/`, etc.) with YAML frontmatter (`module`, `tags`,
   `problem_type`, `applies_when`). Relevant when debugging or implementing in documented areas; search with `qmd query
@@ -266,5 +289,7 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
 - Signing architecture: `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`
 - Shell config fixes: `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md`
 - Cross-platform deployment: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
+- Cross-platform stow package gating (file-level `--ignore` for scattered OS-specific content):
+  `docs/solutions/architecture-patterns/cross-platform-stow-package-gating-2026-05-17.md`
 - Headless Cloudflare wrangler + scoped API token in 1P:
   `docs/solutions/developer-experience/cloudflare-api-token-headless-wrangler-1password-2026-04-13.md`

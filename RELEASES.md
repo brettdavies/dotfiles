@@ -203,7 +203,18 @@ whenever possible.
 
 ## PRs and changelog generation
 
-- **No explainer prose anywhere in the body.** Every section is user-facing substance only — what is changing for the consumer that was not already there. `## Summary` is one short paragraph. Do NOT recap the workflow (cherry-pick / regenerate / pre-push gate / CI behavior is documented in this file and `.github/`). Do NOT paste triple-diff output, pre-push gate results, CI check status, exclusion rationale, or other verification artifacts into the body. Those stay local; anomalies get fixed before push, not audit-trailed in the body.
+- **No explainer prose anywhere in the body.** User-facing substance only — what is changing for the consumer that was
+  not already there. Do NOT recap the workflow (cherry-pick / regenerate / pre-push gate / CI behavior is documented in
+  this file and `.github/`).
+- **Summary describes the net diff only** — what merged `main` looks like vs the base branch. One short paragraph; not
+  commit history, intermediate state, or cherry-pick mechanics.
+- **Zero verification artifacts in the body.** No triple-diff stats, leak-check output ("`guard-main-docs` runs clean"),
+  patch-id cherry-check counts, pre-push gate results, CI status, prose-scrub findings, or exclusion rationale. Those
+  stay local; anomalies get fixed before push, not audit-trailed.
+- **One logical line per bullet and paragraph; no hard wraps.** GitHub soft-wraps for display. When release PR bodies
+  reuse bullets from `CHANGELOG.md`, the bullets arrive pre-wrapped at the repo's MD013 limit (120 chars) — unwrap the
+  continuation lines before pasting. `auto-format.sh`'s `/tmp/*` skip exempts the body file itself, so the unwrapped
+  form survives the round-trip to `gh pr {create,edit} --body-file`.
 
 Every PR **must** follow `.github/pull_request_template.md`. The template's `## Changelog` section has these
 subsections:
