@@ -1,5 +1,5 @@
-name: skills
-root: ~/.claude/skills
+name: Agent Skills
+root: ~/dev/agent-skills
 
 windows:
   - main:
@@ -12,6 +12,6 @@ windows:
 on_project_first_start: |
   (
     sleep 0.3
-    tmux resize-pane -t skills:main.1 -x "33%"
-    tmux resize-pane -t skills:main.3 -y "33%"
+    tmux resize-pane -t "Agent Skills:main.1" -x "33%"
+    tmux resize-pane -t "Agent Skills:main.3" -y "33%"
   ) & disown

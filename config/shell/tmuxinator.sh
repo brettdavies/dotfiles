@@ -3,6 +3,13 @@
 # mux() passes all arguments to tmuxinator; mux-all() starts every configured session
 # On machines without tmuxinator, this file is a no-op
 if command -v tmuxinator >/dev/null 2>&1; then
+    # Point tmuxinator at the stow source so `tmuxinator new|copy|edit` writes
+    # the source-of-truth directly. ~/.config/tmuxinator/*.yml symlinks remain
+    # populated by stow for any tool that reads the XDG default path.
+    _tmuxinator_stow_dir="$HOME/dotfiles/stow/tmuxinator/dot-config/tmuxinator"
+    [ -d "$_tmuxinator_stow_dir" ] && export TMUXINATOR_CONFIG="$_tmuxinator_stow_dir"
+    unset _tmuxinator_stow_dir
+
     mux() {
         tmuxinator "$@"
     }

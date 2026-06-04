@@ -1,4 +1,4 @@
-name: dotgithub
+name: .github
 root: ~/dev/dot-github
 
 windows:
@@ -12,6 +12,6 @@ windows:
 on_project_first_start: |
   (
     sleep 0.3
-    tmux resize-pane -t dotgithub:main.1 -x "33%"
-    tmux resize-pane -t dotgithub:main.3 -y "33%"
+    tmux resize-pane -t ".github:main.1" -x "33%"
+    tmux resize-pane -t ".github:main.3" -y "33%"
   ) & disown
