@@ -1,4 +1,4 @@
-name: ssite
+name: Streams Website
 root: ~/dev/streamsgrp
 
 windows:
@@ -12,6 +12,6 @@ windows:
 on_project_first_start: |
   (
     sleep 0.3
-    tmux resize-pane -t ancsite:main.1 -x "33%"
-    tmux resize-pane -t ancsite:main.3 -y "33%"
+    tmux resize-pane -t "Streams Website:main.1" -x "33%"
+    tmux resize-pane -t "Streams Website:main.3" -y "33%"
   ) & disown
