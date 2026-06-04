@@ -48,6 +48,11 @@ or docs/solutions entry. Trivial work (<~20 lines: single-file fixes, config twe
 every gstack debugging skill** — their `gstack-learnings-search` does NOT reach `docs/solutions/`, so query the corpus
 yourself during symptom-collection, before the first hypothesis.
 
+**Subagent worktree base:** when dispatching via the `Agent` tool with `isolation: "worktree"`, verify `git rev-parse
+HEAD` against `git rev-parse origin/<base>` before any work — the harness can cut the worktree from a stale tag
+silently. Fix with `git reset --hard origin/<base>`. Background:
+`~/dev/solutions-docs/workflow-issues/claude-code-worktree-isolation-stale-base-2026-06-04.md`.
+
 Routing table, per-skill rules, and the `qmd-learnings-researcher` companion-dispatch hack →
 `~/.claude/guides/workflows-and-skills.md`.
 
