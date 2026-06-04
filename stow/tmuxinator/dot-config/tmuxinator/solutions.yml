@@ -1,4 +1,4 @@
-name: solutions
+name: Compounded Solutions
 root: ~/dev/solutions-docs
 
 windows:
@@ -12,6 +12,6 @@ windows:
 on_project_first_start: |
   (
     sleep 0.3
-    tmux resize-pane -t solutions:main.1 -x "33%"
-    tmux resize-pane -t solutions:main.3 -y "33%"
+    tmux resize-pane -t "Compounded Solutions:main.1" -x "33%"
+    tmux resize-pane -t "Compounded Solutions:main.3" -y "33%"
   ) & disown
