@@ -6,6 +6,81 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Cross-platform `stow/qmd` package: stowing `qmd` now works on both macOS and Linux with the right backend dispatched per OS. by @brettdavies in [#87](https://github.com/brettdavies/dotfiles/pull/87)
+- `STOW_FLAGS+=(--ignore='\.DS_Store$')` in `scripts/stow-deploy` (always): suppresses macOS Finder turds across every package on both OSes.
+- `STOW_FLAGS+=(--ignore='\.(service|timer)$')` in `scripts/stow-deploy` (macOS only): skips Linux systemd unit files that share packages with cross-platform content.
+- Per-platform "read PDF" opener for selectable, searchable PDF text. Pressing `o` on a PDF opens Preview.app on macOS or `pdftotext` extracted into micro on Linux. by @brettdavies in [#89](https://github.com/brettdavies/dotfiles/pull/89)
+- `y` shell wrapper (bash + zsh) that cds the parent shell to yazi's last directory on quit. Adopted in all 16 tmuxinator session configs and the `tmux-new-session` template, with a silent fallback to plain `yazi`.
+- git.yazi plugin with plain-letter status signs (M / A / D / U / ? / !) as a linemode column, computed via two prepend_fetchers in yazi.toml and registered in a new `init.lua`.
+- Brewfile entries for `yazi`, `glow`, `poppler`, `resvg`, `imagemagick`, and `sevenzip` so `brew bundle` provisions a complete yazi preview pipeline on a fresh machine: text extraction, markdown rendering, SVG rasterization, AVIF/HEIC/JXL decoding, font sample rendering, and archive contents listing.
+- `defuddle` to the Brewfile under a new web-content-extraction comment block. Fresh `brew bundle` machines now provision defuddle on PATH with zero per-call resolve cost. by @brettdavies in [#90](https://github.com/brettdavies/dotfiles/pull/90)
+- `Bash(defuddle:*)` allow-list entry on the caam streams profile alongside the existing `Bash(bunx defuddle:*)` fallback.
+- New SSH host entry that tunnels `localhost:8787` to a remote wrangler dev server via Tailscale. `ExitOnForwardFailure yes` makes a local port collision fail loudly instead of silently dropping into a shell with no tunnel. by @brettdavies in [#93](https://github.com/brettdavies/dotfiles/pull/93)
+- New `uuidv7` CLI helper at `~/.local/bin/uuidv7` (three-line `python3.14` script around `uuid.uuid7()`) for generating time-ordered, collision-proof IDs for tmp-file naming and similar one-off needs. by @brettdavies in [#94](https://github.com/brettdavies/dotfiles/pull/94)
+- `lt_check` shell function at `~/dotfiles/config/shell/languagetool.sh`. Parallel grammar-check workhorse with category whitelist, 10-rule baseline denylist, byte-offset-to-line approximation, and graceful skip when LanguageTool is unreachable. Exit codes: 0 (clean) / 1 (blocking) / 2 (unreachable, stderr notice) / 3 (usage). by @brettdavies in [#95](https://github.com/brettdavies/dotfiles/pull/95)
+- `lt_info`, `lt_languages`, `lt_rules`, `lt_categories` query helpers for inspecting the LT server and the active override surface.
+- `LT_DENY_RULES_BASELINE` constant for repo-specific extensions: `LT_DENY_RULES="${LT_DENY_RULES_BASELINE}|EXTRA_RULE"`.
+- New `config/shell/build-flags.sh` and `config/shell/run-flags.sh` that set `-march=native -O3 -pipe` CFLAGS/CXXFLAGS plus runtime env defaults for local compilation on Linux hosts. macOS toolchains skip these (handled by Xcode/brew). by @brettdavies in [#98](https://github.com/brettdavies/dotfiles/pull/98)
+- New `scripts/qmd-llama-rebuild.sh` to rebuild `node-llama-cpp` from source with the host's CPU/GPU flags, plus a runbook callout pointing at it.
+- Allow `curl -sS http://127.0.0.1:7832/health` in the local Claude allowlist for qmd-serve liveness probes. by @brettdavies in [#99](https://github.com/brettdavies/dotfiles/pull/99)
+- `scripts/playwright-deps-deploy.sh`: provisions browser launch on Linux. Always deploys the Chromium AppArmor userns profile plus a boot unit that survives reboots, and installs heavy Chromium/WebKit system libraries only when explicitly requested. by @brettdavies in [#100](https://github.com/brettdavies/dotfiles/pull/100)
+- `apparmor-playwright.service`: boot unit that reloads the Chromium userns profile at boot, because Ubuntu's `apparmor.service` is skipped on minimized server images.
+- `UserPromptSubmit` hook (`solutions-prefetch.sh`): on debugging-flavored prompts, reminds you to query `docs/solutions` before investigating. Reminder-only, fail-open, no qmd call. by @brettdavies in [#101](https://github.com/brettdavies/dotfiles/pull/101)
+- Grant Claude Code Read/Edit/Write on `/tmp/**` via `permissions.additionalDirectories`, unblocking the collision-proof `/tmp/` commit/PR/release body workflow without per-call permission prompts. by @brettdavies in [#103](https://github.com/brettdavies/dotfiles/pull/103)
+- Add `op-skill-nudge.sh` PreToolUse/Bash hook so secret-handling commands trigger the 1Password skill helper before execution.
+- New "Resolution-time aging window (cooldown)" section in `supply-chain-pinning.md` covering Bundler 4.0.13+ `cooldown`, uv `exclude-newer`, pnpm `minimumReleaseAge`, and the per-tool emergency-bypass flags. Notes that npm and bun have no native equivalent. by @brettdavies in [#104](https://github.com/brettdavies/dotfiles/pull/104)
+- `CONCEPTS.md` at repo root: 9-entry glossary in 4 clusters (Hosts, Packages, System configuration, Policies). Names the project-specific terms a new engineer needs defined to follow conversations, tickets, or code in this repo. by @brettdavies in [#105](https://github.com/brettdavies/dotfiles/pull/105)
+- AGENTS.md `## Reference` section: one-line entry pointing at `CONCEPTS.md` so agents and collaborators discover the shared vocabulary alongside `docs/solutions/`.
+
+### Changed
+
+- `stow/qmd/dot-local/bin/qmd` is now an OS-aware dispatcher (`case "$(uname -s)"` → `~/dev/qmd/qmd` on Linux, `~/.cache/bun/bin/qmd` on macOS). by @brettdavies in [#87](https://github.com/brettdavies/dotfiles/pull/87)
+- Linux-only qmd artifacts (7 systemd `.service`/`.timer` units + the `qmd-ollama-unload-all` helper) moved from `stow/qmd/` into `stow/local/`.
+- `qmd` removed from the Linux-only skip case in `scripts/stow-deploy` (the package is now cross-platform).
+- WebFetch-intercept hook (`stow/claude/dot-claude/defuddle-webfetch.sh`) redirects to `defuddle parse <url>` instead of `bunx defuddle parse <url>`. by @brettdavies in [#90](https://github.com/brettdavies/dotfiles/pull/90)
+- `gh` wrapper's pr-merge-to-main block: second line now reads "Ask the human to perform the merge; the PR body is used as the squash commit message" (was: "Please provide a ready-to-paste squash merge commit message").
+- Rename `QMD_SERVER` env var to `QMD_REMOTE_URL` and `qmd serve --sequential` flag to `qmd serve --low-vram`, matching the upstream qmd fork. Anyone with a manual `export QMD_SERVER=…` elsewhere needs to switch to `QMD_REMOTE_URL`. by @brettdavies in [#92](https://github.com/brettdavies/dotfiles/pull/92)
+- GitHub-correspondence workflow in CLAUDE.md now requires collision-proof tmp-file names: `/tmp/pr-body-<repo>.<branch>.md` for PR-scoped artifacts and `/tmp/<kind>-$(uuidv7).md` for everything else. Step 3 also now requires `trash <path>` after a successful `gh` or `git commit` call. by @brettdavies in [#94](https://github.com/brettdavies/dotfiles/pull/94)
+- `stow/claude/dot-claude/heredoc-pr-guard.sh` deny reasons now point at `~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop"` and show the canonical filename per artifact class (`/tmp/pr-body-<repo>.<branch>.md`, `/tmp/commit-msg-$(uuidv7).md`, etc.). by @brettdavies in [#95](https://github.com/brettdavies/dotfiles/pull/95)
+- `stow/local/dot-config/systemd/user/qmd-serve.service` now sets `Environment=NODE_LLAMA_CPP_GPU=cuda`, pinning the backend so the daemon survives NVIDIA driver branch upgrades. by @brettdavies in [#98](https://github.com/brettdavies/dotfiles/pull/98)
+- Tighten PR body rules: summaries describe the net diff vs the base branch; triple-diff stats, leak-check output, patch-id counts, pre-push gate results, CI status, prose-scrub findings, and exclusion rationale stay out of the body. by @brettdavies in [#99](https://github.com/brettdavies/dotfiles/pull/99)
+- CLAUDE.md "Query solutions first" rule now explicitly covers `/investigate` and other gstack debugging skills, and extends the qmd-learnings-researcher dispatch to them. by @brettdavies in [#101](https://github.com/brettdavies/dotfiles/pull/101)
+- Restructure the global `CLAUDE.md` into a progressive-disclosure layout: a slim always-on index plus seven on-demand topic guides under `~/.claude/guides/` (cli-tools, code-comments, git-and-github, local-only-files, supply-chain-pinning, workflows-and-skills, writing-safety). Reduces always-on context while preserving every rule; detail loads with Read only when the relevant task runs. by @brettdavies in [#102](https://github.com/brettdavies/dotfiles/pull/102)
+- Strengthen CI watch policy (`CLAUDE.md` + `ci-watch-prompt.sh` header): a completed watcher is not a green watcher. After every completion notification, re-query `gh pr view --json statusCheckRollup,mergeStateStatus` (or `gh run view --json conclusion`) and assert every conclusion is `SUCCESS`. by @brettdavies in [#103](https://github.com/brettdavies/dotfiles/pull/103)
+- Expand chain-discovery rule to cover cross-repo `repository_dispatch` flows (e.g. agentnative-cli release → brettdavies/homebrew-tap → callback to agentnative-cli finalize-release). Both repos must be watched and re-queried until they quiesce.
+- Pin `autoUpdatesChannel: "stable"`, `enableWorkflows: false`, `workflowKeywordTriggerEnabled: false`; bump `effortLevel` from `high` to `xhigh`.
+- Relocate `skillOverrides` from the trailing block to immediately after `permissions` (content unchanged).
+
+### Fixed
+
+- The PostToolUse `ci-watch-prompt.sh` hook now retries `gh run list` up to 5 times with a 2 s delay between attempts. Previously the hook queried once with a 2 s lead-in, which lost the race against GitHub's API surfacing newly-triggered runs (especially after `gh pr create`) and silently exited without emitting the watch reminder. by @brettdavies in [#87](https://github.com/brettdavies/dotfiles/pull/87)
+- 3-pane tmuxinator sessions (`mux start <name>` / `tmuxinator start <name>`) now resize to the documented 33% yazi / 67% shell / 33% lazygit layout when launched from a bare shell, not only from inside an existing tmux session. by @brettdavies in [#88](https://github.com/brettdavies/dotfiles/pull/88)
+- Yazi 26.x no longer prints TOML parse errors at startup for the stowed yazi, theme, and keymap configs. Editor schema tooling continues to work via the Taplo `#:schema` directive. by @brettdavies in [#89](https://github.com/brettdavies/dotfiles/pull/89)
+- Yazi image preview (PNG, JPEG, etc.) now renders inside tmux on macOS with Ghostty. Previously the panel was blank because tmux stripped the Kitty graphics escape sequences yazi emits.
+- Yazi SVG, AVIF / HEIC / JXL, font, and archive previews now render via the corresponding built-in previewers plus their newly-tracked external tools.
+- `y()` yazi wrapper rejects malformed `--cwd-file` output via an `[ -d "$cwd" ]` guard, matching yazi's upstream canonical pattern. Function doc-comment now states the actual yazi defaults (`q` writes cwd-file; `Q` does not). by @brettdavies in [#90](https://github.com/brettdavies/dotfiles/pull/90)
+- Stop emitting `npm warn Unknown env config "minimum-release-age"` on every `npm` invocation. The pnpm-only env var is now exported only when pnpm is on PATH, and the npm-only env var is gated on `npm --version` being 11.10.0 or newer. by @brettdavies in [#91](https://github.com/brettdavies/dotfiles/pull/91)
+- `qmd-serve` queries no longer fall back to slow Vulkan inference. Verified end-to-end after a 570 → 580 driver swap on the dev box: expand query 25.3s → 2.7s, rerank 40 chunks 31.1s → 1.9s, total cold query 114s → 12.4s (≈9-16x). by @brettdavies in [#98](https://github.com/brettdavies/dotfiles/pull/98)
+
+### Documentation
+
+- New: `docs/solutions/architecture-patterns/cross-platform-stow-package-gating-2026-05-17.md` documenting the package-level vs file-level OS gating decision framework, the file-extension-regex rationale (stow 2.4.1's `--ignore` matches file basenames not directory names), and adjacent gotchas (bun global cache purge silently uninstalls binaries; macOS Finder `.DS_Store` proliferation). by @brettdavies in [#87](https://github.com/brettdavies/dotfiles/pull/87)
+- Refreshed: `docs/solutions/deployment-issues/stow-conflict-resolution-wrapper.md` and `docs/solutions/architecture-patterns/stow-dotfiles-architecture-and-failure-modes-2026-04-20.md` to incorporate the new gating tier in their failure-mode maps, hardened-defaults lists, and reference sections.
+- `AGENTS.md` Reference section gains a link to the new architecture-patterns doc.
+- New "Code Comments" policy section in CLAUDE.md codifying the WHY-only standard, hard bans, allowed external refs, and language-specific overrides for public surface area. by @brettdavies in [#94](https://github.com/brettdavies/dotfiles/pull/94)
+- New paragraph in `AGENTS.md § Shell Config Chain` titled "External scripts that need a helper must source it explicitly". It documents that non-login bash scripts (git hooks, CI, `bash scripts/foo.sh`) read no startup files, so they must source helpers with the `DOTFILES_SHELL_DIR` fallback pattern. by @brettdavies in [#95](https://github.com/brettdavies/dotfiles/pull/95)
+- Add explicit anti-pattern note to `CLAUDE.md`: don't write the tmp commit/PR-body path to a sidecar file and re-read it later. Re-paste the literal path in each Bash call, or recompute it deterministically. Rule applies to any sidecar filename. Picking a different name doesn't make it safe. by @brettdavies in [#96](https://github.com/brettdavies/dotfiles/pull/96)
+- `docs/runbooks/headless-gpu-server-nvidia-driver.md` gains a DKMS-migration section and an A.6 post-migration GPU consumer verification step, capturing what was learned during the diagnostic cycle. by @brettdavies in [#98](https://github.com/brettdavies/dotfiles/pull/98)
+- Runbook for diagnosing `browse` and Playwright browser-launch failures on Linux: sandbox `Permission denied` (profile not loaded) versus missing WebKit dependencies. by @brettdavies in [#100](https://github.com/brettdavies/dotfiles/pull/100)
+- Add `docs/progressive-disclosure-evals.md`: a six-eval harness verifying fetch-on-demand and prohibition-floor behavior, with a validity gate noting the suite must run from a fresh `claude` process. by @brettdavies in [#102](https://github.com/brettdavies/dotfiles/pull/102)
+- `RELEASES.md § PRs and changelog generation`: add the rule that release PR bodies use one logical line per bullet and paragraph (GitHub soft-wraps), and that bullets copied from `CHANGELOG.md` must be unwrapped first because the source content is pre-wrapped at the repo's MD013 limit. by @brettdavies in [#107](https://github.com/brettdavies/dotfiles/pull/107)
+
+**Full Changelog**: [2026.06.03...2026.06.03](https://github.com/brettdavies/dotfiles/compare/2026.06.03...2026.06.03)
+
+## [2026.06.03]
+
+### Added
+
 - Cross-platform `stow/qmd` package: stowing `qmd` now works on both macOS and Linux with the right backend dispatched
   per OS. by @brettdavies in [#87](https://github.com/brettdavies/dotfiles/pull/87)
 - `STOW_FLAGS+=(--ignore='\.DS_Store$')` in `scripts/stow-deploy` (always): suppresses macOS Finder turds across every
