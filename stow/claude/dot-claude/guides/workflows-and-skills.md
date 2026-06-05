@@ -102,5 +102,8 @@ cd ~/dev/solutions-docs && git add -A && git commit -m "docs: <description>" && 
 ```
 
 The consuming repo's `git status` will show nothing for `docs/solutions/` because the symlink target is gitignored. If
-the symlink is missing, recreate it with a relative path (works on both macOS and Linux): `ln -s
-../../dev/solutions-docs docs/solutions`
+the symlink is missing, recreate it from the consuming repo's root with an absolute path (the shell expands `$HOME` at
+execution, baking in the resolved path on the current machine): `ln -s "$HOME/dev/solutions-docs" docs/solutions`.
+Absolute is preferred over a relative target because a relative target depends on how deep the consuming repo lives in
+the filesystem — `../../dev/solutions-docs` resolves correctly only when the repo lives two levels under `$HOME`, and
+silently produces a broken `~/dev/dev/solutions-docs` target when the repo sits at `~/dev/<repo>/`.
