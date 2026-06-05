@@ -1,8 +1,9 @@
 # Global User Instructions
 
 These are always-on rules. Detailed procedures, examples, and reference tables live in `~/.claude/guides/*.md` and are
-**not** auto-loaded — open the linked guide with Read when you actually perform that task. Every hard prohibition below
-is stated in full here; the guides hold only the elaboration.
+**not** auto-loaded — open the linked guide with Read when you actually perform that task. **Exception:**
+`git-and-github.md` is `@`-imported at the bottom of this file and is always in context. Every hard prohibition below is
+stated in full here; the guides hold only the elaboration.
 
 ## Core coding principles
 
@@ -152,3 +153,10 @@ code) or ask. Show diffs if asked to see changes, never the whole file again.
 Machine-level config (AppArmor profiles, sysctl, udev rules, systemd units) lives in `~/dotfiles/` and deploys via stow
 — never one-off `sudo bash -c` writes into `/etc/`. When a fix needs a system config file, add it to the dotfiles repo
 with a stow target and document it in `docs/solutions/`.
+
+## Auto-loaded guides
+
+Imported with `@` because the git/GitHub workflow rules are referenced on every commit and PR. Cheaper to keep in
+context than to re-Read each time.
+
+@~/.claude/guides/git-and-github.md
