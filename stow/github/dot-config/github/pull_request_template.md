@@ -19,7 +19,7 @@
 ## Changelog
 
 <!-- CRITICAL: This section is the source of truth for CHANGELOG.md.
-     generate-changelog.sh extracts these categorized bullets verbatim
+     generate-changelog.py extracts these categorized bullets verbatim
      into the release changelog. Write carefully — this IS the changelog.
 
      AUDIENCE: Users and operators. Write from their perspective.
