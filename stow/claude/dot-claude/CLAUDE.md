@@ -86,8 +86,12 @@ code. Pre-submit grep guard and full scope → `~/.claude/guides/writing-safety.
 
 Pin to immutable commit SHAs, never mutable tags/versions (`@v4`, `@main`, `@latest`) — GitHub Actions `uses:`, reusable
 workflows, `FROM` images (`node@sha256:…`), submodules. Trailing comment names the version (`@<sha> # v4.2.2`).
-**Exception:** package-manager version constraints (npm/bun/cargo/pip) are fine when a lockfile captures the integrity
-hash — the lockfile is the SHA; don't SHA-pin `"react": "^18"`. Tag→SHA resolution and audit script →
+**Exception (package managers):** package-manager version constraints (npm/bun/cargo/pip) are fine when a lockfile
+captures the integrity hash — the lockfile is the SHA; don't SHA-pin `"react": "^18"`. **Exception (first-party
+reusables):** brettdavies-owned reusable workflows under `brettdavies/.github/.github/workflows/` called from other
+brettdavies repos may pin to `@main` instead of a SHA. The supply-chain threat the pin defends against (someone moves a
+mutable ref to point at compromised code) doesn't apply when source and consumer are both under your control — trust the
+source. Third-party reusables and all GitHub Actions still require SHAs. Tag→SHA resolution and audit script →
 `~/.claude/guides/supply-chain-pinning.md`.
 
 ## Local-only files
