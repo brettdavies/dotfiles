@@ -74,6 +74,62 @@ curl -s "https://ollama.${TAILNET}.ts.net/api/tags" | jq -r '.models[].name'
 # host-side socat forwarder is running on the bridge gateway:port 11434.
 ```
 
+## Reaching ollama from a docker-compose stack
+
+With ollama bound to loopback, containers cannot reach it through `host.docker.internal:host-gateway` (which resolves to
+the default docker0 bridge gateway, where nothing is listening) and cannot reach the host's `127.0.0.1` directly. The
+bridge between a docker network and host loopback is a `socat` sidecar in `network_mode: host` that listens on the
+network's bridge gateway IP and forwards to `127.0.0.1:11434`.
+
+Pin the docker network's subnet so the bridge gateway IP is stable across `up`/`down` cycles. The sidecar must bind to a
+known address.
+
+```yaml
+services:
+  ollama-forwarder:
+    image: alpine/socat:latest
+    network_mode: host
+    restart: "no"
+    command: >-
+      -d
+      TCP-LISTEN:11434,bind=10.42.0.1,fork,reuseaddr
+      TCP:127.0.0.1:11434
+    healthcheck:
+      # Probes the bridge gateway IP — confirms both the bind AND that ollama
+      # is responding on loopback.
+      test: ["CMD", "sh", "-c", "wget -qO- --timeout=2 http://10.42.0.1:11434/api/version >/dev/null"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Consumer container — internal:true keeps it off LAN/internet; it can
+  # still reach the bridge gateway (10.42.0.1) where the forwarder listens.
+  app:
+    image: <your-image>
+    networks:
+      - ollama-bridge
+    depends_on:
+      ollama-forwarder:
+        condition: service_healthy
+    environment:
+      # Hit the bridge gateway IP directly. host.docker.internal would resolve
+      # to docker0, not this network's gateway.
+      OLLAMA_BASE_URL: "http://10.42.0.1:11434"
+
+networks:
+  ollama-bridge:
+    internal: true       # no route to LAN/internet; bridge gateway is the only neighbor
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.42.0.0/24
+          gateway: 10.42.0.1   # ollama-forwarder binds here from network_mode: host
+```
+
+Pick any unused subnet — `10.42.0.0/24` is illustrative. Avoid `172.17.0.0/16` (the default docker bridge) and any
+subnet your LAN, VPN, or tailnet uses.
+
 ## Undo
 
 ```bash
