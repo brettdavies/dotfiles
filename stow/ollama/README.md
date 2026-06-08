@@ -5,7 +5,8 @@ from:
 
 - Anything running on this host's loopback (the
   [tailscale `svc:ollama` serve forwarder](https://login.tailscale.com/admin/services/svc:ollama), local CLI scripts,
-  the docker-compose ollama-forwarder sidecar in `~/dev/paxel-main/local/`).
+  any docker-compose stack that runs a host-network socat sidecar bridging the docker bridge gateway to
+  127.0.0.1:11434).
 
 …and NOT reachable from:
 
