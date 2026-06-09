@@ -1,5 +1,5 @@
 # Global markdownlint-cli2 configuration
-# Canonical version: 2026.04.15
+# Canonical version: 2026.06.09
 # Symlinked to ~/.markdownlint-cli2.yaml via stow
 #
 # Per-repo copies should preserve the `Canonical version` line above and bump it on resync;
@@ -80,6 +80,7 @@ ignores:
   - "target/**"  # Rust build artifacts; harmless for non-Rust projects
   - ".git/**"
   - "*.min.md"
+  - "docs/solutions/**"  # Symlink to the shared solutions-docs repo; lint upstream, not here
 
 # Fix automatically when --fix is used
 fix: true
