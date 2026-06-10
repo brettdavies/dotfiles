@@ -57,6 +57,17 @@ unlocked with the symmetric key. Secrets and credential-bearing config live here
 deploying any of these packages requires the repo be unlocked first, after which subsequent checkouts and merges
 auto-unlock without manual intervention.
 
+### Cross-package symlink
+
+A relative symlink inside one stow package's source pointing into another stow package's source, committed to git as the
+symlink itself (target string, not resolved content). On deploy, the result is a two-hop chain: the home-directory file
+links to the consuming package, which links to the source-of-truth file in the owning package. The technique is how one
+tool's config dir reads another tool's authoritative file without duplication — edit the source once, every consumer
+sees it. Used when two tools follow parallel conventions for the same kind of artifact (e.g. global agent instructions
+read from per-tool paths) and the team wants single-source-of-truth across them. The trade-off is that file formats and
+directives must be compatible across consumers; tool-specific syntax in the source is inert in consumers that do not
+recognize it.
+
 ## System configuration
 
 ### System-level unit
