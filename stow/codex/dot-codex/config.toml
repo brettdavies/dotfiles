@@ -1,2 +1,12 @@
 model = "gpt-5-codex"
 model_reasoning_effort = "high"
+model_reasoning_summary = "auto"
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+web_search = "live"
+
+[features]
+memories = true
+
+[mcp_servers.gbrain]
+command = "/home/brett/.cache/bun/bin/gbrain"
