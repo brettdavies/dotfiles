@@ -2,9 +2,8 @@
 Description=Daily prune of orphaned tmux clients
 
 [Timer]
-OnCalendar=daily
+OnCalendar=*-*-* 02:15:00
 Persistent=true
-RandomizedDelaySec=30m
 
 [Install]
 WantedBy=timers.target
