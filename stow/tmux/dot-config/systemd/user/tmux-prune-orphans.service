@@ -1,0 +1,9 @@
+[Unit]
+Description=Prune orphaned tmux clients (no controlling terminal)
+ConditionPathExists=/tmp/tmux-1000/default
+
+[Service]
+Type=oneshot
+ExecStart=%h/dotfiles/scripts/tmux/prune-orphans.sh
+NoNewPrivileges=true
+PrivateTmp=false
