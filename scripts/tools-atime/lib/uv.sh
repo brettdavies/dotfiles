@@ -49,6 +49,12 @@ uv_inspect() {
 
 uv_actions() { echo "u:uninstall"; }
 
+# Tool venv size; 0 if uninstalled.
+uv_measure() {
+  local dir="${UV_TOOLS_DIR:-$HOME/.local/share/uv/tools}/$1"
+  du -sk "$dir" 2>/dev/null | awk '{print $1+0}'
+}
+
 uv_act() {
   local tool=$1 action=$2
   case "$action" in

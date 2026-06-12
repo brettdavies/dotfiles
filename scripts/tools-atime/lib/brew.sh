@@ -9,6 +9,10 @@ declare -A _BREW_DEPS _BREW_USERS _BREW_SIZE_CACHE
 _BREW_CELLAR=""
 
 _brew_load_graph() {
+  # Reset so a re-poll after `brew uninstall` doesn't carry stale dep entries.
+  _BREW_DEPS=()
+  _BREW_USERS=()
+  _BREW_SIZE_CACHE=()
   _BREW_CELLAR=$(brew --cellar)
   local json name full_name deps n d
   json=$(brew info --json=v2 --installed 2>/dev/null) || return 1
@@ -71,6 +75,12 @@ _brew_closure() {
 }
 
 brew_actions() { echo "u:uninstall+autoremove"; }
+
+# Whole-cellar du so the post-action delta captures the autoremove cascade.
+brew_measure() {
+  command -v brew >/dev/null || { echo 0; return; }
+  du -sk "$(brew --cellar)" 2>/dev/null | awk '{print $1+0}'
+}
 
 # brew_act <formula> <action_key>. Honors $DRYRUN.
 brew_act() {

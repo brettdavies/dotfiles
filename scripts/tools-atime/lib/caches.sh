@@ -63,6 +63,18 @@ caches_actions() {
   esac
 }
 
+# caches_measure <target>  →  KB. Defers to the PM's own size command for
+# uv-cache (cheap and authoritative); du for bun-cache (no native cmd).
+caches_measure() {
+  local target
+  target=$(_caches_strip_prefix "$1")
+  case "$target" in
+    uv-cache)  _uv_cache_size_kb 2>/dev/null || echo 0 ;;
+    bun-cache) du -sk "${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}" 2>/dev/null | awk '{print $1+0}' ;;
+    *)         echo 0 ;;
+  esac
+}
+
 caches_act() {
   local target action=$2
   target=$(_caches_strip_prefix "$1")

@@ -27,6 +27,14 @@ _cargo_emit_crate() {
 
 cargo_actions() { echo "u:uninstall"; }
 
+# Cargo crates may install multiple bins; sum any in ~/.cargo/bin whose name
+# matches the crate. Crude but adequate for the typical 1:1 case.
+cargo_measure() {
+  local b="${CARGO_HOME:-$HOME/.cargo}/bin/$1"
+  [[ -e "$b" ]] || { echo 0; return; }
+  du -sk "$(readlink -f "$b" 2>/dev/null || echo "$b")" 2>/dev/null | awk '{print $1+0}'
+}
+
 cargo_act() {
   local crate=$1 action=$2
   case "$action" in

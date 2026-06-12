@@ -21,6 +21,14 @@ _bun_pkg_dir() {
 
 bun_actions() { echo "u:uninstall"; }
 
+# du on the global package dir; 0 if removed.
+bun_measure() {
+  local bin_dir
+  bin_dir=$(bun pm bin -g 2>/dev/null) || { echo 0; return; }
+  local root="${bin_dir%/bin}/install/global/node_modules"
+  du -sk "$root/$1" 2>/dev/null | awk '{print $1+0}'
+}
+
 bun_act() {
   local pkg=$1 action=$2
   case "$action" in

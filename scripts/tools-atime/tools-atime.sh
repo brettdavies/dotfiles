@@ -143,43 +143,65 @@ threshold=
 [[ -n "$DAYS" ]] && threshold=$(( now - DAYS * 86400 ))
 
 # Reclaim mode short-circuits the table render. Uses reclaim-desc ordering
-# regardless of --sort so the prompt walks the largest-first list the user
-# asked for in the goal statement.
+# regardless of --sort so the prompt walks the largest-first list. Re-polls
+# after every successful action so the user always sees current information.
 if [[ "$RECLAIM" == "true" ]]; then
   DRYRUN=true
   [[ "$APPLY" == "true" ]] && DRYRUN=false
   export DRYRUN
 
-  candidates=$(printf '%s' "$all_rows" \
-    | grep -v '^[[:space:]]*$' \
-    | sort -t $'\t' -k6,6nr \
-    | awk -F'\t' -v min="$RECLAIM_MIN_KB" '$6+0 >= min+0' \
-    | head -n "$RECLAIM_TOP")
-  n=$(printf '%s\n' "$candidates" | grep -c '^[^[:space:]]' || true)
-
-  if (( n == 0 )); then
-    echo "No candidates ≥ ${RECLAIM_MIN_KB}KB. Lower --min-kb or relax filters." >&2
-    exit 0
-  fi
+  _collect_candidates() {
+    local rows="" m
+    for m in "${SELECTED[@]}"; do
+      rows+=$("${m}_rows")$'\n'
+    done
+    printf '%s' "$rows" \
+      | grep -v '^[[:space:]]*$' \
+      | sort -t $'\t' -k6,6nr \
+      | awk -F'\t' -v min="$RECLAIM_MIN_KB" '$6+0 >= min+0' \
+      | head -n "$RECLAIM_TOP"
+  }
 
   printf '\n'
   if [[ "$DRYRUN" == "true" ]]; then
-    printf 'Reclaim — top %d candidates (DRY-RUN; re-run with --apply to execute)\n\n' "$n"
+    printf 'Reclaim — top candidates (DRY-RUN; re-run with --apply to execute)\n\n'
   else
-    printf 'Reclaim — top %d candidates (APPLY mode; actions WILL execute)\n\n' "$n"
+    printf 'Reclaim — top candidates (APPLY mode; actions WILL execute)\n\n'
   fi
 
-  # Materialize rows into an array so the inner `read` for prompts gets the
-  # real stdin (a here-string redirect on the outer `while` would shadow it).
-  mapfile -t _reclaim_rows < <(printf '%s\n' "$candidates")
-  i=0; would_free=0; freed=0
-  for _row in "${_reclaim_rows[@]}"; do
-    [[ -z "$_row" ]] && continue
-    IFS=$'\t' read -r mgr atime name hasbin own reclaim <<<"$_row"
-    [[ -z "$mgr" ]] && continue
-    i=$((i+1))
-    printf '[%d/%d] %s/%s   %s   %s\n' \
-      "$i" "$n" "$mgr" "$name" "$(human_size "$reclaim")" "$(reclaim_age "$atime" "$now")"
+  declare -A SKIPPED ACTED
+  candidates_cache=""
+  need_repoll=true
+  iter=0
+  would_free=0
+  freed=0
+
+  while true; do
+    if [[ "$need_repoll" == "true" ]]; then
+      candidates_cache=$(_collect_candidates)
+      need_repoll=false
+    fi
+
+    # Find the first row not already skipped or acted on.
+    row=""
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      IFS=$'\t' read -r mgr _ name _ _ _ <<<"$line"
+      [[ -n "${SKIPPED[$mgr/$name]+x}" ]] && continue
+      [[ -n "${ACTED[$mgr/$name]+x}" ]] && continue
+      row="$line"
+      break
+    done <<<"$candidates_cache"
+
+    if [[ -z "$row" ]]; then
+      printf 'No more candidates above %s.\n' "$(human_size "$RECLAIM_MIN_KB")"
+      break
+    fi
+
+    iter=$((iter+1))
+    IFS=$'\t' read -r mgr atime name hasbin own reclaim <<<"$row"
+    printf '[%d] %s/%s   %s   %s\n' \
+      "$iter" "$mgr" "$name" "$(human_size "$reclaim")" "$(reclaim_age "$atime" "$now")"
 
     while true; do
       actions=$("${mgr}_actions" "$name" 2>/dev/null)
@@ -196,11 +218,15 @@ if [[ "$RECLAIM" == "true" ]]; then
           if [[ "$DRYRUN" == "true" ]]; then
             printf 'Dry-run would have freed %s so far.\n' "$(human_size "$would_free")"
           else
-            printf 'Estimated freed: %s so far.\n' "$(human_size "$freed")"
+            printf 'Freed: %s so far.\n' "$(human_size "$freed")"
           fi
           exit 0
           ;;
-        s|skip|"") printf '\n'; break ;;
+        s|skip)
+          SKIPPED["$mgr/$name"]=1
+          printf '\n'
+          break
+          ;;
         i|inspect)
           case "$mgr" in
             caches) data=$(caches_inspect "$name") ;;
@@ -208,20 +234,34 @@ if [[ "$RECLAIM" == "true" ]]; then
             *)      data="" ;;
           esac
           if [[ -n "$data" ]]; then
-            printf '\n'
-            printf '%s\n' "$data" | inspect_render
-            printf '\n'
+            printf '\n'; printf '%s\n' "$data" | inspect_render; printf '\n'
           else
             printf '        (no inspection data)\n'
           fi
           continue
           ;;
         *)
-          if "${mgr}_act" "$name" "$choice"; then
-            if [[ "$DRYRUN" == "true" ]]; then
+          if [[ "$DRYRUN" == "true" ]]; then
+            if "${mgr}_act" "$name" "$choice"; then
               would_free=$(( would_free + reclaim ))
+              ACTED["$mgr/$name"]=1
             else
-              freed=$(( freed + reclaim ))
+              printf '        (re-prompt; unknown action)\n'
+              continue
+            fi
+          else
+            before=$("${mgr}_measure" "$name" 2>/dev/null || echo 0)
+            if "${mgr}_act" "$name" "$choice"; then
+              after=$("${mgr}_measure" "$name" 2>/dev/null || echo 0)
+              delta=$(( before - after ))
+              (( delta < 0 )) && delta=0
+              freed=$(( freed + delta ))
+              printf '        Freed: %s\n' "$(human_size "$delta")"
+              ACTED["$mgr/$name"]=1
+              need_repoll=true
+            else
+              printf '        Action failed; marking skipped.\n'
+              SKIPPED["$mgr/$name"]=1
             fi
           fi
           printf '\n'
@@ -236,7 +276,7 @@ if [[ "$RECLAIM" == "true" ]]; then
     printf 'Dry-run total: would free %s. Re-run with --apply to act.\n' \
       "$(human_size "$would_free")"
   else
-    printf 'Applied. Estimated freed: %s.\n' "$(human_size "$freed")"
+    printf 'Done. Freed: %s.\n' "$(human_size "$freed")"
   fi
   exit 0
 fi
