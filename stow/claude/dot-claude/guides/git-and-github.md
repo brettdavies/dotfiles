@@ -119,7 +119,13 @@ repo has its own prose-linting pipeline.
    em-dash density, formulaic structures ("It's not X, it's Y", "Here's the thing", etc.), filler openers, AI
    self-references, pseudo-profound openers. Score `0` exits silently; non-zero scores produce recast diffs the agent
    reviews. This rule is universal — even repos without Vale + LanguageTool wired up still run `/unslop` so the prose
-   floor is in place.
+   floor is in place. **Voice-match against captured notes.** `/unslop` catches the deterministic patterns; the
+   voice-match layer is judgment. After `/unslop` returns clean, check `~/dev/brettdavies/brettdavies/.context/voice.md`
+   if it exists for patterns the regexes can't catch — sycophantic echoes, fabricated verifications, restated-argument
+   summaries, "Thanks again" closes. Voice-matching is the heavy pass on conversational surfaces (PR comments, issue
+   discussion, thread replies); on PR bodies and release notes it's a lighter pass — those stay technical with only
+   slight softening. When a draft gets meaningfully rewritten, append the LLM-draft → Brett-rewrite swap in `voice.md`
+   with a one-line "why" so the next draft starts closer.
 3. **Submit via file flag, then delete the tmp file.** `gh pr create --body-file <path>`, `gh pr edit --body-file ...`,
    `gh pr comment --body-file ...`, `gh issue create --body-file ...`, `gh release create --notes-file ...`, `git commit
    --file ...`. Never inline the body via `--body "..."`, `-m "..."`, or a `--body "$(cat <<'EOF' ... EOF)"` heredoc.

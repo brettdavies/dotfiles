@@ -123,6 +123,17 @@ cascade (repo `.github/pull_request_template.md` → global `~/.config/github/pu
 (filenames, `/unslop`, changelog rules, escape rules) → `~/.claude/guides/git-and-github.md`; commit spec →
 `~/.claude/templates/commit-message.md`.
 
+## Voice notes
+
+Before drafting prose in Brett's voice — PR comments, issue discussion, thread replies, Slack-style messages, anywhere
+conversational — read `~/dev/brettdavies/brettdavies/.context/voice.md` if it exists. Technical artifacts (PR bodies,
+release notes, README narrative) stay technical with only slight softening; voice-matching is a lighter pass there. The
+file captures his characteristic patterns and the anti-patterns (sycophantic echoes, fabricated verifications, "Thanks
+again" closes, restated-argument summaries) that get rewritten out of LLM drafts. **Update it when a draft gets
+meaningfully rewritten** — append the LLM-draft → Brett-rewrite swap under the right section with a one-line "why" and a
+dated source-log entry. Compounds over time so the next draft starts closer to landing. Local-only and gitignored by
+design (see the `.context/` rule above).
+
 ## CI after push
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse
