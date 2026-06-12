@@ -47,6 +47,22 @@ uv_inspect() {
   shopt -u nullglob
 }
 
+uv_actions() { echo "u:uninstall"; }
+
+uv_act() {
+  local tool=$1 action=$2
+  case "$action" in
+    u|uninstall)
+      if [[ "${DRYRUN:-true}" == "true" ]]; then
+        echo "DRY-RUN: uv tool uninstall $tool"
+        return 0
+      fi
+      uv tool uninstall "$tool"
+      ;;
+    *) echo "uv_act: unknown action $action" >&2; return 1 ;;
+  esac
+}
+
 uv_rows() {
   command -v uv >/dev/null || return 0
   local tool="" entries=()

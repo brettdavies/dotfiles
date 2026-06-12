@@ -35,7 +35,7 @@ caches_rows() {
     mtime=$(max_mtime_under "$dir")
     [[ -z "$mtime" || "$mtime" == "0" ]] && mtime=$(mtime_of "$dir")
     if size_kb=$(_uv_cache_size_kb); then
-      [[ -n "$mtime" ]] && emit_row cache "$mtime" uv-cache 1 "$size_kb" "$size_kb"
+      [[ -n "$mtime" ]] && emit_row caches "$mtime" uv-cache 1 "$size_kb" "$size_kb"
     fi
   fi
 
@@ -45,14 +45,56 @@ caches_rows() {
     mtime=$(max_mtime_under "$dir")
     [[ -z "$mtime" || "$mtime" == "0" ]] && mtime=$(mtime_of "$dir")
     size_kb=$(size_kb_of_dir "$dir")
-    [[ -n "$mtime" ]] && emit_row cache "$mtime" bun-cache 1 "$size_kb" "$size_kb"
+    [[ -n "$mtime" ]] && emit_row caches "$mtime" bun-cache 1 "$size_kb" "$size_kb"
   fi
+}
+
+_caches_strip_prefix() {
+  local t=$1
+  t=${t#cache/}; t=${t#caches/}
+  printf '%s\n' "$t"
+}
+
+caches_actions() {
+  case "$(_caches_strip_prefix "$1")" in
+    uv-cache)  echo "p:prune c:clean-all" ;;
+    bun-cache) echo "r:rm-all" ;;
+    *)         echo "" ;;
+  esac
+}
+
+caches_act() {
+  local target action=$2
+  target=$(_caches_strip_prefix "$1")
+  case "$target/$action" in
+    uv-cache/p|uv-cache/prune)
+      if [[ "${DRYRUN:-true}" == "true" ]]; then
+        echo "DRY-RUN: uv cache prune"; return 0
+      fi
+      uv cache prune
+      ;;
+    uv-cache/c|uv-cache/clean-all)
+      if [[ "${DRYRUN:-true}" == "true" ]]; then
+        echo "DRY-RUN: uv cache clean"; return 0
+      fi
+      uv cache clean
+      ;;
+    bun-cache/r|bun-cache/rm-all)
+      local dir="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+      if [[ "${DRYRUN:-true}" == "true" ]]; then
+        echo "DRY-RUN: trash $dir"; return 0
+      fi
+      command -v trash >/dev/null && trash "$dir" || rm -rf "$dir"
+      ;;
+    *) echo "caches_act: unknown action $target/$action" >&2; return 1 ;;
+  esac
 }
 
 # caches_inspect <target>  →  TSV (<size_kb> \t <name> \t <version|"">)
 # Reaches for the filesystem because no PM exposes per-package cache listing.
 caches_inspect() {
-  local target=${1#cache/}
+  local target
+  target=$(_caches_strip_prefix "$1")
   case "$target" in
     uv-cache)
       local archive_root

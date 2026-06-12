@@ -19,6 +19,22 @@ _bun_pkg_dir() {
   printf '%s\n' "$(dirname "$target")"
 }
 
+bun_actions() { echo "u:uninstall"; }
+
+bun_act() {
+  local pkg=$1 action=$2
+  case "$action" in
+    u|uninstall)
+      if [[ "${DRYRUN:-true}" == "true" ]]; then
+        echo "DRY-RUN: bun remove -g $pkg"
+        return 0
+      fi
+      bun remove -g "$pkg"
+      ;;
+    *) echo "bun_act: unknown action $action" >&2; return 1 ;;
+  esac
+}
+
 bun_rows() {
   command -v bun >/dev/null || return 0
   local bin_dir

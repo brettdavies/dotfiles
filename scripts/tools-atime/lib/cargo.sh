@@ -25,6 +25,22 @@ _cargo_emit_crate() {
   emit_row cargo "$max" "$crate" 1 "$own_kb" "$own_kb"
 }
 
+cargo_actions() { echo "u:uninstall"; }
+
+cargo_act() {
+  local crate=$1 action=$2
+  case "$action" in
+    u|uninstall)
+      if [[ "${DRYRUN:-true}" == "true" ]]; then
+        echo "DRY-RUN: cargo uninstall $crate"
+        return 0
+      fi
+      cargo uninstall "$crate"
+      ;;
+    *) echo "cargo_act: unknown action $action" >&2; return 1 ;;
+  esac
+}
+
 cargo_rows() {
   command -v cargo >/dev/null || return 0
   local crate="" bins=()

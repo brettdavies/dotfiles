@@ -23,6 +23,10 @@ REVERSE=false
 MANAGERS_FLAG=""
 INSPECT=""
 INSPECT_LIMIT=30
+RECLAIM=false
+APPLY=false
+RECLAIM_TOP=20
+RECLAIM_MIN_KB=10240   # 10 MB floor — don't bother prompting for tiny rows
 export INSPECT_LIMIT
 
 usage() {
@@ -42,6 +46,11 @@ Options:
                         uv-cache | bun-cache | uv/<tool>
                       Uses `du` to fill gaps the PM CLI doesn't expose.
   -l, --limit N       cap inspect output at N entries (default 30, 0 = all)
+  -R, --reclaim       guided per-row prompt over the top reclaim candidates.
+                      Dry-run by default — pass --apply to actually execute.
+      --apply         execute actions; only meaningful with --reclaim.
+      --top N         cap reclaim candidates at N (default 20).
+      --min-kb N      skip reclaim rows under N KB (default 10240 = 10 MB).
   -j, --json          emit JSON instead of a table (rows and inspect)
   -q, --quiet         emit "manager/name" pairs only (skips no-bin entries)
   -B, --no-bin-skip   skip rows flagged as library-only (no bin/ dir)
@@ -64,6 +73,10 @@ while (($#)); do
     -r|--reverse)     REVERSE=true; shift ;;
     -i|--inspect)     INSPECT="${2:?--inspect needs a target}"; shift 2 ;;
     -l|--limit)       INSPECT_LIMIT="${2:?--limit needs a value}"; shift 2 ;;
+    -R|--reclaim)     RECLAIM=true; shift ;;
+    --apply)          APPLY=true; shift ;;
+    --top)            RECLAIM_TOP="${2:?--top needs a value}"; shift 2 ;;
+    --min-kb)         RECLAIM_MIN_KB="${2:?--min-kb needs a value}"; shift 2 ;;
     -j|--json)        JSON=true; shift ;;
     -q|--quiet)       QUIET=true; shift ;;
     -B|--no-bin-skip) SKIP_NOBIN=true; shift ;;
@@ -75,7 +88,7 @@ done
 # Inspect mode short-circuits the list pipeline.
 if [[ -n "$INSPECT" ]]; then
   case "$INSPECT" in
-    uv-cache|cache/uv-cache|bun-cache|cache/bun-cache)
+    uv-cache|cache/uv-cache|caches/uv-cache|bun-cache|cache/bun-cache|caches/bun-cache)
       # shellcheck source=lib/caches.sh
       source "$LIB/caches.sh"
       data=$(caches_inspect "$INSPECT") || exit 1
@@ -128,6 +141,105 @@ done
 now=$(date +%s)
 threshold=
 [[ -n "$DAYS" ]] && threshold=$(( now - DAYS * 86400 ))
+
+# Reclaim mode short-circuits the table render. Uses reclaim-desc ordering
+# regardless of --sort so the prompt walks the largest-first list the user
+# asked for in the goal statement.
+if [[ "$RECLAIM" == "true" ]]; then
+  DRYRUN=true
+  [[ "$APPLY" == "true" ]] && DRYRUN=false
+  export DRYRUN
+
+  candidates=$(printf '%s' "$all_rows" \
+    | grep -v '^[[:space:]]*$' \
+    | sort -t $'\t' -k6,6nr \
+    | awk -F'\t' -v min="$RECLAIM_MIN_KB" '$6+0 >= min+0' \
+    | head -n "$RECLAIM_TOP")
+  n=$(printf '%s\n' "$candidates" | grep -c '^[^[:space:]]' || true)
+
+  if (( n == 0 )); then
+    echo "No candidates ≥ ${RECLAIM_MIN_KB}KB. Lower --min-kb or relax filters." >&2
+    exit 0
+  fi
+
+  printf '\n'
+  if [[ "$DRYRUN" == "true" ]]; then
+    printf 'Reclaim — top %d candidates (DRY-RUN; re-run with --apply to execute)\n\n' "$n"
+  else
+    printf 'Reclaim — top %d candidates (APPLY mode; actions WILL execute)\n\n' "$n"
+  fi
+
+  # Materialize rows into an array so the inner `read` for prompts gets the
+  # real stdin (a here-string redirect on the outer `while` would shadow it).
+  mapfile -t _reclaim_rows < <(printf '%s\n' "$candidates")
+  i=0; would_free=0; freed=0
+  for _row in "${_reclaim_rows[@]}"; do
+    [[ -z "$_row" ]] && continue
+    IFS=$'\t' read -r mgr atime name hasbin own reclaim <<<"$_row"
+    [[ -z "$mgr" ]] && continue
+    i=$((i+1))
+    printf '[%d/%d] %s/%s   %s   %s\n' \
+      "$i" "$n" "$mgr" "$name" "$(human_size "$reclaim")" "$(reclaim_age "$atime" "$now")"
+
+    while true; do
+      actions=$("${mgr}_actions" "$name" 2>/dev/null)
+      inspect_part=""
+      case "$mgr" in caches|uv) inspect_part=" i:inspect" ;; esac
+      menu="${actions}${inspect_part} s:skip q:quit"
+      printf '        [%s] > ' "$menu"
+      if ! read -r choice; then choice=q; fi
+      choice=${choice:-s}
+
+      case "$choice" in
+        q|quit)
+          printf '\nQuit. '
+          if [[ "$DRYRUN" == "true" ]]; then
+            printf 'Dry-run would have freed %s so far.\n' "$(human_size "$would_free")"
+          else
+            printf 'Estimated freed: %s so far.\n' "$(human_size "$freed")"
+          fi
+          exit 0
+          ;;
+        s|skip|"") printf '\n'; break ;;
+        i|inspect)
+          case "$mgr" in
+            caches) data=$(caches_inspect "$name") ;;
+            uv)     data=$(uv_inspect "$name") ;;
+            *)      data="" ;;
+          esac
+          if [[ -n "$data" ]]; then
+            printf '\n'
+            printf '%s\n' "$data" | inspect_render
+            printf '\n'
+          else
+            printf '        (no inspection data)\n'
+          fi
+          continue
+          ;;
+        *)
+          if "${mgr}_act" "$name" "$choice"; then
+            if [[ "$DRYRUN" == "true" ]]; then
+              would_free=$(( would_free + reclaim ))
+            else
+              freed=$(( freed + reclaim ))
+            fi
+          fi
+          printf '\n'
+          break
+          ;;
+      esac
+    done
+  done
+
+  printf '\n'
+  if [[ "$DRYRUN" == "true" ]]; then
+    printf 'Dry-run total: would free %s. Re-run with --apply to act.\n' \
+      "$(human_size "$would_free")"
+  else
+    printf 'Applied. Estimated freed: %s.\n' "$(human_size "$freed")"
+  fi
+  exit 0
+fi
 
 rev=""; [[ "$REVERSE" == "true" ]] && rev="r"
 case "$SORT" in

@@ -70,6 +70,23 @@ _brew_closure() {
   for d in "${!R[@]}"; do printf '%s\n' "$d"; done
 }
 
+brew_actions() { echo "u:uninstall+autoremove"; }
+
+# brew_act <formula> <action_key>. Honors $DRYRUN.
+brew_act() {
+  local formula=$1 action=$2
+  case "$action" in
+    u|uninstall)
+      if [[ "${DRYRUN:-true}" == "true" ]]; then
+        echo "DRY-RUN: brew uninstall $formula && brew autoremove"
+        return 0
+      fi
+      brew uninstall "$formula" && brew autoremove
+      ;;
+    *) echo "brew_act: unknown action $action" >&2; return 1 ;;
+  esac
+}
+
 brew_rows() {
   command -v brew >/dev/null || return 0
   command -v jaq  >/dev/null || { echo "brew adapter requires jaq" >&2; return 1; }

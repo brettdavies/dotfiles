@@ -67,6 +67,16 @@ emit_row() {
   printf '%s\t%d\t%s\t%d\t%d\t%d\n' "$1" "$2" "$3" "$4" "$5" "$6"
 }
 
+# Short human age from epoch. "$2" overrides "now" for tests.
+reclaim_age() {
+  local epoch=$1 ref=${2:-$(date +%s)} days
+  days=$(( (ref - epoch) / 86400 ))
+  if   (( days <= 0 )); then echo "used today"
+  elif (( days == 1 )); then echo "1d ago"
+  else echo "${days}d ago"
+  fi
+}
+
 # Inspect renderer. Reads <size_kb> \t <name> \t <extra> on stdin, sorts by
 # size desc, caps at INSPECT_LIMIT (0 = no cap), emits table.
 inspect_render() {
