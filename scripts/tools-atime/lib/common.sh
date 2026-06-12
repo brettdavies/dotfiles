@@ -86,7 +86,9 @@ inspect_render() {
   local limit=${INSPECT_LIMIT:-30} total=0 ref_total=0 prune_total=0 count=0
   local sz name extra status sorted has_status=false
   if (( limit > 0 )); then
-    sorted=$(sort -t $'\t' -k1,1nr | head -n "$limit")
+    # awk -v n=…; using head here would close stdin early and SIGPIPE
+    # `sort` under pipefail once input exceeds the cap (~450 archives).
+    sorted=$(sort -t $'\t' -k1,1nr | awk -v n="$limit" 'NR<=n')
   else
     sorted=$(sort -t $'\t' -k1,1nr)
   fi
@@ -130,7 +132,9 @@ inspect_render() {
 inspect_render_json() {
   local limit=${INSPECT_LIMIT:-30} sorted sz name extra first=true
   if (( limit > 0 )); then
-    sorted=$(sort -t $'\t' -k1,1nr | head -n "$limit")
+    # awk -v n=…; using head here would close stdin early and SIGPIPE
+    # `sort` under pipefail once input exceeds the cap (~450 archives).
+    sorted=$(sort -t $'\t' -k1,1nr | awk -v n="$limit" 'NR<=n')
   else
     sorted=$(sort -t $'\t' -k1,1nr)
   fi

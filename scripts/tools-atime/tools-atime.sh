@@ -43,7 +43,8 @@ Options:
   -s, --sort FIELD    sort by: age (default) | name | size | reclaim | manager
   -r, --reverse       reverse the sort order
   -i, --inspect TGT   drill into one entry by size. Valid targets:
-                        uv-cache | bun-cache | uv/<tool>
+                        uv-cache | bun-cache
+                        brew/<formula> | uv/<tool> | cargo/<crate> | bun/<pkg>
                       Uses `du` to fill gaps the PM CLI doesn't expose.
   -l, --limit N       cap inspect output at N entries (default 30, 0 = all)
   -R, --reclaim       guided per-row prompt over the top reclaim candidates.
@@ -93,13 +94,28 @@ if [[ -n "$INSPECT" ]]; then
       source "$LIB/caches.sh"
       data=$(caches_inspect "$INSPECT") || exit 1
       ;;
+    brew/*)
+      # shellcheck source=lib/brew.sh
+      source "$LIB/brew.sh"
+      data=$(brew_inspect "${INSPECT#brew/}") || exit 1
+      ;;
     uv/*)
       # shellcheck source=lib/uv.sh
       source "$LIB/uv.sh"
       data=$(uv_inspect "${INSPECT#uv/}") || exit 1
       ;;
+    cargo/*)
+      # shellcheck source=lib/cargo.sh
+      source "$LIB/cargo.sh"
+      data=$(cargo_inspect "${INSPECT#cargo/}") || exit 1
+      ;;
+    bun/*)
+      # shellcheck source=lib/bun.sh
+      source "$LIB/bun.sh"
+      data=$(bun_inspect "${INSPECT#bun/}") || exit 1
+      ;;
     *)
-      echo "inspect target must be: uv-cache | bun-cache | uv/<tool>" >&2
+      echo "inspect target must be one of: uv-cache | bun-cache | brew/<formula> | uv/<tool> | cargo/<crate> | bun/<pkg>" >&2
       exit 2
       ;;
   esac
@@ -205,8 +221,7 @@ if [[ "$RECLAIM" == "true" ]]; then
 
     while true; do
       actions=$("${mgr}_actions" "$name" 2>/dev/null)
-      inspect_part=""
-      case "$mgr" in caches|uv) inspect_part=" i:inspect" ;; esac
+      inspect_part=" i:inspect"  # every adapter exposes <m>_inspect now
       menu="${actions}${inspect_part} s:skip q:quit"
       printf '        [%s] > ' "$menu"
       if ! read -r choice; then choice=q; fi
@@ -228,11 +243,7 @@ if [[ "$RECLAIM" == "true" ]]; then
           break
           ;;
         i|inspect)
-          case "$mgr" in
-            caches) data=$(caches_inspect "$name") ;;
-            uv)     data=$(uv_inspect "$name") ;;
-            *)      data="" ;;
-          esac
+          data=$("${mgr}_inspect" "$name" 2>/dev/null || true)
           if [[ -n "$data" ]]; then
             printf '\n'; printf '%s\n' "$data" | inspect_render; printf '\n'
           else

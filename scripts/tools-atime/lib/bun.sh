@@ -19,6 +19,23 @@ _bun_pkg_dir() {
   printf '%s\n' "$(dirname "$target")"
 }
 
+# bun_inspect <pkg>  →  TSV (<size_kb> \t <subdir> \t "")
+# Top-level dirs inside the global package's node_modules tree, sorted by du.
+bun_inspect() {
+  command -v bun >/dev/null || return 1
+  local pkg=$1 bin_dir pkg_dir
+  bin_dir=$(bun pm bin -g 2>/dev/null) || return 1
+  pkg_dir=$(_bun_pkg_dir "$pkg" "$bin_dir")
+  [[ -d "$pkg_dir" ]] || { echo "bun pkg dir not found: $pkg" >&2; return 1; }
+  shopt -s nullglob
+  local d sz
+  for d in "$pkg_dir"/*/; do
+    sz=$(du -sk "$d" 2>/dev/null | awk '{print $1}')
+    printf '%d\t%s\t\n' "${sz:-0}" "$(basename "${d%/}")"
+  done
+  shopt -u nullglob
+}
+
 bun_actions() { echo "u:uninstall"; }
 
 # du on the global package dir; 0 if removed.

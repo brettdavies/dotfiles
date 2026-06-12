@@ -74,6 +74,23 @@ _brew_closure() {
   for d in "${!R[@]}"; do printf '%s\n' "$d"; done
 }
 
+# brew_inspect <formula>  →  TSV (<size_kb> \t <formula> \t <role>)
+# Walks the autoremove closure so the user sees exactly what would go away.
+# Status-mode footer is overloaded with prune semantics that don't fit brew,
+# so this stays in 3-column mode and uses the extra field for leaf/dep.
+brew_inspect() {
+  command -v brew >/dev/null || return 1
+  command -v jaq  >/dev/null || return 1
+  _brew_load_graph || return 1
+  local formula=$1 leaf_bare=${1##*/}
+  local f sz role
+  while IFS= read -r f; do
+    sz=$(_brew_size_kb "$f")
+    if [[ "$f" == "$leaf_bare" ]]; then role=leaf; else role=cascade; fi
+    printf '%d\t%s\t%s\n' "${sz:-0}" "$f" "$role"
+  done < <(_brew_closure "$formula")
+}
+
 brew_actions() { echo "u:uninstall+autoremove"; }
 
 # Whole-cellar du so the post-action delta captures the autoremove cascade.

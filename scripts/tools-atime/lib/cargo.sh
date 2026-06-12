@@ -25,6 +25,26 @@ _cargo_emit_crate() {
   emit_row cargo "$max" "$crate" 1 "$own_kb" "$own_kb"
 }
 
+# cargo_inspect <crate>  →  TSV (<size_kb> \t <binary> \t "")
+# Walks `cargo install --list` to find this crate's binaries and du's each.
+# Marginal for the single-bin case but kept for capability parity.
+cargo_inspect() {
+  command -v cargo >/dev/null || return 1
+  local crate=$1 bin_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
+  local in_target=false line bin target sz
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^([A-Za-z0-9_-]+)\ v[0-9].*:$ ]]; then
+      [[ "${BASH_REMATCH[1]}" == "$crate" ]] && in_target=true || in_target=false
+    elif [[ "$in_target" == "true" && "$line" =~ ^[[:space:]]+([A-Za-z0-9_.-]+)$ ]]; then
+      bin="${BASH_REMATCH[1]}"
+      [[ -e "$bin_dir/$bin" ]] || continue
+      target=$(readlink -f "$bin_dir/$bin" 2>/dev/null || echo "$bin_dir/$bin")
+      sz=$(du -sk "$target" 2>/dev/null | awk '{print $1}')
+      printf '%d\t%s\t\n' "${sz:-0}" "$bin"
+    fi
+  done < <(cargo install --list 2>/dev/null)
+}
+
 cargo_actions() { echo "u:uninstall"; }
 
 # Cargo crates may install multiple bins; sum any in ~/.cargo/bin whose name
