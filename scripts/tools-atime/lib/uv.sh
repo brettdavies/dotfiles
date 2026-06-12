@@ -23,6 +23,30 @@ _uv_emit_tool() {
   emit_row uv "$max" "$tool" 1 "$own_kb" "$own_kb"
 }
 
+# uv_inspect <tool>  →  TSV (<size_kb> \t <pkg-name> \t "")
+# Walks the tool's venv site-packages and sums du per top-level package dir.
+# No PM equivalent — uv doesn't expose per-package venv weighting.
+uv_inspect() {
+  local tool=$1
+  local tool_dir="${UV_TOOLS_DIR:-$HOME/.local/share/uv/tools}/$tool"
+  [[ -d "$tool_dir" ]] || { echo "no such uv tool: $tool" >&2; return 1; }
+  local sp
+  sp=$(find "$tool_dir" -maxdepth 4 -type d -name 'site-packages' 2>/dev/null | head -1)
+  [[ -z "$sp" || ! -d "$sp" ]] && { echo "site-packages not found under $tool_dir" >&2; return 1; }
+
+  shopt -s nullglob
+  local d name sz
+  for d in "$sp"/*/; do
+    name=$(basename "${d%/}")
+    case "$name" in
+      __pycache__|bin|*.dist-info|*.data) continue ;;
+    esac
+    sz=$(du -sk "$d" 2>/dev/null | cut -f1)
+    printf '%d\t%s\t\n' "${sz:-0}" "$name"
+  done
+  shopt -u nullglob
+}
+
 uv_rows() {
   command -v uv >/dev/null || return 0
   local tool="" entries=()

@@ -48,3 +48,52 @@ caches_rows() {
     [[ -n "$mtime" ]] && emit_row cache "$mtime" bun-cache 1 "$size_kb" "$size_kb"
   fi
 }
+
+# caches_inspect <target>  →  TSV (<size_kb> \t <name> \t <version|"">)
+# Reaches for the filesystem because no PM exposes per-package cache listing.
+caches_inspect() {
+  local target=${1#cache/}
+  case "$target" in
+    uv-cache)
+      local archive_root
+      archive_root="$(_uv_cache_dir 2>/dev/null)/archive-v0"
+      [[ -d "$archive_root" ]] || { echo "uv archive cache not found" >&2; return 1; }
+      # Each archive-v0/<hash>/<pkg>-<ver>.dist-info/METADATA → one row.
+      # Aggregate so packages with multiple cached versions roll up cleanly.
+      find "$archive_root" -mindepth 2 -maxdepth 4 -name METADATA -path '*.dist-info/*' 2>/dev/null \
+      | while IFS= read -r meta; do
+          local arch pkg ver sz
+          arch=$(printf '%s\n' "$meta" | sed -E 's|(/archive-v0/[^/]+)/.*|\1|')
+          pkg=$(grep -m1 '^Name: ' "$meta" | cut -d' ' -f2- | tr -d '\r')
+          ver=$(grep -m1 '^Version: ' "$meta" | cut -d' ' -f2- | tr -d '\r')
+          sz=$(du -sk "$arch" 2>/dev/null | cut -f1)
+          printf '%d\t%s\t%s\n' "${sz:-0}" "$pkg" "$ver"
+        done \
+      | awk -F'\t' 'BEGIN{OFS=FS}
+          { sz[$2]+=$1; vers[$2]=vers[$2] ? vers[$2]","$3 : $3 }
+          END { for (k in sz) print sz[k], k, vers[k] }'
+      ;;
+    bun-cache)
+      local dir="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+      [[ -d "$dir" ]] || { echo "bun cache not found" >&2; return 1; }
+      # Top-level entries are either <pkg>@<ver>@@@N (flat) or @scope (dir
+      # holding the scope's packages). Aggregate by scope or unscoped name.
+      shopt -s nullglob
+      local d name sz
+      for d in "$dir"/*/; do
+        name=$(basename "${d%/}")
+        if [[ "$name" != @* ]]; then
+          name=$(printf '%s\n' "$name" | sed -E 's/(@[0-9][^@]*)?(@@@.*)?$//')
+        fi
+        sz=$(du -sk "$d" 2>/dev/null | cut -f1)
+        printf '%d\t%s\t\n' "${sz:-0}" "$name"
+      done \
+      | awk -F'\t' 'BEGIN{OFS=FS} {sz[$2]+=$1} END {for (k in sz) print sz[k], k, ""}'
+      shopt -u nullglob
+      ;;
+    *)
+      echo "unknown cache inspect target: $target (try: uv-cache, bun-cache)" >&2
+      return 1
+      ;;
+  esac
+}

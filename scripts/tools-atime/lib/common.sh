@@ -66,3 +66,42 @@ max_mtime_under() { _max_mtime_find "$1"; }
 emit_row() {
   printf '%s\t%d\t%s\t%d\t%d\t%d\n' "$1" "$2" "$3" "$4" "$5" "$6"
 }
+
+# Inspect renderer. Reads <size_kb> \t <name> \t <extra> on stdin, sorts by
+# size desc, caps at INSPECT_LIMIT (0 = no cap), emits table.
+inspect_render() {
+  local limit=${INSPECT_LIMIT:-30} total=0 count=0 sz name extra
+  local sorted
+  if (( limit > 0 )); then
+    sorted=$(sort -t $'\t' -k1,1nr | head -n "$limit")
+  else
+    sorted=$(sort -t $'\t' -k1,1nr)
+  fi
+  while IFS=$'\t' read -r sz name extra; do
+    [[ -z "$sz" ]] && continue
+    total=$(( total + sz ))
+    count=$(( count + 1 ))
+    if [[ -n "$extra" ]]; then
+      printf '%-8s  %s  (%s)\n' "$(human_size "$sz")" "$name" "$extra"
+    else
+      printf '%-8s  %s\n' "$(human_size "$sz")" "$name"
+    fi
+  done <<<"$sorted"
+  (( count > 0 )) && printf '%-8s  %s\n' "$(human_size "$total")" "(top $count shown)"
+}
+
+inspect_render_json() {
+  local limit=${INSPECT_LIMIT:-30} sorted sz name extra first=true
+  if (( limit > 0 )); then
+    sorted=$(sort -t $'\t' -k1,1nr | head -n "$limit")
+  else
+    sorted=$(sort -t $'\t' -k1,1nr)
+  fi
+  printf '['
+  while IFS=$'\t' read -r sz name extra; do
+    [[ -z "$sz" ]] && continue
+    [[ "$first" == "true" ]] && first=false || printf ','
+    printf '{"size_kb":%d,"name":"%s","extra":"%s"}' "$sz" "$name" "$extra"
+  done <<<"$sorted"
+  printf ']\n'
+}

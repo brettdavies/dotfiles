@@ -21,6 +21,9 @@ SKIP_NOBIN=false
 SORT=age
 REVERSE=false
 MANAGERS_FLAG=""
+INSPECT=""
+INSPECT_LIMIT=30
+export INSPECT_LIMIT
 
 usage() {
   cat <<'EOF'
@@ -35,7 +38,11 @@ Options:
   -d, --days N        only show entries unused for N+ days
   -s, --sort FIELD    sort by: age (default) | name | size | reclaim | manager
   -r, --reverse       reverse the sort order
-  -j, --json          emit JSON instead of a table
+  -i, --inspect TGT   drill into one entry by size. Valid targets:
+                        uv-cache | bun-cache | uv/<tool>
+                      Uses `du` to fill gaps the PM CLI doesn't expose.
+  -l, --limit N       cap inspect output at N entries (default 30, 0 = all)
+  -j, --json          emit JSON instead of a table (rows and inspect)
   -q, --quiet         emit "manager/name" pairs only (skips no-bin entries)
   -B, --no-bin-skip   skip rows flagged as library-only (no bin/ dir)
   -h, --help          show this help
@@ -55,6 +62,8 @@ while (($#)); do
     -d|--days)        DAYS="${2:?--days needs a value}"; shift 2 ;;
     -s|--sort)        SORT="${2:?--sort needs a field}"; shift 2 ;;
     -r|--reverse)     REVERSE=true; shift ;;
+    -i|--inspect)     INSPECT="${2:?--inspect needs a target}"; shift 2 ;;
+    -l|--limit)       INSPECT_LIMIT="${2:?--limit needs a value}"; shift 2 ;;
     -j|--json)        JSON=true; shift ;;
     -q|--quiet)       QUIET=true; shift ;;
     -B|--no-bin-skip) SKIP_NOBIN=true; shift ;;
@@ -62,6 +71,34 @@ while (($#)); do
     *)                echo "unknown flag: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+# Inspect mode short-circuits the list pipeline.
+if [[ -n "$INSPECT" ]]; then
+  case "$INSPECT" in
+    uv-cache|cache/uv-cache|bun-cache|cache/bun-cache)
+      # shellcheck source=lib/caches.sh
+      source "$LIB/caches.sh"
+      data=$(caches_inspect "$INSPECT") || exit 1
+      ;;
+    uv/*)
+      # shellcheck source=lib/uv.sh
+      source "$LIB/uv.sh"
+      data=$(uv_inspect "${INSPECT#uv/}") || exit 1
+      ;;
+    *)
+      echo "inspect target must be: uv-cache | bun-cache | uv/<tool>" >&2
+      exit 2
+      ;;
+  esac
+  [[ -z "$data" ]] && { echo "(empty inspection result for $INSPECT)" >&2; exit 0; }
+  if [[ "$JSON" == "true" ]]; then
+    printf '%s\n' "$data" | inspect_render_json
+  else
+    printf 'Inspecting %s — top by size:\n\n' "$INSPECT"
+    printf '%s\n' "$data" | inspect_render
+  fi
+  exit 0
+fi
 
 case "$SORT" in
   age|name|size|reclaim|manager) ;;
