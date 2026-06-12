@@ -120,11 +120,21 @@ if [[ -n "$INSPECT" ]]; then
       ;;
   esac
   [[ -z "$data" ]] && { echo "(empty inspection result for $INSPECT)" >&2; exit 0; }
+  # uv-cache emits 4-col TSV with total + disk-freeable; everything else
+  # stays in the 3-col (with optional status) shape inspect_render handles.
+  render_fn=inspect_render
+  json_fn=inspect_render_json
+  banner='top by size'
+  if [[ "$INSPECT" =~ uv-cache$ ]]; then
+    render_fn=inspect_render_freeable
+    json_fn=inspect_render_freeable_json
+    banner='top by disk-freeable'
+  fi
   if [[ "$JSON" == "true" ]]; then
-    printf '%s\n' "$data" | inspect_render_json
+    printf '%s\n' "$data" | "$json_fn"
   else
-    printf 'Inspecting %s — top by size:\n\n' "$INSPECT"
-    printf '%s\n' "$data" | inspect_render
+    printf 'Inspecting %s — %s:\n\n' "$INSPECT" "$banner"
+    printf '%s\n' "$data" | "$render_fn"
   fi
   exit 0
 fi
@@ -245,7 +255,13 @@ if [[ "$RECLAIM" == "true" ]]; then
         i|inspect)
           data=$("${mgr}_inspect" "$name" 2>/dev/null || true)
           if [[ -n "$data" ]]; then
-            printf '\n'; printf '%s\n' "$data" | inspect_render; printf '\n'
+            printf '\n'
+            if [[ "$mgr" == "caches" && "$name" =~ uv-cache$ ]]; then
+              printf '%s\n' "$data" | inspect_render_freeable
+            else
+              printf '%s\n' "$data" | inspect_render
+            fi
+            printf '\n'
           else
             printf '        (no inspection data)\n'
           fi

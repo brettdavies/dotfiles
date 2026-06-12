@@ -112,26 +112,43 @@ caches_inspect() {
       local archive_root
       archive_root="$(_uv_cache_dir 2>/dev/null)/archive-v0"
       [[ -d "$archive_root" ]] || { echo "uv archive cache not found" >&2; return 1; }
-      # One row per archive-v0/<hash>/<pkg>-<ver>.dist-info/METADATA so each
-      # cached version is visible separately — aggregation would hide which
-      # specific version is referenced vs prunable.
+      # Single find walks every file under archive-v0 once, emitting path,
+      # bytes, nlinks. Awk groups by archive directory, summing total bytes
+      # and the subset where nlinks == 1 (files only the cache references).
+      # When it sees an archive's METADATA file it also extracts Name/Version
+      # so the same pass produces (total_kb, freeable_kb, name, version).
       #
-      # Status comes from the METADATA file's hardlink count: nlinks > 1
-      # means some installed venv has it hardlinked in (referenced); nlinks
-      # == 1 means nothing points at it and `uv cache prune` will remove it.
-      # The host fs is ext4 — uv falls back to hardlink mode when reflink
-      # isn't available, so this signal is reliable here.
-      find "$archive_root" -mindepth 2 -maxdepth 4 -name METADATA -path '*.dist-info/*' 2>/dev/null \
-      | while IFS= read -r meta; do
-          local arch pkg ver sz nl status
-          arch=$(printf '%s\n' "$meta" | sed -E 's|(/archive-v0/[^/]+)/.*|\1|')
-          pkg=$(grep -m1 '^Name: '    "$meta" | cut -d' ' -f2- | tr -d '\r')
-          ver=$(grep -m1 '^Version: ' "$meta" | cut -d' ' -f2- | tr -d '\r')
-          sz=$(du -sk "$arch" 2>/dev/null | cut -f1)
-          nl=$(nlinks_of "$meta")
-          if [[ -n "$nl" ]] && (( nl > 1 )); then status=ref; else status=prune; fi
-          printf '%d\t%s\t%s\t%s\n' "${sz:-0}" "$pkg" "$ver" "$status"
-        done
+      # freeable_kb is the honest "if I drop this archive, how much disk
+      # actually frees" — files hardlinked into a tool venv contribute 0
+      # to freeable even though they appear in the archive's total.
+      find "$archive_root" -type f -printf '%p\t%s\t%n\n' 2>/dev/null \
+      | awk -F'\t' '
+          function read_meta(file,   line, n, v) {
+            while ((getline line < file) > 0) {
+              gsub(/\r/, "", line)
+              if (n == "" && line ~ /^Name: /)    n = substr(line, 7)
+              if (v == "" && line ~ /^Version: /) v = substr(line, 10)
+              if (n != "" && v != "") break
+            }
+            close(file)
+            return n "\t" v
+          }
+          {
+            match($1, /archive-v0\/[^\/]+/)
+            arch = substr($1, RSTART, RLENGTH)
+            total[arch] += $2
+            if ($3 == 1) free[arch] += $2
+            if ($1 ~ /\.dist-info\/METADATA$/ && !(arch in info)) {
+              info[arch] = read_meta($1)
+            }
+          }
+          END {
+            for (k in total) {
+              f = (k in free) ? free[k] : 0
+              meta = (k in info) ? info[k] : "?\t?"
+              printf "%d\t%d\t%s\n", int(total[k]/1024), int(f/1024), meta
+            }
+          }'
       ;;
     bun-cache)
       local dir="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
