@@ -9,9 +9,10 @@ TOOLS_ATIME_COMMON=1
 
 case "$(uname -s)" in
   Darwin)
-    atime_of() { stat -L -f '%a' "$1" 2>/dev/null; }
-    mtime_of() { stat -L -f '%m' "$1" 2>/dev/null; }
-    date_fmt() { date -r "$1" +%Y-%m-%d 2>/dev/null; }
+    atime_of()  { stat -L -f '%a' "$1" 2>/dev/null; }
+    mtime_of()  { stat -L -f '%m' "$1" 2>/dev/null; }
+    nlinks_of() { stat -L -f '%l' "$1" 2>/dev/null; }
+    date_fmt()  { date -r "$1" +%Y-%m-%d 2>/dev/null; }
     _max_mtime_find() {
       find "$1" -type f -print0 2>/dev/null \
         | xargs -0 stat -L -f '%m' 2>/dev/null \
@@ -19,9 +20,10 @@ case "$(uname -s)" in
     }
     ;;
   *)
-    atime_of() { stat -L -c '%X' "$1" 2>/dev/null; }
-    mtime_of() { stat -L -c '%Y' "$1" 2>/dev/null; }
-    date_fmt() { date -d "@$1" +%Y-%m-%d 2>/dev/null; }
+    atime_of()  { stat -L -c '%X' "$1" 2>/dev/null; }
+    mtime_of()  { stat -L -c '%Y' "$1" 2>/dev/null; }
+    nlinks_of() { stat -L -c '%h' "$1" 2>/dev/null; }
+    date_fmt()  { date -d "@$1" +%Y-%m-%d 2>/dev/null; }
     _max_mtime_find() {
       find "$1" -type f -printf '%T@\n' 2>/dev/null \
         | awk 'BEGIN{m=0} {if($1>m)m=$1} END{print int(m)}'
@@ -77,27 +79,52 @@ reclaim_age() {
   fi
 }
 
-# Inspect renderer. Reads <size_kb> \t <name> \t <extra> on stdin, sorts by
-# size desc, caps at INSPECT_LIMIT (0 = no cap), emits table.
+# Inspect renderer. Reads TSV on stdin: <size_kb> \t <name> \t <extra> with an
+# optional 4th field <status> ("ref" | "prune"). When any row carries status
+# the renderer adds a STATUS column and a bucket-totals footer.
 inspect_render() {
-  local limit=${INSPECT_LIMIT:-30} total=0 count=0 sz name extra
-  local sorted
+  local limit=${INSPECT_LIMIT:-30} total=0 ref_total=0 prune_total=0 count=0
+  local sz name extra status sorted has_status=false
   if (( limit > 0 )); then
     sorted=$(sort -t $'\t' -k1,1nr | head -n "$limit")
   else
     sorted=$(sort -t $'\t' -k1,1nr)
   fi
-  while IFS=$'\t' read -r sz name extra; do
+  # Detect status mode by peeking at the 4th column. No early exit — it would
+  # SIGPIPE the upstream printf under pipefail.
+  if printf '%s' "$sorted" | awk -F'\t' 'BEGIN{r=1} $4!=""{r=0} END{exit r}'; then
+    has_status=true
+  fi
+
+  while IFS=$'\t' read -r sz name extra status; do
     [[ -z "$sz" ]] && continue
     total=$(( total + sz ))
     count=$(( count + 1 ))
-    if [[ -n "$extra" ]]; then
-      printf '%-8s  %s  (%s)\n' "$(human_size "$sz")" "$name" "$extra"
+    if [[ "$has_status" == "true" ]]; then
+      case "$status" in
+        ref)   ref_total=$(( ref_total + sz )) ;;
+        prune) prune_total=$(( prune_total + sz )) ;;
+      esac
+      local extra_str=""
+      [[ -n "$extra" ]] && extra_str="  ($extra)"
+      printf '%-8s  %-5s  %s%s\n' "$(human_size "$sz")" "$status" "$name" "$extra_str"
     else
-      printf '%-8s  %s\n' "$(human_size "$sz")" "$name"
+      if [[ -n "$extra" ]]; then
+        printf '%-8s  %s  (%s)\n' "$(human_size "$sz")" "$name" "$extra"
+      else
+        printf '%-8s  %s\n' "$(human_size "$sz")" "$name"
+      fi
     fi
   done <<<"$sorted"
-  (( count > 0 )) && printf '%-8s  %s\n' "$(human_size "$total")" "(top $count shown)"
+
+  (( count == 0 )) && return
+  if [[ "$has_status" == "true" ]]; then
+    printf '%-8s  (top %d shown)\n'                          "$(human_size "$total")"        "$count"
+    printf '%-8s  ref    (kept by `uv cache prune`)\n'       "$(human_size "$ref_total")"
+    printf '%-8s  prune  (removed by `uv cache prune`)\n'    "$(human_size "$prune_total")"
+  else
+    printf '%-8s  (top %d shown)\n' "$(human_size "$total")" "$count"
+  fi
 }
 
 inspect_render_json() {

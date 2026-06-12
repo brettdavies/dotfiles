@@ -112,20 +112,26 @@ caches_inspect() {
       local archive_root
       archive_root="$(_uv_cache_dir 2>/dev/null)/archive-v0"
       [[ -d "$archive_root" ]] || { echo "uv archive cache not found" >&2; return 1; }
-      # Each archive-v0/<hash>/<pkg>-<ver>.dist-info/METADATA → one row.
-      # Aggregate so packages with multiple cached versions roll up cleanly.
+      # One row per archive-v0/<hash>/<pkg>-<ver>.dist-info/METADATA so each
+      # cached version is visible separately — aggregation would hide which
+      # specific version is referenced vs prunable.
+      #
+      # Status comes from the METADATA file's hardlink count: nlinks > 1
+      # means some installed venv has it hardlinked in (referenced); nlinks
+      # == 1 means nothing points at it and `uv cache prune` will remove it.
+      # The host fs is ext4 — uv falls back to hardlink mode when reflink
+      # isn't available, so this signal is reliable here.
       find "$archive_root" -mindepth 2 -maxdepth 4 -name METADATA -path '*.dist-info/*' 2>/dev/null \
       | while IFS= read -r meta; do
-          local arch pkg ver sz
+          local arch pkg ver sz nl status
           arch=$(printf '%s\n' "$meta" | sed -E 's|(/archive-v0/[^/]+)/.*|\1|')
-          pkg=$(grep -m1 '^Name: ' "$meta" | cut -d' ' -f2- | tr -d '\r')
+          pkg=$(grep -m1 '^Name: '    "$meta" | cut -d' ' -f2- | tr -d '\r')
           ver=$(grep -m1 '^Version: ' "$meta" | cut -d' ' -f2- | tr -d '\r')
           sz=$(du -sk "$arch" 2>/dev/null | cut -f1)
-          printf '%d\t%s\t%s\n' "${sz:-0}" "$pkg" "$ver"
-        done \
-      | awk -F'\t' 'BEGIN{OFS=FS}
-          { sz[$2]+=$1; vers[$2]=vers[$2] ? vers[$2]","$3 : $3 }
-          END { for (k in sz) print sz[k], k, vers[k] }'
+          nl=$(nlinks_of "$meta")
+          if [[ -n "$nl" ]] && (( nl > 1 )); then status=ref; else status=prune; fi
+          printf '%d\t%s\t%s\t%s\n' "${sz:-0}" "$pkg" "$ver" "$status"
+        done
       ;;
     bun-cache)
       local dir="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
