@@ -1,0 +1,40 @@
+title = "claude-code-archive gitleaks rules"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "anthropic-key"
+description = "Anthropic API key (sk-ant-*)"
+regex = '''sk-ant-[A-Za-z0-9_-]{20,}'''
+keywords = ["sk-ant-"]
+
+[[rules]]
+id = "litellm-key"
+description = "LiteLLM-proxied key (sk-litellm-*) or LITELLM_*_KEY assignment"
+regex = '''(?i)(sk-litellm-[A-Za-z0-9_-]{16,}|LITELLM_[A-Z0-9_]*KEY\s*[:=]\s*\S+)'''
+keywords = ["sk-litellm-", "LITELLM_"]
+
+[[rules]]
+id = "op-uri"
+description = "1Password secret reference (op://vault/item/field)"
+regex = '''op://[A-Za-z0-9 _.-]+/[A-Za-z0-9 _./()-]+(?:/[A-Za-z0-9 _.-]+)?'''
+keywords = ["op://"]
+
+[[rules]]
+id = "codex-proxy-token"
+description = "Bearer token in Authorization header"
+regex = '''(?i)(authorization\s*:\s*)?Bearer\s+[A-Za-z0-9._=-]{20,}'''
+keywords = ["Bearer"]
+
+[[rules]]
+id = "gbrain-postgres-dsn"
+description = "PostgreSQL DSN with embedded credentials"
+regex = '''postgres(?:ql)?://[^:\s]+:[^@\s]+@[^/\s]+(?:/[^?\s]+)?(?:\?[^\s]*)?'''
+keywords = ["postgres://", "postgresql://"]
+
+[[rules]]
+id = "tailscale-hostname"
+description = "Tailscale tailnet hostname (reveals network topology)"
+regex = '''[a-z0-9][a-z0-9-]*\.tail[a-f0-9]+\.ts\.net'''
+keywords = [".ts.net"]

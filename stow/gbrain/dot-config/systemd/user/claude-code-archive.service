@@ -1,0 +1,16 @@
+[Unit]
+Description=Convert Claude Code session jsonl to redacted markdown (safety-net sweep)
+Documentation=file:///home/brett/dotfiles/docs/plans/2026-06-15-feat-claude-code-session-pipeline-plan.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/brett/dotfiles/scripts/sync/claude-code-archive.sh
+StandardOutput=append:%h/.gbrain/claude-code-archive.log
+StandardError=append:%h/.gbrain/claude-code-archive.err
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
