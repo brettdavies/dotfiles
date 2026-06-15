@@ -1,0 +1,51 @@
+collections:
+  vault:
+    path: /home/brett/obsidian-vault
+    pattern: "**/*.md"
+  stars:
+    path: /home/brett/github-stars
+    pattern: "**/*.md"
+  solutions:
+    path: /home/brett/dev/solutions-docs
+    pattern: "**/*.md"
+  skills:
+    path: /home/brett/dev/agent-skills
+    pattern: "**/*.md"
+  meum:
+    path: /home/brett/dev
+    pattern: meum*/**/*.md
+  streams-control:
+    path: /home/brett/box/TX-AI/streams-control
+    pattern: "**/*.md"
+  claude-code-sessions:
+    path: /home/brett/.gbrain/transcripts/claude-code
+    pattern: "**/*.md"
+    includeByDefault: false
+  nas-asupersync:
+    path: /mnt/nas/bigdaddy-backup/asupersync
+    pattern: "**/*.md"
+  nas-docs:
+    path: /mnt/nas/bigdaddy-backup/docs
+    pattern: "**/*.md"
+  nas-memory:
+    path: /mnt/nas/bigdaddy-backup/memory
+    pattern: "**/*.md"
+  nas-polymarket-analysis:
+    path: /mnt/nas/bigdaddy-backup/polymarket-analysis
+    pattern: "**/*.md"
+  nas-research:
+    path: /mnt/nas/bigdaddy-backup/research
+    pattern: "**/*.md"
+  nas-rust_scriptbots:
+    path: /mnt/nas/bigdaddy-backup/rust_scriptbots
+    pattern: "**/*.md"
+  nas-scripts:
+    path: /mnt/nas/bigdaddy-backup/scripts
+    pattern: "**/*.md"
+  nas-skills:
+    path: /mnt/nas/bigdaddy-backup/skills
+    pattern: "**/*.md"
+models:
+  embed: hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf
+  generate: hf:tobil/qmd-query-expansion-1.7B-gguf/qmd-query-expansion-1.7B-q4_k_m.gguf
+  rerank: hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf
