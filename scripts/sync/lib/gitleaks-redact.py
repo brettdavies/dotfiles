@@ -57,6 +57,10 @@ def parse_findings(raw: str) -> list[Finding]:
 
 
 def run_gitleaks(content: str, config: Path) -> tuple[int, str, str]:
+    # `errors="replace"` for stdin encoding because cc2md occasionally emits
+    # terminal control sequences inside Bash tool outputs that are not valid
+    # UTF-8. Without replacement, the subprocess encoder raises and the whole
+    # redaction pass aborts, producing a corpus gap.
     proc = subprocess.run(
         [
             "gitleaks",
@@ -73,12 +77,11 @@ def run_gitleaks(content: str, config: Path) -> tuple[int, str, str]:
             "--log-level",
             "error",
         ],
-        input=content,
+        input=content.encode("utf-8", errors="replace"),
         capture_output=True,
-        text=True,
         check=False,
     )
-    return proc.returncode, proc.stdout, proc.stderr
+    return proc.returncode, proc.stdout.decode("utf-8", errors="replace"), proc.stderr.decode("utf-8", errors="replace")
 
 
 def drop_contained(findings: list[Finding]) -> list[Finding]:
@@ -215,7 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     audit_path = Path(args.audit_jsonl) if args.audit_jsonl else None
 
     try:
-        content = input_path.read_text(encoding="utf-8")
+        content = input_path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
         print(f"gitleaks-redact: input not found: {input_path}", file=sys.stderr)
         return 2

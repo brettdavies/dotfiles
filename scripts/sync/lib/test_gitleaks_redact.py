@@ -132,6 +132,33 @@ class GitleaksRedactTest(unittest.TestCase):
         self.assertEqual(out, sample)
         self.assertEqual(events, [])
 
+    def test_non_utf8_bytes_do_not_crash(self) -> None:
+        # cc2md occasionally captures terminal control sequences from Bash
+        # tool output that decode as invalid UTF-8 continuations. The shim
+        # must not raise -- a corpus-wide redaction pass cannot abort on one
+        # bad byte.
+        with tempfile.TemporaryDirectory() as td:
+            in_path = Path(td) / "bad_bytes.md"
+            payload = b"normal text\n\xff\xfe garbage \xc3\x28 here\nsk-ant-api03-deadbeefdeadbeefdeadbeefdeadbeefdeadbeefAAAA\n"
+            in_path.write_bytes(payload)
+            captured: list[str] = []
+
+            class FakeStdout:
+                def write(self, s: str) -> int:
+                    captured.append(s)
+                    return len(s)
+
+            real_stdout = sys.stdout
+            sys.stdout = FakeStdout()  # type: ignore[assignment]
+            try:
+                rc = gr.main([str(in_path)])
+            finally:
+                sys.stdout = real_stdout
+            self.assertEqual(rc, 0)
+            joined = "".join(captured)
+            self.assertIn("[REDACTED:anthropic-key]", joined)
+            self.assertIn("normal text", joined)
+
 
 if __name__ == "__main__":
     unittest.main()
