@@ -8,6 +8,49 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# Capture push refs from stdin once. git-lfs needs them at the bottom of
+# this hook; the md-only short-circuit needs them to inspect the diff.
+PUSH_REFS=$(cat || true)
+
+# is_md_only_push: return 0 if every changed file in this push is a .md
+# file (or no files changed at all -- branch deletes, empty pushes). When
+# the comparison base for a new branch can't be resolved, return 1 so the
+# checks run defensively.
+ZERO_SHA=0000000000000000000000000000000000000000
+is_md_only_push() {
+    [[ -z "$PUSH_REFS" ]] && return 1
+    local found_any=0
+    while IFS=' ' read -r _local_ref local_sha _remote_ref remote_sha; do
+        [[ -z "$local_sha" ]] && continue
+        [[ "$local_sha" == "$ZERO_SHA" ]] && continue
+        local base files
+        if [[ "$remote_sha" == "$ZERO_SHA" ]]; then
+            base=$(git merge-base "$local_sha" origin/dev 2>/dev/null \
+                || git merge-base "$local_sha" origin/main 2>/dev/null \
+                || true)
+            [[ -z "$base" ]] && return 1
+            files=$(git diff --name-only "$base" "$local_sha")
+        else
+            files=$(git diff --name-only "$remote_sha" "$local_sha")
+        fi
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            found_any=1
+            [[ "$f" == *.md ]] || return 1
+        done <<<"$files"
+    done <<<"$PUSH_REFS"
+    [[ "$found_any" -eq 1 ]] || return 1
+    return 0
+}
+
+if is_md_only_push; then
+    echo "pre-push: markdown-only push, skipping shellcheck + bats"
+    if command -v git-lfs >/dev/null 2>&1; then
+        printf '%s' "$PUSH_REFS" | git lfs pre-push "$@"
+    fi
+    exit 0
+fi
+
 # --- ShellCheck (mirrors .github/workflows/shellcheck.yml) ---
 if command -v shellcheck >/dev/null 2>&1; then
     echo "pre-push: running shellcheck"
@@ -52,5 +95,5 @@ fi
 
 # --- Chain Git LFS pre-push hook (core.hooksPath overrides .git/hooks/) ---
 if command -v git-lfs >/dev/null 2>&1; then
-    git lfs pre-push "$@"
+    printf '%s' "$PUSH_REFS" | git lfs pre-push "$@"
 fi
