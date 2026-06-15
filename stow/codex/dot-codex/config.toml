@@ -14,5 +14,8 @@ command = "/home/brett/.cache/bun/bin/gbrain"
 [projects."/home/brett/dev/meum-control"]
 trust_level = "trusted"
 
+[projects."/home/brett/gbrain"]
+trust_level = "trusted"
+
 [tui.model_availability_nux]
 "gpt-5.5" = 1

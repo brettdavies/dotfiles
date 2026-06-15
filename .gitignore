@@ -54,3 +54,11 @@ scripts/qmd-launchd/logs/*.error.log
 # accidental commits of per-project AGENTS.md files. Negate for stow sources
 # that deploy global agent instructions to a tool's config dir.
 !stow/codex/dot-codex/AGENTS.md
+
+# gbrain source-routing dotfile. The canonical slug for this repo is
+# force-committed at the working-tree root; this rule prevents a fresh
+# `gbrain init` on a re-clone from accidentally committing a different
+# slug if the brain hasn't been provisioned with the canonical source ID.
+# See gbrain's brain-routing convention (`--source`, `GBRAIN_SOURCE`,
+# `.gbrain-source`).
+.gbrain-source

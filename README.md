@@ -75,11 +75,13 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `caam`               | `.caam/` (Claude account rotation config + vault, git-crypt encrypted)                              |
 | `claude`             | `.claude/` (settings, hooks, statusline, templates), `.markdownlint-cli2.yaml`                      |
 | `codex`              | `.codex/config.toml`                                                                                |
+| `codex-proxy`        | systemd user unit for the docker-compose codex-proxy backend (Linux only)                           |
 | `cursor`             | `.cursor/rules/`, `extensions.txt`                                                                  |
 | `gh`                 | `.config/gh/` (GitHub CLI config), `.local/bin/gh` (merge guard wrapper)                            |
 | `ghostty`            | `.config/ghostty/config`                                                                            |
 | `git`                | `.gitconfig`, `.config/git/` (ignore, allowed\_signers)                                             |
 | `github`             | `.config/github/` (PR template and other repo-workflow assets)                                      |
+| `gbrain`             | systemd user units for `gbrain sync` (every 15m) and `gbrain dream` (nightly) (Linux only)          |
 | `gogcli`             | `.config/gogcli/config.json` — Google Workspace CLI config                                          |
 | `launchagent`        | `~/Library/LaunchAgents/` (macOS only)                                                              |
 | `lazygit`            | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52                                        |
