@@ -17,6 +17,10 @@ collections:
   streams-control:
     path: /home/brett/box/TX-AI/streams-control
     pattern: "**/*.md"
+  claude-code-sessions:
+    path: /home/brett/.gbrain/transcripts/claude-code
+    pattern: "**/*.md"
+    includeByDefault: false
   nas-asupersync:
     path: /mnt/nas/bigdaddy-backup/asupersync
     pattern: "**/*.md"
