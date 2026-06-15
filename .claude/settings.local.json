@@ -86,8 +86,7 @@
       "mcp__gbrain__whoami",
       "mcp__gbrain__get_brain_identity",
       "mcp__gbrain__get_stats",
-      "mcp__gbrain__list_jobs",
-      "Bash(gbrain *)"
+      "mcp__gbrain__list_jobs"
     ]
   },
   "skillOverrides": {

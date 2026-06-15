@@ -56,6 +56,7 @@
       "Bash(for dir:*)",
       "Bash(for svc:*)",
       "Bash(free:*)",
+      "Bash(gbrain *)",
       "Bash(gh:*)",
       "Bash(gio trash:*)",
       "Bash(git-cliff:*)",
