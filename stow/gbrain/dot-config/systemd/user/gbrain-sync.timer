@@ -1,0 +1,12 @@
+[Unit]
+Description=Run gbrain sync every 15 minutes
+
+[Timer]
+# Aligned to wallclock 0/15/30/45 min so multi-machine setups don't all hit
+# the same postgres pooler at the same offset within an arbitrary epoch.
+OnCalendar=*:0/15
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target

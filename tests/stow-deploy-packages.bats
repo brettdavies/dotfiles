@@ -20,6 +20,8 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
   [[ "$shared" == *"local"* ]]
   [[ "$shared" == *"brew"* ]]
   [[ "$shared" == *"opendataloader-pdf"* ]]
+  [[ "$shared" == *"gbrain"* ]]
+  [[ "$shared" == *"codex-proxy"* ]]
 }
 
 @test "Linux-only case block covers expected packages" {
@@ -27,7 +29,10 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
   # OS gating via STOW_FLAGS --ignore handles its Linux-only systemd units,
   # which now live in stow/local/). See docs/solutions/architecture-patterns/
   # cross-platform-stow-package-gating-2026-05-17.md.
-  grep -q 'rclone|obsidian|opendataloader-pdf)' "$SCRIPT"
+  #
+  # gbrain + codex-proxy are pure systemd-unit packages (no cross-platform
+  # content), so they take the same Linux-only-skip path as rclone/obsidian.
+  grep -q 'rclone|obsidian|opendataloader-pdf|gbrain|codex-proxy)' "$SCRIPT"
 }
 
 @test "STOW_FLAGS always ignores .DS_Store" {
