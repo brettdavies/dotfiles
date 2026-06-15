@@ -19,10 +19,12 @@ set +e
 set -e
 
 DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+CLAUDE_PROJECTS="${CLAUDE_PROJECTS:-$HOME/.claude/projects}"
 CORPUS_ROOT="$HOME/.gbrain/transcripts/claude-code"
 AUDIT_DIR="$HOME/.gbrain/audit"
 AUDIT_JSONL="$AUDIT_DIR/claude-code-archive-$(date -u +%G-W%V).jsonl"
 SHIM="$DOTFILES_ROOT/scripts/sync/lib/gitleaks-redact.py"
+SUBAGENT_SHIM="$DOTFILES_ROOT/scripts/sync/lib/subagent-to-md.py"
 
 mkdir -p "$CORPUS_ROOT" "$AUDIT_DIR"
 
@@ -34,6 +36,10 @@ for bin in cc2md gitleaks jaq python3; do
 done
 [[ -r "$SHIM" ]] || {
   printf 'claude-code-archive: shim not readable at %s\n' "$SHIM" >&2
+  exit 3
+}
+[[ -r "$SUBAGENT_SHIM" ]] || {
+  printf 'claude-code-archive: subagent shim not readable at %s\n' "$SUBAGENT_SHIM" >&2
   exit 3
 }
 
@@ -66,8 +72,8 @@ emit_failed() {
 
 emit_discovered() {
   emit_event \
-    --argjson c "$1" --argjson o "$2" --argjson f "$3" --argjson s "$4" \
-    '{schema_version: 1, ts: $ts, event: "discovered", count: $c, archived: $o, failed: $f, skipped: $s}'
+    --argjson c "$1" --argjson o "$2" --argjson f "$3" --argjson s "$4" --arg src "$5" \
+    '{schema_version: 1, ts: $ts, event: "discovered", source: $src, count: $c, archived: $o, failed: $f, skipped: $s}'
 }
 
 process_jsonl() {
@@ -110,7 +116,76 @@ process_jsonl() {
   return 0
 }
 
-sweep() {
+extract_subagent_meta() {
+  local jsonl="$1"
+  jaq -r -s '
+    map(select(.type == "user" or .type == "assistant"))
+    | (.[0] // {})
+    | [(.sessionId // ""), (.agentId // ""), (.timestamp // "")]
+    | @tsv
+  ' < "$jsonl" 2>/dev/null
+}
+
+process_subagent_jsonl() {
+  local jsonl="$1"
+  local meta agent_id parent_session modified
+  meta=$(extract_subagent_meta "$jsonl")
+  if [[ -z "$meta" ]]; then
+    emit_failed "" "$jsonl" "subagent_meta_extract_failed"
+    return 1
+  fi
+  IFS=$'\t' read -r parent_session agent_id modified <<< "$meta"
+  if [[ -z "$agent_id" || -z "$parent_session" || -z "$modified" ]]; then
+    local fallback_id
+    fallback_id=$(basename "$jsonl" .jsonl | sed 's/^agent-//')
+    [[ -z "$agent_id" ]] && agent_id="$fallback_id"
+    [[ -z "$modified" ]] && modified=$(date -u -r "$jsonl" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
+    if [[ -z "$parent_session" ]]; then
+      local parent_dir
+      parent_dir=$(basename "$(dirname "$(dirname "$jsonl")")")
+      parent_session="$parent_dir"
+    fi
+  fi
+
+  local date_dir="${modified%%T*}"
+  if [[ ! "$date_dir" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    emit_failed "$agent_id" "$jsonl" "bad_modified_at:$modified"
+    return 1
+  fi
+
+  local target_dir="$CORPUS_ROOT/$date_dir"
+  local target="$target_dir/${parent_session}--${agent_id}.md"
+
+  if [[ -f "$target" ]]; then
+    emit_skipped "$agent_id" "$jsonl" "already_archived"
+    return 0
+  fi
+
+  mkdir -p "$target_dir"
+
+  local raw="$WORK_DIR/${parent_session}--${agent_id}.raw.md"
+  local clean="$WORK_DIR/${parent_session}--${agent_id}.clean.md"
+
+  if ! python3 "$SUBAGENT_SHIM" "$jsonl" -o "$raw" 2>/dev/null; then
+    emit_failed "$agent_id" "$jsonl" "subagent_convert_failed"
+    return 1
+  fi
+
+  if ! python3 "$SHIM" "$raw" --audit-jsonl "$AUDIT_JSONL" > "$clean" 2>/dev/null; then
+    emit_failed "$agent_id" "$jsonl" "redaction_subprocess_failed"
+    return 1
+  fi
+
+  if ! mv -- "$clean" "$target" 2>/dev/null; then
+    emit_failed "$agent_id" "$jsonl" "mv_to_target_failed"
+    return 1
+  fi
+
+  emit_archived "$agent_id" "$jsonl" "$target"
+  return 0
+}
+
+sweep_top_level() {
   local listing
   if ! listing=$(cc2md list --json 2>/dev/null); then
     emit_failed "" "" "cc2md_list_failed"
@@ -134,8 +209,33 @@ sweep() {
     fi
   done < <(printf '%s' "$listing" | jaq -r '.[] | [.path, .session_id, .modified_at] | @tsv')
 
-  emit_discovered "$count" "$ok" "$fail" "$skip"
+  emit_discovered "$count" "$ok" "$fail" "$skip" "top_level"
   return 0
+}
+
+sweep_subagents() {
+  local count=0 ok=0 fail=0 skip=0
+  while IFS= read -r jsonl; do
+    [[ -z "$jsonl" ]] && continue
+    count=$((count + 1))
+    if process_subagent_jsonl "$jsonl"; then
+      if tail -1 "$AUDIT_JSONL" | jaq -e '.event == "skipped"' >/dev/null 2>&1; then
+        skip=$((skip + 1))
+      else
+        ok=$((ok + 1))
+      fi
+    else
+      fail=$((fail + 1))
+    fi
+  done < <(find "$CLAUDE_PROJECTS" -path '*/subagents/agent-*.jsonl' -type f 2>/dev/null)
+
+  emit_discovered "$count" "$ok" "$fail" "$skip" "subagents"
+  return 0
+}
+
+sweep() {
+  sweep_top_level
+  sweep_subagents
 }
 
 single() {
@@ -143,6 +243,11 @@ single() {
   if [[ ! -f "$jsonl" ]]; then
     emit_failed "" "$jsonl" "jsonl_not_found"
     return 1
+  fi
+
+  if [[ "$jsonl" == *"/subagents/"* ]]; then
+    process_subagent_jsonl "$jsonl"
+    return $?
   fi
 
   local meta
