@@ -1,0 +1,11 @@
+[Unit]
+Description=Run claude-code-archive every 30 minutes (safety net for missed SessionEnd hook fires)
+
+[Timer]
+# Wall-clock aligned so multi-machine setups don't all sweep at the same offset.
+OnCalendar=*:0/30
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target
