@@ -82,12 +82,7 @@
       "Bash(/usr/bin/find ~/dotfiles/stow/qmd \\\\\\( -type f -o -type l \\\\\\))",
       "Bash(/usr/bin/find ~/dotfiles/stow/launchagent \\\\\\( -type f -o -type l \\\\\\))",
       "Bash(info *)",
-      "Bash(curl -sS http://127.0.0.1:7832/health)",
-      "mcp__gbrain__whoami",
-      "mcp__gbrain__get_brain_identity",
-      "mcp__gbrain__get_stats",
-      "mcp__gbrain__list_jobs",
-      "Bash(gbrain *)"
+      "Bash(curl -sS http://127.0.0.1:7832/health)"
     ]
   },
   "skillOverrides": {
