@@ -14,6 +14,10 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
 GEN="$REPO_ROOT/scripts/generate-changelog.py"
 
 setup() {
+    # The shebang sets PYTHONDONTWRITEBYTECODE=1; these tests invoke python3
+    # directly (CI has no uv), so set it here too to keep __pycache__ out of the
+    # tree.
+    export PYTHONDONTWRITEBYTECODE=1
     if ! python3 -c 'import tomllib' 2>/dev/null; then
         skip "python3 lacks tomllib (need >= 3.11)"
     fi

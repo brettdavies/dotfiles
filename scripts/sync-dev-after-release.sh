@@ -106,7 +106,11 @@ git checkout -b "$SYNC_BRANCH"
 # Surgical: CHANGELOG.md from main is authoritative. Never a branch merge.
 git checkout origin/main -- CHANGELOG.md
 
-if git diff --quiet CHANGELOG.md; then
+# `git checkout origin/main -- CHANGELOG.md` updates both the working tree and
+# the index, and CHANGELOG.md is the only file this backport touches, so an
+# unstaged `git diff` is always empty here. Compare the index against HEAD
+# (--cached) to tell whether main's CHANGELOG actually differs from dev's.
+if git diff --cached --quiet CHANGELOG.md; then
     echo "no changes -- dev already in sync with $VERSION"
     git switch dev
     git branch -D "$SYNC_BRANCH"
