@@ -2,80 +2,153 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.06.03]
+## [2026.06.16]
 
 ### Added
 
-- Cross-platform `stow/qmd` package: stowing `qmd` now works on both macOS and Linux with the right backend dispatched per OS. by @brettdavies in [#87](https://github.com/brettdavies/dotfiles/pull/87)
-- `STOW_FLAGS+=(--ignore='\.DS_Store$')` in `scripts/stow-deploy` (always): suppresses macOS Finder turds across every package on both OSes.
-- `STOW_FLAGS+=(--ignore='\.(service|timer)$')` in `scripts/stow-deploy` (macOS only): skips Linux systemd unit files that share packages with cross-platform content.
-- Per-platform "read PDF" opener for selectable, searchable PDF text. Pressing `o` on a PDF opens Preview.app on macOS or `pdftotext` extracted into micro on Linux. by @brettdavies in [#89](https://github.com/brettdavies/dotfiles/pull/89)
-- `y` shell wrapper (bash + zsh) that cds the parent shell to yazi's last directory on quit. Adopted in all 16 tmuxinator session configs and the `tmux-new-session` template, with a silent fallback to plain `yazi`.
-- git.yazi plugin with plain-letter status signs (M / A / D / U / ? / !) as a linemode column, computed via two prepend_fetchers in yazi.toml and registered in a new `init.lua`.
-- Brewfile entries for `yazi`, `glow`, `poppler`, `resvg`, `imagemagick`, and `sevenzip` so `brew bundle` provisions a complete yazi preview pipeline on a fresh machine: text extraction, markdown rendering, SVG rasterization, AVIF/HEIC/JXL decoding, font sample rendering, and archive contents listing.
-- `defuddle` to the Brewfile under a new web-content-extraction comment block. Fresh `brew bundle` machines now provision defuddle on PATH with zero per-call resolve cost. by @brettdavies in [#90](https://github.com/brettdavies/dotfiles/pull/90)
-- `Bash(defuddle:*)` allow-list entry on the caam streams profile alongside the existing `Bash(bunx defuddle:*)` fallback.
-- New SSH host entry that tunnels `localhost:8787` to a remote wrangler dev server via Tailscale. `ExitOnForwardFailure yes` makes a local port collision fail loudly instead of silently dropping into a shell with no tunnel. by @brettdavies in [#93](https://github.com/brettdavies/dotfiles/pull/93)
-- New `uuidv7` CLI helper at `~/.local/bin/uuidv7` (three-line `python3.14` script around `uuid.uuid7()`) for generating time-ordered, collision-proof IDs for tmp-file naming and similar one-off needs. by @brettdavies in [#94](https://github.com/brettdavies/dotfiles/pull/94)
-- `lt_check` shell function at `~/dotfiles/config/shell/languagetool.sh`. Parallel grammar-check workhorse with category whitelist, 10-rule baseline denylist, byte-offset-to-line approximation, and graceful skip when LanguageTool is unreachable. Exit codes: 0 (clean) / 1 (blocking) / 2 (unreachable, stderr notice) / 3 (usage). by @brettdavies in [#95](https://github.com/brettdavies/dotfiles/pull/95)
-- `lt_info`, `lt_languages`, `lt_rules`, `lt_categories` query helpers for inspecting the LT server and the active override surface.
-- `LT_DENY_RULES_BASELINE` constant for repo-specific extensions: `LT_DENY_RULES="${LT_DENY_RULES_BASELINE}|EXTRA_RULE"`.
-- New `config/shell/build-flags.sh` and `config/shell/run-flags.sh` that set `-march=native -O3 -pipe` CFLAGS/CXXFLAGS plus runtime env defaults for local compilation on Linux hosts. macOS toolchains skip these (handled by Xcode/brew). by @brettdavies in [#98](https://github.com/brettdavies/dotfiles/pull/98)
-- New `scripts/qmd-llama-rebuild.sh` to rebuild `node-llama-cpp` from source with the host's CPU/GPU flags, plus a runbook callout pointing at it.
-- Allow `curl -sS http://127.0.0.1:7832/health` in the local Claude allowlist for qmd-serve liveness probes. by @brettdavies in [#99](https://github.com/brettdavies/dotfiles/pull/99)
-- `scripts/playwright-deps-deploy.sh`: provisions browser launch on Linux. Always deploys the Chromium AppArmor userns profile plus a boot unit that survives reboots, and installs heavy Chromium/WebKit system libraries only when explicitly requested. by @brettdavies in [#100](https://github.com/brettdavies/dotfiles/pull/100)
-- `apparmor-playwright.service`: boot unit that reloads the Chromium userns profile at boot, because Ubuntu's `apparmor.service` is skipped on minimized server images.
-- `UserPromptSubmit` hook (`solutions-prefetch.sh`): on debugging-flavored prompts, reminds you to query `docs/solutions` before investigating. Reminder-only, fail-open, no qmd call. by @brettdavies in [#101](https://github.com/brettdavies/dotfiles/pull/101)
-- Grant Claude Code Read/Edit/Write on `/tmp/**` via `permissions.additionalDirectories`, unblocking the collision-proof `/tmp/` commit/PR/release body workflow without per-call permission prompts. by @brettdavies in [#103](https://github.com/brettdavies/dotfiles/pull/103)
-- Add `op-skill-nudge.sh` PreToolUse/Bash hook so secret-handling commands trigger the 1Password skill helper before execution.
-- New "Resolution-time aging window (cooldown)" section in `supply-chain-pinning.md` covering Bundler 4.0.13+ `cooldown`, uv `exclude-newer`, pnpm `minimumReleaseAge`, and the per-tool emergency-bypass flags. Notes that npm and bun have no native equivalent. by @brettdavies in [#104](https://github.com/brettdavies/dotfiles/pull/104)
-- `CONCEPTS.md` at repo root: 9-entry glossary in 4 clusters (Hosts, Packages, System configuration, Policies). Names the project-specific terms a new engineer needs defined to follow conversations, tickets, or code in this repo. by @brettdavies in [#105](https://github.com/brettdavies/dotfiles/pull/105)
-- AGENTS.md `## Reference` section: one-line entry pointing at `CONCEPTS.md` so agents and collaborators discover the shared vocabulary alongside `docs/solutions/`.
+- Export `TMUXINATOR_CONFIG` from `config/shell/tmuxinator.sh` so tmuxinator reads and writes the stow source directly,
+  no backport step. by @brettdavies in [#109](https://github.com/brettdavies/dotfiles/pull/109)
+- Six tmuxinator templates land in the stow package: `birdskill`, `brettdavies`, `homebrew`, `qmd`, `ssite`, `xrskill`.
+- `@`-import of `git-and-github.md` in global CLAUDE.md so the git/GitHub workflow rules load in every Claude Code
+  session. by @brettdavies in [#111](https://github.com/brettdavies/dotfiles/pull/111)
+- `anc-dev` SSH tunnel now forwards the Wrangler dev range, dev registry, Worker inspector, and common dev ports
+  (3000/5173/8080). by @brettdavies in [#112](https://github.com/brettdavies/dotfiles/pull/112)
+- Supply-chain exception documenting `@main` pins for brettdavies-owned reusable workflows.
+- `stow/ollama/` package containing the systemd override drop-in, deploy runbook, and `.stow-local-ignore` exclusion
+  list. by @brettdavies in [#113](https://github.com/brettdavies/dotfiles/pull/113)
+- `docs/solutions/**` to the markdownlint ignore list. Consumed by every brettdavies repo that copies this template via
+  the `github-repo-setup` bootstrap procedure. by @brettdavies in
+  [#114](https://github.com/brettdavies/dotfiles/pull/114)
+- Adopt the official Codex self-installer (`curl -fsSL https://chatgpt.com/codex/install.sh | sh`) as the supported
+  install path; deploys to `~/.local/bin/codex` with `codex update` for self-updating. by @brettdavies in
+  [#115](https://github.com/brettdavies/dotfiles/pull/115)
+- Add `~/.codex/AGENTS.md` (stowed) as a cross-package symlink to `~/.claude/CLAUDE.md` so codex picks up the same
+  global agent rules as Claude Code.
+- Add the `gbrain` MCP server to codex via `mcp_servers.gbrain`, mirroring the Claude config.
+- Define `Cross-package symlink` in `CONCEPTS.md` so future docs and PRs can cite the pattern without redefinition. by
+  @brettdavies in [#116](https://github.com/brettdavies/dotfiles/pull/116)
+- `tmux-prune-orphans.timer` systemd user timer (fires at 02:15 local) that sweeps orphan tmux clients whose controlling
+  terminal died. by @brettdavies in [#117](https://github.com/brettdavies/dotfiles/pull/117)
+- `client-detached` hook in `tmux.conf` invoking the same prune script on every client disconnect.
+- New `tools-atime` script under `scripts/tools-atime/` that ranks installed CLI tools across brew, uv, cargo, bun, and
+  caches by last-used time and disk footprint. by @brettdavies in
+  [#119](https://github.com/brettdavies/dotfiles/pull/119)
+- `--inspect <target>` drill-down for `uv-cache`, `bun-cache`, `brew/<formula>`, `uv/<tool>`, `cargo/<crate>`, and
+  `bun/<pkg>`. uv-cache reports TOTAL and FREEABLE per archive so the user sees honest disk-reclaim potential.
+- `--reclaim` guided interactive cleanup mode that walks top reclaim candidates, prompts per row with a manager-specific
+  action menu, and dispatches to the right PM subcommand. Dry-run by default; `--apply` executes.
+- Auto-loaded `## Voice notes` section in global `CLAUDE.md` pointing the agent at
+  `~/dev/brettdavies/brettdavies/.context/voice.md` for drafting prose in Brett's voice, with an explicit register split
+  (heavy on conversational surfaces, light on technical artifacts). by @brettdavies in
+  [#120](https://github.com/brettdavies/dotfiles/pull/120)
+- Voice-match instruction paired with `/unslop` in step 2 of the "Authoring GitHub correspondence" workflow in
+  `guides/git-and-github.md`, so deterministic scrubbing and voice-matching happen in the same pass.
+- Stow package `gbrain`: systemd user units for `gbrain sync` (every 15m) and `gbrain dream` (nightly 02:00),
+  Linux-only. by @brettdavies in [#121](https://github.com/brettdavies/dotfiles/pull/121)
+- Stow package `codex-proxy`: oneshot systemd user unit that brings up the docker-compose codex-proxy stack so paid LLM
+  traffic bills against corp ChatGPT credits, Linux-only.
+- `LITELLM_API_KEY` env var exported from `stow/secrets/dot-secrets`, sourced at shell init from the `secrets-dev`
+  1Password vault.
+- `LITELLM_BASE_URL` env var (`http://localhost:8080/v1`) exported from `config/shell/litellm.sh`.
+- `stow/codex/dot-codex/config.toml` is git-crypt encrypted at rest. by @brettdavies in
+  [#122](https://github.com/brettdavies/dotfiles/pull/122)
+- Trust entries in codex config for `~` and `~/dotfiles`.
+- New `claude-code-archive` systemd timer (every 30 min) that converts Claude Code session jsonl to redacted markdown
+  under `~/.gbrain/transcripts/claude-code/`. Idempotent and corpus-permanent; survives Claude Code's 30-day eviction
+  window. by @brettdavies in [#123](https://github.com/brettdavies/dotfiles/pull/123)
+- New `claude-code-sessions` qmd collection, default-excluded from `qmd query` results. Reach raw transcripts with `qmd
+  query -c claude-code-sessions "<phrase>"`.
+- New `claude-code-synthesize-sweep.sh` script for hand-rolled `gbrain dream --phase synthesize` backfill over the
+  corpus. Ships ready; the user invokes manually with cost-monitoring via the existing
+  `~/.gbrain/audit/dream-budget-*.jsonl` ledger. `--dry-run` and `-h/--help` are safe no-cost paths.
+- New `~/.config/qmd/index.yml` adopted into stow management (`stow/qmd/dot-config/qmd/`), where it was previously a
+  plain unversioned file.
+- New `subagent-to-md.py` converter for the subagent jsonl shape that `cc2md` doesn't understand (different fields:
+  `agentId`, `parentUuid`, `entrypoint`). Output mirrors cc2md's markdown so the corpus stays uniform for qmd and
+  synthesize. by @brettdavies in [#124](https://github.com/brettdavies/dotfiles/pull/124)
+- `claude-code-archive.sh` now walks `~/.claude/projects/**/subagents/agent-*.jsonl` in addition to cc2md's top-level
+  session list. Brings the corpus to ~1156 transcripts (was ~256).
+- New SessionEnd hook `~/.claude/claude-code-archive.sh` fires the archive on session close. Defensive schema: tries
+  `.transcript_path`, falls back to `.session_id` filesystem walk. Fire-and-forget, always exits 0.
+- `stow/gbrain/dot-gbrain/config.json` (git-crypt encrypted) and `stow/gbrain/dot-gbrain/preferences.json` (plain).
+  `scripts/stow-deploy gbrain` symlinks them to `~/.gbrain/`. by @brettdavies in
+  [#126](https://github.com/brettdavies/dotfiles/pull/126)
+- uv install-time malware check: every sync queries OSV for known-malware advisories against the locked resolution and
+  aborts before a matched package's code runs. Enabled when uv >= 0.11.16 is installed; bypass a single run with
+  `UV_MALWARE_CHECK=0`. by @brettdavies in [#127](https://github.com/brettdavies/dotfiles/pull/127)
+- `scripts/sync-dev-after-release.sh`: post-release backport that surgically copies `CHANGELOG.md` from `origin/main`
+  and opens a PR to `dev`, so dev's changelog stops drifting behind released history. CalVer-validated
+  (`YYYY.MM.DD[.N]`), idempotent, with preflight guards on tag existence, main reachability, and GitHub Release publish
+  state. by @brettdavies in [#128](https://github.com/brettdavies/dotfiles/pull/128)
+- `scripts/generate-changelog.py`: vendored git-cliff + PR-body changelog generator with CalVer release-branch detection
+  and a `--print-tag` helper.
 
 ### Changed
 
-- `stow/qmd/dot-local/bin/qmd` is now an OS-aware dispatcher (`case "$(uname -s)"` → `~/dev/qmd/qmd` on Linux, `~/.cache/bun/bin/qmd` on macOS). by @brettdavies in [#87](https://github.com/brettdavies/dotfiles/pull/87)
-- Linux-only qmd artifacts (7 systemd `.service`/`.timer` units + the `qmd-ollama-unload-all` helper) moved from `stow/qmd/` into `stow/local/`.
-- `qmd` removed from the Linux-only skip case in `scripts/stow-deploy` (the package is now cross-platform).
-- WebFetch-intercept hook (`stow/claude/dot-claude/defuddle-webfetch.sh`) redirects to `defuddle parse <url>` instead of `bunx defuddle parse <url>`. by @brettdavies in [#90](https://github.com/brettdavies/dotfiles/pull/90)
-- `gh` wrapper's pr-merge-to-main block: second line now reads "Ask the human to perform the merge; the PR body is used as the squash commit message" (was: "Please provide a ready-to-paste squash merge commit message").
-- Rename `QMD_SERVER` env var to `QMD_REMOTE_URL` and `qmd serve --sequential` flag to `qmd serve --low-vram`, matching the upstream qmd fork. Anyone with a manual `export QMD_SERVER=…` elsewhere needs to switch to `QMD_REMOTE_URL`. by @brettdavies in [#92](https://github.com/brettdavies/dotfiles/pull/92)
-- GitHub-correspondence workflow in CLAUDE.md now requires collision-proof tmp-file names: `/tmp/pr-body-<repo>.<branch>.md` for PR-scoped artifacts and `/tmp/<kind>-$(uuidv7).md` for everything else. Step 3 also now requires `trash <path>` after a successful `gh` or `git commit` call. by @brettdavies in [#94](https://github.com/brettdavies/dotfiles/pull/94)
-- `stow/claude/dot-claude/heredoc-pr-guard.sh` deny reasons now point at `~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop"` and show the canonical filename per artifact class (`/tmp/pr-body-<repo>.<branch>.md`, `/tmp/commit-msg-$(uuidv7).md`, etc.). by @brettdavies in [#95](https://github.com/brettdavies/dotfiles/pull/95)
-- `stow/local/dot-config/systemd/user/qmd-serve.service` now sets `Environment=NODE_LLAMA_CPP_GPU=cuda`, pinning the backend so the daemon survives NVIDIA driver branch upgrades. by @brettdavies in [#98](https://github.com/brettdavies/dotfiles/pull/98)
-- Tighten PR body rules: summaries describe the net diff vs the base branch; triple-diff stats, leak-check output, patch-id counts, pre-push gate results, CI status, prose-scrub findings, and exclusion rationale stay out of the body. by @brettdavies in [#99](https://github.com/brettdavies/dotfiles/pull/99)
-- CLAUDE.md "Query solutions first" rule now explicitly covers `/investigate` and other gstack debugging skills, and extends the qmd-learnings-researcher dispatch to them. by @brettdavies in [#101](https://github.com/brettdavies/dotfiles/pull/101)
-- Restructure the global `CLAUDE.md` into a progressive-disclosure layout: a slim always-on index plus seven on-demand topic guides under `~/.claude/guides/` (cli-tools, code-comments, git-and-github, local-only-files, supply-chain-pinning, workflows-and-skills, writing-safety). Reduces always-on context while preserving every rule; detail loads with Read only when the relevant task runs. by @brettdavies in [#102](https://github.com/brettdavies/dotfiles/pull/102)
-- Strengthen CI watch policy (`CLAUDE.md` + `ci-watch-prompt.sh` header): a completed watcher is not a green watcher. After every completion notification, re-query `gh pr view --json statusCheckRollup,mergeStateStatus` (or `gh run view --json conclusion`) and assert every conclusion is `SUCCESS`. by @brettdavies in [#103](https://github.com/brettdavies/dotfiles/pull/103)
-- Expand chain-discovery rule to cover cross-repo `repository_dispatch` flows (e.g. agentnative-cli release → brettdavies/homebrew-tap → callback to agentnative-cli finalize-release). Both repos must be watched and re-queried until they quiesce.
-- Pin `autoUpdatesChannel: "stable"`, `enableWorkflows: false`, `workflowKeywordTriggerEnabled: false`; bump `effortLevel` from `high` to `xhigh`.
-- Relocate `skillOverrides` from the trailing block to immediately after `permissions` (content unchanged).
+- Rename `homebrewcore.yml` to `hbcore.yml` and `homebrewtap.yml` to `hbtap.yml`. Drop standalone `homebrew.yml`. by
+  @brettdavies in [#109](https://github.com/brettdavies/dotfiles/pull/109)
+- Humanize every `name:` field (`ANC CLI`, `HB Core`, `Agent Skills`, etc.).
+- CLAUDE.md preamble calls out `git-and-github.md` as the one auto-loaded guide. by @brettdavies in
+  [#111](https://github.com/brettdavies/dotfiles/pull/111)
+- Resolution-time cooldown section documents per-tool native support (Bundler, uv, pip, npm, pnpm, yarn, bun) and tools
+  without it (cargo, Homebrew, Go modules), pointing at `config/shell/supply-chain.sh`. by @brettdavies in
+  [#112](https://github.com/brettdavies/dotfiles/pull/112)
+- `docs/solutions/` symlink recreate command uses an absolute `$HOME` path for portability across repo depths.
+- ollama systemd unit binds to `127.0.0.1:11434` (loopback only) instead of `0.0.0.0:11434` (all interfaces). LAN
+  clients and tailnet peers can no longer reach the raw API by IP; intentional reach paths are loopback, the
+  `svc:ollama` Tailscale Serve service, and a per-stack docker socat sidecar. by @brettdavies in
+  [#113](https://github.com/brettdavies/dotfiles/pull/113)
+- Canonical version bumped `2026.04.15` to `2026.06.09`. by @brettdavies in
+  [#114](https://github.com/brettdavies/dotfiles/pull/114)
+- Expand `~/.codex/config.toml` with `sandbox_mode = "workspace-write"`, `approval_policy = "on-request"`,
+  `model_reasoning_summary = "auto"`, `web_search = "live"`, and `features.memories = true`. by @brettdavies in
+  [#115](https://github.com/brettdavies/dotfiles/pull/115)
+- Negate the global `~/.config/git/ignore` block on `AGENTS.md` for the single stow source path
+  `stow/codex/dot-codex/AGENTS.md` so the stowed agent rules can be committed.
+- Ollama service now keeps up to 4 models hot in VRAM. Reduces evict-and-reload thrash when routing across embedding,
+  chat, and codegen models in quick succession. by @brettdavies in
+  [#118](https://github.com/brettdavies/dotfiles/pull/118)
+- `.claude/settings.local.json` allowlists `Bash(gbrain *)` and the gbrain MCP read-side tools (`whoami`,
+  `get_brain_identity`, `get_stats`, `list_jobs`) so headless cycles don't prompt. by @brettdavies in
+  [#121](https://github.com/brettdavies/dotfiles/pull/121)
+- `stow/codex/dot-codex/config.toml` trusts `~/gbrain` so the codex CLI runs unattended for headless dream cycles.
+- gbrain allowlist (`Bash(gbrain *)` and four `mcp__gbrain__*` MCP entries) moved from project-local
+  `.claude/settings.local.json` to user-global `~/.claude/settings.json`. by @brettdavies in
+  [#122](https://github.com/brettdavies/dotfiles/pull/122)
+- `gbrain` now reads `dream.synthesize.session_corpus_dir = ~/.gbrain/transcripts/claude-code/`. Nightly
+  `gbrain-dream.timer` picks up new transcripts automatically (12h synth cooldown still applies on the corpus-scan
+  path). by @brettdavies in [#123](https://github.com/brettdavies/dotfiles/pull/123)
+- `emit_discovered` audit event now carries a `source` field (`top_level` or `subagents`) so the two sweep passes can be
+  counted separately without re-derivation. by @brettdavies in [#124](https://github.com/brettdavies/dotfiles/pull/124)
+- Pre-push hook now skips shellcheck + bats when every changed file in the push is `.md`. git-lfs still runs in all
+  cases. by @brettdavies in [#125](https://github.com/brettdavies/dotfiles/pull/125)
 
 ### Fixed
 
-- The PostToolUse `ci-watch-prompt.sh` hook now retries `gh run list` up to 5 times with a 2 s delay between attempts. Previously the hook queried once with a 2 s lead-in, which lost the race against GitHub's API surfacing newly-triggered runs (especially after `gh pr create`) and silently exited without emitting the watch reminder. by @brettdavies in [#87](https://github.com/brettdavies/dotfiles/pull/87)
-- 3-pane tmuxinator sessions (`mux start <name>` / `tmuxinator start <name>`) now resize to the documented 33% yazi / 67% shell / 33% lazygit layout when launched from a bare shell, not only from inside an existing tmux session. by @brettdavies in [#88](https://github.com/brettdavies/dotfiles/pull/88)
-- Yazi 26.x no longer prints TOML parse errors at startup for the stowed yazi, theme, and keymap configs. Editor schema tooling continues to work via the Taplo `#:schema` directive. by @brettdavies in [#89](https://github.com/brettdavies/dotfiles/pull/89)
-- Yazi image preview (PNG, JPEG, etc.) now renders inside tmux on macOS with Ghostty. Previously the panel was blank because tmux stripped the Kitty graphics escape sequences yazi emits.
-- Yazi SVG, AVIF / HEIC / JXL, font, and archive previews now render via the corresponding built-in previewers plus their newly-tracked external tools.
-- `y()` yazi wrapper rejects malformed `--cwd-file` output via an `[ -d "$cwd" ]` guard, matching yazi's upstream canonical pattern. Function doc-comment now states the actual yazi defaults (`q` writes cwd-file; `Q` does not). by @brettdavies in [#90](https://github.com/brettdavies/dotfiles/pull/90)
-- Stop emitting `npm warn Unknown env config "minimum-release-age"` on every `npm` invocation. The pnpm-only env var is now exported only when pnpm is on PATH, and the npm-only env var is gated on `npm --version` being 11.10.0 or newer. by @brettdavies in [#91](https://github.com/brettdavies/dotfiles/pull/91)
-- `qmd-serve` queries no longer fall back to slow Vulkan inference. Verified end-to-end after a 570 → 580 driver swap on the dev box: expand query 25.3s → 2.7s, rerank 40 chunks 31.1s → 1.9s, total cold query 114s → 12.4s (≈9-16x). by @brettdavies in [#98](https://github.com/brettdavies/dotfiles/pull/98)
+- Align `on_project_first_start` resize-pane targets with each project's `name:` field, including quoting for names that
+  contain spaces. Corrects both the new renames and pre-existing copy-paste targets that pointed at the wrong session.
+  by @brettdavies in [#109](https://github.com/brettdavies/dotfiles/pull/109)
+- Removed plaintext `OPENAI_API_KEY` literal from `stow/secrets/dot-secrets`. git-crypt protects the file at rest, but
+  the inline export was still a leak path for anyone with the git-crypt key. Slot is preserved as a commented
+  placeholder so callsites that previously read `$OPENAI_API_KEY` migrate to `$LITELLM_API_KEY` against the local proxy.
+  by @brettdavies in [#121](https://github.com/brettdavies/dotfiles/pull/121)
+- Shell startup tests in `tests/shell-config.bats` no longer fail. Interactive zsh/bash and non-interactive zsh are back
+  under their respective 500ms/200ms budgets. by @brettdavies in
+  [#122](https://github.com/brettdavies/dotfiles/pull/122)
+- Release runbook pointed at `~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh`, which no longer exists;
+  the changelog step was unrunnable as written. by @brettdavies in
+  [#128](https://github.com/brettdavies/dotfiles/pull/128)
 
 ### Documentation
 
-- New: `docs/solutions/architecture-patterns/cross-platform-stow-package-gating-2026-05-17.md` documenting the package-level vs file-level OS gating decision framework, the file-extension-regex rationale (stow 2.4.1's `--ignore` matches file basenames not directory names), and adjacent gotchas (bun global cache purge silently uninstalls binaries; macOS Finder `.DS_Store` proliferation). by @brettdavies in [#87](https://github.com/brettdavies/dotfiles/pull/87)
-- Refreshed: `docs/solutions/deployment-issues/stow-conflict-resolution-wrapper.md` and `docs/solutions/architecture-patterns/stow-dotfiles-architecture-and-failure-modes-2026-04-20.md` to incorporate the new gating tier in their failure-mode maps, hardened-defaults lists, and reference sections.
-- `AGENTS.md` Reference section gains a link to the new architecture-patterns doc.
-- New "Code Comments" policy section in CLAUDE.md codifying the WHY-only standard, hard bans, allowed external refs, and language-specific overrides for public surface area. by @brettdavies in [#94](https://github.com/brettdavies/dotfiles/pull/94)
-- New paragraph in `AGENTS.md § Shell Config Chain` titled "External scripts that need a helper must source it explicitly". It documents that non-login bash scripts (git hooks, CI, `bash scripts/foo.sh`) read no startup files, so they must source helpers with the `DOTFILES_SHELL_DIR` fallback pattern. by @brettdavies in [#95](https://github.com/brettdavies/dotfiles/pull/95)
-- Add explicit anti-pattern note to `CLAUDE.md`: don't write the tmp commit/PR-body path to a sidecar file and re-read it later. Re-paste the literal path in each Bash call, or recompute it deterministically. Rule applies to any sidecar filename. Picking a different name doesn't make it safe. by @brettdavies in [#96](https://github.com/brettdavies/dotfiles/pull/96)
-- `docs/runbooks/headless-gpu-server-nvidia-driver.md` gains a DKMS-migration section and an A.6 post-migration GPU consumer verification step, capturing what was learned during the diagnostic cycle. by @brettdavies in [#98](https://github.com/brettdavies/dotfiles/pull/98)
-- Runbook for diagnosing `browse` and Playwright browser-launch failures on Linux: sandbox `Permission denied` (profile not loaded) versus missing WebKit dependencies. by @brettdavies in [#100](https://github.com/brettdavies/dotfiles/pull/100)
-- Add `docs/progressive-disclosure-evals.md`: a six-eval harness verifying fetch-on-demand and prohibition-floor behavior, with a validity gate noting the suite must run from a fresh `claude` process. by @brettdavies in [#102](https://github.com/brettdavies/dotfiles/pull/102)
-- `RELEASES.md § PRs and changelog generation`: add the rule that release PR bodies use one logical line per bullet and paragraph (GitHub soft-wraps), and that bullets copied from `CHANGELOG.md` must be unwrapped first because the source content is pre-wrapped at the repo's MD013 limit. by @brettdavies in [#107](https://github.com/brettdavies/dotfiles/pull/107)
+- Global PR template comment under `## Changelog` names `generate-changelog.py` as the script that parses the
+  categorized bullets at release time. by @brettdavies in [#110](https://github.com/brettdavies/dotfiles/pull/110)
+- `OLLAMA_MAX_LOADED_MODELS=4` comment expanded with VRAM math and eviction semantics. by @brettdavies in
+  [#122](https://github.com/brettdavies/dotfiles/pull/122)
+- `RELEASES.md` now documents the post-release backport-to-dev step and drops the stale "dev is untouched" claim. by
+  @brettdavies in [#128](https://github.com/brettdavies/dotfiles/pull/128)
 
-**Full Changelog**: [2026.06.03...2026.06.03](https://github.com/brettdavies/dotfiles/compare/2026.06.03...2026.06.03)
+**Full Changelog**: [2026.06.03...2026.06.16](https://github.com/brettdavies/dotfiles/compare/2026.06.03...2026.06.16)
 
 ## [2026.06.03]
 
@@ -144,9 +217,6 @@ All notable changes to this project will be documented in this file.
   @brettdavies in [#105](https://github.com/brettdavies/dotfiles/pull/105)
 - AGENTS.md `## Reference` section: one-line entry pointing at `CONCEPTS.md` so agents and collaborators discover the
   shared vocabulary alongside `docs/solutions/`.
-- Promote compound-engineering implementation-loop skills (`ce-brainstorm`, `ce-code-review`, `ce-compound`,
-  `ce-compound-refresh`, `ce-ideate`, `ce-plan`, `ce-work`) from per-machine `settings.local.json` to the stowed global
-  `settings.json` so every machine gets the allowed set without re-prompting.
 
 ### Changed
 
@@ -252,9 +322,10 @@ All notable changes to this project will be documented in this file.
 - Add `docs/progressive-disclosure-evals.md`: a six-eval harness verifying fetch-on-demand and prohibition-floor
   behavior, with a validity gate noting the suite must run from a fresh `claude` process. by @brettdavies in
   [#102](https://github.com/brettdavies/dotfiles/pull/102)
-- New `docs/runbooks/headless-gpu-server-nvidia-driver.md`: end-to-end runbook for headless Ubuntu GPU servers covering
-  NVIDIA driver branch upgrades, DKMS migration, and post-migration GPU consumer verification (qmd-serve, ollama).
-  Subsequently refined by PR #98 with the DKMS-migration section and A.6 verification step.
+- `RELEASES.md § PRs and changelog generation`: add the rule that release PR bodies use one logical line per bullet and
+  paragraph (GitHub soft-wraps), and that bullets copied from `CHANGELOG.md` must be unwrapped first because the source
+  content is pre-wrapped at the repo's MD013 limit. by @brettdavies in
+  [#107](https://github.com/brettdavies/dotfiles/pull/107)
 
 **Full Changelog**: [2026.05.16...2026.06.03](https://github.com/brettdavies/dotfiles/compare/2026.05.16...2026.06.03)
 
@@ -466,7 +537,7 @@ All notable changes to this project will be documented in this file.
 
 - Document the triple-diff verification step in `RELEASES.md` (main→release, release→dev, dev→main + guarded-paths grep
 - `git cherry` patch-id sweep) so missed cherry-picks get caught before the release tag goes out instead of after. by
-    @brettdavies in [#60](https://github.com/brettdavies/dotfiles/pull/60)
+  @brettdavies in [#60](https://github.com/brettdavies/dotfiles/pull/60)
 - Document the cliff.toml chore-skip footgun in the `RELEASES.md` review step — generated changelog must be
   cross-checked against PR bodies for cherry-picked PRs whose commit subject starts with a skipped type.
 - Add "Prefer `feat`/`fix` over `chore` when the change has any user-observable effect" rule to global CLAUDE.md `##
@@ -489,6 +560,7 @@ All notable changes to this project will be documented in this file.
 - `qmd-cleanup.timer` + `qmd-cleanup.service`: nightly `qmd cleanup` with `RandomizedDelaySec=2h` so fires land in a
   [03:00, 05:00] window. by @brettdavies in [#51](https://github.com/brettdavies/dotfiles/pull/51)
 - `qmd-ollama-unload-all` helper: dynamically frees Ollama VRAM only when GPU has less than `MIN_FREE_MIB` (default
+
 1) free, leaving hot pins alone when headroom is sufficient.
 
 - `stow/claude/dot-claude/md-align-tables.py`: GFM table aligner with PEP 723 inline metadata (uv run --script). Reflows
