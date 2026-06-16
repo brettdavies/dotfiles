@@ -6,5 +6,6 @@ stow/gh/dot-config/gh/hosts.yml filter=git-crypt diff=git-crypt
 stow/rclone/dot-config/rclone/rclone.conf filter=git-crypt diff=git-crypt
 stow/caam/dot-local/share/caam/vault/** filter=git-crypt diff=git-crypt
 stow/codex/dot-codex/config.toml filter=git-crypt diff=git-crypt
+stow/gbrain/dot-gbrain/config.json filter=git-crypt diff=git-crypt
 
 snapshots/tailscale/** filter=git-crypt diff=git-crypt
