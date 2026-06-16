@@ -128,10 +128,9 @@ git cherry HEAD origin/dev | grep '^+' || echo "(none — release is patch-equiv
 # triple-diff. Missed cherry-picks have shipped to main on sibling repos
 # before — this step is the cheap way to catch them.
 
-# 4. Generate CHANGELOG.md. Pass --tag explicitly: the script's branch detection
-#    expects `release/vN.N.N` (SemVer) and does not parse CalVer branch names.
-GITHUB_TOKEN=$(gh auth token) \
-  ~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh --tag "$(date +%Y.%m.%d)"
+# 4. Generate CHANGELOG.md. On a release/YYYY.MM.DD branch the version is
+#    detected automatically; --tag is only needed when run off such a branch.
+GITHUB_TOKEN=$(gh auth token) scripts/generate-changelog.py
 
 # 5. Review CHANGELOG.md. See the "CHANGELOG is generated, never hand-written"
 #    subsection below for the cliff.toml chore-skip footgun and how to recover.
@@ -147,7 +146,9 @@ gh pr create --base main --title "release: $(date +%Y.%m.%d)" \
 ```
 
 When the PR merges (squash-only, enforced by `protect-main.json`), the push to `main` triggers `release.yml`. The
-release branch can be deleted from the GitHub UI after merge; `dev` is untouched.
+release branch can be deleted from the GitHub UI after merge. Once the release tag and GitHub Release publish, bring the
+release-only files back to `dev` with the backport step below — skip it and `dev`'s `CHANGELOG.md` drifts behind every
+release.
 
 ### Why branch from main and cherry-pick, not merge dev
 
@@ -165,11 +166,10 @@ creates fresh SHAs on the release branch that represent exactly the delta being 
 
 ### CHANGELOG is generated, never hand-written
 
-`~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh` (with `cliff.toml`) is the only sanctioned way to
-update `CHANGELOG.md`. The script runs `git-cliff` to prepend a versioned entry for commits since the last tag, then
-walks each squash-merged PR's body to extract the `## Changelog` section's `### Added` / `### Changed` / `### Fixed` /
-`### Documentation` subsections, replacing the auto-generated bullets with the curated PR-body content (with author and
-PR-link attribution).
+`scripts/generate-changelog.py` (with `cliff.toml`) is the only sanctioned way to update `CHANGELOG.md`. The script runs
+`git-cliff` to prepend a versioned entry for commits since the last tag, then walks each squash-merged PR's body to
+extract the `## Changelog` section's `### Added` / `### Changed` / `### Fixed` / `### Documentation` subsections,
+replacing the auto-generated bullets with the curated PR-body content (with author and PR-link attribution).
 
 If a PR's `## Changelog` section is empty, that PR's entry is omitted from the changelog (the convention in
 [`.github/pull_request_template.md`](.github/pull_request_template.md): empty section = no user-facing change). To fix a
@@ -194,6 +194,27 @@ The tag is **not** created locally. `release.yml` triggers on any push to `main`
 | `Create GitHub Release`  | `softprops/action-gh-release` publishes a release with the extracted notes as the body.                                                                     |
 
 No crates, no cross-compiled binaries, no Homebrew dispatch — this repo is config-only.
+
+### Backport to dev after release
+
+`release/*` is cut from `origin/main` and regenerates `CHANGELOG.md` there. That commit never round-trips to `dev`, so
+without a deliberate backport `dev`'s `CHANGELOG.md` freezes at the last release it saw while `main` marches on. Once
+the release tag and GitHub Release have published, run:
+
+```bash
+scripts/sync-dev-after-release.sh "$(git describe --tags --abbrev=0 origin/main)"
+```
+
+It copies `CHANGELOG.md` verbatim from `origin/main` onto a `chore/sync-dev-after-<version>` branch and opens a PR to
+`dev`. The copy is **surgical** — only `CHANGELOG.md` moves, only `main → dev`. `dev` is normally many commits ahead of
+`main`, so a branch merge would revert unreleased work; the script never does that, and refuses to run on a dirty tree
+or before the GitHub Release is published. Confirm the PR's only changed file is `CHANGELOG.md`, then squash-merge it.
+The run is idempotent — if `dev` already matches `main`, it exits without opening a PR.
+
+If a release also polished `README.md` or `RELEASES.md` on `main`, those edits drift the same way. Check `git diff
+origin/dev..origin/main -- README.md RELEASES.md` and fold any real release-prep changes into the same backport PR by
+hand. Background:
+[`docs/solutions/workflow-issues/post-release-backport-prevents-diff-b-false-positives-2026-05-07.md`](docs/solutions/workflow-issues/post-release-backport-prevents-diff-b-false-positives-2026-05-07.md).
 
 ### Emergency docs fix to main
 
@@ -260,8 +281,9 @@ Committing the JSON alongside config means ruleset changes land via the same rev
 
 ## Troubleshooting
 
-**`generate-changelog.sh` errors with "could not detect version":** Always pass `--tag YYYY.MM.DD` explicitly. The
-script's branch detection expects `release/vN.N.N` (SemVer) and does not parse CalVer branch names.
+**`generate-changelog.py` errors with "could not detect version":** Run it from a `release/YYYY.MM.DD` branch, where the
+version is detected automatically, or pass `--tag YYYY.MM.DD` explicitly when running off such a branch. Confirm
+detection without a full run via `scripts/generate-changelog.py --print-tag`.
 
 **Empty changelog sections:** Ensure `cliff.toml` has `[remote.github]` with `owner` and `repo` for PR body expansion,
 and that `GITHUB_TOKEN` is exported (the command above falls back to `gh auth token`).
