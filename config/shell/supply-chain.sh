@@ -25,6 +25,46 @@ _sc_minutes=$(( _sc_hours * 60 ))
 # uv/uvx/uv run — native relative duration (v0.9.17+)
 export UV_EXCLUDE_NEWER="${_sc_days} days"
 
+# uv install-time malware check (preview, v0.11.16+). Every sync — uv add, uv
+# sync, uv run, uvx, uv tool install — looks up the locked resolution against
+# OSV's MAL advisories (OpenSSF malicious-packages) and aborts before any matched
+# distribution's code runs. This COMPLEMENTS the cooldown above; it does not
+# replace it. The check only catches malware that already has a public advisory,
+# and most malicious uploads aren't advised until days after publication — the
+# exact window UV_EXCLUDE_NEWER covers. Astral recommends running both
+# (https://astral.sh/blog/uv-audit, footnote 3), so the cooldown stays at
+# _sc_days regardless of this check.
+#
+# Fail-closed: if OSV is unreachable the sync errors ("Malware check failed due
+# to an error from OSV"), even under --offline (the lookup isn't cached per
+# resolution). Bypass a single invocation with `UV_MALWARE_CHECK=0`.
+#
+# Version-gated: the `malware-check` preview feature prints an "Unknown preview
+# feature" warning on every command for uv < 0.11.16, so set it only when the
+# running uv supports it. UV_PREVIEW_FEATURES silences the "experimental" warning
+# the bare UV_MALWARE_CHECK=1 would emit; appended (not clobbered) to preserve
+# any other preview features already enabled.
+if command -v uv >/dev/null 2>&1; then
+    _sc_uv_ver=$(uv --version 2>/dev/null)
+    _sc_uv_ver=${_sc_uv_ver#uv }
+    _sc_uv_ver=${_sc_uv_ver%% *}
+    _sc_uv_major=${_sc_uv_ver%%.*}
+    _sc_uv_rest=${_sc_uv_ver#*.}
+    _sc_uv_minor=${_sc_uv_rest%%.*}
+    _sc_uv_patch=${_sc_uv_rest#*.}
+    _sc_uv_patch=${_sc_uv_patch%%[!0-9]*}
+    if [ "${_sc_uv_major:-0}" -gt 0 ] \
+       || [ "${_sc_uv_minor:-0}" -gt 11 ] \
+       || { [ "${_sc_uv_minor:-0}" -eq 11 ] && [ "${_sc_uv_patch:-0}" -ge 16 ]; }; then
+        export UV_MALWARE_CHECK=1
+        case ",${UV_PREVIEW_FEATURES:-}," in
+            *,malware-check,*) ;;
+            *) export UV_PREVIEW_FEATURES="${UV_PREVIEW_FEATURES:+${UV_PREVIEW_FEATURES},}malware-check" ;;
+        esac
+    fi
+    unset _sc_uv_ver _sc_uv_major _sc_uv_minor _sc_uv_rest _sc_uv_patch
+fi
+
 # npm — native relative age in days (v11.10.0+)
 if command -v npm >/dev/null 2>&1; then
     _sc_npm_ver=$(npm --version 2>/dev/null)
