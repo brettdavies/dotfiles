@@ -1,4 +1,4 @@
-name: homebrewcore
+name: HB Core
 root: /home/linuxbrew/.linuxbrew/Homebrew/Library/Taps/homebrew/homebrew-core
 
 windows:
@@ -12,6 +12,6 @@ windows:
 on_project_first_start: |
   (
     sleep 0.3
-    tmux resize-pane -t homebrewcore:main.1 -x "33%"
-    tmux resize-pane -t homebrewcore:main.3 -y "33%"
+    tmux resize-pane -t "HB Core:main.1" -x "33%"
+    tmux resize-pane -t "HB Core:main.3" -y "33%"
   ) & disown

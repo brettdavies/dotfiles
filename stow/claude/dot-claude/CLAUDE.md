@@ -1,8 +1,9 @@
 # Global User Instructions
 
 These are always-on rules. Detailed procedures, examples, and reference tables live in `~/.claude/guides/*.md` and are
-**not** auto-loaded — open the linked guide with Read when you actually perform that task. Every hard prohibition below
-is stated in full here; the guides hold only the elaboration.
+**not** auto-loaded — open the linked guide with Read when you actually perform that task. **Exception:**
+`git-and-github.md` is `@`-imported at the bottom of this file and is always in context. Every hard prohibition below is
+stated in full here; the guides hold only the elaboration.
 
 ## Core coding principles
 
@@ -48,6 +49,11 @@ or docs/solutions entry. Trivial work (<~20 lines: single-file fixes, config twe
 every gstack debugging skill** — their `gstack-learnings-search` does NOT reach `docs/solutions/`, so query the corpus
 yourself during symptom-collection, before the first hypothesis.
 
+**Subagent worktree base:** when dispatching via the `Agent` tool with `isolation: "worktree"`, verify `git rev-parse
+HEAD` against `git rev-parse origin/<base>` before any work — the harness can cut the worktree from a stale tag
+silently. Fix with `git reset --hard origin/<base>`. Background:
+`~/dev/solutions-docs/workflow-issues/claude-code-worktree-isolation-stale-base-2026-06-04.md`.
+
 Routing table, per-skill rules, and the `qmd-learnings-researcher` companion-dispatch hack →
 `~/.claude/guides/workflows-and-skills.md`.
 
@@ -80,8 +86,12 @@ code. Pre-submit grep guard and full scope → `~/.claude/guides/writing-safety.
 
 Pin to immutable commit SHAs, never mutable tags/versions (`@v4`, `@main`, `@latest`) — GitHub Actions `uses:`, reusable
 workflows, `FROM` images (`node@sha256:…`), submodules. Trailing comment names the version (`@<sha> # v4.2.2`).
-**Exception:** package-manager version constraints (npm/bun/cargo/pip) are fine when a lockfile captures the integrity
-hash — the lockfile is the SHA; don't SHA-pin `"react": "^18"`. Tag→SHA resolution and audit script →
+**Exception (package managers):** package-manager version constraints (npm/bun/cargo/pip) are fine when a lockfile
+captures the integrity hash — the lockfile is the SHA; don't SHA-pin `"react": "^18"`. **Exception (first-party
+reusables):** brettdavies-owned reusable workflows under `brettdavies/.github/.github/workflows/` called from other
+brettdavies repos may pin to `@main` instead of a SHA. The supply-chain threat the pin defends against (someone moves a
+mutable ref to point at compromised code) doesn't apply when source and consumer are both under your control — trust the
+source. Third-party reusables and all GitHub Actions still require SHAs. Tag→SHA resolution and audit script →
 `~/.claude/guides/supply-chain-pinning.md`.
 
 ## Local-only files
@@ -112,6 +122,17 @@ file, scrub with `/unslop`, and submit via `--body-file` / `--notes-file` / `git
 cascade (repo `.github/pull_request_template.md` → global `~/.config/github/pull_request_template.md`). Full workflow
 (filenames, `/unslop`, changelog rules, escape rules) → `~/.claude/guides/git-and-github.md`; commit spec →
 `~/.claude/templates/commit-message.md`.
+
+## Voice notes
+
+Before drafting prose in Brett's voice — PR comments, issue discussion, thread replies, Slack-style messages, anywhere
+conversational — read `~/dev/brettdavies/brettdavies/.context/voice.md` if it exists. Technical artifacts (PR bodies,
+release notes, README narrative) stay technical with only slight softening; voice-matching is a lighter pass there. The
+file captures his characteristic patterns and the anti-patterns (sycophantic echoes, fabricated verifications, "Thanks
+again" closes, restated-argument summaries) that get rewritten out of LLM drafts. **Update it when a draft gets
+meaningfully rewritten** — append the LLM-draft → Brett-rewrite swap under the right section with a one-line "why" and a
+dated source-log entry. Compounds over time so the next draft starts closer to landing. Local-only and gitignored by
+design (see the `.context/` rule above).
 
 ## CI after push
 
@@ -147,3 +168,10 @@ code) or ask. Show diffs if asked to see changes, never the whole file again.
 Machine-level config (AppArmor profiles, sysctl, udev rules, systemd units) lives in `~/dotfiles/` and deploys via stow
 — never one-off `sudo bash -c` writes into `/etc/`. When a fix needs a system config file, add it to the dotfiles repo
 with a stow target and document it in `docs/solutions/`.
+
+## Auto-loaded guides
+
+Imported with `@` because the git/GitHub workflow rules are referenced on every commit and PR. Cheaper to keep in
+context than to re-Read each time.
+
+@~/.claude/guides/git-and-github.md

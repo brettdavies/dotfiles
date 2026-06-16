@@ -57,6 +57,17 @@ unlocked with the symmetric key. Secrets and credential-bearing config live here
 deploying any of these packages requires the repo be unlocked first, after which subsequent checkouts and merges
 auto-unlock without manual intervention.
 
+### Cross-package symlink
+
+A relative symlink inside one stow package's source pointing into another stow package's source, committed to git as the
+symlink itself (target string, not resolved content). On deploy, the result is a two-hop chain: the home-directory file
+links to the consuming package, which links to the source-of-truth file in the owning package. The technique is how one
+tool's config dir reads another tool's authoritative file without duplication — edit the source once, every consumer
+sees it. Used when two tools follow parallel conventions for the same kind of artifact (e.g. global agent instructions
+read from per-tool paths) and the team wants single-source-of-truth across them. The trade-off is that file formats and
+directives must be compatible across consumers; tool-specific syntax in the source is inert in consumers that do not
+recognize it.
+
 ## System configuration
 
 ### System-level unit
@@ -84,3 +95,37 @@ each requires a tool version recent enough to honor it — older versions silent
 paired with a version floor for every PM it covers. The gate is enforced via shell env vars (covering interactive and
 shell-launched processes) and, where the tool supports a global config file, written into that file (covering cron,
 systemd units, and other non-shell invocations).
+
+## Claude Code Session Pipeline
+
+### Corpus
+
+The permanent local archive of Claude Code conversation history at `~/.gbrain/transcripts/claude-code/`,
+date-partitioned by day of first message. Distinct from `~/.claude/projects/`, which is Claude Code's working store and
+subject to a configurable eviction window (default 30 days). The corpus survives that eviction because the pipeline
+converts every jsonl into redacted markdown before the window slides. Two downstream consumers read from it: qmd
+(raw-transcript search via the default-excluded `claude-code-sessions` collection) and gbrain dream's synthesize phase
+(distillation into brain pages).
+
+### Transcript
+
+One markdown file in the corpus, derived from one Claude Code jsonl. Two filename shapes share each date partition: a
+top-level session is `<session-id>.md`, a subagent transcript is `<parent-session>--<agent-id>.md`. The `--` infix is
+the only structural signal distinguishing the two; project name lives inside the markdown's metadata table, not in the
+directory layout.
+
+### Subagent transcript
+
+A transcript produced from a `~/.claude/projects/<encoded-cwd>/<session-id>/subagents/agent-<id>.jsonl` file rather than
+a top-level session jsonl. Subagents are tasks the main session delegated to a fresh context; their jsonl uses a
+different schema (`agentId`, `parentUuid`, `entrypoint`, no top-level `summary`) than top-level sessions, so the
+pipeline routes them through `subagent-to-md.py` rather than `cc2md`. Output lands alongside top-level transcripts in
+the same date partition.
+
+### Redaction shim
+
+A subprocess wrapper around a secret scanner that uses the scanner only as a detector and writes the file-rewrite step
+itself, driven by the scanner's structured JSON findings. The reference implementation is `gitleaks-redact.py`: it runs
+`gitleaks stdin --report-format json`, parses each `{RuleID, Match, …}` finding, drops fully-contained findings to avoid
+offset drift on overlaps, and replaces each `Match` with `[REDACTED:<RuleID>]`. Distinct from running gitleaks in its
+native detect-and-report mode: the shim mutates the file, the native invocation flags it.
