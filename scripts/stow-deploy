@@ -419,6 +419,48 @@ if grep -qx "git" "$deployed_file" 2>/dev/null; then
   fi
 fi
 
+# qmd collections: render platform-specific template if absent.
+# index.yml is not stowed — it holds absolute, machine-specific paths and a
+# per-OS collection set, so it cannot be a shared symlink. The template seeds
+# a fresh machine; thereafter `qmd collection add/remove` write through to the
+# live file. ${HOME} is substituted here because qmd feeds collection paths to
+# the globber verbatim (no ~ or env expansion).
+if grep -qx "qmd" "$deployed_file" 2>/dev/null; then
+  echo ""
+  echo "==> Checking qmd collections config"
+  _qmd_platform=$(uname -s | tr '[:upper:]' '[:lower:]')
+  _qmd_cfg="$TARGET/.config/qmd/index.yml"
+  _qmd_tmpl="$REPO_ROOT/config/qmd/index.yml.$_qmd_platform"
+  _qmd_render=false
+
+  if [ -L "$TARGET/.config/qmd" ]; then
+    echo "  WARNING: ~/.config/qmd is tree-folded (symlink), skipping template" >&2
+  elif [ -L "$_qmd_cfg" ]; then
+    # Leftover symlink from when index.yml was stowed — replace with a rendered file.
+    rm -f "$_qmd_cfg"
+    _qmd_render=true
+  elif [ -f "$_qmd_cfg" ]; then
+    echo "  qmd collections config exists, skipping template deploy"
+  elif [ -f "$_qmd_tmpl" ]; then
+    _qmd_render=true
+  else
+    echo "  No qmd collections template for $_qmd_platform (not needed)"
+  fi
+
+  if [ "$_qmd_render" = true ]; then
+    if [ -f "$_qmd_tmpl" ]; then
+      mkdir -p "$TARGET/.config/qmd"
+      if sed "s|\${HOME}|$HOME|g" "$_qmd_tmpl" > "$_qmd_cfg"; then
+        echo "  Deployed qmd collections config from index.yml.$_qmd_platform"
+      else
+        echo "  WARNING: Failed to deploy qmd collections template" >&2
+      fi
+    else
+      echo "  No qmd collections template for $_qmd_platform (not needed)"
+    fi
+  fi
+fi
+
 # Headless summary
 if [ "$HEADLESS" = true ] && [ -s "$failed_file" ]; then
   echo ""
