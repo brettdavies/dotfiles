@@ -143,6 +143,11 @@ MD013 fix hint: line length limit is ${max_len} characters. Wrap lines to fill u
       rustfmt "$file" 2>&1 || true
     fi
     ;;
+  sh)
+    if command -v shfmt &>/dev/null; then
+      shfmt -i 2 -ci -bn -w "$file" 2>&1 || true
+    fi
+    ;;
   rb)
     if command -v rubocop &>/dev/null; then
       lint_output=$(rubocop -a --format simple "$file" 2>&1) || true
