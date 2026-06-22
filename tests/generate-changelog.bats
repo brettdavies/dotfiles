@@ -38,13 +38,18 @@ _seed() {
 
 # Turn $TMP into a git repo (empty cliff.toml + one commit) on branch $1.
 _fixture_repo_on() {
-    cd "$TMP"
+    # git -C targets the temp repo explicitly and the cd is guarded, so a failed
+    # cd can never let these ops mutate the REAL repo (they once set
+    # user.email=t@t.t in the repo config and committed an "init" onto the
+    # checked-out branch). cd is still required for the tool under test, which
+    # reads the CURRENT git branch.
+    cd "$TMP" || { echo "FATAL: cd into fixture temp dir failed: $TMP" >&2; return 1; }
     touch cliff.toml
-    git init -q
-    git config user.email t@t.t
-    git config user.name t
-    git commit -q --allow-empty -m init
-    git checkout -q -b "$1"
+    git -C "$TMP" init -q
+    git -C "$TMP" config user.email local-bats-testing@example.com
+    git -C "$TMP" config user.name "Local Bats Testing"
+    git -C "$TMP" commit -q --allow-empty -m init
+    git -C "$TMP" checkout -q -b "$1"
 }
 
 @test "--check: versioned section exits 0" {
