@@ -14,6 +14,12 @@ collections:
   solutions:
     path: ${HOME}/dev/solutions-docs
     pattern: "**/*.md"
+  skills:
+    path: ${HOME}/dev/agent-skills
+    pattern: "**/*.md"
+  meum:
+    path: ${HOME}/dev
+    pattern: meum*/**/*.md
   dev:
     path: ${HOME}/dev
     pattern: "**/*.md"
