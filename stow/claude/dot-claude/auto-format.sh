@@ -14,7 +14,7 @@ file=$(jq -r '.tool_input.file_path // .tool_input.notebook_path // empty')
 # repo content; transient drafts should keep their authored shape so
 # they paste cleanly into GitHub forms or similar destinations.
 case "$file" in
-  /tmp/*|/var/tmp/*) exit 0 ;;
+  /tmp/* | /var/tmp/*) exit 0 ;;
 esac
 [[ -n "${TMPDIR:-}" && "${TMPDIR%/}" != "/" && "$file" == "${TMPDIR%/}"/* ]] && exit 0
 
@@ -23,9 +23,9 @@ ext="${file##*.}"
 # JSON output (not plain text) because PostToolUse hooks feed additionalContext
 # back into Claude's transcript only via structured JSON
 report_errors() {
-    local errors="$1"
-    [ -z "$errors" ] && return
-    jq -n --arg ctx "$errors" '{
+  local errors="$1"
+  [ -z "$errors" ] && return
+  jq -n --arg ctx "$errors" '{
         hookSpecificOutput: {
             hookEventName: "PostToolUse",
             additionalContext: $ctx
@@ -34,20 +34,20 @@ report_errors() {
 }
 
 has_prettier_config() {
-  [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc" ]] ||
-  [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc.json" ]] ||
-  [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc.yml" ]] ||
-  [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc.yaml" ]] ||
-  [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc.js" ]] ||
-  [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc.cjs" ]] ||
-  [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc.mjs" ]] ||
-  [[ -f "$CLAUDE_PROJECT_DIR/prettier.config.js" ]] ||
-  [[ -f "$CLAUDE_PROJECT_DIR/prettier.config.cjs" ]] ||
-  [[ -f "$CLAUDE_PROJECT_DIR/prettier.config.mjs" ]]
+  [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc" ]] \
+    || [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc.json" ]] \
+    || [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc.yml" ]] \
+    || [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc.yaml" ]] \
+    || [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc.js" ]] \
+    || [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc.cjs" ]] \
+    || [[ -f "$CLAUDE_PROJECT_DIR/.prettierrc.mjs" ]] \
+    || [[ -f "$CLAUDE_PROJECT_DIR/prettier.config.js" ]] \
+    || [[ -f "$CLAUDE_PROJECT_DIR/prettier.config.cjs" ]] \
+    || [[ -f "$CLAUDE_PROJECT_DIR/prettier.config.mjs" ]]
 }
 
 case "$ext" in
-  ts|tsx|js|jsx|json|jsonc)
+  ts | tsx | js | jsx | json | jsonc)
     # No report_errors: pure formatters either fix everything or fail on parse errors (already visible)
     if [[ -f "$CLAUDE_PROJECT_DIR/biome.json" ]] || [[ -f "$CLAUDE_PROJECT_DIR/biome.jsonc" ]]; then
       cd "$CLAUDE_PROJECT_DIR"
@@ -57,7 +57,7 @@ case "$ext" in
       bunx prettier --write "$file" 2>&1 | tail -1 || true
     fi
     ;;
-  css|scss|less|html|vue|svelte|yaml|yml|graphql|gql)
+  css | scss | less | html | vue | svelte | yaml | yml | graphql | gql)
     if has_prettier_config; then
       cd "$CLAUDE_PROJECT_DIR"
       bunx prettier --write "$file" 2>&1 | tail -1 || true
@@ -66,8 +66,8 @@ case "$ext" in
     # not in a later `yml|yaml)` arm, because bash `case` stops at the
     # first match and `yaml|yml` already matches above.
     if [[ "$ext" == "yml" || "$ext" == "yaml" ]] \
-        && [[ "$file" == *".github/workflows/"* ]] \
-        && command -v actionlint &>/dev/null; then
+      && [[ "$file" == *".github/workflows/"* ]] \
+      && command -v actionlint &>/dev/null; then
       lint_output=$(actionlint "$file" 2>&1) || true
       report_errors "$lint_output"
     fi
@@ -112,7 +112,7 @@ case "$ext" in
     tmp_config=""
     if [[ -n "$local_config" ]] && command -v yq &>/dev/null; then
       tmp_config="/tmp/.markdownlint-cli2.yaml"
-      yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$global_config" "$local_config" > "$tmp_config"
+      yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$global_config" "$local_config" >"$tmp_config"
       config_args=(--config "$tmp_config")
     elif [[ -f "$global_config" ]]; then
       config_args=(--config "$global_config")
