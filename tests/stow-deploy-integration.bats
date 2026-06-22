@@ -5,6 +5,13 @@
 #
 # These tests run the real stow-deploy against $HOME. They are safe to run
 # repeatedly (idempotent) but do modify symlinks under $HOME.
+#
+# DANGER: `stow-deploy --all` re-points every managed ~ symlink at the checkout
+# it runs from. Running it from a worktree or a second clone hijacks the live
+# deployment to that tree; if the tree is later moved or deleted, all ~ symlinks
+# dangle. The pre-push hook runs this suite, so a `git push` from a worktree
+# would trigger exactly that. The setup() guard below refuses to run unless this
+# checkout is the one already deployed.
 
 SCRIPT="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
 
@@ -16,6 +23,20 @@ setup() {
   if [ ! -L "$HOME/.profile" ]; then
     skip "dotfiles not deployed (no ~/.profile symlink) — run scripts/stow-deploy first"
   fi
+
+  # Guard against hijacking a live deployment from a non-deployed checkout.
+  # stow-deploy --all re-points every ~ symlink at THIS checkout; that is only
+  # safe when this checkout is the deployed source. Resolve the deployed
+  # ~/.profile and confirm it already lives under this checkout's stow/. If it
+  # points into a different tree (worktree, second clone, the pre-push hook
+  # firing inside a worktree), skip rather than redirect the real deployment.
+  local repo_root deployed_dir
+  repo_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd -P)"
+  deployed_dir="$(cd "$HOME" 2>/dev/null && cd "$(dirname "$(readlink "$HOME/.profile")")" 2>/dev/null && pwd -P)"
+  case "${deployed_dir}/" in
+    "$repo_root"/stow/*) : ;; # this checkout is the deployed source — safe
+    *) skip "~/.profile resolves to '${deployed_dir}', not this checkout's stow/ ('$repo_root/stow') — refusing to re-stow \$HOME from a non-deployed tree" ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------
