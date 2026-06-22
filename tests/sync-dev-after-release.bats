@@ -20,12 +20,14 @@ teardown() {
 
 # A git repo with one commit and an untracked file, so `git status` is dirty.
 _dirty_repo() {
-    cd "$TMP"
-    git init -q
-    git config user.email t@t.t
-    git config user.name t
-    git commit -q --allow-empty -m init
-    echo dirty > untracked
+    # git -C targets the temp repo and the cd is guarded, so a failed cd can
+    # never let these ops mutate the REAL repo.
+    cd "$TMP" || { echo "FATAL: cd into fixture temp dir failed: $TMP" >&2; return 1; }
+    git -C "$TMP" init -q
+    git -C "$TMP" config user.email local-bats-testing@example.com
+    git -C "$TMP" config user.name "Local Bats Testing"
+    git -C "$TMP" commit -q --allow-empty -m init
+    echo dirty > "$TMP/untracked"
 }
 
 @test "no argument exits 64 with usage" {
