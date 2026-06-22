@@ -1,0 +1,16 @@
+[Unit]
+Description=Caddy reverse proxy (Ollama Host-rewrite for svc:ollama)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/linuxbrew/.linuxbrew/bin/caddy run --config /home/brett/.config/caddy/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,22 @@
+# Reverse proxy fronting the loopback-only Ollama for the svc:ollama Tailscale
+# Serve VIP. Ollama 403s any request whose Host header is not localhost/loopback
+# (DNS-rebinding protection), and tailscale serve forwards the original tailnet
+# Host (ollama.<tailnet>.ts.net). Rewriting Host to localhost before forwarding
+# lets Ollama accept it while it stays bound to 127.0.0.1 only. tailscale serve
+# points svc:ollama at 127.0.0.1:11500.
+
+{
+	admin off
+	auto_https off
+}
+
+# Address is :11500 (any Host) with an explicit loopback bind, NOT
+# 127.0.0.1:11500: a host in the site address becomes a Host matcher, so the
+# forwarded tailnet Host would miss the route and Caddy would return an empty
+# 200 without proxying. `bind 127.0.0.1` keeps the listener off the network.
+:11500 {
+	bind 127.0.0.1
+	reverse_proxy 127.0.0.1:11434 {
+		header_up Host localhost:11434
+	}
+}
