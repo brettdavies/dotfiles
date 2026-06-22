@@ -1,24 +1,37 @@
+# qmd collections (Linux) — deployed by stow-deploy.
+# To update from the template: delete ~/.config/qmd/index.yml and re-run
+# scripts/stow-deploy. Day-to-day edits go through `qmd collection add/remove`,
+# which write through to the live file.
+#
+# The home directory is substituted at deploy time (qmd does not expand ~ or
+# env vars in collection paths — they are fed to the globber verbatim, so the
+# deployed file must hold absolute paths).
+#
+# Ordering invariant: local collections MUST precede NAS-backed ones. qmd
+# indexes sequentially and aborts on the first missing directory, so a listed
+# NAS path crashes the run and skips every collection after it when the NAS is
+# offline. Keep all home-local collections above the nas-* block.
 collections:
   vault:
-    path: /home/brett/obsidian-vault
+    path: ${HOME}/obsidian-vault
     pattern: "**/*.md"
   stars:
-    path: /home/brett/github-stars
+    path: ${HOME}/github-stars
     pattern: "**/*.md"
   solutions:
-    path: /home/brett/dev/solutions-docs
+    path: ${HOME}/dev/solutions-docs
     pattern: "**/*.md"
   skills:
-    path: /home/brett/dev/agent-skills
+    path: ${HOME}/dev/agent-skills
     pattern: "**/*.md"
   meum:
-    path: /home/brett/dev
+    path: ${HOME}/dev
     pattern: meum*/**/*.md
   streams-control:
-    path: /home/brett/box/TX-AI/streams-control
+    path: ${HOME}/box/TX-AI/streams-control
     pattern: "**/*.md"
   claude-code-sessions:
-    path: /home/brett/.gbrain/transcripts/claude-code
+    path: ${HOME}/.gbrain/transcripts/claude-code
     pattern: "**/*.md"
     includeByDefault: false
   nas-asupersync:

@@ -1,0 +1,25 @@
+# qmd collections (macOS) — deployed by stow-deploy.
+# To update from the template: delete ~/.config/qmd/index.yml and re-run
+# scripts/stow-deploy. Day-to-day edits go through `qmd collection add/remove`,
+# which write through to the live file.
+#
+# The home directory is substituted at deploy time (qmd does not expand ~ or
+# env vars in collection paths — they are fed to the globber verbatim, so the
+# deployed file must hold absolute paths).
+#
+# No models block: macOS runs upstream @tobilu/qmd, which selects its own
+# default embed/rerank/generate models. The Linux fork pins llama.cpp model
+# refs in index.yml.linux instead.
+collections:
+  solutions:
+    path: ${HOME}/dev/solutions-docs
+    pattern: "**/*.md"
+  skills:
+    path: ${HOME}/dev/agent-skills
+    pattern: "**/*.md"
+  meum:
+    path: ${HOME}/dev
+    pattern: meum*/**/*.md
+  dev:
+    path: ${HOME}/dev
+    pattern: "**/*.md"

@@ -86,6 +86,28 @@ setup() {
 }
 
 # ---------------------------------------------------------------------------
+# qmd collections config template
+# ---------------------------------------------------------------------------
+
+@test "qmd collections config is rendered or skipped, never a dangling symlink" {
+  run "$SCRIPT" --all
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Checking qmd collections config"* ]]
+
+  # A platform template exists for both darwin and linux, so the live file is
+  # either freshly rendered or already present — but never absent.
+  [[ "$output" == *"Deployed qmd collections config"* ]] || \
+    [[ "$output" == *"qmd collections config exists"* ]]
+
+  # The deployed file must be a real file with absolute paths — never a symlink
+  # (the bug this replaced) and never an unexpanded ${HOME} token.
+  [ -f "$HOME/.config/qmd/index.yml" ]
+  [ ! -L "$HOME/.config/qmd/index.yml" ]
+  ! grep -q '${HOME}' "$HOME/.config/qmd/index.yml"
+  grep -q "path: $HOME/" "$HOME/.config/qmd/index.yml"
+}
+
+# ---------------------------------------------------------------------------
 # Shellcheck
 # ---------------------------------------------------------------------------
 
