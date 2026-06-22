@@ -24,3 +24,15 @@
 path=("${path[@]:#$HOMEBREW_PREFIX/bin}")
 path=("${path[@]:#$HOMEBREW_PREFIX/sbin}")
 path=("$HOMEBREW_PREFIX/bin" "$HOMEBREW_PREFIX/sbin" "${path[@]}")
+
+# Keg-only Homebrew Ruby lives under $HOMEBREW_PREFIX/opt and /lib, not /bin,
+# so the block above misses it and path_helper leaves its bin + gem binstubs
+# behind /usr/bin. That demotes Bundler to macOS system Ruby 2.6 / Bundler 1.x,
+# which predates the supply-chain cooldown policy (needs >= 4.0.13). Re-assert
+# the same way. The (N) glob qualifier yields nothing — rather than erroring —
+# when the gems dir is absent (Ruby not installed).
+if [ -d "$HOMEBREW_PREFIX/opt/ruby/bin" ]; then
+  path=("${path[@]:#$HOMEBREW_PREFIX/lib/ruby/gems/*/bin}")
+  path=("${path[@]:#$HOMEBREW_PREFIX/opt/ruby/bin}")
+  path=("$HOMEBREW_PREFIX"/lib/ruby/gems/*/bin(N) "$HOMEBREW_PREFIX/opt/ruby/bin" "${path[@]}")
+fi

@@ -58,6 +58,27 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   [ "$status" -eq 0 ]
 }
 
+# Regression: macOS path_helper (run by /etc/zprofile) rebuilds PATH with the
+# system dirs first, demoting keg-only Homebrew Ruby behind /usr/bin so Bundler
+# falls back to system Ruby 2.6 / Bundler 1.x. dot-zprofile must re-assert the
+# keg-only Ruby bin + gem binstubs, not just $HOMEBREW_PREFIX/bin.
+@test "dot-zprofile re-asserts keg-only Homebrew Ruby ahead of system Ruby" {
+  [ "$(uname -s)" = "Darwin" ] || skip "macOS-only — path_helper is Apple-specific"
+  bp="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null)}"
+  [ -n "$bp" ] || skip "no Homebrew prefix"
+  [ -d "$bp/opt/ruby/bin" ] || skip "keg-only Homebrew Ruby not installed"
+  # Reproduce the post-path_helper order (/usr/bin AHEAD of the demoted Ruby
+  # dirs), source the repair, and confirm bundle resolves under Homebrew.
+  run zsh -c "
+    export HOMEBREW_PREFIX='$bp'
+    path=(/usr/bin '$bp/opt/ruby/bin' '$bp'/lib/ruby/gems/*/bin(N))
+    source '$STOW_DIR/zsh/dot-zprofile'
+    command -v bundle
+  "
+  [ "$status" -eq 0 ]
+  [[ "$output" == "$bp"/* ]] || { echo "bundle resolved to '$output' (expected under $bp)"; false; }
+}
+
 @test "dot-profile has valid bash syntax" {
   run bash -n "$STOW_DIR/shell/dot-profile"
   [ "$status" -eq 0 ]
