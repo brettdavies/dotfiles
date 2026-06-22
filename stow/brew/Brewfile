@@ -19,6 +19,13 @@ brew "node"
 brew "oven-sh/bun/bun"
 brew "uv"
 
+# Modern Ruby (keg-only) so a Bundler new enough for the supply-chain cooldown
+# policy is available ahead of the macOS system Ruby 2.6 / Bundler 1.x.
+# config/shell/local-paths.sh puts its bin + gem binstubs on PATH. Brew's Ruby
+# bundles a Bundler that may lag the >= 4.0.13 the policy needs — see
+# BOOTSTRAP.md for the one-time `gem install bundler` step.
+brew "ruby"
+
 # Code quality & utilities
 brew "bash"
 brew "ripgrep"

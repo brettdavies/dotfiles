@@ -103,6 +103,18 @@ Optional packages:
 brew bundle --file=~/dotfiles/stow/brew/Brewfile.optional
 ```
 
+### Ruby Bundler (supply-chain cooldown)
+
+`config/shell/local-paths.sh` puts Homebrew's keg-only Ruby ahead of the macOS system Ruby 2.6, but Homebrew's Ruby
+bundles a Bundler that may lag the `>= 4.0.13` the cooldown policy needs (`config/shell/supply-chain.sh`). Install a
+current Bundler into Homebrew's Ruby once per machine:
+
+```bash
+"$(brew --prefix ruby)/bin/gem" install bundler -v '~> 4.0' --no-document
+```
+
+Open a fresh shell, then confirm `bundle --version` reports `4.0.13` or newer.
+
 ## oh-my-zsh
 
 ```bash
