@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    QMD model server (macOS). Keeps the brettdavies/qmd fork's `qmd serve`
+    daemon resident on 127.0.0.1:7832 so CLI calls route through QMD_REMOTE_URL
+    to warm models instead of cold-loading per invocation.
+
+    Full-resident: no --low-vram. macOS has the unified-memory headroom, and
+    keeping all three models loaded avoids the per-stage dispose/reload latency
+    that low-vram mode trades for a smaller footprint (the VRAM-constrained
+    Linux box runs --low-vram instead; see config/shell/qmd.sh).
+
+    Bound to loopback so the model server is not reachable off-host. KeepAlive
+    restarts it on crash and at login; ThrottleInterval prevents a crash loop
+    from respawning faster than every 10s.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.qmd-serve</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>PATH="$HOME/.local/bin:$HOME/.cache/bun/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec qmd serve --bind 127.0.0.1 --port 7832 &gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-serve.log" 2&gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-serve.error.log"</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

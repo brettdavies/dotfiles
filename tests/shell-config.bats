@@ -121,19 +121,35 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 # config/shell/qmd.sh: QMD_REMOTE_URL owned here, not in dot-profile
 # ---------------------------------------------------------------------------
 
-@test "qmd.sh exports QMD_REMOTE_URL pointing at the low-vram-mode daemon" {
+@test "qmd.sh exports QMD_REMOTE_URL unconditionally" {
   grep -q '^export QMD_REMOTE_URL=http://127.0.0.1:7832$' "$CONFIG_DIR/qmd.sh"
+}
+
+@test "qmd.sh guards the QMD_LOW_VRAM export to Linux" {
+  grep -qE '\[ "\$\(uname\)" = "Linux" \]' "$CONFIG_DIR/qmd.sh"
+  grep -qE '^[[:space:]]+export QMD_LOW_VRAM=1$' "$CONFIG_DIR/qmd.sh"
 }
 
 @test "dot-profile no longer exports QMD_REMOTE_URL (owned by config/shell/qmd.sh)" {
   ! grep -q 'QMD_REMOTE_URL' "$STOW_DIR/shell/dot-profile"
 }
 
-@test "sourcing profile in a fresh shell exports QMD_REMOTE_URL" {
+@test "sourcing profile in a fresh shell exports QMD_REMOTE_URL on all platforms" {
   [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
   run bash -c 'unset QMD_REMOTE_URL; . "$HOME/.profile" >/dev/null 2>&1; echo "$QMD_REMOTE_URL"'
   [ "$status" -eq 0 ]
   [ "$output" = "http://127.0.0.1:7832" ]
+}
+
+@test "sourcing profile sets QMD_LOW_VRAM on Linux only" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  run bash -c 'unset QMD_LOW_VRAM; . "$HOME/.profile" >/dev/null 2>&1; echo "${QMD_LOW_VRAM:-unset}"'
+  [ "$status" -eq 0 ]
+  if [ "$(uname)" = "Linux" ]; then
+    [ "$output" = "1" ]
+  else
+    [ "$output" = "unset" ]
+  fi
 }
 
 # ---------------------------------------------------------------------------
