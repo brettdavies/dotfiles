@@ -13,17 +13,21 @@ ZERO_SHA=0000000000000000000000000000000000000000
 
 setup() {
     REPO_DIR=$(mktemp -d -t pp-test-XXXXXX)
-    cd "$REPO_DIR"
-    git init -q -b main
-    git config user.email t@t
-    git config user.name t
+    # Guard the cd and target git -C "$REPO_DIR" so a failed cd can never let
+    # these ops mutate the REAL repo (a fixture identity/commit leaking into the
+    # working repo is exactly what this guards against). The cd is still needed
+    # because the extracted helper reads the CURRENT repo.
+    cd "$REPO_DIR" || { echo "FATAL: cd into temp repo failed: $REPO_DIR" >&2; return 1; }
+    git -C "$REPO_DIR" init -q -b main
+    git -C "$REPO_DIR" config user.email local-bats-testing@example.com
+    git -C "$REPO_DIR" config user.name "Local Bats Testing"
 
-    git commit -q --allow-empty -m "root"
-    BASE_SHA=$(git rev-parse HEAD)
+    git -C "$REPO_DIR" commit -q --allow-empty -m "root"
+    BASE_SHA=$(git -C "$REPO_DIR" rev-parse HEAD)
 
-    git remote add origin "$REPO_DIR/.git"
-    git update-ref refs/remotes/origin/main "$BASE_SHA"
-    git update-ref refs/remotes/origin/dev "$BASE_SHA"
+    git -C "$REPO_DIR" remote add origin "$REPO_DIR/.git"
+    git -C "$REPO_DIR" update-ref refs/remotes/origin/main "$BASE_SHA"
+    git -C "$REPO_DIR" update-ref refs/remotes/origin/dev "$BASE_SHA"
 
     extract_helper
 }
@@ -47,12 +51,12 @@ extract_helper() {
 
 commit_files() {
     for f in "$@"; do
-        mkdir -p "$(dirname "$f")"
-        printf 'x\n' >"$f"
-        git add "$f"
+        mkdir -p "$REPO_DIR/$(dirname "$f")"
+        printf 'x\n' >"$REPO_DIR/$f"
+        git -C "$REPO_DIR" add "$f"
     done
-    git commit -q -m "test commit"
-    git rev-parse HEAD
+    git -C "$REPO_DIR" commit -q -m "test commit"
+    git -C "$REPO_DIR" rev-parse HEAD
 }
 
 @test "empty PUSH_REFS → run checks (return 1)" {
