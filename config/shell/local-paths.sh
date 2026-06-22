@@ -35,23 +35,18 @@ if [ -d "$HOME/.bun/bin" ]; then
     esac
 fi
 
-# Homebrew Ruby (keg-only) + its gem binstubs. Puts a modern Ruby/Bundler
-# ahead of the macOS system Ruby 2.6 (whose Bundler 1.x predates the
-# supply-chain cooldown policy). The gems/*/bin glob tracks the ABI dir so a
-# Ruby minor bump (4.0.0 -> 4.1.0) needs no edit. Guarded by -d, so a host
-# without keg-only Homebrew Ruby is untouched.
+# Homebrew Ruby (keg-only). Puts a modern Ruby/Bundler ahead of the macOS
+# system Ruby 2.6 (whose Bundler 1.x predates the supply-chain cooldown
+# policy). Ruby's own bin carries the `bundle` binstub, which RubyGems resolves
+# to the newest installed Bundler (>= 4.0.13 after `gem install bundler`), so a
+# gem-binstub glob is unnecessary - and a bare `*/bin` glob aborts shell startup
+# under zsh when it matches nothing. Guarded by -d, so a host without keg-only
+# Homebrew Ruby is untouched.
 for _brew_prefix in /opt/homebrew /home/linuxbrew/.linuxbrew; do
     [ -d "$_brew_prefix/opt/ruby/bin" ] || continue
     case ":${PATH}:" in
         *:"$_brew_prefix/opt/ruby/bin":*) ;;
         *) export PATH="$_brew_prefix/opt/ruby/bin:$PATH" ;;
     esac
-    for _ruby_gem_bin in "$_brew_prefix"/lib/ruby/gems/*/bin; do
-        [ -d "$_ruby_gem_bin" ] || continue
-        case ":${PATH}:" in
-            *:"$_ruby_gem_bin":*) ;;
-            *) export PATH="$_ruby_gem_bin:$PATH" ;;
-        esac
-    done
 done
-unset _brew_prefix _ruby_gem_bin
+unset _brew_prefix
