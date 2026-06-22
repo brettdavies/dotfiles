@@ -70,6 +70,12 @@ brew "sevenzip"
 # still works as a fallback on machines without brew.
 brew "defuddle"
 
+# Caddy (Linux server only) fronts the loopback-only Ollama with a Host-rewrite
+# reverse proxy. Ollama 403s any non-localhost Host header, so the svc:ollama
+# Tailscale Serve VIP cannot reach it directly. Caddy on loopback rewrites Host
+# before forwarding to 127.0.0.1:11434, which keeps Ollama off the network.
+brew "caddy" if OS.linux?
+
 # macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
 # but listing them separately documents intent and avoids confusing "not found" warnings.
 brew "terminal-notifier" if OS.mac?
