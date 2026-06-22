@@ -10,7 +10,12 @@
 #
 # Two bindings:
 #   - node serve:    https://bigdaddy.<tailnet>/ -> 127.0.0.1:18789  (openclaw gateway)
-#   - service serve: https://ollama.<tailnet>/   -> 127.0.0.1:11434  (svc:ollama VIP)
+#   - service serve: https://ollama.<tailnet>/   -> 127.0.0.1:11500  (svc:ollama VIP)
+#
+# svc:ollama targets the loopback Caddy proxy on :11500, not Ollama's :11434
+# directly: Ollama 403s any non-localhost Host header, and serve forwards the
+# tailnet Host unchanged. Caddy rewrites Host to localhost (see stow/caddy/),
+# keeping Ollama bound to 127.0.0.1 only.
 #
 # `tailscale serve --service=...` both advertises the node as the service host
 # AND binds the proxy in one call — a separate `tailscale serve advertise` is
@@ -37,10 +42,17 @@ if ! tailscale status >/dev/null 2>&1; then
 fi
 
 OPENCLAW_TARGET="http://127.0.0.1:18789"
-OLLAMA_TARGET="http://127.0.0.1:11434"
+OLLAMA_TARGET="http://127.0.0.1:11500"
 
 echo "==> node serve: https://${EXPECTED_HOST}.<tailnet>/ -> ${OPENCLAW_TARGET}"
 tailscale serve --bg --https=443 --yes "${OPENCLAW_TARGET}"
+
+# svc:ollama forwards to the loopback Caddy proxy; refuse to point the tailnet
+# VIP at a dead upstream (Caddy down would silently break the served path).
+if ! curl -sf -o /dev/null --max-time 3 "${OLLAMA_TARGET}/api/tags"; then
+  echo "ERROR: ${OLLAMA_TARGET} not responding. Start the proxy first: systemctl --user enable --now caddy.service" >&2
+  exit 1
+fi
 
 echo "==> service serve: svc:ollama -> ${OLLAMA_TARGET}"
 tailscale serve --service=svc:ollama --https=443 --yes "${OLLAMA_TARGET}"
