@@ -222,6 +222,26 @@ bash ~/dotfiles/scripts/rectangle-defaults.sh
 Hotkeys after setup: `⌃⌥←/→/↑/↓` for halves, `⌃⌥U/I/J/K` for quarters, `⌃⌥↵` maximize, `⌃⌥⌫` restore previous size.
 Repeat the same arrow to cycle 1/2 → 2/3 → 1/3 width.
 
+## Linux Server Setup
+
+### Tailscale Serve
+
+`bigdaddy` proxies two endpoints over Tailscale Serve: the openclaw gateway on its own node name and `svc:ollama` as a
+tailnet service VIP (the single embedding backend for the shared gbrain). tailscaled keeps serve config in its own
+state, but a binding can be dropped by a daemon restart or version upgrade while the `AdvertiseServices` pref survives —
+leaving a service advertised with nothing bound. Re-establish the full config in one idempotent run:
+
+```bash
+bash ~/dotfiles/scripts/tailscale-serve-setup.sh
+```
+
+The script binds `https://bigdaddy.<tailnet>/` → `127.0.0.1:18789` (openclaw) and `https://ollama.<tailnet>/` →
+`127.0.0.1:11434` (svc:ollama), then prints `tailscale serve status`. It is host-gated to `bigdaddy` and safe to re-run.
+
+> **One-time admin step:** the service host must be approved once in the
+> [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP
+> and the script's binding routes nowhere.
+
 ## Restart Shell
 
 ```bash
