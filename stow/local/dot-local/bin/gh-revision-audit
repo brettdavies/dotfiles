@@ -1,0 +1,340 @@
+#!/usr/bin/env python3
+"""
+gh-revision-audit: list issues and PRs you authored that have multiple non-deleted
+edit-history revisions on GitHub.
+
+The point: GitHub keeps every prior body via `userContentEdits`. The web UI lets
+the author delete individual revisions ("edited" label -> ... menu -> Delete revision).
+There is no public mutation for this — only the UI works. This script surfaces
+which items still have extra prior revisions worth pruning.
+
+Usage:
+  gh-revision-audit                                  # no args: print this help
+  gh-revision-audit --all                            # audit every repo you own (shorthand for `'*'`)
+  gh-revision-audit <owner/repo> [<owner/repo> ...]
+  gh-revision-audit <repo>                           # bare repo: owner defaults to your gh login
+  gh-revision-audit 'agentnative*'                   # wildcard: all owner's repos matching glob
+  gh-revision-audit 'owner/agentnative*'             # wildcard scoped to an owner
+  gh-revision-audit --author <login> --all           # all of <login>'s repos
+  gh-revision-audit --threshold 2 <repo> ...         # show items with >2 alive
+  gh-revision-audit --detail <repo> ...              # also show per-item counts
+  gh-revision-audit --state all|open|closed <repo> ...
+
+Repo resolution:
+  - Args WITHOUT a slash are expanded to `<author>/<repo>` (default author is
+    the authenticated `gh` user; override with `--author`).
+  - Args containing `*`, `?`, or `[…]` are treated as case-insensitive globs
+    and expanded against `gh repo list <owner>`. So `gh-revision-audit
+    'agentnative*'` is shorthand for "every <your-login>/agentnative-* repo".
+  - Quote glob args so the shell does not pre-expand them.
+
+Default author: the authenticated `gh` user. Default state: all.
+Default threshold: 1 (URLs printed for items with >1 non-deleted revision).
+Output: one URL per line, suitable for piping into a clipboard or browser opener.
+"""
+import argparse
+import fnmatch
+import json
+import re
+import signal
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Restore default SIGPIPE handling so piping into `head`, `grep -q`, etc. exits
+# silently with 141 instead of raising BrokenPipeError mid-print. Without this,
+# `gh-revision-audit ... | head -5` produces a traceback as soon as head closes
+# the pipe. POSIX-only — Windows lacks SIGPIPE and that's fine.
+if hasattr(signal, "SIGPIPE"):
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+
+_GLOB_CHARS = re.compile(r"[*?\[]")
+
+
+def is_glob(s: str) -> bool:
+    """Does this string contain any shell-glob metacharacter?"""
+    return bool(_GLOB_CHARS.search(s))
+
+
+def revision_label(alive: int, deleted: int) -> str:
+    """Human-friendly description of an item's revision-history state for --detail output.
+
+    Terminology matches GitHub's GraphQL schema (`deletedAt` / `deletedBy`) and the
+    "Delete revision" UI action. "alive" denotes a still-viewable prior revision.
+
+    Cases:
+      alive=0, deleted=0    -- never revised --
+      alive=N, deleted=0    N alive
+      alive=0, deleted=M    M deleted
+      alive=N, deleted=M    N alive, M deleted
+    """
+    if alive == 0 and deleted == 0:
+        return "-- never revised --"
+    if alive == 0:
+        return f"{deleted} deleted"
+    if deleted == 0:
+        return f"{alive} alive"
+    return f"{alive} alive, {deleted} deleted"
+
+
+class GhError(Exception):
+    """Raised when a `gh` invocation fails. Carries stderr so callers can decide
+    whether to abort or skip (e.g. "disabled issues" on a fork is recoverable)."""
+
+    def __init__(self, args: tuple[str, ...], returncode: int, stderr: str) -> None:
+        super().__init__(f"gh {' '.join(args)} failed ({returncode}): {stderr.strip()}")
+        self.args_tuple = args
+        self.returncode = returncode
+        self.stderr = stderr
+
+
+def gh(*args: str) -> str:
+    result = subprocess.run(["gh", *args], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise GhError(args, result.returncode, result.stderr)
+    return result.stdout
+
+
+def current_author() -> str:
+    try:
+        return gh("api", "user", "--jq", ".login").strip()
+    except GhError as e:
+        sys.stderr.write(
+            "could not resolve current gh user (is `gh auth status` healthy?): "
+            f"{e.stderr.strip()}\n"
+        )
+        sys.exit(1)
+
+
+_repo_cache: dict[str, list[str]] = {}
+
+
+def list_repos(owner: str) -> list[str]:
+    """Return all repo names owned by `owner` (cached per process). Includes
+    forks, private repos visible to the authenticated user, etc. — anything
+    `gh repo list <owner> --json name` surfaces."""
+    if owner in _repo_cache:
+        return _repo_cache[owner]
+    try:
+        out = gh("repo", "list", owner, "--limit", "1000", "--json", "name")
+    except GhError as e:
+        sys.stderr.write(f"gh repo list {owner} failed: {e.stderr.strip()}\n")
+        _repo_cache[owner] = []
+        return []
+    names = [row["name"] for row in json.loads(out)]
+    _repo_cache[owner] = names
+    return names
+
+
+def resolve_arg(arg: str, default_owner: str, detail: bool) -> list[str]:
+    """Resolve a single CLI repo arg into a list of `owner/name` strings.
+
+    Forms supported:
+      foo                -> default_owner/foo                  (literal)
+      owner/foo          -> owner/foo                          (literal)
+      foo*               -> all default_owner repos matching foo* (glob, case-insensitive)
+      owner/foo*         -> all owner repos matching foo* (glob, case-insensitive)
+    """
+    if "/" in arg:
+        owner, name_or_glob = arg.split("/", 1)
+    else:
+        owner, name_or_glob = default_owner, arg
+
+    if not is_glob(name_or_glob):
+        full = f"{owner}/{name_or_glob}"
+        if "/" not in arg and detail:
+            sys.stderr.write(f"expanding `{arg}` -> `{full}` (owner from author)\n")
+        return [full]
+
+    # Glob: list owner's repos and filter case-insensitively.
+    candidates = list_repos(owner)
+    pattern = name_or_glob.lower()
+    matches = sorted(name for name in candidates if fnmatch.fnmatchcase(name.lower(), pattern))
+    if detail:
+        sys.stderr.write(
+            f"expanding `{arg}` -> {len(matches)} {owner}/* repo(s) matching `{name_or_glob}`\n"
+        )
+    if not matches:
+        sys.stderr.write(f"warning: no repos under {owner} match `{name_or_glob}`\n")
+    return [f"{owner}/{name}" for name in matches]
+
+
+def list_items(repo: str, author: str, state: str) -> list[tuple[str, int]]:
+    """Return [(kind, number), ...] for issues + PRs by author in repo. Recoverable
+    per-kind failures (e.g. "Issues are disabled" on a fork) are logged and skipped."""
+    items: list[tuple[str, int]] = []
+    for kind, cli_kind in [("issue", "issue"), ("pr", "pr")]:
+        try:
+            out = gh(
+                cli_kind, "list",
+                "--repo", repo,
+                "--author", author,
+                "--state", state,
+                "--limit", "1000",
+                "--json", "number",
+            )
+        except GhError as e:
+            msg = e.stderr.strip()
+            # "Issues are disabled" on forks; "Could not resolve" on missing repos.
+            # Treat as recoverable for THIS kind and continue with the other.
+            sys.stderr.write(f"{repo}: {kind} list skipped ({msg})\n")
+            continue
+        for row in json.loads(out):
+            items.append((kind, row["number"]))
+    return items
+
+
+def alive_count(repo: str, kind: str, number: int) -> tuple[int, int]:
+    """Return (alive, deleted) revision counts for one item. Returns (0, 0) on
+    transient GraphQL failures so one bad item doesn't poison the whole audit.
+
+    "alive" = a UserContentEdit whose `deletedAt IS NULL` AND whose `diff` is
+    non-empty. The diff filter excludes GitHub's synthetic creation-time marker
+    (a node at the same timestamp as the issue/PR creation with `diff = null`),
+    which the UI shows as a blacked-out, undeletable entry. It is a placeholder
+    for "the body existed first as X" with no prior X to record. Counting it as
+    alive over-reports cleanup work — the user can never delete it.
+
+    "deleted" = `deletedAt IS NOT NULL` regardless of diff state.
+    """
+    owner, name = repo.split("/", 1)
+    field = "issue" if kind == "issue" else "pullRequest"
+    query = (
+        f'{{ repository(owner: "{owner}", name: "{name}") '
+        f'{{ {field}(number: {number}) {{ userContentEdits(first: 100) '
+        f'{{ nodes {{ deletedAt diff }} }} }} }} }}'
+    )
+    try:
+        out = gh("api", "graphql", "-f", f"query={query}")
+    except GhError as e:
+        sys.stderr.write(f"{repo} #{number} ({kind}): graphql skipped ({e.stderr.strip()})\n")
+        return (0, 0)
+    data = json.loads(out)["data"]["repository"][field]
+    if data is None:
+        return (0, 0)
+    nodes = data["userContentEdits"]["nodes"]
+    alive = sum(1 for n in nodes if n.get("deletedAt") is None and (n.get("diff") or ""))
+    deleted = sum(1 for n in nodes if n.get("deletedAt") is not None)
+    return (alive, deleted)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="List issues and PRs with multiple non-deleted edit-history revisions.",
+        epilog="See script header for details and worked examples.",
+    )
+    parser.add_argument("repos", nargs="*",
+                        help="owner/repo, bare repo, or glob (e.g. `agentnative*`). "
+                             "When omitted with no --all flag, prints help and exits 0.")
+    parser.add_argument("--all", action="store_true",
+                        help="audit every repo owned by the resolved --author "
+                             "(shorthand for adding `'*'` to the repos list, no shell-quoting needed)")
+    parser.add_argument("--author", help="GitHub login (default: authenticated gh user)")
+    parser.add_argument("--state", default="all", choices=["all", "open", "closed", "merged"],
+                        help="filter issue/PR state (default: all)")
+    parser.add_argument("--threshold", type=int, default=1,
+                        help="print items with strictly more than N alive revisions (default: 1)")
+    parser.add_argument("--detail", action="store_true",
+                        help="also print per-item alive/deleted counts to stderr")
+    parser.add_argument("--workers", type=int, default=8,
+                        help="parallel GraphQL queries (default: 8)")
+    parser.add_argument("--sort", action="store_true",
+                        help="buffer all repos and emit a single globally-sorted URL list at the end "
+                             "(default: stream each repo's URLs as that repo finishes)")
+    args = parser.parse_args()
+
+    # No repos AND no --all → print help and exit cleanly. Lets users discover
+    # the tool by running `gh-revision-audit` bare.
+    if not args.repos and not args.all:
+        parser.print_help()
+        return 0
+
+    author = args.author or current_author()
+
+    # `--all` is a convenience for prepending the `'*'` glob so users do not
+    # need to shell-quote a bare star. Combines additively with explicit args.
+    repo_args: list[str] = list(args.repos)
+    if args.all:
+        repo_args.insert(0, "*")
+
+    # Expand each arg (bare name, owner/name, glob, owner/glob) into concrete repos.
+    # Dedupe while preserving first-seen order.
+    seen: set[str] = set()
+    expanded_repos: list[str] = []
+    for arg in repo_args:
+        for full in resolve_arg(arg, default_owner=author, detail=args.detail):
+            if full in seen:
+                continue
+            seen.add(full)
+            expanded_repos.append(full)
+
+    def url(repo: str, kind: str, n: int) -> str:
+        path = "issues" if kind == "issue" else "pull"
+        return f"https://github.com/{repo}/{path}/{n}"
+
+    all_flagged: list[tuple[str, str, int, int, int]] = []  # only populated when --sort
+    total_count = 0
+
+    for repo in expanded_repos:
+        items = list_items(repo, author, args.state)
+        if not items:
+            sys.stderr.write(f"{repo}: no items found for author={author} state={args.state}\n")
+            continue
+
+        if args.detail:
+            sys.stderr.write(f"\n=== {repo} ({len(items)} items by {author}) ===\n")
+
+        repo_flagged: list[tuple[str, int, int, int]] = []  # (kind, number, alive, deleted)
+        repo_details: list[tuple[str, int, int, int]] = []  # buffered for sorted --detail output
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            futures = {
+                pool.submit(alive_count, repo, kind, n): (kind, n)
+                for kind, n in items
+            }
+            for fut in as_completed(futures):
+                kind, n = futures[fut]
+                alive, deleted = fut.result()
+                if args.detail:
+                    repo_details.append((kind, n, alive, deleted))
+                if alive > args.threshold:
+                    repo_flagged.append((kind, n, alive, deleted))
+
+        # Sort by item number — issues and PRs share a single sequence per repo,
+        # so a number-only sort co-mingles them in chronological-ish order, which
+        # is more useful than grouping all issues then all PRs.
+        repo_flagged.sort(key=lambda x: x[1])
+
+        if args.detail:
+            repo_details.sort(key=lambda x: x[1])
+            for kind, n, alive, deleted in repo_details:
+                sys.stderr.write(
+                    f"  #{n} {kind:5s} {revision_label(alive, deleted)}\n"
+                )
+
+        if args.sort:
+            # Buffer; emit globally sorted at the end.
+            all_flagged.extend((repo, k, n, a, d) for k, n, a, d in repo_flagged)
+        else:
+            # Stream this repo's URLs immediately.
+            for kind, n, _alive, _deleted in repo_flagged:
+                print(url(repo, kind, n), flush=True)
+            total_count += len(repo_flagged)
+
+    if args.sort:
+        # Group by repo (preserve arg order via index), sort by number within.
+        all_flagged.sort(key=lambda x: (x[0], x[2]))
+        for repo, kind, n, _alive, _deleted in all_flagged:
+            print(url(repo, kind, n))
+        total_count = len(all_flagged)
+
+    if args.detail and total_count:
+        sys.stderr.write(
+            f"\n=== {total_count} item(s) with > {args.threshold} alive revisions ===\n"
+        )
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
