@@ -1,13 +1,11 @@
 name: bats
 
 on:
+  # No paths filter: this is a required status check. A path-filtered required
+  # check is skipped (never reported) on PRs that don't touch the filtered
+  # paths, leaving the ruleset waiting forever on an absent context. Running on
+  # every PR keeps the required context always present.
   pull_request:
-    paths:
-      - 'tests/**'
-      - 'stow/**'
-      - 'scripts/**'
-      - '.githooks/**'
-      - '.github/workflows/bats.yml'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
