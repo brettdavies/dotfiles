@@ -79,6 +79,27 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   [[ "$output" == "$bp"/* ]] || { echo "bundle resolved to '$output' (expected under $bp)"; false; }
 }
 
+# Regression: bash and non-login shells (the pre-push bats run, cron, editor
+# shell tools) demote keg-only Homebrew Ruby behind /usr/bin too, but never
+# source dot-zprofile. config/shell/local-paths.sh must FORCE the Ruby bin to
+# the front (remove-then-prepend); an add-if-absent guard skips when the dir is
+# already present-but-demoted, leaving system Ruby 2.6 / Bundler 1.x winning.
+@test "local-paths.sh promotes keg-only Homebrew Ruby ahead of system Ruby in bash" {
+  [ "$(uname -s)" = "Darwin" ] || skip "macOS-only — path_helper is Apple-specific"
+  bp="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null)}"
+  [ -n "$bp" ] || skip "no Homebrew prefix"
+  [ -d "$bp/opt/ruby/bin" ] || skip "keg-only Homebrew Ruby not installed"
+  # Reproduce the demoted order (/usr/bin AHEAD of an already-present Ruby bin),
+  # source the repair in bash, and confirm bundle resolves under Homebrew.
+  run bash -c "
+    export PATH='/usr/bin:/bin:$bp/opt/ruby/bin:/usr/local/bin'
+    . '$CONFIG_DIR/local-paths.sh'
+    command -v bundle
+  "
+  [ "$status" -eq 0 ]
+  [[ "$output" == "$bp"/* ]] || { echo "bundle resolved to '$output' (expected under $bp)"; false; }
+}
+
 @test "dot-profile has valid bash syntax" {
   run bash -n "$STOW_DIR/shell/dot-profile"
   [ "$status" -eq 0 ]
