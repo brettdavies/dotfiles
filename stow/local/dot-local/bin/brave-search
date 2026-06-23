@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# brave-search — query the Brave Search API, print ranked web results as plain text.
+# Usage: brave-search "<query>" [count]        # count default 6
+#        brave-search --json "<query>" [count]  # raw API JSON
+#
+# The API key is read from 1Password at call time and handed to curl via a
+# mode-600 config file (-K), written with the shell builtin printf. This keeps
+# the secret off any child process's argv (where ps / /proc/<pid>/cmdline would
+# expose it) and out of an exported env var (inherited via /proc/<pid>/environ).
+set -euo pipefail
+
+raw=0
+if [ "${1:-}" = "--json" ]; then raw=1; shift; fi
+
+q=${1:?usage: brave-search [--json] "<query>" [count]}
+count=${2:-6}
+
+cfg=$(mktemp)
+chmod 600 "$cfg"
+trap 'rm -f "$cfg"' EXIT
+
+key=$(op item get "Brave Search API Key (Free)" --vault secrets-dev --fields "label=credential" --reveal)
+printf 'header = "X-Subscription-Token: %s"\n' "$key" >"$cfg"
+key=
+
+resp=$(curl -fsS -K "$cfg" -G "https://api.search.brave.com/res/v1/web/search" \
+  --data-urlencode "q=$q" --data-urlencode "count=$count")
+
+if [ "$raw" = 1 ]; then
+  printf '%s\n' "$resp"
+else
+  printf '%s\n' "$resp" |
+    jaq -r '.web.results[]? | "• \(.title)\n  \(.url)\n  \(.description)\n"'
+fi
