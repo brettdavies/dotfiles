@@ -32,8 +32,17 @@ restating what the next block does. Git history holds change history; comments d
 
 Language doc-comment conventions (Rust `///`, Python docstrings, Go, TSDoc, Ruby YARD, Bash) apply to **documented
 public surface only**, not in-function code. Full policy (legitimate reasons, file-header and refactoring rules,
-per-language conventions) → `~/.claude/guides/code-comments.md`; the deterministic scanner and pattern catalog live in
-the `/code-comments` skill.
+per-language conventions, in-repo prose-doc elaboration) → `~/.claude/guides/code-comments.md`; the deterministic
+scanner and pattern catalog live in the `/code-comments` skill.
+
+**Applies to in-repo prose docs, not just code comments.** The present-state rule and the temporal/historical hard ban
+govern in-repo documentation too — READMEs, `docs/**`, specs, knowledge-base notes (e.g. a PARA-ACE vault), runbooks,
+plans. Write each doc to describe present reality; strip historical narration from the body (`previously`, `legacy`, `we
+switched from X to Y`, `reverting the earlier framing`, `this supersedes`, dated `Update:` notes, and meta-commentary
+about the authoring/synthesis process itself). Git and PR history are the change record. Retire content by marking it
+**deprecated** in present tense, not by narrating the change. **Exception:** a doc whose declared purpose is to record
+change — a supersedes-aware decision-log, a `CHANGELOG`/`RELEASES`, a migration record — is the designated home for "X
+supersedes Y"; present-only does not apply inside it.
 
 ## Workflow & skills
 
