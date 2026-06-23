@@ -1,4 +1,5 @@
 {
+  "skillListingBudgetFraction": 0.03,
   "env": {
     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
     "MAX_THINKING_TOKENS": "31999"
@@ -19,12 +20,18 @@
       "Bash(brew:*)",
       "Bash(bun --version)",
       "Bash(bun add:*)",
+      "Bash(bun audit:*)",
+      "Bash(bun build:*)",
+      "Bash(bun info:*)",
       "Bash(bun install:*)",
+      "Bash(bun outdated:*)",
       "Bash(bun pm *)",
       "Bash(bun run build:*)",
       "Bash(bun run lint:*)",
+      "Bash(bun run test:*)",
       "Bash(bun test:*)",
       "Bash(bun update:*)",
+      "Bash(bun why:*)",
       "Bash(bun upgrade:*)",
       "Bash(bun x *)",
       "Bash(bunx:*)",
@@ -194,7 +201,7 @@
       "Bash(~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh:*)",
       "Bash(~/.claude/skills/rust-tool-release/scripts/generate-completions.sh:*)",
       "Bash(~/.claude/skills/tailscale/scripts/ts-api.sh:*)",
-      "Bash(~/.claude/skills/unslop/scripts/score.py *)",
+      "Bash(python3 ~/.claude/skills/unslop/scripts/score.py *)",
       "Bash(~/.claude/skills/x-api/scripts/extract-endpoints.sh:*)",
       "Bash(~/obsidian-vault/Areas/infrastructure/scripts/sync-to-pool.sh:*)",
       "mcp__gbrain__get_brain_identity",
@@ -272,7 +279,54 @@
       "WebFetch(domain:rust-cli.github.io)",
       "WebFetch(domain:sqlite.org)",
       "WebFetch(domain:users.rust-lang.org)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(bash scripts/generate-changelog.sh *)",
+      "Bash(bash scripts/hooks/pre-push)",
+      "Bash(bash scripts/prose-check.sh *)",
+      "Bash(bun scripts/check-links.mjs)",
+      "Bash(bun scripts/generate-changelog.sh *)",
+      "Bash(bun scripts/generate-pack-readme.mjs --check)",
+      "Bash(bun scripts/generate-pack-readme.mjs)",
+      "Bash(bun scripts/test-validate-principles.mjs)",
+      "Bash(bun scripts/validate-principles.mjs)",
+      "Bash(curl -sL \"https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html\")",
+      "Bash(curl -sLI \"https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html\")",
+      "Bash(node scripts/check-links.mjs)",
+      "Bash(node scripts/validate-principles.mjs)",
+      "Bash(npm install *)",
+      "Bash(scripts/check-release-version.sh)",
+      "Bash(scripts/generate-changelog.sh:*)",
+      "Bash(scripts/hooks/pre-push)",
+      "Bash(scripts/prose-check.sh *)",
+      "Bash(time bash scripts/prose-check.sh)",
+      "Bash(curl -s https://hn.algolia.com/api/v1/items/:*)",
+      "Bash(brave-search:*)",
+      "Bash(cat .github/pull_request_template.md)",
+      "Bash(rtk read *)",
+      "Bash(ls styles/config/vocabularies/)",
+      "Bash(find styles *)",
+      "Bash(bash /home/brett/.claude/plugins/cache/every-marketplace/compound-engineering/:*)",
+      "Bash(/usr/bin/find ~/dev/dot-github -maxdepth 3 \\\\\\( -name \"pull_request_template.md\" -o -name \"RELEASES.md\" -o -name \"RELEASES-RATIONALE.md\" \\\\\\))",
+      "Bash(/usr/bin/find ~/dotfiles -maxdepth 6 \\\\\\( -name \"pull_request_template.md\" -o -name \"RELEASES.md\" -o -name \"RELEASES-RATIONALE.md\" \\\\\\))",
+      "Bash(bash /tmp/audit-revised.sh)",
+      "Bash(node scripts/test-check-last-revised.mjs)",
+      "Bash(DEBUG_CHECK_LR=1 node /home/brett/dev/agentnative-spec/scripts/check-last-revised.mjs base)",
+      "Bash(node scripts/test-validate-principles.mjs)",
+      "Bash(node scripts/check-last-revised.mjs *)",
+      "Bash(./target/release/anc *)",
+      "Bash(/usr/bin/ls *)",
+      "Bash(/home/brett/dev/agentnative-cli/target/release/anc *)",
+      "Bash(/home/linuxbrew/.linuxbrew/bin/rg *)",
+      "Bash(bun scripts/test-check-last-revised.mjs)",
+      "Bash(GITHUB_TOKEN=$\\(gh auth token \\) git cliff *)",
+      "Bash(bun scripts/check-last-revised.mjs)",
+      "Bash(bash scripts/check-release-version.sh)",
+      "Bash(perl -pi -e 's#\\\\Q[`docs/architecture/voice-enforcement.md`]\\(./docs/architecture/voice-enforcement.md\\)\\\\E#`docs/architecture/voice-enforcement.md`#g' RELEASES.md RELEASES-RATIONALE.md)",
+      "Bash(perl -pi -e 's#\\\\Q[`docs/architecture/`]\\(docs/architecture/\\)\\\\E#`docs/architecture/`#g' PRODUCT.md)",
+      "Bash(tailscale serve *)",
+      "Bash(caddy *)",
+      "Bash(ssh-keygen -lf ~/.ssh/brett_ed25519.pub)",
+      "Bash(ssh-keygen -lf ~/.ssh/brett_ed25519)"
     ],
     "deny": [
       "Bash(env:*)",
@@ -324,10 +378,10 @@
       "Bash(wrangler workflows delete *)",
       "Bash(xargs:*)"
     ],
+    "defaultMode": "acceptEdits",
     "additionalDirectories": [
       "/tmp"
-    ],
-    "defaultMode": "acceptEdits"
+    ]
   },
   "skillOverrides": {
     "disk-cleanup": "off",
@@ -504,6 +558,8 @@
       }
     ]
   },
+  "enableWorkflows": false,
+  "workflowKeywordTriggerEnabled": false,
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh"
@@ -531,8 +587,5 @@
   },
   "effortLevel": "xhigh",
   "awaySummaryEnabled": false,
-  "skillListingBudgetFraction": 0.03,
-  "autoUpdatesChannel": "stable",
-  "enableWorkflows": false,
-  "workflowKeywordTriggerEnabled": false
+  "autoUpdatesChannel": "stable"
 }
