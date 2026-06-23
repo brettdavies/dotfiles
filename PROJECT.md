@@ -26,9 +26,9 @@ secrets, and package lists using GNU Stow with git-crypt encryption.
 
 ## What This Repo Contains
 
-- **32 stow packages** — shell/editor config (shell, zsh, bash, git, ssh, gh, github, claude, codex, cursor, opencode,
+- **34 stow packages** — shell/editor config (shell, zsh, bash, git, ssh, gh, github, claude, codex, cursor, opencode,
   tmux, tmuxinator, lazygit, micro, yazi, ghostty), package state (brew, bun, pip, local), secrets (secrets, ssh, caam),
-  Linux-only daemons (obsidian, rclone, qmd, opendataloader-pdf, openclaw, rust, gogcli), and macOS-only (launchagent).
+  Linux-only daemons (obsidian, rclone, qmd, opendataloader-pdf, rust, gogcli), and macOS-only (launchagent).
   See [README.md](README.md#stow-packages) for the full table.
 - **16 shell environment fragments** — sourced automatically by `.profile` from `config/shell/`
 - **Brewfile + Brewfile.optional** — declarative macOS package lists

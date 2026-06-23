@@ -251,7 +251,7 @@ STOW_FLAGS+=(--ignore='\.DS_Store$')
 # content (e.g. stow/local holds both ~/.local/bin/* helpers AND ~/.config/systemd/user/*
 # units). Stow's --ignore matches file basenames (not directories), so we pattern on
 # the file extension. Every .service and .timer file in this repo is a systemd unit
-# (verified across stow/{local,openclaw,rclone,rust,obsidian,opendataloader-pdf}),
+# (verified across stow/{local,rclone,rust,obsidian,opendataloader-pdf}),
 # so the pattern is safe to apply broadly. No-op on Linux.
 if [ "$(uname -s)" = "Darwin" ]; then
   STOW_FLAGS+=(--ignore='\.(service|timer)$')

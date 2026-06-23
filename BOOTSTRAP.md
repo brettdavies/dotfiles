@@ -242,19 +242,17 @@ Caddy listens on `127.0.0.1:11500` only and forwards to `127.0.0.1:11434`.
 
 ### Tailscale Serve
 
-`bigdaddy` proxies two endpoints over Tailscale Serve: the openclaw gateway on its own node name and `svc:ollama` as a
-tailnet service VIP (the single embedding backend for the shared gbrain). tailscaled keeps serve config in its own
-state, but a binding can be dropped by a daemon restart or version upgrade while the `AdvertiseServices` pref survives,
-leaving a service advertised with nothing bound. Re-establish the full config in one idempotent run (the script
-fail-fasts if the Caddy proxy above is not up):
+`bigdaddy` serves `svc:ollama` over Tailscale Serve as a tailnet service VIP, the single embedding backend for the
+shared gbrain. tailscaled keeps serve config in its own state, but a binding can be dropped by a daemon restart or
+version upgrade while the `AdvertiseServices` pref survives, leaving a service advertised with nothing bound.
+Re-establish the config in one idempotent run (the script fail-fasts if the Caddy proxy above is not up):
 
 ```bash
 bash ~/dotfiles/scripts/tailscale-serve-setup.sh
 ```
 
-The script binds `https://bigdaddy.<tailnet>/` → `127.0.0.1:18789` (openclaw) and `https://ollama.<tailnet>/` →
-`127.0.0.1:11500` (svc:ollama → Caddy → Ollama), then prints `tailscale serve status`. It is host-gated to `bigdaddy`
-and safe to re-run.
+The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, then Caddy, then Ollama), then prints
+`tailscale serve status`. It is host-gated to `bigdaddy` and safe to re-run.
 
 > **One-time admin step:** the service host must be approved once in the
 > [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP
