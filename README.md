@@ -88,7 +88,6 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `local`              | `.local/bin/` (env, op-ssh-sign-wrapper, tmux-new-session)                                          |
 | `micro`              | `.config/micro/settings.json` — editor settings                                                     |
 | `obsidian`           | `.config/obsidian/`, systemd service, CLI wrapper (Linux only)                                      |
-| `openclaw`           | systemd user units for memory extract/distill and morning briefing (Linux, opt-in)                  |
 | `opencode`           | `.config/opencode/config.json`                                                                      |
 | `opendataloader-pdf` | Socket-activated hybrid PDF server with idle-exit, systemd user units (Linux only)                  |
 | `pip`                | `.config/pip/pip.conf`                                                                              |

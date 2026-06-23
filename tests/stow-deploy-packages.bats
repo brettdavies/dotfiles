@@ -42,7 +42,7 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
 
 @test "STOW_FLAGS ignores systemd units on macOS only" {
   # Linux .service/.timer files scattered inside otherwise-shared packages
-  # (stow/local, stow/openclaw, stow/rclone, stow/rust, stow/obsidian,
+  # (stow/local, stow/rclone, stow/rust, stow/obsidian,
   # stow/opendataloader-pdf) must not symlink to ~/.config/systemd/user/
   # on a Mac. File-extension regex is required because stow's --ignore
   # filters file basenames, not directory names. The pattern lives inside
