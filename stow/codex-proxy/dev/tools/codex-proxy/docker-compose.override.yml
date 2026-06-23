@@ -1,0 +1,17 @@
+# Loopback-hardening overlay for codex-proxy, stowed from dotfiles so the
+# binding has provenance (the ~/dev/tools/codex-proxy checkout is not a git repo).
+#
+# The upstream docker-compose.yml publishes :1455 on 0.0.0.0 (LAN + tailnet).
+# This overlay forces every published port to 127.0.0.1. The `!override` tag is
+# load-bearing: Compose CONCATENATES `ports` across files, so a plain override
+# would ADD a second 1455 mapping while leaving the base's 0.0.0.0:1455 in place
+# (and clash on bind). `!override` REPLACES the base list instead.
+#
+# :8080 is the OpenAI-compat API, reached off-host only through the
+# svc:codex-proxy Tailscale Serve VIP (see scripts/tailscale-serve-setup.sh).
+# :1455 is a secondary listener with no off-host consumer.
+services:
+  codex-proxy:
+    ports: !override
+      - "127.0.0.1:${PORT:-8080}:8080"
+      - "127.0.0.1:1455:1455"
