@@ -281,6 +281,7 @@
       "WebFetch(domain:users.rust-lang.org)",
       "WebSearch",
       "Bash(bash scripts/generate-changelog.sh *)",
+      "Bash(time ./scripts/generate-changelog.py *)",
       "Bash(bash scripts/hooks/pre-push)",
       "Bash(bash scripts/prose-check.sh *)",
       "Bash(bun scripts/check-links.mjs)",
