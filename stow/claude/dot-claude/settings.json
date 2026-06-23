@@ -533,6 +533,25 @@
             "command": "command -v bd >/dev/null 2>&1 && bd prime || true"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/bash-env-path.sh"
+          }
+        ]
+      }
+    ],
+    "CwdChanged": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/bash-env-path.sh"
+          }
+        ]
       }
     ],
     "SessionEnd": [
