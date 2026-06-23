@@ -544,16 +544,6 @@
         ]
       }
     ],
-    "CwdChanged": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/bash-env-path.sh"
-          }
-        ]
-      }
-    ],
     "SessionEnd": [
       {
         "matcher": "",
