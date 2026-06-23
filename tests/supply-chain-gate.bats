@@ -150,7 +150,7 @@ _require_version() {
     command -v npm >/dev/null 2>&1 || skip "npm not installed"
     _require_version "$(npm --version 2>/dev/null)" "11.10.0" "npm" "brew upgrade node"
 
-    local cutoff pkgs pkg modified candidate latest probed=0
+    local cutoff pkgs pkg published candidate latest probed=0
     cutoff=$(_cutoff_iso)
     pkgs=$(npm list -g --depth=0 --parseable 2>/dev/null \
         | awk -F/ 'NR>1 {print $NF}' \
@@ -160,12 +160,18 @@ _require_version() {
     for pkg in $pkgs; do
         probed=$((probed + 1))
         [ "$probed" -gt "$MAX_CANDIDATE_PROBES" ] && break
-        modified=$(npm view "$pkg" time.modified 2>/dev/null || true)
-        [ -z "$modified" ] && continue
-        if [ "$modified" \> "$cutoff" ]; then
+        latest=$(npm view "$pkg" version 2>/dev/null || true)
+        [ -z "$latest" ] && continue
+        # time.modified bumps on any metadata change (deprecations, dist-tag
+        # edits), not just a publish, so it picks packages whose latest is
+        # already out of the window. Gate on the latest version's own publish
+        # time, mirroring the uv probe, so the candidate is genuinely in-window.
+        published=$(npm view "$pkg" time --json 2>/dev/null \
+            | jaq -r --arg v "$latest" '.[$v] // ""' 2>/dev/null || true)
+        [ -z "$published" ] && continue
+        if [ "$published" \> "$cutoff" ]; then
             candidate="$pkg"
-            latest=$(npm view "$pkg" version 2>/dev/null || true)
-            [ -n "$latest" ] && break
+            break
         fi
     done
 
