@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# xurl-rs ships its binary as `xr`. Subprocess callers don't load the interactive
+# `xurl` alias, so they need a real `xurl` on PATH that execs `xr`.
+exec xr "$@"
