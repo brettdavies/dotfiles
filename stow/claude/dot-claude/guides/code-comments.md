@@ -52,6 +52,17 @@ name and exports. No `ABOUTME:` convention unless the project already uses it.
 institutional knowledge written for a reason. Don't strip context just because you're touching the file. Don't add a new
 comment about the change itself — describe the resulting code's present state.
 
+**In-repo prose docs follow the same present-state rule.** The temporal/historical hard ban above is not limited to code
+comments — it governs in-repo documentation too: READMEs, `docs/**`, specs, runbooks, plans, and knowledge-base notes
+(e.g. a PARA-ACE vault). Write each doc to describe present reality and let `git blame` and the PR carry the evolution;
+strip `previously` / `we switched from X` / `reverting the earlier framing` / `this supersedes` / dated `Update:` notes
+/ meta-commentary about the synthesis process. The mechanism when content changes: rewrite the page so the current state
+reads as if it were always true. Retire a stale section by marking it **deprecated** in present tense rather than
+narrating its removal — for example, replace `Update (2026-05): migrated from Foo to Bar` with a clean description of
+Bar, since the migration lives in the history, not the body. **Exception:** a doc whose explicit purpose is to log
+change — a supersedes-aware decision-log, a `CHANGELOG`/`RELEASES`, a migration record — is the designated home for
+supersession narration; present-only does not apply inside it.
+
 **Language conventions override the default** for documented public surface area, not for in-function code:
 
 - **Rust** — `///` doc comments on public items (`pub fn`, `pub struct`, public modules). Required for `pub` items if
