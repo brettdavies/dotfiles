@@ -8,13 +8,20 @@
 # truth so a fresh host, or a host that lost its binding, re-establishes the
 # full serve config in one idempotent run.
 #
-# Binding:
-#   - service serve: https://ollama.<tailnet>/ -> 127.0.0.1:11500  (svc:ollama VIP)
+# Bindings:
+#   - service serve: https://ollama.<tailnet>/       -> 127.0.0.1:11500  (svc:ollama VIP)
+#   - service serve: https://codex-proxy.<tailnet>/  -> 127.0.0.1:8080   (svc:codex-proxy VIP)
 #
 # svc:ollama targets the loopback Caddy proxy on :11500, not Ollama's :11434
 # directly: Ollama 403s any non-localhost Host header, and serve forwards the
 # tailnet Host unchanged. Caddy rewrites Host to localhost (see stow/caddy/),
 # keeping Ollama bound to 127.0.0.1 only.
+#
+# svc:codex-proxy targets the codex-proxy OpenAI-compat endpoint on :8080
+# directly — no Caddy shim. Unlike Ollama, codex-proxy accepts any Host header,
+# so serve forwards the tailnet Host unchanged. The endpoint stays bound to
+# 127.0.0.1 (docker maps 127.0.0.1:8080); inbound is gated by the tailnet ACL
+# plus the LITELLM_API_KEY bearer the proxy requires on completions.
 #
 # `tailscale serve --service=...` both advertises the node as the service host
 # AND binds the proxy in one call — a separate `tailscale serve advertise` is
@@ -22,7 +29,9 @@
 # config, so the script is safe to run repeatedly.
 #
 # Service-host approval is a one-time per-host action in the admin console and
-# cannot be scripted here: https://login.tailscale.com/admin/services/svc:ollama
+# cannot be scripted here (one per service):
+#   https://login.tailscale.com/admin/services/svc:ollama
+#   https://login.tailscale.com/admin/services/svc:codex-proxy
 #
 # Usage: bash scripts/tailscale-serve-setup.sh
 
@@ -41,6 +50,7 @@ if ! tailscale status >/dev/null 2>&1; then
 fi
 
 OLLAMA_TARGET="http://127.0.0.1:11500"
+CODEX_TARGET="http://127.0.0.1:8080"
 
 # svc:ollama forwards to the loopback Caddy proxy; refuse to point the tailnet
 # VIP at a dead upstream (Caddy down would silently break the served path).
@@ -51,6 +61,16 @@ fi
 
 echo "==> service serve: svc:ollama -> ${OLLAMA_TARGET}"
 tailscale serve --service=svc:ollama --https=443 --yes "${OLLAMA_TARGET}"
+
+# svc:codex-proxy forwards straight to the loopback codex-proxy endpoint; refuse
+# to point the tailnet VIP at a dead upstream (/health needs no bearer).
+if ! curl -sf -o /dev/null --max-time 3 "${CODEX_TARGET}/health"; then
+  echo "ERROR: ${CODEX_TARGET} not responding. Start it first: systemctl --user start codex-proxy.service" >&2
+  exit 1
+fi
+
+echo "==> service serve: svc:codex-proxy -> ${CODEX_TARGET}"
+tailscale serve --service=svc:codex-proxy --https=443 --yes "${CODEX_TARGET}"
 
 echo "==> serve status:"
 tailscale serve status --json
