@@ -251,8 +251,10 @@ STOW_FLAGS+=(--ignore='\.DS_Store$')
 # content (e.g. stow/local holds both ~/.local/bin/* helpers AND ~/.config/systemd/user/*
 # units). Stow's --ignore matches file basenames (not directories), so we pattern on
 # the file extension. Every .service and .timer file in this repo is a systemd unit
-# (verified across stow/{local,rclone,rust,obsidian,opendataloader-pdf}),
-# so the pattern is safe to apply broadly. No-op on Linux.
+# (verified across stow/{local,rclone,rust,obsidian,opendataloader-pdf,gbrain}),
+# so the pattern is safe to apply broadly. gbrain relies on this: its config
+# (dot-gbrain/) deploys on macOS as a thin-client brain while its indexing
+# units (gbrain-sync/dream, claude-code-archive) drop here. No-op on Linux.
 if [ "$(uname -s)" = "Darwin" ]; then
   STOW_FLAGS+=(--ignore='\.(service|timer)$')
 fi
@@ -277,7 +279,7 @@ for pkg in "$@"; do
   fi
   if [ "$(uname -s)" != "Linux" ]; then
     case "$pkg" in
-      rclone|obsidian|opendataloader-pdf|gbrain|codex-proxy)
+      rclone|obsidian|opendataloader-pdf|codex-proxy)
         echo "WARNING: $pkg is Linux-only, skipping on $(uname -s)" >&2
         continue
         ;;

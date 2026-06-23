@@ -25,14 +25,24 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
 }
 
 @test "Linux-only case block covers expected packages" {
-  # qmd was removed from this list when it became cross-platform (file-level
-  # OS gating via STOW_FLAGS --ignore handles its Linux-only systemd units,
-  # which now live in stow/local/). See docs/solutions/architecture-patterns/
+  # qmd and gbrain were both removed from this list when they became
+  # cross-platform: file-level OS gating via STOW_FLAGS --ignore drops their
+  # Linux-only systemd units on macOS while their cross-platform content still
+  # deploys. See docs/solutions/architecture-patterns/
   # cross-platform-stow-package-gating-2026-05-17.md.
   #
-  # gbrain + codex-proxy are pure systemd-unit packages (no cross-platform
-  # content), so they take the same Linux-only-skip path as rclone/obsidian.
-  grep -q 'rclone|obsidian|opendataloader-pdf|gbrain|codex-proxy)' "$SCRIPT"
+  # codex-proxy stays Linux-only: the proxy runs only on the brain host; macOS
+  # clients reach it over the tailnet, so they need neither its config nor units.
+  grep -q 'rclone|obsidian|opendataloader-pdf|codex-proxy)' "$SCRIPT"
+}
+
+@test "gbrain ships cross-platform config (deploys on macOS, not Linux-only)" {
+  # gbrain became cross-platform: its dot-gbrain/ config deploys on every OS as
+  # the thin-client brain, while its systemd units (gbrain-sync/dream,
+  # claude-code-archive) drop on macOS via the Darwin --ignore. It must NOT
+  # appear in any Linux-only skip case.
+  [ -f "$STOW_DIR/gbrain/dot-gbrain/config.json" ]
+  ! grep -qE '\|gbrain\||\|gbrain\)' "$SCRIPT"
 }
 
 @test "STOW_FLAGS always ignores .DS_Store" {

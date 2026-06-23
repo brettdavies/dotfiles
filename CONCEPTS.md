@@ -27,6 +27,18 @@ loop — the same flow runs on many of them and a manual step does not scale.
 When a tool would normally depend on the graphical secret manager (git signing, secret reads), the headless host falls
 back to a non-interactive path: ssh-based signing, service-account token reads.
 
+### gbrain thin client
+
+A deployed dotfiles host — in practice the macOS workstation — that runs gbrain config-only: the same shared Postgres
+engine and the same remote embedder and chat proxy that the brain host uses, reached over the tailnet, with gbrain's
+indexing and `dream` units excluded at deploy time. It queries the shared brain read-only and never embeds a corpus or
+runs synthesis locally. The point is a single vector space — because every query is embedded by the brain host's one
+embedder, the thin client's results share the space the corpus was embedded in; a second local engine would fork it. The
+*brain host* is the headless host that owns the engine, embedder, and the periodic indexing and dream jobs; the thin
+client owns none of them. The split falls out of making the gbrain stow package cross-platform (the config deploys, the
+Linux-only units are dropped on macOS) plus per-host environment overrides that point the provider endpoints at the
+tailnet instead of localhost.
+
 ## Packages
 
 ### Stow package
