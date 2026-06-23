@@ -8,9 +8,8 @@
 # truth so a fresh host, or a host that lost its binding, re-establishes the
 # full serve config in one idempotent run.
 #
-# Two bindings:
-#   - node serve:    https://bigdaddy.<tailnet>/ -> 127.0.0.1:18789  (openclaw gateway)
-#   - service serve: https://ollama.<tailnet>/   -> 127.0.0.1:11500  (svc:ollama VIP)
+# Binding:
+#   - service serve: https://ollama.<tailnet>/ -> 127.0.0.1:11500  (svc:ollama VIP)
 #
 # svc:ollama targets the loopback Caddy proxy on :11500, not Ollama's :11434
 # directly: Ollama 403s any non-localhost Host header, and serve forwards the
@@ -41,11 +40,7 @@ if ! tailscale status >/dev/null 2>&1; then
   exit 1
 fi
 
-OPENCLAW_TARGET="http://127.0.0.1:18789"
 OLLAMA_TARGET="http://127.0.0.1:11500"
-
-echo "==> node serve: https://${EXPECTED_HOST}.<tailnet>/ -> ${OPENCLAW_TARGET}"
-tailscale serve --bg --https=443 --yes "${OPENCLAW_TARGET}"
 
 # svc:ollama forwards to the loopback Caddy proxy; refuse to point the tailnet
 # VIP at a dead upstream (Caddy down would silently break the served path).
