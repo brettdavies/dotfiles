@@ -142,3 +142,23 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
   grep -q 'git).*\$HOME/.config/git' "$SCRIPT"
   grep -q 'opencode).*\$HOME/.config/opencode' "$SCRIPT"
 }
+
+# ---------------------------------------------------------------------------
+# Post-deploy systemd --user timer recovery
+# ---------------------------------------------------------------------------
+
+@test "redeploys reset and restart the systemd timers a package ships" {
+  # stow -R can race systemd during the unlink-relink and leave a timer failed
+  # (no auto-recover); the deploy must reload + reset + restart the timers it
+  # (re)deployed so the schedule cannot silently die.
+  grep -qF 'dot-config/systemd/user/*.timer' "$SCRIPT"
+  grep -qF 'systemctl --user daemon-reload' "$SCRIPT"
+  grep -qF 'systemctl --user reset-failed' "$SCRIPT"
+  grep -qF 'systemctl --user restart' "$SCRIPT"
+}
+
+@test "systemd timer recovery is guarded to a real Linux \$HOME deploy" {
+  # Must not touch the live user manager from a sandboxed test target or on
+  # macOS (launchd); guard requires Linux AND TARGET == HOME.
+  grep -qF '[ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ]' "$SCRIPT"
+}
