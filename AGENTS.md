@@ -9,8 +9,7 @@ during deployment.
 - **macOS (development):** Single machine, interactive use, 1Password desktop app available
 - **Ubuntu servers (headless):** Thousands of machines, non-interactive, no GUI, no 1Password desktop app
 - **Default shell:** zsh on all machines (macOS and Ubuntu)
-- **Active CLI tooling** lives in [dotfiles-cli](https://github.com/brettdavies/dotfiles-cli) (Rust). This repo is
-  config-only.
+- **This repo is config-only** — configuration payloads plus the scripts that deploy them.
 
 ### Automation Requirements
 

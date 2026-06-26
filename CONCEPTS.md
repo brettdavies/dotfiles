@@ -96,6 +96,22 @@ that legitimately differ per machine (signing-key paths, machine-specific git id
 repo's tracked config sources or includes the override path so settings layer cleanly: the tracked config is the
 default, the per-host override is the deviation, and the override's existence is part of the deployment contract.
 
+## Shell environment
+
+### Shell config chain
+
+The single environment-setup path every login, interactive, and non-interactive shell shares: one universal entry file
+that establishes PATH, the package-manager prefix, secrets, and the per-tool config fragments, reached by each shell
+through its own startup file. It is the authoritative place to set environment for shells, and it does not run for a
+*bare launcher*.
+
+### Bare launcher
+
+A process that spawns a shell without sourcing any startup file, so it inherits only the PATH and environment its parent
+handed it and never runs the *shell config chain*. Cron, launchd and systemd jobs, GUI applications, git hooks, and the
+coding agent's command tool are all bare launchers. A bare launcher that needs a non-default tool on PATH must receive
+it from its own process environment (its unit, plist, or launcher configuration), not from the shell config chain.
+
 ## Policies
 
 ### Supply-chain age gate
