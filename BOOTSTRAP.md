@@ -103,6 +103,18 @@ Optional packages:
 brew bundle --file=~/dotfiles/stow/brew/Brewfile.optional
 ```
 
+### Ruby Bundler (supply-chain cooldown)
+
+`config/shell/local-paths.sh` puts Homebrew's keg-only Ruby ahead of the macOS system Ruby 2.6, but Homebrew's Ruby
+bundles a Bundler that may lag the `>= 4.0.13` the cooldown policy needs (`config/shell/supply-chain.sh`). Install a
+current Bundler into Homebrew's Ruby once per machine:
+
+```bash
+"$(brew --prefix ruby)/bin/gem" install bundler -v '~> 4.0' --no-document
+```
+
+Open a fresh shell, then confirm `bundle --version` reports `4.0.13` or newer.
+
 ## oh-my-zsh
 
 ```bash
@@ -209,6 +221,42 @@ bash ~/dotfiles/scripts/rectangle-defaults.sh
 
 Hotkeys after setup: `⌃⌥←/→/↑/↓` for halves, `⌃⌥U/I/J/K` for quarters, `⌃⌥↵` maximize, `⌃⌥⌫` restore previous size.
 Repeat the same arrow to cycle 1/2 → 2/3 → 1/3 width.
+
+## Linux Server Setup
+
+### Ollama Host-rewrite proxy (Caddy)
+
+Ollama binds to loopback only (`127.0.0.1:11434`) and 403s any request whose `Host` header is not localhost
+(DNS-rebinding protection). Tailscale Serve forwards the original tailnet Host (`ollama.<tailnet>.ts.net`), so the
+`svc:ollama` VIP cannot reach Ollama directly. A loopback Caddy proxy rewrites `Host` to localhost before forwarding,
+which keeps Ollama off the network. Deploy and enable it before pointing the serve VIP at it:
+
+```bash
+brew bundle --file=~/dotfiles/stow/brew/Brewfile          # installs caddy on Linux
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" caddy
+systemctl --user daemon-reload
+systemctl --user enable --now caddy.service
+```
+
+Caddy listens on `127.0.0.1:11500` only and forwards to `127.0.0.1:11434`.
+
+### Tailscale Serve
+
+`bigdaddy` serves `svc:ollama` over Tailscale Serve as a tailnet service VIP, the single embedding backend for the
+shared gbrain. tailscaled keeps serve config in its own state, but a binding can be dropped by a daemon restart or
+version upgrade while the `AdvertiseServices` pref survives, leaving a service advertised with nothing bound.
+Re-establish the config in one idempotent run (the script fail-fasts if the Caddy proxy above is not up):
+
+```bash
+bash ~/dotfiles/scripts/tailscale-serve-setup.sh
+```
+
+The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, then Caddy, then Ollama), then prints
+`tailscale serve status`. It is host-gated to `bigdaddy` and safe to re-run.
+
+> **One-time admin step:** the service host must be approved once in the
+> [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP
+> and the script's binding routes nowhere.
 
 ## Restart Shell
 

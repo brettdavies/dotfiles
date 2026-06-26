@@ -58,6 +58,48 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   [ "$status" -eq 0 ]
 }
 
+# Regression: macOS path_helper (run by /etc/zprofile) rebuilds PATH with the
+# system dirs first, demoting keg-only Homebrew Ruby behind /usr/bin so Bundler
+# falls back to system Ruby 2.6 / Bundler 1.x. dot-zprofile must re-assert the
+# keg-only Ruby bin + gem binstubs, not just $HOMEBREW_PREFIX/bin.
+@test "dot-zprofile re-asserts keg-only Homebrew Ruby ahead of system Ruby" {
+  [ "$(uname -s)" = "Darwin" ] || skip "macOS-only — path_helper is Apple-specific"
+  bp="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null)}"
+  [ -n "$bp" ] || skip "no Homebrew prefix"
+  [ -d "$bp/opt/ruby/bin" ] || skip "keg-only Homebrew Ruby not installed"
+  # Reproduce the post-path_helper order (/usr/bin AHEAD of the demoted Ruby
+  # dirs), source the repair, and confirm bundle resolves under Homebrew.
+  run zsh -c "
+    export HOMEBREW_PREFIX='$bp'
+    path=(/usr/bin '$bp/opt/ruby/bin' '$bp'/lib/ruby/gems/*/bin(N))
+    source '$STOW_DIR/zsh/dot-zprofile'
+    command -v bundle
+  "
+  [ "$status" -eq 0 ]
+  [[ "$output" == "$bp"/* ]] || { echo "bundle resolved to '$output' (expected under $bp)"; false; }
+}
+
+# Regression: bash and non-login shells (the pre-push bats run, cron, editor
+# shell tools) demote keg-only Homebrew Ruby behind /usr/bin too, but never
+# source dot-zprofile. config/shell/local-paths.sh must FORCE the Ruby bin to
+# the front (remove-then-prepend); an add-if-absent guard skips when the dir is
+# already present-but-demoted, leaving system Ruby 2.6 / Bundler 1.x winning.
+@test "local-paths.sh promotes keg-only Homebrew Ruby ahead of system Ruby in bash" {
+  [ "$(uname -s)" = "Darwin" ] || skip "macOS-only — path_helper is Apple-specific"
+  bp="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null)}"
+  [ -n "$bp" ] || skip "no Homebrew prefix"
+  [ -d "$bp/opt/ruby/bin" ] || skip "keg-only Homebrew Ruby not installed"
+  # Reproduce the demoted order (/usr/bin AHEAD of an already-present Ruby bin),
+  # source the repair in bash, and confirm bundle resolves under Homebrew.
+  run bash -c "
+    export PATH='/usr/bin:/bin:$bp/opt/ruby/bin:/usr/local/bin'
+    . '$CONFIG_DIR/local-paths.sh'
+    command -v bundle
+  "
+  [ "$status" -eq 0 ]
+  [[ "$output" == "$bp"/* ]] || { echo "bundle resolved to '$output' (expected under $bp)"; false; }
+}
+
 @test "dot-profile has valid bash syntax" {
   run bash -n "$STOW_DIR/shell/dot-profile"
   [ "$status" -eq 0 ]
@@ -121,19 +163,35 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 # config/shell/qmd.sh: QMD_REMOTE_URL owned here, not in dot-profile
 # ---------------------------------------------------------------------------
 
-@test "qmd.sh exports QMD_REMOTE_URL pointing at the low-vram-mode daemon" {
+@test "qmd.sh exports QMD_REMOTE_URL unconditionally" {
   grep -q '^export QMD_REMOTE_URL=http://127.0.0.1:7832$' "$CONFIG_DIR/qmd.sh"
+}
+
+@test "qmd.sh guards the QMD_LOW_VRAM export to Linux" {
+  grep -qE '\[ "\$\(uname\)" = "Linux" \]' "$CONFIG_DIR/qmd.sh"
+  grep -qE '^[[:space:]]+export QMD_LOW_VRAM=1$' "$CONFIG_DIR/qmd.sh"
 }
 
 @test "dot-profile no longer exports QMD_REMOTE_URL (owned by config/shell/qmd.sh)" {
   ! grep -q 'QMD_REMOTE_URL' "$STOW_DIR/shell/dot-profile"
 }
 
-@test "sourcing profile in a fresh shell exports QMD_REMOTE_URL" {
+@test "sourcing profile in a fresh shell exports QMD_REMOTE_URL on all platforms" {
   [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
   run bash -c 'unset QMD_REMOTE_URL; . "$HOME/.profile" >/dev/null 2>&1; echo "$QMD_REMOTE_URL"'
   [ "$status" -eq 0 ]
   [ "$output" = "http://127.0.0.1:7832" ]
+}
+
+@test "sourcing profile sets QMD_LOW_VRAM on Linux only" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  run bash -c 'unset QMD_LOW_VRAM; . "$HOME/.profile" >/dev/null 2>&1; echo "${QMD_LOW_VRAM:-unset}"'
+  [ "$status" -eq 0 ]
+  if [ "$(uname)" = "Linux" ]; then
+    [ "$output" = "1" ]
+  else
+    [ "$output" = "unset" ]
+  fi
 }
 
 # ---------------------------------------------------------------------------

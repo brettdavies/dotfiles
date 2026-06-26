@@ -12,8 +12,37 @@
   },
   "rules": [
     {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
       "type": "required_signatures"
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "shellcheck",
+            "integration_id": 15368
+          },
+          {
+            "context": "bats",
+            "integration_id": 15368
+          }
+        ]
+      }
     }
   ],
-  "bypass_actors": []
+  "bypass_actors": [
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "always"
+    }
+  ]
 }

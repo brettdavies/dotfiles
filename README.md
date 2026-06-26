@@ -39,10 +39,11 @@ For detailed platform-specific setup (oh-my-zsh, Ghostty, Cursor extensions, iCl
 
 ```text
 dotfiles/
-├── stow/                  Stow packages (symlinked into $HOME)
+├── stow/                  Stow packages (symlinked into $HOME; ollama targets /etc)
 ├── config/
 │   ├── shell/             Shell fragments auto-sourced by .profile
 │   ├── git/               Per-platform git config templates
+│   ├── qmd/               Per-platform qmd collections templates
 │   ├── apparmor.d/        System-level AppArmor profiles (deployed via apparmor-deploy.sh)
 │   └── systemd/system/    System-level units (NAS mounts via nas-deploy.sh, apparmor-playwright via apparmor-deploy.sh)
 ├── scripts/
@@ -50,15 +51,20 @@ dotfiles/
 │   ├── nas-deploy.sh      System-level NAS mount/automount deploy
 │   ├── apparmor-deploy.sh System-level AppArmor profile deploy + boot unit (Playwright/Chromium)
 │   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (apparmor + opt-in browser deps)
-│   └── sync/              iCloud sync scripts
+│   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, opendataloader-pdf)
+│   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama)
+│   ├── generate-changelog.py      Release changelog extraction
+│   ├── tools-atime/       Multi-package-manager unused-tool audit + reclaim
+│   └── sync/              iCloud, Box, and Claude Code session pipeline sync
 ├── .githooks/             Repo-local git hooks (core.hooksPath)
 ├── .github/
-│   ├── workflows/         CI: release.yml, shellcheck.yml
-│   └── rulesets/          Branch protection rules
+│   ├── workflows/         CI: release.yml, shellcheck.yml, bats.yml
+│   └── rulesets/          Branch protection rules (protect-dev, protect-main)
 ├── tests/                 bats-core test suites
 └── docs/
-    ├── solutions/         Solved problems and patterns
+    ├── solutions/         Solved problems and patterns (symlink to a separate private repo)
     ├── plans/             Implementation plans
+    ├── runbooks/          Operational runbooks (GPU driver drift, Playwright launch)
     └── brainstorms/       Design explorations
 ```
 
@@ -67,41 +73,45 @@ dotfiles/
 Each directory under `stow/` is a package. Files prefixed with `dot-` become dotfiles (`.` prefix) when symlinked via
 `stow --dotfiles`.
 
-| Package              | What it manages                                                                                     |
-| -------------------- | --------------------------------------------------------------------------------------------------- |
-| `bash`               | `.bashrc`, `.bash_profile`, `.bash_aliases`                                                         |
-| `brew`               | `Brewfile`, `Brewfile.optional`                                                                     |
-| `bun`                | `.bunfig.toml`                                                                                      |
-| `caam`               | `.caam/` (Claude account rotation config + vault, git-crypt encrypted)                              |
-| `claude`             | `.claude/` (settings, hooks, statusline, templates), `.markdownlint-cli2.yaml`                      |
-| `codex`              | `.codex/config.toml`                                                                                |
-| `codex-proxy`        | systemd user unit for the docker-compose codex-proxy backend (Linux only)                           |
-| `cursor`             | `.cursor/rules/`, `extensions.txt`                                                                  |
-| `gh`                 | `.config/gh/` (GitHub CLI config), `.local/bin/gh` (merge guard wrapper)                            |
-| `ghostty`            | `.config/ghostty/config`                                                                            |
-| `git`                | `.gitconfig`, `.config/git/` (ignore, allowed\_signers)                                             |
-| `github`             | `.config/github/` (PR template and other repo-workflow assets)                                      |
-| `gbrain`             | systemd user units for `gbrain sync` (every 15m) and `gbrain dream` (nightly) (Linux only)          |
-| `gogcli`             | `.config/gogcli/config.json` — Google Workspace CLI config                                          |
-| `launchagent`        | `~/Library/LaunchAgents/` (macOS only)                                                              |
-| `lazygit`            | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52                                        |
-| `local`              | `.local/bin/` (env, op-ssh-sign-wrapper, tmux-new-session)                                          |
-| `micro`              | `.config/micro/settings.json` — editor settings                                                     |
-| `obsidian`           | `.config/obsidian/`, systemd service, CLI wrapper (Linux only)                                      |
-| `openclaw`           | systemd user units for memory extract/distill and morning briefing (Linux, opt-in)                  |
-| `opencode`           | `.config/opencode/config.json`                                                                      |
-| `opendataloader-pdf` | Socket-activated hybrid PDF server with idle-exit, systemd user units (Linux only)                  |
-| `pip`                | `.config/pip/pip.conf`                                                                              |
-| `qmd`                | `.local/bin/qmd` wrapper + systemd user units (qmd-serve daemon, embed + update timers, Linux only) |
-| `rclone`             | `.config/rclone/`, Box bisync systemd service + timer (Linux only)                                  |
-| `rust`               | `rustup-update.service` + `.timer` (nightly rustup self-update, Linux, opt-in)                      |
-| `secrets`            | `.secrets` (git-crypt encrypted)                                                                    |
-| `shell`              | `.profile`                                                                                          |
-| `ssh`                | `.ssh/config` (git-crypt encrypted)                                                                 |
-| `tmux`               | `.config/tmux/tmux.conf`                                                                            |
-| `tmuxinator`         | `.config/tmuxinator/*.yml` — declarative session configs (16 projects, see below)                   |
-| `yazi`               | `.config/yazi/` — file manager config, keymaps, theme, packages                                     |
-| `zsh`                | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                                                       |
+| Package              | What it manages                                                                                                                    |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `bash`               | `.bashrc`, `.bash_profile`, `.bash_aliases`                                                                                        |
+| `brew`               | `Brewfile`, `Brewfile.optional`                                                                                                    |
+| `bun`                | `.bunfig.toml`                                                                                                                     |
+| `caam`               | `.caam/` (Claude account rotation config + vault, git-crypt encrypted)                                                             |
+| `caddy`              | `.config/caddy/Caddyfile`, `caddy.service` — loopback proxy fronting Ollama for `svc:ollama` (Host rewrite) (Linux only)           |
+| `claude`             | `.claude/` (settings, hooks, statusline, templates), `.markdownlint-cli2.yaml`                                                     |
+| `codex`              | `.codex/config.toml`                                                                                                               |
+| `codex-proxy`        | systemd user unit for the docker-compose codex-proxy backend (Linux only)                                                          |
+| `cursor`             | `.cursor/rules/`, `extensions.txt`                                                                                                 |
+| `gh`                 | `.config/gh/` (GitHub CLI config), `.local/bin/gh` (merge guard wrapper)                                                           |
+| `ghostty`            | `.config/ghostty/config`                                                                                                           |
+| `git`                | `.gitconfig`, `.config/git/` (ignore, allowed\_signers)                                                                            |
+| `github`             | `.config/github/` (PR template and other repo-workflow assets)                                                                     |
+| `gbrain`             | systemd user units for `gbrain sync` (every 15m) and `gbrain dream` (nightly); config deploys cross-platform, units are Linux-only |
+| `gogcli`             | `.config/gogcli/config.json` — Google Workspace CLI config                                                                         |
+| `launchagent`        | `~/Library/LaunchAgents/` (macOS only)                                                                                             |
+| `lazygit`            | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52                                                                       |
+| `local`              | `.local/bin/` (env, op-ssh-sign-wrapper, tmux-new-session, uuidv7)                                                                 |
+| `micro`              | `.config/micro/settings.json` — editor settings                                                                                    |
+| `obsidian`           | `.config/obsidian/`, systemd service, CLI wrapper (Linux only)                                                                     |
+| `ollama`             | systemd service override binding Ollama to loopback `127.0.0.1:11434`; system-level, stowed into `/etc` with `sudo` (Linux only)   |
+| `opencode`           | `.config/opencode/config.json`                                                                                                     |
+| `opendataloader-pdf` | Socket-activated hybrid PDF server with idle-exit, systemd user units (Linux only)                                                 |
+| `pip`                | `.config/pip/pip.conf`                                                                                                             |
+| `qmd`                | `.local/bin/qmd` wrapper + systemd user units (qmd-serve daemon, embed + update timers, Linux only)                                |
+| `rclone`             | `.config/rclone/`, Box bisync systemd service + timer (Linux only)                                                                 |
+| `rust`               | `rustup-update.service` + `.timer` (nightly rustup self-update, Linux, opt-in)                                                     |
+| `secrets`            | `.secrets` (git-crypt encrypted)                                                                                                   |
+| `ssh`                | `.ssh/config` (git-crypt encrypted)                                                                                                |
+| `tmux`               | `.config/tmux/tmux.conf`                                                                                                           |
+| `tmuxinator`         | `.config/tmuxinator/*.yml` — declarative session configs (20 projects, see below)                                                  |
+| `yazi`               | `.config/yazi/` — file manager config, keymaps, theme, packages                                                                    |
+| `zsh`                | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                                                                                      |
+
+Two packages deploy outside the `stow-deploy --all` flow: `caddy` (the Linux-only Ollama proxy host) is stowed
+explicitly with `scripts/stow-deploy caddy`, and `ollama` targets `/etc` rather than `$HOME`, stowed with `sudo stow -t
+/etc -d stow ollama` (see [stow/ollama/README.md](stow/ollama/README.md)).
 
 ### Tmuxinator Sessions
 
@@ -137,6 +147,10 @@ and are deployed via `scripts/nas-deploy.sh`, which copies them to `/etc/systemd
 
 **Deploy:** `sudo scripts/nas-deploy.sh` (requires `/root/.smbcredentials-<nas-host>` from 1Password).
 
+Two more system-level configs deploy through their own paths: `apparmor-playwright.service` (with the AppArmor profile,
+via `scripts/apparmor-deploy.sh`, below) and the `ollama` loopback override (`sudo stow -t /etc`, see the `ollama`
+package).
+
 ### Playwright / browse browser launch (`scripts/playwright-deps-deploy.sh`)
 
 On Linux the `browse` tool and Playwright e2e need two things to launch browsers: an AppArmor profile (for Chromium's
@@ -168,24 +182,30 @@ reloaded and the profile drops on reboot.
 `.profile` sources every `*.sh` file in `config/shell/` automatically — drop a file in and it's picked up, no manifest
 needed.
 
-| File                | Purpose                                               |
-| ------------------- | ----------------------------------------------------- |
-| `caam.sh`           | Claude account rotation wrapper + daemon              |
-| `caches.sh`         | XDG cache directory locations                         |
-| `claude-code.sh`    | Claude Code environment variables                     |
-| `github.sh`         | GitHub CLI aliases                                    |
-| `gogcli.sh`         | Google Workspace CLI keyring password injection       |
-| `litellm.sh`        | LiteLLM proxy configuration                           |
-| `lm-studio.sh`      | LM Studio PATH setup                                  |
-| `local-paths.sh`    | Custom local PATH additions                           |
-| `models.sh`         | AI/ML model storage locations                         |
-| `platform-linux.sh` | Linux-specific platform checks and config             |
-| `python.sh`         | Python tooling config                                 |
-| `qmd.sh`            | `QMD_REMOTE_URL` export (qmd-serve daemon URL)        |
-| `supply-chain.sh`   | Supply-chain safety (package age gates)               |
-| `telemetry.sh`      | Telemetry opt-out environment variables               |
-| `tmuxinator.sh`     | `mux` and `mux-all` tmuxinator wrappers               |
-| `shell-functions`   | Interactive shell utilities (sourced by bashrc/zshrc) |
+| File                | Purpose                                                        |
+| ------------------- | -------------------------------------------------------------- |
+| `build-flags.sh`    | Native-CPU build flags (`-march=native`) for local compilation |
+| `caam.sh`           | Claude account rotation wrapper + daemon                       |
+| `caches.sh`         | XDG cache directory locations                                  |
+| `claude-code.sh`    | Claude Code environment variables                              |
+| `gbrain.sh`         | Default `gbrain doctor` to `--fast`                            |
+| `github.sh`         | GitHub CLI aliases                                             |
+| `gogcli.sh`         | Google Workspace CLI keyring password injection                |
+| `languagetool.sh`   | LanguageTool wrapper for the shared prose-lint stage           |
+| `litellm.sh`        | LiteLLM proxy configuration                                    |
+| `lm-studio.sh`      | LM Studio PATH setup                                           |
+| `local-paths.sh`    | Custom local PATH additions                                    |
+| `models.sh`         | AI/ML model storage locations                                  |
+| `platform-linux.sh` | Linux-specific platform checks and config                      |
+| `python.sh`         | Python tooling config                                          |
+| `qmd.sh`            | `QMD_REMOTE_URL` export (qmd-serve daemon URL)                 |
+| `run-flags.sh`      | Runtime performance env vars (CUDA, io_uring, PyTorch) — Linux |
+| `supply-chain.sh`   | Supply-chain safety (package age gates)                        |
+| `taildrive.sh`      | Taildrive mount helpers (macOS)                                |
+| `telemetry.sh`      | Telemetry opt-out environment variables                        |
+| `tmuxinator.sh`     | `mux` and `mux-all` tmuxinator wrappers                        |
+| `xurl.sh`           | Alias `xurl` to the `xr` binary (xurl-rs)                      |
+| `shell-functions`   | Interactive shell utilities (sourced by bashrc/zshrc)          |
 
 ## Secrets Management
 
@@ -207,22 +227,28 @@ Activated via `core.hooksPath` (set automatically by `stow-deploy`):
 | `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign` |
 | `post-checkout` | Auto-unlocks git-crypt, chains Git LFS              |
 | `post-merge`    | Auto-unlocks git-crypt, chains Git LFS              |
-| `pre-push`      | Chains Git LFS pre-push                             |
+| `pre-push`      | Mirrors CI (shellcheck + bats), chains Git LFS      |
 
 ## CI and Testing
 
-| Workflow         | Trigger              | Purpose                                      |
-| ---------------- | -------------------- | -------------------------------------------- |
-| `release.yml`    | Squash merge to main | CalVer tag, changelog via git-cliff, release |
-| `shellcheck.yml` | Push / PR            | Lints shell scripts                          |
+| Workflow         | Trigger        | Purpose                                             |
+| ---------------- | -------------- | --------------------------------------------------- |
+| `release.yml`    | Push to `main` | CalVer tag, changelog via git-cliff, GitHub Release |
+| `shellcheck.yml` | Pull request   | Lints shell scripts and hooks                       |
+| `bats.yml`       | Pull request   | Runs the bats-core test suites                      |
+
+`shellcheck.yml` and `bats.yml` are required status checks on `dev` and `main`. They run on every pull request with no
+path filter so the required context is always reported. The `pre-push` hook runs the same shellcheck and bats checks
+locally and skips them for markdown-only pushes.
 
 Shell scripts are tested with [bats-core](https://github.com/bats-core/bats-core) (`bats tests/`). Suites cover
-stow-deploy, git hooks, shell config, symlinks, and CLI wrappers.
+stow-deploy, git hooks, shell config, supply-chain age gates, symlinks, the qmd-serve and opendataloader-pdf units, and
+the CLI wrappers.
 
 ## Performance
 
 Shell startup budgets are enforced — non-interactive shells must start under 200ms, interactive shells under 500ms.
-  
+
 See `docs/solutions/performance-issues/` for optimization details.
 
 ## Cross-Platform Notes
@@ -263,7 +289,9 @@ op read "op://secrets-dev/dotfiles_RELEASE_TOKEN/credential" \
 
 ## Documentation
 
-Past solutions and design decisions live in `docs/solutions/`:
+Project vocabulary is defined in [CONCEPTS.md](CONCEPTS.md). Operational runbooks live in `docs/runbooks/` (headless GPU
+driver drift, Playwright browser launch). Past solutions and design decisions live in `docs/solutions/` (a symlink to a
+separate private repo):
 
 - **Deployment** — cross-platform stow deployment, shell config fixes, headless git signing, conflict resolution
 - **Configuration** — branch divergence reconciliation, workflow enforcement

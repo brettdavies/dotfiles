@@ -7,9 +7,14 @@
 .ai/
 .claude/
 .cursor/
+# gbrain writes a per-repo source marker; never tracked.
+.gbrain-source
 **/CLAUDE.md
+**/CLAUDE.*.md
 **/AGENT.md
+**/AGENT.*.md
 **/AGENTS.md
+**/AGENTS.*.md
 **/.claude/settings.local.json
 
 # Notes
@@ -19,11 +24,17 @@
 **/todos/
 **/.context/
 **/TODOS.md
+**/TODO.md
 # docs/solutions is a symlink to ~/dev/solutions-docs in every brettdavies repo.
 # Ignore it here so the symlink itself never appears in `git status`.
 # The solutions-docs repo negates this rule with `!docs/solutions` in its own
 # .gitignore so its contents remain tracked when working inside that repo.
 docs/solutions
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Production builds
 target/

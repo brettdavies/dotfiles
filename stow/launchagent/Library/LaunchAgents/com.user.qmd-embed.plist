@@ -16,6 +16,10 @@
 
     Note: unlike the Linux service, no Ollama unload pre-step is needed —
     on macOS we're not running Ollama alongside qmd.
+
+    QMD_REMOTE_URL routes embedding through the com.user.qmd-serve daemon so
+    only the resident model server holds models; launchd does not inherit the
+    shell export, so it is set here explicitly.
 -->
 <plist version="1.0">
 <dict>
@@ -27,6 +31,11 @@
         <string>-c</string>
         <string>PATH="$HOME/.local/bin:$HOME/.cache/bun/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec qmd embed --max-docs-per-batch 50 --max-batch-mb 10 &gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-embed.log" 2&gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-embed.error.log"</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>QMD_REMOTE_URL</key>
+        <string>http://127.0.0.1:7832</string>
+    </dict>
     <key>StartInterval</key>
     <integer>300</integer>
     <key>RunAtLoad</key>

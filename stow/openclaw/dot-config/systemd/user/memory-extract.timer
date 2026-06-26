@@ -1,9 +1,0 @@
-[Unit]
-Description=Nightly memory extraction from session logs (11:05pm CT)
-
-[Timer]
-OnCalendar=*-*-* 23:05:00 America/Chicago
-Persistent=true
-
-[Install]
-WantedBy=timers.target

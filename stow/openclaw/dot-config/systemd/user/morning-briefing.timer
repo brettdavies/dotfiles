@@ -1,9 +1,0 @@
-[Unit]
-Description=Morning briefing generation and Telegram delivery (7:05am CT)
-
-[Timer]
-OnCalendar=*-*-* 07:05:00 America/Chicago
-Persistent=true
-
-[Install]
-WantedBy=timers.target

@@ -1,17 +1,12 @@
 name: ShellCheck
 
 on:
+  # No paths filter: this is a required status check. A path-filtered required
+  # check is skipped (never reported) on PRs that don't touch the filtered
+  # paths, leaving the ruleset waiting forever on an absent context. Running on
+  # every PR keeps the required context always present. The job validates fixed
+  # file sets, so unrelated PRs pass quickly.
   pull_request:
-    paths:
-      - '.githooks/**'
-      - 'config/shell/**'
-      - 'stow/shell/**'
-      - 'stow/bash/**'
-      - 'stow/zsh/**'
-      - 'stow/claude/**'
-      - 'stow/*/dot-local/bin/**'
-      - 'scripts/**'
-      - '.github/workflows/shellcheck.yml'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

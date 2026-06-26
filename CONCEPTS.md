@@ -27,6 +27,18 @@ loop — the same flow runs on many of them and a manual step does not scale.
 When a tool would normally depend on the graphical secret manager (git signing, secret reads), the headless host falls
 back to a non-interactive path: ssh-based signing, service-account token reads.
 
+### gbrain thin client
+
+A deployed dotfiles host — in practice the macOS workstation — that runs gbrain config-only: the same shared Postgres
+engine and the same remote embedder and chat proxy that the brain host uses, reached over the tailnet, with gbrain's
+indexing and `dream` units excluded at deploy time. It queries the shared brain read-only and never embeds a corpus or
+runs synthesis locally. The point is a single vector space — because every query is embedded by the brain host's one
+embedder, the thin client's results share the space the corpus was embedded in; a second local engine would fork it. The
+*brain host* is the headless host that owns the engine, embedder, and the periodic indexing and dream jobs; the thin
+client owns none of them. The split falls out of making the gbrain stow package cross-platform (the config deploys, the
+Linux-only units are dropped on macOS) plus per-host environment overrides that point the provider endpoints at the
+tailnet instead of localhost.
+
 ## Packages
 
 ### Stow package
@@ -83,6 +95,22 @@ A configuration file that lives on a single host outside the repo and is not tra
 that legitimately differ per machine (signing-key paths, machine-specific git identity, host-specific shell tweaks). The
 repo's tracked config sources or includes the override path so settings layer cleanly: the tracked config is the
 default, the per-host override is the deviation, and the override's existence is part of the deployment contract.
+
+## Shell environment
+
+### Shell config chain
+
+The single environment-setup path every login, interactive, and non-interactive shell shares: one universal entry file
+that establishes PATH, the package-manager prefix, secrets, and the per-tool config fragments, reached by each shell
+through its own startup file. It is the authoritative place to set environment for shells, and it does not run for a
+*bare launcher*.
+
+### Bare launcher
+
+A process that spawns a shell without sourcing any startup file, so it inherits only the PATH and environment its parent
+handed it and never runs the *shell config chain*. Cron, launchd and systemd jobs, GUI applications, git hooks, and the
+coding agent's command tool are all bare launchers. A bare launcher that needs a non-default tool on PATH must receive
+it from its own process environment (its unit, plist, or launcher configuration), not from the shell config chain.
 
 ## Policies
 

@@ -25,14 +25,24 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
 }
 
 @test "Linux-only case block covers expected packages" {
-  # qmd was removed from this list when it became cross-platform (file-level
-  # OS gating via STOW_FLAGS --ignore handles its Linux-only systemd units,
-  # which now live in stow/local/). See docs/solutions/architecture-patterns/
+  # qmd and gbrain were both removed from this list when they became
+  # cross-platform: file-level OS gating via STOW_FLAGS --ignore drops their
+  # Linux-only systemd units on macOS while their cross-platform content still
+  # deploys. See docs/solutions/architecture-patterns/
   # cross-platform-stow-package-gating-2026-05-17.md.
   #
-  # gbrain + codex-proxy are pure systemd-unit packages (no cross-platform
-  # content), so they take the same Linux-only-skip path as rclone/obsidian.
-  grep -q 'rclone|obsidian|opendataloader-pdf|gbrain|codex-proxy)' "$SCRIPT"
+  # codex-proxy stays Linux-only: the proxy runs only on the brain host; macOS
+  # clients reach it over the tailnet, so they need neither its config nor units.
+  grep -q 'rclone|obsidian|opendataloader-pdf|codex-proxy)' "$SCRIPT"
+}
+
+@test "gbrain ships cross-platform config (deploys on macOS, not Linux-only)" {
+  # gbrain became cross-platform: its dot-gbrain/ config deploys on every OS as
+  # the thin-client brain, while its systemd units (gbrain-sync/dream,
+  # claude-code-archive) drop on macOS via the Darwin --ignore. It must NOT
+  # appear in any Linux-only skip case.
+  [ -f "$STOW_DIR/gbrain/dot-gbrain/config.json" ]
+  ! grep -qE '\|gbrain\||\|gbrain\)' "$SCRIPT"
 }
 
 @test "STOW_FLAGS always ignores .DS_Store" {
@@ -42,7 +52,7 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
 
 @test "STOW_FLAGS ignores systemd units on macOS only" {
   # Linux .service/.timer files scattered inside otherwise-shared packages
-  # (stow/local, stow/openclaw, stow/rclone, stow/rust, stow/obsidian,
+  # (stow/local, stow/rclone, stow/rust, stow/obsidian,
   # stow/opendataloader-pdf) must not symlink to ~/.config/systemd/user/
   # on a Mac. File-extension regex is required because stow's --ignore
   # filters file basenames, not directory names. The pattern lives inside
@@ -131,4 +141,24 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
   grep -q 'codex).*\$HOME/.codex' "$SCRIPT"
   grep -q 'git).*\$HOME/.config/git' "$SCRIPT"
   grep -q 'opencode).*\$HOME/.config/opencode' "$SCRIPT"
+}
+
+# ---------------------------------------------------------------------------
+# Post-deploy systemd --user timer recovery
+# ---------------------------------------------------------------------------
+
+@test "redeploys reset and restart the systemd timers a package ships" {
+  # stow -R can race systemd during the unlink-relink and leave a timer failed
+  # (no auto-recover); the deploy must reload + reset + restart the timers it
+  # (re)deployed so the schedule cannot silently die.
+  grep -qF 'dot-config/systemd/user/*.timer' "$SCRIPT"
+  grep -qF 'systemctl --user daemon-reload' "$SCRIPT"
+  grep -qF 'systemctl --user reset-failed' "$SCRIPT"
+  grep -qF 'systemctl --user restart' "$SCRIPT"
+}
+
+@test "systemd timer recovery is guarded to a real Linux \$HOME deploy" {
+  # Must not touch the live user manager from a sandboxed test target or on
+  # macOS (launchd); guard requires Linux AND TARGET == HOME.
+  grep -qF '[ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ]' "$SCRIPT"
 }

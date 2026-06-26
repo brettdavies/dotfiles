@@ -12,6 +12,18 @@
   },
   "rules": [
     {
+      "type": "creation"
+    },
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "required_linear_history"
+    },
+    {
       "type": "pull_request",
       "parameters": {
         "required_approving_review_count": 0,
@@ -27,6 +39,23 @@
     },
     {
       "type": "required_signatures"
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "shellcheck",
+            "integration_id": 15368
+          },
+          {
+            "context": "bats",
+            "integration_id": 15368
+          }
+        ]
+      }
     }
   ],
   "bypass_actors": [

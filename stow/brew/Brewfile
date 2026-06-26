@@ -19,6 +19,13 @@ brew "node"
 brew "oven-sh/bun/bun"
 brew "uv"
 
+# Modern Ruby (keg-only) so a Bundler new enough for the supply-chain cooldown
+# policy is available ahead of the macOS system Ruby 2.6 / Bundler 1.x.
+# config/shell/local-paths.sh puts its bin + gem binstubs on PATH. Brew's Ruby
+# bundles a Bundler that may lag the >= 4.0.13 the policy needs — see
+# BOOTSTRAP.md for the one-time `gem install bundler` step.
+brew "ruby"
+
 # Code quality & utilities
 brew "bash"
 brew "ripgrep"
@@ -62,6 +69,12 @@ brew "sevenzip"
 # binary is on PATH with zero per-call resolve overhead. The bunx invocation
 # still works as a fallback on machines without brew.
 brew "defuddle"
+
+# Caddy (Linux server only) fronts the loopback-only Ollama with a Host-rewrite
+# reverse proxy. Ollama 403s any non-localhost Host header, so the svc:ollama
+# Tailscale Serve VIP cannot reach it directly. Caddy on loopback rewrites Host
+# before forwarding to 127.0.0.1:11434, which keeps Ollama off the network.
+brew "caddy" if OS.linux?
 
 # macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
 # but listing them separately documents intent and avoids confusing "not found" warnings.

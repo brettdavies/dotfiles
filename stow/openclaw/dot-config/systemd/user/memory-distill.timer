@@ -1,9 +1,0 @@
-[Unit]
-Description=Weekly memory distillation (Sunday 11:35pm CT)
-
-[Timer]
-OnCalendar=Sun *-*-* 23:35:00 America/Chicago
-Persistent=true
-
-[Install]
-WantedBy=timers.target

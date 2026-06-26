@@ -1,17 +1,17 @@
 #!/bin/sh
-# qmd dispatcher — selects the right backend per OS.
+# qmd dispatcher — selects the right fork launcher per OS.
 #
-# Linux:  brettdavies/qmd fork launcher at ~/dev/qmd/qmd (provides qmd serve)
-# macOS:  @tobilu/qmd installed via `bun install -g`, lands at ~/.cache/bun/bin/qmd
+# Linux:  fork bash launcher at ~/dev/qmd/qmd
+# macOS:  fork cross-platform launcher at ~/dev/qmd/bin/qmd
 #
-# Both paths expose the same CLI; the Mac doesn't need the fork's serve
-# feature so the upstream package is sufficient. The wrapper itself is
-# stowed at ~/.local/bin/qmd (PATH-priority) so callers get a stable path
-# on either OS, invariant to bun reinstalls or repo moves.
+# Both expose the brettdavies/qmd fork CLI (qmd serve + QMD_REMOTE_URL). The
+# wrapper is stowed at ~/.local/bin/qmd so callers get a stable path on either
+# OS, invariant to repo moves. On macOS the serve daemon is kept resident by
+# the com.user.qmd-serve LaunchAgent.
 
 case "$(uname -s)" in
   Darwin)
-    exec "$HOME/.cache/bun/bin/qmd" "$@"
+    exec "$HOME/dev/qmd/bin/qmd" "$@"
     ;;
   Linux)
     exec "$HOME/dev/qmd/qmd" "$@"
