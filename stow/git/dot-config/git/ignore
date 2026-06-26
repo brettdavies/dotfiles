@@ -34,6 +34,7 @@ docs/solutions
 # Python
 __pycache__/
 *.py[cod]
+.pytest_cache/
 
 # Production builds
 target/
