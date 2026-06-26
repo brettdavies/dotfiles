@@ -2,6 +2,64 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026.06.26]
+
+### Added
+
+- Claude Code now auto-formats shell scripts with `shfmt -i 2 -ci -bn` on edit, matching the pre-commit and pre-push shell checks. by @brettdavies in [#132](https://github.com/brettdavies/dotfiles/pull/132)
+- New `~/.claude/guides/shell-style.md` covering shell conventions `shfmt` and `shellcheck` do not enforce: function naming, `ALL_CAPS` constants, doc-block shape, function ordering, and errors-to-STDERR.
+- `scripts/tailscale-serve-setup.sh`: idempotent reproducer for bigdaddy's Tailscale Serve config (openclaw node serve + `svc:ollama` service serve), so a fresh host or a dropped binding recovers in one run. by @brettdavies in [#136](https://github.com/brettdavies/dotfiles/pull/136)
+- `com.user.qmd-serve` LaunchAgent that keeps `qmd serve` resident on `127.0.0.1:7832` (loopback only), with `RunAtLoad` + `KeepAlive`, full-resident (no `--low-vram`). by @brettdavies in [#138](https://github.com/brettdavies/dotfiles/pull/138)
+- `brave-search` helper: query the Brave Search API from the CLI and print ranked results, with the API key read from 1Password at call time via a mode-600 curl config so it never reaches a child process argv or an exported env var. by @brettdavies in [#148](https://github.com/brettdavies/dotfiles/pull/148)
+- `gh-revision-audit` helper: list issues and PRs you authored that still carry multiple non-deleted edit-history revisions worth pruning through the GitHub web UI.
+- `~/.grok/bin` on PATH with grok zsh completions.
+- Tailscale serve binding for `svc:codex-proxy`: advertises the codex-proxy OpenAI-compat endpoint at `https://codex-proxy.<tailnet>/` forwarding to `127.0.0.1:8080`, health-gated before the VIP is pointed at it. Unlike `svc:ollama` it needs no Caddy Host-rewrite shim (codex-proxy accepts any Host header); inbound stays gated by the tailnet ACL plus the `LITELLM_API_KEY` bearer. by @brettdavies in [#149](https://github.com/brettdavies/dotfiles/pull/149)
+- Deploy the gbrain thin-client config on macOS via stow, pointing at the shared Postgres brain; the Mac is a read-only client with no local indexing daemons. by @brettdavies in [#150](https://github.com/brettdavies/dotfiles/pull/150)
+- Route gbrain embeddings and chat/expansion to the tailnet services on macOS via Darwin-gated `OLLAMA_BASE_URL` / `LITELLM_BASE_URL`, keeping a single shared embedder for vector-space consistency.
+- `xurl` alias plus a `~/.local/bin/xurl` shim, both forwarding to `xr` (the `xurl-rs` binary). The alias covers interactive shells; the shim covers subprocess callers that never load it. by @brettdavies in [#152](https://github.com/brettdavies/dotfiles/pull/152)
+
+### Changed
+
+- Install `ruby` explicitly via the Brewfile. by @brettdavies in [#134](https://github.com/brettdavies/dotfiles/pull/134)
+- macOS `qmd` dispatcher now targets the fork launcher (`~/dev/qmd/bin/qmd`), which provides `qmd serve` and `QMD_REMOTE_URL`; the upstream package provided neither. by @brettdavies in [#138](https://github.com/brettdavies/dotfiles/pull/138)
+- `QMD_REMOTE_URL` is now exported on all platforms; `QMD_LOW_VRAM` is now Linux-only (macOS runs the daemon full-resident).
+- The periodic `com.user.qmd-embed` job routes through the resident daemon (`QMD_REMOTE_URL` declared in the plist `EnvironmentVariables`, since launchd does not inherit the interactive shell environment).
+- Promote reusable permission grants (tailscale serve, caddy, ssh-keygen fingerprint reads) into the global Claude allowlist, default the permission mode to `acceptEdits`, and disable workflow keyword triggers. by @brettdavies in [#148](https://github.com/brettdavies/dotfiles/pull/148)
+- Allow `time ./scripts/generate-changelog.py *` in the global permission allowlist alongside the existing `generate-changelog.sh` grants. by @brettdavies in [#149](https://github.com/brettdavies/dotfiles/pull/149)
+- `scripts/stow-deploy` no longer treats `gbrain` as Linux-only: its config deploys on macOS while its systemd indexing units are dropped. by @brettdavies in [#150](https://github.com/brettdavies/dotfiles/pull/150)
+- Global gitignore ignores `.pytest_cache/`. by @brettdavies in [#155](https://github.com/brettdavies/dotfiles/pull/155)
+
+### Fixed
+
+- Stop tracking qmd's machine-specific `index.yml` as a stow symlink, which left a permanent dirty working tree on macOS. Collections config now deploys from a per-platform template. by @brettdavies in [#133](https://github.com/brettdavies/dotfiles/pull/133)
+- Put Homebrew's Ruby ahead of macOS system Ruby 2.6 on PATH so Bundler satisfies the supply-chain cooldown policy (`>= 4.0.13`). by @brettdavies in [#134](https://github.com/brettdavies/dotfiles/pull/134)
+- Fix a Ruby PATH glob that aborted zsh shell startup on hosts with keg-only Homebrew Ruby but no gem binstub directory. by @brettdavies in [#135](https://github.com/brettdavies/dotfiles/pull/135)
+- The `svc:ollama` Tailscale service now reaches Ollama from other tailnet nodes. A loopback Caddy proxy rewrites the `Host` header so Ollama's DNS-rebinding check accepts the served request, while Ollama stays bound to loopback only. by @brettdavies in [#139](https://github.com/brettdavies/dotfiles/pull/139)
+- Fix `bundle`/`ruby` resolving to macOS system Ruby in login shells by re-asserting keg-only Homebrew Ruby in `~/.zprofile` after `path_helper`. by @brettdavies in [#140](https://github.com/brettdavies/dotfiles/pull/140)
+- Stop the `stow-deploy` integration tests from hijacking the live `~` deployment when run from a worktree or second clone (e.g. the pre-push hook inside a worktree). by @brettdavies in [#141](https://github.com/brettdavies/dotfiles/pull/141)
+- Stop the changelog / sync / pre-push bats fixtures from mutating the real repo (identity config + stray commits/branches) when their `cd` to a temp dir fails. by @brettdavies in [#142](https://github.com/brettdavies/dotfiles/pull/142)
+- Fix `bundle` resolving to macOS system Ruby (Bundler 1.17.2) in bash, cron, and non-login shells; keg-only Homebrew Ruby is now forced ahead of `/usr/bin` so Bundler meets the supply-chain cooldown floor. by @brettdavies in [#151](https://github.com/brettdavies/dotfiles/pull/151)
+- Fix `bundle` and `ruby` resolving to macOS system Ruby (Bundler 1.17.2) inside the Claude Code Bash tool; keg-only Homebrew Ruby is now placed ahead of `/usr/bin` so Bundler meets the supply-chain cooldown floor. by @brettdavies in [#154](https://github.com/brettdavies/dotfiles/pull/154)
+- `stow-deploy` no longer leaves systemd `--user` timers (`qmd-embed`/`qmd-update`/`qmd-cleanup`) in a failed, unscheduled state after a re-deploy. The deploy now reloads the user manager and restarts the timer units it ships, so a restow can't silently kill the schedule. by @brettdavies in [#157](https://github.com/brettdavies/dotfiles/pull/157)
+- `qmd-embed.service` now pins the CUDA GPU backend (`NODE_LLAMA_CPP_GPU=cuda`), so scheduled embedding runs on the GPU instead of silently falling back to CPU through node-llama-cpp's Vulkan prebuilt. by @brettdavies in [#159](https://github.com/brettdavies/dotfiles/pull/159)
+- `qmd-embed` caps per-batch work (`--max-docs-per-batch 50 --max-batch-mb 10`) so GPU embedding stays within the VRAM the unit frees, avoiding ggml/CUDA aborts on the shared low-VRAM box.
+
+### Documentation
+
+- Document the one-time Bundler install for the cooldown policy in `BOOTSTRAP.md`. by @brettdavies in [#134](https://github.com/brettdavies/dotfiles/pull/134)
+- BOOTSTRAP.md gains a Linux Server Setup section documenting the serve script and the one-time service-host approval step in the admin console. by @brettdavies in [#136](https://github.com/brettdavies/dotfiles/pull/136)
+- Add a `CONCEPTS.md` entry defining the "gbrain thin client" host role. by @brettdavies in [#150](https://github.com/brettdavies/dotfiles/pull/150)
+- Extend the present-state / no-temporal-narration policy to in-repo prose docs (READMEs, docs, specs, runbooks, plans), with an exception for designated change records (decision-logs, `CHANGELOG`/`RELEASES`, migration records). by @brettdavies in [#153](https://github.com/brettdavies/dotfiles/pull/153)
+- Rewrite README to match the current repo: all 34 stow packages (adds caddy, ollama), all 21 shell fragments, the bats.yml workflow with corrected triggers, and the layout tree. by @brettdavies in [#155](https://github.com/brettdavies/dotfiles/pull/155)
+- Add Philosophy and Engineering Practices sections to PROJECT.md and refresh its package and fragment inventory.
+- Define the shell config chain and bare launcher in CONCEPTS.md.
+- Remove backburnered dotfiles-cli references from AGENTS.md, PROJECT.md, and scripts/stow-deploy.
+- Restructure `RELEASES.md` into a runbook that cross-links its companions and folds the four post-tag checks into the Tagging section. by @brettdavies in [#156](https://github.com/brettdavies/dotfiles/pull/156)
+- Add `RELEASES-RATIONALE.md` documenting the why behind the branching model, PR conventions, triple-diff verification, CHANGELOG generation, CI-side CalVer tagging, and the surgical backport.
+- Add `RELEASES-PREFLIGHT.md`, a config-only pre-cut checklist covering repo health, changelog completeness, cross-platform deploy sanity, release mechanics, and the prose floor.
+
+**Full Changelog**: [2026.06.16...2026.06.26](https://github.com/brettdavies/dotfiles/compare/2026.06.16...2026.06.26)
+
 ## [2026.06.16]
 
 ### Added
