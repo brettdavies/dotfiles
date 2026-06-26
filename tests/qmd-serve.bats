@@ -151,7 +151,21 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 # ---------------------------------------------------------------------------
 
 @test "qmd-embed ExecStart uses %h/.local/bin/qmd embed" {
-  grep -q '^ExecStart=%h/.local/bin/qmd embed$' "$EMBED_UNIT"
+  grep -qE '^ExecStart=%h/\.local/bin/qmd embed( |$)' "$EMBED_UNIT"
+}
+
+@test "qmd-embed pins the CUDA GPU backend" {
+  # Without NODE_LLAMA_CPP_GPU=cuda, node-llama-cpp prefers the Vulkan prebuilt
+  # (which breaks across NVIDIA driver branches) and falls back to CPU, so
+  # embedding runs on CPU despite the ExecStartPre freeing GPU VRAM for it.
+  grep -q '^Environment=NODE_LLAMA_CPP_GPU=cuda$' "$EMBED_UNIT"
+}
+
+@test "qmd-embed caps per-batch work for VRAM safety" {
+  # The box shares one GPU with Ollama (qmd-serve runs --low-vram); uncapped GPU
+  # batches can exhaust VRAM and trigger a ggml/CUDA abort.
+  grep -qE '^ExecStart=.*--max-docs-per-batch [0-9]+' "$EMBED_UNIT"
+  grep -qE '^ExecStart=.*--max-batch-mb [0-9]+' "$EMBED_UNIT"
 }
 
 @test "qmd-embed ExecStart line has no hardcoded /home/<user>/ path" {

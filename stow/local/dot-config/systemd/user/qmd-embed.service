@@ -5,11 +5,19 @@ After=qmd-update.service
 [Service]
 Type=oneshot
 Environment=PATH=/home/brett/.bun/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+# Pin the GPU backend to CUDA. node-llama-cpp prefers the Vulkan prebuilt when
+# present, which breaks across NVIDIA driver branches and silently falls back to
+# CPU, so embedding would otherwise run on CPU despite the ExecStartPre below
+# freeing GPU VRAM for it.
+Environment=NODE_LLAMA_CPP_GPU=cuda
 # Unload every resident Ollama model to free VRAM before embedding. The
 # helper script discovers loaded models dynamically — see the script's
 # header for why hardcoding a model name is a bug.
 ExecStartPre=%h/.local/bin/qmd-ollama-unload-all
-ExecStart=%h/.local/bin/qmd embed
+# Cap per-batch work so GPU embedding stays within the VRAM freed above. This
+# box shares one GPU with Ollama and qmd-serve runs --low-vram; uncapped GPU
+# batches can exhaust VRAM and trigger a ggml/CUDA abort.
+ExecStart=%h/.local/bin/qmd embed --max-docs-per-batch 50 --max-batch-mb 10
 
 # Hardening
 NoNewPrivileges=true
