@@ -367,6 +367,33 @@ if [ "$HEADLESS" = false ] && [ -s "$adopted_file" ]; then
   echo "To discard and use repo: git checkout -- stow/<package>/"
 fi
 
+# --- Recover systemd --user timers this run (re)deployed (Linux) ---
+#
+# `stow -R` unlinks then relinks a package's symlinks. If systemd reads a unit
+# (or a timer fires) during that unlink-relink window, the timer can drop into a
+# failed state that does NOT auto-recover, silently halting its schedule until a
+# manual restart. Reload the manager and reset+restart the timer units the
+# deployed packages ship, so a restow can never leave them dead. Scoped to a
+# real $HOME deploy with systemctl present, so sandboxed test targets and macOS
+# (launchd) are untouched.
+if [ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ] \
+  && command -v systemctl >/dev/null 2>&1 && [ -s "$deployed_file" ]; then
+  _reloaded=false
+  while read -r _pkg; do
+    while IFS= read -r _timer; do
+      [ -n "$_timer" ] || continue
+      if [ "$_reloaded" = false ]; then
+        systemctl --user daemon-reload 2>/dev/null || true
+        _reloaded=true
+      fi
+      systemctl --user reset-failed "$_timer" 2>/dev/null || true
+      if systemctl --user restart "$_timer" 2>/dev/null; then
+        echo "  Recovered systemd timer: $_timer"
+      fi
+    done < <(find "$STOW_DIR/$_pkg" -path '*/dot-config/systemd/user/*.timer' -printf '%f\n' 2>/dev/null)
+  done < "$deployed_file"
+fi
+
 # --- Post-stow validation ---
 
 # Git hooks: ensure core.hooksPath is set for this repo
