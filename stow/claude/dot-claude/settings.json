@@ -338,6 +338,7 @@
       "Bash(printenv:*)",
       "Bash(python -m pip:*)",
       "Bash(python3 -m pip:*)",
+      "Bash(python3 ~/.claude/skills/unslop/scripts/score.py *)",
       "Bash(rm:*)",
       "Bash(sudo:*)"
     ],

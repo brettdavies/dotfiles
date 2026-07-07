@@ -5,12 +5,27 @@ full preference list, the tool-substitution table, and the hook/auth notes. Open
 hook, or unsure what's installed.
 
 - **Priority order for installing CLI tools:** brew > bunx/uvx > python3/node (last resorts only).
-- **Python entry points: suppress bytecode caches by default.** When a Python script imports local modules — a PEP 723
-  script run via `uv run`, or any package under `scripts/` — set `sys.dont_write_bytecode = True` at the very top of the
-  entry, before importing those modules, so no `__pycache__/` is ever written beside the source. Prefer the in-code flag
-  over a `.gitignore` rule: the goal is to not generate the artifact, not to hide it. Single-file scripts with no local
-  imports need nothing (Python never caches the `__main__` module). `PYTHONDONTWRITEBYTECODE=1` in the environment is
-  the equivalent global lever when you'd rather not touch the script.
+- **Python: leave no cache or venv artifacts in the project tree.** The user does not want `__pycache__/`, `.venv/`,
+  `.pytest_cache/`, `.ruff_cache/`, `*.egg-info`, `uv.lock`, or build dirs generated beside their source. Prevent them
+  rather than `.gitignore`-hiding them — the goal is to not generate the artifact, not to hide it — and `trash` any that
+  appear. **Bake the bypass into the project itself, not the machine:** the tree must stay clean on CI and on any other
+  machine, so the fixes below live in the repo (`pyproject.toml`, `python -B`, `sys.dont_write_bytecode`,
+  `--no-project`). Brett's machines also set the shell env vars noted below, but those are a safety net that does not
+  travel — never rely on them in place of the in-project settings.
+- **Bytecode (`__pycache__/`):** in-project — run with `python -B` (disables bytecode writing for that process, no env
+  var needed) and set `sys.dont_write_bytecode = True` at the top of executable entry points and in a root `conftest.py`
+  (belt-and-suspenders for imports; single-file scripts with no local imports need nothing — Python never caches
+  `__main__`). A plain `python -m <pkg>.<mod>` without `-B` still caches the first-imported module, so prefer `-B` or
+  the console-script path. Safety net (this machine only): `PYTHONDONTWRITEBYTECODE=1` in
+  `~/dotfiles/config/shell/python.sh`.
+- **uv `.venv/` + `uv.lock`** — no env var suppresses these, so always prevent them per-invocation: a plain `uv run`
+  inside a project dir syncs the project and writes `.venv/` + `uv.lock` into it. Run a package's console script with
+  `uv run --no-project --with . <script> …` (installs into the ephemeral cache, imports run from there — leaves nothing
+  in the tree, the cleanest option), or a module from source with `uv run --no-project python -B -m <pkg>.<mod> …`.
+- **pytest `.pytest_cache/`:** in-project — pin `[tool.pytest.ini_options] addopts = "-p no:cacheprovider"` in
+  `pyproject.toml` (travels with the repo, works in CI). Run a suite with `uv run --no-project --with pytest python -B
+  -m pytest`. Safety net (this machine only): `PYTEST_ADDOPTS="-p no:cacheprovider"` in
+  `~/dotfiles/config/shell/python.sh` (trade-off: disables the cache-backed `--lf`/`--ff`/`--nf` reruns).
 - **ALWAYS use CLI tools via Bash over built-in tools.** This overrides Claude Code's default preference for
   Read/Edit/Grep/Glob. The built-in tools are fallbacks, not defaults. Concrete rules:
 - **Searching code:** `rg` (via Bash), not Grep. `ast-grep` for structural matches.
