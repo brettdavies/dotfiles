@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# transcribe-diarize — local GPU speaker-diarized transcription.
+#
+# Pipeline: ffmpeg -> 16kHz mono WAV -> whisperx (faster-whisper large-v3) + pyannote
+# diarization on CUDA -> merged speaker-turn markdown. Everything runs locally; only the
+# gated pyannote model download needs a Hugging Face token (read from 1Password).
+#
+# Usage:  transcribe-diarize <audio-file> [out-dir]
+# Env:
+#   SPKMAP="SPEAKER_00=Alice,SPEAKER_01=Bob"   map diarizer labels to names (else raw labels)
+#   NO_UNLOAD=1                                 skip freeing GPU VRAM from ollama
+#   HF_ITEM="Hugging Face Token (MCP Read)"     1Password item name (field: credential)
+#
+# Output (in out-dir, default <audio-dir>/transcribe-out):
+#   <base>.diarized.md   merged speaker turns, "**[hh:mm:ss] Name:** text"
+#   <base>.json/.srt/.vtt/.tsv/.txt   raw whisperx outputs
+#   <base>.wav           downmixed intermediate
+# Prints per-speaker segment/word counts + sample utterances to help map SPKMAP.
+set -euo pipefail
+
+AUDIO="${1:?usage: transcribe-diarize <audio-file> [out-dir]}"
+[ -f "$AUDIO" ] || { echo "no such file: $AUDIO" >&2; exit 1; }
+BASE="$(basename "${AUDIO%.*}")"
+OUTDIR="${2:-$(cd "$(dirname "$AUDIO")" && pwd)/transcribe-out}"
+mkdir -p "$OUTDIR"
+
+# 1. Free GPU VRAM. ollama commonly parks ~20GB of models; whisperx large-v3 + pyannote
+#    needs ~8GB. Force-unload every resident model (they reload on demand, so this is
+#    non-destructive). The qmd-ollama-unload-all helper is intentionally conditional
+#    (only frees below a threshold), so stop models directly here instead.
+if [ -z "${NO_UNLOAD:-}" ] && command -v ollama >/dev/null 2>&1; then
+  ollama ps 2>/dev/null | awk 'NR>1 && $1!="" {print $1}' | while read -r m; do
+    ollama stop "$m" >/dev/null 2>&1 || true
+  done
+fi
+
+# 2. Hugging Face token for the gated pyannote diarization pipeline (1Password service acct).
+HF_ITEM="${HF_ITEM:-Hugging Face Token (MCP Read)}"
+HF_TOKEN="$("$HOME/.claude/skills/1password/scripts/read_field.sh" "$HF_ITEM" credential)"
+[ -n "$HF_TOKEN" ] || { echo "HF token unreadable from 1Password item: $HF_ITEM" >&2; exit 1; }
+export HF_TOKEN
+
+# 3. Downmix to 16kHz mono PCM WAV (whisper's native rate).
+WAV="$OUTDIR/$BASE.wav"
+echo "[1/3] ffmpeg -> $WAV"
+ffmpeg -y -i "$AUDIO" -ar 16000 -ac 1 -c:a pcm_s16le "$WAV" >/dev/null 2>&1
+
+# 4. Transcribe + word-align + diarize on GPU. --output_format all writes json/srt/vtt/tsv/txt.
+echo "[2/3] whisperx large-v3 + diarize (first run downloads ~5GB of models)"
+uvx whisperx "$WAV" \
+  --model large-v3 --language en \
+  --diarize --hf_token "$HF_TOKEN" \
+  --device cuda --compute_type float16 \
+  --output_dir "$OUTDIR" --output_format all
+
+# 5. Merge consecutive same-speaker segments into turns; print mapping diagnostics.
+echo "[3/3] post-process -> $OUTDIR/$BASE.diarized.md"
+SPKMAP="${SPKMAP:-}" python3 - "$OUTDIR/$BASE.json" "$OUTDIR/$BASE.diarized.md" <<'PY'
+import json, os, sys
+from collections import Counter
+src, out = sys.argv[1], sys.argv[2]
+smap = {}
+for pair in filter(None, os.environ.get("SPKMAP", "").split(",")):
+    k, _, v = pair.partition("=")
+    smap[k.strip()] = v.strip()
+data = json.load(open(src))
+segs = data.get("segments", [])
+
+def hhmmss(t):
+    t = int(t or 0)
+    return f"{t//3600:02d}:{(t%3600)//60:02d}:{t%60:02d}"
+
+sc, wc, samples = Counter(), Counter(), {}
+for s in segs:
+    spk = s.get("speaker", "UNKNOWN")
+    txt = (s.get("text") or "").strip()
+    sc[spk] += 1
+    wc[spk] += len(txt.split())
+    samples.setdefault(spk, [])
+    if len(samples[spk]) < 3 and txt:
+        samples[spk].append(txt[:120])
+
+turns, last = [], None
+for s in segs:
+    spk = s.get("speaker") or last or "SPEAKER_00"
+    name = smap.get(spk, spk)
+    txt = (s.get("text") or "").strip()
+    if not txt:
+        continue
+    if turns and turns[-1][0] == name:
+        turns[-1][2] += " " + txt
+    else:
+        turns.append([name, s.get("start", 0), txt])
+    last = spk
+
+with open(out, "w") as f:
+    f.write("## Transcript (raw diarized — verify speaker map, then clean)\n\n")
+    for name, start, txt in turns:
+        f.write(f"**[{hhmmss(start)}] {name}:** {txt}\n\n")
+
+print(f"segments={len(segs)} turns={len(turns)}")
+print("speaker stats (set SPKMAP by these):")
+for spk in sorted(sc):
+    print(f"  {spk}: {sc[spk]} segs / {wc[spk]} words -> {smap.get(spk, spk)}")
+    for ex in samples.get(spk, []):
+        print(f"      | {ex}")
+print("wrote", out)
+PY
+echo "done: $OUTDIR/$BASE.diarized.md"
