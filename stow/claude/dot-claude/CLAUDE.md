@@ -170,7 +170,11 @@ entry/`conftest.py`, uv's `.venv/`+`uv.lock` off via `uv run --no-project --with
 -B -m pytest`). This machine also exports `PYTHONDONTWRITEBYTECODE=1`/`PYTEST_ADDOPTS` (`config/shell/python.sh`) as a
 safety net that does not travel — don't rely on it in place of the in-project settings. Apply before any `uv
 run`/`pytest` in a repo. `qmd query` for knowledge-base search. Don't manually wrap markdown — the `md-wrap.py` hook
-does. Full preference list (Python cache/venv hygiene, rtk, gh auth, Rust pre-push) → `~/.claude/guides/cli-tools.md`.
+does. **Playwright browsers are system-provided** by `~/dotfiles` into the shared `$PLAYWRIGHT_BROWSERS_PATH`; never run
+`playwright install` to download them (the node/libuv io_uring extractor deadlocks on this kernel) —
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` makes it a no-op, repos exact-pin the one canonical version, and bumping is a
+dotfiles job. Full preference list (Python cache/venv hygiene, rtk, gh auth, Playwright browsers, Rust pre-push) →
+`~/.claude/guides/cli-tools.md`.
 
 ## Long artifacts → files
 

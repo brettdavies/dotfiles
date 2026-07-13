@@ -50,7 +50,8 @@ dotfiles/
 │   ├── stow-deploy        Stow wrapper with conflict resolution
 │   ├── nas-deploy.sh      System-level NAS mount/automount deploy
 │   ├── apparmor-deploy.sh System-level AppArmor profile deploy + boot unit (Playwright/Chromium)
-│   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (apparmor + opt-in browser deps)
+│   ├── playwright-browsers-deploy.sh  Playwright browser binaries into the shared cache (curl + unzip)
+│   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (binaries + apparmor + opt-in browser deps)
 │   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, opendataloader-pdf)
 │   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama)
 │   ├── generate-changelog.py      Release changelog extraction
@@ -153,19 +154,23 @@ package).
 
 ### Playwright / browse browser launch (`scripts/playwright-deps-deploy.sh`)
 
-On Linux the `browse` tool and Playwright e2e need two things to launch browsers: an AppArmor profile (for Chromium's
-sandbox) and, for Safari/iOS testing, WebKit system libraries. One script provisions both, run as your normal user (it
-escalates to sudo where needed):
+On Linux the `browse` tool and Playwright e2e need three things to launch browsers: the browser binaries in the shared
+cache, an AppArmor profile (for Chromium's sandbox), and, for Safari/iOS testing, WebKit system libraries. One script
+provisions all three, run as your normal user (it escalates to sudo only where needed):
 
 ```bash
-scripts/playwright-deps-deploy.sh            # AppArmor profile + boot persistence (Chromium / browse)
-scripts/playwright-deps-deploy.sh --webkit   # + Safari/iOS deps (WebKit, heavy ~380 MB)
-scripts/playwright-deps-deploy.sh --all       # + Chromium and WebKit deps
+scripts/playwright-deps-deploy.sh            # browser binaries + AppArmor profile + boot persistence (Chromium / browse)
+scripts/playwright-deps-deploy.sh --webkit   # + Safari/iOS system libs (WebKit, heavy ~380 MB)
+scripts/playwright-deps-deploy.sh --all       # + Chromium and WebKit system libs
 ```
 
-WebKit deps are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios` /
-`tablet` projects). See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for
-failure signatures and recovery.
+The **browser binaries** are provisioned into the shared cache (`$PLAYWRIGHT_BROWSERS_PATH`) by
+`scripts/playwright-browsers-deploy.sh` (run directly, or via the script above) using `curl` + `unzip` rather than
+`playwright install` — node's extractor deadlocks on this host's io_uring/kernel combo. One canonical version serves
+every repo, so per-repo `playwright install` becomes a no-op; bumping it is a dotfiles edit (the revision map in that
+script). WebKit deps are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios`
+/ `tablet` projects). See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for
+failure signatures, the io_uring root cause, and recovery.
 
 **AppArmor profiles** (`config/apparmor.d/`) are deployed by `scripts/apparmor-deploy.sh` (called by the script above,
 or run standalone as `sudo scripts/apparmor-deploy.sh`), which copies each file to `/etc/apparmor.d/`, loads it with
