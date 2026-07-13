@@ -30,8 +30,8 @@ set -euo pipefail
 # marker behind, so an interrupted run is safe to re-run.
 #
 # Usage:
-#   scripts/playwright-browsers-deploy.sh            # provision default version (1.59.1)
-#   scripts/playwright-browsers-deploy.sh 1.59.1     # provision an explicit version
+#   scripts/playwright-browsers-deploy.sh            # provision default version (1.61.1)
+#   scripts/playwright-browsers-deploy.sh 1.61.1     # provision an explicit version
 #
 # On non-Linux it is a no-op (the io_uring deadlock is Linux-only, and the
 # CFT/dbazure zips this fetches are the linux64 builds).
@@ -49,10 +49,18 @@ set -euo pipefail
 #   4. Set DEFAULT_VERSION if this becomes the new canonical version.
 #   5. Re-run the script (old browser dirs stay; new ones are fetched).
 
-DEFAULT_VERSION="1.59.1"
+DEFAULT_VERSION="1.61.1"
 VERSION="${1:-$DEFAULT_VERSION}"
 
 case "$VERSION" in
+  1.61.1)
+    # Verified against node_modules/playwright-core/browsers.json (playwright 1.61.1).
+    CHROMIUM_REV="1228"
+    HEADLESS_REV="1228"
+    WEBKIT_REV="2311"
+    FFMPEG_REV="1011"
+    CFT_VERSION="149.0.7827.55" # chromium browserVersion → Chrome-for-Testing CDN path
+    ;;
   1.59.1)
     # Verified against node_modules/playwright-core/browsers.json (playwright 1.59.1).
     CHROMIUM_REV="1217"

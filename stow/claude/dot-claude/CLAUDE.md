@@ -172,8 +172,9 @@ safety net that does not travel — don't rely on it in place of the in-project 
 run`/`pytest` in a repo. `qmd query` for knowledge-base search. Don't manually wrap markdown — the `md-wrap.py` hook
 does. **Playwright browsers are system-provided** by `~/dotfiles` into the shared `$PLAYWRIGHT_BROWSERS_PATH`; never run
 `playwright install` to download them (the node/libuv io_uring extractor deadlocks on this kernel) —
-`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` makes it a no-op, repos exact-pin the one canonical version, and bumping is a
-dotfiles job. Full preference list (Python cache/venv hygiene, rtk, gh auth, Playwright browsers, Rust pre-push) →
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` stops `bun install` from auto-fetching them (an explicit install still fetches
+missing browsers; the provisioned set is what makes it skip), repos exact-pin the one canonical version, and bumping is
+a dotfiles job. Full preference list (Python cache/venv hygiene, rtk, gh auth, Playwright browsers, Rust pre-push) →
 `~/.claude/guides/cli-tools.md`.
 
 ## Long artifacts → files

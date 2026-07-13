@@ -61,17 +61,19 @@ hook, or unsure what's installed.
   `~/dotfiles/scripts/playwright-browsers-deploy.sh` (curl + unzip, user-space). **Never run `playwright install` to
   download browsers** — Node 26 / libuv 1.52.1's io_uring extractor deadlocks on this kernel and hangs forever (root
   cause: `docs/solutions/runtime-errors/playwright-browser-install-stall-manual-cache-install.md`).
-  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is set globally, so a bare `playwright install` is a safe no-op. Repos
-  **exact-pin the one canonical version** (`DEFAULT_VERSION` in the deploy script, currently `1.59.1`) instead of a
-  caret range, so the resolved version always matches the provisioned browser revisions. **Check what's provisioned**
-  with `ls $PLAYWRIGHT_BROWSERS_PATH` and the script's version map. **To change the version:** bump the map + re-run the
-  dotfiles script, then realign the repo pins — never bump a repo's Playwright independently, and never re-provision
-  from an arbitrary repo or e2e run. **Watch out for `bun x playwright install`:** `bunx` uses a repo's local install
-  only when `node_modules` is present; run standalone (a fresh worktree, before `bun install`, or outside a repo) it
-  floats to the LATEST published Playwright, ignores the repo pin, and tries to fetch whatever browsers that release
-  wants — this is why older setups kept pulling newer-and-newer revisions. Run the repo's local Playwright instead (`bun
-  run test:e2e` → `playwright test` from `node_modules`); `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` neutralizes any stray
-  install call either way.
+  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` stops `bun install`'s postinstall from auto-fetching browsers, so a dependency
+  install never triggers the wedge; it does NOT no-op an explicit `playwright install`, which still fetches any browser
+  missing from the cache. The provisioned markers are what make an explicit install skip the browsers a repo uses, so
+  the dotfiles set must cover every browser the repos launch (chromium + webkit today, no firefox). Repos **exact-pin
+  the one canonical version** (`DEFAULT_VERSION` in the deploy script) instead of a caret range, so the resolved version
+  always matches the provisioned browser revisions. **Check what's provisioned** with `ls $PLAYWRIGHT_BROWSERS_PATH` and
+  the script's version map. **To change the version:** bump the map + re-run the dotfiles script, then realign the repo
+  pins — never bump a repo's Playwright independently, and never re-provision from an arbitrary repo or e2e run. **Watch
+  out for `bun x playwright install`:** `bunx` uses a repo's local install only when `node_modules` is present; run
+  standalone (a fresh worktree, before `bun install`, or outside a repo) it floats to the LATEST published Playwright,
+  ignores the repo pin, and tries to fetch whatever browsers that release wants — this is why older setups kept pulling
+  newer-and-newer revisions. Run the repo's local Playwright instead (`bun run test:e2e` → `playwright test` from
+  `node_modules`); `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` neutralizes any stray install call either way.
 - When uncertain what CLI tools are available, you can enumerate installed tools with the following commands:
 - `brew list` to list installed Homebrew CLI tools
 - `pipx list` to list Python-based CLI utilities
