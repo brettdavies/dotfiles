@@ -95,11 +95,33 @@ Phase 1 symptom-collection, before the first hypothesis — the shared corpus is
 (`brettdavies/solutions-docs`). This centralizes all compounded solutions so the learnings-researcher agent can search
 across all repos from any working directory.
 
-**After writing to `docs/solutions/`** (e.g., via `/compound`), you MUST commit and push in the shared repo:
+**After writing to `docs/solutions/`** (e.g., via `/compound`), you MUST commit and push in the shared repo — but it is
+a **single clone that concurrent agents share**, so committing in it directly races their `git add`/`git commit` on the
+one `.git/index` and `HEAD`. Never `git add -A` there (it bundles other agents' in-flight files under your message), and
+never `git commit --amend` + `git push --force-with-lease` to fix a message on it (the amend can rewrite a concurrent
+agent's commit and force-push publishes it). Commit from your **own detached worktree** and tear it down afterward:
 
 ```bash
-cd ~/dev/solutions-docs && git add -A && git commit -m "docs: <description>" && git push
+SD=~/dev/solutions-docs
+WT=$(mktemp -d)/sd-wt                                  # unique per agent
+git -C "$SD" fetch --quiet origin
+git -C "$SD" worktree add --detach "$WT" origin/main
+#   write ONLY your doc(s) into "$WT/<category>/<slug>.md"
+MSG=/tmp/commit-msg-$(uuidv7).md                       # capture THIS path; never `ls -t /tmp/commit-msg-*.md | head -1`
+#   author + /unslop the message at "$MSG" (Conventional Commits, no AI attribution, --file not -m)
+git -C "$WT" add <category>/<slug>.md                  # the specific file(s), never -A
+git -C "$WT" commit --file "$MSG"
+git -C "$WT" show --stat HEAD                          # verify: only your file(s) landed
+git -C "$WT" push origin HEAD:main \
+  || { git -C "$SD" fetch --quiet origin; git -C "$WT" rebase origin/main && git -C "$WT" push origin HEAD:main; }
+git -C "$SD" worktree remove "$WT"; git -C "$SD" worktree prune   # cleanup: leave no straggling worktrees
 ```
+
+The worktree gives you your own index, so parallel compounders cannot bundle each other's files; the `remove` + `prune`
+at the end is not optional, or worktrees accumulate as cruft. If a single, exclusive writer is guaranteed (a solo
+interactive session, no background compounding agents), a plain `git -C "$SD" add <file> && git -C "$SD" commit --file
+"$MSG" && git -C "$SD" push` is acceptable — but verify with `git show --stat HEAD` afterward regardless. Full
+rationale: `docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md`.
 
 The consuming repo's `git status` will show nothing for `docs/solutions/` because the symlink target is gitignored. If
 the symlink is missing, recreate it from the consuming repo's root with an absolute path (the shell expands `$HOME` at

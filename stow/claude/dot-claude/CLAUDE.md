@@ -69,9 +69,15 @@ Routing table, per-skill rules, and the `qmd-learnings-researcher` companion-dis
 ## Solutions repo
 
 `docs/solutions/` is a symlink to `~/dev/solutions-docs` (a separate private repo). The consuming repo's `git status`
-shows nothing for it. **After writing there** (e.g. via `/compound`), commit and push in that repo: `cd
-~/dev/solutions-docs && git add -A && git commit -m "docs: …" && git push`. Symlink-recreate command →
-`~/.claude/guides/workflows-and-skills.md`.
+shows nothing for it. **After writing there** (e.g. via `/compound`), commit and push in that repo — but it's a single
+clone that concurrent agents (parallel compounders) share, so committing in it directly races their `git add`/`git
+commit` on the one index. **Commit from your own detached worktree**: `git -C ~/dev/solutions-docs worktree add --detach
+<wt> origin/main`, stage only the file(s) you wrote (**never `git add -A`** — it bundles other agents' in-flight files),
+`git commit --file` a captured-path `/tmp` message (never `ls -t | head -1`, never `-m`), `push origin HEAD:main` with
+fetch/rebase-retry, then `worktree remove <wt> && worktree prune` (no stragglers). **Never amend + force-push** the
+shared repo to fix a message. Solo-session exception + full recipe + symlink-recreate →
+`~/.claude/guides/workflows-and-skills.md`; rationale →
+`docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md`.
 
 ## Secrets & private identifiers
 
