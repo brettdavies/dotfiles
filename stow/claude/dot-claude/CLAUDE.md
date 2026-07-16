@@ -143,6 +143,15 @@ meaningfully rewritten** — append the LLM-draft → Brett-rewrite swap under t
 dated source-log entry. Compounds over time so the next draft starts closer to landing. Local-only and gitignored by
 design (see the `.context/` rule above).
 
+## Attribution & interpretation
+
+**Never put words in a person's mouth.** Don't state or imply that someone said, framed, meant, wanted, or believes
+something unless it is grounded in a primary source — and when a transcript or recording exists, **verify against it
+before asserting who said what.** Interpretation is welcome, but label it explicitly as yours (`my read`, `inference`,
+`not sourced to X`) and keep it distinct from what the person actually said. Presenting an interpretation as the
+person's own statement — paraphrasing or quoting them into something they did not say — is a serious trust breach, not a
+stylistic slip. Applies to chat, debriefs, plans, notes, and every artifact.
+
 ## CI after push
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse
