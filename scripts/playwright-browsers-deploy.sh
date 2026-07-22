@@ -76,6 +76,26 @@ case "$VERSION" in
     ;;
 esac
 
+# --- Lagging-consumer chromium revisions (aliased to the canonical build) ---
+#
+# Tools that embed their own Playwright (crawl4ai, patchright, e2e runners) pin
+# a chromium revision and resolve it by exact path
+# (<browsers>/chromium-<rev>/chrome-linux64/chrome). A tool one Playwright
+# version behind the canonical set asks for a revision the canonical set does
+# not carry, and with PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 its launch fails
+# ("Executable doesn't exist") rather than silently fetching a third browser
+# build. Instead of provisioning another ~450 MB Chrome-for-Testing build per
+# lagging tool, alias the wanted revision to the canonical one: one physical
+# chromium on disk serves every consumer. The CfT directory layout is identical
+# across adjacent builds, so a one-version-off driver launches the canonical
+# binary fine (Playwright itself supports channel="chrome" against arbitrary
+# system Chrome versions).
+#
+# Add a revision here when a tool pins a Playwright whose chromium the canonical
+# set does not already provide:
+#   crawl4ai 0.8.9 / patchright → Playwright 1.60.0 → chromium 1223
+CONSUMER_CHROMIUM_REVS=(1223)
+
 # --- CDN host ---
 #
 # Derived from `playwright install --dry-run` on this machine (host is stable
@@ -184,6 +204,36 @@ provision "webkit-${WEBKIT_REV}" \
 
 provision "ffmpeg-${FFMPEG_REV}" \
   "$CDN/dbazure/download/playwright/builds/ffmpeg/${FFMPEG_REV}/ffmpeg-linux.zip"
+
+# --- Alias lagging-consumer revisions to the canonical chromium ---
+#
+# A relative symlink so the cache stays relocatable. Never clobbers a real
+# install: if a genuine <name>-<rev> directory is already present it is left
+# untouched (an existing symlink is refreshed).
+
+link_consumer_alias() {
+  local rev="$1"
+  if [ "$rev" = "$CHROMIUM_REV" ]; then
+    return 0 # consumer already matches canonical; no alias needed
+  fi
+  local pair name canon_rev link target
+  for pair in "chromium:$CHROMIUM_REV" "chromium_headless_shell:$HEADLESS_REV"; do
+    name="${pair%%:*}"
+    canon_rev="${pair##*:}"
+    link="$BROWSERS_PATH/${name}-${rev}"
+    target="${name}-${canon_rev}"
+    if [ -e "$link" ] && [ ! -L "$link" ]; then
+      echo "SKIP: $link is a real install, leaving it"
+      continue
+    fi
+    ln -sfn "$target" "$link"
+    echo "OK:   aliased ${name}-${rev} -> ${target}"
+  done
+}
+
+for rev in "${CONSUMER_CHROMIUM_REVS[@]}"; do
+  link_consumer_alias "$rev"
+done
 
 echo "OK: Playwright $VERSION browser set provisioned in $BROWSERS_PATH"
 echo "    'playwright install' in any repo pinning $VERSION is now a no-op."
