@@ -84,6 +84,9 @@ collect_range_files() {
   fallback="${BASE_REF:-$(default_base)}"
   # shellcheck disable=SC2034 # ref names unused; sha positions matter
   while read -r local_ref local_sha remote_ref remote_sha; do
+    # Blank or truncated lines (git supplies none when a push has nothing
+    # deliverable, e.g. every ref rejected) must not become empty revisions.
+    [ -z "$local_sha" ] || [ -z "$remote_sha" ] && continue
     [ "$local_sha" = "$ZERO" ] && continue
     if [ "$remote_sha" = "$ZERO" ]; then
       [ "$fallback" = "$ZERO" ] && continue
