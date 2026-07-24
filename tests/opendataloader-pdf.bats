@@ -147,6 +147,11 @@ ENABLE_SCRIPT="$REPO_ROOT/scripts/opendataloader-pdf-enable.sh"
   if [ ! -x "$TOOL_PY" ]; then
     skip "uv-tool opendataloader-pdf not installed on this host"
   fi
+  # The launcher gates --help behind _check_dependencies(), so a tool env
+  # missing the [hybrid] extras cannot print usage at all.
+  if ! "$TOOL_PY" -c 'import uvicorn, fastapi' >/dev/null 2>&1; then
+    skip "uv-tool opendataloader-pdf lacks [hybrid] extras on this host"
+  fi
   output=$("$TOOL_PY" "$LAUNCHER_PY" --help 2>&1)
   [[ "$output" == *"--idle-timeout"* ]]
 }
