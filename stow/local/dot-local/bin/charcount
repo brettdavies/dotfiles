@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Count characters in files (or stdin) for length-limited fields.
+
+Platform caps are stored below and selected by a same-named flag, e.g.
+`charcount --linkedin file.txt`. Pass --limit N for an arbitrary cap, or
+--list to print the presets. Exit status is nonzero if any input exceeds the
+cap, so it gates in scripts.
+
+Usage:
+  charcount [FILE ...]                 # count each file; reads stdin if none
+  charcount --linkedin FILE            # check against the LinkedIn description cap
+  charcount --limit 500 FILE           # arbitrary cap
+  pbpaste | charcount --linkedin       # count clipboard/stdin
+  charcount --list                     # show presets
+"""
+import argparse
+import sys
+
+# Character caps by platform field. Add new fields here.
+LIMITS = {
+    "linkedin": 2000,           # experience / position description
+    "linkedin-headline": 220,   # profile headline
+    "linkedin-about": 2600,     # About / summary
+    "linkedin-post": 3000,      # feed post
+    "x-bio": 160,               # X/Twitter bio
+    "x-post": 280,              # X/Twitter post
+}
+
+
+def report(name: str, text: str, limit: int | None, label: str | None) -> bool:
+    chars = len(text)
+    chars_no_nl = len(text.replace("\n", "").replace("\r", ""))
+    words = len(text.split())
+    lines = text.count("\n") + (0 if text == "" or text.endswith("\n") else 1)
+    line = f"{name}: {chars} chars ({chars_no_nl} excl. newlines), {words} words, {lines} lines"
+    over = False
+    if limit is not None:
+        delta = limit - chars
+        line += f"  [{label} {limit}: {delta} under]" if delta >= 0 else f"  [{label} {limit}: {-delta} OVER]"
+        over = delta < 0
+    print(line)
+    return over
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Count characters for length-limited fields (LinkedIn, etc.).")
+    ap.add_argument("files", nargs="*", help="files to count; reads stdin if none")
+    ap.add_argument("--list", action="store_true", help="list platform presets and exit")
+    cap = ap.add_mutually_exclusive_group()
+    cap.add_argument("--limit", type=int, help="arbitrary character cap")
+    for name, value in LIMITS.items():
+        cap.add_argument(f"--{name}", dest="platform", action="store_const", const=name, help=f"cap {value} chars")
+    args = ap.parse_args()
+
+    if args.list:
+        for name, value in LIMITS.items():
+            print(f"--{name:<18} {value}")
+        return
+
+    if args.platform:
+        limit, label = LIMITS[args.platform], args.platform
+    elif args.limit is not None:
+        limit, label = args.limit, "limit"
+    else:
+        limit, label = None, None
+
+    over = False
+    if args.files:
+        for path in args.files:
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    over |= report(path, fh.read(), limit, label)
+            except OSError as exc:
+                print(f"{path}: error: {exc}", file=sys.stderr)
+                over = True
+    else:
+        over |= report("stdin", sys.stdin.read(), limit, label)
+
+    sys.exit(1 if over else 0)
+
+
+if __name__ == "__main__":
+    main()
