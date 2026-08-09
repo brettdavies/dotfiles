@@ -8,16 +8,16 @@ branch=$(git symbolic-ref --short HEAD 2>/dev/null || true)
 
 # Block direct commits to main
 if [ "$branch" = "main" ]; then
-    echo "ERROR: direct commits to 'main' are blocked." >&2
-    echo "       Create a feature branch and submit a PR instead." >&2
-    echo "       git checkout -b feat/your-feature dev" >&2
-    exit 1
+  echo "ERROR: direct commits to 'main' are blocked." >&2
+  echo "       Create a feature branch and submit a PR instead." >&2
+  echo "       git checkout -b feat/your-feature dev" >&2
+  exit 1
 fi
 
 # Verify commit signing is enabled
 gpgsign=$(git config --get commit.gpgsign 2>/dev/null || true)
 if [ "$gpgsign" != "true" ]; then
-    echo "ERROR: commit signing is not enabled (commit.gpgsign != true)." >&2
-    echo "       Run: git config commit.gpgsign true" >&2
-    exit 1
+  echo "ERROR: commit signing is not enabled (commit.gpgsign != true)." >&2
+  echo "       Run: git config commit.gpgsign true" >&2
+  exit 1
 fi

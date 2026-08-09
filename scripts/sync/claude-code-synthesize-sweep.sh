@@ -35,9 +35,19 @@ EOF
 DRY_RUN=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) usage; exit 0 ;;
-    --dry-run) DRY_RUN=1; shift ;;
-    *) printf 'unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    *)
+      printf 'unknown argument: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
   esac
 done
 
@@ -71,7 +81,7 @@ START_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 now_ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 emit_event() {
-  jaq -n -c --arg ts "$(now_ts)" "$@" >> "$AUDIT_JSONL"
+  jaq -n -c --arg ts "$(now_ts)" "$@" >>"$AUDIT_JSONL"
 }
 
 emit_processed() {

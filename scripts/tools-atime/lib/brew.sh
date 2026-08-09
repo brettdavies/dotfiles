@@ -52,7 +52,8 @@ _brew_closure() {
   R[$leaf]=1
   local queue=("$leaf") cur d
   while ((${#queue[@]} > 0)); do
-    cur=${queue[0]}; queue=("${queue[@]:1}")
+    cur=${queue[0]}
+    queue=("${queue[@]:1}")
     for d in ${_BREW_DEPS[$cur]:-}; do
       [[ -n "${TD[$d]+x}" ]] && continue
       TD[$d]=1
@@ -66,9 +67,15 @@ _brew_closure() {
       [[ -n "${R[$d]+x}" ]] && continue
       all_in=true
       for u in ${_BREW_USERS[$d]:-}; do
-        if [[ -z "${R[$u]+x}" ]]; then all_in=false; break; fi
+        if [[ -z "${R[$u]+x}" ]]; then
+          all_in=false
+          break
+        fi
       done
-      if [[ "$all_in" == "true" ]]; then R[$d]=1; changed=1; fi
+      if [[ "$all_in" == "true" ]]; then
+        R[$d]=1
+        changed=1
+      fi
     done
   done
   for d in "${!R[@]}"; do printf '%s\n' "$d"; done
@@ -80,7 +87,7 @@ _brew_closure() {
 # so this stays in 3-column mode and uses the extra field for leaf/dep.
 brew_inspect() {
   command -v brew >/dev/null || return 1
-  command -v jaq  >/dev/null || return 1
+  command -v jaq >/dev/null || return 1
   _brew_load_graph || return 1
   local formula=$1 leaf_bare=${1##*/}
   local f sz role
@@ -95,7 +102,10 @@ brew_actions() { echo "u:uninstall+autoremove"; }
 
 # Whole-cellar du so the post-action delta captures the autoremove cascade.
 brew_measure() {
-  command -v brew >/dev/null || { echo 0; return; }
+  command -v brew >/dev/null || {
+    echo 0
+    return
+  }
   du -sk "$(brew --cellar)" 2>/dev/null | awk '{print $1+0}'
 }
 
@@ -103,20 +113,26 @@ brew_measure() {
 brew_act() {
   local formula=$1 action=$2
   case "$action" in
-    u|uninstall)
+    u | uninstall)
       if [[ "${DRYRUN:-true}" == "true" ]]; then
         echo "DRY-RUN: brew uninstall $formula && brew autoremove"
         return 0
       fi
       brew uninstall "$formula" && brew autoremove
       ;;
-    *) echo "brew_act: unknown action $action" >&2; return 1 ;;
+    *)
+      echo "brew_act: unknown action $action" >&2
+      return 1
+      ;;
   esac
 }
 
 brew_rows() {
   command -v brew >/dev/null || return 0
-  command -v jaq  >/dev/null || { echo "brew adapter requires jaq" >&2; return 1; }
+  command -v jaq >/dev/null || {
+    echo "brew adapter requires jaq" >&2
+    return 1
+  }
   _brew_load_graph || return 1
 
   local formula vd bin_dir atime hasbin own_kb reclaim_kb f
@@ -136,7 +152,7 @@ brew_rows() {
     own_kb=$(_brew_size_kb "$formula")
     reclaim_kb=0
     while IFS= read -r f; do
-      reclaim_kb=$(( reclaim_kb + $(_brew_size_kb "$f") ))
+      reclaim_kb=$((reclaim_kb + $(_brew_size_kb "$f")))
     done < <(_brew_closure "$formula")
     emit_row brew "$atime" "$formula" "$hasbin" "$own_kb" "$reclaim_kb"
   done < <(brew leaves)

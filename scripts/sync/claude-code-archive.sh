@@ -49,7 +49,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 now_ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 emit_event() {
-  jaq -n -c --arg ts "$(now_ts)" "$@" >> "$AUDIT_JSONL"
+  jaq -n -c --arg ts "$(now_ts)" "$@" >>"$AUDIT_JSONL"
 }
 
 emit_archived() {
@@ -102,7 +102,7 @@ process_jsonl() {
     return 1
   fi
 
-  if ! python3 "$SHIM" "$raw" --audit-jsonl "$AUDIT_JSONL" > "$clean" 2>/dev/null; then
+  if ! python3 "$SHIM" "$raw" --audit-jsonl "$AUDIT_JSONL" >"$clean" 2>/dev/null; then
     emit_failed "$session" "$jsonl" "redaction_subprocess_failed"
     return 1
   fi
@@ -123,7 +123,7 @@ extract_subagent_meta() {
     | (.[0] // {})
     | [(.sessionId // ""), (.agentId // ""), (.timestamp // "")]
     | @tsv
-  ' < "$jsonl" 2>/dev/null
+  ' <"$jsonl" 2>/dev/null
 }
 
 process_subagent_jsonl() {
@@ -134,7 +134,7 @@ process_subagent_jsonl() {
     emit_failed "" "$jsonl" "subagent_meta_extract_failed"
     return 1
   fi
-  IFS=$'\t' read -r parent_session agent_id modified <<< "$meta"
+  IFS=$'\t' read -r parent_session agent_id modified <<<"$meta"
   if [[ -z "$agent_id" || -z "$parent_session" || -z "$modified" ]]; then
     local fallback_id
     fallback_id=$(basename "$jsonl" .jsonl | sed 's/^agent-//')
@@ -171,7 +171,7 @@ process_subagent_jsonl() {
     return 1
   fi
 
-  if ! python3 "$SHIM" "$raw" --audit-jsonl "$AUDIT_JSONL" > "$clean" 2>/dev/null; then
+  if ! python3 "$SHIM" "$raw" --audit-jsonl "$AUDIT_JSONL" >"$clean" 2>/dev/null; then
     emit_failed "$agent_id" "$jsonl" "redaction_subprocess_failed"
     return 1
   fi
@@ -261,7 +261,7 @@ single() {
   fi
 
   local session modified
-  IFS=$'\t' read -r session modified <<< "$meta"
+  IFS=$'\t' read -r session modified <<<"$meta"
   process_jsonl "$jsonl" "$session" "$modified"
 }
 
@@ -271,10 +271,13 @@ main() {
       sweep
       ;;
     --single)
-      [[ -n "${2:-}" ]] || { printf 'usage: %s --single <jsonl-path>\n' "$0" >&2; exit 2; }
+      [[ -n "${2:-}" ]] || {
+        printf 'usage: %s --single <jsonl-path>\n' "$0" >&2
+        exit 2
+      }
       single "$2"
       ;;
-    -h|--help)
+    -h | --help)
       printf 'usage: %s [--single <jsonl-path>]\n' "$0"
       exit 0
       ;;

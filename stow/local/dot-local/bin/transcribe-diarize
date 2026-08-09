@@ -19,7 +19,10 @@
 set -euo pipefail
 
 AUDIO="${1:?usage: transcribe-diarize <audio-file> [out-dir]}"
-[ -f "$AUDIO" ] || { echo "no such file: $AUDIO" >&2; exit 1; }
+[ -f "$AUDIO" ] || {
+  echo "no such file: $AUDIO" >&2
+  exit 1
+}
 BASE="$(basename "${AUDIO%.*}")"
 OUTDIR="${2:-$(cd "$(dirname "$AUDIO")" && pwd)/transcribe-out}"
 mkdir -p "$OUTDIR"
@@ -37,7 +40,10 @@ fi
 # 2. Hugging Face token for the gated pyannote diarization pipeline (1Password service acct).
 HF_ITEM="${HF_ITEM:-Hugging Face Token (MCP Read)}"
 HF_TOKEN="$("$HOME/.claude/skills/1password/scripts/read_field.sh" "$HF_ITEM" credential)"
-[ -n "$HF_TOKEN" ] || { echo "HF token unreadable from 1Password item: $HF_ITEM" >&2; exit 1; }
+[ -n "$HF_TOKEN" ] || {
+  echo "HF token unreadable from 1Password item: $HF_ITEM" >&2
+  exit 1
+}
 export HF_TOKEN
 
 # 3. Downmix to 16kHz mono PCM WAV (whisper's native rate).

@@ -15,21 +15,21 @@ RCLONE="/home/linuxbrew/.linuxbrew/bin/rclone"
 mkdir -p "$LOCAL" "$LOG_DIR"
 
 BISYNC_ARGS=(
-    "$LOCAL" "$REMOTE"
-    --verbose
-    --max-lock 5m          # auto-expire stale lock files after 5 minutes
-    --resilient            # retry on transient errors instead of aborting
-    --recover              # attempt to recover from prior interrupted sync
-    --conflict-resolve newer  # if both sides changed, keep the newer file
-    --conflict-loser num   # rename the loser with a numeric suffix
-    --log-file "$LOG_DIR/box-bisync.log"
-    --filter-from "$HOME/.config/rclone/box-filters.txt"
+  "$LOCAL" "$REMOTE"
+  --verbose
+  --max-lock 5m            # auto-expire stale lock files after 5 minutes
+  --resilient              # retry on transient errors instead of aborting
+  --recover                # attempt to recover from prior interrupted sync
+  --conflict-resolve newer # if both sides changed, keep the newer file
+  --conflict-loser num     # rename the loser with a numeric suffix
+  --log-file "$LOG_DIR/box-bisync.log"
+  --filter-from "$HOME/.config/rclone/box-filters.txt"
 )
 
 # Pass --resync for initial sync (required on first run)
 if [[ "${1:-}" == "--resync" ]]; then
-    BISYNC_ARGS+=(--resync)
-    echo "Performing initial resync..."
+  BISYNC_ARGS+=(--resync)
+  echo "Performing initial resync..."
 fi
 
 exec "$RCLONE" bisync "${BISYNC_ARGS[@]}"

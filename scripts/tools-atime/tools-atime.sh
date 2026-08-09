@@ -26,7 +26,7 @@ INSPECT_LIMIT=30
 RECLAIM=false
 APPLY=false
 RECLAIM_TOP=20
-RECLAIM_MIN_KB=10240   # 10 MB floor — don't bother prompting for tiny rows
+RECLAIM_MIN_KB=10240 # 10 MB floor — don't bother prompting for tiny rows
 export INSPECT_LIMIT
 
 usage() {
@@ -68,28 +68,74 @@ EOF
 
 while (($#)); do
   case "$1" in
-    -m|--manager)     MANAGERS_FLAG="${2:?--manager needs a value}"; shift 2 ;;
-    -d|--days)        DAYS="${2:?--days needs a value}"; shift 2 ;;
-    -s|--sort)        SORT="${2:?--sort needs a field}"; shift 2 ;;
-    -r|--reverse)     REVERSE=true; shift ;;
-    -i|--inspect)     INSPECT="${2:?--inspect needs a target}"; shift 2 ;;
-    -l|--limit)       INSPECT_LIMIT="${2:?--limit needs a value}"; shift 2 ;;
-    -R|--reclaim)     RECLAIM=true; shift ;;
-    --apply)          APPLY=true; shift ;;
-    --top)            RECLAIM_TOP="${2:?--top needs a value}"; shift 2 ;;
-    --min-kb)         RECLAIM_MIN_KB="${2:?--min-kb needs a value}"; shift 2 ;;
-    -j|--json)        JSON=true; shift ;;
-    -q|--quiet)       QUIET=true; shift ;;
-    -B|--no-bin-skip) SKIP_NOBIN=true; shift ;;
-    -h|--help)        usage; exit 0 ;;
-    *)                echo "unknown flag: $1" >&2; usage >&2; exit 2 ;;
+    -m | --manager)
+      MANAGERS_FLAG="${2:?--manager needs a value}"
+      shift 2
+      ;;
+    -d | --days)
+      DAYS="${2:?--days needs a value}"
+      shift 2
+      ;;
+    -s | --sort)
+      SORT="${2:?--sort needs a field}"
+      shift 2
+      ;;
+    -r | --reverse)
+      REVERSE=true
+      shift
+      ;;
+    -i | --inspect)
+      INSPECT="${2:?--inspect needs a target}"
+      shift 2
+      ;;
+    -l | --limit)
+      INSPECT_LIMIT="${2:?--limit needs a value}"
+      shift 2
+      ;;
+    -R | --reclaim)
+      RECLAIM=true
+      shift
+      ;;
+    --apply)
+      APPLY=true
+      shift
+      ;;
+    --top)
+      RECLAIM_TOP="${2:?--top needs a value}"
+      shift 2
+      ;;
+    --min-kb)
+      RECLAIM_MIN_KB="${2:?--min-kb needs a value}"
+      shift 2
+      ;;
+    -j | --json)
+      JSON=true
+      shift
+      ;;
+    -q | --quiet)
+      QUIET=true
+      shift
+      ;;
+    -B | --no-bin-skip)
+      SKIP_NOBIN=true
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "unknown flag: $1" >&2
+      usage >&2
+      exit 2
+      ;;
   esac
 done
 
 # Inspect mode short-circuits the list pipeline.
 if [[ -n "$INSPECT" ]]; then
   case "$INSPECT" in
-    uv-cache|cache/uv-cache|caches/uv-cache|bun-cache|cache/bun-cache|caches/bun-cache)
+    uv-cache | cache/uv-cache | caches/uv-cache | bun-cache | cache/bun-cache | caches/bun-cache)
       # shellcheck source=lib/caches.sh
       source "$LIB/caches.sh"
       data=$(caches_inspect "$INSPECT") || exit 1
@@ -119,7 +165,10 @@ if [[ -n "$INSPECT" ]]; then
       exit 2
       ;;
   esac
-  [[ -z "$data" ]] && { echo "(empty inspection result for $INSPECT)" >&2; exit 0; }
+  [[ -z "$data" ]] && {
+    echo "(empty inspection result for $INSPECT)" >&2
+    exit 0
+  }
   # uv-cache emits 4-col TSV with total + disk-freeable; everything else
   # stays in the 3-col (with optional status) shape inspect_render handles.
   render_fn=inspect_render
@@ -140,8 +189,11 @@ if [[ -n "$INSPECT" ]]; then
 fi
 
 case "$SORT" in
-  age|name|size|reclaim|manager) ;;
-  *) echo "--sort must be age|name|size|reclaim|manager" >&2; exit 2 ;;
+  age | name | size | reclaim | manager) ;;
+  *)
+    echo "--sort must be age|name|size|reclaim|manager" >&2
+    exit 2
+    ;;
 esac
 
 if [[ -n "$MANAGERS_FLAG" ]]; then
@@ -154,19 +206,22 @@ fi
 all_rows=""
 for m in "${SELECTED[@]}"; do
   case "$m" in
-    brew|uv|cargo|bun|caches)
+    brew | uv | cargo | bun | caches)
       # shellcheck source=/dev/null
       source "$LIB/${m}.sh"
       rows_fn="${m}_rows"
       all_rows+=$("$rows_fn")$'\n'
       ;;
-    *) echo "unknown manager: $m" >&2; exit 2 ;;
+    *)
+      echo "unknown manager: $m" >&2
+      exit 2
+      ;;
   esac
 done
 
 now=$(date +%s)
 threshold=
-[[ -n "$DAYS" ]] && threshold=$(( now - DAYS * 86400 ))
+[[ -n "$DAYS" ]] && threshold=$((now - DAYS * 86400))
 
 # Reclaim mode short-circuits the table render. Uses reclaim-desc ordering
 # regardless of --sort so the prompt walks the largest-first list. Re-polls
@@ -213,8 +268,8 @@ if [[ "$RECLAIM" == "true" ]]; then
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
       IFS=$'\t' read -r mgr _ name _ _ _ <<<"$line"
-      [[ -n "${SKIPPED[$mgr/$name]+x}" ]] && continue
-      [[ -n "${ACTED[$mgr/$name]+x}" ]] && continue
+      [[ -n "${SKIPPED[$mgr / $name]+x}" ]] && continue
+      [[ -n "${ACTED[$mgr / $name]+x}" ]] && continue
       row="$line"
       break
     done <<<"$candidates_cache"
@@ -224,21 +279,21 @@ if [[ "$RECLAIM" == "true" ]]; then
       break
     fi
 
-    iter=$((iter+1))
+    iter=$((iter + 1))
     IFS=$'\t' read -r mgr atime name hasbin own reclaim <<<"$row"
     printf '[%d] %s/%s   %s   %s\n' \
       "$iter" "$mgr" "$name" "$(human_size "$reclaim")" "$(reclaim_age "$atime" "$now")"
 
     while true; do
       actions=$("${mgr}_actions" "$name" 2>/dev/null)
-      inspect_part=" i:inspect"  # every adapter exposes <m>_inspect now
+      inspect_part=" i:inspect" # every adapter exposes <m>_inspect now
       menu="${actions}${inspect_part} s:skip q:quit"
       printf '        [%s] > ' "$menu"
       if ! read -r choice; then choice=q; fi
       choice=${choice:-s}
 
       case "$choice" in
-        q|quit)
+        q | quit)
           printf '\nQuit. '
           if [[ "$DRYRUN" == "true" ]]; then
             printf 'Dry-run would have freed %s so far.\n' "$(human_size "$would_free")"
@@ -247,12 +302,12 @@ if [[ "$RECLAIM" == "true" ]]; then
           fi
           exit 0
           ;;
-        s|skip)
+        s | skip)
           SKIPPED["$mgr/$name"]=1
           printf '\n'
           break
           ;;
-        i|inspect)
+        i | inspect)
           data=$("${mgr}_inspect" "$name" 2>/dev/null || true)
           if [[ -n "$data" ]]; then
             printf '\n'
@@ -270,7 +325,7 @@ if [[ "$RECLAIM" == "true" ]]; then
         *)
           if [[ "$DRYRUN" == "true" ]]; then
             if "${mgr}_act" "$name" "$choice"; then
-              would_free=$(( would_free + reclaim ))
+              would_free=$((would_free + reclaim))
               ACTED["$mgr/$name"]=1
             else
               printf '        (re-prompt; unknown action)\n'
@@ -280,9 +335,9 @@ if [[ "$RECLAIM" == "true" ]]; then
             before=$("${mgr}_measure" "$name" 2>/dev/null || echo 0)
             if "${mgr}_act" "$name" "$choice"; then
               after=$("${mgr}_measure" "$name" 2>/dev/null || echo 0)
-              delta=$(( before - after ))
-              (( delta < 0 )) && delta=0
-              freed=$(( freed + delta ))
+              delta=$((before - after))
+              ((delta < 0)) && delta=0
+              freed=$((freed + delta))
               printf '        Freed: %s\n' "$(human_size "$delta")"
               ACTED["$mgr/$name"]=1
               need_repoll=true
@@ -308,13 +363,14 @@ if [[ "$RECLAIM" == "true" ]]; then
   exit 0
 fi
 
-rev=""; [[ "$REVERSE" == "true" ]] && rev="r"
+rev=""
+[[ "$REVERSE" == "true" ]] && rev="r"
 case "$SORT" in
-  age)     sort_args=(-t $'\t' -k2,2n${rev}) ;;
-  name)    sort_args=(-t $'\t' -k3,3${rev})  ;;
-  size)    sort_args=(-t $'\t' -k5,5n${rev}) ;;
+  age) sort_args=(-t $'\t' -k2,2n${rev}) ;;
+  name) sort_args=(-t $'\t' -k3,3${rev}) ;;
+  size) sort_args=(-t $'\t' -k5,5n${rev}) ;;
   reclaim) sort_args=(-t $'\t' -k6,6n${rev}) ;;
-  manager) sort_args=(-t $'\t' -k1,1${rev})  ;;
+  manager) sort_args=(-t $'\t' -k1,1${rev}) ;;
 esac
 
 filter() {
@@ -333,7 +389,7 @@ if [[ "$JSON" == "true" ]]; then
   first=true
   while IFS=$'\t' read -r mgr atime name hasbin own reclaim; do
     [[ -z "$atime" ]] && continue
-    days=$(( (now - atime) / 86400 ))
+    days=$(((now - atime) / 86400))
     [[ "$first" == true ]] && first=false || printf ','
     printf '{"manager":"%s","name":"%s","atime":%d,"days_ago":%d,"has_bin":%s,"size_kb":%d,"reclaim_kb":%d}' \
       "$mgr" "$name" "$atime" "$days" \
@@ -353,7 +409,7 @@ else
   while IFS=$'\t' read -r mgr atime name hasbin own reclaim; do
     [[ -z "$atime" ]] && continue
     date_str=$(date_fmt "$atime")
-    days=$(( (now - atime) / 86400 ))
+    days=$(((now - atime) / 86400))
     own_str=$(human_size "$own")
     reclaim_str=$(human_size "$reclaim")
     suffix=""

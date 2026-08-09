@@ -61,7 +61,7 @@ trap 'rm -f "${SMOKE_OUT}"' EXIT
 
 echo "==> Smoke: curl http://127.0.0.1:${PORT}/health (cold start ~3–5 s)"
 if ! curl --silent --fail --max-time 30 \
-     "http://127.0.0.1:${PORT}/health" -o "${SMOKE_OUT}"; then
+  "http://127.0.0.1:${PORT}/health" -o "${SMOKE_OUT}"; then
   echo "ERROR: /health smoke failed within 30 s" >&2
   echo "       Most likely cause: the uv-tool install is missing." >&2
   echo "       Run the setup helper first:" >&2

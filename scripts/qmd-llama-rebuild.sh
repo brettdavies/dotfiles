@@ -26,7 +26,10 @@ set -euo pipefail
 QMD_DIR="${QMD_DIR:-$HOME/dev/qmd}"
 
 for cmd in npx cmake gcc make; do
-  command -v "$cmd" >/dev/null || { echo "ERROR: $cmd is required but not on PATH (try: brew install $cmd)" >&2; exit 1; }
+  command -v "$cmd" >/dev/null || {
+    echo "ERROR: $cmd is required but not on PATH (try: brew install $cmd)" >&2
+    exit 1
+  }
 done
 
 [ -d "$QMD_DIR/node_modules/node-llama-cpp" ] || {

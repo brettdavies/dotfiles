@@ -76,7 +76,10 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
     command -v bundle
   "
   [ "$status" -eq 0 ]
-  [[ "$output" == "$bp"/* ]] || { echo "bundle resolved to '$output' (expected under $bp)"; false; }
+  [[ "$output" == "$bp"/* ]] || {
+    echo "bundle resolved to '$output' (expected under $bp)"
+    false
+  }
 }
 
 # Regression: bash and non-login shells (the pre-push bats run, cron, editor
@@ -97,7 +100,10 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
     command -v bundle
   "
   [ "$status" -eq 0 ]
-  [[ "$output" == "$bp"/* ]] || { echo "bundle resolved to '$output' (expected under $bp)"; false; }
+  [[ "$output" == "$bp"/* ]] || {
+    echo "bundle resolved to '$output' (expected under $bp)"
+    false
+  }
 }
 
 @test "dot-profile has valid bash syntax" {
@@ -147,7 +153,7 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 
 @test "no hardcoded /Users/ paths in shell configs" {
   run grep -r "/Users/" "$STOW_DIR/shell/" "$STOW_DIR/bash/" "$STOW_DIR/zsh/" "$CONFIG_DIR/"
-  [ "$status" -eq 1 ]  # grep exits 1 when no match
+  [ "$status" -eq 1 ] # grep exits 1 when no match
 }
 
 # ---------------------------------------------------------------------------
