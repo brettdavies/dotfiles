@@ -72,6 +72,24 @@ for entry in "${REPOS[@]}"; do
     fi
   fi
 
+  # Sync local branch to origin BEFORE detecting changes. On a shared clone that
+  # concurrent agents push to via their own worktrees, already-pushed content shows
+  # up here as phantom working-tree changes and the local branch silently falls
+  # behind. Fast-forward first so the sweep below only ever sees genuinely
+  # uncommitted leftovers, never a re-commit (or stale re-commit) of upstream
+  # content. --ff-only refuses to merge or clobber if the branch has diverged;
+  # --autostash preserves in-flight edits across the fast-forward.
+  if ! git -C "$repo_path" fetch --quiet origin "$default_branch" 2>>"$LOG_FILE"; then
+    log "  WARNING: $repo_name — fetch failed; proceeding without sync"
+  elif $DRY_RUN; then
+    behind=$(git -C "$repo_path" rev-list --count "HEAD..origin/$default_branch" 2>/dev/null || echo '?')
+    log "DRY-RUN: $repo_name — would fast-forward ($behind behind origin/$default_branch)"
+  elif ! git -C "$repo_path" merge --ff-only --autostash "origin/$default_branch" 2>>"$LOG_FILE"; then
+    log "WARNING: $repo_name — local diverged from origin/$default_branch (ff-only refused); skipping, needs manual reconcile"
+    FAILED=$((FAILED + 1))
+    continue
+  fi
+
   # Check for changes (unstaged, staged, or untracked)
   if git -C "$repo_path" diff --quiet && git -C "$repo_path" diff --cached --quiet \
     && [[ -z "$(git -C "$repo_path" ls-files --others --exclude-standard)" ]]; then
@@ -168,11 +186,20 @@ the next group. Use git add -p <file> if a single file has unrelated changes.
     log "  Committed (fallback): $FALLBACK_MSG"
   fi
 
-  # Push (no pull/rebase — just push, log failure)
+  # Push; if origin advanced during the run, rebase our new commit(s) on top and
+  # retry once so a commit can never strand behind origin.
   if ! git -C "$repo_path" push 2>>"$LOG_FILE"; then
-    log "WARNING: $repo_name — push failed (resolve manually)"
-    FAILED=$((FAILED + 1))
-    continue
+    log "  push rejected — fetching and rebasing onto origin/$default_branch to retry"
+    if git -C "$repo_path" fetch --quiet origin "$default_branch" 2>>"$LOG_FILE" \
+      && git -C "$repo_path" rebase "origin/$default_branch" 2>>"$LOG_FILE" \
+      && git -C "$repo_path" push 2>>"$LOG_FILE"; then
+      :
+    else
+      git -C "$repo_path" rebase --abort 2>/dev/null || true
+      log "WARNING: $repo_name — push failed after rebase (resolve manually)"
+      FAILED=$((FAILED + 1))
+      continue
+    fi
   fi
   log "  Pushed to origin/$default_branch"
 
