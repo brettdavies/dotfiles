@@ -54,6 +54,7 @@ dotfiles/
 │   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (binaries + apparmor + opt-in browser deps)
 │   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, opendataloader-pdf)
 │   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama)
+│   ├── macos-gpu-monitor.sh       Metal GPU residency/power trace around any command (macOS)
 │   ├── generate-changelog.py      Release changelog extraction
 │   ├── tools-atime/       Multi-package-manager unused-tool audit + reclaim
 │   └── sync/              iCloud, Box, and Claude Code session pipeline sync
