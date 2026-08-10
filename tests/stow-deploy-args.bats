@@ -67,5 +67,5 @@ EXIT_USAGE=2
   while read -r code; do
     [ "$code" -ne 0 ]
     [ "$code" -ne 1 ]
-  done <<< "$codes"
+  done <<<"$codes"
 }

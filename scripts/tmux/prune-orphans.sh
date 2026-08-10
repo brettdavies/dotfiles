@@ -15,7 +15,7 @@ clients="$("$TMUX_BIN" list-clients -F '#{client_pid} #{client_tty}' 2>/dev/null
 printf '%s\n' "$clients" \
   | awk '$2 == "(none)" { print $1 }' \
   | while read -r pid; do
-      [ -z "$pid" ] && continue
-      logger -t tmux-prune "killing orphan client pid=$pid"
-      kill -KILL "$pid" 2>/dev/null || true
-    done
+    [ -z "$pid" ] && continue
+    logger -t tmux-prune "killing orphan client pid=$pid"
+    kill -KILL "$pid" 2>/dev/null || true
+  done

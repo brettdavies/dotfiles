@@ -10,7 +10,10 @@
 set -euo pipefail
 
 raw=0
-if [ "${1:-}" = "--json" ]; then raw=1; shift; fi
+if [ "${1:-}" = "--json" ]; then
+  raw=1
+  shift
+fi
 
 q=${1:?usage: brave-search [--json] "<query>" [count]}
 count=${2:-6}
@@ -29,6 +32,6 @@ resp=$(curl -fsS -K "$cfg" -G "https://api.search.brave.com/res/v1/web/search" \
 if [ "$raw" = 1 ]; then
   printf '%s\n' "$resp"
 else
-  printf '%s\n' "$resp" |
-    jaq -r '.web.results[]? | "• \(.title)\n  \(.url)\n  \(.description)\n"'
+  printf '%s\n' "$resp" \
+    | jaq -r '.web.results[]? | "• \(.title)\n  \(.url)\n  \(.description)\n"'
 fi

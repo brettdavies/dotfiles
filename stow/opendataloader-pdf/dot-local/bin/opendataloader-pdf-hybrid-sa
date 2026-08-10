@@ -7,4 +7,4 @@
 # The sh wrapper (rather than a hardcoded Python shebang) lets the same
 # script work for any user on any Linux host — $HOME expands at runtime.
 exec "$HOME/.local/share/uv/tools/opendataloader-pdf/bin/python" \
-     "$HOME/.local/bin/opendataloader-pdf-hybrid-sa.py" "$@"
+  "$HOME/.local/bin/opendataloader-pdf-hybrid-sa.py" "$@"

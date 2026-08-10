@@ -52,7 +52,7 @@ teardown() {
 @test "wiring: sourcing the env file runs \$HOME/dotfiles/config/shell/local-paths.sh" {
   fake_home="$(mktemp -d)"
   mkdir -p "$fake_home/dotfiles/config/shell"
-  printf '%s\n' 'export BASH_ENV_PATH_WIRED=yes' > "$fake_home/dotfiles/config/shell/local-paths.sh"
+  printf '%s\n' 'export BASH_ENV_PATH_WIRED=yes' >"$fake_home/dotfiles/config/shell/local-paths.sh"
   CLAUDE_ENV_FILE="$TMP_ENV" bash "$HOOK"
   run env HOME="$fake_home" bash -c "source '$TMP_ENV'; printf '%s' \"\${BASH_ENV_PATH_WIRED:-no}\""
   rm -rf "$fake_home"

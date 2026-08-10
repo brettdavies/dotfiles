@@ -5,37 +5,37 @@
 [ -f ~/dotfiles/stow/shell/caches.sh ] && source ~/dotfiles/stow/shell/caches.sh
 
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/claude"
-CACHE_TTL=3600  # 1 hour
+CACHE_TTL=3600 # 1 hour
 
 # `brew list --formula` takes 1-3s; other tools (pipx, uv, cargo, bun) are fast enough live
 cached() {
-    local name="$1"
-    local cache_file="$CACHE_DIR/$name.cache"
-    shift
-    if [ -f "$cache_file" ]; then
-        local age now mtime
-        now=$(date +%s)
-        mtime=$(stat -f %m "$cache_file" 2>/dev/null) || mtime=$(stat -c %Y "$cache_file" 2>/dev/null) || mtime=0
-        age=$((now - mtime))
-        if [ "$age" -lt "$CACHE_TTL" ]; then
-            cat "$cache_file"
-            return
-        fi
+  local name="$1"
+  local cache_file="$CACHE_DIR/$name.cache"
+  shift
+  if [ -f "$cache_file" ]; then
+    local age now mtime
+    now=$(date +%s)
+    mtime=$(stat -f %m "$cache_file" 2>/dev/null) || mtime=$(stat -c %Y "$cache_file" 2>/dev/null) || mtime=0
+    age=$((now - mtime))
+    if [ "$age" -lt "$CACHE_TTL" ]; then
+      cat "$cache_file"
+      return
     fi
-    mkdir -p "$CACHE_DIR"
-    "$@" > "$cache_file" 2>/dev/null
-    cat "$cache_file"
+  fi
+  mkdir -p "$CACHE_DIR"
+  "$@" >"$cache_file" 2>/dev/null
+  cat "$cache_file"
 }
 
 # One-per-line output wastes context window tokens; CSV is compact
 to_csv() {
-    local out
-    out=$(paste -sd, - | sed 's/,/, /g')
-    if [ -n "$out" ]; then
-        echo "$out"
-    else
-        echo '(none)'
-    fi
+  local out
+  out=$(paste -sd, - | sed 's/,/, /g')
+  if [ -n "$out" ]; then
+    echo "$out"
+  else
+    echo '(none)'
+  fi
 }
 
 echo '=== Session Context ==='

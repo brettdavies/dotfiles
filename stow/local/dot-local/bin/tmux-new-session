@@ -38,12 +38,12 @@ CONFIG_FILE="$TMUXINATOR_PKG/$SESSION.yml"
 # shellcheck disable=SC2088
 case "$REPO" in
   "$HOME"/*) ROOT="~/${REPO#"$HOME"/}" ;;
-  *)         ROOT="$REPO" ;;
+  *) ROOT="$REPO" ;;
 esac
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "Creating tmuxinator config: $CONFIG_FILE"
-  cat > "$CONFIG_FILE" <<EOF
+  cat >"$CONFIG_FILE" <<EOF
 name: $SESSION
 root: $ROOT
 

@@ -67,7 +67,7 @@ trap 'rm -f "${SMOKE_OUT}"' EXIT
 
 echo "==> Smoke: curl http://127.0.0.1:${PORT}/health"
 if ! curl --silent --fail --max-time 30 \
-     "http://127.0.0.1:${PORT}/health" -o "${SMOKE_OUT}"; then
+  "http://127.0.0.1:${PORT}/health" -o "${SMOKE_OUT}"; then
   echo "ERROR: /health smoke failed within 30 s" >&2
   echo "       Likely causes:" >&2
   echo "         - ~/.bun/bin/qmd missing (ExecStart path); re-link to the fork" >&2

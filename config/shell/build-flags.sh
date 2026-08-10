@@ -20,12 +20,12 @@ export CXXFLAGS="-O3 -march=native -mtune=native -pipe ${CXXFLAGS:-}"
 
 # Parallelize make and CMake by default. Both honor their own env vars.
 if [ -z "${MAKEFLAGS:-}" ]; then
-    MAKEFLAGS="-j$(nproc)"
-    export MAKEFLAGS
+  MAKEFLAGS="-j$(nproc)"
+  export MAKEFLAGS
 fi
 if [ -z "${CMAKE_BUILD_PARALLEL_LEVEL:-}" ]; then
-    CMAKE_BUILD_PARALLEL_LEVEL="$(nproc)"
-    export CMAKE_BUILD_PARALLEL_LEVEL
+  CMAKE_BUILD_PARALLEL_LEVEL="$(nproc)"
+  export CMAKE_BUILD_PARALLEL_LEVEL
 fi
 
 # CUDA: target only the GPU compute capabilities actually present in this host.

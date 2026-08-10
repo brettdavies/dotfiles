@@ -6,7 +6,8 @@
 TOOLS_ATIME_UV=1
 
 _uv_emit_tool() {
-  local tool=$1; shift
+  local tool=$1
+  shift
   local entries=("$@")
   local local_bin="${UV_TOOL_BIN_DIR:-$HOME/.local/bin}"
   local tool_dir="${UV_TOOLS_DIR:-$HOME/.local/share/uv/tools}/$tool"
@@ -15,10 +16,10 @@ _uv_emit_tool() {
     [[ -e "$local_bin/$e" ]] || continue
     a=$(atime_of "$local_bin/$e") || continue
     [[ -z "$a" ]] && continue
-    (( a > max )) && max=$a
+    ((a > max)) && max=$a
   done
-  (( max == 0 )) && max=$(atime_of "$tool_dir" 2>/dev/null) || true
-  (( max == 0 )) && return
+  ((max == 0)) && max=$(atime_of "$tool_dir" 2>/dev/null) || true
+  ((max == 0)) && return
   own_kb=$(size_kb_of_dir "$tool_dir")
   emit_row uv "$max" "$tool" 1 "$own_kb" "$own_kb"
 }
@@ -29,17 +30,23 @@ _uv_emit_tool() {
 uv_inspect() {
   local tool=$1
   local tool_dir="${UV_TOOLS_DIR:-$HOME/.local/share/uv/tools}/$tool"
-  [[ -d "$tool_dir" ]] || { echo "no such uv tool: $tool" >&2; return 1; }
+  [[ -d "$tool_dir" ]] || {
+    echo "no such uv tool: $tool" >&2
+    return 1
+  }
   local sp
   sp=$(find "$tool_dir" -maxdepth 4 -type d -name 'site-packages' 2>/dev/null | head -1)
-  [[ -z "$sp" || ! -d "$sp" ]] && { echo "site-packages not found under $tool_dir" >&2; return 1; }
+  [[ -z "$sp" || ! -d "$sp" ]] && {
+    echo "site-packages not found under $tool_dir" >&2
+    return 1
+  }
 
   shopt -s nullglob
   local d name sz
   for d in "$sp"/*/; do
     name=$(basename "${d%/}")
     case "$name" in
-      __pycache__|bin|*.dist-info|*.data) continue ;;
+      __pycache__ | bin | *.dist-info | *.data) continue ;;
     esac
     sz=$(du -sk "$d" 2>/dev/null | cut -f1)
     printf '%d\t%s\t\n' "${sz:-0}" "$name"
@@ -58,14 +65,17 @@ uv_measure() {
 uv_act() {
   local tool=$1 action=$2
   case "$action" in
-    u|uninstall)
+    u | uninstall)
       if [[ "${DRYRUN:-true}" == "true" ]]; then
         echo "DRY-RUN: uv tool uninstall $tool"
         return 0
       fi
       uv tool uninstall "$tool"
       ;;
-    *) echo "uv_act: unknown action $action" >&2; return 1 ;;
+    *)
+      echo "uv_act: unknown action $action" >&2
+      return 1
+      ;;
   esac
 }
 

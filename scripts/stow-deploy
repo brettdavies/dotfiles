@@ -31,9 +31,18 @@ ALL=false
 # Parse flags
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
-    --headless) HEADLESS=true; shift ;;
-    --all) ALL=true; shift ;;
-    *) echo "ERROR: Unknown flag: $1" >&2; exit "$EXIT_USAGE" ;;
+    --headless)
+      HEADLESS=true
+      shift
+      ;;
+    --all)
+      ALL=true
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown flag: $1" >&2
+      exit "$EXIT_USAGE"
+      ;;
   esac
 done
 
@@ -46,9 +55,11 @@ if [ "$ALL" = true ]; then
   platform=$(uname -s)
   case "$platform" in
     Darwin) set -- "${SHARED_PACKAGES[@]}" "${DESKTOP_PACKAGES[@]}" ;;
-    Linux)  set -- "${SHARED_PACKAGES[@]}" ;;
-    *)      echo "FATAL: unsupported platform: $platform. Use explicit package names." >&2
-            exit "$EXIT_PLATFORM" ;;
+    Linux) set -- "${SHARED_PACKAGES[@]}" ;;
+    *)
+      echo "FATAL: unsupported platform: $platform. Use explicit package names." >&2
+      exit "$EXIT_PLATFORM"
+      ;;
   esac
 else
   # Extra args extend shared defaults; no args = shared only
@@ -59,7 +70,10 @@ else
   for _pkg in "$@"; do
     _dup=false
     for _existing in "${_deduped[@]+"${_deduped[@]}"}"; do
-      if [[ "$_pkg" == "$_existing" ]]; then _dup=true; break; fi
+      if [[ "$_pkg" == "$_existing" ]]; then
+        _dup=true
+        break
+      fi
     done
     if ! $_dup; then _deduped+=("$_pkg"); fi
   done
@@ -78,7 +92,7 @@ fi
 # Warn about known stow 2.3.1 nested dot- bug
 stow_version=$(stow --version 2>&1 | sed -n 's/.*version //p')
 case "$stow_version" in
-  2.3.*|2.2.*|2.1.*|2.0.*)
+  2.3.* | 2.2.* | 2.1.* | 2.0.*)
     echo "WARNING: Stow $stow_version has known --dotfiles bug with nested directories" >&2
     echo "         Packages with nested dot- dirs (git, ssh, gh, pip, claude) may fail" >&2
     ;;
@@ -95,7 +109,7 @@ done
 # Check git-crypt unlock status for encrypted packages
 for pkg in "$@"; do
   case "$pkg" in
-    secrets|ssh|git|rclone|caam)
+    secrets | ssh | git | rclone | caam)
       if [ -f "$STOW_DIR/secrets/dot-secrets" ]; then
         # grep -qI treats binary files as non-matching (no `file` command needed)
         if ! grep -qI '' "$STOW_DIR/secrets/dot-secrets" 2>/dev/null; then
@@ -104,7 +118,7 @@ for pkg in "$@"; do
           exit "$EXIT_PRECONDITION"
         fi
       fi
-      break  # only need to check once
+      break # only need to check once
       ;;
   esac
 done
@@ -128,11 +142,11 @@ fi
 # Only the 4 packages that were tree-folded before --no-folding are listed.
 get_fold_target() {
   case "$1" in
-    claude)   echo "$HOME/.claude" ;;
-    codex)    echo "$HOME/.codex" ;;
-    git)      echo "$HOME/.config/git" ;;
+    claude) echo "$HOME/.claude" ;;
+    codex) echo "$HOME/.codex" ;;
+    git) echo "$HOME/.config/git" ;;
     opencode) echo "$HOME/.config/opencode" ;;
-    *)        return 1 ;;
+    *) return 1 ;;
   esac
 }
 
@@ -203,7 +217,7 @@ check_disk_space() {
   local min_mb=512
   local avail_kb
   avail_kb=$(df -Pk "$HOME" | awk 'NR==2 {print $4}')
-  local avail_mb=$(( avail_kb / 1024 ))
+  local avail_mb=$((avail_kb / 1024))
   if [ "$avail_mb" -lt "$min_mb" ]; then
     echo "FATAL: Insufficient disk space for tree-fold resolution." >&2
     echo "  Available: ${avail_mb} MB, required: ${min_mb} MB minimum." >&2
@@ -270,7 +284,7 @@ for pkg in "$@"; do
   # Platform guards
   if [ "$(uname -s)" != "Darwin" ]; then
     case "$pkg" in
-      ghostty|cursor|launchagent)
+      ghostty | cursor | launchagent)
         echo "WARNING: $pkg is macOS-only, skipping on $(uname -s)" >&2
         continue
         ;;
@@ -278,7 +292,7 @@ for pkg in "$@"; do
   fi
   if [ "$(uname -s)" != "Linux" ]; then
     case "$pkg" in
-      rclone|obsidian|opendataloader-pdf|codex-proxy)
+      rclone | obsidian | opendataloader-pdf | codex-proxy)
         echo "WARNING: $pkg is Linux-only, skipping on $(uname -s)" >&2
         continue
         ;;
@@ -290,27 +304,27 @@ for pkg in "$@"; do
   # Try restow, capturing stderr for conflict analysis on failure
   if err=$(stow "${STOW_FLAGS[@]}" -R "$pkg" 2>&1); then
     echo "  Done: $pkg"
-    echo "$pkg" >> "$deployed_file"
+    echo "$pkg" >>"$deployed_file"
     continue
   fi
 
   # Error classification: only enter conflict resolution if stderr
   # contains conflict indicators. Other errors (permissions, stow bugs)
   # should fail immediately with the original error message.
-  if ! grep -q "existing target" <<< "$err"; then
+  if ! grep -q "existing target" <<<"$err"; then
     echo "  ERROR: $pkg failed (not a conflict):" >&2
     # shellcheck disable=SC2001
-    sed 's/^/    /' <<< "$err" >&2
+    sed 's/^/    /' <<<"$err" >&2
     if [ "$HEADLESS" = true ]; then
-      echo "$pkg" >> "$failed_file"
-      continue  # best-effort: try remaining packages
+      echo "$pkg" >>"$failed_file"
+      continue # best-effort: try remaining packages
     else
       exit "$EXIT_PACKAGE"
     fi
   fi
 
   # Remove non-stow symlinks (absolute symlinks stow cannot own)
-  sed -n 's/.*existing target is not owned by stow: //p' <<< "$err" | while read -r target; do
+  sed -n 's/.*existing target is not owned by stow: //p' <<<"$err" | while read -r target; do
     full="$TARGET/$target"
     if [ -L "$full" ]; then
       dest=$(readlink "$full")
@@ -322,7 +336,7 @@ for pkg in "$@"; do
   # Retry after symlink cleanup
   if stow "${STOW_FLAGS[@]}" -R "$pkg" 2>/dev/null; then
     echo "  Done: $pkg (after symlink cleanup)"
-    echo "$pkg" >> "$deployed_file"
+    echo "$pkg" >>"$deployed_file"
     continue
   fi
 
@@ -331,15 +345,15 @@ for pkg in "$@"; do
   if ! adopt_err=$(stow "${STOW_FLAGS[@]}" -R --adopt "$pkg" 2>&1); then
     echo "  ERROR: $pkg adopt failed:" >&2
     # shellcheck disable=SC2001
-    sed 's/^/    /' <<< "$adopt_err" >&2
+    sed 's/^/    /' <<<"$adopt_err" >&2
     if [ "$HEADLESS" = true ]; then
-      echo "$pkg" >> "$failed_file"
+      echo "$pkg" >>"$failed_file"
       continue
     else
       exit "$EXIT_PACKAGE"
     fi
   fi
-  echo "$pkg" >> "$adopted_file"
+  echo "$pkg" >>"$adopted_file"
 
   if [ "$HEADLESS" = true ]; then
     # Headless: auto-restore repo versions (adopted files replaced with repo content)
@@ -348,7 +362,7 @@ for pkg in "$@"; do
   else
     echo "  Done: $pkg (adopted — review diff below)"
   fi
-  echo "$pkg" >> "$deployed_file"
+  echo "$pkg" >>"$deployed_file"
 done
 
 # Show diffs for adopted files (interactive mode only)
@@ -361,7 +375,7 @@ if [ "$HEADLESS" = false ] && [ -s "$adopted_file" ]; then
   while read -r pkg; do
     echo "--- $pkg ---"
     git diff "stow/$pkg/" 2>/dev/null || echo "  (no changes or untracked)"
-  done < "$adopted_file"
+  done <"$adopted_file"
   echo ""
   echo "To keep local changes:   git add stow/<package>/"
   echo "To discard and use repo: git checkout -- stow/<package>/"
@@ -391,7 +405,7 @@ if [ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ] \
         echo "  Recovered systemd timer: $_timer"
       fi
     done < <(find "$STOW_DIR/$_pkg" -path '*/dot-config/systemd/user/*.timer' -printf '%f\n' 2>/dev/null)
-  done < "$deployed_file"
+  done <"$deployed_file"
 fi
 
 # --- Post-stow validation ---
@@ -478,7 +492,7 @@ if grep -qx "qmd" "$deployed_file" 2>/dev/null; then
   if [ "$_qmd_render" = true ]; then
     if [ -f "$_qmd_tmpl" ]; then
       mkdir -p "$TARGET/.config/qmd"
-      if sed "s|\${HOME}|$HOME|g" "$_qmd_tmpl" > "$_qmd_cfg"; then
+      if sed "s|\${HOME}|$HOME|g" "$_qmd_tmpl" >"$_qmd_cfg"; then
         echo "  Deployed qmd collections config from index.yml.$_qmd_platform"
       else
         echo "  WARNING: Failed to deploy qmd collections template" >&2
@@ -495,6 +509,6 @@ if [ "$HEADLESS" = true ] && [ -s "$failed_file" ]; then
   echo "=== FAILURES ==="
   while read -r pkg; do
     echo "  FAILED: $pkg"
-  done < "$failed_file"
+  done <"$failed_file"
   exit "$EXIT_PACKAGE"
 fi
