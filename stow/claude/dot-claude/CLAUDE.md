@@ -71,13 +71,14 @@ Routing table, per-skill rules, and the `qmd-learnings-researcher` companion-dis
 `docs/solutions/` is a symlink to `~/dev/solutions-docs` (a separate private repo). The consuming repo's `git status`
 shows nothing for it. **After writing there** (e.g. via `/compound`), commit and push in that repo — but it's a single
 clone that concurrent agents (parallel compounders) share, so committing in it directly races their `git add`/`git
-commit` on the one index. **Commit from your own detached worktree**: `git -C ~/dev/solutions-docs worktree add --detach
-<wt> origin/main`, stage only the file(s) you wrote (**never `git add -A`** — it bundles other agents' in-flight files),
-`git commit --file` a captured-path `/tmp` message (never `ls -t | head -1`, never `-m`), `push origin HEAD:main` with
-fetch/rebase-retry, then `worktree remove <wt> && worktree prune` (no stragglers). **Never amend + force-push** the
-shared repo to fix a message. Solo-session exception + full recipe + symlink-recreate →
-`~/.claude/guides/workflows-and-skills.md`; rationale →
-`docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md`.
+commit` on the one index. **Commit with `sd-commit-doc`** (dotfiles-provided, on `PATH`): write your doc(s) into
+`docs/solutions/<category>/<slug>.md`, author + `/unslop` a captured-path `/tmp` message (never `ls -t | head -1`, never
+`-m`), then `sd-commit-doc <msg-file> <category>/<slug>.md`. It commits from an isolated detached worktree (never `git
+add -A` the shared index), pushes with fetch/rebase-retry, and fast-forwards the shared clone so it never drifts behind
+origin. **Never** commit directly in the shared clone or amend + force-push it. Script source `~/.local/bin/sd-commit-doc`;
+solo-session exception + symlink-recreate → `~/.claude/guides/workflows-and-skills.md`; rationale →
+`docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
+`.../unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 
 ## Secrets & private identifiers
 

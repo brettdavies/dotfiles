@@ -99,29 +99,25 @@ across all repos from any working directory.
 a **single clone that concurrent agents share**, so committing in it directly races their `git add`/`git commit` on the
 one `.git/index` and `HEAD`. Never `git add -A` there (it bundles other agents' in-flight files under your message), and
 never `git commit --amend` + `git push --force-with-lease` to fix a message on it (the amend can rewrite a concurrent
-agent's commit and force-push publishes it). Commit from your **own detached worktree** and tear it down afterward:
+agent's commit and force-push publishes it). Use **`sd-commit-doc`** (installed on `PATH` from
+`stow/local/dot-local/bin/`) rather than driving git by hand:
 
 ```bash
-SD=~/dev/solutions-docs
-WT=$(mktemp -d)/sd-wt                                  # unique per agent
-git -C "$SD" fetch --quiet origin
-git -C "$SD" worktree add --detach "$WT" origin/main
-#   write ONLY your doc(s) into "$WT/<category>/<slug>.md"
-MSG=/tmp/commit-msg-$(uuidv7).md                       # capture THIS path; never `ls -t /tmp/commit-msg-*.md | head -1`
-#   author + /unslop the message at "$MSG" (Conventional Commits, no AI attribution, --file not -m)
-git -C "$WT" add <category>/<slug>.md                  # the specific file(s), never -A
-git -C "$WT" commit --file "$MSG"
-git -C "$WT" show --stat HEAD                          # verify: only your file(s) landed
-git -C "$WT" push origin HEAD:main \
-  || { git -C "$SD" fetch --quiet origin; git -C "$WT" rebase origin/main && git -C "$WT" push origin HEAD:main; }
-git -C "$SD" worktree remove "$WT"; git -C "$SD" worktree prune   # cleanup: leave no straggling worktrees
+#   1. write your doc(s) into docs/solutions/<category>/<slug>.md
+MSG=/tmp/commit-msg-$(uuidv7).md              # 2. author + /unslop it (Conventional Commits, no AI attribution)
+sd-commit-doc "$MSG" <category>/<slug>.md     # 3. repo-relative path(s); pass several to commit them together
 ```
 
-The worktree gives you your own index, so parallel compounders cannot bundle each other's files; the `remove` + `prune`
-at the end is not optional, or worktrees accumulate as cruft. If a single, exclusive writer is guaranteed (a solo
+`sd-commit-doc` runs the whole safe sequence: it snapshots the named files into a throwaway **detached worktree** (its
+own `.git/index`, so parallel compounders cannot bundle each other's files under your message), commits with `--file
+"$MSG"`, pushes with a fetch + rebase + retry when origin has advanced, tears the worktree down, and finally `merge
+--ff-only`s the shared clone to origin so its checkout never drifts behind (the drift that strands the nightly
+autocommit). It never `git add -A`s and never amends + force-pushes. Read or extend it at `~/.local/bin/sd-commit-doc`;
+its behavior is pinned by `tests/sd-commit-doc.bats` in dotfiles. If a single, exclusive writer is guaranteed (a solo
 interactive session, no background compounding agents), a plain `git -C "$SD" add <file> && git -C "$SD" commit --file
-"$MSG" && git -C "$SD" push` is acceptable — but verify with `git show --stat HEAD` afterward regardless. Full
-rationale: `docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md`.
+"$MSG" && git -C "$SD" push` is acceptable — but verify with `git show --stat HEAD` afterward regardless. Full rationale:
+`docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
+`docs/solutions/workflow-issues/unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 
 The consuming repo's `git status` will show nothing for `docs/solutions/` because the symlink target is gitignored. If
 the symlink is missing, recreate it from the consuming repo's root with an absolute path (the shell expands `$HOME` at
