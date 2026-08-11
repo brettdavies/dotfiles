@@ -540,6 +540,16 @@
             "command": "~/.claude/bash-env-path.sh"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/solutions-clone-autosync.sh",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "SessionEnd": [
