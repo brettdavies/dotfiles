@@ -7,6 +7,7 @@
   "permissions": {
     "allow": [
       "Bash(./.githooks/pre-push)",
+      "Bash(/home/brett/.claude/skills/unslop/scripts/score.py *)",
       "Bash(actionlint *)",
       "Bash(alias:*)",
       "Bash(anc:*)",
@@ -201,7 +202,7 @@
       "Bash(~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh:*)",
       "Bash(~/.claude/skills/rust-tool-release/scripts/generate-completions.sh:*)",
       "Bash(~/.claude/skills/tailscale/scripts/ts-api.sh:*)",
-      "Bash(python3 ~/.claude/skills/unslop/scripts/score.py *)",
+      "Bash(~/.claude/skills/unslop/scripts/score.py *)",
       "Bash(~/.claude/skills/x-api/scripts/extract-endpoints.sh:*)",
       "Bash(~/obsidian-vault/Areas/infrastructure/scripts/sync-to-pool.sh:*)",
       "mcp__gbrain__get_brain_identity",
@@ -325,9 +326,7 @@
       "Bash(perl -pi -e 's#\\\\Q[`docs/architecture/voice-enforcement.md`]\\(./docs/architecture/voice-enforcement.md\\)\\\\E#`docs/architecture/voice-enforcement.md`#g' RELEASES.md RELEASES-RATIONALE.md)",
       "Bash(perl -pi -e 's#\\\\Q[`docs/architecture/`]\\(docs/architecture/\\)\\\\E#`docs/architecture/`#g' PRODUCT.md)",
       "Bash(tailscale serve *)",
-      "Bash(caddy *)",
-      "Bash(ssh-keygen -lf ~/.ssh/brett_ed25519.pub)",
-      "Bash(ssh-keygen -lf ~/.ssh/brett_ed25519)"
+      "Bash(caddy *)"
     ],
     "deny": [
       "Bash(env:*)",
@@ -338,7 +337,6 @@
       "Bash(printenv:*)",
       "Bash(python -m pip:*)",
       "Bash(python3 -m pip:*)",
-      "Bash(python3 ~/.claude/skills/unslop/scripts/score.py *)",
       "Bash(rm:*)",
       "Bash(sudo:*)"
     ],
@@ -457,6 +455,16 @@
           {
             "type": "command",
             "command": "rtk hook claude"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/model-tier-guard.sh",
+            "timeout": 5
           }
         ]
       }
