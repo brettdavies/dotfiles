@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# qmd-gpu-verify - prove the qmd-serve daemon does its model work on the GPU.
+#
+# node-llama-cpp auto-selects its GPU backend and prefers the Vulkan prebuilt,
+# which breaks across NVIDIA driver-branch swaps and silently falls back to
+# CPU: the daemon keeps answering, only minutes-slow. The defense is pinning
+# NODE_LLAMA_CPP_GPU=cuda in qmd-serve.service; this script verifies the pin
+# is live end to end, not just written in the unit file.
+#
+# Linux checks (each prints PASS/FAIL; exit 1 if any fail):
+#   1. qmd-serve systemd user unit is active with a resolvable MainPID
+#   2. NODE_LLAMA_CPP_GPU=cuda is in the LIVE process environment
+#   3. the PID holds nonzero VRAM in `nvidia-smi --query-compute-apps`
+#      (VRAM residency = weights on GPU; a CPU-fallback process holds zero)
+#   --live: POST /expand to the daemon while sampling VRAM to show the
+#      low-vram on-demand load/dispose ramp (idle -> peak -> settle)
+#
+# macOS: no NVIDIA GPU and no systemd. Checks the com.user.qmd-serve launchd
+# agent and the daemon RSS (models resident in unified memory), then points
+# at powermetrics: Metal GPU work is invisible to %CPU/Activity Monitor.
+set -uo pipefail
+
+UNIT="qmd-serve.service"
+AGENT_LABEL="com.user.qmd-serve"
+URL="${QMD_REMOTE_URL:-http://127.0.0.1:7832}"
+LIVE=0
+[ "${1:-}" = "--live" ] && LIVE=1
+
+failures=()
+
+pass() { printf 'PASS  %s\n' "$1"; }
+fail() {
+  printf 'FAIL  %s\n' "$1"
+  failures+=("$1")
+}
+info() { printf 'INFO  %s\n' "$1"; }
+skip() { printf 'SKIP  %s\n' "$1"; }
+
+finish() {
+  echo
+  if [ "${#failures[@]}" -eq 0 ]; then
+    echo "qmd-gpu-verify: all checks passed"
+    exit 0
+  fi
+  echo "qmd-gpu-verify: ${#failures[@]} check(s) failed:"
+  printf '  - %s\n' "${failures[@]}"
+  exit 1
+}
+
+pid_vram_mib() {
+  # Prints the MiB the given PID holds per nvidia-smi compute-apps (0 if absent).
+  local pid="$1" mib
+  mib="$(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits 2>/dev/null \
+    | awk -F', *' -v p="$pid" '$1 == p { print $2; exit }')"
+  printf '%s\n' "${mib:-0}"
+}
+
+verify_linux() {
+  local pid state envfile mib
+
+  # 1. Unit active with a resolvable PID.
+  state="$(systemctl --user is-active "$UNIT" 2>/dev/null || true)"
+  pid="$(systemctl --user show "$UNIT" -p MainPID --value 2>/dev/null || echo 0)"
+  if [ "$state" = "active" ] && [ "$pid" -gt 0 ] 2>/dev/null; then
+    pass "$UNIT is active (MainPID $pid)"
+  else
+    fail "$UNIT is not active (state: ${state:-unknown}, MainPID: ${pid:-none})"
+    finish
+  fi
+
+  # 2. CUDA pin in the live process env, not just the unit file.
+  envfile="/proc/$pid/environ"
+  if tr '\0' '\n' <"$envfile" 2>/dev/null | grep -qx 'NODE_LLAMA_CPP_GPU=cuda'; then
+    pass "NODE_LLAMA_CPP_GPU=cuda is set in the live environment of PID $pid"
+  else
+    fail "NODE_LLAMA_CPP_GPU=cuda missing from $envfile (unit file pin not live; daemon-reload + restart?)"
+  fi
+
+  # 3. VRAM residency: the daemon PID must hold GPU memory.
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    fail "nvidia-smi not found; cannot verify VRAM residency"
+    finish
+  fi
+  mib="$(pid_vram_mib "$pid")"
+  if [ "$mib" -gt 0 ] 2>/dev/null; then
+    pass "PID $pid holds ${mib} MiB VRAM (weights on GPU, CUDA backend live)"
+  else
+    fail "PID $pid holds no VRAM per nvidia-smi --query-compute-apps (CPU fallback: likely Vulkan-prebuilt breakage; see NODE_LLAMA_CPP_GPU pin)"
+  fi
+
+  [ "$LIVE" -eq 1 ] && live_ramp "$pid"
+  finish
+}
+
+live_ramp() {
+  # Drive the daemon and sample VRAM to show the low-vram load/dispose ramp.
+  local pid="$1" baseline peak=0 final mib sampler_pid samples
+  samples="$(mktemp)"
+
+  if ! curl -fsS -m 5 "$URL/health" >/dev/null 2>&1; then
+    fail "--live: $URL/health did not answer"
+    rm -f "$samples"
+    return
+  fi
+  pass "--live: $URL/health answered"
+
+  baseline="$(pid_vram_mib "$pid")"
+  (
+    for _ in $(seq 1 120); do
+      pid_vram_mib "$pid"
+      sleep 0.25
+    done >"$samples"
+  ) &
+  sampler_pid=$!
+
+  if curl -fsS -m 60 -X POST "$URL/expand" \
+    -H 'Content-Type: application/json' \
+    -d '{"query":"gpu verification probe"}' >/dev/null 2>&1; then
+    pass "--live: POST $URL/expand completed"
+  else
+    fail "--live: POST $URL/expand failed"
+  fi
+
+  sleep 2
+  kill "$sampler_pid" 2>/dev/null
+  wait "$sampler_pid" 2>/dev/null
+  while read -r mib; do
+    [ "$mib" -gt "$peak" ] 2>/dev/null && peak="$mib"
+  done <"$samples"
+  final="$(pid_vram_mib "$pid")"
+  rm -f "$samples"
+
+  info "--live: VRAM ramp ${baseline} MiB idle -> ${peak} MiB peak -> ${final} MiB settled"
+  if [ "$peak" -gt "$baseline" ] 2>/dev/null; then
+    pass "--live: on-demand model load observed on the GPU (+$((peak - baseline)) MiB)"
+  else
+    info "--live: no ramp above idle (expected only for a full-resident, non low-vram daemon)"
+  fi
+}
+
+verify_darwin() {
+  local pid rss_mb
+
+  if launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
+    pass "launchd agent $AGENT_LABEL is loaded"
+  else
+    fail "launchd agent $AGENT_LABEL is not loaded (launchctl bootstrap gui/\$(id -u) ~/Library/LaunchAgents/$AGENT_LABEL.plist)"
+    finish
+  fi
+
+  pid="$(pgrep -f 'qmd.*serve' | head -1 || true)"
+  if [ -n "$pid" ]; then
+    rss_mb="$(($(ps -o rss= -p "$pid" | tr -d ' ') / 1024))"
+    pass "qmd serve daemon running (PID $pid, RSS ${rss_mb} MB; resident models live here, not in clients)"
+  else
+    fail "no qmd serve process found despite loaded agent"
+  fi
+
+  skip "NVIDIA VRAM checks do not apply on macOS (Metal unified memory)"
+  info "Metal GPU work is invisible to %CPU. To see the real load:"
+  info "  sudo powermetrics --samplers gpu_power -i 1000   # active residency + power"
+  info "  Activity Monitor -> Window -> GPU History"
+  finish
+}
+
+case "$(uname -s)" in
+  Linux) verify_linux ;;
+  Darwin) verify_darwin ;;
+  *)
+    echo "qmd-gpu-verify: unsupported OS: $(uname -s)" >&2
+    exit 1
+    ;;
+esac

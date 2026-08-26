@@ -50,6 +50,7 @@ UPDATE_TIMER="$LOCAL_PKG_DIR/dot-config/systemd/user/qmd-update.timer"
 CLEANUP_TIMER="$LOCAL_PKG_DIR/dot-config/systemd/user/qmd-cleanup.timer"
 WRAPPER_SH="$PKG_DIR/dot-local/bin/qmd"
 OLLAMA_UNLOAD_SH="$LOCAL_PKG_DIR/dot-local/bin/qmd-ollama-unload-all"
+GPU_VERIFY_SH="$LOCAL_PKG_DIR/dot-local/bin/qmd-gpu-verify"
 ENABLE_SCRIPT="$REPO_ROOT/scripts/qmd-serve-enable.sh"
 SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 
@@ -242,6 +243,50 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 @test "qmd-embed hardening: NoNewPrivileges + PrivateTmp" {
   grep -q '^NoNewPrivileges=true$' "$EMBED_UNIT"
   grep -q '^PrivateTmp=true$' "$EMBED_UNIT"
+}
+
+# ---------------------------------------------------------------------------
+# qmd-gpu-verify contents
+# ---------------------------------------------------------------------------
+
+@test "qmd-gpu-verify exists and is executable" {
+  [ -f "$GPU_VERIFY_SH" ]
+  [ -x "$GPU_VERIFY_SH" ]
+}
+
+@test "qmd-gpu-verify checks the live process env, not just the unit file" {
+  # The CUDA pin can be present in qmd-serve.service yet absent from the
+  # running daemon (edited unit without daemon-reload + restart). Reading
+  # /proc/<pid>/environ is what makes the check end to end.
+  grep -q '/proc/\$pid/environ' "$GPU_VERIFY_SH"
+  grep -q 'NODE_LLAMA_CPP_GPU=cuda' "$GPU_VERIFY_SH"
+}
+
+@test "qmd-gpu-verify uses VRAM residency as the GPU signal" {
+  # A CPU-fallback process holds zero VRAM; GPU utilization % sits near zero
+  # even on a healthy low-vram daemon, so compute-apps residency is the
+  # signal, not dmon/utilization.
+  grep -q 'query-compute-apps' "$GPU_VERIFY_SH"
+}
+
+@test "qmd-gpu-verify degrades gracefully on macOS" {
+  # No NVIDIA GPU and no systemd on Darwin: check the launchd agent and
+  # point at powermetrics (Metal GPU work is invisible to %CPU).
+  grep -q 'launchctl print' "$GPU_VERIFY_SH"
+  grep -q 'powermetrics' "$GPU_VERIFY_SH"
+}
+
+@test "qmd-gpu-verify exits nonzero with named failures" {
+  grep -q 'failures+=' "$GPU_VERIFY_SH"
+  grep -q 'exit 1' "$GPU_VERIFY_SH"
+}
+
+@test "qmd-gpu-verify passes shellcheck" {
+  if ! command -v shellcheck >/dev/null 2>&1; then
+    skip "shellcheck not installed"
+  fi
+  run shellcheck "$GPU_VERIFY_SH"
+  [ "$status" -eq 0 ]
 }
 
 # ---------------------------------------------------------------------------
