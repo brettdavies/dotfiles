@@ -338,6 +338,7 @@
       "Bash(python -m pip:*)",
       "Bash(python3 -m pip:*)",
       "Bash(rm:*)",
+      "Bash(rustup self:*)",
       "Bash(sudo:*)"
     ],
     "ask": [
