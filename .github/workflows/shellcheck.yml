@@ -27,7 +27,7 @@ jobs:
         run: shellcheck --shell=bash config/shell/*.sh
 
       - name: Check scripts
-        run: shellcheck scripts/stow-deploy
+        run: shellcheck scripts/stow-deploy scripts/rust-home-consolidate.sh
 
       - name: Check dot-profile
         run: shellcheck --shell=bash --exclude=SC1090,SC1091 stow/shell/dot-profile

@@ -57,7 +57,7 @@ if command -v shellcheck >/dev/null 2>&1; then
 
   shellcheck .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push
   shellcheck --shell=bash config/shell/*.sh
-  shellcheck scripts/stow-deploy
+  shellcheck scripts/stow-deploy scripts/rust-home-consolidate.sh
   shellcheck --shell=bash --exclude=SC1090,SC1091 stow/shell/dot-profile
 
   # Claude hooks under stow/claude/dot-claude/*.sh (auto-format,
