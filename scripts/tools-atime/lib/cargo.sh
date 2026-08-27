@@ -1,9 +1,6 @@
 # cargo install adapter. `cargo install --list` enumerates user-installed
 # crates with their binary names; binaries land in ~/.cargo/bin/. Cargo has
 # no autoremove concept → reclaim = own (sum of binary sizes for the crate).
-#
-# On this machine `cargo install --list` is empty (rustup-shimmed cargo, no
-# user crates) — adapter emits zero rows gracefully.
 
 [[ -n "${TOOLS_ATIME_CARGO:-}" ]] && return 0
 TOOLS_ATIME_CARGO=1
