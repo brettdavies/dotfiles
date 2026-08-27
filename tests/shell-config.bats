@@ -201,6 +201,66 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 }
 
 # ---------------------------------------------------------------------------
+# config/shell/caches.sh: Rust install roots stay at their stock defaults
+# ---------------------------------------------------------------------------
+#
+# Relocating CARGO_HOME/RUSTUP_HOME only ever took effect in contexts that
+# source the shell chain. rustup-init, systemd user units, git hooks and the
+# agent Bash tool all resolve the stock paths, so the override split one
+# machine into two toolchain views.
+
+@test "caches.sh does not assign CARGO_HOME" {
+  ! grep -qE '^[[:space:]]*(export[[:space:]]+)?CARGO_HOME=' "$CONFIG_DIR/caches.sh"
+}
+
+@test "caches.sh does not assign RUSTUP_HOME" {
+  ! grep -qE '^[[:space:]]*(export[[:space:]]+)?RUSTUP_HOME=' "$CONFIG_DIR/caches.sh"
+}
+
+# The `unset` prefix is load-bearing: the suite is often run from a shell that
+# still carries the old exported value, and without it these report on the
+# inherited environment rather than on the file.
+@test "sourcing profile in a fresh shell leaves CARGO_HOME unset" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  run bash -c 'unset CARGO_HOME; . "$HOME/.profile" >/dev/null 2>&1; echo "${CARGO_HOME:-unset}"'
+  [ "$status" -eq 0 ]
+  [ "$output" = "unset" ]
+}
+
+@test "sourcing profile in a fresh shell leaves RUSTUP_HOME unset" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  run bash -c 'unset RUSTUP_HOME; . "$HOME/.profile" >/dev/null 2>&1; echo "${RUSTUP_HOME:-unset}"'
+  [ "$status" -eq 0 ]
+  [ "$output" = "unset" ]
+}
+
+# With the exports gone, the ~/.cargo/env block in dot-profile is the only thing
+# left that puts cargo on PATH. Hosts carrying no toolchain have no env file to
+# source, so this is scoped to hosts that have one.
+@test "sourcing profile puts stock ~/.cargo/bin on PATH where a toolchain exists" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  [ -f "$HOME/.cargo/env" ] || skip "no Rust toolchain on this host (~/.cargo/env absent)"
+  run bash -c 'unset CARGO_HOME; . "$HOME/.profile" >/dev/null 2>&1; case ":$PATH:" in *":$HOME/.cargo/bin:"*) echo found ;; *) echo missing ;; esac'
+  [ "$status" -eq 0 ]
+  [ "$output" = "found" ]
+}
+
+# dot-profile's own syntax check (above) does not follow `source`, so it cannot
+# see a syntax error in this file.
+@test "caches.sh has valid bash syntax" {
+  run bash -n "$CONFIG_DIR/caches.sh"
+  [ "$status" -eq 0 ]
+}
+
+# Every directory line is a `[ ! -d X ] && mkdir -p X` short-circuit, so without
+# a trailing no-op the file exits with whatever the last one evaluated to. A
+# caller sourcing the chain under `set -e` aborts on an existing directory.
+@test "sourcing caches.sh returns zero" {
+  run bash -c ". \"$CONFIG_DIR/caches.sh\""
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
 # Non-interactive environment (functional test)
 # ---------------------------------------------------------------------------
 
