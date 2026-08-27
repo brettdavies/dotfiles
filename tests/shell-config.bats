@@ -204,10 +204,10 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 # config/shell/caches.sh: Rust install roots stay at their stock defaults
 # ---------------------------------------------------------------------------
 #
-# Relocating CARGO_HOME/RUSTUP_HOME only ever took effect in contexts that
-# source the shell chain. rustup-init, systemd user units, git hooks and the
-# agent Bash tool all resolve the stock paths, so the override split one
-# machine into two toolchain views.
+# Relocating CARGO_HOME/RUSTUP_HOME takes effect only in contexts that source
+# the shell chain. rustup-init, systemd user units, git hooks and the agent Bash
+# tool resolve the stock paths regardless, so a relocated install root splits one
+# host into two toolchain views.
 
 @test "caches.sh does not assign CARGO_HOME" {
   ! grep -qE '^[[:space:]]*(export[[:space:]]+)?CARGO_HOME=' "$CONFIG_DIR/caches.sh"
@@ -234,9 +234,9 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   [ "$output" = "unset" ]
 }
 
-# With the exports gone, the ~/.cargo/env block in dot-profile is the only thing
-# left that puts cargo on PATH. Hosts carrying no toolchain have no env file to
-# source, so this is scoped to hosts that have one.
+# The ~/.cargo/env block in dot-profile is the only thing that puts cargo on
+# PATH, since caches.sh exports neither install root. Hosts carrying no toolchain
+# have no env file to source, so this is scoped to hosts that have one.
 @test "sourcing profile puts stock ~/.cargo/bin on PATH where a toolchain exists" {
   [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
   [ -f "$HOME/.cargo/env" ] || skip "no Rust toolchain on this host (~/.cargo/env absent)"

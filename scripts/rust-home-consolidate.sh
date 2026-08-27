@@ -39,10 +39,10 @@ CARGO_DST="${CARGO_DST:-$HOME/.cargo}"
 #
 # `stable` stays in the list so its existence guard fires and is reported: it is
 # the one name present in both homes, and the destination copy is the newer tree
-# that has to survive.
+# that has to survive. The same set is what has to resolve from the destination
+# once the migration is done, so it drives both the move loop and the final
+# assertion.
 MIGRATE_TOOLCHAINS=(stable nightly 1.94.1 1.96.0)
-# The same set has to resolve from the destination once the migration is done.
-EXPECTED_TOOLCHAINS=("${MIGRATE_TOOLCHAINS[@]}")
 
 APPLY=false
 
@@ -92,7 +92,13 @@ device_of() {
   stat -f %d "$1" 2>/dev/null || stat -c %d "$1" 2>/dev/null
 }
 
-size_kb() { du -sk "$1" 2>/dev/null | awk '{print $1}'; }
+size_kb() {
+  [[ -d "$1" ]] || {
+    echo 0
+    return
+  }
+  du -sk "$1" 2>/dev/null | awk '{print $1}'
+}
 
 human_kb() { awk -v kb="${1:-0}" 'BEGIN { printf "%.1f GB", kb / 1048576 }'; }
 
@@ -289,7 +295,7 @@ fi
 info "=== Verification ==="
 listed=$(rustup toolchain list 2>/dev/null)
 missing=()
-for tc in "${EXPECTED_TOOLCHAINS[@]}"; do
+for tc in "${MIGRATE_TOOLCHAINS[@]}"; do
   grep -q "^$tc" <<<"$listed" || missing+=("$tc")
 done
 if ((${#missing[@]})); then
