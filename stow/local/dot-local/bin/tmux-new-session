@@ -12,7 +12,7 @@
 #
 # Behavior:
 #   1. If no tmuxinator config exists for <session-name> in the dotfiles
-#      tmuxinator package, generate one and re-stow.
+#      tmuxinator config directory, generate one.
 #   2. If the session is already running, attach. Otherwise start it via
 #      `tmuxinator start` (invoked directly so shell-function aliases like
 #      `mux` aren't required in the script's subshell).
@@ -62,8 +62,7 @@ on_project_first_start: |
     tmux resize-pane -t $SESSION:main.3 -y "33%"
   ) & disown
 EOF
-  "$DOTFILES/scripts/stow-deploy" tmuxinator >/dev/null
-  echo "✅ Config created and stowed"
+  echo "✅ Config created"
 fi
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
