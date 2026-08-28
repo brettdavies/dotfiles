@@ -209,7 +209,6 @@ host cmd`. `tests/shell-startup-shapes.bats` pins the ordering and exercises eac
 | `caam.sh`           | Claude account rotation wrapper + daemon                       |
 | `caches.sh`         | XDG cache directory locations                                  |
 | `claude-code.sh`    | Claude Code environment variables                              |
-| `gbrain.sh`         | Default `gbrain doctor` to `--fast`                            |
 | `github.sh`         | GitHub CLI aliases                                             |
 | `gogcli.sh`         | Google Workspace CLI keyring password injection                |
 | `languagetool.sh`   | LanguageTool wrapper for the shared prose-lint stage           |
