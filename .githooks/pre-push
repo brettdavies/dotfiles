@@ -86,7 +86,14 @@ fi
 if command -v bats >/dev/null 2>&1; then
   if compgen -G "tests/*.bats" >/dev/null; then
     echo "pre-push: running bats tests/*.bats"
-    bats tests/*.bats
+    # git hands hooks a GIT_DIR, and from a worktree it is absolute. An
+    # absolute GIT_DIR outranks `-C`, so a test building a fixture with
+    # `git -C "$sandbox"` drives this repository instead of the fixture.
+    # Scrub the git environment for the test run only, so the hook's own
+    # git calls keep resolving through whatever git handed this process.
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+      -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY \
+      bats tests/*.bats
   fi
 else
   echo "pre-push: bats-core not installed — skipping bats tests" >&2

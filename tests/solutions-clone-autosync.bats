@@ -4,6 +4,11 @@
 # Uses local bare repos as origin so nothing touches the network.
 
 setup() {
+  # An inherited GIT_DIR outranks `-C`, so every `git -C "$SD"` below would
+  # retarget whichever repo the caller was in. Git exports these to hooks, so
+  # a hook-invoked run reaches this file with them set.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+
   SCRIPT="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/solutions-clone-autosync.sh"
   TMP=$(mktemp -d)
   ORIGIN="$TMP/origin.git"
