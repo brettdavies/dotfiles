@@ -198,6 +198,11 @@ reloaded and the profile drops on reboot.
 `.profile` sources every `*.sh` file in `config/shell/` automatically — drop a file in and it's picked up, no manifest
 needed.
 
+The loop runs after `.profile` finishes assembling `PATH` (Homebrew, `~/.local/bin`, bun, cargo). Files here routinely
+gate their contents on `command -v <tool>`, and that guard is evaluated at source time: sourced any earlier, every such
+file would silently no-op in a shell that did not inherit a populated `PATH` — a launchd-spawned terminal, cron, or `ssh
+host cmd`. `tests/shell-startup-shapes.bats` pins the ordering and exercises each shell shape.
+
 | File                | Purpose                                                        |
 | ------------------- | -------------------------------------------------------------- |
 | `build-flags.sh`    | Native-CPU build flags (`-march=native`) for local compilation |
