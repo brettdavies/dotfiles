@@ -79,3 +79,47 @@ SCRIPT="$BATS_TEST_DIRNAME/../stow/local/dot-local/bin/tmux-new-session"
   # `- lazygit` is the third pane entry in the YAML
   grep -q '^[[:space:]]*- lazygit$' "$SCRIPT"
 }
+
+# ---------------------------------------------------------------------------
+# Config resolution
+#
+# The script writes configs into the dotfiles tmuxinator package and then calls
+# `tmuxinator start`. tmuxinator only finds them via TMUXINATOR_CONFIG, which
+# config/shell/tmuxinator.sh exports at shell startup. Callers that never source
+# the dotfiles profile — launchd, cron, `ssh host tmux-new-session ...` — reach
+# the script with that variable unset, so it must export it itself.
+# ---------------------------------------------------------------------------
+
+@test "script exports TMUXINATOR_CONFIG rather than relying on the caller" {
+  grep -q '^export TMUXINATOR_CONFIG=' "$SCRIPT"
+}
+
+@test "script resolves its config dir with no dotfiles profile in the environment" {
+  repo_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  stub_dir="$(mktemp -d)"
+
+  # Stub tmux so has-session reports "not running" without touching a real
+  # server, and stub tmuxinator so it reports the variable it was handed.
+  cat >"$stub_dir/tmux" <<'STUB'
+#!/bin/sh
+[ "$1" = "has-session" ] && exit 1
+exit 0
+STUB
+  cat >"$stub_dir/tmuxinator" <<'STUB'
+#!/bin/sh
+echo "TMUXINATOR_CONFIG=${TMUXINATOR_CONFIG:-UNSET}"
+STUB
+  chmod +x "$stub_dir/tmux" "$stub_dir/tmuxinator"
+
+  # `dotfiles` already has a config, so this exercises the start path without
+  # writing a new YAML into the repo.
+  run env -i HOME="$HOME" PATH="$stub_dir:/usr/bin:/bin" DOTFILES="$repo_root" \
+    bash "$SCRIPT" dotfiles "$repo_root"
+  rm -rf "$stub_dir"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"TMUXINATOR_CONFIG=$repo_root/stow/tmuxinator/dot-config/tmuxinator"* ]] || {
+    echo "output: $output"
+    false
+  }
+}

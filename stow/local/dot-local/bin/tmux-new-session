@@ -31,6 +31,11 @@ DOTFILES="${DOTFILES:-$HOME/dotfiles}"
 TMUXINATOR_PKG="$DOTFILES/stow/tmuxinator/dot-config/tmuxinator"
 CONFIG_FILE="$TMUXINATOR_PKG/$SESSION.yml"
 
+# tmuxinator finds the configs written below only via TMUXINATOR_CONFIG. Callers
+# that never source the dotfiles profile (launchd, cron, `ssh host tmux-new-session`)
+# arrive with it unset, so set it here rather than depending on the environment.
+export TMUXINATOR_CONFIG="$TMUXINATOR_PKG"
+
 # Tilde-relativize REPO when it sits under $HOME so the generated config
 # stays portable across machines with different $HOME values. The literal
 # `~/` is intentional — it gets written into the YAML config and tmuxinator
