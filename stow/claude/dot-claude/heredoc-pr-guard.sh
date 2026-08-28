@@ -31,8 +31,8 @@ CMD=$(printf '%s' "$INPUT" | jaq -r '.tool_input.command // ""')
 
 # Fast path: no heredoc operator anywhere → allow
 case "$CMD" in
-    *"<<"*) ;;
-    *) exit 0 ;;
+  *"<<"*) ;;
+  *) exit 0 ;;
 esac
 
 # Slow path: classify which artifact (if any) is being fed a heredoc.
@@ -46,23 +46,23 @@ esac
 reason=
 # shellcheck disable=SC2016
 if [[ "$CMD" =~ gh[[:space:]]+pr[[:space:]]+(create|edit|comment|review)[[:space:]] ]] \
-   && [[ "$CMD" =~ --body([[:space:]]|=)[^-] ]] \
-   && [[ "$CMD" =~ \<\< ]]; then
-    reason='gh pr create/edit/comment/review with a heredoc piped into --body produces wrapped + escaped output on GitHub. Author to /tmp/pr-body-<repo>.<branch>.md (e.g. /tmp/pr-body-dotfiles.feat-foo.md), run /unslop on it, submit via --body-file, then trash the file. See ~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop".'
+  && [[ "$CMD" =~ --body([[:space:]]|=)[^-] ]] \
+  && [[ "$CMD" =~ \<\< ]]; then
+  reason='gh pr create/edit/comment/review with a heredoc piped into --body produces wrapped + escaped output on GitHub. Author to /tmp/pr-body-<repo>.<branch>.md (e.g. /tmp/pr-body-dotfiles.feat-foo.md), run /unslop on it, submit via --body-file, then trash the file. See ~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop".'
 elif [[ "$CMD" =~ gh[[:space:]]+issue[[:space:]]+(create|edit|comment)[[:space:]] ]] \
-     && [[ "$CMD" =~ --body([[:space:]]|=)[^-] ]] \
-     && [[ "$CMD" =~ \<\< ]]; then
-    reason='gh issue create/edit/comment with a heredoc piped into --body produces wrapped + escaped output on GitHub. Author to /tmp/issue-body-$(uuidv7).md, run /unslop on it, submit via --body-file, then trash the file. See ~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop".'
+  && [[ "$CMD" =~ --body([[:space:]]|=)[^-] ]] \
+  && [[ "$CMD" =~ \<\< ]]; then
+  reason='gh issue create/edit/comment with a heredoc piped into --body produces wrapped + escaped output on GitHub. Author to /tmp/issue-body-$(uuidv7).md, run /unslop on it, submit via --body-file, then trash the file. See ~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop".'
 elif [[ "$CMD" =~ gh[[:space:]]+release[[:space:]]+(create|edit)[[:space:]] ]] \
-     && [[ "$CMD" =~ --notes([[:space:]]|=)[^-] ]] \
-     && [[ "$CMD" =~ \<\< ]]; then
-    reason='gh release create/edit with a heredoc piped into --notes produces wrapped + escaped release notes. Author to /tmp/release-notes-$(uuidv7).md, run /unslop on it, submit via --notes-file, then trash the file. See ~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop".'
+  && [[ "$CMD" =~ --notes([[:space:]]|=)[^-] ]] \
+  && [[ "$CMD" =~ \<\< ]]; then
+  reason='gh release create/edit with a heredoc piped into --notes produces wrapped + escaped release notes. Author to /tmp/release-notes-$(uuidv7).md, run /unslop on it, submit via --notes-file, then trash the file. See ~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop".'
 elif [[ "$CMD" =~ git[[:space:]]+commit[[:space:]] ]] \
-     && [[ "$CMD" =~ (^|[[:space:]])(-m|--message)([[:space:]]|=) ]] \
-     && [[ "$CMD" =~ \<\< ]]; then
-    reason='git commit with a heredoc piped into -m / --message embeds escape-trap text in the commit object and the squash-merge commit. Author to /tmp/commit-msg-$(uuidv7).md (e.g. /tmp/commit-msg-018f3c2a-7b1e-7a44-9e10-2bd84a5c0001.md), run /unslop on it, commit via --file, then trash the file. See ~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop".'
+  && [[ "$CMD" =~ (^|[[:space:]])(-m|--message)([[:space:]]|=) ]] \
+  && [[ "$CMD" =~ \<\< ]]; then
+  reason='git commit with a heredoc piped into -m / --message embeds escape-trap text in the commit object and the squash-merge commit. Author to /tmp/commit-msg-$(uuidv7).md (e.g. /tmp/commit-msg-018f3c2a-7b1e-7a44-9e10-2bd84a5c0001.md), run /unslop on it, commit via --file, then trash the file. See ~/.claude/CLAUDE.md § "Authoring GitHub correspondence: /tmp/ + --body-file + /unslop".'
 else
-    exit 0
+  exit 0
 fi
 
 # Emit deny JSON (both permissionDecisionReason and systemMessage per defuddle hook's pattern)

@@ -10,15 +10,17 @@ date: 2026-02-13
 ## Enhancement Summary
 
 **Deepened on:** 2026-02-13  
-**Agents used:** security-sentinel, deployment-verification, architecture-strategist, pattern-recognition-specialist, code-simplicity-reviewer, best-practices-researcher (x2)
+**Agents used:** security-sentinel, deployment-verification, architecture-strategist, pattern-recognition-specialist,
+code-simplicity-reviewer, best-practices-researcher (x2)
 
 ### Critical Issues Discovered
 
 1. **SSH lockout risk:** `.profile` unconditionally sources `~/.local/bin/env` -- if missing, login shells fail
 2. **oh-my-zsh ordering:** Must install BEFORE stowing zsh (`.zshrc` sources `oh-my-zsh.sh` on load)
 3. **SSH config breaks Linux:** `Host *` block has macOS 1Password agent path -- all outbound SSH fails
-4. **`.gitconfig` breaks Linux:** `op-ssh-sign` program path hardcoded to `/Applications/1Password.app/...` -- fixed with cross-platform wrapper script
-5. **Hardcoded paths in `.zshrc`:** Lines 323, 326 use `/Users/brett/` instead of `$HOME`
+4. **`.gitconfig` breaks Linux:** `op-ssh-sign` program path hardcoded to `/Applications/1Password.app/...` -- fixed
+   with cross-platform wrapper script
+5. **Hardcoded paths in `.zshrc`:** Lines 323, 326 use `/Users/<you>/` instead of `$HOME`
 6. **`chsh` requires sudo on Ubuntu:** PAM authentication blocks non-interactive `chsh`
 
 ### Key Simplifications Applied
@@ -31,7 +33,9 @@ date: 2026-02-13
 
 ## Overview
 
-Deploy the dotfiles repository to a headless Ubuntu server with existing configuration. The approach is: fix cross-platform issues in the repo first, then clone on the target server, install oh-my-zsh, and stow packages in a safe order with rollback capability.
+Deploy the dotfiles repository to a headless Ubuntu server with existing configuration. The approach is: fix
+cross-platform issues in the repo first, then clone on the target server, install oh-my-zsh, and stow packages in a safe
+order with rollback capability.
 
 ## Connection Details
 
@@ -64,23 +68,25 @@ These issues must be fixed in the repo before deploying to Linux. Each is a sepa
 
 ### 0.1 Fix hardcoded paths in `.zshrc`
 
-`stow/zsh/dot-zshrc` has two hardcoded `/Users/brett/` paths that will silently fail on Linux:
+`stow/zsh/dot-zshrc` has two hardcoded `/Users/<you>/` paths that will silently fail on Linux:
 
 ```bash
 # Line 323 -- change:
-[ -s "/Users/brett/.oh-my-zsh/completions/_bun" ] && source "/Users/brett/.oh-my-zsh/completions/_bun"
+[ -s "/Users/<you>/.oh-my-zsh/completions/_bun" ] && source "/Users/<you>/.oh-my-zsh/completions/_bun"
 # To:
 [ -s "$HOME/.oh-my-zsh/completions/_bun" ] && source "$HOME/.oh-my-zsh/completions/_bun"
 
 # Line 326 -- change:
-export PATH="/Users/brett/.antigravity/antigravity/bin:$PATH"
+export PATH="/Users/<you>/.antigravity/antigravity/bin:$PATH"
 # To:
 export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
 ```
 
 ### 0.2 Add platform-conditional SSH config
 
-The current `Host *` block at the end of `stow/ssh/dot-ssh/config` hardcodes the macOS 1Password agent socket. Replace it with `Match exec` blocks that detect the OS at runtime. This works on both macOS (OpenSSH 9.9) and Linux (OpenSSH 7.3+).
+The current `Host *` block at the end of `stow/ssh/dot-ssh/config` hardcodes the macOS 1Password agent socket. Replace
+it with `Match exec` blocks that detect the OS at runtime. This works on both macOS (OpenSSH 9.9) and Linux (OpenSSH
+7.3+).
 
 ```ssh
 # Replace the current Host * block (lines 93-97) with:
@@ -99,20 +105,26 @@ Host *
     ServerAliveCountMax 3
 ```
 
-Also remove the per-host `IdentityAgent` macOS paths from individual host blocks where `IdentityFile` is already specified (e.g., `the server_10`, `server`). The platform-conditional `Match exec` blocks handle agent selection globally.
+Also remove the per-host `IdentityAgent` macOS paths from individual host blocks where `IdentityFile` is already
+specified (e.g., `the server_10`, `server`). The platform-conditional `Match exec` blocks handle agent selection
+globally.
 
-**Cross-platform verification:** `Match exec` is supported in OpenSSH 7.3+ (August 2016). macOS ships 9.9, Ubuntu 18.04+ ships 7.6+. The `uname -s` command returns `Darwin` on macOS and `Linux` on Ubuntu. Only the matching block activates -- the other is silently ignored.
+**Cross-platform verification:** `Match exec` is supported in OpenSSH 7.3+ (August 2016). macOS ships 9.9, Ubuntu 18.04+
+ships 7.6+. The `uname -s` command returns `Darwin` on macOS and `Linux` on Ubuntu. Only the matching block activates --
+the other is silently ignored.
 
 #### Research Insights: SSH Include directive
 
-An alternative approach is splitting SSH config into `config.d/` fragments with `Include`. This was researched but `Match exec` is simpler for this case because:
+An alternative approach is splitting SSH config into `config.d/` fragments with `Include`. This was researched but
+`Match exec` is simpler for this case because:
 
 - SSH `Include` does not support platform-conditional loading natively
 - Using `config.d/` would require a `platform/` subdirectory to avoid double-inclusion from globs
 - `Match exec` is a single-file change with no structural rework
 - Both approaches require OpenSSH 7.3+, which all supported Ubuntu versions provide
 
-If the SSH config grows significantly or needs per-machine host definitions, migrating to `config.d/` later is straightforward. For now, `Match exec` is sufficient.
+If the SSH config grows significantly or needs per-machine host definitions, migrating to `config.d/` later is
+straightforward. For now, `Match exec` is sufficient.
 
 **References:**
 
@@ -121,7 +133,9 @@ If the SSH config grows significantly or needs per-machine host definitions, mig
 
 ### 0.3 Add git signing wrapper script (cross-platform, no local files)
 
-`stow/git/dot-gitconfig` has a hardcoded macOS path for `op-ssh-sign` (line 19). Git config does not support OS-conditional directives, but `gpg.ssh.program` just needs an executable -- it does not care how that executable finds the right binary.
+`stow/git/dot-gitconfig` has a hardcoded macOS path for `op-ssh-sign` (line 19). Git config does not support
+OS-conditional directives, but `gpg.ssh.program` just needs an executable -- it does not care how that executable finds
+the right binary.
 
 **Create a wrapper script** at `stow/git/dot-config/git/op-ssh-sign-wrapper`:
 
@@ -145,7 +159,8 @@ fi
     allowedSignersFile = ~/.config/git/allowed_signers
 ```
 
-The wrapper is fully stow-managed (deployed alongside `allowed_signers` in the `git` package), works on both macOS and Linux, and gracefully handles the case where 1Password is not installed. No machine-local files needed.
+The wrapper is fully stow-managed (deployed alongside `allowed_signers` in the `git` package), works on both macOS and
+Linux, and gracefully handles the case where 1Password is not installed. No machine-local files needed.
 
 ### 0.4 Commit and push fixes
 
@@ -295,7 +310,9 @@ CLONE
 
 ### 3.1 Install oh-my-zsh and plugins FIRST
 
-oh-my-zsh must be installed before stowing the `zsh` package. The `.zshrc` sources `$ZSH/oh-my-zsh.sh` on line 84 and references plugins that must exist. The oh-my-zsh installer replaces `.zshrc` by default -- use `--keep-zshrc` to prevent this.
+oh-my-zsh must be installed before stowing the `zsh` package. The `.zshrc` sources `$ZSH/oh-my-zsh.sh` on line 84 and
+references plugins that must exist. The oh-my-zsh installer replaces `.zshrc` by default -- use `--keep-zshrc` to
+prevent this.
 
 ```bash
 ssh server 'bash -s' << 'OMZ'
@@ -337,7 +354,8 @@ OMZ
 
 ### 3.2 Deploy `~/.local/bin/env` (critical dependency)
 
-`.profile` (line 65) unconditionally sources `$HOME/.local/bin/env`. This file must exist before `.profile` is stowed, or all login shells will fail.
+`.profile` (line 65) unconditionally sources `$HOME/.local/bin/env`. This file must exist before `.profile` is stowed,
+or all login shells will fail.
 
 ```bash
 ssh server 'bash -s' << 'LOCAL'
@@ -356,23 +374,23 @@ Deploy packages one category at a time, verifying bash login works before procee
 
 **Package deployment decision:**
 
-| Package | Deploy? | Rationale |
-|---------|---------|-----------|
-| `shell` | Yes | `.profile` -- cross-platform with `$OSTYPE` gates |
-| `bash` | Yes | `.bashrc`, `.bash_profile` -- cross-platform |
-| `git` | Yes | `.gitconfig` + `op-ssh-sign-wrapper` -- cross-platform |
-| `secrets` | Yes | `.secrets` -- cross-platform |
-| `ssh` | Yes | `.ssh/config` -- now cross-platform after Phase 0.2 fix |
-| `gh` | Yes | GitHub CLI config -- cross-platform |
-| `pip` | Yes | pip config -- cross-platform |
-| `claude` | Yes | `.claude/` -- cross-platform |
-| `zsh` | Yes | `.zshrc`, `.p10k.zsh` -- after bash verified |
-| `codex` | Skip | `.codex/` -- deploy if using Codex on server |
-| `opencode` | Skip | `.config/opencode/` -- deploy if using OpenCode on server |
-| `ghostty` | Skip | macOS terminal emulator (config is cross-platform but useless on server) |
-| `brew` | Skip | Brewfile is macOS-only |
-| `cursor` | Skip | macOS GUI editor |
-| `local` | Skip | Handled manually in 3.2; `dot-Library/` is macOS-only |
+| Package    | Deploy? | Rationale                                                                |
+| ---------- | ------- | ------------------------------------------------------------------------ |
+| `shell`    | Yes     | `.profile` -- cross-platform with `$OSTYPE` gates                        |
+| `bash`     | Yes     | `.bashrc`, `.bash_profile` -- cross-platform                             |
+| `git`      | Yes     | `.gitconfig` + `op-ssh-sign-wrapper` -- cross-platform                   |
+| `secrets`  | Yes     | `.secrets` -- cross-platform                                             |
+| `ssh`      | Yes     | `.ssh/config` -- now cross-platform after Phase 0.2 fix                  |
+| `gh`       | Yes     | GitHub CLI config -- cross-platform                                      |
+| `pip`      | Yes     | pip config -- cross-platform                                             |
+| `claude`   | Yes     | `.claude/` -- cross-platform                                             |
+| `zsh`      | Yes     | `.zshrc`, `.p10k.zsh` -- after bash verified                             |
+| `codex`    | Skip    | `.codex/` -- deploy if using Codex on server                             |
+| `opencode` | Skip    | `.config/opencode/` -- deploy if using OpenCode on server                |
+| `ghostty`  | Skip    | macOS terminal emulator (config is cross-platform but useless on server) |
+| `brew`     | Skip    | Brewfile is macOS-only                                                   |
+| `cursor`   | Skip    | macOS GUI editor                                                         |
+| `local`    | Skip    | Handled manually in 3.2; `dot-Library/` is macOS-only                    |
 
 ```bash
 ssh server 'bash -s' << 'STOW'
@@ -397,7 +415,8 @@ STOW
 
 ### 3.4 Verify bash login before proceeding
 
-**Stop gate:** Test that bash login works via a NEW SSH session before stowing zsh. If this fails, you can still SSH in with bash to fix things.
+**Stop gate:** Test that bash login works via a NEW SSH session before stowing zsh. If this fails, you can still SSH in
+with bash to fix things.
 
 ```bash
 # From LOCAL machine -- new SSH session
@@ -442,7 +461,8 @@ STOW_ZSH
 
 ### 3.6 Harden file permissions
 
-Stow creates symlinks, but the target files may have overly permissive modes from git checkout (typically 644). Sensitive files need restricted permissions:
+Stow creates symlinks, but the target files may have overly permissive modes from git checkout (typically 644).
+Sensitive files need restricted permissions:
 
 ```bash
 ssh server 'bash -s' << 'PERMS'
@@ -590,28 +610,28 @@ sudo chsh -s /bin/bash brett
 
 ## Risks and Mitigations
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| `.profile` sources missing `~/.local/bin/env` | CRITICAL | Deploy env file before stowing shell (Phase 3.2) |
-| oh-my-zsh overwrites stow `.zshrc` symlink | HIGH | Use `KEEP_ZSHRC=yes` flag; install before stowing |
-| SSH config 1Password path breaks on Linux | HIGH | `Match exec` platform conditional (Phase 0.2) |
-| `.gitconfig` signing program path fails | HIGH | `op-ssh-sign-wrapper` script detects OS at runtime (Phase 0.3) |
-| Stow conflicts with existing files | MEDIUM | `stow --adopt` then `git checkout --` pattern |
-| `chsh` fails without password | MEDIUM | Use `sudo chsh` to bypass PAM |
-| SSH lockout from broken shell config | MEDIUM | Emergency shell + verify bash before zsh |
-| git-crypt key transfer integrity | LOW | SHA-256 hash verification after scp |
+| Risk                                          | Severity | Mitigation                                                     |
+| --------------------------------------------- | -------- | -------------------------------------------------------------- |
+| `.profile` sources missing `~/.local/bin/env` | CRITICAL | Deploy env file before stowing shell (Phase 3.2)               |
+| oh-my-zsh overwrites stow `.zshrc` symlink    | HIGH     | Use `KEEP_ZSHRC=yes` flag; install before stowing              |
+| SSH config 1Password path breaks on Linux     | HIGH     | `Match exec` platform conditional (Phase 0.2)                  |
+| `.gitconfig` signing program path fails       | HIGH     | `op-ssh-sign-wrapper` script detects OS at runtime (Phase 0.3) |
+| Stow conflicts with existing files            | MEDIUM   | `stow --adopt` then `git checkout --` pattern                  |
+| `chsh` fails without password                 | MEDIUM   | Use `sudo chsh` to bypass PAM                                  |
+| SSH lockout from broken shell config          | MEDIUM   | Emergency shell + verify bash before zsh                       |
+| git-crypt key transfer integrity              | LOW      | SHA-256 hash verification after scp                            |
 
 ## Code Fixes Required Before Deployment
 
 These are the specific file changes needed in Phase 0:
 
-| File | Line(s) | Change |
-|------|---------|--------|
-| `stow/zsh/dot-zshrc` | 323 | `/Users/brett/...` to `$HOME/...` |
-| `stow/zsh/dot-zshrc` | 326 | `/Users/brett/...` to `$HOME/...` |
-| `stow/ssh/dot-ssh/config` | 93-97 | Replace `Host *` with `Match exec` platform blocks |
-| `stow/git/dot-gitconfig` | 19 | Point `program` to `~/.config/git/op-ssh-sign-wrapper` |
-| `stow/git/dot-config/git/op-ssh-sign-wrapper` | NEW | Cross-platform wrapper that finds `op-ssh-sign` binary |
+| File                                          | Line(s) | Change                                                 |
+| --------------------------------------------- | ------- | ------------------------------------------------------ |
+| `stow/zsh/dot-zshrc`                          | 323     | `/Users/<you>/...` to `$HOME/...`                      |
+| `stow/zsh/dot-zshrc`                          | 326     | `/Users/<you>/...` to `$HOME/...`                      |
+| `stow/ssh/dot-ssh/config`                     | 93-97   | Replace `Host *` with `Match exec` platform blocks     |
+| `stow/git/dot-gitconfig`                      | 19      | Point `program` to `~/.config/git/op-ssh-sign-wrapper` |
+| `stow/git/dot-config/git/op-ssh-sign-wrapper` | NEW     | Cross-platform wrapper that finds `op-ssh-sign` binary |
 
 ## Future Improvements (not in scope)
 

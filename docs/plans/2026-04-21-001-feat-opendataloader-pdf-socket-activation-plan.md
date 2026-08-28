@@ -33,11 +33,11 @@ opendataloader-pdf will continue to squat indefinitely between mc-pdf invocation
    adoption-as-external survives.
 3. No systemd supervision exists to reclaim the process.
 
-The spike (origin document) validated that the upstream server responds cleanly
-to SIGTERM (0.5 s exit, full VRAM reclaimed), that `uvicorn.run(fd=...)` accepts a socket-activated FD via a ~35-LOC
-launcher, that cold start is ~10.5 s worst case (well under mc-pdf's 60 s patience budget), and that ollama/vLLM are not
-applicable because the 4.4 GB is CV inference (EasyOCR + TableFormer + docling layout), not LLM inference. Socket
-activation + launcher-level idle-exit is the recommended implementation path.
+The spike (origin document) validated that the upstream server responds cleanly to SIGTERM (0.5 s exit, full VRAM
+reclaimed), that `uvicorn.run(fd=...)` accepts a socket-activated FD via a ~35-LOC launcher, that cold start is ~10.5 s
+worst case (well under mc-pdf's 60 s patience budget), and that ollama/vLLM are not applicable because the 4.4 GB is CV
+inference (EasyOCR + TableFormer + docling layout), not LLM inference. Socket activation + launcher-level idle-exit is
+the recommended implementation path.
 
 ## Requirements Trace
 
@@ -175,10 +175,9 @@ activation + launcher-level idle-exit is the recommended implementation path.
 
 - [x] **Unit 1: Stow package skeleton**
 
-**Goal:** Create the `stow/opendataloader-pdf/` package with socket unit, service
-unit, and a placeholder launcher. The launcher in this unit is a minimal passthrough (no idle-exit, no FD handling) that
-mirrors the current ad-hoc behavior — just enough for the deploy path to be testable. Unit 2 adds the real launcher
-logic.
+**Goal:** Create the `stow/opendataloader-pdf/` package with socket unit, service unit, and a placeholder launcher. The
+launcher in this unit is a minimal passthrough (no idle-exit, no FD handling) that mirrors the current ad-hoc behavior —
+just enough for the deploy path to be testable. Unit 2 adds the real launcher logic.
 
 **Requirements:** R5.
 
@@ -219,10 +218,10 @@ logic.
 
 - [x] **Unit 2: Launcher with FD handling and idle-exit watchdog**
 
-**Goal:** Replace the Unit 1 placeholder with the real launcher: honors
-`LISTEN_FDS` to pass FD 3 to `uvicorn.run(fd=...)` (socket-activated path), adds `--idle-timeout` flag, installs ASGI
-middleware that timestamps request completions, and runs a background asyncio task that trips `server.should_exit` when
-idle. Falls back to `host`/`port` binding when invoked outside systemd.
+**Goal:** Replace the Unit 1 placeholder with the real launcher: honors `LISTEN_FDS` to pass FD 3 to
+`uvicorn.run(fd=...)` (socket-activated path), adds `--idle-timeout` flag, installs ASGI middleware that timestamps
+request completions, and runs a background asyncio task that trips `server.should_exit` when idle. Falls back to
+`host`/`port` binding when invoked outside systemd.
 
 **Requirements:** R1, R2, R4, R7.
 
@@ -258,8 +257,7 @@ idle. Falls back to `host`/`port` binding when invoked outside systemd.
   Otherwise `uvicorn.run(app, host=args.host, port=args.port, ...)`. Validated in spike.
 - Match `_get_loop_setting()` choice (upstream uses `auto` on non-Windows).
 
-**Technical design:** *(directional — the implementer should treat this as
-context, not a spec to reproduce verbatim)*
+**Technical design:** *(directional — the implementer should treat this as context, not a spec to reproduce verbatim)*
 
 ```text
 Launcher startup
@@ -307,8 +305,8 @@ Launcher startup
 
 - [x] **Unit 3: stow-deploy integration**
 
-**Goal:** Wire the new package into `scripts/stow-deploy` so `--all` includes
-it on Linux and skips it on macOS. Verify existing bats tests still pass.
+**Goal:** Wire the new package into `scripts/stow-deploy` so `--all` includes it on Linux and skips it on macOS. Verify
+existing bats tests still pass.
 
 **Requirements:** R5.
 
@@ -346,9 +344,8 @@ it on Linux and skips it on macOS. Verify existing bats tests still pass.
 
 - [x] **Unit 4: Migration + enable companion script**
 
-**Goal:** One-shot script that stops any orphan `opendataloader-pdf-hybrid`
-process on :5002, reloads systemd user units, enables the socket unit (`--now`), and confirms `/health` responds.
-Idempotent and safe to re-run.
+**Goal:** One-shot script that stops any orphan `opendataloader-pdf-hybrid` process on :5002, reloads systemd user
+units, enables the socket unit (`--now`), and confirms `/health` responds. Idempotent and safe to re-run.
 
 **Requirements:** R6.
 
@@ -404,9 +401,8 @@ Idempotent and safe to re-run.
 
 - [x] **Unit 5: Bats test coverage + manual smoke checklist**
 
-**Goal:** Bats coverage for the static parts of the package (layout,
-stow-deploy wiring, enable-script structural sanity). A manual smoke checklist documents the live-behavior tests that
-require a working uv-tool install.
+**Goal:** Bats coverage for the static parts of the package (layout, stow-deploy wiring, enable-script structural
+sanity). A manual smoke checklist documents the live-behavior tests that require a working uv-tool install.
 
 **Requirements:** R5, R6 (in addition to per-unit scenarios).
 
@@ -487,14 +483,14 @@ require a working uv-tool install.
 
 ## Risks & Dependencies
 
-| Risk | Mitigation |
-| --- | --- |
-| Idle watchdog tears down mid-request | In-flight counter + uvicorn graceful-shutdown provide two layers of protection. Explicit test scenario in Unit 2. |
-| Launcher shebang breaks after `uv tool upgrade` | Spike verified uv preserves the tool directory path across upgrades. Mitigation: Unit 5 bats case runs launcher `--help` post-upgrade as a smoke. |
-| Service fails to start on a host without uv-tool installed | Expected and documented behavior. `/health` returns non-200; mc-pdf skill's fallback path (start its own child) keeps behavior working on unmigrated hosts. Enable script error-exits with a pointer to `mc-pdf-setup.sh`. |
-| Orphan on :5002 blocks socket activation | Enable script (Unit 4) stops orphans before enabling the socket. |
-| Idle-timeout default too aggressive (cold start on every fresh mc-pdf session) | Deliberate — 60 s was chosen so qmd (frequent) is never starved by ODL's residual 4.4 GB. The ~10 s cold-start cost on a fresh mc-pdf session is accepted. Configurable via `--idle-timeout` flag if tuning proves necessary. |
-| Future upstream change to `opendataloader_pdf.hybrid_server` internals breaks the launcher | Launcher imports a small surface (`create_app`, `_check_dependencies`, `_get_loop_setting`, `DEFAULT_HOST`, `DEFAULT_PORT`). Bats smoke in Unit 5 catches breakage. Worst case: pin uv-tool version in `mc-pdf-setup.sh`. |
+| Risk                                                                                       | Mitigation                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Idle watchdog tears down mid-request                                                       | In-flight counter + uvicorn graceful-shutdown provide two layers of protection. Explicit test scenario in Unit 2.                                                                                                             |
+| Launcher shebang breaks after `uv tool upgrade`                                            | Spike verified uv preserves the tool directory path across upgrades. Mitigation: Unit 5 bats case runs launcher `--help` post-upgrade as a smoke.                                                                             |
+| Service fails to start on a host without uv-tool installed                                 | Expected and documented behavior. `/health` returns non-200; mc-pdf skill's fallback path (start its own child) keeps behavior working on unmigrated hosts. Enable script error-exits with a pointer to `mc-pdf-setup.sh`.    |
+| Orphan on :5002 blocks socket activation                                                   | Enable script (Unit 4) stops orphans before enabling the socket.                                                                                                                                                              |
+| Idle-timeout default too aggressive (cold start on every fresh mc-pdf session)             | Deliberate — 60 s was chosen so qmd (frequent) is never starved by ODL's residual 4.4 GB. The ~10 s cold-start cost on a fresh mc-pdf session is accepted. Configurable via `--idle-timeout` flag if tuning proves necessary. |
+| Future upstream change to `opendataloader_pdf.hybrid_server` internals breaks the launcher | Launcher imports a small surface (`create_app`, `_check_dependencies`, `_get_loop_setting`, `DEFAULT_HOST`, `DEFAULT_PORT`). Bats smoke in Unit 5 catches breakage. Worst case: pin uv-tool version in `mc-pdf-setup.sh`.     |
 
 ## Documentation / Operational Notes
 
@@ -540,7 +536,7 @@ Deviations from the plan (all minor, captured for traceability):
   use. Systemd's `disable --now` semantics are well-known; the item is documented for anyone removing the feature, not
   as a required pre-ship test.
 
-Measurements on bigdaddy post-deploy (repeated from the Work Log for locality):
+Measurements on the dev workstation post-deploy (repeated from the Work Log for locality):
 
 - SIGTERM → exit: 0.51 s (4378 MiB VRAM freed)
 - Boot → `/health 200`: 3.35 s cold start

@@ -18,82 +18,82 @@ PUSH_REFS=$(cat || true)
 # checks run defensively.
 ZERO_SHA=0000000000000000000000000000000000000000
 is_md_only_push() {
-    [[ -z "$PUSH_REFS" ]] && return 1
-    local found_any=0
-    while IFS=' ' read -r _local_ref local_sha _remote_ref remote_sha; do
-        [[ -z "$local_sha" ]] && continue
-        [[ "$local_sha" == "$ZERO_SHA" ]] && continue
-        local base files
-        if [[ "$remote_sha" == "$ZERO_SHA" ]]; then
-            base=$(git merge-base "$local_sha" origin/dev 2>/dev/null \
-                || git merge-base "$local_sha" origin/main 2>/dev/null \
-                || true)
-            [[ -z "$base" ]] && return 1
-            files=$(git diff --name-only "$base" "$local_sha")
-        else
-            files=$(git diff --name-only "$remote_sha" "$local_sha")
-        fi
-        while IFS= read -r f; do
-            [[ -z "$f" ]] && continue
-            found_any=1
-            [[ "$f" == *.md ]] || return 1
-        done <<<"$files"
-    done <<<"$PUSH_REFS"
-    [[ "$found_any" -eq 1 ]] || return 1
-    return 0
+  [[ -z "$PUSH_REFS" ]] && return 1
+  local found_any=0
+  while IFS=' ' read -r _local_ref local_sha _remote_ref remote_sha; do
+    [[ -z "$local_sha" ]] && continue
+    [[ "$local_sha" == "$ZERO_SHA" ]] && continue
+    local base files
+    if [[ "$remote_sha" == "$ZERO_SHA" ]]; then
+      base=$(git merge-base "$local_sha" origin/dev 2>/dev/null \
+        || git merge-base "$local_sha" origin/main 2>/dev/null \
+        || true)
+      [[ -z "$base" ]] && return 1
+      files=$(git diff --name-only "$base" "$local_sha")
+    else
+      files=$(git diff --name-only "$remote_sha" "$local_sha")
+    fi
+    while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      found_any=1
+      [[ "$f" == *.md ]] || return 1
+    done <<<"$files"
+  done <<<"$PUSH_REFS"
+  [[ "$found_any" -eq 1 ]] || return 1
+  return 0
 }
 
 if is_md_only_push; then
-    echo "pre-push: markdown-only push, skipping shellcheck + bats"
-    if command -v git-lfs >/dev/null 2>&1; then
-        printf '%s' "$PUSH_REFS" | git lfs pre-push "$@"
-    fi
-    exit 0
+  echo "pre-push: markdown-only push, skipping shellcheck + bats"
+  if command -v git-lfs >/dev/null 2>&1; then
+    printf '%s' "$PUSH_REFS" | git lfs pre-push "$@"
+  fi
+  exit 0
 fi
 
 # --- ShellCheck (mirrors .github/workflows/shellcheck.yml) ---
 if command -v shellcheck >/dev/null 2>&1; then
-    echo "pre-push: running shellcheck"
+  echo "pre-push: running shellcheck"
 
-    shellcheck .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push
-    shellcheck --shell=bash config/shell/*.sh
-    shellcheck scripts/stow-deploy
-    shellcheck --shell=bash --exclude=SC1090,SC1091 stow/shell/dot-profile
+  shellcheck .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push
+  shellcheck --shell=bash config/shell/*.sh
+  shellcheck scripts/stow-deploy
+  shellcheck --shell=bash --exclude=SC1090,SC1091 stow/shell/dot-profile
 
-    # Claude hooks under stow/claude/dot-claude/*.sh (auto-format,
-    # ci-watch-prompt, defuddle-webfetch, heredoc-pr-guard,
-    # session-context, statusline). Match shebang to skip any
-    # non-shell *.sh future entries.
-    while IFS= read -r f; do
-        if head -n1 "$f" | grep -qE '^#!.*\b(sh|bash)\b'; then
-            shellcheck "$f"
-        fi
-    done < <(find stow/claude/dot-claude -maxdepth 1 -type f -name '*.sh')
+  # Claude hooks under stow/claude/dot-claude/*.sh (auto-format,
+  # ci-watch-prompt, defuddle-webfetch, heredoc-pr-guard,
+  # session-context, statusline). Match shebang to skip any
+  # non-shell *.sh future entries.
+  while IFS= read -r f; do
+    if head -n1 "$f" | grep -qE '^#!.*\b(sh|bash)\b'; then
+      shellcheck "$f"
+    fi
+  done < <(find stow/claude/dot-claude -maxdepth 1 -type f -name '*.sh')
 
-    # Stow-managed bin helpers — find every executable under stow/<pkg>/dot-local/bin/
-    # that has a sh/bash shebang and shellcheck it. Mirrors the workflow's find-loop.
-    while IFS= read -r f; do
-        if head -n1 "$f" | grep -qE '^#!.*\b(sh|bash)\b'; then
-            shellcheck "$f"
-        fi
-    done < <(find stow -type f -path 'stow/*/dot-local/bin/*')
+  # Stow-managed bin helpers — find every executable under stow/<pkg>/dot-local/bin/
+  # that has a sh/bash shebang and shellcheck it. Mirrors the workflow's find-loop.
+  while IFS= read -r f; do
+    if head -n1 "$f" | grep -qE '^#!.*\b(sh|bash)\b'; then
+      shellcheck "$f"
+    fi
+  done < <(find stow -type f -path 'stow/*/dot-local/bin/*')
 else
-    echo "pre-push: shellcheck not installed — skipping shell linting" >&2
-    echo "         install with: brew install shellcheck" >&2
+  echo "pre-push: shellcheck not installed — skipping shell linting" >&2
+  echo "         install with: brew install shellcheck" >&2
 fi
 
 # --- Bats (mirrors .github/workflows/bats.yml) ---
 if command -v bats >/dev/null 2>&1; then
-    if compgen -G "tests/*.bats" >/dev/null; then
-        echo "pre-push: running bats tests/*.bats"
-        bats tests/*.bats
-    fi
+  if compgen -G "tests/*.bats" >/dev/null; then
+    echo "pre-push: running bats tests/*.bats"
+    bats tests/*.bats
+  fi
 else
-    echo "pre-push: bats-core not installed — skipping bats tests" >&2
-    echo "         install with: brew install bats-core" >&2
+  echo "pre-push: bats-core not installed — skipping bats tests" >&2
+  echo "         install with: brew install bats-core" >&2
 fi
 
 # --- Chain Git LFS pre-push hook (core.hooksPath overrides .git/hooks/) ---
 if command -v git-lfs >/dev/null 2>&1; then
-    printf '%s' "$PUSH_REFS" | git lfs pre-push "$@"
+  printf '%s' "$PUSH_REFS" | git lfs pre-push "$@"
 fi

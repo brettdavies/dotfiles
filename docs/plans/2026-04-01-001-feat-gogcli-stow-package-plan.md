@@ -3,7 +3,17 @@ title: "feat: Add gogcli stow package with shell wrapper"
 type: feat
 status: completed
 date: 2026-04-01
+completed: 2026-04-01
+pr: brettdavies/dotfiles#27
+release: 2026.04.01
 ---
+
+## Post-ship notes (2026-04-01)
+
+Shipped in [PR #27](https://github.com/brettdavies/dotfiles/pull/27) as part of release
+[`2026.04.01`](https://github.com/brettdavies/dotfiles/releases/tag/2026.04.01). All three units landed:
+`stow/gogcli/dot-config/gogcli/config.json`, `config/shell/gogcli.sh` wrapper with adopt-back, and
+`scripts/setup_gogcli.sh` cleanup. `gogcli` is in `SHARED_PACKAGES`.
 
 # feat: Add gogcli stow package with shell wrapper
 
@@ -63,9 +73,9 @@ functions-not-aliases rule and means `gog` is unavailable in bash sessions, non-
   fragile since gogcli may rewrite them. Only `config.json` (static backend selection) belongs in the stow package.
 
 - **`config.json` content:** The live file has
-  `{"keyring_backend":"file","account_clients":{"davies.brett@gmail.com":"personal"}}`. The `account_clients` key was
-  added by gogcli at runtime. Since gogcli writes to this file, consider the atomic-write risk — if gogcli replaces the
-  symlink, add an adopt-on-trigger in the shell wrapper (same pattern as caam).
+  `{"keyring_backend":"file","account_clients":{"<account-email>":"personal"}}`. The `account_clients` key was added by
+  gogcli at runtime. Since gogcli writes to this file, consider the atomic-write risk — if gogcli replaces the symlink,
+  add an adopt-on-trigger in the shell wrapper (same pattern as caam).
 
 - **1Password item name:** The wrapper currently uses `'Google Workspace CLI OAuth (Streams)'`. The `.zshrc` references
   this with `--fields client_secret`. Keep this as-is.
@@ -83,8 +93,8 @@ functions-not-aliases rule and means `gog` is unavailable in bash sessions, non-
 
 ### Deferred to Implementation
 
-- **Q: Does the personal account (`davies.brett@gmail.com`) need bootstrap support?** → Check if `setup_gogcli.sh`
-  should handle multiple accounts. Out of scope for this plan but note for future.
+- **Q: Does the personal account (`<account-email>`) need bootstrap support?** → Check if `setup_gogcli.sh` should
+  handle multiple accounts. Out of scope for this plan but note for future.
 
 ## Implementation Units
 
@@ -195,11 +205,11 @@ functions-not-aliases rule and means `gog` is unavailable in bash sessions, non-
 
 ## Risks & Dependencies
 
-| Risk | Mitigation |
-|------|------------|
-| gogcli rewrites config.json, breaking symlink | Adopt-back in shell wrapper (proven pattern from caam) |
-| 1Password unavailable on some machines | `gog()` wrapper uses `${:-}` fallback — if op fails, password is empty and gog prompts or fails gracefully |
-| config.json content drift between stow source and live | Adopt-back captures drift; periodic commits sync it |
+| Risk                                                   | Mitigation                                                                                                 |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| gogcli rewrites config.json, breaking symlink          | Adopt-back in shell wrapper (proven pattern from caam)                                                     |
+| 1Password unavailable on some machines                 | `gog()` wrapper uses `${:-}` fallback — if op fails, password is empty and gog prompts or fails gracefully |
+| config.json content drift between stow source and live | Adopt-back captures drift; periodic commits sync it                                                        |
 
 ## Sources & References
 

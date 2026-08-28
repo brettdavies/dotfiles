@@ -50,9 +50,11 @@ dotfiles/
 │   ├── stow-deploy        Stow wrapper with conflict resolution
 │   ├── nas-deploy.sh      System-level NAS mount/automount deploy
 │   ├── apparmor-deploy.sh System-level AppArmor profile deploy + boot unit (Playwright/Chromium)
-│   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (apparmor + opt-in browser deps)
+│   ├── playwright-browsers-deploy.sh  Playwright browser binaries into the shared cache (curl + unzip)
+│   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (binaries + apparmor + opt-in browser deps)
 │   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, opendataloader-pdf)
 │   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama)
+│   ├── macos-gpu-monitor.sh       Metal GPU residency/power trace around any command (macOS)
 │   ├── generate-changelog.py      Release changelog extraction
 │   ├── tools-atime/       Multi-package-manager unused-tool audit + reclaim
 │   └── sync/              iCloud, Box, and Claude Code session pipeline sync
@@ -105,7 +107,6 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `secrets`            | `.secrets` (git-crypt encrypted)                                                                                                   |
 | `ssh`                | `.ssh/config` (git-crypt encrypted)                                                                                                |
 | `tmux`               | `.config/tmux/tmux.conf`                                                                                                           |
-| `tmuxinator`         | `.config/tmuxinator/*.yml` — declarative session configs (20 projects, see below)                                                  |
 | `yazi`               | `.config/yazi/` — file manager config, keymaps, theme, packages                                                                    |
 | `zsh`                | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                                                                                      |
 
@@ -115,9 +116,17 @@ explicitly with `scripts/stow-deploy caddy`, and `ollama` targets `/etc` rather 
 
 ### Tmuxinator Sessions
 
-Every `.config/tmuxinator/*.yml` config defines the same 3-pane working layout: yazi on the left (1/3 width, full
-height), a bare shell top-right (2/3 × 2/3), and lazygit bottom-right (2/3 × 1/3). All three panes start in the
-project's root.
+Session configs live in `stow/tmuxinator/dot-config/tmuxinator/` and are **not** stowed. `config/shell/tmuxinator.sh`
+exports `TMUXINATOR_CONFIG` to point at that directory, so tmuxinator reads, writes, and lists projects in the repo
+itself — `tmuxinator new` and `tmuxinator copy` land on the source of truth with no deploy step.
+
+Keep `~/.config/tmuxinator` empty. tmuxinator searches that path in `start` and `stop` but not in `list`, so a config
+sitting there shadows the repo: it starts a session that never appears in `tmuxinator list`. `sudo tmuxinator …` is the
+usual way one gets there, because `sudo` scrubs `TMUXINATOR_CONFIG` and falls back to the XDG path — and it strands the
+tmux server at UID 0, invisible to your own `tmux ls`. Run tmuxinator as yourself.
+
+Every config defines the same 3-pane working layout: yazi on the left (1/3 width, full height), a bare shell top-right
+(2/3 × 2/3), and lazygit bottom-right (2/3 × 1/3). All three panes start in the project's root.
 
 Start or attach to a configured session with `tmuxinator start <name>` — it creates the session on the first call and
 attaches on every subsequent call, so the same command works whether or not the session is already running:
@@ -131,9 +140,12 @@ ssh <dev-host> -t tmuxinator start anc        # over SSH (preferred connection i
 Raw `tmux attach -t <name>` only works after the session has already been started, which makes it the wrong default for
 SSH.
 
-To create a new session from scratch (config + symlink + first start in one shot), use `tmux-new-session <name>
-<repo-path>` — it writes a new tmuxinator config into `stow/tmuxinator/dot-config/tmuxinator/`, re-stows the package,
-then runs `tmuxinator start`.
+To create a new session from scratch (config + first start in one shot), use `tmux-new-session <name> <repo-path>` — it
+writes a new tmuxinator config into `stow/tmuxinator/dot-config/tmuxinator/`, then runs `tmuxinator start`.
+
+`tmuxinator copy` duplicates a config verbatim, including the source project's `name:` and its `on_project_first_start`
+resize targets. Edit both after copying, or the new session resizes panes in the project it was copied from.
+`tests/tmuxinator-configs.bats` enforces that every config's resize targets match its own `name:`.
 
 ### System-Level Units (`config/systemd/system/`)
 
@@ -153,19 +165,23 @@ package).
 
 ### Playwright / browse browser launch (`scripts/playwright-deps-deploy.sh`)
 
-On Linux the `browse` tool and Playwright e2e need two things to launch browsers: an AppArmor profile (for Chromium's
-sandbox) and, for Safari/iOS testing, WebKit system libraries. One script provisions both, run as your normal user (it
-escalates to sudo where needed):
+On Linux the `browse` tool and Playwright e2e need three things to launch browsers: the browser binaries in the shared
+cache, an AppArmor profile (for Chromium's sandbox), and, for Safari/iOS testing, WebKit system libraries. One script
+provisions all three, run as your normal user (it escalates to sudo only where needed):
 
 ```bash
-scripts/playwright-deps-deploy.sh            # AppArmor profile + boot persistence (Chromium / browse)
-scripts/playwright-deps-deploy.sh --webkit   # + Safari/iOS deps (WebKit, heavy ~380 MB)
-scripts/playwright-deps-deploy.sh --all       # + Chromium and WebKit deps
+scripts/playwright-deps-deploy.sh            # browser binaries + AppArmor profile + boot persistence (Chromium / browse)
+scripts/playwright-deps-deploy.sh --webkit   # + Safari/iOS system libs (WebKit, heavy ~380 MB)
+scripts/playwright-deps-deploy.sh --all       # + Chromium and WebKit system libs
 ```
 
-WebKit deps are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios` /
-`tablet` projects). See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for
-failure signatures and recovery.
+The **browser binaries** are provisioned into the shared cache (`$PLAYWRIGHT_BROWSERS_PATH`) by
+`scripts/playwright-browsers-deploy.sh` (run directly, or via the script above) using `curl` + `unzip` rather than
+`playwright install` — node's extractor deadlocks on this host's io_uring/kernel combo. One canonical version serves
+every repo, so per-repo `playwright install` becomes a no-op; bumping it is a dotfiles edit (the revision map in that
+script). WebKit deps are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios`
+/ `tablet` projects). See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for
+failure signatures, the io_uring root cause, and recovery.
 
 **AppArmor profiles** (`config/apparmor.d/`) are deployed by `scripts/apparmor-deploy.sh` (called by the script above,
 or run standalone as `sudo scripts/apparmor-deploy.sh`), which copies each file to `/etc/apparmor.d/`, loads it with

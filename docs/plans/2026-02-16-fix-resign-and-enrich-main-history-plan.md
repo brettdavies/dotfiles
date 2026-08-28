@@ -20,8 +20,11 @@ Both require rewriting history again since signatures and messages are part of t
 
 The 11 squashed commits on main represent logical milestones but are missing:
 
-- **SSH signatures**: GitHub shows "Unverified" for all commits. The repo has `commit.gpgsign = true` and SSH signing via 1Password (`op-ssh-sign-wrapper`), but `git commit-tree` does not invoke signing unless `-S` is passed explicitly.
-- **Commit bodies**: Each commit summarizes multiple original commits but only has a one-line subject. The original commits had detailed bodies documenting specific changes, and the squashed commits should preserve that context in summarized form.
+- **SSH signatures**: GitHub shows "Unverified" for all commits. The repo has `commit.gpgsign = true` and SSH signing
+  via 1Password (`op-ssh-sign-wrapper`), but `git commit-tree` does not invoke signing unless `-S` is passed explicitly.
+- **Commit bodies**: Each commit summarizes multiple original commits but only has a one-line subject. The original
+  commits had detailed bodies documenting specific changes, and the squashed commits should preserve that context in
+  summarized form.
 
 ## Proposed Solution
 
@@ -54,7 +57,8 @@ Then force-push the result, same as the initial squash.
 
 ### Message format
 
-Each commit message follows Conventional Commits with a body summarizing the original commits in that group. The body should explain **what changed and why**, not just list files. Keep bodies concise - 5-15 lines per commit.
+Each commit message follows Conventional Commits with a body summarizing the original commits in that group. The body
+should explain **what changed and why**, not just list files. Keep bodies concise - 5-15 lines per commit.
 
 ### Branch synchronization
 
@@ -210,7 +214,7 @@ move Homebrew PATH before secrets sourcing (op read dependency).
 
 Git: add op-ssh-sign-wrapper for cross-platform commit signing with
 Match exec blocks for platform-conditional 1Password agent paths.
-Replace hardcoded /Users/brett/ with $HOME throughout.
+Replace hardcoded /Users/<you>/ with $HOME throughout.
 
 Add deployment solution docs and acceptance test results.
 ```
@@ -262,7 +266,8 @@ so they silently no-op on systems where those tools are not installed.
 
 ## Implementation Steps
 
-1. Verify SSH signing works: `echo "test" | git commit-tree -S HEAD^{tree} -p HEAD -m "test" && git verify-commit <result>`
+1. Verify SSH signing works: `echo "test" | git commit-tree -S HEAD^{tree} -p HEAD -m "test" && git verify-commit
+   <result>`
 2. Create backup tag: `git tag -a backup/main-pre-resign -m "Before re-signing"`
 3. Disable GitHub ruleset
 4. Write 11 message files to a temp directory

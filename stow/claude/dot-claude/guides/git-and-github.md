@@ -68,6 +68,37 @@ AI-attribution trailer to commit messages or PR bodies. This overrides the defau
 into Claude Code's system prompt and any skill/command template (e.g., the official `code-review` plugin,
 `rust-new-repo` skill) that includes one. Commits and PRs stand on their own technical content.
 
+## Rewriting pushed history (reword, force-push)
+
+**Default: don't.** Rewriting already-pushed or shared history is a last resort, not a cleanup reflex. A
+wrong-but-cosmetic commit message (mis-scoped, mislabeled, wrong message grabbed from a shared `/tmp` file) is almost
+never worth a rewrite: the content is correct and `git show --stat` shows the real files. On a repo several agents share
+(a symlinked knowledge store like `docs/solutions/`), prefer leaving it — see
+`docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md`.
+
+**`git history reword <commit>` (git 2.54, experimental) strips signatures and resets committer dates.** It is the
+ergonomic way to reword a commit deep in history — `--dry-run`, `--update-refs=(head|branches)`, and non-interactive via
+`GIT_EDITOR="cp /tmp/msg.txt" git history reword <sha>` — and it automates the rebase. But it re-hashes the target
+commit **and every descendant**, and in doing so it **drops each rebuilt commit's signature (output is unsigned) and
+resets the committer date to now**; it also refuses merge commits. On a repo that signs commits (`commit.gpgSign=true`)
+this silently un-verifies every re-hashed commit and flattens their committer timestamps: a message-only reword of one
+commit ten-deep leaves all eleven commits unsigned under a single committer date (author dates and tree survive). So
+`git history reword` is acceptable only where signatures and committer dates do not matter; on a signed repo it is the
+wrong tool, and rewording one commit degrades every unrelated commit stacked above it.
+
+**To rewrite while preserving signatures + committer dates**, use the `strip-ai-attribution` skill's `git commit-tree`
+chain (rebuilds each commit from its exact tree with `-S` re-signing and `GIT_COMMITTER_DATE` preserved) or `git rebase
+--root --exec '… commit --amend --no-edit -S'` with committer-date restoration. That skill's
+`references/git-mechanics.md` tabulates why `commit-tree` beats `reword`/`filter-repo` here; bulk attribution/trailer
+strips are that skill's job (user-invocable only, gated on explicit confirmation).
+
+**When a rewrite is genuinely warranted, do it safely.** Operate in a **fresh throwaway clone**, never the
+shared/symlinked working copy (moving its refs out from under a concurrent writer is the exact hazard the shared-tree
+doc describes). Before pushing, confirm the rewrite changed only history, not content: `git diff origin/main HEAD` must
+be **empty**. Push with `--force-with-lease` (it aborts rather than clobbering if a writer advanced the ref in your
+window); on abort, re-clone and retry. Every SHA changes, so every other clone, worktree, and CI cache must re-clone or
+hard-reset, and any SHAs pinned in other docs go stale.
+
 ## Pull requests
 
 **Title format:** `type(scope): description` (same Conventional Commits types as above).

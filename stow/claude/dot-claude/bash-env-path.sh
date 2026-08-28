@@ -18,6 +18,6 @@ set -eu
 # shellcheck disable=SC2016  # $HOME stays literal here; it expands when Claude sources CLAUDE_ENV_FILE
 _line='[ -f "$HOME/dotfiles/config/shell/local-paths.sh" ] && . "$HOME/dotfiles/config/shell/local-paths.sh" || true'
 if ! grep -qF "$_line" "$CLAUDE_ENV_FILE" 2>/dev/null; then
-    printf '%s\n' "$_line" >> "$CLAUDE_ENV_FILE"
+  printf '%s\n' "$_line" >>"$CLAUDE_ENV_FILE"
 fi
 exit 0

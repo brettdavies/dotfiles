@@ -28,15 +28,15 @@ EXT="${URL##*.}"
 EXT="${EXT%%[?#]*}"
 EXT=$(printf '%s' "$EXT" | tr '[:upper:]' '[:lower:]')
 case "$EXT" in
-  pdf|json|xml|csv|png|jpg|jpeg|gif|svg|webp|zip|tar|gz|mp3|mp4|wasm) exit 0 ;;
+  pdf | json | xml | csv | png | jpg | jpeg | gif | svg | webp | zip | tar | gz | mp3 | mp4 | wasm) exit 0 ;;
 esac
 
 # Skip localhost, private IPs (RFC 1918), .local domains
 case "$URL" in
-  *://localhost[:/]*|*://localhost) exit 0 ;;
-  *://127.0.0.1*|*://0.0.0.0*|*://\[::1\]*) exit 0 ;;
-  *://10.*|*://172.1[6-9].*|*://172.2[0-9].*|*://172.3[01].*|*://192.168.*) exit 0 ;;
-  *://*.local[:/]*|*://*.local) exit 0 ;;
+  *://localhost[:/]* | *://localhost) exit 0 ;;
+  *://127.0.0.1* | *://0.0.0.0* | *://\[::1\]*) exit 0 ;;
+  *://10.* | *://172.1[6-9].* | *://172.2[0-9].* | *://172.3[01].* | *://192.168.*) exit 0 ;;
+  *://*.local[:/]* | *://*.local) exit 0 ;;
 esac
 
 # Marker-based passthrough: each URL gets one defuddle redirect per session.

@@ -33,7 +33,7 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
   #
   # codex-proxy stays Linux-only: the proxy runs only on the brain host; macOS
   # clients reach it over the tailnet, so they need neither its config nor units.
-  grep -q 'rclone|obsidian|opendataloader-pdf|codex-proxy)' "$SCRIPT"
+  grep -qE 'rclone *\| *obsidian *\| *opendataloader-pdf *\| *codex-proxy *\)' "$SCRIPT"
 }
 
 @test "gbrain ships cross-platform config (deploys on macOS, not Linux-only)" {
@@ -42,7 +42,7 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
   # claude-code-archive) drop on macOS via the Darwin --ignore. It must NOT
   # appear in any Linux-only skip case.
   [ -f "$STOW_DIR/gbrain/dot-gbrain/config.json" ]
-  ! grep -qE '\|gbrain\||\|gbrain\)' "$SCRIPT"
+  ! grep -qE '\| *gbrain *\||\| *gbrain *\)' "$SCRIPT"
 }
 
 @test "STOW_FLAGS always ignores .DS_Store" {

@@ -1,20 +1,31 @@
 ---
 title: "feat: Sync Claude Code config files from remote servers"
 type: feat
-status: active
+status: abandoned
 date: 2026-03-18
 deepened: 2026-03-19
 ---
+
+## Resolution / Post-ship notes (2026-05-02 audit)
+
+Marked `abandoned`. As of release `2026.05.02` (today), `scripts/claude-sync` does not exist, no
+`scripts/sync/incoming/` staging area is in the repo or `.gitignore`, and no commit references this work. The need was
+superseded in practice:
+
+- `nightly-autocommit.service` (shipped in release `2026.04.15`,
+  [PR #33](https://github.com/brettdavies/dotfiles/pull/33)) now auto-commits drift from `obsidian-vault`,
+  `solutions-docs`, and the agent-skills repo, which covers the highest-value pull-target the original plan was chasing.
+- Per-repo `CLAUDE.md` / `AGENTS.md` configs are reviewed in-place during normal repo work rather than batch-pulled.
+
+If a remote-sync need re-emerges, this plan is the design starting point — but for now it's parked, not active.
 
 # feat: Sync Claude Code config files from remote servers
 
 ## Enhancement Summary
 
-**Deepened on:** 2026-03-19
-**Sections enhanced:** 10
-**Research agents used:** architecture-strategist, security-sentinel, performance-oracle,
-code-simplicity-reviewer, pattern-recognition-specialist, spec-flow-analyzer, learnings-researcher,
-best-practices-researcher, plus 4 web research queries
+**Deepened on:** 2026-03-19 **Sections enhanced:** 10 **Research agents used:** architecture-strategist,
+security-sentinel, performance-oracle, code-simplicity-reviewer, pattern-recognition-specialist, spec-flow-analyzer,
+learnings-researcher, best-practices-researcher, plus 4 web research queries
 
 ### Key Improvements
 
@@ -30,8 +41,8 @@ best-practices-researcher, plus 4 web research queries
 
 ### New Considerations Discovered
 
-- Global gitignore at `~/.config/git/ignore` already ignores `CLAUDE.md`/`AGENT.md` etc., providing double-safety
-  but also preventing `git diff` review of staged files
+- Global gitignore at `~/.config/git/ignore` already ignores `CLAUDE.md`/`AGENT.md` etc., providing double-safety but
+  also preventing `git diff` review of staged files
 - Remote `find` output must use `-print0` for path safety
 - `rsync` exit code 24 (files vanished) needs explicit handling under `set -e`
 - Symlinked config files on remote need explicit handling (preserve symlinks, don't follow)
@@ -41,23 +52,21 @@ best-practices-researcher, plus 4 web research queries
 
 ## Overview
 
-Create a shell script (`scripts/claude-sync`) that SSHes into a remote server, auto-discovers all repos under
-`~/dev/` containing Claude Code configuration files, and pulls those files into a local staging area
+Create a shell script (`scripts/claude-sync`) that SSHes into a remote server, auto-discovers all repos under `~/dev/`
+containing Claude Code configuration files, and pulls those files into a local staging area
 (`scripts/sync/incoming/<host>/`) for manual review and adoption into the dotfiles repo.
 
-This is a **pull-only workflow** -- run from macOS, fetching config from headless Linux servers. The staging
-area serves as a review buffer; files are never adopted automatically.
+This is a **pull-only workflow** -- run from macOS, fetching config from headless Linux servers. The staging area serves
+as a review buffer; files are never adopted automatically.
 
 ## Problem Statement / Motivation
 
-Claude Code configuration evolves on remote servers as repos are actively developed. Per-repo `CLAUDE.md`,
-`AGENTS.md`, `AGENT.md`, and `.claude/settings.local.json` files accumulate valuable project-specific
-instructions, permissions, and agent guidance that should be reviewed and potentially adopted into the dotfiles
-release cycle.
+Claude Code configuration evolves on remote servers as repos are actively developed. Per-repo `CLAUDE.md`, `AGENTS.md`,
+`AGENT.md`, and `.claude/settings.local.json` files accumulate valuable project-specific instructions, permissions, and
+agent guidance that should be reviewed and potentially adopted into the dotfiles release cycle.
 
-Currently there is no mechanism to pull these configs back. The only sync direction in the repo is push
-(stow-deploy). Without a pull workflow, configuration drift goes unnoticed and useful patterns discovered on
-servers are lost.
+Currently there is no mechanism to pull these configs back. The only sync direction in the repo is push (stow-deploy).
+Without a pull workflow, configuration drift goes unnoticed and useful patterns discovered on servers are lost.
 
 ## Proposed Solution
 
@@ -69,15 +78,15 @@ scripts/claude-sync [--base-dir DIR] [--dry-run] <ssh-host-alias>
 
 ### Research Insights: Flag Ordering
 
-The original plan placed `<ssh-host-alias>` before flags. This breaks the `stow-deploy` flag parsing pattern
-(`while [[ "${1:-}" == --* ]]`), which consumes flags first, then treats remaining positional args. **Flags must
-come before the positional argument** for consistency with `stow-deploy`.
+The original plan placed `<ssh-host-alias>` before flags. This breaks the `stow-deploy` flag parsing pattern (`while [[
+"${1:-}" == --* ]]`), which consumes flags first, then treats remaining positional args. **Flags must come before the
+positional argument** for consistency with `stow-deploy`.
 
 ### Core Flow
 
 1. **Pre-flight** -- Verify `.gitignore` contains `scripts/sync/incoming/`, check dependencies
-2. **Validate** -- Regex-validate host alias, check SSH config (`ssh -G`), verify connectivity (`ssh -o
-   BatchMode=yes ... true`)
+2. **Validate** -- Regex-validate host alias, check SSH config (`ssh -G`), verify connectivity (`ssh -o BatchMode=yes
+   ... true`)
 3. **Discover** -- Single SSH session: find all repos, discover all config files, emit NUL-delimited file list
 4. **Diff** -- If prior sync exists (sentinel present), show `diff -ru` between old staging and incoming files
 5. **Transfer** -- Pull discovered files via single `find | tar` pipeline (or rsync `--files-from`) into temp dir
@@ -86,21 +95,21 @@ come before the positional argument** for consistency with `stow-deploy`.
 
 ### Target Files
 
-| File | Location | Discovery |
-|------|----------|-----------|
-| `CLAUDE.md` | Repo root | Direct check |
-| `AGENT.md` | Repo root + subdirs | Recursive, prune vendored dirs |
-| `AGENTS.md` | Repo root + subdirs | Recursive, prune vendored dirs |
-| `.claude/settings.local.json` | Repo `.claude/` dir | Direct check |
-| `.claude/CLAUDE.md` | Repo `.claude/` dir | Direct check |
-| `.claude/commands/*.md` | Repo `.claude/commands/` dir | Direct check (glob) |
-| `.claude/agents/*.md` | Repo `.claude/agents/` dir | Direct check (glob) |
+| File                          | Location                     | Discovery                      |
+| ----------------------------- | ---------------------------- | ------------------------------ |
+| `CLAUDE.md`                   | Repo root                    | Direct check                   |
+| `AGENT.md`                    | Repo root + subdirs          | Recursive, prune vendored dirs |
+| `AGENTS.md`                   | Repo root + subdirs          | Recursive, prune vendored dirs |
+| `.claude/settings.local.json` | Repo `.claude/` dir          | Direct check                   |
+| `.claude/CLAUDE.md`           | Repo `.claude/` dir          | Direct check                   |
+| `.claude/commands/*.md`       | Repo `.claude/commands/` dir | Direct check (glob)            |
+| `.claude/agents/*.md`         | Repo `.claude/agents/` dir   | Direct check (glob)            |
 
 ### Research Insights: Expanded .claude/ Scope
 
-Claude Code supports custom slash commands (`.claude/commands/*.md`) and agent definitions
-(`.claude/agents/*.md`). These represent high-value per-project configuration that is arguably more useful to sync
-than `settings.local.json`. The expanded scope captures these automatically.
+Claude Code supports custom slash commands (`.claude/commands/*.md`) and agent definitions (`.claude/agents/*.md`).
+These represent high-value per-project configuration that is arguably more useful to sync than `settings.local.json`.
+The expanded scope captures these automatically.
 
 ### Staging Directory Structure
 
@@ -128,8 +137,8 @@ Repo paths are relative to `~/dev/` to avoid name collisions (e.g., `work/api/` 
 
 ### SSH Compatibility
 
-- Always pass `-o RemoteCommand=none -o RequestTTY=no` to override any per-host interactive settings
-  (e.g., hosts with `RemoteCommand tmux ...` would hang without this)
+- Always pass `-o RemoteCommand=none -o RequestTTY=no` to override any per-host interactive settings (e.g., hosts with
+  `RemoteCommand tmux ...` would hang without this)
 - Pre-validate host alias with `ssh -G <host>` before attempting connection
 - Use existing SSH config (named hosts, `~/.ssh/brett_ed25519` key)
 
@@ -141,8 +150,8 @@ Repo paths are relative to `~/dev/` to avoid name collisions (e.g., `work/api/` 
 SSH_OPTS=(-o RemoteCommand=none -o RequestTTY=no -o ConnectTimeout=10)
 ```
 
-**Use SSH ControlMaster** to multiplex all SSH operations over a single connection. This eliminates the overhead
-of multiple TCP handshakes and SSH key exchanges:
+**Use SSH ControlMaster** to multiplex all SSH operations over a single connection. This eliminates the overhead of
+multiple TCP handshakes and SSH key exchanges:
 
 ```bash
 ctrl_dir=$(mktemp -d)
@@ -182,8 +191,7 @@ The `-o BatchMode=yes` prevents password prompts (which would hang in a script).
 
 ### Research Insights: Security -- Input Validation
 
-The host alias is a user-provided CLI argument passed directly to SSH. **Validate it** to prevent command
-injection:
+The host alias is a user-provided CLI argument passed directly to SSH. **Validate it** to prevent command injection:
 
 ```bash
 if [[ ! "$host" =~ ^[a-zA-Z0-9._-]+$ ]]; then
@@ -192,8 +200,8 @@ if [[ ! "$host" =~ ^[a-zA-Z0-9._-]+$ ]]; then
 fi
 ```
 
-Additionally, verify the host resolves to a non-default configuration via `ssh -G` output parsing (check that
-`hostname` is not the literal alias, which would indicate no matching SSH config entry).
+Additionally, verify the host resolves to a non-default configuration via `ssh -G` output parsing (check that `hostname`
+is not the literal alias, which would indicate no matching SSH config entry).
 
 ### `--base-dir` Sanitization
 
@@ -213,8 +221,8 @@ The `--base-dir` argument is interpolated into remote `find` commands. **Sanitiz
 
 ### Research Insights: Discovery Depth Limitation
 
-The `maxdepth 3` limit means repos at `~/dev/org/team/project/` (depth 4) are missed. Document this limitation
-in `--help` output. Workaround: `--base-dir ~/dev/org/team` narrows the search scope.
+The `maxdepth 3` limit means repos at `~/dev/org/team/project/` (depth 4) are missed. Document this limitation in
+`--help` output. Workaround: `--base-dir ~/dev/org/team` narrows the search scope.
 
 ### AGENT.md / AGENTS.md Recursive Search
 
@@ -223,9 +231,9 @@ in `--help` output. Workaround: `--base-dir ~/dev/org/team` narrows the search s
 
 ### Research Insights: Extended Prune List
 
-Add commonly missed directories: `__pycache__`, `.tox`, `.mypy_cache`, `.pytest_cache`, `coverage`, `.next`,
-`.nuxt`, `.cache`, `.terraform`, `pkg`. Define the prune list as an **array variable** at the top of the script
-for maintainability:
+Add commonly missed directories: `__pycache__`, `.tox`, `.mypy_cache`, `.pytest_cache`, `coverage`, `.next`, `.nuxt`,
+`.cache`, `.terraform`, `pkg`. Define the prune list as an **array variable** at the top of the script for
+maintainability:
 
 ```bash
 PRUNE_DIRS=(node_modules vendor .venv target build dist .git __pycache__ .tox .mypy_cache .pytest_cache coverage .next .nuxt .cache .terraform pkg)
@@ -242,25 +250,24 @@ quicker than multiple rsyncs. If not for all repos at once, then at the remote r
 
 #### Why Batch Beats Per-Repo
 
-| Approach | SSH Connections | Overhead | Best For |
-|----------|----------------|----------|----------|
-| Per-repo rsync (original plan) | N (one per repo) | High: N TCP handshakes + N rsync negotiations | Large files, incremental sync |
-| Per-repo rsync + ControlMaster | 1 TCP, N rsync sessions | Medium: N rsync negotiations over one TCP | Incremental sync with connection reuse |
-| Single `find \| tar` pipeline | 1 TCP, 1 session | **Minimal**: one streaming transfer | **Small text files (our case)** |
-| rsync `--files-from` | 1 TCP, 1 rsync session | Low: one rsync with file list | Mix of small and large files |
+| Approach                       | SSH Connections         | Overhead                                      | Best For                               |
+| ------------------------------ | ----------------------- | --------------------------------------------- | -------------------------------------- |
+| Per-repo rsync (original plan) | N (one per repo)        | High: N TCP handshakes + N rsync negotiations | Large files, incremental sync          |
+| Per-repo rsync + ControlMaster | 1 TCP, N rsync sessions | Medium: N rsync negotiations over one TCP     | Incremental sync with connection reuse |
+| Single `find \| tar` pipeline  | 1 TCP, 1 session        | **Minimal**: one streaming transfer           | **Small text files (our case)**        |
+| rsync `--files-from`           | 1 TCP, 1 rsync session  | Low: one rsync with file list                 | Mix of small and large files           |
 
-For this use case (5-50 repos, 1-10 small text config files each, total payload likely under 1 MB), either the
-**tar pipeline** or **rsync `--files-from`** approach is appropriate. Both reduce the operation to 1-2 SSH
-sessions total.
+For this use case (5-50 repos, 1-10 small text config files each, total payload likely under 1 MB), either the **tar
+pipeline** or **rsync `--files-from`** approach is appropriate. Both reduce the operation to 1-2 SSH sessions total.
 
-**Performance oracle recommendation:** `rsync --files-from` is the best balance of simplicity and performance
-(2 SSH sessions: 1 discover + 1 transfer). The tar pipeline saves one SSH invocation but couples discovery and
-transfer, making error handling and path remapping harder. The marginal 100-200ms savings is not worth the
-added complexity at this scale.
+**Performance oracle recommendation:** `rsync --files-from` is the best balance of simplicity and performance (2 SSH
+sessions: 1 discover + 1 transfer). The tar pipeline saves one SSH invocation but couples discovery and transfer, making
+error handling and path remapping harder. The marginal 100-200ms savings is not worth the added complexity at this
+scale.
 
-**Simplicity reviewer counterpoint:** Ubuntu always ships rsync (`ubuntu-minimal` dependency). The tar fallback
-is YAGNI -- if rsync is missing, that indicates a broken deployment worth investigating, not something to
-silently paper over. **Use rsync. One code path. Fail if missing.**
+**Simplicity reviewer counterpoint:** Ubuntu always ships rsync (`ubuntu-minimal` dependency). The tar fallback is YAGNI
+-- if rsync is missing, that indicates a broken deployment worth investigating, not something to silently paper over.
+**Use rsync. One code path. Fail if missing.**
 
 #### Recommended Architecture: Two-Phase Single-Session
 
@@ -330,13 +337,13 @@ ssh "${SSH_OPTS[@]}" "$host" '...' |  # NUL-delimited file list
 rsync -avz --files-from=- -0 -e "ssh ${SSH_OPTS[*]}" "$host:$base_dir/" "$tmpdir/"
 ```
 
-The `--files-from=-` reads from stdin, `-0` expects NUL-delimited input. This runs a **single rsync session**
-over the ControlMaster connection with an exact file list -- no per-file negotiation waste.
+The `--files-from=-` reads from stdin, `-0` expects NUL-delimited input. This runs a **single rsync session** over the
+ControlMaster connection with an exact file list -- no per-file negotiation waste.
 
 #### Implementation Decision: Choose One Transfer Mechanism
 
-Two viable options exist. **Choose one, not both** (per simplicity reviewer: two code paths that must produce
-identical results is a maintenance burden with no payoff):
+Two viable options exist. **Choose one, not both** (per simplicity reviewer: two code paths that must produce identical
+results is a maintenance burden with no payoff):
 
 **Option A: `rsync --files-from` (recommended)**
 
@@ -363,19 +370,18 @@ If rsync is missing on the remote, fail with `FATAL:` and `EXIT_DEPENDENCY` rath
 The user asked whether `diff3` would be better than `diff` or `colordiff`. The answer is **no -- diff3 solves a
 different problem**.
 
-| Tool | Purpose | Applicable? |
-|------|---------|-------------|
-| `diff` | Two-way file/directory comparison | **Yes** -- comparing old staging vs new staging |
-| `colordiff` | Color wrapper around `diff` | **Yes** -- improves readability, optional enhancement |
-| `diff3` | Three-way merge (mine, older, yours) | **No** -- requires a common ancestor file |
+| Tool        | Purpose                              | Applicable?                                           |
+| ----------- | ------------------------------------ | ----------------------------------------------------- |
+| `diff`      | Two-way file/directory comparison    | **Yes** -- comparing old staging vs new staging       |
+| `colordiff` | Color wrapper around `diff`          | **Yes** -- improves readability, optional enhancement |
+| `diff3`     | Three-way merge (mine, older, yours) | **No** -- requires a common ancestor file             |
 
-`diff3` is designed for merge conflict resolution: given three versions of a file (your version, the common
-ancestor, and their version), it produces a merged output with conflict markers. This is the algorithm behind
-`git merge`.
+`diff3` is designed for merge conflict resolution: given three versions of a file (your version, the common ancestor,
+and their version), it produces a merged output with conflict markers. This is the algorithm behind `git merge`.
 
 For this use case (comparing the previous sync snapshot against the current remote state), there are only **two
-versions**: old staging and new files. There is no common ancestor. Standard `diff -ru` (unified recursive diff)
-is the correct tool.
+versions**: old staging and new files. There is no common ancestor. Standard `diff -ru` (unified recursive diff) is the
+correct tool.
 
 **Implementation:**
 
@@ -391,25 +397,27 @@ fi
 
 ### Research Insights: Atomic Replacement with Sentinel
 
-The original plan's lifecycle had an ambiguity: "show diff between old and new" implies new files exist locally,
-but they haven't been pulled yet at diff time. The corrected lifecycle:
+The original plan's lifecycle had an ambiguity: "show diff between old and new" implies new files exist locally, but
+they haven't been pulled yet at diff time. The corrected lifecycle:
 
 1. Pull new files into a **temp directory** (`mktemp -d` within `scripts/sync/`)
 2. If prior sync exists **and** `.sync-complete` sentinel is present:
-   - Show `diff -ru` between old staging dir and temp dir
-   - If sentinel is absent: `WARNING: prior sync was incomplete, skipping diff`
-3. Atomically replace: `mv "$staging_dir" "${staging_dir}.old" && mv "$tmpdir" "$staging_dir"`
-4. Clean up: `rm -rf "${staging_dir}.old"`
-5. Write `.sync-complete` sentinel to `"$staging_dir/.sync-complete"`
+
+- Show `diff -ru` between old staging dir and temp dir
+- If sentinel is absent: `WARNING: prior sync was incomplete, skipping diff`
+
+1. Atomically replace: `mv "$staging_dir" "${staging_dir}.old" && mv "$tmpdir" "$staging_dir"`
+2. Clean up: `rm -rf "${staging_dir}.old"`
+3. Write `.sync-complete` sentinel to `"$staging_dir/.sync-complete"`
 
 The sentinel file prevents misleading diffs against partially-transferred data from interrupted prior runs.
 
-**Simplicity reviewer counterpoint:** The in-script diff lifecycle adds temp directory management, sentinel
-logic, first-run detection, and cleanup edge cases. Consider dropping it entirely: write files directly to
-staging, let the operator use `diff -r` or a file browser manually. First sync and re-sync follow the same
-code path. The diff is only useful if you re-sync frequently; if you review files immediately after syncing,
-the diff is redundant. **Decision: keep the diff lifecycle** (the value of seeing what changed since last sync
-justifies the complexity, but keep it simple -- temp dir + rename + sentinel is the minimum viable approach).
+**Simplicity reviewer counterpoint:** The in-script diff lifecycle adds temp directory management, sentinel logic,
+first-run detection, and cleanup edge cases. Consider dropping it entirely: write files directly to staging, let the
+operator use `diff -r` or a file browser manually. First sync and re-sync follow the same code path. The diff is only
+useful if you re-sync frequently; if you review files immediately after syncing, the diff is redundant. **Decision: keep
+the diff lifecycle** (the value of seeing what changed since last sync justifies the complexity, but keep it simple --
+temp dir + rename + sentinel is the minimum viable approach).
 
 ### `--dry-run` Behavior
 
@@ -434,13 +442,12 @@ The original plan listed `--dry-run` in the usage line but never defined its beh
 
 ### Research Insights: Privacy Defense in Depth
 
-1. **Gitignore pre-flight check**: The script must verify `scripts/sync/incoming/` is in `.gitignore` before
-   running. Refuse to proceed if not. This prevents accidental commits during development/testing.
+1. **Gitignore pre-flight check**: The script must verify `scripts/sync/incoming/` is in `.gitignore` before running.
+   Refuse to proceed if not. This prevents accidental commits during development/testing.
 2. **Double-safety from global gitignore**: The global gitignore at `~/.config/git/ignore` already ignores
-   `**/CLAUDE.md`, `**/AGENT.md`, `**/AGENTS.md`, `**/.claude/settings.local.json`. This means even if the
-   repo-level `.gitignore` entry were missed, most files would still be hidden from `git status`. However, this
-   also means **`git diff` cannot be used to review staged files** -- review must use `diff`, `cat`, or a file
-   browser directly.
+   `**/CLAUDE.md`, `**/AGENT.md`, `**/AGENTS.md`, `**/.claude/settings.local.json`. This means even if the repo-level
+   `.gitignore` entry were missed, most files would still be hidden from `git status`. However, this also means **`git
+   diff` cannot be used to review staged files** -- review must use `diff`, `cat`, or a file browser directly.
 3. **`.gitignore` update must be the first commit** in the implementation PR, before any sync testing occurs.
 4. **Staging directory permissions**: Create with `chmod 700` to prevent other users from reading synced configs.
 
@@ -449,12 +456,12 @@ The original plan listed `--dry-run` in the usage line but never defined its beh
 - `#!/usr/bin/env bash` with `set -euo pipefail`
 - Exit codes aligned with `stow-deploy` for shared categories:
 
-  | Code | Name | Meaning |
-  |------|------|---------|
-  | 2 | `EXIT_USAGE` | Bad arguments or flags (matches `stow-deploy`) |
-  | 3 | `EXIT_DEPENDENCY` | Missing required tools (matches `stow-deploy`) |
-  | 4 | `EXIT_SSH` | SSH connection or authentication failure |
-  | 5 | `EXIT_TRANSFER` | File transfer failure |
+| Code | Name              | Meaning                                        |
+| ---- | ----------------- | ---------------------------------------------- |
+| 2    | `EXIT_USAGE`      | Bad arguments or flags (matches `stow-deploy`) |
+| 3    | `EXIT_DEPENDENCY` | Missing required tools (matches `stow-deploy`) |
+| 4    | `EXIT_SSH`        | SSH connection or authentication failure       |
+| 5    | `EXIT_TRANSFER`   | File transfer failure                          |
 
 - Error prefixes: `FATAL:`, `ERROR:`, `WARNING:`, `NOTE:` to stderr
 
@@ -475,10 +482,10 @@ From `stow-deploy` and documented learnings:
 - **Header comment**: Brief description, rationale for single-file design, usage line
 - **Section separators**: Use `# --- Section Name ---` format (matching `stow-deploy`)
 - **REPO_ROOT derivation**: `REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"`
-- **Target file list and prune list as arrays** at script top (single source of truth, with cross-reference
-  comment to the global gitignore)
-- **200-line threshold**: Script will likely exceed 200 lines. Add a header comment acknowledging this is
-  intentional (matching `stow-deploy` precedent of self-contained single file for operational reliability)
+- **Target file list and prune list as arrays** at script top (single source of truth, with cross-reference comment to
+  the global gitignore)
+- **200-line threshold**: Script will likely exceed 200 lines. Add a header comment acknowledging this is intentional
+  (matching `stow-deploy` precedent of self-contained single file for operational reliability)
 - **`--help` flag**: Add basic usage output (gap in both `stow-deploy` and the original plan)
 
 ### Research Insights: Cross-Platform Shell Idioms (from docs/solutions/)
@@ -491,33 +498,33 @@ From the documented learnings in this repo:
 - **Tool existence**: Use `command -v tool >/dev/null 2>&1` (never `which`)
 - **Avoid `sed -i`**: BSD vs GNU incompatibility. Use parameter expansion for simple substitutions
 - **Avoid `grep -oP`**: macOS BSD grep lacks PCRE. Use `sed -n 's/.../p'` for extraction
-- **`$HOME` not hardcoded paths**: Never use `/Users/brett/` or `/home/brett/`
-- **Non-interactive remote shells**: When running `ssh host 'command'`, zsh sources only `.zshenv`. If the
-  remote command needs `$PATH` or other env vars, rely on the `.zshenv` -> `.profile` chain
-- **Subshell variable loss**: Avoid `cmd | while read` when accumulating results -- use process substitution
-  (`while read ... < <(cmd)`) or temp files instead
+- **`$HOME` not hardcoded paths**: Never use `/Users/<you>/` or `/home/<you>/`
+- **Non-interactive remote shells**: When running `ssh host 'command'`, zsh sources only `.zshenv`. If the remote
+  command needs `$PATH` or other env vars, rely on the `.zshenv` -> `.profile` chain
+- **Subshell variable loss**: Avoid `cmd | while read` when accumulating results -- use process substitution (`while
+  read ... < <(cmd)`) or temp files instead
 - **Bash 3.2**: If the script runs on macOS with `/bin/bash`, avoid `declare -A` (associative arrays), and use
-  `"${arr[@]+"${arr[@]}"}"` for empty array safety under `set -u`. However, since we use `#!/usr/bin/env bash`
-  and Homebrew bash is 5.x, this is a minor concern.
+  `"${arr[@]+"${arr[@]}"}"` for empty array safety under `set -u`. However, since we use `#!/usr/bin/env bash` and
+  Homebrew bash is 5.x, this is a minor concern.
 
 ### Edge Cases
 
-| Scenario | Handling |
-|----------|----------|
-| `~/dev/` doesn't exist on remote | `NOTE:` message, exit 0 |
-| No repos with config files found | `NOTE:` message, exit 0 |
-| SSH connection failure | `FATAL:` message, exit `EXIT_SSH` |
-| Partial transfer failure | Report successes and failures, exit `EXIT_TRANSFER` |
-| Empty config files | Sync with `WARNING:` in summary |
-| Binary/locked git-crypt files | Skip with `WARNING:` (detect via `grep -qI` + git-crypt header) |
-| `scripts/sync/incoming/` not in `.gitignore` | `FATAL:` message, refuse to run |
-| Prior sync incomplete (no sentinel) | `WARNING:`, skip diff, re-sync from scratch |
-| rsync exit code 24 (files vanished) | `WARNING:`, treat as partial success |
-| Concurrent execution (same host) | Race on staging dir; recommend documenting as limitation for v1 |
-| Symlinked config files on remote | Preserve symlinks (rsync default `-l`); do not follow with `-L` |
-| Neither rsync nor tar on remote | `FATAL:` message, exit `EXIT_DEPENDENCY` |
-| Repo path with spaces/special chars | NUL-delimited `find -print0` + `read -d ''` throughout |
-| Host alias with shell metacharacters | Regex validation: `^[a-zA-Z0-9._-]+$` |
+| Scenario                                     | Handling                                                        |
+| -------------------------------------------- | --------------------------------------------------------------- |
+| `~/dev/` doesn't exist on remote             | `NOTE:` message, exit 0                                         |
+| No repos with config files found             | `NOTE:` message, exit 0                                         |
+| SSH connection failure                       | `FATAL:` message, exit `EXIT_SSH`                               |
+| Partial transfer failure                     | Report successes and failures, exit `EXIT_TRANSFER`             |
+| Empty config files                           | Sync with `WARNING:` in summary                                 |
+| Binary/locked git-crypt files                | Skip with `WARNING:` (detect via `grep -qI` + git-crypt header) |
+| `scripts/sync/incoming/` not in `.gitignore` | `FATAL:` message, refuse to run                                 |
+| Prior sync incomplete (no sentinel)          | `WARNING:`, skip diff, re-sync from scratch                     |
+| rsync exit code 24 (files vanished)          | `WARNING:`, treat as partial success                            |
+| Concurrent execution (same host)             | Race on staging dir; recommend documenting as limitation for v1 |
+| Symlinked config files on remote             | Preserve symlinks (rsync default `-l`); do not follow with `-L` |
+| Neither rsync nor tar on remote              | `FATAL:` message, exit `EXIT_DEPENDENCY`                        |
+| Repo path with spaces/special chars          | NUL-delimited `find -print0` + `read -d ''` throughout          |
+| Host alias with shell metacharacters         | Regex validation: `^[a-zA-Z0-9._-]+$`                           |
 
 ### Research Insights: Transfer Security
 
@@ -540,8 +547,8 @@ tar xzf - --no-same-permissions --no-same-owner -C "$tmpdir"
 
 ### Research Insights: Remote Discovery as Heredoc
 
-Pass the discovery logic as a heredoc to `ssh host bash -s` rather than building inline command strings. This
-avoids multi-level quoting issues and makes the remote logic readable and testable:
+Pass the discovery logic as a heredoc to `ssh host bash -s` rather than building inline command strings. This avoids
+multi-level quoting issues and makes the remote logic readable and testable:
 
 ```bash
 ssh "${SSH_OPTS[@]}" "$host" bash -s -- "$base_dir" << 'REMOTE_SCRIPT'
@@ -551,17 +558,17 @@ REMOTE_SCRIPT
 
 ## System-Wide Impact
 
-- **Interaction graph**: Script is standalone. No callbacks, hooks, or chained processes. Staging area is passive
-  (no auto-adopt).
-- **Error propagation**: SSH and transfer errors are caught and reported. `set -e` ensures no silent failures.
-  Distinct exit codes allow wrapping scripts to distinguish failure types. Critical SSH commands use explicit
-  error checking rather than relying solely on `set -e`.
+- **Interaction graph**: Script is standalone. No callbacks, hooks, or chained processes. Staging area is passive (no
+  auto-adopt).
+- **Error propagation**: SSH and transfer errors are caught and reported. `set -e` ensures no silent failures. Distinct
+  exit codes allow wrapping scripts to distinguish failure types. Critical SSH commands use explicit error checking
+  rather than relying solely on `set -e`.
 - **State lifecycle risks**: Staging area uses atomic temp-dir-then-rename pattern (matching `stow-deploy`'s
   `resolve_tree_fold`). Interrupted transfers leave only a temp dir that the next run cleans up via `trap`. The
   `.sync-complete` sentinel prevents misleading diffs against partial data.
 - **API surface parity**: No other interfaces expose this functionality.
-- **Integration test scenarios**: SSH connectivity mocking is complex; focus bats tests on argument parsing,
-  exit codes, and discovery logic (mock SSH output). Consider extracting discovery logic into a testable function.
+- **Integration test scenarios**: SSH connectivity mocking is complex; focus bats tests on argument parsing, exit codes,
+  and discovery logic (mock SSH output). Consider extracting discovery logic into a testable function.
 
 ## Acceptance Criteria
 
@@ -573,8 +580,7 @@ REMOTE_SCRIPT
 - [ ] Repo paths in staging are relative to `~/dev/` (no name collisions)
 - [ ] SSH hosts with `RemoteCommand` are handled via `-o RemoteCommand=none -o RequestTTY=no`
 - [ ] Host alias is regex-validated and pre-validated with `ssh -G` + connectivity check before connecting
-- [ ] Re-syncing shows diff of old vs new before replacing staging (only when sentinel confirms prior sync
-  completeness)
+- [ ] Re-syncing shows diff of old vs new before replacing staging (only when sentinel confirms prior sync completeness)
 - [ ] `scripts/sync/incoming/` is added to `.gitignore` (first commit in PR)
 - [ ] Script pre-flight checks that `.gitignore` entry exists before running
 - [ ] Exit codes align with `stow-deploy` for shared categories (USAGE=2, DEPENDENCY=3)
@@ -582,8 +588,8 @@ REMOTE_SCRIPT
 - [ ] `--base-dir` flag allows overriding `~/dev/` default with input sanitization
 - [ ] `--dry-run` flag lists discoverable files without transferring
 - [ ] Script passes ShellCheck
-- [ ] Bats tests cover argument validation, exit codes, and input sanitization
-  (`tests/claude-sync-args.bats`, `tests/claude-sync-discovery.bats`)
+- [ ] Bats tests cover argument validation, exit codes, and input sanitization (`tests/claude-sync-args.bats`,
+  `tests/claude-sync-discovery.bats`)
 - [ ] All remote paths handled with NUL-delimited I/O (`-print0` / `read -d ''`)
 - [ ] SSH ControlMaster used for connection reuse across discovery + transfer phases
 - [ ] Atomic staging replacement (temp dir + rename) with `.sync-complete` sentinel
@@ -600,14 +606,14 @@ REMOTE_SCRIPT
 
 ## Dependencies & Risks
 
-| Dependency | Status | Risk |
-|------------|--------|------|
-| SSH connectivity to remote | Required | SSH config already works; test host available |
-| `tar` on remote | Required | POSIX standard; always available on Ubuntu |
-| `rsync` on remote | Optional | Only needed if `--rsync` flag is used |
-| `diff` on macOS | Required | Ships with macOS; `colordiff` is optional enhancement |
-| `find` on remote | Required | POSIX standard; always available |
-| `mktemp` on macOS | Required | Ships with macOS (BSD mktemp) |
+| Dependency                 | Status   | Risk                                                  |
+| -------------------------- | -------- | ----------------------------------------------------- |
+| SSH connectivity to remote | Required | SSH config already works; test host available         |
+| `tar` on remote            | Required | POSIX standard; always available on Ubuntu            |
+| `rsync` on remote          | Optional | Only needed if `--rsync` flag is used                 |
+| `diff` on macOS            | Required | Ships with macOS; `colordiff` is optional enhancement |
+| `find` on remote           | Required | POSIX standard; always available                      |
+| `mktemp` on macOS          | Required | Ships with macOS (BSD mktemp)                         |
 
 **Risks:**
 
@@ -615,8 +621,8 @@ REMOTE_SCRIPT
 - SSH `RemoteCommand` on certain host aliases -- mitigated by override flags in `SSH_OPTS`
 - Privacy leakage if `.gitignore` update is forgotten -- mitigated by pre-flight check that refuses to run
 - `maxdepth 3` misses deeply nested repos -- mitigated by documenting limitation and `--base-dir` workaround
-- Concurrent execution could corrupt staging -- mitigated by documenting as v1 limitation (atomic replacement
-  reduces window)
+- Concurrent execution could corrupt staging -- mitigated by documenting as v1 limitation (atomic replacement reduces
+  window)
 
 ## Sources & References
 
@@ -640,7 +646,10 @@ REMOTE_SCRIPT
 - [GNU diff3 manual](https://www.gnu.org/software/diffutils/manual/html_node/diff3-Merging.html)
 - [Slant: Best Linux diff tools](https://www.slant.co/topics/5882/~linux-diff-tools)
 - [Resilio: How to rsync large numbers of files faster](https://www.resilio.com/blog/rsync-large-number-of-files)
-- [Jeff Geerling: 4x faster sync with rclone vs rsync](https://www.jeffgeerling.com/blog/2025/4x-faster-network-file-sync-rclone-vs-rsync/)
+-
+
+[Jeff Geerling: 4x faster sync with rclone vs rsync](https://www.jeffgeerling.com/blog/2025/4x-faster-network-file-sync-rclone-vs-rsync/)
+
 - [NixCraft: tar over SSH](https://www.cyberciti.biz/faq/howto-use-tar-command-through-network-over-ssh-session/)
 - [CSC Docs: tar + SSH for many small files](https://docs.csc.fi/data/moving/tar_ssh/)
 - [rsync man page -- `--files-from`](https://man7.org/linux/man-pages/man1/rsync.1.html)

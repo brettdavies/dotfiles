@@ -69,9 +69,16 @@ Routing table, per-skill rules, and the `qmd-learnings-researcher` companion-dis
 ## Solutions repo
 
 `docs/solutions/` is a symlink to `~/dev/solutions-docs` (a separate private repo). The consuming repo's `git status`
-shows nothing for it. **After writing there** (e.g. via `/compound`), commit and push in that repo: `cd
-~/dev/solutions-docs && git add -A && git commit -m "docs: …" && git push`. Symlink-recreate command →
-`~/.claude/guides/workflows-and-skills.md`.
+shows nothing for it. **After writing there** (e.g. via `/compound`), commit and push in that repo — but it's a single
+clone that concurrent agents (parallel compounders) share, so committing in it directly races their `git add`/`git
+commit` on the one index. **Commit with `sd-commit-doc`** (dotfiles-provided, on `PATH`): write your doc(s) into
+`docs/solutions/<category>/<slug>.md`, author + `/unslop` a captured-path `/tmp` message (never `ls -t | head -1`, never
+`-m`), then `sd-commit-doc <msg-file> <category>/<slug>.md`. It commits from an isolated detached worktree (never `git
+add -A` the shared index), pushes with fetch/rebase-retry, and fast-forwards the shared clone so it never drifts behind
+origin. **Never** commit directly in the shared clone or amend + force-push it. Script source `~/.local/bin/sd-commit-doc`;
+solo-session exception + symlink-recreate → `~/.claude/guides/workflows-and-skills.md`; rationale →
+`docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
+`.../unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 
 ## Secrets & private identifiers
 
@@ -143,6 +150,15 @@ meaningfully rewritten** — append the LLM-draft → Brett-rewrite swap under t
 dated source-log entry. Compounds over time so the next draft starts closer to landing. Local-only and gitignored by
 design (see the `.context/` rule above).
 
+## Attribution & interpretation
+
+**Never put words in a person's mouth.** Don't state or imply that someone said, framed, meant, wanted, or believes
+something unless it is grounded in a primary source — and when a transcript or recording exists, **verify against it
+before asserting who said what.** Interpretation is welcome, but label it explicitly as yours (`my read`, `inference`,
+`not sourced to X`) and keep it distinct from what the person actually said. Presenting an interpretation as the
+person's own statement — paraphrasing or quoting them into something they did not say — is a serious trust breach, not a
+stylistic slip. Applies to chat, debriefs, plans, notes, and every artifact.
+
 ## CI after push
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse
@@ -162,8 +178,20 @@ link in the chain.** Policy source of truth: the `~/.claude/ci-watch-prompt.sh` 
 
 Prefer CLI tools via Bash over built-in Read/Edit/Grep/Glob (`rg`/`fd`/`jaq`/`ast-grep`; `cat`/`bat`; `sed`/`awk`).
 Install order: brew > bunx/uvx > python3/node. **`trash`, never `rm`/`git rm`** (both denied in `settings.json`). `uv
-run` for ad-hoc Python. `qmd query` for knowledge-base search. Don't manually wrap markdown — the `md-wrap.py` hook
-does. Full preference list (Python bytecode, rtk, gh auth, Rust pre-push) → `~/.claude/guides/cli-tools.md`.
+run` for ad-hoc Python. **Leave no cache or venv artifacts in project trees** (`__pycache__`, `.venv`, `.pytest_cache`,
+`uv.lock`, `*.egg-info`): prevent them, never `.gitignore`-hide them, `trash` any that appear. **Bake the bypass into
+the project, not the machine** — it must stay clean on CI and other machines: pytest cache off in `pyproject.toml`
+(`addopts = "-p no:cacheprovider"`), bytecode off via `python -B` plus `sys.dont_write_bytecode` in the
+entry/`conftest.py`, uv's `.venv/`+`uv.lock` off via `uv run --no-project --with . <script>` (or `--with pytest python
+-B -m pytest`). This machine also exports `PYTHONDONTWRITEBYTECODE=1`/`PYTEST_ADDOPTS` (`config/shell/python.sh`) as a
+safety net that does not travel — don't rely on it in place of the in-project settings. Apply before any `uv
+run`/`pytest` in a repo. `qmd query` for knowledge-base search. Don't manually wrap markdown — the `md-wrap.py` hook
+does. **Playwright browsers are system-provided** by `~/dotfiles` into the shared `$PLAYWRIGHT_BROWSERS_PATH`; never run
+`playwright install` to download them (the node/libuv io_uring extractor deadlocks on this kernel) —
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` stops `bun install` from auto-fetching them (an explicit install still fetches
+missing browsers; the provisioned set is what makes it skip), repos exact-pin the one canonical version, and bumping is
+a dotfiles job. Full preference list (Python cache/venv hygiene, rtk, gh auth, Playwright browsers, Rust pre-push) →
+`~/.claude/guides/cli-tools.md`.
 
 ## Long artifacts → files
 

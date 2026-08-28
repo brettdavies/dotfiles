@@ -37,7 +37,7 @@ free_mib=$(
 # nvidia-smi failed or returned non-numeric output — be conservative and
 # skip the unload rather than risk a spurious stomp.
 case "$free_mib" in
-  ''|*[!0-9]*) exit 0 ;;
+  '' | *[!0-9]*) exit 0 ;;
 esac
 
 if [ "$free_mib" -ge "$MIN_FREE_MIB" ]; then
@@ -50,8 +50,8 @@ fi
 ollama ps 2>/dev/null \
   | awk 'NR>1 && NF>0 {print $1}' \
   | while IFS= read -r model; do
-      [ -n "$model" ] || continue
-      ollama stop "$model" >/dev/null 2>&1 || true
-    done
+    [ -n "$model" ] || continue
+    ollama stop "$model" >/dev/null 2>&1 || true
+  done
 
 exit 0

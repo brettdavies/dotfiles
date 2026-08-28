@@ -1,6 +1,11 @@
 # Brainstorm: QMD Integration into Claude Code
 
-**Date:** 2026-03-24 **Status:** Final
+**Date:** 2026-03-24 **Status:** closed (shipped)
+
+> Closed (audited 2026-05-02) — implementation landed via plan
+> [`docs/plans/2026-03-24-001-feat-qmd-claude-code-integration-plan.md`](../plans/2026-03-24-001-feat-qmd-claude-code-integration-plan.md);
+> all five deliverables (skill, settings.json permission, SessionStart hook, collections, embedding)
+> are live. See that plan and `~/.claude/skills/qmd/SKILL.md` for the shipped surface.
 
 ## What We're Building
 
@@ -24,10 +29,9 @@ running locally via node-llama-cpp with GGUF models.
 
 ### CLI via Bash + Custom Skill + SessionStart Hook
 
-**Rejected: MCP server** — Adds a Bun process + potential node-llama-cpp model memory. QMD's CLI already has
-`--files` and `--json` output modes optimized for agents. The MCP layer makes things *easier* but not *better* — it just
-wraps the same CLI in a structured transport. For a read-only local tool, the indirection isn't worth the resident
-memory.
+**Rejected: MCP server** — Adds a Bun process + potential node-llama-cpp model memory. QMD's CLI already has `--files`
+and `--json` output modes optimized for agents. The MCP layer makes things *easier* but not *better* — it just wraps the
+same CLI in a structured transport. For a read-only local tool, the indirection isn't worth the resident memory.
 
 **Rejected: Marketplace plugin** — Auto-configures MCP + bundles Tobi's generic SKILL.md. Less customizable than a
 tailored skill that understands the compound engineering workflow, collection routing, and learnings-researcher
@@ -48,10 +52,10 @@ status` so Claude knows what's available.
 
 ### 2. New collections to add
 
-| Collection | Path | Pattern | Purpose |
-|------------|------|---------|---------|
-| `solutions` | `~/dev/solutions-docs` | `**/*.md` | Compounded solutions from all projects |
-| `skills` | `~/.claude/skills/` | `**/*.md` | Skill definitions, references, scripts docs |
+| Collection  | Path                   | Pattern   | Purpose                                     |
+| ----------- | ---------------------- | --------- | ------------------------------------------- |
+| `solutions` | `~/dev/solutions-docs` | `**/*.md` | Compounded solutions from all projects      |
+| `skills`    | `~/.claude/skills/`    | `**/*.md` | Skill definitions, references, scripts docs |
 
 Run after adding:
 

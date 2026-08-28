@@ -16,7 +16,7 @@ export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 
 # Homebrew cache (macOS only)
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    export HOMEBREW_CACHE="$XDG_CACHE_HOME/homebrew"
+  export HOMEBREW_CACHE="$XDG_CACHE_HOME/homebrew"
 fi
 
 # ============================================================================
@@ -25,7 +25,7 @@ fi
 
 # Python package managers and tools
 export POETRY_CACHE_DIR="$XDG_CACHE_HOME/pypoetry"
-export PIP_CACHE_DIR="$XDG_CACHE_HOME/pip"  # also set in stow/pip/dot-config/pip/pip.conf
+export PIP_CACHE_DIR="$XDG_CACHE_HOME/pip" # also set in stow/pip/dot-config/pip/pip.conf
 export PIPX_HOME="$XDG_CACHE_HOME/pipx"
 export UV_CACHE_DIR="$XDG_CACHE_HOME/uv"
 # Note: uvx (uv's tool runner) uses the same UV_CACHE_DIR
@@ -53,6 +53,14 @@ export GOPATH="$XDG_CACHE_HOME/go"
 
 export CYPRESS_CACHE_FOLDER="$XDG_CACHE_HOME/cypress"
 export PLAYWRIGHT_BROWSERS_PATH="$XDG_CACHE_HOME/playwright"
+# Browsers are dotfiles-provisioned into the shared cache above via
+# scripts/playwright-browsers-deploy.sh (curl + unzip). This skips Playwright's
+# auto-download during `bun install` (its postinstall), where Node/libuv's
+# io_uring extractor deadlocks on this kernel. It does NOT stop an explicit
+# `playwright install`; the provisioned markers do that. A browser missing from
+# the dotfiles set fails fast ("Executable doesn't exist") instead of wedging;
+# the fix is a dotfiles bump.
+export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 export PUPPETEER_CACHE_DIR="$XDG_CACHE_HOME/puppeteer"
 
 # ============================================================================
@@ -87,7 +95,7 @@ export FIREBASE_CACHE_DIR="$XDG_CACHE_HOME/firebase"
 
 # System/OS caches
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    [ ! -d "$HOMEBREW_CACHE" ] && mkdir -p "$HOMEBREW_CACHE"
+  [ ! -d "$HOMEBREW_CACHE" ] && mkdir -p "$HOMEBREW_CACHE"
 fi
 
 # Python caches

@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# Git-hook prose gate over the `unslop` scorer, machine-provided so repos wire
+# it with one guarded hook line instead of carrying gate scripts. Ratchet
+# model: only markdown in the change being committed or pushed is scored.
+#
+#   unslop-gate staged [options]   score staged *.md (pre-commit)
+#   unslop-gate range  [options]   score *.md in the outgoing push (pre-push;
+#                                  reads the "<local-ref> <local-sha>
+#                                  <remote-ref> <remote-sha>" lines git
+#                                  supplies on stdin)
+#
+# Options:
+#   --exempt <glob>   repo-policy path exemption, repeatable (shell glob
+#                     matched against the repo-relative path)
+#   --only <glob>     score only matching paths, repeatable; lets a repo run a
+#                     stricter second pass over one tree
+#   --threshold <n>   failing score for this invocation (scorer default: 20;
+#                     1 = any finding fails, e.g. zero em-dash tolerance)
+#   --base <ref>      merge-base ref for brand-new branches in range mode
+#                     (default: origin/HEAD, then origin/dev, then origin/main)
+#
+# Fails OPEN: a missing `unslop` command, or one that cannot score a trivial
+# clean probe, skips the gate with a note. Only a working scorer's threshold
+# verdict (exit 1 at score >= 20) blocks.
+set -euo pipefail
+
+MODE="${1:?usage: unslop-gate staged|range [--exempt <glob>]... [--base <ref>]}"
+shift
+
+EXEMPT=()
+ONLY=()
+BASE_REF=""
+THRESHOLD=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --exempt)
+      EXEMPT+=("${2:?--exempt needs a glob}")
+      shift 2
+      ;;
+    --only)
+      ONLY+=("${2:?--only needs a glob}")
+      shift 2
+      ;;
+    --threshold)
+      THRESHOLD="${2:?--threshold needs a number}"
+      shift 2
+      ;;
+    --base)
+      BASE_REF="${2:?--base needs a ref}"
+      shift 2
+      ;;
+    *)
+      echo "unslop-gate: unknown option '$1'" >&2
+      exit 2
+      ;;
+  esac
+done
+
+ROOT="$(git rev-parse --show-toplevel)"
+ZERO=0000000000000000000000000000000000000000
+
+if ! command -v unslop >/dev/null 2>&1; then
+  echo "unslop-gate: unslop not on PATH; skipping prose gate."
+  exit 0
+fi
+if ! printf 'A short clean probe sentence.\n' | unslop --quiet - >/dev/null 2>&1; then
+  echo "unslop-gate: unslop present but not working; skipping prose gate."
+  exit 0
+fi
+
+default_base() {
+  local ref
+  for ref in origin/HEAD origin/dev origin/main; do
+    if git rev-parse --verify --quiet "$ref" >/dev/null; then
+      echo "$ref"
+      return
+    fi
+  done
+  echo "$ZERO"
+}
+
+collect_range_files() {
+  local local_ref local_sha remote_ref remote_sha base fallback
+  fallback="${BASE_REF:-$(default_base)}"
+  # shellcheck disable=SC2034 # ref names unused; sha positions matter
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    # Blank or truncated lines (git supplies none when a push has nothing
+    # deliverable, e.g. every ref rejected) must not become empty revisions.
+    [ -z "$local_sha" ] || [ -z "$remote_sha" ] && continue
+    [ "$local_sha" = "$ZERO" ] && continue
+    if [ "$remote_sha" = "$ZERO" ]; then
+      [ "$fallback" = "$ZERO" ] && continue
+      base=$(git merge-base "$local_sha" "$fallback" 2>/dev/null || echo "$ZERO")
+      [ "$base" = "$ZERO" ] && continue
+    else
+      base="$remote_sha"
+    fi
+    git diff --name-only --diff-filter=ACMR "$base" "$local_sha" -- '*.md'
+  done
+}
+
+case "$MODE" in
+  staged) FILES=$(git diff --cached --name-only --diff-filter=ACMR -- '*.md') ;;
+  range) FILES=$(collect_range_files | sort -u) ;;
+  *)
+    echo "unslop-gate: unknown mode '$MODE'" >&2
+    exit 2
+    ;;
+esac
+
+is_exempt() {
+  local f="$1" g
+  for g in "${EXEMPT[@]+"${EXEMPT[@]}"}"; do
+    # shellcheck disable=SC2254 # glob expansion of the pattern is the point
+    case "$f" in $g) return 0 ;; esac
+  done
+  return 1
+}
+
+in_only() {
+  local f="$1" g
+  [ "${#ONLY[@]}" -eq 0 ] && return 0
+  for g in "${ONLY[@]}"; do
+    # shellcheck disable=SC2254 # glob expansion of the pattern is the point
+    case "$f" in $g) return 0 ;; esac
+  done
+  return 1
+}
+
+SCORE_ARGS=(--quiet)
+[ -n "$THRESHOLD" ] && SCORE_ARGS+=(--threshold "$THRESHOLD")
+
+FAILED=0
+SCORED=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  in_only "$f" || continue
+  is_exempt "$f" && continue
+  [ -f "$ROOT/$f" ] || continue
+  SCORED=$((SCORED + 1))
+  if ! unslop "${SCORE_ARGS[@]}" "$ROOT/$f" >/dev/null 2>&1; then
+    echo "unslop-gate: $f"
+    unslop ${THRESHOLD:+--threshold "$THRESHOLD"} "$ROOT/$f" 2>/dev/null | sed 's/^/  /' || true
+    FAILED=1
+  fi
+done <<<"$FILES"
+
+if [ "$FAILED" -ne 0 ]; then
+  echo "unslop-gate: prose gate failed (score >= ${THRESHOLD:-20}); recast the flagged lines or see \`unslop --list-rules\`."
+  exit 1
+fi
+echo "unslop-gate: prose gate clean ($SCORED markdown file(s) scored)."

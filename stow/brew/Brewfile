@@ -39,6 +39,12 @@ brew "ast-grep"
 brew "yq"
 brew "markdownlint-cli2"
 
+# Shell formatter backing the auto-format PostToolUse hook in
+# stow/claude/dot-claude/auto-format.sh, which guards on `command -v shfmt` and
+# fails open. Without the binary the hook silently skips every shell file, so a
+# machine missing it formats nothing and reports no error.
+brew "shfmt"
+
 # Agent token compression — `rtk` PreToolUse hook for Claude Code lives in
 # stow/claude/dot-claude/settings.json. PR #62 installed the hook; this
 # line installs the binary so the hook actually runs on every machine.

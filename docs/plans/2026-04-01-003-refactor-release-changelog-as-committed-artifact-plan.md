@@ -3,7 +3,21 @@ title: "refactor: Adopt changelog-as-committed-artifact release process"
 type: refactor
 status: completed
 date: 2026-04-01
+completed: 2026-04-01
+release: 2026.04.01
 ---
+
+## Post-ship notes (audited 2026-05-02)
+
+The release-process refactor shipped in release
+[`2026.04.01`](https://github.com/brettdavies/dotfiles/releases/tag/2026.04.01) and has now driven five subsequent
+releases (`2026.04.01`, `2026.04.15`, `2026.04.22`, `2026.05.02`) without regression — `cliff.toml` carries the CalVer
+`tag_pattern` and `[remote.github]` block; `.github/workflows/release.yml` extracts notes from committed `CHANGELOG.md`
+via awk; no more bot changelog commits land on `main`.
+
+Deviation worth flagging: Unit 3 created `RELEASING.md`, but that file was **renamed to `RELEASES.md`** in release
+[`2026.04.15`](https://github.com/brettdavies/dotfiles/releases/tag/2026.04.15) (PR #35) to match the canonical layout
+shared across brettdavies repos. The current source of truth is `RELEASES.md` at the repo root.
 
 # refactor: Adopt changelog-as-committed-artifact release process
 
@@ -246,11 +260,11 @@ tag creation.
 
 ## Risks & Dependencies
 
-| Risk | Mitigation |
-|------|------------|
-| generate-changelog.sh branch detection won't match CalVer | Always pass `--tag YYYY.MM.DD` explicitly |
+| Risk                                                                                       | Mitigation                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| generate-changelog.sh branch detection won't match CalVer                                  | Always pass `--tag YYYY.MM.DD` explicitly                                                                                                                  |
 | Merging development into release branch brings unsigned bot commits from prior main merges | The release branch is from main; development merge is only to get commits visible for git-cliff. The PR squash merge creates a clean signed commit on main |
-| Existing releases (2026.03.12-2026.04.01) duplicated by git-cliff | `--unreleased --prepend` only adds new content, never touches existing sections |
+| Existing releases (2026.03.12-2026.04.01) duplicated by git-cliff                          | `--unreleased --prepend` only adds new content, never touches existing sections                                                                            |
 
 ## Sources & References
 
@@ -264,12 +278,12 @@ tag creation.
 
 ## GSTACK REVIEW REPORT
 
-| Review | Trigger | Why | Runs | Status | Findings |
-|--------|---------|-----|------|--------|----------|
-| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
-| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (PLAN) | 2 issues, 0 critical gaps |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| Review        | Trigger               | Why                             | Runs | Status       | Findings                  |
+| ------------- | --------------------- | ------------------------------- | ---- | ------------ | ------------------------- |
+| CEO Review    | `/plan-ceo-review`    | Scope & strategy                | 0    | —            | —                         |
+| Codex Review  | `/codex review`       | Independent 2nd opinion         | 0    | —            | —                         |
+| Eng Review    | `/plan-eng-review`    | Architecture & tests (required) | 1    | CLEAR (PLAN) | 2 issues, 0 critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps                      | 0    | —            | —                         |
 
 - **UNRESOLVED:** 0
 - **VERDICT:** ENG CLEARED — ready to implement

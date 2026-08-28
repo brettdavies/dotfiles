@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# sd-commit-doc — commit and push docs/solutions file(s) safely from a shared clone.
+#
+# The solutions repo (~/dev/solutions-docs, symlinked as docs/solutions/ in every
+# repo) is one clone that parallel compounding agents share. Committing in it
+# directly races their staging on the single .git/index and HEAD, and because
+# agents commit from throwaway worktrees the clone's own branch never advances,
+# so its checkout drifts behind origin until already-pushed docs resurface as
+# phantom changes the nightly autocommit re-commits and strands.
+#
+# This helper isolates the commit in a detached worktree (own index), pushes with
+# a rebase-retry, then fast-forwards the shared clone so it stays current.
+#
+# Usage: sd-commit-doc <msg-file> <repo-relative-path>...
+#   <msg-file>            commit message file, already authored and /unslop'd
+#                         (Conventional Commits, no AI attribution)
+#   <repo-relative-path>  file(s) you wrote, relative to the solutions repo root
+#                         (e.g. workflow-issues/foo.md); must already exist there
+#
+# Env: SD_DIR overrides the solutions repo path (default ~/dev/solutions-docs).
+#
+# Rationale:
+#   docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md
+#   docs/solutions/workflow-issues/unattended-autocommit-on-shared-clone-must-sync-then-rebase.md
+set -euo pipefail
+
+die() {
+  echo "sd-commit-doc: $*" >&2
+  exit 1
+}
+
+[[ $# -ge 2 ]] || die "usage: sd-commit-doc <msg-file> <repo-relative-path>..."
+msg=$1
+shift
+[[ -f $msg ]] || die "message file not found: $msg"
+
+SD=${SD_DIR:-$HOME/dev/solutions-docs}
+[[ -d $SD/.git ]] || die "not a solutions git repo: $SD"
+
+branch=main
+for f in "$@"; do
+  [[ $f == /* ]] && die "path must be repo-relative, not absolute: $f"
+  [[ -f $SD/$f ]] || die "file not found under $SD: $f"
+done
+
+git -C "$SD" fetch --quiet origin "$branch"
+
+wt=$(mktemp -d)/sd-wt
+cleanup_wt() {
+  git -C "$SD" worktree remove --force "$wt" 2>/dev/null || true
+  git -C "$SD" worktree prune 2>/dev/null || true
+}
+trap cleanup_wt EXIT
+
+git -C "$SD" worktree add --quiet --detach "$wt" "origin/$branch"
+
+# Snapshot only the named files into the isolated worktree and stage just those.
+for f in "$@"; do
+  mkdir -p "$wt/$(dirname "$f")"
+  cp "$SD/$f" "$wt/$f"
+  git -C "$wt" add -- "$f"
+done
+
+git -C "$wt" commit --quiet --file "$msg"
+git -C "$wt" show --stat HEAD
+
+# Push; if origin advanced during the run, rebase the one commit and retry once.
+if ! git -C "$wt" push --quiet origin "HEAD:$branch" 2>/dev/null; then
+  git -C "$SD" fetch --quiet origin "$branch"
+  git -C "$wt" rebase "origin/$branch"
+  git -C "$wt" push --quiet origin "HEAD:$branch"
+fi
+
+cleanup_wt
+trap - EXIT
+
+# Fast-forward the shared checkout so it never drifts behind origin. The files
+# just committed still sit in $SD as untracked/modified copies and would block a
+# fast-forward; their content is on origin now, so discard those copies first.
+git -C "$SD" fetch --quiet origin "$branch"
+if ! git -C "$SD" merge --ff-only --quiet "origin/$branch" 2>/dev/null; then
+  git -C "$SD" checkout -q -- "$@" 2>/dev/null || true   # revert tracked-modified copies
+  git -C "$SD" clean -fq -- "$@" >/dev/null 2>&1 || true # remove untracked-new copies
+  git -C "$SD" merge --ff-only --quiet "origin/$branch" 2>/dev/null \
+    || echo "sd-commit-doc: pushed OK; shared checkout not fast-forwarded (diverged or busy) — nightly sync will reconcile" >&2
+fi
+
+echo "sd-commit-doc: committed and pushed $# file(s) to $SD (origin/$branch)"

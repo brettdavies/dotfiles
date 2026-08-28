@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Machine-level entry point for the unslop prose scorer, so repo hooks and
+# scripts call `unslop` without knowing where the skill lives or revendoring
+# it. Resolves through the deployed skill surface (~/.claude/skills), which
+# tracks the skill's source repo; callers must fail open when this command is
+# absent or exits 127.
+set -euo pipefail
+
+SCORER="$HOME/.claude/skills/unslop/scripts/score.py"
+
+if [ ! -x "$SCORER" ]; then
+  echo "unslop: scorer not installed at ~/.claude/skills/unslop" >&2
+  exit 127
+fi
+
+exec "$SCORER" "$@"

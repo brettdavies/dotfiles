@@ -9,19 +9,20 @@
 TOOLS_ATIME_CARGO=1
 
 _cargo_emit_crate() {
-  local crate=$1; shift
+  local crate=$1
+  shift
   local bins=("$@")
   local bin_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
   local max=0 own_kb=0 b a sz target
   for b in "${bins[@]}"; do
     [[ -e "$bin_dir/$b" ]] || continue
     a=$(atime_of "$bin_dir/$b") || continue
-    (( a > max )) && max=$a
+    ((a > max)) && max=$a
     target=$(readlink -f "$bin_dir/$b" 2>/dev/null || printf '%s' "$bin_dir/$b")
     sz=$(du -sk "$target" 2>/dev/null | awk '{print $1}')
-    own_kb=$(( own_kb + ${sz:-0} ))
+    own_kb=$((own_kb + ${sz:-0}))
   done
-  (( max == 0 )) && return
+  ((max == 0)) && return
   emit_row cargo "$max" "$crate" 1 "$own_kb" "$own_kb"
 }
 
@@ -51,21 +52,27 @@ cargo_actions() { echo "u:uninstall"; }
 # matches the crate. Crude but adequate for the typical 1:1 case.
 cargo_measure() {
   local b="${CARGO_HOME:-$HOME/.cargo}/bin/$1"
-  [[ -e "$b" ]] || { echo 0; return; }
+  [[ -e "$b" ]] || {
+    echo 0
+    return
+  }
   du -sk "$(readlink -f "$b" 2>/dev/null || echo "$b")" 2>/dev/null | awk '{print $1+0}'
 }
 
 cargo_act() {
   local crate=$1 action=$2
   case "$action" in
-    u|uninstall)
+    u | uninstall)
       if [[ "${DRYRUN:-true}" == "true" ]]; then
         echo "DRY-RUN: cargo uninstall $crate"
         return 0
       fi
       cargo uninstall "$crate"
       ;;
-    *) echo "cargo_act: unknown action $action" >&2; return 1 ;;
+    *)
+      echo "cargo_act: unknown action $action" >&2
+      return 1
+      ;;
   esac
 }
 

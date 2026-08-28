@@ -2,16 +2,24 @@
 set -euo pipefail
 
 # Provision Playwright browser launch on Ubuntu/Debian dev hosts so the browse
-# tool and Playwright e2e "just work" after a fresh clone or reprovision.
+# tool and Playwright e2e "just work" after a fresh clone or reprovision. This
+# is the single entrypoint for the whole "provision Playwright" flow.
 #
-# Two independent things gate whether Playwright's bundled browsers LAUNCH:
+# Three independent things gate whether Playwright's bundled browsers LAUNCH:
+#
+#   0. The canonical browser BINARIES in the shared cache
+#      ($PLAYWRIGHT_BROWSERS_PATH). ALWAYS provisioned by this script via
+#      scripts/playwright-browsers-deploy.sh (curl + unzip, user-space, no
+#      sudo), so `playwright install` in any repo is a no-op. That helper
+#      bypasses node's extractor, which deadlocks on this kernel's io_uring
+#      filesystem backend; see its header and docs/runbooks for the details.
+#      Without the binaries: browserType.launch "Executable doesn't exist".
 #
 #   1. The AppArmor userns profile for Chromium (ALWAYS deployed by this script
 #      via scripts/apparmor-deploy.sh, plus a boot unit so it survives reboots).
 #      Without it Chromium's sandbox fails with:
 #        FATAL:sandbox/linux/services/credentials.cc Check failed: Permission denied
-#      This is the only thing the browse tool needs. It is light, so it is the
-#      default.
+#      This is the only thing the browse tool needs beyond the binaries.
 #
 #   2. Browser system libraries (apt), installed ONLY when you ask, because they
 #      are heavy (WebKit pulls ~180 packages / ~380 MB). Without them the
@@ -25,9 +33,9 @@ set -euo pipefail
 #        --all      : both.
 #
 # Run as your NORMAL user (not via sudo): apparmor-deploy.sh is invoked with
-# sudo explicitly, and `playwright install --with-deps` escalates to sudo for
-# apt on its own. Idempotent — re-run any time (e.g. after a browser version
-# bump). On non-Linux it is a no-op.
+# sudo explicitly, and the apt-deps step escalates to sudo on its own. The
+# browser-binary provisioning is user-space. Idempotent — re-run any time
+# (e.g. after a browser version bump). On non-Linux it is a no-op.
 #
 # Usage:
 #   scripts/playwright-deps-deploy.sh                 # AppArmor profile + boot wiring
@@ -42,9 +50,12 @@ want_webkit=0
 for arg in "$@"; do
   case "$arg" in
     --chromium) want_chromium=1 ;;
-    --webkit)   want_webkit=1 ;;
-    --all)      want_chromium=1; want_webkit=1 ;;
-    -h|--help)
+    --webkit) want_webkit=1 ;;
+    --all)
+      want_chromium=1
+      want_webkit=1
+      ;;
+    -h | --help)
       sed -n '3,33p' "$0"
       exit 0
       ;;
@@ -68,6 +79,11 @@ if [ "$(id -u)" -eq 0 ]; then
   exit 1
 fi
 
+# --- 0. Browser binaries (always; user-space curl + unzip, no sudo) ---
+
+echo "NOTE: provisioning the canonical Playwright browser binaries (curl + unzip)…"
+"$REPO_ROOT/scripts/playwright-browsers-deploy.sh"
+
 # --- 1. AppArmor profile + boot wiring (always; this is what the browse tool needs) ---
 
 echo "NOTE: deploying the Chromium AppArmor profile + boot unit (sudo)…"
@@ -87,4 +103,4 @@ if [ "$want_chromium" -eq 1 ] || [ "$want_webkit" -eq 1 ]; then
   bun x playwright install --with-deps "${browsers[@]}"
 fi
 
-echo "OK: Playwright browser launch provisioned (apparmor=yes chromium-deps=$want_chromium webkit-deps=$want_webkit)"
+echo "OK: Playwright browser launch provisioned (binaries=yes apparmor=yes chromium-deps=$want_chromium webkit-deps=$want_webkit)"

@@ -7,6 +7,7 @@
   "permissions": {
     "allow": [
       "Bash(./.githooks/pre-push)",
+      "Bash(/home/brett/.claude/skills/unslop/scripts/score.py *)",
       "Bash(actionlint *)",
       "Bash(alias:*)",
       "Bash(anc:*)",
@@ -201,7 +202,7 @@
       "Bash(~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh:*)",
       "Bash(~/.claude/skills/rust-tool-release/scripts/generate-completions.sh:*)",
       "Bash(~/.claude/skills/tailscale/scripts/ts-api.sh:*)",
-      "Bash(python3 ~/.claude/skills/unslop/scripts/score.py *)",
+      "Bash(~/.claude/skills/unslop/scripts/score.py *)",
       "Bash(~/.claude/skills/x-api/scripts/extract-endpoints.sh:*)",
       "Bash(~/obsidian-vault/Areas/infrastructure/scripts/sync-to-pool.sh:*)",
       "mcp__gbrain__get_brain_identity",
@@ -325,9 +326,7 @@
       "Bash(perl -pi -e 's#\\\\Q[`docs/architecture/voice-enforcement.md`]\\(./docs/architecture/voice-enforcement.md\\)\\\\E#`docs/architecture/voice-enforcement.md`#g' RELEASES.md RELEASES-RATIONALE.md)",
       "Bash(perl -pi -e 's#\\\\Q[`docs/architecture/`]\\(docs/architecture/\\)\\\\E#`docs/architecture/`#g' PRODUCT.md)",
       "Bash(tailscale serve *)",
-      "Bash(caddy *)",
-      "Bash(ssh-keygen -lf ~/.ssh/brett_ed25519.pub)",
-      "Bash(ssh-keygen -lf ~/.ssh/brett_ed25519)"
+      "Bash(caddy *)"
     ],
     "deny": [
       "Bash(env:*)",
@@ -343,7 +342,6 @@
     ],
     "ask": [
       "Bash(apt:*)",
-      "Bash(bun run:*)",
       "Bash(docker:*)",
       "Bash(gh pr create *)",
       "Bash(gh pr edit *)",
@@ -354,7 +352,6 @@
       "Bash(mv:*)",
       "Bash(op item *)",
       "Bash(pkill:*)",
-      "Bash(python3:*)",
       "Bash(python:*)",
       "Bash(rclone bisync --resync *)",
       "Bash(rclone delete *)",
@@ -364,7 +361,6 @@
       "Bash(scp:*)",
       "Bash(sg docker *)",
       "Bash(supabase:*)",
-      "Bash(uv run:*)",
       "Bash(wget:*)",
       "Bash(wrangler d1 delete *)",
       "Bash(wrangler d1 execute *)",
@@ -376,14 +372,14 @@
       "Bash(wrangler r2 bucket delete *)",
       "Bash(wrangler r2 object delete *)",
       "Bash(wrangler secret delete *)",
-      "Bash(wrangler workflows delete *)",
-      "Bash(xargs:*)"
+      "Bash(wrangler workflows delete *)"
     ],
     "defaultMode": "acceptEdits",
     "additionalDirectories": [
       "/tmp"
     ]
   },
+  "model": "opus",
   "skillOverrides": {
     "disk-cleanup": "off",
     "gstack-upgrade": "off",
@@ -459,6 +455,16 @@
           {
             "type": "command",
             "command": "rtk hook claude"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/model-tier-guard.sh",
+            "timeout": 5
           }
         ]
       }
@@ -542,6 +548,16 @@
             "command": "~/.claude/bash-env-path.sh"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/solutions-clone-autosync.sh",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -597,5 +613,6 @@
   },
   "effortLevel": "xhigh",
   "awaySummaryEnabled": false,
-  "autoUpdatesChannel": "stable"
+  "autoUpdatesChannel": "stable",
+  "skipDangerousModePermissionPrompt": true
 }
