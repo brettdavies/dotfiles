@@ -226,3 +226,48 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 # Startup latency budgets live in tests/perf/shell-startup-perf.bats, outside
 # this directory's glob, so they are measured on a quiet machine rather than at
 # the tail of the full suite.
+
+# ---------------------------------------------------------------------------
+# config/shell/caches.sh: Rust install roots stay at their stock defaults
+# ---------------------------------------------------------------------------
+#
+# Relocating CARGO_HOME/RUSTUP_HOME takes effect only in contexts that source
+# the shell chain. rustup-init, systemd user units, git hooks and the agent Bash
+# tool resolve the stock paths regardless, so a relocated install root splits one
+# host into two toolchain views.
+
+@test "caches.sh does not assign CARGO_HOME" {
+  run ! grep -qE '^[[:space:]]*(export[[:space:]]+)?CARGO_HOME=' "$CONFIG_DIR/caches.sh"
+}
+
+@test "caches.sh does not assign RUSTUP_HOME" {
+  run ! grep -qE '^[[:space:]]*(export[[:space:]]+)?RUSTUP_HOME=' "$CONFIG_DIR/caches.sh"
+}
+
+# The `unset` prefix is load-bearing: the suite is often run from a shell that
+# still carries the old exported value, and without it these report on the
+# inherited environment rather than on the file.
+@test "sourcing profile in a fresh shell leaves CARGO_HOME unset" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  run bash -c 'unset CARGO_HOME; . "$HOME/.profile" >/dev/null 2>&1; echo "${CARGO_HOME:-unset}"'
+  [ "$status" -eq 0 ]
+  [ "$output" = "unset" ]
+}
+
+@test "sourcing profile in a fresh shell leaves RUSTUP_HOME unset" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  run bash -c 'unset RUSTUP_HOME; . "$HOME/.profile" >/dev/null 2>&1; echo "${RUSTUP_HOME:-unset}"'
+  [ "$status" -eq 0 ]
+  [ "$output" = "unset" ]
+}
+
+# The ~/.cargo/env block in dot-profile is the only thing that puts cargo on
+# PATH, since caches.sh exports neither install root. Hosts carrying no toolchain
+# have no env file to source, so this is scoped to hosts that have one.
+@test "sourcing profile puts stock ~/.cargo/bin on PATH where a toolchain exists" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  [ -f "$HOME/.cargo/env" ] || skip "no Rust toolchain on this host (~/.cargo/env absent)"
+  run bash -c 'unset CARGO_HOME; . "$HOME/.profile" >/dev/null 2>&1; case ":$PATH:" in *":$HOME/.cargo/bin:"*) echo found ;; *) echo missing ;; esac'
+  [ "$status" -eq 0 ]
+  [ "$output" = "found" ]
+}

@@ -1,7 +1,13 @@
 # shellcheck shell=bash
 # Central package and tool cache directory
 # This file configures environment variables for package manager and tool cache locations
-# All caches are stored under XDG_CACHE_HOME (XDG Base Directory Specification) for easy management and cleanup
+# Caches are stored under XDG_CACHE_HOME (XDG Base Directory Specification) for easy management and cleanup
+#
+# Some entries below relocate an install root rather than a cache (PIPX_HOME, PNPM_HOME, BUN_INSTALL,
+# GOPATH). An install root only relocates safely when every launcher agrees on it, and contexts that
+# never source this chain — systemd user units, cron, git hooks, GUI-launched processes — resolve the
+# stock path regardless of what is set here. Deleting a relocated cache costs a re-download; a
+# relocated install root that only half the machine can see is a split toolchain.
 
 # Set XDG_CACHE_HOME according to XDG Base Directory Specification
 # Defaults to ~/.cache if not already set, allowing users to override if needed
@@ -39,9 +45,11 @@ export YARN_CACHE_FOLDER="$XDG_CACHE_HOME/yarn"
 export PNPM_HOME="$XDG_CACHE_HOME/pnpm"
 export BUN_INSTALL="$XDG_CACHE_HOME/bun"
 
-# Rust package managers
-export CARGO_HOME="$XDG_CACHE_HOME/cargo"
-export RUSTUP_HOME="$XDG_CACHE_HOME/rustup"
+# Rust is absent by design. CARGO_HOME and RUSTUP_HOME are install roots, not caches: rustup-init
+# writes to the stock ~/.cargo and ~/.rustup, and the systemd timer, git hooks and agent tool calls
+# all read them there. Setting them here would apply to interactive shells only, leaving one host
+# with two toolchain sets and two binary directories. Cargo's own caches (registry/, git/) sit
+# inside ~/.cargo and are pruned with `cargo cache`, not by relocation.
 
 # Go cache
 export GOCACHE="$XDG_CACHE_HOME/go-build"
@@ -110,10 +118,6 @@ fi
 [ ! -d "$PNPM_HOME" ] && mkdir -p "$PNPM_HOME"
 [ ! -d "$BUN_INSTALL" ] && mkdir -p "$BUN_INSTALL"
 
-# Rust caches
-[ ! -d "$CARGO_HOME" ] && mkdir -p "$CARGO_HOME"
-[ ! -d "$RUSTUP_HOME" ] && mkdir -p "$RUSTUP_HOME"
-
 # Go caches
 [ ! -d "$GOCACHE" ] && mkdir -p "$GOCACHE"
 [ ! -d "$GOPATH" ] && mkdir -p "$GOPATH"
@@ -126,3 +130,8 @@ fi
 # Platform and runtime caches
 [ ! -d "$DENO_DIR" ] && mkdir -p "$DENO_DIR"
 [ ! -d "$FIREBASE_CACHE_DIR" ] && mkdir -p "$FIREBASE_CACHE_DIR"
+
+# Each line above is a `[ ! -d X ] && mkdir -p X` short-circuit, so the file's exit status is
+# whichever the last one evaluated to — non-zero once that directory exists. Callers that source
+# the chain under `set -e` abort on it, so end on an unconditional success.
+:

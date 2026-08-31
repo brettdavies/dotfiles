@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
 
-# Sources caches.sh to get XDG-aware paths for CARGO_HOME, BUN_INSTALL, etc.
-# shellcheck source=/dev/null
-[ -f ~/dotfiles/stow/shell/caches.sh ] && source ~/dotfiles/stow/shell/caches.sh
-
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/claude"
 CACHE_TTL=3600 # 1 hour
 
@@ -15,7 +11,11 @@ cached() {
   if [ -f "$cache_file" ]; then
     local age now mtime
     now=$(date +%s)
-    mtime=$(stat -f %m "$cache_file" 2>/dev/null) || mtime=$(stat -c %Y "$cache_file" 2>/dev/null) || mtime=0
+    # GNU first. On GNU coreutils `stat -f` means --file-system, so `%m` is read
+    # as a filename operand: it fails, but the file's filesystem report still
+    # goes to stdout. Separate assignments save this one, since the second
+    # overwrites the blob, but the order removes a wasted call and the trap.
+    mtime=$(stat -c %Y "$cache_file" 2>/dev/null) || mtime=$(stat -f %m "$cache_file" 2>/dev/null) || mtime=0
     age=$((now - mtime))
     if [ "$age" -lt "$CACHE_TTL" ]; then
       cat "$cache_file"
@@ -56,8 +56,6 @@ uv tool list 2>/dev/null | to_csv
 echo ''
 echo '--- Rust CLI tools (cargo) ---'
 {
-  # Guard: empty CARGO_HOME would cause `ls "/bin"` to search the wrong path
-  [ -n "$CARGO_HOME" ] && ls "$CARGO_HOME/bin" 2>/dev/null
   [ -d ~/.cargo/bin ] && ls ~/.cargo/bin 2>/dev/null
   # Exclude Rust toolchain binaries — they're not user-installed CLI tools
 } | rg -v '^(cargo|rustc|rustup|rustdoc|rustfmt|rust-gdb|rust-lldb|rust-analyzer|clippy-driver|cargo-clippy|cargo-fmt|cargo-miri|rls|rust-gdbgui)$' | sort -u | to_csv
