@@ -242,10 +242,10 @@ Caddy listens on `127.0.0.1:11500` only and forwards to `127.0.0.1:11434`.
 
 ### Tailscale Serve
 
-`bigdaddy` serves `svc:ollama` over Tailscale Serve as a tailnet service VIP, the single embedding backend for the
-shared gbrain. tailscaled keeps serve config in its own state, but a binding can be dropped by a daemon restart or
-version upgrade while the `AdvertiseServices` pref survives, leaving a service advertised with nothing bound.
-Re-establish the config in one idempotent run (the script fail-fasts if the Caddy proxy above is not up):
+`bigdaddy` serves `svc:ollama` over Tailscale Serve as a tailnet service VIP, the single embedding backend shared across
+the tailnet. tailscaled keeps serve config in its own state, but a binding can be dropped by a daemon restart or version
+upgrade while the `AdvertiseServices` pref survives, leaving a service advertised with nothing bound. Re-establish the
+config in one idempotent run (the script fail-fasts if the Caddy proxy above is not up):
 
 ```bash
 bash ~/dotfiles/scripts/tailscale-serve-setup.sh

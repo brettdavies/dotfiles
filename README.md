@@ -75,40 +75,39 @@ dotfiles/
 Each directory under `stow/` is a package. Files prefixed with `dot-` become dotfiles (`.` prefix) when symlinked via
 `stow --dotfiles`.
 
-| Package              | What it manages                                                                                                                    |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `bash`               | `.bashrc`, `.bash_profile`, `.bash_aliases`                                                                                        |
-| `brew`               | `Brewfile`, `Brewfile.optional`                                                                                                    |
-| `bun`                | `.bunfig.toml`                                                                                                                     |
-| `caam`               | `.caam/` (Claude account rotation config + vault, git-crypt encrypted)                                                             |
-| `caddy`              | `.config/caddy/Caddyfile`, `caddy.service` — loopback proxy fronting Ollama for `svc:ollama` (Host rewrite) (Linux only)           |
-| `claude`             | `.claude/` (settings, hooks, statusline, templates), `.markdownlint-cli2.yaml`                                                     |
-| `codex`              | `.codex/config.toml`                                                                                                               |
-| `codex-proxy`        | systemd user unit for the docker-compose codex-proxy backend (Linux only)                                                          |
-| `cursor`             | `.cursor/rules/`, `extensions.txt`                                                                                                 |
-| `gh`                 | `.config/gh/` (GitHub CLI config), `.local/bin/gh` (merge guard wrapper)                                                           |
-| `ghostty`            | `.config/ghostty/config`                                                                                                           |
-| `git`                | `.gitconfig`, `.config/git/` (ignore, allowed\_signers)                                                                            |
-| `github`             | `.config/github/` (PR template and other repo-workflow assets)                                                                     |
-| `gbrain`             | systemd user units for `gbrain sync` (every 15m) and `gbrain dream` (nightly); config deploys cross-platform, units are Linux-only |
-| `gogcli`             | `.config/gogcli/config.json` — Google Workspace CLI config                                                                         |
-| `launchagent`        | `~/Library/LaunchAgents/` (macOS only)                                                                                             |
-| `lazygit`            | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52                                                                       |
-| `local`              | `.local/bin/` (env, op-ssh-sign-wrapper, tmux-new-session, uuidv7)                                                                 |
-| `micro`              | `.config/micro/settings.json` — editor settings                                                                                    |
-| `obsidian`           | `.config/obsidian/`, systemd service, CLI wrapper (Linux only)                                                                     |
-| `ollama`             | systemd service override binding Ollama to loopback `127.0.0.1:11434`; system-level, stowed into `/etc` with `sudo` (Linux only)   |
-| `opencode`           | `.config/opencode/config.json`                                                                                                     |
-| `opendataloader-pdf` | Socket-activated hybrid PDF server with idle-exit, systemd user units (Linux only)                                                 |
-| `pip`                | `.config/pip/pip.conf`                                                                                                             |
-| `qmd`                | `.local/bin/qmd` wrapper + systemd user units (qmd-serve daemon, embed + update timers, Linux only)                                |
-| `rclone`             | `.config/rclone/`, Box bisync systemd service + timer (Linux only)                                                                 |
-| `rust`               | `rustup-update.service` + `.timer` (nightly rustup self-update, Linux, opt-in)                                                     |
-| `secrets`            | `.secrets` (git-crypt encrypted)                                                                                                   |
-| `ssh`                | `.ssh/config` (git-crypt encrypted)                                                                                                |
-| `tmux`               | `.config/tmux/tmux.conf`                                                                                                           |
-| `yazi`               | `.config/yazi/` — file manager config, keymaps, theme, packages                                                                    |
-| `zsh`                | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                                                                                      |
+| Package              | What it manages                                                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `bash`               | `.bashrc`, `.bash_profile`, `.bash_aliases`                                                                                      |
+| `brew`               | `Brewfile`, `Brewfile.optional`                                                                                                  |
+| `bun`                | `.bunfig.toml`                                                                                                                   |
+| `caam`               | `.caam/` (Claude account rotation config + vault, git-crypt encrypted)                                                           |
+| `caddy`              | `.config/caddy/Caddyfile`, `caddy.service` — loopback proxy fronting Ollama for `svc:ollama` (Host rewrite) (Linux only)         |
+| `claude`             | `.claude/` (settings, hooks, statusline, templates), `.markdownlint-cli2.yaml`                                                   |
+| `codex`              | `.codex/config.toml`                                                                                                             |
+| `codex-proxy`        | systemd user unit for the docker-compose codex-proxy backend (Linux only)                                                        |
+| `cursor`             | `.cursor/rules/`, `extensions.txt`                                                                                               |
+| `gh`                 | `.config/gh/` (GitHub CLI config), `.local/bin/gh` (merge guard wrapper)                                                         |
+| `ghostty`            | `.config/ghostty/config`                                                                                                         |
+| `git`                | `.gitconfig`, `.config/git/` (ignore, allowed\_signers)                                                                          |
+| `github`             | `.config/github/` (PR template and other repo-workflow assets)                                                                   |
+| `gogcli`             | `.config/gogcli/config.json` — Google Workspace CLI config                                                                       |
+| `launchagent`        | `~/Library/LaunchAgents/` (macOS only)                                                                                           |
+| `lazygit`            | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52                                                                     |
+| `local`              | `.local/bin/` (env, op-ssh-sign-wrapper, tmux-new-session, uuidv7)                                                               |
+| `micro`              | `.config/micro/settings.json` — editor settings                                                                                  |
+| `obsidian`           | `.config/obsidian/`, systemd service, CLI wrapper (Linux only)                                                                   |
+| `ollama`             | systemd service override binding Ollama to loopback `127.0.0.1:11434`; system-level, stowed into `/etc` with `sudo` (Linux only) |
+| `opencode`           | `.config/opencode/config.json`                                                                                                   |
+| `opendataloader-pdf` | Socket-activated hybrid PDF server with idle-exit, systemd user units (Linux only)                                               |
+| `pip`                | `.config/pip/pip.conf`                                                                                                           |
+| `qmd`                | `.local/bin/qmd` wrapper + systemd user units (qmd-serve daemon, embed + update timers, Linux only)                              |
+| `rclone`             | `.config/rclone/`, Box bisync systemd service + timer (Linux only)                                                               |
+| `rust`               | `rustup-update.service` + `.timer` (nightly rustup self-update, Linux, opt-in)                                                   |
+| `secrets`            | `.secrets` (git-crypt encrypted)                                                                                                 |
+| `ssh`                | `.ssh/config` (git-crypt encrypted)                                                                                              |
+| `tmux`               | `.config/tmux/tmux.conf`                                                                                                         |
+| `yazi`               | `.config/yazi/` — file manager config, keymaps, theme, packages                                                                  |
+| `zsh`                | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                                                                                    |
 
 Two packages deploy outside the `stow-deploy --all` flow: `caddy` (the Linux-only Ollama proxy host) is stowed
 explicitly with `scripts/stow-deploy caddy`, and `ollama` targets `/etc` rather than `$HOME`, stowed with `sudo stow -t
