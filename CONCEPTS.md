@@ -93,6 +93,12 @@ that establishes PATH, the package-manager prefix, secrets, and the per-tool con
 through its own startup file. It is the authoritative place to set environment for shells, and it does not run for a
 *bare launcher*.
 
+Order within the chain is load-bearing. A per-tool fragment decides whether to apply by testing, at the moment it is
+sourced, whether its tool is reachable on PATH. A fragment reached before the chain has finished assembling PATH
+therefore finds nothing and silently applies none of its configuration, in every shell that did not inherit a populated
+PATH from a parent. Fragments are sourced only after PATH is complete, and the failure this prevents is silent: no error
+is raised, and a shell descended from a working shell behaves correctly regardless, which hides it.
+
 ### Bare launcher
 
 A process that spawns a shell without sourcing any startup file, so it inherits only the PATH and environment its parent
