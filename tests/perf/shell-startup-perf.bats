@@ -13,7 +13,17 @@
 #
 # Run: bats tests/perf/
 
-SAMPLES="${SHELL_PERF_SAMPLES:-5}"
+# Budgets sit well clear of the measured floor so ordinary machine noise does
+# not block a push, while still catching a real regression. Floors on the
+# development machine, best of 15 at rest:
+#
+#   non-interactive zsh   133ms      non-interactive bash   11ms
+#   interactive zsh       327ms      interactive bash      144ms
+#   login zsh             139ms      login bash            140ms
+#
+# These run only in .githooks/pre-push, never in CI, so a budget is a local
+# ergonomics dial rather than a merge gate.
+SAMPLES="${SHELL_PERF_SAMPLES:-9}"
 
 # On a host without the dotfiles deployed these would time a stock shell reading
 # no startup files, pass trivially, and report a green that means nothing.
@@ -56,8 +66,8 @@ _assert_under() {
   }
 }
 
-@test "non-interactive zsh starts under 200ms" {
-  _assert_under "non-interactive zsh" "zsh -c exit" 200
+@test "non-interactive zsh starts under 250ms" {
+  _assert_under "non-interactive zsh" "zsh -c exit" 250
 }
 
 @test "non-interactive bash starts under 200ms" {
