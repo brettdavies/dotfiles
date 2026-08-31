@@ -31,15 +31,7 @@ _CONFIG_DIR="$_DOTFILES_ROOT/config/shell"
 # shellcheck disable=SC2034  # used by .zshenv, .zshrc, .bashrc
 DOTFILES_SHELL_DIR="$_CONFIG_DIR"
 
-if [ -n "$_DOTFILES_ROOT" ] && [ -d "$_CONFIG_DIR" ]; then
-    for _f in "$_CONFIG_DIR"/*.sh; do
-        # shellcheck disable=SC1090
-        [ -f "$_f" ] && . "$_f"
-    done
-    unset _f
-fi
-
-unset _DOTFILES_ROOT _CONFIG_DIR _PROFILE_REAL _PROFILE_SOURCE
+unset _PROFILE_REAL _PROFILE_SOURCE
 
 # Initialize Homebrew/Linuxbrew shell environment
 # Must come before ~/.secrets because secrets use `op read` from Homebrew PATH
@@ -113,6 +105,20 @@ if [ -f "$HOME/.cargo/env" ]; then
     # shellcheck disable=SC1091
     . "$HOME/.cargo/env"
 fi
+
+# Shell helpers, sourced once PATH is complete. These files gate their contents
+# on `command -v <tool>` at source time, so anything sourced before the Homebrew,
+# ~/.local/bin, bun, and cargo entries above silently no-ops in a shell that did
+# not inherit a populated PATH — a launchd-spawned terminal, cron, or `ssh host cmd`.
+if [ -n "$_DOTFILES_ROOT" ] && [ -d "$_CONFIG_DIR" ]; then
+    for _f in "$_CONFIG_DIR"/*.sh; do
+        # shellcheck disable=SC1090
+        [ -f "$_f" ] && . "$_f"
+    done
+    unset _f
+fi
+
+unset _DOTFILES_ROOT _CONFIG_DIR
 
 # GPG terminal for commit signing (shared across all shells)
 # tty fails in non-interactive shells (cron, some SSH commands) — suppress gracefully
