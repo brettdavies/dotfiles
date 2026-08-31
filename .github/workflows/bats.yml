@@ -26,7 +26,9 @@ jobs:
         # Pinned rather than apt-installed: several suites use `run !`, which
         # needs bats >= 1.5.0, and the distro package version is whatever the
         # runner image happens to ship.
-        uses: bats-core/bats-action@5b1e60c2ee94cb1b44a616ea4b1f466f9d6e38ef # 4.0.0
+        # The action caches its own install (actions/cache internally), so a warm
+        # run restores rather than clones.
+        uses: bats-core/bats-action@77d6fb60505b4d0d1d73e48bd035b55074bbfb43 # 4.0.0
 
       - name: Install zsh + stow + jq
         # zsh: shell-config.bats syntax-checks dot-zshrc / dot-zshenv / dot-zprofile.
