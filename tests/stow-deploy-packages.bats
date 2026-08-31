@@ -20,29 +20,32 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
   [[ "$shared" == *"local"* ]]
   [[ "$shared" == *"brew"* ]]
   [[ "$shared" == *"opendataloader-pdf"* ]]
-  [[ "$shared" == *"gbrain"* ]]
   [[ "$shared" == *"codex-proxy"* ]]
 }
 
+@test "every SHARED_PACKAGES entry exists as a stow package" {
+  # A name left in the list after its package directory is deleted makes stow
+  # fail at deploy time, on whichever machine runs it next rather than here.
+  shared=$(grep '^SHARED_PACKAGES=' "$SCRIPT" | sed 's/.*(\(.*\))/\1/')
+  missing=""
+  for pkg in $shared; do
+    [ -d "$STOW_DIR/$pkg" ] || missing="$missing $pkg"
+  done
+  [ -z "$missing" ] || {
+    echo "SHARED_PACKAGES names packages with no stow/ directory:$missing"
+    false
+  }
+}
+
 @test "Linux-only case block covers expected packages" {
-  # qmd and gbrain were both removed from this list when they became
-  # cross-platform: file-level OS gating via STOW_FLAGS --ignore drops their
-  # Linux-only systemd units on macOS while their cross-platform content still
-  # deploys. See docs/solutions/architecture-patterns/
-  # cross-platform-stow-package-gating-2026-05-17.md.
+  # qmd is absent from this list because file-level OS gating via STOW_FLAGS
+  # --ignore drops its Linux-only systemd units on macOS while its
+  # cross-platform content still deploys. See docs/solutions/
+  # architecture-patterns/cross-platform-stow-package-gating-2026-05-17.md.
   #
   # codex-proxy stays Linux-only: the proxy runs only on the brain host; macOS
   # clients reach it over the tailnet, so they need neither its config nor units.
   grep -qE 'rclone *\| *obsidian *\| *opendataloader-pdf *\| *codex-proxy *\)' "$SCRIPT"
-}
-
-@test "gbrain ships cross-platform config (deploys on macOS, not Linux-only)" {
-  # gbrain became cross-platform: its dot-gbrain/ config deploys on every OS as
-  # the thin-client brain, while its systemd units (gbrain-sync/dream,
-  # claude-code-archive) drop on macOS via the Darwin --ignore. It must NOT
-  # appear in any Linux-only skip case.
-  [ -f "$STOW_DIR/gbrain/dot-gbrain/config.json" ]
-  ! grep -qE '\| *gbrain *\||\| *gbrain *\)' "$SCRIPT"
 }
 
 @test "STOW_FLAGS always ignores .DS_Store" {
