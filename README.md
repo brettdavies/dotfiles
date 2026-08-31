@@ -102,7 +102,7 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `pip`                | `.config/pip/pip.conf`                                                                                                           |
 | `qmd`                | `.local/bin/qmd` wrapper + systemd user units (qmd-serve daemon, embed + update timers, Linux only)                              |
 | `rclone`             | `.config/rclone/`, Box bisync systemd service + timer (Linux only)                                                               |
-| `rust`               | `rustup-update.service` + `.timer` (nightly rustup self-update, Linux, opt-in)                                                   |
+| `rust`               | `rustup-update.service` + `.timer` (nightly `rustup update stable --no-self-update`, Linux, opt-in)                              |
 | `secrets`            | `.secrets` (git-crypt encrypted)                                                                                                 |
 | `ssh`                | `.ssh/config` (git-crypt encrypted)                                                                                              |
 | `tmux`               | `.config/tmux/tmux.conf`                                                                                                         |
