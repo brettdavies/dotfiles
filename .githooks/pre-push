@@ -4,11 +4,12 @@
 # Every step here runs the same command the matching CI job runs, so a green
 # pre-push means a green pipeline. The step-to-job mapping:
 #
-#   1. lint-shell --all   .github/workflows/shellcheck.yml
-#   2. run-tests --all    .github/workflows/bats.yml
+#   1. lint-shell --all      .github/workflows/shellcheck.yml
+#   2. lint-workflows --all  .github/workflows/shellcheck.yml (same job)
+#   3. run-tests --all       .github/workflows/bats.yml
 #
-# Both commands own their own target lists, and .githooks/pre-commit calls the
-# same two scripts over staged paths, so the three gates cannot drift apart.
+# Each command owns its own target list, and .githooks/pre-commit calls the
+# same three scripts over staged paths, so the three gates cannot drift apart.
 # Adding a CI job means adding a step here that calls the same script.
 #
 # A missing tool skips its step with an install hint rather than failing, so a
@@ -75,7 +76,16 @@ else
   gate_skip "shellcheck (install via \`brew install shellcheck\`)"
 fi
 
-# 2. Bats — .github/workflows/bats.yml
+# 2. actionlint — same CI job as ShellCheck. Ordered after it because actionlint
+#    shells out to shellcheck for `run:` blocks.
+if command -v actionlint >/dev/null 2>&1; then
+  ./scripts/lint-workflows --all || gate_fail "lint-workflows --all"
+  gate_pass "actionlint"
+else
+  gate_skip "actionlint (install via \`brew install actionlint\`)"
+fi
+
+# 3. Bats — .github/workflows/bats.yml
 if command -v bats >/dev/null 2>&1; then
   ./scripts/run-tests --all || gate_fail "run-tests --all"
   gate_pass "bats"

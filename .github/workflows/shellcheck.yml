@@ -1,3 +1,7 @@
+# The job id `shellcheck` is a required status check in both rulesets under
+# .github/rulesets/, so it stays as-is even though the job now covers workflow
+# linting too. Splitting actionlint into its own job would mean registering a
+# new required context; folding it in here keeps it blocking without that.
 name: ShellCheck
 
 on:
@@ -30,3 +34,12 @@ jobs:
         # runs this exact command and .githooks/pre-commit runs the same script
         # over staged paths, so local gates and CI cannot drift apart.
         run: ./scripts/lint-shell --all
+
+      - name: Install actionlint
+        uses: ./.github/actions/setup-actionlint
+
+      - name: Lint workflows
+        # Runs after ShellCheck is on PATH on purpose: actionlint shells out to
+        # shellcheck for `run:` blocks, and without it those checks are skipped
+        # silently rather than failing.
+        run: ./scripts/lint-workflows --all

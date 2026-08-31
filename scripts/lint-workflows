@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Single source of truth for which GitHub Actions files get linted.
+#
+# Consumed by three callers that must not drift apart:
+#   .github/workflows/shellcheck.yml  --all      (CI)
+#   .githooks/pre-push                --all      (mirrors CI)
+#   .githooks/pre-commit              <file>...  (staged workflow files only)
+#
+# Usage:
+#   scripts/lint-workflows --all        lint every workflow in the repo
+#   scripts/lint-workflows FILE...      lint the covered subset of FILE...
+#
+# actionlint reads workflow files only. Composite actions under
+# .github/actions/ are a different schema it does not accept, so passing one is
+# an error rather than a no-op; they are filtered out here instead.
+#
+# actionlint shells out to shellcheck for `run:` blocks, which is how a quoting
+# bug inside a workflow gets caught at all. Without shellcheck on PATH those
+# checks are skipped silently, so a run that reports clean without it is weaker
+# than it looks. This warns rather than fails, because the YAML and expression
+# checks still hold on their own.
+#
+# Exit 0 when everything passes, 1 on any finding, 2 on usage error,
+# 3 when actionlint is not installed.
+
+set -euo pipefail
+
+EXIT_FINDINGS=1
+EXIT_USAGE=2
+EXIT_DEPENDENCY=3
+
+if [ "$#" -eq 0 ]; then
+  echo "usage: $0 --all | $0 FILE..." >&2
+  exit "$EXIT_USAGE"
+fi
+
+if ! command -v actionlint >/dev/null 2>&1; then
+  echo "lint-workflows: actionlint not installed" >&2
+  echo "                install with: brew install actionlint" >&2
+  exit "$EXIT_DEPENDENCY"
+fi
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+if ! command -v shellcheck >/dev/null 2>&1; then
+  echo "lint-workflows: shellcheck absent, so \`run:\` blocks go unchecked" >&2
+fi
+
+# Workflow files only: actionlint's schema is the workflow schema.
+_is_target() {
+  case "$1" in
+    .github/workflows/*.yml | .github/workflows/*.yaml) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ "$1" = "--all" ]; then
+  [ "$#" -eq 1 ] || {
+    echo "lint-workflows: --all takes no other arguments" >&2
+    exit "$EXIT_USAGE"
+  }
+  mapfile -t candidates < <(find .github/workflows -maxdepth 1 -type f \
+    \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | sort)
+else
+  candidates=("$@")
+fi
+
+targets=()
+for f in "${candidates[@]}"; do
+  [ -f "$f" ] || continue
+  _is_target "$f" || continue
+  targets+=("$f")
+done
+
+if [ "${#targets[@]}" -eq 0 ]; then
+  echo "lint-workflows: 0 workflow file(s) to check"
+  exit 0
+fi
+
+if actionlint "${targets[@]}"; then
+  echo "lint-workflows: ${#targets[@]} workflow file(s) clean"
+else
+  exit "$EXIT_FINDINGS"
+fi

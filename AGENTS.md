@@ -247,10 +247,16 @@ This is set during bootstrap (see README) or via `bash .githooks/setup`.
 The hooks exist so a red pipeline is a surprise rather than a routine. Every check is defined once, in a script that all
 three gates call:
 
-| Check      | Definition           | CI job                             | pre-push | pre-commit           |
-| ---------- | -------------------- | ---------------------------------- | -------- | -------------------- |
-| ShellCheck | `scripts/lint-shell` | `.github/workflows/shellcheck.yml` | `--all`  | staged paths         |
-| Bats       | `scripts/run-tests`  | `.github/workflows/bats.yml`       | `--all`  | staged `.bats` files |
+| Check      | Definition               | CI job                             | pre-push | pre-commit            |
+| ---------- | ------------------------ | ---------------------------------- | -------- | --------------------- |
+| ShellCheck | `scripts/lint-shell`     | `.github/workflows/shellcheck.yml` | `--all`  | staged paths          |
+| actionlint | `scripts/lint-workflows` | `.github/workflows/shellcheck.yml` | `--all`  | staged workflow files |
+| Bats       | `scripts/run-tests`      | `.github/workflows/bats.yml`       | `--all`  | staged `.bats` files  |
+
+actionlint shares the ShellCheck job rather than getting its own. The job id `shellcheck` is a required status check in
+both rulesets under `.github/rulesets/`, so a separate job would need a new required context registered before it could
+block anything. It also runs after ShellCheck is on PATH deliberately: actionlint delegates `run:` bodies to shellcheck,
+and without it those checks are skipped silently rather than failing.
 
 `pre-push` is the repo-wide mirror: its steps map one-to-one onto CI jobs, and passing it should mean passing the
 pipeline. `pre-commit` runs the same scripts over staged paths only, so it stays fast enough for every commit while
@@ -258,8 +264,8 @@ catching the same class of failure. The two policy checks in `pre-commit` (prote
 equivalent because they govern how a commit is made rather than what is in it.
 
 **Adding a CI job means adding a step to `pre-push` that calls the same script.** Put the target list and per-tool flags
-in the script, never in a hook or a workflow, so the three cannot drift. `tests/lint-shell.bats` and
-`tests/run-tests.bats` cover the dispatchers themselves.
+in the script, never in a hook or a workflow, so the three cannot drift. `tests/lint-shell.bats`,
+`tests/run-tests.bats`, and `tests/lint-workflows.bats` cover the dispatchers themselves.
 
 A missing tool skips its step with an install hint instead of failing, so a machine without the full toolchain can still
 commit and push; CI stays the backstop. `.githooks/lib/report.sh` holds the shared pass/skip/fail output helpers.
