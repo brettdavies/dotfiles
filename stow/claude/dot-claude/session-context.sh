@@ -11,7 +11,11 @@ cached() {
   if [ -f "$cache_file" ]; then
     local age now mtime
     now=$(date +%s)
-    mtime=$(stat -f %m "$cache_file" 2>/dev/null) || mtime=$(stat -c %Y "$cache_file" 2>/dev/null) || mtime=0
+    # GNU first. On GNU coreutils `stat -f` means --file-system, so `%m` is read
+    # as a filename operand: it fails, but the file's filesystem report still
+    # goes to stdout. Separate assignments save this one, since the second
+    # overwrites the blob, but the order removes a wasted call and the trap.
+    mtime=$(stat -c %Y "$cache_file" 2>/dev/null) || mtime=$(stat -f %m "$cache_file" 2>/dev/null) || mtime=0
     age=$((now - mtime))
     if [ "$age" -lt "$CACHE_TTL" ]; then
       cat "$cache_file"
