@@ -39,7 +39,10 @@ hook, or unsure what's installed.
 - **Refactoring:** `ast-grep` or `sed` with find, not Edit with replace_all.
 - CLI tools produce better output for review, compose with pipes, and match how this user works. When in doubt, reach
   for Bash.
-- **File deletion:** `trash` (via Bash), never `rm` or `git rm` (both denied in `settings.json`).
+- **File deletion:** `trash` (via Bash), never `rm` or `git rm` (both denied in `settings.json`). `trash` is a binary on
+  both platforms: the stock `/usr/bin/trash` on macOS, and `trash-cli` from the Brewfile on Linux. Two cleanup paths in
+  `scripts/` keep an explicit `|| rm -rf` fallback for their own temp directories, so a host mid-bootstrap without
+  `trash-cli` yet does not fail the deploy; that is the only sanctioned exception.
 - **Knowledge base search:** use [`qmd`](https://github.com/tobi/qmd) to search the Obsidian vault, solutions-docs, and
   skills collections. Always use `qmd query` (hybrid, ~10s) as the default — it combines BM25 + vector + LLM re-ranking
   and produces significantly better results than `qmd search` alone. Prefer multiple focused queries with 2-3 terms each

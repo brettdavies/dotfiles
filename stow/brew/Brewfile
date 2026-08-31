@@ -82,6 +82,12 @@ brew "defuddle"
 # before forwarding to 127.0.0.1:11434, which keeps Ollama off the network.
 brew "caddy" if OS.linux?
 
+# trash-cli provides the `trash` binary the repo requires instead of rm. macOS
+# ships /usr/bin/trash, so only Linux needs the formula. It has to be a binary
+# rather than a shell alias: scripts, systemd units, git hooks and agent tool
+# calls read no startup files, so an alias leaves them with no way to comply.
+brew "trash-cli" if OS.linux?
+
 # macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
 # but listing them separately documents intent and avoids confusing "not found" warnings.
 brew "terminal-notifier" if OS.mac?

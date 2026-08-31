@@ -65,7 +65,6 @@
       "Bash(for svc:*)",
       "Bash(free:*)",
       "Bash(gh:*)",
-      "Bash(gio trash:*)",
       "Bash(git-cliff:*)",
       "Bash(git-crypt:*)",
       "Bash(git-lfs:*)",
