@@ -6,5 +6,7 @@
 alias lp='lp -d Lunik -o sides=two-sided-long-edge'
 alias lp1='lp -d Lunik -o sides=one-sided'
 
-# Trash — gio trash is the freedesktop.org standard on Linux
-alias trash='gio trash'
+# Trash is a binary, not an alias: trash-cli from the Brewfile, matching the
+# stock /usr/bin/trash on macOS. An alias reaches interactive shells only, so
+# every script, systemd unit, git hook and agent tool call resolved nothing and
+# had no way to honor the repo's ban on rm.
