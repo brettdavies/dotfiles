@@ -22,8 +22,8 @@ many hosts. This repo is as much a reflection of how I work as it is the configu
   `docs/solutions/` corpus capture decisions so they are not re-solved later.
 - **Opinions enforced by tooling** — Conventional Commits, a present-state doc policy, and a 200-line refactor trigger
   are gated by hooks and CI, not left to memory.
-- **AI tooling as infrastructure** — local LLM and agent services (Ollama, qmd, gbrain, the Claude Code session
-  pipeline) are versioned, hardened, and deployed like any other daemon.
+- **AI tooling as infrastructure** — local LLM and agent services (Ollama, qmd) are versioned, hardened, and deployed
+  like any other daemon.
 
 ## Quick Reference
 
@@ -46,11 +46,11 @@ many hosts. This repo is as much a reflection of how I work as it is the configu
 
 ## What This Repo Contains
 
-- **34 stow packages** — shell/editor config (shell, zsh, bash, git, ssh, gh, github, claude, codex, cursor, opencode,
+- **33 stow packages** — shell/editor config (shell, zsh, bash, git, ssh, gh, github, claude, codex, cursor, opencode,
   tmux, tmuxinator, lazygit, micro, yazi, ghostty), package state (brew, bun, pip, local), secrets (secrets, ssh, caam),
-  Linux-only daemons (obsidian, rclone, qmd, opendataloader-pdf, rust, caddy, codex-proxy, gbrain, ollama), and
-  macOS-only (launchagent). See [README.md](README.md#stow-packages) for the full table.
-- **21 shell environment fragments** — sourced automatically by `.profile` from `config/shell/`
+  Linux-only daemons (obsidian, rclone, qmd, opendataloader-pdf, rust, caddy, codex-proxy, ollama), and macOS-only
+  (launchagent). See [README.md](README.md#stow-packages) for the full table.
+- **20 shell environment fragments** — sourced automatically by `.profile` from `config/shell/`
 - **Brewfile + Brewfile.optional** — declarative macOS package lists
 - **git-crypt encrypted secrets** — API keys, SSH config, allowed signers
 - **System-level units and AppArmor profiles** — NAS automount, Playwright userns profile (copy-deployed, not stow)
