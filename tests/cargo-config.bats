@@ -39,6 +39,22 @@ DEPLOY="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
 # Toolchain profile
 # ---------------------------------------------------------------------------
 
+@test "stow-deploy reconciles the rustup profile" {
+  # The flag has to be applied by something, since rustup exposes no env var and
+  # its settings file cannot be stowed. Deploy time is the only hook dotfiles
+  # owns, so a missing block here means the profile silently reverts to whatever
+  # a host was built with.
+  grep -q 'rustup set profile minimal' "$DEPLOY"
+}
+
+@test "the profile reconciliation is gated on the cargo package" {
+  # Ungated it would run on macOS, where rustup is deliberately absent, and
+  # print a misleading install hint on every deploy.
+  run bash -c "grep -A3 'Checking rustup install profile' '$DEPLOY' | grep -q 'command -v rustup'"
+  [ "$status" -eq 0 ]
+  grep -q 'grep -qx "cargo" "\$deployed_file"' "$DEPLOY"
+}
+
 @test "rustup installs the minimal profile" {
   command -v rustup >/dev/null 2>&1 || skip "rustup not installed on this host"
   # The default profile bundles rust-docs, ~800MB of offline HTML per toolchain
