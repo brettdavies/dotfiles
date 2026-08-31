@@ -19,7 +19,7 @@ EXIT_PLATFORM=6     # Platform mismatch (launchagent on Linux)
 
 # Package sets — single source of truth
 # Ordering: secrets first (git-crypt dep), shell (PATH/env), then the rest
-SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew tmux lazygit micro yazi rclone qmd obsidian opendataloader-pdf caam gogcli codex-proxy)
+SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew cargo tmux lazygit micro yazi rclone qmd obsidian opendataloader-pdf caam gogcli codex-proxy)
 DESKTOP_PACKAGES=(ghostty cursor launchagent)
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -290,7 +290,7 @@ for pkg in "$@"; do
   fi
   if [ "$(uname -s)" != "Linux" ]; then
     case "$pkg" in
-      rclone | obsidian | opendataloader-pdf | codex-proxy)
+      rclone | obsidian | opendataloader-pdf | codex-proxy | cargo)
         echo "WARNING: $pkg is Linux-only, skipping on $(uname -s)" >&2
         continue
         ;;

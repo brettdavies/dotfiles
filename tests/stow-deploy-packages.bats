@@ -45,7 +45,10 @@ STOW_DIR="$BATS_TEST_DIRNAME/../stow"
   #
   # codex-proxy stays Linux-only: the proxy runs only on the brain host; macOS
   # clients reach it over the tailnet, so they need neither its config nor units.
-  grep -qE 'rclone *\| *obsidian *\| *opendataloader-pdf *\| *codex-proxy *\)' "$SCRIPT"
+  #
+  # cargo is Linux-only because Rust toolchains are: the workstation carries no
+  # cargo, so a config telling it how to fetch git dependencies has no reader.
+  grep -qE 'rclone *\| *obsidian *\| *opendataloader-pdf *\| *codex-proxy *\| *cargo *\)' "$SCRIPT"
 }
 
 @test "STOW_FLAGS always ignores .DS_Store" {
