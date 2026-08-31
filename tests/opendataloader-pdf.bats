@@ -8,6 +8,11 @@
 #
 # Run: bats tests/opendataloader-pdf.bats
 #
+# `run !` below asserts a command fails. Bats keeps pre-1.5 `run` semantics
+# until a suite opts in, so the declaration is what enables the flag form
+# rather than a newer bats: 1.14 still warns BW02 without it.
+bats_require_minimum_version 1.5.0
+#
 # ---------------------------------------------------------------------------
 # Manual smoke checklist (run on the dev host, one-time, after shipping):
 #
@@ -105,7 +110,7 @@ ENABLE_SCRIPT="$REPO_ROOT/scripts/opendataloader-pdf-enable.sh"
 
 @test "launcher sh wrapper uses HOME (no hardcoded user path)" {
   grep -q '"\$HOME/.local/share/uv/tools/opendataloader-pdf/bin/python"' "$LAUNCHER_SH"
-  ! grep -q '/home/[a-z]*/' "$LAUNCHER_SH"
+  run ! grep -q '/home/[a-z]*/' "$LAUNCHER_SH"
 }
 
 @test "launcher python module defines IdleWatchdog and honors LISTEN_FDS" {

@@ -1,8 +1,28 @@
 #!/usr/bin/env bash
-# Pre-commit hook: block direct commits to protected branches
-# and verify commit signing is enabled.
+# Local CI mirror, scoped to what is being committed.
+#
+# Runs the same checks as .githooks/pre-push through the same scripts, but over
+# staged paths only, so a commit is checked the way CI will check it without
+# paying for a repo-wide sweep on every commit. The step-to-job mapping matches
+# pre-push:
+#
+#   1. lint-shell <staged>       .github/workflows/shellcheck.yml
+#   2. run-tests  <staged .bats> .github/workflows/bats.yml
+#
+# Plus the two policy gates that have no CI equivalent because they are about
+# how a commit is made rather than what is in it: protected-branch and signing.
+#
+# A missing tool skips its step with an install hint rather than failing, so a
+# machine without the full toolchain can still commit; pre-push and CI remain
+# the backstops.
 
 set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# shellcheck source=.githooks/lib/report.sh
+. "$REPO_ROOT/.githooks/lib/report.sh"
 
 branch=$(git symbolic-ref --short HEAD 2>/dev/null || true)
 
@@ -21,3 +41,34 @@ if [ "$gpgsign" != "true" ]; then
   echo "       Run: git config commit.gpgsign true" >&2
   exit 1
 fi
+
+mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACM)
+if [ "${#staged[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+gate_header "Running pre-commit checks..."
+
+# 1. ShellCheck — .github/workflows/shellcheck.yml, staged subset
+if command -v shellcheck >/dev/null 2>&1; then
+  ./scripts/lint-shell "${staged[@]}" || gate_fail "lint-shell (staged)"
+  gate_pass "shellcheck"
+else
+  gate_skip "shellcheck (install via \`brew install shellcheck\`)"
+fi
+
+# 2. Bats — .github/workflows/bats.yml, staged test files only. A test broken by
+#    its own edit surfaces here; the full suite still runs in pre-push.
+mapfile -t staged_bats < <(printf '%s\n' "${staged[@]}" | grep '\.bats$' || true)
+if [ "${#staged_bats[@]}" -gt 0 ]; then
+  if command -v bats >/dev/null 2>&1; then
+    ./scripts/run-tests "${staged_bats[@]}" || gate_fail "run-tests (staged)"
+    gate_pass "bats (${#staged_bats[@]} file(s))"
+  else
+    gate_skip "bats (install via \`brew install bats-core\`)"
+  fi
+else
+  gate_skip "bats (no staged test files)"
+fi
+
+gate_done "Pre-commit checks passed."

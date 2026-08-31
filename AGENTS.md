@@ -211,12 +211,39 @@ git config core.hooksPath .githooks
 
 This is set during bootstrap (see README) or via `bash .githooks/setup`.
 
-| Hook            | Purpose                                                    |
-| --------------- | ---------------------------------------------------------- |
-| `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign = true` |
-| `post-checkout` | Auto-unlocks git-crypt if key is available, chains Git LFS |
-| `post-merge`    | Auto-unlocks git-crypt if key is available, chains Git LFS |
-| `pre-push`      | Chains Git LFS pre-push                                    |
+| Hook            | Purpose                                                            |
+| --------------- | ------------------------------------------------------------------ |
+| `pre-commit`    | Branch + signing policy, then the CI checks scoped to staged files |
+| `post-checkout` | Auto-unlocks git-crypt if key is available, chains Git LFS         |
+| `post-merge`    | Auto-unlocks git-crypt if key is available, chains Git LFS         |
+| `pre-push`      | Full local CI mirror, then chains Git LFS pre-push                 |
+
+### Local gates mirror CI
+
+The hooks exist so a red pipeline is a surprise rather than a routine. Every check is defined once, in a script that all
+three gates call:
+
+| Check      | Definition           | CI job                             | pre-push | pre-commit           |
+| ---------- | -------------------- | ---------------------------------- | -------- | -------------------- |
+| ShellCheck | `scripts/lint-shell` | `.github/workflows/shellcheck.yml` | `--all`  | staged paths         |
+| Bats       | `scripts/run-tests`  | `.github/workflows/bats.yml`       | `--all`  | staged `.bats` files |
+
+`pre-push` is the repo-wide mirror: its steps map one-to-one onto CI jobs, and passing it should mean passing the
+pipeline. `pre-commit` runs the same scripts over staged paths only, so it stays fast enough for every commit while
+catching the same class of failure. The two policy checks in `pre-commit` (protected branch, signing) have no CI
+equivalent because they govern how a commit is made rather than what is in it.
+
+**Adding a CI job means adding a step to `pre-push` that calls the same script.** Put the target list and per-tool flags
+in the script, never in a hook or a workflow, so the three cannot drift. `tests/lint-shell.bats` and
+`tests/run-tests.bats` cover the dispatchers themselves.
+
+**Tool versions are pinned, not just commands.** Mirroring the command is not enough if the two sides run different
+versions of the tool: a ShellCheck older than the Homebrew build flags constructs the local gate accepts, so CI fails on
+a file that just passed. `.github/actions/setup-shellcheck` installs one checksum-verified version for both workflows,
+matching the Homebrew formula.
+
+A missing tool skips its step with an install hint instead of failing, so a machine without the full toolchain can still
+commit and push; CI stays the backstop. `.githooks/lib/report.sh` holds the shared pass/skip/fail output helpers.
 
 ---
 
@@ -234,8 +261,9 @@ Never commit directly to `main`. All work goes through feature branches and PRs.
 
 - **Remote (GitHub):** Rulesets exported to `.github/rulesets/`. Main requires PR + squash merge + signed commits.
   Development requires signed commits.
-- **Local (git hooks):** `.githooks/pre-commit` blocks commits on `main` and verifies `commit.gpgsign = true`. Activated
-  via `core.hooksPath`.
+- **Local (git hooks):** `.githooks/pre-commit` blocks commits on `main` and verifies `commit.gpgsign = true`, then runs
+  the CI checks over staged paths; `.githooks/pre-push` runs the full CI mirror. Activated via `core.hooksPath`. See
+  [Local gates mirror CI](#local-gates-mirror-ci).
 
 ---
 

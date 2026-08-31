@@ -1,12 +1,26 @@
 #!/usr/bin/env bash
-# Pre-push hook: mirror CI checks locally so we catch failures before
-# they fail in GitHub Actions. Mirrors `.github/workflows/shellcheck.yml`
-# and `.github/workflows/bats.yml`.
+# Local CI mirror, repo-wide.
+#
+# Every step here runs the same command the matching CI job runs, so a green
+# pre-push means a green pipeline. The step-to-job mapping:
+#
+#   1. lint-shell --all   .github/workflows/shellcheck.yml
+#   2. run-tests --all    .github/workflows/bats.yml
+#
+# Both commands own their own target lists, and .githooks/pre-commit calls the
+# same two scripts over staged paths, so the three gates cannot drift apart.
+# Adding a CI job means adding a step here that calls the same script.
+#
+# A missing tool skips its step with an install hint rather than failing, so a
+# machine without the full toolchain can still push; CI remains the backstop.
 
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
+
+# shellcheck source=.githooks/lib/report.sh
+. "$REPO_ROOT/.githooks/lib/report.sh"
 
 # Capture push refs from stdin once. git-lfs needs them at the bottom of
 # this hook; the md-only short-circuit needs them to inspect the diff.
@@ -44,61 +58,32 @@ is_md_only_push() {
 }
 
 if is_md_only_push; then
-  echo "pre-push: markdown-only push, skipping shellcheck + bats"
+  gate_skip "markdown-only push, skipping shellcheck + bats"
   if command -v git-lfs >/dev/null 2>&1; then
     printf '%s' "$PUSH_REFS" | git lfs pre-push "$@"
   fi
   exit 0
 fi
 
-# --- ShellCheck (mirrors .github/workflows/shellcheck.yml) ---
+gate_header "Running local CI checks..."
+
+# 1. ShellCheck — .github/workflows/shellcheck.yml
 if command -v shellcheck >/dev/null 2>&1; then
-  echo "pre-push: running shellcheck"
-
-  shellcheck .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push
-  shellcheck --shell=bash config/shell/*.sh
-  shellcheck scripts/stow-deploy
-  shellcheck --shell=bash --exclude=SC1090,SC1091 stow/shell/dot-profile
-
-  # Claude hooks under stow/claude/dot-claude/*.sh (auto-format,
-  # ci-watch-prompt, defuddle-webfetch, heredoc-pr-guard,
-  # session-context, statusline). Match shebang to skip any
-  # non-shell *.sh future entries.
-  while IFS= read -r f; do
-    if head -n1 "$f" | grep -qE '^#!.*\b(sh|bash)\b'; then
-      shellcheck "$f"
-    fi
-  done < <(find stow/claude/dot-claude -maxdepth 1 -type f -name '*.sh')
-
-  # Stow-managed bin helpers — find every executable under stow/<pkg>/dot-local/bin/
-  # that has a sh/bash shebang and shellcheck it. Mirrors the workflow's find-loop.
-  while IFS= read -r f; do
-    if head -n1 "$f" | grep -qE '^#!.*\b(sh|bash)\b'; then
-      shellcheck "$f"
-    fi
-  done < <(find stow -type f -path 'stow/*/dot-local/bin/*')
+  ./scripts/lint-shell --all || gate_fail "lint-shell --all"
+  gate_pass "shellcheck"
 else
-  echo "pre-push: shellcheck not installed — skipping shell linting" >&2
-  echo "         install with: brew install shellcheck" >&2
+  gate_skip "shellcheck (install via \`brew install shellcheck\`)"
 fi
 
-# --- Bats (mirrors .github/workflows/bats.yml) ---
+# 2. Bats — .github/workflows/bats.yml
 if command -v bats >/dev/null 2>&1; then
-  if compgen -G "tests/*.bats" >/dev/null; then
-    echo "pre-push: running bats tests/*.bats"
-    # git hands hooks a GIT_DIR, and from a worktree it is absolute. An
-    # absolute GIT_DIR outranks `-C`, so a test building a fixture with
-    # `git -C "$sandbox"` drives this repository instead of the fixture.
-    # Scrub the git environment for the test run only, so the hook's own
-    # git calls keep resolving through whatever git handed this process.
-    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
-      -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY \
-      bats tests/*.bats
-  fi
+  ./scripts/run-tests --all || gate_fail "run-tests --all"
+  gate_pass "bats"
 else
-  echo "pre-push: bats-core not installed — skipping bats tests" >&2
-  echo "         install with: brew install bats-core" >&2
+  gate_skip "bats (install via \`brew install bats-core\`)"
 fi
+
+gate_done "All checks passed."
 
 # --- Chain Git LFS pre-push hook (core.hooksPath overrides .git/hooks/) ---
 if command -v git-lfs >/dev/null 2>&1; then
