@@ -34,3 +34,35 @@ DEPLOY="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
   run grep -qE '^git-fetch-with-cli = true$' "$HOME/.cargo/config.toml"
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# Toolchain profile
+# ---------------------------------------------------------------------------
+
+@test "rustup installs the minimal profile" {
+  command -v rustup >/dev/null 2>&1 || skip "rustup not installed on this host"
+  # The default profile bundles rust-docs, ~800MB of offline HTML per toolchain
+  # that nothing on a headless host reads. Governs new installs; toolchains
+  # already on disk keep whatever they have until the component is removed.
+  run rustup show profile
+  [ "$status" -eq 0 ]
+  [ "$output" = "minimal" ] || {
+    echo "rustup profile is '$output'; expected minimal (see BOOTSTRAP.md)"
+    false
+  }
+}
+
+@test "no installed toolchain carries rust-docs" {
+  command -v rustup >/dev/null 2>&1 || skip "rustup not installed on this host"
+  local carrying=""
+  while read -r tc; do
+    [ -n "$tc" ] || continue
+    if rustup component list --toolchain "$tc" --installed 2>/dev/null | grep -q '^rust-docs'; then
+      carrying="$carrying $tc"
+    fi
+  done < <(rustup toolchain list 2>/dev/null | awk '{print $1}')
+  [ -z "$carrying" ] || {
+    echo "toolchains still carrying rust-docs:$carrying"
+    false
+  }
+}

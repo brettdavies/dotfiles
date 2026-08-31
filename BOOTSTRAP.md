@@ -224,6 +224,28 @@ Repeat the same arrow to cycle 1/2 → 2/3 → 1/3 width.
 
 ## Linux Server Setup
 
+### Rust toolchains
+
+Rust lives only on the Linux hosts. Set the rustup profile before installing any toolchain:
+
+```bash
+rustup set profile minimal
+```
+
+The default profile bundles `rust-docs`, roughly 800MB of offline HTML per toolchain and 2.4GB across the three pinned
+here. Nothing reads it: the host has no browser, and API lookups go to docs.rs. `minimal` still honors the `components =
+["rustfmt", "clippy"]` line in each repo's `rust-toolchain.toml`, so pinned repos get what they ask for and nothing
+else.
+
+The setting governs new installs. Removing it from toolchains already on disk is a separate step, and `rustup update`
+preserves whatever component set a toolchain currently has:
+
+```bash
+for tc in $(rustup toolchain list | awk '{print $1}'); do
+  rustup component remove rust-docs --toolchain "$tc" 2>/dev/null || true
+done
+```
+
 ### Ollama Host-rewrite proxy (Caddy)
 
 Ollama binds to loopback only (`127.0.0.1:11434`) and 403s any request whose `Host` header is not localhost
