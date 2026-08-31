@@ -224,6 +224,40 @@ Repeat the same arrow to cycle 1/2 → 2/3 → 1/3 width.
 
 ## Linux Server Setup
 
+### Rust toolchains
+
+Rust lives only on the Linux hosts. Install rustup with the minimal profile, so no toolchain ever pulls the docs in the
+first place:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --profile minimal
+```
+
+`scripts/stow-deploy` reconciles the setting on every deploy once the `cargo` package is installed, so a host that
+already has rustup gets it without a manual step, and one someone set back to `default` is repaired. Neither hook helps
+a toolchain that is already on disk, which is why the flag matters more than the cleanup.
+
+There is no environment variable for this. rustup reads the profile from `~/.rustup/settings.toml`, which it rewrites
+itself, so the value can be neither exported from `config/shell` nor stowed: a symlink there would be written through
+into the repo.
+
+A repo can close the gap independently of machine state with `profile = "minimal"` in its `rust-toolchain.toml`, which
+rustup honors when it auto-installs the pinned toolchain.
+
+The default profile bundles `rust-docs`, roughly 800MB of offline HTML per toolchain and 2.4GB across the three pinned
+here. Nothing reads it: the host has no browser, and API lookups go to docs.rs. `minimal` still honors the `components =
+["rustfmt", "clippy"]` line in each repo's `rust-toolchain.toml`, so pinned repos get what they ask for and nothing
+else.
+
+The setting governs new installs. Removing it from toolchains already on disk is a separate step, and `rustup update`
+preserves whatever component set a toolchain currently has:
+
+```bash
+for tc in $(rustup toolchain list | awk '{print $1}'); do
+  rustup component remove rust-docs --toolchain "$tc" 2>/dev/null || true
+done
+```
+
 ### Ollama Host-rewrite proxy (Caddy)
 
 Ollama binds to loopback only (`127.0.0.1:11434`) and 403s any request whose `Host` header is not localhost

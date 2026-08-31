@@ -19,7 +19,7 @@ EXIT_PLATFORM=6     # Platform mismatch (launchagent on Linux)
 
 # Package sets — single source of truth
 # Ordering: secrets first (git-crypt dep), shell (PATH/env), then the rest
-SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew tmux lazygit micro yazi rclone qmd obsidian opendataloader-pdf caam gogcli codex-proxy)
+SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew cargo tmux lazygit micro yazi rclone qmd obsidian opendataloader-pdf caam gogcli codex-proxy)
 DESKTOP_PACKAGES=(ghostty cursor launchagent)
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -290,7 +290,7 @@ for pkg in "$@"; do
   fi
   if [ "$(uname -s)" != "Linux" ]; then
     case "$pkg" in
-      rclone | obsidian | opendataloader-pdf | codex-proxy)
+      rclone | obsidian | opendataloader-pdf | codex-proxy | cargo)
         echo "WARNING: $pkg is Linux-only, skipping on $(uname -s)" >&2
         continue
         ;;
@@ -498,6 +498,37 @@ if grep -qx "qmd" "$deployed_file" 2>/dev/null; then
     else
       echo "  No qmd collections template for $_qmd_platform (not needed)"
     fi
+  fi
+fi
+
+# The rustup install profile decides whether every future toolchain drags in
+# rust-docs, ~800MB of offline HTML per toolchain that a headless host has no
+# reader for. It cannot be set from config/shell: rustup has no environment
+# variable for it. It cannot be stowed either, because the value lives in
+# ~/.rustup/settings.toml, which rustup rewrites — a symlink there would be
+# written through into this repo. Reconciling on deploy is the remaining lever,
+# and it is idempotent, so it also repairs a host someone set back to default.
+#
+# This only governs installs that happen after it runs. A toolchain already on
+# disk keeps the components it has (`rustup component remove rust-docs`), and a
+# machine that installs rustup later wants `rustup-init --profile minimal`.
+# Repos can close the gap independently with `profile = "minimal"` in their
+# rust-toolchain.toml, which rustup honors when it auto-installs the pin.
+if grep -qx "cargo" "$deployed_file" 2>/dev/null; then
+  echo ""
+  echo "==> Checking rustup install profile"
+  if command -v rustup >/dev/null 2>&1; then
+    _rustup_profile=$(rustup show profile 2>/dev/null || echo "")
+    if [ "$_rustup_profile" = "minimal" ]; then
+      echo "  rustup profile already minimal"
+    elif rustup set profile minimal >/dev/null 2>&1; then
+      echo "  Set rustup profile to minimal (was ${_rustup_profile:-unset})"
+    else
+      echo "  WARNING: could not set the rustup profile to minimal" >&2
+    fi
+    unset _rustup_profile
+  else
+    echo "  rustup not installed (install with: rustup-init --profile minimal)"
   fi
 fi
 
