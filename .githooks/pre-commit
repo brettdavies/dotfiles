@@ -6,8 +6,9 @@
 # paying for a repo-wide sweep on every commit. The step-to-job mapping matches
 # pre-push:
 #
-#   1. lint-shell <staged>       .github/workflows/shellcheck.yml
-#   2. run-tests  <staged .bats> .github/workflows/bats.yml
+#   1. lint-shell     <staged>            .github/workflows/shellcheck.yml
+#   2. lint-workflows <staged workflows>  .github/workflows/shellcheck.yml (same job)
+#   3. run-tests      <staged .bats>      .github/workflows/bats.yml
 #
 # Plus the two policy gates that have no CI equivalent because they are about
 # how a commit is made rather than what is in it: protected-branch and signing.
@@ -57,7 +58,21 @@ else
   gate_skip "shellcheck (install via \`brew install shellcheck\`)"
 fi
 
-# 2. Bats — .github/workflows/bats.yml, staged test files only. A test broken by
+# 2. actionlint — same CI job as ShellCheck, staged workflow files only. The
+#    script filters non-workflow paths, so the staged list can be passed whole.
+mapfile -t staged_wf < <(printf '%s\n' "${staged[@]}" | grep '^\.github/workflows/.*\.ya\?ml$' || true)
+if [ "${#staged_wf[@]}" -gt 0 ]; then
+  if command -v actionlint >/dev/null 2>&1; then
+    ./scripts/lint-workflows "${staged_wf[@]}" || gate_fail "lint-workflows (staged)"
+    gate_pass "actionlint (${#staged_wf[@]} file(s))"
+  else
+    gate_skip "actionlint (install via \`brew install actionlint\`)"
+  fi
+else
+  gate_skip "actionlint (no staged workflow files)"
+fi
+
+# 3. Bats — .github/workflows/bats.yml, staged test files only. A test broken by
 #    its own edit surfaces here; the full suite still runs in pre-push.
 mapfile -t staged_bats < <(printf '%s\n' "${staged[@]}" | grep '\.bats$' || true)
 if [ "${#staged_bats[@]}" -gt 0 ]; then

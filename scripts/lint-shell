@@ -65,7 +65,7 @@ _is_target() {
     .githooks/pre-commit | .githooks/post-checkout | .githooks/post-merge | .githooks/pre-push) return 0 ;;
     .githooks/lib/*.sh) return 0 ;;
     config/shell/*.sh) return 0 ;;
-    scripts/stow-deploy | scripts/lint-shell | scripts/run-tests) return 0 ;;
+    scripts/stow-deploy | scripts/lint-shell | scripts/run-tests | scripts/lint-workflows) return 0 ;;
     stow/shell/dot-profile) return 0 ;;
     tests/*.bats) return 0 ;;
     stow/claude/dot-claude/*.sh) _has_shell_shebang "$1" && return 0 || return 1 ;;
@@ -78,7 +78,7 @@ _is_target() {
 _all_targets() {
   printf '%s\n' \
     .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push \
-    scripts/stow-deploy scripts/lint-shell scripts/run-tests stow/shell/dot-profile
+    scripts/stow-deploy scripts/lint-shell scripts/run-tests scripts/lint-workflows stow/shell/dot-profile
   find .githooks/lib -maxdepth 1 -type f -name '*.sh' 2>/dev/null
   find config/shell -maxdepth 1 -type f -name '*.sh'
   find tests -type f -name '*.bats'

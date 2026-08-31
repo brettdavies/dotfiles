@@ -36,6 +36,11 @@ brew "coreutils"
 brew "git-crypt"
 brew "yamllint"
 brew "ast-grep"
+
+# actionlint backs the workflow-lint gate in .githooks/pre-push, .githooks/
+# pre-commit, and .github/workflows/shellcheck.yml, all via scripts/lint-workflows.
+# It shells out to shellcheck for `run:` blocks, so the two travel together.
+brew "actionlint"
 brew "yq"
 brew "markdownlint-cli2"
 
