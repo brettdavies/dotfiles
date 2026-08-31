@@ -138,6 +138,30 @@ with zsh as default shell gets zero environment. See
 `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` for the full zsh vs bash startup file
 reference.
 
+### Supported invocation shapes
+
+The supported set is `{zsh, bash}` x `{login, non-login}` x `{interactive, non-interactive}`. Seven of the eight read at
+least one startup file and must end with a fully assembled `PATH`; the eighth reads nothing by design.
+
+| Shell  | Login | Interactive | Reads                                    | Reached by                                           |
+| ------ | ----- | ----------- | ---------------------------------------- | ---------------------------------------------------- |
+| `zsh`  | yes   | yes         | `.zshenv .zprofile .zshrc`               | terminal window, tmux pane, `ssh host`               |
+| `zsh`  | yes   | no          | `.zshenv .zprofile`                      | `zsh -lc`                                            |
+| `zsh`  | no    | yes         | `.zshenv .zshrc`                         | `zsh -i`, editor subshells                           |
+| `zsh`  | no    | no          | `.zshenv`                                | `ssh host cmd`, cron with `SHELL=zsh`                |
+| `bash` | yes   | yes         | `.bash_profile` → `.profile` → `.bashrc` | login console, `bash -l`                             |
+| `bash` | yes   | no          | `.bash_profile` → `.profile`             | `bash -lc`                                           |
+| `bash` | no    | yes         | `.bashrc` → `.profile`                   | `bash -i`                                            |
+| `bash` | no    | no          | nothing, or `$BASH_ENV`                  | `bash script.sh`, git hooks, CI, the agent Bash tool |
+
+The last row is the *bare launcher* case (see [CONCEPTS.md](CONCEPTS.md)): bash has no all-invocations file, so the
+shape inherits whatever its launcher handed it. Scripts in that position source the helper they need explicitly, per the
+section below. Claude Code's Bash tool is wired through `CLAUDE_ENV_FILE` by `stow/claude/dot-claude/bash-env-path.sh`,
+which repairs keg-only Ruby ordering only; it assumes an inherited `PATH` rather than assembling one.
+
+`tests/shell-path-matrix.bats` exercises every row from an `env -i` launchd-style environment, so a pass means the shape
+assembles `PATH` itself rather than inheriting it from a working parent shell.
+
 **Environment variables needed by all contexts** (Claude Code, SSH commands, cron, interactive shells) belong in
 `.profile` or `config/shell/*.sh` — never in `.zshrc`/`.bashrc`. Consult the startup file matrix in
 `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` before choosing a location.
@@ -236,11 +260,6 @@ equivalent because they govern how a commit is made rather than what is in it.
 **Adding a CI job means adding a step to `pre-push` that calls the same script.** Put the target list and per-tool flags
 in the script, never in a hook or a workflow, so the three cannot drift. `tests/lint-shell.bats` and
 `tests/run-tests.bats` cover the dispatchers themselves.
-
-**Tool versions are pinned, not just commands.** Mirroring the command is not enough if the two sides run different
-versions of the tool: a ShellCheck older than the Homebrew build flags constructs the local gate accepts, so CI fails on
-a file that just passed. `.github/actions/setup-shellcheck` installs one checksum-verified version for both workflows,
-matching the Homebrew formula.
 
 A missing tool skips its step with an install hint instead of failing, so a machine without the full toolchain can still
 commit and push; CI stays the backstop. `.githooks/lib/report.sh` holds the shared pass/skip/fail output helpers.
