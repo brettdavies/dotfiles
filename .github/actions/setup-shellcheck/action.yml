@@ -1,0 +1,38 @@
+name: Setup ShellCheck
+description: Install a pinned ShellCheck, so CI and the local gates judge the same file the same way.
+
+# The runner image and the distro package both ship whatever ShellCheck version
+# they happen to carry, which drifts from the Homebrew build developers run. A
+# skew means `scripts/lint-shell` passes in .githooks/pre-push and fails here on
+# an unchanged file, which is exactly the surprise the local gates exist to
+# prevent. Pinning both sides to one version is what makes the mirror faithful.
+#
+# Keep VERSION in step with the Homebrew formula; bumping is a reviewed change.
+
+inputs:
+  version:
+    description: ShellCheck release tag to install
+    required: false
+    default: v0.11.0
+  sha256:
+    description: Checksum of the linux.x86_64 tarball for that release
+    required: false
+    default: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+
+runs:
+  using: composite
+  steps:
+    - name: Install pinned ShellCheck
+      shell: bash
+      env:
+        SC_VERSION: ${{ inputs.version }}
+        SC_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        url="https://github.com/koalaman/shellcheck/releases/download/${SC_VERSION}/shellcheck-${SC_VERSION}.linux.x86_64.tar.xz"
+        curl -fsSL "$url" -o /tmp/shellcheck.tar.xz
+        echo "${SC_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum --check --strict
+        tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+        sudo install "/tmp/shellcheck-${SC_VERSION}/shellcheck" /usr/local/bin/shellcheck
+        rm -rf /tmp/shellcheck.tar.xz "/tmp/shellcheck-${SC_VERSION}"
+        shellcheck --version

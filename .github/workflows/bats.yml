@@ -16,7 +16,19 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install bats-core + zsh + stow + jq
+      - name: Install ShellCheck
+        # tests/lint-shell.bats and the per-file lint tests shell out to
+        # shellcheck, so this job needs the same pinned version as the
+        # ShellCheck workflow or the two disagree about identical files.
+        uses: ./.github/actions/setup-shellcheck
+
+      - name: Install bats-core
+        # Pinned rather than apt-installed: several suites use `run !`, which
+        # needs bats >= 1.5.0, and the distro package version is whatever the
+        # runner image happens to ship.
+        uses: bats-core/bats-action@5b1e60c2ee94cb1b44a616ea4b1f466f9d6e38ef # 4.0.0
+
+      - name: Install zsh + stow + jq
         # zsh: shell-config.bats syntax-checks dot-zshrc / dot-zshenv / dot-zprofile.
         # stow: stow-deploy-args.bats checks exit codes; without stow the script
         #   exits with EXIT_DEPENDENCY (3) instead of EXIT_USAGE (2).
@@ -24,8 +36,12 @@ jobs:
         # Symlink jq as jaq (jaq is a jq-compatible Rust reimplementation; tests
         # use only the -n / -r / --arg / -e flags + standard filter syntax).
         run: |
-          sudo apt-get install -y bats zsh stow jq
+          sudo apt-get install -y zsh stow jq
           sudo ln -sf "$(command -v jq)" /usr/local/bin/jaq
 
       - name: Run bats tests
-        run: bats tests/*.bats
+        # scripts/run-tests owns which suites run and in what order.
+        # .githooks/pre-push runs this exact command and .githooks/pre-commit
+        # runs the same script over staged test files, so the local gates and
+        # this job cannot drift apart.
+        run: ./scripts/run-tests --all

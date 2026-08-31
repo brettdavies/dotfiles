@@ -18,42 +18,15 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install ShellCheck
-        run: sudo apt-get install -y shellcheck
+        # Local composite action, so this job and .github/workflows/bats.yml
+        # (whose tests/lint-shell.bats shells out to shellcheck) install one
+        # pinned version instead of inheriting the runner image's.
+        uses: ./.github/actions/setup-shellcheck
 
-      - name: Check hooks
-        run: shellcheck .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push
-
-      - name: Check shell config fragments
-        run: shellcheck --shell=bash config/shell/*.sh
-
-      - name: Check scripts
-        run: shellcheck scripts/stow-deploy
-
-      - name: Check dot-profile
-        run: shellcheck --shell=bash --exclude=SC1090,SC1091 stow/shell/dot-profile
-
-      - name: Check claude hooks
-        # Every *.sh hook under stow/claude/dot-claude/ (auto-format,
-        # ci-watch-prompt, defuddle-webfetch, heredoc-pr-guard,
-        # session-context, statusline). Skip files that aren't shell
-        # (e.g. *.py wrappers) by matching the shebang.
-        run: |
-          while IFS= read -r f; do
-            if head -n1 "$f" | grep -qE '^#!.*\b(sh|bash)\b'; then
-              echo "shellcheck: $f"
-              shellcheck "$f"
-            fi
-          done < <(find stow/claude/dot-claude -maxdepth 1 -type f -name '*.sh')
-
-      - name: Check stow-managed bin helpers
-        # Shellcheck every executable under stow/<pkg>/dot-local/bin/ that
-        # has a sh/bash shebang. Catches regressions in package-bundled
-        # helpers (e.g. stow/qmd/dot-local/bin/qmd-ollama-unload-all) that
-        # the path filters above would otherwise miss.
-        run: |
-          while IFS= read -r f; do
-            if head -n1 "$f" | grep -qE '^#!.*\b(sh|bash)\b'; then
-              echo "shellcheck: $f"
-              shellcheck "$f"
-            fi
-          done < <(find stow -type f -path 'stow/*/dot-local/bin/*')
+      - name: Lint shell
+        # scripts/lint-shell owns which files are covered and the per-category
+        # flags: hooks, config/shell fragments, scripts, dot-profile, bats tests,
+        # the claude hooks, and the stow-managed bin helpers. .githooks/pre-push
+        # runs this exact command and .githooks/pre-commit runs the same script
+        # over staged paths, so local gates and CI cannot drift apart.
+        run: ./scripts/lint-shell --all

@@ -202,6 +202,11 @@ gate their contents on `command -v <tool>`, and that guard is evaluated at sourc
 file would silently no-op in a shell that did not inherit a populated `PATH` — a launchd-spawned terminal, cron, or `ssh
 host cmd`. `tests/shell-startup-shapes.bats` pins the ordering and exercises each shell shape.
 
+Shell startup latency budgets live in `tests/perf/`, outside the `tests/*.bats` glob that the pre-push hook and CI use.
+The hook runs that directory first, on a quiet machine, and each measurement is a best-of-N minimum: run at the tail of
+the full suite, the several hundred shells it spawns push interactive zsh past its budget with nothing about the config
+having changed.
+
 | File                | Purpose                                                        |
 | ------------------- | -------------------------------------------------------------- |
 | `build-flags.sh`    | Native-CPU build flags (`-march=native`) for local compilation |

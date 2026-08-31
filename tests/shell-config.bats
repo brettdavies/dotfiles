@@ -2,6 +2,11 @@
 # Tests for shell configuration files (profile, zshenv, bashrc, zshrc)
 #
 # Run: bats tests/shell-config.bats
+#
+# `run !` below asserts a command fails. Bats keeps pre-1.5 `run` semantics
+# until a suite opts in, so the declaration is what enables the flag form
+# rather than a newer bats: 1.14 still warns BW02 without it.
+bats_require_minimum_version 1.5.0
 
 STOW_DIR="$BATS_TEST_DIRNAME/../stow"
 CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
@@ -179,7 +184,7 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 }
 
 @test "dot-profile no longer exports QMD_REMOTE_URL (owned by config/shell/qmd.sh)" {
-  ! grep -q 'QMD_REMOTE_URL' "$STOW_DIR/shell/dot-profile"
+  run ! grep -q 'QMD_REMOTE_URL' "$STOW_DIR/shell/dot-profile"
 }
 
 @test "sourcing profile in a fresh shell exports QMD_REMOTE_URL on all platforms" {
@@ -218,39 +223,6 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   [[ "$output" == *"DIR=SET"* ]]
 }
 
-# ---------------------------------------------------------------------------
-# Startup performance (budget: 500ms interactive, 200ms non-interactive)
-# ---------------------------------------------------------------------------
-
-# Helper: measure wall-clock time for a shell invocation (prints ms to stdout)
-_measure_ms() {
-  local start end
-  start=$(/usr/bin/perl -MTime::HiRes=time -e 'printf "%.6f", time()')
-  eval "$1" >/dev/null 2>&1
-  end=$(/usr/bin/perl -MTime::HiRes=time -e 'printf "%.6f", time()')
-  /usr/bin/perl -e "printf '%.0f', ($end - $start) * 1000"
-}
-
-@test "non-interactive zsh starts under 200ms" {
-  ms=$(_measure_ms "zsh -c exit")
-  echo "# non-interactive zsh: ${ms}ms" >&3
-  [ "$ms" -lt 200 ]
-}
-
-@test "non-interactive bash starts under 200ms" {
-  ms=$(_measure_ms "bash -c exit")
-  echo "# non-interactive bash: ${ms}ms" >&3
-  [ "$ms" -lt 200 ]
-}
-
-@test "interactive zsh starts under 500ms" {
-  ms=$(_measure_ms "zsh -i -c exit")
-  echo "# interactive zsh: ${ms}ms" >&3
-  [ "$ms" -lt 500 ]
-}
-
-@test "interactive bash starts under 500ms" {
-  ms=$(_measure_ms "bash -i -c exit")
-  echo "# interactive bash: ${ms}ms" >&3
-  [ "$ms" -lt 500 ]
-}
+# Startup latency budgets live in tests/perf/shell-startup-perf.bats, outside
+# this directory's glob, so they are measured on a quiet machine rather than at
+# the tail of the full suite.

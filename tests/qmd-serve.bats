@@ -9,6 +9,11 @@
 #
 # Run: bats tests/qmd-serve.bats
 #
+# `run !` below asserts a command fails. Bats keeps pre-1.5 `run` semantics
+# until a suite opts in, so the declaration is what enables the flag form
+# rather than a newer bats: 1.14 still warns BW02 without it.
+bats_require_minimum_version 1.5.0
+#
 # ---------------------------------------------------------------------------
 # Manual smoke checklist (run on the dev host, one-time, after shipping):
 #
@@ -106,7 +111,7 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 
 @test "qmd wrapper uses HOME (no hardcoded user path)" {
   grep -q '"\$HOME/dev/qmd/qmd"' "$WRAPPER_SH"
-  ! grep -q '/home/[a-z]*/' "$WRAPPER_SH"
+  run ! grep -q '/home/[a-z]*/' "$WRAPPER_SH"
 }
 
 @test "qmd wrapper shebang is #!/bin/sh" {
@@ -173,7 +178,8 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   # Environment=PATH=... intentionally contains /home/... entries for the
   # Ollama-unload ExecStartPre's bare `curl`; the invariant we guard is that
   # the ExecStart lines themselves resolve via %h, not a hardcoded user path.
-  ! grep -E '^ExecStart(Pre|Post)?=' "$EMBED_UNIT" | grep -q '/home/[a-z]*/'
+  run bash -c "grep -E '^ExecStart(Pre|Post)?=' '$EMBED_UNIT' | grep -q '/home/[a-z]*/'"
+  [ "$status" -ne 0 ]
 }
 
 @test "qmd-embed ExecStartPre delegates to qmd-ollama-unload-all helper" {
@@ -181,7 +187,7 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   # a model name in the unit (the prior bug) either no-oped or, worse, loaded
   # the wrong model just to unload it once the env-pinned model changed.
   grep -q '^ExecStartPre=%h/.local/bin/qmd-ollama-unload-all$' "$EMBED_UNIT"
-  ! grep -qE '^ExecStartPre=.*(curl|api/generate|--data|-d ).*model' "$EMBED_UNIT"
+  run ! grep -qE '^ExecStartPre=.*(curl|api/generate|--data|-d ).*model' "$EMBED_UNIT"
 }
 
 @test "qmd-ollama-unload-all helper exists and is executable" {
@@ -224,8 +230,8 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   # Whitelist: no concrete model name (regex covers vendor:tag patterns and
   # bare GGUF model strings). Comments may describe behavior abstractly but
   # must not pin a specific model.
-  ! grep -qE '"[a-z0-9._-]+:[0-9a-z._-]+"' "$OLLAMA_UNLOAD_SH"
-  ! grep -qE "'[a-z0-9._-]+:[0-9a-z._-]+'" "$OLLAMA_UNLOAD_SH"
+  run ! grep -qE '"[a-z0-9._-]+:[0-9a-z._-]+"' "$OLLAMA_UNLOAD_SH"
+  run ! grep -qE "'[a-z0-9._-]+:[0-9a-z._-]+'" "$OLLAMA_UNLOAD_SH"
 }
 
 @test "qmd-ollama-unload-all always exits 0 (callers proceed even on failure)" {
