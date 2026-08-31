@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# Single source of truth for which files get shellchecked and with which flags.
+#
+# Consumed by three callers that must not drift apart:
+#   .github/workflows/shellcheck.yml  --all      (CI, repo-wide)
+#   .githooks/pre-push                --all      (mirrors CI, repo-wide)
+#   .githooks/pre-commit              <file>...  (same rules, staged files only)
+#
+# Usage:
+#   scripts/lint-shell --all           lint every covered file in the repo
+#   scripts/lint-shell FILE...         lint the covered subset of FILE...
+#
+# Exit 0 when everything covered passes, 1 on any finding, 2 on usage error,
+# 3 when shellcheck is not installed.
+
+set -euo pipefail
+
+EXIT_FINDINGS=1
+EXIT_USAGE=2
+EXIT_DEPENDENCY=3
+
+if [ "$#" -eq 0 ]; then
+  echo "usage: $0 --all | $0 FILE..." >&2
+  exit "$EXIT_USAGE"
+fi
+
+if ! command -v shellcheck >/dev/null 2>&1; then
+  echo "lint-shell: shellcheck not installed" >&2
+  echo "            install with: brew install shellcheck" >&2
+  exit "$EXIT_DEPENDENCY"
+fi
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+# Files whose first line names sh or bash. Used for the two directories that mix
+# shell with other languages, so a future .py sibling is skipped rather than
+# failing the lint.
+_has_shell_shebang() {
+  head -n1 "$1" 2>/dev/null | grep -qE '^#!.*\b(sh|bash)\b'
+}
+
+# Per-category shellcheck flags. Adding a category means editing this function
+# and _is_target below, and nothing else.
+#
+# SC1090/SC1091: dot-profile sources paths shellcheck cannot follow.
+# SC2016: bats tests hand single-quoted scripts to child shells on purpose, so
+#   the child does the expanding. ShellCheck has no bats dialect, but
+#   --shell=bash may parse the @test syntax, which is what enables SC2314.
+_flags_for() {
+  case "$1" in
+    *.bats) echo "--shell=bash --exclude=SC2016" ;;
+    stow/shell/dot-profile) echo "--shell=bash --exclude=SC1090,SC1091" ;;
+    config/shell/*.sh | .githooks/lib/*.sh) echo "--shell=bash" ;;
+    # -x follows the `# shellcheck source=` directive to lib/report.sh, so the
+    # helpers it defines are known rather than reported as unresolved sources.
+    .githooks/pre-commit | .githooks/pre-push) echo "-x" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Whether a path is covered at all. Mirrors the repo-wide enumeration below.
+_is_target() {
+  case "$1" in
+    .githooks/pre-commit | .githooks/post-checkout | .githooks/post-merge | .githooks/pre-push) return 0 ;;
+    .githooks/lib/*.sh) return 0 ;;
+    config/shell/*.sh) return 0 ;;
+    scripts/stow-deploy | scripts/lint-shell | scripts/run-tests) return 0 ;;
+    stow/shell/dot-profile) return 0 ;;
+    tests/*.bats) return 0 ;;
+    stow/claude/dot-claude/*.sh) _has_shell_shebang "$1" && return 0 || return 1 ;;
+    stow/*/dot-local/bin/*) _has_shell_shebang "$1" && return 0 || return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Every covered file present in the working tree.
+_all_targets() {
+  printf '%s\n' \
+    .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push \
+    scripts/stow-deploy scripts/lint-shell scripts/run-tests stow/shell/dot-profile
+  find .githooks/lib -maxdepth 1 -type f -name '*.sh' 2>/dev/null
+  find config/shell -maxdepth 1 -type f -name '*.sh'
+  find tests -type f -name '*.bats'
+  find stow/claude/dot-claude -maxdepth 1 -type f -name '*.sh'
+  find stow -type f -path 'stow/*/dot-local/bin/*'
+}
+
+if [ "$1" = "--all" ]; then
+  [ "$#" -eq 1 ] || {
+    echo "lint-shell: --all takes no other arguments" >&2
+    exit "$EXIT_USAGE"
+  }
+  mapfile -t candidates < <(_all_targets)
+else
+  candidates=("$@")
+fi
+
+status=0
+checked=0
+for f in "${candidates[@]}"; do
+  [ -f "$f" ] || continue
+  _is_target "$f" || continue
+  # Word splitting is the point: _flags_for returns zero or more flags.
+  # shellcheck disable=SC2046
+  if ! shellcheck $(_flags_for "$f") "$f"; then
+    status="$EXIT_FINDINGS"
+  fi
+  checked=$((checked + 1))
+done
+
+if [ "$status" -eq 0 ]; then
+  echo "lint-shell: $checked file(s) clean"
+fi
+exit "$status"
