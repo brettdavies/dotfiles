@@ -138,6 +138,30 @@ with zsh as default shell gets zero environment. See
 `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` for the full zsh vs bash startup file
 reference.
 
+### Supported invocation shapes
+
+The supported set is `{zsh, bash}` x `{login, non-login}` x `{interactive, non-interactive}`. Seven of the eight read at
+least one startup file and must end with a fully assembled `PATH`; the eighth reads nothing by design.
+
+| Shell  | Login | Interactive | Reads                                    | Reached by                                           |
+| ------ | ----- | ----------- | ---------------------------------------- | ---------------------------------------------------- |
+| `zsh`  | yes   | yes         | `.zshenv .zprofile .zshrc`               | terminal window, tmux pane, `ssh host`               |
+| `zsh`  | yes   | no          | `.zshenv .zprofile`                      | `zsh -lc`                                            |
+| `zsh`  | no    | yes         | `.zshenv .zshrc`                         | `zsh -i`, editor subshells                           |
+| `zsh`  | no    | no          | `.zshenv`                                | `ssh host cmd`, cron with `SHELL=zsh`                |
+| `bash` | yes   | yes         | `.bash_profile` → `.profile` → `.bashrc` | login console, `bash -l`                             |
+| `bash` | yes   | no          | `.bash_profile` → `.profile`             | `bash -lc`                                           |
+| `bash` | no    | yes         | `.bashrc` → `.profile`                   | `bash -i`                                            |
+| `bash` | no    | no          | nothing, or `$BASH_ENV`                  | `bash script.sh`, git hooks, CI, the agent Bash tool |
+
+The last row is the *bare launcher* case (see [CONCEPTS.md](CONCEPTS.md)): bash has no all-invocations file, so the
+shape inherits whatever its launcher handed it. Scripts in that position source the helper they need explicitly, per the
+section below. Claude Code's Bash tool is wired through `CLAUDE_ENV_FILE` by `stow/claude/dot-claude/bash-env-path.sh`,
+which repairs keg-only Ruby ordering only; it assumes an inherited `PATH` rather than assembling one.
+
+`tests/shell-path-matrix.bats` exercises every row from an `env -i` launchd-style environment, so a pass means the shape
+assembles `PATH` itself rather than inheriting it from a working parent shell.
+
 **Environment variables needed by all contexts** (Claude Code, SSH commands, cron, interactive shells) belong in
 `.profile` or `config/shell/*.sh` — never in `.zshrc`/`.bashrc`. Consult the startup file matrix in
 `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` before choosing a location.
@@ -211,12 +235,34 @@ git config core.hooksPath .githooks
 
 This is set during bootstrap (see README) or via `bash .githooks/setup`.
 
-| Hook            | Purpose                                                    |
-| --------------- | ---------------------------------------------------------- |
-| `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign = true` |
-| `post-checkout` | Auto-unlocks git-crypt if key is available, chains Git LFS |
-| `post-merge`    | Auto-unlocks git-crypt if key is available, chains Git LFS |
-| `pre-push`      | Chains Git LFS pre-push                                    |
+| Hook            | Purpose                                                            |
+| --------------- | ------------------------------------------------------------------ |
+| `pre-commit`    | Branch + signing policy, then the CI checks scoped to staged files |
+| `post-checkout` | Auto-unlocks git-crypt if key is available, chains Git LFS         |
+| `post-merge`    | Auto-unlocks git-crypt if key is available, chains Git LFS         |
+| `pre-push`      | Full local CI mirror, then chains Git LFS pre-push                 |
+
+### Local gates mirror CI
+
+The hooks exist so a red pipeline is a surprise rather than a routine. Every check is defined once, in a script that all
+three gates call:
+
+| Check      | Definition           | CI job                             | pre-push | pre-commit           |
+| ---------- | -------------------- | ---------------------------------- | -------- | -------------------- |
+| ShellCheck | `scripts/lint-shell` | `.github/workflows/shellcheck.yml` | `--all`  | staged paths         |
+| Bats       | `scripts/run-tests`  | `.github/workflows/bats.yml`       | `--all`  | staged `.bats` files |
+
+`pre-push` is the repo-wide mirror: its steps map one-to-one onto CI jobs, and passing it should mean passing the
+pipeline. `pre-commit` runs the same scripts over staged paths only, so it stays fast enough for every commit while
+catching the same class of failure. The two policy checks in `pre-commit` (protected branch, signing) have no CI
+equivalent because they govern how a commit is made rather than what is in it.
+
+**Adding a CI job means adding a step to `pre-push` that calls the same script.** Put the target list and per-tool flags
+in the script, never in a hook or a workflow, so the three cannot drift. `tests/lint-shell.bats` and
+`tests/run-tests.bats` cover the dispatchers themselves.
+
+A missing tool skips its step with an install hint instead of failing, so a machine without the full toolchain can still
+commit and push; CI stays the backstop. `.githooks/lib/report.sh` holds the shared pass/skip/fail output helpers.
 
 ---
 
@@ -234,8 +280,9 @@ Never commit directly to `main`. All work goes through feature branches and PRs.
 
 - **Remote (GitHub):** Rulesets exported to `.github/rulesets/`. Main requires PR + squash merge + signed commits.
   Development requires signed commits.
-- **Local (git hooks):** `.githooks/pre-commit` blocks commits on `main` and verifies `commit.gpgsign = true`. Activated
-  via `core.hooksPath`.
+- **Local (git hooks):** `.githooks/pre-commit` blocks commits on `main` and verifies `commit.gpgsign = true`, then runs
+  the CI checks over staged paths; `.githooks/pre-push` runs the full CI mirror. Activated via `core.hooksPath`. See
+  [Local gates mirror CI](#local-gates-mirror-ci).
 
 ---
 
