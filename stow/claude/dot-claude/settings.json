@@ -373,7 +373,7 @@
       "/tmp"
     ]
   },
-  "model": "opus",
+  "model": "fable",
   "skillOverrides": {
     "disk-cleanup": "off",
     "gstack-upgrade": "off",
@@ -573,6 +573,16 @@
           {
             "type": "command",
             "command": "command -v terminal-notifier >/dev/null 2>&1 && terminal-notifier -sound Mezzo -title \"✅ Claude Code\" -message \"The task has been completed\" || true"
+          }
+        ]
+      },
+      {
+        "_gstack_source": "gstack-timeline-stop",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/brett/.claude/skills/gstack/hosts/claude/hooks/timeline-stop-hook",
+            "timeout": 5
           }
         ]
       }
