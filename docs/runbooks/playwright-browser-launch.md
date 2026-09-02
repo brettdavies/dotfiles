@@ -22,8 +22,8 @@ treat them as real installs.
 **Bumping the canonical version:** edit the revision map in `scripts/playwright-browsers-deploy.sh` (the `case` matching
 `$VERSION`) and set `DEFAULT_VERSION`, then re-run the script. Read the new revisions from any repo's
 `node_modules/playwright-core/browsers.json` (per-browser `revision`, plus chromium's `browserVersion` for the
-Chrome-for-Testing CDN path). The default is **Playwright 1.61.1** (chromium 1228, chromium-headless-shell 1228, webkit
-2311, ffmpeg 1011).
+Chrome-for-Testing CDN path). The default is **Playwright 1.62.1** (chromium 1234, chromium-headless-shell 1234, webkit
+2336, ffmpeg 1011).
 
 ## Indicators
 
