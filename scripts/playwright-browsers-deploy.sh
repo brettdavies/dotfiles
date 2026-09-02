@@ -30,7 +30,7 @@ set -euo pipefail
 # marker behind, so an interrupted run is safe to re-run.
 #
 # Usage:
-#   scripts/playwright-browsers-deploy.sh            # provision default version (1.61.1)
+#   scripts/playwright-browsers-deploy.sh            # provision default version (1.62.1)
 #   scripts/playwright-browsers-deploy.sh 1.61.1     # provision an explicit version
 #
 # On non-Linux it is a no-op (the io_uring deadlock is Linux-only, and the
@@ -49,10 +49,18 @@ set -euo pipefail
 #   4. Set DEFAULT_VERSION if this becomes the new canonical version.
 #   5. Re-run the script (old browser dirs stay; new ones are fetched).
 
-DEFAULT_VERSION="1.61.1"
+DEFAULT_VERSION="1.62.1"
 VERSION="${1:-$DEFAULT_VERSION}"
 
 case "$VERSION" in
+  1.62.1)
+    # Verified against node_modules/playwright-core/browsers.json (playwright 1.62.1).
+    CHROMIUM_REV="1234"
+    HEADLESS_REV="1234"
+    WEBKIT_REV="2336"
+    FFMPEG_REV="1011"
+    CFT_VERSION="151.0.7922.34" # chromium browserVersion → Chrome-for-Testing CDN path
+    ;;
   1.61.1)
     # Verified against node_modules/playwright-core/browsers.json (playwright 1.61.1).
     CHROMIUM_REV="1228"
@@ -94,7 +102,8 @@ esac
 # Add a revision here when a tool pins a Playwright whose chromium the canonical
 # set does not already provide:
 #   crawl4ai 0.8.9 / patchright → Playwright 1.60.0 → chromium 1223
-CONSUMER_CHROMIUM_REVS=(1223)
+#   repos exact-pinning @playwright/test 1.61.1 → chromium 1228
+CONSUMER_CHROMIUM_REVS=(1223 1228)
 
 # --- CDN host ---
 #
