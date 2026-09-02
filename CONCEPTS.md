@@ -27,6 +27,15 @@ loop — the same flow runs on many of them and a manual step does not scale.
 When a tool would normally depend on the graphical secret manager (git signing, secret reads), the headless host falls
 back to a non-interactive path: ssh-based signing, service-account token reads.
 
+### qmd thin client
+
+A deployed dotfiles host — in practice the macOS workstation, and any other host that is not the qmd brain — that
+searches the central qmd corpus over the tailnet and never runs a local qmd index or GGUF process. The *qmd brain host*
+is the headless machine that owns the sqlite index, the always-on MCP HTTP process, and the periodic embed jobs. Clients
+reach that process through a Tailscale VIP (HTTPS MagicDNS), not through `qmd serve` or a local `qmd` CLI. The split
+keeps one vector space: every query is embedded and reranked by the brain host's one llama.cpp, so a second local engine
+would fork that space.
+
 ## Packages
 
 ### Stow package
