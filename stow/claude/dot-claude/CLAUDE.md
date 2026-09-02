@@ -53,6 +53,16 @@ other tools first.
 **$100 Rule:** when prevention was missed and a bug slips through, invest in the permanent fix — test, guard, lint rule,
 or docs/solutions entry. Trivial work (<~20 lines: single-file fixes, config tweaks, typos) may skip the full loop.
 
+**Green is not evidence.** A new test counts only once it has been *observed* failing against the unfixed code: stash
+the source fix, keep the test, run it, and quote the real failure output. Never write "this would fail without the fix"
+— run it. And unit-green never substitutes for measuring the real artifact: a passing suite does not render a page,
+resolve a CSS cascade, or prove a file ships. When a change touches CSS, tokens, layout, emitted markup, or a deployed
+surface, measure the built or served output (`getComputedStyle`, a real HTTP request, a browser) before reporting done.
+Before reasoning from a stylesheet or module, confirm it actually reaches the output. Costly precedents:
+`agentnative-site` AGENTS.md § "Browser-verify before declaring done" (a token typo passed tests and shipped
+near-invisible dark-mode text); meum-sites, where a keyboard-a11y fix was derived from a stylesheet that never shipped
+and a whole type scale silently fell back to body size because the token it named was defined nowhere.
+
 **Query solutions first:** before answering, diagnosing, researching, or proposing, run `qmd query "<topic>"
 --collection solutions` to surface prior decisions. Applies to all interactions, and **explicitly to `/investigate` and
 every gstack debugging skill** — their `gstack-learnings-search` does NOT reach `docs/solutions/`, so query the corpus
@@ -75,9 +85,9 @@ commit` on the one index. **Commit with `sd-commit-doc`** (dotfiles-provided, on
 `docs/solutions/<category>/<slug>.md`, author + `/unslop` a captured-path `/tmp` message (never `ls -t | head -1`, never
 `-m`), then `sd-commit-doc <msg-file> <category>/<slug>.md`. It commits from an isolated detached worktree (never `git
 add -A` the shared index), pushes with fetch/rebase-retry, and fast-forwards the shared clone so it never drifts behind
-origin. **Never** commit directly in the shared clone or amend + force-push it. Script source `~/.local/bin/sd-commit-doc`;
-solo-session exception + symlink-recreate → `~/.claude/guides/workflows-and-skills.md`; rationale →
-`docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
+origin. **Never** commit directly in the shared clone or amend + force-push it. Script source
+`~/.local/bin/sd-commit-doc`; solo-session exception + symlink-recreate → `~/.claude/guides/workflows-and-skills.md`;
+rationale → `docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
 `.../unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 
 ## Secrets & private identifiers

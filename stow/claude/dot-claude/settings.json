@@ -618,5 +618,6 @@
   "effortLevel": "xhigh",
   "awaySummaryEnabled": false,
   "autoUpdatesChannel": "stable",
+  "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true
 }
