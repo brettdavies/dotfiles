@@ -1,0 +1,17 @@
+name: OPP Usa
+root: ~/dev/oppusa
+
+windows:
+  - main:
+      layout: main-vertical
+      panes:
+        - command -v y >/dev/null && y || yazi
+        -
+        - lazygit
+
+on_project_first_start: |
+  (
+    sleep 0.3
+    tmux resize-pane -t "OPP Usa:main.1" -x "33%"
+    tmux resize-pane -t "OPP Usa:main.3" -y "33%"
+  ) & disown
