@@ -299,9 +299,14 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 # qmd-update.service contents
 # ---------------------------------------------------------------------------
 
-@test "qmd-update ExecStart uses %h/.local/bin/qmd for both cleanup and update" {
-  grep -q 'ExecStart=/bin/sh -c .*%h/.local/bin/qmd cleanup' "$UPDATE_UNIT"
+@test "qmd-update ExecStart uses %h/.local/bin/qmd update" {
   grep -q 'ExecStart=/bin/sh -c .*%h/.local/bin/qmd update' "$UPDATE_UNIT"
+}
+
+@test "qmd-update does not run qmd cleanup (nightly unit owns vacuum and cache drop)" {
+  # A VACUUM of a multi-GB index every five minutes rewrites the whole file
+  # each cycle and wipes the query-expansion cache before it is reused.
+  run ! grep -q 'qmd cleanup' "$UPDATE_UNIT"
 }
 
 @test "qmd-update has no hardcoded /home/<user>/ path" {

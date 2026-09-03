@@ -191,7 +191,7 @@ knowledge-base index fresh:
 
 | Agent                  | Schedule              | What it does                                                            |
 | ---------------------- | --------------------- | ----------------------------------------------------------------------- |
-| `com.user.qmd-update`  | every 5 min + at load | `qmd cleanup` then `qmd update` (re-index changed files)                |
+| `com.user.qmd-update`  | every 5 min + at load | `qmd update` (re-index changed files)                                   |
 | `com.user.qmd-embed`   | every 5 min + at load | `qmd embed` with throttled batches (avoids Apple Silicon KV-cache wall) |
 | `com.user.qmd-cleanup` | nightly 03:00         | `qmd cleanup` (deeper vacuum, drop stale rerank cache)                  |
 

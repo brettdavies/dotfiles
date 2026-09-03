@@ -4,10 +4,11 @@
     QMD index update — macOS port of qmd-update.service + qmd-update.timer
     (Linux systemd, see stow/qmd/dot-config/systemd/user/).
 
-    Runs `qmd cleanup` then `qmd update` every 5 minutes and at load time,
-    keeping the BM25 + vector index in sync with current collection contents.
-    The cleanup step is best-effort (2>/dev/null) and clears any stale rerank
-    cache before re-indexing.
+    Runs `qmd update` every 5 minutes and at load time, keeping the BM25 +
+    vector index in sync with current collection contents. Cleanup (vacuum,
+    cache drop) belongs to the nightly com.user.qmd-cleanup agent only: a
+    VACUUM of a multi-GB index every five minutes rewrites the whole file
+    each cycle and drops the query-expansion cache before it can be reused.
 
     PATH covers both qmd install paths: the stow wrapper at ~/.local/bin/qmd
     (which dispatches to ~/dev/qmd/qmd, the brettdavies fork) and the
@@ -23,7 +24,7 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>PATH="$HOME/.local/bin:$HOME/.cache/bun/bin:/opt/homebrew/bin:/usr/bin:/bin"; qmd cleanup 2&gt;/dev/null; exec qmd update &gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-update.log" 2&gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-update.error.log"</string>
+        <string>PATH="$HOME/.local/bin:$HOME/.cache/bun/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec qmd update &gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-update.log" 2&gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-update.error.log"</string>
     </array>
     <key>StartInterval</key>
     <integer>300</integer>
