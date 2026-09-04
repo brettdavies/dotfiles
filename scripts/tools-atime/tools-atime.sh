@@ -366,11 +366,11 @@ fi
 rev=""
 [[ "$REVERSE" == "true" ]] && rev="r"
 case "$SORT" in
-  age) sort_args=(-t $'\t' -k2,2n${rev}) ;;
-  name) sort_args=(-t $'\t' -k3,3${rev}) ;;
-  size) sort_args=(-t $'\t' -k5,5n${rev}) ;;
-  reclaim) sort_args=(-t $'\t' -k6,6n${rev}) ;;
-  manager) sort_args=(-t $'\t' -k1,1${rev}) ;;
+  age) sort_args=(-t $'\t' "-k2,2n${rev}") ;;
+  name) sort_args=(-t $'\t' "-k3,3${rev}") ;;
+  size) sort_args=(-t $'\t' "-k5,5n${rev}") ;;
+  reclaim) sort_args=(-t $'\t' "-k6,6n${rev}") ;;
+  manager) sort_args=(-t $'\t' "-k1,1${rev}") ;;
 esac
 
 filter() {
