@@ -18,6 +18,7 @@ collections:
   stars:
     path: ${HOME}/github-stars
     pattern: "**/*.md"
+    includeByDefault: false
   solutions:
     path: ${HOME}/dev/solutions-docs
     pattern: "**/*.md"
