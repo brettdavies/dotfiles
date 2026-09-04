@@ -50,6 +50,7 @@ dotfiles/
 │   ├── stow-deploy        Stow wrapper with conflict resolution
 │   ├── nas-deploy.sh      System-level NAS mount/automount deploy
 │   ├── apparmor-deploy.sh System-level AppArmor profile deploy + boot unit (Playwright/Chromium)
+│   ├── sshd-locale-deploy.sh  Strip LANG/LC_* from sshd AcceptEnv so sessions use the server locale
 │   ├── playwright-browsers-deploy.sh  Playwright browser binaries into the shared cache (curl + unzip)
 │   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (binaries + apparmor + opt-in browser deps)
 │   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, opendataloader-pdf)
@@ -159,9 +160,10 @@ and are deployed via `scripts/nas-deploy.sh`, which copies them to `/etc/systemd
 
 **Deploy:** `sudo scripts/nas-deploy.sh` (requires `/root/.smbcredentials-<nas-host>` from 1Password).
 
-Two more system-level configs deploy through their own paths: `apparmor-playwright.service` (with the AppArmor profile,
-via `scripts/apparmor-deploy.sh`, below) and the `ollama` loopback override (`sudo stow -t /etc`, see the `ollama`
-package).
+Three more system-level configs deploy through their own paths: `apparmor-playwright.service` (with the AppArmor
+profile, via `scripts/apparmor-deploy.sh`, below), the `ollama` loopback override (`sudo stow -t /etc`, see the
+`ollama` package), and the sshd locale change (`sudo scripts/sshd-locale-deploy.sh`, which edits `/etc/ssh/sshd_config`
+in place; see [BOOTSTRAP.md § SSH session locale](BOOTSTRAP.md#ssh-session-locale)).
 
 ### Playwright / browse browser launch (`scripts/playwright-deps-deploy.sh`)
 

@@ -258,6 +258,24 @@ for tc in $(rustup toolchain list | awk '{print $1}'); do
 done
 ```
 
+### SSH session locale
+
+A minimal server has no `locales` package and generates only `C.UTF-8`, which `/etc/default/locale` selects. macOS
+clients send `LANG=en_US.UTF-8` and Ubuntu's stock sshd accepts it, so every session lands on a locale the box cannot
+set and glibc falls back to plain C: `perl` warns on each run, `shellcheck` aborts its report at the first non-ASCII
+character, and `sort` and `grep` lose multibyte awareness. Installing `locales` (17 MB) works but adds a package the
+server does not otherwise need. Stop accepting the variable instead; `pam_env` then supplies the box default:
+
+```bash
+sudo ~/dotfiles/scripts/sshd-locale-deploy.sh
+```
+
+The script strips `LANG` and `LC_*` from every `AcceptEnv` directive (main file and `sshd_config.d/` drop-ins),
+validates with `sshd -t`, reloads sshd, and is safe to re-run. Sessions already open keep their value, as does a tmux
+server started from one; `tmux set-environment -g LANG C.UTF-8` fixes new panes without a restart. The `ssh` package
+pins `SetEnv LANG=C.UTF-8` on the affected host entries as the client-side half, so a server that still accepts the
+variable gets the right value anyway.
+
 ### Ollama Host-rewrite proxy (Caddy)
 
 Ollama binds to loopback only (`127.0.0.1:11434`) and 403s any request whose `Host` header is not localhost

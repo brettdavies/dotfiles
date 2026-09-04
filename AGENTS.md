@@ -96,6 +96,15 @@ and reloads it with `apparmor_parser -r`. Profiles persist across reboots.
 2. Re-run `sudo scripts/apparmor-deploy.sh` — it copies every file in the directory and reloads each one
 3. Do NOT add to `stow/` or `SHARED_PACKAGES`
 
+### SSH Daemon Locale (`scripts/sshd-locale-deploy.sh`)
+
+There is no config file to copy for this one. `AcceptEnv` accumulates across `/etc/ssh/sshd_config` and every
+`sshd_config.d/*.conf` drop-in, so a drop-in cannot cancel Ubuntu's stock `AcceptEnv LANG LC_*`; the script edits the
+directives in place, validates with `sshd -t`, and reloads sshd. With the client locale no longer accepted, `pam_env`
+supplies `LANG` from `/etc/default/locale` (`C.UTF-8`) to each session. The client side of the same fix is the `SetEnv
+LANG=C.UTF-8` on the affected host entries in the `ssh` package. `tests/sshd-locale-deploy.bats` exercises the rewrite
+through `--config PATH`, which skips the root check, validation, and reload.
+
 ---
 
 ## Shell Config Chain
