@@ -112,6 +112,11 @@ cask "docker-desktop"
 cask "rectangle"
 cask "codexbar"
 
+# Homebrew's official GUI (BrewUI). The cask requires macOS 26 or later, and
+# `brew bundle` treats an unmet cask requirement as a failure rather than a
+# skip, so the guard keeps the bundle green on Macs still on an older macOS.
+cask "homebrew-app" if OS.mac? && MacOS.version >= "26"
+
 # VS Code extensions (macOS — Cursor on Linux uses its own extension sync)
 vscode "anthropic.claude-code"
 vscode "bierner.markdown-mermaid"
