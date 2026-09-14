@@ -63,6 +63,32 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   [ "$status" -eq 0 ]
 }
 
+# shell-functions carries no .sh suffix, so it falls outside both the
+# `$CONFIG_DIR/*.sh` shellcheck glob above and scripts/lint-shell's target list.
+# Nothing else parses it, and a syntax error there takes out every helper it
+# defines in both interactive shells at once.
+@test "shell-functions has valid bash syntax" {
+  run bash -n "$CONFIG_DIR/shell-functions"
+  [ "$status" -eq 0 ]
+}
+
+@test "shell-functions has valid zsh syntax" {
+  run zsh -n "$CONFIG_DIR/shell-functions"
+  [ "$status" -eq 0 ]
+}
+
+# Parsing is not defining: a helper guarded on a command the host lacks, or
+# silently dropped in an edit, still leaves the file syntactically valid.
+@test "sourcing shell-functions defines every interactive helper" {
+  run bash -c '. "$1" || exit 1
+    for fn in y _osc7_report_directory ollama-update bu; do
+      typeset -f "$fn" >/dev/null || { echo "not defined: $fn"; exit 1; }
+    done
+    echo OK' _ "$CONFIG_DIR/shell-functions"
+  [ "$status" -eq 0 ]
+  [ "$output" = "OK" ]
+}
+
 # Regression: macOS path_helper (run by /etc/zprofile) rebuilds PATH with the
 # system dirs first, demoting keg-only Homebrew Ruby behind /usr/bin so Bundler
 # falls back to system Ruby 2.6 / Bundler 1.x. dot-zprofile must re-assert the

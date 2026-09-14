@@ -50,12 +50,16 @@ _has_shell_shebang() {
 #   claude-token-totals and codexbar-config single-quote jaq filter programs for
 #   the same reason: the `$`-prefixed names in them are jaq's, bound with --arg,
 #   and shell expansion would blank them.
+# SC1003: shell-functions ends its OSC 7 sequence with a literal backslash pair
+#   inside single quotes. ShellCheck reads any `\\` there as a fumbled attempt to
+#   escape a quote; here it is the ST terminator the sequence requires.
 _flags_for() {
   case "$1" in
     *.bats) echo "--shell=bash --exclude=SC2016" ;;
     scripts/claude-token-totals | scripts/codexbar-config) echo "--exclude=SC2016" ;;
     stow/shell/dot-profile) echo "--shell=bash --exclude=SC1090,SC1091" ;;
     config/shell/*.sh | .githooks/lib/*.sh) echo "--shell=bash" ;;
+    config/shell/shell-functions) echo "--shell=bash --exclude=SC1003" ;;
     # -x follows the `# shellcheck source=` directive to lib/report.sh, so the
     # helpers it defines are known rather than reported as unresolved sources.
     .githooks/pre-commit | .githooks/pre-push) echo "-x" ;;
@@ -68,7 +72,7 @@ _is_target() {
   case "$1" in
     .githooks/pre-commit | .githooks/post-checkout | .githooks/post-merge | .githooks/pre-push) return 0 ;;
     .githooks/lib/*.sh) return 0 ;;
-    config/shell/*.sh) return 0 ;;
+    config/shell/*.sh | config/shell/shell-functions) return 0 ;;
     scripts/stow-deploy | scripts/lint-shell | scripts/run-tests | scripts/lint-workflows) return 0 ;;
     scripts/sshd-locale-deploy.sh) return 0 ;;
     scripts/claude-token-totals | scripts/codexbar-config) return 0 ;;
@@ -86,7 +90,7 @@ _all_targets() {
     .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push \
     scripts/stow-deploy scripts/lint-shell scripts/run-tests scripts/lint-workflows scripts/sshd-locale-deploy.sh \
     scripts/claude-token-totals scripts/codexbar-config \
-    stow/shell/dot-profile
+    stow/shell/dot-profile config/shell/shell-functions
   find .githooks/lib -maxdepth 1 -type f -name '*.sh' 2>/dev/null
   find config/shell -maxdepth 1 -type f -name '*.sh'
   find tests -type f -name '*.bats'

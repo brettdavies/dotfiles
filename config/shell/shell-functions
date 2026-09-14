@@ -40,3 +40,42 @@ _osc7_report_directory() {
 # outright and abandons the rest of the file it appears in. This file is read
 # only by interactive bash and zsh, both of which accept the name.
 ollama-update() { curl -fsSL https://ollama.com/install.sh | sudo sh; }
+
+# bu: bring Homebrew fully current — refresh the formula index, upgrade every
+# formula and cask, then reclaim the disk the superseded versions held.
+#
+# Interactive-only, like ollama-update above. Cask upgrades shell out to
+# installers that prompt for sudo, so the run wants a terminal either way, and a
+# two-character name has no business in the non-interactive fragments where it
+# would shadow whatever a script's own `bu` was meant to reach.
+#
+# Flags verified against a Homebrew 7.0.0 build rather than recalled:
+#
+# `-y` belongs on the upgrade and nowhere else. Ask mode has been the default
+# for `brew upgrade` since 6.0.0 — 5.1.15 still took an opt-in `--ask`, 6.0.0
+# replaced it with `-y, --no-ask` and "Ask mode is the default" — so without it
+# the command stops for confirmation and an unattended run hangs. `brew update`
+# is the one with no such flag: it exits 1 on `invalid option: -y`, which under
+# `&&` would strand everything after it.
+#
+# `--greedy` is what makes the cask half real: it adds the casks declaring
+# `version :latest` or `auto_updates true` that an upgrade otherwise skips, which
+# is most of them. It needs no `--cask` pass beside it — with no named arguments
+# `Homebrew::Cmd::Upgrade` leaves both `only_upgrade_formulae` and
+# `only_upgrade_casks` false and runs the formula and cask paths in turn, so a
+# second `brew upgrade --cask` run is a strictly narrower repeat of work done.
+#
+# It also overrides the per-cask opt-out, which is worth knowing before reaching
+# for that setting to stop fighting a self-updating app: 7.0.0 made
+# `brew upgrade` honour $HOMEBREW_NO_UPGRADE_AUTO_UPDATES_CASKS, but the variable
+# documents itself as not affecting `--greedy`, so this function upgrades those
+# casks whether or not it is set.
+#
+# No platform guard: Homebrew Cask is macOS-only, but `--greedy` is parsed the
+# same on Linux and simply matches nothing there, so both flags are a no-op
+# rather than an error on the Linux hosts in this fleet.
+bu() {
+    brew update || return
+    brew upgrade --greedy -y || return
+    brew cleanup
+}
