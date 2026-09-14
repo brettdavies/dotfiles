@@ -44,7 +44,7 @@ When `core.hooksPath` is set, git ignores `.git/hooks/` entirely -- including th
 **Hooks that need LFS chaining:**
 
 | Hook | LFS chain call |
-|------|---------------|
+| ------ | --------------- |
 | `post-checkout` | `command -v git-lfs >/dev/null 2>&1 && git lfs post-checkout "$@"` |
 | `post-merge` | `command -v git-lfs >/dev/null 2>&1 && git lfs post-merge "$@"` |
 | `pre-push` (new) | `command -v git-lfs >/dev/null 2>&1 && git lfs pre-push "$@"` |
@@ -188,7 +188,7 @@ After moving hooks, check if `scripts/` has remaining content:
 ## Files changed
 
 | Action | File | Notes |
-|--------|------|-------|
+| -------- | ------ | ------- |
 | Move | `scripts/git-hooks/pre-commit` → `.githooks/pre-commit` | Remove stale install comment |
 | Move | `scripts/git-hooks/post-checkout` → `.githooks/post-checkout` | Add LFS chain call |
 | Move | `scripts/git-hooks/post-merge` → `.githooks/post-merge` | Add LFS chain call |

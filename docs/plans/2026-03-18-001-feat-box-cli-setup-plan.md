@@ -116,7 +116,7 @@ box files:upload --bulk-file-path upload-list.csv
 ## Risks and Fallbacks
 
 | Risk | Likelihood | Mitigation |
-|------|-----------|------------|
+| ------ | ----------- | ------------ |
 | npm install fails on Node 25 (keytar native module) | High | Use macOS `.pkg` installer from GitHub releases |
 | Default Box CLI app scopes too limited | Medium | Create custom OAuth 2.0 app (Option B) |
 | OAuth token expires (60-day refresh token) | Low | Run `box login -d --reauthorize` to re-auth |

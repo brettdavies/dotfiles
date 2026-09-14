@@ -338,7 +338,7 @@ The `helper =` (empty) followed by `helper = !gh auth git-credential` is the [st
 ## Files Modified
 
 | File | Change |
-|------|--------|
+| ------ | -------- |
 | `stow/secrets/dot-secrets` | Add OP_SERVICE_ACCOUNT_TOKEN, X_API_* tokens |
 | `stow/bash/dot-bashrc` | Rewrite with interactive guard + full bash features |
 | `stow/zsh/dot-zshenv` | New file: source .profile for all zsh invocations (non-interactive included) |

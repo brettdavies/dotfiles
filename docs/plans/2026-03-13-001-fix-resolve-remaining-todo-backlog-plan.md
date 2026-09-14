@@ -59,7 +59,7 @@ followed by a space and the message. Output to stderr via `>&2`.
 **Files to update:**
 
 | File | Line(s) | Current | Change to |
-|------|---------|---------|-----------|
+| ------ | --------- | --------- | ----------- |
 | `.githooks/pre-commit` | 11 | `error:` | `ERROR:` |
 | `.githooks/pre-commit` | 20 | `error:` | `ERROR:` |
 | `stow/gh/dot-local/bin/gh` | 13 | `Error:` | `ERROR:` |
@@ -98,7 +98,7 @@ implemented and the plan status is already `completed`.
 **Stale references to remove or update:**
 
 | Line(s) | Content | Action |
-|---------|---------|--------|
+| --------- | --------- | -------- |
 | 253, 256 | `fuser` process detection discussion | Remove or mark as historical |
 | 418-419 | Acceptance criteria rows for fuser and .stow-migrate | Remove rows |
 | 431 | `fuser detection removed` in trade-offs | Keep (documents decision) |

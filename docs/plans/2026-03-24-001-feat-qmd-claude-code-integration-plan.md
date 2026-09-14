@@ -37,7 +37,7 @@ CLI via Bash + custom SKILL.md + SessionStart hook (see brainstorm:
 ### Command Comparison
 
 | Command | What it does | Speed | Score range | Best for |
-|---------|-------------|-------|-------------|----------|
+| --------- | ------------- | ------- | ------------- | ---------- |
 | `qmd search` | BM25 full-text via SQLite FTS5 | ~30ms | 0.0-1.0 (normalized from raw 0-25+) | Exact keywords, function names, error messages, specific terms |
 | `qmd vsearch` | Vector semantic via sqlite-vec embeddings | ~2s (cold: ~5s) | 0.0-1.0 (1/(1+cosine_distance)) | Conceptual queries, paraphrases, "how to" questions, synonyms |
 | `qmd query` | Hybrid: BM25 + vector + LLM query expansion + RRF fusion + LLM reranking | ~10s | 0.0-1.0 (blended) | Ambiguous queries, broad discovery, highest-quality results |
@@ -61,7 +61,7 @@ CLI via Bash + custom SKILL.md + SessionStart hook (see brainstorm:
 ### Score Interpretation
 
 | Score | Meaning | Action |
-|-------|---------|--------|
+| ------- | --------- | -------- |
 | 0.8-1.0 | Highly relevant | Read immediately with `qmd get` |
 | 0.5-0.8 | Likely relevant | Worth reading, check snippet first |
 | 0.3-0.5 | Possibly relevant | Skim title/snippet, read if promising |
@@ -241,7 +241,7 @@ detailed method.
 **Risks:**
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | qmd cold start loads models into memory | Medium | Medium | Only happens for vsearch/query; search is pure SQLite. Models unload after 5min idle. |
 | SessionStart hook adds latency | Low | Low | `qmd collection list` is ~30ms against SQLite. Guarded with `command -v`. |
 | Skill not discovered by Claude | Low | Medium | Description includes explicit trigger keywords. Test with trigger phrases. |

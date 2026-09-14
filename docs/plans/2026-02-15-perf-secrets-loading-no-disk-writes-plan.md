@@ -113,7 +113,7 @@ The 9 secrets come from only 2 1Password items. The `op` CLI daemon caches items
 ### Research Insights: Performance
 
 | Approach | macOS bash 3.2 | macOS bash 5.3 | macOS zsh 5.9 | headless Linux zsh | headless Linux bash |
-|----------|---------------|----------------|---------------|-------------|--------------|
+| ---------- | --------------- | ---------------- | --------------- | ------------- | -------------- |
 | Sequential `op read` (original) | ~5.7s | ~5.7s | ~5.7s | ~5.7s | ~5.7s |
 | Parallel `op read` + tmpfiles | ~0.9s | ~0.9s | ~0.9s | ~0.55s | ~0.55s |
 | **`op inject` (final)** | **~1.2s** | **~1.2s** | **~1.3s** | **~1.1s** | **~1.0s** |

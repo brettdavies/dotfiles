@@ -277,7 +277,7 @@ fi
 **Files to update:**
 
 | File | Change |
-|------|--------|
+| ------ | -------- |
 | `README.md:32` | Package table: split `local` row into `local` (shared) + `launchagent` (macOS) |
 | `README.md:89-101` | Step 4: replace inline lists with `--all` examples |
 | `README.md:104-109` | Remove "The `local` package requires separate handling" section |
@@ -409,7 +409,7 @@ learnings researcher, and best practices researcher.
 ### Critical fixes applied to plan above
 
 | Finding | Source agents | Fix applied |
-|---------|-------------|-------------|
+| --------- | ------------- | ------------- |
 | `mv` empties stow package dir — tracked files lost for re-stowing | Security, Data migration, Architecture | Changed to `cp -a` so originals remain; removed `realpath`/`readlink -f` |
 | `realpath --relative-to` is GNU-only, not on macOS BSD | All 6 code-reviewing agents | Replaced with known path `stow/$pkg` |
 | `readlink \| grep` substring match is fragile | Security, Architecture, Pattern recognition | Replaced with `cd && pwd -P` absolute path comparison |

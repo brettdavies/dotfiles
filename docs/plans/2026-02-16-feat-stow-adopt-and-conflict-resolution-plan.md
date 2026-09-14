@@ -154,7 +154,7 @@ The current script swallows all stderr on the fast path (`2>/dev/null`). When st
 ### Failure mode by operating mode
 
 | Mode | On package failure | Summary |
-|------|-------------------|---------|
+| ------ | ------------------- | --------- |
 | Interactive | Fail-fast (`set -e`) | Abort on first error, user investigates |
 | Headless | Best-effort (continue loop) | Track failures, report summary, exit non-zero if any failed |
 
@@ -433,7 +433,7 @@ fi
 ## Stow Flag Reference
 
 | Flag | Handles non-stow symlinks? | Handles plain files? | Handles inter-package conflicts? |
-|------|---------------------------|---------------------|----------------------------------|
+| ------ | --------------------------- | --------------------- | ---------------------------------- |
 | `--override=REGEX` | No | No | Yes (replaces other package's link) |
 | `--defer=REGEX` | No | No | Yes (yields to other package's link) |
 | `--adopt` | No | Yes (moves file into package) | No |
@@ -479,7 +479,7 @@ cd ~/dotfiles && git status --porcelain stow/
 ### Rollback
 
 | Scenario | Recovery |
-|----------|----------|
+| ---------- | ---------- |
 | `--adopt` overwrote repo file | `git checkout -- stow/<package>/` |
 | Wrong symlinks created | `stow -D --dotfiles --no-folding -t "$HOME" <package>` |
 | Shell config broken, can't login | `ssh -t host '/bin/bash --norc --noprofile'` then fix |

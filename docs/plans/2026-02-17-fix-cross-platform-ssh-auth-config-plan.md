@@ -50,7 +50,7 @@ Host github.com
 Several hosts have `IdentitiesOnly yes` without an explicit `IdentityFile`:
 
 | Host | IdentityFile | IdentitiesOnly | Status |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `github.com` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
 | `router` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
 | `host-e` | N/A | N/A | Removed from config |
@@ -108,7 +108,7 @@ Update `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-gua
 - Add key mapping table:
 
 | Platform | SSH key file | Git signing key | Agent |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | macOS | `~/.ssh/brett_ed25519` | Literal pubkey (via 1Password) | 1Password SSH agent |
 | Linux (headless) | `~/.ssh/brett_ed25519` | `~/.ssh/brett_ed25519` (via `~/.config/git/local`) | 1Password agent or none |
 
