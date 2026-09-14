@@ -112,10 +112,17 @@ sd-commit-doc "$MSG" <category>/<slug>.md     # 3. repo-relative path(s); pass s
 own `.git/index`, so parallel compounders cannot bundle each other's files under your message), commits with `--file
 "$MSG"`, pushes with a fetch + rebase + retry when origin has advanced, tears the worktree down, and finally `merge
 --ff-only`s the shared clone to origin so its checkout never drifts behind (the drift that strands the nightly
-autocommit). It never `git add -A`s and never amends + force-pushes. Read or extend it at `~/.local/bin/sd-commit-doc`;
-its behavior is pinned by `tests/sd-commit-doc.bats` in dotfiles. If a single, exclusive writer is guaranteed (a solo
-interactive session, no background compounding agents), a plain `git -C "$SD" add <file> && git -C "$SD" commit --file
-"$MSG" && git -C "$SD" push` is acceptable — but verify with `git show --stat HEAD` afterward regardless. Full rationale:
+autocommit). It never `git add -A`s and never amends + force-pushes. Before any of that work it pre-flights the corpus
+schema through the solutions repo's own `.githooks/lib-validate.sh`, so a doc missing a required frontmatter field fails
+in about a second with the field named instead of aborting part-way through a commit. Read or extend it at
+`~/.local/bin/sd-commit-doc`; its behavior is pinned by `tests/sd-commit-doc.bats` in dotfiles.
+
+**Its exit status is the contract.** A failed run prints `sd-commit-doc: FAILED during <step>` on stderr and exits
+non-zero. Read that status directly (`sd-commit-doc "$MSG" <path>; rc=$?`); piping the command into `tail` or `head`
+yields the pipe's status rather than the helper's, so a rejected commit reads as a success and the message file gets
+cleaned up as though it had been used. If a single, exclusive writer is guaranteed (a solo interactive session, no
+background compounding agents), a plain `git -C "$SD" add <file> && git -C "$SD" commit --file "$MSG" && git -C "$SD"
+push` is acceptable — but verify with `git show --stat HEAD` afterward regardless. Full rationale:
 `docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
 `docs/solutions/workflow-issues/unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 
