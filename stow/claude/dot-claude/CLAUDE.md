@@ -18,6 +18,15 @@ stated in full here; the guides hold only the elaboration.
 - **200-line refactor trigger** — any single file over 200 LOC (excluding comments) triggers a refactor review. Uniform
   function files or pure declarations may exceed it — evaluate by SRP, trigger by line count.
 
+## Error contract and output modes
+
+Text output is for humans; JSON and the other structured modes are for agents. The two need not match word for word:
+text carries prose hints and a help pointer, JSON carries stable fields an agent branches on. Every structured error
+meets the Stripe tier of the DX error hall of fame: a stable kebab-case `reason` from a closed set, an `exit_code`, a
+human `message`, the offending value when there is one, and a `next_step` object `{action, command, docs}` where
+`action` is a closed set, `command` is a verbatim invocation safe for headless use, and `docs` is a URL when one exists.
+Prefer additive changes to an envelope: add keys rather than renaming or retyping existing ones.
+
 ## Code comments
 
 **Default: write no comment.** Only add one when removing it would leave a non-obvious WHY unanswered. Legitimate

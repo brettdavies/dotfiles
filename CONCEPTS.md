@@ -17,6 +17,17 @@ of the stow-deployed symlinks is in place.
 Capability checks (is the tool installed at all?) layer before host-class checks (is this host subject to the policy?).
 The two compose; neither replaces the other.
 
+### Canonical checkout
+
+The one clone of this repo that may write into the real home: `~/dotfiles`, resolved to its real path, on every host
+class. Every other checkout is non-canonical by definition — an agent scratchpad clone, a `/tmp` clone, a linked git
+worktree, whatever its origin URL. A non-canonical checkout reaches the deploy only against a scratch target, through
+the script's deploy-target seam; that is how the test suite exercises stow without touching the live symlinks.
+
+Distinct from a *deployed dotfiles host*: that is a host-class check (are the stow links in place?), this is a
+checkout-identity check (is this the clone that owns them?). The first governs whether a policy applies; the second
+governs who may deploy.
+
 ### Headless host
 
 An Ubuntu server in the deployment fleet: no GUI, no graphical secret manager, no interactive prompts during install or
@@ -27,14 +38,18 @@ loop — the same flow runs on many of them and a manual step does not scale.
 When a tool would normally depend on the graphical secret manager (git signing, secret reads), the headless host falls
 back to a non-interactive path: ssh-based signing, service-account token reads.
 
-### qmd thin client
+### qmd daemon host
 
-A deployed dotfiles host — in practice the macOS workstation, and any other host that is not the qmd brain — that
-searches the central qmd corpus over the tailnet and never runs a local qmd index or GGUF process. The *qmd brain host*
-is the headless machine that owns the sqlite index, the always-on MCP HTTP process, and the periodic embed jobs. Clients
-reach that process through a Tailscale VIP (HTTPS MagicDNS), not through `qmd serve` or a local `qmd` CLI. The split
-keeps one vector space: every query is embedded and reranked by the brain host's one llama.cpp, so a second local engine
-would fork that space.
+A deployed dotfiles host that runs its own `qmd serve` bound to loopback and routes CLI queries to it through
+`QMD_REMOTE_URL`, so the heavy models stay warm across invocations instead of cold-loading per call. Each such host owns
+its own sqlite index and its own embed, rerank and generate models; no query crosses the tailnet. Every host in the
+fleet is one of these.
+
+Hosts differ only in resident footprint, which follows the memory available. The VRAM-constrained headless host runs
+low-vram mode, disposing and reloading one heavy model at a time to hold the peak down while sharing a GPU with other
+work. The workstation has unified-memory headroom and keeps all three resident, spending footprint to avoid the
+per-stage reload latency. The scheduled index jobs are the same set on both, expressed as systemd timers on Linux and
+launch agents on macOS.
 
 ## Packages
 
@@ -59,6 +74,14 @@ A stow package deployed only on the macOS development machine. Contains config f
 workstation: GUI applications, editors with no headless equivalent, and macOS-native automation surfaces. The split
 keeps the headless deploy minimal and avoids surprising failures on hosts that don't have the underlying tool.
 
+### Package set
+
+One of the named arrays in the deploy script that decides what a bare deploy reaches. The sets are the single source of
+truth for deployment: a package directory under `stow/` that appears in none of them is never deployed by any normal
+run, and lands in the real home only if someone stows it by hand on one machine. That machine then works and the next
+one silently lacks the config, with no error pointing back at the omission. A package genuinely outside the sets is
+recorded as an exemption with its reason, so the absence is a decision rather than an oversight.
+
 ### Encrypted package
 
 A stow package whose contents are git-crypt encrypted in the repository and only readable after the repository is
@@ -76,6 +99,25 @@ sees it. Used when two tools follow parallel conventions for the same kind of ar
 read from per-tool paths) and the team wants single-source-of-truth across them. The trade-off is that file formats and
 directives must be compatible across consumers; tool-specific syntax in the source is inert in consumers that do not
 recognize it.
+
+### Stowed dispatcher
+
+A small executable in a stow package, deployed to a fixed path under `~/.local/bin`, whose only job is to exec the real
+implementation for the running OS. Callers name the dispatcher rather than the implementation, so one path is correct on
+every host class and survives the implementation moving. Service units, timers, and launch agents are the callers that
+need this most: they resolve a binary once at start and have no shell chain to consult, so a path that differs per
+platform has to be branched somewhere, and the dispatcher is the one place to branch it.
+
+The dispatcher also decides which of several installed copies answers. Where a tool exists both as a packaged release
+and as a local build, naming the dispatcher pins every caller to the build the repo intends, instead of leaving the
+choice to whichever copy `PATH` happens to reach first.
+
+### Stow-managed link
+
+A symlink under the real home whose target path contains a `/stow/` segment: the artefact GNU stow leaves behind for
+every file in a deployed package. On a healthy deployed dotfiles host every stow-managed link resolves into the
+canonical checkout's `stow/` tree. One that resolves anywhere else, or dangles, is drift, and the signature of a deploy
+run from a non-canonical checkout.
 
 ## System configuration
 
@@ -150,6 +192,29 @@ caches.
 An install root relocated by the shell config chain diverges for every *bare launcher*, because the relocation applies
 at runtime while the tool's installer wrote to the default path. The result is one tree the shell sees and another the
 launcher sees, with no error from either.
+
+### Shadowed executable
+
+A command installed twice on one host, where `PATH` order alone decides which copy answers. The two are maintained by
+different mechanisms — a package manager upgrades one, a self-updater or a hand-made symlink maintains the other — and
+neither mechanism can see the other's copy. Nothing reports the split: both respond to `--version`, and only comparing
+the two reveals that upgrades have been landing on a binary no caller reaches.
+
+The failure is quiet in both directions. A stale copy earlier on `PATH` answers every call while the maintained one sits
+idle, and a copy that merely *could* appear earlier turns a missing file into a silent substitution rather than an
+error. Tools are therefore installed from one source per host, and a second copy of the same command is drift to remove,
+not a fallback to keep.
+
+### Captured environment
+
+The environment or argument list a long-lived process took at start and continues to serve, regardless of what the files
+that produced it say now. A multiplexer server hands every new pane the environment it started with; a launch agent runs
+the argument list it was bootstrapped with; an already-running process keeps the variables it inherited. Editing the
+config that seeds any of them changes what *new* processes get, and changes nothing about what is already running.
+
+This is why removing an export cannot clear an inherited value: the config stops setting the variable, but nothing
+unsets it in a process that already holds it. Verification has to start a process from outside the captured state — a
+fresh login rather than a new pane — and adopting a change means reloading or restarting whatever holds the old copy.
 
 ## Policies
 
