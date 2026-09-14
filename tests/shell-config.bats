@@ -298,6 +298,45 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   [ "$output" = "found" ]
 }
 
+# ---------------------------------------------------------------------------
+# config/shell/caches.sh: the bun install root stays at its stock default
+# ---------------------------------------------------------------------------
+#
+# BUN_INSTALL names an install root, not a cache: it holds `bun add -g` packages
+# and their bin symlinks, which no re-download reconstructs on demand. The bun
+# binary and every launcher that never sources this chain resolve ~/.bun, so
+# relocating it splits the globals across two trees and leaves both on PATH.
+
+@test "caches.sh does not assign BUN_INSTALL" {
+  run ! grep -qE '^[[:space:]]*(export[[:space:]]+)?BUN_INSTALL=' "$CONFIG_DIR/caches.sh"
+}
+
+# As with the Rust roots above, the `unset` prefix is load-bearing: a shell that
+# still carries the old exported value would otherwise report on its own
+# environment instead of on the file.
+@test "sourcing profile in a fresh shell leaves BUN_INSTALL unset" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  run bash -c 'unset BUN_INSTALL; . "$HOME/.profile" >/dev/null 2>&1; echo "${BUN_INSTALL:-unset}"'
+  [ "$status" -eq 0 ]
+  [ "$output" = "unset" ]
+}
+
+# Nothing exports the root, so the stock bin dir is what has to reach PATH.
+# Scoped to hosts that have one, since a host with no bun globals has no dir.
+@test "sourcing profile puts stock ~/.bun/bin on PATH where it exists" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  [ -d "$HOME/.bun/bin" ] || skip "no bun global bin dir on this host (~/.bun/bin absent)"
+  run bash -c 'unset BUN_INSTALL; . "$HOME/.profile" >/dev/null 2>&1; case ":$PATH:" in *":$HOME/.bun/bin:"*) echo found ;; *) echo missing ;; esac'
+  [ "$status" -eq 0 ]
+  [ "$output" = "found" ]
+}
+
+# The relocated bin dir must not survive in the PATH chain. Leaving it there
+# keeps a split host working by accident, which is what hid the divergence.
+@test "dot-profile does not put the relocated bun bin dir on PATH" {
+  run ! grep -q '\.cache/bun/bin' "$STOW_DIR/shell/dot-profile"
+}
+
 # Whether an alias defined in the `.profile` chain resolves depends on the
 # invocation, not the shell: bash leaves `expand_aliases` off so a `bash -lc`
 # caller never sees one, while POSIX mode turns it on so a `sh -lc` caller on
