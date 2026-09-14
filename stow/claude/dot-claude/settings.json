@@ -116,7 +116,6 @@
       "Bash(readlink:*)",
       "Bash(realpath:*)",
       "Bash(rg:*)",
-      "Bash(rtk *)",
       "Bash(rustc:*)",
       "Bash(rustfmt:*)",
       "Bash(rustup:*)",
@@ -298,7 +297,6 @@
       "Bash(curl -s https://hn.algolia.com/api/v1/items/:*)",
       "Bash(brave-search:*)",
       "Bash(cat .github/pull_request_template.md)",
-      "Bash(rtk read *)",
       "Bash(ls styles/config/vocabularies/)",
       "Bash(find styles *)",
       "Bash(bash /home/brett/.claude/plugins/cache/every-marketplace/compound-engineering/:*)",
@@ -445,10 +443,6 @@
             "type": "command",
             "command": "~/.claude/skills/1password/hooks/op-skill-nudge.sh",
             "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "rtk hook claude"
           }
         ]
       },
