@@ -4,7 +4,7 @@ After=qmd-update.service
 
 [Service]
 Type=oneshot
-Environment=PATH=/home/brett/.bun/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/home/brett/.local/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
 # Pin the GPU backend to CUDA. node-llama-cpp prefers the Vulkan prebuilt when
 # present, which breaks across NVIDIA driver branches and silently falls back to
 # CPU, so embedding would otherwise run on CPU despite the ExecStartPre below

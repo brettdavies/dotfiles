@@ -31,7 +31,7 @@ jobs:
           elif [ "$LATEST" = "$TODAY" ]; then
             VERSION="${TODAY}.1"
           else
-            SUFFIX="${LATEST#${TODAY}.}"
+            SUFFIX="${LATEST#"${TODAY}."}"
             if [[ "$SUFFIX" =~ ^[0-9]+$ ]]; then
               VERSION="${TODAY}.$((SUFFIX + 1))"
             else

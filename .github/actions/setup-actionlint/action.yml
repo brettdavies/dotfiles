@@ -1,0 +1,65 @@
+name: Setup actionlint
+description: Install a pinned, cached actionlint, so CI and the local gates judge the same workflow the same way.
+
+# Same reasoning as .github/actions/setup-shellcheck: a version that drifts
+# between CI and the developer machine means a workflow passes the local gate
+# and fails here, or the reverse. actionlint gains checks between releases, so
+# the skew shows up as findings that exist on one side only.
+#
+# The install is cached per version and runner, so a warm job unpacks nothing
+# and reaches no network. The cache lives under $HOME rather than /usr/local/bin
+# because cache restore runs unprivileged; the directory joins PATH instead of
+# the binary being copied into a root-owned one.
+#
+# Keep VERSION in step with the Homebrew formula; bumping is a reviewed change.
+
+inputs:
+  version:
+    description: actionlint release version, without the leading v
+    required: false
+    default: 1.7.12
+  sha256:
+    description: Checksum of the linux_amd64 tarball for that release
+    required: false
+    default: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+
+runs:
+  using: composite
+  steps:
+    - name: Cache actionlint
+      id: cache
+      uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v4
+      with:
+        path: ~/.cache/actionlint/${{ inputs.version }}
+        key: actionlint-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+    - name: Download pinned actionlint
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        AL_VERSION: ${{ inputs.version }}
+        AL_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        dest="$HOME/.cache/actionlint/${AL_VERSION}"
+        mkdir -p "$dest"
+        url="https://github.com/rhysd/actionlint/releases/download/v${AL_VERSION}/actionlint_${AL_VERSION}_linux_amd64.tar.gz"
+        curl -fsSL "$url" -o /tmp/actionlint.tar.gz
+        echo "${AL_SHA256}  /tmp/actionlint.tar.gz" | sha256sum --check --strict
+        tar -xzf /tmp/actionlint.tar.gz -C "$dest" actionlint
+        chmod +x "$dest/actionlint"
+        rm -f /tmp/actionlint.tar.gz
+
+    - name: Put actionlint on PATH
+      shell: bash
+      env:
+        AL_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        dest="$HOME/.cache/actionlint/${AL_VERSION}"
+        [ -x "$dest/actionlint" ] || {
+          echo "setup-actionlint: $dest/actionlint missing after install/restore" >&2
+          exit 1
+        }
+        echo "$dest" >>"$GITHUB_PATH"
+        "$dest/actionlint" --version

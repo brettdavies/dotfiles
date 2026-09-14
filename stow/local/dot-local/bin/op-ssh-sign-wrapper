@@ -17,16 +17,16 @@
 # file path — not a key literal.
 
 if [ -x /Applications/1Password.app/Contents/MacOS/op-ssh-sign ]; then
-    exec /Applications/1Password.app/Contents/MacOS/op-ssh-sign "$@"
+  exec /Applications/1Password.app/Contents/MacOS/op-ssh-sign "$@"
 elif [ -x /opt/1Password/op-ssh-sign ]; then
-    exec /opt/1Password/op-ssh-sign "$@"
+  exec /opt/1Password/op-ssh-sign "$@"
 elif [ "$(uname -s)" = "Linux" ] && command -v ssh-keygen >/dev/null 2>&1; then
-    # Headless Linux fallback: sign with local key file via ssh-keygen
-    exec ssh-keygen "$@"
+  # Headless Linux fallback: sign with local key file via ssh-keygen
+  exec ssh-keygen "$@"
 else
-    echo "op-ssh-sign-wrapper: no signing method available" >&2
-    echo "  Tried: 1Password desktop app (op-ssh-sign), ssh-keygen" >&2
-    echo "  On macOS: install 1Password desktop app" >&2
-    echo "  On Linux: ensure ssh-keygen is installed (openssh-client)" >&2
-    exit 1
+  echo "op-ssh-sign-wrapper: no signing method available" >&2
+  echo "  Tried: 1Password desktop app (op-ssh-sign), ssh-keygen" >&2
+  echo "  On macOS: install 1Password desktop app" >&2
+  echo "  On Linux: ensure ssh-keygen is installed (openssh-client)" >&2
+  exit 1
 fi

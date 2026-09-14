@@ -36,6 +36,12 @@ To add a new package:
 
 1. Create `stow/<package-name>/` with `dot-` prefixed files
 2. Add the package name to `SHARED_PACKAGES` or `DESKTOP_PACKAGES` in `scripts/stow-deploy`
+3. If the package genuinely cannot deploy through stow, add it to `NOT_DEPLOYED` in `tests/stow-deploy-packages.bats`
+   with the reason instead
+
+A `stow/` directory in no package set and no exemption list fails `tests/stow-deploy-packages.bats`. That gate exists
+because the alternative failure is silent: the machine it was hand-stowed on works, and the next host simply lacks the
+config with nothing pointing back at the omission.
 
 **Tree folding:** `stow-deploy` passes `--no-folding` globally. This prevents stow from creating directory-level
 symlinks (which would pollute the repo when programs write into symlinked dirs). Individual file symlinks are created
@@ -72,6 +78,7 @@ are version-controlled in `config/systemd/system/` and deployed via dedicated sc
 **Current units:**
 
 - `mnt-nas.mount` + `mnt-nas.automount` — deployed by `scripts/nas-deploy.sh`
+- `apparmor-playwright.service` — deployed by `scripts/apparmor-deploy.sh` alongside the profile it reloads at boot
 
 **Pattern for adding new system-level units:**
 
@@ -95,6 +102,15 @@ and reloads it with `apparmor_parser -r`. Profiles persist across reboots.
 1. Drop the profile file in `config/apparmor.d/` (filename must match the `/etc/apparmor.d/` target exactly)
 2. Re-run `sudo scripts/apparmor-deploy.sh` — it copies every file in the directory and reloads each one
 3. Do NOT add to `stow/` or `SHARED_PACKAGES`
+
+### SSH Daemon Locale (`scripts/sshd-locale-deploy.sh`)
+
+There is no config file to copy for this one. `AcceptEnv` accumulates across `/etc/ssh/sshd_config` and every
+`sshd_config.d/*.conf` drop-in, so a drop-in cannot cancel Ubuntu's stock `AcceptEnv LANG LC_*`; the script edits the
+directives in place, validates with `sshd -t`, and reloads sshd. With the client locale no longer accepted, `pam_env`
+supplies `LANG` from `/etc/default/locale` (`C.UTF-8`) to each session. The client side of the same fix is the `SetEnv
+LANG=C.UTF-8` on the affected host entries in the `ssh` package. `tests/sshd-locale-deploy.bats` exercises the rewrite
+through `--config PATH`, which skips the root check, validation, and reload.
 
 ---
 
@@ -138,12 +154,50 @@ with zsh as default shell gets zero environment. See
 `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` for the full zsh vs bash startup file
 reference.
 
+### Supported invocation shapes
+
+The supported set is `{zsh, bash}` x `{login, non-login}` x `{interactive, non-interactive}`, plus the `dash` login
+shape that remote tooling reaches. All but one read at least one startup file and must end with a fully assembled
+`PATH`; the exception reads nothing by design.
+
+| Shell  | Login | Interactive | Reads                                    | Reached by                                           |
+| ------ | ----- | ----------- | ---------------------------------------- | ---------------------------------------------------- |
+| `zsh`  | yes   | yes         | `.zshenv .zprofile .zshrc`               | terminal window, tmux pane, `ssh host`               |
+| `zsh`  | yes   | no          | `.zshenv .zprofile`                      | `zsh -lc`                                            |
+| `zsh`  | no    | yes         | `.zshenv .zshrc`                         | `zsh -i`, editor subshells                           |
+| `zsh`  | no    | no          | `.zshenv`                                | `ssh host cmd`, cron with `SHELL=zsh`                |
+| `bash` | yes   | yes         | `.bash_profile` → `.profile` → `.bashrc` | login console, `bash -l`                             |
+| `bash` | yes   | no          | `.bash_profile` → `.profile`             | `bash -lc`                                           |
+| `bash` | no    | yes         | `.bashrc` → `.profile`                   | `bash -i`                                            |
+| `bash` | no    | no          | nothing, or `$BASH_ENV`                  | `bash script.sh`, git hooks, CI, the agent Bash tool |
+| `dash` | yes   | no          | `.profile`                               | `sh -lc` from remote tooling                         |
+
+The `bash` non-login non-interactive row is the *bare launcher* case (see [CONCEPTS.md](CONCEPTS.md)): bash has no
+all-invocations file, so the shape inherits whatever its launcher handed it. Scripts in that position source the helper
+they need explicitly, per the section below. Claude Code's Bash tool is wired through `CLAUDE_ENV_FILE` by
+`stow/claude/dot-claude/bash-env-path.sh`, which repairs keg-only Ruby ordering only; it assumes an inherited `PATH`
+rather than assembling one.
+
+The `dash` row is its opposite and the one easiest to forget. `/bin/sh` is dash on Debian and Ubuntu, and `-l` makes it
+a login shell, so a tool that reaches a host with `sh -lc '<cmd>'` reads `.profile` regardless of the account's default
+shell. That shape constrains the entry file's syntax, not just its ordering: everything outside a region guarded on
+`BASH_VERSION` has to stay POSIX, because a construct dash rejects ends the file where it stands and costs every export
+below it.
+
+`tests/shell-path-matrix.bats` exercises every row from an `env -i` launchd-style environment, so a pass means the shape
+assembles `PATH` itself rather than inheriting it from a working parent shell.
+
 **Environment variables needed by all contexts** (Claude Code, SSH commands, cron, interactive shells) belong in
 `.profile` or `config/shell/*.sh` — never in `.zshrc`/`.bashrc`. Consult the startup file matrix in
 `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` before choosing a location.
 
-**`config/shell/*.sh` must use functions, not aliases.** These files are sourced by `.profile` under POSIX `sh` where
-aliases don't exist. Aliases belong in `.zshrc`/`.bashrc` (after the interactive guard) only.
+**`config/shell/*.sh` must use functions, not aliases.** `.profile` sources these files in non-interactive shells, where
+whether an alias resolves depends on how the shell was invoked rather than on which shell it is. Bash leaves
+`expand_aliases` off, so a `bash -lc` caller never sees one; POSIX mode turns it on, so a `sh -lc` caller on macOS —
+where `/bin/sh` is bash — does see it; and on Linux `/bin/sh` is dash, which never reaches these files at all because
+the sourcing loop is gated on `BASH_VERSION`/`ZSH_VERSION`. One alias therefore resolves, errors, or is never defined
+depending on the host and the invocation. A function behaves the same in every shape that sources these files. Aliases
+belong in `.zshrc`/`.bashrc` (after the interactive guard) only.
 
 **External scripts that need a helper must source it explicitly.** `.profile`'s auto-source loop in
 `stow/shell/dot-profile` runs only for shells that read `.profile` (interactive zsh/bash; non-interactive zsh via the
@@ -211,12 +265,40 @@ git config core.hooksPath .githooks
 
 This is set during bootstrap (see README) or via `bash .githooks/setup`.
 
-| Hook            | Purpose                                                    |
-| --------------- | ---------------------------------------------------------- |
-| `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign = true` |
-| `post-checkout` | Auto-unlocks git-crypt if key is available, chains Git LFS |
-| `post-merge`    | Auto-unlocks git-crypt if key is available, chains Git LFS |
-| `pre-push`      | Chains Git LFS pre-push                                    |
+| Hook            | Purpose                                                            |
+| --------------- | ------------------------------------------------------------------ |
+| `pre-commit`    | Branch + signing policy, then the CI checks scoped to staged files |
+| `post-checkout` | Auto-unlocks git-crypt if key is available, chains Git LFS         |
+| `post-merge`    | Auto-unlocks git-crypt if key is available, chains Git LFS         |
+| `pre-push`      | Full local CI mirror, then chains Git LFS pre-push                 |
+
+### Local gates mirror CI
+
+The hooks exist so a red pipeline is a surprise rather than a routine. Every check is defined once, in a script that all
+three gates call:
+
+| Check      | Definition               | CI job                             | pre-push | pre-commit            |
+| ---------- | ------------------------ | ---------------------------------- | -------- | --------------------- |
+| ShellCheck | `scripts/lint-shell`     | `.github/workflows/shellcheck.yml` | `--all`  | staged paths          |
+| actionlint | `scripts/lint-workflows` | `.github/workflows/shellcheck.yml` | `--all`  | staged workflow files |
+| Bats       | `scripts/run-tests`      | `.github/workflows/bats.yml`       | `--all`  | staged `.bats` files  |
+
+actionlint shares the ShellCheck job rather than getting its own. The job id `shellcheck` is a required status check in
+both rulesets under `.github/rulesets/`, so a separate job would need a new required context registered before it could
+block anything. It also runs after ShellCheck is on PATH deliberately: actionlint delegates `run:` bodies to shellcheck,
+and without it those checks are skipped silently rather than failing.
+
+`pre-push` is the repo-wide mirror: its steps map one-to-one onto CI jobs, and passing it should mean passing the
+pipeline. `pre-commit` runs the same scripts over staged paths only, so it stays fast enough for every commit while
+catching the same class of failure. The two policy checks in `pre-commit` (protected branch, signing) have no CI
+equivalent because they govern how a commit is made rather than what is in it.
+
+**Adding a CI job means adding a step to `pre-push` that calls the same script.** Put the target list and per-tool flags
+in the script, never in a hook or a workflow, so the three cannot drift. `tests/lint-shell.bats`,
+`tests/run-tests.bats`, and `tests/lint-workflows.bats` cover the dispatchers themselves.
+
+A missing tool skips its step with an install hint instead of failing, so a machine without the full toolchain can still
+commit and push; CI stays the backstop. `.githooks/lib/report.sh` holds the shared pass/skip/fail output helpers.
 
 ---
 
@@ -224,9 +306,15 @@ This is set during bootstrap (see README) or via `bash .githooks/setup`.
 
 - **`main`** -- stable release branch, deployed to all machines. Protected by GitHub ruleset: requires PR to merge,
   squash-only, signed commits.
-- **`dev`** -- integration branch. Protected by GitHub ruleset: signed commits required.
-- **Feature branches** -- created from `dev` (e.g., `feat/user-auth`, `fix/shell-startup`). Merged to `dev` via PR, then
-  `dev` merged to `main` when ready.
+- **`dev`** -- integration branch. Protected by GitHub ruleset: signed commits required. Never deleted.
+- **Feature branches** -- created from `dev` (e.g., `feat/user-auth`, `fix/shell-startup`). Merged to `dev` via PR.
+- **`release/YYYY.MM.DD`** -- cut from `main`, carries `dev`'s tree as a forward diff, and is the only permitted head of
+  a PR to `main` (`guard-release-branch.yml` enforces the pattern).
+
+`dev` is never merged into `main` and `main` is never merged into `dev`. The two branches share no common ancestor, so
+either merge produces conflicts on every file both sides touched. Releases go through the overlay recipe in
+[RELEASES.md](RELEASES.md#releasing-dev-to-main), and the released `CHANGELOG.md` returns to `dev` through
+`scripts/sync-dev-after-release.sh`, which copies that one file by PR.
 
 Never commit directly to `main`. All work goes through feature branches and PRs.
 
@@ -234,8 +322,9 @@ Never commit directly to `main`. All work goes through feature branches and PRs.
 
 - **Remote (GitHub):** Rulesets exported to `.github/rulesets/`. Main requires PR + squash merge + signed commits.
   Development requires signed commits.
-- **Local (git hooks):** `.githooks/pre-commit` blocks commits on `main` and verifies `commit.gpgsign = true`. Activated
-  via `core.hooksPath`.
+- **Local (git hooks):** `.githooks/pre-commit` blocks commits on `main` and verifies `commit.gpgsign = true`, then runs
+  the CI checks over staged paths; `.githooks/pre-push` runs the full CI mirror. Activated via `core.hooksPath`. See
+  [Local gates mirror CI](#local-gates-mirror-ci).
 
 ---
 
@@ -269,11 +358,14 @@ All shell scripts and hooks in this repo follow these conventions:
 
 All workflows live in `.github/workflows/`. When adding or modifying actions:
 
-- **Node.js 24 required:** Set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a top-level `env` in every workflow.
-  Node.js 20 actions are deprecated and will stop working after June 2, 2026.
-- **Commit signing:** The release bot (`github-actions[bot]`) creates unsigned commits. The `dev` branch ruleset
-  requires signed commits, so bot commits from `main` cannot be merged into `dev` directly. Sync `main` into `dev` via
-  GitHub UI merge or cherry-pick only signed commits.
+- **Node.js 24 required:** Set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a top-level `env` in every workflow that
+  runs JavaScript actions. Node.js 20 actions are no longer supported by the runner.
+- **Commit signing:** The release bot (`github-actions[bot]`) creates unsigned commits, and the `dev` ruleset requires
+  signed commits, so nothing from `main` can be merged into `dev`. This is one of the reasons the post-release backport
+  is a surgical `CHANGELOG.md` copy on a fresh branch (`scripts/sync-dev-after-release.sh`) rather than a branch merge.
+- **Guard workflows:** `guard-main-docs.yml`, `guard-main-provenance.yml`, and `guard-release-branch.yml` run only on
+  PRs to `main` and are required checks there. They call first-party reusables in `brettdavies/.github`, which are
+  pinned to `@main` deliberately; third-party actions still require commit SHAs.
 
 ---
 

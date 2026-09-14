@@ -7,6 +7,13 @@ SCRIPT="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
 
 EXIT_USAGE=2
 
+# The --all and --headless cases reach the deploy loop on an unlocked checkout;
+# a per-test sandbox target keeps them off the live $HOME from any checkout.
+setup() {
+  export STOW_DEPLOY_TARGET="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$STOW_DEPLOY_TARGET"
+}
+
 # ---------------------------------------------------------------------------
 # Flag validation
 # ---------------------------------------------------------------------------
@@ -67,5 +74,5 @@ EXIT_USAGE=2
   while read -r code; do
     [ "$code" -ne 0 ]
     [ "$code" -ne 1 ]
-  done <<< "$codes"
+  done <<<"$codes"
 }

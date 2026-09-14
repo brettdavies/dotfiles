@@ -13,7 +13,7 @@ HOOKS_DIR="$BATS_TEST_DIRNAME/../.githooks"
   if ! command -v shellcheck >/dev/null 2>&1; then
     skip "shellcheck not installed"
   fi
-  run shellcheck "$HOOKS_DIR/pre-commit"
+  run "$BATS_TEST_DIRNAME/../scripts/lint-shell" ".githooks/pre-commit"
   [ "$status" -eq 0 ]
 }
 
@@ -21,7 +21,7 @@ HOOKS_DIR="$BATS_TEST_DIRNAME/../.githooks"
   if ! command -v shellcheck >/dev/null 2>&1; then
     skip "shellcheck not installed"
   fi
-  run shellcheck "$HOOKS_DIR/post-checkout"
+  run "$BATS_TEST_DIRNAME/../scripts/lint-shell" ".githooks/post-checkout"
   [ "$status" -eq 0 ]
 }
 
@@ -29,7 +29,7 @@ HOOKS_DIR="$BATS_TEST_DIRNAME/../.githooks"
   if ! command -v shellcheck >/dev/null 2>&1; then
     skip "shellcheck not installed"
   fi
-  run shellcheck "$HOOKS_DIR/post-merge"
+  run "$BATS_TEST_DIRNAME/../scripts/lint-shell" ".githooks/post-merge"
   [ "$status" -eq 0 ]
 }
 
@@ -37,7 +37,7 @@ HOOKS_DIR="$BATS_TEST_DIRNAME/../.githooks"
   if ! command -v shellcheck >/dev/null 2>&1; then
     skip "shellcheck not installed"
   fi
-  run shellcheck "$HOOKS_DIR/pre-push"
+  run "$BATS_TEST_DIRNAME/../scripts/lint-shell" ".githooks/pre-push"
   [ "$status" -eq 0 ]
 }
 

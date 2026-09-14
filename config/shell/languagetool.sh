@@ -95,81 +95,97 @@
 LT_DENY_RULES_BASELINE='MD_BASEFORM|MUST_HAVE_TO|HAVE_PART_AGREEMENT|PREPOSITION_VERB|THIS_NNS|NON_STANDARD_WORD|POSSESSIVE_APOSTROPHE|A_INSTALL|IS_AND_ARE|SINGULAR_NOUN_ADV_AGREEMENT'
 
 lt_check() {
-    local lt_url="${LANGUAGETOOL_URL:-http://languagetool:8081}"
-    local blocking_re="${LT_BLOCKING_CATEGORIES:-^(TYPOS|GRAMMAR|CONFUSED_WORDS)$}"
-    local deny_re="^(${LT_DENY_RULES:-$LT_DENY_RULES_BASELINE})\$"
-    local probe_timeout="${LT_PROBE_TIMEOUT:-2}"
-    local check_timeout="${LT_CHECK_TIMEOUT:-30}"
-    local jobs="${LT_JOBS:-4}"
-    local -a files=()
+  local lt_url="${LANGUAGETOOL_URL:-http://languagetool:8081}"
+  local blocking_re="${LT_BLOCKING_CATEGORIES:-^(TYPOS|GRAMMAR|CONFUSED_WORDS)$}"
+  local deny_re="^(${LT_DENY_RULES:-$LT_DENY_RULES_BASELINE})\$"
+  local probe_timeout="${LT_PROBE_TIMEOUT:-2}"
+  local check_timeout="${LT_CHECK_TIMEOUT:-30}"
+  local jobs="${LT_JOBS:-4}"
+  local -a files=()
 
-    while (( $# )); do
-        case "$1" in
-            --lt-url)   lt_url="$2"; shift 2 ;;
-            --lt-url=*) lt_url="${1#--lt-url=}"; shift ;;
-            -h|--help)
-                printf 'Usage: lt_check [--lt-url URL] FILE [FILE...]\n' >&2
-                return 3
-                ;;
-            --)         shift; files+=("$@"); break ;;
-            -*)         printf 'lt_check: unknown flag %q\n' "$1" >&2; return 3 ;;
-            *)          files+=("$1"); shift ;;
-        esac
-    done
-
-    if (( ${#files[@]} == 0 )); then
-        printf 'lt_check: no files supplied\n' >&2
+  while (($#)); do
+    case "$1" in
+      --lt-url)
+        lt_url="$2"
+        shift 2
+        ;;
+      --lt-url=*)
+        lt_url="${1#--lt-url=}"
+        shift
+        ;;
+      -h | --help)
+        printf 'Usage: lt_check [--lt-url URL] FILE [FILE...]\n' >&2
         return 3
-    fi
+        ;;
+      --)
+        shift
+        files+=("$@")
+        break
+        ;;
+      -*)
+        printf 'lt_check: unknown flag %q\n' "$1" >&2
+        return 3
+        ;;
+      *)
+        files+=("$1")
+        shift
+        ;;
+    esac
+  done
 
-    local probe_rc=0
-    curl --max-time "$probe_timeout" -fsS "$lt_url/v2/languages" >/dev/null 2>&1 || probe_rc=$?
-    if (( probe_rc != 0 )); then
-        local reason
-        case "$probe_rc" in
-            6)  reason="couldn't resolve host (Tailscale likely off, or FQDN drift)" ;;
-            7)  reason="couldn't connect (host up, LT service down)" ;;
-            28) reason="timed out (>${probe_timeout}s; service slow or network impaired)" ;;
-            *)  reason="curl exit $probe_rc" ;;
-        esac
-        printf 'lt_check: LanguageTool unreachable at %s — %s\n' "$lt_url" "$reason" >&2
-        return 2
-    fi
+  if ((${#files[@]} == 0)); then
+    printf 'lt_check: no files supplied\n' >&2
+    return 3
+  fi
 
-    local tmp blocking_count=0
-    tmp="$(mktemp -d)"
+  local probe_rc=0
+  curl --max-time "$probe_timeout" -fsS "$lt_url/v2/languages" >/dev/null 2>&1 || probe_rc=$?
+  if ((probe_rc != 0)); then
+    local reason
+    case "$probe_rc" in
+      6) reason="couldn't resolve host (Tailscale likely off, or FQDN drift)" ;;
+      7) reason="couldn't connect (host up, LT service down)" ;;
+      28) reason="timed out (>${probe_timeout}s; service slow or network impaired)" ;;
+      *) reason="curl exit $probe_rc" ;;
+    esac
+    printf 'lt_check: LanguageTool unreachable at %s — %s\n' "$lt_url" "$reason" >&2
+    return 2
+  fi
 
-    # shellcheck disable=SC2016  # $1..$4 inside the single-quoted bash -c body are positional args, not parent-shell expansions
-    printf '%s\0' "${files[@]}" \
-        | xargs -0 -P "$jobs" -I{} bash -c '
+  local tmp blocking_count=0
+  tmp="$(mktemp -d)"
+
+  # shellcheck disable=SC2016  # $1..$4 inside the single-quoted bash -c body are positional args, not parent-shell expansions
+  printf '%s\0' "${files[@]}" \
+    | xargs -0 -P "$jobs" -I{} bash -c '
             file="$1"; tmp="$2"; url="$3"; timeout="$4"
             out="$tmp/$(printf "%s" "$file" | tr "/" "_").json"
             curl -sS --max-time "$timeout" -X POST "$url/v2/check" \
                 --data-urlencode "language=en-US" \
                 --data-urlencode "text@$file" > "$out" 2>/dev/null || true
         ' _ {} "$tmp" "$lt_url" "$check_timeout" \
-        || true
+    || true
 
-    local f json offset rule_id category message line
-    for f in "${files[@]}"; do
-        json="$tmp/$(printf '%s' "$f" | tr '/' '_').json"
-        [[ -s "$json" ]] || continue
-        while IFS=$'\t' read -r offset rule_id category message; do
-            [[ -z "$offset" ]] && continue
-            line=$(awk -v off="$offset" 'BEGIN{cur=0} {cur+=length($0)+1; if (cur>off) {print NR; exit}}' "$f" 2>/dev/null)
-            line="${line:-?}"
-            if [[ "$category" =~ $blocking_re ]] && ! [[ "$rule_id" =~ $deny_re ]]; then
-                blocking_count=$((blocking_count + 1))
-                printf '%s:%s:LT.%s (%s): %s\n' "$f" "$line" "$rule_id" "$category" "$message"
-            else
-                printf '[warn] %s:%s:LT.%s (%s): %s\n' "$f" "$line" "$rule_id" "$category" "$message"
-            fi
-        done < <(jaq -r '.matches[]? | [.offset, .rule.id, .rule.category.id, .message] | @tsv' "$json" 2>/dev/null || true)
-    done
+  local f json offset rule_id category message line
+  for f in "${files[@]}"; do
+    json="$tmp/$(printf '%s' "$f" | tr '/' '_').json"
+    [[ -s "$json" ]] || continue
+    while IFS=$'\t' read -r offset rule_id category message; do
+      [[ -z "$offset" ]] && continue
+      line=$(awk -v off="$offset" 'BEGIN{cur=0} {cur+=length($0)+1; if (cur>off) {print NR; exit}}' "$f" 2>/dev/null)
+      line="${line:-?}"
+      if [[ "$category" =~ $blocking_re ]] && ! [[ "$rule_id" =~ $deny_re ]]; then
+        blocking_count=$((blocking_count + 1))
+        printf '%s:%s:LT.%s (%s): %s\n' "$f" "$line" "$rule_id" "$category" "$message"
+      else
+        printf '[warn] %s:%s:LT.%s (%s): %s\n' "$f" "$line" "$rule_id" "$category" "$message"
+      fi
+    done < <(jaq -r '.matches[]? | [.offset, .rule.id, .rule.category.id, .message] | @tsv' "$json" 2>/dev/null || true)
+  done
 
-    rm -rf "$tmp"
-    (( blocking_count > 0 )) && return 1
-    return 0
+  rm -rf "$tmp"
+  ((blocking_count > 0)) && return 1
+  return 0
 }
 
 # _lt_resolve_url: shared --lt-url / LANGUAGETOOL_URL parser for the query
@@ -178,107 +194,120 @@ lt_check() {
 # via $2…$N. Echoes any leftover positional args on stdout so the caller can
 # repopulate its own arg list. Returns 0 on success, 3 on unknown flag.
 _lt_resolve_url() {
-    local _outvar="$1"; shift
-    local _url="${LANGUAGETOOL_URL:-http://languagetool:8081}"
-    while (( $# )); do
-        case "$1" in
-            --lt-url)   _url="$2"; shift 2 ;;
-            --lt-url=*) _url="${1#--lt-url=}"; shift ;;
-            -h|--help)  printf -v "$_outvar" '%s' "$_url"; return 4 ;;
-            *)          printf 'unknown flag %q\n' "$1" >&2; return 3 ;;
-        esac
-    done
-    printf -v "$_outvar" '%s' "$_url"
-    return 0
+  local _outvar="$1"
+  shift
+  local _url="${LANGUAGETOOL_URL:-http://languagetool:8081}"
+  while (($#)); do
+    case "$1" in
+      --lt-url)
+        _url="$2"
+        shift 2
+        ;;
+      --lt-url=*)
+        _url="${1#--lt-url=}"
+        shift
+        ;;
+      -h | --help)
+        printf -v "$_outvar" '%s' "$_url"
+        return 4
+        ;;
+      *)
+        printf 'unknown flag %q\n' "$1" >&2
+        return 3
+        ;;
+    esac
+  done
+  printf -v "$_outvar" '%s' "$_url"
+  return 0
 }
 
 # lt_info: server URL, reachability, software version, language count.
 lt_info() {
-    local lt_url
-    _lt_resolve_url lt_url "$@"
-    local rc=$?
-    if (( rc == 4 )); then
-        printf 'Usage: lt_info [--lt-url URL]\n' >&2
-        return 0
-    fi
-    (( rc != 0 )) && return "$rc"
+  local lt_url
+  _lt_resolve_url lt_url "$@"
+  local rc=$?
+  if ((rc == 4)); then
+    printf 'Usage: lt_info [--lt-url URL]\n' >&2
+    return 0
+  fi
+  ((rc != 0)) && return "$rc"
 
-    local probe_timeout="${LT_PROBE_TIMEOUT:-2}"
-    printf 'URL:           %s\n' "$lt_url"
+  local probe_timeout="${LT_PROBE_TIMEOUT:-2}"
+  printf 'URL:           %s\n' "$lt_url"
 
-    local probe_rc=0
-    curl --max-time "$probe_timeout" -fsS "$lt_url/v2/languages" >/dev/null 2>&1 || probe_rc=$?
-    if (( probe_rc != 0 )); then
-        local reason
-        case "$probe_rc" in
-            6)  reason="couldn't resolve host" ;;
-            7)  reason="couldn't connect" ;;
-            28) reason="timed out (>${probe_timeout}s)" ;;
-            *)  reason="curl exit $probe_rc" ;;
-        esac
-        printf 'Reachable:     no (%s)\n' "$reason"
-        return 2
-    fi
-    printf 'Reachable:     yes\n'
+  local probe_rc=0
+  curl --max-time "$probe_timeout" -fsS "$lt_url/v2/languages" >/dev/null 2>&1 || probe_rc=$?
+  if ((probe_rc != 0)); then
+    local reason
+    case "$probe_rc" in
+      6) reason="couldn't resolve host" ;;
+      7) reason="couldn't connect" ;;
+      28) reason="timed out (>${probe_timeout}s)" ;;
+      *) reason="curl exit $probe_rc" ;;
+    esac
+    printf 'Reachable:     no (%s)\n' "$reason"
+    return 2
+  fi
+  printf 'Reachable:     yes\n'
 
-    local probe_json
-    probe_json=$(curl -sS --max-time "$probe_timeout" -X POST "$lt_url/v2/check" \
-        --data-urlencode "language=en-US" \
-        --data-urlencode "text=test" 2>/dev/null)
-    if [[ -n "$probe_json" ]]; then
-        local sw_name sw_version sw_api sw_premium
-        sw_name=$(jaq -r '.software.name // "?"' <<<"$probe_json" 2>/dev/null)
-        sw_version=$(jaq -r '.software.version // "?"' <<<"$probe_json" 2>/dev/null)
-        sw_api=$(jaq -r '.software.apiVersion // "?"' <<<"$probe_json" 2>/dev/null)
-        sw_premium=$(jaq -r '.software.premium // false' <<<"$probe_json" 2>/dev/null)
-        printf 'Software:      %s %s (apiVersion %s, premium=%s)\n' \
-            "$sw_name" "$sw_version" "$sw_api" "$sw_premium"
-    fi
+  local probe_json
+  probe_json=$(curl -sS --max-time "$probe_timeout" -X POST "$lt_url/v2/check" \
+    --data-urlencode "language=en-US" \
+    --data-urlencode "text=test" 2>/dev/null)
+  if [[ -n "$probe_json" ]]; then
+    local sw_name sw_version sw_api sw_premium
+    sw_name=$(jaq -r '.software.name // "?"' <<<"$probe_json" 2>/dev/null)
+    sw_version=$(jaq -r '.software.version // "?"' <<<"$probe_json" 2>/dev/null)
+    sw_api=$(jaq -r '.software.apiVersion // "?"' <<<"$probe_json" 2>/dev/null)
+    sw_premium=$(jaq -r '.software.premium // false' <<<"$probe_json" 2>/dev/null)
+    printf 'Software:      %s %s (apiVersion %s, premium=%s)\n' \
+      "$sw_name" "$sw_version" "$sw_api" "$sw_premium"
+  fi
 
-    local lang_count
-    lang_count=$(curl -sS --max-time "$probe_timeout" "$lt_url/v2/languages" 2>/dev/null \
-        | jaq -r 'length' 2>/dev/null)
-    [[ -n "$lang_count" ]] && printf 'Languages:     %s supported (see: lt_languages)\n' "$lang_count"
+  local lang_count
+  lang_count=$(curl -sS --max-time "$probe_timeout" "$lt_url/v2/languages" 2>/dev/null \
+    | jaq -r 'length' 2>/dev/null)
+  [[ -n "$lang_count" ]] && printf 'Languages:     %s supported (see: lt_languages)\n' "$lang_count"
 }
 
 # lt_languages: pretty-print /v2/languages as "code\tname".
 lt_languages() {
-    local lt_url
-    _lt_resolve_url lt_url "$@"
-    local rc=$?
-    if (( rc == 4 )); then
-        printf 'Usage: lt_languages [--lt-url URL]\n' >&2
-        return 0
-    fi
-    (( rc != 0 )) && return "$rc"
+  local lt_url
+  _lt_resolve_url lt_url "$@"
+  local rc=$?
+  if ((rc == 4)); then
+    printf 'Usage: lt_languages [--lt-url URL]\n' >&2
+    return 0
+  fi
+  ((rc != 0)) && return "$rc"
 
-    local probe_timeout="${LT_PROBE_TIMEOUT:-2}"
-    local json
-    json=$(curl -sS --max-time "$probe_timeout" "$lt_url/v2/languages" 2>/dev/null) || {
-        printf 'lt_languages: cannot reach %s\n' "$lt_url" >&2
-        return 2
-    }
-    if [[ -z "$json" ]]; then
-        printf 'lt_languages: empty response from %s\n' "$lt_url" >&2
-        return 2
-    fi
-    jaq -r '.[] | [.longCode, .code, .name] | @tsv' <<<"$json" \
-        | awk -F'\t' '{printf "  %-10s %-6s %s\n", $1, $2, $3}'
+  local probe_timeout="${LT_PROBE_TIMEOUT:-2}"
+  local json
+  json=$(curl -sS --max-time "$probe_timeout" "$lt_url/v2/languages" 2>/dev/null) || {
+    printf 'lt_languages: cannot reach %s\n' "$lt_url" >&2
+    return 2
+  }
+  if [[ -z "$json" ]]; then
+    printf 'lt_languages: empty response from %s\n' "$lt_url" >&2
+    return 2
+  fi
+  jaq -r '.[] | [.longCode, .code, .name] | @tsv' <<<"$json" \
+    | awk -F'\t' '{printf "  %-10s %-6s %s\n", $1, $2, $3}'
 }
 
 # lt_rules: print baseline denylist with one-line reasons and the currently
 # active effective LT_DENY_RULES (which the consumer may have extended).
 lt_rules() {
-    local lt_url
-    _lt_resolve_url lt_url "$@"
-    local rc=$?
-    if (( rc == 4 )); then
-        printf 'Usage: lt_rules [--lt-url URL]\n' >&2
-        return 0
-    fi
-    (( rc != 0 )) && return "$rc"
+  local lt_url
+  _lt_resolve_url lt_url "$@"
+  local rc=$?
+  if ((rc == 4)); then
+    printf 'Usage: lt_rules [--lt-url URL]\n' >&2
+    return 0
+  fi
+  ((rc != 0)) && return "$rc"
 
-    cat <<'EOF'
+  cat <<'EOF'
 LT blocking categories (default; override via LT_BLOCKING_CATEGORIES):
   TYPOS  GRAMMAR  CONFUSED_WORDS
 
@@ -305,9 +334,9 @@ categories that misfire on technical-prose patterns. Extend, don't replace:
                          singular verb against a plural subject.
 
 EOF
-    printf 'Active LT_DENY_RULES regex (effective right now):\n  ^(%s)$\n\n' \
-        "${LT_DENY_RULES:-$LT_DENY_RULES_BASELINE}"
-    printf 'Full reasoning: less %s\n' "${BASH_SOURCE[0]:-~/dotfiles/config/shell/languagetool.sh}"
+  printf 'Active LT_DENY_RULES regex (effective right now):\n  ^(%s)$\n\n' \
+    "${LT_DENY_RULES:-$LT_DENY_RULES_BASELINE}"
+  printf 'Full reasoning: less %s\n' "${BASH_SOURCE[0]:-~/dotfiles/config/shell/languagetool.sh}"
 }
 
 # lt_categories: static catalogue of LanguageTool category constants.
@@ -315,7 +344,7 @@ EOF
 # embedded in the JAR); list comes from the LT rule definitions and from
 # observed responses across the four agentnative repos.
 lt_categories() {
-    cat <<'EOF'
+  cat <<'EOF'
 LanguageTool category constants (returned in match.rule.category.id):
 
   Blocking by default:

@@ -7,8 +7,6 @@
 .ai/
 .claude/
 .cursor/
-# gbrain writes a per-repo source marker; never tracked.
-.gbrain-source
 **/CLAUDE.md
 **/CLAUDE.*.md
 **/AGENT.md

@@ -92,6 +92,14 @@ case "$ext" in
       fi
     fi
 
+    # Repo opt-out: an absurd MD013 line width (>= 9999) disables markdown
+    # auto-format here (prose wrap, table align, and lint autofix all skip), so
+    # a repo whose committed markdown owns its own wrapping and table style is
+    # never reflowed by a one-line edit.
+    if [[ "$max_len" =~ ^[0-9]+$ ]] && ((max_len >= 9999)); then
+      exit 0
+    fi
+
     if [[ -x "$md_wrap" ]]; then
       python3 "$md_wrap" -i -w "$max_len" "$file" 2>/dev/null || true
     fi

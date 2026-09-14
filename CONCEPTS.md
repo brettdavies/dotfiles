@@ -17,6 +17,17 @@ of the stow-deployed symlinks is in place.
 Capability checks (is the tool installed at all?) layer before host-class checks (is this host subject to the policy?).
 The two compose; neither replaces the other.
 
+### Canonical checkout
+
+The one clone of this repo that may write into the real home: `~/dotfiles`, resolved to its real path, on every host
+class. Every other checkout is non-canonical by definition — an agent scratchpad clone, a `/tmp` clone, a linked git
+worktree, whatever its origin URL. A non-canonical checkout reaches the deploy only against a scratch target, through
+the script's deploy-target seam; that is how the test suite exercises stow without touching the live symlinks.
+
+Distinct from a *deployed dotfiles host*: that is a host-class check (are the stow links in place?), this is a
+checkout-identity check (is this the clone that owns them?). The first governs whether a policy applies; the second
+governs who may deploy.
+
 ### Headless host
 
 An Ubuntu server in the deployment fleet: no GUI, no graphical secret manager, no interactive prompts during install or
@@ -27,17 +38,18 @@ loop — the same flow runs on many of them and a manual step does not scale.
 When a tool would normally depend on the graphical secret manager (git signing, secret reads), the headless host falls
 back to a non-interactive path: ssh-based signing, service-account token reads.
 
-### gbrain thin client
+### qmd daemon host
 
-A deployed dotfiles host — in practice the macOS workstation — that runs gbrain config-only: the same shared Postgres
-engine and the same remote embedder and chat proxy that the brain host uses, reached over the tailnet, with gbrain's
-indexing and `dream` units excluded at deploy time. It queries the shared brain read-only and never embeds a corpus or
-runs synthesis locally. The point is a single vector space — because every query is embedded by the brain host's one
-embedder, the thin client's results share the space the corpus was embedded in; a second local engine would fork it. The
-*brain host* is the headless host that owns the engine, embedder, and the periodic indexing and dream jobs; the thin
-client owns none of them. The split falls out of making the gbrain stow package cross-platform (the config deploys, the
-Linux-only units are dropped on macOS) plus per-host environment overrides that point the provider endpoints at the
-tailnet instead of localhost.
+A deployed dotfiles host that runs its own `qmd serve` bound to loopback and routes CLI queries to it through
+`QMD_REMOTE_URL`, so the heavy models stay warm across invocations instead of cold-loading per call. Each such host owns
+its own sqlite index and its own embed, rerank and generate models; no query crosses the tailnet. Every host in the
+fleet is one of these.
+
+Hosts differ only in resident footprint, which follows the memory available. The VRAM-constrained headless host runs
+low-vram mode, disposing and reloading one heavy model at a time to hold the peak down while sharing a GPU with other
+work. The workstation has unified-memory headroom and keeps all three resident, spending footprint to avoid the
+per-stage reload latency. The scheduled index jobs are the same set on both, expressed as systemd timers on Linux and
+launch agents on macOS.
 
 ## Packages
 
@@ -62,6 +74,14 @@ A stow package deployed only on the macOS development machine. Contains config f
 workstation: GUI applications, editors with no headless equivalent, and macOS-native automation surfaces. The split
 keeps the headless deploy minimal and avoids surprising failures on hosts that don't have the underlying tool.
 
+### Package set
+
+One of the named arrays in the deploy script that decides what a bare deploy reaches. The sets are the single source of
+truth for deployment: a package directory under `stow/` that appears in none of them is never deployed by any normal
+run, and lands in the real home only if someone stows it by hand on one machine. That machine then works and the next
+one silently lacks the config, with no error pointing back at the omission. A package genuinely outside the sets is
+recorded as an exemption with its reason, so the absence is a decision rather than an oversight.
+
 ### Encrypted package
 
 A stow package whose contents are git-crypt encrypted in the repository and only readable after the repository is
@@ -79,6 +99,25 @@ sees it. Used when two tools follow parallel conventions for the same kind of ar
 read from per-tool paths) and the team wants single-source-of-truth across them. The trade-off is that file formats and
 directives must be compatible across consumers; tool-specific syntax in the source is inert in consumers that do not
 recognize it.
+
+### Stowed dispatcher
+
+A small executable in a stow package, deployed to a fixed path under `~/.local/bin`, whose only job is to exec the real
+implementation for the running OS. Callers name the dispatcher rather than the implementation, so one path is correct on
+every host class and survives the implementation moving. Service units, timers, and launch agents are the callers that
+need this most: they resolve a binary once at start and have no shell chain to consult, so a path that differs per
+platform has to be branched somewhere, and the dispatcher is the one place to branch it.
+
+The dispatcher also decides which of several installed copies answers. Where a tool exists both as a packaged release
+and as a local build, naming the dispatcher pins every caller to the build the repo intends, instead of leaving the
+choice to whichever copy `PATH` happens to reach first.
+
+### Stow-managed link
+
+A symlink under the real home whose target path contains a `/stow/` segment: the artefact GNU stow leaves behind for
+every file in a deployed package. On a healthy deployed dotfiles host every stow-managed link resolves into the
+canonical checkout's `stow/` tree. One that resolves anywhere else, or dangles, is drift, and the signature of a deploy
+run from a non-canonical checkout.
 
 ## System configuration
 
@@ -105,12 +144,77 @@ that establishes PATH, the package-manager prefix, secrets, and the per-tool con
 through its own startup file. It is the authoritative place to set environment for shells, and it does not run for a
 *bare launcher*.
 
+Order within the chain is load-bearing. A per-tool fragment decides whether to apply by testing, at the moment it is
+sourced, whether its tool is reachable on PATH. A fragment reached before the chain has finished assembling PATH
+therefore finds nothing and silently applies none of its configuration, in every shell that did not inherit a populated
+PATH from a parent. Fragments are sourced only after PATH is complete, and the failure this prevents is silent: no error
+is raised, and a shell descended from a working shell behaves correctly regardless, which hides it.
+
+Dialect is load-bearing for the same reason. The entry file is reached by more *invocation shapes* than the shells the
+fragments are written for, so it has to stay within the syntax common to all of them outside regions explicitly guarded
+on a shell's own marker. Order and dialect fail at different scales: a fragment reached too early misconfigures one
+tool, while a construct the reading shell rejects ends the entry file where it stands and costs every export below it.
+The fragments themselves are sourced only by the shells that can parse them, which is why the entry file's dialect
+constraint is stricter than theirs.
+
 ### Bare launcher
 
 A process that spawns a shell without sourcing any startup file, so it inherits only the PATH and environment its parent
 handed it and never runs the *shell config chain*. Cron, launchd and systemd jobs, GUI applications, git hooks, and the
 coding agent's command tool are all bare launchers. A bare launcher that needs a non-default tool on PATH must receive
 it from its own process environment (its unit, plist, or launcher configuration), not from the shell config chain.
+
+Automated and remote callers are not bare launchers by default, and assuming they are is a mistake in the expensive
+direction. A caller that requests a login shell reads the chain however headless it is, which exposes it to everything
+the chain can get wrong rather than exempting it. Whether a caller is a bare launcher is decided by its *invocation
+shape*, not by whether a human is watching.
+
+### Invocation shape
+
+The combination of shell dialect, login versus non-login, and interactive versus non-interactive that decides which
+startup files a shell process reads. Two processes running the same command reach different environments when their
+shapes differ, so the shape is the unit at which shell environment behavior is specified and verified, not the command.
+
+A shape that reads no startup file at all is a *bare launcher*. Verification has to reproduce the caller's exact shape:
+a pass obtained under a neighboring shape carries no information about the one that failed, and a shell descended from a
+correctly configured parent looks correct regardless of what its own startup files do. Shapes are enumerated
+deliberately, because the ones nobody listed are the ones nothing tests.
+
+### Install root
+
+A directory a language toolchain treats as its installation destination — holding binaries, toolchains, or registries
+that cannot be regenerated without re-downloading them — as opposed to a cache, which the tool refills on demand.
+`CARGO_HOME`, `RUSTUP_HOME`, `PIPX_HOME`, `PNPM_HOME`, `BUN_INSTALL`, and `GOPATH` name install roots; `HOMEBREW_CACHE`,
+`UV_CACHE_DIR`, `GOCACHE`, and `NPM_CONFIG_CACHE` name caches. The distinction decides whether deleting the directory is
+safe, and it is not visible from the path: several install roots are relocated under `XDG_CACHE_HOME` alongside true
+caches.
+
+An install root relocated by the shell config chain diverges for every *bare launcher*, because the relocation applies
+at runtime while the tool's installer wrote to the default path. The result is one tree the shell sees and another the
+launcher sees, with no error from either.
+
+### Shadowed executable
+
+A command installed twice on one host, where `PATH` order alone decides which copy answers. The two are maintained by
+different mechanisms — a package manager upgrades one, a self-updater or a hand-made symlink maintains the other — and
+neither mechanism can see the other's copy. Nothing reports the split: both respond to `--version`, and only comparing
+the two reveals that upgrades have been landing on a binary no caller reaches.
+
+The failure is quiet in both directions. A stale copy earlier on `PATH` answers every call while the maintained one sits
+idle, and a copy that merely *could* appear earlier turns a missing file into a silent substitution rather than an
+error. Tools are therefore installed from one source per host, and a second copy of the same command is drift to remove,
+not a fallback to keep.
+
+### Captured environment
+
+The environment or argument list a long-lived process took at start and continues to serve, regardless of what the files
+that produced it say now. A multiplexer server hands every new pane the environment it started with; a launch agent runs
+the argument list it was bootstrapped with; an already-running process keeps the variables it inherited. Editing the
+config that seeds any of them changes what *new* processes get, and changes nothing about what is already running.
+
+This is why removing an export cannot clear an inherited value: the config stops setting the variable, but nothing
+unsets it in a process that already holds it. Verification has to start a process from outside the captured state — a
+fresh login rather than a new pane — and adopting a change means reloading or restarting whatever holds the old copy.
 
 ## Policies
 
@@ -123,37 +227,3 @@ each requires a tool version recent enough to honor it — older versions silent
 paired with a version floor for every PM it covers. The gate is enforced via shell env vars (covering interactive and
 shell-launched processes) and, where the tool supports a global config file, written into that file (covering cron,
 systemd units, and other non-shell invocations).
-
-## Claude Code Session Pipeline
-
-### Corpus
-
-The permanent local archive of Claude Code conversation history at `~/.gbrain/transcripts/claude-code/`,
-date-partitioned by day of first message. Distinct from `~/.claude/projects/`, which is Claude Code's working store and
-subject to a configurable eviction window (default 30 days). The corpus survives that eviction because the pipeline
-converts every jsonl into redacted markdown before the window slides. Two downstream consumers read from it: qmd
-(raw-transcript search via the default-excluded `claude-code-sessions` collection) and gbrain dream's synthesize phase
-(distillation into brain pages).
-
-### Transcript
-
-One markdown file in the corpus, derived from one Claude Code jsonl. Two filename shapes share each date partition: a
-top-level session is `<session-id>.md`, a subagent transcript is `<parent-session>--<agent-id>.md`. The `--` infix is
-the only structural signal distinguishing the two; project name lives inside the markdown's metadata table, not in the
-directory layout.
-
-### Subagent transcript
-
-A transcript produced from a `~/.claude/projects/<encoded-cwd>/<session-id>/subagents/agent-<id>.jsonl` file rather than
-a top-level session jsonl. Subagents are tasks the main session delegated to a fresh context; their jsonl uses a
-different schema (`agentId`, `parentUuid`, `entrypoint`, no top-level `summary`) than top-level sessions, so the
-pipeline routes them through `subagent-to-md.py` rather than `cc2md`. Output lands alongside top-level transcripts in
-the same date partition.
-
-### Redaction shim
-
-A subprocess wrapper around a secret scanner that uses the scanner only as a detector and writes the file-rewrite step
-itself, driven by the scanner's structured JSON findings. The reference implementation is `gitleaks-redact.py`: it runs
-`gitleaks stdin --report-format json`, parses each `{RuleID, Match, …}` finding, drops fully-contained findings to avoid
-offset drift on overlaps, and replaces each `Match` with `[REDACTED:<RuleID>]`. Distinct from running gitleaks in its
-native detect-and-report mode: the shim mutates the file, the native invocation flags it.

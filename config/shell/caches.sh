@@ -1,7 +1,13 @@
 # shellcheck shell=bash
 # Central package and tool cache directory
 # This file configures environment variables for package manager and tool cache locations
-# All caches are stored under XDG_CACHE_HOME (XDG Base Directory Specification) for easy management and cleanup
+# Caches are stored under XDG_CACHE_HOME (XDG Base Directory Specification) for easy management and cleanup
+#
+# Some entries below relocate an install root rather than a cache (PIPX_HOME, PNPM_HOME, GOPATH).
+# An install root only relocates safely when every launcher agrees on it, and contexts that
+# never source this chain — systemd user units, cron, git hooks, GUI-launched processes — resolve the
+# stock path regardless of what is set here. Deleting a relocated cache costs a re-download; a
+# relocated install root that only half the machine can see is a split toolchain.
 
 # Set XDG_CACHE_HOME according to XDG Base Directory Specification
 # Defaults to ~/.cache if not already set, allowing users to override if needed
@@ -16,7 +22,7 @@ export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 
 # Homebrew cache (macOS only)
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    export HOMEBREW_CACHE="$XDG_CACHE_HOME/homebrew"
+  export HOMEBREW_CACHE="$XDG_CACHE_HOME/homebrew"
 fi
 
 # ============================================================================
@@ -25,7 +31,7 @@ fi
 
 # Python package managers and tools
 export POETRY_CACHE_DIR="$XDG_CACHE_HOME/pypoetry"
-export PIP_CACHE_DIR="$XDG_CACHE_HOME/pip"  # also set in stow/pip/dot-config/pip/pip.conf
+export PIP_CACHE_DIR="$XDG_CACHE_HOME/pip" # also set in stow/pip/dot-config/pip/pip.conf
 export PIPX_HOME="$XDG_CACHE_HOME/pipx"
 export UV_CACHE_DIR="$XDG_CACHE_HOME/uv"
 # Note: uvx (uv's tool runner) uses the same UV_CACHE_DIR
@@ -37,11 +43,18 @@ export UV_CACHE_DIR="$XDG_CACHE_HOME/uv"
 export NPM_CONFIG_CACHE="$XDG_CACHE_HOME/npm"
 export YARN_CACHE_FOLDER="$XDG_CACHE_HOME/yarn"
 export PNPM_HOME="$XDG_CACHE_HOME/pnpm"
-export BUN_INSTALL="$XDG_CACHE_HOME/bun"
 
-# Rust package managers
-export CARGO_HOME="$XDG_CACHE_HOME/cargo"
-export RUSTUP_HOME="$XDG_CACHE_HOME/rustup"
+# Bun is absent by design, for the reason spelled out for Rust below. BUN_INSTALL is an install
+# root: it holds `bun add -g` packages and the bin symlinks fronting them, which no re-download
+# reconstructs. Bun resolves the stock ~/.bun in every context that does not source this chain, so
+# setting it here divides the globals across two trees and needs both on PATH to stay usable. Bun's
+# own package cache sits at ~/.bun/install/cache and is pruned with `bun pm cache rm`.
+
+# Rust is absent by design. CARGO_HOME and RUSTUP_HOME are install roots, not caches: rustup-init
+# writes to the stock ~/.cargo and ~/.rustup, and the systemd timer, git hooks and agent tool calls
+# all read them there. Setting them here would apply to interactive shells only, leaving one host
+# with two toolchain sets and two binary directories. Cargo's own caches (registry/, git/) sit
+# inside ~/.cargo and are pruned with `cargo cache`, not by relocation.
 
 # Go cache
 export GOCACHE="$XDG_CACHE_HOME/go-build"
@@ -53,6 +66,14 @@ export GOPATH="$XDG_CACHE_HOME/go"
 
 export CYPRESS_CACHE_FOLDER="$XDG_CACHE_HOME/cypress"
 export PLAYWRIGHT_BROWSERS_PATH="$XDG_CACHE_HOME/playwright"
+# Browsers are dotfiles-provisioned into the shared cache above via
+# scripts/playwright-browsers-deploy.sh (curl + unzip). This skips Playwright's
+# auto-download during `bun install` (its postinstall), where Node/libuv's
+# io_uring extractor deadlocks on this kernel. It does NOT stop an explicit
+# `playwright install`; the provisioned markers do that. A browser missing from
+# the dotfiles set fails fast ("Executable doesn't exist") instead of wedging;
+# the fix is a dotfiles bump.
+export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 export PUPPETEER_CACHE_DIR="$XDG_CACHE_HOME/puppeteer"
 
 # ============================================================================
@@ -87,7 +108,7 @@ export FIREBASE_CACHE_DIR="$XDG_CACHE_HOME/firebase"
 
 # System/OS caches
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    [ ! -d "$HOMEBREW_CACHE" ] && mkdir -p "$HOMEBREW_CACHE"
+  [ ! -d "$HOMEBREW_CACHE" ] && mkdir -p "$HOMEBREW_CACHE"
 fi
 
 # Python caches
@@ -100,11 +121,6 @@ fi
 [ ! -d "$XDG_CACHE_HOME/npm" ] && mkdir -p "$XDG_CACHE_HOME/npm"
 [ ! -d "$YARN_CACHE_FOLDER" ] && mkdir -p "$YARN_CACHE_FOLDER"
 [ ! -d "$PNPM_HOME" ] && mkdir -p "$PNPM_HOME"
-[ ! -d "$BUN_INSTALL" ] && mkdir -p "$BUN_INSTALL"
-
-# Rust caches
-[ ! -d "$CARGO_HOME" ] && mkdir -p "$CARGO_HOME"
-[ ! -d "$RUSTUP_HOME" ] && mkdir -p "$RUSTUP_HOME"
 
 # Go caches
 [ ! -d "$GOCACHE" ] && mkdir -p "$GOCACHE"
@@ -118,3 +134,8 @@ fi
 # Platform and runtime caches
 [ ! -d "$DENO_DIR" ] && mkdir -p "$DENO_DIR"
 [ ! -d "$FIREBASE_CACHE_DIR" ] && mkdir -p "$FIREBASE_CACHE_DIR"
+
+# Each line above is a `[ ! -d X ] && mkdir -p X` short-circuit, so the file's exit status is
+# whichever the last one evaluated to — non-zero once that directory exists. Callers that source
+# the chain under `set -e` abort on it, so end on an unconditional success.
+:

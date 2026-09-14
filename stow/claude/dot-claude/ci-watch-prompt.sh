@@ -98,7 +98,7 @@ fi
 #   --delete         (deleting a remote ref doesn't fire workflows)
 #   --tags only      (tag pushes do trigger CI for tag-listening workflows, so don't skip)
 if printf '%s' "$command" | grep -qE '\bgit push\b' \
-   && printf '%s' "$command" | grep -qE -- '--dry-run|--delete'; then
+  && printf '%s' "$command" | grep -qE -- '--dry-run|--delete'; then
   exit 0
 fi
 

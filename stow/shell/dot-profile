@@ -1,23 +1,32 @@
 # shellcheck shell=bash
-# Sourced by both bash and zsh — both support [[ ]] and BASH_SOURCE
+# Sourced by bash, zsh, and dash. Remote tooling reaches a machine with
+# `sh -lc '<cmd>'`, and on Debian and Ubuntu /bin/sh is dash, which then reads
+# this file as its login profile. Everything outside the bash-only branch below
+# has to stay POSIX: dash aborts the whole file on a bash array subscript, and
+# every PATH export here goes down with it, leaving the caller unable to find
+# any tool. `[[` fails quieter and worse — dash reports a missing command and
+# takes the false branch, so a test silently inverts instead of erroring.
 
 # Resolve the dotfiles repo root by following this file's symlink back to stow/shell/
-if [ -n "${BASH_SOURCE[0]}" ]; then
-    # BASH_SOURCE doesn't resolve symlinks — follow the link manually
+if [ -n "${BASH_VERSION-}" ]; then
+    # BASH_SOURCE doesn't resolve symlinks — follow the link manually. Gated on
+    # BASH_VERSION because evaluating the subscript at all is fatal in dash.
     _PROFILE_REAL="${BASH_SOURCE[0]}"
     if [ -L "$_PROFILE_REAL" ]; then
         _PROFILE_REAL=$(readlink "$_PROFILE_REAL")
-        if [[ "$_PROFILE_REAL" != /* ]]; then
-            _PROFILE_REAL="$(dirname "${BASH_SOURCE[0]}")/$_PROFILE_REAL"
-        fi
+        case "$_PROFILE_REAL" in
+            /*) ;;
+            *) _PROFILE_REAL="$(dirname "${BASH_SOURCE[0]}")/$_PROFILE_REAL" ;;
+        esac
     fi
     _DOTFILES_ROOT="$(cd "$(dirname "$_PROFILE_REAL")/../.." && pwd)"
 elif [ -L "$HOME/.profile" ]; then
-    # Zsh and other shells: resolve the ~/.profile symlink
+    # Zsh, dash, and other shells: resolve the ~/.profile symlink
     _PROFILE_SOURCE=$(readlink "$HOME/.profile")
-    if [[ "$_PROFILE_SOURCE" != /* ]]; then
-        _PROFILE_SOURCE="$HOME/$_PROFILE_SOURCE"
-    fi
+    case "$_PROFILE_SOURCE" in
+        /*) ;;
+        *) _PROFILE_SOURCE="$HOME/$_PROFILE_SOURCE" ;;
+    esac
     _DOTFILES_ROOT="$(cd "$(dirname "$_PROFILE_SOURCE")/../.." && pwd)"
 else
     _DOTFILES_ROOT=""
@@ -31,21 +40,13 @@ _CONFIG_DIR="$_DOTFILES_ROOT/config/shell"
 # shellcheck disable=SC2034  # used by .zshenv, .zshrc, .bashrc
 DOTFILES_SHELL_DIR="$_CONFIG_DIR"
 
-if [ -n "$_DOTFILES_ROOT" ] && [ -d "$_CONFIG_DIR" ]; then
-    for _f in "$_CONFIG_DIR"/*.sh; do
-        # shellcheck disable=SC1090
-        [ -f "$_f" ] && . "$_f"
-    done
-    unset _f
-fi
-
-unset _DOTFILES_ROOT _CONFIG_DIR _PROFILE_REAL _PROFILE_SOURCE
+unset _PROFILE_REAL _PROFILE_SOURCE
 
 # Initialize Homebrew/Linuxbrew shell environment
 # Must come before ~/.secrets because secrets use `op read` from Homebrew PATH
 # Inlined: avoids forking Ruby on every shell start (~200ms macOS, can hang on Linux)
 # Output is deterministic per prefix — only HOMEBREW_REPOSITORY varies
-if [[ -z "${HOMEBREW_PREFIX:-}" ]]; then
+if [ -z "${HOMEBREW_PREFIX:-}" ]; then
     export HOMEBREW_NO_ENV_HINTS=1
     if [ -d /opt/homebrew ]; then
         export HOMEBREW_PREFIX="/opt/homebrew"
@@ -81,17 +82,15 @@ case ":${PATH}:" in
     *) export PATH="$HOME/.local/bin:$PATH" ;;
 esac
 
-# Bun: bun itself lives in ~/.bun/bin (curl installer); globally-installed
-# packages from `bun add -g` land in ~/.cache/bun/bin (same on Linux and macOS).
-for _bun_bin in "$HOME/.bun/bin" "$HOME/.cache/bun/bin"; do
-    if [ -d "$_bun_bin" ]; then
-        case ":${PATH}:" in
-            *:"$_bun_bin":*) ;;
-            *) export PATH="$_bun_bin:$PATH" ;;
-        esac
-    fi
-done
-unset _bun_bin
+# Bun: packages from `bun add -g` land in ~/.bun/bin, the stock install root
+# bun resolves when nothing overrides it (same on Linux and macOS). The bun
+# binary itself comes from Homebrew and is already on PATH through it.
+if [ -d "$HOME/.bun/bin" ]; then
+    case ":${PATH}:" in
+        *:"$HOME/.bun/bin":*) ;;
+        *) export PATH="$HOME/.bun/bin:$PATH" ;;
+    esac
+fi
 
 # Obsidian CLI
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -113,6 +112,25 @@ if [ -f "$HOME/.cargo/env" ]; then
     # shellcheck disable=SC1091
     . "$HOME/.cargo/env"
 fi
+
+# Shell helpers, sourced once PATH is complete. These files gate their contents
+# on `command -v <tool>` at source time, so anything sourced before the Homebrew,
+# ~/.local/bin, bun, and cargo entries above silently no-ops in a shell that did
+# not inherit a populated PATH — a launchd-spawned terminal, cron, or `ssh host cmd`.
+# The helpers themselves are bash-only — languagetool.sh declares a `local -a`
+# array, which dash rejects at parse time and so aborts this file rather than
+# the helper. PATH is already complete above, which is all a `sh -lc` caller
+# needs, so restrict the sourcing to the two shells that can read them.
+if [ -n "$_DOTFILES_ROOT" ] && [ -d "$_CONFIG_DIR" ] &&
+    { [ -n "${BASH_VERSION-}" ] || [ -n "${ZSH_VERSION-}" ]; }; then
+    for _f in "$_CONFIG_DIR"/*.sh; do
+        # shellcheck disable=SC1090
+        [ -f "$_f" ] && . "$_f"
+    done
+    unset _f
+fi
+
+unset _DOTFILES_ROOT _CONFIG_DIR
 
 # GPG terminal for commit signing (shared across all shells)
 # tty fails in non-interactive shells (cron, some SSH commands) — suppress gracefully
@@ -138,8 +156,5 @@ if [ -n "${EDITOR:-}" ]; then
     export EDITOR
     export VISUAL=$EDITOR
 fi
-
-# Ollama updater (requires sudo — replaces root-owned binary and restarts systemd service)
-alias ollama-update='curl -fsSL https://ollama.com/install.sh | sudo sh'
 
 export GPG_TTY

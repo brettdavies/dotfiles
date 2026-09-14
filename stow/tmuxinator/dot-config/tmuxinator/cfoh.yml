@@ -1,0 +1,17 @@
+name: CF Office Hours
+root: ~/dev/cf_office_hours
+
+windows:
+  - main:
+      layout: main-vertical
+      panes:
+        - command -v y >/dev/null && y || yazi
+        -
+        - lazygit
+
+on_project_first_start: |
+  (
+    sleep 0.3
+    tmux resize-pane -t "CF Office Hours:main.1" -x "33%"
+    tmux resize-pane -t "CF Office Hours:main.3" -y "33%"
+  ) & disown

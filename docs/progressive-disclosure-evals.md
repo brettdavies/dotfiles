@@ -7,16 +7,16 @@ the linked guide on demand when a task needs that detail, and must NOT need a gu
 ## How to run
 
 > **⚠️ Validity gate — run from a brand-new `claude` process, never a subagent.** A subagent spawned via the `Agent`
-> tool is **not** a fresh session: it inherits the parent session's already-loaded `CLAUDE.md`. If the parent loaded the
-> old monolith at startup (any session begun before the cutover), every subagent inherits the full detail inline, answers
-> from memory, opens zero guides, and produces a **false pass** — correct answers with no progressive disclosure. This was
-> observed empirically: a subagent recited `sys.dont_write_bytecode` (a `cli-tools.md`-only fact, absent from the slim
-> index) with zero tool calls. The only test that loads the slim `CLAUDE.md` from disk is a new `claude` invocation
-> started *after* the cutover + `scripts/stow-deploy claude`. Run the prompts there.
+> tool is **not** a fresh session: it inherits whatever `CLAUDE.md` the parent session loaded at startup. A parent
+> holding an older, fuller `CLAUDE.md` passes that detail inline to every subagent, which then answers from memory,
+> opens zero guides, and produces a **false pass** — correct answers with no progressive disclosure. The failure is
+> concrete: a subagent in that position recites `sys.dont_write_bytecode`, a `cli-tools.md`-only fact absent from the
+> slim index, with zero tool calls. Only a new `claude` invocation reads the current `CLAUDE.md` from disk, so run the
+> prompts from one started after `scripts/stow-deploy claude`.
 
 - Start a **new `claude` session** (new process) in this repo, after the slim `CLAUDE.md` is deployed. Confirm it loaded
   the slim version first (e.g. ask it to state the symlink-recreate command for `docs/solutions` verbatim — if it can
-  *without* reading a guide, it has the monolith and the session is contaminated; abort and restart).
+  *without* reading a guide, the session carries the detail inline and is contaminated; abort and restart).
 - Paste each eval prompt directly into that session (or have it dispatch one subagent per eval from inside that clean
   session). A read-only flow is fine — every prompt asks "what would you do / what's the exact value", not to mutate
   anything.

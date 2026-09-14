@@ -1,0 +1,25 @@
+# Caller for the reusable guard-release-branch workflow.
+#
+# Rejects PRs to main whose head branch doesn't start with `release/`. Keeps
+# `dev` off the list of PR heads, which is what makes delete-branch-on-merge
+# safe to leave on without risking origin/dev. Dependabot security updates
+# (a `dependabot/` head opened by dependabot[bot]) are exempt in the reusable.
+#
+# Default prefix `release/` is supplied by the reusable workflow; pass
+# `with: prefix: <other>` to override.
+#
+# The reusable is first-party (brettdavies/.github), so the caller tracks
+# `@main`. The job key must stay `guard-release:` so the status check context
+# is `guard-release / check-release-branch-name`.
+name: Guard release branch pattern
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  guard-release:
+    uses: brettdavies/.github/.github/workflows/guard-release-branch.yml@main

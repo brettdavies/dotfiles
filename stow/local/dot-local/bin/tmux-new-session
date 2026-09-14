@@ -12,7 +12,7 @@
 #
 # Behavior:
 #   1. If no tmuxinator config exists for <session-name> in the dotfiles
-#      tmuxinator package, generate one and re-stow.
+#      tmuxinator config directory, generate one.
 #   2. If the session is already running, attach. Otherwise start it via
 #      `tmuxinator start` (invoked directly so shell-function aliases like
 #      `mux` aren't required in the script's subshell).
@@ -31,6 +31,11 @@ DOTFILES="${DOTFILES:-$HOME/dotfiles}"
 TMUXINATOR_PKG="$DOTFILES/stow/tmuxinator/dot-config/tmuxinator"
 CONFIG_FILE="$TMUXINATOR_PKG/$SESSION.yml"
 
+# tmuxinator finds the configs written below only via TMUXINATOR_CONFIG. Callers
+# that never source the dotfiles profile (launchd, cron, `ssh host tmux-new-session`)
+# arrive with it unset, so set it here rather than depending on the environment.
+export TMUXINATOR_CONFIG="$TMUXINATOR_PKG"
+
 # Tilde-relativize REPO when it sits under $HOME so the generated config
 # stays portable across machines with different $HOME values. The literal
 # `~/` is intentional — it gets written into the YAML config and tmuxinator
@@ -38,12 +43,12 @@ CONFIG_FILE="$TMUXINATOR_PKG/$SESSION.yml"
 # shellcheck disable=SC2088
 case "$REPO" in
   "$HOME"/*) ROOT="~/${REPO#"$HOME"/}" ;;
-  *)         ROOT="$REPO" ;;
+  *) ROOT="$REPO" ;;
 esac
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "Creating tmuxinator config: $CONFIG_FILE"
-  cat > "$CONFIG_FILE" <<EOF
+  cat >"$CONFIG_FILE" <<EOF
 name: $SESSION
 root: $ROOT
 
@@ -62,8 +67,7 @@ on_project_first_start: |
     tmux resize-pane -t $SESSION:main.3 -y "33%"
   ) & disown
 EOF
-  "$DOTFILES/scripts/stow-deploy" tmuxinator >/dev/null
-  echo "✅ Config created and stowed"
+  echo "✅ Config created"
 fi
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then

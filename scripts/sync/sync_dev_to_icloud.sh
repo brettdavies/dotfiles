@@ -15,8 +15,7 @@ mkdir -p "$ICLOUD_DIR"
 # --delete: remove files in destination that don't exist in source
 # --link-dest: create hardlinks when possible, saving disk space
 rsync -av --delete \
-    --link-dest="$SOURCE_DIR" \
-    "$SOURCE_DIR/" "$ICLOUD_DIR/"
+  --link-dest="$SOURCE_DIR" \
+  "$SOURCE_DIR/" "$ICLOUD_DIR/"
 
 echo "$(date): Synced $SOURCE_DIR to $ICLOUD_DIR"
-

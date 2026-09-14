@@ -20,7 +20,6 @@ export TRANSFORMERS_CACHE="$MODELS_HOME/huggingface/transformers"
 
 # MLX and mlx-lm use HuggingFace's cache (HF_HOME above); no separate env vars
 
-
 # PyTorch models
 export TORCH_HOME="$MODELS_HOME/torch"
 

@@ -9,22 +9,24 @@ number in its squash commit message, which keeps the history scannable, attribut
 
 ```text
 feature branch → PR to dev (squash merge)
-              → release/YYYY.MM.DD branch (cherry-pick PR squashes from dev onto main)
+              → release/YYYY.MM.DD branch (dev's tree overlaid on origin/main, one commit)
               → PR to main (squash merge)
               → push to main triggers CI: compute CalVer → tag → GitHub Release
 ```
 
 ## Branches
 
-| Branch                                 | Role                                    | Lifetime                                 | Protection                           |
-| -------------------------------------- | --------------------------------------- | ---------------------------------------- | ------------------------------------ |
-| `main`                                 | Production. Only release commits.       | Forever.                                 | `.github/rulesets/protect-main.json` |
-| `dev`                                  | Integration. All feature PRs land here. | Forever. Never delete.                   | `.github/rulesets/protect-dev.json`  |
-| `feat/*`, `fix/*`, `chore/*`, `docs/*` | Feature work.                           | One PR's worth. Delete after merge.      | None — squash into dev freely.       |
-| `release/*`                            | Head of a dev → main PR.                | One release's worth. Delete after merge. | None.                                |
+| Branch                                 | Role                                    | Lifetime                                    | Protection                           |
+| -------------------------------------- | --------------------------------------- | ------------------------------------------- | ------------------------------------ |
+| `main`                                 | Production. Only release commits.       | Forever.                                    | `.github/rulesets/protect-main.json` |
+| `dev`                                  | Integration. All feature PRs land here. | Forever. Never delete.                      | `.github/rulesets/protect-dev.json`  |
+| `feat/*`, `fix/*`, `chore/*`, `docs/*` | Feature work.                           | One PR's worth. Auto-deleted on merge.      | None. Squash into dev freely.        |
+| `release/*`                            | Head of a dev → main PR.                | One release's worth. Auto-deleted on merge. | None.                                |
 
-`dev` is a **forever branch** — never delete it locally or remotely, even after a `release/* → main` merge. Using a
-short-lived `release/*` head is what lets `dev` stay around forever while still going through a PR into `main`.
+`dev` is a **forever branch**: never delete it locally or remotely, even after a `release/* → main` merge. Using a
+short-lived `release/*` head is what lets `dev` stay around forever while still going through a PR into `main`, and
+`guard-release-branch.yml` rejects any PR to `main` whose head is not `release/*`, so `dev` is never a PR head that
+auto-delete could remove.
 
 → Rationale: [`RELEASES-RATIONALE.md` § Branching model](./RELEASES-RATIONALE.md#branching-model).
 
@@ -42,7 +44,8 @@ gh pr create --base dev --title "feat(scope): what changed"
 - **Commit style**: [Conventional Commits](https://www.conventionalcommits.org/). See
   `~/.claude/templates/commit-message.md` for the full spec.
 - **PR body**: follow `.github/pull_request_template.md`. The `## Changelog` section is the source of truth for
-  user-facing release notes — `git-cliff` extracts these bullets verbatim into `CHANGELOG.md` during release prep.
+  user-facing release notes; `scripts/generate-changelog.py` extracts these bullets verbatim into `CHANGELOG.md` during
+  release prep.
 - **Signing**: `dev` requires signed commits per `protect-dev.json`. The `pre-commit` hook verifies `commit.gpgsign =
   true` locally before push.
 
@@ -50,9 +53,10 @@ gh pr create --base dev --title "feat(scope): what changed"
 
 Planning-only docs that live on `dev` and never ship to `main` can be committed directly to `dev` without a feature
 branch or PR: `docs/brainstorms/`, `docs/ideation/`, `docs/plans/`, `docs/research/`, `docs/reviews/`,
-`docs/solutions/`, and anything under `.context/`. The standard feature → PR → squash-merge flow stays required for
-everything else, including consumer-facing markdown (README, AGENTS, CONTRIBUTING, CHANGELOG, in-repo runbooks such as
-this file).
+`docs/solutions/`, and anything under `.context/`. `guard-main-docs.yml` blocks them from any PR to `main` regardless,
+and the release recipe strips them from the release branch. The standard feature → PR → squash-merge flow stays required
+for everything else, including consumer-facing markdown (README, AGENTS, CONTRIBUTING, CHANGELOG, in-repo runbooks such
+as this file).
 
 → Rationale: [`RELEASES-RATIONALE.md` § Branching model](./RELEASES-RATIONALE.md#branching-model).
 
@@ -60,17 +64,17 @@ this file).
 
 Every PR (feature, fix, docs, release) uses `.github/pull_request_template.md` verbatim.
 
-- **No explainer prose anywhere in the body.** User-facing substance only — what is changing for the consumer that was
-  not already there. Do NOT recap the workflow (cherry-pick / regenerate / pre-push gate / CI behavior is documented in
+- **No explainer prose anywhere in the body.** User-facing substance only: what is changing for the consumer that was
+  not already there. Do NOT recap the workflow (overlay, regenerate, pre-push gate, and CI behavior are documented in
   this file and `.github/`).
-- **Summary describes the net diff only** — what merged `main` looks like vs the base branch. Not commit history,
-  intermediate state, or cherry-pick mechanics.
-- **Zero verification artifacts in the body.** No triple-diff stats, leak-check output, patch-id cherry-check counts,
-  pre-push gate results, CI status, or prose-scrub findings. Anomalies get fixed before push, not audit-trailed.
+- **Summary describes the net diff only**: what merged `main` looks like vs the base branch. Not commit history,
+  intermediate state, or how the release branch was assembled.
+- **Zero verification artifacts in the body.** No diff stats, leak-check output, drift-gate output, pre-push gate
+  results, CI status, or prose-scrub findings. Anomalies get fixed before push, not audit-trailed.
 - **Changelog** subsections (`### Added` / `### Changed` / `### Fixed` / `### Documentation`): 1-5 bullets each, delete
   empty subsections, each bullet starts with a verb.
 - **Related Issues/Stories** (`Story:` / `Issue:` / `Architecture:` / `Related PRs:`) and **Files Modified** (`Modified`
-  / `Created` / `Renamed` / `Deleted`): every sub-label required even when empty — write `- None.` or `n/a`.
+  / `Created` / `Renamed` / `Deleted`): every sub-label required even when empty; write `- None.` or `n/a`.
 - **One logical line per paragraph or bullet; no hard wraps.** GitHub soft-wraps for display.
 - **No AI attribution** in commits or PR bodies.
 
@@ -81,68 +85,133 @@ Every PR (feature, fix, docs, release) uses `.github/pull_request_template.md` v
 Before cutting a release branch, walk [`RELEASES-PREFLIGHT.md`](./RELEASES-PREFLIGHT.md) end-to-end. Any unchecked item
 holds the release.
 
-Dotfiles uses CalVer — versions are `YYYY.MM.DD` (plus a `.N` suffix for same-day reruns). CI computes the version and
-creates the tag on push to `main`, so local tagging is never needed. The release branch exists to carry a committed
-`CHANGELOG.md` through the PR.
+Dotfiles uses CalVer: versions are `YYYY.MM.DD` (plus a `.N` suffix for same-day reruns). CI computes the version and
+creates the tag on push to `main`, so local tagging is never needed, and this repo carries no version file to bump. The
+release branch exists to carry `dev`'s tree and a committed `CHANGELOG.md` through the PR.
 
-**Branch naming**: `release/YYYY.MM.DD`. The date is informational only — CI recomputes the version at push time from
-today's date and any existing same-day tags.
+**Branch naming**: `release/YYYY.MM.DD` (or `release/YYYY.MM.DD.N` for a same-day rerun). `generate-changelog.py` reads
+the version from the branch name, so the date is the day the release lands. CI recomputes the tag from its own clock and
+any existing same-day tags, so a stale branch name is a smell rather than an error.
+
+`main` and `dev` share no common ancestor: every release squash-merges into `main`, so the two histories never converge
+even as their content does. Reconciling them with a merge, or a branch cut from `dev`, produces a pile of add/add and
+rename/delete conflicts that are artifacts of the lineage, not of the content shipping. The release branch is therefore
+built as a **clean descendant of `main`** with `dev`'s tree overlaid on top, asserting the desired end-state directly:
 
 ```bash
-# 1. Branch from main, NOT dev. Branching from dev causes add/add conflicts
-#    whenever dev and main have divergent histories (the post-squash-merge norm).
+# 0. Nothing on main that dev never received (security PRs, hotfixes, config). Exits 1
+#    while drift exists. The anchor is the newest CalVer tag on main; gate 0 fails when
+#    that release's CHANGELOG.md never reached dev, so run the backport step first.
+scripts/release/drift.sh
+
+# 1. Branch from main, NOT dev.
 git fetch origin
-git checkout -b "release/$(date +%Y.%m.%d)" origin/main
+git checkout -B "release/$(date +%Y.%m.%d)" origin/main
 
-# 2. List the PR squash commits on dev since the last tag.
-LAST_TAG=$(git describe --tags --abbrev=0 origin/main)
-git log --first-parent --grep='(#[0-9]\+)$' --format='%H %s' "$LAST_TAG..origin/dev"
+# 2. Overlay dev's entire tracked tree onto the main base. `checkout -- .` writes dev's
+#    paths but does not delete files that exist on main and are absent on dev, so remove
+#    those next (the 'D' rows are main-only files dev deleted).
+#    --no-renames is load-bearing: with rename detection on, a main-only file git pairs
+#    with any similar dev-side addition is reported as 'R' instead of 'D', drops out of
+#    this list, and ships to main as a file dev already deleted. Verification A catches
+#    it, but only after the changelog step; --no-renames catches it here.
+git checkout origin/dev -- .
+git diff --no-renames --name-status origin/main origin/dev | grep '^D'
+trash <each main-only file listed above>
 
-# 3. Cherry-pick in chronological order (oldest first). Each pick carries the
-#    PR's conventional-commit subject — exactly what git-cliff categorizes on.
-#    Direct (non-PR) commits on dev are intentionally excluded.
-git cherry-pick <oldest-sha> <next-sha> ... <newest-sha>
+# 3. Strip the paths guard-main-docs forbids on main. The set resolves from the workflow;
+#    never restate it inline, because every hand-kept copy drifted from what CI enforces.
+GUARDED="$(scripts/release/guarded-paths.sh)"
+git ls-files | grep -E "$GUARDED" | xargs -r trash
+git add -A                                                      # stages adds, mods, AND deletions
 
-# 4. Triple-diff verification.
-git diff origin/main..HEAD --stat                                              # A: ship surface
-git diff HEAD..origin/dev --name-only | grep -v '^docs/' || echo "(none)"      # B: no missed picks
-git diff origin/dev..origin/main --stat | tail -5                              # C: phantom-commits sanity
+# 4. No version bump: CI derives the CalVer tag at push time. Build the changelog from the
+#    PRs merged into dev since the previous release. The overlay commit carries no per-PR
+#    history, so the section is built from dev's PRs, not from this branch's commits.
+scripts/generate-changelog.py --from-dev-prs
+git add -A
 
-# Re-confirm no guarded (dev-only) paths leaked to main.
-git diff origin/main..HEAD --name-only \
-  | grep -E '^(docs/plans|docs/brainstorms|docs/ideation|docs/research|docs/reviews|docs/solutions|\.context)' \
-  && echo "LEAKED — reset and redo" || echo "(clean — no guarded paths)"
+# 5. Verify before committing.
+#    A: staged tree equals dev's minus the stripped guarded paths and the changelog.
+#       Anything else printed here is a mistake.
+git diff --cached --name-only origin/dev | grep -Ev "$GUARDED" \
+  | grep -Ev '^CHANGELOG\.md$' \
+  && echo "unexpected delta above; investigate" || echo "(clean: only intended deltas)"
+#    B: no guarded path in the release tree. --diff-filter=ACMR is load-bearing: a
+#       release that removes guarded docs main still carries from before the guard
+#       existed lists every one of them as a plain diff entry, and an unfiltered grep
+#       reads that cleanup as a leak and aborts a correct release. Only an added or
+#       modified guarded path is a leak; a deleted one is the guard doing its job.
+git diff --cached --diff-filter=ACMR --name-only origin/main | grep -E "$GUARDED" \
+  && echo "LEAKED a guarded path: reset and redo" || echo "(no guarded paths)"
+#    D: what this release ADDS to main. The leak check screens against the registered
+#       set, so it is blind to a category nobody registered yet. Every docs/ entry and
+#       every added markdown file needs a reason to ship, or it needs registering in the
+#       workflow's extra_paths and removing from the branch.
+git diff --cached --diff-filter=A --name-only origin/main | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
 
-# Patch-id cherry check (noisy in a squash-merge workflow; triage per-line).
-git cherry HEAD origin/dev | grep '^+' || echo "(none — release is patch-equivalent through dev)"
+# 6. Review CHANGELOG.md (cliff.toml chore-skip footgun: see RATIONALE § CHANGELOG
+#    generation), then commit the overlay as one commit sitting directly on top of main
+#    (subject "release: YYYY.MM.DD"; author the message in /tmp/ and pass --file). Re-run
+#    the drift gate last, in case main moved while the branch was being built.
+git commit --file /tmp/commit-msg.md
+scripts/release/drift.sh
 
-# 5. Generate CHANGELOG.md. On a release/YYYY.MM.DD branch the version is
-#    detected automatically; --tag is only needed when run off such a branch.
-GITHUB_TOKEN=$(gh auth token) scripts/generate-changelog.py
-
-# 6. Review CHANGELOG.md (cliff.toml chore-skip footgun: see RATIONALE § CHANGELOG generation).
-
-# 7. Commit and push.
-git add CHANGELOG.md
-git commit -m "docs: update CHANGELOG.md"
+# 7. Push and open the PR (scrub the body in /tmp/ first).
 git push -u origin "release/$(date +%Y.%m.%d)"
-
-# 8. Open the PR (scrub the body in /tmp/ first).
-gh pr create --base main --title "release: $(date +%Y.%m.%d)" --body-file /tmp/body.md
+gh pr create --base main --head "release/$(date +%Y.%m.%d)" --title "release: $(date +%Y.%m.%d)" --body-file /tmp/body.md
 ```
 
-When the PR merges (squash-only, enforced by `protect-main.json`), the push to `main` triggers `release.yml`. Verify it
-with [§ Tagging and publishing](#tagging-and-publishing) below. Once the tag and GitHub Release publish, bring the
+The result is a single commit whose diff against `main` is the release, with `main` as an ancestor, so the PR merges
+with zero conflicts. When it merges (squash-only, enforced by `protect-main.json`), the push to `main` triggers
+`release.yml`. Verify it with [§ Tagging and publishing](#tagging-and-publishing) below. Auto-delete removes
+`release/YYYY.MM.DD` from the remote on merge; `dev` is untouched. Once the tag and GitHub Release publish, bring the
 release-only `CHANGELOG.md` back to `dev` with the backport step below.
 
-→ Rationale (why branch from main and cherry-pick, triple-diff false-positive triage):
+→ Rationale (why overlay, not merge; why cut from `main`):
+[`RELEASES-RATIONALE.md` § Branching model](./RELEASES-RATIONALE.md#branching-model). CHANGELOG mechanics:
+[`RELEASES-RATIONALE.md` § CHANGELOG generation](./RELEASES-RATIONALE.md#changelog-generation).
+
+### Exception: cherry-pick
+
+The overlay is the release construction for this repo. Cherry-picking the dev squash-commits onto the `origin/main` base
+is the exception, kept only for a release with a stated reason it cannot overlay (record it under
+[Project specifics](#project-specifics)); the per-PR changelog is not such a reason, since `--from-dev-prs` builds it
+from `dev` either way. When cherry-picking, list the PR squashes going out with the date-anchored `gh pr list` from
+[`RELEASES-PREFLIGHT.md` § Establish the surface](./RELEASES-PREFLIGHT.md#establish-the-surface) (with no shared
+ancestry, `$LAST_TAG..origin/dev` lists every PR ever merged to `dev`), pick them oldest first, then run the triple-diff
+verification:
+
+```bash
+GUARDED="$(scripts/release/guarded-paths.sh)"
+
+git diff origin/main..HEAD --stat                                              # A: ship surface
+git diff HEAD..origin/dev --name-only | grep -Ev "$GUARDED" || echo "(none)"   # B: no missed picks
+git diff origin/dev..origin/main --stat | tail -5                              # C: phantom-commits sanity
+
+# Re-confirm no guarded paths leaked.
+git diff origin/main..HEAD --name-only | grep -E "$GUARDED" \
+  && echo "LEAKED: reset and redo" || echo "(clean)"
+
+# D: what this release ADDS to main (see step 5 above for why).
+git diff origin/main..HEAD --diff-filter=A --name-only | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
+
+# Patch-id cherry check (noisy in a squash-merge workflow; triage per-line).
+git cherry HEAD origin/dev | grep '^+' || echo "(none)"
+```
+
+Cherry-picks of PRs that touched guarded paths hit modify/delete or rename/delete conflicts, since those paths live on
+`dev` but are blocked from `main`; resolve them per the next section. Steps 4 to 7 of the overlay recipe then apply
+unchanged.
+
+→ Triple-diff false-positive triage:
 [`RELEASES-RATIONALE.md` § Triple-diff verification](./RELEASES-RATIONALE.md#triple-diff-verification).
 
 ### Cherry-pick conflicts on guarded paths
 
-Cherry-picks of feature PRs that also touched `docs/plans/` / `docs/brainstorms/` / `docs/ideation/` / `docs/research/`
-/ `docs/reviews/` / `docs/solutions/` / `.context/` files hit modify/delete conflicts on the release branch — those
-paths exist on `dev` but never reach `main`. The standard `git rm` is denied by repo policy; use the plumbing form:
+Cherry-picks of feature PRs that also touched guarded paths hit modify/delete conflicts on the release branch, because
+those paths exist on `dev` but never reach `main`. A PR that renames such a file also produces rename/delete conflicts
+on the same paths. The standard `git rm` is denied by repo policy; use the plumbing form:
 
 ```bash
 git update-index --remove $(git diff --name-only --diff-filter=U)   # mark guarded paths deleted
@@ -150,8 +219,8 @@ trash docs/plans/<leftover-paths>.md                                 # clear orp
 git cherry-pick --continue --no-edit
 ```
 
-Repeat per conflicting commit. After all picks land, `git ls-files docs/plans/ docs/brainstorms/` should be empty; drop
-any stray with the same pattern before the leak check.
+Repeat per conflicting commit. After all picks land, `git ls-files | grep -E "$(scripts/release/guarded-paths.sh)"`
+should print nothing; drop any stray with the same pattern before the leak check.
 
 ## Tagging and publishing
 
@@ -164,17 +233,22 @@ The tag is **not** created locally. `release.yml` triggers on any push to `main`
 | `Tag and push`           | `git tag <version> && git push origin <version>`. Bare (non-annotated) because the workflow runs as `github-actions[bot]` without a signing key configured. |
 | `Create GitHub Release`  | `softprops/action-gh-release` publishes a release with the extracted notes as the body.                                                                     |
 
-No crates, no cross-compiled binaries, no Homebrew dispatch — this repo is config-only.
+No crates, no cross-compiled binaries, no Homebrew dispatch: this repo is config-only.
 
-**Verify after merge** (the full post-tag pipeline for this repo is these four checks):
+**Verify after merge** (the full post-tag pipeline for this repo is these checks):
 
+- [ ] **Last-good identifier recorded before the merge.** Note the current tag on `main` (`git describe --tags
+  --abbrev=0 origin/main`) somewhere reachable under incident pressure; it is the argument [§ Rollback](#rollback)
+  needs.
 - [ ] `release.yml` is green end-to-end. Watch it (`gh run watch <id>`), then confirm with `gh run view <id> --json
-  conclusion --jq .conclusion` returning `success` — a completed watcher is not a green watcher.
+  conclusion --jq .conclusion` returning `success`; a completed watcher is not a green watcher.
 - [ ] The CalVer tag exists: `git fetch --tags && git describe --tags --abbrev=0 origin/main` returns today's
   `YYYY.MM.DD` (or `.N`).
 - [ ] The GitHub Release published with real notes: `gh release view "$(git describe --tags --abbrev=0 origin/main)"`
   shows the body extracted from `CHANGELOG.md`, not the `"Release <version>"` fallback (an empty body means the
   changelog section was empty).
+- [ ] **Rollback path confirmed.** The previous tag re-stows cleanly on one deployed host (see [§ Rollback](#rollback));
+  if this release is bad, roll back there first and fix forward through `dev`.
 - [ ] The `CHANGELOG.md` backport PR to `dev` merged (see § Backport to dev after release).
 
 → Rationale (CI-side CalVer tagging, why no local tag):
@@ -191,10 +265,12 @@ scripts/sync-dev-after-release.sh "$(git describe --tags --abbrev=0 origin/main)
 ```
 
 It copies `CHANGELOG.md` verbatim from `origin/main` onto a `chore/sync-dev-after-<version>` branch and opens a PR to
-`dev`. The copy is **surgical** — only `CHANGELOG.md` moves, only `main → dev`. `dev` is normally many commits ahead of
+`dev`. The copy is **surgical**: only `CHANGELOG.md` moves, only `main → dev`. `dev` is normally many commits ahead of
 `main`, so a branch merge would revert unreleased work; the script never does that, and refuses to run on a dirty tree
 or before the GitHub Release is published. Confirm the PR's only changed file is `CHANGELOG.md`, then squash-merge it.
-The run is idempotent — if `dev` already matches `main`, it exits without opening a PR.
+The run is idempotent: if `dev` already matches `main`, it exits without opening a PR. Never merge `main` into `dev` and
+never push to `dev` directly: the two histories share no ancestry, so a merge conflicts on every file both sides
+touched, and a direct push bypasses `dev`'s required checks.
 
 If a release also polished `README.md` or `RELEASES*.md` on `main`, check `git diff origin/dev..origin/main -- README.md
 RELEASES.md RELEASES-RATIONALE.md RELEASES-PREFLIGHT.md` and fold any real release-prep changes into the same backport
@@ -209,6 +285,24 @@ Any push to `main` triggers a release. If you must push a docs-only commit direc
 include `[skip ci]` in the commit message to suppress the release workflow. Prefer the standard release-branch flow
 whenever possible.
 
+## Rollback
+
+A bad release is rolled back at the surface users consume first, then repaired in git. For this repo that surface is
+each deployed host's checkout: hosts track `main` and re-stow from it, so rolling back means re-stowing the previous tag
+on the affected host. Rollback re-points what the host runs; it does not revert history.
+
+```bash
+PREV=<last-good tag recorded before the merge>        # e.g. 2026.06.26
+git -C ~/dotfiles fetch --tags
+git -C ~/dotfiles checkout "$PREV"
+~/dotfiles/scripts/stow-deploy --all                    # or --headless --all on a server
+```
+
+Then land the `fix/*` or revert through the normal `dev` to `release/*` to `main` flow so `main` matches what is live,
+and return the host to `main` (`git -C ~/dotfiles checkout main && git -C ~/dotfiles pull`) once that release publishes.
+
+→ Rationale: [`RELEASES-RATIONALE.md` § Rollback](./RELEASES-RATIONALE.md#rollback).
+
 ## Prose scrubbing
 
 Three release-flow artifacts ship text to GitHub outside any in-repo formatter and need a manual scrub first: PR bodies,
@@ -220,7 +314,7 @@ generated). Author each in `/tmp/`, scrub, then submit via `--body-file`:
 ```
 
 This repo runs `unslop` as the minimum prose floor; the full Vale + LanguageTool stack is not wired up here. For a
-`CHANGELOG.md` finding, fix the upstream PR body (which `generate-changelog.py` re-fetches every run) and regenerate —
+`CHANGELOG.md` finding, fix the upstream PR body (which `generate-changelog.py` re-fetches every run) and regenerate;
 never hand-edit `CHANGELOG.md`.
 
 → Rationale: [`RELEASES-RATIONALE.md` § Prose scrubbing scope](./RELEASES-RATIONALE.md#prose-scrubbing-scope).
@@ -229,23 +323,41 @@ never hand-edit `CHANGELOG.md`.
 
 Two rulesets are committed under `.github/rulesets/` and applied to the repo via the GitHub API:
 
-- `protect-main.json` — required signatures, linear history, squash-only merges via PR, creation/deletion blocked,
-  non-fast-forward blocked. No required status checks (shellcheck/bats are advisory on main; `release.yml` runs
-  post-merge).
-- `protect-dev.json` — required signatures, deletion blocked, non-fast-forward blocked. `shellcheck` and `bats` are
+- `protect-main.json`: required signatures, linear history, squash-only merges via PR, creation/deletion blocked,
+  non-fast-forward blocked, and five required checks: `shellcheck`, `bats`, and the three guard callers (`guard-docs /
+  check-forbidden-docs`, `guard-provenance / check-provenance`, `guard-release / check-release-branch-name`).
+- `protect-dev.json`: required signatures, deletion blocked, non-fast-forward blocked. `shellcheck` and `bats` are
   required status checks; the PR-only norm is convention, not ruleset-enforced.
 
 ```bash
 # First apply (creating a ruleset):
 gh api -X POST repos/brettdavies/dotfiles/rulesets --input .github/rulesets/protect-dev.json
-# Subsequent updates (replace by ID — find via `gh api repos/brettdavies/dotfiles/rulesets`):
+# Subsequent updates (replace by ID; find it via `gh api repos/brettdavies/dotfiles/rulesets`):
 gh api -X PUT repos/brettdavies/dotfiles/rulesets/<id> --input .github/rulesets/protect-main.json
 ```
 
 → Status-check context strings (inline vs reusable):
 [`RELEASES-RATIONALE.md` § Branch protection](./RELEASES-RATIONALE.md#branch-protection).
 
-## Required secrets
+## Project specifics
+
+### Version and tags
+
+- **CalVer, computed in CI.** The tag is `YYYY.MM.DD[.N]`, bare (no `v` prefix), created by `release.yml` on every push
+  to `main`. There is no version file in the tree, so the release commit bumps nothing and the backport script copies
+  `CHANGELOG.md` only.
+- **`scripts/sync-dev-after-release.sh`** is this repo's CalVer, CHANGELOG-only variant of the fleet template. The
+  template writes the released version into `Cargo.toml`, `package.json`, `pyproject.toml`, or `VERSION` and creates
+  `VERSION` when none exist; this repo has no carrier and must not grow one, so the script stays a repo-owned fork.
+- **`scripts/release/drift.sh` anchors on the newest CalVer tag reachable from `main`.** Gate 0 then checks that `dev`
+  already carries that release's `CHANGELOG.md`; a failure there means the backport PR never merged, so run
+  `scripts/sync-dev-after-release.sh <tag>` and merge it before cutting the release. `--since <ref>` overrides the
+  anchor.
+- **Stray or same-day tags.** `release.yml` derives `.N` from the tags already present for today, so a test tag created
+  out of band shifts the next same-day suffix. Delete such tags and their GitHub Releases rather than working around
+  them.
+
+### Required secrets
 
 | Secret             | Purpose                                                                                                                                                                         | Lifecycle         |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
@@ -258,19 +370,32 @@ Rotate via `op read "op://secrets-dev/dotfiles_RELEASE_TOKEN/credential" | gh se
 **`generate-changelog.py` errors with "could not detect version":** Run it from a `release/YYYY.MM.DD` branch, or pass
 `--tag YYYY.MM.DD` explicitly. Confirm detection without a full run via `scripts/generate-changelog.py --print-tag`.
 
+**`--from-dev-prs` lists PRs that already shipped, or misses recent ones:** The window starts at the earlier of the
+previous release tag's commit time and the previous `release/*` PR's creation time, and PR numbers the changelog already
+lists are dropped. Check `gh pr list --base dev --state merged --search "merged:>=<timestamp>"` against the section, and
+fix the previous section on `main` (via a backport) if it is what is stale.
+
 **Empty changelog sections:** Ensure `cliff.toml` has `[remote.github]` with `owner` and `repo` for PR-body expansion,
-and that `GITHUB_TOKEN` is exported (the command above falls back to `gh auth token`).
+and that `gh auth status` succeeds (the script reads `GITHUB_TOKEN` when set and falls back to `gh auth token`).
+
+**`drift.sh` reports dozens of files after a release that clearly shipped:** The anchor resolved to the wrong commit,
+usually because the release tag is not present locally. Run `git fetch --tags` and rerun, or pass `--since <tag>`
+explicitly; see [§ Project specifics](#project-specifics).
+
+**`drift.sh` fails gate 0 (`origin/dev lacks the tag <tag> bookkeeping`):** The previous release's `CHANGELOG.md`
+backport never merged into `dev`. Run `scripts/sync-dev-after-release.sh <tag>` (see § Backport to dev after release),
+merge its PR, and rerun.
 
 **Push to `release/*` rejected for unsigned commits:** Release branches aren't in `protect-dev.json`'s ref pattern, but
 `gitconfig` sets `commit.gpgsign = true` globally and `.githooks/pre-commit` enforces it. Ensure your SSH signing key is
 configured (1Password on macOS, ssh-keygen on headless Linux).
 
 **Same-day re-release:** If today already has a `YYYY.MM.DD` tag, CI auto-bumps to `YYYY.MM.DD.1`, `YYYY.MM.DD.2`, etc.
-No local action — just merge another `release/*` PR.
+No local action; just merge another `release/*` PR.
 
 ## Related docs
 
-- [`RELEASES-PREFLIGHT.md`](./RELEASES-PREFLIGHT.md) — pre-cut go/no-go checklist gating release-branch creation.
-- [`RELEASES-RATIONALE.md`](./RELEASES-RATIONALE.md) — release-flow rationale: branching, PR body, pipeline, CHANGELOG.
-- [`.github/pull_request_template.md`](.github/pull_request_template.md) — PR body structure with changelog sections.
-- [`cliff.toml`](cliff.toml) — git-cliff configuration: commit parsers, tag pattern, remote metadata.
+- [`RELEASES-PREFLIGHT.md`](./RELEASES-PREFLIGHT.md): pre-cut go/no-go checklist gating release-branch creation.
+- [`RELEASES-RATIONALE.md`](./RELEASES-RATIONALE.md): release-flow rationale: branching, PR body, pipeline, CHANGELOG.
+- [`.github/pull_request_template.md`](.github/pull_request_template.md): PR body structure with changelog sections.
+- [`cliff.toml`](cliff.toml): git-cliff configuration: commit parsers, tag pattern, remote metadata.

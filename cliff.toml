@@ -1,3 +1,22 @@
+# git-cliff configuration.
+#
+# Two-stage pipeline driven by `scripts/generate-changelog.py`:
+#   1. git-cliff renders a skeleton `## [version]` entry from each commit's
+#      subject line, linking `(#N)` squash-merge references to the PR via
+#      the `[remote.github]` owner/repo below.
+#   2. The script's Python post-processor fetches each PR body from the
+#      GitHub API, extracts its `## Changelog` -> `### Added / Changed /
+#      Fixed / Documentation` subsections, and rewrites the skeleton
+#      bullets with the richer PR-body content. Author + PR links remain.
+#
+# The PR body is the source of truth. If a bullet is wrong, edit the PR
+# body on GitHub (PR bodies stay editable after merge) and re-run
+# `scripts/generate-changelog.py` on the release branch; it re-fetches.
+# Never hand-write `CHANGELOG.md`.
+#
+# No commit-body parsing, no preprocessors: cherry-picks and squash-merges
+# can't mangle what we never read.
+
 [changelog]
 header = """
 # Changelog\n
@@ -5,39 +24,54 @@ All notable changes to this project will be documented in this file.\n
 """
 body = """
 {% if version %}\
-    ## [{{ version | trim_start_matches(pat="v") }}]
+    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
 {% else %}\
     ## [Unreleased]
 {% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
     ### {{ group | upper_first }}
     {% for commit in commits %}
-        - {{ commit.message | upper_first }}\
-    {% endfor %}
+        - {{ commit.message | split(pat="\n") | first | upper_first }}\
+            {% if commit.remote.username %} by @{{ commit.remote.username }}{%- endif %}\
+            {% if commit.remote.pr_number %} in \
+              [#{{ commit.remote.pr_number }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/pull/{{ commit.remote.pr_number }}){%- endif %}
+    {%- endfor %}
 {% endfor %}\n
 """
 trim = true
-
-[remote.github]
-owner = "brettdavies"
-repo = "dotfiles"
+footer = ""
 
 [git]
 conventional_commits = true
 filter_unconventional = true
 split_commits = false
-commit_parsers = [
-    { message = "^docs: update CHANGELOG", skip = true },
-    { message = "^feat", group = "Added" },
-    { message = "^fix", group = "Fixed" },
-    { message = "^refactor", group = "Changed" },
-    { message = "^perf", group = "Changed" },
-    { message = "^docs", group = "Documentation" },
-    { message = "^style", skip = true },
-    { message = "^test", skip = true },
-    { message = "^ci", skip = true },
-    { message = "^build", skip = true },
-    { message = "^chore", skip = true },
-]
+# CalVer tags mark releases: `YYYY.MM.DD`, plus a `.N` suffix for same-day
+# reruns. release.yml creates them bare (no `v` prefix) on every push to main.
 tag_pattern = "\\d{4}\\.\\d{2}\\.\\d{2}.*"
 sort_commits = "oldest"
+
+commit_parsers = [
+  # The release squash commit itself (`release: vX.Y.Z (...)`) is bookkeeping,
+  # not a change.
+  { message = "^release", skip = true },
+  { message = "^docs: update CHANGELOG", skip = true },
+  # Breaking changes route first: `feat!`, `fix(api)!`, `refactor!`, etc.
+  # would otherwise match the patterns below and land under Added/Fixed/
+  # Changed, silently dropping the SemVer-major signal from the changelog.
+  { message = "^[a-z]+(\\(.*\\))?!:", group = "Breaking changes" },
+  { body = ".*BREAKING CHANGE:.*", group = "Breaking changes" },
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^refactor", group = "Changed" },
+  { message = "^perf", group = "Changed" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^style", skip = true },
+  { message = "^test", skip = true },
+  { message = "^ci", skip = true },
+  { message = "^build", skip = true },
+  { message = "^chore", skip = true },
+]
+
+[remote.github]
+owner = "brettdavies"
+repo = "dotfiles"
