@@ -14,6 +14,10 @@
 #
 # A missing tool skips its step with an install hint rather than failing, so a
 # machine without the full toolchain can still push; CI remains the backstop.
+#
+# The checks read the working tree, not the pushed commits: pushing branch B
+# from a checkout of A validates A. CI on the pull request is the check that
+# sees the pushed tip itself.
 
 set -euo pipefail
 
@@ -22,48 +26,33 @@ cd "$REPO_ROOT"
 
 # shellcheck source=.githooks/lib/report.sh
 . "$REPO_ROOT/.githooks/lib/report.sh"
+# shellcheck source=.githooks/lib/push-scope.sh
+. "$REPO_ROOT/.githooks/lib/push-scope.sh"
 
 # Capture push refs from stdin once. git-lfs needs them at the bottom of
-# this hook; the md-only short-circuit needs them to inspect the diff.
+# this hook; the skip decision needs them to see what the push delivers.
 PUSH_REFS=$(cat || true)
 
-# is_md_only_push: return 0 if every changed file in this push is a .md
-# file (or no files changed at all -- branch deletes, empty pushes). When
-# the comparison base for a new branch can't be resolved, return 1 so the
-# checks run defensively.
-ZERO_SHA=0000000000000000000000000000000000000000
-is_md_only_push() {
-  [[ -z "$PUSH_REFS" ]] && return 1
-  local found_any=0
-  while IFS=' ' read -r _local_ref local_sha _remote_ref remote_sha; do
-    [[ -z "$local_sha" ]] && continue
-    [[ "$local_sha" == "$ZERO_SHA" ]] && continue
-    local base files
-    if [[ "$remote_sha" == "$ZERO_SHA" ]]; then
-      base=$(git merge-base "$local_sha" origin/dev 2>/dev/null \
-        || git merge-base "$local_sha" origin/main 2>/dev/null \
-        || true)
-      [[ -z "$base" ]] && return 1
-      files=$(git diff --name-only "$base" "$local_sha")
-    else
-      files=$(git diff --name-only "$remote_sha" "$local_sha")
-    fi
-    while IFS= read -r f; do
-      [[ -z "$f" ]] && continue
-      found_any=1
-      [[ "$f" == *.md ]] || return 1
-    done <<<"$files"
-  done <<<"$PUSH_REFS"
-  [[ "$found_any" -eq 1 ]] || return 1
-  return 0
-}
-
-if is_md_only_push; then
-  gate_skip "markdown-only push, skipping shellcheck + bats"
+chain_lfs() {
   if command -v git-lfs >/dev/null 2>&1; then
     printf '%s' "$PUSH_REFS" | git lfs pre-push "$@"
   fi
-  exit 0
+}
+
+# The gate has nothing to read when the push delivers nothing, and nothing to
+# read when it delivers only files no check looks at. A scope that cannot be
+# resolved runs everything: a mirror errs toward running.
+if delivered=$(printf '%s\n' "$PUSH_REFS" | push_delivered_files); then
+  if [ -z "$delivered" ]; then
+    gate_skip "push delivers no content, skipping shellcheck + bats"
+    chain_lfs "$@"
+    exit 0
+  fi
+  if ! printf '%s\n' "$delivered" | push_files_gate_relevant; then
+    gate_skip "markdown-only push, skipping shellcheck + bats"
+    chain_lfs "$@"
+    exit 0
+  fi
 fi
 
 gate_header "Running local CI checks..."
@@ -96,6 +85,4 @@ fi
 gate_done "All checks passed."
 
 # --- Chain Git LFS pre-push hook (core.hooksPath overrides .git/hooks/) ---
-if command -v git-lfs >/dev/null 2>&1; then
-  printf '%s' "$PUSH_REFS" | git lfs pre-push "$@"
-fi
+chain_lfs "$@"
