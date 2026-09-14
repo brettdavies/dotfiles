@@ -2,6 +2,11 @@
 # Tests for shell configuration files (profile, zshenv, bashrc, zshrc)
 #
 # Run: bats tests/shell-config.bats
+#
+# `run !` below asserts a command fails. Bats keeps pre-1.5 `run` semantics
+# until a suite opts in, so the declaration is what enables the flag form
+# rather than a newer bats: 1.14 still warns BW02 without it.
+bats_require_minimum_version 1.5.0
 
 STOW_DIR="$BATS_TEST_DIRNAME/../stow"
 CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
@@ -58,6 +63,32 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   [ "$status" -eq 0 ]
 }
 
+# shell-functions carries no .sh suffix, so it falls outside both the
+# `$CONFIG_DIR/*.sh` shellcheck glob above and scripts/lint-shell's target list.
+# Nothing else parses it, and a syntax error there takes out every helper it
+# defines in both interactive shells at once.
+@test "shell-functions has valid bash syntax" {
+  run bash -n "$CONFIG_DIR/shell-functions"
+  [ "$status" -eq 0 ]
+}
+
+@test "shell-functions has valid zsh syntax" {
+  run zsh -n "$CONFIG_DIR/shell-functions"
+  [ "$status" -eq 0 ]
+}
+
+# Parsing is not defining: a helper guarded on a command the host lacks, or
+# silently dropped in an edit, still leaves the file syntactically valid.
+@test "sourcing shell-functions defines every interactive helper" {
+  run bash -c '. "$1" || exit 1
+    for fn in y _osc7_report_directory ollama-update bu; do
+      typeset -f "$fn" >/dev/null || { echo "not defined: $fn"; exit 1; }
+    done
+    echo OK' _ "$CONFIG_DIR/shell-functions"
+  [ "$status" -eq 0 ]
+  [ "$output" = "OK" ]
+}
+
 # Regression: macOS path_helper (run by /etc/zprofile) rebuilds PATH with the
 # system dirs first, demoting keg-only Homebrew Ruby behind /usr/bin so Bundler
 # falls back to system Ruby 2.6 / Bundler 1.x. dot-zprofile must re-assert the
@@ -76,7 +107,10 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
     command -v bundle
   "
   [ "$status" -eq 0 ]
-  [[ "$output" == "$bp"/* ]] || { echo "bundle resolved to '$output' (expected under $bp)"; false; }
+  [[ "$output" == "$bp"/* ]] || {
+    echo "bundle resolved to '$output' (expected under $bp)"
+    false
+  }
 }
 
 # Regression: bash and non-login shells (the pre-push bats run, cron, editor
@@ -97,7 +131,10 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
     command -v bundle
   "
   [ "$status" -eq 0 ]
-  [[ "$output" == "$bp"/* ]] || { echo "bundle resolved to '$output' (expected under $bp)"; false; }
+  [[ "$output" == "$bp"/* ]] || {
+    echo "bundle resolved to '$output' (expected under $bp)"
+    false
+  }
 }
 
 @test "dot-profile has valid bash syntax" {
@@ -147,7 +184,7 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 
 @test "no hardcoded /Users/ paths in shell configs" {
   run grep -r "/Users/" "$STOW_DIR/shell/" "$STOW_DIR/bash/" "$STOW_DIR/zsh/" "$CONFIG_DIR/"
-  [ "$status" -eq 1 ]  # grep exits 1 when no match
+  [ "$status" -eq 1 ] # grep exits 1 when no match
 }
 
 # ---------------------------------------------------------------------------
@@ -173,7 +210,7 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 }
 
 @test "dot-profile no longer exports QMD_REMOTE_URL (owned by config/shell/qmd.sh)" {
-  ! grep -q 'QMD_REMOTE_URL' "$STOW_DIR/shell/dot-profile"
+  run ! grep -q 'QMD_REMOTE_URL' "$STOW_DIR/shell/dot-profile"
 }
 
 @test "sourcing profile in a fresh shell exports QMD_REMOTE_URL on all platforms" {
@@ -212,39 +249,121 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   [[ "$output" == *"DIR=SET"* ]]
 }
 
+# Startup latency budgets live in tests/perf/shell-startup-perf.bats, outside
+# this directory's glob, so they are measured on a quiet machine rather than at
+# the tail of the full suite.
+
 # ---------------------------------------------------------------------------
-# Startup performance (budget: 500ms interactive, 200ms non-interactive)
+# config/shell/caches.sh: Rust install roots stay at their stock defaults
 # ---------------------------------------------------------------------------
+#
+# Relocating CARGO_HOME/RUSTUP_HOME takes effect only in contexts that source
+# the shell chain. rustup-init, systemd user units, git hooks and the agent Bash
+# tool resolve the stock paths regardless, so a relocated install root splits one
+# host into two toolchain views.
 
-# Helper: measure wall-clock time for a shell invocation (prints ms to stdout)
-_measure_ms() {
-  local start end
-  start=$(/usr/bin/perl -MTime::HiRes=time -e 'printf "%.6f", time()')
-  eval "$1" >/dev/null 2>&1
-  end=$(/usr/bin/perl -MTime::HiRes=time -e 'printf "%.6f", time()')
-  /usr/bin/perl -e "printf '%.0f', ($end - $start) * 1000"
+@test "caches.sh does not assign CARGO_HOME" {
+  run ! grep -qE '^[[:space:]]*(export[[:space:]]+)?CARGO_HOME=' "$CONFIG_DIR/caches.sh"
 }
 
-@test "non-interactive zsh starts under 200ms" {
-  ms=$(_measure_ms "zsh -c exit")
-  echo "# non-interactive zsh: ${ms}ms" >&3
-  [ "$ms" -lt 200 ]
+@test "caches.sh does not assign RUSTUP_HOME" {
+  run ! grep -qE '^[[:space:]]*(export[[:space:]]+)?RUSTUP_HOME=' "$CONFIG_DIR/caches.sh"
 }
 
-@test "non-interactive bash starts under 200ms" {
-  ms=$(_measure_ms "bash -c exit")
-  echo "# non-interactive bash: ${ms}ms" >&3
-  [ "$ms" -lt 200 ]
+# The `unset` prefix is load-bearing: the suite is often run from a shell that
+# still carries the old exported value, and without it these report on the
+# inherited environment rather than on the file.
+@test "sourcing profile in a fresh shell leaves CARGO_HOME unset" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  run bash -c 'unset CARGO_HOME; . "$HOME/.profile" >/dev/null 2>&1; echo "${CARGO_HOME:-unset}"'
+  [ "$status" -eq 0 ]
+  [ "$output" = "unset" ]
 }
 
-@test "interactive zsh starts under 500ms" {
-  ms=$(_measure_ms "zsh -i -c exit")
-  echo "# interactive zsh: ${ms}ms" >&3
-  [ "$ms" -lt 500 ]
+@test "sourcing profile in a fresh shell leaves RUSTUP_HOME unset" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  run bash -c 'unset RUSTUP_HOME; . "$HOME/.profile" >/dev/null 2>&1; echo "${RUSTUP_HOME:-unset}"'
+  [ "$status" -eq 0 ]
+  [ "$output" = "unset" ]
 }
 
-@test "interactive bash starts under 500ms" {
-  ms=$(_measure_ms "bash -i -c exit")
-  echo "# interactive bash: ${ms}ms" >&3
-  [ "$ms" -lt 500 ]
+# The ~/.cargo/env block in dot-profile is the only thing that puts cargo on
+# PATH, since caches.sh exports neither install root. Hosts carrying no toolchain
+# have no env file to source, so this is scoped to hosts that have one.
+@test "sourcing profile puts stock ~/.cargo/bin on PATH where a toolchain exists" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  [ -f "$HOME/.cargo/env" ] || skip "no Rust toolchain on this host (~/.cargo/env absent)"
+  run bash -c 'unset CARGO_HOME; . "$HOME/.profile" >/dev/null 2>&1; case ":$PATH:" in *":$HOME/.cargo/bin:"*) echo found ;; *) echo missing ;; esac'
+  [ "$status" -eq 0 ]
+  [ "$output" = "found" ]
+}
+
+# ---------------------------------------------------------------------------
+# config/shell/caches.sh: the bun install root stays at its stock default
+# ---------------------------------------------------------------------------
+#
+# BUN_INSTALL names an install root, not a cache: it holds `bun add -g` packages
+# and their bin symlinks, which no re-download reconstructs on demand. The bun
+# binary and every launcher that never sources this chain resolve ~/.bun, so
+# relocating it splits the globals across two trees and leaves both on PATH.
+
+@test "caches.sh does not assign BUN_INSTALL" {
+  run ! grep -qE '^[[:space:]]*(export[[:space:]]+)?BUN_INSTALL=' "$CONFIG_DIR/caches.sh"
+}
+
+# As with the Rust roots above, the `unset` prefix is load-bearing: a shell that
+# still carries the old exported value would otherwise report on its own
+# environment instead of on the file.
+@test "sourcing profile in a fresh shell leaves BUN_INSTALL unset" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  run bash -c 'unset BUN_INSTALL; . "$HOME/.profile" >/dev/null 2>&1; echo "${BUN_INSTALL:-unset}"'
+  [ "$status" -eq 0 ]
+  [ "$output" = "unset" ]
+}
+
+# Nothing exports the root, so the stock bin dir is what has to reach PATH.
+# Scoped to hosts that have one, since a host with no bun globals has no dir.
+@test "sourcing profile puts stock ~/.bun/bin on PATH where it exists" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  [ -d "$HOME/.bun/bin" ] || skip "no bun global bin dir on this host (~/.bun/bin absent)"
+  run bash -c 'unset BUN_INSTALL; . "$HOME/.profile" >/dev/null 2>&1; case ":$PATH:" in *":$HOME/.bun/bin:"*) echo found ;; *) echo missing ;; esac'
+  [ "$status" -eq 0 ]
+  [ "$output" = "found" ]
+}
+
+# The relocated bin dir must not survive in the PATH chain. Leaving it there
+# keeps a split host working by accident, which is what hid the divergence.
+@test "dot-profile does not put the relocated bun bin dir on PATH" {
+  run ! grep -q '\.cache/bun/bin' "$STOW_DIR/shell/dot-profile"
+}
+
+# Whether an alias defined in the `.profile` chain resolves depends on the
+# invocation, not the shell: bash leaves `expand_aliases` off so a `bash -lc`
+# caller never sees one, while POSIX mode turns it on so a `sh -lc` caller on
+# macOS does. A function behaves identically in every shape. AGENTS.md states
+# the rule; these pin it, because the failure is a command that silently does
+# not exist for exactly the scripted callers these files configure.
+@test "dot-profile defines no aliases" {
+  run ! grep -qE '^[[:space:]]*alias[[:space:]]' "$STOW_DIR/shell/dot-profile"
+}
+
+@test "no config/shell fragment defines an alias" {
+  # The fragments are sourced by the same loop, so the rule is the file set's,
+  # not any one file's. shell-functions is excluded: the rc files source it
+  # behind their interactive guards, where aliases are supported.
+  run ! grep -rqE '^[[:space:]]*alias[[:space:]]' --include='*.sh' "$CONFIG_DIR"
+}
+
+@test "a fragment-defined function resolves under bash -lc, where an alias would not" {
+  [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+  command -v xr >/dev/null 2>&1 || skip "xurl-rs (xr) not installed"
+  # The property the two assertions above exist to protect, checked in the shape
+  # that discriminates: bash leaves `expand_aliases` off, so the same name
+  # defined as an alias reports "command not found" here. Scoped to `bash -lc`
+  # rather than every shape because the sourcing loop is gated on
+  # BASH_VERSION/ZSH_VERSION, so a dash `sh -lc` caller never reads the
+  # fragments at all and defines neither form.
+  run bash -lc 'typeset -f xurl >/dev/null && echo DEFINED'
+  [ "$status" -eq 0 ]
+  [ "$output" = "DEFINED" ]
 }

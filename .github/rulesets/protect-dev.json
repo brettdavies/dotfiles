@@ -12,13 +12,13 @@
   },
   "rules": [
     {
+      "type": "required_signatures"
+    },
+    {
       "type": "deletion"
     },
     {
       "type": "non_fast_forward"
-    },
-    {
-      "type": "required_signatures"
     },
     {
       "type": "required_status_checks",

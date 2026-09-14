@@ -1,0 +1,23 @@
+# Caller for the centralized guard-main-docs reusable workflow.
+#
+# Blocks engineering docs (docs/plans, docs/brainstorms, docs/ideation,
+# docs/research, docs/reviews, docs/solutions) from being added or modified
+# by a PR to main. Only needs pull-requests: read.
+#
+# The reusable is first-party (brettdavies/.github), so the caller tracks
+# `@main`. The set it enforces is what scripts/release/guarded-paths.sh
+# resolves locally; this repo guards nothing beyond the reusable's base list,
+# so there is no `extra_paths` input. Registering a new guarded path means
+# adding `with: extra_paths: 'a/,b.md'` here, on one line, in quotes.
+name: Guard main from engineering docs
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  guard-docs:
+    uses: brettdavies/.github/.github/workflows/guard-main-docs.yml@main

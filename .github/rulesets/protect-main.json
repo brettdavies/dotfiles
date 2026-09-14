@@ -12,6 +12,24 @@
   },
   "rules": [
     {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": false,
+        "required_reviewers": [],
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": [
+          "squash"
+        ]
+      }
+    },
+    {
+      "type": "required_signatures"
+    },
+    {
       "type": "creation"
     },
     {
@@ -22,23 +40,6 @@
     },
     {
       "type": "required_linear_history"
-    },
-    {
-      "type": "pull_request",
-      "parameters": {
-        "required_approving_review_count": 0,
-        "dismiss_stale_reviews_on_push": false,
-        "required_reviewers": [],
-        "require_code_owner_review": false,
-        "require_last_push_approval": false,
-        "required_review_thread_resolution": false,
-        "allowed_merge_methods": [
-          "squash"
-        ]
-      }
-    },
-    {
-      "type": "required_signatures"
     },
     {
       "type": "required_status_checks",
@@ -52,6 +53,18 @@
           },
           {
             "context": "bats",
+            "integration_id": 15368
+          },
+          {
+            "context": "guard-docs / check-forbidden-docs",
+            "integration_id": 15368
+          },
+          {
+            "context": "guard-provenance / check-provenance",
+            "integration_id": 15368
+          },
+          {
+            "context": "guard-release / check-release-branch-name",
             "integration_id": 15368
           }
         ]

@@ -18,6 +18,15 @@ stated in full here; the guides hold only the elaboration.
 - **200-line refactor trigger** — any single file over 200 LOC (excluding comments) triggers a refactor review. Uniform
   function files or pure declarations may exceed it — evaluate by SRP, trigger by line count.
 
+## Error contract and output modes
+
+Text output is for humans; JSON and the other structured modes are for agents. The two need not match word for word:
+text carries prose hints and a help pointer, JSON carries stable fields an agent branches on. Every structured error
+meets the Stripe tier of the DX error hall of fame: a stable kebab-case `reason` from a closed set, an `exit_code`, a
+human `message`, the offending value when there is one, and a `next_step` object `{action, command, docs}` where
+`action` is a closed set, `command` is a verbatim invocation safe for headless use, and `docs` is a URL when one exists.
+Prefer additive changes to an envelope: add keys rather than renaming or retyping existing ones.
+
 ## Code comments
 
 **Default: write no comment.** Only add one when removing it would leave a non-obvious WHY unanswered. Legitimate
@@ -53,6 +62,16 @@ other tools first.
 **$100 Rule:** when prevention was missed and a bug slips through, invest in the permanent fix — test, guard, lint rule,
 or docs/solutions entry. Trivial work (<~20 lines: single-file fixes, config tweaks, typos) may skip the full loop.
 
+**Green is not evidence.** A new test counts only once it has been *observed* failing against the unfixed code: stash
+the source fix, keep the test, run it, and quote the real failure output. Never write "this would fail without the fix"
+— run it. And unit-green never substitutes for measuring the real artifact: a passing suite does not render a page,
+resolve a CSS cascade, or prove a file ships. When a change touches CSS, tokens, layout, emitted markup, or a deployed
+surface, measure the built or served output (`getComputedStyle`, a real HTTP request, a browser) before reporting done.
+Before reasoning from a stylesheet or module, confirm it actually reaches the output. Costly precedents:
+`agentnative-site` AGENTS.md § "Browser-verify before declaring done" (a token typo passed tests and shipped
+near-invisible dark-mode text); meum-sites, where a keyboard-a11y fix was derived from a stylesheet that never shipped
+and a whole type scale silently fell back to body size because the token it named was defined nowhere.
+
 **Query solutions first:** before answering, diagnosing, researching, or proposing, run `qmd query "<topic>"
 --collection solutions` to surface prior decisions. Applies to all interactions, and **explicitly to `/investigate` and
 every gstack debugging skill** — their `gstack-learnings-search` does NOT reach `docs/solutions/`, so query the corpus
@@ -69,9 +88,16 @@ Routing table, per-skill rules, and the `qmd-learnings-researcher` companion-dis
 ## Solutions repo
 
 `docs/solutions/` is a symlink to `~/dev/solutions-docs` (a separate private repo). The consuming repo's `git status`
-shows nothing for it. **After writing there** (e.g. via `/compound`), commit and push in that repo: `cd
-~/dev/solutions-docs && git add -A && git commit -m "docs: …" && git push`. Symlink-recreate command →
-`~/.claude/guides/workflows-and-skills.md`.
+shows nothing for it. **After writing there** (e.g. via `/compound`), commit and push in that repo — but it's a single
+clone that concurrent agents (parallel compounders) share, so committing in it directly races their `git add`/`git
+commit` on the one index. **Commit with `sd-commit-doc`** (dotfiles-provided, on `PATH`): write your doc(s) into
+`docs/solutions/<category>/<slug>.md`, author + `/unslop` a captured-path `/tmp` message (never `ls -t | head -1`, never
+`-m`), then `sd-commit-doc <msg-file> <category>/<slug>.md`. It commits from an isolated detached worktree (never `git
+add -A` the shared index), pushes with fetch/rebase-retry, and fast-forwards the shared clone so it never drifts behind
+origin. **Never** commit directly in the shared clone or amend + force-push it. Script source
+`~/.local/bin/sd-commit-doc`; solo-session exception + symlink-recreate → `~/.claude/guides/workflows-and-skills.md`;
+rationale → `docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
+`.../unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 
 ## Secrets & private identifiers
 
@@ -143,6 +169,15 @@ meaningfully rewritten** — append the LLM-draft → Brett-rewrite swap under t
 dated source-log entry. Compounds over time so the next draft starts closer to landing. Local-only and gitignored by
 design (see the `.context/` rule above).
 
+## Attribution & interpretation
+
+**Never put words in a person's mouth.** Don't state or imply that someone said, framed, meant, wanted, or believes
+something unless it is grounded in a primary source — and when a transcript or recording exists, **verify against it
+before asserting who said what.** Interpretation is welcome, but label it explicitly as yours (`my read`, `inference`,
+`not sourced to X`) and keep it distinct from what the person actually said. Presenting an interpretation as the
+person's own statement — paraphrasing or quoting them into something they did not say — is a serious trust breach, not a
+stylistic slip. Applies to chat, debriefs, plans, notes, and every artifact.
+
 ## CI after push
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse
@@ -162,8 +197,20 @@ link in the chain.** Policy source of truth: the `~/.claude/ci-watch-prompt.sh` 
 
 Prefer CLI tools via Bash over built-in Read/Edit/Grep/Glob (`rg`/`fd`/`jaq`/`ast-grep`; `cat`/`bat`; `sed`/`awk`).
 Install order: brew > bunx/uvx > python3/node. **`trash`, never `rm`/`git rm`** (both denied in `settings.json`). `uv
-run` for ad-hoc Python. `qmd query` for knowledge-base search. Don't manually wrap markdown — the `md-wrap.py` hook
-does. Full preference list (Python bytecode, rtk, gh auth, Rust pre-push) → `~/.claude/guides/cli-tools.md`.
+run` for ad-hoc Python. **Leave no cache or venv artifacts in project trees** (`__pycache__`, `.venv`, `.pytest_cache`,
+`uv.lock`, `*.egg-info`): prevent them, never `.gitignore`-hide them, `trash` any that appear. **Bake the bypass into
+the project, not the machine** — it must stay clean on CI and other machines: pytest cache off in `pyproject.toml`
+(`addopts = "-p no:cacheprovider"`), bytecode off via `python -B` plus `sys.dont_write_bytecode` in the
+entry/`conftest.py`, uv's `.venv/`+`uv.lock` off via `uv run --no-project --with . <script>` (or `--with pytest python
+-B -m pytest`). This machine also exports `PYTHONDONTWRITEBYTECODE=1`/`PYTEST_ADDOPTS` (`config/shell/python.sh`) as a
+safety net that does not travel — don't rely on it in place of the in-project settings. Apply before any `uv
+run`/`pytest` in a repo. `qmd query` for knowledge-base search. Don't manually wrap markdown — the `md-wrap.py` hook
+does. **Playwright browsers are system-provided** by `~/dotfiles` into the shared `$PLAYWRIGHT_BROWSERS_PATH`; never run
+`playwright install` to download them (the node/libuv io_uring extractor deadlocks on this kernel) —
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` stops `bun install` from auto-fetching them (an explicit install still fetches
+missing browsers; the provisioned set is what makes it skip), repos exact-pin the one canonical version, and bumping is
+a dotfiles job. Full preference list (Python cache/venv hygiene, gh auth, Playwright browsers, Rust pre-push) →
+`~/.claude/guides/cli-tools.md`.
 
 ## Long artifacts → files
 

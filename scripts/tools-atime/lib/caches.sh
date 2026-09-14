@@ -16,7 +16,7 @@ _uv_cache_size_kb() {
   local bytes
   bytes=$(uv cache size --preview-features cache-size 2>/dev/null) || return 1
   [[ -z "$bytes" || ! "$bytes" =~ ^[0-9]+$ ]] && return 1
-  printf '%d\n' $(( bytes / 1024 ))
+  printf '%d\n' $((bytes / 1024))
 }
 
 # uv cache dir is canonical; ask uv where it lives instead of guessing.
@@ -51,15 +51,16 @@ caches_rows() {
 
 _caches_strip_prefix() {
   local t=$1
-  t=${t#cache/}; t=${t#caches/}
+  t=${t#cache/}
+  t=${t#caches/}
   printf '%s\n' "$t"
 }
 
 caches_actions() {
   case "$(_caches_strip_prefix "$1")" in
-    uv-cache)  echo "p:prune c:clean-all" ;;
+    uv-cache) echo "p:prune c:clean-all" ;;
     bun-cache) echo "r:rm-all" ;;
-    *)         echo "" ;;
+    *) echo "" ;;
   esac
 }
 
@@ -69,9 +70,9 @@ caches_measure() {
   local target
   target=$(_caches_strip_prefix "$1")
   case "$target" in
-    uv-cache)  _uv_cache_size_kb 2>/dev/null || echo 0 ;;
+    uv-cache) _uv_cache_size_kb 2>/dev/null || echo 0 ;;
     bun-cache) du -sk "${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}" 2>/dev/null | awk '{print $1+0}' ;;
-    *)         echo 0 ;;
+    *) echo 0 ;;
   esac
 }
 
@@ -79,26 +80,32 @@ caches_act() {
   local target action=$2
   target=$(_caches_strip_prefix "$1")
   case "$target/$action" in
-    uv-cache/p|uv-cache/prune)
+    uv-cache/p | uv-cache/prune)
       if [[ "${DRYRUN:-true}" == "true" ]]; then
-        echo "DRY-RUN: uv cache prune"; return 0
+        echo "DRY-RUN: uv cache prune"
+        return 0
       fi
       uv cache prune
       ;;
-    uv-cache/c|uv-cache/clean-all)
+    uv-cache/c | uv-cache/clean-all)
       if [[ "${DRYRUN:-true}" == "true" ]]; then
-        echo "DRY-RUN: uv cache clean"; return 0
+        echo "DRY-RUN: uv cache clean"
+        return 0
       fi
       uv cache clean
       ;;
-    bun-cache/r|bun-cache/rm-all)
+    bun-cache/r | bun-cache/rm-all)
       local dir="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
       if [[ "${DRYRUN:-true}" == "true" ]]; then
-        echo "DRY-RUN: trash $dir"; return 0
+        echo "DRY-RUN: trash $dir"
+        return 0
       fi
       command -v trash >/dev/null && trash "$dir" || rm -rf "$dir"
       ;;
-    *) echo "caches_act: unknown action $target/$action" >&2; return 1 ;;
+    *)
+      echo "caches_act: unknown action $target/$action" >&2
+      return 1
+      ;;
   esac
 }
 
@@ -111,7 +118,10 @@ caches_inspect() {
     uv-cache)
       local archive_root
       archive_root="$(_uv_cache_dir 2>/dev/null)/archive-v0"
-      [[ -d "$archive_root" ]] || { echo "uv archive cache not found" >&2; return 1; }
+      [[ -d "$archive_root" ]] || {
+        echo "uv archive cache not found" >&2
+        return 1
+      }
       # Single find walks every file under archive-v0 once, emitting path,
       # bytes, nlinks. Awk groups by archive directory, summing total bytes
       # and the subset where nlinks == 1 (files only the cache references).
@@ -122,7 +132,7 @@ caches_inspect() {
       # actually frees" — files hardlinked into a tool venv contribute 0
       # to freeable even though they appear in the archive's total.
       find "$archive_root" -type f -printf '%p\t%s\t%n\n' 2>/dev/null \
-      | awk -F'\t' '
+        | awk -F'\t' '
           function read_meta(file,   line, n, v) {
             while ((getline line < file) > 0) {
               gsub(/\r/, "", line)
@@ -152,7 +162,10 @@ caches_inspect() {
       ;;
     bun-cache)
       local dir="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
-      [[ -d "$dir" ]] || { echo "bun cache not found" >&2; return 1; }
+      [[ -d "$dir" ]] || {
+        echo "bun cache not found" >&2
+        return 1
+      }
       # Top-level entries are either <pkg>@<ver>@@@N (flat) or @scope (dir
       # holding the scope's packages). Aggregate by scope or unscoped name.
       shopt -s nullglob
@@ -165,7 +178,7 @@ caches_inspect() {
         sz=$(du -sk "$d" 2>/dev/null | cut -f1)
         printf '%d\t%s\t\n' "${sz:-0}" "$name"
       done \
-      | awk -F'\t' 'BEGIN{OFS=FS} {sz[$2]+=$1} END {for (k in sz) print sz[k], k, ""}'
+        | awk -F'\t' 'BEGIN{OFS=FS} {sz[$2]+=$1} END {for (k in sz) print sz[k], k, ""}'
       shopt -u nullglob
       ;;
     *)

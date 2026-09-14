@@ -68,21 +68,30 @@ The wrapper handles non-stow symlinks, existing plain files (`--adopt`), and tre
 `--no-folding` and auto-configures `core.hooksPath=.githooks`. The `--headless` flag auto-restores repo versions after
 adopt.
 
-**Manual alternative** (without conflict resolution):
+**Manual alternative** (without conflict resolution). The package sets below must match `SHARED_PACKAGES` and
+`DESKTOP_PACKAGES` in `scripts/stow-deploy`, which are authoritative — read them there rather than trusting this copy if
+the two ever disagree:
 
 ```bash
 cd ~/dotfiles/stow
 
-# macOS (shared + desktop)
-stow --dotfiles --no-folding --target="$HOME" \
+# macOS (shared + desktop). The Linux-only packages are omitted: stow-deploy
+# skips rclone, obsidian, opendataloader-pdf, codex-proxy, and cargo on Darwin.
+# --ignore drops the systemd units that cross-platform packages carry.
+stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
-  tmux tmuxinator lazygit micro yazi caam gogcli ghostty cursor launchagent
+  rust tmux lazygit micro yazi qmd caddy caam gogcli ghostty cursor launchagent
 
 # Headless (shared only)
 stow --dotfiles --no-folding --target="$HOME" \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
-  tmux tmuxinator lazygit micro yazi rclone qmd obsidian opendataloader-pdf caam gogcli
+  cargo rust tmux lazygit micro yazi rclone qmd obsidian opendataloader-pdf caddy \
+  caam gogcli codex-proxy
 ```
+
+`tmuxinator` is deliberately absent from both lists: its session configs are read in place from the repo and stowing
+them would shadow the source of truth. `ollama` is also absent — it targets `/etc`, not `$HOME` (see
+[stow/ollama/README.md](stow/ollama/README.md)).
 
 ### Restow After Changes
 
@@ -191,7 +200,7 @@ knowledge-base index fresh:
 
 | Agent                  | Schedule              | What it does                                                            |
 | ---------------------- | --------------------- | ----------------------------------------------------------------------- |
-| `com.user.qmd-update`  | every 5 min + at load | `qmd cleanup` then `qmd update` (re-index changed files)                |
+| `com.user.qmd-update`  | every 5 min + at load | `qmd update` (re-index changed files)                                   |
 | `com.user.qmd-embed`   | every 5 min + at load | `qmd embed` with throttled batches (avoids Apple Silicon KV-cache wall) |
 | `com.user.qmd-cleanup` | nightly 03:00         | `qmd cleanup` (deeper vacuum, drop stale rerank cache)                  |
 
@@ -224,6 +233,58 @@ Repeat the same arrow to cycle 1/2 → 2/3 → 1/3 width.
 
 ## Linux Server Setup
 
+### Rust toolchains
+
+Rust lives only on the Linux hosts. Install rustup with the minimal profile, so no toolchain ever pulls the docs in the
+first place:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --profile minimal
+```
+
+`scripts/stow-deploy` reconciles the setting on every deploy once the `cargo` package is installed, so a host that
+already has rustup gets it without a manual step, and one someone set back to `default` is repaired. Neither hook helps
+a toolchain that is already on disk, which is why the flag matters more than the cleanup.
+
+There is no environment variable for this. rustup reads the profile from `~/.rustup/settings.toml`, which it rewrites
+itself, so the value can be neither exported from `config/shell` nor stowed: a symlink there would be written through
+into the repo.
+
+A repo can close the gap independently of machine state with `profile = "minimal"` in its `rust-toolchain.toml`, which
+rustup honors when it auto-installs the pinned toolchain.
+
+The default profile bundles `rust-docs`, roughly 800MB of offline HTML per toolchain and 2.4GB across the three pinned
+here. Nothing reads it: the host has no browser, and API lookups go to docs.rs. `minimal` still honors the `components =
+["rustfmt", "clippy"]` line in each repo's `rust-toolchain.toml`, so pinned repos get what they ask for and nothing
+else.
+
+The setting governs new installs. Removing it from toolchains already on disk is a separate step, and `rustup update`
+preserves whatever component set a toolchain currently has:
+
+```bash
+for tc in $(rustup toolchain list | awk '{print $1}'); do
+  rustup component remove rust-docs --toolchain "$tc" 2>/dev/null || true
+done
+```
+
+### SSH session locale
+
+A minimal server has no `locales` package and generates only `C.UTF-8`, which `/etc/default/locale` selects. macOS
+clients send `LANG=en_US.UTF-8` and Ubuntu's stock sshd accepts it, so every session lands on a locale the box cannot
+set and glibc falls back to plain C: `perl` warns on each run, `shellcheck` aborts its report at the first non-ASCII
+character, and `sort` and `grep` lose multibyte awareness. Installing `locales` (17 MB) works but adds a package the
+server does not otherwise need. Stop accepting the variable instead; `pam_env` then supplies the box default:
+
+```bash
+sudo ~/dotfiles/scripts/sshd-locale-deploy.sh
+```
+
+The script strips `LANG` and `LC_*` from every `AcceptEnv` directive (main file and `sshd_config.d/` drop-ins),
+validates with `sshd -t`, reloads sshd, and is safe to re-run. Sessions already open keep their value, as does a tmux
+server started from one; `tmux set-environment -g LANG C.UTF-8` fixes new panes without a restart. The `ssh` package
+pins `SetEnv LANG=C.UTF-8` on the affected host entries as the client-side half, so a server that still accepts the
+variable gets the right value anyway.
+
 ### Ollama Host-rewrite proxy (Caddy)
 
 Ollama binds to loopback only (`127.0.0.1:11434`) and 403s any request whose `Host` header is not localhost
@@ -242,8 +303,8 @@ Caddy listens on `127.0.0.1:11500` only and forwards to `127.0.0.1:11434`.
 
 ### Tailscale Serve
 
-`bigdaddy` serves `svc:ollama` over Tailscale Serve as a tailnet service VIP, the single embedding backend for the
-shared gbrain. tailscaled keeps serve config in its own state, but a binding can be dropped by a daemon restart or
+The GPU server serves `svc:ollama` over Tailscale Serve as a tailnet service VIP, the single embedding backend shared
+across the tailnet. tailscaled keeps serve config in its own state, but a binding can be dropped by a daemon restart or
 version upgrade while the `AdvertiseServices` pref survives, leaving a service advertised with nothing bound.
 Re-establish the config in one idempotent run (the script fail-fasts if the Caddy proxy above is not up):
 
@@ -252,7 +313,7 @@ bash ~/dotfiles/scripts/tailscale-serve-setup.sh
 ```
 
 The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, then Caddy, then Ollama), then prints
-`tailscale serve status`. It is host-gated to `bigdaddy` and safe to re-run.
+`tailscale serve status`. It is gated to that one host and safe to re-run.
 
 > **One-time admin step:** the service host must be approved once in the
 > [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP

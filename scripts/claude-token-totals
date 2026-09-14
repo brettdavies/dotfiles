@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Sum Claude Code lifetime token usage across every machine you work on.
+#
+# Claude Code's `/usage` Overview reads ~/.claude/stats-cache.json, which each
+# machine computes from its own session logs. Nothing reconciles those files
+# between hosts, so a laptop that does a tenth of the work reports a tenth of
+# the tokens and looks like the whole picture. This walks the local cache plus
+# any remote hosts and adds them up.
+#
+# The totals are account-blind by construction: the session logs carry no
+# account, email, or organization field, so usage recorded while signed in as
+# one subscription is indistinguishable from another. Per-account figures exist
+# only as rate-limit percentages from the server (`codexbar usage`, `cswap
+# list`), never as token counts.
+#
+# These totals run high against billed requests, and deliberately so. The cache
+# is a running accumulator that survives Claude Code's 30-day log cleanup, which
+# is what makes it the only lifetime record on the machine, but it counts a
+# request once per session file it lands in — a subagent's usage is recorded
+# again in its parent, and a resumed session replays history. Deduplicating by
+# requestId over the surviving logs cuts the same span by roughly half. Read
+# these as relative volume across hosts, not as an API bill; tools that scan the
+# logs directly (CodexBar's spend dashboard) dedupe, and so report far less over
+# a far shorter window.
+#
+# Usage: scripts/claude-token-totals [--json] [host ...]
+# Env:   CLAUDE_TOKEN_HOSTS  default space-separated remote hosts
+
+EXIT_USAGE=2
+EXIT_DEPENDENCY=3
+
+JSON=false
+HOSTS=()
+
+# The header comment is the help text, so the two cannot drift apart. Printing
+# it by pattern rather than line number keeps that true when the header grows.
+usage() {
+	awk 'NR<=2 {next} /^#/ {started=1; sub(/^# ?/, ""); print; next} started {exit}' "$0"
+}
+
+while (($#)); do
+	case "$1" in
+	--json) JSON=true ;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	-*)
+		echo "unknown flag: $1" >&2
+		exit "$EXIT_USAGE"
+		;;
+	*) HOSTS+=("$1") ;;
+	esac
+	shift
+done
+
+if ((${#HOSTS[@]} == 0)) && [[ -n ${CLAUDE_TOKEN_HOSTS:-} ]]; then
+	read -ra HOSTS <<<"$CLAUDE_TOKEN_HOSTS"
+fi
+
+command -v jaq >/dev/null 2>&1 || {
+	echo "jaq is required" >&2
+	exit "$EXIT_DEPENDENCY"
+}
+
+# Total tokens for one stats-cache payload, plus the fields the report shows.
+# Reads the payload on stdin so remote hosts need nothing but cat.
+summarize() {
+	jaq -c '{
+    tokens: ([.modelUsage[] | .inputTokens + .outputTokens
+              + .cacheReadInputTokens + .cacheCreationInputTokens] | add // 0),
+    sessions: (.totalSessions // 0),
+    messages: (.totalMessages // 0),
+    since: (.firstSessionDate // null),
+    computed: (.lastComputedDate // null)
+  }'
+}
+
+rows=()
+
+if [[ -r "$HOME/.claude/stats-cache.json" ]]; then
+	rows+=("$(summarize <"$HOME/.claude/stats-cache.json" | jaq -c --arg h local '. + {host: $h}')")
+else
+	echo "warning: no local stats cache at ~/.claude/stats-cache.json" >&2
+fi
+
+for host in "${HOSTS[@]}"; do
+	payload=$(ssh -o ConnectTimeout=10 -o BatchMode=yes "$host" \
+		'cat ~/.claude/stats-cache.json' 2>/dev/null) || {
+		echo "warning: could not read stats cache on $host" >&2
+		continue
+	}
+	rows+=("$(printf '%s' "$payload" | summarize | jaq -c --arg h "$host" '. + {host: $h}')")
+done
+
+((${#rows[@]})) || {
+	echo "no stats caches could be read" >&2
+	exit "$EXIT_DEPENDENCY"
+}
+
+report=$(printf '%s\n' "${rows[@]}" | jaq -s '{
+  hosts: .,
+  total: {
+    tokens: ([.[].tokens] | add),
+    sessions: ([.[].sessions] | add),
+    messages: ([.[].messages] | add)
+  }
+}')
+
+if [[ $JSON == true ]]; then
+	printf '%s\n' "$report" | jaq .
+	exit 0
+fi
+
+printf '%s' "$report" | jaq -r '
+  def commas: tostring | explode | reverse
+    | [range(0; length) as $i
+       | (if ($i % 3 == 2) and ($i + 1 < length) then "," else "" end)
+         + (.[$i:$i+1] | implode)]
+    | reverse | join("");
+  def pct($t): if $t > 0 then (.tokens * 1000 / $t | round / 10 | tostring) + "%" else "-" end;
+  .total.tokens as $t
+  | (.hosts[] | "\(.host)\t\(.tokens | commas)\t\(pct($t))\t\(.sessions) sessions\tsince \(.since // "?" | .[0:10])"),
+    "TOTAL\t\(.total.tokens | commas)\t100%\t\(.total.sessions) sessions\t"
+' | column -t -s $'\t'

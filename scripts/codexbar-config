@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Move CodexBar's config between this repo and ~/.config/codexbar/config.json.
+#
+# CodexBar rewrites that file by replacing it, not by writing through it, so a
+# stow symlink does not survive the first `codexbar config enable` or provider
+# toggle in Settings: the symlink is replaced by a regular file and the repo
+# copy silently stops receiving changes. Copying in both directions keeps the
+# repo authoritative without leaving a link for the app to clobber.
+#
+# The file is the same one `codexbar config set-api-key` writes provider API
+# keys into, so it is git-crypt'd in .gitattributes.
+#
+# Usage: scripts/codexbar-config <deploy|capture|diff>
+#   deploy   repo -> ~/.config/codexbar/config.json (backs up any live file)
+#   capture  ~/.config/codexbar/config.json -> repo
+#   diff     show what capture would change
+
+EXIT_USAGE=2
+EXIT_DEPENDENCY=3
+EXIT_PRECONDITION=4
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SNAPSHOT="$REPO_ROOT/snapshots/codexbar/config.json"
+LIVE="${CODEXBAR_CONFIG:-$HOME/.config/codexbar/config.json}"
+
+command -v jaq >/dev/null 2>&1 || {
+	echo "jaq is required" >&2
+	exit "$EXIT_DEPENDENCY"
+}
+
+# CodexBar writes keys in whatever order it likes; sort so the repo diff shows
+# real changes rather than reordering noise.
+normalize() { jaq -S . "$1"; }
+
+# The header comment is the help text, so the two cannot drift apart. Printing
+# it by pattern rather than line number keeps that true when the header grows.
+usage() {
+	awk 'NR<=2 {next} /^#/ {started=1; sub(/^# ?/, ""); print; next} started {exit}' "$0"
+}
+
+case "${1:-}" in
+deploy)
+	[[ -r $SNAPSHOT ]] || {
+		echo "no snapshot at $SNAPSHOT" >&2
+		exit "$EXIT_PRECONDITION"
+	}
+	normalize "$SNAPSHOT" >/dev/null || {
+		echo "snapshot is not valid JSON (is git-crypt unlocked?)" >&2
+		exit "$EXIT_PRECONDITION"
+	}
+	mkdir -p "$(dirname "$LIVE")"
+	if [[ -e $LIVE ]] && ! diff -q <(normalize "$SNAPSHOT") <(normalize "$LIVE") >/dev/null 2>&1; then
+		cp -p "$LIVE" "$LIVE.bak"
+		echo "backed up existing config to $LIVE.bak"
+	fi
+	install -m 600 "$SNAPSHOT" "$LIVE"
+	echo "deployed -> $LIVE"
+	;;
+capture)
+	[[ -r $LIVE ]] || {
+		echo "no live config at $LIVE" >&2
+		exit "$EXIT_PRECONDITION"
+	}
+	normalize "$LIVE" >/dev/null || {
+		echo "live config is not valid JSON" >&2
+		exit "$EXIT_PRECONDITION"
+	}
+	mkdir -p "$(dirname "$SNAPSHOT")"
+	normalize "$LIVE" >"$SNAPSHOT"
+	echo "captured -> $SNAPSHOT"
+	;;
+diff)
+	[[ -r $LIVE ]] || {
+		echo "no live config at $LIVE" >&2
+		exit "$EXIT_PRECONDITION"
+	}
+	if [[ -r $SNAPSHOT ]]; then
+		diff -u <(normalize "$SNAPSHOT") <(normalize "$LIVE") \
+			--label "repo" --label "live" && echo "no differences"
+	else
+		echo "no snapshot yet; capture would create $SNAPSHOT"
+	fi
+	;;
+*)
+	usage >&2
+	exit "$EXIT_USAGE"
+	;;
+esac

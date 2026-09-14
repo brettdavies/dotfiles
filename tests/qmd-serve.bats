@@ -9,6 +9,11 @@
 #
 # Run: bats tests/qmd-serve.bats
 #
+# `run !` below asserts a command fails. Bats keeps pre-1.5 `run` semantics
+# until a suite opts in, so the declaration is what enables the flag form
+# rather than a newer bats: 1.14 still warns BW02 without it.
+bats_require_minimum_version 1.5.0
+#
 # ---------------------------------------------------------------------------
 # Manual smoke checklist (run on the dev host, one-time, after shipping):
 #
@@ -26,10 +31,10 @@
 #   [ ] CLI routing     qmd query "test" with QMD_REMOTE_URL set routes through
 #                       the daemon; unsetting QMD_REMOTE_URL falls back to local
 #                       mode (slower, loads model in-process).
-#   [ ] CLI resolution  command -v qmd resolves to ~/.local/bin/qmd (stow
-#                       wrapper wins on current PATH order). qmd-serve keeps
-#                       using /home/brett/.bun/bin/qmd via its absolute
-#                       ExecStart — both point at the same fork binary.
+#   [ ] CLI resolution  command -v qmd resolves to a path that execs the fork.
+#                       qmd-serve starts %h/.local/bin/qmd via its ExecStart,
+#                       the stowed dispatcher, so the daemon does not depend on
+#                       which qmd PATH happens to find.
 #   [ ] Teardown        systemctl --user disable --now qmd-serve.service
 #                       cleanly stops everything, no orphans on :7832.
 # ---------------------------------------------------------------------------
@@ -50,8 +55,11 @@ UPDATE_TIMER="$LOCAL_PKG_DIR/dot-config/systemd/user/qmd-update.timer"
 CLEANUP_TIMER="$LOCAL_PKG_DIR/dot-config/systemd/user/qmd-cleanup.timer"
 WRAPPER_SH="$PKG_DIR/dot-local/bin/qmd"
 OLLAMA_UNLOAD_SH="$LOCAL_PKG_DIR/dot-local/bin/qmd-ollama-unload-all"
+GPU_VERIFY_SH="$LOCAL_PKG_DIR/dot-local/bin/qmd-gpu-verify"
 ENABLE_SCRIPT="$REPO_ROOT/scripts/qmd-serve-enable.sh"
 SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
+LAUNCHD_ENABLE="$REPO_ROOT/scripts/qmd-launchd-enable.sh"
+AGENT_DIR="$REPO_ROOT/stow/launchagent/Library/LaunchAgents"
 
 # ---------------------------------------------------------------------------
 # Package layout
@@ -105,7 +113,7 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 
 @test "qmd wrapper uses HOME (no hardcoded user path)" {
   grep -q '"\$HOME/dev/qmd/qmd"' "$WRAPPER_SH"
-  ! grep -q '/home/[a-z]*/' "$WRAPPER_SH"
+  run ! grep -q '/home/[a-z]*/' "$WRAPPER_SH"
 }
 
 @test "qmd wrapper shebang is #!/bin/sh" {
@@ -115,10 +123,10 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 # ---------------------------------------------------------------------------
 # qmd-serve.service contents
 #
-# ExecStart uses the absolute /home/brett/.bun/bin/qmd path on purpose — the
-# service is pinned to a specific file so it stays invariant to PATH-ordering
-# changes tracked in todo 015 (dedupe local-paths.sh prepends). Interactive
-# qmd still resolves via the stow wrapper at ~/.local/bin/qmd.
+# ExecStart names the stowed dispatcher at %h/.local/bin/qmd, the same path the
+# other three units use. It execs the fork for the running OS, so the daemon is
+# pinned to a specific file, invariant to PATH ordering, and unable to resolve
+# the upstream qmd package.
 # ---------------------------------------------------------------------------
 
 @test "qmd-serve ExecStart invokes qmd serve with low-vram mode" {
@@ -168,11 +176,27 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   grep -qE '^ExecStart=.*--max-batch-mb [0-9]+' "$EMBED_UNIT"
 }
 
+@test "qmd-serve ExecStart line has no hardcoded /home/<user>/ path" {
+  run bash -c "grep -E '^ExecStart(Pre|Post)?=' '$SERVE_UNIT' | grep -q '/home/[a-z]*/'"
+  [ "$status" -ne 0 ]
+}
+
+# ~/.bun/bin precedes ~/.local/bin on the assembled PATH, and the bun global
+# manifest is able to relink a `qmd` there from the upstream package. A unit
+# that reaches qmd through that directory runs upstream rather than the fork,
+# so no unit may name it in an Exec line or in its own PATH.
+@test "no qmd unit resolves qmd through a bun bin dir" {
+  run bash -c "grep -hE '^(ExecStart|ExecStartPre|ExecStartPost|Environment=PATH)' \
+    '$SERVE_UNIT' '$EMBED_UNIT' '$UPDATE_UNIT' '$CLEANUP_UNIT' | grep -q '\.bun/bin'"
+  [ "$status" -ne 0 ]
+}
+
 @test "qmd-embed ExecStart line has no hardcoded /home/<user>/ path" {
   # Environment=PATH=... intentionally contains /home/... entries for the
   # Ollama-unload ExecStartPre's bare `curl`; the invariant we guard is that
   # the ExecStart lines themselves resolve via %h, not a hardcoded user path.
-  ! grep -E '^ExecStart(Pre|Post)?=' "$EMBED_UNIT" | grep -q '/home/[a-z]*/'
+  run bash -c "grep -E '^ExecStart(Pre|Post)?=' '$EMBED_UNIT' | grep -q '/home/[a-z]*/'"
+  [ "$status" -ne 0 ]
 }
 
 @test "qmd-embed ExecStartPre delegates to qmd-ollama-unload-all helper" {
@@ -180,7 +204,7 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   # a model name in the unit (the prior bug) either no-oped or, worse, loaded
   # the wrong model just to unload it once the env-pinned model changed.
   grep -q '^ExecStartPre=%h/.local/bin/qmd-ollama-unload-all$' "$EMBED_UNIT"
-  ! grep -qE '^ExecStartPre=.*(curl|api/generate|--data|-d ).*model' "$EMBED_UNIT"
+  run ! grep -qE '^ExecStartPre=.*(curl|api/generate|--data|-d ).*model' "$EMBED_UNIT"
 }
 
 @test "qmd-ollama-unload-all helper exists and is executable" {
@@ -223,8 +247,8 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   # Whitelist: no concrete model name (regex covers vendor:tag patterns and
   # bare GGUF model strings). Comments may describe behavior abstractly but
   # must not pin a specific model.
-  ! grep -qE '"[a-z0-9._-]+:[0-9a-z._-]+"' "$OLLAMA_UNLOAD_SH"
-  ! grep -qE "'[a-z0-9._-]+:[0-9a-z._-]+'" "$OLLAMA_UNLOAD_SH"
+  run ! grep -qE '"[a-z0-9._-]+:[0-9a-z._-]+"' "$OLLAMA_UNLOAD_SH"
+  run ! grep -qE "'[a-z0-9._-]+:[0-9a-z._-]+'" "$OLLAMA_UNLOAD_SH"
 }
 
 @test "qmd-ollama-unload-all always exits 0 (callers proceed even on failure)" {
@@ -245,12 +269,61 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 }
 
 # ---------------------------------------------------------------------------
+# qmd-gpu-verify contents
+# ---------------------------------------------------------------------------
+
+@test "qmd-gpu-verify exists and is executable" {
+  [ -f "$GPU_VERIFY_SH" ]
+  [ -x "$GPU_VERIFY_SH" ]
+}
+
+@test "qmd-gpu-verify checks the live process env, not just the unit file" {
+  # The CUDA pin can be present in qmd-serve.service yet absent from the
+  # running daemon (edited unit without daemon-reload + restart). Reading
+  # /proc/<pid>/environ is what makes the check end to end.
+  grep -q '/proc/\$pid/environ' "$GPU_VERIFY_SH"
+  grep -q 'NODE_LLAMA_CPP_GPU=cuda' "$GPU_VERIFY_SH"
+}
+
+@test "qmd-gpu-verify uses VRAM residency as the GPU signal" {
+  # A CPU-fallback process holds zero VRAM; GPU utilization % sits near zero
+  # even on a healthy low-vram daemon, so compute-apps residency is the
+  # signal, not dmon/utilization.
+  grep -q 'query-compute-apps' "$GPU_VERIFY_SH"
+}
+
+@test "qmd-gpu-verify degrades gracefully on macOS" {
+  # No NVIDIA GPU and no systemd on Darwin: check the launchd agent and
+  # point at powermetrics (Metal GPU work is invisible to %CPU).
+  grep -q 'launchctl print' "$GPU_VERIFY_SH"
+  grep -q 'powermetrics' "$GPU_VERIFY_SH"
+}
+
+@test "qmd-gpu-verify exits nonzero with named failures" {
+  grep -q 'failures+=' "$GPU_VERIFY_SH"
+  grep -q 'exit 1' "$GPU_VERIFY_SH"
+}
+
+@test "qmd-gpu-verify passes shellcheck" {
+  if ! command -v shellcheck >/dev/null 2>&1; then
+    skip "shellcheck not installed"
+  fi
+  run shellcheck "$GPU_VERIFY_SH"
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
 # qmd-update.service contents
 # ---------------------------------------------------------------------------
 
-@test "qmd-update ExecStart uses %h/.local/bin/qmd for both cleanup and update" {
-  grep -q 'ExecStart=/bin/sh -c .*%h/.local/bin/qmd cleanup' "$UPDATE_UNIT"
+@test "qmd-update ExecStart uses %h/.local/bin/qmd update" {
   grep -q 'ExecStart=/bin/sh -c .*%h/.local/bin/qmd update' "$UPDATE_UNIT"
+}
+
+@test "qmd-update does not run qmd cleanup (nightly unit owns vacuum and cache drop)" {
+  # A VACUUM of a multi-GB index every five minutes rewrites the whole file
+  # each cycle and wipes the query-expansion cache before it is reused.
+  run ! grep -q 'qmd cleanup' "$UPDATE_UNIT"
 }
 
 @test "qmd-update has no hardcoded /home/<user>/ path" {
@@ -351,12 +424,11 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   grep -q 'Linux-only' "$ENABLE_SCRIPT"
 }
 
-@test "enable script documents why ~/.bun/bin/qmd is NOT removed" {
-  # The shadow-removal step is intentionally omitted — the qmd-serve.service
-  # unit ExecStart's directly from /home/brett/.bun/bin/qmd, so deleting the
-  # symlink would break the daemon. todo 015 owns the follow-up PATH cleanup.
-  grep -q 'NOT removed' "$ENABLE_SCRIPT"
-  grep -q 'todo 015' "$ENABLE_SCRIPT"
+@test "enable script documents the dispatcher the unit starts" {
+  # The header has to name the path the unit actually starts, because that is
+  # what makes the daemon immune to PATH ordering and to the upstream package.
+  grep -q '\.local/bin/qmd' "$ENABLE_SCRIPT"
+  run ! grep -q '\.bun/bin' "$ENABLE_SCRIPT"
 }
 
 @test "enable script uses the configured port (7832)" {
@@ -369,4 +441,72 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   fi
   run shellcheck "$ENABLE_SCRIPT"
   [ "$status" -eq 0 ]
+}
+
+# systemd returns from `enable --now` as soon as it forks a Type=simple unit, so
+# the smoke request can reach the port before the process binds it. curl treats a
+# refused connection as fatal and --max-time caps duration rather than retrying,
+# so a single attempt reports a healthy daemon as dead in milliseconds.
+@test "enable script smoke retries a refused connection" {
+  grep -q -- '--retry-connrefused' "$ENABLE_SCRIPT"
+  grep -qE -- '--retry[[:space:]]+[0-9]+' "$ENABLE_SCRIPT"
+}
+
+# ---------------------------------------------------------------------------
+# macOS LaunchAgents
+#
+# The agents exec a bare `qmd`, so their own PATH decides which build answers.
+# ~/.local/bin holds the stowed dispatcher; a bun bin directory can hold the
+# upstream package, and listing it makes a missing dispatcher fall through to
+# upstream rather than fail. The Linux units carry the same invariant.
+# ---------------------------------------------------------------------------
+
+@test "qmd LaunchAgents do not list a bun bin dir on PATH" {
+  run bash -c "grep -h 'PATH=' '$AGENT_DIR'/com.user.qmd-*.plist | grep -q '\.bun/bin'"
+  [ "$status" -ne 0 ]
+}
+
+@test "qmd LaunchAgents put the stowed dispatcher first on PATH" {
+  for plist in "$AGENT_DIR"/com.user.qmd-*.plist; do
+    grep -q 'PATH="\$HOME/\.local/bin:' "$plist" || {
+      echo "$(basename "$plist") does not lead its PATH with \$HOME/.local/bin" >&2
+      return 1
+    }
+  done
+}
+
+@test "launchd enable script requires the stowed dispatcher" {
+  # Accepting a bun path as proof of install lets the upstream package satisfy
+  # the check, which is the substitution the dispatcher exists to prevent.
+  grep -q '\.local/bin/qmd' "$LAUNCHD_ENABLE"
+  run ! grep -q '\.bun/bin' "$LAUNCHD_ENABLE"
+}
+
+@test "launchd enable script passes shellcheck" {
+  if ! command -v shellcheck >/dev/null 2>&1; then
+    skip "shellcheck not installed"
+  fi
+  run shellcheck "$LAUNCHD_ENABLE"
+  [ "$status" -eq 0 ]
+}
+
+# A plist the package ships but the enable script never names is bootstrapped by
+# hand on one machine or not at all, and a rebuild does not reproduce it. The
+# agent stays loaded from whenever someone ran launchctl, so the omission only
+# surfaces when the machine is rebuilt and the daemon is quietly missing.
+@test "every shipped qmd LaunchAgent is named in the enable script" {
+  agents=$(grep -E '^AGENTS=' "$LAUNCHD_ENABLE" | sed 's/.*(\(.*\)).*/\1/')
+  missing=""
+  for plist in "$AGENT_DIR"/com.user.qmd-*.plist; do
+    label=$(basename "$plist" .plist)
+    case " $agents " in
+      *" $label "*) ;;
+      *) missing="$missing $label" ;;
+    esac
+  done
+  [ -z "$missing" ] || {
+    echo "LaunchAgents shipped but never bootstrapped:$missing" >&2
+    echo "Add each to AGENTS in scripts/qmd-launchd-enable.sh." >&2
+    return 1
+  }
 }

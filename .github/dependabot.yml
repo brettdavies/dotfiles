@@ -1,0 +1,62 @@
+# Dependabot configuration.
+#
+# One ecosystem: github-actions, for the SHA-pinned actions under
+# .github/workflows/. This repo carries no package manifest.
+#
+# Version updates target `dev` so they enter the dev -> release/* -> main flow
+# that guard-release-branch.yml enforces; a PR opened against main from a
+# `dependabot/` head cannot be retargeted after the fact (Dependabot closes it
+# as orphaned). Minor and patch bumps batch into one PR per week via
+# `patterns` rather than `update-types`, because a SHA pin's SemVer level comes
+# from its trailing comment and an unclassifiable action would otherwise fall
+# out of the group and open alone. Majors are ignored here and land by hand.
+#
+# Security updates are raised against the default branch and ignore every
+# option on a block that carries `target-branch`, so the trailing block has no
+# target-branch, never opens version updates (`open-pull-requests-limit: 0`),
+# and groups minor and patch security fixes per run. Cooldown and the majors
+# ignore are absent from it on purpose: cooldown is a version-update option,
+# and the ignore would suppress a fix that resolves outside the current range.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Chicago
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    reviewers:
+      - brettdavies
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 0
+    labels:
+      - dependencies
+      - security
+    groups:
+      actions-security-minor-patch:
+        applies-to: security-updates
+        update-types:
+          - minor
+          - patch

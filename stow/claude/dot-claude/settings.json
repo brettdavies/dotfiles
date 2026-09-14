@@ -2,6 +2,7 @@
   "skillListingBudgetFraction": 0.03,
   "env": {
     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
+    "LANG": "C.UTF-8",
     "MAX_THINKING_TOKENS": "31999"
   },
   "permissions": {
@@ -63,9 +64,7 @@
       "Bash(for dir:*)",
       "Bash(for svc:*)",
       "Bash(free:*)",
-      "Bash(gbrain *)",
       "Bash(gh:*)",
-      "Bash(gio trash:*)",
       "Bash(git-cliff:*)",
       "Bash(git-crypt:*)",
       "Bash(git-lfs:*)",
@@ -117,7 +116,6 @@
       "Bash(readlink:*)",
       "Bash(realpath:*)",
       "Bash(rg:*)",
-      "Bash(rtk *)",
       "Bash(rustc:*)",
       "Bash(rustfmt:*)",
       "Bash(rustup:*)",
@@ -201,13 +199,9 @@
       "Bash(~/.claude/skills/rust-tool-release/scripts/generate-changelog.sh:*)",
       "Bash(~/.claude/skills/rust-tool-release/scripts/generate-completions.sh:*)",
       "Bash(~/.claude/skills/tailscale/scripts/ts-api.sh:*)",
-      "Bash(python3 ~/.claude/skills/unslop/scripts/score.py *)",
+      "Bash(~/.claude/skills/unslop/scripts/score.py *)",
       "Bash(~/.claude/skills/x-api/scripts/extract-endpoints.sh:*)",
       "Bash(~/obsidian-vault/Areas/infrastructure/scripts/sync-to-pool.sh:*)",
-      "mcp__gbrain__get_brain_identity",
-      "mcp__gbrain__get_stats",
-      "mcp__gbrain__list_jobs",
-      "mcp__gbrain__whoami",
       "mcp__plugin_cloudflare_cloudflare-api__execute",
       "mcp__plugin_cloudflare_cloudflare-api__search",
       "mcp__plugin_cloudflare_cloudflare-bindings__accounts_list",
@@ -303,20 +297,19 @@
       "Bash(curl -s https://hn.algolia.com/api/v1/items/:*)",
       "Bash(brave-search:*)",
       "Bash(cat .github/pull_request_template.md)",
-      "Bash(rtk read *)",
       "Bash(ls styles/config/vocabularies/)",
       "Bash(find styles *)",
-      "Bash(bash /home/brett/.claude/plugins/cache/every-marketplace/compound-engineering/:*)",
+      "Bash(bash ~/.claude/plugins/cache/every-marketplace/compound-engineering/:*)",
       "Bash(/usr/bin/find ~/dev/dot-github -maxdepth 3 \\\\\\( -name \"pull_request_template.md\" -o -name \"RELEASES.md\" -o -name \"RELEASES-RATIONALE.md\" \\\\\\))",
       "Bash(/usr/bin/find ~/dotfiles -maxdepth 6 \\\\\\( -name \"pull_request_template.md\" -o -name \"RELEASES.md\" -o -name \"RELEASES-RATIONALE.md\" \\\\\\))",
       "Bash(bash /tmp/audit-revised.sh)",
       "Bash(node scripts/test-check-last-revised.mjs)",
-      "Bash(DEBUG_CHECK_LR=1 node /home/brett/dev/agentnative-spec/scripts/check-last-revised.mjs base)",
+      "Bash(DEBUG_CHECK_LR=1 node ~/dev/agentnative-spec/scripts/check-last-revised.mjs base)",
       "Bash(node scripts/test-validate-principles.mjs)",
       "Bash(node scripts/check-last-revised.mjs *)",
       "Bash(./target/release/anc *)",
       "Bash(/usr/bin/ls *)",
-      "Bash(/home/brett/dev/agentnative-cli/target/release/anc *)",
+      "Bash(~/dev/agentnative-cli/target/release/anc *)",
       "Bash(/home/linuxbrew/.linuxbrew/bin/rg *)",
       "Bash(bun scripts/test-check-last-revised.mjs)",
       "Bash(GITHUB_TOKEN=$\\(gh auth token \\) git cliff *)",
@@ -325,9 +318,7 @@
       "Bash(perl -pi -e 's#\\\\Q[`docs/architecture/voice-enforcement.md`]\\(./docs/architecture/voice-enforcement.md\\)\\\\E#`docs/architecture/voice-enforcement.md`#g' RELEASES.md RELEASES-RATIONALE.md)",
       "Bash(perl -pi -e 's#\\\\Q[`docs/architecture/`]\\(docs/architecture/\\)\\\\E#`docs/architecture/`#g' PRODUCT.md)",
       "Bash(tailscale serve *)",
-      "Bash(caddy *)",
-      "Bash(ssh-keygen -lf ~/.ssh/brett_ed25519.pub)",
-      "Bash(ssh-keygen -lf ~/.ssh/brett_ed25519)"
+      "Bash(caddy *)"
     ],
     "deny": [
       "Bash(env:*)",
@@ -343,7 +334,6 @@
     ],
     "ask": [
       "Bash(apt:*)",
-      "Bash(bun run:*)",
       "Bash(docker:*)",
       "Bash(gh pr create *)",
       "Bash(gh pr edit *)",
@@ -354,7 +344,6 @@
       "Bash(mv:*)",
       "Bash(op item *)",
       "Bash(pkill:*)",
-      "Bash(python3:*)",
       "Bash(python:*)",
       "Bash(rclone bisync --resync *)",
       "Bash(rclone delete *)",
@@ -364,7 +353,6 @@
       "Bash(scp:*)",
       "Bash(sg docker *)",
       "Bash(supabase:*)",
-      "Bash(uv run:*)",
       "Bash(wget:*)",
       "Bash(wrangler d1 delete *)",
       "Bash(wrangler d1 execute *)",
@@ -376,14 +364,14 @@
       "Bash(wrangler r2 bucket delete *)",
       "Bash(wrangler r2 object delete *)",
       "Bash(wrangler secret delete *)",
-      "Bash(wrangler workflows delete *)",
-      "Bash(xargs:*)"
+      "Bash(wrangler workflows delete *)"
     ],
-    "defaultMode": "acceptEdits",
+    "defaultMode": "auto",
     "additionalDirectories": [
       "/tmp"
     ]
   },
+  "model": "opus[1m]",
   "skillOverrides": {
     "disk-cleanup": "off",
     "gstack-upgrade": "off",
@@ -455,10 +443,16 @@
             "type": "command",
             "command": "~/.claude/skills/1password/hooks/op-skill-nudge.sh",
             "timeout": 5
-          },
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
           {
             "type": "command",
-            "command": "rtk hook claude"
+            "command": "~/.claude/model-tier-guard.sh",
+            "timeout": 5
           }
         ]
       }
@@ -542,6 +536,25 @@
             "command": "~/.claude/bash-env-path.sh"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/solutions-clone-autosync.sh",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "( ~/.local/bin/gstack-config-apply >/dev/null 2>&1 & )"
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -597,5 +610,7 @@
   },
   "effortLevel": "xhigh",
   "awaySummaryEnabled": false,
-  "autoUpdatesChannel": "stable"
+  "tui": "fullscreen",
+  "skipDangerousModePermissionPrompt": true,
+  "agentPushNotifEnabled": true
 }

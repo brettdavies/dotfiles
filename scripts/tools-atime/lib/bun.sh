@@ -26,7 +26,10 @@ bun_inspect() {
   local pkg=$1 bin_dir pkg_dir
   bin_dir=$(bun pm bin -g 2>/dev/null) || return 1
   pkg_dir=$(_bun_pkg_dir "$pkg" "$bin_dir")
-  [[ -d "$pkg_dir" ]] || { echo "bun pkg dir not found: $pkg" >&2; return 1; }
+  [[ -d "$pkg_dir" ]] || {
+    echo "bun pkg dir not found: $pkg" >&2
+    return 1
+  }
   shopt -s nullglob
   local d sz
   for d in "$pkg_dir"/*/; do
@@ -41,7 +44,10 @@ bun_actions() { echo "u:uninstall"; }
 # du on the global package dir; 0 if removed.
 bun_measure() {
   local bin_dir
-  bin_dir=$(bun pm bin -g 2>/dev/null) || { echo 0; return; }
+  bin_dir=$(bun pm bin -g 2>/dev/null) || {
+    echo 0
+    return
+  }
   local root="${bin_dir%/bin}/install/global/node_modules"
   du -sk "$root/$1" 2>/dev/null | awk '{print $1+0}'
 }
@@ -49,14 +55,17 @@ bun_measure() {
 bun_act() {
   local pkg=$1 action=$2
   case "$action" in
-    u|uninstall)
+    u | uninstall)
       if [[ "${DRYRUN:-true}" == "true" ]]; then
         echo "DRY-RUN: bun remove -g $pkg"
         return 0
       fi
       bun remove -g "$pkg"
       ;;
-    *) echo "bun_act: unknown action $action" >&2; return 1 ;;
+    *)
+      echo "bun_act: unknown action $action" >&2
+      return 1
+      ;;
   esac
 }
 
@@ -85,9 +94,9 @@ bun_rows() {
     max=0
     for b in "${bins[@]}"; do
       a=$(atime_of "$b") || continue
-      (( a > max )) && max=$a
+      ((a > max)) && max=$a
     done
-    (( max == 0 )) && max=$(mtime_of "$pkg_dir")
+    ((max == 0)) && max=$(mtime_of "$pkg_dir")
     own_kb=$(size_kb_of_dir "$pkg_dir")
     emit_row bun "$max" "$pkg" 1 "$own_kb" "$own_kb"
   done < <(bun pm ls -g 2>/dev/null \

@@ -4,39 +4,42 @@
 
 # Find real gh by walking PATH, skipping this wrapper
 find_real_gh() {
-    local self="$HOME/.local/bin/gh"
-    local IFS=':'
-    for dir in $PATH; do
-        [[ "$dir/gh" == "$self" ]] && continue
-        [[ -x "$dir/gh" ]] && { echo "$dir/gh"; return; }
-    done
-    echo "ERROR: cannot find real gh binary" >&2
-    return 1
+  local self="$HOME/.local/bin/gh"
+  local IFS=':'
+  for dir in $PATH; do
+    [[ "$dir/gh" == "$self" ]] && continue
+    [[ -x "$dir/gh" ]] && {
+      echo "$dir/gh"
+      return
+    }
+  done
+  echo "ERROR: cannot find real gh binary" >&2
+  return 1
 }
 
 real_gh=$(find_real_gh) || exit 1
 
 # Intercept 'gh pr merge' commands
 if [[ "$*" == *"pr merge"* ]]; then
-    # Extract PR ref: first non-flag arg after "merge"
-    pr_ref=""
-    found_merge=false
-    for arg in "$@"; do
-        if $found_merge && [[ "$arg" != -* ]]; then
-            pr_ref="$arg"
-            break
-        fi
-        [[ "$arg" == "merge" ]] && found_merge=true
-    done
-
-    # Query the PR's target branch (omitting pr_ref uses current branch's PR)
-    base_branch=$("$real_gh" pr view ${pr_ref:+"$pr_ref"} --json baseRefName --jq '.baseRefName' 2>/dev/null)
-
-    if [[ "$base_branch" == "main" || "$base_branch" == "master" ]]; then
-        echo "Blocked: merging into $base_branch requires human approval." >&2
-        echo "Ask the human to perform the merge; the PR body is used as the squash commit message." >&2
-        exit 1
+  # Extract PR ref: first non-flag arg after "merge"
+  pr_ref=""
+  found_merge=false
+  for arg in "$@"; do
+    if $found_merge && [[ "$arg" != -* ]]; then
+      pr_ref="$arg"
+      break
     fi
+    [[ "$arg" == "merge" ]] && found_merge=true
+  done
+
+  # Query the PR's target branch (omitting pr_ref uses current branch's PR)
+  base_branch=$("$real_gh" pr view ${pr_ref:+"$pr_ref"} --json baseRefName --jq '.baseRefName' 2>/dev/null)
+
+  if [[ "$base_branch" == "main" || "$base_branch" == "master" ]]; then
+    echo "Blocked: merging into $base_branch requires human approval." >&2
+    echo "Ask the human to perform the merge; the PR body is used as the squash commit message." >&2
+    exit 1
+  fi
 fi
 
 exec "$real_gh" "$@"

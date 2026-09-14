@@ -22,8 +22,8 @@ many hosts. This repo is as much a reflection of how I work as it is the configu
   `docs/solutions/` corpus capture decisions so they are not re-solved later.
 - **Opinions enforced by tooling** — Conventional Commits, a present-state doc policy, and a 200-line refactor trigger
   are gated by hooks and CI, not left to memory.
-- **AI tooling as infrastructure** — local LLM and agent services (Ollama, qmd, gbrain, the Claude Code session
-  pipeline) are versioned, hardened, and deployed like any other daemon.
+- **AI tooling as infrastructure** — local LLM and agent services (Ollama, qmd) are versioned, hardened, and deployed
+  like any other daemon.
 
 ## Quick Reference
 
@@ -33,24 +33,25 @@ many hosts. This repo is as much a reflection of how I work as it is the configu
 
 ## Technical Stack
 
-| Category               | Technologies                                                         |
-| ---------------------- | -------------------------------------------------------------------- |
-| **Symlink Management** | GNU Stow (`--dotfiles` mode)                                         |
-| **Secrets**            | git-crypt (symmetric encryption)                                     |
-| **Package Management** | Homebrew Brewfile, oh-my-zsh                                         |
-| **Shell**              | Zsh (Powerlevel10k), Bash                                            |
-| **Automation**         | macOS LaunchAgent (iCloud sync), Linux systemd user units            |
-| **Testing**            | bats-core suites                                                     |
-| **CI / Release**       | GitHub Actions (shellcheck, bats); CalVer tags + git-cliff changelog |
-| **Supply Chain**       | Minimum-release-age gates (brew, uv, bun, cargo); SHA-pinned Actions |
+| Category               | Technologies                                                               |
+| ---------------------- | -------------------------------------------------------------------------- |
+| **Symlink Management** | GNU Stow (`--dotfiles` mode)                                               |
+| **Secrets**            | git-crypt (symmetric encryption)                                           |
+| **Package Management** | Homebrew Brewfile, oh-my-zsh                                               |
+| **Shell**              | Zsh (Powerlevel10k), Bash                                                  |
+| **Automation**         | macOS LaunchAgent (iCloud sync), Linux systemd user units                  |
+| **Testing**            | bats-core suites                                                           |
+| **CI / Release**       | GitHub Actions (shellcheck, actionlint, bats, main-PR guards); CalVer tags |
+| **Supply Chain**       | Minimum-release-age gates (brew, uv, bun, cargo); SHA-pinned Actions       |
 
 ## What This Repo Contains
 
-- **34 stow packages** — shell/editor config (shell, zsh, bash, git, ssh, gh, github, claude, codex, cursor, opencode,
-  tmux, tmuxinator, lazygit, micro, yazi, ghostty), package state (brew, bun, pip, local), secrets (secrets, ssh, caam),
-  Linux-only daemons (obsidian, rclone, qmd, opendataloader-pdf, rust, caddy, codex-proxy, gbrain, ollama), and
-  macOS-only (launchagent). See [README.md](README.md#stow-packages) for the full table.
-- **21 shell environment fragments** — sourced automatically by `.profile` from `config/shell/`
+- **34 directories under `stow/`** — shell/editor config (shell, zsh, bash, git, ssh, gh, github, claude, codex, cursor,
+  opencode, tmux, tmuxinator, lazygit, micro, yazi, ghostty), package state (brew, bun, pip, cargo, local), secrets
+  (secrets, ssh, caam), Linux-oriented daemons (obsidian, rclone, qmd, opendataloader-pdf, rust, caddy, codex-proxy,
+  ollama), workspace tooling (gogcli), and macOS-only (launchagent). Thirty-two deploy through `stow-deploy`; `ollama`
+  and `tmuxinator` are recorded exemptions. See [README.md](README.md#stow-packages) for the full table.
+- **20 shell environment fragments** — sourced automatically by `.profile` from `config/shell/`
 - **Brewfile + Brewfile.optional** — declarative macOS package lists
 - **git-crypt encrypted secrets** — API keys, SSH config, allowed signers
 - **System-level units and AppArmor profiles** — NAS automount, Playwright userns profile (copy-deployed, not stow)
@@ -65,13 +66,15 @@ many hosts. This repo is as much a reflection of how I work as it is the configu
 
 ## Engineering Practices
 
-- **Tested** — bats-core suites cover `stow-deploy`, git hooks, shell config, supply-chain gates, and the CLI wrappers
-- **Linted and CI-mirrored** — shellcheck and bats run as required GitHub Actions checks, and the pre-push hook runs the
-  same checks locally so failures surface before the push
+- **Tested** — bats-core suites cover `stow-deploy`, git hooks, the shell config chain, supply-chain gates, and the CLI
+  wrappers
+- **Linted and CI-mirrored** — shellcheck, actionlint, and bats run as GitHub Actions checks, and the pre-commit and
+  pre-push hooks call the same dispatcher scripts so the three gates cannot drift
 - **Fail-fast deploy** — `stow-deploy` runs preconditions (git-crypt unlock, disk space, dirty tree, stow version) and
   returns distinct exit codes for automation
-- **Release automation** — squash-merge to `main` computes a CalVer tag and generates the changelog with git-cliff;
-  branch protection is version-controlled in `.github/rulesets/`
+- **Release automation** — the changelog is generated on the release branch from merged PR bodies, and the squash-merge
+  to `main` computes a CalVer tag and publishes the release; branch protection is version-controlled in
+  `.github/rulesets/`
 - **Single source of truth** — package order, shell environment, and PR templates each have one authoritative location;
   cross-package symlinks share files without duplication
 - **Supply-chain safety** — minimum-release-age gates apply across brew, uv, bun, and cargo; GitHub Actions are pinned

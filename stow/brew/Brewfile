@@ -3,6 +3,7 @@
 # Required taps
 tap "gromgit/brewtils"
 tap "oven-sh/bun"
+tap "steipete/tap"
 
 # oh-my-zsh theme
 brew "powerlevel10k"
@@ -16,8 +17,23 @@ brew "zsh-completions"
 brew "libpq"
 brew "gh"
 brew "node"
+
+# Bun from the tap the Bun team maintain, which tracks the same releases as the
+# curl installer. Installing both puts a self-updating binary in ~/.bun/bin,
+# which precedes the Homebrew prefix on PATH, so the curl copy answers every
+# call while `brew upgrade` maintains one nothing runs. tests/bun-single-source
+# .bats guards the pair. ~/.bun/bin stays on PATH regardless: `bun add -g`
+# installs there whichever binary is in charge.
 brew "oven-sh/bun/bun"
 brew "uv"
+
+# Wrangler for ad-hoc use outside a project directory. Projects pin their own in
+# devDependencies, which is what Cloudflare recommends and what `bunx wrangler`
+# resolves inside a repo; this covers `login`, `whoami`, and one-off commands
+# with nothing to resolve against. Installing it here rather than as a bun
+# global keeps it out of the bun install root, where its bin entries sit ahead
+# of Homebrew on PATH and take precedence over this formula.
+brew "cloudflare-wrangler"
 
 # Modern Ruby (keg-only) so a Bundler new enough for the supply-chain cooldown
 # policy is available ahead of the macOS system Ruby 2.6 / Bundler 1.x.
@@ -36,13 +52,19 @@ brew "coreutils"
 brew "git-crypt"
 brew "yamllint"
 brew "ast-grep"
+
+# actionlint backs the workflow-lint gate in .githooks/pre-push, .githooks/
+# pre-commit, and .github/workflows/shellcheck.yml, all via scripts/lint-workflows.
+# It shells out to shellcheck for `run:` blocks, so the two travel together.
+brew "actionlint"
 brew "yq"
 brew "markdownlint-cli2"
 
-# Agent token compression — `rtk` PreToolUse hook for Claude Code lives in
-# stow/claude/dot-claude/settings.json. PR #62 installed the hook; this
-# line installs the binary so the hook actually runs on every machine.
-brew "rtk"
+# Shell formatter backing the auto-format PostToolUse hook in
+# stow/claude/dot-claude/auto-format.sh, which guards on `command -v shfmt` and
+# fails open. Without the binary the hook silently skips every shell file, so a
+# machine missing it formats nothing and reports no error.
+brew "shfmt"
 
 # Terminal multiplexer
 brew "tmux"
@@ -76,10 +98,24 @@ brew "defuddle"
 # before forwarding to 127.0.0.1:11434, which keeps Ollama off the network.
 brew "caddy" if OS.linux?
 
+# trash-cli provides the `trash` binary the repo requires instead of rm. macOS
+# ships /usr/bin/trash, so only Linux needs the formula. It has to be a binary
+# rather than a shell alias: scripts, systemd units, git hooks and agent tool
+# calls read no startup files, so an alias leaves them with no way to comply.
+brew "trash-cli" if OS.linux?
+
 # macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
 # but listing them separately documents intent and avoids confusing "not found" warnings.
 brew "terminal-notifier" if OS.mac?
 brew "gromgit/brewtils/taproom" if OS.mac?
+
+# CodexBar's agent-session menu reaches remote hosts over SSH and runs
+# `codexbar sessions --json-v2` there, falling back to a CodexBar.app inside
+# /Applications — a path that exists only on macOS. Without the standalone CLI
+# on PATH, a Linux host is discovered and then fails to report. The Mac gets the
+# same binary from the cask below, so the formula is Linux-only to avoid the two
+# colliding.
+brew "steipete/tap/codexbar" if OS.linux?
 
 # macOS-only casks (Homebrew Cask is macOS-only — `brew bundle` skips these on Linux)
 cask "1password-cli"
@@ -89,6 +125,12 @@ cask "font-meslo-lg-nerd-font"
 cask "appcleaner"
 cask "docker-desktop"
 cask "rectangle"
+cask "codexbar"
+
+# Homebrew's official GUI (BrewUI). The cask requires macOS 26 or later, and
+# `brew bundle` treats an unmet cask requirement as a failure rather than a
+# skip, so the guard keeps the bundle green on Macs still on an older macOS.
+cask "homebrew-app" if OS.mac? && MacOS.version >= "26"
 
 # VS Code extensions (macOS — Cursor on Linux uses its own extension sync)
 vscode "anthropic.claude-code"

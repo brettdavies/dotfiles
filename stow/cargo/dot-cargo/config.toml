@@ -1,0 +1,16 @@
+# Cargo fetches git dependencies through the git CLI rather than its bundled
+# libgit2 client, so it authenticates the same way everything else on the machine
+# does.
+#
+# The repos here declare git dependencies by HTTPS URL, and ~/.gitconfig rewrites
+# `https://github.com/` to `git@github.com:` via insteadOf. libgit2 honors that
+# rewrite and then has to satisfy an SSH handshake itself, which it can only do
+# from a context that already has an agent holding the key. Any launcher without
+# one — a systemd unit, a CI step, an agent tool call, a plain `ssh host cargo
+# build` — fails with "attempted ssh-agent authentication, but no usernames
+# succeeded" on a dependency the git CLI fetches without trouble.
+#
+# Shelling out to git also picks up credential helpers, per-host SSH config, and
+# the insteadOf rules, so there is one auth path to reason about instead of two.
+[net]
+git-fetch-with-cli = true

@@ -7,32 +7,32 @@
 
 # CUDA toolkit
 if [ -d /usr/local/cuda/bin ]; then
-    case ":${PATH}:" in
-        *:/usr/local/cuda/bin:*) ;;
-        *) export PATH="/usr/local/cuda/bin:$PATH" ;;
+  case ":${PATH}:" in
+    *:/usr/local/cuda/bin:*) ;;
+    *) export PATH="/usr/local/cuda/bin:$PATH" ;;
+  esac
+  if [ -d /usr/local/cuda/lib64 ]; then
+    case ":${LD_LIBRARY_PATH:-}:" in
+      *:/usr/local/cuda/lib64:*) ;;
+      *) export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}" ;;
     esac
-    if [ -d /usr/local/cuda/lib64 ]; then
-        case ":${LD_LIBRARY_PATH:-}:" in
-            *:/usr/local/cuda/lib64:*) ;;
-            *) export LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}" ;;
-        esac
-    fi
+  fi
 fi
 
 # npm global packages (Linux convention)
 if [ -d "$HOME/.npm-global/bin" ]; then
-    case ":${PATH}:" in
-        *:"$HOME/.npm-global/bin":*) ;;
-        *) export PATH="$HOME/.npm-global/bin:$PATH" ;;
-    esac
+  case ":${PATH}:" in
+    *:"$HOME/.npm-global/bin":*) ;;
+    *) export PATH="$HOME/.npm-global/bin:$PATH" ;;
+  esac
 fi
 
 # Bun
 if [ -d "$HOME/.bun/bin" ]; then
-    case ":${PATH}:" in
-        *:"$HOME/.bun/bin":*) ;;
-        *) export PATH="$HOME/.bun/bin:$PATH" ;;
-    esac
+  case ":${PATH}:" in
+    *:"$HOME/.bun/bin":*) ;;
+    *) export PATH="$HOME/.bun/bin:$PATH" ;;
+  esac
 fi
 
 # Homebrew Ruby (keg-only). Puts a modern Ruby/Bundler ahead of the macOS
@@ -50,21 +50,21 @@ fi
 # shells. zsh re-asserts the order in stow/zsh/dot-zprofile after path_helper;
 # this is the cross-shell equivalent for every .profile-sourcing context.
 for _brew_prefix in /opt/homebrew /home/linuxbrew/.linuxbrew; do
-    [ -d "$_brew_prefix/opt/ruby/bin" ] || continue
-    _ruby_bin="$_brew_prefix/opt/ruby/bin"
-    # Strip any existing occurrence, then prepend — promotes a demoted entry
-    # instead of skipping it, and stays dedup'd on re-source. POSIX, no awk/sed.
-    _new_path=
-    _ifs_save=$IFS
-    IFS=:
-    # shellcheck disable=SC2086 # intentional word-split on IFS=: to walk PATH
-    for _p in $PATH; do
-        [ "$_p" = "$_ruby_bin" ] && continue
-        _new_path="${_new_path:+$_new_path:}$_p"
-    done
-    IFS=$_ifs_save
-    export PATH="$_ruby_bin:$_new_path"
-    unset _ruby_bin _new_path _ifs_save _p
-    break
+  [ -d "$_brew_prefix/opt/ruby/bin" ] || continue
+  _ruby_bin="$_brew_prefix/opt/ruby/bin"
+  # Strip any existing occurrence, then prepend — promotes a demoted entry
+  # instead of skipping it, and stays dedup'd on re-source. POSIX, no awk/sed.
+  _new_path=
+  _ifs_save=$IFS
+  IFS=:
+  # shellcheck disable=SC2086 # intentional word-split on IFS=: to walk PATH
+  for _p in $PATH; do
+    [ "$_p" = "$_ruby_bin" ] && continue
+    _new_path="${_new_path:+$_new_path:}$_p"
+  done
+  IFS=$_ifs_save
+  export PATH="$_ruby_bin:$_new_path"
+  unset _ruby_bin _new_path _ifs_save _p
+  break
 done
 unset _brew_prefix

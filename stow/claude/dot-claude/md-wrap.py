@@ -19,6 +19,7 @@ from pathlib import Path
 HEADING_RE = re.compile(r"^#{1,6}\s")
 ULIST_RE = re.compile(r"^(\s*[-*+]\s|\s*\[[ xX]\]\s)")
 OLIST_RE = re.compile(r"^(\s*\d+[.)]\s)")
+LIST_MARKER_RE = re.compile(r"^([-*+]|\d+[.)]|\[[ xX]\]) ")
 HRULE_RE = re.compile(r"^([-*_])\s*\1\s*\1[\s\-*_]*$")
 HTML_RE = re.compile(r"^</?[a-zA-Z]")
 COMMENT_RE = re.compile(r"^\s*<!--")
@@ -75,6 +76,8 @@ def flush(buf: list[str], width: int, indent: str = "") -> str:
     Lines ending with two trailing spaces (markdown hard line breaks)
     are flushed individually to preserve the break.
     """
+    lead = buf[0][: len(buf[0]) - len(buf[0].lstrip())] if buf else ""
+
     # Split buffer at hard line breaks (lines ending with 2+ spaces)
     segments: list[str] = []
     current: list[str] = []
@@ -99,10 +102,14 @@ def flush(buf: list[str], width: int, indent: str = "") -> str:
         # Protect spaces inside markdown links so textwrap treats each
         # link as a single unbreakable token
         text = _protect_links(text)
+        # Bind a list marker to its first word so an unbreakable word wider
+        # than the line never leaves the marker orphaned on its own line
+        if indent and not results:
+            text = LIST_MARKER_RE.sub(lambda m: m.group(1) + _SPACE_PH, text, count=1)
         wrapped = textwrap.fill(
             text,
             width=width,
-            initial_indent="" if not results else indent,
+            initial_indent=lead if not results else indent,
             subsequent_indent=indent,
             break_long_words=False,
             break_on_hyphens=False,

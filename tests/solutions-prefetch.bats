@@ -24,9 +24,9 @@ HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/solutions-prefetch.sh"
 
 # Feed a prompt string as the hook's JSON stdin; echo FIRE or SILENT.
 fires() {
-    local prompt=$1 out
-    out=$(jaq -n --arg p "$prompt" '{prompt: $p}' | "$HOOK" 2>/dev/null)
-    [ -n "$out" ] && echo FIRE || echo SILENT
+  local prompt=$1 out
+  out=$(jaq -n --arg p "$prompt" '{prompt: $p}' | "$HOOK" 2>/dev/null)
+  [ -n "$out" ] && echo FIRE || echo SILENT
 }
 
 # ---------------------------------------------------------------------------
@@ -55,10 +55,10 @@ fires() {
 @test "positive: debug this" { [ "$(fires "debug this auth flow for me")" = FIRE ]; }
 @test "positive: timed out" { [ "$(fires "the request timed out after 30s")" = FIRE ]; }
 @test "positive: multi-line log with Python Traceback" {
-    [ "$(fires "$(printf '%s\n' '2026-05-29 INFO worker up' 'DEBUG cache warm' 'Traceback (most recent call last):' '  File app.py line 42' 'ValueError: bad int' 'INFO done')")" = FIRE ]
+  [ "$(fires "$(printf '%s\n' '2026-05-29 INFO worker up' 'DEBUG cache warm' 'Traceback (most recent call last):' '  File app.py line 42' 'ValueError: bad int' 'INFO done')")" = FIRE ]
 }
 @test "positive: multi-line log with ERROR line" {
-    [ "$(fires "$(printf '%s\n' 'INFO listening on 8787' 'WARN slow query' 'ERROR upstream returned 503' 'INFO ok')")" = FIRE ]
+  [ "$(fires "$(printf '%s\n' 'INFO listening on 8787' 'WARN slow query' 'ERROR upstream returned 503' 'INFO ok')")" = FIRE ]
 }
 
 # ---------------------------------------------------------------------------
@@ -77,11 +77,11 @@ fires() {
 @test "negative: write tests" { [ "$(fires "write unit tests for the parser")" = SILENT ]; }
 @test "negative: empty prompt" { [ "$(fires "")" = SILENT ]; }
 @test "negative: missing prompt field" {
-    run bash -c "echo '{}' | '$HOOK'"
-    [ -z "$output" ]
+  run bash -c "echo '{}' | '$HOOK'"
+  [ -z "$output" ]
 }
 @test "negative: multi-line feature request" {
-    [ "$(fires "$(printf '%s\n' 'Add a settings page with:' '- a theme picker' '- a font size slider')")" = SILENT ]
+  [ "$(fires "$(printf '%s\n' 'Add a settings page with:' '- a theme picker' '- a font size slider')")" = SILENT ]
 }
 
 # ---------------------------------------------------------------------------
@@ -106,5 +106,5 @@ fires() {
 @test "known FN: 'nothing happens'" { [ "$(fires "nothing happens when I click submit")" = SILENT ]; }
 @test "known FN: memory leak phrasing" { [ "$(fires "memory keeps growing over time")" = SILENT ]; }
 @test "known FN: log whose error line has no keyword" {
-    [ "$(fires "$(printf '%s\n' 'INFO start' '[err] something went sideways downstream' 'INFO end')")" = SILENT ]
+  [ "$(fires "$(printf '%s\n' 'INFO start' '[err] something went sideways downstream' 'INFO end')")" = SILENT ]
 }

@@ -1,0 +1,17 @@
+name: Let Me Grok That For You
+root: ~/dev/lmgroktfy
+
+windows:
+  - main:
+      layout: main-vertical
+      panes:
+        - command -v y >/dev/null && y || yazi
+        -
+        - lazygit
+
+on_project_first_start: |
+  (
+    sleep 0.3
+    tmux resize-pane -t "Let Me Grok That For You:main.1" -x "33%"
+    tmux resize-pane -t "Let Me Grok That For You:main.3" -y "33%"
+  ) & disown

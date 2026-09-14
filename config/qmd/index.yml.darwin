@@ -7,9 +7,10 @@
 # env vars in collection paths — they are fed to the globber verbatim, so the
 # deployed file must hold absolute paths).
 #
-# No models block: macOS runs upstream @tobilu/qmd, which selects its own
-# default embed/rerank/generate models. The Linux fork pins llama.cpp model
-# refs in index.yml.linux instead.
+# The models block pins the same three refs as index.yml.linux. Both platforms
+# run the brettdavies/qmd fork through the stowed dispatcher, and an unpinned
+# daemon resolves whatever defaults its build ships, so leaving them out here
+# would let one host embed into a different vector space than the other.
 collections:
   solutions:
     path: ${HOME}/dev/solutions-docs
@@ -23,3 +24,7 @@ collections:
   dev:
     path: ${HOME}/dev
     pattern: "**/*.md"
+models:
+  embed: hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf
+  generate: hf:tobil/qmd-query-expansion-1.7B-gguf/qmd-query-expansion-1.7B-q4_k_m.gguf
+  rerank: hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf

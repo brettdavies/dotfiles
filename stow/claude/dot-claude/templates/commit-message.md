@@ -52,17 +52,17 @@ When generating commit messages, you MUST:
 ## Commit Types
 
 | Type | Purpose | SemVer |
-|------|---------|--------|
+| ------ | --------- | -------- |
 | `feat` | New feature | MINOR |
 | `fix` | Bug fix | PATCH |
-| `docs` | Documentation only |  |
-| `style` | Formatting, no code change |  |
-| `refactor` | Code change, no new feature or fix |  |
-| `perf` | Performance improvement |  |
-| `test` | Adding or updating tests |  |
-| `build` | Build system or dependencies |  |
-| `ci` | CI configuration |  |
-| `chore` | Maintenance tasks |  |
+| `docs` | Documentation only | |
+| `style` | Formatting, no code change | |
+| `refactor` | Code change, no new feature or fix | |
+| `perf` | Performance improvement | |
+| `test` | Adding or updating tests | |
+| `build` | Build system or dependencies | |
+| `ci` | CI configuration | |
+| `chore` | Maintenance tasks | |
 
 **Security advisory fixes use `fix`, not `chore`:**
 
