@@ -489,3 +489,24 @@ AGENT_DIR="$REPO_ROOT/stow/launchagent/Library/LaunchAgents"
   run shellcheck "$LAUNCHD_ENABLE"
   [ "$status" -eq 0 ]
 }
+
+# A plist the package ships but the enable script never names is bootstrapped by
+# hand on one machine or not at all, and a rebuild does not reproduce it. The
+# agent stays loaded from whenever someone ran launchctl, so the omission only
+# surfaces when the machine is rebuilt and the daemon is quietly missing.
+@test "every shipped qmd LaunchAgent is named in the enable script" {
+  agents=$(grep -E '^AGENTS=' "$LAUNCHD_ENABLE" | sed 's/.*(\(.*\)).*/\1/')
+  missing=""
+  for plist in "$AGENT_DIR"/com.user.qmd-*.plist; do
+    label=$(basename "$plist" .plist)
+    case " $agents " in
+      *" $label "*) ;;
+      *) missing="$missing $label" ;;
+    esac
+  done
+  [ -z "$missing" ] || {
+    echo "LaunchAgents shipped but never bootstrapped:$missing" >&2
+    echo "Add each to AGENTS in scripts/qmd-launchd-enable.sh." >&2
+    return 1
+  }
+}

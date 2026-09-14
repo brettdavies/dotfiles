@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # One-shot enable script for the macOS qmd LaunchAgents.
 #
-# Macports the Linux systemd setup (qmd-update.timer, qmd-embed.timer,
-# qmd-cleanup.timer) to launchd. Bootstraps all three agents into the
-# user's GUI domain and verifies each is loaded. Idempotent.
+# Macports the Linux systemd setup (qmd-serve.service, qmd-update.timer,
+# qmd-embed.timer, qmd-cleanup.timer) to launchd. Bootstraps all four agents
+# into the user's GUI domain and verifies each is loaded. Idempotent.
+#
+# qmd-serve is bootstrapped first: it holds the models resident on :7832 and the
+# other three route through it via QMD_REMOTE_URL rather than cold-loading a
+# model per invocation.
 #
 # Usage: bash scripts/qmd-launchd-enable.sh
 
@@ -17,7 +21,7 @@ fi
 
 AGENT_DIR="$HOME/Library/LaunchAgents"
 LOG_DIR="$HOME/dotfiles/scripts/qmd-launchd/logs"
-AGENTS=(com.user.qmd-update com.user.qmd-embed com.user.qmd-cleanup)
+AGENTS=(com.user.qmd-serve com.user.qmd-update com.user.qmd-embed com.user.qmd-cleanup)
 
 # --- Verify the stow'd plists are in place ---
 for agent in "${AGENTS[@]}"; do
@@ -60,7 +64,7 @@ for agent in "${AGENTS[@]}"; do
   launchctl bootstrap "$UID_DOMAIN" "$plist"
 done
 
-# --- Verify all three are loaded ---
+# --- Verify all four are loaded ---
 echo ""
 echo "==> Verifying loaded state"
 for agent in "${AGENTS[@]}"; do
@@ -72,7 +76,8 @@ for agent in "${AGENTS[@]}"; do
 done
 
 echo ""
-echo "Done. Agents fire every 5 min (update, embed) or nightly at 03:00 (cleanup)."
+echo "Done. qmd-serve stays resident on :7832; update and embed fire every 5 min,"
+echo "      cleanup nightly at 03:00."
 echo "Logs:  $LOG_DIR/"
 echo "Tail:  tail -f $LOG_DIR/qmd-embed.log"
 echo "Stop:  launchctl bootout $UID_DOMAIN $AGENT_DIR/<agent>.plist"
