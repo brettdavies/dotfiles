@@ -57,6 +57,9 @@ _flags_for() {
   case "$1" in
     *.bats) echo "--shell=bash --exclude=SC2016" ;;
     scripts/claude-token-totals | scripts/codexbar-config) echo "--exclude=SC2016" ;;
+    # The backticks in its PR-body printf templates are literal markdown, so the
+    # single quotes are deliberate.
+    scripts/sync-dev-after-release.sh) echo "--exclude=SC2016" ;;
     stow/shell/dot-profile) echo "--shell=bash --exclude=SC1090,SC1091" ;;
     config/shell/*.sh | .githooks/lib/*.sh) echo "--shell=bash" ;;
     config/shell/shell-functions) echo "--shell=bash --exclude=SC1003" ;;
@@ -76,6 +79,8 @@ _is_target() {
     scripts/stow-deploy | scripts/lint-shell | scripts/run-tests | scripts/lint-workflows) return 0 ;;
     scripts/sshd-locale-deploy.sh) return 0 ;;
     scripts/claude-token-totals | scripts/codexbar-config) return 0 ;;
+    scripts/sync-dev-after-release.sh) return 0 ;;
+    scripts/release/*.sh) return 0 ;;
     stow/shell/dot-profile) return 0 ;;
     tests/*.bats) return 0 ;;
     stow/claude/dot-claude/*.sh) _has_shell_shebang "$1" && return 0 || return 1 ;;
@@ -89,8 +94,9 @@ _all_targets() {
   printf '%s\n' \
     .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push \
     scripts/stow-deploy scripts/lint-shell scripts/run-tests scripts/lint-workflows scripts/sshd-locale-deploy.sh \
-    scripts/claude-token-totals scripts/codexbar-config \
+    scripts/claude-token-totals scripts/codexbar-config scripts/sync-dev-after-release.sh \
     stow/shell/dot-profile config/shell/shell-functions
+  find scripts/release -maxdepth 1 -type f -name '*.sh' 2>/dev/null
   find .githooks/lib -maxdepth 1 -type f -name '*.sh' 2>/dev/null
   find config/shell -maxdepth 1 -type f -name '*.sh'
   find tests -type f -name '*.bats'

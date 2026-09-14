@@ -7,11 +7,30 @@
 # CHANGELOG.md verbatim from origin/main and lands it on dev via a PR (direct
 # commits to dev are not permitted per RELEASES.md).
 #
-# The copy is surgical -- only CHANGELOG.md moves, only main -> dev. dev is
-# normally many commits ahead of main (unreleased work), so a merge or a
-# wholesale checkout would revert that work. Never widen this to a branch merge.
-# Other release-prep edits (README.md, RELEASES.md polish), when they actually
-# drift, are folded into the same PR by hand -- see RELEASES.md.
+# The set of files is discovered, never hardcoded. A hardcoded list only ever
+# catches what its author predicted: the 2026.09.14 release edited a stow
+# payload and deleted three tmuxinator configs on the release branch, and a
+# CHANGELOG-only backport left every one of them on main alone, where the next
+# overlay would silently restore them from dev. What needs backporting is
+# whatever main and dev actually disagree about, so that is what this computes.
+#
+# Still surgical, only main -> dev, never a branch merge. dev is normally many
+# commits ahead of main (unreleased work), so adopting main's version of a file
+# dev has moved on would revert that work. Candidates are therefore classified
+# against the PREVIOUS release tag, which is the last point the two branches
+# agreed:
+#
+#   release-prep  dev's copy is byte-identical to the previous tag's, so dev
+#                 never touched it and main's version is purely release-prep.
+#                 Adopted automatically.
+#   contested     both sides moved since the previous tag. Never adopted
+#                 silently; listed for a human, and included only with
+#                 --include-contested.
+#
+# Guarded paths (docs/plans, docs/solutions, .context, ...) are excluded: they
+# live on dev by design and main lacking them is correct, so "syncing" them
+# would delete them from dev. The set resolves from the same workflow the
+# release leak-check uses, never a second hand-kept copy.
 #
 # Run AFTER:
 #   1. The release/* -> main PR has merged.
@@ -21,18 +40,45 @@
 # Usage:
 #   ./scripts/sync-dev-after-release.sh 2026.06.03
 #   ./scripts/sync-dev-after-release.sh 2026.06.03.1   # same-day re-release
+#   ./scripts/sync-dev-after-release.sh 2026.06.03 --include-contested
+#   ./scripts/sync-dev-after-release.sh 2026.06.03 --dry-run
 #
-# Idempotent: if dev already matches main on CHANGELOG.md, exits 0 without
-# creating a branch or PR.
+# Idempotent: if dev already matches main everywhere that counts, exits 0
+# without creating a branch or PR.
 
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 YYYY.MM.DD[.N]" >&2
+VERSION=""
+INCLUDE_CONTESTED=false
+DRY_RUN=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --include-contested) INCLUDE_CONTESTED=true ;;
+    --dry-run) DRY_RUN=true ;;
+    -h | --help)
+      echo "usage: $0 YYYY.MM.DD[.N] [--include-contested] [--dry-run]"
+      exit 0
+      ;;
+    -*)
+      echo "error: unknown flag $1" >&2
+      exit 64
+      ;;
+    *)
+      if [[ -n "$VERSION" ]]; then
+        echo "error: unexpected argument $1" >&2
+        exit 64
+      fi
+      VERSION="$1"
+      ;;
+  esac
+  shift
+done
+
+if [[ -z "$VERSION" ]]; then
+  echo "usage: $0 YYYY.MM.DD[.N] [--include-contested] [--dry-run]" >&2
   exit 64
 fi
-
-VERSION="$1"
 # CalVer: YYYY.MM.DD with an optional same-day .N suffix; no leading "v".
 if [[ ! "$VERSION" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$ ]]; then
   echo "error: version must match YYYY.MM.DD or YYYY.MM.DD.N (got: $VERSION)" >&2
@@ -103,32 +149,129 @@ fi
 
 git checkout -b "$SYNC_BRANCH"
 
-# Surgical: CHANGELOG.md from main is authoritative. Never a branch merge.
-git checkout origin/main -- CHANGELOG.md
+# --- Discover what to sync -------------------------------------------------
 
-# `git checkout origin/main -- CHANGELOG.md` updates both the working tree and
-# the index, and CHANGELOG.md is the only file this backport touches, so an
-# unstaged `git diff` is always empty here. Compare the index against HEAD
-# (--cached) to tell whether main's CHANGELOG actually differs from dev's.
-if git diff --cached --quiet CHANGELOG.md; then
+# The guarded set lives on dev only; main lacking those paths is correct, so
+# they must never enter the candidate list. Resolved from the workflow, the
+# same source the release leak-check reads.
+GUARDED="$(scripts/release/guarded-paths.sh)"
+
+# The previous release tag is the last commit where main and dev agreed, which
+# is what makes it the reference for "did dev move this file too?". Tags sort
+# by version so the newest below $VERSION is the predecessor.
+PREV_TAG="$(git tag --list --sort=-version:refname \
+  | awk -v cur="$VERSION" '$0 != cur { print; exit }')"
+if [[ -z "$PREV_TAG" ]]; then
+  echo "error: no release tag older than $VERSION -- cannot classify candidates" >&2
+  exit 66
+fi
+
+# blob_at REF PATH -- the object id of PATH at REF, or the empty string when
+# the path does not exist there. Comparing ids rather than content keeps
+# "absent on both sides" distinct from "identical on both sides".
+blob_at() {
+  git rev-parse --quiet --verify "$1:$2" 2>/dev/null || true
+}
+
+RELEASE_PREP=()
+CONTESTED=()
+
+while IFS= read -r path; do
+  [[ -n "$path" ]] || continue
+  dev_blob="$(blob_at origin/dev "$path")"
+  prev_blob="$(blob_at "$PREV_TAG" "$path")"
+  if [[ "$dev_blob" == "$prev_blob" ]]; then
+    RELEASE_PREP+=("$path")
+  else
+    CONTESTED+=("$path")
+  fi
+done < <(git diff --no-renames --name-only origin/dev origin/main | grep -Ev "$GUARDED" || true)
+
+# `${arr[@]+...}` guards the expansion: under `set -u` a bare "${arr[@]}" on an
+# empty array is an unbound-variable error in bash before 4.4, which is what
+# macOS still ships as /bin/bash.
+SYNC_PATHS=(${RELEASE_PREP[@]+"${RELEASE_PREP[@]}"})
+if [[ "$INCLUDE_CONTESTED" == true ]]; then
+  SYNC_PATHS+=(${CONTESTED[@]+"${CONTESTED[@]}"})
+fi
+
+echo "Comparing origin/dev against origin/main since $PREV_TAG"
+if [[ ${#RELEASE_PREP[@]} -gt 0 ]]; then
+  echo "  release-prep (dev untouched since $PREV_TAG, adopting main's copy):"
+  printf '    %s\n' "${RELEASE_PREP[@]}"
+fi
+if [[ ${#CONTESTED[@]} -gt 0 ]]; then
+  if [[ "$INCLUDE_CONTESTED" == true ]]; then
+    echo "  contested (both sides moved; adopting main's copy per --include-contested):"
+  else
+    echo "  contested (both sides moved since $PREV_TAG; NOT adopted):" >&2
+  fi
+  printf '    %s\n' "${CONTESTED[@]}"
+  if [[ "$INCLUDE_CONTESTED" != true ]]; then
+    echo "  re-run with --include-contested to take main's version of these," >&2
+    echo "  or resolve them by hand in a separate PR." >&2
+  fi
+fi
+
+if [[ ${#SYNC_PATHS[@]} -eq 0 ]]; then
   echo "no changes -- dev already in sync with $VERSION"
   git switch dev
   git branch -D "$SYNC_BRANCH"
   exit 0
 fi
 
-git add CHANGELOG.md
-git commit -m "chore(release): backport $VERSION CHANGELOG to dev
+if [[ "$DRY_RUN" == true ]]; then
+  echo "dry run -- no branch, commit, or PR created"
+  git switch dev
+  git branch -D "$SYNC_BRANCH"
+  exit 0
+fi
 
-Brings dev's CHANGELOG.md current with the $VERSION release on main, copied
-verbatim from origin/main. main is authoritative for CHANGELOG; dev never
-edits it directly."
+# Adopt main's state for each path. A path main deleted has to be removed from
+# dev rather than checked out, because `git checkout main -- <deleted>` fails
+# on a pathspec that does not exist at that ref.
+for path in "${SYNC_PATHS[@]}"; do
+  if [[ -n "$(blob_at origin/main "$path")" ]]; then
+    git checkout origin/main -- "$path"
+  else
+    git rm --quiet --ignore-unmatch -- "$path"
+  fi
+done
+
+# `git checkout REF -- FILE` and `git rm` both stage, so an unstaged `git diff`
+# is always empty here. Compare the index against HEAD instead.
+if git diff --cached --quiet; then
+  echo "no changes -- dev already in sync with $VERSION"
+  git switch dev
+  git branch -D "$SYNC_BRANCH"
+  exit 0
+fi
+
+# No `git add` here: `git checkout REF -- path` and `git rm` both stage their
+# result already, and re-adding a path this loop deleted fails the whole run on
+# "pathspec did not match any files" because it is gone from the worktree.
+
+COMMIT_MSG_FILE="$(mktemp -t "sync-dev-after-${VERSION}-commit.XXXXXX")"
+{
+  echo "chore(release): backport $VERSION release-prep state to dev"
+  echo
+  echo "Brings dev current with the $VERSION release on main for every path the"
+  echo "two branches disagree about, discovered by comparing the branches rather"
+  echo "than from a fixed list. main is authoritative for these paths; dev never"
+  echo "edits CHANGELOG.md directly, and the rest are release-branch edits that"
+  echo "never round-tripped."
+  echo
+  echo "Synced: ${SYNC_PATHS[*]}"
+} >"$COMMIT_MSG_FILE"
+git commit --file "$COMMIT_MSG_FILE"
+rm -f "$COMMIT_MSG_FILE"
 
 # Post-sync sanity check: re-running generate-changelog.py against the current
 # PR bodies should reproduce the backported CHANGELOG.md. Drift here means
 # upstream PR bodies were edited after main's CHANGELOG.md was generated. Warn,
 # do not fail; the backport is still correct against what main currently has.
-if [[ -x scripts/generate-changelog.py ]] && command -v git-cliff >/dev/null 2>&1; then
+if printf '%s\n' "${SYNC_PATHS[@]}" | grep -qx 'CHANGELOG.md' \
+  && [[ -x scripts/generate-changelog.py ]] && command -v git-cliff >/dev/null 2>&1; then
   if scripts/generate-changelog.py --dry-run --tag "$VERSION" >/dev/null 2>&1; then
     echo "regen check: CHANGELOG.md matches what PR bodies would produce"
   else
@@ -152,15 +295,41 @@ PR_BODY_FILE="$(mktemp -t "sync-dev-after-${VERSION}-pr-body.XXXXXX")"
 trap 'rm -f "$PR_BODY_FILE"' EXIT
 
 TAG_SHORT="$(git rev-parse --short "$TAG_SHA")"
+ADOPTED=()
+REMOVED=()
+for path in "${SYNC_PATHS[@]}"; do
+  if [[ -n "$(blob_at origin/main "$path")" ]]; then
+    ADOPTED+=("$path")
+  else
+    REMOVED+=("$path")
+  fi
+done
+MODIFIED_BULLETS="None."
+[[ ${#ADOPTED[@]} -gt 0 ]] && MODIFIED_BULLETS="$(printf -- '- `%s`\n' "${ADOPTED[@]}")"
+DELETED_BULLETS="None."
+[[ ${#REMOVED[@]} -gt 0 ]] && DELETED_BULLETS="$(printf -- '- `%s`\n' "${REMOVED[@]}")"
+CONTESTED_NOTE="None."
+if [[ ${#CONTESTED[@]} -gt 0 && "$INCLUDE_CONTESTED" != true ]]; then
+  CONTESTED_NOTE="$(printf -- '- `%s`\n' "${CONTESTED[@]}")"
+fi
 
 cat >"$PR_BODY_FILE" <<EOF
 ## Summary
 
-Backports the ${VERSION} CHANGELOG.md from \`main\` so dev's changelog stops drifting behind released history. Copied
-verbatim from \`origin/main\` at \`${TAG_SHORT}\`; the only changed file is \`CHANGELOG.md\`.
+Backports the ${VERSION} release-prep state from \`main\` so dev stops drifting behind released history. The paths are
+discovered by comparing \`origin/dev\` against \`origin/main\` at \`${TAG_SHORT}\` and excluding the guarded set, not read
+from a fixed list, so a release-branch edit to any file is caught rather than only the ones someone predicted.
+
+A path is adopted when dev's copy is byte-identical to its copy at \`${PREV_TAG}\`, meaning dev never touched it and
+main's version is purely release-prep. Paths both branches moved since \`${PREV_TAG}\` are reported instead of
+overwritten.
 
 Generated by \`scripts/sync-dev-after-release.sh\`. Idempotent per release: if dev already matches main, the script
 exits without opening this PR.
+
+**Paths still contested (not adopted here):**
+
+${CONTESTED_NOTE}
 
 ## Changelog
 
@@ -180,15 +349,19 @@ Preflight verified the \`${VERSION}\` tag exists, \`origin/main\` is at or past 
 
 **Modified:**
 
-- \`CHANGELOG.md\` (verbatim copy from \`origin/main\` at \`${TAG_SHORT}\`)
+${MODIFIED_BULLETS}
 
 **Created:**
 
 - None.
 
-**Deleted:**
+**Renamed:**
 
 - None.
+
+**Deleted:**
+
+${DELETED_BULLETS}
 
 ## Breaking Changes
 

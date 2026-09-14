@@ -256,17 +256,35 @@ the release tag and GitHub Release have published, run:
 scripts/sync-dev-after-release.sh "$(git describe --tags --abbrev=0 origin/main)"
 ```
 
-It copies `CHANGELOG.md` verbatim from `origin/main` onto a `chore/sync-dev-after-<version>` branch and opens a PR to
-`dev`. The copy is **surgical**: only `CHANGELOG.md` moves, only `main → dev`. `dev` is normally many commits ahead of
-`main`, so a branch merge would revert unreleased work; the script never does that, and refuses to run on a dirty tree
-or before the GitHub Release is published. Confirm the PR's only changed file is `CHANGELOG.md`, then squash-merge it.
-The run is idempotent: if `dev` already matches `main`, it exits without opening a PR. Never merge `main` into `dev` and
-never push to `dev` directly: the two histories share no ancestry, so a merge conflicts on every file both sides
-touched, and a direct push bypasses `dev`'s required checks.
+It discovers what to sync by comparing `origin/dev` against `origin/main` and excluding the guarded set, then lands the
+result on a `chore/sync-dev-after-<version>` branch and opens a PR to `dev`. The set is computed, never hardcoded, so a
+release-branch edit to any file is caught rather than only the ones someone thought to list.
 
-If a release also polished `README.md` or `RELEASES*.md` on `main`, check `git diff origin/dev..origin/main -- README.md
-RELEASES.md RELEASES-RATIONALE.md RELEASES-PREFLIGHT.md` and fold any real release-prep changes into the same backport
-PR by hand.
+Each candidate is classified against the **previous** release tag, the last point the two branches agreed:
+
+| Class          | Condition                                                   | Action                                              |
+| -------------- | ----------------------------------------------------------- | --------------------------------------------------- |
+| `release-prep` | `dev`'s copy is byte-identical to its copy at the prior tag | Adopted: `main`'s version is pure release-prep      |
+| `contested`    | Both branches moved the path since the prior tag            | Reported, not adopted, unless `--include-contested` |
+
+The classification is what keeps the copy safe. `dev` is normally many commits ahead of `main`, so adopting `main`'s
+version of a file `dev` has moved on would revert unreleased work; a contested path is surfaced for a human instead.
+Guarded paths are excluded outright, because they live on `dev` by design and "syncing" them would delete them.
+
+The script refuses to run on a dirty tree or before the GitHub Release is published, and the run is idempotent: if `dev`
+already matches `main`, it exits without opening a PR. Use `--dry-run` to see the classification without creating
+anything. Never merge `main` into `dev` and never push to `dev` directly: the two histories share no ancestry, so a
+merge conflicts on every file both sides touched, and a direct push bypasses `dev`'s required checks.
+
+After the backport PR merges, confirm the branches actually converged. This is the check that catches a contested path
+nobody resolved:
+
+```bash
+git fetch origin
+git diff --name-only origin/dev origin/main | grep -Ev "$(scripts/release/guarded-paths.sh)" || echo "(converged)"
+```
+
+Anything it lists is still `main`-only and will be reverted by the next release's overlay, which takes `dev`'s tree.
 
 → Rationale (why surgical copy, not `git merge main → dev`):
 [`RELEASES-RATIONALE.md` § Release pipeline](./RELEASES-RATIONALE.md#release-pipeline).
