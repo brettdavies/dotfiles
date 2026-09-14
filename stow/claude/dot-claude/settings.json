@@ -366,12 +366,12 @@
       "Bash(wrangler secret delete *)",
       "Bash(wrangler workflows delete *)"
     ],
-    "defaultMode": "acceptEdits",
+    "defaultMode": "auto",
     "additionalDirectories": [
       "/tmp"
     ]
   },
-  "model": "fable",
+  "model": "opus[1m]",
   "skillOverrides": {
     "disk-cleanup": "off",
     "gstack-upgrade": "off",
@@ -610,7 +610,7 @@
   },
   "effortLevel": "xhigh",
   "awaySummaryEnabled": false,
-  "autoUpdatesChannel": "stable",
   "tui": "fullscreen",
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "agentPushNotifEnabled": true
 }
