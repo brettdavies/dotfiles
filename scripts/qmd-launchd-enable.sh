@@ -29,10 +29,14 @@ for agent in "${AGENTS[@]}"; do
   fi
 done
 
-# --- Verify qmd is installed (one of the two known paths) ---
-if [ ! -x "$HOME/.local/bin/qmd" ] && [ ! -x "$HOME/.bun/bin/qmd" ]; then
-  echo "ERROR: qmd binary not found at ~/.local/bin/qmd or ~/.bun/bin/qmd." >&2
-  echo "       Install with:  bun install -g @tobilu/qmd" >&2
+# --- Verify the stowed dispatcher is in place ---
+# The agents exec a bare `qmd`, and only this path resolves the fork. Accepting
+# a bun path here would let the upstream package satisfy the check, which is the
+# substitution the dispatcher exists to prevent.
+if [ ! -x "$HOME/.local/bin/qmd" ]; then
+  echo "ERROR: qmd dispatcher not found at ~/.local/bin/qmd." >&2
+  echo "       Deploy it with:  scripts/stow-deploy qmd" >&2
+  echo "       It execs the brettdavies/qmd fork; clone it to ~/dev/qmd first." >&2
   exit 1
 fi
 
