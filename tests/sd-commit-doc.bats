@@ -103,3 +103,46 @@ teardown() {
   [ -f "$SD/other-agent-wip.md" ]
   [ "$(cat "$SD/other-agent-wip.md")" = scratch ]
 }
+
+# The corpus schema check lives in the solutions repo's own hook library, so the
+# same rejection the pre-commit hook would raise is available before any work
+# happens. Running it up front turns a mid-commit hook abort — after a fetch, a
+# worktree, and a staged copy — into a named failure that costs a second. The
+# stub stands in for the real validator so the suite stays hermetic.
+@test "rejects a doc the repo's own validator fails, before committing" {
+  mkdir -p "$SD/.githooks"
+  cat >"$SD/.githooks/lib-validate.sh" <<'LIB'
+validate_files() {
+  printf 'FAIL: %s: missing required field: module\n' "$1"
+  return 1
+}
+LIB
+  echo hello >"$SD/workflow-issues/new.md"
+  local before
+  before=$(git -C "$SD" rev-parse origin/main)
+
+  run "$SCRIPT" "$MSG" workflow-issues/new.md
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"missing required field: module"* ]]
+
+  # Nothing reached origin, and the clone is untouched apart from the doc itself.
+  [ "$(git -C "$SD" rev-parse origin/main)" = "$before" ]
+  run git -C "$SD" worktree list
+  [ "$(printf '%s\n' "$output" | wc -l)" -eq 1 ]
+}
+
+# A failure anywhere in the sequence has to name itself. Hook output can fill the
+# tail of a transcript, and a caller that reads the status through a pipe sees
+# only the last command's. A marker line on stderr is the signal that survives
+# both.
+@test "announces its own failure with a marker line" {
+  mkdir -p "$SD/.githooks"
+  cat >"$SD/.githooks/lib-validate.sh" <<'LIB'
+validate_files() { return 1; }
+LIB
+  echo hello >"$SD/workflow-issues/new.md"
+
+  run "$SCRIPT" "$MSG" workflow-issues/new.md
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"sd-commit-doc: FAILED"* ]]
+}

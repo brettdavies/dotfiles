@@ -29,6 +29,29 @@ die() {
   exit 1
 }
 
+# Hook output can fill the tail of a transcript, and a caller reading the status
+# through a pipe (`sd-commit-doc ... | tail`) sees the pipe's status, not this
+# script's. Naming the failing step on stderr is the signal that survives both.
+#
+# This runs on EXIT rather than ERR because ERR does not fire on an explicit
+# `exit`, which is how every die() above leaves — including the frontmatter
+# rejection, the failure most likely to happen. EXIT covers both that and a
+# set -e abort. It is also the single EXIT handler for the whole script: bash
+# keeps only the most recently installed one, so a second `trap ... EXIT` for
+# worktree cleanup would silently replace this marker.
+step=starting
+wt=
+on_exit() {
+  local rc=$?
+  [[ -n $wt ]] && {
+    git -C "$SD" worktree remove --force "$wt" 2>/dev/null || true
+    git -C "$SD" worktree prune 2>/dev/null || true
+  }
+  ((rc == 0)) || echo "sd-commit-doc: FAILED during ${step} (exit ${rc})" >&2
+  return "$rc"
+}
+trap on_exit EXIT
+
 [[ $# -ge 2 ]] || die "usage: sd-commit-doc <msg-file> <repo-relative-path>..."
 msg=$1
 shift
@@ -43,15 +66,29 @@ for f in "$@"; do
   [[ -f $SD/$f ]] || die "file not found under $SD: $f"
 done
 
+# Pre-flight the corpus schema using the solutions repo's own hook library, so a
+# rejection costs a second here instead of aborting mid-commit after a fetch, a
+# worktree, and a staged copy. Same code the pre-commit hook runs, so there is no
+# second implementation to drift. Absent library (or validator) means no check:
+# this helper is not the place to enforce a schema the repo itself is not.
+step="frontmatter pre-flight"
+lib=$SD/.githooks/lib-validate.sh
+if [[ -r $lib ]]; then
+  files=$(printf '%s\n' "$@")
+  (
+    cd "$SD" || exit 1
+    export SOLUTIONS_DOCS_ROOT=$SD
+    # shellcheck source=/dev/null
+    . "$lib"
+    validate_files "$files"
+  ) || die "frontmatter validation failed; fix the fields above and retry"
+fi
+
+step="fetching origin/$branch"
 git -C "$SD" fetch --quiet origin "$branch"
 
+step="preparing the isolated worktree"
 wt=$(mktemp -d)/sd-wt
-cleanup_wt() {
-  git -C "$SD" worktree remove --force "$wt" 2>/dev/null || true
-  git -C "$SD" worktree prune 2>/dev/null || true
-}
-trap cleanup_wt EXIT
-
 git -C "$SD" worktree add --quiet --detach "$wt" "origin/$branch"
 
 # Snapshot only the named files into the isolated worktree and stage just those.
@@ -61,8 +98,11 @@ for f in "$@"; do
   git -C "$wt" add -- "$f"
 done
 
+step="committing in the isolated worktree"
 git -C "$wt" commit --quiet --file "$msg"
 git -C "$wt" show --stat HEAD
+
+step="pushing to origin/$branch"
 
 # Push; if origin advanced during the run, rebase the one commit and retry once.
 if ! git -C "$wt" push --quiet origin "HEAD:$branch" 2>/dev/null; then
@@ -71,12 +111,17 @@ if ! git -C "$wt" push --quiet origin "HEAD:$branch" 2>/dev/null; then
   git -C "$wt" push --quiet origin "HEAD:$branch"
 fi
 
-cleanup_wt
-trap - EXIT
+# Tear the worktree down now that the push succeeded, and clear $wt so the exit
+# handler does not try to remove it again. The handler stays installed: it still
+# owns the failure marker for the fast-forward step below.
+git -C "$SD" worktree remove --force "$wt" 2>/dev/null || true
+git -C "$SD" worktree prune 2>/dev/null || true
+wt=
 
 # Fast-forward the shared checkout so it never drifts behind origin. The files
 # just committed still sit in $SD as untracked/modified copies and would block a
 # fast-forward; their content is on origin now, so discard those copies first.
+step="fast-forwarding the shared clone"
 git -C "$SD" fetch --quiet origin "$branch"
 if ! git -C "$SD" merge --ff-only --quiet "origin/$branch" 2>/dev/null; then
   git -C "$SD" checkout -q -- "$@" 2>/dev/null || true   # revert tracked-modified copies
