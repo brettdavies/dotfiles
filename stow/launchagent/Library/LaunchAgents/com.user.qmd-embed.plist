@@ -29,7 +29,7 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>PATH="$HOME/.local/bin:$HOME/.cache/bun/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec qmd embed --max-docs-per-batch 50 --max-batch-mb 10 &gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-embed.log" 2&gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-embed.error.log"</string>
+        <string>PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec qmd embed --max-docs-per-batch 50 --max-batch-mb 10 &gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-embed.log" 2&gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-embed.error.log"</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>

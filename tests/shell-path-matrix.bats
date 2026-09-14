@@ -87,9 +87,7 @@ _assert_assembled_path() {
   if [ -n "${HOMEBREW_PREFIX:-}" ] && [ -d "$HOMEBREW_PREFIX/bin" ]; then
     _assert_contains "$label" "$path_str" "$HOMEBREW_PREFIX/bin"
   fi
-  for bun_bin in "$HOME/.bun/bin" "$HOME/.cache/bun/bin"; do
-    [ -d "$bun_bin" ] && _assert_contains "$label" "$path_str" "$bun_bin"
-  done
+  [ -d "$HOME/.bun/bin" ] && _assert_contains "$label" "$path_str" "$HOME/.bun/bin"
   [ -d "$HOME/.cargo/bin" ] && _assert_contains "$label" "$path_str" "$HOME/.cargo/bin"
 
   # macOS only: /etc/zprofile runs path_helper, which prepends the system dirs

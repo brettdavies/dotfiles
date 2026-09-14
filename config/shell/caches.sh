@@ -3,8 +3,8 @@
 # This file configures environment variables for package manager and tool cache locations
 # Caches are stored under XDG_CACHE_HOME (XDG Base Directory Specification) for easy management and cleanup
 #
-# Some entries below relocate an install root rather than a cache (PIPX_HOME, PNPM_HOME, BUN_INSTALL,
-# GOPATH). An install root only relocates safely when every launcher agrees on it, and contexts that
+# Some entries below relocate an install root rather than a cache (PIPX_HOME, PNPM_HOME, GOPATH).
+# An install root only relocates safely when every launcher agrees on it, and contexts that
 # never source this chain — systemd user units, cron, git hooks, GUI-launched processes — resolve the
 # stock path regardless of what is set here. Deleting a relocated cache costs a re-download; a
 # relocated install root that only half the machine can see is a split toolchain.
@@ -43,7 +43,12 @@ export UV_CACHE_DIR="$XDG_CACHE_HOME/uv"
 export NPM_CONFIG_CACHE="$XDG_CACHE_HOME/npm"
 export YARN_CACHE_FOLDER="$XDG_CACHE_HOME/yarn"
 export PNPM_HOME="$XDG_CACHE_HOME/pnpm"
-export BUN_INSTALL="$XDG_CACHE_HOME/bun"
+
+# Bun is absent by design, for the reason spelled out for Rust below. BUN_INSTALL is an install
+# root: it holds `bun add -g` packages and the bin symlinks fronting them, which no re-download
+# reconstructs. Bun resolves the stock ~/.bun in every context that does not source this chain, so
+# setting it here divides the globals across two trees and needs both on PATH to stay usable. Bun's
+# own package cache sits at ~/.bun/install/cache and is pruned with `bun pm cache rm`.
 
 # Rust is absent by design. CARGO_HOME and RUSTUP_HOME are install roots, not caches: rustup-init
 # writes to the stock ~/.cargo and ~/.rustup, and the systemd timer, git hooks and agent tool calls
@@ -116,7 +121,6 @@ fi
 [ ! -d "$XDG_CACHE_HOME/npm" ] && mkdir -p "$XDG_CACHE_HOME/npm"
 [ ! -d "$YARN_CACHE_FOLDER" ] && mkdir -p "$YARN_CACHE_FOLDER"
 [ ! -d "$PNPM_HOME" ] && mkdir -p "$PNPM_HOME"
-[ ! -d "$BUN_INSTALL" ] && mkdir -p "$BUN_INSTALL"
 
 # Go caches
 [ ! -d "$GOCACHE" ] && mkdir -p "$GOCACHE"

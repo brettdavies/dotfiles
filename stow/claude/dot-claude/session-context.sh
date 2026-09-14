@@ -63,9 +63,6 @@ echo '--- Rust CLI tools (cargo) ---'
 echo ''
 echo '--- Bun cached CLI tools (bunx) ---'
 {
-  # Guard: empty BUN_INSTALL would cause `find "/install/cache"` to search the wrong path
-  # caches.sh migrates to XDG but old ~/.bun caches may still exist, so check both
-  [ -n "$BUN_INSTALL" ] && find "$BUN_INSTALL/install/cache" -path "*/bin/*" -type f 2>/dev/null | sed 's|.*/cache/||' | sed 's|@[0-9].*||'
   [ -d ~/.bun/install/cache ] && find ~/.bun/install/cache -path "*/bin/*" -type f 2>/dev/null | sed 's|.*/cache/||' | sed 's|@[0-9].*||'
   npm_cache="${XDG_CACHE_HOME:-$HOME/.cache}/npm"
   for pkg in "$npm_cache"/*@*@@@1; do

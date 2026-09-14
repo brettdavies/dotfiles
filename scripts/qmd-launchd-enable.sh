@@ -30,8 +30,8 @@ for agent in "${AGENTS[@]}"; do
 done
 
 # --- Verify qmd is installed (one of the two known paths) ---
-if [ ! -x "$HOME/.local/bin/qmd" ] && [ ! -x "$HOME/.cache/bun/bin/qmd" ]; then
-  echo "ERROR: qmd binary not found at ~/.local/bin/qmd or ~/.cache/bun/bin/qmd." >&2
+if [ ! -x "$HOME/.local/bin/qmd" ] && [ ! -x "$HOME/.bun/bin/qmd" ]; then
+  echo "ERROR: qmd binary not found at ~/.local/bin/qmd or ~/.bun/bin/qmd." >&2
   echo "       Install with:  bun install -g @tobilu/qmd" >&2
   exit 1
 fi

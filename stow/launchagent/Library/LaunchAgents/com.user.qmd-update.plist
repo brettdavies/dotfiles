@@ -12,7 +12,7 @@
 
     PATH covers both qmd install paths: the stow wrapper at ~/.local/bin/qmd
     (which dispatches to ~/dev/qmd/qmd, the brettdavies fork) and the
-    upstream package at ~/.cache/bun/bin/qmd (installed via `bun install -g
+    upstream package at ~/.bun/bin/qmd (installed via `bun install -g
     @tobilu/qmd`). First match wins, so the fork takes precedence if both
     exist.
 -->
@@ -24,7 +24,7 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>PATH="$HOME/.local/bin:$HOME/.cache/bun/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec qmd update &gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-update.log" 2&gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-update.error.log"</string>
+        <string>PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec qmd update &gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-update.log" 2&gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-update.error.log"</string>
     </array>
     <key>StartInterval</key>
     <integer>300</integer>
