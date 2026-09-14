@@ -17,6 +17,13 @@ brew "zsh-completions"
 brew "libpq"
 brew "gh"
 brew "node"
+
+# Bun from the tap the Bun team maintain, which tracks the same releases as the
+# curl installer. Installing both puts a self-updating binary in ~/.bun/bin,
+# which precedes the Homebrew prefix on PATH, so the curl copy answers every
+# call while `brew upgrade` maintains one nothing runs. tests/bun-single-source
+# .bats guards the pair. ~/.bun/bin stays on PATH regardless: `bun add -g`
+# installs there whichever binary is in charge.
 brew "oven-sh/bun/bun"
 brew "uv"
 
