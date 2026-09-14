@@ -2,7 +2,7 @@
 # Tests for stow/claude/dot-claude/settings.json, which deploys to every
 # machine as ~/.claude/settings.json.
 #
-# Run: bats tests/claude-settings-hooks.bats
+# Run: bats tests/claude-settings.bats
 #
 # CLAUDE_SETTINGS_FILE points the checks at another copy of the file, which is
 # how a captured regression is replayed against them.
@@ -62,4 +62,20 @@ REPO="$BATS_TEST_DIRNAME/.."
 
   echo "env keys committed in HEAD but missing from $SETTINGS: ${missing[*]:-none}"
   [ "${#missing[@]}" -eq 0 ]
+}
+
+# Permission rules match the command text an agent types. A rule keyed on one
+# machine's $HOME never matches on another, so it silently re-prompts there
+# and the allow-list drifts apart per host; the `~` form matches on every
+# machine. /home/linuxbrew is Linuxbrew's fixed prefix, not a user home, and
+# stays.
+@test "permission rules carry no machine-absolute home paths" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions // {} | (.allow // []) + (.deny // []) + (.ask // []) | .[]' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  rules="$output"
+  run bash -c 'grep -nE "/(home|Users)/" | grep -v "/home/linuxbrew/"' <<<"$rules"
+  echo "permission rules with a machine-absolute home path:"
+  echo "$output"
+  [ "$status" -eq 1 ]
 }
