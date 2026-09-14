@@ -111,6 +111,48 @@ _require_unlocked_checkout() {
 }
 
 # ---------------------------------------------------------------------------
+# Every stow package is accounted for
+#
+# The checks above prove each listed name has a directory. This proves the
+# reverse: a directory added under stow/ but named in no package set is never
+# reached by `scripts/stow-deploy` or `--all`, so it lands in the real home only
+# if someone stows it by hand on one machine. That deploys fine there and is
+# silently absent on the next host, with no error to trace it back from.
+#
+# A package that genuinely cannot be deployed belongs in NOT_DEPLOYED with the
+# reason, so the exemption is a decision on the record rather than an omission.
+# ---------------------------------------------------------------------------
+
+# tmuxinator — configs resolve through TMUXINATOR_CONFIG straight from the repo.
+#   A copy under ~/.config/tmuxinator shadows it for `start`/`stop` but not
+#   `list`, so nothing is stowed (see tests/tmuxinator-configs.bats).
+# ollama — ships a drop-in under systemd/system/, a root-owned path stow cannot
+#   write. It is installed with sudo and documented in stow/ollama/README.md.
+NOT_DEPLOYED=(tmuxinator ollama)
+
+@test "every stow package is deployed or explicitly exempt" {
+  shared=$(grep '^SHARED_PACKAGES=' "$SCRIPT" | sed 's/.*(\(.*\))/\1/')
+  desktop=$(grep '^DESKTOP_PACKAGES=' "$SCRIPT" | sed 's/.*(\(.*\))/\1/')
+  accounted=" $shared $desktop ${NOT_DEPLOYED[*]} "
+
+  orphans=""
+  for dir in "$STOW_DIR"/*/; do
+    pkg=$(basename "$dir")
+    case "$accounted" in
+      *" $pkg "*) ;;
+      *) orphans="$orphans $pkg" ;;
+    esac
+  done
+
+  [ -z "$orphans" ] || {
+    echo "stow/ directories in no package set and not exempt:$orphans" >&2
+    echo "Add each to SHARED_PACKAGES or DESKTOP_PACKAGES in scripts/stow-deploy," >&2
+    echo "or to NOT_DEPLOYED above with the reason it cannot be deployed." >&2
+    return 1
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Package expansion
 # ---------------------------------------------------------------------------
 
