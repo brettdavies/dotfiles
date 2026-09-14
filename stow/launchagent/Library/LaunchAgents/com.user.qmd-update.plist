@@ -10,11 +10,10 @@
     VACUUM of a multi-GB index every five minutes rewrites the whole file
     each cycle and drops the query-expansion cache before it can be reused.
 
-    PATH covers both qmd install paths: the stow wrapper at ~/.local/bin/qmd
-    (which dispatches to ~/dev/qmd/qmd, the brettdavies fork) and the
-    upstream package at ~/.bun/bin/qmd (installed via `bun install -g
-    @tobilu/qmd`). First match wins, so the fork takes precedence if both
-    exist.
+    PATH names one qmd: the stowed dispatcher at ~/.local/bin/qmd, which execs
+    the brettdavies fork for the running OS. A bun bin directory is left out on
+    purpose, since it can hold the upstream package and listing it would let a
+    missing dispatcher fall through to upstream instead of failing.
 -->
 <plist version="1.0">
 <dict>
@@ -24,7 +23,7 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec qmd update &gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-update.log" 2&gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-update.error.log"</string>
+        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec qmd update &gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-update.log" 2&gt;&gt; "$HOME/dotfiles/scripts/qmd-launchd/logs/qmd-update.error.log"</string>
     </array>
     <key>StartInterval</key>
     <integer>300</integer>

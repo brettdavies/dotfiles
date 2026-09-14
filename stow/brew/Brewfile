@@ -20,6 +20,14 @@ brew "node"
 brew "oven-sh/bun/bun"
 brew "uv"
 
+# Wrangler for ad-hoc use outside a project directory. Projects pin their own in
+# devDependencies, which is what Cloudflare recommends and what `bunx wrangler`
+# resolves inside a repo; this covers `login`, `whoami`, and one-off commands
+# with nothing to resolve against. Installing it here rather than as a bun
+# global keeps it out of the bun install root, where its bin entries sit ahead
+# of Homebrew on PATH and take precedence over this formula.
+brew "cloudflare-wrangler"
+
 # Modern Ruby (keg-only) so a Bundler new enough for the supply-chain cooldown
 # policy is available ahead of the macOS system Ruby 2.6 / Bundler 1.x.
 # config/shell/local-paths.sh puts its bin + gem binstubs on PATH. Brew's Ruby

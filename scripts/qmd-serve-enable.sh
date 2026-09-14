@@ -64,9 +64,16 @@ SMOKE_OUT=$(mktemp --suffix=.json)
 trap 'rm -f "${SMOKE_OUT}"' EXIT
 
 echo "==> Smoke: curl http://127.0.0.1:${PORT}/health"
-if ! curl --silent --fail --max-time 30 \
+# `enable --now` returns once systemd forks the Type=simple unit, before the
+# process binds the port. curl treats a refused connection as fatal and
+# --max-time caps a single attempt rather than retrying, so without
+# --retry-connrefused the smoke reports a healthy daemon as dead in
+# milliseconds. The retry window covers model load on a cold start.
+if ! curl --silent --fail \
+  --retry 30 --retry-delay 1 --retry-connrefused --retry-max-time 60 \
+  --max-time 15 \
   "http://127.0.0.1:${PORT}/health" -o "${SMOKE_OUT}"; then
-  echo "ERROR: /health smoke failed within 30 s" >&2
+  echo "ERROR: /health smoke failed within 60 s" >&2
   echo "       Likely causes:" >&2
   echo "         - ~/.local/bin/qmd missing (ExecStart path); deploy the stow package" >&2
   echo "             scripts/stow-deploy qmd" >&2

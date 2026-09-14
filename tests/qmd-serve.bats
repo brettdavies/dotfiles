@@ -58,6 +58,8 @@ OLLAMA_UNLOAD_SH="$LOCAL_PKG_DIR/dot-local/bin/qmd-ollama-unload-all"
 GPU_VERIFY_SH="$LOCAL_PKG_DIR/dot-local/bin/qmd-gpu-verify"
 ENABLE_SCRIPT="$REPO_ROOT/scripts/qmd-serve-enable.sh"
 SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
+LAUNCHD_ENABLE="$REPO_ROOT/scripts/qmd-launchd-enable.sh"
+AGENT_DIR="$REPO_ROOT/stow/launchagent/Library/LaunchAgents"
 
 # ---------------------------------------------------------------------------
 # Package layout
@@ -439,4 +441,72 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   fi
   run shellcheck "$ENABLE_SCRIPT"
   [ "$status" -eq 0 ]
+}
+
+# systemd returns from `enable --now` as soon as it forks a Type=simple unit, so
+# the smoke request can reach the port before the process binds it. curl treats a
+# refused connection as fatal and --max-time caps duration rather than retrying,
+# so a single attempt reports a healthy daemon as dead in milliseconds.
+@test "enable script smoke retries a refused connection" {
+  grep -q -- '--retry-connrefused' "$ENABLE_SCRIPT"
+  grep -qE -- '--retry[[:space:]]+[0-9]+' "$ENABLE_SCRIPT"
+}
+
+# ---------------------------------------------------------------------------
+# macOS LaunchAgents
+#
+# The agents exec a bare `qmd`, so their own PATH decides which build answers.
+# ~/.local/bin holds the stowed dispatcher; a bun bin directory can hold the
+# upstream package, and listing it makes a missing dispatcher fall through to
+# upstream rather than fail. The Linux units carry the same invariant.
+# ---------------------------------------------------------------------------
+
+@test "qmd LaunchAgents do not list a bun bin dir on PATH" {
+  run bash -c "grep -h 'PATH=' '$AGENT_DIR'/com.user.qmd-*.plist | grep -q '\.bun/bin'"
+  [ "$status" -ne 0 ]
+}
+
+@test "qmd LaunchAgents put the stowed dispatcher first on PATH" {
+  for plist in "$AGENT_DIR"/com.user.qmd-*.plist; do
+    grep -q 'PATH="\$HOME/\.local/bin:' "$plist" || {
+      echo "$(basename "$plist") does not lead its PATH with \$HOME/.local/bin" >&2
+      return 1
+    }
+  done
+}
+
+@test "launchd enable script requires the stowed dispatcher" {
+  # Accepting a bun path as proof of install lets the upstream package satisfy
+  # the check, which is the substitution the dispatcher exists to prevent.
+  grep -q '\.local/bin/qmd' "$LAUNCHD_ENABLE"
+  run ! grep -q '\.bun/bin' "$LAUNCHD_ENABLE"
+}
+
+@test "launchd enable script passes shellcheck" {
+  if ! command -v shellcheck >/dev/null 2>&1; then
+    skip "shellcheck not installed"
+  fi
+  run shellcheck "$LAUNCHD_ENABLE"
+  [ "$status" -eq 0 ]
+}
+
+# A plist the package ships but the enable script never names is bootstrapped by
+# hand on one machine or not at all, and a rebuild does not reproduce it. The
+# agent stays loaded from whenever someone ran launchctl, so the omission only
+# surfaces when the machine is rebuilt and the daemon is quietly missing.
+@test "every shipped qmd LaunchAgent is named in the enable script" {
+  agents=$(grep -E '^AGENTS=' "$LAUNCHD_ENABLE" | sed 's/.*(\(.*\)).*/\1/')
+  missing=""
+  for plist in "$AGENT_DIR"/com.user.qmd-*.plist; do
+    label=$(basename "$plist" .plist)
+    case " $agents " in
+      *" $label "*) ;;
+      *) missing="$missing $label" ;;
+    esac
+  done
+  [ -z "$missing" ] || {
+    echo "LaunchAgents shipped but never bootstrapped:$missing" >&2
+    echo "Add each to AGENTS in scripts/qmd-launchd-enable.sh." >&2
+    return 1
+  }
 }
