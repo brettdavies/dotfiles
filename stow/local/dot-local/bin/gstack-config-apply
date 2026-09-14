@@ -21,7 +21,7 @@ CONFIG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/gstack/bin/gstack-config"
 
 # Every off-machine sink `gstack-egress grants` names, the review path that
 # ships diffs to a second vendor, the hook gstack would otherwise register into
-# the shared settings.json, and the update notice.
+# the shared settings.json, and the update path: announce and pull.
 MANAGED='
 telemetry off
 artifacts_sync_mode off
@@ -34,6 +34,7 @@ transcript_ingest_mode off
 gstack_contributor false
 timeline_stop_hook no
 update_check true
+auto_upgrade true
 '
 
 mode="${1:-apply}"
