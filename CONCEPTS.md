@@ -138,6 +138,19 @@ a pass obtained under a neighboring shape carries no information about the one t
 correctly configured parent looks correct regardless of what its own startup files do. Shapes are enumerated
 deliberately, because the ones nobody listed are the ones nothing tests.
 
+### Install root
+
+A directory a language toolchain treats as its installation destination — holding binaries, toolchains, or registries
+that cannot be regenerated without re-downloading them — as opposed to a cache, which the tool refills on demand.
+`CARGO_HOME`, `RUSTUP_HOME`, `PIPX_HOME`, `PNPM_HOME`, `BUN_INSTALL`, and `GOPATH` name install roots; `HOMEBREW_CACHE`,
+`UV_CACHE_DIR`, `GOCACHE`, and `NPM_CONFIG_CACHE` name caches. The distinction decides whether deleting the directory is
+safe, and it is not visible from the path: several install roots are relocated under `XDG_CACHE_HOME` alongside true
+caches.
+
+An install root relocated by the shell config chain diverges for every *bare launcher*, because the relocation applies
+at runtime while the tool's installer wrote to the default path. The result is one tree the shell sees and another the
+launcher sees, with no error from either.
+
 ## Policies
 
 ### Supply-chain age gate
