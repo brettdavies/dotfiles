@@ -31,10 +31,10 @@ bats_require_minimum_version 1.5.0
 #   [ ] CLI routing     qmd query "test" with QMD_REMOTE_URL set routes through
 #                       the daemon; unsetting QMD_REMOTE_URL falls back to local
 #                       mode (slower, loads model in-process).
-#   [ ] CLI resolution  command -v qmd resolves to ~/.local/bin/qmd (stow
-#                       wrapper wins on current PATH order). qmd-serve keeps
-#                       using /home/brett/.bun/bin/qmd via its absolute
-#                       ExecStart — both point at the same fork binary.
+#   [ ] CLI resolution  command -v qmd resolves to a path that execs the fork.
+#                       qmd-serve starts %h/.local/bin/qmd via its ExecStart,
+#                       the stowed dispatcher, so the daemon does not depend on
+#                       which qmd PATH happens to find.
 #   [ ] Teardown        systemctl --user disable --now qmd-serve.service
 #                       cleanly stops everything, no orphans on :7832.
 # ---------------------------------------------------------------------------
@@ -121,10 +121,10 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
 # ---------------------------------------------------------------------------
 # qmd-serve.service contents
 #
-# ExecStart uses the absolute /home/brett/.bun/bin/qmd path on purpose — the
-# service is pinned to a specific file so it stays invariant to PATH-ordering
-# changes tracked in todo 015 (dedupe local-paths.sh prepends). Interactive
-# qmd still resolves via the stow wrapper at ~/.local/bin/qmd.
+# ExecStart names the stowed dispatcher at %h/.local/bin/qmd, the same path the
+# other three units use. It execs the fork for the running OS, so the daemon is
+# pinned to a specific file, invariant to PATH ordering, and unable to resolve
+# the upstream qmd package.
 # ---------------------------------------------------------------------------
 
 @test "qmd-serve ExecStart invokes qmd serve with low-vram mode" {
@@ -172,6 +172,21 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   # batches can exhaust VRAM and trigger a ggml/CUDA abort.
   grep -qE '^ExecStart=.*--max-docs-per-batch [0-9]+' "$EMBED_UNIT"
   grep -qE '^ExecStart=.*--max-batch-mb [0-9]+' "$EMBED_UNIT"
+}
+
+@test "qmd-serve ExecStart line has no hardcoded /home/<user>/ path" {
+  run bash -c "grep -E '^ExecStart(Pre|Post)?=' '$SERVE_UNIT' | grep -q '/home/[a-z]*/'"
+  [ "$status" -ne 0 ]
+}
+
+# ~/.bun/bin precedes ~/.local/bin on the assembled PATH, and the bun global
+# manifest is able to relink a `qmd` there from the upstream package. A unit
+# that reaches qmd through that directory runs upstream rather than the fork,
+# so no unit may name it in an Exec line or in its own PATH.
+@test "no qmd unit resolves qmd through a bun bin dir" {
+  run bash -c "grep -hE '^(ExecStart|ExecStartPre|ExecStartPost|Environment=PATH)' \
+    '$SERVE_UNIT' '$EMBED_UNIT' '$UPDATE_UNIT' '$CLEANUP_UNIT' | grep -q '\.bun/bin'"
+  [ "$status" -ne 0 ]
 }
 
 @test "qmd-embed ExecStart line has no hardcoded /home/<user>/ path" {
@@ -407,12 +422,11 @@ SHELL_ENV="$REPO_ROOT/config/shell/qmd.sh"
   grep -q 'Linux-only' "$ENABLE_SCRIPT"
 }
 
-@test "enable script documents why ~/.bun/bin/qmd is NOT removed" {
-  # The shadow-removal step is intentionally omitted — the qmd-serve.service
-  # unit ExecStart's directly from /home/brett/.bun/bin/qmd, so deleting the
-  # symlink would break the daemon. todo 015 owns the follow-up PATH cleanup.
-  grep -q 'NOT removed' "$ENABLE_SCRIPT"
-  grep -q 'todo 015' "$ENABLE_SCRIPT"
+@test "enable script documents the dispatcher the unit starts" {
+  # The header has to name the path the unit actually starts, because that is
+  # what makes the daemon immune to PATH ordering and to the upstream package.
+  grep -q '\.local/bin/qmd' "$ENABLE_SCRIPT"
+  run ! grep -q '\.bun/bin' "$ENABLE_SCRIPT"
 }
 
 @test "enable script uses the configured port (7832)" {

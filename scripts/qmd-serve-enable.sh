@@ -5,11 +5,9 @@
 # enables --now the service unit, and smoke-tests /health. Idempotent and
 # safe to re-run.
 #
-# NOTE: ~/.bun/bin/qmd is NOT removed here. The service unit deliberately
-# ExecStart's from that absolute path so it is invariant to PATH ordering
-# (which the pending local-paths.sh dedupe in todo 015 may restructure).
-# Interactive qmd still resolves via ~/.local/bin/qmd (stow wrapper), which
-# wins on current PATH order; both paths target the same fork binary.
+# The unit ExecStart's %h/.local/bin/qmd, the stowed dispatcher that execs the
+# fork for the running OS, so the daemon is invariant to PATH ordering and can
+# never resolve the upstream qmd package.
 #
 # Usage: bash scripts/qmd-serve-enable.sh
 
@@ -70,8 +68,8 @@ if ! curl --silent --fail --max-time 30 \
   "http://127.0.0.1:${PORT}/health" -o "${SMOKE_OUT}"; then
   echo "ERROR: /health smoke failed within 30 s" >&2
   echo "       Likely causes:" >&2
-  echo "         - ~/.bun/bin/qmd missing (ExecStart path); re-link to the fork" >&2
-  echo "             ln -sf \"\$HOME/dev/qmd/qmd\" \"\$HOME/.bun/bin/qmd\"" >&2
+  echo "         - ~/.local/bin/qmd missing (ExecStart path); deploy the stow package" >&2
+  echo "             scripts/stow-deploy qmd" >&2
   echo "         - fork launcher ~/dev/qmd/qmd missing (clone brettdavies/qmd)" >&2
   echo "         - qmd-serve crashed during startup" >&2
   echo "" >&2
