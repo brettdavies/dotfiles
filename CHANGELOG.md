@@ -2,6 +2,118 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026.09.14] - 2026-09-14
+
+### Added
+
+- Add the `qmd-learnings-researcher` Claude Code agent to the `claude` stow package, deploying to `~/.claude/agents/`. by @brettdavies in [#162](https://github.com/brettdavies/dotfiles/pull/162)
+- Add the orchestrator-handoff template, deploying to `~/.claude/templates/orchestrator-handoff.md`. by @brettdavies in [#163](https://github.com/brettdavies/dotfiles/pull/163)
+- Add `transcribe-diarize`, a local GPU speaker-diarized transcription script (whisperx + pyannote), deploying to `~/.local/bin/transcribe-diarize`.
+- Add `unslop` and `unslop-gate` commands to `~/.local/bin` so repo hooks can score prose, with per-tree strictness, without vendoring the scorer by @brettdavies in [#167](https://github.com/brettdavies/dotfiles/pull/167)
+- `sd-commit-doc` helper that commits and pushes `docs/solutions/` files from an isolated worktree and keeps the shared clone fast-forwarded to origin. by @brettdavies in [#172](https://github.com/brettdavies/dotfiles/pull/172)
+- Codex desktop app configuration is now tracked: computer-use notify hook, `node_repl` MCP server, marketplace registrations, and the enabled plugin set. by @brettdavies in [#173](https://github.com/brettdavies/dotfiles/pull/173)
+- `scripts/macos-gpu-monitor.sh` traces peak Metal GPU residency and power around any command on macOS, with optional per-process CPU and RSS sampling via `--proc` and a sudo-free `--no-gpu` mode. by @brettdavies in [#174](https://github.com/brettdavies/dotfiles/pull/174)
+- `shfmt` is now installed by `brew bundle`, so the shell auto-format hook has the formatter it depends on. by @brettdavies in [#175](https://github.com/brettdavies/dotfiles/pull/175)
+- Session-start safety net that fast-forwards the shared `~/dev/solutions-docs` clone to origin, so a clone left behind by a hand-rolled commit flow self-heals at the next session instead of drifting silently. by @brettdavies in [#176](https://github.com/brettdavies/dotfiles/pull/176)
+- Add `model-tier-guard.sh`, a `PreToolUse` hook that denies an `Agent` dispatch whose requested model contradicts the `TIER:` line in its prompt. by @brettdavies in [#178](https://github.com/brettdavies/dotfiles/pull/178)
+- Add `qmd-gpu-verify`: deterministic PASS/FAIL verification that the qmd-serve daemon runs its models on the GPU (systemd unit + live env pin + VRAM residency, optional `--live` ramp probe), with a graceful launchd/powermetrics path on macOS. by @brettdavies in [#179](https://github.com/brettdavies/dotfiles/pull/179)
+- `mios` tmuxinator project for `~/dev/meum-ios`. by @brettdavies in [#180](https://github.com/brettdavies/dotfiles/pull/180)
+- `msites` tmuxinator project for the Meum Sites repo. by @brettdavies in [#181](https://github.com/brettdavies/dotfiles/pull/181)
+- `cargo` stow package (Linux only) that routes git dependency fetches through the git CLI, so a git dependency resolves for systemd units, cron, CI and agent tool calls rather than only for shells with an SSH agent. by @brettdavies in [#188](https://github.com/brettdavies/dotfiles/pull/188)
+- Workflow files are linted by actionlint in CI, pre-push, and pre-commit. Previously nothing checked them, and a shell quoting bug inside a `run:` block could reach `main` and misfire during a release. by @brettdavies in [#190](https://github.com/brettdavies/dotfiles/pull/190)
+- Add the qmd thin client / brain host concept to CONCEPTS.md. by @brettdavies in [#193](https://github.com/brettdavies/dotfiles/pull/193)
+- Add gstack's timeline Stop hook to the Claude Code settings.
+- Add `scripts/sshd-locale-deploy.sh`, which stops `sshd` accepting `LANG` and `LC_*` from clients so sessions take the server's `C.UTF-8` from `/etc/default/locale`; it edits the main config and drop-ins in place, validates with `sshd -t`, restores on rejection, reloads `sshd`, and is safe to re-run. by @brettdavies in [#195](https://github.com/brettdavies/dotfiles/pull/195)
+- `scripts/stow-deploy` honors `STOW_DEPLOY_TARGET` as its deploy target directory (default `$HOME`). by @brettdavies in [#199](https://github.com/brettdavies/dotfiles/pull/199)
+- Install the CodexBar CLI on Linux hosts via `brew bundle`, so CodexBar's agent-session menu can report sessions running on them instead of showing the host as unreachable. by @brettdavies in [#201](https://github.com/brettdavies/dotfiles/pull/201)
+- Add `scripts/codexbar-config` to move CodexBar's config between this repo and `~/.config/codexbar/config.json` (`deploy`, `capture`, `diff`).
+- Add `scripts/claude-token-totals` to report Claude Code lifetime token usage summed across machines, with each host's share. `/usage` counts only the machine it runs on. by @brettdavies in [#202](https://github.com/brettdavies/dotfiles/pull/202)
+- Add `bu`, an interactive shell function that runs `brew update`, `brew upgrade --greedy -y`, and `brew cleanup` in sequence, stopping at the first failure. by @brettdavies in [#206](https://github.com/brettdavies/dotfiles/pull/206)
+- Add `gstack-config-apply`, which pins gstack's telemetry, sync, review, hook, prompt, and auto-update settings to the repo's values and runs at every Claude Code session start; `--check` reports drift, `--list` shows the managed table. by @brettdavies in [#215](https://github.com/brettdavies/dotfiles/pull/215)
+- Install `wrangler` from the Brewfile on both macOS and Linux, for use outside a project directory. by @brettdavies in [#219](https://github.com/brettdavies/dotfiles/pull/219)
+- Add the `homebrew-app` cask (Homebrew's official GUI) to the macOS Brewfile set, installed only on macOS 26 or later. by @brettdavies in [#220](https://github.com/brettdavies/dotfiles/pull/220)
+- Reach the macOS workstation by host alias instead of passing an explicit identity file on every connection. by @brettdavies in [#221](https://github.com/brettdavies/dotfiles/pull/221)
+- Document the error contract for structured output in the global instructions: a stable reason from a closed set, an exit code, a human message, the offending value, and a next step with a headless-safe command. by @brettdavies in [#223](https://github.com/brettdavies/dotfiles/pull/223)
+
+### Changed
+
+- The markdown auto-format hook now skips a repo entirely (prose wrap, table align, and lint autofix) when that repo sets `MD013.line_length` to 9999 or higher in its `.markdownlint-cli2.yaml`. Lets a repo whose committed markdown owns its own wrapping stay untouched on edit. by @brettdavies in [#165](https://github.com/brettdavies/dotfiles/pull/165)
+- Claude Code sessions default to opus and skip the dangerous-mode startup prompt. by @brettdavies in [#173](https://github.com/brettdavies/dotfiles/pull/173)
+- `bun run`, `python3`, `uv run`, and `xargs` no longer prompt for permission. Deny-listed and delete-shaped commands are unaffected.
+- tmuxinator reads and writes projects in `stow/tmuxinator/dot-config/tmuxinator/` directly. `tmuxinator new` and `tmuxinator copy` land on the source of truth with no deploy step, and `tmux-new-session` no longer re-stows. by @brettdavies in [#180](https://github.com/brettdavies/dotfiles/pull/180)
+- Remove the `gbrain` stow package and the `gbrain-sync`, `gbrain-dream`, and `claude-code-archive` systemd timers. On a host where these are already deployed, stop and disable the timers before redeploying: stow no longer manages the package, so it will not reconcile the symlinks and they are left pointing at a deleted source. by @brettdavies in [#182](https://github.com/brettdavies/dotfiles/pull/182)
+- Remove the `claude-code-sessions` qmd collection. Transcripts already written under `~/.gbrain/transcripts/` stay on disk but are no longer indexed or searchable.
+- `pre-push` runs the full local CI mirror and `pre-commit` runs the same checks over staged files, so a red pipeline should be a surprise rather than routine. A missing tool skips its step with an install hint instead of blocking the commit or push. by @brettdavies in [#184](https://github.com/brettdavies/dotfiles/pull/184)
+- `scripts/stow-deploy` sets the rustup install profile to minimal when the `cargo` package deploys, so toolchains stop downloading `rust-docs` rather than having it removed afterwards. by @brettdavies in [#188](https://github.com/brettdavies/dotfiles/pull/188)
+- Change the canonical Playwright browser set to 1.62.1 (chromium 1234 / Chrome for Testing 151, webkit 2336); chromium 1228 now resolves through a consumer alias to the canonical build. by @brettdavies in [#191](https://github.com/brettdavies/dotfiles/pull/191)
+- Change the default Claude Code model from opus to fable. by @brettdavies in [#193](https://github.com/brettdavies/dotfiles/pull/193)
+- Change the `ssh` package's Linux-server host entries to pin `SetEnv LANG=C.UTF-8`, so the client stops the override even against a server that still accepts the variable. by @brettdavies in [#195](https://github.com/brettdavies/dotfiles/pull/195)
+- Change the Linux qmd collections template to exclude the `stars` collection from default queries; search it explicitly with `qmd query -c stars`. by @brettdavies in [#196](https://github.com/brettdavies/dotfiles/pull/196)
+- refactor(tools-atime): quote the sort key specs in the sort_args arrays by @brettdavies in [#197](https://github.com/brettdavies/dotfiles/pull/197)
+- `ollama-update` is now defined in the interactive shell helpers rather than `.profile`, so it is available in interactive shells only. by @brettdavies in [#204](https://github.com/brettdavies/dotfiles/pull/204)
+- Remove the rtk token-compression hook from the Claude Code Bash `PreToolUse` chain, along with its two permission entries. Bash output is no longer rewritten before the agent sees it. by @brettdavies in [#205](https://github.com/brettdavies/dotfiles/pull/205)
+- Drop `rtk` from the Brewfile so `brew bundle` stops installing it on new machines.
+- Claude Code tool shells now run with `LANG=C.UTF-8` instead of inheriting the session locale, so tools that decode non-ASCII output behave consistently on hosts that generate only `C.UTF-8`. by @brettdavies in [#208](https://github.com/brettdavies/dotfiles/pull/208)
+- Remove the `gstack` tmuxinator project, whose root directory no longer exists. by @brettdavies in [#209](https://github.com/brettdavies/dotfiles/pull/209)
+- Remove the `hbcore` tmuxinator project, whose root directory no longer exists once the local `homebrew/core` tap is removed. by @brettdavies in [#211](https://github.com/brettdavies/dotfiles/pull/211)
+- `sd-commit-doc` now checks frontmatter against the corpus schema before committing, so a rejected doc fails in about a second with the offending field named, instead of aborting part-way through a commit. by @brettdavies in [#214](https://github.com/brettdavies/dotfiles/pull/214)
+- A failed `sd-commit-doc` run now prints `sd-commit-doc: FAILED during <step>` on stderr, so the failure is identifiable even when hook output fills the end of the transcript.
+- Adopt the live Claude Code settings: permission mode `auto`, Opus with the long context window, and agent push notifications on. by @brettdavies in [#223](https://github.com/brettdavies/dotfiles/pull/223)
+
+### Fixed
+
+- `md-wrap.py` reflows nested and long markdown list items idempotently, preserving nesting depth and keeping a list marker on the same line as its content. by @brettdavies in [#164](https://github.com/brettdavies/dotfiles/pull/164)
+- Alias lagging-consumer chromium revisions (e.g. crawl4ai / patchright's 1223) to the canonical provisioned build, so their headless and headed browser launches resolve to the single canonical chromium instead of failing with `Executable doesn't exist`. by @brettdavies in [#166](https://github.com/brettdavies/dotfiles/pull/166)
+- Fix the opendataloader-pdf launcher-help test failing, rather than skipping, on hosts whose uv-tool lacks the hybrid extras by @brettdavies in [#167](https://github.com/brettdavies/dotfiles/pull/167)
+- Fix `unslop-gate` missing from the deployed `~/.local/bin` set after #167, which left consuming repo hooks skipping their prose gates by @brettdavies in [#168](https://github.com/brettdavies/dotfiles/pull/168)
+- Fix `unslop-gate` masking git's non-fast-forward rejection with a bad-revision fatal when a push had nothing deliverable by @brettdavies in [#169](https://github.com/brettdavies/dotfiles/pull/169)
+- Nightly autocommit no longer strands commits or drifts behind origin on a shared clone: it fast-forwards the local branch to origin before committing and rebases onto origin before retrying a rejected push. by @brettdavies in [#170](https://github.com/brettdavies/dotfiles/pull/170)
+- Pushing from a git worktree no longer lets the bats suite operate on the real repository, which could rewrite `.git/config`, move HEAD, and push a stray commit to origin. by @brettdavies in [#180](https://github.com/brettdavies/dotfiles/pull/180)
+- `mux-all` no longer restarts sessions that are already running when a config's `name:` differs from its filename.
+- The `client-detached` orphan-prune hook now runs on macOS instead of silently exiting.
+- Shell helpers in `config/shell/` load in terminals launched from the dock or Spotlight, and under cron and `ssh host cmd`. Previously they took effect only in shells started from another shell, so tool wrappers and exports such as `TMUXINATOR_CONFIG` were missing from a freshly opened window until the shell was replaced. by @brettdavies in [#181](https://github.com/brettdavies/dotfiles/pull/181)
+- `tmux-new-session` starts sessions when invoked from launchd, cron, or a remote `ssh` command, rather than only from a shell that has sourced the dotfiles profile.
+- Seven test assertions that silently passed regardless of their result are now enforced. by @brettdavies in [#184](https://github.com/brettdavies/dotfiles/pull/184)
+- Shell startup latency checks no longer fail at random on a loaded machine.
+- Release version bump no longer treats the date prefix as a glob pattern when deriving the next suffix.
+- `CARGO_HOME` and `RUSTUP_HOME` are no longer relocated into the cache directory. A host could otherwise end up with two Rust toolchain trees, one used by interactive shells and another by systemd units, cron, git hooks and agent tooling, with `cargo install` writing to whichever the caller happened to see. by @brettdavies in [#186](https://github.com/brettdavies/dotfiles/pull/186)
+- `trash` is a real binary on Linux via trash-cli rather than a shell alias, so scripts, systemd units, cron jobs, git hooks and agent tool calls can honor the repo's ban on `rm`. Previously it resolved only inside interactive shells. by @brettdavies in [#187](https://github.com/brettdavies/dotfiles/pull/187)
+- Fix 10 tmuxinator project configs (cfoh, crawl4ai-skill, gstack, lmgrok, mapi, meum, msdk, oppusa, paxel, yc) that were invisible to tmuxinator: they now live in the canonical config dir with resize targets pointing at their own sessions. by @brettdavies in [#192](https://github.com/brettdavies/dotfiles/pull/192)
+- Fix the five-minute qmd update timer to run `qmd update` only; vacuum, FTS optimize, and LLM cache drop now happen once a day in the nightly cleanup unit instead of every five minutes. by @brettdavies in [#194](https://github.com/brettdavies/dotfiles/pull/194)
+- Running the bats suite from a git worktree or a second clone (the pre-push hook does this on every push) no longer re-points the live `~` symlinks at that checkout: the deploy-executing cases stow into a per-test sandbox. by @brettdavies in [#199](https://github.com/brettdavies/dotfiles/pull/199)
+- Restore PATH assembly for `sh -lc` callers on Linux hosts. `~/.profile` aborted partway through under dash, leaving remote tooling with a bare PATH and unable to find Homebrew, `~/.local/bin`, bun, or cargo binaries. by @brettdavies in [#200](https://github.com/brettdavies/dotfiles/pull/200)
+- `lp`, `lp1`, and `xurl` now resolve in non-interactive shells. As aliases they silently did not exist for scripted callers under `bash -lc`. by @brettdavies in [#204](https://github.com/brettdavies/dotfiles/pull/204)
+- Fix the `Stop hook error: … timeline-stop-hook: No such file or directory` message Claude Code printed after every response on machines other than the one that registered the hook. by @brettdavies in [#207](https://github.com/brettdavies/dotfiles/pull/207)
+- Fix the pre-push hook running the full lint and bats gate on pushes that deliver nothing: branch deletes, up-to-date pushes, tags on already-pushed commits, and history rewrites that keep the tree. by @brettdavies in [#212](https://github.com/brettdavies/dotfiles/pull/212)
+- Fix four Claude Code permission rules that only matched on the Linux host, so the same commands no longer re-prompt on macOS. by @brettdavies in [#213](https://github.com/brettdavies/dotfiles/pull/213)
+- Deploy the `rust` and `caddy` stow packages. A fresh host previously skipped both, leaving the Rust toolchain with no update timer and Ollama's tailnet route with no `Host`-rewriting proxy. by @brettdavies in [#216](https://github.com/brettdavies/dotfiles/pull/216)
+- Stop relocating the bun install root. `bun add -g` packages and the `qmd` global now resolve from a single `~/.bun`, instead of dividing across `~/.bun` and `~/.cache/bun` with both on `PATH`. by @brettdavies in [#217](https://github.com/brettdavies/dotfiles/pull/217)
+- Point the four qmd LaunchAgents at the stock bun bin directory, so launchd resolves the same global bin as the shell.
+- Start `qmd-serve` from the stowed dispatcher at `~/.local/bin/qmd` rather than through the bun global bin directory, so the daemon always runs the fork and cannot be switched to the upstream package by a global bun install. by @brettdavies in [#218](https://github.com/brettdavies/dotfiles/pull/218)
+- Bootstrap `com.user.qmd-serve` alongside the other agents on macOS. The launchagent package shipped it but the enable script never started it, so a rebuilt machine had no resident model server and every qmd call cold-loaded a model. by @brettdavies in [#219](https://github.com/brettdavies/dotfiles/pull/219)
+- Resolve qmd through the stowed dispatcher on macOS. The LaunchAgents no longer list a bun bin directory, so a missing dispatcher fails instead of silently falling through to the upstream package, and the enable script requires the dispatcher rather than accepting either path.
+- Make the `qmd-serve` enable script's `/health` smoke retry a refused connection. It previously reported a healthy daemon as dead, in milliseconds, with misleading causes.
+- Take bun from Homebrew's official tap only. A host carrying both that and the curl installer ran the curl copy for every call while `brew upgrade` maintained a separate one, with nothing reporting the version gap. by @brettdavies in [#222](https://github.com/brettdavies/dotfiles/pull/222)
+
+### Documentation
+
+- README documents `TMUXINATOR_CONFIG` as the single project directory, the `~/.config/tmuxinator` shadowing hazard, and the `tmuxinator copy` footgun. by @brettdavies in [#180](https://github.com/brettdavies/dotfiles/pull/180)
+- README records the ordering constraint for `config/shell/`, so a new file dropped in there is not silently dead in GUI-launched shells. by @brettdavies in [#181](https://github.com/brettdavies/dotfiles/pull/181)
+- Remove the gbrain thin client and Claude Code session pipeline entries from the concepts glossary. by @brettdavies in [#182](https://github.com/brettdavies/dotfiles/pull/182)
+- AGENTS.md documents how the local gates map onto CI jobs, and why tool versions are pinned alongside the commands. by @brettdavies in [#184](https://github.com/brettdavies/dotfiles/pull/184)
+- AGENTS.md tabulates the eight supported shell invocation shapes and the startup files each one reads. by @brettdavies in [#185](https://github.com/brettdavies/dotfiles/pull/185)
+- The CLI tools guide records where `trash` comes from on each platform, why it cannot be an alias, and the one sanctioned `rm -rf` fallback. by @brettdavies in [#187](https://github.com/brettdavies/dotfiles/pull/187)
+- BOOTSTRAP.md installs rustup with `--profile minimal`, and records why the setting can be neither exported nor stowed. by @brettdavies in [#188](https://github.com/brettdavies/dotfiles/pull/188)
+- `CONCEPTS.md` records that ordering within the shell config chain is load-bearing, and that the failure it prevents is silent. by @brettdavies in [#189](https://github.com/brettdavies/dotfiles/pull/189)
+- Change the release runbook to build `release/YYYY.MM.DD` as an overlay of `dev` on `main`, with the drift gate, the guarded-set leak check, and `generate-changelog.py --from-dev-prs`. by @brettdavies in [#198](https://github.com/brettdavies/dotfiles/pull/198)
+- Record that the shell config chain's entry file is dialect-constrained as well as order-constrained, and define `Invocation shape` as the unit at which shell environment behavior is specified and verified. by @brettdavies in [#203](https://github.com/brettdavies/dotfiles/pull/203)
+- Document the `dash` login shape in the invocation-shape table, and the syntax constraint it places on `.profile`. by @brettdavies in [#204](https://github.com/brettdavies/dotfiles/pull/204)
+- Remove the rtk auto-rewrite section from the CLI tools guide and the rtk reference from the global CLAUDE.md preference list. by @brettdavies in [#205](https://github.com/brettdavies/dotfiles/pull/205)
+- Define `install root` in `CONCEPTS.md`, and why relocating one diverges for every bare launcher. by @brettdavies in [#216](https://github.com/brettdavies/dotfiles/pull/216)
+- Correct three `CONCEPTS.md` entries that described guards and an architecture the repo does not have, and add `Package set`, `Stowed dispatcher`, `Shadowed executable`, and `Captured environment`. by @brettdavies in [#223](https://github.com/brettdavies/dotfiles/pull/223)
+
+**Full Changelog**: [2026.06.26...2026.09.14](https://github.com/brettdavies/dotfiles/compare/2026.06.26...2026.09.14)
+
 ## [2026.06.26]
 
 ### Added
