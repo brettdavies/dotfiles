@@ -56,20 +56,27 @@ dotfiles/
 │   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, opendataloader-pdf)
 │   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama)
 │   ├── macos-gpu-monitor.sh       Metal GPU residency/power trace around any command (macOS)
-│   ├── generate-changelog.py      Release changelog extraction
+│   ├── lint-shell, lint-workflows, run-tests   CI gate dispatchers, shared by CI and the git hooks
+│   ├── generate-changelog.py      Release changelog extraction from merged PR bodies
+│   ├── sync-dev-after-release.sh  Backport the released CHANGELOG.md to dev by PR
+│   ├── release/           Release gates (drift.sh, guarded-paths.sh)
 │   ├── tools-atime/       Multi-package-manager unused-tool audit + reclaim
-│   └── sync/              iCloud, Box, and Claude Code session pipeline sync
+│   └── sync/              iCloud and Box sync
 ├── .githooks/             Repo-local git hooks (core.hooksPath)
 ├── .github/
-│   ├── workflows/         CI: release.yml, shellcheck.yml, bats.yml
+│   ├── workflows/         CI: release, shellcheck (+ actionlint), bats, and three main-PR guards
 │   └── rulesets/          Branch protection rules (protect-dev, protect-main)
 ├── tests/                 bats-core test suites
 └── docs/
     ├── solutions/         Solved problems and patterns (symlink to a separate private repo)
-    ├── plans/             Implementation plans
     ├── runbooks/          Operational runbooks (GPU driver drift, Playwright launch)
-    └── brainstorms/       Design explorations
+    ├── plans/             Implementation plans (dev only)
+    └── brainstorms/       Design explorations (dev only)
 ```
+
+The engineering-doc directories marked *dev only* are inert planning text that never ships. They live on `dev`, the
+release recipe strips them from the release branch, and `guard-main-docs.yml` blocks them from any PR to `main` — so a
+checkout of `main` carries `docs/runbooks/` and the `docs/solutions/` symlink but none of the planning trees.
 
 ### Stow Packages
 
@@ -95,25 +102,53 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `gogcli`             | `.config/gogcli/config.json` — Google Workspace CLI config                                                                       |
 | `launchagent`        | `~/Library/LaunchAgents/` (macOS only)                                                                                           |
 | `lazygit`            | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52                                                                     |
-| `local`              | `.local/bin/` (env, op-ssh-sign-wrapper, tmux-new-session, uuidv7)                                                               |
+| `local`              | `.local/bin/` — signing, prose, session, qmd, and commit helpers (see [Local Binaries](#local-binaries))                         |
 | `micro`              | `.config/micro/settings.json` — editor settings                                                                                  |
 | `obsidian`           | `.config/obsidian/`, systemd service, CLI wrapper (Linux only)                                                                   |
 | `ollama`             | systemd service override binding Ollama to loopback `127.0.0.1:11434`; system-level, stowed into `/etc` with `sudo` (Linux only) |
 | `opencode`           | `.config/opencode/config.json`                                                                                                   |
 | `opendataloader-pdf` | Socket-activated hybrid PDF server with idle-exit, systemd user units (Linux only)                                               |
 | `pip`                | `.config/pip/pip.conf`                                                                                                           |
-| `qmd`                | `.local/bin/qmd` wrapper + systemd user units (qmd-serve daemon, embed + update timers, Linux only)                              |
+| `qmd`                | `.local/bin/qmd` wrapper (both platforms) + systemd user units for the qmd-serve daemon and index timers (Linux)                 |
 | `rclone`             | `.config/rclone/`, Box bisync systemd service + timer (Linux only)                                                               |
-| `rust`               | `rustup-update.service` + `.timer` (nightly `rustup update stable --no-self-update`, Linux, opt-in)                              |
+| `rust`               | `rustup-update.service` + `.timer` (nightly `rustup update stable --no-self-update`; units land on Linux only)                   |
 | `secrets`            | `.secrets` (git-crypt encrypted)                                                                                                 |
+| `shell`              | `.profile` — the shell config chain's entry file, which auto-sources `config/shell/`                                             |
 | `ssh`                | `.ssh/config` (git-crypt encrypted)                                                                                              |
 | `tmux`               | `.config/tmux/tmux.conf`                                                                                                         |
+| `tmuxinator`         | Session configs read in place from the repo; never stowed (see [Tmuxinator Sessions](#tmuxinator-sessions))                      |
 | `yazi`               | `.config/yazi/` — file manager config, keymaps, theme, packages                                                                  |
 | `zsh`                | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                                                                                    |
 
-Two packages deploy outside the `stow-deploy --all` flow: `caddy` (the Linux-only Ollama proxy host) is stowed
-explicitly with `scripts/stow-deploy caddy`, and `ollama` targets `/etc` rather than `$HOME`, stowed with `sudo stow -t
-/etc -d stow ollama` (see [stow/ollama/README.md](stow/ollama/README.md)).
+Two directories under `stow/` are not in any package set and never deploy through `stow-deploy`: `ollama` targets `/etc`
+rather than `$HOME` and is stowed with `sudo stow -t /etc -d stow ollama` (see
+[stow/ollama/README.md](stow/ollama/README.md)), and `tmuxinator` is read in place rather than symlinked. Both are
+recorded as exemptions in `tests/stow-deploy-packages.bats`, which fails when any other `stow/` directory is missing
+from a package set.
+
+### Local Binaries
+
+The `local` package deploys `stow/local/dot-local/bin/` to `~/.local/bin/`. These are machine-level entry points: repo
+hooks, systemd units, and agent tooling call them by name, so each one resolves the same way on every host without
+knowing where the underlying implementation lives.
+
+| Binary                  | Purpose                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------- |
+| `brave-search`          | Query the Brave Search API, printing ranked results as plain text or raw JSON               |
+| `charcount`             | Count characters against platform length caps, exiting non-zero so it gates in scripts      |
+| `env`                   | Put `~/.local/bin` on `PATH` for user-installed binaries                                    |
+| `gh-revision-audit`     | List your issues and PRs that still carry prior edit revisions on GitHub                    |
+| `gstack-config-apply`   | Converge `~/.gstack/config.yaml`, which gstack rewrites and so cannot be a stow package     |
+| `op-ssh-sign-wrapper`   | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless      |
+| `qmd-gpu-verify`        | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU             |
+| `qmd-ollama-unload-all` | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely  |
+| `sd-commit-doc`         | Commit and push `docs/solutions/` files from the shared clone without racing another agent  |
+| `tmux-new-session`      | Write a tmuxinator config for a repo and start its 3-pane session                           |
+| `transcribe-diarize`    | Local GPU speaker-diarized transcription (ffmpeg → whisperx → pyannote)                     |
+| `unslop`                | Machine-level entry point for the prose scorer, resolved through `~/.claude/skills`         |
+| `unslop-gate`           | Git-hook prose gate over `unslop`, scoring only the markdown in the change being pushed     |
+| `uuidv7`                | Print a time-ordered UUIDv7, used for collision-proof `/tmp` artifact names                 |
+| `xurl`                  | Real `xurl` on `PATH` that execs xurl-rs's `xr`, for callers that load no interactive alias |
 
 ### Tmuxinator Sessions
 
@@ -161,9 +196,9 @@ and are deployed via `scripts/nas-deploy.sh`, which copies them to `/etc/systemd
 **Deploy:** `sudo scripts/nas-deploy.sh` (requires `/root/.smbcredentials-<nas-host>` from 1Password).
 
 Three more system-level configs deploy through their own paths: `apparmor-playwright.service` (with the AppArmor
-profile, via `scripts/apparmor-deploy.sh`, below), the `ollama` loopback override (`sudo stow -t /etc`, see the
-`ollama` package), and the sshd locale change (`sudo scripts/sshd-locale-deploy.sh`, which edits `/etc/ssh/sshd_config`
-in place; see [BOOTSTRAP.md § SSH session locale](BOOTSTRAP.md#ssh-session-locale)).
+profile, via `scripts/apparmor-deploy.sh`, below), the `ollama` loopback override (`sudo stow -t /etc`, see the `ollama`
+package), and the sshd locale change (`sudo scripts/sshd-locale-deploy.sh`, which edits `/etc/ssh/sshd_config` in place;
+see [BOOTSTRAP.md § SSH session locale](BOOTSTRAP.md#ssh-session-locale)).
 
 ### Playwright / browse browser launch (`scripts/playwright-deps-deploy.sh`)
 
@@ -251,28 +286,42 @@ encrypted files cannot be recovered.
 
 Activated via `core.hooksPath` (set automatically by `stow-deploy`):
 
-| Hook            | Purpose                                             |
-| --------------- | --------------------------------------------------- |
-| `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign` |
-| `post-checkout` | Auto-unlocks git-crypt, chains Git LFS              |
-| `post-merge`    | Auto-unlocks git-crypt, chains Git LFS              |
-| `pre-push`      | Mirrors CI (shellcheck + bats), chains Git LFS      |
+| Hook            | Purpose                                                                 |
+| --------------- | ----------------------------------------------------------------------- |
+| Hook            | Purpose                                                                 |
+| --------------- | --------------------------------------------------------------------    |
+| `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign`, gates staged paths |
+| `post-checkout` | Auto-unlocks git-crypt, chains Git LFS                                  |
+| `post-merge`    | Auto-unlocks git-crypt, chains Git LFS                                  |
+| `pre-push`      | Mirrors CI (shellcheck, actionlint, bats), chains Git LFS               |
+
+Both gates call the same dispatchers CI calls — `scripts/lint-shell`, `scripts/lint-workflows`, `scripts/run-tests` — so
+the three cannot drift. `pre-push` runs them over the whole repo; `pre-commit` runs them over staged paths only. See
+[AGENTS.md § Local gates mirror CI](AGENTS.md#local-gates-mirror-ci).
 
 ## CI and Testing
 
-| Workflow         | Trigger        | Purpose                                             |
-| ---------------- | -------------- | --------------------------------------------------- |
-| `release.yml`    | Push to `main` | CalVer tag, changelog via git-cliff, GitHub Release |
-| `shellcheck.yml` | Pull request   | Lints shell scripts and hooks                       |
-| `bats.yml`       | Pull request   | Runs the bats-core test suites                      |
+| Workflow                    | Trigger                | Purpose                                                       |
+| --------------------------- | ---------------------- | ------------------------------------------------------------- |
+| `release.yml`               | Push to `main`         | CalVer tag + GitHub Release, notes read from `CHANGELOG.md`   |
+| `shellcheck.yml`            | Pull request           | Lints shell scripts and hooks, then workflows with actionlint |
+| `bats.yml`                  | Pull request           | Runs the bats-core test suites                                |
+| `guard-main-docs.yml`       | Pull request to `main` | Blocks engineering docs from reaching `main`                  |
+| `guard-main-provenance.yml` | Pull request to `main` | Requires every commit to carry a PR reference                 |
+| `guard-release-branch.yml`  | Pull request to `main` | Rejects any head branch that is not `release/*`               |
 
-`shellcheck.yml` and `bats.yml` are required status checks on `dev` and `main`. They run on every pull request with no
-path filter so the required context is always reported. The `pre-push` hook runs the same shellcheck and bats checks
-locally and skips them for markdown-only pushes.
+`shellcheck.yml` and `bats.yml` are required status checks on both `dev` and `main`; `main` additionally requires the
+three guard callers. They run on every pull request with no path filter so the required context is always reported. The
+`pre-push` hook runs the same checks locally and skips them for markdown-only pushes.
 
-Shell scripts are tested with [bats-core](https://github.com/bats-core/bats-core) (`bats tests/`). Suites cover
-stow-deploy, git hooks, shell config, supply-chain age gates, symlinks, the qmd-serve and opendataloader-pdf units, and
-the CLI wrappers.
+`release.yml` does not generate the changelog. `CHANGELOG.md` is generated on the release branch by
+`scripts/generate-changelog.py` and committed through the release PR; the workflow only extracts its topmost section as
+the GitHub Release body. See [RELEASES.md](RELEASES.md).
+
+Shell scripts are tested with [bats-core](https://github.com/bats-core/bats-core) (`scripts/run-tests --all`). Suites
+cover stow-deploy and its package sets, git hooks and the gate dispatchers, the shell config chain and its `PATH`
+matrix, supply-chain age gates, symlinks, the qmd-serve and opendataloader-pdf units, tmuxinator configs, and the CLI
+wrappers.
 
 ## Performance
 

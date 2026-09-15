@@ -152,11 +152,24 @@ next regeneration overwrites it.
 
 ### Why `cliff.toml` skips chore/style/test/ci/build
 
-These types don't produce user-facing content. The footgun: if a shipping PR has user-facing `## Changelog` content but
-its title starts with one of those types, its bullets are silently dropped. After running the script, cross-check the
-generated section against `gh pr view <num> --json body` for each PR in the window; correct mistyped PR titles (e.g.
-`chore` → `feat`) with `gh pr edit` and re-run. `cliff.toml` also anchors releases on the bare CalVer tag pattern
-(`YYYY.MM.DD` with an optional suffix), so a `v`-prefixed tag would not be a release boundary here.
+These types don't produce user-facing content, so neither path emits a bullet for one on the strength of its title
+alone. Where the two paths differ is what happens when such a PR *does* carry `## Changelog` content, and the difference
+decides how much the title matters:
+
+- **`--from-dev-prs` (the overlay default).** The generator enumerates merged PRs directly and reads each body. A body
+  with `## Changelog` content is extracted whatever the title says, so a `test:` or `chore:` PR that carries real
+  bullets still lands in the section. The skip list applies only to the no-body fallback, where the title would
+  otherwise become a `Changed` bullet on its own.
+- **`git-cliff` (the cherry-pick exception).** The commit parsers drop these types from the skeleton before any PR body
+  is fetched. The PR number never appears in the section, so the expansion pass never reaches it and its bullets are
+  silently lost.
+
+So on a cherry-picked branch, a mistyped title loses content: correct it with `gh pr edit` (e.g. `chore` → `feat`) and
+re-run. On an overlay branch the title costs only the fallback bullet, which is why the preflight's mistyped-title check
+is scoped to PRs whose bodies are empty. Either way the fix is to the input, never to `CHANGELOG.md`.
+
+`cliff.toml` also anchors releases on the bare CalVer tag pattern (`YYYY.MM.DD` with an optional suffix), so a
+`v`-prefixed tag would not be a release boundary here.
 
 ## Release pipeline
 
