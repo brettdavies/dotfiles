@@ -139,6 +139,14 @@ windows sees two healthy accounts and never fires, while the model the work actu
   work runs on, so counting it parked rotation on a limit that does not bind. The Problem Frame's premise still holds
   for a scoped window matching the model in use; no such window is reported today.
 
+  Two further corrections to this KTD's reasoning. A comma-separated list is additive rather than selective: each named
+  window is appended to the gating set and `account_headroom` returns `100 - max(pct)` across all of them, so
+  `fable,opus` would gate on Fable exactly as `all` does. And an unmatched name is not undetectable. Setting `Opus`
+  emits a `config-warning` event on every tick naming the setting and the miss, so the state is visible in the journal,
+  though `config set` accepts it without complaint and no deploy-time check can catch it. Only Fable carries a distinct
+  per-model weekly cap; work on the other models draws on the account-wide windows, which is why those windows are the
+  correct signal for it.
+
 - KTD4. **The anti-flap margin is lowered to 2 points.** The margin gates the proactive path only, and a 99 trip point
   is what makes that path reachable: the engine reports whole-number percentages, so a reading of 99 still leaves
   headroom and selects the proactive trigger rather than the at-limit escape. At the shipped margin of 10 the target
