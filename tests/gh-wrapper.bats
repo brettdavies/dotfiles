@@ -66,6 +66,23 @@ _require_timeout() {
   [ -e "$FAKE_GH_MARKER" ]
 }
 
+@test "gh wrapper skips a separate copy of itself on PATH" {
+  _require_timeout
+  # A second checkout (a worktree, a fleet scratch clone) puts another copy of
+  # this wrapper on PATH: same content, different inode, so an identity check
+  # alone hands it to exec and the guard fires. The real gh is a binary; a
+  # candidate carrying the guard marker is a wrapper and must be skipped.
+  mkdir -p "$TMP/copy"
+  cp "$WRAPPER" "$TMP/copy/gh"
+  chmod +x "$TMP/copy/gh"
+  run env HOME="$TMP/home" PATH="$TMP/copy:$TMP/real:/usr/bin:/bin" timeout 3 "$WRAPPER" --version
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -eq 0 ]
+  [ "$output" = "fake real gh" ]
+  [ -e "$FAKE_GH_MARKER" ]
+}
+
 @test "gh wrapper refuses to run when it has already re-entered itself" {
   _require_timeout
   # exec keeps the PID, so a wrapper that execs itself arrives with its own
