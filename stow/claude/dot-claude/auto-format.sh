@@ -80,6 +80,41 @@ case "$ext" in
     md_align="$HOME/.claude/md-align-tables.py"
     global_config="$HOME/.markdownlint-cli2.yaml"
 
+    # The config's `ignores` globs gate every step, not just the linter.
+    # markdownlint-cli2 applies them itself, but the prose wrapper and the table
+    # aligner take a path and format it, so a file the config excludes was still
+    # being rewritten by steps 1 and 2. That reflowed the shared solutions repo
+    # and any generated artifact whose own tool owns its line breaks: a
+    # CHANGELOG.md emitted as one logical line per bullet came back wrapped, and
+    # the next `git add -A` committed the rewrap.
+    md_ignored() {
+      local rel=$1 cfg pat
+      command -v yq &>/dev/null || return 1
+      for cfg in .markdownlint-cli2.yaml .markdownlint.yaml "$global_config"; do
+        [[ -f "$cfg" ]] || continue
+        while IFS= read -r pat; do
+          [[ -n "$pat" ]] || continue
+          # Unquoted on purpose: $pat is a glob to match with, not a literal.
+          # shellcheck disable=SC2053
+          [[ "$rel" == $pat ]] && return 0
+          # `.ignores[]` yields nothing when the key is absent. This is mikefarah
+          # yq, which has no `empty`, so the jq spelling errors out instead.
+        done < <(yq '.ignores[]' "$cfg" 2>/dev/null)
+      done
+      return 1
+    }
+
+    # markdownlint resolves its globs from the config's directory, so compare
+    # the repo-relative path rather than whatever form the hook was handed.
+    # Stripping $PWD rather than $CLAUDE_PROJECT_DIR because the `cd` above has
+    # already moved here: an unset or empty CLAUDE_PROJECT_DIR leaves that cd a
+    # no-op and would otherwise yield an absolute path that matches no glob,
+    # silently disabling every ignore.
+    rel_file="${file#"$PWD"/}"
+    if md_ignored "$rel_file"; then
+      exit 0
+    fi
+
     # Read the configured line width — prefer project-local config over global
     max_len=120
     if command -v yq &>/dev/null; then
