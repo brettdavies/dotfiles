@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    cswap account rotation check (macOS). Counterpart to the cswap-auto timer
+    and oneshot unit on Linux; StartInterval is launchd's equivalent of
+    OnCalendar=minutely, and both sides run `auto --once` so a tick holds a
+    refresh token for a fraction of a second rather than continuously.
+
+    No trip point or model flag here. `cswap config set` applies those to every
+    invocation, so a hand-run tick behaves the same as a scheduled one;
+    scripts/cswap-autoswitch-deploy.sh is what writes them.
+
+    PATH is set explicitly because a LaunchAgent inherits no interactive shell
+    environment, and cswap resolves `claude` through it when rewriting
+    credentials.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.cswap-auto</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec cswap auto --once &gt;&gt; "$HOME/Library/Logs/cswap-auto.log" 2&gt;&gt; "$HOME/Library/Logs/cswap-auto.error.log"</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>60</integer>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>

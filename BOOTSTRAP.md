@@ -33,6 +33,41 @@ brew install stow git-crypt
 
 [stow-bug]: https://github.com/aspiers/stow/issues/33
 
+### Claude Account Rotation (cswap)
+
+`cswap` manages multiple Claude accounts and switches between them as each nears its rate limit. It ships as a Python
+tool rather than a stow package, so install it directly on every machine:
+
+```bash
+uv tool install claude-swap
+```
+
+Accounts are registered per machine with `cswap add`, or copied from an existing machine with `cswap export <path>` and
+`cswap import <path>`. An export is **plaintext credentials**: transfer it over an encrypted channel and delete both
+copies once the import succeeds.
+
+Rotation runs as a scheduled `cswap auto --once` check, once a minute. The trip point and the rest of the auto-switch
+settings are applied by script rather than by unit flags, so a hand-run check behaves the same as a scheduled one:
+
+```bash
+scripts/cswap-autoswitch-deploy.sh
+```
+
+That pins three keys: the trip point at 99% so a switch lands while the account can still serve, the anti-flap margin at
+2 so that trip point is reachable, and the API-key-account exclusion, which is already the default but is the one
+setting whose flip would start metered spend. It also holds `autoswitch.model` unset, clearing it if an earlier run
+pinned it. The script is idempotent and reports what it changed.
+
+Leaving the per-model trigger unset is deliberate. A counted per-model weekly window gates the account outright with no
+fallback: once one reads 100% on every account, cswap reports all-exhausted and waits for that window to reset rather
+than deciding on the 5-hour and 7-day windows. Today the only scoped window these accounts report is Fable, so counting
+it would park rotation on a limit that does not bind the work. Revisit if a scoped window appears for the model actually
+in use.
+
+Scheduling the check is per-OS: launchd on macOS (see [macOS-Only Setup](#macos-only-setup)) and a systemd timer on
+Linux (see [Linux Server Setup](#linux-server-setup)). Both are safe to enable with one account registered; ticks report
+that there is nothing to rotate into and rewrite nothing.
+
 ## Clone and Unlock
 
 ```bash
@@ -80,13 +115,13 @@ cd ~/dotfiles/stow
 # --ignore drops the systemd units that cross-platform packages carry.
 stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
-  rust tmux lazygit micro yazi qmd caddy caam gogcli ghostty cursor launchagent
+  rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent
 
 # Headless (shared only)
 stow --dotfiles --no-folding --target="$HOME" \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
   cargo rust tmux lazygit micro yazi rclone qmd obsidian opendataloader-pdf caddy \
-  caam gogcli codex-proxy
+  gogcli codex-proxy
 ```
 
 `tmuxinator` is deliberately absent from both lists: its session configs are read in place from the repo and stowing
@@ -231,6 +266,20 @@ bash ~/dotfiles/scripts/rectangle-defaults.sh
 Hotkeys after setup: `⌃⌥←/→/↑/↓` for halves, `⌃⌥U/I/J/K` for quarters, `⌃⌥↵` maximize, `⌃⌥⌫` restore previous size.
 Repeat the same arrow to cycle 1/2 → 2/3 → 1/3 width.
 
+### cswap auto-switching (launchd)
+
+The `launchagent` package ships `com.user.cswap-auto.plist`, which runs the same minutely check as the Linux timer.
+Apply the settings first, then load the agent:
+
+```bash
+bash ~/dotfiles/scripts/cswap-autoswitch-deploy.sh
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" launchagent
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.cswap-auto.plist
+```
+
+Read switch decisions from `~/Library/Logs/cswap-auto.log`. A tick that finds nothing to do exits 2, which launchd
+records without treating it as a crash.
+
 ## Linux Server Setup
 
 ### Rust toolchains
@@ -318,6 +367,24 @@ The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, t
 > **One-time admin step:** the service host must be approved once in the
 > [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP
 > and the script's binding routes nowhere.
+
+### cswap auto-switching (systemd)
+
+The `cswap` package ships a oneshot unit and the timer that drives it. Apply the settings first, then enable the timer
+rather than the service:
+
+```bash
+bash ~/dotfiles/scripts/cswap-autoswitch-deploy.sh
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" cswap
+systemctl --user daemon-reload
+systemctl --user enable --now cswap-auto.timer
+```
+
+Read switch decisions with `journalctl --user -u cswap-auto`. Lingering must be on for the timer to run while logged out
+(`loginctl enable-linger $USER`); without it the timer looks enabled and never fires after a reboot.
+
+A tick exits 2 when there is nothing to do and 3 when every account is spent and the credential is held. The unit counts
+both as success, so the failed-unit list stays meaningful.
 
 ## Restart Shell
 
