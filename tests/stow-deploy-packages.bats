@@ -64,7 +64,10 @@ _require_unlocked_checkout() {
   #
   # cargo is Linux-only because Rust toolchains are: the workstation carries no
   # cargo, so a config telling it how to fetch git dependencies has no reader.
-  grep -qE 'rclone *\| *obsidian *\| *opendataloader-pdf *\| *codex-proxy *\| *cargo *\)' "$SCRIPT"
+  #
+  # cswap ships systemd units only; macOS schedules the same rotation check
+  # through the launchagent package instead.
+  grep -qE 'rclone *\| *obsidian *\| *opendataloader-pdf *\| *codex-proxy *\| *cargo *\| *cswap *\)' "$SCRIPT"
 }
 
 @test "STOW_FLAGS always ignores .DS_Store" {

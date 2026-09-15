@@ -120,7 +120,9 @@ teardown() {
 }
 
 @test "cswap is guarded Linux-only so a macOS deploy skips it" {
-  run grep -E '^\s+rclone \| obsidian \| opendataloader-pdf \| codex-proxy \| cargo \| cswap\)' "$STOW_DEPLOY"
+  # Matches wherever cswap sits in the guard's alternation, so reordering the
+  # list or appending another Linux-only package does not fail this test.
+  run grep -E '\| *cswap *[|)]' "$STOW_DEPLOY"
   [ "$status" -eq 0 ]
 }
 

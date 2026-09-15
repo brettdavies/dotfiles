@@ -24,7 +24,9 @@ DEPLOY="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
   # have no reader.
   shared=$(grep '^SHARED_PACKAGES=' "$DEPLOY" | sed 's/.*(\(.*\))/\1/')
   [[ "$shared" == *"cargo"* ]]
-  grep -qE '\| *cargo *\)' "$DEPLOY"
+  # Matches wherever cargo sits in the guard's alternation, so adding another
+  # Linux-only package after it does not fail this test.
+  grep -qE '\| *cargo *[|)]' "$DEPLOY"
 }
 
 @test "the deployed config resolves where cargo reads it" {
