@@ -7,6 +7,14 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# The group key leads with a literal token naming the workflow that owns it, so
+# it cannot collide with a key a caller or callee produces from context alone.
+# This group never cancels: a run killed part way leaves a half-finished
+# release, and this job creates a tag and publishes a GitHub release.
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
