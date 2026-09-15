@@ -1,0 +1,19 @@
+[Unit]
+Description=cswap account rotation (auto-switch on rate limit)
+After=network.target
+
+[Service]
+Type=simple
+# systemd user units do not inherit the interactive shell PATH, and cswap resolves
+# the `claude` binary through it when rewriting credentials.
+Environment=PATH=/home/brett/.local/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/cswap auto
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

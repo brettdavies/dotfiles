@@ -33,6 +33,19 @@ brew install stow git-crypt
 
 [stow-bug]: https://github.com/aspiers/stow/issues/33
 
+### Claude Account Rotation (cswap)
+
+`cswap` manages multiple Claude accounts and switches between them as each nears its rate limit. It ships as a Python
+tool rather than a stow package, so install it directly on every machine:
+
+```bash
+uv tool install claude-swap
+```
+
+Accounts are registered per machine with `cswap add`, or copied from an existing machine with `cswap export <path>` and
+`cswap import <path>`. An export is **plaintext credentials** — transfer it over an encrypted channel and delete both
+copies once the import succeeds.
+
 ## Clone and Unlock
 
 ```bash
@@ -318,6 +331,22 @@ The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, t
 > **One-time admin step:** the service host must be approved once in the
 > [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP
 > and the script's binding routes nowhere.
+
+### cswap auto-switching
+
+`cswap auto` runs a foreground polling loop, so on the Linux server it needs a unit to survive logout and reboot. The
+`local` package ships one; enable it once cswap holds at least two accounts (with one account there is nothing to rotate
+into and the loop idles):
+
+```bash
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" local
+systemctl --user daemon-reload
+systemctl --user enable --now cswap-auto.service
+```
+
+It switches when the active account's 5h or 7d window reaches 90%. Tune with `cswap config set autoswitch.threshold
+<pct>`, and check decisions with `journalctl --user -u cswap-auto`. Per-model weekly limits are not watched by default;
+add `--model` to the unit's `ExecStart` to include them.
 
 ## Restart Shell
 
