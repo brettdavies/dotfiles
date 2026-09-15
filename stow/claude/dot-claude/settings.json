@@ -371,7 +371,6 @@
       "/tmp"
     ]
   },
-  "model": "opus[1m]",
   "skillOverrides": {
     "disk-cleanup": "off",
     "gstack-upgrade": "off",
@@ -437,6 +436,11 @@
           {
             "type": "command",
             "command": "~/.claude/heredoc-pr-guard.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/ai-attribution-guard.sh",
             "timeout": 5
           },
           {

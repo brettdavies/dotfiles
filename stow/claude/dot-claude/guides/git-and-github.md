@@ -68,6 +68,13 @@ AI-attribution trailer to commit messages or PR bodies. This overrides the defau
 into Claude Code's system prompt and any skill/command template (e.g., the official `code-review` plugin,
 `rust-new-repo` skill) that includes one. Commits and PRs stand on their own technical content.
 
+**Enforcement.** The `~/.claude/ai-attribution-guard.sh` PreToolUse Bash hook denies `git commit` and `gh
+pr|issue|release` calls whose message or body carries the trailer. It resolves `--file` / `-F` / `--body-file` /
+`--notes-file` and reads the artifact, so a trailer authored into a `/tmp/` body is caught at the same gate as an inline
+one; a human `Co-Authored-By:` passes. Tests at `tests/ai-attribution-guard.bats` (22 cases) — run with `bats
+tests/ai-attribution-guard.bats`. The hook exists because the rule alone loses to a mid-session harness reminder that
+instructs the opposite, and the cleanup is a signed-history rewrite plus a force-push to a protected branch.
+
 ## Rewriting pushed history (reword, force-push)
 
 **Default: don't.** Rewriting already-pushed or shared history is a last resort, not a cleanup reflex. A
