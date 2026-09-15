@@ -5,6 +5,28 @@
 
 WRAPPER="$BATS_TEST_DIRNAME/../stow/gh/dot-local/bin/gh"
 
+# A PATH where the wrapper is reachable under a spelling other than
+# $HOME/.local/bin/gh, followed by a fake real gh that records its invocation.
+# HOME points at an empty dir so the host's own ~/.local/bin/gh cannot leak
+# into the run.
+setup() {
+  TMP="$(mktemp -d)"
+  mkdir -p "$TMP/alias" "$TMP/real" "$TMP/home"
+  ln -s "$WRAPPER" "$TMP/alias/gh"
+  printf '%s\n' '#!/usr/bin/env bash' 'touch "${FAKE_GH_MARKER:?}"' 'echo "fake real gh"' >"$TMP/real/gh"
+  chmod +x "$TMP/real/gh"
+  export FAKE_GH_MARKER="$TMP/fake-gh-ran"
+  FAKE_PATH="$TMP/alias:$TMP/real:/usr/bin:/bin"
+}
+
+teardown() {
+  rm -rf "$TMP"
+}
+
+_require_timeout() {
+  command -v timeout >/dev/null 2>&1 || skip "timeout not installed"
+}
+
 # ---------------------------------------------------------------------------
 # Shellcheck
 # ---------------------------------------------------------------------------
@@ -29,6 +51,46 @@ WRAPPER="$BATS_TEST_DIRNAME/../stow/gh/dot-local/bin/gh"
   run "$WRAPPER" --version
   [ "$status" -eq 0 ]
   [[ "$output" == *"gh version"* ]]
+}
+
+@test "gh wrapper skips itself when reachable under an alias path" {
+  _require_timeout
+  # The alias dir sits ahead of the fake real gh. A wrapper that fails to
+  # recognise the alias as itself execs it and spins in place; timeout turns
+  # that spin into exit 124 instead of a hung test.
+  run env HOME="$TMP/home" PATH="$FAKE_PATH" timeout 3 "$WRAPPER" --version
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -eq 0 ]
+  [ "$output" = "fake real gh" ]
+  [ -e "$FAKE_GH_MARKER" ]
+}
+
+@test "gh wrapper refuses to run when it has already re-entered itself" {
+  _require_timeout
+  # exec keeps the PID, so a wrapper that execs itself arrives with its own
+  # PID already in the marker. Reproduce that hop without the PATH walk.
+  run env HOME="$TMP/home" PATH="$FAKE_PATH" timeout 3 \
+    bash -c 'export GH_MERGE_GUARD_PID=$$; exec "$1" --version' _ "$WRAPPER"
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FATAL:"* ]]
+  [[ "$output" == *"$WRAPPER"* ]]
+  [ ! -e "$FAKE_GH_MARKER" ]
+}
+
+@test "gh wrapper passes through when an ancestor set the marker" {
+  _require_timeout
+  # A gh extension or credential helper launched by the real gh calls gh by
+  # name again. It inherits the ancestor's marker but runs under its own PID,
+  # so the guard must not fire.
+  run env HOME="$TMP/home" PATH="$FAKE_PATH" GH_MERGE_GUARD_PID=1 \
+    timeout 3 "$WRAPPER" --version
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -eq 0 ]
+  [ "$output" = "fake real gh" ]
 }
 
 # ---------------------------------------------------------------------------

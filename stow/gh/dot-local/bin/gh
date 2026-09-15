@@ -2,12 +2,23 @@
 # Wrapper to block AI agents from merging PRs into main
 # All other gh commands (including pr merge to non-main branches) pass through
 
-# Find real gh by walking PATH, skipping this wrapper
+self="${BASH_SOURCE[0]}"
+
+# exec keeps the PID, so the marker matching $$ means the PATH walk below
+# handed this wrapper back to itself. A child that the real gh launches (an
+# extension, a credential helper) inherits the marker under a different PID
+# and passes through.
+if [[ "${GH_MERGE_GUARD_PID:-}" == "$$" ]]; then
+  echo "FATAL: $self re-entered itself (pid $$): the PATH walk resolved this wrapper as the real gh" >&2
+  exit 1
+fi
+
+# Find real gh by walking PATH, skipping this wrapper under any spelling
+# (symlinked alias dir, trailing slash, a checkout's stow tree on PATH).
 find_real_gh() {
-  local self="$HOME/.local/bin/gh"
   local IFS=':'
   for dir in $PATH; do
-    [[ "$dir/gh" == "$self" ]] && continue
+    [[ "$dir/gh" -ef "$self" ]] && continue
     [[ -x "$dir/gh" ]] && {
       echo "$dir/gh"
       return
@@ -42,4 +53,5 @@ if [[ "$*" == *"pr merge"* ]]; then
   fi
 fi
 
+export GH_MERGE_GUARD_PID=$$
 exec "$real_gh" "$@"
