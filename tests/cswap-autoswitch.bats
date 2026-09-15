@@ -24,26 +24,39 @@ make_stub() {
 set -euo pipefail
 state="$CSWAP_STUB_STATE"
 calls="$CSWAP_STUB_CALLS"
+defaults="$state.defaults"
 
 if [ ! -s "$state" ]; then
-  cat > "$state" <<'DEFAULTS'
+  cat > "$defaults" <<'DEFAULTS'
 autoswitch.threshold 90 (default)
 autoswitch.hysteresisPct 10 (default)
 autoswitch.includeApiKeyAccounts false (default)
 autoswitch.model (none) (default)
 DEFAULTS
+  cp "$defaults" "$state"
 fi
 
 case "${1:-}" in
   config)
-    if [ "${2:-}" = "set" ]; then
-      echo "$3 $4" >> "$calls"
-      tmp="$(mktemp)"
-      # A pinned setting loses the "(default)" marker, as the real tool does.
-      awk -v k="$3" -v v="$4" '$1 == k { print k, v; next } { print }' "$state" > "$tmp"
-      mv "$tmp" "$state"
-      exit 0
-    fi
+    case "${2:-}" in
+      set)
+        echo "set $3 $4" >> "$calls"
+        tmp="$(mktemp)"
+        # A pinned setting loses the "(default)" marker, as the real tool does.
+        awk -v k="$3" -v v="$4" '$1 == k { print k, v; next } { print }' "$state" > "$tmp"
+        mv "$tmp" "$state"
+        exit 0
+        ;;
+      unset)
+        echo "unset $3" >> "$calls"
+        tmp="$(mktemp)"
+        # Restores the shipped default, marker included.
+        awk -v k="$3" -v d="$(awk -v k="$3" '$1 == k { print $2 }' "$defaults")" \
+          '$1 == k { print k, d, "(default)"; next } { print }' "$state" > "$tmp"
+        mv "$tmp" "$state"
+        exit 0
+        ;;
+    esac
     cat "$state"
     ;;
   *) exit 64 ;;
@@ -138,22 +151,35 @@ teardown() {
 @test "the trip point and anti-flap margin are set so the proactive path is reachable" {
   run "$DEPLOY"
   [ "$status" -eq 0 ]
-  grep -q '^autoswitch.threshold 99$' "$CSWAP_STUB_CALLS"
-  grep -q '^autoswitch.hysteresisPct 2$' "$CSWAP_STUB_CALLS"
+  grep -q '^set autoswitch.threshold 99$' "$CSWAP_STUB_CALLS"
+  grep -q '^set autoswitch.hysteresisPct 2$' "$CSWAP_STUB_CALLS"
 }
 
-@test "the per-model trigger is set to all, not a named model" {
+@test "the per-model trigger is never pinned" {
+  # A counted per-model window gates the account outright and has no fallback:
+  # once one reads 100% on every account the engine reports all-exhausted and
+  # stops deciding on the account-wide windows. Fable is the only scoped window
+  # these accounts report, and it is not the model the work runs on.
   run "$DEPLOY"
   [ "$status" -eq 0 ]
-  grep -q '^autoswitch.model all$' "$CSWAP_STUB_CALLS"
-  run grep -E '^autoswitch\.model (Fable|Opus|Sonnet|Haiku)' "$CSWAP_STUB_CALLS"
+  run grep -E '^set autoswitch\.model' "$CSWAP_STUB_CALLS"
   [ "$status" -ne 0 ]
+}
+
+@test "a per-model trigger left pinned by an earlier run is cleared" {
+  "$BIN/cswap" config set autoswitch.model all
+  : > "$CSWAP_STUB_CALLS"
+
+  run "$DEPLOY"
+  [ "$status" -eq 0 ]
+  grep -q '^unset autoswitch.model$' "$CSWAP_STUB_CALLS"
+  grep -q '^autoswitch.model (none) (default)$' "$CSWAP_STUB_STATE"
 }
 
 @test "the API-key exclusion is pinned rather than inherited" {
   run "$DEPLOY"
   [ "$status" -eq 0 ]
-  grep -q '^autoswitch.includeApiKeyAccounts false$' "$CSWAP_STUB_CALLS"
+  grep -q '^set autoswitch.includeApiKeyAccounts false$' "$CSWAP_STUB_CALLS"
 }
 
 @test "a second run changes nothing and says so" {

@@ -66,6 +66,8 @@ windows sees two healthy accounts and never fires, while the model the work actu
 - R2. A switch triggers while the active account can still serve, at 99% utilization of its binding window, rather than
   on exhaustion.
 - R3. Per-model weekly windows count toward the trigger alongside the account-wide 5-hour and 7-day windows.
+  **Superseded 2026-09-15 (user-directed):** the trigger reads the account-wide windows only. See the KTD3 note for the
+  behavior that settles it.
 - R4. When no account can be switched to, the current credential is held and not rotated.
 - R5. Rotation never moves onto a metered API-key account.
 
@@ -125,6 +127,17 @@ windows sees two healthy accounts and never fires, while the model the work actu
   over naming the model because an unmatched model name is a warning-only no-op: the trigger silently reverts to
   account-wide-only, and no repo-side or deploy-side check in this plan can tell that state from a correct one. Governs
   R3.
+
+  **Superseded 2026-09-15 (user-directed):** `autoswitch.model` is held unset and the trigger reads the account-wide
+  windows only. The Authority clause decides it: a counted per-model window gates the account outright and has no
+  fallback. `oauth.relevant_windows` returns the scoped windows alongside the 5h and 7d ones, the worst window sets
+  headroom, and once a counted window reads 100% on every account `autoswitch.py` sets `truly_exhausted`, emits
+  `all-exhausted`, and waits on `_earliest_recovery`, which keys on the latest reset among the at-limit windows. It
+  never re-decides on the account-wide windows alone. Measured on both hosts: with `all` set, an account reporting
+  `5h 15% · 7d 60% · Fable 100%` returned `headroomPct 0.0` and the pair read as all-exhausted; unset, the same account
+  returned 40.0 and rotation resumed. Fable is the only scoped window these accounts report and is not the model the
+  work runs on, so counting it parked rotation on a limit that does not bind. The Problem Frame's premise still holds
+  for a scoped window matching the model in use; no such window is reported today.
 
 - KTD4. **The anti-flap margin is lowered to 2 points.** The margin gates the proactive path only, and a 99 trip point
   is what makes that path reachable: the engine reports whole-number percentages, so a reading of 99 still leaves

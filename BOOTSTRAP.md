@@ -53,11 +53,16 @@ settings are applied by script rather than by unit flags, so a hand-run check be
 scripts/cswap-autoswitch-deploy.sh
 ```
 
-That pins four keys: the trip point at 99% so a switch lands while the account can still serve, the anti-flap margin at
-2 so that trip point is reachable, the per-model trigger at `all` because a per-model weekly window is often the limit
-that actually binds while the account-wide windows still read healthy, and the API-key-account exclusion, which is
-already the default but is the one setting whose flip would start metered spend. The script is idempotent and reports
-what it changed.
+That pins three keys: the trip point at 99% so a switch lands while the account can still serve, the anti-flap margin at
+2 so that trip point is reachable, and the API-key-account exclusion, which is already the default but is the one
+setting whose flip would start metered spend. It also holds `autoswitch.model` unset, clearing it if an earlier run
+pinned it. The script is idempotent and reports what it changed.
+
+Leaving the per-model trigger unset is deliberate. A counted per-model weekly window gates the account outright with no
+fallback: once one reads 100% on every account, cswap reports all-exhausted and waits for that window to reset rather
+than deciding on the 5-hour and 7-day windows. Today the only scoped window these accounts report is Fable, so counting
+it would park rotation on a limit that does not bind the work. Revisit if a scoped window appears for the model actually
+in use.
 
 Scheduling the check is per-OS: launchd on macOS (see [macOS-Only Setup](#macos-only-setup)) and a systemd timer on
 Linux (see [Linux Server Setup](#linux-server-setup)). Both are safe to enable with one account registered; ticks report

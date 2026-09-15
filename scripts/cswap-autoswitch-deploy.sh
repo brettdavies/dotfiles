@@ -9,7 +9,7 @@ set -euo pipefail
 # hand-run `cswap auto --once` during debugging behaves the same as a tick.
 # Flags in the unit would make the two diverge silently.
 #
-# Four keys are pinned:
+# Three keys are pinned:
 #
 #   autoswitch.threshold              99     switch while the account can still
 #                                            serve, not once it is spent
@@ -17,12 +17,21 @@ set -euo pipefail
 #                                            if the margin is below the gap to
 #                                            the next account; at the shipped 10
 #                                            a peer between 89 and 99 is refused
-#   autoswitch.model                  all    per-model weekly windows are often
-#                                            the binding limit while the
-#                                            account-wide windows read healthy
 #   autoswitch.includeApiKeyAccounts  false  already the default, pinned because
 #                                            flipping it starts metered spend on
 #                                            an unattended host
+#
+# And one is held unset:
+#
+#   autoswitch.model   Per-model weekly windows join the account-wide 5h and 7d
+#                      windows in gating an account, and the worst window wins
+#                      outright. There is no fallback: once a counted window
+#                      reads 100% on every account, the engine reports
+#                      all-exhausted and waits, and it never re-decides on the
+#                      account-wide windows alone. Fable is the only scoped
+#                      window these accounts report, and it is not the model the
+#                      work runs on, so counting it parks rotation on a limit
+#                      that does not bind while real weekly headroom goes unused.
 #
 # The cooldown and poll interval are deliberately left alone, so a harmless
 # upstream default change is inherited rather than frozen here.
@@ -34,7 +43,7 @@ set -euo pipefail
 #               flag, so this override is the only seam that keeps the test
 #               suite off a real installation.
 #
-# Exit 0 on success, including when every key already holds its target value;
+# Exit 0 on success, including when every key already holds its target state;
 # 1 when the binary is missing.
 
 EXIT_FAILURE=1
@@ -55,14 +64,16 @@ if ! command -v "$CSWAP_BIN" >/dev/null 2>&1; then
   exit "$EXIT_FAILURE"
 fi
 
-# Key/value pairs, applied in order.
+# Key/value pairs to pin, applied in order.
 KEYS=(
   autoswitch.threshold
   autoswitch.hysteresisPct
-  autoswitch.model
   autoswitch.includeApiKeyAccounts
 )
-VALUES=(99 2 all false)
+VALUES=(99 2 false)
+
+# Keys held at their shipped default.
+UNSET_KEYS=(autoswitch.model)
 
 # `cswap config` prints "key value" once a setting is pinned and "key value
 # (default)" while it is still inherited. Both fields matter: a key sitting at a
@@ -74,6 +85,7 @@ current_row() {
 }
 
 changed=0
+
 for i in "${!KEYS[@]}"; do
   key="${KEYS[$i]}"
   want="${VALUES[$i]}"
@@ -92,6 +104,20 @@ for i in "${!KEYS[@]}"; do
   else
     echo "set      $key ${have:-unset} -> $want"
   fi
+  changed=$((changed + 1))
+done
+
+for key in "${UNSET_KEYS[@]}"; do
+  row="$(current_row "$key")"
+  source="${row#*$'\t'}"
+
+  if [ "$source" = "(default)" ]; then
+    echo "ok       $key already at its default"
+    continue
+  fi
+
+  "$CSWAP_BIN" config unset "$key" >/dev/null
+  echo "unset    $key ${row%%$'\t'*} -> default"
   changed=$((changed + 1))
 done
 
