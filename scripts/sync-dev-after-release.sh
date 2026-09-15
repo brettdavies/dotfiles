@@ -244,9 +244,9 @@ if [[ ${#CONTESTED[@]} -gt 0 ]]; then
     echo "  contested (both sides moved since $PREV_TAG; NOT adopted):" >&2
   fi
   printf '    %s\n' "${CONTESTED[@]}"
-  if [[ "$INCLUDE_CONTESTED" != true ]]; then
+  if [[ "$INCLUDE_CONTESTED" != true && ${#ONLY[@]} -eq 0 ]]; then
     echo "  re-run with --include-contested to take main's version of these," >&2
-    echo "  or resolve them by hand in a separate PR." >&2
+    echo "  name the ones you want with --only PATH, or resolve them by hand." >&2
   fi
 fi
 
@@ -256,6 +256,11 @@ if [[ ${#SYNC_PATHS[@]} -eq 0 ]]; then
   git branch -D "$SYNC_BRANCH"
   exit 0
 fi
+
+# The resolved set, after --only narrowing. Printing it is the point of a dry
+# run: the classification above says what diverged, this says what would move.
+echo "  syncing (${#SYNC_PATHS[@]} path(s)):"
+printf '    %s\n' "${SYNC_PATHS[@]}"
 
 if [[ "$DRY_RUN" == true ]]; then
   echo "dry run -- no branch, commit, or PR created"
