@@ -88,7 +88,6 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `bash`               | `.bashrc`, `.bash_profile`, `.bash_aliases`                                                                                      |
 | `brew`               | `Brewfile`, `Brewfile.optional`                                                                                                  |
 | `bun`                | `.bunfig.toml`                                                                                                                   |
-| `caam`               | `.caam/` (Claude account rotation config + vault, git-crypt encrypted)                                                           |
 | `caddy`              | `.config/caddy/Caddyfile`, `caddy.service` — loopback proxy fronting Ollama for `svc:ollama` (Host rewrite) (Linux only)         |
 | `cargo`              | `.cargo/config.toml` — git dependency fetches routed through the git CLI (Linux only)                                            |
 | `claude`             | `.claude/` (settings, hooks, statusline, templates), `.markdownlint-cli2.yaml`                                                   |
@@ -250,7 +249,6 @@ having changed.
 | File                | Purpose                                                        |
 | ------------------- | -------------------------------------------------------------- |
 | `build-flags.sh`    | Native-CPU build flags (`-march=native`) for local compilation |
-| `caam.sh`           | Claude account rotation wrapper + daemon                       |
 | `caches.sh`         | XDG cache directory locations                                  |
 | `claude-code.sh`    | Claude Code environment variables                              |
 | `github.sh`         | GitHub CLI aliases                                             |
