@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    cswap account rotation (macOS). Counterpart to cswap-auto.service on Linux;
+    both run the same `cswap auto` polling loop so switching behaves identically
+    on either platform.
+
+    KeepAlive rather than StartInterval with `--once`: the loop holds cooldown
+    and hysteresis state between ticks, which a per-tick invocation would
+    discard. ThrottleInterval keeps a crash loop from respawning faster than
+    every 10s.
+
+    PATH is set explicitly because a LaunchAgent does not inherit the
+    interactive shell environment, and cswap resolves `claude` through it when
+    rewriting credentials.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.cswap-auto</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec cswap auto &gt;&gt; "$HOME/Library/Logs/cswap-auto.log" 2&gt;&gt; "$HOME/Library/Logs/cswap-auto.error.log"</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

@@ -43,8 +43,14 @@ uv tool install claude-swap
 ```
 
 Accounts are registered per machine with `cswap add`, or copied from an existing machine with `cswap export <path>` and
-`cswap import <path>`. An export is **plaintext credentials** — transfer it over an encrypted channel and delete both
+`cswap import <path>`. An export is **plaintext credentials**: transfer it over an encrypted channel and delete both
 copies once the import succeeds.
+
+`cswap auto` keeps rotation running in the background, switching when the active account's 5h or 7d window reaches 90%.
+Tune the trip point with `cswap config set autoswitch.threshold <pct>`; per-model weekly limits are not watched unless
+`--model` is added to the command. Supervising that loop is per-OS: launchd on macOS (see
+[macOS-Only Setup](#macos-only-setup)) and systemd on Linux (see [Linux Server Setup](#linux-server-setup)). Enable it
+only once cswap holds at least two accounts, since with one there is nothing to rotate into and the loop idles.
 
 ## Clone and Unlock
 
@@ -244,6 +250,18 @@ bash ~/dotfiles/scripts/rectangle-defaults.sh
 Hotkeys after setup: `⌃⌥←/→/↑/↓` for halves, `⌃⌥U/I/J/K` for quarters, `⌃⌥↵` maximize, `⌃⌥⌫` restore previous size.
 Repeat the same arrow to cycle 1/2 → 2/3 → 1/3 width.
 
+### cswap auto-switching (launchd)
+
+The `launchagent` package ships `com.user.cswap-auto.plist`, the counterpart to the Linux unit. Enable it once cswap
+holds at least two accounts:
+
+```bash
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" launchagent
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.cswap-auto.plist
+```
+
+Read switch decisions from `~/Library/Logs/cswap-auto.log`.
+
 ## Linux Server Setup
 
 ### Rust toolchains
@@ -332,11 +350,9 @@ The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, t
 > [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP
 > and the script's binding routes nowhere.
 
-### cswap auto-switching
+### cswap auto-switching (systemd)
 
-`cswap auto` runs a foreground polling loop, so on the Linux server it needs a unit to survive logout and reboot. The
-`local` package ships one; enable it once cswap holds at least two accounts (with one account there is nothing to rotate
-into and the loop idles):
+The `local` package ships `cswap-auto.service`. Enable it once cswap holds at least two accounts:
 
 ```bash
 cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" local
@@ -344,9 +360,8 @@ systemctl --user daemon-reload
 systemctl --user enable --now cswap-auto.service
 ```
 
-It switches when the active account's 5h or 7d window reaches 90%. Tune with `cswap config set autoswitch.threshold
-<pct>`, and check decisions with `journalctl --user -u cswap-auto`. Per-model weekly limits are not watched by default;
-add `--model` to the unit's `ExecStart` to include them.
+Read switch decisions with `journalctl --user -u cswap-auto`. Lingering must be on for the unit to run while logged out
+(`loginctl enable-linger $USER`).
 
 ## Restart Shell
 
