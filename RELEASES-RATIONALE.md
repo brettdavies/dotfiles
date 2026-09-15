@@ -172,20 +172,37 @@ The tag is **bare** (non-annotated): the workflow runs as `github-actions[bot]`,
 `tag.gpgsign = true` globally would make a local annotated tag the only signed option. The release commit is already
 attributable through its squash-merge PR; the tag is just a pointer.
 
-### Why backport with a surgical CHANGELOG copy, by PR
+### Why the synced set is discovered, not listed
 
-`release/*` is cut from `origin/main` and regenerates `CHANGELOG.md` there against `main`'s base. That CHANGELOG commit
-never round-trips to `dev`, so `dev`'s `CHANGELOG.md` freezes behind every release without a deliberate backport.
+`release/*` is cut from `origin/main` and regenerates `CHANGELOG.md` there against `main`'s base. That commit never
+round-trips to `dev`, so `dev`'s `CHANGELOG.md` freezes behind every release without a deliberate backport, and the same
+is true of anything else the release branch edits.
+
+The backport copied a hardcoded `CHANGELOG.md` for its first several releases, on the assumption that the changelog was
+the only thing a release branch ever produced. That assumption is wrong the moment anyone edits the release branch for
+any other reason, and it failed silently rather than loudly: the `2026.09.14` release reverted a stow payload and
+deleted three tmuxinator configs on the branch, the backport copied the changelog alone, and those four paths stayed on
+`main` with nothing reporting the gap. The next release's overlay takes `dev`'s tree, so it would have restored every
+one of them.
+
+A fixed list only ever catches what its author predicted, and the failure mode is invisible. The set is therefore
+computed from the branches themselves, which is the only description that stays true as the release process changes. The
+risk this introduces is the opposite one, clobbering `dev`'s unreleased work, and the previous release tag is what
+bounds it: a path `dev` has not touched since that tag can only have been changed on the release branch, so adopting
+`main`'s copy is safe. A path both sides moved is genuinely ambiguous and gets a human, not a default.
+
+### Why backport with a surgical copy, by PR
 
 The backport is a PR opened by `scripts/sync-dev-after-release.sh`, never a merge of `main` into `dev` and never a
 direct push. `dev` is normally many commits ahead of `main`, the two histories share no ancestry, and `main` carries
 only the release squash plus the regenerated changelog, so a merge conflicts on every file both sides touched and drags
-`main`'s tree state across `dev`'s unreleased work; a direct push bypasses `dev`'s required checks. `CHANGELOG.md` is
-the one file that legitimately diverges, so it's the only file that moves. The fleet template of this script also writes
-the released version into `Cargo.toml`, `package.json`, `pyproject.toml`, or `VERSION`; this repo has no version carrier
-(CI derives the tag from the date), so its copy stays a CalVer, CHANGELOG-only fork rather than growing a `VERSION` file
-that nothing reads. The script refuses to run on a dirty tree or before the GitHub Release is published, and is
-idempotent (no-op when `dev` already matches `main`).
+`main`'s tree state across `dev`'s unreleased work; a direct push bypasses `dev`'s required checks. Only the paths that
+legitimately diverged move, one file at a time, which is what keeps this a copy rather than a merge. The fleet template
+of this script builds its synced set by probing for version carriers (`Cargo.toml`, `package.json`, `pyproject.toml`,
+`VERSION`) and writing the released number into each; this repo has no version carrier, since CI derives the tag from
+the date, so its copy discovers the set from the branch comparison instead and never grows a `VERSION` file that nothing
+reads. The script refuses to run on a dirty tree or before the GitHub Release is published, and is idempotent (no-op
+when `dev` already matches `main`).
 
 ### Rollback
 
