@@ -52,7 +52,9 @@ windows sees two healthy accounts and never fires, while the model the work actu
   the switch must land while the account can still serve, because an agent that hits the wall mid-turn stalls and needs
   a manual restart). Governs R2.
 - Run only on the Linux host; no macOS equivalent (session-settled: user-directed — chosen over a cross-platform
-  deployment: the Mac is interactive, where a person sees the limit and switches). Governs R7.
+  deployment: the Mac is interactive, where a person sees the limit and switches). Governs R7. **Superseded 2026-09-15
+  (user-directed):** the Mac runs unattended sessions too, which is the condition the Outstanding Question named for
+  revisiting. macOS now gets a launchd equivalent, and R7 narrows to the systemd units.
 - Registering the second account is the user's, done on their own schedule; deployment must not wait for it
   (session-settled: user-directed — chosen over blocking the rollout until two accounts exist). Governs R6.
 

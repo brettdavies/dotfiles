@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-    cswap account rotation (macOS). Counterpart to cswap-auto.service on Linux;
-    both run the same `cswap auto` polling loop so switching behaves identically
-    on either platform.
+    cswap account rotation check (macOS). Counterpart to the cswap-auto timer
+    and oneshot unit on Linux; StartInterval is launchd's equivalent of
+    OnCalendar=minutely, and both sides run `auto --once` so a tick holds a
+    refresh token for a fraction of a second rather than continuously.
 
-    KeepAlive rather than StartInterval with `--once`: the loop holds cooldown
-    and hysteresis state between ticks, which a per-tick invocation would
-    discard. ThrottleInterval keeps a crash loop from respawning faster than
-    every 10s.
+    No trip point or model flag here. `cswap config set` applies those to every
+    invocation, so a hand-run tick behaves the same as a scheduled one;
+    scripts/cswap-autoswitch-deploy.sh is what writes them.
 
-    PATH is set explicitly because a LaunchAgent does not inherit the
-    interactive shell environment, and cswap resolves `claude` through it when
-    rewriting credentials.
+    PATH is set explicitly because a LaunchAgent inherits no interactive shell
+    environment, and cswap resolves `claude` through it when rewriting
+    credentials.
 -->
 <plist version="1.0">
 <dict>
@@ -22,13 +22,11 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec cswap auto &gt;&gt; "$HOME/Library/Logs/cswap-auto.log" 2&gt;&gt; "$HOME/Library/Logs/cswap-auto.error.log"</string>
+        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec cswap auto --once &gt;&gt; "$HOME/Library/Logs/cswap-auto.log" 2&gt;&gt; "$HOME/Library/Logs/cswap-auto.error.log"</string>
     </array>
+    <key>StartInterval</key>
+    <integer>60</integer>
     <key>RunAtLoad</key>
     <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>ThrottleInterval</key>
-    <integer>10</integer>
 </dict>
 </plist>

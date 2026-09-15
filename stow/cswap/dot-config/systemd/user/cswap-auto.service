@@ -1,0 +1,21 @@
+[Unit]
+Description=cswap account rotation check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# systemd user units do not inherit the interactive shell PATH, and cswap
+# resolves the `claude` binary through it when rewriting credentials.
+Environment=PATH=%h/.local/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/cswap auto --once
+
+# `auto --once` reports its outcome through the exit code: 0 switched, 2 nothing
+# to do, 3 every account spent so the credential is held. Only 0 is a success to
+# systemd, so without these the routine ticks would each land in the failed-unit
+# list and bury the failures worth seeing.
+SuccessExitStatus=2 3
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true

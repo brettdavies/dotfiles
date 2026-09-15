@@ -46,11 +46,22 @@ Accounts are registered per machine with `cswap add`, or copied from an existing
 `cswap import <path>`. An export is **plaintext credentials**: transfer it over an encrypted channel and delete both
 copies once the import succeeds.
 
-`cswap auto` keeps rotation running in the background, switching when the active account's 5h or 7d window reaches 90%.
-Tune the trip point with `cswap config set autoswitch.threshold <pct>`; per-model weekly limits are not watched unless
-`--model` is added to the command. Supervising that loop is per-OS: launchd on macOS (see
-[macOS-Only Setup](#macos-only-setup)) and systemd on Linux (see [Linux Server Setup](#linux-server-setup)). Enable it
-only once cswap holds at least two accounts, since with one there is nothing to rotate into and the loop idles.
+Rotation runs as a scheduled `cswap auto --once` check, once a minute. The trip point and the rest of the auto-switch
+settings are applied by script rather than by unit flags, so a hand-run check behaves the same as a scheduled one:
+
+```bash
+scripts/cswap-autoswitch-deploy.sh
+```
+
+That pins four keys: the trip point at 99% so a switch lands while the account can still serve, the anti-flap margin at
+2 so that trip point is reachable, the per-model trigger at `all` because a per-model weekly window is often the limit
+that actually binds while the account-wide windows still read healthy, and the API-key-account exclusion, which is
+already the default but is the one setting whose flip would start metered spend. The script is idempotent and reports
+what it changed.
+
+Scheduling the check is per-OS: launchd on macOS (see [macOS-Only Setup](#macos-only-setup)) and a systemd timer on
+Linux (see [Linux Server Setup](#linux-server-setup)). Both are safe to enable with one account registered; ticks report
+that there is nothing to rotate into and rewrite nothing.
 
 ## Clone and Unlock
 
@@ -252,15 +263,17 @@ Repeat the same arrow to cycle 1/2 → 2/3 → 1/3 width.
 
 ### cswap auto-switching (launchd)
 
-The `launchagent` package ships `com.user.cswap-auto.plist`, the counterpart to the Linux unit. Enable it once cswap
-holds at least two accounts:
+The `launchagent` package ships `com.user.cswap-auto.plist`, which runs the same minutely check as the Linux timer.
+Apply the settings first, then load the agent:
 
 ```bash
+bash ~/dotfiles/scripts/cswap-autoswitch-deploy.sh
 cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" launchagent
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.cswap-auto.plist
 ```
 
-Read switch decisions from `~/Library/Logs/cswap-auto.log`.
+Read switch decisions from `~/Library/Logs/cswap-auto.log`. A tick that finds nothing to do exits 2, which launchd
+records without treating it as a crash.
 
 ## Linux Server Setup
 
@@ -352,16 +365,21 @@ The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, t
 
 ### cswap auto-switching (systemd)
 
-The `local` package ships `cswap-auto.service`. Enable it once cswap holds at least two accounts:
+The `cswap` package ships a oneshot unit and the timer that drives it. Apply the settings first, then enable the timer
+rather than the service:
 
 ```bash
-cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" local
+bash ~/dotfiles/scripts/cswap-autoswitch-deploy.sh
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" cswap
 systemctl --user daemon-reload
-systemctl --user enable --now cswap-auto.service
+systemctl --user enable --now cswap-auto.timer
 ```
 
-Read switch decisions with `journalctl --user -u cswap-auto`. Lingering must be on for the unit to run while logged out
-(`loginctl enable-linger $USER`).
+Read switch decisions with `journalctl --user -u cswap-auto`. Lingering must be on for the timer to run while logged out
+(`loginctl enable-linger $USER`); without it the timer looks enabled and never fires after a reboot.
+
+A tick exits 2 when there is nothing to do and 3 when every account is spent and the credential is held. The unit counts
+both as success, so the failed-unit list stays meaningful.
 
 ## Restart Shell
 

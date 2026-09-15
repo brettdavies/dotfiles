@@ -93,6 +93,7 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `claude`             | `.claude/` (settings, hooks, statusline, templates), `.markdownlint-cli2.yaml`                                                   |
 | `codex`              | `.codex/config.toml`                                                                                                             |
 | `codex-proxy`        | systemd user unit for the docker-compose codex-proxy backend (Linux only)                                                        |
+| `cswap`              | systemd timer and oneshot unit running the cswap account rotation check each minute (Linux only)                                 |
 | `cursor`             | `.cursor/rules/`, `extensions.txt`                                                                                               |
 | `gh`                 | `.config/gh/` (GitHub CLI config), `.local/bin/gh` (merge guard wrapper)                                                         |
 | `ghostty`            | `.config/ghostty/config`                                                                                                         |
