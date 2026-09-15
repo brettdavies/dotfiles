@@ -183,6 +183,31 @@ _run_sync() {
   [ "$status" -ne 0 ]
 }
 
+@test "--only narrows the set to the named path" {
+  git -C "$WORK" switch -q dev
+  echo "readme dev" >"$WORK/README.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -q -m "docs: dev edits readme"
+  git -C "$WORK" push -q origin dev
+
+  _release_main bash -c "echo 'readme release' > '$WORK/README.md'; echo 'new changelog' > '$WORK/CHANGELOG.md'"
+
+  # README.md and CHANGELOG.md both diverged; only the changelog is named.
+  _run_sync 2026.02.02 --only CHANGELOG.md
+  [ "$status" -eq 0 ]
+
+  run git -C "$WORK" show --name-only --format= "chore/sync-dev-after-2026.02.02"
+  [[ "$output" == *"CHANGELOG.md"* ]]
+  [[ "$output" != *"README.md"* ]]
+}
+
+@test "--only refuses a path that is not a diverged candidate" {
+  _release_main bash -c "echo 'new changelog' > '$WORK/CHANGELOG.md'"
+  _run_sync 2026.02.02 --only docs/plans/some-plan.md
+  [ "$status" -eq 64 ]
+  [[ "$output" == *"not a diverged, unguarded path"* ]]
+}
+
 @test "rejects an unknown flag" {
   _run_sync 2026.02.02 --bogus
   [ "$status" -eq 64 ]

@@ -41,6 +41,7 @@
 #   ./scripts/sync-dev-after-release.sh 2026.06.03
 #   ./scripts/sync-dev-after-release.sh 2026.06.03.1   # same-day re-release
 #   ./scripts/sync-dev-after-release.sh 2026.06.03 --include-contested
+#   ./scripts/sync-dev-after-release.sh 2026.06.03 --only README.md --only AGENTS.md
 #   ./scripts/sync-dev-after-release.sh 2026.06.03 --dry-run
 #
 # Idempotent: if dev already matches main everywhere that counts, exits 0
@@ -51,13 +52,22 @@ set -euo pipefail
 VERSION=""
 INCLUDE_CONTESTED=false
 DRY_RUN=false
+ONLY=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --include-contested) INCLUDE_CONTESTED=true ;;
     --dry-run) DRY_RUN=true ;;
+    --only)
+      [[ $# -ge 2 ]] || {
+        echo "error: --only needs a path" >&2
+        exit 64
+      }
+      ONLY+=("$2")
+      shift
+      ;;
     -h | --help)
-      echo "usage: $0 YYYY.MM.DD[.N] [--include-contested] [--dry-run]"
+      echo "usage: $0 YYYY.MM.DD[.N] [--include-contested] [--only PATH]... [--dry-run]"
       exit 0
       ;;
     -*)
@@ -193,6 +203,33 @@ done < <(git diff --no-renames --name-only origin/dev origin/main | grep -Ev "$G
 SYNC_PATHS=(${RELEASE_PREP[@]+"${RELEASE_PREP[@]}"})
 if [[ "$INCLUDE_CONTESTED" == true ]]; then
   SYNC_PATHS+=(${CONTESTED[@]+"${CONTESTED[@]}"})
+fi
+
+# --only narrows the set to named paths, contested ones included. The whole-set
+# flag is too blunt on its own: a release leaves some contested paths that
+# should be adopted next to others where dev is deliberately ahead, and the
+# first real run hit exactly that (dependency bumps landed on dev after the
+# release, so main's copies of those workflows are stale and must not win).
+# Intersecting rather than assigning is what keeps this safe -- a path that is
+# guarded, undiverged, or misspelled cannot be forced in by naming it.
+if [[ ${#ONLY[@]} -gt 0 ]]; then
+  ALL_CANDIDATES=(${RELEASE_PREP[@]+"${RELEASE_PREP[@]}"} ${CONTESTED[@]+"${CONTESTED[@]}"})
+  FILTERED=()
+  for want in "${ONLY[@]}"; do
+    matched=false
+    for cand in ${ALL_CANDIDATES[@]+"${ALL_CANDIDATES[@]}"}; do
+      if [[ "$cand" == "$want" ]]; then
+        FILTERED+=("$cand")
+        matched=true
+        break
+      fi
+    done
+    if [[ "$matched" != true ]]; then
+      echo "error: --only $want is not a diverged, unguarded path" >&2
+      exit 64
+    fi
+  done
+  SYNC_PATHS=(${FILTERED[@]+"${FILTERED[@]}"})
 fi
 
 echo "Comparing origin/dev against origin/main since $PREV_TAG"

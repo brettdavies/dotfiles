@@ -271,10 +271,16 @@ The classification is what keeps the copy safe. `dev` is normally many commits a
 version of a file `dev` has moved on would revert unreleased work; a contested path is surfaced for a human instead.
 Guarded paths are excluded outright, because they live on `dev` by design and "syncing" them would delete them.
 
+`--include-contested` takes every contested path at once, which is rarely what a release wants: a dependency bump that
+landed on `dev` after the release makes `main`'s copy of that file stale, and adopting it would revert the bump. `--only
+PATH` (repeatable) names the paths to sync instead, contested ones included. It intersects with the discovered set
+rather than replacing it, so a guarded, undiverged, or misspelled path is refused rather than forced through.
+
 The script refuses to run on a dirty tree or before the GitHub Release is published, and the run is idempotent: if `dev`
 already matches `main`, it exits without opening a PR. Use `--dry-run` to see the classification without creating
-anything. Never merge `main` into `dev` and never push to `dev` directly: the two histories share no ancestry, so a
-merge conflicts on every file both sides touched, and a direct push bypasses `dev`'s required checks.
+anything; start there, because the classification is what tells you which contested paths belong in `--only`. Never
+merge `main` into `dev` and never push to `dev` directly: the two histories share no ancestry, so a merge conflicts on
+every file both sides touched, and a direct push bypasses `dev`'s required checks.
 
 After the backport PR merges, confirm the branches actually converged. This is the check that catches a contested path
 nobody resolved:
