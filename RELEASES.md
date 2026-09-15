@@ -166,7 +166,8 @@ The result is a single commit whose diff against `main` is the release, with `ma
 with zero conflicts. When it merges (squash-only, enforced by `protect-main.json`), the push to `main` triggers
 `release.yml`. Verify it with [§ Tagging and publishing](#tagging-and-publishing) below. Auto-delete removes
 `release/YYYY.MM.DD` from the remote on merge; `dev` is untouched. Once the tag and GitHub Release publish, bring the
-release-only `CHANGELOG.md` back to `dev` with the backport step below.
+release-branch state back to `dev` with the backport step below: the regenerated `CHANGELOG.md`, plus anything else the
+release branch edited that `dev` never received.
 
 → Rationale (why overlay, not merge; why cut from `main`):
 [`RELEASES-RATIONALE.md` § Branching model](./RELEASES-RATIONALE.md#branching-model). CHANGELOG mechanics:
@@ -189,8 +190,10 @@ git diff origin/main..HEAD --stat                                              #
 git diff HEAD..origin/dev --name-only | grep -Ev "$GUARDED" || echo "(none)"   # B: no missed picks
 git diff origin/dev..origin/main --stat | tail -5                              # C: phantom-commits sanity
 
-# Re-confirm no guarded paths leaked.
-git diff origin/main..HEAD --name-only | grep -E "$GUARDED" \
+# Re-confirm no guarded paths leaked. --diff-filter=ACMR for the same reason as
+# check B above: a deletion of a guarded path main still carries is cleanup, not a
+# leak, and an unfiltered grep aborts a correct release over it.
+git diff origin/main..HEAD --diff-filter=ACMR --name-only | grep -E "$GUARDED" \
   && echo "LEAKED: reset and redo" || echo "(clean)"
 
 # D: what this release ADDS to main (see step 5 above for why).
@@ -261,7 +264,16 @@ without a deliberate backport `dev`'s `CHANGELOG.md` freezes at the last release
 the release tag and GitHub Release have published, run:
 
 ```bash
-scripts/sync-dev-after-release.sh "$(git describe --tags --abbrev=0 origin/main)"
+TAG="$(git describe --tags --abbrev=0 origin/main)"
+
+# 1. Classify first. This creates nothing and is what tells you whether any
+#    contested path needs naming in step 2.
+scripts/sync-dev-after-release.sh "$TAG" --dry-run
+
+# 2. Sync. With no contested paths, the bare form is enough. Otherwise name the
+#    ones that should come back; anything left unnamed stays diverged.
+scripts/sync-dev-after-release.sh "$TAG"
+scripts/sync-dev-after-release.sh "$TAG" --only CHANGELOG.md --only README.md
 ```
 
 It discovers what to sync by comparing `origin/dev` against `origin/main` and excluding the guarded set, then lands the
@@ -368,11 +380,11 @@ gh api -X PUT repos/brettdavies/dotfiles/rulesets/<id> --input .github/rulesets/
 ### Version and tags
 
 - **CalVer, computed in CI.** The tag is `YYYY.MM.DD[.N]`, bare (no `v` prefix), created by `release.yml` on every push
-  to `main`. There is no version file in the tree, so the release commit bumps nothing and the backport script copies
-  `CHANGELOG.md` only.
-- **`scripts/sync-dev-after-release.sh`** is this repo's CalVer, CHANGELOG-only variant of the fleet template. The
-  template writes the released version into `Cargo.toml`, `package.json`, `pyproject.toml`, or `VERSION` and creates
-  `VERSION` when none exist; this repo has no carrier and must not grow one, so the script stays a repo-owned fork.
+  to `main`. There is no version file in the tree, so the release commit bumps nothing.
+- **`scripts/sync-dev-after-release.sh`** is this repo's CalVer variant of the fleet template. The template builds its
+  synced set by probing for version carriers (`Cargo.toml`, `package.json`, `pyproject.toml`, `VERSION`) and writing the
+  released number into each; this repo has no carrier and must not grow one, so its copy skips that step entirely and
+  keeps only the branch-comparison discovery both share. That makes it a repo-owned fork rather than a verbatim copy.
 - **`scripts/release/drift.sh` anchors on the newest CalVer tag reachable from `main`.** Gate 0 then checks that `dev`
   already carries that release's `CHANGELOG.md`; a failure there means the backport PR never merged, so run
   `scripts/sync-dev-after-release.sh <tag>` and merge it before cutting the release. `--since <ref>` overrides the

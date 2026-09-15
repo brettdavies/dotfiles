@@ -86,7 +86,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$VERSION" ]]; then
-  echo "usage: $0 YYYY.MM.DD[.N] [--include-contested] [--dry-run]" >&2
+  echo "usage: $0 YYYY.MM.DD[.N] [--include-contested] [--only PATH]... [--dry-run]" >&2
   exit 64
 fi
 # CalVer: YYYY.MM.DD with an optional same-day .N suffix; no leading "v".
