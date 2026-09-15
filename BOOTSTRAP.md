@@ -93,13 +93,13 @@ cd ~/dotfiles/stow
 # --ignore drops the systemd units that cross-platform packages carry.
 stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
-  rust tmux lazygit micro yazi qmd caddy caam gogcli ghostty cursor launchagent
+  rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent
 
 # Headless (shared only)
 stow --dotfiles --no-folding --target="$HOME" \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
   cargo rust tmux lazygit micro yazi rclone qmd obsidian opendataloader-pdf caddy \
-  caam gogcli codex-proxy
+  gogcli codex-proxy
 ```
 
 `tmuxinator` is deliberately absent from both lists: its session configs are read in place from the repo and stowing
