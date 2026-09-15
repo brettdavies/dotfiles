@@ -111,8 +111,12 @@ git checkout -B "release/$(date +%Y.%m.%d)" origin/main
 # 2. Overlay dev's entire tracked tree onto the main base. `checkout -- .` writes dev's
 #    paths but does not delete files that exist on main and are absent on dev, so remove
 #    those next (the 'D' rows are main-only files dev deleted).
+#    --no-renames is load-bearing: with rename detection on, a main-only file git pairs
+#    with any similar dev-side addition is reported as 'R' instead of 'D', drops out of
+#    this list, and ships to main as a file dev already deleted. Verification A catches
+#    it, but only after the changelog step; --no-renames catches it here.
 git checkout origin/dev -- .
-git diff --name-status origin/main origin/dev | grep '^D'
+git diff --no-renames --name-status origin/main origin/dev | grep '^D'
 trash <each main-only file listed above>
 
 # 3. Strip the paths guard-main-docs forbids on main. The set resolves from the workflow;
@@ -133,8 +137,12 @@ git add -A
 git diff --cached --name-only origin/dev | grep -Ev "$GUARDED" \
   | grep -Ev '^CHANGELOG\.md$' \
   && echo "unexpected delta above; investigate" || echo "(clean: only intended deltas)"
-#    B: no guarded path in the release tree.
-git diff --cached --name-only origin/main | grep -E "$GUARDED" \
+#    B: no guarded path in the release tree. --diff-filter=ACMR is load-bearing: a
+#       release that removes guarded docs main still carries from before the guard
+#       existed lists every one of them as a plain diff entry, and an unfiltered grep
+#       reads that cleanup as a leak and aborts a correct release. Only an added or
+#       modified guarded path is a leak; a deleted one is the guard doing its job.
+git diff --cached --diff-filter=ACMR --name-only origin/main | grep -E "$GUARDED" \
   && echo "LEAKED a guarded path: reset and redo" || echo "(no guarded paths)"
 #    D: what this release ADDS to main. The leak check screens against the registered
 #       set, so it is blind to a category nobody registered yet. Every docs/ entry and

@@ -68,21 +68,30 @@ The wrapper handles non-stow symlinks, existing plain files (`--adopt`), and tre
 `--no-folding` and auto-configures `core.hooksPath=.githooks`. The `--headless` flag auto-restores repo versions after
 adopt.
 
-**Manual alternative** (without conflict resolution):
+**Manual alternative** (without conflict resolution). The package sets below must match `SHARED_PACKAGES` and
+`DESKTOP_PACKAGES` in `scripts/stow-deploy`, which are authoritative — read them there rather than trusting this copy if
+the two ever disagree:
 
 ```bash
 cd ~/dotfiles/stow
 
-# macOS (shared + desktop)
-stow --dotfiles --no-folding --target="$HOME" \
+# macOS (shared + desktop). The Linux-only packages are omitted: stow-deploy
+# skips rclone, obsidian, opendataloader-pdf, codex-proxy, and cargo on Darwin.
+# --ignore drops the systemd units that cross-platform packages carry.
+stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
-  tmux tmuxinator lazygit micro yazi caam gogcli ghostty cursor launchagent
+  rust tmux lazygit micro yazi qmd caddy caam gogcli ghostty cursor launchagent
 
 # Headless (shared only)
 stow --dotfiles --no-folding --target="$HOME" \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
-  tmux tmuxinator lazygit micro yazi rclone qmd obsidian opendataloader-pdf caam gogcli
+  cargo rust tmux lazygit micro yazi rclone qmd obsidian opendataloader-pdf caddy \
+  caam gogcli codex-proxy
 ```
+
+`tmuxinator` is deliberately absent from both lists: its session configs are read in place from the repo and stowing
+them would shadow the source of truth. `ollama` is also absent — it targets `/etc`, not `$HOME` (see
+[stow/ollama/README.md](stow/ollama/README.md)).
 
 ### Restow After Changes
 
@@ -294,17 +303,17 @@ Caddy listens on `127.0.0.1:11500` only and forwards to `127.0.0.1:11434`.
 
 ### Tailscale Serve
 
-`bigdaddy` serves `svc:ollama` over Tailscale Serve as a tailnet service VIP, the single embedding backend shared across
-the tailnet. tailscaled keeps serve config in its own state, but a binding can be dropped by a daemon restart or version
-upgrade while the `AdvertiseServices` pref survives, leaving a service advertised with nothing bound. Re-establish the
-config in one idempotent run (the script fail-fasts if the Caddy proxy above is not up):
+The GPU server serves `svc:ollama` over Tailscale Serve as a tailnet service VIP, the single embedding backend shared
+across the tailnet. tailscaled keeps serve config in its own state, but a binding can be dropped by a daemon restart or
+version upgrade while the `AdvertiseServices` pref survives, leaving a service advertised with nothing bound.
+Re-establish the config in one idempotent run (the script fail-fasts if the Caddy proxy above is not up):
 
 ```bash
 bash ~/dotfiles/scripts/tailscale-serve-setup.sh
 ```
 
 The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, then Caddy, then Ollama), then prints
-`tailscale serve status`. It is host-gated to `bigdaddy` and safe to re-run.
+`tailscale serve status`. It is gated to that one host and safe to re-run.
 
 > **One-time admin step:** the service host must be approved once in the
 > [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP

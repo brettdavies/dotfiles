@@ -36,6 +36,12 @@ To add a new package:
 
 1. Create `stow/<package-name>/` with `dot-` prefixed files
 2. Add the package name to `SHARED_PACKAGES` or `DESKTOP_PACKAGES` in `scripts/stow-deploy`
+3. If the package genuinely cannot deploy through stow, add it to `NOT_DEPLOYED` in `tests/stow-deploy-packages.bats`
+   with the reason instead
+
+A `stow/` directory in no package set and no exemption list fails `tests/stow-deploy-packages.bats`. That gate exists
+because the alternative failure is silent: the machine it was hand-stowed on works, and the next host simply lacks the
+config with nothing pointing back at the omission.
 
 **Tree folding:** `stow-deploy` passes `--no-folding` globally. This prevents stow from creating directory-level
 symlinks (which would pollute the repo when programs write into symlinked dirs). Individual file symlinks are created
@@ -72,6 +78,7 @@ are version-controlled in `config/systemd/system/` and deployed via dedicated sc
 **Current units:**
 
 - `mnt-nas.mount` + `mnt-nas.automount` — deployed by `scripts/nas-deploy.sh`
+- `apparmor-playwright.service` — deployed by `scripts/apparmor-deploy.sh` alongside the profile it reloads at boot
 
 **Pattern for adding new system-level units:**
 
@@ -299,9 +306,15 @@ commit and push; CI stays the backstop. `.githooks/lib/report.sh` holds the shar
 
 - **`main`** -- stable release branch, deployed to all machines. Protected by GitHub ruleset: requires PR to merge,
   squash-only, signed commits.
-- **`dev`** -- integration branch. Protected by GitHub ruleset: signed commits required.
-- **Feature branches** -- created from `dev` (e.g., `feat/user-auth`, `fix/shell-startup`). Merged to `dev` via PR, then
-  `dev` merged to `main` when ready.
+- **`dev`** -- integration branch. Protected by GitHub ruleset: signed commits required. Never deleted.
+- **Feature branches** -- created from `dev` (e.g., `feat/user-auth`, `fix/shell-startup`). Merged to `dev` via PR.
+- **`release/YYYY.MM.DD`** -- cut from `main`, carries `dev`'s tree as a forward diff, and is the only permitted head of
+  a PR to `main` (`guard-release-branch.yml` enforces the pattern).
+
+`dev` is never merged into `main` and `main` is never merged into `dev`. The two branches share no common ancestor, so
+either merge produces conflicts on every file both sides touched. Releases go through the overlay recipe in
+[RELEASES.md](RELEASES.md#releasing-dev-to-main), and the released `CHANGELOG.md` returns to `dev` through
+`scripts/sync-dev-after-release.sh`, which copies that one file by PR.
 
 Never commit directly to `main`. All work goes through feature branches and PRs.
 
@@ -345,11 +358,14 @@ All shell scripts and hooks in this repo follow these conventions:
 
 All workflows live in `.github/workflows/`. When adding or modifying actions:
 
-- **Node.js 24 required:** Set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a top-level `env` in every workflow.
-  Node.js 20 actions are deprecated and will stop working after June 2, 2026.
-- **Commit signing:** The release bot (`github-actions[bot]`) creates unsigned commits. The `dev` branch ruleset
-  requires signed commits, so bot commits from `main` cannot be merged into `dev` directly. Sync `main` into `dev` via
-  GitHub UI merge or cherry-pick only signed commits.
+- **Node.js 24 required:** Set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a top-level `env` in every workflow that
+  runs JavaScript actions. Node.js 20 actions are no longer supported by the runner.
+- **Commit signing:** The release bot (`github-actions[bot]`) creates unsigned commits, and the `dev` ruleset requires
+  signed commits, so nothing from `main` can be merged into `dev`. This is one of the reasons the post-release backport
+  is a surgical `CHANGELOG.md` copy on a fresh branch (`scripts/sync-dev-after-release.sh`) rather than a branch merge.
+- **Guard workflows:** `guard-main-docs.yml`, `guard-main-provenance.yml`, and `guard-release-branch.yml` run only on
+  PRs to `main` and are required checks there. They call first-party reusables in `brettdavies/.github`, which are
+  pinned to `@main` deliberately; third-party actions still require commit SHAs.
 
 ---
 

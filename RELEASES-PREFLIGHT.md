@@ -63,8 +63,10 @@ The `.githooks/pre-push` hook runs the same `shellcheck`, `actionlint`, and `bat
 
 - [ ] `scripts/lint-shell --all`, `scripts/lint-workflows --all`, and `scripts/run-tests --all` are clean; the simplest
   trigger is a no-op `git push` on `dev`.
-- [ ] `markdownlint-cli2` clean on any docs in the release (the auto-format hook keeps this green during editing;
-  confirm nothing slipped).
+- [ ] `markdownlint-cli2` clean on any prose docs in the release (the auto-format hook keeps this green during editing;
+  confirm nothing slipped). `CHANGELOG.md` is the standing exception: the generator emits one logical line per bullet so
+  GitHub soft-wraps it, which trips `MD013` on every section including the released ones. Hand-wrapping it to satisfy
+  the linter would contradict "never hand-edit `CHANGELOG.md`", so the violations stay.
 
 ### Changelog completeness
 
@@ -75,10 +77,12 @@ on.
   (pure refactor / test / CI). Spot-check the borderline ones: `gh pr view <num> --json body`. A PR with no changelog
   content contributes its title as a `Changed` bullet unless the title is a `chore` / `ci` / `build` / `style` / `test`
   type.
-- [ ] No shipping PR's title was mistyped `chore`/`style`/`test`/`ci`/`build` while carrying user-facing `## Changelog`
-  content. `--from-dev-prs` reads titles and bodies from GitHub, so fix the PR title there (`gh pr edit <num> --title`)
-  before generating (see
-  [`RELEASES-RATIONALE.md` § CHANGELOG generation](./RELEASES-RATIONALE.md#changelog-generation)).
+- [ ] No shipping PR combines an *empty* `## Changelog` with a `chore`/`style`/`test`/`ci`/`build` title while actually
+  shipping something user-facing. That pair is the only one `--from-dev-prs` drops: a body with changelog content is
+  extracted whatever the title says, and the title is consulted only as the no-body fallback. Fix it by adding the
+  bullets to the PR body (`gh pr edit <num> --body-file`), which is what the generator re-reads. A cherry-picked release
+  is stricter — `git-cliff` drops those types before any body is fetched, so there the title itself has to be corrected
+  (see [`RELEASES-RATIONALE.md` § CHANGELOG generation](./RELEASES-RATIONALE.md#changelog-generation)).
 
 ### Cross-platform deploy sanity
 
