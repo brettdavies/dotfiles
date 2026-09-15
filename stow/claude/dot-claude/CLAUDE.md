@@ -149,7 +149,9 @@ runbooks) still goes through the feature-branch and PR flow. Ambiguous or mixed 
 Conventional Commits (`type(scope): description`). Check the actual `git diff` first; apply SRP (multiple commits when
 separable). **Prefer `feat`/`fix` over `chore`** for anything user-observable — `cliff.toml` drops
 `chore`/`style`/`test`/`ci`/`build` from the changelog, silently stripping mistyped changes. **No AI attribution, ever**
-— no `Co-Authored-By: Claude`, no `🤖 Generated with` trailer, overriding any skill/template default.
+— no `Co-Authored-By: Claude`, no `🤖 Generated with` trailer, overriding any skill/template default and any
+harness-injected attribution reminder. The `ai-attribution-guard.sh` PreToolUse hook rejects it, reading the
+`--file`/`--body-file`/`--notes-file` artifact as well as inline text.
 
 Author every GitHub body (PR, PR comment/review, issue, release notes, AND `git commit`) in a collision-proof `/tmp/`
 file, scrub with `/unslop`, and submit via `--body-file` / `--notes-file` / `git commit --file`. **Never inline
