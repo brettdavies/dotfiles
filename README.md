@@ -162,7 +162,19 @@ usual way one gets there, because `sudo` scrubs `TMUXINATOR_CONFIG` and falls ba
 tmux server at UID 0, invisible to your own `tmux ls`. Run tmuxinator as yourself.
 
 Every config defines the same 3-pane working layout: yazi on the left (1/3 width, full height), a bare shell top-right
-(2/3 × 2/3), and lazygit bottom-right (2/3 × 1/3). All three panes start in the project's root.
+(2/3 × 2/3), and lazygit bottom-right (2/3 × 1/3), except where the paragraph below notes otherwise. All three panes
+start in the project's root.
+
+tmuxinator renders each config through ERB before parsing it, which is how `vault.yml` serves both machines from one
+file: it branches on `RUBY_PLATFORM`, rooting at the server's checkout on Linux and at the Taildrive share
+(`/Volumes/vault`) on macOS. On macOS an `on_project_start` hook runs `taildrive-mount vault` and ends the start script
+when the share does not mount, so no session is created with its panes pointed at a missing directory. The bottom-right
+pane there is a plain shell rather than lazygit, because the share exposes the vault's files but not its git dir.
+`tests/tmuxinator-configs.bats` renders both branches and checks the emitted script.
+
+The guard covers an absent share, not a wedged one: tmuxinator emits `cd <root>` ahead of every hook, so a mount whose
+server has gone away blocks the start script on that `cd` before `taildrive-mount` can report anything. Recover with
+`taildrive-unmount` (or `diskutil unmount force /Volumes/vault`) and start again.
 
 Start or attach to a configured session with `tmuxinator start <name>` — it creates the session on the first call and
 attaches on every subsequent call, so the same command works whether or not the session is already running:
