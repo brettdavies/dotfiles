@@ -1,5 +1,10 @@
 name: Vault
-root: ~/obsidian-vault
+# The checkout lives on the Linux server. macOS reaches it through the
+# Taildrive WebDAV share at /Volumes/vault, where the checkout's git dir
+# (a `gitdir:` pointer into the server's filesystem) is out of reach, so
+# lazygit only runs server-side.
+<% mac = RUBY_PLATFORM.include?("darwin"); share = "vault" %>
+root: <%= mac ? "/Volumes/#{share}" : "~/obsidian-vault" %>
 
 windows:
   - main:
@@ -7,7 +12,14 @@ windows:
       panes:
         - command -v y >/dev/null && y || yazi
         -
-        - lazygit
+        - <%= mac ? nil : "lazygit" %>
+
+<% if mac %>
+# tmuxinator runs hooks under /bin/sh, which never loads config/shell, so the
+# helper needs a zsh of its own. Hook exit codes are otherwise ignored; without
+# the mount every pane would land in a missing directory, so bail instead.
+on_project_start: zsh -c 'taildrive-mount <%= share %>' || exit 1
+<% end %>
 
 on_project_first_start: |
   (
