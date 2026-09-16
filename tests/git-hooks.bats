@@ -64,6 +64,53 @@ HOOKS_DIR="$BATS_TEST_DIRNAME/../.githooks"
 }
 
 # ---------------------------------------------------------------------------
+# pre-commit / pre-push symmetry
+#
+# The two gates differ only in scope: pre-commit checks staged paths, pre-push
+# checks the repository. Everything else — which checks run, how they report,
+# how they are scheduled — is shared, so a change to one cannot silently leave
+# the other behind.
+# ---------------------------------------------------------------------------
+
+@test "both gates route their checks through the same three scripts" {
+  for script in lint-shell lint-workflows run-tests; do
+    grep -q "scripts/$script" "$HOOKS_DIR/pre-commit"
+    grep -q "scripts/$script" "$HOOKS_DIR/pre-push"
+  done
+}
+
+@test "both gates report through the shared library" {
+  for hook in pre-commit pre-push; do
+    grep -q 'lib/report\.sh' "$HOOKS_DIR/$hook"
+  done
+}
+
+@test "both gates schedule through the shared library" {
+  for hook in pre-commit pre-push; do
+    grep -q 'gate_begin' "$HOOKS_DIR/$hook"
+    grep -q 'gate_spawn' "$HOOKS_DIR/$hook"
+    grep -q 'gate_collect' "$HOOKS_DIR/$hook"
+  done
+}
+
+@test "neither gate carries its own copy of a shared helper" {
+  # A local redefinition is how the two drift apart: the hook keeps working, so
+  # nothing fails, and the shared library quietly stops being the one source.
+  for hook in pre-commit pre-push; do
+    run grep -nE '^[[:space:]]*gate_[a-z]+\(\)' "$HOOKS_DIR/$hook"
+    [ "$status" -ne 0 ]
+  done
+}
+
+@test "the shared library defines every gate helper the hooks call" {
+  local lib="$HOOKS_DIR/lib/report.sh"
+  for fn in gate_header gate_pass gate_skip gate_fail gate_done \
+    gate_begin gate_end gate_spawn gate_collect; do
+    grep -qE "^$fn\(\)" "$lib"
+  done
+}
+
+# ---------------------------------------------------------------------------
 # pre-commit: branch protection
 # ---------------------------------------------------------------------------
 

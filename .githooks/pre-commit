@@ -48,42 +48,52 @@ if [ "${#staged[@]}" -eq 0 ]; then
   exit 0
 fi
 
+mapfile -t staged_wf < <(printf '%s\n' "${staged[@]}" | grep '^\.github/workflows/.*\.ya\?ml$' || true)
+mapfile -t staged_bats < <(printf '%s\n' "${staged[@]}" | grep '\.bats$' || true)
+
 gate_header "Running pre-commit checks..."
+
+# The three gates are independent, so they run together through the same
+# scheduler .githooks/pre-push uses. There is no perf suite to isolate here:
+# pre-commit never runs tests/perf, only the staged test files.
+gate_begin
 
 # 1. ShellCheck — .github/workflows/shellcheck.yml, staged subset
 if command -v shellcheck >/dev/null 2>&1; then
-  ./scripts/lint-shell "${staged[@]}" || gate_fail "lint-shell (staged)"
-  gate_pass "shellcheck"
+  gate_spawn shellcheck ./scripts/lint-shell "${staged[@]}"
+fi
+# 2. actionlint — same CI job as ShellCheck, staged workflow files only. The
+#    script filters non-workflow paths, so the staged list can be passed whole.
+if [ "${#staged_wf[@]}" -gt 0 ] && command -v actionlint >/dev/null 2>&1; then
+  gate_spawn actionlint ./scripts/lint-workflows "${staged_wf[@]}"
+fi
+# 3. Bats — .github/workflows/bats.yml, staged test files only. A test broken by
+#    its own edit surfaces here; the full suite still runs in pre-push.
+if [ "${#staged_bats[@]}" -gt 0 ] && command -v bats >/dev/null 2>&1; then
+  gate_spawn bats ./scripts/run-tests "${staged_bats[@]}"
+fi
+wait
+
+if command -v shellcheck >/dev/null 2>&1; then
+  gate_collect shellcheck "shellcheck" "lint-shell (staged)"
 else
   gate_skip "shellcheck (install via \`brew install shellcheck\`)"
 fi
 
-# 2. actionlint — same CI job as ShellCheck, staged workflow files only. The
-#    script filters non-workflow paths, so the staged list can be passed whole.
-mapfile -t staged_wf < <(printf '%s\n' "${staged[@]}" | grep '^\.github/workflows/.*\.ya\?ml$' || true)
-if [ "${#staged_wf[@]}" -gt 0 ]; then
-  if command -v actionlint >/dev/null 2>&1; then
-    ./scripts/lint-workflows "${staged_wf[@]}" || gate_fail "lint-workflows (staged)"
-    gate_pass "actionlint (${#staged_wf[@]} file(s))"
-  else
-    gate_skip "actionlint (install via \`brew install actionlint\`)"
-  fi
-else
+if [ "${#staged_wf[@]}" -eq 0 ]; then
   gate_skip "actionlint (no staged workflow files)"
+elif command -v actionlint >/dev/null 2>&1; then
+  gate_collect actionlint "actionlint (${#staged_wf[@]} file(s))" "lint-workflows (staged)"
+else
+  gate_skip "actionlint (install via \`brew install actionlint\`)"
 fi
 
-# 3. Bats — .github/workflows/bats.yml, staged test files only. A test broken by
-#    its own edit surfaces here; the full suite still runs in pre-push.
-mapfile -t staged_bats < <(printf '%s\n' "${staged[@]}" | grep '\.bats$' || true)
-if [ "${#staged_bats[@]}" -gt 0 ]; then
-  if command -v bats >/dev/null 2>&1; then
-    ./scripts/run-tests "${staged_bats[@]}" || gate_fail "run-tests (staged)"
-    gate_pass "bats (${#staged_bats[@]} file(s))"
-  else
-    gate_skip "bats (install via \`brew install bats-core\`)"
-  fi
-else
+if [ "${#staged_bats[@]}" -eq 0 ]; then
   gate_skip "bats (no staged test files)"
+elif command -v bats >/dev/null 2>&1; then
+  gate_collect bats "bats (${#staged_bats[@]} file(s))" "run-tests (staged)"
+else
+  gate_skip "bats (install via \`brew install bats-core\`)"
 fi
 
 gate_done "Pre-commit checks passed."

@@ -6,11 +6,14 @@
 #
 #   1. lint-shell --all      .github/workflows/shellcheck.yml
 #   2. lint-workflows --all  .github/workflows/shellcheck.yml (same job)
-#   3. run-tests --all       .github/workflows/bats.yml
+#   3. run-tests --all       .github/workflows/bats.yml, split across the two
+#                            phases below so the perf suite keeps a quiet
+#                            machine while the rest overlaps the lint gates
 #
 # Each command owns its own target list, and .githooks/pre-commit calls the
-# same three scripts over staged paths, so the three gates cannot drift apart.
-# Adding a CI job means adding a step here that calls the same script.
+# same three scripts over staged paths through the same shared scheduler, so
+# the three gates cannot drift apart in coverage or in execution model. Adding
+# a CI job means adding a step here that calls the same script.
 #
 # A missing tool skips its step with an install hint rather than failing, so a
 # machine without the full toolchain can still push; CI remains the backstop.
@@ -33,22 +36,28 @@ cd "$REPO_ROOT"
 # this hook; the skip decision needs them to see what the push delivers.
 PUSH_REFS=$(cat || true)
 
+# Here-strings, not pipes, for every reader of these refs below. A consumer
+# that stops reading early — `git lfs pre-push` exiting without draining stdin,
+# `grep -q` stopping at its first match — leaves the producing side of a pipe
+# writing into a closed pipe. It takes SIGPIPE, `pipefail` promotes that 141 to
+# the pipeline's status, and `set -e` aborts the push, or the `if` below reads
+# it as a scope decision. A here-string has no concurrent producer to kill.
 chain_lfs() {
   if command -v git-lfs >/dev/null 2>&1; then
-    printf '%s' "$PUSH_REFS" | git lfs pre-push "$@"
+    git lfs pre-push "$@" <<<"$PUSH_REFS"
   fi
 }
 
 # The gate has nothing to read when the push delivers nothing, and nothing to
 # read when it delivers only files no check looks at. A scope that cannot be
 # resolved runs everything: a mirror errs toward running.
-if delivered=$(printf '%s\n' "$PUSH_REFS" | push_delivered_files); then
+if delivered=$(push_delivered_files <<<"$PUSH_REFS"); then
   if [ -z "$delivered" ]; then
     gate_skip "push delivers no content, skipping shellcheck + bats"
     chain_lfs "$@"
     exit 0
   fi
-  if ! printf '%s\n' "$delivered" | push_files_gate_relevant; then
+  if ! push_files_gate_relevant <<<"$delivered"; then
     gate_skip "markdown-only push, skipping shellcheck + bats"
     chain_lfs "$@"
     exit 0
@@ -57,27 +66,44 @@ fi
 
 gate_header "Running local CI checks..."
 
+# The perf suite asserts on shell-startup wall-clock, so it runs alone before
+# anything else touches the machine. Overlapping it with the lint gates fails
+# it with nothing about the shell config having changed.
+if command -v bats >/dev/null 2>&1; then
+  ./scripts/run-tests --perf-only || gate_fail "run-tests --perf-only"
+fi
+
+# The remaining gates are independent, so they run together through the shared
+# scheduler .githooks/pre-commit also uses.
+gate_begin
+
 # 1. ShellCheck — .github/workflows/shellcheck.yml
+# 2. actionlint — same CI job. actionlint shells out to shellcheck for `run:`
+#    blocks, which is a read-only dependency and safe to overlap.
+# 3. Bats — .github/workflows/bats.yml, perf suite already done above.
 if command -v shellcheck >/dev/null 2>&1; then
-  ./scripts/lint-shell --all || gate_fail "lint-shell --all"
-  gate_pass "shellcheck"
+  gate_spawn shellcheck ./scripts/lint-shell --all
+fi
+if command -v actionlint >/dev/null 2>&1; then
+  gate_spawn actionlint ./scripts/lint-workflows --all
+fi
+if command -v bats >/dev/null 2>&1; then
+  gate_spawn bats ./scripts/run-tests --no-perf
+fi
+wait
+
+if command -v shellcheck >/dev/null 2>&1; then
+  gate_collect shellcheck "shellcheck" "lint-shell --all"
 else
   gate_skip "shellcheck (install via \`brew install shellcheck\`)"
 fi
-
-# 2. actionlint — same CI job as ShellCheck. Ordered after it because actionlint
-#    shells out to shellcheck for `run:` blocks.
 if command -v actionlint >/dev/null 2>&1; then
-  ./scripts/lint-workflows --all || gate_fail "lint-workflows --all"
-  gate_pass "actionlint"
+  gate_collect actionlint "actionlint" "lint-workflows --all"
 else
   gate_skip "actionlint (install via \`brew install actionlint\`)"
 fi
-
-# 3. Bats — .github/workflows/bats.yml
 if command -v bats >/dev/null 2>&1; then
-  ./scripts/run-tests --all || gate_fail "run-tests --all"
-  gate_pass "bats"
+  gate_collect bats "bats" "run-tests --no-perf"
 else
   gate_skip "bats (install via \`brew install bats-core\`)"
 fi
