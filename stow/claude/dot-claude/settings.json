@@ -318,6 +318,9 @@
       "Bash(perl -pi -e 's#\\\\Q[`docs/architecture/voice-enforcement.md`]\\(./docs/architecture/voice-enforcement.md\\)\\\\E#`docs/architecture/voice-enforcement.md`#g' RELEASES.md RELEASES-RATIONALE.md)",
       "Bash(perl -pi -e 's#\\\\Q[`docs/architecture/`]\\(docs/architecture/\\)\\\\E#`docs/architecture/`#g' PRODUCT.md)",
       "Bash(tailscale serve *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr edit *)",
+      "Bash(gh pr merge *)",
       "Bash(caddy *)"
     ],
     "deny": [
@@ -335,9 +338,7 @@
     "ask": [
       "Bash(apt:*)",
       "Bash(docker:*)",
-      "Bash(gh pr create *)",
-      "Bash(gh pr edit *)",
-      "Bash(gh pr merge *)",
+      "Bash(gh pr close *)",
       "Bash(gh repo create *)",
       "Bash(killall:*)",
       "Bash(ln:*)",
@@ -616,5 +617,6 @@
   "awaySummaryEnabled": false,
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
-  "agentPushNotifEnabled": true
+  "agentPushNotifEnabled": true,
+  "autoContinueAtUsageLimit": false
 }
