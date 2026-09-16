@@ -227,3 +227,36 @@ each requires a tool version recent enough to honor it — older versions silent
 paired with a version floor for every PM it covers. The gate is enforced via shell env vars (covering interactive and
 shell-launched processes) and, where the tool supports a global config file, written into that file (covering cron,
 systemd units, and other non-shell invocations).
+
+## Local checks
+
+### Local gate
+
+A check that runs on the developer's own machine at a git lifecycle point and mirrors what continuous integration would
+check, so the same verdict is reached before the work leaves the machine. Gates come in a pair that differs in scope and
+in nothing else: one runs at commit time over the staged paths and stays fast enough that nobody reaches for a bypass
+flag, the other runs at push time over the whole repository. Both route through one shared library, so a check exists
+once and the pair cannot drift into different coverage or different execution models.
+
+A local gate is a compensating control rather than a convenience. Where continuous integration has been thinned to one
+run per change, the gate is the only check some work ever gets, so a gate that silently passes leaves nothing behind it.
+Activation is per clone and does not travel with the checkout, which makes an unwired gate the common failure: it looks
+identical to a passing one.
+
+### Guard hook
+
+A hook that inspects a proposed action before it happens and answers allow or deny, as opposed to a *local gate*, which
+checks content that already exists. A guard's answer is its entire output: it signals deny by emitting a structured
+refusal and allow by emitting nothing at all, so silence is a verdict rather than an absence of one.
+
+That encoding is what makes a guard's failure mode asymmetric. Any path that ends without an explicit refusal reads as
+permission, so a guard that errors, exits early, or misreads its own check allows the thing it exists to block, and does
+so indistinguishably from a genuine pass. Guards therefore need their allow path tested as deliberately as their deny
+path, and a guard whose verdict is derived from an exit status needs that status to be unambiguous.
+
+## Flagged ambiguities
+
+- "Gate" names two different things: a *supply-chain age gate* is a policy applied to package resolution, while a *local
+  gate* is a check that runs at a git lifecycle point. These are distinct.
+- A *guard hook* answers allow or deny about an action that has not happened yet; a *local gate* checks content that
+  already exists. Both are sometimes called "hooks" informally, since both are installed as such.
