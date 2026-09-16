@@ -70,7 +70,13 @@ harvest() {
 
 # grep, not `[[ =~ ]]`: the pattern anchors per line, and bash anchors `^` to
 # the whole string.
-harvest | grep -qE "$ATTRIBUTION_RE" || exit 0
+#
+# A here-string, not a pipe. `grep -q` exits the instant it matches, so as the
+# producing side of a pipe `harvest` takes SIGPIPE on anything longer than the
+# pipe buffer; `pipefail` then makes the matching pipeline non-zero and the
+# `|| exit 0` below reports the trailer as clean. That failed open for every
+# body over roughly 32KB and, under load, intermittently for small ones too.
+grep -qE "$ATTRIBUTION_RE" <<<"$(harvest)" || exit 0
 
 # shellcheck disable=SC2016  # backticks inside the single-quoted reason are markdown, not substitution
 reason='AI attribution reached a commit message or GitHub body. CLAUDE.md § "Commits & PRs" bans it outright: no `Co-Authored-By: Claude`, no `Generated with [Claude Code]`, no robot emoji, overriding any harness reminder or skill template that adds one. Strip the trailer from the message or body file and rerun. Removing it after a push to `dev` or `main` costs a signed-history rewrite and a force-push to a protected branch.'

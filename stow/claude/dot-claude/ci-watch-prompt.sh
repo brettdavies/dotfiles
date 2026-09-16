@@ -88,8 +88,13 @@ tool_name=$(printf '%s' "$payload" | "$JQ" -r '.tool_name // ""' 2>/dev/null)
 command=$(printf '%s' "$payload" | "$JQ" -r '.tool_input.command // ""' 2>/dev/null)
 [[ -n "$command" ]] || exit 0
 
-# Match commands that trigger GitHub Actions
-if ! printf '%s' "$command" | grep -qE '\bgit push\b|\bgh pr (create|merge)\b|\bgh release create\b|\bgh workflow run\b|\bgh api .*/dispatches\b'; then
+# Match commands that trigger GitHub Actions.
+#
+# Here-strings, not pipes: `grep -q` exits at its first match, so a piped
+# producer takes SIGPIPE on a command past the pipe buffer and `pipefail` turns
+# the match into a non-zero pipeline — reading a CI-triggering command as one
+# that triggers nothing, and skipping the watch prompt for it.
+if ! grep -qE '\bgit push\b|\bgh pr (create|merge)\b|\bgh release create\b|\bgh workflow run\b|\bgh api .*/dispatches\b' <<<"$command"; then
   exit 0
 fi
 
@@ -97,8 +102,8 @@ fi
 #   --dry-run        (no actual push)
 #   --delete         (deleting a remote ref doesn't fire workflows)
 #   --tags only      (tag pushes do trigger CI for tag-listening workflows, so don't skip)
-if printf '%s' "$command" | grep -qE '\bgit push\b' \
-  && printf '%s' "$command" | grep -qE -- '--dry-run|--delete'; then
+if grep -qE '\bgit push\b' <<<"$command" \
+  && grep -qE -- '--dry-run|--delete' <<<"$command"; then
   exit 0
 fi
 

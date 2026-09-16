@@ -2,13 +2,26 @@
 # Single source of truth for which bats suites run and in what order.
 #
 # Consumed by three callers that must not drift apart:
-#   .github/workflows/bats.yml  --all      (CI)
-#   .githooks/pre-push          --all      (mirrors CI)
-#   .githooks/pre-commit        <file>...  (staged test files only)
+#   .github/workflows/bats.yml  --all                    (CI)
+#   .githooks/pre-push          --perf-only, --no-perf   (mirrors CI)
+#   .githooks/pre-commit        <file>...                (staged test files)
 #
 # Usage:
-#   scripts/run-tests --all       run the perf suite, then the main suite
-#   scripts/run-tests FILE...     run the given .bats files
+#   scripts/run-tests --all        the perf suite, then the main suite
+#   scripts/run-tests --perf-only  the perf suite alone
+#   scripts/run-tests --no-perf    the main suite alone
+#   scripts/run-tests FILE...      run the given .bats files
+#
+# The perf suite measures shell-startup latency against a budget, so it runs
+# alone on an unloaded machine and is never parallelized. The main suite runs
+# one bats process per file, up to RUN_TESTS_JOBS at a time (default: one per
+# core). Each file's output is buffered and replayed whole, in argument order,
+# behind a `# <file>` marker: nothing interleaves, and every file carries its
+# own TAP plan and its own test numbering rather than one run-wide sequence.
+# RUN_TESTS_JOBS=1 restores the single combined stream.
+#
+# The split modes exist so .githooks/pre-push can hold the machine quiet for
+# the perf suite and then overlap the main suite with its lint gates.
 #
 # Exit 0 when everything passes, 1 on a test failure, 2 on usage error,
 # 3 when bats is not installed.
@@ -20,7 +33,7 @@ EXIT_USAGE=2
 EXIT_DEPENDENCY=3
 
 if [ "$#" -eq 0 ]; then
-  echo "usage: $0 --all | $0 FILE..." >&2
+  echo "usage: $0 --all | $0 --perf-only | $0 --no-perf | $0 FILE..." >&2
   exit "$EXIT_USAGE"
 fi
 
@@ -43,23 +56,93 @@ _bats() {
     bats "$@"
 }
 
-if [ "$1" = "--all" ]; then
-  [ "$#" -eq 1 ] || {
-    echo "run-tests: --all takes no other arguments" >&2
-    exit "$EXIT_USAGE"
-  }
+_cpu_count() {
+  if command -v nproc >/dev/null 2>&1; then
+    nproc
+  elif command -v sysctl >/dev/null 2>&1; then
+    sysctl -n hw.ncpu 2>/dev/null || echo 4
+  else
+    echo 4
+  fi
+}
 
-  # Startup latency first, while nothing else has loaded the machine. Measured
-  # after the main suite, the several hundred shells it spawns push interactive
-  # zsh past its budget with nothing about the config having changed.
-  if compgen -G "tests/perf/*.bats" >/dev/null; then
-    _bats tests/perf/*.bats || exit "$EXIT_FAILURE"
+# One bats process per file, bounded by RUN_TESTS_JOBS. Each job buffers its
+# own output and records its own status, so nothing interleaves and a failure
+# is attributed to the file that produced it.
+_run_parallel() {
+  local jobs outdir rc=0 running=0 file key status
+  jobs="${RUN_TESTS_JOBS:-$(_cpu_count)}"
+  case "$jobs" in
+    '' | *[!0-9]*) jobs=1 ;;
+  esac
+  [ "$jobs" -ge 1 ] || jobs=1
+
+  if [ "$jobs" -eq 1 ] || [ "$#" -le 1 ]; then
+    _bats "$@" || return "$EXIT_FAILURE"
+    return 0
   fi
-  if compgen -G "tests/*.bats" >/dev/null; then
-    _bats tests/*.bats || exit "$EXIT_FAILURE"
-  fi
-  exit 0
-fi
+
+  outdir="$(mktemp -d)"
+  for file in "$@"; do
+    key="$(printf '%s' "$file" | tr '/' '_')"
+    # errexit is off inside the job so a failing suite still records its
+    # status; without this the job dies at the failure and leaves no status
+    # file, which would read as a missing result rather than a test failure.
+    {
+      set +e
+      _bats "$file" >"$outdir/$key.out" 2>&1
+      printf '%s' "$?" >"$outdir/$key.rc"
+    } &
+    running=$((running + 1))
+    if [ "$running" -ge "$jobs" ]; then
+      wait -n
+      running=$((running - 1))
+    fi
+  done
+  wait
+
+  for file in "$@"; do
+    key="$(printf '%s' "$file" | tr '/' '_')"
+    # Each block restarts its own TAP numbering, so name the file it belongs
+    # to. A TAP comment, so anything parsing the stream ignores it.
+    printf '# %s\n' "$file"
+    [ -f "$outdir/$key.out" ] && cat "$outdir/$key.out"
+    status="$(cat "$outdir/$key.rc" 2>/dev/null || true)"
+    [ "$status" = "0" ] || rc="$EXIT_FAILURE"
+  done
+  rm -rf "$outdir"
+  return "$rc"
+}
+
+_run_perf() {
+  compgen -G "tests/perf/*.bats" >/dev/null || return 0
+  # Serial and alone: these assert on wall-clock, and a loaded machine fails
+  # them with nothing about the shell config having changed.
+  _bats tests/perf/*.bats || return "$EXIT_FAILURE"
+}
+
+_run_main() {
+  compgen -G "tests/*.bats" >/dev/null || return 0
+  _run_parallel tests/*.bats || return "$EXIT_FAILURE"
+}
+
+case "$1" in
+  --all | --perf-only | --no-perf)
+    [ "$#" -eq 1 ] || {
+      echo "run-tests: $1 takes no other arguments" >&2
+      exit "$EXIT_USAGE"
+    }
+    case "$1" in
+      --all)
+        _run_perf || exit "$EXIT_FAILURE"
+        _run_main || exit "$EXIT_FAILURE"
+        ;;
+      --perf-only) _run_perf || exit "$EXIT_FAILURE" ;;
+      --no-perf) _run_main || exit "$EXIT_FAILURE" ;;
+    esac
+    exit 0
+    ;;
+esac
 
 targets=()
 for f in "$@"; do

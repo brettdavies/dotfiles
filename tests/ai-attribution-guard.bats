@@ -189,3 +189,54 @@ quotes noreply@anthropic.com mid-sentence still passes.')
 @test "empty command → ALLOW" {
   [ "$(classify '')" = "ALLOW" ]
 }
+
+# ---------------------------------------------------------------------------
+# Large bodies
+#
+# The scan must not depend on how much text surrounds the trailer. Scanning
+# through a pipe made it depend on exactly that: `grep -q` stops at its first
+# match, so on a body past the pipe buffer the producing side took SIGPIPE,
+# `pipefail` made the matching pipeline non-zero, and the guard reported the
+# trailer as clean. Deterministic above ~32KB, intermittent below it.
+# ---------------------------------------------------------------------------
+
+# Echoes $1 bytes of filler.
+_padding() {
+  head -c "$1" /dev/zero | tr '\0' 'x'
+}
+
+@test "a trailer stays denied however large the inline body is" {
+  local pad
+  # Capped below Linux's 128KB ceiling on a single argv string: past that the
+  # command cannot reach the hook at all, so there is nothing to scan. 70KB
+  # already clears the pipe buffer, which is what this is about.
+  for size in 8000 70000; do
+    pad=$(_padding "$size")
+    [ "$(classify "git commit -m \"fix: thing
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+
+$pad\"")" = "DENY" ]
+  done
+}
+
+@test "a trailer stays denied however large the body file is" {
+  local f pad
+  for size in 70000 200000; do
+    pad=$(_padding "$size")
+    f=$(fixture msg.md "fix: thing
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+
+$pad")
+    [ "$(classify "git commit --file $f")" = "DENY" ]
+  done
+}
+
+@test "a large clean body is still allowed" {
+  local f
+  f=$(fixture msg.md "fix: thing
+
+$(_padding 200000)")
+  [ "$(classify "git commit --file $f")" = "ALLOW" ]
+}
