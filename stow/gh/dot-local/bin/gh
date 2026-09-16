@@ -14,11 +14,15 @@ if [[ "${GH_MERGE_GUARD_PID:-}" == "$$" ]]; then
 fi
 
 # Find real gh by walking PATH, skipping this wrapper under any spelling
-# (symlinked alias dir, trailing slash, a checkout's stow tree on PATH).
+# (symlinked alias dir, trailing slash, a checkout's stow tree on PATH) and
+# any separate copy of it (a worktree or scratch clone deploys the same
+# script under another inode). The real gh is a binary, so a candidate that
+# carries the guard marker is a wrapper.
 find_real_gh() {
   local IFS=':'
   for dir in $PATH; do
     [[ "$dir/gh" -ef "$self" ]] && continue
+    grep -qs 'GH_MERGE_GUARD_PID' "$dir/gh" && continue
     [[ -x "$dir/gh" ]] && {
       echo "$dir/gh"
       return

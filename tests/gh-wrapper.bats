@@ -23,8 +23,13 @@ teardown() {
   rm -rf "$TMP"
 }
 
+# Resolves an absolute path because every caller runs `timeout` under a
+# constructed PATH that omits the Homebrew prefix. Probing the ambient PATH and
+# then invoking the bare name passes the guard on macOS and still dies at 127,
+# since GNU coreutils installs no /usr/bin/timeout there.
 _require_timeout() {
-  command -v timeout >/dev/null 2>&1 || skip "timeout not installed"
+  TIMEOUT_BIN="$(command -v timeout || true)"
+  [ -n "$TIMEOUT_BIN" ] || skip "timeout not installed"
 }
 
 # ---------------------------------------------------------------------------
@@ -58,7 +63,24 @@ _require_timeout() {
   # The alias dir sits ahead of the fake real gh. A wrapper that fails to
   # recognise the alias as itself execs it and spins in place; timeout turns
   # that spin into exit 124 instead of a hung test.
-  run env HOME="$TMP/home" PATH="$FAKE_PATH" timeout 3 "$WRAPPER" --version
+  run env HOME="$TMP/home" PATH="$FAKE_PATH" "$TIMEOUT_BIN" 3 "$WRAPPER" --version
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -eq 0 ]
+  [ "$output" = "fake real gh" ]
+  [ -e "$FAKE_GH_MARKER" ]
+}
+
+@test "gh wrapper skips a separate copy of itself on PATH" {
+  _require_timeout
+  # A second checkout (a worktree, a fleet scratch clone) puts another copy of
+  # this wrapper on PATH: same content, different inode, so an identity check
+  # alone hands it to exec and the guard fires. The real gh is a binary; a
+  # candidate carrying the guard marker is a wrapper and must be skipped.
+  mkdir -p "$TMP/copy"
+  cp "$WRAPPER" "$TMP/copy/gh"
+  chmod +x "$TMP/copy/gh"
+  run env HOME="$TMP/home" PATH="$TMP/copy:$TMP/real:/usr/bin:/bin" "$TIMEOUT_BIN" 3 "$WRAPPER" --version
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -70,7 +92,7 @@ _require_timeout() {
   _require_timeout
   # exec keeps the PID, so a wrapper that execs itself arrives with its own
   # PID already in the marker. Reproduce that hop without the PATH walk.
-  run env HOME="$TMP/home" PATH="$FAKE_PATH" timeout 3 \
+  run env HOME="$TMP/home" PATH="$FAKE_PATH" "$TIMEOUT_BIN" 3 \
     bash -c 'export GH_MERGE_GUARD_PID=$$; exec "$1" --version' _ "$WRAPPER"
   echo "status=$status"
   echo "output=$output"
@@ -86,7 +108,7 @@ _require_timeout() {
   # name again. It inherits the ancestor's marker but runs under its own PID,
   # so the guard must not fire.
   run env HOME="$TMP/home" PATH="$FAKE_PATH" GH_MERGE_GUARD_PID=1 \
-    timeout 3 "$WRAPPER" --version
+    "$TIMEOUT_BIN" 3 "$WRAPPER" --version
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
