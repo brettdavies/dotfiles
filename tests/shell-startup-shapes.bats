@@ -149,6 +149,17 @@ _skip_unless_deployed() {
   [[ "$output" == *"DEFINED"* ]]
 }
 
+# The Vault session's on_project_start hook is `zsh -c 'taildrive-mount vault'`,
+# run from a tmuxinator script under /bin/sh. It reaches the helper only
+# through the rc chain, so a break anywhere in it strands the session.
+@test "a bare zsh -c defines taildrive-mount, the way the Vault hook reaches it" {
+  _skip_unless_deployed
+  [ "$(uname -s)" = "Darwin" ] || skip "taildrive helpers are macOS-only"
+  run _gui_shell zsh -c 'typeset -f taildrive-mount >/dev/null && echo DEFINED'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"DEFINED"* ]]
+}
+
 # ---------------------------------------------------------------------------
 # Functional: shells descended from a GUI shell (must keep working)
 # ---------------------------------------------------------------------------
