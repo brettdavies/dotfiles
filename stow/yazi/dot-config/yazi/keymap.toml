@@ -9,8 +9,10 @@
 #   l / →     enter directory or open file (same as smart-enter)
 #   h / ←     go up to parent directory
 #   o         open with default opener
+#             (Linux: on the Mac the session is driven from, else locally;
+#             Enter on a file does the same)
 #   e         open in editor ($EDITOR)
-#   O         open-with picker
+#   O         open-with picker (lists the local openers too)
 #   y/x/p     yank (copy) / cut / paste
 #   d         trash   D = delete permanently
 #   a         create file (append / for directory)

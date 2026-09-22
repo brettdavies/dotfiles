@@ -18,29 +18,51 @@ ratio = [1, 2, 5]
 show_hidden = true
 
 [opener]
-# Use $EDITOR from shell profile (macOS: code --wait, Linux: micro).
-# `block = true` pauses yazi while the editor is open, resumes on exit.
-# `%s` is yazi's placeholder for selected file path(s).
+# On Linux, `edit` and `mac-view` hand the file to the Mac the session is driven
+# from (mac-open), and yazi runs only the first opener a rule lists, so the
+# `||` fallback is how the local editor still takes the file when the Mac cannot.
+# `block = true` pauses yazi while the command holds the terminal; `%s` is every
+# selected path. Entries marked `for = "linux"` never run on the Mac.
 edit = [
+  { run = "mac-open edit %s || ${EDITOR:-micro} %s", block = true, desc = "VS Code on the Mac", for = "linux" },
   { run = "$EDITOR %s", block = true, desc = "$EDITOR", for = "unix" },
 ]
-
-# PDF "read" opener — pressing `o` on a PDF gives a fully selectable, searchable
-# text view, not the cramped preview pane. Per-platform routing via `for`:
-#   macOS → Preview.app (visual rendering, native text selection)
-#   Linux → pdftotext into a tempfile, opened in micro
-# Linux needs the tempfile hop because micro can't initialize its TUI when
-# stdin is consumed by a pipe; the trailing `rm -f` cleans up after micro exits.
-read-pdf = [
-  { run = 'open %s', desc = "Preview.app", for = "macos" },
-  { run = 'tmp=$(mktemp) && pdftotext -layout %s "$tmp" && micro "$tmp"; rm -f "$tmp"', block = true, desc = "text in micro", for = "linux" },
+edit-local = [
+  { run = "$EDITOR %s", block = true, desc = "$EDITOR", for = "unix" },
+]
+mac-view = [
+  { run = "mac-open view %s", block = true, desc = "Mac default app", for = "linux" },
 ]
 
-# Route PDFs to `read-pdf` instead of the generic `open`. `prepend_rules` adds
-# this in front of yazi's default rules without replacing them.
+# PDF "read" opener: a readable view rather than the cramped preview pane.
+#   macOS → Preview.app
+#   Linux → the Mac's PDF app, else pdftotext into a tempfile opened in micro
+# The braces make the whole text view the fallback: `||` and `&&` bind equally
+# in sh, so without them pdftotext would also run after a successful hand-off.
+# micro needs the tempfile because it can't start its TUI on a piped stdin.
+read-pdf = [
+  { run = 'open %s', desc = "Preview.app", for = "macos" },
+  { run = 'mac-open view %s || { tmp=$(mktemp) && pdftotext -layout %s "$tmp" && micro "$tmp"; rm -f "$tmp"; }', block = true, desc = "Mac PDF app, else text in micro", for = "linux" },
+]
+
+# The full rule table, replacing yazi's built-in one rather than prepending to
+# it, so the `*` catch-all can send unknown binaries to the Mac without
+# shadowing the text rules above it. Rows other than folder, PDF, image,
+# audio/video, and the catch-all are yazi 26.9.1's preset; diff against
+# yazi-config/preset/yazi-default.toml in the yazi source on each upgrade.
 [open]
-prepend_rules = [
+rules = [
+  { mime = "folder/*", use = [ "edit-local", "open", "reveal" ] },
+  { mime = "text/*", use = [ "edit", "reveal" ] },
+  { mime = "application/{json,ndjson,javascript,wine-extension-ini}", use = [ "edit", "reveal" ] },
+  { mime = "inode/empty", use = [ "edit", "reveal" ] },
   { mime = "application/pdf", use = "read-pdf" },
+  { mime = "image/*", use = [ "mac-view", "open", "reveal" ] },
+  { mime = "{audio,video}/*", use = [ "mac-view", "play", "reveal" ] },
+  { mime = "application/{zip,rar,7z*,tar,gzip,xz,zstd,bzip*,lzma,compress,archive,cpio,arj,xar,ms-cab*}", use = [ "extract", "reveal" ] },
+  { mime = "vfs/{absent,stale}", use = "download" },
+  { mime = "trash/**", use = [ "open", "trash" ] },
+  { url = "*", use = [ "mac-view", "open", "reveal" ] },
 ]
 
 # Markdown preview via piper plugin + glow
