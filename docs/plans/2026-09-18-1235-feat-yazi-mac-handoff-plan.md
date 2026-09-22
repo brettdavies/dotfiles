@@ -246,9 +246,10 @@ Outside this work:
   an SSH session is settled by U1.
 - The Mac's non-interactive shell does not have `code` on `PATH`, only Homebrew, `~/.local/bin`, and `bun`; R13 exists
   because of this.
-- The Mac accepts the shared SSH key as well as this server's own key (verified 2026-09-22). Any other Linux host that
-  carries the shared key therefore gets the hand-off too, provided its `hostname -s` matches a `Host` alias in the Mac's
-  SSH config (or `MAC_OPEN_SERVER_ALIAS` names one).
+- The Mac accepts only this server's own SSH key and refuses the shared key (verified 2026-09-22 with the SSH config
+  bypassed and one key offered at a time). From any other Linux host, a session driven from the Mac passes the guard but
+  the dial is refused, so every open there falls back to the local opener after a fast `Permission denied`; the
+  hand-off reaches another host only once the Mac's `authorized_keys` carries that host's key.
 - An SSH session on the Mac cannot list `~/Downloads` or `/Volumes/<share>` ("Operation not permitted") but could create
   a file in `~/Downloads` (verified 2026-09-22). Whether the copy route's rename, byte-count check, and `open` work
   there without Remote Login's "Allow full disk access for remote users" is settled by U1.
@@ -368,7 +369,8 @@ settles; the two "Validate" assumptions point at U1. Existing R-IDs, F-IDs, and 
   the Mac; the symptom U1 records for a Remote Login file-access refusal maps to a line naming System Settings → General
   → Sharing → Remote Login → "Allow full disk access for remote users"; `not-from-mac` names what decided it (the server
   console, or the tailnet node it saw) and says the hand-off runs only from a session attached from `MAC_OPEN_HOST`;
-  `unreachable` says to check that the Mac is awake with Remote Login on; `timed-out` says the Mac stopped answering
+  `unreachable` says to check that the Mac is awake with Remote Login on, or, when ssh's line is `Permission denied`,
+  that the Mac's `authorized_keys` does not carry this host's key; `timed-out` says the Mac stopped answering
   after connecting; `short-copy` gives the bytes that arrived against the bytes expected and says to retry or move the
   file under a share to open it in place; `not-a-file` says directories open locally. When `YAZI_ID` is in the
   environment, the same text goes through `ya emit notify:push --title=mac-open --content=… --level=warn --timeout=8`
@@ -635,6 +637,8 @@ before the live acceptance pass.
   - `view` with two files under different shares produces two remote calls, one per share.
   - Covers AE5. `ssh` exit 255 with `Host key verification failed.` on its stderr → stderr `mac-open: unreachable: Host
     key verification failed.` plus the next-step clause, a warn notification, exit non-zero.
+  - `ssh` exit 255 with `Permission denied (publickey)` on its stderr → the next step names the Mac's
+    `authorized_keys`, not Remote Login.
   - Each reason in KTD7's closed set, driven through its stub, ends with its next-step clause (one assertion per
     reason).
   - Covers AE6. `ssh` exit 1 with `mac-open-here: code-cli-missing` on stderr → stderr `mac-open: remote-failed:
