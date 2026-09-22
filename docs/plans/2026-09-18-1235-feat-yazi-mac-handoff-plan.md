@@ -248,8 +248,8 @@ Outside this work:
   because of this.
 - The Mac accepts only this server's own SSH key and refuses the shared key (verified 2026-09-22 with the SSH config
   bypassed and one key offered at a time). From any other Linux host, a session driven from the Mac passes the guard but
-  the dial is refused, so every open there falls back to the local opener after a fast `Permission denied`; the
-  hand-off reaches another host only once the Mac's `authorized_keys` carries that host's key.
+  the dial is refused, so every open there falls back to the local opener after a fast `Permission denied`; the hand-off
+  reaches another host only once the Mac's `authorized_keys` carries that host's key.
 - An SSH session on the Mac cannot list `~/Downloads` or `/Volumes/<share>` ("Operation not permitted") but could create
   a file in `~/Downloads` (verified 2026-09-22). Whether the copy route's rename, byte-count check, and `open` work
   there without Remote Login's "Allow full disk access for remote users" is settled by U1.
@@ -333,14 +333,15 @@ settles; the two "Validate" assumptions point at U1. Existing R-IDs, F-IDs, and 
   the edit and view routes, and 20 s plus 1 s per MiB of the file for the copy route, whose duration grows with size.
   `-n` keeps `ssh` off the inherited terminal, because `timeout` runs it in its own process group where a read of the
   TTY would stop it until the bound fires; the copy route drops `-n` since it feeds the file on stdin. Exit 255 →
-  `unreachable: <ssh's first stderr line>` (one exit code covers a sleeping Mac, a refused key, and a changed host key,
-  so the line quotes ssh); 124 → `timed-out`; 127 (the Mac's shell found no receiver) → `receiver-missing`; 2 (the
-  receiver's usage error, which is what an older receiver returns for a newer call) → `receiver-outdated`; any other
-  non-zero → `remote-failed: <first stderr line from the Mac>`. Exit 127 and exit 2 were observed through SSH on
-  2026-09-22. Rationale: a separate probe would double the round trip for no extra information, KTD9 already establishes
-  that the Mac is on the tailnet before anything is dialed, and the existing bounded-SSH shape in
-  `scripts/claude-token-totals` is the repo's precedent. The Mac target is the SSH alias (env override `MAC_OPEN_HOST`);
-  the server's own alias for `ssh-remote+` is `hostname -s` (env override `MAC_OPEN_SERVER_ALIAS`). Governs R11, R12.
+  `unreachable: <ssh's last stderr line>` (one exit code covers a sleeping Mac, a refused key, and a changed host key,
+  so the line quotes ssh; its verdict comes last, after any warning or host-key banner); 124 → `timed-out`; 127 (the
+  Mac's shell found no receiver) → `receiver-missing`; 2 (the receiver's usage error, which is what an older receiver
+  returns for a newer call) → `receiver-outdated`; any other non-zero → `remote-failed: <first stderr line from the
+  Mac>`. Exit 127 and exit 2 were observed through SSH on 2026-09-22. Rationale: a separate probe would double the round
+  trip for no extra information, KTD9 already establishes that the Mac is on the tailnet before anything is dialed, and
+  the existing bounded-SSH shape in `scripts/claude-token-totals` is the repo's precedent. The Mac target is the SSH
+  alias (env override `MAC_OPEN_HOST`); the server's own alias for `ssh-remote+` is `hostname -s` (env override
+  `MAC_OPEN_SERVER_ALIAS`). Governs R11, R12.
 - KTD5. **The share-root table comes from `tailscale drive list` at run time.** `mac-open view` parses the `name path
   as` table (header validated, whitespace-split), resolves the file with `realpath`, and picks the longest matching
   root; a parse failure or no match means the copy route with the reason recorded. Rationale: the daemon's own list is
@@ -361,30 +362,44 @@ settles; the two "Validate" assumptions point at U1. Existing R-IDs, F-IDs, and 
   the receiver as a plain EOF, which would otherwise open a truncated file. Governs R7, R9.
 - KTD7. **Reasons are a closed set, printed on stderr and pushed as a yazi notification.** `mac-open` prints `mac-open:
   <reason>` where reason is one of `not-from-mac: …`, `unreachable`, `timed-out`, `remote-failed: …`, `short-copy`,
-  `not-a-file`, `receiver-missing`, `receiver-outdated`, and, on success of the copy route, an info notice `opened a
-  copy at ~/Downloads/mac-open/<file> on the Mac; edits there do not write back`. Every reason line ends with one clause
-  naming the next step (session-settled: user-directed — for the reasons a first run can hit, chosen to meet the
-  under-2-minute setup target over documenting the fixes only in the README; for the rest, chosen over leaving them as
-  bare status codes). `receiver-missing` and `receiver-outdated` say to run `git pull && scripts/stow-deploy local` on
-  the Mac; the symptom U1 records for a Remote Login file-access refusal maps to a line naming System Settings → General
-  → Sharing → Remote Login → "Allow full disk access for remote users"; `not-from-mac` names what decided it (the server
-  console, or the tailnet node it saw) and says the hand-off runs only from a session attached from `MAC_OPEN_HOST`;
-  `unreachable` says to check that the Mac is awake with Remote Login on, or, when ssh's line is `Permission denied`,
-  that the Mac's `authorized_keys` does not carry this host's key; `timed-out` says the Mac stopped answering
-  after connecting; `short-copy` gives the bytes that arrived against the bytes expected and says to retry or move the
-  file under a share to open it in place; `not-a-file` says directories open locally. When `YAZI_ID` is in the
+  `not-a-file`, `receiver-missing`, `receiver-outdated`, a `share-table` warning when `tailscale drive list` cannot be
+  parsed and every file is copied instead, and, on success of the copy route, an info notice `opened a copy at
+  ~/Downloads/mac-open/<file> on the Mac; edits there do not write back`. Every reason line ends with one clause naming
+  the next step (session-settled: user-directed — for the reasons a first run can hit, chosen to meet the under-2-minute
+  setup target over documenting the fixes only in the README; for the rest, chosen over leaving them as bare status
+  codes). `receiver-missing` and `receiver-outdated` say to run `git pull && scripts/stow-deploy local` on the Mac; the
+  Remote Login file-access refusal, which macOS reports as `Operation not permitted` (U1 steps 4 and 7), maps to the
+  receiver's `no-disk-access` line naming System Settings → General → Sharing → Remote Login → "Allow full disk access
+  for remote users", reported as `remote-failed: mac-open-here: no-disk-access: …`; `not-from-mac` names what decided it
+  (the server console, or the tailnet node it saw) and says the hand-off runs only from a session attached from
+  `MAC_OPEN_HOST`; `unreachable` says to check that the Mac is awake with Remote Login on, or, when ssh's line is
+  `Permission denied`, that the Mac's `authorized_keys` does not carry this host's key; `timed-out` says the Mac stopped
+  answering after connecting; `short-copy` gives the bytes that arrived against the bytes expected and says to retry or
+  move the file under a share to open it in place; `not-a-file` says directories open locally. When `YAZI_ID` is in the
   environment, the same text goes through `ya emit notify:push --title=mac-open --content=… --level=warn --timeout=8`
-  (info level for the copy notice); U1 confirms that form, and if yazi already reports a failed blocking opener's stderr
-  on its own, the explicit emit is dropped. Governs R7, R12.
+  (info level for the copy notice), the form U1 step 1 confirmed; yazi shows nothing of a failed blocking opener's
+  stderr on its own. yazi counts a notification's timeout from its arrival (U1: emitted with a 5 s timeout inside a
+  blocking opener, it was gone 2 s after yazi resumed), and under `sh -c "mac-open … || micro …"` the fallback editor
+  holds the terminal after `mac-open` exits. So when `mac-open`'s parent is the opener's `sh`, a detached child sends
+  the notification once that shell exits, and the reason is on screen when yazi redraws; any other parent (yazi itself,
+  when `sh` execs a lone `mac-open view %s`) gets it at once. `ya emit` fails with `Incompatible version` while a yazi
+  older than `ya` hosts the shared DDS socket; a failed emit changes neither the exit status nor the stderr line.
+  Governs R7, R12.
 - KTD8. **Mac-side invariants.** VS Code is addressed at `/Applications/Visual Studio
   Code.app/Contents/Resources/app/bin/code` (env override `MAC_OPEN_CODE_CLI`) as `--reuse-window --remote
   ssh-remote+<server-alias> <paths…>`, which VS Code treats as files when they carry an extension and for which
   `--file-uri vscode-remote://ssh-remote+<alias><path>` is the unambiguous form for extension-less files. Mounting is
   `zsh -c 'taildrive-mount <share>'`, idempotent and already exercised by
   `stow/tmuxinator/dot-config/tmuxinator/vault.yml`. Every launched GUI process is started with stdin, stdout, and
-  stderr detached and disowned, so the SSH session ends when the receiver exits rather than when the app does. The
-  receiver never stats a path under `/Volumes`. A cold-start `open -b com.microsoft.VSCode --args …` branch exists only
-  if U1 shows the CLI cannot launch the app. Governs R3, R6, R13.
+  stderr detached and disowned, so the SSH session ends when the receiver exits rather than when the app does; `open`
+  itself runs in the foreground, because it returns once LaunchServices has the request and its exit status is the only
+  report of a missing file or of no app for the type. Without Remote Login's full disk access, `open` of a share path
+  still exits 0 and the app then refuses the file (U1 step 4: Preview's "you don't have permission to view it"), so
+  before `open` the receiver lists `/Volumes/<share>` once, the read that fails with `Operation not permitted` in
+  exactly that state, and reports `no-disk-access`; it never stats the files themselves. The copy route needs no such
+  access (U1 step 7). With VS Code running, the CLI returned in about 1 s over SSH and a second file reused the
+  server-connected window (U1 step 2); the operator deferred the cold start (U1 step 3), so there is no `open -b
+  com.microsoft.VSCode --args …` branch. Governs R3, R6, R13.
 - KTD9. **The client-origin guard reads the SSH connection behind the terminal and asks Tailscale who it is.** Before
   classifying anything, `mac-open` finds the `SSH_CONNECTION` of the session that is driving yazi: inside tmux, from the
   environment of the most recently active client attached to the pane's own session (`tmux list-clients` scoped to that
@@ -394,7 +409,10 @@ settles; the two "Validate" assumptions point at U1. Existing R-IDs, F-IDs, and 
   environment. The connection's client address is resolved with `tailscale whois --json`, and the hand-off proceeds only
   when the node's computed name equals the Mac alias (`MAC_OPEN_HOST`, which is also the node's name on the tailnet,
   verified 2026-09-18). No `SSH_CONNECTION` means the server console; a different node means another client; both are
-  `not-from-mac` reasons in KTD7's closed set, each carrying the detail that decided it. Rationale: the tmux client's
+  `not-from-mac` reasons in KTD7's closed set, each carrying the detail that decided it. U1 step 6 confirmed the
+  mechanism: each tmux client's `/proc` environment carries that client's own `SSH_CONNECTION` (none for a client
+  attached without SSH), `tailscale whois --json` on the Mac's address returns the alias as `ComputedName`, and the most
+  recent client follows both a new attach and the next keypress on another client. Rationale: the tmux client's
   environment is the live connection, whereas the pane shell's inherited `SSH_CONNECTION` is frozen at pane creation and
   goes stale across re-attaches; `tailscale whois` resolves an address to a node in one local call with no table to
   maintain. Governs R11, R14.
@@ -637,8 +655,8 @@ before the live acceptance pass.
   - `view` with two files under different shares produces two remote calls, one per share.
   - Covers AE5. `ssh` exit 255 with `Host key verification failed.` on its stderr → stderr `mac-open: unreachable: Host
     key verification failed.` plus the next-step clause, a warn notification, exit non-zero.
-  - `ssh` exit 255 with `Permission denied (publickey)` on its stderr → the next step names the Mac's
-    `authorized_keys`, not Remote Login.
+  - `ssh` exit 255 with `Permission denied (publickey)` on its stderr → the next step names the Mac's `authorized_keys`,
+    not Remote Login.
   - Each reason in KTD7's closed set, driven through its stub, ends with its next-step clause (one assertion per
     reason).
   - Covers AE6. `ssh` exit 1 with `mac-open-here: code-cli-missing` on stderr → stderr `mac-open: remote-failed:
