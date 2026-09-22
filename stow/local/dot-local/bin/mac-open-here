@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# mac-open-here — the Mac half of the yazi hand-off. `mac-open` on the Linux
+# server runs it over SSH to put a server file on this Mac's screen, then
+# returns as soon as the app has been asked to open it; nothing waits on the app.
+#
+# Usage:
+#   mac-open-here edit <server-alias> <path>...        VS Code, through Remote-SSH
+#   mac-open-here view <share> <mac-path>...           default app, in place on
+#                                                      the Taildrive share
+#   mac-open-here receive <basename> <size> < file     default app, from a copy
+#                                                      in ~/Downloads/mac-open
+#
+# `receive` prints the copy's path on stdout. Every failure is one
+# `mac-open-here: <reason>: …` line on stderr that ends with the fix, exit 1;
+# a malformed call is exit 2, which `mac-open` reads as an outdated receiver.
+#
+# Env: MAC_OPEN_CODE_CLI overrides the VS Code CLI path.
+set -euo pipefail
+
+CODE_CLI=${MAC_OPEN_CODE_CLI:-/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code}
+COPY_DIR="$HOME/Downloads/mac-open"
+DISK_ACCESS_FIX='allow it in System Settings > General > Sharing > Remote Login (i) > "Allow full disk access for remote users"'
+
+die() {
+  echo "mac-open-here: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat >&2 <<'EOF'
+usage: mac-open-here edit <server-alias> <path>...
+       mac-open-here view <share> <mac-path>...
+       mac-open-here receive <basename> <size-in-bytes> < file
+EOF
+  exit 2
+}
+
+first_line() {
+  local line=${1%%$'\n'*}
+  line=${line#"${line%%[![:space:]]*}"}
+  printf '%s' "$line"
+}
+
+# macOS answers an SSH session without Remote Login's full disk access with
+# "Operation not permitted", which is the one refusal worth naming a fix for.
+refused() {
+  local step=$1 err=$2 fix=$3
+  [[ $err == *"Operation not permitted"* ]] &&
+    die "no-disk-access: $(first_line "$err"); $DISK_ACCESS_FIX"
+  die "$step-failed: $(first_line "$err"); $fix"
+}
+
+# The app outlives this script; with its stdio still on the SSH channel, the
+# session would stay open until the app quit.
+detach() {
+  "$@" </dev/null >/dev/null 2>&1 &
+  disown
+}
+
+# VS Code treats an extension-less path given with --remote as a folder, so
+# such a file goes by URI. A leading dot is not an extension (`.bashrc`).
+has_extension() {
+  local base=${1##*/}
+  base=${base#.}
+  [[ $base == *.* && $base != *. ]]
+}
+
+uri_path() {
+  local LC_ALL=C s=$1 out='' c i
+  for ((i = 0; i < ${#s}; i++)); do
+    c=${s:i:1}
+    case $c in
+      [A-Za-z0-9/._~-]) out+=$c ;;
+      *)
+        printf -v c '%%%02X' "'$c"
+        out+=$c
+        ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+cmd_edit() {
+  (($# >= 2)) || usage
+  local alias=$1 p
+  shift
+  [[ -x $CODE_CLI ]] ||
+    die "code-cli-missing: no VS Code CLI at $CODE_CLI; install VS Code or set MAC_OPEN_CODE_CLI"
+  local args=(--reuse-window --remote "ssh-remote+$alias")
+  for p in "$@"; do
+    if has_extension "$p"; then
+      args+=("$p")
+    else
+      args+=(--file-uri "vscode-remote://ssh-remote+$alias$(uri_path "$p")")
+    fi
+  done
+  detach "$CODE_CLI" "${args[@]}"
+}
+
+cmd_view() {
+  (($# >= 2)) || usage
+  local share=$1 err
+  shift
+  # The child zsh expands $1; taildrive-mount is a function its profile defines.
+  # shellcheck disable=SC2016
+  err=$(zsh -c 'taildrive-mount "$1"' zsh "$share" 2>&1 >/dev/null) ||
+    die "mount-failed: $(first_line "$err"); run 'taildrive-mount $share' on the Mac for the full output"
+  # `open` exits 0 even when the app is then refused the file, so the share
+  # root is read here: the listing fails exactly when the app's read would.
+  err=$(ls "/Volumes/$share" 2>&1 >/dev/null) ||
+    refused share "$err" "run 'taildrive-mount $share' on the Mac and check /Volumes/$share"
+  err=$(open "$@" 2>&1 </dev/null) || refused open "$err" "check the file still exists on the server"
+}
+
+cmd_receive() {
+  (($# == 2)) || usage
+  local name=$1 size=$2 err stamp part dest got n=1
+  [[ $size =~ ^[0-9]+$ ]] || usage
+  [[ -n $name && $name != */* && $name != . && $name != .. ]] || usage
+
+  local fix="check that ~/Downloads on the Mac is writable and has room"
+  err=$(mkdir -p "$COPY_DIR" 2>&1) || refused copy "$err" "$fix"
+  stamp=$(date +%s)
+  part="$COPY_DIR/$stamp-$name.part"
+  err=$({ cat >"$part"; } 2>&1) || refused copy "$err" "$fix"
+
+  # A cut stream reaches here as an ordinary EOF, so the byte count is the
+  # only sign that the copy is short.
+  got=$(wc -c <"$part" | tr -d ' ')
+  if [[ $got != "$size" ]]; then
+    rm -f "$part"
+    die "short-copy: $got of $size bytes arrived; retry, or move the file under a share to open it in place"
+  fi
+
+  dest="$COPY_DIR/$stamp-$name"
+  while [[ -e $dest ]]; do
+    n=$((n + 1))
+    dest="$COPY_DIR/$stamp-$n-$name"
+  done
+  err=$(mv "$part" "$dest" 2>&1) || refused copy "$err" "$fix"
+  err=$(open "$dest" 2>&1 </dev/null) || refused open "$err" "open $dest from Finder to see why"
+  printf '%s\n' "~${dest#"$HOME"}"
+}
+
+[[ $(uname -s) == Darwin ]] ||
+  die "not-macos: runs only on the Mac, where mac-open on the server calls it over SSH"
+
+cmd=${1:-}
+(($#)) && shift
+case $cmd in
+  edit) cmd_edit "$@" ;;
+  view) cmd_view "$@" ;;
+  receive) cmd_receive "$@" ;;
+  *) usage ;;
+esac
