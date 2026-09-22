@@ -1,0 +1,277 @@
+#!/usr/bin/env bash
+# mac-open — the server half of the yazi hand-off. yazi's openers on the Linux
+# server run it to put files on the screen of the Mac this session is driven
+# from, and fall back to the local opener when it exits non-zero.
+#
+# Usage: mac-open edit <path>...   VS Code on the Mac, editing the server's file
+#                                  in place through Remote-SSH
+#        mac-open view <path>...   the Mac's default app: in place when a
+#                                  Taildrive share holds the file, from a copy
+#                                  in ~/Downloads/mac-open when none does
+#
+# It dials the Mac only when the SSH connection driving this session comes from
+# it, as the tailnet names that connection's address. One SSH call per share
+# (and one per copied file) runs mac-open-here there. Exit 0 only when the Mac
+# accepted every file; otherwise each failure prints one `mac-open: <reason>`
+# line ending in its next step, and exit 1. Usage errors exit 2.
+#
+# Env: MAC_OPEN_HOST          the Mac's SSH alias and tailnet name (bretts-air)
+#      MAC_OPEN_SERVER_ALIAS  this host as the Mac's SSH config names it
+#                             (hostname -s)
+set -euo pipefail
+
+MAC=${MAC_OPEN_HOST:-bretts-air}
+SERVER=${MAC_OPEN_SERVER_ALIAS:-$(hostname -s)}
+# The Mac's shell expands the tilde; naming the receiver by path keeps the call
+# working when that shell's PATH setup is broken.
+# shellcheck disable=SC2088
+RECEIVER='~/.local/bin/mac-open-here'
+DEPLOY_FIX="run 'cd ~/dotfiles && git pull && scripts/stow-deploy local' on $MAC"
+BOUND=20
+
+USAGE='usage: mac-open edit <path>...   open in VS Code on the Mac through Remote-SSH
+       mac-open view <path>...   open in the Mac'"'"'s default app'
+
+failed=0
+errfile=$(mktemp)
+outfile=$(mktemp)
+trap 'rm -f "$errfile" "$outfile"' EXIT
+
+# yazi counts a notification's timeout from its arrival. Under an opener's
+# `sh -c "mac-open … || micro …"` the fallback editor holds the terminal after
+# this script exits, so the notification waits for that shell to finish;
+# otherwise it would expire unseen behind the editor.
+notify() {
+  [[ -n ${YAZI_ID:-} ]] || return 0
+  local level=$1 content=$2 holder=$PPID
+  case $(cat "/proc/$holder/comm" 2>/dev/null) in
+    sh | dash) ;;
+    *) holder= ;;
+  esac
+  (
+    if [[ -n $holder ]]; then
+      while kill -0 "$holder" 2>/dev/null; do sleep 0.2; done
+    fi
+    ya emit notify:push --title=mac-open "--content=$content" "--level=$level" --timeout=8
+  ) </dev/null >/dev/null 2>&1 &
+}
+
+report() {
+  echo "mac-open: $2" >&2
+  notify "$1" "$2"
+}
+
+fail() {
+  report warn "$1"
+  failed=1
+}
+
+# ---------------------------------------------------------------------------
+# Client-origin guard
+# ---------------------------------------------------------------------------
+
+# SSH_CONNECTION of the connection driving this session, one line per
+# candidate, an empty line for a client with none (the server console). In tmux
+# that is the session's most recently active client: the pane's own copy is
+# frozen at pane creation and goes stale across re-attaches. client_activity
+# has one-second resolution, so every client tied for most recent is a
+# candidate.
+driving_connections() {
+  if [[ -z ${TMUX:-} ]]; then
+    printf '%s\n' "${SSH_CONNECTION:-}"
+    return
+  fi
+  local session clients latest act pid
+  session=$(tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#{session_id}')
+  clients=$(tmux list-clients -t "$session" -F '#{client_activity} #{client_pid}')
+  latest=$(awk 'NR == 1 || $1 > max { max = $1 } END { print max }' <<<"$clients")
+  while read -r act pid; do
+    [[ -n $act && $act == "$latest" ]] || continue
+    tr '\0' '\n' 2>/dev/null <"/proc/$pid/environ" | sed -n 's/^SSH_CONNECTION=//p' | grep . || echo
+  done <<<"$clients"
+}
+
+guard() {
+  local jq conn addr name detail=""
+  jq=$(command -v jaq || command -v jq || true)
+  if [[ -z $jq ]]; then
+    detail="neither jaq nor jq is installed to read tailscale whois; install jaq"
+  else
+    while IFS= read -r conn; do
+      if [[ -z $conn ]]; then
+        detail="this session is on the server console"
+        continue
+      fi
+      addr=${conn%% *}
+      if ! name=$(tailscale whois --json "$addr" 2>/dev/null | "$jq" -r '.Node.ComputedName // empty') ||
+        [[ -z $name ]]; then
+        detail="tailscale whois could not name $addr"
+        continue
+      fi
+      [[ $name == "$MAC" ]] && return 0
+      detail="this session is attached from $name"
+    done < <(driving_connections)
+    detail="${detail:-no tmux client is attached to this session}"
+  fi
+  fail "not-from-mac: $detail; the hand-off runs only from a session attached from $MAC"
+  exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Dialing the Mac
+# ---------------------------------------------------------------------------
+
+quote() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
+
+remote_command() {
+  local cmd=$RECEIVER arg
+  for arg in "$@"; do cmd+=" $(quote "$arg")"; done
+  printf '%s' "$cmd"
+}
+
+# The first line the receiver printed, else the first line at all: the Mac's
+# shell can print startup noise ahead of it.
+remote_line() {
+  grep -m1 '^mac-open-here: ' "$errfile" || grep -m1 . "$errfile" || true
+}
+
+# dial <bound-seconds> <stdin-file or ""> <receiver args...>: leaves the
+# receiver's stdout in $outfile; on failure reports the reason and returns 1.
+# `-n` keeps ssh off the terminal, since `timeout` runs it outside the
+# foreground process group, where a terminal read would stop it until the
+# bound fires.
+dial() {
+  local bound=$1 input=$2 rc=0 cmd line
+  shift 2
+  cmd=$(remote_command "$@")
+  if [[ -n $input ]]; then
+    timeout "$bound" ssh -o BatchMode=yes -o ConnectTimeout=3 "$MAC" "$cmd" \
+      <"$input" >"$outfile" 2>"$errfile" || rc=$?
+  else
+    timeout "$bound" ssh -n -o BatchMode=yes -o ConnectTimeout=3 "$MAC" "$cmd" \
+      >"$outfile" 2>"$errfile" || rc=$?
+  fi
+  ((rc == 0)) && return 0
+  case $rc in
+    124) fail "timed-out: $MAC stopped answering after connecting; retry, and check the Mac if it keeps happening" ;;
+    255)
+      # One exit code covers a sleeping Mac, a refused key, and a changed host
+      # key, so the line quotes ssh; its verdict is the last line it printed.
+      line=$(grep . "$errfile" | tail -1 || true)
+      if [[ $line == *"Permission denied"* ]]; then
+        fail "unreachable: $line; $MAC's ~/.ssh/authorized_keys does not carry this host's key"
+      else
+        fail "unreachable: ${line:-ssh failed}; check that $MAC is awake with Remote Login on"
+      fi
+      ;;
+    127) fail "receiver-missing: $MAC has no ~/.local/bin/mac-open-here; $DEPLOY_FIX" ;;
+    2) fail "receiver-outdated: $MAC's mac-open-here does not know this request; $DEPLOY_FIX" ;;
+    *)
+      line=$(remote_line)
+      case $line in
+        "mac-open-here: short-copy: "*) fail "${line#mac-open-here: }" ;;
+        mac-open-here:*) fail "remote-failed: $line" ;;
+        *) fail "remote-failed: ${line:-exit $rc}; mac-open-here did not print this, so run the same request on $MAC to see it" ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+# name<TAB>root for each Taildrive share on this host, from the daemon's own
+# table. The command is alpha and has no JSON form, so an unexpected header
+# fails the parse rather than guessing at columns.
+share_table() {
+  local out header name path _
+  out=$(tailscale drive list 2>/dev/null) || return 1
+  header=$(head -1 <<<"$out" | tr -s ' ')
+  [[ $header == "name path as" ]] || return 1
+  while read -r name path _; do
+    [[ -n $name && $name != -* ]] && printf '%s\t%s\n' "$name" "$path"
+  done < <(tail -n +2 <<<"$out")
+}
+
+cmd_edit() {
+  dial "$BOUND" "" edit "$SERVER" "$@" || true
+}
+
+cmd_view() {
+  local table="" file name root best best_root size
+  local -A by_share=()
+  local shares=() copies=()
+  if ! table=$(share_table); then
+    table=""
+    report warn "share-table: tailscale drive list printed an unexpected table, so every file is copied instead of opened in place; check its output on this host"
+  fi
+  for file in "$@"; do
+    best="" best_root=""
+    while IFS=$'\t' read -r name root; do
+      [[ -n $name ]] || continue
+      if [[ $file == "$root"/* && ${#root} -gt ${#best_root} ]]; then
+        best=$name best_root=$root
+      fi
+    done <<<"$table"
+    if [[ -z $best ]]; then
+      copies+=("$file")
+      continue
+    fi
+    [[ -n ${by_share[$best]+set} ]] || shares+=("$best")
+    by_share[$best]+="/Volumes/$best/${file#"$best_root"/}"$'\n'
+  done
+
+  local share paths
+  for share in "${shares[@]}"; do
+    mapfile -t paths < <(printf '%s' "${by_share[$share]}")
+    dial "$BOUND" "" view "$share" "${paths[@]}" || true
+  done
+
+  local where
+  for file in "${copies[@]}"; do
+    size=$(stat -c %s "$file")
+    echo "mac-open: copying ${file##*/} ($(numfmt --to=iec-i --suffix=B "$size")) to the Mac" >&2
+    if dial $((BOUND + size / 1048576)) "$file" receive "${file##*/}" "$size"; then
+      where=$(head -1 "$outfile")
+      report info "opened a copy at ${where:-~/Downloads/mac-open} on the Mac; edits there do not write back"
+    fi
+  done
+}
+
+cmd=${1:-}
+case $cmd in
+  -h | --help)
+    echo "$USAGE"
+    exit 0
+    ;;
+  edit | view) ;;
+  *)
+    echo "$USAGE" >&2
+    exit 2
+    ;;
+esac
+shift
+(($#)) || {
+  echo "$USAGE" >&2
+  exit 2
+}
+
+guard
+
+files=()
+for arg in "$@"; do
+  file=$(realpath -e -- "$arg" 2>/dev/null || true)
+  if [[ -z $file || ! -f $file ]]; then
+    fail "not-a-file: ${file:-$arg} is not a regular file; directories open locally"
+    exit 1
+  fi
+  files+=("$file")
+done
+
+case $cmd in
+  edit) cmd_edit "${files[@]}" ;;
+  view) cmd_view "${files[@]}" ;;
+esac
+exit "$failed"
