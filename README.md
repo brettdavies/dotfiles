@@ -139,6 +139,8 @@ knowing where the underlying implementation lives.
 | `env`                   | Put `~/.local/bin` on `PATH` for user-installed binaries                                    |
 | `gh-revision-audit`     | List your issues and PRs that still carry prior edit revisions on GitHub                    |
 | `gstack-config-apply`   | Converge `~/.gstack/config.yaml`, which gstack rewrites and so cannot be a stow package     |
+| `mac-open`              | Open a file from yazi on a Linux host on the Mac the session is driven from                 |
+| `mac-open-here`         | The Mac half of `mac-open`, run over SSH: open a host file in VS Code or the default app    |
 | `op-ssh-sign-wrapper`   | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless      |
 | `qmd-gpu-verify`        | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU             |
 | `qmd-ollama-unload-all` | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely  |
@@ -194,6 +196,45 @@ writes a new tmuxinator config into `stow/tmuxinator/dot-config/tmuxinator/`, th
 `tmuxinator copy` duplicates a config verbatim, including the source project's `name:` and its `on_project_first_start`
 resize targets. Edit both after copying, or the new session resizes panes in the project it was copied from.
 `tests/tmuxinator-configs.bats` enforces that every config's resize targets match its own `name:`.
+
+### Yazi Hand-off to the Mac
+
+On a Linux host, yazi's open action (`Enter` or `o` on a file) puts the file on the Mac the session is driven from,
+routed by what the file is:
+
+- **Edit route.** Anything yazi would hand to the editor (text, JSON, JavaScript, empty files) opens in VS Code on the
+  Mac through Remote-SSH, editing the host's file in place: a save is a write to the host's disk.
+- **View route.** Everything else (PDFs, images, audio, video, office documents, unknown binaries) opens in the Mac's
+  default app. A file under a Taildrive share opens in place at `/Volumes/<share>/…`, and the share is mounted first
+  when it is not; the share roots come from `tailscale drive list`. A file outside every share is streamed to the Mac as
+  a copy in `~/Downloads/mac-open/`, where nothing is ever deleted automatically, and yazi says so: edits to a copy do
+  not write back.
+
+The hand-off runs only when the SSH connection driving the session comes from the Mac. Inside tmux that is the session's
+most recently active client, whose address `tailscale whois` must name as the Mac. From the host's console, or from a
+session attached from any other device, files open locally as they always do there. When the session is not from the
+Mac, the Mac cannot be reached, or the hand-off fails, text falls back to `$EDITOR` and PDFs to the local `pdftotext`
+view in micro; other types have no local opener on a headless host. Every such outcome prints one `mac-open: <reason>`
+line naming the next step, and yazi shows it as a notification once the fallback editor exits. The `O` picker still
+lists the local openers for any file, and directories open as they always do.
+
+Setup, from a merged change to the first file on the Mac:
+
+1. On the Linux host: `cd ~/dotfiles && git pull && scripts/stow-deploy local yazi`.
+2. On the Mac: the same two commands in `~/dotfiles`.
+3. On the Mac: System Settings → General → Sharing → Remote Login (ⓘ) → turn on "Allow full disk access for remote
+   users". Without it, an SSH session cannot read a Taildrive share, and in-place viewing fails with `no-disk-access`.
+4. Quit and restart every yazi already running in a tmux pane. yazi reads its openers only at startup, and `ya emit`
+   notifications fail while any yazi from before a yazi upgrade is still running.
+5. Press `Enter` on a markdown file; a VS Code tab opens on the Mac. The first connection after a VS Code update
+   installs its server on the host and takes a few seconds longer.
+
+The Mac is reached by its SSH alias with `BatchMode`, a 3 s connect timeout, and a hard 20 s bound per call (plus 1 s
+per MiB for a copy). Overrides: `MAC_OPEN_HOST` (the Mac's SSH alias, which is also its tailnet name) and
+`MAC_OPEN_SERVER_ALIAS` (this host as the Mac's SSH config names it, default `hostname -s`) on the Linux host;
+`MAC_OPEN_CODE_CLI` (the VS Code CLI inside the app bundle by default) on the Mac. `tests/mac-open.bats` and
+`tests/mac-open-here.bats` stub every external command, and `tests/yazi-config.bats` pins the routing table in
+`yazi.toml`, which replaces yazi's built-in one.
 
 ### System-Level Units (`config/systemd/system/`)
 
