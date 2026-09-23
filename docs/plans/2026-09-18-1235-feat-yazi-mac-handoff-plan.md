@@ -331,8 +331,10 @@ settles; the two "Validate" assumptions point at U1. Existing R-IDs, F-IDs, and 
 - KTD4. **One SSH invocation per hand-off, its exit status is the probe.** `ssh -n -o BatchMode=yes -o ConnectTimeout=3
   <mac-alias> '<receiver command>'`, wrapped in a hard `timeout` so a post-handshake stall cannot block yazi: 20 s for
   the edit and view routes, and 20 s plus 1 s per MiB of the file for the copy route, whose duration grows with size.
-  `-n` keeps `ssh` off the inherited terminal, because `timeout` runs it in its own process group where a read of the
-  TTY would stop it until the bound fires; the copy route drops `-n` since it feeds the file on stdin. Exit 255 →
+  The bound is `timeout --foreground`: plain `timeout` runs `ssh` outside the terminal's foreground process group, where
+  Ctrl-C does not reach it (measured: `timeout 6 sleep 6` ignored Ctrl-C for the full 6 s), so a long copy could not be
+  abandoned. `-n` keeps `ssh` from reading the operator's keystrokes; the copy route drops `-n` since it feeds the file
+  on stdin. After an unreachable or timed-out call, the remaining shares and copies are not dialed. Exit 255 →
   `unreachable: <ssh's last stderr line>` (one exit code covers a sleeping Mac, a refused key, and a changed host key,
   so the line quotes ssh; its verdict comes last, after any warning or host-key banner); 124 → `timed-out`; 127 (the
   Mac's shell found no receiver) → `receiver-missing`; 2 (the receiver's usage error, which is what an older receiver
@@ -409,8 +411,11 @@ settles; the two "Validate" assumptions point at U1. Existing R-IDs, F-IDs, and 
   environment. The connection's client address is resolved with `tailscale whois --json`, and the hand-off proceeds only
   when the node's computed name equals the Mac alias (`MAC_OPEN_HOST`, which is also the node's name on the tailnet,
   verified 2026-09-18). No `SSH_CONNECTION` means the server console; a different node means another client; both are
-  `not-from-mac` reasons in KTD7's closed set, each carrying the detail that decided it. U1 step 6 confirmed the
-  mechanism: each tmux client's `/proc` environment carries that client's own `SSH_CONNECTION` (none for a client
+  `not-from-mac` reasons in KTD7's closed set, each carrying the detail that decided it. The two `tmux` reads run under
+  a 3 s `timeout --foreground`, because a wedged tmux server hangs every command
+  (`docs/solutions/runtime-errors/tmux-server-wedge-orphan-clients-2026-06-11.md`); a tmux that does not answer, or a
+  session with no client, fails closed as `not-from-mac: tmux reported no client for this session`. U1 step 6 confirmed
+  the mechanism: each tmux client's `/proc` environment carries that client's own `SSH_CONNECTION` (none for a client
   attached without SSH), `tailscale whois --json` on the Mac's address returns the alias as `ComputedName`, and the most
   recent client follows both a new attach and the next keypress on another client. Rationale: the tmux client's
   environment is the live connection, whereas the pane shell's inherited `SSH_CONNECTION` is frozen at pane creation and
