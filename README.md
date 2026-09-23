@@ -217,8 +217,8 @@ Mac, the Mac cannot be reached, or the hand-off fails, text falls back to `$EDIT
 view in micro; other types have no local opener on a headless host. Every such outcome prints one `mac-open: <reason>`
 line naming the next step, and yazi shows it as a notification once the fallback editor exits. For text, the `O` picker
 still offers the local `$EDITOR`; a PDF reaches the local text view only when the hand-off fails. Directories open as
-they always do, and yazi's bulk rename and bulk create keep using the local editor, since yazi reads their list back
-when the editor exits.
+they always do, archives extract on the host, and yazi's bulk rename and bulk create keep using the local editor, since
+yazi reads their list back when the editor exits.
 
 Setup, from a merged change to the first file on the Mac:
 
