@@ -22,6 +22,7 @@
 #   TMUX_EXIT            make `tmux list-clients` fail
 #   YA_EXIT              make `ya` fail
 #   SSH_SELF_INT         interrupt mac-open (SIGINT) and exit 255, as ssh does
+#   DRIVE_SELF_INT       interrupt mac-open (SIGINT) while it reads the share table
 # The guard reads a real /proc environment: tests start a background `sleep`
 # carrying the SSH_CONNECTION they want the tmux client to have.
 
@@ -89,6 +90,12 @@ EOF
     case $1 in
       drive)
         [[ -z ${DRIVE_EXIT:-} ]] || exit "$DRIVE_EXIT"
+        # A Ctrl-C reaches the whole process group: mac-open and the subshell
+        # reading this table.
+        if [[ -n ${DRIVE_SELF_INT:-} ]]; then
+          read -r _ _ _ top _ </proc/$PPID/stat
+          kill -INT "$PPID" "$top"
+        fi
         printf "%s\n" "$DRIVE_TABLE" ;;
       whois)
         [[ -z ${WHOIS_EXIT:-} ]] || exit "$WHOIS_EXIT"
@@ -606,6 +613,14 @@ ya_line() {
   [ "$status" -eq 130 ]
   [[ $stderr != *"unreachable"* ]]
   [ "$(ssh_calls)" -eq 1 ]
+}
+
+@test "Ctrl-C before any call is made exits 130 and dials nothing" {
+  fixture "$FIX/outside/a.png"
+  DRIVE_SELF_INT=1 dispatch view "$FIX/outside/a.png"
+  [ "$status" -eq 130 ]
+  [ "$(ssh_calls)" -eq 0 ]
+  [[ $stderr != *"share-table"* ]]
 }
 
 @test "the timeout's own expiry reports timed-out" {

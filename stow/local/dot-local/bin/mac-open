@@ -150,6 +150,7 @@ remote_line() {
 dial() {
   local bound=$1 input=$2 rc=0 cmd line
   shift 2
+  ((interrupted)) && exit 130
   cmd=$(remote_command "$@")
   if [[ -n $input ]]; then
     timeout --foreground "$bound" ssh -o BatchMode=yes -o ConnectTimeout=3 "$MAC" "$cmd" \
@@ -213,6 +214,7 @@ cmd_view() {
   local -A by_share=()
   local shares=() copies=()
   if ! table=$(share_table); then
+    ((interrupted)) && exit 130
     table=""
     report warn "share-table: tailscale drive list printed an unexpected table, so every file is copied instead of opened in place; check its output on this host"
   fi
