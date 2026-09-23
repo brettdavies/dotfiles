@@ -47,8 +47,8 @@ read-pdf = [
 
 # The full rule table, replacing yazi's built-in one rather than prepending to
 # it, so the `*` catch-all can send unknown binaries to the Mac without
-# shadowing the text rules above it. Rows other than folder, PDF, image,
-# audio/video, and the catch-all are yazi 26.9.1's preset; diff against
+# shadowing the text rules above it. Rows other than bulk edit, folder, PDF,
+# image, audio/video, and the catch-all are yazi 26.9.1's preset; diff against
 # yazi-config/preset/yazi-default.toml in the yazi source on each upgrade.
 [open]
 rules = [
