@@ -173,7 +173,9 @@ echo reached-new-session"
 # actually executes, where the hook also has to survive YAML parsing.
 @test "tmuxinator renders vault.yml to a script that mounts before it starts tmux" {
   command -v tmuxinator >/dev/null 2>&1 || skip "tmuxinator not installed"
-  TMUXINATOR_CONFIG="$CONFIG_DIR" run tmuxinator debug vault
+  # tmuxinator renders only an attach when the tmux server already runs a
+  # session of that name, so it gets an empty server of its own.
+  TMUX='' TMUX_TMPDIR="$BATS_TEST_TMPDIR" TMUXINATOR_CONFIG="$CONFIG_DIR" run tmuxinator debug vault
   [ "$status" -eq 0 ]
   # tmuxinator renders with the host's own ruby, so the branch under test is
   # the host's platform; the server gets the checkout, with no hook at all.

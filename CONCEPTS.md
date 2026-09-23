@@ -254,6 +254,18 @@ permission, so a guard that errors, exits early, or misreads its own check allow
 so indistinguishably from a genuine pass. Guards therefore need their allow path tested as deliberately as their deny
 path, and a guard whose verdict is derived from an exit status needs that status to be unambiguous.
 
+## File hand-off
+
+### Hand-off route
+
+The path a file takes when yazi on the headless host opens it on the Mac the operator is sitting at, chosen by what the
+file is rather than by a key. The *edit route* covers every file yazi would otherwise hand to the editor: the Mac's
+editor opens the host's file in place over Remote-SSH, so a save is a write to the host's disk. The *view route* covers
+everything else (PDFs, images, audio, video, office documents): the Mac opens the file with its default application, in
+place through the Taildrive share when the file lives under a shared root, from a copy when it does not. Both routes are
+fire-and-forget. A hand-off happens only when the session is driven from the Mac; otherwise, and whenever the Mac is
+unreachable or the hand-off fails, the file goes to the host's local opener where one exists, with the reason shown.
+
 ## Flagged ambiguities
 
 - "Gate" names two different things: a *supply-chain age gate* is a policy applied to package resolution, while a *local
