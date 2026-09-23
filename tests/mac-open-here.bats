@@ -132,6 +132,22 @@ wait_for_calls() {
   [ "$(cat "$CALLS")" = "$expected" ]
 }
 
+@test "edit percent-encodes a literal percent sign in an extension-less path" {
+  receiver edit srv "/home/u/100%off"
+  [ "$status" -eq 0 ]
+  wait_for_calls
+  expected="code --reuse-window --remote ssh-remote+srv"
+  expected+=" --file-uri vscode-remote://ssh-remote+srv/home/u/100%25off"
+  [ "$(cat "$CALLS")" = "$expected" ]
+}
+
+@test "edit with no paths after the server alias prints usage and launches nothing" {
+  receiver edit srv
+  [ "$status" -eq 2 ]
+  [[ $stderr == *"usage:"* ]]
+  [ ! -s "$CALLS" ]
+}
+
 @test "edit with no VS Code CLI names code-cli-missing and its fix, and launches nothing" {
   MAC_OPEN_CODE_CLI="$BATS_TEST_TMPDIR/nowhere/code" receiver edit srv /a.md
   [ "$status" -ne 0 ]
@@ -163,6 +179,13 @@ wait_for_calls() {
   [ -z "$output" ]
 }
 
+@test "view with no path after the share prints usage and mounts nothing" {
+  receiver view dev
+  [ "$status" -eq 2 ]
+  [[ $stderr == *"usage:"* ]]
+  [ ! -s "$CALLS" ]
+}
+
 @test "view forwards the mount helper's failure and never opens" {
   MOUNT_ERR="  FAILED: /Volumes/dev — taildrive not permitted" receiver view dev /Volumes/dev/x.pdf
   [ "$status" -ne 0 ]
@@ -175,6 +198,13 @@ wait_for_calls() {
   [ "$status" -ne 0 ]
   [[ $stderr == *"no-disk-access"* ]]
   [[ $stderr == *"Allow full disk access for remote users"* ]]
+  run ! grep -q '^open' "$CALLS"
+}
+
+@test "view's share listing failing for a reason other than disk access reports share-failed" {
+  LS_ERR="ls: /Volumes/dev: No such file or directory" receiver view dev /Volumes/dev/x.pdf
+  [ "$status" -ne 0 ]
+  [[ $stderr == *"share-failed: ls: /Volumes/dev: No such file or directory; run 'taildrive-mount dev' on the Mac and check /Volumes/dev"* ]]
   run ! grep -q '^open' "$CALLS"
 }
 
@@ -210,6 +240,16 @@ wait_for_calls() {
   [[ $stderr == *"short-copy: 9 of 4096 bytes arrived"* ]]
   run ! grep -q '^open' "$CALLS"
   [ -z "$(find "$(cache_dir)" -type f)" ]
+}
+
+@test "receive accepts a zero-byte file" {
+  : >"$BATS_TEST_TMPDIR/empty"
+  HOME="$RECV_HOME" PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" receive empty.txt 0 <"$BATS_TEST_TMPDIR/empty"
+  [ "$status" -eq 0 ]
+  copies=("$(cache_dir)"/*-empty.txt)
+  [ "${#copies[@]}" -eq 1 ]
+  [ ! -s "${copies[0]}" ]
+  grep -qxF "open ${copies[0]}" "$CALLS"
 }
 
 @test "receive never prunes an older copy" {
@@ -259,6 +299,16 @@ wait_for_calls() {
   [ -z "$(find "$(cache_dir)" -name '*.part')" ]
 }
 
+@test "receive reports open-failed with its line when opening the finished copy fails for another reason" {
+  printf 'x' >"$BATS_TEST_TMPDIR/one"
+  OPEN_ERR="The file is damaged and can't be opened." HOME="$RECV_HOME" PATH="$STUBS:$PATH" \
+    run --separate-stderr "$SCRIPT" receive one 1 <"$BATS_TEST_TMPDIR/one"
+  [ "$status" -ne 0 ]
+  copies=("$(cache_dir)"/*-one)
+  [ "${#copies[@]}" -eq 1 ]
+  [[ $stderr == *"open-failed: The file is damaged and can't be opened.; open ${copies[0]} from Finder to see why"* ]]
+}
+
 @test "receive rejects a size that is not a byte count" {
   receiver receive shot.png 12k
   [ "$status" -eq 2 ]
@@ -268,4 +318,12 @@ wait_for_calls() {
 @test "receive rejects a name that is a path" {
   receiver receive ../shot.png 1
   [ "$status" -eq 2 ]
+}
+
+@test "receive rejects an empty, dot, or dot-dot name" {
+  for name in "" "." ".."; do
+    receiver receive "$name" 1
+    [ "$status" -eq 2 ]
+    [[ $stderr == *"usage:"* ]]
+  done
 }

@@ -17,6 +17,7 @@
 #   WHOIS                "addr=name ..." answers for `tailscale whois --json`
 #   WHOIS_EXIT           make `tailscale whois` fail
 #   DRIVE_TABLE          the `tailscale drive list` output
+#   DRIVE_EXIT           make `tailscale drive list` fail outright
 #   CLIENTS              "session activity pid" lines for `tmux list-clients`
 #   TMUX_EXIT            make `tmux list-clients` fail
 #   YA_EXIT              make `ya` fail
@@ -83,7 +84,9 @@ EOF
   stub tailscale '
     log tailscale "$@"
     case $1 in
-      drive) printf "%s\n" "$DRIVE_TABLE" ;;
+      drive)
+        [[ -z ${DRIVE_EXIT:-} ]] || exit "$DRIVE_EXIT"
+        printf "%s\n" "$DRIVE_TABLE" ;;
       whois)
         [[ -z ${WHOIS_EXIT:-} ]] || exit "$WHOIS_EXIT"
         for pair in $WHOIS; do
@@ -180,6 +183,20 @@ ya_line() {
 
 @test "an unknown subcommand prints usage on stderr and exits 2" {
   dispatch frobnicate x
+  [ "$status" -eq 2 ]
+  [[ $stderr == usage:* ]]
+  [ "$(ssh_calls)" -eq 0 ]
+}
+
+@test "edit with no paths after the subcommand prints usage and dials nothing" {
+  dispatch edit
+  [ "$status" -eq 2 ]
+  [[ $stderr == usage:* ]]
+  [ "$(ssh_calls)" -eq 0 ]
+}
+
+@test "view with no paths after the subcommand prints usage and dials nothing" {
+  dispatch view
   [ "$status" -eq 2 ]
   [[ $stderr == usage:* ]]
   [ "$(ssh_calls)" -eq 0 ]
@@ -370,6 +387,14 @@ ya_line() {
   [ "$(ssh_calls)" -eq 0 ]
 }
 
+@test "a selection mixing a valid file and a missing one fails closed before dialing" {
+  fixture "$FIX/outside/good.md"
+  dispatch edit "$FIX/outside/good.md" "$FIX/outside/missing.md"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"mac-open: not-a-file: $FIX/outside/missing.md is not a regular file; directories open locally"* ]]
+  [ "$(ssh_calls)" -eq 0 ]
+}
+
 @test "edit and view calls carry -n and a foreground 20 s bound, over BatchMode with a 3 s connect timeout" {
   fixture "$FIX/dev/n.md"
   fixture "$FIX/dev/x.pdf"
@@ -414,6 +439,13 @@ ya_line() {
   DRIVE_TABLE="$DRIVE_TABLE"$'\n'"sub      $FIX/dev/sub    brett" dispatch view "$FIX/dev/sub/deep.pdf"
   [ "$status" -eq 0 ]
   [ "$(cat "$RECEIVED")" = "$(printf '%s\n' view sub /Volumes/sub/deep.pdf)" ]
+}
+
+@test "view resolves two shares with the same root by taking the first one listed" {
+  fixture "$FIX/dev/x.pdf"
+  DRIVE_TABLE="$DRIVE_TABLE"$'\n'"alias    $FIX/dev    brett" dispatch view "$FIX/dev/x.pdf"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$RECEIVED")" = "$(printf '%s\n' view dev /Volumes/dev/x.pdf)" ]
 }
 
 @test "view of files under two shares makes one call per share" {
@@ -461,6 +493,14 @@ ya_line() {
   [[ $stderr == *"share-table: tailscale drive list printed an unexpected table"* ]]
 }
 
+@test "tailscale drive list failing outright reads the same as an unparseable table" {
+  fixture "$FIX/dev/x.pdf"
+  DRIVE_EXIT=1 dispatch view "$FIX/dev/x.pdf"
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p "$RECEIVED")" = "receive" ]
+  [[ $stderr == *"share-table: tailscale drive list printed an unexpected table"* ]]
+}
+
 @test "a share table with no shares copies the file without a share-table warning" {
   fixture "$FIX/outside/x.pdf"
   DRIVE_TABLE=$'name     path    as\n-----    ----    --' dispatch view "$FIX/outside/x.pdf"
@@ -488,6 +528,24 @@ ya_line() {
   [ "$(ssh_calls)" -eq 1 ]
   [ "$(grep -c 'unreachable:' <<<"$stderr")" -eq 1 ]
   [[ $stderr != *"copying b.png"* ]]
+}
+
+@test "a failure that leaves the Mac usable still sends the next copy" {
+  fixture "$FIX/outside/a.png"
+  fixture "$FIX/outside/b.png"
+  SSH_FAIL_MATCH=a.png SSH_EXIT=1 SSH_ERR="mac-open-here: copy-failed: disk full; free space" \
+    dispatch view "$FIX/outside/a.png" "$FIX/outside/b.png"
+  [ "$status" -eq 1 ]
+  [ "$(ssh_calls)" -eq 2 ]
+  [[ $stderr == *"remote-failed: mac-open-here: copy-failed: disk full"* ]]
+  [[ $stderr == *"opened a copy at ~/Downloads/mac-open on the Mac"* ]]
+}
+
+@test "a copy the receiver names no path for is reported at the copy folder" {
+  fixture "$FIX/outside/shot.png"
+  dispatch view "$FIX/outside/shot.png"
+  [ "$status" -eq 0 ]
+  [[ $stderr == *"mac-open: opened a copy at ~/Downloads/mac-open on the Mac; edits there do not write back"* ]]
 }
 
 @test "a timed-out share call stops the remaining share and copy calls" {
@@ -563,6 +621,13 @@ ya_line() {
   SSH_EXIT=1 SSH_ERR="zsh: segmentation fault" dispatch edit "$FIX/dev/n.md"
   [ "$status" -eq 1 ]
   [[ $stderr == *"mac-open: remote-failed: zsh: segmentation fault; "* ]]
+}
+
+@test "an exit 1 with nothing at all on stderr names the exit code" {
+  fixture "$FIX/dev/n.md"
+  SSH_EXIT=1 SSH_ERR="" dispatch edit "$FIX/dev/n.md"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"mac-open: remote-failed: exit 1; mac-open-here did not print this, so run the same request on bretts-air to see it"* ]]
 }
 
 @test "a short copy on the Mac reports short-copy with the byte counts" {
