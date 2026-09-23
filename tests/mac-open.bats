@@ -530,6 +530,15 @@ ya_line() {
   [[ $stderr != *"copying b.png"* ]]
 }
 
+@test "a missing receiver stops the remaining copies after one call" {
+  fixture "$FIX/outside/a.png"
+  fixture "$FIX/outside/b.png"
+  SSH_EXIT=127 dispatch view "$FIX/outside/a.png" "$FIX/outside/b.png"
+  [ "$status" -eq 1 ]
+  [ "$(ssh_calls)" -eq 1 ]
+  [ "$(grep -c 'receiver-missing:' <<<"$stderr")" -eq 1 ]
+}
+
 @test "a failure that leaves the Mac usable still sends the next copy" {
   fixture "$FIX/outside/a.png"
   fixture "$FIX/outside/b.png"
