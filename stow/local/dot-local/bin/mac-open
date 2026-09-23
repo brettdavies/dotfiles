@@ -61,9 +61,13 @@ notify() {
   ) </dev/null >/dev/null 2>&1 &
 }
 
+# Filenames and the Mac's replies reach the terminal and yazi, so control
+# characters in them are shown as `?` rather than acted on.
+say() { echo "mac-open: ${1//[[:cntrl:]]/?}" >&2; }
+
 report() {
-  echo "mac-open: $2" >&2
-  notify "$1" "$2"
+  say "$2"
+  notify "$1" "${2//[[:cntrl:]]/?}"
 }
 
 fail() {
@@ -245,7 +249,7 @@ cmd_view() {
   for file in "${copies[@]}"; do
     ((mac_down)) && break
     size=$(stat -c %s "$file")
-    echo "mac-open: copying ${file##*/} ($(numfmt --to=iec-i --suffix=B "$size")) to the Mac" >&2
+    say "copying ${file##*/} ($(numfmt --to=iec-i --suffix=B "$size")) to the Mac"
     if dial $((BOUND + size / 1048576)) "$file" receive "${file##*/}" "$size"; then
       where=$(head -1 "$outfile")
       report info "opened a copy at ${where:-~/Downloads/mac-open} on the Mac; edits there do not write back"

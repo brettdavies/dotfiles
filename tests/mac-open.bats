@@ -623,6 +623,17 @@ ya_line() {
   [[ $stderr != *"share-table"* ]]
 }
 
+@test "control characters in a filename never reach the terminal or yazi" {
+  bad=$'bad\033]0;x\007.png'
+  fixture "$FIX/outside/$bad"
+  # shellcheck disable=SC2088
+  YAZI_ID=1 RECEIVER_OUT="~/Downloads/mac-open/1-$bad" dispatch view "$FIX/outside/$bad"
+  [ "$status" -eq 0 ]
+  [[ $stderr != *$'\033'* && $stderr != *$'\007'* ]]
+  [[ $stderr == *"copying bad?]0;x?.png"* ]]
+  [[ $(ya_line) == *"--content=opened a copy at ~/Downloads/mac-open/1-bad?]0;x?.png"* ]]
+}
+
 @test "the timeout's own expiry reports timed-out" {
   fixture "$FIX/dev/n.md"
   TIMEOUT_EXIT=124 dispatch edit "$FIX/dev/n.md"
