@@ -634,6 +634,14 @@ ya_line() {
   [[ $(ya_line) == *"--content=opened a copy at ~/Downloads/mac-open/1-bad?]0;x?.png"* ]]
 }
 
+@test "the copy is reported at the receiver's path when the Mac's shell prints first" {
+  fixture "$FIX/outside/shot.png"
+  # shellcheck disable=SC2088
+  RECEIVER_OUT=$'Last login: yesterday\n~/Downloads/mac-open/1-shot.png' dispatch view "$FIX/outside/shot.png"
+  [ "$status" -eq 0 ]
+  [[ $stderr == *"opened a copy at ~/Downloads/mac-open/1-shot.png on the Mac"* ]]
+}
+
 @test "the timeout's own expiry reports timed-out" {
   fixture "$FIX/dev/n.md"
   TIMEOUT_EXIT=124 dispatch edit "$FIX/dev/n.md"

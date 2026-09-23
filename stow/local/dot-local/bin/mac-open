@@ -251,7 +251,7 @@ cmd_view() {
     size=$(stat -c %s "$file")
     say "copying ${file##*/} ($(numfmt --to=iec-i --suffix=B "$size")) to the Mac"
     if dial $((BOUND + size / 1048576)) "$file" receive "${file##*/}" "$size"; then
-      where=$(head -1 "$outfile")
+      where=$(grep -m1 '^~/Downloads/mac-open/' "$outfile" || true)
       report info "opened a copy at ${where:-~/Downloads/mac-open} on the Mac; edits there do not write back"
     fi
   done
