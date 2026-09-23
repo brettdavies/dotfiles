@@ -18,6 +18,7 @@
 #   WHOIS_EXIT           make `tailscale whois` fail
 #   DRIVE_TABLE          the `tailscale drive list` output
 #   CLIENTS              "session activity pid" lines for `tmux list-clients`
+#   TMUX_EXIT            make `tmux list-clients` fail
 #   YA_EXIT              make `ya` fail
 # The guard reads a real /proc environment: tests start a background `sleep`
 # carrying the SSH_CONNECTION they want the tmux client to have.
@@ -76,6 +77,7 @@ EOF
   stub timeout '
     log timeout "$@"
     [[ -z ${TIMEOUT_EXIT:-} ]] || exit "$TIMEOUT_EXIT"
+    while [[ $1 == -* ]]; do shift; done
     shift
     exec "$@"'
   stub tailscale '
@@ -98,6 +100,7 @@ EOF
     case $1 in
       display-message) echo "\$7" ;;
       list-clients)
+        [[ -z ${TMUX_EXIT:-} ]] || exit "$TMUX_EXIT"
         while read -r s a p; do
           [[ $s == "$3" ]] && echo "$a $p"
         done <<<"${CLIENTS:-}"
@@ -288,6 +291,43 @@ ya_line() {
   [ "$status" -eq 0 ]
 }
 
+@test "the guard's tmux calls run under a 3 s foreground bound" {
+  fixture "$FIX/dev/n.md"
+  in_tmux
+  client_with "$MAC_ADDR 50000 100.64.0.1 22"
+  CLIENTS="\$7 100 $CLIENT_PID" dispatch edit "$FIX/dev/n.md"
+  [ "$status" -eq 0 ]
+  grep -q '^timeout --foreground 3 tmux display-message ' "$CALLS"
+  grep -q '^timeout --foreground 3 tmux list-clients -t \$7 ' "$CALLS"
+}
+
+@test "a tmux session with no client fails closed without dialing" {
+  fixture "$FIX/dev/n.md"
+  in_tmux
+  CLIENTS="" dispatch edit "$FIX/dev/n.md"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"mac-open: not-from-mac: tmux reported no client for this session; the hand-off runs only from a session attached from bretts-air"* ]]
+  [ "$(ssh_calls)" -eq 0 ]
+}
+
+@test "a failing tmux list-clients fails closed without dialing" {
+  fixture "$FIX/dev/n.md"
+  in_tmux
+  TMUX_EXIT=1 dispatch edit "$FIX/dev/n.md"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"not-from-mac: tmux reported no client for this session; "* ]]
+  [ "$(ssh_calls)" -eq 0 ]
+}
+
+@test "a tmux server that does not answer within the bound fails closed without dialing" {
+  fixture "$FIX/dev/n.md"
+  in_tmux
+  TIMEOUT_EXIT=124 dispatch edit "$FIX/dev/n.md"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"not-from-mac: tmux reported no client for this session; "* ]]
+  [ "$(ssh_calls)" -eq 0 ]
+}
+
 # ---------------------------------------------------------------------------
 # Edit route
 # ---------------------------------------------------------------------------
@@ -322,14 +362,22 @@ ya_line() {
   [ "$(ssh_calls)" -eq 0 ]
 }
 
-@test "edit and view calls carry -n and a 20 s bound, over BatchMode with a 3 s connect timeout" {
+@test "edit of a missing path reports not-a-file naming the argument as given and dials nothing" {
+  cd "$FIX/outside"
+  dispatch edit missing.md
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"mac-open: not-a-file: missing.md is not a regular file; directories open locally"* ]]
+  [ "$(ssh_calls)" -eq 0 ]
+}
+
+@test "edit and view calls carry -n and a foreground 20 s bound, over BatchMode with a 3 s connect timeout" {
   fixture "$FIX/dev/n.md"
   fixture "$FIX/dev/x.pdf"
   dispatch edit "$FIX/dev/n.md"
   [ "$status" -eq 0 ]
   dispatch view "$FIX/dev/x.pdf"
   [ "$status" -eq 0 ]
-  [ "$(grep -c '^timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=3 bretts-air ' "$CALLS")" -eq 2 ]
+  [ "$(grep -c '^timeout --foreground 20 ssh -n -o BatchMode=yes -o ConnectTimeout=3 bretts-air ' "$CALLS")" -eq 2 ]
 }
 
 @test "MAC_OPEN_HOST and MAC_OPEN_SERVER_ALIAS reach the ssh argv and the remote command" {
@@ -386,7 +434,7 @@ ya_line() {
   [ "$status" -eq 0 ]
   [ "$(cat "$RECEIVED")" = "$(printf '%s\n' receive shot.png 3145728)" ]
   cmp "$FIX/outside/shot.png" "$STDIN_COPY"
-  grep -q '^timeout 23 ssh -o BatchMode=yes' "$CALLS"
+  grep -q '^timeout --foreground 23 ssh -o BatchMode=yes' "$CALLS"
   [[ $stderr == *"mac-open: copying shot.png (3.0MiB) to the Mac"* ]]
   [[ $stderr == *"mac-open: opened a copy at ~/Downloads/mac-open/1-shot.png on the Mac; edits there do not write back"* ]]
   [[ $(ya_line) == *"--content=opened a copy at ~/Downloads/mac-open/1-shot.png"*"--level=info"* ]]
@@ -397,6 +445,7 @@ ya_line() {
   stub timeout '
     log timeout "$@"
     printf "stderr-at-dial:%s\n" "$(cat "$ANNOUNCE_PROBE" 2>/dev/null)" >>"$CALLS"
+    while [[ $1 == -* ]]; do shift; done
     shift
     exec "$@"'
   export ANNOUNCE_PROBE="$BATS_TEST_TMPDIR/err"
@@ -412,6 +461,14 @@ ya_line() {
   [[ $stderr == *"share-table: tailscale drive list printed an unexpected table"* ]]
 }
 
+@test "a share table with no shares copies the file without a share-table warning" {
+  fixture "$FIX/outside/x.pdf"
+  DRIVE_TABLE=$'name     path    as\n-----    ----    --' dispatch view "$FIX/outside/x.pdf"
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p "$RECEIVED")" = "receive" ]
+  [[ $stderr != *"share-table"* ]]
+}
+
 @test "a failed receive after a successful share call fails the whole selection" {
   fixture "$FIX/dev/a.pdf"
   fixture "$FIX/outside/b.png"
@@ -420,6 +477,28 @@ ya_line() {
   [ "$status" -eq 1 ]
   [ "$(ssh_calls)" -eq 2 ]
   [[ $stderr == *"remote-failed: mac-open-here: copy-failed: disk full"* ]]
+}
+
+@test "an unreachable Mac stops the remaining copies after one call" {
+  fixture "$FIX/outside/a.png"
+  fixture "$FIX/outside/b.png"
+  SSH_EXIT=255 SSH_ERR="ssh: connect to host bretts-air port 22: Operation timed out" \
+    dispatch view "$FIX/outside/a.png" "$FIX/outside/b.png"
+  [ "$status" -eq 1 ]
+  [ "$(ssh_calls)" -eq 1 ]
+  [ "$(grep -c 'unreachable:' <<<"$stderr")" -eq 1 ]
+  [[ $stderr != *"copying b.png"* ]]
+}
+
+@test "a timed-out share call stops the remaining share and copy calls" {
+  fixture "$FIX/dev/a.pdf"
+  fixture "$FIX/vault/b.png"
+  fixture "$FIX/outside/c.png"
+  TIMEOUT_EXIT=124 dispatch view "$FIX/dev/a.pdf" "$FIX/vault/b.png" "$FIX/outside/c.png"
+  [ "$status" -eq 1 ]
+  [ "$(grep -c '^timeout ' "$CALLS")" -eq 1 ]
+  [ "$(grep -c 'timed-out:' <<<"$stderr")" -eq 1 ]
+  [[ $stderr != *"copying"* ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -432,6 +511,13 @@ ya_line() {
   [ "$status" -eq 1 ]
   [[ $stderr == *"mac-open: unreachable: Host key verification failed.; check that bretts-air is awake with Remote Login on"* ]]
   [[ $(ya_line) == *"--level=warn"* ]]
+}
+
+@test "ssh 255 with nothing on stderr still reports unreachable with the Remote Login step" {
+  fixture "$FIX/dev/n.md"
+  SSH_EXIT=255 SSH_ERR="" dispatch edit "$FIX/dev/n.md"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"mac-open: unreachable: ssh failed; check that bretts-air is awake with Remote Login on"* ]]
 }
 
 @test "ssh 255 with Permission denied names the Mac's authorized_keys" {
@@ -466,7 +552,7 @@ ya_line() {
 
 @test "a receiver failure is reported as remote-failed with the receiver's line (AE6)" {
   fixture "$FIX/dev/n.md"
-  SSH_EXIT=1 SSH_ERR="mac-open-here: code-cli-missing: no VS Code CLI at /x; install VS Code or set MAC_OPEN_CODE_CLI" \
+  SSH_EXIT=1 SSH_ERR=$'zsh: some startup notice\nmac-open-here: code-cli-missing: no VS Code CLI at /x; install VS Code or set MAC_OPEN_CODE_CLI' \
     dispatch edit "$FIX/dev/n.md"
   [ "$status" -eq 1 ]
   [[ $stderr == *"mac-open: remote-failed: mac-open-here: code-cli-missing: no VS Code CLI at /x; install VS Code or set MAC_OPEN_CODE_CLI"* ]]

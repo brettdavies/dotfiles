@@ -32,7 +32,7 @@ BOUND=20
 USAGE='usage: mac-open edit <path>...   open in VS Code on the Mac through Remote-SSH
        mac-open view <path>...   open in the Mac'"'"'s default app'
 
-failed=0
+failed=0 mac_down=0
 
 usage_error() {
   echo "$USAGE" >&2
@@ -77,15 +77,16 @@ fail() {
 # that is the session's most recently active client: the pane's own copy is
 # frozen at pane creation and goes stale across re-attaches. client_activity
 # has one-second resolution, so every client tied for most recent is a
-# candidate.
+# candidate. A wedged tmux server hangs every command, so each call is bounded
+# and a tmux that does not answer yields no candidate.
 driving_connections() {
   if [[ -z ${TMUX:-} ]]; then
     printf '%s\n' "${SSH_CONNECTION:-}"
     return
   fi
   local session clients latest act pid
-  session=$(tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#{session_id}')
-  clients=$(tmux list-clients -t "$session" -F '#{client_activity} #{client_pid}')
+  session=$(timeout --foreground 3 tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#{session_id}') || return 0
+  clients=$(timeout --foreground 3 tmux list-clients -t "$session" -F '#{client_activity} #{client_pid}') || return 0
   latest=$(awk 'NR == 1 || $1 > max { max = $1 } END { print max }' <<<"$clients")
   while read -r act pid; do
     [[ -n $act && $act == "$latest" ]] || continue
@@ -113,7 +114,7 @@ guard() {
       [[ $name == "$MAC" ]] && return 0
       detail="this session is attached from $name"
     done < <(driving_connections)
-    detail="${detail:-no tmux client is attached to this session}"
+    detail="${detail:-tmux reported no client for this session}"
   fi
   fail "not-from-mac: $detail; the hand-off runs only from a session attached from $MAC"
   exit 1
@@ -139,21 +140,22 @@ remote_line() {
 
 # dial <bound-seconds> <stdin-file or ""> <receiver args...>: leaves the
 # receiver's stdout in $outfile; on failure reports the reason and returns 1.
-# `-n` keeps ssh off the terminal, since `timeout` runs it outside the
-# foreground process group, where a terminal read would stop it until the
-# bound fires.
+# An unreachable or silent Mac sets mac_down, which ends the remaining dials.
+# --foreground keeps ssh in the terminal's foreground process group so Ctrl-C
+# reaches it; -n keeps ssh from reading the operator's keystrokes.
 dial() {
   local bound=$1 input=$2 rc=0 cmd line
   shift 2
   cmd=$(remote_command "$@")
   if [[ -n $input ]]; then
-    timeout "$bound" ssh -o BatchMode=yes -o ConnectTimeout=3 "$MAC" "$cmd" \
+    timeout --foreground "$bound" ssh -o BatchMode=yes -o ConnectTimeout=3 "$MAC" "$cmd" \
       <"$input" >"$outfile" 2>"$errfile" || rc=$?
   else
-    timeout "$bound" ssh -n -o BatchMode=yes -o ConnectTimeout=3 "$MAC" "$cmd" \
+    timeout --foreground "$bound" ssh -n -o BatchMode=yes -o ConnectTimeout=3 "$MAC" "$cmd" \
       >"$outfile" 2>"$errfile" || rc=$?
   fi
   ((rc == 0)) && return 0
+  ((rc == 124 || rc == 255)) && mac_down=1
   case $rc in
     124) fail "timed-out: $MAC stopped answering after connecting; retry, and check the Mac if it keeps happening" ;;
     255)
@@ -193,7 +195,7 @@ share_table() {
   header=$(head -1 <<<"$out" | tr -s ' ')
   [[ $header == "name path as" ]] || return 1
   while read -r name path _; do
-    [[ -n $name && $name != -* ]] && printf '%s\t%s\n' "$name" "$path"
+    if [[ -n $name && $name != -* ]]; then printf '%s\t%s\n' "$name" "$path"; fi
   done < <(tail -n +2 <<<"$out")
 }
 
@@ -227,12 +229,14 @@ cmd_view() {
 
   local share paths
   for share in "${shares[@]}"; do
+    ((mac_down)) && break
     mapfile -t paths < <(printf '%s' "${by_share[$share]}")
     dial "$BOUND" "" view "$share" "${paths[@]}" || true
   done
 
   local where
   for file in "${copies[@]}"; do
+    ((mac_down)) && break
     size=$(stat -c %s "$file")
     echo "mac-open: copying ${file##*/} ($(numfmt --to=iec-i --suffix=B "$size")) to the Mac" >&2
     if dial $((BOUND + size / 1048576)) "$file" receive "${file##*/}" "$size"; then
