@@ -230,11 +230,11 @@ Setup, from a merged change to the first file on the Mac:
    installs its server on the host and takes a few seconds longer.
 
 The Mac is reached by its SSH alias with `BatchMode`, a 3 s connect timeout, and a hard 20 s bound per call (plus 1 s
-per MiB for a copy). Overrides: `MAC_OPEN_HOST` (the Mac's SSH alias, which is also its tailnet name) and
-`MAC_OPEN_SERVER_ALIAS` (this host as the Mac's SSH config names it, default `hostname -s`) on the Linux host;
-`MAC_OPEN_CODE_CLI` (the VS Code CLI inside the app bundle by default) on the Mac. `tests/mac-open.bats` and
-`tests/mac-open-here.bats` stub every external command, and `tests/yazi-config.bats` pins the routing table in
-`yazi.toml`, which replaces yazi's built-in one.
+per MiB for a copy); Ctrl-C abandons a hand-off in progress, which is the way out of a large copy. Overrides:
+`MAC_OPEN_HOST` (the Mac's SSH alias, which is also its tailnet name) and `MAC_OPEN_SERVER_ALIAS` (this host as the
+Mac's SSH config names it, default `hostname -s`) on the Linux host; `MAC_OPEN_CODE_CLI` (the VS Code CLI inside the app
+bundle by default) on the Mac. `tests/mac-open.bats` and `tests/mac-open-here.bats` stub every external command, and
+`tests/yazi-config.bats` pins the routing table in `yazi.toml`, which replaces yazi's built-in one.
 
 ### System-Level Units (`config/systemd/system/`)
 
