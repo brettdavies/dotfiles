@@ -21,6 +21,7 @@
 #   CLIENTS              "session activity pid" lines for `tmux list-clients`
 #   TMUX_EXIT            make `tmux list-clients` fail
 #   YA_EXIT              make `ya` fail
+#   SSH_SELF_INT         interrupt mac-open (SIGINT) and exit 255, as ssh does
 # The guard reads a real /proc environment: tests start a background `sleep`
 # carrying the SSH_CONNECTION they want the tmux client to have.
 
@@ -64,6 +65,8 @@ setup() {
     else
       code=${SSH_EXIT:-0} err=${SSH_ERR:-}
     fi
+    # A Ctrl-C reaches ssh and mac-open alike; ssh then exits 255.
+    if [[ -n ${SSH_SELF_INT:-} ]]; then kill -INT "$PPID"; exit 255; fi
     if [[ $code -eq 255 ]]; then printf "%s\n" "$err" >&2; exit 255; fi
     HOME=$MACHOME CODE=$code ERR=$err zsh -fc "$remote"'
   cat >"$MACHOME/.local/bin/mac-open-here" <<'EOF'
@@ -594,6 +597,15 @@ ya_line() {
   [ "$status" -eq 1 ]
   [[ $stderr == *"unreachable: brett@bretts-air: Permission denied (publickey).; bretts-air's ~/.ssh/authorized_keys does not carry this host's key"* ]]
   [[ $stderr != *"Remote Login"* ]]
+}
+
+@test "Ctrl-C during a call exits 130 without blaming the Mac" {
+  fixture "$FIX/outside/a.png"
+  fixture "$FIX/outside/b.png"
+  SSH_SELF_INT=1 dispatch view "$FIX/outside/a.png" "$FIX/outside/b.png"
+  [ "$status" -eq 130 ]
+  [[ $stderr != *"unreachable"* ]]
+  [ "$(ssh_calls)" -eq 1 ]
 }
 
 @test "the timeout's own expiry reports timed-out" {

@@ -32,7 +32,10 @@ BOUND=20
 USAGE='usage: mac-open edit <path>...   open in VS Code on the Mac through Remote-SSH
        mac-open view <path>...   open in the Mac'"'"'s default app'
 
-failed=0 mac_down=0
+failed=0 mac_down=0 interrupted=0
+# Ctrl-C reaches ssh too, which then exits 255: without this the operator's own
+# abort would be reported as an unreachable Mac.
+trap 'interrupted=1' INT
 
 usage_error() {
   echo "$USAGE" >&2
@@ -155,6 +158,7 @@ dial() {
     timeout --foreground "$bound" ssh -n -o BatchMode=yes -o ConnectTimeout=3 "$MAC" "$cmd" \
       >"$outfile" 2>"$errfile" || rc=$?
   fi
+  ((interrupted)) && exit 130
   ((rc == 0)) && return 0
   ((rc == 124 || rc == 255 || rc == 127 || rc == 2)) && mac_down=1
   case $rc in
