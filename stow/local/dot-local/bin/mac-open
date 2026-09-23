@@ -33,9 +33,11 @@ USAGE='usage: mac-open edit <path>...   open in VS Code on the Mac through Remot
        mac-open view <path>...   open in the Mac'"'"'s default app'
 
 failed=0
-errfile=$(mktemp)
-outfile=$(mktemp)
-trap 'rm -f "$errfile" "$outfile"' EXIT
+
+usage_error() {
+  echo "$USAGE" >&2
+  exit 2
+}
 
 # yazi counts a notification's timeout from its arrival. Under an opener's
 # `sh -c "mac-open … || micro …"` the fallback editor holds the terminal after
@@ -247,18 +249,16 @@ case $cmd in
     exit 0
     ;;
   edit | view) ;;
-  *)
-    echo "$USAGE" >&2
-    exit 2
-    ;;
+  *) usage_error ;;
 esac
 shift
-(($#)) || {
-  echo "$USAGE" >&2
-  exit 2
-}
+(($#)) || usage_error
 
 guard
+
+errfile=$(mktemp)
+outfile=$(mktemp)
+trap 'rm -f "$errfile" "$outfile"' EXIT
 
 files=()
 for arg in "$@"; do
