@@ -10,7 +10,8 @@
 # and `mkdir` / `mv`, which pass through to the real commands unless a test
 # makes them fail. Each stub appends its argv to CALLS. The VS Code CLI is a
 # stub reached through MAC_OPEN_CODE_CLI. Nothing here reaches /Volumes or a
-# real Downloads folder: HOME is a per-test directory.
+# real Downloads folder: each receiver run gets HOME=RECV_HOME, a per-test
+# directory, and the bats process keeps its own HOME.
 
 SCRIPT="$BATS_TEST_DIRNAME/../stow/local/dot-local/bin/mac-open-here"
 
@@ -19,9 +20,9 @@ bats_require_minimum_version 1.5.0
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
   export CALLS="$BATS_TEST_TMPDIR/calls.log"
-  export HOME="$BATS_TEST_TMPDIR/home"
+  RECV_HOME="$BATS_TEST_TMPDIR/home"
   export MAC_OPEN_CODE_CLI="$STUBS/code"
-  mkdir -p "$STUBS" "$HOME"
+  mkdir -p "$STUBS" "$RECV_HOME"
   : >"$CALLS"
 
   stub uname 'echo "${STUB_UNAME:-Darwin}"'
@@ -37,6 +38,7 @@ setup() {
     sleep "${CODE_SLEEP:-0}"'
   passthrough mkdir MKDIR_ERR
   passthrough mv MV_ERR
+  passthrough cat CAT_ERR
 }
 
 # stub NAME BODY: an executable NAME whose body can call `log`.
@@ -57,9 +59,17 @@ passthrough() {
     exec $real \"\$@\""
 }
 
-receiver() { PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" "$@"; }
+receiver() { HOME="$RECV_HOME" PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" "$@"; }
 
-cache_dir() { printf '%s\n' "$HOME/Downloads/mac-open"; }
+cache_dir() { printf '%s\n' "$RECV_HOME/Downloads/mac-open"; }
+
+# The CLI stub runs detached, so its log line lands after the receiver exits.
+wait_for_calls() {
+  for _ in $(seq 1 40); do
+    [ -s "$CALLS" ] && return 0
+    sleep 0.05
+  done
+}
 
 @test "mac-open-here passes shellcheck" {
   command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
@@ -97,18 +107,28 @@ cache_dir() { printf '%s\n' "$HOME/Downloads/mac-open"; }
 @test "edit opens every path in one CLI call through the server's Remote-SSH authority" {
   receiver edit srv /a.md /b.md
   [ "$status" -eq 0 ]
-  sleep 0.3
+  wait_for_calls
   [ "$(cat "$CALLS")" = "code --reuse-window --remote ssh-remote+srv /a.md /b.md" ]
 }
 
 @test "edit addresses an extension-less file by vscode-remote file URI" {
   receiver edit srv "/home/u/Makefile" "/home/u/.bashrc" "/home/u/my notes"
   [ "$status" -eq 0 ]
-  sleep 0.3
+  wait_for_calls
   expected="code --reuse-window --remote ssh-remote+srv"
   expected+=" --file-uri vscode-remote://ssh-remote+srv/home/u/Makefile"
   expected+=" --file-uri vscode-remote://ssh-remote+srv/home/u/.bashrc"
   expected+=" --file-uri vscode-remote://ssh-remote+srv/home/u/my%20notes"
+  [ "$(cat "$CALLS")" = "$expected" ]
+}
+
+@test "edit sends a trailing-dot name by URI and percent-encodes each byte of a non-ASCII name" {
+  receiver edit srv "/home/u/notes." "/home/u/café"
+  [ "$status" -eq 0 ]
+  wait_for_calls
+  expected="code --reuse-window --remote ssh-remote+srv"
+  expected+=" --file-uri vscode-remote://ssh-remote+srv/home/u/notes."
+  expected+=" --file-uri vscode-remote://ssh-remote+srv/home/u/caf%C3%A9"
   [ "$(cat "$CALLS")" = "$expected" ]
 }
 
@@ -126,7 +146,7 @@ cache_dir() { printf '%s\n' "$HOME/Downloads/mac-open"; }
   elapsed_ms=$((($(date +%s%N) - start) / 1000000))
   [ "$status" -eq 0 ]
   [ "$elapsed_ms" -lt 2000 ]
-  sleep 0.3
+  wait_for_calls
   grep -q '^code ' "$CALLS"
 }
 
@@ -171,7 +191,7 @@ cache_dir() { printf '%s\n' "$HOME/Downloads/mac-open"; }
 @test "receive writes the streamed bytes, leaves no part file, and opens the copy" {
   printf 'png-bytes\x00\x01\x02' >"$BATS_TEST_TMPDIR/shot.png"
   size=$(wc -c <"$BATS_TEST_TMPDIR/shot.png" | tr -d ' ')
-  PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" receive shot.png "$size" <"$BATS_TEST_TMPDIR/shot.png"
+  HOME="$RECV_HOME" PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" receive shot.png "$size" <"$BATS_TEST_TMPDIR/shot.png"
   [ "$status" -eq 0 ]
   copies=("$(cache_dir)"/*-shot.png)
   [ "${#copies[@]}" -eq 1 ]
@@ -185,7 +205,7 @@ cache_dir() { printf '%s\n' "$HOME/Downloads/mac-open"; }
 
 @test "receive of a short stream reports short-copy, opens nothing, and leaves nothing" {
   printf 'only-part' >"$BATS_TEST_TMPDIR/cut"
-  PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" receive shot.png 4096 <"$BATS_TEST_TMPDIR/cut"
+  HOME="$RECV_HOME" PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" receive shot.png 4096 <"$BATS_TEST_TMPDIR/cut"
   [ "$status" -ne 0 ]
   [[ $stderr == *"short-copy: 9 of 4096 bytes arrived"* ]]
   run ! grep -q '^open' "$CALLS"
@@ -198,7 +218,7 @@ cache_dir() { printf '%s\n' "$HOME/Downloads/mac-open"; }
   echo kept >"$old"
   touch -d '2 days ago' "$old"
   printf 'x' >"$BATS_TEST_TMPDIR/one"
-  PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" receive one 1 <"$BATS_TEST_TMPDIR/one"
+  HOME="$RECV_HOME" PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" receive one 1 <"$BATS_TEST_TMPDIR/one"
   [ "$status" -eq 0 ]
   [ "$(cat "$old")" = "kept" ]
 }
@@ -206,21 +226,37 @@ cache_dir() { printf '%s\n' "$HOME/Downloads/mac-open"; }
 @test "receive of two same-named files in one second keeps both" {
   printf 'a' >"$BATS_TEST_TMPDIR/a"
   printf 'b' >"$BATS_TEST_TMPDIR/b"
-  PATH="$STUBS:$PATH" "$SCRIPT" receive shot.png 1 <"$BATS_TEST_TMPDIR/a"
-  PATH="$STUBS:$PATH" "$SCRIPT" receive shot.png 1 <"$BATS_TEST_TMPDIR/b"
+  HOME="$RECV_HOME" PATH="$STUBS:$PATH" "$SCRIPT" receive shot.png 1 <"$BATS_TEST_TMPDIR/a"
+  HOME="$RECV_HOME" PATH="$STUBS:$PATH" "$SCRIPT" receive shot.png 1 <"$BATS_TEST_TMPDIR/b"
   [ "$(for f in "$(cache_dir)"/*shot.png; do cat "$f"; echo; done | sort | tr -d '\n')" = "ab" ]
 }
 
 @test "receive refused by macOS at each step names the Remote Login setting" {
   refusal="Operation not permitted"
-  for knob in MKDIR_ERR MV_ERR OPEN_ERR; do
+  for knob in MKDIR_ERR CAT_ERR MV_ERR OPEN_ERR; do
     : >"$CALLS"
     printf 'x' >"$BATS_TEST_TMPDIR/one"
-    env "$knob=mac: $refusal" PATH="$STUBS:$PATH" "$SCRIPT" receive one 1 \
+    env "$knob=mac: $refusal" HOME="$RECV_HOME" PATH="$STUBS:$PATH" "$SCRIPT" receive one 1 \
       <"$BATS_TEST_TMPDIR/one" 2>"$BATS_TEST_TMPDIR/err" && false
     grep -q "no-disk-access" "$BATS_TEST_TMPDIR/err"
     grep -q "Allow full disk access for remote users" "$BATS_TEST_TMPDIR/err"
   done
+}
+
+@test "receive removes the part file when the rename fails" {
+  printf 'x' >"$BATS_TEST_TMPDIR/one"
+  MV_ERR="mv: disk full" HOME="$RECV_HOME" PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" receive one 1 <"$BATS_TEST_TMPDIR/one"
+  [ "$status" -ne 0 ]
+  [[ $stderr == *"copy-failed: mv: disk full"* ]]
+  [ -z "$(find "$(cache_dir)" -name '*.part')" ]
+}
+
+@test "receive removes the part file when the streaming write fails" {
+  printf 'x' >"$BATS_TEST_TMPDIR/one"
+  CAT_ERR="cat: write error: No space left on device" HOME="$RECV_HOME" PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" receive one 1 <"$BATS_TEST_TMPDIR/one"
+  [ "$status" -ne 0 ]
+  [[ $stderr == *"copy-failed: cat: write error"* ]]
+  [ -z "$(find "$(cache_dir)" -name '*.part')" ]
 }
 
 @test "receive rejects a size that is not a byte count" {

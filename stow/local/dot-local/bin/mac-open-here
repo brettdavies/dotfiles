@@ -122,15 +122,16 @@ cmd_receive() {
   err=$(mkdir -p "$COPY_DIR" 2>&1) || refused copy "$err" "$fix"
   stamp=$(date +%s)
   part="$COPY_DIR/$stamp-$name.part"
+  # Nothing prunes this folder, so a copy that fails part-way must not stay.
+  # shellcheck disable=SC2064
+  trap "rm -f -- $(printf '%q' "$part")" EXIT
   err=$({ cat >"$part"; } 2>&1) || refused copy "$err" "$fix"
 
   # A cut stream reaches here as an ordinary EOF, so the byte count is the
   # only sign that the copy is short.
   got=$(wc -c <"$part" | tr -d ' ')
-  if [[ $got != "$size" ]]; then
-    rm -f "$part"
+  [[ $got == "$size" ]] ||
     die "short-copy: $got of $size bytes arrived; retry, or move the file under a share to open it in place"
-  fi
 
   dest="$COPY_DIR/$stamp-$name"
   while [[ -e $dest ]]; do
@@ -138,6 +139,7 @@ cmd_receive() {
     dest="$COPY_DIR/$stamp-$n-$name"
   done
   err=$(mv "$part" "$dest" 2>&1) || refused copy "$err" "$fix"
+  trap - EXIT
   err=$(open "$dest" 2>&1 </dev/null) || refused open "$err" "open $dest from Finder to see why"
   printf '%s\n' "~${dest#"$HOME"}"
 }
