@@ -52,6 +52,10 @@ read-pdf = [
 # yazi-config/preset/yazi-default.toml in the yazi source on each upgrade.
 [open]
 rules = [
+  # Bulk rename and bulk create open their list in the first blocking editor for
+  # these names and read it back when that editor exits, so it must stay local:
+  # the hand-off returns at once and the list would come back unchanged.
+  { url = "bulk-{rename,create}.txt", use = [ "edit-local" ] },
   { mime = "folder/*", use = [ "edit-local", "open", "reveal" ] },
   { mime = "text/*", use = [ "edit", "reveal" ] },
   { mime = "application/{json,ndjson,javascript,wine-extension-ini}", use = [ "edit", "reveal" ] },

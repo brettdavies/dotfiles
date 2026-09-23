@@ -37,6 +37,7 @@ def entries(name, platform):
   check '
 archives = "application/{zip,rar,7z*,tar,gzip,xz,zstd,bzip*,lzma,compress,archive,cpio,arj,xar,ms-cab*}"
 expected = [
+    {"url": "bulk-{rename,create}.txt", "use": ["edit-local"]},
     {"mime": "folder/*", "use": ["edit-local", "open", "reveal"]},
     {"mime": "text/*", "use": ["edit", "reveal"]},
     {"mime": "application/{json,ndjson,javascript,wine-extension-ini}", "use": ["edit", "reveal"]},
@@ -105,6 +106,17 @@ assert es[0]["run"] == "mac-open view %s" and es[0]["block"] is True, es
   check '
 missing = [(n, e["run"]) for n, es in openers.items() for e in es if not e.get("desc")]
 assert not missing, missing
+'
+}
+
+@test "bulk rename and bulk create edit locally, never through mac-open" {
+  check '
+# yazi picks the editor for its bulk-rename and bulk-create lists by matching the
+# dummy names below as text/plain, then reads the list back when that editor exits.
+rule = next(r for r in rules if r.get("url") == "bulk-{rename,create}.txt")
+assert rules.index(rule) < next(i for i, r in enumerate(rules) if r.get("mime") == "text/*"), rules
+assert rule["use"] == ["edit-local"], rule
+assert all("mac-open" not in e["run"] for e in openers["edit-local"]), openers["edit-local"]
 '
 }
 
