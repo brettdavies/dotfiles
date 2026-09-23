@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# Tests for stow/yazi/dot-config/yazi/yazi.toml, the file manager config that
-# deploys to both the Linux server and the Mac.
+# Tests for stow/yazi/dot-config/yazi/yazi.toml and init.lua, the file manager
+# config that deploys to both the Linux server and the Mac.
 #
 # Run: bats tests/yazi-config.bats
 #
@@ -125,4 +125,10 @@ inner = run[len("mac-open view %s || {"):]
 assert "pdftotext -layout %s" in inner and "micro" in inner, run
 assert linux["block"] is True, linux
 '
+}
+
+@test "Enter opens the whole selection, as o does" {
+  run grep -Eq '^require\("smart-enter"\):setup\(\{ *open_multi *= *true *\}\)' \
+    "$BATS_TEST_DIRNAME/../stow/yazi/dot-config/yazi/init.lua"
+  [ "$status" -eq 0 ]
 }
