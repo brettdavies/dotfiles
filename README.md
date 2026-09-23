@@ -224,6 +224,9 @@ Setup, from a merged change to the first file on the Mac:
 2. On the Mac: the same two commands in `~/dotfiles`.
 3. On the Mac: System Settings → General → Sharing → Remote Login (ⓘ) → turn on "Allow full disk access for remote
    users". Without it, an SSH session cannot read a Taildrive share, and in-place viewing fails with `no-disk-access`.
+   The grant covers every SSH session on the Mac, including the one this host's key opens, so a compromised host could
+   then read the Mac's protected data; leaving it off keeps text edits and copies working and gives up only in-place
+   viewing.
 4. Quit and restart every yazi already running in a tmux pane. yazi reads its openers only at startup, and `ya emit`
    notifications fail while any yazi from before a yazi upgrade is still running.
 5. Press `Enter` on a markdown file; a VS Code tab opens on the Mac. The first connection after a VS Code update
