@@ -22,9 +22,8 @@ CONFIG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/gstack/bin/gstack-config"
 # Every off-machine sink `gstack-egress grants` names, the review path that
 # ships diffs to a second vendor, the hooks gstack would otherwise register
 # into the shared settings.json, the per-project CLAUDE.md routing append,
-# the local answer log, the one checkpoint setting that pushes, the update
-# path (announce and pull), and three first-run prompts and style choices
-# answered here so a fresh host never asks.
+# the local answer log, the update path (announce and pull), and three
+# first-run prompts and style choices answered here so a fresh host never asks.
 MANAGED='
 telemetry off
 artifacts_sync_mode off
@@ -42,7 +41,6 @@ routing_declined true
 plan_tune_hooks no
 cross_project_learnings true
 question_tuning false
-checkpoint_push false
 founder_resources false
 workspace_root null
 explain_level terse
