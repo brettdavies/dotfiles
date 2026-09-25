@@ -29,7 +29,7 @@ runs:
   steps:
     - name: Cache ShellCheck
       id: cache
-      uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v4
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.cache/shellcheck/${{ inputs.version }}
         key: shellcheck-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
