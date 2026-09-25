@@ -314,7 +314,9 @@ _run_sync_regen() {
 }
 
 @test "a failed backport commit returns to dev and deletes the sync branch" {
-  _release_main bash -c "echo 'new changelog' > '$WORK/CHANGELOG.md'"
+  # A changed file, a file main added under a new directory, and a file main
+  # deleted: the cleanup restores the first and third and removes the second.
+  _release_main bash -c "echo 'new changelog' > '$WORK/CHANGELOG.md'; mkdir -p '$WORK/extra'; echo added > '$WORK/extra/new.md'; rm '$WORK/README.md'"
   mkdir -p "$TMP/hooks"
   printf '#!/usr/bin/env bash\nexit 1\n' >"$TMP/hooks/pre-commit"
   chmod +x "$TMP/hooks/pre-commit"
@@ -324,6 +326,8 @@ _run_sync_regen() {
   [ "$status" -ne 0 ]
   [ "$(git -C "$WORK" rev-parse --abbrev-ref HEAD)" = dev ]
   [ -z "$(git -C "$WORK" status --porcelain)" ]
+  [ ! -e "$WORK/extra" ]
+  [ "$(cat "$WORK/README.md")" = "readme v1" ]
   run git -C "$WORK" rev-parse --verify --quiet chore/sync-dev-after-2026.02.02
   [ "$status" -ne 0 ]
 }
@@ -357,6 +361,18 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$output" == *"error: cliff.toml not found"* ]]
   [[ "$output" != *"PR bodies have drifted"* ]]
+}
+
+@test "a regen drift warns with its DRY RUN line, not the diff after it" {
+  _vendor_regen_stub
+  _release_main bash -c "echo 'new changelog' > '$WORK/CHANGELOG.md'"
+  _run_sync_regen 1 'DRY RUN: CHANGELOG.md differs only in line wrapping
+--- CHANGELOG.md (current)
++++ CHANGELOG.md (regenerated)
+@@ -1 +1 @@' 2026.02.02
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"did not pass for 2026.02.02: DRY RUN: CHANGELOG.md differs only in line wrapping"* ]]
+  [[ "$output" != *"@@ -1 +1 @@"* ]]
 }
 
 @test "a regen crash warns with the traceback's last line" {
