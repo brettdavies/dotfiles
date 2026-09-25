@@ -54,7 +54,8 @@ dotfiles/
 │   ├── playwright-browsers-deploy.sh  Playwright browser binaries into the shared cache (curl + unzip)
 │   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (binaries + apparmor + opt-in browser deps)
 │   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, opendataloader-pdf)
-│   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama)
+│   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama, svc:codex-proxy)
+│   ├── tailscale-serve-deploy.sh  System unit that re-runs the serve setup on every tailscaled start
 │   ├── macos-gpu-monitor.sh       Metal GPU residency/power trace around any command (macOS)
 │   ├── lint-shell, lint-workflows, run-tests   CI gate dispatchers, shared by CI and the git hooks
 │   ├── core-env-guard.sh  Fails a test that resets HOME or another core env var (allowlist beside it)

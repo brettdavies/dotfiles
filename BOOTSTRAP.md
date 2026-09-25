@@ -361,8 +361,17 @@ Re-establish the config in one idempotent run (the script fail-fasts if the Cadd
 bash ~/dotfiles/scripts/tailscale-serve-setup.sh
 ```
 
-The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, then Caddy, then Ollama), then prints
-`tailscale serve status`. It is gated to that one host and safe to re-run.
+The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, then Caddy, then Ollama) and
+`https://codex-proxy.<tailnet>/` to `127.0.0.1:8080`, then prints `tailscale serve status`. It is gated to that one host
+and safe to re-run.
+
+To re-apply it automatically, install the unit that runs it every time tailscaled starts, at boot and after every
+tailscaled restart or upgrade. It runs as the Tailscale operator and retries every 30 seconds until the upstreams
+answer:
+
+```bash
+sudo ~/dotfiles/scripts/tailscale-serve-deploy.sh
+```
 
 > **One-time admin step:** the service host must be approved once in the
 > [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP
