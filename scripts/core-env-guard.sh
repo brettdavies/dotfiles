@@ -32,13 +32,15 @@
 # where block is the enclosing @test name or function name, or `-` for top-level
 # code. An entry allows every finding in that block. Blank lines and lines
 # starting with # are ignored. Default: core-env-allowlist.tsv beside this
-# script; a missing file is an empty allowlist.
+# script, where a missing file is an empty allowlist; a path passed with
+# --allowlist must exist.
 #
 # Exit codes: 0 clean, 1 findings or stale allowlist entries, 2 usage error.
 
 set -euo pipefail
 
 allowlist="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/core-env-allowlist.tsv"
+explicit=0
 
 usage() {
   echo "usage: core-env-guard.sh [--allowlist FILE] [FILE...]" >&2
@@ -51,6 +53,7 @@ while [[ $# -gt 0 ]]; do
     --allowlist)
       [[ $# -ge 2 ]] || usage
       allowlist="$2"
+      explicit=1
       shift 2
       ;;
     --)
@@ -88,7 +91,15 @@ for f in "${files[@]}"; do
   esac
 done
 
-[[ -f "$allowlist" ]] || allowlist=/dev/null
+# The hint names the allowlist to edit even before the file exists.
+allowlist_name="$allowlist"
+if [[ ! -e "$allowlist" ]]; then
+  if [[ $explicit -eq 1 ]]; then
+    echo "core-env-guard: allowlist not found: $allowlist" >&2
+    exit 2
+  fi
+  allowlist=/dev/null
+fi
 
 # The awk program reads the allowlist in BEGIN, then every test file. Each
 # finding is keyed by path and enclosing block; the END block prints the
@@ -181,7 +192,7 @@ END {
     print ""
     print "Isolate through a variable the script or tool supports instead (an override"
     print "the script honors, GIT_CONFIG_GLOBAL for git, a path flag), or allowlist the"
-    printf "block in %s with the reason.\n", allowlist_path
+    printf "block in %s with the reason.\n", allowlist_name
     status = 1
   }
   if (sweep) {
@@ -205,4 +216,5 @@ END {
 # still read: a malformed one fails, and a sweep reports every entry as stale.
 count=${#tests[@]}
 [[ $count -gt 0 ]] || tests=(/dev/null)
-awk -v sweep="$sweep" -v files="$count" -v allowlist_path="$allowlist" "$prog" "${tests[@]}"
+awk -v sweep="$sweep" -v files="$count" -v allowlist_path="$allowlist" -v allowlist_name="$allowlist_name" \
+  "$prog" "${tests[@]}"
