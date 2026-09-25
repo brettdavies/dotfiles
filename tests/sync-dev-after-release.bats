@@ -313,6 +313,21 @@ _run_sync_regen() {
   [ "$(git -C "$WORK" rev-parse --abbrev-ref HEAD)" = dev ]
 }
 
+@test "a failed backport commit returns to dev and deletes the sync branch" {
+  _release_main bash -c "echo 'new changelog' > '$WORK/CHANGELOG.md'"
+  mkdir -p "$TMP/hooks"
+  printf '#!/usr/bin/env bash\nexit 1\n' >"$TMP/hooks/pre-commit"
+  chmod +x "$TMP/hooks/pre-commit"
+  git -C "$WORK" config core.hooksPath "$TMP/hooks"
+
+  _run_sync 2026.02.02
+  [ "$status" -ne 0 ]
+  [ "$(git -C "$WORK" rev-parse --abbrev-ref HEAD)" = dev ]
+  [ -z "$(git -C "$WORK" status --porcelain)" ]
+  run git -C "$WORK" rev-parse --verify --quiet chore/sync-dev-after-2026.02.02
+  [ "$status" -ne 0 ]
+}
+
 # --- Post-sync regen check -----------------------------------------------------
 
 # _vendor_regen_stub: a stub generator on main and dev that records each call
