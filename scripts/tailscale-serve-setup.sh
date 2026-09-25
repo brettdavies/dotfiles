@@ -33,6 +33,9 @@
 #   https://login.tailscale.com/admin/services/svc:ollama
 #   https://login.tailscale.com/admin/services/svc:codex-proxy
 #
+# scripts/tailscale-serve-deploy.sh installs a unit that runs this on every
+# tailscaled start.
+#
 # Usage: bash scripts/tailscale-serve-setup.sh
 
 set -euo pipefail

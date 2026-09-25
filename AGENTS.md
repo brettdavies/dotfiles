@@ -79,6 +79,8 @@ are version-controlled in `config/systemd/system/` and deployed via dedicated sc
 
 - `mnt-nas.mount` + `mnt-nas.automount` — deployed by `scripts/nas-deploy.sh`
 - `apparmor-playwright.service` — deployed by `scripts/apparmor-deploy.sh` alongside the profile it reloads at boot
+- `tailscale-serve-setup.service`: deployed by `scripts/tailscale-serve-deploy.sh`, which fills in the Tailscale
+  operator and checkout path; re-runs `scripts/tailscale-serve-setup.sh` on every tailscaled start
 
 **Pattern for adding new system-level units:**
 
