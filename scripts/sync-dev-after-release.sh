@@ -161,23 +161,16 @@ restore_dev() {
   return 0
 }
 
-# Adoption checks out and removes paths, which stages as well as writes, so an
-# exit before the commit puts every path it wrote back to dev's copy. A path
-# dev lacks was created by this run and is removed, along with any directory
-# that held only it. Only written paths are touched: the discovered set is
-# known before anything is written, and a path main added may exist here as
-# an ignored local file.
+# Adoption stages every path it writes, so an exit before the commit restores
+# each from dev's HEAD: a changed or deleted path comes back, and a path main
+# added leaves the index and the tree along with any directory that held only
+# it. Only written paths are touched, since the discovered set is known before
+# anything is written.
 WRITTEN=()
 discard_sync() {
   local path
   for path in ${WRITTEN[@]+"${WRITTEN[@]}"}; do
-    if git cat-file -e "$DEV_HEAD:$path" 2>/dev/null; then
-      git restore --source="$DEV_HEAD" --staged --worktree -- "$path"
-    else
-      git rm --quiet --cached --ignore-unmatch -- "$path"
-      rm -f -- "$path"
-      [[ "$path" == */* ]] && { rmdir -p "${path%/*}" 2>/dev/null || true; }
-    fi
+    git restore --source="$DEV_HEAD" --staged --worktree -- "$path"
   done
   restore_dev
 }
