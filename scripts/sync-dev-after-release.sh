@@ -113,7 +113,8 @@ if ! git rev-parse --verify --quiet "refs/tags/$VERSION" >/dev/null; then
 fi
 
 # main must be at or past the tag (i.e. release/* actually merged).
-TAG_SHA="$(git rev-parse "$VERSION")"
+# Peeled, since an annotated tag names a tag object, not the released commit.
+TAG_SHA="$(git rev-parse "$VERSION^{commit}")"
 if ! git merge-base --is-ancestor "$TAG_SHA" origin/main; then
   echo "error: tag $VERSION is not reachable from origin/main -- wait for release/* to merge" >&2
   exit 66
@@ -147,17 +148,60 @@ git pull --ff-only origin dev
 
 # Cut a branch -- RELEASES.md bans direct commits to dev.
 SYNC_BRANCH="chore/sync-dev-after-${VERSION}"
+# Only a branch this run created may be cleaned up. A dry run creates none, so
+# deleting the branch of a sync already in flight would discard its work.
+BRANCH_IS_OURS=false
 
-if git rev-parse --verify --quiet "$SYNC_BRANCH" >/dev/null; then
-  echo "error: branch $SYNC_BRANCH already exists locally -- delete it or finish the prior run" >&2
-  exit 68
-fi
-if git ls-remote --exit-code --heads origin "$SYNC_BRANCH" >/dev/null 2>&1; then
-  echo "error: branch $SYNC_BRANCH already exists on origin -- check for an open PR or delete the remote branch" >&2
-  exit 68
+restore_dev() {
+  git switch dev
+  if [[ "$BRANCH_IS_OURS" == true ]]; then
+    git branch -D "$SYNC_BRANCH"
+    BRANCH_IS_OURS=false
+  fi
+  return 0
+}
+
+# Adoption checks out and removes paths, which stages as well as writes, so an
+# exit before the commit puts every path it wrote back to dev's copy. A path
+# dev lacks was created by this run and is removed, along with any directory
+# that held only it. Only written paths are touched: the discovered set is
+# known before anything is written, and a path main added may exist here as
+# an ignored local file.
+WRITTEN=()
+discard_sync() {
+  local path
+  for path in ${WRITTEN[@]+"${WRITTEN[@]}"}; do
+    if git cat-file -e "$DEV_HEAD:$path" 2>/dev/null; then
+      git restore --source="$DEV_HEAD" --staged --worktree -- "$path"
+    else
+      git rm --quiet --cached --ignore-unmatch -- "$path"
+      rm -f -- "$path"
+      [[ "$path" == */* ]] && { rmdir -p "${path%/*}" 2>/dev/null || true; }
+    fi
+  done
+  restore_dev
+}
+
+# A dry run creates no branch, so an existing one is no reason to refuse: the
+# question it answers, what this release would carry back, is exactly the one
+# asked while a prior attempt is still open.
+if [[ "$DRY_RUN" == false ]]; then
+  if git rev-parse --verify --quiet "$SYNC_BRANCH" >/dev/null; then
+    echo "error: branch $SYNC_BRANCH already exists locally -- delete it or finish the prior run" >&2
+    exit 68
+  fi
+  if git ls-remote --exit-code --heads origin "$SYNC_BRANCH" >/dev/null 2>&1; then
+    echo "error: branch $SYNC_BRANCH already exists on origin -- check for an open PR or delete the remote branch" >&2
+    exit 68
+  fi
+  git checkout -b "$SYNC_BRANCH"
+  BRANCH_IS_OURS=true
 fi
 
-git checkout -b "$SYNC_BRANCH"
+# From the branch cut to the commit, every exit leaves dev as it was found,
+# including one `set -e` takes on an unexpected failure.
+DEV_HEAD="$(git rev-parse HEAD)"
+trap discard_sync EXIT
 
 # --- Discover what to sync -------------------------------------------------
 
@@ -252,8 +296,6 @@ fi
 
 if [[ ${#SYNC_PATHS[@]} -eq 0 ]]; then
   echo "no changes -- dev already in sync with $VERSION"
-  git switch dev
-  git branch -D "$SYNC_BRANCH"
   exit 0
 fi
 
@@ -264,8 +306,6 @@ printf '    %s\n' "${SYNC_PATHS[@]}"
 
 if [[ "$DRY_RUN" == true ]]; then
   echo "dry run -- no branch, commit, or PR created"
-  git switch dev
-  git branch -D "$SYNC_BRANCH"
   exit 0
 fi
 
@@ -273,6 +313,7 @@ fi
 # dev rather than checked out, because `git checkout main -- <deleted>` fails
 # on a pathspec that does not exist at that ref.
 for path in "${SYNC_PATHS[@]}"; do
+  WRITTEN+=("$path")
   if [[ -n "$(blob_at origin/main "$path")" ]]; then
     git checkout origin/main -- "$path"
   else
@@ -284,8 +325,6 @@ done
 # is always empty here. Compare the index against HEAD instead.
 if git diff --cached --quiet; then
   echo "no changes -- dev already in sync with $VERSION"
-  git switch dev
-  git branch -D "$SYNC_BRANCH"
   exit 0
 fi
 
@@ -306,19 +345,30 @@ COMMIT_MSG_FILE="$(mktemp -t "sync-dev-after-${VERSION}-commit.XXXXXX")"
   echo "Synced: ${SYNC_PATHS[*]}"
 } >"$COMMIT_MSG_FILE"
 git commit --file "$COMMIT_MSG_FILE"
+trap - EXIT
 rm -f "$COMMIT_MSG_FILE"
 
 # Post-sync sanity check: re-running generate-changelog.py against the current
-# PR bodies should reproduce the backported CHANGELOG.md. Drift here means
-# upstream PR bodies were edited after main's CHANGELOG.md was generated. Warn,
-# do not fail; the backport is still correct against what main currently has.
+# PR bodies should reproduce the backported CHANGELOG.md. It fails when upstream
+# PR bodies were edited after main's CHANGELOG.md was generated, when something
+# rewrapped the generated file, or when the generator cannot run at all, and
+# only the generator knows which, so its own reason line is what the warning
+# carries. Warn, do not fail; the backport is still correct against what main
+# currently has.
+#
+# The reason is the generator's `DRY RUN:` or `error:` line, else its last
+# line, since a crash's traceback ends with the exception.
+regen_reason() {
+  awk '/^(DRY RUN|error):/ { print; found = 1; exit } NF { last = $0 } END { if (!found) print last }'
+}
+
 if printf '%s\n' "${SYNC_PATHS[@]}" | grep -qx 'CHANGELOG.md' \
   && [[ -x scripts/generate-changelog.py ]] && command -v git-cliff >/dev/null 2>&1; then
-  if scripts/generate-changelog.py --dry-run --tag "$VERSION" >/dev/null 2>&1; then
+  if regen_err="$(scripts/generate-changelog.py --dry-run --tag "$VERSION" 2>&1 >/dev/null)"; then
     echo "regen check: CHANGELOG.md matches what PR bodies would produce"
   else
-    echo "warning: PR bodies have drifted from main's CHANGELOG.md for $VERSION" >&2
-    echo "  re-run 'scripts/generate-changelog.py --dry-run --tag $VERSION' to see the diff" >&2
+    echo "warning: regen check did not pass for $VERSION: $(regen_reason <<<"$regen_err")" >&2
+    echo "  re-run 'scripts/generate-changelog.py --dry-run --tag $VERSION' for its full output" >&2
   fi
 fi
 

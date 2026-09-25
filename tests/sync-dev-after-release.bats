@@ -22,12 +22,16 @@ setup() {
   WORK="$TMP/work"
   BIN="$TMP/bin"
 
-  # `gh release view --json isDraft` must report a published release.
+  # `gh release view --json isDraft` must report a published release, and
+  # `gh pr create` leaves a copy of the body it was handed.
   mkdir -p "$BIN"
+  export PR_BODY_COPY="$TMP/pr-body.md"
   cat >"$BIN/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"release view"*) echo false ;;
+  *"pr create"*)
+    while [[ $# -gt 0 ]]; do [[ "$1" == "--body-file" ]] && cp "$2" "$PR_BODY_COPY"; shift; done ;;
   *) exit 0 ;;
 esac
 STUB
@@ -85,6 +89,16 @@ _release_main() {
 _run_sync() {
   cd "$WORK" || return 1
   run env PATH="$PATH" bash scripts/sync-dev-after-release.sh "$@"
+}
+
+# _run_sync_regen EXIT STDERR ARGS...: _run_sync with the stub generator set to
+# exit EXIT after printing STDERR.
+_run_sync_regen() {
+  local regen_exit="$1" regen_stderr="$2"
+  shift 2
+  cd "$WORK" || return 1
+  run env PATH="$PATH" REGEN_EXIT="$regen_exit" REGEN_STDERR="$regen_stderr" \
+    bash scripts/sync-dev-after-release.sh "$@"
 }
 
 @test "adopts a file only the release branch changed" {
@@ -206,6 +220,13 @@ _run_sync() {
   _run_sync 2026.02.02 --only docs/plans/some-plan.md
   [ "$status" -eq 64 ]
   [[ "$output" == *"not a diverged, unguarded path"* ]]
+  [ "$(git -C "$WORK" rev-parse --abbrev-ref HEAD)" = dev ]
+  [ -z "$(git -C "$WORK" status --porcelain)" ]
+  run git -C "$WORK" rev-parse --verify --quiet chore/sync-dev-after-2026.02.02
+  [ "$status" -ne 0 ]
+  # A rerun is refused only for the same reason, not for a leftover branch.
+  _run_sync 2026.02.02 --only docs/plans/some-plan.md
+  [ "$status" -eq 64 ]
 }
 
 @test "rejects an unknown flag" {
@@ -245,4 +266,91 @@ _run_sync() {
   [[ "$output" == *"CHANGELOG.md"* ]]
   [[ "$output" == *"D"*"paxel.yml"* ]]
   [[ "$output" == *"settings.json"* ]]
+}
+
+
+# --- The PR body and exits before the commit -------------------------------
+
+@test "an annotated tag's PR body cites the released commit" {
+  git -C "$WORK" switch -q main
+  echo "new changelog" >"$WORK/CHANGELOG.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -q -m "release: 2026.02.02"
+  git -C "$WORK" tag -a -m 2026.02.02 2026.02.02
+  git -C "$WORK" push -q origin main
+  git -C "$WORK" push -q --tags
+  git -C "$WORK" switch -q dev
+  commit_short="$(git -C "$WORK" rev-parse --short '2026.02.02^{commit}')"
+  tag_object_short="$(git -C "$WORK" rev-parse --short 2026.02.02)"
+  [ "$commit_short" != "$tag_object_short" ]
+
+  _run_sync 2026.02.02
+  [ "$status" -eq 0 ]
+  grep -qF "at \`$commit_short\`" "$PR_BODY_COPY"
+  run grep -qF "$tag_object_short" "$PR_BODY_COPY"
+  [ "$status" -ne 0 ]
+}
+
+@test "a dry run cuts no branch at any point and leaves dev clean" {
+  _release_main bash -c "echo 'new changelog' > '$WORK/CHANGELOG.md'"
+  _run_sync 2026.02.02 --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"dry run"* ]]
+  [ "$(git -C "$WORK" rev-parse --abbrev-ref HEAD)" = dev ]
+  [ -z "$(git -C "$WORK" status --porcelain)" ]
+  run git -C "$WORK" rev-parse --verify --quiet chore/sync-dev-after-2026.02.02
+  [ "$status" -ne 0 ]
+  [[ "$(git -C "$WORK" reflog)" != *"chore/sync-dev-after-2026.02.02"* ]]
+}
+
+@test "a dry run succeeds beside a prior run's sync branch and leaves it untouched" {
+  _release_main bash -c "echo 'new changelog' > '$WORK/CHANGELOG.md'"
+  git -C "$WORK" branch chore/sync-dev-after-2026.02.02 origin/dev
+  prior="$(git -C "$WORK" rev-parse chore/sync-dev-after-2026.02.02)"
+  _run_sync 2026.02.02 --dry-run
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$WORK" rev-parse chore/sync-dev-after-2026.02.02)" = "$prior" ]
+  [ "$(git -C "$WORK" rev-parse --abbrev-ref HEAD)" = dev ]
+}
+
+# --- Post-sync regen check -----------------------------------------------------
+
+# _vendor_regen_stub: a stub generator on main and dev that records each call
+# and prints $REGEN_STDERR, plus a stub git-cliff on PATH.
+_vendor_regen_stub() {
+  printf '#!/usr/bin/env bash\n' >"$BIN/git-cliff"
+  chmod +x "$BIN/git-cliff"
+  git -C "$WORK" switch -q main
+  cat >"$WORK/scripts/generate-changelog.py" <<'STUB'
+#!/usr/bin/env bash
+[[ -z "${REGEN_STDERR:-}" ]] || printf '%s\n' "$REGEN_STDERR" >&2
+exit "${REGEN_EXIT:-0}"
+STUB
+  chmod +x "$WORK/scripts/generate-changelog.py"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -q -m "vendor the generator"
+  git -C "$WORK" push -q origin main
+  git -C "$WORK" switch -q dev
+  git -C "$WORK" merge -q --ff-only origin/main
+  git -C "$WORK" push -q origin dev
+}
+
+@test "a regen error warns with its reason, not a drift claim" {
+  _vendor_regen_stub
+  _release_main bash -c "echo 'new changelog' > '$WORK/CHANGELOG.md'"
+  _run_sync_regen 1 'error: cliff.toml not found' 2026.02.02
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"error: cliff.toml not found"* ]]
+  [[ "$output" != *"PR bodies have drifted"* ]]
+}
+
+@test "a regen crash warns with the traceback's last line" {
+  _vendor_regen_stub
+  _release_main bash -c "echo 'new changelog' > '$WORK/CHANGELOG.md'"
+  _run_sync_regen 1 'Traceback (most recent call last):
+  File "scripts/generate-changelog.py", line 196, in fetch_pr
+subprocess.TimeoutExpired: Command gh api timed out after 10 seconds' 2026.02.02
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"subprocess.TimeoutExpired: Command gh api timed out after 10 seconds"* ]]
+  [[ "$output" != *"Traceback (most recent call last)"* ]]
 }
