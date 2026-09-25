@@ -9,9 +9,10 @@
 #   3. run-tests --all       .github/workflows/bats.yml, split across the two
 #                            phases below so the perf suite keeps a quiet
 #                            machine while the rest overlaps the lint gates
+#   4. core-env-guard.sh     .github/workflows/shellcheck.yml (same job)
 #
 # Each command owns its own target list, and .githooks/pre-commit calls the
-# same three scripts over staged paths through the same shared scheduler, so
+# same scripts over staged paths through the same shared scheduler, so
 # the three gates cannot drift apart in coverage or in execution model. Adding
 # a CI job means adding a step here that calls the same script.
 #
@@ -81,6 +82,7 @@ gate_begin
 # 2. actionlint — same CI job. actionlint shells out to shellcheck for `run:`
 #    blocks, which is a read-only dependency and safe to overlap.
 # 3. Bats — .github/workflows/bats.yml, perf suite already done above.
+# 4. Core env guard — same CI job as ShellCheck; reads the test files only.
 if command -v shellcheck >/dev/null 2>&1; then
   gate_spawn shellcheck ./scripts/lint-shell --all
 fi
@@ -90,6 +92,7 @@ fi
 if command -v bats >/dev/null 2>&1; then
   gate_spawn bats ./scripts/run-tests --no-perf
 fi
+gate_spawn core-env ./scripts/core-env-guard.sh
 wait
 
 if command -v shellcheck >/dev/null 2>&1; then
@@ -107,6 +110,7 @@ if command -v bats >/dev/null 2>&1; then
 else
   gate_skip "bats (install via \`brew install bats-core\`)"
 fi
+gate_collect core-env "core-env guard" "core-env-guard.sh"
 
 gate_done "All checks passed."
 

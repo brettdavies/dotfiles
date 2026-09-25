@@ -57,6 +57,7 @@ dotfiles/
 │   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama)
 │   ├── macos-gpu-monitor.sh       Metal GPU residency/power trace around any command (macOS)
 │   ├── lint-shell, lint-workflows, run-tests   CI gate dispatchers, shared by CI and the git hooks
+│   ├── core-env-guard.sh  Fails a test that resets HOME or another core env var (allowlist beside it)
 │   ├── generate-changelog.py      Release changelog extraction from merged PR bodies
 │   ├── sync-dev-after-release.sh  Backport the released CHANGELOG.md to dev by PR
 │   ├── release/           Release gates (drift.sh, guarded-paths.sh)
@@ -350,11 +351,11 @@ Activated via `core.hooksPath` (set automatically by `stow-deploy`):
 | `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign`, gates staged paths |
 | `post-checkout` | Auto-unlocks git-crypt, chains Git LFS                                  |
 | `post-merge`    | Auto-unlocks git-crypt, chains Git LFS                                  |
-| `pre-push`      | Mirrors CI (shellcheck, actionlint, bats), chains Git LFS               |
+| `pre-push`      | Mirrors CI (shellcheck, actionlint, bats, core-env), chains Git LFS     |
 
-Both gates call the same dispatchers CI calls — `scripts/lint-shell`, `scripts/lint-workflows`, `scripts/run-tests` — so
-the three cannot drift. `pre-push` runs them over the whole repo; `pre-commit` runs them over staged paths only. See
-[AGENTS.md § Local gates mirror CI](AGENTS.md#local-gates-mirror-ci).
+Both gates call the same dispatchers CI calls — `scripts/lint-shell`, `scripts/lint-workflows`, `scripts/run-tests`,
+`scripts/core-env-guard.sh` — so the three cannot drift. `pre-push` runs them over the whole repo; `pre-commit` runs
+them over staged paths only. See [AGENTS.md § Local gates mirror CI](AGENTS.md#local-gates-mirror-ci).
 
 ## CI and Testing
 

@@ -44,6 +44,12 @@ jobs:
         # over staged paths, so local gates and CI cannot drift apart.
         run: ./scripts/lint-shell --all
 
+      - name: Guard test environments
+        # Fails a test that resets HOME, TMPDIR, an XDG_* directory, a tool
+        # home, or PATH's whole value. .githooks/pre-push runs this exact
+        # command, and scripts/core-env-allowlist.tsv holds the exceptions.
+        run: ./scripts/core-env-guard.sh
+
       - name: Install actionlint
         uses: ./.github/actions/setup-actionlint
 
