@@ -61,8 +61,8 @@ The anchor is the newest CalVer tag reachable from `origin/main`; `--since <ref>
 The `.githooks/pre-push` hook runs the same `shellcheck`, `actionlint`, and `bats` suites as the `shellcheck.yml` and
 `bats.yml` workflows. Run them explicitly before cutting the branch rather than discovering a failure mid-release.
 
-- [ ] `scripts/lint-shell --all`, `scripts/lint-workflows --all`, and `scripts/run-tests --all` are clean; the simplest
-  trigger is a no-op `git push` on `dev`.
+- [ ] `scripts/lint-shell --all`, `scripts/lint-workflows --all`, `scripts/run-tests --all`, and
+  `scripts/core-env-guard.sh` are clean; the simplest trigger is a no-op `git push` on `dev`.
 - [ ] `markdownlint-cli2` clean on any prose docs in the release (the auto-format hook keeps this green during editing;
   confirm nothing slipped). `CHANGELOG.md` is the standing exception: the generator emits one logical line per bullet so
   GitHub soft-wraps it, which trips `MD013` on every section including the released ones. Hand-wrapping it to satisfy

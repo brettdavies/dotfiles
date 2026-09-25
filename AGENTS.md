@@ -277,16 +277,21 @@ This is set during bootstrap (see README) or via `bash .githooks/setup`.
 The hooks exist so a red pipeline is a surprise rather than a routine. Every check is defined once, in a script that all
 three gates call:
 
-| Check      | Definition               | CI job                             | pre-push | pre-commit            |
-| ---------- | ------------------------ | ---------------------------------- | -------- | --------------------- |
-| ShellCheck | `scripts/lint-shell`     | `.github/workflows/shellcheck.yml` | `--all`  | staged paths          |
-| actionlint | `scripts/lint-workflows` | `.github/workflows/shellcheck.yml` | `--all`  | staged workflow files |
-| Bats       | `scripts/run-tests`      | `.github/workflows/bats.yml`       | `--all`  | staged `.bats` files  |
+| Check      | Definition                  | CI job                             | pre-push | pre-commit            |
+| ---------- | --------------------------- | ---------------------------------- | -------- | --------------------- |
+| ShellCheck | `scripts/lint-shell`        | `.github/workflows/shellcheck.yml` | `--all`  | staged paths          |
+| actionlint | `scripts/lint-workflows`    | `.github/workflows/shellcheck.yml` | `--all`  | staged workflow files |
+| Bats       | `scripts/run-tests`         | `.github/workflows/bats.yml`       | `--all`  | staged `.bats` files  |
+| Core env   | `scripts/core-env-guard.sh` | `.github/workflows/shellcheck.yml` | sweep    | staged test files     |
 
-actionlint shares the ShellCheck job rather than getting its own. The job id `shellcheck` is a required status check in
-both rulesets under `.github/rulesets/`, so a separate job would need a new required context registered before it could
-block anything. It also runs after ShellCheck is on PATH deliberately: actionlint delegates `run:` bodies to shellcheck,
-and without it those checks are skipped silently rather than failing.
+actionlint and the core-env guard share the ShellCheck job rather than getting their own. The job id `shellcheck` is a
+required status check in both rulesets under `.github/rulesets/`, so a separate job would need a new required context
+registered before it could block anything. It also runs after ShellCheck is on PATH deliberately: actionlint delegates
+`run:` bodies to shellcheck, and without it those checks are skipped silently rather than failing. The core-env guard
+fails a test that resets `HOME`, `TMPDIR`, an `XDG_*` directory, a tool home, or the whole value of `PATH`;
+`scripts/core-env-allowlist.tsv` holds each exception with its reason, and a sweep fails on an entry that matches
+nothing. The script is a verbatim copy of the github-repo-setup skill's `templates/core-env-guard.sh`, whose own suite
+covers it.
 
 `pre-push` is the repo-wide mirror: its steps map one-to-one onto CI jobs, and passing it should mean passing the
 pipeline. `pre-commit` runs the same scripts over staged paths only, so it stays fast enough for every commit while

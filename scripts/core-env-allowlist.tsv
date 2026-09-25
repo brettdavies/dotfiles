@@ -1,0 +1,33 @@
+# Tests allowed to reset a core environment variable. One tab-separated entry
+# per line: path, enclosing @test or function name ("-" for top level), and
+# the reason. Read by scripts/core-env-guard.sh; a sweep fails on an entry
+# that matches no finding.
+tests/auto-format-ignores.bats	setup	the hook skips scratch paths, so the sandbox sits under ~/.cache with TMPDIR cleared, and the hook finds its helpers and global markdownlint config under HOME with no override
+tests/claude-bash-env-path.bats	produced env file sources cleanly when the repo file is absent	points HOME at a missing directory so the env file finds no local-paths.sh, the case under test
+tests/claude-bash-env-path.bats	wiring: sourcing the env file runs \$HOME/dotfiles/config/shell/local-paths.sh	points HOME at a scratch tree with a marker local-paths.sh to prove the env file sources it through HOME
+tests/gh-wrapper.bats	gh wrapper skips itself when reachable under an alias path	an empty HOME and a constructed PATH keep the host's own ~/.local/bin/gh and Homebrew gh from standing in for the fake real gh the wrapper must find
+tests/gh-wrapper.bats	gh wrapper skips a separate copy of itself on PATH	an empty HOME and a constructed PATH keep the host's own ~/.local/bin/gh and Homebrew gh from standing in for the fake real gh the wrapper must find
+tests/gh-wrapper.bats	gh wrapper refuses to run when it has already re-entered itself	an empty HOME and a constructed PATH keep the host's own ~/.local/bin/gh and Homebrew gh from standing in for the fake real gh the wrapper must find
+tests/gh-wrapper.bats	gh wrapper passes through when an ancestor set the marker	an empty HOME and a constructed PATH keep the host's own ~/.local/bin/gh and Homebrew gh from standing in for the fake real gh the wrapper must find
+tests/mac-open-here.bats	receiver	the receiver writes copies to $HOME/Downloads/mac-open with no override; a scratch HOME keeps them out of the real Downloads
+tests/mac-open-here.bats	receive writes the streamed bytes, leaves no part file, and opens the copy	the receiver writes copies to $HOME/Downloads/mac-open with no override; a scratch HOME keeps them out of the real Downloads
+tests/mac-open-here.bats	receive of a short stream reports short-copy, opens nothing, and leaves nothing	the receiver writes copies to $HOME/Downloads/mac-open with no override; a scratch HOME keeps them out of the real Downloads
+tests/mac-open-here.bats	receive accepts a zero-byte file	the receiver writes copies to $HOME/Downloads/mac-open with no override; a scratch HOME keeps them out of the real Downloads
+tests/mac-open-here.bats	receive never prunes an older copy	the receiver writes copies to $HOME/Downloads/mac-open with no override; a scratch HOME keeps them out of the real Downloads
+tests/mac-open-here.bats	receive of two same-named files in one second keeps both	the receiver writes copies to $HOME/Downloads/mac-open with no override; a scratch HOME keeps them out of the real Downloads
+tests/mac-open-here.bats	receive removes the part file when the rename fails	the receiver writes copies to $HOME/Downloads/mac-open with no override; a scratch HOME keeps them out of the real Downloads
+tests/mac-open-here.bats	receive removes the part file when the streaming write fails	the receiver writes copies to $HOME/Downloads/mac-open with no override; a scratch HOME keeps them out of the real Downloads
+tests/mac-open-here.bats	receive reports open-failed with its line when opening the finished copy fails for another reason	the receiver writes copies to $HOME/Downloads/mac-open with no override; a scratch HOME keeps them out of the real Downloads
+tests/mac-open.bats	setup	the ssh stub runs the remote half as the Mac would, under a scratch Mac home holding a stub mac-open-here
+tests/mac-open.bats	with neither jaq nor jq installed the guard fails closed naming the tool	PATH is rebuilt from /usr/bin and /bin minus jq and jaq so the guard finds neither, the case under test
+tests/shell-config.bats	local-paths.sh promotes keg-only Homebrew Ruby ahead of system Ruby in bash	reproduces the demoted PATH order local-paths.sh exists to repair
+tests/shell-config.bats	sourcing profile in a fresh shell leaves CARGO_HOME unset	clears the inherited CARGO_HOME so the assertion reads what .profile sets, not the parent shell's value
+tests/shell-config.bats	sourcing profile in a fresh shell leaves RUSTUP_HOME unset	clears the inherited RUSTUP_HOME so the assertion reads what .profile sets, not the parent shell's value
+tests/shell-config.bats	sourcing profile puts stock ~/.cargo/bin on PATH where a toolchain exists	clears the inherited CARGO_HOME so .profile's default cargo bin directory is what gets tested
+tests/shell-path-matrix.bats	_shape	models a launchd-spawned shell with env -i and a bare PATH, the startup shape under test; HOME, USER, and LOGNAME pass through unchanged
+tests/shell-path-matrix.bats	dash login non-interactive sources dot-profile without error	models a launchd-spawned shell with env -i and a bare PATH, the startup shape under test; HOME, USER, and LOGNAME pass through unchanged
+tests/shell-path-matrix.bats	agent Bash tool shape promotes keg-only Ruby via BASH_ENV wiring	models the agent Bash tool's bare environment with the demoted Ruby order the BASH_ENV wiring repairs; HOME passes through unchanged
+tests/shell-startup-shapes.bats	_gui_shell	models a launchd-spawned GUI shell with env -i and the system default PATH; HOME, USER, and LOGNAME pass through unchanged
+tests/taildrive.bats	the mount-table probe works without /sbin on PATH	drops /sbin from PATH, the launch environment under test
+tests/tmux-new-session.bats	script resolves its config dir with no dotfiles profile in the environment	starts from env -i with stubbed tmux and tmuxinator to prove the script needs no dotfiles profile; HOME passes through unchanged
+tests/trash-mechanism.bats	trash resolves as a binary in a shell that reads no startup files	env -i with the inherited PATH models a launcher that reads no rc files, the case under test

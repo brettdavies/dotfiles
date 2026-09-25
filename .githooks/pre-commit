@@ -9,6 +9,7 @@
 #   1. lint-shell     <staged>            .github/workflows/shellcheck.yml
 #   2. lint-workflows <staged workflows>  .github/workflows/shellcheck.yml (same job)
 #   3. run-tests      <staged .bats>      .github/workflows/bats.yml
+#   4. core-env-guard <staged tests>      .github/workflows/shellcheck.yml (same job)
 #
 # Plus the two policy gates that have no CI equivalent because they are about
 # how a commit is made rather than what is in it: protected-branch and signing.
@@ -50,10 +51,11 @@ fi
 
 mapfile -t staged_wf < <(printf '%s\n' "${staged[@]}" | grep '^\.github/workflows/.*\.ya\?ml$' || true)
 mapfile -t staged_bats < <(printf '%s\n' "${staged[@]}" | grep '\.bats$' || true)
+mapfile -t staged_tests < <(printf '%s\n' "${staged[@]}" | grep -E '\.(bats|bash)$|(^|/)tests?/.*\.sh$' || true)
 
 gate_header "Running pre-commit checks..."
 
-# The three gates are independent, so they run together through the same
+# The four gates are independent, so they run together through the same
 # scheduler .githooks/pre-push uses. There is no perf suite to isolate here:
 # pre-commit never runs tests/perf, only the staged test files.
 gate_begin
@@ -71,6 +73,11 @@ fi
 #    its own edit surfaces here; the full suite still runs in pre-push.
 if [ "${#staged_bats[@]}" -gt 0 ] && command -v bats >/dev/null 2>&1; then
   gate_spawn bats ./scripts/run-tests "${staged_bats[@]}"
+fi
+# 4. Core env guard — same CI job as ShellCheck, staged test files only. It
+#    needs only bash, awk, and git, so there is no tool to skip on.
+if [ "${#staged_tests[@]}" -gt 0 ]; then
+  gate_spawn core-env ./scripts/core-env-guard.sh "${staged_tests[@]}"
 fi
 wait
 
@@ -94,6 +101,12 @@ elif command -v bats >/dev/null 2>&1; then
   gate_collect bats "bats (${#staged_bats[@]} file(s))" "run-tests (staged)"
 else
   gate_skip "bats (install via \`brew install bats-core\`)"
+fi
+
+if [ "${#staged_tests[@]}" -eq 0 ]; then
+  gate_skip "core-env guard (no staged test files)"
+else
+  gate_collect core-env "core-env guard (${#staged_tests[@]} file(s))" "core-env-guard.sh (staged)"
 fi
 
 gate_done "Pre-commit checks passed."

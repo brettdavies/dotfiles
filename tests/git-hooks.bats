@@ -72,8 +72,8 @@ HOOKS_DIR="$BATS_TEST_DIRNAME/../.githooks"
 # the other behind.
 # ---------------------------------------------------------------------------
 
-@test "both gates route their checks through the same three scripts" {
-  for script in lint-shell lint-workflows run-tests; do
+@test "both gates route their checks through the same scripts" {
+  for script in lint-shell lint-workflows run-tests core-env-guard.sh; do
     grep -q "scripts/$script" "$HOOKS_DIR/pre-commit"
     grep -q "scripts/$script" "$HOOKS_DIR/pre-push"
   done

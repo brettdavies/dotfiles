@@ -79,7 +79,7 @@ _is_target() {
     scripts/stow-deploy | scripts/lint-shell | scripts/run-tests | scripts/lint-workflows) return 0 ;;
     scripts/sshd-locale-deploy.sh | scripts/cswap-autoswitch-deploy.sh) return 0 ;;
     scripts/claude-token-totals | scripts/codexbar-config) return 0 ;;
-    scripts/sync-dev-after-release.sh) return 0 ;;
+    scripts/sync-dev-after-release.sh | scripts/core-env-guard.sh) return 0 ;;
     scripts/release/*.sh) return 0 ;;
     stow/shell/dot-profile) return 0 ;;
     tests/*.bats) return 0 ;;
@@ -95,7 +95,7 @@ _all_targets() {
     .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push \
     scripts/stow-deploy scripts/lint-shell scripts/run-tests scripts/lint-workflows scripts/sshd-locale-deploy.sh \
     scripts/cswap-autoswitch-deploy.sh \
-    scripts/claude-token-totals scripts/codexbar-config scripts/sync-dev-after-release.sh \
+    scripts/claude-token-totals scripts/codexbar-config scripts/sync-dev-after-release.sh scripts/core-env-guard.sh \
     stow/shell/dot-profile config/shell/shell-functions
   find scripts/release -maxdepth 1 -type f -name '*.sh' 2>/dev/null
   find .githooks/lib -maxdepth 1 -type f -name '*.sh' 2>/dev/null

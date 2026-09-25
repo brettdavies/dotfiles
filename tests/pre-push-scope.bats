@@ -186,7 +186,7 @@ install_hook_with_stubs() {
   mkdir -p "$WORK/.githooks/lib" "$WORK/scripts" "$FIX/bin"
   cp "$REPO/.githooks/pre-push" "$WORK/.githooks/pre-push"
   cp "$REPO"/.githooks/lib/*.sh "$WORK/.githooks/lib/"
-  for s in lint-shell lint-workflows run-tests; do
+  for s in lint-shell lint-workflows run-tests core-env-guard.sh; do
     printf '#!/bin/sh\ntouch "%s/ran-%s"\n' "$FIX" "$s" >"$WORK/scripts/$s"
     chmod +x "$WORK/scripts/$s"
   done
