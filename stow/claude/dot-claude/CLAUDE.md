@@ -206,9 +206,12 @@ the project, not the machine** — it must stay clean on CI and other machines: 
 entry/`conftest.py`, uv's `.venv/`+`uv.lock` off via `uv run --no-project --with . <script>` (or `--with pytest python
 -B -m pytest`). This machine also exports `PYTHONDONTWRITEBYTECODE=1`/`PYTEST_ADDOPTS` (`config/shell/python.sh`) as a
 safety net that does not travel — don't rely on it in place of the in-project settings. Apply before any `uv
-run`/`pytest` in a repo. `qmd query` for knowledge-base search. Don't manually wrap markdown — the `md-wrap.py` hook
-does. **Playwright browsers are system-provided** by `~/dotfiles` into the shared `$PLAYWRIGHT_BROWSERS_PATH`; never run
-`playwright install` to download them (the node/libuv io_uring extractor deadlocks on this kernel) —
+run`/`pytest` in a repo. `qmd query` for knowledge-base search. **Timing and peak memory: `gtime -f '%e s %M KB'
+<cmd>` (or `gtime -v`)**, GNU time under one name on macOS and Linux (brew `gnu-time`; `config/shell/gnu-time.sh`
+defines it on Linux). Never `/usr/bin/time`: Ubuntu has none by default and macOS's is BSD time without `-v` or `-f`;
+the shell's `time` keyword has no memory figure. Don't manually wrap markdown — the `md-wrap.py` hook does. **Playwright
+browsers are system-provided** by `~/dotfiles` into the shared `$PLAYWRIGHT_BROWSERS_PATH`; never run `playwright
+install` to download them (the node/libuv io_uring extractor deadlocks on this kernel) —
 `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` stops `bun install` from auto-fetching them (an explicit install still fetches
 missing browsers; the provisioned set is what makes it skip), repos exact-pin the one canonical version, and bumping is
 a dotfiles job. Full preference list (Python cache/venv hygiene, gh auth, Playwright browsers, Rust pre-push) →
