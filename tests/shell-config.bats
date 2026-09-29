@@ -367,3 +367,55 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   [ "$status" -eq 0 ]
   [ "$output" = "DEFINED" ]
 }
+
+# ---------------------------------------------------------------------------
+# gnu-time.sh
+# ---------------------------------------------------------------------------
+
+# A stand-in Homebrew prefix whose bin/time echoes its arguments. The fragment
+# reads HOMEBREW_PREFIX, so the tests point that at the stub and leave PATH to
+# the host; a host with its own gtime binary skips the cases that need none.
+_stub_brew_time() {
+  mkdir -p "$BATS_TEST_TMPDIR/brew/bin"
+  printf '#!/bin/sh\necho "gnu-time $*"\n' > "$BATS_TEST_TMPDIR/brew/bin/time"
+  chmod +x "$BATS_TEST_TMPDIR/brew/bin/time"
+}
+
+_skip_if_host_gtime() {
+  if command -v gtime >/dev/null 2>&1; then skip "this host has a gtime binary"; fi
+}
+
+@test "gnu-time.sh: gtime runs Homebrew's time with its arguments under bash" {
+  _skip_if_host_gtime
+  _stub_brew_time
+  run env HOMEBREW_PREFIX="$BATS_TEST_TMPDIR/brew" bash -c ". '$CONFIG_DIR/gnu-time.sh'; gtime -f '%M' true"
+  [ "$status" -eq 0 ]
+  [ "$output" = "gnu-time -f %M true" ]
+}
+
+@test "gnu-time.sh: gtime runs Homebrew's time with its arguments under zsh" {
+  command -v zsh >/dev/null 2>&1 || skip "zsh not installed"
+  _skip_if_host_gtime
+  _stub_brew_time
+  run env HOMEBREW_PREFIX="$BATS_TEST_TMPDIR/brew" zsh -fc ". '$CONFIG_DIR/gnu-time.sh'; gtime -v true"
+  [ "$status" -eq 0 ]
+  [ "$output" = "gnu-time -v true" ]
+}
+
+@test "gnu-time.sh: a gtime binary on PATH is left to answer" {
+  _stub_brew_time
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  printf '#!/bin/sh\necho binary\n' > "$BATS_TEST_TMPDIR/bin/gtime"
+  chmod +x "$BATS_TEST_TMPDIR/bin/gtime"
+  run env PATH="$BATS_TEST_TMPDIR/bin:$PATH" HOMEBREW_PREFIX="$BATS_TEST_TMPDIR/brew" \
+    bash -c ". '$CONFIG_DIR/gnu-time.sh'; type -t gtime; gtime"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf 'file\nbinary')" ]
+}
+
+@test "gnu-time.sh: nothing is defined without GNU time" {
+  _skip_if_host_gtime
+  run env HOMEBREW_PREFIX="$BATS_TEST_TMPDIR/none" bash -c ". '$CONFIG_DIR/gnu-time.sh'; type -t gtime"
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+}

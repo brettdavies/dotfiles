@@ -313,6 +313,7 @@ having changed.
 | `caches.sh`         | XDG cache directory locations                                  |
 | `claude-code.sh`    | Claude Code environment variables                              |
 | `github.sh`         | GitHub CLI aliases                                             |
+| `gnu-time.sh`       | `gtime` runs Homebrew's GNU time on Linux, as on macOS         |
 | `gogcli.sh`         | Google Workspace CLI keyring password injection                |
 | `languagetool.sh`   | LanguageTool wrapper for the shared prose-lint stage           |
 | `litellm.sh`        | LiteLLM proxy configuration                                    |
