@@ -1,0 +1,6 @@
+# Repositories where no pull request or PR stack may be opened until Brett
+# lifts the freeze. One owner/repo per line; read by the gh wrapper
+# (~/.local/bin/gh).
+
+# The search-at-scale stack is built and vetted on brettdavies/qmd first.
+tobi/qmd
