@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Wrapper to block AI agents from merging PRs into main
-# All other gh commands (including pr merge to non-main branches) pass through
+# Wrapper to block AI agents from merging PRs into main, and anyone from opening
+# a PR on a repository under a PR freeze. All other gh commands (including pr
+# merge to non-main branches) pass through.
 
 self="${BASH_SOURCE[0]}"
 
@@ -34,6 +35,115 @@ find_real_gh() {
 
 real_gh=$(find_real_gh) || exit 1
 
+# Refuse to open a pull request, or a stack of them, on a repository listed in
+# the PR freeze file: one owner/repo per line, `#` comments, and an empty or
+# missing file freezes nothing. A freeze holds while work that must not reach a
+# maintainer yet is built on a fork. In a clone of a fork, gh and gh-stack
+# resolve an unqualified target through `gh repo set-default`, which usually
+# names the parent, so with no explicit target any remote pointing at a frozen
+# repo refuses the call.
+freeze_file="${GH_PR_FREEZE_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/gh/pr-freeze.txt}"
+frozen=()
+if [[ -r "$freeze_file" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line=${line%%#*}
+    line=${line//[[:space:]]/}
+    [[ -n "$line" ]] && frozen+=("$(printf '%s' "$line" | tr '[:upper:]' '[:lower:]')")
+  done <"$freeze_file"
+fi
+
+repo_slug() {
+  local r
+  r=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  r=${r#https://github.com/}
+  r=${r#http://github.com/}
+  r=${r#ssh://git@github.com/}
+  r=${r#git@github.com:}
+  r=${r#github.com/}
+  r=${r%/}
+  r=${r%.git}
+  printf '%s' "$r"
+}
+
+# Prints the frozen repo that $1 names, if any.
+frozen_hit() {
+  local want f
+  want=$(repo_slug "$1")
+  for f in "${frozen[@]}"; do
+    [[ "$want" == "$f" ]] && {
+      printf '%s' "$f"
+      return 0
+    }
+  done
+  return 1
+}
+
+refuse_frozen() {
+  echo "Blocked: $1 is under a PR freeze ($freeze_file). No pull request or PR stack may be opened there until Brett lifts it." >&2
+  echo "Name the fork explicitly: gh pr create -R <owner>/<fork>, or GH_REPO=<owner>/<fork> gh stack submit. Do not edit the freeze file to get past this; ask Brett." >&2
+  exit 1
+}
+
+check_pr_freeze() {
+  local explicit="" method="" has_fields=false graphql=false endpoint="" input="" prev="" arg hit url target
+  for arg in "$@"; do
+    case "$prev" in
+      -R | --repo) explicit=$arg ;;
+      -X | --method) method=$arg ;;
+      --input) input=$arg ;;
+    esac
+    case "$arg" in
+      --repo=*) explicit=${arg#--repo=} ;;
+      -R?*) explicit=${arg#-R} ;;
+      --method=*) method=${arg#--method=} ;;
+      -X?*) method=${arg#-X} ;;
+      -f | -F | --field | --raw-field | --input | -f?* | -F?* | --field=* | --raw-field=* | --input=*) has_fields=true ;;
+      graphql | /graphql) graphql=true ;;
+    esac
+    [[ "$arg" == --input=* ]] && input=${arg#--input=}
+    [[ "$arg" =~ ^/?repos/([^/]+/[^/?]+)/pulls/?(\?.*)?$ ]] && endpoint=${BASH_REMATCH[1]}
+    prev=$arg
+  done
+
+  case "${1:-} ${2:-}" in
+    "pr create" | "stack submit" | "stack link")
+      # gh-stack takes its target from GH_REPO and the checkout, not from -R.
+      [[ "$1" == stack ]] && explicit=""
+      target=${explicit:-${GH_REPO:-}}
+      if [[ -n "$target" ]]; then
+        hit=$(frozen_hit "$target") && refuse_frozen "$hit"
+        return 0
+      fi
+      while read -r _ url _; do
+        hit=$(frozen_hit "$url") && refuse_frozen "$hit"
+      done < <(git remote -v 2>/dev/null)
+      ;;
+    api\ *)
+      if $graphql; then
+        # A mutation's repository id is opaque here, so any createPullRequest
+        # is refused while a freeze holds. stdin is buffered to be read, then
+        # handed on to the real gh.
+        if [[ "$input" == - ]]; then
+          stdin_buf=$(cat)
+          [[ "$stdin_buf" == *createPullRequest* ]] && refuse_frozen "a GraphQL createPullRequest mutation (${frozen[*]})"
+        elif [[ -n "$input" && -r "$input" ]] && grep -q createPullRequest "$input"; then
+          refuse_frozen "a GraphQL createPullRequest mutation (${frozen[*]})"
+        fi
+        [[ "$*" == *createPullRequest* ]] && refuse_frozen "a GraphQL createPullRequest mutation (${frozen[*]})"
+      fi
+      [[ -n "$endpoint" ]] || return 0
+      hit=$(frozen_hit "$endpoint") || return 0
+      method=$(printf '%s' "$method" | tr '[:lower:]' '[:upper:]')
+      if [[ "$method" == POST ]] || { [[ -z "$method" ]] && $has_fields; }; then
+        refuse_frozen "$hit"
+      fi
+      ;;
+  esac
+  return 0
+}
+
+((${#frozen[@]})) && check_pr_freeze "$@"
+
 # Intercept 'gh pr merge' commands
 if [[ "$*" == *"pr merge"* ]]; then
   # Extract PR ref: first non-flag arg after "merge"
@@ -58,4 +168,7 @@ if [[ "$*" == *"pr merge"* ]]; then
 fi
 
 export GH_MERGE_GUARD_PID=$$
+if [[ -n "${stdin_buf+set}" ]]; then
+  exec "$real_gh" "$@" <<<"$stdin_buf"
+fi
 exec "$real_gh" "$@"

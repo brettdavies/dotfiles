@@ -1,0 +1,8 @@
+# Repositories where no pull request or PR stack may be opened until Brett
+# lifts the freeze. One owner/repo per line; read by the gh wrapper
+# (~/.local/bin/gh). An empty or missing file, or one holding only comments,
+# freezes nothing and skips the check.
+
+# Search-at-scale series for tobi/qmd are built and vetted on brettdavies/qmd
+# first; uncomment while one is in progress.
+# tobi/qmd
