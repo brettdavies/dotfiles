@@ -113,9 +113,14 @@ cut `release/YYYY.MM.DD` branch, after the overlay is staged.
   ```
 
 - [ ] **Every doc this release adds to `main` is meant to ship.** The leak check is blind to a category nobody
-  registered. `git diff --cached --diff-filter=A --name-only origin/main | grep -E '(^docs/|\.md$)' | grep -Ev
-  "$GUARDED"` lists the unguarded additions; each one needs a reason to ship, or it gets registered in the workflow's
-  `extra_paths` and removed from the branch.
+  registered. The command below lists the unguarded additions; each one needs a reason to ship, or it gets registered
+  in the workflow's `extra_paths` and removed from the branch. `--no-renames` lists a doc moved from one `main` carries
+  as added, where rename detection would report it as a rename and the `A` filter would drop it.
+
+  ```bash
+  git diff --cached --no-renames --diff-filter=A --name-only origin/main | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED"
+  ```
+
 - [ ] `CHANGELOG.md` was regenerated with `scripts/generate-changelog.py --from-dev-prs` (not hand-edited), its top
   section is the branch's version, and it has no `[Unreleased]` placeholder.
 - [ ] The branch date is today's, so CI's CalVer matches intent (CI recomputes from the date regardless, but a stale

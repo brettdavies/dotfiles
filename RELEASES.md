@@ -148,7 +148,9 @@ git diff --cached --diff-filter=ACMR --name-only origin/main | grep -E "$GUARDED
 #       set, so it is blind to a category nobody registered yet. Every docs/ entry and
 #       every added markdown file needs a reason to ship, or it needs registering in the
 #       workflow's extra_paths and removing from the branch.
-git diff --cached --diff-filter=A --name-only origin/main | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
+#       `--no-renames` lists a doc moved from one main carries as added; rename detection
+#       would report it as R, and the A filter would drop it.
+git diff --cached --no-renames --diff-filter=A --name-only origin/main | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
 
 # 6. Review CHANGELOG.md (cliff.toml chore-skip footgun: see RATIONALE § CHANGELOG
 #    generation), then commit the overlay as one commit sitting directly on top of main
@@ -197,7 +199,9 @@ git diff origin/main..HEAD --diff-filter=ACMR --name-only | grep -E "$GUARDED" \
   && echo "LEAKED: reset and redo" || echo "(clean)"
 
 # D: what this release ADDS to main (see step 5 above for why).
-git diff origin/main..HEAD --diff-filter=A --name-only | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
+# `--no-renames` lists a doc moved from one main carries as added; rename detection
+# would report it as R, and the A filter would drop it.
+git diff --no-renames origin/main..HEAD --diff-filter=A --name-only | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
 
 # Patch-id cherry check (noisy in a squash-merge workflow; triage per-line).
 git cherry HEAD origin/dev | grep '^+' || echo "(none)"
