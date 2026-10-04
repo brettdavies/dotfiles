@@ -13,9 +13,10 @@ setup() {
   REPO_SRC="$BATS_TEST_DIRNAME/.."
   HOOK="$REPO_SRC/stow/claude/dot-claude/auto-format.sh"
 
-  # Deliberately NOT under /tmp: the hook skips scratch paths before any
-  # formatting step, so a /tmp sandbox makes every assertion here pass without
-  # the hook doing anything. TMPDIR is cleared for the same reason.
+  # Deliberately NOT under /tmp: the hook skips a scratch-path file outside a git
+  # work tree before any formatting step, so a /tmp sandbox makes every
+  # assertion here pass without the hook doing anything. TMPDIR is cleared for
+  # the same reason.
   unset TMPDIR
   _sandbox_root="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles-tests"
   mkdir -p "$_sandbox_root"

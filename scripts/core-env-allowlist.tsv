@@ -2,7 +2,8 @@
 # per line: path, enclosing @test or function name ("-" for top level), and
 # the reason. Read by scripts/core-env-guard.sh; a sweep fails on an entry
 # that matches no finding.
-tests/auto-format-ignores.bats	setup	the hook skips scratch paths, so the sandbox sits under ~/.cache with TMPDIR cleared, and the hook finds its helpers and global markdownlint config under HOME with no override
+tests/auto-format-ignores.bats	setup	the hook skips a scratch-path file outside a git work tree, so the sandbox sits under ~/.cache with TMPDIR cleared, and the hook finds its helpers and global markdownlint config under HOME with no override
+tests/auto-format-scratch-paths.bats	setup	the hook finds its helpers and global markdownlint config under HOME with no override, so a scratch HOME supplies them on a host that never deployed them
 tests/claude-bash-env-path.bats	produced env file sources cleanly when the repo file is absent	points HOME at a missing directory so the env file finds no local-paths.sh, the case under test
 tests/claude-bash-env-path.bats	wiring: sourcing the env file runs \$HOME/dotfiles/config/shell/local-paths.sh	points HOME at a scratch tree with a marker local-paths.sh to prove the env file sources it through HOME
 tests/gh-wrapper.bats	gh wrapper skips itself when reachable under an alias path	an empty HOME and a constructed PATH keep the host's own ~/.local/bin/gh and Homebrew gh from standing in for the fake real gh the wrapper must find

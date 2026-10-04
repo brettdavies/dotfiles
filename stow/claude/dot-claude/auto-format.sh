@@ -9,14 +9,22 @@ file=$(jq -r '.tool_input.file_path // .tool_input.notebook_path // empty')
 [[ -z "$file" ]] && exit 0
 [[ ! -f "$file" ]] && exit 0
 
-# Skip ephemeral scratch paths (e.g., PR bodies drafted in /tmp before
-# `gh pr edit --body-file`). The auto-format pipeline targets tracked
-# repo content; transient drafts should keep their authored shape so
-# they paste cleanly into GitHub forms or similar destinations.
-case "$file" in
-  /tmp/* | /var/tmp/*) exit 0 ;;
-esac
-[[ -n "${TMPDIR:-}" && "${TMPDIR%/}" != "/" && "$file" == "${TMPDIR%/}"/* ]] && exit 0
+# A loose file under a scratch path is a transient draft, such as a PR body
+# written for `gh pr edit --body-file`, and keeps its authored shape so it
+# pastes cleanly into GitHub forms. A file inside a git work tree is repo
+# content wherever its checkout lives, so a worktree under /tmp is formatted
+# like any other. `--is-inside-work-tree` prints "false" with a zero exit for a
+# path inside the .git directory, so the test reads its output, not its status.
+in_scratch_path() {
+  case "$1" in
+    /tmp/* | /var/tmp/*) return 0 ;;
+  esac
+  [[ -n "${TMPDIR:-}" && "${TMPDIR%/}" != "/" && "$1" == "${TMPDIR%/}"/* ]]
+}
+if in_scratch_path "$file" \
+  && [[ "$(git -C "$(dirname "$file")" rev-parse --is-inside-work-tree 2>/dev/null)" != true ]]; then
+  exit 0
+fi
 
 ext="${file##*.}"
 
