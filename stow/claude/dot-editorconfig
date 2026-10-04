@@ -1,0 +1,17 @@
+# EditorConfig: canonical source ~/dotfiles/stow/claude/dot-editorconfig
+# Canonical version: 2026.10.04
+#
+# Stowed to ~/.editorconfig and copied byte for byte into each repository that
+# carries shell scripts. A copy whose `Canonical version` line trails the
+# canonical file has drifted.
+#
+# shfmt reads the shell section when called without formatting flags, so a bare
+# `shfmt -w <file>` matches the fleet standard `shfmt -i 2 -ci -bn`. Any
+# formatting flag on the command line makes shfmt ignore this file entirely.
+root = true
+
+[*.{sh,bash}]
+indent_style = space
+indent_size = 2
+switch_case_indent = true
+binary_next_line = true
