@@ -1,9 +1,10 @@
 # Shell Style
 
 Formatting is `shfmt`'s job (`-i 2 -ci -bn`: 2-space indent, indent case bodies, binary operators at line start) and
-correctness is `shellcheck`'s. Both run at edit time via the auto-format hook and again in the pre-commit and pre-push
-checks. This guide covers only the human conventions neither tool enforces. Open it when writing or reviewing a shell
-script.
+correctness is `shellcheck`'s. Each repo's `.editorconfig` (canonical `~/dotfiles/stow/claude/dot-editorconfig`) carries
+the same settings, so a bare `shfmt -w <file>` matches the standard; any formatting flag on the command line makes shfmt
+ignore the file. Both tools run at edit time via the auto-format hook and again in the pre-commit and pre-push checks.
+This guide covers only the human conventions neither tool enforces. Open it when writing or reviewing a shell script.
 
 ## Functions
 

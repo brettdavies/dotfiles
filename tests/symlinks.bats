@@ -102,6 +102,13 @@ setup() {
   [ -L "$HOME/.markdownlint-cli2.yaml" ]
 }
 
+@test "macOS: editorconfig is a symlink" {
+  if [ "$(uname -s)" != "Darwin" ]; then
+    skip "macOS only"
+  fi
+  [ -L "$HOME/.editorconfig" ]
+}
+
 # ---------------------------------------------------------------------------
 # Git signing config
 # ---------------------------------------------------------------------------
