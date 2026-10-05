@@ -105,6 +105,11 @@ brew "caddy" if OS.linux?
 # calls read no startup files, so an alias leaves them with no way to comply.
 brew "trash-cli" if OS.linux?
 
+# cargo-sweep does the unit-level pass of cargo-target-sweep, the cargo
+# package's weekly timer that deletes Rust build output no build has used in two
+# weeks. Rust toolchains live only on the Linux hosts, so the formula does too.
+brew "cargo-sweep" if OS.linux?
+
 # macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
 # but listing them separately documents intent and avoids confusing "not found" warnings.
 brew "terminal-notifier" if OS.mac?
