@@ -94,10 +94,12 @@ BREWFILE="$BATS_TEST_DIRNAME/../stow/brew/Brewfile"
   grep -qE '^brew "cargo-deny" if OS\.linux\?$' "$BREWFILE"
 }
 
-@test "the cargo-deny on PATH clears GIT_DIR before calling git (0.20 or newer)" {
-  # Below 0.20, a pre-push hook in a linked worktree hands cargo-deny that
-  # worktree's GIT_DIR, and its advisory-database update resets the worktree's
-  # branch. A `cargo install` copy in ~/.cargo/bin shadows the Homebrew one.
+@test "the cargo-deny on PATH is the release line CI runs (0.20 or newer)" {
+  # 0.19.1 through 0.19.5 keep the GIT_DIR a pre-push hook in a linked worktree
+  # hands them, and their advisory-database update resets the worktree's branch.
+  # 0.19.6 clears it; the floor is 0.20, the line the release CI's
+  # cargo-deny-action bundles. A `cargo install` copy in ~/.cargo/bin shadows
+  # the Homebrew one.
   command -v cargo-deny >/dev/null 2>&1 || skip "cargo-deny not installed"
   version=$(cargo-deny --version | awk '{print $2}')
   major=${version%%.*}
