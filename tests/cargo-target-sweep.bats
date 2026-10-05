@@ -63,21 +63,21 @@ _file() {
   touch -a -t "$stamp" "$1"
 }
 
-# stow-deploy installs the script on Linux only, and it sizes what it removes
-# with GNU `du -b`, which BSD du rejects.
 _sweep() {
-  [ "$(uname -s)" = Linux ] || skip "cargo-target-sweep runs on Linux only"
   PATH="$STUBS:$PATH" run "$SCRIPT" "$@"
 }
 
 @test "removes example binaries whose unit is gone, keeping live and unhashed ones" {
+  # Whole KiB, so GNU du's byte count and BSD du's KiB count agree.
+  printf '%2048s' '' >"$T/debug/examples/demo-$GONE"
+  printf '%2048s' '' >"$T/debug/examples/demo-$GONE.d"
   _sweep "$ROOT"
   [ "$status" -eq 0 ]
   [ -e "$T/debug/examples/demo" ]
   [ -e "$T/debug/examples/demo-$LIVE" ]
   [ ! -e "$T/debug/examples/demo-$GONE" ]
   [ ! -e "$T/debug/examples/demo-$GONE.d" ]
-  [[ "$output" == *"removed 2 example binaries"* ]]
+  [[ "$output" == *"removed 2 example binaries (4.0K) from $T"* ]]
 }
 
 @test "removes incremental crate directories no file of which was used in DAYS days" {

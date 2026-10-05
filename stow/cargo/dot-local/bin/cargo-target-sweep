@@ -69,12 +69,22 @@ case "$days" in
     ;;
 esac
 
-for cmd in cargo cargo-sweep; do
+for cmd in cargo cargo-sweep numfmt; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "cargo-target-sweep: $cmd not on PATH" >&2
     exit "$EXIT_DEPENDENCY"
   fi
 done
+
+# GNU du counts apparent size in bytes with -b. BSD du has no -b; its -A
+# counts apparent size, here in KiB.
+if du -sb /dev/null >/dev/null 2>&1; then
+  du_flags=(-sb)
+  du_unit=1
+else
+  du_flags=(-Ask)
+  du_unit=1024
+fi
 
 verb=removed
 [ "$dry_run" -eq 0 ] || verb="would remove"
@@ -84,10 +94,10 @@ pass_count=0
 pass_bytes=0
 
 remove() {
-  local bytes
-  bytes=$(du -sb -- "$1" 2>/dev/null | cut -f1)
+  local size
+  size=$(du "${du_flags[@]}" -- "$1" 2>/dev/null | cut -f1)
   pass_count=$((pass_count + 1))
-  pass_bytes=$((pass_bytes + ${bytes:-0}))
+  pass_bytes=$((pass_bytes + ${size:-0} * du_unit))
   [ "$dry_run" -eq 1 ] || rm -rf -- "$1"
 }
 
