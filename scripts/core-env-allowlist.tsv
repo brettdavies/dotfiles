@@ -32,3 +32,5 @@ tests/shell-startup-shapes.bats	_gui_shell	models a launchd-spawned GUI shell wi
 tests/taildrive.bats	the mount-table probe works without /sbin on PATH	drops /sbin from PATH, the launch environment under test
 tests/tmux-new-session.bats	script resolves its config dir with no dotfiles profile in the environment	starts from env -i with stubbed tmux and tmuxinator to prove the script needs no dotfiles profile; HOME passes through unchanged
 tests/trash-mechanism.bats	trash resolves as a binary in a shell that reads no startup files	env -i with the inherited PATH models a launcher that reads no rc files, the case under test
+tests/obsidian-cli-wrapper.bats	an unset XDG_RUNTIME_DIR defaults to the user's runtime directory	the wrapper's fallback for a caller with no XDG_RUNTIME_DIR is the behavior under test; the stubbed CLI only echoes the value it receives
+tests/obsidian-cli-wrapper.bats	a caller's XDG_RUNTIME_DIR is left alone	the wrapper must pass a caller's XDG_RUNTIME_DIR through unchanged; the value points at the test's scratch dir and only the stubbed CLI reads it

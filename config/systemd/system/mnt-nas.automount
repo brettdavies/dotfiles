@@ -4,7 +4,12 @@ Description=Pool NAS SMB Automount (openclaw share)
 # /mnt/nas, systemd triggers mnt-nas.mount on demand. This solves the WiFi boot
 # race: the mount only happens when something actually needs the NAS, by which
 # time the network is up.
-After=network-online.target
+#
+# No network ordering here: mnt-nas.mount carries it. An automount is
+# implicitly ordered Before=local-fs.target, so After=network-online.target on
+# this unit closes a loop through network.target, wpa_supplicant, dbus,
+# basic.target and sysinit.target, and systemd breaks that loop at boot by
+# dropping an arbitrary job, apparmor.service among them.
 
 [Automount]
 Where=/mnt/nas
