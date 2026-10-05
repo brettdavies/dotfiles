@@ -1,22 +1,19 @@
 # shellcheck shell=bash
-# Build-flag defaults for local compilation on this host. Anything built here
-# will also run here, so we trade portability of the resulting binaries for
-# CPU-specific optimization (AVX-512, BMI2, etc on Zen 4 / Ryzen 7800X3D).
+# Build defaults for local compilation on this host: job parallelism for make
+# and CMake, the GPU architectures nvcc targets, and Go's amd64 level.
 #
-# Linux-only: macOS toolchains pick up native tuning through Xcode and brew
-# without needing these env vars, and aggressive flags occasionally break
-# brew formulas on macOS.
+# It exports no CFLAGS, CXXFLAGS or RUSTFLAGS. Every cargo build script sees
+# those: cc-rs places CFLAGS after a crate's own flags, so a host-wide -O3
+# breaks crates that must compile a file at -O0
+# (https://github.com/aws/aws-lc-rs/issues/1252), and each distinct RUSTFLAGS
+# value is a separate build of every dependency, apart from the builds CI and
+# the pre-push hooks make. llama.cpp's CMake already compiles its CPU backend
+# for this host (GGML_NATIVE defaults on outside node-llama-cpp's CI mode).
+#
+# Linux-only: `nproc`, the CUDA architecture and the amd64 level describe the
+# Linux dev box.
 
 [ "$(uname -s)" = "Linux" ] || return 0
-
-# -march=native     emit instructions specific to the build host (AVX-512 on Zen 4)
-# -mtune=native     schedule instructions for the build host microarchitecture
-# -O3               aggressive optimization (loop unrolling, vectorization)
-# -pipe             use pipes between compile stages instead of temp files
-#
-# Prepended so a downstream caller can still override by re-exporting CFLAGS.
-export CFLAGS="-O3 -march=native -mtune=native -pipe ${CFLAGS:-}"
-export CXXFLAGS="-O3 -march=native -mtune=native -pipe ${CXXFLAGS:-}"
 
 # Parallelize make and CMake by default. Both honor their own env vars.
 if [ -z "${MAKEFLAGS:-}" ]; then
@@ -33,10 +30,6 @@ fi
 # skips fat-binary generation for other architectures, cutting compile time
 # 5-10x. Update this list when adding GPUs of other generations.
 export CMAKE_CUDA_ARCHITECTURES=86
-
-# Rust: target the build host CPU (equivalent of CFLAGS -march=native for cargo).
-# Affects every `cargo build` on this host.
-export RUSTFLAGS="${RUSTFLAGS:-} -C target-cpu=native"
 
 # Go: amd64 microarch level. v4 = AVX-512 + AVX2 + SSE4.2 + BMI2 (Zen 4 supports).
 # Without this, `go build` defaults to GOAMD64=v1 (baseline, no SIMD).

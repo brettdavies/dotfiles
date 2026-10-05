@@ -53,18 +53,19 @@ for _brew_prefix in /opt/homebrew /home/linuxbrew/.linuxbrew; do
   [ -d "$_brew_prefix/opt/ruby/bin" ] || continue
   _ruby_bin="$_brew_prefix/opt/ruby/bin"
   # Strip any existing occurrence, then prepend — promotes a demoted entry
-  # instead of skipping it, and stays dedup'd on re-source. POSIX, no awk/sed.
+  # instead of skipping it, and stays dedup'd on re-source. PATH is walked by
+  # parameter expansion rather than an IFS=: word split, which zsh does not
+  # perform on an unquoted $PATH. POSIX, no awk/sed.
   _new_path=
-  _ifs_save=$IFS
-  IFS=:
-  # shellcheck disable=SC2086 # intentional word-split on IFS=: to walk PATH
-  for _p in $PATH; do
+  _rest="$PATH:"
+  while [ -n "$_rest" ]; do
+    _p=${_rest%%:*}
+    _rest=${_rest#*:}
     [ "$_p" = "$_ruby_bin" ] && continue
     _new_path="${_new_path:+$_new_path:}$_p"
   done
-  IFS=$_ifs_save
   export PATH="$_ruby_bin:$_new_path"
-  unset _ruby_bin _new_path _ifs_save _p
+  unset _ruby_bin _new_path _rest _p
   break
 done
 unset _brew_prefix

@@ -300,7 +300,9 @@ gate their contents on `command -v <tool>`, and that guard is evaluated at sourc
 file would silently no-op in a shell that did not inherit a populated `PATH` — a launchd-spawned terminal, cron, or `ssh
 host cmd`. `tests/shell-startup-shapes.bats` pins the ordering and exercises each shell shape;
 `tests/shell-path-matrix.bats` checks `PATH` assembly across all eight supported invocation shapes, tabulated in
-[AGENTS.md](AGENTS.md#supported-invocation-shapes).
+[AGENTS.md](AGENTS.md#supported-invocation-shapes). `tests/shell-nested-idempotence.bats` sources each fragment in a shell
+and again in its child, and fails when the child's exported environment differs, since every new shell re-sources the
+fragments.
 
 Shell startup latency budgets live in `tests/perf/`, outside the `tests/*.bats` glob that the pre-push hook and CI use.
 The hook runs that directory first, on a quiet machine, and each measurement is a best-of-N minimum: run at the tail of
@@ -309,7 +311,7 @@ having changed.
 
 | File                | Purpose                                                        |
 | ------------------- | -------------------------------------------------------------- |
-| `build-flags.sh`    | Native-CPU build flags (`-march=native`) for local compilation |
+| `build-flags.sh`    | Make/CMake parallelism, CUDA architectures, Go amd64 level     |
 | `caches.sh`         | XDG cache directory locations                                  |
 | `claude-code.sh`    | Claude Code environment variables                              |
 | `github.sh`         | GitHub CLI aliases                                             |
