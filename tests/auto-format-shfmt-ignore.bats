@@ -26,7 +26,10 @@ setup() {
 }
 
 teardown() {
-  [ -n "${TMP:-}" ] && rm -rf "$TMP"
+  # setup skips before TMP is set when a tool is missing.
+  if [ -n "${TMP:-}" ]; then
+    rm -rf "$TMP"
+  fi
 }
 
 UNFORMATTED=$'if true;then\necho a\nfi\n'
