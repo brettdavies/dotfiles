@@ -196,7 +196,9 @@ MD013 fix hint: line length limit is ${max_len} characters. Wrap lines to fill u
     ;;
   sh)
     if command -v shfmt &>/dev/null; then
-      shfmt -i 2 -ci -bn -w "$file" 2>&1 || true
+      # shfmt honors the .editorconfig `ignore` sections (generated completions,
+      # test data) for an explicit path only under --apply-ignore.
+      shfmt -i 2 -ci -bn --apply-ignore -w "$file" 2>&1 || true
     fi
     ;;
   rb)
