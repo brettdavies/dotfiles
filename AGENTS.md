@@ -194,7 +194,9 @@ rather than assembling one.
 On macOS, launchd is the launcher for every GUI application and LaunchAgent, and what it hands them is its user PATH,
 declared in `config/launchd/user-path` with Homebrew first (see
 [launchd User PATH](#launchd-user-path-configlaunchduser-path)). Left unset, it is `/usr/bin:/bin:/usr/sbin:/sbin`, and
-`#!/usr/bin/env bash` there runs the system bash 3.2.
+`#!/usr/bin/env bash` there runs the system bash 3.2. Each LaunchAgent in `stow/launchagent/` also runs through `/bin/sh
+-c` and sets `PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"` before it `exec`s, so an agent does not depend on
+that setting; `tests/launchagents.bats` holds every agent to that shape.
 
 The `dash` row is its opposite and the one easiest to forget. `/bin/sh` is dash on Debian and Ubuntu, and `-l` makes it
 a login shell, so a tool that reaches a host with `sh -lc '<cmd>'` reads `.profile` regardless of the account's default
