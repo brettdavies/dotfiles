@@ -82,6 +82,12 @@ HEAD` against `git rev-parse origin/<base>` before any work — the harness can 
 silently. Fix with `git reset --hard origin/<base>`. Background:
 `~/dev/solutions-docs/workflow-issues/claude-code-worktree-isolation-stale-base-2026-06-04.md`.
 
+**Worktree commits and pushes:** committing or pushing from a linked worktree is safe only in a repo whose hooks keep
+git's environment from the tools they start (dotfiles `.githooks/lib/git-env.sh`, or `without_git_repo_env` from the
+github-repo-setup hook templates); in any other repo, commit and push from a standalone clone. What git exports, how to
+check a repo's hooks, and the cargo-deny boundary → `~/.claude/guides/git-and-github.md` § "Linked worktrees and git
+hooks".
+
 Routing table, per-skill rules, and the `qmd-learnings-researcher` companion-dispatch hack →
 `~/.claude/guides/workflows-and-skills.md`.
 
