@@ -1,7 +1,8 @@
 # Git, Commits, Pull Requests & CI
 
-Detail behind the **Branches**, **Commits & PRs**, and **CI after push** rules in `~/.claude/CLAUDE.md`. Open this
-before authoring any commit message, PR/issue/release body, or when watching CI after a push.
+Detail behind the **Branches**, **Commits & PRs**, **Worktree commits and pushes**, and **CI after push** rules in
+`~/.claude/CLAUDE.md`. Open this before authoring any commit message, PR/issue/release body, committing or pushing from
+a linked worktree, or when watching CI after a push.
 
 ## Branch discipline
 
@@ -105,6 +106,62 @@ doc describes). Before pushing, confirm the rewrite changed only history, not co
 be **empty**. Push with `--force-with-lease` (it aborts rather than clobbering if a writer advanced the ref in your
 window); on abort, re-clone and retry. Every SHA changes, so every other clone, worktree, and CI cache must re-clone or
 hard-reset, and any SHAs pinned in other docs go stale.
+
+## Linked worktrees and git hooks
+
+Git runs a hook with variables that pin git to the repository being committed or pushed, and every process the hook
+starts inherits them. `GIT_DIR` outranks a child's cwd and `git -C <dir>`; `GIT_INDEX_FILE` outranks the index of
+whatever repository the child finds. A tool that runs git somewhere else on purpose then acts on the hook's repository
+instead: a test fixture's `git init` writes `core.bare = true` into the shared config and the main clone refuses `git
+commit` from then on, a scratch commit lands on the branch being pushed, or a child's `git add` lands in the commit's
+temporary index.
+
+What git 2.56 exports, with `<gitdir>` the checkout's private git directory (`<main>/.git/worktrees/<name>` for a linked
+worktree). `GIT_PREFIX` is set in every case:
+
+| Hook and command            | Main clone (`.git` is a directory)                | Linked worktree (`.git` is a file)                                  |
+| --------------------------- | ------------------------------------------------- | ------------------------------------------------------------------- |
+| pre-commit, `commit`        | `GIT_INDEX_FILE=.git/index` (relative)            | `GIT_DIR=<gitdir>`, `GIT_INDEX_FILE=<gitdir>/index`                 |
+| pre-commit, `commit -a`     | `GIT_INDEX_FILE=<abs>/.git/index.lock`            | `GIT_DIR=<gitdir>`, `GIT_INDEX_FILE=<gitdir>/index.lock`            |
+| pre-commit, `commit <path>` | `GIT_INDEX_FILE=<abs>/.git/next-index-<pid>.lock` | `GIT_DIR=<gitdir>`, `GIT_INDEX_FILE=<gitdir>/next-index-<pid>.lock` |
+| pre-push                    | nothing that names a repository                   | `GIT_DIR=<gitdir>`                                                  |
+
+The right column covers every checkout whose `.git` is a file: a linked worktree, attached or `--detach`, a
+`--separate-git-dir` clone, and a submodule. Its paths are absolute, so they resolve from any cwd. In the main clone, a
+push exports nothing that names a repository and a plain commit's relative index resolves against each child's own
+repository, so both are safe; `commit -a` and `commit <path>` export an absolute index path in every checkout.
+
+Hooks that isolate the environment split the work:
+
+- **pre-push clears the variables at its top**, before it starts anything. Git starts every hook at the worktree root,
+  so the hook's own git calls find the same repository by discovery, and pre-push has no temporary index to lose.
+- **pre-commit keeps them and wraps each tool it starts** in a subshell that unsets them. Its staged-path lookup has to
+  read the temporary index of `commit -a` and `commit <path>`; cleared at the top, `git diff --cached` reads the real
+  index, the staged set comes back empty, and every gate is skipped.
+- The variables: `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY`,
+  `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_PREFIX`, `GIT_NAMESPACE`. dotfiles keeps them in `.githooks/lib/git-env.sh`
+  (`git_env_clear`, `git_env_isolated`); the github-repo-setup templates in `hooks-lib.sh` (`without_git_repo_env`) and
+  the `unset` at the top of each pre-push template.
+
+To check a repo before committing or pushing from a worktree, search its hooks directory (this honors `core.hooksPath`)
+from the checkout's root:
+
+```bash
+rg -n 'git_env_clear|git_env_isolated|without_git_repo_env|unset GIT_DIR' "$(git rev-parse --git-path hooks)"
+```
+
+The repo is safe when pre-push unsets the variables before its first command and every tool pre-commit starts goes
+through the wrapper. A repo with no hooks is safe too. A test runner that scrubs the variables itself (dotfiles
+`scripts/run-tests`, a bats `setup`, a Bun preload) protects only that suite, not the hook's other gates. Anywhere else,
+commit and push from a standalone clone, and stage with `git add` before a plain `git commit` rather than `commit -a` or
+`commit <path>`.
+
+cargo-deny 0.19.1 through 0.19.5 refresh the advisory database by running git under the inherited variables. From a
+linked worktree's pre-push, that resets the branch to its remote and writes the repository into the advisory database
+clone, which then breaks cargo-deny for every repository on the host. 0.19.6 clears the variables first
+([EmbarkStudios/cargo-deny#858](https://github.com/EmbarkStudios/cargo-deny/pull/858)). An isolating hook covers every
+version; still check `cargo deny --version`, and that no `cargo install` copy in `~/.cargo/bin` shadows the Homebrew one
+on PATH. Background: `docs/solutions/test-failures/linked-worktree-push-exports-git-dir-into-prepush-test-suite.md`.
 
 ## Pull requests
 
