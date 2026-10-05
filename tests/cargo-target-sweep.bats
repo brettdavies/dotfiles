@@ -53,14 +53,20 @@ _cargo_target() {
   printf 'Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by cargo.\n' >"$1/CACHEDIR.TAG"
 }
 
-# _file PATH DAYS: create PATH, last accessed DAYS days ago.
+# _file PATH DAYS: create PATH, last accessed DAYS days ago. `touch -d` is GNU
+# only, so the stamp for `touch -t` comes from BSD date's -v, else GNU date's -d.
 _file() {
+  local stamp
   mkdir -p "$(dirname "$1")"
   : >"$1"
-  touch -a -d "$2 days ago" "$1"
+  stamp=$(date -v-"$2"d +%Y%m%d%H%M.%S 2>/dev/null || date -d "$2 days ago" +%Y%m%d%H%M.%S)
+  touch -a -t "$stamp" "$1"
 }
 
+# stow-deploy installs the script on Linux only, and it sizes what it removes
+# with GNU `du -b`, which BSD du rejects.
 _sweep() {
+  [ "$(uname -s)" = Linux ] || skip "cargo-target-sweep runs on Linux only"
   PATH="$STUBS:$PATH" run "$SCRIPT" "$@"
 }
 
