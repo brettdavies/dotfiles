@@ -176,6 +176,19 @@ AGENT_DIR="$REPO_ROOT/stow/launchagent/Library/LaunchAgents"
   grep -qE '^ExecStart=.*--max-batch-mb [0-9]+' "$EMBED_UNIT"
 }
 
+@test "qmd-embed skips the run when the NVIDIA driver is unusable" {
+  # Between an NVIDIA upgrade and the reboot, nvidia-smi exits 18 (driver/library
+  # mismatch) and qmd falls back to the CPU at ~550%, holding a 7800X3D at its
+  # thermal limit. An ExecCondition exit of 1-254 skips the run without failing it.
+  grep -qx 'ExecCondition=/usr/bin/nvidia-smi -L' "$EMBED_UNIT"
+}
+
+@test "qmd-embed caps CPU so a CPU fallback cannot pin the processor" {
+  quota="$(sed -n 's/^CPUQuota=\([0-9][0-9]*\)%$/\1/p' "$EMBED_UNIT")"
+  [ -n "$quota" ]
+  [ "$quota" -le 400 ]
+}
+
 @test "qmd-serve ExecStart line has no hardcoded /home/<user>/ path" {
   run bash -c "grep -E '^ExecStart(Pre|Post)?=' '$SERVE_UNIT' | grep -q '/home/[a-z]*/'"
   [ "$status" -ne 0 ]
