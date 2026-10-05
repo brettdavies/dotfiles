@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Purpose: Sync ~/dev to iCloud Drive using rsync with hardlinks
 # This script creates hardlinks in iCloud Drive that point to files in ~/dev,
 # allowing files to exist in both locations while sharing disk space.

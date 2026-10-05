@@ -21,6 +21,15 @@
 #
 # Fail-open + near-zero latency: skip silently when the repo is absent, offline,
 # or busy. The network is never a correctness dependency.
+
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$b" ] && exec "$b" "$0" "$@"
+  done
+  echo "ERROR: needs bash >= 4 (running $BASH_VERSION); install it with: brew install bash" >&2
+  exit 1
+fi
+
 set -uo pipefail
 
 SD=${SD_DIR:-$HOME/dev/solutions-docs}

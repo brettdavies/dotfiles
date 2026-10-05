@@ -13,6 +13,14 @@
 # Exit 0 when everything covered passes, 1 on any finding, 2 on usage error,
 # 3 when shellcheck is not installed.
 
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$b" ] && exec "$b" "$0" "$@"
+  done
+  echo "ERROR: needs bash >= 4 (running $BASH_VERSION); install it with: brew install bash" >&2
+  exit 1
+fi
+
 set -euo pipefail
 
 EXIT_FINDINGS=1
@@ -81,6 +89,7 @@ _is_target() {
     scripts/tailscale-serve-setup.sh | scripts/tailscale-serve-deploy.sh) return 0 ;;
     scripts/claude-token-totals | scripts/codexbar-config) return 0 ;;
     scripts/sync-dev-after-release.sh | scripts/core-env-guard.sh) return 0 ;;
+    scripts/launchd-user-path.sh) return 0 ;;
     scripts/release/*.sh) return 0 ;;
     stow/shell/dot-profile) return 0 ;;
     tests/*.bats) return 0 ;;
@@ -97,7 +106,7 @@ _all_targets() {
     scripts/stow-deploy scripts/lint-shell scripts/run-tests scripts/lint-workflows scripts/sshd-locale-deploy.sh \
     scripts/cswap-autoswitch-deploy.sh scripts/tailscale-serve-setup.sh scripts/tailscale-serve-deploy.sh \
     scripts/claude-token-totals scripts/codexbar-config scripts/sync-dev-after-release.sh scripts/core-env-guard.sh \
-    stow/shell/dot-profile config/shell/shell-functions
+    scripts/launchd-user-path.sh stow/shell/dot-profile config/shell/shell-functions
   find scripts/release -maxdepth 1 -type f -name '*.sh' 2>/dev/null
   find .githooks/lib -maxdepth 1 -type f -name '*.sh' 2>/dev/null
   find config/shell -maxdepth 1 -type f -name '*.sh'

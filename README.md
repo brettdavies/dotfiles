@@ -45,6 +45,7 @@ dotfiles/
 │   ├── git/               Per-platform git config templates
 │   ├── qmd/               Per-platform qmd collections templates
 │   ├── apparmor.d/        System-level AppArmor profiles (deployed via apparmor-deploy.sh)
+│   ├── launchd/           macOS launchd user PATH for GUI apps and LaunchAgents (via launchd-user-path.sh)
 │   └── systemd/system/    System-level units (NAS mounts via nas-deploy.sh, apparmor-playwright via apparmor-deploy.sh)
 ├── scripts/
 │   ├── stow-deploy        Stow wrapper with conflict resolution
@@ -57,6 +58,7 @@ dotfiles/
 │   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama, svc:codex-proxy)
 │   ├── tailscale-serve-deploy.sh  System unit that re-runs the serve setup on every tailscaled start
 │   ├── macos-gpu-monitor.sh       Metal GPU residency/power trace around any command (macOS)
+│   ├── launchd-user-path.sh       Check (or --apply) the launchd user PATH against config/launchd/ (macOS)
 │   ├── lint-shell, lint-workflows, run-tests   CI gate dispatchers, shared by CI and the git hooks
 │   ├── core-env-guard.sh  Fails a test that resets HOME or another core env var (allowlist beside it)
 │   ├── generate-changelog.py      Release changelog extraction from merged PR bodies
@@ -260,6 +262,17 @@ profile, via `scripts/apparmor-deploy.sh`, below), the `ollama` loopback overrid
 package), and the sshd locale change (`sudo scripts/sshd-locale-deploy.sh`, which edits `/etc/ssh/sshd_config` in place;
 see [BOOTSTRAP.md § SSH session locale](BOOTSTRAP.md#ssh-session-locale)).
 
+### launchd User PATH (`config/launchd/user-path`, macOS)
+
+launchd starts every GUI application and LaunchAgent with the user PATH it reads at boot; it never reads the shell
+config chain. Unset, that PATH is `/usr/bin:/bin:/usr/sbin:/sbin`, where `#!/usr/bin/env bash` resolves to the system
+bash 3.2. `config/launchd/user-path` declares the value with Homebrew first, so a process launchd starts finds
+Homebrew's `bash` and the rest of `/opt/homebrew/bin` ahead of the system copies. `scripts/launchd-user-path.sh`
+compares the declared value with launchd's (`/var/db/com.apple.xpc.launchd/config/user.plist`) and, on drift, prints the
+exact `sudo launchctl config user path` fix and exits 1; `--apply` runs that fix. `scripts/stow-deploy` runs the check,
+never the fix, on every macOS deploy to `$HOME`. launchd reads the value only at boot, so a change reaches apps after
+the next reboot, and the check notes when the configured value is newer than the last boot.
+
 ### Playwright / browse browser launch (`scripts/playwright-deps-deploy.sh`)
 
 On Linux the `browse` tool and Playwright e2e need three things to launch browsers: the browser binaries in the shared
@@ -300,9 +313,9 @@ gate their contents on `command -v <tool>`, and that guard is evaluated at sourc
 file would silently no-op in a shell that did not inherit a populated `PATH` — a launchd-spawned terminal, cron, or `ssh
 host cmd`. `tests/shell-startup-shapes.bats` pins the ordering and exercises each shell shape;
 `tests/shell-path-matrix.bats` checks `PATH` assembly across all eight supported invocation shapes, tabulated in
-[AGENTS.md](AGENTS.md#supported-invocation-shapes). `tests/shell-nested-idempotence.bats` sources each fragment in a shell
-and again in its child, and fails when the child's exported environment differs, since every new shell re-sources the
-fragments.
+[AGENTS.md](AGENTS.md#supported-invocation-shapes). `tests/shell-nested-idempotence.bats` sources each fragment in a
+shell and again in its child, and fails when the child's exported environment differs, since every new shell re-sources
+the fragments.
 
 Shell startup latency budgets live in `tests/perf/`, outside the `tests/*.bats` glob that the pre-push hook and CI use.
 The hook runs that directory first, on a quiet machine, and each measurement is a best-of-N minimum: run at the tail of
