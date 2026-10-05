@@ -109,6 +109,13 @@ setup() {
   [ -L "$HOME/.editorconfig" ]
 }
 
+@test "macOS: gitattributes template is a symlink" {
+  if [ "$(uname -s)" != "Darwin" ]; then
+    skip "macOS only"
+  fi
+  [ -L "$HOME/.claude/templates/gitattributes" ]
+}
+
 # ---------------------------------------------------------------------------
 # Git signing config
 # ---------------------------------------------------------------------------
