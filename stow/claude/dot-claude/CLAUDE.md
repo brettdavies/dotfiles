@@ -217,6 +217,10 @@ missing browsers; the provisioned set is what makes it skip), repos exact-pin th
 a dotfiles job. Full preference list (Python cache/venv hygiene, gh auth, Playwright browsers, Rust pre-push) →
 `~/.claude/guides/cli-tools.md`.
 
+**Bun follows the machine.** A repo's Bun pin (`.bun-version` and every declaration its pin test holds to it) tracks the
+local `bun --version`: when the pin trails, bump the repo in its own PR. Never download or install an older Bun to
+satisfy a stale pin. Bump steps and the `bun.lock` limits → `~/.claude/guides/cli-tools.md`.
+
 ## Long artifacts → files
 
 When the user asks for a substantial artifact (detailed prompt, plan, spec, long code block, multi-section doc — roughly
