@@ -10,6 +10,7 @@
 
 CONFIG="$BATS_TEST_DIRNAME/../stow/cargo/dot-cargo/config.toml"
 DEPLOY="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
+BREWFILE="$BATS_TEST_DIRNAME/../stow/brew/Brewfile"
 
 @test "git fetches are routed through the git CLI, under [net]" {
   # Scoped to the table: a key outside it is silently ignored by cargo rather
@@ -81,6 +82,29 @@ DEPLOY="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
   done < <(rustup toolchain list 2>/dev/null | awk '{print $1}')
   [ -z "$carrying" ] || {
     echo "toolchains still carrying rust-docs:$carrying"
+    false
+  }
+}
+
+# ---------------------------------------------------------------------------
+# cargo-deny
+# ---------------------------------------------------------------------------
+
+@test "the Brewfile installs cargo-deny on Linux" {
+  grep -qE '^brew "cargo-deny" if OS\.linux\?$' "$BREWFILE"
+}
+
+@test "the cargo-deny on PATH clears GIT_DIR before calling git (0.20 or newer)" {
+  # Below 0.20, a pre-push hook in a linked worktree hands cargo-deny that
+  # worktree's GIT_DIR, and its advisory-database update resets the worktree's
+  # branch. A `cargo install` copy in ~/.cargo/bin shadows the Homebrew one.
+  command -v cargo-deny >/dev/null 2>&1 || skip "cargo-deny not installed"
+  version=$(cargo-deny --version | awk '{print $2}')
+  major=${version%%.*}
+  minor=${version#*.}
+  minor=${minor%%.*}
+  [ "$major" -gt 0 ] || [ "$minor" -ge 20 ] || {
+    echo "cargo-deny $version at $(command -v cargo-deny); install 0.20+ from the Brewfile and remove older copies"
     false
   }
 }
