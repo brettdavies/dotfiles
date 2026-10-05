@@ -1,0 +1,12 @@
+[Unit]
+Description=Sweep stale Rust build output weekly
+
+[Timer]
+# Sunday between 04:00 and 06:00 (base + up to 2h randomized delay), a quiet
+# window for the dev box. Weekly is enough for a 14-day threshold.
+OnCalendar=Sun *-*-* 04:00:00
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

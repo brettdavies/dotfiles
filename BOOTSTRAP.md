@@ -316,6 +316,23 @@ for tc in $(rustup toolchain list | awk '{print $1}'); do
 done
 ```
 
+### Rust build output sweep (systemd)
+
+Cargo cleans its own download cache but never a project's `target/`, which keeps every unit each toolchain, feature set
+and flag combination ever built. The `cargo` package ships `cargo-target-sweep` and a weekly timer that delete build
+output under `~/dev` no build has used in 14 days; `cargo-target-sweep --help` lists its passes. It needs the
+`cargo-sweep` formula from the Brewfile. Enable the timer once per host:
+
+```bash
+brew install cargo-sweep
+systemctl --user daemon-reload
+systemctl --user enable --now cargo-target-sweep.timer
+```
+
+Preview a run with `cargo-target-sweep --dry-run`, change the window with `CARGO_TARGET_SWEEP_DAYS`, and read past runs
+with `journalctl --user -u cargo-target-sweep`. Lingering must be on for the timer to fire while logged out
+(`loginctl enable-linger $USER`).
+
 ### SSH session locale
 
 A minimal server has no `locales` package and generates only `C.UTF-8`, which `/etc/default/locale` selects. macOS

@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# cargo-target-sweep - delete Rust build output no build has used in DAYS days
+# from every cargo target directory under each ROOT.
+#
+# Usage: cargo-target-sweep [--dry-run] [ROOT...]    (ROOT defaults to ~/dev)
+#
+# DAYS is CARGO_TARGET_SWEEP_DAYS, default 14. Four passes per target directory:
+#
+#   1. Units no build has used in DAYS days, through `cargo-sweep --time`. Cargo
+#      reads a unit's fingerprint on every build that includes it, so the newest
+#      access in its .fingerprint directory is its last use. Units an old
+#      toolchain built age out here too, since nothing reads them again.
+#   2. examples/ binaries whose unit pass 1 removed. cargo-sweep leaves
+#      examples/ alone; each binary carries its unit's hash in its name.
+#   3. incremental/ crate directories, and
+#   4. semver-checks/ baseline workspaces, with no file under them read or
+#      written in DAYS days. Neither carries a unit hash, so cargo-sweep leaves
+#      them alone too.
+#
+# Every age test reads file metadata and never file contents, because a read
+# refreshes the access time it measures (cargo-sweep's --installed reads each
+# fingerprint's JSON, which is why it is not used). Directories are skipped for
+# the same reason: listing one refreshes its own access time. A backup or search
+# that reads everything only delays a purge; it never removes output in use.
+#
+# Exit codes: 0 swept, 1 a pass failed, 2 usage error, 3 missing dependency.
+set -euo pipefail
+
+EXIT_FAILED=1
+EXIT_USAGE=2
+EXIT_DEPENDENCY=3
+
+days=${CARGO_TARGET_SWEEP_DAYS:-14}
+dry_run=0
+roots=()
+
+usage() {
+  echo "usage: cargo-target-sweep [--dry-run] [ROOT...]" >&2
+  exit "$EXIT_USAGE"
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run) dry_run=1 ;;
+    -h | --help)
+      sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    -*) usage ;;
+    *) roots+=("$1") ;;
+  esac
+  shift
+done
+[ "${#roots[@]}" -gt 0 ] || roots=("$HOME/dev")
+
+case "$days" in
+  '' | *[!0-9]* | 0)
+    echo "cargo-target-sweep: CARGO_TARGET_SWEEP_DAYS must be a positive whole number of days, got '$days'" >&2
+    exit "$EXIT_USAGE"
+    ;;
+esac
+
+for cmd in cargo cargo-sweep; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "cargo-target-sweep: $cmd not on PATH" >&2
+    exit "$EXIT_DEPENDENCY"
+  fi
+done
+
+verb=removed
+[ "$dry_run" -eq 0 ] || verb="would remove"
+
+# Entries and bytes the current pass has removed (or would remove).
+pass_count=0
+pass_bytes=0
+
+remove() {
+  local bytes
+  bytes=$(du -sb -- "$1" 2>/dev/null | cut -f1)
+  pass_count=$((pass_count + 1))
+  pass_bytes=$((pass_bytes + ${bytes:-0}))
+  [ "$dry_run" -eq 1 ] || rm -rf -- "$1"
+}
+
+report() {
+  [ "$pass_count" -gt 0 ] || return 0
+  echo "$verb $pass_count $1 ($(numfmt --to=iec "$pass_bytes")) from $2"
+  pass_count=0
+  pass_bytes=0
+}
+
+# True when no file under $1 was read or written in DAYS days.
+stale() {
+  [ -z "$(find "$1" -type f -atime -"$days" -print -quit 2>/dev/null)" ]
+}
+
+# Cargo target directories under $1, skipping hidden directories and
+# node_modules as cargo-sweep's --recursive does.
+target_dirs() {
+  local dir
+  find "$1" -mindepth 1 \( -name node_modules -o -name '.?*' \) -prune -o -type d -name target -prune -print 2>/dev/null \
+    | while IFS= read -r dir; do
+      grep -qs 'created by cargo' "$dir/CACHEDIR.TAG" && printf '%s\n' "$dir"
+    done
+}
+
+sweep_examples() {
+  local profile=$1 entry name hash
+  local -A live=()
+  for entry in "$profile"/.fingerprint/*; do
+    [ -d "$entry" ] && live[${entry##*-}]=1
+  done
+  for entry in "$profile"/examples/*; do
+    [ -e "$entry" ] || continue
+    name=${entry##*/}
+    name=${name%%.*}
+    hash=${name##*-}
+    [[ $hash =~ ^[0-9a-f]{16}$ ]] || continue
+    [ -n "${live[$hash]:-}" ] || remove "$entry"
+  done
+  return 0
+}
+
+sweep_stale_children() {
+  local entry
+  for entry in "$1"/*/; do
+    [ -d "$entry" ] || continue
+    stale "$entry" && remove "${entry%/}"
+  done
+  return 0
+}
+
+status=0
+sweep_flags=(--recursive --time "$days")
+[ "$dry_run" -eq 0 ] || sweep_flags+=(--dry-run)
+
+for root in "${roots[@]}"; do
+  if [ ! -d "$root" ]; then
+    echo "cargo-target-sweep: $root is not a directory" >&2
+    status=$EXIT_FAILED
+    continue
+  fi
+  cargo-sweep sweep "${sweep_flags[@]}" "$root" || status=$EXIT_FAILED
+
+  while IFS= read -r target; do
+    while IFS= read -r fingerprint; do
+      sweep_examples "${fingerprint%/.fingerprint}"
+    done < <(find "$target" -mindepth 2 -maxdepth 3 -type d -name .fingerprint -prune -print)
+    report "example binaries" "$target"
+
+    while IFS= read -r incremental; do
+      sweep_stale_children "$incremental"
+    done < <(find "$target" -mindepth 2 -maxdepth 3 -type d -name incremental -prune -print)
+    report "incremental crate directories" "$target"
+
+    [ ! -d "$target/semver-checks" ] || sweep_stale_children "$target/semver-checks"
+    report "semver-checks workspaces" "$target"
+  done < <(target_dirs "$root")
+done
+
+exit "$status"
