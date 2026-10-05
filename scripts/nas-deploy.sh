@@ -48,7 +48,9 @@ echo "NOTE: NAS automount enabled (mnt-nas.automount)"
 
 # --- Verify ---
 
-if ping -c1 -W2 "$NAS_IP" >/dev/null 2>&1; then
+# Probe SMB itself (TCP 445): it is the service the mount needs, and iputils-ping
+# is absent from a minimal Ubuntu install.
+if timeout 2 bash -c "</dev/tcp/$NAS_IP/445" 2>/dev/null; then
   if ls /mnt/nas >/dev/null 2>&1; then
     # shellcheck disable=SC2012  # ls output is for human display, not parsed
     echo "Mount OK — $(ls /mnt/nas | tr '\n' ' ')"
