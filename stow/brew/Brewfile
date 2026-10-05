@@ -111,11 +111,11 @@ brew "trash-cli" if OS.linux?
 brew "cargo-sweep" if OS.linux?
 
 # cargo-deny runs in every Rust repo's pre-push hook, so it tracks the release
-# CI's cargo-deny-action bundles. From 0.20 it clears GIT_DIR before calling git;
-# an older release run from a hook in a linked worktree resets that worktree's
-# branch and writes the repo into the shared advisory database
-# (https://github.com/EmbarkStudios/cargo-deny/issues/854). A copy installed
-# with `cargo install` lands in ~/.cargo/bin, ahead of Homebrew on PATH.
+# CI's cargo-deny-action bundles. 0.19.1 through 0.19.5 call git without clearing
+# GIT_DIR: run from a hook in a linked worktree, they reset that worktree's branch
+# and write the repo into the shared advisory database. 0.19.6 clears it
+# (https://github.com/EmbarkStudios/cargo-deny/pull/858). A copy installed with
+# `cargo install` lands in ~/.cargo/bin, ahead of Homebrew on PATH.
 brew "cargo-deny" if OS.linux?
 
 # macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,

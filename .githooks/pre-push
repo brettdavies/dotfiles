@@ -25,6 +25,12 @@
 
 set -euo pipefail
 
+# A linked worktree's hook gets an absolute GIT_DIR that every check below would
+# obey over its own cwd. Hooks start at the worktree root, so discovery needs none.
+# shellcheck source=.githooks/lib/git-env.sh
+. "$(dirname "$0")/lib/git-env.sh"
+git_env_clear
+
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 

@@ -18,6 +18,14 @@
 # machine without the full toolchain can still commit; pre-push and CI remain
 # the backstops.
 
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+  for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$b" ] && exec "$b" "$0" "$@"
+  done
+  echo "ERROR: needs bash >= 4.4 (running $BASH_VERSION); install it with: brew install bash" >&2
+  exit 1
+fi
+
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -25,6 +33,8 @@ cd "$REPO_ROOT"
 
 # shellcheck source=.githooks/lib/report.sh
 . "$REPO_ROOT/.githooks/lib/report.sh"
+# shellcheck source=.githooks/lib/git-env.sh
+. "$REPO_ROOT/.githooks/lib/git-env.sh"
 
 branch=$(git symbolic-ref --short HEAD 2>/dev/null || true)
 
@@ -57,27 +67,29 @@ gate_header "Running pre-commit checks..."
 
 # The four gates are independent, so they run together through the same
 # scheduler .githooks/pre-push uses. There is no perf suite to isolate here:
-# pre-commit never runs tests/perf, only the staged test files.
+# pre-commit never runs tests/perf, only the staged test files. The hook keeps
+# git's environment for its own staged-path lookup above, which reads the
+# temporary index of `commit -a`; each gate starts without it.
 gate_begin
 
 # 1. ShellCheck — .github/workflows/shellcheck.yml, staged subset
 if command -v shellcheck >/dev/null 2>&1; then
-  gate_spawn shellcheck ./scripts/lint-shell "${staged[@]}"
+  gate_spawn shellcheck git_env_isolated ./scripts/lint-shell "${staged[@]}"
 fi
 # 2. actionlint — same CI job as ShellCheck, staged workflow files only. The
 #    script filters non-workflow paths, so the staged list can be passed whole.
 if [ "${#staged_wf[@]}" -gt 0 ] && command -v actionlint >/dev/null 2>&1; then
-  gate_spawn actionlint ./scripts/lint-workflows "${staged_wf[@]}"
+  gate_spawn actionlint git_env_isolated ./scripts/lint-workflows "${staged_wf[@]}"
 fi
 # 3. Bats — .github/workflows/bats.yml, staged test files only. A test broken by
 #    its own edit surfaces here; the full suite still runs in pre-push.
 if [ "${#staged_bats[@]}" -gt 0 ] && command -v bats >/dev/null 2>&1; then
-  gate_spawn bats ./scripts/run-tests "${staged_bats[@]}"
+  gate_spawn bats git_env_isolated ./scripts/run-tests "${staged_bats[@]}"
 fi
 # 4. Core env guard — same CI job as ShellCheck, staged test files only. It
 #    needs only bash, awk, and git, so there is no tool to skip on.
 if [ "${#staged_tests[@]}" -gt 0 ]; then
-  gate_spawn core-env ./scripts/core-env-guard.sh "${staged_tests[@]}"
+  gate_spawn core-env git_env_isolated ./scripts/core-env-guard.sh "${staged_tests[@]}"
 fi
 wait
 
