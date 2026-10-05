@@ -201,6 +201,17 @@ git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 
 ## macOS-Only Setup
 
+### launchd User PATH
+
+launchd starts GUI apps and LaunchAgents with its own user PATH, not the shell's. Set it to the value in
+`config/launchd/user-path` (Homebrew first) once per Mac, then reboot, since launchd reads it only at boot:
+
+```bash
+bash ~/dotfiles/scripts/launchd-user-path.sh --apply   # prompts for sudo
+```
+
+`scripts/stow-deploy` runs the same script without `--apply` on every deploy and prints the fix if the value drifts.
+
 ### Ghostty Application Support Symlink
 
 Ghostty checks both `~/.config/ghostty/` (created by stow) and `~/Library/Application Support/com.mitchellh.ghostty/`:
@@ -330,8 +341,8 @@ systemctl --user enable --now cargo-target-sweep.timer
 ```
 
 Preview a run with `cargo-target-sweep --dry-run`, change the window with `CARGO_TARGET_SWEEP_DAYS`, and read past runs
-with `journalctl --user -u cargo-target-sweep`. Lingering must be on for the timer to fire while logged out
-(`loginctl enable-linger $USER`).
+with `journalctl --user -u cargo-target-sweep`. Lingering must be on for the timer to fire while logged out (`loginctl
+enable-linger $USER`).
 
 ### SSH session locale
 

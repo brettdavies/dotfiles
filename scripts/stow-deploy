@@ -537,6 +537,16 @@ if [ "$TARGET" = "$HOME" ] && grep -qx "cargo" "$deployed_file" 2>/dev/null; the
   fi
 fi
 
+# launchd hands GUI applications and LaunchAgents the user PATH it reads at
+# boot, never the shell config chain. Writing that value needs sudo, so a deploy
+# only reports drift; the script's own output names the fix. Scoped to a real
+# $HOME deploy so a sandboxed target never reads the host's launchd config.
+if [ "$(uname -s)" = "Darwin" ] && [ "$TARGET" = "$HOME" ]; then
+  echo ""
+  echo "==> Checking launchd user PATH"
+  "$REPO_ROOT/scripts/launchd-user-path.sh" || true
+fi
+
 # Headless summary
 if [ "$HEADLESS" = true ] && [ -s "$failed_file" ]; then
   echo ""
