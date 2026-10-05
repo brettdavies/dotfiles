@@ -165,9 +165,10 @@ coding agent's command tool are all bare launchers. A bare launcher that needs a
 it from its own process environment (its unit, plist, or launcher configuration), not from the shell config chain.
 
 On macOS that launcher configuration includes a baseline every GUI application and LaunchAgent shares: the user PATH
-launchd reads at boot. The repo declares it with Homebrew first, so a process launchd starts resolves `env bash` and
-other Homebrew tools the way a shell does. Unset, the baseline holds only the system directories, where `env bash` finds
-the system bash 3.2.
+launchd reads at boot. The repo declares it with Homebrew first, so a process launchd starts resolves `env bash` and the
+rest of `/opt/homebrew/bin` ahead of the system copies. Unset, the baseline holds only the system directories, where
+`env bash` finds the system bash 3.2. The baseline is a floor, not the shell's PATH: the chain's other additions, such
+as `~/.local/bin`, reach a launchd-started process only through its own plist.
 
 Automated and remote callers are not bare launchers by default, and assuming they are is a mistake in the expensive
 direction. A caller that requests a login shell reads the chain however headless it is, which exposes it to everything

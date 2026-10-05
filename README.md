@@ -266,12 +266,12 @@ see [BOOTSTRAP.md § SSH session locale](BOOTSTRAP.md#ssh-session-locale)).
 
 launchd starts every GUI application and LaunchAgent with the user PATH it reads at boot; it never reads the shell
 config chain. Unset, that PATH is `/usr/bin:/bin:/usr/sbin:/sbin`, where `#!/usr/bin/env bash` resolves to the system
-bash 3.2. `config/launchd/user-path` declares the value with Homebrew first, so a process launchd starts finds the same
-`bash` (and other Homebrew tools) a shell does. `scripts/launchd-user-path.sh` compares the declared value with
-launchd's (`/var/db/com.apple.xpc.launchd/config/user.plist`) and, on drift, prints the exact `sudo launchctl config
-user path` fix and exits 1; `--apply` runs that fix. `scripts/stow-deploy` runs the check, never the fix, on every macOS
-deploy to `$HOME`. launchd reads the value only at boot, so a change reaches apps after the next reboot, and the check
-notes when the configured value is newer than the last boot.
+bash 3.2. `config/launchd/user-path` declares the value with Homebrew first, so a process launchd starts finds
+Homebrew's `bash` and the rest of `/opt/homebrew/bin` ahead of the system copies. `scripts/launchd-user-path.sh`
+compares the declared value with launchd's (`/var/db/com.apple.xpc.launchd/config/user.plist`) and, on drift, prints the
+exact `sudo launchctl config user path` fix and exits 1; `--apply` runs that fix. `scripts/stow-deploy` runs the check,
+never the fix, on every macOS deploy to `$HOME`. launchd reads the value only at boot, so a change reaches apps after
+the next reboot, and the check notes when the configured value is newer than the last boot.
 
 ### Playwright / browse browser launch (`scripts/playwright-deps-deploy.sh`)
 
