@@ -10,6 +10,11 @@ Environment=PATH=/home/brett/.local/bin:/home/linuxbrew/.linuxbrew/bin:/usr/loca
 # CPU, so embedding would otherwise run on CPU despite the ExecStartPre below
 # freeing GPU VRAM for it.
 Environment=NODE_LLAMA_CPP_GPU=cuda
+# Skip the run when the NVIDIA driver is unusable. Between a driver upgrade and
+# the reboot, nvidia-smi exits 18 (driver/library mismatch) and qmd falls back to
+# the CPU at ~550%, holding the CPU at its thermal limit for minutes. An exit of
+# 1-254 here skips the run without marking the unit failed; the timer retries.
+ExecCondition=/usr/bin/nvidia-smi -L
 # Unload every resident Ollama model to free VRAM before embedding. The
 # helper script discovers loaded models dynamically — see the script's
 # header for why hardcoding a model name is a bug.
@@ -18,6 +23,9 @@ ExecStartPre=%h/.local/bin/qmd-ollama-unload-all
 # box shares one GPU with Ollama and qmd-serve runs --low-vram; uncapped GPU
 # batches can exhaust VRAM and trigger a ggml/CUDA abort.
 ExecStart=%h/.local/bin/qmd embed --max-docs-per-batch 50 --max-batch-mb 10
+# A run that still lands on the CPU (CUDA init failing after nvidia-smi passes)
+# gets at most two cores, so it runs slowly instead of pinning the processor.
+CPUQuota=200%
 
 # Hardening
 NoNewPrivileges=true
