@@ -72,6 +72,23 @@ hook, or unsure what's installed.
   ignores the repo pin, and tries to fetch whatever browsers that release wants — this is why older setups kept pulling
   newer-and-newer revisions. Run the repo's local Playwright instead (`bun run test:e2e` → `playwright test` from
   `node_modules`); `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` neutralizes any stray install call either way.
+- **Bun pins follow the machine's Bun.** The machine's Bun is the Homebrew `oven-sh/bun/bun` formula from
+  `~/dotfiles/stow/brew/Brewfile`, and every repo's Bun pin tracks that binary's `bun --version`. When a repo's
+  `.bun-version` trails it, bump the repo in its own PR: `.bun-version` plus every declaration the repo's pin test holds
+  to it. CI reads the version from `.bun-version` through `setup-bun`'s `bun-version-file` input, so the workflows need
+  no edit. A `bun-types` or `@types/bun` caret held at `^<major>.<minor>.0` moves only on a minor bump; a patch bump
+  leaves it alone. After a caret edit, run a plain `bun install`, which rewrites the existing `bun.lock` in place;
+  `--frozen-lockfile` alone does not catch the stale range, because it passes whenever the locked version still
+  satisfies the new caret. Then run `bun install --frozen-lockfile` and confirm the diff leaves `bun.lock`'s
+  `lockfileVersion` unchanged. **Never delete `bun.lock` or regenerate it from scratch:** Bun 1.4 writes
+  `lockfileVersion` 2 for a fresh lockfile, and Dependabot's Bun updater cannot read it
+  ([dependabot/dependabot-core#16026](https://github.com/dependabot/dependabot-core/issues/16026)), so every update job
+  stops. **Never download or install an older Bun** (a release binary, the curl installer, a `bun-v<version>` tag) to
+  satisfy a stale pin: a pin test's `Bun.version` assertion failing on this machine is the cue to bump the pin. A pin
+  ahead of the machine means the machine trails; upgrade it with `brew upgrade oven-sh/bun/bun`, its one install source.
+  Background: `docs/solutions/best-practices/declare-the-bun-toolchain-version-once-in-tree.md` (the one-pin layout and
+  its guard test) and `docs/solutions/workflow-issues/dependabot-does-not-reconcile-bun-lockfile.md` (the lockfile
+  format Dependabot reads).
 - When uncertain what CLI tools are available, you can enumerate installed tools with the following commands:
 - `brew list` to list installed Homebrew CLI tools
 - `pipx list` to list Python-based CLI utilities
