@@ -1,12 +1,15 @@
 #!/usr/bin/env bats
-# Tests for the bash >= 4 guard that opens every script needing bash 4.
+# Tests for the bash >= 4.4 guard that opens every script needing bash 4.
 #
 # Run: bats tests/bash-version-guard.bats
 #
 # `#!/usr/bin/env bash` finds the macOS system bash 3.2 wherever Homebrew is
 # not ahead of /usr/bin on PATH (launchd's default PATH, or `/bin/bash script`).
 # A script using a bash 4 construct opens with GUARD, which re-execs it under
-# Homebrew's bash, or stops with the install hint when none is present.
+# Homebrew's bash, or stops with the install hint when none is present. The
+# floor is 4.4 rather than 4 because below it an empty array expanded under
+# `set -u` is an unbound-variable error, and scripts/release/guarded-paths.sh
+# is a byte-for-byte copy of a template that holds every copy to 4.4.
 # Stowed scripts run through symlinks outside the repo, so the guard is inline
 # rather than sourced, and this suite holds every copy to GUARD.
 #
@@ -20,11 +23,11 @@ OLD_BASH=/bin/bash
 PROBES='/opt/homebrew/bin/bash /usr/local/bin/bash'
 SAMPLE="$REPO_ROOT/scripts/release/guarded-paths.sh"
 
-GUARD='if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+GUARD='if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
   for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
     [ -x "$b" ] && exec "$b" "$0" "$@"
   done
-  echo "ERROR: needs bash >= 4 (running $BASH_VERSION); install it with: brew install bash" >&2
+  echo "ERROR: needs bash >= 4.4 (running $BASH_VERSION); install it with: brew install bash" >&2
   exit 1
 fi'
 
@@ -61,7 +64,7 @@ _code_of() {
 }
 
 _bash_scripts() {
-  git -C "$REPO_ROOT" ls-files scripts stow | while IFS= read -r f; do
+  git -C "$REPO_ROOT" ls-files .githooks scripts stow | while IFS= read -r f; do
     head -n 1 "$REPO_ROOT/$f" 2>/dev/null | grep -qE '^#!.*[/ ]bash([[:space:]]|$)' && echo "$f"
   done
 }
@@ -135,7 +138,7 @@ _require_new_bash() {
   } >"$probe"
   run "$OLD_BASH" "$probe"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: needs bash >= 4 (running 3."* ]]
+  [[ "$output" == *"ERROR: needs bash >= 4.4 (running 3."* ]]
   [[ "$output" == *"brew install bash"* ]]
   [[ "$output" != *"reached"* ]]
 }

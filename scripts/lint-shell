@@ -13,11 +13,11 @@
 # Exit 0 when everything covered passes, 1 on any finding, 2 on usage error,
 # 3 when shellcheck is not installed.
 
-if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
   for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
     [ -x "$b" ] && exec "$b" "$0" "$@"
   done
-  echo "ERROR: needs bash >= 4 (running $BASH_VERSION); install it with: brew install bash" >&2
+  echo "ERROR: needs bash >= 4.4 (running $BASH_VERSION); install it with: brew install bash" >&2
   exit 1
 fi
 

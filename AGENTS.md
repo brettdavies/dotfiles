@@ -377,13 +377,15 @@ All shell scripts and hooks in this repo follow these conventions:
 - **Binary wrappers** (e.g., `op-ssh-sign-wrapper`) use `programname: message` format instead, which is the standard
   Unix convention for utilities identifying themselves.
 - **Shebang:** `#!/usr/bin/env bash`, never `#!/bin/bash`, which pins macOS to its system bash 3.2.
-- **bash >= 4 guard:** a script under `scripts/` or `stow/` that uses a bash 4 construct (`declare -A`/`local -A`,
-  `mapfile`/`readarray`, `${x,,}`, `&>>`, `|&`, `wait -n`, and the rest listed in `tests/bash-version-guard.bats`) opens
-  with the guard block from that suite as its first command, before `set`. Started by bash 3.2, it re-execs the script
-  under `/opt/homebrew/bin/bash` or `/usr/local/bin/bash` with the same arguments, or exits 1 with `brew install bash`
-  when neither exists. The block is inline rather than sourced, because stowed scripts run through symlinks outside the
-  repo where a repo-relative source cannot reach; `tests/bash-version-guard.bats` holds every copy identical to its
-  `GUARD`, fails a bash 4 script that lacks it, and on macOS runs it under `/bin/bash`.
+- **bash >= 4.4 guard:** a script under `.githooks/`, `scripts/` or `stow/` that uses a bash 4 construct (`declare
+  -A`/`local -A`, `mapfile`/`readarray`, `${x,,}`, `&>>`, `|&`, `wait -n`, and the rest listed in
+  `tests/bash-version-guard.bats`) opens with the guard block from that suite as its first command, before `set`.
+  Started by a bash older than 4.4, it re-execs the script under `/opt/homebrew/bin/bash` or `/usr/local/bin/bash` with
+  the same arguments, or exits 1 with `brew install bash` when neither exists. The floor is 4.4 because below it an
+  empty array expanded under `set -u` is an unbound-variable error. The block is inline rather than sourced, because
+  stowed scripts run through symlinks outside the repo where a repo-relative source cannot reach;
+  `tests/bash-version-guard.bats` holds every copy identical to its `GUARD`, fails a bash 4 script that lacks it, and on
+  macOS runs it under `/bin/bash`.
 
 ---
 
