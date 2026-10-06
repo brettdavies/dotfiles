@@ -21,6 +21,7 @@ setup() {
   export HOME="$TMP/home"
   mkdir -p "$HOME/.claude"
   cp "$REPO_SRC/stow/claude/dot-claude/md-wrap.py" "$HOME/.claude/md-wrap.py"
+  cp "$REPO_SRC"/stow/claude/dot-claude/md_wrap_*.py "$HOME/.claude/"
   chmod +x "$HOME/.claude/md-wrap.py"
   cp "$REPO_SRC/stow/claude/dot-markdownlint-cli2.yaml" "$HOME/.markdownlint-cli2.yaml"
 
