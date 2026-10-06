@@ -7,6 +7,7 @@ Run: python3 -B stow/claude/dot-claude/test_md_wrap.py
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -88,6 +89,41 @@ CODE_SPAN_CORPUS = {
     ),
 }
 
+HASH_REF = (
+    "Adapters keep getting the mapping wrong for one upstream status, GitHub 422 on "
+    "qualifier-only queries #916, and the arXiv exact-phrase zero result.\n"
+)
+
+ORDERED_PROMOTION = (
+    "The surrounding runner treats a nonzero status as fatal so the wrapper exits 2. "
+    "Pins the behavior against a later refactor.\n"
+)
+
+BARE_PLUS = (
+    "The changelog bullet renders the operator as a literal token spelled space + space "
+    "which the reflow keeps moving between passes.\n"
+)
+
+YEAR_PERIOD = (
+    "The security wave ran through the summer of 2026. The next release closed the "
+    "remaining adapter bugs across every source module.\n"
+)
+
+# A list item whose prose carries " + " between terms: textwrap can open a
+# continuation line with "+ ", which the next pass reads as a nested bullet and
+# re-indents (the shape found in a real solutions doc).
+LIST_PLUS = """\
+- `meum-id/.github`: private org reusable repo (org-scoped Actions access) hosting `verify-release-tag.yml` (tag-format + tag-is-ancestor-of-main + package.json version match), `create-github-release.yml` (version-anchored changelog extraction + idempotent release creation), and the fleet CI/deploy reusables.
+"""
+
+PROMOTION_CORPUS = {
+    "hash_ref": HASH_REF,
+    "ordered_promotion": ORDERED_PROMOTION,
+    "bare_plus": BARE_PLUS,
+    "year_period": YEAR_PERIOD,
+    "list_plus": LIST_PLUS,
+}
+
 CORPUS = {
     "nested": NESTED,
     "ordered_nested": ORDERED_NESTED,
@@ -95,13 +131,14 @@ CORPUS = {
     "orphan": ORPHAN,
     "list_then_prose": LIST_THEN_PROSE,
     **{name: src for name, (src, _) in CODE_SPAN_CORPUS.items()},
+    **PROMOTION_CORPUS,
 }
 
 
 class IdempotencyTest(unittest.TestCase):
     def test_second_pass_equals_first(self):
         for name, src in CORPUS.items():
-            for width in (60, 80, 120):
+            for width in range(40, 121):
                 first = mod.wrap_markdown(src, width)
                 second = mod.wrap_markdown(first, width)
                 self.assertEqual(
@@ -165,15 +202,49 @@ class CodeSpanTest(unittest.TestCase):
     WIDTHS = range(40, 121)
 
     def test_span_bytes_survive_at_every_width(self):
+        """A span that fits on a line stays whole; a longer one renders the same.
+
+        The longer span may break only at a lone space, which CommonMark renders
+        as the line ending it becomes, so joining the output's lines with single
+        spaces gives back the span, and every whitespace run inside it stays on
+        one line.
+        """
         for name, (src, spans) in CODE_SPAN_CORPUS.items():
             for width in self.WIDTHS:
                 out = mod.wrap_markdown(src, width)
                 lines = out.split("\n")
+                rendered = " ".join(l.strip() for l in lines)
                 for span in spans:
-                    self.assertTrue(
-                        any(span in line for line in lines),
-                        msg=f"{name} at width {width} altered or split {span!r}:\n{out}",
-                    )
+                    if len(span) <= width - 4:
+                        self.assertTrue(
+                            any(span in line for line in lines),
+                            msg=f"{name} at width {width} altered or split {span!r}:\n{out}",
+                        )
+                        continue
+                    self.assertIn(span, rendered, msg=f"{name} at width {width} changed {span!r}:\n{out}")
+                    for run in re.findall(r"\S\s{2,}\S|\S\t\S", span):
+                        self.assertTrue(
+                            any(run in line for line in lines),
+                            msg=f"{name} at width {width} broke the run {run!r}:\n{out}",
+                        )
+
+    def test_overlong_span_breaks_at_lone_spaces_and_stays_idempotent(self):
+        """A span longer than the line wraps instead of overflowing the limit."""
+        span = "`" + " ".join(f"field_{i}" for i in range(20)) + "`"
+        src = f"The struct carries {span} in every row.\n"
+        for width in (60, 80, 120):
+            first = mod.wrap_markdown(src, width)
+            self.assertTrue(
+                all(len(line) <= width for line in first.split("\n")),
+                msg=f"width {width} overflowed:\n{first}",
+            )
+            self.assertIn(span, " ".join(l.strip() for l in first.split("\n")))
+            self.assertEqual(first, mod.wrap_markdown(first, width), msg=f"width {width} not idempotent")
+
+    def test_overlong_span_never_breaks_inside_a_run(self):
+        span = "`" + "   ".join(f"col{i}" for i in range(16)) + "`"
+        out = mod.wrap_markdown(f"Columns {span} end.\n", 60)
+        self.assertTrue(any(span in line for line in out.split("\n")), msg=out)
 
     def test_prose_whitespace_outside_spans_still_collapses(self):
         out = mod.wrap_markdown("Prose  with   runs `a   b` and    more.\n", 120)
@@ -187,6 +258,67 @@ class CodeSpanTest(unittest.TestCase):
         """CommonMark renders a line ending inside a code span as one space."""
         out = mod.wrap_markdown("A span `opens here\n  and closes` on the next line.\n", 120)
         self.assertEqual("A span `opens here and closes` on the next line.\n", out)
+
+
+class MarkerPromotionTest(unittest.TestCase):
+    """A continuation line must never open with block structure the author did not write.
+
+    textwrap breaks on width alone, so each of these shapes lands a structural
+    token at the start of a continuation line at some widths. The next parse,
+    and markdownlint --fix, then read that token as a heading or list marker.
+    """
+
+    WIDTHS = range(40, 121)
+
+    # Deliberately written here rather than imported from md-wrap: the test
+    # states what a reader would call promoted structure, so it fails on the
+    # behavior when the wrapper regresses instead of tracking its own regex.
+    PROMOTED = re.compile(r"^(?:#|[-*+](?:\s|$)|\d+[.)](?:\s|$)|>|\|)")
+
+    def test_no_shape_promotes_at_any_width(self):
+        for name, src in PROMOTION_CORPUS.items():
+            for width in self.WIDTHS:
+                out = mod.wrap_markdown(src, width)
+                body = [l for l in out.split("\n") if l.strip()]
+                for line in body[1:]:
+                    self.assertIsNone(
+                        self.PROMOTED.match(line.lstrip()),
+                        msg=(
+                            f"{name} at width {width} promoted a token to block "
+                            f"structure:\n{out}"
+                        ),
+                    )
+
+    def test_words_survive_rebinding(self):
+        """Gluing removes a break opportunity; it must not edit the prose."""
+        for name, src in PROMOTION_CORPUS.items():
+            for width in self.WIDTHS:
+                out = mod.wrap_markdown(src, width)
+                self.assertEqual(
+                    src.split(),
+                    out.split(),
+                    msg=f"{name} at width {width} altered the text",
+                )
+
+    def test_hazard_free_prose_is_untouched(self):
+        """Prose with no structural token wraps exactly as textwrap would."""
+        import textwrap as tw
+
+        src = (
+            "Plain prose with no structural tokens anywhere in it at all, long "
+            "enough that it has to wrap across several physical lines.\n"
+        )
+        for width in self.WIDTHS:
+            self.assertEqual(
+                tw.fill(
+                    src.strip(),
+                    width=width,
+                    break_long_words=False,
+                    break_on_hyphens=False,
+                ),
+                mod.wrap_markdown(src, width).rstrip("\n"),
+                msg=f"hazard-free prose diverged from plain textwrap at width {width}",
+            )
 
 
 if __name__ == "__main__":
