@@ -8,6 +8,8 @@ preserving:
 - Tables, headings, blockquotes
 - HTML blocks, horizontal rules
 - Blank lines (paragraph boundaries)
+- Inline code spans, kept whole on one line with their bytes unchanged; a
+  line break already inside a span joins as the one space CommonMark renders
 """
 
 import re
@@ -30,8 +32,14 @@ LINK_DEF_RE = re.compile(r"^\[.+\]:\s")
 # Also matches [text](url "title") variants
 MD_LINK_RE = re.compile(r"!?\[[^\]]*\]\([^)]*\)")
 
-# Placeholder that won't appear in real text
+BACKTICK_RUN_RE = re.compile(r"`+")
+WHITESPACE_RUN_RE = re.compile(r"\s+")
+
+# Placeholders that won't appear in real text. textwrap treats neither as
+# whitespace, so a protected token is never broken or rewritten.
 _SPACE_PH = "\x00"
+_TAB_PH = "\x01"
+_CODE_WS_TO_PH = str.maketrans({" ": _SPACE_PH, "\t": _TAB_PH})
 
 
 def list_indent(line: str) -> str | None:
@@ -60,14 +68,60 @@ def is_structure(line: str) -> bool:
     )
 
 
+def _code_spans(text: str) -> list[tuple[int, int]]:
+    """Return the [start, end) offsets of each inline code span in `text`.
+
+    CommonMark rules: a backtick run opens a span that the next run of exactly
+    the same length closes; a run with no closer is literal text; a backslash
+    escapes an opening backtick, but backslashes inside a span are literal.
+    """
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    while m := BACKTICK_RUN_RE.search(text, pos):
+        start, end = m.span()
+        before = text[pos:start]
+        if (len(before) - len(before.rstrip("\\"))) % 2:
+            start += 1
+        if start == end:
+            pos = end
+            continue
+        closer = next(
+            (c for c in BACKTICK_RUN_RE.finditer(text, end) if len(c.group()) == end - start),
+            None,
+        )
+        if closer is None:
+            pos = end
+            continue
+        spans.append((start, closer.end()))
+        pos = closer.end()
+    return spans
+
+
+def _normalize_and_protect_code(text: str) -> str:
+    """Collapse whitespace runs in prose and freeze every inline code span.
+
+    Whitespace inside a code span is content (help-text columns, aligned
+    output), so it becomes placeholders instead: textwrap can neither break the
+    span across lines nor rewrite its interior.
+    """
+    parts: list[str] = []
+    pos = 0
+    for start, end in _code_spans(text):
+        parts.append(WHITESPACE_RUN_RE.sub(" ", text[pos:start]))
+        parts.append(text[start:end].translate(_CODE_WS_TO_PH))
+        pos = end
+    parts.append(WHITESPACE_RUN_RE.sub(" ", text[pos:]))
+    return "".join(parts).strip()
+
+
 def _protect_links(text: str) -> str:
     """Replace spaces inside markdown links with placeholders."""
     return MD_LINK_RE.sub(lambda m: m.group(0).replace(" ", _SPACE_PH), text)
 
 
-def _restore_links(text: str) -> str:
-    """Restore spaces inside markdown links."""
-    return text.replace(_SPACE_PH, " ")
+def _restore_placeholders(text: str) -> str:
+    """Restore the whitespace that link and code-span protection replaced."""
+    return text.replace(_SPACE_PH, " ").replace(_TAB_PH, "\t")
 
 
 def flush(buf: list[str], width: int, indent: str = "") -> str:
@@ -95,8 +149,7 @@ def flush(buf: list[str], width: int, indent: str = "") -> str:
 
     results: list[str] = []
     for seg in segments:
-        text = " ".join(l.strip() for l in seg)
-        text = re.sub(r"\s+", " ", text).strip()
+        text = _normalize_and_protect_code(" ".join(l.strip() for l in seg))
         if not text:
             continue
         # Protect spaces inside markdown links so textwrap treats each
@@ -114,7 +167,7 @@ def flush(buf: list[str], width: int, indent: str = "") -> str:
             break_long_words=False,
             break_on_hyphens=False,
         )
-        results.append(_restore_links(wrapped))
+        results.append(_restore_placeholders(wrapped))
 
     # Re-join with trailing double-space line breaks between segments
     if len(results) <= 1:

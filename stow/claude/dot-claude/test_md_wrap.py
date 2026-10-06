@@ -53,12 +53,48 @@ Prose paragraph one that follows the list and is also long enough to wrap onto a
 Prose line two of the same paragraph.
 """
 
+# Help-text column layouts quoted as inline code: the whitespace runs between
+# columns are the content being quoted, so reflow must keep them byte for byte.
+CODE_SPAN_PROSE = (
+    "lazygit lists `-cd   --print-config-dir   Print the config directory` and pandoc lists "
+    "`-f FORMAT, -r FORMAT  --from=FORMAT, --read=FORMAT` before the next section begins.\n"
+)
+
+CODE_SPAN_LIST = """\
+- Covers AE2. lazygit's `-cd   --print-config-dir   Print the config directory` yields `-cd` and `--print-config-dir`,
+  and a lookup for `-c` does not match; its `-v    --version` yields `-v` and `--version`.
+  - ffmpeg's `-y                  overwrite output files` and `-loglevel loglevel  set logging level` are definitions.
+  - Thor's ``-f,        [--force]   # desc`` and a tab-separated `--null\t-T reads` row keep their names.
+"""
+
+CODE_SPAN_CORPUS = {
+    "code_span_prose": (
+        CODE_SPAN_PROSE,
+        (
+            "`-cd   --print-config-dir   Print the config directory`",
+            "`-f FORMAT, -r FORMAT  --from=FORMAT, --read=FORMAT`",
+        ),
+    ),
+    "code_span_list": (
+        CODE_SPAN_LIST,
+        (
+            "`-cd   --print-config-dir   Print the config directory`",
+            "`-v    --version`",
+            "`-y                  overwrite output files`",
+            "`-loglevel loglevel  set logging level`",
+            "``-f,        [--force]   # desc``",
+            "`--null\t-T reads`",
+        ),
+    ),
+}
+
 CORPUS = {
     "nested": NESTED,
     "ordered_nested": ORDERED_NESTED,
     "hanging": HANGING,
     "orphan": ORPHAN,
     "list_then_prose": LIST_THEN_PROSE,
+    **{name: src for name, (src, _) in CODE_SPAN_CORPUS.items()},
 }
 
 
@@ -121,6 +157,36 @@ class StructurePreservationTest(unittest.TestCase):
             any(l.startswith("- [Some Source") for l in lines),
             msg=f"marker no longer bound to its content:\n{out}",
         )
+
+
+class CodeSpanTest(unittest.TestCase):
+    """Inline code spans come out of reflow byte for byte and on one line."""
+
+    WIDTHS = range(40, 121)
+
+    def test_span_bytes_survive_at_every_width(self):
+        for name, (src, spans) in CODE_SPAN_CORPUS.items():
+            for width in self.WIDTHS:
+                out = mod.wrap_markdown(src, width)
+                lines = out.split("\n")
+                for span in spans:
+                    self.assertTrue(
+                        any(span in line for line in lines),
+                        msg=f"{name} at width {width} altered or split {span!r}:\n{out}",
+                    )
+
+    def test_prose_whitespace_outside_spans_still_collapses(self):
+        out = mod.wrap_markdown("Prose  with   runs `a   b` and    more.\n", 120)
+        self.assertEqual("Prose with runs `a   b` and more.\n", out)
+
+    def test_escaped_backtick_does_not_open_a_span(self):
+        src = "Write \\` for a literal backtick and `x   y` for code.\n"
+        self.assertEqual(src, mod.wrap_markdown(src, 120))
+
+    def test_span_across_a_line_break_joins_with_one_space(self):
+        """CommonMark renders a line ending inside a code span as one space."""
+        out = mod.wrap_markdown("A span `opens here\n  and closes` on the next line.\n", 120)
+        self.assertEqual("A span `opens here and closes` on the next line.\n", out)
 
 
 if __name__ == "__main__":
