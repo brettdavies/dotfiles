@@ -51,6 +51,13 @@ hook, or unsure what's installed.
 - **Auto-format hook:** A PostToolUse hook wraps markdown prose to 120 characters (`md-wrap.py`) then runs
   `markdownlint-cli2 --fix`. Do NOT manually wrap markdown lines — the hook handles it. Do NOT use `mdformat`, `pandoc`,
   or `prettier` for markdown formatting.
+- **Inline code spans under the auto-format hook:** `md-wrap.py` keeps each inline code span whole on one line with its
+  bytes unchanged, so the whitespace runs between the columns of a quoted help-text layout survive the reflow.
+  `markdownlint-cli2 --fix` then applies MD038 (`no-space-in-code`), whose fixer rewrites only the spaces next to the
+  backticks: it deletes leading and trailing spaces unless one space pads each side, and leaves interior runs alone.
+  Start a column-layout span at the first column's text, as in `-cd   --print-config-dir   Print the config directory`,
+  rather than at the help output's indentation, and close it after the last column. When the indentation itself is the
+  point, quote the lines in a fenced code block.
 - **GitHub CLI auth:** `gh` uses OAuth (not a fine-grained PAT) for interactive use. This allows creating issues, PRs,
   and forks on any public repo. Do NOT run `gh auth login --with-token` — use the default `gh auth login` OAuth flow.
   Fine-grained PATs are only for CI/CD (`CI_RELEASE_TOKEN` in GitHub Actions).
