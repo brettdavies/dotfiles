@@ -83,24 +83,25 @@ instructions aimed at that URL from day one.
   first: URL-only clients need Streamable HTTP MCP, not the serve embed/rerank protocol.)` Governs R1, R8.
 - The Mac has no local qmd. `(session-settled: user-directed — chosen over QMD_REMOTE_URL / RemoteQMD: that path keeps a
   local sqlite index on the caller.)` Governs R5.
-- Brain-host agents use the same VIP. `(session-settled: user-directed — chosen over loopback-only MCP on the brain
-  host: one URL in every client config.)` Governs R3.
+- Brain-host agents use the same VIP.
+  `(session-settled: user-directed — chosen over loopback-only MCP on the brain host: one URL in every client config.)`
+  Governs R3.
 - Production VIP URL from day one. `(session-settled: user-directed — chosen over a throwaway test host/port then
   switch: configs and tests would have to be rewritten.)` Governs R2, R4.
 - Periodic embed is unchanged. `(session-settled: user-directed — chosen over stopping/restarting MCP around embed: the
   corpus is small enough that overlap is acceptable.)` Governs R9.
-- Skills and agents are rewritten, not only CLAUDE.md. `(session-settled: user-directed — chosen over docs-only: agents
-  would still Bash qmd query.)` Governs R7.
-- User-level Claude and Cursor MCP only. `(session-settled: user-directed — chosen over per-repo .mcp.json: default
-  configs on every checkout.)` Governs R6.
+- Skills and agents are rewritten, not only CLAUDE.md.
+  `(session-settled: user-directed — chosen over docs-only: agents would still Bash qmd query.)` Governs R7.
+- User-level Claude and Cursor MCP only.
+  `(session-settled: user-directed — chosen over per-repo .mcp.json: default configs on every checkout.)` Governs R6.
 
 ### Actors
 
 - A1. Mac Claude Code / Cursor — qmd thin client. Uses user MCP config. No local `qmd` binary required.
 - A2. Brain-host Claude Code — same VIP URL as A1.
 - A3. Tailscale Serve — HTTPS `svc:qmd` → `http://127.0.0.1:8181`. Forwards the tailnet `Host` unchanged.
-- A4. `qmd mcp --http` — Streamable HTTP at `/mcp`, health at `/health`, and the same process also serves REST `POST
-  /query` and `POST /search`. Origin guard runs on every path.
+- A4. `qmd mcp --http` — Streamable HTTP at `/mcp`, health at `/health`, and the same process also serves REST
+  `POST /query` and `POST /search`. Origin guard runs on every path.
 - A5. `qmd-embed` oneshot — unchanged. May overlap A4 on GPU and sqlite.
 
 ### Key Flows
@@ -163,10 +164,10 @@ instructions aimed at that URL from day one.
 
 ### Key Technical Decisions
 
-- KTD1. **Foreground systemd, not `qmd mcp --http --daemon`.** Run `Type=simple` `qmd mcp --http --port 8181 --host
-  127.0.0.1` under user systemd with `Restart=on-failure` and `Conflicts=qmd-serve.service`. The `--daemon` flag forks,
-  writes a PID file, and exits 0, which systemd treats as a finished oneshot. Port 8181 is qmd's MCP default and stays
-  distinct from dead `:7832`. Instantiates R1. Cite from U2.
+- KTD1. **Foreground systemd, not `qmd mcp --http --daemon`.** Run `Type=simple`
+  `qmd mcp --http --port 8181 --host 127.0.0.1` under user systemd with `Restart=on-failure` and
+  `Conflicts=qmd-serve.service`. The `--daemon` flag forks, writes a PID file, and exits 0, which systemd treats as a
+  finished oneshot. Port 8181 is qmd's MCP default and stays distinct from dead `:7832`. Instantiates R1. Cite from U2.
 - KTD2. **Host allowlist on the unit, no Caddy, no wildcard origins.** Set `QMD_ALLOWED_HOSTS=qmd.tail42ba87.ts.net`.
   Bind loopback. Do not set `QMD_ALLOWED_ORIGINS` until a real Claude Code or Cursor `POST /mcp` is captured: missing
   Origin is the non-browser path; a webview Origin would 403 if it is not allowlisted, and widening Origins recreates a
@@ -176,9 +177,10 @@ instructions aimed at that URL from day one.
   REST `POST /query` and `POST /search` at the same authz as `/mcp`. Instantiates R1, R2, R11. Cite from U2.
 - KTD3. **Define MagicDNS first; Serve bind waits on `GET /health`.** `(session-settled: user-directed — chosen over a
   throwaway test URL then switch: client configs need the production FQDN immediately.)` Operator Defines `svc:qmd` in
-  the admin console so `qmd.tail42ba87.ts.net` exists. `scripts/tailscale-serve-setup.sh` still refuses `tailscale
-  serve` until `http://127.0.0.1:8181/health` succeeds. Client files may mention the URL before that bind. Operator also
-  grants the service (deny-by-default) and does not enable Funnel. Instantiates R2, R4, R11. Cite from U1, U4.
+  the admin console so `qmd.tail42ba87.ts.net` exists. `scripts/tailscale-serve-setup.sh` still refuses
+  `tailscale serve` until `http://127.0.0.1:8181/health` succeeds. Client files may mention the URL before that bind.
+  Operator also grants the service (deny-by-default) and does not enable Funnel. Instantiates R2, R4, R11. Cite from U1,
+  U4.
 - KTD4. **Claude: `claude mcp add`, not a stow of `~/.claude.json`. Cursor: enable-script merge of `mcp.json`.**
   `(session-settled: user-approved — chosen over stowing Cursor mcp.json: first stow against a real file can adopt other
   servers and tokens into git.)` Claude Code stores `mcpServers` in `~/.claude.json` and rewrites that file; a stow
@@ -191,15 +193,15 @@ instructions aimed at that URL from day one.
   VIP. Instantiates R6, R8. Cite from U4.
 - KTD5. **Health probes are `GET /health`, never `GET /mcp`.** qmd MCP HTTP returns 405 on `GET /mcp`. Older Streamable
   HTTP GET can hang. Serve setup, enable-script smoke, and docs use `/health`. Instantiates R4. Cite from U1, U2.
-- KTD6. **Leave embed units untouched; put `QMD_LOW_VRAM=1` on the MCP unit.** `(session-settled: user-directed — chosen
-  over stopping MCP around embed: overlap is accepted.)` Do not edit `qmd-embed.service` or `qmd-embed.timer`. Systemd
-  does not source `config/shell/qmd.sh`, so the MCP unit must export `QMD_LOW_VRAM=1` and `NODE_LLAMA_CPP_GPU=cuda`
-  itself (same CUDA pin as today's serve unit). Residual: second LlamaCpp and SQLITE_BUSY during embed. Instantiates R9,
-  R10. Cite from U2, U3.
-- KTD7. **Disable Darwin qmd LaunchAgents that assume a local engine.** `(session-settled: user-directed — chosen over a
-  Mac-local qmd dispatcher: the Mac is a thin client.)` Boot out `com.user.qmd-serve`, `com.user.qmd-embed`,
-  `com.user.qmd-update`, and `com.user.qmd-cleanup`. Do not bootstrap them from `scripts/qmd-launchd-enable.sh`.
-  Indexing stays on the brain host. Instantiates R5. Cite from U3.
+- KTD6. **Leave embed units untouched; put `QMD_LOW_VRAM=1` on the MCP unit.**
+  `(session-settled: user-directed — chosen over stopping MCP around embed: overlap is accepted.)` Do not edit
+  `qmd-embed.service` or `qmd-embed.timer`. Systemd does not source `config/shell/qmd.sh`, so the MCP unit must export
+  `QMD_LOW_VRAM=1` and `NODE_LLAMA_CPP_GPU=cuda` itself (same CUDA pin as today's serve unit). Residual: second LlamaCpp
+  and SQLITE_BUSY during embed. Instantiates R9, R10. Cite from U2, U3.
+- KTD7. **Disable Darwin qmd LaunchAgents that assume a local engine.**
+  `(session-settled: user-directed — chosen over a Mac-local qmd dispatcher: the Mac is a thin client.)` Boot out
+  `com.user.qmd-serve`, `com.user.qmd-embed`, `com.user.qmd-update`, and `com.user.qmd-cleanup`. Do not bootstrap them
+  from `scripts/qmd-launchd-enable.sh`. Indexing stays on the brain host. Instantiates R5. Cite from U3.
 - KTD8. **Delete `QMD_REMOTE_URL`.** That variable is the serve protocol (`/embed`, `/rerank`), not MCP. After
   `qmd-serve` is gone, a leftover `http://127.0.0.1:7832` makes the CLI in-process load GGUF next to Ollama (OOM).
   Agents must not use it. Linux `QMD_LOW_VRAM=1` in `config/shell/qmd.sh` may remain for maintainer CLI embed.
@@ -297,8 +299,8 @@ healthy before the Serve bind in U1's script is run. U3 should land with U2 so `
 
 ### U1. Define `svc:qmd` and extend Tailscale Serve setup
 
-- **Goal:** Production MagicDNS name exists. Serve script binds `svc:qmd` → `http://127.0.0.1:8181` only after `GET
-  /health`.
+- **Goal:** Production MagicDNS name exists. Serve script binds `svc:qmd` → `http://127.0.0.1:8181` only after
+  `GET /health`.
 - **Files:** `scripts/tailscale-serve-setup.sh`; comments/links for
   `https://login.tailscale.com/admin/services/svc:qmd`.
 - **Patterns:** Existing `svc:codex-proxy` block (direct loopback, health probe, refuse dead upstream). Not the
@@ -326,22 +328,22 @@ healthy before the Serve bind in U1's script is run. U3 should land with U2 so `
   `scripts/qmd-llama-rebuild.sh` (restart `qmd-mcp.service` instead of `qmd-serve.service`).
 - **Patterns:** Current `qmd-serve.service`: `Type=simple`, `Restart=on-failure`, `NODE_LLAMA_CPP_GPU=cuda`, absolute
   ExecStart to `$HOME/.bun/bin/qmd` (keep the same binary-resolution invariant as today's serve unit),
-  `NoNewPrivileges=true`, `PrivateTmp=true`. Enable script: Linux gate, clear orphan port, `daemon-reload`, `enable
-  --now`, smoke `/health`.
-- **Approach:** ExecStart: the same absolute bun qmd binary as today's serve unit, then `mcp --http --port 8181 --host
-  127.0.0.1` (KTD1). Copy that unit's `Environment=PATH` line. Also set `QMD_LOW_VRAM=1`, `NODE_LLAMA_CPP_GPU=cuda`,
-  `QMD_ALLOWED_HOSTS=qmd.tail42ba87.ts.net` (KTD2, KTD6). Copy `NoNewPrivileges=true` and `PrivateTmp=true`. Do not set
-  `QMD_ALLOWED_ORIGINS` until a captured IDE Origin requires it. `Conflicts=qmd-serve.service`. Enable script `disable
-  --now qmd-serve.service`, then enable MCP, smoke `http://127.0.0.1:8181/health` (KTD5). Fail-closed: request with a
-  foreign Host is 403; VIP Host and no Origin is 200-class. Port-clear: stop `qmd-mcp.service` and pkill `qmd mcp` only.
-  Do not pkill `qmd serve` or `bun .*qmd` (that would kill an overlapping embed). Do not use `--daemon`. Do not edit
-  embed units.
+  `NoNewPrivileges=true`, `PrivateTmp=true`. Enable script: Linux gate, clear orphan port, `daemon-reload`,
+  `enable --now`, smoke `/health`.
+- **Approach:** ExecStart: the same absolute bun qmd binary as today's serve unit, then
+  `mcp --http --port 8181 --host 127.0.0.1` (KTD1). Copy that unit's `Environment=PATH` line. Also set `QMD_LOW_VRAM=1`,
+  `NODE_LLAMA_CPP_GPU=cuda`, `QMD_ALLOWED_HOSTS=qmd.tail42ba87.ts.net` (KTD2, KTD6). Copy `NoNewPrivileges=true` and
+  `PrivateTmp=true`. Do not set `QMD_ALLOWED_ORIGINS` until a captured IDE Origin requires it.
+  `Conflicts=qmd-serve.service`. Enable script `disable --now qmd-serve.service`, then enable MCP, smoke
+  `http://127.0.0.1:8181/health` (KTD5). Fail-closed: request with a foreign Host is 403; VIP Host and no Origin is
+  200-class. Port-clear: stop `qmd-mcp.service` and pkill `qmd mcp` only. Do not pkill `qmd serve` or `bun .*qmd` (that
+  would kill an overlapping embed). Do not use `--daemon`. Do not edit embed units.
 - **Test scenarios:** Happy: enable script → `/health` JSON with `status: ok`. Error: missing binary → script prints
   last journal lines and exits nonzero. Edge: `:8181` occupied by a non-unit process → script fails after the port-clear
-  wait. Fail-closed: foreign `Host` on `/mcp` and `/query` is 403. Integration: `systemctl --user is-active
-  qmd-mcp.service` is `active` and `qmd-serve` is not.
-- **Verification:** `bash scripts/qmd-mcp-enable.sh` on the brain host. `curl -sf --max-time 30
-  http://127.0.0.1:8181/health`.
+  wait. Fail-closed: foreign `Host` on `/mcp` and `/query` is 403. Integration:
+  `systemctl --user is-active qmd-mcp.service` is `active` and `qmd-serve` is not.
+- **Verification:** `bash scripts/qmd-mcp-enable.sh` on the brain host.
+  `curl -sf --max-time 30 http://127.0.0.1:8181/health`.
 - **Execution note:** Smoke-first before U1's Serve bind.
 - **Covers:** R1, R10, R11. KTD1, KTD2, KTD5, KTD6.
 

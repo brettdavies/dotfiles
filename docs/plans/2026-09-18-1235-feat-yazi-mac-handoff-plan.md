@@ -210,8 +210,8 @@ Deferred for later:
 - Opening a directory as a remote folder window.
 - Making `code` available on the Mac's `PATH`. Related drift, also deferred: `stow/shell/dot-profile` selects `code`
   without `--wait` and only when `code` is on `PATH`, while
-  `docs/solutions/configuration-fixes/cross-platform-editor-configuration-via-editor-env-var.md` documents `code
-  --wait`.
+  `docs/solutions/configuration-fixes/cross-platform-editor-configuration-via-editor-env-var.md` documents
+  `code --wait`.
 
 Outside this work:
 
@@ -289,10 +289,10 @@ Deferred to implementation (U1 answers each before U2 starts):
   ([kitty docs](https://sw.kovidgoyal.net/kitty/kittens/remote_file/)), and superbrothers/opener for URLs
   ([opener](https://github.com/superbrothers/opener)). All three ride the operator's existing SSH session; none opens a
   server path in place in VS Code with direct saves.
-- Live probes on 2026-09-18: Mac editors and their CLIs live at `/Applications/Visual Studio
-  Code.app/Contents/Resources/app/bin/code` and `/Applications/Cursor.app/Contents/Resources/app/bin/cursor`; Obsidian
-  on the Mac has a vault registered at `/Volumes/dev/meum-control/Meum`; the tmux client attached to the server is the
-  Mac.
+- Live probes on 2026-09-18: Mac editors and their CLIs live at
+  `/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code` and
+  `/Applications/Cursor.app/Contents/Resources/app/bin/cursor`; Obsidian on the Mac has a vault registered at
+  `/Volumes/dev/meum-control/Meum`; the tmux client attached to the server is the Mac.
 
 ---
 
@@ -322,33 +322,33 @@ settles; the two "Validate" assumptions point at U1. Existing R-IDs, F-IDs, and 
   exactly as today, with no reason line or notification; `mac-open` still refuses directories for a hand-run call.
   Governs R1, R4, R8, R10. (session-settled: user-approved — explicit table with catch-all chosen over enumerating known
   binary types; unknowns would otherwise stay on today's dead `open`.)
-- KTD3. **Blocking hand-off, no `orphan`.** Opener entries use `block = true` with the shape `mac-open edit %s ||
-  ${EDITOR:-micro} %s`: yazi runs the command through `sh -c` with stdio inherited, waits for it, and the exit status
-  drives the `||` fallback, which is the only way a TUI fallback like micro can take the terminal. The hand-off itself
-  is short (the SSH round trip, about 1 s warm, bounded by the 3 s connect timeout), and the Mac side detaches the GUI
-  launch so `ssh` returns; yazi therefore never waits on the app (R9). A bare `%s` makes yazi pass every selected file
-  in one invocation (R10). Governs R8, R9, R10, R11.
-- KTD4. **One SSH invocation per hand-off, its exit status is the probe.** `ssh -n -o BatchMode=yes -o ConnectTimeout=3
-  <mac-alias> '<receiver command>'`, wrapped in a hard `timeout` so a post-handshake stall cannot block yazi: 20 s for
-  the edit and view routes, and 20 s plus 1 s per MiB of the file for the copy route, whose duration grows with size.
-  The bound is `timeout --foreground`: plain `timeout` runs `ssh` outside the terminal's foreground process group, where
-  Ctrl-C does not reach it (measured: `timeout 6 sleep 6` ignored Ctrl-C for the full 6 s), so a long copy could not be
-  abandoned. `-n` keeps `ssh` from reading the operator's keystrokes; the copy route drops `-n` since it feeds the file
-  on stdin. After an unreachable or timed-out call, the remaining shares and copies are not dialed. Exit 255 →
-  `unreachable: <ssh's last stderr line>` (one exit code covers a sleeping Mac, a refused key, and a changed host key,
-  so the line quotes ssh; its verdict comes last, after any warning or host-key banner); 124 → `timed-out`; 127 (the
-  Mac's shell found no receiver) → `receiver-missing`; 2 (the receiver's usage error, which is what an older receiver
-  returns for a newer call) → `receiver-outdated`; any other non-zero → `remote-failed: <first stderr line from the
-  Mac>`. Exit 127 and exit 2 were observed through SSH on 2026-09-22. Rationale: a separate probe would double the round
-  trip for no extra information, KTD9 already establishes that the Mac is on the tailnet before anything is dialed, and
-  the existing bounded-SSH shape in `scripts/claude-token-totals` is the repo's precedent. The Mac target is the SSH
-  alias (env override `MAC_OPEN_HOST`); the server's own alias for `ssh-remote+` is `hostname -s` (env override
-  `MAC_OPEN_SERVER_ALIAS`). Governs R11, R12.
-- KTD5. **The share-root table comes from `tailscale drive list` at run time.** `mac-open view` parses the `name path
-  as` table (header validated, whitespace-split), resolves the file with `realpath`, and picks the longest matching
-  root; a parse failure or no match means the copy route with the reason recorded. Rationale: the daemon's own list is
-  the single source of truth and a new share needs no code change; the parse is guarded because the command is alpha and
-  has no JSON output. Governs R5, R7.
+- KTD3. **Blocking hand-off, no `orphan`.** Opener entries use `block = true` with the shape
+  `mac-open edit %s || ${EDITOR:-micro} %s`: yazi runs the command through `sh -c` with stdio inherited, waits for it,
+  and the exit status drives the `||` fallback, which is the only way a TUI fallback like micro can take the terminal.
+  The hand-off itself is short (the SSH round trip, about 1 s warm, bounded by the 3 s connect timeout), and the Mac
+  side detaches the GUI launch so `ssh` returns; yazi therefore never waits on the app (R9). A bare `%s` makes yazi pass
+  every selected file in one invocation (R10). Governs R8, R9, R10, R11.
+- KTD4. **One SSH invocation per hand-off, its exit status is the probe.**
+  `ssh -n -o BatchMode=yes -o ConnectTimeout=3 <mac-alias> '<receiver command>'`, wrapped in a hard `timeout` so a
+  post-handshake stall cannot block yazi: 20 s for the edit and view routes, and 20 s plus 1 s per MiB of the file for
+  the copy route, whose duration grows with size. The bound is `timeout --foreground`: plain `timeout` runs `ssh`
+  outside the terminal's foreground process group, where Ctrl-C does not reach it (measured: `timeout 6 sleep 6` ignored
+  Ctrl-C for the full 6 s), so a long copy could not be abandoned. `-n` keeps `ssh` from reading the operator's
+  keystrokes; the copy route drops `-n` since it feeds the file on stdin. After an unreachable or timed-out call, the
+  remaining shares and copies are not dialed. Exit 255 → `unreachable: <ssh's last stderr line>` (one exit code covers a
+  sleeping Mac, a refused key, and a changed host key, so the line quotes ssh; its verdict comes last, after any warning
+  or host-key banner); 124 → `timed-out`; 127 (the Mac's shell found no receiver) → `receiver-missing`; 2 (the
+  receiver's usage error, which is what an older receiver returns for a newer call) → `receiver-outdated`; any other
+  non-zero → `remote-failed: <first stderr line from the Mac>`. Exit 127 and exit 2 were observed through SSH on
+  2026-09-22. Rationale: a separate probe would double the round trip for no extra information, KTD9 already establishes
+  that the Mac is on the tailnet before anything is dialed, and the existing bounded-SSH shape in
+  `scripts/claude-token-totals` is the repo's precedent. The Mac target is the SSH alias (env override `MAC_OPEN_HOST`);
+  the server's own alias for `ssh-remote+` is `hostname -s` (env override `MAC_OPEN_SERVER_ALIAS`). Governs R11, R12.
+- KTD5. **The share-root table comes from `tailscale drive list` at run time.** `mac-open view` parses the
+  `name path as` table (header validated, whitespace-split), resolves the file with `realpath`, and picks the longest
+  matching root; a parse failure or no match means the copy route with the reason recorded. Rationale: the daemon's own
+  list is the single source of truth and a new share needs no code change; the parse is guarded because the command is
+  alpha and has no JSON output. Governs R5, R7.
 - KTD6. **Copies stream through the same SSH command's stdin, with the byte count as the completeness check.** For a
   file outside every share, `mac-open` runs `mac-open-here receive <basename> <size-in-bytes>` on the Mac with the file
   on stdin; the receiver writes stdin to `~/Downloads/mac-open/<epoch>-<basename>.part`, compares the bytes written with
@@ -362,36 +362,36 @@ settles; the two "Validate" assumptions point at U1. Existing R-IDs, F-IDs, and 
   5 MiB/s was measured, so 100 MiB blocks for about 19 s). One invocation per copied file. Rationale: no `scp`, no mkdir
   round trip, and no second transport to stub; the size check exists because a `timeout` that cuts the stream reaches
   the receiver as a plain EOF, which would otherwise open a truncated file. Governs R7, R9.
-- KTD7. **Reasons are a closed set, printed on stderr and pushed as a yazi notification.** `mac-open` prints `mac-open:
-  <reason>` where reason is one of `not-from-mac: …`, `unreachable`, `timed-out`, `remote-failed: …`, `short-copy`,
-  `not-a-file`, `receiver-missing`, `receiver-outdated`, a `share-table` warning when `tailscale drive list` cannot be
-  parsed and every file is copied instead, and, on success of the copy route, an info notice `opened a copy at
-  ~/Downloads/mac-open/<file> on the Mac; edits there do not write back`. Every reason line ends with one clause naming
-  the next step (session-settled: user-directed — for the reasons a first run can hit, chosen to meet the under-2-minute
-  setup target over documenting the fixes only in the README; for the rest, chosen over leaving them as bare status
-  codes). `receiver-missing` and `receiver-outdated` say to run `git pull && scripts/stow-deploy local` on the Mac; the
-  Remote Login file-access refusal, which macOS reports as `Operation not permitted` (U1 steps 4 and 7), maps to the
-  receiver's `no-disk-access` line naming System Settings → General → Sharing → Remote Login → "Allow full disk access
-  for remote users", reported as `remote-failed: mac-open-here: no-disk-access: …`; `not-from-mac` names what decided it
-  (the server console, or the tailnet node it saw) and says the hand-off runs only from a session attached from
-  `MAC_OPEN_HOST`; `unreachable` says to check that the Mac is awake with Remote Login on, or, when ssh's line is
-  `Permission denied`, that the Mac's `authorized_keys` does not carry this host's key; `timed-out` says the Mac stopped
-  answering after connecting; `short-copy` gives the bytes that arrived against the bytes expected and says to retry or
-  move the file under a share to open it in place; `not-a-file` says directories open locally. When `YAZI_ID` is in the
-  environment, the same text goes through `ya emit notify:push --title=mac-open --content=… --level=warn --timeout=8`
-  (info level for the copy notice), the form U1 step 1 confirmed; yazi shows nothing of a failed blocking opener's
-  stderr on its own. yazi counts a notification's timeout from its arrival (U1: emitted with a 5 s timeout inside a
-  blocking opener, it was gone 2 s after yazi resumed), and under `sh -c "mac-open … || micro …"` the fallback editor
-  holds the terminal after `mac-open` exits. So when `mac-open`'s parent is the opener's `sh`, a detached child sends
-  the notification once that shell exits, and the reason is on screen when yazi redraws; any other parent (yazi itself,
-  when `sh` execs a lone `mac-open view %s`) gets it at once. `ya emit` fails with `Incompatible version` while a yazi
-  older than `ya` hosts the shared DDS socket; a failed emit changes neither the exit status nor the stderr line.
-  Governs R7, R12.
-- KTD8. **Mac-side invariants.** VS Code is addressed at `/Applications/Visual Studio
-  Code.app/Contents/Resources/app/bin/code` (env override `MAC_OPEN_CODE_CLI`) as `--reuse-window --remote
-  ssh-remote+<server-alias> <paths…>`, which VS Code treats as files when they carry an extension and for which
-  `--file-uri vscode-remote://ssh-remote+<alias><path>` is the unambiguous form for extension-less files. Mounting is
-  `zsh -c 'taildrive-mount <share>'`, idempotent and already exercised by
+- KTD7. **Reasons are a closed set, printed on stderr and pushed as a yazi notification.** `mac-open` prints
+  `mac-open: <reason>` where reason is one of `not-from-mac: …`, `unreachable`, `timed-out`, `remote-failed: …`,
+  `short-copy`, `not-a-file`, `receiver-missing`, `receiver-outdated`, a `share-table` warning when
+  `tailscale drive list` cannot be parsed and every file is copied instead, and, on success of the copy route, an info
+  notice `opened a copy at ~/Downloads/mac-open/<file> on the Mac; edits there do not write back`. Every reason line
+  ends with one clause naming the next step (session-settled: user-directed — for the reasons a first run can hit,
+  chosen to meet the under-2-minute setup target over documenting the fixes only in the README; for the rest, chosen
+  over leaving them as bare status codes). `receiver-missing` and `receiver-outdated` say to run
+  `git pull && scripts/stow-deploy local` on the Mac; the Remote Login file-access refusal, which macOS reports as
+  `Operation not permitted` (U1 steps 4 and 7), maps to the receiver's `no-disk-access` line naming System Settings →
+  General → Sharing → Remote Login → "Allow full disk access for remote users", reported as
+  `remote-failed: mac-open-here: no-disk-access: …`; `not-from-mac` names what decided it (the server console, or the
+  tailnet node it saw) and says the hand-off runs only from a session attached from `MAC_OPEN_HOST`; `unreachable` says
+  to check that the Mac is awake with Remote Login on, or, when ssh's line is `Permission denied`, that the Mac's
+  `authorized_keys` does not carry this host's key; `timed-out` says the Mac stopped answering after connecting;
+  `short-copy` gives the bytes that arrived against the bytes expected and says to retry or move the file under a share
+  to open it in place; `not-a-file` says directories open locally. When `YAZI_ID` is in the environment, the same text
+  goes through `ya emit notify:push --title=mac-open --content=… --level=warn --timeout=8` (info level for the copy
+  notice), the form U1 step 1 confirmed; yazi shows nothing of a failed blocking opener's stderr on its own. yazi counts
+  a notification's timeout from its arrival (U1: emitted with a 5 s timeout inside a blocking opener, it was gone 2 s
+  after yazi resumed), and under `sh -c "mac-open … || micro …"` the fallback editor holds the terminal after `mac-open`
+  exits. So when `mac-open`'s parent is the opener's `sh`, a detached child sends the notification once that shell
+  exits, and the reason is on screen when yazi redraws; any other parent (yazi itself, when `sh` execs a lone
+  `mac-open view %s`) gets it at once. `ya emit` fails with `Incompatible version` while a yazi older than `ya` hosts
+  the shared DDS socket; a failed emit changes neither the exit status nor the stderr line. Governs R7, R12.
+- KTD8. **Mac-side invariants.** VS Code is addressed at
+  `/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code` (env override `MAC_OPEN_CODE_CLI`) as
+  `--reuse-window --remote ssh-remote+<server-alias> <paths…>`, which VS Code treats as files when they carry an
+  extension and for which `--file-uri vscode-remote://ssh-remote+<alias><path>` is the unambiguous form for
+  extension-less files. Mounting is `zsh -c 'taildrive-mount <share>'`, idempotent and already exercised by
   `stow/tmuxinator/dot-config/tmuxinator/vault.yml`. Every launched GUI process is started with stdin, stdout, and
   stderr detached and disowned, so the SSH session ends when the receiver exits rather than when the app does; `open`
   itself runs in the foreground, because it returns once LaunchServices has the request and its exit status is the only
@@ -400,8 +400,8 @@ settles; the two "Validate" assumptions point at U1. Existing R-IDs, F-IDs, and 
   before `open` the receiver lists `/Volumes/<share>` once, the read that fails with `Operation not permitted` in
   exactly that state, and reports `no-disk-access`; it never stats the files themselves. The copy route needs no such
   access (U1 step 7). With VS Code running, the CLI returned in about 1 s over SSH and a second file reused the
-  server-connected window (U1 step 2); the operator deferred the cold start (U1 step 3), so there is no `open -b
-  com.microsoft.VSCode --args …` branch. Governs R3, R6, R13.
+  server-connected window (U1 step 2); the operator deferred the cold start (U1 step 3), so there is no
+  `open -b com.microsoft.VSCode --args …` branch. Governs R3, R6, R13.
 - KTD9. **The client-origin guard reads the SSH connection behind the terminal and asks Tailscale who it is.** Before
   classifying anything, `mac-open` finds the `SSH_CONNECTION` of the session that is driving yazi: inside tmux, from the
   environment of the most recently active client attached to the pane's own session (`tmux list-clients` scoped to that
@@ -523,16 +523,16 @@ before the live acceptance pass.
 - **Dependencies:** None. The operator must be at the Mac.
 - **Files:** None in the repo. Observations go into the PR body and, after landing, a `docs/solutions/` entry.
 - **Approach:**
-  1. From a yazi subshell on the server (so `YAZI_ID` is inherited), run `ya emit notify:push --title=mac-open
-     --content=test --level=warn --timeout=5` and record whether a notification appears, whether one emitted while a
-     `block = true` opener holds the terminal is still shown after yazi resumes, and whether its timeout counts from
-     delivery or from display; then configure a throwaway `block = true` opener that exits 1 with a stderr line and
-     record whether yazi shows anything on its own.
-  2. From the server with VS Code running on the Mac: `ssh <mac> '<bundle cli> --reuse-window --remote
-     ssh-remote+<server> <path to a scratch .md>'`; record whether the tab opens and whether `ssh` returns promptly or
-     hangs until the app exits (this decides the detach shape in U2).
-  3. Ask the operator to quit VS Code, repeat step 2, and record whether the app launches; if not, repeat with `open -b
-     com.microsoft.VSCode --args --reuse-window --remote …`.
+  1. From a yazi subshell on the server (so `YAZI_ID` is inherited), run
+     `ya emit notify:push --title=mac-open --content=test --level=warn --timeout=5` and record whether a notification
+     appears, whether one emitted while a `block = true` opener holds the terminal is still shown after yazi resumes,
+     and whether its timeout counts from delivery or from display; then configure a throwaway `block = true` opener that
+     exits 1 with a stderr line and record whether yazi shows anything on its own.
+  2. From the server with VS Code running on the Mac:
+     `ssh <mac> '<bundle cli> --reuse-window --remote ssh-remote+<server> <path to a scratch .md>'`; record whether the
+     tab opens and whether `ssh` returns promptly or hangs until the app exits (this decides the detach shape in U2).
+  3. Ask the operator to quit VS Code, repeat step 2, and record whether the app launches; if not, repeat with
+     `open -b com.microsoft.VSCode --args --reuse-window --remote …`.
   4. With `/Volumes/dev` mounted, `ssh <mac> 'open /Volumes/dev/<an existing pdf>'`; if it reports the file as missing,
      turn on System Settings → General → Sharing → Remote Login → "Allow full disk access for remote users", and repeat.
   5. Record `man open` on the Mac for `-j`, in case a hidden launch is wanted later.
@@ -540,10 +540,10 @@ before the live acceptance pass.
      read `SSH_CONNECTION` from the most recent client's environment under `/proc`, and confirm `tailscale whois --json`
      on its client address names the Mac; then attach the same session from the server console (or a second device, if
      one is at hand) and confirm the most recent client changes accordingly.
-  7. From the server, stream a small file into `ssh <mac> 'mkdir -p ~/Downloads/mac-open && cat >
-     ~/Downloads/mac-open/probe.part'`, then over SSH rename it, count its bytes, and `open` it; record which of those
-     steps macOS refuses without Remote Login's "Allow full disk access for remote users", and the exact message each
-     refusal prints (KTD6, KTD7).
+  7. From the server, stream a small file into
+     `ssh <mac> 'mkdir -p ~/Downloads/mac-open && cat > ~/Downloads/mac-open/probe.part'`, then over SSH rename it,
+     count its bytes, and `open` it; record which of those steps macOS refuses without Remote Login's "Allow full disk
+     access for remote users", and the exact message each refusal prints (KTD6, KTD7).
 - **Execution note:** This unit is measurement only; no repo code changes. Each observation is quoted verbatim into the
   PR body.
 - **Test scenarios:** Test expectation: none -- the unit produces observations, not behavior.
@@ -560,9 +560,9 @@ before the live acceptance pass.
 - **Approach:**
   1. `#!/usr/bin/env bash`, `set -euo pipefail`, a `die` that prints `mac-open-here: <message>` on stderr and exits 1,
      usage on a bad subcommand with exit 2, and a Darwin guard (`uname -s`) so the script cannot run elsewhere.
-  2. `edit <server-alias> <path>…`: resolve the CLI per KTD8, fail with `code-cli-missing: no VS Code CLI at <path>;
-     install VS Code or set MAC_OPEN_CODE_CLI` if the path is not executable, and launch it detached with every path in
-     one call.
+  2. `edit <server-alias> <path>…`: resolve the CLI per KTD8, fail with
+     `code-cli-missing: no VS Code CLI at <path>; install VS Code or set MAC_OPEN_CODE_CLI` if the path is not
+     executable, and launch it detached with every path in one call.
   3. `view <share> <mac-path>…`: run `zsh -c 'taildrive-mount <share>'`; on failure die with its first stderr line; then
      `open` each path, detached. No stat of the paths.
   4. `receive <basename> <size-in-bytes>`: create `~/Downloads/mac-open` if missing, write stdin to
@@ -611,16 +611,17 @@ before the live acceptance pass.
      is not a regular file after `realpath` (directories included) is reported as `not-a-file` and exits non-zero
      without dialing.
   2. Client-origin guard per KTD9, before any classification or dialing: locate the driving `SSH_CONNECTION` (tmux
-     client environment when `TMUX` is set, own environment otherwise), resolve its client address with `tailscale whois
-     --json`, and stop with `not-from-mac` unless the node's computed name is `MAC_OPEN_HOST`.
+     client environment when `TMUX` is set, own environment otherwise), resolve its client address with
+     `tailscale whois --json`, and stop with `not-from-mac` unless the node's computed name is `MAC_OPEN_HOST`.
   3. Reachability per KTD4: the single `timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=3 "$MAC_OPEN_HOST" …` call
      whose status maps to the closed reason set; `-n` (stdin from `/dev/null`) is dropped only for the `receive` call,
      which carries the file on stdin.
   4. `edit`: one remote call, `~/.local/bin/mac-open-here edit <server-alias> <paths…>`, paths single-quoted for the
      remote shell.
-  5. `view`: build the share table per KTD5, group paths by share, one remote `view <share>
-     /Volumes/<share>/<relative>…` call per share; each path with no share goes through `receive <basename> <size>` with
-     the file on stdin and the copy route's size-scaled `timeout` (KTD4, KTD6), followed by the info notice.
+  5. `view`: build the share table per KTD5, group paths by share, one remote
+     `view <share> /Volumes/<share>/<relative>…` call per share; each path with no share goes through
+     `receive <basename> <size>` with the file on stdin and the copy route's size-scaled `timeout` (KTD4, KTD6),
+     followed by the info notice.
   6. Reporting per KTD7: stderr line always; `ya emit notify:push …` when `YAZI_ID` is set and U1 showed it works. The
      Mac-side deploy command that `receiver-missing` and `receiver-outdated` print is one constant in the script.
   7. Exit 0 only when every requested path was accepted by the Mac; otherwise non-zero after reporting, so the opener's
@@ -658,14 +659,15 @@ before the live acceptance pass.
     `~/Downloads/mac-open`.
   - Before that `receive` call, stderr carries `mac-open: copying shot.png (<size>) to the Mac`.
   - `view` with two files under different shares produces two remote calls, one per share.
-  - Covers AE5. `ssh` exit 255 with `Host key verification failed.` on its stderr → stderr `mac-open: unreachable: Host
-    key verification failed.` plus the next-step clause, a warn notification, exit non-zero.
+  - Covers AE5. `ssh` exit 255 with `Host key verification failed.` on its stderr → stderr
+    `mac-open: unreachable: Host key verification failed.` plus the next-step clause, a warn notification, exit
+    non-zero.
   - `ssh` exit 255 with `Permission denied (publickey)` on its stderr → the next step names the Mac's `authorized_keys`,
     not Remote Login.
   - Each reason in KTD7's closed set, driven through its stub, ends with its next-step clause (one assertion per
     reason).
-  - Covers AE6. `ssh` exit 1 with `mac-open-here: code-cli-missing` on stderr → stderr `mac-open: remote-failed:
-    mac-open-here: code-cli-missing`, exit non-zero.
+  - Covers AE6. `ssh` exit 1 with `mac-open-here: code-cli-missing` on stderr → stderr
+    `mac-open: remote-failed: mac-open-here: code-cli-missing`, exit non-zero.
   - `timeout` status 124 → `timed-out`.
   - `ssh` exit 127 → `mac-open: receiver-missing` with the Mac-side deploy command on the same line.
   - `ssh` exit 2 → `mac-open: receiver-outdated` with the Mac-side deploy command on the same line.
@@ -694,13 +696,13 @@ before the live acceptance pass.
 - **Files:** `stow/yazi/dot-config/yazi/yazi.toml` (modify), `stow/yazi/dot-config/yazi/keymap.toml` (modify the comment
   table only), `tests/yazi-config.bats` (create).
 - **Approach:**
-  1. `[opener] edit`: a first entry `for = "linux"` running `mac-open edit %s || ${EDITOR:-micro} %s` with `block =
-     true`, ahead of the existing `for = "unix"` `$EDITOR` entry (which is what the `O` picker offers, R8).
+  1. `[opener] edit`: a first entry `for = "linux"` running `mac-open edit %s || ${EDITOR:-micro} %s` with
+     `block = true`, ahead of the existing `for = "unix"` `$EDITOR` entry (which is what the `O` picker offers, R8).
      Double-quoted TOML string per
      `docs/solutions/configuration-fixes/cross-platform-editor-configuration-via-editor-env-var.md`.
-  2. `[opener] mac-view`: one `for = "linux"` entry, `mac-open view %s`, `block = true`. Alongside it, `[opener]
-     edit-local`: the plain `$EDITOR %s` entry (`block = true`, `for = "unix"`), used only by the `folder/*` rule so
-     directories keep today's behavior (KTD2).
+  2. `[opener] mac-view`: one `for = "linux"` entry, `mac-open view %s`, `block = true`. Alongside it,
+     `[opener] edit-local`: the plain `$EDITOR %s` entry (`block = true`, `for = "unix"`), used only by the `folder/*`
+     rule so directories keep today's behavior (KTD2).
   3. `[opener] read-pdf`: the Linux entry becomes `mac-open view %s || { …; }` with the existing `pdftotext` → micro
      command inside the braces; the grouping is required because `||` and `&&` bind equally and left to right in `sh`,
      so an ungrouped chain would run `pdftotext` after every successful hand-off. The macOS entry is unchanged.
@@ -708,8 +710,8 @@ before the live acceptance pass.
      `vfs/{absent,stale}` → `download` and `trash/**` → `open`, `trash` rows ahead of the catch-all, with a comment
      stating the one reason the table is explicit (the catch-all must not shadow the text rules) and naming the upstream
      preset file to diff against.
-  5. Every new opener entry carries a `desc`, as every existing entry in the file does, so the `O` picker reads `VS Code
-     on the Mac`, `Mac default app`, and `$EDITOR` rather than raw commands.
+  5. Every new opener entry carries a `desc`, as every existing entry in the file does, so the `O` picker reads
+     `VS Code on the Mac`, `Mac default app`, and `$EDITOR` rather than raw commands.
   6. `keymap.toml`'s reference comment gains one line naming the Mac-first behavior of `o`/`Enter` on Linux.
 - **Patterns to follow:** the existing per-platform `read-pdf` split in `yazi.toml`; comment density of that file.
 - **Test scenarios** (the file is parsed with Python's standard `tomllib` through `python3 -B`, since the repo has no
@@ -724,8 +726,8 @@ before the live acceptance pass.
   - `mac-view` exists with `for = "linux"` and no entry for any other platform.
   - Every opener entry in the file carries a `desc`.
   - The `folder/*` rule's first opener is `edit-local`, whose `run` does not mention `mac-open`.
-  - `read-pdf` keeps its `for = "macos"` entry unchanged and its Linux entry has the shape `mac-open view %s || {` … `;
-    }`, with the `pdftotext` command inside the braces.
+  - `read-pdf` keeps its `for = "macos"` entry unchanged and its Linux entry has the shape `mac-open view %s || {` …
+    `; }`, with the `pdftotext` command inside the braces.
   - `[open]` declares `rules` and no longer declares `prepend_rules`; the last rule is the `*` catch-all, a `text/*`
     rule precedes it, and the `vfs/{absent,stale}` and `trash/**` rules both precede it.
 - **Verification:** `yazi` on the server starts without a config error; `Enter` on a markdown file opens it in VS Code

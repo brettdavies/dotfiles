@@ -272,9 +272,9 @@ so the workstation is not left on a branch to keep its cleanup valid.
     it the test reports on the inherited value rather than the file.
   - The same fresh-shell source leaves `RUSTUP_HOME` unset.
   - On a host where `~/.cargo/env` exists, the same fresh-shell source puts `~/.cargo/bin` on `PATH`, since that block
-    becomes the only thing that does. Guard this case on `[ -f "$HOME/.cargo/env" ]` alongside the existing `[ -L
-    "$HOME/.profile" ]` precondition — the workstation has no Rust after U6, and without the second guard this assertion
-    fails on the machine the suite runs on.
+    becomes the only thing that does. Guard this case on `[ -f "$HOME/.cargo/env" ]` alongside the existing
+    `[ -L "$HOME/.profile" ]` precondition — the workstation has no Rust after U6, and without the second guard this
+    assertion fails on the machine the suite runs on.
   - `bash -n` on `stow/shell/dot-profile` and on `config/shell/caches.sh` passes, and shellcheck passes on
     `config/shell/*.sh`. The profile check alone does not follow `source`, so it cannot see a syntax error in the edited
     file.
@@ -329,9 +329,9 @@ so the workstation is not left on a branch to keep its cleanup valid.
   2. Preconditions, each with its own exit code: abort unless both rustup homes and both cargo homes share a device id;
      abort if the timer is running; abort if the destination cargo home already holds an install registry, since a
      wholesale registry move would overwrite it and de-register its crates; abort if the source home's per-directory
-     override table is non-empty or its default toolchain differs from the destination's (KTD3). Snapshot `rustup
-     toolchain list`, `cargo install --list`, both `settings.toml` files, the mode of `credentials.toml`, and the sizes
-     of all four trees before mutating.
+     override table is non-empty or its default toolchain differs from the destination's (KTD3). Snapshot
+     `rustup toolchain list`, `cargo install --list`, both `settings.toml` files, the mode of `credentials.toml`, and
+     the sizes of all four trees before mutating.
   3. Refuse to run while a build is in progress in any pinned repository. The cutover is one session (KTD4), so a
      concurrent build is the only realistic way a stale process writes into a tree mid-move.
   4. Move only the toolchains the six pinned repositories reference — `nightly`, `1.94.1`, `1.96.0` — one at a time,

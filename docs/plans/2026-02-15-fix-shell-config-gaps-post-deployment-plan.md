@@ -11,38 +11,54 @@ deepened: 2026-02-15
 ## Enhancement Summary
 
 **Deepened on:** 2026-02-15  
-**Review agents used:** security-sentinel, deployment-verification-agent, code-simplicity-reviewer, architecture-strategist, pattern-recognition-specialist  
+**Review agents used:** security-sentinel, deployment-verification-agent, code-simplicity-reviewer,
+architecture-strategist, pattern-recognition-specialist  
 **Research sources:** Web search (bash/zsh interactive guards, gh credential helpers), Context7, docs/solutions/
 
 ### Key Findings
 
-1. **Architecture confirmed sound** (Grade A-): Clean dependency graph `.profile` → RC files, no circular dependencies, DOTFILES_SHELL_DIR sentinel pattern is correct
-2. **Zsh `.zshrc` guard is defense-in-depth**: Zsh only sources `.zshrc` for interactive shells by design, but the guard is harmless and provides an explicit contract
-3. **`!gh auth git-credential` (bare, no path) is the correct cross-platform pattern**: Confirmed by GitHub CLI maintainers (cli/cli#9438) — avoids hardcoded Linuxbrew paths from the backup
-4. **No security issues introduced**: git-crypt working tree is decrypted by design when repo is unlocked; credential helper uses PATH resolution, not hardcoded paths
+1. **Architecture confirmed sound** (Grade A-): Clean dependency graph `.profile` → RC files, no circular dependencies,
+   DOTFILES_SHELL_DIR sentinel pattern is correct
+2. **Zsh `.zshrc` guard is defense-in-depth**: Zsh only sources `.zshrc` for interactive shells by design, but the guard
+   is harmless and provides an explicit contract
+3. **`!gh auth git-credential` (bare, no path) is the correct cross-platform pattern**: Confirmed by GitHub CLI
+   maintainers (cli/cli#9438) — avoids hardcoded Linuxbrew paths from the backup
+4. **No security issues introduced**: git-crypt working tree is decrypted by design when repo is unlocked; credential
+   helper uses PATH resolution, not hardcoded paths
 5. **100% pattern consistency**: All proposed changes align with existing naming conventions and file organization
 
 ### Considerations Discovered
 
 - Bash completion check can be simplified from 5 lines to 1 line (minor)
-- Shared aliases could theoretically move to `config/shell/aliases.sh`, but aliases are interactive-only and `.profile` loads for all modes — keeping them in `.bashrc` is correct
-- Stow 2.3.1 `--dotfiles` bug with nested `dot-` dirs remains; manual `ln -sf` workaround still needed for secrets/ssh/git on the headless server
+- Shared aliases could theoretically move to `config/shell/aliases.sh`, but aliases are interactive-only and `.profile`
+  loads for all modes — keeping them in `.bashrc` is correct
+- Stow 2.3.1 `--dotfiles` bug with nested `dot-` dirs remains; manual `ln -sf` workaround still needed for
+  secrets/ssh/git on the headless server
 
 ## Overview
 
-After deploying dotfiles from macOS to Ubuntu 24.04 on the headless server, a backup comparison revealed the stowed `.bashrc` is critically minimal — missing interactive shell guards, history settings, completion, aliases, prompt, and more. Additionally, secrets from the old `.bashrc` need migrating to `~/.secrets`, git credential helpers are missing, and the SSH config lacks two host entries.
+After deploying dotfiles from macOS to Ubuntu 24.04 on the headless server, a backup comparison revealed the stowed
+`.bashrc` is critically minimal — missing interactive shell guards, history settings, completion, aliases, prompt, and
+more. Additionally, secrets from the old `.bashrc` need migrating to `~/.secrets`, git credential helpers are missing,
+and the SSH config lacks two host entries.
 
-Zsh is the default shell on both machines, but bash must work properly as a fallback. Both shells need interactive guards. Secrets **must** load before the interactive guard so non-interactive programs (cron, SSH commands, CI) have access to tokens.
+Zsh is the default shell on both machines, but bash must work properly as a fallback. Both shells need interactive
+guards. Secrets **must** load before the interactive guard so non-interactive programs (cron, SSH commands, CI) have
+access to tokens.
 
 ## Problem Statement
 
-The backup at `~/.config-backup-20260215/` on the headless server shows the old `.bashrc` had ~130 lines of interactive shell configuration that the current stowed version (23 lines) lacks entirely. The old `.gitconfig` had `gh auth git-credential` helpers that the stowed version is missing. The old `.ssh/config` had `host-a.tailscale` and `host-a-lan` host entries not present in the repo.
+The backup at `~/.config-backup-20260215/` on the headless server shows the old `.bashrc` had ~130 lines of interactive
+shell configuration that the current stowed version (23 lines) lacks entirely. The old `.gitconfig` had
+`gh auth git-credential` helpers that the stowed version is missing. The old `.ssh/config` had `host-a.tailscale` and
+`host-a-lan` host entries not present in the repo.
 
 ## Proposed Solution
 
 ### Architecture: What loads where
 
-The key principle: `.profile` handles environment (all shells, all modes). RC files handle interactive features only. Secrets are in `.profile`'s chain, so they're already available before any interactive guard.
+The key principle: `.profile` handles environment (all shells, all modes). RC files handle interactive features only.
+Secrets are in `.profile`'s chain, so they're already available before any interactive guard.
 
 ```text
 .profile (all shells, login + non-interactive)
@@ -85,8 +101,10 @@ The key principle: `.profile` handles environment (all shells, all modes). RC fi
 
 ### Research Insights: Secrets
 
-- **git-crypt status**: `stow/secrets/dot-secrets` is encrypted at rest in git. Working tree is plaintext when repo is unlocked — this is by design, not a vulnerability.
-- **No duplication risk**: Tokens currently hardcoded in backup `.bashrc` will be consolidated into `~/.secrets` (single source of truth via `.profile`). The old `.bashrc` export lines become dead code once migrated.
+- **git-crypt status**: `stow/secrets/dot-secrets` is encrypted at rest in git. Working tree is plaintext when repo is
+  unlocked — this is by design, not a vulnerability.
+- **No duplication risk**: Tokens currently hardcoded in backup `.bashrc` will be consolidated into `~/.secrets` (single
+  source of truth via `.profile`). The old `.bashrc` export lines become dead code once migrated.
 
 ### Phase 2: Interactive shell guards (High)
 
@@ -181,7 +199,8 @@ fi
 
 #### `stow/zsh/dot-zshrc`
 
-Add interactive guard after `.profile` source (line 9). Move `shell-functions` source below the guard. The guard placement:
+Add interactive guard after `.profile` source (line 9). Move `shell-functions` source below the guard. The guard
+placement:
 
 ```zsh
 # Source profile
@@ -210,16 +229,24 @@ export GPG_TTY=$(tty)
 
 ### Research Insights: Interactive Guards
 
-- **Bash `case $- in *i*)`**: The standard POSIX-compatible interactive check. Ubuntu's default `/etc/skel/.bashrc` uses this exact pattern. Preferred over `[[ $- == *i* ]]` because it works in all POSIX shells, not just bash.
-- **Zsh `[[ $- == *i* ]] || return`**: Idiomatic zsh. Note that `.zshrc` is only sourced for interactive shells by zsh's design (unlike bash where `.bashrc` can be sourced by non-interactive shells via `BASH_ENV` or explicit sourcing). The guard is defense-in-depth — harmless and provides an explicit contract.
-- **shell-functions below guard**: Correct placement. `_osc7_report_directory` and any future shell functions are interactive-only features. Moving them below the guard prevents unnecessary function definitions in non-interactive shells.
-- **Bash completion simplification**: The 5-line `if ! shopt -oq posix` block is the Ubuntu default and handles edge cases (POSIX mode, missing files). Keep as-is for robustness — the "simplification" to 1 line would lose the POSIX mode check.
+- **Bash `case $- in *i*)`**: The standard POSIX-compatible interactive check. Ubuntu's default `/etc/skel/.bashrc` uses
+  this exact pattern. Preferred over `[[ $- == *i* ]]` because it works in all POSIX shells, not just bash.
+- **Zsh `[[ $- == *i* ]] || return`**: Idiomatic zsh. Note that `.zshrc` is only sourced for interactive shells by zsh's
+  design (unlike bash where `.bashrc` can be sourced by non-interactive shells via `BASH_ENV` or explicit sourcing). The
+  guard is defense-in-depth — harmless and provides an explicit contract.
+- **shell-functions below guard**: Correct placement. `_osc7_report_directory` and any future shell functions are
+  interactive-only features. Moving them below the guard prevents unnecessary function definitions in non-interactive
+  shells.
+- **Bash completion simplification**: The 5-line `if ! shopt -oq posix` block is the Ubuntu default and handles edge
+  cases (POSIX mode, missing files). Keep as-is for robustness — the "simplification" to 1 line would lose the POSIX
+  mode check.
 
 ### Phase 3: Git credential helpers (High)
 
 #### `stow/git/dot-gitconfig`
 
-Add credential helpers for GitHub HTTPS operations. Use `!gh auth git-credential` which is cross-platform (works regardless of where `gh` is installed, as long as it's on PATH):
+Add credential helpers for GitHub HTTPS operations. Use `!gh auth git-credential` which is cross-platform (works
+regardless of where `gh` is installed, as long as it's on PATH):
 
 ```gitconfig
 [credential "https://github.com"]
@@ -230,12 +257,16 @@ Add credential helpers for GitHub HTTPS operations. Use `!gh auth git-credential
  helper = !gh auth git-credential
 ```
 
-Note: The empty `helper =` line is intentional — it resets the credential helper chain so only `gh` is used. The `!` prefix tells git to run the command via shell, so PATH resolution works cross-platform.
+Note: The empty `helper =` line is intentional — it resets the credential helper chain so only `gh` is used. The `!`
+prefix tells git to run the command via shell, so PATH resolution works cross-platform.
 
 ### Research Insights: Git Credentials
 
-- **Bare `!gh auth git-credential` is correct**: The backup had `!/home/linuxbrew/.linuxbrew/bin/gh auth git-credential` which breaks on macOS. Using bare `!gh` relies on PATH resolution, which is the pattern recommended by `gh auth setup-git` and confirmed by GitHub CLI maintainers (cli/cli#9438).
-- **`helper =` (empty) resets the chain**: This is intentional and documented. Without it, system-level credential helpers (like macOS Keychain or libsecret on Linux) would also be consulted, potentially causing conflicts.
+- **Bare `!gh auth git-credential` is correct**: The backup had `!/home/linuxbrew/.linuxbrew/bin/gh auth git-credential`
+  which breaks on macOS. Using bare `!gh` relies on PATH resolution, which is the pattern recommended by
+  `gh auth setup-git` and confirmed by GitHub CLI maintainers (cli/cli#9438).
+- **`helper =` (empty) resets the chain**: This is intentional and documented. Without it, system-level credential
+  helpers (like macOS Keychain or libsecret on Linux) would also be consulted, potentially causing conflicts.
 
 ### Phase 4: SSH config host entries (Medium)
 
@@ -257,7 +288,8 @@ Host host-a-lan
     Port 5922
 ```
 
-The `host-a.tailscale` entry uses `HostName host-a` which resolves via Tailscale's MagicDNS. The `host-a-lan` entry duplicates the existing `host-a` entry but provides an explicit alias for direct LAN access.
+The `host-a.tailscale` entry uses `HostName host-a` which resolves via Tailscale's MagicDNS. The `host-a-lan` entry
+duplicates the existing `host-a` entry but provides an explicit alias for direct LAN access.
 
 ### Phase 5: Deploy to the headless server
 
@@ -276,44 +308,60 @@ The `host-a.tailscale` entry uses `HostName host-a` which resolves via Tailscale
 
 ### Research Insights: Deployment
 
-- **Stow 2.3.1 `--dotfiles` bug**: On the headless server, `stow --dotfiles` fails with nested `dot-` directories (e.g., `dot-ssh/config`). Use manual `ln -sf` for secrets, ssh, and git packages. Bash package works fine with stow since `dot-bashrc` is a flat file.
-- **Verification order matters**: Test non-interactive secrets first (Phase 1 validation), then interactive features. If secrets fail, interactive features will too (since `.profile` is the foundation).
+- **Stow 2.3.1 `--dotfiles` bug**: On the headless server, `stow --dotfiles` fails with nested `dot-` directories (e.g.,
+  `dot-ssh/config`). Use manual `ln -sf` for secrets, ssh, and git packages. Bash package works fine with stow since
+  `dot-bashrc` is a flat file.
+- **Verification order matters**: Test non-interactive secrets first (Phase 1 validation), then interactive features. If
+  secrets fail, interactive features will too (since `.profile` is the foundation).
 - **Additional verification commands**:
-  - `ssh brett@server 'bash -c "echo SECRETS=\${OP_SERVICE_ACCOUNT_TOKEN:+SET}"'` — non-interactive bash (no `-l` flag) should still have secrets via `.bashrc` sourcing `.profile`
-  - `ssh brett@server 'git -C ~/dotfiles credential-helper-test 2>&1 || echo "gh credential helper configured"'` — verify git credential helper is active
+  - `ssh brett@server 'bash -c "echo SECRETS=\${OP_SERVICE_ACCOUNT_TOKEN:+SET}"'` — non-interactive bash (no `-l` flag)
+    should still have secrets via `.bashrc` sourcing `.profile`
+  - `ssh brett@server 'git -C ~/dotfiles credential-helper-test 2>&1 || echo "gh credential helper configured"'` —
+    verify git credential helper is active
   - `ssh brett@server 'ssh -G host-a.tailscale | head -3'` — verify SSH config resolves host-a.tailscale
 
 ## Technical Considerations
 
 ### Interactive guard placement
 
-The `case $- in *i*) ;; *) return;; esac` pattern is the standard POSIX-compatible check. For zsh, `[[ $- == *i* ]] || return` is idiomatic. Both placed AFTER `.profile` source ensures secrets are available to non-interactive shells.
+The `case $- in *i*) ;; *) return;; esac` pattern is the standard POSIX-compatible check. For zsh,
+`[[ $- == *i* ]] || return` is idiomatic. Both placed AFTER `.profile` source ensures secrets are available to
+non-interactive shells.
 
 ### Why secrets load before the guard (no code changes needed)
 
-`.profile` already sources `~/.secrets` (line 39). The `.bashrc` sources `.profile` (if not loaded) at the very top, before the interactive guard. The `.zshrc` sources `.profile` at line 9, also before the guard. No architectural change is needed — secrets are already in the right place.
+`.profile` already sources `~/.secrets` (line 39). The `.bashrc` sources `.profile` (if not loaded) at the very top,
+before the interactive guard. The `.zshrc` sources `.profile` at line 9, also before the guard. No architectural change
+is needed — secrets are already in the right place.
 
 ### dircolors is Linux-only
 
-`/usr/bin/dircolors` doesn't exist on macOS (macOS uses `LSCOLORS` instead). The `[ -x /usr/bin/dircolors ]` guard ensures this only runs on Linux. macOS ls doesn't support `--color=auto` either — it uses `-G`. Since zsh is the default on macOS and oh-my-zsh handles colors there, the bash prompt/alias code is primarily for Linux fallback use.
+`/usr/bin/dircolors` doesn't exist on macOS (macOS uses `LSCOLORS` instead). The `[ -x /usr/bin/dircolors ]` guard
+ensures this only runs on Linux. macOS ls doesn't support `--color=auto` either — it uses `-G`. Since zsh is the default
+on macOS and oh-my-zsh handles colors there, the bash prompt/alias code is primarily for Linux fallback use.
 
 ### ls aliases are bash-specific
 
-Oh-my-zsh already provides `ll`, `la`, `l` via its `common-aliases` plugin or lib. Adding them to `.bashrc` only avoids duplication.
+Oh-my-zsh already provides `ll`, `la`, `l` via its `common-aliases` plugin or lib. Adding them to `.bashrc` only avoids
+duplication.
 
 ### Git credential helper format
 
-The `helper =` (empty) followed by `helper = !gh auth git-credential` is the [standard pattern](https://cli.github.com/manual/gh_auth_setup-git) from `gh auth setup-git`. The empty line resets any system-level credential helpers. The `!` prefix runs the command via shell.
+The `helper =` (empty) followed by `helper = !gh auth git-credential` is the
+[standard pattern](https://cli.github.com/manual/gh_auth_setup-git) from `gh auth setup-git`. The empty line resets any
+system-level credential helpers. The `!` prefix runs the command via shell.
 
 ## Acceptance Criteria
 
 ### Bash
 
 - [x] Non-interactive bash has access to `OP_SERVICE_ACCOUNT_TOKEN` — verified `SECRETS=SET`
-- [x] Non-interactive bash has access to `X_API_*` tokens — verified `X_API_BIRD=SET X_API_USER=SET` (required fixing: vault references in `.secrets` + Homebrew PATH ordering in `.profile`)
+- [x] Non-interactive bash has access to `X_API_*` tokens — verified `X_API_BIRD=SET X_API_USER=SET` (required fixing:
+  vault references in `.secrets` + Homebrew PATH ordering in `.profile`)
 - [x] Non-interactive bash does NOT load completion, aliases, prompt, etc. — verified HISTSIZE=unset, PS1 empty
 - [x] Interactive bash has: history settings (HISTSIZE=1000), aliases (ll) — verified
-- [ ] Interactive bash has: completion — **BLOCKED**: `bash-completion` package not installed on the headless server (requires `sudo apt install bash-completion`; `.bashrc` correctly checks and skips when absent)
+- [ ] Interactive bash has: completion — **BLOCKED**: `bash-completion` package not installed on the headless server
+  (requires `sudo apt install bash-completion`; `.bashrc` correctly checks and skips when absent)
 - [x] Interactive bash has GPG_TTY set (via .profile) — verified (shows "not a tty" via SSH, correct with real TTY)
 
 ### Zsh
@@ -337,15 +385,15 @@ The `helper =` (empty) followed by `helper = !gh auth git-credential` is the [st
 
 ## Files Modified
 
-| File | Change |
-| ------ | -------- |
-| `stow/secrets/dot-secrets` | Add OP_SERVICE_ACCOUNT_TOKEN, X_API_* tokens |
-| `stow/bash/dot-bashrc` | Rewrite with interactive guard + full bash features |
-| `stow/zsh/dot-zshenv` | New file: source .profile for all zsh invocations (non-interactive included) |
-| `stow/zsh/dot-zshrc` | Add interactive guard after .profile source |
-| `stow/shell/dot-profile` | Add GPG_TTY (shared across both shells) |
-| `stow/git/dot-gitconfig` | Add credential helpers for gh auth |
-| `stow/ssh/dot-ssh/config` | Add host-a.tailscale and host-a-lan entries |
+| File                       | Change                                                                       |
+| -------------------------- | ---------------------------------------------------------------------------- |
+| `stow/secrets/dot-secrets` | Add OP_SERVICE_ACCOUNT_TOKEN, X_API_* tokens                                 |
+| `stow/bash/dot-bashrc`     | Rewrite with interactive guard + full bash features                          |
+| `stow/zsh/dot-zshenv`      | New file: source .profile for all zsh invocations (non-interactive included) |
+| `stow/zsh/dot-zshrc`       | Add interactive guard after .profile source                                  |
+| `stow/shell/dot-profile`   | Add GPG_TTY (shared across both shells)                                      |
+| `stow/git/dot-gitconfig`   | Add credential helpers for gh auth                                           |
+| `stow/ssh/dot-ssh/config`  | Add host-a.tailscale and host-a-lan entries                                  |
 
 ## References
 

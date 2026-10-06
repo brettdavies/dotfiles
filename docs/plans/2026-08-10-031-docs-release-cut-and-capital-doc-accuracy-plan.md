@@ -38,10 +38,10 @@ push. Rationale, alternatives, and the loss-prevention step are in § Decisions.
 The user's instruction is explicit and load-bearing: the CAPITAL-file fixes are direct commits on the release branch.
 Three mechanical constraints fix *where* in the documented sequence they go.
 
-1. **`RELEASES.md`'s triple-diff must run against a pure cherry-pick tree.** Diff B is `git diff HEAD..origin/dev
-   --name-only | grep -v '^docs/'` and its job is to prove no cherry-pick was missed. Doc edits made on the release
-   branch before that diff runs show up in it as differences and turn a real signal into noise the operator has to
-   explain away. Verify first, then edit.
+1. **`RELEASES.md`'s triple-diff must run against a pure cherry-pick tree.** Diff B is
+   `git diff HEAD..origin/dev --name-only | grep -v '^docs/'` and its job is to prove no cherry-pick was missed. Doc
+   edits made on the release branch before that diff runs show up in it as differences and turn a real signal into noise
+   the operator has to explain away. Verify first, then edit.
 2. **Doc commits are changelog-invisible by construction, so they cannot perturb the changelog either way.**
    `scripts/generate-changelog.py` builds the version section from PR bodies: `pr_numbers_from_section()` scrapes
    `(#NNN)` out of the git-cliff output, `aggregate_pr_entries()` fetches each PR body, and `rewrite_version_section()`
@@ -65,11 +65,11 @@ that GitHub creates.
 ### D3 — The backport to `dev` is mandatory, not optional
 
 A fix committed only to a release branch that merges to `main` is clobbered the next time `dev` diverges. `RELEASES.md`
-§ Backport to dev after release already anticipates this and says to check `git diff origin/dev..origin/main --
-README.md RELEASES.md ...` and fold real release-prep changes into the same backport PR by hand. This plan promotes that
-from "check" to a required unit (U9) with a hard exit assertion: after the backport merges, `git diff
-origin/dev..origin/main` restricted to the nine files must be **empty**. Without U9 the whole doc pass is a single
-release's worth of work with a one-release half-life.
+§ Backport to dev after release already anticipates this and says to check
+`git diff origin/dev..origin/main -- README.md RELEASES.md ...` and fold real release-prep changes into the same
+backport PR by hand. This plan promotes that from "check" to a required unit (U9) with a hard exit assertion: after the
+backport merges, `git diff origin/dev..origin/main` restricted to the nine files must be **empty**. Without U9 the whole
+doc pass is a single release's worth of work with a one-release half-life.
 
 ### D4 — Direct (non-PR) commits on `dev` get triaged, not blanket-excluded
 
@@ -87,11 +87,12 @@ a change note.
 
 ### D5 — The cherry-pick range anchor in `RELEASES.md` is wrong and gets fixed
 
-`RELEASES.md` step 2 and `RELEASES-PREFLIGHT.md` § Establish the surface both anchor on `LAST_TAG=$(git describe --tags
---abbrev=0 origin/main)` and then range over `"$LAST_TAG..origin/dev"`. Because `main` is built by cherry-pick, the tag
-is **not an ancestor of `dev`**, so that range is dev's entire history. Measured on the current tree:
-`2026.06.26..origin/dev` is 196 commits and yields **148** PR squashes. The correct anchor is the last release-sync
-commit on `dev`, which `scripts/sync-dev-after-release.sh` creates with the subject `chore(release): sync dev after
+`RELEASES.md` step 2 and `RELEASES-PREFLIGHT.md` § Establish the surface both anchor on
+`LAST_TAG=$(git describe --tags --abbrev=0 origin/main)` and then range over `"$LAST_TAG..origin/dev"`. Because `main`
+is built by cherry-pick, the tag is **not an ancestor of `dev`**, so that range is dev's entire history. Measured on the
+current tree: `2026.06.26..origin/dev` is 196 commits and yields **148** PR squashes. The correct anchor is the last
+release-sync commit on `dev`, which `scripts/sync-dev-after-release.sh` creates with the subject `chore(release): sync
+dev after
 <version>`. Anchored there, the range is 27 commits and yields **15** PR squashes — the actual unreleased surface.
 
 ```bash
@@ -509,8 +510,8 @@ touched it. `git log --format='%H %s' -n 50 origin/main..HEAD -- CHANGELOG.md` s
 5. `scripts/docs-audit.py --strict` reports no `temporal` findings outside `CHANGELOG.md` and `RELEASES.md`'s
    release-history sections — the present-truth rule, mechanically.
 6. `git log --format='%s' -n 20 origin/main..HEAD` shows six doc commits plus U4's changelog commit, every subject
-   Conventional Commits shaped, none carrying an AI-attribution trailer (`git log --format='%b' -n 20 origin/main..HEAD
-   | rg -i 'co-authored-by: claude|generated with'` returns nothing).
+   Conventional Commits shaped, none carrying an AI-attribution trailer
+   (`git log --format='%b' -n 20 origin/main..HEAD | rg -i 'co-authored-by: claude|generated with'` returns nothing).
 7. The evidence ledger in `.context/` has a pointer for every judgment-tier claim. Claims without one were rewritten or
    removed.
 8. `git status --short` is empty; nothing under `.context/` or `todos/` is staged.
@@ -576,12 +577,12 @@ and publishes.
 
 `RELEASES.md` § Tagging and publishing is the checklist:
 
-1. `release.yml` green end to end. `gh run watch <id> --exit-status`, then `gh run view <id> --json conclusion --jq
-   .conclusion` returns `success`.
+1. `release.yml` green end to end. `gh run watch <id> --exit-status`, then
+   `gh run view <id> --json conclusion --jq .conclusion` returns `success`.
 2. `git fetch --tags && git describe --tags --abbrev=0 origin/main` returns `2026.08.10` (or a `.N` suffix if today
    already had a tag).
-3. `gh release view "$(git describe --tags --abbrev=0 origin/main)"` shows the extracted notes, not the `"Release
-   <version>"` fallback. An empty body means the changelog section was empty.
+3. `gh release view "$(git describe --tags --abbrev=0 origin/main)"` shows the extracted notes, not the
+   `"Release <version>"` fallback. An empty body means the changelog section was empty.
 4. Re-enumerate for chained runs: `gh run list --branch main`. Never proceed past a red run on any link.
 5. `git diff origin/main -- <the nine files>` from the release branch is empty — `main` carries the corrected docs.
 
@@ -608,8 +609,8 @@ git checkout origin/main -- AGENTS.md BOOTSTRAP.md CONCEPTS.md PROJECT.md README
 git diff --cached --stat            # review before committing
 ```
 
-Commit with `git commit --file /tmp/commit-msg-$(uuidv7).md`, subject `fix(docs): backport the 2026.08.10 documentation
-pass to dev`. Push, then squash-merge.
+Commit with `git commit --file /tmp/commit-msg-$(uuidv7).md`, subject
+`fix(docs): backport the 2026.08.10 documentation pass to dev`. Push, then squash-merge.
 
 **Safety note.** The straight `git checkout origin/main -- <files>` is only safe because D4's triage put every shipping
 direct commit onto the release branch, so `main`'s copy of each file is a superset of `dev`'s. Verify that before

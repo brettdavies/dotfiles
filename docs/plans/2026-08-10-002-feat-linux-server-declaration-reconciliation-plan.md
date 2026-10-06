@@ -153,11 +153,12 @@ looks dead on first inspection is mostly live-but-broken, and the distinction is
   document it.
 
 - KTD3. **Apt's forward direction gates; its reverse direction only reports.** Each manager exposes a deliberate-install
-  query: `brew leaves --installed-on-request`, `cargo install --list`, `uv tool list`, `bun pm ls -g`. Apt's `apt-mark
-  showmanual` is muddier on this host — the install-time seed manifest at `/var/log/installer/initial-status.gz` is
-  absent, and `playwright install --with-deps` marks browser system libraries as manually installed. Subtracting the
-  recursive dependency closure of the Ubuntu server metapackages narrows the list but does not clear it. So
-  declared-must-be-installed is asserted; installed-must-be-declared is reported against a categorized ignore list.
+  query: `brew leaves --installed-on-request`, `cargo install --list`, `uv tool list`, `bun pm ls -g`. Apt's
+  `apt-mark showmanual` is muddier on this host — the install-time seed manifest at
+  `/var/log/installer/initial-status.gz` is absent, and `playwright install --with-deps` marks browser system libraries
+  as manually installed. Subtracting the recursive dependency closure of the Ubuntu server metapackages narrows the list
+  but does not clear it. So declared-must-be-installed is asserted; installed-must-be-declared is reported against a
+  categorized ignore list.
 
 - KTD4. **Retirement evidence ladder, three tiers.** Tier A is retirable now: the repo no longer contains the source and
   the server carries residue. Tier B needs confirmation: the unit exists in the repo and is enabled, but its `ExecStart`
@@ -307,8 +308,8 @@ flowchart TB
   1. Run on Linux directly; refuse with a `NOTE:` and exit zero on any other platform, matching the guard in
      `scripts/opendataloader-pdf-enable.sh`.
   2. Export `LC_ALL=C` and read only stdout from every package-manager call (KTD9).
-  3. Collect per manager using the deliberate-install query: `brew leaves --installed-on-request`, `apt-mark
-     showmanual`, `cargo install --list`, `uv tool list`, `bun pm ls -g`.
+  3. Collect per manager using the deliberate-install query: `brew leaves --installed-on-request`,
+     `apt-mark showmanual`, `cargo install --list`, `uv tool list`, `bun pm ls -g`.
   4. Collect systemd state: user and system unit files with enablement state, all timers including dead ones, failed
      units for both scopes.
   5. Collect dangling symlinks under the user config and data trees, resolving each to its target so a reviewer can
@@ -463,8 +464,8 @@ flowchart TB
   8. Add `--explain` to print the full resolution table, so a developer can see why something resolved rather than only
      that it did.
 - **Patterns to follow:** the shebang-matched find loops in `.github/workflows/shellcheck.yml`'s hook and bin-helper
-  steps; the exit-code vocabulary and named exit-code table in `scripts/stow-deploy`; inline `# shellcheck
-  disable=SCxxxx # <justification>` for any suppression, since the repo has no `.shellcheckrc`.
+  steps; the exit-code vocabulary and named exit-code table in `scripts/stow-deploy`; inline
+  `# shellcheck disable=SCxxxx # <justification>` for any suppression, since the repo has no `.shellcheckrc`.
 - **Execution note:** This unit is the permanent fix for the triggering class of bug. Prove it with a test that
   constructs a surface referencing an undeclared binary and asserts the gate fails.
 - **Test scenarios:**
@@ -497,9 +498,9 @@ flowchart TB
   - `stow/brew/Brewfile` (modify — `if OS.linux?` entries only)
 - **Approach:**
   1. For each unguarded Brewfile entry, check presence on the server from the snapshot. Entries absent there fall into
-     two classes: a genuine Linux gap, or a correct platform difference. Classify each and act accordingly — add an `if
-     OS.mac?` guard for the platform differences, leave unguarded and let U3 or the Linuxbrew install cover the genuine
-     gaps.
+     two classes: a genuine Linux gap, or a correct platform difference. Classify each and act accordingly — add an
+     `if OS.mac?` guard for the platform differences, leave unguarded and let U3 or the Linuxbrew install cover the
+     genuine gaps.
   2. The known correct differences to guard rather than install: the prompt theme and zsh plugin formulae, which the
      Linux side provisions as git clones; and the GNU core utilities, which are native on Linux. Do not add these to a
      Linux manifest.
@@ -521,8 +522,8 @@ flowchart TB
      effort.
   4. `brew bundle --file=stow/brew/Brewfile` parses without error on both platforms. Test expectation: parse-only; do
      not install as part of the test.
-- **Verification:** the U4 gate passes; a Brewfile parse succeeds on both platforms; a reviewer can trace each new `if
-  OS.linux?` entry to a named surface.
+- **Verification:** the U4 gate passes; a Brewfile parse succeeds on both platforms; a reviewer can trace each new
+  `if OS.linux?` entry to a named surface.
 
 ### U6. Online parity and health report
 

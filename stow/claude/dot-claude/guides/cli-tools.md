@@ -23,9 +23,10 @@ hook, or unsure what's installed.
   `uv run --no-project --with . <script> …` (installs into the ephemeral cache, imports run from there — leaves nothing
   in the tree, the cleanest option), or a module from source with `uv run --no-project python -B -m <pkg>.<mod> …`.
 - **pytest `.pytest_cache/`:** in-project — pin `[tool.pytest.ini_options] addopts = "-p no:cacheprovider"` in
-  `pyproject.toml` (travels with the repo, works in CI). Run a suite with `uv run --no-project --with pytest python -B
-  -m pytest`. Safety net (this machine only): `PYTEST_ADDOPTS="-p no:cacheprovider"` in
-  `~/dotfiles/config/shell/python.sh` (trade-off: disables the cache-backed `--lf`/`--ff`/`--nf` reruns).
+  `pyproject.toml` (travels with the repo, works in CI). Run a suite with
+  `uv run --no-project --with pytest python -B -m pytest`. Safety net (this machine only):
+  `PYTEST_ADDOPTS="-p no:cacheprovider"` in `~/dotfiles/config/shell/python.sh` (trade-off: disables the cache-backed
+  `--lf`/`--ff`/`--nf` reruns).
 - **ALWAYS use CLI tools via Bash over built-in tools.** This overrides Claude Code's default preference for
   Read/Edit/Grep/Glob. The built-in tools are fallbacks, not defaults. Concrete rules:
 - **Searching code:** `rg` (via Bash), not Grep. `ast-grep` for structural matches.

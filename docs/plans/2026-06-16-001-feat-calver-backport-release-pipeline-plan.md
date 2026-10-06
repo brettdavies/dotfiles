@@ -48,8 +48,8 @@ before they fit.
 - **R2** — A repeatable, surgical backport brings `main`'s release-only files (default: `CHANGELOG.md`) onto `dev` after
   each release, via a PR to `dev`.
 - **R3** — The backport must be **surgical**, never a blanket `dev`↔`main` sync. `dev` is ~132 commits ahead of `main`;
-  any merge or wholesale checkout would revert unreleased work. Only named release-artifact files move, and only `main →
-  dev`.
+  any merge or wholesale checkout would revert unreleased work. Only named release-artifact files move, and only
+  `main → dev`.
 - **R4** — CalVer is first-class: version validation accepts `YYYY.MM.DD` and same-day `YYYY.MM.DD.N`; no `v` prefix; no
   `VERSION` file.
 - **R5** — The existing `dev` drift is healed (dev's `CHANGELOG.md` brought current with `main`@`2026.06.03`) as the
@@ -60,10 +60,11 @@ before they fit.
 
 ## Key Technical Decisions
 
-- **KTD1 — Surgical backport, explicit allowlist.** The script copies named files from `origin/main` via `git checkout
-  origin/main -- <file>` (the skill's approach), defaulting to `CHANGELOG.md`. It never merges branches or diffs the
-  whole tree. This is the single most important safety property — see R3. Other release-prep files (`README.md`,
-  `RELEASES.md`) are folded into the same PR by hand only when they actually drifted; the runbook says how.
+- **KTD1 — Surgical backport, explicit allowlist.** The script copies named files from `origin/main` via
+  `git checkout origin/main -- <file>` (the skill's approach), defaulting to `CHANGELOG.md`. It never merges branches or
+  diffs the whole tree. This is the single most important safety property — see R3. Other release-prep files
+  (`README.md`, `RELEASES.md`) are folded into the same PR by hand only when they actually drifted; the runbook says
+  how.
 - **KTD2 — CalVer adaptation, no `VERSION` file.** Replace the SemVer regex `^v[0-9]+\.[0-9]+\.[0-9]+$` with
   `^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$`. Drop `VERSION_NO_V` and the `VERSION` write entirely (this repo derives
   the version from the date in CI; there is no file).
@@ -103,8 +104,8 @@ author/PR attribution).
 - Copy the template verbatim, then change `detect_tag_from_branch()`: accept `release/YYYY.MM.DD` and
   `release/YYYY.MM.DD.N` in addition to `release/vX.Y.Z`. Return the matched string as the tag unchanged (no `v`).
 - Update the failure message to name the CalVer branch shape.
-- Leave `--tag`, `--check`, `--dry-run`, and the git-cliff + PR-expansion pipeline intact. The `tag[1:] if
-  startswith("v")` line stays — harmless for CalVer.
+- Leave `--tag`, `--check`, `--dry-run`, and the git-cliff + PR-expansion pipeline intact. The
+  `tag[1:] if startswith("v")` line stays — harmless for CalVer.
 - Keep the `#!/usr/bin/env -S PYTHONDONTWRITEBYTECODE=1 uv run --script` shebang (repo standard: `uv run` for Python).
 - Confirm `[remote.github]` in `cliff.toml` already provides owner/repo for PR-body expansion (it does).
 
@@ -150,8 +151,8 @@ artifacts) onto `dev` via a PR.
 - **Backport body (adapt):** `git switch dev && git pull --ff-only`; cut `chore/sync-dev-after-<version>`; surgically
   `git checkout origin/main -- CHANGELOG.md` (KTD1) — **remove the `VERSION` write**. If no diff, clean up and exit 0
   (idempotent).
-- **Drift sanity (adapt):** if `scripts/generate-changelog.py` is executable and `git-cliff` is on PATH, run `--dry-run
-  --tag <version>`; warn (don't fail) on drift.
+- **Drift sanity (adapt):** if `scripts/generate-changelog.py` is executable and `git-cliff` is on PATH, run
+  `--dry-run --tag <version>`; warn (don't fail) on drift.
 - **PR (keep):** push branch; compose PR body in `mktemp`; `gh pr create --base dev --body-file ...`. Title
   `chore(release): sync dev after <version>`. No AI-attribution trailer.
 - Set `set -euo pipefail`; full-path independence is fine (interactive script, not a systemd unit).
@@ -203,11 +204,11 @@ pure logic; existing `scripts/sync/*.sh` for bash house style.
   main", "CHANGELOG is generated, never hand-written", and "Troubleshooting") with `scripts/generate-changelog.py`.
   Update the invocation to `GITHUB_TOKEN=$(gh auth token) scripts/generate-changelog.py` and note CalVer branch
   detection now works without `--tag` (keep `--tag` as the fallback note).
-- Add a new subsection after "Tagging and publishing" (e.g., **"Backport to dev after release"**): once the `release/* →
-  main` PR has merged, the tag published, and the GitHub Release created, run `scripts/sync-dev-after-release.sh
-  <version>`; review and merge the resulting `chore(release): sync dev after <version>` PR. Explain the
-  surgical-CHANGELOG rationale and link the solutions doc. Replace the standing "`dev` is untouched" claim with "`dev`
-  receives the release-only files back via the backport PR."
+- Add a new subsection after "Tagging and publishing" (e.g., **"Backport to dev after release"**): once the
+  `release/* → main` PR has merged, the tag published, and the GitHub Release created, run
+  `scripts/sync-dev-after-release.sh <version>`; review and merge the resulting
+  `chore(release): sync dev after <version>` PR. Explain the surgical-CHANGELOG rationale and link the solutions doc.
+  Replace the standing "`dev` is untouched" claim with "`dev` receives the release-only files back via the backport PR."
 - Mention that README / `RELEASES.md` release-prep edits, if any, get folded into the same backport PR by hand.
 
 **Patterns to follow:** existing `RELEASES.md` voice and section structure; `feedback_git_tracked_docs_current_truth`
@@ -234,11 +235,12 @@ pure logic; existing `scripts/sync/*.sh` for bash house style.
 - The script opens a `chore(release): sync dev after 2026.06.03` PR whose sole change is `CHANGELOG.md` (dev top moves
   from `## [2026.04.15]` to `## [2026.06.03]`, gaining the 05.02 / 05.11 / 05.16 / 06.03 sections).
 - Verify the diff touches only `CHANGELOG.md` (R3 safety), then merge.
-- Check whether `README.md` / `RELEASES.md` also drifted from `main`'s release-prep (`git diff origin/dev..origin/main
-  -- -- README.md RELEASES.md`); if real release-only polish exists, fold it into the same PR by hand.
+- Check whether `README.md` / `RELEASES.md` also drifted from `main`'s release-prep
+  (`git diff origin/dev..origin/main -- -- README.md RELEASES.md`); if real release-only polish exists, fold it into the
+  same PR by hand.
 
-**Test scenarios:** none — one-time operational heal. `Test expectation: none — verified by the post-merge state
-assertion.`
+**Test scenarios:** none — one-time operational heal.
+`Test expectation: none — verified by the post-merge state assertion.`
 
 **Verification:** post-merge, `git show origin/dev:CHANGELOG.md | head -6` shows `## [2026.06.03]` at top; the next
 release's triple-diff "B" step no longer lists `CHANGELOG.md` as drift.

@@ -60,16 +60,16 @@ full loop. Use judgment.
 
 ## Query solutions first
 
-Before answering questions, diagnosing issues, researching options, or proposing changes, run `qmd query "<topic>"
---collection solutions` to surface existing decisions and patterns. Solutions contain hard-won decisions that cannot be
-inferred from the file layout alone. This applies to all interactions — questions, debugging, code review, and
-architecture discussions — not just implementation.
+Before answering questions, diagnosing issues, researching options, or proposing changes, run
+`qmd query "<topic>" --collection solutions` to surface existing decisions and patterns. Solutions contain hard-won
+decisions that cannot be inferred from the file layout alone. This applies to all interactions — questions, debugging,
+code review, and architecture discussions — not just implementation.
 
 **This explicitly includes `/investigate` and any gstack debugging skill.** Their built-in prior-learnings step runs
-`gstack-learnings-search`, which queries the gstack brain, NOT `docs/solutions/` — a different store. Run `qmd query
-"<symptoms>" --collection solutions` yourself during symptom-collection, before forming a hypothesis. The skill's
-history search does not cover the shared corpus, and treating it as if it does has cost a full re-derivation of an
-already-documented root cause and fix.
+`gstack-learnings-search`, which queries the gstack brain, NOT `docs/solutions/` — a different store. Run
+`qmd query "<symptoms>" --collection solutions` yourself during symptom-collection, before forming a hypothesis. The
+skill's history search does not cover the shared corpus, and treating it as if it does has cost a full re-derivation of
+an already-documented root cause and fix.
 
 ## Learnings-researcher dispatch (the qmd companion hack)
 
@@ -109,9 +109,9 @@ sd-commit-doc "$MSG" <category>/<slug>.md     # 3. repo-relative path(s); pass s
 ```
 
 `sd-commit-doc` runs the whole safe sequence: it snapshots the named files into a throwaway **detached worktree** (its
-own `.git/index`, so parallel compounders cannot bundle each other's files under your message), commits with `--file
-"$MSG"`, pushes with a fetch + rebase + retry when origin has advanced, tears the worktree down, and finally `merge
---ff-only`s the shared clone to origin so its checkout never drifts behind (the drift that strands the nightly
+own `.git/index`, so parallel compounders cannot bundle each other's files under your message), commits with
+`--file "$MSG"`, pushes with a fetch + rebase + retry when origin has advanced, tears the worktree down, and finally
+`merge --ff-only`s the shared clone to origin so its checkout never drifts behind (the drift that strands the nightly
 autocommit). It never `git add -A`s and never amends + force-pushes. Before any of that work it pre-flights the corpus
 schema through the solutions repo's own `.githooks/lib-validate.sh`, so a doc missing a required frontmatter field fails
 in about a second with the field named instead of aborting part-way through a commit. Read or extend it at
@@ -121,8 +121,9 @@ in about a second with the field named instead of aborting part-way through a co
 non-zero. Read that status directly (`sd-commit-doc "$MSG" <path>; rc=$?`); piping the command into `tail` or `head`
 yields the pipe's status rather than the helper's, so a rejected commit reads as a success and the message file gets
 cleaned up as though it had been used. If a single, exclusive writer is guaranteed (a solo interactive session, no
-background compounding agents), a plain `git -C "$SD" add <file> && git -C "$SD" commit --file "$MSG" && git -C "$SD"
-push` is acceptable — but verify with `git show --stat HEAD` afterward regardless. Full rationale:
+background compounding agents), a plain
+`git -C "$SD" add <file> && git -C "$SD" commit --file "$MSG" && git -C "$SD" push` is acceptable — but verify with
+`git show --stat HEAD` afterward regardless. Full rationale:
 `docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
 `docs/solutions/workflow-issues/unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 

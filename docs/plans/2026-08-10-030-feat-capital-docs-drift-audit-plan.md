@@ -82,8 +82,8 @@ reports a known finding against a synthetic fixture. Flipping it to enforce agai
 - Never `git add` any `TODO*.md` / `*todo*.md` variant or anything under `.context/`. The repo root carries an untracked
   `todos/` directory; it stays untracked.
 - `trash`, never `rm` / `git rm`. `rg` not `grep`, `fd` not `find`, `jaq` not `jq`.
-- Every commit message and the PR body are authored in a `/tmp/` file, scrubbed with `/unslop`, and submitted via `git
-  commit --file` / `gh pr create --body-file`. Never inline `-m`, never a heredoc — a PreToolUse hook rejects it.
+- Every commit message and the PR body are authored in a `/tmp/` file, scrubbed with `/unslop`, and submitted via
+  `git commit --file` / `gh pr create --body-file`. Never inline `-m`, never a heredoc — a PreToolUse hook rejects it.
 - Conventional Commits. No AI attribution in any commit or PR body.
 - Do not hand-edit `CHANGELOG.md`.
 

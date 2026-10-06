@@ -185,8 +185,8 @@ progress, so a missing `recommended` tool prints to stderr there. The distinctio
 its shape is followed exactly: the new audit check appends `|| fail=1`, never `|| exit 1`, so an audit finding does not
 mask a shellcheck or bats failure in the same push. The tool-absent branch prints a note and leaves `fail` untouched.
 
-`.githooks/pre-push` currently uses early `if/else` blocks rather than an accumulator. U8 introduces the `fail=0` / `||
-fail=1` / single terminal `exit` shape while adding the audit, so the file matches the documented pattern.
+`.githooks/pre-push` currently uses early `if/else` blocks rather than an accumulator. U8 introduces the `fail=0` /
+`|| fail=1` / single terminal `exit` shape while adding the audit, so the file matches the documented pattern.
 
 ### KTD7. Static reconciliation is a new sibling; installed-state reuses tools-atime's adapters
 
@@ -487,9 +487,9 @@ its rows, each with a correct file:line.
    that it backs a required status check and must not be left to arrive transitively through `actionlint`. `git-lfs`
    gets one naming `required = true` in `stow/git/dot-gitconfig`.
 2. Add `recommended` tier: `actionlint`, and any further rows the reconciler reports.
-3. Correct the ffmpeg claim. The existing yazi-block comment asserts ffmpeg arrives transitively; `brew uses --installed
-   ffmpeg` is empty. Add `brew "ffmpeg"` and replace the assertion with the present-tense reason: yazi video previews
-   and `stow/local/dot-local/bin/transcribe-diarize` both invoke it directly.
+3. Correct the ffmpeg claim. The existing yazi-block comment asserts ffmpeg arrives transitively;
+   `brew uses --installed ffmpeg` is empty. Add `brew "ffmpeg"` and replace the assertion with the present-tense reason:
+   yazi video previews and `stow/local/dot-local/bin/transcribe-diarize` both invoke it directly.
 4. Add stow-package-backed tools whose config the repo deploys: `lazygit`, `rclone`, `gogcli`.
 5. Move genuinely optional entries to `Brewfile.optional` per U7's dispositions.
 6. Confirm `BOOTSTRAP.md` names the full `bootstrap` set. It currently instructs `brew install stow git-crypt`; verify
@@ -500,11 +500,11 @@ its rows, each with a correct file:line.
 **Execution note:** this is a declaration change with no behavioral logic. Verify by running the reconciler before and
 after and diffing the findings list rather than by adding unit tests for Brewfile contents.
 
-**Test scenarios:** covered by U3's reconciler tests plus the U8 CI gate. No new bats file. `Test expectation: none —
-pure declaration change; the reconciler is the assertion.`
+**Test scenarios:** covered by U3's reconciler tests plus the U8 CI gate. No new bats file.
+`Test expectation: none — pure declaration change; the reconciler is the assertion.`
 
-**Verification:** `scripts/tools-audit/tools-audit.sh reconcile --platform macos` exits 0. `brew bundle check
---file=stow/brew/Brewfile` reports satisfied on the macOS workstation.
+**Verification:** `scripts/tools-audit/tools-audit.sh reconcile --platform macos` exits 0.
+`brew bundle check --file=stow/brew/Brewfile` reports satisfied on the macOS workstation.
 
 ---
 
@@ -590,8 +590,8 @@ produces no new terminal output.
 3. Resolve a formula to its provided binaries via `brew list --formula <name>` so the join survives the name-vs-binary
    divergence (KTD8).
 4. Distinguish leaf from transitive-only installs. A referenced tool that is installed **only** as another package's
-   dependency is its own reported state — this is exactly the `shellcheck`-via-`actionlint` case, and neither `brew
-   leaves` nor a plain presence check surfaces it.
+   dependency is its own reported state — this is exactly the `shellcheck`-via-`actionlint` case, and neither
+   `brew leaves` nor a plain presence check surfaces it.
 5. Guard on each manager's absence and skip that manager cleanly; the subcommand must run on a host with only some
    managers present.
 
@@ -822,7 +822,7 @@ owns.
   Shapes the three-context table in KTD4 and U5's per-context test scenarios.
 - `docs/solutions/conventions/local-hooks-compensating-gate-when-ci-is-minimized.md` — when local hooks carry the gate,
   showing every failure in one run matters more.
-- Repo evidence gathered for this plan: `brew leaves` vs `stow/brew/Brewfile` (25 undeclared leaves), `brew uses
-  --installed shellcheck` → `actionlint`, `brew uses --installed ffmpeg` → empty, `brew list --formula sevenzip` →
-  `7zz`, and a full invocation sweep across `scripts/**`, `.githooks/*`, `config/shell/*`, `stow/**`, and
-  `tests/*.bats`.
+- Repo evidence gathered for this plan: `brew leaves` vs `stow/brew/Brewfile` (25 undeclared leaves),
+  `brew uses --installed shellcheck` → `actionlint`, `brew uses --installed ffmpeg` → empty,
+  `brew list --formula sevenzip` → `7zz`, and a full invocation sweep across `scripts/**`, `.githooks/*`,
+  `config/shell/*`, `stow/**`, and `tests/*.bats`.

@@ -78,15 +78,15 @@ scripts/claude-sync [--base-dir DIR] [--dry-run] <ssh-host-alias>
 
 ### Research Insights: Flag Ordering
 
-The original plan placed `<ssh-host-alias>` before flags. This breaks the `stow-deploy` flag parsing pattern (`while [[
-"${1:-}" == --* ]]`), which consumes flags first, then treats remaining positional args. **Flags must come before the
-positional argument** for consistency with `stow-deploy`.
+The original plan placed `<ssh-host-alias>` before flags. This breaks the `stow-deploy` flag parsing pattern
+(`while [[ "${1:-}" == --* ]]`), which consumes flags first, then treats remaining positional args. **Flags must come
+before the positional argument** for consistency with `stow-deploy`.
 
 ### Core Flow
 
 1. **Pre-flight** -- Verify `.gitignore` contains `scripts/sync/incoming/`, check dependencies
-2. **Validate** -- Regex-validate host alias, check SSH config (`ssh -G`), verify connectivity (`ssh -o BatchMode=yes
-   ... true`)
+2. **Validate** -- Regex-validate host alias, check SSH config (`ssh -G`), verify connectivity
+   (`ssh -o BatchMode=yes ... true`)
 3. **Discover** -- Single SSH session: find all repos, discover all config files, emit NUL-delimited file list
 4. **Diff** -- If prior sync exists (sentinel present), show `diff -ru` between old staging and incoming files
 5. **Transfer** -- Pull discovered files via single `find | tar` pipeline (or rsync `--files-from`) into temp dir
@@ -446,8 +446,8 @@ The original plan listed `--dry-run` in the usage line but never defined its beh
    Refuse to proceed if not. This prevents accidental commits during development/testing.
 2. **Double-safety from global gitignore**: The global gitignore at `~/.config/git/ignore` already ignores
    `**/CLAUDE.md`, `**/AGENT.md`, `**/AGENTS.md`, `**/.claude/settings.local.json`. This means even if the repo-level
-   `.gitignore` entry were missed, most files would still be hidden from `git status`. However, this also means **`git
-   diff` cannot be used to review staged files** -- review must use `diff`, `cat`, or a file browser directly.
+   `.gitignore` entry were missed, most files would still be hidden from `git status`. However, this also means
+   **`git diff` cannot be used to review staged files** -- review must use `diff`, `cat`, or a file browser directly.
 3. **`.gitignore` update must be the first commit** in the implementation PR, before any sync testing occurs.
 4. **Staging directory permissions**: Create with `chmod 700` to prevent other users from reading synced configs.
 
@@ -501,8 +501,8 @@ From the documented learnings in this repo:
 - **`$HOME` not hardcoded paths**: Never use `/Users/<you>/` or `/home/<you>/`
 - **Non-interactive remote shells**: When running `ssh host 'command'`, zsh sources only `.zshenv`. If the remote
   command needs `$PATH` or other env vars, rely on the `.zshenv` -> `.profile` chain
-- **Subshell variable loss**: Avoid `cmd | while read` when accumulating results -- use process substitution (`while
-  read ... < <(cmd)`) or temp files instead
+- **Subshell variable loss**: Avoid `cmd | while read` when accumulating results -- use process substitution
+  (`while read ... < <(cmd)`) or temp files instead
 - **Bash 3.2**: If the script runs on macOS with `/bin/bash`, avoid `declare -A` (associative arrays), and use
   `"${arr[@]+"${arr[@]}"}"` for empty array safety under `set -u`. However, since we use `#!/usr/bin/env bash` and
   Homebrew bash is 5.x, this is a minor concern.

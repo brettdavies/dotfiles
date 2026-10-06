@@ -138,12 +138,12 @@ or already on `main` via a prior squash, it's a false positive.
 
 `scripts/generate-changelog.py` (vendored from the `github-repo-setup` skill, with the repo-local `cliff.toml`) is the
 only sanctioned way to update `CHANGELOG.md`. On the overlay-built release branch it runs as `--from-dev-prs`: the PRs
-merged into `dev` since the previous release are the entries, and each PR's body supplies its `## Changelog → ###
-Breaking changes / Added / Changed / Fixed / Documentation` subsections (with author and PR-link attribution). The
-window starts at the earlier of the previous tag's commit time and the previous `release/*` PR's creation time, and PR
-numbers the changelog already lists are dropped, so a PR merged between the previous cut and its tag is neither lost nor
-doubled. On a cherry-picked branch it runs `git-cliff` first to prepend a versioned entry from the branch's commits,
-then expands the same way.
+merged into `dev` since the previous release are the entries, and each PR's body supplies its
+`## Changelog → ### Breaking changes / Added / Changed / Fixed / Documentation` subsections (with author and PR-link
+attribution). The window starts at the earlier of the previous tag's commit time and the previous `release/*` PR's
+creation time, and PR numbers the changelog already lists are dropped, so a PR merged between the previous cut and its
+tag is neither lost nor doubled. On a cherry-picked branch it runs `git-cliff` first to prepend a versioned entry from
+the branch's commits, then expands the same way.
 
 If a PR's body carries no changelog content, its title becomes a `Changed` bullet, except for `chore`, `ci`, `build`,
 `style`, and `test` PRs, which stay out unless they carry a `## Changelog` of their own. To fix a wrong entry, fix the
@@ -233,9 +233,9 @@ hatch, not the norm; the standard release-branch flow is preferred whenever ther
 
 ## Prose scrubbing scope
 
-Three release-flow artifacts ship text to GitHub outside any in-repo formatter and need a manual scrub: PR bodies (`gh
-pr create`/`edit` send body text straight to GitHub), `CHANGELOG.md` (generated from upstream PR bodies, so it inherits
-their prose), and the release-PR body (composed after `CHANGELOG.md` is generated).
+Three release-flow artifacts ship text to GitHub outside any in-repo formatter and need a manual scrub: PR bodies
+(`gh pr create`/`edit` send body text straight to GitHub), `CHANGELOG.md` (generated from upstream PR bodies, so it
+inherits their prose), and the release-PR body (composed after `CHANGELOG.md` is generated).
 
 This repo runs `unslop` (`~/.claude/skills/unslop/scripts/score.py`) as the minimum prose floor: em-dash density plus
 AI-unique structural patterns. The full Vale + LanguageTool stack is not wired up here; `unslop` is the floor every
@@ -248,13 +248,13 @@ public PR only ever sees clean text. For a `CHANGELOG.md` finding, fix the upstr
 ### Status-check context strings
 
 The `required_status_checks[].context` strings in the rulesets must match exactly what GitHub publishes for each check.
-An inline job (with a `name:` field) publishes as just `<job-name>`; a reusable-workflow caller (`uses:
-.../foo.yml@ref`) publishes as `<caller-job-id> / <reusable-job-id-or-name>`. Mixing these produces a stuck-but-green
-PR: every actual check reports green, but the ruleset waits forever on a context that never appears. This repo's own
-checks (`shellcheck`, `bats`) are inline jobs, so their contexts are the bare job names; the guard callers are
-reusable-workflow callers, so theirs are `guard-docs / check-forbidden-docs`, `guard-provenance / check-provenance`, and
-`guard-release / check-release-branch-name`. Confirm the real contexts after a CI run with `gh api
-repos/brettdavies/dotfiles/commits/<sha>/check-runs --jq '.check_runs[].name'`.
+An inline job (with a `name:` field) publishes as just `<job-name>`; a reusable-workflow caller
+(`uses: .../foo.yml@ref`) publishes as `<caller-job-id> / <reusable-job-id-or-name>`. Mixing these produces a
+stuck-but-green PR: every actual check reports green, but the ruleset waits forever on a context that never appears.
+This repo's own checks (`shellcheck`, `bats`) are inline jobs, so their contexts are the bare job names; the guard
+callers are reusable-workflow callers, so theirs are `guard-docs / check-forbidden-docs`,
+`guard-provenance / check-provenance`, and `guard-release / check-release-branch-name`. Confirm the real contexts after
+a CI run with `gh api repos/brettdavies/dotfiles/commits/<sha>/check-runs --jq '.check_runs[].name'`.
 
 `shellcheck` and `bats` are required on both `dev` (where feature PRs land) and `main`; by the time a `release/*` PR
 reaches `main` the same commits already passed those checks on `dev`, and `release.yml` runs post-merge regardless.

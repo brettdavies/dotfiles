@@ -110,20 +110,21 @@ and reloads it with `apparmor_parser -r`. Profiles persist across reboots.
 There is no config file to copy for this one. `AcceptEnv` accumulates across `/etc/ssh/sshd_config` and every
 `sshd_config.d/*.conf` drop-in, so a drop-in cannot cancel Ubuntu's stock `AcceptEnv LANG LC_*`; the script edits the
 directives in place, validates with `sshd -t`, and reloads sshd. With the client locale no longer accepted, `pam_env`
-supplies `LANG` from `/etc/default/locale` (`C.UTF-8`) to each session. The client side of the same fix is the `SetEnv
-LANG=C.UTF-8` on the affected host entries in the `ssh` package. `tests/sshd-locale-deploy.bats` exercises the rewrite
-through `--config PATH`, which skips the root check, validation, and reload.
+supplies `LANG` from `/etc/default/locale` (`C.UTF-8`) to each session. The client side of the same fix is the
+`SetEnv LANG=C.UTF-8` on the affected host entries in the `ssh` package. `tests/sshd-locale-deploy.bats` exercises the
+rewrite through `--config PATH`, which skips the root check, validation, and reload.
 
 ### launchd User PATH (`config/launchd/user-path`)
 
 macOS only. `config/launchd/user-path` holds one line: the PATH launchd hands every GUI application and LaunchAgent. It
 lives beside the other system-level config because its target, `/var/db/com.apple.xpc.launchd/config/user.plist`, is
 root-owned and written only through `launchctl config user path`, so stow cannot own it. `scripts/launchd-user-path.sh`
-reads that plist with `plutil`, exits 0 when it matches, and on drift prints the exact `sudo launchctl config user path
-…` command and exits 1; `--apply` runs the command, which prompts for sudo. `scripts/stow-deploy` runs the check without
-`--apply` on every macOS deploy to `$HOME`, so a deploy reports drift and never prompts. launchd reads the plist only at
-boot, so a change reaches GUI apps and LaunchAgents after the next reboot. `tests/launchd-user-path.bats` stubs `uname`,
-`plutil`, `stat`, `sysctl`, and `sudo`, and points `LAUNCHD_USER_PLIST` at a sandbox file.
+reads that plist with `plutil`, exits 0 when it matches, and on drift prints the exact
+`sudo launchctl config user path …` command and exits 1; `--apply` runs the command, which prompts for sudo.
+`scripts/stow-deploy` runs the check without `--apply` on every macOS deploy to `$HOME`, so a deploy reports drift and
+never prompts. launchd reads the plist only at boot, so a change reaches GUI apps and LaunchAgents after the next
+reboot. `tests/launchd-user-path.bats` stubs `uname`, `plutil`, `stat`, `sysctl`, and `sudo`, and points
+`LAUNCHD_USER_PLIST` at a sandbox file.
 
 ---
 
@@ -194,9 +195,9 @@ rather than assembling one.
 On macOS, launchd is the launcher for every GUI application and LaunchAgent, and what it hands them is its user PATH,
 declared in `config/launchd/user-path` with Homebrew first (see
 [launchd User PATH](#launchd-user-path-configlaunchduser-path)). Left unset, it is `/usr/bin:/bin:/usr/sbin:/sbin`, and
-`#!/usr/bin/env bash` there runs the system bash 3.2. Each LaunchAgent in `stow/launchagent/` also runs through `/bin/sh
--c` and sets `PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"` before it `exec`s, so an agent does not depend on
-that setting; `tests/launchagents.bats` holds every agent to that shape.
+`#!/usr/bin/env bash` there runs the system bash 3.2. Each LaunchAgent in `stow/launchagent/` also runs through
+`/bin/sh -c` and sets `PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"` before it `exec`s, so an agent does not
+depend on that setting; `tests/launchagents.bats` holds every agent to that shape.
 
 The `dash` row is its opposite and the one easiest to forget. `/bin/sh` is dash on Debian and Ubuntu, and `-l` makes it
 a login shell, so a tool that reaches a host with `sh -lc '<cmd>'` reads `.profile` regardless of the account's default
@@ -377,8 +378,8 @@ All shell scripts and hooks in this repo follow these conventions:
 - **Binary wrappers** (e.g., `op-ssh-sign-wrapper`) use `programname: message` format instead, which is the standard
   Unix convention for utilities identifying themselves.
 - **Shebang:** `#!/usr/bin/env bash`, never `#!/bin/bash`, which pins macOS to its system bash 3.2.
-- **bash >= 4.4 guard:** a script under `.githooks/`, `scripts/` or `stow/` that uses a bash 4 construct (`declare
-  -A`/`local -A`, `mapfile`/`readarray`, `${x,,}`, `&>>`, `|&`, `wait -n`, and the rest listed in
+- **bash >= 4.4 guard:** a script under `.githooks/`, `scripts/` or `stow/` that uses a bash 4 construct
+  (`declare -A`/`local -A`, `mapfile`/`readarray`, `${x,,}`, `&>>`, `|&`, `wait -n`, and the rest listed in
   `tests/bash-version-guard.bats`) opens with the guard block from that suite as its first command, before `set`.
   Started by a bash older than 4.4, it re-execs the script under `/opt/homebrew/bin/bash` or `/usr/local/bin/bash` with
   the same arguments, or exits 1 with `brew install bash` when neither exists. The floor is 4.4 because below it an
@@ -410,8 +411,8 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
   Relevant when orienting to the codebase or discussing domain concepts.
 - `docs/solutions/` (symlink to `~/dev/solutions-docs`) — documented solutions organized by category
   (`deployment-issues/`, `integration-issues/`, `configuration-fixes/`, etc.) with YAML frontmatter (`module`, `tags`,
-  `problem_type`, `applies_when`). Relevant when debugging or implementing in documented areas; search with `qmd query
-  "<topic>" --collection solutions`.
+  `problem_type`, `applies_when`). Relevant when debugging or implementing in documented areas; search with
+  `qmd query "<topic>" --collection solutions`.
 - Signing architecture: `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`
 - Shell config fixes: `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md`
 - Cross-platform deployment: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`

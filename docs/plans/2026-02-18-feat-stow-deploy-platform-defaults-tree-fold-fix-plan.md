@@ -11,25 +11,22 @@ brainstorm: docs/brainstorms/2026-02-17-stow-deploy-platform-defaults-and-tree-f
 
 ## Overview
 
-Enhance `scripts/stow-deploy` with platform-aware `--all` flag, tree-fold detection/resolution,
-and split the `local` package to eliminate all special-case handling. Fix four tree-folded
-packages on this Mac that are leaking ~151 MB of runtime data into the git repo.
+Enhance `scripts/stow-deploy` with platform-aware `--all` flag, tree-fold detection/resolution, and split the `local`
+package to eliminate all special-case handling. Fix four tree-folded packages on this Mac that are leaking ~151 MB of
+runtime data into the git repo.
 
 ## Problem Statement
 
-Three deployment failures traced to the same root: divergent macOS/Ubuntu package lists and
-legacy tree-folded symlinks from before `stow-deploy` existed.
+Three deployment failures traced to the same root: divergent macOS/Ubuntu package lists and legacy tree-folded symlinks
+from before `stow-deploy` existed.
 
-1. **Headless server missing `claude` package** -- Ubuntu deployment list only had
-   `shell bash git ssh secrets`. Claude Code hooks reference `~/.claude/auto-format.sh` which
-   was never deployed.
-2. **~151 MB of runtime data in git repo** -- `~/.claude` is a tree-folded directory symlink
-   from November 2025. Claude Code writes history, plugins, and caches directly into
-   `stow/claude/dot-claude/` (152 MB / 2,528 files). Three other packages (`codex`, `git`,
-   `opencode`) are also tree-folded (~155 MB total across all four).
-3. **`local` package excluded everywhere** -- The `dot-Library` → `.Library` conflict caused
-   stow-deploy to reject `local` entirely. `op-ssh-sign-wrapper` (required for git signing on
-   ALL machines) was never auto-deployed.
+1. **Headless server missing `claude` package** -- Ubuntu deployment list only had `shell bash git ssh secrets`. Claude
+   Code hooks reference `~/.claude/auto-format.sh` which was never deployed.
+2. **~151 MB of runtime data in git repo** -- `~/.claude` is a tree-folded directory symlink from November 2025. Claude
+   Code writes history, plugins, and caches directly into `stow/claude/dot-claude/` (152 MB / 2,528 files). Three other
+   packages (`codex`, `git`, `opencode`) are also tree-folded (~155 MB total across all four).
+3. **`local` package excluded everywhere** -- The `dot-Library` → `.Library` conflict caused stow-deploy to reject
+   `local` entirely. `op-ssh-sign-wrapper` (required for git signing on ALL machines) was never auto-deployed.
 
 ## Proposed Solution
 
@@ -69,26 +66,25 @@ stow/launchagent/
   Library/LaunchAgents/com.user.devtosync.plist
 ```
 
-Key insight: `Library/` has no `dot-` prefix because `~/Library` doesn't start with a dot.
-`stow --dotfiles` has nothing to convert, so `~/Library/LaunchAgents/` is the correct target.
+Key insight: `Library/` has no `dot-` prefix because `~/Library` doesn't start with a dot. `stow --dotfiles` has nothing
+to convert, so `~/Library/LaunchAgents/` is the correct target.
 
 **Migration for existing deployments:**
 
 On this Mac, the old `local` package was stowed manually. The existing symlink at
-`~/Library/LaunchAgents/com.user.devtosync.plist` points to
-`stow/local/dot-Library/LaunchAgents/...`. After the split:
+`~/Library/LaunchAgents/com.user.devtosync.plist` points to `stow/local/dot-Library/LaunchAgents/...`. After the split:
 
 1. The old symlink becomes a dangling reference (source path no longer exists)
 2. `stow-deploy launchagent` creates a new symlink pointing to `stow/launchagent/Library/...`
 3. The stow-deploy conflict resolution handles this (removes non-stow symlink, restows)
 
-No explicit unstow of the old `local` package is needed because the source file moves and the
-old symlink simply becomes dangling.
+No explicit unstow of the old `local` package is needed because the source file moves and the old symlink simply becomes
+dangling.
 
 ### Phase 2: Enhance `stow-deploy`
 
-The script is currently 224 lines (over the 200-line refactor trigger). Extract new logic into
-bash functions within the same file to keep deployment as a single script.
+The script is currently 224 lines (over the 200-line refactor trigger). Extract new logic into bash functions within the
+same file to keep deployment as a single script.
 
 #### 2a. Distinct exit codes
 
@@ -103,8 +99,8 @@ EXIT_PACKAGE=5      # Package-specific failure (stow error, tree-fold failure)
 EXIT_PLATFORM=6     # Platform mismatch (launchagent on Linux)
 ```
 
-Replace all `exit 1` statements with the appropriate exit code. Callers that check `!= 0`
-are unaffected (backward compatible).
+Replace all `exit 1` statements with the appropriate exit code. Callers that check `!= 0` are unaffected (backward
+compatible).
 
 #### 2b. `--all` flag with platform detection
 
@@ -134,9 +130,8 @@ if [ "$ALL" = true ]; then
 fi
 ```
 
-**Package ordering:** `secrets` first (git-crypt dependency), then `shell` (PATH/env setup),
-then `zsh`/`bash` (source shell helpers), then everything else. Order matches the brainstorm
-and respects the dependency chain documented in
+**Package ordering:** `secrets` first (git-crypt dependency), then `shell` (PATH/env setup), then `zsh`/`bash` (source
+shell helpers), then everything else. Order matches the brainstorm and respects the dependency chain documented in
 `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`.
 
 #### 2c. Remove `local` package rejection
@@ -149,8 +144,8 @@ No replacement needed. After the Phase 1 split, `local` is a normal package.
 
 **Insert at:** Inside the deploy loop, before `stow` invocation.
 
-When a desktop-only package is explicitly requested on Linux (bypassing `--all` auto-detection),
-warn and skip instead of creating meaningless macOS directories like `~/Library/`:
+When a desktop-only package is explicitly requested on Linux (bypassing `--all` auto-detection), warn and skip instead
+of creating meaningless macOS directories like `~/Library/`:
 
 ```bash
 if [ "$(uname -s)" != "Darwin" ]; then
@@ -167,10 +162,9 @@ fi
 
 **Insert at:** After all pre-flight checks, before the deploy loop (after line 88).
 
-**Discovery algorithm:** Hardcoded map of the 4 known tree-folded packages to their target
-directories. This is a one-time migration — `--no-folding` prevents future tree-folds, so
-generic discovery is YAGNI. The hardcoded approach is more auditable and eliminates false
-positive risk from directory walking.
+**Discovery algorithm:** Hardcoded map of the 4 known tree-folded packages to their target directories. This is a
+one-time migration — `--no-folding` prevents future tree-folds, so generic discovery is YAGNI. The hardcoded approach is
+more auditable and eliminates false positive risk from directory walking.
 
 ```bash
 # Returns the tree-fold target path for a package, or returns 1 if not applicable.
@@ -240,26 +234,23 @@ resolve_tree_fold() {
 }
 ```
 
-**Failure recovery:** Uses rename-aside pattern (`mv "$target" "${target}.stow-old-$$"`) to
-eliminate the data-loss window entirely. The target always exists as either the original symlink
-or the new real directory. If interrupted between rename-aside and move-in, the `.stow-old-$$`
-directory contains the original symlink and `$tmpdir` contains the copy — both are recoverable.
-Uses `mktemp -d "${target}.XXXXXX"` for staging with a random suffix. No predictable naming
-convention, no interrupted-migration scanner. Manual cleanup is trivial and this is a one-time
-migration on one machine.
+**Failure recovery:** Uses rename-aside pattern (`mv "$target" "${target}.stow-old-$$"`) to eliminate the data-loss
+window entirely. The target always exists as either the original symlink or the new real directory. If interrupted
+between rename-aside and move-in, the `.stow-old-$$` directory contains the original symlink and `$tmpdir` contains the
+copy — both are recoverable. Uses `mktemp -d "${target}.XXXXXX"` for staging with a random suffix. No predictable naming
+convention, no interrupted-migration scanner. Manual cleanup is trivial and this is a one-time migration on one machine.
 
 #### 2f. Process safety and headless gating
 
-Process detection via `fuser` was removed from the script. The primary guard is the operator
-stopping Claude Code before running `stow-deploy --all` (Phase 4, step 1). Rationale:
+Process detection via `fuser` was removed from the script. The primary guard is the operator stopping Claude Code before
+running `stow-deploy --all` (Phase 4, step 1). Rationale:
 
 - `fuser -s "$target"` checks the symlink inode, not files within the directory tree
 - The tree-fold migration is a one-time operation on one Mac
 - `--no-folding` in `STOW_FLAGS` prevents recurrence on fresh deployments
 - A documented prerequisite is clearer and more reliable than runtime detection
 
-The process-stop reminder is gated behind the `HEADLESS` check — on headless servers no user
-is present to act on it:
+The process-stop reminder is gated behind the `HEADLESS` check — on headless servers no user is present to act on it:
 
 ```bash
 if [ "$HEADLESS" = false ]; then
@@ -276,16 +267,16 @@ fi
 
 **Files to update:**
 
-| File | Change |
-| ------ | -------- |
-| `README.md:32` | Package table: split `local` row into `local` (shared) + `launchagent` (macOS) |
-| `README.md:89-101` | Step 4: replace inline lists with `--all` examples |
-| `README.md:104-109` | Remove "The `local` package requires separate handling" section |
-| `README.md:176-183` | Step 8: update LaunchAgent path from `stow/local/dot-Library/...` to `stow/launchagent/Library/...` or simplify to "included in `stow-deploy --all`" |
-| `CLAUDE.md:53` | Remove "The `local` package is rejected" note |
-| `CLAUDE.md` stow-deploy table | Add `--all` flag documentation |
-| `docs/solutions/.../stow-conflict-resolution-wrapper.md` | Update usage examples, remove `local` rejection section |
-| `docs/brainstorms/...` | Mark brainstorm as `status: planned` |
+| File                                                     | Change                                                                                                                                               |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md:32`                                           | Package table: split `local` row into `local` (shared) + `launchagent` (macOS)                                                                       |
+| `README.md:89-101`                                       | Step 4: replace inline lists with `--all` examples                                                                                                   |
+| `README.md:104-109`                                      | Remove "The `local` package requires separate handling" section                                                                                      |
+| `README.md:176-183`                                      | Step 8: update LaunchAgent path from `stow/local/dot-Library/...` to `stow/launchagent/Library/...` or simplify to "included in `stow-deploy --all`" |
+| `CLAUDE.md:53`                                           | Remove "The `local` package is rejected" note                                                                                                        |
+| `CLAUDE.md` stow-deploy table                            | Add `--all` flag documentation                                                                                                                       |
+| `docs/solutions/.../stow-conflict-resolution-wrapper.md` | Update usage examples, remove `local` rejection section                                                                                              |
+| `docs/brainstorms/...`                                   | Mark brainstorm as `status: planned`                                                                                                                 |
 
 ### Phase 4: Fix this Mac + deploy to headless servers
 
@@ -305,9 +296,8 @@ cd ~/dotfiles && git pull
 scripts/stow-deploy --headless --all
 ```
 
-This deploys all previously missing packages (`zsh`, `gh`, `claude`, `codex`, `opencode`,
-`pip`, `brew`, `local`) and the tree-fold detection is a no-op (headless servers were deployed
-after `--no-folding` was added).
+This deploys all previously missing packages (`zsh`, `gh`, `claude`, `codex`, `opencode`, `pip`, `brew`, `local`) and
+the tree-fold detection is a no-op (headless servers were deployed after `--no-folding` was added).
 
 ## Acceptance Criteria
 
@@ -345,10 +335,9 @@ after `--no-folding` was added).
 
 - [x] Create `stow/launchagent/Library/LaunchAgents/` directory
 - [x] Move `stow/local/dot-Library/LaunchAgents/com.user.devtosync.plist` to
-      `stow/launchagent/Library/LaunchAgents/com.user.devtosync.plist`
+  `stow/launchagent/Library/LaunchAgents/com.user.devtosync.plist`
 - [x] Remove empty `stow/local/dot-Library/` directory tree
-- [x] Verify `stow/local/` only contains `dot-local/bin/env` and
-      `dot-local/bin/op-ssh-sign-wrapper`
+- [x] Verify `stow/local/` only contains `dot-local/bin/env` and `dot-local/bin/op-ssh-sign-wrapper`
 
 ### Phase 2: stow-deploy enhancements
 
@@ -402,41 +391,39 @@ after `--no-folding` was added).
 
 ## Deepening Insights
 
-Deepened on 2026-02-18 with 8 parallel review agents: security sentinel, deployment
-verification, code simplicity, architecture strategy, data migration, pattern recognition,
-learnings researcher, and best practices researcher.
+Deepened on 2026-02-18 with 8 parallel review agents: security sentinel, deployment verification, code simplicity,
+architecture strategy, data migration, pattern recognition, learnings researcher, and best practices researcher.
 
 ### Critical fixes applied to plan above
 
-| Finding | Source agents | Fix applied |
-| --------- | ------------- | ------------- |
-| `mv` empties stow package dir — tracked files lost for re-stowing | Security, Data migration, Architecture | Changed to `cp -a` so originals remain; removed `realpath`/`readlink -f` |
-| `realpath --relative-to` is GNU-only, not on macOS BSD | All 6 code-reviewing agents | Replaced with known path `stow/$pkg` |
-| `readlink \| grep` substring match is fragile | Security, Architecture, Pattern recognition | Replaced with `cd && pwd -P` absolute path comparison |
-| `2>/dev/null \|\| true` on destructive `mv`/`git clean` hides failures | Security, Data migration | Added explicit error checks with `if !` and `return 1` |
-| `shopt -s dotglob` + `mv` error suppression | Security, Data migration | Replaced with `cp -a src/. dst/` (handles hidden files without `shopt`) |
-| Post-resolution validation loop | Code simplicity | Removed (cannot fire if resolution succeeds; `set -e` handles failures) |
+| Finding                                                                | Source agents                               | Fix applied                                                              |
+| ---------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------ |
+| `mv` empties stow package dir — tracked files lost for re-stowing      | Security, Data migration, Architecture      | Changed to `cp -a` so originals remain; removed `realpath`/`readlink -f` |
+| `realpath --relative-to` is GNU-only, not on macOS BSD                 | All 6 code-reviewing agents                 | Replaced with known path `stow/$pkg`                                     |
+| `readlink \| grep` substring match is fragile                          | Security, Architecture, Pattern recognition | Replaced with `cd && pwd -P` absolute path comparison                    |
+| `2>/dev/null \|\| true` on destructive `mv`/`git clean` hides failures | Security, Data migration                    | Added explicit error checks with `if !` and `return 1`                   |
+| `shopt -s dotglob` + `mv` error suppression                            | Security, Data migration                    | Replaced with `cp -a src/. dst/` (handles hidden files without `shopt`)  |
+| Post-resolution validation loop                                        | Code simplicity                             | Removed (cannot fire if resolution succeeds; `set -e` handles failures)  |
 
 ### Simplification summary
 
-The code simplicity reviewer identified ~45 lines of unnecessary complexity. After applying
-all fixes, the estimated new logic is ~105 lines instead of the original ~150 (30% reduction).
-Key simplifications:
+The code simplicity reviewer identified ~45 lines of unnecessary complexity. After applying all fixes, the estimated new
+logic is ~105 lines instead of the original ~150 (30% reduction). Key simplifications:
 
-- **Hardcoded tree-fold map adopted** (simplicity reviewer's recommendation over architecture
-  reviewer's generic approach). This is a one-time migration; `--no-folding` prevents recurrence;
-  4 known packages are explicit and auditable. ~20 fewer lines than generic directory walking.
-- **`fuser` detection removed** — one-time migration on one machine; documented prerequisite
-  is simpler and more reliable than platform-dependent runtime detection.
-- **Interrupted migration scanner removed** — `mktemp -d` with random suffix; failure window
-  is nanoseconds; manual cleanup is trivial.
+- **Hardcoded tree-fold map adopted** (simplicity reviewer's recommendation over architecture reviewer's generic
+  approach). This is a one-time migration; `--no-folding` prevents recurrence; 4 known packages are explicit and
+  auditable. ~20 fewer lines than generic directory walking.
+- **`fuser` detection removed** — one-time migration on one machine; documented prerequisite is simpler and more
+  reliable than platform-dependent runtime detection.
+- **Interrupted migration scanner removed** — `mktemp -d` with random suffix; failure window is nanoseconds; manual
+  cleanup is trivial.
 - **Post-resolution validation removed** — redundant with `set -e` error handling.
 
 ### Architecture considerations
 
-**Single-file exception:** The script will exceed 200 lines after changes (~330 lines). This
-is justified by operational constraints — deployment scripts on thousands of headless servers
-must be self-contained with no `source` dependencies. Add a header comment explaining this:
+**Single-file exception:** The script will exceed 200 lines after changes (~330 lines). This is justified by operational
+constraints — deployment scripts on thousands of headless servers must be self-contained with no `source` dependencies.
+Add a header comment explaining this:
 
 ```bash
 # This script is intentionally kept as a single file (no sourced helpers)
@@ -444,24 +431,22 @@ must be self-contained with no `source` dependencies. Add a header comment expla
 # of headless servers. See docs/solutions/.../stow-conflict-resolution-wrapper.md
 ```
 
-**STAR violation with Rust CLI:** The `dotfiles-cli` at `~/dev/dotfiles-cli/src/link/mod.rs`
-has its own `PACKAGE_ORDER` constant that diverges from the bash arrays (missing `brew` and
-`launchagent`, includes `vscode`, no platform split). Add cross-reference comments in both
-locations. Track these Rust CLI changes for post-merge:
+**STAR violation with Rust CLI:** The `dotfiles-cli` at `~/dev/dotfiles-cli/src/link/mod.rs` has its own `PACKAGE_ORDER`
+constant that diverges from the bash arrays (missing `brew` and `launchagent`, includes `vscode`, no platform split).
+Add cross-reference comments in both locations. Track these Rust CLI changes for post-merge:
 
 1. Add `brew` and `launchagent` to `PACKAGE_ORDER`
 2. Remove `adjusted_package_dir` special case (no longer needed after split)
 3. Remove `launchagent_links` function (stow handles it directly)
 4. Add platform-aware `--all` expansion if Rust CLI is to replace `stow-deploy --all`
 
-**`launchagent` package precedent:** First non-`dot-`-prefixed stowed package. This is correct
-(`~/Library` has no dot) but should have an inline comment explaining the deviation from the
-`dot-` convention.
+**`launchagent` package precedent:** First non-`dot-`-prefixed stowed package. This is correct (`~/Library` has no dot)
+but should have an inline comment explaining the deviation from the `dot-` convention.
 
 ### Data migration safeguards
 
-**Pre-migration backup (Phase 4, new step 0):** Before running `stow-deploy --all` on macOS,
-create a backup of all tree-folded runtime data:
+**Pre-migration backup (Phase 4, new step 0):** Before running `stow-deploy --all` on macOS, create a backup of all
+tree-folded runtime data:
 
 ```bash
 BACKUP="$HOME/stow-migration-backup-$(date +%Y%m%d-%H%M%S)"
@@ -484,8 +469,7 @@ if [ "$post_count" -lt "$pre_count" ]; then
 fi
 ```
 
-**Interactive git clean dry-run:** In interactive mode, show what `git clean` would remove
-before executing:
+**Interactive git clean dry-run:** In interactive mode, show what `git clean` would remove before executing:
 
 ```bash
 if [ "$HEADLESS" = false ]; then
@@ -496,28 +480,26 @@ git -C "$REPO_ROOT" clean -fd -- "stow/$pkg"
 
 ### Deployment checklist additions
 
-The deployment verification agent produced comprehensive pre/post deploy checklists. Key
-additions to Phase 4:
+The deployment verification agent produced comprehensive pre/post deploy checklists. Key additions to Phase 4:
 
-- **Pre-deploy:** Record baseline sizes (`du -sh ~/.claude/`, file counts), verify tree-fold
-  state (`readlink` on all four targets), verify git tracked files in stow packages
-- **Post-deploy macOS:** Verify per-file symlinks for tracked files, verify `stow/claude/`
-  is small (under 200K), verify `op-ssh-sign-wrapper` symlink, re-run is idempotent
-- **Post-deploy Ubuntu:** Verify `~/.claude/auto-format.sh` exists (original trigger),
-  verify `op-ssh-sign-wrapper` on PATH, verify no `~/Library/` directory created
+- **Pre-deploy:** Record baseline sizes (`du -sh ~/.claude/`, file counts), verify tree-fold state (`readlink` on all
+  four targets), verify git tracked files in stow packages
+- **Post-deploy macOS:** Verify per-file symlinks for tracked files, verify `stow/claude/` is small (under 200K), verify
+  `op-ssh-sign-wrapper` symlink, re-run is idempotent
+- **Post-deploy Ubuntu:** Verify `~/.claude/auto-format.sh` exists (original trigger), verify `op-ssh-sign-wrapper` on
+  PATH, verify no `~/Library/` directory created
 - **Monitoring (24h):** Claude Code starts normally, git signing works, no re-tree-folding
 
 ### Edge cases discovered
 
-- **Self-referential symlink in `debug/latest`:** `~/.claude/debug/latest` is an absolute
-  symlink pointing back into `~/.claude/debug/`. It is self-healing after the migration
-  (target path resolves again once rename completes), but reinforces that Claude Code must
-  be genuinely stopped.
-- **Nested git repos in `plugins/marketplaces/`:** `git clean` skips nested repos by default
-  (`Would skip repository`). The two marketplace plugin repos (9.2 MB combined) are safe.
-- **`~/.config/git/local` override file:** Headless servers use this for git signing overrides.
-  The tree-fold resolution preserves it (it gets copied to the real directory). After
-  re-stowing, tracked files become symlinks alongside the untracked `local` file.
+- **Self-referential symlink in `debug/latest`:** `~/.claude/debug/latest` is an absolute symlink pointing back into
+  `~/.claude/debug/`. It is self-healing after the migration (target path resolves again once rename completes), but
+  reinforces that Claude Code must be genuinely stopped.
+- **Nested git repos in `plugins/marketplaces/`:** `git clean` skips nested repos by default (`Would skip repository`).
+  The two marketplace plugin repos (9.2 MB combined) are safe.
+- **`~/.config/git/local` override file:** Headless servers use this for git signing overrides. The tree-fold resolution
+  preserves it (it gets copied to the real directory). After re-stowing, tracked files become symlinks alongside the
+  untracked `local` file.
 
 ## References
 
@@ -531,14 +513,14 @@ additions to Phase 4:
 
 ### Learnings applied
 
-- `docs/solutions/deployment-issues/stow-conflict-resolution-wrapper.md` — three-phase
-  conflict resolution, `sed` over `grep -oP`, `grep -qI` for binary detection
-- `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md` — deployment
-  ordering, `op-ssh-sign-wrapper` must be on PATH, `url.insteadOf` requires SSH before git
-- `docs/solutions/deployment-issues/portable-binary-detection-sentinel-fix-and-auto-hooks.md` —
-  `command -v` over `which`, POSIX-only utilities, auto `core.hooksPath`
-- `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` — `.zshenv` for
-  non-interactive shells, PATH ordering in `.profile`
+- `docs/solutions/deployment-issues/stow-conflict-resolution-wrapper.md` — three-phase conflict resolution, `sed` over
+  `grep -oP`, `grep -qI` for binary detection
+- `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md` — deployment ordering,
+  `op-ssh-sign-wrapper` must be on PATH, `url.insteadOf` requires SSH before git
+- `docs/solutions/deployment-issues/portable-binary-detection-sentinel-fix-and-auto-hooks.md` — `command -v` over
+  `which`, POSIX-only utilities, auto `core.hooksPath`
+- `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md` — `.zshenv` for non-interactive shells, PATH
+  ordering in `.profile`
 
 ### Spec-flow gaps addressed
 

@@ -46,10 +46,10 @@ Pinchflat is a self-contained yt-dlp wrapper that periodically downloads YouTube
 center to read. It runs on `pool` (Unraid) as a compose.manager project over pool's residential egress — no VPN gating,
 because YouTube bot-gates the exit IP and a residential IP is *less* gated than a VPN exit. The first source is
 **@GruffaloWorld** (≈678 videos + 151 Shorts ≈ 829 items), full backfill, in a Plex direct-play profile
-(MP4/AVC/≤1080p). A post-download lifecycle hook refiles each new video into a per-franchise season layout (`Season
-00`–`Season 13`) and cleans the episode NFO title; an NFO plot-enrichment step backfills the empty `<plot>` fields from
-the English closed-caption transcripts using a local ollama model. Media lands in place under `/mnt/user/media/youtube`,
-which Plex already serves as `/data/youtube`.
+(MP4/AVC/≤1080p). A post-download lifecycle hook refiles each new video into a per-franchise season layout
+(`Season 00`–`Season 13`) and cleans the episode NFO title; an NFO plot-enrichment step backfills the empty `<plot>`
+fields from the English closed-caption transcripts using a local ollama model. Media lands in place under
+`/mnt/user/media/youtube`, which Plex already serves as `/data/youtube`.
 
 ### Problem Frame
 
@@ -69,8 +69,8 @@ Deployment and runtime:
   (`user: "99:100"`). The Home-Media-Server `docker-compose.yml` carries the canonical definition as a commented block.
 - R2. `/config` lives on local Unraid appdata (`/mnt/user/appdata/pinchflat`), never a network share — SQLite WAL
   corrupts on network shares.
-- R3. The image is SHA-pinned to `v2025.9.26` (the first Deno-bundled release); updates are manual (`docker compose
-  pull` to a new pinned digest), not automated.
+- R3. The image is SHA-pinned to `v2025.9.26` (the first Deno-bundled release); updates are manual
+  (`docker compose pull` to a new pinned digest), not automated.
 
 Access and secrets:
 
@@ -118,8 +118,8 @@ Content and storage:
   block in its `docker-compose.yml` (branch `feat/pinchflat`).
 - Tailscale VIP-service pattern in this tailnet: the tailscale skill's `tailscale-service-define-before-approve` /
   `autoApprovers-gate-fresh-advertisements` solutions, and the live `svc:radarr`/`svc:sonarr` bindings.
-- Live state (verified over SSH): `pinchflat` container `Up (healthy)` on `pool`, `svc:pinchflat` in `tailscale serve
-  status --json` on `pool`, media under `/mnt/user/media/youtube/GruffaloWorld/Season NN/`.
+- Live state (verified over SSH): `pinchflat` container `Up (healthy)` on `pool`, `svc:pinchflat` in
+  `tailscale serve status --json` on `pool`, media under `/mnt/user/media/youtube/GruffaloWorld/Season NN/`.
 
 ---
 
@@ -138,8 +138,8 @@ Content and storage:
 - KTD3. **Image SHA-pinned to `v2025.9.26`.**
   `ghcr.io/kieraneglin/pinchflat@sha256:01b4f98aabaf3f5fe394213f7a32578c9e84e42080f52e2f8334021a4473b202` — the first
   release bundling Deno for the yt-dlp JS challenge (resolved 2026-06-29). Pinning satisfies the supply-chain rule and
-  ties the deployment to the exact image that clears the 2026-06-28 bot-gate. Updates are manual via `docker compose
-  pull` to a new pinned digest.
+  ties the deployment to the exact image that clears the 2026-06-28 bot-gate. Updates are manual via
+  `docker compose pull` to a new pinned digest.
 - KTD4. **Runs as `user: "99:100"` (nobody:users).** The Unraid-canonical owner of appdata + media. Pinchflat honors the
   compose `user:` (it is not a linuxserver/gosu image), so it runs directly as `99:100`; root is discouraged upstream
   and would write root-owned files into the media share.
@@ -150,9 +150,9 @@ Content and storage:
 - KTD6. **Deno-bundled image + `YT_DLP_WORKER_CONCURRENCY=1`; no cookies.** The v2025.9.26 image's bundled Deno clears
   the YouTube JS/bot-gate challenge without cookies; concurrency 1 (upstream's "set to 1 if IP limited") blunts
   rate-limiting/429s. Cookies stay off (account-ban risk, credential management).
-- KTD7. **Tailscale VIP `svc:pinchflat` served from `pool`.** On `pool`: `tailscale serve --service=svc:pinchflat
-  --https=443 http://localhost:8945`. Auto-approved by the existing ACL `autoApprovers.services` rule — no console step.
-  Yields `https://pinchflat.tail42ba87.ts.net/`.
+- KTD7. **Tailscale VIP `svc:pinchflat` served from `pool`.** On `pool`:
+  `tailscale serve --service=svc:pinchflat --https=443 http://localhost:8945`. Auto-approved by the existing ACL
+  `autoApprovers.services` rule — no console step. Yields `https://pinchflat.tail42ba87.ts.net/`.
 - KTD8. **`/config` on local appdata; media on the array.** SQLite WAL corrupts on network shares, so `/config` is
   `/mnt/user/appdata/pinchflat` (real local fs). Media is `/mnt/user/media/youtube` — a local Unraid array path, not a
   CIFS network mount, so incremental `.part` writes carry no network-share truncation risk. The host media dir is what
@@ -209,8 +209,9 @@ The VIP and the source config can proceed in parallel once the container is heal
 - **Goal:** Run the VPN-free `pinchflat` compose.manager project on `pool`, healthy, with the least-privilege
   media/config layout, and record the canonical definition in the HMS `docker-compose.yml`.
 - **Requirements:** R1, R2, R3, R6.
-- **Approach:** Service keyed to the recorded block — `image: ghcr.io/kieraneglin/pinchflat@sha256:01b4f98… #
-  v2025.9.26`, `container_name: pinchflat`, `network_mode: bridge`, `user: "99:100"`, `ports: ["127.0.0.1:8945:8945"]`,
+- **Approach:** Service keyed to the recorded block —
+  `image: ghcr.io/kieraneglin/pinchflat@sha256:01b4f98… # v2025.9.26`, `container_name: pinchflat`,
+  `network_mode: bridge`, `user: "99:100"`, `ports: ["127.0.0.1:8945:8945"]`,
   `env_file: [/mnt/user/appdata/pinchflat.env]`, volumes `/mnt/user/appdata/pinchflat:/config` and
   `/mnt/user/media/youtube:/downloads`, environment `TZ=America/Chicago`, `HOST_OS=Unraid`, `HOST_HOSTNAME=pool`,
   `HOST_CONTAINERNAME=pinchflat`, `YT_DLP_WORKER_CONCURRENCY=1`, `LOG_LEVEL=debug` (bring-up; `info` is the minimum
@@ -261,8 +262,8 @@ The VIP and the source config can proceed in parallel once the container is heal
   Assign the next sequential episode number, clean the NFO `<title>` (strip the `Gruffalo World -` prefix, any `| …` /
   `@GruffaloWorld:` suffix, and emojis — filenames left as downloaded), move the media plus sidecars into
   `/downloads/GruffaloWorld/Season NN/`, rewrite the `.nfo` (season/episode/aired/runtime), and update the Pinchflat
-  SQLite DB so the app keeps tracking the moved files. Never delete source (Golden Rule). Deploy with `install -m 0755
-  -o 99 -g 100 lifecycle /mnt/user/appdata/pinchflat/extras/user-scripts/lifecycle`.
+  SQLite DB so the app keeps tracking the moved files. Never delete source (Golden Rule). Deploy with
+  `install -m 0755 -o 99 -g 100 lifecycle /mnt/user/appdata/pinchflat/extras/user-scripts/lifecycle`.
 - **Verification:** new downloads appear under `/downloads/GruffaloWorld/Season NN/` with cleaned NFO titles; source
   files are never removed.
 
@@ -273,10 +274,10 @@ The VIP and the source config can proceed in parallel once the container is heal
 - **Files:** `pinchflat/tools/generate-plots.py`, `pinchflat/tools/inject-plots.py` (version-controlled in the HMS
   repo).
 - **Approach:** `generate-plots.py` pulls each episode's `.en.srt`, summarizes it with a local ollama model
-  (`gemma4:26b`, thinking disabled, `num_predict` 512) using per-franchise character context, and writes `{episode:
-  plot}` to JSON (resumable; garbled/music-only transcripts skipped; `--sample` prints one example per season).
-  `inject-plots.py` writes those plots into each episode `.nfo` `<plot>` (run in a container with media at `/media` and
-  the plots JSON at `/plots.json`; dry-run by default, `--execute` to write).
+  (`gemma4:26b`, thinking disabled, `num_predict` 512) using per-franchise character context, and writes
+  `{episode: plot}` to JSON (resumable; garbled/music-only transcripts skipped; `--sample` prints one example per
+  season). `inject-plots.py` writes those plots into each episode `.nfo` `<plot>` (run in a container with media at
+  `/media` and the plots JSON at `/plots.json`; dry-run by default, `--execute` to write).
 - **Verification:** `--sample` prints coherent per-franchise summaries; a dry-run `inject-plots.py` reports the episodes
   it would update; after `--execute`, episode `.nfo` files carry non-empty `<plot>`.
 

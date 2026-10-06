@@ -11,7 +11,8 @@ deepened: 2026-02-16
 ## Enhancement Summary
 
 **Deepened on:** 2026-02-16  
-**Agents used:** security-sentinel, architecture-strategist, code-simplicity-reviewer, pattern-recognition-specialist, deployment-verification-agent, best-practices-researcher, spec-flow-analyzer, 2x learnings-researchers
+**Agents used:** security-sentinel, architecture-strategist, code-simplicity-reviewer, pattern-recognition-specialist,
+deployment-verification-agent, best-practices-researcher, spec-flow-analyzer, 2x learnings-researchers
 
 ### Key Improvements
 
@@ -23,8 +24,10 @@ deepened: 2026-02-16
 
 ### New Considerations Discovered
 
-- Git writes literal signing keys to a temp file before passing `-f` to the signing program — `ssh-keygen` receives a file path either way
-- The `-U` flag forces agent-based signing when `user.signingkey` is a literal key string — requires ssh-agent if key has a passphrase
+- Git writes literal signing keys to a temp file before passing `-f` to the signing program — `ssh-keygen` receives a
+  file path either way
+- The `-U` flag forces agent-based signing when `user.signingkey` is a literal key string — requires ssh-agent if key
+  has a passphrase
 - `session-context.sh` uses macOS-only `stat -f %m` syntax (separate follow-up)
 - Split trust model: SSH authentication uses 1Password agent, git signing uses local key
 
@@ -32,25 +35,31 @@ deepened: 2026-02-16
 
 Two issues prevent Claude Code from committing on the headless server (Ubuntu):
 
-1. **`op-ssh-sign not found`** — Git commit signing fails because the wrapper only checks for the 1Password desktop app binary, which isn't installed
+1. **`op-ssh-sign not found`** — Git commit signing fails because the wrapper only checks for the 1Password desktop app
+   binary, which isn't installed
 2. **`terminal-notifier: not found`** — Claude Code hooks call a macOS-only tool unconditionally
 
 Additionally discovered during deepening:
 
-1. **`bd prime: not found`** — PreCompact and SessionStart hooks call `bd` without a guard (same class of bug as terminal-notifier)
+1. **`bd prime: not found`** — PreCompact and SessionStart hooks call `bd` without a guard (same class of bug as
+   terminal-notifier)
 
 ## Problem Statement
 
 The dotfiles are stowed identically to all machines, but several configs assume macOS-only tools:
 
-- `stow/local/dot-local/bin/op-ssh-sign-wrapper` hardcodes two paths for the 1Password desktop app binary. On the headless server, only the `op` CLI (2.32.1 via linuxbrew) is installed — no desktop app.
-- `stow/claude/dot-claude/settings.json` hooks call `terminal-notifier` (lines 157, 231) and `bd prime` (lines 180, 220) without checking if they exist, causing errors on every Stop, Notification, PreCompact, and SessionStart event.
+- `stow/local/dot-local/bin/op-ssh-sign-wrapper` hardcodes two paths for the 1Password desktop app binary. On the
+  headless server, only the `op` CLI (2.32.1 via linuxbrew) is installed — no desktop app.
+- `stow/claude/dot-claude/settings.json` hooks call `terminal-notifier` (lines 157, 231) and `bd prime` (lines 180, 220)
+  without checking if they exist, causing errors on every Stop, Notification, PreCompact, and SessionStart event.
 
 ## Proposed Solution
 
 ### Fix 1: Update `op-ssh-sign-wrapper` to fall back to `ssh-keygen`
 
-**Root cause:** The signing key (`ssh-ed25519 AAAAC3...`) exists as a local file at `~/.ssh/id_ed25519` on the headless server — the same key configured in `user.signingkey`. The wrapper doesn't need the 1Password desktop app; `ssh-keygen` can sign directly with the local key file.
+**Root cause:** The signing key (`ssh-ed25519 AAAAC3...`) exists as a local file at `~/.ssh/id_ed25519` on the headless
+server — the same key configured in `user.signingkey`. The wrapper doesn't need the 1Password desktop app; `ssh-keygen`
+can sign directly with the local key file.
 
 **Verified:** `ssh-keygen -Y sign -f ~/.ssh/id_ed25519 -n git` produces valid signatures on the headless server.
 
@@ -93,13 +102,23 @@ fi
 
 #### Research Insights
 
-**Security (HIGH):** The original plan had an unrestricted `ssh-keygen` fallback that could silently activate on macOS if 1Password was temporarily unavailable (e.g., during an update). This would downgrade from vault-protected signing (biometric auth required) to local-file signing with no warning. The `uname -s = Linux` guard ensures macOS always requires 1Password.
+**Security (HIGH):** The original plan had an unrestricted `ssh-keygen` fallback that could silently activate on macOS
+if 1Password was temporarily unavailable (e.g., during an update). This would downgrade from vault-protected signing
+(biometric auth required) to local-file signing with no warning. The `uname -s = Linux` guard ensures macOS always
+requires 1Password.
 
-**Passphrase handling:** When `user.signingkey` is a literal key string (current config), git passes the `-U` flag to the signing program, which forces agent-based signing. If the key has a passphrase, `ssh-agent` must have the key loaded. The manual verification succeeded, implying the key on the headless server has no passphrase — but this should be documented as a prerequisite.
+**Passphrase handling:** When `user.signingkey` is a literal key string (current config), git passes the `-U` flag to
+the signing program, which forces agent-based signing. If the key has a passphrase, `ssh-agent` must have the key
+loaded. The manual verification succeeded, implying the key on the headless server has no passphrase — but this should
+be documented as a prerequisite.
 
-**OpenSSH version:** `ssh-keygen -Y sign` requires OpenSSH 8.2+. Ubuntu 22.04+ ships 8.9+, so this is safe on the headless server. The prior solution doc documents version requirements for `Match exec` (OpenSSH 7.3+) — this follows the same convention.
+**OpenSSH version:** `ssh-keygen -Y sign` requires OpenSSH 8.2+. Ubuntu 22.04+ ships 8.9+, so this is safe on the
+headless server. The prior solution doc documents version requirements for `Match exec` (OpenSSH 7.3+) — this follows
+the same convention.
 
-**Pattern consistency:** The wrapper is a standalone `#!/bin/sh` POSIX script in `~/.local/bin/`. It must be self-contained with no sourced dependencies (invoked by git in arbitrary contexts). Using `core/detect-shell.sh` would be wrong — those functions detect shell type/version, not OS or tool availability.
+**Pattern consistency:** The wrapper is a standalone `#!/bin/sh` POSIX script in `~/.local/bin/`. It must be
+self-contained with no sourced dependencies (invoked by git in arbitrary contexts). Using `core/detect-shell.sh` would
+be wrong — those functions detect shell type/version, not OS or tool availability.
 
 **File:** `stow/local/dot-local/bin/op-ssh-sign-wrapper`
 
@@ -126,9 +145,13 @@ Apply to both hooks:
 
 #### Research Insights
 
-**Pattern consistency:** `command -v tool >/dev/null 2>&1` is the dominant pattern for conditional tool availability in this codebase — used in at least 6 files (`dot-zshrc`, `dot-secrets`, `statusline.sh`, `auto-format.sh`, `caches.sh`). The POSIX `>/dev/null 2>&1` form (not bash-ism `&>/dev/null`) is correct since settings.json hooks may execute under `/bin/sh`.
+**Pattern consistency:** `command -v tool >/dev/null 2>&1` is the dominant pattern for conditional tool availability in
+this codebase — used in at least 6 files (`dot-zshrc`, `dot-secrets`, `statusline.sh`, `auto-format.sh`, `caches.sh`).
+The POSIX `>/dev/null 2>&1` form (not bash-ism `&>/dev/null`) is correct since settings.json hooks may execute under
+`/bin/sh`.
 
-**Subtlety:** `A && B || C` is not identical to `if A; then B; else C; fi`. If `terminal-notifier` is found but fails, `|| true` swallows that error too. This is desirable — notification failures should never block work.
+**Subtlety:** `A && B || C` is not identical to `if A; then B; else C; fi`. If `terminal-notifier` is found but fails,
+`|| true` swallows that error too. This is desirable — notification failures should never block work.
 
 **File:** `stow/claude/dot-claude/settings.json`
 
@@ -157,9 +180,15 @@ Apply to both hooks:
 
 ### Fix 4: Add per-host git config include for signing key override
 
-**Discovered during testing:** The wrapper fallback to `ssh-keygen` alone is insufficient. When `user.signingkey` is a literal public key string (as in the stowed gitconfig), git passes the `-U` flag to the signing program, forcing agent-based signing via `ssh-agent`. On the headless server there is no ssh-agent running, causing "Couldn't get agent socket?" errors.
+**Discovered during testing:** The wrapper fallback to `ssh-keygen` alone is insufficient. When `user.signingkey` is a
+literal public key string (as in the stowed gitconfig), git passes the `-U` flag to the signing program, forcing
+agent-based signing via `ssh-agent`. On the headless server there is no ssh-agent running, causing "Couldn't get agent
+socket?" errors.
 
-**Solution:** Add `[include] path = ~/.config/git/local` to the stowed gitconfig, enabling per-host overrides. On the headless server, `~/.config/git/local` overrides `user.signingkey` to point to the private key file (`~/.ssh/id_ed25519`). This makes git pass the file path directly to `ssh-keygen` instead of the `-U` flag, and `ssh-keygen` reads the key from disk without needing an agent.
+**Solution:** Add `[include] path = ~/.config/git/local` to the stowed gitconfig, enabling per-host overrides. On the
+headless server, `~/.config/git/local` overrides `user.signingkey` to point to the private key file
+(`~/.ssh/id_ed25519`). This makes git pass the file path directly to `ssh-keygen` instead of the `-U` flag, and
+`ssh-keygen` reads the key from disk without needing an agent.
 
 **Stowed gitconfig addition:**
 
@@ -178,7 +207,9 @@ Apply to both hooks:
  signingkey = ~/.ssh/id_ed25519
 ```
 
-**Why this works:** When git sees a file path as `user.signingkey` (instead of a literal key), it calls `ssh-keygen -Y sign -f ~/.ssh/id_ed25519 -n git <buffer>` without `-U`. Since the key is passphrase-free, `ssh-keygen` reads it directly from disk.
+**Why this works:** When git sees a file path as `user.signingkey` (instead of a literal key), it calls
+`ssh-keygen -Y sign -f ~/.ssh/id_ed25519 -n git <buffer>` without `-U`. Since the key is passphrase-free, `ssh-keygen`
+reads it directly from disk.
 
 ## Prerequisites / Verification
 
@@ -193,7 +224,8 @@ Already verified on the headless server:
 
 - OpenSSH version on the headless server: `ssh -V` (must be 8.2+)
 - `allowed_signers` file is deployed: `cat ~/.config/git/allowed_signers`
-- Git stow package is fully deployed (Stow 2.3.1 has a known bug with nested `dot-` dirs — see `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`)
+- Git stow package is fully deployed (Stow 2.3.1 has a known bug with nested `dot-` dirs — see
+  `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`)
 
 ## Acceptance Criteria
 
@@ -283,15 +315,21 @@ stow -v -d stow -t ~ claude
 ## Risk Analysis
 
 - **Low risk:** The wrapper change only adds a new fallback — existing macOS/Linux desktop paths are checked first
-- **`ssh-keygen` compatibility:** `ssh-keygen` accepts the same `-Y sign` arguments that git passes, so no argument translation needed
-- **macOS safety:** Platform guard (`uname -s = Linux`) ensures macOS never silently falls back to `ssh-keygen` — 1Password is always required
+- **`ssh-keygen` compatibility:** `ssh-keygen` accepts the same `-Y sign` arguments that git passes, so no argument
+  translation needed
+- **macOS safety:** Platform guard (`uname -s = Linux`) ensures macOS never silently falls back to `ssh-keygen` —
+  1Password is always required
 - **`command -v` guard:** POSIX-standard idiom, already used extensively in this codebase
 
 ## Follow-up Issues (Out of Scope)
 
-1. **`session-context.sh` uses macOS `stat -f %m`** — Line 17 uses macOS stat syntax. On Linux, `stat -c %Y` is the equivalent. Causes cache TTL to always read as stale, triggering unnecessary `brew list` on every session start. Fix: `stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0`
-2. **Wrapper naming** — If `ssh-keygen` becomes the primary signing path on multiple machines, consider renaming from `op-ssh-sign-wrapper` to `git-sign-wrapper` for accuracy
-3. **Split trust model documentation** — On the headless server, SSH authentication uses 1Password agent socket but git signing uses local key file. Document in solution doc for audit clarity.
+1. **`session-context.sh` uses macOS `stat -f %m`** — Line 17 uses macOS stat syntax. On Linux, `stat -c %Y` is the
+   equivalent. Causes cache TTL to always read as stale, triggering unnecessary `brew list` on every session start. Fix:
+   `stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0`
+2. **Wrapper naming** — If `ssh-keygen` becomes the primary signing path on multiple machines, consider renaming from
+   `op-ssh-sign-wrapper` to `git-sign-wrapper` for accuracy
+3. **Split trust model documentation** — On the headless server, SSH authentication uses 1Password agent socket but git
+   signing uses local key file. Document in solution doc for audit clarity.
 
 ## References
 

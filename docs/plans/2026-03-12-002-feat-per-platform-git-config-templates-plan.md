@@ -10,8 +10,7 @@ deepened: 2026-03-12
 
 ## Enhancement Summary
 
-**Deepened on:** 2026-03-12
-**Sections enhanced:** 4 (solution, technical considerations, risks, implementation)
+**Deepened on:** 2026-03-12 **Sections enhanced:** 4 (solution, technical considerations, risks, implementation)
 **Research agents used:** git-cliff best practices, code simplicity, architecture strategy, spec flow analysis
 
 ### Key Improvements
@@ -20,8 +19,8 @@ deepened: 2026-03-12
 2. **Inline heredoc vs file template** — two valid approaches documented with trade-offs; inline is simpler, file is
    more extensible
 3. **Bug fixes in code snippet** — `$platform` typo, non-fatal `cp`, tree-fold guard added
-4. **`includeIf` alternative researched** — `gitdir:/Users/` vs `gitdir:/home/` works but only inside repos, not
-   global context; copy step is still needed
+4. **`includeIf` alternative researched** — `gitdir:/Users/` vs `gitdir:/home/` works but only inside repos, not global
+   context; copy step is still needed
 5. **Editor migration IN scope** — `core.editor` moves from shared gitconfig to Linux template (macOS may want a
    different editor)
 
@@ -69,8 +68,7 @@ Git's `includeIf` supports `gitdir:` conditions that could detect platform by ho
 `/tmp/`, `/opt/`, or `/srv/` would not match. The signing key must be available everywhere, not just in repos under
 `$HOME`.
 
-**References:**
-[git-scm.com/docs/git-config#_includes](https://git-scm.com/docs/git-config#_includes),
+**References:** [git-scm.com/docs/git-config#_includes](https://git-scm.com/docs/git-config#_includes),
 [Platform-Specific .gitconfig's and the Wonderful includeIf][medium-includeif]
 
 [medium-includeif]: https://medium.com/doing-things-right/platform-specific-gitconfigs-and-the-wonderful-includeif-7376cd44994d
@@ -173,8 +171,8 @@ by SSH validation (`if ! ssh -G ... ; then echo WARNING`).
 **Ordering dependency:** The template copy MUST follow the stow deploy phase because `~/.config/git/` is created by
 stowing the `git` package. The tree-fold resolution (pre-deploy) ensures it is a real directory, not a symlink.
 
-**`grep` usage:** The plan uses `grep -qx` (not `rg`) because `stow-deploy` runs on headless servers where `rg` may
-not be installed. This is consistent with existing `grep` usage in the script (lines 102, 260, 273, 343).
+**`grep` usage:** The plan uses `grep -qx` (not `rg`) because `stow-deploy` runs on headless servers where `rg` may not
+be installed. This is consistent with existing `grep` usage in the script (lines 102, 260, 273, 343).
 
 ### 3. Documentation update
 
@@ -188,8 +186,7 @@ if/when `config/git/` grows beyond one file.
 ## Technical Considerations
 
 - **`~/.config/git/` exists after stowing `git` package**: the directory contains stow-managed symlinks (`ignore`,
-  `allowed_signers`). Since `--no-folding` is always used, it's a real directory — a plain `local` file coexists
-  safely.
+  `allowed_signers`). Since `--no-folding` is always used, it's a real directory — a plain `local` file coexists safely.
 - **git `[include]` is position-sensitive**: `local` is included LAST in `.gitconfig`, so its values override everything
   above. This is already the case and requires no changes.
 - **`~` expands in git include paths, `$HOME` does not**: the existing `path = ~/.config/git/local` is correct. Never
@@ -251,17 +248,12 @@ known limitation, not an unsolved problem.
 
 ## Sources & References
 
-- **Signing architecture**:
-  `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`
-- **Cross-platform deployment**:
-  `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
-- **stow-deploy patterns**:
-  `docs/solutions/deployment-issues/stow-conflict-resolution-wrapper.md`
+- **Signing architecture**: `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`
+- **Cross-platform deployment**: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`
+- **stow-deploy patterns**: `docs/solutions/deployment-issues/stow-conflict-resolution-wrapper.md`
 - **Existing `[include]`**: `stow/git/dot-gitconfig:24-28`
 - **Post-stow validation**: `scripts/stow-deploy:330-358`
 - **Platform detection**: `scripts/stow-deploy:47-53`
-- **Git include docs**:
-  [git-scm.com/docs/git-config#_includes](https://git-scm.com/docs/git-config#_includes)
-- **Git config precedence**:
-  [git-scm.com/docs/git-config](https://git-scm.com/docs/git-config) (last-value-wins within a file, `[include]`
-  inserted at declaration point)
+- **Git include docs**: [git-scm.com/docs/git-config#_includes](https://git-scm.com/docs/git-config#_includes)
+- **Git config precedence**: [git-scm.com/docs/git-config](https://git-scm.com/docs/git-config) (last-value-wins within
+  a file, `[include]` inserted at declaration point)

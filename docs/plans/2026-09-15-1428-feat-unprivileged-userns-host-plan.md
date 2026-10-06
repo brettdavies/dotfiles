@@ -177,9 +177,9 @@ persists across reboots with no custom unit, unlike the AppArmor path.
   least two ticks of `box-bisync` and `cswap-auto` have run after it.
 - `obsidian.service` meets R10.
 - In a fresh `claude` session on the Linux host, `/sandbox` shows the sandbox active with no Dependencies tab, a Bash
-  call reports a mount-namespace inode different from the launching shell's, a `systemd-run --user` probe and a `tmux
-  run-shell` probe from sandboxed Bash both fail, a write into `~/dotfiles/scripts` from Bash is denied, and reading
-  each denied credential file by its `~/` path and its repo-side path fails.
+  call reports a mount-namespace inode different from the launching shell's, a `systemd-run --user` probe and a
+  `tmux run-shell` probe from sandboxed Bash both fail, a write into `~/dotfiles/scripts` from Bash is denied, and
+  reading each denied credential file by its `~/` path and its repo-side path fails.
 - `rg` for the retired names across the repo (excluding `docs/plans/`, `docs/solutions/`, `CHANGELOG.md`) returns
   nothing; CI (`bats`, `shellcheck`, `actionlint`) is green.
 
@@ -230,9 +230,9 @@ persists across reboots with no custom unit, unlike the AppArmor path.
   when it leaves experimental.
 - Reconcile the "deploys via stow" wording for machine-level config in the user-level instructions with `CONCEPTS.md`'s
   system-level-unit definition, which this plan follows.
-- First reboot after the change, and the first Mac session after pulling the settings (which also checks with `claude
-  doctor` that the Mac client accepts `strictAllowlist` and the `credentials` block; older clients drop those keys
-  silently): both are verification points recorded in the U6 entry's recipe, not gates on this plan.
+- First reboot after the change, and the first Mac session after pulling the settings (which also checks with
+  `claude doctor` that the Mac client accepts `strictAllowlist` and the `credentials` block; older clients drop those
+  keys silently): both are verification points recorded in the U6 entry's recipe, not gates on this plan.
 - Tuning of the sandbox allow-lists beyond the first representative-workflow pass in U5.
 
 ### Open Questions
@@ -480,9 +480,9 @@ OQ1 while everything before it proceeds. U6 runs after the PR merges so the docs
 - **Dependencies:** U1
 - **Files:** none in the repo; host state only.
 - **Approach:**
-  1. Baseline before anything changes: reset any failed transient `run-*` probe units, snapshot `systemctl --user
-     --failed`, and record each `PrivateTmp=true` unit's `Result` and last start time; note the apply timestamp
-     immediately before the deploy script runs.
+  1. Baseline before anything changes: reset any failed transient `run-*` probe units, snapshot
+     `systemctl --user --failed`, and record each `PrivateTmp=true` unit's `Result` and last start time; note the apply
+     timestamp immediately before the deploy script runs.
   2. Operator runs the deploy script with sudo; the script's own assertion proves the live value.
   3. Agent confirms `unshare -U true` succeeds and runs the `systemd-run --user -p PrivateTmp=true` probe (with wait and
      collect so a failure leaves no failed transient unit): started after the apply timestamp, mount-namespace inode
@@ -535,8 +535,8 @@ OQ1 while everything before it proceeds. U6 runs after the PR merges so the docs
 - **Rollback:** Restore the three files from the pre-U3 commit; operator re-runs the restored deploy script (copy,
   enable, load) and reloads the system manager. If U2 is being rolled back too, roll U3 back first, or `browse` breaks
   in the window. Chromiums launched while unloaded run `unconfined` and are fine while the sysctl is `0`. Known-good:
-  the pasted listing shows both `playwright-*` profiles and a fresh Chromium's label reads `playwright-chromium
-  (unconfined)`.
+  the pasted listing shows both `playwright-*` profiles and a fresh Chromium's label reads
+  `playwright-chromium (unconfined)`.
 - **Patterns to follow:** The operator sequence is written into `docs/runbooks/playwright-browser-launch.md` in U4 as
   the present-state provisioning section, not as a one-time migration note.
 - **Test scenarios:** Test expectation: none -- deletion plus host state; verification is the smoke, the label, and the
@@ -563,11 +563,12 @@ OQ1 while everything before it proceeds. U6 runs after the PR merges so the docs
      "host predates the sysctl" case, written in present tense; add the `user.max_user_namespaces=0` kill switch as the
      emergency lever, paired with the sandbox rollback it forces.
   4. `README.md`: tree lines for `config/`, `scripts/`, and the "system-level configs" paragraph (add sysctl, drop
-     AppArmor); `PROJECT.md` line 57; `CONCEPTS.md` § System-level unit example list; `BOOTSTRAP.md § Linux Server
-     Setup`: new steps for the sysctl deploy and the sandbox dependencies (`brew bundle`, then the exact-pinned
-     npm-global seccomp runtime with the WHY from KTD6), both before the first `claude` launch and before Playwright.
-- **Patterns to follow:** Present-state prose rule (no "previously", no migration narrative); `README.md § System-Level
-  Units` paragraph shape; existing `NOTE:`/`FATAL:` conventions.
+     AppArmor); `PROJECT.md` line 57; `CONCEPTS.md` § System-level unit example list;
+     `BOOTSTRAP.md § Linux Server Setup`: new steps for the sysctl deploy and the sandbox dependencies (`brew bundle`,
+     then the exact-pinned npm-global seccomp runtime with the WHY from KTD6), both before the first `claude` launch and
+     before Playwright.
+- **Patterns to follow:** Present-state prose rule (no "previously", no migration narrative);
+  `README.md § System-Level Units` paragraph shape; existing `NOTE:`/`FATAL:` conventions.
 - **Test scenarios:**
   - Seam file containing `1`: script exits non-zero with a `FATAL:` line that names `scripts/sysctl-deploy.sh` and
     performs no install step.
@@ -591,10 +592,10 @@ OQ1 while everything before it proceeds. U6 runs after the PR merges so the docs
   1. Brewfile: two Linux-gated lines with one WHY comment block; operator runs `brew bundle`; agent installs the seccomp
      runtime as an exact-pinned npm global and asserts `vendor/seccomp` exists under `npm root -g` (KTD6).
   2. Agent smoke: a `bwrap` invocation that binds root read-only with fresh `/proc` and `/dev` and a new network
-     namespace (the shape Claude's sandbox uses with its `socat` proxy) from a shell, then the same inside `systemd-run
-     --user -p PrivateTmp=true -p NoNewPrivileges=true` with wait and collect, to prove the nested case the nightly unit
-     relies on. If the nested probe fails on `/proc`, do not set `enableWeakerNestedSandbox` in the stowed file; record
-     it for the deferred nightly repair as a per-invocation `--settings` override.
+     namespace (the shape Claude's sandbox uses with its `socat` proxy) from a shell, then the same inside
+     `systemd-run --user -p PrivateTmp=true -p NoNewPrivileges=true` with wait and collect, to prove the nested case the
+     nightly unit relies on. If the nested probe fails on `/proc`, do not set `enableWeakerNestedSandbox` in the stowed
+     file; record it for the deferred nightly repair as a per-invocation `--settings` override.
   3. Settings: add the `sandbox` block and the `permissions.ask` rule per KTD7 (with OQ1's answer applied); extend the
      bats guard per KTD9.
   4. Fresh `claude` session on the host: `/sandbox` shows active with no Dependencies tab; a Bash call's mount-namespace

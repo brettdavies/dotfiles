@@ -310,8 +310,8 @@ needed.
 
 The loop runs after `.profile` finishes assembling `PATH` (Homebrew, `~/.local/bin`, bun, cargo). Files here routinely
 gate their contents on `command -v <tool>`, and that guard is evaluated at source time: sourced any earlier, every such
-file would silently no-op in a shell that did not inherit a populated `PATH` — a launchd-spawned terminal, cron, or `ssh
-host cmd`. `tests/shell-startup-shapes.bats` pins the ordering and exercises each shell shape;
+file would silently no-op in a shell that did not inherit a populated `PATH` — a launchd-spawned terminal, cron, or
+`ssh host cmd`. `tests/shell-startup-shapes.bats` pins the ordering and exercises each shell shape;
 `tests/shell-path-matrix.bats` checks `PATH` assembly across all eight supported invocation shapes, tabulated in
 [AGENTS.md](AGENTS.md#supported-invocation-shapes). `tests/shell-nested-idempotence.bats` sources each fragment in a
 shell and again in its child, and fails when the child's exported environment differs, since every new shell re-sources

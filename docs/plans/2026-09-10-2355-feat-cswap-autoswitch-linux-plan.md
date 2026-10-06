@@ -14,7 +14,8 @@ execution: code
 
 - **Objective:** Claude Code keeps working when the signed-in account runs out of quota, without someone noticing and
   logging in as another account.
-- **Means:** A scheduled `cswap auto --once` tick runs every minute on each host, as a systemd timer on Linux and a LaunchAgent on macOS (KTD1), against settings pinned by `scripts/cswap-autoswitch-deploy.sh` (KTD2).
+- **Means:** A scheduled `cswap auto --once` tick runs every minute on each host, as a systemd timer on Linux and a
+  LaunchAgent on macOS (KTD1), against settings pinned by `scripts/cswap-autoswitch-deploy.sh` (KTD2).
 - **Authority:** Requirements govern behavior. KTDs govern mechanism. Where a KTD and the upstream tool's behavior
   disagree, the tool's behavior wins and the KTD is wrong.
 - **Execution profile:** Packaging and host configuration. Runtime smoke verification over unit coverage; the repo-side
@@ -116,9 +117,10 @@ on, which is why the account-wide windows are the correct input here.
   window gates the account outright and has no fallback: `oauth.relevant_windows` returns the scoped windows alongside
   the 5-hour and 7-day ones, the worst window sets headroom, and once a counted window reads 100% on every account the
   engine reports all-exhausted and waits on the latest reset among the at-limit windows. It never re-decides on the
-  account-wide windows alone. Measured on both hosts: with the setting applied, an account reporting `5h 15% · 7d 60% ·
-  Fable 100%` returned `headroomPct 0.0` and the pair read as all-exhausted; unset, the same account returned `40.0` and
-  rotation resumed. The one scoped window these accounts report is for a model the work does not run on. A comma-separated list does not narrow this: each named window is appended to the gating set, so naming that model
+  account-wide windows alone. Measured on both hosts: with the setting applied, an account reporting
+  `5h 15% · 7d 60% · Fable 100%` returned `headroomPct 0.0` and the pair read as all-exhausted; unset, the same account
+  returned `40.0` and rotation resumed. The one scoped window these accounts report is for a model the work does not run
+  on. A comma-separated list does not narrow this: each named window is appended to the gating set, so naming that model
   explicitly gates identically. Governs R3.
 
 - KTD4. **The anti-flap margin is lowered to 2 points.** The margin gates the proactive path only, and a 99 trip point
@@ -131,7 +133,9 @@ on, which is why the account-wide windows are the correct input here.
 
 - KTD5. **Two packages, each guarded to its platform.** `stow/cswap` carries the systemd units and sits in
   `SHARED_PACKAGES` with a Linux-only guard case in `scripts/stow-deploy`, following `codex-proxy`. `stow/launchagent`
-  carries the plist and sits in `DESKTOP_PACKAGES`, which is macOS-only by construction. Registration in a deploy list is what satisfies R8, since a package named in neither is absent from a `--all` rebuild, and the guard is what satisfies R7. Governs R7, R8.
+  carries the plist and sits in `DESKTOP_PACKAGES`, which is macOS-only by construction. Registration in a deploy list
+  is what satisfies R8, since a package named in neither is absent from a `--all` rebuild, and the guard is what
+  satisfies R7. Governs R7, R8.
 
 - KTD6. **The units address the binary through the systemd `%h` specifier.** This follows the repo's dominant
   convention: eight committed user units already use `%h`. A minority hardcode an absolute home path, which works on one
@@ -140,8 +144,9 @@ on, which is why the account-wide windows are the correct input here.
 
 - KTD7. **The scheduler declares the tick's non-failure exit codes as success.** `auto --once` reports its outcome in
   the exit code: 0 switched, 2 nothing to do, 3 every account spent so the credential is held. Only 0 is success to
-  systemd, so without `SuccessExitStatus=2 3` every routine tick lands in the failed-unit list and buries the failures worth seeing, forfeiting the observability KTD1 selects the scheduled tick for. Governs R4 and the
-  failed-unit success criterion.
+  systemd, so without `SuccessExitStatus=2 3` every routine tick lands in the failed-unit list and buries the failures
+  worth seeing, forfeiting the observability KTD1 selects the scheduled tick for. Governs R4 and the failed-unit success
+  criterion.
 
 - KTD8. **Each scheduler sets `PATH` explicitly.** Neither a systemd user unit nor a LaunchAgent inherits an interactive
   shell's `PATH`, and `cswap` resolves the `claude` binary through it when rewriting credentials. The Linux unit sets it
@@ -229,7 +234,8 @@ The credential handoff is file-based, which is why no restart is needed.
   - `scripts/cswap-autoswitch-deploy.sh`
   - `scripts/lint-shell`
 - **Approach:**
-  1. Pin three keys: trip point 99, anti-flap margin 2, and API-key exclusion false. Hold `autoswitch.model` at its default per KTD3.
+  1. Pin three keys: trip point 99, anti-flap margin 2, and API-key exclusion false. Hold `autoswitch.model` at its
+     default per KTD3.
   2. Distinguish pinned from inherited. `cswap config` marks an unpinned key `(default)`, so a key sitting at a value
      that merely equals the shipped default is still unpinned and an upstream change would move it silently; the script
      re-pins in that case and says so.
@@ -318,6 +324,7 @@ Met:
 
 Outstanding:
 
-- The rotation proof. No account has reached the trip point since deployment, so no switch has been exercised: the ticks observed so far all report the below-threshold no-action outcome. Nothing forces this state without spending an
+- The rotation proof. No account has reached the trip point since deployment, so no switch has been exercised: the ticks
+  observed so far all report the below-threshold no-action outcome. Nothing forces this state without spending an
   account, so it is observed when it arrives rather than scheduled. Until then the switch path, the credential handoff,
   and the uninterrupted-session claim rest on the engine's behavior rather than on a measurement from these hosts.

@@ -44,9 +44,10 @@ sandbox-disabled while `browse` keeps the sandbox on.
 2. **Chromium sandbox.** Ubuntu 24.04 sets `kernel.apparmor_restrict_unprivileged_userns=1`, which blocks the user
    namespace Chromium's sandbox needs. `config/apparmor.d/playwright` grants `userns` to the Playwright Chromium
    binaries to fix this. It is deployed to `/etc/apparmor.d/`, but **Ubuntu's own `apparmor.service` is skipped at boot
-   on this minimized server** (`systemctl show apparmor.service -p ConditionResult` prints `no`, and `journalctl -b -u
-   apparmor.service` is empty), so the profile silently drops on every reboot. `apparmor-playwright.service` (a oneshot
-   that runs `apparmor_parser -r` at boot) loads it independently so it survives reboots.
+   on this minimized server** (`systemctl show apparmor.service -p ConditionResult` prints `no`, and
+   `journalctl -b -u apparmor.service` is empty), so the profile silently drops on every reboot.
+   `apparmor-playwright.service` (a oneshot that runs `apparmor_parser -r` at boot) loads it independently so it
+   survives reboots.
 
 3. **WebKit deps.** Playwright's `webkit` browser is WebKitGTK (the engine behind Safari, including iOS/iPadOS Safari —
    the `mobile-ios` and `tablet` e2e projects). It needs `libgtk-4-1`, the `gstreamer1.0` set, `libavif16`,
