@@ -120,10 +120,10 @@ the recommended implementation path.
   returns a connection-reset (service fails to start, backend import fails). This is pragmatic graceful degradation that
   matches how `stow/obsidian/` behaves on hosts without Obsidian installed. No new conditional-deploy mechanism needed.
   On macOS, the package is skipped via the existing Linux-only case block.
-- **Launcher named `opendataloader-pdf-hybrid-sa`**, not `opendataloader-pdf-hybrid`. The latter is owned by `uv tool
-  install`. The `-sa` (socket-activation) suffix avoids path collision in `~/.local/bin/` and names intent clearly.
-  Launcher shebangs `/home/brett/.local/share/uv/tools/opendataloader-pdf/bin/python` — this path is stable across `uv
-  tool upgrade` (verified in spike).
+- **Launcher named `opendataloader-pdf-hybrid-sa`**, not `opendataloader-pdf-hybrid`. The latter is owned by
+  `uv tool install`. The `-sa` (socket-activation) suffix avoids path collision in `~/.local/bin/` and names intent
+  clearly. Launcher shebangs `/home/brett/.local/share/uv/tools/opendataloader-pdf/bin/python` — this path is stable
+  across `uv tool upgrade` (verified in spike).
 - **Idle-exit at launcher level, not via external timer.** An ASGI middleware records the timestamp of each request
   completion; an asyncio background task polls every 5 s and, once (now − last_activity) exceeds the idle timeout AND no
   request is in flight, it trips uvicorn's `server.should_exit = True`. Uvicorn drains active connections (there are
@@ -331,8 +331,8 @@ existing bats tests still pass.
 **Test scenarios:**
 
 - Happy path: `bash scripts/stow-deploy --all` on Linux deploys the new package alongside the others.
-- Happy path: `bash scripts/stow-deploy --all` on macOS skips the new package with a `WARNING: opendataloader-pdf is
-  Linux-only` message, exits 0.
+- Happy path: `bash scripts/stow-deploy --all` on macOS skips the new package with a
+  `WARNING: opendataloader-pdf is Linux-only` message, exits 0.
 - Edge case: bats test `stow-deploy-packages.bats` asserts `opendataloader-pdf` is in `SHARED_PACKAGES` array and in the
   Linux-only case block.
 - Edge case: `bash scripts/stow-deploy opendataloader-pdf` (explicit single package) on Linux deploys it.
@@ -363,9 +363,9 @@ units, enables the socket unit (`--now`), and confirms `/health` responds. Idemp
 - Script logic, in order:
 
 1. Guard: exit early if not Linux (`uname -s`).
-2. Detect + stop any existing listener on :5002: if `ss -tnlp 'sport = :5002'` shows a process, try `systemctl --user
-   stop opendataloader-pdf.service 2>/dev/null`, then `pkill -TERM -f opendataloader-pdf-hybrid` as a fallback. Wait up
-   to 5 s for the port to clear.
+2. Detect + stop any existing listener on :5002: if `ss -tnlp 'sport = :5002'` shows a process, try
+   `systemctl --user stop opendataloader-pdf.service 2>/dev/null`, then `pkill -TERM -f opendataloader-pdf-hybrid` as a
+   fallback. Wait up to 5 s for the port to clear.
 3. `systemctl --user daemon-reload`.
 4. `systemctl --user enable --now opendataloader-pdf.socket`.
 5. Smoke: `curl --max-time 30 http://127.0.0.1:5002/health` must return `{"status":"ok"}`. (This triggers the first
@@ -421,12 +421,12 @@ sanity). A manual smoke checklist documents the live-behavior tests that require
 
 1. Package layout exists: socket unit, service unit, launcher script all present at the expected stow paths.
 2. Socket unit references `:5002` and `Accept=no` (default or explicit).
-3. Service unit `ExecStart` references `%h/.local/bin/opendataloader-pdf-hybrid-sa` and includes `--force-ocr
-   --idle-timeout`.
+3. Service unit `ExecStart` references `%h/.local/bin/opendataloader-pdf-hybrid-sa` and includes
+   `--force-ocr --idle-timeout`.
 4. Service unit sets `NoNewPrivileges=true` and `PrivateTmp=true`.
 5. Launcher is executable (0755) and has a shebang referencing a real interpreter path.
-6. `scripts/opendataloader-pdf-enable.sh` is executable and references `opendataloader-pdf.socket` and `curl
-   .../health`.
+6. `scripts/opendataloader-pdf-enable.sh` is executable and references `opendataloader-pdf.socket` and
+   `curl .../health`.
 7. `SHARED_PACKAGES` in `scripts/stow-deploy` contains `opendataloader-pdf`.
 8. The Linux-only case block in `scripts/stow-deploy` contains `opendataloader-pdf`.
 

@@ -35,8 +35,8 @@ human conventions neither tool enforces. Open it when writing or reviewing a she
 - **Each function carries a doc block** above its definition covering the parts that apply: a one-line description, the
   `Globals` it reads or writes, its positional `Args`, what it writes to `Outputs` (STDOUT), and its `Returns` (exit
   status). Omit a heading when the function has none of that kind.
-- **Deferred work uses the `TODO(user)` form**: the owner's handle in parentheses, then the action, as in `TODO(brett):
-  drop the fallback once the API ships v2`.
+- **Deferred work uses the `TODO(user)` form**: the owner's handle in parentheses, then the action, as in
+  `TODO(brett): drop the fallback once the API ships v2`.
 
 ## Errors
 

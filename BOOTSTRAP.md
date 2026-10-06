@@ -167,8 +167,8 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/too
 
 ### Zsh plugins and theme
 
-`zsh-autosuggestions`, `zsh-syntax-highlighting`, `zsh-completions`, and `powerlevel10k` are all installed by `brew
-bundle` (Brewfile entries on both macOS and Linux). They live under `$HOMEBREW_PREFIX/share/`.
+`zsh-autosuggestions`, `zsh-syntax-highlighting`, `zsh-completions`, and `powerlevel10k` are all installed by
+`brew bundle` (Brewfile entries on both macOS and Linux). They live under `$HOMEBREW_PREFIX/share/`.
 
 - **`zsh-autosuggestions` and `zsh-syntax-highlighting`** are NOT wired through oh-my-zsh's `plugins=(...)` array. Brew
   ships them without the `<name>.plugin.zsh` file omz's `is_plugin()` requires, so `plugins=(zsh-autosuggestions ...)`
@@ -314,9 +314,9 @@ A repo can close the gap independently of machine state with `profile = "minimal
 rustup honors when it auto-installs the pinned toolchain.
 
 The default profile bundles `rust-docs`, roughly 800MB of offline HTML per toolchain and 2.4GB across the three pinned
-here. Nothing reads it: the host has no browser, and API lookups go to docs.rs. `minimal` still honors the `components =
-["rustfmt", "clippy"]` line in each repo's `rust-toolchain.toml`, so pinned repos get what they ask for and nothing
-else.
+here. Nothing reads it: the host has no browser, and API lookups go to docs.rs. `minimal` still honors the
+`components = ["rustfmt", "clippy"]` line in each repo's `rust-toolchain.toml`, so pinned repos get what they ask for
+and nothing else.
 
 The setting governs new installs. Removing it from toolchains already on disk is a separate step, and `rustup update`
 preserves whatever component set a toolchain currently has:
@@ -341,8 +341,8 @@ systemctl --user enable --now cargo-target-sweep.timer
 ```
 
 Preview a run with `cargo-target-sweep --dry-run`, change the window with `CARGO_TARGET_SWEEP_DAYS`, and read past runs
-with `journalctl --user -u cargo-target-sweep`. Lingering must be on for the timer to fire while logged out (`loginctl
-enable-linger $USER`).
+with `journalctl --user -u cargo-target-sweep`. Lingering must be on for the timer to fire while logged out
+(`loginctl enable-linger $USER`).
 
 ### SSH session locale
 

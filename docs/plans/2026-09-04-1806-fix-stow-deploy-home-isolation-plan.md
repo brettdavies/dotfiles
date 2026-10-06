@@ -194,8 +194,9 @@ start.
   spawn seams, and home-anchored constructors, plus the xurl-rs and dotfiles worked examples, and says to inject a
   purpose-built path in tests rather than reset `HOME`.
 - R27. The post-run check is stateless and runs only for commands that match the trigger list, which covers the runners
-  in use on this machine (`bats`, `scripts/run-tests`, `cargo test`, `cargo nextest`, `bun test`, `npm test`, `pnpm
-  test`, `yarn test`, `vitest`, `jest`, `pytest`, `go test`, `make test`) plus `stow` and `stow-deploy` invocations.
+  in use on this machine (`bats`, `scripts/run-tests`, `cargo test`, `cargo nextest`, `bun test`, `npm test`,
+  `pnpm test`, `yarn test`, `vitest`, `jest`, `pytest`, `go test`, `make test`) plus `stow` and `stow-deploy`
+  invocations.
 
 ### Key Flows
 
@@ -361,11 +362,11 @@ user-directed in this session; added A5, F6, AE8, AE9. All other IDs and meaning
   (session-settled: user-directed — inherited from the enforcement decision, chosen over resetting `HOME` in tests: a
   core-variable reset has machine-wide reach and hides the seam.)
 - KTD2. **The refusal sits immediately after argument parsing, before package validation, and compares physical paths on
-  both sides.** Earliest placement means the red fixture needs only the script and an empty `stow/` directory, and `pwd
-  -P` on both the repository root and `~/dotfiles` makes a symlinked checkout path neither pass nor fail by accident.
-  The condition is: the target resolves to the real home and the repository root does not resolve to `~/dotfiles`.
-  Governs R1, R2, R3. (session-settled: user-directed — inherited from the fixed-canonical-path decision, chosen over
-  ownership detection.)
+  both sides.** Earliest placement means the red fixture needs only the script and an empty `stow/` directory, and
+  `pwd -P` on both the repository root and `~/dotfiles` makes a symlinked checkout path neither pass nor fail by
+  accident. The condition is: the target resolves to the real home and the repository root does not resolve to
+  `~/dotfiles`. Governs R1, R2, R3. (session-settled: user-directed — inherited from the fixed-canonical-path decision,
+  chosen over ownership detection.)
 - KTD3. **The refusal's red fixture is a copy of the deploy script in a temp tree.** Never a worktree of the real repo
   (git-crypt blocks it and it mutates the canonical git dir) and never a copy of package trees (they hold decrypted
   secrets). Unfixed code proceeds to package validation and exits with the usage code, a different message, so red is
@@ -706,17 +707,17 @@ U7. Phase 3, rule and record: U8 after U2 and U7; U9 after the merge. U5 can sta
 
 ## Verification Contract
 
-| Check | Command | Applies to | Done signal |
-| --- | --- | --- | --- |
-| Shell lint | `scripts/lint-shell --all` | U2, U3, U4, U5, U6, U7 | Zero findings, including the new helper directory |
-| Deploy script tests | `scripts/run-tests tests/stow-deploy-args.bats tests/stow-deploy-packages.bats` from `~/dotfiles` | U2, U3 | Pass, with scratch-target links and unchanged real-home links |
-| Guard test | `scripts/run-tests tests/home-isolation-guard.bats` | U4 | Pass on the live suite; planted violation reported |
-| Hook suite | `scripts/run-tests tests/home-guard.bats tests/run-tests.bats` | U5, U6, U7 | Every allow and deny scenario passes |
-| Full gate | `scripts/run-tests --all` from `~/dotfiles` | All | Pass, and the runner's integrity check reports no drift |
-| Live integrity | `stow/claude/dot-claude/home-guard.sh --check` | U5 | Exit zero on the deployed home |
-| Live hook probe | A harmless trigger-shaped command from a throwaway dotfiles clone in a Claude Code session, after deploying the `claude` package | U7 | The deny message reaches the model and the command does not run |
-| Red observations | Each unit's observed-red scenario, run against the unfixed code | U2, U3, U4, U5, U6, U7 | Failure output quoted in the PR body; no red run touched the real home |
-| Prose | `markdownlint-cli2` on every changed markdown file; `/unslop` on the PR body and commit messages | U8, U9 | Zero issues |
+| Check               | Command                                                                                                                          | Applies to             | Done signal                                                            |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------- |
+| Shell lint          | `scripts/lint-shell --all`                                                                                                       | U2, U3, U4, U5, U6, U7 | Zero findings, including the new helper directory                      |
+| Deploy script tests | `scripts/run-tests tests/stow-deploy-args.bats tests/stow-deploy-packages.bats` from `~/dotfiles`                                | U2, U3                 | Pass, with scratch-target links and unchanged real-home links          |
+| Guard test          | `scripts/run-tests tests/home-isolation-guard.bats`                                                                              | U4                     | Pass on the live suite; planted violation reported                     |
+| Hook suite          | `scripts/run-tests tests/home-guard.bats tests/run-tests.bats`                                                                   | U5, U6, U7             | Every allow and deny scenario passes                                   |
+| Full gate           | `scripts/run-tests --all` from `~/dotfiles`                                                                                      | All                    | Pass, and the runner's integrity check reports no drift                |
+| Live integrity      | `stow/claude/dot-claude/home-guard.sh --check`                                                                                   | U5                     | Exit zero on the deployed home                                         |
+| Live hook probe     | A harmless trigger-shaped command from a throwaway dotfiles clone in a Claude Code session, after deploying the `claude` package | U7                     | The deny message reaches the model and the command does not run        |
+| Red observations    | Each unit's observed-red scenario, run against the unfixed code                                                                  | U2, U3, U4, U5, U6, U7 | Failure output quoted in the PR body; no red run touched the real home |
+| Prose               | `markdownlint-cli2` on every changed markdown file; `/unslop` on the PR body and commit messages                                 | U8, U9                 | Zero issues                                                            |
 
 ---
 

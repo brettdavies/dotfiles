@@ -38,8 +38,8 @@ tailored skill that understands the compound engineering workflow, collection ro
 integration.
 
 **Chosen: CLI + Skill + Hook** — Zero overhead. Claude shells out to `qmd` only when needed. A custom SKILL.md teaches
-Claude *when* and *how* to search, with collection routing tailored to this setup. A SessionStart hook injects `qmd
-status` so Claude knows what's available.
+Claude *when* and *how* to search, with collection routing tailored to this setup. A SessionStart hook injects
+`qmd status` so Claude knows what's available.
 
 ## Key Decisions
 

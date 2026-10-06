@@ -59,10 +59,10 @@ right env var for every tool that has native support).
 
 Native tool support (current as of the shell sourcing this file):
 
-- **Bundler 4.0.13+ (RubyGems)** — `BUNDLE_COOLDOWN=7` (env) or `bundle config set cooldown 7` (persisted) or `source
-  "https://rubygems.org", cooldown: 7` (in-Gemfile). Enforced during resolution (`bundle install` without a lockfile,
-  `bundle update`); existing `Gemfile.lock` entries are honored as-is. `bundle outdated` annotates in-window versions
-  with the days remaining before they become resolvable. Reference:
+- **Bundler 4.0.13+ (RubyGems)** — `BUNDLE_COOLDOWN=7` (env) or `bundle config set cooldown 7` (persisted) or
+  `source "https://rubygems.org", cooldown: 7` (in-Gemfile). Enforced during resolution (`bundle install` without a
+  lockfile, `bundle update`); existing `Gemfile.lock` entries are honored as-is. `bundle outdated` annotates in-window
+  versions with the days remaining before they become resolvable. Reference:
   <https://blog.rubygems.org/2026/06/03/cooldown-let-new-gems-be-vetted.html>.
 - **uv 0.9.17+ (Python)** — `UV_EXCLUDE_NEWER="7 days"` (relative duration) or `tool.uv.exclude-newer = "<RFC3339>"` in
   `pyproject.toml`. Date-based rather than days-based; same intent.

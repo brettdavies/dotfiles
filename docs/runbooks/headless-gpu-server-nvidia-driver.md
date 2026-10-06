@@ -63,10 +63,10 @@ sudo NEEDRESTART_MODE=a apt install -y \
     vulkan-tools
 ```
 
-The `libnvidia-gl-NNN-server` package ships the matching Vulkan ICD
-(`/usr/share/vulkan/icd.d/nvidia_icd.json`). Without it, Vulkan-using apps on the box (anything built on
-`node-llama-cpp`, LM Studio, etc.) silently fall back to CPU or fail to enumerate the GPU as a Vulkan device.
-`vulkan-tools` is a 3 MB diagnostic kit (`vulkaninfo`, `vkcube`) — optional but handy when debugging.
+The `libnvidia-gl-NNN-server` package ships the matching Vulkan ICD (`/usr/share/vulkan/icd.d/nvidia_icd.json`). Without
+it, Vulkan-using apps on the box (anything built on `node-llama-cpp`, LM Studio, etc.) silently fall back to CPU or fail
+to enumerate the GPU as a Vulkan device. `vulkan-tools` is a 3 MB diagnostic kit (`vulkaninfo`, `vkcube`) — optional but
+handy when debugging.
 
 DKMS builds the nvidia module for **every installed kernel**, not just the running one. On a typical box with current +
 prior + (possibly) a newly-pulled latest kernel, expect 3-9 minutes of CPU and three "Building initial module
@@ -168,9 +168,9 @@ appears, the auto-selected backend is not CUDA and is probably broken or has fal
   The env-var pin remains the load-bearing fix; the rebuild adds a working Vulkan fallback so a future regression
   on the CUDA prebuilt does not strand the box again. Re-run the script after any future driver branch change.
 
-The pattern generalizes: if you find another app falling back to CPU after a driver swap, look for its backend-pin
-env var (`OLLAMA_*`, `CUDA_VISIBLE_DEVICES`, `GGML_CUDA_FORCE_MMQ`, etc.) and set it explicitly in the unit file
-rather than relying on auto-detect.
+The pattern generalizes: if you find another app falling back to CPU after a driver swap, look for its backend-pin env
+var (`OLLAMA_*`, `CUDA_VISIBLE_DEVICES`, `GGML_CUDA_FORCE_MMQ`, etc.) and set it explicitly in the unit file rather than
+relying on auto-detect.
 
 ---
 
@@ -233,8 +233,8 @@ boot-time fallback.
   block the load.
 - `NEEDRESTART_MODE=a` matters in scripted contexts; in an interactive shell it is fine to answer the prompt manually.
 - DKMS builds for **every** installed kernel on `dkms autoinstall`. `apt autoremove --purge` does NOT always drop stale
-  kernels (it only removes leaves that became unreferenced naturally); kernels installed explicitly may need `apt remove
-  --purge linux-image-6.8.0-N-generic linux-modules-6.8.0-N-generic` to clear.
+  kernels (it only removes leaves that became unreferenced naturally); kernels installed explicitly may need
+  `apt remove --purge linux-image-6.8.0-N-generic linux-modules-6.8.0-N-generic` to clear.
 - Installing `linux-headers-generic` (or upgrading it) can transitively pull in a newer `linux-image-*` package as a
   dependency. This is expected and fine — DKMS will build for the new kernel as part of its install — but be ready for a
   "Pending kernel upgrade!" notice from needrestart afterward.

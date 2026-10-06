@@ -69,12 +69,12 @@ AI-attribution trailer to commit messages or PR bodies. This overrides the defau
 into Claude Code's system prompt and any skill/command template (e.g., the official `code-review` plugin,
 `rust-new-repo` skill) that includes one. Commits and PRs stand on their own technical content.
 
-**Enforcement.** The `~/.claude/ai-attribution-guard.sh` PreToolUse Bash hook denies `git commit` and `gh
-pr|issue|release` calls whose message or body carries the trailer. It resolves `--file` / `-F` / `--body-file` /
+**Enforcement.** The `~/.claude/ai-attribution-guard.sh` PreToolUse Bash hook denies `git commit` and
+`gh pr|issue|release` calls whose message or body carries the trailer. It resolves `--file` / `-F` / `--body-file` /
 `--notes-file` and reads the artifact, so a trailer authored into a `/tmp/` body is caught at the same gate as an inline
-one; a human `Co-Authored-By:` passes. Tests at `tests/ai-attribution-guard.bats` (22 cases) — run with `bats
-tests/ai-attribution-guard.bats`. The hook exists because the rule alone loses to a mid-session harness reminder that
-instructs the opposite, and the cleanup is a signed-history rewrite plus a force-push to a protected branch.
+one; a human `Co-Authored-By:` passes. Tests at `tests/ai-attribution-guard.bats` (22 cases) — run with
+`bats tests/ai-attribution-guard.bats`. The hook exists because the rule alone loses to a mid-session harness reminder
+that instructs the opposite, and the cleanup is a signed-history rewrite plus a force-push to a protected branch.
 
 ## Rewriting pushed history (reword, force-push)
 
@@ -95,8 +95,8 @@ commit ten-deep leaves all eleven commits unsigned under a single committer date
 wrong tool, and rewording one commit degrades every unrelated commit stacked above it.
 
 **To rewrite while preserving signatures + committer dates**, use the `strip-ai-attribution` skill's `git commit-tree`
-chain (rebuilds each commit from its exact tree with `-S` re-signing and `GIT_COMMITTER_DATE` preserved) or `git rebase
---root --exec '… commit --amend --no-edit -S'` with committer-date restoration. That skill's
+chain (rebuilds each commit from its exact tree with `-S` re-signing and `GIT_COMMITTER_DATE` preserved) or
+`git rebase --root --exec '… commit --amend --no-edit -S'` with committer-date restoration. That skill's
 `references/git-mechanics.md` tabulates why `commit-tree` beats `reword`/`filter-repo` here; bulk attribution/trailer
 strips are that skill's job (user-invocable only, gated on explicit confirmation).
 
@@ -112,9 +112,9 @@ hard-reset, and any SHAs pinned in other docs go stale.
 Git runs a hook with variables that pin git to the repository being committed or pushed, and every process the hook
 starts inherits them. `GIT_DIR` outranks a child's cwd and `git -C <dir>`; `GIT_INDEX_FILE` outranks the index of
 whatever repository the child finds. A tool that runs git somewhere else on purpose then acts on the hook's repository
-instead: a test fixture's `git init` writes `core.bare = true` into the shared config and the main clone refuses `git
-commit` from then on, a scratch commit lands on the branch being pushed, or a child's `git add` lands in the commit's
-temporary index.
+instead: a test fixture's `git init` writes `core.bare = true` into the shared config and the main clone refuses
+`git commit` from then on, a scratch commit lands on the branch being pushed, or a child's `git add` lands in the
+commit's temporary index.
 
 What git 2.56 exports, with `<gitdir>` the checkout's private git directory (`<main>/.git/worktrees/<name>` for a linked
 worktree). `GIT_PREFIX` is set in every case:
@@ -177,15 +177,15 @@ Fill in each section, remove HTML comment placeholders, and insert real content.
 (e.g., Screenshots for non-UI changes). Do NOT use hardcoded PR body formats from skills or other sources — the cascade
 above is the single source of truth.
 
-**Pre-flight before every `gh pr create` / `gh pr edit --body`:** read the template file first (`cat
-.github/pull_request_template.md`, or the global fallback) and use its content as the body skeleton. If you're about to
-`--body` a hand-written string instead of filling in the template, stop — that's the bypass.
+**Pre-flight before every `gh pr create` / `gh pr edit --body`:** read the template file first
+(`cat .github/pull_request_template.md`, or the global fallback) and use its content as the body skeleton. If you're
+about to `--body` a hand-written string instead of filling in the template, stop — that's the bypass.
 
 **Sub-section completeness.** The template's `Files Modified` block has four sub-headers (`**Modified:**` /
 `**Created:**` / `**Renamed:**` / `**Deleted:**`); `Related Issues/Stories` has four labels (`Story:` / `Issue:` /
 `Architecture:` / `Related PRs:`). All four are required even when empty — write `- None.` or `n/a` rather than deleting
-the sub-header or label. The "delete empty sections" rule applies ONLY to the `Changelog` block's `### Added` / `###
-Changed` / `### Fixed` / `### Documentation` subsections, per the template's own comment.
+the sub-header or label. The "delete empty sections" rule applies ONLY to the `Changelog` block's `### Added` /
+`### Changed` / `### Fixed` / `### Documentation` subsections, per the template's own comment.
 
 ## Authoring GitHub correspondence: `/tmp/` + `--body-file` + `/unslop`
 
@@ -222,11 +222,11 @@ repo has its own prose-linting pipeline.
    slight softening. When a draft gets meaningfully rewritten, append the LLM-draft → Brett-rewrite swap in `voice.md`
    with a one-line "why" so the next draft starts closer.
 3. **Submit via file flag, then delete the tmp file.** `gh pr create --body-file <path>`, `gh pr edit --body-file ...`,
-   `gh pr comment --body-file ...`, `gh issue create --body-file ...`, `gh release create --notes-file ...`, `git commit
-   --file ...`. Never inline the body via `--body "..."`, `-m "..."`, or a `--body "$(cat <<'EOF' ... EOF)"` heredoc.
-   **As soon as the `gh` (or `git commit`) call returns success, delete the tmp file with `trash <path>`.** The file is
-   single-use; leaving it around invites accidental reuse with stale content on the next turn and clutters `/tmp/`. If
-   the submit fails, keep the file, fix, resubmit, then delete on success.
+   `gh pr comment --body-file ...`, `gh issue create --body-file ...`, `gh release create --notes-file ...`,
+   `git commit --file ...`. Never inline the body via `--body "..."`, `-m "..."`, or a `--body "$(cat <<'EOF' ... EOF)"`
+   heredoc. **As soon as the `gh` (or `git commit`) call returns success, delete the tmp file with `trash <path>`.** The
+   file is single-use; leaving it around invites accidental reuse with stale content on the next turn and clutters
+   `/tmp/`. If the submit fails, keep the file, fix, resubmit, then delete on success.
 
 Typical flow (PR body):
 
@@ -261,24 +261,24 @@ The Vale + LanguageTool + unslop *full stack* remains repo-local (currently `age
 `agentnative-site`, `agentnative-spec` — see those repos' `RELEASES.md` "Prose scrubbing" sections). Repos without
 Vale/LT still run `/unslop` as the minimum acceptable scrub.
 
-**Enforcement.** The `~/.claude/heredoc-pr-guard.sh` PreToolUse Bash hook rejects `gh pr (create|edit|comment|review)
---body "<heredoc>"`, `gh issue (create|edit|comment) --body "<heredoc>"`, `gh release (create|edit) --notes
-"<heredoc>"`, and `git commit -m "<heredoc>"`. The hook is wired into `stow/claude/dot-claude/settings.json` and runs on
-every Bash tool call. Tests covering 41 cases (positive, negative, and adversarial red-team bypasses) live at
-`tests/heredoc-pr-guard.bats` — run with `bats tests/heredoc-pr-guard.bats`. If a legitimate use is blocked, fix the
-regex; do NOT bypass the hook for individual commands.
+**Enforcement.** The `~/.claude/heredoc-pr-guard.sh` PreToolUse Bash hook rejects
+`gh pr (create|edit|comment|review) --body "<heredoc>"`, `gh issue (create|edit|comment) --body "<heredoc>"`,
+`gh release (create|edit) --notes "<heredoc>"`, and `git commit -m "<heredoc>"`. The hook is wired into
+`stow/claude/dot-claude/settings.json` and runs on every Bash tool call. Tests covering 41 cases (positive, negative,
+and adversarial red-team bypasses) live at `tests/heredoc-pr-guard.bats` — run with `bats tests/heredoc-pr-guard.bats`.
+If a legitimate use is blocked, fix the regex; do NOT bypass the hook for individual commands.
 
 Why hook + docs (not docs alone): inline heredoc into `--body` produces wrapped-and-escape-trapped text that lands in
 the PR body AND in the squash-merge commit message. Cleanup after the fact requires either re-submitting via
 `--body-file` (acceptable) or a destructive `git history reword` + force-push to a protected branch (not acceptable).
 ~30 seconds of pre-submit `/tmp/` work avoids both.
 
-**Heredoc escape rule (fallback for when `--body-file` is impractical).** If you still compose a body inline via `gh pr
-create --body "$(cat <<'EOF' ... EOF)"`, the single-quoted delimiter (`<<'EOF'`) preserves the body **literally** — no
-variable expansion, no backslash interpretation. Do NOT escape inner quotes, backslashes, or dollar signs. If the body
-needs to render `"foo"`, write `"foo"` — not `\"foo\"`. The latter renders as literal backslash-quote in markdown AND
-lands in the squash-merge commit message, where cleanup requires a destructive `git history reword` + force-push to a
-protected branch. The `--body-file` approach above sidesteps this entire class of problem.
+**Heredoc escape rule (fallback for when `--body-file` is impractical).** If you still compose a body inline via
+`gh pr create --body "$(cat <<'EOF' ... EOF)"`, the single-quoted delimiter (`<<'EOF'`) preserves the body **literally**
+— no variable expansion, no backslash interpretation. Do NOT escape inner quotes, backslashes, or dollar signs. If the
+body needs to render `"foo"`, write `"foo"` — not `\"foo\"`. The latter renders as literal backslash-quote in markdown
+AND lands in the squash-merge commit message, where cleanup requires a destructive `git history reword` + force-push to
+a protected branch. The `--body-file` approach above sidesteps this entire class of problem.
 
 ## Changelog is the changelog source of truth
 

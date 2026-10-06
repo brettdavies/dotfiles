@@ -9,23 +9,35 @@ date: 2026-02-16
 
 ## Overview
 
-Consolidate all repo-enforcement mechanisms so they are clearly repo-local: git hooks in `.githooks/`, GitHub platform config in `.github/`, nothing stowed or symlinked as global defaults. Fix loose ends from previous sessions (stale comments, uncommitted files, broken LFS hooks).
+Consolidate all repo-enforcement mechanisms so they are clearly repo-local: git hooks in `.githooks/`, GitHub platform
+config in `.github/`, nothing stowed or symlinked as global defaults. Fix loose ends from previous sessions (stale
+comments, uncommitted files, broken LFS hooks).
 
 ## Problem Statement
 
 The current state works but has organizational issues:
 
-1. **Hooks in `scripts/git-hooks/`** -- non-standard location. The de facto convention is `.githooks/`. The `scripts/` directory previously held a large library system that was removed; keeping `scripts/git-hooks/` as the sole remaining content is vestigial.
-2. **Pre-commit has a stale comment** -- line 5 says `# Install: cp scripts/git-hooks/pre-commit .git/hooks/pre-commit` but the repo uses `core.hooksPath`, not manual copying.
-3. **Uncommitted files** -- `.github/rulesets/`, `scripts/git-hooks/pre-commit`, `CLAUDE.md`, and a plan doc are all modified/untracked on `development`.
-4. **Git LFS hooks broken** -- `core.hooksPath` overrides `.git/hooks/` where LFS hooks live. The repo-local hooks don't chain-call LFS, so LFS file tracking silently fails.
-5. **No deployment automation for `core.hooksPath`** -- it's set in `.git/config` (not tracked), and the old install scripts were removed. New clones won't have hooks active unless they know to run `git config core.hooksPath .githooks`.
+1. **Hooks in `scripts/git-hooks/`** -- non-standard location. The de facto convention is `.githooks/`. The `scripts/`
+   directory previously held a large library system that was removed; keeping `scripts/git-hooks/` as the sole remaining
+   content is vestigial.
+2. **Pre-commit has a stale comment** -- line 5 says `# Install: cp scripts/git-hooks/pre-commit .git/hooks/pre-commit`
+   but the repo uses `core.hooksPath`, not manual copying.
+3. **Uncommitted files** -- `.github/rulesets/`, `scripts/git-hooks/pre-commit`, `CLAUDE.md`, and a plan doc are all
+   modified/untracked on `development`.
+4. **Git LFS hooks broken** -- `core.hooksPath` overrides `.git/hooks/` where LFS hooks live. The repo-local hooks don't
+   chain-call LFS, so LFS file tracking silently fails.
+5. **No deployment automation for `core.hooksPath`** -- it's set in `.git/config` (not tracked), and the old install
+   scripts were removed. New clones won't have hooks active unless they know to run
+   `git config core.hooksPath .githooks`.
 
 ## Proposed Solution
 
 ### 1. Move hooks from `scripts/git-hooks/` to `.githooks/`
 
-**Why `.githooks/` instead of `scripts/git-hooks/`:** The `.github/` directory is reserved by GitHub for platform configuration (Actions workflows, issue templates, rulesets, CODEOWNERS, FUNDING.yml). Git hooks are local git client behavior, not GitHub platform config. `.githooks/` is the de facto community standard (recommended by Atlassian, githooks.com, and git documentation examples).
+**Why `.githooks/` instead of `scripts/git-hooks/`:** The `.github/` directory is reserved by GitHub for platform
+configuration (Actions workflows, issue templates, rulesets, CODEOWNERS, FUNDING.yml). Git hooks are local git client
+behavior, not GitHub platform config. `.githooks/` is the de facto community standard (recommended by Atlassian,
+githooks.com, and git documentation examples).
 
 **Steps:**
 
@@ -33,21 +45,24 @@ The current state works but has organizational issues:
 - Move `scripts/git-hooks/post-checkout` → `.githooks/post-checkout`
 - Move `scripts/git-hooks/post-merge` → `.githooks/post-merge`
 - Remove empty `scripts/git-hooks/` (and `scripts/` if nothing else remains)
-- Remove the stale install comment from pre-commit (line 5: `# Install: cp scripts/git-hooks/pre-commit .git/hooks/pre-commit`)
+- Remove the stale install comment from pre-commit (line 5:
+  `# Install: cp scripts/git-hooks/pre-commit .git/hooks/pre-commit`)
 
 **Update `core.hooksPath`:** After moving, run `git config core.hooksPath .githooks` to point at the new location.
 
 ### 2. Fix LFS hook chaining
 
-When `core.hooksPath` is set, git ignores `.git/hooks/` entirely -- including the LFS hooks that `git lfs install` places there. The fix is to chain-call LFS from the custom hooks using the guard pattern from `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`.
+When `core.hooksPath` is set, git ignores `.git/hooks/` entirely -- including the LFS hooks that `git lfs install`
+places there. The fix is to chain-call LFS from the custom hooks using the guard pattern from
+`docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`.
 
 **Hooks that need LFS chaining:**
 
-| Hook | LFS chain call |
-| ------ | --------------- |
-| `post-checkout` | `command -v git-lfs >/dev/null 2>&1 && git lfs post-checkout "$@"` |
-| `post-merge` | `command -v git-lfs >/dev/null 2>&1 && git lfs post-merge "$@"` |
-| `pre-push` (new) | `command -v git-lfs >/dev/null 2>&1 && git lfs pre-push "$@"` |
+| Hook             | LFS chain call                                                     |
+| ---------------- | ------------------------------------------------------------------ |
+| `post-checkout`  | `command -v git-lfs >/dev/null 2>&1 && git lfs post-checkout "$@"` |
+| `post-merge`     | `command -v git-lfs >/dev/null 2>&1 && git lfs post-merge "$@"`    |
+| `pre-push` (new) | `command -v git-lfs >/dev/null 2>&1 && git lfs pre-push "$@"`      |
 
 **Note:** `pre-commit` does NOT need LFS chaining -- LFS uses `pre-push`, not `pre-commit`.
 
@@ -187,18 +202,18 @@ After moving hooks, check if `scripts/` has remaining content:
 
 ## Files changed
 
-| Action | File | Notes |
-| -------- | ------ | ------- |
-| Move | `scripts/git-hooks/pre-commit` → `.githooks/pre-commit` | Remove stale install comment |
-| Move | `scripts/git-hooks/post-checkout` → `.githooks/post-checkout` | Add LFS chain call |
-| Move | `scripts/git-hooks/post-merge` → `.githooks/post-merge` | Add LFS chain call |
-| Create | `.githooks/pre-push` | LFS-only hook |
-| Create | `.githooks/setup` | Bootstrap script for `core.hooksPath` |
-| Delete | `scripts/git-hooks/` | Empty after move (and `scripts/` if empty) |
-| Edit | `CLAUDE.md` | Update hook paths |
-| Edit | `README.md` | Update layout, secrets section, add bootstrap step |
-| Edit | `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md` | Update path references |
-| Edit | `docs/solutions/configuration-fixes/branch-divergence-reconciliation-and-workflow-enforcement.md` | Update path references |
+| Action | File                                                                                              | Notes                                              |
+| ------ | ------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Move   | `scripts/git-hooks/pre-commit` → `.githooks/pre-commit`                                           | Remove stale install comment                       |
+| Move   | `scripts/git-hooks/post-checkout` → `.githooks/post-checkout`                                     | Add LFS chain call                                 |
+| Move   | `scripts/git-hooks/post-merge` → `.githooks/post-merge`                                           | Add LFS chain call                                 |
+| Create | `.githooks/pre-push`                                                                              | LFS-only hook                                      |
+| Create | `.githooks/setup`                                                                                 | Bootstrap script for `core.hooksPath`              |
+| Delete | `scripts/git-hooks/`                                                                              | Empty after move (and `scripts/` if empty)         |
+| Edit   | `CLAUDE.md`                                                                                       | Update hook paths                                  |
+| Edit   | `README.md`                                                                                       | Update layout, secrets section, add bootstrap step |
+| Edit   | `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`                  | Update path references                             |
+| Edit   | `docs/solutions/configuration-fixes/branch-divergence-reconciliation-and-workflow-enforcement.md` | Update path references                             |
 
 ## References
 

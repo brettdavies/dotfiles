@@ -266,8 +266,8 @@ so they silently no-op on systems where those tools are not installed.
 
 ## Implementation Steps
 
-1. Verify SSH signing works: `echo "test" | git commit-tree -S HEAD^{tree} -p HEAD -m "test" && git verify-commit
-   <result>`
+1. Verify SSH signing works:
+   `echo "test" | git commit-tree -S HEAD^{tree} -p HEAD -m "test" && git verify-commit <result>`
 2. Create backup tag: `git tag -a backup/main-pre-resign -m "Before re-signing"`
 3. Disable GitHub ruleset
 4. Write 11 message files to a temp directory

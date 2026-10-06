@@ -10,27 +10,35 @@ deepened: 2026-02-15
 
 ## Enhancement Summary
 
-**Deepened on:** 2026-02-15
-**Review agents used:** security-sentinel, performance-oracle, architecture-strategist, code-simplicity-reviewer
-**Research sources:** Web search (op inject docs, 1Password community), Context7, manual benchmarks across 3 shells
+**Deepened on:** 2026-02-15 **Review agents used:** security-sentinel, performance-oracle, architecture-strategist,
+code-simplicity-reviewer **Research sources:** Web search (op inject docs, 1Password community), Context7, manual
+benchmarks across 3 shells
 
 ### Key Findings
 
-1. **`eval "$(op inject <<'TPL' ... TPL)"` fails on bash 3.2 and zsh 5.9** — heredoc inside `$()` doesn't pipe to stdin. Must use the two-step pattern: `_tpl=$(cat <<'TPL' ... TPL); eval "$(printf '%s\n' "$_tpl" | op inject)"`
-2. **`op inject` is all-or-nothing** — one missing field fails ALL exports. Mitigated by splitting into 2 calls (one per 1Password item)
-3. **`op inject` does NOT escape special characters** — if a secret value contains `"`, the eval'd export breaks. Low risk for API tokens (URL-safe characters), but documented as a constraint
-4. **Performance is comparable or better** — single `op inject` at ~0.6s vs parallel `op read` at ~0.9s, due to op daemon caching items internally
+1. **`eval "$(op inject <<'TPL' ... TPL)"` fails on bash 3.2 and zsh 5.9** — heredoc inside `$()` doesn't pipe to stdin.
+   Must use the two-step pattern: `_tpl=$(cat <<'TPL' ... TPL); eval "$(printf '%s\n' "$_tpl" | op inject)"`
+2. **`op inject` is all-or-nothing** — one missing field fails ALL exports. Mitigated by splitting into 2 calls (one per
+   1Password item)
+3. **`op inject` does NOT escape special characters** — if a secret value contains `"`, the eval'd export breaks. Low
+   risk for API tokens (URL-safe characters), but documented as a constraint
+4. **Performance is comparable or better** — single `op inject` at ~0.6s vs parallel `op read` at ~0.9s, due to op
+   daemon caching items internally
 5. **Corrected 1Password field reference** — `X_API_OAUTH2_REFRESH_TOKEN` (not `X_API_OAUTH2_USER_ACCESS_REFRESH_TOKEN`)
 
 ### Considerations Discovered
 
-- The simplicity reviewer suggested `eval "$(op inject <<'TPL' ...)"` (direct heredoc) — this is the exact pattern that fails on bash 3.2 and zsh. The intermediate variable is a necessary workaround, not unnecessary complexity.
+- The simplicity reviewer suggested `eval "$(op inject <<'TPL' ...)"` (direct heredoc) — this is the exact pattern that
+  fails on bash 3.2 and zsh. The intermediate variable is a necessary workaround, not unnecessary complexity.
 - `dot-secrets` file permissions are 644 — should be 600 (separate issue)
-- Remaining hardcoded secrets (OpenAI, xAI, Gemini, etc.) could eventually be migrated to 1Password using the same `op inject` pattern (future work, not in scope)
+- Remaining hardcoded secrets (OpenAI, xAI, Gemini, etc.) could eventually be migrated to 1Password using the same
+  `op inject` pattern (future work, not in scope)
 
 ## Overview
 
-Shell startup loads 9 X_API tokens from 1Password via `op read`. The current implementation spawns 9 background processes that write plaintext secrets to temp files on disk (`mktemp -d`), then reads them back with `cat`. This is both a security concern (secrets briefly on disk) and unnecessarily complex (background processes, `wait`, cleanup).
+Shell startup loads 9 X_API tokens from 1Password via `op read`. The current implementation spawns 9 background
+processes that write plaintext secrets to temp files on disk (`mktemp -d`), then reads them back with `cat`. This is
+both a security concern (secrets briefly on disk) and unnecessarily complex (background processes, `wait`, cleanup).
 
 ## Problem Statement
 
@@ -46,7 +54,8 @@ Issues:
 
 ## Proposed Solution
 
-Replace with `op inject` — a single `op` CLI invocation that resolves all `{{ op:// }}` references via stdin/stdout, never touching disk. Split into 2 calls (one per 1Password item) for failure isolation.
+Replace with `op inject` — a single `op` CLI invocation that resolves all `{{ op:// }}` references via stdin/stdout,
+never touching disk. Split into 2 calls (one per 1Password item) for failure isolation.
 
 ### `stow/secrets/dot-secrets`
 
@@ -81,7 +90,8 @@ fi
 
 ### How it works
 
-1. `cat <<'TPL' ... TPL` captures multiline template into a variable (quoted heredoc prevents shell expansion of `{{ }}`)
+1. `cat <<'TPL' ... TPL` captures multiline template into a variable (quoted heredoc prevents shell expansion of
+   `{{ }}`)
 2. `printf | op inject` pipes the template to `op inject` via stdin
 3. `op inject` resolves all `op://` references, outputs resolved text to stdout
 4. `eval` executes the `export` statements in the current shell
@@ -89,7 +99,8 @@ fi
 
 ### Why the two-step pattern (not direct heredoc)
 
-`eval "$(op inject <<'TEMPLATE' ... TEMPLATE)"` — the simpler form — **fails on bash 3.2 and zsh 5.9**. The heredoc inside `$()` doesn't get piped to `op inject`'s stdin. Error: `"expected data on stdin but none found"`.
+`eval "$(op inject <<'TEMPLATE' ... TEMPLATE)"` — the simpler form — **fails on bash 3.2 and zsh 5.9**. The heredoc
+inside `$()` doesn't get piped to `op inject`'s stdin. Error: `"expected data on stdin but none found"`.
 
 The `_tpl=$(cat <<'TPL' ... TPL)` + `printf | op inject` workaround works on all 3 shells. Tested and verified on:
 
@@ -99,7 +110,8 @@ The `_tpl=$(cat <<'TPL' ... TPL)` + `printf | op inject` workaround works on all
 
 ### Why split into 2 calls
 
-`op inject` is all-or-nothing: if any single `op://` reference fails (e.g., a field doesn't exist), the entire call returns exit code 1 and produces no output. All exports in that template fail.
+`op inject` is all-or-nothing: if any single `op://` reference fails (e.g., a field doesn't exist), the entire call
+returns exit code 1 and produces no output. All exports in that template fail.
 
 Splitting by 1Password item means:
 
@@ -108,24 +120,32 @@ Splitting by 1Password item means:
 
 ### Why this is fast
 
-The 9 secrets come from only 2 1Password items. The `op` CLI daemon caches items after the first fetch, so the second call (same or different item) is a local lookup. Benchmarked at ~0.6s total for both calls.
+The 9 secrets come from only 2 1Password items. The `op` CLI daemon caches items after the first fetch, so the second
+call (same or different item) is a local lookup. Benchmarked at ~0.6s total for both calls.
 
 ### Research Insights: Performance
 
-| Approach | macOS bash 3.2 | macOS bash 5.3 | macOS zsh 5.9 | headless Linux zsh | headless Linux bash |
-| ---------- | --------------- | ---------------- | --------------- | ------------- | -------------- |
-| Sequential `op read` (original) | ~5.7s | ~5.7s | ~5.7s | ~5.7s | ~5.7s |
-| Parallel `op read` + tmpfiles | ~0.9s | ~0.9s | ~0.9s | ~0.55s | ~0.55s |
-| **`op inject` (final)** | **~1.2s** | **~1.2s** | **~1.3s** | **~1.1s** | **~1.0s** |
+| Approach                        | macOS bash 3.2 | macOS bash 5.3 | macOS zsh 5.9 | headless Linux zsh | headless Linux bash |
+| ------------------------------- | -------------- | -------------- | ------------- | ------------------ | ------------------- |
+| Sequential `op read` (original) | ~5.7s          | ~5.7s          | ~5.7s         | ~5.7s              | ~5.7s               |
+| Parallel `op read` + tmpfiles   | ~0.9s          | ~0.9s          | ~0.9s         | ~0.55s             | ~0.55s              |
+| **`op inject` (final)**         | **~1.2s**      | **~1.2s**      | **~1.3s**     | **~1.1s**          | **~1.0s**           |
 
 All 9 X_API tokens verified SET on all 5 shell targets.
 
 ### Research Insights: Security
 
-- **eval safety**: The template is a hardcoded single-quoted heredoc — no user input. `op inject` resolves `op://` references and outputs literal text. For `eval` to be exploited, an attacker would need to compromise the 1Password vault or the `op` binary.
-- **Special characters in values**: `op inject` does NOT escape double quotes in resolved values. If a secret value contains `"`, the `export VAR="value"` line breaks. This is low risk for API tokens (URL-safe characters) but is a known limitation. See [1Password community discussion](https://1password.community/discussion/138753/op-inject-how-to-escape-resolved-secrets).
-- **Error routing**: `2>/dev/null` on `op inject` suppresses error messages from reaching `eval`. `|| true` prevents the eval failure from propagating if `.profile` or a parent script uses `set -e`.
-- **No disk writes**: The `_op_tpl` variable holds only unresolved `op://` placeholders (not secrets). Actual secret values exist only transiently in the `op inject` stdout → `eval` pipeline.
+- **eval safety**: The template is a hardcoded single-quoted heredoc — no user input. `op inject` resolves `op://`
+  references and outputs literal text. For `eval` to be exploited, an attacker would need to compromise the 1Password
+  vault or the `op` binary.
+- **Special characters in values**: `op inject` does NOT escape double quotes in resolved values. If a secret value
+  contains `"`, the `export VAR="value"` line breaks. This is low risk for API tokens (URL-safe characters) but is a
+  known limitation. See
+  [1Password community discussion](https://1password.community/discussion/138753/op-inject-how-to-escape-resolved-secrets).
+- **Error routing**: `2>/dev/null` on `op inject` suppresses error messages from reaching `eval`. `|| true` prevents the
+  eval failure from propagating if `.profile` or a parent script uses `set -e`.
+- **No disk writes**: The `_op_tpl` variable holds only unresolved `op://` placeholders (not secrets). Actual secret
+  values exist only transiently in the `op inject` stdout → `eval` pipeline.
 
 ## Alternative Approaches Considered
 
@@ -194,7 +214,8 @@ TEMPLATE
 
 - Single `op inject` invocation ≈ 0.6s (op daemon caches items after first fetch)
 - Faster than 9 parallel `op read` calls (~0.9s) due to single process vs 9 process overhead
-- Cold start (first shell after boot): may be slightly slower while op daemon starts; subsequent shells benefit from daemon cache
+- Cold start (first shell after boot): may be slightly slower while op daemon starts; subsequent shells benefit from
+  daemon cache
 
 ### Compatibility
 
@@ -225,7 +246,8 @@ TEMPLATE
 ### Headless Linux (Ubuntu)
 
 - [x] All 9 X_API tokens set in non-interactive zsh: `ssh user@server 'echo ${X_API_BIRD_DEV_BEARER_TOKEN:+SET}'`
-- [x] All 9 X_API tokens set in non-interactive bash: `ssh user@server 'bash -c "echo \${X_API_BIRD_DEV_BEARER_TOKEN:+SET}"'`
+- [x] All 9 X_API tokens set in non-interactive bash:
+  `ssh user@server 'bash -c "echo \${X_API_BIRD_DEV_BEARER_TOKEN:+SET}"'`
 
 ### Shared
 
@@ -235,8 +257,8 @@ TEMPLATE
 
 ## Files Modified
 
-| File | Change |
-|------|--------|
+| File                       | Change                                                           |
+| -------------------------- | ---------------------------------------------------------------- |
 | `stow/secrets/dot-secrets` | Replace parallel op read + tmpfiles with 2x `op inject` + `eval` |
 
 ## References

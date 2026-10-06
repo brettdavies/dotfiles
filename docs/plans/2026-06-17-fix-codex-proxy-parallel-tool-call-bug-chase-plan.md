@@ -1,15 +1,15 @@
 # gbrain dream-patterns "Tool results are missing" bug — root cause and fix
 
-Record of the `Tool results are missing for tool calls call_<id>, ...` failure that dead-lettered every `gbrain dream
---phase patterns` run on the codex stack, and the fix that resolved it.
+Record of the `Tool results are missing for tool calls call_<id>, ...` failure that dead-lettered every
+`gbrain dream --phase patterns` run on the codex stack, and the fix that resolved it.
 
 The chase began as a codex-proxy parallel-tool-call investigation (the filename reflects that origin). codex-proxy
 turned out to be uninvolved. The real cause is in gbrain's gateway-native subagent loop. This document states the
 resolved truth; the discarded codex-proxy hypotheses are retained at the end so the next investigator does not re-walk
 them.
 
-Fix lives in `~/gbrain` on branch `fix/gateway-loop-persist-tool-result-turns` (commit `fix(subagent): persist and
-reconcile tool-result turns in the gateway loop`), pushed to `origin`.
+Fix lives in `~/gbrain` on branch `fix/gateway-loop-persist-tool-result-turns` (commit
+`fix(subagent): persist and reconcile tool-result turns in the gateway loop`), pushed to `origin`.
 
 ---
 
@@ -63,16 +63,17 @@ index and never persisted it** — the literal `void userMessageIdx` in `toolLoo
 `runSubagentViaGateway`. So `subagent_messages` accumulated assistant tool-call turns with no interleaved tool-result
 turns.
 
-On replay, `loadPriorMessages()` reconstructs the conversation from `subagent_messages` and the loop sets `messages =
-[...priorMessages]`. With the tool-result turns missing, that array ends with an assistant turn whose tool-calls are
-unanswered. The legacy Anthropic path guards exactly this case (`subagent.ts` reconciliation block): it re-synthesizes
-the tool-result turn from the persisted executions before continuing. The gateway path had no equivalent, so it called
-`chat()` with the unbalanced array and the AI SDK threw `Tool results are missing for tool calls call_<id>, ...`.
+On replay, `loadPriorMessages()` reconstructs the conversation from `subagent_messages` and the loop sets
+`messages = [...priorMessages]`. With the tool-result turns missing, that array ends with an assistant turn whose
+tool-calls are unanswered. The legacy Anthropic path guards exactly this case (`subagent.ts` reconciliation block): it
+re-synthesizes the tool-result turn from the persisted executions before continuing. The gateway path had no equivalent,
+so it called `chat()` with the unbalanced array and the AI SDK threw
+`Tool results are missing for tool calls call_<id>, ...`.
 
 The error is poison, not transient: once an interrupted job's unbalanced state is on disk, every retry rebuilds the same
 array and throws the same error, so the job exhausts its attempts and dies. The three dead subagent jobs observed on the
-dev host (`Invalid prompt: The messages do not match the ModelMessage[] schema` on the first attempt, then `Tool results
-are missing for tool calls call_8All..., call_uLo1...` on the retries) are this exact mechanism.
+dev host (`Invalid prompt: The messages do not match the ModelMessage[] schema` on the first attempt, then
+`Tool results are missing for tool calls call_8All..., call_uLo1...` on the retries) are this exact mechanism.
 
 ---
 
@@ -88,8 +89,9 @@ Four independent results, none of which implicate the proxy:
    SDK v6 `ModelMessage[]` — the assistant tool-calls followed by a single `role: 'tool'` message carrying both results
    with structured `{ type, value }` outputs. The conversion is not the bug.
 3. **The dead-job error reproduces with no proxy involved.** Feeding gbrain's own `chat()` an unbalanced conversation
-   (`[user, assistant(2 tool-calls)]` with no tool-result turn) throws the identical `Tool results are missing for tool
-   calls call_1, call_2` — the precise shape of the production failure, produced entirely inside gbrain.
+   (`[user, assistant(2 tool-calls)]` with no tool-result turn) throws the identical
+   `Tool results are missing for tool calls call_1, call_2` — the precise shape of the production failure, produced
+   entirely inside gbrain.
 4. **The one real codex-proxy hazard is on a path gbrain never uses.** `codex-to-openai.ts` keys tool-call argument
    deltas inconsistently (`functionCallStart` registers the index under `item.call_id`; `functionCallDelta`/`Done`
    resolve it under `call_id ?? item_id` with a `?? 0` fallback), which could collapse parallel-call arguments onto
@@ -109,11 +111,11 @@ Mirror what the legacy Anthropic path already does.
   before the next dispatch.
 - `src/core/minions/handlers/subagent.ts` —
 - wire `onToolResultTurn` to `persistMessage(role: 'user', ...)`, making `subagent_messages` symmetric with the
-    assistant-turn writes;
+  assistant-turn writes;
 - add replay reconciliation before the loop: when prior messages end with an assistant turn carrying unanswered
-    tool-calls, re-synthesize the tool-result turn from the settled `subagent_tool_executions` rows (keyed by provider
-    `tool_use_id`), persist and append it. If any tool is still unsettled, bail rather than fabricate a result, so a
-    non-idempotent tool is never re-run.
+  tool-calls, re-synthesize the tool-result turn from the settled `subagent_tool_executions` rows (keyed by provider
+  `tool_use_id`), persist and append it. If any tool is still unsettled, bail rather than fabricate a result, so a
+  non-idempotent tool is never re-run.
 - `test/e2e/subagent-gateway-toolresult-replay.test.ts` — new regression test (section 6).
 
 Properties: additive, gated behind the existing `agent.use_gateway_loop`, and faithful to real tool outputs (no risk of
@@ -176,8 +178,8 @@ assistant turn's tool-call ids + arguments. All shapes pass — this is the evid
 tool calls.
 
 The decisive gbrain-side reproduction (the dead-job error with no proxy in the path) drives gbrain's own `chat()` after
-`configureGateway()` with an unbalanced `[user, assistant(2 tool-calls)]` conversation; it throws `Tool results are
-missing for tool calls call_1, call_2`.
+`configureGateway()` with an unbalanced `[user, assistant(2 tool-calls)]` conversation; it throws
+`Tool results are missing for tool calls call_1, call_2`.
 
 codex-proxy upstream source (TypeScript, not brettdavies-owned) lives at https://github.com/icebear0828/codex-proxy. The
 local `~/dev/tools/codex-proxy/` directory is compose-only (no source checkout). No fork or image rebuild was needed.

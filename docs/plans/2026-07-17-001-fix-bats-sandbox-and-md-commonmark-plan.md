@@ -62,12 +62,12 @@ markdown write: `md-wrap.py` (prose reflow), `md-align-tables.py` (GFM table ali
 `markdownlint-cli2 --fix`. Bug 1 (nested bullets flattened) is fixed by PR #164 and guarded by
 `stow/claude/dot-claude/test_md_wrap.py`. Three defects remain:
 
-- **Bug 4 (`md-align-tables.py`).** Alignment math uses `len()` (codepoint count). `markdownlint
-  MD060/table-column-style` checks pipe alignment by visual display width, where `<hourglass>`, `<check>`, and CJK
-  characters count as two visual columns. Tables whose body cells contain wide characters but whose header does not pass
-  the aligner's `len()`-based idempotency check yet still trip MD060 on every wide-char body row. MD060 has no upstream
-  autofixer (`DavidAnson/markdownlint#1980`), so the errors leak to the user as hook output on freshly auto-formatted
-  files.
+- **Bug 4 (`md-align-tables.py`).** Alignment math uses `len()` (codepoint count).
+  `markdownlint MD060/table-column-style` checks pipe alignment by visual display width, where `<hourglass>`, `<check>`,
+  and CJK characters count as two visual columns. Tables whose body cells contain wide characters but whose header does
+  not pass the aligner's `len()`-based idempotency check yet still trip MD060 on every wide-char body row. MD060 has no
+  upstream autofixer (`DavidAnson/markdownlint#1980`), so the errors leak to the user as hook output on freshly
+  auto-formatted files.
 - **Bugs 2-3 (`md-wrap.py`).** When `md-wrap` soft-wraps a prose or list line, a token that re-parses as a CommonMark
   list marker can land at the start of a continuation line: a bare ` <plus> ` mid-sentence, a sentence-final `` `2.` ``
   near the width boundary, or an inline code span containing a dash. `md-wrap` breaks on whitespace and cannot see that
@@ -83,8 +83,8 @@ Both bite every plan doc, README, and CLAUDE.md edit across every repo the hook 
 
 Traceability back to the two source todos.
 
-- **R1** — Running `bats tests/*.bats` from a linked worktree leaves every live `$HOME` symlink untouched: `find "$HOME"
-  -type l -lname "*<worktree>*"` returns nothing new. (todo 022 AC1)
+- **R1** — Running `bats tests/*.bats` from a linked worktree leaves every live `$HOME` symlink untouched:
+  `find "$HOME" -type l -lname "*<worktree>*"` returns nothing new. (todo 022 AC1)
 - **R2** — The deploy-executing cases still assert package expansion and deduplication, against a sandbox target. (todo
   022 AC2)
 - **R3** — Pre-push still runs and passes the non-mutating assertions; the `bats.yml` CI job behaves as before (the
@@ -128,11 +128,11 @@ so scope is honest.
 
 The packages-file cases assert `==> Stowing secrets`, which requires git-crypt unlocked (`secrets` is the first
 SHARED_PACKAGES entry, and `stow-deploy` fails fast with `EXIT_PRECONDITION` when the encrypted payload is still a
-binary blob). On locked CI the deploy exits before printing the package lines. Retaining the existing `[ -L
-"$HOME/.profile" ]` skip keeps CI behavior identical (R3): the cases skip on locked/undeployed CI as they do today. The
-sandbox target is what makes the case safe when the skip passes from a worktree; the skip is no longer load-bearing for
-safety, only for choosing when the now-safe deploy actually exercises. `stow-deploy-args.bats` needs no such skip — its
-cases assert only exit codes, which tolerate the git-crypt-locked fast exit.
+binary blob). On locked CI the deploy exits before printing the package lines. Retaining the existing
+`[ -L "$HOME/.profile" ]` skip keeps CI behavior identical (R3): the cases skip on locked/undeployed CI as they do
+today. The sandbox target is what makes the case safe when the skip passes from a worktree; the skip is no longer
+load-bearing for safety, only for choosing when the now-safe deploy actually exercises. `stow-deploy-args.bats` needs no
+such skip — its cases assert only exit codes, which tolerate the git-crypt-locked fast exit.
 
 ### KTD4 — Bounded mitigation for bugs 2-3, not a CommonMark-aware rewrite
 
@@ -263,14 +263,14 @@ mutate real `$HOME`, while preserving the package-expansion and deduplication as
 
 **Approach**
 
-- Add `tests/lib/stow-sandbox.bash` exporting a function that creates `$BATS_TEST_TMPDIR/home` and sets `export
-  STOW_DEPLOY_TARGET="$BATS_TEST_TMPDIR/home"`. `$BATS_TEST_TMPDIR` is per-test, so each case gets a clean sandbox that
-  bats tears down. Keep it dependency-free (single function, sourced via bats `load lib/stow-sandbox`, which resolves
-  relative to the test file).
-- In `tests/stow-deploy-packages.bats`, add a `setup()` that `load`s the helper and calls it. Retain the existing `[ -L
-  "$HOME/.profile" ] || skip` guard on the four deploy-executing cases (KTD3): the sandbox provides safety, the skip
-  keeps CI/locked-git-crypt behavior identical. The four cases otherwise keep their exact output assertions (`==>
-  Stowing secrets`, `==> Stowing claude`, dedup counts).
+- Add `tests/lib/stow-sandbox.bash` exporting a function that creates `$BATS_TEST_TMPDIR/home` and sets
+  `export STOW_DEPLOY_TARGET="$BATS_TEST_TMPDIR/home"`. `$BATS_TEST_TMPDIR` is per-test, so each case gets a clean
+  sandbox that bats tears down. Keep it dependency-free (single function, sourced via bats `load lib/stow-sandbox`,
+  which resolves relative to the test file).
+- In `tests/stow-deploy-packages.bats`, add a `setup()` that `load`s the helper and calls it. Retain the existing
+  `[ -L "$HOME/.profile" ] || skip` guard on the four deploy-executing cases (KTD3): the sandbox provides safety, the
+  skip keeps CI/locked-git-crypt behavior identical. The four cases otherwise keep their exact output assertions
+  (`==> Stowing secrets`, `==> Stowing claude`, dedup counts).
 - In `tests/stow-deploy-args.bats`, add the same `setup()`. Its "--all"/"--headless" cases need no `.profile` skip —
   they assert only exit codes, which tolerate the git-crypt fast exit. The sandbox still redirects any deploy that does
   run.
@@ -282,11 +282,11 @@ existing per-test `skip` lines already in `stow-deploy-packages.bats`.
 
 **Test scenarios** — this unit is the test change; "scenarios" here are the invariants the changed suite must hold.
 
-- The four packages cases pass against the sandbox on a deployed machine (git-crypt unlocked), asserting the same `==>
-  Stowing <pkg>` output and dedup counts as before.
+- The four packages cases pass against the sandbox on a deployed machine (git-crypt unlocked), asserting the same
+  `==> Stowing <pkg>` output and dedup counts as before.
 - The two args cases ("--all", "--headless") pass, exercising the deploy loop against the sandbox.
-- From a throwaway linked worktree, `bats tests/stow-deploy-packages.bats tests/stow-deploy-args.bats` leaves `find
-  "$HOME" -type l -lname "*<worktree>*"` empty and `readlink -f ~/.claude/settings.json` still resolving into the
+- From a throwaway linked worktree, `bats tests/stow-deploy-packages.bats tests/stow-deploy-args.bats` leaves
+  `find "$HOME" -type l -lname "*<worktree>*"` empty and `readlink -f ~/.claude/settings.json` still resolving into the
   canonical tree.
 - On a simulated locked/undeployed environment (no `~/.profile` symlink), the four packages cases skip exactly as today
   (R3).

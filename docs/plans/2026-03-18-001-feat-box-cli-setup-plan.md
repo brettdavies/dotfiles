@@ -11,7 +11,8 @@ Install the [Box CLI](https://github.com/box/boxcli) to read, manage, and automa
 
 ## Critical Discovery: JWT Not Viable
 
-The app "itsmyapp" was created as Server Authentication (JWT), but the Box account is **Personal/Free** (Enterprise ID "0"). JWT authentication requires:
+The app "itsmyapp" was created as Server Authentication (JWT), but the Box account is **Personal/Free** (Enterprise ID
+"0"). JWT authentication requires:
 
 - A Box Business/Enterprise plan
 - Admin Console access for app authorization
@@ -20,9 +21,11 @@ The app "itsmyapp" was created as Server Authentication (JWT), but the Box accou
 **Resolution:** Use **OAuth 2.0 authentication** instead. Two options:
 
 1. **`box login -d`** (default Box CLI app) — zero setup, limited scopes, works immediately
-2. **Create a new OAuth 2.0 app** in the Developer Console — full scopes, requires creating a new app with "User Authentication (OAuth 2.0)" type
+2. **Create a new OAuth 2.0 app** in the Developer Console — full scopes, requires creating a new app with "User
+   Authentication (OAuth 2.0)" type
 
-The existing JWT app ("itsmyapp") cannot be converted to OAuth 2.0 — a new app must be created if custom scopes are needed.
+The existing JWT app ("itsmyapp") cannot be converted to OAuth 2.0 — a new app must be created if custom scopes are
+needed.
 
 ## Acceptance Criteria
 
@@ -38,7 +41,8 @@ The existing JWT app ("itsmyapp") cannot be converted to OAuth 2.0 — a new app
 
 ### Step 1: Install Box CLI
 
-Attempt npm install on Node.js 25.8.1. Box CLI officially supports Node 18-22 and depends on `keytar` (deprecated native module). If installation or runtime fails, fall back to the macOS `.pkg` installer.
+Attempt npm install on Node.js 25.8.1. Box CLI officially supports Node 18-22 and depends on `keytar` (deprecated native
+module). If installation or runtime fails, fall back to the macOS `.pkg` installer.
 
 ```bash
 # Primary: npm install
@@ -115,11 +119,11 @@ box files:upload --bulk-file-path upload-list.csv
 
 ## Risks and Fallbacks
 
-| Risk | Likelihood | Mitigation |
-| ------ | ----------- | ------------ |
-| npm install fails on Node 25 (keytar native module) | High | Use macOS `.pkg` installer from GitHub releases |
-| Default Box CLI app scopes too limited | Medium | Create custom OAuth 2.0 app (Option B) |
-| OAuth token expires (60-day refresh token) | Low | Run `box login -d --reauthorize` to re-auth |
+| Risk                                                | Likelihood | Mitigation                                      |
+| --------------------------------------------------- | ---------- | ----------------------------------------------- |
+| npm install fails on Node 25 (keytar native module) | High       | Use macOS `.pkg` installer from GitHub releases |
+| Default Box CLI app scopes too limited              | Medium     | Create custom OAuth 2.0 app (Option B)          |
+| OAuth token expires (60-day refresh token)          | Low        | Run `box login -d --reauthorize` to re-auth     |
 
 ## Sources
 

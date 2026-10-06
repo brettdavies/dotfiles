@@ -19,7 +19,7 @@ Four changes to `scripts/stow-deploy`, one package restructure, and one correcti
 
 - `local` -- `dot-local/bin/env` and `dot-local/bin/op-ssh-sign-wrapper` (shared, all platforms)
 - `launchagent` -- `Library/LaunchAgents/com.user.devtosync.plist` (macOS desktop-only, no `dot-` prefix needed since
-     `~/Library` doesn't start with a dot)
+  `~/Library` doesn't start with a dot)
 
 1. **Repo cleanup** -- After un-tree-folding, `git clean` untracked runtime files from the repo's
    `stow/claude/dot-claude/` directory.

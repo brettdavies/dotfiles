@@ -163,10 +163,10 @@ tag creation.
 
 - Remove the two `orhun/git-cliff-action` steps (generate changelog and get release body)
 - Remove the `git add CHANGELOG.md` + `git commit` step (no more bot changelog commits)
-- Add a step to extract release notes from committed CHANGELOG.md using the awk pattern: `awk '/^## \[/{if(n++)exit}n'
-  CHANGELOG.md`
-- Add fallback: if awk extraction returns empty (missing section or empty CHANGELOG.md), use generic message `"Release
-  $VERSION"` to prevent a release with blank body
+- Add a step to extract release notes from committed CHANGELOG.md using the awk pattern:
+  `awk '/^## \[/{if(n++)exit}n' CHANGELOG.md`
+- Add fallback: if awk extraction returns empty (missing section or empty CHANGELOG.md), use generic message
+  `"Release $VERSION"` to prevent a release with blank body
 - Keep the CalVer computation step unchanged
 - Keep the tag creation step (compute version, create tag, push)
 - Keep the GitHub Release creation step, but use the awk-extracted body instead of git-cliff output

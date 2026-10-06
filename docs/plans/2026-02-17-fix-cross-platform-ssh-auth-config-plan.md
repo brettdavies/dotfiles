@@ -9,19 +9,25 @@ date: 2026-02-17
 
 ## Overview
 
-The SSH config's `Host github.com` block had `IdentityFile ~/.ssh/brett_ed25519` commented out, combined with `IdentitiesOnly yes`, meaning SSH never offered the correct key to GitHub on any platform. The fix standardizes the key filename to `brett_ed25519` on all machines and uncomments the `IdentityFile` directive.
+The SSH config's `Host github.com` block had `IdentityFile ~/.ssh/brett_ed25519` commented out, combined with
+`IdentitiesOnly yes`, meaning SSH never offered the correct key to GitHub on any platform. The fix standardizes the key
+filename to `brett_ed25519` on all machines and uncomments the `IdentityFile` directive.
 
 ## Problem Statement
 
 Two issues were preventing `git push` without a manual `GIT_SSH_COMMAND` override:
 
-1. **macOS:** `IdentityFile ~/.ssh/brett_ed25519` was commented out in the `Host github.com` block. With `IdentitiesOnly yes`, SSH fell back to default key names (`id_rsa`, `id_ed25519`, etc.). The key is named `brett_ed25519` (not a default), so it was never tried.
+1. **macOS:** `IdentityFile ~/.ssh/brett_ed25519` was commented out in the `Host github.com` block. With
+   `IdentitiesOnly yes`, SSH fell back to default key names (`id_rsa`, `id_ed25519`, etc.). The key is named
+   `brett_ed25519` (not a default), so it was never tried.
 
-2. **Headless Linux:** Same commented-out `IdentityFile` issue, plus the key was stored as `~/.ssh/id_ed25519` instead of `~/.ssh/brett_ed25519`. Even after uncommenting, the filename mismatch would cause a failure.
+2. **Headless Linux:** Same commented-out `IdentityFile` issue, plus the key was stored as `~/.ssh/id_ed25519` instead
+   of `~/.ssh/brett_ed25519`. Even after uncommenting, the filename mismatch would cause a failure.
 
 ## Solution: Standardize Key Name + Uncomment IdentityFile
 
-Rather than adding platform-conditional `Match exec` blocks for different key names, the simpler approach is to **standardize the key filename to `brett_ed25519` on all machines**. This keeps the SSH config simple and universal:
+Rather than adding platform-conditional `Match exec` blocks for different key names, the simpler approach is to
+**standardize the key filename to `brett_ed25519` on all machines**. This keeps the SSH config simple and universal:
 
 ```ssh-config
 Host github.com
@@ -34,14 +40,17 @@ Host github.com
 
 1. **SSH config** (`stow/ssh/dot-ssh/config`): Uncommented `IdentityFile ~/.ssh/brett_ed25519` on line 6
 2. **Headless server key rename**: `~/.ssh/id_ed25519` → `~/.ssh/brett_ed25519` (and `.pub`)
-3. **Headless server git local config**: Updated `~/.config/git/local` signingkey from `~/.ssh/id_ed25519` to `~/.ssh/brett_ed25519`
+3. **Headless server git local config**: Updated `~/.config/git/local` signingkey from `~/.ssh/id_ed25519` to
+   `~/.ssh/brett_ed25519`
 
 ### Verification performed
 
-- **Fingerprints match**: Both macOS and the headless server have `SHA256:n4UpR9oDUpPZ/Z5WFDr34cpp7qHiZzoSk2GIuEr9Cc4` (same key material, was just named differently)
+- **Fingerprints match**: Both macOS and the headless server have `SHA256:n4UpR9oDUpPZ/Z5WFDr34cpp7qHiZzoSk2GIuEr9Cc4`
+  (same key material, was just named differently)
 - **macOS `ssh -T git@github.com`**: Authenticated successfully
 - **Headless server git signing**: Verified working with renamed key
-- **Headless server SSH auth to GitHub**: Pending -- requires restowing the updated SSH config (pull from main after PR merge)
+- **Headless server SSH auth to GitHub**: Pending -- requires restowing the updated SSH config (pull from main after PR
+  merge)
 
 ## Remaining Steps
 
@@ -49,18 +58,18 @@ Host github.com
 
 Several hosts have `IdentitiesOnly yes` without an explicit `IdentityFile`:
 
-| Host | IdentityFile | IdentitiesOnly | Status |
-| --- | --- | --- | --- |
-| `github.com` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
-| `router` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
-| `host-e` | N/A | N/A | Removed from config |
-| `host-f` | N/A | N/A | Removed from config |
-| `host-a` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
-| `host-b` | `~/.ssh/brett_ed25519` | yes | **Fixed** |
-| `host-c` | `~/.ssh/brett_ed25519` | yes | OK |
-| `host-d` | `~/.ssh/brett_ed25519` | yes | OK |
-| `host-g` | `~/.ssh/brett_ed25519` | yes | OK |
-| `decommissioned-ec2` | `~/.ssh/user-ec2.pem` | yes | OK |
+| Host                 | IdentityFile           | IdentitiesOnly | Status              |
+| -------------------- | ---------------------- | -------------- | ------------------- |
+| `github.com`         | `~/.ssh/brett_ed25519` | yes            | **Fixed**           |
+| `router`             | `~/.ssh/brett_ed25519` | yes            | **Fixed**           |
+| `host-e`             | N/A                    | N/A            | Removed from config |
+| `host-f`             | N/A                    | N/A            | Removed from config |
+| `host-a`             | `~/.ssh/brett_ed25519` | yes            | **Fixed**           |
+| `host-b`             | `~/.ssh/brett_ed25519` | yes            | **Fixed**           |
+| `host-c`             | `~/.ssh/brett_ed25519` | yes            | OK                  |
+| `host-d`             | `~/.ssh/brett_ed25519` | yes            | OK                  |
+| `host-g`             | `~/.ssh/brett_ed25519` | yes            | OK                  |
+| `decommissioned-ec2` | `~/.ssh/user-ec2.pem`  | yes            | OK                  |
 
 **Decision needed:** For hosts with `IdentitiesOnly yes` but no `IdentityFile`, either:
 
@@ -107,14 +116,15 @@ Update `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-gua
 - Document the `brett_ed25519` naming convention across all machines
 - Add key mapping table:
 
-| Platform | SSH key file | Git signing key | Agent |
-| --- | --- | --- | --- |
-| macOS | `~/.ssh/brett_ed25519` | Literal pubkey (via 1Password) | 1Password SSH agent |
+| Platform         | SSH key file           | Git signing key                                    | Agent                   |
+| ---------------- | ---------------------- | -------------------------------------------------- | ----------------------- |
+| macOS            | `~/.ssh/brett_ed25519` | Literal pubkey (via 1Password)                     | 1Password SSH agent     |
 | Linux (headless) | `~/.ssh/brett_ed25519` | `~/.ssh/brett_ed25519` (via `~/.config/git/local`) | 1Password agent or none |
 
 ### 5. Convention for New Server Deployments
 
-When deploying to a new server, the SSH key must be named `~/.ssh/brett_ed25519` (not `id_ed25519`). Document this in the deployment playbook or add a pre-stow check to `stow-deploy`.
+When deploying to a new server, the SSH key must be named `~/.ssh/brett_ed25519` (not `id_ed25519`). Document this in
+the deployment playbook or add a pre-stow check to `stow-deploy`.
 
 ## Acceptance Criteria
 

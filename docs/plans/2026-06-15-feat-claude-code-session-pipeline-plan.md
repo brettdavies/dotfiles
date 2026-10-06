@@ -99,11 +99,11 @@ Confirmed pattern in `~/dev/solutions-docs/runtime-errors/tmux-server-wedge-orph
 
 ### KTD2 — gitleaks as a redactor, not just a detector
 
-`gitleaks --redact` flag affects logs/stdout only — it does NOT rewrite files. The pipeline runs `gitleaks dir <corpus>
---report-format json --exit-code 0` then a custom Python shim parses the findings (each carries `File`, `StartLine`,
-`StartColumn`, `EndLine`, `EndColumn`, `Secret`, `RuleID`) and rewrites each affected file with `Secret →
-[REDACTED:<RuleID>]` placeholders, reverse-sorted by offset to avoid drift. Fail-open on gitleaks subprocess crash
-(write the file with a warning header; surface in audit).
+`gitleaks --redact` flag affects logs/stdout only — it does NOT rewrite files. The pipeline runs
+`gitleaks dir <corpus> --report-format json --exit-code 0` then a custom Python shim parses the findings (each carries
+`File`, `StartLine`, `StartColumn`, `EndLine`, `EndColumn`, `Secret`, `RuleID`) and rewrites each affected file with
+`Secret → [REDACTED:<RuleID>]` placeholders, reverse-sorted by offset to avoid drift. Fail-open on gitleaks subprocess
+crash (write the file with a warning header; surface in audit).
 
 ### KTD3 — Date-partitioned corpus layout
 
@@ -122,12 +122,12 @@ markdown's metadata table (`Working Directory | <cwd>`), not in the directory la
 
 `gbrain dream` exposes no `--bypass-cooldown` or `--max-usd` flag, AND its JSON envelope carries no `cost_usd` field
 (verified against `src/core/cycle/synthesize.ts:546-564` + `src/core/cycle.ts:317-388`). Rather than build a synthetic
-cap from a non-existent field, U6 ships as a **manual, user-monitored sweep**: loop `gbrain dream --phase synthesize
---input <file> --json` per transcript; the existing dream-budget audit (`~/.gbrain/audit/dream-budget-*.jsonl`,
-`cumulative_cost_usd` field) is the real-time cost ledger the user watches in another pane. User stops the loop (Ctrl-C
-or signal) when satisfied. The `--input` mode skips `checkCooldown` per `synthesize.ts` (the cooldown logic only fires
-on corpus-dir-scan path). Verdict cache (`dream_verdicts` table) only helps on second + subsequent runs since first-pass
-file paths are new.
+cap from a non-existent field, U6 ships as a **manual, user-monitored sweep**: loop
+`gbrain dream --phase synthesize --input <file> --json` per transcript; the existing dream-budget audit
+(`~/.gbrain/audit/dream-budget-*.jsonl`, `cumulative_cost_usd` field) is the real-time cost ledger the user watches in
+another pane. User stops the loop (Ctrl-C or signal) when satisfied. The `--input` mode skips `checkCooldown` per
+`synthesize.ts` (the cooldown logic only fires on corpus-dir-scan path). Verdict cache (`dream_verdicts` table) only
+helps on second + subsequent runs since first-pass file paths are new.
 
 ### KTD5 — qmd collection ordering: BEFORE NAS entries
 
@@ -359,8 +359,8 @@ default rules don't cover:
   `StandardOutput=append:%h/.gbrain/claude-code-archive.log`, `StandardError=append:%h/.gbrain/claude-code-archive.err`,
   hardening: `NoNewPrivileges=true`, `PrivateTmp=true`
 - `.timer`: `OnCalendar=*:0/30`, `RandomizedDelaySec=60`, `Persistent=true`, `WantedBy=timers.target`
-- Deploy via `scripts/stow-deploy gbrain` then `systemctl --user daemon-reload && systemctl --user enable --now
-  claude-code-archive.timer`
+- Deploy via `scripts/stow-deploy gbrain` then
+  `systemctl --user daemon-reload && systemctl --user enable --now claude-code-archive.timer`
 
 **Patterns to follow:**
 
@@ -428,8 +428,8 @@ block shell exit.
 
 ### U5. New qmd `claude-code-sessions` collection (default-excluded)
 
-**Goal:** Make raw transcripts qmd-indexed but excluded from default `qmd query` results. Reachable via explicit `qmd
-query -c claude-code-sessions "<phrase>"`.
+**Goal:** Make raw transcripts qmd-indexed but excluded from default `qmd query` results. Reachable via explicit
+`qmd query -c claude-code-sessions "<phrase>"`.
 
 **Requirements:** R5
 
@@ -462,8 +462,8 @@ query -c claude-code-sessions "<phrase>"`.
 
 **Patterns to follow:**
 
-- Existing `vault`, `solutions`, `meum` collection entries in `stow/qmd/dot-config/qmd/index.yml` (all default `Include:
-  yes`; this collection is the first deliberately-excluded one)
+- Existing `vault`, `solutions`, `meum` collection entries in `stow/qmd/dot-config/qmd/index.yml` (all default
+  `Include: yes`; this collection is the first deliberately-excluded one)
 - `qmd collection include <name>` is the inverse if Brett later changes his mind
 
 **Test scenarios:**
@@ -499,13 +499,13 @@ independently executable against U1's corpus output)
 - Enumerate `.md` files under `~/.gbrain/transcripts/claude-code/` (date-partition order so oldest sessions go first;
   the `dream_verdicts` content-hash cache no-ops already-judged files on repeat runs)
 - Loop: `gbrain dream --phase synthesize --input <file> --json` per transcript
-- Per-file audit event to `~/.gbrain/audit/claude-code-synthesize-sweep-$(date -u +%G-W%V).jsonl`: `{event: processed,
-  session_id, file, verdicts_count, pages_written, exit_code}` (no cost field — that's in the dream-budget ledger gbrain
-  already maintains)
+- Per-file audit event to `~/.gbrain/audit/claude-code-synthesize-sweep-$(date -u +%G-W%V).jsonl`:
+  `{event: processed, session_id, file, verdicts_count, pages_written, exit_code}` (no cost field — that's in the
+  dream-budget ledger gbrain already maintains)
 - `--input` mode bypasses `checkCooldown` per `synthesize.ts` — confirmed
-- NO enforced cost cap. User runs the script in one terminal pane and tails the dream-budget audit (`tail -f
-  ~/.gbrain/audit/dream-budget-*.jsonl | jaq '.cumulative_cost_usd'`) in another. Stop the loop (Ctrl-C / SIGTERM) when
-  satisfied. The script traps SIGINT/SIGTERM to write a final summary and exit cleanly
+- NO enforced cost cap. User runs the script in one terminal pane and tails the dream-budget audit
+  (`tail -f ~/.gbrain/audit/dream-budget-*.jsonl | jaq '.cumulative_cost_usd'`) in another. Stop the loop (Ctrl-C /
+  SIGTERM) when satisfied. The script traps SIGINT/SIGTERM to write a final summary and exit cleanly
 - Print summary at end (or on signal): total sessions processed, breakdown by verdict (cached / processed / skipped),
   pointer to the dream-budget ledger for the cost view
 - NOT timer-driven — hand-invoked when user is ready
@@ -718,8 +718,8 @@ ingestion in one coherent piece.
 
 ### Institutional learnings
 
-- `~/dev/solutions-docs/deployment-issues/cron-to-systemd-user-timers-dotfiles-stow.md` — systemd timer pattern; `flock
-  -n` + `OnFailure=` recovery service convention (consider for follow-up; not required for v1)
+- `~/dev/solutions-docs/deployment-issues/cron-to-systemd-user-timers-dotfiles-stow.md` — systemd timer pattern;
+  `flock -n` + `OnFailure=` recovery service convention (consider for follow-up; not required for v1)
 - `~/dev/solutions-docs/deployment-issues/qmd-collection-ordering-nas-resilience-20260403.md` — `index.yml` ordering
   crash semantics (KTD5)
 - `~/dev/solutions-docs/tooling/qmd-claude-code-knowledge-search-integration.md` — `command -v qmd` guard pattern for

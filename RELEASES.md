@@ -46,8 +46,8 @@ gh pr create --base dev --title "feat(scope): what changed"
 - **PR body**: follow `.github/pull_request_template.md`. The `## Changelog` section is the source of truth for
   user-facing release notes; `scripts/generate-changelog.py` extracts these bullets verbatim into `CHANGELOG.md` during
   release prep.
-- **Signing**: `dev` requires signed commits per `protect-dev.json`. The `pre-commit` hook verifies `commit.gpgsign =
-  true` locally before push.
+- **Signing**: `dev` requires signed commits per `protect-dev.json`. The `pre-commit` hook verifies
+  `commit.gpgsign = true` locally before push.
 
 ### Dev-direct exception
 
@@ -244,11 +244,11 @@ No crates, no cross-compiled binaries, no Homebrew dispatch: this repo is config
 
 **Verify after merge** (the full post-tag pipeline for this repo is these checks):
 
-- [ ] **Last-good identifier recorded before the merge.** Note the current tag on `main` (`git describe --tags
-  --abbrev=0 origin/main`) somewhere reachable under incident pressure; it is the argument [§ Rollback](#rollback)
-  needs.
-- [ ] `release.yml` is green end-to-end. Watch it (`gh run watch <id>`), then confirm with `gh run view <id> --json
-  conclusion --jq .conclusion` returning `success`; a completed watcher is not a green watcher.
+- [ ] **Last-good identifier recorded before the merge.** Note the current tag on `main`
+  (`git describe --tags --abbrev=0 origin/main`) somewhere reachable under incident pressure; it is the argument
+  [§ Rollback](#rollback) needs.
+- [ ] `release.yml` is green end-to-end. Watch it (`gh run watch <id>`), then confirm with
+  `gh run view <id> --json conclusion --jq .conclusion` returning `success`; a completed watcher is not a green watcher.
 - [ ] The CalVer tag exists: `git fetch --tags && git describe --tags --abbrev=0 origin/main` returns today's
   `YYYY.MM.DD` (or `.N`).
 - [ ] The GitHub Release published with real notes: `gh release view "$(git describe --tags --abbrev=0 origin/main)"`
@@ -296,9 +296,9 @@ version of a file `dev` has moved on would revert unreleased work; a contested p
 Guarded paths are excluded outright, because they live on `dev` by design and "syncing" them would delete them.
 
 `--include-contested` takes every contested path at once, which is rarely what a release wants: a dependency bump that
-landed on `dev` after the release makes `main`'s copy of that file stale, and adopting it would revert the bump. `--only
-PATH` (repeatable) names the paths to sync instead, contested ones included. It intersects with the discovered set
-rather than replacing it, so a guarded, undiverged, or misspelled path is refused rather than forced through.
+landed on `dev` after the release makes `main`'s copy of that file stale, and adopting it would revert the bump.
+`--only PATH` (repeatable) names the paths to sync instead, contested ones included. It intersects with the discovered
+set rather than replacing it, so a guarded, undiverged, or misspelled path is refused rather than forced through.
 
 The script refuses to run on a dirty tree or before the GitHub Release is published, and the run is idempotent: if `dev`
 already matches `main`, it exits without opening a PR. Use `--dry-run` to see the classification without creating
@@ -364,8 +364,9 @@ never hand-edit `CHANGELOG.md`.
 Two rulesets are committed under `.github/rulesets/` and applied to the repo via the GitHub API:
 
 - `protect-main.json`: required signatures, linear history, squash-only merges via PR, creation/deletion blocked,
-  non-fast-forward blocked, and five required checks: `shellcheck`, `bats`, and the three guard callers (`guard-docs /
-  check-forbidden-docs`, `guard-provenance / check-provenance`, `guard-release / check-release-branch-name`).
+  non-fast-forward blocked, and five required checks: `shellcheck`, `bats`, and the three guard callers
+  (`guard-docs / check-forbidden-docs`, `guard-provenance / check-provenance`,
+  `guard-release / check-release-branch-name`).
 - `protect-dev.json`: required signatures, deletion blocked, non-fast-forward blocked. `shellcheck` and `bats` are
   required status checks; the PR-only norm is convention, not ruleset-enforced.
 
