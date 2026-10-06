@@ -122,18 +122,46 @@ def _code_spans(text: str) -> list[tuple[int, int]]:
     return spans
 
 
-def _normalize_and_protect_code(text: str) -> str:
+def _freeze_span(span: str, breakable: bool) -> str:
+    """Turn a code span's whitespace into placeholders textwrap cannot break on.
+
+    A span wider than the line it must fit on keeps its lone interior spaces
+    real, so textwrap may break there: CommonMark renders a line ending inside
+    a span as one space, so that break reads exactly as the space it replaces.
+    Runs of two or more whitespace characters, tabs, and the padding next to
+    the backticks carry meaning and stay frozen either way.
+    """
+    if not breakable:
+        return span.translate(_CODE_WS_TO_PH)
+    opener = len(span) - len(span.lstrip("`"))
+    closer = len(span) - len(span.rstrip("`"))
+    inner = span[opener : len(span) - closer]
+    out = []
+    for i, ch in enumerate(inner):
+        lone = (
+            ch == " "
+            and 0 < i < len(inner) - 1
+            and not inner[i - 1].isspace()
+            and not inner[i + 1].isspace()
+        )
+        out.append(ch if lone else ch.translate(_CODE_WS_TO_PH))
+    return span[:opener] + "".join(out) + span[len(span) - closer :]
+
+
+def _normalize_and_protect_code(text: str, budget: int) -> str:
     """Collapse whitespace runs in prose and freeze every inline code span.
 
     Whitespace inside a code span is content (help-text columns, aligned
     output), so it becomes placeholders instead: textwrap can neither break the
-    span across lines nor rewrite its interior.
+    span across lines nor rewrite its interior. A span longer than `budget`
+    characters cannot fit on any line, so `_freeze_span` leaves it breakable
+    at its lone interior spaces instead of overflowing the line limit.
     """
     parts: list[str] = []
     pos = 0
     for start, end in _code_spans(text):
         parts.append(WHITESPACE_RUN_RE.sub(" ", text[pos:start]))
-        parts.append(text[start:end].translate(_CODE_WS_TO_PH))
+        parts.append(_freeze_span(text[start:end], end - start > budget))
         pos = end
     parts.append(WHITESPACE_RUN_RE.sub(" ", text[pos:]))
     return "".join(parts).strip()
@@ -217,7 +245,8 @@ def flush(buf: list[str], width: int, indent: str = "") -> str:
 
     results: list[str] = []
     for seg in segments:
-        text = _normalize_and_protect_code(" ".join(l.strip() for l in seg))
+        budget = max(1, width - max(len(lead), len(indent)))
+        text = _normalize_and_protect_code(" ".join(l.strip() for l in seg), budget)
         if not text:
             continue
         # Protect spaces inside markdown links so textwrap treats each

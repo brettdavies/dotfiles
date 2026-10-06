@@ -202,15 +202,49 @@ class CodeSpanTest(unittest.TestCase):
     WIDTHS = range(40, 121)
 
     def test_span_bytes_survive_at_every_width(self):
+        """A span that fits on a line stays whole; a longer one renders the same.
+
+        The longer span may break only at a lone space, which CommonMark renders
+        as the line ending it becomes, so joining the output's lines with single
+        spaces gives back the span, and every whitespace run inside it stays on
+        one line.
+        """
         for name, (src, spans) in CODE_SPAN_CORPUS.items():
             for width in self.WIDTHS:
                 out = mod.wrap_markdown(src, width)
                 lines = out.split("\n")
+                rendered = " ".join(l.strip() for l in lines)
                 for span in spans:
-                    self.assertTrue(
-                        any(span in line for line in lines),
-                        msg=f"{name} at width {width} altered or split {span!r}:\n{out}",
-                    )
+                    if len(span) <= width - 4:
+                        self.assertTrue(
+                            any(span in line for line in lines),
+                            msg=f"{name} at width {width} altered or split {span!r}:\n{out}",
+                        )
+                        continue
+                    self.assertIn(span, rendered, msg=f"{name} at width {width} changed {span!r}:\n{out}")
+                    for run in re.findall(r"\S\s{2,}\S|\S\t\S", span):
+                        self.assertTrue(
+                            any(run in line for line in lines),
+                            msg=f"{name} at width {width} broke the run {run!r}:\n{out}",
+                        )
+
+    def test_overlong_span_breaks_at_lone_spaces_and_stays_idempotent(self):
+        """A span longer than the line wraps instead of overflowing the limit."""
+        span = "`" + " ".join(f"field_{i}" for i in range(20)) + "`"
+        src = f"The struct carries {span} in every row.\n"
+        for width in (60, 80, 120):
+            first = mod.wrap_markdown(src, width)
+            self.assertTrue(
+                all(len(line) <= width for line in first.split("\n")),
+                msg=f"width {width} overflowed:\n{first}",
+            )
+            self.assertIn(span, " ".join(l.strip() for l in first.split("\n")))
+            self.assertEqual(first, mod.wrap_markdown(first, width), msg=f"width {width} not idempotent")
+
+    def test_overlong_span_never_breaks_inside_a_run(self):
+        span = "`" + "   ".join(f"col{i}" for i in range(16)) + "`"
+        out = mod.wrap_markdown(f"Columns {span} end.\n", 60)
+        self.assertTrue(any(span in line for line in out.split("\n")), msg=out)
 
     def test_prose_whitespace_outside_spans_still_collapses(self):
         out = mod.wrap_markdown("Prose  with   runs `a   b` and    more.\n", 120)
