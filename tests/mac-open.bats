@@ -14,13 +14,20 @@
 #   SSH_FAIL_MATCH       apply SSH_EXIT / SSH_ERR only to calls naming this word
 #   RECEIVER_OUT         what the fake receiver prints on stdout
 #   TIMEOUT_EXIT         make `timeout` report its own expiry instead of running
-#   WHOIS                "addr=name ..." answers for `tailscale whois --json`
+#   TIMEOUT_REAL         path of the real `timeout`, run in place of the stub's
+#                        pass-through
+#   WHOIS               "addr=name ..." answers for `tailscale whois --json`
 #   WHOIS_EXIT           make `tailscale whois` fail
 #   DRIVE_TABLE          the `tailscale drive list` output
 #   DRIVE_EXIT           make `tailscale drive list` fail outright
 #   CLIENTS              "session activity pid" lines for `tmux list-clients`
 #   TMUX_EXIT            make `tmux list-clients` fail
-#   YA_EXIT              make `ya` fail
+#   TMUX_WEDGED          make `tmux` exit 124 while a process in its own group
+#                        keeps its stdout open, as a wedged server keeps the
+#                        stdout a client handed it after timeout kills the client
+#   TMUX_IGNORE_TERM     make `tmux` ignore SIGTERM and never answer, as a client
+#                        stuck connecting to a wedged server does
+#   YA_EXIT             make `ya` fail
 #   SSH_SELF_INT         interrupt mac-open (SIGINT) and exit 255, as ssh does
 #   DRIVE_SELF_INT       interrupt mac-open (SIGINT) while it reads the share table
 # The guard reads a real /proc environment: tests start a background `sleep`
@@ -41,6 +48,7 @@ setup() {
   export RECEIVED="$BATS_TEST_TMPDIR/received.log"
   export STDIN_COPY="$BATS_TEST_TMPDIR/stdin.bin"
   export YA_LOG="$BATS_TEST_TMPDIR/ya.log"
+  export HELD="$BATS_TEST_TMPDIR/held.pids"
   export MACHOME
   mkdir -p "$STUBS" "$MACHOME/.local/bin" "$FIX/dev" "$FIX/vault" "$FIX/outside"
   : >"$CALLS"
@@ -82,6 +90,7 @@ EOF
   stub timeout '
     log timeout "$@"
     [[ -z ${TIMEOUT_EXIT:-} ]] || exit "$TIMEOUT_EXIT"
+    [[ -z ${TIMEOUT_REAL:-} ]] || exec "$TIMEOUT_REAL" "$@"
     while [[ $1 == -* ]]; do shift; done
     shift
     exec "$@"'
@@ -110,6 +119,15 @@ EOF
     esac'
   stub tmux '
     log tmux "$@"
+    if [[ -n ${TMUX_WEDGED:-} ]]; then
+      perl -e "setpgrp; exec @ARGV" sleep 60 2>/dev/null 3>&- &
+      echo $! >>"$HELD"
+      exit 124
+    fi
+    if [[ -n ${TMUX_IGNORE_TERM:-} ]]; then
+      trap "" TERM
+      exec sleep 60 3>&-
+    fi
     case $1 in
       display-message) echo "\$7" ;;
       list-clients)
@@ -126,6 +144,7 @@ EOF
 
 teardown() {
   local pid
+  [[ ! -f $HELD ]] || BG_PIDS="${BG_PIDS:-} $(tr '\n' ' ' <"$HELD")"
   for pid in ${BG_PIDS:-}; do kill "$pid" 2>/dev/null || true; done
 }
 
@@ -318,14 +337,25 @@ ya_line() {
   [ "$status" -eq 0 ]
 }
 
-@test "the guard's tmux calls run under a 3 s foreground bound" {
+@test "the guard's tmux calls run under a 3 s foreground bound with a 2 s kill grace" {
   fixture "$FIX/dev/n.md"
   in_tmux
   client_with "$MAC_ADDR 50000 100.64.0.1 22"
   CLIENTS="\$7 100 $CLIENT_PID" dispatch edit "$FIX/dev/n.md"
   [ "$status" -eq 0 ]
-  grep -q '^timeout --foreground 3 tmux display-message ' "$CALLS"
-  grep -q '^timeout --foreground 3 tmux list-clients -t \$7 ' "$CALLS"
+  grep -q '^timeout --foreground --kill-after=2 3 tmux display-message ' "$CALLS"
+  grep -q '^timeout --foreground --kill-after=2 3 tmux list-clients -t \$7 ' "$CALLS"
+}
+
+@test "a tmux client that ignores SIGTERM is killed after the grace and the guard fails closed" {
+  fixture "$FIX/dev/n.md"
+  in_tmux
+  local real_timeout
+  real_timeout=$(command -v timeout)
+  TIMEOUT_REAL=$real_timeout TMUX_IGNORE_TERM=1 PATH="$STUBS:$PATH" run --separate-stderr "$real_timeout" 20 "$SCRIPT" edit "$FIX/dev/n.md"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"not-from-mac: tmux reported no client for this session; "* ]]
+  [ "$(ssh_calls)" -eq 0 ]
 }
 
 @test "a tmux session with no client fails closed without dialing" {
@@ -349,7 +379,9 @@ ya_line() {
 @test "a tmux server that does not answer within the bound fails closed without dialing" {
   fixture "$FIX/dev/n.md"
   in_tmux
-  TIMEOUT_EXIT=124 dispatch edit "$FIX/dev/n.md"
+  local real_timeout
+  real_timeout=$(command -v timeout)
+  TMUX_WEDGED=1 PATH="$STUBS:$PATH" run --separate-stderr "$real_timeout" 10 "$SCRIPT" edit "$FIX/dev/n.md"
   [ "$status" -eq 1 ]
   [[ $stderr == *"not-from-mac: tmux reported no client for this session; "* ]]
   [ "$(ssh_calls)" -eq 0 ]

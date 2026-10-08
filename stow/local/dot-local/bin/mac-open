@@ -88,6 +88,19 @@ fail() {
 # Client-origin guard
 # ---------------------------------------------------------------------------
 
+# tmux_query ARGS...: tmux's stdout, bounded. The client hands its stdin and
+# stdout to the server over the socket, and a wedged server holds them open
+# after timeout kills the client, so the output goes through a file: a pipe
+# would never reach EOF.
+tmux_query() {
+  local out status=0 bound=3
+  out=$(mktemp) || return 1
+  timeout --foreground --kill-after=2 "$bound" tmux "$@" </dev/null >"$out" || status=$?
+  ((status != 0)) || cat "$out"
+  rm -f "$out"
+  return "$status"
+}
+
 # SSH_CONNECTION of the connection driving this session, one line per
 # candidate, an empty line for a client with none (the server console). In tmux
 # that is the session's most recently active client: the pane's own copy is
@@ -100,9 +113,9 @@ driving_connections() {
     printf '%s\n' "${SSH_CONNECTION:-}"
     return
   fi
-  local session clients latest act pid bound=3
-  session=$(timeout --foreground "$bound" tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#{session_id}') || return 0
-  clients=$(timeout --foreground "$bound" tmux list-clients -t "$session" -F '#{client_activity} #{client_pid}') || return 0
+  local session clients latest act pid
+  session=$(tmux_query display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#{session_id}') || return 0
+  clients=$(tmux_query list-clients -t "$session" -F '#{client_activity} #{client_pid}') || return 0
   latest=$(awk 'NR == 1 || $1 > max { max = $1 } END { print max }' <<<"$clients")
   while read -r act pid; do
     [[ -n $act && $act == "$latest" ]] || continue
@@ -122,8 +135,8 @@ guard() {
         continue
       fi
       addr=${conn%% *}
-      if ! name=$(tailscale whois --json "$addr" 2>/dev/null | "$jq" -r '.Node.ComputedName // empty') ||
-        [[ -z $name ]]; then
+      if ! name=$(tailscale whois --json "$addr" 2>/dev/null | "$jq" -r '.Node.ComputedName // empty') \
+        || [[ -z $name ]]; then
         detail="tailscale whois could not name $addr"
         continue
       fi
