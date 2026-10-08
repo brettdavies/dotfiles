@@ -122,8 +122,8 @@ guard() {
         continue
       fi
       addr=${conn%% *}
-      if ! name=$(tailscale whois --json "$addr" 2>/dev/null | "$jq" -r '.Node.ComputedName // empty') ||
-        [[ -z $name ]]; then
+      if ! name=$(tailscale whois --json "$addr" 2>/dev/null | "$jq" -r '.Node.ComputedName // empty') \
+        || [[ -z $name ]]; then
         detail="tailscale whois could not name $addr"
         continue
       fi
