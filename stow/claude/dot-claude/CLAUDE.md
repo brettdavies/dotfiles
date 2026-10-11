@@ -182,8 +182,9 @@ stylistic slip. Applies to chat, debriefs, plans, notes, and every artifact.
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse
 hook lists active runs with the exact `gh run watch <id> --exit-status` to spawn — run one per active run in the
-background (or `gh pr checks <pr> --watch` for PR-scoped). **A completed watcher is NOT a green watcher**: `gh pr checks
---watch` exits 0 when all checks finish regardless of pass/fail. After every completion notification, verify explicitly:
+background (or `gh pr checks <pr> --watch` for PR-scoped). **A completed watcher is NOT a green watcher**: `gh run
+watch` without `--exit-status` exits 0 when the run completes regardless of pass/fail (see cli/cli
+pkg/cmd/run/watch/watch.go L209-210). After every completion notification, verify explicitly:
 `gh pr view <num> --json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus, checks:
 [.statusCheckRollup[] | {name, conclusion}]}'` and assert every conclusion is `SUCCESS`. Same for run-scoped: `gh run
 view <id> --json conclusion --jq .conclusion` must be `success`. Then re-enumerate to catch chained runs — both

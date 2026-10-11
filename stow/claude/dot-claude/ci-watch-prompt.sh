@@ -23,11 +23,13 @@
 #     run_in_background: true (one Bash call per run, in parallel)
 #   - For PR creates/merges, prefer `gh pr checks <pr> --watch` which covers
 #     all checks across all triggered workflows on the PR head
-#   - VERIFY STATUS AFTER COMPLETION, NOT JUST EXIT CODE. `gh pr checks --watch`
-#     exits 0 once all checks complete — pass OR fail. `gh run watch
-#     --exit-status` is reliable for a single run, but the PR-scoped watcher is
-#     not. After every completion notification, re-query and read per-check
-#     conclusions explicitly:
+#   - VERIFY STATUS AFTER COMPLETION, NOT JUST EXIT CODE. `gh run watch` without
+#     `--exit-status` exits 0 once the run completes — pass OR fail (see
+#     pkg/cmd/run/watch/watch.go L209-210). `gh run watch --exit-status` is
+#     reliable. `gh pr checks --watch` exits non-zero on failures (see
+#     pkg/cmd/pr/checks/checks.go L249), but can stop before late/downstream
+#     required checks report. After every completion notification, re-query and
+#     read per-check conclusions explicitly:
 #       gh pr view <num> --json statusCheckRollup,mergeStateStatus \
 #         --jq '{merge: .mergeStateStatus, checks: [.statusCheckRollup[] | {name, conclusion}]}'
 #     A check is green only when conclusion == "SUCCESS". A PR is green only
