@@ -171,6 +171,7 @@
       "Bash(xxd *)",
       "Bash(yq:*)",
       "Bash(~/.claude/md-align-tables.py *)",
+      "Bash(~/.claude/ci-verify.sh*)",
       "Bash(~/.claude/rust-ci-check.sh:*)",
       "Bash(~/.claude/skills/1password/scripts/create_item.sh *)",
       "Bash(~/.claude/skills/1password/scripts/edit_item.sh *)",
@@ -575,6 +576,16 @@
       }
     ],
     "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/ci-stop-gate.sh",
+            "timeout": 20
+          }
+        ]
+      },
       {
         "matcher": "",
         "hooks": [

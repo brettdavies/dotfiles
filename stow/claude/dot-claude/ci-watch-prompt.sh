@@ -1,71 +1,17 @@
 #!/usr/bin/env bash
 # ci-watch-prompt.sh — PostToolUse hook for Claude Code
 #
-# Policy (single source of truth — keep this header current):
-# ============================================================
-# After ANY action that triggers GitHub Actions, the agent must monitor every
-# triggered run to completion before moving on. This hook fires after Bash
-# tool invocations matching:
+# After ANY action that triggers GitHub Actions, list active runs and tell the
+# agent to run ~/.claude/ci-verify.sh. That script is the gate: it waits for
+# every required check (including reusable-workflow jobs and followed dispatch
+# chains) and exits 0 only when they passed. This hook never blocks. It only
+# informs. The Stop hook (ci-stop-gate.sh) refuses the turn while CI is red
+# or still running.
 #
-#   - git push (any branch, any ref, including tags)
-#   - gh pr create
-#   - gh pr merge
-#   - gh release create
-#   - gh workflow run / gh api ... dispatches
+# Matchers: git push, gh pr create/merge, gh release create, gh workflow run,
+# gh api .../dispatches. Skip git push --dry-run and --delete.
 #
-# When matched, the hook:
-#   1. Enumerates currently-active runs on the relevant branch via gh run list
-#   2. Emits a system reminder listing the active runs + the exact commands
-#      the agent should spawn in background to watch them
-#
-# The agent must:
-#   - Spawn `gh run watch <id> --exit-status` per active run with
-#     run_in_background: true (one Bash call per run, in parallel)
-#   - For PR creates/merges, prefer `gh pr checks <pr> --watch` which covers
-#     all checks across all triggered workflows on the PR head
-#   - VERIFY STATUS AFTER COMPLETION, NOT JUST EXIT CODE. `gh pr checks --watch`
-#     exits 0 once all checks complete — pass OR fail. `gh run watch
-#     --exit-status` is reliable for a single run, but the PR-scoped watcher is
-#     not. After every completion notification, re-query and read per-check
-#     conclusions explicitly:
-#       gh pr view <num> --json statusCheckRollup,mergeStateStatus \
-#         --jq '{merge: .mergeStateStatus, checks: [.statusCheckRollup[] | {name, conclusion}]}'
-#     A check is green only when conclusion == "SUCCESS". A PR is green only
-#     when every check is SUCCESS and mergeStateStatus is CLEAN (or BEHIND).
-#     Same for run-scoped: re-query `gh run view <id> --json conclusion --jq
-#     .conclusion` and assert it is "success" — not just that the watch exited.
-#   - After each run completes, re-enumerate to catch dispatched chains. Two
-#     dispatch shapes exist and both need watching:
-#       (a) Same-repo chains: release.yml → finalize-release.yml triggered by
-#           a `workflow_run` event in the same repo. Visible to
-#           `gh run list --branch <branch>` after the parent completes.
-#       (b) Cross-repo dispatches: release.yml fires a
-#           `peter-evans/repository-dispatch` (or `gh api .../dispatches`) at
-#           ANOTHER repo (e.g. brettdavies/homebrew-tap), which runs its own
-#           workflow and may dispatch BACK to the originating repo
-#           (e.g. homebrew-tap → finalize-release in agentnative-cli).
-#           These are NOT visible to a branch-scoped `gh run list` on the
-#           originating repo. The agent must:
-#             1. Identify the target repo from the workflow source (look for
-#                `repository_dispatch` / `repository-dispatch` action /
-#                `gh api repos/<owner>/<repo>/dispatches`).
-#             2. Watch the target repo: `gh run list -R <target>` filtered to
-#                recent runs, then `gh run watch <id> -R <target>
-#                --exit-status` for each.
-#             3. After the target's runs complete, re-query the ORIGINATING
-#                repo for callback dispatches. The chain can bounce multiple
-#                times. Repeat until both repos quiesce.
-#           Reference shape: agentnative-cli release.yml dispatches to
-#           brettdavies/homebrew-tap → tap's workflow updates the formula and
-#           dispatches back → cli's finalize-release.yml flips the GitHub
-#           Release out of draft.
-#   - Never proceed past a red CI run; investigate and fix before moving on.
-#     Apply the same rule to cross-repo dispatched runs — a red run on the
-#     dispatched repo blocks the originating workflow's contract just as
-#     surely as a red run on the originating branch.
-#
-# This hook never blocks. It only informs. The agent decides what to watch.
-# ============================================================
+# Policy source of truth: the ~/.claude/ci-verify.sh header.
 
 set -uo pipefail
 
@@ -147,16 +93,13 @@ reminder=$({
   echo "Active runs:"
   printf '%s' "$runs" | "$JQ" -r '.[] | "  - \(.databaseId)  \(.workflowName) / \(.name)  [\(.status), event=\(.event)]"'
   echo ""
-  echo "REQUIRED ACTION — spawn one Bash call per run in parallel,"
-  echo "all with run_in_background: true:"
+  echo "REQUIRED ACTION — spawn this once with run_in_background: true:"
   echo ""
-  printf '%s' "$runs" | "$JQ" -r '.[] | "  gh run watch \(.databaseId) --exit-status"'
+  echo "  ~/.claude/ci-verify.sh"
   echo ""
-  echo "If this was a PR action, prefer the PR-scoped watcher instead:"
-  echo "  gh pr checks <pr-number> --watch"
-  echo ""
-  echo "After all watchers complete, re-run gh run list to catch any"
-  echo "dispatched chains (release.yml → homebrew dispatch → finalize-release etc.)."
+  echo "ci-verify waits for every required check (reusable-workflow jobs and"
+  echo "followed dispatch chains included), then exits 0 only when they passed."
+  echo "Do not treat a finished gh watcher as the gate."
   echo "Never proceed past a red run."
 })
 
