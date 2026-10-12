@@ -62,6 +62,7 @@ ci_verify::unverified() {
   local tool=$1
   local message="WARNING: ${tool} is not on PATH. CI was NOT verified."
   if [[ "${CI_VERIFY_JSON:-0}" == "1" && -n "${CI_GATE_JQ:-}" ]]; then
+    # shellcheck disable=SC2016  # jq program; $names are --arg bindings
     "$CI_GATE_JQ" -n \
       --arg message "$message" \
       --arg tool "$tool" \
