@@ -3,6 +3,8 @@
 #
 # Run: bats tests/ci-stop-gate.bats
 
+bats_require_minimum_version 1.5.0
+
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/ci-stop-gate.sh"
 VERIFY="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/ci-verify.sh"
 
@@ -158,4 +160,44 @@ _hook() {
   [ -x "$HOOK" ]
   head -1 "$HOOK" | grep -q bash
   [ -x "$VERIFY" ]
+}
+
+@test "missing jq/jaq allows Stop with a visible WARNING" {
+  mkdir -p "$FIX/bin"
+  ln -sf /usr/bin/bash "$FIX/bin/bash"
+  ln -sf /usr/bin/cat "$FIX/bin/cat"
+  ln -sf /usr/bin/dirname "$FIX/bin/dirname"
+  run --separate-stderr env PATH="$STUBS:$FIX/bin" bash -c 'printf "%s\n" "{\"stop_hook_active\":false}" | "'"$HOOK"'"'
+  echo "status=$status"
+  echo "stdout=$output"
+  echo "stderr=$stderr"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING"* ]]
+  [[ "$output" == *"jq"* ]]
+  [[ "$output" == *"NOT verified"* ]]
+  [[ "$stderr" == *"WARNING"* ]]
+  printf '%s\n' "$output" | jq -e '.hookSpecificOutput.hookEventName == "Stop"' >/dev/null
+  printf '%s\n' "$output" | jq -e '.hookSpecificOutput.additionalContext | test("WARNING")' >/dev/null
+  printf '%s\n' "$output" | jq -e '.decision != "block"' >/dev/null
+}
+
+@test "missing gh allows Stop with a visible WARNING from ci-verify" {
+  mkdir -p "$FIX/bin"
+  ln -sf /usr/bin/bash "$FIX/bin/bash"
+  ln -sf /usr/bin/cat "$FIX/bin/cat"
+  ln -sf /usr/bin/dirname "$FIX/bin/dirname"
+  ln -sf "$(command -v jq)" "$FIX/bin/jq"
+  ln -sf "$(command -v tr)" "$FIX/bin/tr"
+  run --separate-stderr env PATH="$FIX/bin" CI_VERIFY_ASSUME_PUSHED=1 \
+    CI_VERIFY_SHA=abc123def456 CI_VERIFY_REPO=owner/app \
+    bash -c 'printf "%s\n" "{\"stop_hook_active\":false}" | "'"$HOOK"'"'
+  echo "status=$status"
+  echo "stdout=$output"
+  echo "stderr=$stderr"
+  [ "$status" -eq 0 ]
+  [[ "$output$stderr" == *"WARNING"* ]]
+  [[ "$output$stderr" == *"gh"* ]]
+  [[ "$output$stderr" == *"NOT verified"* ]]
+  printf '%s\n' "$output" | jq -e '.hookSpecificOutput.additionalContext | test("WARNING")' >/dev/null
+  printf '%s\n' "$output" | jq -e '.decision != "block"' >/dev/null
 }

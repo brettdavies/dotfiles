@@ -194,8 +194,10 @@ After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run
 hook lists active runs and tells you to spawn `~/.claude/ci-verify.sh` in the background. That script waits for every
 required check — including reusable-workflow jobs and followed dispatch chains — then exits 0 only when they passed. A
 Stop hook (`ci-stop-gate.sh`) refuses the turn while those checks are red or still running. Unpushed HEAD and repos with
-no CI pass through. Escape hatch (human only): `CI_VERIFY_ALLOW_STOP=1`. **Never proceed past a red run on any link in
-the chain.** Policy source of truth: the `~/.claude/ci-verify.sh` header.
+no CI pass through. A `BLOCKED` merge state does not fail the gate on its own (drafts and review rulesets); conclusions
+still decide. Missing `gh`/`jq` prints a WARNING and exits 4 (could-not-verify); the Stop hook surfaces that WARNING and
+still lets the turn end. Escape hatch (human only): `CI_VERIFY_ALLOW_STOP=1`. **Never proceed past a red run on any link
+in the chain.** Policy source of truth: the `~/.claude/ci-verify.sh` header.
 
 ## CLI tools
 

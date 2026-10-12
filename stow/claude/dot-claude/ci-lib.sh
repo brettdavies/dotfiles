@@ -4,8 +4,9 @@
 # Conclusion classes: pass (success), fail (failure/cancelled/timed_out/
 # action_required/stale/startup_failure), ignore (skipped/neutral unless
 # CI_VERIFY_STRICT=1), pending (empty conclusion or a non-terminal status).
-# Merge CLEAN and BEHIND pass; UNSTABLE and DIRTY fail; BLOCKED and UNKNOWN
-# do not fail on their own (drafts and review rulesets use BLOCKED).
+# Merge CLEAN and BEHIND pass; UNSTABLE and DIRTY fail. BLOCKED does not fail
+# the gate by itself (drafts and review rulesets use it); conclusions still
+# decide. UNKNOWN is treated the same way as BLOCKED.
 
 # Resolve jaq or jq into CI_GATE_JQ.
 # Globals: CI_GATE_JQ
@@ -93,6 +94,7 @@ ci_gate::merge_class() {
   case "$state" in
     clean | behind | "") printf '%s\n' pass ;;
     unstable | dirty) printf '%s\n' fail ;;
+    blocked | unknown) printf '%s\n' ignore ;;
     *) printf '%s\n' ignore ;;
   esac
 }

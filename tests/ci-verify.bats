@@ -201,6 +201,16 @@ _verify() {
   [ "$CI_GATE_REASON" = still-running ]
 }
 
+@test "evaluate: BLOCKED merge + success conclusions → exit 0" {
+  # shellcheck disable=SC1090
+  source "$LIB"
+  ci_gate::pick_jq
+  CI_VERIFY_STRICT=0
+  ci_gate::evaluate '[{"conclusion":"success","status":"completed"}]' BLOCKED
+  [ "$CI_GATE_EXIT" -eq 0 ]
+  [ "$CI_GATE_REASON" = ok ]
+}
+
 # ---------------------------------------------------------------------------
 # ci-verify through a stubbed gh
 # ---------------------------------------------------------------------------
@@ -339,4 +349,35 @@ YML
   echo "$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"ci-stop-gate.sh"* ]]
+}
+
+@test "missing jq/jaq → exit 4 and WARNING that CI was NOT verified" {
+  mkdir -p "$FIX/bin"
+  ln -sf /usr/bin/bash "$FIX/bin/bash"
+  ln -sf /usr/bin/dirname "$FIX/bin/dirname"
+  run env PATH="$STUBS:$FIX/bin" CI_VERIFY_ASSUME_PUSHED=1 \
+    CI_VERIFY_SHA=abc123def456 CI_VERIFY_REPO=owner/app \
+    bash "$VERIFY"
+  echo "status=$status"
+  echo "$output"
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"WARNING"* ]]
+  [[ "$output" == *"jq"* ]]
+  [[ "$output" == *"NOT verified"* ]]
+}
+
+@test "missing gh → exit 4 and WARNING that CI was NOT verified" {
+  mkdir -p "$FIX/bin"
+  ln -sf /usr/bin/bash "$FIX/bin/bash"
+  ln -sf /usr/bin/dirname "$FIX/bin/dirname"
+  ln -sf "$(command -v jq)" "$FIX/bin/jq"
+  run env PATH="$FIX/bin" CI_VERIFY_ASSUME_PUSHED=1 \
+    CI_VERIFY_SHA=abc123def456 CI_VERIFY_REPO=owner/app \
+    bash "$VERIFY"
+  echo "status=$status"
+  echo "$output"
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"WARNING"* ]]
+  [[ "$output" == *"gh"* ]]
+  [[ "$output" == *"NOT verified"* ]]
 }

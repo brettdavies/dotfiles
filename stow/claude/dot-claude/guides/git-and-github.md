@@ -305,6 +305,14 @@ running. Unpushed HEAD and repos with no CI pass through. The hook allows the st
 true, so a blocked turn cannot retry forever. Escape hatch for a human who needs the turn to end anyway:
 `CI_VERIFY_ALLOW_STOP=1`.
 
+Merge state: `CLEAN` and `BEHIND` pass; `UNSTABLE` and `DIRTY` fail. `BLOCKED` does not fail the gate on its own. A
+draft PR is often `BLOCKED` even with green checks, so the gate still keys off conclusions. `UNKNOWN` is treated the
+same way.
+
+If `gh` or `jq`/`jaq` is missing, `ci-verify` prints `WARNING: <tool> is not on PATH. CI was NOT verified.` and exits 4
+(`could-not-verify`). The Stop hook treats 4 as warn-and-allow: the turn ends, and the WARNING is injected via
+`hookSpecificOutput.additionalContext` (the non-blocking Stop channel). That path is never silent.
+
 If you push CI-triggering changes via a path the watch prompt doesn't cover, run `~/.claude/ci-verify.sh` yourself.
 Never proceed past a red run.
 

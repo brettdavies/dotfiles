@@ -27,11 +27,18 @@
 # --dispatch-repo, and a scan of .github/workflows for repository-dispatch
 # targets and reusable-workflow `uses:` repos.
 #
+# Merge CLEAN and BEHIND pass. UNSTABLE and DIRTY fail. BLOCKED does not fail
+# the gate by itself (drafts and review rulesets use it); check conclusions
+# still decide. UNKNOWN is treated the same way as BLOCKED.
+#
 # Exit codes:
 #   0  ok | no-ci | not-pushed | no-repo
 #   1  checks-failed
 #   2  still-running (deadline or --fast snapshot)
-#   3  usage / missing jaq|jq
+#   3  usage
+#   4  could-not-verify (missing gh, jq/jaq, or another dependency).
+#      Prints a WARNING that CI was NOT verified. The Stop hook treats 4 as
+#      warn-and-allow: the turn ends, the WARNING is surfaced.
 #
 # Knobs (env or flags): CI_VERIFY_TIMEOUT (600), CI_VERIFY_POLL_SECONDS (5),
 # CI_VERIFY_SETTLE_SECONDS (8), CI_VERIFY_FOLLOW (1), CI_VERIFY_FOLLOW_DEPTH
@@ -47,6 +54,24 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$HERE/ci-lib.sh"
 # shellcheck disable=SC1091
 source "$HERE/ci-follow.sh"
+
+# Print a could-not-verify WARNING and exit 4.
+# Args: $1 missing tool name, e.g. "gh" or "jq (or jaq)"
+# Returns: 4
+ci_verify::unverified() {
+  local tool=$1
+  local message="WARNING: ${tool} is not on PATH. CI was NOT verified."
+  if [[ "${CI_VERIFY_JSON:-0}" == "1" && -n "${CI_GATE_JQ:-}" ]]; then
+    "$CI_GATE_JQ" -n \
+      --arg message "$message" \
+      --arg tool "$tool" \
+      '{reason:"could-not-verify", exit_code:4, message:$message, missing:$tool,
+        next_step:{action:"install", command:"", docs:"file:~/.claude/ci-verify.sh"}}'
+  else
+    echo "ci-verify: $message" >&2
+  fi
+  exit 4
+}
 
 # Print usage to STDERR.
 # Returns: 3
@@ -229,14 +254,8 @@ ci_verify::wait() {
 main() {
   ci_verify::parse "$@"
   ci_gate::load_config
-  ci_gate::pick_jq || {
-    echo "ci-verify: jaq or jq is required" >&2
-    exit 3
-  }
-  command -v gh >/dev/null 2>&1 || {
-    echo "ci-verify: gh is required" >&2
-    exit 3
-  }
+  ci_gate::pick_jq || ci_verify::unverified "jq (or jaq)"
+  command -v gh >/dev/null 2>&1 || ci_verify::unverified "gh"
   ci_verify::resolve
   ci_verify::wait
 }
