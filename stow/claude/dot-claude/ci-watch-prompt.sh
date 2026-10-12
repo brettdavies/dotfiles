@@ -24,9 +24,12 @@
 #   - For PR creates/merges, prefer `gh pr checks <pr> --watch` which covers
 #     all checks across all triggered workflows on the PR head
 #   - VERIFY STATUS AFTER COMPLETION, NOT JUST EXIT CODE. `gh pr checks --watch`
-#     exits 0 once all checks complete — pass OR fail. `gh run watch
-#     --exit-status` is reliable for a single run, but the PR-scoped watcher is
-#     not. After every completion notification, re-query and read per-check
+#     exits 1 if any check ends FAILURE/ERROR/TIMED_OUT/ACTION_REQUIRED, but
+#     exits 0 when the rest are CANCELLED/SKIPPED/NEUTRAL, and it only sees
+#     checks registered when it polls (late/chained workflows can be missed).
+#     `gh run watch` exits 0 on failure unless `--exit-status` is passed. So
+#     treat a non-zero exit as red, but a zero exit as "not proven green".
+#     After every completion notification, re-query and read per-check
 #     conclusions explicitly:
 #       gh pr view <num> --json statusCheckRollup,mergeStateStatus \
 #         --jq '{merge: .mergeStateStatus, checks: [.statusCheckRollup[] | {name, conclusion}]}'
