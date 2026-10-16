@@ -136,26 +136,27 @@ The `local` package deploys `stow/local/dot-local/bin/` to `~/.local/bin/`. Thes
 hooks, systemd units, and agent tooling call them by name, so each one resolves the same way on every host without
 knowing where the underlying implementation lives.
 
-| Binary                     | Purpose                                                                                     |
-| -------------------------- | ------------------------------------------------------------------------------------------- |
-| `backup-openclaw-settings` | Back up OpenClaw's settings to the NAS, run daily by `openclaw-settings-backup.timer`       |
-| `brave-search`             | Query the Brave Search API, printing ranked results as plain text or raw JSON               |
-| `charcount`                | Count characters against platform length caps, exiting non-zero so it gates in scripts      |
-| `env`                      | Put `~/.local/bin` on `PATH` for user-installed binaries                                    |
-| `gh-revision-audit`        | List your issues and PRs that still carry prior edit revisions on GitHub                    |
-| `gstack-config-apply`      | Converge `~/.gstack/config.yaml`, which gstack rewrites and so cannot be a stow package     |
-| `mac-open`                 | Open a file from yazi on a Linux host on the Mac the session is driven from                 |
-| `mac-open-here`            | The Mac half of `mac-open`, run over SSH: open a host file in VS Code or the default app    |
-| `op-ssh-sign-wrapper`      | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless      |
-| `qmd-gpu-verify`           | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU             |
-| `qmd-ollama-unload-all`    | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely  |
-| `sd-commit-doc`            | Commit and push `docs/solutions/` files from the shared clone without racing another agent  |
-| `tmux-new-session`         | Write a tmuxinator config for a repo and start its 3-pane session                           |
-| `transcribe-diarize`       | Local GPU speaker-diarized transcription (ffmpeg → whisperx → pyannote)                     |
-| `unslop`                   | Machine-level entry point for the prose scorer, resolved through `~/.claude/skills`         |
-| `unslop-gate`              | Git-hook prose gate over `unslop`, scoring only the markdown in the change being pushed     |
-| `uuidv7`                   | Print a time-ordered UUIDv7, used for collision-proof `/tmp` artifact names                 |
-| `xurl`                     | Real `xurl` on `PATH` that execs xurl-rs's `xr`, for callers that load no interactive alias |
+| Binary                     | Purpose                                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `backup-openclaw-settings` | Back up OpenClaw's settings to the NAS, run daily by `openclaw-settings-backup.timer`          |
+| `brave-search`             | Query the Brave Search API, printing ranked results as plain text or raw JSON                  |
+| `charcount`                | Count characters against platform length caps, exiting non-zero so it gates in scripts         |
+| `env`                      | Put `~/.local/bin` on `PATH` for user-installed binaries                                       |
+| `gh-revision-audit`        | List your issues and PRs that still carry prior edit revisions on GitHub                       |
+| `github-stars`             | Clone and update starred GitHub repos under `~/github-stars`, run by the `github-stars` timers |
+| `gstack-config-apply`      | Converge `~/.gstack/config.yaml`, which gstack rewrites and so cannot be a stow package        |
+| `mac-open`                 | Open a file from yazi on a Linux host on the Mac the session is driven from                    |
+| `mac-open-here`            | The Mac half of `mac-open`, run over SSH: open a host file in VS Code or the default app       |
+| `op-ssh-sign-wrapper`      | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless         |
+| `qmd-gpu-verify`           | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU                |
+| `qmd-ollama-unload-all`    | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely     |
+| `sd-commit-doc`            | Commit and push `docs/solutions/` files from the shared clone without racing another agent     |
+| `tmux-new-session`         | Write a tmuxinator config for a repo and start its 3-pane session                              |
+| `transcribe-diarize`       | Local GPU speaker-diarized transcription (ffmpeg → whisperx → pyannote)                        |
+| `unslop`                   | Machine-level entry point for the prose scorer, resolved through `~/.claude/skills`            |
+| `unslop-gate`              | Git-hook prose gate over `unslop`, scoring only the markdown in the change being pushed        |
+| `uuidv7`                   | Print a time-ordered UUIDv7, used for collision-proof `/tmp` artifact names                    |
+| `xurl`                     | Real `xurl` on `PATH` that execs xurl-rs's `xr`, for callers that load no interactive alias    |
 
 ### Tmuxinator Sessions
 

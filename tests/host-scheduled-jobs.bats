@@ -124,14 +124,19 @@ EOF
 }
 
 @test "stars sync runs hourly and the clone pass at quarter hours, both randomized" {
-  grep -qE '^ExecStart=.*/github-stars\.sh -j 4$' "$LOCAL_UNITS/github-stars.service"
-  grep -qE '^ExecStart=.*/github-stars\.sh --clone-only -j 4$' "$LOCAL_UNITS/github-stars-clone.service"
+  grep -qx 'ExecStart=%h/.local/bin/github-stars -j 4' "$LOCAL_UNITS/github-stars.service"
+  grep -qx 'ExecStart=%h/.local/bin/github-stars --clone-only -j 4' "$LOCAL_UNITS/github-stars-clone.service"
   grep -qx 'OnCalendar=\*-\*-\* \*:00:00' "$LOCAL_UNITS/github-stars.timer"
   grep -qx 'OnCalendar=\*-\*-\* \*:15,30,45:00' "$LOCAL_UNITS/github-stars-clone.timer"
   grep -qx 'RandomizedDelaySec=120' "$LOCAL_UNITS/github-stars.timer"
   grep -qx 'RandomizedDelaySec=120' "$LOCAL_UNITS/github-stars-clone.timer"
-  grep -qx 'StandardOutput=append:%h/.openclaw/logs/github-stars.log' "$LOCAL_UNITS/github-stars.service"
-  grep -qx 'StandardOutput=append:%h/.openclaw/logs/github-stars.log' "$LOCAL_UNITS/github-stars-clone.service"
+}
+
+@test "stars sync logs to the journal" {
+  for unit in github-stars github-stars-clone; do
+    run grep -nE '^Standard(Output|Error)=' "$LOCAL_UNITS/$unit.service"
+    [ "$status" -eq 1 ] || { echo "$unit.service: $output"; return 1; }
+  done
 }
 
 @test "backup-openclaw-settings is an executable stowed command with no hardcoded home" {
