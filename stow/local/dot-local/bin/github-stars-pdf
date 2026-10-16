@@ -9,7 +9,8 @@
 # blob each markdown came from, so a PDF converts only when its blob is new or changed, and a blob already converted
 # for another entry (a fork, a move) is copied instead of converted again.
 #
-# Every run also lists the PDFs in each clone's tree (local, nothing downloaded). One in neither list and outside
+# Every run also lists the PDFs in the tree of each clone whose commit moved since its last scan (local, nothing
+# downloaded); a change to the decisions list rescans every clone. A PDF in neither list and outside
 # test-data paths is a candidate; candidates, listed PDFs that moved, and listed PDFs deleted upstream are reported
 # once, in a dated note in the vault inbox. A PDF that fails to convert is reported the same way and not retried until
 # its blob changes; deleting its line from $STATE_DIR/pdf-failed retries it sooner. systemd starts this after each
@@ -37,6 +38,7 @@ INBOX="${GITHUB_STARS_PDF_INBOX:-$HOME/obsidian-vault/inbox}"
 STATE_DIR="${GITHUB_STARS_PDF_STATE:-$HOME/.local/state/github-stars}"
 REPORTED="$STATE_DIR/pdf-reported"
 FAILED="$STATE_DIR/pdf-failed"
+SCANNED="$STATE_DIR/pdf-scanned"
 TEST_DATA='(^|/)(tests?|__tests__|__fixtures__|testdata|test[-_]?data|fixtures?|samples?|corpus|benchmarks?|spec|e2e|evals?|golden|regression|cases|inputs?|node_modules|vendor|_build)/'
 
 usage() {
@@ -106,11 +108,22 @@ _pdf_meta() {
 }
 
 _discover() {
-    local git_dir repo path dir
+    local key="$1" git_dir repo path dir head seen_key="" r h
+    local -A seen=()
+    local -a scanned=()
+    if [[ -s "$SCANNED" ]]; then
+        read -r _ seen_key <"$SCANNED"
+        if [[ "$seen_key" == "$key" ]]; then
+            while read -r r h; do seen["$r"]="$h"; done < <(tail -n +2 "$SCANNED")
+        fi
+    fi
     for git_dir in "$BASE_DIR"/*/*/.git; do
         [[ -d "$git_dir" ]] || continue
         repo="${git_dir%/.git}"
         repo="${repo#"$BASE_DIR"/}"
+        head=$(git -C "$BASE_DIR/$repo" rev-parse -q --verify HEAD 2>/dev/null) || continue
+        scanned+=("$repo $head")
+        [[ "${seen["$repo"]:-}" == "$head" ]] && continue
         while IFS= read -r -d '' path; do
             [[ "${path,,}" == *.pdf ]] || continue
             [[ -n "${DECIDED["$repo:$path"]:-}" ]] && continue
@@ -122,6 +135,7 @@ _discover() {
             CANDIDATES+=("$repo"$'\t'"$path"$'\t'"$(_pdf_meta "$repo" "$path")")
         done < <(GIT_NO_LAZY_FETCH=1 git -C "$BASE_DIR/$repo" ls-tree -r -z --name-only HEAD 2>/dev/null)
     done
+    { echo "list $key"; printf '%s\n' "${scanned[@]+"${scanned[@]}"}"; } >"$SCANNED"
 }
 
 _write_note() {
@@ -306,7 +320,7 @@ main() {
     find "$OUT_DIR" -mindepth 1 -type d -empty -delete
     printf '%s\n' "${manifest[@]+"${manifest[@]}"}" | sed '/^$/d' >"$MANIFEST"
 
-    _discover
+    _discover "$({ cat "$LIST" 2>/dev/null; printf '%s\n' "$@"; } | sha256sum | cut -c1-16)"
     _write_note
     log "converted $converted, unchanged $unchanged, skipped $skipped, failed $failed, new candidates ${#CANDIDATES[@]}"
     [[ $failed -eq 0 ]]

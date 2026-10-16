@@ -177,6 +177,30 @@ _clone_with() {
   [ "$(_notes | wc -l)" -eq "$before" ]
 }
 
+@test "discovery lists a clone's files again only when its commit or the decisions list changes" {
+  _clone_with acme/papers docs/a.pdf=A
+  _clone_with acme/other README.md=hi
+  local real_git
+  real_git=$(command -v git)
+  mkdir -p "$BATS_TEST_TMPDIR/wrap"
+  printf '#!/bin/sh\ncase "$*" in *ls-tree*--name-only*) printf "%%s\\n" "$*" >>"%s";; esac\nexec "%s" "$@"\n' \
+    "$BATS_TEST_TMPDIR/scans" "$real_git" >"$BATS_TEST_TMPDIR/wrap/git"
+  chmod +x "$BATS_TEST_TMPDIR/wrap/git"
+  PATH="$BATS_TEST_TMPDIR/wrap:$PATH" "$CMD"
+  [ "$(grep -c acme/papers "$BATS_TEST_TMPDIR/scans")" -eq 1 ]
+  PATH="$BATS_TEST_TMPDIR/wrap:$PATH" "$CMD"
+  [ "$(grep -c acme/papers "$BATS_TEST_TMPDIR/scans")" -eq 1 ]
+  printf 'B' >"$STARS_DIR/acme/papers/docs/b.pdf"
+  git -C "$STARS_DIR/acme/papers" add -A && git -C "$STARS_DIR/acme/papers" commit -qm b
+  PATH="$BATS_TEST_TMPDIR/wrap:$PATH" run "$CMD"
+  [ "$(grep -c acme/papers "$BATS_TEST_TMPDIR/scans")" -eq 2 ]
+  [ "$(grep -c acme/other "$BATS_TEST_TMPDIR/scans")" -eq 1 ]
+  [[ "$(_notes)" == *"docs/b.pdf"* ]]
+  printf 'skip\tacme/papers:docs/a.pdf\n' >"$GITHUB_STARS_PDF_LIST"
+  PATH="$BATS_TEST_TMPDIR/wrap:$PATH" "$CMD"
+  [ "$(grep -c acme/other "$BATS_TEST_TMPDIR/scans")" -eq 2 ]
+}
+
 @test "without an inbox directory, candidates go to the log only" {
   _clone_with acme/papers docs/new.pdf=N
   GITHUB_STARS_PDF_INBOX="$BATS_TEST_TMPDIR/no-inbox" run "$CMD"
