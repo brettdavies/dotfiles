@@ -5,8 +5,7 @@ ConditionHost=bigdaddy
 [Service]
 Type=oneshot
 Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/obsidian-vault/areas/infrastructure/scripts/github-stars.sh -j 4
-StandardOutput=append:%h/.openclaw/logs/github-stars.log
+ExecStart=%h/.local/bin/github-stars -j 4
 
 # Hardening
 NoNewPrivileges=true
