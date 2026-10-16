@@ -92,7 +92,7 @@ _fixture_commit() {
 _real_repo() {
   _fixture_commit acme/real README.md=one src/main.go=main node_modules/dep/index.js=dep \
     src/node_modules/nested/index.js=nested pkg/mod.pyc=bytecode vendor/lib/lib.go=vendored build/build.sh=script \
-    assets/logo.png=pngbytes img/photo.JPG=jpgbytes
+    assets/logo.png=pngbytes img/photo.JPG=jpgbytes paper.pdf=pdfbytes
 }
 
 _no_local_blob() {
@@ -225,6 +225,8 @@ _local_clone() {
   [ "$(git -C "$repo" config --get remote.origin.promisor)" = "true" ]
   _no_local_blob acme/real assets/logo.png
   _no_local_blob acme/real img/photo.JPG
+  [ ! -e "$repo/paper.pdf" ]
+  _no_local_blob acme/real paper.pdf
   [ "$(git -C "$repo" show HEAD:assets/logo.png)" = "pngbytes" ]
   _clean_tree acme/real
   [ ! -e "$STARS_DIR/RhetTbull/osxphotos/tests/test-images" ]
