@@ -144,6 +144,7 @@ knowing where the underlying implementation lives.
 | `env`                      | Put `~/.local/bin` on `PATH` for user-installed binaries                                       |
 | `gh-revision-audit`        | List your issues and PRs that still carry prior edit revisions on GitHub                       |
 | `github-stars`             | Clone and update starred GitHub repos under `~/github-stars`, run by the `github-stars` timers |
+| `github-stars-pdf`         | Markdown copies of star PDFs marked `convert` in `pdfs.tsv` for qmd; reports new PDFs          |
 | `gstack-config-apply`      | Converge `~/.gstack/config.yaml`, which gstack rewrites and so cannot be a stow package        |
 | `mac-open`                 | Open a file from yazi on a Linux host on the Mac the session is driven from                    |
 | `mac-open-here`            | The Mac half of `mac-open`, run over SSH: open a host file in VS Code or the default app       |

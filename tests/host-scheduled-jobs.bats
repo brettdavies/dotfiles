@@ -149,6 +149,23 @@ EOF
   done
 }
 
+@test "the PDF converter is a host-gated oneshot that only a successful stars sync starts" {
+  local unit="$LOCAL_UNITS/github-stars-pdf.service"
+  grep -qx 'ConditionHost=bigdaddy' "$unit"
+  grep -qx 'Type=oneshot' "$unit"
+  grep -qx 'ExecStart=%h/.local/bin/github-stars-pdf' "$unit"
+  grep -qx 'EnvironmentFile=-%h/.config/github-stars/env' "$unit"
+  grep -qE '^Environment=PATH=.*/home/linuxbrew/\.linuxbrew/bin' "$unit"
+  run grep -nE '^(ExecStart|StandardOutput|StandardError)=.*/home/[a-z]' "$unit"
+  [ "$status" -eq 1 ]
+  [ ! -e "$LOCAL_UNITS/github-stars-pdf.timer" ]
+  run grep -n '^\[Install\]' "$unit"
+  [ "$status" -eq 1 ]
+  for svc in github-stars github-stars-clone; do
+    grep -qx 'OnSuccess=github-stars-pdf.service' "$LOCAL_UNITS/$svc.service" || { echo "$svc.service"; return 1; }
+  done
+}
+
 @test "both stars units load the read-only token file when it exists" {
   for unit in github-stars github-stars-clone; do
     grep -qx 'EnvironmentFile=-%h/.config/github-stars/env' "$LOCAL_UNITS/$unit.service" || { echo "$unit.service"; return 1; }

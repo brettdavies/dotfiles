@@ -1,6 +1,7 @@
 [Unit]
 Description=Clone newly starred GitHub repos
 ConditionHost=bigdaddy
+OnSuccess=github-stars-pdf.service
 
 [Service]
 Type=oneshot

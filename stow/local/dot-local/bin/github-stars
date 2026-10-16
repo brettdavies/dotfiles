@@ -8,15 +8,22 @@
 # Unified script that:
 #   - Clones repos you've starred but don't have locally
 #   - Updates repos you already have cloned
-#   - Cleans up bloat after each clone/update
+#   - Keeps dependency, bytecode and binary files out of each clone
 #   - Optionally prunes repos you've unstarred
 #
 # Usage: github-stars [-j JOBS] [--prune] [-n] [--clone-only] [--update-only]
 #
-# Clones are shallow (--depth 1 --single-branch --no-tags). A blobless clone (--filter=blob:none) saves nothing on top
-# of that, because checkout still writes every blob of the one commit, so large repos are trimmed after cloning with
-# REPO_CLEANUP_PATTERNS instead. qmd indexes **/*.md under STARS_DIR and grep reads the sources, so the rest of the
-# working tree stays whole.
+# Clones are shallow, blobless partial clones (--filter=blob:none --depth 1 --single-branch --no-tags) with a non-cone
+# sparse checkout. The checkout leaves out GENERIC_CLEANUP_PATTERNS, EXCLUDED_EXTENSIONS and the repo's
+# REPO_CLEANUP_PATTERNS, and git downloads a blob only for a file the checkout writes, so excluded files cost nothing
+# on disk. An update's reset never writes them back. The generic list holds only trees no one writes by hand: a
+# committed vendor/, build/, dist/, out/ or target/ can hold source, and qmd indexes **/*.md under STARS_DIR while grep
+# reads the sources. Read an excluded file on demand with `git show HEAD:<path>` in the clone, or check it out for good
+# with `git sparse-checkout add <path>`; either fetches the blob from GitHub.
+#
+# git cannot garbage-collect a partial clone's promisor packs, so every update adds the changed blobs for good. A clone
+# whose object store passes twice its post-clone size (plus 512 KiB) is cloned afresh, and so is a clone that is not a
+# partial clone yet. The fresh clone is built beside the old one and swapped in only once it succeeds.
 
 if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
   for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
@@ -41,14 +48,12 @@ STATS_FILE="$BASE_DIR/.github-stars-stats.json"
 # Cleanup Patterns
 # ============================================================================
 
-# Generic patterns to always clean (directories and files)
+# Directory names and file globs left out of every clone, at any depth
 GENERIC_CLEANUP_PATTERNS=(
     # JavaScript/Node
     "node_modules"
     ".next"
     ".nuxt"
-    "dist"
-    "build"
     "coverage"
     ".nyc_output"
 
@@ -67,24 +72,36 @@ GENERIC_CLEANUP_PATTERNS=(
     # Jupyter
     ".ipynb_checkpoints"
 
-    # Rust/Go
-    "target"
-    "vendor"
-
-    # General build outputs
-    "out"
+    # Caches
     ".cache"
 
     # Test artifacts
     ".coverage"
 )
 
-# Repo-specific cleanup patterns (owner/repo -> space-separated patterns)
+# File extensions left out of every clone, in lower and upper case: images, media, fonts, archives, native binaries,
+# databases. SVG is text and stays.
+EXCLUDED_EXTENSIONS=(
+    png jpg jpeg gif webp avif tiff tif bmp ico heic cr2 dng psd
+    mp4 mov webm wav mp3
+    woff woff2 ttf otf eot
+    gz tgz zip tar jar bundle pdf
+    so dylib dll exe node wasm bin
+    sqlite sqlite-wal db jfr hprof heapsnapshot dcm ithmb pt
+    map
+)
+
+# Repo-specific paths left out, relative to the repo root (owner/repo -> space-separated patterns)
 declare -A REPO_CLEANUP_PATTERNS
-REPO_CLEANUP_PATTERNS["RhetTbull/osxphotos"]="tests/test-images tests/*.photolibrary tests/fixtures"
-REPO_CLEANUP_PATTERNS["example/large-assets"]="assets/videos assets/raw"
-# Add more repo-specific rules as needed:
-# REPO_CLEANUP_PATTERNS["owner/repo"]="pattern1 pattern2 pattern3"
+# Text these repos commit as data dumps; the same types stay searchable everywhere else.
+REPO_CLEANUP_PATTERNS["RhetTbull/osxphotos"]="tests/test-images tests/*.photoslibrary tests/*.photolibrary"
+REPO_CLEANUP_PATTERNS["TomerAberbach/profiler-md"]="examples/input examples/output"
+REPO_CLEANUP_PATTERNS["garrytan/gbrain-evals"]="docs/benchmarks"
+REPO_CLEANUP_PATTERNS["majiayu000/claude-skill-registry"]="registry-shards docs/search-shards docs/categories THIRD_PARTY_NOTICES.d"
+REPO_CLEANUP_PATTERNS["boxabirds/awesome-local-ai"]="combinations"
+REPO_CLEANUP_PATTERNS["JerBouma/FinanceDatabase"]="database"
+REPO_CLEANUP_PATTERNS["ZirvedaAytimur/Natural-Language-Processing-NLP-"]="NGramAnalysis"
+REPO_CLEANUP_PATTERNS["chenglou/pretext"]="harness/cases"
 
 # ============================================================================
 # Defaults & Colors
@@ -130,9 +147,9 @@ OPTIONS:
 ENVIRONMENT:
   STARS_DIR      Base directory for clones (default: ~/github-stars)
 
-CLEANUP:
-  After each clone/update, bloat is automatically removed:
-  - Generic: node_modules, __pycache__, .next, dist, build, target, etc.
+EXCLUDED PATHS:
+  Clones are sparse checkouts that leave these out of the working tree:
+  - Generic: node_modules, __pycache__, .venv, *.pyc, .next, coverage, etc.
   - Repo-specific: Configure via REPO_CLEANUP_PATTERNS in script
 
 EXAMPLES:
@@ -374,12 +391,95 @@ _https_url() {
     fi
 }
 
+# Non-cone sparse-checkout patterns: everything, minus the generic and repo-specific exclusions.
+_sparse_patterns() {
+    local full_name="$1" pattern
+    local -a repo_patterns=()
+    echo '/*'
+    for pattern in "${GENERIC_CLEANUP_PATTERNS[@]}"; do
+        if [[ "$pattern" == *\** ]]; then
+            echo "!$pattern"
+        else
+            echo "!$pattern/"
+        fi
+    done
+    for pattern in "${EXCLUDED_EXTENSIONS[@]}"; do
+        echo "!*.$pattern"
+        echo "!*.${pattern^^}"
+    done
+    if [[ -v "REPO_CLEANUP_PATTERNS[$full_name]" ]]; then
+        IFS=' ' read -ra repo_patterns <<< "${REPO_CLEANUP_PATTERNS[$full_name]}"
+        for pattern in "${repo_patterns[@]}"; do
+            echo "!/$pattern"
+        done
+    fi
+}
+
+_set_sparse() {
+    local full_name="$1"
+    git sparse-checkout set --no-cone --stdin <<< "$(_sparse_patterns "$full_name")" >/dev/null 2>&1
+}
+
+# Per-clone settings that stop reflogs and ORIG_HEAD from pinning superseded commits.
+_set_hygiene() {
+    git config core.logAllRefUpdates false &&
+        git config gc.reflogExpire now &&
+        git config gc.reflogExpireUnreachable now &&
+        git config gc.pruneExpire now
+}
+
+_tidy() {
+    git reflog expire --expire=now --all >/dev/null 2>&1
+    git update-ref -d ORIG_HEAD >/dev/null 2>&1
+    git gc --auto --quiet >/dev/null 2>&1
+    return 0
+}
+
+# Object store size in KiB, loose plus packed.
+_store_kib() {
+    git -C "$1" count-objects -v 2>/dev/null | awk '/^size(-pack)?:/ { s += $2 } END { print s + 0 }'
+}
+
+_over_budget() {
+    local baseline
+    baseline=$(git -C "$1" config --get github-stars.baselineKib 2>/dev/null) || return 1
+    [[ "$(_store_kib "$1")" -gt $((baseline * 2 + 512)) ]]
+}
+
+# Partial, sparse clone. Origin ends on the SSH URL so an on-demand blob fetch uses the user's own credentials.
 _git_clone() {
     local full_name="$1" target_dir="$2"
     GIT_LFS_SKIP_SMUDGE=1 git clone \
-        --depth 1 --single-branch --no-tags \
+        --filter=blob:none --depth 1 --single-branch --no-tags --no-checkout \
         "$(_https_url "$full_name")" \
-        "$target_dir" >/dev/null 2>&1
+        "$target_dir" >/dev/null 2>&1 &&
+        (
+            # --no-checkout, not --sparse: --sparse writes the top-level files before the patterns apply, which
+            # downloads any excluded file at the repo root.
+            cd "$target_dir" &&
+                _set_hygiene &&
+                GIT_LFS_SKIP_SMUDGE=1 _set_sparse "$full_name" &&
+                GIT_LFS_SKIP_SMUDGE=1 git checkout -q >/dev/null 2>&1 &&
+                git remote set-url origin "git@github.com:$full_name.git" &&
+                git config github-stars.baselineKib "$(_store_kib .)"
+        )
+}
+
+# Clone afresh into a scratch directory under BASE_DIR (too deep for the local-repo scan), then swap it in. On any
+# failure the old clone stays where it was.
+_reclone() {
+    local full_name="$1" target_dir="$2" scratch
+    mkdir -p "$BASE_DIR/.github-stars-tmp" &&
+        scratch=$(mktemp -d "$BASE_DIR/.github-stars-tmp/reclone.XXXXXX") || return 1
+    if _git_clone "$full_name" "$scratch/new" && mv "$target_dir" "$scratch/old"; then
+        if mv "$scratch/new" "$target_dir"; then
+            rm -rf "$scratch"
+            return 0
+        fi
+        mv "$scratch/old" "$target_dir"
+    fi
+    rm -rf "$scratch"
+    return 1
 }
 
 clone_repo() {
@@ -414,6 +514,12 @@ _git_update() {
     local target_dir="$1"
     local full_name="$2"
     local ssh_url="git@github.com:$full_name.git"
+
+    if [[ "$(git -C "$target_dir" config --get remote.origin.promisor 2>/dev/null)" != "true" ]] &&
+        _reclone "$full_name" "$target_dir"; then
+        return 0
+    fi
+
     (
         cd "$target_dir"
 
@@ -423,9 +529,18 @@ _git_update() {
             trap 'git remote set-url origin "$ssh_url" 2>/dev/null' EXIT
         fi
 
-        GIT_LFS_SKIP_SMUDGE=1 git fetch --depth 1 origin >/dev/null 2>&1 &&
-            git reset --hard origin/HEAD >/dev/null 2>&1
-    )
+        # Before the reset, so a clone without the exclusions converts and the reset never writes excluded paths.
+        _set_hygiene &&
+            GIT_LFS_SKIP_SMUDGE=1 _set_sparse "$full_name" &&
+            GIT_LFS_SKIP_SMUDGE=1 git fetch --depth 1 origin >/dev/null 2>&1 &&
+            git reset --hard origin/HEAD >/dev/null 2>&1 &&
+            _tidy
+    ) || return 1
+
+    if _over_budget "$target_dir"; then
+        _reclone "$full_name" "$target_dir" || true
+    fi
+    return 0
 }
 
 update_repo() {
@@ -520,11 +635,13 @@ _xargs_worker() {
     _deserialize_cleanup_patterns
     # Reconstruct associative array from serialized env var
     eval "$_REPO_CLEANUP_PATTERNS_SERIALIZED"
+    eval "$_EXCLUDED_EXTENSIONS_SERIALIZED"
     process_repo "$@"
 }
 
 export -f clone_repo update_repo cleanup_repo process_repo
-export -f _https_url _git_clone _git_update
+export -f _https_url _sparse_patterns _set_sparse _set_hygiene _tidy _store_kib _over_budget _reclone
+export -f _git_clone _git_update
 export -f with_retry remove_counted human_size
 export -f log_info log_success log_warn log_error log_cleanup
 export -f _xargs_worker _deserialize_cleanup_patterns
@@ -604,6 +721,9 @@ run_phase() {
     _GENERIC_CLEANUP_PATTERNS_SERIALIZED=$(_serialize_cleanup_patterns)
 
     # Serialize associative array as a declare -A statement
+    export _EXCLUDED_EXTENSIONS_SERIALIZED
+    _EXCLUDED_EXTENSIONS_SERIALIZED=$(declare -p EXCLUDED_EXTENSIONS)
+
     export _REPO_CLEANUP_PATTERNS_SERIALIZED
     _REPO_CLEANUP_PATTERNS_SERIALIZED=$(declare -p REPO_CLEANUP_PATTERNS 2>/dev/null || echo 'declare -A REPO_CLEANUP_PATTERNS')
 
