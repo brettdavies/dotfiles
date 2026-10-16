@@ -8,15 +8,16 @@
 # Unified script that:
 #   - Clones repos you've starred but don't have locally
 #   - Updates repos you already have cloned
-#   - Cleans up bloat after each clone/update
+#   - Keeps dependency and bytecode trees out of each clone's working tree
 #   - Optionally prunes repos you've unstarred
 #
 # Usage: github-stars [-j JOBS] [--prune] [-n] [--clone-only] [--update-only]
 #
 # Clones are shallow (--depth 1 --single-branch --no-tags). A blobless clone (--filter=blob:none) saves nothing on top
-# of that, because checkout still writes every blob of the one commit, so large repos are trimmed after cloning with
-# REPO_CLEANUP_PATTERNS instead. qmd indexes **/*.md under STARS_DIR and grep reads the sources, so the rest of the
-# working tree stays whole.
+# of that, because checkout still writes every blob of the one commit. Each clone is a non-cone sparse checkout that
+# leaves out GENERIC_CLEANUP_PATTERNS and the repo's REPO_CLEANUP_PATTERNS, so an update's reset never writes them
+# back. The generic list holds only trees no one writes by hand: a committed vendor/, build/, dist/, out/ or target/
+# can hold source, and qmd indexes **/*.md under STARS_DIR while grep reads the sources.
 
 if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
   for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
@@ -41,14 +42,12 @@ STATS_FILE="$BASE_DIR/.github-stars-stats.json"
 # Cleanup Patterns
 # ============================================================================
 
-# Generic patterns to always clean (directories and files)
+# Directory names and file globs left out of every clone, at any depth
 GENERIC_CLEANUP_PATTERNS=(
     # JavaScript/Node
     "node_modules"
     ".next"
     ".nuxt"
-    "dist"
-    "build"
     "coverage"
     ".nyc_output"
 
@@ -67,19 +66,14 @@ GENERIC_CLEANUP_PATTERNS=(
     # Jupyter
     ".ipynb_checkpoints"
 
-    # Rust/Go
-    "target"
-    "vendor"
-
-    # General build outputs
-    "out"
+    # Caches
     ".cache"
 
     # Test artifacts
     ".coverage"
 )
 
-# Repo-specific cleanup patterns (owner/repo -> space-separated patterns)
+# Repo-specific paths left out, relative to the repo root (owner/repo -> space-separated patterns)
 declare -A REPO_CLEANUP_PATTERNS
 REPO_CLEANUP_PATTERNS["RhetTbull/osxphotos"]="tests/test-images tests/*.photolibrary tests/fixtures"
 REPO_CLEANUP_PATTERNS["example/large-assets"]="assets/videos assets/raw"
@@ -130,9 +124,9 @@ OPTIONS:
 ENVIRONMENT:
   STARS_DIR      Base directory for clones (default: ~/github-stars)
 
-CLEANUP:
-  After each clone/update, bloat is automatically removed:
-  - Generic: node_modules, __pycache__, .next, dist, build, target, etc.
+EXCLUDED PATHS:
+  Clones are sparse checkouts that leave these out of the working tree:
+  - Generic: node_modules, __pycache__, .venv, *.pyc, .next, coverage, etc.
   - Repo-specific: Configure via REPO_CLEANUP_PATTERNS in script
 
 EXAMPLES:
@@ -374,12 +368,38 @@ _https_url() {
     fi
 }
 
+# Non-cone sparse-checkout patterns: everything, minus the generic and repo-specific exclusions.
+_sparse_patterns() {
+    local full_name="$1" pattern
+    local -a repo_patterns=()
+    echo '/*'
+    for pattern in "${GENERIC_CLEANUP_PATTERNS[@]}"; do
+        if [[ "$pattern" == *\** ]]; then
+            echo "!$pattern"
+        else
+            echo "!$pattern/"
+        fi
+    done
+    if [[ -v "REPO_CLEANUP_PATTERNS[$full_name]" ]]; then
+        IFS=' ' read -ra repo_patterns <<< "${REPO_CLEANUP_PATTERNS[$full_name]}"
+        for pattern in "${repo_patterns[@]}"; do
+            echo "!/$pattern"
+        done
+    fi
+}
+
+_set_sparse() {
+    local full_name="$1"
+    git sparse-checkout set --no-cone --stdin <<< "$(_sparse_patterns "$full_name")" >/dev/null 2>&1
+}
+
 _git_clone() {
     local full_name="$1" target_dir="$2"
     GIT_LFS_SKIP_SMUDGE=1 git clone \
-        --depth 1 --single-branch --no-tags \
+        --depth 1 --single-branch --no-tags --sparse \
         "$(_https_url "$full_name")" \
-        "$target_dir" >/dev/null 2>&1
+        "$target_dir" >/dev/null 2>&1 &&
+        (cd "$target_dir" && GIT_LFS_SKIP_SMUDGE=1 _set_sparse "$full_name")
 }
 
 clone_repo() {
@@ -423,7 +443,9 @@ _git_update() {
             trap 'git remote set-url origin "$ssh_url" 2>/dev/null' EXIT
         fi
 
-        GIT_LFS_SKIP_SMUDGE=1 git fetch --depth 1 origin >/dev/null 2>&1 &&
+        # Before the reset, so a clone without the exclusions converts and the reset never writes excluded paths.
+        GIT_LFS_SKIP_SMUDGE=1 _set_sparse "$full_name" &&
+            GIT_LFS_SKIP_SMUDGE=1 git fetch --depth 1 origin >/dev/null 2>&1 &&
             git reset --hard origin/HEAD >/dev/null 2>&1
     )
 }
@@ -524,7 +546,7 @@ _xargs_worker() {
 }
 
 export -f clone_repo update_repo cleanup_repo process_repo
-export -f _https_url _git_clone _git_update
+export -f _https_url _sparse_patterns _set_sparse _git_clone _git_update
 export -f with_retry remove_counted human_size
 export -f log_info log_success log_warn log_error log_cleanup
 export -f _xargs_worker _deserialize_cleanup_patterns
