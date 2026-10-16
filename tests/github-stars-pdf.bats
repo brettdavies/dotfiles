@@ -90,6 +90,23 @@ _clone_with() {
   [ -f "$OUT/acme/papers/other.md" ]
 }
 
+@test "a PDF that fails to convert is reported once and not retried until it changes" {
+  _clone_with acme/papers bad.pdf=V1
+  STUB_CONVERT_FAIL=1 run "$CMD" acme/papers:bad.pdf
+  [ "$status" -eq 1 ]
+  STUB_CONVERT_FAIL=1 run "$CMD" acme/papers:bad.pdf
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 1 ]
+  [ "$(_notes | grep -c 'acme/papers:bad.pdf')" -eq 1 ]
+  [[ "$(_notes)" == *"Conversion failed"* ]]
+  printf 'V2' >"$STARS_DIR/acme/papers/bad.pdf"
+  git -C "$STARS_DIR/acme/papers" commit -qam v2
+  run "$CMD" acme/papers:bad.pdf
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 2 ]
+  [ "$(sed -n 4p "$OUT/acme/papers/bad.md")" = "converted: V2" ]
+}
+
 @test "a repo that is not cloned or a path not in the repo is skipped with a warning" {
   _clone_with acme/papers paper.pdf=V1
   run "$CMD" acme/missing:x.pdf acme/papers:nope.pdf acme/papers:paper.pdf

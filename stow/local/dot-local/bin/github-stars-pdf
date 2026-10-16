@@ -11,7 +11,9 @@
 #
 # Every run also lists the PDFs in each clone's tree (local, nothing downloaded). One in neither list and outside
 # test-data paths is a candidate; candidates, listed PDFs that moved, and listed PDFs deleted upstream are reported
-# once, in a dated note in the vault inbox. systemd starts this after each successful stars sync (OnSuccess=).
+# once, in a dated note in the vault inbox. A PDF that fails to convert is reported the same way and not retried until
+# its blob changes; deleting its line from $STATE_DIR/pdf-failed retries it sooner. systemd starts this after each
+# successful stars sync (OnSuccess=).
 #
 # Usage: github-stars-pdf [owner/repo:path.pdf ...]
 #        With arguments, those entries replace the list's convert entries for this run.
@@ -34,6 +36,7 @@ LIST="${GITHUB_STARS_PDF_LIST:-$HOME/.config/github-stars/pdfs.tsv}"
 INBOX="${GITHUB_STARS_PDF_INBOX:-$HOME/obsidian-vault/inbox}"
 STATE_DIR="${GITHUB_STARS_PDF_STATE:-$HOME/.local/state/github-stars}"
 REPORTED="$STATE_DIR/pdf-reported"
+FAILED="$STATE_DIR/pdf-failed"
 TEST_DATA='(^|/)(tests?|__tests__|__fixtures__|testdata|test[-_]?data|fixtures?|samples?|corpus|benchmarks?|spec|e2e|evals?|golden|regression|cases|inputs?|node_modules|vendor|_build)/'
 
 usage() {
@@ -85,6 +88,7 @@ _dest() {
 CANDIDATES=()
 MOVED=()
 DELETED=()
+FAILURES=()
 declare -A DECIDED=()
 
 _report_once() {
@@ -121,7 +125,7 @@ _discover() {
 }
 
 _write_note() {
-    [[ ${#CANDIDATES[@]} -gt 0 || ${#MOVED[@]} -gt 0 || ${#DELETED[@]} -gt 0 ]] || return 0
+    [[ ${#CANDIDATES[@]} -gt 0 || ${#MOVED[@]} -gt 0 || ${#DELETED[@]} -gt 0 || ${#FAILURES[@]} -gt 0 ]] || return 0
     if [[ ! -d "$INBOX" ]]; then
         log "no inbox at $INBOX; report kept in the log only"
         return 0
@@ -153,6 +157,16 @@ EOF
         if [[ ${#DELETED[@]} -gt 0 ]]; then
             printf '\n## Deleted upstream\n\nThe markdown is removed; drop the entry.\n\n'
             printf -- '- %s\n' "${DELETED[@]}"
+        fi
+        if [[ ${#FAILURES[@]} -gt 0 ]]; then
+            cat <<'EOF'
+
+## Conversion failed
+
+Not retried until the PDF changes; delete its line from `~/.local/state/github-stars/pdf-failed` to retry sooner.
+
+EOF
+            printf -- '- %s\n' "${FAILURES[@]}"
         fi
     } >"$note"
     log "wrote ${note/#$HOME/\~}"
@@ -196,7 +210,7 @@ main() {
     fi
 
     mkdir -p "$OUT_DIR" "$STATE_DIR"
-    touch "$MANIFEST" "$REPORTED"
+    touch "$MANIFEST" "$REPORTED" "$FAILED"
     WORK=$(mktemp -d)
     trap 'rm -rf "${WORK:-}"' EXIT
 
@@ -254,6 +268,12 @@ main() {
             log "copied $entry from $cached (same PDF)"
             continue
         fi
+        if grep -qxF "$blob $entry" "$FAILED"; then
+            log "skip $entry: this version failed to convert; retried when the PDF changes"
+            [[ -n "$previous" ]] && manifest+=("$previous")
+            skipped=$((skipped + 1))
+            continue
+        fi
         name=$(basename "$path")
         name="${name%.*}"
         rm -rf "${WORK:?}/in" "${WORK:?}/out"
@@ -267,6 +287,8 @@ main() {
             log "converted $entry"
         else
             log "failed to convert $entry"
+            echo "$blob $entry" >>"$FAILED"
+            FAILURES+=("\`$entry\` (blob ${blob:0:12})")
             [[ -n "$previous" ]] && manifest+=("$previous")
             failed=$((failed + 1))
         fi
