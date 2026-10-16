@@ -1,16 +1,28 @@
 #!/usr/bin/env bash
 #
-# github-stars-pdf - Convert allowlisted PDFs from the starred clones to markdown for qmd
+# github-stars-pdf - Keep markdown copies of chosen PDFs from the starred clones, and report new PDFs for review
 #
-# github-stars leaves PDFs out of every clone. The few that are real reference material are listed in PDF_SOURCES;
-# this command fetches each one from its clone on demand (git show), converts it with the markdown-convert skill's
-# mc-pdf, and writes the markdown under STARS_DIR/_pdf-markdown/<owner>/<repo>/<path>.md, where qmd's stars
-# collection indexes it. A PDF converts only when its blob is new or changed (.manifest records the blob each
-# markdown came from), so a run with no PDF changes calls no converter. systemd starts it after each successful stars
-# sync (OnSuccess=).
+# github-stars leaves PDFs out of every clone. The decisions list (~/.config/github-stars/pdfs.tsv, stowed from
+# dotfiles) marks each reviewed PDF convert or skip. For each convert entry this command fetches the PDF from its clone
+# on demand (git show), converts it with the markdown-convert skill's mc-pdf, and writes the markdown under
+# STARS_DIR/_pdf-markdown/<owner>/<repo>/<path>.md, where qmd's stars collection indexes it. .manifest records the
+# blob each markdown came from, so a PDF converts only when its blob is new or changed, and a blob already converted
+# for another entry (a fork, a move) is copied instead of converted again.
+#
+# Every run also lists the PDFs in each clone's tree (local, nothing downloaded). One in neither list and outside
+# test-data paths is a candidate; candidates, listed PDFs that moved, and listed PDFs deleted upstream are reported
+# once, in a dated note in the vault inbox. systemd starts this after each successful stars sync (OnSuccess=).
 #
 # Usage: github-stars-pdf [owner/repo:path.pdf ...]
-#        With arguments, those entries replace the built-in list for this run.
+#        With arguments, those entries replace the list's convert entries for this run.
+
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+  for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$b" ] && exec "$b" "$0" "$@"
+  done
+  echo "ERROR: needs bash >= 4.4 (running $BASH_VERSION); install it with: brew install bash" >&2
+  exit 1
+fi
 
 set -euo pipefail
 
@@ -18,38 +30,32 @@ BASE_DIR="${STARS_DIR:-$HOME/github-stars}"
 OUT_DIR="$BASE_DIR/_pdf-markdown"
 MANIFEST="$OUT_DIR/.manifest"
 CONVERTER="${PDF_TO_MARKDOWN:-$HOME/.claude/skills/markdown-convert/skills/mc-pdf/mc-pdf.sh}"
-
-PDF_SOURCES=(
-    "sarwarbeing-ai/Agentic_Design_Patterns:Agentic_Design_Patterns.pdf"
-    "sourdough-bread/asd-ste100-checker:ASD-STE100-ISSUE-9.pdf"
-    "huggingface/distil-whisper:Distil_Whisper.pdf"
-    "baidu/Unlimited-OCR:Unlimited-OCR.pdf"
-    "google/longfellow-zk:docs/static/reviews/Longfellow_report_2025_08_18.pdf"
-    "google/longfellow-zk:docs/static/reviews/Longfellow_security_2025_12_15.pdf"
-    "MajorLeagueBaseball/google-cloud-mlb-hackathon:datasets/mlb-statsapi-docs/MLB-Official Rules-2024.pdf"
-    "MajorLeagueBaseball/google-cloud-mlb-hackathon:datasets/mlb-statsapi-docs/MLB-StatsAPI - GUMBO - User Guide.pdf"
-    "MajorLeagueBaseball/google-cloud-mlb-hackathon:datasets/mlb-statsapi-docs/MLB-StatsAPI - Lookup Values.pdf"
-    "MajorLeagueBaseball/google-cloud-mlb-hackathon:datasets/mlb-statsapi-docs/MLB-StatsAPI-Getting Started.pdf"
-    "MajorLeagueBaseball/google-cloud-mlb-hackathon:datasets/mlb-statsapi-docs/MLB-StatsAPI-Hydrations.pdf"
-    "je-suis-tm/machine-learning:Wisdom of Crowds project/Regularized Least Squares to Remove Reviewer Bias.pdf"
-)
+LIST="${GITHUB_STARS_PDF_LIST:-$HOME/.config/github-stars/pdfs.tsv}"
+INBOX="${GITHUB_STARS_PDF_INBOX:-$HOME/obsidian-vault/inbox}"
+STATE_DIR="${GITHUB_STARS_PDF_STATE:-$HOME/.local/state/github-stars}"
+REPORTED="$STATE_DIR/pdf-reported"
+TEST_DATA='(^|/)(tests?|__tests__|__fixtures__|testdata|test[-_]?data|fixtures?|samples?|corpus|benchmarks?|spec|e2e|evals?|golden|regression|cases|inputs?|node_modules|vendor|_build)/'
 
 usage() {
     cat <<'EOF'
 Usage: github-stars-pdf [owner/repo:path.pdf ...]
 
-Convert the allowlisted PDFs in the starred clones to markdown under
-$STARS_DIR/_pdf-markdown (default ~/github-stars/_pdf-markdown). Only new or
-changed PDFs are converted. With arguments, those entries replace the
-built-in list for this run.
+Keep markdown copies of the PDFs marked convert in the decisions list under
+$STARS_DIR/_pdf-markdown (default ~/github-stars/_pdf-markdown), converting only
+new or changed PDFs, and report PDFs in neither list in a vault inbox note.
+With arguments, those entries replace the list's convert entries for this run.
 
 ENVIRONMENT:
-  STARS_DIR        Base directory of the clones (default: ~/github-stars)
-  PDF_TO_MARKDOWN  Converter, called as <converter> <file.pdf> <out_dir>
-                   (default: the markdown-convert skill's mc-pdf.sh)
-  GH_TOKEN         Token for on-demand fetches from GitHub (default: gh auth token)
+  STARS_DIR               Base directory of the clones (default: ~/github-stars)
+  GITHUB_STARS_PDF_LIST   Decisions list (default: ~/.config/github-stars/pdfs.tsv)
+  GITHUB_STARS_PDF_INBOX  Where candidate notes go (default: ~/obsidian-vault/inbox)
+  GITHUB_STARS_PDF_STATE  Reported-once state (default: ~/.local/state/github-stars)
+  PDF_TO_MARKDOWN         Converter, called as <converter> <file.pdf> <out_dir>
+  GH_TOKEN                Token for on-demand fetches from GitHub (default: gh auth token)
 EOF
 }
+
+log() { echo "github-stars-pdf: $*" >&2; }
 
 # Run git against a clone, routing a GitHub origin's on-demand fetches over HTTPS with the token, since the job runs
 # without an SSH agent and the clones' origin is the SSH URL.
@@ -70,6 +76,88 @@ _manifest_line() {
     awk -v e="$1" 'substr($0, index($0, " ") + 1) == e { print; exit }' "$MANIFEST"
 }
 
+_dest() {
+    local entry="$1" path="${1#*:}"
+    echo "$OUT_DIR/${entry%%:*}/${path%.*}.md"
+}
+
+# Report lines are collected per section and written once, as one inbox note, at the end of the run.
+CANDIDATES=()
+MOVED=()
+DELETED=()
+declare -A DECIDED=()
+
+_report_once() {
+    grep -qxF "$1" "$REPORTED" 2>/dev/null && return 1
+    echo "$1" >>"$REPORTED"
+}
+
+_pdf_meta() {
+    local repo="$1" path="$2" tmp="$WORK/meta.pdf" pages="" title=""
+    if command -v pdfinfo >/dev/null 2>&1 && _git "$repo" show "HEAD:$path" >"$tmp" 2>/dev/null; then
+        pages=$(pdfinfo "$tmp" 2>/dev/null | awk -F': *' '/^Pages:/ { print $2 }')
+        title=$(pdfinfo "$tmp" 2>/dev/null | sed -n 's/^Title: *//p' | head -1)
+    fi
+    printf '%s\t%s' "$pages" "${title//|/\\|}"
+}
+
+_discover() {
+    local git_dir repo path dir
+    for git_dir in "$BASE_DIR"/*/*/.git; do
+        [[ -d "$git_dir" ]] || continue
+        repo="${git_dir%/.git}"
+        repo="${repo#"$BASE_DIR"/}"
+        while IFS= read -r -d '' path; do
+            [[ "${path,,}" == *.pdf ]] || continue
+            [[ -n "${DECIDED["$repo:$path"]:-}" ]] && continue
+            dir=""
+            [[ "$path" == */* ]] && dir="${path%/*}/"
+            [[ -n "$dir" && "$dir" =~ $TEST_DATA ]] && continue
+            _report_once "candidate $repo:$path" || continue
+            log "candidate $repo:$path"
+            CANDIDATES+=("$repo"$'\t'"$path"$'\t'"$(_pdf_meta "$repo" "$path")")
+        done < <(GIT_NO_LAZY_FETCH=1 git -C "$BASE_DIR/$repo" ls-tree -r -z --name-only HEAD 2>/dev/null)
+    done
+}
+
+_write_note() {
+    [[ ${#CANDIDATES[@]} -gt 0 || ${#MOVED[@]} -gt 0 || ${#DELETED[@]} -gt 0 ]] || return 0
+    if [[ ! -d "$INBOX" ]]; then
+        log "no inbox at $INBOX; report kept in the log only"
+        return 0
+    fi
+    local today note row repo path pages title
+    today=$(date +%Y-%m-%d)
+    note="$INBOX/$(date +%Y-%m-%d-%H%M)-star-pdf-candidates.md"
+    {
+        printf -- '---\ntitle: Star PDF candidates %s\ncreated: %s\ntags: [github-stars, pdf-triage]\n---\n\n' \
+            "$today" "$today"
+        cat <<'EOF'
+# Star PDF candidates
+
+Decide each PDF in `stow/local/dot-config/github-stars/pdfs.tsv` in dotfiles: a `convert` line keeps a markdown copy
+for qmd, a `skip` line dismisses it.
+EOF
+        if [[ ${#CANDIDATES[@]} -gt 0 ]]; then
+            printf '\n## New PDFs\n\n| Repo | Path | Pages | Title |\n| --- | --- | --- | --- |\n'
+            for row in "${CANDIDATES[@]}"; do
+                IFS=$'\t' read -r repo path pages title <<<"$row"
+                printf '| [%s](https://github.com/%s) | [%s](https://github.com/%s/blob/HEAD/%s) | %s | %s |\n' \
+                    "$repo" "$repo" "${path//|/\\|}" "$repo" "${path// /%20}" "$pages" "$title"
+            done
+        fi
+        if [[ ${#MOVED[@]} -gt 0 ]]; then
+            printf '\n## Moved upstream\n\nThe markdown is kept; update the entry to the new path.\n\n'
+            printf -- '- %s\n' "${MOVED[@]}"
+        fi
+        if [[ ${#DELETED[@]} -gt 0 ]]; then
+            printf '\n## Deleted upstream\n\nThe markdown is removed; drop the entry.\n\n'
+            printf -- '- %s\n' "${DELETED[@]}"
+        fi
+    } >"$note"
+    log "wrote ${note/#$HOME/\~}"
+}
+
 main() {
     case "${1:-}" in
         -h | --help)
@@ -77,13 +165,25 @@ main() {
             exit 0
             ;;
         -*)
-            echo "github-stars-pdf: unknown option: $1" >&2
+            log "unknown option: $1"
             usage >&2
             exit 2
             ;;
     esac
-    local -a sources=("${PDF_SOURCES[@]}")
-    [[ $# -gt 0 ]] && sources=("$@")
+
+    local -a sources=()
+    local decision entry
+    if [[ -f "$LIST" ]]; then
+        while IFS=$'\t' read -r decision entry; do
+            [[ -z "$decision" || "$decision" == \#* ]] && continue
+            DECIDED["$entry"]="$decision"
+            [[ "$decision" == convert ]] && sources+=("$entry")
+        done <"$LIST"
+    fi
+    if [[ $# -gt 0 ]]; then
+        sources=("$@")
+        for entry in "$@"; do DECIDED["$entry"]=convert; done
+    fi
 
     if [[ -z "${GH_TOKEN:-}" ]]; then
         GH_TOKEN=$(gh auth token 2>/dev/null || true)
@@ -95,69 +195,98 @@ main() {
         export GIT_CONFIG_VALUE_0
     fi
 
-    mkdir -p "$OUT_DIR"
-    touch "$MANIFEST"
-    work=$(mktemp -d)
-    trap 'rm -rf "${work:-}"' EXIT
+    mkdir -p "$OUT_DIR" "$STATE_DIR"
+    touch "$MANIFEST" "$REPORTED"
+    WORK=$(mktemp -d)
+    trap 'rm -rf "${WORK:-}"' EXIT
 
-    local entry repo path blob dest name previous converted=0 unchanged=0 skipped=0 failed=0
+    local repo path blob dest name previous moved_to cached
+    local converted=0 unchanged=0 skipped=0 failed=0
     local -a keep=() manifest=()
-    for entry in "${sources[@]}"; do
+    for entry in "${sources[@]+"${sources[@]}"}"; do
         repo="${entry%%:*}"
         path="${entry#*:}"
-        dest="$OUT_DIR/$repo/${path%.*}.md"
-        keep+=("$dest")
+        dest=$(_dest "$entry")
+        previous=$(_manifest_line "$entry")
         if [[ ! -d "$BASE_DIR/$repo/.git" ]]; then
-            echo "github-stars-pdf: skip $repo: not cloned" >&2
+            log "skip $repo: not cloned"
+            if [[ -n "$previous" ]]; then
+                manifest+=("$previous")
+                keep+=("$dest")
+            fi
             skipped=$((skipped + 1))
             continue
         fi
         if ! blob=$(git -C "$BASE_DIR/$repo" rev-parse --verify -q "HEAD:$path"); then
-            echo "github-stars-pdf: skip $entry: not in the repo" >&2
             skipped=$((skipped + 1))
+            if [[ -z "$previous" ]]; then
+                log "skip $entry: not in the repo"
+                continue
+            fi
+            moved_to=$(git -C "$BASE_DIR/$repo" ls-tree -r HEAD |
+                awk -v b="${previous%% *}" '$3 == b { sub(/^[^\t]*\t/, ""); print; exit }')
+            if [[ -n "$moved_to" ]]; then
+                manifest+=("$previous")
+                keep+=("$dest")
+                if _report_once "moved $entry -> $moved_to"; then
+                    MOVED+=("\`$entry\` is now \`$moved_to\`")
+                    log "moved $entry -> $moved_to"
+                fi
+            elif _report_once "deleted $entry"; then
+                DELETED+=("\`$entry\`")
+                log "deleted upstream: $entry"
+            fi
             continue
         fi
-        if [[ -s "$dest" ]] && [[ "$(_manifest_line "$entry")" == "$blob $entry" ]]; then
-            manifest+=("$blob $entry")
+        keep+=("$dest")
+        if [[ -s "$dest" && "$previous" == "$blob $entry" ]]; then
+            manifest+=("$previous")
             unchanged=$((unchanged + 1))
             continue
         fi
-        name=$(basename "$path" .pdf)
-        rm -rf "${work:?}/in" "${work:?}/out"
-        mkdir -p "$work/in" "$work/out"
-        if _git "$repo" show "HEAD:$path" >"$work/in/$name.pdf" &&
-            "$CONVERTER" "$work/in/$name.pdf" "$work/out" >/dev/null 2>&1 &&
-            [[ -s "$work/out/$name.md" ]]; then
-            mkdir -p "$(dirname "$dest")"
-            mv "$work/out/$name.md" "$dest"
+        mkdir -p "$(dirname "$dest")"
+        cached=$(printf '%s\n' "${manifest[@]+"${manifest[@]}"}" | cat - "$MANIFEST" |
+            awk -v b="$blob" '$1 == b { print substr($0, index($0, " ") + 1); exit }')
+        if [[ -n "$cached" && "$cached" != "$entry" && -s "$(_dest "$cached")" ]]; then
+            cp "$(_dest "$cached")" "$dest"
             manifest+=("$blob $entry")
             converted=$((converted + 1))
-            echo "github-stars-pdf: converted $entry" >&2
+            log "copied $entry from $cached (same PDF)"
+            continue
+        fi
+        name=$(basename "$path")
+        name="${name%.*}"
+        rm -rf "${WORK:?}/in" "${WORK:?}/out"
+        mkdir -p "$WORK/in" "$WORK/out"
+        if _git "$repo" show "HEAD:$path" >"$WORK/in/$name.pdf" &&
+            "$CONVERTER" "$WORK/in/$name.pdf" "$WORK/out" >/dev/null 2>&1 &&
+            [[ -s "$WORK/out/$name.md" ]]; then
+            mv "$WORK/out/$name.md" "$dest"
+            manifest+=("$blob $entry")
+            converted=$((converted + 1))
+            log "converted $entry"
         else
-            echo "github-stars-pdf: failed to convert $entry" >&2
-            previous=$(_manifest_line "$entry")
+            log "failed to convert $entry"
             [[ -n "$previous" ]] && manifest+=("$previous")
             failed=$((failed + 1))
         fi
     done
 
-    # Markdown for entries no longer listed leaves the index with them.
+    # Markdown for entries no longer listed, or deleted upstream, leaves the index with them.
     local md k listed
     while IFS= read -r -d '' md; do
         listed=false
-        for k in "${keep[@]}"; do
+        for k in "${keep[@]+"${keep[@]}"}"; do
             [[ "$md" == "$k" ]] && listed=true && break
         done
         [[ "$listed" == true ]] || rm -f "$md"
     done < <(find "$OUT_DIR" -type f -name '*.md' -print0)
     find "$OUT_DIR" -mindepth 1 -type d -empty -delete
+    printf '%s\n' "${manifest[@]+"${manifest[@]}"}" | sed '/^$/d' >"$MANIFEST"
 
-    if [[ ${#manifest[@]} -gt 0 ]]; then
-        printf '%s\n' "${manifest[@]}" >"$MANIFEST"
-    else
-        : >"$MANIFEST"
-    fi
-    echo "github-stars-pdf: converted $converted, unchanged $unchanged, skipped $skipped, failed $failed" >&2
+    _discover
+    _write_note
+    log "converted $converted, unchanged $unchanged, skipped $skipped, failed $failed, new candidates ${#CANDIDATES[@]}"
     [[ $failed -eq 0 ]]
 }
 

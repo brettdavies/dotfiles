@@ -24,7 +24,14 @@ mkdir -p "$2"
 printf -- '---\ntitle: %s\n---\nconverted: %s\n' "$name" "$(cat "$1")" >"$2/$name.md"
 EOF
   chmod +x "$PDF_TO_MARKDOWN"
-  mkdir -p "$STARS_DIR"
+  export GITHUB_STARS_PDF_LIST="$BATS_TEST_TMPDIR/pdfs.tsv" GITHUB_STARS_PDF_INBOX="$BATS_TEST_TMPDIR/inbox"
+  export GITHUB_STARS_PDF_STATE="$BATS_TEST_TMPDIR/state"
+  : >"$GITHUB_STARS_PDF_LIST"
+  mkdir -p "$STARS_DIR" "$GITHUB_STARS_PDF_INBOX"
+}
+
+_notes() {
+  cat "$GITHUB_STARS_PDF_INBOX"/*-star-pdf-candidates.md 2>/dev/null
 }
 
 # _clone_with <owner/repo> <path=content>...: a local clone holding the given committed files.
@@ -119,10 +126,82 @@ _clone_with() {
   [ ! -e "$STARS_DIR/acme/papers/paper.pdf" ]
 }
 
-@test "the built-in allowlist names each source as owner/repo:path.pdf" {
-  run bash -c 'source "$1" && printf "%s\n" "${PDF_SOURCES[@]}"' _ "$CMD"
-  [ "$status" -eq 0 ]
-  [ "$(wc -l <<<"$output")" -ge 12 ]
-  run grep -cvE '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:.+\.pdf$' <<<"$output"
+@test "the decisions list in dotfiles is well formed and has no duplicates" {
+  local list="$REPO_ROOT/stow/local/dot-config/github-stars/pdfs.tsv"
+  run grep -cvE $'^(#.*|(convert|skip)\t[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:.+\\.pdf)$' "$list"
   [ "$output" = "0" ]
+  [ -z "$(grep -v '^#' "$list" | cut -f2 | sort | uniq -d)" ]
+  [ "$(grep -c $'^convert\t' "$list")" -ge 12 ]
+}
+
+@test "convert entries come from the decisions list when no arguments are given" {
+  _clone_with acme/papers a.pdf=A b.pdf=B
+  printf 'convert\tacme/papers:a.pdf\nskip\tacme/papers:b.pdf\n' >"$GITHUB_STARS_PDF_LIST"
+  run "$CMD"
+  [ "$status" -eq 0 ]
+  [ -f "$OUT/acme/papers/a.md" ]
+  [ ! -e "$OUT/acme/papers/b.md" ]
+}
+
+@test "a new PDF is reported once in an inbox note; test data and decided PDFs are not" {
+  _clone_with acme/papers docs/new.pdf=N tests/fx.pdf=F src/__fixtures__/f.pdf=G old.pdf=O
+  printf 'skip\tacme/papers:old.pdf\n' >"$GITHUB_STARS_PDF_LIST"
+  run "$CMD"
+  [ "$status" -eq 0 ]
+  [ "$(_notes | grep -c 'docs/new.pdf')" -ge 1 ]
+  [[ "$(_notes)" == *"https://github.com/acme/papers/blob/HEAD/docs/new.pdf"* ]]
+  [[ "$(_notes)" != *"fx.pdf"* ]]
+  [[ "$(_notes)" != *"__fixtures__"* ]]
+  [[ "$(_notes)" != *"old.pdf"* ]]
+  local before
+  before=$(_notes | wc -l)
+  run "$CMD"
+  [ "$status" -eq 0 ]
+  [ "$(_notes | wc -l)" -eq "$before" ]
+}
+
+@test "without an inbox directory, candidates go to the log only" {
+  _clone_with acme/papers docs/new.pdf=N
+  GITHUB_STARS_PDF_INBOX="$BATS_TEST_TMPDIR/no-inbox" run "$CMD"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"candidate acme/papers:docs/new.pdf"* ]]
+  [ ! -e "$BATS_TEST_TMPDIR/no-inbox" ]
+}
+
+@test "a listed PDF moved upstream keeps its markdown and is reported once" {
+  _clone_with acme/papers a.pdf=A
+  "$CMD" acme/papers:a.pdf
+  mkdir -p "$STARS_DIR/acme/papers/docs"
+  git -C "$STARS_DIR/acme/papers" mv a.pdf docs/a2.pdf
+  git -C "$STARS_DIR/acme/papers" commit -qm move
+  run "$CMD" acme/papers:a.pdf
+  [ "$status" -eq 0 ]
+  [ -f "$OUT/acme/papers/a.md" ]
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 1 ]
+  [[ "$(_notes)" == *"acme/papers:a.pdf"*"docs/a2.pdf"* ]]
+  local before
+  before=$(_notes | wc -l)
+  "$CMD" acme/papers:a.pdf
+  [ "$(_notes | wc -l)" -eq "$before" ]
+}
+
+@test "a listed PDF deleted upstream loses its markdown and is reported" {
+  _clone_with acme/papers a.pdf=A keep.md=k
+  "$CMD" acme/papers:a.pdf
+  git -C "$STARS_DIR/acme/papers" rm -q a.pdf
+  git -C "$STARS_DIR/acme/papers" commit -qm delete
+  run "$CMD" acme/papers:a.pdf
+  [ "$status" -eq 0 ]
+  [ ! -e "$OUT/acme/papers/a.md" ]
+  [[ "$(_notes)" == *"acme/papers:a.pdf"* ]]
+  [[ "$(_notes)" == *"Deleted upstream"* ]]
+}
+
+@test "identical PDFs in two repos convert once" {
+  _clone_with acme/papers r.pdf=SAME
+  _clone_with fork/papers r.pdf=SAME
+  run "$CMD" acme/papers:r.pdf fork/papers:r.pdf
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 1 ]
+  [ "$(sed -n 4p "$OUT/fork/papers/r.md")" = "converted: SAME" ]
 }
