@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 #
-# github-stars.sh - Clone new & update existing GitHub starred repos
+# github-stars - Clone new & update existing GitHub starred repos
 #
-# Cron: 0 * * * * (full sync, hourly at :00, fuzzed 0-2min)
-#       15,30,45 * * * * (clone-only, with --clone-only flag, fuzzed 0-2min)
-# Log:  ~/.openclaw/logs/github-stars.log
-# Monitored by: OpenClaw system-cron-monitor (auto-discovers all ~/.openclaw/logs/*.log)
+# The github-stars timers run it: a full sync hourly and a clone-only pass at :15, :30 and :45. Output goes to the
+# journal (journalctl --user -u github-stars -u github-stars-clone).
 #
 # Unified script that:
 #   - Clones repos you've starred but don't have locally
@@ -13,48 +11,14 @@
 #   - Cleans up bloat after each clone/update
 #   - Optionally prunes repos you've unstarred
 #
-# Usage: github-stars.sh [-j JOBS] [--prune] [-n] [--clone-only] [--update-only]
+# Usage: github-stars [-j JOBS] [--prune] [-n] [--clone-only] [--update-only]
 #
-# ============================================================================
-# AUDIT NOTE (2026-03-28)
-# ============================================================================
-#
-# This script has been reviewed and the clone strategy is intentional.
-#
-# Clone flags used: --depth 1 --single-branch --no-tags --filter=blob:none
-# (if blob filter was added) or standard shallow clone.
-#
-# WHY --filter=blob:none WAS EVALUATED AND REJECTED:
-#
-#   --filter=blob:none is a "blobless clone" that skips storing blob objects
-#   in .git/objects/ but still fully populates the working tree on checkout.
-#   It was considered as a fix for large repos (e.g. RhetTbull/osxphotos at
-#   1.3GB due to test images). However, testing confirmed that with --depth 1,
-#   git still fetches and writes all blobs to the working tree during checkout,
-#   so disk savings are negligible. The filter only reduces historical object
-#   storage, which --depth 1 already eliminates. The blob filter is NOT a
-#   viable strategy for reducing working tree size.
-#
-# CORRECT APPROACH FOR LARGE REPOS:
-#
-#   Use REPO_CLEANUP_PATTERNS (below) to delete specific large directories
-#   after cloning. This removes content from both the working tree and allows
-#   git gc to prune the now-unreferenced objects over time. Example:
-#     REPO_CLEANUP_PATTERNS["RhetTbull/osxphotos"]="tests/test-images ..."
-#
-# QMD MEMORY SEARCH:
-#
-#   QMD indexes **/*.md from github-stars (see ~/.config/qmd/index.yml).
-#   Source files are also accessed directly for grep/ripgrep pattern matching.
-#   Both work fine with the current clone strategy since the full working tree
-#   is present.
-#
-# ============================================================================
+# Clones are shallow (--depth 1 --single-branch --no-tags). A blobless clone (--filter=blob:none) saves nothing on top
+# of that, because checkout still writes every blob of the one commit, so large repos are trimmed after cloning with
+# REPO_CLEANUP_PATTERNS instead. qmd indexes **/*.md under STARS_DIR and grep reads the sources, so the rest of the
+# working tree stays whole.
 
 set -euo pipefail
-
-# Ensure Homebrew tools (gh, git, etc.) are available in cron's minimal PATH
-export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
 
 # ============================================================================
 # Configuration
@@ -143,7 +107,7 @@ log_cleanup() { echo -e "${CYAN}[CLEAN]${NC} $1" >&2; }
 
 usage() {
     cat << 'EOF'
-Usage: github-stars.sh [OPTIONS]
+Usage: github-stars [OPTIONS]
 
 Clone new starred repos and update existing ones, with automatic cleanup.
 
@@ -164,14 +128,13 @@ CLEANUP:
   - Repo-specific: Configure via REPO_CLEANUP_PATTERNS in script
 
 EXAMPLES:
-  github-stars.sh              # Clone new + update existing
-  github-stars.sh -j 8         # Use 8 parallel workers
-  github-stars.sh --prune      # Also remove unstarred repos
-  github-stars.sh -n           # Dry run
-  github-stars.sh --clone-only # Only clone new repos
+  github-stars              # Clone new + update existing
+  github-stars -j 8         # Use 8 parallel workers
+  github-stars --prune      # Also remove unstarred repos
+  github-stars -n           # Dry run
+  github-stars --clone-only # Only clone new repos
 
 EOF
-    exit 0
 }
 
 # ============================================================================
@@ -203,10 +166,12 @@ parse_args() {
                 ;;
             -h|--help)
                 usage
+                exit 0
                 ;;
             *)
                 log_error "Unknown option: $1"
-                usage
+                usage >&2
+                exit 2
                 ;;
         esac
     done
@@ -391,17 +356,21 @@ cleanup_repo() {
 # Clone Function
 # ============================================================================
 
+# HTTPS URL for a repo. With a token, the user name keeps a url.<ssh>.insteadOf rule for https://github.com/ from
+# moving the transfer onto SSH, where the token header does not apply.
+_https_url() {
+    if [[ -n "${GH_TOKEN:-}" ]]; then
+        echo "https://x-access-token@github.com/$1.git"
+    else
+        echo "https://github.com/$1.git"
+    fi
+}
+
 _git_clone() {
     local full_name="$1" target_dir="$2"
-    local clone_url
-    if [[ -n "${GH_TOKEN:-}" ]]; then
-        clone_url="https://x-access-token:${GH_TOKEN}@github.com/$full_name.git"
-    else
-        clone_url="https://github.com/$full_name.git"
-    fi
     GIT_LFS_SKIP_SMUDGE=1 git clone \
         --depth 1 --single-branch --no-tags \
-        "$clone_url" \
+        "$(_https_url "$full_name")" \
         "$target_dir" >/dev/null 2>&1
 }
 
@@ -441,8 +410,7 @@ _git_update() {
         cd "$target_dir"
 
         if [[ -n "${GH_TOKEN:-}" ]]; then
-            local https_url="https://x-access-token:${GH_TOKEN}@github.com/$full_name.git"
-            git remote set-url origin "$https_url" 2>/dev/null
+            git remote set-url origin "$(_https_url "$full_name")" 2>/dev/null
             # Always restore SSH URL, even on failure
             trap 'git remote set-url origin "$ssh_url" 2>/dev/null' EXIT
         fi
@@ -548,7 +516,7 @@ _xargs_worker() {
 }
 
 export -f clone_repo update_repo cleanup_repo process_repo
-export -f _git_clone _git_update
+export -f _https_url _git_clone _git_update
 export -f with_retry remove_counted human_size
 export -f log_info log_success log_warn log_error log_cleanup
 export -f _xargs_worker _deserialize_cleanup_patterns
@@ -808,6 +776,11 @@ main() {
     # Grab auth token once for HTTPS+token git operations (~20x faster than SSH)
     if GH_TOKEN=$(gh auth token 2>/dev/null) && [[ -n "$GH_TOKEN" ]]; then
         export GH_TOKEN
+        # Git reads the token from its environment: in a URL it shows in ps and can be left in .git/config.
+        export GIT_CONFIG_COUNT=1
+        export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+        GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+        export GIT_CONFIG_VALUE_0
     else
         log_warn "gh auth token failed — falling back to unauthenticated HTTPS"
         GH_TOKEN=""
