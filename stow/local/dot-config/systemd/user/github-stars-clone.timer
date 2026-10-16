@@ -1,0 +1,11 @@
+[Unit]
+Description=Clone newly starred GitHub repos at quarter past, half past and quarter to
+ConditionHost=bigdaddy
+
+[Timer]
+OnCalendar=*-*-* *:15,30,45:00
+RandomizedDelaySec=120
+Persistent=true
+
+[Install]
+WantedBy=timers.target

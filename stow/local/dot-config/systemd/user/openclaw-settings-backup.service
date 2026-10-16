@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up OpenClaw settings to the NAS
+ConditionHost=bigdaddy
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/backup-openclaw-settings
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true

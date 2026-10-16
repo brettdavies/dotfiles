@@ -1,0 +1,13 @@
+[Unit]
+Description=Sync starred GitHub repos and their clones
+ConditionHost=bigdaddy
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/obsidian-vault/areas/infrastructure/scripts/github-stars.sh -j 4
+StandardOutput=append:%h/.openclaw/logs/github-stars.log
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true

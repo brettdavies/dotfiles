@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up OpenClaw settings to the NAS daily at 03:00
+ConditionHost=bigdaddy
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
