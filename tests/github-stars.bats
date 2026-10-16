@@ -29,6 +29,7 @@ EOF
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$GIT_LOG"
 printf 'auth-config:%s\n' "${GIT_CONFIG_KEY_0:-none}" >>"$GIT_LOG"
+[[ "$*" == *"--get remote.origin.promisor"* ]] && echo true
 if [ "$1" = "clone" ]; then
   target="${*: -1}"
   mkdir -p "$target/.git"
@@ -49,12 +50,14 @@ _starred() {
 # Swap the git stub for one that runs the real git, with every github.com HTTPS URL pointed at a local bare fixture.
 _use_real_git() {
   export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig" GIT_CONFIG_NOSYSTEM=1
-  : >"$GIT_CONFIG_GLOBAL"
   FIXTURES="$BATS_TEST_TMPDIR/fixtures"
+  # Remote URLs git uses on its own (lazy fetches, the restored SSH origin) resolve to the fixtures too.
+  printf '[url "file://%s/"]\n\tinsteadOf = git@github.com:\n' "$FIXTURES" >"$GIT_CONFIG_GLOBAL"
   local real_git
   real_git=$(command -v git)
   cat >"$STUBS/git" <<EOF
 #!/usr/bin/env bash
+if [ "\$1" = clone ] && [ -n "\${STUB_FAIL_CLONE:-}" ]; then exit 1; fi
 args=()
 for a in "\$@"; do
   [[ "\$a" =~ ^https://([^@/]+@)?github\.com/(.+)\$ ]] && a="file://$FIXTURES/\${BASH_REMATCH[2]}"
@@ -81,12 +84,23 @@ _fixture_commit() {
   else
     mkdir -p "$FIXTURES/$(dirname "$name")"
     git clone -q --bare "$work" "$FIXTURES/$name.git"
+    git -C "$FIXTURES/$name.git" config uploadpack.allowFilter true
+    git -C "$FIXTURES/$name.git" config uploadpack.allowAnySHA1InWant true
   fi
 }
 
 _real_repo() {
   _fixture_commit acme/real README.md=one src/main.go=main node_modules/dep/index.js=dep \
-    src/node_modules/nested/index.js=nested pkg/mod.pyc=bytecode vendor/lib/lib.go=vendored build/build.sh=script
+    src/node_modules/nested/index.js=nested pkg/mod.pyc=bytecode vendor/lib/lib.go=vendored build/build.sh=script \
+    assets/logo.png=pngbytes img/photo.JPG=jpgbytes
+}
+
+_no_local_blob() {
+  ! GIT_NO_LAZY_FETCH=1 git -C "$STARS_DIR/$1" cat-file -e "HEAD:$2" 2>/dev/null
+}
+
+_pack_kib() {
+  git -C "$STARS_DIR/$1" count-objects -v | awk '/^size(-pack)?:/ { s += $2 } END { print s + 0 }'
 }
 
 _clean_tree() {
@@ -195,7 +209,7 @@ _local_clone() {
   _real_repo
   _fixture_commit RhetTbull/osxphotos tests/test-images/img.bin=pixels tests/keep.txt=keep
   _starred acme/real RhetTbull/osxphotos
-  _stars --clone-only -j 1
+  _stars --clone-only -j 2
   [ "$status" -eq 0 ]
   local repo="$STARS_DIR/acme/real"
   [ -f "$repo/README.md" ]
@@ -206,6 +220,12 @@ _local_clone() {
   [ ! -e "$repo/src/node_modules" ]
   [ ! -e "$repo/pkg/mod.pyc" ]
   [ -n "$(git -C "$repo" ls-files node_modules/dep/index.js)" ]
+  [ ! -e "$repo/assets/logo.png" ]
+  [ ! -e "$repo/img/photo.JPG" ]
+  [ "$(git -C "$repo" config --get remote.origin.promisor)" = "true" ]
+  _no_local_blob acme/real assets/logo.png
+  _no_local_blob acme/real img/photo.JPG
+  [ "$(git -C "$repo" show HEAD:assets/logo.png)" = "pngbytes" ]
   _clean_tree acme/real
   [ ! -e "$STARS_DIR/RhetTbull/osxphotos/tests/test-images" ]
   [ -f "$STARS_DIR/RhetTbull/osxphotos/tests/keep.txt" ]
@@ -225,6 +245,11 @@ _local_clone() {
   [ -f "$repo/vendor/lib/new.go" ]
   [ ! -e "$repo/node_modules" ]
   _clean_tree acme/real
+  [ "$(git -C "$repo" config --get core.logAllRefUpdates)" = "false" ]
+  [ "$(git -C "$repo" config --get gc.pruneExpire)" = "now" ]
+  [ -z "$(git -C "$repo" reflog)" ]
+  run git -C "$repo" rev-parse -q --verify ORIG_HEAD
+  [ "$status" -ne 0 ]
 }
 
 @test "an update converts a full clone and restores committed source an earlier cleanup deleted" {
@@ -242,4 +267,43 @@ _local_clone() {
   [ ! -e "$repo/node_modules" ]
   [ ! -e "$repo/src/node_modules" ]
   _clean_tree acme/real
+  [ "$(git -C "$repo" config --get remote.origin.promisor)" = "true" ]
+  _no_local_blob acme/real assets/logo.png
+  [ -z "$(ls -A "$STARS_DIR/.github-stars-tmp" 2>/dev/null)" ]
+}
+
+@test "a failed re-clone leaves the full clone in place and still updates it" {
+  _use_real_git
+  _real_repo
+  _starred acme/real
+  mkdir -p "$STARS_DIR/acme"
+  git clone -q "file://$FIXTURES/acme/real.git" "$STARS_DIR/acme/real"
+  rm -rf "$STARS_DIR/acme/real/vendor"
+  _fixture_commit acme/real README.md=two
+  STUB_FAIL_CLONE=1 _stars --update-only -j 1
+  [ "$status" -eq 0 ]
+  local repo="$STARS_DIR/acme/real"
+  [ -z "$(git -C "$repo" config --get remote.origin.promisor)" ]
+  [ "$(cat "$repo/README.md")" = "two" ]
+  [ -f "$repo/vendor/lib/lib.go" ]
+  [ -z "$(ls -A "$STARS_DIR/.github-stars-tmp" 2>/dev/null)" ]
+}
+
+@test "a clone that keeps changing keeps a bounded object store" {
+  _use_real_git
+  head -c 600000 /dev/urandom | base64 >"$BATS_TEST_TMPDIR/blob"
+  _fixture_commit acme/busy README.md=busy "data/blob.txt=$(cat "$BATS_TEST_TMPDIR/blob")"
+  _starred acme/busy
+  _stars --clone-only -j 1
+  local baseline
+  baseline=$(_pack_kib acme/busy)
+  for _ in 1 2 3 4 5; do
+    head -c 600000 /dev/urandom | base64 >"$BATS_TEST_TMPDIR/blob"
+    _fixture_commit acme/busy "data/blob.txt=$(cat "$BATS_TEST_TMPDIR/blob")"
+    _stars --update-only -j 1
+    [ "$status" -eq 0 ]
+  done
+  echo "baseline ${baseline} KiB, after 5 updates $(_pack_kib acme/busy) KiB"
+  [ "$(_pack_kib acme/busy)" -le $((baseline * 5 / 2)) ]
+  _clean_tree acme/busy
 }
