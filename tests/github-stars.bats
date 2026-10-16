@@ -307,3 +307,16 @@ _local_clone() {
   [ "$(_pack_kib acme/busy)" -le $((baseline * 5 / 2)) ]
   _clean_tree acme/busy
 }
+
+@test "sparse patterns combine the global exclusions with a repo's own overrides" {
+  run bash -c 'source "$1" && _sparse_patterns TomerAberbach/profiler-md' _ "$STARS"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *$'\n!/examples/input\n'* ]]
+  [[ "$output" == *$'\n!/examples/output'* ]]
+  [[ "$output" == *$'\n!*.png\n'* ]]
+  [[ "$output" == *$'\n!*.PNG\n'* ]]
+  [[ "$output" == *$'\n!node_modules/\n'* ]]
+  run bash -c 'source "$1" && _sparse_patterns acme/plain' _ "$STARS"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *'!/'* ]]
+}

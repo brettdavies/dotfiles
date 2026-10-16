@@ -82,20 +82,26 @@ GENERIC_CLEANUP_PATTERNS=(
 # File extensions left out of every clone, in lower and upper case: images, media, fonts, archives, native binaries,
 # databases. SVG is text and stays.
 EXCLUDED_EXTENSIONS=(
-    png jpg jpeg gif webp tiff tif bmp ico heic cr2 dng psd
+    png jpg jpeg gif webp avif tiff tif bmp ico heic cr2 dng psd
     mp4 mov webm wav mp3
     woff woff2 ttf otf eot
-    gz tgz zip tar jar pdf
-    so dylib dll exe node wasm
-    sqlite db jfr
+    gz tgz zip tar jar bundle pdf
+    so dylib dll exe node wasm bin
+    sqlite sqlite-wal db jfr hprof heapsnapshot dcm ithmb pt
+    map
 )
 
 # Repo-specific paths left out, relative to the repo root (owner/repo -> space-separated patterns)
 declare -A REPO_CLEANUP_PATTERNS
-REPO_CLEANUP_PATTERNS["RhetTbull/osxphotos"]="tests/test-images tests/*.photolibrary tests/fixtures"
-REPO_CLEANUP_PATTERNS["example/large-assets"]="assets/videos assets/raw"
-# Add more repo-specific rules as needed:
-# REPO_CLEANUP_PATTERNS["owner/repo"]="pattern1 pattern2 pattern3"
+# Text these repos commit as data dumps; the same types stay searchable everywhere else.
+REPO_CLEANUP_PATTERNS["RhetTbull/osxphotos"]="tests/test-images tests/*.photoslibrary tests/*.photolibrary"
+REPO_CLEANUP_PATTERNS["TomerAberbach/profiler-md"]="examples/input examples/output"
+REPO_CLEANUP_PATTERNS["garrytan/gbrain-evals"]="docs/benchmarks"
+REPO_CLEANUP_PATTERNS["majiayu000/claude-skill-registry"]="registry-shards docs/search-shards docs/categories THIRD_PARTY_NOTICES.d"
+REPO_CLEANUP_PATTERNS["boxabirds/awesome-local-ai"]="combinations"
+REPO_CLEANUP_PATTERNS["JerBouma/FinanceDatabase"]="database"
+REPO_CLEANUP_PATTERNS["ZirvedaAytimur/Natural-Language-Processing-NLP-"]="NGramAnalysis"
+REPO_CLEANUP_PATTERNS["chenglou/pretext"]="harness/cases"
 
 # ============================================================================
 # Defaults & Colors
