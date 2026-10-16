@@ -7,7 +7,7 @@ OnSuccess=github-stars-pdf.service
 Type=oneshot
 Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-%h/.config/github-stars/env
-ExecStart=%h/.local/bin/github-stars -j 4
+ExecStart=%h/.local/bin/github-stars -j 8
 
 # Hardening
 NoNewPrivileges=true

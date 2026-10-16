@@ -134,8 +134,8 @@ EOF
 }
 
 @test "stars sync runs hourly and the clone pass at quarter hours, both randomized" {
-  grep -qx 'ExecStart=%h/.local/bin/github-stars -j 4' "$LOCAL_UNITS/github-stars.service"
-  grep -qx 'ExecStart=%h/.local/bin/github-stars --clone-only -j 4' "$LOCAL_UNITS/github-stars-clone.service"
+  grep -qx 'ExecStart=%h/.local/bin/github-stars -j 8' "$LOCAL_UNITS/github-stars.service"
+  grep -qx 'ExecStart=%h/.local/bin/github-stars --clone-only -j 8' "$LOCAL_UNITS/github-stars-clone.service"
   grep -qx 'OnCalendar=\*-\*-\* \*:00:00' "$LOCAL_UNITS/github-stars.timer"
   grep -qx 'OnCalendar=\*-\*-\* \*:15,30,45:00' "$LOCAL_UNITS/github-stars-clone.timer"
   grep -qx 'RandomizedDelaySec=120' "$LOCAL_UNITS/github-stars.timer"
