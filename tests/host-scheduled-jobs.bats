@@ -27,6 +27,16 @@ setup() {
   export SYSTEMCTL_LOG="$BATS_TEST_TMPDIR/systemctl.log"
   export CRON_FILE="$BATS_TEST_TMPDIR/crontab"
   export STUB_OS=Linux STUB_HOST=bigdaddy
+  export OP_SKILL="$STUBS/op-skill" OP_LOG="$BATS_TEST_TMPDIR/op.log"
+  export STARS_ENV="$BATS_TEST_TMPDIR/home/.config/github-stars/env"
+  mkdir -p "$OP_SKILL"
+  cat >"$OP_SKILL/read_field.sh" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$OP_LOG"
+[ "${STUB_OP_FAIL:-0}" = 1 ] && exit 1
+printf 'stub-token'
+EOF
+  chmod +x "$OP_SKILL/read_field.sh"
   cat >"$STUBS/uname" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$STUB_OS"
@@ -139,6 +149,12 @@ EOF
   done
 }
 
+@test "both stars units load the read-only token file when it exists" {
+  for unit in github-stars github-stars-clone; do
+    grep -qx 'EnvironmentFile=-%h/.config/github-stars/env' "$LOCAL_UNITS/$unit.service" || { echo "$unit.service"; return 1; }
+  done
+}
+
 @test "backup-openclaw-settings is an executable stowed command with no hardcoded home" {
   [ -x "$LOCAL_BIN/backup-openclaw-settings" ]
   run grep -nE '/home/[a-z]' "$LOCAL_BIN/backup-openclaw-settings"
@@ -161,7 +177,35 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"Skipping"* ]]
   [ ! -e "$SYSTEMCTL_LOG" ]
+  [ ! -e "$STARS_ENV" ]
   cmp -s "$CRON_FILE" "$BATS_TEST_TMPDIR/before"
+}
+
+@test "enable script writes the stars token file from 1Password when it is missing" {
+  _enable
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STARS_ENV")" = "GH_TOKEN=stub-token" ]
+  [ "$(stat -c %a "$STARS_ENV")" = "600" ]
+  [ "$(stat -c %a "${STARS_ENV%/*}")" = "700" ]
+  grep -qx '6zqmvltmdtcsoxew2vgvnfrb2y credential' "$OP_LOG"
+  [[ "$output" != *"stub-token"* ]]
+}
+
+@test "enable script keeps an existing stars token file" {
+  mkdir -p "${STARS_ENV%/*}"
+  printf 'GH_TOKEN=keep\n' >"$STARS_ENV"
+  _enable
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STARS_ENV")" = "GH_TOKEN=keep" ]
+  [ ! -e "$OP_LOG" ]
+}
+
+@test "enable script falls back to the gh login when 1Password cannot be read" {
+  STUB_OP_FAIL=1 _enable
+  [ "$status" -eq 0 ]
+  [ ! -e "$STARS_ENV" ]
+  [[ "$output" == *"falls back to the gh login"* ]]
+  grep -qx -- '--user enable --now github-stars.timer' "$SYSTEMCTL_LOG"
 }
 
 @test "enable script reloads systemd and enables every host-job timer on its host" {

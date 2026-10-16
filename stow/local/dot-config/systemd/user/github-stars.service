@@ -5,6 +5,7 @@ ConditionHost=bigdaddy
 [Service]
 Type=oneshot
 Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-%h/.config/github-stars/env
 ExecStart=%h/.local/bin/github-stars -j 4
 
 # Hardening
