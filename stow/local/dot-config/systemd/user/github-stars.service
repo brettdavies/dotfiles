@@ -1,6 +1,7 @@
 [Unit]
 Description=Sync starred GitHub repos and their clones
 ConditionHost=bigdaddy
+OnSuccess=github-stars-pdf.service
 
 [Service]
 Type=oneshot
