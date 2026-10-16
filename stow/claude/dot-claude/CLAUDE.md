@@ -191,17 +191,13 @@ stylistic slip. Applies to chat, debriefs, plans, notes, and every artifact.
 ## CI after push
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse
-hook lists active runs with the exact `gh run watch <id> --exit-status` to spawn — run one per active run in the
-background (or `gh pr checks <pr> --watch` for PR-scoped). **A completed watcher is NOT a green watcher**:
-`gh pr checks --watch` exits 0 when all checks finish regardless of pass/fail. After every completion notification,
-verify explicitly: `gh pr view <num> --json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus, checks:
-[.statusCheckRollup[] | {name, conclusion}]}'` and assert every conclusion is `SUCCESS`. Same for run-scoped:
-`gh run view <id> --json conclusion --jq .conclusion` must be `success`. Then re-enumerate to catch chained runs — both
-same-repo (`workflow_run` triggers, visible to `gh run list --branch`) AND cross-repo dispatches (`repository_dispatch`
-into another repo, e.g. agentnative-cli release → brettdavies/homebrew-tap → callback to cli's finalize-release; these
-need `gh run list -R <target>` and `gh run watch <id> -R <target>`, then a re-query of the originating repo for the
-callback). The chain can bounce multiple times — repeat until both repos quiesce. **Never proceed past a red run on any
-link in the chain.** Policy source of truth: the `~/.claude/ci-watch-prompt.sh` header.
+hook lists active runs and tells you to spawn `~/.claude/ci-verify.sh` in the background. That script waits for every
+required check — including reusable-workflow jobs and followed dispatch chains — then exits 0 only when they passed. A
+Stop hook (`ci-stop-gate.sh`) refuses the turn while those checks are red or still running. Unpushed HEAD and repos with
+no CI pass through. A `BLOCKED` merge state does not fail the gate on its own (drafts and review rulesets); conclusions
+still decide. Missing `gh`/`jq` prints a WARNING and exits 4 (could-not-verify); the Stop hook surfaces that WARNING and
+still lets the turn end. Escape hatch (human only): `CI_VERIFY_ALLOW_STOP=1`. **Never proceed past a red run on any link
+in the chain.** Policy source of truth: the `~/.claude/ci-verify.sh` header.
 
 ## CLI tools
 

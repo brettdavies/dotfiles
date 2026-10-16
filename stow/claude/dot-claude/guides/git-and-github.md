@@ -295,20 +295,46 @@ categorized bullets verbatim into CHANGELOG.md during release prep. Write for us
 ## CI monitoring is automated
 
 After `git push`, `gh pr create`, `gh pr merge`, `gh release create`, `gh workflow run`, or any `gh api .../dispatches`
-call, a PostToolUse hook (`~/.claude/ci-watch-prompt.sh`) enumerates currently-active workflow runs and injects a system
-reminder listing each run id with the exact `gh run watch <id> --exit-status` command to spawn. Comply with the prompt:
-spawn one Bash call per active run with `run_in_background: true` (in parallel), so the harness notifies you when each
-finishes — no polling needed.
+call, a PostToolUse hook (`~/.claude/ci-watch-prompt.sh`) lists active runs and tells you to spawn
+`~/.claude/ci-verify.sh` once with `run_in_background: true`. That script is the gate: it waits for every required
+check, follows reusable-workflow jobs and dispatch chains, then exits 0 only when they passed. A finished `gh run watch`
+or `gh pr checks --watch` is not the gate.
 
-For PR-scoped checks (after `gh pr create`/`gh pr merge`), prefer `gh pr checks <pr> --watch` — it covers all checks
-across all triggered workflows on the PR head in a single watcher.
+A Stop hook (`~/.claude/ci-stop-gate.sh`) snapshots the same verdict and refuses the turn while checks are red or still
+running. Unpushed HEAD and repos with no CI pass through. The hook allows the stop when `stop_hook_active` is already
+true, so a blocked turn cannot retry forever. Escape hatch for a human who needs the turn to end anyway:
+`CI_VERIFY_ALLOW_STOP=1`.
 
-After every batch of watchers finishes, re-run `gh run list --branch <branch>` to catch dispatched chains (e.g.
-`release.yml` → homebrew dispatch → `finalize-release`). The hook only fires after the original action; chained runs
-need a manual re-check.
+Merge state: `CLEAN` and `BEHIND` pass; `UNSTABLE` and `DIRTY` fail. `BLOCKED` does not fail the gate on its own. A
+draft PR is often `BLOCKED` even with green checks, so the gate still keys off conclusions. `UNKNOWN` is treated the
+same way.
 
-If you push CI-triggering changes via a path the hook doesn't cover (or `gh` is unavailable in the hook's environment),
-run the same flow manually. Never proceed past a red run.
+If `gh` or `jq`/`jaq` is missing, `ci-verify` prints `WARNING: <tool> is not on PATH. CI was NOT verified.` and exits 4
+(`could-not-verify`). The Stop hook treats 4 as warn-and-allow: the turn ends, and the WARNING is injected via
+`hookSpecificOutput.additionalContext` (the non-blocking Stop channel). That path is never silent.
 
-The full policy and matcher list lives in the script header at `~/.claude/ci-watch-prompt.sh` — that's the source of
-truth.
+If you push CI-triggering changes via a path the watch prompt doesn't cover, run `~/.claude/ci-verify.sh` yourself.
+Never proceed past a red run.
+
+### Dispatch correlation
+
+`ci-verify` follows `workflow_dispatch`, `repository_dispatch`, `workflow_run`, and `workflow_call` runs on the origin
+repo and on extra repos found in `.github/workflows` (`uses: owner/repo/.github/workflows/…`,
+`repos/owner/repo/dispatches`, `repository:` next to `repository-dispatch`) plus `CI_VERIFY_DISPATCH_REPOS` /
+`--dispatch-repo`.
+
+The Actions run-list API does not expose `client_payload` or `workflow_dispatch` inputs, so a receiving workflow should
+put the origin SHA (and optionally the origin run id) in `run-name:`:
+
+```yaml
+run-name: "${{ github.event.client_payload.ci_verify_sha || inputs.ci_verify_sha || github.sha }}"
+```
+
+Pass the same fields in the dispatch payload (`ci_verify_sha`, `ci_verify_run`, `ci_verify_repo`). Matching then uses
+the child title. Same-repo children also match on `headSha`. Everything else falls back to "dispatch-like event created
+inside `CI_VERIFY_FOLLOW_WINDOW` seconds of the parent", which can attach an unrelated concurrent dispatch.
+
+`ci-verify` only GETs run and PR data. It never creates a dispatch. Timeouts and follow depth are env-overridable; see
+the script header.
+
+The full policy lives in the `~/.claude/ci-verify.sh` header — that's the source of truth.
