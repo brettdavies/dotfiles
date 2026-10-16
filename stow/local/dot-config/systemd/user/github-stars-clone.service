@@ -1,0 +1,13 @@
+[Unit]
+Description=Clone newly starred GitHub repos
+ConditionHost=bigdaddy
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/obsidian-vault/areas/infrastructure/scripts/github-stars.sh --clone-only -j 4
+StandardOutput=append:%h/.openclaw/logs/github-stars.log
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
