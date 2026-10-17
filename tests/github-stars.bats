@@ -13,7 +13,7 @@ setup() {
   export STARS_DIR="$BATS_TEST_TMPDIR/stars"
   export STARRED_LIST="$BATS_TEST_TMPDIR/starred"
   export GIT_LOG="$BATS_TEST_TMPDIR/git.log"
-  export STUB_GH_AUTH=0
+  export STUB_GH_AUTH=0 STUB_UNREACHABLE="$BATS_TEST_TMPDIR/unreachable"
   mkdir -p "$STUBS" "$STARS_DIR"
   unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
   cat >"$STUBS/gh" <<'EOF'
@@ -22,6 +22,10 @@ case "$1 $2" in
   "auth status") exit "$STUB_GH_AUTH" ;;
   "auth token") echo stub-token ;;
   "api users/"*) cat "$STARRED_LIST" ;;
+  "api repos/"*)
+    grep -qxF "${2#repos/}" "$STUB_UNREACHABLE" 2>/dev/null && { echo "HTTP 451" >&2; exit 1; }
+    echo "${2#repos/}"
+    ;;
   *) exit 64 ;;
 esac
 EOF
@@ -192,6 +196,22 @@ _local_clone() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"Would remove (unstarred): acme/gone"* ]]
   [ -d "$STARS_DIR/acme/gone/.git" ]
+}
+
+@test "prune keeps an unstarred clone whose repo GitHub no longer serves, since it may be the only copy" {
+  _starred acme/kept
+  _local_clone acme/kept
+  _local_clone acme/blocked
+  _local_clone acme/gone
+  printf 'acme/blocked\n' >"$STUB_UNREACHABLE"
+  _stars --prune -n -j 1
+  [[ "$output" == *"Would keep (unreachable on GitHub): acme/blocked"* ]]
+  [[ "$output" == *"Would remove (unstarred): acme/gone"* ]]
+  _stars --prune --update-only -j 1
+  [ "$status" -eq 0 ]
+  [ -d "$STARS_DIR/acme/blocked/.git" ]
+  [ ! -e "$STARS_DIR/acme/gone" ]
+  [[ "$output" == *"acme/blocked"*"only copy"* ]]
 }
 
 @test "prune removes unstarred clones and their empty owner directory" {
