@@ -90,3 +90,45 @@ _require_shellcheck() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"1 file(s) clean"* ]]
 }
+
+@test "every shell script under scripts/ is a lint target" {
+  _require_shellcheck
+  # A script missing from the target rule is skipped by every gate at once:
+  # pre-commit, pre-push, and CI all report it as zero files rather than fail.
+  cd "$BATS_TEST_DIRNAME/.."
+  local f missed=()
+  while IFS= read -r f; do
+    head -n1 "$f" | grep -qE '^#!.*\b(sh|bash)\b' || continue
+    run "$SCRIPT" "$f"
+    [[ "$output" == *"0 file(s) clean"* ]] && missed+=("$f")
+  done < <(git ls-files scripts)
+  if [ "${#missed[@]}" -gt 0 ]; then
+    printf 'not linted: %s\n' "${missed[@]}"
+    false
+  fi
+}
+
+@test "a new script under scripts/ is linted without being registered" {
+  _require_shellcheck
+  # Runs a copy of the dispatcher from a scratch tree, so the probe never sits
+  # in the real scripts/ where a parallel --all run would pick it up.
+  local root="$BATS_TEST_TMPDIR/repo"
+  mkdir -p "$root/scripts/sub"
+  cp "$SCRIPT" "$root/scripts/lint-shell"
+  printf '%s\n' '#!/usr/bin/env bash' 'echo $1' >"$root/scripts/sub/new-tool"
+  printf '%s\n' '#!/usr/bin/env python3' 'print(1)' >"$root/scripts/sub/tool.py"
+  run "$root/scripts/lint-shell" scripts/sub/new-tool
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"SC2086"* ]]
+  run "$root/scripts/lint-shell" scripts/sub/tool.py
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"0 file(s) clean"* ]]
+}
+
+@test "tools-atime is linted together with the libraries it sources" {
+  _require_shellcheck
+  # Without -x the lib/ sources are SC1091 notes and their contents go unread.
+  run "$SCRIPT" scripts/tools-atime/tools-atime.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"1 file(s) clean"* ]]
+}
