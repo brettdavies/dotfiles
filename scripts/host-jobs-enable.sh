@@ -36,7 +36,7 @@ TIMERS=(
 RETIRED_CRON='(sync-to-pool|pool-sync-check|github-stars|backup-openclaw-settings)[.]sh'
 OP_SKILL="${OP_SKILL:-$HOME/.claude/skills/1password/scripts}"
 STARS_ENV="${STARS_ENV:-$HOME/.config/github-stars/env}"
-# 1Password item "GitHub Stars Sync Token (read-only)"
+# 1Password item "GitHub Token - stars sync read (public repos)"
 STARS_TOKEN_ITEM="6zqmvltmdtcsoxew2vgvnfrb2y"
 
 # --- Read-only token for the stars sync ---
