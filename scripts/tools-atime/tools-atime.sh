@@ -240,11 +240,11 @@ if [[ "$RECLAIM" == "true" ]]; then
   export DRYRUN
 
   _collect_candidates() {
-    local rows="" m
+    local collected="" m
     for m in "${SELECTED[@]}"; do
-      rows+=$("${m}_rows")$'\n'
+      collected+=$("${m}_rows")$'\n'
     done
-    printf '%s' "$rows" \
+    printf '%s' "$collected" \
       | grep -v '^[[:space:]]*$' \
       | sort -t $'\t' -k6,6nr \
       | awk -F'\t' -v min="$RECLAIM_MIN_KB" '$6+0 >= min+0' \

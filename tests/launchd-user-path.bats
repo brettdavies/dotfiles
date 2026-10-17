@@ -148,8 +148,10 @@ EOF
   run ! bash -c "grep -v '^[[:space:]]*#' '$STOW_DEPLOY' | grep -q 'launchd-user-path.sh.*--apply'"
 }
 
-@test "the script is executable and enumerated as a lint target" {
+@test "the script is executable and a lint target" {
   [ -x "$SCRIPT" ]
-  # Present in both _is_target and _all_targets, or lint skips it silently.
-  [ "$(grep -c 'scripts/launchd-user-path.sh' "$LINT_SHELL")" -ge 2 ]
+  command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
+  run "$LINT_SHELL" scripts/launchd-user-path.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"1 file(s) clean"* ]]
 }
