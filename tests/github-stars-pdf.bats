@@ -90,6 +90,30 @@ _clone_with() {
   [ -f "$OUT/acme/papers/other.md" ]
 }
 
+@test "a new converter converts each PDF again, once" {
+  _clone_with acme/papers paper.pdf=V1
+  "$CMD" acme/papers:paper.pdf
+  "$CMD" acme/papers:paper.pdf
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 1 ]
+  printf '# converter v2\n' >>"$PDF_TO_MARKDOWN"
+  run "$CMD" acme/papers:paper.pdf
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 2 ]
+  "$CMD" acme/papers:paper.pdf
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 2 ]
+}
+
+@test "a PDF that failed under one converter is tried again under a new one" {
+  _clone_with acme/papers bad.pdf=V1
+  STUB_CONVERT_FAIL=1 run "$CMD" acme/papers:bad.pdf
+  [ "$status" -eq 1 ]
+  printf '# converter v2\n' >>"$PDF_TO_MARKDOWN"
+  run "$CMD" acme/papers:bad.pdf
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 2 ]
+  [ -f "$OUT/acme/papers/bad.md" ]
+}
+
 @test "a PDF that fails to convert is reported once and not retried until it changes" {
   _clone_with acme/papers bad.pdf=V1
   STUB_CONVERT_FAIL=1 run "$CMD" acme/papers:bad.pdf

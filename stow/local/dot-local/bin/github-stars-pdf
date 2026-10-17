@@ -6,7 +6,8 @@
 # dotfiles) marks each reviewed PDF convert or skip. For each convert entry this command fetches the PDF from its clone
 # on demand (git show), converts it with the markdown-convert skill's mc-pdf, and writes the markdown under
 # STARS_DIR/_pdf-markdown/<owner>/<repo>/<path>.md, where qmd's stars collection indexes it. .manifest records the
-# blob each markdown came from, so a PDF converts only when its blob is new or changed, and a blob already converted
+# blob each markdown came from and the converter that made it, so a PDF converts only when its blob is new or changed
+# or the converter changed (a hash of the converter and the scripts beside it), and a blob already converted
 # for another entry (a fork, a move) is copied instead of converted again.
 #
 # Every run also lists the PDFs in the tree of each clone whose commit moved since its last scan (local, nothing
@@ -56,6 +57,7 @@ ENVIRONMENT:
   GITHUB_STARS_PDF_INBOX  Where candidate notes go (default: ~/obsidian-vault/inbox)
   GITHUB_STARS_PDF_STATE  Reported-once state (default: ~/.local/state/github-stars)
   PDF_TO_MARKDOWN         Converter, called as <converter> <file.pdf> <out_dir>
+  PDF_CONVERTER_ID        Converter identity recorded per PDF (default: hash of the converter's scripts)
   GH_TOKEN                Token for on-demand fetches from GitHub (default: gh auth token)
 EOF
 }
@@ -223,12 +225,18 @@ main() {
         export GIT_CONFIG_VALUE_0
     fi
 
+    CONVERTER_ID="${PDF_CONVERTER_ID:-$({
+        cat "$CONVERTER"
+        find "$(dirname "$CONVERTER")" -type f \( -name '*.sh' -o -name '*.py' \) ! -path "$CONVERTER" -print0 |
+            sort -z | xargs -0 -r cat
+    } 2>/dev/null | sha256sum | cut -c1-12)}"
+
     mkdir -p "$OUT_DIR" "$STATE_DIR"
     touch "$MANIFEST" "$REPORTED" "$FAILED"
     WORK=$(mktemp -d)
     trap 'rm -rf "${WORK:-}"' EXIT
 
-    local repo path blob dest name previous moved_to cached
+    local repo path blob ver dest name previous moved_to cached
     local converted=0 unchanged=0 skipped=0 failed=0
     local -a keep=() manifest=()
     for entry in "${sources[@]+"${sources[@]}"}"; do
@@ -252,7 +260,7 @@ main() {
                 continue
             fi
             moved_to=$(git -C "$BASE_DIR/$repo" ls-tree -r HEAD |
-                awk -v b="${previous%% *}" '$3 == b { sub(/^[^\t]*\t/, ""); print; exit }')
+                awk -v b="${previous%%:*}" '$3 == b { sub(/^[^\t]*\t/, ""); print; exit }')
             if [[ -n "$moved_to" ]]; then
                 manifest+=("$previous")
                 keep+=("$dest")
@@ -267,22 +275,23 @@ main() {
             continue
         fi
         keep+=("$dest")
-        if [[ -s "$dest" && "$previous" == "$blob $entry" ]]; then
+        ver="$blob:$CONVERTER_ID"
+        if [[ -s "$dest" && "$previous" == "$ver $entry" ]]; then
             manifest+=("$previous")
             unchanged=$((unchanged + 1))
             continue
         fi
         mkdir -p "$(dirname "$dest")"
         cached=$(printf '%s\n' "${manifest[@]+"${manifest[@]}"}" | cat - "$MANIFEST" |
-            awk -v b="$blob" '$1 == b { print substr($0, index($0, " ") + 1); exit }')
+            awk -v v="$ver" '$1 == v { print substr($0, index($0, " ") + 1); exit }')
         if [[ -n "$cached" && "$cached" != "$entry" && -s "$(_dest "$cached")" ]]; then
             cp "$(_dest "$cached")" "$dest"
-            manifest+=("$blob $entry")
+            manifest+=("$ver $entry")
             converted=$((converted + 1))
             log "copied $entry from $cached (same PDF)"
             continue
         fi
-        if grep -qxF "$blob $entry" "$FAILED"; then
+        if grep -qxF "$ver $entry" "$FAILED"; then
             log "skip $entry: this version failed to convert; retried when the PDF changes"
             [[ -n "$previous" ]] && manifest+=("$previous")
             skipped=$((skipped + 1))
@@ -296,12 +305,12 @@ main() {
             "$CONVERTER" "$WORK/in/$name.pdf" "$WORK/out" >/dev/null 2>&1 &&
             [[ -s "$WORK/out/$name.md" ]]; then
             mv "$WORK/out/$name.md" "$dest"
-            manifest+=("$blob $entry")
+            manifest+=("$ver $entry")
             converted=$((converted + 1))
             log "converted $entry"
         else
             log "failed to convert $entry"
-            echo "$blob $entry" >>"$FAILED"
+            echo "$ver $entry" >>"$FAILED"
             FAILURES+=("\`$entry\` (blob ${blob:0:12})")
             [[ -n "$previous" ]] && manifest+=("$previous")
             failed=$((failed + 1))
