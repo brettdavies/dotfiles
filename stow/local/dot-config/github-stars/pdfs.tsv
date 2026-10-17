@@ -7,10 +7,10 @@ convert	MajorLeagueBaseball/google-cloud-mlb-hackathon:datasets/mlb-statsapi-doc
 convert	MajorLeagueBaseball/google-cloud-mlb-hackathon:datasets/mlb-statsapi-docs/MLB-StatsAPI-Getting Started.pdf
 convert	MajorLeagueBaseball/google-cloud-mlb-hackathon:datasets/mlb-statsapi-docs/MLB-StatsAPI-Hydrations.pdf
 convert	baidu/Unlimited-OCR:Unlimited-OCR.pdf
-convert	google/longfellow-zk:docs/static/reviews/Longfellow_report_2025_08_18.pdf
-convert	google/longfellow-zk:docs/static/reviews/Longfellow_security_2025_12_15.pdf
 convert	huggingface/distil-whisper:Distil_Whisper.pdf
 convert	je-suis-tm/machine-learning:Wisdom of Crowds project/Regularized Least Squares to Remove Reviewer Bias.pdf
+convert	longfellow-zk/longfellow-zk:docs/static/reviews/Longfellow_report_2025_08_18.pdf
+convert	longfellow-zk/longfellow-zk:docs/static/reviews/Longfellow_security_2025_12_15.pdf
 convert	sarwarbeing-ai/Agentic_Design_Patterns:Agentic_Design_Patterns.pdf
 convert	sourdough-bread/asd-ste100-checker:ASD-STE100-ISSUE-9.pdf
 skip	Blaizzy/mlx-vlm:examples/images/demo_pdf1.pdf
@@ -230,9 +230,9 @@ skip	firecrawl/pdf-inspector:tests/fixtures/vector_outlined_text_with_caption.pd
 skip	firecrawl/pdf-inspector:tests/fixtures/wired_header_data_misalign.pdf
 skip	firecrawl/pdf-inspector:tests/fixtures/wireless_dense_no_rects.pdf
 skip	firecrawl/pdf-inspector:tests/fixtures/wireless_two_col_no_rects.pdf
+skip	google/longfellow-zk:docs/static/reviews/Longfellow_report_2025_08_18.pdf
+skip	google/longfellow-zk:docs/static/reviews/Longfellow_security_2025_12_15.pdf
 skip	jdrhyne/agent-skills:skills/elegant-reports/examples/sample-output.pdf
-skip	longfellow-zk/longfellow-zk:docs/static/reviews/Longfellow_report_2025_08_18.pdf
-skip	longfellow-zk/longfellow-zk:docs/static/reviews/Longfellow_security_2025_12_15.pdf
 skip	massgen/MassGen:docs/source/examples/case_studies/running_results/MassGen_v0_0_16_Beamer_RL_Presentation_claude_code.pdf
 skip	massgen/MassGen:docs/source/examples/case_studies/running_results/MassGen_v0_0_16_Beamer_RL_Presentation_final.pdf
 skip	massgen/MassGen:docs/source/examples/case_studies/running_results/MassGen_v0_0_16_Beamer_RL_Presentation_gemini.pdf

@@ -6,12 +6,16 @@
 # dotfiles) marks each reviewed PDF convert or skip. For each convert entry this command fetches the PDF from its clone
 # on demand (git show), converts it with the markdown-convert skill's mc-pdf, and writes the markdown under
 # STARS_DIR/_pdf-markdown/<owner>/<repo>/<path>.md, where qmd's stars collection indexes it. .manifest records the
-# blob each markdown came from, so a PDF converts only when its blob is new or changed, and a blob already converted
+# blob each markdown came from and the converter that made it, so a PDF converts only when its blob is new or changed
+# or the converter changed (a hash of the converter and the scripts beside it), and a blob already converted
 # for another entry (a fork, a move) is copied instead of converted again.
 #
-# Every run also lists the PDFs in each clone's tree (local, nothing downloaded). One in neither list and outside
+# Every run also lists the PDFs in the tree of each clone whose commit moved since its last scan (local, nothing
+# downloaded); a change to the decisions list rescans every clone. A PDF in neither list and outside
 # test-data paths is a candidate; candidates, listed PDFs that moved, and listed PDFs deleted upstream are reported
-# once, in a dated note in the vault inbox. systemd starts this after each successful stars sync (OnSuccess=).
+# once, in a dated note in the vault inbox. A PDF that fails to convert is reported the same way and not retried until
+# its blob changes; deleting its line from $STATE_DIR/pdf-failed retries it sooner. systemd starts this after each
+# successful stars sync (OnSuccess=).
 #
 # Usage: github-stars-pdf [owner/repo:path.pdf ...]
 #        With arguments, those entries replace the list's convert entries for this run.
@@ -34,6 +38,8 @@ LIST="${GITHUB_STARS_PDF_LIST:-$HOME/.config/github-stars/pdfs.tsv}"
 INBOX="${GITHUB_STARS_PDF_INBOX:-$HOME/obsidian-vault/inbox}"
 STATE_DIR="${GITHUB_STARS_PDF_STATE:-$HOME/.local/state/github-stars}"
 REPORTED="$STATE_DIR/pdf-reported"
+FAILED="$STATE_DIR/pdf-failed"
+SCANNED="$STATE_DIR/pdf-scanned"
 TEST_DATA='(^|/)(tests?|__tests__|__fixtures__|testdata|test[-_]?data|fixtures?|samples?|corpus|benchmarks?|spec|e2e|evals?|golden|regression|cases|inputs?|node_modules|vendor|_build)/'
 
 usage() {
@@ -51,6 +57,7 @@ ENVIRONMENT:
   GITHUB_STARS_PDF_INBOX  Where candidate notes go (default: ~/obsidian-vault/inbox)
   GITHUB_STARS_PDF_STATE  Reported-once state (default: ~/.local/state/github-stars)
   PDF_TO_MARKDOWN         Converter, called as <converter> <file.pdf> <out_dir>
+  PDF_CONVERTER_ID        Converter identity recorded per PDF (default: hash of the converter's scripts)
   GH_TOKEN                Token for on-demand fetches from GitHub (default: gh auth token)
 EOF
 }
@@ -85,6 +92,7 @@ _dest() {
 CANDIDATES=()
 MOVED=()
 DELETED=()
+FAILURES=()
 declare -A DECIDED=()
 
 _report_once() {
@@ -102,11 +110,22 @@ _pdf_meta() {
 }
 
 _discover() {
-    local git_dir repo path dir
+    local key="$1" git_dir repo path dir head seen_key="" r h
+    local -A seen=()
+    local -a scanned=()
+    if [[ -s "$SCANNED" ]]; then
+        read -r _ seen_key <"$SCANNED"
+        if [[ "$seen_key" == "$key" ]]; then
+            while read -r r h; do seen["$r"]="$h"; done < <(tail -n +2 "$SCANNED")
+        fi
+    fi
     for git_dir in "$BASE_DIR"/*/*/.git; do
         [[ -d "$git_dir" ]] || continue
         repo="${git_dir%/.git}"
         repo="${repo#"$BASE_DIR"/}"
+        head=$(git -C "$BASE_DIR/$repo" rev-parse -q --verify HEAD 2>/dev/null) || continue
+        scanned+=("$repo $head")
+        [[ "${seen["$repo"]:-}" == "$head" ]] && continue
         while IFS= read -r -d '' path; do
             [[ "${path,,}" == *.pdf ]] || continue
             [[ -n "${DECIDED["$repo:$path"]:-}" ]] && continue
@@ -118,10 +137,11 @@ _discover() {
             CANDIDATES+=("$repo"$'\t'"$path"$'\t'"$(_pdf_meta "$repo" "$path")")
         done < <(GIT_NO_LAZY_FETCH=1 git -C "$BASE_DIR/$repo" ls-tree -r -z --name-only HEAD 2>/dev/null)
     done
+    { echo "list $key"; printf '%s\n' "${scanned[@]+"${scanned[@]}"}"; } >"$SCANNED"
 }
 
 _write_note() {
-    [[ ${#CANDIDATES[@]} -gt 0 || ${#MOVED[@]} -gt 0 || ${#DELETED[@]} -gt 0 ]] || return 0
+    [[ ${#CANDIDATES[@]} -gt 0 || ${#MOVED[@]} -gt 0 || ${#DELETED[@]} -gt 0 || ${#FAILURES[@]} -gt 0 ]] || return 0
     if [[ ! -d "$INBOX" ]]; then
         log "no inbox at $INBOX; report kept in the log only"
         return 0
@@ -153,6 +173,16 @@ EOF
         if [[ ${#DELETED[@]} -gt 0 ]]; then
             printf '\n## Deleted upstream\n\nThe markdown is removed; drop the entry.\n\n'
             printf -- '- %s\n' "${DELETED[@]}"
+        fi
+        if [[ ${#FAILURES[@]} -gt 0 ]]; then
+            cat <<'EOF'
+
+## Conversion failed
+
+Not retried until the PDF changes; delete its line from `~/.local/state/github-stars/pdf-failed` to retry sooner.
+
+EOF
+            printf -- '- %s\n' "${FAILURES[@]}"
         fi
     } >"$note"
     log "wrote ${note/#$HOME/\~}"
@@ -195,12 +225,18 @@ main() {
         export GIT_CONFIG_VALUE_0
     fi
 
+    CONVERTER_ID="${PDF_CONVERTER_ID:-$({
+        cat "$CONVERTER"
+        find "$(dirname "$CONVERTER")" -type f \( -name '*.sh' -o -name '*.py' \) ! -path "$CONVERTER" -print0 |
+            sort -z | xargs -0 -r cat
+    } 2>/dev/null | sha256sum | cut -c1-12)}"
+
     mkdir -p "$OUT_DIR" "$STATE_DIR"
-    touch "$MANIFEST" "$REPORTED"
+    touch "$MANIFEST" "$REPORTED" "$FAILED"
     WORK=$(mktemp -d)
     trap 'rm -rf "${WORK:-}"' EXIT
 
-    local repo path blob dest name previous moved_to cached
+    local repo path blob ver dest name previous moved_to cached
     local converted=0 unchanged=0 skipped=0 failed=0
     local -a keep=() manifest=()
     for entry in "${sources[@]+"${sources[@]}"}"; do
@@ -224,7 +260,7 @@ main() {
                 continue
             fi
             moved_to=$(git -C "$BASE_DIR/$repo" ls-tree -r HEAD |
-                awk -v b="${previous%% *}" '$3 == b { sub(/^[^\t]*\t/, ""); print; exit }')
+                awk -v b="${previous%%:*}" '$3 == b { sub(/^[^\t]*\t/, ""); print; exit }')
             if [[ -n "$moved_to" ]]; then
                 manifest+=("$previous")
                 keep+=("$dest")
@@ -239,19 +275,26 @@ main() {
             continue
         fi
         keep+=("$dest")
-        if [[ -s "$dest" && "$previous" == "$blob $entry" ]]; then
+        ver="$blob:$CONVERTER_ID"
+        if [[ -s "$dest" && "$previous" == "$ver $entry" ]]; then
             manifest+=("$previous")
             unchanged=$((unchanged + 1))
             continue
         fi
         mkdir -p "$(dirname "$dest")"
         cached=$(printf '%s\n' "${manifest[@]+"${manifest[@]}"}" | cat - "$MANIFEST" |
-            awk -v b="$blob" '$1 == b { print substr($0, index($0, " ") + 1); exit }')
+            awk -v v="$ver" '$1 == v { print substr($0, index($0, " ") + 1); exit }')
         if [[ -n "$cached" && "$cached" != "$entry" && -s "$(_dest "$cached")" ]]; then
             cp "$(_dest "$cached")" "$dest"
-            manifest+=("$blob $entry")
+            manifest+=("$ver $entry")
             converted=$((converted + 1))
             log "copied $entry from $cached (same PDF)"
+            continue
+        fi
+        if grep -qxF "$ver $entry" "$FAILED"; then
+            log "skip $entry: this version failed to convert; retried when the PDF changes"
+            [[ -n "$previous" ]] && manifest+=("$previous")
+            skipped=$((skipped + 1))
             continue
         fi
         name=$(basename "$path")
@@ -262,11 +305,13 @@ main() {
             "$CONVERTER" "$WORK/in/$name.pdf" "$WORK/out" >/dev/null 2>&1 &&
             [[ -s "$WORK/out/$name.md" ]]; then
             mv "$WORK/out/$name.md" "$dest"
-            manifest+=("$blob $entry")
+            manifest+=("$ver $entry")
             converted=$((converted + 1))
             log "converted $entry"
         else
             log "failed to convert $entry"
+            echo "$ver $entry" >>"$FAILED"
+            FAILURES+=("\`$entry\` (blob ${blob:0:12})")
             [[ -n "$previous" ]] && manifest+=("$previous")
             failed=$((failed + 1))
         fi
@@ -284,7 +329,7 @@ main() {
     find "$OUT_DIR" -mindepth 1 -type d -empty -delete
     printf '%s\n' "${manifest[@]+"${manifest[@]}"}" | sed '/^$/d' >"$MANIFEST"
 
-    _discover
+    _discover "$({ cat "$LIST" 2>/dev/null; printf '%s\n' "$@"; } | sha256sum | cut -c1-16)"
     _write_note
     log "converted $converted, unchanged $unchanged, skipped $skipped, failed $failed, new candidates ${#CANDIDATES[@]}"
     [[ $failed -eq 0 ]]

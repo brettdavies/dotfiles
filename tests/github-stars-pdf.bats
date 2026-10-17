@@ -90,6 +90,47 @@ _clone_with() {
   [ -f "$OUT/acme/papers/other.md" ]
 }
 
+@test "a new converter converts each PDF again, once" {
+  _clone_with acme/papers paper.pdf=V1
+  "$CMD" acme/papers:paper.pdf
+  "$CMD" acme/papers:paper.pdf
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 1 ]
+  printf '# converter v2\n' >>"$PDF_TO_MARKDOWN"
+  run "$CMD" acme/papers:paper.pdf
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 2 ]
+  "$CMD" acme/papers:paper.pdf
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 2 ]
+}
+
+@test "a PDF that failed under one converter is tried again under a new one" {
+  _clone_with acme/papers bad.pdf=V1
+  STUB_CONVERT_FAIL=1 run "$CMD" acme/papers:bad.pdf
+  [ "$status" -eq 1 ]
+  printf '# converter v2\n' >>"$PDF_TO_MARKDOWN"
+  run "$CMD" acme/papers:bad.pdf
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 2 ]
+  [ -f "$OUT/acme/papers/bad.md" ]
+}
+
+@test "a PDF that fails to convert is reported once and not retried until it changes" {
+  _clone_with acme/papers bad.pdf=V1
+  STUB_CONVERT_FAIL=1 run "$CMD" acme/papers:bad.pdf
+  [ "$status" -eq 1 ]
+  STUB_CONVERT_FAIL=1 run "$CMD" acme/papers:bad.pdf
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 1 ]
+  [ "$(_notes | grep -c 'acme/papers:bad.pdf')" -eq 1 ]
+  [[ "$(_notes)" == *"Conversion failed"* ]]
+  printf 'V2' >"$STARS_DIR/acme/papers/bad.pdf"
+  git -C "$STARS_DIR/acme/papers" commit -qam v2
+  run "$CMD" acme/papers:bad.pdf
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$CONVERT_LOG")" -eq 2 ]
+  [ "$(sed -n 4p "$OUT/acme/papers/bad.md")" = "converted: V2" ]
+}
+
 @test "a repo that is not cloned or a path not in the repo is skipped with a warning" {
   _clone_with acme/papers paper.pdf=V1
   run "$CMD" acme/missing:x.pdf acme/papers:nope.pdf acme/papers:paper.pdf
@@ -158,6 +199,30 @@ _clone_with() {
   run "$CMD"
   [ "$status" -eq 0 ]
   [ "$(_notes | wc -l)" -eq "$before" ]
+}
+
+@test "discovery lists a clone's files again only when its commit or the decisions list changes" {
+  _clone_with acme/papers docs/a.pdf=A
+  _clone_with acme/other README.md=hi
+  local real_git
+  real_git=$(command -v git)
+  mkdir -p "$BATS_TEST_TMPDIR/wrap"
+  printf '#!/bin/sh\ncase "$*" in *ls-tree*--name-only*) printf "%%s\\n" "$*" >>"%s";; esac\nexec "%s" "$@"\n' \
+    "$BATS_TEST_TMPDIR/scans" "$real_git" >"$BATS_TEST_TMPDIR/wrap/git"
+  chmod +x "$BATS_TEST_TMPDIR/wrap/git"
+  PATH="$BATS_TEST_TMPDIR/wrap:$PATH" "$CMD"
+  [ "$(grep -c acme/papers "$BATS_TEST_TMPDIR/scans")" -eq 1 ]
+  PATH="$BATS_TEST_TMPDIR/wrap:$PATH" "$CMD"
+  [ "$(grep -c acme/papers "$BATS_TEST_TMPDIR/scans")" -eq 1 ]
+  printf 'B' >"$STARS_DIR/acme/papers/docs/b.pdf"
+  git -C "$STARS_DIR/acme/papers" add -A && git -C "$STARS_DIR/acme/papers" commit -qm b
+  PATH="$BATS_TEST_TMPDIR/wrap:$PATH" run "$CMD"
+  [ "$(grep -c acme/papers "$BATS_TEST_TMPDIR/scans")" -eq 2 ]
+  [ "$(grep -c acme/other "$BATS_TEST_TMPDIR/scans")" -eq 1 ]
+  [[ "$(_notes)" == *"docs/b.pdf"* ]]
+  printf 'skip\tacme/papers:docs/a.pdf\n' >"$GITHUB_STARS_PDF_LIST"
+  PATH="$BATS_TEST_TMPDIR/wrap:$PATH" "$CMD"
+  [ "$(grep -c acme/other "$BATS_TEST_TMPDIR/scans")" -eq 2 ]
 }
 
 @test "without an inbox directory, candidates go to the log only" {

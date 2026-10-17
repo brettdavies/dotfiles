@@ -663,6 +663,16 @@ prune_repos() {
     while read -r local_repo; do
         [[ -z "$local_repo" ]] && continue
         local target_dir="$BASE_DIR/$local_repo"
+        # The starred list omits repos GitHub blocks (DMCA) or that were deleted, so absence there does not mean the
+        # clone can be re-made. Keep any clone whose repo GitHub does not serve; it may be the only copy left.
+        if ! gh api "repos/$local_repo" -q .full_name >/dev/null 2>&1; then
+            if [[ "$DRY_RUN" == "true" ]]; then
+                log_warn "[DRY-RUN] Would keep (unreachable on GitHub): $local_repo"
+            else
+                log_warn "Keeping $local_repo: unstarred, but GitHub no longer serves it; this may be the only copy"
+            fi
+            continue
+        fi
         if [[ "$DRY_RUN" == "true" ]]; then
             log_warn "[DRY-RUN] Would remove (unstarred): $local_repo"
         else
