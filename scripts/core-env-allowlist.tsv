@@ -22,9 +22,7 @@ tests/mac-open-here.bats	receive reports open-failed with its line when opening 
 tests/mac-open.bats	setup	the ssh stub runs the remote half as the Mac would, under a scratch Mac home holding a stub mac-open-here
 tests/mac-open.bats	with neither jaq nor jq installed the guard fails closed naming the tool	PATH is rebuilt from /usr/bin and /bin minus jq and jaq so the guard finds neither, the case under test
 tests/shell-config.bats	local-paths.sh promotes keg-only Homebrew Ruby ahead of system Ruby in bash	reproduces the demoted PATH order local-paths.sh exists to repair
-tests/shell-config.bats	sourcing profile in a fresh shell leaves CARGO_HOME unset	clears the inherited CARGO_HOME so the assertion reads what .profile sets, not the parent shell's value
-tests/shell-config.bats	sourcing profile in a fresh shell leaves RUSTUP_HOME unset	clears the inherited RUSTUP_HOME so the assertion reads what .profile sets, not the parent shell's value
-tests/shell-config.bats	sourcing profile puts stock ~/.cargo/bin on PATH where a toolchain exists	clears the inherited CARGO_HOME so .profile's default cargo bin directory is what gets tested
+tests/install-roots.bats	sourcing profile puts stock ~/.cargo/bin on PATH where a toolchain exists	clears the inherited CARGO_HOME so the profile's default cargo bin directory is what gets tested
 tests/shell-path-matrix.bats	_shape	models a launchd-spawned shell with env -i and a bare PATH, the startup shape under test; HOME, USER, and LOGNAME pass through unchanged
 tests/shell-path-matrix.bats	dash login non-interactive sources dot-profile without error	models a launchd-spawned shell with env -i and a bare PATH, the startup shape under test; HOME, USER, and LOGNAME pass through unchanged
 tests/shell-path-matrix.bats	agent Bash tool shape promotes keg-only Ruby via BASH_ENV wiring	models the agent Bash tool's bare environment with the demoted Ruby order the BASH_ENV wiring repairs; HOME passes through unchanged
