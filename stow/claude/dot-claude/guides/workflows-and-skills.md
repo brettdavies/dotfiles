@@ -149,10 +149,17 @@ until curl -sf http://127.0.0.1:8000/health >/dev/null; do sleep 10; done; echo 
 Give it an upper bound when the event may never happen (`timeout 1800 bash -c 'until …; do sleep 10; done'`), so a dead
 server ends the wait with a non-zero exit instead of a loop that never returns.
 
+**Wait on a process by PID, not by its command line.** A Bash call runs as a shell whose argument list holds the whole
+command, so `until ! pgrep -f 'git push -u origin fix/x'` matches its own shell and never ends, and
+`pkill -f 'vllm serve'` kills the shell that ran it. Start the process with `&` and wait on `$!`
+(`while kill -0 "$pid" 2>/dev/null; do sleep 10; done`), or bracket one character so the pattern cannot match its own
+text (`pgrep -f '[g]it push -u origin fix/x'`). `~/.claude/self-match-guard.sh` denies the unbracketed form and prints
+the bracketed command.
+
 **Watchdog for a background subagent.** The `Agent` spawn result names the agent's output file. Start this right after
 dispatch; it exits once the file has gone 10 minutes without a write. The output path is a symlink to the live
-transcript, re-pointed when the agent resumes, so `-L` is required: without it `find` reads the link's own age and
-fires on a busy agent (`find -L -mmin` works with GNU and BSD find):
+transcript, re-pointed when the agent resumes, so `-L` is required: without it `find` reads the link's own age and fires
+on a busy agent (`find -L -mmin` works with GNU and BSD find):
 
 ```bash
 out=<agent output file>; while [ -n "$(find -L "$out" -mmin -10)" ]; do sleep 10; done; echo "agent quiet 10 min: $out"

@@ -212,7 +212,10 @@ completion notice sat queued, and the agent did nothing for 13 hours until the m
 **Enforcement.** The `~/.claude/sleep-guard.sh` PreToolUse Bash hook denies a foreground `sleep` over 10 s, any
 foreground `while`/`until` polling loop, and a background poll interval or fixed wait over 10 s. Each deny names its
 reason and prints a rebuilt command to rerun; follow its `next_step`. A background fixed delay that an external system
-mandates (a Retry-After) passes with `# sleep-guard: required-delay`. Tests: `bats tests/sleep-guard.bats`.
+mandates (a Retry-After) passes with `# sleep-guard: required-delay`. Tests: `bats tests/sleep-guard.bats`. The
+`~/.claude/self-match-guard.sh` hook denies a `pgrep -f` or `pkill -f` whose pattern matches the command's own text: it
+also matches the shell running the command, so a wait on it never ends and a `pkill` kills that shell. Bracket one
+character (`pgrep -f '[g]it push'`) or wait on a PID. Tests: `bats tests/self-match-guard.bats`.
 
 Commands (poll-as-notification, the watchdog, the brief clause) → `~/.claude/guides/workflows-and-skills.md` § "Waiting
 without blocking".
