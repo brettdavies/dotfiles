@@ -3,7 +3,7 @@
 # This file configures environment variables for package manager and tool cache locations
 # Caches are stored under XDG_CACHE_HOME (XDG Base Directory Specification) for easy management and cleanup
 #
-# Some entries below relocate an install root rather than a cache (PIPX_HOME, PNPM_HOME, GOPATH).
+# Some entries below relocate an install root rather than a cache (PNPM_HOME, GOPATH).
 # An install root only relocates safely when every launcher agrees on it, and contexts that
 # never source this chain — systemd user units, cron, git hooks, GUI-launched processes — resolve the
 # stock path regardless of what is set here. Deleting a relocated cache costs a re-download; a
@@ -32,9 +32,15 @@ fi
 # Python package managers and tools
 export POETRY_CACHE_DIR="$XDG_CACHE_HOME/pypoetry"
 export PIP_CACHE_DIR="$XDG_CACHE_HOME/pip" # also set in stow/pip/dot-config/pip/pip.conf
-export PIPX_HOME="$XDG_CACHE_HOME/pipx"
 export UV_CACHE_DIR="$XDG_CACHE_HOME/uv"
 # Note: uvx (uv's tool runner) uses the same UV_CACHE_DIR
+
+# pipx is absent by design, for the reason spelled out for Rust below. PIPX_HOME is an install
+# root: it holds each app's virtualenv, which the ~/.local/bin links point into, and no
+# re-download rebuilds them on demand. pipx resolves its platform default (~/.local/share/pipx on
+# Linux, ~/Library/Application Support/pipx on macOS) in every context that does not source this
+# chain, so setting it here splits the apps across two trees and leaves pipx in a shell unable to
+# manage the other tree's apps. pip's download cache is already relocated through PIP_CACHE_DIR.
 
 # Node.js package managers
 # npm cache set via env var (belt-and-suspenders: also in ~/.npmrc via `npm config set cache`)
@@ -114,7 +120,6 @@ fi
 # Python caches
 [ ! -d "$POETRY_CACHE_DIR" ] && mkdir -p "$POETRY_CACHE_DIR"
 [ ! -d "$PIP_CACHE_DIR" ] && mkdir -p "$PIP_CACHE_DIR"
-[ ! -d "$PIPX_HOME" ] && mkdir -p "$PIPX_HOME"
 [ ! -d "$UV_CACHE_DIR" ] && mkdir -p "$UV_CACHE_DIR"
 
 # Node.js caches

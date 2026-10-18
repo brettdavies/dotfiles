@@ -20,7 +20,7 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 # resolves the dotfiles root from its own path.
 PROFILE="$STOW_DIR/shell/dot-profile"
 
-INSTALL_ROOTS=(CARGO_HOME RUSTUP_HOME BUN_INSTALL)
+INSTALL_ROOTS=(CARGO_HOME RUSTUP_HOME BUN_INSTALL PIPX_HOME)
 
 assert_caches_does_not_assign() {
   run ! grep -qE "^[[:space:]]*(export[[:space:]]+)?$1=" "$CONFIG_DIR/caches.sh"
