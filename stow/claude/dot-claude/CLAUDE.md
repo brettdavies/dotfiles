@@ -188,6 +188,35 @@ before asserting who said what.** Interpretation is welcome, but label it explic
 person's own statement — paraphrasing or quoting them into something they did not say — is a serious trust breach, not a
 stylistic slip. Applies to chat, debriefs, plans, notes, and every artifact.
 
+## Never block on a wait
+
+A wait is wall-clock time with no progress and no way to answer the user. Losing hours to one is unacceptable. Costly
+precedent: a background subagent ended its turn to wait on its own background job; the job failed minutes later, its
+completion notice sat queued, and the agent did nothing for 13 hours until the main session was next active.
+
+- **Background first.** Anything that can run past ~30 s (a batch over files, an install, a model or GPU run, a build, a
+  test suite, CI) starts with `run_in_background: true`, and you keep working while it runs. Harness notifications and
+  hooks are the wake signal: always prefer them over polling.
+- **Polling is the last resort, and never slow.** Poll only state the harness cannot see (a server coming up, an
+  external queue), and turn the poll into a notification: background an `until <condition>; do sleep 10; done` loop
+  whose exit wakes you. **No wait exceeds 10 s**, whether a foreground `sleep` or a poll interval: a long sleep blocks
+  the session, and a long interval wastes the rest of the interval after the event has already happened.
+- **Never end a turn parked on a notice that may not come.** A subagent never stops to wait on its own background job:
+  it polls in short checks, or runs the step in the foreground under a `timeout` shorter than the parent's watchdog
+  window.
+- **Every delegated long task carries a deadline and a watchdog.** The `Agent` brief states a time box and the rules
+  above. Right after dispatch, the parent backgrounds a watchdog that exits once the agent's output file has gone 10
+  minutes without a write, so a stall wakes the parent instead of costing the night. On wake, read the agent's tail,
+  then `SendMessage` it to resume, re-scope, or stop.
+
+**Enforcement.** The `~/.claude/sleep-guard.sh` PreToolUse Bash hook denies a foreground `sleep` over 10 s, any
+foreground `while`/`until` polling loop, and a background poll interval or fixed wait over 10 s. Each deny names its
+reason and prints a rebuilt command to rerun; follow its `next_step`. A background fixed delay that an external system
+mandates (a Retry-After) passes with `# sleep-guard: required-delay`. Tests: `bats tests/sleep-guard.bats`.
+
+Commands (poll-as-notification, the watchdog, the brief clause) → `~/.claude/guides/workflows-and-skills.md` § "Waiting
+without blocking".
+
 ## CI after push
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse

@@ -1,7 +1,8 @@
 # Workflows, Skills & the Solutions Corpus
 
-Detail behind the **Workflow & skills** and **Solutions repo** rules in `~/.claude/CLAUDE.md`. Open this when picking a
-skill for a task, dispatching a learnings researcher, or writing to `docs/solutions/`.
+Detail behind the **Workflow & skills**, **Solutions repo**, and **Never block on a wait** rules in
+`~/.claude/CLAUDE.md`. Open this when picking a skill for a task, dispatching a learnings researcher, writing to
+`docs/solutions/`, or waiting on background work or a subagent.
 
 ## Development workflow: gstack + compound-engineering
 
@@ -133,3 +134,39 @@ execution, baking in the resolved path on the current machine): `ln -s "$HOME/de
 Absolute is preferred over a relative target because a relative target depends on how deep the consuming repo lives in
 the filesystem — `../../dev/solutions-docs` resolves correctly only when the repo lives two levels under `$HOME`, and
 silently produces a broken `~/dev/dev/solutions-docs` target when the repo sits at `~/dev/<repo>/`.
+
+## Waiting without blocking
+
+Detail behind **Never block on a wait** in `~/.claude/CLAUDE.md`. Every shape below runs with `run_in_background: true`;
+the loop's exit is the notification, so the session keeps working and wakes within 10 s of the event.
+
+**Poll as a notification.** For state the harness cannot see, wrap the check in a loop that sleeps at most 10 s:
+
+```bash
+until curl -sf http://127.0.0.1:8000/health >/dev/null; do sleep 10; done; echo "server up"
+```
+
+Give it an upper bound when the event may never happen (`timeout 1800 bash -c 'until …; do sleep 10; done'`), so a dead
+server ends the wait with a non-zero exit instead of a loop that never returns.
+
+**Watchdog for a background subagent.** The `Agent` spawn result names the agent's output file. Start this right after
+dispatch; it exits once the file has gone 10 minutes without a write. The output path is a symlink to the live
+transcript, re-pointed when the agent resumes, so `-L` is required: without it `find` reads the link's own age and
+fires on a busy agent (`find -L -mmin` works with GNU and BSD find):
+
+```bash
+out=<agent output file>; while [ -n "$(find -L "$out" -mmin -10)" ]; do sleep 10; done; echo "agent quiet 10 min: $out"
+```
+
+On wake, read the tail of the output file and the processes the agent started. A finished agent needs nothing; a stalled
+one gets a `SendMessage` (resume with a deadline, re-scope, or stop and clean up its processes); a long foreground step
+that is still producing work gets the watchdog re-armed. Background-subagent notices were observed to wait in a queue
+until the main session was next active, so the watchdog belongs to the main session, never to the subagent.
+
+**Brief clause.** Paste into every `Agent` prompt for work that can run past a few minutes, with the deadline filled in:
+
+```text
+Time box: finish by <time>, then report what is done and what is not. Never end your turn to wait on your own
+background job: poll in short checks (each wait 10 s or less) or run the step in the foreground under a timeout of
+at most 9 minutes. If a step fails, record it and move on rather than debugging past the time box.
+```

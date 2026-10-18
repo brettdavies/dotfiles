@@ -446,6 +446,11 @@
           },
           {
             "type": "command",
+            "command": "~/.claude/sleep-guard.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "~/.claude/skills/1password/hooks/op-skill-nudge.sh",
             "timeout": 5
           }
