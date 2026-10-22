@@ -172,6 +172,20 @@ _line_of() {
   [[ "$output" == *"ok 1 charlie probe"* ]]
 }
 
+@test "tests get a SIGINT they can trap even when run-tests starts in the background" {
+  # The hooks start run-tests as a background job, which hands it SIGINT
+  # ignored. A test that interrupts the code under test needs SIGINT trappable,
+  # and a bash that starts with it ignored can neither trap nor reset it.
+  _sandbox
+  local trappable
+  trappable="run bash -c 'trap \"exit 7\" INT; kill -INT \$\$; exit 0'; [ \"\$status\" -eq 7 ]"
+  _probe "$SANDBOX/tests/a.bats" "sigint probe" "$trappable"
+  _probe "$SANDBOX/tests/b.bats" "bravo probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 bash -c '"$1" --no-perf & wait "$!"' _ "$SANDBOX/scripts/run-tests"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok 1 sigint probe"* ]]
+}
+
 @test "RUN_TESTS_JOBS=1 restores the single combined stream" {
   _sandbox
   _probe "$SANDBOX/tests/a.bats" "alpha probe" "[ 1 -eq 1 ]"
