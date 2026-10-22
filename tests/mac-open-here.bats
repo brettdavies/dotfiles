@@ -256,7 +256,7 @@ wait_for_calls() {
   mkdir -p "$(cache_dir)"
   old="$(cache_dir)/1000000000-annotated.pdf"
   echo kept >"$old"
-  touch -d '2 days ago' "$old"
+  touch -t 200001010000 "$old"
   printf 'x' >"$BATS_TEST_TMPDIR/one"
   HOME="$RECV_HOME" PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" receive one 1 <"$BATS_TEST_TMPDIR/one"
   [ "$status" -eq 0 ]
