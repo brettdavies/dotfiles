@@ -291,6 +291,36 @@ launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.cswap-auto.pl
 Read switch decisions from `~/Library/Logs/cswap-auto.log`. A tick that finds nothing to do exits 2, which launchd
 records without treating it as a crash.
 
+### Scheduled brew and uv upgrades (launchd)
+
+The `launchagent` package ships two daily agents: `com.user.brew-upgrade` runs the `bu` shell function at 04:00, and
+`com.user.uv-tools-upgrade` runs `uv tool upgrade --all` at 04:30, half an hour after `bu`, which upgrades uv itself.
+Their scripts in `scripts/upgrade/` load `config/shell/*.sh` because launchd reads no startup file, so the brew run
+keeps the shell's analytics opt-out and cache location, and the uv run refuses to start unless the release cooldown from
+`config/shell/supply-chain.sh` is set. Load both once:
+
+```bash
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" launchagent
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.brew-upgrade.plist
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.uv-tools-upgrade.plist
+```
+
+Each run appends JSON Lines to `~/Library/Logs/brew-upgrade.jsonl` or `~/Library/Logs/uv-tools-upgrade.jsonl`: a
+`run.start` event, one `output` event per line the tool printed, and a `run.end` event with the outcome, a stable
+`reason`, what changed, and a `next_step`. `scripts/upgrade/lib/run-log.sh` documents the schema. Anything the script
+itself writes to stderr lands in the matching `.error.log`, which stays empty on a healthy run.
+
+```bash
+jaq -c 'select(.event == "run.end")' ~/Library/Logs/brew-upgrade.jsonl | tail -n 5
+jaq -c 'select(.event == "run.end" and .outcome == "failure")' ~/Library/Logs/*-upgrade.jsonl
+launchctl kickstart "gui/$(id -u)/com.user.brew-upgrade"
+```
+
+A run missed during sleep happens on the next wake, and launchd has no way to order one agent after another, so after a
+night asleep both start together and the uv run may use the uv that `bu` is replacing. `bu` upgrades casks with
+`--greedy`, so an update to a cask whose upgrade quits its app (Ghostty, Rectangle, Telegram, AppCleaner) closes that
+app when the run lands.
+
 ## Linux Server Setup
 
 ### Rust toolchains
@@ -422,6 +452,32 @@ Read switch decisions with `journalctl --user -u cswap-auto`. Lingering must be 
 
 A tick exits 2 when there is nothing to do and 3 when every account is spent and the credential is held. The unit counts
 both as success, so the failed-unit list stays meaningful.
+
+### Scheduled brew and uv upgrades (systemd)
+
+The `local` package ships `brew-upgrade` and `uv-tools-upgrade`, oneshot units on daily timers at 04:00 and 04:30 that
+run the same `scripts/upgrade/` scripts as the macOS agents. The uv unit is ordered after the brew unit, so catch-up
+runs after downtime still upgrade uv first, and each unit has a start timeout (2 hours for brew, 1 hour for uv) so a
+wedged fetch fails the run instead of holding the unit. Like the server's other scheduled jobs they carry a host
+condition, so a deploy leaves them inert on every other Linux host, and `scripts/host-jobs-enable.sh` enables them with
+the rest:
+
+```bash
+bash ~/dotfiles/scripts/host-jobs-enable.sh
+```
+
+Both write the same JSON Lines run log as the macOS agents, to the journal under the identifiers `brew-upgrade` and
+`uv-tools-upgrade`. Query by identifier (`-t`) rather than by unit (`-u`): the unit also matches systemd's own
+plain-text "Starting" and "Finished" lines, which stop `jaq` at the first one. Each line carries a syslog priority, so
+journald files error lines at priority 3 and warnings at 4, and the `run_id` of a systemd run is its invocation ID:
+
+```bash
+journalctl --user -t brew-upgrade -o cat | jaq -Rc 'fromjson? | select(.event == "run.end")' | tail -n 5
+journalctl --user -t brew-upgrade -t uv-tools-upgrade -p warning -o cat
+systemctl --user start brew-upgrade.service
+```
+
+Lingering must be on for the timers to fire while logged out (`loginctl enable-linger $USER`).
 
 ## Restart Shell
 

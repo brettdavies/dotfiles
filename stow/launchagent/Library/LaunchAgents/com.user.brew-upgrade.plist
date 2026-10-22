@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Daily Homebrew update and upgrade (macOS): runs the `bu` shell function
+    through scripts/upgrade/brew.sh. Counterpart to brew-upgrade.timer on the
+    Linux server.
+
+    `bu` upgrades casks with `greedy`, and a cask whose uninstall stanza quits
+    its app (Ghostty, Rectangle, Telegram, AppCleaner) closes that app when an
+    update lands. launchd runs a calendar job missed during sleep on the next
+    wake, so on a laptop that is usually when the lid opens.
+
+    RunAtLoad is off so that bootstrapping the agent does not start an upgrade.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.brew-upgrade</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec "$HOME/dotfiles/scripts/upgrade/brew.sh" &gt;&gt; "$HOME/Library/Logs/brew-upgrade.jsonl" 2&gt;&gt; "$HOME/Library/Logs/brew-upgrade.error.log"</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>4</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
