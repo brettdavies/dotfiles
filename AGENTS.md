@@ -326,6 +326,12 @@ in the script, never in a hook or a workflow, so the three cannot drift. `tests/
 A missing tool skips its step with an install hint instead of failing, so a machine without the full toolchain can still
 commit and push; CI stays the backstop. `.githooks/lib/report.sh` holds the shared pass/skip/fail output helpers.
 
+A suite whose code under test cannot run on the other OS skips itself there, so `pre-push` on the Mac and CI on Linux
+each pass on what they can run: its `setup_file` loads `tests/lib/platform.bash` and calls `require_os Linux "<why>"`
+(or `Darwin`). `mac-open.bats` and `tailscale-serve-deploy.bats` are gated to Linux this way. A suite that stubs `uname`
+to simulate a platform runs everywhere instead, because CI runs only on Linux and gating it to macOS would leave the
+Mac-side code it covers with no CI run.
+
 ---
 
 ## Branch Workflow
