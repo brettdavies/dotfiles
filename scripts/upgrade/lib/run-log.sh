@@ -14,8 +14,9 @@
 #   output     level (error | warning | info), line: one line of the command's combined stdout and stderr
 #   run.end    outcome (success | failure), exit_code, reason (ok | cooldown-unset | upgrade-failed | script-error),
 #              message, duration_s, errors, warnings, first_error, changes [{name, from, to}] with null for an added
-#              or removed package (changes itself is null when the run ended before comparing versions), next_step
-#              {action (none | inspect-config | rerun), command, docs}
+#              or removed package (changes itself is null when the run ended before comparing versions or a version
+#              listing failed, which also logs a warning), next_step {action (none | inspect-config | rerun), command,
+#              docs}
 #
 # outcome follows the exit status alone, so a successful run can still report errors > 0 when the tool printed error
 # lines and exited 0. A run that dies after run.start, from a failed command or a kill such as the systemd start
@@ -128,6 +129,29 @@ run_log_changes() {
       for (name in before) out = out (out == "" ? "" : ",") "{\"name\":\"" name "\",\"from\":\"" before[name] "\",\"to\":null}"
       print "[" out "]"
     }'
+}
+
+_run_log_warn() { # <line>
+  RUN_WARNINGS=$((RUN_WARNINGS + 1))
+  _run_log_emit 4 output "\"level\":\"warning\",\"line\":$(_run_log_str "$1")"
+}
+
+# Usage: run_log_upgrade <list-command> <command> [args...]
+# Runs the command under run_log_capture between two runs of <list-command>, which prints "name version" lines, and
+# finishes the run with the packages whose version changed. A listing that fails would make every package look added
+# or removed, so changes is null instead.
+run_log_upgrade() {
+  local list=$1 before after failed='' changes=null
+  shift
+  before=$("$list") || failed="before the upgrade"
+  run_log_capture "$@"
+  after=$("$list") || failed="${failed:+$failed and }after the upgrade"
+  if [ -z "$failed" ]; then
+    changes=$(run_log_changes "$before" "$after")
+  else
+    _run_log_warn "Warning: listing installed versions failed $failed; changes are not reported"
+  fi
+  run_log_complete "$changes"
 }
 
 _run_log_exit() { # <exit-status>

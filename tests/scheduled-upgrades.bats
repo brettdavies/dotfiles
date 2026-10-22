@@ -37,7 +37,12 @@ printf '%s|%s\n' "$*" "${HOMEBREW_NO_ANALYTICS-}" >>"$BREW_LOG"
 case "$*" in
   --version) echo "Homebrew 5.0.0" ;;
   "list --versions")
-    if grep -q '^upgrade' "$BREW_LOG"; then echo "uv 0.11.20"; else echo "uv 0.11.19"; fi
+    if grep -q '^upgrade' "$BREW_LOG"; then
+      echo "uv 0.11.20"
+    else
+      [ -n "${STUB_BREW_LIST_FAIL-}" ] && { echo "Error: list failed" >&2; exit 1; }
+      echo "uv 0.11.19"
+    fi
     echo "ghostty 1.2.0"
     ;;
   *)
@@ -120,6 +125,15 @@ _assert_run_log() {
   [ "$(printf '%s' "$END" | jaq -c '[.outcome, .exit_code, .reason, .errors, .first_error, .next_step.action]')" = \
     '["failure",1,"upgrade-failed",1,"Error: update failed","rerun"]' ]
   [[ "$(printf '%s' "$END" | jaq -r .next_step.command)" == *scripts/upgrade/brew.sh ]]
+}
+
+@test "a failed version listing reports changes as unknown rather than every package as new" {
+  run env -u DOTFILES_SHELL_DIR STUB_BREW_LIST_FAIL=1 PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  [ "$status" -eq 0 ]
+  _assert_run_log brew-upgrade
+  printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning"
+    and (.line | startswith("Warning: listing installed versions failed before the upgrade")))' | grep -q .
+  [ "$(printf '%s' "$END" | jaq -c '[.outcome, .reason, .warnings, .changes]')" = '["success","ok",2,null]' ]
 }
 
 @test "uv job reports a failed upgrade with an absolute rerun of its own script" {

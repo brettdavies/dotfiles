@@ -12,11 +12,10 @@ set -euo pipefail
 # shellcheck source=/dev/null
 . "$DOTFILES_SHELL_DIR/shell-functions"
 
+# shellcheck disable=SC2329 # run_log_upgrade calls it by name
 _brew_versions() {
-  { brew list --versions 2>/dev/null || true; } | awk '{ print $1, $NF }'
+  brew list --versions 2>/dev/null | awk '{ print $1, $NF }'
 }
 
 run_log_start brew-upgrade "bu --no-greedy" "$(brew --version 2>&1 | head -n 1)" HOMEBREW_NO_ANALYTICS HOMEBREW_CACHE
-before=$(_brew_versions)
-run_log_capture bu --no-greedy
-run_log_complete "$(run_log_changes "$before" "$(_brew_versions)")"
+run_log_upgrade _brew_versions bu --no-greedy

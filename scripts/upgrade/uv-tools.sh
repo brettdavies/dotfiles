@@ -9,8 +9,9 @@ lib_dir="$(dirname "${BASH_SOURCE[0]}")/lib"
 . "$lib_dir/run-log.sh"
 set -euo pipefail
 
+# shellcheck disable=SC2329 # run_log_upgrade calls it by name
 _uv_tools() {
-  { uv tool list 2>/dev/null || true; } | awk 'NF == 2 && $1 != "-" { sub(/^v/, "", $2); print $1, $2 }'
+  uv tool list 2>/dev/null | awk 'NF == 2 && $1 != "-" { sub(/^v/, "", $2); print $1, $2 }'
 }
 
 run_log_start uv-tools-upgrade "uv tool upgrade --all" "$(uv --version 2>&1)" \
@@ -24,6 +25,4 @@ if [ -z "${UV_EXCLUDE_NEWER:-}" ]; then
     '[]' inspect-config "grep -n UV_EXCLUDE_NEWER $(printf %q "$DOTFILES_SHELL_DIR/supply-chain.sh")"
 fi
 
-before=$(_uv_tools)
-run_log_capture uv tool upgrade --all
-run_log_complete "$(run_log_changes "$before" "$(_uv_tools)")"
+run_log_upgrade _uv_tools uv tool upgrade --all
