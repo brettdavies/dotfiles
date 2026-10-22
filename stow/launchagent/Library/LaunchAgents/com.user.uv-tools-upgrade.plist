@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Daily upgrade of every uv-installed tool (macOS) through
+    scripts/upgrade/uv-tools.sh, half an hour after com.user.brew-upgrade.
+    Counterpart to uv-tools-upgrade.timer on the Linux server. The script
+    loads the release cooldown from config/shell and refuses to run without
+    it. launchd cannot order one agent after another, so when sleep spans
+    both times the two start together on wake.
+
+    RunAtLoad is off so that bootstrapping the agent does not start an upgrade.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.uv-tools-upgrade</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec "$HOME/dotfiles/scripts/upgrade/uv-tools.sh" &gt;&gt; "$HOME/Library/Logs/uv-tools-upgrade.jsonl" 2&gt;&gt; "$HOME/Library/Logs/uv-tools-upgrade.error.log"</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>4</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

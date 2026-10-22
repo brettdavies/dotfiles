@@ -1,0 +1,10 @@
+[Unit]
+Description=Update and upgrade Homebrew daily at 04:00
+ConditionHost=bigdaddy
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

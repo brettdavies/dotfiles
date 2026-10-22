@@ -125,6 +125,19 @@ _require_shellcheck() {
   [[ "$output" == *"0 file(s) clean"* ]]
 }
 
+@test "a library under scripts/*/lib/ is linted on its own without a shebang" {
+  _require_shellcheck
+  # Following a source with -x reads the library for its definitions but reports
+  # nothing inside it, so the library has to be a target in its own right.
+  local root="$BATS_TEST_TMPDIR/repo"
+  mkdir -p "$root/scripts/tool/lib"
+  cp "$SCRIPT" "$root/scripts/lint-shell"
+  printf '%s\n' '# shellcheck shell=bash' 'helper() { echo $1; }' >"$root/scripts/tool/lib/helper.sh"
+  run "$root/scripts/lint-shell" scripts/tool/lib/helper.sh
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"SC2086"* ]]
+}
+
 @test "tools-atime is linted together with the libraries it sources" {
   _require_shellcheck
   # Without -x the lib/ sources are SC1091 notes and their contents go unread.

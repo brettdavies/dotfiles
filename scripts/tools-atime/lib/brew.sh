@@ -14,9 +14,9 @@ _brew_load_graph() {
   _BREW_USERS=()
   _BREW_SIZE_CACHE=()
   _BREW_CELLAR=$(brew --cellar)
-  local json name full_name deps n d
+  local json name deps n d
   json=$(brew info --json=v2 --installed 2>/dev/null) || return 1
-  while IFS=$'\t' read -r name full_name deps; do
+  while IFS=$'\t' read -r name _ deps; do
     _BREW_DEPS[$name]="$deps"
   done < <(printf '%s' "$json" | jaq -r \
     '.formulae[] | "\(.name)\t\(.full_name)\t\(.dependencies // [] | join(" "))"')
