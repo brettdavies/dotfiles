@@ -321,5 +321,40 @@ class MarkerPromotionTest(unittest.TestCase):
             )
 
 
+WIKILINK_CORPUS = {
+    "plain": "The hearing record is summarized at length in the companion note, see [[2026-04-06 Reporter's Transcript — "
+    "Hearing Ruling]] for the verbatim ruling and the page cites that support each finding.\n",
+    "alias": "The memo frames the sequence and the fallback in detail; read [[motion-and-writ-strategy-memo|Motion and Writ "
+    "Strategy Memo]] before drafting anything that depends on the vehicle choice made there.\n",
+    "embed": "The table below is pulled in verbatim from the tracker so that it stays current: ![[Conversion Tracker#Status "
+    "by Folder]] and it updates whenever the tracker changes underneath this page.\n",
+    "list": "- The controlling authority sits in its own case note, [[Sarmiento v. Superior Court (2024)|Sarmiento]], with "
+    "the holding quoted verbatim and the pinpoints checked against the official reporter.\n",
+    "quote": "> The quoted passage continues across several clauses and then cites [[People v. Long Case Name Example "
+    "(2024)]] for the proposition that the record must show the factor was considered.\n",
+    "overlong": "Short lead [[A Very Long Note Title That Is Itself Longer Than The Narrowest Width We Test At All]] tail.\n",
+}
+
+
+class WikilinkTest(unittest.TestCase):
+    """Obsidian wikilinks never break across lines: a link split by a newline stops resolving."""
+
+    WIDTHS = range(40, 121)
+    LINK_RE = re.compile(r"!?\[\[[^\[\]]*\]\]")
+
+    def test_every_link_stays_on_one_line_at_every_width(self):
+        for name, src in WIKILINK_CORPUS.items():
+            expected = self.LINK_RE.findall(src)
+            for width in self.WIDTHS:
+                out = mod.wrap_markdown(src, width)
+                found = [m for line in out.split("\n") for m in self.LINK_RE.findall(line)]
+                self.assertEqual(expected, found, msg=f"{name} at width {width} split a wikilink:\n{out}")
+
+    def test_wrapping_links_is_idempotent(self):
+        for name, src in WIKILINK_CORPUS.items():
+            for width in (40, 80, 120):
+                first = mod.wrap_markdown(src, width)
+                self.assertEqual(first, mod.wrap_markdown(first, width), msg=f"{name} width {width} not idempotent")
+
 if __name__ == "__main__":
     unittest.main()
