@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-shot enable script for the Linux server's scheduled jobs: the vault agent-workspace mirror and its health check,
-# the OpenClaw settings backup, and the GitHub stars sync.
+# the OpenClaw settings backup, the GitHub stars sync, and the daily brew and uv tool upgrades.
 #
 # The timers ship in the shared `obsidian` and `local` packages and carry ConditionHost=bigdaddy, so a deploy on any
 # other host leaves them inert. This script enables them on that host and retires the crontab lines they replace.
@@ -32,6 +32,8 @@ TIMERS=(
   openclaw-settings-backup.timer
   github-stars.timer
   github-stars-clone.timer
+  brew-upgrade.timer
+  uv-tools-upgrade.timer
 )
 RETIRED_CRON='(sync-to-pool|pool-sync-check|github-stars|backup-openclaw-settings)[.]sh'
 OP_SKILL="${OP_SKILL:-$HOME/.claude/skills/1password/scripts}"

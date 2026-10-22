@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 # The Linux server's scheduled jobs: the vault agent-workspace sync and its health check, the OpenClaw settings backup,
-# and the GitHub stars sync. They run as systemd user timers shipped in shared stow packages, so every unit carries
-# ConditionHost=bigdaddy: stow-deploy restarts every timer a package ships on each Linux deploy, and `restart` starts a
-# timer whether or not it was enabled. scripts/host-jobs-enable.sh enables them on that host and retires the crontab
-# lines they replace.
+# the GitHub stars sync, and the daily brew and uv tool upgrades. They run as systemd user timers shipped in shared
+# stow packages, so every unit carries ConditionHost=bigdaddy: stow-deploy restarts every timer a package ships on
+# each Linux deploy, and `restart` starts a timer whether or not it was enabled. scripts/host-jobs-enable.sh enables
+# them on that host and retires the crontab lines they replace.
 #
 # Run: bats tests/host-scheduled-jobs.bats
 
@@ -19,6 +19,8 @@ HOST_JOBS=(
   "$LOCAL_UNITS/openclaw-settings-backup"
   "$LOCAL_UNITS/github-stars"
   "$LOCAL_UNITS/github-stars-clone"
+  "$LOCAL_UNITS/brew-upgrade"
+  "$LOCAL_UNITS/uv-tools-upgrade"
 )
 
 setup() {
@@ -198,12 +200,17 @@ EOF
   cmp -s "$CRON_FILE" "$BATS_TEST_TMPDIR/before"
 }
 
+# GNU stat takes -c; the BSD stat on macOS takes -f.
+_mode() {
+  stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"
+}
+
 @test "enable script writes the stars token file from 1Password when it is missing" {
   _enable
   [ "$status" -eq 0 ]
   [ "$(cat "$STARS_ENV")" = "GH_TOKEN=stub-token" ]
-  [ "$(stat -c %a "$STARS_ENV")" = "600" ]
-  [ "$(stat -c %a "${STARS_ENV%/*}")" = "700" ]
+  [ "$(_mode "$STARS_ENV")" = "600" ]
+  [ "$(_mode "${STARS_ENV%/*}")" = "700" ]
   grep -qx '6zqmvltmdtcsoxew2vgvnfrb2y credential' "$OP_LOG"
   [[ "$output" != *"stub-token"* ]]
 }
