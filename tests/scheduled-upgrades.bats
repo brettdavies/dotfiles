@@ -85,10 +85,21 @@ _assert_run_log() {
     '["success",0,"ok",[{"name":"claude-swap","from":"0.26.0","to":"0.27.2"}],"none"]' ]
 }
 
-@test "brew job runs bu with the shell's Homebrew settings and logs what changed" {
-  run env BREW_LOG="$BATS_TEST_TMPDIR/bu.log" PATH="$STUBS:$PATH" \
-    bash -c '. "$1"; bu' _ "$REPO_ROOT/config/shell/shell-functions"
+@test "bu upgrades greedily, and --no-greedy leaves self-updating casks alone" {
+  run env PATH="$STUBS:$PATH" bash -c '. "$1"; bu' _ "$REPO_ROOT/config/shell/shell-functions"
   [ "$status" -eq 0 ]
+  [ "$(cut -d'|' -f1 "$BREW_LOG")" = "$(printf 'update\nupgrade --greedy -y\ncleanup')" ]
+  : >"$BREW_LOG"
+  run env PATH="$STUBS:$PATH" bash -c '. "$1"; bu --no-greedy' _ "$REPO_ROOT/config/shell/shell-functions"
+  [ "$status" -eq 0 ]
+  [ "$(cut -d'|' -f1 "$BREW_LOG")" = "$(printf 'update\nupgrade -y\ncleanup')" ]
+}
+
+@test "brew job runs bu --no-greedy with the shell's Homebrew settings and logs what changed" {
+  run env BREW_LOG="$BATS_TEST_TMPDIR/bu.log" PATH="$STUBS:$PATH" \
+    bash -c '. "$1"; bu --no-greedy' _ "$REPO_ROOT/config/shell/shell-functions"
+  [ "$status" -eq 0 ]
+  grep -q '^upgrade -y|' "$BATS_TEST_TMPDIR/bu.log"
   run env -u HOMEBREW_NO_ANALYTICS -u DOTFILES_SHELL_DIR PATH="$STUBS:$PATH" bash "$BREW_JOB"
   [ "$status" -eq 0 ]
   _assert_run_log brew-upgrade

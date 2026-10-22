@@ -293,7 +293,7 @@ records without treating it as a crash.
 
 ### Scheduled brew and uv upgrades (launchd)
 
-The `launchagent` package ships two daily agents: `com.user.brew-upgrade` runs the `bu` shell function at 04:00, and
+The `launchagent` package ships two daily agents: `com.user.brew-upgrade` runs `bu --no-greedy` at 04:00, and
 `com.user.uv-tools-upgrade` runs `uv tool upgrade --all` at 04:30, half an hour after `bu`, which upgrades uv itself.
 Their scripts in `scripts/upgrade/` load `config/shell/*.sh` because launchd reads no startup file, so the brew run
 keeps the shell's analytics opt-out and cache location, and the uv run refuses to start unless the release cooldown from
@@ -317,9 +317,9 @@ launchctl kickstart "gui/$(id -u)/com.user.brew-upgrade"
 ```
 
 A run missed during sleep happens on the next wake, and launchd has no way to order one agent after another, so after a
-night asleep both start together and the uv run may use the uv that `bu` is replacing. `bu` upgrades casks with
-`--greedy`, so an update to a cask whose upgrade quits its app (Ghostty, Rectangle, Telegram, AppCleaner) closes that
-app when the run lands.
+night asleep both start together and the uv run may use the uv that `bu` is replacing. The scheduled run skips
+`--greedy`, so it leaves alone the self-updating casks whose upgrade quits their app (Ghostty, Rectangle, Telegram,
+AppCleaner), which would otherwise close when the run lands at wake. A manual `bu` still upgrades them.
 
 ## Linux Server Setup
 
