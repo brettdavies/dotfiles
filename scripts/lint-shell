@@ -71,14 +71,15 @@ _flags_for() {
     # single quotes are deliberate.
     scripts/sync-dev-after-release.sh) echo "--exclude=SC2016" ;;
     stow/shell/dot-profile) echo "--shell=bash --exclude=SC1090,SC1091" ;;
-    config/shell/*.sh | .githooks/lib/*.sh) echo "--shell=bash" ;;
+    config/shell/*.sh | .githooks/lib/*.sh | scripts/*/lib/*.sh) echo "--shell=bash" ;;
     config/shell/shell-functions) echo "--shell=bash --exclude=SC1003" ;;
     # -x follows the `# shellcheck source=` directive to lib/report.sh, so the
     # helpers it defines are known rather than reported as unresolved sources.
     .githooks/pre-commit | .githooks/pre-push) echo "-x" ;;
-    # Follows the `# shellcheck source=lib/...` directives, so the sourced
-    # libraries are linted with the script that loads them.
-    scripts/tools-atime/tools-atime.sh) echo "-x --source-path=SCRIPTDIR" ;;
+    # -x follows the `# shellcheck source=lib/...` directives, so the helpers the
+    # libraries define are known. It reports nothing inside a sourced file, which
+    # is why each scripts/*/lib/*.sh is also a target of its own.
+    scripts/tools-atime/tools-atime.sh | scripts/upgrade/*.sh) echo "-x --source-path=SCRIPTDIR" ;;
     *) echo "" ;;
   esac
 }
@@ -89,6 +90,7 @@ _is_target() {
     .githooks/pre-commit | .githooks/post-checkout | .githooks/post-merge | .githooks/pre-push) return 0 ;;
     .githooks/lib/*.sh) return 0 ;;
     config/shell/*.sh | config/shell/shell-functions) return 0 ;;
+    scripts/*/lib/*.sh) return 0 ;;
     scripts/*) _has_shell_shebang "$1" && return 0 || return 1 ;;
     stow/shell/dot-profile) return 0 ;;
     tests/*.bats) return 0 ;;
