@@ -48,6 +48,12 @@ _sourced_var() {
   bash -c "source '$SUPPLY_CHAIN_SH' >/dev/null 2>&1; printf '%s' \"\$${1}\""
 }
 
+# Run a command with supply-chain.sh's settings exported, so a gate probe checks
+# the shipped config on any host, deployed or not.
+_with_gate() {
+  bash -c 'source "$1" >/dev/null 2>&1; shift; exec "$@"' _ "$SUPPLY_CHAIN_SH" "$@"
+}
+
 # Echo upstream latest version + upload time for a pypi package as "ver|time".
 # Empty on lookup failure. Always exits 0 so callers using $(...) don't trip
 # `set -e` (bats sets `inherit_errexit`).
@@ -126,7 +132,7 @@ _require_version() {
       echo "uv venv setup failed"
       return 1
     }
-  resolved=$(uv pip install --python "$tmpdir/.venv/bin/python" --dry-run "$candidate" 2>&1 \
+  resolved=$(_with_gate uv pip install --python "$tmpdir/.venv/bin/python" --dry-run "$candidate" 2>&1 \
     | awk -v p="$candidate" '$0 ~ "^ \\+ "p"==" {sub("^ \\+ "p"==", ""); sub("[[:space:]].*$", ""); print; exit}')
 
   [ -n "$resolved" ] || {
@@ -198,7 +204,7 @@ _require_version() {
   (
     cd "$tmpdir" || exit 1
     printf '{"name":"gate-test","version":"0.0.0","private":true}\n' >package.json
-    npm install --dry-run --no-audit --no-fund "$candidate" 2>&1
+    _with_gate npm install --dry-run --no-audit --no-fund "$candidate" 2>&1
   ) | awk -v p="$candidate" '$1 == "add" && $2 == p {print $3; exit}' >"$tmpdir/resolved.txt"
   resolved=$(cat "$tmpdir/resolved.txt" 2>/dev/null || true)
 

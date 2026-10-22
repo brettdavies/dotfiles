@@ -6,6 +6,11 @@ import re
 # Also matches [text](url "title") variants
 MD_LINK_RE = re.compile(r"!?\[[^\]]*\]\([^)]*\)")
 
+# Obsidian wikilinks and embeds: [[target]], [[target|alias]], ![[target#heading]].
+# Obsidian stops resolving a link that contains a newline, so a wikilink is never
+# broken, even when it is longer than the line it sits on.
+WIKILINK_RE = re.compile(r"!?\[\[[^\[\]\n]+\]\]")
+
 BACKTICK_RUN_RE = re.compile(r"`+")
 WHITESPACE_RUN_RE = re.compile(r"\s+")
 
@@ -91,8 +96,9 @@ def normalize_and_protect_code(text: str, budget: int) -> str:
 
 
 def protect_links(text: str) -> str:
-    """Replace spaces inside markdown links with placeholders."""
-    return MD_LINK_RE.sub(lambda m: m.group(0).replace(" ", SPACE_PH), text)
+    """Replace spaces inside wikilinks and markdown links with placeholders."""
+    freeze = lambda m: m.group(0).replace(" ", SPACE_PH)  # noqa: E731
+    return MD_LINK_RE.sub(freeze, WIKILINK_RE.sub(freeze, text))
 
 
 def restore_placeholders(text: str) -> str:
