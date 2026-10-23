@@ -73,6 +73,8 @@ run_log_start() {
   done
   trap '_run_log_exit $?' EXIT
   # A kill runs the EXIT trap with $? still 0, so the signal traps pass the status the shell would have exited with.
+  # bash runs them only once the command it is waiting on ends: systemd signals every process in the unit, and
+  # launchd-run.sh passes launchd's SIGTERM on to the job's whole process group, so that command ends too.
   trap '_run_log_exit 143' TERM
   trap '_run_log_exit 130' INT
   _run_log_emit 6 run.start "\"os\":\"$RUN_OS\",\"trigger\":\"$trigger\",\"pid\":$$,\"command\":$(_run_log_str "$2"),\"tool_version\":$(_run_log_str "$3"),\"settings\":{$settings}"

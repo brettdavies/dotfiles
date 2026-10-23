@@ -53,6 +53,7 @@ case "$*" in
     ;;
   *)
     [ "${STUB_BREW_FAIL-}" = "$1" ] && { echo "Error: $1 failed" >&2; exit 1; }
+    [ -n "${STUB_BREW_SLOW-}" ] && [ "$1" = update ] && sleep 30
     echo "==> $1"
     if [ "$1" = update ]; then printf 'Warning: "x\\y"\tz\n' >&2; fi
     ;;
@@ -60,23 +61,33 @@ esac
 EOF
   # Never reaches the live user manager. Type is oneshot for box-bisync, empty for gone.service and simple otherwise;
   # the unit named in STUB_TRANSIENT is transient, STUB_UNREACHABLE's lookup fails as if the bus were down, and
-  # STUB_LOOPING's NRestarts climbs after its restart. A restart of STUB_RESTART_FAIL fails, one of STUB_RESTART_KILLS
-  # kills the scanning shell, and STUB_INACTIVE is not active after its restart.
+  # STUB_LOOPING gets a new InvocationID at every look, as systemd's own restarts give it. A restart of
+  # STUB_RESTART_FAIL fails, STUB_INACTIVE is not active after its restart, and STUB_RESTART_KILLS or STUB_SHOW_KILLS
+  # kills the scanning shell (SCAN_PID) at that step.
   cat >"$STUBS/systemctl" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
 unit=${*##* }
 case "$*" in
-  "--user show -p Type -p Transient -p NRestarts "*)
+  "--user show -p Type -p Transient "*)
+    [ "$unit" = "${STUB_SHOW_KILLS-}" ] && kill -TERM "${SCAN_PID:-$PPID}"
     [ "$unit" = "${STUB_UNREACHABLE-}" ] && { echo "Failed to connect to bus" >&2; exit 1; }
     case $unit in box-bisync.service) type=oneshot ;; gone.service) type= ;; *) type=simple ;; esac
     transient=no
     [ "$unit" = "${STUB_TRANSIENT-}" ] && transient=yes
-    printf 'Type=%s\nTransient=%s\nNRestarts=0\n' "$type" "$transient"
+    printf 'Type=%s\nTransient=%s\n' "$type" "$transient"
     ;;
-  "--user show -p NRestarts --value "*) if [ "$unit" = "${STUB_LOOPING-}" ]; then echo 2; else echo 0; fi ;;
+  "--user show -p InvocationID --value "*)
+    if [ "$unit" = "${STUB_LOOPING-}" ]; then
+      n=$(($(cat "$SYSTEMCTL_LOG.inv" 2>/dev/null || echo 0) + 1))
+      echo "$n" >"$SYSTEMCTL_LOG.inv"
+      echo "inv-$n"
+    else
+      echo inv-1
+    fi
+    ;;
   "--user try-restart ${STUB_RESTART_FAIL-}") exit 1 ;;
-  "--user try-restart ${STUB_RESTART_KILLS-}") kill -TERM "$PPID" ;;
+  "--user try-restart ${STUB_RESTART_KILLS-}") kill -TERM "${SCAN_PID:-$PPID}" ;;
   "--user is-active --quiet ${STUB_INACTIVE-}") exit 3 ;;
 esac
 EOF
@@ -279,6 +290,7 @@ _fake_proc() {
   _fake_proc 115 "$P/Cellar/batch/1/bin/batch (deleted)" "$US/batch.service"
   _fake_proc 116 "$P/Cellar/loopy/1/bin/loopy (deleted)" "$US/loopy.service"
   _fake_proc 117 "$P/Cellar/lost/1/bin/lost (deleted)" "$US/lost.service"
+  _fake_proc 118 "$P/Cellar/lost/1/bin/lost-helper (deleted)" "$US/lost.service"
   run env STUB_RESTART_FAIL=qmd-serve.service STUB_INACTIVE=flaky.service STUB_TRANSIENT=batch.service \
     STUB_LOOPING=loopy.service STUB_UNREACHABLE=lost.service PATH="$STUBS:$PATH" bash -c '
     . "$1/run-log.sh"; . "$1/stale-procs.sh"
@@ -288,13 +300,17 @@ _fake_proc() {
   [ "$status" -eq 0 ]
   [ "$(grep try-restart "$SYSTEMCTL_LOG" | sort)" = \
     "$(printf '%s\n' caddy flaky loopy qmd-serve | sed 's/.*/--user try-restart &.service/')" ]
+  [ "$(grep -c -- '--user show -p Type -p Transient lost.service' "$SYSTEMCTL_LOG")" -eq 1 ]
   [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c 'map([.unit, .action, .pids])')" = \
-    '[["batch.service","left-running",[115]],["box-bisync.service","left-running",[105]],["brew-upgrade.service","left-running",[108]],["caddy.service","restarted",[101]],["caddy.service","restarted",[110]],["flaky.service","restart-failed",[114]],["gone.service","left-running",[113]],["loopy.service","restart-failed",[116]],["lost.service","restart-failed",[117]],["qmd-serve.service","restart-failed",[102]],["session-c1.scope","left-running",[103,104]],["unknown","left-running",[112]],["unknown","left-running",[111]],["web.service","left-running",[109]]]' ]
+    '[["batch.service","left-running",[115]],["box-bisync.service","left-running",[105]],["brew-upgrade.service","left-running",[108]],["caddy.service","restarted",[101]],["caddy.service","restarted",[110]],["flaky.service","restart-failed",[114]],["gone.service","left-running",[113]],["loopy.service","restart-failed",[116]],["lost.service","restart-failed",[117]],["lost.service","restart-failed",[118]],["qmd-serve.service","restart-failed",[102]],["session-c1.scope","left-running",[103,104]],["unknown","left-running",[112]],["unknown","left-running",[111]],["web.service","left-running",[109]]]' ]
   [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -r 'map(select(.unit == "unknown") | .exe) | sort | join(" ")')" = \
     "/opt/brew/Cellar/gone/1/bin/gone /opt/brew/Cellar/root/1/bin/root" ]
   [ "$(printf '%s\n' "$output" | tail -n 2 | head -n 1)" = 4 ]
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning" and .line ==
     "Warning: cannot reach the user manager to restart lost.service; it still runs the removed /opt/brew/Cellar/lost/1/bin/lost")' |
+    grep -q .
+  printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "info" and .line ==
+    "lost.service (pid 118) still runs the removed /opt/brew/Cellar/lost/1/bin/lost-helper; restart it to load the upgrade")' |
     grep -q .
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning" and .line ==
     "Warning: restarting loopy.service onto the upgrade failed; check systemctl --user status loopy.service")' | grep -q .
@@ -314,15 +330,20 @@ _fake_proc() {
   PROC="$BATS_TEST_TMPDIR/proc" US=/user.slice/user-1000.slice/user@1000.service/app.slice
   _fake_proc 201 "/opt/brew/Cellar/a/1/bin/a (deleted)" "$US/a.service"
   _fake_proc 202 "/opt/brew/Cellar/b/1/bin/b (deleted)" "$US/b.service"
-  run env STUB_RESTART_KILLS=b.service PATH="$STUBS:$PATH" bash -c '
-    . "$1/run-log.sh"; . "$1/stale-procs.sh"
+  scan='. "$1/run-log.sh"; . "$1/stale-procs.sh"
+    export SCAN_PID=$$
     run_log_start brew-upgrade bu test
     stale_procs_restart "$2" /opt/brew
     RUN_STATUS=0
-    run_log_complete' _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
+    run_log_complete'
+  run env STUB_RESTART_KILLS=b.service PATH="$STUBS:$PATH" bash -c "$scan" _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
   [ "$status" -eq 143 ]
   [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c '[.exit_code, .reason, (.stale_processes | map([.unit, .action]))]')" = \
     '[143,"script-error",[["a.service","restarted"],["b.service","restart-failed"]]]' ]
+  run env STUB_SHOW_KILLS=b.service PATH="$STUBS:$PATH" bash -c "$scan" _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
+  [ "$status" -eq 143 ]
+  [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c '.stale_processes | map([.unit, .action])')" = \
+    '[["a.service","restarted"],["b.service","left-running"]]' ]
 }
 
 @test "an interrupted run exits 130 and says so in run.end" {
@@ -345,8 +366,9 @@ _fake_proc() {
     stale_procs_restart "$2" /opt/brew'
   run env -u UPGRADE_RESTART_SETTLE_SECS PATH="$waits:$STUBS:$PATH" bash -c "$scan" _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
   [ "$status" -eq 0 ]
-  [ "$(grep -E -e '^--user (try-restart|is-active)' -e '^sleep' "$SYSTEMCTL_LOG")" = \
-    "$(printf '%s\n' '--user try-restart caddy.service' 'sleep 3' '--user is-active --quiet caddy.service')" ]
+  [ "$(grep -E -e '^--user (try-restart|is-active|show -p InvocationID)' -e '^sleep' "$SYSTEMCTL_LOG")" = \
+    "$(printf '%s\n' '--user try-restart caddy.service' '--user show -p InvocationID --value caddy.service' 'sleep 3' \
+      '--user is-active --quiet caddy.service' '--user show -p InvocationID --value caddy.service')" ]
   : >"$SYSTEMCTL_LOG"
   run env UPGRADE_RESTART_SETTLE_SECS=soon PATH="$waits:$STUBS:$PATH" bash -c "$scan" _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
   [ "$status" -eq 0 ]
@@ -430,6 +452,28 @@ _fake_proc() {
   run env PATH="$STUBS:$PATH" "$wrapper" brew.sh
   [ "$(jaq -r 'select(.event == "run.start") | .job' "$logs/brew-upgrade.jsonl" | wc -l)" -eq 2 ]
   [ "$(wc -c <"$logs/brew-upgrade.jsonl.1")" -eq 1048577 ]
+}
+
+@test "the launchd wrapper passes SIGTERM to the job's process group, so the job still ends its log" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  logs="$BATS_TEST_TMPDIR/Logs"
+  mkdir -p "$logs" "$BATS_TEST_TMPDIR/bu-only"
+  ln -s "$REPO_ROOT/config/shell/shell-functions" "$BATS_TEST_TMPDIR/bu-only/"
+  log="$logs/brew-upgrade.jsonl"
+  # launchd signals the job process alone; perl gives it its own process group, as launchd does.
+  run env UPGRADE_LOG_DIR="$logs" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_BREW_SLOW=1 PATH="$STUBS:$PATH" bash -c '
+    perl -e "setpgrp; exec @ARGV" "$1" brew.sh &
+    job=$!
+    for _ in $(seq 100); do grep -q "\"event\":\"output\"" "$2" 2>/dev/null && break; sleep 0.1; done
+    started=$SECONDS
+    kill -TERM "$job"
+    wait "$job"
+    status=$?
+    echo "elapsed=$((SECONDS - started))"
+    exit "$status"' _ "$REPO_ROOT/scripts/upgrade/launchd-run.sh" "$log"
+  [ "$status" -eq 143 ]
+  [ "${output#elapsed=}" -lt 10 ]
+  [ "$(tail -n 1 "$log" | jaq -c '[.event, .exit_code, .reason]')" = '["run.end",143,"script-error"]' ]
 }
 
 _agent_runs_daily_at() {

@@ -4,17 +4,19 @@
 # Each long-running systemd user service among them is restarted onto the upgrade. A simple service reports a
 # successful start as soon as it forks, even when the new binary dies at once, so a restart counts only if the unit is
 # still active UPGRADE_RESTART_SETTLE_SECS (default 3) later and systemd has not restarted it on its own meanwhile
-# (NRestarts unchanged). A binary that fails after that window still reads as restarted.
+# (its InvocationID unchanged; NRestarts would not do, since a manual restart resets it). A binary that fails after
+# that window still reads as restarted.
 #
 # The rest are left running and reported on info lines: restarting a oneshot or a transient unit (systemd-run) would
 # rerun its job, the job's own unit is the one running this code, a unit whose Type systemd does not report is not
 # known to be long-running, and a process in a session scope (tmux, an editor) is the user's to restart. The scan runs
 # as the user, so another user's processes, system services among them, are not seen at all. Linux only.
 #
-# Warnings are kept for what failed: a restart that did not hold, a user manager that could not be reached, and a scan
-# that could not see other processes. RUN_STALE holds the JSON array run.end carries as stale_processes, [{unit, exe,
-# pids, action (restarted | restart-failed | left-running)}]. It is updated after each entry, and an entry is recorded
-# as restart-failed before its restart is tried, so a run killed partway still reports every unit it reached.
+# Warnings are kept for what failed, once per unit: a restart that did not hold, a user manager that could not be
+# reached, and a scan that could not see other processes. RUN_STALE holds the JSON array run.end carries as
+# stale_processes, [{unit, exe, pids, action (restarted | restart-failed | left-running)}]. An entry is published as
+# left-running when the scan reaches it and as restart-failed before its restart is tried, so a run killed partway
+# still reports every unit it reached.
 
 # Prints "<kind><TAB><unit>" for a cgroup v2 file, where kind is user-service for a service of the user manager and
 # other for anything else. The unit is never empty: read with IFS set to a tab would merge the two tabs around an empty
@@ -41,27 +43,28 @@ _stale_procs_prop() { # <name> <systemctl-show-output>
 # publishing them to RUN_STALE. A unit already settled for another executable keeps the action recorded in the caller's
 # settled list, so a service on two removed executables restarts once.
 _stale_procs_settle() { # <own-unit> <settle-secs> <kind> <unit> <exe> <pids>
-  local action=left-running unit=$4 recorded props restarts
+  local action=left-running unit=$4 reused=0 recorded props invocation
   local failure="restarting $unit onto the upgrade failed; check systemctl --user status $unit"
   case $settled in
     *"|$unit="*)
       recorded=${settled#*"|$unit="}
-      action=${recorded%%|*}
+      action=${recorded%%|*} reused=1
       ;;
     *)
+      RUN_STALE="[${items:+$items,}$(_stale_procs_entry "$unit" "$5" "$6" "$action")]"
       if [ "$3" = user-service ] && [ "$4" != "$1" ]; then
-        if ! props=$(systemctl --user show -p Type -p Transient -p NRestarts "$4" 2>/dev/null); then
+        if ! props=$(systemctl --user show -p Type -p Transient "$4" 2>/dev/null); then
           action=restart-failed failure="cannot reach the user manager to restart $unit; it still runs the removed $5"
         else
           case "$(_stale_procs_prop Transient "$props"):$(_stale_procs_prop Type "$props")" in
             no:simple | no:exec | no:forking | no:notify | no:notify-reload | no:dbus | no:idle)
               action=restart-failed
-              restarts=$(_stale_procs_prop NRestarts "$props")
               RUN_STALE="[${items:+$items,}$(_stale_procs_entry "$unit" "$5" "$6" "$action")]"
               if systemctl --user try-restart "$4" 2>/dev/null; then
+                invocation=$(systemctl --user show -p InvocationID --value "$4" 2>/dev/null)
                 sleep "$2"
                 if systemctl --user is-active --quiet "$4" \
-                  && [ "$(systemctl --user show -p NRestarts --value "$4" 2>/dev/null)" = "$restarts" ]; then
+                  && [ "$(systemctl --user show -p InvocationID --value "$4" 2>/dev/null)" = "$invocation" ]; then
                   action=restarted
                 fi
               fi
@@ -72,9 +75,10 @@ _stale_procs_settle() { # <own-unit> <settle-secs> <kind> <unit> <exe> <pids>
       settled+="$unit=$action|"
       ;;
   esac
-  case $action in
-    restarted) run_log_note info "restarted $unit, which was running the removed $5" ;;
-    restart-failed) run_log_note warning "Warning: $failure" ;;
+  case $reused:$action in
+    0:restarted) run_log_note info "restarted $unit, which was running the removed $5" ;;
+    1:restarted) run_log_note info "restarted $unit, which was also running the removed $5" ;;
+    0:restart-failed) run_log_note warning "Warning: $failure" ;;
     *) run_log_note info "$unit (pid ${6//,/ }) still runs the removed $5; restart it to load the upgrade" ;;
   esac
   items+="${items:+,}$(_stale_procs_entry "$unit" "$5" "$6" "$action")"
