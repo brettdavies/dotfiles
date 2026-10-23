@@ -55,6 +55,8 @@ case "$*" in
     [ "${STUB_BREW_FAIL-}" = "$1" ] && { echo "Error: $1 failed" >&2; exit 1; }
     echo "==> $1"
     if [ "$1" = update ]; then printf 'Warning: "x\\y"\tz\n' >&2; fi
+    if [ -n "${STUB_BREW_TTY-}" ] && [ "$1" = update ]; then stty -echo </dev/tty && stty echo </dev/tty; fi
+    if [ -n "${STUB_BREW_IGNORE_TERM-}" ] && [ "$1" = update ]; then trap '' TERM; fi
     if [ -n "${STUB_BREW_SLOW-}" ] && [ "$1" = update ]; then sleep "$STUB_BREW_SLOW"; fi
     ;;
 esac
@@ -516,16 +518,110 @@ _fake_proc() {
   [ "$(tail -n 1 "$log" | jaq -c '[.event, .exit_code]')" = '["run.end",143]' ]
 }
 
-@test "without perl the launchd wrapper exits 3 with an install hint and starts nothing" {
+_wrapper_env() {
   logs="$BATS_TEST_TMPDIR/Logs"
-  mkdir -p "$logs"
-  run env UPGRADE_LOG_DIR="$logs" UPGRADE_PERL=/nonexistent/perl PATH="$STUBS:$PATH" \
-    "$REPO_ROOT/scripts/upgrade/launchd-run.sh" brew.sh
-  [ "$status" -eq 3 ]
+  log="$logs/brew-upgrade.jsonl"
+  mkdir -p "$logs" "$BATS_TEST_TMPDIR/bu-only"
+  ln -sf "$REPO_ROOT/config/shell/shell-functions" "$BATS_TEST_TMPDIR/bu-only/"
+}
+
+@test "without perl the launchd wrapper still runs the job and notes the reduced stop handling" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  _wrapper_env
+  run env UPGRADE_LOG_DIR="$logs" UPGRADE_PERL=/nonexistent/perl DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" \
+    PATH="$STUBS:$PATH" "$REPO_ROOT/scripts/upgrade/launchd-run.sh" brew.sh
+  [ "$status" -eq 0 ]
   grep -q '^launchd-run: perl not found' "$logs/brew-upgrade.error.log"
-  grep -q 'install with: brew install perl' "$logs/brew-upgrade.error.log"
-  [ ! -s "$logs/brew-upgrade.jsonl" ]
-  [ ! -e "$BREW_LOG" ]
+  [ "$(tail -n 1 "$log" | jaq -c '[.event, .reason]')" = '["run.end","ok"]' ]
+}
+
+@test "run by hand from a terminal, the launchd wrapper keeps the job in the foreground" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  script -qec true /dev/null >/dev/null 2>&1 || skip "needs util-linux script for a pseudo-terminal"
+  command -v timeout >/dev/null 2>&1 || skip "timeout not available"
+  _wrapper_env
+  # The update touches the terminal, as a sudo password prompt does; a background process group would be stopped.
+  run timeout 20 script -qec "env UPGRADE_LOG_DIR='$logs' DOTFILES_SHELL_DIR='$BATS_TEST_TMPDIR/bu-only' STUB_BREW_TTY=1 \
+    PATH='$STUBS:$PATH' '$REPO_ROOT/scripts/upgrade/launchd-run.sh' brew.sh" /dev/null
+  [ "$status" -eq 0 ]
+  [ "$(tail -n 1 "$log" | jaq -c '[.event, .reason]')" = '["run.end","ok"]' ]
+}
+
+@test "a stop before the job has its own process group still ends the run" {
+  _wrapper_env
+  # perl that takes its time to start, so the stop lands before setpgrp.
+  printf '#!/bin/sh\nsleep 5\nexec perl "$@"\n' >"$BATS_TEST_TMPDIR/slow-perl"
+  chmod +x "$BATS_TEST_TMPDIR/slow-perl"
+  run --separate-stderr env UPGRADE_LOG_DIR="$logs" UPGRADE_PERL="$BATS_TEST_TMPDIR/slow-perl" PATH="$STUBS:$PATH" bash -c '
+    perl -e "\$SIG{INT} = q(DEFAULT); setpgrp; exec @ARGV" "$1" brew.sh &
+    job=$!
+    sleep 1
+    started=$SECONDS
+    kill -TERM "$job"
+    wait "$job"
+    status=$?
+    echo "elapsed=$((SECONDS - started))"
+    exit "$status"' _ "$REPO_ROOT/scripts/upgrade/launchd-run.sh"
+  [ "$status" -eq 143 ]
+  [ "${output#elapsed=}" -lt 4 ]
+  [ ! -s "$log" ]
+}
+
+@test "the launchd wrapper runs a job whose path has a space" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  _wrapper_env
+  dir="$BATS_TEST_TMPDIR/with space/upgrade"
+  mkdir -p "$dir"
+  cp -R "$REPO_ROOT/scripts/upgrade/." "$dir/"
+  run env UPGRADE_LOG_DIR="$logs" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" PATH="$STUBS:$PATH" \
+    "$dir/launchd-run.sh" brew.sh
+  [ "$status" -eq 0 ]
+  [ "$(tail -n 1 "$log" | jaq -c '[.event, .reason]')" = '["run.end","ok"]' ]
+}
+
+# Runs the wrapper in its own process group, stops it, and sets stop_status, elapsed and left (tools still running).
+_stop_wrapper() { # <env-assignment>...
+  stop_status=0
+  stop_report=$(env "$@" bash -c '
+    perl -e "\$SIG{INT} = q(DEFAULT); setpgrp; exec @ARGV" "$1" brew.sh &
+    job=$!
+    for _ in $(seq 100); do grep -q "\"level\":\"warning\"" "$2" 2>/dev/null && break; sleep 0.1; done
+    started=$SECONDS
+    kill -TERM "$job"
+    wait "$job"
+    status=$?
+    elapsed=$((SECONDS - started))
+    for _ in $(seq 20); do [ "$(pgrep -fx "sleep 29" | wc -l)" -eq 0 ] && break; sleep 0.1; done
+    echo "elapsed=$elapsed left=$(pgrep -fx "sleep 29" | wc -l | tr -d " ")"
+    exit "$status"' _ "$REPO_ROOT/scripts/upgrade/launchd-run.sh" "$log" 2>/dev/null) || stop_status=$?
+  elapsed=${stop_report#elapsed=}
+  elapsed=${elapsed%% *}
+  left=${stop_report##*left=}
+}
+
+@test "a stop leaves no tool behind in the job's process group, even one that ignores SIGTERM" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  _wrapper_env
+  _stop_wrapper UPGRADE_LOG_DIR="$logs" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_BREW_SLOW=29 \
+    STUB_BREW_IGNORE_TERM=1 PATH="$STUBS:$PATH"
+  [ "$stop_status" -eq 143 ]
+  [ "$elapsed" -lt 5 ]
+  [ "$left" -eq 0 ]
+  [ "$(tail -n 1 "$log" | jaq -c '[.event, .exit_code]')" = '["run.end",143]' ]
+}
+
+@test "a job that ignores SIGTERM itself is killed 10 seconds after a stop" {
+  _wrapper_env
+  # A perl that starts the job with SIGTERM ignored, so neither the job nor its tools can be stopped by it.
+  printf '#!/bin/sh\nexec perl -e '"'"'$SIG{TERM} = "IGNORE"; exec { "perl" } "perl", @ARGV'"'"' -- "$@"\n' \
+    >"$BATS_TEST_TMPDIR/deaf-perl"
+  chmod +x "$BATS_TEST_TMPDIR/deaf-perl"
+  _stop_wrapper UPGRADE_LOG_DIR="$logs" UPGRADE_PERL="$BATS_TEST_TMPDIR/deaf-perl" \
+    DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_BREW_SLOW=29 PATH="$STUBS:$PATH"
+  [ "$stop_status" -eq 137 ]
+  [ "$elapsed" -ge 9 ]
+  [ "$elapsed" -lt 15 ]
+  [ "$left" -eq 0 ]
 }
 
 @test "a failed InvocationID lookup after a restart does not abort the scan" {

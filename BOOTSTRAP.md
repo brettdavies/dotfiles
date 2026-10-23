@@ -318,10 +318,12 @@ Each run appends JSON Lines to `~/Library/Logs/brew-upgrade.jsonl` or `~/Library
 `reason`, what changed, and a `next_step`. `scripts/upgrade/lib/run-log.sh` documents the schema. Anything the script
 itself writes to stderr lands in the matching `.error.log`, which stays empty on a healthy run. Both agents start their
 job through `scripts/upgrade/launchd-run.sh`, which moves a log past 1 MiB to `<log>.1` before the run, replacing the
-one before, so each job keeps its current log and one previous. The wrapper also turns a stop (`launchctl bootout`, or a
-Ctrl-C when run by hand) into a SIGTERM for the job and the tool it is running, so the run still ends with a `run.end`
-carrying exit code 143. It starts the job through perl, which macOS ships; without perl it exits 3 and says so in the
-`.error.log`.
+one before, so each job keeps its current log and one previous. Under launchd the wrapper starts the job in a process
+group of its own, through perl, which macOS ships, and turns a stop (`launchctl bootout`) into a SIGTERM for that group,
+so the run still ends with a `run.end` carrying exit code 143. Anything of the job still running afterwards is killed,
+and so is a job still running 10 seconds after the stop. Without perl it runs the job directly and notes in the
+`.error.log` that a stop then reaches only the job. Run by hand from a terminal, the job stays in the foreground, so
+Ctrl-C and password prompts behave as usual.
 
 ```bash
 jaq -c 'select(.event == "run.end")' ~/Library/Logs/brew-upgrade.jsonl | tail -n 5

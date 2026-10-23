@@ -86,8 +86,8 @@ _run_log_output() { # <level> <priority> <line>
 }
 
 # Rewrites the summary file after every line, so a run killed mid-command still reports the counts so far. Each
-# rewrite opens the file without truncating it: the counts and the first error never get shorter, so the bytes in place
-# are always a whole summary, even when a kill lands mid-write.
+# rewrite goes through a temporary file and a rename, so the file always holds a whole summary, even when a kill lands
+# mid-write.
 _run_log_lines() { # <summary-file>
   local line level priority errors=0 warnings=0 first_error=
   printf '0\n0\n\n' >"$1"
@@ -101,7 +101,7 @@ _run_log_lines() { # <summary-file>
       *) level=info priority=6 ;;
     esac
     _run_log_output "$level" "$priority" "$line"
-    printf '%s\n%s\n%s\n' "$errors" "$warnings" "$first_error" 1<>"$1"
+    printf '%s\n%s\n%s\n' "$errors" "$warnings" "$first_error" >"$1.tmp" && mv -f "$1.tmp" "$1"
   done
 }
 
@@ -124,7 +124,7 @@ run_log_capture() {
     RUN_STATUS=${PIPESTATUS[0]}
   fi
   _run_log_counts "$RUN_SUMMARY"
-  rm -f "$RUN_SUMMARY"
+  rm -f "$RUN_SUMMARY" "$RUN_SUMMARY.tmp"
   RUN_SUMMARY=''
 }
 
@@ -183,7 +183,7 @@ _run_log_exit() { # <exit-status>
   [ "$RUN_LOG_FINISHED" = 0 ] || return 0
   if [ -n "$RUN_SUMMARY" ]; then
     [ ! -s "$RUN_SUMMARY" ] || _run_log_counts "$RUN_SUMMARY"
-    rm -f "$RUN_SUMMARY"
+    rm -f "$RUN_SUMMARY" "$RUN_SUMMARY.tmp"
   fi
   run_log_finish "$(($1 == 0 ? 1 : $1))" script-error "the job exited before finishing its run" null rerun "$RUN_SCRIPT"
 }
