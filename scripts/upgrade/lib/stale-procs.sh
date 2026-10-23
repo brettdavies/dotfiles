@@ -19,28 +19,39 @@ _stale_procs_unit() { # <cgroup-file>
   esac
 }
 
-# Restarts or reports one unit's processes, appending its entry to the caller's items.
-_stale_procs_settle() { # <kind> <unit> <exe> <pids>
-  local action=left-running unit=${2:-unknown}
-  if [ "$1" = user-service ] && [ "$2" != "$own" ] \
-    && [ "$(systemctl --user show -p Type --value "$2" 2>/dev/null)" != oneshot ]; then
-    if systemctl --user try-restart "$2" 2>/dev/null; then action=restarted; else action=restart-failed; fi
-  fi
-  case $action in
-    restarted) run_log_note info "restarted $unit, which was running the removed $3" ;;
-    restart-failed) run_log_note warning "Warning: restarting $unit failed; it still runs the removed $3" ;;
-    *) run_log_note warning "Warning: $unit (pid ${4//,/ }) still runs the removed $3; restart it to load the upgrade" ;;
+# Restarts or reports one unit's processes on one removed executable, appending its entry to the caller's items. A
+# unit already settled for another executable keeps the action recorded in the caller's settled list, so a service on
+# two removed executables restarts once.
+_stale_procs_settle() { # <own-unit> <kind> <unit> <exe> <pids>
+  local action=left-running unit=${3:-unknown} recorded
+  case $settled in
+    *"|$unit="*)
+      recorded=${settled#*"|$unit="}
+      action=${recorded%%|*}
+      ;;
+    *)
+      if [ "$2" = user-service ] && [ "$3" != "$1" ] \
+        && [ "$(systemctl --user show -p Type --value "$3" 2>/dev/null)" != oneshot ]; then
+        if systemctl --user try-restart "$3" 2>/dev/null; then action=restarted; else action=restart-failed; fi
+      fi
+      settled+="$unit=$action|"
+      ;;
   esac
-  items+="${items:+,}{\"unit\":$(_run_log_str "$unit"),\"exe\":$(_run_log_str "$3"),\"pids\":[$4],\"action\":\"$action\"}"
+  case $action in
+    restarted) run_log_note info "restarted $unit, which was running the removed $4" ;;
+    restart-failed) run_log_note warning "Warning: restarting $unit failed; it still runs the removed $4" ;;
+    *) run_log_note warning "Warning: $unit (pid ${5//,/ }) still runs the removed $4; restart it to load the upgrade" ;;
+  esac
+  items+="${items:+,}{\"unit\":$(_run_log_str "$unit"),\"exe\":$(_run_log_str "$4"),\"pids\":[$5],\"action\":\"$action\"}"
 }
 
 # Usage: stale_procs_restart <proc-root> <prefix>
 stale_procs_restart() {
-  local own items='' group='' g_kind='' g_unit='' g_exe='' pids='' kind unit exe pid
+  local own items='' settled='|' group='' g_kind='' g_unit='' g_exe='' pids='' kind unit exe pid
   own=$(_stale_procs_unit "$1/self/cgroup" | cut -f2)
   while IFS=$'\t' read -r kind unit exe pid; do
     if [ "$kind/$unit/$exe" != "$group" ]; then
-      [ -z "$group" ] || _stale_procs_settle "$g_kind" "$g_unit" "$g_exe" "$pids"
+      [ -z "$group" ] || _stale_procs_settle "$own" "$g_kind" "$g_unit" "$g_exe" "$pids"
       group="$kind/$unit/$exe" g_kind=$kind g_unit=$unit g_exe=$exe pids=''
     fi
     pids+="${pids:+,}$pid"
@@ -50,7 +61,7 @@ stale_procs_restart() {
         printf '%s\t%s\t%s\n' "$(_stale_procs_unit "$dir/cgroup")" "${exe% (deleted)}" "${dir##*/}"
       done | LC_ALL=C sort -t "$(printf '\t')" -k2,2 -k3,3 -k4,4n
   )
-  [ -z "$group" ] || _stale_procs_settle "$g_kind" "$g_unit" "$g_exe" "$pids"
+  [ -z "$group" ] || _stale_procs_settle "$own" "$g_kind" "$g_unit" "$g_exe" "$pids"
   # shellcheck disable=SC2034 # run-log.sh writes it into run.end
   RUN_STALE="[$items]"
 }

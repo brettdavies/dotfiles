@@ -227,6 +227,7 @@ _fake_proc() {
   _fake_proc 107 "/usr/bin/foo (deleted)" "$US/foo.service"
   _fake_proc 108 "$P/Cellar/bash/5/bin/bash (deleted)" "$US/brew-upgrade.service"
   _fake_proc 109 "$P/Cellar/caddy/2/bin/caddy (deleted)" /system.slice/web.service
+  _fake_proc 110 "$P/Cellar/node/1/bin/node (deleted)" "$US/caddy.service"
   run env STUB_RESTART_FAIL=qmd-serve.service PATH="$STUBS:$PATH" bash -c '
     . "$1/run-log.sh"; . "$1/stale-procs.sh"
     RUN_JOB=brew-upgrade RUN_ID=x RUN_HOST="\"h\"" RUN_LOG_JOURNALD=0 RUN_WARNINGS=0
@@ -235,7 +236,7 @@ _fake_proc() {
   [ "$status" -eq 0 ]
   [ "$(grep try-restart "$SYSTEMCTL_LOG" | sort)" = "$(printf '%s\n' '--user try-restart caddy.service' '--user try-restart qmd-serve.service')" ]
   [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c 'map([.unit, .action, .pids])')" = \
-    '[["box-bisync.service","left-running",[105]],["brew-upgrade.service","left-running",[108]],["caddy.service","restarted",[101]],["qmd-serve.service","restart-failed",[102]],["session-c1.scope","left-running",[103,104]],["web.service","left-running",[109]]]' ]
+    '[["box-bisync.service","left-running",[105]],["brew-upgrade.service","left-running",[108]],["caddy.service","restarted",[101]],["caddy.service","restarted",[110]],["qmd-serve.service","restart-failed",[102]],["session-c1.scope","left-running",[103,104]],["web.service","left-running",[109]]]' ]
   [ "$(printf '%s\n' "$output" | tail -n 2 | head -n 1)" = 5 ]
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "info"
     and .line == "restarted caddy.service, which was running the removed /opt/brew/Cellar/caddy/2/bin/caddy")' | grep -q .
