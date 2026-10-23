@@ -18,7 +18,7 @@ setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$STUBS"
   export UV_LOG="$BATS_TEST_TMPDIR/uv.log" BREW_LOG="$BATS_TEST_TMPDIR/brew.log" SYSTEMCTL_LOG="$BATS_TEST_TMPDIR/systemctl.log"
-  export STUB_BREW_PREFIX="$BATS_TEST_TMPDIR/prefix"
+  export STUB_BREW_PREFIX="$BATS_TEST_TMPDIR/prefix" UPGRADE_RESTART_SETTLE_SECS=0
   cat >"$STUBS/uv" <<'EOF'
 #!/bin/sh
 case "$*" in
@@ -59,7 +59,8 @@ case "$*" in
 esac
 EOF
   # Never reaches the live user manager: Type is oneshot for box-bisync, unanswered for gone.service and simple
-  # otherwise, and a restart of the unit named in STUB_RESTART_FAIL fails.
+  # otherwise; a restart of the unit named in STUB_RESTART_FAIL fails, one of STUB_RESTART_KILLS kills the scanning
+  # shell, and the unit named in STUB_INACTIVE is not active after its restart.
   cat >"$STUBS/systemctl" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
@@ -68,6 +69,8 @@ case "$*" in
   "--user show -p Type --value gone.service") ;;
   "--user show -p Type --value "*) echo simple ;;
   "--user try-restart ${STUB_RESTART_FAIL-}") exit 1 ;;
+  "--user try-restart ${STUB_RESTART_KILLS-}") kill -TERM "$PPID" ;;
+  "--user is-active --quiet ${STUB_INACTIVE-}") exit 3 ;;
 esac
 EOF
   chmod +x "$STUBS"/*
@@ -264,22 +267,42 @@ _fake_proc() {
   mkdir -p "$PROC/112"
   ln -s "$P/Cellar/gone/1/bin/gone (deleted)" "$PROC/112/exe"
   _fake_proc 113 "$P/Cellar/old/1/bin/old (deleted)" "$US/gone.service"
-  run env STUB_RESTART_FAIL=qmd-serve.service PATH="$STUBS:$PATH" bash -c '
+  _fake_proc 114 "$P/Cellar/flaky/1/bin/flaky (deleted)" "$US/flaky.service"
+  run env STUB_RESTART_FAIL=qmd-serve.service STUB_INACTIVE=flaky.service PATH="$STUBS:$PATH" bash -c '
     . "$1/run-log.sh"; . "$1/stale-procs.sh"
     RUN_JOB=brew-upgrade RUN_ID=x RUN_HOST="\"h\"" RUN_LOG_JOURNALD=0 RUN_WARNINGS=0
     stale_procs_restart "$2" /opt/brew
     printf "%s\n%s\n" "$RUN_WARNINGS" "$RUN_STALE"' _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
   [ "$status" -eq 0 ]
-  [ "$(grep try-restart "$SYSTEMCTL_LOG" | sort)" = "$(printf '%s\n' '--user try-restart caddy.service' '--user try-restart qmd-serve.service')" ]
+  [ "$(grep try-restart "$SYSTEMCTL_LOG" | sort)" = \
+    "$(printf '%s\n' '--user try-restart caddy.service' '--user try-restart flaky.service' '--user try-restart qmd-serve.service')" ]
   [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c 'map([.unit, .action, .pids])')" = \
-    '[["box-bisync.service","left-running",[105]],["brew-upgrade.service","left-running",[108]],["caddy.service","restarted",[101]],["caddy.service","restarted",[110]],["gone.service","left-running",[113]],["qmd-serve.service","restart-failed",[102]],["session-c1.scope","left-running",[103,104]],["unknown","left-running",[112]],["unknown","left-running",[111]],["web.service","left-running",[109]]]' ]
+    '[["box-bisync.service","left-running",[105]],["brew-upgrade.service","left-running",[108]],["caddy.service","restarted",[101]],["caddy.service","restarted",[110]],["flaky.service","restart-failed",[114]],["gone.service","left-running",[113]],["qmd-serve.service","restart-failed",[102]],["session-c1.scope","left-running",[103,104]],["unknown","left-running",[112]],["unknown","left-running",[111]],["web.service","left-running",[109]]]' ]
   [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -r 'map(select(.unit == "unknown") | .exe) | sort | join(" ")')" = \
     "/opt/brew/Cellar/gone/1/bin/gone /opt/brew/Cellar/root/1/bin/root" ]
-  [ "$(printf '%s\n' "$output" | tail -n 2 | head -n 1)" = 8 ]
+  [ "$(printf '%s\n' "$output" | tail -n 2 | head -n 1)" = 2 ]
+  printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "info" and .line ==
+    "session-c1.scope (pid 103 104) still runs the removed /opt/brew/Cellar/lazygit/1/bin/lazygit; restart it to load the upgrade")' |
+    grep -q .
+  printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning" and .line ==
+    "Warning: restarting flaky.service onto the upgrade failed; check systemctl --user status flaky.service")' | grep -q .
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning" and .line ==
     "Warning: restarting qmd-serve.service onto the upgrade failed; check systemctl --user status qmd-serve.service")' | grep -q .
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "info"
     and .line == "restarted caddy.service, which was running the removed /opt/brew/Cellar/caddy/2/bin/caddy")' | grep -q .
+}
+
+@test "a scan killed partway still reports the units it settled before the kill" {
+  PROC="$BATS_TEST_TMPDIR/proc" US=/user.slice/user-1000.slice/user@1000.service/app.slice
+  _fake_proc 201 "/opt/brew/Cellar/a/1/bin/a (deleted)" "$US/a.service"
+  _fake_proc 202 "/opt/brew/Cellar/b/1/bin/b (deleted)" "$US/b.service"
+  run env STUB_RESTART_KILLS=b.service PATH="$STUBS:$PATH" bash -c '
+    . "$1/run-log.sh"; . "$1/stale-procs.sh"
+    RUN_JOB=brew-upgrade RUN_ID=x RUN_HOST="\"h\"" RUN_LOG_JOURNALD=0 RUN_WARNINGS=0 RUN_STALE=null
+    trap "printf %s \"\$RUN_STALE\" >\"$3\"" EXIT
+    stale_procs_restart "$2" /opt/brew' _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC" "$BATS_TEST_TMPDIR/stale"
+  [ "$status" -ne 0 ]
+  [ "$(cat "$BATS_TEST_TMPDIR/stale")" = '[{"unit":"a.service","exe":"/opt/brew/Cellar/a/1/bin/a","pids":[201],"action":"restarted"}]' ]
 }
 
 @test "a scan that cannot read its parent's executable reports stale processes as unchecked" {
