@@ -303,8 +303,16 @@ records without treating it as a crash.
 
 ### Scheduled brew and uv upgrades (launchd)
 
-The `launchagent` package ships two daily agents: `com.user.brew-upgrade` runs `bu --no-greedy` at 04:00, and
-`com.user.uv-tools-upgrade` runs `uv tool upgrade --all` at 04:30, half an hour after `bu`, which upgrades uv itself.
+The `launchagent` package ships two agents that each upgrade at most once a day: `com.user.brew-upgrade` runs
+`bu --no-greedy`, and `com.user.uv-tools-upgrade` runs `uv tool upgrade --all`. launchd fires brew every hour on the
+hour and uv every hour at half past, and `scripts/upgrade/daily-gate.sh` lets a fire through only when the job has not
+succeeded in the last 20 hours and the network answers. A Mac asleep overnight wakes for a few seconds at a time with no
+network, so the day's run lands at the first hour the Mac is awake and online, brew half an hour ahead of uv, which `bu`
+upgrades. A skipped fire writes nothing to the logs, except that an offline fire when the job has not succeeded in 48
+hours writes a `WARNING:` line to its `.error.log`, so a network check that never passes cannot stop the upgrades
+unnoticed. The gate records each success in `~/.local/state/dotfiles/<job>.last-success`, and deleting that file lets
+the next fire run.
+
 Their scripts in `scripts/upgrade/` load `config/shell/*.sh` because launchd reads no startup file, so the brew run
 keeps the shell's analytics opt-out and cache location, and the uv run refuses to start unless the release cooldown from
 `config/shell/supply-chain.sh` is set. Load both once:
@@ -332,13 +340,14 @@ first whole line so the JSON Lines log still parses, and keeps no older copy.
 ```bash
 jaq -c 'select(.event == "run.end")' ~/Library/Logs/brew-upgrade.jsonl | tail -n 5
 jaq -c 'select(.event == "run.end" and .outcome == "failure")' ~/Library/Logs/*-upgrade.jsonl
+trash ~/.local/state/dotfiles/brew-upgrade.last-success   # without this, a run within 20 hours of a success is skipped
 launchctl kickstart "gui/$(id -u)/com.user.brew-upgrade"
 ```
 
-A run missed during sleep happens on the next wake, and launchd has no way to order one agent after another, so after a
-night asleep both start together and the uv run may use the uv that `bu` is replacing. The scheduled run skips
+launchd runs a fire missed during sleep at the next wake and cannot order one agent after another, so when sleep spans
+both fires the two start together and that uv run may use the uv that `bu` is replacing. The scheduled run skips
 `--greedy`, so it leaves alone the self-updating casks whose upgrade quits their app (Ghostty, Rectangle, Telegram,
-AppCleaner), which would otherwise close when the run lands at wake. A manual `bu` still upgrades them.
+AppCleaner), which would otherwise close mid-session. A manual `bu` still upgrades them.
 
 ## Linux Server Setup
 

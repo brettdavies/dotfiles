@@ -70,6 +70,8 @@ case "$*" in
   "--user try-restart ${STUB_RESTART_FAIL-}") exit 1 ;;
 esac
 EOF
+  # The daily gate's connectivity probe always answers, so no test reaches the network.
+  printf '#!/bin/sh\nexit 0\n' >"$STUBS/curl"
   chmod +x "$STUBS"/*
 }
 
@@ -334,31 +336,39 @@ _fake_proc() {
   [ "$(tail -n 1 "$out" | cut -c1-3)" = "<3>" ]
 }
 
-@test "the brew agent's command logs JSON Lines through the launchd wrapper and leaves the error log empty" {
+@test "the brew agent's command runs bu through the daily gate, logs JSON Lines, and skips a second fire that day" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
-  export LAUNCHD_LOG_DIR="$BATS_TEST_TMPDIR/Logs"
+  export LAUNCHD_LOG_DIR="$BATS_TEST_TMPDIR/Logs" UPGRADE_STATE_DIR="$BATS_TEST_TMPDIR/state"
   logs=$LAUNCHD_LOG_DIR
   mkdir -p "$logs"
   # Only shell-functions, for bu: the other helpers would act on the real $HOME.
   mkdir -p "$BATS_TEST_TMPDIR/bu-only"
   ln -s "$REPO_ROOT/config/shell/shell-functions" "$BATS_TEST_TMPDIR/bu-only/"
   export DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only"
-  run env PATH="$STUBS:$PATH" "$REPO_ROOT/scripts/launchd-run.sh" brew-upgrade.jsonl "$REPO_ROOT/scripts/upgrade/brew.sh"
+  agent=("$REPO_ROOT/scripts/launchd-run.sh" brew-upgrade.jsonl
+    "$REPO_ROOT/scripts/upgrade/daily-gate.sh" brew-upgrade "$REPO_ROOT/scripts/upgrade/brew.sh")
+  run env PATH="$STUBS:$PATH" "${agent[@]}"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
   [ "$(head -n 1 "$logs/brew-upgrade.jsonl" | jaq -r .event)" = run.start ]
   [ "$(tail -n 1 "$logs/brew-upgrade.jsonl" | jaq -r .reason)" = ok ]
   [ ! -s "$logs/brew-upgrade.error.log" ]
+  [ -f "$UPGRADE_STATE_DIR/brew-upgrade.last-success" ]
+  logged=$(wc -l <"$logs/brew-upgrade.jsonl")
+  run env PATH="$STUBS:$PATH" "${agent[@]}"
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$logs/brew-upgrade.jsonl")" -eq "$logged" ]
+  [ ! -s "$logs/brew-upgrade.error.log" ]
 }
 
-_agent_runs_daily_at() {
+_agent_tries_hourly_at() {
   local plist="$AGENTS/com.user.$1-upgrade.plist"
-  grep -qF "exec \"\$HOME/dotfiles/scripts/launchd-run.sh\" $1-upgrade.jsonl \"\$HOME/dotfiles/scripts/upgrade/$1.sh\"</string>" "$plist"
-  grep -A1 '<key>Hour</key>' "$plist" | grep -qF "<integer>$2</integer>"
-  grep -A1 '<key>Minute</key>' "$plist" | grep -qF "<integer>$3</integer>"
+  grep -qF "exec \"\$HOME/dotfiles/scripts/launchd-run.sh\" $1-upgrade.jsonl \"\$HOME/dotfiles/scripts/upgrade/daily-gate.sh\" $1-upgrade \"\$HOME/dotfiles/scripts/upgrade/$1.sh\"</string>" "$plist"
+  if grep -q '<key>Hour</key>' "$plist"; then return 1; fi
+  grep -A1 '<key>Minute</key>' "$plist" | grep -qF "<integer>$2</integer>"
 }
 
-@test "systemd and launchd run the upgrade scripts, brew daily at 04:00 and uv at 04:30" {
+@test "systemd runs the upgrade scripts daily at 04:00 and 04:30, and launchd tries them hourly at :00 and :30" {
   grep -qx 'ExecStart=%h/dotfiles/scripts/upgrade/brew.sh' "$UNITS/brew-upgrade.service"
   grep -qx 'ExecStart=%h/dotfiles/scripts/upgrade/uv-tools.sh' "$UNITS/uv-tools-upgrade.service"
   grep -qx 'SyslogIdentifier=brew-upgrade' "$UNITS/brew-upgrade.service"
@@ -371,6 +381,6 @@ _agent_runs_daily_at() {
   grep -qx 'After=network-online.target brew-upgrade.service' "$UNITS/uv-tools-upgrade.service"
   grep -qx 'OnCalendar=\*-\*-\* 04:00:00' "$UNITS/brew-upgrade.timer"
   grep -qx 'OnCalendar=\*-\*-\* 04:30:00' "$UNITS/uv-tools-upgrade.timer"
-  _agent_runs_daily_at brew 4 0
-  _agent_runs_daily_at uv-tools 4 30
+  _agent_tries_hourly_at brew 0
+  _agent_tries_hourly_at uv-tools 30
 }
