@@ -112,8 +112,9 @@ cd ~/dotfiles/stow
 
 # macOS (shared + desktop). The Linux-only packages are omitted: stow-deploy
 # skips rclone, obsidian, codex-proxy, and cargo on Darwin.
-# --ignore drops the systemd units that cross-platform packages carry.
-stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' \
+# --ignore drops the systemd units that cross-platform packages carry, and the
+# .DS_Store Finder leaves in a package, which collides with ~/.DS_Store.
+stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' --ignore='\.DS_Store$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
   rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent
 
@@ -132,7 +133,7 @@ them would shadow the source of truth. `ollama` is also absent — it targets `/
 
 ```bash
 cd ~/dotfiles/stow
-stow --dotfiles --no-folding --target="$HOME" -R <package>
+stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" -R <package>
 ```
 
 ## Install Packages from Brewfile
@@ -284,7 +285,7 @@ Apply the settings first, then load the agent:
 
 ```bash
 bash ~/dotfiles/scripts/cswap-autoswitch-deploy.sh
-cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" launchagent
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" launchagent
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.cswap-auto.plist
 ```
 
@@ -300,7 +301,7 @@ keeps the shell's analytics opt-out and cache location, and the uv run refuses t
 `config/shell/supply-chain.sh` is set. Load both once:
 
 ```bash
-cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" launchagent
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" launchagent
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.brew-upgrade.plist
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.uv-tools-upgrade.plist
 ```
