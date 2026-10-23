@@ -59,6 +59,7 @@ dotfiles/
 │   ├── tailscale-serve-deploy.sh  System unit that re-runs the serve setup on every tailscaled start
 │   ├── macos-gpu-monitor.sh       Metal GPU residency/power trace around any command (macOS)
 │   ├── launchd-user-path.sh       Check (or --apply) the launchd user PATH against config/launchd/ (macOS)
+│   ├── fseventsd-check.sh         Warn when fseventsd outgrows its launchd memory budget (macOS, run at Claude Code session start)
 │   ├── lint-shell, lint-workflows, run-tests   CI gate dispatchers, shared by CI and the git hooks
 │   ├── core-env-guard.sh  Fails a test that resets HOME or another core env var (allowlist beside it)
 │   ├── generate-changelog.py      Release changelog extraction from merged PR bodies
