@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-    Daily Homebrew update and upgrade (macOS): runs `bu no-greedy` through
-    scripts/upgrade/brew.sh. Counterpart to brew-upgrade.timer on the Linux
-    server.
+    Daily Homebrew update and upgrade (macOS): runs `bu` with its no-greedy
+    flag through scripts/upgrade/brew.sh. Counterpart to brew-upgrade.timer on
+    the Linux server.
 
     launchd runs a calendar job missed during sleep on the next wake, so on a
     laptop the run usually lands when the lid opens. A greedy upgrade of a cask

@@ -305,6 +305,13 @@ launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.brew-upgrade.
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.uv-tools-upgrade.plist
 ```
 
+A loaded agent keeps the command it was loaded with, so after a plist change unload it and load it again:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.user.brew-upgrade"
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.brew-upgrade.plist
+```
+
 Each run appends JSON Lines to `~/Library/Logs/brew-upgrade.jsonl` or `~/Library/Logs/uv-tools-upgrade.jsonl`: a
 `run.start` event, one `output` event per line the tool printed, and a `run.end` event with the outcome, a stable
 `reason`, what changed, and a `next_step`. `scripts/upgrade/lib/run-log.sh` documents the schema. Anything the script
