@@ -88,3 +88,27 @@ stub() {
   [ -z "$output" ]
   [ -z "$stderr" ]
 }
+
+@test "as a Claude Code hook, a runaway daemon's warning goes to both the user and Claude as SessionStart JSON" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  STUB_RSS_KB=2307072 run --separate-stderr "$CHECK" --claude-hook
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  warning=$(jaq -r '.systemMessage' <<<"$output")
+  [[ "$warning" == "WARNING: fseventsd holds 2253 MB against its 30 MB launchd budget; reset it with: sudo killall fseventsd" ]]
+  [ "$(jaq -r '.hookSpecificOutput.hookEventName' <<<"$output")" = SessionStart ]
+  [ "$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")" = "$warning" ]
+}
+
+@test "as a Claude Code hook, a daemon within its budget prints nothing" {
+  STUB_RSS_KB=9792 run --separate-stderr "$CHECK" --claude-hook
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+}
+
+@test "an unknown argument is refused" {
+  STUB_RSS_KB=9792 run --separate-stderr "$CHECK" --bogus
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == "ERROR: "*"--bogus"* ]]
+}

@@ -40,9 +40,6 @@ to_csv() {
 
 echo '=== Session Context ==='
 echo "Current datetime: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-# Claude Code adds only a SessionStart hook's stdout to the session, so the check's stderr warning is moved there.
-FSEVENTSD_CHECK="${DOTFILES:-$HOME/dotfiles}/scripts/fseventsd-check.sh"
-[ -x "$FSEVENTSD_CHECK" ] && "$FSEVENTSD_CHECK" 2>&1
 echo ''
 
 echo '--- Homebrew CLI tools ---'
