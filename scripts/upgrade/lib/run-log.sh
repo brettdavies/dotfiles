@@ -51,7 +51,7 @@ run_log_start() {
   # Ubuntu ships uuidgen in an optional package; the kernel's generator needs nothing installed.
   RUN_ID=${INVOCATION_ID:-$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr '[:upper:]' '[:lower:]')}
   RUN_HOST=$(_run_log_str "$(hostname -s)")
-  RUN_ERRORS=0 RUN_WARNINGS=0 RUN_FIRST_ERROR='' RUN_CHANGES=null RUN_STALE=null
+  RUN_ERRORS=0 RUN_WARNINGS=0 RUN_FIRST_ERROR='' RUN_CHANGES=null RUN_STALE=null RUN_SUMMARY=''
   # systemd.exec(5): a child can inherit JOURNAL_STREAM after its stdout moved elsewhere, so it names the journal only
   # while it still matches stdout's device and inode.
   RUN_LOG_JOURNALD=0
@@ -74,7 +74,8 @@ run_log_start() {
   trap '_run_log_exit $?' EXIT
   # A kill runs the EXIT trap with $? still 0, so the signal traps pass the status the shell would have exited with.
   # bash runs them only once the command it is waiting on ends: systemd signals every process in the unit, and
-  # launchd-run.sh passes launchd's SIGTERM on to the job's whole process group, so that command ends too.
+  # launchd-run.sh turns launchd's SIGTERM or a terminal's Ctrl-C into a SIGTERM for the job's process group, so that
+  # command ends too.
   trap '_run_log_exit 143' TERM
   trap '_run_log_exit 130' INT
   _run_log_emit 6 run.start "\"os\":\"$RUN_OS\",\"trigger\":\"$trigger\",\"pid\":$$,\"command\":$(_run_log_str "$2"),\"tool_version\":$(_run_log_str "$3"),\"settings\":{$settings}"
@@ -84,8 +85,10 @@ _run_log_output() { # <level> <priority> <line>
   _run_log_emit "$2" output "\"level\":\"$1\",\"line\":$(_run_log_str "$3")"
 }
 
+# Rewrites the summary file after every line, so a run killed mid-command still reports the counts so far.
 _run_log_lines() { # <summary-file>
   local line level priority errors=0 warnings=0 first_error=
+  printf '0\n0\n\n' >"$1"
   while IFS= read -r line || [ -n "$line" ]; do
     case $line in
       [Ee]rror:* | fatal:*)
@@ -96,26 +99,31 @@ _run_log_lines() { # <summary-file>
       *) level=info priority=6 ;;
     esac
     _run_log_output "$level" "$priority" "$line"
+    printf '%s\n%s\n%s\n' "$errors" "$warnings" "$first_error" >"$1"
   done
-  printf '%s\n%s\n%s\n' "$errors" "$warnings" "$first_error" >"$1"
+}
+
+_run_log_counts() { # <summary-file>
+  {
+    read -r RUN_ERRORS || true
+    read -r RUN_WARNINGS || true
+    IFS= read -r RUN_FIRST_ERROR || true
+  } <"$1"
+  : "${RUN_ERRORS:=0}" "${RUN_WARNINGS:=0}"
 }
 
 # Usage: run_log_capture <command> [args...]
 # Runs the command, emitting one output event per line, and sets RUN_STATUS to its exit status.
 run_log_capture() {
-  local summary
-  summary=$(mktemp)
-  if "$@" 2>&1 | _run_log_lines "$summary"; then
+  RUN_SUMMARY=$(mktemp)
+  if "$@" 2>&1 | _run_log_lines "$RUN_SUMMARY"; then
     RUN_STATUS=0
   else
     RUN_STATUS=${PIPESTATUS[0]}
   fi
-  {
-    read -r RUN_ERRORS
-    read -r RUN_WARNINGS
-    IFS= read -r RUN_FIRST_ERROR
-  } <"$summary"
-  rm -f "$summary"
+  _run_log_counts "$RUN_SUMMARY"
+  rm -f "$RUN_SUMMARY"
+  RUN_SUMMARY=''
 }
 
 # Usage: run_log_changes <before> <after>
@@ -171,6 +179,10 @@ run_log_upgrade() {
 
 _run_log_exit() { # <exit-status>
   [ "$RUN_LOG_FINISHED" = 0 ] || return 0
+  if [ -n "$RUN_SUMMARY" ] && [ -s "$RUN_SUMMARY" ]; then
+    _run_log_counts "$RUN_SUMMARY"
+    rm -f "$RUN_SUMMARY"
+  fi
   run_log_finish "$(($1 == 0 ? 1 : $1))" script-error "the job exited before finishing its run" null rerun "$RUN_SCRIPT"
 }
 

@@ -318,7 +318,9 @@ Each run appends JSON Lines to `~/Library/Logs/brew-upgrade.jsonl` or `~/Library
 `reason`, what changed, and a `next_step`. `scripts/upgrade/lib/run-log.sh` documents the schema. Anything the script
 itself writes to stderr lands in the matching `.error.log`, which stays empty on a healthy run. Both agents start their
 job through `scripts/upgrade/launchd-run.sh`, which moves a log past 1 MiB to `<log>.1` before the run, replacing the
-one before, so each job keeps its current log and one previous.
+one before, so each job keeps its current log and one previous. The wrapper also turns a stop (`launchctl bootout`, or a
+Ctrl-C when run by hand) into a SIGTERM for the job and the tool it is running, so the run still ends with a `run.end`
+carrying exit code 143.
 
 ```bash
 jaq -c 'select(.event == "run.end")' ~/Library/Logs/brew-upgrade.jsonl | tail -n 5

@@ -14,12 +14,16 @@ for log in "$logs/$job.jsonl" "$logs/$job.error.log"; do
     mv -f "$log" "$log.1"
   fi
 done
-# launchd sends SIGTERM to the job process alone, and bash runs a trap only once the command it is waiting on ends, so
-# the job would sit on brew until launchd's SIGKILL and never write its run.end. The wrapper stays the job and passes
-# the signal to its whole process group, which ends that command too; it then exits with the job's status.
+# launchd sends SIGTERM to the job process alone, a terminal's Ctrl-C reaches a background job that ignores SIGINT,
+# and bash runs a trap only once the command it is waiting on ends, so left alone the job would sit on brew and never
+# write its run.end. The wrapper stays the job and turns either signal into a SIGTERM: for its whole process group
+# when it leads that group, as it does under launchd or a terminal, which ends that command too, and for the job alone
+# otherwise, so nothing outside the job is signalled. It then exits with the job's status.
 "$(dirname "$0")/$script" >>"$logs/$job.jsonl" 2>>"$logs/$job.error.log" &
 pid=$!
-trap 'trap "" TERM; kill -TERM 0' TERM
+target=$pid
+[ "$(ps -o pgid= -p $$ | tr -d ' ')" != "$$" ] || target=0
+trap 'trap "" INT TERM; kill -TERM "$target"' INT TERM
 status=0
 wait "$pid" || status=$?
 while kill -0 "$pid" 2>/dev/null; do

@@ -61,7 +61,7 @@ _stale_procs_settle() { # <own-unit> <settle-secs> <kind> <unit> <exe> <pids>
               action=restart-failed
               RUN_STALE="[${items:+$items,}$(_stale_procs_entry "$unit" "$5" "$6" "$action")]"
               if systemctl --user try-restart "$4" 2>/dev/null; then
-                invocation=$(systemctl --user show -p InvocationID --value "$4" 2>/dev/null)
+                invocation=$(systemctl --user show -p InvocationID --value "$4" 2>/dev/null) || invocation=''
                 sleep "$2"
                 if systemctl --user is-active --quiet "$4" \
                   && [ "$(systemctl --user show -p InvocationID --value "$4" 2>/dev/null)" = "$invocation" ]; then

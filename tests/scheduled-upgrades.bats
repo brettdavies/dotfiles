@@ -53,9 +53,9 @@ case "$*" in
     ;;
   *)
     [ "${STUB_BREW_FAIL-}" = "$1" ] && { echo "Error: $1 failed" >&2; exit 1; }
-    [ -n "${STUB_BREW_SLOW-}" ] && [ "$1" = update ] && sleep 30
     echo "==> $1"
     if [ "$1" = update ]; then printf 'Warning: "x\\y"\tz\n' >&2; fi
+    if [ -n "${STUB_BREW_SLOW-}" ] && [ "$1" = update ]; then sleep "$STUB_BREW_SLOW"; fi
     ;;
 esac
 EOF
@@ -78,6 +78,7 @@ case "$*" in
     printf 'Type=%s\nTransient=%s\n' "$type" "$transient"
     ;;
   "--user show -p InvocationID --value "*)
+    [ "$unit" = "${STUB_INVOCATION_FAIL-}" ] && exit 1
     if [ "$unit" = "${STUB_LOOPING-}" ]; then
       n=$(($(cat "$SYSTEMCTL_LOG.inv" 2>/dev/null || echo 0) + 1))
       echo "$n" >"$SYSTEMCTL_LOG.inv"
@@ -460,20 +461,72 @@ _fake_proc() {
   mkdir -p "$logs" "$BATS_TEST_TMPDIR/bu-only"
   ln -s "$REPO_ROOT/config/shell/shell-functions" "$BATS_TEST_TMPDIR/bu-only/"
   log="$logs/brew-upgrade.jsonl"
-  # launchd signals the job process alone; perl gives it its own process group, as launchd does.
-  run env UPGRADE_LOG_DIR="$logs" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_BREW_SLOW=1 PATH="$STUBS:$PATH" bash -c '
-    perl -e "setpgrp; exec @ARGV" "$1" brew.sh &
+  # launchd signals the job process alone; perl gives the wrapper its own process group, as launchd and a terminal do,
+  # and the default SIGINT a terminal leaves it (a background job here would start with SIGINT ignored).
+  # $3 is the signal and $4 its target: the job alone (launchd's TERM) or its whole group (a terminal's Ctrl-C).
+  stop='perl -e "\$SIG{INT} = q(DEFAULT); setpgrp; exec @ARGV" "$1" brew.sh &
     job=$!
-    for _ in $(seq 100); do grep -q "\"event\":\"output\"" "$2" 2>/dev/null && break; sleep 0.1; done
+    for _ in $(seq 100); do grep -q "\"level\":\"warning\"" "$2" 2>/dev/null && break; sleep 0.1; done
     started=$SECONDS
+    if [ "$4" = group ]; then kill "-$3" -- "-$job"; else kill "-$3" "$job"; fi
+    wait "$job"
+    status=$?
+    elapsed=$((SECONDS - started))
+    for _ in $(seq 20); do [ "$(pgrep -g "$job" | wc -l)" -eq 0 ] && break; sleep 0.1; done
+    echo "elapsed=$elapsed left=$(pgrep -g "$job" | wc -l)"
+    exit "$status"'
+  for how in "TERM job" "INT group"; do
+    : >"$log"
+    # shellcheck disable=SC2086 # $how is the signal and the target, two words
+    run env UPGRADE_LOG_DIR="$logs" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_BREW_SLOW=30 PATH="$STUBS:$PATH" \
+      bash -c "$stop" _ "$REPO_ROOT/scripts/upgrade/launchd-run.sh" "$log" $how
+    [ "$status" -eq 143 ]
+    elapsed=${output#elapsed=}
+    [ "${elapsed%% *}" -lt 10 ]
+    [ "${output##*left=}" -eq 0 ]
+    [ "$(tail -n 1 "$log" | jaq -c '[.event, .exit_code, .reason, .warnings]')" = '["run.end",143,"script-error",1]' ]
+  done
+}
+
+@test "a launchd wrapper that does not lead its process group signals only its job" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  logs="$BATS_TEST_TMPDIR/Logs"
+  mkdir -p "$logs" "$BATS_TEST_TMPDIR/bu-only"
+  ln -s "$REPO_ROOT/config/shell/shell-functions" "$BATS_TEST_TMPDIR/bu-only/"
+  log="$logs/brew-upgrade.jsonl"
+  # The wrapper shares this shell's process group, so a group-wide TERM would reach the bystander too.
+  run env UPGRADE_LOG_DIR="$logs" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_BREW_SLOW=2 PATH="$STUBS:$PATH" bash -c '
+    perl -e "sleep 20" &
+    bystander=$!
+    "$1" brew.sh &
+    job=$!
+    for _ in $(seq 100); do grep -q "\"level\":\"warning\"" "$2" 2>/dev/null && break; sleep 0.1; done
     kill -TERM "$job"
     wait "$job"
     status=$?
-    echo "elapsed=$((SECONDS - started))"
+    alive=no
+    kill -0 "$bystander" 2>/dev/null && alive=yes
+    kill "$bystander"
+    echo "bystander=$alive"
     exit "$status"' _ "$REPO_ROOT/scripts/upgrade/launchd-run.sh" "$log"
   [ "$status" -eq 143 ]
-  [ "${output#elapsed=}" -lt 10 ]
-  [ "$(tail -n 1 "$log" | jaq -c '[.event, .exit_code, .reason]')" = '["run.end",143,"script-error"]' ]
+  [ "$output" = bystander=yes ]
+  [ "$(tail -n 1 "$log" | jaq -c '[.event, .exit_code]')" = '["run.end",143]' ]
+}
+
+@test "a failed InvocationID lookup after a restart does not abort the scan" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  PROC="$BATS_TEST_TMPDIR/proc" US=/user.slice/user-1000.slice/user@1000.service/app.slice
+  _fake_proc 201 "/opt/brew/Cellar/a/1/bin/a (deleted)" "$US/a.service"
+  _fake_proc 202 "/opt/brew/Cellar/b/1/bin/b (deleted)" "$US/b.service"
+  run env STUB_INVOCATION_FAIL=a.service PATH="$STUBS:$PATH" bash -c '
+    set -euo pipefail
+    . "$1/run-log.sh"; . "$1/stale-procs.sh"
+    RUN_JOB=brew-upgrade RUN_ID=x RUN_HOST="\"h\"" RUN_LOG_JOURNALD=0 RUN_WARNINGS=0
+    stale_procs_restart "$2" /opt/brew
+    printf "%s\n" "$RUN_STALE"' _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c 'map([.unit, .action])')" = '[["a.service","restarted"],["b.service","restarted"]]' ]
 }
 
 _agent_runs_daily_at() {
