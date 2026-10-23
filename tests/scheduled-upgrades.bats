@@ -246,6 +246,7 @@ _fake_proc() {
 
 @test "processes on a removed Homebrew binary: long-running user services restart, the rest are reported" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  find / -maxdepth 0 -printf '' 2>/dev/null || skip "the scan lists /proc with GNU find's -printf"
   PROC="$BATS_TEST_TMPDIR/proc" P=/opt/brew US=/user.slice/user-1000.slice/user@1000.service/app.slice
   mkdir -p "$PROC/self"
   printf '0::%s\n' "$US/brew-upgrade.service" >"$PROC/self/cgroup"
