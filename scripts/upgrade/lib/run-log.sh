@@ -74,6 +74,10 @@ run_log_start() {
   _run_log_emit 6 run.start "\"os\":\"$RUN_OS\",\"trigger\":\"$trigger\",\"pid\":$$,\"command\":$(_run_log_str "$2"),\"tool_version\":$(_run_log_str "$3"),\"settings\":{$settings}"
 }
 
+_run_log_output() { # <level> <priority> <line>
+  _run_log_emit "$2" output "\"level\":\"$1\",\"line\":$(_run_log_str "$3")"
+}
+
 _run_log_lines() { # <summary-file>
   local line level priority errors=0 warnings=0 first_error=
   while IFS= read -r line || [ -n "$line" ]; do
@@ -85,7 +89,7 @@ _run_log_lines() { # <summary-file>
       [Ww]arning:*) level=warning priority=4 warnings=$((warnings + 1)) ;;
       *) level=info priority=6 ;;
     esac
-    _run_log_emit "$priority" output "\"level\":\"$level\",\"line\":$(_run_log_str "$line")"
+    _run_log_output "$level" "$priority" "$line"
   done
   printf '%s\n%s\n%s\n' "$errors" "$warnings" "$first_error" >"$1"
 }
@@ -139,7 +143,7 @@ run_log_note() {
   if [ "$1" = warning ]; then
     priority=4 RUN_WARNINGS=$((RUN_WARNINGS + 1))
   fi
-  _run_log_emit "$priority" output "\"level\":\"$1\",\"line\":$(_run_log_str "$2")"
+  _run_log_output "$1" "$priority" "$2"
 }
 
 # Usage: run_log_upgrade <list-command> <command> [args...]
