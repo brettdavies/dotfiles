@@ -334,34 +334,26 @@ _fake_proc() {
   [ "$(tail -n 1 "$out" | cut -c1-3)" = "<3>" ]
 }
 
-@test "the launchd wrapper appends to the job's logs and rotates one past 1 MiB" {
+@test "the brew agent's command logs JSON Lines through the launchd wrapper and leaves the error log empty" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
-  export UPGRADE_LOG_DIR="$BATS_TEST_TMPDIR/Logs"
-  logs=$UPGRADE_LOG_DIR
+  export LAUNCHD_LOG_DIR="$BATS_TEST_TMPDIR/Logs"
+  logs=$LAUNCHD_LOG_DIR
   mkdir -p "$logs"
-  head -c 1048577 /dev/zero | tr '\0' x >"$logs/brew-upgrade.jsonl"
-  head -c 1048577 /dev/zero | tr '\0' y >"$logs/brew-upgrade.error.log"
-  wrapper="$REPO_ROOT/scripts/upgrade/launchd-run.sh"
   # Only shell-functions, for bu: the other helpers would act on the real $HOME.
   mkdir -p "$BATS_TEST_TMPDIR/bu-only"
   ln -s "$REPO_ROOT/config/shell/shell-functions" "$BATS_TEST_TMPDIR/bu-only/"
   export DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only"
-  run env PATH="$STUBS:$PATH" "$wrapper" brew.sh
+  run env PATH="$STUBS:$PATH" "$REPO_ROOT/scripts/launchd-run.sh" brew-upgrade.jsonl "$REPO_ROOT/scripts/upgrade/brew.sh"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
-  [ "$(wc -c <"$logs/brew-upgrade.jsonl.1")" -eq 1048577 ]
   [ "$(head -n 1 "$logs/brew-upgrade.jsonl" | jaq -r .event)" = run.start ]
   [ "$(tail -n 1 "$logs/brew-upgrade.jsonl" | jaq -r .reason)" = ok ]
-  [ "$(wc -c <"$logs/brew-upgrade.error.log.1")" -eq 1048577 ]
   [ ! -s "$logs/brew-upgrade.error.log" ]
-  run env PATH="$STUBS:$PATH" "$wrapper" brew.sh
-  [ "$(jaq -r 'select(.event == "run.start") | .job' "$logs/brew-upgrade.jsonl" | wc -l)" -eq 2 ]
-  [ "$(wc -c <"$logs/brew-upgrade.jsonl.1")" -eq 1048577 ]
 }
 
 _agent_runs_daily_at() {
   local plist="$AGENTS/com.user.$1-upgrade.plist"
-  grep -qF "exec \"\$HOME/dotfiles/scripts/upgrade/launchd-run.sh\" $1.sh</string>" "$plist"
+  grep -qF "exec \"\$HOME/dotfiles/scripts/launchd-run.sh\" $1-upgrade.jsonl \"\$HOME/dotfiles/scripts/upgrade/$1.sh\"</string>" "$plist"
   grep -A1 '<key>Hour</key>' "$plist" | grep -qF "<integer>$2</integer>"
   grep -A1 '<key>Minute</key>' "$plist" | grep -qF "<integer>$3</integer>"
 }

@@ -18,7 +18,7 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec "$HOME/dotfiles/scripts/upgrade/launchd-run.sh" uv-tools.sh</string>
+        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec "$HOME/dotfiles/scripts/launchd-run.sh" uv-tools-upgrade.jsonl "$HOME/dotfiles/scripts/upgrade/uv-tools.sh"</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
