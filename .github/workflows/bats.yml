@@ -35,6 +35,10 @@ jobs:
         # The action caches its own install (actions/cache internally), so a warm
         # run restores rather than clones.
         uses: bats-core/bats-action@77d6fb60505b4d0d1d73e48bd035b55074bbfb43 # 4.0.0
+        with:
+          # The action downloads bats and its libraries through api.github.com. Without a token those calls share the
+          # runner's anonymous rate limit, which a busy runner exhausts, and the install fails with HTTP 403.
+          github-token: ${{ github.token }}
 
       - name: Install zsh + stow + jq
         # zsh: shell-config.bats syntax-checks dot-zshrc / dot-zshenv / dot-zprofile.
