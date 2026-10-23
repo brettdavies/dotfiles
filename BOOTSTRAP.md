@@ -225,10 +225,19 @@ ln -sf ~/dotfiles/stow/ghostty/dot-config/ghostty/config \
 
 ### iCloud Sync LaunchAgent
 
-Already deployed by `stow-deploy --all` on macOS. To load manually:
+`com.user.devtosync` mirrors `~/dev` into iCloud Drive through `scripts/sync/sync_dev_to_icloud.sh`, once an hour and
+when the agent loads. The mirror leaves out `node_modules`, `.build`, and `target` directories and removes any copy of
+them already in iCloud: they rebuild from source and are most of `~/dev`'s files, each of which iCloud would upload and
+Spotlight would index. The agent starts the script through `scripts/launchd-run.sh`, so each run appends one summary
+line to `~/Library/Logs/devtosync.log` and any rsync errors to `devtosync.error.log`, and each log keeps only its last 1
+MiB.
+
+Already deployed by `stow-deploy --all` on macOS. To load it, or to reload it after a plist change (a loaded agent keeps
+the command it was loaded with):
 
 ```bash
-launchctl load "$HOME/Library/LaunchAgents/com.user.devtosync.plist"
+launchctl bootout "gui/$(id -u)/com.user.devtosync" 2>/dev/null
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.user.devtosync.plist"
 ```
 
 ### Cursor Extensions
@@ -317,8 +326,8 @@ Each run appends JSON Lines to `~/Library/Logs/brew-upgrade.jsonl` or `~/Library
 `run.start` event, one `output` event per line the tool printed, and a `run.end` event with the outcome, a stable
 `reason`, what changed, and a `next_step`. `scripts/upgrade/lib/run-log.sh` documents the schema. Anything the script
 itself writes to stderr lands in the matching `.error.log`, which stays empty on a healthy run. Both agents start their
-job through `scripts/upgrade/launchd-run.sh`, which moves a log past 1 MiB to `<log>.1` before the run, replacing the
-one before, so each job keeps its current log and one previous.
+job through `scripts/launchd-run.sh`, which cuts a log past 1 MiB down to its last 1 MiB before the run, starting at the
+first whole line so the JSON Lines log still parses, and keeps no older copy.
 
 ```bash
 jaq -c 'select(.event == "run.end")' ~/Library/Logs/brew-upgrade.jsonl | tail -n 5
