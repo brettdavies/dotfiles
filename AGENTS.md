@@ -401,8 +401,8 @@ All shell scripts and hooks in this repo follow these conventions:
 
 All workflows live in `.github/workflows/`. When adding or modifying actions:
 
-- **Node.js 24 required:** Set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a top-level `env` in every workflow that
-  runs JavaScript actions. Node.js 20 actions are no longer supported by the runner.
+- **Node.js 24:** GitHub runs JavaScript actions on Node.js 24, so workflows do not set
+  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`; remove it where one still does.
 - **Commit signing:** The release bot (`github-actions[bot]`) creates unsigned commits, and the `dev` ruleset requires
   signed commits, so nothing from `main` can be merged into `dev`. This is one of the reasons the post-release backport
   is a surgical `CHANGELOG.md` copy on a fresh branch (`scripts/sync-dev-after-release.sh`) rather than a branch merge.
