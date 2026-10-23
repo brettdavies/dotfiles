@@ -386,10 +386,12 @@ fi
 # `stow -R` unlinks then relinks a package's symlinks. If systemd reads a unit
 # (or a timer fires) during that unlink-relink window, the timer can drop into a
 # failed state that does NOT auto-recover, silently halting its schedule until a
-# manual restart. Reload the manager and reset+restart the timer units the
-# deployed packages ship, so a restow can never leave them dead. Scoped to a
-# real $HOME deploy with systemctl present, so sandboxed test targets and macOS
-# (launchd) are untouched.
+# manual restart. Reload the manager and reset+restart the enabled timer units
+# the deployed packages ship, so a restow can never leave them dead. A timer that
+# is not enabled stays stopped: restart would start it, and turning a timer on is
+# scripts/host-jobs-enable.sh's job. Scoped to a real $HOME deploy with
+# systemctl present, so sandboxed test targets and macOS (launchd) are
+# untouched.
 if [ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ] \
   && command -v systemctl >/dev/null 2>&1 && [ -s "$deployed_file" ]; then
   _reloaded=false
@@ -400,6 +402,7 @@ if [ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ] \
         systemctl --user daemon-reload 2>/dev/null || true
         _reloaded=true
       fi
+      systemctl --user is-enabled --quiet "$_timer" 2>/dev/null || continue
       systemctl --user reset-failed "$_timer" 2>/dev/null || true
       if systemctl --user restart "$_timer" 2>/dev/null; then
         echo "  Recovered systemd timer: $_timer"

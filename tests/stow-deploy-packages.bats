@@ -222,6 +222,38 @@ NOT_DEPLOYED=(tmuxinator ollama)
   grep -qF 'systemctl --user restart' "$SCRIPT"
 }
 
+@test "a \$HOME deploy restarts only the shipped timers that are enabled" {
+  [ "$(uname -s)" = Linux ] || skip "systemd timers are Linux-only"
+  command -v stow >/dev/null 2>&1 || skip "stow not installed"
+  fixture="$BATS_TEST_TMPDIR/fixture"
+  mkdir -p "$fixture/scripts"
+  cp "$SCRIPT" "$fixture/scripts/stow-deploy"
+  shared=$(grep '^SHARED_PACKAGES=' "$SCRIPT" | sed 's/.*(\(.*\))/\1/')
+  for pkg in $shared; do
+    mkdir -p "$fixture/stow/$pkg"
+    echo "$pkg" >"$fixture/stow/$pkg/dot-stow-sandbox-$pkg"
+  done
+  units="$fixture/stow/local/dot-config/systemd/user"
+  mkdir -p "$units"
+  printf '[Timer]\nOnCalendar=daily\n' >"$units/on.timer"
+  printf '[Timer]\nOnCalendar=daily\n' >"$units/off.timer"
+  # Stubs keep the live user manager and the real rustup out of it: off.timer reads as not enabled.
+  stubs="$BATS_TEST_TMPDIR/stubs"
+  mkdir -p "$stubs"
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\n[ "$*" != "--user is-enabled --quiet off.timer" ]\n' \
+    "$BATS_TEST_TMPDIR/systemctl.log" >"$stubs/systemctl"
+  printf '#!/bin/sh\necho minimal\n' >"$stubs/rustup"
+  chmod +x "$stubs"/*
+  target="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$target"
+  run env HOME="$target" STOW_DEPLOY_TARGET="$target" PATH="$stubs:$PATH" "$fixture/scripts/stow-deploy"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Recovered systemd timer: on.timer"* ]]
+  grep -qx -- '--user restart on.timer' "$BATS_TEST_TMPDIR/systemctl.log"
+  run grep -E -- '(restart|reset-failed) off\.timer' "$BATS_TEST_TMPDIR/systemctl.log"
+  [ "$status" -eq 1 ]
+}
+
 @test "systemd timer recovery is guarded to a real Linux \$HOME deploy" {
   # Must not touch the live user manager from a sandboxed test target or on
   # macOS (launchd); guard requires Linux AND TARGET == HOME.

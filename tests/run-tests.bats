@@ -97,9 +97,13 @@ _line_of() {
   # git hands hooks an absolute GIT_DIR that outranks `git -C`, so a fixture
   # built with `git -C "$sandbox"` would drive this repository instead. The
   # dispatcher unsets it; a test spawned through it must see it gone.
+  local vars="GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX GIT_NAMESPACE"
   printf '%s\n' '#!/usr/bin/env bats' '' '@test "probe" {' \
-    '  [ -z "${GIT_DIR:-}" ]' '}' >"$PROBE"
-  run env GIT_DIR=/nonexistent/git/dir "$SCRIPT" "tests/$(basename "$PROBE")"
+    "  for v in $vars; do [ -z \"\${!v:-}\" ] || { echo \"\$v leaked\"; false; }; done" '}' >"$PROBE"
+  run env GIT_DIR=/nonexistent/git/dir GIT_WORK_TREE=/nonexistent GIT_INDEX_FILE=/nonexistent/index \
+    GIT_COMMON_DIR=/nonexistent GIT_OBJECT_DIRECTORY=/nonexistent/objects \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES=/nonexistent/alt GIT_PREFIX=sub/ GIT_NAMESPACE=ns \
+    "$SCRIPT" "tests/$(basename "$PROBE")"
   [ "$status" -eq 0 ]
 }
 
@@ -172,18 +176,20 @@ _line_of() {
   [[ "$output" == *"ok 1 charlie probe"* ]]
 }
 
-@test "tests get a SIGINT they can trap even when run-tests starts in the background" {
-  # The hooks start run-tests as a background job, which hands it SIGINT
-  # ignored. A test that interrupts the code under test needs SIGINT trappable,
-  # and a bash that starts with it ignored can neither trap nor reset it.
+@test "tests get a SIGINT and SIGQUIT they can trap even when run-tests starts in the background" {
+  # The hooks start run-tests as a background job, which hands it SIGINT and
+  # SIGQUIT ignored. A test that interrupts the code under test needs them
+  # trappable, and a bash that starts with one ignored can neither trap nor reset it.
   _sandbox
-  local trappable
-  trappable="run bash -c 'trap \"exit 7\" INT; kill -INT \$\$; exit 0'; [ \"\$status\" -eq 7 ]"
-  _probe "$SANDBOX/tests/a.bats" "sigint probe" "$trappable"
-  _probe "$SANDBOX/tests/b.bats" "bravo probe" "[ 1 -eq 1 ]"
+  local sigint sigquit
+  sigint="run bash -c 'trap \"exit 7\" INT; kill -INT \$\$; exit 0'; [ \"\$status\" -eq 7 ]"
+  sigquit="run bash -c 'trap \"exit 8\" QUIT; kill -QUIT \$\$; exit 0'; [ \"\$status\" -eq 8 ]"
+  _probe "$SANDBOX/tests/a.bats" "sigint probe" "$sigint"
+  _probe "$SANDBOX/tests/b.bats" "sigquit probe" "$sigquit"
   run env RUN_TESTS_JOBS=2 bash -c '"$1" --no-perf & wait "$!"' _ "$SANDBOX/scripts/run-tests"
   [ "$status" -eq 0 ]
   [[ "$output" == *"ok 1 sigint probe"* ]]
+  [[ "$output" == *"ok 1 sigquit probe"* ]]
 }
 
 @test "RUN_TESTS_JOBS=1 restores the single combined stream" {

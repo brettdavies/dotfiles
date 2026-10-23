@@ -32,3 +32,4 @@ tests/tmux-new-session.bats	script resolves its config dir with no dotfiles prof
 tests/trash-mechanism.bats	trash resolves as a binary in a shell that reads no startup files	env -i with the inherited PATH models a launcher that reads no rc files, the case under test
 tests/obsidian-cli-wrapper.bats	an unset XDG_RUNTIME_DIR defaults to the user's runtime directory	the wrapper's fallback for a caller with no XDG_RUNTIME_DIR is the behavior under test; the stubbed CLI only echoes the value it receives
 tests/obsidian-cli-wrapper.bats	a caller's XDG_RUNTIME_DIR is left alone	the wrapper must pass a caller's XDG_RUNTIME_DIR through unchanged; the value points at the test's scratch dir and only the stubbed CLI reads it
+tests/stow-deploy-packages.bats	a \$HOME deploy restarts only the shipped timers that are enabled	the timer recovery runs only when the deploy target is HOME, so HOME and STOW_DEPLOY_TARGET both point at one sandbox and systemctl and rustup are stubs

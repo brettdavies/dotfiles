@@ -13,6 +13,6 @@ SyslogIdentifier=brew-upgrade
 # every later timer tick would find it already running.
 TimeoutStartSec=2h
 
-# Hardening
+# Hardening. No PrivateTmp=: in a user unit it brings a user namespace, from which the stale-process scan in
+# scripts/upgrade/lib/stale-procs.sh cannot read the executable of any process outside the unit.
 NoNewPrivileges=true
-PrivateTmp=true
