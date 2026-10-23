@@ -53,12 +53,25 @@ _succeeded_hours_ago() {
   [ -n "$(find "$stamp" -mmin -5)" ]
 }
 
-@test "with the network down the job does not run, nothing is printed, and no success is recorded" {
+@test "with the network down after a success 30 hours ago the job does not run and nothing is printed" {
+  _succeeded_hours_ago 30
   run env STUB_OFFLINE=1 PATH="$STUBS:$PATH" "$GATE" demo "$job"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
   [ ! -e "$ran" ]
+  [ -z "$(find "$stamp" -mmin -60)" ]
+}
+
+@test "with the network down and no success in 48 hours the gate warns on stderr and records nothing" {
+  run --separate-stderr env STUB_OFFLINE=1 PATH="$STUBS:$PATH" "$GATE" demo "$job"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [[ "$stderr" == "WARNING: demo: "* ]]
+  [ ! -e "$ran" ]
   [ ! -e "$stamp" ]
+  _succeeded_hours_ago 49
+  run --separate-stderr env STUB_OFFLINE=1 PATH="$STUBS:$PATH" "$GATE" demo "$job"
+  [[ "$stderr" == "WARNING: demo: "* ]]
 }
 
 @test "a failed job records no success and passes its exit status through" {

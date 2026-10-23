@@ -308,8 +308,10 @@ The `launchagent` package ships two agents that each upgrade at most once a day:
 hour and uv every hour at half past, and `scripts/upgrade/daily-gate.sh` lets a fire through only when the job has not
 succeeded in the last 20 hours and the network answers. A Mac asleep overnight wakes for a few seconds at a time with no
 network, so the day's run lands at the first hour the Mac is awake and online, brew half an hour ahead of uv, which `bu`
-upgrades. A skipped fire writes nothing to the logs. The gate records each success in
-`~/.local/state/dotfiles/<job>.last-success`, and deleting that file lets the next fire run.
+upgrades. A skipped fire writes nothing to the logs, except that an offline fire when the job has not succeeded in 48
+hours writes a `WARNING:` line to its `.error.log`, so a network check that never passes cannot stop the upgrades
+unnoticed. The gate records each success in `~/.local/state/dotfiles/<job>.last-success`, and deleting that file lets
+the next fire run.
 
 Their scripts in `scripts/upgrade/` load `config/shell/*.sh` because launchd reads no startup file, so the brew run
 keeps the shell's analytics opt-out and cache location, and the uv run refuses to start unless the release cooldown from
