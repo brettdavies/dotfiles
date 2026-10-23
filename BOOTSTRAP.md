@@ -349,6 +349,25 @@ both fires the two start together and that uv run may use the uv that `bu` is re
 `--greedy`, so it leaves alone the self-updating casks whose upgrade quits their app (Ghostty, Rectangle, Telegram,
 AppCleaner), which would otherwise close mid-session. A manual `bu` still upgrades them.
 
+### fseventsd memory check
+
+After a flood of file events, fseventsd can hold gigabytes it never gives back and keep a core busy for days, and every
+program that watches files through FSEvents stalls while it registers, Claude Code's startup included.
+`scripts/fseventsd-check.sh` compares the daemon's resident memory with ten times the memory budget launchd gives it
+(`jetsam memory limit` in `launchctl print system/com.apple.fseventsd`, 30 MB). When the daemon is over, the script
+prints one `WARNING:` line with the reset command and exits 1; otherwise it prints nothing. A SessionStart hook in
+`~/.claude/settings.json` runs it with `--claude-hook`, which turns the warning into hook JSON: every new Claude Code
+session shows it under the startup banner and adds it to Claude's context. The script also runs by hand.
+
+Restarting the daemon resets it, and launchd starts a new one at once:
+
+```bash
+sudo killall fseventsd
+```
+
+`launchctl kickstart` refuses the restart while System Integrity Protection is on. The restart erases the daemon's event
+history, so Spotlight, Dropbox, and iCloud Drive may rescan for a few minutes.
+
 ## Linux Server Setup
 
 ### Rust toolchains

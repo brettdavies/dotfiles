@@ -539,6 +539,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "~/dotfiles/scripts/fseventsd-check.sh --claude-hook",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
             "command": "command -v bd >/dev/null 2>&1 && bd prime || true"
           }
         ]
