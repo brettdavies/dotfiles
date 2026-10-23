@@ -58,9 +58,18 @@ cd "$REPO_ROOT"
 # GIT_DIR outranks `-C`, so a test building a fixture with `git -C "$sandbox"`
 # drives this repository instead of the fixture. Scrub the git environment for
 # the test run only, so the caller's own git calls keep resolving normally.
+#
+# A background job's commands can start with SIGINT and SIGQUIT ignored: the
+# hooks start this script as one, _run_parallel starts each suite as one, and
+# bash 5.3 ignores them even inside a brace-group job. No bash can trap or reset
+# a signal ignored at its own start, so a test that interrupts the code under
+# test would never see the trap fire. perl can reset it, so it restores the
+# defaults before exec'ing bats.
 _bats() {
+  # shellcheck disable=SC2016 # the $SIG and $ARGV in single quotes are perl's
   env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
     -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY \
+    perl -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "run-tests: exec $ARGV[0]: $!\n"' \
     bats "$@"
 }
 
