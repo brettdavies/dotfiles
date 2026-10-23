@@ -112,8 +112,9 @@ cd ~/dotfiles/stow
 
 # macOS (shared + desktop). The Linux-only packages are omitted: stow-deploy
 # skips rclone, obsidian, codex-proxy, and cargo on Darwin.
-# --ignore drops the systemd units that cross-platform packages carry.
-stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' \
+# --ignore drops the systemd units that cross-platform packages carry, and the
+# .DS_Store Finder leaves in a package, which collides with ~/.DS_Store.
+stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' --ignore='\.DS_Store$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
   rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent
 
@@ -132,7 +133,7 @@ them would shadow the source of truth. `ollama` is also absent — it targets `/
 
 ```bash
 cd ~/dotfiles/stow
-stow --dotfiles --no-folding --target="$HOME" -R <package>
+stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" -R <package>
 ```
 
 ## Install Packages from Brewfile
@@ -284,7 +285,7 @@ Apply the settings first, then load the agent:
 
 ```bash
 bash ~/dotfiles/scripts/cswap-autoswitch-deploy.sh
-cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" launchagent
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" launchagent
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.cswap-auto.plist
 ```
 
@@ -293,22 +294,31 @@ records without treating it as a crash.
 
 ### Scheduled brew and uv upgrades (launchd)
 
-The `launchagent` package ships two daily agents: `com.user.brew-upgrade` runs the `bu` shell function at 04:00, and
+The `launchagent` package ships two daily agents: `com.user.brew-upgrade` runs `bu --no-greedy` at 04:00, and
 `com.user.uv-tools-upgrade` runs `uv tool upgrade --all` at 04:30, half an hour after `bu`, which upgrades uv itself.
 Their scripts in `scripts/upgrade/` load `config/shell/*.sh` because launchd reads no startup file, so the brew run
 keeps the shell's analytics opt-out and cache location, and the uv run refuses to start unless the release cooldown from
 `config/shell/supply-chain.sh` is set. Load both once:
 
 ```bash
-cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" launchagent
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" launchagent
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.brew-upgrade.plist
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.uv-tools-upgrade.plist
+```
+
+A loaded agent keeps the command it was loaded with, so after a plist change unload it and load it again:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.user.brew-upgrade"
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.brew-upgrade.plist
 ```
 
 Each run appends JSON Lines to `~/Library/Logs/brew-upgrade.jsonl` or `~/Library/Logs/uv-tools-upgrade.jsonl`: a
 `run.start` event, one `output` event per line the tool printed, and a `run.end` event with the outcome, a stable
 `reason`, what changed, and a `next_step`. `scripts/upgrade/lib/run-log.sh` documents the schema. Anything the script
-itself writes to stderr lands in the matching `.error.log`, which stays empty on a healthy run.
+itself writes to stderr lands in the matching `.error.log`, which stays empty on a healthy run. Both agents start their
+job through `scripts/upgrade/launchd-run.sh`, which moves a log past 1 MiB to `<log>.1` before the run, replacing the
+one before, so each job keeps its current log and one previous.
 
 ```bash
 jaq -c 'select(.event == "run.end")' ~/Library/Logs/brew-upgrade.jsonl | tail -n 5
@@ -317,9 +327,9 @@ launchctl kickstart "gui/$(id -u)/com.user.brew-upgrade"
 ```
 
 A run missed during sleep happens on the next wake, and launchd has no way to order one agent after another, so after a
-night asleep both start together and the uv run may use the uv that `bu` is replacing. `bu` upgrades casks with
-`--greedy`, so an update to a cask whose upgrade quits its app (Ghostty, Rectangle, Telegram, AppCleaner) closes that
-app when the run lands.
+night asleep both start together and the uv run may use the uv that `bu` is replacing. The scheduled run skips
+`--greedy`, so it leaves alone the self-updating casks whose upgrade quits their app (Ghostty, Rectangle, Telegram,
+AppCleaner), which would otherwise close when the run lands at wake. A manual `bu` still upgrades them.
 
 ## Linux Server Setup
 
@@ -459,8 +469,8 @@ The `local` package ships `brew-upgrade` and `uv-tools-upgrade`, oneshot units o
 run the same `scripts/upgrade/` scripts as the macOS agents. The uv unit is ordered after the brew unit, so catch-up
 runs after downtime still upgrade uv first, and each unit has a start timeout (2 hours for brew, 1 hour for uv) so a
 wedged fetch fails the run instead of holding the unit. Like the server's other scheduled jobs they carry a host
-condition, so a deploy leaves them inert on every other Linux host, and `scripts/host-jobs-enable.sh` enables them with
-the rest:
+condition, so a deploy leaves them inert on every other Linux host. On the server, a deploy restarts only timers that
+are already enabled, so both stay off until `scripts/host-jobs-enable.sh` enables them with the rest:
 
 ```bash
 bash ~/dotfiles/scripts/host-jobs-enable.sh
@@ -475,6 +485,17 @@ journald files error lines at priority 3 and warnings at 4, and the `run_id` of 
 journalctl --user -t brew-upgrade -o cat | jaq -Rc 'fromjson? | select(.event == "run.end")' | tail -n 5
 journalctl --user -t brew-upgrade -t uv-tools-upgrade -p warning -o cat
 systemctl --user start brew-upgrade.service
+```
+
+An upgrade deletes the kegs it replaces while processes still run their binaries. After `bu`, the brew job restarts each
+long-running user service still running a removed binary (`caddy.service`, `qmd-serve.service`) with
+`systemctl --user try-restart`. Everything else on a removed binary is left running and reported as a warning: a
+oneshot, whose restart would rerun its job, and session processes such as tmux. The scan runs as you, so another user's
+processes, system services among them, are never seen. `run.end` lists each one under `stale_processes` with what was
+done:
+
+```bash
+journalctl --user -t brew-upgrade -o cat | jaq -Rc 'fromjson? | select(.event == "run.end") | .stale_processes' | tail -n 1
 ```
 
 Lingering must be on for the timers to fire while logged out (`loginctl enable-linger $USER`).

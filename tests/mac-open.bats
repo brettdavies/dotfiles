@@ -163,9 +163,7 @@ EOF
   chmod +x "$STUBS/$1"
 }
 
-# SIGINT reset to default: a CI runner or a background job can start bats with it
-# ignored, and bash cannot trap a signal that was ignored when it started.
-dispatch() { PATH="$STUBS:$PATH" run --separate-stderr env --default-signal=INT "$SCRIPT" "$@"; }
+dispatch() { PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" "$@"; }
 
 # A process whose /proc environment carries SSH_CONNECTION=$1 (none when empty),
 # standing in for a tmux client. Sets CLIENT_PID.

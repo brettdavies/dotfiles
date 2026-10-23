@@ -51,6 +51,12 @@ if ! command -v bats >/dev/null 2>&1; then
   exit "$EXIT_DEPENDENCY"
 fi
 
+if ! command -v perl >/dev/null 2>&1; then
+  echo "run-tests: perl not installed; it resets SIGINT and SIGQUIT before bats starts" >&2
+  echo "           install with: brew install perl" >&2
+  exit "$EXIT_DEPENDENCY"
+fi
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -68,7 +74,7 @@ cd "$REPO_ROOT"
 _bats() {
   # shellcheck disable=SC2016 # the $SIG and $ARGV in single quotes are perl's
   env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
-    -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY \
+    -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_NAMESPACE \
     perl -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "run-tests: exec $ARGV[0]: $!\n"' \
     bats "$@"
 }
