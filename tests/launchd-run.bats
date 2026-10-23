@@ -25,16 +25,23 @@ setup() {
   [ "$(cat "$logs/demo.error.log")" = "$(printf 'err a b\nerr c')" ]
 }
 
-@test "moves a log past 1 MiB to <log>.1 before the run, replacing the one before" {
-  head -c 1048577 /dev/zero | tr '\0' x >"$logs/demo.log"
-  head -c 1048577 /dev/zero | tr '\0' y >"$logs/demo.error.log"
-  echo older >"$logs/demo.log.1"
+# Over 1 MiB of 7-byte lines between a first and a last line, so the 1 MiB cut lands inside a line.
+_big_log() {
+  { echo first; yes filler | head -n 160000; echo last; } >"$1"
+}
+
+@test "cuts a log past 1 MiB down to its last 1 MiB from the first whole line, keeping no other copy" {
+  _big_log "$logs/demo.log"
+  _big_log "$logs/demo.error.log"
   run "$WRAPPER" demo.log "$job" run
   [ "$status" -eq 0 ]
-  [ "$(wc -c <"$logs/demo.log.1")" -eq 1048577 ]
-  [ "$(wc -c <"$logs/demo.error.log.1")" -eq 1048577 ]
-  [ "$(cat "$logs/demo.log")" = "out run" ]
-  [ "$(cat "$logs/demo.error.log")" = "err run" ]
+  [ ! -e "$logs/demo.log.1" ]
+  [ ! -e "$logs/demo.error.log.1" ]
+  [ "$(wc -c <"$logs/demo.log")" -le $((1048576 + 8)) ]
+  [ "$(head -n 1 "$logs/demo.log")" = filler ]
+  [ "$(tail -n 2 "$logs/demo.log")" = "$(printf 'last\nout run')" ]
+  [ "$(head -n 1 "$logs/demo.error.log")" = filler ]
+  [ "$(tail -n 2 "$logs/demo.error.log")" = "$(printf 'last\nerr run')" ]
 }
 
 @test "leaves a log of 1 MiB or less in place" {
