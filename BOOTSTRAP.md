@@ -461,8 +461,8 @@ The `local` package ships `brew-upgrade` and `uv-tools-upgrade`, oneshot units o
 run the same `scripts/upgrade/` scripts as the macOS agents. The uv unit is ordered after the brew unit, so catch-up
 runs after downtime still upgrade uv first, and each unit has a start timeout (2 hours for brew, 1 hour for uv) so a
 wedged fetch fails the run instead of holding the unit. Like the server's other scheduled jobs they carry a host
-condition, so a deploy leaves them inert on every other Linux host, and `scripts/host-jobs-enable.sh` enables them with
-the rest:
+condition, so a deploy leaves them inert on every other Linux host. On the server, a deploy restarts only timers that
+are already enabled, so both stay off until `scripts/host-jobs-enable.sh` enables them with the rest:
 
 ```bash
 bash ~/dotfiles/scripts/host-jobs-enable.sh
