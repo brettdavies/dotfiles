@@ -7,6 +7,11 @@
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 SCRIPT="$REPO_ROOT/scripts/tailscale-serve-deploy.sh"
 
+setup_file() {
+  load lib/platform
+  require_linux "the deploy installs a systemd unit for the Linux server and resolves its operator with getent"
+}
+
 setup() {
   WORK="$(mktemp -d)"
 }

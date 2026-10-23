@@ -138,6 +138,22 @@ _require_shellcheck() {
   [[ "$output" == *"SC2086"* ]]
 }
 
+@test "a shared test helper under tests/lib/ is linted" {
+  _require_shellcheck
+  local root="$BATS_TEST_TMPDIR/repo"
+  # --all walks the repo's standard directories in turn and stops at the first
+  # one missing, so the scratch tree carries the ones listed before tests/lib.
+  mkdir -p "$root/scripts" "$root/tests/lib" "$root/.githooks/lib" "$root/config/shell"
+  cp "$SCRIPT" "$root/scripts/lint-shell"
+  printf '%s\n' '# shellcheck shell=bash' 'helper() { echo $1; }' >"$root/tests/lib/helper.bash"
+  run "$root/scripts/lint-shell" tests/lib/helper.bash
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"SC2086"* ]]
+  run "$root/scripts/lint-shell" --all
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"In tests/lib/helper.bash line 2"* ]]
+}
+
 @test "tools-atime is linted together with the libraries it sources" {
   _require_shellcheck
   # Without -x the lib/ sources are SC1091 notes and their contents go unread.
