@@ -1,12 +1,13 @@
 #!/usr/bin/env bats
-# Tests for scripts/sync/sync_dev_to_icloud.sh. The script runs against a scratch tree through DEVTOSYNC_SOURCE and
-# DEVTOSYNC_DEST, never ~/dev or iCloud Drive.
+# Tests for scripts/sync/sync_dev_to_icloud.sh and the com.user.devtosync LaunchAgent that runs it. The script runs
+# against a scratch tree through DEVTOSYNC_SOURCE and DEVTOSYNC_DEST, never ~/dev or iCloud Drive.
 #
 # Run: bats tests/sync-dev-to-icloud.bats
 
 bats_require_minimum_version 1.5.0
 
 SCRIPT="$BATS_TEST_DIRNAME/../scripts/sync/sync_dev_to_icloud.sh"
+PLIST="$BATS_TEST_DIRNAME/../stow/launchagent/Library/LaunchAgents/com.user.devtosync.plist"
 
 _scratch_dev() {
   command -v rsync >/dev/null 2>&1 || skip "rsync not installed"
@@ -55,4 +56,9 @@ _snapshot() {
   [ "$status" -eq 0 ]
   [ "${#lines[@]}" -eq 1 ]
   [[ "${lines[0]}" == *": Synced $src to $dest" ]]
+}
+
+@test "the LaunchAgent runs the sync hourly through the launchd wrapper" {
+  grep -qF 'exec "$HOME/dotfiles/scripts/launchd-run.sh" devtosync.log "$HOME/dotfiles/scripts/sync/sync_dev_to_icloud.sh"</string>' "$PLIST"
+  grep -A1 '<key>StartInterval</key>' "$PLIST" | grep -qF '<integer>3600</integer>'
 }
