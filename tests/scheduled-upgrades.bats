@@ -6,6 +6,8 @@
 #
 # Run: bats tests/scheduled-upgrades.bats
 
+bats_require_minimum_version 1.5.0
+
 REPO_ROOT="$BATS_TEST_DIRNAME/.."
 UV_JOB="$REPO_ROOT/scripts/upgrade/uv-tools.sh"
 BREW_JOB="$REPO_ROOT/scripts/upgrade/brew.sh"
@@ -129,6 +131,19 @@ _assert_run_log() {
     "$(cut -d'|' -f1 "$BATS_TEST_TMPDIR/bu.log")" ]
   run grep -v '|1$' "$BREW_LOG"
   [ "$status" -eq 1 ]
+}
+
+@test "whatever a shell helper prints while loading goes to stderr, keeping the run log JSON" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  helpers="$BATS_TEST_TMPDIR/noisy-helpers"
+  mkdir -p "$helpers"
+  ln -s "$REPO_ROOT/config/shell/shell-functions" "$helpers/"
+  printf '%s\n' 'echo "stow: usage"' 'export HOMEBREW_NO_ANALYTICS=1' >"$helpers/noisy.sh"
+  run --separate-stderr env DOTFILES_SHELL_DIR="$helpers" PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  [ "$status" -eq 0 ]
+  _assert_run_log brew-upgrade
+  [ "$stderr" = "stow: usage" ]
+  [ "$(printf '%s\n' "$output" | head -n 1 | jaq -r .settings.HOMEBREW_NO_ANALYTICS)" = 1 ]
 }
 
 @test "brew job reports a failed bu with its first error and how to rerun it" {
