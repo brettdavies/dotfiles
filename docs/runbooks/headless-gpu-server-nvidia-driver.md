@@ -227,6 +227,39 @@ boot-time fallback.
 
 ---
 
+## Procedure D: add an optional NVIDIA userspace library
+
+Use this for NVENC and NVDEC (`libnvidia-encode`, `libnvidia-decode`) or any other optional `libnvidia-*` package. The
+driver is the `-server` branch, so take the `-server` package at the installed driver version. The plain name
+(`libnvidia-encode-580`) is the non-server branch, and the NVIDIA CUDA apt repository on this box
+(`/etc/apt/preferences.d/cuda-repository-pin-600` sets priority 600 for it) makes that build the default candidate. A
+simulated install of the plain name removes `nvidia-headless-580-server-open` and `libnvidia-compute-580-server`.
+
+```bash
+# 1. Installed driver version.
+V=$(dpkg-query -W -f='${Version}' nvidia-headless-580-server-open)
+
+# 2. Confirm the -server package is available at that version (Ubuntu's archive).
+apt-cache policy libnvidia-encode-580-server
+
+# 3. Simulate without root. Expect only Inst lines and "0 upgraded, ... 0 to remove".
+apt-get install -s "libnvidia-encode-580-server=$V" | grep -E '^(Inst|Remv)|upgraded'
+
+# 4. Baseline the GPU consumers, then install.
+~/.local/bin/qmd-gpu-verify
+sudo apt-get install -y "libnvidia-encode-580-server=$V"
+
+# 5. Verify the library and re-run the consumer checks.
+ldconfig -p | grep libnvidia-encode
+~/.local/bin/qmd-gpu-verify
+```
+
+The encode package pulls in `libnvidia-decode-580-server` at the same version. Remove the same way: `apt-get remove -s`
+with the package names must list only those packages under `Remv`. For the why, see
+[`docs/solutions/configuration-fixes/nvidia-addon-userspace-packages-match-driver-branch-and-version.md`](../solutions/configuration-fixes/nvidia-addon-userspace-packages-match-driver-branch-and-version.md).
+
+---
+
 ## Concerns that will resurface on any rerun
 
 - `lsof /dev/nvidia*` must be empty before any `modprobe` swap. Any leaked handle from a previous driver generation will

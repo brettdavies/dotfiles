@@ -40,6 +40,11 @@ bats_require_minimum_version 1.5.0
 MAC_ADDR="100.64.0.10"
 OTHER_ADDR="100.64.0.20"
 
+setup_file() {
+  load lib/platform
+  require_linux "mac-open is the server half; it reads /proc and runs GNU realpath -e and stat -c"
+}
+
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
   MACHOME="$BATS_TEST_TMPDIR/machome"
@@ -158,7 +163,9 @@ EOF
   chmod +x "$STUBS/$1"
 }
 
-dispatch() { PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" "$@"; }
+# SIGINT reset to default: a CI runner or a background job can start bats with it
+# ignored, and bash cannot trap a signal that was ignored when it started.
+dispatch() { PATH="$STUBS:$PATH" run --separate-stderr env --default-signal=INT "$SCRIPT" "$@"; }
 
 # A process whose /proc environment carries SSH_CONNECTION=$1 (none when empty),
 # standing in for a tmux client. Sets CLIENT_PID.
@@ -284,7 +291,8 @@ ya_line() {
   nojq="$BATS_TEST_TMPDIR/nojq"
   mkdir -p "$nojq"
   for f in /usr/bin/* /bin/*; do
-    case ${f##*/} in jq | jaq) ;; *) [[ -e $nojq/${f##*/} ]] || ln -s "$f" "$nojq/" ;; esac
+    # -L too: a dangling link already in $nojq fails -e, and /bin is /usr/bin on merged-usr hosts.
+    case ${f##*/} in jq | jaq) ;; *) [[ -e $nojq/${f##*/} || -L $nojq/${f##*/} ]] || ln -s "$f" "$nojq/" ;; esac
   done
   PATH="$STUBS:$nojq" run --separate-stderr "$SCRIPT" edit "$FIX/dev/n.md"
   [ "$status" -eq 1 ]

@@ -149,7 +149,7 @@ inspect_render_freeable() {
   printf '%-8s  %-8s  ALL %d archives (total / disk-freeable)\n' \
     "$(human_size "$total")" "$(human_size "$free_total")" "${#rows[@]}"
   printf '         FREEABLE counts bytes whose inode lives only in the cache (nlinks=1).\n'
-  printf '         `uv cache prune` is conservative; `uv cache clean` would reclaim the max.\n'
+  printf "         \`uv cache prune\` is conservative; \`uv cache clean\` would reclaim the max.\n"
 }
 
 inspect_render_freeable_json() {

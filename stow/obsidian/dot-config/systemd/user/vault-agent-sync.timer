@@ -1,0 +1,10 @@
+[Unit]
+Description=Mirror the vault's agent workspace to the NAS hourly
+ConditionHost=bigdaddy
+
+[Timer]
+OnCalendar=*-*-* *:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

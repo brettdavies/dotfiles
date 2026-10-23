@@ -139,11 +139,12 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
-@test "the deploy script is executable and enumerated as a lint target" {
+@test "the deploy script is executable and a lint target" {
   [ -x "$DEPLOY" ]
-  grep -q 'scripts/cswap-autoswitch-deploy.sh' "$LINT_SHELL"
-  # Present in both _is_target and _all_targets, or lint skips it silently.
-  [ "$(grep -c 'scripts/cswap-autoswitch-deploy.sh' "$LINT_SHELL")" -ge 2 ]
+  command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
+  run "$LINT_SHELL" scripts/cswap-autoswitch-deploy.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"1 file(s) clean"* ]]
 }
 
 # --- Settings the script applies ---

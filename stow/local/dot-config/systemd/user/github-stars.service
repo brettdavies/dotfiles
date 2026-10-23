@@ -1,0 +1,14 @@
+[Unit]
+Description=Sync starred GitHub repos and their clones
+ConditionHost=bigdaddy
+OnSuccess=github-stars-pdf.service
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-%h/.config/github-stars/env
+ExecStart=%h/.local/bin/github-stars -j 8
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true

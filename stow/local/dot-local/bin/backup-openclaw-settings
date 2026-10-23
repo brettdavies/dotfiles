@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Back up OpenClaw's settings to the NAS: config, credentials, cron, extensions, memory and completions. Venvs and
+# models stay out (8 GB+, all recoverable).
+#
+# Log: ~/.openclaw/logs/backup-openclaw-settings.log, which OpenClaw's system-cron-monitor picks up along with every
+# other ~/.openclaw/logs/*.log.
+set -euo pipefail
+
+DEST="root@pool:/mnt/user/openclaw/bigdaddy-backup/settings"
+WRAPPER="$HOME/.openclaw/tailscale-ssh-wrapper"
+LOG="$HOME/.openclaw/logs/backup-openclaw-settings.log"
+
+exec >>"$LOG" 2>&1
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting OpenClaw settings backup..."
+
+rsync -az \
+  "$HOME/.openclaw/openclaw.json" \
+  "$HOME/.openclaw/credentials" \
+  "$HOME/.openclaw/cron" \
+  "$HOME/.openclaw/extensions" \
+  "$HOME/.openclaw/memory" \
+  "$HOME/.openclaw/completions" \
+  -e "$WRAPPER" \
+  "$DEST/"
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Backup completed successfully"

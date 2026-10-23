@@ -54,7 +54,7 @@ dotfiles/
 │   ├── sshd-locale-deploy.sh  Strip LANG/LC_* from sshd AcceptEnv so sessions use the server locale
 │   ├── playwright-browsers-deploy.sh  Playwright browser binaries into the shared cache (curl + unzip)
 │   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (binaries + apparmor + opt-in browser deps)
-│   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, opendataloader-pdf)
+│   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, host-jobs)
 │   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama, svc:codex-proxy)
 │   ├── tailscale-serve-deploy.sh  System unit that re-runs the serve setup on every tailscaled start
 │   ├── macos-gpu-monitor.sh       Metal GPU residency/power trace around any command (macOS)
@@ -106,12 +106,11 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `gogcli`             | `.config/gogcli/config.json` — Google Workspace CLI config                                                                       |
 | `launchagent`        | `~/Library/LaunchAgents/` (macOS only)                                                                                           |
 | `lazygit`            | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52                                                                     |
-| `local`              | `.local/bin/` — signing, prose, session, qmd, and commit helpers (see [Local Binaries](#local-binaries))                         |
+| `local`              | `.local/bin/` — signing, prose, session, qmd, and commit helpers (see [Local Binaries](#local-binaries)); systemd timers (Linux) |
 | `micro`              | `.config/micro/settings.json` — editor settings                                                                                  |
-| `obsidian`           | `.config/obsidian/`, systemd service, CLI wrapper (Linux only)                                                                   |
+| `obsidian`           | `.config/obsidian/`, systemd service, CLI wrapper, vault-mirror timers (Linux only)                                              |
 | `ollama`             | systemd service override binding Ollama to loopback `127.0.0.1:11434`; system-level, stowed into `/etc` with `sudo` (Linux only) |
 | `opencode`           | `.config/opencode/config.json`                                                                                                   |
-| `opendataloader-pdf` | Socket-activated hybrid PDF server with idle-exit, systemd user units (Linux only)                                               |
 | `pip`                | `.config/pip/pip.conf`                                                                                                           |
 | `qmd`                | `.local/bin/qmd` wrapper (both platforms) + systemd user units for the qmd-serve daemon and index timers (Linux)                 |
 | `rclone`             | `.config/rclone/`, Box bisync systemd service + timer (Linux only)                                                               |
@@ -136,25 +135,28 @@ The `local` package deploys `stow/local/dot-local/bin/` to `~/.local/bin/`. Thes
 hooks, systemd units, and agent tooling call them by name, so each one resolves the same way on every host without
 knowing where the underlying implementation lives.
 
-| Binary                  | Purpose                                                                                     |
-| ----------------------- | ------------------------------------------------------------------------------------------- |
-| `brave-search`          | Query the Brave Search API, printing ranked results as plain text or raw JSON               |
-| `charcount`             | Count characters against platform length caps, exiting non-zero so it gates in scripts      |
-| `env`                   | Put `~/.local/bin` on `PATH` for user-installed binaries                                    |
-| `gh-revision-audit`     | List your issues and PRs that still carry prior edit revisions on GitHub                    |
-| `gstack-config-apply`   | Converge `~/.gstack/config.yaml`, which gstack rewrites and so cannot be a stow package     |
-| `mac-open`              | Open a file from yazi on a Linux host on the Mac the session is driven from                 |
-| `mac-open-here`         | The Mac half of `mac-open`, run over SSH: open a host file in VS Code or the default app    |
-| `op-ssh-sign-wrapper`   | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless      |
-| `qmd-gpu-verify`        | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU             |
-| `qmd-ollama-unload-all` | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely  |
-| `sd-commit-doc`         | Commit and push `docs/solutions/` files from the shared clone without racing another agent  |
-| `tmux-new-session`      | Write a tmuxinator config for a repo and start its 3-pane session                           |
-| `transcribe-diarize`    | Local GPU speaker-diarized transcription (ffmpeg → whisperx → pyannote)                     |
-| `unslop`                | Machine-level entry point for the prose scorer, resolved through `~/.claude/skills`         |
-| `unslop-gate`           | Git-hook prose gate over `unslop`, scoring only the markdown in the change being pushed     |
-| `uuidv7`                | Print a time-ordered UUIDv7, used for collision-proof `/tmp` artifact names                 |
-| `xurl`                  | Real `xurl` on `PATH` that execs xurl-rs's `xr`, for callers that load no interactive alias |
+| Binary                     | Purpose                                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `backup-openclaw-settings` | Back up OpenClaw's settings to the NAS, run daily by `openclaw-settings-backup.timer`          |
+| `brave-search`             | Query the Brave Search API, printing ranked results as plain text or raw JSON                  |
+| `charcount`                | Count characters against platform length caps, exiting non-zero so it gates in scripts         |
+| `env`                      | Put `~/.local/bin` on `PATH` for user-installed binaries                                       |
+| `gh-revision-audit`        | List your issues and PRs that still carry prior edit revisions on GitHub                       |
+| `github-stars`             | Clone and update starred GitHub repos under `~/github-stars`, run by the `github-stars` timers |
+| `github-stars-pdf`         | Markdown copies of star PDFs marked `convert` in `pdfs.tsv` for qmd; reports new PDFs          |
+| `gstack-config-apply`      | Converge `~/.gstack/config.yaml`, which gstack rewrites and so cannot be a stow package        |
+| `mac-open`                 | Open a file from yazi on a Linux host on the Mac the session is driven from                    |
+| `mac-open-here`            | The Mac half of `mac-open`, run over SSH: open a host file in VS Code or the default app       |
+| `op-ssh-sign-wrapper`      | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless         |
+| `qmd-gpu-verify`           | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU                |
+| `qmd-ollama-unload-all`    | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely     |
+| `sd-commit-doc`            | Commit and push `docs/solutions/` files from the shared clone without racing another agent     |
+| `tmux-new-session`         | Write a tmuxinator config for a repo and start its 3-pane session                              |
+| `transcribe-diarize`       | Local GPU speaker-diarized transcription (ffmpeg → whisperx → pyannote)                        |
+| `unslop`                   | Machine-level entry point for the prose scorer, resolved through `~/.claude/skills`            |
+| `unslop-gate`              | Git-hook prose gate over `unslop`, scoring only the markdown in the change being pushed        |
+| `uuidv7`                   | Print a time-ordered UUIDv7, used for collision-proof `/tmp` artifact names                    |
+| `xurl`                     | Real `xurl` on `PATH` that execs xurl-rs's `xr`, for callers that load no interactive alias    |
 
 ### Tmuxinator Sessions
 
@@ -395,7 +397,7 @@ the GitHub Release body. See [RELEASES.md](RELEASES.md).
 
 Shell scripts are tested with [bats-core](https://github.com/bats-core/bats-core) (`scripts/run-tests --all`). Suites
 cover stow-deploy and its package sets, git hooks and the gate dispatchers, the shell config chain and its `PATH`
-matrix, supply-chain age gates, symlinks, the qmd-serve and opendataloader-pdf units, tmuxinator configs, and the CLI
+matrix, supply-chain age gates, symlinks, the qmd-serve units, tmuxinator configs, and the CLI
 wrappers.
 
 ## Performance
