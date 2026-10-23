@@ -48,6 +48,12 @@ _stale_procs_settle() { # <own-unit> <kind> <unit> <exe> <pids>
 # Usage: stale_procs_restart <proc-root> <prefix>
 stale_procs_restart() {
   local own items='' settled='|' group='' g_kind='' g_unit='' g_exe='' pids='' kind unit exe pid
+  # Inside a user namespace (which PrivateTmp= gives a user unit) every process outside it reads as blank, so a scan
+  # that cannot read its own parent would find nothing and claim nothing is stale.
+  if [ -e "$1/$PPID" ] && ! readlink "$1/$PPID/exe" >/dev/null 2>&1; then
+    run_log_note warning "Warning: cannot read the executable of the job's parent (pid $PPID), so stale processes are not checked; a user unit with PrivateTmp= runs in a user namespace that hides them"
+    return 0
+  fi
   own=$(_stale_procs_unit "$1/self/cgroup" | cut -f2)
   while IFS=$'\t' read -r kind unit exe pid; do
     if [ "$kind/$unit/$exe" != "$group" ]; then

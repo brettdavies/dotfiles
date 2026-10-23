@@ -242,6 +242,24 @@ _fake_proc() {
     and .line == "restarted caddy.service, which was running the removed /opt/brew/Cellar/caddy/2/bin/caddy")' | grep -q .
 }
 
+@test "a scan that cannot read its parent's executable reports stale processes as unchecked" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  PROC="$BATS_TEST_TMPDIR/proc"
+  _fake_proc 101 "/opt/brew/Cellar/caddy/2/bin/caddy (deleted)" /user.slice/user-1000.slice/user@1000.service/app.slice/caddy.service
+  run env PATH="$STUBS:$PATH" bash -c '
+    mkdir -p "$2/$PPID/exe"
+    . "$1/run-log.sh"; . "$1/stale-procs.sh"
+    RUN_JOB=brew-upgrade RUN_ID=x RUN_HOST="\"h\"" RUN_LOG_JOURNALD=0 RUN_WARNINGS=0 RUN_STALE=null
+    stale_procs_restart "$2" /opt/brew
+    printf "%s\n%s\n" "$RUN_WARNINGS" "$RUN_STALE"' _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | tail -n 1)" = null ]
+  [ "$(printf '%s\n' "$output" | tail -n 2 | head -n 1)" = 1 ]
+  printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning"
+    and (.line | startswith("Warning: cannot read the executable of the job'"'"'s parent")))' | grep -q .
+  [ ! -e "$SYSTEMCTL_LOG" ]
+}
+
 @test "brew job reports a process still running a binary the upgrade removed" {
   [ -d /proc/self/fd ] || skip "the scan reads /proc"
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
@@ -313,6 +331,9 @@ _agent_runs_daily_at() {
   grep -qx 'SyslogIdentifier=uv-tools-upgrade' "$UNITS/uv-tools-upgrade.service"
   grep -qx 'TimeoutStartSec=2h' "$UNITS/brew-upgrade.service"
   grep -qx 'TimeoutStartSec=1h' "$UNITS/uv-tools-upgrade.service"
+  # PrivateTmp= puts a user unit in a user namespace, where the stale-process scan reads every other process as blank.
+  run grep -q '^PrivateTmp=' "$UNITS/brew-upgrade.service"
+  [ "$status" -eq 1 ]
   grep -qx 'After=network-online.target brew-upgrade.service' "$UNITS/uv-tools-upgrade.service"
   grep -qx 'OnCalendar=\*-\*-\* 04:00:00' "$UNITS/brew-upgrade.timer"
   grep -qx 'OnCalendar=\*-\*-\* 04:30:00' "$UNITS/uv-tools-upgrade.timer"
