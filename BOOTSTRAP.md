@@ -308,7 +308,9 @@ launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.uv-tools-upgr
 Each run appends JSON Lines to `~/Library/Logs/brew-upgrade.jsonl` or `~/Library/Logs/uv-tools-upgrade.jsonl`: a
 `run.start` event, one `output` event per line the tool printed, and a `run.end` event with the outcome, a stable
 `reason`, what changed, and a `next_step`. `scripts/upgrade/lib/run-log.sh` documents the schema. Anything the script
-itself writes to stderr lands in the matching `.error.log`, which stays empty on a healthy run.
+itself writes to stderr lands in the matching `.error.log`, which stays empty on a healthy run. Both agents start their
+job through `scripts/upgrade/launchd-run.sh`, which moves a log past 1 MiB to `<log>.1` before the run, replacing the
+one before, so each job keeps its current log and one previous.
 
 ```bash
 jaq -c 'select(.event == "run.end")' ~/Library/Logs/brew-upgrade.jsonl | tail -n 5

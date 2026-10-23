@@ -21,7 +21,7 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec "$HOME/dotfiles/scripts/upgrade/brew.sh" &gt;&gt; "$HOME/Library/Logs/brew-upgrade.jsonl" 2&gt;&gt; "$HOME/Library/Logs/brew-upgrade.error.log"</string>
+        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec "$HOME/dotfiles/scripts/upgrade/launchd-run.sh" brew.sh</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
