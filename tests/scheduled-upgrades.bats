@@ -607,6 +607,8 @@ _stop_wrapper() { # <env-assignment>...
   _stop_wrapper UPGRADE_LOG_DIR="$logs" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_BREW_SLOW=29 \
     STUB_BREW_IGNORE_TERM=1 PATH="$STUBS:$PATH"
   [ $((SECONDS - t0)) -lt 6 ]
+  # The wrapper's 10-second stop timer is gone with it, not left to fire at a finished job.
+  [ "$(pgrep -f '[s]leep 10; kill' | wc -l)" -eq 0 ]
   [ "$stop_status" -eq 143 ]
   [ "$elapsed" -lt 5 ]
   [ "$left" -eq 0 ]
