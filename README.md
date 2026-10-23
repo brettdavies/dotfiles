@@ -54,7 +54,7 @@ dotfiles/
 │   ├── sshd-locale-deploy.sh  Strip LANG/LC_* from sshd AcceptEnv so sessions use the server locale
 │   ├── playwright-browsers-deploy.sh  Playwright browser binaries into the shared cache (curl + unzip)
 │   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (binaries + apparmor + opt-in browser deps)
-│   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, opendataloader-pdf, host-jobs)
+│   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, host-jobs)
 │   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama, svc:codex-proxy)
 │   ├── tailscale-serve-deploy.sh  System unit that re-runs the serve setup on every tailscaled start
 │   ├── macos-gpu-monitor.sh       Metal GPU residency/power trace around any command (macOS)
@@ -111,7 +111,6 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `obsidian`           | `.config/obsidian/`, systemd service, CLI wrapper, vault-mirror timers (Linux only)                                              |
 | `ollama`             | systemd service override binding Ollama to loopback `127.0.0.1:11434`; system-level, stowed into `/etc` with `sudo` (Linux only) |
 | `opencode`           | `.config/opencode/config.json`                                                                                                   |
-| `opendataloader-pdf` | Socket-activated hybrid PDF server with idle-exit, systemd user units (Linux only)                                               |
 | `pip`                | `.config/pip/pip.conf`                                                                                                           |
 | `qmd`                | `.local/bin/qmd` wrapper (both platforms) + systemd user units for the qmd-serve daemon and index timers (Linux)                 |
 | `rclone`             | `.config/rclone/`, Box bisync systemd service + timer (Linux only)                                                               |
@@ -398,7 +397,7 @@ the GitHub Release body. See [RELEASES.md](RELEASES.md).
 
 Shell scripts are tested with [bats-core](https://github.com/bats-core/bats-core) (`scripts/run-tests --all`). Suites
 cover stow-deploy and its package sets, git hooks and the gate dispatchers, the shell config chain and its `PATH`
-matrix, supply-chain age gates, symlinks, the qmd-serve and opendataloader-pdf units, tmuxinator configs, and the CLI
+matrix, supply-chain age gates, symlinks, the qmd-serve units, tmuxinator configs, and the CLI
 wrappers.
 
 ## Performance

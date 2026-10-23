@@ -35,7 +35,6 @@ _require_unlocked_checkout() {
   [[ "$shared" == *"claude"* ]]
   [[ "$shared" == *"local"* ]]
   [[ "$shared" == *"brew"* ]]
-  [[ "$shared" == *"opendataloader-pdf"* ]]
   [[ "$shared" == *"codex-proxy"* ]]
 }
 
@@ -67,7 +66,7 @@ _require_unlocked_checkout() {
   #
   # cswap ships systemd units only; macOS schedules the same rotation check
   # through the launchagent package instead.
-  grep -qE 'rclone *\| *obsidian *\| *opendataloader-pdf *\| *codex-proxy *\| *cargo *\| *cswap *\)' "$SCRIPT"
+  grep -qE 'rclone *\| *obsidian *\| *codex-proxy *\| *cargo *\| *cswap *\)' "$SCRIPT"
 }
 
 @test "STOW_FLAGS always ignores .DS_Store" {
@@ -77,8 +76,7 @@ _require_unlocked_checkout() {
 
 @test "STOW_FLAGS ignores systemd units on macOS only" {
   # Linux .service/.timer files scattered inside otherwise-shared packages
-  # (stow/local, stow/rclone, stow/rust, stow/obsidian,
-  # stow/opendataloader-pdf) must not symlink to ~/.config/systemd/user/
+  # (stow/local, stow/rclone, stow/rust, stow/obsidian) must not symlink to ~/.config/systemd/user/
   # on a Mac. File-extension regex is required because stow's --ignore
   # filters file basenames, not directory names. The pattern lives inside
   # an explicit Darwin gate.
