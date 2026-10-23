@@ -21,7 +21,8 @@
 #
 # outcome follows the exit status alone, so a successful run can still report errors > 0 when the tool printed error
 # lines and exited 0. A run that dies after run.start, from a failed command or a kill such as the systemd start
-# timeout, still ends with a run.end whose reason is script-error.
+# timeout, still ends with a run.end whose reason is script-error; a SIGTERM exits 143 and a SIGINT 130, and run.end
+# carries the same exit_code.
 #
 # When stdout is the journal, each line also starts with a syslog priority prefix (<3> error, <4> warning, <6> info),
 # which journald strips and records as PRIORITY, so `journalctl --user -p err` lists failed runs.
@@ -71,6 +72,9 @@ run_log_start() {
     fi
   done
   trap '_run_log_exit $?' EXIT
+  # A kill runs the EXIT trap with $? still 0, so the signal traps pass the status the shell would have exited with.
+  trap '_run_log_exit 143' TERM
+  trap '_run_log_exit 130' INT
   _run_log_emit 6 run.start "\"os\":\"$RUN_OS\",\"trigger\":\"$trigger\",\"pid\":$$,\"command\":$(_run_log_str "$2"),\"tool_version\":$(_run_log_str "$3"),\"settings\":{$settings}"
 }
 

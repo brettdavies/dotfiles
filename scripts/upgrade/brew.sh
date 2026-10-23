@@ -19,7 +19,8 @@ _brew_versions() {
   brew list --versions 2>/dev/null | awk '{ print $1, $NF }'
 }
 
-run_log_start brew-upgrade "bu --no-greedy" "$(brew --version 2>&1 | head -n 1)" HOMEBREW_NO_ANALYTICS HOMEBREW_CACHE
+run_log_start brew-upgrade "bu --no-greedy" "$(brew --version 2>&1 | head -n 1)" HOMEBREW_NO_ANALYTICS HOMEBREW_CACHE \
+  UPGRADE_RESTART_SETTLE_SECS
 run_log_upgrade _brew_versions bu --no-greedy
 if [ "$RUN_OS" = Linux ] && prefix=$(brew --prefix 2>/dev/null); then
   stale_procs_restart /proc "$prefix"
