@@ -92,6 +92,15 @@ _line_of() {
   [ "$status" -eq 1 ]
 }
 
+@test "without perl the runner exits 3 naming it, before any suite runs" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "alpha probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_PERL=/nonexistent/perl "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"run-tests: perl not installed"* ]]
+  [[ "$output" != *"alpha probe"* ]]
+}
+
 @test "the git environment is scrubbed for the test run" {
   _require_bats
   # git hands hooks an absolute GIT_DIR that outranks `git -C`, so a fixture
