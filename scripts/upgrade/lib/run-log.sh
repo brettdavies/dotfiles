@@ -16,7 +16,8 @@
 #              message, duration_s, errors, warnings, first_error, changes [{name, from, to}] with null for an added
 #              or removed package (changes itself is null when the run ended before comparing versions or a version
 #              listing failed, which also logs a warning), next_step {action (none | inspect-config | rerun), command,
-#              docs}
+#              docs}, stale_processes [{unit, exe, pids, action}] from lib/stale-procs.sh, null when the job does not
+#              check
 #
 # outcome follows the exit status alone, so a successful run can still report errors > 0 when the tool printed error
 # lines and exited 0. A run that dies after run.start, from a failed command or a kill such as the systemd start
@@ -49,7 +50,7 @@ run_log_start() {
   # Ubuntu ships uuidgen in an optional package; the kernel's generator needs nothing installed.
   RUN_ID=${INVOCATION_ID:-$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr '[:upper:]' '[:lower:]')}
   RUN_HOST=$(_run_log_str "$(hostname -s)")
-  RUN_ERRORS=0 RUN_WARNINGS=0 RUN_FIRST_ERROR=
+  RUN_ERRORS=0 RUN_WARNINGS=0 RUN_FIRST_ERROR='' RUN_CHANGES=null RUN_STALE=null
   # systemd.exec(5): a child can inherit JOURNAL_STREAM after its stdout moved elsewhere, so it names the journal only
   # while it still matches stdout's device and inode.
   RUN_LOG_JOURNALD=0
@@ -131,27 +132,31 @@ run_log_changes() {
     }'
 }
 
-_run_log_warn() { # <line>
-  RUN_WARNINGS=$((RUN_WARNINGS + 1))
-  _run_log_emit 4 output "\"level\":\"warning\",\"line\":$(_run_log_str "$1")"
+# Usage: run_log_note <info | warning> <line>
+# Emits an output event for a line the job writes itself, counting a warning toward run.end.
+run_log_note() {
+  local priority=6
+  if [ "$1" = warning ]; then
+    priority=4 RUN_WARNINGS=$((RUN_WARNINGS + 1))
+  fi
+  _run_log_emit "$priority" output "\"level\":\"$1\",\"line\":$(_run_log_str "$2")"
 }
 
 # Usage: run_log_upgrade <list-command> <command> [args...]
 # Runs the command under run_log_capture between two runs of <list-command>, which prints "name version" lines, and
-# finishes the run with the packages whose version changed. A listing that fails would make every package look added
-# or removed, so changes is null instead.
+# sets RUN_CHANGES to the packages whose version changed. A listing that fails would make every package look added or
+# removed, so RUN_CHANGES stays null instead.
 run_log_upgrade() {
-  local list=$1 before after failed='' changes=null
+  local list=$1 before after failed=''
   shift
   before=$("$list") || failed="before the upgrade"
   run_log_capture "$@"
   after=$("$list") || failed="${failed:+$failed and }after the upgrade"
   if [ -z "$failed" ]; then
-    changes=$(run_log_changes "$before" "$after")
+    RUN_CHANGES=$(run_log_changes "$before" "$after")
   else
-    _run_log_warn "Warning: listing installed versions failed $failed; changes are not reported"
+    run_log_note warning "Warning: listing installed versions failed $failed; changes are not reported"
   fi
-  run_log_complete "$changes"
 }
 
 _run_log_exit() { # <exit-status>
@@ -171,16 +176,17 @@ run_log_finish() {
     next_step="{\"action\":\"$5\",\"command\":$(_run_log_str "$6"),\"docs\":\"$RUN_LOG_DOCS#scheduled-brew-and-uv-upgrades-$scheduler\"}"
   fi
   [ -z "$RUN_FIRST_ERROR" ] || first_error=$(_run_log_str "$RUN_FIRST_ERROR")
-  _run_log_emit "$priority" run.end "\"outcome\":\"$outcome\",\"exit_code\":$1,\"reason\":\"$2\",\"message\":$(_run_log_str "$3"),\"duration_s\":$((SECONDS - RUN_STARTED)),\"errors\":$RUN_ERRORS,\"warnings\":$RUN_WARNINGS,\"first_error\":$first_error,\"changes\":$4,\"next_step\":$next_step"
+  _run_log_emit "$priority" run.end "\"outcome\":\"$outcome\",\"exit_code\":$1,\"reason\":\"$2\",\"message\":$(_run_log_str "$3"),\"duration_s\":$((SECONDS - RUN_STARTED)),\"errors\":$RUN_ERRORS,\"warnings\":$RUN_WARNINGS,\"first_error\":$first_error,\"changes\":$4,\"next_step\":$next_step,\"stale_processes\":$RUN_STALE"
   exit "$1"
 }
 
-# Usage: run_log_complete <changes-json>
-# Finishes the run from RUN_STATUS, pointing a failure at a rerun of the calling script by its absolute path.
+# Usage: run_log_complete
+# Finishes the run from RUN_STATUS and RUN_CHANGES, pointing a failure at a rerun of the calling script by its absolute
+# path.
 run_log_complete() {
   if [ "$RUN_STATUS" -eq 0 ]; then
-    run_log_finish 0 ok "$RUN_COMMAND succeeded" "$1"
+    run_log_finish 0 ok "$RUN_COMMAND succeeded" "$RUN_CHANGES"
   else
-    run_log_finish "$RUN_STATUS" upgrade-failed "$RUN_COMMAND exited $RUN_STATUS" "$1" rerun "$RUN_SCRIPT"
+    run_log_finish "$RUN_STATUS" upgrade-failed "$RUN_COMMAND exited $RUN_STATUS" "$RUN_CHANGES" rerun "$RUN_SCRIPT"
   fi
 }

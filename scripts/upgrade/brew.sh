@@ -8,6 +8,8 @@ lib_dir="$(dirname "${BASH_SOURCE[0]}")/lib"
 . "$lib_dir/shell-env.sh"
 # shellcheck source=lib/run-log.sh
 . "$lib_dir/run-log.sh"
+# shellcheck source=lib/stale-procs.sh
+. "$lib_dir/stale-procs.sh"
 set -euo pipefail
 # shellcheck source=/dev/null
 . "$DOTFILES_SHELL_DIR/shell-functions"
@@ -19,3 +21,7 @@ _brew_versions() {
 
 run_log_start brew-upgrade "bu --no-greedy" "$(brew --version 2>&1 | head -n 1)" HOMEBREW_NO_ANALYTICS HOMEBREW_CACHE
 run_log_upgrade _brew_versions bu --no-greedy
+if [ "$RUN_OS" = Linux ] && prefix=$(brew --prefix 2>/dev/null); then
+  stale_procs_restart /proc "$prefix"
+fi
+run_log_complete

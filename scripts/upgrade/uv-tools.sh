@@ -26,3 +26,4 @@ if [ -z "${UV_EXCLUDE_NEWER:-}" ]; then
 fi
 
 run_log_upgrade _uv_tools uv tool upgrade --all
+run_log_complete

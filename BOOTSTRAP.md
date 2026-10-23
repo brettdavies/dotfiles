@@ -477,6 +477,16 @@ journalctl --user -t brew-upgrade -t uv-tools-upgrade -p warning -o cat
 systemctl --user start brew-upgrade.service
 ```
 
+An upgrade deletes the kegs it replaces while processes still run their binaries. After `bu`, the brew job restarts each
+long-running user service still running a removed binary (`caddy.service`, `qmd-serve.service`) with
+`systemctl --user try-restart`. Everything else on a removed binary is left running and reported as a warning: a
+oneshot, whose restart would rerun its job; a system service; and session processes such as tmux. `run.end` lists each
+one under `stale_processes` with what was done:
+
+```bash
+journalctl --user -t brew-upgrade -o cat | jaq -Rc 'fromjson? | select(.event == "run.end") | .stale_processes' | tail -n 1
+```
+
 Lingering must be on for the timers to fire while logged out (`loginctl enable-linger $USER`).
 
 ## Restart Shell

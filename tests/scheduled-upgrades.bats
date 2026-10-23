@@ -15,7 +15,8 @@ AGENTS="$REPO_ROOT/stow/launchagent/Library/LaunchAgents"
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$STUBS"
-  export UV_LOG="$BATS_TEST_TMPDIR/uv.log" BREW_LOG="$BATS_TEST_TMPDIR/brew.log"
+  export UV_LOG="$BATS_TEST_TMPDIR/uv.log" BREW_LOG="$BATS_TEST_TMPDIR/brew.log" SYSTEMCTL_LOG="$BATS_TEST_TMPDIR/systemctl.log"
+  export STUB_BREW_PREFIX="$BATS_TEST_TMPDIR/prefix"
   cat >"$STUBS/uv" <<'EOF'
 #!/bin/sh
 case "$*" in
@@ -36,6 +37,7 @@ EOF
 printf '%s|%s\n' "$*" "${HOMEBREW_NO_ANALYTICS-}" >>"$BREW_LOG"
 case "$*" in
   --version) echo "Homebrew 5.0.0" ;;
+  --prefix) echo "$STUB_BREW_PREFIX" ;;
   "list --versions")
     if grep -q '^upgrade' "$BREW_LOG"; then
       echo "uv 0.11.20"
@@ -50,6 +52,17 @@ case "$*" in
     echo "==> $1"
     if [ "$1" = update ]; then printf 'Warning: "x\\y"\tz\n' >&2; fi
     ;;
+esac
+EOF
+  # Never reaches the live user manager: Type is oneshot for box-bisync and simple otherwise, and a restart of the
+  # unit named in STUB_RESTART_FAIL fails.
+  cat >"$STUBS/systemctl" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
+case "$*" in
+  "--user show -p Type --value box-bisync.service") echo oneshot ;;
+  "--user show -p Type --value "*) echo simple ;;
+  "--user try-restart ${STUB_RESTART_FAIL-}") exit 1 ;;
 esac
 EOF
   chmod +x "$STUBS"/*
@@ -112,7 +125,8 @@ _assert_run_log() {
     grep -q .
   [ "$(printf '%s' "$END" | jaq -c '[.outcome, .reason, .warnings, .changes]')" = \
     '["success","ok",1,[{"name":"uv","from":"0.11.19","to":"0.11.20"}]]' ]
-  [ "$(cut -d'|' -f1 "$BREW_LOG" | grep -v -e '^list ' -e '^--version')" = "$(cut -d'|' -f1 "$BATS_TEST_TMPDIR/bu.log")" ]
+  [ "$(cut -d'|' -f1 "$BREW_LOG" | grep -v -e '^list ' -e '^--version' -e '^--prefix')" = \
+    "$(cut -d'|' -f1 "$BATS_TEST_TMPDIR/bu.log")" ]
   run grep -v '|1$' "$BREW_LOG"
   [ "$status" -eq 1 ]
 }
@@ -175,6 +189,61 @@ _assert_run_log() {
   [ "$status" -eq 0 ]
   [ "$(printf '%s' "$output" | jaq -c 'sort_by(.name)')" = \
     '[{"name":"bumped","from":"1","to":"2"},{"name":"gone","from":"2","to":null},{"name":"new","from":null,"to":"3"}]' ]
+}
+
+# A fake /proc: <pid> <executable readlink> <cgroup path>.
+_fake_proc() {
+  mkdir -p "$PROC/$1"
+  ln -s "$2" "$PROC/$1/exe"
+  printf '0::%s\n' "$3" >"$PROC/$1/cgroup"
+}
+
+@test "processes on a removed Homebrew binary: long-running user services restart, the rest are reported" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  PROC="$BATS_TEST_TMPDIR/proc" P=/opt/brew US=/user.slice/user-1000.slice/user@1000.service/app.slice
+  mkdir -p "$PROC/self"
+  printf '0::%s\n' "$US/brew-upgrade.service" >"$PROC/self/cgroup"
+  _fake_proc 101 "$P/Cellar/caddy/2/bin/caddy (deleted)" "$US/caddy.service"
+  _fake_proc 102 "$P/Cellar/bun/1/bin/bun (deleted)" "$US/qmd-serve.service"
+  _fake_proc 103 "$P/Cellar/lazygit/1/bin/lazygit (deleted)" /user.slice/user-1000.slice/session-c1.scope
+  _fake_proc 104 "$P/Cellar/lazygit/1/bin/lazygit (deleted)" /user.slice/user-1000.slice/session-c1.scope
+  _fake_proc 105 "$P/Cellar/rclone/1/bin/rclone (deleted)" "$US/box-bisync.service"
+  _fake_proc 106 "$P/Cellar/caddy/3/bin/caddy" "$US/other.service"
+  _fake_proc 107 "/usr/bin/foo (deleted)" "$US/foo.service"
+  _fake_proc 108 "$P/Cellar/bash/5/bin/bash (deleted)" "$US/brew-upgrade.service"
+  _fake_proc 109 "$P/Cellar/caddy/2/bin/caddy (deleted)" /system.slice/web.service
+  run env STUB_RESTART_FAIL=qmd-serve.service PATH="$STUBS:$PATH" bash -c '
+    . "$1/run-log.sh"; . "$1/stale-procs.sh"
+    RUN_JOB=brew-upgrade RUN_ID=x RUN_HOST="\"h\"" RUN_LOG_JOURNALD=0 RUN_WARNINGS=0
+    stale_procs_restart "$2" /opt/brew
+    printf "%s\n%s\n" "$RUN_WARNINGS" "$RUN_STALE"' _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
+  [ "$status" -eq 0 ]
+  [ "$(grep try-restart "$SYSTEMCTL_LOG" | sort)" = "$(printf '%s\n' '--user try-restart caddy.service' '--user try-restart qmd-serve.service')" ]
+  [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c 'map([.unit, .action, .pids])')" = \
+    '[["box-bisync.service","left-running",[105]],["brew-upgrade.service","left-running",[108]],["caddy.service","restarted",[101]],["qmd-serve.service","restart-failed",[102]],["session-c1.scope","left-running",[103,104]],["web.service","left-running",[109]]]' ]
+  [ "$(printf '%s\n' "$output" | tail -n 2 | head -n 1)" = 5 ]
+  printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "info"
+    and .line == "restarted caddy.service, which was running the removed /opt/brew/Cellar/caddy/2/bin/caddy")' | grep -q .
+}
+
+@test "brew job reports a process still running a binary the upgrade removed" {
+  [ -d /proc/self/fd ] || skip "the scan reads /proc"
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  bin="$STUB_BREW_PREFIX/Cellar/napper/1/bin/napper"
+  mkdir -p "${bin%/*}"
+  cp "$(command -v sleep)" "$bin"
+  "$bin" 30 &
+  napper=$!
+  rm "$bin"
+  run env -u DOTFILES_SHELL_DIR PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  kill "$napper"
+  [ "$status" -eq 0 ]
+  _assert_run_log brew-upgrade
+  [ "$(printf '%s' "$END" | jaq -c --argjson pid "$napper" '[.stale_processes[] | select(.pids == [$pid]) | [.exe, .action]]')" = \
+    "[[\"$bin\",\"left-running\"]]" ]
+  [ ! -e "$SYSTEMCTL_LOG" ] || ! grep -q try-restart "$SYSTEMCTL_LOG"
+  run env -u DOTFILES_SHELL_DIR PATH="$STUBS:$PATH" bash "$UV_JOB"
+  [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c .stale_processes)" = null ]
 }
 
 @test "under journald each line carries the syslog priority of its level" {
