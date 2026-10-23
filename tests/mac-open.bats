@@ -42,7 +42,7 @@ OTHER_ADDR="100.64.0.20"
 
 setup_file() {
   load lib/platform
-  require_os Linux "mac-open is the server half; it reads /proc and runs GNU realpath -e and stat -c"
+  require_linux "mac-open is the server half; it reads /proc and runs GNU realpath -e and stat -c"
 }
 
 setup() {

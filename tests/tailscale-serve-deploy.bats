@@ -9,7 +9,7 @@ SCRIPT="$REPO_ROOT/scripts/tailscale-serve-deploy.sh"
 
 setup_file() {
   load lib/platform
-  require_os Linux "the deploy installs a systemd unit for the Linux server and resolves its operator with getent"
+  require_linux "the deploy installs a systemd unit for the Linux server and resolves its operator with getent"
 }
 
 setup() {

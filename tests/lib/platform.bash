@@ -1,12 +1,13 @@
 # shellcheck shell=bash
-# Platform gate for a suite whose code under test cannot run on the other OS.
-# Call it from setup_file, where a skip covers every test in the file.
+# Linux gate for a suite whose code under test cannot run anywhere else. Call it
+# from setup_file, where a skip covers every test in the file.
 #
-# A suite that stubs uname to simulate a platform runs everywhere and must not
-# use this: CI runs only on Linux, so gating such a suite to macOS would leave
-# the Mac-side code it covers with no CI run at all.
+# There is deliberately no macOS counterpart: CI runs only on Linux, so a suite
+# gated to macOS would never run there. Mac-side code is tested through uname
+# stubs, and a check that needs a real Mac tool skips that one test when the
+# tool is missing (`command -v plutil || skip`).
 #
-# Usage: require_os <Linux|Darwin> <why the code cannot run elsewhere>
-require_os() {
-  [ "$(uname -s)" = "$1" ] || skip "$1 only: $2"
+# Usage: require_linux <why the code cannot run elsewhere>
+require_linux() {
+  [ "$(uname -s)" = Linux ] || skip "Linux only: $1"
 }
