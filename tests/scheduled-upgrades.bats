@@ -24,6 +24,7 @@ setup() {
 case "$*" in
   --version) echo "uv 0.11.20" ;;
   "tool list")
+    [ -n "${STUB_UV_LIST_FAIL-}" ] && { echo "error: list failed" >&2; exit 1; }
     if [ -e "$UV_LOG" ]; then echo "claude-swap v0.27.2"; else echo "claude-swap v0.26.0"; fi
     printf '%s\n' "- cswap" "ty v0.0.1"
     ;;
@@ -42,9 +43,10 @@ case "$*" in
   --prefix) echo "$STUB_BREW_PREFIX" ;;
   "list --versions")
     if grep -q '^upgrade' "$BREW_LOG"; then
+      case "${STUB_BREW_LIST_FAIL-}" in after | both) echo "Error: list failed" >&2; exit 1 ;; esac
       echo "uv 0.11.20"
     else
-      [ -n "${STUB_BREW_LIST_FAIL-}" ] && { echo "Error: list failed" >&2; exit 1; }
+      case "${STUB_BREW_LIST_FAIL-}" in before | both) echo "Error: list failed" >&2; exit 1 ;; esac
       echo "uv 0.11.19"
     fi
     echo "ghostty 1.2.0"
@@ -158,12 +160,40 @@ _assert_run_log() {
 }
 
 @test "a failed version listing reports changes as unknown rather than every package as new" {
-  run env -u DOTFILES_SHELL_DIR STUB_BREW_LIST_FAIL=1 PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  for side in before after both; do
+    : >"$BREW_LOG"
+    run env -u DOTFILES_SHELL_DIR STUB_BREW_LIST_FAIL=$side PATH="$STUBS:$PATH" bash "$BREW_JOB"
+    [ "$status" -eq 0 ]
+    _assert_run_log brew-upgrade
+    case $side in
+      before) expected="before the upgrade" ;;
+      after) expected="after the upgrade" ;;
+      both) expected="before the upgrade and after the upgrade" ;;
+    esac
+    printf '%s\n' "$output" | jaq -c --arg l "Warning: listing installed versions failed $expected; changes are not reported" \
+      'select(.event == "output" and .level == "warning" and .line == $l)' | grep -q .
+    [ "$(printf '%s' "$END" | jaq -c '[.outcome, .reason, .warnings, .changes]')" = '["success","ok",2,null]' ]
+  done
+  run env -u DOTFILES_SHELL_DIR STUB_UV_LIST_FAIL=1 PATH="$STUBS:$PATH" bash "$UV_JOB"
+  [ "$status" -eq 0 ]
+  _assert_run_log uv-tools-upgrade
+  [ "$(printf '%s' "$END" | jaq -c '[.outcome, .reason, .warnings, .changes]')" = '["success","ok",1,null]' ]
+}
+
+@test "on macOS the brew job leaves stale_processes unchecked" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  darwin="$BATS_TEST_TMPDIR/darwin"
+  mkdir -p "$darwin" "$BATS_TEST_TMPDIR/bu-only"
+  printf '#!/bin/sh\n[ "$1" = -s ] && echo Darwin || /usr/bin/env uname "$@"\n' >"$darwin/uname"
+  chmod +x "$darwin/uname"
+  ln -s "$REPO_ROOT/config/shell/shell-functions" "$BATS_TEST_TMPDIR/bu-only/"
+  run env DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" PATH="$darwin:$STUBS:$PATH" bash "$BREW_JOB"
   [ "$status" -eq 0 ]
   _assert_run_log brew-upgrade
-  printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning"
-    and (.line | startswith("Warning: listing installed versions failed before the upgrade")))' | grep -q .
-  [ "$(printf '%s' "$END" | jaq -c '[.outcome, .reason, .warnings, .changes]')" = '["success","ok",2,null]' ]
+  [ "$(printf '%s\n' "$output" | head -n 1 | jaq -r .os)" = Darwin ]
+  [ "$(printf '%s' "$END" | jaq -c .stale_processes)" = null ]
+  run grep -q '^--prefix' "$BREW_LOG"
+  [ "$status" -eq 1 ]
 }
 
 @test "uv job reports a failed upgrade with an absolute rerun of its own script" {
@@ -307,7 +337,7 @@ _fake_proc() {
   logs=$UPGRADE_LOG_DIR
   mkdir -p "$logs"
   head -c 1048577 /dev/zero | tr '\0' x >"$logs/brew-upgrade.jsonl"
-  echo kept >"$logs/brew-upgrade.error.log"
+  head -c 1048577 /dev/zero | tr '\0' y >"$logs/brew-upgrade.error.log"
   wrapper="$REPO_ROOT/scripts/upgrade/launchd-run.sh"
   # Only shell-functions, for bu: the other helpers would act on the real $HOME.
   mkdir -p "$BATS_TEST_TMPDIR/bu-only"
@@ -319,8 +349,8 @@ _fake_proc() {
   [ "$(wc -c <"$logs/brew-upgrade.jsonl.1")" -eq 1048577 ]
   [ "$(head -n 1 "$logs/brew-upgrade.jsonl" | jaq -r .event)" = run.start ]
   [ "$(tail -n 1 "$logs/brew-upgrade.jsonl" | jaq -r .reason)" = ok ]
-  [ "$(cat "$logs/brew-upgrade.error.log")" = kept ]
-  [ ! -e "$logs/brew-upgrade.error.log.1" ]
+  [ "$(wc -c <"$logs/brew-upgrade.error.log.1")" -eq 1048577 ]
+  [ ! -s "$logs/brew-upgrade.error.log" ]
   run env PATH="$STUBS:$PATH" "$wrapper" brew.sh
   [ "$(jaq -r 'select(.event == "run.start") | .job' "$logs/brew-upgrade.jsonl" | wc -l)" -eq 2 ]
   [ "$(wc -c <"$logs/brew-upgrade.jsonl.1")" -eq 1048577 ]
