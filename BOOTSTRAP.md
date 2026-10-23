@@ -111,7 +111,7 @@ the two ever disagree:
 cd ~/dotfiles/stow
 
 # macOS (shared + desktop). The Linux-only packages are omitted: stow-deploy
-# skips rclone, obsidian, opendataloader-pdf, codex-proxy, and cargo on Darwin.
+# skips rclone, obsidian, codex-proxy, and cargo on Darwin.
 # --ignore drops the systemd units that cross-platform packages carry.
 stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
@@ -120,7 +120,7 @@ stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' \
 # Headless (shared only)
 stow --dotfiles --no-folding --target="$HOME" \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
-  cargo rust tmux lazygit micro yazi rclone qmd obsidian opendataloader-pdf caddy \
+  cargo rust tmux lazygit micro yazi rclone qmd obsidian caddy \
   gogcli codex-proxy
 ```
 
