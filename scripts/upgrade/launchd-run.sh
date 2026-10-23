@@ -43,10 +43,10 @@ killer=''
 stop() {
   kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || :
   kill -CONT "-$pid" 2>/dev/null || :
-  {
-    sleep 10
-    kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || :
-  } &
+  # One perl process, off the wrapper's output: it starts inside the trap, where SIGTERM is ignored, so the wrapper
+  # ends it with SIGKILL.
+  # shellcheck disable=SC2016 # the $ARGV in single quotes is perl's
+  "$perl" -e 'sleep 10; kill "-KILL", $ARGV[0] or kill "KILL", $ARGV[0]' "$pid" >/dev/null 2>&1 &
   killer=$!
 }
 trap 'trap "" INT TERM; stop' INT TERM
@@ -57,7 +57,7 @@ while kill -0 "$pid" 2>/dev/null; do
   wait "$pid" || status=$?
 done
 if [ -n "$killer" ]; then
-  kill "$killer" 2>/dev/null || :
+  kill -KILL "$killer" 2>/dev/null || :
   kill -KILL "-$pid" 2>/dev/null || :
 fi
 exit "$status"

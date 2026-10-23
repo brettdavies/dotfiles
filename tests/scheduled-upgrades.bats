@@ -602,8 +602,11 @@ _stop_wrapper() { # <env-assignment>...
 @test "a stop leaves no tool behind in the job's process group, even one that ignores SIGTERM" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   _wrapper_env
+  # The whole stop, including the wrapper letting go of its output, ends within seconds: no helper outlives it.
+  t0=$SECONDS
   _stop_wrapper UPGRADE_LOG_DIR="$logs" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_BREW_SLOW=29 \
     STUB_BREW_IGNORE_TERM=1 PATH="$STUBS:$PATH"
+  [ $((SECONDS - t0)) -lt 6 ]
   [ "$stop_status" -eq 143 ]
   [ "$elapsed" -lt 5 ]
   [ "$left" -eq 0 ]
