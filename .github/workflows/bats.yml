@@ -7,9 +7,6 @@ on:
   # every PR keeps the required context always present.
   pull_request:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 # The group key leads with a literal token naming the workflow that owns it. A
 # key built only from context (`${ github.workflow }`) is one a called
 # reusable also produces, because `github.workflow` resolves to the caller

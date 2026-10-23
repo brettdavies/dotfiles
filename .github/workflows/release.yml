@@ -4,9 +4,6 @@ on:
   push:
     branches: [main]
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 # The group key leads with a literal token naming the workflow that owns it, so
 # it cannot collide with a key a caller or callee produces from context alone.
 # This group never cancels: a run killed part way leaves a half-finished
