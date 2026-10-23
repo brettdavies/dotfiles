@@ -6,9 +6,9 @@
 #
 # The warning starts at ten times the daemon's jetsam budget (30 MB on macOS 26 and 27), measured as resident memory:
 # its footprint needs root and `top` takes most of a second, both too slow or too privileged for a check that runs at
-# every Claude Code session start. A healthy daemon's resident memory, shared library pages included, stays in the tens
-# of megabytes; a runaway one passes a gigabyte within hours. When launchctl does not report the budget, the check
-# assumes 30 MB.
+# every Claude Code session start. A healthy daemon's resident memory, shared library pages included, stays in the
+# single digits to low tens of megabytes; a runaway one passes a gigabyte within hours. When launchctl does not report
+# the budget, the check assumes 30 MB.
 #
 # Usage: fseventsd-check.sh [--claude-hook]
 #   Prints nothing and exits 0 when fseventsd is within bounds, is not running, or the host is not macOS. Otherwise it
@@ -42,7 +42,7 @@ budget_mb=${budget_mb:-30}
 
 warning="WARNING: fseventsd holds $((rss_kb / 1024)) MB against its $budget_mb MB launchd budget; reset it with: sudo killall fseventsd"
 if $hook; then
-  # Claude Code reads a hook's JSON only when it exits 0. The warning holds no quote or backslash to escape.
+  # Exit 0 is the code Claude Code documents for hook JSON output. The warning holds no quote or backslash to escape.
   printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' \
     "$warning" "$warning"
   exit 0
