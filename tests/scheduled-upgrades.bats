@@ -304,8 +304,10 @@ _fake_proc() {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   bin="$STUB_BREW_PREFIX/Cellar/napper/1/bin/napper"
   mkdir -p "${bin%/*}"
-  cp "$(command -v sleep)" "$bin"
-  "$bin" 30 &
+  # perl runs under any name, and its sleep is a builtin, so the deleted copy stays the running executable. A
+  # multicall coreutils such as uutils (Ubuntu 26.04's) refuses to run as a renamed copy.
+  cp "$(command -v perl)" "$bin"
+  "$bin" -e 'sleep 30' &
   napper=$!
   rm "$bin"
   run env -u DOTFILES_SHELL_DIR PATH="$STUBS:$PATH" bash "$BREW_JOB"
