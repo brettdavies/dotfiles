@@ -472,13 +472,13 @@ _fake_proc() {
     wait "$job"
     status=$?
     elapsed=$((SECONDS - started))
-    for _ in $(seq 20); do [ "$(pgrep -g "$job" | wc -l)" -eq 0 ] && break; sleep 0.1; done
-    echo "elapsed=$elapsed left=$(pgrep -g "$job" | wc -l)"
+    for _ in $(seq 20); do [ "$(pgrep -fx "sleep 29" | wc -l)" -eq 0 ] && break; sleep 0.1; done
+    echo "elapsed=$elapsed left=$(pgrep -fx "sleep 29" | wc -l | tr -d " ")"
     exit "$status"'
   for how in "TERM job" "INT group"; do
     : >"$log"
     # shellcheck disable=SC2086 # $how is the signal and the target, two words
-    run env UPGRADE_LOG_DIR="$logs" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_BREW_SLOW=30 PATH="$STUBS:$PATH" \
+    run --separate-stderr env UPGRADE_LOG_DIR="$logs" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_BREW_SLOW=29 PATH="$STUBS:$PATH" \
       bash -c "$stop" _ "$REPO_ROOT/scripts/upgrade/launchd-run.sh" "$log" $how
     [ "$status" -eq 143 ]
     elapsed=${output#elapsed=}
@@ -488,30 +488,44 @@ _fake_proc() {
   done
 }
 
-@test "a launchd wrapper that does not lead its process group signals only its job" {
+@test "a launchd wrapper outside its own process group still stops the job promptly and nothing else" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   logs="$BATS_TEST_TMPDIR/Logs"
   mkdir -p "$logs" "$BATS_TEST_TMPDIR/bu-only"
   ln -s "$REPO_ROOT/config/shell/shell-functions" "$BATS_TEST_TMPDIR/bu-only/"
   log="$logs/brew-upgrade.jsonl"
   # The wrapper shares this shell's process group, so a group-wide TERM would reach the bystander too.
-  run env UPGRADE_LOG_DIR="$logs" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_BREW_SLOW=2 PATH="$STUBS:$PATH" bash -c '
-    perl -e "sleep 20" &
+  run --separate-stderr env UPGRADE_LOG_DIR="$logs" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_BREW_SLOW=29 PATH="$STUBS:$PATH" bash -c '
+    perl -e "sleep 90" &
     bystander=$!
     "$1" brew.sh &
     job=$!
     for _ in $(seq 100); do grep -q "\"level\":\"warning\"" "$2" 2>/dev/null && break; sleep 0.1; done
+    started=$SECONDS
     kill -TERM "$job"
     wait "$job"
     status=$?
     alive=no
     kill -0 "$bystander" 2>/dev/null && alive=yes
     kill "$bystander"
-    echo "bystander=$alive"
+    echo "bystander=$alive elapsed=$((SECONDS - started))"
     exit "$status"' _ "$REPO_ROOT/scripts/upgrade/launchd-run.sh" "$log"
   [ "$status" -eq 143 ]
-  [ "$output" = bystander=yes ]
+  [ "${output%% *}" = bystander=yes ]
+  [ "${output##*elapsed=}" -lt 10 ]
   [ "$(tail -n 1 "$log" | jaq -c '[.event, .exit_code]')" = '["run.end",143]' ]
+}
+
+@test "without perl the launchd wrapper exits 3 with an install hint and starts nothing" {
+  logs="$BATS_TEST_TMPDIR/Logs"
+  mkdir -p "$logs"
+  run env UPGRADE_LOG_DIR="$logs" UPGRADE_PERL=/nonexistent/perl PATH="$STUBS:$PATH" \
+    "$REPO_ROOT/scripts/upgrade/launchd-run.sh" brew.sh
+  [ "$status" -eq 3 ]
+  grep -q '^launchd-run: perl not found' "$logs/brew-upgrade.error.log"
+  grep -q 'install with: brew install perl' "$logs/brew-upgrade.error.log"
+  [ ! -s "$logs/brew-upgrade.jsonl" ]
+  [ ! -e "$BREW_LOG" ]
 }
 
 @test "a failed InvocationID lookup after a restart does not abort the scan" {
