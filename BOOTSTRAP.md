@@ -116,7 +116,7 @@ cd ~/dotfiles/stow
 # .DS_Store Finder leaves in a package, which collides with ~/.DS_Store.
 stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' --ignore='\.DS_Store$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
-  rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent
+  rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent rex
 
 # Headless (shared only)
 stow --dotfiles --no-folding --target="$HOME" \
@@ -348,6 +348,37 @@ launchd runs a fire missed during sleep at the next wake and cannot order one ag
 both fires the two start together and that uv run may use the uv that `bu` is replacing. The scheduled run skips
 `--greedy`, so it leaves alone the self-updating casks whose upgrade quits their app (Ghostty, Rectangle, Telegram,
 AppCleaner), which would otherwise close mid-session. A manual `bu` still upgrades them.
+
+### Rex config and agent slots
+
+The `rex` package deploys `~/.config/rex/init.lua`, `layout.lua` (the dev layout actions), and `agent-slots.lua` (the
+agent-slot actions and keys). Rex reads `init.lua` only when it starts and on `rex config reload`, so
+`scripts/stow-deploy` runs `rex config reload` after it stows the package; with no rex CLI found, or Rex not running, it
+says so and the deploy still succeeds.
+
+Stow does not replace a plain file with a link, so move hand-written copies aside before the first deploy:
+
+```bash
+mv ~/.config/rex/init.lua ~/.config/rex/init.lua.pre-stow
+mv ~/.config/rex/layout.lua ~/.config/rex/layout.lua.pre-stow
+cd ~/dotfiles && scripts/stow-deploy rex
+```
+
+Left in place, the plain files are adopted: `stow-deploy` moves each one into `stow/rex/dot-config/rex/` over the repo's
+version, links it back, and prints the diff (with `--headless`, it restores the repo's version itself). The reload that
+follows then loads the old files, which define no agent-slot actions. To recover, run `git checkout -- stow/rex/` in
+`~/dotfiles`, then `rex config reload` from a Rex terminal.
+
+Then check the Mac's side, which also runs the server's doctor over ssh:
+
+```bash
+agent-slot-rex doctor
+```
+
+`cmd+alt+n` starts an agent on the session's repo in a background tab, `cmd+alt+r` gives every live slot its tab back,
+and `cmd+alt+f` finishes the focused tab's task. The helper reaches the Linux server through the ssh alias the `ssh`
+package defines for it; `AGENT_SLOT_REX_SERVER` names another. It logs to `~/.local/state/agent-slot-rex/`, including
+the restore Rex starts when it loads.
 
 ### fseventsd memory check
 

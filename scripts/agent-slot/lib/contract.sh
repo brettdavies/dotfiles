@@ -59,6 +59,7 @@ version-unverified            0     false      0            run
 repo-required                 2     false      0            run
 server-unreachable            1     true       5            retry
 rex-action-unregistered       78    false      0            run
+rex-failed                    1     true       2            retry
 '
 
 CONTRACT_VERB=agent-slot

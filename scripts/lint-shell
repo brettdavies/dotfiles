@@ -73,7 +73,9 @@ _flags_for() {
     stow/shell/dot-profile) echo "--shell=bash --exclude=SC1090,SC1091" ;;
     # The agent-slot libraries single-quote jaq programs, whose `$` names are bound with --arg; the slot test helper
     # single-quotes stub bodies for the child shell to expand.
-    scripts/agent-slot/lib/*.sh | tests/lib/agent-slot.bash) echo "--shell=bash --exclude=SC2016" ;;
+    scripts/agent-slot/lib/*.sh | scripts/agent-slot-rex/lib/*.sh | tests/lib/agent-slot.bash | tests/lib/agent-slot-rex.bash)
+      echo "--shell=bash --exclude=SC2016"
+      ;;
     config/shell/*.sh | .githooks/lib/*.sh | scripts/*/lib/*.sh | tests/lib/*.bash) echo "--shell=bash" ;;
     config/shell/shell-functions) echo "--shell=bash --exclude=SC1003" ;;
     # -x follows the `# shellcheck source=` directive to lib/report.sh, so the
@@ -83,7 +85,7 @@ _flags_for() {
     # libraries define are known. It reports nothing inside a sourced file, which
     # is why each scripts/*/lib/*.sh is also a target of its own.
     scripts/tools-atime/tools-atime.sh | scripts/upgrade/*.sh) echo "-x --source-path=SCRIPTDIR" ;;
-    scripts/agent-slot/agent-slot) echo "-x --source-path=SCRIPTDIR --exclude=SC2016" ;;
+    scripts/agent-slot/agent-slot | scripts/agent-slot-rex/agent-slot-rex) echo "-x --source-path=SCRIPTDIR --exclude=SC2016" ;;
     *) echo "" ;;
   esac
 }

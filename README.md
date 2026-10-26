@@ -114,6 +114,7 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `opencode`    | `.config/opencode/config.json`                                                                                                   |
 | `pip`         | `.config/pip/pip.conf`                                                                                                           |
 | `qmd`         | `.local/bin/qmd` wrapper (both platforms) + systemd user units for the qmd-serve daemon and index timers (Linux)                 |
+| `rex`         | `.config/rex/`: Rex's `init.lua`, the dev layout actions, and the agent-slot actions and keys (macOS only)                       |
 | `rclone`      | `.config/rclone/`, Box bisync systemd service + timer (Linux only)                                                               |
 | `rust`        | `rustup-update.service` + `.timer` (nightly `rustup update stable --no-self-update`; units land on Linux only)                   |
 | `secrets`     | `.secrets` (git-crypt encrypted)                                                                                                 |
@@ -139,6 +140,7 @@ knowing where the underlying implementation lives.
 | Binary                     | Purpose                                                                                        |
 | -------------------------- | ---------------------------------------------------------------------------------------------- |
 | `agent-slot`               | Hand out and tear down full clones of a repo for parallel Claude agents, one task per clone    |
+| `agent-slot-rex`           | The Mac half of `agent-slot`: start agents and keep their slot tabs and panes attached in Rex  |
 | `backup-openclaw-settings` | Back up OpenClaw's settings to the NAS, run daily by `openclaw-settings-backup.timer`          |
 | `brave-search`             | Query the Brave Search API, printing ranked results as plain text or raw JSON                  |
 | `charcount`                | Count characters against platform length caps, exiting non-zero so it gates in scripts         |
