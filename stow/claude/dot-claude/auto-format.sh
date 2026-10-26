@@ -81,12 +81,66 @@ case "$ext" in
     fi
     ;;
   md)
-    cd "$CLAUDE_PROJECT_DIR"
-
     # --- Step 1: auto-wrap prose to configured line width ---
     md_wrap="$HOME/.claude/md-wrap.py"
     md_align="$HOME/.claude/md-align-tables.py"
     global_config="$HOME/.markdownlint-cli2.yaml"
+    md013_default=120
+
+    # The config that governs a markdown file is the one in that file's own
+    # directory tree, found by walking up from the file. The session's project
+    # dir is the wrong anchor: an Edit can reach a repo other than
+    # CLAUDE_PROJECT_DIR, and that repo's own MD013 width and `ignores`,
+    # including a 9999 opt-out, are the ones that apply to it.
+    #
+    # The walk is lexical on the path as handed in, never resolved through
+    # realpath. A file reached through a symlinked directory has to stay
+    # described by the tree holding the link, because that is the path form the
+    # ignore globs are written against: physically resolving
+    # <repo>/docs/solutions/x.md to the shared clone strips the very prefix
+    # `docs/solutions/**` matches on. $HOME terminates the walk because the
+    # global config lives there and is the intended fallback.
+    #
+    # Sets md_base to the directory whose markdownlint config governs the file,
+    # which is also the directory that config's `ignores` globs are matched
+    # from. The walk stops at the first boundary it meets, so a file can never
+    # be governed by a config outside its own repository.
+    md_base=""
+    md_resolve_roots() {
+      local dir=$1
+      while :; do
+        if [[ -f "$dir/.markdownlint-cli2.yaml" || -f "$dir/.markdownlint.yaml" ]]; then
+          md_base=$dir
+          return 0
+        fi
+        # A repo that declares no config of its own still takes the global one,
+        # whose globs read as repo-relative (`CHANGELOG.md`, `docs/solutions/**`),
+        # so stop here and match them from the repo root. -e, not -d: a worktree
+        # or a repo with an external git dir carries .git as a gitdir pointer
+        # file.
+        if [[ -e "$dir/.git" ]]; then
+          md_base=$dir
+          return 0
+        fi
+        if [[ -n "${CLAUDE_PROJECT_DIR:-}" && "$dir" == "$CLAUDE_PROJECT_DIR" ]]; then
+          md_base=$dir
+          return 0
+        fi
+        if [[ "$dir" == "$HOME" || "$dir" == "/" ]]; then
+          md_base=$dir
+          return 0
+        fi
+        dir=$(dirname "$dir")
+      done
+    }
+
+    [[ "$file" == /* ]] || file="$PWD/$file"
+    md_resolve_roots "$(dirname "$file")"
+
+    # Matching the globs from anywhere the file does not live under would leave
+    # rel_file absolute below, which matches no glob and makes the whole ignore
+    # list dead rather than merely wrong.
+    cd "$md_base" || exit 0
 
     # The config's `ignores` globs gate every step, not just the linter.
     # markdownlint-cli2 applies them itself, but the prose wrapper and the table
@@ -113,25 +167,24 @@ case "$ext" in
     }
 
     # markdownlint resolves its globs from the config's directory, so compare
-    # the repo-relative path rather than whatever form the hook was handed.
-    # Stripping $PWD rather than $CLAUDE_PROJECT_DIR because the `cd` above has
-    # already moved here: an unset or empty CLAUDE_PROJECT_DIR leaves that cd a
-    # no-op and would otherwise yield an absolute path that matches no glob,
-    # silently disabling every ignore.
+    # the path relative to that directory rather than whatever form the hook was
+    # handed. $PWD is that directory after the cd above. A path left absolute
+    # here matches no glob, so no ignore could ever apply to it.
     rel_file="${file#"$PWD"/}"
     if md_ignored "$rel_file"; then
       exit 0
     fi
 
-    # Read the configured line width — prefer project-local config over global
-    max_len=120
+    # Read the configured line width from the config the walk above selected,
+    # falling back to the global one when that tree declares none.
+    max_len=$md013_default
     if command -v yq &>/dev/null; then
       if [[ -f .markdownlint-cli2.yaml ]]; then
-        max_len=$(yq '.config.MD013.line_length // 120' .markdownlint-cli2.yaml)
+        max_len=$(yq ".config.MD013.line_length // $md013_default" .markdownlint-cli2.yaml)
       elif [[ -f .markdownlint.yaml ]]; then
-        max_len=$(yq '.config.MD013.line_length // 120' .markdownlint.yaml)
+        max_len=$(yq ".config.MD013.line_length // $md013_default" .markdownlint.yaml)
       elif [[ -f "$global_config" ]]; then
-        max_len=$(yq '.config.MD013.line_length // 120' "$global_config")
+        max_len=$(yq ".config.MD013.line_length // $md013_default" "$global_config")
       fi
     fi
 

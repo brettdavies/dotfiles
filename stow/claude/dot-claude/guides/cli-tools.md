@@ -49,9 +49,17 @@ hook, or unsure what's installed.
   and produces significantly better results than `qmd search` alone. Prefer multiple focused queries with 2-3 terms each
   over one query with many terms. Always search qmd before researching from scratch — check solutions and vault for
   prior art.
-- **Auto-format hook:** A PostToolUse hook wraps markdown prose to 120 characters (`md-wrap.py`) then runs
-  `markdownlint-cli2 --fix`. Do NOT manually wrap markdown lines — the hook handles it. Do NOT use `mdformat`, `pandoc`,
-  or `prettier` for markdown formatting.
+- **Auto-format hook:** A PostToolUse hook wraps markdown prose (`md-wrap.py`), aligns GFM tables
+  (`md-align-tables.py`), then runs `markdownlint-cli2 --fix`. Do NOT manually wrap markdown lines — the hook handles
+  it. Do NOT use `mdformat`, `pandoc`, or `prettier` for markdown formatting. The target width is `MD013.line_length`
+  from the config that governs **the edited file**, located by walking up from the file's own directory to the first
+  `.markdownlint-cli2.yaml` or `.markdownlint.yaml` and stopping at the repository root; a repo declaring none takes the
+  global `~/.markdownlint-cli2.yaml` (120), matching its `ignores` globs from the repo root. The session's directory
+  does not enter into it, so editing a file in one repo from a session rooted in another applies the edited repo's width
+  and ignores. **A repo that sets `line_length` to 9999 or higher owns its own wrapping and table style**, and the hook
+  skips it whole: prose wrap, table align, and lint autofix. The walk is lexical rather than resolved through
+  `realpath`, so a file reached through a symlinked directory (`docs/solutions`) stays described by the tree holding the
+  link, which is the path form the `ignores` globs are written against.
 - **Inline code spans under the auto-format hook:** `md-wrap.py` keeps each inline code span whole on one line with its
   bytes unchanged, so the whitespace runs between the columns of a quoted help-text layout survive the reflow.
   `markdownlint-cli2 --fix` then applies MD038 (`no-space-in-code`), whose fixer rewrites only the spaces next to the
