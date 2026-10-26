@@ -8,6 +8,10 @@
 #   unknown  the lookup failed, more than one session matched, a claude process under the slot has no session, or a
 #            process outside the slot's own panes has its working directory or an open file under the slot
 #
+# A process belongs to the slot's own panes when it descends from one, or when its environment names the slot tmux
+# server and one of the slot's panes. The second covers a daemon a pane's shell started and let go of, such as
+# powerlevel10k's gitstatusd, which is reparented to init but keeps the TMUX and TMUX_PANE it inherited.
+#
 # Only idle and absent let a slot be torn down. The inputs are read once per invocation by agentstate_load and shared
 # by every slot a command looks at.
 
@@ -16,21 +20,23 @@ AGENTS_JSON='[]'
 AGENT_STATE=
 AGENT_DETAIL=
 AGENT_PIDS=
-declare -gA _AGENT_PPID=() _AGENT_PANES=()
+declare -gA _AGENT_PPID=() _AGENT_PANES=() _AGENT_PANE_IDS=()
 _AGENT_UNDER=
 
 agentstate_load() {
-  local out line session pid
+  local out line session pid id
   AGENTS_OK=1
   if ! bounded out claude-agents 15 "$AS_CLAUDE" agents --json \
     || ! AGENTS_JSON=$(contract_json -c 'if type == "array" then . else error("not an array") end' <<<"$out" 2>/dev/null); then
     AGENTS_OK=0 AGENTS_JSON='[]'
   fi
 
-  _AGENT_PANES=()
-  if slot_tmux out 5 list-panes -a -F '#{session_name} #{pane_pid}'; then
-    while read -r session pid; do
-      [[ -n $session ]] && _AGENT_PANES[$session]+=" $pid"
+  _AGENT_PANES=() _AGENT_PANE_IDS=()
+  if slot_tmux out 5 list-panes -a -F '#{session_name} #{pane_pid} #{pane_id}'; then
+    while read -r session pid id; do
+      [[ -n $session ]] || continue
+      _AGENT_PANES[$session]+=" $pid"
+      _AGENT_PANE_IDS[$session]+=" $id"
     done <<<"$out"
   fi
 
@@ -53,14 +59,27 @@ _agent_from_panes() {
   return 1
 }
 
+# True when the process's environment names the slot tmux server and one of the given pane IDs.
+_agent_env_in_panes() {
+  local environ tmux_var pane
+  environ=$(tr '\0' '\n' <"/proc/$1/environ" 2>/dev/null) || return 1
+  tmux_var=$(sed -n 's/^TMUX=//p' <<<"$environ")
+  pane=$(sed -n 's/^TMUX_PANE=//p' <<<"$environ")
+  tmux_var=${tmux_var%%,*}
+  [[ -n $pane && ${tmux_var##*/} == "$AS_TMUX_SOCKET" && " $2 " == *" $pane "* ]]
+}
+
 # Usage: agentstate_of <repo> <n>
 # Sets AGENT_STATE, AGENT_DETAIL (why, for unknown), and AGENT_PIDS (the Claude processes under the slot).
 agentstate_of() {
-  local repo=$1 n=$2 path base panes='' suffix sessions count entry pid target comm
+  local repo=$1 n=$2 path base panes='' ids='' suffix sessions count entry pid target comm
   local -a outside=()
   path=$AS_ROOT_REAL/$repo/$n
   base=$(slot_session "$repo" "$n")
-  for suffix in '' -files -git; do panes+=${_AGENT_PANES[$base$suffix]:-}; done
+  for suffix in '' -files -git; do
+    panes+=${_AGENT_PANES[$base$suffix]:-}
+    ids+=${_AGENT_PANE_IDS[$base$suffix]:-}
+  done
   AGENT_STATE='' AGENT_DETAIL='' AGENT_PIDS=''
 
   sessions=$(contract_json -c --arg p "$path" '[.[] | select(.cwd == $p or (.cwd | startswith($p + "/")))]' \
@@ -81,6 +100,7 @@ agentstate_of() {
       fi
       continue
     fi
+    _agent_env_in_panes "$pid" "$ids" && continue
     outside+=("$pid")
   done <<<"$_AGENT_UNDER"
 
