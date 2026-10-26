@@ -377,6 +377,9 @@ stateDiagram-v2
   is not a fix.
 - Rex knowledge store in the Obsidian vault, `resources/rex/`: concepts, the tmux-to-Rex map, remote access and Linux
   server modes, agents and the program status protocol (with the tests above), and the Discord questions.
+- The Obsidian vault lives at `~/obsidian-vault` on the Linux server and is mounted at `/Volumes/vault` on the Mac. Its
+  git directory is on the server, so vault commits run there, and they follow the vault's `AGENTS.md`: short, generic
+  messages with no personal details, made only with the operator's go-ahead.
 - Rex docs: <https://www.superlogical.com/rex/docs> (Program Status Protocol, Remote Access, Server Modes, Lua API).
 - Claude Code docs: <https://code.claude.com/docs/en/memory> (auto memory storage and `autoMemoryDirectory`),
   <https://code.claude.com/docs/en/sessions> (`CLAUDE_CODE_PROJECT_DIR_NAME`, resume),
@@ -823,8 +826,8 @@ flowchart TB
 - **Goal:** Measure the behaviors the plan rests on before product code depends on them.
 - **Requirements:** R1, R13, R14, R15, R16, R21, R24; KTD6, KTD7, KTD8, KTD10, KTD14.
 - **Dependencies:** none.
-- **Files:** none committed; results go into the vault's `resources/rex/rex-agents-and-program-status.md` and, where a
-  measurement contradicts a KTD, into this plan.
+- **Files:** none committed here; results go into the vault's `resources/rex/rex-agents-and-program-status.md` (its
+  location and commit rules are under Sources) and, where a measurement contradicts a KTD, into this plan.
 - **Approach:**
   1. On a throwaway `tmux -L` server with `allow-passthrough all`, write a wrapped OSC 7501 report to a pane's terminal
      from a process with no controlling terminal, and read `rex block call … program_status` on the Mac tab.
