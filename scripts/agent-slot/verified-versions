@@ -1,0 +1,5 @@
+# The Claude Code and Rex versions the slot behaviors were last measured on: the U1 spike, then each run of the
+# two-machine checklist. agent-slot doctor and agent-slot-rex doctor warn, never fail, when an installed version
+# differs. rex is the CLI's `rex version --json` rex_version (the Rex Beta 0.1.0 (1408) app).
+claude 2.1.310
+rex 0.0.1792787366-g623b2d

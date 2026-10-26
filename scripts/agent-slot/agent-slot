@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# agent-slot — hands out full clones of a repo ("slots") on this server, one agent task per slot, and owns every
+# check before a slot is torn down. The Rex helper on the Mac, the operator's shell, and agents all call it.
+#
+# Usage: agent-slot <verb> [options] [--output json]
+# Verbs and options: agent-slot --help, and agent-slot <verb> --help.
+#
+# Env (each defaults to the path in parentheses):
+#   AGENT_SLOT_ROOT            slot root (~/slots)
+#   AGENT_SLOT_DEV             where prime checkouts live (~/dev)
+#   AGENT_SLOT_EXTRA_PRIMES    colon-separated prime checkouts outside it (~/dotfiles)
+#   AGENT_SLOT_STATE_DIR       ledger and failure logs (~/.local/state/agent-slot)
+#   AGENT_SLOT_TMUX_SOCKET     slot tmux socket name (agent-slots)
+#   AGENT_SLOT_TMUX_CONF       slot tmux config (~/.config/tmux/slots.conf)
+#   AGENT_SLOT_SOLUTIONS       shared solutions repo (~/dev/solutions-docs)
+#   AGENT_SLOT_GIT_CRYPT_KEY   git-crypt key (~/.config/git-crypt/key)
+#   AGENT_SLOT_CLAUDE_STATE    Claude's app-state file, read only (~/.claude.json)
+#   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL
+#                              absolute paths that replace the binaries found on the pinned PATH
+
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+  for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$b" ] && exec "$b" "$0" "$@"
+  done
+  echo "ERROR: needs bash >= 4.4 (running $BASH_VERSION); install it with: brew install bash" >&2
+  exit 1
+fi
+
+set -euo pipefail
+
+AS_HOME=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+AS_LIB=$AS_HOME/lib
+
+# The caller's PATH is never trusted: an SSH command, a Claude hook, and a cron job each hand over a different one.
+PATH="$HOME/.local/bin:/home/linuxbrew/.linuxbrew/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+# shellcheck source=lib/contract.sh
+source "$AS_LIB/contract.sh"
+# shellcheck source=lib/record.sh
+source "$AS_LIB/record.sh"
+# shellcheck source=lib/bounded.sh
+source "$AS_LIB/bounded.sh"
+# shellcheck source=lib/agentstate.sh
+source "$AS_LIB/agentstate.sh"
+# shellcheck source=lib/trust.sh
+source "$AS_LIB/trust.sh"
+# shellcheck source=lib/read.sh
+source "$AS_LIB/read.sh"
+# shellcheck source=lib/doctor.sh
+source "$AS_LIB/doctor.sh"
+
+AGENT_SLOT_JQ=${AGENT_SLOT_JQ:-$(command -v jaq || command -v jq || true)}
+if [[ -z $AGENT_SLOT_JQ ]]; then
+  echo "agent-slot: dependency-missing: neither jaq nor jq is installed; next: brew install jaq" >&2
+  exit "$EXIT_CONFIG"
+fi
+
+AS_ROOT=${AGENT_SLOT_ROOT:-$HOME/slots}
+AS_ROOT_REAL=$(realpath -m "$AS_ROOT")
+AS_DEV=${AGENT_SLOT_DEV:-$HOME/dev}
+AS_EXTRA_PRIMES=${AGENT_SLOT_EXTRA_PRIMES-$HOME/dotfiles}
+AS_STATE_DIR=${AGENT_SLOT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-slot}
+AS_LEDGER=$AS_STATE_DIR/ledger.jsonl
+AS_LOG_DIR=$AS_STATE_DIR/logs
+AS_TMUX_SOCKET=${AGENT_SLOT_TMUX_SOCKET:-agent-slots}
+AS_TMUX_CONF=${AGENT_SLOT_TMUX_CONF:-$HOME/.config/tmux/slots.conf}
+AS_SOLUTIONS=${AGENT_SLOT_SOLUTIONS:-$HOME/dev/solutions-docs}
+AS_GIT_CRYPT_KEY=${AGENT_SLOT_GIT_CRYPT_KEY:-$HOME/.config/git-crypt/key}
+AS_CLAUDE_STATE=${AGENT_SLOT_CLAUDE_STATE:-$HOME/.claude.json}
+AS_VERIFIED_VERSIONS=${AGENT_SLOT_VERIFIED_VERSIONS:-$AS_HOME/verified-versions}
+
+declare -A AS_TOOL=()
+for _tool in tmux claude gh git-crypt git flock timeout trash systemctl; do
+  _override=AGENT_SLOT_${_tool^^}
+  _override=${_override//-/_}
+  AS_TOOL[$_tool]=${!_override:-$(command -v "$_tool" || true)}
+  [[ -x ${AS_TOOL[$_tool]} ]] || AS_TOOL[$_tool]=
+  CONTRACT_TOOL_PATHS[$_tool]=${AS_TOOL[$_tool]:-$_tool}
+done
+unset _tool _override
+AS_TMUX=${AS_TOOL[tmux]}
+AS_CLAUDE=${AS_TOOL[claude]}
+AS_SYSTEMCTL=${AS_TOOL[systemctl]}
+
+CONTRACT_REPO=$AS_HOME
+CONTRACT_LOG_DIR=$AS_LOG_DIR
+CONTRACT_CONFIG=$(contract_json -n -c --arg root "$AS_ROOT" --arg dev "$AS_DEV" --arg state "$AS_STATE_DIR" \
+  --arg conf "$AS_TMUX_CONF" --arg socket "$AS_TMUX_SOCKET" --arg solutions "$AS_SOLUTIONS" \
+  '{slot_root: $root, dev_root: $dev, state_dir: $state, tmux_conf: $conf, tmux_socket: $socket,
+    solutions: $solutions}')
+
+# Usage: require_tools <tool...>; refuses with dependency-missing naming the first one absent.
+require_tools() {
+  local tool
+  contract_use_tools "$@"
+  for tool in "$@"; do
+    [[ -n ${AS_TOOL[$tool]:-} ]] && continue
+    contract_fail dependency-missing "$tool is not installed on this server" --value "$tool" \
+      --command "$(_doctor_install_hint "$tool")"
+  done
+}
+
+USAGE='usage: agent-slot <verb> [options] [--output json]
+
+Verbs:
+  repos    list the prime checkouts a slot can be made from
+  list     list every slot with its state, agent, task, and what blocks its teardown
+  whoami   print the slot the current directory is inside
+  doctor   check every launch prerequisite and summarize launch times
+
+Every verb takes --output json (one JSON object on stdout, or an error object on stderr) and --help.
+Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.
+Reasons and their fixes: https://github.com/brettdavies/dotfiles/blob/main/README.md#agent-slot-reasons'
+
+verb_help() {
+  case $1 in
+    repos) printf '%s\n' 'usage: agent-slot repos [--output json]' \
+      'Lists each git repo under ~/dev (and ~/dotfiles) that has an origin.' \
+      'example: agent-slot repos --output json' ;;
+    list) printf '%s\n' 'usage: agent-slot list [--output json]' \
+      'Lists every slot with its state, agent state, task, and its needs-you blockers.' \
+      "example: agent-slot list --output json | jaq '.slots[] | select(.needs_you != [])'" ;;
+    whoami) printf '%s\n' 'usage: agent-slot whoami [--path DIR] [--output json]' \
+      'Prints the slot that DIR (default: the current directory) is inside, or not-in-slot.' \
+      'example: agent-slot whoami --output json' ;;
+    doctor) printf '%s\n' 'usage: agent-slot doctor [--output json]' \
+      'Checks every launch prerequisite on this server and the time from key press to Claude idle.' \
+      'example: agent-slot doctor' ;;
+  esac
+}
+
+usage_fail() {
+  local help=agent-slot
+  [[ $CONTRACT_VERB == agent-slot ]] || help+=" $CONTRACT_VERB"
+  contract_fail usage "$1" --value "${2:-}" --command "$help --help"
+}
+
+main() {
+  contract_init agent-slot "$@"
+  local verb=${1:-}
+  case $verb in
+    '' | -h | --help | help)
+      CONTRACT_EMITTED=1
+      printf '%s\n' "$USAGE"
+      return 0
+      ;;
+    -V | --version)
+      CONTRACT_EMITTED=1
+      git -C "$AS_HOME" rev-parse --short HEAD 2>/dev/null || echo unknown
+      return 0
+      ;;
+  esac
+  shift
+  [[ " repos list whoami doctor " == *" $verb "* ]] || {
+    CONTRACT_OUTPUT=$([[ " $* " == *" --output json "* ]] && echo json || echo text)
+    contract_fail usage "unknown verb: $verb" --value "$verb" --command "agent-slot --help"
+  }
+  CONTRACT_VERB=$verb
+
+  local args=()
+  while (($#)); do
+    case $1 in
+      -h | --help)
+        CONTRACT_EMITTED=1
+        verb_help "$verb"
+        return 0
+        ;;
+      --output)
+        [[ ${2:-} == json || ${2:-} == text ]] || usage_fail "--output takes json or text" "${2:-}"
+        CONTRACT_OUTPUT=$2
+        shift
+        ;;
+      --output=*)
+        CONTRACT_OUTPUT=${1#--output=}
+        [[ $CONTRACT_OUTPUT == json || $CONTRACT_OUTPUT == text ]] || usage_fail "--output takes json or text" "$1"
+        ;;
+      *) args+=("$1") ;;
+    esac
+    shift
+  done
+  exec </dev/null
+
+  case $verb in
+    repos | list | doctor)
+      ((${#args[@]} == 0)) || usage_fail "$verb takes no arguments" "${args[0]}"
+      [[ $verb != list ]] || require_tools tmux claude
+      "cmd_$verb"
+      ;;
+    whoami)
+      if ((${#args[@]} == 2)) && [[ ${args[0]} == --path ]]; then
+        WHOAMI_PATH=${args[1]}
+      elif ((${#args[@]} != 0)); then
+        usage_fail "whoami takes only --path DIR" "${args[0]}"
+      fi
+      cmd_whoami
+      ;;
+  esac
+}
+
+main "$@"
