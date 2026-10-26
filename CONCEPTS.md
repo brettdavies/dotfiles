@@ -313,6 +313,21 @@ place through the Taildrive share when the file lives under a shared root, from 
 fire-and-forget. A hand-off happens only when the session is driven from the Mac; otherwise, and whenever the Mac is
 unreachable or the hand-off fails, the file goes to the host's local opener where one exists, with the reason shown.
 
+## Parallel agents
+
+### Agent slot
+
+A full clone of a repo, at a stable numbered path (`~/slots/<repo>/<N>`) on the headless host, that holds exactly one
+agent task at a time. A slot is set up like the repo's *prime checkout* (the operator's own clone under `~/dev`, or
+`~/dotfiles`, which is never part of the slot pool and never changed by it): the repo's hooks run from the slot's own
+copy, the `docs/solutions` symlink is present, Claude reads and writes the repo's single auto memory, and the prime's
+local permission grants apply. A slot path is either empty or holds one task. The task keeps its slot through review
+rounds until it has finished: none of its PRs is open or closed without merging and one has merged, or the operator
+finished a task with no open PR. A *slot sweep* then deletes the clone only when nothing in it is missing from origin
+and its agent is idle. A slot that fails that check stays put on the *needs-you list*, which names each blocker, and is
+never deleted. A slot whose tmux sessions are gone after a server reboot is *dormant* until resume restarts them and its
+conversation.
+
 ## Flagged ambiguities
 
 - "Gate" names two different things: a *supply-chain age gate* is a policy applied to package resolution, while a *local
@@ -323,3 +338,5 @@ unreachable or the hand-off fails, the file goes to the host's local opener wher
 - A *cross-package symlink* and a *foreign subtree* are both symlinks into another source, and they differ in how far
   they reach: the first stays inside this repo, pointing from one stow package's source into another's, while the second
   points at a separate repository whose files this repo does not track.
+- A *canonical checkout* is the one clone of this repo, `~/dotfiles`, that may deploy into the real home. A *prime
+  checkout* is the operator's own clone of any repo, as opposed to its *agent slots*. The two do not interchange.

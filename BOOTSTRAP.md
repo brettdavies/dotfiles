@@ -531,6 +531,23 @@ Read switch decisions with `journalctl --user -u cswap-auto`. Lingering must be 
 A tick exits 2 when there is nothing to do and 3 when every account is spent and the credential is held. The unit counts
 both as success, so the failed-unit list stays meaningful.
 
+### Agent slots
+
+`agent-slot` hands out full clones of a repo for parallel Claude agents ([README](README.md#parallel-agents)). After the
+`tmux` and `local` packages are deployed, enable the slot tmux server's prune timer, check the prerequisites, and trust
+the slot paths of the repos you start agents on:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now tmux-prune-orphans-slots.timer
+agent-slot doctor
+agent-slot warm <repo>
+```
+
+The timer prunes orphaned clients on the `agent-slots` tmux server daily, as `tmux-prune-orphans.timer` does for the
+default server. `agent-slot doctor` names anything else that is missing, each with the command that fixes it. The Mac's
+side is under [Rex config and agent slots](#rex-config-and-agent-slots).
+
 ### Scheduled brew and uv upgrades (systemd)
 
 The `local` package ships `brew-upgrade` and `uv-tools-upgrade`, oneshot units on daily timers at 04:00 and 04:30 that

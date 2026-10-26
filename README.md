@@ -251,6 +251,122 @@ Mac's SSH config names it, default `hostname -s`) on the Linux host; `MAC_OPEN_C
 bundle by default) on the Mac. `tests/mac-open.bats` and `tests/mac-open-here.bats` stub every external command, and
 `tests/yazi-config.bats` pins the routing table in `yazi.toml`, which replaces yazi's built-in one.
 
+### Parallel Agents
+
+Many Claude Code agents can work on the same repo at once, each in an *agent slot*: a full clone of the repo at
+`~/slots/<repo>/<N>` on the Linux server, set up like the repo's own checkout (its hooks, the `docs/solutions` link, its
+Claude memory and permission grants), with one task per slot. `agent-slot` on the server owns every slot and every check
+before a slot is deleted; `agent-slot-rex` on the Mac drives Rex, where each repo is one session and each agent one tab.
+Every slot runs three tmux sessions on the server's `agent-slots` socket (Claude, yazi, and lazygit), so agents keep
+working while the Mac sleeps, and each pane of a slot's tab reattaches by itself after a sleep or a network drop.
+
+A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
+merged with none open, or the operator finished it) and nothing in it is missing from origin. Anything else keeps it on
+the *needs-you list*, shown on its tab and in the `agent-slots` control session.
+
+#### Setup
+
+1. Deploy both machines: `scripts/stow-deploy --headless --all` on the Linux server, then enable its prune timer with
+   `systemctl --user enable --now tmux-prune-orphans-slots.timer`; `scripts/stow-deploy --all` on the Mac, which also
+   reloads Rex's config (see BOOTSTRAP.md for moving a hand-written `~/.config/rex` aside first).
+2. Run `agent-slot-rex doctor` on the Mac. It checks the Mac's side, then runs `agent-slot doctor` on the server, with
+   every next step written to run through the ssh alias.
+3. Run `agent-slot warm <repo>` on the server for the repos you use, so a first launch there skips Claude's trust step.
+
+#### Keys and tab labels
+
+| Key         | Action                                                                                          |
+| ----------- | ----------------------------------------------------------------------------------------------- |
+| `cmd+alt+n` | Start an agent on the session's repo in a background tab; focus stays where it is               |
+| `cmd+alt+r` | Give every live slot its tab back, resume dormant slots, and close tabs whose slot is gone      |
+| `cmd+alt+f` | Finish the focused tab's task (no open PR) and delete its slot when nothing in it would be lost |
+
+A slot's tab is labelled `<repo>/<N>`, then `· <task>` (the task name, or the agent's branch once it has one), then:
+
+- `· trust needed` when Claude's trust dialog for the slot path did not look as expected: accept it in the tab;
+- `· needs you: <first blocker>` when something keeps the slot from being deleted;
+- `<repo> · launch failed` on a launch tab that stopped, with the error, its next step, and its log; Enter retries a
+  retryable failure with the same request ID, and q closes the tab.
+
+#### Commands
+
+On the Linux server, `agent-slot repos` lists the repos a slot can be made from, `agent-slot list` every slot with its
+state, agent, and blockers, and `agent-slot whoami` the slot a directory is in. `agent-slot launch <repo> --request-id
+<id> [--prompt-file <file>]` starts an agent, and agents use it to hand a task to a slot; a repeat with the same request
+ID returns the same slot. `agent-slot resume <repo>/<N>` restarts a dormant slot's sessions and conversation,
+`agent-slot warm <repo>` trusts slot paths ahead of time, and `agent-slot check [<repo>/<N>]` gives the teardown
+verdict. `agent-slot sweep` and `agent-slot finish <repo>/<N>` delete slots, so both only report unless given `--yes`,
+and agents ask before running them. `agent-slot doctor` checks every prerequisite and the time from key press to Claude
+idle.
+
+On the Mac, the keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`; each pane runs
+`agent-slot-rex attach <repo>/<N> claude|files|git`, the control session's tab runs `agent-slot-rex sweep`, and
+`agent-slot-rex doctor` checks both machines. Every verb answers `--help`.
+
+With `--output json`, every verb prints one JSON object on success and one error object on stderr, with a `reason` from
+the table below, an exit code (0 ok, 1 failed, 2 usage, 77 auth, 78 configuration), a `next_step`, a `recovery` that
+says whether a retry is safe, and a `log`.
+
+#### agent-slot reasons
+
+| Reason                        | Exit | Meaning and fix                                                                                |
+| ----------------------------- | ---- | ---------------------------------------------------------------------------------------------- |
+| `usage`                       | 2    | A verb, flag, or value is wrong; `--help` lists them                                           |
+| `script-error`                | 1    | The command stopped unexpectedly; its log says where. `agent-slot list` shows what changed     |
+| `dependency-missing`          | 78   | A tool is not installed; `next_step.command` installs it                                       |
+| `record-schema-newer`         | 78   | A slot record was written by a newer `agent-slot`; update dotfiles                             |
+| `not-in-slot`                 | 1    | The directory is not inside a slot                                                             |
+| `repo-not-found`              | 2    | No checkout with that name has an origin; `agent-slot repos` lists the names                   |
+| `slot-not-found`              | 1    | No slot holds that number                                                                      |
+| `slot-busy`                   | 1    | Another `agent-slot` process holds the slot, or it is still setting up; retry                  |
+| `invalid-task-name`           | 2    | A task name uses letters, digits, `-`, `_`, and `/`, and starts with a letter or digit         |
+| `prompt-file-unreadable`      | 2    | The first-message file cannot be read                                                          |
+| `slot-limit-reached`          | 78   | The repo holds the most live slots allowed; finish one, or raise `AGENT_SLOT_MAX_PER_REPO`     |
+| `clone-failed`                | 1    | Cloning from origin failed; retry with the same request ID                                     |
+| `solutions-symlink-missing`   | 78   | The shared solutions repo is missing, so the slot cannot get its `docs/solutions` link         |
+| `hooks-path-outside-checkout` | 78   | The repo's own `core.hooksPath` points outside its checkout                                    |
+| `git-crypt-locked`            | 78   | A git-crypt repo could not be unlocked: git-crypt or its key is missing                        |
+| `trust-dialog-unrecognized`   | 78   | Claude showed a screen other than its trust dialog for the path; accept it by hand             |
+| `tmux-unresponsive`           | 1    | The `agent-slots` tmux server did not answer in time                                           |
+| `tmux-failed`                 | 1    | A tmux session could not be started; `agent-slot resume` tries again                           |
+| `pr-state-unknown`            | 1    | `gh` could not read the repo's PRs; check `gh auth status`, then retry                         |
+| `task-has-open-pr`            | 1    | `finish` refused: the task has an open PR; merge or close it first                             |
+| `teardown-blocked`            | 1    | `finish` kept the slot; `agent-slot check <repo>/<N>` names why                                |
+| `slot-outside-root`           | 78   | The slot path resolves outside the slot root, so nothing was deleted; look at it by hand       |
+| `gh-auth-missing`             | 77   | `gh` is not signed in; `gh auth login`                                                         |
+| `git-crypt-key-missing`       | 78   | There is no git-crypt key to unlock git-crypt repos with                                       |
+| `solutions-corpus-missing`    | 78   | The shared solutions repo is not cloned                                                        |
+| `slots-config-missing`        | 78   | `slots.conf` is not deployed; `scripts/stow-deploy tmux`                                       |
+| `prune-timer-inactive`        | 78   | The slot server's orphan-client prune timer is not enabled                                     |
+| `slot-path-untrusted`         | 78   | Doctor warning: a repo's next slot path is not trusted yet; `agent-slot warm <repo>`           |
+| `version-unverified`          | 0    | Doctor warning: Claude or Rex differs from the version the checklist last ran on               |
+| `repo-required`               | 2    | The new-agent key was pressed outside a repo's session, with no terminal to ask in             |
+| `server-unreachable`          | 1    | ssh to the Linux server failed; retry once the network is back                                 |
+| `rex-action-unregistered`     | 78   | Rex has not loaded the agent-slot actions; deploy the `rex` package or run `rex config reload` |
+| `rex-failed`                  | 1    | A `rex` command failed; retry                                                                  |
+
+#### Teardown blockers
+
+`agent-slot check` names what keeps a finished slot with one of these codes, a count or the offending paths, and a
+message such as `1 unpushed commit`.
+
+| Code                     | What keeps the slot                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `pr-state-unknown`       | `gh` could not read the PRs, so whether the task has finished is unknown                 |
+| `pr-closed-unmerged`     | A PR closed without merging; reopen and merge it, or press the finish key                |
+| `git-state-unknown`      | `git` could not fetch, or read the slot's state                                          |
+| `agent-not-idle`         | The agent is mid-turn or waiting on the operator                                         |
+| `agent-state-unknown`    | The agent's state could not be read, or a process outside the slot's panes uses the slot |
+| `uncommitted-changes`    | Tracked files have changes                                                               |
+| `stash-present`          | Something is stashed                                                                     |
+| `unpushed-commits`       | Commits are in no PR's final head and on no origin branch                                |
+| `commits-without-pr`     | Commits sit only on an origin branch that has no PR, such as one pushed after the merge  |
+| `untracked-files`        | Untracked or ignored files beyond build and dependency output                            |
+| `local-only-files`       | `.context`, `todos`, `TODO*`, or `.env*` files, which never reach origin                 |
+| `home-symlink-into-slot` | A symlink under the home directory resolves into the slot                                |
+| `home-scan-incomplete`   | The scan for such symlinks did not finish                                                |
+| `slot-busy`              | Another `agent-slot` process holds the slot                                              |
+
 ### System-Level Units (`config/systemd/system/`)
 
 System-level systemd units are **not** managed by stow (which targets `$HOME`). They live in `config/systemd/system/`
