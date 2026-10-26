@@ -222,17 +222,39 @@ case "$ext" in
       config_args=(--config "$global_config")
     fi
 
-    lint_output=$(markdownlint-cli2 "${config_args[@]}" --no-globs --fix "$file" 2>&1) || true
+    lint_status=0
+    lint_output=$(markdownlint-cli2 "${config_args[@]}" --no-globs --fix "$file" 2>&1) || lint_status=$?
+
+    # Forward only what the agent can act on. markdownlint-cli2 opens with a
+    # version banner, a `Finding:` line restating the path and every ignore
+    # glob, and a `Linting: N file` count. On a clean file those three plus
+    # `Summary: 0 issues in 0 files` are the entire output, so forwarding it
+    # spends context on every markdown edit to say nothing; on a file that does
+    # have violations they push the violations down the report. `Summary:` is
+    # kept whenever the count is non-zero, because then it is the headline.
+    lint_report=$(printf '%s\n' "$lint_output" | grep -Ev \
+      '^(markdownlint-cli2 v|Finding: |Linting: [0-9]+ files?$|Summary: 0 issues)' || true)
+    if [[ -z "${lint_report//[[:space:]]/}" ]]; then
+      lint_report=""
+    fi
+
+    # A non-zero exit that filters down to nothing means markdownlint failed in
+    # a way its own summary lines do not describe, such as an unreadable config
+    # or a crash. The raw output is the only diagnostic in that case, so keep it
+    # rather than reporting silence over a broken linter.
+    if [[ -z "$lint_report" ]] && ((lint_status != 0)); then
+      lint_report=$lint_output
+    fi
 
     # Any remaining MD013 violations are unbreakable lines (long URLs, code spans).
     # Tell the agent the limit and that these are acceptable exceptions.
-    if [[ "$lint_output" == *"MD013"* ]]; then
-      lint_output="${lint_output}
+    if [[ "$lint_report" == *"MD013"* ]]; then
+      lint_report="${lint_report}
 MD013 fix hint: line length limit is ${max_len} characters. Wrap lines to fill up to this limit — do not wrap shorter. Remaining MD013 violations are likely unbreakable tokens (long URLs or inline code) — these are acceptable."
     fi
 
     [[ -n "$tmp_config" ]] && rm -f "$tmp_config"
-    report_errors "$lint_output"
+    report_errors "$lint_report"
     ;;
   py)
     if command -v ruff &>/dev/null && [[ -f "$CLAUDE_PROJECT_DIR/pyproject.toml" ]]; then
