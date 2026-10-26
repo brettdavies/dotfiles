@@ -31,9 +31,8 @@ set -euo pipefail
 AS_HOME=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 AS_LIB=$AS_HOME/lib
 
-# The caller's PATH is never trusted: an SSH command, a Claude hook, and a cron job each hand over a different one.
-PATH="$HOME/.local/bin:/home/linuxbrew/.linuxbrew/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-
+# shellcheck source=lib/env.sh
+source "$AS_LIB/env.sh"
 # shellcheck source=lib/contract.sh
 source "$AS_LIB/contract.sh"
 # shellcheck source=lib/record.sh
@@ -49,45 +48,10 @@ source "$AS_LIB/read.sh"
 # shellcheck source=lib/doctor.sh
 source "$AS_LIB/doctor.sh"
 
-AGENT_SLOT_JQ=${AGENT_SLOT_JQ:-$(command -v jaq || command -v jq || true)}
-if [[ -z $AGENT_SLOT_JQ ]]; then
+if ! agent_slot_env "$AS_HOME"; then
   echo "agent-slot: dependency-missing: neither jaq nor jq is installed; next: brew install jaq" >&2
   exit "$EXIT_CONFIG"
 fi
-
-AS_ROOT=${AGENT_SLOT_ROOT:-$HOME/slots}
-AS_ROOT_REAL=$(realpath -m "$AS_ROOT")
-AS_DEV=${AGENT_SLOT_DEV:-$HOME/dev}
-AS_EXTRA_PRIMES=${AGENT_SLOT_EXTRA_PRIMES-$HOME/dotfiles}
-AS_STATE_DIR=${AGENT_SLOT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-slot}
-AS_LEDGER=$AS_STATE_DIR/ledger.jsonl
-AS_LOG_DIR=$AS_STATE_DIR/logs
-AS_TMUX_SOCKET=${AGENT_SLOT_TMUX_SOCKET:-agent-slots}
-AS_TMUX_CONF=${AGENT_SLOT_TMUX_CONF:-$HOME/.config/tmux/slots.conf}
-AS_SOLUTIONS=${AGENT_SLOT_SOLUTIONS:-$HOME/dev/solutions-docs}
-AS_GIT_CRYPT_KEY=${AGENT_SLOT_GIT_CRYPT_KEY:-$HOME/.config/git-crypt/key}
-AS_CLAUDE_STATE=${AGENT_SLOT_CLAUDE_STATE:-$HOME/.claude.json}
-AS_VERIFIED_VERSIONS=${AGENT_SLOT_VERIFIED_VERSIONS:-$AS_HOME/verified-versions}
-
-declare -A AS_TOOL=()
-for _tool in tmux claude gh git-crypt git flock timeout trash systemctl; do
-  _override=AGENT_SLOT_${_tool^^}
-  _override=${_override//-/_}
-  AS_TOOL[$_tool]=${!_override:-$(command -v "$_tool" || true)}
-  [[ -x ${AS_TOOL[$_tool]} ]] || AS_TOOL[$_tool]=
-  CONTRACT_TOOL_PATHS[$_tool]=${AS_TOOL[$_tool]:-$_tool}
-done
-unset _tool _override
-AS_TMUX=${AS_TOOL[tmux]}
-AS_CLAUDE=${AS_TOOL[claude]}
-AS_SYSTEMCTL=${AS_TOOL[systemctl]}
-
-CONTRACT_REPO=$AS_HOME
-CONTRACT_LOG_DIR=$AS_LOG_DIR
-CONTRACT_CONFIG=$(contract_json -n -c --arg root "$AS_ROOT" --arg dev "$AS_DEV" --arg state "$AS_STATE_DIR" \
-  --arg conf "$AS_TMUX_CONF" --arg socket "$AS_TMUX_SOCKET" --arg solutions "$AS_SOLUTIONS" \
-  '{slot_root: $root, dev_root: $dev, state_dir: $state, tmux_conf: $conf, tmux_socket: $socket,
-    solutions: $solutions}')
 
 # Usage: require_tools <tool...>; refuses with dependency-missing naming the first one absent.
 require_tools() {

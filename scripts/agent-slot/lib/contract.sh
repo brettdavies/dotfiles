@@ -72,7 +72,7 @@ CONTRACT_CONFIG='{}'
 CONTRACT_REPO=.
 CONTRACT_LOG_DIR=
 CONTRACT_NOISE=/dev/null
-declare -A CONTRACT_TOOL_PATHS=()
+declare -gA CONTRACT_TOOL_PATHS=()
 
 # A tool's own complaint goes to the run's noise file rather than stderr, so stderr carries one JSON error and nothing
 # else; a script-error log quotes the file's end.
