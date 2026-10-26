@@ -1,0 +1,973 @@
+#!/usr/bin/env bash
+#
+# github-stars - Clone new & update existing GitHub starred repos
+#
+# The github-stars timers run it: a full sync hourly and a clone-only pass at :15, :30 and :45. Output goes to the
+# journal (journalctl --user -u github-stars -u github-stars-clone).
+#
+# Unified script that:
+#   - Clones repos you've starred but don't have locally
+#   - Updates repos you already have cloned
+#   - Keeps dependency, bytecode and binary files out of each clone
+#   - Optionally prunes repos you've unstarred
+#
+# Usage: github-stars [-j JOBS] [--prune] [-n] [--clone-only] [--update-only]
+#
+# Clones are shallow, blobless partial clones (--filter=blob:none --depth 1 --single-branch --no-tags) with a non-cone
+# sparse checkout. The checkout leaves out GENERIC_CLEANUP_PATTERNS, EXCLUDED_EXTENSIONS and the repo's
+# REPO_CLEANUP_PATTERNS, and git downloads a blob only for a file the checkout writes, so excluded files cost nothing
+# on disk. An update's reset never writes them back. The generic list holds only trees no one writes by hand: a
+# committed vendor/, build/, dist/, out/ or target/ can hold source, and qmd indexes **/*.md under STARS_DIR while grep
+# reads the sources. Read an excluded file on demand with `git show HEAD:<path>` in the clone, or check it out for good
+# with `git sparse-checkout add <path>`; either fetches the blob from GitHub.
+#
+# git cannot garbage-collect a partial clone's promisor packs, so every update adds the changed blobs for good. A clone
+# whose object store passes twice its post-clone size (plus 512 KiB) is cloned afresh, and so is a clone that is not a
+# partial clone yet. The fresh clone is built beside the old one and swapped in only once it succeeds.
+
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+  for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$b" ] && exec "$b" "$0" "$@"
+  done
+  echo "ERROR: needs bash >= 4.4 (running $BASH_VERSION); install it with: brew install bash" >&2
+  exit 1
+fi
+
+set -euo pipefail
+
+# ============================================================================
+# Configuration
+# ============================================================================
+
+GITHUB_USER="BrettDavies"
+BASE_DIR="${STARS_DIR:-$HOME/github-stars}"
+ERROR_LOG="$BASE_DIR/.github-stars-errors.log"
+STATS_FILE="$BASE_DIR/.github-stars-stats.json"
+
+# ============================================================================
+# Cleanup Patterns
+# ============================================================================
+
+# Directory names and file globs left out of every clone, at any depth
+GENERIC_CLEANUP_PATTERNS=(
+    # JavaScript/Node
+    "node_modules"
+    ".next"
+    ".nuxt"
+    "coverage"
+    ".nyc_output"
+
+    # Python
+    "__pycache__"
+    ".pytest_cache"
+    ".mypy_cache"
+    ".tox"
+    "*.egg-info"
+    "*.pyc"
+    "*.pyo"
+    ".eggs"
+    ".venv"
+    "venv"
+
+    # Jupyter
+    ".ipynb_checkpoints"
+
+    # Caches
+    ".cache"
+
+    # Test artifacts
+    ".coverage"
+)
+
+# File extensions left out of every clone, in lower and upper case: images, media, fonts, archives, native binaries,
+# databases. SVG is text and stays.
+EXCLUDED_EXTENSIONS=(
+    png jpg jpeg gif webp avif tiff tif bmp ico heic cr2 dng psd
+    mp4 mov webm wav mp3
+    woff woff2 ttf otf eot
+    gz tgz zip tar jar bundle pdf
+    so dylib dll exe node wasm bin
+    sqlite sqlite-wal db jfr hprof heapsnapshot dcm ithmb pt
+    map
+)
+
+# Repo-specific paths left out, relative to the repo root (owner/repo -> space-separated patterns)
+declare -A REPO_CLEANUP_PATTERNS
+# Text these repos commit as data dumps; the same types stay searchable everywhere else.
+REPO_CLEANUP_PATTERNS["RhetTbull/osxphotos"]="tests/test-images tests/*.photoslibrary tests/*.photolibrary"
+REPO_CLEANUP_PATTERNS["TomerAberbach/profiler-md"]="examples/input examples/output"
+REPO_CLEANUP_PATTERNS["garrytan/gbrain-evals"]="docs/benchmarks"
+REPO_CLEANUP_PATTERNS["majiayu000/claude-skill-registry"]="registry-shards docs/search-shards docs/categories THIRD_PARTY_NOTICES.d"
+REPO_CLEANUP_PATTERNS["boxabirds/awesome-local-ai"]="combinations"
+REPO_CLEANUP_PATTERNS["JerBouma/FinanceDatabase"]="database"
+REPO_CLEANUP_PATTERNS["ZirvedaAytimur/Natural-Language-Processing-NLP-"]="NGramAnalysis"
+REPO_CLEANUP_PATTERNS["chenglou/pretext"]="harness/cases"
+
+# ============================================================================
+# Defaults & Colors
+# ============================================================================
+
+PARALLEL_JOBS=8
+PRUNE=false
+DRY_RUN=false
+CLONE_ONLY=false
+UPDATE_ONLY=false
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# ============================================================================
+# Logging
+# ============================================================================
+
+log_info()    { echo -e "${BLUE}[INFO]${NC} $1" >&2; }
+log_success() { echo -e "${GREEN}[OK]${NC} $1" >&2; }
+log_warn()    { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
+log_error()   { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+log_cleanup() { echo -e "${CYAN}[CLEAN]${NC} $1" >&2; }
+
+usage() {
+    cat << 'EOF'
+Usage: github-stars [OPTIONS]
+
+Clone new starred repos and update existing ones, with automatic cleanup.
+
+OPTIONS:
+  -j JOBS        Parallel jobs (default: 8)
+  --prune        Remove repos that are no longer starred
+  -n, --dry-run  Show what would be done without doing it
+  --clone-only   Only clone new repos, don't update existing
+  --update-only  Only update existing repos, don't clone new
+  -h, --help     Show this help
+
+ENVIRONMENT:
+  STARS_DIR      Base directory for clones (default: ~/github-stars)
+
+EXCLUDED PATHS:
+  Clones are sparse checkouts that leave these out of the working tree:
+  - Generic: node_modules, __pycache__, .venv, *.pyc, .next, coverage, etc.
+  - Repo-specific: Configure via REPO_CLEANUP_PATTERNS in script
+
+EXAMPLES:
+  github-stars              # Clone new + update existing
+  github-stars -j 8         # Use 8 parallel workers
+  github-stars --prune      # Also remove unstarred repos
+  github-stars -n           # Dry run
+  github-stars --clone-only # Only clone new repos
+
+EOF
+}
+
+# ============================================================================
+# Argument Parsing
+# ============================================================================
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -j)
+                PARALLEL_JOBS="$2"
+                shift 2
+                ;;
+            --prune)
+                PRUNE=true
+                shift
+                ;;
+            -n|--dry-run)
+                DRY_RUN=true
+                shift
+                ;;
+            --clone-only)
+                CLONE_ONLY=true
+                shift
+                ;;
+            --update-only)
+                UPDATE_ONLY=true
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                usage >&2
+                exit 2
+                ;;
+        esac
+    done
+}
+
+# ============================================================================
+# Dependencies
+# ============================================================================
+
+check_dependencies() {
+    if ! command -v gh &> /dev/null; then
+        log_error "gh CLI not found. Install with: brew install gh"
+        exit 1
+    fi
+
+    if ! gh auth status &> /dev/null; then
+        log_error "gh CLI not authenticated. Run: gh auth login"
+        exit 1
+    fi
+}
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+# Retry a command with exponential backoff.
+# Usage: with_retry <max_retries> <initial_backoff> <command...>
+# Returns the command's exit code. Stdout/stderr pass through.
+with_retry() {
+    local max_retries="$1" backoff="$2"
+    shift 2
+
+    local attempt=0
+    while [[ $attempt -lt $max_retries ]]; do
+        if "$@"; then
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        [[ $attempt -lt $max_retries ]] && sleep "$backoff"
+        backoff=$((backoff * 2))
+    done
+    return 1
+}
+
+# Display a dry-run list: first 20 entries, then "...and N more".
+# Usage: show_dry_run_list <file> <label>
+show_dry_run_list() {
+    local file="$1" label="$2"
+    local count
+    count=$(wc -l < "$file")
+
+    log_info "Would $label:"
+    head -20 "$file" | while read -r repo; do
+        echo "  - $repo" >&2
+    done
+    if [[ $count -gt 20 ]]; then
+        echo "  ... and $((count - 20)) more" >&2
+    fi
+}
+
+# Find and remove matching paths, accumulating bytes saved.
+# Usage: remove_counted <repo_dir> <find_args...>
+# Prints bytes removed to stdout.
+remove_counted() {
+    local repo_dir="$1"
+    shift
+    local total=0
+
+    while IFS= read -r -d '' item; do
+        if [[ -e "$item" ]]; then
+            local size
+            size=$(du -sb "$item" 2>/dev/null | cut -f1 || echo 0)
+            if [[ $size -gt 0 ]]; then
+                total=$((total + size))
+                rm -rf "$item"
+            fi
+        fi
+    done < <(find "$repo_dir" "$@" -print0 2>/dev/null)
+
+    echo "$total"
+}
+
+# Human-readable size
+human_size() {
+    numfmt --to=iec "$1" 2>/dev/null || echo "${1}B"
+}
+
+# ============================================================================
+# GitHub API
+# ============================================================================
+
+fetch_starred_repos() {
+    local retry_count=0
+    local max_retries=5
+    local backoff=1
+
+    while [[ $retry_count -lt $max_retries ]]; do
+        local repos
+        if repos=$(gh api "users/$GITHUB_USER/starred" --paginate -q '.[].full_name' 2>&1); then
+            # Exclude own repos — we don't need to clone our own code into github-stars
+            echo "$repos" | grep -vi "^${GITHUB_USER}/"
+            return 0
+        fi
+
+        if echo "$repos" | grep -qi "rate limit"; then
+            log_warn "Rate limited. Sleeping ${backoff}s..."
+            sleep "$backoff"
+            backoff=$((backoff * 2))
+            retry_count=$((retry_count + 1))
+        else
+            log_error "Failed to fetch stars: $repos"
+            return 1
+        fi
+    done
+
+    log_error "Max retries exceeded"
+    return 1
+}
+
+# ============================================================================
+# Local Repo Discovery
+# ============================================================================
+
+get_local_repos() {
+    find "$BASE_DIR" -mindepth 2 -maxdepth 3 -type d -name ".git" 2>/dev/null | while read -r git_dir; do
+        local repo_dir="${git_dir%/.git}"
+        local repo_name="${repo_dir#"$BASE_DIR"/}"
+        echo "$repo_name"
+    done | sort
+}
+
+# ============================================================================
+# Cleanup Functions
+# ============================================================================
+
+# Cleanup a single repo after clone/update
+# Returns bytes saved on stdout
+cleanup_repo() {
+    local repo_dir="$1"
+    local full_name="$2"
+    local total_saved=0
+
+    [[ ! -d "$repo_dir" ]] && echo 0 && return 0
+
+    # Apply generic patterns
+    for pattern in "${GENERIC_CLEANUP_PATTERNS[@]}"; do
+        local saved=0
+        if [[ "$pattern" == *\** ]]; then
+            saved=$(remove_counted "$repo_dir" -name "$pattern")
+        else
+            saved=$(remove_counted "$repo_dir" -type d -name "$pattern")
+        fi
+        total_saved=$((total_saved + saved))
+    done
+
+    # Apply repo-specific patterns
+    if [[ -v "REPO_CLEANUP_PATTERNS[$full_name]" ]]; then
+        local patterns
+        IFS=' ' read -ra patterns <<< "${REPO_CLEANUP_PATTERNS[$full_name]}"
+
+        for pattern in "${patterns[@]}"; do
+            local target="$repo_dir/$pattern"
+
+            # Handle glob patterns
+            for item in $target; do
+                if [[ -e "$item" ]]; then
+                    local size
+                    size=$(du -sb "$item" 2>/dev/null | cut -f1 || echo 0)
+                    if [[ $size -gt 0 ]]; then
+                        total_saved=$((total_saved + size))
+                        rm -rf "$item"
+                    fi
+                fi
+            done
+        done
+    fi
+
+    echo "$total_saved"
+}
+
+# ============================================================================
+# Clone Function
+# ============================================================================
+
+# HTTPS URL for a repo. With a token, the user name keeps a url.<ssh>.insteadOf rule for https://github.com/ from
+# moving the transfer onto SSH, where the token header does not apply.
+_https_url() {
+    if [[ -n "${GH_TOKEN:-}" ]]; then
+        echo "https://x-access-token@github.com/$1.git"
+    else
+        echo "https://github.com/$1.git"
+    fi
+}
+
+# Non-cone sparse-checkout patterns: everything, minus the generic and repo-specific exclusions.
+_sparse_patterns() {
+    local full_name="$1" pattern
+    local -a repo_patterns=()
+    echo '/*'
+    for pattern in "${GENERIC_CLEANUP_PATTERNS[@]}"; do
+        if [[ "$pattern" == *\** ]]; then
+            echo "!$pattern"
+        else
+            echo "!$pattern/"
+        fi
+    done
+    for pattern in "${EXCLUDED_EXTENSIONS[@]}"; do
+        echo "!*.$pattern"
+        echo "!*.${pattern^^}"
+    done
+    if [[ -v "REPO_CLEANUP_PATTERNS[$full_name]" ]]; then
+        IFS=' ' read -ra repo_patterns <<< "${REPO_CLEANUP_PATTERNS[$full_name]}"
+        for pattern in "${repo_patterns[@]}"; do
+            echo "!/$pattern"
+        done
+    fi
+}
+
+_set_sparse() {
+    local full_name="$1"
+    git sparse-checkout set --no-cone --stdin <<< "$(_sparse_patterns "$full_name")" >/dev/null 2>&1
+}
+
+# Per-clone settings that stop reflogs and ORIG_HEAD from pinning superseded commits.
+_set_hygiene() {
+    git config core.logAllRefUpdates false &&
+        git config gc.reflogExpire now &&
+        git config gc.reflogExpireUnreachable now &&
+        git config gc.pruneExpire now
+}
+
+_tidy() {
+    git reflog expire --expire=now --all >/dev/null 2>&1
+    git update-ref -d ORIG_HEAD >/dev/null 2>&1
+    git gc --auto --quiet >/dev/null 2>&1
+    return 0
+}
+
+# Object store size in KiB, loose plus packed.
+_store_kib() {
+    git -C "$1" count-objects -v 2>/dev/null | awk '/^size(-pack)?:/ { s += $2 } END { print s + 0 }'
+}
+
+_over_budget() {
+    local baseline
+    baseline=$(git -C "$1" config --get github-stars.baselineKib 2>/dev/null) || return 1
+    [[ "$(_store_kib "$1")" -gt $((baseline * 2 + 512)) ]]
+}
+
+# Partial, sparse clone. Origin ends on the SSH URL so an on-demand blob fetch uses the user's own credentials.
+_git_clone() {
+    local full_name="$1" target_dir="$2"
+    GIT_LFS_SKIP_SMUDGE=1 git clone \
+        --filter=blob:none --depth 1 --single-branch --no-tags --no-checkout \
+        "$(_https_url "$full_name")" \
+        "$target_dir" >/dev/null 2>&1 &&
+        (
+            # --no-checkout, not --sparse: --sparse writes the top-level files before the patterns apply, which
+            # downloads any excluded file at the repo root.
+            cd "$target_dir" &&
+                _set_hygiene &&
+                GIT_LFS_SKIP_SMUDGE=1 _set_sparse "$full_name" &&
+                GIT_LFS_SKIP_SMUDGE=1 git checkout -q >/dev/null 2>&1 &&
+                git remote set-url origin "git@github.com:$full_name.git" &&
+                git config github-stars.baselineKib "$(_store_kib .)"
+        )
+}
+
+# Clone afresh into a scratch directory under BASE_DIR (too deep for the local-repo scan), then swap it in. On any
+# failure the old clone stays where it was.
+_reclone() {
+    local full_name="$1" target_dir="$2" scratch
+    mkdir -p "$BASE_DIR/.github-stars-tmp" &&
+        scratch=$(mktemp -d "$BASE_DIR/.github-stars-tmp/reclone.XXXXXX") || return 1
+    if _git_clone "$full_name" "$scratch/new" && mv "$target_dir" "$scratch/old"; then
+        if mv "$scratch/new" "$target_dir"; then
+            rm -rf "$scratch"
+            return 0
+        fi
+        mv "$scratch/old" "$target_dir"
+    fi
+    rm -rf "$scratch"
+    return 1
+}
+
+clone_repo() {
+    local full_name="$1"
+    local target_dir="$BASE_DIR/$full_name"
+
+    # Skip if already exists
+    if [[ -d "$target_dir/.git" ]]; then
+        echo "exists:0"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$target_dir")"
+
+    if with_retry 3 2 _git_clone "$full_name" "$target_dir"; then
+        echo "cloned:0"
+        return 0
+    fi
+
+    # Failed - might be private/deleted
+    rm -rf "$target_dir" 2>/dev/null || true
+    echo "$full_name: clone failed" >> "$ERROR_LOG"
+    echo "failed:0"
+    return 0
+}
+
+# ============================================================================
+# Update Function
+# ============================================================================
+
+_git_update() {
+    local target_dir="$1"
+    local full_name="$2"
+    local ssh_url="git@github.com:$full_name.git"
+
+    if [[ "$(git -C "$target_dir" config --get remote.origin.promisor 2>/dev/null)" != "true" ]] &&
+        _reclone "$full_name" "$target_dir"; then
+        return 0
+    fi
+
+    (
+        cd "$target_dir"
+
+        if [[ -n "${GH_TOKEN:-}" ]]; then
+            git remote set-url origin "$(_https_url "$full_name")" 2>/dev/null
+            # Always restore SSH URL, even on failure
+            trap 'git remote set-url origin "$ssh_url" 2>/dev/null' EXIT
+        fi
+
+        # Before the reset, so a clone without the exclusions converts and the reset never writes excluded paths.
+        _set_hygiene &&
+            GIT_LFS_SKIP_SMUDGE=1 _set_sparse "$full_name" &&
+            GIT_LFS_SKIP_SMUDGE=1 git fetch --depth 1 origin >/dev/null 2>&1 &&
+            git reset --hard origin/HEAD >/dev/null 2>&1 &&
+            _tidy
+    ) || return 1
+
+    if _over_budget "$target_dir"; then
+        _reclone "$full_name" "$target_dir" || true
+    fi
+    return 0
+}
+
+update_repo() {
+    local full_name="$1"
+    local target_dir="$BASE_DIR/$full_name"
+
+    if [[ ! -d "$target_dir/.git" ]]; then
+        echo "missing:0"
+        return 0
+    fi
+
+    if with_retry 3 2 _git_update "$target_dir" "$full_name"; then
+        echo "updated:0"
+        return 0
+    fi
+
+    echo "$full_name: update failed" >> "$ERROR_LOG"
+    echo "failed:0"
+    return 0
+}
+
+# ============================================================================
+# Worker Function (for parallel execution)
+# ============================================================================
+
+# Process a single repo: run the git action, then cleanup on success.
+# Outputs a single line: "status:bytes_saved"
+process_repo() {
+    local action="$1"
+    local full_name="$2"
+    local index="$3"
+    local total="$4"
+    local target_dir="$BASE_DIR/$full_name"
+
+    local result
+    case "$action" in
+        clone)  result=$(clone_repo "$full_name") ;;
+        update) result=$(update_repo "$full_name") ;;
+    esac
+
+    local status="${result%%:*}"
+
+    # Run cleanup after successful git operation
+    local saved=0
+    if [[ "$status" == "cloned" || "$status" == "updated" ]]; then
+        saved=$(cleanup_repo "$target_dir" "$full_name")
+    fi
+
+    # Log the result
+    case "$status" in
+        cloned)
+            if [[ $saved -gt 0 ]]; then
+                log_success "[$index/$total] Cloned: $full_name (cleaned $(human_size "$saved"))"
+            else
+                log_success "[$index/$total] Cloned: $full_name"
+            fi
+            ;;
+        updated)
+            if [[ $saved -gt 0 ]]; then
+                log_success "[$index/$total] Updated: $full_name (cleaned $(human_size "$saved"))"
+            else
+                log_success "[$index/$total] Updated: $full_name"
+            fi
+            ;;
+        missing)
+            log_warn "[$index/$total] Missing: $full_name"
+            ;;
+        failed)
+            log_error "[$index/$total] Failed to $action: $full_name"
+            ;;
+    esac
+
+    echo "$status:$saved"
+}
+
+# Serialize GENERIC_CLEANUP_PATTERNS for subshell/xargs use.
+# Newline-delimited since no pattern contains newlines.
+_serialize_cleanup_patterns() {
+    printf '%s\n' "${GENERIC_CLEANUP_PATTERNS[@]}"
+}
+
+# Deserialize GENERIC_CLEANUP_PATTERNS from the env var.
+_deserialize_cleanup_patterns() {
+    local IFS=$'\n'
+    # shellcheck disable=SC2206
+    GENERIC_CLEANUP_PATTERNS=($_GENERIC_CLEANUP_PATTERNS_SERIALIZED)
+}
+
+# Wrapper for xargs: called as `_xargs_worker <action> <full_name> <index> <total>`
+# Reconstructs arrays from serialized env vars, then calls process_repo.
+_xargs_worker() {
+    _deserialize_cleanup_patterns
+    # Reconstruct associative array from serialized env var
+    eval "$_REPO_CLEANUP_PATTERNS_SERIALIZED"
+    eval "$_EXCLUDED_EXTENSIONS_SERIALIZED"
+    process_repo "$@"
+}
+
+export -f clone_repo update_repo cleanup_repo process_repo
+export -f _https_url _sparse_patterns _set_sparse _set_hygiene _tidy _store_kib _over_budget _reclone
+export -f _git_clone _git_update
+export -f with_retry remove_counted human_size
+export -f log_info log_success log_warn log_error log_cleanup
+export -f _xargs_worker _deserialize_cleanup_patterns
+export BASE_DIR ERROR_LOG GH_TOKEN
+export RED GREEN YELLOW BLUE CYAN NC
+
+# ============================================================================
+# Prune Function
+# ============================================================================
+
+# Prune repos that are local but no longer starred.
+# Receives the unstarred list file (precomputed by caller).
+prune_repos() {
+    local unstarred_file="$1"
+    local removed=0
+
+    log_info "Checking for repos to prune..."
+
+    while read -r local_repo; do
+        [[ -z "$local_repo" ]] && continue
+        local target_dir="$BASE_DIR/$local_repo"
+        # The starred list omits repos GitHub blocks (DMCA) or that were deleted, so absence there does not mean the
+        # clone can be re-made. Keep any clone whose repo GitHub does not serve; it may be the only copy left.
+        if ! gh api "repos/$local_repo" -q .full_name >/dev/null 2>&1; then
+            if [[ "$DRY_RUN" == "true" ]]; then
+                log_warn "[DRY-RUN] Would keep (unreachable on GitHub): $local_repo"
+            else
+                log_warn "Keeping $local_repo: unstarred, but GitHub no longer serves it; this may be the only copy"
+            fi
+            continue
+        fi
+        if [[ "$DRY_RUN" == "true" ]]; then
+            log_warn "[DRY-RUN] Would remove (unstarred): $local_repo"
+        else
+            log_warn "Removing (unstarred): $local_repo"
+            rm -rf "$target_dir"
+
+            # Remove empty owner directory
+            local owner_dir
+            owner_dir=$(dirname "$target_dir")
+            rmdir "$owner_dir" 2>/dev/null || true
+        fi
+        ((removed++)) || true
+    done < "$unstarred_file"
+
+    echo "$removed"
+}
+
+# ============================================================================
+# Phase Functions
+# ============================================================================
+
+# Aggregate stats from a results temp file.
+# Each line is "status:bytes_saved". Prints "count bytes_saved failed" for
+# the success status (cloned or updated).
+_aggregate_results() {
+    local results_file="$1"
+    local success_status="$2"
+    local count=0 saved=0 failed=0
+
+    while IFS=: read -r status bytes; do
+        case "$status" in
+            "$success_status")
+                ((count++)) || true
+                saved=$((saved + bytes))
+                ;;
+            failed)
+                ((failed++)) || true
+                ;;
+        esac
+    done < "$results_file"
+
+    echo "$count $saved $failed"
+}
+
+# Run process_repo across a list of repos, collecting results.
+# Usage: run_phase <action> <list_file> <results_file>
+run_phase() {
+    local action="$1"
+    local list_file="$2"
+    local results_file="$3"
+    local total
+    total=$(wc -l < "$list_file")
+
+    # Serialize arrays into env vars for subshell access
+    export _GENERIC_CLEANUP_PATTERNS_SERIALIZED
+    _GENERIC_CLEANUP_PATTERNS_SERIALIZED=$(_serialize_cleanup_patterns)
+
+    # Serialize associative array as a declare -A statement
+    export _EXCLUDED_EXTENSIONS_SERIALIZED
+    _EXCLUDED_EXTENSIONS_SERIALIZED=$(declare -p EXCLUDED_EXTENSIONS)
+
+    export _REPO_CLEANUP_PATTERNS_SERIALIZED
+    _REPO_CLEANUP_PATTERNS_SERIALIZED=$(declare -p REPO_CLEANUP_PATTERNS 2>/dev/null || echo 'declare -A REPO_CLEANUP_PATTERNS')
+
+    if [[ "$PARALLEL_JOBS" -gt 1 ]]; then
+        # Number each line: "repo index total" then fan out with xargs -P
+        local numbered_file
+        numbered_file=$(mktemp)
+        awk -v total="$total" '{print NR, $0}' "$list_file" > "$numbered_file"
+
+        while read -r idx repo; do
+            echo "$action" "$repo" "$idx" "$total"
+        done < "$numbered_file" \
+            | xargs -P "$PARALLEL_JOBS" -L 1 bash -c '_xargs_worker "$@"' _ `# Must be bash -c, not sh/zsh — export -f is bash-only` \
+            > "$results_file"
+
+        rm -f "$numbered_file"
+    else
+        local i=0
+        while read -r repo; do
+            ((i++)) || true
+            process_repo "$action" "$repo" "$i" "$total"
+        done < "$list_file" > "$results_file"
+    fi
+}
+
+fetch_phase() {
+    log_info "Fetching starred repos for $GITHUB_USER..."
+    fetch_starred_repos > "$STARRED_FILE"
+
+    STARRED_COUNT=$(wc -l < "$STARRED_FILE")
+    log_info "Starred repos: $STARRED_COUNT"
+
+    get_local_repos > "$LOCAL_REPOS_FILE"
+    LOCAL_COUNT=$(wc -l < "$LOCAL_REPOS_FILE")
+    log_info "Local repos: $LOCAL_COUNT"
+    echo ""
+
+    # Sort starred once for both comm calls
+    SORTED_STARRED_FILE=$(mktemp)
+    sort "$STARRED_FILE" > "$SORTED_STARRED_FILE"
+
+    # Compute set differences
+    local sorted_local
+    sorted_local=$(mktemp)
+    sort "$LOCAL_REPOS_FILE" > "$sorted_local"
+
+    TO_CLONE_FILE=$(mktemp)
+    comm -23 "$SORTED_STARRED_FILE" "$sorted_local" > "$TO_CLONE_FILE"
+    CLONE_COUNT=$(wc -l < "$TO_CLONE_FILE")
+
+    TO_UPDATE_FILE=$(mktemp)
+    comm -12 "$SORTED_STARRED_FILE" "$sorted_local" > "$TO_UPDATE_FILE"
+    UPDATE_COUNT=$(wc -l < "$TO_UPDATE_FILE")
+
+    # Local repos that are no longer starred (for prune)
+    UNSTARRED_FILE=$(mktemp)
+    comm -23 "$sorted_local" "$SORTED_STARRED_FILE" > "$UNSTARRED_FILE"
+
+    rm -f "$sorted_local"
+}
+
+clone_phase() {
+    if [[ "$UPDATE_ONLY" == "true" || $CLONE_COUNT -eq 0 ]]; then
+        [[ "$UPDATE_ONLY" != "true" ]] && log_info "No new repos to clone"
+        echo ""
+        return
+    fi
+
+    log_info "Cloning $CLONE_COUNT new repos..."
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        show_dry_run_list "$TO_CLONE_FILE" "clone"
+        CLONED=$CLONE_COUNT
+    else
+        local results_file
+        results_file=$(mktemp)
+        run_phase "clone" "$TO_CLONE_FILE" "$results_file"
+
+        local stats
+        stats=$(_aggregate_results "$results_file" "cloned")
+        read -r CLONED CLONE_SAVED CLONE_FAILED <<< "$stats"
+        rm -f "$results_file"
+    fi
+    echo ""
+}
+
+update_phase() {
+    if [[ "$CLONE_ONLY" == "true" || $UPDATE_COUNT -eq 0 ]]; then
+        [[ "$CLONE_ONLY" != "true" ]] && log_info "No repos to update"
+        echo ""
+        return
+    fi
+
+    log_info "Updating $UPDATE_COUNT existing repos..."
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        show_dry_run_list "$TO_UPDATE_FILE" "update"
+        UPDATED=$UPDATE_COUNT
+    else
+        local results_file
+        results_file=$(mktemp)
+        run_phase "update" "$TO_UPDATE_FILE" "$results_file"
+
+        local stats
+        stats=$(_aggregate_results "$results_file" "updated")
+        read -r UPDATED UPDATE_SAVED UPDATE_FAILED <<< "$stats"
+        rm -f "$results_file"
+    fi
+    echo ""
+}
+
+prune_phase() {
+    if [[ "$PRUNE" != "true" ]]; then
+        return
+    fi
+
+    REMOVED=$(prune_repos "$UNSTARRED_FILE")
+    echo ""
+}
+
+print_summary() {
+    local duration="$1"
+    local total_saved=$((CLONE_SAVED + UPDATE_SAVED))
+
+    local disk_usage
+    disk_usage=$(du -sh "$BASE_DIR" 2>/dev/null | cut -f1)
+
+    log_info "========== Summary =========="
+    log_info "Starred: $STARRED_COUNT | Local: $LOCAL_COUNT"
+    [[ $CLONED -gt 0 ]] && log_success "Cloned: $CLONED"
+    [[ $CLONE_FAILED -gt 0 ]] && log_error "Clone failed: $CLONE_FAILED"
+    [[ $UPDATED -gt 0 ]] && log_success "Updated: $UPDATED"
+    [[ $UPDATE_FAILED -gt 0 ]] && log_error "Update failed: $UPDATE_FAILED"
+    [[ $REMOVED -gt 0 ]] && log_warn "Pruned: $REMOVED"
+    [[ $total_saved -gt 0 ]] && log_cleanup "Space saved by cleanup: $(human_size $total_saved)"
+    log_info "Duration: ${duration}s"
+    log_info "Disk usage: $disk_usage"
+    echo ""
+}
+
+save_stats() {
+    local duration="$1"
+    local total_saved=$((CLONE_SAVED + UPDATE_SAVED))
+
+    local disk_usage
+    disk_usage=$(du -sh "$BASE_DIR" 2>/dev/null | cut -f1)
+
+    cat > "$STATS_FILE" << EOF
+{
+    "last_run": "$(date -Iseconds)",
+    "starred_count": $STARRED_COUNT,
+    "local_count": $LOCAL_COUNT,
+    "cloned": $CLONED,
+    "clone_failed": $CLONE_FAILED,
+    "updated": $UPDATED,
+    "update_failed": $UPDATE_FAILED,
+    "removed": $REMOVED,
+    "cleanup_bytes_saved": $total_saved,
+    "cleanup_human": "$(human_size $total_saved)",
+    "duration_seconds": $duration,
+    "disk_usage": "$disk_usage"
+}
+EOF
+
+    if [[ -s "$ERROR_LOG" ]]; then
+        log_warn "Errors logged to: $ERROR_LOG"
+    fi
+}
+
+# ============================================================================
+# Main
+# ============================================================================
+
+main() {
+    parse_args "$@"
+    check_dependencies
+
+    # Grab auth token once for HTTPS+token git operations (~20x faster than SSH)
+    if GH_TOKEN=$(gh auth token 2>/dev/null) && [[ -n "$GH_TOKEN" ]]; then
+        export GH_TOKEN
+        # Git reads the token from its environment: in a URL it shows in ps and can be left in .git/config.
+        export GIT_CONFIG_COUNT=1
+        export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+        GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+        export GIT_CONFIG_VALUE_0
+    else
+        log_warn "gh auth token failed — falling back to unauthenticated HTTPS"
+        GH_TOKEN=""
+    fi
+
+    mkdir -p "$BASE_DIR"
+    : > "$ERROR_LOG"
+
+    log_info "GitHub Stars Sync"
+    log_info "Base directory: $BASE_DIR"
+    log_info "Parallel jobs: $PARALLEL_JOBS"
+    [[ "$PRUNE" == "true" ]] && log_info "Prune mode: enabled"
+    [[ "$CLONE_ONLY" == "true" ]] && log_info "Mode: clone only"
+    [[ "$UPDATE_ONLY" == "true" ]] && log_info "Mode: update only"
+    [[ "$DRY_RUN" == "true" ]] && log_info "Mode: DRY RUN"
+    echo ""
+
+    local start_time
+    start_time=$(date +%s)
+
+    # Temp files managed across phases
+    STARRED_FILE=$(mktemp)
+    LOCAL_REPOS_FILE=$(mktemp)
+    SORTED_STARRED_FILE=""
+    TO_CLONE_FILE=""
+    TO_UPDATE_FILE=""
+    UNSTARRED_FILE=""
+    trap 'rm -f "$STARRED_FILE" "$LOCAL_REPOS_FILE" "$SORTED_STARRED_FILE" "$TO_CLONE_FILE" "$TO_UPDATE_FILE" "$UNSTARRED_FILE"' EXIT
+
+    # Stats counters (written by phase functions)
+    STARRED_COUNT=0 LOCAL_COUNT=0
+    CLONE_COUNT=0 UPDATE_COUNT=0
+    CLONED=0 CLONE_FAILED=0 CLONE_SAVED=0
+    UPDATED=0 UPDATE_FAILED=0 UPDATE_SAVED=0
+    REMOVED=0
+
+    fetch_phase
+    clone_phase
+    update_phase
+    prune_phase
+
+    local end_time
+    end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+
+    print_summary "$duration"
+    save_stats "$duration"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

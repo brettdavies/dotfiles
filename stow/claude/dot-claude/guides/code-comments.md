@@ -24,12 +24,12 @@ removing it would leave a non-obvious WHY unanswered for a future reader who lac
 - **References to local-only artifacts.** No `see plan/X`, `see unit 10`, `from the Y handoff`, `per docs/plans/...`,
   `docs/brainstorms/...`, `.context/` paths, `TODO.md`, internal-only doc slugs. These files live only on the author's
   machine (per the "Never Commit Todo Files Or `.context/`" rule) — referencing them in code is guaranteed rot.
-- **Task-flow references.** No `added for the X flow`, `used by Y`, `handles the case from issue #123`, `part of the
-  auth refactor`. Belongs in the PR description.
+- **Task-flow references.** No `added for the X flow`, `used by Y`, `handles the case from issue #123`,
+  `part of the auth refactor`. Belongs in the PR description.
 - **Instructional voice.** No `use this instead of`, `copy this pattern`, `migrate to this`, `prefer this over`. Code
   stands on its own; comments document, they don't lecture.
-- **Comparative claims about replaced code.** No `better than the previous`, `cleaner than the old`, `more efficient
-  than before`. If the new code is better, the diff shows it.
+- **Comparative claims about replaced code.** No `better than the previous`, `cleaner than the old`,
+  `more efficient than before`. If the new code is better, the diff shows it.
 - **Restating what the next code block does.** If the comment paraphrases the code it sits above — whether that's one
   line or several lines implementing a single conceptual operation — delete the comment or rename the symbol. A comment
   over a 5-line if-block that says only "Check if X exists" is restating just as much as the same comment over a single

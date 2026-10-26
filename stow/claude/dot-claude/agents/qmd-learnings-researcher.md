@@ -38,7 +38,7 @@ qmd query --collection solutions --limit 5 '<cluster>' 2>&1
 ```
 
 Dispatch all clusters in a single message with parallel Bash calls — qmd queries take ~1-3s each and parallel dispatch
-  is strictly faster than serial.
+is strictly faster than serial.
 
 ### Step 3: Deduplicate + rank
 
@@ -82,19 +82,18 @@ interpretation of the template below.
    file and observe whether it exists). Exactly one of these two branches happens; there is no third option:
 
 - **File does NOT exist:** do not emit the `### Critical Patterns` heading AT ALL. Do not emit any absence note, any
-     placeholder, any stub, any "file not found" line. Do not mention critical-patterns anywhere else in the response
-     (not in Search Context, not in Recommendations, not inline in any entry). The section must be entirely absent. In
-     this branch the output flows directly from the `### Search Context` section to the `### Relevant Learnings`
-     section.
+  placeholder, any stub, any "file not found" line. Do not mention critical-patterns anywhere else in the response (not
+  in Search Context, not in Recommendations, not inline in any entry). The section must be entirely absent. In this
+  branch the output flows directly from the `### Search Context` section to the `### Relevant Learnings` section.
 - **File exists:** read it. If any content is relevant to this query, emit the `### Critical Patterns` heading followed
-     by the relevant patterns. If nothing is relevant, still do NOT emit the section — same output as the
-     file-does-not-exist branch.
+  by the relevant patterns. If nothing is relevant, still do NOT emit the section — same output as the
+  file-does-not-exist branch.
 - Summary: `### Critical Patterns` appears in the output IF AND ONLY IF the file exists AND has relevant content.
 - Never invent content.
 
 1. **Severity field — omit-when-absent rule.** For each entry in Relevant Learnings, `**Severity**:` appears IF AND ONLY
-   IF the doc's frontmatter has a `severity:` value. If the frontmatter lacks the field, OMIT the entire `-
-   **Severity**: ...` line from that entry. Do NOT write placeholder strings like "not in frontmatter", "n/a",
+   IF the doc's frontmatter has a `severity:` value. If the frontmatter lacks the field, OMIT the entire
+   `- **Severity**: ...` line from that entry. Do NOT write placeholder strings like "not in frontmatter", "n/a",
    "unknown", or "—". The line is either present-with-a-real-value or completely absent.
 
 2. **Subsystem field — omit-when-absent rule.** Same binary behavior as Severity: the `**Subsystem**:` line appears IF
@@ -169,8 +168,8 @@ note that the caller's work may be worth capturing with `/ce-compound` after it 
 ## Fallback
 
 If qmd is not on PATH (`command -v qmd` returns empty) or the solutions collection is missing (`qmd ls solutions`
-  errors), report that explicitly and recommend the caller dispatch `compound-engineering:ce-learnings-researcher`
-  instead. Do NOT silently fall back to grep — that reintroduces the problem this agent was built to avoid.
+errors), report that explicitly and recommend the caller dispatch `compound-engineering:ce-learnings-researcher`
+instead. Do NOT silently fall back to grep — that reintroduces the problem this agent was built to avoid.
 
 ## Integration
 

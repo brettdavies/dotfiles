@@ -1,0 +1,25 @@
+[Unit]
+Description=Re-assert this host's Tailscale Serve bindings
+# A tailscaled restart or upgrade can drop Serve bindings while the services
+# stay advertised, so this re-runs scripts/tailscale-serve-setup.sh every time
+# tailscaled starts. The script exits non-zero until tailscale is up and each
+# upstream answers, so Restart= retries through boot ordering, then gives up
+# until the next tailscaled start. @OPERATOR@ (the Tailscale operator, so
+# `tailscale serve` needs no root) and @CHECKOUT@ (that user's ~/dotfiles, the
+# canonical checkout) are filled in by scripts/tailscale-serve-deploy.sh, which
+# installs and enables this unit.
+After=tailscaled.service
+PartOf=tailscaled.service
+StartLimitIntervalSec=30min
+StartLimitBurst=50
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=@OPERATOR@
+ExecStart=@CHECKOUT@/scripts/tailscale-serve-setup.sh
+Restart=on-failure
+RestartSec=30s
+
+[Install]
+WantedBy=tailscaled.service

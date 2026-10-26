@@ -35,7 +35,6 @@ _require_unlocked_checkout() {
   [[ "$shared" == *"claude"* ]]
   [[ "$shared" == *"local"* ]]
   [[ "$shared" == *"brew"* ]]
-  [[ "$shared" == *"opendataloader-pdf"* ]]
   [[ "$shared" == *"codex-proxy"* ]]
 }
 
@@ -64,7 +63,10 @@ _require_unlocked_checkout() {
   #
   # cargo is Linux-only because Rust toolchains are: the workstation carries no
   # cargo, so a config telling it how to fetch git dependencies has no reader.
-  grep -qE 'rclone *\| *obsidian *\| *opendataloader-pdf *\| *codex-proxy *\| *cargo *\)' "$SCRIPT"
+  #
+  # cswap ships systemd units only; macOS schedules the same rotation check
+  # through the launchagent package instead.
+  grep -qE 'rclone *\| *obsidian *\| *codex-proxy *\| *cargo *\| *cswap *\)' "$SCRIPT"
 }
 
 @test "STOW_FLAGS always ignores .DS_Store" {
@@ -74,8 +76,7 @@ _require_unlocked_checkout() {
 
 @test "STOW_FLAGS ignores systemd units on macOS only" {
   # Linux .service/.timer files scattered inside otherwise-shared packages
-  # (stow/local, stow/rclone, stow/rust, stow/obsidian,
-  # stow/opendataloader-pdf) must not symlink to ~/.config/systemd/user/
+  # (stow/local, stow/rclone, stow/rust, stow/obsidian) must not symlink to ~/.config/systemd/user/
   # on a Mac. File-extension regex is required because stow's --ignore
   # filters file basenames, not directory names. The pattern lives inside
   # an explicit Darwin gate.
@@ -219,6 +220,38 @@ NOT_DEPLOYED=(tmuxinator ollama)
   grep -qF 'systemctl --user daemon-reload' "$SCRIPT"
   grep -qF 'systemctl --user reset-failed' "$SCRIPT"
   grep -qF 'systemctl --user restart' "$SCRIPT"
+}
+
+@test "a \$HOME deploy restarts only the shipped timers that are enabled" {
+  [ "$(uname -s)" = Linux ] || skip "systemd timers are Linux-only"
+  command -v stow >/dev/null 2>&1 || skip "stow not installed"
+  fixture="$BATS_TEST_TMPDIR/fixture"
+  mkdir -p "$fixture/scripts"
+  cp "$SCRIPT" "$fixture/scripts/stow-deploy"
+  shared=$(grep '^SHARED_PACKAGES=' "$SCRIPT" | sed 's/.*(\(.*\))/\1/')
+  for pkg in $shared; do
+    mkdir -p "$fixture/stow/$pkg"
+    echo "$pkg" >"$fixture/stow/$pkg/dot-stow-sandbox-$pkg"
+  done
+  units="$fixture/stow/local/dot-config/systemd/user"
+  mkdir -p "$units"
+  printf '[Timer]\nOnCalendar=daily\n' >"$units/on.timer"
+  printf '[Timer]\nOnCalendar=daily\n' >"$units/off.timer"
+  # Stubs keep the live user manager and the real rustup out of it: off.timer reads as not enabled.
+  stubs="$BATS_TEST_TMPDIR/stubs"
+  mkdir -p "$stubs"
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\n[ "$*" != "--user is-enabled --quiet off.timer" ]\n' \
+    "$BATS_TEST_TMPDIR/systemctl.log" >"$stubs/systemctl"
+  printf '#!/bin/sh\necho minimal\n' >"$stubs/rustup"
+  chmod +x "$stubs"/*
+  target="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$target"
+  run env HOME="$target" STOW_DEPLOY_TARGET="$target" PATH="$stubs:$PATH" "$fixture/scripts/stow-deploy"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Recovered systemd timer: on.timer"* ]]
+  grep -qx -- '--user restart on.timer' "$BATS_TEST_TMPDIR/systemctl.log"
+  run grep -E -- '(restart|reset-failed) off\.timer' "$BATS_TEST_TMPDIR/systemctl.log"
+  [ "$status" -eq 1 ]
 }
 
 @test "systemd timer recovery is guarded to a real Linux \$HOME deploy" {

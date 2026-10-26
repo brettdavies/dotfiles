@@ -1,0 +1,13 @@
+[Unit]
+Description=Convert allowlisted PDFs from the starred clones to markdown for qmd
+ConditionHost=bigdaddy
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-%h/.config/github-stars/env
+ExecStart=%h/.local/bin/github-stars-pdf
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true

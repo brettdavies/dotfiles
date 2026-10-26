@@ -79,6 +79,8 @@ are version-controlled in `config/systemd/system/` and deployed via dedicated sc
 
 - `mnt-nas.mount` + `mnt-nas.automount` — deployed by `scripts/nas-deploy.sh`
 - `apparmor-playwright.service` — deployed by `scripts/apparmor-deploy.sh` alongside the profile it reloads at boot
+- `tailscale-serve-setup.service`: deployed by `scripts/tailscale-serve-deploy.sh`, which fills in the Tailscale
+  operator and checkout path; re-runs `scripts/tailscale-serve-setup.sh` on every tailscaled start
 
 **Pattern for adding new system-level units:**
 
@@ -108,9 +110,21 @@ and reloads it with `apparmor_parser -r`. Profiles persist across reboots.
 There is no config file to copy for this one. `AcceptEnv` accumulates across `/etc/ssh/sshd_config` and every
 `sshd_config.d/*.conf` drop-in, so a drop-in cannot cancel Ubuntu's stock `AcceptEnv LANG LC_*`; the script edits the
 directives in place, validates with `sshd -t`, and reloads sshd. With the client locale no longer accepted, `pam_env`
-supplies `LANG` from `/etc/default/locale` (`C.UTF-8`) to each session. The client side of the same fix is the `SetEnv
-LANG=C.UTF-8` on the affected host entries in the `ssh` package. `tests/sshd-locale-deploy.bats` exercises the rewrite
-through `--config PATH`, which skips the root check, validation, and reload.
+supplies `LANG` from `/etc/default/locale` (`C.UTF-8`) to each session. The client side of the same fix is the
+`SetEnv LANG=C.UTF-8` on the affected host entries in the `ssh` package. `tests/sshd-locale-deploy.bats` exercises the
+rewrite through `--config PATH`, which skips the root check, validation, and reload.
+
+### launchd User PATH (`config/launchd/user-path`)
+
+macOS only. `config/launchd/user-path` holds one line: the PATH launchd hands every GUI application and LaunchAgent. It
+lives beside the other system-level config because its target, `/var/db/com.apple.xpc.launchd/config/user.plist`, is
+root-owned and written only through `launchctl config user path`, so stow cannot own it. `scripts/launchd-user-path.sh`
+reads that plist with `plutil`, exits 0 when it matches, and on drift prints the exact
+`sudo launchctl config user path …` command and exits 1; `--apply` runs the command, which prompts for sudo.
+`scripts/stow-deploy` runs the check without `--apply` on every macOS deploy to `$HOME`, so a deploy reports drift and
+never prompts. launchd reads the plist only at boot, so a change reaches GUI apps and LaunchAgents after the next
+reboot. `tests/launchd-user-path.bats` stubs `uname`, `plutil`, `stat`, `sysctl`, and `sudo`, and points
+`LAUNCHD_USER_PLIST` at a sandbox file.
 
 ---
 
@@ -177,6 +191,13 @@ all-invocations file, so the shape inherits whatever its launcher handed it. Scr
 they need explicitly, per the section below. Claude Code's Bash tool is wired through `CLAUDE_ENV_FILE` by
 `stow/claude/dot-claude/bash-env-path.sh`, which repairs keg-only Ruby ordering only; it assumes an inherited `PATH`
 rather than assembling one.
+
+On macOS, launchd is the launcher for every GUI application and LaunchAgent, and what it hands them is its user PATH,
+declared in `config/launchd/user-path` with Homebrew first (see
+[launchd User PATH](#launchd-user-path-configlaunchduser-path)). Left unset, it is `/usr/bin:/bin:/usr/sbin:/sbin`, and
+`#!/usr/bin/env bash` there runs the system bash 3.2. Each LaunchAgent in `stow/launchagent/` also runs through
+`/bin/sh -c` and sets `PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"` before it `exec`s, so an agent does not
+depend on that setting; `tests/launchagents.bats` holds every agent to that shape.
 
 The `dash` row is its opposite and the one easiest to forget. `/bin/sh` is dash on Debian and Ubuntu, and `-l` makes it
 a login shell, so a tool that reaches a host with `sh -lc '<cmd>'` reads `.profile` regardless of the account's default
@@ -277,16 +298,21 @@ This is set during bootstrap (see README) or via `bash .githooks/setup`.
 The hooks exist so a red pipeline is a surprise rather than a routine. Every check is defined once, in a script that all
 three gates call:
 
-| Check      | Definition               | CI job                             | pre-push | pre-commit            |
-| ---------- | ------------------------ | ---------------------------------- | -------- | --------------------- |
-| ShellCheck | `scripts/lint-shell`     | `.github/workflows/shellcheck.yml` | `--all`  | staged paths          |
-| actionlint | `scripts/lint-workflows` | `.github/workflows/shellcheck.yml` | `--all`  | staged workflow files |
-| Bats       | `scripts/run-tests`      | `.github/workflows/bats.yml`       | `--all`  | staged `.bats` files  |
+| Check      | Definition                  | CI job                             | pre-push | pre-commit            |
+| ---------- | --------------------------- | ---------------------------------- | -------- | --------------------- |
+| ShellCheck | `scripts/lint-shell`        | `.github/workflows/shellcheck.yml` | `--all`  | staged paths          |
+| actionlint | `scripts/lint-workflows`    | `.github/workflows/shellcheck.yml` | `--all`  | staged workflow files |
+| Bats       | `scripts/run-tests`         | `.github/workflows/bats.yml`       | `--all`  | staged `.bats` files  |
+| Core env   | `scripts/core-env-guard.sh` | `.github/workflows/shellcheck.yml` | sweep    | staged test files     |
 
-actionlint shares the ShellCheck job rather than getting its own. The job id `shellcheck` is a required status check in
-both rulesets under `.github/rulesets/`, so a separate job would need a new required context registered before it could
-block anything. It also runs after ShellCheck is on PATH deliberately: actionlint delegates `run:` bodies to shellcheck,
-and without it those checks are skipped silently rather than failing.
+actionlint and the core-env guard share the ShellCheck job rather than getting their own. The job id `shellcheck` is a
+required status check in both rulesets under `.github/rulesets/`, so a separate job would need a new required context
+registered before it could block anything. It also runs after ShellCheck is on PATH deliberately: actionlint delegates
+`run:` bodies to shellcheck, and without it those checks are skipped silently rather than failing. The core-env guard
+fails a test that resets `HOME`, `TMPDIR`, an `XDG_*` directory, a tool home, or the whole value of `PATH`;
+`scripts/core-env-allowlist.tsv` holds each exception with its reason, and a sweep fails on an entry that matches
+nothing. The script is a verbatim copy of the github-repo-setup skill's `templates/core-env-guard.sh`, whose own suite
+covers it.
 
 `pre-push` is the repo-wide mirror: its steps map one-to-one onto CI jobs, and passing it should mean passing the
 pipeline. `pre-commit` runs the same scripts over staged paths only, so it stays fast enough for every commit while
@@ -299,6 +325,13 @@ in the script, never in a hook or a workflow, so the three cannot drift. `tests/
 
 A missing tool skips its step with an install hint instead of failing, so a machine without the full toolchain can still
 commit and push; CI stays the backstop. `.githooks/lib/report.sh` holds the shared pass/skip/fail output helpers.
+
+A suite whose code under test can run only on Linux skips itself elsewhere, so `pre-push` on the Mac and CI on Linux
+each pass on what they can run: its `setup_file` loads `tests/lib/platform.bash` and calls `require_linux "<why>"`.
+`mac-open.bats` and `tailscale-serve-deploy.bats` are gated this way. There is no macOS counterpart, because CI runs
+only on Linux and a suite gated to macOS would never run there. Mac-side code is tested through `uname` stubs, which run
+everywhere, and a check that needs a real Mac tool skips just that test when the tool is missing
+(`command -v plutil || skip`).
 
 ---
 
@@ -351,6 +384,16 @@ All shell scripts and hooks in this repo follow these conventions:
   message. Always output to stderr via `>&2`.
 - **Binary wrappers** (e.g., `op-ssh-sign-wrapper`) use `programname: message` format instead, which is the standard
   Unix convention for utilities identifying themselves.
+- **Shebang:** `#!/usr/bin/env bash`, never `#!/bin/bash`, which pins macOS to its system bash 3.2.
+- **bash >= 4.4 guard:** a script under `.githooks/`, `scripts/` or `stow/` that uses a bash 4 construct
+  (`declare -A`/`local -A`, `mapfile`/`readarray`, `${x,,}`, `&>>`, `|&`, `wait -n`, and the rest listed in
+  `tests/bash-version-guard.bats`) opens with the guard block from that suite as its first command, before `set`.
+  Started by a bash older than 4.4, it re-execs the script under `/opt/homebrew/bin/bash` or `/usr/local/bin/bash` with
+  the same arguments, or exits 1 with `brew install bash` when neither exists. The floor is 4.4 because below it an
+  empty array expanded under `set -u` is an unbound-variable error. The block is inline rather than sourced, because
+  stowed scripts run through symlinks outside the repo where a repo-relative source cannot reach;
+  `tests/bash-version-guard.bats` holds every copy identical to its `GUARD`, fails a bash 4 script that lacks it, and on
+  macOS runs it under `/bin/bash`.
 
 ---
 
@@ -358,8 +401,8 @@ All shell scripts and hooks in this repo follow these conventions:
 
 All workflows live in `.github/workflows/`. When adding or modifying actions:
 
-- **Node.js 24 required:** Set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a top-level `env` in every workflow that
-  runs JavaScript actions. Node.js 20 actions are no longer supported by the runner.
+- **Node.js 24:** GitHub runs JavaScript actions on Node.js 24, so workflows do not set
+  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`; remove it where one still does.
 - **Commit signing:** The release bot (`github-actions[bot]`) creates unsigned commits, and the `dev` ruleset requires
   signed commits, so nothing from `main` can be merged into `dev`. This is one of the reasons the post-release backport
   is a surgical `CHANGELOG.md` copy on a fresh branch (`scripts/sync-dev-after-release.sh`) rather than a branch merge.
@@ -375,8 +418,8 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
   Relevant when orienting to the codebase or discussing domain concepts.
 - `docs/solutions/` (symlink to `~/dev/solutions-docs`) — documented solutions organized by category
   (`deployment-issues/`, `integration-issues/`, `configuration-fixes/`, etc.) with YAML frontmatter (`module`, `tags`,
-  `problem_type`, `applies_when`). Relevant when debugging or implementing in documented areas; search with `qmd query
-  "<topic>" --collection solutions`.
+  `problem_type`, `applies_when`). Relevant when debugging or implementing in documented areas; search with
+  `qmd query "<topic>" --collection solutions`.
 - Signing architecture: `docs/solutions/deployment-issues/headless-linux-git-signing-and-hook-guards.md`
 - Shell config fixes: `docs/solutions/deployment-issues/post-deployment-shell-config-fixes.md`
 - Cross-platform deployment: `docs/solutions/deployment-issues/cross-platform-stow-dotfiles-deployment.md`

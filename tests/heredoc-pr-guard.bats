@@ -310,3 +310,96 @@ body
 EOF
 )\"'")" = "DENY" ]
 }
+
+# ---------------------------------------------------------------------------
+# Heredoc BODIES are not the command
+#
+# The three conditions used to be independent substring tests over the whole
+# input, so any command whose heredoc body merely mentioned `git commit -m` or
+# `--body` was denied. Writing a bats fixture that seeds a git repo is the
+# common shape, and the guard blocked authoring its own regression tests.
+# ---------------------------------------------------------------------------
+
+@test "RED: writing a file whose body contains git commit -m → ALLOW" {
+  [ "$(classify 'cat > tests/foo.bats <<'"'"'EOF'"'"'
+seed() {
+  git add -A && git commit -q -m "seed"
+}
+EOF')" = "ALLOW" ]
+}
+
+@test "RED: writing a file whose body contains gh pr create --body → ALLOW" {
+  [ "$(classify 'cat > docs/example.md <<'"'"'EOF'"'"'
+Do not do this:
+  gh pr create --body "$(cat <<INNER
+text
+INNER
+)"
+EOF')" = "ALLOW" ]
+}
+
+@test "RED: writing a file whose body contains gh release --notes → ALLOW" {
+  [ "$(classify 'cat > notes.md <<'"'"'EOF'"'"'
+gh release create v1 --notes "inline"
+EOF')" = "ALLOW" ]
+}
+
+@test "RED: unrelated heredoc beside a plain inline -m → ALLOW" {
+  # The inline -m is its own policy question; this hook is about heredocs, and
+  # denying here reported a reason that did not describe the command.
+  [ "$(classify 'cat > script.sh <<'"'"'EOF'"'"'
+echo hello
+EOF
+git commit -m "a real short message"')" = "ALLOW" ]
+}
+
+@test "RED: <<- indented heredoc body is still skipped → ALLOW" {
+  [ "$(classify 'cat > f.sh <<-'"'"'EOF'"'"'
+	git commit -m "inside the body"
+	EOF')" = "ALLOW" ]
+}
+
+@test "RED: unquoted delimiter body is skipped → ALLOW" {
+  [ "$(classify 'cat > f.sh <<EOF
+git commit -m "inside the body"
+EOF')" = "ALLOW" ]
+}
+
+@test "RED: a second heredoc after the first closes is scanned → ALLOW" {
+  [ "$(classify 'cat > a.txt <<'"'"'EOF'"'"'
+git commit -m "body one"
+EOF
+cat > b.txt <<'"'"'EOF'"'"'
+git commit -m "body two"
+EOF')" = "ALLOW" ]
+}
+
+# ---------------------------------------------------------------------------
+# Still denied: the flag and its heredoc on one logical line
+# ---------------------------------------------------------------------------
+
+@test "GREEN: heredoc into --body after a line continuation → DENY" {
+  [ "$(classify 'gh pr create --base dev \
+  --body "$(cat <<'"'"'EOF'"'"'
+body
+EOF
+)"')" = "DENY" ]
+}
+
+@test "GREEN: git commit -m heredoc after writing an unrelated file → DENY" {
+  [ "$(classify 'cat > note.txt <<'"'"'EOF'"'"'
+unrelated
+EOF
+git commit -m "$(cat <<'"'"'MSG'"'"'
+subject
+MSG
+)"')" = "DENY" ]
+}
+
+@test "GREEN: herestring into --body is not treated as a heredoc body opener" {
+  # <<< opens no body, so nothing after it may be swallowed as one.
+  [ "$(classify 'gh pr create --body "$(cat <<< "text")" && git commit -m "$(cat <<'"'"'MSG'"'"'
+subject
+MSG
+)"')" = "DENY" ]
+}

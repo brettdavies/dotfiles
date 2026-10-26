@@ -164,6 +164,12 @@ handed it and never runs the *shell config chain*. Cron, launchd and systemd job
 coding agent's command tool are all bare launchers. A bare launcher that needs a non-default tool on PATH must receive
 it from its own process environment (its unit, plist, or launcher configuration), not from the shell config chain.
 
+On macOS that launcher configuration includes a baseline every GUI application and LaunchAgent shares: the user PATH
+launchd reads at boot. The repo declares it with Homebrew first, so a process launchd starts resolves `env bash` and the
+rest of `/opt/homebrew/bin` ahead of the system copies. Unset, the baseline holds only the system directories, where
+`env bash` finds the system bash 3.2. The baseline is a floor, not the shell's PATH: the chain's other additions, such
+as `~/.local/bin`, reach a launchd-started process only through its own plist.
+
 Automated and remote callers are not bare launchers by default, and assuming they are is a mistake in the expensive
 direction. A caller that requests a login shell reads the chain however headless it is, which exposes it to everything
 the chain can get wrong rather than exempting it. Whether a caller is a bare launcher is decided by its *invocation
@@ -227,3 +233,48 @@ each requires a tool version recent enough to honor it — older versions silent
 paired with a version floor for every PM it covers. The gate is enforced via shell env vars (covering interactive and
 shell-launched processes) and, where the tool supports a global config file, written into that file (covering cron,
 systemd units, and other non-shell invocations).
+
+## Local checks
+
+### Local gate
+
+A check that runs on the developer's own machine at a git lifecycle point and mirrors what continuous integration would
+check, so the same verdict is reached before the work leaves the machine. Gates come in a pair that differs in scope and
+in nothing else: one runs at commit time over the staged paths and stays fast enough that nobody reaches for a bypass
+flag, the other runs at push time over the whole repository. Both route through one shared library, so a check exists
+once and the pair cannot drift into different coverage or different execution models.
+
+A local gate is a compensating control rather than a convenience. Where continuous integration has been thinned to one
+run per change, the gate is the only check some work ever gets, so a gate that silently passes leaves nothing behind it.
+Activation is per clone and does not travel with the checkout, which makes an unwired gate the common failure: it looks
+identical to a passing one.
+
+### Guard hook
+
+A hook that inspects a proposed action before it happens and answers allow or deny, as opposed to a *local gate*, which
+checks content that already exists. A guard's answer is its entire output: it signals deny by emitting a structured
+refusal and allow by emitting nothing at all, so silence is a verdict rather than an absence of one.
+
+That encoding is what makes a guard's failure mode asymmetric. Any path that ends without an explicit refusal reads as
+permission, so a guard that errors, exits early, or misreads its own check allows the thing it exists to block, and does
+so indistinguishably from a genuine pass. Guards therefore need their allow path tested as deliberately as their deny
+path, and a guard whose verdict is derived from an exit status needs that status to be unambiguous.
+
+## File hand-off
+
+### Hand-off route
+
+The path a file takes when yazi on the headless host opens it on the Mac the operator is sitting at, chosen by what the
+file is rather than by a key. The *edit route* covers every file yazi would otherwise hand to the editor: the Mac's
+editor opens the host's file in place over Remote-SSH, so a save is a write to the host's disk. The *view route* covers
+everything else (PDFs, images, audio, video, office documents): the Mac opens the file with its default application, in
+place through the Taildrive share when the file lives under a shared root, from a copy when it does not. Both routes are
+fire-and-forget. A hand-off happens only when the session is driven from the Mac; otherwise, and whenever the Mac is
+unreachable or the hand-off fails, the file goes to the host's local opener where one exists, with the reason shown.
+
+## Flagged ambiguities
+
+- "Gate" names two different things: a *supply-chain age gate* is a policy applied to package resolution, while a *local
+  gate* is a check that runs at a git lifecycle point. These are distinct.
+- A *guard hook* answers allow or deny about an action that has not happened yet; a *local gate* checks content that
+  already exists. Both are sometimes called "hooks" informally, since both are installed as such.

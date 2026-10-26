@@ -29,7 +29,11 @@ CONV='used to work|was working|worked (before|yesterday|fine|earlier|until)|stop
 #    and "failover"/"fail-safe" do NOT match).
 LOG='\bFATAL\b|\bERROR\b|\bException\b|\bTraceback\b|\b[A-Z][A-Za-z]{2,}(Error|Exception)\b|\bSIG(SEGV|ABRT|BUS|TERM|KILL)\b|panic:|\berrno\b|\b(EADDRINUSE|ECONNREFUSED|ENOENT|EACCES|EPERM|ETIMEDOUT)\b|Segmentation fault|core dumped|\bOOM(Killed)?\b|out of memory|stack overflow|[Pp]ermission denied|[0-9]{3} (error|status|response)|[Ee]rror:'
 
-if printf '%s' "$prompt" | grep -qiE "$CONV" || printf '%s' "$prompt" | grep -qE "$LOG"; then
+# Here-strings, not pipes: `grep -q` exits at its first match, so a piped
+# producer takes SIGPIPE on a prompt past the pipe buffer and `pipefail` turns
+# the match into a non-zero pipeline — reading a long debugging prompt as no
+# match at all, which is the one case this hook exists for.
+if grep -qiE "$CONV" <<<"$prompt" || grep -qE "$LOG" <<<"$prompt"; then
   # shellcheck disable=SC2016  # backticks are literal markdown in the reminder text, not command substitution
   printf 'Debugging task: before investigating, run `qmd query "<focused: component + error>" --collection solutions`. A documented root cause/fix may already exist; /investigate does NOT search the docs/solutions corpus. Use focused keywords, not the raw log (raw pastes mis-rank).\n'
 fi

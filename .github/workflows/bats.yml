@@ -7,14 +7,20 @@ on:
   # every PR keeps the required context always present.
   pull_request:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+# The group key leads with a literal token naming the workflow that owns it. A
+# key built only from context (`${ github.workflow }`) is one a called
+# reusable also produces, because `github.workflow` resolves to the caller
+# inside a called workflow; both land in one group and the reusable's queue
+# cancels the run that called it.
+concurrency:
+  group: bats-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   bats:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install ShellCheck
         # tests/lint-shell.bats and the per-file lint tests shell out to
@@ -29,6 +35,10 @@ jobs:
         # The action caches its own install (actions/cache internally), so a warm
         # run restores rather than clones.
         uses: bats-core/bats-action@77d6fb60505b4d0d1d73e48bd035b55074bbfb43 # 4.0.0
+        with:
+          # The action downloads bats and its libraries through api.github.com. Without a token those calls share the
+          # runner's anonymous rate limit, which a busy runner exhausts, and the install fails with HTTP 403.
+          github-token: ${{ github.token }}
 
       - name: Install zsh + stow + jq
         # zsh: shell-config.bats syntax-checks dot-zshrc / dot-zshenv / dot-zprofile.

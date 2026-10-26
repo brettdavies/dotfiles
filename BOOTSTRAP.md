@@ -33,6 +33,41 @@ brew install stow git-crypt
 
 [stow-bug]: https://github.com/aspiers/stow/issues/33
 
+### Claude Account Rotation (cswap)
+
+`cswap` manages multiple Claude accounts and switches between them as each nears its rate limit. It ships as a Python
+tool rather than a stow package, so install it directly on every machine:
+
+```bash
+uv tool install claude-swap
+```
+
+Accounts are registered per machine with `cswap add`, or copied from an existing machine with `cswap export <path>` and
+`cswap import <path>`. An export is **plaintext credentials**: transfer it over an encrypted channel and delete both
+copies once the import succeeds.
+
+Rotation runs as a scheduled `cswap auto --once` check, once a minute. The trip point and the rest of the auto-switch
+settings are applied by script rather than by unit flags, so a hand-run check behaves the same as a scheduled one:
+
+```bash
+scripts/cswap-autoswitch-deploy.sh
+```
+
+That pins three keys: the trip point at 99% so a switch lands while the account can still serve, the anti-flap margin at
+2 so that trip point is reachable, and the API-key-account exclusion, which is already the default but is the one
+setting whose flip would start metered spend. It also holds `autoswitch.model` unset, clearing it if an earlier run
+pinned it. The script is idempotent and reports what it changed.
+
+Leaving the per-model trigger unset is deliberate. A counted per-model weekly window gates the account outright with no
+fallback: once one reads 100% on every account, cswap reports all-exhausted and waits for that window to reset rather
+than deciding on the 5-hour and 7-day windows. Today the only scoped window these accounts report is Fable, so counting
+it would park rotation on a limit that does not bind the work. Revisit if a scoped window appears for the model actually
+in use.
+
+Scheduling the check is per-OS: launchd on macOS (see [macOS-Only Setup](#macos-only-setup)) and a systemd timer on
+Linux (see [Linux Server Setup](#linux-server-setup)). Both are safe to enable with one account registered; ticks report
+that there is nothing to rotate into and rewrite nothing.
+
 ## Clone and Unlock
 
 ```bash
@@ -76,17 +111,18 @@ the two ever disagree:
 cd ~/dotfiles/stow
 
 # macOS (shared + desktop). The Linux-only packages are omitted: stow-deploy
-# skips rclone, obsidian, opendataloader-pdf, codex-proxy, and cargo on Darwin.
-# --ignore drops the systemd units that cross-platform packages carry.
-stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' \
+# skips rclone, obsidian, codex-proxy, and cargo on Darwin.
+# --ignore drops the systemd units that cross-platform packages carry, and the
+# .DS_Store Finder leaves in a package, which collides with ~/.DS_Store.
+stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' --ignore='\.DS_Store$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
-  rust tmux lazygit micro yazi qmd caddy caam gogcli ghostty cursor launchagent
+  rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent
 
 # Headless (shared only)
 stow --dotfiles --no-folding --target="$HOME" \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
-  cargo rust tmux lazygit micro yazi rclone qmd obsidian opendataloader-pdf caddy \
-  caam gogcli codex-proxy
+  cargo rust tmux lazygit micro yazi rclone qmd obsidian caddy \
+  gogcli codex-proxy
 ```
 
 `tmuxinator` is deliberately absent from both lists: its session configs are read in place from the repo and stowing
@@ -97,7 +133,7 @@ them would shadow the source of truth. `ollama` is also absent — it targets `/
 
 ```bash
 cd ~/dotfiles/stow
-stow --dotfiles --no-folding --target="$HOME" -R <package>
+stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" -R <package>
 ```
 
 ## Install Packages from Brewfile
@@ -132,8 +168,8 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/too
 
 ### Zsh plugins and theme
 
-`zsh-autosuggestions`, `zsh-syntax-highlighting`, `zsh-completions`, and `powerlevel10k` are all installed by `brew
-bundle` (Brewfile entries on both macOS and Linux). They live under `$HOMEBREW_PREFIX/share/`.
+`zsh-autosuggestions`, `zsh-syntax-highlighting`, `zsh-completions`, and `powerlevel10k` are all installed by
+`brew bundle` (Brewfile entries on both macOS and Linux). They live under `$HOMEBREW_PREFIX/share/`.
 
 - **`zsh-autosuggestions` and `zsh-syntax-highlighting`** are NOT wired through oh-my-zsh's `plugins=(...)` array. Brew
   ships them without the `<name>.plugin.zsh` file omz's `is_plugin()` requires, so `plugins=(zsh-autosuggestions ...)`
@@ -166,6 +202,17 @@ git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 
 ## macOS-Only Setup
 
+### launchd User PATH
+
+launchd starts GUI apps and LaunchAgents with its own user PATH, not the shell's. Set it to the value in
+`config/launchd/user-path` (Homebrew first) once per Mac, then reboot, since launchd reads it only at boot:
+
+```bash
+bash ~/dotfiles/scripts/launchd-user-path.sh --apply   # prompts for sudo
+```
+
+`scripts/stow-deploy` runs the same script without `--apply` on every deploy and prints the fix if the value drifts.
+
 ### Ghostty Application Support Symlink
 
 Ghostty checks both `~/.config/ghostty/` (created by stow) and `~/Library/Application Support/com.mitchellh.ghostty/`:
@@ -178,10 +225,19 @@ ln -sf ~/dotfiles/stow/ghostty/dot-config/ghostty/config \
 
 ### iCloud Sync LaunchAgent
 
-Already deployed by `stow-deploy --all` on macOS. To load manually:
+`com.user.devtosync` mirrors `~/dev` into iCloud Drive through `scripts/sync/sync_dev_to_icloud.sh`, once an hour and
+when the agent loads. The mirror leaves out `node_modules`, `.build`, and `target` directories and removes any copy of
+them already in iCloud: they rebuild from source and are most of `~/dev`'s files, each of which iCloud would upload and
+Spotlight would index. The agent starts the script through `scripts/launchd-run.sh`, so each run appends one summary
+line to `~/Library/Logs/devtosync.log` and any rsync errors to `devtosync.error.log`, and each log keeps only its last 1
+MiB.
+
+Already deployed by `stow-deploy --all` on macOS. To load it, or to reload it after a plist change (a loaded agent keeps
+the command it was loaded with):
 
 ```bash
-launchctl load "$HOME/Library/LaunchAgents/com.user.devtosync.plist"
+launchctl bootout "gui/$(id -u)/com.user.devtosync" 2>/dev/null
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.user.devtosync.plist"
 ```
 
 ### Cursor Extensions
@@ -231,6 +287,87 @@ bash ~/dotfiles/scripts/rectangle-defaults.sh
 Hotkeys after setup: `⌃⌥←/→/↑/↓` for halves, `⌃⌥U/I/J/K` for quarters, `⌃⌥↵` maximize, `⌃⌥⌫` restore previous size.
 Repeat the same arrow to cycle 1/2 → 2/3 → 1/3 width.
 
+### cswap auto-switching (launchd)
+
+The `launchagent` package ships `com.user.cswap-auto.plist`, which runs the same minutely check as the Linux timer.
+Apply the settings first, then load the agent:
+
+```bash
+bash ~/dotfiles/scripts/cswap-autoswitch-deploy.sh
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" launchagent
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.cswap-auto.plist
+```
+
+Read switch decisions from `~/Library/Logs/cswap-auto.log`. A tick that finds nothing to do exits 2, which launchd
+records without treating it as a crash.
+
+### Scheduled brew and uv upgrades (launchd)
+
+The `launchagent` package ships two agents that each upgrade at most once a day: `com.user.brew-upgrade` runs
+`bu --no-greedy`, and `com.user.uv-tools-upgrade` runs `uv tool upgrade --all`. launchd fires brew every hour on the
+hour and uv every hour at half past, and `scripts/upgrade/daily-gate.sh` lets a fire through only when the job has not
+succeeded in the last 20 hours and the network answers. A Mac asleep overnight wakes for a few seconds at a time with no
+network, so the day's run lands at the first hour the Mac is awake and online, brew half an hour ahead of uv, which `bu`
+upgrades. A skipped fire writes nothing to the logs, except that an offline fire when the job has not succeeded in 48
+hours writes a `WARNING:` line to its `.error.log`, so a network check that never passes cannot stop the upgrades
+unnoticed. The gate records each success in `~/.local/state/dotfiles/<job>.last-success`, and deleting that file lets
+the next fire run.
+
+Their scripts in `scripts/upgrade/` load `config/shell/*.sh` because launchd reads no startup file, so the brew run
+keeps the shell's analytics opt-out and cache location, and the uv run refuses to start unless the release cooldown from
+`config/shell/supply-chain.sh` is set. Load both once:
+
+```bash
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" launchagent
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.brew-upgrade.plist
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.uv-tools-upgrade.plist
+```
+
+A loaded agent keeps the command it was loaded with, so after a plist change unload it and load it again:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.user.brew-upgrade"
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.brew-upgrade.plist
+```
+
+Each run appends JSON Lines to `~/Library/Logs/brew-upgrade.jsonl` or `~/Library/Logs/uv-tools-upgrade.jsonl`: a
+`run.start` event, one `output` event per line the tool printed, and a `run.end` event with the outcome, a stable
+`reason`, what changed, and a `next_step`. `scripts/upgrade/lib/run-log.sh` documents the schema. Anything the script
+itself writes to stderr lands in the matching `.error.log`, which stays empty on a healthy run. Both agents start their
+job through `scripts/launchd-run.sh`, which cuts a log past 1 MiB down to its last 1 MiB before the run, starting at the
+first whole line so the JSON Lines log still parses, and keeps no older copy.
+
+```bash
+jaq -c 'select(.event == "run.end")' ~/Library/Logs/brew-upgrade.jsonl | tail -n 5
+jaq -c 'select(.event == "run.end" and .outcome == "failure")' ~/Library/Logs/*-upgrade.jsonl
+trash ~/.local/state/dotfiles/brew-upgrade.last-success   # without this, a run within 20 hours of a success is skipped
+launchctl kickstart "gui/$(id -u)/com.user.brew-upgrade"
+```
+
+launchd runs a fire missed during sleep at the next wake and cannot order one agent after another, so when sleep spans
+both fires the two start together and that uv run may use the uv that `bu` is replacing. The scheduled run skips
+`--greedy`, so it leaves alone the self-updating casks whose upgrade quits their app (Ghostty, Rectangle, Telegram,
+AppCleaner), which would otherwise close mid-session. A manual `bu` still upgrades them.
+
+### fseventsd memory check
+
+After a flood of file events, fseventsd can hold gigabytes it never gives back and keep a core busy for days, and every
+program that watches files through FSEvents stalls while it registers, Claude Code's startup included.
+`scripts/fseventsd-check.sh` compares the daemon's resident memory with ten times the memory budget launchd gives it
+(`jetsam memory limit` in `launchctl print system/com.apple.fseventsd`, 30 MB). When the daemon is over, the script
+prints one `WARNING:` line with the reset command and exits 1; otherwise it prints nothing. A SessionStart hook in
+`~/.claude/settings.json` runs it with `--claude-hook`, which turns the warning into hook JSON: every new Claude Code
+session shows it under the startup banner and adds it to Claude's context. The script also runs by hand.
+
+Restarting the daemon resets it, and launchd starts a new one at once:
+
+```bash
+sudo killall fseventsd
+```
+
+`launchctl kickstart` refuses the restart while System Integrity Protection is on. The restart erases the daemon's event
+history, so Spotlight, Dropbox, and iCloud Drive may rescan for a few minutes.
+
 ## Linux Server Setup
 
 ### Rust toolchains
@@ -254,9 +391,9 @@ A repo can close the gap independently of machine state with `profile = "minimal
 rustup honors when it auto-installs the pinned toolchain.
 
 The default profile bundles `rust-docs`, roughly 800MB of offline HTML per toolchain and 2.4GB across the three pinned
-here. Nothing reads it: the host has no browser, and API lookups go to docs.rs. `minimal` still honors the `components =
-["rustfmt", "clippy"]` line in each repo's `rust-toolchain.toml`, so pinned repos get what they ask for and nothing
-else.
+here. Nothing reads it: the host has no browser, and API lookups go to docs.rs. `minimal` still honors the
+`components = ["rustfmt", "clippy"]` line in each repo's `rust-toolchain.toml`, so pinned repos get what they ask for
+and nothing else.
 
 The setting governs new installs. Removing it from toolchains already on disk is a separate step, and `rustup update`
 preserves whatever component set a toolchain currently has:
@@ -266,6 +403,23 @@ for tc in $(rustup toolchain list | awk '{print $1}'); do
   rustup component remove rust-docs --toolchain "$tc" 2>/dev/null || true
 done
 ```
+
+### Rust build output sweep (systemd)
+
+Cargo cleans its own download cache but never a project's `target/`, which keeps every unit each toolchain, feature set
+and flag combination ever built. The `cargo` package ships `cargo-target-sweep` and a weekly timer that delete build
+output under `~/dev` no build has used in 14 days; `cargo-target-sweep --help` lists its passes. It needs the
+`cargo-sweep` formula from the Brewfile. Enable the timer once per host:
+
+```bash
+brew install cargo-sweep
+systemctl --user daemon-reload
+systemctl --user enable --now cargo-target-sweep.timer
+```
+
+Preview a run with `cargo-target-sweep --dry-run`, change the window with `CARGO_TARGET_SWEEP_DAYS`, and read past runs
+with `journalctl --user -u cargo-target-sweep`. Lingering must be on for the timer to fire while logged out
+(`loginctl enable-linger $USER`).
 
 ### SSH session locale
 
@@ -312,12 +466,76 @@ Re-establish the config in one idempotent run (the script fail-fasts if the Cadd
 bash ~/dotfiles/scripts/tailscale-serve-setup.sh
 ```
 
-The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, then Caddy, then Ollama), then prints
-`tailscale serve status`. It is gated to that one host and safe to re-run.
+The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, then Caddy, then Ollama) and
+`https://codex-proxy.<tailnet>/` to `127.0.0.1:8080`, then prints `tailscale serve status`. It is gated to that one host
+and safe to re-run.
+
+To re-apply it automatically, install the unit that runs it every time tailscaled starts, at boot and after every
+tailscaled restart or upgrade. It runs as the Tailscale operator and retries every 30 seconds until the upstreams
+answer:
+
+```bash
+sudo ~/dotfiles/scripts/tailscale-serve-deploy.sh
+```
 
 > **One-time admin step:** the service host must be approved once in the
 > [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP
 > and the script's binding routes nowhere.
+
+### cswap auto-switching (systemd)
+
+The `cswap` package ships a oneshot unit and the timer that drives it. Apply the settings first, then enable the timer
+rather than the service:
+
+```bash
+bash ~/dotfiles/scripts/cswap-autoswitch-deploy.sh
+cd ~/dotfiles/stow && stow --dotfiles --no-folding --target="$HOME" cswap
+systemctl --user daemon-reload
+systemctl --user enable --now cswap-auto.timer
+```
+
+Read switch decisions with `journalctl --user -u cswap-auto`. Lingering must be on for the timer to run while logged out
+(`loginctl enable-linger $USER`); without it the timer looks enabled and never fires after a reboot.
+
+A tick exits 2 when there is nothing to do and 3 when every account is spent and the credential is held. The unit counts
+both as success, so the failed-unit list stays meaningful.
+
+### Scheduled brew and uv upgrades (systemd)
+
+The `local` package ships `brew-upgrade` and `uv-tools-upgrade`, oneshot units on daily timers at 04:00 and 04:30 that
+run the same `scripts/upgrade/` scripts as the macOS agents. The uv unit is ordered after the brew unit, so catch-up
+runs after downtime still upgrade uv first, and each unit has a start timeout (2 hours for brew, 1 hour for uv) so a
+wedged fetch fails the run instead of holding the unit. Like the server's other scheduled jobs they carry a host
+condition, so a deploy leaves them inert on every other Linux host. On the server, a deploy restarts only timers that
+are already enabled, so both stay off until `scripts/host-jobs-enable.sh` enables them with the rest:
+
+```bash
+bash ~/dotfiles/scripts/host-jobs-enable.sh
+```
+
+Both write the same JSON Lines run log as the macOS agents, to the journal under the identifiers `brew-upgrade` and
+`uv-tools-upgrade`. Query by identifier (`-t`) rather than by unit (`-u`): the unit also matches systemd's own
+plain-text "Starting" and "Finished" lines, which stop `jaq` at the first one. Each line carries a syslog priority, so
+journald files error lines at priority 3 and warnings at 4, and the `run_id` of a systemd run is its invocation ID:
+
+```bash
+journalctl --user -t brew-upgrade -o cat | jaq -Rc 'fromjson? | select(.event == "run.end")' | tail -n 5
+journalctl --user -t brew-upgrade -t uv-tools-upgrade -p warning -o cat
+systemctl --user start brew-upgrade.service
+```
+
+An upgrade deletes the kegs it replaces while processes still run their binaries. After `bu`, the brew job restarts each
+long-running user service still running a removed binary (`caddy.service`, `qmd-serve.service`) with
+`systemctl --user try-restart`. Everything else on a removed binary is left running and reported as a warning: a
+oneshot, whose restart would rerun its job, and session processes such as tmux. The scan runs as you, so another user's
+processes, system services among them, are never seen. `run.end` lists each one under `stale_processes` with what was
+done:
+
+```bash
+journalctl --user -t brew-upgrade -o cat | jaq -Rc 'fromjson? | select(.event == "run.end") | .stale_processes' | tail -n 1
+```
+
+Lingering must be on for the timers to fire while logged out (`loginctl enable-linger $USER`).
 
 ## Restart Shell
 

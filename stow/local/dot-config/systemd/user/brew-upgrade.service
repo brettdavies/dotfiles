@@ -1,0 +1,18 @@
+[Unit]
+Description=Update and upgrade Homebrew with the bu shell function
+ConditionHost=bigdaddy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/dotfiles/scripts/upgrade/brew.sh
+SyslogIdentifier=brew-upgrade
+# A oneshot has no start timeout by default, so a wedged fetch would hold the unit active and
+# every later timer tick would find it already running.
+TimeoutStartSec=2h
+
+# Hardening. No PrivateTmp=: in a user unit it brings a user namespace, from which the stale-process scan in
+# scripts/upgrade/lib/stale-procs.sh cannot read the executable of any process outside the unit.
+NoNewPrivileges=true

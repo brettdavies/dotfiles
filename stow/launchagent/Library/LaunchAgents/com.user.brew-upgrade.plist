@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Homebrew update and upgrade (macOS), at most once a day: runs `bu` with its
+    no-greedy flag through scripts/upgrade/brew.sh. Counterpart to
+    brew-upgrade.timer on the Linux server.
+
+    launchd fires the job every hour on the hour, and
+    scripts/upgrade/daily-gate.sh lets a fire through only when the job has not
+    succeeded in the last 20 hours and the network answers. A sleeping laptop
+    wakes for a few seconds at a time with no network, which fails a job pinned
+    to one time of day; the hourly retry lands the day's run at the first hour
+    the Mac is awake and online.
+
+    A greedy upgrade of a cask whose uninstall stanza quits its app (Ghostty,
+    Rectangle, Telegram, AppCleaner) would close that app mid-session; those
+    casks declare auto_updates and update themselves, so the scheduled run
+    leaves them to a manual `bu`.
+
+    RunAtLoad is off so that bootstrapping the agent does not start an upgrade.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.brew-upgrade</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec "$HOME/dotfiles/scripts/launchd-run.sh" brew-upgrade.jsonl "$HOME/dotfiles/scripts/upgrade/daily-gate.sh" brew-upgrade "$HOME/dotfiles/scripts/upgrade/brew.sh"</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

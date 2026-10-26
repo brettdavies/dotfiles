@@ -49,6 +49,7 @@ brew "jq"
 brew "tree"
 brew "wget"
 brew "coreutils"
+brew "gnu-time"
 brew "git-crypt"
 brew "yamllint"
 brew "ast-grep"
@@ -103,6 +104,19 @@ brew "caddy" if OS.linux?
 # rather than a shell alias: scripts, systemd units, git hooks and agent tool
 # calls read no startup files, so an alias leaves them with no way to comply.
 brew "trash-cli" if OS.linux?
+
+# cargo-sweep does the unit-level pass of cargo-target-sweep, the cargo
+# package's weekly timer that deletes Rust build output no build has used in two
+# weeks. Rust toolchains live only on the Linux hosts, so the formula does too.
+brew "cargo-sweep" if OS.linux?
+
+# cargo-deny runs in every Rust repo's pre-push hook, so it tracks the release
+# CI's cargo-deny-action bundles. 0.19.1 through 0.19.5 call git without clearing
+# GIT_DIR: run from a hook in a linked worktree, they reset that worktree's branch
+# and write the repo into the shared advisory database. 0.19.6 clears it
+# (https://github.com/EmbarkStudios/cargo-deny/pull/858). A copy installed with
+# `cargo install` lands in ~/.cargo/bin, ahead of Homebrew on PATH.
+brew "cargo-deny" if OS.linux?
 
 # macOS-only utilities — `brew bundle` skips formulae that don't exist for the current OS,
 # but listing them separately documents intent and avoids confusing "not found" warnings.

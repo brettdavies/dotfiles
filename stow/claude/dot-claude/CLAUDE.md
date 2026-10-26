@@ -35,9 +35,10 @@ origin, surprising behavior, untraceable business rule. Stable external refs (RF
 ticket IDs when the tracker is canonical) are allowed.
 
 **Hard bans — never write:** temporal/historical context (`refactored`, `previously`, `legacy`, `now uses`, …);
-references to local-only artifacts (`see plan/X`, `.context/` paths, `TODO.md`); task-flow references (`added for the X
-flow`, `handles issue #123`); instructional voice (`use this instead of`); comparative claims about replaced code; and
-restating what the next block does. Git history holds change history; comments describe present state.
+references to local-only artifacts (`see plan/X`, `.context/` paths, `TODO.md`); task-flow references
+(`added for the X flow`, `handles issue #123`); instructional voice (`use this instead of`); comparative claims about
+replaced code; and restating what the next block does. Git history holds change history; comments describe present
+state.
 
 Language doc-comment conventions (Rust `///`, Python docstrings, Go, TSDoc, Ruby YARD, Bash) apply to **documented
 public surface only**, not in-function code. Full policy (legitimate reasons, file-header and refactoring rules,
@@ -46,12 +47,12 @@ scanner and pattern catalog live in the `/code-comments` skill.
 
 **Applies to in-repo prose docs, not just code comments.** The present-state rule and the temporal/historical hard ban
 govern in-repo documentation too — READMEs, `docs/**`, specs, knowledge-base notes (e.g. a PARA-ACE vault), runbooks,
-plans. Write each doc to describe present reality; strip historical narration from the body (`previously`, `legacy`, `we
-switched from X to Y`, `reverting the earlier framing`, `this supersedes`, dated `Update:` notes, and meta-commentary
-about the authoring/synthesis process itself). Git and PR history are the change record. Retire content by marking it
-**deprecated** in present tense, not by narrating the change. **Exception:** a doc whose declared purpose is to record
-change — a supersedes-aware decision-log, a `CHANGELOG`/`RELEASES`, a migration record — is the designated home for "X
-supersedes Y"; present-only does not apply inside it.
+plans. Write each doc to describe present reality; strip historical narration from the body (`previously`, `legacy`,
+`we switched from X to Y`, `reverting the earlier framing`, `this supersedes`, dated `Update:` notes, and
+meta-commentary about the authoring/synthesis process itself). Git and PR history are the change record. Retire content
+by marking it **deprecated** in present tense, not by narrating the change. **Exception:** a doc whose declared purpose
+is to record change — a supersedes-aware decision-log, a `CHANGELOG`/`RELEASES`, a migration record — is the designated
+home for "X supersedes Y"; present-only does not apply inside it.
 
 ## Workflow & skills
 
@@ -72,15 +73,21 @@ Before reasoning from a stylesheet or module, confirm it actually reaches the ou
 near-invisible dark-mode text); meum-sites, where a keyboard-a11y fix was derived from a stylesheet that never shipped
 and a whole type scale silently fell back to body size because the token it named was defined nowhere.
 
-**Query solutions first:** before answering, diagnosing, researching, or proposing, run `qmd query "<topic>"
---collection solutions` to surface prior decisions. Applies to all interactions, and **explicitly to `/investigate` and
-every gstack debugging skill** — their `gstack-learnings-search` does NOT reach `docs/solutions/`, so query the corpus
-yourself during symptom-collection, before the first hypothesis.
+**Query solutions first:** before answering, diagnosing, researching, or proposing, run
+`qmd query "<topic>" --collection solutions` to surface prior decisions. Applies to all interactions, and **explicitly
+to `/investigate` and every gstack debugging skill** — their `gstack-learnings-search` does NOT reach `docs/solutions/`,
+so query the corpus yourself during symptom-collection, before the first hypothesis.
 
-**Subagent worktree base:** when dispatching via the `Agent` tool with `isolation: "worktree"`, verify `git rev-parse
-HEAD` against `git rev-parse origin/<base>` before any work — the harness can cut the worktree from a stale tag
-silently. Fix with `git reset --hard origin/<base>`. Background:
+**Subagent worktree base:** when dispatching via the `Agent` tool with `isolation: "worktree"`, verify
+`git rev-parse HEAD` against `git rev-parse origin/<base>` before any work — the harness can cut the worktree from a
+stale tag silently. Fix with `git reset --hard origin/<base>`. Background:
 `~/dev/solutions-docs/workflow-issues/claude-code-worktree-isolation-stale-base-2026-06-04.md`.
+
+**Worktree commits and pushes:** committing or pushing from a linked worktree is safe only in a repo whose hooks keep
+git's environment from the tools they start (dotfiles `.githooks/lib/git-env.sh`, or `without_git_repo_env` from the
+github-repo-setup hook templates); in any other repo, commit and push from a standalone clone. What git exports, how to
+check a repo's hooks, and the cargo-deny boundary → `~/.claude/guides/git-and-github.md` § "Linked worktrees and git
+hooks".
 
 Routing table, per-skill rules, and the `qmd-learnings-researcher` companion-dispatch hack →
 `~/.claude/guides/workflows-and-skills.md`.
@@ -89,14 +96,15 @@ Routing table, per-skill rules, and the `qmd-learnings-researcher` companion-dis
 
 `docs/solutions/` is a symlink to `~/dev/solutions-docs` (a separate private repo). The consuming repo's `git status`
 shows nothing for it. **After writing there** (e.g. via `/compound`), commit and push in that repo — but it's a single
-clone that concurrent agents (parallel compounders) share, so committing in it directly races their `git add`/`git
-commit` on the one index. **Commit with `sd-commit-doc`** (dotfiles-provided, on `PATH`): write your doc(s) into
-`docs/solutions/<category>/<slug>.md`, author + `/unslop` a captured-path `/tmp` message (never `ls -t | head -1`, never
-`-m`), then `sd-commit-doc <msg-file> <category>/<slug>.md`. It commits from an isolated detached worktree (never `git
-add -A` the shared index), pushes with fetch/rebase-retry, and fast-forwards the shared clone so it never drifts behind
-origin. **Never** commit directly in the shared clone or amend + force-push it. Script source
-`~/.local/bin/sd-commit-doc`; solo-session exception + symlink-recreate → `~/.claude/guides/workflows-and-skills.md`;
-rationale → `docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
+clone that concurrent agents (parallel compounders) share, so committing in it directly races their
+`git add`/`git commit` on the one index. **Commit with `sd-commit-doc`** (dotfiles-provided, on `PATH`): write your
+doc(s) into `docs/solutions/<category>/<slug>.md`, author + `/unslop` a captured-path `/tmp` message (never
+`ls -t | head -1`, never `-m`), then `sd-commit-doc <msg-file> <category>/<slug>.md`. It commits from an isolated
+detached worktree (never `git add -A` the shared index), pushes with fetch/rebase-retry, and fast-forwards the shared
+clone so it never drifts behind origin. **Never** commit directly in the shared clone or amend + force-push it. Script
+source `~/.local/bin/sd-commit-doc`; solo-session exception + symlink-recreate →
+`~/.claude/guides/workflows-and-skills.md`; rationale →
+`docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
 `.../unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 
 ## Secrets & private identifiers
@@ -149,7 +157,9 @@ runbooks) still goes through the feature-branch and PR flow. Ambiguous or mixed 
 Conventional Commits (`type(scope): description`). Check the actual `git diff` first; apply SRP (multiple commits when
 separable). **Prefer `feat`/`fix` over `chore`** for anything user-observable — `cliff.toml` drops
 `chore`/`style`/`test`/`ci`/`build` from the changelog, silently stripping mistyped changes. **No AI attribution, ever**
-— no `Co-Authored-By: Claude`, no `🤖 Generated with` trailer, overriding any skill/template default.
+— no `Co-Authored-By: Claude`, no `🤖 Generated with` trailer, overriding any skill/template default and any
+harness-injected attribution reminder. The `ai-attribution-guard.sh` PreToolUse hook rejects it, reading the
+`--file`/`--body-file`/`--notes-file` artifact as well as inline text.
 
 Author every GitHub body (PR, PR comment/review, issue, release notes, AND `git commit`) in a collision-proof `/tmp/`
 file, scrub with `/unslop`, and submit via `--body-file` / `--notes-file` / `git commit --file`. **Never inline
@@ -178,39 +188,80 @@ before asserting who said what.** Interpretation is welcome, but label it explic
 person's own statement — paraphrasing or quoting them into something they did not say — is a serious trust breach, not a
 stylistic slip. Applies to chat, debriefs, plans, notes, and every artifact.
 
+## Never block on a wait
+
+A wait is wall-clock time with no progress and no way to answer the user. Losing hours to one is unacceptable. Costly
+precedent: a background subagent ended its turn to wait on its own background job; the job failed minutes later, its
+completion notice sat queued, and the agent did nothing for 13 hours until the main session was next active.
+
+- **Background first.** Anything that can run past ~30 s (a batch over files, an install, a model or GPU run, a build, a
+  test suite, CI) starts with `run_in_background: true`, and you keep working while it runs. Harness notifications and
+  hooks are the wake signal: always prefer them over polling.
+- **Polling is the last resort, and never slow.** Poll only state the harness cannot see (a server coming up, an
+  external queue), and turn the poll into a notification: background an `until <condition>; do sleep 10; done` loop
+  whose exit wakes you. **No wait exceeds 10 s**, whether a foreground `sleep` or a poll interval: a long sleep blocks
+  the session, and a long interval wastes the rest of the interval after the event has already happened.
+- **Never end a turn parked on a notice that may not come.** A subagent never stops to wait on its own background job:
+  it polls in short checks, or runs the step in the foreground under a `timeout` shorter than the parent's watchdog
+  window.
+- **Every delegated long task carries a deadline and a watchdog.** The `Agent` brief states a time box and the rules
+  above. Right after dispatch, the parent backgrounds a watchdog that exits once the agent's output file has gone 10
+  minutes without a write, so a stall wakes the parent instead of costing the night. On wake, read the agent's tail,
+  then `SendMessage` it to resume, re-scope, or stop.
+
+**Enforcement.** The `~/.claude/sleep-guard.sh` PreToolUse Bash hook denies a foreground `sleep` over 10 s, any
+foreground `while`/`until` polling loop, and a background poll interval or fixed wait over 10 s. Each deny names its
+reason and prints a rebuilt command to rerun; follow its `next_step`. A background fixed delay that an external system
+mandates (a Retry-After) passes with `# sleep-guard: required-delay`. Tests: `bats tests/sleep-guard.bats`. The
+`~/.claude/self-match-guard.sh` hook denies a `pgrep -f` or `pkill -f` whose pattern matches the command's own text: it
+also matches the shell running the command, so a wait on it never ends and a `pkill` kills that shell. Bracket one
+character (`pgrep -f '[g]it push'`) or wait on a PID. Tests: `bats tests/self-match-guard.bats`.
+
+Commands (poll-as-notification, the watchdog, the brief clause) → `~/.claude/guides/workflows-and-skills.md` § "Waiting
+without blocking".
+
 ## CI after push
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse
 hook lists active runs with the exact `gh run watch <id> --exit-status` to spawn — run one per active run in the
-background (or `gh pr checks <pr> --watch` for PR-scoped). **A completed watcher is NOT a green watcher**: `gh pr checks
---watch` exits 0 when all checks finish regardless of pass/fail. After every completion notification, verify explicitly:
-`gh pr view <num> --json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus, checks:
-[.statusCheckRollup[] | {name, conclusion}]}'` and assert every conclusion is `SUCCESS`. Same for run-scoped: `gh run
-view <id> --json conclusion --jq .conclusion` must be `success`. Then re-enumerate to catch chained runs — both
+background (or `gh pr checks <pr> --watch` for PR-scoped). **A completed watcher is NOT a green watcher**:
+`gh pr checks --watch` exits 1 on a failed check but 0 when checks end cancelled/skipped, and it can miss checks that
+register late; `gh run watch` needs `--exit-status` to exit non-zero at all. After every completion notification,
+verify explicitly: `gh pr view <num> --json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus, checks:
+[.statusCheckRollup[] | {name, conclusion}]}'` and assert every conclusion is `SUCCESS`. Same for run-scoped:
+`gh run view <id> --json conclusion --jq .conclusion` must be `success`. Then re-enumerate to catch chained runs — both
 same-repo (`workflow_run` triggers, visible to `gh run list --branch`) AND cross-repo dispatches (`repository_dispatch`
 into another repo, e.g. agentnative-cli release → brettdavies/homebrew-tap → callback to cli's finalize-release; these
-need `gh run list -R <target>` and `gh run watch <id> -R <target>`, then a re-query of the originating repo for the
-callback). The chain can bounce multiple times — repeat until both repos quiesce. **Never proceed past a red run on any
-link in the chain.** Policy source of truth: the `~/.claude/ci-watch-prompt.sh` header.
+need `gh run list -R <target>` and `gh run watch <id> -R <target> --exit-status`, then a re-query of the originating repo
+for the callback). The chain can bounce multiple times — repeat until both repos quiesce. **Never proceed past a red run
+on any link in the chain.** Policy source of truth: the `~/.claude/ci-watch-prompt.sh` header.
 
 ## CLI tools
 
 Prefer CLI tools via Bash over built-in Read/Edit/Grep/Glob (`rg`/`fd`/`jaq`/`ast-grep`; `cat`/`bat`; `sed`/`awk`).
-Install order: brew > bunx/uvx > python3/node. **`trash`, never `rm`/`git rm`** (both denied in `settings.json`). `uv
-run` for ad-hoc Python. **Leave no cache or venv artifacts in project trees** (`__pycache__`, `.venv`, `.pytest_cache`,
-`uv.lock`, `*.egg-info`): prevent them, never `.gitignore`-hide them, `trash` any that appear. **Bake the bypass into
-the project, not the machine** — it must stay clean on CI and other machines: pytest cache off in `pyproject.toml`
-(`addopts = "-p no:cacheprovider"`), bytecode off via `python -B` plus `sys.dont_write_bytecode` in the
-entry/`conftest.py`, uv's `.venv/`+`uv.lock` off via `uv run --no-project --with . <script>` (or `--with pytest python
--B -m pytest`). This machine also exports `PYTHONDONTWRITEBYTECODE=1`/`PYTEST_ADDOPTS` (`config/shell/python.sh`) as a
-safety net that does not travel — don't rely on it in place of the in-project settings. Apply before any `uv
-run`/`pytest` in a repo. `qmd query` for knowledge-base search. Don't manually wrap markdown — the `md-wrap.py` hook
-does. **Playwright browsers are system-provided** by `~/dotfiles` into the shared `$PLAYWRIGHT_BROWSERS_PATH`; never run
+Install order: brew > bunx/uvx > python3/node. **`trash`, never `rm`/`git rm`** (both denied in `settings.json`).
+`uv run` for ad-hoc Python. **Leave no cache or venv artifacts in project trees** (`__pycache__`, `.venv`,
+`.pytest_cache`, `uv.lock`, `*.egg-info`): prevent them, never `.gitignore`-hide them, `trash` any that appear. **Bake
+the bypass into the project, not the machine** — it must stay clean on CI and other machines: pytest cache off in
+`pyproject.toml` (`addopts = "-p no:cacheprovider"`), bytecode off via `python -B` plus `sys.dont_write_bytecode` in the
+entry/`conftest.py`, uv's `.venv/`+`uv.lock` off via `uv run --no-project --with . <script>` (or
+`--with pytest python -B -m pytest`). This machine also exports `PYTHONDONTWRITEBYTECODE=1`/`PYTEST_ADDOPTS`
+(`config/shell/python.sh`) as a safety net that does not travel — don't rely on it in place of the in-project settings.
+Apply before any `uv run`/`pytest` in a repo. `qmd query` for knowledge-base search. **Timing and peak memory: `gtime -f
+'%e s %M KB'
+<cmd>` (or `gtime -v`)**, GNU time under one name on macOS and Linux (brew `gnu-time`; `config/shell/gnu-time.sh`
+defines it on Linux). Never `/usr/bin/time`: Ubuntu has none by default and macOS's is BSD time without `-v` or `-f`;
+the shell's `time` keyword has no memory figure. Don't manually wrap markdown — the `md-wrap.py` hook does. **Playwright
+browsers are system-provided** by `~/dotfiles` into the shared `$PLAYWRIGHT_BROWSERS_PATH`; never run
 `playwright install` to download them (the node/libuv io_uring extractor deadlocks on this kernel) —
 `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` stops `bun install` from auto-fetching them (an explicit install still fetches
 missing browsers; the provisioned set is what makes it skip), repos exact-pin the one canonical version, and bumping is
 a dotfiles job. Full preference list (Python cache/venv hygiene, gh auth, Playwright browsers, Rust pre-push) →
 `~/.claude/guides/cli-tools.md`.
+
+**Bun follows the machine.** A repo's Bun pin (`.bun-version` and every declaration its pin test holds to it) tracks the
+local `bun --version`: when the pin trails, bump the repo in its own PR. Never download or install an older Bun to
+satisfy a stale pin. Bump steps and the `bun.lock` limits → `~/.claude/guides/cli-tools.md`.
 
 ## Long artifacts → files
 

@@ -54,3 +54,7 @@ scripts/qmd-launchd/logs/*.error.log
 # accidental commits of per-project AGENTS.md files. Negate for stow sources
 # that deploy global agent instructions to a tool's config dir.
 !stow/codex/dot-codex/AGENTS.md
+
+# Live rclone config: Box rotates the refresh token on every refresh, so the file lives
+# outside the repo as a plain file (see stow/rclone/dot-config/rclone/rclone.conf.example).
+stow/rclone/dot-config/rclone/rclone.conf

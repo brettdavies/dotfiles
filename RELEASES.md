@@ -46,8 +46,8 @@ gh pr create --base dev --title "feat(scope): what changed"
 - **PR body**: follow `.github/pull_request_template.md`. The `## Changelog` section is the source of truth for
   user-facing release notes; `scripts/generate-changelog.py` extracts these bullets verbatim into `CHANGELOG.md` during
   release prep.
-- **Signing**: `dev` requires signed commits per `protect-dev.json`. The `pre-commit` hook verifies `commit.gpgsign =
-  true` locally before push.
+- **Signing**: `dev` requires signed commits per `protect-dev.json`. The `pre-commit` hook verifies
+  `commit.gpgsign = true` locally before push.
 
 ### Dev-direct exception
 
@@ -148,7 +148,9 @@ git diff --cached --diff-filter=ACMR --name-only origin/main | grep -E "$GUARDED
 #       set, so it is blind to a category nobody registered yet. Every docs/ entry and
 #       every added markdown file needs a reason to ship, or it needs registering in the
 #       workflow's extra_paths and removing from the branch.
-git diff --cached --diff-filter=A --name-only origin/main | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
+#       `--no-renames` lists a doc moved from one main carries as added; rename detection
+#       would report it as R, and the A filter would drop it.
+git diff --cached --no-renames --diff-filter=A --name-only origin/main | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
 
 # 6. Review CHANGELOG.md (cliff.toml chore-skip footgun: see RATIONALE § CHANGELOG
 #    generation), then commit the overlay as one commit sitting directly on top of main
@@ -166,7 +168,8 @@ The result is a single commit whose diff against `main` is the release, with `ma
 with zero conflicts. When it merges (squash-only, enforced by `protect-main.json`), the push to `main` triggers
 `release.yml`. Verify it with [§ Tagging and publishing](#tagging-and-publishing) below. Auto-delete removes
 `release/YYYY.MM.DD` from the remote on merge; `dev` is untouched. Once the tag and GitHub Release publish, bring the
-release-only `CHANGELOG.md` back to `dev` with the backport step below.
+release-branch state back to `dev` with the backport step below: the regenerated `CHANGELOG.md`, plus anything else the
+release branch edited that `dev` never received.
 
 → Rationale (why overlay, not merge; why cut from `main`):
 [`RELEASES-RATIONALE.md` § Branching model](./RELEASES-RATIONALE.md#branching-model). CHANGELOG mechanics:
@@ -189,12 +192,16 @@ git diff origin/main..HEAD --stat                                              #
 git diff HEAD..origin/dev --name-only | grep -Ev "$GUARDED" || echo "(none)"   # B: no missed picks
 git diff origin/dev..origin/main --stat | tail -5                              # C: phantom-commits sanity
 
-# Re-confirm no guarded paths leaked.
-git diff origin/main..HEAD --name-only | grep -E "$GUARDED" \
+# Re-confirm no guarded paths leaked. --diff-filter=ACMR for the same reason as
+# check B above: a deletion of a guarded path main still carries is cleanup, not a
+# leak, and an unfiltered grep aborts a correct release over it.
+git diff origin/main..HEAD --diff-filter=ACMR --name-only | grep -E "$GUARDED" \
   && echo "LEAKED: reset and redo" || echo "(clean)"
 
 # D: what this release ADDS to main (see step 5 above for why).
-git diff origin/main..HEAD --diff-filter=A --name-only | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
+# `--no-renames` lists a doc moved from one main carries as added; rename detection
+# would report it as R, and the A filter would drop it.
+git diff --no-renames origin/main..HEAD --diff-filter=A --name-only | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
 
 # Patch-id cherry check (noisy in a squash-merge workflow; triage per-line).
 git cherry HEAD origin/dev | grep '^+' || echo "(none)"
@@ -237,11 +244,11 @@ No crates, no cross-compiled binaries, no Homebrew dispatch: this repo is config
 
 **Verify after merge** (the full post-tag pipeline for this repo is these checks):
 
-- [ ] **Last-good identifier recorded before the merge.** Note the current tag on `main` (`git describe --tags
-  --abbrev=0 origin/main`) somewhere reachable under incident pressure; it is the argument [§ Rollback](#rollback)
-  needs.
-- [ ] `release.yml` is green end-to-end. Watch it (`gh run watch <id>`), then confirm with `gh run view <id> --json
-  conclusion --jq .conclusion` returning `success`; a completed watcher is not a green watcher.
+- [ ] **Last-good identifier recorded before the merge.** Note the current tag on `main`
+  (`git describe --tags --abbrev=0 origin/main`) somewhere reachable under incident pressure; it is the argument
+  [§ Rollback](#rollback) needs.
+- [ ] `release.yml` is green end-to-end. Watch it (`gh run watch <id>`), then confirm with
+  `gh run view <id> --json conclusion --jq .conclusion` returning `success`; a completed watcher is not a green watcher.
 - [ ] The CalVer tag exists: `git fetch --tags && git describe --tags --abbrev=0 origin/main` returns today's
   `YYYY.MM.DD` (or `.N`).
 - [ ] The GitHub Release published with real notes: `gh release view "$(git describe --tags --abbrev=0 origin/main)"`
@@ -261,20 +268,53 @@ without a deliberate backport `dev`'s `CHANGELOG.md` freezes at the last release
 the release tag and GitHub Release have published, run:
 
 ```bash
-scripts/sync-dev-after-release.sh "$(git describe --tags --abbrev=0 origin/main)"
+TAG="$(git describe --tags --abbrev=0 origin/main)"
+
+# 1. Classify first. This creates nothing and is what tells you whether any
+#    contested path needs naming in step 2.
+scripts/sync-dev-after-release.sh "$TAG" --dry-run
+
+# 2. Sync. With no contested paths, the bare form is enough. Otherwise name the
+#    ones that should come back; anything left unnamed stays diverged.
+scripts/sync-dev-after-release.sh "$TAG"
+scripts/sync-dev-after-release.sh "$TAG" --only CHANGELOG.md --only README.md
 ```
 
-It copies `CHANGELOG.md` verbatim from `origin/main` onto a `chore/sync-dev-after-<version>` branch and opens a PR to
-`dev`. The copy is **surgical**: only `CHANGELOG.md` moves, only `main → dev`. `dev` is normally many commits ahead of
-`main`, so a branch merge would revert unreleased work; the script never does that, and refuses to run on a dirty tree
-or before the GitHub Release is published. Confirm the PR's only changed file is `CHANGELOG.md`, then squash-merge it.
-The run is idempotent: if `dev` already matches `main`, it exits without opening a PR. Never merge `main` into `dev` and
-never push to `dev` directly: the two histories share no ancestry, so a merge conflicts on every file both sides
-touched, and a direct push bypasses `dev`'s required checks.
+It discovers what to sync by comparing `origin/dev` against `origin/main` and excluding the guarded set, then lands the
+result on a `chore/sync-dev-after-<version>` branch and opens a PR to `dev`. The set is computed, never hardcoded, so a
+release-branch edit to any file is caught rather than only the ones someone thought to list.
 
-If a release also polished `README.md` or `RELEASES*.md` on `main`, check `git diff origin/dev..origin/main -- README.md
-RELEASES.md RELEASES-RATIONALE.md RELEASES-PREFLIGHT.md` and fold any real release-prep changes into the same backport
-PR by hand.
+Each candidate is classified against the **previous** release tag, the last point the two branches agreed:
+
+| Class          | Condition                                                   | Action                                              |
+| -------------- | ----------------------------------------------------------- | --------------------------------------------------- |
+| `release-prep` | `dev`'s copy is byte-identical to its copy at the prior tag | Adopted: `main`'s version is pure release-prep      |
+| `contested`    | Both branches moved the path since the prior tag            | Reported, not adopted, unless `--include-contested` |
+
+The classification is what keeps the copy safe. `dev` is normally many commits ahead of `main`, so adopting `main`'s
+version of a file `dev` has moved on would revert unreleased work; a contested path is surfaced for a human instead.
+Guarded paths are excluded outright, because they live on `dev` by design and "syncing" them would delete them.
+
+`--include-contested` takes every contested path at once, which is rarely what a release wants: a dependency bump that
+landed on `dev` after the release makes `main`'s copy of that file stale, and adopting it would revert the bump.
+`--only PATH` (repeatable) names the paths to sync instead, contested ones included. It intersects with the discovered
+set rather than replacing it, so a guarded, undiverged, or misspelled path is refused rather than forced through.
+
+The script refuses to run on a dirty tree or before the GitHub Release is published, and the run is idempotent: if `dev`
+already matches `main`, it exits without opening a PR. Use `--dry-run` to see the classification without creating
+anything; start there, because the classification is what tells you which contested paths belong in `--only`. Never
+merge `main` into `dev` and never push to `dev` directly: the two histories share no ancestry, so a merge conflicts on
+every file both sides touched, and a direct push bypasses `dev`'s required checks.
+
+After the backport PR merges, confirm the branches actually converged. This is the check that catches a contested path
+nobody resolved:
+
+```bash
+git fetch origin
+git diff --name-only origin/dev origin/main | grep -Ev "$(scripts/release/guarded-paths.sh)" || echo "(converged)"
+```
+
+Anything it lists is still `main`-only and will be reverted by the next release's overlay, which takes `dev`'s tree.
 
 → Rationale (why surgical copy, not `git merge main → dev`):
 [`RELEASES-RATIONALE.md` § Release pipeline](./RELEASES-RATIONALE.md#release-pipeline).
@@ -324,8 +364,9 @@ never hand-edit `CHANGELOG.md`.
 Two rulesets are committed under `.github/rulesets/` and applied to the repo via the GitHub API:
 
 - `protect-main.json`: required signatures, linear history, squash-only merges via PR, creation/deletion blocked,
-  non-fast-forward blocked, and five required checks: `shellcheck`, `bats`, and the three guard callers (`guard-docs /
-  check-forbidden-docs`, `guard-provenance / check-provenance`, `guard-release / check-release-branch-name`).
+  non-fast-forward blocked, and five required checks: `shellcheck`, `bats`, and the three guard callers
+  (`guard-docs / check-forbidden-docs`, `guard-provenance / check-provenance`,
+  `guard-release / check-release-branch-name`).
 - `protect-dev.json`: required signatures, deletion blocked, non-fast-forward blocked. `shellcheck` and `bats` are
   required status checks; the PR-only norm is convention, not ruleset-enforced.
 
@@ -344,11 +385,11 @@ gh api -X PUT repos/brettdavies/dotfiles/rulesets/<id> --input .github/rulesets/
 ### Version and tags
 
 - **CalVer, computed in CI.** The tag is `YYYY.MM.DD[.N]`, bare (no `v` prefix), created by `release.yml` on every push
-  to `main`. There is no version file in the tree, so the release commit bumps nothing and the backport script copies
-  `CHANGELOG.md` only.
-- **`scripts/sync-dev-after-release.sh`** is this repo's CalVer, CHANGELOG-only variant of the fleet template. The
-  template writes the released version into `Cargo.toml`, `package.json`, `pyproject.toml`, or `VERSION` and creates
-  `VERSION` when none exist; this repo has no carrier and must not grow one, so the script stays a repo-owned fork.
+  to `main`. There is no version file in the tree, so the release commit bumps nothing.
+- **`scripts/sync-dev-after-release.sh`** is this repo's CalVer variant of the fleet template. The template builds its
+  synced set by probing for version carriers (`Cargo.toml`, `package.json`, `pyproject.toml`, `VERSION`) and writing the
+  released number into each; this repo has no carrier and must not grow one, so its copy skips that step entirely and
+  keeps only the branch-comparison discovery both share. That makes it a repo-owned fork rather than a verbatim copy.
 - **`scripts/release/drift.sh` anchors on the newest CalVer tag reachable from `main`.** Gate 0 then checks that `dev`
   already carries that release's `CHANGELOG.md`; a failure there means the backport PR never merged, so run
   `scripts/sync-dev-after-release.sh <tag>` and merge it before cutting the release. `--since <ref>` overrides the

@@ -13,6 +13,14 @@
 # Exit 0 when everything covered passes, 1 on any finding, 2 on usage error,
 # 3 when shellcheck is not installed.
 
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+  for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$b" ] && exec "$b" "$0" "$@"
+  done
+  echo "ERROR: needs bash >= 4.4 (running $BASH_VERSION); install it with: brew install bash" >&2
+  exit 1
+fi
+
 set -euo pipefail
 
 EXIT_FINDINGS=1
@@ -33,9 +41,11 @@ fi
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# Files whose first line names sh or bash. Used for the two directories that mix
-# shell with other languages, so a future .py sibling is skipped rather than
-# failing the lint.
+# Files whose first line names sh or bash. Used for the directories that mix
+# shell with other languages, so a .py sibling is skipped rather than failing
+# the lint. Under scripts/ it is the whole rule: a new script there is covered
+# without being registered, and a shebang-less library is linted through the
+# script that sources it.
 _has_shell_shebang() {
   head -n1 "$1" 2>/dev/null | grep -qE '^#!.*\b(sh|bash)\b'
 }
@@ -57,12 +67,19 @@ _flags_for() {
   case "$1" in
     *.bats) echo "--shell=bash --exclude=SC2016" ;;
     scripts/claude-token-totals | scripts/codexbar-config) echo "--exclude=SC2016" ;;
+    # The backticks in its PR-body printf templates are literal markdown, so the
+    # single quotes are deliberate.
+    scripts/sync-dev-after-release.sh) echo "--exclude=SC2016" ;;
     stow/shell/dot-profile) echo "--shell=bash --exclude=SC1090,SC1091" ;;
-    config/shell/*.sh | .githooks/lib/*.sh) echo "--shell=bash" ;;
+    config/shell/*.sh | .githooks/lib/*.sh | scripts/*/lib/*.sh | tests/lib/*.bash) echo "--shell=bash" ;;
     config/shell/shell-functions) echo "--shell=bash --exclude=SC1003" ;;
     # -x follows the `# shellcheck source=` directive to lib/report.sh, so the
     # helpers it defines are known rather than reported as unresolved sources.
     .githooks/pre-commit | .githooks/pre-push) echo "-x" ;;
+    # -x follows the `# shellcheck source=lib/...` directives, so the helpers the
+    # libraries define are known. It reports nothing inside a sourced file, which
+    # is why each scripts/*/lib/*.sh is also a target of its own.
+    scripts/tools-atime/tools-atime.sh | scripts/upgrade/*.sh) echo "-x --source-path=SCRIPTDIR" ;;
     *) echo "" ;;
   esac
 }
@@ -73,11 +90,10 @@ _is_target() {
     .githooks/pre-commit | .githooks/post-checkout | .githooks/post-merge | .githooks/pre-push) return 0 ;;
     .githooks/lib/*.sh) return 0 ;;
     config/shell/*.sh | config/shell/shell-functions) return 0 ;;
-    scripts/stow-deploy | scripts/lint-shell | scripts/run-tests | scripts/lint-workflows) return 0 ;;
-    scripts/sshd-locale-deploy.sh) return 0 ;;
-    scripts/claude-token-totals | scripts/codexbar-config) return 0 ;;
+    scripts/*/lib/*.sh) return 0 ;;
+    scripts/*) _has_shell_shebang "$1" && return 0 || return 1 ;;
     stow/shell/dot-profile) return 0 ;;
-    tests/*.bats) return 0 ;;
+    tests/*.bats | tests/lib/*.bash) return 0 ;;
     stow/claude/dot-claude/*.sh) _has_shell_shebang "$1" && return 0 || return 1 ;;
     stow/*/dot-local/bin/*) _has_shell_shebang "$1" && return 0 || return 1 ;;
     *) return 1 ;;
@@ -88,12 +104,12 @@ _is_target() {
 _all_targets() {
   printf '%s\n' \
     .githooks/pre-commit .githooks/post-checkout .githooks/post-merge .githooks/pre-push \
-    scripts/stow-deploy scripts/lint-shell scripts/run-tests scripts/lint-workflows scripts/sshd-locale-deploy.sh \
-    scripts/claude-token-totals scripts/codexbar-config \
     stow/shell/dot-profile config/shell/shell-functions
+  find scripts -type f
   find .githooks/lib -maxdepth 1 -type f -name '*.sh' 2>/dev/null
   find config/shell -maxdepth 1 -type f -name '*.sh'
   find tests -type f -name '*.bats'
+  find tests/lib -type f -name '*.bash' 2>/dev/null
   find stow/claude/dot-claude -maxdepth 1 -type f -name '*.sh'
   find stow -type f -path 'stow/*/dot-local/bin/*'
 }

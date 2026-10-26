@@ -71,11 +71,23 @@ ollama-update() { curl -fsSL https://ollama.com/install.sh | sudo sh; }
 # documents itself as not affecting `--greedy`, so this function upgrades those
 # casks whether or not it is set.
 #
+# `--no-greedy` drops it, for the unattended run in scripts/upgrade/brew.sh. A
+# cask whose uninstall stanza quits its app (Ghostty, Rectangle, Telegram and
+# AppCleaner all declare `auto_updates true`) closes that app when a greedy
+# upgrade lands, and a run missed during sleep lands at wake. Those apps update
+# through their own updaters, and the next plain `bu` catches brew up.
+#
 # No platform guard: Homebrew Cask is macOS-only, but `--greedy` is parsed the
 # same on Linux and simply matches nothing there, so both flags are a no-op
 # rather than an error on the Linux hosts in this fleet.
 bu() {
+    local greedy=--greedy
+    case ${1-} in
+        '') ;;
+        --no-greedy) greedy= ;;
+        *) echo "usage: bu [--no-greedy]" >&2; return 2 ;;
+    esac
     brew update || return
-    brew upgrade --greedy -y || return
+    brew upgrade ${greedy:+"$greedy"} -y || return
     brew cleanup
 }
