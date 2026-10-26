@@ -119,6 +119,32 @@ every file in a deployed package. On a healthy deployed dotfiles host every stow
 canonical checkout's `stow/` tree. One that resolves anywhere else, or dangles, is drift, and the signature of a deploy
 run from a non-canonical checkout.
 
+## Shared trees
+
+### Foreign subtree
+
+A directory inside one repository's working tree whose contents belong to a different repository, mounted by a symlink
+so the containing repo never tracks them.
+
+A foreign subtree is invisible to the containing repo's version control and fully visible to anything that walks the
+filesystem, which is what makes it hazardous: a tool that writes rewrites another project's content with no signal,
+while the containing repo's status stays clean. Every tool that touches one has to decide deliberately which repository
+it is acting for, and the right answer differs by tool. A tool enforcing the containing repo's exclusions has to
+describe the file by the path it was reached through, because resolving that path to its real location discards the
+prefix those exclusions are written against; a tool meant to judge the content on its owner's terms has to do the
+opposite. An exclusion naming a foreign subtree is in force only once the tool demonstrably matches paths the way the
+exclusion assumes, so presence of the rule is not evidence that it applies.
+
+### Shared clone
+
+The single local checkout of a repository that several working trees mount as a *foreign subtree* and several concurrent
+sessions write to.
+
+One index and one working tree serve every writer, so staging broadly there captures another session's in-progress work:
+a writer commits only the paths it authored, and from an isolated checkout rather than the shared one. That checkout
+also drifts behind its remote while other writers push, so a safe write syncs first rather than assuming the local tip
+is current.
+
 ## System configuration
 
 ### System-level unit
@@ -260,6 +286,21 @@ permission, so a guard that errors, exits early, or misreads its own check allow
 so indistinguishably from a genuine pass. Guards therefore need their allow path tested as deliberately as their deny
 path, and a guard whose verdict is derived from an exit status needs that status to be unambiguous.
 
+### Format hook
+
+A hook that rewrites a file's contents immediately after a write, as opposed to a *guard hook*, which decides whether an
+action may happen at all, or a *local gate*, which checks content already on disk at a git lifecycle point. It returns
+no allow-or-deny verdict, and its principal output is the modified file, so a wrong decision inside one is committed
+rather than reported. It may still forward findings a reader can act on, which is a report about the content and not a
+verdict on the action.
+
+Which formatting applies is a property of the edited file's own repository rather than of the session the edit was made
+from, and a repository may declare that it owns its own formatting, in which case the hook leaves it untouched. Both
+facts are settled by walking up from the file itself, so a hook that settles them from the session's directory instead
+formats files in one repository under another's rules, and does so silently, because the rewrite it leaves behind looks
+like the file's own style. A format hook also decides whether to run at all from the same lookup, which means a
+mis-resolution can disable the exclusions a repository relies on without any signal that they stopped applying.
+
 ## File hand-off
 
 ### Hand-off route
@@ -276,5 +317,9 @@ unreachable or the hand-off fails, the file goes to the host's local opener wher
 
 - "Gate" names two different things: a *supply-chain age gate* is a policy applied to package resolution, while a *local
   gate* is a check that runs at a git lifecycle point. These are distinct.
-- A *guard hook* answers allow or deny about an action that has not happened yet; a *local gate* checks content that
-  already exists. Both are sometimes called "hooks" informally, since both are installed as such.
+- A *guard hook* answers allow or deny about an action that has not happened yet, a *format hook* rewrites a file just
+  after it is written, and a *local gate* checks content that already exists at a git lifecycle point. All three are
+  sometimes called "hooks" informally, since all three are installed as such.
+- A *cross-package symlink* and a *foreign subtree* are both symlinks into another source, and they differ in how far
+  they reach: the first stays inside this repo, pointing from one stow package's source into another's, while the second
+  points at a separate repository whose files this repo does not track.
