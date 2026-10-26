@@ -49,6 +49,12 @@ jobs:
         # that rejects the v4 syntax the hook uses. See the action for detail.
         uses: ./.github/actions/setup-yq
 
+      - name: Install uv
+        # md-align-tables.bats runs the table aligner's unit tests through
+        # `uv run --with wcwidth`, because the script imports wcwidth at load.
+        # Without uv that suite skips rather than exercising anything.
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
       - name: Install zsh + stow + jq
         # zsh: shell-config.bats syntax-checks dot-zshrc / dot-zshenv / dot-zprofile.
         # stow: stow-deploy-args.bats checks exit codes; without stow the script
