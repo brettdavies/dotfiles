@@ -1,0 +1,12 @@
+[Unit]
+Description=Mirror the vault's agent workspace to the NAS
+ConditionHost=bigdaddy
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/obsidian-vault/scripts/sync-to-pool.sh
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true

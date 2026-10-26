@@ -13,13 +13,17 @@ set -euo pipefail
 
 payload=$(cat)
 
+# No early-exiting consumer in the pipeline: `head -1` closes the pipe as soon
+# as it has its line, so a prompt carrying a second TIER line leaves sed
+# writing into a closed pipe. It takes SIGPIPE, `pipefail` promotes that to the
+# substitution's status, and `set -e` aborts the guard. Every stage here drains
+# its input; the first match is taken afterwards.
 tier=$(
-  printf '%s' "$payload" \
-    | jq -r '.tool_input.prompt // ""' \
+  jq -r '.tool_input.prompt // ""' <<<"$payload" \
     | sed -nE 's/^[[:space:]]*TIER:[[:space:]]*(build|ceiling|compound).*/\1/Ip' \
-    | head -1 \
     | tr '[:upper:]' '[:lower:]'
 )
+tier=${tier%%$'\n'*}
 
 # Not an orchestrator-handoff dispatch.
 [ -n "$tier" ] || exit 0

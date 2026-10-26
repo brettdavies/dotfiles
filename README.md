@@ -45,6 +45,7 @@ dotfiles/
 │   ├── git/               Per-platform git config templates
 │   ├── qmd/               Per-platform qmd collections templates
 │   ├── apparmor.d/        System-level AppArmor profiles (deployed via apparmor-deploy.sh)
+│   ├── launchd/           macOS launchd user PATH for GUI apps and LaunchAgents (via launchd-user-path.sh)
 │   └── systemd/system/    System-level units (NAS mounts via nas-deploy.sh, apparmor-playwright via apparmor-deploy.sh)
 ├── scripts/
 │   ├── stow-deploy        Stow wrapper with conflict resolution
@@ -53,10 +54,14 @@ dotfiles/
 │   ├── sshd-locale-deploy.sh  Strip LANG/LC_* from sshd AcceptEnv so sessions use the server locale
 │   ├── playwright-browsers-deploy.sh  Playwright browser binaries into the shared cache (curl + unzip)
 │   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (binaries + apparmor + opt-in browser deps)
-│   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, opendataloader-pdf)
-│   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama)
+│   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, host-jobs)
+│   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama, svc:codex-proxy)
+│   ├── tailscale-serve-deploy.sh  System unit that re-runs the serve setup on every tailscaled start
 │   ├── macos-gpu-monitor.sh       Metal GPU residency/power trace around any command (macOS)
+│   ├── launchd-user-path.sh       Check (or --apply) the launchd user PATH against config/launchd/ (macOS)
+│   ├── fseventsd-check.sh         Warn when fseventsd outgrows its launchd memory budget (macOS, run at Claude Code session start)
 │   ├── lint-shell, lint-workflows, run-tests   CI gate dispatchers, shared by CI and the git hooks
+│   ├── core-env-guard.sh  Fails a test that resets HOME or another core env var (allowlist beside it)
 │   ├── generate-changelog.py      Release changelog extraction from merged PR bodies
 │   ├── sync-dev-after-release.sh  Backport the released CHANGELOG.md to dev by PR
 │   ├── release/           Release gates (drift.sh, guarded-paths.sh)
@@ -88,12 +93,12 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `bash`               | `.bashrc`, `.bash_profile`, `.bash_aliases`                                                                                      |
 | `brew`               | `Brewfile`, `Brewfile.optional`                                                                                                  |
 | `bun`                | `.bunfig.toml`                                                                                                                   |
-| `caam`               | `.caam/` (Claude account rotation config + vault, git-crypt encrypted)                                                           |
 | `caddy`              | `.config/caddy/Caddyfile`, `caddy.service` — loopback proxy fronting Ollama for `svc:ollama` (Host rewrite) (Linux only)         |
-| `cargo`              | `.cargo/config.toml` — git dependency fetches routed through the git CLI (Linux only)                                            |
-| `claude`             | `.claude/` (settings, hooks, statusline, templates), `.markdownlint-cli2.yaml`                                                   |
+| `cargo`              | `.cargo/config.toml` (git fetches via the git CLI), `cargo-target-sweep` + weekly timer (stale build output; Linux only)         |
+| `claude`             | `.claude/` (settings, hooks, statusline, templates incl. the `gitattributes` canon), `.markdownlint-cli2.yaml`, `.editorconfig`  |
 | `codex`              | `.codex/config.toml`                                                                                                             |
 | `codex-proxy`        | systemd user unit for the docker-compose codex-proxy backend (Linux only)                                                        |
+| `cswap`              | systemd timer and oneshot unit running the cswap account rotation check each minute (Linux only)                                 |
 | `cursor`             | `.cursor/rules/`, `extensions.txt`                                                                                               |
 | `gh`                 | `.config/gh/` (GitHub CLI config), `.local/bin/gh` (merge guard wrapper)                                                         |
 | `ghostty`            | `.config/ghostty/config`                                                                                                         |
@@ -102,12 +107,11 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `gogcli`             | `.config/gogcli/config.json` — Google Workspace CLI config                                                                       |
 | `launchagent`        | `~/Library/LaunchAgents/` (macOS only)                                                                                           |
 | `lazygit`            | `.config/lazygit/config.yml` — clipboard over SSH via OSC 52                                                                     |
-| `local`              | `.local/bin/` — signing, prose, session, qmd, and commit helpers (see [Local Binaries](#local-binaries))                         |
+| `local`              | `.local/bin/` — signing, prose, session, qmd, and commit helpers (see [Local Binaries](#local-binaries)); systemd timers (Linux) |
 | `micro`              | `.config/micro/settings.json` — editor settings                                                                                  |
-| `obsidian`           | `.config/obsidian/`, systemd service, CLI wrapper (Linux only)                                                                   |
+| `obsidian`           | `.config/obsidian/`, systemd service, CLI wrapper, vault-mirror timers (Linux only)                                              |
 | `ollama`             | systemd service override binding Ollama to loopback `127.0.0.1:11434`; system-level, stowed into `/etc` with `sudo` (Linux only) |
 | `opencode`           | `.config/opencode/config.json`                                                                                                   |
-| `opendataloader-pdf` | Socket-activated hybrid PDF server with idle-exit, systemd user units (Linux only)                                               |
 | `pip`                | `.config/pip/pip.conf`                                                                                                           |
 | `qmd`                | `.local/bin/qmd` wrapper (both platforms) + systemd user units for the qmd-serve daemon and index timers (Linux)                 |
 | `rclone`             | `.config/rclone/`, Box bisync systemd service + timer (Linux only)                                                               |
@@ -132,23 +136,28 @@ The `local` package deploys `stow/local/dot-local/bin/` to `~/.local/bin/`. Thes
 hooks, systemd units, and agent tooling call them by name, so each one resolves the same way on every host without
 knowing where the underlying implementation lives.
 
-| Binary                  | Purpose                                                                                     |
-| ----------------------- | ------------------------------------------------------------------------------------------- |
-| `brave-search`          | Query the Brave Search API, printing ranked results as plain text or raw JSON               |
-| `charcount`             | Count characters against platform length caps, exiting non-zero so it gates in scripts      |
-| `env`                   | Put `~/.local/bin` on `PATH` for user-installed binaries                                    |
-| `gh-revision-audit`     | List your issues and PRs that still carry prior edit revisions on GitHub                    |
-| `gstack-config-apply`   | Converge `~/.gstack/config.yaml`, which gstack rewrites and so cannot be a stow package     |
-| `op-ssh-sign-wrapper`   | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless      |
-| `qmd-gpu-verify`        | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU             |
-| `qmd-ollama-unload-all` | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely  |
-| `sd-commit-doc`         | Commit and push `docs/solutions/` files from the shared clone without racing another agent  |
-| `tmux-new-session`      | Write a tmuxinator config for a repo and start its 3-pane session                           |
-| `transcribe-diarize`    | Local GPU speaker-diarized transcription (ffmpeg → whisperx → pyannote)                     |
-| `unslop`                | Machine-level entry point for the prose scorer, resolved through `~/.claude/skills`         |
-| `unslop-gate`           | Git-hook prose gate over `unslop`, scoring only the markdown in the change being pushed     |
-| `uuidv7`                | Print a time-ordered UUIDv7, used for collision-proof `/tmp` artifact names                 |
-| `xurl`                  | Real `xurl` on `PATH` that execs xurl-rs's `xr`, for callers that load no interactive alias |
+| Binary                     | Purpose                                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `backup-openclaw-settings` | Back up OpenClaw's settings to the NAS, run daily by `openclaw-settings-backup.timer`          |
+| `brave-search`             | Query the Brave Search API, printing ranked results as plain text or raw JSON                  |
+| `charcount`                | Count characters against platform length caps, exiting non-zero so it gates in scripts         |
+| `env`                      | Put `~/.local/bin` on `PATH` for user-installed binaries                                       |
+| `gh-revision-audit`        | List your issues and PRs that still carry prior edit revisions on GitHub                       |
+| `github-stars`             | Clone and update starred GitHub repos under `~/github-stars`, run by the `github-stars` timers |
+| `github-stars-pdf`         | Markdown copies of star PDFs marked `convert` in `pdfs.tsv` for qmd; reports new PDFs          |
+| `gstack-config-apply`      | Converge `~/.gstack/config.yaml`, which gstack rewrites and so cannot be a stow package        |
+| `mac-open`                 | Open a file from yazi on a Linux host on the Mac the session is driven from                    |
+| `mac-open-here`            | The Mac half of `mac-open`, run over SSH: open a host file in VS Code or the default app       |
+| `op-ssh-sign-wrapper`      | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless         |
+| `qmd-gpu-verify`           | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU                |
+| `qmd-ollama-unload-all`    | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely     |
+| `sd-commit-doc`            | Commit and push `docs/solutions/` files from the shared clone without racing another agent     |
+| `tmux-new-session`         | Write a tmuxinator config for a repo and start its 3-pane session                              |
+| `transcribe-diarize`       | Local GPU speaker-diarized transcription (ffmpeg → whisperx → pyannote)                        |
+| `unslop`                   | Machine-level entry point for the prose scorer, resolved through `~/.claude/skills`            |
+| `unslop-gate`              | Git-hook prose gate over `unslop`, scoring only the markdown in the change being pushed        |
+| `uuidv7`                   | Print a time-ordered UUIDv7, used for collision-proof `/tmp` artifact names                    |
+| `xurl`                     | Real `xurl` on `PATH` that execs xurl-rs's `xr`, for callers that load no interactive alias    |
 
 ### Tmuxinator Sessions
 
@@ -162,7 +171,19 @@ usual way one gets there, because `sudo` scrubs `TMUXINATOR_CONFIG` and falls ba
 tmux server at UID 0, invisible to your own `tmux ls`. Run tmuxinator as yourself.
 
 Every config defines the same 3-pane working layout: yazi on the left (1/3 width, full height), a bare shell top-right
-(2/3 × 2/3), and lazygit bottom-right (2/3 × 1/3). All three panes start in the project's root.
+(2/3 × 2/3), and lazygit bottom-right (2/3 × 1/3), except where the paragraph below notes otherwise. All three panes
+start in the project's root.
+
+tmuxinator renders each config through ERB before parsing it, which is how `vault.yml` serves both machines from one
+file: it branches on `RUBY_PLATFORM`, rooting at the server's checkout on Linux and at the Taildrive share
+(`/Volumes/vault`) on macOS. On macOS an `on_project_start` hook runs `taildrive-mount vault` and ends the start script
+when the share does not mount, so no session is created with its panes pointed at a missing directory. The bottom-right
+pane there is a plain shell rather than lazygit, because the share exposes the vault's files but not its git dir.
+`tests/tmuxinator-configs.bats` renders both branches and checks the emitted script.
+
+The guard covers an absent share, not a wedged one: tmuxinator emits `cd <root>` ahead of every hook, so a mount whose
+server has gone away blocks the start script on that `cd` before `taildrive-mount` can report anything. Recover with
+`taildrive-unmount` (or `diskutil unmount force /Volumes/vault`) and start again.
 
 Start or attach to a configured session with `tmuxinator start <name>` — it creates the session on the first call and
 attaches on every subsequent call, so the same command works whether or not the session is already running:
@@ -183,6 +204,50 @@ writes a new tmuxinator config into `stow/tmuxinator/dot-config/tmuxinator/`, th
 resize targets. Edit both after copying, or the new session resizes panes in the project it was copied from.
 `tests/tmuxinator-configs.bats` enforces that every config's resize targets match its own `name:`.
 
+### Yazi Hand-off to the Mac
+
+On a Linux host, yazi's open action (`Enter` or `o` on a file) puts the file on the Mac the session is driven from,
+routed by what the file is:
+
+- **Edit route.** Anything yazi would hand to the editor (text, JSON, JavaScript, empty files) opens in VS Code on the
+  Mac through Remote-SSH, editing the host's file in place: a save is a write to the host's disk.
+- **View route.** Everything else (PDFs, images, audio, video, office documents, unknown binaries) opens in the Mac's
+  default app. A file under a Taildrive share opens in place at `/Volumes/<share>/…`, and the share is mounted first
+  when it is not; the share roots come from `tailscale drive list`. A file outside every share is streamed to the Mac as
+  a copy in `~/Downloads/mac-open/`, where nothing is ever deleted automatically, and yazi says so: edits to a copy do
+  not write back.
+
+The hand-off runs only when the SSH connection driving the session comes from the Mac. Inside tmux that is the session's
+most recently active client, whose address `tailscale whois` must name as the Mac. From the host's console, or from a
+session attached from any other device, files open locally as they always do there. When the session is not from the
+Mac, the Mac cannot be reached, or the hand-off fails, text falls back to `$EDITOR` and PDFs to the local `pdftotext`
+view in micro; other types have no local opener on a headless host. Every such outcome prints one `mac-open: <reason>`
+line naming the next step, and yazi shows it as a notification once the fallback editor exits. For text, the `O` picker
+still offers the local `$EDITOR`; a PDF reaches the local text view only when the hand-off fails. Directories open as
+they always do, archives extract on the host, and yazi's bulk rename and bulk create keep using the local editor, since
+yazi reads their list back when the editor exits.
+
+Setup, from a merged change to the first file on the Mac:
+
+1. On the Linux host: `cd ~/dotfiles && git pull && scripts/stow-deploy local yazi`.
+2. On the Mac: the same two commands in `~/dotfiles`.
+3. On the Mac: System Settings → General → Sharing → Remote Login (ⓘ) → turn on "Allow full disk access for remote
+   users". Without it, an SSH session cannot read a Taildrive share, and in-place viewing fails with `no-disk-access`.
+   The grant covers every SSH session on the Mac, including the one this host's key opens, so a compromised host could
+   then read the Mac's protected data; leaving it off keeps text edits and copies working and gives up only in-place
+   viewing.
+4. Quit and restart every yazi already running in a tmux pane. yazi reads its openers only at startup, and `ya emit`
+   notifications fail while any yazi from before a yazi upgrade is still running.
+5. Press `Enter` on a markdown file; a VS Code tab opens on the Mac. The first connection after a VS Code update
+   installs its server on the host and takes a few seconds longer.
+
+The Mac is reached by its SSH alias with `BatchMode`, a 3 s connect timeout, and a hard 20 s bound per call (plus 1 s
+per MiB for a copy); Ctrl-C abandons a hand-off in progress, which is the way out of a large copy. Overrides:
+`MAC_OPEN_HOST` (the Mac's SSH alias, which is also its tailnet name) and `MAC_OPEN_SERVER_ALIAS` (this host as the
+Mac's SSH config names it, default `hostname -s`) on the Linux host; `MAC_OPEN_CODE_CLI` (the VS Code CLI inside the app
+bundle by default) on the Mac. `tests/mac-open.bats` and `tests/mac-open-here.bats` stub every external command, and
+`tests/yazi-config.bats` pins the routing table in `yazi.toml`, which replaces yazi's built-in one.
+
 ### System-Level Units (`config/systemd/system/`)
 
 System-level systemd units are **not** managed by stow (which targets `$HOME`). They live in `config/systemd/system/`
@@ -199,6 +264,17 @@ Three more system-level configs deploy through their own paths: `apparmor-playwr
 profile, via `scripts/apparmor-deploy.sh`, below), the `ollama` loopback override (`sudo stow -t /etc`, see the `ollama`
 package), and the sshd locale change (`sudo scripts/sshd-locale-deploy.sh`, which edits `/etc/ssh/sshd_config` in place;
 see [BOOTSTRAP.md § SSH session locale](BOOTSTRAP.md#ssh-session-locale)).
+
+### launchd User PATH (`config/launchd/user-path`, macOS)
+
+launchd starts every GUI application and LaunchAgent with the user PATH it reads at boot; it never reads the shell
+config chain. Unset, that PATH is `/usr/bin:/bin:/usr/sbin:/sbin`, where `#!/usr/bin/env bash` resolves to the system
+bash 3.2. `config/launchd/user-path` declares the value with Homebrew first, so a process launchd starts finds
+Homebrew's `bash` and the rest of `/opt/homebrew/bin` ahead of the system copies. `scripts/launchd-user-path.sh`
+compares the declared value with launchd's (`/var/db/com.apple.xpc.launchd/config/user.plist`) and, on drift, prints the
+exact `sudo launchctl config user path` fix and exits 1; `--apply` runs that fix. `scripts/stow-deploy` runs the check,
+never the fix, on every macOS deploy to `$HOME`. launchd reads the value only at boot, so a change reaches apps after
+the next reboot, and the check notes when the configured value is newer than the last boot.
 
 ### Playwright / browse browser launch (`scripts/playwright-deps-deploy.sh`)
 
@@ -237,10 +313,12 @@ needed.
 
 The loop runs after `.profile` finishes assembling `PATH` (Homebrew, `~/.local/bin`, bun, cargo). Files here routinely
 gate their contents on `command -v <tool>`, and that guard is evaluated at source time: sourced any earlier, every such
-file would silently no-op in a shell that did not inherit a populated `PATH` — a launchd-spawned terminal, cron, or `ssh
-host cmd`. `tests/shell-startup-shapes.bats` pins the ordering and exercises each shell shape;
+file would silently no-op in a shell that did not inherit a populated `PATH` — a launchd-spawned terminal, cron, or
+`ssh host cmd`. `tests/shell-startup-shapes.bats` pins the ordering and exercises each shell shape;
 `tests/shell-path-matrix.bats` checks `PATH` assembly across all eight supported invocation shapes, tabulated in
-[AGENTS.md](AGENTS.md#supported-invocation-shapes).
+[AGENTS.md](AGENTS.md#supported-invocation-shapes). `tests/shell-nested-idempotence.bats` sources each fragment in a
+shell and again in its child, and fails when the child's exported environment differs, since every new shell re-sources
+the fragments.
 
 Shell startup latency budgets live in `tests/perf/`, outside the `tests/*.bats` glob that the pre-push hook and CI use.
 The hook runs that directory first, on a quiet machine, and each measurement is a best-of-N minimum: run at the tail of
@@ -249,11 +327,11 @@ having changed.
 
 | File                | Purpose                                                        |
 | ------------------- | -------------------------------------------------------------- |
-| `build-flags.sh`    | Native-CPU build flags (`-march=native`) for local compilation |
-| `caam.sh`           | Claude account rotation wrapper + daemon                       |
+| `build-flags.sh`    | Make/CMake parallelism, CUDA architectures, Go amd64 level     |
 | `caches.sh`         | XDG cache directory locations                                  |
 | `claude-code.sh`    | Claude Code environment variables                              |
 | `github.sh`         | GitHub CLI aliases                                             |
+| `gnu-time.sh`       | `gtime` runs Homebrew's GNU time on Linux, as on macOS         |
 | `gogcli.sh`         | Google Workspace CLI keyring password injection                |
 | `languagetool.sh`   | LanguageTool wrapper for the shared prose-lint stage           |
 | `litellm.sh`        | LiteLLM proxy configuration                                    |
@@ -293,11 +371,11 @@ Activated via `core.hooksPath` (set automatically by `stow-deploy`):
 | `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign`, gates staged paths |
 | `post-checkout` | Auto-unlocks git-crypt, chains Git LFS                                  |
 | `post-merge`    | Auto-unlocks git-crypt, chains Git LFS                                  |
-| `pre-push`      | Mirrors CI (shellcheck, actionlint, bats), chains Git LFS               |
+| `pre-push`      | Mirrors CI (shellcheck, actionlint, bats, core-env), chains Git LFS     |
 
-Both gates call the same dispatchers CI calls — `scripts/lint-shell`, `scripts/lint-workflows`, `scripts/run-tests` — so
-the three cannot drift. `pre-push` runs them over the whole repo; `pre-commit` runs them over staged paths only. See
-[AGENTS.md § Local gates mirror CI](AGENTS.md#local-gates-mirror-ci).
+Both gates call the same dispatchers CI calls — `scripts/lint-shell`, `scripts/lint-workflows`, `scripts/run-tests`,
+`scripts/core-env-guard.sh` — so the three cannot drift. `pre-push` runs them over the whole repo; `pre-commit` runs
+them over staged paths only. See [AGENTS.md § Local gates mirror CI](AGENTS.md#local-gates-mirror-ci).
 
 ## CI and Testing
 
@@ -320,7 +398,7 @@ the GitHub Release body. See [RELEASES.md](RELEASES.md).
 
 Shell scripts are tested with [bats-core](https://github.com/bats-core/bats-core) (`scripts/run-tests --all`). Suites
 cover stow-deploy and its package sets, git hooks and the gate dispatchers, the shell config chain and its `PATH`
-matrix, supply-chain age gates, symlinks, the qmd-serve and opendataloader-pdf units, tmuxinator configs, and the CLI
+matrix, supply-chain age gates, symlinks, the qmd-serve units, tmuxinator configs, and the CLI
 wrappers.
 
 ## Performance

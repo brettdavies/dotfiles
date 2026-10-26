@@ -71,8 +71,8 @@ value to function are fine. The rule applies to written artifacts about the code
 
 **How to apply:**
 
-- Before submitting any commit message, PR body, or doc, scan the draft. A practical grep guard before `gh pr edit
-  --body-file`:
+- Before submitting any commit message, PR body, or doc, scan the draft. A practical grep guard before
+  `gh pr edit --body-file`:
 
   ```bash
   rg '/Users/[^/]+/|/home/[^/]+/|<your-known-hostnames>' "$BODY"   # or whichever /tmp/<naming-rule>.md path

@@ -1,0 +1,14 @@
+[Unit]
+Description=Clone newly starred GitHub repos
+ConditionHost=bigdaddy
+OnSuccess=github-stars-pdf.service
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-%h/.config/github-stars/env
+ExecStart=%h/.local/bin/github-stars --clone-only -j 8
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true

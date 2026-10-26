@@ -24,9 +24,12 @@
 #   - For PR creates/merges, prefer `gh pr checks <pr> --watch` which covers
 #     all checks across all triggered workflows on the PR head
 #   - VERIFY STATUS AFTER COMPLETION, NOT JUST EXIT CODE. `gh pr checks --watch`
-#     exits 0 once all checks complete — pass OR fail. `gh run watch
-#     --exit-status` is reliable for a single run, but the PR-scoped watcher is
-#     not. After every completion notification, re-query and read per-check
+#     exits 1 if any check ends FAILURE/ERROR/TIMED_OUT/ACTION_REQUIRED, but
+#     exits 0 when the rest are CANCELLED/SKIPPED/NEUTRAL, and it only sees
+#     checks registered when it polls (late/chained workflows can be missed).
+#     `gh run watch` exits 0 on failure unless `--exit-status` is passed. So
+#     treat a non-zero exit as red, but a zero exit as "not proven green".
+#     After every completion notification, re-query and read per-check
 #     conclusions explicitly:
 #       gh pr view <num> --json statusCheckRollup,mergeStateStatus \
 #         --jq '{merge: .mergeStateStatus, checks: [.statusCheckRollup[] | {name, conclusion}]}'
@@ -88,8 +91,13 @@ tool_name=$(printf '%s' "$payload" | "$JQ" -r '.tool_name // ""' 2>/dev/null)
 command=$(printf '%s' "$payload" | "$JQ" -r '.tool_input.command // ""' 2>/dev/null)
 [[ -n "$command" ]] || exit 0
 
-# Match commands that trigger GitHub Actions
-if ! printf '%s' "$command" | grep -qE '\bgit push\b|\bgh pr (create|merge)\b|\bgh release create\b|\bgh workflow run\b|\bgh api .*/dispatches\b'; then
+# Match commands that trigger GitHub Actions.
+#
+# Here-strings, not pipes: `grep -q` exits at its first match, so a piped
+# producer takes SIGPIPE on a command past the pipe buffer and `pipefail` turns
+# the match into a non-zero pipeline — reading a CI-triggering command as one
+# that triggers nothing, and skipping the watch prompt for it.
+if ! grep -qE '\bgit push\b|\bgh pr (create|merge)\b|\bgh release create\b|\bgh workflow run\b|\bgh api .*/dispatches\b' <<<"$command"; then
   exit 0
 fi
 
@@ -97,8 +105,8 @@ fi
 #   --dry-run        (no actual push)
 #   --delete         (deleting a remote ref doesn't fire workflows)
 #   --tags only      (tag pushes do trigger CI for tag-listening workflows, so don't skip)
-if printf '%s' "$command" | grep -qE '\bgit push\b' \
-  && printf '%s' "$command" | grep -qE -- '--dry-run|--delete'; then
+if grep -qE '\bgit push\b' <<<"$command" \
+  && grep -qE -- '--dry-run|--delete' <<<"$command"; then
   exit 0
 fi
 

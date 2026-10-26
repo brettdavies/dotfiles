@@ -1,0 +1,11 @@
+[Unit]
+Description=Sync starred GitHub repos hourly
+ConditionHost=bigdaddy
+
+[Timer]
+OnCalendar=*-*-* *:00:00
+RandomizedDelaySec=120
+Persistent=true
+
+[Install]
+WantedBy=timers.target

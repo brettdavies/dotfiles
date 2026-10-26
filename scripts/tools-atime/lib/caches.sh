@@ -100,7 +100,9 @@ caches_act() {
         echo "DRY-RUN: trash $dir"
         return 0
       fi
-      command -v trash >/dev/null && trash "$dir" || rm -rf "$dir"
+      if ! { command -v trash >/dev/null && trash "$dir"; }; then
+        rm -rf "$dir"
+      fi
       ;;
     *)
       echo "caches_act: unknown action $target/$action" >&2

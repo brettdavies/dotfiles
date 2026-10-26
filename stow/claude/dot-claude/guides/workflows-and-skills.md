@@ -1,7 +1,8 @@
 # Workflows, Skills & the Solutions Corpus
 
-Detail behind the **Workflow & skills** and **Solutions repo** rules in `~/.claude/CLAUDE.md`. Open this when picking a
-skill for a task, dispatching a learnings researcher, or writing to `docs/solutions/`.
+Detail behind the **Workflow & skills**, **Solutions repo**, and **Never block on a wait** rules in
+`~/.claude/CLAUDE.md`. Open this when picking a skill for a task, dispatching a learnings researcher, writing to
+`docs/solutions/`, or waiting on background work or a subagent.
 
 ## Development workflow: gstack + compound-engineering
 
@@ -60,16 +61,16 @@ full loop. Use judgment.
 
 ## Query solutions first
 
-Before answering questions, diagnosing issues, researching options, or proposing changes, run `qmd query "<topic>"
---collection solutions` to surface existing decisions and patterns. Solutions contain hard-won decisions that cannot be
-inferred from the file layout alone. This applies to all interactions — questions, debugging, code review, and
-architecture discussions — not just implementation.
+Before answering questions, diagnosing issues, researching options, or proposing changes, run
+`qmd query "<topic>" --collection solutions` to surface existing decisions and patterns. Solutions contain hard-won
+decisions that cannot be inferred from the file layout alone. This applies to all interactions — questions, debugging,
+code review, and architecture discussions — not just implementation.
 
 **This explicitly includes `/investigate` and any gstack debugging skill.** Their built-in prior-learnings step runs
-`gstack-learnings-search`, which queries the gstack brain, NOT `docs/solutions/` — a different store. Run `qmd query
-"<symptoms>" --collection solutions` yourself during symptom-collection, before forming a hypothesis. The skill's
-history search does not cover the shared corpus, and treating it as if it does has cost a full re-derivation of an
-already-documented root cause and fix.
+`gstack-learnings-search`, which queries the gstack brain, NOT `docs/solutions/` — a different store. Run
+`qmd query "<symptoms>" --collection solutions` yourself during symptom-collection, before forming a hypothesis. The
+skill's history search does not cover the shared corpus, and treating it as if it does has cost a full re-derivation of
+an already-documented root cause and fix.
 
 ## Learnings-researcher dispatch (the qmd companion hack)
 
@@ -109,9 +110,9 @@ sd-commit-doc "$MSG" <category>/<slug>.md     # 3. repo-relative path(s); pass s
 ```
 
 `sd-commit-doc` runs the whole safe sequence: it snapshots the named files into a throwaway **detached worktree** (its
-own `.git/index`, so parallel compounders cannot bundle each other's files under your message), commits with `--file
-"$MSG"`, pushes with a fetch + rebase + retry when origin has advanced, tears the worktree down, and finally `merge
---ff-only`s the shared clone to origin so its checkout never drifts behind (the drift that strands the nightly
+own `.git/index`, so parallel compounders cannot bundle each other's files under your message), commits with
+`--file "$MSG"`, pushes with a fetch + rebase + retry when origin has advanced, tears the worktree down, and finally
+`merge --ff-only`s the shared clone to origin so its checkout never drifts behind (the drift that strands the nightly
 autocommit). It never `git add -A`s and never amends + force-pushes. Before any of that work it pre-flights the corpus
 schema through the solutions repo's own `.githooks/lib-validate.sh`, so a doc missing a required frontmatter field fails
 in about a second with the field named instead of aborting part-way through a commit. Read or extend it at
@@ -121,8 +122,9 @@ in about a second with the field named instead of aborting part-way through a co
 non-zero. Read that status directly (`sd-commit-doc "$MSG" <path>; rc=$?`); piping the command into `tail` or `head`
 yields the pipe's status rather than the helper's, so a rejected commit reads as a success and the message file gets
 cleaned up as though it had been used. If a single, exclusive writer is guaranteed (a solo interactive session, no
-background compounding agents), a plain `git -C "$SD" add <file> && git -C "$SD" commit --file "$MSG" && git -C "$SD"
-push` is acceptable — but verify with `git show --stat HEAD` afterward regardless. Full rationale:
+background compounding agents), a plain
+`git -C "$SD" add <file> && git -C "$SD" commit --file "$MSG" && git -C "$SD" push` is acceptable — but verify with
+`git show --stat HEAD` afterward regardless. Full rationale:
 `docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
 `docs/solutions/workflow-issues/unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 
@@ -132,3 +134,46 @@ execution, baking in the resolved path on the current machine): `ln -s "$HOME/de
 Absolute is preferred over a relative target because a relative target depends on how deep the consuming repo lives in
 the filesystem — `../../dev/solutions-docs` resolves correctly only when the repo lives two levels under `$HOME`, and
 silently produces a broken `~/dev/dev/solutions-docs` target when the repo sits at `~/dev/<repo>/`.
+
+## Waiting without blocking
+
+Detail behind **Never block on a wait** in `~/.claude/CLAUDE.md`. Every shape below runs with `run_in_background: true`;
+the loop's exit is the notification, so the session keeps working and wakes within 10 s of the event.
+
+**Poll as a notification.** For state the harness cannot see, wrap the check in a loop that sleeps at most 10 s:
+
+```bash
+until curl -sf http://127.0.0.1:8000/health >/dev/null; do sleep 10; done; echo "server up"
+```
+
+Give it an upper bound when the event may never happen (`timeout 1800 bash -c 'until …; do sleep 10; done'`), so a dead
+server ends the wait with a non-zero exit instead of a loop that never returns.
+
+**Wait on a process by PID, not by its command line.** A Bash call runs as a shell whose argument list holds the whole
+command, so `until ! pgrep -f 'git push -u origin fix/x'` matches its own shell and never ends, and
+`pkill -f 'vllm serve'` kills the shell that ran it. Start the process with `&` and wait on `$!`
+(`while kill -0 "$pid" 2>/dev/null; do sleep 10; done`), or bracket one character so the pattern cannot match its own
+text (`pgrep -f '[g]it push -u origin fix/x'`). `~/.claude/self-match-guard.sh` denies the unbracketed form and prints
+the bracketed command.
+
+**Watchdog for a background subagent.** The `Agent` spawn result names the agent's output file. Start this right after
+dispatch; it exits once the file has gone 10 minutes without a write. The output path is a symlink to the live
+transcript, re-pointed when the agent resumes, so `-L` is required: without it `find` reads the link's own age and fires
+on a busy agent (`find -L -mmin` works with GNU and BSD find):
+
+```bash
+out=<agent output file>; while [ -n "$(find -L "$out" -mmin -10)" ]; do sleep 10; done; echo "agent quiet 10 min: $out"
+```
+
+On wake, read the tail of the output file and the processes the agent started. A finished agent needs nothing; a stalled
+one gets a `SendMessage` (resume with a deadline, re-scope, or stop and clean up its processes); a long foreground step
+that is still producing work gets the watchdog re-armed. Background-subagent notices were observed to wait in a queue
+until the main session was next active, so the watchdog belongs to the main session, never to the subagent.
+
+**Brief clause.** Paste into every `Agent` prompt for work that can run past a few minutes, with the deadline filled in:
+
+```text
+Time box: finish by <time>, then report what is done and what is not. Never end your turn to wait on your own
+background job: poll in short checks (each wait 10 s or less) or run the step in the foreground under a timeout of
+at most 9 minutes. If a step fails, record it and move on rather than debugging past the time box.
+```

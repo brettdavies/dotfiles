@@ -16,25 +16,31 @@ if command -v tmuxinator >/dev/null 2>&1; then
     tmuxinator "$@"
   }
 
+  # Returns non-zero when any project failed to start.
   mux-all() {
-    _started=0
-    _skipped=0
-    for _yml in "${TMUXINATOR_CONFIG:-$HOME/.config/tmuxinator}"/*.yml; do
-      [ -f "$_yml" ] || continue
-      _project=$(basename "$_yml" .yml)
+    local started=0 skipped=0 failed=0 yml project session
+    for yml in "${TMUXINATOR_CONFIG:-$HOME/.config/tmuxinator}"/*.yml; do
+      [ -f "$yml" ] || continue
+      project=$(basename "$yml" .yml)
       # tmux names the session after the config's `name:` field, which is a
       # display name free to differ from the filename tmuxinator starts by.
-      _session=$(sed -n 's/^name:[[:space:]]*//p' "$_yml" | head -1 \
+      session=$(sed -n 's/^name:[[:space:]]*//p' "$yml" | head -1 \
         | sed 's/[[:space:]]*$//; s/^"//; s/"$//')
-      [ -n "$_session" ] || _session="$_project"
-      if tmux has-session -t "=$_session" 2>/dev/null; then
-        _skipped=$((_skipped + 1))
+      [ -n "$session" ] || session="$project"
+      if tmux has-session -t "=$session" 2>/dev/null; then
+        skipped=$((skipped + 1))
         continue
       fi
-      tmuxinator start "$_project" -d >/dev/null 2>&1
-      _started=$((_started + 1))
+      # A project whose on_project_start hook fails never creates its session,
+      # so a start that reports success is the only one counted as started.
+      if tmuxinator start "$project" -d >/dev/null 2>&1; then
+        started=$((started + 1))
+      else
+        failed=$((failed + 1))
+        echo "mux-all: $project failed to start" >&2
+      fi
     done
-    echo "mux-all: started $_started, skipped $_skipped (already running)"
-    unset _started _skipped _yml _project _session
+    echo "mux-all: started $started, skipped $skipped (already running), failed $failed"
+    [ "$failed" -eq 0 ]
   }
 fi

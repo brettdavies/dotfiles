@@ -12,14 +12,20 @@ on:
   # file sets, so unrelated PRs pass quickly.
   pull_request:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+# The group key leads with a literal token naming the workflow that owns it. A
+# key built only from context (`${ github.workflow }`) is one a called
+# reusable also produces, because `github.workflow` resolves to the caller
+# inside a called workflow; both land in one group and the reusable's queue
+# cancels the run that called it.
+concurrency:
+  group: shellcheck-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   shellcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install ShellCheck
         # Local composite action, so this job and .github/workflows/bats.yml
@@ -34,6 +40,12 @@ jobs:
         # runs this exact command and .githooks/pre-commit runs the same script
         # over staged paths, so local gates and CI cannot drift apart.
         run: ./scripts/lint-shell --all
+
+      - name: Guard test environments
+        # Fails a test that resets HOME, TMPDIR, an XDG_* directory, a tool
+        # home, or PATH's whole value. .githooks/pre-push runs this exact
+        # command, and scripts/core-env-allowlist.tsv holds the exceptions.
+        run: ./scripts/core-env-guard.sh
 
       - name: Install actionlint
         uses: ./.github/actions/setup-actionlint

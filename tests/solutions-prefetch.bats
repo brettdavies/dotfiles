@@ -108,3 +108,30 @@ fires() {
 @test "known FN: log whose error line has no keyword" {
   [ "$(fires "$(printf '%s\n' 'INFO start' '[err] something went sideways downstream' 'INFO end')")" = SILENT ]
 }
+
+# ---------------------------------------------------------------------------
+# SIZE — the verdict must not depend on how long the prompt is
+#
+# Matching through a pipe made it depend on exactly that: `grep -q` exits at
+# its first match, so on a prompt past the pipe buffer the producing side took
+# SIGPIPE and `pipefail` turned the match into a non-zero pipeline. A pasted
+# log — the case this hook is for — read as no match at all.
+# ---------------------------------------------------------------------------
+
+# Comfortably past the 64KB pipe buffer, and under Linux's 128KB ceiling on a
+# single argv string — past that the prompt cannot reach the hook at all.
+#
+# Wrapped into many lines, like the pasted log this stands in for. One
+# enormous line instead leaves grep reading to the end of it before it can
+# match, so the producer finishes writing and the bug does not surface.
+_log_padding() {
+  head -c 110000 /dev/zero | tr '\0' 'x' | fold -w 80
+}
+
+@test "positive: a pasted log far past the pipe buffer still fires" {
+  [ "$(fires "$(printf 'the build is broken\n%s\n' "$(_log_padding)")")" = FIRE ]
+}
+
+@test "negative: a long prompt with no debugging signal stays silent" {
+  [ "$(fires "$(printf 'please add a changelog entry\n%s\n' "$(_log_padding)")")" = SILENT ]
+}

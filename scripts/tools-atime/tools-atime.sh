@@ -6,6 +6,14 @@
 # emits TSV: manager \t atime \t name \t has_bin \t own_kb \t reclaim_kb.
 # The orchestrator concatenates, sorts, filters, and renders.
 
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+  for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$b" ] && exec "$b" "$0" "$@"
+  done
+  echo "ERROR: needs bash >= 4.4 (running $BASH_VERSION); install it with: brew install bash" >&2
+  exit 1
+fi
+
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -232,11 +240,11 @@ if [[ "$RECLAIM" == "true" ]]; then
   export DRYRUN
 
   _collect_candidates() {
-    local rows="" m
+    local collected="" m
     for m in "${SELECTED[@]}"; do
-      rows+=$("${m}_rows")$'\n'
+      collected+=$("${m}_rows")$'\n'
     done
-    printf '%s' "$rows" \
+    printf '%s' "$collected" \
       | grep -v '^[[:space:]]*$' \
       | sort -t $'\t' -k6,6nr \
       | awk -F'\t' -v min="$RECLAIM_MIN_KB" '$6+0 >= min+0' \

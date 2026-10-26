@@ -10,6 +10,7 @@
 
 CONFIG="$BATS_TEST_DIRNAME/../stow/cargo/dot-cargo/config.toml"
 DEPLOY="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
+BREWFILE="$BATS_TEST_DIRNAME/../stow/brew/Brewfile"
 
 @test "git fetches are routed through the git CLI, under [net]" {
   # Scoped to the table: a key outside it is silently ignored by cargo rather
@@ -24,7 +25,9 @@ DEPLOY="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
   # have no reader.
   shared=$(grep '^SHARED_PACKAGES=' "$DEPLOY" | sed 's/.*(\(.*\))/\1/')
   [[ "$shared" == *"cargo"* ]]
-  grep -qE '\| *cargo *\)' "$DEPLOY"
+  # Matches wherever cargo sits in the guard's alternation, so adding another
+  # Linux-only package after it does not fail this test.
+  grep -qE '\| *cargo *[|)]' "$DEPLOY"
 }
 
 @test "the deployed config resolves where cargo reads it" {
@@ -79,6 +82,31 @@ DEPLOY="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
   done < <(rustup toolchain list 2>/dev/null | awk '{print $1}')
   [ -z "$carrying" ] || {
     echo "toolchains still carrying rust-docs:$carrying"
+    false
+  }
+}
+
+# ---------------------------------------------------------------------------
+# cargo-deny
+# ---------------------------------------------------------------------------
+
+@test "the Brewfile installs cargo-deny on Linux" {
+  grep -qE '^brew "cargo-deny" if OS\.linux\?$' "$BREWFILE"
+}
+
+@test "the cargo-deny on PATH is the release line CI runs (0.20 or newer)" {
+  # 0.19.1 through 0.19.5 keep the GIT_DIR a pre-push hook in a linked worktree
+  # hands them, and their advisory-database update resets the worktree's branch.
+  # 0.19.6 clears it; the floor is 0.20, the line the release CI's
+  # cargo-deny-action bundles. A `cargo install` copy in ~/.cargo/bin shadows
+  # the Homebrew one.
+  command -v cargo-deny >/dev/null 2>&1 || skip "cargo-deny not installed"
+  version=$(cargo-deny --version | awk '{print $2}')
+  major=${version%%.*}
+  minor=${version#*.}
+  minor=${minor%%.*}
+  [ "$major" -gt 0 ] || [ "$minor" -ge 20 ] || {
+    echo "cargo-deny $version at $(command -v cargo-deny); install 0.20+ from the Brewfile and remove older copies"
     false
   }
 }

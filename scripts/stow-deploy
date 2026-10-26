@@ -21,7 +21,7 @@ EXIT_PLATFORM=6     # Platform mismatch (launchagent on Linux)
 
 # Package sets — single source of truth
 # Ordering: secrets first (git-crypt dep), shell (PATH/env), then the rest
-SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew cargo rust tmux lazygit micro yazi rclone qmd obsidian opendataloader-pdf caddy caam gogcli codex-proxy)
+SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew cargo rust tmux lazygit micro yazi rclone qmd obsidian caddy gogcli codex-proxy cswap)
 DESKTOP_PACKAGES=(ghostty cursor launchagent)
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -111,7 +111,7 @@ done
 # Check git-crypt unlock status for encrypted packages
 for pkg in "$@"; do
   case "$pkg" in
-    secrets | ssh | git | rclone | caam)
+    secrets | ssh | git)
       if [ -f "$STOW_DIR/secrets/dot-secrets" ]; then
         # grep -qI treats binary files as non-matching (no `file` command needed)
         if ! grep -qI '' "$STOW_DIR/secrets/dot-secrets" 2>/dev/null; then
@@ -266,7 +266,7 @@ STOW_FLAGS+=(--ignore='\.DS_Store$')
 # content (e.g. stow/local holds both ~/.local/bin/* helpers AND ~/.config/systemd/user/*
 # units). Stow's --ignore matches file basenames (not directories), so we pattern on
 # the file extension. Every .service and .timer file in this repo is a systemd unit
-# (verified across stow/{local,rclone,rust,obsidian,opendataloader-pdf}), so the
+# (verified across stow/{local,rclone,rust,obsidian}), so the
 # pattern is safe to apply broadly. No-op on Linux.
 if [ "$(uname -s)" = "Darwin" ]; then
   STOW_FLAGS+=(--ignore='\.(service|timer)$')
@@ -292,7 +292,7 @@ for pkg in "$@"; do
   fi
   if [ "$(uname -s)" != "Linux" ]; then
     case "$pkg" in
-      rclone | obsidian | opendataloader-pdf | codex-proxy | cargo)
+      rclone | obsidian | codex-proxy | cargo | cswap)
         echo "WARNING: $pkg is Linux-only, skipping on $(uname -s)" >&2
         continue
         ;;
@@ -386,10 +386,12 @@ fi
 # `stow -R` unlinks then relinks a package's symlinks. If systemd reads a unit
 # (or a timer fires) during that unlink-relink window, the timer can drop into a
 # failed state that does NOT auto-recover, silently halting its schedule until a
-# manual restart. Reload the manager and reset+restart the timer units the
-# deployed packages ship, so a restow can never leave them dead. Scoped to a
-# real $HOME deploy with systemctl present, so sandboxed test targets and macOS
-# (launchd) are untouched.
+# manual restart. Reload the manager and reset+restart the enabled timer units
+# the deployed packages ship, so a restow can never leave them dead. A timer that
+# is not enabled stays stopped: restart would start it, and turning a timer on is
+# scripts/host-jobs-enable.sh's job. Scoped to a real $HOME deploy with
+# systemctl present, so sandboxed test targets and macOS (launchd) are
+# untouched.
 if [ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ] \
   && command -v systemctl >/dev/null 2>&1 && [ -s "$deployed_file" ]; then
   _reloaded=false
@@ -400,6 +402,7 @@ if [ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ] \
         systemctl --user daemon-reload 2>/dev/null || true
         _reloaded=true
       fi
+      systemctl --user is-enabled --quiet "$_timer" 2>/dev/null || continue
       systemctl --user reset-failed "$_timer" 2>/dev/null || true
       if systemctl --user restart "$_timer" 2>/dev/null; then
         echo "  Recovered systemd timer: $_timer"
@@ -535,6 +538,16 @@ if [ "$TARGET" = "$HOME" ] && grep -qx "cargo" "$deployed_file" 2>/dev/null; the
   else
     echo "  rustup not installed (install with: rustup-init --profile minimal)"
   fi
+fi
+
+# launchd hands GUI applications and LaunchAgents the user PATH it reads at
+# boot, never the shell config chain. Writing that value needs sudo, so a deploy
+# only reports drift; the script's own output names the fix. Scoped to a real
+# $HOME deploy so a sandboxed target never reads the host's launchd config.
+if [ "$(uname -s)" = "Darwin" ] && [ "$TARGET" = "$HOME" ]; then
+  echo ""
+  echo "==> Checking launchd user PATH"
+  "$REPO_ROOT/scripts/launchd-user-path.sh" || true
 fi
 
 # Headless summary

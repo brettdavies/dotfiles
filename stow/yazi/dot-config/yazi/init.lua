@@ -10,3 +10,8 @@
 -- each file object; this setup call registers the linemode renderer.
 -- Sign characters and colors are themed in theme.toml under [git].
 require("git"):setup()
+
+-- smart-enter (bound to Enter in keymap.toml): with open_multi, Enter on a file
+-- opens the whole selection, the same files `o` opens, rather than only the
+-- hovered one.
+require("smart-enter"):setup({ open_multi = true })

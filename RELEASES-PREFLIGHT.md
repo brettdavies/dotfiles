@@ -61,8 +61,8 @@ The anchor is the newest CalVer tag reachable from `origin/main`; `--since <ref>
 The `.githooks/pre-push` hook runs the same `shellcheck`, `actionlint`, and `bats` suites as the `shellcheck.yml` and
 `bats.yml` workflows. Run them explicitly before cutting the branch rather than discovering a failure mid-release.
 
-- [ ] `scripts/lint-shell --all`, `scripts/lint-workflows --all`, and `scripts/run-tests --all` are clean; the simplest
-  trigger is a no-op `git push` on `dev`.
+- [ ] `scripts/lint-shell --all`, `scripts/lint-workflows --all`, `scripts/run-tests --all`, and
+  `scripts/core-env-guard.sh` are clean; the simplest trigger is a no-op `git push` on `dev`.
 - [ ] `markdownlint-cli2` clean on any prose docs in the release (the auto-format hook keeps this green during editing;
   confirm nothing slipped). `CHANGELOG.md` is the standing exception: the generator emits one logical line per bullet so
   GitHub soft-wraps it, which trips `MD013` on every section including the released ones. Hand-wrapping it to satisfy
@@ -113,9 +113,14 @@ cut `release/YYYY.MM.DD` branch, after the overlay is staged.
   ```
 
 - [ ] **Every doc this release adds to `main` is meant to ship.** The leak check is blind to a category nobody
-  registered. `git diff --cached --diff-filter=A --name-only origin/main | grep -E '(^docs/|\.md$)' | grep -Ev
-  "$GUARDED"` lists the unguarded additions; each one needs a reason to ship, or it gets registered in the workflow's
-  `extra_paths` and removed from the branch.
+  registered. The command below lists the unguarded additions; each one needs a reason to ship, or it gets registered in
+  the workflow's `extra_paths` and removed from the branch. `--no-renames` lists a doc moved from one `main` carries as
+  added, where rename detection would report it as a rename and the `A` filter would drop it.
+
+  ```bash
+  git diff --cached --no-renames --diff-filter=A --name-only origin/main | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED"
+  ```
+
 - [ ] `CHANGELOG.md` was regenerated with `scripts/generate-changelog.py --from-dev-prs` (not hand-edited), its top
   section is the branch's version, and it has no `[Unreleased]` placeholder.
 - [ ] The branch date is today's, so CI's CalVer matches intent (CI recomputes from the date regardless, but a stale

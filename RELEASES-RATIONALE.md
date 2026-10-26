@@ -138,12 +138,12 @@ or already on `main` via a prior squash, it's a false positive.
 
 `scripts/generate-changelog.py` (vendored from the `github-repo-setup` skill, with the repo-local `cliff.toml`) is the
 only sanctioned way to update `CHANGELOG.md`. On the overlay-built release branch it runs as `--from-dev-prs`: the PRs
-merged into `dev` since the previous release are the entries, and each PR's body supplies its `## Changelog → ###
-Breaking changes / Added / Changed / Fixed / Documentation` subsections (with author and PR-link attribution). The
-window starts at the earlier of the previous tag's commit time and the previous `release/*` PR's creation time, and PR
-numbers the changelog already lists are dropped, so a PR merged between the previous cut and its tag is neither lost nor
-doubled. On a cherry-picked branch it runs `git-cliff` first to prepend a versioned entry from the branch's commits,
-then expands the same way.
+merged into `dev` since the previous release are the entries, and each PR's body supplies its
+`## Changelog → ### Breaking changes / Added / Changed / Fixed / Documentation` subsections (with author and PR-link
+attribution). The window starts at the earlier of the previous tag's commit time and the previous `release/*` PR's
+creation time, and PR numbers the changelog already lists are dropped, so a PR merged between the previous cut and its
+tag is neither lost nor doubled. On a cherry-picked branch it runs `git-cliff` first to prepend a versioned entry from
+the branch's commits, then expands the same way.
 
 If a PR's body carries no changelog content, its title becomes a `Changed` bullet, except for `chore`, `ci`, `build`,
 `style`, and `test` PRs, which stay out unless they carry a `## Changelog` of their own. To fix a wrong entry, fix the
@@ -185,20 +185,37 @@ The tag is **bare** (non-annotated): the workflow runs as `github-actions[bot]`,
 `tag.gpgsign = true` globally would make a local annotated tag the only signed option. The release commit is already
 attributable through its squash-merge PR; the tag is just a pointer.
 
-### Why backport with a surgical CHANGELOG copy, by PR
+### Why the synced set is discovered, not listed
 
-`release/*` is cut from `origin/main` and regenerates `CHANGELOG.md` there against `main`'s base. That CHANGELOG commit
-never round-trips to `dev`, so `dev`'s `CHANGELOG.md` freezes behind every release without a deliberate backport.
+`release/*` is cut from `origin/main` and regenerates `CHANGELOG.md` there against `main`'s base. That commit never
+round-trips to `dev`, so `dev`'s `CHANGELOG.md` freezes behind every release without a deliberate backport, and the same
+is true of anything else the release branch edits.
+
+The backport copied a hardcoded `CHANGELOG.md` for its first several releases, on the assumption that the changelog was
+the only thing a release branch ever produced. That assumption is wrong the moment anyone edits the release branch for
+any other reason, and it failed silently rather than loudly: the `2026.09.14` release reverted a stow payload and
+deleted three tmuxinator configs on the branch, the backport copied the changelog alone, and those four paths stayed on
+`main` with nothing reporting the gap. The next release's overlay takes `dev`'s tree, so it would have restored every
+one of them.
+
+A fixed list only ever catches what its author predicted, and the failure mode is invisible. The set is therefore
+computed from the branches themselves, which is the only description that stays true as the release process changes. The
+risk this introduces is the opposite one, clobbering `dev`'s unreleased work, and the previous release tag is what
+bounds it: a path `dev` has not touched since that tag can only have been changed on the release branch, so adopting
+`main`'s copy is safe. A path both sides moved is genuinely ambiguous and gets a human, not a default.
+
+### Why backport with a surgical copy, by PR
 
 The backport is a PR opened by `scripts/sync-dev-after-release.sh`, never a merge of `main` into `dev` and never a
 direct push. `dev` is normally many commits ahead of `main`, the two histories share no ancestry, and `main` carries
 only the release squash plus the regenerated changelog, so a merge conflicts on every file both sides touched and drags
-`main`'s tree state across `dev`'s unreleased work; a direct push bypasses `dev`'s required checks. `CHANGELOG.md` is
-the one file that legitimately diverges, so it's the only file that moves. The fleet template of this script also writes
-the released version into `Cargo.toml`, `package.json`, `pyproject.toml`, or `VERSION`; this repo has no version carrier
-(CI derives the tag from the date), so its copy stays a CalVer, CHANGELOG-only fork rather than growing a `VERSION` file
-that nothing reads. The script refuses to run on a dirty tree or before the GitHub Release is published, and is
-idempotent (no-op when `dev` already matches `main`).
+`main`'s tree state across `dev`'s unreleased work; a direct push bypasses `dev`'s required checks. Only the paths that
+legitimately diverged move, one file at a time, which is what keeps this a copy rather than a merge. The fleet template
+of this script builds its synced set by probing for version carriers (`Cargo.toml`, `package.json`, `pyproject.toml`,
+`VERSION`) and writing the released number into each; this repo has no version carrier, since CI derives the tag from
+the date, so its copy discovers the set from the branch comparison instead and never grows a `VERSION` file that nothing
+reads. The script refuses to run on a dirty tree or before the GitHub Release is published, and is idempotent (no-op
+when `dev` already matches `main`).
 
 ### Rollback
 
@@ -216,9 +233,9 @@ hatch, not the norm; the standard release-branch flow is preferred whenever ther
 
 ## Prose scrubbing scope
 
-Three release-flow artifacts ship text to GitHub outside any in-repo formatter and need a manual scrub: PR bodies (`gh
-pr create`/`edit` send body text straight to GitHub), `CHANGELOG.md` (generated from upstream PR bodies, so it inherits
-their prose), and the release-PR body (composed after `CHANGELOG.md` is generated).
+Three release-flow artifacts ship text to GitHub outside any in-repo formatter and need a manual scrub: PR bodies
+(`gh pr create`/`edit` send body text straight to GitHub), `CHANGELOG.md` (generated from upstream PR bodies, so it
+inherits their prose), and the release-PR body (composed after `CHANGELOG.md` is generated).
 
 This repo runs `unslop` (`~/.claude/skills/unslop/scripts/score.py`) as the minimum prose floor: em-dash density plus
 AI-unique structural patterns. The full Vale + LanguageTool stack is not wired up here; `unslop` is the floor every
@@ -231,13 +248,13 @@ public PR only ever sees clean text. For a `CHANGELOG.md` finding, fix the upstr
 ### Status-check context strings
 
 The `required_status_checks[].context` strings in the rulesets must match exactly what GitHub publishes for each check.
-An inline job (with a `name:` field) publishes as just `<job-name>`; a reusable-workflow caller (`uses:
-.../foo.yml@ref`) publishes as `<caller-job-id> / <reusable-job-id-or-name>`. Mixing these produces a stuck-but-green
-PR: every actual check reports green, but the ruleset waits forever on a context that never appears. This repo's own
-checks (`shellcheck`, `bats`) are inline jobs, so their contexts are the bare job names; the guard callers are
-reusable-workflow callers, so theirs are `guard-docs / check-forbidden-docs`, `guard-provenance / check-provenance`, and
-`guard-release / check-release-branch-name`. Confirm the real contexts after a CI run with `gh api
-repos/brettdavies/dotfiles/commits/<sha>/check-runs --jq '.check_runs[].name'`.
+An inline job (with a `name:` field) publishes as just `<job-name>`; a reusable-workflow caller
+(`uses: .../foo.yml@ref`) publishes as `<caller-job-id> / <reusable-job-id-or-name>`. Mixing these produces a
+stuck-but-green PR: every actual check reports green, but the ruleset waits forever on a context that never appears.
+This repo's own checks (`shellcheck`, `bats`) are inline jobs, so their contexts are the bare job names; the guard
+callers are reusable-workflow callers, so theirs are `guard-docs / check-forbidden-docs`,
+`guard-provenance / check-provenance`, and `guard-release / check-release-branch-name`. Confirm the real contexts after
+a CI run with `gh api repos/brettdavies/dotfiles/commits/<sha>/check-runs --jq '.check_runs[].name'`.
 
 `shellcheck` and `bats` are required on both `dev` (where feature PRs land) and `main`; by the time a `release/*` PR
 reaches `main` the same commits already passed those checks on `dev`, and `release.yml` runs post-merge regardless.

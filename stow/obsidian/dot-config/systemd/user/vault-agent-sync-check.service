@@ -1,0 +1,13 @@
+[Unit]
+Description=Alert when the vault agent-workspace mirror has stalled
+ConditionHost=bigdaddy
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/obsidian-vault/scripts/pool-sync-check.sh
+StandardOutput=append:%h/.openclaw/logs/pool-sync-check.log
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true

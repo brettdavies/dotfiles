@@ -186,7 +186,7 @@ install_hook_with_stubs() {
   mkdir -p "$WORK/.githooks/lib" "$WORK/scripts" "$FIX/bin"
   cp "$REPO/.githooks/pre-push" "$WORK/.githooks/pre-push"
   cp "$REPO"/.githooks/lib/*.sh "$WORK/.githooks/lib/"
-  for s in lint-shell lint-workflows run-tests; do
+  for s in lint-shell lint-workflows run-tests core-env-guard.sh; do
     printf '#!/bin/sh\ntouch "%s/ran-%s"\n' "$FIX" "$s" >"$WORK/scripts/$s"
     chmod +x "$WORK/scripts/$s"
   done
@@ -229,6 +229,23 @@ gate_ran() { [ -e "$FIX/ran-lint-shell" ] && [ -e "$FIX/ran-run-tests" ]; }
   install_hook_with_stubs
   new=$(commit_file README.md 'hello')
   hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
+  [ "$status" -eq 0 ]
+  run ! gate_ran
+}
+
+@test "hook: a ref list larger than the pipe buffer still exits clean" {
+  install_hook_with_stubs
+  # `git lfs pre-push` exits without draining stdin. Fed through a pipe, the
+  # producing side takes SIGPIPE as soon as the ref list outgrows the pipe
+  # buffer; pipefail promotes that 141 to the pipeline's status and set -e
+  # aborts the push. Deletes keep the scope decision at "delivers nothing", so
+  # the only thing under test is the handoff to git-lfs.
+  local -a refs=()
+  local i
+  for i in $(seq 1 1000); do
+    refs+=("(delete) $ZERO refs/heads/feat/a-branch-name-long-enough-to-matter-$i $DEV_SHA")
+  done
+  hook "${refs[@]}"
   [ "$status" -eq 0 ]
   run ! gate_ran
 }

@@ -1,13 +1,13 @@
 [Unit]
 Description=Pool NAS SMB Mount (openclaw share)
-Documentation=op://secrets-dev/pool-nas
+# Credentials: 1Password op://secrets-dev/pool-nas (systemd accepts only URL schemes in Documentation=)
 After=network-online.target
 Wants=network-online.target
 # No [Install] section — this unit is triggered by mnt-nas.automount, not enabled directly.
 # Do not run "systemctl enable mnt-nas.mount" — use mnt-nas.automount instead.
 
 [Mount]
-# NAS IP: 192.168.1.5 (static LAN). Also referenced in: scripts/nas-deploy.sh (ping check)
+# NAS IP: 192.168.1.5 (static LAN). Also referenced in: scripts/nas-deploy.sh (reachability check)
 What=//192.168.1.5/openclaw
 Where=/mnt/nas
 Type=cifs

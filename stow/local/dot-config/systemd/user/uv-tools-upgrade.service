@@ -1,0 +1,18 @@
+[Unit]
+Description=Upgrade every uv-installed tool
+ConditionHost=bigdaddy
+After=network-online.target brew-upgrade.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/dotfiles/scripts/upgrade/uv-tools.sh
+SyslogIdentifier=uv-tools-upgrade
+# A oneshot has no start timeout by default, so a wedged fetch would hold the unit active and
+# every later timer tick would find it already running.
+TimeoutStartSec=1h
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true

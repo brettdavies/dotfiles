@@ -1,0 +1,11 @@
+# Box remote used by scripts/sync/box-bisync.sh (box-bisync.timer).
+#
+# The live file is ~/.config/rclone/rclone.conf, a plain file rclone owns (mode 600),
+# never a stow symlink and never committed: Box rotates the single-use refresh token on
+# every refresh and rclone writes the new one back, so any committed copy is dead the
+# moment the next sync runs. Bootstrap on a new Linux host:
+#   cp ~/.config/rclone/rclone.conf.example ~/.config/rclone/rclone.conf && chmod 600 ~/.config/rclone/rclone.conf
+#   rclone config reconnect box:    # paste the token from `rclone authorize "box"` run on a machine with a browser
+[box]
+type = box
+token =

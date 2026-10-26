@@ -201,7 +201,7 @@
       "Bash(~/.claude/skills/tailscale/scripts/ts-api.sh:*)",
       "Bash(~/.claude/skills/unslop/scripts/score.py *)",
       "Bash(~/.claude/skills/x-api/scripts/extract-endpoints.sh:*)",
-      "Bash(~/obsidian-vault/Areas/infrastructure/scripts/sync-to-pool.sh:*)",
+      "Bash(~/obsidian-vault/scripts/sync-to-pool.sh:*)",
       "mcp__plugin_cloudflare_cloudflare-api__execute",
       "mcp__plugin_cloudflare_cloudflare-api__search",
       "mcp__plugin_cloudflare_cloudflare-bindings__accounts_list",
@@ -318,6 +318,9 @@
       "Bash(perl -pi -e 's#\\\\Q[`docs/architecture/voice-enforcement.md`]\\(./docs/architecture/voice-enforcement.md\\)\\\\E#`docs/architecture/voice-enforcement.md`#g' RELEASES.md RELEASES-RATIONALE.md)",
       "Bash(perl -pi -e 's#\\\\Q[`docs/architecture/`]\\(docs/architecture/\\)\\\\E#`docs/architecture/`#g' PRODUCT.md)",
       "Bash(tailscale serve *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr edit *)",
+      "Bash(gh pr merge *)",
       "Bash(caddy *)"
     ],
     "deny": [
@@ -330,14 +333,13 @@
       "Bash(python -m pip:*)",
       "Bash(python3 -m pip:*)",
       "Bash(rm:*)",
+      "Bash(rustup self:*)",
       "Bash(sudo:*)"
     ],
     "ask": [
       "Bash(apt:*)",
       "Bash(docker:*)",
-      "Bash(gh pr create *)",
-      "Bash(gh pr edit *)",
-      "Bash(gh pr merge *)",
+      "Bash(gh pr close *)",
       "Bash(gh repo create *)",
       "Bash(killall:*)",
       "Bash(ln:*)",
@@ -371,7 +373,6 @@
       "/tmp"
     ]
   },
-  "model": "opus[1m]",
   "skillOverrides": {
     "disk-cleanup": "off",
     "gstack-upgrade": "off",
@@ -437,6 +438,21 @@
           {
             "type": "command",
             "command": "~/.claude/heredoc-pr-guard.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/ai-attribution-guard.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/sleep-guard.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/self-match-guard.sh",
             "timeout": 5
           },
           {
@@ -516,6 +532,16 @@
           {
             "type": "command",
             "command": "~/.claude/session-context.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/dotfiles/scripts/fseventsd-check.sh --claude-hook",
+            "timeout": 5
           }
         ]
       },
@@ -612,5 +638,6 @@
   "awaySummaryEnabled": false,
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
-  "agentPushNotifEnabled": true
+  "agentPushNotifEnabled": true,
+  "autoContinueAtUsageLimit": false
 }

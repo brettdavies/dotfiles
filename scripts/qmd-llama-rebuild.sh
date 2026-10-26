@@ -14,12 +14,12 @@
 # The env var pin is sufficient on its own when the CUDA prebuilt is
 # healthy; this script makes Vulkan healthy too as a fallback path.
 #
-# Note: the resulting binary is meaningfully more optimized when
-# `config/shell/build-flags.sh` is sourced before this script runs
-# (CFLAGS=-march=native lets gcc emit AVX-512; CMAKE_CUDA_ARCHITECTURES=86
-# pins nvcc to Ampere only, cutting compile time ~5x). The dotfiles
-# .profile auto-loader sources it on every interactive and SSH-driven
-# zsh, so this normally happens for free.
+# Note: the CUDA compile is ~5x faster when `config/shell/build-flags.sh` is
+# sourced before this script runs, since its CMAKE_CUDA_ARCHITECTURES=86 pins
+# nvcc to Ampere only. The dotfiles .profile auto-loader sources it on every
+# interactive and SSH-driven zsh, so this normally happens for free. The CPU
+# backend needs no compiler flags: a local llama.cpp build compiles for this
+# host on its own (GGML_NATIVE).
 
 set -euo pipefail
 
