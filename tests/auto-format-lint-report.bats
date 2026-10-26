@@ -37,7 +37,10 @@ setup() {
 }
 
 teardown() {
-  [ -n "${TMP:-}" ] && rm -rf "$TMP"
+  # setup skips before TMP is set when a tool is missing.
+  if [ -n "${TMP:-}" ]; then
+    rm -rf "$TMP"
+  fi
 }
 
 # run_hook PATH: feed the hook a PostToolUse payload and capture its stdout,

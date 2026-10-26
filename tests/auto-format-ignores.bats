@@ -40,7 +40,10 @@ setup() {
 }
 
 teardown() {
-  [ -n "${TMP:-}" ] && rm -rf "$TMP"
+  # setup skips before TMP is set when a tool is missing.
+  if [ -n "${TMP:-}" ]; then
+    rm -rf "$TMP"
+  fi
 }
 
 LONG='This is a deliberately long prose line that runs past one hundred and twenty characters so any wrapper reaching it would split the line in two.'
