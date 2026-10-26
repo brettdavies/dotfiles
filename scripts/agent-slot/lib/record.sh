@@ -59,7 +59,6 @@ slot_numbers() {
   done | sort -n -u
 }
 
-# True when the slot number holds a clone or a claim.
 slot_taken() {
   [[ -d $(slot_path "$1" "$2")/.git || -f $(slot_claim_file "$1" "$2") ]]
 }
@@ -70,10 +69,6 @@ slot_repos() {
   for entry in "$AS_ROOT"/*/; do
     [[ -d $entry ]] && printf '%s\n' "$(basename "$entry")"
   done
-}
-
-record_lock_fds() {
-  printf '%s\n' "${RECORD_LOCK_FDS[@]}"
 }
 
 # Usage: record_lock <lock-file> <key> <--nowait | --wait SECONDS>

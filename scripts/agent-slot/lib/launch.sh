@@ -126,7 +126,7 @@ launch_output() {
 _launch_us() { printf '%s' "${EPOCHREALTIME/./}"; }
 
 cmd_launch() {
-  local repo=$LAUNCH_REPO n live max=$AS_MAX_PER_REPO record path out trust=false
+  local repo=$LAUNCH_REPO n live max=$AS_MAX_PER_REPO record path prompt_copy out trust=false
   local t_start t_clone t_setup t_trust t_tmux t_claude phases
   require_tools tmux claude trash
   repo_prime "$repo"
@@ -182,11 +182,12 @@ cmd_launch() {
   parity_solutions "$path"
   parity_claude_settings "$REPO_PRIME" "$path"
   parity_siblings "$repo" "$path"
+  prompt_copy=$path/.git/agent-slot-prompt.md
   if [[ -n $LAUNCH_PROMPT ]]; then
-    cp "$LAUNCH_PROMPT" "$path/.git/agent-slot-prompt.md"
+    cp "$LAUNCH_PROMPT" "$prompt_copy"
   fi
   record_update "$repo" "$n" --arg base "$PARITY_BASE" --argjson prompt "$([[ -n $LAUNCH_PROMPT ]] && echo true || echo false)" \
-    --arg file "$path/.git/agent-slot-prompt.md" '.base = $base | .prompt_file = (if $prompt then $file else null end)'
+    --arg file "$prompt_copy" '.base = $base | .prompt_file = (if $prompt then $file else null end)'
   t_setup=$(_launch_us)
 
   contract_use_tools tmux claude

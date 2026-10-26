@@ -49,7 +49,6 @@ agentstate_load() {
     2>/dev/null || true)
 }
 
-# True when pid descends from one of the given pane pids.
 _agent_from_panes() {
   local pid=$1 panes=" $2 " hops=0
   while [[ -n $pid && $pid != 0 && $pid != 1 ]] && ((hops++ < 64)); do
@@ -59,7 +58,6 @@ _agent_from_panes() {
   return 1
 }
 
-# True when the process's environment names the slot tmux server and one of the given pane IDs.
 _agent_env_in_panes() {
   local environ tmux_var pane
   environ=$(tr '\0' '\n' <"/proc/$1/environ" 2>/dev/null) || return 1

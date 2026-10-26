@@ -83,7 +83,6 @@ launch_pick_repo() {
   done
 }
 
-# Opens a background tab in the repo's session that runs the launch there.
 launch_elsewhere() {
   local args=(launch --here --repo "$LAUNCH_REPO")
   [[ -z $LAUNCH_TASK ]] || args+=(--task "$LAUNCH_TASK")
@@ -122,7 +121,7 @@ launch_failed() {
   local key
   launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "${LAUNCH_REPO:-new agent} · launch failed"
   printf '\nagent-slot-rex: the launch%s failed\n' "${LAUNCH_REPO:+ on $LAUNCH_REPO}"
-  ar_error_text "$AR_ERROR"
+  contract_error_text "$AR_ERROR"
   if [[ $(contract_json -r '.recovery.retryable' <<<"$AR_ERROR") == true ]]; then
     printf 'press Enter to retry with the same request ID, or q to close this tab\n'
     while IFS= read -r -n 1 key; do

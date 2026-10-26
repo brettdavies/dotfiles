@@ -44,7 +44,7 @@ attach_resume() {
     CONTRACT_EMITTED=1
     exit 0
   fi
-  ar_error_text "$AR_ERROR"
+  contract_error_text "$AR_ERROR"
   return 1
 }
 

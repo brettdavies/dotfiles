@@ -79,15 +79,6 @@ CONTRACT_TOOL_PATHS[ssh]=$AR_SSH
 CONTRACT_CONFIG=$(contract_json -n -c --arg server "$AR_SERVER" --arg state "$AR_STATE" --arg rex "$AR_REX" \
   '{server: $server, state_dir: $state, rex: (if $rex == "" then null else $rex end)}')
 
-usage_fail() {
-  local help=agent-slot-rex
-  [[ $CONTRACT_VERB == agent-slot-rex ]] || help+=" $CONTRACT_VERB"
-  if (($# > 1)); then
-    contract_fail usage "$1" --value "$2" --command "$help --help"
-  fi
-  contract_fail usage "$1" --command "$help --help"
-}
-
 main() {
   contract_init agent-slot-rex "$@"
   CONTRACT_VERB=agent-slot-rex

@@ -127,7 +127,6 @@ _check_commits() {
   ((unpushed == 0)) || _check_block unpushed-commits "$(_check_plural "$unpushed" "unpushed commit")" "$unpushed"
 }
 
-# Loads what every slot's verdict shares: the agents, the tmux panes, and the home symlink scan.
 check_inputs_load() {
   agentstate_load
   home_scan_load

@@ -91,15 +91,6 @@ server_error() {
   fi
 }
 
-# Usage: ar_error_text <error-json>; the error as the lines a person reads.
-ar_error_text() {
-  contract_json -r '
-    "\(.reason): \(.message)",
-    (if .value != null then "  value: \(.value)" else empty end),
-    (if .next_step.command != null then "  next: \(.next_step.command)" else empty end),
-    (if .log != null then "  log: \(.log)" else empty end)' <<<"$1"
-}
-
 # Usage: ar_fail <error-json>
 # Prints the error as contract_fail does and exits with its code; with AR_HOLD set, waits for q first, so a tab shows
 # the error until the operator has read it.
@@ -107,15 +98,7 @@ AR_HOLD=0
 ar_fail() {
   local code
   code=$(contract_json -r '.exit_code' <<<"$1")
-  CONTRACT_EMITTED=1
-  if [[ $CONTRACT_OUTPUT == json ]]; then
-    printf '%s\n' "$1" >&2
-  else
-    {
-      ar_error_text "$1" | sed '1s/^/agent-slot-rex: /'
-      printf '  see agent-slot-rex %s --help, or %s\n' "$CONTRACT_VERB" "$CONTRACT_DOCS"
-    } >&2
-  fi
+  contract_emit_error "$1"
   ((AR_HOLD == 0)) || ar_hold
   exit "$code"
 }

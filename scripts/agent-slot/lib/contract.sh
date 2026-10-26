@@ -233,24 +233,50 @@ contract_error_json() {
      context: $context, log: (if $log == "" then null else $log end)}'
 }
 
+# Usage: contract_error_text <error-json>; the error as the lines a person reads.
+contract_error_text() {
+  contract_json -r '
+    "\(.reason): \(.message)",
+    (if .value != null then "  value: \(.value)" else empty end),
+    (if .next_step.command != null then "  next: \(.next_step.command)" else empty end),
+    (if .log != null then "  log: \(.log)" else empty end)' <<<"$1"
+}
+
+contract_help_command() {
+  local help=$CONTRACT_PROGRAM
+  [[ $CONTRACT_VERB == "$CONTRACT_PROGRAM" ]] || help+=" $CONTRACT_VERB"
+  printf '%s --help' "$help"
+}
+
+# Usage: contract_emit_error <error-json>
+# Prints an error object on stderr, or the prose with the next step and a help pointer.
+contract_emit_error() {
+  local text
+  CONTRACT_EMITTED=1
+  if [[ $CONTRACT_OUTPUT == json ]]; then
+    printf '%s\n' "$1" >&2
+  else
+    text=$(contract_error_text "$1")
+    printf '%s: %s\n  see %s, or %s\n' "$CONTRACT_PROGRAM" "$text" "$(contract_help_command)" "$CONTRACT_DOCS" >&2
+  fi
+}
+
 # Usage: contract_fail <reason> <message> [options]
-# Prints the error (JSON on stderr, or prose with the next step and a help pointer) and exits with its code.
+# Prints the error and exits with its code.
 contract_fail() {
   local err code
   err=$(contract_error_json "$@")
   code=$(contract_json -r '.exit_code' <<<"$err")
-  CONTRACT_EMITTED=1
-  if [[ $CONTRACT_OUTPUT == json ]]; then
-    printf '%s\n' "$err" >&2
-  else
-    contract_json -r --arg p "$CONTRACT_PROGRAM" '
-      "\($p): \(.reason): \(.message)",
-      (if .value != null then "  value: \(.value)" else empty end),
-      (if .next_step.command != null then "  next: \(.next_step.command)" else empty end),
-      (if .log != null then "  log: \(.log)" else empty end),
-      "  see \(if .verb == $p then $p else "\($p) \(.verb)" end) --help, or \(.next_step.docs)"' <<<"$err" >&2
-  fi
+  contract_emit_error "$err"
   exit "$code"
+}
+
+# Usage: usage_fail <message> [value]; a usage error pointing at the current verb's help.
+usage_fail() {
+  if (($# > 1)); then
+    contract_fail usage "$1" --value "$2" --command "$(contract_help_command)"
+  fi
+  contract_fail usage "$1" --command "$(contract_help_command)"
 }
 
 # Usage: contract_ok <json-members-object> [<jq filter for text output>]

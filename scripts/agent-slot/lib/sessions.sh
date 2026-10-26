@@ -23,7 +23,7 @@ _sessions_shell() {
 # Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume]
 # Prints the line typed into a session, from the record in RECORD.
 sessions_command() {
-  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd task
+  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd task prompt
   case $kind in
     files) printf '%s' 'command -v y >/dev/null && y || yazi' ;;
     git) printf '%s' 'lazygit' ;;
@@ -35,9 +35,8 @@ sessions_command() {
       cmd="claude --session-id $(contract_json -r '.session_id' <<<"$RECORD")"
       task=$(contract_json -r '.task // ""' <<<"$RECORD")
       [[ -z $task ]] || cmd+=" -n $task"
-      if [[ -n $(contract_json -r '.prompt_file // ""' <<<"$RECORD") ]]; then
-        cmd+=" \"\$(cat '$(slot_path "$repo" "$n")/.git/agent-slot-prompt.md')\""
-      fi
+      prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
+      [[ -z $prompt ]] || cmd+=" \"\$(cat '$prompt')\""
       printf '%s' "$cmd"
       ;;
   esac
