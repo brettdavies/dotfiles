@@ -1,0 +1,81 @@
+name: Setup yq
+description: Install a pinned, cached mikefarah yq, so the hooks CI exercises read config the same way the local ones do.
+
+# `apt-get install -y yq` on the runner image installs kislyuk/yq, a Python jq
+# wrapper (3.1.0), NOT mikefarah/yq. They share a name and nothing else:
+# auto-format.sh reads every markdownlint config through mikefarah v4 syntax
+# (`.config.MD013.line_length // 120`, `.ignores[]`, and an
+# `eval-all 'select(fileIndex == 0) * select(fileIndex == 1)'` merge), none of
+# which the wrapper accepts. So the binary is fetched from the release rather
+# than packaged, and the download is checksum-verified.
+#
+# Without any yq at all the hook does not fail loudly, which is the reason this
+# action exists: `md_ignored()` returns early and `max_len` keeps its default,
+# so the hook silently reads no config and the suites asserting on config-driven
+# behaviour pass while proving nothing.
+#
+# The install is cached per version and runner, so a warm job unpacks nothing and
+# reaches no network. The cache lives under $HOME rather than /usr/local/bin
+# because cache restore runs unprivileged; the directory joins PATH instead of
+# the binary being copied into a root-owned one.
+#
+# Keep VERSION in step with the Homebrew formula; bumping is a reviewed change.
+# The checksum is the SHA-256 column of the release's `checksums` file, whose
+# column order is published alongside it as `checksums_hashes_order`.
+
+inputs:
+  version:
+    description: mikefarah/yq release tag to install
+    required: false
+    default: v4.54.1
+  sha256:
+    description: Checksum of the linux_amd64 binary for that release
+    required: false
+    default: 8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f
+
+runs:
+  using: composite
+  steps:
+    - name: Cache yq
+      id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/yq/${{ inputs.version }}
+        key: yq-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+    - name: Download pinned yq
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        YQ_VERSION: ${{ inputs.version }}
+        YQ_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        dest="$HOME/.cache/yq/${YQ_VERSION}"
+        mkdir -p "$dest"
+        url="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+        curl -fsSL "$url" -o /tmp/yq_linux_amd64
+        echo "${YQ_SHA256}  /tmp/yq_linux_amd64" | sha256sum --check --strict
+        install /tmp/yq_linux_amd64 "$dest/yq"
+        rm -f /tmp/yq_linux_amd64
+
+    - name: Put yq on PATH
+      shell: bash
+      env:
+        YQ_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        dest="$HOME/.cache/yq/${YQ_VERSION}"
+        [ -x "$dest/yq" ] || {
+          echo "setup-yq: $dest/yq missing after install/restore" >&2
+          exit 1
+        }
+        echo "$dest" >>"$GITHUB_PATH"
+        # Assert provenance rather than just presence: a kislyuk/yq earlier on
+        # PATH would satisfy `command -v yq` and then fail on v4 syntax.
+        "$dest/yq" --version | grep -q 'mikefarah/yq' || {
+          echo "setup-yq: $dest/yq is not mikefarah/yq" >&2
+          "$dest/yq" --version >&2
+          exit 1
+        }
+        "$dest/yq" --version

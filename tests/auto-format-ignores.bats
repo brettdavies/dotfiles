@@ -13,6 +13,11 @@ setup() {
   REPO_SRC="$BATS_TEST_DIRNAME/.."
   HOOK="$REPO_SRC/stow/claude/dot-claude/auto-format.sh"
 
+  # The hook reads every config through yq, so without it `md_ignored()` returns
+  # early and nothing here is being exercised. CI installs it (see
+  # .github/actions/setup-yq); skip rather than report a false green elsewhere.
+  command -v yq >/dev/null 2>&1 || skip "yq not installed"
+
   # Deliberately NOT under /tmp: the hook skips a scratch-path file outside a git
   # work tree before any formatting step, so a /tmp sandbox makes every
   # assertion here pass without the hook doing anything. TMPDIR is cleared for

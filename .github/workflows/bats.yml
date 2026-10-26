@@ -40,6 +40,15 @@ jobs:
           # runner's anonymous rate limit, which a busy runner exhausts, and the install fails with HTTP 403.
           github-token: ${{ github.token }}
 
+      - name: Install yq
+        # auto-format-ignores.bats and auto-format-config-resolution.bats assert
+        # on behaviour the hook derives from a markdownlint config, and the hook
+        # reads every config through yq. Without it the hook silently reads none
+        # of them, so those suites would pass without exercising anything.
+        # Deliberately not apt: the distro `yq` is kislyuk/yq, a different tool
+        # that rejects the v4 syntax the hook uses. See the action for detail.
+        uses: ./.github/actions/setup-yq
+
       - name: Install zsh + stow + jq
         # zsh: shell-config.bats syntax-checks dot-zshrc / dot-zshenv / dot-zprofile.
         # stow: stow-deploy-args.bats checks exit codes; without stow the script
