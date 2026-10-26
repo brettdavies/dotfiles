@@ -50,9 +50,9 @@ _check_build_output() {
   return 1
 }
 
-# Usage: _check_untracked_paths <slot path>; prints untracked and ignored paths, NUL-separated. git collapses an
-# ignored directory into one entry, so a directory that holds a file setup placed, such as an ignored .claude/, is
-# listed file by file instead.
+# Usage: _check_untracked_paths <slot path> <git status -z file>; prints untracked and ignored paths, NUL-separated.
+# git collapses an ignored directory into one entry, so a directory that holds a file setup placed, such as an ignored
+# .claude/, is listed file by file instead.
 _check_untracked_paths() {
   local entry path setup file
   while IFS= read -r -d '' entry; do
@@ -68,13 +68,15 @@ _check_untracked_paths() {
       done
     fi
     printf '%s\0' "${path%/}"
-  done < <(git -C "$1" status --porcelain=v1 -z --ignored=matching --untracked-files=all)
+  done <"$2"
 }
 
 # Usage: _check_files <slot path>; untracked and ignored files beyond build output and what setup placed.
 _check_files() {
-  local entry path untracked=() local_only=()
-  if ! git -C "$1" status --porcelain=v1 -z --ignored=matching --untracked-files=all >/dev/null 2>&1; then
+  local path listing untracked=() local_only=()
+  listing=$(mktemp)
+  if ! git -C "$1" status --porcelain=v1 -z --ignored=matching --untracked-files=all >"$listing" 2>/dev/null; then
+    rm -f "$listing"
     _check_block git-state-unknown "git status failed in the slot"
     return
   fi
@@ -84,7 +86,8 @@ _check_files() {
     elif [[ " $CHECK_SETUP_FILES " != *" $path "* ]] && ! _check_build_output "$path"; then
       untracked+=("$path")
     fi
-  done < <(_check_untracked_paths "$1")
+  done < <(_check_untracked_paths "$1" "$listing")
+  rm -f "$listing"
   ((${#local_only[@]} == 0)) || _check_block local-only-files \
     "local-only files: ${local_only[*]:0:3}$( ((${#local_only[@]} <= 3)) || echo ' and more')" \
     "${#local_only[@]}" "${local_only[@]}"
