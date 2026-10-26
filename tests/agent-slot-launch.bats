@@ -298,7 +298,7 @@ launch() {
   slot repoa 1
   echo '{"schema":"dotfiles.agent-slot/1","repo":"repoa","slot":2,"state":"setting-up","request_id":"live"}' \
     >"$AGENT_SLOT_ROOT/repoa/.2.claim.json"
-  flock "$AGENT_SLOT_ROOT/repoa/.2.lock" sleep 60 &
+  flock "$AGENT_SLOT_ROOT/repoa/.2.lock" sleep 60 3>&- &
   HOLDERS+=($!)
   until [ -n "$(find /proc/$!/fd -lname "$AGENT_SLOT_ROOT/repoa/.2.lock" 2>/dev/null)" ]; do sleep 0.1; done
   launch repoa --request-id r-third
