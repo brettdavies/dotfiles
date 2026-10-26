@@ -187,6 +187,96 @@ about to `--body` a hand-written string instead of filling in the template, stop
 the sub-header or label. The "delete empty sections" rule applies ONLY to the `Changelog` block's `### Added` /
 `### Changed` / `### Fixed` / `### Documentation` subsections, per the template's own comment.
 
+## Stacked PRs
+
+A stack is a chain of feature branches where each PR targets the branch below it (`feat/b` → `feat/a` → `dev`). The
+official extension manages them: `gh extension install github/gh-stack`. GitHub tracks the stack server-side as its own
+object with a stack number, separate from the local branch chain.
+
+### Land the whole stack in one atomic merge
+
+`gh stack merge <top-pr> --squash --yes` is the default way to land a stack. It merges every PR up to and including the
+one named in a single all-or-nothing operation: each PR squashes into the base under its own `<title> (#n)` subject and
+body, so a provenance guard that requires the `(#n)` reference still passes, and a failure on any one PR merges none of
+them. Only open/not-draft state is checked client-side; branch protection and rulesets are evaluated server-side when
+the merge runs, and bypassing merge requirements is not supported for stacks.
+
+Prefer it, because merging one PR at a time is quadratic in CI. GitHub restacks every tracked branch above each merge,
+and a workflow triggered on `pull_request` with no path filter cannot tell that the restacked trees are byte-identical,
+so it runs the full battery on every branch again. A ten-PR stack costs about 45 restacks and ninety full workflow runs
+that way. The atomic merge performs no intermediate restack, so nothing re-runs.
+
+Every gate the sequential flow spreads across cycles has to be satisfied before the single call:
+
+- **Every head green**, verified by rollup rather than watcher exit code (below).
+- **Every body validated** against that PR's own `base...HEAD` — `origin/dev...<head>` for the bottom PR,
+  `origin/<parent-branch>...<head>` for each PR above it. That is the diff GitHub shows and the diff its squash carries;
+  `origin/dev...<head>` on a mid-stack PR wrongly includes every layer beneath it.
+- **Stale stack narration rewritten** to present tense. Squash settings that copy `PR_TITLE` + `PR_BODY` put "stacked
+  on #N" and "once #N merges" into permanent history.
+
+### Verify CI by rollup, not by watcher exit code
+
+`gh pr checks --watch` exits 1 when any job reports `skipping` (a conditional changelog job usually does) and exits 0
+whenever every check merely finished. Read the rollup instead and assert every live conclusion is `SUCCESS`. A branch
+GitHub rewrote twice shows each check twice: a `CANCELLED` set from the superseded run under the concurrency group plus
+the live set. Check runs and status contexts also report differently — a check run carries `status` plus `conclusion`
+while a status context carries `state`, so a filter that reads only `conclusion // state` counts in-progress check runs
+as passing:
+
+```bash
+gh pr view <n> --json headRefOid,mergeStateStatus,statusCheckRollup --jq '
+  def st: if .__typename == "CheckRun" then (if .status == "COMPLETED" then .conclusion else .status end) else .state end;
+  {merge: .mergeStateStatus, tally: ([.statusCheckRollup[] | st] | group_by(.) | map({(.[0]): length}) | add)}'
+```
+
+### Sequential merges, when the stack must land in pieces
+
+Merge the lowest unmerged PR with `gh stack merge <pr> --squash --yes`, then read what GitHub did before touching
+anything locally. It deletes the merged head branch, retargets the next PR to the base, and restacks every branch above
+onto the new tip with the trees preserved and itself as committer. The local side only needs
+`git branch -f <branch> origin/<branch>` per branch (or `git reset --hard origin/<branch>` in a checkout); never
+force-push over GitHub's rewrite, and never delete a branch by hand. Then wait for the restacked heads' CI, which is the
+only gate on a repo whose workflows trigger on `pull_request` alone, and repeat.
+
+The restack happens only while GitHub still tracks the stack. A pair stacked by base branch alone, or removed from the
+stack before the lower PR merges (both timelines show `removed_from_stack`), is retargeted to the base and left as it
+was, and the upper PR goes `DIRTY`: the base now holds the lower PR as one squash commit while the upper branch still
+carries its original commits. Merge the base into the upper branch, resolve hunk by hunk rather than taking whole files,
+and check that the resolved diff's `git patch-id --stable` matches the upper PR's own patch before committing; a chained
+`git merge-tree --write-tree` over the planned squash order shows beforehand which PRs will need this. Steps and
+caveats: `docs/solutions/workflow-issues/resolve-stacked-pr-after-base-squash-merge-and-verify-by-patch-id.md`.
+
+Without the extension, the equivalent is the asynchronous merge endpoint. GitHub refuses the synchronous
+`PUT .../pulls/<n>/merge` for any PR it tracks as part of a stack, including one it rebased itself after the PR below
+merged, so do not retry through it:
+
+```bash
+gh pr view <n> --json body -q .body > <scratchpad>/pr<n>-merge-msg.md      # trash after the merge
+gh api -X PUT repos/<owner>/<repo>/pulls/<n>/merge-async \
+  -f merge_method=squash -f merge_action=direct_merge -f sha=<full-head-sha> \
+  -f commit_title="<pr title> (#<n>)" -F commit_message=@<scratchpad>/pr<n>-merge-msg.md
+gh api repos/<owner>/<repo>/pulls/<n>/merge-async/<uuid>                   # poll until status is "merged"
+```
+
+The 202 response carries `details.uuid`; poll until `status` is `merged` or `failed`. Pass `commit_title` and
+`commit_message` explicitly so the squash keeps the web UI's `<title> (#n)` + body shape. This endpoint also merges
+every PR up to and including the one named, so call it on the lowest unmerged PR.
+
+### Bookkeeping: link, adopt, inspect, detach
+
+- **`gh stack link --base <trunk> <pr...>`** creates or updates the GitHub stack from existing PRs, bottom to top,
+  without adopting local tracking. This is the entry point when the branches are managed by hand or by another tool. It
+  never rewrites the branches.
+- **`gh stack init --base <trunk> <branch...>`** adopts existing branches into local tracking, bottom to top, leaving
+  every branch SHA untouched.
+- **`gh stack view --short`** lists the chain with each PR's state; `--json` for machine reading. `gh stack rebase`
+  cascades a rebase across the chain and `gh stack push` force-pushes each branch with its own lease.
+- **Detach through the extension, never by hand.** `gh pr edit <n> --base <trunk>` is refused for a PR GitHub tracks as
+  part of a stack. Use `gh stack unstack <stack-number>` to detach on GitHub, or `--local` to drop only local tracking.
+  Never chain a branch deletion after a base edit: deleting the branch a PR targets closes that PR, and a head that has
+  since been rewritten cannot be reopened.
+
 ## Authoring GitHub correspondence: `/tmp/` + `--body-file` + `/unslop`
 
 **Mandatory workflow for all server-side artifacts that ship text to GitHub.** Applies to PR bodies, PR comments, PR
@@ -301,7 +391,10 @@ spawn one Bash call per active run with `run_in_background: true` (in parallel),
 finishes — no polling needed.
 
 For PR-scoped checks (after `gh pr create`/`gh pr merge`), prefer `gh pr checks <pr> --watch` — it covers all checks
-across all triggered workflows on the PR head in a single watcher.
+across all triggered workflows on the PR head in a single watcher. Its exit code is not the verdict: it exits 1 when any
+job reports `skipping`, and 0 whenever every check merely finished. Read the rollup query from `~/.claude/CLAUDE.md` §
+"CI after push" afterwards and assert every conclusion is `SUCCESS` (`SKIPPED` is acceptable only for a conditional
+job); see "Stacked PRs" for the duplicated-entry case after a branch rewrite.
 
 After every batch of watchers finishes, re-run `gh run list --branch <branch>` to catch dispatched chains (e.g.
 `release.yml` → homebrew dispatch → `finalize-release`). The hook only fires after the original action; chained runs
