@@ -10,6 +10,12 @@
 #   AGENT_SLOT_DEV             where prime checkouts live (~/dev)
 #   AGENT_SLOT_EXTRA_PRIMES    colon-separated prime checkouts outside it (~/dotfiles)
 #   AGENT_SLOT_STATE_DIR       ledger and failure logs (~/.local/state/agent-slot)
+#   AGENT_SLOT_RUN_DIR         the status hook's per-pane locks ($XDG_RUNTIME_DIR/agent-slot-<uid>)
+#   AGENT_SLOT_CLAUDE_PROJECTS Claude's per-project directories, read only (~/.claude/projects)
+#   AGENT_SLOT_MAX_PER_REPO    live slots one repo may hold (8)
+#   AGENT_SLOT_LOCK_WAIT       seconds resume waits for a busy slot (30)
+#   AGENT_SLOT_TRUST_SOCKET    the trust step's scratch tmux socket (agent-slot-trust)
+#   AGENT_SLOT_TRUST_TIMEOUT   seconds the trust step watches Claude's screen (45)
 #   AGENT_SLOT_TMUX_SOCKET     slot tmux socket name (agent-slots)
 #   AGENT_SLOT_TMUX_CONF       slot tmux config (~/.config/tmux/slots.conf)
 #   AGENT_SLOT_SOLUTIONS       shared solutions repo (~/dev/solutions-docs)
@@ -47,6 +53,12 @@ source "$AS_LIB/trust.sh"
 source "$AS_LIB/read.sh"
 # shellcheck source=lib/doctor.sh
 source "$AS_LIB/doctor.sh"
+# shellcheck source=lib/parity.sh
+source "$AS_LIB/parity.sh"
+# shellcheck source=lib/sessions.sh
+source "$AS_LIB/sessions.sh"
+# shellcheck source=lib/launch.sh
+source "$AS_LIB/launch.sh"
 
 if ! agent_slot_env "$AS_HOME"; then
   echo "agent-slot: dependency-missing: neither jaq nor jq is installed; next: brew install jaq" >&2
@@ -70,11 +82,16 @@ Verbs:
   repos    list the prime checkouts a slot can be made from
   list     list every slot with its state, agent, task, and what blocks its teardown
   whoami   print the slot the current directory is inside
+  launch   start an agent in a fresh slot of a repo, optionally with its first message
+  resume   bring back the tmux sessions and Claude conversation of a slot
+  warm     trust the next slot paths of a repo in Claude ahead of time
   doctor   check every launch prerequisite and summarize launch times
 
 Every verb takes --output json (one JSON object on stdout, or an error object on stderr) and --help.
 Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.
 Reasons and their fixes: https://github.com/brettdavies/dotfiles/blob/main/README.md#agent-slot-reasons'
+
+VERBS=' repos list whoami launch resume warm doctor '
 
 verb_help() {
   case $1 in
@@ -87,6 +104,18 @@ verb_help() {
     whoami) printf '%s\n' 'usage: agent-slot whoami [--path DIR] [--output json]' \
       'Prints the slot that DIR (default: the current directory) is inside, or not-in-slot.' \
       'example: agent-slot whoami --output json' ;;
+    launch) printf '%s\n' \
+      'usage: agent-slot launch <repo> [--request-id ID] [--task NAME] [--prompt-file FILE] [--requested-at EPOCH]' \
+      '                         [--output json]' \
+      'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there. A repeat' \
+      'with the same --request-id (or --task) returns the same slot. Agents always pass --request-id.' \
+      'example: agent-slot launch dotfiles --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
+    resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--output json]' \
+      "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID." \
+      'example: agent-slot resume dotfiles/2' ;;
+    warm) printf '%s\n' 'usage: agent-slot warm <repo> [--count N] [--output json]' \
+      "Trusts slot paths 1 through N (default 3) in Claude, so no launch there spends time on the trust step." \
+      'example: agent-slot warm dotfiles --count 4' ;;
     doctor) printf '%s\n' 'usage: agent-slot doctor [--output json]' \
       'Checks every launch prerequisite on this server and the time from key press to Claude idle.' \
       'example: agent-slot doctor' ;;
@@ -96,7 +125,10 @@ verb_help() {
 usage_fail() {
   local help=agent-slot
   [[ $CONTRACT_VERB == agent-slot ]] || help+=" $CONTRACT_VERB"
-  contract_fail usage "$1" --value "${2:-}" --command "$help --help"
+  if (($# > 1)); then
+    contract_fail usage "$1" --value "$2" --command "$help --help"
+  fi
+  contract_fail usage "$1" --command "$help --help"
 }
 
 main() {
@@ -115,7 +147,7 @@ main() {
       ;;
   esac
   shift
-  [[ " repos list whoami doctor " == *" $verb "* ]] || {
+  [[ $VERBS == *" $verb "* ]] || {
     CONTRACT_OUTPUT=$([[ " $* " == *" --output json "* ]] && echo json || echo text)
     contract_fail usage "unknown verb: $verb" --value "$verb" --command "agent-slot --help"
   }
@@ -142,11 +174,11 @@ main() {
     esac
     shift
   done
-  exec </dev/null
 
   case $verb in
     repos | list | doctor)
       ((${#args[@]} == 0)) || usage_fail "$verb takes no arguments" "${args[0]}"
+      exec </dev/null
       [[ $verb != list ]] || require_tools tmux claude
       "cmd_$verb"
       ;;
@@ -156,7 +188,23 @@ main() {
       elif ((${#args[@]} != 0)); then
         usage_fail "whoami takes only --path DIR" "${args[0]}"
       fi
+      exec </dev/null
       cmd_whoami
+      ;;
+    launch)
+      launch_parse_args "${args[@]}"
+      exec </dev/null
+      cmd_launch
+      ;;
+    resume)
+      ((${#args[@]} == 1)) || usage_fail "resume takes one slot, <repo>/<N>" "${args[*]}"
+      exec </dev/null
+      cmd_resume "${args[0]}"
+      ;;
+    warm)
+      warm_parse_args "${args[@]}"
+      exec </dev/null
+      cmd_warm "$WARM_REPO" "$WARM_COUNT"
       ;;
   esac
 }

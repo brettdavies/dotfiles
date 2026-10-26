@@ -35,13 +35,54 @@ agent_slot_setup() {
   : >"$AGENT_SLOT_GIT_CRYPT_KEY"
   printf '{"projects":{}}\n' >"$AGENT_SLOT_CLAUDE_STATE"
 
-  # tmux: list-sessions and list-panes answer from files; with no sessions file there is no server.
+  # tmux keeps each socket's sessions in a file: no file means no server. capture-pane prints $STUBS/screen. On any
+  # socket but the slot one (the trust step's), Down swaps in $STUBS/screen-down and Enter $STUBS/screen-after when
+  # they exist; with $STUBS/drop-first-down present, the first Down is lost, as a key sent before the dialog listens.
   stub tmux '
-case " $* " in
-  *" list-sessions "*)
-    [ -f "$STUBS/tmux-sessions" ] || { echo "no server running on /tmp/tmux-test/x" >&2; exit 1; }
-    cat "$STUBS/tmux-sessions" ;;
-  *" list-panes "*) cat "$STUBS/tmux-panes" 2>/dev/null || true ;;
+sock=default
+while (($#)); do
+  case $1 in
+    -L | -S) sock=${2##*/}; shift 2 ;;
+    -f) shift 2 ;;
+    *) break ;;
+  esac
+done
+cmd=$1
+shift
+sessions=$STUBS/tmux-sessions
+[ "$sock" = agent-slot-test ] || sessions=$STUBS/tmux-sessions-$sock
+target="" name="" last=""
+while (($#)); do
+  case $1 in
+    -t) target=${2#=}; target=${target%:}; shift ;;
+    -s) name=$2; shift ;;
+  esac
+  last=$1
+  shift
+done
+case $cmd in
+  list-sessions)
+    [ -f "$sessions" ] || { echo "no server running on /tmp/tmux-test/$sock" >&2; exit 1; }
+    cat "$sessions" ;;
+  new-session) echo "$name" >>"$sessions" ;;
+  kill-session)
+    [ -f "$sessions" ] || exit 1
+    grep -vxF "$target" "$sessions" >"$sessions.new" || true
+    cat "$sessions.new" >"$sessions" ;;
+  list-panes) cat "$STUBS/tmux-panes" 2>/dev/null || true ;;
+  capture-pane) cat "$STUBS/screen" 2>/dev/null || true ;;
+  send-keys)
+    if [ "$sock" = agent-slot-test ]; then
+      [ "$last" = Enter ] || printf "%s" "$last" >"$STUBS/typed-$target"
+    elif [ "$last" = Down ] && [ -f "$STUBS/screen-down" ]; then
+      if [ -f "$STUBS/drop-first-down" ]; then
+        rm "$STUBS/drop-first-down"
+      else
+        cp "$STUBS/screen-down" "$STUBS/screen"
+      fi
+    elif [ "$last" = Enter ] && [ -f "$STUBS/screen-after" ]; then
+      cp "$STUBS/screen-after" "$STUBS/screen"
+    fi ;;
 esac'
   stub claude '
 case "$*" in
@@ -50,16 +91,19 @@ case "$*" in
 esac'
   stub gh 'exit 0'
   stub git-crypt 'exit 0'
-  stub trash 'exit 0'
+  stub trash 'mkdir -p "$STUBS/trashed"; for p in "$@"; do cp -a "$p" "$STUBS/trashed/" && chmod -R u+w "$p" && find "$p" -delete; done'
   stub systemctl 'echo enabled'
   export AGENT_SLOT_TMUX=$STUBS/tmux AGENT_SLOT_CLAUDE=$STUBS/claude AGENT_SLOT_GH=$STUBS/gh
   export AGENT_SLOT_GIT_CRYPT=$STUBS/git-crypt AGENT_SLOT_TRASH=$STUBS/trash AGENT_SLOT_SYSTEMCTL=$STUBS/systemctl
 }
 
-# stub NAME BODY: an executable that appends "NAME argv" to $CALLS, then runs BODY.
+# stub NAME BODY: an executable that appends "NAME argv" to the calls log, then runs BODY with STUBS and CALLS set.
+# Both paths are written into the stub, because agent-slot starts some tools from an empty environment.
 stub() {
   cat >"$STUBS/$1" <<EOF
 #!/usr/bin/env bash
+STUBS='$STUBS'
+CALLS='$CALLS'
 printf '%s %s\n' "$1" "\$*" >>"\$CALLS"
 $2
 EOF
@@ -99,4 +143,41 @@ assert_error_shape() {
     and (.recovery.side_effects != "unknown" or .recovery.reconcile != null)
     and (.context | has("version") and has("tools") and has("config") and has("env"))
     and has("log")' <<<"$1" >/dev/null
+}
+
+# origin_file NAME PATH CONTENT: commits a file to the prime's origin, on main.
+origin_file() {
+  mkdir -p "$(dirname "$T/seed-$1/$2")"
+  printf '%s\n' "$3" >"$T/seed-$1/$2"
+  git -C "$T/seed-$1" add "$2"
+  git -C "$T/seed-$1" commit -q -m "add $2"
+  git -C "$T/seed-$1" push -q origin HEAD:main
+}
+
+# origin_symlink NAME PATH TARGET: commits a symlink to the prime's origin, on main.
+origin_symlink() {
+  mkdir -p "$(dirname "$T/seed-$1/$2")"
+  ln -s "$3" "$T/seed-$1/$2"
+  git -C "$T/seed-$1" add "$2"
+  git -C "$T/seed-$1" commit -q -m "link $2"
+  git -C "$T/seed-$1" push -q origin HEAD:main
+}
+
+# fingerprint DIR: one line per file (by content), symlink (by target), and directory under DIR, git objects aside.
+fingerprint() {
+  (
+    cd "$1" || exit 1
+    find . -path ./.git/objects -prune -o -type f -exec sha256sum {} + | sort
+    find . -path ./.git/objects -prune -o -type l -printf '%p -> %l\n' | sort
+    find . -path ./.git/objects -prune -o -type d -print | sort
+  )
+}
+
+# trusted PATH...: marks paths trusted in the sandboxed Claude app-state file, as Claude does once its dialog is accepted.
+trusted() {
+  local path state=$AGENT_SLOT_CLAUDE_STATE
+  for path in "$@"; do
+    jaq --arg p "$path" '.projects[$p] = ((.projects[$p] // {}) + {hasTrustDialogAccepted: true})' "$state" >"$state.new"
+    mv "$state.new" "$state"
+  done
 }

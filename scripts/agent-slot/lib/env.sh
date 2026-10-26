@@ -22,11 +22,17 @@ agent_slot_env() {
   AS_STATE_DIR=${AGENT_SLOT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-slot}
   AS_LEDGER=$AS_STATE_DIR/ledger.jsonl
   AS_LOG_DIR=$AS_STATE_DIR/logs
+  AS_RUN_DIR=${AGENT_SLOT_RUN_DIR:-${XDG_RUNTIME_DIR:-/tmp}/agent-slot-$UID}
   AS_TMUX_SOCKET=${AGENT_SLOT_TMUX_SOCKET:-agent-slots}
   AS_TMUX_CONF=${AGENT_SLOT_TMUX_CONF:-$HOME/.config/tmux/slots.conf}
+  AS_TRUST_SOCKET=${AGENT_SLOT_TRUST_SOCKET:-agent-slot-trust}
+  AS_TRUST_TIMEOUT=${AGENT_SLOT_TRUST_TIMEOUT:-45}
+  AS_MAX_PER_REPO=${AGENT_SLOT_MAX_PER_REPO:-8}
+  AS_LOCK_WAIT=${AGENT_SLOT_LOCK_WAIT:-30}
   AS_SOLUTIONS=${AGENT_SLOT_SOLUTIONS:-$HOME/dev/solutions-docs}
   AS_GIT_CRYPT_KEY=${AGENT_SLOT_GIT_CRYPT_KEY:-$HOME/.config/git-crypt/key}
   AS_CLAUDE_STATE=${AGENT_SLOT_CLAUDE_STATE:-$HOME/.claude.json}
+  AS_CLAUDE_PROJECTS=${AGENT_SLOT_CLAUDE_PROJECTS:-$HOME/.claude/projects}
   AS_VERIFIED_VERSIONS=${AGENT_SLOT_VERIFIED_VERSIONS:-$AS_HOME/verified-versions}
 
   declare -gA AS_TOOL=() CONTRACT_TOOL_PATHS
@@ -36,10 +42,8 @@ agent_slot_env() {
     AS_TOOL[$tool]=${!override:-$(command -v "$tool" || true)}
     [[ -x ${AS_TOOL[$tool]} ]] || AS_TOOL[$tool]=
     CONTRACT_TOOL_PATHS[$tool]=${AS_TOOL[$tool]:-$tool}
+    printf -v "AS_${override#AGENT_SLOT_}" '%s' "${AS_TOOL[$tool]}"
   done
-  AS_TMUX=${AS_TOOL[tmux]}
-  AS_CLAUDE=${AS_TOOL[claude]}
-  AS_SYSTEMCTL=${AS_TOOL[systemctl]}
 
   CONTRACT_REPO=$AS_HOME
   CONTRACT_LOG_DIR=$AS_LOG_DIR

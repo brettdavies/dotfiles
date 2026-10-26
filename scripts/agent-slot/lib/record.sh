@@ -18,7 +18,20 @@ slot_claim_file() { printf '%s/%s/.%s.claim.json' "$AS_ROOT" "$1" "$2"; }
 # tmux session names cannot hold `.` or `:`.
 slot_session() { printf '%s-%s' "${1//[.:]/_}" "$2"; }
 
+# The record a reader sees: the clone's own once it has one, else the claim, which also covers a clone whose setup
+# stopped before its record moved in.
 record_file() {
+  local in_clone
+  in_clone=$(slot_path "$1" "$2")/.git/agent-slot.json
+  if [[ -f $in_clone ]]; then
+    printf '%s' "$in_clone"
+  else
+    slot_claim_file "$1" "$2"
+  fi
+}
+
+# Where the next write lands: inside the clone as soon as it exists.
+_record_target() {
   local path
   path=$(slot_path "$1" "$2")
   if [[ -d $path/.git ]]; then
@@ -28,17 +41,27 @@ record_file() {
   fi
 }
 
-# Slot numbers that hold a clone or a claim, ascending.
+# Slot numbers that hold a clone or a claim, ascending. An empty slot path, such as one `warm` trusted ahead of time,
+# holds neither and is free.
 slot_numbers() {
   local dir=$AS_ROOT/$1 entry name
   [[ -d $dir ]] || return 0
   for entry in "$dir"/* "$dir"/.*.claim.json; do
-    [[ -e $entry ]] || continue
     name=${entry##*/}
-    name=${name#.}
-    name=${name%.claim.json}
+    if [[ $name == .*.claim.json ]]; then
+      name=${name#.}
+      name=${name%.claim.json}
+      [[ -f $entry ]] || continue
+    else
+      [[ -d $entry/.git ]] || continue
+    fi
     [[ $name =~ ^[0-9]+$ ]] && printf '%s\n' "$name"
   done | sort -n -u
+}
+
+# True when the slot number holds a clone or a claim.
+slot_taken() {
+  [[ -d $(slot_path "$1" "$2")/.git || -f $(slot_claim_file "$1" "$2") ]]
 }
 
 slot_repos() {
@@ -86,7 +109,10 @@ record_unlock_repo() { _record_unlock "repo:$1"; }
 # Usage: record_lock_slot <repo> <n> [--nowait | --wait SECONDS]
 record_lock_slot() { _record_lock "$AS_ROOT/$1/.$2.lock" "slot:$1/$2" "${3:---wait}" "${4:-10}"; }
 record_unlock_slot() { _record_unlock "slot:$1/$2"; }
-record_holds_slot() { [[ -n ${RECORD_LOCK_FDS[slot:$1/$2]:-} ]]; }
+record_holds_slot() {
+  local key=slot:$1/$2
+  [[ -n ${RECORD_LOCK_FDS[$key]:-} ]]
+}
 
 # Sets RECORD to the record, or returns 1 when there is none. A record from a newer schema stops the command.
 RECORD=
@@ -113,7 +139,7 @@ record_check_schema() {
 # Replaces the record. Once the clone exists the record moves into it and the claim file goes away.
 record_write() {
   local file tmp claim
-  file=$(record_file "$1" "$2")
+  file=$(_record_target "$1" "$2")
   tmp=$(mktemp "${file%/*}/.agent-slot.json.XXXXXX")
   contract_json -c --arg schema "$CONTRACT_SCHEMA" '.schema = $schema' <<<"$3" >"$tmp"
   mv -f "$tmp" "$file"

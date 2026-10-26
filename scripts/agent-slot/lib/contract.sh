@@ -102,8 +102,19 @@ _contract_on_err() {
   CONTRACT_LAST_FAILURE="${BASH_SOURCE[1]##*/}:${BASH_LINENO[0]}: $BASH_COMMAND"
 }
 
+# Usage: contract_on_exit <command...>
+# Runs the command when the program exits, before the exit status is reported, on every path out.
+CONTRACT_CLEANUPS=()
+contract_on_exit() {
+  CONTRACT_CLEANUPS+=("$(contract_quote "$@")")
+}
+
 _contract_on_exit() {
-  local status=$1 command log='' noise=$CONTRACT_NOISE
+  local status=$1 command log='' noise=$CONTRACT_NOISE cleanup
+  for cleanup in "${CONTRACT_CLEANUPS[@]}"; do
+    eval "$cleanup" 2>>"$noise" || true
+  done
+  CONTRACT_CLEANUPS=()
   CONTRACT_NOISE=/dev/null
   if ((status == 0 || CONTRACT_EMITTED == 1)); then
     [[ $noise == /dev/null ]] || rm -f "$noise"

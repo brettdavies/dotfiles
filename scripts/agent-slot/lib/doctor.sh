@@ -67,7 +67,7 @@ doctor_check_trust() {
   while read -r repo; do
     [[ -n $repo ]] || continue
     n=1
-    while [[ -e $(slot_path "$repo" "$n") || -e $(slot_claim_file "$repo" "$n") ]]; do n=$((n + 1)); done
+    while slot_taken "$repo" "$n"; do n=$((n + 1)); done
     trust_known "$(slot_path "$repo" "$n")" && continue
     doctor_finding warning slot-path-untrusted \
       "$(slot_key "$repo" "$n") is not trusted in Claude yet, so its first launch spends time on the trust step" \
