@@ -21,6 +21,8 @@ agent_slot_setup() {
   git config --file "$GIT_CONFIG_GLOBAL" user.name Test
   git config --file "$GIT_CONFIG_GLOBAL" commit.gpgsign false
   git config --file "$GIT_CONFIG_GLOBAL" init.defaultBranch main
+  : >"$T/gitignore"
+  git config --file "$GIT_CONFIG_GLOBAL" core.excludesFile "$T/gitignore"
 
   export AGENT_SLOT_ROOT=$T/slots
   export AGENT_SLOT_DEV=$T/dev
@@ -91,7 +93,8 @@ case "$*" in
 esac'
   stub gh 'exit 0'
   stub git-crypt 'exit 0'
-  stub trash 'mkdir -p "$STUBS/trashed"; for p in "$@"; do cp -a "$p" "$STUBS/trashed/" && chmod -R u+w "$p" && find "$p" -delete; done'
+  stub trash '[ "$1" != --version ] || { echo "trash 0.test"; exit 0; }
+mkdir -p "$STUBS/trashed"; for p in "$@"; do cp -a "$p" "$STUBS/trashed/" && chmod -R u+w "$p" && find "$p" -delete; done'
   stub systemctl 'echo enabled'
   export AGENT_SLOT_TMUX=$STUBS/tmux AGENT_SLOT_CLAUDE=$STUBS/claude AGENT_SLOT_GH=$STUBS/gh
   export AGENT_SLOT_GIT_CRYPT=$STUBS/git-crypt AGENT_SLOT_TRASH=$STUBS/trash AGENT_SLOT_SYSTEMCTL=$STUBS/systemctl
@@ -181,3 +184,60 @@ trusted() {
     mv "$state.new" "$state"
   done
 }
+
+# task_slot_setup: repoa/1 as a real clone of a bare origin, with an active record, no PRs, no agent, and a home scan
+# root holding one unrelated link. A PR is GitHub's refs/pull/<N>/head ref in the origin plus an entry in the stubbed
+# `gh pr list`; a merge is a squash commit on main with the head branch deleted, as GitHub does.
+task_slot_setup() {
+  mkdir -p "$T/home" "$T/elsewhere"
+  ln -s "$T/elsewhere" "$T/home/unrelated-link"
+  export AGENT_SLOT_HOME_SCAN_ROOTS="$T/home:3"
+  prime repoa
+  ORIGIN=$T/origins/repoa.git
+  SLOT=$AGENT_SLOT_ROOT/repoa/1
+  mkdir -p "$AGENT_SLOT_ROOT/repoa"
+  git clone -q "$ORIGIN" "$SLOT"
+  jaq -n -c --arg prime "$AGENT_SLOT_DEV/repoa" '{schema: "dotfiles.agent-slot/1", repo: "repoa", slot: 1,
+    state: "active", task: "t1", base: "main", prime: $prime, session_id: "s1", prs: [],
+    finished_by_operator: false, created_at: "2026-01-01T00:00:00Z", transcript: "/t/s1.jsonl"}' \
+    >"$SLOT/.git/agent-slot.json"
+  echo '[]' >"$STUBS/gh-prs.json"
+  stub gh 'cat "$STUBS/gh-prs.json"'
+}
+
+# work BRANCH [N]: N commits (default 1) on BRANCH in the slot.
+work() {
+  local i
+  git -C "$SLOT" checkout -q -B "$1"
+  for ((i = 0; i < ${2:-1}; i++)); do git -C "$SLOT" commit -q --allow-empty -m "work $i on $1"; done
+}
+
+# pr NUMBER STATE BRANCH: a PR whose final head is the branch's current tip in the slot.
+pr() {
+  local sha
+  sha=$(git -C "$SLOT" rev-parse "$3")
+  git -C "$SLOT" push -q origin "$sha:refs/pull/$1/head"
+  jaq -c --argjson n "$1" --arg state "$2" --arg head "$3" --arg oid "$sha" \
+    '. + [{number: $n, state: $state, headRefName: $head, headRefOid: $oid, createdAt: "2026-06-01T00:00:00Z",
+      url: "https://github.com/x/repoa/pull/\($n)"}]' "$STUBS/gh-prs.json" >"$STUBS/gh-prs.new"
+  mv "$STUBS/gh-prs.new" "$STUBS/gh-prs.json"
+}
+
+# squash_merge BRANCH: GitHub's squash merge: one commit on main, and the head branch deleted.
+squash_merge() {
+  git clone -q "$ORIGIN" "$T/merger"
+  git -C "$T/merger" merge -q --squash "origin/$1" >/dev/null
+  git -C "$T/merger" commit -q --allow-empty -m "squash $1"
+  git -C "$T/merger" push -q origin HEAD:main
+  git -C "$T/merger" push -q origin --delete "$1"
+  chmod -R u+w "$T/merger" && find "$T/merger" -delete
+}
+
+# A finished task: one PR, pushed, squash-merged, with every local commit in the PR's final head.
+finished_task() {
+  work feat/x 2
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 MERGED feat/x
+  squash_merge feat/x
+}
+
