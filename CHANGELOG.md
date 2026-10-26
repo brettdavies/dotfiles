@@ -2,6 +2,166 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026.10.25] - 2026-10-25
+
+### Added
+
+- Add `--include-contested` to `sync-dev-after-release.sh` for adopting paths both branches changed, and `--dry-run` to print the classification without creating a branch, commit, or PR. by @brettdavies in [#227](https://github.com/brettdavies/dotfiles/pull/227)
+- Add `ai-attribution-guard.sh`, a PreToolUse hook that rejects AI-attribution trailers in `git commit` messages and `gh pr`, `gh issue`, and `gh release` bodies, including bodies passed by file. by @brettdavies in [#233](https://github.com/brettdavies/dotfiles/pull/233)
+- Add unattended Claude account rotation on both platforms, checking every minute and switching at 99% of the active account's 5-hour or 7-day window: a `cswap` stow package with a systemd timer on Linux, and a `com.user.cswap-auto.plist` LaunchAgent on macOS. by @brettdavies in [#234](https://github.com/brettdavies/dotfiles/pull/234)
+- Add `scripts/cswap-autoswitch-deploy.sh`, which pins the trip point, anti-flap margin, and API-key-account exclusion, holds the per-model trigger unset, and is safe to re-run.
+- Document cswap installation, account transfer, and per-platform enablement in the bootstrap guide, including the warning that a `cswap export` file holds plaintext credentials.
+- `taildrive-mount` takes share names (`taildrive-mount vault`) and mounts only those, instead of every configured share. by @brettdavies in [#240](https://github.com/brettdavies/dotfiles/pull/240)
+- A `Vault` tmuxinator session on macOS, rooted at the Taildrive share and mounting it on start.
+- Add `mac-open` and `mac-open-here`: open a file from yazi on a Linux host on the Mac the session is driven from, in VS Code through Remote-SSH for text and in the Mac's default app for everything else (in place on a Taildrive share, or from a copy in `~/Downloads/mac-open`). by @brettdavies in [#241](https://github.com/brettdavies/dotfiles/pull/241)
+- The local gates and the ShellCheck CI job fail a test that resets `HOME`, `TMPDIR`, an `XDG_*` directory, a tool home, or the whole value of `PATH`. `scripts/core-env-allowlist.tsv` lists the current exceptions with their reasons. by @brettdavies in [#242](https://github.com/brettdavies/dotfiles/pull/242)
+- Add `tailscale-serve-setup.service` and `scripts/tailscale-serve-deploy.sh`: the Tailscale Serve bindings are re-applied automatically at boot and whenever tailscaled restarts or upgrades. by @brettdavies in [#245](https://github.com/brettdavies/dotfiles/pull/245)
+- Add a PR freeze to the `gh` wrapper: `gh pr create`, `gh stack submit`/`link`, and PR-creating `gh api` calls are refused for any repository listed in `~/.config/gh/pr-freeze.txt`, including unqualified calls from a checkout with a remote pointing at a frozen repo. by @brettdavies in [#250](https://github.com/brettdavies/dotfiles/pull/250)
+- Add `gtime`, which runs GNU time the same way on macOS and Linux, and `gnu-time` to the Brewfile. by @brettdavies in [#251](https://github.com/brettdavies/dotfiles/pull/251)
+- Add a canonical `.editorconfig` to the claude package, stowed to `~/.editorconfig`, so a bare `shfmt -w <file>` formats shell scripts with 2-space indent, indented case bodies, and binary operators at line start. by @brettdavies in [#253](https://github.com/brettdavies/dotfiles/pull/253)
+- Add the canonical `.gitattributes` block at `~/.claude/templates/gitattributes`, the copy source for every repository's `.gitattributes`: LF for text on every platform regardless of `core.autocrlf`, committed bytes kept for iCalendar, email and test-data files, and PDFs always binary. by @brettdavies in [#254](https://github.com/brettdavies/dotfiles/pull/254)
+- Add a global Claude rule that keeps each repo's Bun pin on the machine's Bun: a trailing `.bun-version` is bumped in its own PR, and agents never download or install an older Bun to satisfy a stale pin. by @brettdavies in [#255](https://github.com/brettdavies/dotfiles/pull/255)
+- Add `cargo-target-sweep` and a weekly `cargo-target-sweep.timer` in the `cargo` package that delete Rust build output under `~/dev` no build has used in 14 days (`CARGO_TARGET_SWEEP_DAYS`), with `--dry-run` to preview. by @brettdavies in [#258](https://github.com/brettdavies/dotfiles/pull/258)
+- Add `cargo-sweep` to the Brewfile on Linux.
+- Add `scripts/launchd-user-path.sh`, which reports when the PATH launchd hands GUI apps and LaunchAgents differs from the Homebrew-first value in `config/launchd/user-path` and prints the `sudo launchctl config user path` fix; `--apply` runs it. `scripts/stow-deploy` runs the check on every macOS deploy. by @brettdavies in [#262](https://github.com/brettdavies/dotfiles/pull/262)
+- Add a global Claude rule that committing or pushing from a linked worktree is safe only in a repo whose git hooks keep git's environment from the tools they start, with a guide section on what git exports to hooks and how to check a repo's hooks. by @brettdavies in [#265](https://github.com/brettdavies/dotfiles/pull/265)
+- Add systemd user timers for the Linux server's scheduled jobs (vault agent-workspace mirror and its health check, OpenClaw settings backup, GitHub stars sync), gated with `ConditionHost` so other Linux hosts leave them inactive. by @brettdavies in [#278](https://github.com/brettdavies/dotfiles/pull/278)
+- Add `scripts/host-jobs-enable.sh` to enable those timers on the server and retire the crontab lines they replace.
+- Add `backup-openclaw-settings` to `~/.local/bin`.
+- Add `github-stars` to `~/.local/bin`: clones and updates starred GitHub repos under `~/github-stars`. by @brettdavies in [#279](https://github.com/brettdavies/dotfiles/pull/279)
+- Add a read-only token for the stars sync, loaded from `~/.config/github-stars/env`; `scripts/host-jobs-enable.sh` writes the file from 1Password when it is missing. by @brettdavies in [#280](https://github.com/brettdavies/dotfiles/pull/280)
+- Add `github-stars-pdf`, which keeps markdown copies of the starred repos' reference PDFs under `~/github-stars/_pdf-markdown/` for qmd, converting only new or changed PDFs after each successful stars sync. by @brettdavies in [#281](https://github.com/brettdavies/dotfiles/pull/281)
+- Add a decisions list for star PDFs (`~/.config/github-stars/pdfs.tsv`); PDFs in neither list are reported once in a vault inbox note, along with listed PDFs that moved or were deleted upstream.
+- Add the `hms` and `l30d` tmuxinator projects for the home-media-server and last30days-skill repos. by @brettdavies in [#285](https://github.com/brettdavies/dotfiles/pull/285)
+- Add a sleep-guard hook that denies foreground sleeps over 10 s, foreground polling loops, and background polls or fixed waits over 10 s, each with a rebuilt command to rerun. by @brettdavies in [#287](https://github.com/brettdavies/dotfiles/pull/287)
+- Add a self-match-guard hook that denies `pgrep -f` / `pkill -f` patterns that match their own command, with a bracketed pattern or PID advice to rerun.
+- Add daily scheduled upgrades: the `bu` Homebrew function at 04:00 and `uv tool upgrade --all` at 04:30, as LaunchAgents on macOS and host-gated systemd user timers on the Linux server. by @brettdavies in [#289](https://github.com/brettdavies/dotfiles/pull/289)
+- Add a JSON Lines run log for both jobs, in `~/Library/Logs/<job>.jsonl` on macOS and the journal on Linux, with a stable `reason`, the packages each run changed, and a `next_step` for failures.
+- Add `stale_processes` to the scheduled brew job's run.end on the Linux server: long-running user services still on a binary the upgrade removed are restarted with `systemctl --user try-restart`, and other processes on a removed binary, such as tmux, are reported as warnings. by @brettdavies in [#295](https://github.com/brettdavies/dotfiles/pull/295)
+- Add log rotation for the macOS upgrade agents: a log past 1 MiB moves to `<log>.1` before the next run.
+- Add `scripts/fseventsd-check.sh` and a Claude Code SessionStart hook that runs it on the Mac: when fseventsd holds more than ten times its launchd memory budget, every new session shows `WARNING: fseventsd holds N MB against its 30 MB launchd budget; reset it with: sudo killall fseventsd`. by @brettdavies in [#301](https://github.com/brettdavies/dotfiles/pull/301)
+
+### Changed
+
+- Remove the `caam` stow package, its shell fragment, and its git-crypt vault. Account rotation is handled by cswap. by @brettdavies in [#234](https://github.com/brettdavies/dotfiles/pull/234)
+- Change the Box `rclone.conf` to an untracked, rclone-owned file in `~/.config/rclone/`; the repo ships `rclone.conf.example` with the bootstrap steps instead of the live token. by @brettdavies in [#237](https://github.com/brettdavies/dotfiles/pull/237)
+- Local gates run in parallel. `pre-push` drops from roughly 96s to 41s, and `scripts/run-tests` accepts `--perf-only`, `--no-perf`, and a `RUN_TESTS_JOBS` job count. by @brettdavies in [#239](https://github.com/brettdavies/dotfiles/pull/239)
+- `mux-all` reports how many projects failed to start, counts only successful starts, and exits non-zero when any failed. by @brettdavies in [#240](https://github.com/brettdavies/dotfiles/pull/240)
+- Change yazi's open action (`Enter`, `o`) on Linux to hand files to the Mac when the session is driven from it, falling back to the local editor or PDF text view with the reason shown; the `O` picker still lists the local openers and directories open as before. by @brettdavies in [#241](https://github.com/brettdavies/dotfiles/pull/241)
+- Change `Enter` in yazi to open the whole selection, as `o` does, rather than only the hovered file.
+- Change the release notes to leave out a PR whose `## Changelog` section is deliberately empty, instead of listing its title. by @brettdavies in [#247](https://github.com/brettdavies/dotfiles/pull/247)
+- Change the canonical `.editorconfig` (stowed to `~/.editorconfig`) to cover every file type the fleet formats: utf-8, LF, a final newline and trimmed trailing whitespace everywhere, per-language indentation that matches each formatter, two-space markdown hard breaks, CRLF for iCalendar and email files, and shfmt house style for extensionless hook scripts. by @brettdavies in [#254](https://github.com/brettdavies/dotfiles/pull/254)
+- New shells no longer export `NEON_DATABASE_URL`; uncomment its line in the secrets file to restore it. by @brettdavies in [#256](https://github.com/brettdavies/dotfiles/pull/256)
+- Remove the host-wide `CFLAGS`/`CXXFLAGS` (`-O3 -march=native -mtune=native -pipe`) and `RUSTFLAGS` (`-C target-cpu=native`) exports from `build-flags.sh`, so local cargo builds use CI's flags and keep one set of artifacts per project instead of one per shell depth. by @brettdavies in [#257](https://github.com/brettdavies/dotfiles/pull/257)
+- Change the bash version guard in every guarded script and hook to require bash 4.4, re-execing under Homebrew's bash below it. by @brettdavies in [#263](https://github.com/brettdavies/dotfiles/pull/263)
+- Change `cargo-target-sweep` to exit 3 when `numfmt` is not on PATH. by @brettdavies in [#264](https://github.com/brettdavies/dotfiles/pull/264)
+- Change the stars timers to run `~/.local/bin/github-stars` and log to the journal. by @brettdavies in [#279](https://github.com/brettdavies/dotfiles/pull/279)
+- Change `github-stars` to keep each starred repo as a blobless partial clone that leaves dependency trees, bytecode and binary files (images, media, fonts, archives, native binaries, databases) out of the working tree and the object store; `git show HEAD:<path>` or `git sparse-checkout add <path>` fetches one on demand. by @brettdavies in [#281](https://github.com/brettdavies/dotfiles/pull/281)
+- Change `github-stars` to re-clone a repo whose `.git` grows past twice its post-clone size, so the stars directory stays bounded.
+- Change the stars sync and clone pass to run with 8 workers. by @brettdavies in [#282](https://github.com/brettdavies/dotfiles/pull/282)
+- Change `github-stars-pdf` to look for new PDFs only in clones whose commit changed since the last scan.
+- Change `github-stars-pdf` to convert each PDF once more when the converter changes.
+- fix(host-jobs): name the stars token item by its current title by @brettdavies in [#283](https://github.com/brettdavies/dotfiles/pull/283)
+- Change the PR template to offer `### Breaking changes`, `### Deprecated`, and `### Removed` changelog headings alongside Added, Changed, Fixed, and Documentation, in the order `generate-changelog.py` emits them. by @brettdavies in [#288](https://github.com/brettdavies/dotfiles/pull/288)
+- Change the scheduled brew run to `bu --no-greedy`, so self-updating casks (Ghostty, Rectangle, Telegram, AppCleaner) no longer quit their app when the run lands at wake. `bu` accepts `--no-greedy`; a manual `bu` stays greedy. by @brettdavies in [#295](https://github.com/brettdavies/dotfiles/pull/295)
+- Change `scripts/stow-deploy` to restart only enabled systemd user timers after a deploy, so a deploy never switches on a timer nobody enabled.
+- Change the iCloud Drive mirror of `~/dev` to run hourly and to leave out `node_modules`, `.build`, and `target` directories, removing the copies already in iCloud. by @brettdavies in [#297](https://github.com/brettdavies/dotfiles/pull/297)
+- Change the brew and uv upgrade logs in `~/Library/Logs` to keep only their last 1 MiB instead of a current file and one previous `.1` file.
+- Change Claude Code's permissions to deny `rustup self` subcommands for agent shell calls, so an agent cannot run `rustup self uninstall`, which deletes the Rust install and edits the stowed `~/.profile` in the repo. Other `rustup` commands stay allowed. by @brettdavies in [#302](https://github.com/brettdavies/dotfiles/pull/302)
+
+### Fixed
+
+- Fix the post-release backport dropping every release-branch edit except `CHANGELOG.md`. The set of synced paths is discovered by comparing `dev` against `main`, so a release-branch change to any file reaches `dev` instead of being reverted by the next release. by @brettdavies in [#227](https://github.com/brettdavies/dotfiles/pull/227)
+- Fix `scripts/lint-shell` skipping the release tooling. `sync-dev-after-release.sh` and `scripts/release/*.sh` are now linted by CI and both git hooks.
+- Fix the heredoc guard denying commands whose heredoc body merely contains `git commit -m` or `--body`. Writing a file, script, or test fixture that mentions those strings is no longer blocked; only a flag actually fed by a heredoc is. by @brettdavies in [#229](https://github.com/brettdavies/dotfiles/pull/229)
+- Fix the guard reporting a heredoc violation for an inline `-m` that shared a command line with an unrelated heredoc.
+- Fix the markdown auto-format hook reformatting files the markdownlint config ignores. The prose wrapper and table aligner now honor the same `ignores` globs the linter does, so `docs/solutions/**` and other excluded paths keep the shape their owning tool gave them. by @brettdavies in [#230](https://github.com/brettdavies/dotfiles/pull/230)
+- Fix generated `CHANGELOG.md` being re-wrapped after every edit, which committed line-break churn and made the changelog generator's `--dry-run` drift check fail against its own output.
+- Fix the cherry-pick release recipe aborting on a guarded-path deletion. Its leak check now filters to added and modified paths, matching the overlay recipe and `guard-main-docs`. by @brettdavies in [#231](https://github.com/brettdavies/dotfiles/pull/231)
+- Fix `scripts/sync-dev-after-release.sh` omitting `--only` from the usage string it prints on an argument error.
+- Fix the `gh` merge-guard wrapper spinning at 100% CPU when it is reachable on PATH under a path other than `~/.local/bin/gh` (symlinked alias dir, trailing slash, a checkout's stow tree); it now skips itself by file identity and fails loudly with a `FATAL:` line if it ever re-enters itself. by @brettdavies in [#235](https://github.com/brettdavies/dotfiles/pull/235)
+- Fix the stowed GitHub PR template so its comments carry no em-dashes; consumer repos that copy it stay verbatim under the prose rule. by @brettdavies in [#236](https://github.com/brettdavies/dotfiles/pull/236)
+- Fix Box bisync dying with `invalid_grant` after any checkout or re-deploy restored a consumed refresh token from git. by @brettdavies in [#237](https://github.com/brettdavies/dotfiles/pull/237)
+- Fix the `gh` wrapper refusing to run from a second checkout (worktree or scratch clone) whose own copy of the wrapper sat on `PATH`. by @brettdavies in [#238](https://github.com/brettdavies/dotfiles/pull/238)
+- The AI-attribution guard no longer passes a commit message or GitHub body larger than the pipe buffer. A trailer in a body over roughly 32KB was allowed through every time, and smaller bodies were allowed intermittently under load. by @brettdavies in [#239](https://github.com/brettdavies/dotfiles/pull/239)
+- `git push` no longer aborts with status 141 when the ref list outgrows the pipe buffer.
+- The solutions-prefetch and CI-watch reminders no longer go missing on a long pasted log or a multi-line command, and the model-tier guard no longer returns an empty verdict on a prompt with many TIER lines.
+- `taildrive-mount` no longer reports a share as mounted when the volume landed elsewhere or the request was refused. by @brettdavies in [#240](https://github.com/brettdavies/dotfiles/pull/240)
+- Attaching to a running session no longer fails while the tailnet reconnects: shares already mounted skip the endpoint probe.
+- Share names are matched literally against the mount table, so a name containing `.` no longer aliases a different volume.
+- Share names that collide under `/Volumes`, empty names, and surrounding whitespace in `TAILDRIVE_SHARES` are rejected or trimmed rather than silently mounting nothing.
+- `taildrive-unmount` reports the volumes diskutil refused and exits non-zero.
+- Fix SSH to the home servers failing on networks that share the home LAN's address range: the LAN route now applies only when the server's LAN sshd answers, and the Tailscale route applies everywhere else. by @brettdavies in [#243](https://github.com/brettdavies/dotfiles/pull/243)
+- Fix the home-LAN SSH route never applying on Linux hosts.
+- Fix `gstack-config-apply` managing `checkpoint_push`, a setting gstack 1.89.1 no longer has.
+- Fix the release backport PR body citing a tag object's SHA for an annotated tag; it names the released commit. by @brettdavies in [#247](https://github.com/brettdavies/dotfiles/pull/247)
+- Fix `sync-dev-after-release.sh --dry-run` refusing to run while a previous sync branch exists; a dry run creates no branch.
+- Fix a failed or refused backport leaving the sync branch checked out and blocking the rerun; every exit before the commit returns to `dev` with a clean tree.
+- Fix the post-sync changelog check reporting every failure as edited PR bodies; it shows the changelog generator's own reason, and the generator names line-wrap-only drift separately.
+- Fix the auto-format hook skipping files in git worktrees checked out under `/tmp`, `/var/tmp`, or `$TMPDIR`; loose drafts in those directories keep their authored shape. by @brettdavies in [#253](https://github.com/brettdavies/dotfiles/pull/253)
+- Fix the auto-format hook reformatting shell files the `.editorconfig` marks `ignore`: generated completions and test data (fixtures, testdata, golden files, snapshots) now keep their bytes when edited. by @brettdavies in [#254](https://github.com/brettdavies/dotfiles/pull/254)
+- Fix local aws-lc-sys builds failing at jitterentropy's optimization check whenever a project resolves cc 1.6.0. by @brettdavies in [#257](https://github.com/brettdavies/dotfiles/pull/257)
+- Fix nested zsh shells prepending Homebrew Ruby's `bin` to `PATH` once more at each level.
+- Fix pushes from a linked worktree resetting its branch and corrupting the shared advisory database, by installing cargo-deny 0.20+ from the Brewfile on Linux. by @brettdavies in [#259](https://github.com/brettdavies/dotfiles/pull/259)
+- Fix boots on the Linux host randomly skipping AppArmor profile loading, local-filesystem ordering, tmpfiles setup, or utmp recording: the NAS automount no longer orders itself after the network. by @brettdavies in [#260](https://github.com/brettdavies/dotfiles/pull/260)
+- Fix the `obsidian` CLI wrapper reporting "unable to find Obsidian" from non-login shells such as agents and cron.
+- Fix `scripts/nas-deploy.sh` reporting the NAS unreachable on hosts without `ping`.
+- Fix qmd embedding falling back to the CPU and holding it at its thermal limit while the NVIDIA driver is unusable: the embed timer now skips those runs, and any CPU fallback is capped at two cores. by @brettdavies in [#261](https://github.com/brettdavies/dotfiles/pull/261)
+- Fix the iCloud sync LaunchAgent (`com.user.devtosync`) running under the macOS system bash 3.2: it now sets the same inline PATH as the other agents, and its script uses `#!/usr/bin/env bash`. by @brettdavies in [#262](https://github.com/brettdavies/dotfiles/pull/262)
+- Fix scripts that need bash 4 (`lint-shell`, `lint-workflows`, `run-tests`, `release/guarded-paths.sh`, `tools-atime.sh`, `cargo-target-sweep`, `solutions-clone-autosync.sh`, `mac-open`) failing when the macOS system bash 3.2 starts them: each re-execs under Homebrew bash, or exits with a `brew install bash` hint.
+- Fix pushes and commits from a linked worktree letting a hook's child tools run git against the worktree's repository, which could move the branch, mark the repository bare, or corrupt the commit's temporary index. by @brettdavies in [#263](https://github.com/brettdavies/dotfiles/pull/263)
+- Fix the dotfiles pre-commit hook failing with `mapfile: command not found` when started by the macOS system bash 3.2.
+- Fix `cargo-target-sweep` exiting with status 64 and no output on macOS, where BSD `du` rejects `-b`. by @brettdavies in [#264](https://github.com/brettdavies/dotfiles/pull/264)
+- Fix the markdown auto-format hook collapsing the whitespace inside inline code spans, which turned quoted help-text column layouts into single-spaced text. by @brettdavies in [#266](https://github.com/brettdavies/dotfiles/pull/266)
+- Fix the markdown auto-format hook breaking lines inside inline code spans; each span now stays whole on one line.
+- Fix the markdown auto-format hook starting a wrapped line with a token markdown reads as a heading, list item, or other structure, which made a file change again on every reflow and could turn an issue reference into a heading or re-indent part of a list item. by @brettdavies in [#267](https://github.com/brettdavies/dotfiles/pull/267)
+- Fix the markdown auto-format hook leaving an inline code span wider than the line on one overlong line; it now wraps at the span's single spaces and keeps its multi-space runs intact.
+- Fix `scripts/tmux/prune-orphans.sh` hanging indefinitely against a wedged tmux server. It now exits 1 with an `ERROR:` line after 10 seconds, so the `tmux-prune-orphans` timer unit fails visibly instead of never finishing. by @brettdavies in [#272](https://github.com/brettdavies/dotfiles/pull/272)
+- Fix `mac-open` hanging in yazi when the tmux server stops answering. It now refuses the hand-off within about 5 seconds with `not-from-mac: tmux reported no client for this session`. by @brettdavies in [#273](https://github.com/brettdavies/dotfiles/pull/273)
+- Fix the Claude Code permission rule for the vault sync script, which named a path that no longer exists. by @brettdavies in [#278](https://github.com/brettdavies/dotfiles/pull/278)
+- Fix `github-stars` exposing the GitHub token in process arguments and `.git/config`; git now reads it from its environment. by @brettdavies in [#279](https://github.com/brettdavies/dotfiles/pull/279)
+- Fix `github-stars` exiting 0 on an unknown option; it now exits 2.
+- Fix `github-stars` deleting committed `vendor/`, `build/`, `dist/`, `out/` and `target/` directories from starred-repo clones; the next update restores them. by @brettdavies in [#281](https://github.com/brettdavies/dotfiles/pull/281)
+- Fix `github-stars` rewriting and deleting the same files on every hourly update, which left about 70 clones with a dirty `git status`.
+- Fix `github-stars --prune` deleting a clone whose repo GitHub blocks or no longer serves, which could erase the only copy. by @brettdavies in [#282](https://github.com/brettdavies/dotfiles/pull/282)
+- Fix `github-stars-pdf` retrying a PDF that failed to convert after every stars sync; a failed version is reported once and retried only when the PDF changes.
+- Fix the ShellCheck gate skipping 17 shell scripts under `scripts/`; every `sh` or `bash` script there is now linted in pre-commit, pre-push, and CI. by @brettdavies in [#284](https://github.com/brettdavies/dotfiles/pull/284)
+- Fix pipx apps installed from one kind of launcher being invisible to pipx run from another, by leaving `PIPX_HOME` at pipx's platform default instead of relocating it into the XDG cache. by @brettdavies in [#286](https://github.com/brettdavies/dotfiles/pull/286)
+- Fix the markdown auto-format hook breaking Obsidian wikilinks across lines, which left them unresolved in the vault. by @brettdavies in [#290](https://github.com/brettdavies/dotfiles/pull/290)
+- Fix the upgrade run log reporting every package as changed when a version listing fails (`changes` is now null, with a warning), and keep config/shell helper output out of the JSON log. by @brettdavies in [#295](https://github.com/brettdavies/dotfiles/pull/295)
+- Fix the iCloud mirror's logs growing without bound: each run appends one summary line to `~/Library/Logs/devtosync.log` and its rsync errors to `devtosync.error.log`, and each log keeps only its last 1 MiB. by @brettdavies in [#297](https://github.com/brettdavies/dotfiles/pull/297)
+- Fix the Mac's scheduled brew and uv upgrades failing after a night asleep. Each agent now fires hourly and runs the upgrade only when it has not succeeded in the last 20 hours and the network answers, so the day's run lands at the first hour the Mac is awake and online. An offline fire with no success in 48 hours writes a `WARNING:` line to the agent's `.error.log`. by @brettdavies in [#300](https://github.com/brettdavies/dotfiles/pull/300)
+
+### Documentation
+
+- Document the backport's discovery and its release-prep versus contested classification in `RELEASES.md`, with the post-merge convergence check that catches an unresolved contested path. by @brettdavies in [#227](https://github.com/brettdavies/dotfiles/pull/227)
+- Correct the release runbook's description of the backport, which still called it CHANGELOG-only after it began discovering every diverged path, and lead its command block with the `--dry-run` classification the surrounding prose tells you to start from. by @brettdavies in [#231](https://github.com/brettdavies/dotfiles/pull/231)
+- Record the guard beside the no-AI-attribution rule in `CLAUDE.md` and the git/GitHub guide. by @brettdavies in [#233](https://github.com/brettdavies/dotfiles/pull/233)
+- Drop caam from the stow package table, the shell helper table, and the package summary, and add the `cswap` package. by @brettdavies in [#234](https://github.com/brettdavies/dotfiles/pull/234)
+- README covers the two platform branches of `vault.yml`, what the start hook guarantees, and the wedged-mount case it cannot cover. by @brettdavies in [#240](https://github.com/brettdavies/dotfiles/pull/240)
+- Document the hand-off's routes, fallback, and five-step setup in the README's "Yazi Hand-off to the Mac" section. by @brettdavies in [#241](https://github.com/brettdavies/dotfiles/pull/241)
+- Document the unit in `BOOTSTRAP.md`, `AGENTS.md` and `README.md`, and name the `svc:codex-proxy` binding alongside `svc:ollama` where the setup script is described. by @brettdavies in [#245](https://github.com/brettdavies/dotfiles/pull/245)
+- Document `gtime` as the way agents time a command and read its peak memory. by @brettdavies in [#251](https://github.com/brettdavies/dotfiles/pull/251)
+- Name `.editorconfig` in the shell style guide as the settings source a bare `shfmt` reads, and note that any formatting flag makes shfmt ignore it. by @brettdavies in [#253](https://github.com/brettdavies/dotfiles/pull/253)
+- Describe in the shell style guide how the `.editorconfig` covers extensionless hook scripts, which files its `ignore` sections skip, and that a formatting flag makes shfmt drop the file's formatting settings but not its `ignore` sections. by @brettdavies in [#254](https://github.com/brettdavies/dotfiles/pull/254)
+- Document the Bun pin bump in the cli-tools guide: which declarations move, when the `bun-types` caret moves, the plain `bun install` that records a caret edit, and why `bun.lock` is never regenerated from scratch. by @brettdavies in [#255](https://github.com/brettdavies/dotfiles/pull/255)
+- Document enabling the sweep timer in BOOTSTRAP. by @brettdavies in [#258](https://github.com/brettdavies/dotfiles/pull/258)
+- Document the launchd user PATH in README, AGENTS.md, BOOTSTRAP.md and CONCEPTS.md, and add the `env bash` shebang and bash >= 4 guard to AGENTS.md's script conventions. by @brettdavies in [#262](https://github.com/brettdavies/dotfiles/pull/262)
+- Document how the auto-format hook treats inline code spans, including markdownlint's MD038 trimming of leading and trailing spaces. by @brettdavies in [#266](https://github.com/brettdavies/dotfiles/pull/266)
+- Fix the CI-watch policy so it no longer claims `gh pr checks --watch` exits 0 on a failed check, and so the cross-repo `gh run watch` example passes `--exit-status`. by @brettdavies in [#275](https://github.com/brettdavies/dotfiles/pull/275)
+- Add a runbook procedure for installing optional NVIDIA userspace libraries (NVENC, NVDEC) at the matching `-server` branch and driver version without disturbing the driver or qmd. by @brettdavies in [#277](https://github.com/brettdavies/dotfiles/pull/277)
+- Add "Never block on a wait" to the global Claude instructions and "Waiting without blocking" to the workflows guide. by @brettdavies in [#287](https://github.com/brettdavies/dotfiles/pull/287)
+- Document loading, running, and triaging the scheduled upgrades in BOOTSTRAP.md for macOS and the Linux server. by @brettdavies in [#289](https://github.com/brettdavies/dotfiles/pull/289)
+- Change the `AGENTS.md` GitHub Actions rule: workflows no longer set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`, since GitHub runs JavaScript actions on Node.js 24. by @brettdavies in [#298](https://github.com/brettdavies/dotfiles/pull/298)
+- Document the hourly retry in BOOTSTRAP's launchd section, including where the success record lives and how to force a run (trash the record, then `launchctl kickstart`). by @brettdavies in [#300](https://github.com/brettdavies/dotfiles/pull/300)
+- Document the fseventsd memory check in BOOTSTRAP's macOS section, including how to reset the daemon and what the restart costs (Spotlight, Dropbox, and iCloud Drive may rescan). by @brettdavies in [#301](https://github.com/brettdavies/dotfiles/pull/301)
+
+### Removed
+
+- Remove the `opendataloader-pdf` stow package and its `scripts/opendataloader-pdf-enable.sh` enabler. The socket-activated hybrid PDF server on `127.0.0.1:5002` is no longer deployed; the `opendataloader-pdf` CLI is unaffected. by @brettdavies in [#294](https://github.com/brettdavies/dotfiles/pull/294)
+
+**Full Changelog**: [2026.09.14...2026.10.25](https://github.com/brettdavies/dotfiles/compare/2026.09.14...2026.10.25)
+
 ## [2026.09.14] - 2026-09-14
 
 ### Added
@@ -19,7 +179,8 @@ All notable changes to this project will be documented in this file.
 - Add `qmd-gpu-verify`: deterministic PASS/FAIL verification that the qmd-serve daemon runs its models on the GPU (systemd unit + live env pin + VRAM residency, optional `--live` ramp probe), with a graceful launchd/powermetrics path on macOS. by @brettdavies in [#179](https://github.com/brettdavies/dotfiles/pull/179)
 - `mios` tmuxinator project for `~/dev/meum-ios`. by @brettdavies in [#180](https://github.com/brettdavies/dotfiles/pull/180)
 - `msites` tmuxinator project for the Meum Sites repo. by @brettdavies in [#181](https://github.com/brettdavies/dotfiles/pull/181)
-- `cargo` stow package (Linux only) that routes git dependency fetches through the git CLI, so a git dependency resolves for systemd units, cron, CI and agent tool calls rather than only for shells with an SSH agent. by @brettdavies in [#188](https://github.com/brettdavies/dotfiles/pull/188)
+- `cargo` stow package (Linux only) that routes git dependency fetches through the git CLI, so a git dependency resolves for systemd units, cron, CI and agent tool calls rather than only for shells with an SSH agent.
+ by @brettdavies in [#188](https://github.com/brettdavies/dotfiles/pull/188)
 - Workflow files are linted by actionlint in CI, pre-push, and pre-commit. Previously nothing checked them, and a shell quoting bug inside a `run:` block could reach `main` and misfire during a release. by @brettdavies in [#190](https://github.com/brettdavies/dotfiles/pull/190)
 - Add the qmd thin client / brain host concept to CONCEPTS.md. by @brettdavies in [#193](https://github.com/brettdavies/dotfiles/pull/193)
 - Add gstack's timeline Stop hook to the Claude Code settings.
@@ -44,7 +205,8 @@ All notable changes to this project will be documented in this file.
 - Remove the `gbrain` stow package and the `gbrain-sync`, `gbrain-dream`, and `claude-code-archive` systemd timers. On a host where these are already deployed, stop and disable the timers before redeploying: stow no longer manages the package, so it will not reconcile the symlinks and they are left pointing at a deleted source. by @brettdavies in [#182](https://github.com/brettdavies/dotfiles/pull/182)
 - Remove the `claude-code-sessions` qmd collection. Transcripts already written under `~/.gbrain/transcripts/` stay on disk but are no longer indexed or searchable.
 - `pre-push` runs the full local CI mirror and `pre-commit` runs the same checks over staged files, so a red pipeline should be a surprise rather than routine. A missing tool skips its step with an install hint instead of blocking the commit or push. by @brettdavies in [#184](https://github.com/brettdavies/dotfiles/pull/184)
-- `scripts/stow-deploy` sets the rustup install profile to minimal when the `cargo` package deploys, so toolchains stop downloading `rust-docs` rather than having it removed afterwards. by @brettdavies in [#188](https://github.com/brettdavies/dotfiles/pull/188)
+- `scripts/stow-deploy` sets the rustup install profile to minimal when the `cargo` package deploys, so toolchains stop downloading `rust-docs` rather than having it removed afterwards.
+ by @brettdavies in [#188](https://github.com/brettdavies/dotfiles/pull/188)
 - Change the canonical Playwright browser set to 1.62.1 (chromium 1234 / Chrome for Testing 151, webkit 2336); chromium 1228 now resolves through a consumer alias to the canonical build. by @brettdavies in [#191](https://github.com/brettdavies/dotfiles/pull/191)
 - Change the default Claude Code model from opus to fable. by @brettdavies in [#193](https://github.com/brettdavies/dotfiles/pull/193)
 - Change the `ssh` package's Linux-server host entries to pin `SetEnv LANG=C.UTF-8`, so the client stops the override even against a server that still accepts the variable. by @brettdavies in [#195](https://github.com/brettdavies/dotfiles/pull/195)
@@ -103,7 +265,8 @@ All notable changes to this project will be documented in this file.
 - AGENTS.md documents how the local gates map onto CI jobs, and why tool versions are pinned alongside the commands. by @brettdavies in [#184](https://github.com/brettdavies/dotfiles/pull/184)
 - AGENTS.md tabulates the eight supported shell invocation shapes and the startup files each one reads. by @brettdavies in [#185](https://github.com/brettdavies/dotfiles/pull/185)
 - The CLI tools guide records where `trash` comes from on each platform, why it cannot be an alias, and the one sanctioned `rm -rf` fallback. by @brettdavies in [#187](https://github.com/brettdavies/dotfiles/pull/187)
-- BOOTSTRAP.md installs rustup with `--profile minimal`, and records why the setting can be neither exported nor stowed. by @brettdavies in [#188](https://github.com/brettdavies/dotfiles/pull/188)
+- BOOTSTRAP.md installs rustup with `--profile minimal`, and records why the setting can be neither exported nor stowed.
+ by @brettdavies in [#188](https://github.com/brettdavies/dotfiles/pull/188)
 - `CONCEPTS.md` records that ordering within the shell config chain is load-bearing, and that the failure it prevents is silent. by @brettdavies in [#189](https://github.com/brettdavies/dotfiles/pull/189)
 - Change the release runbook to build `release/YYYY.MM.DD` as an overlay of `dev` on `main`, with the drift gate, the guarded-set leak check, and `generate-changelog.py --from-dev-prs`. by @brettdavies in [#198](https://github.com/brettdavies/dotfiles/pull/198)
 - Record that the shell config chain's entry file is dialect-constrained as well as order-constrained, and define `Invocation shape` as the unit at which shell environment behavior is specified and verified. by @brettdavies in [#203](https://github.com/brettdavies/dotfiles/pull/203)
