@@ -53,7 +53,7 @@ _trust_kill() {
 # Returns 0 once the path is trusted (accepted here, or already), 1 when the screen was not one it recognizes; then
 # TRUST_LOG holds the last screen.
 trust_accept() {
-  local path=$1 real session screen='' out kind='' accepted=0 last_key=-10 deadline
+  local path=$1 real session screen='' out kind='' accepted=0 last_key=0 deadline
   real=$(realpath -m "$path")
   session=trust-$$-${path//[^A-Za-z0-9]/_}
   TRUST_LOG=
@@ -66,22 +66,23 @@ trust_accept() {
   fi
   # The screen decides each key: Down only while "No, exit" is highlighted and Enter only once "Yes" is, each sent again
   # when the screen has not moved a second or two later. A key sent while the dialog is still drawing is lost, and
-  # Enter never lands on "No, exit".
-  deadline=$((SECONDS + AS_TRUST_TIMEOUT))
-  while ((SECONDS < deadline)); do
+  # Enter never lands on "No, exit". Times are EPOCHREALTIME in microseconds: SECONDS counts the wall clock's whole
+  # seconds, so a gap of one in it can be a few milliseconds long and a deadline set from it up to a second short.
+  deadline=$((${EPOCHREALTIME/./} + AS_TRUST_TIMEOUT * 1000000))
+  while ((${EPOCHREALTIME/./} < deadline)); do
     if bounded screen trust-capture 5 "$AS_TMUX" -L "$AS_TRUST_SOCKET" capture-pane -p -J -t "=$session:"; then
       kind=$(_trust_screen "$screen" "$real")
       case $kind in
         dialog-no)
-          if ((SECONDS - last_key >= 1)); then
+          if ((${EPOCHREALTIME/./} - last_key >= 1000000)); then
             bounded out trust-keys 5 "$AS_TMUX" -L "$AS_TRUST_SOCKET" send-keys -t "=$session:" Down || true
-            last_key=$SECONDS
+            last_key=${EPOCHREALTIME/./}
           fi
           ;;
         dialog-yes)
-          if ((accepted == 0 || SECONDS - last_key >= 2)); then
+          if ((accepted == 0 || ${EPOCHREALTIME/./} - last_key >= 2000000)); then
             bounded out trust-keys 5 "$AS_TMUX" -L "$AS_TRUST_SOCKET" send-keys -t "=$session:" Enter || true
-            accepted=1 last_key=$SECONDS
+            accepted=1 last_key=${EPOCHREALTIME/./}
           fi
           ;;
         prompt) break ;;

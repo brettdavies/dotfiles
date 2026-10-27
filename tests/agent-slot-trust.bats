@@ -17,7 +17,9 @@ setup_file() {
 
 setup() {
   agent_slot_setup
-  export AGENT_SLOT_CLAUDE_PROJECTS=$T/projects AGENT_SLOT_TRUST_TIMEOUT=3
+  # An accepted dialog ends the watch at the prompt, up to five capture passes in, and a loaded machine stretches each
+  # pass toward a second. Only the unknown-screen test waits out the timeout, and it sets its own.
+  export AGENT_SLOT_CLAUDE_PROJECTS=$T/projects AGENT_SLOT_TRUST_TIMEOUT=10
   mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS"
   prime repoa
   trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
@@ -76,6 +78,24 @@ dialog_fixture() {
   prompt_screen >"$STUBS/screen-after"
 }
 
+# clock_trust: wraps the tmux stub so each call on the trust socket appends "<microseconds> <argv>" to $T/trust-clock,
+# and the trust session starts 0.6 s into a wall-clock second. That start puts a whole-second tick between the first two
+# capture passes, half a second apart, so a step that counted whole seconds would resend a lost Down after half a
+# second and end a 3 s watch before 3 s.
+clock_trust() {
+  mv "$STUBS/tmux" "$STUBS/tmux-unclocked"
+  cat >"$STUBS/tmux" <<EOF
+#!/usr/bin/env bash
+case " \$* " in
+  *" -L agent-slot-trust "*)
+    [[ " \$* " != *" new-session "* ]] || until ((10#\${EPOCHREALTIME#*.} / 100000 == 6)); do sleep 0.01; done
+    printf '%s %s\n' "\${EPOCHREALTIME/./}" "\$*" >>'$T/trust-clock' ;;
+esac
+exec '$STUBS/tmux-unclocked' "\$@"
+EOF
+  chmod +x "$STUBS/tmux"
+}
+
 @test "AE15: a dialog naming the slot path is accepted with Down then Enter, and launch expects no prompt" {
   dialog_fixture "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")"
   run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r1 --output json
@@ -105,14 +125,17 @@ dialog_fixture() {
   [ "$(grep -cF -- '-L agent-slot-trust' "$CALLS")" -eq 0 ]
 }
 
-@test "a Down the dialog misses is sent again, and Enter goes only to a highlighted Yes" {
+@test "a Down the dialog misses is sent again a full second later, and Enter goes only to a highlighted Yes" {
   dialog_fixture "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")"
   touch "$STUBS/drop-first-down"
+  clock_trust
   run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-lost --output json
   [ "$status" -eq 0 ]
   jaq -e '.trust_prompt_expected == false' <<<"$output"
   keys=$(grep -F -- '-L agent-slot-trust send-keys' "$CALLS" | awk '{ print $NF }' | paste -sd ' ')
   [ "$keys" = "Down Down Enter" ]
+  mapfile -t downs < <(awk '/ send-keys .* Down$/ { print $1 }' "$T/trust-clock")
+  [ "$((downs[1] - downs[0]))" -ge 1000000 ]
 }
 
 @test "a dialog naming another path sends no keys, and launch goes on expecting the prompt" {
@@ -124,14 +147,18 @@ dialog_fixture() {
   jaq -e '.trust_prompt_expected == true' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
 }
 
-@test "an unknown screen sends no keys and yields trust-dialog-unrecognized from warm, with the screen in its log" {
+@test "an unknown screen sends no keys and yields trust-dialog-unrecognized from warm after the full timeout, with the screen in its log" {
+  export AGENT_SLOT_TRUST_TIMEOUT=3
   echo 'Something else entirely' >"$STUBS/screen"
+  clock_trust
   run --separate-stderr "$AGENT_SLOT" warm repoa --count 1 --output json
   [ "$status" -eq 78 ]
   jaq -e --arg p "$AGENT_SLOT_ROOT/repoa/1" '.reason == "trust-dialog-unrecognized" and .value == $p
     and .next_step.command == "cd \($p) && claude" and .next_step.action == "ask-operator"' <<<"$stderr"
   grep -q 'Something else entirely' "$(jaq -r .log <<<"$stderr")"
   [ "$(grep -cF -- '-L agent-slot-trust send-keys' "$CALLS")" -eq 0 ]
+  mapfile -t span < <(awk '/ new-session / || / kill-session / { print $1 }' "$T/trust-clock")
+  [ "$((span[1] - span[0]))" -ge "$((AGENT_SLOT_TRUST_TIMEOUT * 1000000))" ]
 }
 
 @test "Claude's prompt with no dialog counts the path as trusted and sends no keys" {
