@@ -363,7 +363,7 @@ message such as `1 unpushed commit`.
 | `agent-state-unknown`    | The agent's state could not be read, or a process outside the slot's panes uses the slot |
 | `uncommitted-changes`    | Tracked files have changes                                                               |
 | `stash-present`          | Something is stashed                                                                     |
-| `unpushed-commits`       | Commits are in no PR's final head and on no origin branch                                |
+| `unpushed-commits`       | Commits are in no PR's final head and on no origin branch or tag, counting local tags    |
 | `commits-without-pr`     | Commits sit only on an origin branch that has no PR, such as one pushed after the merge  |
 | `untracked-files`        | Untracked or ignored files beyond build and dependency output                            |
 | `local-only-files`       | `.context`, `todos`, `TODO*`, or `.env*` files, which never reach origin                 |

@@ -110,8 +110,10 @@ _check_agent() {
 }
 
 # Usage: _check_commits <slot path> <base> <pr count>
+# A commit counts as pushed once an origin branch or tag holds it; local tags count as heads, so a commit only a local
+# tag still reaches is unpushed. Origin's tags are fetched into refs/agent-slot/origin-tags.
 _check_commits() {
-  local path=$1 base=$2 has_prs=$3 baseref heads uncontained unpushed
+  local path=$1 base=$2 has_prs=$3 baseref heads uncontained unpushed_heads unpushed
   baseref=refs/remotes/origin/$base
   git -C "$path" rev-parse -q --verify "$baseref" >/dev/null || baseref=refs/remotes/origin/HEAD
   if ! git -C "$path" rev-parse -q --verify "$baseref" >/dev/null \
@@ -124,20 +126,22 @@ _check_commits() {
     return
   fi
   local -a h contained=("$baseref" --glob='refs/agent-slot/pr/*')
+  local -a on_origin=(--remotes=origin --glob='refs/agent-slot/origin-tags/*')
   mapfile -t h <<<"$heads"
   # A clone keeps a local copy of origin's default branch, whose history need not be in the base (dev).
   ! git -C "$path" rev-parse -q --verify refs/remotes/origin/HEAD >/dev/null || contained+=(refs/remotes/origin/HEAD)
   if ((has_prs > 0)); then
     if ! uncontained=$(git -C "$path" rev-list --count "${h[@]}" --not "${contained[@]}") \
-      || ! unpushed=$(git -C "$path" rev-list --count "${h[@]}" --not "${contained[@]}" --remotes=origin); then
+      || ! unpushed_heads=$(git -C "$path" rev-list --count "${h[@]}" --not "${contained[@]}" "${on_origin[@]}") \
+      || ! unpushed=$(git -C "$path" rev-list --count "${h[@]}" --tags --not "${contained[@]}" "${on_origin[@]}"); then
       _check_block git-state-unknown "git rev-list failed in the slot"
       return
     fi
-    ((uncontained - unpushed == 0)) || _check_block commits-without-pr \
-      "$(_check_plural $((uncontained - unpushed)) "commit on a branch with no PR" "commits on a branch with no PR")" \
-      $((uncontained - unpushed))
+    local without_pr=$((uncontained - unpushed_heads))
+    ((without_pr == 0)) || _check_block commits-without-pr \
+      "$(_check_plural "$without_pr" "commit on a branch with no PR" "commits on a branch with no PR")" "$without_pr"
   else
-    unpushed=$(git -C "$path" rev-list --count "${h[@]}" --not --remotes=origin) || {
+    unpushed=$(git -C "$path" rev-list --count "${h[@]}" --tags --not "${on_origin[@]}") || {
       _check_block git-state-unknown "git rev-list failed in the slot"
       return
     }
@@ -174,7 +178,7 @@ check_slot() {
       _check_block pr-state-unknown "gh could not read the PRs of $(pr_repo_slug "$origin")"
     fi
 
-    refspecs=('+refs/heads/*:refs/remotes/origin/*')
+    refspecs=('+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/agent-slot/origin-tags/*')
     while read -r number; do
       [[ -n $number ]] && refspecs+=("+refs/pull/$number/head:refs/agent-slot/pr/$number")
     done < <(contract_json -r '.[].number' <<<"$prs")

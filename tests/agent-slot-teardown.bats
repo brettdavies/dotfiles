@@ -52,6 +52,20 @@ record() { jaq -r "$1" "$SLOT/.git/agent-slot.json"; }
   jaq -e '.slots == []' <<<"$output"
 }
 
+@test "teardown also stops the processes the agent started" {
+  finished_task
+  idle_agent
+  local child n=0
+  until child=$(pgrep -P "$AGENT" sleep) || ((n++ > 50)); do sleep 0.1; done
+  [ -n "$child" ]
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  n=0
+  while kill -0 "$child" 2>/dev/null && ((n++ < 30)); do sleep 0.1; done
+  run ! kill -0 "$child"
+}
+
 @test "AE12: finish --yes on a task with an open PR exits 1 with task-has-open-pr and deletes nothing" {
   work feat/x
   git -C "$SLOT" push -q origin feat/x
