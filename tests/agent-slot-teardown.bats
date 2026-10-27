@@ -159,12 +159,13 @@ record() { jaq -r "$1" "$SLOT/.git/agent-slot.json"; }
   [ "$(grep -c 'kill-session' "$CALLS")" -eq 0 ]
 }
 
-@test "a stash made while the agent stops keeps the slot with stash-present" {
+@test "a stash made while the agent stops keeps the slot with the stash-present blocker check reports" {
   finished_task
   idle_agent "echo late >'$SLOT/late.txt' && git -C '$SLOT' stash -q -u"
   run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
   [ "$status" -eq 0 ]
-  jaq -e '.torn_down == [] and any(.needs_you[0].needs_you[]; .code == "stash-present")' <<<"$output"
+  jaq -e '.torn_down == [] and any(.needs_you[0].needs_you[];
+    . == {code: "stash-present", message: "1 stash entry", count: 1})' <<<"$output"
   [ -d "$SLOT/.git" ]
 }
 

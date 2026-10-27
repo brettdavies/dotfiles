@@ -152,6 +152,17 @@ _check_uncommitted() {
     "$(_check_plural "$(grep -c . <<<"$out")" "uncommitted change")" "$(grep -c . <<<"$out")"
 }
 
+# Usage: _check_stash <slot path>; anything stashed.
+_check_stash() {
+  local out
+  if ! out=$(git -C "$1" stash list); then
+    _check_block git-state-unknown "git stash list failed in the slot"
+    return
+  fi
+  [[ -z $out ]] || _check_block stash-present \
+    "$(_check_plural "$(grep -c . <<<"$out")" "stash entry" "stash entries")" "$(grep -c . <<<"$out")"
+}
+
 # Usage: _check_agent <repo> <n>; blocks unless the slot's agent is idle or absent, from the agents agentstate_load read.
 _check_agent() {
   agentstate_of "$1" "$2"
@@ -249,12 +260,7 @@ check_slot() {
     _check_agent "$repo" "$n"
 
     _check_uncommitted "$path"
-    if out=$(git -C "$path" stash list); then
-      [[ -z $out ]] || _check_block stash-present "$(_check_plural "$(grep -c . <<<"$out")" "stash entry" "stash entries")" \
-        "$(grep -c . <<<"$out")"
-    else
-      _check_block git-state-unknown "git stash list failed in the slot"
-    fi
+    _check_stash "$path"
     _check_commits "$path" "$base" "$(contract_json 'length' <<<"$prs")"
     _check_files "$path"
 
