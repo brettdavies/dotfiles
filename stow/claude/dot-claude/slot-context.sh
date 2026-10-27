@@ -56,29 +56,37 @@ context_record() {
   record_unlock_slot "$repo" "$n"
 }
 
-# Usage: context_text <repo> <n>; prints the SessionStart output for the record in RECORD.
+# Usage: context_text <repo> <n>; prints the SessionStart output for the record in RECORD. The lines reach jaq as data
+# through --arg, never as part of its program, so an apostrophe or a backtick in one prints as written.
 # shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
 context_text() {
-  contract_json -c --arg key "$(slot_key "$1" "$2")" --arg path "$(slot_path "$1" "$2")" '
-    {hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: ([
-      "You are working in agent slot \($key), a full clone at \($path).",
-      (if .task then "Task: \(.task)." else "This slot was given no task name." end),
-      "The base branch is \(.base // "the default branch").",
-      "The prime checkout \(.prime // "for this repo") is read-only for you; make every change in this slot.",
-      "docs/solutions is the solutions repo shared with every other agent; commit to it only through `sd-commit-doc`.",
-      "`agent-slot whoami` names this slot.",
-      "Run agent-slot verbs with `--output json` after the verb; `--help` on any verb lists its flags and fields.",
-      "`agent-slot schema --output json` prints the whole contract: the success and error objects and every reason.",
-      "To hand a task to another agent, run `agent-slot launch <repo> --request-id <id> --prompt-file <brief>`.",
-      "Claude runs here with `--dangerously-skip-permissions`; ask rules, deny rules, and hooks still stop tool calls.",
-      "Your task is finished when its PRs are open, or merged if the brief says so, and nothing is left unpushed.",
-      "Then report what you did and stop; teardown happens from outside, when the operator runs sweep or finish.",
-      "You need not run `agent-slot check` on this slot; while you work, it always reports `agent-not-idle`.",
-      "`agent-slot sweep` and `agent-slot finish` delete slots: ask the operator before running either with `--yes`.",
-      "In a review round, re-check the state of the PR before stacking new commits on it.",
-      "Stage with `git add`, then run a plain `git commit`; never `git commit -a` or `git commit <path>`.",
-      "Create no git worktrees inside this slot."
-    ] | join("\n"))}}' <<<"$RECORD"
+  local task base prime rules
+  task=$(contract_json -r '.task // ""' <<<"$RECORD")
+  base=$(contract_json -r '.base // "the default branch"' <<<"$RECORD")
+  prime=$(contract_json -r '.prime // "for this repo"' <<<"$RECORD")
+  rules=$(
+    cat <<'EOF'
+docs/solutions is the solutions repo shared with every other agent; commit to it only through `sd-commit-doc`.
+`agent-slot whoami` names this slot.
+Run agent-slot verbs with `--output json` after the verb; `--help` on any verb lists its flags and fields.
+`agent-slot schema --output json` prints the whole contract: the success and error objects and every reason.
+To hand a task to another agent, run `agent-slot launch <repo> --request-id <id> --prompt-file <brief>`.
+Claude runs here with `--dangerously-skip-permissions`; ask rules, deny rules, and hooks still stop tool calls.
+Your task is finished when its PRs are open, or merged if the brief says so, and nothing is left unpushed.
+Then report what you did and stop; teardown happens from outside, when the operator runs sweep or finish.
+You need not run `agent-slot check` on this slot; while you work, it always reports `agent-not-idle`.
+`agent-slot sweep` and `agent-slot finish` delete slots: ask the operator before running either with `--yes`.
+In a review round, re-check the state of the PR before stacking new commits on it.
+Stage with `git add`, then run a plain `git commit`; never `git commit -a` or `git commit <path>`.
+Create no git worktrees inside this slot.
+EOF
+  )
+  contract_json -n -c --arg text "$(
+    printf '%s\n' "You are working in agent slot $(slot_key "$1" "$2"), a full clone at $(slot_path "$1" "$2")."
+    if [[ -n $task ]]; then printf 'Task: %s.\n' "$task"; else printf '%s\n' 'This slot was given no task name.'; fi
+    printf '%s\n' "The base branch is $base." \
+      "The prime checkout $prime is read-only for you; make every change in this slot." "$rules"
+  )" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $text}}'
 }
 
 context_main() {
