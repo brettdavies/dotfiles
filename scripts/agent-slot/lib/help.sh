@@ -41,15 +41,16 @@ verb_help() {
     launch) printf '%s\n' \
       'usage: agent-slot launch <repo> [--request-id ID] [--task NAME] [--prompt-file FILE] [--requested-at EPOCH]' \
       '                         [--output json]' \
-      'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there. A' \
-      'repeat with the same --request-id (or --task) returns the same slot. Agents always pass --request-id. ID:' \
-      'letters, digits, ., _, and -, up to 128. NAME: letters, digits, _, -, and /, starting with a letter or digit,' \
-      'up to 64.' \
+      'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
+      '--dangerously-skip-permissions. A repeat with the same --request-id (or --task) returns the same slot. Agents' \
+      'always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _, -, and /,' \
+      'starting with a letter or digit, up to 64.' \
       'returns: created, key, repo, slot, path, state, task, request_id, session_id, base, trust_prompt_expected,' \
       '         prompt_delivered (false when the slot already held the task), missing_siblings, phases, next_step' \
       'example: agent-slot launch dotfiles --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
     resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--output json]' \
-      "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID." \
+      "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID" \
+      'with --dangerously-skip-permissions.' \
       'returns: key, started[] (the sessions it created)' \
       'example: agent-slot resume dotfiles/2' ;;
     warm) printf '%s\n' 'usage: agent-slot warm <repo> [--count N] [--output json]' \

@@ -72,6 +72,20 @@ ledger_line() {
   jaq -e '.findings[0].reason == "prune-timer-inactive"' <<<"$output"
 }
 
+@test "settings that never accepted bypass permissions mode are a warning naming the claude package deploy" {
+  local settings
+  for settings in '{}' '{"skipDangerousModePermissionPrompt": false}' ''; do
+    rm -f "$AGENT_SLOT_CLAUDE_SETTINGS"
+    [ -z "$settings" ] || printf '%s\n' "$settings" >"$AGENT_SLOT_CLAUDE_SETTINGS"
+    run --separate-stderr "$AGENT_SLOT" doctor --output json
+    [ "$status" -eq 0 ]
+    jaq -e --arg p "$AGENT_SLOT_CLAUDE_SETTINGS" '.ok == true and (.findings | length == 1) and (.findings[0]
+      | .reason == "bypass-mode-unaccepted" and .value == $p and .severity == "warning"
+        and .next_step.command == "cd ~/dotfiles && scripts/stow-deploy claude"
+        and .next_step.action == "fix-config")' <<<"$output"
+  done
+}
+
 @test "an untrusted next slot path is a warning naming agent-slot warm" {
   slot repoa 1
   run --separate-stderr "$AGENT_SLOT" doctor --output json

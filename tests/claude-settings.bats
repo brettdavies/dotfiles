@@ -112,13 +112,24 @@ REPO="$BATS_TEST_DIRNAME/.."
 }
 
 # agent-slot takes its verb as the first argument, so `agent-slot sweep *`
-# catches every flag order after it, and the bare verb too.
+# catches every flag order after it, and the bare verb too. An ask rule still
+# prompts in bypass permissions mode, which every slot's Claude starts in, so
+# these rules are what stop a slot's agent from deleting slots unasked.
 @test "agent-slot sweep and finish ask first" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
   [ "$status" -eq 0 ]
   grep -qxF 'Bash(agent-slot sweep *)' <<<"$output"
   grep -qxF 'Bash(agent-slot finish *)' <<<"$output"
+}
+
+# agent-slot starts every slot's Claude with --dangerously-skip-permissions.
+# Without this acceptance on record, each one stops on the bypass permissions
+# warning until someone answers it in the slot's tab.
+@test "bypass permissions mode stays accepted for agent-slot's Claude sessions" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -e '.skipDangerousModePermissionPrompt == true' "$SETTINGS"
+  [ "$status" -eq 0 ]
 }
 
 @test "agent-slot's read-only verbs run without a prompt" {

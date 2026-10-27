@@ -240,13 +240,13 @@ launch() {
   cmp "$T/brief.md" "$T/received"
 }
 
-@test "the claude session gets its session ID, the task only when given, and the first message only when given" {
+@test "the claude session skips permission prompts and gets its session ID, the task only when given, and the first message only when given" {
   launch repoa --request-id r-plain
   session=$(jaq -r .session_id <<<"$output")
-  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --session-id $session" ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --session-id $session" ]
   launch repoa --request-id r-task --task t1
   session=$(jaq -r .session_id <<<"$output")
-  [ "$(cat "$STUBS/typed-repoa-2")" = "claude --session-id $session -n t1" ]
+  [ "$(cat "$STUBS/typed-repoa-2")" = "claude --dangerously-skip-permissions --session-id $session -n t1" ]
 }
 
 @test "the three sessions are rooted at the slot on the slot server, with the tmuxinator commands typed into shells" {
@@ -372,21 +372,21 @@ EOF
   jaq -e '.first == 15 and .second == 15 and .repo == "repoa"' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
 }
 
-@test "resume of a dormant slot starts its three sessions, the Claude one resuming the recorded session" {
+@test "resume of a dormant slot starts its three sessions, the Claude one resuming the recorded session with permission prompts skipped" {
   slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444"}'
   mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1"
   : >"$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1/aaaaaaaa-1111-2222-3333-444444444444.jsonl"
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
   jaq -e '.started == ["repoa-1", "repoa-1-files", "repoa-1-git"]' <<<"$output"
-  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --resume aaaaaaaa-1111-2222-3333-444444444444' ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --resume aaaaaaaa-1111-2222-3333-444444444444' ]
 }
 
 @test "resume of a slot whose conversation Claude never saved starts Claude with its session ID and task, as launch does" {
   slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444", "task": "fix-login"}'
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
-  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --session-id aaaaaaaa-1111-2222-3333-444444444444 -n fix-login' ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --session-id aaaaaaaa-1111-2222-3333-444444444444 -n fix-login' ]
 }
 
 @test "a session ID in the record that holds shell syntax is typed as one argument" {

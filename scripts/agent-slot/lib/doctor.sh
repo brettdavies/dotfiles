@@ -55,6 +55,10 @@ doctor_check_config() {
   [[ -r $AS_TMUX_CONF ]] || doctor_finding error slots-config-missing \
     "$AS_TMUX_CONF is missing, so the slot tmux server would load the default config" --value "$AS_TMUX_CONF" \
     --command "cd ~/dotfiles && scripts/stow-deploy tmux"
+  contract_json -e '.skipDangerousModePermissionPrompt == true' "$AS_CLAUDE_SETTINGS" >/dev/null \
+    || doctor_finding warning bypass-mode-unaccepted \
+      "$AS_CLAUDE_SETTINGS does not accept bypass permissions mode, so every slot's Claude stops on its warning first" \
+      --value "$AS_CLAUDE_SETTINGS" --command "cd ~/dotfiles && scripts/stow-deploy claude"
   if [[ -n $AS_SYSTEMCTL ]] \
     && [[ $("$AS_SYSTEMCTL" --user is-enabled tmux-prune-orphans-slots.timer 2>/dev/null) != enabled ]]; then
     doctor_finding error prune-timer-inactive "the slot server's orphan-client prune timer is not enabled" \

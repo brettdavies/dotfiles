@@ -34,10 +34,12 @@ agent_slot_setup() {
   export AGENT_SLOT_GIT_CRYPT_KEY=$T/git-crypt.key
   export AGENT_SLOT_CLAUDE_STATE=$T/claude.json
   export AGENT_SLOT_CLAUDE_PROJECTS=$T/claude-projects
+  export AGENT_SLOT_CLAUDE_SETTINGS=$T/claude-settings.json
   mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS"
   : >"$AGENT_SLOT_TMUX_CONF"
   : >"$AGENT_SLOT_GIT_CRYPT_KEY"
   printf '{"projects":{}}\n' >"$AGENT_SLOT_CLAUDE_STATE"
+  printf '{"skipDangerousModePermissionPrompt":true}\n' >"$AGENT_SLOT_CLAUDE_SETTINGS"
 
   # tmux keeps each socket's sessions in a file: no file means no server. capture-pane prints $STUBS/screen. On any
   # socket but the slot one (the trust step's), Down swaps in $STUBS/screen-down and Enter $STUBS/screen-after when

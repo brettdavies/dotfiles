@@ -70,6 +70,7 @@ context_text() {
       "Run agent-slot verbs with `--output json` after the verb; `--help` on any verb lists its flags and fields.",
       "`agent-slot schema --output json` prints the whole contract: the success and error objects and every reason.",
       "To hand a task to another agent, run `agent-slot launch <repo> --request-id <id> --prompt-file <brief>`.",
+      "Claude runs here with `--dangerously-skip-permissions`; ask rules, deny rules, and hooks still stop tool calls.",
       "`agent-slot sweep` and `agent-slot finish` delete slots: ask the operator before running either with `--yes`.",
       "In a review round, re-check the state of the PR before stacking new commits on it.",
       "Stage with `git add`, then run a plain `git commit`; never `git commit -a` or `git commit <path>`.",

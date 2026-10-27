@@ -55,6 +55,7 @@ solutions-corpus-missing      78    false      0            fix-config
 slots-config-missing          78    false      0            install
 prune-timer-inactive          78    false      0            run
 slot-path-untrusted           78    false      0            run
+bypass-mode-unaccepted        78    false      0            fix-config
 version-unverified            0     false      0            ask-operator
 repo-required                 2     false      0            run
 server-unreachable            1     true       5            retry
