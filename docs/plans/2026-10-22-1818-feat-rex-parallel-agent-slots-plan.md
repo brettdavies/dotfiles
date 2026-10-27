@@ -104,7 +104,10 @@ Finally, nothing tells the operator which agent needs attention without visiting
 - **The slot command trusts its own slot paths, through Claude's own dialog.** (session-settled: user-approved — chosen
   over accepting each new path by hand, over only labelling a tab that waits on the dialog, and over writing trust into
   Claude's app-state file: no flag or setting pre-trusts a path, a parent folder's trust does not cover a clone, and
-  delegated agents must never wait on a dialog nobody sees.) Governs R24.
+  delegated agents must never wait on a dialog nobody sees.) It does so only for a repo whose prime checkout the
+  operator has already trusted in Claude; any other repo's slot is labelled `trust needed`. (session-settled:
+  user-directed — trusting a path lets Claude load the repo's own settings and hooks, and `repos` lists third-party
+  upstream clones too.) Governs R24.
 - **Agents start and brief slots.** A skill teaches any agent the slot command, and a launch can carry Claude's first
   message. (session-settled: user-approved — chosen over keeping slots operator-only: an agent delegates a task in one
   call.) Governs R25.
@@ -667,7 +670,9 @@ slots, and a doctor on each machine.
      hand). `launch` then continues, reports `trust_prompt_expected`, and the tab is labelled `trust needed`.
 
   `launch` skips the step when Claude's app-state file, read only, already marks the path trusted; that key is not a
-  supported interface, so a missing or unreadable entry counts as untrusted. The function never writes Claude's
+  supported interface, so a missing or unreadable entry counts as untrusted. Both `launch` and `warm` also skip it when
+  that file does not mark the repo's prime checkout trusted: `launch` then reports `trust_prompt_expected`, and `warm`
+  reports `prime-untrusted` for each path. The function never writes Claude's
   app-state file, and it is the one place to replace when Claude ships a supported way to pre-trust a path (Upstream
   Asks). (session-settled: user-approved — chosen over accepting each new path by hand, over only labelling a tab that
   waits on the dialog, and over writing trust into Claude's app-state file; running it inside `launch` was chosen over

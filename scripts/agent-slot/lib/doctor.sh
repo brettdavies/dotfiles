@@ -63,12 +63,19 @@ doctor_check_config() {
 }
 
 doctor_check_trust() {
-  local repo n=1
+  local repo n=1 prime
   while read -r repo; do
     [[ -n $repo ]] || continue
     n=1
     while slot_taken "$repo" "$n"; do n=$((n + 1)); done
     trust_known "$(slot_path "$repo" "$n")" && continue
+    prime=$(repo_primes | awk -F '\t' -v r="$repo" '$1 == r { print $2 }')
+    if [[ -n $prime ]] && ! trust_known "$prime"; then
+      doctor_finding warning slot-path-untrusted \
+        "$repo's prime $prime is not trusted in Claude, so its slots start at trust needed; open Claude there once" \
+        --value "$prime"
+      continue
+    fi
     doctor_finding warning slot-path-untrusted \
       "$(slot_key "$repo" "$n") is not trusted in Claude yet, so its first launch spends time on the trust step" \
       --value "$(slot_path "$repo" "$n")" --command "agent-slot warm $repo"

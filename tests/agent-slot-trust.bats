@@ -20,6 +20,12 @@ setup() {
   export AGENT_SLOT_CLAUDE_PROJECTS=$T/projects AGENT_SLOT_TRUST_TIMEOUT=3
   mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS"
   prime repoa
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
+}
+
+untrust_prime() {
+  jaq --arg p "$(realpath -m "$AGENT_SLOT_DEV/repoa")" 'del(.projects[$p])' "$AGENT_SLOT_CLAUDE_STATE" >"$T/state.new"
+  mv "$T/state.new" "$AGENT_SLOT_CLAUDE_STATE"
 }
 
 # dialog_screen PATH [yes]: Claude's trust dialog naming PATH, with "No, exit" highlighted, or "Yes" with a second
@@ -79,6 +85,24 @@ dialog_fixture() {
   grep -qF -- "-c $AGENT_SLOT_ROOT/repoa/1 $STUBS/claude" "$CALLS"
   keys=$(grep -F -- '-L agent-slot-trust send-keys' "$CALLS" | awk '{ print $NF }' | paste -sd ' ')
   [ "$keys" = "Down Enter" ]
+}
+
+@test "launch of a repo whose prime checkout is untrusted sends no keys and expects the prompt" {
+  untrust_prime
+  dialog_fixture "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")"
+  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-untrusted --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.trust_prompt_expected == true and .key == "repoa/1"' <<<"$output"
+  [ "$(grep -cF -- '-L agent-slot-trust' "$CALLS")" -eq 0 ]
+}
+
+@test "warm of a repo whose prime checkout is untrusted trusts nothing and says why" {
+  untrust_prime
+  prompt_screen >"$STUBS/screen"
+  run --separate-stderr "$AGENT_SLOT" warm repoa --count 2 --output json
+  [ "$status" -eq 0 ]
+  [ "$(jaq -c '[.paths[].result]' <<<"$output")" = '["prime-untrusted","prime-untrusted"]' ]
+  [ "$(grep -cF -- '-L agent-slot-trust' "$CALLS")" -eq 0 ]
 }
 
 @test "a Down the dialog misses is sent again, and Enter goes only to a highlighted Yes" {

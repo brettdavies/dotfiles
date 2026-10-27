@@ -84,6 +84,15 @@ ledger_line() {
   jaq -e '.findings == []' <<<"$output"
 }
 
+@test "a repo whose prime checkout is untrusted is a warning naming the prime, with no command to run" {
+  prime repoa
+  slot repoa 1
+  run --separate-stderr "$AGENT_SLOT" doctor --output json
+  [ "$status" -eq 0 ]
+  jaq -e --arg p "$AGENT_SLOT_DEV/repoa" '.findings[0] | .reason == "slot-path-untrusted" and .value == $p
+    and .next_step.command == null and .severity == "warning"' <<<"$output"
+}
+
 @test "launch times give the median and p90 over measured launches, leaving out unready and skewed ones" {
   local i
   for i in 1 2 3 4 5; do

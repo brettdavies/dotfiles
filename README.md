@@ -272,6 +272,8 @@ the *needs-you list*, shown on its tab and in the `agent-slots` control session.
 2. Run `agent-slot-rex doctor` on the Mac. It checks the Mac's side, then runs `agent-slot doctor` on the server, with
    every next step written to run through the ssh alias.
 3. Run `agent-slot warm <repo>` on the server for the repos you use, so a first launch there skips Claude's trust step.
+   A slot is trusted automatically only for a repo whose prime checkout you have trusted in Claude, because trust lets
+   Claude load the repo's own settings and hooks; open Claude once in any other repo's prime checkout first.
 
 #### Keys and tab labels
 
@@ -283,7 +285,8 @@ the *needs-you list*, shown on its tab and in the `agent-slots` control session.
 
 A slot's tab is labelled `<repo>/<N>`, then `· <task>` (the task name, or the agent's branch once it has one), then:
 
-- `· trust needed` when Claude's trust dialog for the slot path did not look as expected: accept it in the tab;
+- `· trust needed` when the repo's prime checkout is not trusted in Claude, or Claude's trust dialog for the slot path
+  did not look as expected: accept it in the tab;
 - `· needs you: <first blocker>` when something keeps the slot from being deleted;
 - `<repo> · launch failed` on a launch tab that stopped, with the error, its next step, and its log; Enter retries a
   retryable failure with the same request ID, and q closes the tab.
@@ -338,7 +341,7 @@ says whether a retry is safe, and a `log`.
 | `solutions-corpus-missing`    | 78   | The shared solutions repo is not cloned                                                        |
 | `slots-config-missing`        | 78   | `slots.conf` is not deployed; `scripts/stow-deploy tmux`                                       |
 | `prune-timer-inactive`        | 78   | The slot server's orphan-client prune timer is not enabled                                     |
-| `slot-path-untrusted`         | 78   | Doctor warning: a repo's next slot path is not trusted yet; `agent-slot warm <repo>`           |
+| `slot-path-untrusted`         | 78   | Doctor warning: a slot path, or the repo's prime checkout, is not trusted in Claude yet        |
 | `version-unverified`          | 0    | Doctor warning: Claude or Rex differs from the version the checklist last ran on               |
 | `repo-required`               | 2    | The new-agent key was pressed outside a repo's session, with no terminal to ask in             |
 | `server-unreachable`          | 1    | ssh to the Linux server failed; retry once the network is back                                 |

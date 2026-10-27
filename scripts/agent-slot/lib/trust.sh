@@ -6,6 +6,9 @@
 # pre-trusts a path, so trust_accept answers Claude's own dialog: it starts Claude at the path in a scratch pane on its
 # own tmux socket, which the slot hooks ignore, and reads the screen. This is the one place to replace once Claude
 # offers a supported way to trust a path.
+#
+# Trusting a path lets Claude load the repo's own .claude settings and hooks, so a slot path is trusted only for a repo
+# whose prime checkout the operator has already trusted in Claude. Any other repo's launch shows trust needed.
 
 TRUST_LOG=
 
@@ -100,18 +103,22 @@ trust_accept() {
 }
 
 # Usage: warm_paths <repo> <count>
-# Trusts slot paths 1..count ahead of time, creating each empty directory first. A path that holds a clone or a claim
-# is left alone. Sets WARM_RESULTS to one JSON object per path.
+# Trusts slot paths 1..count ahead of time, creating each empty directory first, when the repo's prime checkout
+# (REPO_PRIME) is trusted. A path that holds a clone or a claim is left alone. Sets WARM_RESULTS to one JSON object
+# per path.
 WARM_RESULTS=()
 warm_paths() {
-  local repo=$1 count=$2 n path result
+  local repo=$1 count=$2 n path result prime_trusted=0
   WARM_RESULTS=()
+  ! trust_known "$REPO_PRIME" || prime_trusted=1
   for ((n = 1; n <= count; n++)); do
     path=$(slot_path "$repo" "$n")
     if slot_taken "$repo" "$n"; then
       result=in-use
     elif trust_known "$path"; then
       result=already-trusted
+    elif ((prime_trusted == 0)); then
+      result=prime-untrusted
     else
       mkdir -p "$path"
       if trust_accept "$path"; then result=trusted; else result=unrecognized; fi

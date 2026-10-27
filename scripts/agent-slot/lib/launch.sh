@@ -191,7 +191,7 @@ cmd_launch() {
   t_setup=$(_launch_us)
 
   contract_use_tools tmux claude
-  if ! trust_known "$path" && ! trust_accept "$path"; then
+  if ! trust_known "$path" && ! { trust_known "$REPO_PRIME" && trust_accept "$path"; }; then
     trust=true
     record_update "$repo" "$n" '.trust_prompt_expected = true'
   fi
