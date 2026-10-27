@@ -33,6 +33,8 @@ agent_slot_setup() {
   export AGENT_SLOT_SOLUTIONS=$T/solutions
   export AGENT_SLOT_GIT_CRYPT_KEY=$T/git-crypt.key
   export AGENT_SLOT_CLAUDE_STATE=$T/claude.json
+  export AGENT_SLOT_CLAUDE_PROJECTS=$T/claude-projects
+  mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS"
   : >"$AGENT_SLOT_TMUX_CONF"
   : >"$AGENT_SLOT_GIT_CRYPT_KEY"
   printf '{"projects":{}}\n' >"$AGENT_SLOT_CLAUDE_STATE"

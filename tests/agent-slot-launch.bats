@@ -374,10 +374,19 @@ EOF
 
 @test "resume of a dormant slot starts its three sessions, the Claude one resuming the recorded session" {
   slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444"}'
+  mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1"
+  : >"$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1/aaaaaaaa-1111-2222-3333-444444444444.jsonl"
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
   jaq -e '.started == ["repoa-1", "repoa-1-files", "repoa-1-git"]' <<<"$output"
   [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --resume aaaaaaaa-1111-2222-3333-444444444444' ]
+}
+
+@test "resume of a slot whose conversation Claude never saved starts Claude with its session ID and task, as launch does" {
+  slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444", "task": "fix-login"}'
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --session-id aaaaaaaa-1111-2222-3333-444444444444 -n fix-login' ]
 }
 
 @test "a session ID in the record that holds shell syntax is typed as one argument" {
