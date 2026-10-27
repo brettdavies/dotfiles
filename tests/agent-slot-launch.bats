@@ -312,6 +312,15 @@ launch() {
   ((SECONDS >= 2))
 }
 
+@test "a record write that fails leaves the record as it was, even where errexit is off" {
+  slot repoa 1
+  local lib=$BATS_TEST_DIRNAME/../scripts/agent-slot/lib record=$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json before
+  before=$(cat "$record")
+  bash -c 'source "$1/env.sh"; source "$1/contract.sh"; source "$1/record.sh"; agent_slot_env "$1/.."
+    record_write repoa 1 "not json" || true' _ "$lib"
+  [ "$(cat "$record")" = "$before" ]
+}
+
 @test "two writers updating one record both land" {
   slot repoa 1
   local lib=$BATS_TEST_DIRNAME/../scripts/agent-slot/lib

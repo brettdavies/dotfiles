@@ -136,7 +136,10 @@ record_write() {
   local file tmp claim
   file=$(_record_target "$1" "$2")
   tmp=$(mktemp "${file%/*}/.agent-slot.json.XXXXXX")
-  contract_json -c --arg schema "$CONTRACT_SCHEMA" '.schema = $schema' <<<"$3" >"$tmp"
+  if ! contract_json -c --arg schema "$CONTRACT_SCHEMA" '.schema = $schema' <<<"$3" >"$tmp" || [[ ! -s $tmp ]]; then
+    rm -f "$tmp"
+    return 1
+  fi
   mv -f "$tmp" "$file"
   claim=$(slot_claim_file "$1" "$2")
   if [[ $file != "$claim" && -e $claim ]]; then
