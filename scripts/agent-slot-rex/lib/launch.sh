@@ -66,10 +66,6 @@ pass --repo with one of: $(contract_json -r 'join(", ")' <<<"$LAUNCH_REPOS")" --
 
 launch_pick_repo() {
   local choice count
-  if [[ -n ${REX_SESSION:-} && -n ${REX_BLOCK:-} ]]; then
-    rex_window_of "$REX_SESSION" "$REX_BLOCK"
-    [[ -z $REX_OUT ]] || rex_focus "$REX_SESSION" "$REX_OUT"
-  fi
   count=$(contract_json 'length' <<<"$LAUNCH_REPOS")
   contract_json -r 'to_entries[] | "\(.key + 1)) \(.value)"' <<<"$LAUNCH_REPOS"
   while true; do
@@ -81,6 +77,13 @@ launch_pick_repo() {
       return 0
     fi
   done
+}
+
+# The new-agent key's action reads this list, one name per line, to tell a repo's session from any other.
+launch_save_repos() {
+  mkdir -p "$AR_STATE"
+  contract_json -r '.[]' <<<"$LAUNCH_REPOS" >"$AR_STATE/repos.$$"
+  mv -f "$AR_STATE/repos.$$" "$AR_STATE/repos"
 }
 
 launch_elsewhere() {
@@ -177,6 +180,7 @@ cmd_launch() {
   fi
   launch_call 30 repos
   LAUNCH_REPOS=$(contract_json -c '[.repos[].name]' <<<"$SERVER_OUT")
+  launch_try launch_save_repos
   launch_resolve_repo
   if ((LAUNCH_PICKED == 1 || LAUNCH_HERE == 0)); then
     launch_elsewhere

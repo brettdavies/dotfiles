@@ -283,6 +283,8 @@ the *needs-you list*, shown on its tab and in the `agent-slots` control session.
 | `cmd+alt+r` | Give every live slot its tab back, resume dormant slots, and close tabs whose slot is gone      |
 | `cmd+alt+f` | Finish the focused tab's task (no open PR) and delete its slot when nothing in it would be lost |
 
+In a session not named after a repo, `cmd+alt+n`'s tab comes forward instead and asks which repo to use.
+
 A slot's tab is labelled `<repo>/<N>`, then `· <task>` (the task name, or the agent's branch once it has one), then:
 
 - `· trust needed` when the repo's prime checkout is not trusted in Claude, or Claude's trust dialog for the slot path

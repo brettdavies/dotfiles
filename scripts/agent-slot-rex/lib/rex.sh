@@ -101,9 +101,6 @@ rex_rename() { rex_or_fail window rename -s "$1" "$2" "$3"; }
 # Usage: rex_close <session-id> <window-id>
 rex_close() { rex_or_fail window close -s "$1" "$2"; }
 
-# Usage: rex_focus <session-id> <window-id>
-rex_focus() { rex_or_fail focus -s "$1" "$2"; }
-
 # Usage: rex_send <session-id> <block-id> <text>; types the text into the block's terminal.
 rex_send() { rex_or_fail send -s "$1" -b "$2" "$3"; }
 

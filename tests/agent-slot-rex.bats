@@ -129,9 +129,17 @@ in_rex_session() {
   run with_tty "$AGENT_SLOT_REX" launch --here <<<"2"
   [ "$status" -eq 0 ]
   [[ $output == *"1) X"* && $output == *"2) Y"* ]]
-  called '^rex focus -s sess-a win-a$'
   called "^rex new Y --window Y · launching --json -- $STUBS/agent-slot-rex launch --here --repo Y$"
   not_called '^ssh-stub .*agent-slot launch'
+}
+
+@test "launch writes the server's repo names, one per line, where the new-agent key's action reads them" {
+  in_rex_session X
+  repos X Y
+  ssh_answer launch 0 "$LAUNCHED"
+  run "$AGENT_SLOT_REX" launch --here
+  [ "$status" -eq 0 ]
+  [ "$(cat "$AGENT_SLOT_REX_STATE_DIR/repos")" = "$(printf 'X\nY')" ]
 }
 
 @test "a retryable launch failure waits for Enter, then retries with the same request ID" {
