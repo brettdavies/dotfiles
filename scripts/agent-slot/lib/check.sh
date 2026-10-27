@@ -7,15 +7,19 @@
 #
 #   the agent is idle or absent; the tree is clean apart from setup's docs/solutions link and nothing is stashed; every
 #   local commit is in the final head of one of the task's PRs, or, for a task that never had a PR, on a branch on
-#   origin; no untracked file exists beyond the files setup placed, and no ignored file beyond those, tool and build
-#   output, and byte-for-byte copies of files HEAD tracks; and no symlink under the home directory resolves into the
-#   slot.
+#   origin; no untracked file exists beyond the files setup placed and Claude Code's own runtime files, and no ignored
+#   file beyond those, tool and build output, and byte-for-byte copies of files HEAD tracks; and no symlink under the
+#   home directory resolves into the slot.
 
 CHECK_CODES='pr-state-unknown pr-closed-unmerged git-state-unknown agent-not-idle agent-state-unknown
 uncommitted-changes stash-present unpushed-commits commits-without-pr untracked-files local-only-files
 home-symlink-into-slot home-scan-incomplete slot-busy'
 
 CHECK_SETUP_FILES='docs/solutions .claude/settings.local.json'
+# Files Claude Code writes into a project's .claude/ by itself: the scheduler's lock, and the tasks a session saved,
+# which run only in the folder that saved them (https://code.claude.com/docs/en/scheduled-tasks). Its other runtime
+# paths there, such as worktrees/ and agent-memory-local/, can hold a task's work, so they still block.
+CHECK_RUNTIME_FILES='.claude/scheduled_tasks.lock .claude/scheduled_tasks.json'
 # Names only a tool gives a directory, so every ignored path under one is its output. A source tree can name a
 # directory build or dist too, so a build directory counts only when git lists it whole.
 CHECK_TOOL_DIRS='node_modules .venv __pycache__ .pytest_cache .mypy_cache .ruff_cache .next .turbo .astro .wrangler .blume .build'
@@ -80,16 +84,17 @@ _check_head_copy() {
 
 # Usage: _check_untracked_paths <slot path> <git status -z file>; prints each untracked (??) and ignored (!!) entry as
 # "<status> <path>", NUL-separated, with a directory's trailing slash kept. git collapses an ignored directory into one
-# entry, so a directory that holds a file setup placed, such as an ignored .claude/, is listed file by file instead.
+# entry, so a directory that can hold a file setup placed or a Claude Code runtime file, such as an ignored .claude/, is
+# listed file by file instead.
 _check_untracked_paths() {
-  local entry status path setup file
+  local entry status path exempt file
   while IFS= read -r -d '' entry; do
     status=${entry:0:2}
     [[ $status == '??' || $status == '!!' ]] || continue
     path=${entry:3}
     if [[ $path == */ ]]; then
-      for setup in $CHECK_SETUP_FILES; do
-        [[ $setup == "$path"* ]] || continue
+      for exempt in $CHECK_SETUP_FILES $CHECK_RUNTIME_FILES; do
+        [[ $exempt == "$path"* ]] || continue
         while IFS= read -r -d '' file; do
           printf '%s %s\0' "$status" "${file#"$1"/}"
         done < <(find "$1/${path%/}" -mindepth 1 \( -type f -o -type l \) -print0)
@@ -100,8 +105,9 @@ _check_untracked_paths() {
   done <"$2"
 }
 
-# Usage: _check_files <slot path>; untracked files beyond what setup placed, and ignored files beyond that, build
-# output, and copies of files HEAD tracks. HEAD's tree is listed once, and only for ignored paths nothing else exempts.
+# Usage: _check_files <slot path>; untracked files beyond what setup placed and Claude Code's runtime files, and ignored
+# files beyond those, build output, and copies of files HEAD tracks. HEAD's tree is listed once, and only for ignored
+# paths nothing else exempts.
 _check_files() {
   local entry status path listing tree untracked=() ignored=() local_only=()
   listing=$(mktemp)
@@ -115,7 +121,8 @@ _check_files() {
     path=${entry:3}
     if _check_local_only "${path%/}"; then
       local_only+=("${path%/}")
-    elif [[ " $CHECK_SETUP_FILES " == *" ${path%/} "* ]] || _check_build_output "$status" "$path"; then
+    elif [[ " $CHECK_SETUP_FILES $CHECK_RUNTIME_FILES " == *" ${path%/} "* ]] \
+      || _check_build_output "$status" "$path"; then
       continue
     elif [[ $status == '!!' ]]; then
       ignored+=("$path")
