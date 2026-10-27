@@ -115,7 +115,7 @@ AR_AGAIN=
 ar_hold() {
   local key
   printf '%s\n' "${1:-${AR_AGAIN:+press r to run the $AR_AGAIN again; }press q to close this tab}"
-  while IFS= read -r -n 1 key; do
+  while IFS= read -r -s -n 1 key; do
     [[ $key != q ]] || return 0
     [[ -z $AR_AGAIN || $key != r ]] || ar_again
   done
