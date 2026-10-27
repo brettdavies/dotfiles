@@ -79,9 +79,13 @@ assert_shared_settings() {
   grep -qxF "source-file -F '#{d:current_file}/base.conf'" "$SLOTS_CONF"
 }
 
-@test "base.conf carries no plugin, hook, or reload binding" {
-  run grep -nE '@plugin|@resurrect|@continuum|tpm|^[[:space:]]*run|set-hook|^bind r ' "$BASE_CONF"
+@test "base.conf carries no plugin or reload binding, and no hook but the two focus hooks" {
+  run grep -nE '@plugin|@resurrect|@continuum|tpm|^[[:space:]]*run|^bind r ' "$BASE_CONF"
   [ "$status" -eq 1 ]
+  run grep -E '^[[:space:]]*set-hook' "$BASE_CONF"
+  [ "${#lines[@]}" -eq 2 ]
+  [[ "${lines[0]}" == "set-hook -g client-focus-out "* ]]
+  [[ "${lines[1]}" == "set-hook -g client-focus-in "* ]]
 }
 
 @test "tmux.conf declares its plugins and runs tpm on its last line" {
@@ -159,6 +163,41 @@ assert_shared_settings() {
 
   run tm list-keys -T prefix r
   [[ "$output" == *"source-file "*"/.config/tmux/slots.conf "* ]]
+}
+
+# wait_window_style VALUE: the probe window's own window-active-style reads back VALUE within five seconds.
+wait_window_style() {
+  local tries=0
+  until [ "$(tm show-options -wv -t probe window-active-style)" = "$1" ]; do
+    ((tries++ < 50)) || return 1
+    sleep 0.1
+  done
+}
+
+# focus_round_trip CONF SOCKET: a client attached to a server on SOCKET running CONF reports its terminal losing
+# focus, then regaining it.
+focus_round_trip() {
+  command -v script >/dev/null || skip "script(1) gives the tmux client a terminal"
+  start_server "$2" "$1"
+  local fifo=$BATS_TEST_TMPDIR/client-in-$2 tries=0
+  mkfifo "$fifo"
+  script -qec "tmux -L $SOCKET attach -t probe" /dev/null <"$fifo" >/dev/null 2>&1 3>&- &
+  exec 7>"$fifo"
+  until [ "$(tm list-clients | wc -l)" -ge 1 ]; do
+    ((tries++ < 50)) || return 1
+    sleep 0.1
+  done
+  printf '\033[O' >&7
+  wait_window_style 'bg=#3c2010'
+  printf '\033[I' >&7
+  wait_window_style ''
+  [ "$(tm show-options -gwv window-active-style)" = 'bg=#1e1e1e' ]
+  exec 7>&-
+}
+
+@test "on both servers, a terminal that loses focus tints the whole view amber, and regaining focus restores it" {
+  focus_round_trip "$TMUX_CONF" focus-operator
+  focus_round_trip "$SLOTS_CONF" focus-slots
 }
 
 @test "a slot server loads none of tmux.conf's plugins" {
