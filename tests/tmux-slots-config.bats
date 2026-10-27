@@ -181,7 +181,7 @@ focus_round_trip() {
   start_server "$2" "$1"
   local fifo=$BATS_TEST_TMPDIR/client-in-$2 tries=0
   mkfifo "$fifo"
-  script -qec "tmux -L $SOCKET attach -t probe" /dev/null <"$fifo" >/dev/null 2>&1 3>&- &
+  script -qec "TERM=xterm-256color tmux -L $SOCKET attach -t probe" /dev/null <"$fifo" >/dev/null 2>&1 3>&- &
   exec 7>"$fifo"
   until [ "$(tm list-clients | wc -l)" -ge 1 ]; do
     ((tries++ < 50)) || return 1
