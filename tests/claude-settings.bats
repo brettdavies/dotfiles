@@ -120,3 +120,13 @@ REPO="$BATS_TEST_DIRNAME/.."
   grep -qxF 'Bash(agent-slot sweep *)' <<<"$output"
   grep -qxF 'Bash(agent-slot finish *)' <<<"$output"
 }
+
+@test "agent-slot's read-only verbs run without a prompt" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.allow // [] | .[]' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  local verb
+  for verb in repos list whoami check doctor schema; do
+    grep -qxF "Bash(agent-slot $verb *)" <<<"$output" || { echo "missing allow rule: $verb"; false; }
+  done
+}

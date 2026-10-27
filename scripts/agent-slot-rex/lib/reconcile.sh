@@ -48,12 +48,12 @@ reconcile_fetch() {
 
 # Usage: reconcile_plan <tabs-json> <slots-json>; prints {open, rename, close}.
 reconcile_plan() {
-  contract_json -n -c --argjson tabs "$1" --argjson slots "$2" "$RECONCILE_LABEL"'
+  contract_json -n -c --argjson tabs "$1" --argjson slots "$2" --arg key "$SLOT_KEY_PATTERN" "$RECONCILE_LABEL"'
     def keyed:
       . as $tab
-      | (((.label // "") | capture("^(?<k>[A-Za-z0-9._-]+/[0-9]+)( |$)").k
+      | (((.label // "") | capture("^(?<k>" + $key + ")( |$)").k
           | select(split("/")[0] == $tab.session)) // null) as $by_label
-      | (first(.commands[] | capture("agent-slot-rex attach (?<k>[A-Za-z0-9._-]+/[0-9]+) (claude|files|git)").k)
+      | (first(.commands[] | capture("agent-slot-rex attach (?<k>" + $key + ") (claude|files|git)").k)
          // $by_label) as $key
       | . + {key: $key,
              running: ($key != null and (any(.commands[]; contains("agent-slot-rex attach \($key) claude"))

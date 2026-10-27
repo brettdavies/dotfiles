@@ -139,6 +139,48 @@ lacks_blocker() { jaq -e --arg c "$1" 'all(.blockers[]; .code != $c)' <<<"$VERDI
   jaq -e '.blockers[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
 }
 
+@test "a commit reachable only from a local tag blocks with unpushed-commits" {
+  finished_task
+  git -C "$SLOT" commit -q --allow-empty -m 'tagged work'
+  git -C "$SLOT" tag local-only
+  git -C "$SLOT" reset -q --hard HEAD~1
+  check
+  jaq -e '.blockers[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
+}
+
+@test "with no PR, a commit reachable only from a local tag blocks with unpushed-commits" {
+  work feat/y
+  git -C "$SLOT" push -q origin feat/y
+  git -C "$SLOT" commit -q --allow-empty -m 'tagged work'
+  git -C "$SLOT" tag local-only
+  git -C "$SLOT" reset -q --hard HEAD~1
+  check
+  jaq -e '.prs == [] and (.blockers[] | select(.code == "unpushed-commits") | .count == 1)' <<<"$VERDICT"
+}
+
+@test "a tag origin deletes after a check saw it leaves nothing behind that blocks" {
+  finished_task
+  git clone -q "$ORIGIN" "$T/tagger"
+  git -C "$T/tagger" commit -q --allow-empty -m 'release'
+  git -C "$T/tagger" tag v1
+  git -C "$T/tagger" push -q origin v1
+  check
+  git -C "$T/tagger" push -q origin --delete v1
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "a tag origin has, on a commit no origin branch holds, does not block" {
+  finished_task
+  git clone -q "$ORIGIN" "$T/tagger"
+  git -C "$T/tagger" commit -q --allow-empty -m 'release'
+  git -C "$T/tagger" tag v1
+  git -C "$T/tagger" push -q origin v1
+  git -C "$SLOT" fetch -q origin --tags
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
 @test "AE11: two PRs, one merged and one open, is not finished" {
   finished_task
   git -C "$SLOT" checkout -q -B feat/second main

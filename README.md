@@ -308,7 +308,8 @@ On the Mac, the keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and 
 
 With `--output json`, every verb prints one JSON object on success and one error object on stderr, with a `reason` from
 the table below, an exit code (0 ok, 1 failed, 2 usage, 77 auth, 78 configuration), a `next_step`, a `recovery` that
-says whether a retry is safe, and a `log`.
+says whether a retry is safe, and a `log`. `--output` goes after the verb. `agent-slot schema` prints both
+objects as JSON Schema with every reason, and each verb's `--help` lists the fields it returns.
 
 #### agent-slot reasons
 
@@ -362,7 +363,7 @@ message such as `1 unpushed commit`.
 | `agent-state-unknown`    | The agent's state could not be read, or a process outside the slot's panes uses the slot |
 | `uncommitted-changes`    | Tracked files have changes                                                               |
 | `stash-present`          | Something is stashed                                                                     |
-| `unpushed-commits`       | Commits are in no PR's final head and on no origin branch                                |
+| `unpushed-commits`       | Commits are in no PR's final head and on no origin branch or tag, counting local tags    |
 | `commits-without-pr`     | Commits sit only on an origin branch that has no PR, such as one pushed after the merge  |
 | `untracked-files`        | Untracked or ignored files beyond build and dependency output                            |
 | `local-only-files`       | `.context`, `todos`, `TODO*`, or `.env*` files, which never reach origin                 |

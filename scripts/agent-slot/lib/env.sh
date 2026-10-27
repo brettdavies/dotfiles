@@ -13,7 +13,7 @@ agent_slot_env() {
   PATH="$HOME/.local/bin:/home/linuxbrew/.linuxbrew/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
   AGENT_SLOT_JQ=${AGENT_SLOT_JQ:-$(command -v jaq || command -v jq || true)}
-  [[ -n $AGENT_SLOT_JQ ]] || return 1
+  [[ -n $AGENT_SLOT_JQ ]] && command -v -- "$AGENT_SLOT_JQ" >/dev/null || return 1
 
   AS_ROOT=${AGENT_SLOT_ROOT:-$HOME/slots}
   AS_ROOT_REAL=$(realpath -m "$AS_ROOT")

@@ -49,6 +49,21 @@ agentstate_load() {
     2>/dev/null || true)
 }
 
+# Usage: agentstate_descendants <pid...>; prints every process below the given ones, from the map agentstate_load read.
+agentstate_descendants() {
+  local -a queue=("$@")
+  local pid child
+  while ((${#queue[@]} > 0)); do
+    pid=${queue[0]}
+    queue=("${queue[@]:1}")
+    for child in "${!_AGENT_PPID[@]}"; do
+      [[ ${_AGENT_PPID[$child]} == "$pid" ]] || continue
+      queue+=("$child")
+      printf '%s\n' "$child"
+    done
+  done
+}
+
 _agent_from_panes() {
   local pid=$1 panes=" $2 " hops=0
   while [[ -n $pid && $pid != 0 && $pid != 1 ]] && ((hops++ < 64)); do
@@ -70,13 +85,13 @@ _agent_env_in_panes() {
 # Usage: agentstate_of <repo> <n>
 # Sets AGENT_STATE, AGENT_DETAIL (why, for unknown), and AGENT_PIDS (the Claude processes under the slot).
 agentstate_of() {
-  local repo=$1 n=$2 path base panes='' ids='' suffix sessions count entry pid target comm
+  local repo=$1 n=$2 path name panes='' ids='' kind sessions count entry pid target comm
   local -a outside=()
   path=$AS_ROOT_REAL/$repo/$n
-  base=$(slot_session "$repo" "$n")
-  for suffix in '' -files -git; do
-    panes+=${_AGENT_PANES[$base$suffix]:-}
-    ids+=${_AGENT_PANE_IDS[$base$suffix]:-}
+  for kind in "${SLOT_SESSION_KINDS[@]}"; do
+    name=$(slot_session "$repo" "$n" "$kind")
+    panes+=${_AGENT_PANES[$name]:-}
+    ids+=${_AGENT_PANE_IDS[$name]:-}
   done
   AGENT_STATE='' AGENT_DETAIL='' AGENT_PIDS=''
 

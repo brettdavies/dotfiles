@@ -34,6 +34,8 @@ AR_LIB=$AR_HOME/lib
 
 # shellcheck source=../agent-slot/lib/contract.sh
 source "$AR_HOME/../agent-slot/lib/contract.sh"
+# shellcheck source=../agent-slot/lib/names.sh
+source "$AR_HOME/../agent-slot/lib/names.sh"
 # shellcheck source=lib/server.sh
 source "$AR_LIB/server.sh"
 # shellcheck source=lib/rex.sh
@@ -54,8 +56,8 @@ source "$AR_LIB/help.sh"
 # A Rex tab or a command Rex starts at load hands over launchd's PATH, which may lack Homebrew.
 PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:$PATH"
 AGENT_SLOT_JQ=${AGENT_SLOT_JQ:-$(command -v jaq || command -v jq || true)}
-if [[ -z $AGENT_SLOT_JQ ]]; then
-  echo "agent-slot-rex: dependency-missing: neither jaq nor jq is installed; next: brew install jaq" >&2
+if [[ -z $AGENT_SLOT_JQ ]] || ! command -v -- "$AGENT_SLOT_JQ" >/dev/null; then
+  contract_no_json_tool agent-slot-rex "$@"
   exit "$EXIT_CONFIG"
 fi
 
@@ -82,6 +84,7 @@ CONTRACT_CONFIG=$(contract_json -n -c --arg server "$AR_SERVER" --arg state "$AR
 main() {
   contract_init agent-slot-rex "$@"
   CONTRACT_VERB=agent-slot-rex
+  refuse_leading_output "$@"
   local verb=${1:-}
   case $verb in
     '' | -h | --help | help)
@@ -92,7 +95,7 @@ main() {
   esac
   shift
   [[ $VERBS == *" $verb "* ]] || {
-    CONTRACT_OUTPUT=$([[ " $* " == *" --output json "* ]] && echo json || echo text)
+    [[ " $* " != *" --output json "* && " $* " != *" --output=json "* ]] || CONTRACT_OUTPUT=json
     contract_fail usage "unknown verb: $verb" --value "$verb" --command "agent-slot-rex --help"
   }
   CONTRACT_VERB=$verb
@@ -105,14 +108,10 @@ main() {
         verb_help "$verb"
         return 0
         ;;
-      --output)
-        [[ ${2:-} == json || ${2:-} == text ]] || usage_fail "--output takes json or text" "${2:-}"
-        CONTRACT_OUTPUT=$2
-        shift
-        ;;
-      --output=*)
-        CONTRACT_OUTPUT=${1#--output=}
-        [[ $CONTRACT_OUTPUT == json || $CONTRACT_OUTPUT == text ]] || usage_fail "--output takes json or text" "$1"
+      --output | --output=*)
+        output_flag "$@"
+        shift "$OUTPUT_SHIFT"
+        continue
         ;;
       *) args+=("$1") ;;
     esac
@@ -143,7 +142,7 @@ main() {
     finish)
       if ((${#args[@]} == 5)) && [[ ${args[0]} == --tab && ${args[1]} == --session && ${args[3]} == --block ]]; then
         cmd_finish_tab "${args[2]}" "${args[4]}"
-      elif ((${#args[@]} == 1)) && [[ ${args[0]} =~ ^[A-Za-z0-9._-]+/[0-9]+$ ]]; then
+      elif ((${#args[@]} == 1)) && [[ ${args[0]} =~ ^$SLOT_KEY_PATTERN$ ]]; then
         cmd_finish "${args[0]}"
       else
         usage_fail "finish takes a slot, <repo>/<N>, or --tab --session ID --block ID" "${args[*]}"

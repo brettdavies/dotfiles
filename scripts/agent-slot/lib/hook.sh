@@ -18,7 +18,7 @@ HOOK_PANE_TTY=
 hook_init() {
   local lib
   HOOK_NAME=$1
-  for lib in env contract record bounded read; do
+  for lib in env contract names record bounded read; do
     # shellcheck source=/dev/null
     source "$2/lib/$lib.sh" || return 1
   done
@@ -78,9 +78,8 @@ hook_pane() {
   [[ -n $HOOK_PANE_SESSION && $HOOK_PANE_PID =~ ^[0-9]+$ && -n $HOOK_PANE_TTY ]]
 }
 
-# Whether the pane is a slot's Claude session, <repo>-<N>, rather than its -files or -git session.
 hook_claude_session() {
-  [[ $HOOK_PANE_SESSION =~ -[0-9]+$ ]]
+  slot_session_is_claude "$HOOK_PANE_SESSION"
 }
 
 # Whether this hook belongs to the pane's top-level Claude: the nearest claude process above it is a child of the

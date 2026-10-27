@@ -9,6 +9,12 @@
     "allow": [
       "Bash(./.githooks/pre-push)",
       "Bash(actionlint *)",
+      "Bash(agent-slot check *)",
+      "Bash(agent-slot doctor *)",
+      "Bash(agent-slot list *)",
+      "Bash(agent-slot repos *)",
+      "Bash(agent-slot schema *)",
+      "Bash(agent-slot whoami *)",
       "Bash(alias:*)",
       "Bash(anc:*)",
       "Bash(ast-grep:*)",

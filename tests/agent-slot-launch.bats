@@ -193,6 +193,24 @@ launch() {
   [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
 }
 
+@test "a repeat launch by task says its first message was not delivered; a retry of the same request says it was" {
+  echo 'first brief' >"$T/brief.md"
+  launch repoa --task t1 --request-id r-a --prompt-file "$T/brief.md"
+  jaq -e '.created == true and .prompt_delivered == true' <<<"$output"
+  launch repoa --task t1 --request-id r-b --prompt-file "$T/brief.md"
+  jaq -e '.created == false and .prompt_delivered == false' <<<"$output"
+  launch repoa --task t1 --request-id r-a --prompt-file "$T/brief.md"
+  jaq -e '.created == false and .prompt_delivered == true' <<<"$output"
+  launch repoa --task t2
+  jaq -e '.prompt_delivered == null' <<<"$output"
+}
+
+@test "a launch's next step is a command the caller on the server can run" {
+  launch repoa --request-id r-next
+  [ "$status" -eq 0 ]
+  jaq -e '.next_step.command == "agent-slot check \(.key) --output json" and .next_step.action == "run"' <<<"$output"
+}
+
 @test "AE16: a second launch with the same request ID returns the existing slot; launches with neither each create one" {
   launch repoa --request-id same
   launch repoa --request-id same
@@ -294,6 +312,22 @@ launch() {
   grep -q 'kill-session -t =repoa-1$' "$CALLS"
 }
 
+@test "a retry of a request whose slot is still setting up is told to retry, never that its brief landed" {
+  mkdir -p "$AGENT_SLOT_ROOT/repoa"
+  echo '{"schema":"dotfiles.agent-slot/1","repo":"repoa","slot":1,"state":"setting-up","request_id":"r-live"}' \
+    >"$AGENT_SLOT_ROOT/repoa/.1.claim.json"
+  flock "$AGENT_SLOT_ROOT/repoa/.1.lock" sleep 60 3>&- &
+  local holder=$!
+  until [ -n "$(find /proc/$holder/fd -lname "$AGENT_SLOT_ROOT/repoa/.1.lock" 2>/dev/null)" ]; do sleep 0.1; done
+  echo 'brief' >"$T/brief.md"
+  launch repoa --request-id r-live --prompt-file "$T/brief.md"
+  kill "$holder" 2>/dev/null || true
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  jaq -e '.reason == "slot-busy" and .recovery.retryable == true
+    and (.next_step.command | contains("--request-id r-live"))' <<<"$stderr"
+}
+
 @test "a launch holding slot 2's lock is left alone: the next launch takes slot 3 and resume of slot 2 waits" {
   slot repoa 1
   echo '{"schema":"dotfiles.agent-slot/1","repo":"repoa","slot":2,"state":"setting-up","request_id":"live"}' \
@@ -344,6 +378,18 @@ EOF
   [ "$status" -eq 0 ]
   jaq -e '.started == ["repoa-1", "repoa-1-files", "repoa-1-git"]' <<<"$output"
   [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --resume aaaaaaaa-1111-2222-3333-444444444444' ]
+}
+
+@test "a session ID in the record that holds shell syntax is typed as one argument" {
+  slot repoa 1 "$(jaq -n -c --arg s "x; touch $T/pwned" '{session_id: $s}')"
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
+  [ "$status" -eq 0 ]
+  mkdir -p "$T/fakebin"
+  printf '#!/usr/bin/env bash\nprintf "%%s" "${@: -1}" >"%s/received"\n' "$T" >"$T/fakebin/claude"
+  chmod +x "$T/fakebin/claude"
+  PATH="$T/fakebin:$PATH" bash -c "$(cat "$STUBS/typed-repoa-1")"
+  [ ! -e "$T/pwned" ]
+  [ "$(cat "$T/received")" = "x; touch $T/pwned" ]
 }
 
 @test "two concurrent resumes create each session once" {

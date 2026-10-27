@@ -45,17 +45,16 @@ cmd_repos() {
 # needs-you list.
 SLOT_VIEW=
 slot_view() {
-  local repo=$1 n=$2 sessions=$3 rec base path state agent branch='' claude=false files=false git=false
+  local repo=$1 n=$2 sessions=$3 rec path state agent branch='' claude=false files=false git=false
   path=$(slot_path "$repo" "$n")
   if record_read "$repo" "$n"; then
     rec=$RECORD
   else
     rec=$(contract_json -n -c --arg r "$repo" --argjson n "$n" '{repo: $r, slot: $n, state: "setting-up"}')
   fi
-  base=$(slot_session "$repo" "$n")
-  ! grep -qxF "$base" <<<"$sessions" || claude=true
-  ! grep -qxF "$base-files" <<<"$sessions" || files=true
-  ! grep -qxF "$base-git" <<<"$sessions" || git=true
+  ! grep -qxF "$(slot_session "$repo" "$n")" <<<"$sessions" || claude=true
+  ! grep -qxF "$(slot_session "$repo" "$n" files)" <<<"$sessions" || files=true
+  ! grep -qxF "$(slot_session "$repo" "$n" git)" <<<"$sessions" || git=true
   state=$(contract_json -r '.state // "active"' <<<"$rec")
   [[ $state != active || $claude == true ]] || state=dormant
   agentstate_of "$repo" "$n"

@@ -21,7 +21,8 @@ _sessions_shell() {
 }
 
 # Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume]
-# Prints the line typed into a session, from the record in RECORD.
+# Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
+# value from it is shell-quoted.
 sessions_command() {
   local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd task prompt
   case $kind in
@@ -29,14 +30,14 @@ sessions_command() {
     git) printf '%s' 'lazygit' ;;
     claude)
       if [[ $mode == resume ]]; then
-        printf 'claude --resume %s' "$(contract_json -r '.session_id' <<<"$RECORD")"
+        printf 'claude --resume %q' "$(contract_json -r '.session_id' <<<"$RECORD")"
         return
       fi
-      cmd="claude --session-id $(contract_json -r '.session_id' <<<"$RECORD")"
+      printf -v cmd 'claude --session-id %q' "$(contract_json -r '.session_id' <<<"$RECORD")"
       task=$(contract_json -r '.task // ""' <<<"$RECORD")
-      [[ -z $task ]] || cmd+=" -n $task"
+      [[ -z $task ]] || printf -v cmd '%s -n %q' "$cmd" "$task"
       prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
-      [[ -z $prompt ]] || cmd+=" \"\$(cat '$prompt')\""
+      [[ -z $prompt ]] || printf -v cmd '%s "$(cat %q)"' "$cmd" "$prompt"
       printf '%s' "$cmd"
       ;;
   esac
@@ -47,15 +48,13 @@ sessions_command() {
 # RECORD. Sets SESSIONS_CREATED to the sessions it made. The caller holds the slot lock, so two calls never race to
 # create the same session.
 sessions_start() {
-  local repo=$1 n=$2 mode=$3 base path kind name shell out
-  base=$(slot_session "$repo" "$n")
+  local repo=$1 n=$2 mode=$3 path kind name shell out
   path=$(slot_path "$repo" "$n")
   shell=$(_sessions_shell)
   SESSIONS_CREATED=()
   slot_sessions_or_fail
-  for kind in claude files git; do
-    name=$base
-    [[ $kind == claude ]] || name+=-$kind
+  for kind in "${SLOT_SESSION_KINDS[@]}"; do
+    name=$(slot_session "$repo" "$n" "$kind")
     grep -qxF "$name" <<<"$SLOT_SESSIONS" && continue
     bounded out tmux 10 /usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$shell" TERM=xterm-256color \
       LANG="${LANG:-C.UTF-8}" PATH="$PATH" \

@@ -41,6 +41,8 @@ AS_LIB=$AS_HOME/lib
 source "$AS_LIB/env.sh"
 # shellcheck source=lib/contract.sh
 source "$AS_LIB/contract.sh"
+# shellcheck source=lib/names.sh
+source "$AS_LIB/names.sh"
 # shellcheck source=lib/record.sh
 source "$AS_LIB/record.sh"
 # shellcheck source=lib/bounded.sh
@@ -67,11 +69,13 @@ source "$AS_LIB/homescan.sh"
 source "$AS_LIB/check.sh"
 # shellcheck source=lib/teardown.sh
 source "$AS_LIB/teardown.sh"
+# shellcheck source=lib/schema.sh
+source "$AS_LIB/schema.sh"
 # shellcheck source=lib/help.sh
 source "$AS_LIB/help.sh"
 
 if ! agent_slot_env "$AS_HOME"; then
-  echo "agent-slot: dependency-missing: neither jaq nor jq is installed; next: brew install jaq" >&2
+  contract_no_json_tool agent-slot "$@"
   exit "$EXIT_CONFIG"
 fi
 
@@ -88,6 +92,7 @@ require_tools() {
 
 main() {
   contract_init agent-slot "$@"
+  refuse_leading_output "$@"
   local verb=${1:-}
   case $verb in
     '' | -h | --help | help)
@@ -103,7 +108,7 @@ main() {
   esac
   shift
   [[ $VERBS == *" $verb "* ]] || {
-    CONTRACT_OUTPUT=$([[ " $* " == *" --output json "* ]] && echo json || echo text)
+    [[ " $* " != *" --output json "* && " $* " != *" --output=json "* ]] || CONTRACT_OUTPUT=json
     contract_fail usage "unknown verb: $verb" --value "$verb" --command "agent-slot --help"
   }
   CONTRACT_VERB=$verb
@@ -116,14 +121,10 @@ main() {
         verb_help "$verb"
         return 0
         ;;
-      --output)
-        [[ ${2:-} == json || ${2:-} == text ]] || usage_fail "--output takes json or text" "${2:-}"
-        CONTRACT_OUTPUT=$2
-        shift
-        ;;
-      --output=*)
-        CONTRACT_OUTPUT=${1#--output=}
-        [[ $CONTRACT_OUTPUT == json || $CONTRACT_OUTPUT == text ]] || usage_fail "--output takes json or text" "$1"
+      --output | --output=*)
+        output_flag "$@"
+        shift "$OUTPUT_SHIFT"
+        continue
         ;;
       *) args+=("$1") ;;
     esac
@@ -131,7 +132,7 @@ main() {
   done
 
   case $verb in
-    repos | list | doctor)
+    repos | list | doctor | schema)
       ((${#args[@]} == 0)) || usage_fail "$verb takes no arguments" "${args[0]}"
       exec </dev/null
       [[ $verb != list ]] || require_tools tmux claude

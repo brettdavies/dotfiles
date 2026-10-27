@@ -52,10 +52,19 @@ teardown_recover() {
   record_update "$1" "$2" '.state = "active"'
 }
 
+# Stops the slot's Claude and every process still below it, such as a background job it started. Every process gets
+# SIGTERM before the wait, so they share one grace period.
 _teardown_stop_agent() {
   local pid waited=0
-  for pid in $AGENT_PIDS; do
-    kill -TERM "$pid" 2>/dev/null || continue
+  local -a claude pids
+  read -ra claude <<<"$AGENT_PIDS"
+  ((${#claude[@]} > 0)) || return 0
+  mapfile -t pids < <(
+    printf '%s\n' "${claude[@]}"
+    agentstate_descendants "${claude[@]}"
+  )
+  for pid in "${pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
+  for pid in "${pids[@]}"; do
     while kill -0 "$pid" 2>/dev/null && ((waited++ < 50)); do sleep 0.1; done
     kill -KILL "$pid" 2>/dev/null || true
   done
@@ -65,7 +74,7 @@ _teardown_stop_agent() {
 # Tears down a slot whose verdict passed; the caller holds its lock and the verdict's AGENT_PIDS. Returns 1, with the
 # slot active again and TEARDOWN_BLOCKERS set, when the re-check fails.
 slot_teardown() {
-  local repo=$1 n=$2 path real base suffix out
+  local repo=$1 n=$2 path real kind out
   path=$(slot_path "$repo" "$n")
   real=$(realpath -m "$path")
   if [[ $real != "$AS_ROOT_REAL/$repo/$n" ]]; then
@@ -87,9 +96,8 @@ slot_teardown() {
     _teardown_keep "$repo" "$n"
     return 1
   fi
-  base=$(slot_session "$repo" "$n")
-  for suffix in '' -files -git; do
-    slot_tmux out 10 kill-session -t "=$base$suffix" || true
+  for kind in "${SLOT_SESSION_KINDS[@]}"; do
+    slot_tmux out 10 kill-session -t "=$(slot_session "$repo" "$n" "$kind")" || true
   done
   bounded out trash 120 "$AS_TRASH" "$path" \
     || contract_fail script-error "trash could not move $path to the trash" --value "$path" --side-effects partial \

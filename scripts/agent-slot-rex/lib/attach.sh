@@ -10,13 +10,6 @@ ATTACH_SOCKET=agent-slots
 ATTACH_PATH='export PATH="$HOME/.local/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH";'
 ATTACH_MISSING=3
 
-# Usage: attach_session <repo> <n> <claude | files | git>; the tmux session name, as agent-slot names it.
-attach_session() {
-  local name="${1//[.:]/_}-$2"
-  [[ $3 == claude ]] || name+=-$3
-  printf '%s' "$name"
-}
-
 # The server's login shell is zsh, which expands a word that starts with = to a command's path, so the exact-match
 # target is always single-quoted. A session name holds only letters, digits, _, and -.
 attach_target() { printf "'=%s'" "$1"; }
@@ -50,13 +43,13 @@ attach_resume() {
 
 cmd_attach() {
   local status tries=0 resumed=0 err line
-  [[ $1 =~ ^([A-Za-z0-9._-]+)/([0-9]+)$ ]] || usage_fail "a slot is named <repo>/<N>, such as dotfiles/2" "$1"
+  slot_parse_key "$1"
   case $2 in
     claude | files | git) ;;
     *) usage_fail "the pane is claude, files, or git" "$2" ;;
   esac
   ATTACH_KEY=$1 ATTACH_KIND=$2
-  ATTACH_NAME=$(attach_session "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "$2")
+  ATTACH_NAME=$(slot_session "$SLOT_REPO" "$SLOT_N" "$2")
   err=$(mktemp)
   contract_on_exit rm -f "$err"
   contract_use_tools ssh
