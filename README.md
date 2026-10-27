@@ -376,7 +376,7 @@ message such as `1 unpushed commit`.
 | `stash-present`          | Something is stashed                                                                     |
 | `unpushed-commits`       | Commits are in no PR's final head and on no origin branch or tag, counting local tags    |
 | `commits-without-pr`     | Commits sit only on an origin branch that has no PR, such as one pushed after the merge  |
-| `untracked-files`        | Untracked or ignored files beyond build and dependency output                            |
+| `untracked-files`        | Untracked files, or ignored ones other than build output and copies of tracked files     |
 | `local-only-files`       | `.context`, `todos`, `TODO*`, or `.env*` files, which never reach origin                 |
 | `home-symlink-into-slot` | A symlink under the home directory resolves into the slot                                |
 | `home-scan-incomplete`   | The scan for such symlinks did not finish                                                |

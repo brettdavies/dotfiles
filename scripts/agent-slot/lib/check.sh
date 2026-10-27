@@ -7,15 +7,19 @@
 #
 #   the agent is idle or absent; the tree is clean apart from setup's docs/solutions link and nothing is stashed; every
 #   local commit is in the final head of one of the task's PRs, or, for a task that never had a PR, on a branch on
-#   origin; no untracked or ignored file exists beyond build and dependency output and the files setup placed; and no
-#   symlink under the home directory resolves into the slot.
+#   origin; no untracked file exists beyond the files setup placed, and no ignored file beyond those, tool and build
+#   output, and byte-for-byte copies of files HEAD tracks; and no symlink under the home directory resolves into the
+#   slot.
 
 CHECK_CODES='pr-state-unknown pr-closed-unmerged git-state-unknown agent-not-idle agent-state-unknown
 uncommitted-changes stash-present unpushed-commits commits-without-pr untracked-files local-only-files
 home-symlink-into-slot home-scan-incomplete slot-busy'
 
 CHECK_SETUP_FILES='docs/solutions .claude/settings.local.json'
-CHECK_BUILD_DIRS='node_modules target dist build .venv venv __pycache__ .pytest_cache .mypy_cache .ruff_cache .next .turbo coverage'
+# Names only a tool gives a directory, so every ignored path under one is its output. A source tree can name a
+# directory build or dist too, so a build directory counts only when git lists it whole.
+CHECK_TOOL_DIRS='node_modules .venv __pycache__ .pytest_cache .mypy_cache .ruff_cache .next .turbo .astro .wrangler .blume .build'
+CHECK_BUILD_DIRS='target dist build venv coverage'
 
 CHECK_BLOCKERS=()
 CHECK_VERDICT=
@@ -41,15 +45,37 @@ _check_local_only() {
   return 1
 }
 
-# Usage: _check_build_output <status> <path>; true for an ignored directory git listed whole whose own name is a build
-# or dependency directory. A new file inside a build-named directory that also holds tracked files is listed on its
-# own, so it never matches.
+# Usage: _check_build_output <status> <path>; true for an ignored path under a tool directory, or for an ignored
+# directory git listed whole whose own name is a build directory. A new file inside a build-named directory that also
+# holds tracked files is listed on its own, so it never matches.
 _check_build_output() {
-  local name
-  [[ $1 == '!!' && $2 == */ ]] || return 1
+  local name dir=/$2
+  [[ $1 == '!!' ]] || return 1
+  [[ $2 == */ ]] || dir=${dir%/*}/
+  for name in $CHECK_TOOL_DIRS; do
+    [[ $dir != */"$name"/* ]] || return 0
+  done
+  [[ $2 == */ ]] || return 1
   name=${2%/}
   name=${name##*/}
   [[ " $CHECK_BUILD_DIRS " == *" $name "* ]]
+}
+
+# Usage: _check_head_copy <slot path> <blob list> <path>; true when the ignored path holds at least one file and each
+# is a regular file outside the local-only names whose bytes are a blob in HEAD's tree. The commit checks hold HEAD to
+# origin, so deleting such a copy loses nothing. A path find cannot read in full adds an empty name, which fails.
+_check_head_copy() {
+  local file hashes
+  local -a files
+  [[ -s $2 ]] || return 1
+  mapfile -d '' files < <(find "$1/${3%/}" ! -type d -print0 2>/dev/null || printf '\0')
+  ((${#files[@]} > 0)) || return 1
+  for file in "${files[@]}"; do
+    [[ -f $file && ! -L $file ]] || return 1
+    ! _check_local_only "${file#"$1"/}" || return 1
+  done
+  hashes=$(git -C "$1" hash-object --no-filters -- "${files[@]}") || return 1
+  ! grep -qvxF -f "$2" <<<"$hashes"
 }
 
 # Usage: _check_untracked_paths <slot path> <git status -z file>; prints each untracked (??) and ignored (!!) entry as
@@ -74,9 +100,10 @@ _check_untracked_paths() {
   done <"$2"
 }
 
-# Usage: _check_files <slot path>; untracked and ignored files beyond build output and what setup placed.
+# Usage: _check_files <slot path>; untracked files beyond what setup placed, and ignored files beyond that, build
+# output, and copies of files HEAD tracks. HEAD's tree is listed once, and only for ignored paths nothing else exempts.
 _check_files() {
-  local entry status path listing untracked=() local_only=()
+  local entry status path listing tree untracked=() ignored=() local_only=()
   listing=$(mktemp)
   if ! git -C "$1" status --porcelain=v1 -z --ignored=matching --untracked-files=all >"$listing" 2>/dev/null; then
     rm -f "$listing"
@@ -88,10 +115,21 @@ _check_files() {
     path=${entry:3}
     if _check_local_only "${path%/}"; then
       local_only+=("${path%/}")
-    elif [[ " $CHECK_SETUP_FILES " != *" ${path%/} "* ]] && ! _check_build_output "$status" "$path"; then
+    elif [[ " $CHECK_SETUP_FILES " == *" ${path%/} "* ]] || _check_build_output "$status" "$path"; then
+      continue
+    elif [[ $status == '!!' ]]; then
+      ignored+=("$path")
+    else
       untracked+=("${path%/}")
     fi
   done < <(_check_untracked_paths "$1" "$listing")
+  if ((${#ignored[@]} > 0)); then
+    tree=$(git -C "$1" ls-tree -r --format='%(objecttype) %(objectname)' HEAD 2>/dev/null) || tree=
+    sed -n 's/^blob //p' <<<"$tree" >"$listing"
+    for path in "${ignored[@]}"; do
+      _check_head_copy "$1" "$listing" "$path" || untracked+=("${path%/}")
+    done
+  fi
   rm -f "$listing"
   ((${#local_only[@]} == 0)) || _check_block local-only-files \
     "local-only files: ${local_only[*]:0:3}$( ((${#local_only[@]} <= 3)) || echo ' and more')" \
