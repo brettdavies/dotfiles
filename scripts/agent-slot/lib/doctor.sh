@@ -83,14 +83,14 @@ doctor_check_trust() {
 }
 
 doctor_check_versions() {
-  local installed verified
+  local installed verified message
   [[ -n ${AS_TOOL[claude]:-} ]] || return 0
   installed=$(bounded_version claude)
   verified=$(doctor_verified | awk '$1 == "claude" { print $2 }')
   [[ -n $installed && $installed != "$verified" ]] || return 0
-  doctor_finding warning version-unverified \
-    "Claude Code $installed differs from the version the two-machine checklist last ran on (${verified:-none})" \
-    --value "$installed" --command "run the two-machine checklist, then update $AS_VERIFIED_VERSIONS"
+  message="Claude Code $installed differs from the version the two-machine checklist last ran on (${verified:-none});"
+  message+=" run the checklist, then update scripts/agent-slot/verified-versions"
+  doctor_finding warning version-unverified "$message" --value "$installed"
 }
 
 bounded_version() {

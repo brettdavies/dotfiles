@@ -17,7 +17,7 @@ doctor_finding() {
 }
 
 doctor_check_rex() {
-  local verified
+  local verified message
   if [[ -z $AR_REX ]]; then
     doctor_finding error dependency-missing "the rex CLI is not in REX_BIN_DIR or the Rex app" \
       --value "${REX_BIN_DIR:-}" --command "open -a 'Rex Beta'"
@@ -34,9 +34,9 @@ doctor_check_rex() {
   rex_version || return 0
   verified=$(awk '!/^[[:space:]]*#/ && $1 == "rex" { print $2 }' "$AR_VERIFIED" 2>/dev/null || true)
   [[ -n $REX_OUT && $REX_OUT != "$verified" ]] || return 0
-  doctor_finding warning version-unverified \
-    "Rex $REX_OUT differs from the version the two-machine checklist last ran on (${verified:-none})" \
-    --value "$REX_OUT" --command "run the two-machine checklist, then update scripts/agent-slot/verified-versions"
+  message="Rex $REX_OUT differs from the version the two-machine checklist last ran on (${verified:-none});"
+  message+=" run the checklist, then update scripts/agent-slot/verified-versions"
+  doctor_finding warning version-unverified "$message" --value "$REX_OUT"
 }
 
 doctor_check_tools() {

@@ -37,7 +37,7 @@ slot-not-found                1     false      0            run
 slot-busy                     1     true       3            retry
 invalid-task-name             2     false      0            run
 prompt-file-unreadable        2     false      0            run
-slot-limit-reached            78    false      0            run
+slot-limit-reached            78    false      0            ask-operator
 clone-failed                  1     true       2            retry
 solutions-symlink-missing     78    false      0            fix-config
 hooks-path-outside-checkout   78    false      0            fix-config
@@ -55,7 +55,7 @@ solutions-corpus-missing      78    false      0            fix-config
 slots-config-missing          78    false      0            install
 prune-timer-inactive          78    false      0            run
 slot-path-untrusted           78    false      0            run
-version-unverified            0     false      0            run
+version-unverified            0     false      0            ask-operator
 repo-required                 2     false      0            run
 server-unreachable            1     true       5            retry
 rex-action-unregistered       78    false      0            run
