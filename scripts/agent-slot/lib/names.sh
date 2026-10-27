@@ -19,6 +19,10 @@ slot_session() {
   printf '%s' "$name"
 }
 
+# Usage: slot_session_is_claude <session name>; true for a slot's Claude session, the one slot_session names with no
+# kind suffix.
+slot_session_is_claude() { [[ $1 =~ -[0-9]+$ ]]; }
+
 # Usage: slot_parse_key <repo>/<n>; sets SLOT_REPO and SLOT_N, or fails with usage.
 SLOT_REPO='' SLOT_N=''
 slot_parse_key() {

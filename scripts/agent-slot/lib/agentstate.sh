@@ -49,6 +49,21 @@ agentstate_load() {
     2>/dev/null || true)
 }
 
+# Usage: agentstate_descendants <pid...>; prints every process below the given ones, from the map agentstate_load read.
+agentstate_descendants() {
+  local -a queue=("$@")
+  local pid child
+  while ((${#queue[@]} > 0)); do
+    pid=${queue[0]}
+    queue=("${queue[@]:1}")
+    for child in "${!_AGENT_PPID[@]}"; do
+      [[ ${_AGENT_PPID[$child]} == "$pid" ]] || continue
+      queue+=("$child")
+      printf '%s\n' "$child"
+    done
+  done
+}
+
 _agent_from_panes() {
   local pid=$1 panes=" $2 " hops=0
   while [[ -n $pid && $pid != 0 && $pid != 1 ]] && ((hops++ < 64)); do

@@ -52,22 +52,8 @@ teardown_recover() {
   record_update "$1" "$2" '.state = "active"'
 }
 
-# Usage: _teardown_descendants <pid...>; prints every process below the given ones, from the map agentstate_load read.
-_teardown_descendants() {
-  local -a queue=("$@")
-  local pid child
-  while ((${#queue[@]} > 0)); do
-    pid=${queue[0]}
-    queue=("${queue[@]:1}")
-    for child in "${!_AGENT_PPID[@]}"; do
-      [[ ${_AGENT_PPID[$child]} == "$pid" ]] || continue
-      queue+=("$child")
-      printf '%s\n' "$child"
-    done
-  done
-}
-
-# Stops the slot's Claude and every process it started, such as a background job still writing in the slot.
+# Stops the slot's Claude and every process still below it, such as a background job it started. Every process gets
+# SIGTERM before the wait, so they share one grace period.
 _teardown_stop_agent() {
   local pid waited=0
   local -a claude pids
@@ -75,7 +61,7 @@ _teardown_stop_agent() {
   ((${#claude[@]} > 0)) || return 0
   mapfile -t pids < <(
     printf '%s\n' "${claude[@]}"
-    _teardown_descendants "${claude[@]}"
+    agentstate_descendants "${claude[@]}"
   )
   for pid in "${pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
   for pid in "${pids[@]}"; do
