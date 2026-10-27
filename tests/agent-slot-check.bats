@@ -354,6 +354,16 @@ lacks_blocker() { jaq -e --arg c "$1" 'all(.blockers[]; .code != $c)' <<<"$VERDI
   jaq -e '.prs == [] and .finished == false' <<<"$VERDICT"
 }
 
+@test "a merged PR whose branch the slot deleted after switching to the base, before any check, finishes the task" {
+  finished_task
+  git -C "$SLOT" checkout -q main
+  git -C "$SLOT" pull -q --ff-only origin main
+  git -C "$SLOT" branch -q -D feat/x
+  check
+  jaq -e '.finished == true and .finished_by == "merge" and ([.prs[].number] == [7]) and .teardown == true' \
+    <<<"$VERDICT"
+}
+
 @test "a slot that is still setting up is reported busy and never finished" {
   jaq '.state = "setting-up"' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
   check
