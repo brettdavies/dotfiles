@@ -5,10 +5,10 @@
 # A task has finished when none of its PRs is open or closed without merging and one has merged, or when the operator
 # finished it with no PR open. A finished slot may go only when every check below passes:
 #
-#   the agent is idle or absent; the tree is clean and nothing is stashed; every local commit is in the final head of
-#   one of the task's PRs, or, for a task that never had a PR, on a branch on origin; no untracked or ignored file
-#   exists beyond build and dependency output and the files setup placed; and no symlink under the home directory
-#   resolves into the slot.
+#   the agent is idle or absent; the tree is clean apart from setup's docs/solutions link and nothing is stashed; every
+#   local commit is in the final head of one of the task's PRs, or, for a task that never had a PR, on a branch on
+#   origin; no untracked or ignored file exists beyond build and dependency output and the files setup placed; and no
+#   symlink under the home directory resolves into the slot.
 
 CHECK_CODES='pr-state-unknown pr-closed-unmerged git-state-unknown agent-not-idle agent-state-unknown
 uncommitted-changes stash-present unpushed-commits commits-without-pr untracked-files local-only-files
@@ -197,6 +197,10 @@ check_slot() {
     _check_agent "$repo" "$n"
 
     if out=$(git -C "$path" status --porcelain=v1 --untracked-files=no); then
+      # A repo can track docs/solutions with a relative target that does not resolve from a slot, so setup re-points it
+      # at the solutions repo; that unstaged change is setup's, not the task's.
+      [[ $(readlink "$path/docs/solutions") != "$AS_SOLUTIONS" ]] \
+        || out=$(grep -vxF ' M docs/solutions' <<<"$out" || true)
       [[ -z $out ]] || _check_block uncommitted-changes \
         "$(_check_plural "$(grep -c . <<<"$out")" "uncommitted change")" "$(grep -c . <<<"$out")"
     else
