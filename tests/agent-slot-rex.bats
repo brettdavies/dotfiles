@@ -398,7 +398,13 @@ in_rex_session() {
   called '^agent-slot-rex sweep$'
 }
 
+# started_by COMMAND: the process that started the helper, as ps reports its parent.
+started_by() {
+  printf '1 %s\n' "$1" >>"$STUBS/ps.txt"
+}
+
 @test "restore at Rex start gives up after its bound when ssh never answers, and logs why" {
+  started_by '/Applications/Rex.app/Contents/MacOS/rex server run --listen unix:///tmp/rex.sock'
   touch "$STUBS/ssh/hang"
   export AGENT_SLOT_REX_RESTORE_WAIT=2
   run timeout 20 "$AGENT_SLOT_REX" restore --wait-server
@@ -409,12 +415,23 @@ in_rex_session() {
 }
 
 @test "restore at Rex start reconciles once the server answers" {
+  started_by '/Applications/Rex.app/Contents/MacOS/rex server run --listen unix:///tmp/rex.sock'
   ssh_answer probe 0 1
   slots '[{"repo": "A", "slot": 1}]'
   run "$AGENT_SLOT_REX" restore --wait-server
   [ "$status" -eq 0 ]
   [ "$(grep -c '^ssh-stub-verb probe$' "$CALLS")" -eq 2 ]
   called "^rex new A --window A/1 --json -- $STUBS/agent-slot-rex attach A/1 claude$"
+}
+
+@test "restore at Rex start does nothing when rex config check, not a Rex server, loaded init.lua" {
+  started_by '/Applications/Rex.app/Contents/MacOS/rex config check /tmp/init.lua'
+  slots '[{"repo": "A", "slot": 1}]'
+  run "$AGENT_SLOT_REX" restore --wait-server
+  [ "$status" -eq 0 ]
+  grep -q 'not started by a Rex server' "$AGENT_SLOT_REX_STATE_DIR/restore.log"
+  not_called '^ssh-stub '
+  not_called '^rex '
 }
 
 # --- doctor -----------------------------------------------------------------------------------------------------------
