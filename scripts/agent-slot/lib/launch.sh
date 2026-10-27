@@ -128,18 +128,19 @@ launch_output() {
     '{created: $created, key: $key, repo: .repo, slot: .slot, path: $path, state: .state, task: .task,
       request_id: .request_id, session_id: .session_id, base: .base, trust_prompt_expected: $trust,
       prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases,
-      next_step: {action: "run", command: "agent-slot list --output json", docs: $docs,
+      next_step: {action: "run", command: "agent-slot check \($key) --output json", docs: $docs,
                   note: "Rex opens this slot'"'"'s tab at the operator'"'"'s next launch or restore"}}' <<<"$RECORD")" '
     "\(.key) \(if .created then "is ready" else "already holds this request" end) at \(.path)" +
       (if .task then " (\(.task))" else "" end) +
       (if .trust_prompt_expected then "; Claude will ask to trust the folder" else "" end) +
-      (if .prompt_delivered == false then "; this first message was not delivered, because the slot already holds the task" else "" end)'
+      (if .prompt_delivered == false
+       then "; this first message was not delivered, because the slot already holds the task" else "" end)'
 }
 
 _launch_us() { printf '%s' "${EPOCHREALTIME/./}"; }
 
 cmd_launch() {
-  local repo=$LAUNCH_REPO n live max=$AS_MAX_PER_REPO record path prompt_copy out trust=false
+  local repo=$LAUNCH_REPO n live max=$AS_MAX_PER_REPO record path prompt_copy out state trust=false
   local t_start t_clone t_setup t_trust t_tmux t_claude phases
   require_tools tmux claude trash
   repo_prime "$repo"
@@ -151,6 +152,13 @@ cmd_launch() {
   launch_reclaim_abandoned "$repo"
   if launch_find_existing "$repo"; then
     record_unlock_repo "$repo"
+    record_read "$repo" "$LAUNCH_EXISTING" || RECORD='{}'
+    state=$(contract_json -r '.state // "setting-up"' <<<"$RECORD")
+    if [[ $state != active ]]; then
+      contract_fail slot-busy "$(slot_key "$repo" "$LAUNCH_EXISTING") is $state, so this launch cannot report it yet" \
+        --value "$(slot_key "$repo" "$LAUNCH_EXISTING")" \
+        --command "agent-slot launch $repo${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
+    fi
     launch_output "$repo" "$LAUNCH_EXISTING" false
     return
   fi

@@ -208,7 +208,7 @@ launch() {
 @test "a launch's next step is a command the caller on the server can run" {
   launch repoa --request-id r-next
   [ "$status" -eq 0 ]
-  jaq -e '.next_step.command == "agent-slot list --output json" and .next_step.action == "run"' <<<"$output"
+  jaq -e '.next_step.command == "agent-slot check \(.key) --output json" and .next_step.action == "run"' <<<"$output"
 }
 
 @test "AE16: a second launch with the same request ID returns the existing slot; launches with neither each create one" {
@@ -310,6 +310,22 @@ launch() {
   jaq -e '.key == "repoa/1" and .request_id == "r-after" and .created == true' <<<"$output"
   [ ! -e "$AGENT_SLOT_ROOT/repoa/.1.claim.json" ]
   grep -q 'kill-session -t =repoa-1$' "$CALLS"
+}
+
+@test "a retry of a request whose slot is still setting up is told to retry, never that its brief landed" {
+  mkdir -p "$AGENT_SLOT_ROOT/repoa"
+  echo '{"schema":"dotfiles.agent-slot/1","repo":"repoa","slot":1,"state":"setting-up","request_id":"r-live"}' \
+    >"$AGENT_SLOT_ROOT/repoa/.1.claim.json"
+  flock "$AGENT_SLOT_ROOT/repoa/.1.lock" sleep 60 3>&- &
+  local holder=$!
+  until [ -n "$(find /proc/$holder/fd -lname "$AGENT_SLOT_ROOT/repoa/.1.lock" 2>/dev/null)" ]; do sleep 0.1; done
+  echo 'brief' >"$T/brief.md"
+  launch repoa --request-id r-live --prompt-file "$T/brief.md"
+  kill "$holder" 2>/dev/null || true
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  jaq -e '.reason == "slot-busy" and .recovery.retryable == true
+    and (.next_step.command | contains("--request-id r-live"))' <<<"$stderr"
 }
 
 @test "a launch holding slot 2's lock is left alone: the next launch takes slot 3 and resume of slot 2 waits" {

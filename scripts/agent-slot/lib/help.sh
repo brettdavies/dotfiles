@@ -34,7 +34,8 @@ verb_help() {
       'returns: slots[] of the slot record plus {key, path, state, branch, agent, agent_detail, sessions, needs_you}' \
       "example: agent-slot list --output json | jaq '.slots[] | select(.needs_you != [])'" ;;
     whoami) printf '%s\n' 'usage: agent-slot whoami [--path DIR] [--output json]' \
-      'Prints the slot that DIR (default: the current directory) is inside, or not-in-slot.' \
+      'Prints the slot that DIR (default: the current directory) is inside. Outside a slot it fails with the error' \
+      'reason not-in-slot (exit 1).' \
       'returns: slot, the slot record plus {key, path}' \
       'example: agent-slot whoami --output json' ;;
     launch) printf '%s\n' \

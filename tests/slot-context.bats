@@ -60,6 +60,7 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *worktree* ]]
   [[ $context == *"--output json"* ]]
   [[ $context == *"agent-slot whoami"* ]]
+  [[ $context == *"agent-slot schema"* ]]
   [[ $context == *"agent-slot launch"*"--request-id"* ]]
   [[ $context == *"ask the operator"* ]]
 }
