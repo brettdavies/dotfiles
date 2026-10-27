@@ -158,13 +158,14 @@ rex_helper_block() {
 # Usage: rex_snapshot
 # Sets REX_TABS to every window of every session, as [{session_id, session, window_id, label, commands}], where
 # commands holds the command line of each block's own process that is this helper. A block's own process is the one
-# Rex started in it, so a helper typed into a shell there does not count.
+# Rex started in it, so a helper typed into a shell there does not count. ps is read after the last block's PID, so a
+# pane whose process starts while the snapshot runs counts as running.
 REX_TABS='[]'
 rex_snapshot() {
-  local sid info rows='' wid label block pid
+  local sid info rows='' wid label block pid i
+  local -a row_heads=() row_pids=()
   rex_or_fail ls --json
   local sessions=$REX_OUT
-  rex_helper_processes
   while read -r sid; do
     [[ -n $sid ]] || continue
     rex_run session inspect "$sid" --json || continue
@@ -174,10 +175,15 @@ rex_snapshot() {
       if [[ -n $block ]] && rex_block_pid "$sid" "$block"; then
         pid=$REX_OUT
       fi
-      rows+=$(printf '%s\t%s\t%s\t%s' "$sid" "$wid" "$label" "${REX_HELPER_CMD[${pid:-none}]:-}")$'\n'
+      row_heads+=("$(printf '%s\t%s\t%s' "$sid" "$wid" "$label")")
+      row_pids+=("$pid")
     done < <(contract_json -r '.windows[] | .window_id as $w | .label as $l
       | ([.layers[]?.blocks[]?.block_id] | if length == 0 then [""] else . end)[] | [$w, $l, .] | @tsv' <<<"$info")
   done < <(contract_json -r '.sessions[].session_id' <<<"$sessions")
+  rex_helper_processes
+  for i in "${!row_heads[@]}"; do
+    rows+=${row_heads[i]}$'\t'${REX_HELPER_CMD[${row_pids[i]:-none}]:-}$'\n'
+  done
   REX_TABS=$(contract_json -R -s -c --argjson sessions "$sessions" '
     ($sessions.sessions | map({(.session_id): .label}) | add // {}) as $names
     | split("\n") | map(select(. != "") | split("\t"))

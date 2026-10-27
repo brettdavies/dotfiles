@@ -4,8 +4,10 @@
 #
 # rex answers from files under $STUBS/rexdata: sessions.json for `ls`, session-<id>.json for `session inspect`, and
 # process-<block>.json for `block call process`. `new` adds the session it makes to sessions.json and writes its
-# session-<id>.json, so a later lookup or inspect finds it. ssh answers each agent-slot verb from $STUBS/ssh/<verb>.{out,err,rc}, or from <verb>.<n>.* on its nth call;
-# the attach loop's tmux calls count as the verbs attach and has-session, and a bare `true` as probe. With
+# session-<id>.json, so a later lookup or inspect finds it; `window new` adds its window to the session's file and starts
+# its block's command, as ps sees it. ssh answers each agent-slot verb from $STUBS/ssh/<verb>.{out,err,rc}, or from
+# <verb>.<n>.* on its nth call; the attach loop's tmux calls count as the verbs attach and has-session, and a bare `true`
+# as probe. With
 # $STUBS/ssh/unreachable present every call fails as ssh does, and with $STUBS/ssh/hang every call hangs.
 
 # shellcheck disable=SC2034 # the suites that load this file run it
@@ -34,12 +36,36 @@ agent_slot_rex_setup() {
   stub rex '
 case "$1 $2" in
   "ls --json") cat "$STUBS/rexdata/sessions.json" ;;
-  "session inspect") cat "$STUBS/rexdata/session-$3.json" 2>/dev/null || { echo "session $3 not found" >&2; exit 1; } ;;
+  "session inspect")
+    if [ -e "$STUBS/rexdata/starts-on-inspect-$3" ]; then
+      cat "$STUBS/rexdata/starts-on-inspect-$3" >>"$STUBS/ps.txt"
+      rm -f "$STUBS/rexdata/starts-on-inspect-$3"
+    fi
+    cat "$STUBS/rexdata/session-$3.json" 2>/dev/null || { echo "session $3 not found" >&2; exit 1; } ;;
   "block call")
     b=$(printf "%s\n" "$@" | sed -n "/^-b$/{n;p;}")
     cat "$STUBS/rexdata/process-$b.json" 2>/dev/null || echo "{\"child\":{\"pid\":0}}" ;;
   "window new")
     n=$(grep -c "^rex window new\|^rex new" "$CALLS")
+    sid=$4 label=$5
+    while [ "$1" != -- ]; do shift; done
+    shift
+    if [ -e "$STUBS/rexdata/hold-window-new" ]; then
+      read -r hold_sid hold_n <"$STUBS/rexdata/hold-window-new"
+      for _ in $(seq 40); do
+        [ "$(grep -c "^rex session inspect $hold_sid " "$CALLS")" -ge "$hold_n" ] && break
+        sleep 0.05
+      done
+      sleep 0.3
+    fi
+    if [ -e "$STUBS/rexdata/session-$sid.json" ]; then
+      jaq -c --arg w "win-new-$n" --arg l "$label" --arg b "blk-new-$n" \
+        ".windows += [{window_id: \$w, label: \$l, layers: [{blocks: [{block_id: \$b}]}]}]" \
+        "$STUBS/rexdata/session-$sid.json" >"$STUBS/rexdata/session-$sid.new.$$"
+      mv "$STUBS/rexdata/session-$sid.new.$$" "$STUBS/rexdata/session-$sid.json"
+    fi
+    printf "{\"child\":{\"pid\":%s}}\n" "$((9000 + n))" >"$STUBS/rexdata/process-blk-new-$n.json"
+    printf "%s %s\n" "$((9000 + n))" "$*" >>"$STUBS/ps.txt"
     echo "{\"window_id\":\"win-new-$n\",\"block_ids\":[\"blk-new-$n\"]}" ;;
   "actions --json") cat "$STUBS/rexdata/actions.json" 2>/dev/null || echo "{\"actions\":[{\"name\":\"agent_slot_new\"}]}" ;;
   "version --json") echo "{\"rex_version\":\"${REX_STUB_VERSION:-0.0.1}\"}" ;;
@@ -141,6 +167,19 @@ session() {
 runs() {
   printf '{"child":{"pid":%s}}\n' "$2" >"$STUBS/rexdata/process-$1.json"
   printf '%s %s\n' "$2" "$3" >>"$STUBS/ps.txt"
+}
+
+# starts_on_inspect SESSION BLOCK PID COMMAND: as runs, except that ps shows the process only once SESSION has been
+# inspected, as for a pane that starts while a snapshot is under way.
+starts_on_inspect() {
+  printf '{"child":{"pid":%s}}\n' "$3" >"$STUBS/rexdata/process-$2.json"
+  printf '%s %s\n' "$3" "$4" >"$STUBS/rexdata/starts-on-inspect-$1"
+}
+
+# hold_window_new SESSION COUNT: each `rex window new` waits, for up to 2 s, until SESSION has been inspected COUNT
+# times, so passes that run at once have all taken their snapshot before any of them opens a tab.
+hold_window_new() {
+  printf '%s %s\n' "$1" "$2" >"$STUBS/rexdata/hold-window-new"
 }
 
 # called PATTERN: the calls log has a line matching the extended regex.

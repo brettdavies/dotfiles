@@ -102,13 +102,16 @@ reconcile_open_tab() {
   rex_layout "$REX_NEW_SESSION" "$REX_NEW_BLOCK" "$2"
 }
 
-# Sets RECONCILE_RESULT to what reconcile found and changed.
+# Sets RECONCILE_RESULT to what reconcile found and changed. It holds the reconcile lock from the slot list to the
+# last tab change.
 reconcile() {
   local plan
+  lock_acquire
   reconcile_fetch
   rex_snapshot
   plan=$(reconcile_plan "$REX_TABS" "$RECONCILE_SLOTS")
   reconcile_apply "$plan"
+  lock_release
   RECONCILE_RESULT=$(printf '%s\n' "${RECONCILE_RESUMED[@]}" | contract_json -R -s -c --argjson plan "$plan" \
     --argjson slots "$RECONCILE_SLOTS" '
     {slots: ($slots | length), resumed: split("\n") | map(select(. != "")),
