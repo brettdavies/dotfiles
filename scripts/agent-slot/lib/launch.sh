@@ -81,24 +81,30 @@ launch_reclaim_abandoned() {
     if [[ -z $n ]] || ! record_read "$repo" "$n"; then continue; fi
     [[ $(contract_json -r '.state // ""' <<<"$RECORD") == setting-up ]] || continue
     record_lock_slot "$repo" "$n" --nowait || continue
-    slot_rollback "$repo" "$n" || true
+    if ! record_read "$repo" "$n" || [[ $(contract_json -r '.state // ""' <<<"$RECORD") == setting-up ]]; then
+      slot_rollback "$repo" "$n" || true
+    fi
     record_unlock_slot "$repo" "$n"
   done < <(slot_numbers "$repo")
 }
 
-# Sets LAUNCH_EXISTING to the slot holding this request ID, or this task when one was given; returns 1 when none does.
-LAUNCH_EXISTING=
+# Sets LAUNCH_EXISTING to the slot holding this request ID, or this task when one was given, and LAUNCH_EXISTING_BY to
+# request or task; returns 1 when none does.
+LAUNCH_EXISTING='' LAUNCH_EXISTING_BY=''
 launch_find_existing() {
   local repo=$1 n request task state
-  LAUNCH_EXISTING=
+  LAUNCH_EXISTING='' LAUNCH_EXISTING_BY=''
   while read -r n; do
     if [[ -z $n ]] || ! record_read "$repo" "$n"; then continue; fi
     request=$(contract_json -r '.request_id // ""' <<<"$RECORD")
     task=$(contract_json -r '.task // ""' <<<"$RECORD")
     state=$(contract_json -r '.state // ""' <<<"$RECORD")
-    if [[ -n $LAUNCH_REQUEST && $request == "$LAUNCH_REQUEST" ]] \
-      || [[ -n $LAUNCH_TASK && $task == "$LAUNCH_TASK" && $state != tearing-down ]]; then
-      LAUNCH_EXISTING=$n
+    if [[ -n $LAUNCH_REQUEST && $request == "$LAUNCH_REQUEST" ]]; then
+      LAUNCH_EXISTING=$n LAUNCH_EXISTING_BY=request
+      return 0
+    fi
+    if [[ -n $LAUNCH_TASK && $task == "$LAUNCH_TASK" && $state != tearing-down ]]; then
+      LAUNCH_EXISTING=$n LAUNCH_EXISTING_BY=task
       return 0
     fi
   done < <(slot_numbers "$repo")
@@ -106,20 +112,28 @@ launch_find_existing() {
 }
 
 # Usage: launch_output <repo> <n> <created> [<trust-prompt-expected> <phases-json>]
+# prompt_delivered says whether this call's --prompt-file is the slot's first message: true for a new slot or a retry
+# of the request that made it, false for a slot another request made, null without a --prompt-file.
 launch_output() {
-  local repo=$1 n=$2 created=$3 trust=${4:-false} phases=${5:-null}
+  local repo=$1 n=$2 created=$3 trust=${4:-false} phases=${5:-null} delivered=null
   record_read "$repo" "$n" || RECORD='{}'
+  if [[ -n $LAUNCH_PROMPT ]]; then
+    delivered=false
+    [[ $created != true && $LAUNCH_EXISTING_BY != request ]] || delivered=true
+  fi
   contract_ok "$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$(slot_path "$repo" "$n")" \
     --argjson created "$created" --argjson trust "$trust" --argjson phases "$phases" --arg docs "$CONTRACT_DOCS" \
+    --argjson delivered "$delivered" \
     --argjson missing "$(printf '%s\n' "${PARITY_MISSING_SIBLINGS[@]}" | contract_json -R -s -c 'split("\n") | map(select(. != ""))')" \
     '{created: $created, key: $key, repo: .repo, slot: .slot, path: $path, state: .state, task: .task,
       request_id: .request_id, session_id: .session_id, base: .base, trust_prompt_expected: $trust,
-      missing_siblings: $missing, phases: $phases,
-      next_step: {action: "run", command: "agent-slot-rex restore", docs: $docs,
+      prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases,
+      next_step: {action: "run", command: "agent-slot list --output json", docs: $docs,
                   note: "Rex opens this slot'"'"'s tab at the operator'"'"'s next launch or restore"}}' <<<"$RECORD")" '
     "\(.key) \(if .created then "is ready" else "already holds this request" end) at \(.path)" +
       (if .task then " (\(.task))" else "" end) +
-      (if .trust_prompt_expected then "; Claude will ask to trust the folder" else "" end)'
+      (if .trust_prompt_expected then "; Claude will ask to trust the folder" else "" end) +
+      (if .prompt_delivered == false then "; this first message was not delivered, because the slot already holds the task" else "" end)'
 }
 
 _launch_us() { printf '%s' "${EPOCHREALTIME/./}"; }
