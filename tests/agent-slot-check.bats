@@ -285,6 +285,27 @@ lacks_blocker() { jaq -e --arg c "$1" 'all(.blockers[]; .code != $c)' <<<"$VERDI
   lacks_blocker uncommitted-changes
 }
 
+@test "a tracked docs/solutions link that setup points at the solutions repo does not block; any other change to it does" {
+  work feat/x
+  mkdir -p "$SLOT/docs"
+  ln -s ../../dev/solutions-docs "$SLOT/docs/solutions"
+  git -C "$SLOT" add docs/solutions
+  git -C "$SLOT" commit -q -m 'track the solutions link'
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 MERGED feat/x
+  squash_merge feat/x
+  ln -sfn "$AGENT_SLOT_SOLUTIONS" "$SLOT/docs/solutions"
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+  git -C "$SLOT" add docs/solutions
+  check
+  jaq -e '.blockers == [{code: "uncommitted-changes", message: "1 uncommitted change", count: 1}]' <<<"$VERDICT"
+  git -C "$SLOT" reset -q docs/solutions
+  ln -sfn "$T/elsewhere" "$SLOT/docs/solutions"
+  check
+  jaq -e '.blockers == [{code: "uncommitted-changes", message: "1 uncommitted change", count: 1}]' <<<"$VERDICT"
+}
+
 @test "a symlink in the home directory into the slot blocks with home-symlink-into-slot" {
   finished_task
   mkdir -p "$T/home/.local/bin"

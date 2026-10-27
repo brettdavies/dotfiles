@@ -372,7 +372,7 @@ message such as `1 unpushed commit`.
 | `git-state-unknown`      | `git` could not fetch, or read the slot's state                                          |
 | `agent-not-idle`         | The agent is mid-turn or waiting on the operator                                         |
 | `agent-state-unknown`    | The agent's state could not be read, or a process outside the slot's panes uses the slot |
-| `uncommitted-changes`    | Tracked files have changes                                                               |
+| `uncommitted-changes`    | Tracked files have changes beyond setup pointing `docs/solutions` at the shared repo     |
 | `stash-present`          | Something is stashed                                                                     |
 | `unpushed-commits`       | Commits are in no PR's final head and on no origin branch or tag, counting local tags    |
 | `commits-without-pr`     | Commits sit only on an origin branch that has no PR, such as one pushed after the merge  |
