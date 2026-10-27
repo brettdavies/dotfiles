@@ -2,11 +2,14 @@
 # Reconcile: one Rex tab per live slot, in the session named after its repo, used by restore and sweep.
 #
 # A tab is keyed to a slot when its label starts with <repo>/<N> in the session named <repo>, or when one of its blocks
-# runs `agent-slot-rex attach <repo>/<N>` in any session, which covers a tab rexurrect recreated from its blocks'
-# commands without its label. A tab elsewhere whose label merely looks like a key is the operator's, and is left alone. A keyed tab is present when its Claude pane's attach loop runs. Reconcile resumes dormant slots, opens a tab
-# for each live slot without a present one, relabels present tabs, and closes keyed tabs whose slot is gone, whose loop
-# has stopped, or that duplicate a present tab. Every server call returns before any tab changes, and an unreachable
-# server changes none.
+# runs `agent-slot-rex attach <repo>/<N>` in any session. A tab elsewhere whose label merely looks like a key is the
+# operator's, and is left alone. A keyed tab is present when its Claude pane's attach loop runs. Reconcile resumes
+# dormant slots, opens a tab for each live slot without a present one, relabels present tabs, and closes keyed tabs
+# whose slot is gone, whose loop has stopped, or that duplicate a present tab. Every server call returns before any tab
+# changes, and an unreachable server changes none.
+#
+# After a Rex restart, rexurrect brings slot tabs back under their labels but as plain shells, since it saves no command
+# for their panes, so the restore at start finds them keyed and not running, opens fresh tabs, and closes rexurrect's.
 
 RECONCILE_SLOTS='[]'
 RECONCILE_RESUMED=()
