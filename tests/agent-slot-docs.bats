@@ -47,6 +47,14 @@ shell_value() {
   diff <(echo "$expected") <(table_codes '#### Teardown blockers')
 }
 
+@test "a blocker's docs link names the README section that holds the table of blockers" {
+  run grep -c '^#### Teardown blockers$' "$README"
+  [ "$output" = 1 ]
+  run bash -c 'source "$1/contract.sh" && source "$1/check.sh" && printf %s "$CHECK_DOCS"' _ \
+    "$REPO/scripts/agent-slot/lib"
+  [ "$output" = https://github.com/brettdavies/dotfiles/blob/main/README.md#teardown-blockers ]
+}
+
 @test "the README names every verb agent-slot and agent-slot-rex accept" {
   local verb missing=()
   for verb in $(verbs_of "$REPO/scripts/agent-slot/lib/help.sh"); do

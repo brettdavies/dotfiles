@@ -365,7 +365,9 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 #### Teardown blockers
 
 `agent-slot check` names what keeps a finished slot with one of these codes, a count or the offending paths, and a
-message such as `1 unpushed commit`.
+message such as `1 unpushed commit`. A blocker can also carry a `next_step` in the error object's shape:
+`checked-by-own-agent` does, with no command, because teardown happens from outside the slot, when the operator runs
+`agent-slot sweep` or `agent-slot finish`.
 
 | Code                     | What keeps the slot                                                                      |
 | ------------------------ | ---------------------------------------------------------------------------------------- |
@@ -373,6 +375,7 @@ message such as `1 unpushed commit`.
 | `pr-closed-unmerged`     | A PR closed without merging; reopen and merge it, or press the finish key                |
 | `git-state-unknown`      | `git` could not fetch, or read the slot's state                                          |
 | `agent-not-idle`         | The agent is mid-turn or waiting on the operator                                         |
+| `checked-by-own-agent`   | The check runs inside the slot's own agent, which keeps it busy until the check ends     |
 | `agent-state-unknown`    | The agent's state could not be read, or a process outside the slot's panes uses the slot |
 | `uncommitted-changes`    | Tracked files have changes beyond setup pointing `docs/solutions` at the shared repo     |
 | `stash-present`          | Something is stashed                                                                     |

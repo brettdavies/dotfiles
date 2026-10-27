@@ -70,13 +70,21 @@ agentstate_descendants() {
   done
 }
 
-_agent_from_panes() {
-  local pid=$1 panes=" $2 " hops=0
+# Usage: _agent_below <pid> <pids>; true when the pid is one of the space-separated pids or descends from one.
+_agent_below() {
+  local pid=$1 pids=" $2 " hops=0
   while [[ -n $pid && $pid != 0 && $pid != 1 ]] && ((hops++ < 64)); do
-    [[ $panes == *" $pid "* ]] && return 0
+    [[ $pids == *" $pid "* ]] && return 0
     pid=${_AGENT_PPID[$pid]:-}
   done
   return 1
+}
+
+# Usage: agentstate_inside_agent; after agentstate_of, true when this process descends from the slot's Claude. Claude
+# Code starts every Bash tool command, foreground or background, as a child of its own process, so a command the
+# slot's agent runs descends from it from any working directory, and a command started anywhere else never does.
+agentstate_inside_agent() {
+  [[ -n $AGENT_PIDS ]] && _agent_below "$$" "$AGENT_PIDS"
 }
 
 _agent_env_in_panes() {
@@ -113,7 +121,7 @@ agentstate_of() {
     pid=${pid%%/*}
     # The scan's subshell expands the /proc glob itself, so a scan run from inside the slot lists its own cwd and fds.
     [[ $pid == "$$" || $pid == "$BASHPID" || $pid == "$_AGENT_SCAN_PID" ]] && continue
-    if _agent_from_panes "$pid" "$panes"; then
+    if _agent_below "$pid" "$panes"; then
       comm=$(cat "/proc/$pid/comm" 2>/dev/null || true)
       if [[ $comm == claude && " $AGENT_PIDS " != *" $pid "* ]] && ((count == 0)); then
         AGENT_DETAIL="claude process $pid under the slot has no session in claude agents"

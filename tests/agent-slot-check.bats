@@ -35,6 +35,28 @@ check() {
   VERDICT=$(jaq -c '.slots[0]' <<<"$output")
 }
 
+# Usage: check_as_agent <session> <dir> <filter> [jaq args...]; runs check from DIR as Claude Code runs a Bash tool
+# command: as a child of the Claude process, here a stand-in that is the pane of the named tmux session. The filter
+# builds the stubbed claude agents list, with $pid bound to the stand-in and $slot to repoa/1's path.
+check_as_agent() {
+  run --separate-stderr bash -c '
+    printf "%s %s %%1\n" "$1" "$$" >"$STUBS/tmux-panes"
+    jaq -n -c --argjson pid "$$" --arg slot "$4" "${@:6}" "$3" >"$STUBS/claude-agents.json"
+    cd "$2" && "$5" check repoa/1 --output json
+    exit $?' _ "$1" "$2" "$3" "$SLOT" "$AGENT_SLOT" "${@:4}"
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  VERDICT=$(jaq -c '.slots[0]' <<<"$output")
+}
+
+# Usage: sleeper <dir>; a process with its working directory in DIR, added to the SLEEPERS teardown kills.
+sleeper() {
+  (cd "$1" && exec sleep 120 >/dev/null 2>&1) &
+  SLEEPERS+=($!)
+}
+
 has_blocker() { jaq -e --arg c "$1" 'any(.blockers[]; .code == $c)' <<<"$VERDICT" >/dev/null; }
 lacks_blocker() { jaq -e --arg c "$1" 'all(.blockers[]; .code != $c)' <<<"$VERDICT" >/dev/null; }
 
@@ -76,6 +98,28 @@ listed() {
     has_blocker agent-not-idle
     jaq -e '.teardown == false' <<<"$VERDICT"
   done
+}
+
+@test "check run by the slot's own busy agent reports checked-by-own-agent, not agent-not-idle, from any directory" {
+  finished_task
+  local dir
+  for dir in "$SLOT" /; do
+    check_as_agent repoa-1 "$dir" '[{pid: $pid, cwd: $slot, status: "busy"}]'
+    has_blocker checked-by-own-agent
+    lacks_blocker agent-not-idle
+    jaq -e --arg docs https://github.com/brettdavies/dotfiles/blob/main/README.md#teardown-blockers '.teardown == false
+      and (.blockers[] | select(.code == "checked-by-own-agent") | (.message | contains("sweep or finish"))
+        and .next_step == {action: "none", command: null, docs: $docs})' <<<"$VERDICT"
+  done
+}
+
+@test "check run by another slot's busy agent reports this slot's busy agent as agent-not-idle" {
+  finished_task
+  sleeper "$T"
+  check_as_agent repoa-2 "$T" '[{pid: $pid, cwd: $other, status: "busy"}, {pid: $own, cwd: $slot, status: "busy"}]' \
+    --arg other "$AGENT_SLOT_ROOT/repoa/2" --argjson own "${SLEEPERS[-1]}"
+  has_blocker agent-not-idle
+  lacks_blocker checked-by-own-agent
 }
 
 @test "an idle agent passes" {

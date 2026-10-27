@@ -74,7 +74,7 @@ To hand a task to another agent, run `agent-slot launch <repo> --request-id <id>
 Claude runs here with `--dangerously-skip-permissions`; ask rules, deny rules, and hooks still stop tool calls.
 Your task is finished when its PRs are open, or merged if the brief says so, and nothing is left unpushed.
 Then report what you did and stop; teardown happens from outside, when the operator runs sweep or finish.
-You need not run `agent-slot check` on this slot; while you work, it always reports `agent-not-idle`.
+You need not run `agent-slot check` on this slot; you are busy running it, so it reports `checked-by-own-agent`.
 `agent-slot sweep` and `agent-slot finish` delete slots: ask the operator before running either with `--yes`.
 In a review round, re-check the state of the PR before stacking new commits on it.
 Stage with `git add`, then run a plain `git commit`; never `git commit -a` or `git commit <path>`.

@@ -73,7 +73,7 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"PRs are open, or merged if the brief says so"*"nothing is left unpushed"* ]]
   [[ $context == *"report what you did and stop"* ]]
   [[ $context == *"teardown happens from outside, when the operator runs sweep or finish"* ]]
-  [[ $context == *"need not run \`agent-slot check\` on this slot"*"agent-not-idle"* ]]
+  [[ $context == *"need not run \`agent-slot check\` on this slot"*"checked-by-own-agent"* ]]
 }
 
 @test "a slot with no task says so" {
