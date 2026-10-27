@@ -157,3 +157,10 @@ start_in() {
   kill "$SLEEPER"
   jaq -e --arg pid "$SLEEPER" '.slots[0].agent == "unknown" and (.slots[0].agent_detail | contains($pid))' <<<"$output"
 }
+
+@test "a process that exits before its environment is read leaves nothing on stderr" {
+  run --separate-stderr bash -c 'source "$1"; _agent_env_in_panes 2147483647 "%1"' _ \
+    "$BATS_TEST_DIRNAME/../scripts/agent-slot/lib/agentstate.sh"
+  [ "$status" -eq 1 ]
+  [ -z "$stderr" ]
+}

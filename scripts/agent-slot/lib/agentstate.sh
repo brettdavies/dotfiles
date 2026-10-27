@@ -75,7 +75,7 @@ _agent_from_panes() {
 
 _agent_env_in_panes() {
   local environ tmux_var pane
-  environ=$(tr '\0' '\n' <"/proc/$1/environ" 2>/dev/null) || return 1
+  environ=$(tr '\0' '\n' 2>/dev/null <"/proc/$1/environ") || return 1
   tmux_var=$(sed -n 's/^TMUX=//p' <<<"$environ")
   pane=$(sed -n 's/^TMUX_PANE=//p' <<<"$environ")
   tmux_var=${tmux_var%%,*}
