@@ -314,7 +314,8 @@ On the Mac, the keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and 
 `agent-slot-rex attach <repo>/<N> claude|files|git`, the control session's tab runs `agent-slot-rex sweep`, and
 `agent-slot-rex doctor` checks both machines. Every verb answers `--help`. Each launch runs the sweep again in the
 control session's one sweep tab, opening it when there is none; the tab stays open while something needs you, and `r` in
-it sweeps again.
+it sweeps again. Restore, sweep, and finish change tabs one at a time: each waits up to `AGENT_SLOT_REX_LOCK_WAIT`
+seconds (300) for the one ahead of it to finish, so it sees the tabs that one opened.
 
 With `--output json`, every verb prints one JSON object on success and one error object on stderr, with a `reason` from
 the table below, an exit code (0 ok, 1 failed, 2 usage, 77 auth, 78 configuration), a `next_step`, a `recovery` that
@@ -359,6 +360,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `server-unreachable`          | 1    | ssh to the Linux server failed; retry once the network is back                                 |
 | `rex-action-unregistered`     | 78   | Rex has not loaded the agent-slot actions; deploy the `rex` package or run `rex config reload` |
 | `rex-failed`                  | 1    | A `rex` command failed; retry                                                                  |
+| `reconcile-busy`              | 1    | Another restore, sweep, or finish on the Mac held the tab lock too long; retry                 |
 
 #### Teardown blockers
 

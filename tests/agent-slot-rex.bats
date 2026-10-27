@@ -340,6 +340,78 @@ in_rex_session() {
   not_called '^rex (new|window new|window close|window rename)'
 }
 
+# --- reconcile: passes that overlap -----------------------------------------------------------------------------------
+
+LOCK_LINK=reconcile.lock
+
+@test "two restores at once open one tab for a slot that has none" {
+  slots '[{"repo": "D", "slot": 7, "task": "t"}]'
+  session sess-d D '[]'
+  hold_window_new sess-d 2
+  "$AGENT_SLOT_REX" restore --output json >"$T/a.out" 2>"$T/a.err" &
+  local a=$!
+  "$AGENT_SLOT_REX" restore --output json >"$T/b.out" 2>"$T/b.err" &
+  local b=$!
+  local status_a=0 status_b=0
+  wait "$a" || status_a=$?
+  wait "$b" || status_b=$?
+  [ "$status_a" -eq 0 ] && [ "$status_b" -eq 0 ]
+  grep '^rex window' "$CALLS" >&2 || true
+  [ "$(grep -c '^rex window new -s sess-d D/7 · t ' "$CALLS")" -eq 1 ]
+  not_called '^rex window close'
+  [ ! -L "$AGENT_SLOT_REX_STATE_DIR/$LOCK_LINK" ]
+}
+
+@test "a pane whose attach loop starts while the snapshot runs counts as running" {
+  slots '[{"repo": "A", "slot": 1}]'
+  session sess-a A '[{"window_id": "w1", "label": "A/1", "blocks": ["b1"]}]'
+  starts_on_inspect sess-a b1 101 "bash $STUBS/agent-slot-rex attach A/1 claude"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  not_called '^rex window (close|new)'
+  not_called '^rex new'
+}
+
+@test "a reconcile lock whose holder is gone does not stop the next restore" {
+  slots '[{"repo": "A", "slot": 1}]'
+  mkdir -p "$AGENT_SLOT_REX_STATE_DIR"
+  sh -c 'exit 0' &
+  local gone=$!
+  wait "$gone"
+  ln -s "$gone" "$AGENT_SLOT_REX_STATE_DIR/$LOCK_LINK"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called "^rex new A --window A/1 --json -- $STUBS/agent-slot-rex attach A/1 claude$"
+  [ ! -L "$AGENT_SLOT_REX_STATE_DIR/$LOCK_LINK" ]
+}
+
+@test "a restore behind a reconcile that outlasts the wait fails with reconcile-busy and changes no tabs" {
+  slots '[{"repo": "A", "slot": 1}]'
+  mkdir -p "$AGENT_SLOT_REX_STATE_DIR" "$T/holder"
+  printf '#!/usr/bin/env bash\ntrap '"'"'kill $!; exit 0'"'"' TERM\nsleep 10 &\nwait\n' >"$T/holder/agent-slot-rex"
+  chmod +x "$T/holder/agent-slot-rex"
+  "$T/holder/agent-slot-rex" </dev/null >/dev/null 2>&1 &
+  local holder=$!
+  ln -s "$holder" "$AGENT_SLOT_REX_STATE_DIR/$LOCK_LINK"
+  run --separate-stderr env AGENT_SLOT_REX_LOCK_WAIT=1 "$AGENT_SLOT_REX" restore --output json
+  kill "$holder"
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e --arg l "$AGENT_SLOT_REX_STATE_DIR/$LOCK_LINK" '.reason == "reconcile-busy" and .value == $l
+    and .recovery.retryable == true' <<<"$stderr"
+  not_called 'agent-slot list'
+  not_called '^rex (new|window)'
+  [ "$(readlink "$AGENT_SLOT_REX_STATE_DIR/$LOCK_LINK")" = "$holder" ]
+}
+
+@test "a reconcile that stops on an error leaves no lock behind" {
+  touch "$STUBS/ssh/unreachable"
+  run --separate-stderr "$AGENT_SLOT_REX" restore --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "server-unreachable"' <<<"$stderr"
+  [ ! -L "$AGENT_SLOT_REX_STATE_DIR/$LOCK_LINK" ]
+}
+
 @test "the sweep closes itself when nothing needs you" {
   slots '[{"repo": "X", "slot": 1}]'
   session sess-x X '[{"window_id": "w1", "label": "X/1", "blocks": ["b1"]}]'

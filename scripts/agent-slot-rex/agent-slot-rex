@@ -15,6 +15,7 @@
 #   AGENT_SLOT_REX_RETRY_DELAY    seconds between ssh retries (3)
 #   AGENT_SLOT_REX_JITTER         most seconds of random delay added to each retry (3)
 #   AGENT_SLOT_REX_RESTORE_WAIT   seconds restore --wait-server waits for the server (600)
+#   AGENT_SLOT_REX_LOCK_WAIT      seconds a restore, sweep, or finish waits for the one ahead of it (300)
 #   AGENT_SLOT_REX_VERIFIED_VERSIONS  the verified-versions file (scripts/agent-slot/verified-versions)
 #   REX_BIN_DIR                   where the rex CLI lives; Rex sets it in its terminals
 #   AGENT_SLOT_JQ                 the jaq or jq binary
@@ -40,6 +41,8 @@ source "$AR_HOME/../agent-slot/lib/names.sh"
 source "$AR_LIB/server.sh"
 # shellcheck source=lib/rex.sh
 source "$AR_LIB/rex.sh"
+# shellcheck source=lib/lock.sh
+source "$AR_LIB/lock.sh"
 # shellcheck source=lib/reconcile.sh
 source "$AR_LIB/reconcile.sh"
 # shellcheck source=lib/launch.sh
@@ -70,6 +73,7 @@ AR_LOG_DIR=$AR_STATE/logs
 AR_RETRY=${AGENT_SLOT_REX_RETRY_DELAY:-3}
 AR_JITTER=${AGENT_SLOT_REX_JITTER:-3}
 AR_RESTORE_WAIT=${AGENT_SLOT_REX_RESTORE_WAIT:-600}
+AR_LOCK_WAIT=${AGENT_SLOT_REX_LOCK_WAIT:-300}
 AR_VERIFIED=${AGENT_SLOT_REX_VERIFIED_VERSIONS:-$AR_HOME/../agent-slot/verified-versions}
 AR_CONTROL=agent-slots
 rex_find || true

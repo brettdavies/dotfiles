@@ -110,10 +110,12 @@ server_call_or_fail() {
 
 # Usage: ar_hold [prompt]
 # Keeps a tab open for the operator to read it: waits for q, or for the end of input when no terminal is attached. With
-# AR_AGAIN naming a verb, r runs that verb again in the same tab.
+# AR_AGAIN naming a verb, r runs that verb again in the same tab. A tab can wait hours for its q, so it gives up the
+# reconcile lock first.
 AR_AGAIN=
 ar_hold() {
   local key
+  lock_release
   printf '%s\n' "${1:-${AR_AGAIN:+press r to run the $AR_AGAIN again; }press q to close this tab}"
   while IFS= read -r -s -n 1 key; do
     [[ $key != q ]] || return 0
