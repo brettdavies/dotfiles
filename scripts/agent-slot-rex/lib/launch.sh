@@ -98,11 +98,18 @@ launch_try() {
   ("$@") || true
 }
 
+# One sweep tab serves every launch: a sweep tab already open is asked to sweep again, which it does once its current
+# run ends, so two sweeps never reconcile tabs at once.
 launch_open_sweep() {
-  rex_open_tab "$AR_CONTROL" sweep "$AR_SELF" sweep
+  rex_helper_block "$AR_CONTROL" sweep
+  if [[ -n $REX_OUT ]]; then
+    rex_send "$REX_SID" "$REX_OUT" r
+  else
+    rex_open_tab "$AR_CONTROL" sweep "$AR_SELF" sweep
+  fi
 }
 
-# Relabels this tab, lays it out, opens the sweep tab, and becomes the Claude pane's attach loop.
+# Relabels this tab, lays it out, opens or reruns the sweep tab, and becomes the Claude pane's attach loop.
 launch_succeeded() {
   local key label
   key=$(contract_json -r '.key' <<<"$SERVER_OUT")

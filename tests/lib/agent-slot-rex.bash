@@ -3,8 +3,8 @@
 # are stubs that append their argv to $CALLS, reached through REX_BIN_DIR and the AGENT_SLOT_REX_* overrides.
 #
 # rex answers from files under $STUBS/rexdata: sessions.json for `ls`, session-<id>.json for `session inspect`, and
-# process-<block>.json for `block call process`. `new` adds the session it makes to sessions.json, so a later lookup
-# finds it. ssh answers each agent-slot verb from $STUBS/ssh/<verb>.{out,err,rc}, or from <verb>.<n>.* on its nth call;
+# process-<block>.json for `block call process`. `new` adds the session it makes to sessions.json and writes its
+# session-<id>.json, so a later lookup or inspect finds it. ssh answers each agent-slot verb from $STUBS/ssh/<verb>.{out,err,rc}, or from <verb>.<n>.* on its nth call;
 # the attach loop's tmux calls count as the verbs attach and has-session, and a bare `true` as probe. With
 # $STUBS/ssh/unreachable present every call fails as ssh does, and with $STUBS/ssh/hang every call hangs.
 
@@ -48,6 +48,9 @@ case "$1 $2" in
       n=$(grep -c "^rex window new\|^rex new" "$CALLS")
       jaq -c --arg l "$2" ".sessions += [{session_id: (\"sess-\" + \$l), label: \$l}]" "$STUBS/rexdata/sessions.json" \
         >"$STUBS/rexdata/sessions.new" && mv "$STUBS/rexdata/sessions.new" "$STUBS/rexdata/sessions.json"
+      jaq -n -c --arg id "sess-$2" --arg l "$2" --arg n "$n" "{session_id: \$id, label: \$l, windows: [{window_id:
+        (\"win-new-\" + \$n), label: \$l, layers: [{blocks: [{block_id: (\"blk-new-\" + \$n)}]}]}]}" \
+        >"$STUBS/rexdata/session-sess-$2.json"
       echo "{\"session_id\":\"sess-$2\",\"initial_windows\":[{\"window_id\":\"win-new-$n\",\"block_ids\":[\"blk-new-$n\"]}]}"
     fi ;;
 esac'

@@ -109,11 +109,26 @@ server_call_or_fail() {
 }
 
 # Usage: ar_hold [prompt]
-# Keeps a tab open for the operator to read it: waits for q, or for the end of input when no terminal is attached.
+# Keeps a tab open for the operator to read it: waits for q, or for the end of input when no terminal is attached. With
+# AR_AGAIN naming a verb, r runs that verb again in the same tab.
+AR_AGAIN=
 ar_hold() {
   local key
-  printf '%s\n' "${1:-press q to close this tab}"
+  printf '%s\n' "${1:-${AR_AGAIN:+press r to run the $AR_AGAIN again; }press q to close this tab}"
   while IFS= read -r -n 1 key; do
     [[ $key != q ]] || return 0
+    [[ -z $AR_AGAIN || $key != r ]] || ar_again
   done
+}
+
+# True when an r reached the terminal while the AR_AGAIN verb ran, typed or sent by a launch.
+ar_again_pending() {
+  local key
+  [[ -n $AR_AGAIN && -t 0 ]] && IFS= read -r -s -n 1 -t 0.2 key && [[ $key == r ]]
+}
+
+# Runs the AR_AGAIN verb again, replacing this process, so the tab keeps its place.
+ar_again() {
+  [[ $CONTRACT_NOISE == /dev/null ]] || rm -f "$CONTRACT_NOISE"
+  exec "$AR_SELF" "$AR_AGAIN"
 }

@@ -304,7 +304,9 @@ idle.
 
 On the Mac, the keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`; each pane runs
 `agent-slot-rex attach <repo>/<N> claude|files|git`, the control session's tab runs `agent-slot-rex sweep`, and
-`agent-slot-rex doctor` checks both machines. Every verb answers `--help`.
+`agent-slot-rex doctor` checks both machines. Every verb answers `--help`. Each launch runs the sweep again in the
+control session's one sweep tab, opening it when there is none; the tab stays open while something needs you, and `r`
+in it sweeps again.
 
 With `--output json`, every verb prints one JSON object on success and one error object on stderr, with a `reason` from
 the table below, an exit code (0 ok, 1 failed, 2 usage, 77 auth, 78 configuration), a `next_step`, a `recovery` that

@@ -183,12 +183,16 @@ sweep_teardown() {
 cmd_sweep() {
   local count
   contract_use_tools rex ssh
-  [[ $CONTRACT_OUTPUT != text ]] || AR_HOLD=1
+  [[ $CONTRACT_OUTPUT != text ]] || AR_HOLD=1 AR_AGAIN=sweep
   sweep_teardown
   reconcile
   RECONCILE_RESULT=$(contract_json -c --argjson t "$SWEEP_TORN_DOWN" '. + {torn_down: $t}' <<<"$RECONCILE_RESULT")
   contract_ok "$RECONCILE_RESULT" '(.torn_down[] | "torn down: \(.)"), '"$RECONCILE_TEXT"'
     , (if .needs_you == [] then "nothing needs you" else "needs you:", (.needs_you[] | "  \(.label)") end)'
   count=$(contract_json '.needs_you | length' <<<"$RECONCILE_RESULT")
-  ((count == 0 || AR_HOLD == 0)) || ar_hold
+  if ((count > 0 && AR_HOLD == 1)); then
+    ar_hold
+  elif ar_again_pending; then
+    ar_again
+  fi
 }
