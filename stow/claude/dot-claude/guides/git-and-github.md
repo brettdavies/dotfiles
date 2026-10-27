@@ -289,9 +289,12 @@ repo has its own prose-linting pipeline.
 1. **Author in `/tmp/` with a collision-proof name.** Generic names like `/tmp/pr-body.md` clobber parallel sessions,
    and reused tmp files from earlier turns ship stale content. Use one of two filename forms — no exceptions. For
    PR-scoped artifacts (PR body, PR comment, PR review), name the file `/tmp/pr-body-<repo>.<branch>.md` where `<repo>`
-   is `$(basename "$(git rev-parse --show-toplevel)")` and `<branch>` is `$(git rev-parse --abbrev-ref HEAD | tr / -)`
-   (slashes in branch names → `-`). The repo+branch key scopes the file to the current work, so re-runs on the same
-   branch overwrite in place — desired, since resubmitting replaces server-side. For everything else (commit messages,
+   is `$(basename -s .git "$(git remote get-url origin 2>/dev/null || git rev-parse --show-toplevel)")` and `<branch>`
+   is `$(git rev-parse --abbrev-ref HEAD | tr / -)` (slashes in branch names → `-`). `<repo>` comes from the origin
+   remote, not the checkout's directory: an agent slot's directory is a number (`~/slots/<repo>/<N>`), so parallel slots
+   on one branch name would otherwise share a file; the directory name is only the fallback for a repo with no origin.
+   The repo+branch key scopes the file to the current work, so re-runs on the same branch overwrite in place — desired,
+   since resubmitting replaces server-side. For everything else (commit messages,
    issue bodies, issue comments, release notes, one-off bodies), name the file `/tmp/<kind>-$(uuidv7).md`. The `uuidv7`
    helper lives at `stow/local/dot-local/bin/uuidv7` (deploys to `~/.local/bin/uuidv7` via `scripts/stow-deploy local`);
    it's a three-line `python3.14` script around `uuid.uuid7()` (stdlib uuid7 was added in 3.14, so the shebang pins that
@@ -321,7 +324,7 @@ repo has its own prose-linting pipeline.
 Typical flow (PR body):
 
 ```bash
-REPO=$(basename "$(git rev-parse --show-toplevel)")
+REPO=$(basename -s .git "$(git remote get-url origin 2>/dev/null || git rev-parse --show-toplevel)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD | tr / -)
 BODY=/tmp/pr-body-${REPO}.${BRANCH}.md
 $EDITOR "$BODY"                                  # one logical line per paragraph
