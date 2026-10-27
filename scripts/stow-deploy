@@ -22,7 +22,7 @@ EXIT_PLATFORM=6     # Platform mismatch (launchagent on Linux)
 # Package sets — single source of truth
 # Ordering: secrets first (git-crypt dep), shell (PATH/env), then the rest
 SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew cargo rust tmux lazygit micro yazi rclone qmd obsidian caddy gogcli codex-proxy cswap)
-DESKTOP_PACKAGES=(ghostty cursor launchagent)
+DESKTOP_PACKAGES=(ghostty cursor launchagent rex)
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STOW_DIR="$REPO_ROOT/stow"
@@ -284,7 +284,7 @@ for pkg in "$@"; do
   # Platform guards
   if [ "$(uname -s)" != "Darwin" ]; then
     case "$pkg" in
-      ghostty | cursor | launchagent)
+      ghostty | cursor | launchagent | rex)
         echo "WARNING: $pkg is macOS-only, skipping on $(uname -s)" >&2
         continue
         ;;
@@ -409,6 +409,34 @@ if [ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ] \
       fi
     done < <(find "$STOW_DIR/$_pkg" -path '*/dot-config/systemd/user/*.timer' -printf '%f\n' 2>/dev/null)
   done <"$deployed_file"
+fi
+
+# --- Reload Rex's config (macOS) ---
+#
+# Rex reads ~/.config/rex/init.lua when it starts and on `rex config reload`,
+# not when the file changes, so a deploy of the rex package reloads the running
+# server. The CLI is in REX_BIN_DIR inside a Rex terminal and in the app bundle
+# otherwise. Rex being absent or not running is reported and never fails the
+# deploy; --autostart=false keeps the reload from starting a server.
+if [ "$(uname -s)" = "Darwin" ] && [ "$TARGET" = "$HOME" ] && grep -qx "rex" "$deployed_file" 2>/dev/null; then
+  echo ""
+  echo "==> Reloading Rex config"
+  _rex=""
+  for _candidate in "${REX_BIN_DIR:+$REX_BIN_DIR/rex}" \
+    "/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex" \
+    "$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"; do
+    if [ -n "$_candidate" ] && [ -x "$_candidate" ]; then
+      _rex=$_candidate
+      break
+    fi
+  done
+  if [ -z "$_rex" ]; then
+    echo "  NOTE: no rex CLI found; Rex reads the new config when it next starts" >&2
+  elif "$_rex" --autostart=false config reload >/dev/null 2>&1; then
+    echo "  Done: rex config reload"
+  else
+    echo "  WARNING: rex config reload failed (is Rex running?); Rex reads the new config when it next starts" >&2
+  fi
 fi
 
 # --- Post-stow validation ---

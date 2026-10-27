@@ -79,3 +79,44 @@ REPO="$BATS_TEST_DIRNAME/.."
   echo "$output"
   [ "$status" -eq 1 ]
 }
+
+# Hook scripts deploy into ~/.claude through the claude stow package, and the
+# `~` form is the one path that resolves on every machine.
+@test "hook commands name scripts under ~/.claude by the ~ path" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.hooks // {} | .[][] | .hooks[]? | .command // empty' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  commands="$output"
+  run bash -c "grep -oE '[^[:space:]\"(]*\\.claude/' | grep -vxF '~/.claude/'" <<<"$commands"
+  echo "hook commands reaching ~/.claude by another path:"
+  echo "$output"
+  [ "$status" -eq 1 ]
+}
+
+# Async Claude hooks can finish out of order, and the slot status hook is
+# written for that; registered synchronously it would hold up every tool call.
+@test "slot-status.sh is registered async on every status event" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -c '["SessionStart", "UserPromptSubmit", "PostToolUse", "PermissionRequest", "Elicitation", "PreToolUse",
+      "Stop", "StopFailure", "SessionEnd"]
+    - [.hooks | to_entries[]
+       | select(any(.value[]; any(.hooks[]; .command == "~/.claude/slot-status.sh" and .async == true)))
+       | .key]' "$SETTINGS"
+  echo "events without an async slot-status.sh: $output"
+  [ "$output" = "[]" ]
+  run jaq -c '[.hooks.PreToolUse[] | select(any(.hooks[]; .command == "~/.claude/slot-status.sh")) | .matcher]' \
+    "$SETTINGS"
+  [ "$output" = '["AskUserQuestion"]' ]
+  run jaq -c '[.hooks.SessionStart[] | .hooks[] | select(.command == "~/.claude/slot-context.sh")] | length' "$SETTINGS"
+  [ "$output" = 1 ]
+}
+
+# agent-slot takes its verb as the first argument, so `agent-slot sweep *`
+# catches every flag order after it, and the bare verb too.
+@test "agent-slot sweep and finish ask first" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  grep -qxF 'Bash(agent-slot sweep *)' <<<"$output"
+  grep -qxF 'Bash(agent-slot finish *)' <<<"$output"
+}

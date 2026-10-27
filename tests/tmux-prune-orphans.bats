@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 # Tests for scripts/tmux/prune-orphans.sh, which SIGKILLs tmux clients whose
 # terminal is gone. It runs from tmux's client-detached hook and from the
-# tmux-prune-orphans systemd user timer.
+# tmux-prune-orphans systemd user timers, against the default server or, with
+# -L, the named one.
 #
 # Run: bats tests/tmux-prune-orphans.bats
 #
@@ -52,6 +53,27 @@ sleeper() {
   SLEEPERS+=("$SLEEPER")
 }
 
+# wait_gone PID: wait up to 5s for PID to exit, then fail if it is still alive.
+wait_gone() {
+  for _ in $(seq 50); do
+    kill -0 "$1" 2>/dev/null || break
+    sleep 0.1
+  done
+  run ! kill -0 "$1"
+}
+
+# stub_two_servers SLOT_PID DEFAULT_PID: a tmux that records its argv and
+# reports SLOT_PID as the orphan client of the agent-slots server and
+# DEFAULT_PID as the orphan client of the default server.
+stub_two_servers() {
+  stub tmux "log tmux \"\$@\"
+if [ \"\$1\" = -L ] && [ \"\$2\" = agent-slots ]; then
+  echo '$1 (none)'
+else
+  echo '$2 (none)'
+fi"
+}
+
 # A tmux client passes its stdin and stdout to the server over the socket. A
 # wedged server never reads that message, so the passed descriptors stay open
 # after the client is killed. The stub's background sleep holds its stdout the
@@ -96,11 +118,47 @@ exec sleep 60'
 
   run -0 "$SCRIPT"
 
-  for _ in $(seq 50); do
-    kill -0 "$orphan" 2>/dev/null || break
-    sleep 0.1
-  done
-  run ! kill -0 "$orphan"
+  wait_gone "$orphan"
   kill -0 "$attached"
   grep -qx "logger -t tmux-prune killing orphan client pid=$orphan" "$CALLS"
+}
+
+@test "-L sends list-clients to that socket and kills only that server's orphans" {
+  sleeper
+  local slot_orphan=$SLEEPER
+  sleeper
+  local default_orphan=$SLEEPER
+  stub_two_servers "$slot_orphan" "$default_orphan"
+
+  run -0 "$SCRIPT" -L agent-slots
+
+  wait_gone "$slot_orphan"
+  kill -0 "$default_orphan"
+  grep -qxF 'tmux -L agent-slots list-clients -F #{client_pid} #{client_tty}' "$CALLS"
+}
+
+@test "without -L the prune asks the default server and leaves the slot server's clients" {
+  sleeper
+  local slot_orphan=$SLEEPER
+  sleeper
+  local default_orphan=$SLEEPER
+  stub_two_servers "$slot_orphan" "$default_orphan"
+
+  run -0 "$SCRIPT"
+
+  wait_gone "$default_orphan"
+  kill -0 "$slot_orphan"
+  grep -qxF 'tmux list-clients -F #{client_pid} #{client_tty}' "$CALLS"
+}
+
+@test "an unknown argument or a -L without a name fails before calling tmux" {
+  stub tmux 'log tmux "$@"'
+
+  run -2 "$SCRIPT" --bogus
+  [[ "$output" == *"ERROR: usage: prune-orphans.sh [-L socket-name]"* ]]
+
+  run -2 "$SCRIPT" -L
+  [[ "$output" == *"ERROR: usage: prune-orphans.sh [-L socket-name]"* ]]
+
+  [ ! -s "$CALLS" ]
 }

@@ -104,7 +104,10 @@ Finally, nothing tells the operator which agent needs attention without visiting
 - **The slot command trusts its own slot paths, through Claude's own dialog.** (session-settled: user-approved — chosen
   over accepting each new path by hand, over only labelling a tab that waits on the dialog, and over writing trust into
   Claude's app-state file: no flag or setting pre-trusts a path, a parent folder's trust does not cover a clone, and
-  delegated agents must never wait on a dialog nobody sees.) Governs R24.
+  delegated agents must never wait on a dialog nobody sees.) It does so only for a repo whose prime checkout the
+  operator has already trusted in Claude; any other repo's slot is labelled `trust needed`. (session-settled:
+  user-directed — trusting a path lets Claude load the repo's own settings and hooks, and `repos` lists third-party
+  upstream clones too.) Governs R24.
 - **Agents start and brief slots.** A skill teaches any agent the slot command, and a launch can carry Claude's first
   message. (session-settled: user-approved — chosen over keeping slots operator-only: an agent delegates a task in one
   call.) Governs R25.
@@ -497,8 +500,10 @@ slots, and a doctor on each machine.
     tmuxinator configs do, so the `y` function resolves and quitting yazi leaves a shell;
   - `<repo>-<N>-git`: a shell with `lazygit` typed into it the same way.
 
-  Every session pins `PATH`, never inherits the SSH caller's environment, and sets explicitly whatever git push and
-  commit signing need on the Linux server (U1 records which). Each program runs under a shell, so its pane outlives a
+  Every session starts from an empty environment carrying only `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `LANG`, and
+  the pinned `PATH`, never the caller's: a tmux server started from inside a Claude session inherits its
+  `CLAUDE_CODE_CHILD_SESSION` marker, and Claude in its panes then saves no transcripts. Signing and push need nothing
+  more, because both use the key file with no SSH agent (U1). Each program runs under a shell, so its pane outlives a
   stopped program. The separate server keeps a wedge or restore in the operator's tmuxinator sessions from touching
   agents, and the reverse. (session-settled: user-directed — three sessions in tmux, each shown in its own Rex pane,
   chosen over a three-pane tmuxinator template inside one Rex pane and over side panes outside tmux: the operator's Rex
@@ -507,16 +512,17 @@ slots, and a doctor on each machine.
   excludes OSC 7501. So a global, async Claude hook (`slot-status.sh`) acts only when `$TMUX` names the `agent-slots`
   socket and the pane belongs to a slot's Claude session (`<repo>-<N>`). It maps events to states:
 
-| Claude event                      | State                      |
-| --------------------------------- | -------------------------- |
-| `SessionStart`                    | idle                       |
-| `UserPromptSubmit`, `PostToolUse` | working                    |
-| `PermissionRequest`               | blocked, `kind=permission` |
-| `Elicitation`                     | blocked, `kind=question`   |
-| `PreToolUse` on `AskUserQuestion` | blocked, `kind=question`   |
-| `Stop`                            | done                       |
-| `StopFailure`                     | error                      |
-| `SessionEnd`                      | clear                      |
+| Claude event                             | State                      |
+| ---------------------------------------- | -------------------------- |
+| `SessionStart`                           | idle                       |
+| `UserPromptSubmit`, `PostToolUse`        | working                    |
+| `PermissionRequest`                      | blocked, `kind=permission` |
+| `PermissionRequest` on `AskUserQuestion` | blocked, `kind=question`   |
+| `Elicitation`                            | blocked, `kind=question`   |
+| `PreToolUse` on `AskUserQuestion`        | blocked, `kind=question`   |
+| `Stop`                                   | done                       |
+| `StopFailure`                            | error                      |
+| `SessionEnd`                             | clear                      |
 
   For each report the hook does three things:
 
@@ -597,7 +603,9 @@ slots, and a doctor on each machine.
     on a disconnect, so the tab and its layout stay.
 
   Reconcile is one function used by sweep, restore, and finish. It counts a keyed tab as present when the Rex tab with
-  that key exists and its Claude pane's attach loop is still running. It opens a tab for each live slot without one,
+  that key exists and its Claude pane's attach loop is still running. A tab is also keyed when one of its blocks runs
+  `agent-slot-rex attach <repo>/<N>`, because rexurrect can recreate a tab from its blocks' launch commands without its
+  label (U1). It opens a tab for each live slot without one,
   resumes dormant slots, relabels keyed tabs, closes keyed tabs whose slot is gone, and closes a duplicate keyed tab,
   such as one rexurrect recreated. It closes tabs only once every server call has returned. When Rex loads, `init.lua`
   starts `agent-slot-rex restore` in the background with `rex.exec`; it waits up to 10 minutes for the server's ssh to
@@ -662,7 +670,9 @@ slots, and a doctor on each machine.
      hand). `launch` then continues, reports `trust_prompt_expected`, and the tab is labelled `trust needed`.
 
   `launch` skips the step when Claude's app-state file, read only, already marks the path trusted; that key is not a
-  supported interface, so a missing or unreadable entry counts as untrusted. The function never writes Claude's
+  supported interface, so a missing or unreadable entry counts as untrusted. Both `launch` and `warm` also skip it when
+  that file does not mark the repo's prime checkout trusted: `launch` then reports `trust_prompt_expected`, and `warm`
+  reports `prime-untrusted` for each path. The function never writes Claude's
   app-state file, and it is the one place to replace when Claude ships a supported way to pre-trust a path (Upstream
   Asks). (session-settled: user-approved — chosen over accepting each new path by hand, over only labelling a tab that
   waits on the dialog, and over writing trust into Claude's app-state file; running it inside `launch` was chosen over

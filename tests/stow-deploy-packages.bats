@@ -89,6 +89,20 @@ _require_unlocked_checkout() {
   [[ "$desktop" == *"ghostty"* ]]
   [[ "$desktop" == *"cursor"* ]]
   [[ "$desktop" == *"launchagent"* ]]
+  [[ " $desktop " == *" rex "* ]]
+}
+
+@test "macOS-only case block covers expected packages" {
+  # rex holds Rex's init.lua and its agent-slot actions; Rex runs only on the Mac.
+  grep -qE 'ghostty *\| *cursor *\| *launchagent *\| *rex *\)' "$SCRIPT"
+}
+
+@test "deploying rex reloads Rex's config only on a real macOS \$HOME deploy, and never fails on it" {
+  # Rex reads init.lua only at start and on reload. A sandboxed deploy must not
+  # reload the operator's running Rex, and a Mac without Rex still deploys.
+  grep -qF 'if [ "$(uname -s)" = "Darwin" ] && [ "$TARGET" = "$HOME" ] && grep -qx "rex" "$deployed_file"' "$SCRIPT"
+  grep -qF '"$_rex" --autostart=false config reload' "$SCRIPT"
+  [ "$(awk '/^# --- Reload Rex/,/^# --- Post-stow/' "$SCRIPT" | grep -cE 'exit|EXIT_')" -eq 0 ]
 }
 
 @test "all SHARED_PACKAGES have stow directories" {

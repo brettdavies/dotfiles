@@ -337,6 +337,8 @@
       "Bash(sudo:*)"
     ],
     "ask": [
+      "Bash(agent-slot finish *)",
+      "Bash(agent-slot sweep *)",
       "Bash(apt:*)",
       "Bash(docker:*)",
       "Bash(gh pr close *)",
@@ -419,6 +421,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -471,6 +483,41 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Elicitation": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -490,6 +537,16 @@
             "type": "command",
             "command": "~/.claude/ci-watch-prompt.sh",
             "timeout": 15
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
           }
         ]
       }
@@ -581,6 +638,36 @@
             "command": "( ~/.local/bin/gstack-config-apply >/dev/null 2>&1 & )"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-context.sh",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh -c 'rex __internal session-start --agent claude 2>/dev/null || true'",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -593,6 +680,17 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
       }
     ],
     "Stop": [
@@ -602,6 +700,29 @@
           {
             "type": "command",
             "command": "command -v terminal-notifier >/dev/null 2>&1 && terminal-notifier -sound Mezzo -title \"✅ Claude Code\" -message \"The task has been completed\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
           }
         ]
       }

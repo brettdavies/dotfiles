@@ -2,7 +2,28 @@
 # Kills tmux clients whose terminal is gone (client_tty "(none)"). A client
 # left in that state keeps every descriptor it inherited open, which can
 # include another session's pty master and keep that terminal from hanging up.
+#
+# Usage: prune-orphans.sh [-L socket-name]
+# -L targets the server on that socket, as `tmux -L` does; without it, the
+# default server.
 set -euo pipefail
+
+usage() {
+  echo "ERROR: usage: prune-orphans.sh [-L socket-name]" >&2
+  exit 2
+}
+
+socket=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -L)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || usage
+      socket="$2"
+      shift 2
+      ;;
+    *) usage ;;
+  esac
+done
 
 # tmux runs this hook through `run-shell`, whose PATH can be narrower than an
 # interactive shell's, so fall back to the per-platform Homebrew prefixes.
@@ -39,9 +60,9 @@ trap 'rm -f "$clients_file"' EXIT
 
 # list-clients exits nonzero when no server is running; that's not a failure.
 status=0
-"$TIMEOUT_BIN" -k 5 "$TMUX_PRUNE_TIMEOUT" "$TMUX_BIN" list-clients \
-  -F '#{client_pid} #{client_tty}' </dev/null >"$clients_file" 2>/dev/null \
-  || status=$?
+"$TIMEOUT_BIN" -k 5 "$TMUX_PRUNE_TIMEOUT" "$TMUX_BIN" ${socket:+-L "$socket"} \
+  list-clients -F '#{client_pid} #{client_tty}' </dev/null >"$clients_file" \
+  2>/dev/null || status=$?
 if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
   echo "ERROR: tmux server did not answer list-clients within ${TMUX_PRUNE_TIMEOUT}s; it is likely wedged" >&2
   exit 1

@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# agent-slot-rex — the Mac half of agent slots. It runs inside Rex tabs and panes: it starts an agent on the Linux
+# server through `agent-slot`, keeps each pane attached to its slot's tmux session over ssh, and keeps one Rex tab per
+# live slot in that repo's session. Every slot decision is the server's; this helper only calls it and moves tabs.
+#
+# Usage: agent-slot-rex <verb> [options] [--output json]
+# Verbs and options: agent-slot-rex --help, and agent-slot-rex <verb> --help.
+#
+# Env (each defaults to the value in parentheses):
+#   AGENT_SLOT_REX_SERVER         the server's ssh alias (bigdaddy)
+#   AGENT_SLOT_REX_SSH            the ssh binary (ssh)
+#   AGENT_SLOT_REX_PS             the ps binary (ps)
+#   AGENT_SLOT_REX_SELF           the helper path every pane runs (~/.local/bin/agent-slot-rex)
+#   AGENT_SLOT_REX_STATE_DIR      logs (~/.local/state/agent-slot-rex)
+#   AGENT_SLOT_REX_RETRY_DELAY    seconds between ssh retries (3)
+#   AGENT_SLOT_REX_JITTER         most seconds of random delay added to each retry (3)
+#   AGENT_SLOT_REX_RESTORE_WAIT   seconds restore --wait-server waits for the server (600)
+#   AGENT_SLOT_REX_VERIFIED_VERSIONS  the verified-versions file (scripts/agent-slot/verified-versions)
+#   REX_BIN_DIR                   where the rex CLI lives; Rex sets it in its terminals
+#   AGENT_SLOT_JQ                 the jaq or jq binary
+
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+  for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$b" ] && exec "$b" "$0" "$@"
+  done
+  echo "ERROR: needs bash >= 4.4 (running $BASH_VERSION); install it with: brew install bash" >&2
+  exit 1
+fi
+
+set -euo pipefail
+
+AR_HOME=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+AR_LIB=$AR_HOME/lib
+
+# shellcheck source=../agent-slot/lib/contract.sh
+source "$AR_HOME/../agent-slot/lib/contract.sh"
+# shellcheck source=lib/server.sh
+source "$AR_LIB/server.sh"
+# shellcheck source=lib/rex.sh
+source "$AR_LIB/rex.sh"
+# shellcheck source=lib/reconcile.sh
+source "$AR_LIB/reconcile.sh"
+# shellcheck source=lib/launch.sh
+source "$AR_LIB/launch.sh"
+# shellcheck source=lib/attach.sh
+source "$AR_LIB/attach.sh"
+# shellcheck source=lib/doctor.sh
+source "$AR_LIB/doctor.sh"
+# shellcheck source=lib/finish.sh
+source "$AR_LIB/finish.sh"
+# shellcheck source=lib/help.sh
+source "$AR_LIB/help.sh"
+
+# A Rex tab or a command Rex starts at load hands over launchd's PATH, which may lack Homebrew.
+PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:$PATH"
+AGENT_SLOT_JQ=${AGENT_SLOT_JQ:-$(command -v jaq || command -v jq || true)}
+if [[ -z $AGENT_SLOT_JQ ]]; then
+  echo "agent-slot-rex: dependency-missing: neither jaq nor jq is installed; next: brew install jaq" >&2
+  exit "$EXIT_CONFIG"
+fi
+
+AR_SERVER=${AGENT_SLOT_REX_SERVER:-bigdaddy}
+AR_SSH=${AGENT_SLOT_REX_SSH:-ssh}
+AR_PS=${AGENT_SLOT_REX_PS:-ps}
+AR_SELF=${AGENT_SLOT_REX_SELF:-$HOME/.local/bin/agent-slot-rex}
+AR_STATE=${AGENT_SLOT_REX_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-slot-rex}
+AR_LOG_DIR=$AR_STATE/logs
+AR_RETRY=${AGENT_SLOT_REX_RETRY_DELAY:-3}
+AR_JITTER=${AGENT_SLOT_REX_JITTER:-3}
+AR_RESTORE_WAIT=${AGENT_SLOT_REX_RESTORE_WAIT:-600}
+AR_VERIFIED=${AGENT_SLOT_REX_VERIFIED_VERSIONS:-$AR_HOME/../agent-slot/verified-versions}
+AR_CONTROL=agent-slots
+rex_find || true
+
+CONTRACT_REPO=$AR_HOME
+CONTRACT_LOG_DIR=$AR_LOG_DIR
+CONTRACT_TOOL_PATHS[rex]=${AR_REX:-rex}
+CONTRACT_TOOL_PATHS[ssh]=$AR_SSH
+CONTRACT_CONFIG=$(contract_json -n -c --arg server "$AR_SERVER" --arg state "$AR_STATE" --arg rex "$AR_REX" \
+  '{server: $server, state_dir: $state, rex: (if $rex == "" then null else $rex end)}')
+
+main() {
+  contract_init agent-slot-rex "$@"
+  CONTRACT_VERB=agent-slot-rex
+  local verb=${1:-}
+  case $verb in
+    '' | -h | --help | help)
+      CONTRACT_EMITTED=1
+      printf '%s\n' "$USAGE"
+      return 0
+      ;;
+  esac
+  shift
+  [[ $VERBS == *" $verb "* ]] || {
+    CONTRACT_OUTPUT=$([[ " $* " == *" --output json "* ]] && echo json || echo text)
+    contract_fail usage "unknown verb: $verb" --value "$verb" --command "agent-slot-rex --help"
+  }
+  CONTRACT_VERB=$verb
+
+  local args=()
+  while (($#)); do
+    case $1 in
+      -h | --help)
+        CONTRACT_EMITTED=1
+        verb_help "$verb"
+        return 0
+        ;;
+      --output)
+        [[ ${2:-} == json || ${2:-} == text ]] || usage_fail "--output takes json or text" "${2:-}"
+        CONTRACT_OUTPUT=$2
+        shift
+        ;;
+      --output=*)
+        CONTRACT_OUTPUT=${1#--output=}
+        [[ $CONTRACT_OUTPUT == json || $CONTRACT_OUTPUT == text ]] || usage_fail "--output takes json or text" "$1"
+        ;;
+      *) args+=("$1") ;;
+    esac
+    shift
+  done
+
+  case $verb in
+    launch)
+      launch_parse_args "${args[@]}"
+      cmd_launch
+      ;;
+    attach)
+      ((${#args[@]} == 2)) || usage_fail "attach takes a slot and a pane: <repo>/<N> claude|files|git" "${args[*]}"
+      cmd_attach "${args[0]}" "${args[1]}"
+      ;;
+    restore)
+      case ${args[*]} in
+        '') cmd_restore ;;
+        --tab) cmd_restore_tab ;;
+        --wait-server) cmd_restore_at_start ;;
+        *) usage_fail "restore takes --tab or --wait-server" "${args[*]}" ;;
+      esac
+      ;;
+    sweep)
+      ((${#args[@]} == 0)) || usage_fail "sweep takes no arguments" "${args[0]}"
+      cmd_sweep
+      ;;
+    finish)
+      if ((${#args[@]} == 5)) && [[ ${args[0]} == --tab && ${args[1]} == --session && ${args[3]} == --block ]]; then
+        cmd_finish_tab "${args[2]}" "${args[4]}"
+      elif ((${#args[@]} == 1)) && [[ ${args[0]} =~ ^[A-Za-z0-9._-]+/[0-9]+$ ]]; then
+        cmd_finish "${args[0]}"
+      else
+        usage_fail "finish takes a slot, <repo>/<N>, or --tab --session ID --block ID" "${args[*]}"
+      fi
+      ;;
+    doctor)
+      ((${#args[@]} == 0)) || usage_fail "doctor takes no arguments" "${args[0]}"
+      cmd_doctor
+      ;;
+  esac
+}
+
+main "$@"
