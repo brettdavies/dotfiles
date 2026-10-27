@@ -141,11 +141,20 @@ cmd_restore_tab() {
 }
 
 # At Rex start nothing watches this command, so it writes to its own log, and waits for the server's ssh to answer
-# rather than reporting a network that a wake has not brought back yet.
+# rather than reporting a network that a wake has not brought back yet. `rex config check` runs init.lua too, so the
+# restore goes on only when its parent is a Rex server; Rex keeps its server-only variables out of a child's
+# environment, so the parent is the one sign.
 cmd_restore_at_start() {
-  local deadline remaining
+  local deadline remaining parent
   mkdir -p "$AR_STATE"
   exec </dev/null >>"$AR_STATE/restore.log" 2>&1
+  parent=$("$AR_PS" -o command= -p "$PPID" 2>/dev/null || true)
+  if [[ $parent != *"rex server run"* ]]; then
+    printf '%s restore at Rex start skipped: not started by a Rex server (parent: %s)\n' "$(contract_now)" \
+      "${parent:-gone}"
+    CONTRACT_EMITTED=1
+    return 0
+  fi
   printf '%s restore at Rex start; waiting up to %s s for %s\n' "$(contract_now)" "$AR_RESTORE_WAIT" "$AR_SERVER"
   deadline=$((SECONDS + AR_RESTORE_WAIT))
   until server_ssh "$(restore_probe_bound "$deadline")" probe true; do
