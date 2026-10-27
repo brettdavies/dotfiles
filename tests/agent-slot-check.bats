@@ -374,6 +374,28 @@ listed() {
     or .values == ["notes.txt", ".claude/scratch.md"]' <<<"$VERDICT"
 }
 
+@test "Claude Code's scheduled-task files in the slot's .claude/ do not block; a file the task wrote there does" {
+  finished_task
+  printf '.claude/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/.claude"
+  echo '{"sessionId":"s1","pid":1,"acquiredAt":0}' >"$SLOT/.claude/scheduled_tasks.lock"
+  echo '{"tasks": []}' >"$SLOT/.claude/scheduled_tasks.json"
+  listed '!! .claude/'
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+  : >"$SLOT/.git/info/exclude"
+  listed '?? .claude/scheduled_tasks.lock'
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+  mkdir -p "$SLOT/.claude/commands"
+  touch "$SLOT/.claude/commands/new.md"
+  check
+  jaq -e '.needs_you[] | select(.code == "untracked-files") | .values == [".claude/commands/new.md"]' <<<"$VERDICT"
+  printf '.claude/\n' >"$SLOT/.git/info/exclude"
+  check
+  jaq -e '.needs_you[] | select(.code == "untracked-files") | .values == [".claude/commands/new.md"]' <<<"$VERDICT"
+}
+
 @test "an uncommitted change and a stash each block" {
   finished_task
   git -C "$SLOT" checkout -q main

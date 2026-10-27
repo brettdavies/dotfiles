@@ -77,6 +77,30 @@ record() { jaq -r "$1" "$SLOT/.git/agent-slot.json"; }
   [ ! -e "$SLOT" ]
 }
 
+@test "finish --yes tears down a finished slot whose only extra file is Claude Code's scheduler lock" {
+  finished_task
+  printf '.claude/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/.claude"
+  echo '{"sessionId":"s1","pid":1,"acquiredAt":0}' >"$SLOT/.claude/scheduled_tasks.lock"
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == true' <<<"$output"
+  [ ! -e "$SLOT" ]
+}
+
+@test "finish --yes keeps a slot whose .claude/ holds a file the task wrote beside the scheduler lock" {
+  finished_task
+  printf '.claude/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/.claude/commands"
+  echo '{"sessionId":"s1","pid":1,"acquiredAt":0}' >"$SLOT/.claude/scheduled_tasks.lock"
+  touch "$SLOT/.claude/commands/new.md"
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "teardown-blocked" and (.message | endswith(": 1 untracked file: .claude/commands/new.md"))' \
+    <<<"$stderr"
+  [ -f "$SLOT/.claude/commands/new.md" ]
+}
+
 @test "AE12: finish --yes on a task with an open PR exits 1 with task-has-open-pr and deletes nothing" {
   work feat/x
   git -C "$SLOT" push -q origin feat/x
