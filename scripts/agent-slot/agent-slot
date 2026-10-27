@@ -41,6 +41,8 @@ AS_LIB=$AS_HOME/lib
 source "$AS_LIB/env.sh"
 # shellcheck source=lib/contract.sh
 source "$AS_LIB/contract.sh"
+# shellcheck source=lib/names.sh
+source "$AS_LIB/names.sh"
 # shellcheck source=lib/record.sh
 source "$AS_LIB/record.sh"
 # shellcheck source=lib/bounded.sh

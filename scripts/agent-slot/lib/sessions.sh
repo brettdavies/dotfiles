@@ -47,15 +47,13 @@ sessions_command() {
 # RECORD. Sets SESSIONS_CREATED to the sessions it made. The caller holds the slot lock, so two calls never race to
 # create the same session.
 sessions_start() {
-  local repo=$1 n=$2 mode=$3 base path kind name shell out
-  base=$(slot_session "$repo" "$n")
+  local repo=$1 n=$2 mode=$3 path kind name shell out
   path=$(slot_path "$repo" "$n")
   shell=$(_sessions_shell)
   SESSIONS_CREATED=()
   slot_sessions_or_fail
-  for kind in claude files git; do
-    name=$base
-    [[ $kind == claude ]] || name+=-$kind
+  for kind in "${SLOT_SESSION_KINDS[@]}"; do
+    name=$(slot_session "$repo" "$n" "$kind")
     grep -qxF "$name" <<<"$SLOT_SESSIONS" && continue
     bounded out tmux 10 /usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$shell" TERM=xterm-256color \
       LANG="${LANG:-C.UTF-8}" PATH="$PATH" \

@@ -11,10 +11,10 @@ finish_key_of() {
   rex_window_of "$1" "$2"
   wid=$REX_OUT
   rex_snapshot
-  FINISH_KEY=$(contract_json -r --arg s "$1" --arg w "$wid" '
+  FINISH_KEY=$(contract_json -r --arg s "$1" --arg w "$wid" --arg key "$SLOT_KEY_PATTERN" '
     ([.[] | select(.session_id == $s and .window_id == $w)][0] // {}) as $tab
-    | (first($tab.commands[]? | capture("agent-slot-rex attach (?<k>[A-Za-z0-9._-]+/[0-9]+) ").k)
-       // (($tab.label // "") | capture("^(?<k>[A-Za-z0-9._-]+/[0-9]+)( |$)").k)
+    | (first($tab.commands[]? | capture("agent-slot-rex attach (?<k>" + $key + ") ").k)
+       // (($tab.label // "") | capture("^(?<k>" + $key + ")( |$)").k)
        // "")' <<<"$REX_TABS")
 }
 

@@ -34,6 +34,8 @@ AR_LIB=$AR_HOME/lib
 
 # shellcheck source=../agent-slot/lib/contract.sh
 source "$AR_HOME/../agent-slot/lib/contract.sh"
+# shellcheck source=../agent-slot/lib/names.sh
+source "$AR_HOME/../agent-slot/lib/names.sh"
 # shellcheck source=lib/server.sh
 source "$AR_LIB/server.sh"
 # shellcheck source=lib/rex.sh
@@ -143,7 +145,7 @@ main() {
     finish)
       if ((${#args[@]} == 5)) && [[ ${args[0]} == --tab && ${args[1]} == --session && ${args[3]} == --block ]]; then
         cmd_finish_tab "${args[2]}" "${args[4]}"
-      elif ((${#args[@]} == 1)) && [[ ${args[0]} =~ ^[A-Za-z0-9._-]+/[0-9]+$ ]]; then
+      elif ((${#args[@]} == 1)) && [[ ${args[0]} =~ ^$SLOT_KEY_PATTERN$ ]]; then
         cmd_finish "${args[0]}"
       else
         usage_fail "finish takes a slot, <repo>/<N>, or --tab --session ID --block ID" "${args[*]}"

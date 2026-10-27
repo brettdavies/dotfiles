@@ -70,13 +70,13 @@ _agent_env_in_panes() {
 # Usage: agentstate_of <repo> <n>
 # Sets AGENT_STATE, AGENT_DETAIL (why, for unknown), and AGENT_PIDS (the Claude processes under the slot).
 agentstate_of() {
-  local repo=$1 n=$2 path base panes='' ids='' suffix sessions count entry pid target comm
+  local repo=$1 n=$2 path name panes='' ids='' kind sessions count entry pid target comm
   local -a outside=()
   path=$AS_ROOT_REAL/$repo/$n
-  base=$(slot_session "$repo" "$n")
-  for suffix in '' -files -git; do
-    panes+=${_AGENT_PANES[$base$suffix]:-}
-    ids+=${_AGENT_PANE_IDS[$base$suffix]:-}
+  for kind in "${SLOT_SESSION_KINDS[@]}"; do
+    name=$(slot_session "$repo" "$n" "$kind")
+    panes+=${_AGENT_PANES[$name]:-}
+    ids+=${_AGENT_PANE_IDS[$name]:-}
   done
   AGENT_STATE='' AGENT_DETAIL='' AGENT_PIDS=''
 

@@ -56,11 +56,10 @@ launch_parse_args() {
 # Removes a slot whose setup never finished: its tmux sessions, its clone, and its claim. The caller holds the slot
 # lock.
 slot_rollback() {
-  local repo=$1 n=$2 path base suffix out real
+  local repo=$1 n=$2 path kind out real
   path=$(slot_path "$repo" "$n")
-  base=$(slot_session "$repo" "$n")
-  for suffix in '' -files -git; do
-    slot_tmux out 5 kill-session -t "=$base$suffix" || true
+  for kind in "${SLOT_SESSION_KINDS[@]}"; do
+    slot_tmux out 5 kill-session -t "=$(slot_session "$repo" "$n" "$kind")" || true
   done
   if [[ -e $path ]]; then
     real=$(realpath -m "$path")
@@ -214,16 +213,6 @@ cmd_launch() {
     '{request_id, requested_at, repo, slot, path: $path, task, session_id, created: true,
       trust_prompt_expected: $trust, phases: $phases}' <<<"$RECORD")"
   launch_output "$repo" "$n" true "$trust" "$phases"
-}
-
-# Usage: slot_parse_key <repo>/<n>; sets SLOT_REPO and SLOT_N, or fails with usage.
-SLOT_REPO='' SLOT_N=''
-slot_parse_key() {
-  if [[ $1 =~ ^([A-Za-z0-9._-]+)/([0-9]+)$ ]]; then
-    SLOT_REPO=${BASH_REMATCH[1]} SLOT_N=${BASH_REMATCH[2]}
-  else
-    usage_fail "a slot is named <repo>/<N>, such as dotfiles/2" "$1"
-  fi
 }
 
 cmd_resume() {

@@ -65,7 +65,7 @@ _teardown_stop_agent() {
 # Tears down a slot whose verdict passed; the caller holds its lock and the verdict's AGENT_PIDS. Returns 1, with the
 # slot active again and TEARDOWN_BLOCKERS set, when the re-check fails.
 slot_teardown() {
-  local repo=$1 n=$2 path real base suffix out
+  local repo=$1 n=$2 path real kind out
   path=$(slot_path "$repo" "$n")
   real=$(realpath -m "$path")
   if [[ $real != "$AS_ROOT_REAL/$repo/$n" ]]; then
@@ -87,9 +87,8 @@ slot_teardown() {
     _teardown_keep "$repo" "$n"
     return 1
   fi
-  base=$(slot_session "$repo" "$n")
-  for suffix in '' -files -git; do
-    slot_tmux out 10 kill-session -t "=$base$suffix" || true
+  for kind in "${SLOT_SESSION_KINDS[@]}"; do
+    slot_tmux out 10 kill-session -t "=$(slot_session "$repo" "$n" "$kind")" || true
   done
   bounded out trash 120 "$AS_TRASH" "$path" \
     || contract_fail script-error "trash could not move $path to the trash" --value "$path" --side-effects partial \

@@ -52,10 +52,9 @@ slot_view() {
   else
     rec=$(contract_json -n -c --arg r "$repo" --argjson n "$n" '{repo: $r, slot: $n, state: "setting-up"}')
   fi
-  base=$(slot_session "$repo" "$n")
-  ! grep -qxF "$base" <<<"$sessions" || claude=true
-  ! grep -qxF "$base-files" <<<"$sessions" || files=true
-  ! grep -qxF "$base-git" <<<"$sessions" || git=true
+  ! grep -qxF "$(slot_session "$repo" "$n")" <<<"$sessions" || claude=true
+  ! grep -qxF "$(slot_session "$repo" "$n" files)" <<<"$sessions" || files=true
+  ! grep -qxF "$(slot_session "$repo" "$n" git)" <<<"$sessions" || git=true
   state=$(contract_json -r '.state // "active"' <<<"$rec")
   [[ $state != active || $claude == true ]] || state=dormant
   agentstate_of "$repo" "$n"
