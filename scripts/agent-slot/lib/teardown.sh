@@ -12,15 +12,11 @@ TEARDOWN_ARMED=
 
 # Usage: _teardown_recheck <repo> <n>; the tree checks again, now that the agent has stopped.
 _teardown_recheck() {
-  local repo=$1 n=$2 path out
+  local repo=$1 n=$2 path
   path=$(slot_path "$repo" "$n")
   CHECK_BLOCKERS=()
   _check_uncommitted "$path"
-  if ! out=$(git -C "$path" stash list); then
-    _check_block git-state-unknown "git stash list failed in the slot"
-  elif [[ -n $out ]]; then
-    _check_block stash-present "$(_check_plural "$(grep -c . <<<"$out")" "stash entry" "stash entries")"
-  fi
+  _check_stash "$path"
   _check_commits "$path" "$(contract_json -r '.base // "main"' <<<"$RECORD")" \
     "$(contract_json '.prs // [] | length' <<<"$RECORD")"
   _check_files "$path"
