@@ -260,6 +260,12 @@ before a slot is deleted; `agent-slot-rex` on the Mac drives Rex, where each rep
 Every slot runs three tmux sessions on the server's `agent-slots` socket (Claude, yazi, and lazygit), so agents keep
 working while the Mac sleeps, and each pane of a slot's tab reattaches by itself after a sleep or a network drop.
 
+Each slot's Claude starts and resumes with `--dangerously-skip-permissions`, so it skips its permission prompts except
+under an ask rule and for the few actions Claude never auto-approves. Deny rules and hooks still block in that mode, ask
+rules are how `agent-slot sweep` and `agent-slot finish` keep asking first, and Claude's trust dialog still shows for a
+path it does not trust. Claude skips its own bypass warning only when `~/.claude/settings.json` sets
+`skipDangerousModePermissionPrompt` to `true`, as this repo's settings do; `agent-slot doctor` warns when it does not.
+
 A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
 merged with none open, or the operator finished it) and nothing in it is missing from origin. Anything else keeps it on
 the *needs-you list*, shown on its tab and in the `agent-slots` control session.
@@ -307,13 +313,13 @@ idle.
 On the Mac, the keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`; each pane runs
 `agent-slot-rex attach <repo>/<N> claude|files|git`, the control session's tab runs `agent-slot-rex sweep`, and
 `agent-slot-rex doctor` checks both machines. Every verb answers `--help`. Each launch runs the sweep again in the
-control session's one sweep tab, opening it when there is none; the tab stays open while something needs you, and `r`
-in it sweeps again.
+control session's one sweep tab, opening it when there is none; the tab stays open while something needs you, and `r` in
+it sweeps again.
 
 With `--output json`, every verb prints one JSON object on success and one error object on stderr, with a `reason` from
 the table below, an exit code (0 ok, 1 failed, 2 usage, 77 auth, 78 configuration), a `next_step`, a `recovery` that
-says whether a retry is safe, and a `log`. `--output` goes after the verb. `agent-slot schema` prints both
-objects as JSON Schema with every reason, and each verb's `--help` lists the fields it returns.
+says whether a retry is safe, and a `log`. `--output` goes after the verb. `agent-slot schema` prints both objects as
+JSON Schema with every reason, and each verb's `--help` lists the fields it returns.
 
 #### agent-slot reasons
 
@@ -347,6 +353,7 @@ objects as JSON Schema with every reason, and each verb's `--help` lists the fie
 | `slots-config-missing`        | 78   | `slots.conf` is not deployed; `scripts/stow-deploy tmux`                                       |
 | `prune-timer-inactive`        | 78   | The slot server's orphan-client prune timer is not enabled                                     |
 | `slot-path-untrusted`         | 78   | Doctor warning: a slot path, or the repo's prime checkout, is not trusted in Claude yet        |
+| `bypass-mode-unaccepted`      | 78   | Doctor warning: settings.json does not accept bypass mode; `scripts/stow-deploy claude`        |
 | `version-unverified`          | 0    | Doctor warning: Claude or Rex differs from the version the checklist last ran on               |
 | `repo-required`               | 2    | The new-agent key was pressed outside a repo's session, with no terminal to ask in             |
 | `server-unreachable`          | 1    | ssh to the Linux server failed; retry once the network is back                                 |

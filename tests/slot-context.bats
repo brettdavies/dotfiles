@@ -63,6 +63,7 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"agent-slot schema"* ]]
   [[ $context == *"agent-slot launch"*"--request-id"* ]]
   [[ $context == *"ask the operator"* ]]
+  [[ $context == *"--dangerously-skip-permissions"* ]]
 }
 
 @test "a slot with no task says so" {
