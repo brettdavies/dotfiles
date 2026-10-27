@@ -20,6 +20,26 @@ else
   GATE_RED='' GATE_GREEN='' GATE_DIM='' GATE_BOLD='' GATE_RESET=''
 fi
 
+# git starts ssh before it runs pre-push, and ssh shares git's stderr. OpenSSH
+# puts each stdio descriptor that is not a terminal into non-blocking mode for
+# as long as the connection is open, and the flag belongs to the open file
+# description, so `git push 2>&1 | tail` hands the hook a non-blocking pipe. A
+# write that finds that pipe full then fails with EAGAIN instead of waiting for
+# the reader, and a gate log replayed with `cat` stops partway through.
+# Terminals and files ignore the flag; clearing it makes a pipe behave like
+# them. No shell builtin or coreutils tool can clear it, and perl is already a
+# dependency of scripts/run-tests.
+gate_blocking_output() {
+  command -v perl >/dev/null 2>&1 || return 0
+  # shellcheck disable=SC2016 # the $fh and $flags in single quotes are perl's
+  perl -MFcntl -e '
+    for my $fh (*STDOUT, *STDERR) {
+      my $flags = fcntl($fh, F_GETFL, 0) or next;
+      fcntl($fh, F_SETFL, $flags & ~O_NONBLOCK) if $flags & O_NONBLOCK;
+    }'
+}
+gate_blocking_output
+
 gate_header() { printf '%s%s%s\n' "$GATE_BOLD" "$1" "$GATE_RESET"; }
 gate_pass() { printf '  %s✓%s %s\n' "$GATE_GREEN" "$GATE_RESET" "$1"; }
 gate_skip() { printf '  %s- %s%s\n' "$GATE_DIM" "$1" "$GATE_RESET"; }
