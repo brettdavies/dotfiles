@@ -240,4 +240,3 @@ finished_task() {
   pr 7 MERGED feat/x
   squash_merge feat/x
 }
-

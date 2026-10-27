@@ -235,6 +235,7 @@ cmd_resume() {
     || contract_fail slot-not-found "$1 holds no slot" --value "$1" --command "agent-slot list"
   record_lock_slot "$repo" "$n" --wait "$AS_LOCK_WAIT" \
     || contract_fail slot-busy "$1 stayed locked for $AS_LOCK_WAIT s" --value "$1" --command "agent-slot resume $1"
+  teardown_recover "$repo" "$n"
   record_read "$repo" "$n" || contract_fail slot-not-found "$1 has no record" --value "$1" --command "agent-slot list"
   state=$(contract_json -r '.state // ""' <<<"$RECORD")
   [[ $state == active ]] || contract_fail slot-busy "$1 is $state" --value "$1" --command "agent-slot resume $1"

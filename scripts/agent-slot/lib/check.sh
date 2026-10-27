@@ -41,50 +41,55 @@ _check_local_only() {
   return 1
 }
 
+# Usage: _check_build_output <status> <path>; true for an ignored directory git listed whole whose own name is a build
+# or dependency directory. A new file inside a build-named directory that also holds tracked files is listed on its
+# own, so it never matches.
 _check_build_output() {
-  local part
-  local IFS=/
-  for part in $1; do
-    [[ " $CHECK_BUILD_DIRS " == *" $part "* ]] && return 0
-  done
-  return 1
+  local name
+  [[ $1 == '!!' && $2 == */ ]] || return 1
+  name=${2%/}
+  name=${name##*/}
+  [[ " $CHECK_BUILD_DIRS " == *" $name "* ]]
 }
 
-# Usage: _check_untracked_paths <slot path> <git status -z file>; prints untracked and ignored paths, NUL-separated.
-# git collapses an ignored directory into one entry, so a directory that holds a file setup placed, such as an ignored
-# .claude/, is listed file by file instead.
+# Usage: _check_untracked_paths <slot path> <git status -z file>; prints each untracked (??) and ignored (!!) entry as
+# "<status> <path>", NUL-separated, with a directory's trailing slash kept. git collapses an ignored directory into one
+# entry, so a directory that holds a file setup placed, such as an ignored .claude/, is listed file by file instead.
 _check_untracked_paths() {
-  local entry path setup file
+  local entry status path setup file
   while IFS= read -r -d '' entry; do
-    [[ ${entry:0:2} == '??' || ${entry:0:2} == '!!' ]] || continue
+    status=${entry:0:2}
+    [[ $status == '??' || $status == '!!' ]] || continue
     path=${entry:3}
     if [[ $path == */ ]]; then
       for setup in $CHECK_SETUP_FILES; do
         [[ $setup == "$path"* ]] || continue
         while IFS= read -r -d '' file; do
-          printf '%s\0' "${file#"$1"/}"
+          printf '%s %s\0' "$status" "${file#"$1"/}"
         done < <(find "$1/${path%/}" -mindepth 1 \( -type f -o -type l \) -print0)
         continue 2
       done
     fi
-    printf '%s\0' "${path%/}"
+    printf '%s\0' "$entry"
   done <"$2"
 }
 
 # Usage: _check_files <slot path>; untracked and ignored files beyond build output and what setup placed.
 _check_files() {
-  local path listing untracked=() local_only=()
+  local entry status path listing untracked=() local_only=()
   listing=$(mktemp)
   if ! git -C "$1" status --porcelain=v1 -z --ignored=matching --untracked-files=all >"$listing" 2>/dev/null; then
     rm -f "$listing"
     _check_block git-state-unknown "git status failed in the slot"
     return
   fi
-  while IFS= read -r -d '' path; do
-    if _check_local_only "$path"; then
-      local_only+=("$path")
-    elif [[ " $CHECK_SETUP_FILES " != *" $path "* ]] && ! _check_build_output "$path"; then
-      untracked+=("$path")
+  while IFS= read -r -d '' entry; do
+    status=${entry:0:2}
+    path=${entry:3}
+    if _check_local_only "${path%/}"; then
+      local_only+=("${path%/}")
+    elif [[ " $CHECK_SETUP_FILES " != *" ${path%/} "* ]] && ! _check_build_output "$status" "$path"; then
+      untracked+=("${path%/}")
     fi
   done < <(_check_untracked_paths "$1" "$listing")
   rm -f "$listing"
@@ -93,6 +98,15 @@ _check_files() {
     "${#local_only[@]}" "${local_only[@]}"
   ((${#untracked[@]} == 0)) || _check_block untracked-files \
     "$(_check_plural "${#untracked[@]}" "untracked file"): ${untracked[*]:0:3}" "${#untracked[@]}" "${untracked[@]}"
+}
+
+# Usage: _check_agent <repo> <n>; blocks unless the slot's agent is idle or absent, from the agents agentstate_load read.
+_check_agent() {
+  agentstate_of "$1" "$2"
+  case $AGENT_STATE in
+    busy | waiting) _check_block agent-not-idle "the agent is $AGENT_STATE" ;;
+    unknown) _check_block agent-state-unknown "agent state unknown: $AGENT_DETAIL" ;;
+  esac
 }
 
 # Usage: _check_commits <slot path> <base> <pr count>
@@ -109,12 +123,13 @@ _check_commits() {
     _check_block git-state-unknown "the slot's local heads or origin's $base could not be read"
     return
   fi
-  local -a h
+  local -a h contained=("$baseref" --glob='refs/agent-slot/pr/*')
   mapfile -t h <<<"$heads"
+  # A clone keeps a local copy of origin's default branch, whose history need not be in the base (dev).
+  ! git -C "$path" rev-parse -q --verify refs/remotes/origin/HEAD >/dev/null || contained+=(refs/remotes/origin/HEAD)
   if ((has_prs > 0)); then
-    if ! uncontained=$(git -C "$path" rev-list --count "${h[@]}" --not "$baseref" --glob='refs/agent-slot/pr/*') \
-      || ! unpushed=$(git -C "$path" rev-list --count "${h[@]}" --not "$baseref" --glob='refs/agent-slot/pr/*' \
-        --remotes=origin); then
+    if ! uncontained=$(git -C "$path" rev-list --count "${h[@]}" --not "${contained[@]}") \
+      || ! unpushed=$(git -C "$path" rev-list --count "${h[@]}" --not "${contained[@]}" --remotes=origin); then
       _check_block git-state-unknown "git rev-list failed in the slot"
       return
     fi
@@ -175,11 +190,7 @@ check_slot() {
         "" "${closed[@]}"
     fi
 
-    agentstate_of "$repo" "$n"
-    case $AGENT_STATE in
-      busy | waiting) _check_block agent-not-idle "the agent is $AGENT_STATE" ;;
-      unknown) _check_block agent-state-unknown "agent state unknown: $AGENT_DETAIL" ;;
-    esac
+    _check_agent "$repo" "$n"
 
     if out=$(git -C "$path" status --porcelain=v1 --untracked-files=no); then
       [[ -z $out ]] || _check_block uncommitted-changes \

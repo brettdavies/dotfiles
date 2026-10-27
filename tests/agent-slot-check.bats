@@ -107,6 +107,38 @@ lacks_blocker() { jaq -e --arg c "$1" 'all(.blockers[]; .code != $c)' <<<"$VERDI
   lacks_blocker unpushed-commits
 }
 
+@test "a dev-based slot passes though the clone's local default branch holds history dev lacks" {
+  git clone -q "$ORIGIN" "$T/devmaker"
+  git -C "$T/devmaker" checkout -q --orphan dev
+  git -C "$T/devmaker" commit -q --allow-empty -m 'dev root'
+  git -C "$T/devmaker" push -q origin dev
+  git -C "$SLOT" fetch -q origin
+  git -C "$SLOT" checkout -q -B dev origin/dev
+  jaq -c '.base = "dev"' "$SLOT/.git/agent-slot.json" >"$T/record" && mv "$T/record" "$SLOT/.git/agent-slot.json"
+  work feat/x 2
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 MERGED feat/x
+  check
+  jaq -e '.finished == true and .blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "a fetch from origin that fails blocks with git-state-unknown" {
+  finished_task
+  git -C "$SLOT" remote set-url origin "$T/missing.git"
+  check
+  jaq -e 'any(.blockers[]; .code == "git-state-unknown" and (.message | startswith("git fetch from origin failed")))
+    and .teardown == false' <<<"$VERDICT"
+}
+
+@test "a commit on a local branch that is neither checked out nor pushed blocks with unpushed-commits" {
+  finished_task
+  git -C "$SLOT" checkout -q -b side
+  git -C "$SLOT" commit -q --allow-empty -m 'side work'
+  git -C "$SLOT" checkout -q feat/x
+  check
+  jaq -e '.blockers[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
+}
+
 @test "AE11: two PRs, one merged and one open, is not finished" {
   finished_task
   git -C "$SLOT" checkout -q -B feat/second main
@@ -156,6 +188,34 @@ lacks_blocker() { jaq -e --arg c "$1" 'all(.blockers[]; .code != $c)' <<<"$VERDI
   touch "$SLOT/.context/handoffs/next.md"
   check
   jaq -e '.needs_you[] | select(.code == "local-only-files") | .values == [".context/handoffs/next.md"]' <<<"$VERDICT"
+}
+
+@test "untracked files under build- and dist-named source directories block" {
+  finished_task
+  mkdir -p "$SLOT/tools/build" "$SLOT/src/dist"
+  echo deploy >"$SLOT/tools/build/deploy.sh"
+  echo notes >"$SLOT/src/dist/notes.md"
+  check
+  jaq -e '.blockers[] | select(.code == "untracked-files") | .values == ["src/dist/notes.md", "tools/build/deploy.sh"]' \
+    <<<"$VERDICT"
+}
+
+@test "a new ignored file in a build directory that holds tracked files blocks; a wholly ignored one does not" {
+  work feat/x
+  mkdir -p "$SLOT/tools/build"
+  echo tracked >"$SLOT/tools/build/tracked.sh"
+  git -C "$SLOT" add tools/build/tracked.sh
+  git -C "$SLOT" commit -q -m 'tracked build script'
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 MERGED feat/x
+  squash_merge feat/x
+  echo 'build/' >"$SLOT/.git/info/exclude"
+  echo new >"$SLOT/tools/build/new.sh"
+  mkdir -p "$SLOT/out/build"
+  echo object >"$SLOT/out/build/o.o"
+  check
+  jaq -e '.blockers == [{code: "untracked-files", message: "1 untracked file: tools/build/new.sh", count: 1,
+    values: ["tools/build/new.sh"]}]' <<<"$VERDICT"
 }
 
 @test "an untracked file blocks with untracked-files, and a stray file in the slot's .claude/ blocks too" {

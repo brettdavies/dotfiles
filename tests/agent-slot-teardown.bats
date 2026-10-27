@@ -124,6 +124,67 @@ record() { jaq -r "$1" "$SLOT/.git/agent-slot.json"; }
   [ "$(grep -c 'kill-session' "$CALLS")" -eq 0 ]
 }
 
+@test "a commit made while the agent stops keeps the slot with unpushed-commits" {
+  finished_task
+  idle_agent "git -C '$SLOT' commit -q --allow-empty -m late"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == [] and any(.needs_you[0].needs_you[]; .code == "unpushed-commits")' <<<"$output"
+  [ -d "$SLOT/.git" ]
+  [ "$(grep -c 'kill-session' "$CALLS")" -eq 0 ]
+}
+
+@test "a stash made while the agent stops keeps the slot with stash-present" {
+  finished_task
+  idle_agent "echo late >'$SLOT/late.txt' && git -C '$SLOT' stash -q -u"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == [] and any(.needs_you[0].needs_you[]; .code == "stash-present")' <<<"$output"
+  [ -d "$SLOT/.git" ]
+}
+
+@test "a stash lookup that fails during the re-check keeps the slot with git-state-unknown" {
+  finished_task
+  idle_agent "echo 0000000000000000000000000000000000000001 >'$SLOT/.git/refs/stash'"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == [] and any(.needs_you[0].needs_you[]; .code == "git-state-unknown"
+    and .message == "git stash list failed in the slot")' <<<"$output"
+  [ -d "$SLOT/.git" ]
+}
+
+@test "an agent that turns busy after the verdict is not stopped, and the slot is kept" {
+  finished_task
+  idle_agent "touch '$T/agent-stopped'"
+  stub gh 'jaq -c "map(.status = \"busy\")" "$STUBS/claude-agents.json" >"$STUBS/agents.new"
+mv "$STUBS/agents.new" "$STUBS/claude-agents.json"
+cat "$STUBS/gh-prs.json"'
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == [] and any(.needs_you[0].needs_you[]; .code == "agent-not-idle")' <<<"$output"
+  [ ! -e "$T/agent-stopped" ]
+  [ -d "$SLOT/.git" ]
+  [ "$(record .state)" = active ]
+}
+
+@test "a trash that fails leaves the slot active, so it can be resumed" {
+  finished_task
+  stub trash '[ "$1" != --version ] || { echo "trash 0.test"; exit 0; }
+exit 1'
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "script-error"' <<<"$stderr"
+  [ "$(record .state)" = active ]
+}
+
+@test "a slot a dead teardown left tearing-down is judged again and torn down" {
+  finished_task
+  jaq -c '.state = "tearing-down"' "$SLOT/.git/agent-slot.json" >"$T/record" && mv "$T/record" "$SLOT/.git/agent-slot.json"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+}
+
 @test "a slot path that resolves outside the slot root is refused before anything is trashed" {
   work feat/w
   git -C "$SLOT" push -q origin feat/w

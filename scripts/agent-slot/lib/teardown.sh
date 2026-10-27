@@ -1,28 +1,55 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
 # sweep and finish: deleting only the slots check passes. Both report what they would do unless given --yes.
 #
-# A teardown runs under the slot's lock, in order: mark the slot tearing-down, stop its agent, check the tree again,
-# kill its three tmux sessions, move the clone to the trash, and append the ledger. A re-check that fails marks the
-# slot active again with its sessions intact, so nothing written into the slot after the verdict is lost.
+# A teardown runs under the slot's lock, in order: mark the slot tearing-down, read the agent's state again, stop the
+# agent, check the tree again, kill its three tmux sessions, move the clone to the trash, and append the ledger. A
+# check that fails marks the slot active again with its sessions intact, so nothing written into the slot after the
+# verdict is lost, and so does a teardown that stops before the trash: through its exit handler, or, when it was
+# killed, through the next process that takes the slot lock.
 
 TEARDOWN_BLOCKERS='[]'
+TEARDOWN_ARMED=
 
 # Usage: _teardown_recheck <repo> <n>; the tree checks again, now that the agent has stopped.
 _teardown_recheck() {
   local repo=$1 n=$2 path out
   path=$(slot_path "$repo" "$n")
   CHECK_BLOCKERS=()
-  if out=$(git -C "$path" status --porcelain=v1 --untracked-files=no) && [[ -n $out ]]; then
+  if ! out=$(git -C "$path" status --porcelain=v1 --untracked-files=no); then
+    _check_block git-state-unknown "git status failed in the slot"
+  elif [[ -n $out ]]; then
     _check_block uncommitted-changes "$(_check_plural "$(grep -c . <<<"$out")" "uncommitted change")"
   fi
-  if out=$(git -C "$path" stash list) && [[ -n $out ]]; then
+  if ! out=$(git -C "$path" stash list); then
+    _check_block git-state-unknown "git stash list failed in the slot"
+  elif [[ -n $out ]]; then
     _check_block stash-present "$(_check_plural "$(grep -c . <<<"$out")" "stash entry" "stash entries")"
   fi
   _check_commits "$path" "$(contract_json -r '.base // "main"' <<<"$RECORD")" \
     "$(contract_json '.prs // [] | length' <<<"$RECORD")"
   _check_files "$path"
+  ((${#CHECK_BLOCKERS[@]} == 0))
+}
+
+# Usage: _teardown_keep <repo> <n>; marks the slot active again with the blockers in CHECK_BLOCKERS.
+_teardown_keep() {
+  TEARDOWN_ARMED=
   TEARDOWN_BLOCKERS=$(printf '%s\n' "${CHECK_BLOCKERS[@]}" | contract_json -s -c 'map(select(. != null))')
-  [[ $TEARDOWN_BLOCKERS == '[]' ]]
+  record_update "$1" "$2" --argjson b "$TEARDOWN_BLOCKERS" --arg at "$(contract_now)" \
+    '.state = "active" | .last_check = {at: $at, finished: true, blockers: $b}'
+}
+
+_teardown_disarm_on_exit() {
+  [[ -n $TEARDOWN_ARMED ]] || return 0
+  record_update "${TEARDOWN_ARMED%/*}" "${TEARDOWN_ARMED##*/}" '.state = "active"'
+}
+
+# Usage: teardown_recover <repo> <n>; the caller holds the slot lock. A tearing-down record whose lock was free belongs
+# to a teardown that died before its trash, so the slot is marked active again and judged afresh.
+teardown_recover() {
+  record_read "$1" "$2" || return 0
+  [[ $(contract_json -r '.state // ""' <<<"$RECORD") == tearing-down ]] || return 0
+  record_update "$1" "$2" '.state = "active"'
 }
 
 _teardown_stop_agent() {
@@ -46,11 +73,18 @@ slot_teardown() {
       --value "$real" --command "ls -l $path" --side-effects none
   fi
   record_update "$repo" "$n" '.state = "tearing-down"'
+  TEARDOWN_ARMED=$repo/$n
+  agentstate_load
+  CHECK_BLOCKERS=()
+  _check_agent "$repo" "$n"
+  if ((${#CHECK_BLOCKERS[@]} > 0)); then
+    _teardown_keep "$repo" "$n"
+    return 1
+  fi
   _teardown_stop_agent
   record_read "$repo" "$n"
   if ! _teardown_recheck "$repo" "$n"; then
-    record_update "$repo" "$n" --argjson b "$TEARDOWN_BLOCKERS" --arg at "$(contract_now)" \
-      '.state = "active" | .last_check = {at: $at, finished: true, blockers: $b}'
+    _teardown_keep "$repo" "$n"
     return 1
   fi
   base=$(slot_session "$repo" "$n")
@@ -60,6 +94,7 @@ slot_teardown() {
   bounded out trash 120 "$AS_TRASH" "$path" \
     || contract_fail script-error "trash could not move $path to the trash" --value "$path" --side-effects partial \
       --reconcile "agent-slot list" --log "$BOUNDED_LOG"
+  TEARDOWN_ARMED=
   ledger_append teardown "$(contract_json -c '{repo, slot, task, session_id, transcript, prs, request_id}' <<<"$RECORD")"
 }
 
@@ -75,6 +110,7 @@ _teardown_one() {
     TEARDOWN_RESULT=busy
     return
   fi
+  teardown_recover "$repo" "$n"
   check_slot "$repo" "$n"
   check_record "$repo" "$n"
   if [[ $(contract_json -r .teardown <<<"$CHECK_VERDICT") != true ]]; then
@@ -94,6 +130,7 @@ _teardown_one() {
 cmd_sweep() {
   local repo n results=()
   require_tools tmux claude gh trash
+  contract_on_exit _teardown_disarm_on_exit
   check_inputs_load
   while read -r repo; do
     [[ -n $repo ]] || continue
@@ -116,18 +153,22 @@ cmd_sweep() {
 }
 
 cmd_finish() {
-  local key=$1 repo n
+  local key=$1 repo n retry
   slot_parse_key "$key"
   repo=$SLOT_REPO n=$SLOT_N
+  retry="agent-slot finish $key"
+  [[ ${FINISH_YES:-0} != 1 ]] || retry+=" --yes"
   require_tools tmux claude gh trash
+  contract_on_exit _teardown_disarm_on_exit
   slot_taken "$repo" "$n" || contract_fail slot-not-found "$key holds no slot" --value "$key" --command "agent-slot list"
   check_inputs_load
   record_lock_slot "$repo" "$n" --nowait \
-    || contract_fail slot-busy "another agent-slot process holds $key" --value "$key" --command "agent-slot finish $key --yes"
+    || contract_fail slot-busy "another agent-slot process holds $key" --value "$key" --command "$retry"
+  teardown_recover "$repo" "$n"
   check_slot "$repo" "$n"
   if contract_json -e 'any(.blockers[]; .code == "pr-state-unknown")' <<<"$CHECK_VERDICT" >/dev/null; then
     contract_fail pr-state-unknown "gh could not read the PRs of $key, so an open one cannot be ruled out" \
-      --value "$key" --command "agent-slot finish $key --yes"
+      --value "$key" --command "$retry"
   fi
   if contract_json -e 'any(.prs[]; .state == "OPEN")' <<<"$CHECK_VERDICT" >/dev/null; then
     contract_fail task-has-open-pr "$key has an open PR: $(contract_json -r '[.prs[] | select(.state == "OPEN")
