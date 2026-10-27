@@ -56,6 +56,14 @@ SLOTS="$REX_DIR/agent-slots.lua"
   grep -q 'helper_pane("launch", "--here")' "$BATS_TEST_TMPDIR/new"
 }
 
+@test "the new-agent action brings its tab forward, through the client that pressed the key, outside a repo's session" {
+  awk '/name = "agent_slot_new"/,/^}/' "$SLOTS" >"$BATS_TEST_TMPDIR/new"
+  grep -q 'if not is_known_repo(view and view.label) then' "$BATS_TEST_TMPDIR/new"
+  grep -q 'pcall(rex.client.queue, "session.select", { session_id = ctx.session_id, window_id = w.window_id })' \
+    "$BATS_TEST_TMPDIR/new"
+  grep -q 'local REPOS_FILE = state_dir() .. "/repos"' "$SLOTS"
+}
+
 @test "the restore action starts the helper detached, and the layout action attaches the files and git panes" {
   grep -q 'rex.exec.start({ HELPER, "restore", "--tab" }, { detach = true })' "$SLOTS"
   grep -q 'helper_pane("attach", args.key, "files")' "$SLOTS"

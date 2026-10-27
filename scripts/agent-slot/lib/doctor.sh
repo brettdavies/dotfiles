@@ -68,6 +68,7 @@ doctor_check_trust() {
     [[ -n $repo ]] || continue
     n=1
     while slot_taken "$repo" "$n"; do n=$((n + 1)); done
+    ((n <= AS_MAX_PER_REPO)) || continue
     trust_known "$(slot_path "$repo" "$n")" && continue
     prime=$(repo_primes | awk -F '\t' -v r="$repo" '$1 == r { print $2 }')
     if [[ -n $prime ]] && ! trust_known "$prime"; then

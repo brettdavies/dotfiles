@@ -84,6 +84,15 @@ ledger_line() {
   jaq -e '.findings == []' <<<"$output"
 }
 
+@test "a repo with every slot taken gets no trust warning, since no next slot can be launched" {
+  export AGENT_SLOT_MAX_PER_REPO=2
+  slot repoa 1
+  slot repoa 2
+  run --separate-stderr "$AGENT_SLOT" doctor --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.findings == []' <<<"$output"
+}
+
 @test "a repo whose prime checkout is untrusted is a warning naming the prime, with no command to run" {
   prime repoa
   slot repoa 1

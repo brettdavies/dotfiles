@@ -20,16 +20,26 @@ _sessions_shell() {
   printf '%s' "${shell:-/bin/bash}"
 }
 
+# True when Claude has saved the conversation with the record's session ID. Claude writes nothing until the first
+# message, so the agent of a slot launched without one has no conversation to resume. An ID that is not plain hex and
+# dashes is not searched for and counts as saved.
+_sessions_conversation_saved() {
+  local id
+  id=$(contract_json -r '.session_id' <<<"$RECORD")
+  [[ $id =~ ^[0-9A-Fa-f-]+$ ]] || return 0
+  [[ -n $(find "$AS_CLAUDE_PROJECTS" -mindepth 2 -maxdepth 2 -name "$id.jsonl" -print -quit 2>/dev/null) ]]
+}
+
 # Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume]
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
-# value from it is shell-quoted.
+# value from it is shell-quoted. A resume whose conversation was never saved starts Claude as a launch does.
 sessions_command() {
   local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd task prompt
   case $kind in
     files) printf '%s' 'command -v y >/dev/null && y || yazi' ;;
     git) printf '%s' 'lazygit' ;;
     claude)
-      if [[ $mode == resume ]]; then
+      if [[ $mode == resume ]] && _sessions_conversation_saved; then
         printf 'claude --resume %q' "$(contract_json -r '.session_id' <<<"$RECORD")"
         return
       fi

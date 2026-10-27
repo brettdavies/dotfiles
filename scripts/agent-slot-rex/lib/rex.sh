@@ -101,8 +101,8 @@ rex_rename() { rex_or_fail window rename -s "$1" "$2" "$3"; }
 # Usage: rex_close <session-id> <window-id>
 rex_close() { rex_or_fail window close -s "$1" "$2"; }
 
-# Usage: rex_focus <session-id> <window-id>
-rex_focus() { rex_or_fail focus -s "$1" "$2"; }
+# Usage: rex_send <session-id> <block-id> <text>; types the text into the block's terminal.
+rex_send() { rex_or_fail send -s "$1" -b "$2" "$3"; }
 
 # Usage: rex_layout <session-id> <block-id> <key>
 # Adds the slot's files and git panes around its Claude pane, through agent-slots.lua's agent_slot_layout.
@@ -117,30 +117,64 @@ rex_version() {
   REX_OUT=$(contract_json -r '.rex_version // ""' <<<"$REX_OUT")
 }
 
+# Sets REX_HELPER_CMD to the command line of every running agent-slot-rex process, by PID.
+declare -gA REX_HELPER_CMD=()
+rex_helper_processes() {
+  local pid line
+  REX_HELPER_CMD=()
+  while read -r pid line; do
+    [[ -n $pid ]] || continue
+    REX_HELPER_CMD[$pid]=$line
+  done < <("$AR_PS" -A -o pid= -o command= 2>/dev/null | grep 'agent-slot-rex' || true)
+}
+
+# Usage: rex_block_pid <session-id> <block-id>; sets REX_OUT to the PID of the process Rex started in the block.
+rex_block_pid() {
+  rex_run block call -s "$1" -b "$2" process || return
+  REX_OUT=$(contract_json -r '.child.pid // ""' <<<"$REX_OUT")
+}
+
+# Usage: rex_helper_block <session-label> <verb>
+# Sets REX_SID to the session with that label and REX_OUT to its first block whose own process is
+# `agent-slot-rex <verb>`, each '' when there is none.
+rex_helper_block() {
+  local block blocks
+  rex_session_find "$1"
+  REX_OUT=''
+  [[ -n $REX_SID ]] || return 0
+  rex_or_fail session inspect "$REX_SID" --json
+  blocks=$(contract_json -r '.windows[].layers[]?.blocks[]?.block_id' <<<"$REX_OUT")
+  rex_helper_processes
+  for block in $blocks; do
+    rex_block_pid "$REX_SID" "$block" || continue
+    if [[ ${REX_HELPER_CMD[${REX_OUT:-none}]:-} == *"agent-slot-rex $2" ]]; then
+      REX_OUT=$block
+      return 0
+    fi
+  done
+  REX_OUT=''
+}
+
 # Usage: rex_snapshot
 # Sets REX_TABS to every window of every session, as [{session_id, session, window_id, label, commands}], where
 # commands holds the command line of each block's own process that is this helper. A block's own process is the one
 # Rex started in it, so a helper typed into a shell there does not count.
 REX_TABS='[]'
 rex_snapshot() {
-  local sid info rows='' wid label block pid line
-  local -A helper_cmd=()
+  local sid info rows='' wid label block pid
   rex_or_fail ls --json
   local sessions=$REX_OUT
-  while read -r pid line; do
-    [[ -n $pid ]] || continue
-    helper_cmd[$pid]=$line
-  done < <("$AR_PS" -A -o pid= -o command= 2>/dev/null | grep 'agent-slot-rex' || true)
+  rex_helper_processes
   while read -r sid; do
     [[ -n $sid ]] || continue
     rex_run session inspect "$sid" --json || continue
     info=$REX_OUT
     while IFS=$'\t' read -r wid label block; do
       pid=
-      if [[ -n $block ]] && rex_run block call -s "$sid" -b "$block" process; then
-        pid=$(contract_json -r '.child.pid // ""' <<<"$REX_OUT")
+      if [[ -n $block ]] && rex_block_pid "$sid" "$block"; then
+        pid=$REX_OUT
       fi
-      rows+=$(printf '%s\t%s\t%s\t%s' "$sid" "$wid" "$label" "${helper_cmd[${pid:-none}]:-}")$'\n'
+      rows+=$(printf '%s\t%s\t%s\t%s' "$sid" "$wid" "$label" "${REX_HELPER_CMD[${pid:-none}]:-}")$'\n'
     done < <(contract_json -r '.windows[] | .window_id as $w | .label as $l
       | ([.layers[]?.blocks[]?.block_id] | if length == 0 then [""] else . end)[] | [$w, $l, .] | @tsv' <<<"$info")
   done < <(contract_json -r '.sessions[].session_id' <<<"$sessions")

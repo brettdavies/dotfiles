@@ -283,6 +283,8 @@ the *needs-you list*, shown on its tab and in the `agent-slots` control session.
 | `cmd+alt+r` | Give every live slot its tab back, resume dormant slots, and close tabs whose slot is gone      |
 | `cmd+alt+f` | Finish the focused tab's task (no open PR) and delete its slot when nothing in it would be lost |
 
+In a session not named after a repo, `cmd+alt+n`'s tab comes forward instead and asks which repo to use.
+
 A slot's tab is labelled `<repo>/<N>`, then `· <task>` (the task name, or the agent's branch once it has one), then:
 
 - `· trust needed` when the repo's prime checkout is not trusted in Claude, or Claude's trust dialog for the slot path
@@ -304,7 +306,9 @@ idle.
 
 On the Mac, the keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`; each pane runs
 `agent-slot-rex attach <repo>/<N> claude|files|git`, the control session's tab runs `agent-slot-rex sweep`, and
-`agent-slot-rex doctor` checks both machines. Every verb answers `--help`.
+`agent-slot-rex doctor` checks both machines. Every verb answers `--help`. Each launch runs the sweep again in the
+control session's one sweep tab, opening it when there is none; the tab stays open while something needs you, and `r`
+in it sweeps again.
 
 With `--output json`, every verb prints one JSON object on success and one error object on stderr, with a `reason` from
 the table below, an exit code (0 ok, 1 failed, 2 usage, 77 auth, 78 configuration), a `next_step`, a `recovery` that

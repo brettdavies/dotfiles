@@ -87,6 +87,30 @@ in_rex_session() {
   called "^rex window new -s sess-agent-slots sweep --focus=false --json -- $STUBS/agent-slot-rex sweep$"
 }
 
+@test "after a launch with a sweep tab already open, that tab sweeps again and no second one opens" {
+  in_rex_session X
+  repos X
+  ssh_answer launch 0 "$LAUNCHED"
+  session sess-agent-slots agent-slots '[{"window_id": "w-sweep", "label": "sweep", "blocks": ["b-sweep"]}]'
+  runs b-sweep 301 "bash $STUBS/agent-slot-rex sweep"
+  run "$AGENT_SLOT_REX" launch --here
+  [ "$status" -eq 0 ]
+  called '^rex send -s sess-agent-slots -b b-sweep r$'
+  not_called '^rex (new agent-slots|window new -s sess-agent-slots)'
+}
+
+@test "a tab in the agent-slots session that is not a running sweep gets no keys, and a sweep tab opens" {
+  in_rex_session X
+  repos X
+  ssh_answer launch 0 "$LAUNCHED"
+  session sess-agent-slots agent-slots '[{"window_id": "w-restore", "label": "sweep", "blocks": ["b-restore"]}]'
+  runs b-restore 302 "bash $STUBS/agent-slot-rex restore"
+  run "$AGENT_SLOT_REX" launch --here
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  called "^rex window new -s sess-agent-slots sweep --focus=false --json -- $STUBS/agent-slot-rex sweep$"
+}
+
 @test "from a session that names no repo and with no terminal, launch refuses with repo-required" {
   in_rex_session gentle-sierra
   repos X Y
@@ -105,9 +129,17 @@ in_rex_session() {
   run with_tty "$AGENT_SLOT_REX" launch --here <<<"2"
   [ "$status" -eq 0 ]
   [[ $output == *"1) X"* && $output == *"2) Y"* ]]
-  called '^rex focus -s sess-a win-a$'
   called "^rex new Y --window Y · launching --json -- $STUBS/agent-slot-rex launch --here --repo Y$"
   not_called '^ssh-stub .*agent-slot launch'
+}
+
+@test "launch writes the server's repo names, one per line, where the new-agent key's action reads them" {
+  in_rex_session X
+  repos X Y
+  ssh_answer launch 0 "$LAUNCHED"
+  run "$AGENT_SLOT_REX" launch --here
+  [ "$status" -eq 0 ]
+  [ "$(cat "$AGENT_SLOT_REX_STATE_DIR/repos")" = "$(printf 'X\nY')" ]
 }
 
 @test "a retryable launch failure waits for Enter, then retries with the same request ID" {
@@ -330,6 +362,25 @@ in_rex_session() {
   called '^rex window rename -s sess-x w1 X/1 · needs you: 1 unpushed commit$'
 }
 
+@test "a sweep showing what needs you runs again in its own tab on r" {
+  command -v script >/dev/null || skip "script(1) gives the helper a terminal"
+  slots '[{"repo": "X", "slot": 1, "needs_you": [{"code": "unpushed", "message": "1 unpushed commit"}]}]'
+  session sess-x X '[{"window_id": "w1", "label": "X/1", "blocks": ["b1"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach X/1 claude"
+  run with_tty "$AGENT_SLOT_REX" sweep <<<"rq"
+  [ "$status" -eq 0 ]
+  [[ $output == *"press r to run the sweep again; press q to close this tab"* ]]
+  called '^agent-slot-rex sweep$'
+}
+
+@test "a sweep that finds nothing needing you still runs again when r arrived while it ran" {
+  command -v script >/dev/null || skip "script(1) gives the helper a terminal"
+  slots '[]'
+  run with_tty "$AGENT_SLOT_REX" sweep <<<"rq"
+  [ "$status" -eq 0 ]
+  called '^agent-slot-rex sweep$'
+}
+
 @test "a sweep tab whose ssh fails stays open, showing the error and its log path" {
   command -v script >/dev/null || skip "script(1) gives the helper a terminal"
   touch "$STUBS/ssh/unreachable"
@@ -338,6 +389,13 @@ in_rex_session() {
   [[ $output == *"server-unreachable: ssh to testserver failed"* ]]
   [[ $output =~ log:\ $AGENT_SLOT_REX_STATE_DIR/logs/[^[:space:]]+-sweep\.log ]]
   [[ $output == *"press q to close this tab"* ]]
+}
+
+@test "a sweep tab whose ssh failed runs the sweep again on r" {
+  command -v script >/dev/null || skip "script(1) gives the helper a terminal"
+  touch "$STUBS/ssh/unreachable"
+  run with_tty "$AGENT_SLOT_REX" sweep <<<"rq"
+  called '^agent-slot-rex sweep$'
 }
 
 @test "restore at Rex start gives up after its bound when ssh never answers, and logs why" {
