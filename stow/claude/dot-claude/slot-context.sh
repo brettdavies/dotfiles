@@ -66,7 +66,10 @@ context_text() {
       "The base branch is \(.base // "the default branch").",
       "The prime checkout \(.prime // "for this repo") is read-only for you; make every change in this slot.",
       "docs/solutions is the solutions repo shared with every other agent; commit to it only through `sd-commit-doc`.",
-      "`agent-slot check` lists what blocks the teardown of this slot.",
+      "`agent-slot check` lists what blocks the teardown of this slot, and `agent-slot whoami` names it.",
+      "Run agent-slot verbs with `--output json`; `--help` on each lists its flags and the fields it returns.",
+      "To hand a task to another agent, run `agent-slot launch <repo> --request-id <id> --prompt-file <brief>`.",
+      "`agent-slot sweep` and `agent-slot finish` delete slots: ask the operator before running either with `--yes`.",
       "In a review round, re-check the state of the PR before stacking new commits on it.",
       "Stage with `git add`, then run a plain `git commit`; never `git commit -a` or `git commit <path>`.",
       "Create no git worktrees inside this slot."

@@ -84,6 +84,10 @@ CONTRACT_CONFIG=$(contract_json -n -c --arg server "$AR_SERVER" --arg state "$AR
 main() {
   contract_init agent-slot-rex "$@"
   CONTRACT_VERB=agent-slot-rex
+  while [[ ${1:-} == --output || ${1:-} == --output=* ]]; do
+    output_flag "$@"
+    shift "$OUTPUT_SHIFT"
+  done
   local verb=${1:-}
   case $verb in
     '' | -h | --help | help)
@@ -94,7 +98,7 @@ main() {
   esac
   shift
   [[ $VERBS == *" $verb "* ]] || {
-    CONTRACT_OUTPUT=$([[ " $* " == *" --output json "* ]] && echo json || echo text)
+    [[ " $* " != *" --output json "* && " $* " != *" --output=json "* ]] || CONTRACT_OUTPUT=json
     contract_fail usage "unknown verb: $verb" --value "$verb" --command "agent-slot-rex --help"
   }
   CONTRACT_VERB=$verb
@@ -107,14 +111,10 @@ main() {
         verb_help "$verb"
         return 0
         ;;
-      --output)
-        [[ ${2:-} == json || ${2:-} == text ]] || usage_fail "--output takes json or text" "${2:-}"
-        CONTRACT_OUTPUT=$2
-        shift
-        ;;
-      --output=*)
-        CONTRACT_OUTPUT=${1#--output=}
-        [[ $CONTRACT_OUTPUT == json || $CONTRACT_OUTPUT == text ]] || usage_fail "--output takes json or text" "$1"
+      --output | --output=*)
+        output_flag "$@"
+        shift "$OUTPUT_SHIFT"
+        continue
         ;;
       *) args+=("$1") ;;
     esac

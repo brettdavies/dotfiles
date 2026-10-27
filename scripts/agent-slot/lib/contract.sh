@@ -271,6 +271,21 @@ contract_fail() {
   exit "$code"
 }
 
+# Usage: output_flag <arg> [next]; reads --output VALUE or --output=VALUE into CONTRACT_OUTPUT and sets OUTPUT_SHIFT to
+# the arguments it used, 0 when <arg> is not the flag.
+OUTPUT_SHIFT=0
+output_flag() {
+  local value
+  OUTPUT_SHIFT=0
+  case $1 in
+    --output) value=${2:-} OUTPUT_SHIFT=2 ;;
+    --output=*) value=${1#--output=} OUTPUT_SHIFT=1 ;;
+    *) return 0 ;;
+  esac
+  [[ $value == json || $value == text ]] || usage_fail "--output takes json or text" "$([[ $1 == --output ]] && printf '%s' "$value" || printf '%s' "$1")"
+  CONTRACT_OUTPUT=$value
+}
+
 # Usage: usage_fail <message> [value]; a usage error pointing at the current verb's help.
 usage_fail() {
   if (($# > 1)); then

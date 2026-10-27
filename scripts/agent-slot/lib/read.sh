@@ -45,7 +45,7 @@ cmd_repos() {
 # needs-you list.
 SLOT_VIEW=
 slot_view() {
-  local repo=$1 n=$2 sessions=$3 rec base path state agent branch='' claude=false files=false git=false
+  local repo=$1 n=$2 sessions=$3 rec path state agent branch='' claude=false files=false git=false
   path=$(slot_path "$repo" "$n")
   if record_read "$repo" "$n"; then
     rec=$RECORD

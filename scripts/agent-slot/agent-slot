@@ -69,11 +69,23 @@ source "$AS_LIB/homescan.sh"
 source "$AS_LIB/check.sh"
 # shellcheck source=lib/teardown.sh
 source "$AS_LIB/teardown.sh"
+# shellcheck source=lib/schema.sh
+source "$AS_LIB/schema.sh"
 # shellcheck source=lib/help.sh
 source "$AS_LIB/help.sh"
 
+# Without jaq or jq there is no JSON tool, so the error object is written out by hand.
 if ! agent_slot_env "$AS_HOME"; then
-  echo "agent-slot: dependency-missing: neither jaq nor jq is installed; next: brew install jaq" >&2
+  if [[ " $* " == *" --output json "* || " $* " == *" --output=json "* ]]; then
+    printf '{"schema":"%s","ok":false,"verb":"agent-slot","reason":"dependency-missing","exit_code":%s,' \
+      "$CONTRACT_SCHEMA" "$EXIT_CONFIG" >&2
+    printf '"message":"neither jaq nor jq is installed","value":"jaq",' >&2
+    printf '"next_step":{"action":"install","command":"brew install jaq","docs":"%s"},' "$CONTRACT_DOCS" >&2
+    printf '"recovery":{"side_effects":"none","retryable":false,"max_retries":0,"reconcile":null},' >&2
+    printf '"context":{"version":null,"tools":{},"config":{},"env":[]},"log":null}\n' >&2
+  else
+    echo "agent-slot: dependency-missing: neither jaq nor jq is installed; next: brew install jaq" >&2
+  fi
   exit "$EXIT_CONFIG"
 fi
 
@@ -90,6 +102,10 @@ require_tools() {
 
 main() {
   contract_init agent-slot "$@"
+  while [[ ${1:-} == --output || ${1:-} == --output=* ]]; do
+    output_flag "$@"
+    shift "$OUTPUT_SHIFT"
+  done
   local verb=${1:-}
   case $verb in
     '' | -h | --help | help)
@@ -105,7 +121,7 @@ main() {
   esac
   shift
   [[ $VERBS == *" $verb "* ]] || {
-    CONTRACT_OUTPUT=$([[ " $* " == *" --output json "* ]] && echo json || echo text)
+    [[ " $* " != *" --output json "* && " $* " != *" --output=json "* ]] || CONTRACT_OUTPUT=json
     contract_fail usage "unknown verb: $verb" --value "$verb" --command "agent-slot --help"
   }
   CONTRACT_VERB=$verb
@@ -118,14 +134,10 @@ main() {
         verb_help "$verb"
         return 0
         ;;
-      --output)
-        [[ ${2:-} == json || ${2:-} == text ]] || usage_fail "--output takes json or text" "${2:-}"
-        CONTRACT_OUTPUT=$2
-        shift
-        ;;
-      --output=*)
-        CONTRACT_OUTPUT=${1#--output=}
-        [[ $CONTRACT_OUTPUT == json || $CONTRACT_OUTPUT == text ]] || usage_fail "--output takes json or text" "$1"
+      --output | --output=*)
+        output_flag "$@"
+        shift "$OUTPUT_SHIFT"
+        continue
         ;;
       *) args+=("$1") ;;
     esac
@@ -133,7 +145,7 @@ main() {
   done
 
   case $verb in
-    repos | list | doctor)
+    repos | list | doctor | schema)
       ((${#args[@]} == 0)) || usage_fail "$verb takes no arguments" "${args[0]}"
       exec </dev/null
       [[ $verb != list ]] || require_tools tmux claude

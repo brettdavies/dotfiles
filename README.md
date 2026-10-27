@@ -308,7 +308,8 @@ On the Mac, the keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and 
 
 With `--output json`, every verb prints one JSON object on success and one error object on stderr, with a `reason` from
 the table below, an exit code (0 ok, 1 failed, 2 usage, 77 auth, 78 configuration), a `next_step`, a `recovery` that
-says whether a retry is safe, and a `log`.
+says whether a retry is safe, and a `log`. `--output` goes before or after the verb. `agent-slot schema` prints both
+objects as JSON Schema with every reason, and each verb's `--help` lists the fields it returns.
 
 #### agent-slot reasons
 

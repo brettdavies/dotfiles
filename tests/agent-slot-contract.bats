@@ -23,6 +23,15 @@ setup() {
   jaq -e '.reason == "usage" and .value == "frobnicate"' <<<"$stderr"
 }
 
+@test "--output given before the verb works as after it" {
+  run --separate-stderr "$AGENT_SLOT" --output json repos
+  [ "$status" -eq 0 ]
+  jaq -e '.ok == true and .verb == "repos"' <<<"$output"
+  run --separate-stderr "$AGENT_SLOT" --output=json frobnicate
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and .value == "frobnicate"' <<<"$stderr"
+}
+
 @test "--help prints the usage header and exits 0" {
   run "$AGENT_SLOT" --help
   [ "$status" -eq 0 ]
@@ -37,6 +46,27 @@ setup() {
     [[ "${lines[0]}" == "usage: agent-slot $verb"* ]]
     [[ "$output" == *"example: agent-slot $verb"* ]]
   done
+}
+
+@test "every verb's help names the JSON fields it returns" {
+  local verb
+  for verb in repos list whoami launch resume warm check sweep finish doctor schema; do
+    run "$AGENT_SLOT" "$verb" --help
+    [ "$status" -eq 0 ]
+    [[ $output == *$'\nreturns: '* ]] || { echo "no returns line: $verb"; false; }
+  done
+}
+
+@test "schema prints the success and error envelopes and every reason the contract can return" {
+  run --separate-stderr "$AGENT_SLOT" schema --output json
+  [ "$status" -eq 0 ]
+  expected=$(bash -c 'source "$1"; contract_reasons' _ "$BATS_TEST_DIRNAME/../scripts/agent-slot/lib/contract.sh" | jaq -R -s -c 'split("\n") | map(select(. != ""))')
+  jaq -e --argjson r "$expected" '.verb == "schema"
+    and .error.properties.reason.enum == $r
+    and ([.reasons[].reason] == $r)
+    and (.error.required | index("next_step") != null)
+    and (.success.required == ["schema", "ok", "verb"])
+    and (.reasons[] | select(.reason == "slot-busy") | .exit_code == 1 and .retryable == true)' <<<"$output"
 }
 
 @test "a tmux that never answers yields tmux-unresponsive within its bound" {

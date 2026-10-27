@@ -39,6 +39,12 @@ in_rex_session() {
   jaq -e '.reason == "usage" and .value == "frobnicate"' <<<"$stderr"
 }
 
+@test "--output given before the verb works as after it" {
+  run --separate-stderr "$AGENT_SLOT_REX" --output json frobnicate
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and .value == "frobnicate"' <<<"$stderr"
+}
+
 # --- launch -----------------------------------------------------------------------------------------------------------
 
 @test "launch from the repo's session launches it, relabels and lays out its tab, and becomes the attach" {
