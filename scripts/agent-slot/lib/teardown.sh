@@ -15,11 +15,7 @@ _teardown_recheck() {
   local repo=$1 n=$2 path out
   path=$(slot_path "$repo" "$n")
   CHECK_BLOCKERS=()
-  if ! out=$(git -C "$path" status --porcelain=v1 --untracked-files=no); then
-    _check_block git-state-unknown "git status failed in the slot"
-  elif [[ -n $out ]]; then
-    _check_block uncommitted-changes "$(_check_plural "$(grep -c . <<<"$out")" "uncommitted change")"
-  fi
+  _check_uncommitted "$path"
   if ! out=$(git -C "$path" stash list); then
     _check_block git-state-unknown "git stash list failed in the slot"
   elif [[ -n $out ]]; then

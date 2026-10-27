@@ -66,6 +66,17 @@ record() { jaq -r "$1" "$SLOT/.git/agent-slot.json"; }
   run ! kill -0 "$child"
 }
 
+@test "finish --yes tears down a finished slot whose only change is setup re-pointing a tracked docs/solutions link" {
+  origin_symlink repoa docs/solutions ../../dev/solutions-docs
+  git -C "$SLOT" pull -q origin main
+  ln -sfn "$AGENT_SLOT_SOLUTIONS" "$SLOT/docs/solutions"
+  finished_task
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == true' <<<"$output"
+  [ ! -e "$SLOT" ]
+}
+
 @test "AE12: finish --yes on a task with an open PR exits 1 with task-has-open-pr and deletes nothing" {
   work feat/x
   git -C "$SLOT" push -q origin feat/x
