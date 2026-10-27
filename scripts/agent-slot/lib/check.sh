@@ -183,7 +183,7 @@ check_slot() {
       [[ -n $number ]] && refspecs+=("+refs/pull/$number/head:refs/agent-slot/pr/$number")
     done < <(contract_json -r '.[].number' <<<"$prs")
     if ! bounded out fetch 120 /usr/bin/env GIT_SSH_COMMAND='ssh -o BatchMode=yes' GIT_TERMINAL_PROMPT=0 \
-      git -C "$path" fetch -q --prune origin "${refspecs[@]}"; then
+      git -C "$path" fetch -q --no-tags --prune origin "${refspecs[@]}"; then
       _check_block git-state-unknown "git fetch from origin failed (log: $BOUNDED_LOG)"
     fi
 
