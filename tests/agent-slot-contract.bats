@@ -23,13 +23,14 @@ setup() {
   jaq -e '.reason == "usage" and .value == "frobnicate"' <<<"$stderr"
 }
 
-@test "--output given before the verb works as after it" {
-  run --separate-stderr "$AGENT_SLOT" --output json repos
-  [ "$status" -eq 0 ]
-  jaq -e '.ok == true and .verb == "repos"' <<<"$output"
-  run --separate-stderr "$AGENT_SLOT" --output=json frobnicate
+@test "--output before the verb is refused, so no flag order slips past the ask rules for sweep and finish" {
+  run --separate-stderr "$AGENT_SLOT" --output json sweep --yes
   [ "$status" -eq 2 ]
-  jaq -e '.reason == "usage" and .value == "frobnicate"' <<<"$stderr"
+  [ -z "$output" ]
+  jaq -e '.reason == "usage" and .verb == "agent-slot" and (.message | contains("after the verb"))' <<<"$stderr"
+  run --separate-stderr "$AGENT_SLOT" --output=json repos
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage"' <<<"$stderr"
 }
 
 @test "--help prints the usage header and exits 0" {
@@ -67,6 +68,18 @@ setup() {
     and (.error.required | index("next_step") != null)
     and (.success.required == ["schema", "ok", "verb"])
     and (.reasons[] | select(.reason == "slot-busy") | .exit_code == 1 and .retryable == true)' <<<"$output"
+}
+
+@test "with no usable jaq or jq, --output json still gets a complete dependency-missing error object" {
+  required=$("$AGENT_SLOT" schema --output json | jaq -c '.error.required')
+  run --separate-stderr env AGENT_SLOT_JQ="$T/no-such-jq" "$AGENT_SLOT" repos --output json
+  [ "$status" -eq 78 ]
+  jaq -e --argjson req "$required" '.reason == "dependency-missing" and .exit_code == 78
+    and .next_step.action == "install" and .recovery.retryable == false
+    and (keys - $req == [] and $req - keys == [])' <<<"$stderr"
+  run --separate-stderr env AGENT_SLOT_JQ="$T/no-such-jq" "$AGENT_SLOT" repos
+  [ "$status" -eq 78 ]
+  [[ $stderr == "agent-slot: dependency-missing: "* ]]
 }
 
 @test "a tmux that never answers yields tmux-unresponsive within its bound" {

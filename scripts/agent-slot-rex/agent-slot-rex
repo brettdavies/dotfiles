@@ -56,8 +56,8 @@ source "$AR_LIB/help.sh"
 # A Rex tab or a command Rex starts at load hands over launchd's PATH, which may lack Homebrew.
 PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:$PATH"
 AGENT_SLOT_JQ=${AGENT_SLOT_JQ:-$(command -v jaq || command -v jq || true)}
-if [[ -z $AGENT_SLOT_JQ ]]; then
-  echo "agent-slot-rex: dependency-missing: neither jaq nor jq is installed; next: brew install jaq" >&2
+if [[ -z $AGENT_SLOT_JQ ]] || ! command -v -- "$AGENT_SLOT_JQ" >/dev/null; then
+  contract_no_json_tool agent-slot-rex "$@"
   exit "$EXIT_CONFIG"
 fi
 
@@ -84,10 +84,7 @@ CONTRACT_CONFIG=$(contract_json -n -c --arg server "$AR_SERVER" --arg state "$AR
 main() {
   contract_init agent-slot-rex "$@"
   CONTRACT_VERB=agent-slot-rex
-  while [[ ${1:-} == --output || ${1:-} == --output=* ]]; do
-    output_flag "$@"
-    shift "$OUTPUT_SHIFT"
-  done
+  refuse_leading_output "$@"
   local verb=${1:-}
   case $verb in
     '' | -h | --help | help)

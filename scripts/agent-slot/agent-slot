@@ -74,18 +74,8 @@ source "$AS_LIB/schema.sh"
 # shellcheck source=lib/help.sh
 source "$AS_LIB/help.sh"
 
-# Without jaq or jq there is no JSON tool, so the error object is written out by hand.
 if ! agent_slot_env "$AS_HOME"; then
-  if [[ " $* " == *" --output json "* || " $* " == *" --output=json "* ]]; then
-    printf '{"schema":"%s","ok":false,"verb":"agent-slot","reason":"dependency-missing","exit_code":%s,' \
-      "$CONTRACT_SCHEMA" "$EXIT_CONFIG" >&2
-    printf '"message":"neither jaq nor jq is installed","value":"jaq",' >&2
-    printf '"next_step":{"action":"install","command":"brew install jaq","docs":"%s"},' "$CONTRACT_DOCS" >&2
-    printf '"recovery":{"side_effects":"none","retryable":false,"max_retries":0,"reconcile":null},' >&2
-    printf '"context":{"version":null,"tools":{},"config":{},"env":[]},"log":null}\n' >&2
-  else
-    echo "agent-slot: dependency-missing: neither jaq nor jq is installed; next: brew install jaq" >&2
-  fi
+  contract_no_json_tool agent-slot "$@"
   exit "$EXIT_CONFIG"
 fi
 
@@ -102,10 +92,7 @@ require_tools() {
 
 main() {
   contract_init agent-slot "$@"
-  while [[ ${1:-} == --output || ${1:-} == --output=* ]]; do
-    output_flag "$@"
-    shift "$OUTPUT_SHIFT"
-  done
+  refuse_leading_output "$@"
   local verb=${1:-}
   case $verb in
     '' | -h | --help | help)

@@ -39,10 +39,16 @@ in_rex_session() {
   jaq -e '.reason == "usage" and .value == "frobnicate"' <<<"$stderr"
 }
 
-@test "--output given before the verb works as after it" {
-  run --separate-stderr "$AGENT_SLOT_REX" --output json frobnicate
+@test "with no usable jaq or jq, --output json still gets a dependency-missing error object" {
+  run --separate-stderr env AGENT_SLOT_JQ="$T/no-such-jq" "$AGENT_SLOT_REX" doctor --output json
+  [ "$status" -eq 78 ]
+  jaq -e '.reason == "dependency-missing" and .verb == "agent-slot-rex" and .exit_code == 78' <<<"$stderr"
+}
+
+@test "--output before the verb is refused with a usage error that says where it goes" {
+  run --separate-stderr "$AGENT_SLOT_REX" --output json finish repo/1
   [ "$status" -eq 2 ]
-  jaq -e '.reason == "usage" and .value == "frobnicate"' <<<"$stderr"
+  jaq -e '.reason == "usage" and (.message | contains("after the verb"))' <<<"$stderr"
 }
 
 # --- launch -----------------------------------------------------------------------------------------------------------

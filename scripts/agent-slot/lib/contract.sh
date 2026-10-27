@@ -286,6 +286,33 @@ output_flag() {
   CONTRACT_OUTPUT=$value
 }
 
+# Usage: contract_no_json_tool <program> <args...>; prints dependency-missing for a host with neither jaq nor jq. With
+# no JSON tool to build it, the error object is written out by hand; tests/agent-slot-contract.bats holds its keys to
+# the ones `agent-slot schema` requires.
+contract_no_json_tool() {
+  local program=$1
+  shift
+  if [[ " $* " == *" --output json "* || " $* " == *" --output=json "* ]]; then
+    printf '{"schema":"%s","ok":false,"verb":"%s","reason":"dependency-missing","exit_code":%s,' \
+      "$CONTRACT_SCHEMA" "$program" "$EXIT_CONFIG" >&2
+    printf '"message":"neither jaq nor jq is installed","value":"jaq",' >&2
+    printf '"next_step":{"action":"install","command":"brew install jaq","docs":"%s"},' "$CONTRACT_DOCS" >&2
+    printf '"recovery":{"side_effects":"none","retryable":false,"max_retries":0,"reconcile":null},' >&2
+    printf '"context":{"version":null,"tools":{},"config":{},"env":[]},"log":null}\n' >&2
+  else
+    echo "$program: dependency-missing: neither jaq nor jq is installed; next: brew install jaq" >&2
+  fi
+}
+
+# Usage: refuse_leading_output <args...>; a usage error when --output comes before the verb. Claude's permission rules
+# for the verbs that delete slots match the verb as the first argument, so no other order may run.
+refuse_leading_output() {
+  [[ ${1:-} == --output || ${1:-} == --output=* ]] || return 0
+  [[ " $* " != *" --output json "* && " $* " != *" --output=json "* ]] || CONTRACT_OUTPUT=json
+  contract_fail usage "--output goes after the verb, as in: $CONTRACT_PROGRAM <verb> --output json" --value "$1" \
+    --command "$CONTRACT_PROGRAM --help"
+}
+
 # Usage: usage_fail <message> [value]; a usage error pointing at the current verb's help.
 usage_fail() {
   if (($# > 1)); then
