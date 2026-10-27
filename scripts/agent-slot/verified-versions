@@ -1,4 +1,4 @@
 # The Claude Code and Rex versions the slot behaviors were last verified on. agent-slot doctor and agent-slot-rex
 # doctor warn, never fail, when an installed version differs. rex is the rex_version field of `rex version --json`.
-claude 2.1.310
-rex 0.0.1792787366-g623b2d
+claude 2.1.311
+rex 0.0.1793047680-g2db882
