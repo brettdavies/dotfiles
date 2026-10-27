@@ -100,6 +100,20 @@ _check_files() {
     "$(_check_plural "${#untracked[@]}" "untracked file"): ${untracked[*]:0:3}" "${#untracked[@]}" "${untracked[@]}"
 }
 
+# Usage: _check_uncommitted <slot path>; changes to tracked files beyond setup's docs/solutions link. A repo can track
+# docs/solutions with a relative target that does not resolve from a slot, so setup re-points it at the solutions repo;
+# that unstaged change is setup's, not the task's.
+_check_uncommitted() {
+  local out
+  if ! out=$(git -C "$1" status --porcelain=v1 --untracked-files=no); then
+    _check_block git-state-unknown "git status failed in the slot"
+    return
+  fi
+  [[ $(readlink "$1/docs/solutions") != "$AS_SOLUTIONS" ]] || out=$(grep -vxF ' M docs/solutions' <<<"$out" || true)
+  [[ -z $out ]] || _check_block uncommitted-changes \
+    "$(_check_plural "$(grep -c . <<<"$out")" "uncommitted change")" "$(grep -c . <<<"$out")"
+}
+
 # Usage: _check_agent <repo> <n>; blocks unless the slot's agent is idle or absent, from the agents agentstate_load read.
 _check_agent() {
   agentstate_of "$1" "$2"
@@ -196,16 +210,7 @@ check_slot() {
 
     _check_agent "$repo" "$n"
 
-    if out=$(git -C "$path" status --porcelain=v1 --untracked-files=no); then
-      # A repo can track docs/solutions with a relative target that does not resolve from a slot, so setup re-points it
-      # at the solutions repo; that unstaged change is setup's, not the task's.
-      [[ $(readlink "$path/docs/solutions") != "$AS_SOLUTIONS" ]] \
-        || out=$(grep -vxF ' M docs/solutions' <<<"$out" || true)
-      [[ -z $out ]] || _check_block uncommitted-changes \
-        "$(_check_plural "$(grep -c . <<<"$out")" "uncommitted change")" "$(grep -c . <<<"$out")"
-    else
-      _check_block git-state-unknown "git status failed in the slot"
-    fi
+    _check_uncommitted "$path"
     if out=$(git -C "$path" stash list); then
       [[ -z $out ]] || _check_block stash-present "$(_check_plural "$(grep -c . <<<"$out")" "stash entry" "stash entries")" \
         "$(grep -c . <<<"$out")"
