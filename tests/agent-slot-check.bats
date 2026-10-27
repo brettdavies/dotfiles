@@ -37,6 +37,20 @@ check() {
 has_blocker() { jaq -e --arg c "$1" 'any(.blockers[]; .code == $c)' <<<"$VERDICT" >/dev/null; }
 lacks_blocker() { jaq -e --arg c "$1" 'all(.blockers[]; .code != $c)' <<<"$VERDICT" >/dev/null; }
 
+# merged_with PATH...: a finished task whose one squash-merged PR adds the given paths, which the test has written.
+merged_with() {
+  work feat/x
+  git -C "$SLOT" add -- "$@"
+  git -C "$SLOT" commit -q -m 'add files'
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 MERGED feat/x
+  squash_merge feat/x
+}
+
+listed() {
+  git -C "$SLOT" status --porcelain=v1 --ignored=matching --untracked-files=all | grep -qxF "$1"
+}
+
 @test "control: a finished, clean, fully pushed slot with no agent passes" {
   finished_task
   check
@@ -258,6 +272,86 @@ lacks_blocker() { jaq -e --arg c "$1" 'all(.blockers[]; .code != $c)' <<<"$VERDI
   check
   jaq -e '.blockers == [{code: "untracked-files", message: "1 untracked file: tools/build/new.sh", count: 1,
     values: ["tools/build/new.sh"]}]' <<<"$VERDICT"
+}
+
+@test "ignored Astro, Wrangler, Blume, and SwiftPM output that git lists whole does not block" {
+  finished_task
+  printf '.astro/\n.wrangler/\n.blume/\n.build/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/apps/demo/.astro" "$SLOT/workers/web/.wrangler/state" "$SLOT/apps/docs/.blume" "$SLOT/pkg/.build"
+  echo '{}' >"$SLOT/apps/demo/.astro/data-store.json"
+  echo db >"$SLOT/workers/web/.wrangler/state/d1.sqlite"
+  echo '<html>' >"$SLOT/apps/docs/.blume/index.html"
+  echo yaml >"$SLOT/pkg/.build/debug.yaml"
+  listed '!! workers/web/.wrangler/'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "ignored files in a tool directory that also holds tracked files do not block" {
+  mkdir -p "$SLOT/apps/brand/.astro"
+  echo 'declare module "astro:content" {}' >"$SLOT/apps/brand/.astro/types.d.ts"
+  merged_with apps/brand/.astro/types.d.ts
+  echo '.astro/' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/apps/brand/.astro/collections"
+  echo 'export default new Map();' >"$SLOT/apps/brand/.astro/content-modules.mjs"
+  echo '{}' >"$SLOT/apps/brand/.astro/collections/pages.schema.json"
+  listed '!! apps/brand/.astro/content-modules.mjs'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "ignored copies of tracked files do not block, one by one or as a directory git lists whole" {
+  mkdir -p "$SLOT/packages/brand/fonts"
+  echo '<svg/>' >"$SLOT/packages/brand/favicon.svg"
+  echo sans >"$SLOT/packages/brand/fonts/sans.woff2"
+  echo serif >"$SLOT/packages/brand/fonts/serif.woff2"
+  merged_with packages/brand
+  printf '/apps/web/public/favicon.svg\n/apps/web/public/fonts/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/apps/web/public"
+  cp "$SLOT/packages/brand/favicon.svg" "$SLOT/apps/web/public/favicon.svg"
+  cp -r "$SLOT/packages/brand/fonts" "$SLOT/apps/web/public/fonts"
+  listed '!! apps/web/public/fonts/'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "ignored files that are not copies of tracked files block, as does a directory holding one or a symlink" {
+  mkdir -p "$SLOT/packages/brand/fonts"
+  echo sans >"$SLOT/packages/brand/fonts/sans.woff2"
+  merged_with packages/brand
+  printf 'scratch/\n/apps/web/public/fonts/\n/apps/web/public/logo.woff2\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/scratch" "$SLOT/apps/web/public"
+  echo 'work in progress' >"$SLOT/scratch/notes.md"
+  cp -r "$SLOT/packages/brand/fonts" "$SLOT/apps/web/public/fonts"
+  echo edited >"$SLOT/apps/web/public/fonts/new.woff2"
+  ln -s ../../../packages/brand/fonts/sans.woff2 "$SLOT/apps/web/public/logo.woff2"
+  check
+  jaq -e '.blockers == [{code: "untracked-files", count: 3,
+    message: "3 untracked files: apps/web/public/fonts apps/web/public/logo.woff2 scratch",
+    values: ["apps/web/public/fonts", "apps/web/public/logo.woff2", "scratch"]}]' <<<"$VERDICT"
+}
+
+@test "an ignored .env that copies a tracked file blocks as local-only, and a directory holding one blocks" {
+  echo 'API_URL=http://localhost' >"$SLOT/.env.example"
+  merged_with .env.example
+  printf '.env\nconfig/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/config"
+  cp "$SLOT/.env.example" "$SLOT/.env"
+  cp "$SLOT/.env.example" "$SLOT/config/.env.local"
+  check
+  jaq -e '.blockers == [{code: "local-only-files", message: "local-only files: .env", count: 1, values: [".env"]},
+    {code: "untracked-files", message: "1 untracked file: config", count: 1, values: ["config"]}]' <<<"$VERDICT"
+}
+
+@test "untracked files block though they sit in a tool directory or copy a tracked file" {
+  echo '<svg/>' >"$SLOT/favicon.svg"
+  merged_with favicon.svg
+  mkdir -p "$SLOT/apps/web/.astro" "$SLOT/apps/web/public"
+  echo notes >"$SLOT/apps/web/.astro/notes.md"
+  cp "$SLOT/favicon.svg" "$SLOT/apps/web/public/favicon.svg"
+  check
+  jaq -e '.blockers[] | select(.code == "untracked-files")
+    | .values == ["apps/web/.astro/notes.md", "apps/web/public/favicon.svg"]' <<<"$VERDICT"
 }
 
 @test "an untracked file blocks with untracked-files, and a stray file in the slot's .claude/ blocks too" {
