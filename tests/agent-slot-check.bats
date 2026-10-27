@@ -25,8 +25,9 @@ teardown() {
   for pid in "${SLEEPERS[@]}"; do kill "$pid" 2>/dev/null || true; done
 }
 
+# Usage: check [dir]; runs from dir with agent-slot exec'd, so no shell of the test's own holds dir as its cwd.
 check() {
-  run --separate-stderr "$AGENT_SLOT" check repoa/1 --output json
+  run --separate-stderr bash -c 'cd "$1" && exec "$2" check repoa/1 --output json' _ "${1:-$PWD}" "$AGENT_SLOT"
   [ "$status" -eq 0 ] || {
     echo "$stderr"
     false
@@ -81,6 +82,14 @@ listed() {
   finished_task
   jaq -n -c --arg cwd "$SLOT" '[{pid: 1, cwd: $cwd, status: "idle"}]' >"$STUBS/claude-agents.json"
   check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "check run from inside the slot passes an idle agent; its own /proc scan does not block" {
+  finished_task
+  jaq -n -c --arg cwd "$SLOT" '[{pid: 1, cwd: $cwd, status: "idle"}]' >"$STUBS/claude-agents.json"
+  check "$SLOT"
+  lacks_blocker agent-state-unknown
   jaq -e '.teardown == true' <<<"$VERDICT"
 }
 

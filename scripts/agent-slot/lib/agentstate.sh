@@ -22,6 +22,7 @@ AGENT_DETAIL=
 AGENT_PIDS=
 declare -gA _AGENT_PPID=() _AGENT_PANES=() _AGENT_PANE_IDS=()
 _AGENT_UNDER=
+_AGENT_SCAN_PID=
 
 agentstate_load() {
   local out line session pid id
@@ -45,8 +46,13 @@ agentstate_load() {
     [[ -n $pid ]] && _AGENT_PPID[$pid]=$line
   done < <(cat /proc/[0-9]*/stat 2>/dev/null | awk '{ pid = $1; sub(/^.*\) /, ""); print pid, $2 }')
 
-  _AGENT_UNDER=$(find /proc/[0-9]*/cwd /proc/[0-9]*/fd -maxdepth 1 -lname "$AS_ROOT_REAL/*" -printf '%p\t%l\n' \
-    2>/dev/null || true)
+  _AGENT_UNDER=$(
+    printf '%s\n' "$BASHPID"
+    find /proc/[0-9]*/cwd /proc/[0-9]*/fd -maxdepth 1 -lname "$AS_ROOT_REAL/*" -printf '%p\t%l\n' 2>/dev/null || true
+  )
+  _AGENT_SCAN_PID=${_AGENT_UNDER%%$'\n'*}
+  _AGENT_UNDER=${_AGENT_UNDER#"$_AGENT_SCAN_PID"}
+  _AGENT_UNDER=${_AGENT_UNDER#$'\n'}
 }
 
 # Usage: agentstate_descendants <pid...>; prints every process below the given ones, from the map agentstate_load read.
@@ -105,7 +111,8 @@ agentstate_of() {
     [[ $target == "$path" || $target == "$path"/* ]] || continue
     pid=${entry#/proc/}
     pid=${pid%%/*}
-    [[ $pid == "$$" || $pid == "$BASHPID" ]] && continue
+    # The scan's subshell expands the /proc glob itself, so a scan run from inside the slot lists its own cwd and fds.
+    [[ $pid == "$$" || $pid == "$BASHPID" || $pid == "$_AGENT_SCAN_PID" ]] && continue
     if _agent_from_panes "$pid" "$panes"; then
       comm=$(cat "/proc/$pid/comm" 2>/dev/null || true)
       if [[ $comm == claude && " $AGENT_PIDS " != *" $pid "* ]] && ((count == 0)); then
