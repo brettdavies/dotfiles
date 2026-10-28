@@ -312,6 +312,14 @@ _fake_proc() {
   cp "$(command -v perl)" "$bin"
   "$bin" -e 'sleep 30' &
   napper=$!
+  # The fork returns before the child execs the copy, and an exec that comes after the rm finds no file to run.
+  n=0
+  until [ "$(readlink "/proc/$napper/exe" 2>/dev/null)" = "$bin" ] || ((n++ > 50)); do sleep 0.1; done
+  [ "$(readlink "/proc/$napper/exe" 2>/dev/null)" = "$bin" ] || {
+    kill "$napper" 2>/dev/null || true
+    echo "pid $napper was not running $bin within 5 s of starting it" >&2
+    return 1
+  }
   rm "$bin"
   run env -u DOTFILES_SHELL_DIR PATH="$STUBS:$PATH" bash "$BREW_JOB"
   kill "$napper"
