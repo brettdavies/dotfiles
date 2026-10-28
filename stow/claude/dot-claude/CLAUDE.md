@@ -209,9 +209,12 @@ completion notice sat queued, and the agent did nothing for 13 hours until the m
   it polls in short checks, or runs the step in the foreground under a `timeout` shorter than the parent's watchdog
   window.
 - **Every delegated long task carries a deadline and a watchdog.** The `Agent` brief states a time box and the rules
-  above. Right after dispatch, the parent backgrounds a watchdog that exits once the agent's output file has gone 10
-  minutes without a write, so a stall wakes the parent instead of costing the night. On wake, read the agent's tail,
-  then `SendMessage` it to resume, re-scope, or stop.
+  above. Right after dispatch, the parent backgrounds a watchdog that exits once the agent's output file shows it
+  finished, or once that file has gone 10 minutes without a write, so a stall wakes the parent instead of costing the
+  night. When the agent's completion notice arrives, the parent stops that watchdog at once: every live background shell
+  keeps the session listed busy, which holds back whatever waits for it to go idle, such as a slot's teardown. The
+  10-minute rule is only there to catch a stalled agent: on that wake, read the agent's tail, then `SendMessage` it to
+  resume, re-scope, or stop.
 
 **Enforcement.** The `~/.claude/sleep-guard.sh` PreToolUse Bash hook denies a foreground `sleep` over 10 s, any
 foreground `while`/`until` polling loop, and a background poll interval or fixed wait over 10 s. Each deny names its
@@ -230,15 +233,15 @@ After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run
 hook lists active runs with the exact `gh run watch <id> --exit-status` to spawn — run one per active run in the
 background (or `gh pr checks <pr> --watch` for PR-scoped). **A completed watcher is NOT a green watcher**:
 `gh pr checks --watch` exits 1 on a failed check but 0 when checks end cancelled/skipped, and it can miss checks that
-register late; `gh run watch` needs `--exit-status` to exit non-zero at all. After every completion notification,
-verify explicitly: `gh pr view <num> --json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus, checks:
+register late; `gh run watch` needs `--exit-status` to exit non-zero at all. After every completion notification, verify
+explicitly: `gh pr view <num> --json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus, checks:
 [.statusCheckRollup[] | {name, conclusion}]}'` and assert every conclusion is `SUCCESS`. Same for run-scoped:
 `gh run view <id> --json conclusion --jq .conclusion` must be `success`. Then re-enumerate to catch chained runs — both
 same-repo (`workflow_run` triggers, visible to `gh run list --branch`) AND cross-repo dispatches (`repository_dispatch`
 into another repo, e.g. agentnative-cli release → brettdavies/homebrew-tap → callback to cli's finalize-release; these
-need `gh run list -R <target>` and `gh run watch <id> -R <target> --exit-status`, then a re-query of the originating repo
-for the callback). The chain can bounce multiple times — repeat until both repos quiesce. **Never proceed past a red run
-on any link in the chain.** Policy source of truth: the `~/.claude/ci-watch-prompt.sh` header.
+need `gh run list -R <target>` and `gh run watch <id> -R <target> --exit-status`, then a re-query of the originating
+repo for the callback). The chain can bounce multiple times — repeat until both repos quiesce. **Never proceed past a
+red run on any link in the chain.** Policy source of truth: the `~/.claude/ci-watch-prompt.sh` header.
 
 ## CLI tools
 
