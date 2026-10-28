@@ -29,6 +29,7 @@
 #   AGENT_SLOT_PUSH_WAIT       1 to wait for a verb's pushes before it exits, for a caller nothing waits on (0)
 #   AGENT_SLOT_RELEASE_WAIT    seconds a released slot's teardown waits for its agent to go idle (3600)
 #   AGENT_SLOT_RELEASE_POLL    seconds between that teardown's looks at the agent (5)
+#   AGENT_SLOT_RELEASE_REMIND  seconds after an agent says it is not ready to release before the sweep reminds it (1800)
 #   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL, _SSH
 #                              absolute paths that replace the binaries found on the pinned PATH
 
@@ -79,6 +80,8 @@ source "$AS_LIB/check.sh"
 source "$AS_LIB/push.sh"
 # shellcheck source=lib/release.sh
 source "$AS_LIB/release.sh"
+# shellcheck source=lib/autosweep.sh
+source "$AS_LIB/autosweep.sh"
 # shellcheck source=lib/teardown.sh
 source "$AS_LIB/teardown.sh"
 # shellcheck source=lib/finish.sh
@@ -189,7 +192,13 @@ main() {
       cmd_sweep
       ;;
     release)
-      ((${#args[@]} == 0)) || usage_fail "release takes no arguments; it releases the slot it runs in" "${args[0]}"
+      RELEASE_WHY=
+      if ((${#args[@]} == 2)) && [[ ${args[0]} == --not-yet ]]; then
+        RELEASE_WHY=${args[1]}
+        [[ -n ${RELEASE_WHY//[[:space:]]/} ]] || usage_fail "--not-yet needs the reason the slot is not ready" "''"
+      elif ((${#args[@]} != 0)); then
+        usage_fail "release takes only --not-yet WHY; it releases the slot it runs in" "${args[0]}"
+      fi
       exec </dev/null
       cmd_release
       ;;

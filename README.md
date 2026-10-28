@@ -274,14 +274,21 @@ merged with none open, or the operator finished it) and nothing in it is missing
 the *needs-you list*, shown on its tab and in the `agent-slots` control session.
 
 Teardown needs no one to press a key. A slot's agent closes its task by running `/compound-engineering:ce-compound`
-once per finding from its session, then `/compound-engineering:ce-compound-refresh`, then `agent-slot release`, which
-refuses until both skills have run in that slot. The release starts `agent-slot finish <repo>/<N> --yes --when-idle` in
+once per finding from its session, then `/compound-engineering:ce-compound-refresh`, then stops every background job
+it no longer needs, then runs `agent-slot release`, which refuses until both skills have run in that slot and while the
+slot's Claude still runs a Bash tool command other than the release's own: Claude Code lists a session with a live
+background shell as busy, so a leftover job would hold the teardown back for as long as it runs. An agent still waiting
+on something, such as CI or a release chain, keeps that job and runs `agent-slot release --not-yet '<why>'` instead,
+which releases nothing and records why. The release starts `agent-slot finish <repo>/<N> --yes --when-idle` in
 a session of its own, outside the slot, which waits for the agent to go idle and then runs the same fail-closed finish
 the operator does. A slot whose PR is still open stays released, and `agent-slot-sweep.timer` tears it down once the PR
 merges: every ten minutes it runs `agent-slot sweep --yes --auto`, which tears down only a slot its agent released or
 the operator finished. A finished slot that is neither keeps its clone, so its learnings are not lost: its idle agent is
 typed the closing steps once, and a slot whose agent is gone, or that still has not released after those steps, joins
-the needs-you list as `not-released`. The operator's own `agent-slot sweep --yes`, `agent-slot finish --yes`, and the
+the needs-you list as `not-released`. A slot whose agent recorded `--not-yet` stays off that list while the agent is
+there; once the agent is idle and the record is `AGENT_SLOT_RELEASE_REMIND` seconds old (1800), it is typed a reminder
+with its own reason, once, and a reminder it answers with neither a release nor a new `--not-yet` lists the slot as
+before. The operator's own `agent-slot sweep --yes`, `agent-slot finish --yes`, and the
 finish key ignore the release: they tear down any finished slot that check passes.
 
 #### Setup
@@ -357,10 +364,11 @@ and agents ask before running them. `agent-slot release`, run from inside a slot
 it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks every prerequisite and the time from key press
 to Claude idle.
 
-Every release request, every `finish --yes`, and every `sweep --yes` pass appends one JSON line to
-`~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore down, the
-ones it kept with their blocker codes, the agents it typed the closing steps to, and why a release or finish was
-refused. A release's own finish writes its output to `~/.local/state/agent-slot/logs/release-<repo>-<N>.log`. The
+Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
+line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore
+down, the ones it kept with their blocker codes, the agents it typed the closing steps or a reminder to, the slots held
+by `--not-yet`, why a release or finish was refused, and, for a refusal over background jobs, each job's PID and
+command. A release's own finish writes its output to `~/.local/state/agent-slot/logs/release-<repo>-<N>.log`. The
 sweep timer's schedule is `OnCalendar=*:0/10` in `agent-slot-sweep.timer`; change it with
 `systemctl --user edit agent-slot-sweep.timer`, an empty `OnCalendar=` line, and the new schedule. A release's finish waits up to `AGENT_SLOT_RELEASE_WAIT` seconds (3600)
 for the agent, looking every `AGENT_SLOT_RELEASE_POLL` seconds (5).
@@ -422,6 +430,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `rex-failed`                  | 1    | A `rex` command failed; retry                                                                  |
 | `reconcile-busy`              | 1    | Another restore, sweep, or finish on the Mac held the tab lock too long; retry                 |
 | `compound-not-run`            | 1    | `release` refused: the slot's session has not run `ce-compound` and `ce-compound-refresh` yet  |
+| `background-jobs-running`     | 1    | `release` refused: the slot's Claude still runs background jobs, named in `value`              |
 | `sweep-timer-inactive`        | 78   | The automatic sweep timer is not enabled; `bash scripts/host-jobs-enable.sh`                   |
 
 #### Teardown blockers

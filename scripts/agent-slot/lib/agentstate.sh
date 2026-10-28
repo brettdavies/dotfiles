@@ -87,6 +87,34 @@ agentstate_inside_agent() {
   [[ -n $AGENT_PIDS ]] && _agent_below "$$" "$AGENT_PIDS"
 }
 
+# Usage: agentstate_jobs; after agentstate_of, prints "<pid> <command>" for each Bash tool command the slot's Claude
+# still runs, other than the one this process runs in. Claude's hooks, status line, and plugin updates are its children
+# too, so only a Bash tool command's shape counts: a shell given -c a script that ends by writing its working directory
+# to a claude-<hex>-cwd file. The command shown is the one the agent wrote, unquoted from the script's eval '...'.
+agentstate_jobs() {
+  local claude pid script cmd shape='&& pwd -P >\| [^[:space:]]*/claude-[0-9a-f]+-cwd$'
+  local -a argv
+  for claude in $AGENT_PIDS; do
+    for pid in "${!_AGENT_PPID[@]}"; do
+      [[ ${_AGENT_PPID[$pid]} == "$claude" ]] || continue
+      ! _agent_below "$$" "$pid" || continue
+      mapfile -d '' argv 2>/dev/null <"/proc/$pid/cmdline" || continue
+      ((${#argv[@]} >= 3)) && [[ ${argv[1]} == -c && ${argv[2]} =~ $shape ]] || continue
+      script=${argv[2]}
+      cmd=$script
+      if [[ $script == *"eval '"* ]]; then
+        cmd=${script#*"eval '"}
+        cmd=${cmd%" && pwd -P >| "*}
+        cmd=${cmd%" < /dev/null"}
+        cmd=${cmd%"'"}
+        cmd=${cmd//"'\"'\"'"/"'"}
+      fi
+      cmd=${cmd//[$'\n\t']/ }
+      printf '%s %s\n' "$pid" "${cmd:0:200}"
+    done
+  done | sort -n
+}
+
 _agent_env_in_panes() {
   local environ tmux_var pane
   environ=$(tr '\0' '\n' 2>/dev/null <"/proc/$1/environ") || return 1

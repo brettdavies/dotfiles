@@ -40,6 +40,7 @@ agent_slot_env() {
   AS_PUSH_CONNECT_TIMEOUT=${AGENT_SLOT_PUSH_CONNECT_TIMEOUT:-5}
   AS_RELEASE_WAIT=${AGENT_SLOT_RELEASE_WAIT:-3600}
   AS_RELEASE_POLL=${AGENT_SLOT_RELEASE_POLL:-5}
+  AS_RELEASE_REMIND=${AGENT_SLOT_RELEASE_REMIND:-1800}
 
   declare -gA AS_TOOL=() CONTRACT_TOOL_PATHS
   for tool in tmux claude gh git-crypt git flock timeout trash systemctl ssh; do
