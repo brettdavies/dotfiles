@@ -76,6 +76,15 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"need not run \`agent-slot check\` on this slot"*"checked-by-own-agent"* ]]
 }
 
+@test "the context makes a slot the agent launches fire-and-forget, and keeps it watching its own PRs and CI" {
+  slot repo 1 '{"task": "t"}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"A slot you launch is independent: hand off the brief, report its key, and don't wait on it"* ]]
+  [[ $context == *"Launching a slot is not a delegated wait: set no watchdog or watcher on it;"* ]]
+  [[ $context == *"watch your own PRs and CI to the end."* ]]
+}
+
 @test "a slot with no task says so" {
   slot repo 1
   run start s1 startup

@@ -71,6 +71,8 @@ docs/solutions is the solutions repo shared with every other agent; commit to it
 Run agent-slot verbs with `--output json` after the verb; `--help` on any verb lists its flags and fields.
 `agent-slot schema --output json` prints the whole contract: the success and error objects and every reason.
 To hand a task to another agent, run `agent-slot launch <repo> --request-id <id> --prompt-file <brief>`.
+A slot you launch is independent: hand off the brief, report its key, and don't wait on it or watch it.
+Launching a slot is not a delegated wait: set no watchdog or watcher on it; watch your own PRs and CI to the end.
 Claude runs here with `--dangerously-skip-permissions`; ask rules, deny rules, and hooks still stop tool calls.
 Your task is finished when its PRs are open, or merged if the brief says so, and nothing is left unpushed.
 Then report what you did and stop; teardown happens from outside, when the operator runs sweep or finish.
