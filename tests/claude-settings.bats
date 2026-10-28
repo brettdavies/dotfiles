@@ -132,6 +132,16 @@ REPO="$BATS_TEST_DIRNAME/.."
   [ "$status" -eq 0 ]
 }
 
+# Slot sessions run with --dangerously-skip-permissions while a session the
+# operator opens prompts. Left unset, Claude Code holds a message between the
+# two for approval, so a hand-off from a slot sits undelivered until someone
+# answers it in the receiving session's terminal.
+@test "cross-session messages are delivered without an approval hold" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -e '.crossSessionInbound == "accept"' "$SETTINGS"
+  [ "$status" -eq 0 ]
+}
+
 @test "agent-slot's read-only verbs run without a prompt" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   run jaq -r '.permissions.allow // [] | .[]' "$SETTINGS"
