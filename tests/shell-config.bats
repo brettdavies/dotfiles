@@ -232,6 +232,27 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 }
 
 # ---------------------------------------------------------------------------
+# Headless Obsidian: the Xvfb display stays out of the login environment
+# ---------------------------------------------------------------------------
+# OBSIDIAN_VAULT_PATH is the positive control: it proves the headless-Obsidian
+# block ran, so the two display assertions cannot pass on a skipped branch.
+
+@test "sourcing profile on a headless Obsidian host exports neither DISPLAY nor XAUTHORITY" {
+  [ "$(uname -s)" = "Linux" ] || skip "the headless Obsidian block is Linux-only"
+  local home="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$home/.config/obsidian"
+  : >"$home/.config/obsidian/Xauthority"
+  run env HOME="$home" bash -c \
+    'unset DISPLAY XAUTHORITY OBSIDIAN_VAULT_PATH; . "$1" >/dev/null 2>&1
+     printf "%s\n" "${OBSIDIAN_VAULT_PATH-unset}" "DISPLAY=${DISPLAY-unset}" "XAUTHORITY=${XAUTHORITY-unset}"' \
+    _ "$STOW_DIR/shell/dot-profile"
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "$home/box/TX-AI/streams-control" ]
+  [ "${lines[1]}" = "DISPLAY=unset" ]
+  [ "${lines[2]}" = "XAUTHORITY=unset" ]
+}
+
+# ---------------------------------------------------------------------------
 # Non-interactive environment (functional test)
 # ---------------------------------------------------------------------------
 

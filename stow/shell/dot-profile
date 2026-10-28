@@ -100,9 +100,11 @@ if [ "$(uname -s)" = "Darwin" ]; then
         *) export PATH="$PATH:/Applications/Obsidian.app/Contents/MacOS" ;;
     esac
 elif [ "$(uname -s)" = "Linux" ] && [ -f "$HOME/.config/obsidian/Xauthority" ]; then
-    # Headless Linux: CLI needs Xvfb display and auth for IPC
-    export DISPLAY=:99
-    export XAUTHORITY="$HOME/.config/obsidian/Xauthority"
+    # Headless Linux runs Obsidian under obsidian.service on Xvfb :99. DISPLAY
+    # and XAUTHORITY stay inside that unit: exported here, they would hand the
+    # invisible display to every program started from a shell, and a GUI app
+    # would open its windows there and keep running instead of failing. The CLI
+    # reaches the app through its socket and reads neither.
     # TODO: support multiple vaults per machine (e.g., OBSIDIAN_VAULT_PATH from a config file)
     export OBSIDIAN_VAULT_PATH="$HOME/box/TX-AI/streams-control"
 fi
