@@ -104,7 +104,8 @@ reconcile_open_tab() {
   rex_layout "$REX_NEW_SESSION" "$REX_NEW_BLOCK" "$2"
 }
 
-# Usage: reconcile <restore|restore-at-start|sweep|finish>, naming what ran the pass for the reconcile log.
+# Usage: reconcile <restore|restore-at-start|push|poll|reconnect|sweep|finish>, naming what ran the pass for the
+# reconcile log.
 # Sets RECONCILE_RESULT to what reconcile found and changed. It holds the reconcile lock from the slot list to the
 # last tab change.
 reconcile() {
@@ -139,7 +140,7 @@ reconcile_hold_on_error() {
   if [[ $CONTRACT_OUTPUT == text && -t 0 ]]; then AR_HOLD=1; fi
 }
 
-# Usage: cmd_restore [restore-at-start]
+# Usage: cmd_restore [restore-at-start|push|poll|reconnect]
 cmd_restore() {
   contract_use_tools rex ssh
   reconcile_hold_on_error

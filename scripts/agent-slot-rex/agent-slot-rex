@@ -8,6 +8,7 @@
 #
 # Env (each defaults to the value in parentheses):
 #   AGENT_SLOT_REX_SERVER         the server's ssh alias (bigdaddy)
+#   AGENT_SLOT_REX_CLIENT         this Mac's name in the server's AGENT_SLOT_REX_CLIENTS (bretts-air)
 #   AGENT_SLOT_REX_SSH            the ssh binary (ssh)
 #   AGENT_SLOT_REX_PS             the ps binary (ps)
 #   AGENT_SLOT_REX_SELF           the helper path every pane runs (~/.local/bin/agent-slot-rex)
@@ -16,6 +17,9 @@
 #   AGENT_SLOT_REX_JITTER         most seconds of random delay added to each retry (3)
 #   AGENT_SLOT_REX_RESTORE_WAIT   seconds restore --wait-server waits for the server (600)
 #   AGENT_SLOT_REX_LOCK_WAIT      seconds a restore, sweep, or finish waits for the one ahead of it (300)
+#   AGENT_SLOT_REX_POLL_INTERVAL  seconds between the follow loop's restores (60)
+#   AGENT_SLOT_REX_TICK           seconds between the follow loop's checks (5)
+#   AGENT_SLOT_REX_WAKE_GAP       seconds one tick must overrun to count as a sleep of the Mac (30)
 #   AGENT_SLOT_REX_VERIFIED_VERSIONS  the verified-versions file (scripts/agent-slot/verified-versions)
 #   REX_BIN_DIR                   where the rex CLI lives; Rex sets it in its terminals
 #   AGENT_SLOT_JQ                 the jaq or jq binary
@@ -55,6 +59,8 @@ source "$AR_LIB/attach.sh"
 source "$AR_LIB/doctor.sh"
 # shellcheck source=lib/finish.sh
 source "$AR_LIB/finish.sh"
+# shellcheck source=lib/follow.sh
+source "$AR_LIB/follow.sh"
 # shellcheck source=lib/help.sh
 source "$AR_LIB/help.sh"
 
@@ -67,6 +73,7 @@ if [[ -z $AGENT_SLOT_JQ ]] || ! command -v -- "$AGENT_SLOT_JQ" >/dev/null; then
 fi
 
 AR_SERVER=${AGENT_SLOT_REX_SERVER:-bigdaddy}
+AR_CLIENT=${AGENT_SLOT_REX_CLIENT:-bretts-air}
 AR_SSH=${AGENT_SLOT_REX_SSH:-ssh}
 AR_PS=${AGENT_SLOT_REX_PS:-ps}
 AR_SELF=${AGENT_SLOT_REX_SELF:-$HOME/.local/bin/agent-slot-rex}
@@ -76,6 +83,9 @@ AR_RETRY=${AGENT_SLOT_REX_RETRY_DELAY:-3}
 AR_JITTER=${AGENT_SLOT_REX_JITTER:-3}
 AR_RESTORE_WAIT=${AGENT_SLOT_REX_RESTORE_WAIT:-600}
 AR_LOCK_WAIT=${AGENT_SLOT_REX_LOCK_WAIT:-300}
+AR_POLL_INTERVAL=${AGENT_SLOT_REX_POLL_INTERVAL:-60}
+AR_TICK=${AGENT_SLOT_REX_TICK:-5}
+AR_WAKE_GAP=${AGENT_SLOT_REX_WAKE_GAP:-30}
 AR_VERIFIED=${AGENT_SLOT_REX_VERIFIED_VERSIONS:-$AR_HOME/../agent-slot/verified-versions}
 AR_CONTROL=agent-slots
 rex_find || true
@@ -84,8 +94,9 @@ CONTRACT_REPO=$AR_HOME
 CONTRACT_LOG_DIR=$AR_LOG_DIR
 CONTRACT_TOOL_PATHS[rex]=${AR_REX:-rex}
 CONTRACT_TOOL_PATHS[ssh]=$AR_SSH
-CONTRACT_CONFIG=$(contract_json -n -c --arg server "$AR_SERVER" --arg state "$AR_STATE" --arg rex "$AR_REX" \
-  '{server: $server, state_dir: $state, rex: (if $rex == "" then null else $rex end)}')
+CONTRACT_CONFIG=$(contract_json -n -c --arg server "$AR_SERVER" --arg client "$AR_CLIENT" --arg state "$AR_STATE" \
+  --arg rex "$AR_REX" '{server: $server, client: $client, state_dir: $state,
+    rex: (if $rex == "" then null else $rex end)}')
 
 main() {
   contract_init agent-slot-rex "$@"
@@ -138,8 +149,13 @@ main() {
         '') cmd_restore ;;
         --tab) cmd_restore_tab ;;
         --wait-server) cmd_restore_at_start ;;
-        *) usage_fail "restore takes --tab or --wait-server" "${args[*]}" ;;
+        '--by push' | '--by poll' | '--by reconnect') cmd_restore "${args[1]}" ;;
+        *) usage_fail "restore takes --tab, --wait-server, or --by push|poll|reconnect" "${args[*]}" ;;
       esac
+      ;;
+    follow)
+      ((${#args[@]} == 0)) || usage_fail "follow takes no arguments" "${args[0]}"
+      cmd_follow
       ;;
     sweep)
       ((${#args[@]} == 0)) || usage_fail "sweep takes no arguments" "${args[0]}"

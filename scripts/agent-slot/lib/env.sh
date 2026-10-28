@@ -35,9 +35,12 @@ agent_slot_env() {
   AS_CLAUDE_PROJECTS=${AGENT_SLOT_CLAUDE_PROJECTS:-$HOME/.claude/projects}
   AS_CLAUDE_SETTINGS=${AGENT_SLOT_CLAUDE_SETTINGS:-$HOME/.claude/settings.json}
   AS_VERIFIED_VERSIONS=${AGENT_SLOT_VERIFIED_VERSIONS:-$AS_HOME/verified-versions}
+  AS_REX_CLIENTS=${AGENT_SLOT_REX_CLIENTS-bretts-air}
+  AS_PUSH_TIMEOUT=${AGENT_SLOT_PUSH_TIMEOUT:-60}
+  AS_PUSH_CONNECT_TIMEOUT=${AGENT_SLOT_PUSH_CONNECT_TIMEOUT:-5}
 
   declare -gA AS_TOOL=() CONTRACT_TOOL_PATHS
-  for tool in tmux claude gh git-crypt git flock timeout trash systemctl; do
+  for tool in tmux claude gh git-crypt git flock timeout trash systemctl ssh; do
     override=AGENT_SLOT_${tool^^}
     override=${override//-/_}
     AS_TOOL[$tool]=${!override:-$(command -v "$tool" || true)}
@@ -50,6 +53,7 @@ agent_slot_env() {
   CONTRACT_LOG_DIR=$AS_LOG_DIR
   CONTRACT_CONFIG=$(contract_json -n -c --arg root "$AS_ROOT" --arg dev "$AS_DEV" --arg state "$AS_STATE_DIR" \
     --arg conf "$AS_TMUX_CONF" --arg socket "$AS_TMUX_SOCKET" --arg solutions "$AS_SOLUTIONS" \
+    --arg clients "$AS_REX_CLIENTS" \
     '{slot_root: $root, dev_root: $dev, state_dir: $state, tmux_conf: $conf, tmux_socket: $socket,
-      solutions: $solutions}')
+      solutions: $solutions, rex_clients: ($clients | split(" ") | map(select(. != "")))}')
 }

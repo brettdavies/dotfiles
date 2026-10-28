@@ -128,7 +128,7 @@ _teardown_one() {
 }
 
 cmd_sweep() {
-  local repo n results=()
+  local repo n results=() removed=()
   require_tools tmux claude gh trash
   contract_on_exit _teardown_disarm_on_exit
   check_inputs_load
@@ -138,8 +138,10 @@ cmd_sweep() {
       [[ -n $n ]] || continue
       _teardown_one "$repo" "$n" "${SWEEP_YES:-0}"
       results+=("$(contract_json -c --arg r "$TEARDOWN_RESULT" '. + {result: $r}' <<<"$CHECK_VERDICT")")
+      [[ $TEARDOWN_RESULT != torn-down ]] || removed+=("$(slot_key "$repo" "$n")")
     done < <(slot_numbers "$repo")
   done < <(slot_repos)
+  ((${#removed[@]} == 0)) || push_clients sweep "${removed[@]}"
   contract_ok "$(printf '%s\n' "${results[@]}" | contract_json -s -c --argjson yes "${SWEEP_YES:-0}" '
     map(select(. != null)) as $r
     | {dry_run: ($yes != 1),
@@ -196,5 +198,6 @@ cmd_finish() {
       'map(.message) | join("; ")' <<<"$TEARDOWN_BLOCKERS")" --value "$key" --command "agent-slot check $key"
   fi
   record_unlock_slot "$repo" "$n"
+  push_clients finish "$key"
   contract_ok "$(contract_json -n -c --arg key "$key" '{key: $key, torn_down: true}')" '"\(.key): torn down"'
 }

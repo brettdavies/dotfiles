@@ -258,7 +258,8 @@ Many Claude Code agents can work on the same repo at once, each in an *agent slo
 Claude memory and permission grants), with one task per slot. `agent-slot` on the server owns every slot and every check
 before a slot is deleted; `agent-slot-rex` on the Mac drives Rex, where each repo is one session and each agent one tab.
 Every slot runs three tmux sessions on the server's `agent-slots` socket (Claude, yazi, and lazygit), so agents keep
-working while the Mac sleeps, and each pane of a slot's tab reattaches by itself after a sleep or a network drop.
+working while the Mac sleeps, and each pane of a slot's tab reattaches by itself after a sleep or a network drop. A slot
+launched or torn down on the server, by an agent or by hand, opens or closes its tab in Rex with no key press.
 
 Each slot's Claude starts and resumes with `--dangerously-skip-permissions`, so it skips its permission prompts except
 under an ask rule and for the few actions Claude never auto-approves. Deny rules and hooks still block in that mode, ask
@@ -299,6 +300,37 @@ A slot's tab is labelled `<repo>/<N>`, then `· <task>` (the task name, or the a
 - `<repo> · launch failed` on a launch tab that stopped, with the error, its next step, and its log; Enter retries a
   retryable failure with the same request ID, and q closes the tab.
 
+#### Tabs follow the server
+
+Three triggers keep each Mac's tabs in step with the server, and each one runs `agent-slot-rex restore`:
+
+- **Push.** After `agent-slot launch` makes a slot, and after `agent-slot sweep --yes` or `agent-slot finish --yes`
+  tears one down, the server runs `ssh <client> agent-slot-rex restore --by push` in the background for each Mac in
+  `AGENT_SLOT_REX_CLIENTS`. That variable holds space-separated ssh aliases, defaults to the Mac alias `mac-open` uses,
+  and pushes to none when empty. ssh gets `AGENT_SLOT_PUSH_CONNECT_TIMEOUT` seconds (5) to connect, and the whole push
+  `AGENT_SLOT_PUSH_TIMEOUT` seconds (60); the verb never waits for it, so a Mac that is asleep costs nothing. The Mac
+  helper names its own Mac in `AGENT_SLOT_REX_CLIENT` (default: that same alias) on every server call, and the server
+  skips that client, because the helper reconciles right after its own launch, sweep, or finish.
+- **Reconnect.** Rex starts `agent-slot-rex follow` when it loads. Every `AGENT_SLOT_REX_TICK` seconds (5) the loop
+  checks that its Rex server still runs. A tick that overran by more than `AGENT_SLOT_REX_WAKE_GAP` seconds (30) means
+  the Mac slept; then, and after a call that could not reach the server, the loop probes the server each tick and
+  restores as soon as it answers.
+- **Poll.** The same loop restores every `AGENT_SLOT_REX_POLL_INTERVAL` seconds (60). That catches a push that never
+  arrived and relabels a tab once its agent has made its branch.
+
+One follow loop runs per Rex server: a second start exits, the loop of a restarted Rex server takes over from the old
+one, and a loop exits once its Rex server is gone.
+
+Every trigger is logged, so the intervals can be tuned from data. Each restore's line in
+`~/.local/state/agent-slot-rex/reconcile.log` names its trigger in `by`, with `ms` (how long the pass took) and
+`changed` (whether it opened, relabelled, or closed a tab); a poll with `changed` true found work no push had brought.
+The loop writes its own events to `follow.log` beside it: `start`, `wake` with the gap in seconds, `unreachable`,
+`reachable` with how long the server was gone, and `rex-gone` or `superseded` when it ends. On the server,
+`~/.local/state/agent-slot/push.log` holds one line per client per push: when it began, the verb and its slots, the
+client, the result (`restored`, `restore-failed`, `unreachable`, `timed-out`, or `skipped`), ssh's exit code, the time
+taken, and ssh's last line on a failure. Each of these logs moves to `<log>.1` past 1 MiB. A poll that changes nothing
+writes about 145 bytes, so the reconcile log holds about five days of polls before it moves.
+
 #### Commands
 
 On the Linux server, `agent-slot repos` lists the repos a slot can be made from, `agent-slot list` every slot with its
@@ -311,13 +343,14 @@ and agents ask before running them. `agent-slot doctor` checks every prerequisit
 idle.
 
 On the Mac, the keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`; each pane runs
-`agent-slot-rex attach <repo>/<N> claude|files|git`, the control session's tab runs `agent-slot-rex sweep`, and
-`agent-slot-rex doctor` checks both machines. Every verb answers `--help`. Each launch runs the sweep again in the
-control session's one sweep tab, opening it when there is none; the tab stays open while something needs you, and `r` in
-it sweeps again. Restore, sweep, and finish change tabs one at a time: each waits up to `AGENT_SLOT_REX_LOCK_WAIT`
-seconds (300) for the one ahead of it to finish, so it sees the tabs that one opened. Each of those passes appends one
-JSON line to `~/.local/state/agent-slot-rex/reconcile.log`: when it ran, what ran it (`restore`, `restore-at-start`,
-`sweep`, or `finish`), the tabs it planned to open, relabel, and close, and `ok` or the error that stopped it. Past 1
+`agent-slot-rex attach <repo>/<N> claude|files|git`, the control session's tab runs `agent-slot-rex sweep`, Rex runs
+`agent-slot-rex follow` in the background, and `agent-slot-rex doctor` checks both machines. Every verb answers
+`--help`. Each launch runs the sweep again in the control session's one sweep tab, opening it when there is none; the
+tab stays open while something needs you, and `r` in it sweeps again. Restore, sweep, and finish change tabs one at a
+time: each waits up to `AGENT_SLOT_REX_LOCK_WAIT` seconds (300) for the one ahead of it to finish, so it sees the tabs
+that one opened. Each of those passes appends one JSON line to `~/.local/state/agent-slot-rex/reconcile.log`: when it
+ran, what ran it (`restore`, `restore-at-start`, `push`, `reconnect`, `poll`, `sweep`, or `finish`), how long it took,
+whether it changed a tab, the tabs it planned to open, relabel, and close, and `ok` or the error that stopped it. Past 1
 MiB the log moves to `reconcile.log.1`. Rex takes a tab label of at most 128 characters, so a longer one is cut at the
 end of its needs-you message and ends in `…`.
 

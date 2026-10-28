@@ -114,10 +114,14 @@ Finally, nothing tells the operator which agent needs attention without visiting
 - **Auto-delete only provably safe slots; list the rest.** (session-settled: user-directed — chosen over asking before
   each teardown with last-asked and hold-until tracking: once the safety rule exists, asking adds state without adding
   safety.) Governs R16, R18.
-- **Tabs come back by themselves.** Each pane reattaches after a sleep or a network drop, and Rex runs a restore when it
-  starts; every launch and a restore key reconcile as a fallback. (session-settled: user-directed — the operator gives
-  no input after a wake; chosen over a restore key alone, over an automatic watcher on the Mac, and over mosh, which
-  likely strips the status escape sequences.) Governs R15.
+- **Tabs follow the server by themselves.** Each pane reattaches after a sleep or a network drop, and Rex runs a restore
+  when it starts. A slot launched or torn down on the server gets or loses its tab with no key press: the server pushes
+  a restore to each Rex client after the launch or teardown, and a follow loop on each client restores at once after a
+  sleep or a reconnect, and once a minute as a backstop. Every launch and the restore key still reconcile.
+  (user-directed — new slots appear in Rex in real time and nothing waits on the operator; chosen over a tab that waits
+  for the operator's next launch or restore. Panes that reattach and the restore at Rex start are session-settled:
+  user-directed — the operator gives no input after a wake; chosen over a restore key alone and over mosh, which likely
+  strips the status escape sequences.) Governs R5, R15.
 - **Share Claude memory through a Claude setting written into each slot.** (session-settled: user-approved — chosen over
   pinning Claude's project directory with `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PROJECT_DIR_NAME`, which switches Claude
   to a separate app-state file without the user's MCP servers and trust records.) Slot setup puts the setting in the
@@ -146,8 +150,9 @@ Finally, nothing tells the operator which agent needs attention without visiting
 - R4. The agent starts on a freshly fetched base branch, and creates its own `feat/` or `fix/` branch following the
   repo's conventions.
 - R5. A slot is labelled `<repo>/<N>`. Its task name is the name an agent passes to the launch, or else the agent's
-  branch once it exists, and the Rex tab shows it after the next launch or restore. A task resumes by its Claude session
-  ID.
+  branch once it exists, and the Rex tab shows it at the next restore, which each Rex client runs within a minute on its
+  own. A slot launched on the server, by an agent or by hand, gets its tab with no key press, and a slot torn down there
+  loses its tab the same way (user-directed). A task resumes by its Claude session ID.
 - R24. Each slot path is trusted in Claude before its first agent starts, through Claude's own trust dialog, so no
   launch waits on the operator; a path whose dialog the slot command does not recognize is labelled "trust needed" on
   its tab instead.
@@ -609,12 +614,30 @@ slots, and a doctor on each machine.
   resumes dormant slots, relabels keyed tabs, closes keyed tabs whose slot is gone, and closes a duplicate keyed tab,
   such as one rexurrect recreated. It closes tabs only once every server call has returned. When Rex loads, `init.lua`
   starts `agent-slot-rex restore` in the background with `rex.exec`; it waits up to 10 minutes for the server's ssh to
-  answer, then reconciles, so tabs return after a Rex or Mac restart with no key press. A slot an agent started gets its
-  tab at the next launch or restore; launch's `next_step` for a caller without Rex says so. (session-settled:
-  user-directed — chosen over an automatic watcher on the Mac and over mosh: mosh likely strips the status escape
-  sequences. Panes that reattach by themselves and the restore at Rex start are user-directed: the operator gives no
-  input after a wake. The background launch tab, the repo from the session's name, and the retry key are user-approved —
-  chosen over a focused helper that asked for the repo and a task name.) Covers R1, R5, R11, R15, R18, R19.
+  answer, then reconciles, so tabs return after a Rex or Mac restart with no key press.
+
+  Three triggers then keep every client's tabs following the server, each ending in a `restore` that takes the
+  reconcile lock like any other, and each logged with what ran it (`push`, `reconnect`, or `poll`) and how long it took:
+  - **Push.** After `launch` makes a slot, and after `sweep --yes` or `finish --yes` tears one down, the server starts
+    `ssh <client> agent-slot-rex restore --by push` in the background for each Mac in `AGENT_SLOT_REX_CLIENTS` (by
+    default the Mac's alias), with a 5-second connect timeout. The push never delays or fails the verb, a Mac that is
+    asleep is given up on, and each push appends a line to the server's `push.log`. The helper names its Mac in
+    `AGENT_SLOT_REX_CLIENT` on every server call, and the server skips that client, so a verb the helper started never
+    pushes back to the Mac that reconciles right after it.
+  - **Reconnect.** `init.lua` also starts `agent-slot-rex follow`, a loop that ticks every 5 seconds. One loop runs per
+    Rex server: a second start exits, a new Rex server's loop takes the lock over, and a loop whose Rex server is gone
+    exits. A tick whose wall-clock time overruns by more than 30 seconds means the Mac slept; then, and after any call
+    that could not reach the server, the loop probes the server each tick and restores as soon as it answers.
+  - **Poll.** The same loop restores once a minute, so a push that never arrived, or a label whose branch changed,
+    reaches the tab within a minute.
+
+  Launch's `next_step` tells a caller without Rex that each client is asked to open the slot's tab. (session-settled:
+  user-directed — chosen over mosh, which likely strips the status escape sequences. Panes that reattach by themselves
+  and the restore at Rex start are user-directed: the operator gives no input after a wake. The push, the follow loop,
+  and the poll are user-directed: a slot launched or torn down on the server appears in or leaves Rex in real time;
+  chosen over a tab at the operator's next launch or restore. The background launch tab, the repo from the session's
+  name, and the retry key are user-approved — chosen over a focused helper that asked for the repo and a task name.)
+  Covers R1, R5, R11, R15, R18, R19.
 - KTD11. **Teardown is a fail-closed verdict, then a separate deletion.** `check` builds the verdict in four parts:
   1. **Branch state:** `git fetch --prune` plus the PR head refs.
   2. **PR state:** one batched, bounded `gh` call per repo, recording PR numbers in the record when first seen.
@@ -1256,8 +1279,8 @@ flowchart TB
 - **Approach:**
   1. The skill covers when to use a slot; `launch` with `--request-id` and `--prompt-file`; the JSON envelope, exit
      codes, and `recovery`; the "needs you" list; that `sweep` and `finish` ask first (KTD13); `doctor` and `warm`; and
-     that a slot an agent starts gets its tab at the operator's next launch or restore. It points at `--help` for flags
-     rather than repeating them.
+     that a slot an agent starts gets its tab in Rex on its own. It points at `--help` for flags rather than repeating
+     them.
   2. The README section gives the three setup steps (deploy, `agent-slot-rex doctor`, `agent-slot warm`), the three
      keys, what each tab label means (`trust needed`, `needs you: …`, `launch failed`), and the table of reasons that
      `next_step.docs` points at.
@@ -1399,10 +1422,10 @@ changes: pre-trusting the known slot paths, and taking the repo from the Rex ses
 
 The same journey after this review (predicted): the operator presses the key in `repo`'s session and keeps typing. A tab
 labelled `repo/2` appears in the background with Claude idle and no trust dialog. They type the task; the agent creates
-its branch, and the next launch or restore relabels the tab `repo/2 · feat/<topic>`. When the PR merges, the next
-launch's sweep closes that tab a few seconds after the new one opens. An agent in a prime checkout hands a task to a
-slot with one `agent-slot launch <repo> --prompt-file <file> --request-id <id>`, and the tab appears at the next launch
-or restore, already working.
+its branch, and within a minute the tab is relabelled `repo/2 · feat/<topic>`. When the PR merges, the next launch's
+sweep closes that tab a few seconds after the new one opens. An agent in a prime checkout hands a task to a slot with
+one `agent-slot launch <repo> --prompt-file <file> --request-id <id>`, and the tab appears in Rex seconds later, already
+working.
 
 ### Competitive DX Benchmark
 
@@ -1446,7 +1469,7 @@ that becomes the agent. It requires:
 | 1. Discover  | Agents load the `agent-slot` skill; slot agents also get KTD9 context      | Agents outside slots could not find the command → D8                | fixed  |
 | 2. Install   | Deploy both machines; `agent-slot-rex doctor`; `agent-slot warm <repo>`    | Unchecked prerequisites → D9; trust → D10; `rex config reload` (U6) | fixed  |
 | 3. First run | Key in the repo's session, keep working; `repo/N` tab appears, Claude idle | Repo prompt → D11; task prompt → D12; sweep wait → D13; list → D14  | fixed  |
-| 4. Real use  | Type the task, or an agent passes `--prompt-file`; review rounds in place  | Agent-started slots wait for a tab → `next_step` (KTD10); D15       | fixed  |
+| 4. Real use  | Type the task, or an agent passes `--prompt-file`; review rounds in place  | Agent-started slots wait for a tab → push and follow (KTD10); D15   | fixed  |
 | 5. Debug     | A failed tab shows the error, log path, and a retry key                    | Raw JSON, no log path → KTD2; D16; retries after a drop → D18       | fixed  |
 | 6. Upgrade   | doctor warns on unverified Claude or Rex versions; records carry `schema`  | Silent version drift → D17                                          | fixed  |
 
@@ -1463,10 +1486,10 @@ T+0:30  Runs `agent-slot-rex doctor`; it reports X's slot paths as not trusted, 
 T+1:00  First launch ever for X: no Rex session for X exists yet, so the key is pressed elsewhere; the repo list
         appears with focus and the slot tab opens in the new X session. -> addressed: D11 fallback, focus follows
 T+1:30  Second launch in X's session: tab X/2 appears without focus; Claude idle; no dialog.
-T+2:00  The agent creates its branch; the label still reads X/2 until the next launch or restore.
+T+2:00  The agent creates its branch; the label reads X/2 until the follow loop's next poll, within a minute.
                                                                        -> accepted cost of D12
-T+2:30  An agent in X's prime checkout runs `agent-slot launch X --prompt-file <file> --request-id <id>`; next_step
-        says to press restore; the tab appears, already working.       -> addressed: KTD10 next_step, D8 skill
+T+2:30  An agent in X's prime checkout runs `agent-slot launch X --prompt-file <file> --request-id <id>`; the server
+        pushes a restore, and the tab appears, already working.        -> addressed: KTD10 push, D8 skill
 Final:  succeeded; no open decisions.
 ```
 
@@ -1514,7 +1537,6 @@ terminal (`repo-required`), and `launch` runs with stdin from `/dev/null`. The r
 
 ### NOT in Scope
 
-- An automatic reconcile watcher on the Mac: the restore key and every launch reconcile, as settled before this review.
 - A macOS notification for "needs you" entries: D14 chose tab labels and a control-session list.
 - Writing Claude's app-state file, for trust or anything else: D10.
 - Help pages with JSON samples for each verb: D8 chose the skill; each verb keeps a usage line and one example.
