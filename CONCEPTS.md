@@ -183,6 +183,11 @@ tool, while a construct the reading shell rejects ends the entry file where it s
 The fragments themselves are sourced only by the shells that can parse them, which is why the entry file's dialect
 constraint is stricter than theirs.
 
+Reach is load-bearing as well. Every program a shell starts inherits what the chain exports, so the chain is the right
+home only for a variable all of them should see. A value only one process needs, such as the display a headless service
+draws on, belongs in that process's own unit or wrapper: exported from the chain, it reaches every program a shell
+launches, and a program that would have failed without it runs instead.
+
 ### Bare launcher
 
 A process that spawns a shell without sourcing any startup file, so it inherits only the PATH and environment its parent
@@ -247,6 +252,12 @@ config that seeds any of them changes what *new* processes get, and changes noth
 This is why removing an export cannot clear an inherited value: the config stops setting the variable, but nothing
 unsets it in a process that already holds it. Verification has to start a process from outside the captured state — a
 fresh login rather than a new pane — and adopting a change means reloading or restarting whatever holds the old copy.
+
+A multiplexer holds two captured copies, not one. Beside the server-wide environment from its start, each session keeps
+its own copy of a set list of variables, refreshed from whichever client creates or attaches to it, and that copy wins
+for every new pane. A stale value in the session copy is invisible to a check of the server-wide one, and every server
+on the host keeps its own sessions. Both copies can be edited in place, so new panes stop receiving a value without a
+restart; only processes already running need one.
 
 ## Policies
 
