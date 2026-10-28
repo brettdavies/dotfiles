@@ -310,14 +310,17 @@ check_slot() {
        finished_by: (if $finished | not then null elif $record.finished_by_operator then "operator" else "merge" end),
        blockers: $blockers,
        needs_you: (if $finished or any($blockers[]; .code == "pr-closed-unmerged" or .code == "pr-state-unknown")
-                   then $blockers else [] end),
+                   then [$blockers[] | select(.code != "checked-by-own-agent")] else [] end),
        teardown: ($finished and ($blockers | length) == 0)}')
 }
 
-# Records the PRs a verdict found and the needs-you list it produced, when the slot's lock is free.
+# Records the PRs a verdict found and the needs-you list it produced, when the slot's lock is free. A check run inside
+# the slot's own agent records nothing: it sees that agent mid-turn, which says nothing about the slot once the turn
+# ends, and its needs-you list would stand on the slot's tab until a check from outside replaced it.
 check_record() {
   local repo=$1 n=$2
   [[ $(contract_json -r .state <<<"$CHECK_VERDICT") == active ]] || return 0
+  ! contract_json -e 'any(.blockers[]; .code == "checked-by-own-agent")' <<<"$CHECK_VERDICT" >/dev/null || return 0
   record_update "$repo" "$n" --argjson v "$CHECK_VERDICT" --arg at "$(contract_now)" '
     .prs = ((.prs // []) + [$v.prs[].number] | unique)
     | .last_check = {at: $at, finished: $v.finished, blockers: $v.needs_you}' || true

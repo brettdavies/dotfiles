@@ -429,7 +429,8 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 `agent-slot check` names what keeps a finished slot with one of these codes, a count or the offending paths, and a
 message such as `1 unpushed commit`. A blocker can also carry a `next_step` in the error object's shape:
 `checked-by-own-agent` does, pointing at `agent-slot release`, which tears the slot down from outside once its agent is
-idle.
+idle. That blocker never joins the needs-you list, and a check run inside the slot's own agent leaves the slot's record
+as it found it.
 
 | Code                     | What keeps the slot                                                                      |
 | ------------------------ | ---------------------------------------------------------------------------------------- |
