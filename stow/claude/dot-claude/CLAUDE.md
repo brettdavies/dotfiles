@@ -60,6 +60,10 @@ gstack owns ideation, planning, shipping, and operations; compound-engineering (
 matches an available skill, ALWAYS invoke it with the Skill tool as your FIRST action — don't answer directly or use
 other tools first.
 
+**Plan reviews:** every plan you write goes through `/plan-eng-review`, `/plan-devex-review`, then
+`/compound-engineering:ce-doc-review`, committed and pushed once written and after each review; who answers the review
+questions → `~/.claude/guides/workflows-and-skills.md` § "Reviewing a plan".
+
 **$100 Rule:** when prevention was missed and a bug slips through, invest in the permanent fix — test, guard, lint rule,
 or docs/solutions entry. Trivial work (<~20 lines: single-file fixes, config tweaks, typos) may skip the full loop.
 
