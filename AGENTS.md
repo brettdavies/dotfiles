@@ -105,6 +105,24 @@ and reloads it with `apparmor_parser -r`. Profiles persist across reboots.
 2. Re-run `sudo scripts/apparmor-deploy.sh` — it copies every file in the directory and reloads each one
 3. Do NOT add to `stow/` or `SHARED_PACKAGES`
 
+### Kernel Settings (`config/sysctl.d/`)
+
+Kernel settings follow the same copy rule. They live in `config/sysctl.d/` and are deployed by
+`scripts/sysctl-deploy.sh`, which copies every `.conf` file to `/etc/sysctl.d/`, restarts `systemd-sysctl.service`, and
+reads each key back from `/proc/sys`. The restart re-applies every drop-in in boot order, so a passing run also shows
+the value survives a reboot; the read-back is the real gate, because neither the restart nor `sysctl --system` fails
+when a later-sorting file overrides a key. `scripts/sysctl-deploy.sh --check` runs the same read-back without root and
+changes nothing. `tests/sysctl-deploy.bats` drives the copy through `--dest DIR` and the read-back through a sandbox
+`SYSCTL_PROC_DIR`.
+
+**Current drop-ins:**
+
+- `60-pipe-user-pages.conf` — sets `fs.pipe-user-pages-soft = 0`. Past the stock soft limit, the kernel creates every
+  new pipe for that user at 8 KiB instead of 64 KiB, and any tool that writes more than 8 KiB before the reader starts
+  blocks forever.
+
+To add a setting, drop a file in `config/sysctl.d/`, run `sudo scripts/sysctl-deploy.sh`, and do not add it to `stow/`.
+
 ### SSH Daemon Locale (`scripts/sshd-locale-deploy.sh`)
 
 There is no config file to copy for this one. `AcceptEnv` accumulates across `/etc/ssh/sshd_config` and every

@@ -46,12 +46,14 @@ dotfiles/
 │   ├── qmd/               Per-platform qmd collections templates
 │   ├── apparmor.d/        System-level AppArmor profiles (deployed via apparmor-deploy.sh)
 │   ├── launchd/           macOS launchd user PATH for GUI apps and LaunchAgents (via launchd-user-path.sh)
+│   ├── sysctl.d/          Kernel settings copied to /etc/sysctl.d (via sysctl-deploy.sh)
 │   └── systemd/system/    System-level units (NAS mounts via nas-deploy.sh, apparmor-playwright via apparmor-deploy.sh)
 ├── scripts/
 │   ├── stow-deploy        Stow wrapper with conflict resolution
 │   ├── nas-deploy.sh      System-level NAS mount/automount deploy
 │   ├── apparmor-deploy.sh System-level AppArmor profile deploy + boot unit (Playwright/Chromium)
 │   ├── sshd-locale-deploy.sh  Strip LANG/LC_* from sshd AcceptEnv so sessions use the server locale
+│   ├── sysctl-deploy.sh   Copy config/sysctl.d into /etc/sysctl.d, apply, and read each key back (--check: read only)
 │   ├── playwright-browsers-deploy.sh  Playwright browser binaries into the shared cache (curl + unzip)
 │   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (binaries + apparmor + opt-in browser deps)
 │   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, host-jobs)
@@ -436,10 +438,11 @@ and are deployed via `scripts/nas-deploy.sh`, which copies them to `/etc/systemd
 
 **Deploy:** `sudo scripts/nas-deploy.sh` (requires `/root/.smbcredentials-<nas-host>` from 1Password).
 
-Three more system-level configs deploy through their own paths: `apparmor-playwright.service` (with the AppArmor
-profile, via `scripts/apparmor-deploy.sh`, below), the `ollama` loopback override (`sudo stow -t /etc`, see the `ollama`
-package), and the sshd locale change (`sudo scripts/sshd-locale-deploy.sh`, which edits `/etc/ssh/sshd_config` in place;
-see [BOOTSTRAP.md § SSH session locale](BOOTSTRAP.md#ssh-session-locale)).
+Four more system-level configs deploy through their own paths: `apparmor-playwright.service` (with the AppArmor profile,
+via `scripts/apparmor-deploy.sh`, below), the `ollama` loopback override (`sudo stow -t /etc`, see the `ollama`
+package), the sshd locale change (`sudo scripts/sshd-locale-deploy.sh`, which edits `/etc/ssh/sshd_config` in place; see
+[BOOTSTRAP.md § SSH session locale](BOOTSTRAP.md#ssh-session-locale)), and the kernel settings in `config/sysctl.d/`
+(`sudo scripts/sysctl-deploy.sh`; see [BOOTSTRAP.md § Kernel settings](BOOTSTRAP.md#kernel-settings)).
 
 ### launchd User PATH (`config/launchd/user-path`, macOS)
 
