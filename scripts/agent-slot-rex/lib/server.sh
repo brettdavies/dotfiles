@@ -92,12 +92,13 @@ server_error() {
 }
 
 # Usage: ar_fail <error-json>
-# Prints the error as contract_fail does and exits with its code; with AR_HOLD set, waits for q first, so a tab shows
-# the error until the operator has read it.
+# Records the error as the outcome of a reconcile pass under way, prints it as contract_fail does, and exits with its
+# code; with AR_HOLD set, waits for q first, so a tab shows the error until the operator has read it.
 AR_HOLD=0
 ar_fail() {
   local code
   code=$(contract_json -r '.exit_code' <<<"$1")
+  journal_end "$1"
   contract_emit_error "$1"
   ((AR_HOLD == 0)) || ar_hold
   exit "$code"

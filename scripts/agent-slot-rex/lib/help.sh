@@ -31,7 +31,8 @@ verb_help() {
       "Gives every live slot a tab in its repo's session, resumes dormant slots, relabels tabs, and closes tabs" \
       'whose slot is gone or that duplicate another. --tab runs it in a new tab of the agent-slots session;' \
       "--wait-server first waits up to $AR_RESTORE_WAIT s for the server, logging to $AR_STATE/restore.log, and" \
-      'does nothing unless a Rex server started it.' \
+      'does nothing unless a Rex server started it. Every restore, sweep, and finish appends its plan and outcome' \
+      "to $AR_STATE/reconcile.log." \
       'example: agent-slot-rex restore' ;;
     sweep) printf '%s\n' 'usage: agent-slot-rex sweep [--output json]' \
       "Runs the server's sweep --yes, which tears down every finished slot that check passes, then restores tabs" \

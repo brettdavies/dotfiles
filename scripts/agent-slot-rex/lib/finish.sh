@@ -36,10 +36,10 @@ cmd_finish() {
   reconcile_hold_on_error
   if ! server_call 300 finish "$key" --yes; then
     error=$AR_ERROR
-    ((SERVER_STATUS == 255 || SERVER_STATUS == 124)) || reconcile
+    ((SERVER_STATUS == 255 || SERVER_STATUS == 124)) || reconcile finish
     ar_fail "$error"
   fi
-  reconcile
+  reconcile finish
   contract_ok "$(contract_json -c --arg k "$key" '{key: $k, torn_down: true, reconcile: .}' <<<"$RECONCILE_RESULT")" '
     "\(.key) is torn down", (.reconcile.closed[] | "closed: \(.label) (\(.why))")'
 }

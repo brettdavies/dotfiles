@@ -16,14 +16,16 @@ RECONCILE_RESUMED=()
 RECONCILE_RESULT='{}'
 
 # The label a slot's tab carries: its key, its task or branch, whether Claude is still waiting on the folder trust
-# dialog, and the first thing that keeps it from being torn down.
-RECONCILE_LABEL='def tab_label:
-  .key
-  + (if (.task // .branch) then " · \(.task // .branch)" else "" end)
-  + ((.agent // "") as $agent
-     | if .trust_prompt_expected == true and (["idle", "busy", "waiting"] | index($agent)) == null
-       then " · trust needed" else "" end)
-  + (if ((.needs_you // []) | length) > 0 then " · needs you: \(.needs_you[0].message)" else "" end);'
+# dialog, and the first thing that keeps it from being torn down. Rex's limit cuts it from the end, so the key a tab is
+# matched by stays in front, and cuts it the same way each pass, so a relabelled tab is not relabelled again.
+RECONCILE_LABEL="$REX_LABEL_DEF"'def tab_label:
+  (.key
+   + (if (.task // .branch) then " · \(.task // .branch)" else "" end)
+   + ((.agent // "") as $agent
+      | if .trust_prompt_expected == true and (["idle", "busy", "waiting"] | index($agent)) == null
+        then " · trust needed" else "" end)
+   + (if ((.needs_you // []) | length) > 0 then " · needs you: \(.needs_you[0].message)" else "" end))
+  | rex_label;'
 
 # Sets RECONCILE_SLOTS to the server's slots, after resuming the dormant ones. A dormant slot whose resume finds it gone
 # is dropped; any other resume failure leaves it to its panes' attach loops.
@@ -102,15 +104,19 @@ reconcile_open_tab() {
   rex_layout "$REX_NEW_SESSION" "$REX_NEW_BLOCK" "$2"
 }
 
+# Usage: reconcile <restore|restore-at-start|sweep|finish>, naming what ran the pass for the reconcile log.
 # Sets RECONCILE_RESULT to what reconcile found and changed. It holds the reconcile lock from the slot list to the
 # last tab change.
 reconcile() {
   local plan
+  journal_begin "$1"
   lock_acquire
   reconcile_fetch
   rex_snapshot
   plan=$(reconcile_plan "$REX_TABS" "$RECONCILE_SLOTS")
+  JOURNAL_PLAN=$plan
   reconcile_apply "$plan"
+  journal_end
   lock_release
   RECONCILE_RESULT=$(printf '%s\n' "${RECONCILE_RESUMED[@]}" | contract_json -R -s -c --argjson plan "$plan" \
     --argjson slots "$RECONCILE_SLOTS" '
@@ -133,10 +139,11 @@ reconcile_hold_on_error() {
   if [[ $CONTRACT_OUTPUT == text && -t 0 ]]; then AR_HOLD=1; fi
 }
 
+# Usage: cmd_restore [restore-at-start]
 cmd_restore() {
   contract_use_tools rex ssh
   reconcile_hold_on_error
-  reconcile
+  reconcile "${1:-restore}"
   contract_ok "$RECONCILE_RESULT" "$RECONCILE_TEXT"
 }
 
@@ -174,7 +181,7 @@ cmd_restore_at_start() {
     remaining=$((deadline - SECONDS))
     sleep "$((AR_RETRY < 1 ? 1 : (AR_RETRY < remaining ? AR_RETRY : remaining)))"
   done
-  cmd_restore
+  cmd_restore restore-at-start
 }
 
 # Usage: restore_probe_bound <deadline>; the seconds one probe may take: at most 15, and never past the deadline.
@@ -200,7 +207,7 @@ cmd_sweep() {
   contract_use_tools rex ssh
   [[ $CONTRACT_OUTPUT != text ]] || AR_HOLD=1 AR_AGAIN=sweep
   sweep_teardown
-  reconcile
+  reconcile sweep
   RECONCILE_RESULT=$(contract_json -c --argjson t "$SWEEP_TORN_DOWN" '. + {torn_down: $t}' <<<"$RECONCILE_RESULT")
   contract_ok "$RECONCILE_RESULT" '(.torn_down[] | "torn down: \(.)"), '"$RECONCILE_TEXT"'
     , (if .needs_you == [] then "nothing needs you" else "needs you:", (.needs_you[] | "  \(.label)") end)'

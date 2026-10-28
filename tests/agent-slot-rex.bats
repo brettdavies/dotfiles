@@ -330,6 +330,78 @@ in_rex_session() {
   called '^rex window rename -s sess-x w1 X/2 · feat/y$'
 }
 
+# The needs-you message that gave agentnative-site/1 a 156-character label.
+LONG_NEEDS="agent state unknown: processes outside the slot's tmux panes use the slot: 2723178 2723198 2723204"
+
+# with_long_needs SLOTS-JSON: SLOTS-JSON with each "needs_you": "long" replaced by LONG_NEEDS.
+with_long_needs() {
+  jaq -c --arg m "$LONG_NEEDS" \
+    'map(if .needs_you == "long" then .needs_you = [{code: "agent-state-unknown", message: $m}] else . end)' <<<"$1"
+}
+
+# fits_rex KEY LABEL: the label is within Rex's 128 characters and starts with the key, which is how reconcile finds the
+# tab's slot.
+fits_rex() {
+  jaq -n -e --arg k "$1" --arg l "$2" '($l | length) <= 128 and ($l | startswith($k + " · "))' >/dev/null || {
+    echo "label does not fit Rex or lost its key: $2" >&2
+    return 1
+  }
+}
+
+@test "a long needs-you message is cut to fit Rex's 128 characters, on open and on rename, keeping key and task first" {
+  slots "$(with_long_needs '[{"repo": "agentnative-site", "slot": 1, "task": "release-main-2026-10-27",
+    "needs_you": "long"}, {"repo": "agentnative-site", "slot": 2, "task": "t2", "needs_you": "long"}]')"
+  session sess-ans agentnative-site '[{"window_id": "w1", "label": "agentnative-site/1", "blocks": ["b1"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach agentnative-site/1 claude"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  local renamed opened
+  renamed=$(sed -n 's/^rex window rename -s sess-ans w1 //p' "$CALLS")
+  opened=$(sed -n 's/^rex window new -s sess-ans \(.*\) --focus=false --json -- .*/\1/p' "$CALLS")
+  fits_rex agentnative-site/1 "$renamed"
+  fits_rex agentnative-site/2 "$opened"
+  [ "$renamed" = "agentnative-site/1 · release-main-2026-10-27 · needs you: agent state unknown: processes outside \
+the slot's tmux panes use the…" ]
+  [[ $opened == "agentnative-site/2 · t2 · needs you: agent state unknown: "*"…" ]]
+  : >"$CALLS"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  not_called '^rex (new|window new|window rename|window close)'
+}
+
+@test "a pass that relabels a slot with a long needs-you message still closes a duplicate tab" {
+  slots "$(with_long_needs '[{"repo": "agentnative-site", "slot": 1, "task": "release-main-2026-10-27",
+    "needs_you": "long"}, {"repo": "dotfiles", "slot": 2}]')"
+  session sess-ans agentnative-site '[{"window_id": "w1", "label": "agentnative-site/1 · release-main-2026-10-27",
+    "blocks": ["b1"]}]'
+  session sess-dot dotfiles '[{"window_id": "w2", "label": "dotfiles/2", "blocks": ["b2"]},
+    {"window_id": "w3", "label": "dotfiles/2", "blocks": ["b3"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach agentnative-site/1 claude"
+  runs b2 102 "bash $STUBS/agent-slot-rex attach dotfiles/2 claude"
+  runs b3 103 "bash $STUBS/agent-slot-rex attach dotfiles/2 claude"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called '^rex window rename -s sess-ans w1 agentnative-site/1 · release-main-2026-10-27 · needs you: '
+  called '^rex window close -s sess-dot w3$'
+  not_called '^rex window close -s sess-dot w2$'
+}
+
+@test "a rex failure's message carries rex's Error: line, not the help pointer after it" {
+  slots '[]'
+  session sess-a A '[{"window_id": "w1", "label": "A/1", "blocks": ["b1"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach A/1 claude"
+  rex_fails 'window close' 2 $'Error: window w1 is not in session sess-a\nRun "rex window close --help" for more information.'
+  run --separate-stderr "$AGENT_SLOT_REX" restore --output json
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "rex-failed" and .message == "rex window exited 2: Error: window w1 is not in session sess-a"' \
+    <<<"$stderr"
+  rex_fails 'window close' 1 $'connection reset\n\n'
+  run --separate-stderr "$AGENT_SLOT_REX" restore --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.message == "rex window exited 1: connection reset"' <<<"$stderr"
+}
+
 @test "with ssh exiting 255, restore reports server-unreachable with the alias and changes no tabs" {
   touch "$STUBS/ssh/unreachable"
   session sess-a A '[{"window_id": "w1", "label": "A/1", "blocks": ["b1"]}]'
@@ -504,6 +576,69 @@ started_by() {
   grep -q 'not started by a Rex server' "$AGENT_SLOT_REX_STATE_DIR/restore.log"
   not_called '^ssh-stub '
   not_called '^rex '
+}
+
+# --- the reconcile log ------------------------------------------------------------------------------------------------
+
+RECONCILE_LOG=reconcile.log
+
+@test "each reconcile pass appends one JSON line: when it ran, what ran it, its plan, and ok or the error" {
+  slots '[{"repo": "A", "slot": 1}, {"repo": "A", "slot": 2}]'
+  session sess-a A '[{"window_id": "w1", "label": "A/2 · old", "blocks": ["b1"]},
+    {"window_id": "w2", "label": "A/9", "blocks": ["b2"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach A/2 claude"
+  runs b2 102 "bash $STUBS/agent-slot-rex attach A/9 claude"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  local log=$AGENT_SLOT_REX_STATE_DIR/$RECONCILE_LOG
+  [ "$(wc -l <"$log")" -eq 1 ]
+  jaq -e '.by == "restore" and .ok == true and .error == null and (.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T"))
+    and [.plan.open[].key] == ["A/1"] and [.plan.rename[] | {key, label}] == [{key: "A/2", label: "A/2"}]
+    and [.plan.close[] | {key, why}] == [{key: "A/9", why: "slot is gone"}]' "$log"
+  rex_fails 'window close' 2 $'Error: window w2 is not in session sess-a\nRun "rex window close --help" for more information.'
+  run "$AGENT_SLOT_REX" sweep --output json
+  [ "$status" -eq 1 ]
+  [ "$(wc -l <"$log")" -eq 2 ]
+  tail -1 "$log" | jaq -e '.by == "sweep" and .ok == false and [.plan.close[].key] == ["A/9"]
+    and .error.reason == "rex-failed" and (.error.message | endswith("Error: window w2 is not in session sess-a"))'
+}
+
+@test "the reconcile log names a restore at Rex start and a finish, and records a pass that stopped before its plan" {
+  started_by '/Applications/Rex.app/Contents/MacOS/rex server run --listen unix:///tmp/rex.sock'
+  slots '[]'
+  run "$AGENT_SLOT_REX" restore --wait-server
+  [ "$status" -eq 0 ]
+  ssh_answer finish 0 '{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"finish","key":"X/2","torn_down":true}'
+  run "$AGENT_SLOT_REX" finish X/2 </dev/null
+  [ "$status" -eq 0 ]
+  touch "$STUBS/ssh/unreachable"
+  run "$AGENT_SLOT_REX" restore --output json
+  [ "$status" -eq 1 ]
+  jaq -s -e '[.[].by] == ["restore-at-start", "finish", "restore"] and [.[].ok] == [true, true, false]
+    and .[2].plan == null and .[2].error.reason == "server-unreachable"' "$AGENT_SLOT_REX_STATE_DIR/$RECONCILE_LOG"
+}
+
+@test "a pass that stops unexpectedly still leaves its line in the reconcile log, as a script-error" {
+  slots '[]'
+  printf 'not json\n' >"$STUBS/rexdata/sessions.json"
+  run --separate-stderr "$AGENT_SLOT_REX" restore --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "script-error"' <<<"$stderr"
+  jaq -e '.by == "restore" and .ok == false and .plan == null and .error.reason == "script-error"
+    and (.error.message | startswith("stopped unexpectedly at "))' "$AGENT_SLOT_REX_STATE_DIR/$RECONCILE_LOG"
+}
+
+@test "past 1 MiB the reconcile log moves to reconcile.log.1, replacing the one before" {
+  local log=$AGENT_SLOT_REX_STATE_DIR/$RECONCILE_LOG
+  mkdir -p "$AGENT_SLOT_REX_STATE_DIR"
+  echo older >"$log.1"
+  head -c 1100000 /dev/zero | tr '\0' x >"$log"
+  slots '[]'
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  [ "$(wc -c <"$log.1")" -eq 1100000 ]
+  [ "$(wc -l <"$log")" -eq 1 ]
+  jaq -e '.by == "restore"' "$log"
 }
 
 # --- doctor -----------------------------------------------------------------------------------------------------------

@@ -377,8 +377,9 @@ agent-slot-rex doctor
 
 `cmd+alt+n` starts an agent on the session's repo in a background tab, `cmd+alt+r` gives every live slot its tab back,
 and `cmd+alt+f` finishes the focused tab's task. The helper reaches the Linux server through the ssh alias the `ssh`
-package defines for it; `AGENT_SLOT_REX_SERVER` names another. It logs to `~/.local/state/agent-slot-rex/`, including
-the restore Rex starts when it loads.
+package defines for it; `AGENT_SLOT_REX_SERVER` names another. It logs to `~/.local/state/agent-slot-rex/`:
+`restore.log` holds the restore Rex starts when it loads, and `reconcile.log` one line for each restore, sweep, or
+finish pass over the tabs.
 
 ### fseventsd memory check
 

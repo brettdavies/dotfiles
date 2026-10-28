@@ -43,6 +43,8 @@ source "$AR_LIB/server.sh"
 source "$AR_LIB/rex.sh"
 # shellcheck source=lib/lock.sh
 source "$AR_LIB/lock.sh"
+# shellcheck source=lib/journal.sh
+source "$AR_LIB/journal.sh"
 # shellcheck source=lib/reconcile.sh
 source "$AR_LIB/reconcile.sh"
 # shellcheck source=lib/launch.sh
