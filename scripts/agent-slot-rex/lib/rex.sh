@@ -14,6 +14,16 @@ REX_NEW_SESSION='' REX_NEW_WINDOW='' REX_NEW_BLOCK=''
 REX_APP_PATHS="/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex:\
 $HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
 
+# Rex refuses a window label longer than 128 characters, so every tab label is cut to fit, ending in an ellipsis. jq
+# counts characters, where bash's ${#} counts bytes in the C locale, and `·` is two bytes but one character. A label
+# that fits passes through unchanged, so cutting one twice gives the same label.
+REX_LABEL_DEF='def rex_label: if length <= 128 then . else .[:127] | sub(" +$"; "") + "…" end;'
+
+# Usage: rex_label <label>; prints the label cut to Rex's limit.
+rex_label() {
+  contract_json -n -r --arg l "$1" "$REX_LABEL_DEF"'$l | rex_label'
+}
+
 # Sets AR_REX to the rex CLI: REX_BIN_DIR's, else the first of AGENT_SLOT_REX_APP_PATHS (colon-separated; the app's
 # install paths when unset) that exists.
 rex_find() {
@@ -52,8 +62,14 @@ rex_or_fail() {
     ar_fail "$(contract_error_json dependency-missing "the rex CLI is not in REX_BIN_DIR or the Rex app" \
       --value "${REX_BIN_DIR:-}" --command "open -a 'Rex Beta'")"
   fi
-  ar_fail "$(contract_error_json rex-failed "rex $1 exited $status: $(grep . <<<"$REX_ERR" | tail -1 || true)" \
+  ar_fail "$(contract_error_json rex-failed "rex $1 exited $status: $(rex_error_line)" \
     --value "$*" --command "$(contract_quote rex "$@")")"
+}
+
+# The line of REX_ERR that says why rex failed: its Error: line, since rex ends with a pointer to --help, else its last
+# line that is not empty.
+rex_error_line() {
+  grep -m1 -i '^error:' <<<"$REX_ERR" || grep . <<<"$REX_ERR" | tail -1 || true
 }
 
 # Usage: rex_session_label <session-id>; sets REX_OUT to the session's label, or '' when it has none.
@@ -79,7 +95,8 @@ rex_window_of() {
 # Opens a tab running the command in the session with that label, creating the session when there is none, and never
 # takes focus. Sets REX_NEW_SESSION, REX_NEW_WINDOW, and REX_NEW_BLOCK.
 rex_open_tab() {
-  local session=$1 label=$2
+  local session=$1 label
+  label=$(rex_label "$2")
   shift 2
   rex_session_find "$session"
   if [[ -n $REX_SID ]]; then
@@ -96,7 +113,11 @@ rex_open_tab() {
 }
 
 # Usage: rex_rename <session-id> <window-id> <label>
-rex_rename() { rex_or_fail window rename -s "$1" "$2" "$3"; }
+rex_rename() {
+  local label
+  label=$(rex_label "$3")
+  rex_or_fail window rename -s "$1" "$2" "$label"
+}
 
 # Usage: rex_close <session-id> <window-id>
 rex_close() { rex_or_fail window close -s "$1" "$2"; }

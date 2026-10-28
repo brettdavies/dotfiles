@@ -5,9 +5,10 @@
 # rex answers from files under $STUBS/rexdata: sessions.json for `ls`, session-<id>.json for `session inspect`, and
 # process-<block>.json for `block call process`. `new` adds the session it makes to sessions.json and writes its
 # session-<id>.json, so a later lookup or inspect finds it; `window new` adds its window to the session's file and starts
-# its block's command, as ps sees it. ssh answers each agent-slot verb from $STUBS/ssh/<verb>.{out,err,rc}, or from
-# <verb>.<n>.* on its nth call; the attach loop's tmux calls count as the verbs attach and has-session, and a bare `true`
-# as probe. With
+# its block's command, as ps sees it; `window rename` changes the window's label there. As Rex does, rex refuses a tab
+# label longer than 128 characters with exit 2 and the same two stderr lines, and a subcommand named by rex_fails fails
+# as told. ssh answers each agent-slot verb from $STUBS/ssh/<verb>.{out,err,rc}, or from <verb>.<n>.* on its nth call;
+# the attach loop's tmux calls count as the verbs attach and has-session, and a bare `true` as probe. With
 # $STUBS/ssh/unreachable present every call fails as ssh does, and with $STUBS/ssh/hang every call hangs.
 
 # shellcheck disable=SC2034 # the suites that load this file run it
@@ -34,8 +35,29 @@ agent_slot_rex_setup() {
   unset REX_SESSION REX_BLOCK
 
   stub rex '
+fails="$STUBS/rexdata/fails-$1-$2"
+if [ -e "$fails" ]; then
+  tail -n +2 "$fails" >&2
+  exit "$(head -1 "$fails")"
+fi
+label= sub=
+case "$1 $2" in
+  "window rename") label=$6 sub="window rename" ;;
+  "window new") label=$5 sub="window new" ;;
+  new\ *) [ "$3" = --window ] && label=$4 sub=new ;;
+esac
+if [ -n "$label" ] && [ "$(jaq -n --arg l "$label" "\$l | length")" -gt 128 ]; then
+  printf "%s\n" "Error: label must be at most 128 characters" "Run \"rex $sub --help\" for more information." >&2
+  exit 2
+fi
 case "$1 $2" in
   "ls --json") cat "$STUBS/rexdata/sessions.json" ;;
+  "window rename")
+    f="$STUBS/rexdata/session-$4.json"
+    if [ -e "$f" ]; then
+      jaq -c --arg w "$5" --arg l "$6" "(.windows[] | select(.window_id == \$w) | .label) = \$l" "$f" >"$f.$$"
+      mv "$f.$$" "$f"
+    fi ;;
   "session inspect")
     if [ -e "$STUBS/rexdata/starts-on-inspect-$3" ]; then
       cat "$STUBS/rexdata/starts-on-inspect-$3" >>"$STUBS/ps.txt"
@@ -174,6 +196,11 @@ runs() {
 starts_on_inspect() {
   printf '{"child":{"pid":%s}}\n' "$3" >"$STUBS/rexdata/process-$2.json"
   printf '%s %s\n' "$3" "$4" >"$STUBS/rexdata/starts-on-inspect-$1"
+}
+
+# rex_fails 'WORD WORD' RC STDERR: rex exits RC on that subcommand, printing STDERR, and changes nothing.
+rex_fails() {
+  printf '%s\n%s\n' "$2" "$3" >"$STUBS/rexdata/fails-${1// /-}"
 }
 
 # hold_window_new SESSION COUNT: each `rex window new` waits, for up to 2 s, until SESSION has been inspected COUNT

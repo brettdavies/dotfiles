@@ -315,7 +315,11 @@ On the Mac, the keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and 
 `agent-slot-rex doctor` checks both machines. Every verb answers `--help`. Each launch runs the sweep again in the
 control session's one sweep tab, opening it when there is none; the tab stays open while something needs you, and `r` in
 it sweeps again. Restore, sweep, and finish change tabs one at a time: each waits up to `AGENT_SLOT_REX_LOCK_WAIT`
-seconds (300) for the one ahead of it to finish, so it sees the tabs that one opened.
+seconds (300) for the one ahead of it to finish, so it sees the tabs that one opened. Each of those passes appends one
+JSON line to `~/.local/state/agent-slot-rex/reconcile.log`: when it ran, what ran it (`restore`, `restore-at-start`,
+`sweep`, or `finish`), the tabs it planned to open, relabel, and close, and `ok` or the error that stopped it. Past 1
+MiB the log moves to `reconcile.log.1`. Rex takes a tab label of at most 128 characters, so a longer one is cut at the
+end of its needs-you message and ends in `…`.
 
 With `--output json`, every verb prints one JSON object on success and one error object on stderr, with a `reason` from
 the table below, an exit code (0 ok, 1 failed, 2 usage, 77 auth, 78 configuration), a `next_step`, a `recovery` that
