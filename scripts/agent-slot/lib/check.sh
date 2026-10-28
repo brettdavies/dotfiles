@@ -11,9 +11,10 @@
 #   file beyond those, tool and build output, and byte-for-byte copies of files HEAD tracks; and no symlink under the
 #   home directory resolves into the slot.
 
-CHECK_CODES='pr-state-unknown pr-closed-unmerged git-state-unknown agent-not-idle agent-state-unknown
-uncommitted-changes stash-present unpushed-commits commits-without-pr untracked-files local-only-files
-home-symlink-into-slot home-scan-incomplete slot-busy'
+CHECK_CODES='pr-state-unknown pr-closed-unmerged git-state-unknown agent-not-idle checked-by-own-agent
+agent-state-unknown uncommitted-changes stash-present unpushed-commits commits-without-pr untracked-files
+local-only-files home-symlink-into-slot home-scan-incomplete slot-busy'
+CHECK_DOCS=${CONTRACT_DOCS%#*}#teardown-blockers
 
 CHECK_SETUP_FILES='docs/solutions .claude/settings.local.json'
 # Files Claude Code writes into a project's .claude/ by itself: the scheduler's lock, and the tasks a session saved,
@@ -171,10 +172,21 @@ _check_stash() {
 }
 
 # Usage: _check_agent <repo> <n>; blocks unless the slot's agent is idle or absent, from the agents agentstate_load read.
+# The slot's own agent is busy while it runs a check, so that check reports checked-by-own-agent, with a next_step
+# that leaves teardown to the operator. A waiting agent waits on the operator whoever runs the check.
 _check_agent() {
   agentstate_of "$1" "$2"
   case $AGENT_STATE in
-    busy | waiting) _check_block agent-not-idle "the agent is $AGENT_STATE" ;;
+    busy | waiting)
+      if [[ $AGENT_STATE == busy ]] && agentstate_inside_agent; then
+        _check_block checked-by-own-agent "this check runs inside the slot's own agent, which stays busy until it \
+ends; teardown happens from outside, when the operator runs sweep or finish"
+        CHECK_BLOCKERS[-1]=$(contract_json -c --arg docs "$CHECK_DOCS" \
+          '. + {next_step: {action: "none", command: null, docs: $docs}}' <<<"${CHECK_BLOCKERS[-1]}")
+      else
+        _check_block agent-not-idle "the agent is $AGENT_STATE"
+      fi
+      ;;
     unknown) _check_block agent-state-unknown "agent state unknown: $AGENT_DETAIL" ;;
   esac
 }

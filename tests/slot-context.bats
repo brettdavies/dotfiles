@@ -32,11 +32,12 @@ esac'
   LEDGER=$AGENT_SLOT_STATE_DIR/ledger.jsonl
 }
 
-# start SESSION_ID SOURCE [CWD]: runs the hook for a SessionStart as the pane's top-level Claude.
+# start SESSION_ID SOURCE [CWD] [HOOK]: runs the hook, or the copy HOOK names, for a SessionStart as the pane's
+# top-level Claude.
 start() {
   jaq -n -c --arg sid "$1" --arg src "$2" --arg cwd "${3:-$SLOT}" \
     '{hook_event_name: "SessionStart", session_id: $sid, transcript_path: "/t/\($sid).jsonl", cwd: $cwd,
-      source: $src}' | "$T/pane-shell" "$FAKE/claude" -c "$RUNS" claude "$HOOK"
+      source: $src}' | "$T/pane-shell" "$FAKE/claude" -c "$RUNS" claude "${4:-$HOOK}"
 }
 
 record() { jaq -c "$1" "$SLOT/.git/agent-slot.json"; }
@@ -72,7 +73,7 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"PRs are open, or merged if the brief says so"*"nothing is left unpushed"* ]]
   [[ $context == *"report what you did and stop"* ]]
   [[ $context == *"teardown happens from outside, when the operator runs sweep or finish"* ]]
-  [[ $context == *"need not run \`agent-slot check\` on this slot"*"agent-not-idle"* ]]
+  [[ $context == *"need not run \`agent-slot check\` on this slot"*"checked-by-own-agent"* ]]
 }
 
 @test "a slot with no task says so" {
@@ -80,6 +81,20 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   run start s1 startup
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
   [[ $context == *"no task name"* ]]
+}
+
+@test "a context line holding an apostrophe prints as written" {
+  # The hook finds agent-slot from its own path, so the copy sits in a tree shaped like the repo.
+  local copy=$T/checkout/stow/claude/dot-claude/slot-context.sh
+  mkdir -p "${copy%/*}" "$T/checkout/scripts"
+  ln -s "$BATS_TEST_DIRNAME/../scripts/agent-slot" "$T/checkout/scripts/agent-slot"
+  sed "s/Create no git worktrees inside this slot\./Create no git worktrees in this slot's clone./" "$HOOK" >"$copy"
+  chmod +x "$copy"
+  grep -qF "this slot's clone" "$copy"
+  slot repo 1 '{"task": "t"}'
+  run start s1 startup "$SLOT" "$copy"
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"Create no git worktrees in this slot's clone."* ]]
 }
 
 @test "outside a slot the hook prints nothing" {
