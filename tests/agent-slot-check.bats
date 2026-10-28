@@ -314,6 +314,25 @@ listed() {
   jaq -e '.needs_you[] | select(.code == "local-only-files") | .values == [".context/handoffs/next.md"]' <<<"$VERDICT"
 }
 
+@test "gstack's state and Playwright's output under an ignored .context are tool output; other .context files block" {
+  finished_task
+  echo '.context/' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/.gstack/browse" "$SLOT/.context/test-results"
+  echo '*' >"$SLOT/.gstack/.gitignore"
+  echo started >"$SLOT/.gstack/browse-daemon.log"
+  echo '{}' >"$SLOT/.gstack/browse/state.json"
+  echo '{"status":"passed"}' >"$SLOT/.context/test-results/.last-run.json"
+  listed '!! .context/'
+  listed '!! .gstack/browse-daemon.log'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+  mkdir -p "$SLOT/.context/handoffs"
+  echo next >"$SLOT/.context/handoffs/x.md"
+  check
+  jaq -e '.blockers == [{code: "local-only-files", message: "local-only files: .context/handoffs/x.md", count: 1,
+    values: [".context/handoffs/x.md"]}]' <<<"$VERDICT"
+}
+
 @test "untracked files under build- and dist-named source directories block" {
   finished_task
   mkdir -p "$SLOT/tools/build" "$SLOT/src/dist"
