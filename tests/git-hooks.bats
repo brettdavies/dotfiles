@@ -111,6 +111,45 @@ HOOKS_DIR="$BATS_TEST_DIRNAME/../.githooks"
 }
 
 # ---------------------------------------------------------------------------
+# Gate output through a non-blocking pipe
+#
+# git starts ssh before it runs pre-push, and ssh makes the stderr it shares
+# with git non-blocking, so `git push 2>&1 | tail` hands the hook a pipe in that
+# state. The gate logs still have to reach a reader that falls behind.
+# ---------------------------------------------------------------------------
+
+@test "a gate log reaches a slow reader whole through a pipe ssh left non-blocking" {
+  command -v perl >/dev/null 2>&1 || skip "perl not installed"
+  local writer="$BATS_TEST_TMPDIR/writer" out="$BATS_TEST_TMPDIR/out"
+  cat >"$writer" <<'EOF'
+set -euo pipefail
+perl -MFcntl -e 'fcntl(STDOUT, F_SETFL, fcntl(STDOUT, F_GETFL, 0) | O_NONBLOCK) or die "fcntl: $!\n"'
+. "$1/lib/report.sh"
+gate_begin
+gate_spawn big seq 1 100000
+wait
+gate_collect big "big gate" "big gate failed"
+EOF
+  # The reader starts once the writer has filled the pipe.
+  run bash -c 'bash "$1" "$2" | { sleep 1; cat >"$3"; }; exit "${PIPESTATUS[0]}"' \
+    _ "$writer" "$HOOKS_DIR" "$out"
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$out")" -eq 100001 ]
+  [ "$(tail -n 1 "$out")" = "  ✓ big gate" ]
+}
+
+@test "a failing perl does not stop a hook from sourcing the gate library" {
+  local stubs="$BATS_TEST_TMPDIR/stubs"
+  mkdir -p "$stubs"
+  printf '#!/bin/sh\nexit 1\n' >"$stubs/perl"
+  chmod +x "$stubs/perl"
+  run env PATH="$stubs:$PATH" bash -c 'set -euo pipefail; . "$1/lib/report.sh"; echo sourced' _ "$HOOKS_DIR"
+  [ "$status" -eq 0 ]
+  [ "$output" = "sourced" ]
+}
+
+# ---------------------------------------------------------------------------
 # pre-commit: branch protection
 # ---------------------------------------------------------------------------
 
