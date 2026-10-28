@@ -20,13 +20,14 @@
 # Test files: *.bats, *.bash, and *.sh under a tests/ or test/ directory.
 #
 # Flagged when the assignment starts a command (line start; after ; & | ( { or
-# $(; after export, env, local, declare, readonly, or typeset; after another
-# assignment; or opening a `bash -c` script), comment lines and @test headers
-# excepted:
+# $(; after export, local, declare, readonly, or typeset; after env and any of
+# its options, including one that takes an argument such as -u NAME; after
+# another assignment; or opening a `bash -c` script), comment lines and @test
+# headers excepted:
 #   VAR=...     for VAR in HOME USER LOGNAME TMPDIR SHELL ZDOTDIR GNUPGHOME
 #               CARGO_HOME RUSTUP_HOME XDG_*
 #   PATH=...    unless the rest of the line refers back to $PATH
-#   unset VAR   env -u VAR   env -i
+#   unset VAR   env -u VAR   env --unset=VAR   env -i
 #
 # Allowlist: one tab-separated entry per line, `path<TAB>block<TAB>reason`,
 # where block is the enclosing @test name or function name, or `-` for top-level
@@ -108,17 +109,21 @@ fi
 prog='
 BEGIN {
   vars = "(HOME|USER|LOGNAME|TMPDIR|SHELL|ZDOTDIR|GNUPGHOME|CARGO_HOME|RUSTUP_HOME|XDG_[A-Z_]+)"
-  assign = "[A-Za-z_][A-Za-z0-9_]*=(\"[^\"]*\"|\047[^\047]*\047|[^[:space:]\"\047;&|]*)"
+  value = "(\"[^\"]*\"|\047[^\047]*\047|[^[:space:]\"\047;&|]*)"
+  assign = "[A-Za-z_][A-Za-z0-9_]*=" value
   shell_c = "(^|[[:space:]/;&|(])(sh|bash|zsh|dash|ksh)([[:space:]]+-[A-Za-z]+)*[[:space:]]+-[A-Za-z]*c[[:space:]]+[\"\047]"
-  keyword = "(^|[[:space:]])(export|env|local|declare|readonly|typeset)([[:space:]]+-[A-Za-z]+)*"
+  # The env options that take an argument: GNU -a -C -S -u, BSD -L -P -S -U.
+  env_opt = "(-[A-Za-z0-9]*[aCLPSUu][[:space:]]*" value "|--(argv0|chdir|split-string|unset)[[:space:]]+" value "|--?[A-Za-z0-9-]*(=" value ")?)"
+  env_cmd = "env([[:space:]]+" env_opt ")*"
+  keyword = "(^|[[:space:]])((export|local|declare|readonly|typeset)([[:space:]]+-[A-Za-z]+)*|" env_cmd ")"
   lead = "(^|[;&|({`]|\\$\\(|" keyword "|" shell_c ")"
   pos = lead "[[:space:]]*(" assign "[[:space:]]+)*"
   core_re = pos vars "="
   path_re = pos "PATH="
   edge = "(^|[;&|({`[:space:]\"\047])"
   unset_re = edge "unset[[:space:]]+(-[A-Za-z]+[[:space:]]+)*([A-Za-z_][A-Za-z0-9_]*[[:space:]]+)*" vars "([^A-Za-z0-9_]|$)"
-  env_u_re = edge "env[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-u[[:space:]]*" vars "([^A-Za-z0-9_]|$)"
-  env_i_re = edge "env[[:space:]]+(-[A-Za-z]+[[:space:]]+)*(-[A-Za-z]*i|--ignore-environment)([[:space:]]|$)"
+  env_u_re = edge env_cmd "[[:space:]]+(-[A-Za-z0-9]*u[[:space:]]*|--unset([[:space:]]+|=))" vars "([^A-Za-z0-9_]|$)"
+  env_i_re = edge env_cmd "[[:space:]]+(-[A-Za-z0-9]*i|--ignore-environment)([[:space:]]|$)"
   findings = 0
   while ((status = (getline line < allowlist_path)) > 0) {
     lineno++
