@@ -88,6 +88,21 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"watch your own PRs and CI to the end."* ]]
 }
 
+@test "the context runs every plan through three reviews and sends a person's decision to the brief's session" {
+  slot repo 1 '{"task": "t"}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"every plan you write"*"/plan-eng-review"*"/plan-devex-review"*\
+"/compound-engineering:ce-doc-review"*"commit and push the plan once it is written and again after each review."*\
+"Your task is finished when"* ]]
+  [[ $context == *"Answer each review question yourself"*"record the choice and its evidence in the plan."* ]]
+  [[ $context == *"Nobody watches this tab, so a question asked here, \`AskUserQuestion\` included, waits forever."* ]]
+  [[ $context == *"a name, a breaking change, a version call, or a scope cut, to the session your brief reports to"*\
+"one \`SendMessage\`: the question, the options, your recommendation, and its evidence."* ]]
+  [[ $context == *"then end your turn; the answer arrives as a message."* ]]
+  [[ $context == *"If the brief names no such session, leave the decision open in the plan and in your report."* ]]
+}
+
 @test "a slot with no task says so" {
   slot repo 1
   run start s1 startup

@@ -60,7 +60,7 @@ context_record() {
 # through --arg, never as part of its program, so an apostrophe or a backtick in one prints as written.
 # shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
 context_text() {
-  local task base prime rules closing rules_after
+  local task base prime rules plans closing rules_after
   task=$(contract_json -r '.task // ""' <<<"$RECORD")
   base=$(contract_json -r '.base // "the default branch"' <<<"$RECORD")
   prime=$(contract_json -r '.prime // "for this repo"' <<<"$RECORD")
@@ -75,6 +75,18 @@ A slot you launch is independent: hand off the brief, report its key, and don't 
 Launching a slot is not a delegated wait: set no watchdog or watcher on it; watch your own PRs and CI to the end.
 Claude runs here with `--dangerously-skip-permissions`; ask rules, deny rules, and hooks still stop tool calls.
 EOF
+  )
+  plans=$(
+    printf '%s\n' \
+      "Run every plan you write through \`/plan-eng-review\`, \`/plan-devex-review\`, then \
+\`/compound-engineering:ce-doc-review\`, and commit and push the plan once it is written and again after each review." \
+      "Answer each review question yourself where the code, the repo's docs, \`docs/solutions\`, or precedent settles \
+it, and record the choice and its evidence in the plan." \
+      "Nobody watches this tab, so a question asked here, \`AskUserQuestion\` included, waits forever. Send a decision \
+only a person can make, such as a name, a breaking change, a version call, or a scope cut, to the session your brief \
+reports to as one \`SendMessage\`: the question, the options, your recommendation, and its evidence." \
+      "Keep working on what that decision does not block, then end your turn; the answer arrives as a message. If the \
+brief names no such session, leave the decision open in the plan and in your report."
   )
   closing=$(
     printf '%s\n' \
@@ -101,7 +113,7 @@ EOF
     printf '%s\n' "You are working in agent slot $(slot_key "$1" "$2"), a full clone at $(slot_path "$1" "$2")."
     if [[ -n $task ]]; then printf 'Task: %s.\n' "$task"; else printf '%s\n' 'This slot was given no task name.'; fi
     printf '%s\n' "The base branch is $base." \
-      "The prime checkout $prime is read-only for you; make every change in this slot." "$rules" "$closing" \
+      "The prime checkout $prime is read-only for you; make every change in this slot." "$rules" "$plans" "$closing" \
       "$rules_after"
   )" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $text}}'
 }
