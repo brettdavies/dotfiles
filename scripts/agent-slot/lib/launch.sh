@@ -129,7 +129,8 @@ launch_output() {
       request_id: .request_id, session_id: .session_id, base: .base, trust_prompt_expected: $trust,
       prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases,
       next_step: {action: "run", command: "agent-slot check \($key) --output json", docs: $docs,
-                  note: "Rex opens this slot'"'"'s tab at the operator'"'"'s next launch or restore"}}' <<<"$RECORD")" '
+                  note: ("each Rex client is asked to open this slot'"'"'s tab when the slot is made; a Mac that"
+                         + " is asleep or offline opens it once it is back")}}' <<<"$RECORD")" '
     "\(.key) \(if .created then "is ready" else "already holds this request" end) at \(.path)" +
       (if .task then " (\(.task))" else "" end) +
       (if .trust_prompt_expected then "; Claude will ask to trust the folder" else "" end) +
@@ -234,6 +235,7 @@ cmd_launch() {
   ledger_append launch "$(contract_json -c --argjson phases "$phases" --argjson trust "$trust" --arg path "$path" \
     '{request_id, requested_at, repo, slot, path: $path, task, session_id, created: true,
       trust_prompt_expected: $trust, phases: $phases}' <<<"$RECORD")"
+  push_clients launch "$(slot_key "$repo" "$n")"
   launch_output "$repo" "$n" true "$trust" "$phases"
 }
 

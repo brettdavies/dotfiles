@@ -21,7 +21,12 @@
 #   AGENT_SLOT_SOLUTIONS       shared solutions repo (~/dev/solutions-docs)
 #   AGENT_SLOT_GIT_CRYPT_KEY   git-crypt key (~/.config/git-crypt/key)
 #   AGENT_SLOT_CLAUDE_STATE    Claude's app-state file, read only (~/.claude.json)
-#   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL
+#   AGENT_SLOT_REX_CLIENTS     space-separated ssh aliases of the Macs whose Rex a launch or teardown pushes a restore
+#                              to (bretts-air); empty pushes to none
+#   AGENT_SLOT_REX_CLIENT      the Rex client whose helper ran this verb, which the push skips; the helper sets it
+#   AGENT_SLOT_PUSH_CONNECT_TIMEOUT  seconds a push waits for a Mac's ssh to connect (5)
+#   AGENT_SLOT_PUSH_TIMEOUT    seconds one push may take in all (60)
+#   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL, _SSH
 #                              absolute paths that replace the binaries found on the pinned PATH
 
 if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
@@ -67,6 +72,8 @@ source "$AS_LIB/prstate.sh"
 source "$AS_LIB/homescan.sh"
 # shellcheck source=lib/check.sh
 source "$AS_LIB/check.sh"
+# shellcheck source=lib/push.sh
+source "$AS_LIB/push.sh"
 # shellcheck source=lib/teardown.sh
 source "$AS_LIB/teardown.sh"
 # shellcheck source=lib/schema.sh

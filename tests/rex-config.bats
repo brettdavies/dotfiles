@@ -9,15 +9,16 @@ INIT="$REX_DIR/init.lua"
 LAYOUT="$REX_DIR/layout.lua"
 SLOTS="$REX_DIR/agent-slots.lua"
 
-@test "init.lua runs rexurrect from HOME, requires both modules, and starts one background restore" {
+@test "init.lua runs rexurrect from HOME, requires both modules, and starts a background restore and follow loop" {
   grep -q 'rex.exec({ os.getenv("HOME") .. "/.local/bin/rexurrect", "auto-restore" }' "$INIT"
   grep -q 'REXURRECT_STATE_DIR = os.getenv("HOME") .. "/.local/state/rexurrect"' "$INIT"
   [ "$(grep -c '/Users/' "$INIT")" -eq 0 ]
   grep -qx 'require("layout")' "$INIT"
   grep -qx 'require("agent-slots")' "$INIT"
-  [ "$(grep -c 'rex.exec.start' "$INIT")" -eq 1 ]
+  [ "$(grep -c 'rex.exec.start' "$INIT")" -eq 2 ]
   grep -q 'rex.exec.start({ os.getenv("HOME") .. "/.local/bin/agent-slot-rex", "restore", "--wait-server" }, { detach = true })' \
     "$INIT"
+  grep -q 'rex.exec.start({ os.getenv("HOME") .. "/.local/bin/agent-slot-rex", "follow" }, { detach = true })' "$INIT"
 }
 
 @test "layout.lua keeps both dev layout actions, their ratios, programs, and focus" {
@@ -82,7 +83,7 @@ SLOTS="$REX_DIR/agent-slots.lua"
   verbs=$(grep '^VERBS=' "$BATS_TEST_DIRNAME/../scripts/agent-slot-rex/lib/help.sh")
   named=$(grep -ohE 'helper_pane\("[a-z]+"|HELPER, "[a-z]+"|agent-slot-rex", "[a-z]+"' "$SLOTS" "$INIT" \
     | grep -oE '"[a-z]+"$' | tr -d '"' | sort -u | paste -sd ' ')
-  [ "$named" = "attach finish launch restore" ]
+  [ "$named" = "attach finish follow launch restore" ]
   for verb in $named; do
     [[ $verbs == *" $verb "* ]] || {
       echo "the Lua names a verb agent-slot-rex lacks: $verb" >&2

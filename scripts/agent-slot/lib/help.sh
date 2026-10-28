@@ -44,7 +44,8 @@ verb_help() {
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
       '--dangerously-skip-permissions. A repeat with the same --request-id (or --task) returns the same slot. Agents' \
       'always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _, -, and /,' \
-      'starting with a letter or digit, up to 64.' \
+      'starting with a letter or digit, up to 64. A new slot pushes a restore to each Mac in AGENT_SLOT_REX_CLIENTS,' \
+      "so its tab opens in Rex; the push runs in the background and is logged to $AS_STATE_DIR/push.log." \
       'returns: created, key, repo, slot, path, state, task, request_id, session_id, base, trust_prompt_expected,' \
       '         prompt_delivered (false when the slot already held the task), missing_siblings, phases, next_step' \
       'example: agent-slot launch dotfiles --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
@@ -65,12 +66,14 @@ verb_help() {
       'example: agent-slot check dotfiles/2 --output json' ;;
     sweep) printf '%s\n' 'usage: agent-slot sweep [--yes] [--output json]' \
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \
-      'reports what it would delete. Agents ask the operator first.' \
+      'reports what it would delete. Agents ask the operator first. A teardown pushes a restore to each Rex client,' \
+      "which closes the slot's tab." \
       'returns: dry_run, torn_down[], would_tear_down[], needs_you[] of {key, needs_you}, slots[] (each with result)' \
       'example: agent-slot sweep --output json' ;;
     finish) printf '%s\n' 'usage: agent-slot finish <repo>/<N> [--yes] [--output json]' \
       "Marks a task with no open PR finished and tears its slot down when check passes; it refuses a task with an" \
-      'open PR. Without --yes it only reports. Agents ask the operator first.' \
+      'open PR. Without --yes it only reports. Agents ask the operator first. A teardown pushes a restore to each' \
+      "Rex client, which closes the slot's tab." \
       'returns: key, then dry_run, would_tear_down, verdict without --yes, or torn_down with it' \
       'example: agent-slot finish dotfiles/2 --yes' ;;
     doctor) printf '%s\n' 'usage: agent-slot doctor [--output json]' \

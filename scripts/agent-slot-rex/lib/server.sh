@@ -43,13 +43,17 @@ _server_keep() {
 }
 
 # Usage: server_call <seconds> <verb> [args...]
-# Runs `agent-slot <verb> <args> --output json` on the server. On failure sets AR_ERROR to the error object: the one
-# agent-slot printed, or one this helper builds for an unreachable server or a command that printed none.
+# Runs `agent-slot <verb> <args> --output json` on the server, naming this Mac in AGENT_SLOT_REX_CLIENT so a launch or
+# teardown there pushes no restore back to the Mac whose helper reconciles next. On failure sets AR_ERROR to the error
+# object: the one agent-slot printed, or one this helper builds for an unreachable server or a command that printed
+# none.
 server_call() {
   local secs=$1 verb=$2
   shift 2
   AR_ERROR=
-  server_ssh "$secs" "$verb" "$AR_REMOTE $(contract_quote "$verb" "$@") --output json" && return 0
+  server_ssh "$secs" "$verb" \
+    "AGENT_SLOT_REX_CLIENT=$(contract_quote "$AR_CLIENT") $AR_REMOTE $(contract_quote "$verb" "$@") --output json" \
+    && return 0
   server_error "$secs" "$verb"
   return "$SERVER_STATUS"
 }

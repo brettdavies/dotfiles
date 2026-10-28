@@ -24,7 +24,7 @@ in_rex_session() {
 
 @test "every verb answers --help with a usage line and an example" {
   local verb
-  for verb in launch attach restore sweep doctor; do
+  for verb in launch attach restore sweep finish follow doctor; do
     run "$AGENT_SLOT_REX" "$verb" --help
     [ "$status" -eq 0 ]
     [[ ${lines[0]} == "usage: agent-slot-rex $verb"* ]]

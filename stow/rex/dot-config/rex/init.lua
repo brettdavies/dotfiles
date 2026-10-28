@@ -4,3 +4,5 @@ require("agent-slots")
 
 -- Once the server's ssh answers, give every live agent slot its tab back.
 rex.exec.start({ os.getenv("HOME") .. "/.local/bin/agent-slot-rex", "restore", "--wait-server" }, { detach = true })
+-- Then keep the tabs following the server: a restore each minute, and at once after a sleep or a reconnect.
+rex.exec.start({ os.getenv("HOME") .. "/.local/bin/agent-slot-rex", "follow" }, { detach = true })

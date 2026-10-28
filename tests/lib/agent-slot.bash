@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # Fixtures for the agent-slot suites. Each test gets its own slot root, dev root, and state directory under
-# BATS_TEST_TMPDIR, reached through agent-slot's AGENT_SLOT_* overrides; tmux, claude, gh, git-crypt, trash, and
-# systemctl are stubs that record their argv. git is real, with GIT_CONFIG_GLOBAL pointing at a test config, so no
-# fixture repo inherits the host's signing or URL rewrites.
+# BATS_TEST_TMPDIR, reached through agent-slot's AGENT_SLOT_* overrides; tmux, claude, gh, git-crypt, trash, systemctl,
+# and ssh are stubs that record their argv, and no Rex client is configured, so nothing pushes. git is real, with
+# GIT_CONFIG_GLOBAL pointing at a test config, so no fixture repo inherits the host's signing or URL rewrites.
 
 # shellcheck disable=SC2034 # the suites that load this file run it
 AGENT_SLOT="$BATS_TEST_DIRNAME/../scripts/agent-slot/agent-slot"
@@ -100,8 +100,17 @@ esac'
   stub trash '[ "$1" != --version ] || { echo "trash 0.test"; exit 0; }
 mkdir -p "$STUBS/trashed"; for p in "$@"; do cp -a "$p" "$STUBS/trashed/" && chmod -R u+w "$p" && find "$p" -delete; done'
   stub systemctl 'echo enabled'
+  # ssh reaches the Rex clients a push names. Each host answers from $STUBS/ssh-<host>.{rc,err}, and while
+  # $STUBS/ssh-<host>.hold exists it does not answer at all, for up to 30 s, as a Mac that is asleep.
+  stub ssh '
+host=${@: -2:1}
+for ((i = 0; i < 300; i++)); do [ -e "$STUBS/ssh-$host.hold" ] || break; sleep 0.1; done
+[ ! -e "$STUBS/ssh-$host.err" ] || cat "$STUBS/ssh-$host.err" >&2
+exit "$(cat "$STUBS/ssh-$host.rc" 2>/dev/null || echo 0)"'
   export AGENT_SLOT_TMUX=$STUBS/tmux AGENT_SLOT_CLAUDE=$STUBS/claude AGENT_SLOT_GH=$STUBS/gh
   export AGENT_SLOT_GIT_CRYPT=$STUBS/git-crypt AGENT_SLOT_TRASH=$STUBS/trash AGENT_SLOT_SYSTEMCTL=$STUBS/systemctl
+  export AGENT_SLOT_SSH=$STUBS/ssh AGENT_SLOT_REX_CLIENTS=
+  unset AGENT_SLOT_REX_CLIENT
 }
 
 # stub NAME BODY: an executable that appends "NAME argv" to the calls log, then runs BODY with STUBS and CALLS set.

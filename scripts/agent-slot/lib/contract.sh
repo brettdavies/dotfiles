@@ -164,6 +164,31 @@ contract_now() {
   date -u +%Y-%m-%dT%H:%M:%SZ
 }
 
+# Milliseconds since the epoch. Bash before 5 has no EPOCHREALTIME, and macOS date has no %N, so there it counts whole
+# seconds.
+contract_ms() {
+  if [[ -n ${EPOCHREALTIME:-} ]]; then
+    printf '%s' "$((${EPOCHREALTIME/[.,]/} / 1000))"
+  else
+    printf '%s' "$(($(printf '%(%s)T' -1) * 1000))"
+  fi
+}
+
+# Usage: contract_log_line <file> <line>
+# Appends one line to a log of JSON lines. Past CONTRACT_LOG_MAX bytes the log first moves to <file>.1, replacing the one
+# there, so the two hold about twice that at most. Never fails the caller.
+CONTRACT_LOG_MAX=1048576
+contract_log_line() {
+  local log=$1
+  {
+    mkdir -p "${log%/*}"
+    if [[ -f $log ]] && (($(wc -c <"$log") > CONTRACT_LOG_MAX)); then
+      mv -f "$log" "$log.1"
+    fi
+    printf '%s\n' "$2" >>"$log"
+  } 2>/dev/null || true
+}
+
 # Usage: contract_use_tools <tool...>
 # Names the tools the current step calls, so an error's context carries their versions.
 contract_use_tools() {
