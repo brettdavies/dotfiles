@@ -471,6 +471,20 @@ server started from one; `tmux set-environment -g LANG C.UTF-8` fixes new panes 
 pins `SetEnv LANG=C.UTF-8` on the affected host entries as the client-side half, so a server that still accepts the
 variable gets the right value anyway.
 
+### Kernel settings
+
+`config/sysctl.d/` holds the kernel settings for Linux hosts. `60-pipe-user-pages.conf` turns off
+`fs.pipe-user-pages-soft`: once a user's pipes pass that limit, the kernel creates each new pipe at 8 KiB instead of 64
+KiB, and tools that write a large block before the reader starts (actionlint feeding shellcheck, for one) hang. A
+desktop app with many helper processes, plus the shells of a busy session, is enough to pass it.
+
+```bash
+sudo ~/dotfiles/scripts/sysctl-deploy.sh   # copy to /etc/sysctl.d, restart systemd-sysctl, read each key back
+~/dotfiles/scripts/sysctl-deploy.sh --check  # read-only drift check, no root
+```
+
+The change takes effect for pipes created after the deploy, with no reboot. A pipe that already exists keeps its size.
+
 ### Ollama Host-rewrite proxy (Caddy)
 
 Ollama binds to loopback only (`127.0.0.1:11434`) and 403s any request whose `Host` header is not localhost
