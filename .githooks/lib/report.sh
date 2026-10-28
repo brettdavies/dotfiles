@@ -36,7 +36,7 @@ gate_blocking_output() {
     for my $fh (*STDOUT, *STDERR) {
       my $flags = fcntl($fh, F_GETFL, 0) or next;
       fcntl($fh, F_SETFL, $flags & ~O_NONBLOCK) if $flags & O_NONBLOCK;
-    }'
+    }' || return 0
 }
 gate_blocking_output
 

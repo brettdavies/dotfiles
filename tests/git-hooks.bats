@@ -139,6 +139,16 @@ EOF
   [ "$(tail -n 1 "$out")" = "  ✓ big gate" ]
 }
 
+@test "a failing perl does not stop a hook from sourcing the gate library" {
+  local stubs="$BATS_TEST_TMPDIR/stubs"
+  mkdir -p "$stubs"
+  printf '#!/bin/sh\nexit 1\n' >"$stubs/perl"
+  chmod +x "$stubs/perl"
+  run env PATH="$stubs:$PATH" bash -c 'set -euo pipefail; . "$1/lib/report.sh"; echo sourced' _ "$HOOKS_DIR"
+  [ "$status" -eq 0 ]
+  [ "$output" = "sourced" ]
+}
+
 # ---------------------------------------------------------------------------
 # pre-commit: branch protection
 # ---------------------------------------------------------------------------
