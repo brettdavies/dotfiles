@@ -38,6 +38,8 @@ agent_slot_env() {
   AS_REX_CLIENTS=${AGENT_SLOT_REX_CLIENTS-bretts-air}
   AS_PUSH_TIMEOUT=${AGENT_SLOT_PUSH_TIMEOUT:-60}
   AS_PUSH_CONNECT_TIMEOUT=${AGENT_SLOT_PUSH_CONNECT_TIMEOUT:-5}
+  AS_RELEASE_WAIT=${AGENT_SLOT_RELEASE_WAIT:-3600}
+  AS_RELEASE_POLL=${AGENT_SLOT_RELEASE_POLL:-5}
 
   declare -gA AS_TOOL=() CONTRACT_TOOL_PATHS
   for tool in tmux claude gh git-crypt git flock timeout trash systemctl ssh; do

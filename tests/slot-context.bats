@@ -66,13 +66,16 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"--dangerously-skip-permissions"* ]]
 }
 
-@test "the context ends the agent's job at a finished task and leaves teardown to the operator" {
+@test "the context closes the task in order: PRs, ce-compound, ce-compound-refresh, release, report and stop" {
   slot repo 1 '{"task": "t"}'
   run start s1 startup
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"PRs are open, or merged if the brief says so"*"nothing is left unpushed"* ]]
-  [[ $context == *"report what you did and stop"* ]]
-  [[ $context == *"teardown happens from outside, when the operator runs sweep or finish"* ]]
+  [[ $context == *"PRs are open, or merged if the brief says so"*"nothing is left unpushed"*\
+"/compound-engineering:ce-compound mode:non-interactive depth:full"*"once per finding"*\
+"/compound-engineering:ce-compound-refresh"*"mode:non-interactive"*\
+"agent-slot release --output json"*\
+"report what you did and stop"* ]]
+  [[ $context != *"teardown happens from outside"* ]]
   [[ $context == *"need not run \`agent-slot check\` on this slot"*"checked-by-own-agent"* ]]
 }
 

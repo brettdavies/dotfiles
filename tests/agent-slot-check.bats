@@ -108,9 +108,24 @@ listed() {
     has_blocker checked-by-own-agent
     lacks_blocker agent-not-idle
     jaq -e --arg docs https://github.com/brettdavies/dotfiles/blob/main/README.md#teardown-blockers '.teardown == false
-      and (.blockers[] | select(.code == "checked-by-own-agent") | (.message | contains("sweep or finish"))
-        and .next_step == {action: "none", command: null, docs: $docs})' <<<"$VERDICT"
+      and (.blockers[] | select(.code == "checked-by-own-agent") | (.message | contains("agent-slot release"))
+        and .next_step == {action: "run", command: "agent-slot release --output json", docs: $docs})' <<<"$VERDICT"
   done
+}
+
+@test "a finished slot checked by its own agent leaves no needs-you in list, and its record's last_check unchanged" {
+  finished_task
+  jaq -c '.last_check = {at: "2026-01-01T00:00:00Z", finished: true, blockers: []}' "$SLOT/.git/agent-slot.json" \
+    >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  local before
+  before=$(jaq -c .last_check "$SLOT/.git/agent-slot.json")
+  check_as_agent repoa-1 "$SLOT" '[{pid: $pid, cwd: $slot, status: "busy"}]'
+  has_blocker checked-by-own-agent
+  jaq -e '.needs_you == []' <<<"$VERDICT"
+  [ "$(jaq -c .last_check "$SLOT/.git/agent-slot.json")" = "$before" ]
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  jaq -e '.slots[0].needs_you == []' <<<"$output"
 }
 
 @test "check run by another slot's busy agent reports this slot's busy agent as agent-not-idle" {

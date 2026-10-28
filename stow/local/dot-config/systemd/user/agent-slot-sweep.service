@@ -1,0 +1,12 @@
+[Unit]
+Description=Tear down agent slots whose task has finished and that their agent released
+ConditionHost=bigdaddy
+ConditionPathIsDirectory=%h/slots
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+# systemd stops whatever a oneshot unit leaves running, so the sweep waits for its pushes to the Rex clients.
+Environment=AGENT_SLOT_PUSH_WAIT=1
+ExecStart=%h/.local/bin/agent-slot sweep --yes --auto --output json
+NoNewPrivileges=true

@@ -26,6 +26,9 @@
 #   AGENT_SLOT_REX_CLIENT      the Rex client whose helper ran this verb, which the push skips; the helper sets it
 #   AGENT_SLOT_PUSH_CONNECT_TIMEOUT  seconds a push waits for a Mac's ssh to connect (5)
 #   AGENT_SLOT_PUSH_TIMEOUT    seconds one push may take in all (60)
+#   AGENT_SLOT_PUSH_WAIT       1 to wait for a verb's pushes before it exits, for a caller nothing waits on (0)
+#   AGENT_SLOT_RELEASE_WAIT    seconds a released slot's teardown waits for its agent to go idle (3600)
+#   AGENT_SLOT_RELEASE_POLL    seconds between that teardown's looks at the agent (5)
 #   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL, _SSH
 #                              absolute paths that replace the binaries found on the pinned PATH
 
@@ -74,8 +77,12 @@ source "$AS_LIB/homescan.sh"
 source "$AS_LIB/check.sh"
 # shellcheck source=lib/push.sh
 source "$AS_LIB/push.sh"
+# shellcheck source=lib/release.sh
+source "$AS_LIB/release.sh"
 # shellcheck source=lib/teardown.sh
 source "$AS_LIB/teardown.sh"
+# shellcheck source=lib/finish.sh
+source "$AS_LIB/finish.sh"
 # shellcheck source=lib/schema.sh
 source "$AS_LIB/schema.sh"
 # shellcheck source=lib/help.sh
@@ -171,21 +178,28 @@ main() {
       cmd_check
       ;;
     sweep)
-      SWEEP_YES=0
-      if ((${#args[@]} == 1)) && [[ ${args[0]} == --yes ]]; then
-        SWEEP_YES=1
-      elif ((${#args[@]} != 0)); then
-        usage_fail "sweep takes only --yes" "${args[*]}"
-      fi
+      SWEEP_YES=0 SWEEP_AUTO=0
+      case ${args[*]} in
+        '') ;;
+        --yes) SWEEP_YES=1 ;;
+        '--yes --auto' | '--auto --yes') SWEEP_YES=1 SWEEP_AUTO=1 ;;
+        *) usage_fail "sweep takes only --yes, and --auto with it" "${args[*]}" ;;
+      esac
       exec </dev/null
       cmd_sweep
       ;;
+    release)
+      ((${#args[@]} == 0)) || usage_fail "release takes no arguments; it releases the slot it runs in" "${args[0]}"
+      exec </dev/null
+      cmd_release
+      ;;
     finish)
       local key=''
-      FINISH_YES=0
+      FINISH_YES=0 FINISH_WHEN_IDLE=0
       for arg in "${args[@]}"; do
         case $arg in
           --yes) FINISH_YES=1 ;;
+          --when-idle) FINISH_WHEN_IDLE=1 ;;
           *)
             [[ -z $key ]] || usage_fail "finish takes one slot, <repo>/<N>" "$arg"
             key=$arg
@@ -193,6 +207,7 @@ main() {
         esac
       done
       [[ -n $key ]] || usage_fail "finish needs a slot, <repo>/<N>"
+      ((FINISH_WHEN_IDLE == 0 || FINISH_YES == 1)) || usage_fail "--when-idle goes with --yes" --when-idle
       exec </dev/null
       cmd_finish "$key"
       ;;

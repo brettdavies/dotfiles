@@ -13,7 +13,7 @@
 
 CHECK_CODES='pr-state-unknown pr-closed-unmerged git-state-unknown agent-not-idle checked-by-own-agent
 agent-state-unknown uncommitted-changes stash-present unpushed-commits commits-without-pr untracked-files
-local-only-files home-symlink-into-slot home-scan-incomplete slot-busy'
+local-only-files home-symlink-into-slot home-scan-incomplete slot-busy not-released'
 CHECK_DOCS=${CONTRACT_DOCS%#*}#teardown-blockers
 
 CHECK_SETUP_FILES='docs/solutions .claude/settings.local.json'
@@ -173,16 +173,17 @@ _check_stash() {
 
 # Usage: _check_agent <repo> <n>; blocks unless the slot's agent is idle or absent, from the agents agentstate_load read.
 # The slot's own agent is busy while it runs a check, so that check reports checked-by-own-agent, with a next_step
-# that leaves teardown to the operator. A waiting agent waits on the operator whoever runs the check.
+# pointing at release, which tears the slot down once that agent is idle. A waiting agent waits on the operator whoever
+# runs the check.
 _check_agent() {
   agentstate_of "$1" "$2"
   case $AGENT_STATE in
     busy | waiting)
       if [[ $AGENT_STATE == busy ]] && agentstate_inside_agent; then
         _check_block checked-by-own-agent "this check runs inside the slot's own agent, which stays busy until it \
-ends; teardown happens from outside, when the operator runs sweep or finish"
-        CHECK_BLOCKERS[-1]=$(contract_json -c --arg docs "$CHECK_DOCS" \
-          '. + {next_step: {action: "none", command: null, docs: $docs}}' <<<"${CHECK_BLOCKERS[-1]}")
+ends; run agent-slot release as your last step, and the slot is torn down once you are idle"
+        CHECK_BLOCKERS[-1]=$(contract_json -c --arg docs "$CHECK_DOCS" --arg cmd "$RELEASE_COMMAND" \
+          '. + {next_step: {action: "run", command: $cmd, docs: $docs}}' <<<"${CHECK_BLOCKERS[-1]}")
       else
         _check_block agent-not-idle "the agent is $AGENT_STATE"
       fi
@@ -309,14 +310,17 @@ check_slot() {
        finished_by: (if $finished | not then null elif $record.finished_by_operator then "operator" else "merge" end),
        blockers: $blockers,
        needs_you: (if $finished or any($blockers[]; .code == "pr-closed-unmerged" or .code == "pr-state-unknown")
-                   then $blockers else [] end),
+                   then [$blockers[] | select(.code != "checked-by-own-agent")] else [] end),
        teardown: ($finished and ($blockers | length) == 0)}')
 }
 
-# Records the PRs a verdict found and the needs-you list it produced, when the slot's lock is free.
+# Records the PRs a verdict found and the needs-you list it produced, when the slot's lock is free. A check run inside
+# the slot's own agent records nothing: it sees that agent mid-turn, which says nothing about the slot once the turn
+# ends, and its needs-you list would stand on the slot's tab until a check from outside replaced it.
 check_record() {
   local repo=$1 n=$2
   [[ $(contract_json -r .state <<<"$CHECK_VERDICT") == active ]] || return 0
+  ! contract_json -e 'any(.blockers[]; .code == "checked-by-own-agent")' <<<"$CHECK_VERDICT" >/dev/null || return 0
   record_update "$repo" "$n" --argjson v "$CHECK_VERDICT" --arg at "$(contract_now)" '
     .prs = ((.prs // []) + [$v.prs[].number] | unique)
     | .last_check = {at: $at, finished: $v.finished, blockers: $v.needs_you}' || true

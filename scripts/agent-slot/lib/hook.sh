@@ -18,7 +18,7 @@ HOOK_PANE_TTY=
 hook_init() {
   local lib
   HOOK_NAME=$1
-  for lib in env contract names record bounded read; do
+  for lib in env contract names record bounded read release; do
     # shellcheck source=/dev/null
     source "$2/lib/$lib.sh" || return 1
   done

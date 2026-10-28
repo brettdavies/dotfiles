@@ -273,11 +273,23 @@ A slot stays while its task is open, review rounds included, and is deleted only
 merged with none open, or the operator finished it) and nothing in it is missing from origin. Anything else keeps it on
 the *needs-you list*, shown on its tab and in the `agent-slots` control session.
 
+Teardown needs no one to press a key. A slot's agent closes its task by running `/compound-engineering:ce-compound`
+once per finding from its session, then `/compound-engineering:ce-compound-refresh`, then `agent-slot release`, which
+refuses until both skills have run in that slot. The release starts `agent-slot finish <repo>/<N> --yes --when-idle` in
+a session of its own, outside the slot, which waits for the agent to go idle and then runs the same fail-closed finish
+the operator does. A slot whose PR is still open stays released, and `agent-slot-sweep.timer` tears it down once the PR
+merges: every ten minutes it runs `agent-slot sweep --yes --auto`, which tears down only a slot its agent released or
+the operator finished. A finished slot that is neither keeps its clone, so its learnings are not lost: its idle agent is
+typed the closing steps once, and a slot whose agent is gone, or that still has not released after those steps, joins
+the needs-you list as `not-released`. The operator's own `agent-slot sweep --yes`, `agent-slot finish --yes`, and the
+finish key ignore the release: they tear down any finished slot that check passes.
+
 #### Setup
 
 1. Deploy both machines: `scripts/stow-deploy --headless --all` on the Linux server, then enable its prune timer with
-   `systemctl --user enable --now tmux-prune-orphans-slots.timer`; `scripts/stow-deploy --all` on the Mac, which also
-   reloads Rex's config (see BOOTSTRAP.md for moving a hand-written `~/.config/rex` aside first).
+   `systemctl --user enable --now tmux-prune-orphans-slots.timer` and its sweep timer with
+   `bash scripts/host-jobs-enable.sh`; `scripts/stow-deploy --all` on the Mac, which also reloads Rex's config (see
+   BOOTSTRAP.md for moving a hand-written `~/.config/rex` aside first).
 2. Run `agent-slot-rex doctor` on the Mac. It checks the Mac's side, then runs `agent-slot doctor` on the server, with
    every next step written to run through the ssh alias.
 3. Run `agent-slot warm <repo>` on the server for the repos you use, so a first launch there skips Claude's trust step.
@@ -341,8 +353,17 @@ state, agent, and blockers, and `agent-slot whoami` the slot a directory is in. 
 ID returns the same slot. `agent-slot resume <repo>/<N>` restarts a dormant slot's sessions and conversation,
 `agent-slot warm <repo>` trusts slot paths ahead of time, and `agent-slot check [<repo>/<N>]` gives the teardown
 verdict. `agent-slot sweep` and `agent-slot finish <repo>/<N>` delete slots, so both only report unless given `--yes`,
-and agents ask before running them. `agent-slot doctor` checks every prerequisite and the time from key press to Claude
-idle.
+and agents ask before running them. `agent-slot release`, run from inside a slot, hands that slot's teardown upstream;
+it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks every prerequisite and the time from key press
+to Claude idle.
+
+Every release request, every `finish --yes`, and every `sweep --yes` pass appends one JSON line to
+`~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore down, the
+ones it kept with their blocker codes, the agents it typed the closing steps to, and why a release or finish was
+refused. A release's own finish writes its output to `~/.local/state/agent-slot/logs/release-<repo>-<N>.log`. The
+sweep timer's schedule is `OnCalendar=*:0/10` in `agent-slot-sweep.timer`; change it with
+`systemctl --user edit agent-slot-sweep.timer`, an empty `OnCalendar=` line, and the new schedule. A release's finish waits up to `AGENT_SLOT_RELEASE_WAIT` seconds (3600)
+for the agent, looking every `AGENT_SLOT_RELEASE_POLL` seconds (5).
 
 On the Mac, the keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`; each pane runs
 `agent-slot-rex attach <repo>/<N> claude|files|git`, the control session's tab runs `agent-slot-rex sweep`, Rex runs
@@ -400,13 +421,16 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `rex-action-unregistered`     | 78   | Rex has not loaded the agent-slot actions; deploy the `rex` package or run `rex config reload` |
 | `rex-failed`                  | 1    | A `rex` command failed; retry                                                                  |
 | `reconcile-busy`              | 1    | Another restore, sweep, or finish on the Mac held the tab lock too long; retry                 |
+| `compound-not-run`            | 1    | `release` refused: the slot's session has not run `ce-compound` and `ce-compound-refresh` yet  |
+| `sweep-timer-inactive`        | 78   | The automatic sweep timer is not enabled; `bash scripts/host-jobs-enable.sh`                   |
 
 #### Teardown blockers
 
 `agent-slot check` names what keeps a finished slot with one of these codes, a count or the offending paths, and a
 message such as `1 unpushed commit`. A blocker can also carry a `next_step` in the error object's shape:
-`checked-by-own-agent` does, with no command, because teardown happens from outside the slot, when the operator runs
-`agent-slot sweep` or `agent-slot finish`.
+`checked-by-own-agent` does, pointing at `agent-slot release`, which tears the slot down from outside once its agent is
+idle. That blocker never joins the needs-you list, and a check run inside the slot's own agent leaves the slot's record
+as it found it.
 
 | Code                     | What keeps the slot                                                                      |
 | ------------------------ | ---------------------------------------------------------------------------------------- |
@@ -425,6 +449,7 @@ message such as `1 unpushed commit`. A blocker can also carry a `next_step` in t
 | `home-symlink-into-slot` | A symlink under the home directory resolves into the slot                                |
 | `home-scan-incomplete`   | The scan for such symlinks did not finish                                                |
 | `slot-busy`              | Another `agent-slot` process holds the slot                                              |
+| `not-released`           | The automatic sweep found the task finished, but its agent is gone or never released it  |
 
 ### System-Level Units (`config/systemd/system/`)
 

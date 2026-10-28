@@ -60,7 +60,7 @@ context_record() {
 # through --arg, never as part of its program, so an apostrophe or a backtick in one prints as written.
 # shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
 context_text() {
-  local task base prime rules
+  local task base prime rules closing rules_after
   task=$(contract_json -r '.task // ""' <<<"$RECORD")
   base=$(contract_json -r '.base // "the default branch"' <<<"$RECORD")
   prime=$(contract_json -r '.prime // "for this repo"' <<<"$RECORD")
@@ -74,8 +74,22 @@ To hand a task to another agent, run `agent-slot launch <repo> --request-id <id>
 A slot you launch is independent: hand off the brief, report its key, and don't wait on it or watch it.
 Launching a slot is not a delegated wait: set no watchdog or watcher on it; watch your own PRs and CI to the end.
 Claude runs here with `--dangerously-skip-permissions`; ask rules, deny rules, and hooks still stop tool calls.
-Your task is finished when its PRs are open, or merged if the brief says so, and nothing is left unpushed.
-Then report what you did and stop; teardown happens from outside, when the operator runs sweep or finish.
+EOF
+  )
+  closing=$(
+    printf '%s\n' \
+      "Your task is finished when its PRs are open, or merged if the brief says so, and nothing is left unpushed." \
+      "Then close it out, in this order:" \
+      "1. Run \`$RELEASE_COMPOUND\` once per finding from this session, one full run each, and once even when \
+none qualifies." \
+      "2. Run \`$RELEASE_REFRESH\` across every refresh opportunity those runs surfaced, or scoped to the area you \
+touched." \
+      "3. Run \`$RELEASE_COMMAND\`; it refuses until both skills have run, and tears the slot down once you are idle \
+and its task has finished." \
+      "4. Then report what you did and stop."
+  )
+  rules_after=$(
+    cat <<'EOF'
 You need not run `agent-slot check` on this slot; you are busy running it, so it reports `checked-by-own-agent`.
 `agent-slot sweep` and `agent-slot finish` delete slots: ask the operator before running either with `--yes`.
 In a review round, re-check the state of the PR before stacking new commits on it.
@@ -87,7 +101,8 @@ EOF
     printf '%s\n' "You are working in agent slot $(slot_key "$1" "$2"), a full clone at $(slot_path "$1" "$2")."
     if [[ -n $task ]]; then printf 'Task: %s.\n' "$task"; else printf '%s\n' 'This slot was given no task name.'; fi
     printf '%s\n' "The base branch is $base." \
-      "The prime checkout $prime is read-only for you; make every change in this slot." "$rules"
+      "The prime checkout $prime is read-only for you; make every change in this slot." "$rules" "$closing" \
+      "$rules_after"
   )" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $text}}'
 }
 
