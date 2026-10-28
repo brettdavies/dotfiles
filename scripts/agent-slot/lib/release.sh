@@ -20,13 +20,15 @@ RELEASE_COMPOUND='/compound-engineering:ce-compound mode:non-interactive depth:f
 RELEASE_REFRESH='/compound-engineering:ce-compound-refresh <scope> mode:non-interactive'
 RELEASE_COMMAND='agent-slot release --output json'
 RELEASE_NOT_YET="agent-slot release --not-yet '<why>' --output json"
+RELEASE_CLEANUP="delete the scratch files you made (local config, test output, tool logs), and commit and PR anything \
+that is real work"
 RELEASE_WAITING="If you are still waiting on something, such as CI or a release chain, never stop it to pass release's \
 check: say what with $RELEASE_NOT_YET, and release when it is done."
 # One line, since tmux types it into the agent's prompt and an Enter submits it.
 RELEASE_CLOSING="Your task has finished, so close it out now, in this order: run $RELEASE_COMPOUND once per finding \
 from this session, and once even when none qualifies; then run $RELEASE_REFRESH across every refresh opportunity those \
-runs surfaced, or scoped to the area you touched; then stop every background job you no longer need; then run \
-$RELEASE_COMMAND; then report what you did and stop. $RELEASE_WAITING"
+runs surfaced, or scoped to the area you touched; then $RELEASE_CLEANUP; then stop every background job you no \
+longer need; then run $RELEASE_COMMAND; then report what you did and stop. $RELEASE_WAITING"
 RELEASE_FOUND=()
 RELEASE_MISSING=()
 RELEASE_PID=

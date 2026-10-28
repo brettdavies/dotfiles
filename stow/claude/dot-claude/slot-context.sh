@@ -96,10 +96,11 @@ brief names no such session, leave the decision open in the plan and in your rep
 none qualifies." \
       "2. Run \`$RELEASE_REFRESH\` across every refresh opportunity those runs surfaced, or scoped to the area you \
 touched." \
-      "3. Stop every background job you no longer need. $RELEASE_WAITING" \
-      "4. Run \`$RELEASE_COMMAND\`; it refuses until both skills have run and while a background job of yours still \
+      "3. Before you release, $RELEASE_CLEANUP." \
+      "4. Stop every background job you no longer need. $RELEASE_WAITING" \
+      "5. Run \`$RELEASE_COMMAND\`; it refuses until both skills have run and while a background job of yours still \
 runs, and tears the slot down once you are idle and its task has finished." \
-      "5. Then report what you did and stop."
+      "6. Then report what you did and stop."
   )
   rules_after=$(
     cat <<'EOF'

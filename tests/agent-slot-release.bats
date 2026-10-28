@@ -119,6 +119,8 @@ eventually() {
   return 1
 }
 gone() { [ ! -e "$SLOT" ]; }
+# runner_done: true once the teardown a release started has exited and let go of the slot's lock.
+runner_done() { ! kill -0 "$(record '.release.runner_pid')" 2>/dev/null; }
 logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
 
 # --- the gate ----------------------------------------------------------------------------------------------------------
@@ -288,6 +290,67 @@ logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
   [ "$(record '.not_yet')" = null ]
 }
 
+# --- files left in a finished slot -------------------------------------------------------------------------------------
+
+@test "a finished slot kept only by a leftover scratch file gets its idle agent a cleanup reminder, not a listing" {
+  finished_task
+  echo 'API_TOKEN=x' >"$SLOT/.dev.vars.staging"
+  agent busy
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.needs_you == [] and .cleanup_sent == []' <<<"$output"
+  agent_status idle
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.needs_you == [] and .cleanup_sent == ["repoa/1"] and .closing_sent == [] and .torn_down == []' <<<"$output"
+  grep -qF "its teardown is held by what is left in it: .dev.vars.staging. Delete each one that is scratch" \
+    "$STUBS/typed-repoa-1"
+  grep -qF "commit and PR each one that is real work; then close out and release as your closing steps say." \
+    "$STUBS/typed-repoa-1"
+  grep -qF "say why with agent-slot release --not-yet '<why>' --output json" "$STUBS/typed-repoa-1"
+  [ "$(record '.cleanup_sent_at | test("^[0-9]{4}-")')" = true ]
+  logged 'any(.[]; .event == "sweep" and .cleanup_sent == [{key: "repoa/1", files: [".dev.vars.staging"]}])'
+  : >"$STUBS/typed-repoa-1"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.cleanup_sent == [] and .needs_you[0].needs_you[0].code == "untracked-files"' <<<"$output"
+  [ ! -s "$STUBS/typed-repoa-1" ]
+  [ -d "$SLOT" ]
+}
+
+@test "a released slot kept by leftover files is torn down by the automatic sweep once its agent cleans up" {
+  finished_task
+  mkdir -p "$SLOT/.context/handoffs"
+  echo next >"$SLOT/.context/handoffs/x.md"
+  ran ce-compound ce-compound-refresh
+  agent idle
+  release
+  [ "$status" -eq 0 ]
+  eventually logged 'any(.[]; .event == "finish" and .by == "release" and .result == "refused")'
+  eventually runner_done
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.needs_you == [] and .cleanup_sent == ["repoa/1"]' <<<"$output"
+  grep -qF ".context/handoffs/x.md" "$STUBS/typed-repoa-1"
+  find "$SLOT/.context" -delete
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  gone
+}
+
+@test "a finished slot kept by files and something else is listed as before" {
+  finished_task
+  echo scratch >"$SLOT/notes.txt"
+  git -C "$SLOT" commit -q --allow-empty -m 'not pushed'
+  agent idle
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.cleanup_sent == [] and ([.needs_you[0].needs_you[].code] | sort) == ["unpushed-commits", "untracked-files"]' \
+    <<<"$output"
+  [ ! -s "$STUBS/typed-repoa-1" ]
+}
+
 # --- the release and its teardown--------------------------------------------------------------------------------------
 
 @test "release records the request and starts the teardown in its own session, outside the slot" {
@@ -333,6 +396,7 @@ logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
   [ "$status" -eq 0 ]
   eventually logged 'any(.[]; .event == "finish" and .by == "release" and .result == "refused"
     and .reason == "task-has-open-pr")'
+  eventually runner_done
   [ -d "$SLOT" ]
   [ "$(record '.release != null')" = true ]
   jaq -c 'map(.state = "MERGED")' "$STUBS/gh-prs.json" >"$T/prs" && mv "$T/prs" "$STUBS/gh-prs.json"
@@ -353,6 +417,7 @@ logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
   [ "$status" -eq 0 ]
   eventually logged 'any(.[]; .event == "finish" and .by == "release" and .result == "refused"
     and .reason == "teardown-blocked")'
+  eventually runner_done
   run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
   [ "$status" -eq 0 ]
   jaq -e '.torn_down == [] and (.needs_you[0].needs_you[0].code == "unpushed-commits")' <<<"$output"
@@ -371,7 +436,8 @@ logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
   grep -q '/compound-engineering:ce-compound mode:non-interactive depth:full' "$STUBS/typed-repoa-1"
   grep -q '/compound-engineering:ce-compound-refresh .* mode:non-interactive' "$STUBS/typed-repoa-1"
   grep -q 'agent-slot release --output json' "$STUBS/typed-repoa-1"
-  grep -qF 'then stop every background job you no longer need; then run agent-slot release' "$STUBS/typed-repoa-1"
+  grep -qF "then delete the scratch files you made (local config, test output, tool logs), and commit and PR anything that \
+is real work; then stop every background job you no longer need; then run agent-slot release" "$STUBS/typed-repoa-1"
   grep -qF "If you are still waiting on something, such as CI or a release chain, never stop it to pass release's \
 check: say what with agent-slot release --not-yet '<why>' --output json, and release when it is done." \
     "$STUBS/typed-repoa-1"

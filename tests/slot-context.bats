@@ -73,6 +73,8 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"PRs are open, or merged if the brief says so"*"nothing is left unpushed"*\
 "/compound-engineering:ce-compound mode:non-interactive depth:full"*"once per finding"*\
 "/compound-engineering:ce-compound-refresh"*"mode:non-interactive"*\
+"Before you release, delete the scratch files you made (local config, test output, tool logs), and commit and PR \
+anything that is real work."*\
 "Stop every background job you no longer need."*\
 "If you are still waiting on something, such as CI or a release chain, never stop it to pass release's check: say \
 what with agent-slot release --not-yet '<why>' --output json, and release when it is done."*\
