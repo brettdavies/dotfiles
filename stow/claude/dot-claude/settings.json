@@ -765,6 +765,7 @@
   "awaySummaryEnabled": false,
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
+  "crossSessionInbound": "accept",
   "agentPushNotifEnabled": true,
   "autoContinueAtUsageLimit": false
 }
