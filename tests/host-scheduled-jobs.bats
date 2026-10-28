@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # The Linux server's scheduled jobs: the vault agent-workspace sync and its health check, the OpenClaw settings backup,
-# the GitHub stars sync, and the daily brew and uv tool upgrades. They run as systemd user timers shipped in shared
+# the GitHub stars sync, the daily brew and uv tool upgrades, and the automatic agent slot sweep. They run as systemd user timers shipped in shared
 # stow packages, so every unit carries ConditionHost=bigdaddy: stow-deploy restarts every timer a package ships on
 # each Linux deploy, and `restart` starts a timer whether or not it was enabled. scripts/host-jobs-enable.sh enables
 # them on that host and retires the crontab lines they replace.
@@ -21,6 +21,7 @@ HOST_JOBS=(
   "$LOCAL_UNITS/github-stars-clone"
   "$LOCAL_UNITS/brew-upgrade"
   "$LOCAL_UNITS/uv-tools-upgrade"
+  "$LOCAL_UNITS/agent-slot-sweep"
 )
 
 setup() {

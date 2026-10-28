@@ -72,6 +72,13 @@ ledger_line() {
   jaq -e '.findings[0].reason == "prune-timer-inactive"' <<<"$output"
 }
 
+@test "an inactive sweep timer is reported, with the command that enables it" {
+  stub systemctl '[ "$3" = agent-slot-sweep.timer ] && { echo disabled; exit 1; }; echo enabled'
+  run --separate-stderr "$AGENT_SLOT" doctor --output json
+  jaq -e '[.findings[].reason] == ["sweep-timer-inactive"]
+    and .findings[0].next_step.command == "systemctl --user enable --now agent-slot-sweep.timer"' <<<"$output"
+}
+
 @test "settings that never accepted bypass permissions mode are a warning naming the claude package deploy" {
   local settings
   for settings in '{}' '{"skipDangerousModePermissionPrompt": false}' ''; do

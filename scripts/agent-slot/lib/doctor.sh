@@ -64,6 +64,12 @@ doctor_check_config() {
     doctor_finding error prune-timer-inactive "the slot server's orphan-client prune timer is not enabled" \
       --value tmux-prune-orphans-slots.timer --command "systemctl --user enable --now tmux-prune-orphans-slots.timer"
   fi
+  if [[ -n $AS_SYSTEMCTL ]] \
+    && [[ $("$AS_SYSTEMCTL" --user is-enabled agent-slot-sweep.timer 2>/dev/null) != enabled ]]; then
+    doctor_finding error sweep-timer-inactive "the automatic sweep timer is not enabled, so a released slot whose task \
+finishes later is never torn down" --value agent-slot-sweep.timer \
+      --command "systemctl --user enable --now agent-slot-sweep.timer"
+  fi
 }
 
 doctor_check_trust() {

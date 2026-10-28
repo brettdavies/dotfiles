@@ -14,6 +14,7 @@ Verbs:
   check    judge whether each slot can be torn down, and list what blocks it
   sweep    tear down every slot whose task has finished and that check passes (reports only, without --yes)
   finish   mark a task with no open PR finished and tear its slot down if check passes (reports only, without --yes)
+  release  hand this slot'"'"'s teardown upstream once its agent has run the closing skills; run from inside the slot
   doctor   check every launch prerequisite and summarize launch times
   schema   print the JSON Schema of the objects agent-slot prints, and every error reason
 
@@ -21,7 +22,7 @@ Every verb takes --output json (one JSON object on stdout, or an error object on
 Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.
 Reasons and their fixes: https://github.com/brettdavies/dotfiles/blob/main/README.md#agent-slot-reasons'
 
-VERBS=' repos list whoami launch resume warm check sweep finish doctor schema '
+VERBS=' repos list whoami launch resume warm check sweep finish release doctor schema '
 
 verb_help() {
   case $1 in
@@ -64,18 +65,33 @@ verb_help() {
       'returns: slots[] of {key, repo, slot, path, state, task, branch, prs, finished, finished_by, blockers,' \
       '         needs_you, teardown}' \
       'example: agent-slot check dotfiles/2 --output json' ;;
-    sweep) printf '%s\n' 'usage: agent-slot sweep [--yes] [--output json]' \
+    sweep) printf '%s\n' 'usage: agent-slot sweep [--yes [--auto]] [--output json]' \
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \
       'reports what it would delete. Agents ask the operator first. A teardown pushes a restore to each Rex client,' \
-      "which closes the slot's tab." \
-      'returns: dry_run, torn_down[], would_tear_down[], needs_you[] of {key, needs_you}, slots[] (each with result)' \
+      "which closes the slot's tab. --auto, which agent-slot-sweep.timer runs, tears down only a slot its agent" \
+      'released or the operator finished: a finished slot that is neither is kept, its idle agent is typed the' \
+      'closing steps once, and a slot whose agent is gone or never releases joins the needs-you list as' \
+      "not-released. Each --yes pass appends a line to $AS_STATE_DIR/teardown.log." \
+      'returns: dry_run, torn_down[], would_tear_down[], closing_sent[], needs_you[] of {key, needs_you}, slots[]' \
+      '         (each with result)' \
       'example: agent-slot sweep --output json' ;;
-    finish) printf '%s\n' 'usage: agent-slot finish <repo>/<N> [--yes] [--output json]' \
+    finish) printf '%s\n' 'usage: agent-slot finish <repo>/<N> [--yes [--when-idle]] [--output json]' \
       "Marks a task with no open PR finished and tears its slot down when check passes; it refuses a task with an" \
       'open PR. Without --yes it only reports. Agents ask the operator first. A teardown pushes a restore to each' \
-      "Rex client, which closes the slot's tab." \
+      "Rex client, which closes the slot's tab. --when-idle, which release starts, first waits up to" \
+      "$AS_RELEASE_WAIT s for the slot's agent to go idle. Each --yes run appends its outcome to" \
+      "$AS_STATE_DIR/teardown.log." \
       'returns: key, then dry_run, would_tear_down, verdict without --yes, or torn_down with it' \
       'example: agent-slot finish dotfiles/2 --yes' ;;
+    release) printf '%s\n' 'usage: agent-slot release [--output json]' \
+      "A slot's agent runs it as its last step, from inside the slot. It refuses with compound-not-run until this" \
+      "slot's Claude session has run both /compound-engineering:ce-compound and" \
+      '/compound-engineering:ce-compound-refresh, then records the request and starts finish --yes --when-idle in a' \
+      'session of its own, outside the slot, which tears the slot down once the agent is idle and check passes. A' \
+      'slot whose task has not finished stays requested until the automatic sweep tears it down. It deletes nothing' \
+      'itself, so it needs no ask.' \
+      'returns: key, requested_at, runner_pid, skills[], already_requested' \
+      'example: agent-slot release --output json' ;;
     doctor) printf '%s\n' 'usage: agent-slot doctor [--output json]' \
       'Checks every launch prerequisite on this server and the time from key press to Claude idle.' \
       'returns: ok, findings[] (error objects with severity), launch_times, verified_versions' \

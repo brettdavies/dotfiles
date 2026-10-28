@@ -92,11 +92,19 @@ Finally, nothing tells the operator which agent needs attention without visiting
 - **One Rex session per repo, one tab per agent.** (session-settled: user-directed — chosen over a session per agent and
   over one shared agents session: it keeps the one-session-per-repo habit, and tab indicators show which agent needs the
   operator.) Governs R11.
-- **Teardown when a task finishes, swept after each launch or run by a finish key.** (session-settled: user-directed —
-  chosen over an automatic watcher and over explicit-only teardown: nothing vanishes while the operator looks at it, and
-  nothing depends on remembering. The sweep runs after the launch, in the control session: user-approved — chosen over
-  sweeping before the launch, which put every repo's fetch and `gh` call in front of a ready agent.) Governs R16, R17,
-  R20, R23.
+- **Teardown when a task finishes, released by its agent and swept on a timer.** A slot's agent ends its task by
+  running `ce-compound` once per finding and then `ce-compound-refresh`, then `agent-slot release`, which refuses until
+  both skills have run in that slot. The release starts the fail-closed `finish --yes` in a session of its own, outside
+  the slot, once the agent is idle; a slot whose PR is still open stays released. A server timer runs
+  `sweep --yes --auto` every ten minutes, which tears down only a slot its agent released or the operator finished, and
+  types a finished, unreleased slot's idle agent its closing steps instead. The sweep after each launch, the operator's
+  `sweep` and `finish`, and the finish key stay as the operator's steering and override. (user-directed — the system
+  works on its own, with nothing waiting on the operator, and no slot's learnings are lost before its clone goes;
+  chosen over a sweep that runs only after a launch or from a finish key. The sweep after the launch runs in the control
+  session: session-settled, user-approved — chosen over sweeping before the launch, which put every repo's fetch and
+  `gh` call in front of a ready agent.) `release` deletes nothing itself and needs no ask rule; the finish it starts
+  runs outside Claude, so the ask rules for `sweep` and `finish` still govern only an agent that runs those verbs
+  itself. Governs R16, R17, R20, R23.
 - **A launch never blocks the operator.** The key opens a background tab in the repo's Rex session that runs the launch
   and becomes the agent's tab; the repo comes from the session's name, and no task name is asked. (session-settled:
   user-approved — chosen over a focused helper in the control session that asked for the repo and a task name and waited
@@ -197,8 +205,9 @@ Finally, nothing tells the operator which agent needs attention without visiting
   - no untracked or ignored file exists other than recognized build and dependency output and the files the slot command
     placed at setup (the `docs/solutions` symlink and the local permission grants);
   - no symlink under the home directory resolves into the slot.
-- R17. Teardown runs as a sweep right after every launch, and on demand from a finish key on the current tab; the finish
-  key refuses a task with an open PR.
+- R17. Teardown runs when the slot's agent releases the slot, on a server timer that sweeps released slots, as a sweep
+  right after every launch, and on demand from a finish key on the current tab; the finish key refuses a task with an
+  open PR (user-directed).
 - R18. A slot that fails any R16 check is never deleted. It appears on a "needs you" list that names the slot and what
   blocks it, shown in a control-session tab that stays open while the list is non-empty, and its own tab label carries
   its first blocker.
@@ -221,8 +230,8 @@ stateDiagram-v2
   Active --> Active: review rounds continue in the same session (R20)
   Active --> Finished: no PR open and one merged, or finish key on a task with no PR (R23)
   Active --> NeedsYou: PR closed without merging (R23)
-  Finished --> TornDown: sweep or finish key, all R16 checks pass
-  Finished --> NeedsYou: any R16 check fails (R18)
+  Finished --> TornDown: release, timer sweep, sweep, or finish key, all R16 checks pass
+  Finished --> NeedsYou: any R16 check fails (R18), or the timer sweep finds it unreleased with no agent to release it
   NeedsYou --> TornDown: operator resolves the blocker or presses the finish key (R23), checks pass
   TornDown --> [*]: slot path empty, reusable by R2
 ```
@@ -258,8 +267,8 @@ stateDiagram-v2
   - **Outcome:** The agent addresses the review in the same slot and conversation.
   - **Covers:** R5, R20
 - F4. Finish a task
-  - **Trigger:** The task finishes (R23), or its PR closes without merging; the next launch's sweep or the finish key
-    runs.
+  - **Trigger:** The task finishes (R23), or its PR closes without merging; the agent releases the slot, or the timer's
+    sweep, the next launch's sweep, or the finish key runs.
   - **Steps:** The slot command checks R23 and R16. If every check passes, it ends the agent and tmux session, and the
     Rex layer closes the tab before the clone moves to the trash. Otherwise the slot stays and appears on the "needs
     you" list.
@@ -330,7 +339,7 @@ stateDiagram-v2
 **Outside this work**
 
 - Worktrees in any form, including Claude's `--worktree` with clone-making `WorktreeCreate` hooks.
-- An automatic background teardown watcher, and asking before teardown with snooze state.
+- Asking before teardown with snooze state.
 - mosh, and running agents on the Mac.
 - Pinning Claude's project directory with `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PROJECT_DIR_NAME`.
 - Writing trust, or anything else, into Claude's app-state file.
@@ -569,6 +578,8 @@ slots, and a doctor on each machine.
   - the slot, task, base branch, and prime checkout (read-only for the agent);
   - that `docs/solutions` is shared and commits to it go through `sd-commit-doc`;
   - that `agent-slot check` lists what blocks teardown;
+  - the closing sequence, in order: PRs open (or merged when the brief says so) with nothing unpushed, then
+    `ce-compound` once per finding, then `ce-compound-refresh`, then `agent-slot release`, then report and stop;
   - that review rounds should re-check PR state before stacking commits;
   - that the agent should stage with `git add`, then run a plain `git commit`, rather than `commit -a`;
   - that the agent should create no worktrees inside the slot.

@@ -108,8 +108,8 @@ listed() {
     has_blocker checked-by-own-agent
     lacks_blocker agent-not-idle
     jaq -e --arg docs https://github.com/brettdavies/dotfiles/blob/main/README.md#teardown-blockers '.teardown == false
-      and (.blockers[] | select(.code == "checked-by-own-agent") | (.message | contains("sweep or finish"))
-        and .next_step == {action: "none", command: null, docs: $docs})' <<<"$VERDICT"
+      and (.blockers[] | select(.code == "checked-by-own-agent") | (.message | contains("agent-slot release"))
+        and .next_step == {action: "run", command: "agent-slot release --output json", docs: $docs})' <<<"$VERDICT"
   done
 }
 

@@ -1,5 +1,6 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
-# sweep and finish: deleting only the slots check passes. Both report what they would do unless given --yes.
+# Tearing down a slot, and sweep: deleting only the slots check passes. sweep, like finish in finish.sh, reports what it
+# would do unless given --yes.
 #
 # A teardown runs under the slot's lock, in order: mark the slot tearing-down, read the agent's state again, stop the
 # agent, check the tree again, kill its three tmux sessions, move the clone to the trash, and append the ledger. A
@@ -99,7 +100,7 @@ slot_teardown() {
 }
 
 # Usage: _teardown_one <repo> <n> <yes>; checks one slot and, with yes, tears it down. Sets TEARDOWN_RESULT to one of
-# torn-down, would-tear-down, kept, or busy, with the verdict in CHECK_VERDICT.
+# torn-down, would-tear-down, kept, busy, or, for the automatic sweep, closing-sent, with the verdict in CHECK_VERDICT.
 TEARDOWN_RESULT=
 _teardown_one() {
   local repo=$1 n=$2 yes=$3
@@ -112,9 +113,12 @@ _teardown_one() {
   fi
   teardown_recover "$repo" "$n"
   check_slot "$repo" "$n"
+  RELEASE_AUTO=
+  [[ ${SWEEP_AUTO:-0} != 1 ]] || release_auto_gate "$repo" "$n"
   check_record "$repo" "$n"
   if [[ $(contract_json -r .teardown <<<"$CHECK_VERDICT") != true ]]; then
     TEARDOWN_RESULT=kept
+    [[ $RELEASE_AUTO != closing-sent ]] || TEARDOWN_RESULT=closing-sent
   elif [[ $yes != 1 ]]; then
     TEARDOWN_RESULT=would-tear-down
   elif slot_teardown "$repo" "$n"; then
@@ -128,7 +132,8 @@ _teardown_one() {
 }
 
 cmd_sweep() {
-  local repo n results=() removed=()
+  local repo n results=() removed=() start out
+  start=$(contract_ms)
   require_tools tmux claude gh trash
   contract_on_exit _teardown_disarm_on_exit
   check_inputs_load
@@ -142,62 +147,33 @@ cmd_sweep() {
     done < <(slot_numbers "$repo")
   done < <(slot_repos)
   ((${#removed[@]} == 0)) || push_clients sweep "${removed[@]}"
-  contract_ok "$(printf '%s\n' "${results[@]}" | contract_json -s -c --argjson yes "${SWEEP_YES:-0}" '
+  out=$(printf '%s\n' "${results[@]}" | contract_json -s -c --argjson yes "${SWEEP_YES:-0}" '
     map(select(. != null)) as $r
     | {dry_run: ($yes != 1),
        torn_down: [$r[] | select(.result == "torn-down") | .key],
        would_tear_down: [$r[] | select(.result == "would-tear-down") | .key],
+       closing_sent: [$r[] | select(.result == "closing-sent") | .key],
        needs_you: [$r[] | select(.needs_you != []) | {key, needs_you}],
-       slots: $r}')" '
+       slots: $r}')
+  [[ ${SWEEP_YES:-0} != 1 ]] || teardown_log sweep "$(contract_json -c --arg by "$(_teardown_by)" \
+    --argjson ms "$(($(contract_ms) - start))" '{by: $by, ms: $ms, torn_down, closing_sent,
+      kept: [.slots[] | select(.result == "kept" or .result == "busy") | {key, blockers: [.blockers[].code]}]}' \
+    <<<"$out")"
+  contract_ok "$out" '
     (.torn_down[] | "torn down\t\(.)"), (.would_tear_down[] | "would tear down\t\(.)"),
+    (.closing_sent[] | "sent the closing steps\t\(.)"),
     (.needs_you[] | "needs you\t\(.key)\t\(.needs_you | map(.message) | join("; "))"),
-    (if (.torn_down + .would_tear_down + .needs_you | length) == 0 then "nothing to tear down" else empty end)'
+    (if (.torn_down + .would_tear_down + .closing_sent + .needs_you | length) == 0 then "nothing to tear down"
+     else empty end)'
 }
 
-cmd_finish() {
-  local key=$1 repo n retry
-  slot_parse_key "$key"
-  repo=$SLOT_REPO n=$SLOT_N
-  retry="agent-slot finish $key"
-  [[ ${FINISH_YES:-0} != 1 ]] || retry+=" --yes"
-  require_tools tmux claude gh trash
-  contract_on_exit _teardown_disarm_on_exit
-  slot_taken "$repo" "$n" || contract_fail slot-not-found "$key holds no slot" --value "$key" --command "agent-slot list"
-  check_inputs_load
-  record_lock_slot "$repo" "$n" --nowait \
-    || contract_fail slot-busy "another agent-slot process holds $key" --value "$key" --command "$retry"
-  teardown_recover "$repo" "$n"
-  check_slot "$repo" "$n"
-  if contract_json -e 'any(.blockers[]; .code == "pr-state-unknown")' <<<"$CHECK_VERDICT" >/dev/null; then
-    contract_fail pr-state-unknown "gh could not read the PRs of $key, so an open one cannot be ruled out" \
-      --value "$key" --command "$retry"
+# What ran a sweep or finish, for teardown.log: the timer's automatic sweep, a release's finish, or the operator.
+_teardown_by() {
+  if [[ ${SWEEP_AUTO:-0} == 1 ]]; then
+    echo timer
+  elif [[ ${FINISH_WHEN_IDLE:-0} == 1 ]]; then
+    echo release
+  else
+    echo operator
   fi
-  if contract_json -e 'any(.prs[]; .state == "OPEN")' <<<"$CHECK_VERDICT" >/dev/null; then
-    contract_fail task-has-open-pr "$key has an open PR: $(contract_json -r '[.prs[] | select(.state == "OPEN")
-      | "#\(.number)"] | join(", ")' <<<"$CHECK_VERDICT"); merge or close it first" \
-      --value "$(contract_json -r '[.prs[] | select(.state == "OPEN") | .url] | join(" ")' <<<"$CHECK_VERDICT")"
-  fi
-  if [[ ${FINISH_YES:-0} != 1 ]]; then
-    record_unlock_slot "$repo" "$n"
-    contract_ok "$(contract_json -c '{key, dry_run: true, would_tear_down: ((.blockers
-      | map(select(.code != "pr-closed-unmerged")) | length) == 0), verdict: .}' <<<"$CHECK_VERDICT")" '
-      if .would_tear_down then "\(.key): finish --yes would tear it down"
-      else "\(.key): finish --yes would mark it finished, then keep it for: \(.verdict.blockers
-        | map(select(.code != "pr-closed-unmerged")) | map(.message) | join("; "))" end'
-    return
-  fi
-  record_update "$repo" "$n" '.finished_by_operator = true'
-  check_slot "$repo" "$n"
-  check_record "$repo" "$n"
-  if [[ $(contract_json -r .teardown <<<"$CHECK_VERDICT") != true ]]; then
-    contract_fail teardown-blocked "$key is finished but kept: $(contract_json -r '.blockers | map(.message)
-      | join("; ")' <<<"$CHECK_VERDICT")" --value "$key" --command "agent-slot check $key"
-  fi
-  if ! slot_teardown "$repo" "$n"; then
-    contract_fail teardown-blocked "$key changed before it could be deleted, so it was kept: $(contract_json -r \
-      'map(.message) | join("; ")' <<<"$TEARDOWN_BLOCKERS")" --value "$key" --command "agent-slot check $key"
-  fi
-  record_unlock_slot "$repo" "$n"
-  push_clients finish "$key"
-  contract_ok "$(contract_json -n -c --arg key "$key" '{key: $key, torn_down: true}')" '"\(.key): torn down"'
 }

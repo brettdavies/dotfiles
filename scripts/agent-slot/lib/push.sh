@@ -14,10 +14,15 @@
 #   unreachable     ssh did not reach the Mac (exit 255)
 #   timed-out       the push outlived AGENT_SLOT_PUSH_TIMEOUT seconds
 #   skipped         the Mac's own helper ran the verb
+#
+# A verb nothing waits on, such as the timer's sweep or a release's finish, sets AGENT_SLOT_PUSH_WAIT=1 and waits for
+# its pushes before it exits, since systemd ends whatever a oneshot unit leaves running.
 
 # The Mac's shell expands the tilde.
 # shellcheck disable=SC2088
 PUSH_REMOTE='~/.local/bin/agent-slot-rex restore --by push --output json'
+
+PUSH_PIDS=()
 
 # Usage: push_clients <verb> <key...>
 push_clients() {
@@ -30,7 +35,13 @@ push_clients() {
       continue
     fi
     _push_one "$verb" "$client" "$@" </dev/null >/dev/null 2>&1 &
+    PUSH_PIDS+=("$!")
   done
+  [[ ${AGENT_SLOT_PUSH_WAIT:-0} != 1 ]] || contract_on_exit push_wait
+}
+
+push_wait() {
+  ((${#PUSH_PIDS[@]} == 0)) || wait "${PUSH_PIDS[@]}" 2>/dev/null || true
 }
 
 # Usage: _push_one <verb> <client> <key...>; runs in the background, after the verb may already have exited.
