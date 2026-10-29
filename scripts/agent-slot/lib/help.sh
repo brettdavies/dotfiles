@@ -71,9 +71,12 @@ verb_help() {
       "which closes the slot's tab. --auto, which agent-slot-sweep.timer runs, tears down only a slot its agent" \
       'released or the operator finished: a finished slot that is neither is kept, its idle agent is typed the' \
       'closing steps once, and a slot whose agent is gone or never releases joins the needs-you list as' \
-      "not-released. Each --yes pass appends a line to $AS_STATE_DIR/teardown.log." \
-      'returns: dry_run, torn_down[], would_tear_down[], closing_sent[], needs_you[] of {key, needs_you}, slots[]' \
-      '         (each with result)' \
+      'not-released. A slot whose agent ran release --not-yet stays off that list, and its idle agent is reminded' \
+      "once after $AS_RELEASE_REMIND s. A finished slot kept only by files left in it gets its idle agent a reminder" \
+      'naming them, once, before it is listed. Each --yes pass appends a line to' \
+      "$AS_STATE_DIR/teardown.log." \
+      'returns: dry_run, torn_down[], would_tear_down[], closing_sent[], cleanup_sent[], reminded[], not_yet[],' \
+      '         needs_you[] of {key, needs_you}, slots[] (each with result)' \
       'example: agent-slot sweep --output json' ;;
     finish) printf '%s\n' 'usage: agent-slot finish <repo>/<N> [--yes [--when-idle]] [--output json]' \
       "Marks a task with no open PR finished and tears its slot down when check passes; it refuses a task with an" \
@@ -83,15 +86,17 @@ verb_help() {
       "$AS_STATE_DIR/teardown.log." \
       'returns: key, then dry_run, would_tear_down, verdict without --yes, or torn_down with it' \
       'example: agent-slot finish dotfiles/2 --yes' ;;
-    release) printf '%s\n' 'usage: agent-slot release [--output json]' \
+    release) printf '%s\n' 'usage: agent-slot release [--not-yet WHY] [--output json]' \
       "A slot's agent runs it as its last step, from inside the slot. It refuses with compound-not-run until this" \
       "slot's Claude session has run both /compound-engineering:ce-compound and" \
-      '/compound-engineering:ce-compound-refresh, then records the request and starts finish --yes --when-idle in a' \
-      'session of its own, outside the slot, which tears the slot down once the agent is idle and check passes. A' \
-      'slot whose task has not finished stays requested until the automatic sweep tears it down. It deletes nothing' \
-      'itself, so it needs no ask.' \
-      'returns: key, requested_at, runner_pid, skills[], already_requested' \
-      'example: agent-slot release --output json' ;;
+      '/compound-engineering:ce-compound-refresh, and with background-jobs-running while that Claude still runs a' \
+      'Bash tool command other than this one, naming each. Then it records the request and starts finish --yes' \
+      '--when-idle in a session of its own, outside the slot, which tears the slot down once the agent is idle and' \
+      'check passes. A slot whose task has not finished stays requested until the automatic sweep tears it down. It' \
+      'deletes nothing itself, so it needs no ask. --not-yet releases nothing: it records why the slot is not ready,' \
+      'such as a wait on CI, so the automatic sweep reminds the agent later instead of listing the slot.' \
+      'returns: key, requested_at, runner_pid, skills[], already_requested; with --not-yet, key and not_yet {why, at}' \
+      "example: agent-slot release --not-yet 'release.yml run 42 has not finished' --output json" ;;
     doctor) printf '%s\n' 'usage: agent-slot doctor [--output json]' \
       'Checks every launch prerequisite on this server and the time from key press to Claude idle.' \
       'returns: ok, findings[] (error objects with severity), launch_times, verified_versions' \

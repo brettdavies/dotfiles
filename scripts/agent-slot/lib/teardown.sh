@@ -100,7 +100,8 @@ slot_teardown() {
 }
 
 # Usage: _teardown_one <repo> <n> <yes>; checks one slot and, with yes, tears it down. Sets TEARDOWN_RESULT to one of
-# torn-down, would-tear-down, kept, busy, or, for the automatic sweep, closing-sent, with the verdict in CHECK_VERDICT.
+# torn-down, would-tear-down, kept, busy, or, for the automatic sweep, closing-sent, cleanup-sent, reminded, or not-yet,
+# with the verdict in CHECK_VERDICT.
 TEARDOWN_RESULT=
 _teardown_one() {
   local repo=$1 n=$2 yes=$3
@@ -118,7 +119,7 @@ _teardown_one() {
   check_record "$repo" "$n"
   if [[ $(contract_json -r .teardown <<<"$CHECK_VERDICT") != true ]]; then
     TEARDOWN_RESULT=kept
-    [[ $RELEASE_AUTO != closing-sent ]] || TEARDOWN_RESULT=closing-sent
+    case $RELEASE_AUTO in closing-sent | cleanup-sent | reminded | not-yet) TEARDOWN_RESULT=$RELEASE_AUTO ;; esac
   elif [[ $yes != 1 ]]; then
     TEARDOWN_RESULT=would-tear-down
   elif slot_teardown "$repo" "$n"; then
@@ -153,18 +154,25 @@ cmd_sweep() {
        torn_down: [$r[] | select(.result == "torn-down") | .key],
        would_tear_down: [$r[] | select(.result == "would-tear-down") | .key],
        closing_sent: [$r[] | select(.result == "closing-sent") | .key],
+       cleanup_sent: [$r[] | select(.result == "cleanup-sent") | .key],
+       reminded: [$r[] | select(.result == "reminded") | .key],
+       not_yet: [$r[] | select(.result == "not-yet") | .key],
        needs_you: [$r[] | select(.needs_you != []) | {key, needs_you}],
        slots: $r}')
   [[ ${SWEEP_YES:-0} != 1 ]] || teardown_log sweep "$(contract_json -c --arg by "$(_teardown_by)" \
     --argjson ms "$(($(contract_ms) - start))" '{by: $by, ms: $ms, torn_down, closing_sent,
-      kept: [.slots[] | select(.result == "kept" or .result == "busy") | {key, blockers: [.blockers[].code]}]}' \
+      cleanup_sent: [.slots[] | select(.result == "cleanup-sent") | {key, files: [.blockers[] | .values[]? // .message]}],
+      reminded, not_yet, kept: [.slots[] | select(.result == "kept" or .result == "busy") | {key, blockers: [.blockers[].code]}]}' \
     <<<"$out")"
   contract_ok "$out" '
     (.torn_down[] | "torn down\t\(.)"), (.would_tear_down[] | "would tear down\t\(.)"),
-    (.closing_sent[] | "sent the closing steps\t\(.)"),
+    (.closing_sent[] | "sent the closing steps\t\(.)"), (.cleanup_sent[] | "asked its agent to clean up\t\(.)"),
+    (.reminded[] | "reminded its agent\t\(.)"),
+    (.not_yet[] | "not ready to release, its agent says\t\(.)"),
     (.needs_you[] | "needs you\t\(.key)\t\(.needs_you | map(.message) | join("; "))"),
-    (if (.torn_down + .would_tear_down + .closing_sent + .needs_you | length) == 0 then "nothing to tear down"
-     else empty end)'
+    (if (.torn_down + .would_tear_down + .closing_sent + .cleanup_sent + .reminded + .not_yet + .needs_you
+      | length) == 0
+     then "nothing to tear down" else empty end)'
 }
 
 # What ran a sweep or finish, for teardown.log: the timer's automatic sweep, a release's finish, or the operator.

@@ -9,7 +9,8 @@
 #   local commit is in the final head of one of the task's PRs, or, for a task that never had a PR, on a branch on
 #   origin; no untracked file exists beyond the files setup placed and Claude Code's own runtime files, and no ignored
 #   file beyond those, tool and build output, and byte-for-byte copies of files HEAD tracks; and no symlink under the
-#   home directory resolves into the slot.
+#   home directory resolves into the slot. Tool output counts even inside a local-only directory, so Playwright's
+#   .context/test-results passes while any other file under .context blocks.
 
 CHECK_CODES='pr-state-unknown pr-closed-unmerged git-state-unknown agent-not-idle checked-by-own-agent
 agent-state-unknown uncommitted-changes stash-present unpushed-commits commits-without-pr untracked-files
@@ -21,9 +22,10 @@ CHECK_SETUP_FILES='docs/solutions .claude/settings.local.json'
 # which run only in the folder that saved them (https://code.claude.com/docs/en/scheduled-tasks). Its other runtime
 # paths there, such as worktrees/ and agent-memory-local/, can hold a task's work, so they still block.
 CHECK_RUNTIME_FILES='.claude/scheduled_tasks.lock .claude/scheduled_tasks.json'
-# Names only a tool gives a directory, so every ignored path under one is its output. A source tree can name a
-# directory build or dist too, so a build directory counts only when git lists it whole.
-CHECK_TOOL_DIRS='node_modules .venv __pycache__ .pytest_cache .mypy_cache .ruff_cache .next .turbo .astro .wrangler .blume .build'
+# Names only a tool gives a directory, so every ignored path under one is its output. .gstack is gstack's state
+# directory, which gstack ignores whole with a .gitignore of `*`; test-results is Playwright's outputDir. A source tree
+# can name a directory build or dist too, so a build directory counts only when git lists it whole.
+CHECK_TOOL_DIRS='node_modules .venv __pycache__ .pytest_cache .mypy_cache .ruff_cache .next .turbo .astro .wrangler .blume .build .gstack test-results'
 CHECK_BUILD_DIRS='target dist build venv coverage'
 
 CHECK_BLOCKERS=()
@@ -50,17 +52,24 @@ _check_local_only() {
   return 1
 }
 
-# Usage: _check_build_output <status> <path>; true for an ignored path under a tool directory, or for an ignored
-# directory git listed whole whose own name is a build directory. A new file inside a build-named directory that also
-# holds tracked files is listed on its own, so it never matches.
-_check_build_output() {
+# Usage: _check_tool_output <status> <path>; true for an ignored path under a tool directory.
+_check_tool_output() {
   local name dir=/$2
   [[ $1 == '!!' ]] || return 1
   [[ $2 == */ ]] || dir=${dir%/*}/
   for name in $CHECK_TOOL_DIRS; do
     [[ $dir != */"$name"/* ]] || return 0
   done
-  [[ $2 == */ ]] || return 1
+  return 1
+}
+
+# Usage: _check_build_output <status> <path>; true for tool output, or for an ignored directory git listed whole whose
+# own name is a build directory. A new file inside a build-named directory that also holds tracked files is listed on
+# its own, so it never matches.
+_check_build_output() {
+  local name
+  ! _check_tool_output "$1" "$2" || return 0
+  [[ $1 == '!!' && $2 == */ ]] || return 1
   name=${2%/}
   name=${name##*/}
   [[ " $CHECK_BUILD_DIRS " == *" $name "* ]]
@@ -86,23 +95,28 @@ _check_head_copy() {
 # Usage: _check_untracked_paths <slot path> <git status -z file>; prints each untracked (??) and ignored (!!) entry as
 # "<status> <path>", NUL-separated, with a directory's trailing slash kept. git collapses an ignored directory into one
 # entry, so a directory that can hold a file setup placed or a Claude Code runtime file, such as an ignored .claude/, is
-# listed file by file instead.
+# listed file by file instead, as is an ignored local-only directory such as .context/, so tool output inside it is
+# told apart from the files kept there.
 _check_untracked_paths() {
-  local entry status path exempt file
+  local entry status path exempt file expand
   while IFS= read -r -d '' entry; do
     status=${entry:0:2}
     [[ $status == '??' || $status == '!!' ]] || continue
     path=${entry:3}
+    expand=0
     if [[ $path == */ ]]; then
+      [[ $status != '!!' ]] || ! _check_local_only "${path%/}" || expand=1
       for exempt in $CHECK_SETUP_FILES $CHECK_RUNTIME_FILES; do
-        [[ $exempt == "$path"* ]] || continue
-        while IFS= read -r -d '' file; do
-          printf '%s %s\0' "$status" "${file#"$1"/}"
-        done < <(find "$1/${path%/}" -mindepth 1 \( -type f -o -type l \) -print0)
-        continue 2
+        [[ $exempt != "$path"* ]] || expand=1
       done
     fi
-    printf '%s\0' "$entry"
+    if ((expand == 0)); then
+      printf '%s\0' "$entry"
+      continue
+    fi
+    while IFS= read -r -d '' file; do
+      printf '%s %s\0' "$status" "${file#"$1"/}"
+    done < <(find "$1/${path%/}" -mindepth 1 \( -type f -o -type l \) -print0)
   done <"$2"
 }
 
@@ -121,7 +135,7 @@ _check_files() {
     status=${entry:0:2}
     path=${entry:3}
     if _check_local_only "${path%/}"; then
-      local_only+=("${path%/}")
+      _check_tool_output "$status" "$path" || local_only+=("${path%/}")
     elif [[ " $CHECK_SETUP_FILES $CHECK_RUNTIME_FILES " == *" ${path%/} "* ]] \
       || _check_build_output "$status" "$path"; then
       continue

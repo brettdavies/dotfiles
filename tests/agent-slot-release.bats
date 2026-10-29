@@ -24,16 +24,40 @@ setup() {
 }
 
 teardown() {
-  local runner
-  [ -z "$AGENT" ] || kill -KILL "$AGENT" 2>/dev/null || true
+  local runner pid
+  if [ -n "$AGENT" ]; then
+    for pid in $(ps -o pid= --ppid "$AGENT" 2>/dev/null); do kill -KILL "$pid" 2>/dev/null || true; done
+    kill -KILL "$AGENT" 2>/dev/null || true
+  fi
   runner=$(jaq -r '.release.runner_pid // empty' "$SLOT/.git/agent-slot.json" 2>/dev/null || true)
   [ -z "$runner" ] || kill "$runner" 2>/dev/null || true
 }
 
-# agent STATUS: a stand-in for the slot's Claude in claude agents, with that status; its working directory is outside
-# the slot, so only claude agents ties it to the slot. agent_status STATUS changes the status it reports.
+# claude_script COMMAND: the script Claude Code hands its shell for a Bash tool command.
+claude_script() {
+  local q=${1//\'/\'\"\'\"\'}
+  printf "source /dev/null 2>/dev/null || true && eval '%s' < /dev/null && pwd -P >| %s/claude-1a2b-cwd" "$q" "$T"
+}
+
+# agent STATUS [JOB [HOOK]]: a stand-in for the slot's Claude in claude agents, with that status; its working directory
+# is outside the slot, so only claude agents ties it to the slot. JOB runs as one of its background Bash tool commands,
+# a child shell of the shape Claude Code starts, and HOOK as a child `sh -c`, the way Claude runs a hook or its status
+# line. agent_status STATUS changes the status it reports, and release_inside has it run release as its own foreground
+# Bash tool command.
 agent() {
-  bash -c "trap 'exit 0' TERM; sleep 120 & wait" </dev/null >/dev/null 2>&1 3>&- &
+  local job='' inside
+  [ -z "${2:-}" ] || job=$(claude_script "$2")
+  inside=$(claude_script "cd '$SLOT' && '$AGENT_SLOT' release --output json >'$T/inside.out' 2>'$T/inside.err'; \
+echo \$? >'$T/inside.rc'")
+  bash -c '
+    trap "exit 0" TERM
+    if [ -n "$1" ]; then bash -c "$1" & fi
+    if [ -n "$4" ]; then sh -c "$4" & fi
+    while :; do
+      until [ -e "$2" ]; do sleep 0.05; done
+      rm -f "$2"
+      bash -c "$3"
+    done' _ "$job" "$T/go" "$inside" "${3:-}" </dev/null >/dev/null 2>&1 3>&- &
   AGENT=$!
   agent_status "$1"
 }
@@ -52,6 +76,25 @@ ran() {
       >>"$T/transcript.jsonl"
   done
   record_set ".transcript = \"$T/transcript.jsonl\""
+}
+
+# agent_job: prints the PID of the stand-in agent's background Bash tool command while one runs.
+agent_job() {
+  local pid
+  for pid in $(ps -o pid= --ppid "$AGENT"); do
+    grep -qaF "$T/inside.rc" "/proc/$pid/cmdline" 2>/dev/null && continue
+    grep -qaF claude-1a2b-cwd "/proc/$pid/cmdline" 2>/dev/null && echo "$pid" && return 0
+  done
+  return 1
+}
+agent_job_gone() { ! agent_job >/dev/null; }
+
+# release_inside: has the stand-in agent run release, and sets status, output, and stderr from that run.
+release_inside() {
+  rm -f "$T/inside.rc"
+  touch "$T/go"
+  eventually test -s "$T/inside.rc"
+  status=$(cat "$T/inside.rc") output=$(cat "$T/inside.out") stderr=$(cat "$T/inside.err")
 }
 
 record_set() {
@@ -76,6 +119,8 @@ eventually() {
   return 1
 }
 gone() { [ ! -e "$SLOT" ]; }
+# runner_done: true once the teardown a release started has exited and let go of the slot's lock.
+runner_done() { ! kill -0 "$(record '.release.runner_pid')" 2>/dev/null; }
 logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
 
 # --- the gate ----------------------------------------------------------------------------------------------------------
@@ -123,7 +168,190 @@ logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
   [ "$status" -eq 0 ]
 }
 
-# --- the release and its teardown --------------------------------------------------------------------------------------
+# --- background jobs ---------------------------------------------------------------------------------------------------
+
+@test "release refuses while the agent's Claude still runs a background Bash tool command, and names it" {
+  finished_task
+  ran ce-compound ce-compound-refresh
+  agent busy "until [ -e '$T/ci-done' ]; do sleep 0.1; done"
+  eventually agent_job
+  local pid command="until [ -e '$T/ci-done' ]; do sleep 0.1; done"
+  pid=$(agent_job)
+  release
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e --arg v "$pid $command" '.reason == "background-jobs-running" and .value == $v
+    and .next_step.command == "agent-slot release --output json"
+    and (.message | contains("Stop each one you no longer need")
+      and contains("agent-slot release --not-yet '"'<why>'"' --output json"))' <<<"$stderr"
+  [ "$(record '.release')" = null ]
+  jaq -e -s --argjson pid "$pid" --arg c "$command" 'any(.[]; .event == "release" and .result == "refused"
+    and .reason == "background-jobs-running" and .jobs == [{pid: $pid, command: $c}])' "$TEARDOWN_LOG" >/dev/null
+}
+
+@test "release goes through once the agent's background job has exited" {
+  finished_task
+  ran ce-compound ce-compound-refresh
+  agent busy "until [ -e '$T/ci-done' ]; do sleep 0.1; done"
+  eventually agent_job
+  release
+  [ "$status" -eq 1 ]
+  touch "$T/ci-done"
+  eventually agent_job_gone
+  release
+  [ "$status" -eq 0 ]
+  [ "$(record '.release.runner_pid')" = "$(jaq -r .runner_pid <<<"$output")" ]
+}
+
+@test "release run as the agent's own Bash tool command names the agent's other jobs, never its own shell" {
+  finished_task
+  ran ce-compound ce-compound-refresh
+  agent busy "until [ -e '$T/ci-done' ]; do sleep 0.1; done"
+  eventually agent_job
+  local pid
+  pid=$(agent_job)
+  release_inside
+  [ "$status" -eq 1 ]
+  jaq -e --arg pid "$pid" '.reason == "background-jobs-running"
+    and (.value | split("\n") | map(split(" ")[0])) == [$pid]' <<<"$stderr"
+  touch "$T/ci-done"
+  eventually agent_job_gone
+  release_inside
+  [ "$status" -eq 0 ]
+  jaq -e '.key == "repoa/1" and .already_requested == false' <<<"$output"
+}
+
+@test "a child of the agent's Claude that is not a Bash tool command, such as a hook, is no job" {
+  finished_task
+  ran ce-compound ce-compound-refresh
+  agent busy "" "touch '$T/hook-ran'; sleep 30; : ~/.claude/slot-status.sh"
+  eventually test -e "$T/hook-ran"
+  release
+  [ "$status" -eq 0 ]
+}
+
+# --- not yet ready to release ------------------------------------------------------------------------------------------
+
+@test "an agent that says it is not ready is held off the needs-you list, reminded once later, then listed" {
+  finished_task
+  agent idle
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  jaq -e '.closing_sent == ["repoa/1"]' <<<"$output"
+  run --separate-stderr bash -c 'cd "$1" && "$2" release --not-yet "release.yml run 42 has not finished" --output json' \
+    _ "$SLOT" "$AGENT_SLOT"
+  [ "$status" -eq 0 ]
+  jaq -e '.key == "repoa/1" and .not_yet.why == "release.yml run 42 has not finished"' <<<"$output"
+  [ "$(record '.release')" = null ]
+  logged 'any(.[]; .event == "release" and .result == "not-yet" and .why == "release.yml run 42 has not finished")'
+  : >"$STUBS/typed-repoa-1"
+  AGENT_SLOT_RELEASE_REMIND=3600 run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.needs_you == [] and .not_yet == ["repoa/1"] and .reminded == [] and .torn_down == []' <<<"$output"
+  [ ! -s "$STUBS/typed-repoa-1" ]
+  AGENT_SLOT_RELEASE_REMIND=0 run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.needs_you == [] and .reminded == ["repoa/1"]' <<<"$output"
+  grep -qF 'You said this slot was not ready to release: release.yml run 42 has not finished.' "$STUBS/typed-repoa-1"
+  grep -qF 'agent-slot release --output json' "$STUBS/typed-repoa-1"
+  logged 'any(.[]; .event == "sweep" and .reminded == ["repoa/1"])'
+  : >"$STUBS/typed-repoa-1"
+  AGENT_SLOT_RELEASE_REMIND=0 run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.reminded == [] and .needs_you[0].needs_you[0].code == "not-released"
+    and (.needs_you[0].needs_you[0].message | contains("was reminded at"))' <<<"$output"
+  [ ! -s "$STUBS/typed-repoa-1" ]
+  [ -d "$SLOT" ]
+}
+
+@test "an agent busy on the job it said it waits on is not listed, and one that is gone is" {
+  finished_task
+  agent busy "until [ -e '$T/ci-done' ]; do sleep 0.1; done"
+  run --separate-stderr bash -c 'cd "$1" && "$2" release --not-yet "CI on the release chain" --output json' \
+    _ "$SLOT" "$AGENT_SLOT"
+  [ "$status" -eq 0 ]
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  jaq -e '.needs_you == [] and .not_yet == ["repoa/1"]' <<<"$output"
+  echo '[]' >"$STUBS/claude-agents.json"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  jaq -e '.not_yet == [] and .needs_you[0].needs_you[0].code == "not-released"' <<<"$output"
+}
+
+@test "release --not-yet needs a reason, and a release clears the one recorded" {
+  finished_task
+  run --separate-stderr bash -c 'cd "$1" && "$2" release --not-yet " " --output json' _ "$SLOT" "$AGENT_SLOT"
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage"' <<<"$stderr"
+  run --separate-stderr bash -c 'cd "$1" && "$2" release --not-yet "waiting" --output json' _ "$SLOT" "$AGENT_SLOT"
+  [ "$status" -eq 0 ]
+  ran ce-compound ce-compound-refresh
+  agent busy
+  release
+  [ "$status" -eq 0 ]
+  [ "$(record '.not_yet')" = null ]
+}
+
+# --- files left in a finished slot -------------------------------------------------------------------------------------
+
+@test "a finished slot kept only by a leftover scratch file gets its idle agent a cleanup reminder, not a listing" {
+  finished_task
+  echo 'API_TOKEN=x' >"$SLOT/.dev.vars.staging"
+  agent busy
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.needs_you == [] and .cleanup_sent == []' <<<"$output"
+  agent_status idle
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.needs_you == [] and .cleanup_sent == ["repoa/1"] and .closing_sent == [] and .torn_down == []' <<<"$output"
+  grep -qF "its teardown is held by what is left in it: .dev.vars.staging. Delete each one that is scratch" \
+    "$STUBS/typed-repoa-1"
+  grep -qF "commit and PR each one that is real work; then close out and release as your closing steps say." \
+    "$STUBS/typed-repoa-1"
+  grep -qF "say why with agent-slot release --not-yet '<why>' --output json" "$STUBS/typed-repoa-1"
+  [ "$(record '.cleanup_sent_at | test("^[0-9]{4}-")')" = true ]
+  logged 'any(.[]; .event == "sweep" and .cleanup_sent == [{key: "repoa/1", files: [".dev.vars.staging"]}])'
+  : >"$STUBS/typed-repoa-1"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.cleanup_sent == [] and .needs_you[0].needs_you[0].code == "untracked-files"' <<<"$output"
+  [ ! -s "$STUBS/typed-repoa-1" ]
+  [ -d "$SLOT" ]
+}
+
+@test "a released slot kept by leftover files is torn down by the automatic sweep once its agent cleans up" {
+  finished_task
+  mkdir -p "$SLOT/.context/handoffs"
+  echo next >"$SLOT/.context/handoffs/x.md"
+  ran ce-compound ce-compound-refresh
+  agent idle
+  release
+  [ "$status" -eq 0 ]
+  eventually logged 'any(.[]; .event == "finish" and .by == "release" and .result == "refused")'
+  eventually runner_done
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.needs_you == [] and .cleanup_sent == ["repoa/1"]' <<<"$output"
+  grep -qF ".context/handoffs/x.md" "$STUBS/typed-repoa-1"
+  find "$SLOT/.context" -delete
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  gone
+}
+
+@test "a finished slot kept by files and something else is listed as before" {
+  finished_task
+  echo scratch >"$SLOT/notes.txt"
+  git -C "$SLOT" commit -q --allow-empty -m 'not pushed'
+  agent idle
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.cleanup_sent == [] and ([.needs_you[0].needs_you[].code] | sort) == ["unpushed-commits", "untracked-files"]' \
+    <<<"$output"
+  [ ! -s "$STUBS/typed-repoa-1" ]
+}
+
+# --- the release and its teardown--------------------------------------------------------------------------------------
 
 @test "release records the request and starts the teardown in its own session, outside the slot" {
   finished_task
@@ -168,6 +396,7 @@ logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
   [ "$status" -eq 0 ]
   eventually logged 'any(.[]; .event == "finish" and .by == "release" and .result == "refused"
     and .reason == "task-has-open-pr")'
+  eventually runner_done
   [ -d "$SLOT" ]
   [ "$(record '.release != null')" = true ]
   jaq -c 'map(.state = "MERGED")' "$STUBS/gh-prs.json" >"$T/prs" && mv "$T/prs" "$STUBS/gh-prs.json"
@@ -188,6 +417,7 @@ logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
   [ "$status" -eq 0 ]
   eventually logged 'any(.[]; .event == "finish" and .by == "release" and .result == "refused"
     and .reason == "teardown-blocked")'
+  eventually runner_done
   run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
   [ "$status" -eq 0 ]
   jaq -e '.torn_down == [] and (.needs_you[0].needs_you[0].code == "unpushed-commits")' <<<"$output"
@@ -206,6 +436,11 @@ logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
   grep -q '/compound-engineering:ce-compound mode:non-interactive depth:full' "$STUBS/typed-repoa-1"
   grep -q '/compound-engineering:ce-compound-refresh .* mode:non-interactive' "$STUBS/typed-repoa-1"
   grep -q 'agent-slot release --output json' "$STUBS/typed-repoa-1"
+  grep -qF "then delete the scratch files you made (local config, test output, tool logs), and commit and PR anything that \
+is real work; then stop every background job you no longer need; then run agent-slot release" "$STUBS/typed-repoa-1"
+  grep -qF "If you are still waiting on something, such as CI or a release chain, never stop it to pass release's \
+check: say what with agent-slot release --not-yet '<why>' --output json, and release when it is done." \
+    "$STUBS/typed-repoa-1"
   [ "$(record '.closing_sent_at | test("^[0-9]{4}-")')" = true ]
   logged 'any(.[]; .event == "sweep" and .by == "timer" and .closing_sent == ["repoa/1"])'
   : >"$STUBS/typed-repoa-1"

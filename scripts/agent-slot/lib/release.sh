@@ -1,32 +1,37 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
 # The release: a slot's agent hands its own teardown upstream as its last step. A slot cannot delete itself from inside,
 # since its agent is mid-turn and the slot is that agent's working directory, so release deletes nothing. It refuses
-# until this slot's Claude sessions have run both closing skills, records the request in the slot's record and the
+# until this slot's Claude sessions have run both closing skills, and while the slot's Claude still runs a Bash tool
+# command other than release's own: Claude Code lists a session with a live background shell as busy, so a job left
+# running holds the teardown back for as long as it runs. Then it records the request in the slot's record and the
 # ledger, and starts `agent-slot finish <key> --yes --when-idle` in a session of its own. That finish runs from /, with
 # the slot pane's tmux variables and every inherited descriptor dropped, so it sits outside the slot's process tree and
 # holds nothing under the slot. It waits for the agent to go idle, then runs the same fail-closed finish the operator
 # does. A slot whose task has not finished stays requested, and the automatic sweep tears it down once it has.
 #
-# The automatic sweep (`sweep --yes --auto`, which agent-slot-sweep.timer runs) tears down only a slot its agent
-# released or the operator finished, so no slot disappears before its learnings are recorded. A finished slot that is
-# neither keeps its clone: an idle agent is typed its closing steps once, and a slot whose agent is gone, or that its
-# agent did not release after those steps, joins the needs-you list as not-released.
+# An agent still waiting on something, such as CI or a release chain, does not stop it to pass release's check: it runs
+# `release --not-yet WHY` instead, which releases nothing and records why for the automatic sweep (autosweep.sh).
 #
-# teardown.log in the state directory gets one JSON line per release request, per finish --yes, and per sweep --yes
-# pass: what ran it, the slots it tore down, and why it kept or refused the rest.
+# teardown.log in the state directory gets one JSON line per release request, refusal, and --not-yet, per finish --yes,
+# and per sweep --yes pass: what ran it, the slots it tore down, and why it kept or refused the rest.
 
 RELEASE_SKILLS='ce-compound ce-compound-refresh'
 RELEASE_COMPOUND='/compound-engineering:ce-compound mode:non-interactive depth:full <the finding, from this session only>'
 RELEASE_REFRESH='/compound-engineering:ce-compound-refresh <scope> mode:non-interactive'
 RELEASE_COMMAND='agent-slot release --output json'
+RELEASE_NOT_YET="agent-slot release --not-yet '<why>' --output json"
+RELEASE_CLEANUP="delete the scratch files you made (local config, test output, tool logs), and commit and PR anything \
+that is real work"
+RELEASE_WAITING="If you are still waiting on something, such as CI or a release chain, never stop it to pass release's \
+check: say what with $RELEASE_NOT_YET, and release when it is done."
 # One line, since tmux types it into the agent's prompt and an Enter submits it.
 RELEASE_CLOSING="Your task has finished, so close it out now, in this order: run $RELEASE_COMPOUND once per finding \
 from this session, and once even when none qualifies; then run $RELEASE_REFRESH across every refresh opportunity those \
-runs surfaced, or scoped to the area you touched; then run $RELEASE_COMMAND; then report what you did and stop."
+runs surfaced, or scoped to the area you touched; then $RELEASE_CLEANUP; then stop every background job you no \
+longer need; then run $RELEASE_COMMAND; then report what you did and stop. $RELEASE_WAITING"
 RELEASE_FOUND=()
 RELEASE_MISSING=()
 RELEASE_PID=
-RELEASE_AUTO=
 
 # Usage: teardown_log <event> <json-object>; one line in teardown.log.
 teardown_log() {
@@ -76,6 +81,36 @@ release_gate() {
   done
 }
 
+# Usage: release_jobs_gate <key>; after agentstate_of, refuses while the slot's Claude still runs a Bash tool command
+# other than the one release runs in, naming each.
+release_jobs_gate() {
+  local jobs count
+  jobs=$(agentstate_jobs)
+  [[ -n $jobs ]] || return 0
+  count=$(grep -c . <<<"$jobs")
+  teardown_log release "$(contract_json -R -s -c --arg key "$1" '{key: $key, result: "refused",
+    reason: "background-jobs-running", jobs: (split("\n") | map(select(. != "")
+      | capture("^(?<pid>[0-9]+) (?<command>.*)$") | .pid |= tonumber))}' <<<"$jobs")"
+  contract_fail background-jobs-running "this slot's Claude still runs $(_check_plural "$count" "background job") \
+(PID $(cut -d' ' -f1 <<<"$jobs" | paste -sd ' '); value names each command). Stop each one you no longer need, then \
+run $RELEASE_COMMAND again. If you are still waiting on one, leave it running and do not release yet: say what with \
+$RELEASE_NOT_YET, and release once it is done" --value "$jobs" --command "$RELEASE_COMMAND"
+}
+
+# Usage: release_not_yet <repo> <n> <key>; records RELEASE_WHY as the reason the slot is not ready to release.
+release_not_yet() {
+  local at why=${RELEASE_WHY//[$'\n\t']/ }
+  at=$(contract_now)
+  record_update "$1" "$2" --arg why "$why" --arg at "$at" '.not_yet = {why: $why, at: $at}' \
+    || contract_fail slot-busy "$3 stayed locked, so why it is not ready was not recorded" --value "$3" \
+      --command "$RELEASE_NOT_YET"
+  teardown_log release "$(contract_json -n -c --arg key "$3" --arg why "$why" \
+    '{key: $key, result: "not-yet", why: $why}')"
+  contract_ok "$(contract_json -n -c --arg key "$3" --arg why "$why" --arg at "$at" \
+    '{key: $key, not_yet: {why: $why, at: $at}}')" \
+    '"\(.key): not released, since \(.not_yet.why); the automatic sweep reminds you later rather than listing the slot"'
+}
+
 # Usage: release_runner_alive <pid> <key>; true while that PID is the finish a release of the slot started.
 release_runner_alive() {
   [[ $1 =~ ^[0-9]+$ ]] && kill -0 "$1" 2>/dev/null \
@@ -109,6 +144,10 @@ cmd_release() {
       --value "$PWD" --command "agent-slot whoami"
   fi
   key=$(slot_key "$repo" "$n")
+  if [[ -n ${RELEASE_WHY:-} ]]; then
+    release_not_yet "$repo" "$n" "$key"
+    return
+  fi
   command -v setsid >/dev/null || contract_fail dependency-missing "setsid is not installed on this server" \
     --value setsid --command "sudo apt-get install util-linux"
   release_gate "$repo" "$n"
@@ -121,6 +160,9 @@ $RELEASE_COMPOUND once per finding, then $RELEASE_REFRESH, then $RELEASE_COMMAND
       --command "$([[ ${RELEASE_MISSING[0]} == ce-compound ]] && printf '%s' "$RELEASE_COMPOUND" \
         || printf '%s' "$RELEASE_REFRESH")"
   fi
+  agentstate_load
+  agentstate_of "$repo" "$n"
+  release_jobs_gate "$key"
 
   pid=$(contract_json -r '.release.runner_pid // ""' <<<"$RECORD")
   if [[ -n $pid ]] && release_runner_alive "$pid" "$key"; then
@@ -130,7 +172,8 @@ $RELEASE_COMPOUND once per finding, then $RELEASE_REFRESH, then $RELEASE_COMMAND
     return
   fi
   requested=$(contract_now)
-  record_update "$repo" "$n" --arg at "$requested" '.release = {requested_at: $at, session_id: .session_id}' \
+  record_update "$repo" "$n" --arg at "$requested" \
+    '.release = {requested_at: $at, session_id: .session_id} | del(.not_yet)' \
     || contract_fail slot-busy "$key stayed locked, so its release was not recorded" --value "$key" \
       --command "$RELEASE_COMMAND"
   ledger_append release "$(contract_json -c --argjson skills "$skills" \
@@ -158,41 +201,4 @@ release_wait_idle() {
     ((RELEASE_WAITED < AS_RELEASE_WAIT)) || return 1
     sleep "$AS_RELEASE_POLL"
   done
-}
-
-# Usage: release_send_closing <repo> <n>; types the closing steps into the slot's Claude session and records when.
-release_send_closing() {
-  local name out
-  name=$(slot_session "$1" "$2")
-  slot_tmux out 10 send-keys -t "=$name:" -l "$RELEASE_CLOSING" || return 1
-  slot_tmux out 10 send-keys -t "=$name:" Enter || return 1
-  record_update "$1" "$2" --arg at "$(contract_now)" '.closing_sent_at = $at'
-}
-
-# Usage: release_auto_gate <repo> <n>; for the automatic sweep, after check_slot. Keeps a slot check would let go when
-# neither its agent released it nor the operator finished it, setting RELEASE_AUTO to closing-sent or not-released.
-release_auto_gate() {
-  local repo=$1 n=$2 sent why blocker
-  RELEASE_AUTO=
-  [[ $(contract_json -r .teardown <<<"$CHECK_VERDICT") == true ]] || return 0
-  ! contract_json -e '.release != null or .finished_by_operator == true' <<<"$RECORD" >/dev/null || return 0
-  sent=$(contract_json -r '.closing_sent_at // ""' <<<"$RECORD")
-  if [[ $AGENT_STATE == idle && -z $sent ]] && release_send_closing "$repo" "$n"; then
-    RELEASE_AUTO=closing-sent
-    CHECK_VERDICT=$(contract_json -c '.teardown = false' <<<"$CHECK_VERDICT")
-    return 0
-  fi
-  if [[ $AGENT_STATE == absent ]]; then
-    why="its agent is gone, so nothing will release it; finish it with agent-slot finish $(slot_key "$repo" "$n") --yes"
-  elif [[ -n $sent ]]; then
-    why="its agent was sent the closing steps at $sent and has not released it"
-  else
-    why="its closing steps could not be typed into its Claude session"
-  fi
-  CHECK_BLOCKERS=()
-  _check_block not-released "the task has finished, but $why"
-  blocker=${CHECK_BLOCKERS[0]}
-  RELEASE_AUTO=not-released
-  CHECK_VERDICT=$(contract_json -c --argjson b "$blocker" \
-    '.teardown = false | .blockers += [$b] | .needs_you += [$b]' <<<"$CHECK_VERDICT")
 }
