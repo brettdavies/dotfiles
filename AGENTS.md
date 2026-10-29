@@ -81,6 +81,9 @@ are version-controlled in `config/systemd/system/` and deployed via dedicated sc
 - `apparmor-playwright.service` — deployed by `scripts/apparmor-deploy.sh` alongside the profile it reloads at boot
 - `tailscale-serve-setup.service`: deployed by `scripts/tailscale-serve-deploy.sh`, which fills in the Tailscale
   operator and checkout path; re-runs `scripts/tailscale-serve-setup.sh` on every tailscaled start
+- `rex-login-server.service.d/tailnet-listen.conf`: a drop-in for the unit the `rex` package ships, deployed by
+  `scripts/rex-login-server-deploy.sh` together with `/etc/rex/accounts.jsonc`, which it renders from
+  `config/rex/accounts.jsonc` with the Tailscale login given on its command line
 
 **Pattern for adding new system-level units:**
 
