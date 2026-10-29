@@ -126,6 +126,13 @@ EOF
   chmod +x "$STUBS/$1"
 }
 
+# gitstatusd_standin: prints the path of a copy of sleep named as powerlevel10k's gitstatusd binary is, so a process
+# started from it has the daemon's comm, gitstatusd-linu.
+gitstatusd_standin() {
+  cp "$(command -v sleep)" "$T/gitstatusd-linux-x86_64"
+  printf '%s\n' "$T/gitstatusd-linux-x86_64"
+}
+
 # prime NAME [ORIGIN]: a clone under the dev root whose origin is a bare repo with one commit on main.
 prime() {
   local name=$1 origin=${2:-$T/origins/$1.git}

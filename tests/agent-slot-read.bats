@@ -128,38 +128,40 @@ setup() {
   jaq -e --arg p "$AGENT_SLOT_DEV/alpha" '.reason == "not-in-slot" and .value == $p' <<<"$stderr"
 }
 
-# start_in DIR [VAR=VALUE...]: a detached sleep with its working directory in DIR and the given environment, as a
-# daemon a pane's shell started (powerlevel10k's gitstatusd) or a shell opened by hand.
+# start_in DIR VAR=VALUE... COMMAND...: a detached COMMAND with its working directory in DIR and the given environment,
+# as a daemon a pane's shell started (powerlevel10k's gitstatusd) or a shell opened by hand. Returns once COMMAND runs,
+# since /proc shows the first VAR=VALUE in its environment only from COMMAND's own exec.
 start_in() {
   local dir=$1
   shift
-  (cd "$dir" && exec setsid /usr/bin/env "$@" sleep 120 </dev/null >/dev/null 2>&1) &
+  (cd "$dir" && exec setsid /usr/bin/env "$@" </dev/null >/dev/null 2>&1) &
   SLEEPER=$!
-  until [ "$(readlink "/proc/$SLEEPER/cwd" 2>/dev/null)" = "$dir" ]; do sleep 0.1; done
+  until grep -qsazxF "$1" "/proc/$SLEEPER/environ"; do sleep 0.1; done
 }
 
-@test "a daemon a slot pane started counts as the slot's own, by the pane it names" {
+@test "gitstatusd that a slot pane's prompt started counts as the slot's own, by the pane it names" {
   slot repoa 1
   echo repoa-1 >"$STUBS/tmux-sessions"
   printf 'repoa-1 999991 %%11\nrepoa-1-files 999992 %%12\nrepoa-1-git 999993 %%13\n' >"$STUBS/tmux-panes"
-  start_in "$AGENT_SLOT_ROOT/repoa/1" TMUX="/tmp/tmux-test/agent-slot-test,1,0" TMUX_PANE=%12
+  start_in "$AGENT_SLOT_ROOT/repoa/1" TMUX="/tmp/tmux-test/agent-slot-test,1,0" TMUX_PANE=%12 \
+    "$(gitstatusd_standin)" 120
   run --separate-stderr "$AGENT_SLOT" list --output json
   kill "$SLEEPER"
   jaq -e '.slots[0].agent == "absent"' <<<"$output"
 }
 
-@test "a process in the slot from outside its panes makes the agent state unknown" {
+@test "gitstatusd in the slot whose environment names another tmux server makes the agent state unknown" {
   slot repoa 1
   echo repoa-1 >"$STUBS/tmux-sessions"
   printf 'repoa-1 999991 %%11\n' >"$STUBS/tmux-panes"
-  start_in "$AGENT_SLOT_ROOT/repoa/1" TMUX="/tmp/tmux-1000/default,1,0" TMUX_PANE=%11
+  start_in "$AGENT_SLOT_ROOT/repoa/1" TMUX="/tmp/tmux-1000/default,1,0" TMUX_PANE=%11 "$(gitstatusd_standin)" 120
   run --separate-stderr "$AGENT_SLOT" list --output json
   kill "$SLEEPER"
   jaq -e --arg pid "$SLEEPER" '.slots[0].agent == "unknown" and (.slots[0].agent_detail | contains($pid))' <<<"$output"
 }
 
-@test "a process that exits before its environment is read leaves nothing on stderr" {
-  run --separate-stderr bash -c 'source "$1"; _agent_env_in_panes 2147483647 "%1"' _ \
+@test "a process that exits before its command and environment are read leaves nothing on stderr" {
+  run --separate-stderr bash -c 'source "$1"; _agent_pane_daemon 2147483647 "%1"' _ \
     "$BATS_TEST_DIRNAME/../scripts/agent-slot/lib/agentstate.sh"
   [ "$status" -eq 1 ]
   [ -z "$stderr" ]

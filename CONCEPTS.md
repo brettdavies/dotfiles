@@ -355,10 +355,10 @@ be torn down.
 The state is *unknown*, and the teardown refused, whenever it cannot be read with certainty: the session list cannot be
 read, more than one session matches, the session reports a status other than idle, busy, or waiting, a Claude process in
 the slot's panes runs with no session matching the slot, or a process outside the slot's panes has its working directory
-or an open file in the slot. A process counts as the panes' own when it descends from one, or when its environment still
-names the slot's terminal server and one of its panes, which keeps a shell's daemon that outlived its parent from
-holding the slot. That environment is inherited, so any process started from a pane passes the same way, including one a
-test run in the slot leaked. Anything else in the slot holds it until it exits.
+or an open file in the slot. A process counts as the panes' own when it descends from one, or when it is the prompt's
+`gitstatusd` daemon and its environment names the slot's terminal server and one of its panes. Every process a pane
+starts inherits that environment, so it marks only `gitstatusd` as the panes' own: a job a pane's command left running,
+such as one a test run in the slot leaked, holds the slot until it exits, like anything else in the slot.
 
 ## Flagged ambiguities
 
