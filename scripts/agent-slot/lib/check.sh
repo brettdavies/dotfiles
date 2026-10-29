@@ -10,7 +10,9 @@
 #   origin; no untracked file exists beyond the files setup placed and Claude Code's own runtime files, and no ignored
 #   file beyond those, tool and build output, and byte-for-byte copies of files HEAD tracks; and no symlink under the
 #   home directory resolves into the slot. Tool output counts even inside a local-only directory, so Playwright's
-#   .context/test-results passes while any other file under .context blocks.
+#   .context/test-results passes while any other file under .context blocks. So do the Vale style packages the slot's
+#   own .vale.ini names, each its StylesPath joined with the package's name, which `vale sync` downloads; anything else
+#   under StylesPath, such as the repo's own styles, is judged like any other file.
 
 CHECK_CODES='pr-state-unknown pr-closed-unmerged git-state-unknown agent-not-idle checked-by-own-agent
 agent-state-unknown uncommitted-changes stash-present unpushed-commits commits-without-pr untracked-files
@@ -30,6 +32,7 @@ CHECK_BUILD_DIRS='target dist build venv coverage'
 
 CHECK_BLOCKERS=()
 CHECK_VERDICT=
+CHECK_PACKAGE_DIRS=
 
 # Usage: _check_block <code> <message> [count] [value...]
 _check_block() {
@@ -60,6 +63,41 @@ _check_tool_output() {
   for name in $CHECK_TOOL_DIRS; do
     [[ $dir != */"$name"/* ]] || return 0
   done
+  return 1
+}
+
+# Usage: _check_vale_packages <slot path>; prints the directory of each style package the slot's .vale.ini names: its
+# StylesPath joined with the package's name, where a Packages entry is a bare name or a URL or path ending in
+# <name>.zip. `vale sync` unpacks each package there. Vale reads both keys only above the first [section].
+_check_vale_packages() {
+  local line styles='' packages='' entry name
+  [[ -f $1/.vale.ini ]] || return 0
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line%$'\r'}
+    [[ ! $line =~ ^[[:space:]]*\[ ]] || break
+    [[ $line =~ ^[[:space:]]*(StylesPath|Packages)[[:space:]]*=[[:space:]]*(.*[^[:space:]]) ]] || continue
+    if [[ ${BASH_REMATCH[1]} == StylesPath ]]; then styles=${BASH_REMATCH[2]}; else packages=${BASH_REMATCH[2]}; fi
+  done <"$1/.vale.ini"
+  styles=${styles#./}
+  styles=${styles%/}
+  [[ -n $styles && -n $packages ]] || return 0
+  while IFS= read -r -d , entry; do
+    entry=${entry#"${entry%%[![:space:]]*}"}
+    entry=${entry%"${entry##*[![:space:]]}"}
+    name=${entry##*/}
+    name=${name%.zip}
+    [[ -z $name || $name == . || $name == .. ]] || printf '%s/%s\n' "$styles" "$name"
+  done <<<"$packages,"
+}
+
+# Usage: _check_package_output <status> <path>; true for an ignored path in one of CHECK_PACKAGE_DIRS.
+_check_package_output() {
+  local dir
+  [[ $1 == '!!' ]] || return 1
+  while IFS= read -r dir; do
+    [[ -n $dir ]] || continue
+    [[ ${2%/} != "$dir" && $2 != "$dir"/* ]] || return 0
+  done <<<"$CHECK_PACKAGE_DIRS"
   return 1
 }
 
@@ -96,9 +134,10 @@ _check_head_copy() {
 # "<status> <path>", NUL-separated, with a directory's trailing slash kept. git collapses an ignored directory into one
 # entry, so a directory that can hold a file setup placed or a Claude Code runtime file, such as an ignored .claude/, is
 # listed file by file instead, as is an ignored local-only directory such as .context/, so tool output inside it is
-# told apart from the files kept there.
+# told apart from the files kept there, and an ignored directory that holds a Vale package, such as a StylesPath ignored
+# whole, so the package is told apart from anything else in it.
 _check_untracked_paths() {
-  local entry status path exempt file expand
+  local entry status path exempt file expand dir
   while IFS= read -r -d '' entry; do
     status=${entry:0:2}
     [[ $status == '??' || $status == '!!' ]] || continue
@@ -109,6 +148,9 @@ _check_untracked_paths() {
       for exempt in $CHECK_SETUP_FILES $CHECK_RUNTIME_FILES; do
         [[ $exempt != "$path"* ]] || expand=1
       done
+      while IFS= read -r dir; do
+        [[ -z $dir || $dir/ == "$path" || $dir/ != "$path"* ]] || expand=1
+      done <<<"$CHECK_PACKAGE_DIRS"
     fi
     if ((expand == 0)); then
       printf '%s\0' "$entry"
@@ -125,6 +167,7 @@ _check_untracked_paths() {
 # paths nothing else exempts.
 _check_files() {
   local entry status path listing tree untracked=() ignored=() local_only=()
+  CHECK_PACKAGE_DIRS=$(_check_vale_packages "$1")
   listing=$(mktemp)
   if ! git -C "$1" status --porcelain=v1 -z --ignored=matching --untracked-files=all >"$listing" 2>/dev/null; then
     rm -f "$listing"
@@ -137,7 +180,7 @@ _check_files() {
     if _check_local_only "${path%/}"; then
       _check_tool_output "$status" "$path" || local_only+=("${path%/}")
     elif [[ " $CHECK_SETUP_FILES $CHECK_RUNTIME_FILES " == *" ${path%/} "* ]] \
-      || _check_build_output "$status" "$path"; then
+      || _check_build_output "$status" "$path" || _check_package_output "$status" "$path"; then
       continue
     elif [[ $status == '!!' ]]; then
       ignored+=("$path")

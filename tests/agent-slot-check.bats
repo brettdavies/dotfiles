@@ -333,6 +333,52 @@ listed() {
     values: [".context/handoffs/x.md"]}]' <<<"$VERDICT"
 }
 
+# vale_slot PACKAGES: a finished task whose tracked .vale.ini names those packages under StylesPath styles, beside a
+# tracked style of the repo's own.
+vale_slot() {
+  mkdir -p "$SLOT/styles/brand"
+  printf 'StylesPath = styles\nMinAlertLevel = suggestion\nPackages = %s\n\n[*.md]\nBasedOnStyles = Vale, brand\n' "$1" \
+    >"$SLOT/.vale.ini"
+  echo 'message: "brand rule"' >"$SLOT/styles/brand/Rule.yml"
+  merged_with .vale.ini styles/brand/Rule.yml
+}
+
+@test "Vale packages the slot's .vale.ini names are tool output; another ignored style directory still blocks" {
+  vale_slot 'https://github.com/errata-ai/proselint/releases/latest/download/proselint.zip, write-good'
+  printf '/styles/proselint/\n/styles/write-good/\n/styles/mystyle/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/styles/proselint" "$SLOT/styles/write-good"
+  echo 'message: "hedging"' >"$SLOT/styles/proselint/Hedging.yml"
+  echo 'message: "weasel"' >"$SLOT/styles/write-good/Weasel.yml"
+  listed '!! styles/proselint/'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+  mkdir -p "$SLOT/styles/mystyle"
+  echo 'message: "mine"' >"$SLOT/styles/mystyle/x.yml"
+  check
+  jaq -e '.blockers == [{code: "untracked-files", message: "1 untracked file: styles/mystyle", count: 1,
+    values: ["styles/mystyle"]}]' <<<"$VERDICT"
+}
+
+@test "a Vale package blocks when git does not ignore it, and a wholly ignored StylesPath is judged file by file" {
+  printf 'StylesPath = styles\nPackages = proselint\n' >"$SLOT/.vale.ini"
+  merged_with .vale.ini
+  mkdir -p "$SLOT/styles/proselint"
+  echo 'message: "hedging"' >"$SLOT/styles/proselint/Hedging.yml"
+  check
+  jaq -e '.blockers == [{code: "untracked-files", message: "1 untracked file: styles/proselint/Hedging.yml", count: 1,
+    values: ["styles/proselint/Hedging.yml"]}]' <<<"$VERDICT"
+  echo '/styles/' >"$SLOT/.git/info/exclude"
+  listed '!! styles/'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+  mkdir -p "$SLOT/styles/config/vocabularies/Site"
+  echo agentnative >"$SLOT/styles/config/vocabularies/Site/accept.txt"
+  check
+  jaq -e '.blockers == [{code: "untracked-files", count: 1,
+    message: "1 untracked file: styles/config/vocabularies/Site/accept.txt",
+    values: ["styles/config/vocabularies/Site/accept.txt"]}]' <<<"$VERDICT"
+}
+
 @test "untracked files under build- and dist-named source directories block" {
   finished_task
   mkdir -p "$SLOT/tools/build" "$SLOT/src/dist"
