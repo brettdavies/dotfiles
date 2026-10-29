@@ -9,6 +9,7 @@ bats_require_minimum_version 1.5.0
 
 load lib/platform
 load lib/agent-slot
+load lib/processes
 
 setup_file() {
   require_linux "agent-slot reads /proc for agent state"
@@ -24,13 +25,11 @@ setup() {
 }
 
 teardown() {
-  local runner pid
-  if [ -n "$AGENT" ]; then
-    for pid in $(ps -o pid= --ppid "$AGENT" 2>/dev/null); do kill -KILL "$pid" 2>/dev/null || true; done
-    kill -KILL "$AGENT" 2>/dev/null || true
-  fi
+  local runner
+  stop_spawned
   runner=$(jaq -r '.release.runner_pid // empty' "$SLOT/.git/agent-slot.json" 2>/dev/null || true)
   [ -z "$runner" ] || kill "$runner" 2>/dev/null || true
+  assert_no_leaks
 }
 
 # claude_script COMMAND: the script Claude Code hands its shell for a Bash tool command.
@@ -49,7 +48,7 @@ agent() {
   [ -z "${2:-}" ] || job=$(claude_script "$2")
   inside=$(claude_script "cd '$SLOT' && '$AGENT_SLOT' release --output json >'$T/inside.out' 2>'$T/inside.err'; \
 echo \$? >'$T/inside.rc'")
-  bash -c '
+  spawn bash -c '
     trap "exit 0" TERM
     if [ -n "$1" ]; then bash -c "$1" & fi
     if [ -n "$4" ]; then sh -c "$4" & fi
@@ -57,7 +56,7 @@ echo \$? >'$T/inside.rc'")
       until [ -e "$2" ]; do sleep 0.05; done
       rm -f "$2"
       bash -c "$3"
-    done' _ "$job" "$T/go" "$inside" "${3:-}" </dev/null >/dev/null 2>&1 3>&- &
+    done' _ "$job" "$T/go" "$inside" "${3:-}" </dev/null >/dev/null 2>&1 3>&-
   AGENT=$!
   agent_status "$1"
 }

@@ -465,6 +465,10 @@ as it found it.
 | `slot-busy`              | Another `agent-slot` process holds the slot                                              |
 | `not-released`           | The automatic sweep found the task finished, but its agent is gone or never released it  |
 
+When processes outside the slot's panes use the slot, `agent-state-unknown` names each one in its message and in
+`values` as `<pid> <command>`, and names it by its oldest ancestor that still uses the slot. A loop that keeps starting
+short-lived children there is named by the loop, which lives on, rather than by whichever child the scan caught.
+
 ### System-Level Units (`config/systemd/system/`)
 
 System-level systemd units are **not** managed by stow (which targets `$HOME`). They live in `config/systemd/system/`

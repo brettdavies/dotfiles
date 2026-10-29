@@ -345,6 +345,21 @@ it to clean them up. A slot that fails that check stays put on the *needs-you li
 never deleted. A slot whose tmux sessions are gone after a server reboot is *dormant* until resume restarts them and its
 conversation.
 
+### Agent state
+
+What a slot's agent is doing as the slot tooling reads it, from Claude Code's own list of sessions joined on the slot's
+path: *idle* at its prompt, *busy* mid-turn, *waiting* on a permission prompt or a question, or *absent*, with no
+session and no process using the slot other than the slot's own terminal panes. Only idle and absent let an *agent slot*
+be torn down.
+
+The state is *unknown*, and the teardown refused, whenever it cannot be read with certainty: the session list cannot be
+read, more than one session matches, the session reports a status other than idle, busy, or waiting, a Claude process in
+the slot's panes runs with no session matching the slot, or a process outside the slot's panes has its working directory
+or an open file in the slot. A process counts as the panes' own when it descends from one, or when its environment still
+names the slot's terminal server and one of its panes, which keeps a shell's daemon that outlived its parent from
+holding the slot. That environment is inherited, so any process started from a pane passes the same way, including one a
+test run in the slot leaked. Anything else in the slot holds it until it exits.
+
 ## Flagged ambiguities
 
 - "Gate" names two different things: a *supply-chain age gate* is a policy applied to package resolution, while a *local

@@ -20,6 +20,7 @@ AGENTS_JSON='[]'
 AGENT_STATE=
 AGENT_DETAIL=
 AGENT_PIDS=
+AGENT_HOLDERS=()
 declare -gA _AGENT_PPID=() _AGENT_PANES=() _AGENT_PANE_IDS=()
 _AGENT_UNDER=
 _AGENT_SCAN_PID=
@@ -41,18 +42,26 @@ agentstate_load() {
     done <<<"$out"
   fi
 
+  # The parent map is read on both sides of the scan for processes under the slots, so a child the scan lists keeps its
+  # parent even when it was started after the first read and exits before anything looks at it.
   _AGENT_PPID=()
-  while read -r pid line; do
-    [[ -n $pid ]] && _AGENT_PPID[$pid]=$line
-  done < <(cat /proc/[0-9]*/stat 2>/dev/null | awk '{ pid = $1; sub(/^.*\) /, ""); print pid, $2 }')
-
+  _agent_read_parents
   _AGENT_UNDER=$(
     printf '%s\n' "$BASHPID"
     find /proc/[0-9]*/cwd /proc/[0-9]*/fd -maxdepth 1 -lname "$AS_ROOT_REAL/*" -printf '%p\t%l\n' 2>/dev/null || true
   )
+  _agent_read_parents
   _AGENT_SCAN_PID=${_AGENT_UNDER%%$'\n'*}
   _AGENT_UNDER=${_AGENT_UNDER#"$_AGENT_SCAN_PID"}
   _AGENT_UNDER=${_AGENT_UNDER#$'\n'}
+}
+
+# Usage: _agent_read_parents; adds each live process's parent to the map, keeping the parent already read for a pid.
+_agent_read_parents() {
+  local pid ppid
+  while read -r pid ppid; do
+    [[ -z $pid || -n ${_AGENT_PPID[$pid]:-} ]] || _AGENT_PPID[$pid]=$ppid
+  done < <(cat /proc/[0-9]*/stat 2>/dev/null | awk '{ pid = $1; sub(/^.*\) /, ""); print pid, $2 }')
 }
 
 # Usage: agentstate_descendants <pid...>; prints every process below the given ones, from the map agentstate_load read.
@@ -89,30 +98,42 @@ agentstate_inside_agent() {
 
 # Usage: agentstate_jobs; after agentstate_of, prints "<pid> <command>" for each Bash tool command the slot's Claude
 # still runs, other than the one this process runs in. Claude's hooks, status line, and plugin updates are its children
-# too, so only a Bash tool command's shape counts: a shell given -c a script that ends by writing its working directory
-# to a claude-<hex>-cwd file. The command shown is the one the agent wrote, unquoted from the script's eval '...'.
+# too, so only a Bash tool command's shape counts (_agent_command).
 agentstate_jobs() {
-  local claude pid script cmd shape='&& pwd -P >\| [^[:space:]]*/claude-[0-9a-f]+-cwd$'
-  local -a argv
+  local claude pid cmd
   for claude in $AGENT_PIDS; do
     for pid in "${!_AGENT_PPID[@]}"; do
       [[ ${_AGENT_PPID[$pid]} == "$claude" ]] || continue
       ! _agent_below "$$" "$pid" || continue
-      mapfile -d '' argv 2>/dev/null <"/proc/$pid/cmdline" || continue
-      ((${#argv[@]} >= 3)) && [[ ${argv[1]} == -c && ${argv[2]} =~ $shape ]] || continue
-      script=${argv[2]}
-      cmd=$script
-      if [[ $script == *"eval '"* ]]; then
-        cmd=${script#*"eval '"}
-        cmd=${cmd%" && pwd -P >| "*}
-        cmd=${cmd%" < /dev/null"}
-        cmd=${cmd%"'"}
-        cmd=${cmd//"'\"'\"'"/"'"}
-      fi
-      cmd=${cmd//[$'\n\t']/ }
+      cmd=$(_agent_command "$pid" tool) || continue
       printf '%s %s\n' "$pid" "${cmd:0:200}"
     done
   done | sort -n
+}
+
+# Usage: _agent_command <pid> [tool]; prints the process's command on one line, or fails once it has exited. A Bash
+# tool command is a shell given -c a script that ends by writing its working directory to a claude-<hex>-cwd file, and
+# shows as the command the agent wrote, unquoted from the script's eval '...'. With tool, any other process fails.
+_agent_command() {
+  local cmd shape='&& pwd -P >\| [^[:space:]]*/claude-[0-9a-f]+-cwd$'
+  local -a argv=()
+  mapfile -d '' argv 2>/dev/null <"/proc/$1/cmdline" || return 1
+  ((${#argv[@]} > 0)) || return 1
+  if ((${#argv[@]} >= 3)) && [[ ${argv[1]} == -c && ${argv[2]} =~ $shape ]]; then
+    cmd=${argv[2]}
+    if [[ $cmd == *"eval '"* ]]; then
+      cmd=${cmd#*"eval '"}
+      cmd=${cmd%" && pwd -P >| "*}
+      cmd=${cmd%" < /dev/null"}
+      cmd=${cmd%"'"}
+      cmd=${cmd//"'\"'\"'"/"'"}
+    fi
+  elif [[ ${2:-} == tool ]]; then
+    return 1
+  else
+    cmd=${argv[*]}
+  fi
+  printf '%s\n' "${cmd//[$'\n\t']/ }"
 }
 
 _agent_env_in_panes() {
@@ -124,10 +145,32 @@ _agent_env_in_panes() {
   [[ -n $pane && ${tmux_var##*/} == "$AS_TMUX_SOCKET" && " $2 " == *" $pane "* ]]
 }
 
+# Usage: _agent_holder <pid> <pids>; prints the pid's oldest ancestor among the space-separated pids, which use the slot.
+# A loop outside the panes that keeps starting short-lived children under the slot is then named once, by the loop that
+# lives on, rather than by whichever child the scan caught, which has exited by the time anyone reads its pid.
+_agent_holder() {
+  local pid=$1 pids=" $2 " parent hops=0
+  while ((hops++ < 64)); do
+    parent=${_AGENT_PPID[$pid]:-}
+    [[ -n $parent && $pids == *" $parent "* ]] || break
+    pid=$parent
+  done
+  printf '%s\n' "$pid"
+}
+
+# Usage: _agent_described <pid>; prints "<pid> <command>" with the command cut to 80 characters, or the pid alone once
+# the process has exited.
+_agent_described() {
+  local cmd
+  cmd=$(_agent_command "$1") || cmd=
+  printf '%s\n' "$1${cmd:+ ${cmd:0:80}}"
+}
+
 # Usage: agentstate_of <repo> <n>
-# Sets AGENT_STATE, AGENT_DETAIL (why, for unknown), and AGENT_PIDS (the Claude processes under the slot).
+# Sets AGENT_STATE, AGENT_DETAIL (why, for unknown), AGENT_HOLDERS ("<pid> <command>" for each process outside the
+# slot's panes that holds the slot, named by _agent_holder), and AGENT_PIDS (the Claude processes under the slot).
 agentstate_of() {
-  local repo=$1 n=$2 path name panes='' ids='' kind sessions count entry pid target comm
+  local repo=$1 n=$2 path name panes='' ids='' kind sessions count entry pid target comm users=' ' holder held=''
   local -a outside=()
   path=$AS_ROOT_REAL/$repo/$n
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
@@ -135,7 +178,7 @@ agentstate_of() {
     panes+=${_AGENT_PANES[$name]:-}
     ids+=${_AGENT_PANE_IDS[$name]:-}
   done
-  AGENT_STATE='' AGENT_DETAIL='' AGENT_PIDS=''
+  AGENT_STATE='' AGENT_DETAIL='' AGENT_PIDS='' AGENT_HOLDERS=()
 
   sessions=$(contract_json -c --arg p "$path" '[.[] | select(.cwd == $p or (.cwd | startswith($p + "/")))]' \
     <<<"$AGENTS_JSON")
@@ -149,6 +192,7 @@ agentstate_of() {
     pid=${pid%%/*}
     # The scan's subshell expands the /proc glob itself, so a scan run from inside the slot lists its own cwd and fds.
     [[ $pid == "$$" || $pid == "$BASHPID" || $pid == "$_AGENT_SCAN_PID" ]] && continue
+    [[ $users == *" $pid "* ]] || users+="$pid "
     if _agent_below "$pid" "$panes"; then
       comm=$(cat "/proc/$pid/comm" 2>/dev/null || true)
       if [[ $comm == claude && " $AGENT_PIDS " != *" $pid "* ]] && ((count == 0)); then
@@ -165,7 +209,13 @@ agentstate_of() {
   elif ((count > 1)); then
     AGENT_DETAIL="$count Claude sessions run under the slot"
   elif ((${#outside[@]} > 0)); then
-    AGENT_DETAIL="processes outside the slot's tmux panes use the slot: $(printf '%s\n' "${outside[@]}" | sort -un | paste -sd ' ')"
+    mapfile -t AGENT_HOLDERS < <(for pid in "${outside[@]}"; do _agent_holder "$pid" "$users"; done | sort -un \
+      | while read -r pid; do _agent_described "$pid"; done)
+    for holder in "${AGENT_HOLDERS[@]}"; do
+      [[ $holder != *" "* ]] || holder="${holder%% *} (${holder#* })"
+      held+="${held:+, }$holder"
+    done
+    AGENT_DETAIL="processes outside the slot's tmux panes use the slot: $held"
   fi
   if [[ -n $AGENT_DETAIL ]]; then
     AGENT_STATE=unknown
