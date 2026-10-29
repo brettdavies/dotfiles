@@ -78,9 +78,10 @@ _flags_for() {
       ;;
     config/shell/*.sh | .githooks/lib/*.sh | scripts/*/lib/*.sh | tests/lib/*.bash) echo "--shell=bash" ;;
     config/shell/shell-functions) echo "--shell=bash --exclude=SC1003" ;;
-    # -x follows the `# shellcheck source=` directive to lib/report.sh, so the
-    # helpers it defines are known rather than reported as unresolved sources.
-    .githooks/pre-commit | .githooks/pre-push) echo "-x" ;;
+    # -x follows the `# shellcheck source=` directives, such as the hooks' to
+    # lib/report.sh and run-tests' to tests/lib/processes.bash, so the helpers
+    # they define are known rather than reported as unresolved sources.
+    .githooks/pre-commit | .githooks/pre-push | scripts/run-tests) echo "-x" ;;
     # -x follows the `# shellcheck source=lib/...` directives, so the helpers the
     # libraries define are known. It reports nothing inside a sourced file, which
     # is why each scripts/*/lib/*.sh is also a target of its own.

@@ -8,9 +8,11 @@
 #   unknown  the lookup failed, more than one session matched, a claude process under the slot has no session, or a
 #            process outside the slot's own panes has its working directory or an open file under the slot
 #
-# A process belongs to the slot's own panes when it descends from one, or when its environment names the slot tmux
-# server and one of the slot's panes. The second covers a daemon a pane's shell started and let go of, such as
-# powerlevel10k's gitstatusd, which is reparented to init but keeps the TMUX and TMUX_PANE it inherited.
+# A process belongs to the slot's own panes when it descends from one, or when it is powerlevel10k's gitstatusd and its
+# environment names the slot tmux server and one of the slot's panes. The prompt starts gitstatusd under a subshell that
+# init adopts, so no pane is above it, and it holds the slot's git pack open. Every process a pane starts inherits the
+# same TMUX and TMUX_PANE, a job left running after its command ended included, so the environment alone admits only
+# gitstatusd.
 #
 # Only idle and absent let a slot be torn down. The inputs are read once per invocation by agentstate_load and shared
 # by every slot a command looks at.
@@ -136,8 +138,13 @@ _agent_command() {
   printf '%s\n' "${cmd//[$'\n\t']/ }"
 }
 
-_agent_env_in_panes() {
-  local environ tmux_var pane
+# Usage: _agent_pane_daemon <pid> <pane ids>; true when the process is gitstatusd and its environment names the slot
+# tmux server and one of the space-separated panes. The kernel cuts comm to 15 characters, so gitstatusd-linux-x86_64
+# reads as gitstatusd-linu.
+_agent_pane_daemon() {
+  local comm environ tmux_var pane
+  read -r comm 2>/dev/null <"/proc/$1/comm" || return 1
+  [[ $comm == gitstatusd* ]] || return 1
   environ=$(tr '\0' '\n' 2>/dev/null <"/proc/$1/environ") || return 1
   tmux_var=$(sed -n 's/^TMUX=//p' <<<"$environ")
   pane=$(sed -n 's/^TMUX_PANE=//p' <<<"$environ")
@@ -200,7 +207,7 @@ agentstate_of() {
       fi
       continue
     fi
-    _agent_env_in_panes "$pid" "$ids" && continue
+    _agent_pane_daemon "$pid" "$ids" && continue
     outside+=("$pid")
   done <<<"$_AGENT_UNDER"
 

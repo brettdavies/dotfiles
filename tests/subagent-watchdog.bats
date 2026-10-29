@@ -8,10 +8,17 @@
 GUIDE="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/guides/workflows-and-skills.md"
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/sleep-guard.sh"
 
+load lib/processes
+
 setup() {
   command -v jq >/dev/null 2>&1 || skip "jq not available"
   T=$BATS_TEST_TMPDIR
   mkdir -p "$T/projects"
+}
+
+teardown() {
+  stop_spawned
+  assert_no_leaks
 }
 
 # watchdog: the guide's watchdog block, the first bash fence after its heading.
@@ -34,18 +41,19 @@ aged() {
   perl -e 'my $t = time - 60 * shift; utime $t, $t, @ARGV' "$1" "$T/projects/agent-a1.jsonl"
 }
 
-# run_watchdog: runs the block against OUT for up to 3 s; status 124 when it was still waiting.
+# run_watchdog: runs the block against OUT for up to 3 s; status 124 when it was still waiting, and then stopped with
+# the sleep it was in.
 run_watchdog() {
   local script pid i
   script=$(watchdog | sed "s|<agent output file>|$OUT|")
-  bash -c "$script" >"$T/watchdog.out" 2>&1 3>&- &
+  spawn bash -c "$script" >"$T/watchdog.out" 2>&1 3>&-
   pid=$!
   for ((i = 0; i < 30; i++)); do
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.1
   done
   if kill -0 "$pid" 2>/dev/null; then
-    kill "$pid"
+    stop_spawned
     status=124
   else
     if wait "$pid"; then status=0; else status=$?; fi

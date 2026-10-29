@@ -24,6 +24,7 @@ setup() {
 teardown() {
   local pid
   for pid in "${SLEEPERS[@]}"; do kill "$pid" 2>/dev/null || true; done
+  stop_spawned
   assert_no_leaks
 }
 
@@ -68,6 +69,23 @@ outside_loop() {
   local n=0
   until [ "$(readlink "/proc/$LOOP/cwd" 2>/dev/null)" = "$SLOT" ] && pgrep -P "$LOOP" -x sleep >/dev/null \
     || ((n++ > 50)); do sleep 0.1; done
+}
+
+# Usage: pane_orphan <command...>; runs COMMAND with its working directory in the slot and the TMUX and TMUX_PANE of the
+# slot's pane %11, from a parent that exits at once, as init adopts a job that a pane's command left running. Sets
+# ORPHAN to its pid once it runs with that environment, which /proc shows only from COMMAND's own exec.
+pane_orphan() {
+  local tmux_var="TMUX=/tmp/tmux-test/$AGENT_SLOT_TMUX_SOCKET,1,0" n=0
+  printf 'repoa-1 999991 %%11\n' >"$STUBS/tmux-panes"
+  spawn bash -c 'cd "$1" || exit; "${@:3}" & echo "$!" >"$2"' _ "$SLOT" "$T/orphan.pid" \
+    env "$tmux_var" TMUX_PANE=%11 "$@" </dev/null >/dev/null 2>&1 3>&-
+  wait "$!" || true
+  ORPHAN=$(cat "$T/orphan.pid")
+  until grep -qsazxF "$tmux_var" "/proc/$ORPHAN/environ" || ((n++ > 50)); do sleep 0.1; done
+  grep -qsazxF "$tmux_var" "/proc/$ORPHAN/environ" || {
+    echo "pane_orphan: $* never ran with the pane's environment" >&2
+    return 1
+  }
 }
 
 has_blocker() { jaq -e --arg c "$1" 'any(.blockers[]; .code == $c)' <<<"$VERDICT" >/dev/null; }
@@ -191,6 +209,24 @@ listed() {
   outside_loop "source /dev/null 2>/dev/null || true && eval '$command' < /dev/null && pwd -P >| $T/claude-1a2b-cwd"
   check
   jaq -e --arg v "$LOOP $command" '.blockers[] | select(.code == "agent-state-unknown") | .values == [$v]' <<<"$VERDICT"
+}
+
+@test "an orphaned loop that carries a slot pane's TMUX and TMUX_PANE blocks, named by its pid and command" {
+  finished_task
+  local command='while :; do sleep 30; done'
+  pane_orphan bash -c "$command"
+  check
+  jaq -e --arg v "$ORPHAN bash -c $command" '.teardown == false
+    and (.blockers[] | select(.code == "agent-state-unknown") | .values == [$v])' <<<"$VERDICT"
+}
+
+@test "powerlevel10k's gitstatusd, carrying a slot pane's TMUX and TMUX_PANE, does not block" {
+  finished_task
+  pane_orphan "$(gitstatusd_standin)" -e 'sleep 120'
+  [ "$(cat "/proc/$ORPHAN/comm")" = gitstatusd-linu ]
+  check
+  lacks_blocker agent-state-unknown
+  jaq -e '.teardown == true' <<<"$VERDICT"
 }
 
 @test "a failed claude agents lookup blocks with agent-state-unknown" {
