@@ -172,18 +172,29 @@ text (`pgrep -f '[g]it push -u origin fix/x'`). `~/.claude/self-match-guard.sh` 
 the bracketed command.
 
 **Watchdog for a background subagent.** The `Agent` spawn result names the agent's output file. Start this right after
-dispatch; it exits once the file has gone 10 minutes without a write. The output path is a symlink to the live
-transcript, re-pointed when the agent resumes, so `-L` is required: without it `find` reads the link's own age and fires
-on a busy agent (`find -L -mmin` works with GNU and BSD find):
+dispatch. It exits when the file's last line shows the agent finished, or once the file has gone 10 minutes without a
+write. A finished agent's last line is its final assistant message, which ended its turn (`stop_reason` `end_turn`), or
+the result of its `SubagentHandback`: of 447 subagent transcripts on the Linux server over 20 days, 440 end with one of
+the two, and the other seven were stopped or cut off mid-message, which the 10-minute rule still catches. The output
+path is a symlink to the live transcript, re-pointed when the agent resumes, so `-L` is required: without it `find`
+reads the link's own age and fires on a busy agent (`find -L -mmin` works with GNU and BSD find):
 
 ```bash
-out=<agent output file>; while [ -n "$(find -L "$out" -mmin -10)" ]; do sleep 10; done; echo "agent quiet 10 min: $out"
+out=<agent output file>
+finished() { tail -n 1 "$out" | jq -e '.message.stop_reason == "end_turn" or .toolUseResult.message == "Report delivered to your caller."' >/dev/null 2>&1; }
+while [ -n "$(find -L "$out" -mmin -10)" ] && ! finished; do sleep 10; done
+if finished; then echo "agent finished: $out"; else echo "agent quiet 10 min: $out"; fi
 ```
 
-On wake, read the tail of the output file and the processes the agent started. A finished agent needs nothing; a stalled
-one gets a `SendMessage` (resume with a deadline, re-scope, or stop and clean up its processes); a long foreground step
-that is still producing work gets the watchdog re-armed. Background-subagent notices were observed to wait in a queue
-until the main session was next active, so the watchdog belongs to the main session, never to the subagent.
+When the agent's completion notice arrives, stop its watchdog at once with the task tool (`TaskStop`); don't leave it to
+see the finish itself. An agent stopped or failed mid-turn leaves neither last line, so its watchdog would run on for 10
+minutes, and every live background shell keeps the session listed busy, which holds back whatever waits for it to go
+idle, such as a slot's teardown. The 10-minute rule is there only to catch a stall. When the watchdog wakes you with
+`agent finished`, the agent needs nothing beyond reading its result. When it wakes you with `agent quiet 10 min`, read
+the tail of the output file and the processes the agent started: a stalled agent gets a `SendMessage` (resume with a
+deadline, re-scope, or stop and clean up its processes), and a long foreground step that is still producing work gets
+the watchdog re-armed. Background-subagent notices were observed to wait in a queue until the main session was next
+active, so the watchdog belongs to the main session, never to the subagent.
 
 **Brief clause.** Paste into every `Agent` prompt for work that can run past a few minutes, with the deadline filled in:
 
