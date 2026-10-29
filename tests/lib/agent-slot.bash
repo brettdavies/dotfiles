@@ -126,10 +126,12 @@ EOF
   chmod +x "$STUBS/$1"
 }
 
-# gitstatusd_standin: prints the path of a copy of sleep named as powerlevel10k's gitstatusd binary is, so a process
-# started from it has the daemon's comm, gitstatusd-linu.
+# gitstatusd_standin: prints the path of a copy of perl named as powerlevel10k's gitstatusd binary is, so a process
+# started from it, as `"$(gitstatusd_standin)" -e 'sleep 120'`, has the daemon's comm, gitstatusd-linu. Not a copy of
+# sleep: where coreutils is one multicall binary, as uutils is on Ubuntu 26.04, the copy picks its utility by its own
+# name and exits at once.
 gitstatusd_standin() {
-  cp "$(command -v sleep)" "$T/gitstatusd-linux-x86_64"
+  cp "$(command -v perl)" "$T/gitstatusd-linux-x86_64"
   printf '%s\n' "$T/gitstatusd-linux-x86_64"
 }
 

@@ -130,13 +130,17 @@ setup() {
 
 # start_in DIR VAR=VALUE... COMMAND...: a detached COMMAND with its working directory in DIR and the given environment,
 # as a daemon a pane's shell started (powerlevel10k's gitstatusd) or a shell opened by hand. Returns once COMMAND runs,
-# since /proc shows the first VAR=VALUE in its environment only from COMMAND's own exec.
+# since /proc shows the first VAR=VALUE in its environment only from COMMAND's own exec, and fails when it never does.
 start_in() {
-  local dir=$1
+  local dir=$1 n=0
   shift
   (cd "$dir" && exec setsid /usr/bin/env "$@" </dev/null >/dev/null 2>&1) &
   SLEEPER=$!
-  until grep -qsazxF "$1" "/proc/$SLEEPER/environ"; do sleep 0.1; done
+  until grep -qsazxF "$1" "/proc/$SLEEPER/environ" || ((n++ > 50)); do sleep 0.1; done
+  grep -qsazxF "$1" "/proc/$SLEEPER/environ" || {
+    echo "start_in: $* never ran" >&2
+    return 1
+  }
 }
 
 @test "gitstatusd that a slot pane's prompt started counts as the slot's own, by the pane it names" {
@@ -144,7 +148,7 @@ start_in() {
   echo repoa-1 >"$STUBS/tmux-sessions"
   printf 'repoa-1 999991 %%11\nrepoa-1-files 999992 %%12\nrepoa-1-git 999993 %%13\n' >"$STUBS/tmux-panes"
   start_in "$AGENT_SLOT_ROOT/repoa/1" TMUX="/tmp/tmux-test/agent-slot-test,1,0" TMUX_PANE=%12 \
-    "$(gitstatusd_standin)" 120
+    "$(gitstatusd_standin)" -e 'sleep 120'
   run --separate-stderr "$AGENT_SLOT" list --output json
   kill "$SLEEPER"
   jaq -e '.slots[0].agent == "absent"' <<<"$output"
@@ -154,7 +158,8 @@ start_in() {
   slot repoa 1
   echo repoa-1 >"$STUBS/tmux-sessions"
   printf 'repoa-1 999991 %%11\n' >"$STUBS/tmux-panes"
-  start_in "$AGENT_SLOT_ROOT/repoa/1" TMUX="/tmp/tmux-1000/default,1,0" TMUX_PANE=%11 "$(gitstatusd_standin)" 120
+  start_in "$AGENT_SLOT_ROOT/repoa/1" TMUX="/tmp/tmux-1000/default,1,0" TMUX_PANE=%11 \
+    "$(gitstatusd_standin)" -e 'sleep 120'
   run --separate-stderr "$AGENT_SLOT" list --output json
   kill "$SLEEPER"
   jaq -e --arg pid "$SLEEPER" '.slots[0].agent == "unknown" and (.slots[0].agent_detail | contains($pid))' <<<"$output"

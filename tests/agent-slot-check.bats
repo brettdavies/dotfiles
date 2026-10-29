@@ -82,6 +82,10 @@ pane_orphan() {
   wait "$!" || true
   ORPHAN=$(cat "$T/orphan.pid")
   until grep -qsazxF "$tmux_var" "/proc/$ORPHAN/environ" || ((n++ > 50)); do sleep 0.1; done
+  grep -qsazxF "$tmux_var" "/proc/$ORPHAN/environ" || {
+    echo "pane_orphan: $* never ran with the pane's environment" >&2
+    return 1
+  }
 }
 
 has_blocker() { jaq -e --arg c "$1" 'any(.blockers[]; .code == $c)' <<<"$VERDICT" >/dev/null; }
@@ -218,7 +222,8 @@ listed() {
 
 @test "powerlevel10k's gitstatusd, carrying a slot pane's TMUX and TMUX_PANE, does not block" {
   finished_task
-  pane_orphan "$(gitstatusd_standin)" 120
+  pane_orphan "$(gitstatusd_standin)" -e 'sleep 120'
+  [ "$(cat "/proc/$ORPHAN/comm")" = gitstatusd-linu ]
   check
   lacks_blocker agent-state-unknown
   jaq -e '.teardown == true' <<<"$VERDICT"
