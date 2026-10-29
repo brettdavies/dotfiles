@@ -351,6 +351,14 @@ only on Linux and a suite gated to macOS would never run there. Mac-side code is
 everywhere, and a check that needs a real Mac tool skips just that test when the tool is missing
 (`command -v plutil || skip`).
 
+A suite whose tests start background processes loads `tests/lib/processes.bash`, starts each one with `spawn`, and ends
+`teardown` with `stop_spawned` and then `assert_no_leaks`. `spawn` gives the process a session of its own, so
+`stop_spawned` kills everything it started, including children that a dead parent left to init. `assert_no_leaks` fails
+the test when any process carrying that test's `BATS_TEST_TMPDIR` outlives teardown, names it, and kills it. A leaked
+process keeps the working directory bats ran from, so a leak in a run inside an agent slot holds the slot against
+teardown until someone kills it by hand. `tests/leak-guard.bats` covers the guard, and runs the release suite from a
+scratch directory to check that it leaves nothing behind there.
+
 ---
 
 ## Branch Workflow

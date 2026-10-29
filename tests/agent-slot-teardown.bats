@@ -9,6 +9,7 @@ bats_require_minimum_version 1.5.0
 
 load lib/platform
 load lib/agent-slot
+load lib/processes
 
 setup_file() {
   require_linux "agent-slot reads /proc for agent state"
@@ -22,13 +23,14 @@ setup() {
 }
 
 teardown() {
-  [ -z "$AGENT" ] || kill -KILL "$AGENT" 2>/dev/null || true
+  stop_spawned
+  assert_no_leaks
 }
 
 # idle_agent [ON-TERM]: a stand-in for the slot's Claude, idle in claude agents, running ON-TERM when stopped. Its
 # working directory is outside the slot, so only claude agents ties it to the slot.
 idle_agent() {
-  bash -c "trap '${1:-:}; exit 0' TERM; sleep 120 & wait" </dev/null >/dev/null 2>&1 3>&- &
+  spawn bash -c "trap '${1:-:}; exit 0' TERM; sleep 120 & wait" </dev/null >/dev/null 2>&1 3>&-
   AGENT=$!
   jaq -n -c --arg cwd "$SLOT" --argjson pid "$AGENT" '[{pid: $pid, cwd: $cwd, status: "idle", sessionId: "s1"}]' \
     >"$STUBS/claude-agents.json"
@@ -249,7 +251,7 @@ exit 1'
 
 @test "sweep skips a slot whose lock is held and lists it as slot-busy" {
   finished_task
-  flock "$AGENT_SLOT_ROOT/repoa/.1.lock" sleep 60 3>&- &
+  spawn flock "$AGENT_SLOT_ROOT/repoa/.1.lock" sleep 60 3>&-
   AGENT=$!
   local n=0
   until [ -n "$(find "/proc/$AGENT/fd" -lname "$AGENT_SLOT_ROOT/repoa/.1.lock" 2>/dev/null)" ] || ((n++ > 50)); do

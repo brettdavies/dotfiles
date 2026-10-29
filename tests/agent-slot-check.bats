@@ -9,6 +9,7 @@ bats_require_minimum_version 1.5.0
 
 load lib/platform
 load lib/agent-slot
+load lib/processes
 
 setup_file() {
   require_linux "agent-slot reads /proc for agent state"
@@ -23,6 +24,7 @@ setup() {
 teardown() {
   local pid
   for pid in "${SLEEPERS[@]}"; do kill "$pid" 2>/dev/null || true; done
+  assert_no_leaks
 }
 
 # Usage: check [dir]; runs from dir with agent-slot exec'd, so no shell of the test's own holds dir as its cwd.

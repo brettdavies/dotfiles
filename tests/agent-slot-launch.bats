@@ -8,6 +8,7 @@ bats_require_minimum_version 1.5.0
 
 load lib/platform
 load lib/agent-slot
+load lib/processes
 
 setup_file() {
   require_linux "agent-slot reads /proc for agent state"
@@ -22,12 +23,11 @@ setup() {
   local n
   for n in 1 2 3 4 5 6 7 8 9; do trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/$n")"; done
   BEFORE=$(fingerprint "$AGENT_SLOT_DEV/repoa")
-  HOLDERS=()
 }
 
 teardown() {
-  local pid
-  for pid in "${HOLDERS[@]}"; do kill "$pid" 2>/dev/null || true; done
+  stop_spawned
+  assert_no_leaks
 }
 
 # The prime checkout is never claimed, modified, or deleted.
@@ -316,12 +316,10 @@ launch() {
   mkdir -p "$AGENT_SLOT_ROOT/repoa"
   echo '{"schema":"dotfiles.agent-slot/1","repo":"repoa","slot":1,"state":"setting-up","request_id":"r-live"}' \
     >"$AGENT_SLOT_ROOT/repoa/.1.claim.json"
-  flock "$AGENT_SLOT_ROOT/repoa/.1.lock" sleep 60 3>&- &
-  local holder=$!
-  until [ -n "$(find /proc/$holder/fd -lname "$AGENT_SLOT_ROOT/repoa/.1.lock" 2>/dev/null)" ]; do sleep 0.1; done
+  spawn flock "$AGENT_SLOT_ROOT/repoa/.1.lock" sleep 60 3>&-
+  until [ -n "$(find /proc/$!/fd -lname "$AGENT_SLOT_ROOT/repoa/.1.lock" 2>/dev/null)" ]; do sleep 0.1; done
   echo 'brief' >"$T/brief.md"
   launch repoa --request-id r-live --prompt-file "$T/brief.md"
-  kill "$holder" 2>/dev/null || true
   [ "$status" -eq 1 ]
   [ -z "$output" ]
   jaq -e '.reason == "slot-busy" and .recovery.retryable == true
@@ -332,8 +330,7 @@ launch() {
   slot repoa 1
   echo '{"schema":"dotfiles.agent-slot/1","repo":"repoa","slot":2,"state":"setting-up","request_id":"live"}' \
     >"$AGENT_SLOT_ROOT/repoa/.2.claim.json"
-  flock "$AGENT_SLOT_ROOT/repoa/.2.lock" sleep 60 3>&- &
-  HOLDERS+=($!)
+  spawn flock "$AGENT_SLOT_ROOT/repoa/.2.lock" sleep 60 3>&-
   until [ -n "$(find /proc/$!/fd -lname "$AGENT_SLOT_ROOT/repoa/.2.lock" 2>/dev/null)" ]; do sleep 0.1; done
   launch repoa --request-id r-third
   [ "$status" -eq 0 ]
