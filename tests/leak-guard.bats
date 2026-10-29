@@ -1,12 +1,14 @@
 #!/usr/bin/env bats
-# The leftover-process guard in tests/lib/processes.bash, and the suites that use it. Each test runs bats nested, from a
-# scratch directory of its own, as a run from inside an agent slot runs from the slot.
+# The leftover-process guards in tests/lib/processes.bash: the one a suite runs after each test, and the one
+# scripts/run-tests runs after each suite, which covers every suite. Each test runs bats nested, as a run from inside an
+# agent slot does, and checks what that run left running.
 #
 # Run: bats tests/leak-guard.bats
 
 bats_require_minimum_version 1.5.0
 
 load lib/platform
+load lib/processes
 
 setup_file() {
   require_linux "the guard reads /proc"
@@ -63,6 +65,14 @@ probe() {
   nested "$BATS_TEST_TMPDIR/probe.bats"
   [ "$status" -eq 0 ]
   none_in_cwd
+}
+
+@test "run-tests fails a suite that leaves a process running once bats exits, names it, and stops it" {
+  printf '%s\n' '@test "leak" { sleep 31 </dev/null >/dev/null 2>&1 3>&- & }' >"$CWD/leaky.bats"
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/leaky.bats"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"processes $CWD/leaky.bats started were still running after bats exited, and were killed:"*"sleep 31"* ]]
+  [ -z "$(processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]
 }
 
 @test "the release suite, run from a scratch directory, leaves no process behind with that directory as its cwd" {

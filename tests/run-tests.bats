@@ -30,8 +30,9 @@ _require_bats() {
 _sandbox() {
   _require_bats
   SANDBOX="$(mktemp -d)"
-  mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests/perf"
+  mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests/perf" "$SANDBOX/tests/lib"
   cp "$SCRIPT" "$SANDBOX/scripts/run-tests"
+  cp "$BATS_TEST_DIRNAME/lib/processes.bash" "$SANDBOX/tests/lib/"
 }
 
 # _probe <path> <name> <assertion>

@@ -20,11 +20,14 @@
 # own TAP plan and its own test numbering rather than one run-wide sequence.
 # RUN_TESTS_JOBS=1 restores the single combined stream.
 #
+# A bats process that leaves a process running after it exits fails: run-tests
+# gives the process 3 s, then kills it and names it under the bats output.
+#
 # The split modes exist so .githooks/pre-push can hold the machine quiet for
 # the perf suite and then overlap the main suite with its lint gates.
 #
-# Exit 0 when everything passes, 1 on a test failure, 2 on usage error,
-# 3 when bats is not installed.
+# Exit 0 when everything passes, 1 on a test failure or a process left
+# running, 2 on usage error, 3 when bats is not installed.
 
 if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
   for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
@@ -59,6 +62,8 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
+# shellcheck source=tests/lib/processes.bash
+source "$REPO_ROOT/tests/lib/processes.bash"
 
 # git hands hooks a GIT_DIR, and from a worktree it is absolute. An absolute
 # GIT_DIR outranks `-C`, so a test building a fixture with `git -C "$sandbox"`
@@ -71,12 +76,21 @@ cd "$REPO_ROOT"
 # a signal ignored at its own start, so a test that interrupts the code under
 # test would never see the trap fire. perl can reset it, so it restores the
 # defaults before exec'ing bats.
+#
+# Every process bats starts inherits RUN_TESTS_RUN, and bats has exited by the
+# time stop_leaks looks, so a process that still carries this call's value is
+# one a test left running. It keeps this checkout as its working directory,
+# which in an agent slot holds the slot against teardown.
 _bats() {
+  local run="$$.$BASHPID.$RANDOM" rc=0
   # shellcheck disable=SC2016 # the $SIG and $ARGV in single quotes are perl's
   env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
     -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_NAMESPACE \
+    RUN_TESTS_RUN="$run" \
     perl -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "run-tests: exec $ARGV[0]: $!\n"' \
-    bats "$@"
+    bats "$@" || rc="$EXIT_FAILURE"
+  stop_leaks "RUN_TESTS_RUN=$run" "$*" "bats exited" || rc="$EXIT_FAILURE"
+  return "$rc"
 }
 
 _cpu_count() {

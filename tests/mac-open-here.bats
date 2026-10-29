@@ -17,11 +17,14 @@ SCRIPT="$BATS_TEST_DIRNAME/../stow/local/dot-local/bin/mac-open-here"
 
 bats_require_minimum_version 1.5.0
 
+load lib/processes
+
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
   export CALLS="$BATS_TEST_TMPDIR/calls.log"
   RECV_HOME="$BATS_TEST_TMPDIR/home"
   export MAC_OPEN_CODE_CLI="$STUBS/code"
+  export CODE_PIDS="$BATS_TEST_TMPDIR/code.pids"
   mkdir -p "$STUBS" "$RECV_HOME"
   : >"$CALLS"
 
@@ -34,11 +37,22 @@ setup() {
   stub ls 'log ls "$@"
     [ -z "${LS_ERR:-}" ] || { echo "$LS_ERR" >&2; exit 1; }'
   stub code 'exec 3>&-
+    echo "$$" >>"$CODE_PIDS"
     log code "$@"
-    sleep "${CODE_SLEEP:-0}"'
+    exec sleep "${CODE_SLEEP:-0}"'
   passthrough mkdir MKDIR_ERR
   passthrough mv MV_ERR
   passthrough cat CAT_ERR
+}
+
+# The receiver detaches the CLI, so the test cannot stop it as a job of its own. The stub records its pid before its log
+# line, which every test that reaches it waits for, and teardown stops what is still running.
+teardown() {
+  local pid
+  if [ -f "$CODE_PIDS" ]; then
+    while read -r pid; do kill "$pid" 2>/dev/null || true; done <"$CODE_PIDS"
+  fi
+  assert_no_leaks
 }
 
 # stub NAME BODY: an executable NAME whose body can call `log`.
