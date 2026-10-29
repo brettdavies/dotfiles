@@ -528,6 +528,33 @@ sudo ~/dotfiles/scripts/tailscale-serve-deploy.sh
 > [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP
 > and the script's binding routes nowhere.
 
+### Rex login server
+
+The Rex login server lets Rex for Mac use the GPU server as a remote host. Each connection runs as the caller's own
+account, on the same server a local `rex` command reaches, so local and remote see the same sessions. It identifies
+callers by their Tailscale login, through the host's own tailscaled, and `/etc/rex/accounts.jsonc` maps each login to an
+account.
+
+Install the `rex` package first with the install command on Superlogical's
+[Linux install page](https://www.superlogical.com/rex/docs/linux/installation), on the preview channel. Until the first
+release, the repository requires the pre-release token from that page in `REX_PACKAGE_TOKEN`, and the script saves it in
+`/etc/apt/auth.conf.d/rex.conf` for later upgrades:
+
+```bash
+curl -fsSL -u "rex:$REX_PACKAGE_TOKEN" https://pkgs.superlogical.com/rex/install.sh | sh -s -- --channel preview
+```
+
+Then write the accounts file and the tailnet listener, and enable the service. `--login` is the Tailscale login to let
+in, and it gets the account that runs `sudo` unless `--account` names another:
+
+```bash
+sudo ~/dotfiles/scripts/rex-login-server-deploy.sh --login <tailscale-login>
+```
+
+The listener is plain HTTP on port 7297 of the host's tailnet addresses, which WireGuard encrypts. In Rex for Mac,
+choose **Add Remote Host…** and enter the host's tailnet name. The client tries HTTPS on 443 and 7297 before HTTP
+on 7297. `rex client ls` on the server shows each connected client's Tailscale login in its `principal` column.
+
 ### cswap auto-switching (systemd)
 
 The `cswap` package ships a oneshot unit and the timer that drives it. Apply the settings first, then enable the timer
