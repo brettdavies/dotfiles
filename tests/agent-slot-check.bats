@@ -59,6 +59,17 @@ sleeper() {
   SLEEPERS+=($!)
 }
 
+# Usage: outside_loop <script>; a bash -c SCRIPT with its working directory in the slot and no pane above it, added to
+# the SLEEPERS teardown kills. Sets LOOP to its pid once it has a sleep child.
+outside_loop() {
+  (cd "$SLOT" && exec bash -c "$1" </dev/null >/dev/null 2>&1) &
+  SLEEPERS+=($!)
+  LOOP=$!
+  local n=0
+  until [ "$(readlink "/proc/$LOOP/cwd" 2>/dev/null)" = "$SLOT" ] && pgrep -P "$LOOP" -x sleep >/dev/null \
+    || ((n++ > 50)); do sleep 0.1; done
+}
+
 has_blocker() { jaq -e --arg c "$1" 'any(.blockers[]; .code == $c)' <<<"$VERDICT" >/dev/null; }
 lacks_blocker() { jaq -e --arg c "$1" 'all(.blockers[]; .code != $c)' <<<"$VERDICT" >/dev/null; }
 
@@ -162,6 +173,24 @@ listed() {
   until [ "$(readlink "/proc/${SLEEPERS[0]}/cwd" 2>/dev/null)" = "$SLOT" ] || ((n++ > 50)); do sleep 0.1; done
   check
   has_blocker agent-state-unknown
+}
+
+@test "a loop outside the slot's panes that keeps starting short-lived children there is named by its pid and command" {
+  finished_task
+  outside_loop 'while :; do sleep 0.1; done'
+  check
+  local command='bash -c while :; do sleep 0.1; done'
+  jaq -e --arg v "$LOOP $command" \
+    --arg m "agent state unknown: processes outside the slot's tmux panes use the slot: $LOOP ($command)" \
+    '.blockers[] | select(.code == "agent-state-unknown") | .values == [$v] and .message == $m' <<<"$VERDICT"
+}
+
+@test "a Bash tool command outside the slot's panes that holds the slot is named by the command the agent wrote" {
+  finished_task
+  local command='while :; do sleep 0.1; done'
+  outside_loop "source /dev/null 2>/dev/null || true && eval '$command' < /dev/null && pwd -P >| $T/claude-1a2b-cwd"
+  check
+  jaq -e --arg v "$LOOP $command" '.blockers[] | select(.code == "agent-state-unknown") | .values == [$v]' <<<"$VERDICT"
 }
 
 @test "a failed claude agents lookup blocks with agent-state-unknown" {

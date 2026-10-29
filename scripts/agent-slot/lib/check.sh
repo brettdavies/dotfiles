@@ -245,7 +245,7 @@ ends; run agent-slot release as your last step, and the slot is torn down once y
         _check_block agent-not-idle "the agent is $AGENT_STATE"
       fi
       ;;
-    unknown) _check_block agent-state-unknown "agent state unknown: $AGENT_DETAIL" ;;
+    unknown) _check_block agent-state-unknown "agent state unknown: $AGENT_DETAIL" "" "${AGENT_HOLDERS[@]}" ;;
   esac
 }
 
