@@ -57,15 +57,25 @@ release_transcripts() {
   } | sort -u
 }
 
-# Usage: release_skills_in <transcript>; prints the name of each skill the session ran, without its plugin prefix: a
-# Skill tool call of the agent's, or a slash command typed as a prompt. Text inside a tool's result never counts, so a
-# session that read a file quoting a skill's name is not taken for one that ran it. A Skill call whose result is marked
-# is_error never ran: Claude Code answers a skill missing from its registry with "Unknown skill" that way. The result's
-# text is not read, since a skill that runs in a subagent returns its own output there. The failed ids gather in an
-# array and become an object once: updating an object on every user line triples jaq's peak memory on a 40 MB
-# transcript.
+# Usage: release_skills_in <transcript> [<since>]; prints the name of each skill the session ran, without its plugin
+# prefix: a Skill tool call of the agent's, or a slash command typed as a prompt. Text inside a tool's result never
+# counts, so a session that read a file quoting a skill's name is not taken for one that ran it. A Skill call whose
+# result is marked is_error never ran: Claude Code answers a skill missing from its registry with "Unknown skill" that
+# way. The result's text is not read, since a skill that runs in a subagent returns its own output there. The failed
+# ids gather in an array and become an object once: updating an object on every user line triples jaq's peak memory on
+# a 40 MB transcript.
+#
+# With <since>, an ISO 8601 time, a line stamped before it is skipped: a reopened slot resumes a conversation whose
+# earlier turns ran in another slot. Times compare as whole seconds since the epoch, not as strings, since <since> has
+# whole seconds and a line's timestamp has milliseconds, which sort "05.5Z" before "05Z". A line with no timestamp it
+# can read counts.
 release_skills_in() {
-  contract_json -r -R -n 'reduce (inputs | fromjson? // empty) as $line ({calls: [], failed: []};
+  contract_json -r -R -n --arg since "${2:-}" '
+    def epoch: sub("\\.[0-9]+"; "") | fromdateiso8601;
+    (if $since == "" then null else $since | epoch end) as $from
+    | reduce (inputs | fromjson? // empty
+        | select($from == null or ((.timestamp | try epoch catch null) // $from) >= $from)) as $line
+      ({calls: [], failed: []};
       if $line.type == "assistant" then
         .calls += [$line.message.content[]? | select(type == "object" and .type == "tool_use" and .name == "Skill")
           | {id: (.id // ""), skill: (.input.skill // empty)}]
@@ -79,12 +89,14 @@ release_skills_in() {
     | .calls[] | select($failed[.id] | not) | .skill | sub("^.*:"; "")' "$1" || true
 }
 
-# Usage: release_gate <repo> <n>; sets RELEASE_FOUND and RELEASE_MISSING from RELEASE_SKILLS.
+# Usage: release_gate <repo> <n>; sets RELEASE_FOUND and RELEASE_MISSING from RELEASE_SKILLS, counting only the calls
+# made since the slot was made.
 release_gate() {
-  local transcript skill found=''
+  local transcript skill found='' since
+  since=$(contract_json -r '.created_at // ""' <<<"$RECORD")
   while read -r transcript; do
     [[ -n $transcript && -r $transcript ]] || continue
-    found+=$'\n'$(release_skills_in "$transcript")
+    found+=$'\n'$(release_skills_in "$transcript" "$since")
   done < <(release_transcripts "$1" "$2")
   RELEASE_FOUND=() RELEASE_MISSING=()
   for skill in $RELEASE_SKILLS; do

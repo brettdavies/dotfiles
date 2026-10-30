@@ -288,6 +288,16 @@ listed() {
     | .message == "PR #9 closed without merging" and .values == ["9"])' <<<"$VERDICT"
 }
 
+@test "a PR closed without merging before the slot was reopened neither blocks nor finishes the task" {
+  work feat/y
+  git -C "$SLOT" push -q origin feat/y
+  pr 9 CLOSED feat/y
+  jaq '.prs = [9] | .settled_prs = [9]' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  check
+  lacks_blocker pr-closed-unmerged
+  jaq -e '.finished == false and .needs_you == [] and (.prs | map(.number)) == [9]' <<<"$VERDICT"
+}
+
 @test "AE10: a commit pushed after the merge, onto a recreated branch with no PR, blocks with commits-without-pr" {
   finished_task
   git -C "$SLOT" commit -q --allow-empty -m 'one more'

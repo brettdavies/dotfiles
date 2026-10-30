@@ -60,7 +60,9 @@ verb_help() {
       'head_pushable is false. An issue leaves the base branch checked out.' \
       'returns: created, key, repo, slot, path, state, task, name, items[] of {kind, repo, number, title}, label_name,' \
       '         request_id, session_id, base, head_pushable (null without a PR head), trust_prompt_expected,' \
-      '         prompt_delivered (false when the slot already held the task), missing_siblings, phases, next_step' \
+      '         prompt_delivered (false when the slot already held the task), missing_siblings, phases, next_step,' \
+      '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
+      '         reopen resumes, else null)' \
       'example: agent-slot launch oxipng --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
     resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--output json]' \
       "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID" \
@@ -99,11 +101,13 @@ verb_help() {
       'cannot read still fails. The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
       'the base, fetched from the remote the ledger recorded for it when that is on origin'"'"'s host, else from the' \
       "PR's head repository. Agents ask the operator first." \
-      'returns: with --dry-run, dry_run, would_reopen, refusal (null, or {reason, exit_code, message, value,' \
-      '         next_step, recovery}), item, source (the teardown event, or {key, state, name, items, session_id} of' \
-      '         the slot that holds the item or request), name, items[] of {kind, repo, number, title}, task,' \
-      '         session_id, transcript, transcript_exists, head {branch, remote, url, oid, source {branch, remote}},' \
-      '         slot, command, prompt_delivered' \
+      'returns: launch'"'"'s fields (key, name, items, session_id, prompt_delivered, ...) plus reopened_from {slot,' \
+      '         session_id, ts}, settled_prs (the PRs already merged or closed, which neither finish nor block the' \
+      '         task), head, and head_moved; with --dry-run, dry_run, would_reopen, refusal (null, or {reason,' \
+      '         exit_code, message, value, next_step, recovery}), item, source (the teardown event, or {key, state,' \
+      '         name, items, session_id} of the slot that holds the item or request), name, items[] of {kind, repo,' \
+      '         number, title}, task, session_id, transcript, transcript_exists, head {branch, remote, url, oid,' \
+      '         source {branch, remote}}, slot, command, prompt_delivered' \
       'example: agent-slot reopen oxipng --pr 887 --dry-run --output json' ;;
     sweep) printf '%s\n' 'usage: agent-slot sweep [--yes [--auto]] [--output json]' \
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \

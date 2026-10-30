@@ -81,6 +81,8 @@ source "$AS_LIB/launch.sh"
 source "$AS_LIB/prstate.sh"
 # shellcheck source=lib/items.sh
 source "$AS_LIB/items.sh"
+# shellcheck source=lib/reopenlookup.sh
+source "$AS_LIB/reopenlookup.sh"
 # shellcheck source=lib/reopen.sh
 source "$AS_LIB/reopen.sh"
 # shellcheck source=lib/homescan.sh

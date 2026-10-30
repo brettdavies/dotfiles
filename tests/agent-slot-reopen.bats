@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# agent-slot reopen: finding a work item's torn-down slot in the ledger, refusing what a reopen must not do, and the
-# dry run that reports the whole plan and changes nothing.
+# agent-slot reopen: finding a work item's torn-down slot in the ledger, refusing what a reopen must not do, the dry
+# run that reports the whole plan and changes nothing, and the reopen that makes a slot resuming the conversation.
 #
 # Run: bats tests/agent-slot-reopen.bats
 #
@@ -23,6 +23,9 @@ setup() {
   git config --file "$GIT_CONFIG_GLOBAL" "url.$T/origins/.insteadOf" https://github.com/up/
   git -C "$AGENT_SLOT_DEV/repoa" remote set-url origin https://github.com/up/repoa.git
   stub_gh_items
+  export AGENT_SLOT_LOCK_WAIT=2 AGENT_SLOT_TRUST_TIMEOUT=3
+  local n
+  for n in 1 2 3; do trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/$n")"; done
   LEDGER=$AGENT_SLOT_STATE_DIR/ledger.jsonl
   S1=4e0a3f33-f697-4dff-a32f-2b0202be99d4
   S2=e999f4ab-8387-4992-bb05-f4e6041b9b68
@@ -59,6 +62,21 @@ transcript() {
   printf '{"type":"user","sessionId":"%s"}\n' "$1" >"$dir/$1.jsonl"
   printf '%s' "$dir/$1.jsonl"
 }
+
+# origin_branch BARE BRANCH: a commit on top of main pushed to BRANCH of the bare repo BARE. Sets HEAD_SHA.
+origin_branch() {
+  HEAD_SHA=$(git -C "$T/seed-repoa" commit-tree -p HEAD -m "work on $2" 'HEAD^{tree}')
+  git -C "$T/seed-repoa" push -q "$1" "$HEAD_SHA:refs/heads/$2"
+}
+
+# fork_repo: a bare copy of repoa's origin that git reaches as git@github.com:me/repoa.git.
+fork_repo() {
+  mkdir -p "$T/forks"
+  git clone -q --bare "$T/origins/repoa.git" "$T/forks/repoa.git"
+  git config --file "$GIT_CONFIG_GLOBAL" --add "url.$T/forks/.insteadOf" git@github.com:me/
+}
+
+record_of() { jaq -c "$1" "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"; }
 
 # snapshot: every place a dry run must leave alone, as one string.
 snapshot() {
@@ -314,6 +332,10 @@ snapshot() {
   reopen repoa --pr 7 --prompt-file "$T/brief.md" --dry-run
   [ "$status" -eq 0 ]
   jaq -e '.would_reopen == true and .prompt_delivered == true and .slot == "repoa/1"' <<<"$output"
+  local expected
+  printf -v expected 'claude --dangerously-skip-permissions --resume %s -n repoa-pr7-fix-the-login "$(cat %q)"' "$S1" \
+    "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot-prompt.md"
+  [ "$(jaq -r .command <<<"$output")" = "$expected" ]
 }
 
 @test "reopen takes exactly one of --pr or --issue, and only the options it documents" {
@@ -336,4 +358,164 @@ snapshot() {
   [[ $output == *"--session"*"--dry-run"* ]]
   [[ $output == *$'\nreturns: '*name*items*would_reopen* ]] || [[ $output == *$'\nreturns: '*would_reopen*name*items* ]]
   [[ $output == *"example: agent-slot reopen "*"--dry-run"* ]]
+}
+
+# --- the reopen --------------------------------------------------------------------------------------------------------
+
+@test "a reopen resumes the source's conversation in a fresh slot under its name, typing the first message as written" {
+  gh_item pr 7 "Fix the login" MERGED '{"headRefName": "feat/x", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
+  origin_branch "$T/origins/repoa.git" feat/x
+  local path brief=$T/brief.md before expected slot=$AGENT_SLOT_ROOT/repoa/1
+  path=$(transcript "$S1")
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$path\", \"items\": [$PR7],
+    \"name\": \"repoa-pr7-fix-the-login\", \"prs\": [7], \"head\": \"feat/x\", \"branches\": [{\"name\": \"feat/x\",
+    \"oid\": \"$HEAD_SHA\", \"remote\": \"origin\", \"url\": \"https://github.com/up/repoa.git\"}]}"
+  printf '%s' $'Answer the "review": it'"'"'s $HOME, $(touch '"$T"'/pwned), and `date`\nsecond line' >"$brief"
+  before=$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")
+  reopen repoa --pr 7 --prompt-file "$brief" --request-id r-1
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e --arg s "$S1" --argjson items "[$PR7]" '.created == true and .key == "repoa/1"
+    and .name == "repoa-pr7-fix-the-login" and .items == $items and .session_id == $s and .prompt_delivered == true
+    and .head_pushable == true and .settled_prs == [7] and .reopened_from.slot == 1' <<<"$output"
+  jaq -e --arg s "$S1" --arg t "$path" --argjson items "[$PR7]" '.state == "active" and .session_id == $s
+    and .transcript == $t and .items == $items and .name == "repoa-pr7-fix-the-login" and .named_as == .name
+    and .task == "t1" and .prs == [7] and .settled_prs == [7] and .request_id == "r-1"
+    and .reopened_from == {slot: 1, session_id: $s, ts: "2026-10-01T00:00:00Z"} and .finished_by_operator == false
+    and ([has("release", "not_yet", "closing_sent_at", "last_check")] | any | not)
+    and .created_at != "2026-10-01T00:00:00Z"' "$slot/.git/agent-slot.json"
+  printf -v expected 'claude --dangerously-skip-permissions --resume %s -n repoa-pr7-fix-the-login "$(cat %q)"' "$S1" \
+    "$slot/.git/agent-slot-prompt.md"
+  [ "$(cat "$STUBS/typed-repoa-1")" = "$expected" ]
+  mkdir -p "$T/fakebin"
+  printf '#!/usr/bin/env bash\nprintf "%%s" "${@: -1}" >"%s/received"\n' "$T" >"$T/fakebin/claude"
+  chmod +x "$T/fakebin/claude"
+  (cd "$slot" && PATH="$T/fakebin:$PATH" bash -c "$(cat "$STUBS/typed-repoa-1")")
+  cmp "$brief" "$T/received"
+  [ ! -e "$T/pwned" ]
+  [ "$(git -C "$slot" symbolic-ref --short HEAD)" = feat/x ]
+  [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
+  [ "$(git -C "$slot" rev-parse --abbrev-ref 'feat/x@{upstream}')" = origin/feat/x ]
+  jaq -e -s --arg s "$S1" --argjson item "$PR7" '.[-1] | .event == "reopen" and .slot == 1 and .item == $item
+    and .items == [$item] and .name == "repoa-pr7-fix-the-login" and .session_id == $s
+    and .reopened_from == {slot: 1, session_id: $s, ts: "2026-10-01T00:00:00Z"}
+    and .head.source == {branch: "ledger", remote: "ledger"}' "$LEDGER"
+  [ "$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")" = "$before" ]
+}
+
+@test "the head comes from the ledger's head and branches: remote fork is added at the recorded URL and the branch tracks it" {
+  fork_repo
+  origin_branch "$T/forks/repoa.git" feat/x
+  gh_item pr 7 "Fix the login" OPEN '{"headRefName": "feat/gh", "headRepositoryOwner": {"id": "U_3", "login": "other"},
+    "isCrossRepository": true}'
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7], \"prs\": [7],
+    \"head\": \"feat/x\", \"branches\": [{\"name\": \"feat/x\", \"oid\": \"$HEAD_SHA\", \"remote\": \"fork\",
+    \"url\": \"git@github.com:me/repoa.git\"}]}"
+  local before slot=$AGENT_SLOT_ROOT/repoa/1
+  before=$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")
+  reopen repoa --pr 7
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e '.head_pushable == true and .settled_prs == []' <<<"$output"
+  [ "$(git -C "$slot" config --get remote.fork.url)" = git@github.com:me/repoa.git ]
+  [ "$(git -C "$slot" symbolic-ref --short HEAD)" = feat/x ]
+  [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
+  [ "$(git -C "$slot" for-each-ref --format='%(upstream:short) %(push:remotename)' refs/heads/feat/x)" = 'fork/feat/x fork' ]
+  record_of '.prs == [7] and .settled_prs == []' | grep -qx true
+  [ "$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")" = "$before" ]
+}
+
+@test "a reopen from a teardown line without branches takes the head from gh's view of the PR" {
+  gh_item pr 7 "Fix the login" OPEN '{"headRefName": "feat/x", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
+  origin_branch "$T/origins/repoa.git" feat/x
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"prs\": [7]}"
+  local before slot=$AGENT_SLOT_ROOT/repoa/1
+  before=$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")
+  reopen repoa --pr 7
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e --argjson items "[$PR7]" '.name == "repoa-pr7-fix-the-login" and .items == $items' <<<"$output"
+  [ "$(git -C "$slot" symbolic-ref --short HEAD)" = feat/x ]
+  [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
+  [ "$(git -C "$slot" rev-parse --abbrev-ref 'feat/x@{upstream}')" = origin/feat/x ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --resume $S1 -n repoa-pr7-fix-the-login" ]
+  jaq -e -s '.[-1] | .event == "reopen" and .head.source == {branch: "gh", remote: "gh"}' "$LEDGER"
+  [ "$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")" = "$before" ]
+}
+
+@test "a reopen whose clone fails rolls the slot back, leaves no claim, and writes no reopen line" {
+  gh_item pr 7 "Fix the login"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7]}"
+  mv "$T/origins/repoa.git" "$T/origins/moved.git"
+  local before
+  before=$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")
+  reopen repoa --pr 7 --request-id r-2
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "clone-failed" and .recovery.retryable == true and .recovery.side_effects == "none"
+    and .next_step.command == "agent-slot reopen repoa --pr 7 --request-id r-2"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/.1.claim.json" ]
+  [ "$(grep -c 'new-session' "$CALLS")" -eq 0 ]
+  jaq -e -s 'all(.[]; .event != "reopen")' "$LEDGER"
+  [ "$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")" = "$before" ]
+}
+
+@test "a retry with the reopen's request ID returns its slot; a second reopen without it is refused with item-held-by-slot" {
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
+    \"name\": \"repoa-issue12-fix-the-widget\"}"
+  printf 'pick it back up\n' >"$T/brief.md"
+  reopen repoa --issue 12 --request-id r-1 --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e '.created == true and .key == "repoa/1" and .prompt_delivered == true' <<<"$output"
+  [ "$(git -C "$AGENT_SLOT_ROOT/repoa/1" symbolic-ref --short HEAD)" = main ]
+  reopen repoa --issue 12 --request-id r-1 --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  jaq -e --arg s "$S1" '.created == false and .key == "repoa/1" and .name == "repoa-issue12-fix-the-widget"
+    and .session_id == $s and .prompt_delivered == true' <<<"$output"
+  reopen repoa --issue 12
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "item-held-by-slot" and .value == "repoa/1"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
+  [ "$(grep -c 'new-session' "$CALLS")" -eq 3 ]
+  [ "$(jaq -s '[.[] | select(.event == "reopen")] | length' "$LEDGER")" -eq 1 ]
+}
+
+@test "the settled PRs are the source's PRs that are merged or closed when the slot is reopened" {
+  gh_item issue 12 "Fix the widget"
+  jaq -n -c '[{number: 7, state: "MERGED"}, {number: 8, state: "CLOSED"}, {number: 9, state: "OPEN"}]
+    | map(. + {headRefName: "b\(.number)", headRefOid: "0", createdAt: "2026-09-01T00:00:00Z", title: "t", url: "u"})' \
+    >"$STUBS/gh-prs.json"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
+    \"prs\": [7, 8, 9]}"
+  reopen repoa --issue 12
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  record_of '.prs == [7, 8, 9] and .settled_prs == [7, 8]' | grep -qx true
+}
+
+@test "a reopen that cannot read which of the source's PRs have settled fails with pr-state-unknown and makes no slot" {
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
+    \"prs\": [7]}"
+  reopen repoa --issue 12
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "pr-state-unknown" and .recovery.retryable == true and .recovery.side_effects == "none"
+    and .next_step.command == "agent-slot reopen repoa --issue 12"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+  [ "$(grep -c 'new-session' "$CALLS")" -eq 0 ]
 }

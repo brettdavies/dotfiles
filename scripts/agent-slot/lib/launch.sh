@@ -113,12 +113,13 @@ _launch_command() {
   [[ -z $LAUNCH_ITEM_KIND ]] || printf ' --%s %s' "$LAUNCH_ITEM_KIND" "$(contract_quote "$LAUNCH_ITEM_REF")"
 }
 
-# Usage: launch_output <repo> <n> <created> [<trust-prompt-expected> <phases-json>]
+# Usage: launch_output <repo> <n> <created> [<trust-prompt-expected> <phases-json> [<fields-json>]]
 # prompt_delivered says whether this call's --prompt-file is the slot's first message: true for a new slot or a retry
 # of the request that made it, false for a slot another request made, null without a --prompt-file. head_pushable says
-# whether this call checked out a PR's head that can be pushed to, null when it checked out none.
+# whether this call checked out a PR's head that can be pushed to, null when it checked out none. <fields-json> is
+# merged over the output.
 launch_output() {
-  local repo=$1 n=$2 created=$3 trust=${4:-false} phases=${5:-null} delivered=null path
+  local repo=$1 n=$2 created=$3 trust=${4:-false} phases=${5:-null} fields=${6:-'{}'} delivered=null path
   path=$(slot_path "$repo" "$n")
   record_read "$repo" "$n" || RECORD='{}'
   if [[ -n $LAUNCH_PROMPT ]]; then
@@ -128,6 +129,7 @@ launch_output() {
   contract_ok "$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$path" \
     --argjson created "$created" --argjson trust "$trust" --argjson phases "$phases" --arg docs "$CONTRACT_DOCS" \
     --argjson delivered "$delivered" --arg branch "$(slot_branch "$path")" --argjson pushable "$HEAD_PUSHABLE" \
+    --argjson fields "$fields" \
     --argjson missing "$(printf '%s\n' "${PARITY_MISSING_SIBLINGS[@]}" | contract_json -R -s -c 'split("\n") | map(select(. != ""))')" \
     "$SLOT_LABEL_DEF"'{created: $created, key: $key, repo: .repo, slot: .slot, path: $path, state: .state, task: .task,
       name: .name, items: (.items // []), label_name: label_name($branch), request_id: .request_id,
@@ -135,12 +137,23 @@ launch_output() {
       prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases,
       next_step: {action: "run", command: "agent-slot check \($key) --output json", docs: $docs,
                   note: ("each Rex client is asked to open this slot'"'"'s tab when the slot is made; a Mac that"
-                         + " is asleep or offline opens it once it is back")}}' <<<"$RECORD")" '
+                         + " is asleep or offline opens it once it is back")}} + $fields' <<<"$RECORD")" '
     "\(.key) \(if .created then "is ready" else "already holds this request" end) at \(.path)" +
       (if .label_name then " (\(.label_name))" else "" end) +
       (if .trust_prompt_expected then "; Claude will ask to trust the folder" else "" end) +
       (if .prompt_delivered == false
-       then "; this first message was not delivered, because the slot already holds the task" else "" end)'
+       then "; this first message was not delivered, because the slot already holds the task" else "" end) +
+      (if .prior then "\n\(.prior.note)" else "" end)'
+}
+
+# Usage: launch_prior <repo>; prints {prior: {session_id, ts, note}} for the newest torn-down slot of the repo that
+# worked on the launch's item, whose conversation reopen resumes, else {prior: null}.
+launch_prior() {
+  contract_json -c --arg cmd "$(contract_quote agent-slot reopen "$1" "--$LAUNCH_ITEM_KIND" "$LAUNCH_ITEM_REF")" '
+    {prior: (if . == null then null else {session_id, ts,
+      note: "a slot torn down \(.ts) worked on this item; \($cmd) resumes its conversation once no slot holds the item"}
+      end)}' \
+    <<<"$(reopen_source_event "$1" "$LAUNCH_ITEM")"
 }
 
 cmd_launch() {
@@ -165,7 +178,7 @@ cmd_launch() {
         --value "$(slot_key "$repo" "$LAUNCH_EXISTING")" \
         --command "$(_launch_command)${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
     fi
-    launch_output "$repo" "$LAUNCH_EXISTING" false
+    launch_output "$repo" "$LAUNCH_EXISTING" false false null '{"prior": null}'
     return
   fi
   # The session starts under the name, so named_as keeps the automatic sweep from typing a /rename to it.
@@ -179,7 +192,8 @@ cmd_launch() {
          name: $name, named_as: $name}
       end')
   slot_make "$repo" launch "$(_launch_command)" "$seed" "$LAUNCH_PROMPT" launch "$head"
-  launch_output "$repo" "$SLOT_MADE" true "$SLOT_MADE_TRUST" "$SLOT_MADE_PHASES"
+  launch_output "$repo" "$SLOT_MADE" true "$SLOT_MADE_TRUST" "$SLOT_MADE_PHASES" \
+    "$(if [[ -n $LAUNCH_ITEM ]]; then launch_prior "$repo"; else echo '{"prior": null}'; fi)"
 }
 
 cmd_resume() {

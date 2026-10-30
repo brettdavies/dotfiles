@@ -462,7 +462,8 @@ EOF
 }
 
 @test "resume of a dormant slot starts its three sessions, the Claude one resuming the recorded session with permission prompts skipped" {
-  slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444", "task": "fix-login", "name": "repoa-pr7-fix-login"}'
+  slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444", "task": "fix-login", "name": "repoa-pr7-fix-login",
+    "prompt_file": "/srv/slots/repoa/1/.git/agent-slot-prompt.md"}'
   mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1"
   : >"$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1/aaaaaaaa-1111-2222-3333-444444444444.jsonl"
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
@@ -615,6 +616,23 @@ EOF
   [ "$(git -C "$slot" symbolic-ref --short HEAD)" = main ]
   jaq -e '.prs == [] and .named_as == "repoa-issue12-widget-breaks-on-resize"' "$slot/.git/agent-slot.json"
   [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --session-id $session -n repoa-issue12-widget-breaks-on-resize" ]
+}
+
+@test "launch --pr of an item a torn-down slot worked on reports that slot as prior and names reopen" {
+  github_origin
+  pr_head "$T/origins/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
+  gh_item issue 12 "Fix the widget"
+  mkdir -p "$AGENT_SLOT_STATE_DIR"
+  jaq -n -c '{schema: "dotfiles.agent-slot/1", ts: "2026-10-01T00:00:00Z", event: "teardown", repo: "repoa", slot: 3,
+    session_id: "aaaaaaaa-1111-2222-3333-444444444444", prs: [7], items: []}' >>"$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  jaq -e '.created == true and .prior.session_id == "aaaaaaaa-1111-2222-3333-444444444444"
+    and .prior.ts == "2026-10-01T00:00:00Z" and (.prior.note | contains("agent-slot reopen repoa --pr 7"))' <<<"$output"
+  launch repoa --issue 12
+  [ "$status" -eq 0 ]
+  jaq -e '.created == true and .prior == null' <<<"$output"
 }
 
 @test "--pr with --issue fails before anything is claimed" {

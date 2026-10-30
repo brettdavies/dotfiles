@@ -216,6 +216,33 @@ renames_typed() { grep -c -- ' -l /rename ' "$CALLS" || true; }
   [ "$status" -eq 0 ]
 }
 
+@test "a reopened slot's gate counts only the skill calls made since the slot was made, compared as times" {
+  finished_task
+  record_set '.created_at = "2026-10-30T16:27:05Z"'
+  : >"$T/transcript.jsonl"
+  local skill at
+  for at in 2026-10-30T16:20:00.000Z 2026-10-30T16:27:04.999Z; do
+    for skill in ce-compound ce-compound-refresh; do
+      jaq -n -c --arg s "compound-engineering:$skill" --arg at "$at" '{type: "assistant", timestamp: $at,
+        message: {content: [{type: "tool_use", name: "Skill", input: {skill: $s}}]}}' >>"$T/transcript.jsonl"
+    done
+  done
+  record_set ".transcript = \"$T/transcript.jsonl\""
+  release
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound ce-compound-refresh"' <<<"$stderr"
+  for skill in ce-compound ce-compound-refresh; do
+    jaq -n -c --arg s "compound-engineering:$skill" '{type: "assistant", timestamp: "2026-10-30T16:27:05.123Z",
+      message: {content: [{type: "tool_use", name: "Skill", input: {skill: $s}}]}}' >>"$T/transcript.jsonl"
+  done
+  agent busy
+  release
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+}
+
 # --- background jobs ---------------------------------------------------------------------------------------------------
 
 @test "release refuses while the agent's Claude still runs a background Bash tool command, and names it" {
@@ -612,6 +639,26 @@ check: say what with agent-slot release --not-yet '<why>' --output json, and rel
   [ -d "$SLOT" ]
   run --separate-stderr "$AGENT_SLOT" list --output json
   jaq -e '.slots[0].needs_you[0].code == "not-released"' <<<"$output"
+}
+
+@test "AE5: a slot reopened for a merged PR is not finished, gets no closing steps, and finishes once a newer PR merges" {
+  finished_task
+  record_set '.prs = [7] | .settled_prs = [7] | .created_at = "2026-07-01T00:00:00Z"'
+  agent idle
+  verdict
+  jaq -e '.finished == false and .teardown == false' <<<"$VERDICT"
+  auto_sweep
+  jaq -e '.torn_down == [] and .closing_sent == [] and .needs_you == []' <<<"$output"
+  [ -z "$(grep -F 'Your task has finished' "$STUBS/typed-repoa-1" 2>/dev/null || true)" ]
+  [ "$(record '.closing_sent_at')" = null ]
+  work feat/y
+  git -C "$SLOT" push -q origin feat/y
+  pr 8 MERGED feat/y 2026-08-01T00:00:00Z
+  squash_merge feat/y
+  verdict
+  jaq -e '.finished == true and .finished_by == "merge"' <<<"$VERDICT"
+  auto_sweep
+  jaq -e '.closing_sent == ["repoa/1"]' <<<"$output"
 }
 
 @test "the operator's sweep still tears down a finished slot its agent never released" {

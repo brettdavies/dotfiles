@@ -3,8 +3,9 @@
 # share. Every lookup must show that it ran; a lookup that fails, or that returns nothing to judge, is a blocker.
 #
 # A task has finished when none of its PRs is open or closed without merging and one has merged, or when the operator
-# finished it, or the finish its agent's release started did, whatever state its PRs are in. A finished slot may go only
-# when every check below passes:
+# finished it, or the finish its agent's release started did, whatever state its PRs are in. A reopened slot's
+# settled_prs, its PRs already merged or closed when it was reopened, count toward neither, so only a new outcome
+# finishes it; their heads still count as pushed. A finished slot may go only when every check below passes:
 #
 #   the agent is idle or absent; the tree is clean apart from setup's docs/solutions link and nothing is stashed; every
 #   local commit is in the final head of one of the task's PRs, or, for a task that never had a PR, on a branch of a
@@ -353,6 +354,7 @@ check_inputs_load() {
 # Usage: check_slot <repo> <n>; sets CHECK_VERDICT. PR state comes from one gh call per repo, made on first use.
 check_slot() {
   local repo=$1 n=$2 path real state base origin prs='[]' prs_known=1 refspecs=() number out finished marked
+  local judged='[]'
   local -a closed links
   CHECK_BLOCKERS=() CHECK_PUSH_REMOTES=()
   path=$(slot_path "$repo" "$n")
@@ -370,6 +372,8 @@ check_slot() {
     pr_load "$repo" "$origin"
     if [[ ${PR_OK[$repo]} == 1 ]]; then
       prs=$(pr_for_slot "$repo" "$path" "$RECORD")
+      judged=$(contract_json -c --argjson record "$RECORD" \
+        '($record.settled_prs // []) as $s | map(select(.number as $n | any($s[]; . == $n) | not))' <<<"$prs")
     else
       prs_known=0
       _check_block pr-state-unknown "gh could not read the PRs of $(pr_repo_slug "$origin")"
@@ -385,7 +389,7 @@ check_slot() {
     fi
     _check_fetch_push_remotes "$path"
 
-    mapfile -t closed < <(contract_json -r '.[] | select(.state == "CLOSED") | .number' <<<"$prs")
+    mapfile -t closed < <(contract_json -r '.[] | select(.state == "CLOSED") | .number' <<<"$judged")
     if ((${#closed[@]} > 0)) && [[ $marked != true ]]; then
       _check_block pr-closed-unmerged "PR #$(printf '%s, PR #' "${closed[@]}" | sed 's/, PR #$//') closed without merging" \
         "" "${closed[@]}"
@@ -411,7 +415,7 @@ check_slot() {
   finished=$(contract_json -r --argjson op "$marked" --argjson ok "$prs_known" '
     if $ok == 0 then false
     else $op or ((any(.[]; .state == "OPEN" or .state == "CLOSED") | not) and any(.[]; .state == "MERGED"))
-    end' <<<"$prs")
+    end' <<<"$judged")
   [[ $state == active ]] || finished=false
   CHECK_VERDICT=$(printf '%s\n' "${CHECK_BLOCKERS[@]}" | contract_json -s -c --arg key "$(slot_key "$repo" "$n")" \
     --arg path "$path" --arg state "$state" --argjson prs "$prs" --argjson finished "$finished" \

@@ -35,10 +35,11 @@ _sessions_conversation_saved() {
   [[ -n $(find "$AS_CLAUDE_PROJECTS" -mindepth 2 -maxdepth 2 -name "$id.jsonl" -print -quit 2>/dev/null) ]]
 }
 
-# Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume]
+# Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume | reopen]
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
-# value from it is shell-quoted. A resume whose conversation was never saved starts Claude as a launch does. Either way
-# Claude's session takes the slot's name, else its task, so a resumed session carries the record's name.
+# value from it is shell-quoted. A resume or reopen whose conversation was never saved starts Claude as a launch does.
+# In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name.
+# The first message goes with a launch and a reopen only: a resume brings back a slot that already had it.
 sessions_command() {
   local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt
   case $kind in
@@ -46,22 +47,21 @@ sessions_command() {
     git) printf '%s' 'lazygit' ;;
     claude)
       name=$(contract_json -r '.name // .task // ""' <<<"$RECORD")
-      if [[ $mode == resume ]] && _sessions_conversation_saved; then
-        printf -v cmd '%s --resume %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
-        [[ -z $name ]] || printf -v cmd '%s -n %q' "$cmd" "$name"
-        printf '%s' "$cmd"
-        return
-      fi
-      printf -v cmd '%s --session-id %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
-      [[ -z $name ]] || printf -v cmd '%s -n %q' "$cmd" "$name"
       prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
+      if [[ $mode != launch ]] && _sessions_conversation_saved; then
+        printf -v cmd '%s --resume %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
+        [[ $mode == reopen ]] || prompt=''
+      else
+        printf -v cmd '%s --session-id %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
+      fi
+      [[ -z $name ]] || printf -v cmd '%s -n %q' "$cmd" "$name"
       [[ -z $prompt ]] || printf -v cmd '%s "$(cat %q)"' "$cmd" "$prompt"
       printf '%s' "$cmd"
       ;;
   esac
 }
 
-# Usage: sessions_start <repo> <n> <launch | resume>
+# Usage: sessions_start <repo> <n> <launch | resume | reopen>
 # Creates each of the slot's sessions that does not exist yet and types its program in, reading the record from
 # RECORD. Sets SESSIONS_CREATED to the sessions it made. The caller holds the slot lock, so two calls never race to
 # create the same session.
