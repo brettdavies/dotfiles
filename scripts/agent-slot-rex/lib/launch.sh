@@ -116,7 +116,7 @@ launch_open_sweep() {
 launch_succeeded() {
   local key label
   key=$(contract_json -r '.key' <<<"$SERVER_OUT")
-  label=$(contract_json -r '.key + (if .task then " · \(.task)" else "" end)
+  label=$(contract_json -r '.key + (if .label_name then " · \(.label_name)" else "" end)
     + (if .trust_prompt_expected == true then " · trust needed" else "" end)' <<<"$SERVER_OUT")
   launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$label"
   launch_try rex_layout "$REX_SESSION" "$REX_BLOCK" "$key"

@@ -15,12 +15,12 @@ RECONCILE_SLOTS='[]'
 RECONCILE_RESUMED=()
 RECONCILE_RESULT='{}'
 
-# The label a slot's tab carries: its key, its task or branch, whether Claude is still waiting on the folder trust
-# dialog, and the first thing that keeps it from being torn down. Rex's limit cuts it from the end, so the key a tab is
-# matched by stays in front, and cuts it the same way each pass, so a relabelled tab is not relabelled again.
+# The label a slot's tab carries: its key, the label_name list gives it, whether Claude is still waiting on the folder
+# trust dialog, and the first thing that keeps it from being torn down. Rex's limit cuts it from the end, so the key a
+# tab is matched by stays in front, and cuts it the same way each pass, so a relabelled tab is not relabelled again.
 RECONCILE_LABEL="$REX_LABEL_DEF"'def tab_label:
   (.key
-   + (if (.task // .branch) then " · \(.task // .branch)" else "" end)
+   + (if .label_name then " · \(.label_name)" else "" end)
    + ((.agent // "") as $agent
       | if .trust_prompt_expected == true and (["idle", "busy", "waiting"] | index($agent)) == null
         then " · trust needed" else "" end)

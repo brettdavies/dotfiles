@@ -39,6 +39,37 @@ launch() {
   run --separate-stderr "$AGENT_SLOT" launch "$@" --output json
 }
 
+# github_origin: repoa's prime with its origin at GitHub's https URL for up/repoa, which the test's git config rewrites
+# to the local bare origin, and gh answering from gh_item's fixtures.
+github_origin() {
+  git config --file "$GIT_CONFIG_GLOBAL" "url.$T/origins/.insteadOf" https://github.com/up/
+  git -C "$AGENT_SLOT_DEV/repoa" remote set-url origin https://github.com/up/repoa.git
+  BEFORE=$(fingerprint "$AGENT_SLOT_DEV/repoa")
+  stub_gh_items
+}
+
+# fork_urls: GitHub's https and ssh URLs for me/repoa, rewritten to a bare repo under $T/forks that fork_repo makes.
+fork_urls() {
+  git config --file "$GIT_CONFIG_GLOBAL" --add "url.$T/forks/.insteadOf" https://github.com/me/
+  git config --file "$GIT_CONFIG_GLOBAL" --add "url.$T/forks/.insteadOf" git@github.com:me/
+}
+
+fork_repo() {
+  fork_urls
+  git clone -q --bare "$T/origins/repoa.git" "$T/forks/repoa.git"
+}
+
+# pr_head BARE BRANCH N: a commit on top of main pushed to BRANCH of the bare repo BARE, when BRANCH is not empty, and to
+# origin's refs/pull/N/head, where GitHub keeps every PR's head. Sets HEAD_SHA.
+pr_head() {
+  HEAD_SHA=$(git -C "$T/seed-repoa" commit-tree -p HEAD -m "work for #$3" 'HEAD^{tree}')
+  [ -z "$2" ] || git -C "$T/seed-repoa" push -q "$1" "$HEAD_SHA:refs/heads/$2"
+  git -C "$T/seed-repoa" push -q "$T/origins/repoa.git" "$HEAD_SHA:refs/pull/$3/head"
+}
+
+SAME_REPO_HEAD='{"headRefName": "feat/x", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
+FORK_HEAD='{"headRefName": "feat/x", "headRepositoryOwner": {"id": "U_2", "login": "me"}, "isCrossRepository": true}'
+
 # partial_prime NAME: a blobless clone of NAME's origin, served over file:// so the filter applies, whose origin/main
 # has moved past its checkout as a fetch leaves it. The prime lacks the blob at origin/main, and the origin stores the
 # next blob as a delta against that one, so a thin pack built against the prime's refs carries a delta it cannot
@@ -431,13 +462,13 @@ EOF
 }
 
 @test "resume of a dormant slot starts its three sessions, the Claude one resuming the recorded session with permission prompts skipped" {
-  slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444"}'
+  slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444", "task": "fix-login", "name": "repoa-pr7-fix-login"}'
   mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1"
   : >"$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1/aaaaaaaa-1111-2222-3333-444444444444.jsonl"
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
   jaq -e '.started == ["repoa-1", "repoa-1-files", "repoa-1-git"]' <<<"$output"
-  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --resume aaaaaaaa-1111-2222-3333-444444444444' ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --resume aaaaaaaa-1111-2222-3333-444444444444 -n repoa-pr7-fix-login' ]
 }
 
 @test "resume of a slot whose conversation Claude never saved starts Claude with its session ID and task, as launch does" {
@@ -474,4 +505,144 @@ EOF
   run --separate-stderr "$AGENT_SLOT" resume repoa/7 --output json
   [ "$status" -eq 1 ]
   jaq -e '.reason == "slot-not-found"' <<<"$stderr"
+}
+
+@test "launch --pr of a same-repo PR checks out its head tracking origin and names the slot and its Claude session" {
+  github_origin
+  pr_head "$T/origins/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
+  launch repoa --pr 7 --request-id r-pr
+  [ "$status" -eq 0 ]
+  local slot=$AGENT_SLOT_ROOT/repoa/1 session
+  local items='[{"kind": "pr", "repo": "up/repoa", "number": 7, "title": "Fix the login"}]'
+  jaq -e --argjson items "$items" '.created == true and .name == "repoa-pr7-fix-the-login"
+    and .task == "repoa-pr7-fix-the-login" and .label_name == "repoa-pr7-fix-the-login" and .items == $items
+    and .head_pushable == true' <<<"$output"
+  session=$(jaq -r .session_id <<<"$output")
+  [ "$(git -C "$slot" symbolic-ref --short HEAD)" = feat/x ]
+  [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
+  [ "$(git -C "$slot" rev-parse --abbrev-ref 'feat/x@{upstream}')" = origin/feat/x ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --session-id $session -n repoa-pr7-fix-the-login" ]
+  jaq -e --argjson items "$items" '.items == $items and .name == "repoa-pr7-fix-the-login"
+    and .named_as == "repoa-pr7-fix-the-login" and .prs == [7] and .task == "repoa-pr7-fix-the-login"' \
+    "$slot/.git/agent-slot.json"
+  jaq -e -s --argjson items "$items" '.[-1] | .event == "launch" and .items == $items
+    and .name == "repoa-pr7-fix-the-login"' "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+  assert_prime_untouched
+}
+
+@test "launch --pr of a PR from a fork adds remote fork at the head repo's URL and checks out the head pushing there" {
+  github_origin
+  fork_repo
+  pr_head "$T/forks/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local slot=$AGENT_SLOT_ROOT/repoa/1
+  jaq -e '.head_pushable == true and .name == "repoa-pr7-fix-the-login"' <<<"$output"
+  [ "$(git -C "$slot" config --get remote.fork.url)" = https://github.com/me/repoa.git ]
+  [ "$(git -C "$slot" symbolic-ref --short HEAD)" = feat/x ]
+  [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
+  [ "$(git -C "$slot" for-each-ref --format='%(upstream:short) %(push:remotename)' refs/heads/feat/x)" = 'fork/feat/x fork' ]
+}
+
+@test "a fork head whose URL a prime remote holds in the other form gets that remote's name in the slot" {
+  github_origin
+  fork_repo
+  git -C "$AGENT_SLOT_DEV/repoa" remote add mine git@github.com:me/repoa.git
+  BEFORE=$(fingerprint "$AGENT_SLOT_DEV/repoa")
+  pr_head "$T/forks/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local slot=$AGENT_SLOT_ROOT/repoa/1
+  [ "$(git -C "$slot" remote | sort | paste -sd ' ')" = 'mine origin' ]
+  [ "$(git -C "$slot" for-each-ref --format='%(upstream:short) %(push:remotename)' refs/heads/feat/x)" = 'mine/feat/x mine' ]
+  [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
+  assert_prime_untouched
+}
+
+@test "a head whose branch or repository is gone is checked out from refs/pull/N/head under its name, with no upstream" {
+  github_origin
+  pr_head '' '' 7
+  local gone_branch=$HEAD_SHA
+  gh_item pr 7 "Fix the login" MERGED "$SAME_REPO_HEAD"
+  pr_head '' '' 8
+  gh_item pr 8 "Fix the logout" CLOSED '{"headRefName": "feat/y", "headRepository": null,
+    "headRepositoryOwner": null, "isCrossRepository": true}'
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  jaq -e '.head_pushable == false' <<<"$output"
+  local slot=$AGENT_SLOT_ROOT/repoa/1
+  [ "$(git -C "$slot" symbolic-ref --short HEAD)" = feat/x ]
+  [ "$(git -C "$slot" rev-parse HEAD)" = "$gone_branch" ]
+  [ -z "$(git -C "$slot" for-each-ref --format='%(upstream)' refs/heads/feat/x)" ]
+  launch repoa --pr 8
+  [ "$status" -eq 0 ]
+  jaq -e '.key == "repoa/2" and .head_pushable == false' <<<"$output"
+  slot=$AGENT_SLOT_ROOT/repoa/2
+  [ "$(git -C "$slot" symbolic-ref --short HEAD)" = feat/y ]
+  [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
+  [ -z "$(git -C "$slot" for-each-ref --format='%(upstream)' refs/heads/feat/y)" ]
+  [ "$(git -C "$slot" remote)" = origin ]
+}
+
+@test "a fork fetch that fails for another reason rolls the slot back with retryable clone-failed naming the remote" {
+  github_origin
+  fork_urls
+  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
+  launch repoa --pr 7 --request-id r-fork
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "clone-failed" and .value == "fork" and .recovery.retryable == true
+    and .recovery.side_effects == "none" and .next_step.command == "agent-slot launch repoa --pr 7 --request-id r-fork"' \
+    <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/.1.claim.json" ]
+  [ "$(grep -c 'new-session' "$CALLS")" -eq 0 ]
+  assert_prime_untouched
+}
+
+@test "launch --issue keeps the base checked out, records the issue, and names the slot; a given task stays as given" {
+  github_origin
+  gh_item issue 12 "Widget breaks on resize"
+  launch repoa --issue 12 --task widget
+  [ "$status" -eq 0 ]
+  local slot=$AGENT_SLOT_ROOT/repoa/1 session
+  local items='[{"kind": "issue", "repo": "up/repoa", "number": 12, "title": "Widget breaks on resize"}]'
+  jaq -e --argjson items "$items" '.name == "repoa-issue12-widget-breaks-on-resize" and .task == "widget"
+    and .items == $items and .head_pushable == null' <<<"$output"
+  session=$(jaq -r .session_id <<<"$output")
+  [ "$(git -C "$slot" symbolic-ref --short HEAD)" = main ]
+  jaq -e '.prs == [] and .named_as == "repoa-issue12-widget-breaks-on-resize"' "$slot/.git/agent-slot.json"
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --session-id $session -n repoa-issue12-widget-breaks-on-resize" ]
+}
+
+@test "--pr with --issue fails before anything is claimed" {
+  launch repoa --pr 7 --issue 12
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa" ]
+  [ "$(grep -c '^gh ' "$CALLS")" -eq 0 ]
+}
+
+@test "a repeat launch --pr returns the slot that holds the PR, even after the PR's title changed" {
+  github_origin
+  pr_head "$T/origins/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  gh_item pr 7 "Fix the login page" OPEN "$SAME_REPO_HEAD"
+  launch repoa --pr up/repoa#7
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false and .key == "repoa/1" and .name == "repoa-pr7-fix-the-login"' <<<"$output"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
+}
+
+@test "launch's help documents --pr and --issue with the ref forms, and names name and items among its returns" {
+  run "$AGENT_SLOT" launch --help
+  [ "$status" -eq 0 ]
+  [[ ${lines[0]} == "usage: agent-slot launch <repo> [--pr <ref> | --issue <ref>]"* ]]
+  [[ $output == *"owner/name#N"*"https://github.com/owner/name/pull/N"* ]]
+  [[ $output == *$'\nreturns: '*name*items*label_name*head_pushable* ]]
+  [[ $output == *"example: agent-slot launch "*"--pr "* ]]
 }

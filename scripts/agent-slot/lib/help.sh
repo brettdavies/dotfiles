@@ -32,25 +32,35 @@ verb_help() {
       'returns: repos[] of {name, prime, origin}' \
       'example: agent-slot repos --output json' ;;
     list) printf '%s\n' 'usage: agent-slot list [--output json]' \
-      'Lists every slot with its state, agent state, task, and its needs-you blockers.' \
-      'returns: slots[] of the slot record plus {key, path, state, branch, agent, agent_detail, sessions, needs_you}' \
+      'Lists every slot with its state, agent state, label, and its needs-you blockers. A slot'"'"'s label is its name,' \
+      'else its task, else its branch.' \
+      'returns: slots[] of the slot record plus {key, path, state, branch, label_name, agent, agent_detail, sessions,' \
+      '         needs_you}' \
       "example: agent-slot list --output json | jaq '.slots[] | select(.needs_you != [])'" ;;
     whoami) printf '%s\n' 'usage: agent-slot whoami [--path DIR] [--output json]' \
       'Prints the slot that DIR (default: the current directory) is inside. Outside a slot it fails with the error' \
       'reason not-in-slot (exit 1).' \
-      'returns: slot, the slot record plus {key, path}' \
+      'returns: slot, the slot record plus {key, path, label_name}' \
       'example: agent-slot whoami --output json' ;;
     launch) printf '%s\n' \
-      'usage: agent-slot launch <repo> [--request-id ID] [--task NAME] [--prompt-file FILE] [--requested-at EPOCH]' \
-      '                         [--output json]' \
+      'usage: agent-slot launch <repo> [--pr <ref> | --issue <ref>] [--request-id ID] [--task NAME]' \
+      '                         [--prompt-file FILE] [--requested-at EPOCH] [--output json]' \
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
-      '--dangerously-skip-permissions. A repeat with the same --request-id (or --task) returns the same slot. Agents' \
-      'always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _, -, and /,' \
-      'starting with a letter or digit, up to 64. A new slot pushes a restore to each Mac in AGENT_SLOT_REX_CLIENTS,' \
-      "so its tab opens in Rex; the push runs in the background and is logged to $AS_STATE_DIR/push.log." \
-      'returns: created, key, repo, slot, path, state, task, request_id, session_id, base, trust_prompt_expected,' \
+      '--dangerously-skip-permissions. A repeat with the same --request-id, --task, or work item returns the same' \
+      'slot. Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
+      '-, and /, starting with a letter or digit, up to 64. A new slot pushes a restore to each Mac in' \
+      "AGENT_SLOT_REX_CLIENTS, so its tab opens in Rex; the push runs in the background and is logged to" \
+      "$AS_STATE_DIR/push.log." \
+      '--pr or --issue gives the slot a work item and a name from it, <repo>-pr<N>-<slug> or <repo>-issue<N>-<slug>,' \
+      'which its Claude session takes and which is the task when --task is not given. A ref is N (in the origin' \
+      'repo), owner/name#N, or its GitHub URL, such as https://github.com/owner/name/pull/N. A PR'"'"'s head branch is' \
+      'checked out tracking the remote that holds it: origin, the remote the prime checkout has for that repo, or' \
+      'fork. A head whose branch or repository is gone is checked out from refs/pull/N/head with no upstream, and' \
+      'head_pushable is false. An issue leaves the base branch checked out.' \
+      'returns: created, key, repo, slot, path, state, task, name, items[] of {kind, repo, number, title}, label_name,' \
+      '         request_id, session_id, base, head_pushable (null without a PR head), trust_prompt_expected,' \
       '         prompt_delivered (false when the slot already held the task), missing_siblings, phases, next_step' \
-      'example: agent-slot launch dotfiles --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
+      'example: agent-slot launch oxipng --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
     resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--output json]' \
       "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID" \
       'with --dangerously-skip-permissions.' \

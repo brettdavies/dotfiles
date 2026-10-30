@@ -1,9 +1,9 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
 # A slot's three tmux sessions on the slot server, each a login shell rooted at the slot with its program typed in:
 #
-#   <repo>-<N>        claude in bypass permissions mode, started with the slot's session ID, the task name when one was
-#                     given, and the first message read from a file by the shell itself, so the prompt never passes
-#                     through tmux or quoting
+#   <repo>-<N>        claude in bypass permissions mode, started with the slot's session ID, the slot's name (else its
+#                     task) when it has one, and the first message read from a file by the shell itself, so the prompt
+#                     never passes through tmux or quoting
 #   <repo>-<N>-files  yazi, through the `y` shell function when it exists
 #   <repo>-<N>-git    lazygit
 #
@@ -37,20 +37,23 @@ _sessions_conversation_saved() {
 
 # Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume]
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
-# value from it is shell-quoted. A resume whose conversation was never saved starts Claude as a launch does.
+# value from it is shell-quoted. A resume whose conversation was never saved starts Claude as a launch does. Either way
+# Claude's session takes the slot's name, else its task, so a resumed session carries the record's name.
 sessions_command() {
-  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd task prompt
+  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt
   case $kind in
     files) printf '%s' 'command -v y >/dev/null && y || yazi' ;;
     git) printf '%s' 'lazygit' ;;
     claude)
+      name=$(contract_json -r '.name // .task // ""' <<<"$RECORD")
       if [[ $mode == resume ]] && _sessions_conversation_saved; then
-        printf '%s --resume %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
+        printf -v cmd '%s --resume %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
+        [[ -z $name ]] || printf -v cmd '%s -n %q' "$cmd" "$name"
+        printf '%s' "$cmd"
         return
       fi
       printf -v cmd '%s --session-id %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
-      task=$(contract_json -r '.task // ""' <<<"$RECORD")
-      [[ -z $task ]] || printf -v cmd '%s -n %q' "$cmd" "$task"
+      [[ -z $name ]] || printf -v cmd '%s -n %q' "$cmd" "$name"
       prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
       [[ -z $prompt ]] || printf -v cmd '%s "$(cat %q)"' "$cmd" "$prompt"
       printf '%s' "$cmd"

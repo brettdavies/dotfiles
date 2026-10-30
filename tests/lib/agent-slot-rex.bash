@@ -159,11 +159,13 @@ repos() {
     repos: split("\n") | map(select(. != "") | {name: ., prime: ("/srv/" + .), origin: "git@example.com:o/\(.).git"})}')"
 }
 
-# slots JSON-ARRAY: the server's list verb reports these slots, each merged over the defaults of an active slot.
+# slots JSON-ARRAY: the server's list verb reports these slots, each merged over the defaults of an active slot, with a
+# label_name, unless one is given, as list gives it: the slot's name, else its task, else its branch.
 slots() {
   ssh_answer list 0 "$(jaq -c '{schema: "dotfiles.agent-slot/1", ok: true, verb: "list",
     slots: map({state: "active", task: null, branch: null, agent: "idle", needs_you: [],
-                sessions: {claude: true, files: true, git: true}} + . + {key: "\(.repo)/\(.slot)"})}' <<<"$1")"
+                sessions: {claude: true, files: true, git: true}} + . + {key: "\(.repo)/\(.slot)"}
+               | {label_name: (.name // .task // .branch)} + .)}' <<<"$1")"
 }
 
 # server_error REASON MESSAGE EXIT RETRYABLE: an agent-slot error object.

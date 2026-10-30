@@ -124,6 +124,21 @@ setup() {
     <<<"$output"
 }
 
+@test "whoami labels a slot by its name, else its task, else its branch" {
+  slot repoa 1 '{"task": "fix-login", "name": "repoa-pr7-fix-login"}'
+  slot repoa 2 '{"task": "fix-login"}'
+  slot repoa 3
+  git -C "$AGENT_SLOT_ROOT/repoa/3" checkout -q -b feat/topic
+  run --separate-stderr "$AGENT_SLOT" whoami --path "$AGENT_SLOT_ROOT/repoa/1" --output json
+  jaq -e '.slot.label_name == "repoa-pr7-fix-login" and .slot.task == "fix-login"' <<<"$output"
+  run "$AGENT_SLOT" whoami --path "$AGENT_SLOT_ROOT/repoa/1"
+  [ "$output" = "repoa/1 at $AGENT_SLOT_ROOT/repoa/1 (repoa-pr7-fix-login)" ]
+  run "$AGENT_SLOT" whoami --path "$AGENT_SLOT_ROOT/repoa/2"
+  [ "$output" = "repoa/2 at $AGENT_SLOT_ROOT/repoa/2 (fix-login)" ]
+  run "$AGENT_SLOT" whoami --path "$AGENT_SLOT_ROOT/repoa/3"
+  [ "$output" = "repoa/3 at $AGENT_SLOT_ROOT/repoa/3 (feat/topic)" ]
+}
+
 @test "whoami resolves a slot reached through a symlink to the slot root" {
   slot repoa 1
   ln -s "$AGENT_SLOT_ROOT" "$T/link"

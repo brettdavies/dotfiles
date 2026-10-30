@@ -40,13 +40,21 @@ cmd_repos() {
   contract_ok "$json" '.repos[] | "\(.name)\t\(.prime)"'
 }
 
+# label_name($branch), on a slot record: the one label every surface shows for the slot, its name, else its task, else
+# the branch its clone has checked out ($branch, "" for none).
+SLOT_LABEL_DEF='def label_name($branch): .name // .task // (if $branch == "" then null else $branch end);'
+
+# Usage: slot_branch <path>; prints the branch the slot's clone has checked out, or nothing.
+slot_branch() {
+  [[ ! -d $1/.git ]] || git -C "$1" symbolic-ref --short -q HEAD || true
+}
+
 # Usage: slot_view <repo> <n> <session-list>
 # Sets SLOT_VIEW to the slot as list reports it: the record's fields plus agent state, tmux sessions, branch, the
-# needs-you list, and label_name, the one label every surface shows for the slot: its name, else its task, else its
-# branch.
+# needs-you list, and label_name.
 SLOT_VIEW=
 slot_view() {
-  local repo=$1 n=$2 sessions=$3 rec path state agent branch='' claude=false files=false git=false
+  local repo=$1 n=$2 sessions=$3 rec path state agent branch claude=false files=false git=false
   path=$(slot_path "$repo" "$n")
   if record_read "$repo" "$n"; then
     rec=$RECORD
@@ -60,12 +68,12 @@ slot_view() {
   [[ $state != active || $claude == true ]] || state=dormant
   agentstate_of "$repo" "$n"
   agent=$AGENT_STATE
-  [[ ! -d $path/.git ]] || branch=$(git -C "$path" symbolic-ref --short -q HEAD || true)
+  branch=$(slot_branch "$path")
   SLOT_VIEW=$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$path" --arg state "$state" \
     --arg agent "$agent" --arg detail "$AGENT_DETAIL" --arg branch "$branch" --argjson claude "$claude" \
-    --argjson files "$files" --argjson git "$git" '
-    (if $branch == "" then null else $branch end) as $branch
-    | . + {key: $key, path: $path, state: $state, branch: $branch, label_name: (.name // .task // $branch),
+    --argjson files "$files" --argjson git "$git" "$SLOT_LABEL_DEF"'
+    label_name($branch) as $label | (if $branch == "" then null else $branch end) as $branch
+    | . + {key: $key, path: $path, state: $state, branch: $branch, label_name: $label,
          agent: $agent, agent_detail: (if $detail == "" then null else $detail end),
          sessions: {claude: $claude, files: $files, git: $git},
          needs_you: (.last_check.blockers // [])}' <<<"$rec")
@@ -114,6 +122,7 @@ cmd_whoami() {
     contract_fail not-in-slot "$dir is not inside a slot under $AS_ROOT" --value "$dir" --command "agent-slot list"
   fi
   contract_ok "$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$(slot_path "$repo" "$n")" \
-    '{slot: (. + {key: $key, path: $path})}' <<<"$RECORD")" \
-    '.slot | "\(.key) at \(.path)\(if .task then " (\(.task))" else "" end)"'
+    --arg branch "$(slot_branch "$(slot_path "$repo" "$n")")" "$SLOT_LABEL_DEF"'
+    {slot: (. + {key: $key, path: $path, label_name: label_name($branch)})}' <<<"$RECORD")" \
+    '.slot | "\(.key) at \(.path)\(if .label_name then " (\(.label_name))" else "" end)"'
 }

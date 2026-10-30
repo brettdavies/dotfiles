@@ -71,6 +71,10 @@ source "$AS_LIB/doctor.sh"
 source "$AS_LIB/parity.sh"
 # shellcheck source=lib/sessions.sh
 source "$AS_LIB/sessions.sh"
+# shellcheck source=lib/head.sh
+source "$AS_LIB/head.sh"
+# shellcheck source=lib/slotmake.sh
+source "$AS_LIB/slotmake.sh"
 # shellcheck source=lib/launch.sh
 source "$AS_LIB/launch.sh"
 # shellcheck source=lib/prstate.sh
