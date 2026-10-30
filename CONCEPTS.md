@@ -344,13 +344,16 @@ task at a time. A slot is set up like the repo's *prime checkout* (the operator'
 copy, the `docs/solutions` symlink is present, Claude reads and writes the repo's single auto memory, the prime's local
 permission grants apply, and a prime that is a partial clone gives the slot a partial clone with the same filter. A slot
 path is either empty or holds one task. The task keeps its slot through review rounds until it has finished: none of its
-PRs is open or closed without merging and one has merged, or the operator finished it, whatever state its PRs are in. A
+PRs is open or closed without merging and one has merged, the operator finished it, whatever state its PRs are in, or
+its agent released it with no PR open. A
 task's PRs are those opened from its branches after its slot was made, and an older one whose head a branch of the slot
 holds beyond the base, such as the PR a review round works on. The slot's agent ends its task with a *release*: once it
 has run the closing skills that record its learnings and stopped every background job it no longer needs, it hands the
 slot's teardown upstream, to a finish outside the slot that waits for the agent to go idle. An agent still waiting on
 something, such as CI, never stops that wait to release: it records why the slot is *not yet* ready, which keeps the
-slot off the needs-you list while the agent is there and gets the agent reminded later. A *slot sweep* deletes the
+slot off the needs-you list while the agent is there and gets the agent reminded later. Of the agent's release and its
+not-yet, the newer stands: a not-yet withdraws an earlier release, and the finish that release started stands down. It
+never undoes the operator's finish, which is the operator's decision rather than the agent's. A *slot sweep* deletes the
 clone, moving it to the trash and purging it from there at once, only when nothing in it is missing from GitHub (a PR's
 head, origin, or the fork on origin's host that one of its branches tracks or pushes to) and its agent is idle or gone;
 the *automatic sweep*, which a timer runs, deletes only a slot its agent released or the operator finished, and first

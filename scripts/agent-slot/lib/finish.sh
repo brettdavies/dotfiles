@@ -1,6 +1,8 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
 # finish: the operator's way to end a task that has no open PR, and the teardown a release starts. With --yes it marks
 # the task finished and tears its slot down when check passes; --when-idle first waits for the slot's agent to go idle.
+# The operator's finish marks the record finished_by_operator. A release's finish marks the release itself, so a later
+# --not-yet withdraws the mark with the release, and it stands down once the record no longer holds its release.
 # Every finish --yes appends its outcome to teardown.log, with what ran it.
 
 # Usage: _finish_refuse <key> <reason> <message> [options]; logs a refused finish --yes, then fails as contract_fail.
@@ -29,6 +31,10 @@ sweep tears the slot down once it is idle" --value "$key" --command "agent-slot 
   check_inputs_load
   record_lock_slot "$repo" "$n" "$([[ ${FINISH_WHEN_IDLE:-0} == 1 ]] && echo --wait || echo --nowait)" "$AS_LOCK_WAIT" \
     || _finish_refuse "$key" slot-busy "another agent-slot process holds $key" --value "$key" --command "$retry"
+  if release_withdrawn "$repo" "$n"; then
+    _finish_refuse "$key" release-withdrawn "the release that started this finish was withdrawn by release --not-yet \
+or replaced by a newer release, so $key was kept" --value "$key"
+  fi
   teardown_recover "$repo" "$n"
   check_slot "$repo" "$n"
   if contract_json -e 'any(.blockers[]; .code == "pr-state-unknown")' <<<"$CHECK_VERDICT" >/dev/null; then
@@ -49,7 +55,11 @@ sweep tears the slot down once it is idle" --value "$key" --command "agent-slot 
         | map(select(.code != "pr-closed-unmerged")) | map(.message) | join("; "))" end'
     return
   fi
-  record_update "$repo" "$n" '.finished_by_operator = true'
+  if [[ -n ${AGENT_SLOT_RELEASE_ID:-} ]]; then
+    record_update "$repo" "$n" --arg at "$(contract_now)" '.release.finished_at = $at'
+  else
+    record_update "$repo" "$n" '.finished_by_operator = true'
+  fi
   check_slot "$repo" "$n"
   check_record "$repo" "$n"
   if [[ $(contract_json -r .teardown <<<"$CHECK_VERDICT") != true ]]; then
