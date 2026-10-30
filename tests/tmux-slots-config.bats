@@ -40,10 +40,15 @@ teardown() {
 
 # start_server SOCKET CONF: a detached server on SOCKET whose only config file
 # is CONF. Later `tm` calls address it.
+#
+# Its panes run /bin/sh. The operator's login zsh would start powerlevel10k's
+# gitstatus daemon, which init adopts, so it outlives kill-server and the leak
+# guard in scripts/run-tests kills it and fails the suite.
 start_server() {
   command -v tmux >/dev/null 2>&1 || skip "tmux not installed"
   SOCKET="$1"
-  timeout 20 tmux -L "$SOCKET" -f "$2" new-session -d -s probe
+  timeout 20 tmux -L "$SOCKET" -f "$2" start-server \; set-option -g default-shell /bin/sh \; \
+    new-session -d -s probe
 }
 
 tm() {
