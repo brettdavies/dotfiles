@@ -2,11 +2,11 @@
 # Purging a torn-down slot's clone from the trash. The trash shares the slot root's volume, so moving the clone there
 # frees nothing until that entry is purged, and teardown purges it at once.
 #
-# trash-cli never reports the name it gives an entry: it takes the file's name, then appends _1 through _99, then a
-# random _N, whichever is free. The clone's entry is the one whose .trashinfo gives the clone's path after the move and
-# did not before it. Another file's entry gives another path, and no other entry for this path can appear in between,
-# since the slot lock is held and the path is empty once the move is done. When the move added no such entry, or more
-# than one, nothing is purged.
+# trash-cli names the entry it makes only in its -vv debug log, which is no interface: it takes the file's name, then
+# appends _1 through _99, then a random _N, whichever is free. The clone's entry is the one whose .trashinfo gives the
+# clone's path after the move and did not before it. Another file's entry gives another path, and no other entry for
+# this path can appear in between, since the slot lock is held and the path is empty once the move is done. When the
+# move added no such entry, or more than one, nothing is purged.
 #
 # The purge deletes the entry's files first and its .trashinfo last, so an interrupted purge leaves an entry that
 # trash-rm still finds. It runs after the slot lock is released, since launch takes the lock of the lowest free slot
