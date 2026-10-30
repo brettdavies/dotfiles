@@ -220,6 +220,45 @@ trusted() {
   done
 }
 
+# stub_gh_items: gh answering `pr list` from $STUBS/gh-prs.json, and `api repos/<repo>/issues/<N>` and `pr view <N>`
+# from the fixtures gh_item writes. A number with no fixture gets GitHub's not-found answer.
+stub_gh_items() {
+  stub gh '
+case "$1 ${2:-}" in
+  "api repos/"*)
+    n=${2##*/}
+    [ -f "$STUBS/gh-issue-$n.json" ] || {
+      echo "{\"message\":\"Not Found\",\"status\":\"404\"}"
+      echo "gh: Not Found (HTTP 404)" >&2
+      exit 1
+    }
+    cat "$STUBS/gh-issue-$n.json" ;;
+  "pr view")
+    [ -f "$STUBS/gh-pr-$3.json" ] || {
+      echo "GraphQL: Could not resolve to a PullRequest with the number of $3. (repository.pullRequest)" >&2
+      exit 1
+    }
+    cat "$STUBS/gh-pr-$3.json" ;;
+  *) cat "$STUBS/gh-prs.json" ;;
+esac'
+}
+
+# gh_item KIND NUMBER TITLE [STATE] [PR-FIELDS]: an issue or PR the stubbed gh reports. The issues API answers for both,
+# with pull_request set for a PR, and `gh pr view` answers for a PR, its head on branch pr-<N> of x/repoa unless
+# PR-FIELDS, which merge over gh's fields, say otherwise.
+gh_item() {
+  local kind=$1 n=$2 title=$3 state=${4:-OPEN} fields=${5:-'{}'}
+  jaq -n -c --arg kind "$kind" --argjson n "$n" --arg title "$title" --arg state "$state" '
+    {number: $n, title: $title, state: (if $state == "OPEN" then "open" else "closed" end)}
+    + (if $kind == "pr" then {pull_request: {html_url: "https://github.com/x/repoa/pull/\($n)"}} else {} end)' \
+    >"$STUBS/gh-issue-$n.json"
+  [ "$kind" = pr ] || return 0
+  jaq -n -c --argjson n "$n" --arg title "$title" --arg state "$state" --argjson f "$fields" '
+    {headRefName: "pr-\($n)", headRepository: {id: "R_1", name: "repoa"},
+     headRepositoryOwner: {id: "U_1", login: "x"}, isCrossRepository: false, state: $state, title: $title,
+     url: "https://github.com/x/repoa/pull/\($n)"} + $f' >"$STUBS/gh-pr-$n.json"
+}
+
 # task_slot_setup: repoa/1 as a real clone of a bare origin, with an active record, no PRs, no agent, and a home scan
 # root holding one unrelated link. A PR is GitHub's refs/pull/<N>/head ref in the origin plus an entry in the stubbed
 # `gh pr list`; a merge is a squash commit on main with the head branch deleted, as GitHub does.
@@ -237,7 +276,7 @@ task_slot_setup() {
     finished_by_operator: false, created_at: "2026-01-01T00:00:00Z", transcript: "/t/s1.jsonl"}' \
     >"$SLOT/.git/agent-slot.json"
   echo '[]' >"$STUBS/gh-prs.json"
-  stub gh 'cat "$STUBS/gh-prs.json"'
+  stub_gh_items
 }
 
 # work BRANCH [N]: N commits (default 1) on BRANCH in the slot.
@@ -247,19 +286,19 @@ work() {
   for ((i = 0; i < ${2:-1}; i++)); do git -C "$SLOT" commit -q --allow-empty -m "work $i on $1"; done
 }
 
-# pr NUMBER STATE BRANCH [CREATED]: a PR whose final head is the branch's current tip in the slot, opened at CREATED,
-# which defaults to a time after the slot's record was made.
+# pr NUMBER STATE BRANCH [CREATED] [TITLE]: a PR whose final head is the branch's current tip in the slot, opened at
+# CREATED, which defaults to a time after the slot's record was made.
 pr() {
   local sha
   sha=$(git -C "$SLOT" rev-parse "$3")
   git -C "$SLOT" push -q origin "$sha:refs/pull/$1/head"
-  pr_listed "$1" "$2" "$3" "$sha" "${4:-2026-06-01T00:00:00Z}"
+  pr_listed "$1" "$2" "$3" "$sha" "${4:-2026-06-01T00:00:00Z}" "${5:-}"
 }
 
-# pr_listed NUMBER STATE BRANCH OID CREATED: an entry in the stubbed `gh pr list`.
+# pr_listed NUMBER STATE BRANCH OID CREATED [TITLE]: an entry in the stubbed `gh pr list`, titled "PR <N>" by default.
 pr_listed() {
-  jaq -c --argjson n "$1" --arg state "$2" --arg head "$3" --arg oid "$4" --arg created "$5" \
-    '. + [{number: $n, state: $state, headRefName: $head, headRefOid: $oid, createdAt: $created,
+  jaq -c --argjson n "$1" --arg state "$2" --arg head "$3" --arg oid "$4" --arg created "$5" --arg title "${6:-PR $1}" \
+    '. + [{number: $n, state: $state, headRefName: $head, headRefOid: $oid, createdAt: $created, title: $title,
       url: "https://github.com/x/repoa/pull/\($n)"}]' "$STUBS/gh-prs.json" >"$STUBS/gh-prs.new"
   mv "$STUBS/gh-prs.new" "$STUBS/gh-prs.json"
 }

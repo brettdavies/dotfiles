@@ -437,7 +437,9 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `trust-dialog-unrecognized`   | 78   | Claude showed a screen other than its trust dialog for the path; accept it by hand             |
 | `tmux-unresponsive`           | 1    | The `agent-slots` tmux server did not answer in time                                           |
 | `tmux-failed`                 | 1    | A tmux session could not be started; `agent-slot resume` tries again                           |
-| `pr-state-unknown`            | 1    | `gh` could not read the repo's PRs; check `gh auth status`, then retry                         |
+| `pr-state-unknown`            | 1    | `gh` could not read the repo's PRs or a work item; check `gh auth status`, then retry          |
+| `item-not-found`              | 2    | GitHub has no such PR or issue that `gh` can see; `agent-slot launch --help` gives the forms   |
+| `item-kind-mismatch`          | 2    | The number is a PR given as `--issue`, or an issue given as `--pr`; swap the flag              |
 | `task-has-open-pr`            | 1    | `finish` refused: the task has an open PR; merge or close it first                             |
 | `teardown-blocked`            | 1    | `finish` kept the slot; `agent-slot check <repo>/<N>` names why                                |
 | `slot-outside-root`           | 78   | The slot path resolves outside the slot root, so nothing was deleted; look at it by hand       |

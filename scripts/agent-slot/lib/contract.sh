@@ -46,6 +46,8 @@ trust-dialog-unrecognized     78    false      0            ask-operator
 tmux-unresponsive             1     true       3            retry
 tmux-failed                   1     true       1            retry
 pr-state-unknown              1     true       3            retry
+item-not-found                2     false      0            run
+item-kind-mismatch            2     false      0            rerun
 task-has-open-pr              1     false      0            none
 teardown-blocked              1     false      0            run
 slot-outside-root             78    false      0            ask-operator

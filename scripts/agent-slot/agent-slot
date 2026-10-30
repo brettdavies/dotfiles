@@ -75,6 +75,8 @@ source "$AS_LIB/sessions.sh"
 source "$AS_LIB/launch.sh"
 # shellcheck source=lib/prstate.sh
 source "$AS_LIB/prstate.sh"
+# shellcheck source=lib/items.sh
+source "$AS_LIB/items.sh"
 # shellcheck source=lib/homescan.sh
 source "$AS_LIB/homescan.sh"
 # shellcheck source=lib/check.sh
