@@ -3,6 +3,8 @@
 # fast-forwards the shared solutions clone to origin.
 # Uses local bare repos as origin so nothing touches the network.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   # An inherited GIT_DIR outranks `-C`, so every `git -C "$SD"` below would
   # retarget whichever repo the caller was in. Git exports these to hooks, so
@@ -56,6 +58,40 @@ advance_origin() {
   printf '%s' "$name"
 }
 
+# Push a new doc and an edit to the tracked seed.md, then leave already-pushed
+# copies of both in SD, as a writer whose own fast-forward never ran would.
+leave_phantom_new_and_edit() {
+  mkdir -p "$PUSHER/workflow-issues"
+  echo upstream-new >"$PUSHER/workflow-issues/new.md"
+  echo upstream-edit >"$PUSHER/seed.md"
+  git -C "$PUSHER" add workflow-issues/new.md seed.md
+  git -C "$PUSHER" commit -q -m "upstream new doc and edit"
+  git -C "$PUSHER" push -q origin main
+  git -C "$SD" fetch -q origin main
+  git -C "$SD" show origin/main:workflow-issues/new.md >"$SD/workflow-issues/new.md"
+  git -C "$SD" show origin/main:seed.md >"$SD/seed.md"
+}
+
+# Put a git wrapper first on PATH that logs each checkout and clean the hook
+# runs, with its exit status, to $REVERTS. The hook's output never shows them.
+record_reverts() {
+  REVERTS="$TMP/reverts.log"
+  mkdir -p "$TMP/bin"
+  cat >"$TMP/bin/git" <<STUB
+#!/usr/bin/env bash
+case " \$* " in
+*" checkout "* | *" clean "*)
+  "$(command -v git)" "\$@"
+  rc=\$?
+  echo "\$rc \$*" >>"$REVERTS"
+  exit "\$rc"
+  ;;
+esac
+exec "$(command -v git)" "\$@"
+STUB
+  chmod +x "$TMP/bin/git"
+}
+
 @test "no-ops a clone already current with origin" {
   before=$(git -C "$SD" rev-parse main)
   run "$SCRIPT"
@@ -87,14 +123,65 @@ advance_origin() {
   # clone holds an untracked copy of that same already-pushed file, which blocks
   # a plain --ff-only. The hook reconciles the phantom copy, then fast-forwards.
   name=$(advance_origin new.md)
-  git -C "$SD" cat-file -e "origin/main:$name" # origin has it
-  printf 'upstream-%s' "$name" >"$SD/$name"    # phantom worktree copy blocks ff
+  git -C "$SD" show "origin/main:$name" >"$SD/$name" # phantom worktree copy blocks ff
 
   run "$SCRIPT"
   [ "$status" -eq 0 ]
 
   [ "$(git -C "$SD" rev-parse main)" = "$(git -C "$SD" rev-parse origin/main)" ]
   [ -z "$(git -C "$SD" status --porcelain)" ]
+}
+
+@test "reverts a phantom new doc and a phantom edit in one pass" {
+  leave_phantom_new_and_edit
+  record_reverts
+
+  PATH="$TMP/bin:$PATH" run "$SCRIPT"
+  [ "$status" -eq 0 ]
+  cat "$REVERTS"
+
+  [ "$(git -C "$SD" rev-parse main)" = "$(git -C "$SD" rev-parse origin/main)" ]
+  [ -z "$(git -C "$SD" status --porcelain)" ]
+  # Each copy went to the command that handles it, and neither refused.
+  run ! grep -qv '^0 ' "$REVERTS"
+  grep -qE '^0 .*checkout.* seed\.md$' "$REVERTS"
+  grep -qE '^0 .*clean.* workflow-issues/new\.md$' "$REVERTS"
+}
+
+@test "keeps an in-flight edit to a tracked doc while it reverts a phantom copy" {
+  name=$(advance_origin new.md)
+  git -C "$SD" show "origin/main:$name" >"$SD/$name" # phantom copy blocks ff
+  echo wip >"$SD/seed.md"                            # origin never touched seed.md
+
+  run "$SCRIPT"
+  [ "$status" -eq 0 ]
+
+  [ "$(git -C "$SD" rev-parse main)" = "$(git -C "$SD" rev-parse origin/main)" ]
+  [ "$(cat "$SD/seed.md")" = wip ]
+}
+
+@test "leaves an in-flight new doc that differs from the one origin added" {
+  name=$(advance_origin new.md)
+  echo "local draft" >"$SD/$name" # same path as the pushed doc, other content
+
+  run "$SCRIPT"
+  [ "$status" -eq 0 ]
+
+  [ "$(cat "$SD/$name")" = "local draft" ]
+  [ "$(git -C "$SD" rev-parse main)" != "$(git -C "$SD" rev-parse origin/main)" ]
+  [[ "$output" == *"left untouched"* ]]
+}
+
+@test "exits non-zero when a phantom copy cannot be reverted" {
+  leave_phantom_new_and_edit
+  # A held index lock is what a concurrent writer in the shared clone looks
+  # like; the checkout of the edited copy cannot take it.
+  touch "$SD/.git/index.lock"
+
+  run "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"index.lock"* ]]
+  [[ "$output" == *"could not revert"* ]]
 }
 
 @test "skips a diverged clone without resetting it" {
