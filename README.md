@@ -440,7 +440,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `pr-state-unknown`            | 1    | `gh` could not read the repo's PRs or a work item; check `gh auth status`, then retry          |
 | `item-not-found`              | 2    | GitHub has no such PR or issue that `gh` can see; `agent-slot launch --help` gives the forms   |
 | `item-kind-mismatch`          | 2    | The number is a PR given as `--issue`, or an issue given as `--pr`; swap the flag              |
-| `task-has-open-pr`            | 1    | `finish` refused: the task has an open PR; merge or close it first                             |
+| `task-has-open-pr`            | 1    | `finish` refused an open PR; merge or close it, or the operator reruns with `--allow-open-pr`  |
 | `teardown-blocked`            | 1    | `finish` kept the slot; `agent-slot check <repo>/<N>` names why                                |
 | `slot-outside-root`           | 78   | The slot path resolves outside the slot root, so nothing was deleted; look at it by hand       |
 | `gh-auth-missing`             | 77   | `gh` is not signed in; `gh auth login`                                                         |

@@ -13,7 +13,7 @@ Verbs:
   warm     trust the next slot paths of a repo in Claude ahead of time
   check    judge whether each slot can be torn down, and list what blocks it
   sweep    tear down every slot whose task has finished and that check passes (reports only, without --yes)
-  finish   mark a task with no open PR finished and tear its slot down if check passes (reports only, without --yes)
+  finish   mark a task finished and tear its slot down if check passes (reports only, without --yes)
   release  hand this slot'"'"'s teardown upstream once its agent has run the closing skills; run from inside the slot
   doctor   check every launch prerequisite and summarize launch times
   schema   print the JSON Schema of the objects agent-slot prints, and every error reason
@@ -81,17 +81,20 @@ verb_help() {
       '         not_yet[], needs_you[] of {key, needs_you}, slots[] (each with result, and a torn-down one with purge' \
       '         {purged, entry, ms, and code, message, next_step, log when it failed})' \
       'example: agent-slot sweep --output json' ;;
-    finish) printf '%s\n' 'usage: agent-slot finish <repo>/<N> [--yes [--when-idle]] [--output json]' \
-      "Marks a task with no open PR finished and tears its slot down when check passes; it refuses a task with an" \
-      "open PR. Without --yes it only reports. Agents ask the operator first. A teardown deletes the slot's clone," \
-      'moving it to the trash and purging it from there at once; a purge that fails leaves the slot torn down and' \
-      'names the trash-rm command that finishes it. A teardown pushes a restore to each' \
-      "Rex client, which closes the slot's tab. --when-idle, which release starts, first waits up to" \
-      "$AS_RELEASE_WAIT s for the slot's agent to go idle. The finish a release starts marks the task finished on" \
-      'that release, and refuses with release-withdrawn once a --not-yet or a newer release replaces it. Each --yes' \
-      "run appends its outcome to $AS_STATE_DIR/teardown.log." \
-      'returns: key, then dry_run, would_tear_down, verdict without --yes, or torn_down and purge {purged, entry, ms,' \
-      '         and code, message, next_step, log when it failed} with it' \
+    finish) printf '%s\n' \
+      'usage: agent-slot finish <repo>/<N> [--yes [--when-idle] [--allow-open-pr]] [--output json]' \
+      'Marks a task finished and tears its slot down when check passes. It refuses a task that has an open PR' \
+      '(task-has-open-pr) unless given --allow-open-pr, which finishes the task whatever state its PRs are in;' \
+      'release and the Rex finish key never pass it. Without --yes it only reports, naming in would_need the flag' \
+      "the task would need. Agents ask the operator first. A teardown deletes the slot's clone, moving it to the" \
+      'trash and purging it from there at once; a purge that fails leaves the slot torn down and names the trash-rm' \
+      "command that finishes it. A teardown pushes a restore to each Rex client, which closes the slot's tab." \
+      "--when-idle, which release starts, first waits up to $AS_RELEASE_WAIT s for the slot's agent to go idle. The" \
+      'finish a release starts marks the task finished on that release, and refuses with release-withdrawn once a' \
+      '--not-yet or a newer release replaces it. Each --yes run appends its outcome, with allow_open_pr when it had' \
+      "the flag, to $AS_STATE_DIR/teardown.log." \
+      'returns: key, then dry_run, would_tear_down, would_need (null or --allow-open-pr), verdict without --yes, or' \
+      '         torn_down and purge {purged, entry, ms, and code, message, next_step, log when it failed} with it' \
       'example: agent-slot finish dotfiles/2 --yes' ;;
     release) printf '%s\n' 'usage: agent-slot release [--not-yet WHY] [--output json]' \
       "A slot's agent runs it as its last step, from inside the slot. It refuses with compound-not-run until this" \
