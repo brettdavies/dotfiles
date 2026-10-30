@@ -145,6 +145,16 @@ a writer commits only the paths it authored, and from an isolated checkout rathe
 also drifts behind its remote while other writers push, so a safe write syncs first rather than assuming the local tip
 is current.
 
+### Phantom copy
+
+A file in a *shared clone*'s working tree whose content already equals the remote's version of that path, left behind
+when a writer pushed from an isolated checkout and the shared checkout never fast-forwarded over it.
+
+A phantom copy blocks a fast-forward the way real work does, but discarding it loses nothing, and that is the whole
+test: a path is a phantom only when its content matches the remote, and being uncommitted or differing from the remote
+does not make it one. Every other uncommitted change in a shared clone is another writer's in-progress work, which a
+sync carries across or leaves alone and never reverts.
+
 ## System configuration
 
 ### System-level unit

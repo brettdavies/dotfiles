@@ -15,12 +15,13 @@
 # fast-forwards; a genuinely-diverged one is surfaced-and-skipped (merge --ff-only
 # aborts rather than merging or forcing). It NEVER commits, git-adds, resets, or
 # forces — a hard reset would destroy a concurrent writer's in-flight work.
-# --autostash carries in-flight tracked edits across the fast-forward; already-
-# pushed phantom copies of the committed files are reverted the same bounded way
-# sd-commit-doc does, then the fast-forward retried.
+# --autostash carries in-flight tracked edits across the fast-forward; phantom
+# copies of already-pushed files are reverted, then the fast-forward retried.
 #
 # Fail-open + near-zero latency: skip silently when the repo is absent, offline,
-# or busy. The network is never a correctness dependency.
+# or busy. The network is never a correctness dependency. The one non-zero exit
+# is a phantom revert that git refuses, which Claude Code shows as a
+# non-blocking hook error rather than dropping it with the stderr of an exit 0.
 
 if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
   for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
@@ -50,14 +51,41 @@ if git -C "$SD" merge --ff-only --autostash --quiet "origin/$branch" 2>/dev/null
   exit 0
 fi
 
-# The ff can be blocked by phantom copies of already-pushed files sitting in the
-# clone as worktree-modified/untracked. Revert only the paths that differ from
-# origin, then retry the ff — the same bounded reconcile sd-commit-doc performs,
-# never a wholesale reset. Still surface-and-skip if it genuinely diverged.
-mapfile -t phantom < <(git -C "$SD" diff --name-only "origin/$branch" 2>/dev/null)
-if [ "${#phantom[@]}" -gt 0 ]; then
-  git -C "$SD" checkout -q -- "${phantom[@]}" 2>/dev/null || true
-  git -C "$SD" clean -fq -- "${phantom[@]}" >/dev/null 2>&1 || true
+# A writer whose own fast-forward never ran leaves phantom copies of files it
+# already pushed, as worktree edits or untracked files, and an untracked one
+# blocks the ff. A dirty path is a phantom only when its content matches
+# origin's, so discarding it loses nothing; any other dirty path is in-flight
+# work, left for --autostash to carry or to block the ff. Tracked phantoms go to
+# checkout and untracked ones to clean, because `git checkout -- <paths>`
+# refuses every path when any one is unknown to the index.
+matches_origin() {
+  local want
+  if want=$(git -C "$SD" rev-parse --quiet --verify "origin/$branch:$1"); then
+    [ -f "$SD/$1" ] && [ "$(git -C "$SD" hash-object -- "$1")" = "$want" ]
+  else
+    [ ! -e "$SD/$1" ]
+  fi
+}
+phantoms() {
+  local f
+  while IFS= read -r -d '' f; do
+    matches_origin "$f" && printf '%s\0' "$f"
+  done < <(git -C "$SD" ls-files -z "$@")
+}
+# Claude Code's hook-error notice carries only the first stderr line, so this
+# script's own line goes ahead of git's.
+revert() {
+  local err
+  err=$(git -C "$SD" "$@" 2>&1) && return 0
+  printf 'solutions-clone-autosync: could not revert the phantom copies in %s; it stays behind origin/%s\n%s\n' \
+    "$SD" "$branch" "$err" >&2
+  exit 1
+}
+mapfile -d '' -t tracked < <(phantoms --modified)
+mapfile -d '' -t untracked < <(phantoms --others --exclude-standard)
+if ((${#tracked[@]} + ${#untracked[@]} > 0)); then
+  ((${#tracked[@]} == 0)) || revert checkout -q -- "${tracked[@]}"
+  ((${#untracked[@]} == 0)) || revert clean -fq -- "${untracked[@]}"
   if git -C "$SD" merge --ff-only --autostash --quiet "origin/$branch" 2>/dev/null; then
     echo "solutions-clone-autosync: fast-forwarded $SD to origin/$branch (reconciled phantom copies)"
     exit 0

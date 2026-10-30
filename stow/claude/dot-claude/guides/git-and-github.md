@@ -221,13 +221,15 @@ Every gate the sequential flow spreads across cycles has to be satisfied before 
 failed. In gh 2.36.0 and later it exits 1 when a check ends `FAILURE`, `ERROR`, `TIMED_OUT`, or `ACTION_REQUIRED`, and 0
 when every check ends `SUCCESS`, `SKIPPED`, `NEUTRAL`, or `CANCELLED`; releases before 2.36.0 also exit 1 on `CANCELLED`
 ([cli/cli#7960](https://github.com/cli/cli/pull/7960)). `SKIPPED` exits 0 in every release that has `--watch`. Without
-`--watch`, a pending check exits 8 (gh 2.34.0 and later, [cli/cli#7866](https://github.com/cli/cli/pull/7866)). It
-counts one entry per check name, the latest run, and only the checks registered when it polls, so a workflow that
-registers after its last poll is never counted. Read the rollup instead and assert every live conclusion is `SUCCESS`.
-In the rollup, a branch GitHub rewrote twice shows each check twice: a `CANCELLED` set from the superseded run under the
-concurrency group plus the live set. Check runs and status contexts also report differently — a check run carries
-`status` plus `conclusion` while a status context carries `state`, so a filter that reads only `conclusion // state`
-counts in-progress check runs as passing:
+`--watch`, a pending check exits 8 (gh 2.34.0 and later, [cli/cli#7866](https://github.com/cli/cli/pull/7866)). It keeps
+one entry per check, the most recently started: a check run is keyed by its name, workflow, and event, and a status
+context by its context name
+([`eliminateDuplicates`](https://github.com/cli/cli/blob/e95424515725d5dab88fb221a5df00e8b604269e/pkg/cmd/pr/checks/aggregate.go#L96)).
+It counts only the checks registered when it polls, so a workflow that registers after its last poll is never counted.
+Read the rollup instead and assert every live conclusion is `SUCCESS`. In the rollup, a branch GitHub rewrote twice
+shows each check twice: a `CANCELLED` set from the superseded run under the concurrency group plus the live set. Check
+runs and status contexts also report differently — a check run carries `status` plus `conclusion` while a status context
+carries `state`, so a filter that reads only `conclusion // state` counts in-progress check runs as passing:
 
 ```bash
 gh pr view <n> --json headRefOid,mergeStateStatus,statusCheckRollup --jq '
