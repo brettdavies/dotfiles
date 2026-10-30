@@ -280,6 +280,13 @@ a PR from a fork. A task owns the PRs opened from its branches after its slot wa
 of its branches holds beyond the base, such as the PR a review-round slot works on. Anything else keeps it on the
 *needs-you list*, shown on its tab and in the `agent-slots` control session.
 
+Deleting a slot moves its clone, `.git` included, to the trash and purges that one entry from the trash at once: the
+trash shares the slot root's volume, so the move alone frees nothing. The entry is the one whose `.trashinfo` gives the
+clone's path after the move and did not before it, so no other entry in the trash is touched. The purge runs after the
+slot's lock is released and gets 180 seconds. A purge that fails leaves the slot torn down and says so in the result, in
+a `purge` ledger event, and in `teardown.log`, with one of the [purge failures](#purge-failures) below and the
+`trash-rm` command that finishes it.
+
 Teardown needs no one to press a key. A slot's agent closes its task by running `/compound-engineering:ce-compound` once
 per finding from its session, then `/compound-engineering:ce-compound-refresh`, then deletes the scratch files it made
 and commits and PRs anything that is real work, then stops every background job it no longer needs, then runs
@@ -377,8 +384,9 @@ to Claude idle.
 
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore
-down, the ones it kept with their blocker codes, the agents it typed the closing steps or a reminder to, the files each
-cleanup reminder named, the slots held by `--not-yet`, why a release or finish was refused, and, for a refusal over
+down with each clone's purge (whether it was purged, its trash entry, the milliseconds it took, and a failure's code and
+next step), the ones it kept with their blocker codes, the agents it typed the closing steps or a reminder to, the files
+each cleanup reminder named, the slots held by `--not-yet`, why a release or finish was refused, and, for a refusal over
 background jobs, each job's PID and command. A release's own finish writes its output to
 `~/.local/state/agent-slot/logs/release-<repo>-<N>.log`. The sweep timer's schedule is `OnCalendar=*:0/10` in
 `agent-slot-sweep.timer`; change it with `systemctl --user edit agent-slot-sweep.timer`, an empty `OnCalendar=` line,
@@ -475,6 +483,18 @@ as it found it.
 When processes outside the slot's panes use the slot, `agent-state-unknown` names each one in its message and in
 `values` as `<pid> <command>`, and names it by its oldest ancestor that still uses the slot. A loop that keeps starting
 short-lived children there is named by the loop, which lives on, rather than by whichever child the scan caught.
+
+#### Purge failures
+
+A torn-down slot's `purge` carries one of these codes when its clone is still in the trash, with a `message`, a `log`
+when `rm` failed, and a `next_step` whose command is `trash-rm <clone path>`. That command purges every trash entry
+whose original path is the clone's path; only agent-slot moves a whole slot path to the trash, so each of those entries
+is a clone of that slot.
+
+| Code                  | What is left in the trash                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------ |
+| `trash-entry-unknown` | The move added no single entry for the clone's path, such as one in another volume's trash       |
+| `purge-failed`        | `rm` failed or ran past 180 seconds; the entry's `.trashinfo` stays until its files are all gone |
 
 ### System-Level Units (`config/systemd/system/`)
 

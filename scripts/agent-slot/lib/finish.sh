@@ -60,9 +60,11 @@ sweep tears the slot down once it is idle" --value "$key" --command "agent-slot 
     _finish_refuse "$key" teardown-blocked "$key changed before it could be deleted, so it was kept: $(contract_json -r \
       'map(.message) | join("; ")' <<<"$TEARDOWN_BLOCKERS")" --value "$key" --command "agent-slot check $key"
   fi
-  record_unlock_slot "$repo" "$n"
   teardown_log finish "$(contract_json -n -c --arg key "$key" --arg by "$(_teardown_by)" \
-    --argjson waited "$RELEASE_WAITED" '{key: $key, by: $by, result: "torn-down", waited_s: $waited}')"
+    --argjson waited "$RELEASE_WAITED" --argjson purge "$PURGE_RESULT" \
+    '{key: $key, by: $by, result: "torn-down", waited_s: $waited, purge: $purge}')"
   push_clients finish "$key"
-  contract_ok "$(contract_json -n -c --arg key "$key" '{key: $key, torn_down: true}')" '"\(.key): torn down"'
+  contract_ok "$(contract_json -n -c --arg key "$key" --argjson purge "$PURGE_RESULT" \
+    '{key: $key, torn_down: true, purge: $purge}')" '"\(.key): torn down",
+    (.purge | select(.purged == false) | "  its clone is still in the trash: \(.message)", "  next: \(.next_step.command)")'
 }

@@ -55,6 +55,21 @@ shell_value() {
   [ "$output" = https://github.com/brettdavies/dotfiles/blob/main/README.md#teardown-blockers ]
 }
 
+@test "the README's table of purge failures is exactly the codes a teardown's purge reports" {
+  local expected
+  expected=$(shell_value "$REPO/scripts/agent-slot/lib/purge.sh" PURGE_CODES | tr -s ' \n' '\n' | grep . | sort)
+  [ -n "$expected" ]
+  diff <(echo "$expected") <(table_codes '#### Purge failures')
+}
+
+@test "a purge failure's docs link names the README section that holds the table of purge failures" {
+  run grep -c '^#### Purge failures$' "$README"
+  [ "$output" = 1 ]
+  run bash -c 'source "$1/contract.sh" && source "$1/purge.sh" && printf %s "$PURGE_DOCS"' _ \
+    "$REPO/scripts/agent-slot/lib"
+  [ "$output" = https://github.com/brettdavies/dotfiles/blob/main/README.md#purge-failures ]
+}
+
 @test "the README names every verb agent-slot and agent-slot-rex accept" {
   local verb missing=()
   for verb in $(verbs_of "$REPO/scripts/agent-slot/lib/help.sh"); do

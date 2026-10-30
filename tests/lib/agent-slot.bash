@@ -2,7 +2,8 @@
 # Fixtures for the agent-slot suites. Each test gets its own slot root, dev root, and state directory under
 # BATS_TEST_TMPDIR, reached through agent-slot's AGENT_SLOT_* overrides; tmux, claude, gh, git-crypt, trash, systemctl,
 # and ssh are stubs that record their argv, and no Rex client is configured, so nothing pushes. git is real, with
-# GIT_CONFIG_GLOBAL pointing at a test config, so no fixture repo inherits the host's signing or URL rewrites.
+# GIT_CONFIG_GLOBAL pointing at a test config, so no fixture repo inherits the host's signing or URL rewrites. The trash
+# stub runs the real trash-cli on a trash under BATS_TEST_TMPDIR, since a teardown purges the entry trash-cli wrote.
 
 # shellcheck disable=SC2034 # the suites that load this file run it
 AGENT_SLOT="$BATS_TEST_DIRNAME/../scripts/agent-slot/agent-slot"
@@ -97,8 +98,10 @@ case "$*" in
 esac'
   stub gh 'exit 0'
   stub git-crypt 'exit 0'
-  stub trash '[ "$1" != --version ] || { echo "trash 0.test"; exit 0; }
-mkdir -p "$STUBS/trashed"; for p in "$@"; do cp -a "$p" "$STUBS/trashed/" && chmod -R u+w "$p" && find "$p" -delete; done'
+  export XDG_DATA_HOME=$T/data
+  TRASH=$XDG_DATA_HOME/Trash
+  TRASH_PUT=$(command -v trash-put || true)
+  trash_stub
   stub systemctl 'echo enabled'
   # ssh reaches the Rex clients a push names. Each host answers from $STUBS/ssh-<host>.{rc,err}, and while
   # $STUBS/ssh-<host>.hold exists it does not answer at all, for up to 30 s, as a Mac that is asleep.
@@ -111,6 +114,16 @@ exit "$(cat "$STUBS/ssh-$host.rc" 2>/dev/null || echo 0)"'
   export AGENT_SLOT_GIT_CRYPT=$STUBS/git-crypt AGENT_SLOT_TRASH=$STUBS/trash AGENT_SLOT_SYSTEMCTL=$STUBS/systemctl
   export AGENT_SLOT_SSH=$STUBS/ssh AGENT_SLOT_REX_CLIENTS=
   unset AGENT_SLOT_REX_CLIENT
+}
+
+# trash_stub [AFTER]: the trash stub, which runs trash-cli's trash-put on the sandbox trash under $T/data, then AFTER once
+# it succeeds. trash-cli and agent-slot both find the home trash from XDG_DATA_HOME, and the stub sets it again because
+# agent-slot starts some tools from an empty environment: no test ever writes to the real trash.
+trash_stub() {
+  stub trash "[ \"\$1\" != --version ] || { echo 'trash 0.test'; exit 0; }
+[ -n '$TRASH_PUT' ] || { echo 'trash-put not found; install trash-cli' >&2; exit 127; }
+XDG_DATA_HOME='$XDG_DATA_HOME' '$TRASH_PUT' \"\$@\" || exit
+${1:-}"
 }
 
 # stub NAME BODY: an executable that appends "NAME argv" to the calls log, then runs BODY with STUBS and CALLS set.

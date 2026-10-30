@@ -32,6 +32,8 @@
 #   AGENT_SLOT_RELEASE_REMIND  seconds after an agent says it is not ready to release before the sweep reminds it (1800)
 #   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL, _SSH, _FIND
 #                              absolute paths that replace the binaries found on the pinned PATH
+#   XDG_DATA_HOME              holds the trash a torn-down clone is purged from, trash-cli's home trash
+#                              (~/.local/share/Trash)
 
 if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
   for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
@@ -82,6 +84,8 @@ source "$AS_LIB/push.sh"
 source "$AS_LIB/release.sh"
 # shellcheck source=lib/autosweep.sh
 source "$AS_LIB/autosweep.sh"
+# shellcheck source=lib/purge.sh
+source "$AS_LIB/purge.sh"
 # shellcheck source=lib/teardown.sh
 source "$AS_LIB/teardown.sh"
 # shellcheck source=lib/finish.sh
