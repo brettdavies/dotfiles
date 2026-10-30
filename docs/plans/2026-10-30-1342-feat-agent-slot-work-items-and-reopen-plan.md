@@ -206,8 +206,9 @@ answer changes only the named units:
 - KTD1. **Record shape: `items` plus `name`; `task` stays as given.** `items` is an array of
   `{kind: "pr"|"issue", repo, number, title}` and `name` a string; both are added fields under `dotfiles.agent-slot/1`,
   which only ever adds fields (`scripts/agent-slot/lib/contract.sh`). `task` stays as launched because
-  `launch_find_existing` matches it, so renaming it would let a repeated `launch --task` make a second slot. Display
-  surfaces read `.name // .task // .branch`; `launch --pr`/`--issue` without `--task` sets `task` to the derived name. A
+  `launch_find_existing` matches it, so renaming it would let a repeated `launch --task` make a second slot. `slot_view`
+  computes one `label_name` (`.name // .task // .branch`) for `list` and `whoami`, and both Rex label expressions read
+  that field rather than repeating the rule; `launch --pr`/`--issue` without `--task` sets `task` to the derived name. A
   PR number joins `.prs` only when the item's repo is origin's, because `.prs` means origin's PRs everywhere `check`
   reads it. Governs R1, R2, R6.
 - KTD2. **One naming helper.** A single function builds the name from an item and is the only producer, called by
@@ -219,17 +220,21 @@ answer changes only the named units:
   origin's `owner/name` (`pr_repo_slug`). `gh api repos/<repo>/issues/<N>`, bounded like `pr_load`, gives title, state,
   and whether the number is a PR, so `--issue` on a PR number (or the reverse) fails with `item-kind-mismatch`; a PR
   then gets `gh pr view` for its head branch, head repository, and cross-repo flag. `pr_load`'s list is not reused: it
-  covers origin's newest 200 PRs and returns no title or head owner. An item GitHub cannot find fails with
-  `item-not-found`. Governs R3, R5, R8.
-- KTD4. **Head checkout.** The source, in order: the remote head of the branch the ledger recorded as checked out
-  (`head`, with its `branches` entry's remote and URL); else `gh`'s `headRefName` and head repository; else, only when
-  `gh` reports the head branch or repository gone, `refs/pull/<N>/head` fetched from the item's repo, checked out under
-  the head's name with no upstream and reported as `head_pushable: false`. A head on another repo gets a remote named
-  after the prime's remote with that URL, else `fork`, and the checked-out branch tracks the remote it pushes to so
-  `check` counts its pushes (#360). A fetch that fails for any other reason rolls the slot back with retryable
-  `clone-failed` naming the remote. A remote head that differs from the ledger's `oid` is checked out and reported as
-  `head_moved`. An issue with no branch keeps the base checkout. Every fetch runs under `bounded` with the
-  non-interactive ssh environment. Governs R3, R8.
+  covers origin's newest 200 PRs and returns no title or head owner. Only GitHub's not-found answer gives
+  `item-not-found`; a `gh` timeout or error gives the existing retryable `pr-state-unknown` (`gh-auth-missing` for
+  auth), so a dispatcher retries an outage instead of giving up on a real item. Governs R3, R5, R8.
+- KTD4. **Head checkout.** The branch name, in order: the ledger's `head`; else, for a PR, `gh`'s `headRefName`. Its
+  remote and URL come from the ledger `branches` entry with that name when one exists, which covers teardown lines
+  written before `head` existed (oxipng/1's), else from `gh`'s head repository. A recorded URL is used only when it is
+  on origin's host, by the `_check_url_host` rule `check` already applies to push remotes (#360), and is passed after
+  `--`; any other recorded URL gives way to `gh`'s. URLs are compared as GitHub `owner/name` after normalizing
+  `https://`, `git@` and `.git` forms. The commit is that remote branch's head; only when `gh` reports the head branch
+  or repository gone is it `refs/pull/<N>/head` fetched from the item's repo, checked out under the head's name with no
+  upstream and reported as `head_pushable: false`. A head on another repo gets a remote named after the prime's remote
+  with that URL, else `fork`, and the checked-out branch tracks the remote it pushes to so `check` counts its pushes
+  (#360). A fetch that fails for any other reason rolls the slot back with retryable `clone-failed` naming the remote. A
+  remote head that differs from the ledger's `oid` is checked out and reported as `head_moved`. An issue with no branch
+  keeps the base checkout. Every fetch runs under `bounded` with the non-interactive ssh environment. Governs R3, R8.
 - KTD5. **Resume by ID, no transcript copy, refuse when it is gone.** Reopen sets the new record's `session_id` and
   `transcript` to the source's (the SessionStart hook keeps a record's ID current through `/clear`) and starts Claude
   with `claude --dangerously-skip-permissions --resume <id> -n <name> ["$(cat <prompt>)"]`; every resume of any slot
@@ -240,8 +245,9 @@ answer changes only the named units:
   `--request-id` is returned, as launch does; a slot in any state whose `items` hold the item, whose `prs` hold the PR
   number (origin items only), or whose `session_id` equals the found session refuses with `item-held-by-slot` (retryable
   `slot-busy` when that slot is setting up or tearing down); a live Claude agent with that `sessionId` refuses with
-  `session-in-use`. The source is the teardown event `--session` names, else the newest teardown event whose `items`
-  hold `{kind, repo, number}`, else for an origin PR the newest whose `.repo` is the local repo and whose `prs` hold the
+  `session-in-use`. The source is the teardown event `--session` names (refused with `item-not-found-in-ledger` when
+  that event names items and the item is not among them), else the newest teardown event whose `items` hold
+  `{kind, repo, number}`, else for an origin PR the newest whose `.repo` is the local repo and whose `prs` hold the
   number. No match is `item-not-found-in-ledger`, never an empty success. `launch --pr`/`--issue` matches a live slot by
   item key the same way and reports a torn-down one as `prior: {session_id, ts}` with a note naming reopen. Governs R3,
   R8, R9.
@@ -249,8 +255,8 @@ answer changes only the named units:
   start, ledger, and push block of `cmd_launch` moves into one function both verbs call, with hooks for the record seed,
   the head checkout, and the session mode. Nothing after the session starts can fail except the record's state update,
   as in launch, so a rollback never discards a resumed agent's turn. Reopen lives in a new
-  `scripts/agent-slot/lib/reopen.sh`, items and naming in `scripts/agent-slot/lib/items.sh`; `launch.sh` is already 271
-  lines.
+  `scripts/agent-slot/lib/reopen.sh`; items, naming, the record helper, and the `adopt` verb live in
+  `scripts/agent-slot/lib/items.sh`, so one module owns the work-item rules; `launch.sh` is already 271 lines.
 - KTD8. **What a reopened record carries.** From the source: `items`, `name` (never re-derived, so the tab and `-n` stay
   stable), `task`, `session_id`, `transcript`, `prs` (origin PRs only), plus `reopened_from: {slot, session_id, ts}` and
   `settled_prs`, the numbers of the source's PRs that are merged or closed at reopen time. `created_at` is the reopen
@@ -272,8 +278,10 @@ answer changes only the named units:
   caller following `next_step` never ends an open-PR task. `pr-state-unknown` still refuses with the flag, and
   `teardown.log` records it. The teardown re-check needs no change because it judges only the tree. Governs R14.
 - KTD13. **The release gate reads only this slot's turns.** `release_skills_in` counts a skill call only when its
-  transcript line's `timestamp` is at or after the slot record's `created_at`. A slot that was never reopened is
-  unchanged, since its whole transcript is newer. Governs R12.
+  transcript line's `timestamp` is at or after the slot record's `created_at`, compared as times rather than strings:
+  `created_at` has whole seconds and transcript timestamps have milliseconds, so a string comparison misorders lines
+  inside the creation second. A slot that was never reopened is unchanged, since its whole transcript is newer. Governs
+  R12.
 - KTD14. **Ledger events.** The `launch` event gains `items` and `name`; new `adopt` and `reopen` events record the item
   and name, and for reopen the source slot and session and the head source used (a separate event keeps reopen timings
   out of `doctor`'s launch statistics); the `teardown` event gains `items`, `name`, and `head`, the branch checked out.
@@ -321,9 +329,9 @@ stateDiagram-v2
 - The operator answers Q1-Q5 with the recommended options; each answer that differs changes only the units named in
   Outstanding Questions.
 - `gh` on the server can read both python-pillow/Pillow and oxipng/oxipng, as `pr_load` already does for origin repos.
-- Rex's tab label keeps coming from `agent-slot list`; the two label expressions in
-  `scripts/agent-slot-rex/lib/reconcile.sh` and `scripts/agent-slot-rex/lib/launch.sh` both switch to
-  `.name // .task // .branch`.
+- Rex's tab label keeps coming from `agent-slot` output; the label expressions in
+  `scripts/agent-slot-rex/lib/reconcile.sh` and `scripts/agent-slot-rex/lib/launch.sh` read `label_name` (KTD1), and the
+  Mac runs the same dotfiles version as the server.
 
 ### Risks
 
@@ -345,9 +353,10 @@ stateDiagram-v2
 - **Requirements:** R1, R2, R3, R5
 - **Dependencies:** none
 - **Files:** create `scripts/agent-slot/lib/items.sh`; modify `scripts/agent-slot/agent-slot` (source it),
-  `scripts/agent-slot/lib/contract.sh` (reasons `item-not-found`, `item-kind-mismatch`), README's reasons table; test
-  `tests/agent-slot-items.bats`; modify `tests/lib/agent-slot.bash` (a `gh` stub that answers `api repos/.../issues/N`
-  and `pr view` from fixture files and `pr list` as today, and a title on `pr_listed`).
+  `scripts/agent-slot/lib/contract.sh` (reasons `item-not-found`, `item-kind-mismatch`; `pr-state-unknown` reused for
+  `gh` failures), README's reasons table; test `tests/agent-slot-items.bats`; modify `tests/lib/agent-slot.bash` (a `gh`
+  stub that answers `api repos/.../issues/N` and `pr view` from fixture files and `pr list` as today, and a title on
+  `pr_listed`).
 - **Approach:**
   1. Ref grammar per KTD3; a ref that matches none of the forms fails with `usage_fail`.
   2. Resolution sets a global holding the item and, for a PR, head branch, head repo, its clone URL, and state.
@@ -361,7 +370,8 @@ stateDiagram-v2
   - Title "Fix 16-bit to 8-bit reduction with tRNS" names `oxipng-pr887-fix-16-bit-to-8-bit-reduction-with-trns`; a
     200-character title is cut at a dash and the name matches `TASK_PATTERN`.
   - A title of only punctuation names `oxipng-pr887`; a repo named `x.github.io` names `x-github-io-issue3-<slug>`.
-  - `gh` failing or answering nothing fails with `item-not-found` naming the ref.
+  - GitHub answering 404 fails with `item-not-found` naming the ref; `gh` timing out or exiting non-zero otherwise fails
+    with retryable `pr-state-unknown`.
 - **Verification:** the suite passes, and the new reasons appear in `agent-slot schema` and README's reasons table (the
   docs test enforces both).
 
@@ -387,7 +397,8 @@ stateDiagram-v2
     carries `-n repoa-pr7-<slug>`.
   - A cross-repo PR adds remote `fork` at the head repo URL, checks out the head branch, and the branch's push remote is
     `fork`.
-  - The prime has a remote with the head's URL under another name; the slot's remote takes that name.
+  - The prime has a remote with the head's URL under another name, written in the other URL form
+    (`git@github.com:me/repoa.git` against gh's `https://github.com/me/repoa`); the slot's remote takes that name.
   - `gh` reports the head branch gone: `refs/pull/7/head` is checked out as a local `feat/x` with no upstream and
     `head_pushable: false`.
   - A fork fetch that fails for another reason rolls the slot back with retryable `clone-failed` naming `fork`, and
@@ -396,7 +407,10 @@ stateDiagram-v2
   - `--pr` with `--issue` fails before anything is claimed; a repeated `launch repoa --pr 7` returns the existing slot
     even after the PR's title changed.
   - `list`, `whoami`, and both Rex label expressions show the name; a slot with no name still shows its task.
-- **Verification:** the launch, read, and Rex suites pass; the launch ledger line holds `items` and `name`.
+- **Verification:** the launch, read, and Rex suites pass; the launch ledger line holds `items` and `name`. The
+  slot-maker extraction keeps every existing launch assertion unchanged, except the resume-line test at
+  `tests/agent-slot-launch.bats` that pins `--resume <id>` exactly, which gains `-n <name>` (KTD5) as an intended
+  change.
 
 ### U3. Adoption by check, and the adopt verb
 
@@ -407,7 +421,7 @@ stateDiagram-v2
 - **Files:** modify `scripts/agent-slot/lib/check.sh` (`check_record`), `scripts/agent-slot/lib/prstate.sh` (`title` and
   `createdAt` in `pr_for_slot`'s output), `scripts/agent-slot/lib/autosweep.sh` (rename pass),
   `scripts/agent-slot/lib/help.sh`, `scripts/agent-slot/agent-slot` (adopt arm), `stow/claude/dot-claude/settings.json`
-  (allow `agent-slot adopt`); create `scripts/agent-slot/lib/adopt.sh`; test `tests/agent-slot-check.bats`,
+  (allow `agent-slot adopt`); the `adopt` verb in `scripts/agent-slot/lib/items.sh`; test `tests/agent-slot-check.bats`,
   `tests/agent-slot-adopt.bats`, `tests/agent-slot-release.bats`, `tests/claude-settings.bats`.
 - **Approach:**
   1. One helper adds an item to a record, joins an origin PR to `.prs`, and sets `name` only when none is set (KTD1,
@@ -466,8 +480,11 @@ stateDiagram-v2
     projects directory are byte-identical afterwards.
   - Covers AE2. A live slot adopted with `--issue 12` is reported as the holder with `would_reopen: false` and
     `item-held-by-slot`.
-  - A legacy teardown line with `prs: [7]`, no `items`, and no `head` is found by `--pr 7` and reports the base as the
-    branch.
+  - A teardown line with `prs: [7]`, `branches` holding `feat/x` on `fork`, and no `items` or `head` (the shape oxipng/1
+    leaves) is found by `--pr 7` and reports `feat/x` from `fork` at the recorded URL, the branch name coming from the
+    stubbed `gh pr view`.
+  - A line whose `branches` URL is a local path or another host reports the head repository URL from `gh` instead.
+  - `--session <id>` naming an event whose items hold a different item refuses with `item-not-found-in-ledger`.
   - `--pr up/repoa#7` on a fork-origin repo does not match a legacy line whose `prs` hold 7.
   - `--session <id>` picks that teardown event even when a newer one matches the item.
   - Two teardown events for the item: the newer wins.
@@ -509,7 +526,8 @@ stateDiagram-v2
     closing steps; once a PR created after the reopen merges, it is finished.
   - A slot reopened for a closed-unmerged PR shows no `pr-closed-unmerged`.
   - Release refuses a reopened slot whose transcript holds `ce-compound` and `ce-compound-refresh` calls only before the
-    slot's `created_at`, and passes once both run after it.
+    slot's `created_at`, and passes once both run after it, including calls stamped with milliseconds inside the second
+    `created_at` names.
   - `launch repoa --pr 7` for an item with a torn-down slot reports `prior` and names reopen.
   - A prompt containing quotes and `$(...)` reaches Claude as written.
 - **Verification:** suites pass; no file under the sandboxed Claude projects directory changes during any reopen test.
@@ -586,3 +604,297 @@ Every new test is observed failing against the code without its unit's change be
   outputs are in the PR body.
 - No real reopen run by the implementer; no file under `~/.claude/projects` moved, copied, or deleted.
 - No abandoned-attempt code left in the diff.
+
+---
+
+## Decision ledger
+
+Eng review of this plan (target fixed: this file). The tab is unwatched, so each choice below takes its recommended
+option, recorded as an authorized auto-decision; the body edits it accepts are applied in place above.
+
+### S1: Module arrangement
+
+Finding: Scope Challenge, complexity gate (proposed changes touch 20+ files and add three modules: `items.sh`,
+`adopt.sh`, `reopen.sh`). Plan baseline: three new modules. Runtime evidence: `adopt` needs only ref resolution, the
+record helper, a ledger line, and a rename, all of which `items.sh` already owns. Comparison grid: Original
+arrangement = 3 new modules; Smaller arrangement = 2 new modules (`items.sh` with `cmd_adopt`, `reopen.sh`), same
+features, contracts, and tests. State: approved. Actual answer: B) Smaller arrangement (auto-decided, recommended).
+Accepted scope: KTD7 and U3 place the `adopt` verb in `items.sh`.
+
+### A1: One owner for the slot label rule
+
+Finding: 1, INFORMATIONAL, confidence 8/10, `scripts/agent-slot-rex/lib/launch.sh:118-120`
+(`.key + (if .task then " · \(.task)" ...`) and `scripts/agent-slot-rex/lib/reconcile.sh:21-28` (`(.task // .branch)`),
+architecture red flag 8 (hand-synced list). Plan baseline: both Rex expressions and `read.sh` switch to
+`.name // .task // .branch`. Runtime evidence: the two Rex expressions already disagree (launch's omits `.branch`).
+Comparison grid: A) `slot_view` emits `label_name`, every surface reads it; B) keep the rule repeated in four places.
+State: approved. Actual answer: A) (auto-decided, recommended). Accepted scope: KTD1, Assumptions.
+
+### A2: Head remote for teardown lines without `head`
+
+Finding: 2, CRITICAL, confidence 8/10, KTD4 against AE1: oxipng/1 tears down under #359/#360 code, so its line has
+`branches` and no `head`; KTD4 sent such lines to `gh`'s head repository and never used the recorded `fork` entry or its
+URL. Plan baseline: ledger `head` first, else `gh`. Runtime evidence: `scripts/agent-slot/lib/teardown.sh` writes
+`branches` without `head` on dev today. Comparison grid: A) branch name from `head` or `gh`, remote and URL from the
+`branches` entry of that name, URL forms normalized; B) leave KTD4 as written. State: approved. Actual answer: A)
+(auto-decided, recommended). Accepted scope: KTD4, U2 and U5 scenarios.
+
+### A3: Trust in recorded URLs
+
+Finding: 3, INFORMATIONAL, confidence 7/10, KTD4: `branches[].url` comes from the slot's git config, which the slot's
+own agent writes, and reopen hands it to `git remote add` and `git fetch`. Plan baseline: use the recorded URL as given.
+Runtime evidence: `_check_url_host` in `scripts/agent-slot/lib/check.sh` already limits counted push remotes to origin's
+host. Comparison grid: A) use a recorded URL only on origin's host, after `--`, else `gh`'s; B) use any recorded URL.
+State: approved. Actual answer: A) (auto-decided, recommended). Accepted scope: KTD4, U5 scenario.
+
+### C1: Outage versus not found
+
+Finding: 4, INFORMATIONAL, confidence 8/10, U1 scenario "gh failing or answering nothing fails with item-not-found";
+`scripts/agent-slot/lib/contract.sh` holds `pr-state-unknown 1 true retry` and `gh-auth-missing 77 false authenticate`.
+Plan baseline: every `gh` failure is `item-not-found` (not retryable). Comparison grid: A) 404 is `item-not-found`,
+other failures reuse retryable `pr-state-unknown`; B) one reason for both. State: approved. Actual answer: A)
+(auto-decided, recommended). Accepted scope: KTD3, U1.
+
+### C2: `--session` naming another item's event
+
+Finding: 5, INFORMATIONAL, confidence 6/10, KTD6: `--session` picked an event without checking its items. Medium
+confidence, verify this is actually an issue. Comparison grid: A) refuse with `item-not-found-in-ledger` when the event
+names items and the item is absent; B) accept any event. State: approved. Actual answer: A) (auto-decided, recommended).
+Accepted scope: KTD6, U5 scenario.
+
+### T1: Launch regression contract
+
+Finding: 6, CRITICAL, confidence 9/10, KTD7 moves `cmd_launch`'s body (`scripts/agent-slot/lib/launch.sh:143-251`) into
+a shared slot maker; `tests/agent-slot-launch.bats:440` pins the resume line
+`claude --dangerously-skip-permissions --resume <id>`. Plan baseline: no regression contract named. Comparison grid: A)
+every existing launch assertion stays unchanged except that resume line, which gains `-n <name>` by intent; B) no stated
+contract. State: approved. Actual answer: A) (auto-decided, recommended). Accepted scope: U2 Verification.
+
+### T2: Timestamp comparison in the release gate
+
+Finding: 7, INFORMATIONAL, confidence 7/10, KTD13: record `created_at` is `2026-10-30T16:27:05Z` (whole seconds,
+`scripts/agent-slot/lib/launch.sh` via `contract_now`), transcript lines carry `2026-10-30T16:35:13.123Z`; a string
+comparison orders `05.500Z` before `05Z`. Comparison grid: A) compare as times; B) compare strings. State: approved.
+Actual answer: A) (auto-decided, recommended). Accepted scope: KTD13, U6 scenario.
+
+Approval readiness: PASS (S1, A1, A2, A3, C1, C2, T1, T2; each an authorized auto-decision of its recommended option
+under the unattended-slot rule).
+
+---
+
+## Eng Review
+
+### Scope Challenge
+
+Scope record: feature answers: none cut; structure: B (S1); accepted scope: Requirements R1-R16 unchanged, `adopt`
+folded into `items.sh`; pending remedies: none. Result: scope accepted as-is (the smaller arrangement preserves scope).
+
+What already solves each sub-problem: launch's clone, parity, trust, and session path
+(`scripts/agent-slot/lib/launch.sh`), `_sessions_conversation_saved` for finding a transcript by ID
+(`scripts/agent-slot/lib/sessions.sh`), `release_send` for typing into an idle agent
+(`scripts/agent-slot/lib/autosweep.sh`), `_check_url_host` for the host rule (`scripts/agent-slot/lib/check.sh`), the
+ledger reader pattern in `release_transcripts`, and Claude Code's own `--resume <id>` and `-n`. The plan reuses each;
+nothing is rebuilt. Search: no new infrastructure or concurrency pattern beyond the repo lock agent-slot already uses,
+so no web research ran.
+
+Reality rows:
+
+| Premise | Claim | Receipt | Verdict |
+| --- | --- | --- | --- |
+| Cross-directory resume | `claude --resume <id>` from another directory resumes and appends to the original transcript | live probe on Claude Code 2.1.314, recorded in this slot's scratch findings | true |
+| `-n` with resume | `--resume <id> -n <name> '<prompt>'` renames and sends the prompt | live probe, same | true |
+| Task idempotency | `launch_find_existing` matches `.task` | `scripts/agent-slot/lib/launch.sh:94-112` | true |
+| PR list limits | `pr_load` lists origin's newest 200 PRs without title | `scripts/agent-slot/lib/prstate.sh:22-31` | true |
+| Whole-transcript gate | `release_skills_in` scans the whole file | `scripts/agent-slot/lib/release.sh:57-76` | true |
+| Current session ID | SessionStart hook updates the record's `session_id` | `stow/claude/dot-claude/slot-context.sh:39-49` | true |
+| Duplicate label | two Rex label expressions | `scripts/agent-slot-rex/lib/launch.sh:118-120`, `scripts/agent-slot-rex/lib/reconcile.sh:21-28` | true |
+| Retryable gh reason | `pr-state-unknown` is retryable | `scripts/agent-slot/lib/contract.sh:48` | true |
+| Additive schema | record schema only adds fields | `scripts/agent-slot/lib/contract.sh:5,16` (read by research, not re-read here) | unverified |
+| Auto sweep scope | `release_auto_gate` acts only on finished slots, so the rename pass needs its own hook | `scripts/agent-slot/lib/autosweep.sh:98-101` | true |
+
+unverified=1
+
+```text
+REALITY: premise-table finding 10 premises, unverified=1 (additive schema read by research only) scripts/agent-slot/lib/contract.sh:5
+REALITY: already-done pass origin/dev since 2026-10-30 holds #357, #359, #360, none of which add items or reopen scripts/agent-slot/lib/teardown.sh:116
+REALITY: surface-check pass claude -n, --resume, --session-id, /rename and gh pr view --json headRefName,headRepository,isCrossRepository verified live; agent-slot flags are proposals scripts/agent-slot/lib/sessions.sh:47
+REALITY: binding-decisions pass the plan's Key Decisions and the operator answers relayed by rex-linux hold; no overruled default returns docs/plans/2026-10-30-1342-feat-agent-slot-work-items-and-reopen-plan.md:111
+REALITY: numbers pass 271 lines [measured: wc -l at b2932e0], 64 characters [measured: TASK_PATTERN], 200 PRs [measured: prstate.sh], 365 days is a proposal scripts/agent-slot/lib/launch.sh:9
+REALITY: deferred-asks pass no linked issue; every brief item maps to R1-R16, and the Rex finish key is deferred with its reason docs/plans/2026-10-30-1342-feat-agent-slot-work-items-and-reopen-plan.md:162
+REALITY: pr-count pass one dotfiles PR plus one PR in brettdavies/agent-skills, a different repo the skill lives in docs/plans/2026-10-30-1342-feat-agent-slot-work-items-and-reopen-plan.md:30
+```
+
+### 1. Architecture
+
+Two shapes: (1) the plan's, `reopen` as its own verb over a shared slot maker, with work-item rules in `items.sh`; (2)
+`launch --reopen`, a mode of launch reading the ledger. The first hides lookup, exclusivity, and the transcript rule
+behind one verb and keeps launch's surface unchanged; the second widens launch's options with stages only reopen uses
+(red flag 1, shallow module). Pick: (1). Red flags: 8 (hand-synced label rule) fixed by A1; 2 (information leakage of
+the URL host rule) avoided by reusing `_check_url_host` (A3); none of the others apply.
+
+- [CRITICAL] (confidence: 8/10) KTD4 — teardown lines without `head` lost the recorded fork remote. Disposition:
+  accepted, A2.
+- [INFORMATIONAL] (confidence: 8/10) `scripts/agent-slot-rex/lib/launch.sh:118-120` — label rule repeated. Disposition:
+  accepted, A1.
+- [INFORMATIONAL] (confidence: 7/10) KTD4 — agent-written URLs reached `git remote add`. Disposition: accepted, A3.
+
+Production failure per new path: a fork deleted after teardown (KTD4 falls back to `refs/pull`), GitHub down during
+reopen (`pr-state-unknown`, retryable), a transcript pruned (`transcript-missing`), two dispatchers reopening one item
+(repo lock, `item-held-by-slot`).
+
+### 2. Code quality
+
+- [INFORMATIONAL] (confidence: 8/10) U1 — `gh` outage reported as `item-not-found`. Disposition: accepted, C1.
+- [INFORMATIONAL] (confidence: 6/10) KTD6 — `--session` unchecked against the item. Medium confidence, verify this is
+  actually an issue. Disposition: accepted, C2.
+
+Shared code: `_check_url_host` (one caller in `check.sh`, one proposed in reopen) is reused rather than copied; no new
+extraction.
+
+### 3. Tests
+
+Framework: bats (`tests/*.bats`, run through `scripts/run-tests`).
+
+```text
+CODE PATHS                                         USER FLOWS
+[+] items.sh                                       [+] Dispatcher launches for a PR
+  ├── ref parse        [PLANNED ★★★] U1               ├── [PLANNED ★★★] same-repo / fork / gone head — U2
+  ├── resolve 404/err  [PLANNED ★★★] U1 (C1)          └── [PLANNED ★★] repeat launch returns slot — U2
+  ├── name derive      [PLANNED ★★★] U1            [+] Slot gains an item
+  └── adopt verb       [PLANNED ★★★] U3               ├── [PLANNED ★★★] check adoption keeps name — U3
+[+] launch.sh slot maker                              └── [PLANNED ★★] idle-only rename — U3
+  ├── existing launch  [★★★ TESTED] agent-slot-launch.bats (T1 contract)
+  └── head checkout    [PLANNED ★★★] U2 (A2 URL forms)
+[+] reopen.sh                                      [+] Dispatcher reopens torn-down work
+  ├── lookup/exclusive [PLANNED ★★★] U5 (C2)          ├── [PLANNED ★★★] dry run, oxipng shape — U5 [→E2E real dry run]
+  ├── transcript gate  [PLANNED ★★★] U5               ├── [PLANNED ★★★] retry same request ID — U6
+  ├── URL host rule    [PLANNED ★★] U5 (A3)           └── [PLANNED ★★★] clone failure rollback — U6
+  └── reopen run       [PLANNED ★★★] U6
+[+] release.sh gate    [PLANNED ★★★] U6 (T2 same-second)
+[+] check.sh settled   [PLANNED ★★★] U6 (AE5)
+[+] finish.sh flag     [PLANNED ★★★] U7, end to end through --yes
+[+] teardown.sh event  [PLANNED ★★] U4
+
+COVERAGE (planned): 21/21 paths have a planned or existing test | GAPS: 0 | E2E: real dry runs in Verification Contract
+Legend: ★★★ behavior + edge + error | ★★ happy path | [PLANNED] proposed test in a unit
+```
+
+Test plan artifact: `~/.gstack/projects/brettdavies-dotfiles/brett-dev-eng-review-test-plan-20261030-135456.md`. Tests
+made obsolete: none.
+
+- [CRITICAL] (confidence: 9/10) KTD7 — launch regression contract unstated. Disposition: accepted, T1.
+- [INFORMATIONAL] (confidence: 7/10) KTD13 — same-second timestamp ordering. Disposition: accepted, T2.
+
+### 4. Performance
+
+No issues found. The ledger is append-only at 621 lines and read once per reopen; item resolution is one or two bounded
+`gh` calls; `claude agents --json` runs once per reopen; the sweep's rename pass reuses the agent states the sweep
+already loads.
+
+### NOT in scope
+
+- Transcript archive at teardown: Claude Code resumes across directories and retention moves to 365 days (Q4).
+- Task-name matching for pre-feature issue slots: guesswork; `adopt` and `--session` cover the cases.
+- Rex finish key passing `--allow-open-pr`: Mac-side, deferred until the operator wants it on a key.
+
+### What already exists
+
+Launch's slot path, `_sessions_conversation_saved`, `release_send`, `_check_url_host`, `pr_repo_slug`, the ledger, and
+Claude Code's `--resume`/`-n`/`/rename` are reused; the slot maker is moved, not rebuilt.
+
+### Failure modes
+
+| Path | Failure | Handling | Visible to the caller |
+| --- | --- | --- | --- |
+| Item resolution | GitHub outage | `pr-state-unknown`, retryable | yes |
+| Head checkout | fork deleted | `refs/pull` fallback, `head_pushable: false` | yes |
+| Head checkout | fetch fails otherwise | rollback, `clone-failed` naming the remote | yes |
+| Reopen | transcript pruned | `transcript-missing` before any claim | yes |
+| Rename pass | agent waiting on a dialog | never typed to | slot keeps its old session name until idle |
+
+Critical gaps: 0.
+
+### Worktree parallelization
+
+Sequential implementation in one slot: a slot creates no worktrees inside itself. U7 and U8 touch modules no other unit
+touches and can land first.
+
+### Implementation Tasks
+
+- [ ] **T1 (P1, human: ~3h / CC: ~20min)** — reopen — take a PR head's remote from the ledger `branches` entry by name,
+  with URL normalization
+  - Surfaced by: Architecture — A2
+  - Files: `scripts/agent-slot/lib/reopen.sh`, `scripts/agent-slot/lib/launch.sh`
+  - Verify: U5 oxipng-shaped scenario
+- [ ] **T2 (P1, human: ~1h / CC: ~10min)** — reopen — use a recorded URL only on origin's host, after `--`
+  - Surfaced by: Architecture — A3
+  - Files: `scripts/agent-slot/lib/reopen.sh`
+  - Verify: U5 local-path URL scenario
+- [ ] **T3 (P2, human: ~1h / CC: ~10min)** — rex — compute `label_name` once and read it in both Rex expressions
+  - Surfaced by: Architecture — A1
+  - Files: `scripts/agent-slot/lib/read.sh`, `scripts/agent-slot-rex/lib/reconcile.sh`,
+    `scripts/agent-slot-rex/lib/launch.sh`
+  - Verify: `tests/agent-slot-rex.bats`
+- [ ] **T4 (P1, human: ~1h / CC: ~10min)** — items — map `gh` failures to `pr-state-unknown`, a 404 to `item-not-found`
+  - Surfaced by: Code quality — C1
+  - Files: `scripts/agent-slot/lib/items.sh`
+  - Verify: U1 scenarios
+- [ ] **T5 (P2, human: ~30min / CC: ~5min)** — reopen — refuse `--session` naming another item's event
+  - Surfaced by: Code quality — C2
+  - Files: `scripts/agent-slot/lib/reopen.sh`
+  - Verify: U5 scenario
+- [ ] **T6 (P1, human: ~2h / CC: ~15min)** — launch — keep existing launch assertions through the slot-maker extraction
+  - Surfaced by: Tests — T1
+  - Files: `tests/agent-slot-launch.bats`
+  - Verify: launch suite unchanged except the resume line
+- [ ] **T7 (P1, human: ~1h / CC: ~10min)** — release — compare transcript timestamps to `created_at` as times
+  - Surfaced by: Tests — T2
+  - Files: `scripts/agent-slot/lib/release.sh`, `tests/agent-slot-release.bats`
+  - Verify: U6 same-second scenario
+- [ ] **T8 (P2, human: ~30min / CC: ~5min)** — items — fold the `adopt` verb into `items.sh`
+  - Surfaced by: Scope Challenge — S1
+  - Files: `scripts/agent-slot/lib/items.sh`
+  - Verify: `tests/agent-slot-adopt.bats`
+
+_No new tasks from Performance._
+
+### Unresolved decisions
+
+None from this review. Q1-Q5 stay with the operator as Outstanding Questions.
+
+### Completion summary
+
+- Step 0: Scope Challenge — scope accepted as-is
+- Reality rows: 7/7 applicable rows emitted, 1 unverified premise
+- Architecture Review: 3 issues found
+- Code Quality Review: 2 issues found
+- Test Review: diagram produced, 2 gaps identified
+- Performance Review: 0 issues found
+- NOT in scope: written
+- What already exists: written
+- TODOS.md updates: 0 items proposed (deferred work lives in the plan's Scope Boundaries)
+- Failure modes: 0 critical gaps flagged
+- Unresolved decisions: 0 in this review
+- Outside voice: codex, disabled (`codex_reviews` is set to disabled)
+- Parallelization: 1 lane, 0 parallel / 9 sequential
+- Lake Score: 8/8
+
+### Suppressed findings
+
+None.
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+| -------- | --------- | ----- | ------ | -------- | ---------- |
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Outside Review | codex via `/plan-eng-review` | Independent 2nd opinion | 1 | disabled | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 3 | ISSUES OPEN | 7 issues, 0 critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no outside coverage.
+- **VERDICT:** Eng review ran with every finding resolved in the plan (issues_open records mapped work, not open
+  choices); eng review required for clearance on re-run; DX review next.
+
+NO UNRESOLVED DECISIONS
