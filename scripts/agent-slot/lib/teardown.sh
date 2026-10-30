@@ -86,7 +86,7 @@ _teardown_branches() {
 # the trash and the ledger, it releases the lock and purges the clone, setting PURGE_RESULT. Returns 1, with the slot
 # still locked and active again and TEARDOWN_BLOCKERS set, when the re-check fails.
 slot_teardown() {
-  local repo=$1 n=$2 path real kind out branches
+  local repo=$1 n=$2 path real kind out branches head
   path=$(slot_path "$repo" "$n")
   real=$(realpath -m "$path")
   if [[ $real != "$AS_ROOT_REAL/$repo/$n" ]]; then
@@ -109,6 +109,7 @@ slot_teardown() {
     return 1
   fi
   branches=$(_teardown_branches "$path" "$(contract_json -r '.base // "main"' <<<"$RECORD")")
+  head=$(git -C "$path" symbolic-ref --short -q HEAD || true)
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
     slot_tmux out 10 kill-session -t "=$(slot_session "$repo" "$n" "$kind")" || true
   done
@@ -118,9 +119,10 @@ slot_teardown() {
       --reconcile "agent-slot list" --log "$BOUNDED_LOG"
   TEARDOWN_ARMED=
   purge_find
-  ledger_append teardown "$(contract_json -c --argjson branches "$branches" \
+  ledger_append teardown "$(contract_json -c --argjson branches "$branches" --arg head "$head" \
     --arg entry "${PURGE_ENTRY:+$AS_TRASH_DIR/files/$PURGE_ENTRY}" '{repo, slot, task, session_id, transcript, prs,
-      request_id, branches: $branches, trash_entry: (if $entry == "" then null else $entry end)}' <<<"$RECORD")"
+      request_id, items: (.items // []), name, head: (if $head == "" then null else $head end), branches: $branches,
+      trash_entry: (if $entry == "" then null else $entry end)}' <<<"$RECORD")"
   record_unlock_slot "$repo" "$n"
   purge_run "$repo" "$n"
 }

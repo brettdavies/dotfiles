@@ -478,3 +478,30 @@ exit 1'
       and .branches == [{name: "fix/r", oid: $oid, remote: "fork", url: "git@github.com:me/repoa.git"}]' \
     "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
 }
+
+@test "the teardown event keeps the slot's work items, its name, and the branch it had checked out" {
+  finished_task
+  jaq '.items = [{kind: "issue", repo: "x/repoa", number: 12, title: "Do it"},
+      {kind: "pr", repo: "origins/repoa", number: 7, title: "Did it"}] | .name = "repoa-issue12-do-it"' \
+    "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  jaq -e -s 'map(select(.event == "teardown"))[-1]
+    | .items == [{kind: "issue", repo: "x/repoa", number: 12, title: "Do it"},
+        {kind: "pr", repo: "origins/repoa", number: 7, title: "Did it"}]
+      and .name == "repoa-issue12-do-it" and .session_id == "s1" and .head == "feat/x"' \
+    "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+}
+
+@test "the teardown event of a slot with no items and a detached HEAD writes empty items and null name and head" {
+  work feat/w
+  git -C "$SLOT" push -q origin feat/w
+  operator_finished
+  git -C "$SLOT" checkout -q --detach
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  jaq -e -s 'map(select(.event == "teardown"))[-1] | .items == [] and .name == null and .head == null' \
+    "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+}
