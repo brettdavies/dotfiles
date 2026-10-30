@@ -382,18 +382,20 @@ state, agent, and blockers, and `agent-slot whoami` the slot a directory is in. 
 <id> [--prompt-file <file>]` starts an agent, and agents use it to hand a task to a slot; a repeat with the same request
 ID returns the same slot. `agent-slot resume <repo>/<N>` restarts a dormant slot's sessions and conversation,
 `agent-slot warm <repo>` trusts slot paths ahead of time, and `agent-slot check [<repo>/<N>]` gives the teardown
-verdict. `agent-slot sweep` and `agent-slot finish <repo>/<N>` delete slots, so both only report unless given `--yes`,
-and agents ask before running them. `agent-slot release`, run from inside a slot, hands that slot's teardown upstream;
-it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks every prerequisite and the time from key press
-to Claude idle.
+verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or `--issue <ref>`) attaches a PR or issue to a live slot and names
+the slot `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's record and
+its Claude session's name, so it needs no ask. `agent-slot sweep` and `agent-slot finish <repo>/<N>` delete slots, so
+both only report unless given `--yes`, and agents ask before running them. `agent-slot release`, run from inside a slot,
+hands that slot's teardown upstream; it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks every
+prerequisite and the time from key press to Claude idle.
 
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore
 down with each clone's purge (whether it was purged, its trash entry, the milliseconds it took, and a failure's code and
 next step), the ones it kept with their blocker codes, the agents it typed the closing steps or a reminder to, the files
-each cleanup reminder named, the slots held by `--not-yet`, why a release or finish was refused, and, for a refusal over
-background jobs, each job's PID and command. A release's own finish writes its output to
-`~/.local/state/agent-slot/logs/release-<repo>-<N>.log`. The sweep timer's schedule is `OnCalendar=*:0/10` in
+each cleanup reminder named, the slots held by `--not-yet`, the Claude sessions it renamed, why a release or finish was
+refused, and, for a refusal over background jobs, each job's PID and command. A release's own finish writes its output
+to `~/.local/state/agent-slot/logs/release-<repo>-<N>.log`. The sweep timer's schedule is `OnCalendar=*:0/10` in
 `agent-slot-sweep.timer`; change it with `systemctl --user edit agent-slot-sweep.timer`, an empty `OnCalendar=` line,
 and the new schedule. A release's finish waits up to `AGENT_SLOT_RELEASE_WAIT` seconds (3600) for the agent, looking
 every `AGENT_SLOT_RELEASE_POLL` seconds (5).

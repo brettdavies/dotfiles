@@ -143,6 +143,7 @@ _teardown_one() {
   RELEASE_AUTO=
   [[ ${SWEEP_AUTO:-0} != 1 ]] || release_auto_gate "$repo" "$n"
   check_record "$repo" "$n"
+  [[ ${SWEEP_AUTO:-0} != 1 ]] || release_rename_pass "$repo" "$n"
   if [[ $(contract_json -r .teardown <<<"$CHECK_VERDICT") != true ]]; then
     TEARDOWN_RESULT=kept
     case $RELEASE_AUTO in closing-sent | cleanup-sent | reminded | not-yet) TEARDOWN_RESULT=$RELEASE_AUTO ;; esac
@@ -185,13 +186,14 @@ cmd_sweep() {
        cleanup_sent: [$r[] | select(.result == "cleanup-sent") | .key],
        reminded: [$r[] | select(.result == "reminded") | .key],
        not_yet: [$r[] | select(.result == "not-yet") | .key],
+       renamed: [$r[] | select(.renamed) | {key, name: .renamed}],
        needs_you: [$r[] | select(.needs_you != []) | {key, needs_you}],
        slots: $r}')
   [[ ${SWEEP_YES:-0} != 1 ]] || teardown_log sweep "$(contract_json -c --arg by "$(_teardown_by)" \
     --argjson ms "$(($(contract_ms) - start))" '{by: $by, ms: $ms, torn_down,
       purges: [.slots[] | select(.purge != null) | {key} + .purge], closing_sent,
       cleanup_sent: [.slots[] | select(.result == "cleanup-sent") | {key, files: [.blockers[] | .values[]? // .message]}],
-      reminded, not_yet, kept: [.slots[] | select(.result == "kept" or .result == "busy") | {key, blockers: [.blockers[].code]}]}' \
+      reminded, not_yet, renamed, kept: [.slots[] | select(.result == "kept" or .result == "busy") | {key, blockers: [.blockers[].code]}]}' \
     <<<"$out")"
   contract_ok "$out" '
     (.torn_down[] | "torn down\t\(.)"), (.would_tear_down[] | "would tear down\t\(.)"),
@@ -200,6 +202,7 @@ cmd_sweep() {
     (.closing_sent[] | "sent the closing steps\t\(.)"), (.cleanup_sent[] | "asked its agent to clean up\t\(.)"),
     (.reminded[] | "reminded its agent\t\(.)"),
     (.not_yet[] | "not ready to release, its agent says\t\(.)"),
+    (.renamed[] | "renamed its Claude session\t\(.key)\t\(.name)"),
     (.needs_you[] | "needs you\t\(.key)\t\(.needs_you | map(.message) | join("; "))"),
     (if (.torn_down + .would_tear_down + .closing_sent + .cleanup_sent + .reminded + .not_yet + .needs_you
       | length) == 0

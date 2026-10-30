@@ -181,6 +181,11 @@ main() {
       exec </dev/null
       cmd_resume "${args[0]}"
       ;;
+    adopt)
+      adopt_parse_args "${args[@]}"
+      exec </dev/null
+      cmd_adopt
+      ;;
     check)
       ((${#args[@]} <= 1)) || usage_fail "check takes at most one slot, <repo>/<N>" "${args[*]}"
       CHECK_KEY=${args[0]:-}

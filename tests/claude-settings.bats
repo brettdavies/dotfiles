@@ -152,6 +152,16 @@ REPO="$BATS_TEST_DIRNAME/.."
   done
 }
 
+# adopt changes only a slot's record and its Claude session's name, so it runs
+# without a prompt; an ask rule on it would prompt even in bypass mode.
+@test "agent-slot adopt runs without a prompt, and nothing asks first" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.allow // [] | .[]' "$SETTINGS"
+  grep -qxF 'Bash(agent-slot adopt *)' <<<"$output"
+  run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
+  [[ $output != *'agent-slot adopt'* ]]
+}
+
 # agent-slot reopen resumes a torn-down slot's Claude conversation by its session ID, and Claude Code deletes a
 # transcript once it has been idle for cleanupPeriodDays (30 when unset).
 @test "Claude Code keeps session transcripts for a year" {

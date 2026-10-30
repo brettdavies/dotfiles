@@ -1,6 +1,8 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
 # Work items: the GitHub PR or issue a slot works on. A ref names one as N, owner/name#N, or its GitHub URL, a bare N
-# being in origin's repo; item_resolve reads it from GitHub, and item_name alone derives a slot's name from it.
+# being in origin's repo; item_resolve reads it from GitHub, and item_name alone derives a slot's name from it. A slot's
+# record holds its items as {kind, repo, number, title} and its name, which the first item gives and which no later item
+# changes; item_add is the one writer of both, for check's adoption of a PR and for the adopt verb.
 
 ITEM_NUMBER_PATTERN='[1-9][0-9]{0,9}'
 ITEM_REPO_PATTERN='[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
@@ -75,6 +77,86 @@ item_name() {
   name=${repo:+$repo-}$id${slug:+-$slug}
   while [[ ! $name =~ $TASK_PATTERN ]]; do name=${name%-*}; done
   printf '%s' "$name"
+}
+
+# The update item_add applies to a record, with $items, $origin (owner/name), and $name bound: each item joins .items
+# unless one with its kind, repo, and number is there, each PR of origin's repo joins .prs, which means origin's PRs
+# wherever check reads it, and a record with no name takes $name.
+ITEM_ADD_FILTER='(if $items == [] then . else .items = reduce $items[] as $i (.items // [];
+      if any(.[]; .kind == $i.kind and .repo == $i.repo and .number == $i.number) then . else . + [$i] end) end)
+  | .prs = ((.prs // []) + [$items[] | select(.kind == "pr" and .repo == $origin) | .number] | unique)
+  | if .name == null and $name != "" then .name = $name else . end'
+
+# Usage: item_add <repo> <n> <origin url> <items> [<jq options...> <filter>]; adds the JSON array <items> of work items
+# to the slot's record under its lock, the first one naming a slot that has no name. A filter given runs after, in the
+# same update.
+item_add() {
+  local repo=$1 n=$2 origin items name='' filter=$ITEM_ADD_FILTER
+  origin=$(pr_repo_slug "$3")
+  items=$(contract_json -c 'map({kind, repo, number, title: (.title // "")})' <<<"$4")
+  shift 4
+  if (($# > 0)); then
+    filter+=" | ${*: -1}"
+    set -- "${@:1:$#-1}"
+  fi
+  [[ $items == '[]' ]] || name=$(item_name "$(contract_json -c '.[0]' <<<"$items")")
+  record_update "$repo" "$n" --argjson items "$items" --arg origin "$origin" --arg name "$name" "$@" "$filter"
+}
+
+ADOPT_KEY='' ADOPT_KIND='' ADOPT_REF=''
+
+# Usage: adopt_parse_args <args...>; sets ADOPT_KEY, ADOPT_KIND (pr or issue), and ADOPT_REF.
+adopt_parse_args() {
+  while (($#)); do
+    case $1 in
+      --pr | --issue)
+        [[ -z $ADOPT_KIND ]] || usage_fail "adopt takes one of --pr or --issue" "$1"
+        (($# >= 2)) || usage_fail "$1 needs a ref: N, owner/name#N, or its GitHub URL" "$1"
+        ADOPT_KIND=${1#--} ADOPT_REF=$2
+        shift 2
+        ;;
+      -*) usage_fail "unknown option $1" "$1" ;;
+      *)
+        [[ -z $ADOPT_KEY ]] || usage_fail "adopt takes one slot, <repo>/<N>" "$1"
+        ADOPT_KEY=$1
+        shift
+        ;;
+    esac
+  done
+  [[ -n $ADOPT_KEY ]] || usage_fail "adopt needs a slot, <repo>/<N>"
+  [[ -n $ADOPT_KIND ]] || usage_fail "adopt needs --pr <ref> or --issue <ref>"
+  slot_parse_key "$ADOPT_KEY"
+}
+
+# Usage: cmd_adopt; attaches the item ADOPT_KIND and ADOPT_REF name to the slot SLOT_REPO/SLOT_N, logs an adopt event,
+# and renames the slot's Claude session when its agent is idle. A busy agent's session is renamed by a later automatic
+# sweep.
+cmd_adopt() {
+  local repo=$SLOT_REPO n=$SLOT_N key=$ADOPT_KEY origin item renamed=false
+  require_tools tmux claude gh
+  slot_taken "$repo" "$n" \
+    || contract_fail slot-not-found "$key holds no slot" --value "$key" --command "agent-slot list"
+  origin=$(git -C "$(slot_path "$repo" "$n")" config --get remote.origin.url || true)
+  item_parse_ref "$ADOPT_KIND" "$ADOPT_REF" "$origin"
+  item_resolve
+  item=$(contract_json -c '{kind, repo, number, title}' <<<"$ITEM")
+  agentstate_load
+  record_lock_slot "$repo" "$n" --wait 10 \
+    || contract_fail slot-busy "another agent-slot process held $key for 10 s, so $ITEM_REPO#$ITEM_NUMBER was not \
+attached" --value "$key" --command "$(contract_quote "$CONTRACT_PROGRAM" "${CONTRACT_ARGV[@]}")"
+  item_add "$repo" "$n" "$origin" "[$item]" \
+    || contract_fail slot-not-found "$key has no record to attach $ITEM_REPO#$ITEM_NUMBER to" --value "$key" \
+      --command "agent-slot list"
+  record_read "$repo" "$n"
+  ledger_append adopt "$(contract_json -c --argjson item "$item" \
+    '{repo, slot, task, session_id, item: $item, name}' <<<"$RECORD")"
+  agentstate_of "$repo" "$n"
+  if release_rename "$repo" "$n"; then renamed=true; fi
+  record_unlock_slot "$repo" "$n"
+  contract_ok "$(contract_json -c --arg key "$key" --argjson item "$item" --argjson renamed "$renamed" \
+    '{key: $key, name, items, item: $item, renamed: $renamed}' <<<"$RECORD")" '
+    "\(.key): \(.item.repo)#\(.item.number) attached; the slot is named \(.name)"
+      + (if .renamed then ", and its Claude session renamed" else "" end)'
 }
 
 # Usage: _item_gh <gh args...>; a bounded gh call whose output lands in ITEM_GH_OUT. GitHub's not-found answer, which it

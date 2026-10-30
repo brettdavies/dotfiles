@@ -41,8 +41,9 @@ cmd_repos() {
 }
 
 # Usage: slot_view <repo> <n> <session-list>
-# Sets SLOT_VIEW to the slot as list reports it: the record's fields plus agent state, tmux sessions, branch, and the
-# needs-you list.
+# Sets SLOT_VIEW to the slot as list reports it: the record's fields plus agent state, tmux sessions, branch, the
+# needs-you list, and label_name, the one label every surface shows for the slot: its name, else its task, else its
+# branch.
 SLOT_VIEW=
 slot_view() {
   local repo=$1 n=$2 sessions=$3 rec path state agent branch='' claude=false files=false git=false
@@ -63,7 +64,8 @@ slot_view() {
   SLOT_VIEW=$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$path" --arg state "$state" \
     --arg agent "$agent" --arg detail "$AGENT_DETAIL" --arg branch "$branch" --argjson claude "$claude" \
     --argjson files "$files" --argjson git "$git" '
-    . + {key: $key, path: $path, state: $state, branch: (if $branch == "" then null else $branch end),
+    (if $branch == "" then null else $branch end) as $branch
+    | . + {key: $key, path: $path, state: $state, branch: $branch, label_name: (.name // .task // $branch),
          agent: $agent, agent_detail: (if $detail == "" then null else $detail end),
          sessions: {claude: $claude, files: $files, git: $git},
          needs_you: (.last_check.blockers // [])}' <<<"$rec")
@@ -85,7 +87,7 @@ cmd_list() {
   done < <(slot_repos)
   contract_ok "$(printf '%s\n' "${views[@]}" | contract_json -s -c '{slots: .}')" '
     if (.slots | length) == 0 then "no slots"
-    else .slots[] | "\(.key)\t\(.state)\t\(.agent)\t\(.task // .branch // "-")" +
+    else .slots[] | "\(.key)\t\(.state)\t\(.agent)\t\(.label_name // "-")" +
       (if (.needs_you | length) > 0 then "\tneeds you: \(.needs_you[0].message)" else "" end)
     end'
 }

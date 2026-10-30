@@ -10,6 +10,7 @@
     "allow": [
       "Bash(./.githooks/pre-push)",
       "Bash(actionlint *)",
+      "Bash(agent-slot adopt *)",
       "Bash(agent-slot check *)",
       "Bash(agent-slot doctor *)",
       "Bash(agent-slot list *)",

@@ -22,6 +22,8 @@ setup() {
   export AGENT_SLOT_RELEASE_POLL=0.2 AGENT_SLOT_RELEASE_WAIT=20
   TEARDOWN_LOG=$AGENT_SLOT_STATE_DIR/teardown.log
   AGENT=
+  # The slot's Claude session already carries the slot's name, so only the tests about renaming see a /rename typed.
+  record_set '.name = "t1" | .named_as = "t1"'
 }
 
 teardown() {
@@ -141,6 +143,16 @@ gone() { [ ! -e "$SLOT" ]; }
 # runner_done: true once the teardown a release started has exited and let go of the slot's lock.
 runner_done() { ! kill -0 "$(record '.release.runner_pid')" 2>/dev/null; }
 logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
+
+# auto_sweep: one pass of the automatic sweep.
+auto_sweep() {
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+}
+renames_typed() { grep -c -- ' -l /rename ' "$CALLS" || true; }
 
 # --- the gate ----------------------------------------------------------------------------------------------------------
 
@@ -616,6 +628,54 @@ check: say what with agent-slot release --not-yet '<why>' --output json, and rel
   run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
   [ "$status" -eq 0 ]
   jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+}
+
+# --- renaming the slot's Claude session ---------------------------------------------------------------------------------
+
+@test "a slot adopted while its agent is busy is renamed by the first automatic sweep that finds the agent idle, once" {
+  record_set 'del(.name, .named_as)'
+  gh_item issue 12 "Fix the widget"
+  agent busy
+  run --separate-stderr "$AGENT_SLOT" adopt repoa/1 --issue 12 --output json
+  [ "$status" -eq 0 ]
+  auto_sweep
+  agent_status waiting
+  auto_sweep
+  [ ! -e "$STUBS/typed-repoa-1" ]
+  [ "$(record '.named_as')" = null ]
+  agent_status idle
+  auto_sweep
+  [ "$(cat "$STUBS/typed-repoa-1")" = "/rename repoa-issue12-fix-the-widget" ]
+  [ "$(record '.named_as')" = repoa-issue12-fix-the-widget ]
+  jaq -e '.renamed == [{key: "repoa/1", name: "repoa-issue12-fix-the-widget"}]' <<<"$output"
+  logged 'any(.[]; .event == "sweep" and .renamed == [{key: "repoa/1", name: "repoa-issue12-fix-the-widget"}])'
+  auto_sweep
+  jaq -e '.renamed == []' <<<"$output"
+  [ "$(renames_typed)" = 1 ]
+}
+
+@test "the automatic sweep renames an idle agent's session in the pass whose check names the slot" {
+  record_set 'del(.name, .named_as)'
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 OPEN feat/x 2026-06-01T00:00:00Z "Add the widget"
+  agent idle
+  auto_sweep
+  [ "$(cat "$STUBS/typed-repoa-1")" = "/rename repoa-pr7-add-the-widget" ]
+  [ "$(record '.name + " " + .named_as')" = "repoa-pr7-add-the-widget repoa-pr7-add-the-widget" ]
+}
+
+@test "a pass that types an idle agent its closing steps leaves the rename to the next pass" {
+  record_set 'del(.name, .named_as)'
+  finished_task
+  agent idle
+  auto_sweep
+  jaq -e '.closing_sent == ["repoa/1"]' <<<"$output"
+  [ "$(renames_typed)" = 0 ]
+  [ "$(record '.named_as')" = null ]
+  auto_sweep
+  [ "$(cat "$STUBS/typed-repoa-1")" = "/rename repoa-pr7-pr-7" ]
+  [ "$(grep -c -- '-l Your task has finished' "$CALLS")" = 1 ]
 }
 
 # --- the timer ---------------------------------------------------------------------------------------------------------

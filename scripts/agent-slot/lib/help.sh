@@ -12,6 +12,7 @@ Verbs:
   resume   bring back the tmux sessions and Claude conversation of a slot
   warm     trust the next slot paths of a repo in Claude ahead of time
   check    judge whether each slot can be torn down, and list what blocks it
+  adopt    attach a PR or issue to a live slot, naming the slot if it has no name
   sweep    tear down every slot whose task has finished and that check passes (reports only, without --yes)
   finish   mark a task finished and tear its slot down if check passes (reports only, without --yes)
   release  hand this slot'"'"'s teardown upstream once its agent has run the closing skills; run from inside the slot
@@ -22,7 +23,7 @@ Every verb takes --output json (one JSON object on stdout, or an error object on
 Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.
 Reasons and their fixes: https://github.com/brettdavies/dotfiles/blob/main/README.md#agent-slot-reasons'
 
-VERBS=' repos list whoami launch resume warm check sweep finish release doctor schema '
+VERBS=' repos list whoami launch resume warm check adopt sweep finish release doctor schema '
 
 verb_help() {
   case $1 in
@@ -65,6 +66,14 @@ verb_help() {
       'returns: slots[] of {key, repo, slot, path, state, task, branch, prs, finished, finished_by (merge, operator,' \
       '         or release), blockers, needs_you, teardown}' \
       'example: agent-slot check dotfiles/2 --output json' ;;
+    adopt) printf '%s\n' 'usage: agent-slot adopt <repo>/<N> (--pr <ref> | --issue <ref>) [--output json]' \
+      "Attaches a PR or issue to a live slot's record, and names a slot that has no name from it:" \
+      "<repo>-pr<N>-<slug> or <repo>-issue<N>-<slug>. A ref is N (in the slot's origin repo), owner/name#N, or" \
+      "its GitHub URL. A PR of origin's repo also joins the slot's PRs, which check judges. When the slot's agent" \
+      "is idle, its Claude session is typed /rename <name>; the automatic sweep renames a busy agent's session once" \
+      'it is idle. It deletes nothing, so it needs no ask.' \
+      'returns: key, name, items[] of {kind, repo, number, title}, item (the one attached), renamed' \
+      'example: agent-slot adopt Pillow/1 --issue 10331 --output json' ;;
     sweep) printf '%s\n' 'usage: agent-slot sweep [--yes [--auto]] [--output json]' \
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \
       "reports what it would delete. Agents ask the operator first. A teardown deletes the slot's clone, moving it to" \
@@ -78,8 +87,8 @@ verb_help() {
       'naming them, once, before it is listed. Each --yes pass appends a line to' \
       "$AS_STATE_DIR/teardown.log." \
       'returns: dry_run, torn_down[], purge_failed[], would_tear_down[], closing_sent[], cleanup_sent[], reminded[],' \
-      '         not_yet[], needs_you[] of {key, needs_you}, slots[] (each with result, and a torn-down one with purge' \
-      '         {purged, entry, ms, and code, message, next_step, log when it failed})' \
+      '         not_yet[], renamed[] of {key, name}, needs_you[] of {key, needs_you}, slots[] (each with result, and a' \
+      '         torn-down one with purge {purged, entry, ms, and code, message, next_step, log when it failed})' \
       'example: agent-slot sweep --output json' ;;
     finish) printf '%s\n' \
       'usage: agent-slot finish <repo>/<N> [--yes [--when-idle] [--allow-open-pr]] [--output json]' \
