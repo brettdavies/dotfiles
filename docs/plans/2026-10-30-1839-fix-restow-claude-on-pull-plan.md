@@ -18,8 +18,8 @@ execution: code
 - **Means:** `post-merge` and `post-checkout` restow the `claude` and `secrets` packages through
   `stow-deploy --headless --only` whenever the update changed them (KTD1, KTD3, KTD7).
 - **Product authority:** Brett's decision, relayed by the `xurl-rs-prime` session, outranks Requirements; Requirements
-  govern behavior; KTDs govern mechanism within them; units override neither. Behavior measured on this host (git 2.5x,
-  GNU Stow 2.4) outranks documentation or memory.
+  govern behavior; KTDs govern mechanism within them; units override neither. Behavior measured on this host (git
+  2.56.0, GNU Stow 2.4.1) outranks documentation or memory.
 - **Execution profile:** one new hook library, two hooks edited, `scripts/stow-deploy` gains a flag and a narrower
   dirty-tree refusal, `scripts/lint-shell` follows the hooks' new sources, one shared test fixture helper, one new
   suite, two extended suites, three docs.
@@ -105,8 +105,9 @@ The Mac has the same shape and will hit it on its next pull of a change that add
 
 ### Success Criteria
 
-- Replaying the `bb85317` → `ddd3878` pull against a sandbox target, `~/.claude/never-send-guard.sh` is linked within 1
-  s of git writing the new `settings.json`, and the measured gap is reported in the PR.
+- Merging this branch's head into a scratch clone at `bb85317` deployed to a sandbox target,
+  `~/.claude/never-send-guard.sh` is linked within 1 s of git writing the new `settings.json`, and the measured gap is
+  reported in the PR.
 - A pull that merges this PR into a checkout still on the old hooks restows on that same pull.
 
 ### Scope Boundaries
@@ -125,7 +126,8 @@ Considered and not built:
 - **A timeout around `stow-deploy`.** Headless mode reads no input and the measured hook run is about 0.1 s; macOS ships
   no `timeout`. A hung restow observed in practice would change this.
 - **Linking new scripts before `settings.json` changes.** See KTD9.
-- **`git reset --hard` and other updates that run no hook.** They fire neither hook. This repo's documented update is
+- **`git reset --hard`, `git merge --squash`, and other updates that move no ref a hook diffs.** A reset fires neither
+  hook, and a squash merge leaves `HEAD` where it was, so KTD3's diff is empty. This repo's documented update is
   `git pull`.
 
 ---
@@ -224,8 +226,8 @@ flowchart TB
 ### Assumptions
 
 - Every deployed host keeps `core.hooksPath=.githooks`; `stow-deploy` sets it on each run.
-- Claude Code reloads `settings.json` on change and treats a missing script as one blocked call; a blocked call does not
-  end the session.
+- Claude Code reloads `settings.json` on change, observed when this slot's own session started failing mid-session after
+  the 18:30 pull; a blocked call does not end the session.
 - The Mac behaves like this host: same hook semantics and a similar sub-second restow. Nothing was measured on the Mac.
 
 ### Sequencing
@@ -260,16 +262,17 @@ the shipped behavior and goes last.
   `--dotfiles`, so U1's fixture packages hold top-level `dot-` files only.
 - **Execution note:** write the tests first and run them against `origin/dev`'s `stow-deploy`, quoting each failure.
 - **Test scenarios:**
-  - `--only claude` against a sandbox target links the `claude` package and creates no link for any other package.
-  - `--only` with no package exits 2 with a usage message.
-  - `--only claude --all` and `--all --only claude` exit 2.
-  - In the fixture, `--headless --only claude` with an uncommitted edit to `stow/claude/dot-claude/settings.json` and
-    nothing to adopt links a new script and exits 0.
+  - In the fixture, `--only claude` against a sandbox target links the `claude` package and creates no link for any
+    other package.
+  - In the fixture, `--only` with no package exits 2 with a usage message.
+  - In the fixture, `--only claude --all` and `--all --only claude` exit 2.
+  - In the fixture, `--headless --only claude` with an uncommitted edit to a tracked file of the `claude` package and
+    nothing to adopt links a new file and exits 0.
   - In the fixture, `--headless --only claude` with an uncommitted edit under another package exits 0 (fails today with
     exit 4).
-  - In the fixture, a plain file at the target's `.claude/settings.json` plus an uncommitted edit to the package's
-    `settings.json` makes `--headless` refuse `claude` with the adopt message and exit 5, and the edited file in the
-    repo is unchanged.
+  - In the fixture, a plain file at the target path of one `claude` package file, plus an uncommitted edit to that file
+    in the repo, makes `--headless` refuse `claude` with the adopt message and exit 5, and the edited file in the repo
+    is unchanged.
   - In the fixture, the same plain-file conflict with a clean `stow/claude/` still adopts and restores the repo version,
     as today.
   - In the fixture, an interactive run (no `--headless`, stdin from `/dev/null`) with an uncommitted edit under `stow/`
@@ -379,15 +382,15 @@ the shipped behavior and goes last.
 
 ## Verification Contract
 
-| Gate           | Command or procedure                                                                                                                                                                                                                  | Proves                                     |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Touched suites | `scripts/run-tests tests/restow-on-pull.bats tests/stow-deploy-args.bats tests/stow-deploy-packages.bats tests/claude-settings.bats tests/git-hooks.bats tests/hook-git-env.bats tests/lint-shell.bats tests/bash-version-guard.bats` | U1-U3                                      |
-| Fail-first     | each new test run against `origin/dev`'s `stow-deploy`, hooks, or `settings.json`, output quoted in the PR                                                                                                                            | the tests detect the defect                |
-| ShellCheck     | `scripts/lint-shell --all`                                                                                                                                                                                                            | hooks, library, scripts                    |
-| actionlint     | `scripts/lint-workflows --all`                                                                                                                                                                                                        | no workflow regressions                    |
-| Core env       | `scripts/core-env-guard.sh`                                                                                                                                                                                                           | no test resets `HOME`, `TMPDIR`, or `PATH` |
-| Markdown       | `markdownlint-cli2` on the changed markdown files                                                                                                                                                                                     | U4 and this plan                           |
-| Window         | replay `bb85317` → `ddd3878` in a scratch clone deployed to a sandbox target with the shipped hooks; compare the new `settings.json` mtime with the `never-send-guard.sh` link's ctime over at least 5 runs                           | KTD9, Success Criteria                     |
+| Gate           | Command or procedure                                                                                                                                                                                                                                                                                                                                     | Proves                                     |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Touched suites | `scripts/run-tests tests/restow-on-pull.bats tests/stow-deploy-args.bats tests/stow-deploy-packages.bats tests/claude-settings.bats tests/git-hooks.bats tests/hook-git-env.bats tests/lint-shell.bats tests/bash-version-guard.bats`                                                                                                                    | U1-U3                                      |
+| Fail-first     | each new U1 and U2 test run against `origin/dev`'s `stow-deploy` or hooks; the widened U3 test run against a `settings.json` copy that #371's test passes; output quoted in the PR                                                                                                                                                                       | the tests detect the defect                |
+| ShellCheck     | `scripts/lint-shell --all`                                                                                                                                                                                                                                                                                                                               | hooks, library, scripts                    |
+| actionlint     | `scripts/lint-workflows --all`                                                                                                                                                                                                                                                                                                                           | no workflow regressions                    |
+| Core env       | `scripts/core-env-guard.sh`                                                                                                                                                                                                                                                                                                                              | no test resets `HOME`, `TMPDIR`, or `PATH` |
+| Markdown       | `markdownlint-cli2` on the changed markdown files                                                                                                                                                                                                                                                                                                        | U4 and this plan                           |
+| Window         | in a scratch clone at `bb85317` deployed to a sandbox target, merge this branch's head, which carries `never-send-guard.sh`, the new hooks, and `stow-deploy --only` (`ddd3878` has neither of the last two), so the merged `post-merge` runs; compare the new `settings.json` mtime with the `never-send-guard.sh` link's ctime over at least five runs | KTD9, Success Criteria                     |
 
 Never run `scripts/run-tests --all` from the slot: other suites stow into the real home. The push uses `--no-verify`,
 because `pre-push` runs the full suite; every other gate above runs by hand and the PR body says so.
@@ -445,7 +448,7 @@ Approval readiness: PASS (E1-E8, each auto-decided per the slot's headless instr
 - **Result:** scope accepted as-is.
 
 ```text
-REALITY: premise-table pass 17 claims checked, unverified=2 (macOS GUI git bash, macOS timeout) docs/plans/2026-10-30-1839-fix-restow-claude-on-pull-plan.md:185
+REALITY: premise-table pass 17 claims checked, unverified=2 (macOS GUI git bash, macOS timeout) docs/plans/2026-10-30-1839-fix-restow-claude-on-pull-plan.md:187
 REALITY: already-done pass no restow work on origin/dev since 2026-10-29; 039f0f9 (#371) only adds the settings test U3 widens tests/claude-settings.bats:214
 REALITY: surface-check pass run-tests takes FILE..., lint-shell --all, git diff-tree --quiet, test -ef, git lfs post-merge all verified; --only is proposed scripts/run-tests:13
 REALITY: binding-decisions pass consistent with the fail-closed review's inline-lookup decision; no default reintroduced docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:190
@@ -738,6 +741,35 @@ None.
 
 ---
 
+## Document Review
+
+Run non-interactively with the review lenses inline (coherence, feasibility, scope-guardian, and adversarial on technical
+assumptions), because the slot's brief forbids subagents; no cross-model pass ran.
+
+| Lens | Findings | Applied |
+| ---- | -------- | ------- |
+| feasibility | 1 | 1 |
+| coherence | 4 | 4 |
+| scope-guardian | 0 | 0 |
+| adversarial | 1 FYI | 1 (assumption now cites evidence) |
+
+Applied under the review's grant (implementation and verification sections):
+
+- The Window gate replayed `bb85317` → `ddd3878`, which carries neither the restow library nor `stow-deploy --only`, so
+  it could not exercise the shipped hook; it now merges this branch's head into a clone at `bb85317`.
+- U1's first three scenarios now run in the fixture, and two scenarios no longer name nested `dot-claude/` paths, both
+  per E4.
+- The fail-first gate now matches U3: the widened test runs against a settings copy that #371's test passes.
+
+Applied by the plan's author, outside the review's grant:
+
+- Success Criteria uses the same replay range as the Window gate.
+- Scope Boundaries names `git merge --squash`: it leaves `HEAD` unmoved, so KTD3's diff is empty and R1 does not apply.
+- The Goal Capsule names the measured versions (git 2.56.0, GNU Stow 2.4.1), and the reload assumption cites the
+  incident that observed it.
+
+No proposed fixes, decisions, or FYI observations remain.
+
 ## DX Review Scorecard
 
 ```text
@@ -787,6 +819,7 @@ because `stow-deploy` has no `--help`, which predates this work.
 | DX Review      | `/plan-devex-review`  | Developer experience gaps       | 1    | CLEAR                     | score: 6/10 → 8/10, TTHW: manual → <1 s |
 
 - **OUTSIDE COVERAGE:** codex, plan-review phase, disabled in gstack config (`codex_reviews: disabled`); no findings.
-- **VERDICT:** DX CLEARED; ENG reviewed with every finding applied to the plan (eng review required); document review next.
+- **VERDICT:** DX CLEARED; ENG reviewed with every finding applied to the plan (eng review required); document review
+  next.
 
 NO UNRESOLVED DECISIONS
