@@ -217,12 +217,17 @@ Every gate the sequential flow spreads across cycles has to be satisfied before 
 
 ### Verify CI by rollup, not by watcher exit code
 
-`gh pr checks --watch` exits 1 when any job reports `skipping` (a conditional changelog job usually does) and exits 0
-whenever every check merely finished. Read the rollup instead and assert every live conclusion is `SUCCESS`. A branch
-GitHub rewrote twice shows each check twice: a `CANCELLED` set from the superseded run under the concurrency group plus
-the live set. Check runs and status contexts also report differently — a check run carries `status` plus `conclusion`
-while a status context carries `state`, so a filter that reads only `conclusion // state` counts in-progress check runs
-as passing:
+`gh pr checks --watch` returns once no check it can see is pending, and its exit code says only whether one of them
+failed. In gh 2.36.0 and later it exits 1 when a check ends `FAILURE`, `ERROR`, `TIMED_OUT`, or `ACTION_REQUIRED`, and 0
+when every check ends `SUCCESS`, `SKIPPED`, `NEUTRAL`, or `CANCELLED`; releases before 2.36.0 also exit 1 on `CANCELLED`
+([cli/cli#7960](https://github.com/cli/cli/pull/7960)). `SKIPPED` exits 0 in every release that has `--watch`. Without
+`--watch`, a pending check exits 8 (gh 2.34.0 and later, [cli/cli#7866](https://github.com/cli/cli/pull/7866)). It
+counts one entry per check name, the latest run, and only the checks registered when it polls, so a workflow that
+registers after its last poll is never counted. Read the rollup instead and assert every live conclusion is `SUCCESS`.
+In the rollup, a branch GitHub rewrote twice shows each check twice: a `CANCELLED` set from the superseded run under the
+concurrency group plus the live set. Check runs and status contexts also report differently — a check run carries
+`status` plus `conclusion` while a status context carries `state`, so a filter that reads only `conclusion // state`
+counts in-progress check runs as passing:
 
 ```bash
 gh pr view <n> --json headRefOid,mergeStateStatus,statusCheckRollup --jq '
@@ -294,10 +299,10 @@ repo has its own prose-linting pipeline.
    remote, not the checkout's directory: an agent slot's directory is a number (`~/slots/<repo>/<N>`), so parallel slots
    on one branch name would otherwise share a file; the directory name is only the fallback for a repo with no origin.
    The repo+branch key scopes the file to the current work, so re-runs on the same branch overwrite in place — desired,
-   since resubmitting replaces server-side. For everything else (commit messages,
-   issue bodies, issue comments, release notes, one-off bodies), name the file `/tmp/<kind>-$(uuidv7).md`. The `uuidv7`
-   helper lives at `stow/local/dot-local/bin/uuidv7` (deploys to `~/.local/bin/uuidv7` via `scripts/stow-deploy local`);
-   it's a three-line `python3.14` script around `uuid.uuid7()` (stdlib uuid7 was added in 3.14, so the shebang pins that
+   since resubmitting replaces server-side. For everything else (commit messages, issue bodies, issue comments, release
+   notes, one-off bodies), name the file `/tmp/<kind>-$(uuidv7).md`. The `uuidv7` helper lives at
+   `stow/local/dot-local/bin/uuidv7` (deploys to `~/.local/bin/uuidv7` via `scripts/stow-deploy local`); it's a
+   three-line `python3.14` script around `uuid.uuid7()` (stdlib uuid7 was added in 3.14, so the shebang pins that
    version). UUIDv7 is time-ordered, so `ls /tmp/commit-msg-*.md` sorts by creation. Use a fresh UUID per file — never
    reuse one across two artifacts. The auto-format hook (`md-wrap.py`) skips `/tmp/` paths, so the file keeps its
    authored shape — no 120-char wrapping inside prose. Write each paragraph and each bullet as **one logical line**;
@@ -394,10 +399,11 @@ spawn one Bash call per active run with `run_in_background: true` (in parallel),
 finishes — no polling needed.
 
 For PR-scoped checks (after `gh pr create`/`gh pr merge`), prefer `gh pr checks <pr> --watch` — it covers all checks
-across all triggered workflows on the PR head in a single watcher. Its exit code is not the verdict: it exits 1 when any
-job reports `skipping`, and 0 whenever every check merely finished. Read the rollup query from `~/.claude/CLAUDE.md` §
-"CI after push" afterwards and assert every conclusion is `SUCCESS` (`SKIPPED` is acceptable only for a conditional
-job); see "Stacked PRs" for the duplicated-entry case after a branch rewrite.
+across all triggered workflows on the PR head in a single watcher. Its exit code is not the verdict: it exits 1 only
+when a check failed, and 0 when the rest passed, were skipped, or were cancelled (gh 2.36.0 and later; see "Verify CI by
+rollup, not by watcher exit code"). Read the rollup query from `~/.claude/CLAUDE.md` § "CI after push" afterwards and
+assert every conclusion is `SUCCESS` (`SKIPPED` is acceptable only for a conditional job); see "Stacked PRs" for the
+duplicated-entry case after a branch rewrite.
 
 After every batch of watchers finishes, re-run `gh run list --branch <branch>` to catch dispatched chains (e.g.
 `release.yml` → homebrew dispatch → `finalize-release`). The hook only fires after the original action; chained runs
