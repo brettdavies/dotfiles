@@ -19,6 +19,7 @@
 #   AGENT_SLOT_TMUX_SOCKET     slot tmux socket name (agent-slots)
 #   AGENT_SLOT_TMUX_CONF       slot tmux config (~/.config/tmux/slots.conf)
 #   AGENT_SLOT_SOLUTIONS       shared solutions repo (~/dev/solutions-docs)
+#   AGENT_SLOT_REPO_RECON      repo-recon's store, read only (~/dev/repo-recon)
 #   AGENT_SLOT_GIT_CRYPT_KEY   git-crypt key (~/.config/git-crypt/key)
 #   AGENT_SLOT_CLAUDE_STATE    Claude's app-state file, read only (~/.claude.json)
 #   AGENT_SLOT_REX_CLIENTS     space-separated ssh aliases of the Macs whose Rex a launch or teardown pushes a restore

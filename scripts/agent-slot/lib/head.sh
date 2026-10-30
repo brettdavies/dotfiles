@@ -10,12 +10,13 @@
 HEAD_REMOTE='' HEAD_URL='' HEAD_PUSHABLE=null
 
 # Usage: head_github_slug <url>; prints the lowercase owner/name of a GitHub URL in its https, ssh, or scp form, with or
-# without .git, and nothing for any other URL.
+# without .git, and nothing for any other URL. GitHub matches its host and names in any case, so this does too.
 head_github_slug() {
-  local url=${1%/}
+  local url=${1,,}
+  url=${url%/}
   url=${url%.git}
-  [[ $url =~ ^(https://|ssh://git@|git@)github\.com[:/]([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)$ ]] || return 0
-  printf '%s' "${BASH_REMATCH[2],,}"
+  [[ $url =~ ^(https://|ssh://git@|git@)github\.com[:/]([a-z0-9_.-]+/[a-z0-9_.-]+)$ ]] || return 0
+  printf '%s' "${BASH_REMATCH[2]}"
 }
 
 # Usage: head_remote_for <prime> <head url>; sets HEAD_REMOTE and HEAD_URL to the remote a slot of the prime fetches

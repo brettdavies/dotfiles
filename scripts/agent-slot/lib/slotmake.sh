@@ -113,6 +113,7 @@ slot_make() {
   parity_git_crypt "$path"
   parity_hooks "$REPO_PRIME" "$path"
   parity_solutions "$path"
+  parity_repo_recon "$REPO_PRIME" "$path"
   parity_claude_settings "$REPO_PRIME" "$path"
   parity_siblings "$repo" "$path"
   prompt_copy=$(slot_prompt_file "$path")

@@ -452,6 +452,31 @@ listed() {
     values: [".context/handoffs/x.md"]}]' <<<"$VERDICT"
 }
 
+@test "setup's .context/repo-recon link to the repo's store does not block, with a file filed through it" {
+  recon_linked up
+  finished_task
+  echo body >"$SLOT/.context/repo-recon/filed/issue-1.md"
+  listed '!! .context/'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "a .context/repo-recon link to another store, or a real directory there, blocks as local-only" {
+  recon_linked up
+  finished_task
+  recon_store other/repob
+  ln -sfn "$STORE" "$SLOT/.context/repo-recon"
+  check
+  jaq -e '.blockers == [{code: "local-only-files", message: "local-only files: .context/repo-recon", count: 1,
+    values: [".context/repo-recon"]}]' <<<"$VERDICT"
+  rm "$SLOT/.context/repo-recon"
+  mkdir "$SLOT/.context/repo-recon"
+  echo notes >"$SLOT/.context/repo-recon/profile.md"
+  check
+  jaq -e '.blockers == [{code: "local-only-files", message: "local-only files: .context/repo-recon/profile.md",
+    count: 1, values: [".context/repo-recon/profile.md"]}]' <<<"$VERDICT"
+}
+
 # vale_slot PACKAGES: a finished task whose tracked .vale.ini names those packages under StylesPath styles, beside a
 # tracked style of the repo's own.
 vale_slot() {

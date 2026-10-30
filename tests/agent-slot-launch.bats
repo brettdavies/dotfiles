@@ -162,6 +162,45 @@ partial_prime() {
   [ "$(readlink "$AGENT_SLOT_ROOT/repoa/1/docs/solutions")" = "$AGENT_SLOT_SOLUTIONS" ]
 }
 
+@test "a slot links .context/repo-recon to its origin's repo-recon store before its upstream's, and writes no store" {
+  github_origin
+  git -C "$AGENT_SLOT_DEV/repoa" remote add upstream https://github.com/parent/repoa.git
+  BEFORE=$(fingerprint "$AGENT_SLOT_DEV/repoa")
+  recon_store parent/repoa
+  recon_store up/repoa
+  local before
+  before=$(fingerprint "$AGENT_SLOT_REPO_RECON")
+  launch repoa --request-id r-recon
+  [ "$status" -eq 0 ]
+  [ "$(readlink "$AGENT_SLOT_ROOT/repoa/1/.context/repo-recon")" = "$STORE" ]
+  [ "$(fingerprint "$AGENT_SLOT_REPO_RECON")" = "$before" ]
+  assert_prime_untouched
+}
+
+@test "a fork's slot links the store of the prime's upstream remote, matching its host and name in any case" {
+  github_origin
+  git -C "$AGENT_SLOT_DEV/repoa" remote add upstream git@GitHub.com:Parent/RepoA.git
+  BEFORE=$(fingerprint "$AGENT_SLOT_DEV/repoa")
+  recon_store parent/repoa
+  launch repoa --request-id r-recon-fork
+  [ "$status" -eq 0 ]
+  [ "$(readlink "$AGENT_SLOT_ROOT/repoa/1/.context/repo-recon")" = "$STORE" ]
+  assert_prime_untouched
+}
+
+@test "a slot of a repo with no repo-recon store gets no link, and no store is made" {
+  github_origin
+  git -C "$AGENT_SLOT_DEV/repoa" remote add upstream https://github.com/parent/repoa.git
+  BEFORE=$(fingerprint "$AGENT_SLOT_DEV/repoa")
+  recon_store other/repob
+  local before
+  before=$(fingerprint "$AGENT_SLOT_REPO_RECON")
+  launch repoa --request-id r-recon-none
+  [ "$status" -eq 0 ]
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1/.context" ]
+  [ "$(fingerprint "$AGENT_SLOT_REPO_RECON")" = "$before" ]
+}
+
 @test "AE3: a prime core.hooksPath inside the prime becomes the same path relative to the slot" {
   origin_file repoa scripts/hooks/pre-commit '#!/bin/sh'
   git -C "$AGENT_SLOT_DEV/repoa" pull -q origin main
