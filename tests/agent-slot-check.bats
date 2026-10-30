@@ -71,6 +71,29 @@ outside_loop() {
     || ((n++ > 50)); do sleep 0.1; done
 }
 
+# Usage: gone_pid; prints the pid of a process that has already exited.
+gone_pid() {
+  sh -c 'exit 0' &
+  local pid=$!
+  wait "$pid"
+  echo "$pid"
+}
+
+# Usage: scan_also_lists <pid>; points check at a find that runs the real one and, for the scan of /proc, also lists PID
+# with its working directory in the slot. That is the scan catching a short-lived child that started after the first
+# read of process parents and exited before the second, which under load happens to a `sleep 0.1`.
+scan_also_lists() {
+  local real
+  real=$(command -v find)
+  cat >"$STUBS/find" <<EOF
+#!/usr/bin/env bash
+"$real" "\$@"
+[[ \$1 != /proc/* ]] || printf '/proc/%s/cwd\t%s\n' '$1' '$SLOT'
+EOF
+  chmod +x "$STUBS/find"
+  export AGENT_SLOT_FIND=$STUBS/find
+}
+
 # Usage: pane_orphan <command...>; runs COMMAND with its working directory in the slot and the TMUX and TMUX_PANE of the
 # slot's pane %11, from a parent that exits at once, as init adopts a job that a pane's command left running. Sets
 # ORPHAN to its pid once it runs with that environment, which /proc shows only from COMMAND's own exec.
@@ -209,6 +232,25 @@ listed() {
   outside_loop "source /dev/null 2>/dev/null || true && eval '$command' < /dev/null && pwd -P >| $T/claude-1a2b-cwd"
   check
   jaq -e --arg v "$LOOP $command" '.blockers[] | select(.code == "agent-state-unknown") | .values == [$v]' <<<"$VERDICT"
+}
+
+@test "a process the scan lists but neither read of process parents saw is not named beside the loop that holds the slot" {
+  finished_task
+  outside_loop 'while :; do sleep 0.1; done'
+  scan_also_lists "$(gone_pid)"
+  check
+  local command='bash -c while :; do sleep 0.1; done'
+  jaq -e --arg v "$LOOP $command" '.blockers[] | select(.code == "agent-state-unknown") | .values == [$v]' <<<"$VERDICT"
+}
+
+@test "a process the scan lists but neither read of process parents saw still blocks when nothing else uses the slot" {
+  finished_task
+  local gone
+  gone=$(gone_pid)
+  scan_also_lists "$gone"
+  check
+  jaq -e --arg v "$gone" '.blockers[] | select(.code == "agent-state-unknown") | .values == [$v]' <<<"$VERDICT"
+  jaq -e '.teardown == false' <<<"$VERDICT"
 }
 
 @test "an orphaned loop that carries a slot pane's TMUX and TMUX_PANE blocks, named by its pid and command" {

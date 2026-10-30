@@ -43,7 +43,7 @@ agent_slot_env() {
   AS_RELEASE_REMIND=${AGENT_SLOT_RELEASE_REMIND:-1800}
 
   declare -gA AS_TOOL=() CONTRACT_TOOL_PATHS
-  for tool in tmux claude gh git-crypt git flock timeout trash systemctl ssh; do
+  for tool in tmux claude gh git-crypt git flock timeout trash systemctl ssh find; do
     override=AGENT_SLOT_${tool^^}
     override=${override//-/_}
     AS_TOOL[$tool]=${!override:-$(command -v "$tool" || true)}

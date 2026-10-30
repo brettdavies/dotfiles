@@ -50,7 +50,8 @@ agentstate_load() {
   _agent_read_parents
   _AGENT_UNDER=$(
     printf '%s\n' "$BASHPID"
-    find /proc/[0-9]*/cwd /proc/[0-9]*/fd -maxdepth 1 -lname "$AS_ROOT_REAL/*" -printf '%p\t%l\n' 2>/dev/null || true
+    "$AS_FIND" /proc/[0-9]*/cwd /proc/[0-9]*/fd -maxdepth 1 -lname "$AS_ROOT_REAL/*" -printf '%p\t%l\n' 2>/dev/null \
+      || true
   )
   _agent_read_parents
   _AGENT_SCAN_PID=${_AGENT_UNDER%%$'\n'*}
@@ -178,7 +179,7 @@ _agent_described() {
 # slot's panes that holds the slot, named by _agent_holder), and AGENT_PIDS (the Claude processes under the slot).
 agentstate_of() {
   local repo=$1 n=$2 path name panes='' ids='' kind sessions count entry pid target comm users=' ' holder held=''
-  local -a outside=()
+  local -a outside=() traced=()
   path=$AS_ROOT_REAL/$repo/$n
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
     name=$(slot_session "$repo" "$n" "$kind")
@@ -216,6 +217,11 @@ agentstate_of() {
   elif ((count > 1)); then
     AGENT_DETAIL="$count Claude sessions run under the slot"
   elif ((${#outside[@]} > 0)); then
+    # A process the scan listed that has no parent in the map started after its first read and exited before its
+    # second, so nothing ties it to what started it, and it holds nothing now. Under load the window between the two
+    # reads outlasts a `sleep 0.1`. Such a process is named only when no process that can be traced uses the slot.
+    for pid in "${outside[@]}"; do [[ -z ${_AGENT_PPID[$pid]:-} ]] || traced+=("$pid"); done
+    ((${#traced[@]} == 0)) || outside=("${traced[@]}")
     mapfile -t AGENT_HOLDERS < <(for pid in "${outside[@]}"; do _agent_holder "$pid" "$users"; done | sort -un \
       | while read -r pid; do _agent_described "$pid"; done)
     for holder in "${AGENT_HOLDERS[@]}"; do
