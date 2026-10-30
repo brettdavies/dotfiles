@@ -193,7 +193,7 @@ _skip_unless_dash() {
   # `${BASH_SOURCE[0]}` outside a BASH_VERSION guard fails exactly this way.
   run env -i HOME="$HOME" USER="${USER:-$(id -un)}" LOGNAME="${LOGNAME:-$(id -un)}" \
     TERM=xterm-256color PATH="$BARE_PATH" \
-    dash -lc 'true' 2>&1
+    dash -lc 'true' </dev/null 2>&1
   [ -z "$output" ] || {
     echo "dash -lc reported startup errors; dot-profile is not POSIX-clean:"
     echo "$output"
