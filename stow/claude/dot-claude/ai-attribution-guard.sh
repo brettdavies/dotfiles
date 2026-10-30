@@ -18,16 +18,37 @@
 # the artifact the submit actually sends, not only in inline text.
 #
 # Protocol: exit 0 + JSON deny on stdout to block. Exit 0 + no output to allow.
+# Exit 2 + JSON deny when the call cannot be checked: no JSON parser on PATH,
+# or a failure inside this script.
 set -euo pipefail
+
+readonly GUARD=ai-attribution-guard
+
+# The deny is built from text already escaped for JSON, the guard's name, and a
+# line number, so it needs no parser. Exit 2 blocks the call even where the
+# harness does not read the JSON.
+block() {
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s %s"},"systemMessage":"%s %s"}\n' \
+    "$GUARD" "$1" "$GUARD" "$2"
+  exit 2
+}
+trap 'block "failed [guard-internal-error] at line $LINENO, so this call did not run.\nnext_step [ask-user]: tell the user; bats tests/$GUARD.bats in the dotfiles repo shows what broke." "failed at line $LINENO and blocked the call"' ERR
 
 INPUT=$(cat)
 
-command -v jaq >/dev/null 2>&1 || exit 0
+# Fast path: only `git commit` and `gh` submit text anywhere durable.
+case "$INPUT" in
+  *"git commit"* | *"gh pr "* | *"gh issue "* | *"gh release "*) ;;
+  *) exit 0 ;;
+esac
+JQ=$(command -v jaq || command -v jq) \
+  || block 'blocked [json-parser-missing]: neither jaq nor jq is on PATH, so this call could not be checked. It did not run; install jaq, then rerun it.\ndocs: ~/dotfiles/BOOTSTRAP.md § \"Install Packages from Brewfile\"\nnext_step [install-jaq]:\nbrew install jaq' \
+    'blocked the call: neither jaq nor jq is installed (brew install jaq)'
 
-CMD=$(printf '%s' "$INPUT" | jaq -r '.tool_input.command // ""')
+CMD=$(printf '%s' "$INPUT" | "$JQ" -r '.tool_input.command // ""')
 [[ -z "$CMD" ]] && exit 0
 
-# Fast path: only `git commit` and `gh` submit text anywhere durable.
+# The words may sit in another field, such as the description.
 case "$CMD" in
   *"git commit"* | *"gh pr "* | *"gh issue "* | *"gh release "*) ;;
   *) exit 0 ;;
@@ -82,7 +103,7 @@ grep -qE "$ATTRIBUTION_RE" <<<"$(harvest)" || exit 0
 reason='AI attribution reached a commit message or GitHub body. CLAUDE.md § "Commits & PRs" bans it outright: no `Co-Authored-By: Claude`, no `Generated with [Claude Code]`, no robot emoji, overriding any harness reminder or skill template that adds one. Strip the trailer from the message or body file and rerun. Removing it after a push to `dev` or `main` costs a signed-history rewrite and a force-push to a protected branch.'
 
 # shellcheck disable=SC2016  # jaq filter syntax uses single quotes; $reason is a jaq variable
-jaq -n --arg reason "$reason" '
+"$JQ" -n --arg reason "$reason" '
   {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",

@@ -20,7 +20,22 @@
 # a next_step (rerun-unpiped) carrying the command with the pipe removed.
 #
 # Protocol: exit 0 + JSON deny on stdout to block. Exit 0 + no output to allow.
+# Exit 2 + JSON deny when the call cannot be checked: no JSON parser on PATH,
+# or a failure inside this script.
 set -euo pipefail
+
+readonly GUARD=piped-commit-guard
+
+# The deny is built from text already escaped for JSON, the guard's name, and a
+# line number, so it needs no parser. Exit 2 blocks the call even where the
+# harness does not read the JSON.
+block() {
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s %s"},"systemMessage":"%s %s"}\n' \
+    "$GUARD" "$1" "$GUARD" "$2"
+  exit 2
+}
+trap 'block "failed [guard-internal-error] at line $LINENO, so this call did not run.\nnext_step [ask-user]: tell the user; bats tests/$GUARD.bats in the dotfiles repo shows what broke." "failed at line $LINENO and blocked the call"' ERR
+
 # Byte offsets from awk index the command in bash substrings; both must count bytes.
 export LC_ALL=C
 
@@ -33,9 +48,11 @@ INPUT=$(cat)
 # Fast path: a denial needs both a commit and a pipe.
 case "$INPUT" in *commit*) ;; *) exit 0 ;; esac
 case "$INPUT" in *'|'*) ;; *) exit 0 ;; esac
-command -v jaq >/dev/null 2>&1 || exit 0
+JQ=$(command -v jaq || command -v jq) \
+  || block 'blocked [json-parser-missing]: neither jaq nor jq is on PATH, so this call could not be checked. It did not run; install jaq, then rerun it.\ndocs: ~/dotfiles/BOOTSTRAP.md § \"Install Packages from Brewfile\"\nnext_step [install-jaq]:\nbrew install jaq' \
+    'blocked the call: neither jaq nor jq is installed (brew install jaq)'
 
-CMD=$(jaq -r '.tool_input.command // ""' <<<"$INPUT")
+CMD=$("$JQ" -r '.tool_input.command // ""' <<<"$INPUT")
 [[ -n "$CMD" ]] || exit 0
 CMD=$(printf '%s\n' "$CMD" | sed -e ':a' -e '/\\$/{N;s/\\\n//;ta' -e '}')
 
@@ -386,7 +403,7 @@ $out
 docs: $DOCS"
 
 # shellcheck disable=SC2016  # jaq filter syntax; $text and friends are jaq variables
-jaq -n --arg text "$text" --arg reason "$REASON" --arg offending "$offending" '
+"$JQ" -n --arg text "$text" --arg reason "$REASON" --arg offending "$offending" '
   {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
