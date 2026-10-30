@@ -51,7 +51,7 @@ setup() {
 
 @test "every verb's help names the JSON fields it returns" {
   local verb
-  for verb in repos list whoami launch resume warm check sweep finish doctor schema; do
+  for verb in repos list whoami launch resume warm check adopt reopen sweep finish doctor schema; do
     run "$AGENT_SLOT" "$verb" --help
     [ "$status" -eq 0 ]
     [[ $output == *$'\nreturns: '* ]] || { echo "no returns line: $verb"; false; }

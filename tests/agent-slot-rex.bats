@@ -69,10 +69,28 @@ in_rex_session() {
 @test "launch adds trust needed to the label when the server expects the trust dialog" {
   in_rex_session X
   repos X
-  ssh_answer launch 0 "$(jaq -c '. + {task: "fix/y", trust_prompt_expected: true}' <<<"$LAUNCHED")"
+  ssh_answer launch 0 "$(jaq -c '. + {task: "fix/y", label_name: "fix/y", trust_prompt_expected: true}' <<<"$LAUNCHED")"
   run "$AGENT_SLOT_REX" launch --here
   [ "$status" -eq 0 ]
   called '^rex window rename -s sess-a win-a X/3 · fix/y · trust needed$'
+}
+
+@test "launch labels the tab with the label the server gives the slot, its name over its task" {
+  in_rex_session X
+  repos X
+  ssh_answer launch 0 "$(jaq -c '. + {task: "fix/y", name: "X-pr7-fix-y", label_name: "X-pr7-fix-y"}' <<<"$LAUNCHED")"
+  run "$AGENT_SLOT_REX" launch --here
+  [ "$status" -eq 0 ]
+  called '^rex window rename -s sess-a win-a X/3 · X-pr7-fix-y$'
+}
+
+@test "launch labels the tab by the slot's task when the server's answer has no label_name" {
+  in_rex_session X
+  repos X
+  ssh_answer launch 0 "$(jaq -c '. + {task: "fix/y"}' <<<"$LAUNCHED")"
+  run "$AGENT_SLOT_REX" launch --here
+  [ "$status" -eq 0 ]
+  called '^rex window rename -s sess-a win-a X/3 · fix/y$'
 }
 
 @test "after a launch a sweep tab opens in the agent-slots session, and the session is made when missing" {
@@ -263,6 +281,28 @@ in_rex_session() {
   called "^rex new B --window B/1 --json -- $STUBS/agent-slot-rex attach B/1 claude$"
   [ "$(grep -c '^rex do agent_slot_layout' "$CALLS")" -eq 3 ]
   not_called '^rex window close'
+}
+
+@test "reconcile labels a slot's tab with the label list gives it: its name, else its task" {
+  slots '[{"repo": "A", "slot": 1, "task": "t1", "name": "A-pr7-fix"}, {"repo": "A", "slot": 2, "task": "t2"},
+    {"repo": "A", "slot": 3, "task": "t3", "label_name": "from-server"}]'
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called "^rex new A --window A/1 · A-pr7-fix --json -- $STUBS/agent-slot-rex attach A/1 claude$"
+  called "^rex window new -s sess-A A/2 · t2 --focus=false --json -- $STUBS/agent-slot-rex attach A/2 claude$"
+  called "^rex window new -s sess-A A/3 · from-server --focus=false --json -- $STUBS/agent-slot-rex attach A/3 claude$"
+}
+
+@test "reconcile labels a tab by task, else branch, when the server's list has no label_name" {
+  ssh_answer list 0 '{"schema": "dotfiles.agent-slot/1", "ok": true, "verb": "list", "slots": [
+    {"key": "A/1", "repo": "A", "slot": 1, "state": "active", "task": "t1", "branch": "feat/a", "agent": "idle",
+     "needs_you": [], "sessions": {"claude": true, "files": true, "git": true}},
+    {"key": "A/2", "repo": "A", "slot": 2, "state": "active", "task": null, "branch": "feat/b", "agent": "idle",
+     "needs_you": [], "sessions": {"claude": true, "files": true, "git": true}}]}'
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called "^rex new A --window A/1 · t1 --json -- $STUBS/agent-slot-rex attach A/1 claude$"
+  called "^rex window new -s sess-A A/2 · feat/b --focus=false --json -- $STUBS/agent-slot-rex attach A/2 claude$"
 }
 
 @test "restore closes a keyed tab whose slot is gone and leaves unkeyed tabs alone" {

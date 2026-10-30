@@ -1,23 +1,25 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
-# launch and resume.
-#
-# launch claims the lowest free slot number under the repo lock, then holds that slot's lock from the claim to its
-# commit point: the slot's three tmux sessions exist and its record says active. Any failure before that point rolls
-# the slot back on the way out. A launch that was killed leaves a setting-up record, which the next launch rolls back
-# once it can take that slot's lock without waiting, which it can only after the owner died.
+# launch and resume. launch returns the slot that already holds its request, task, or work item, and otherwise has the
+# slot maker make one; a launch with a PR has the PR's head checked out there.
 
 TASK_PATTERN='^[A-Za-z0-9][A-Za-z0-9_/-]{0,63}$'
 TASK_RULE='a task name uses letters, digits, -, _, and /, starts with a letter or digit, and is at most 64 characters'
 REQUEST_PATTERN='^[A-Za-z0-9._-]{1,128}$'
 
 LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_REQUEST='' LAUNCH_PROMPT='' LAUNCH_REQUESTED_AT=''
-LAUNCH_ARMED=
+LAUNCH_ITEM_KIND='' LAUNCH_ITEM_REF='' LAUNCH_ITEM='' LAUNCH_NAME=''
 
 # Usage: launch_parse_args <args...>; sets the LAUNCH_* inputs, refusing bad ones before anything is touched.
 launch_parse_args() {
   LAUNCH_REQUESTED_AT=''
   while (($#)); do
     case $1 in
+      --pr | --issue)
+        [[ -z $LAUNCH_ITEM_KIND ]] || usage_fail "launch takes one of --pr or --issue" "$1"
+        (($# >= 2)) || usage_fail "$1 needs a ref: N, owner/name#N, or its GitHub URL" "$1"
+        LAUNCH_ITEM_KIND=${1#--} LAUNCH_ITEM_REF=$2
+        shift 2
+        ;;
       --task | --request-id | --prompt-file | --requested-at)
         (($# >= 2)) || usage_fail "$1 needs a value" "$1"
         case $1 in
@@ -52,53 +54,23 @@ launch_parse_args() {
     || usage_fail "--requested-at takes seconds since the epoch" "$LAUNCH_REQUESTED_AT"
 }
 
-# Usage: slot_rollback <repo> <n>
-# Removes a slot whose setup never finished: its tmux sessions, its clone, and its claim. The caller holds the slot
-# lock.
-slot_rollback() {
-  local repo=$1 n=$2 path kind out real
-  path=$(slot_path "$repo" "$n")
-  for kind in "${SLOT_SESSION_KINDS[@]}"; do
-    slot_tmux out 5 kill-session -t "=$(slot_session "$repo" "$n" "$kind")" || true
-  done
-  if [[ -e $path ]]; then
-    real=$(realpath -m "$path")
-    [[ $real == "$AS_ROOT_REAL"/*/* ]] || return 1
-    bounded out trash 60 "$AS_TRASH" "$path" || return 1
-  fi
-  rm -f "$(slot_claim_file "$repo" "$n")"
-}
-
-_launch_rollback_on_exit() {
-  [[ -n $LAUNCH_ARMED ]] || return 0
-  slot_rollback "${LAUNCH_ARMED%/*}" "${LAUNCH_ARMED##*/}"
-}
-
-# Rolls back every setting-up slot of the repo whose launch has died. The caller holds the repo lock.
-launch_reclaim_abandoned() {
-  local repo=$1 n
-  while read -r n; do
-    if [[ -z $n ]] || ! record_read "$repo" "$n"; then continue; fi
-    [[ $(contract_json -r '.state // ""' <<<"$RECORD") == setting-up ]] || continue
-    record_lock_slot "$repo" "$n" --nowait || continue
-    if ! record_read "$repo" "$n" || [[ $(contract_json -r '.state // ""' <<<"$RECORD") == setting-up ]]; then
-      slot_rollback "$repo" "$n" || true
-    fi
-    record_unlock_slot "$repo" "$n"
-  done < <(slot_numbers "$repo")
-}
-
-# Sets LAUNCH_EXISTING to the slot holding this request ID, or this task when one was given, and LAUNCH_EXISTING_BY to
-# request or task; returns 1 when none does.
+# Sets LAUNCH_EXISTING to the slot holding this request ID, this task when one was given, or this work item when one
+# was given, and LAUNCH_EXISTING_BY to request, task, or item; returns 1 when none does. A slot holds the item when its
+# items do, by kind, repo, and number, or, for a PR of origin's repo, when its PRs do; a title that changed since does
+# not matter.
 LAUNCH_EXISTING='' LAUNCH_EXISTING_BY=''
 launch_find_existing() {
-  local repo=$1 n request task state
+  local repo=$1 n request task state origin held=false
   LAUNCH_EXISTING='' LAUNCH_EXISTING_BY=''
+  origin=$(pr_repo_slug "$REPO_ORIGIN")
   while read -r n; do
     if [[ -z $n ]] || ! record_read "$repo" "$n"; then continue; fi
     request=$(contract_json -r '.request_id // ""' <<<"$RECORD")
     task=$(contract_json -r '.task // ""' <<<"$RECORD")
     state=$(contract_json -r '.state // ""' <<<"$RECORD")
+    [[ -z $LAUNCH_ITEM ]] || held=$(contract_json -r --argjson i "$LAUNCH_ITEM" --arg origin "$origin" "$ITEM_SAME_DEF"'
+      any(.items[]?; same_item($i))
+      or ($i.kind == "pr" and same_repo($i.repo; $origin) and any(.prs[]?; . == $i.number))' <<<"$RECORD")
     if [[ -n $LAUNCH_REQUEST && $request == "$LAUNCH_REQUEST" ]]; then
       LAUNCH_EXISTING=$n LAUNCH_EXISTING_BY=request
       return 0
@@ -107,50 +79,96 @@ launch_find_existing() {
       LAUNCH_EXISTING=$n LAUNCH_EXISTING_BY=task
       return 0
     fi
+    if [[ $held == true ]]; then
+      LAUNCH_EXISTING=$n LAUNCH_EXISTING_BY=item
+      return 0
+    fi
   done < <(slot_numbers "$repo")
   return 1
 }
 
-# Usage: launch_output <repo> <n> <created> [<trust-prompt-expected> <phases-json>]
+# Usage: launch_item; reads the --pr or --issue item from GitHub into ITEM and LAUNCH_ITEM, {kind, repo, number,
+# title}, sets LAUNCH_NAME to the slot name it gives, and gives a launch with no --task that name as its task.
+launch_item() {
+  item_parse_ref "$LAUNCH_ITEM_KIND" "$LAUNCH_ITEM_REF" "$REPO_ORIGIN"
+  item_resolve
+  LAUNCH_ITEM=$(contract_json -c '{kind, repo, number, title}' <<<"$ITEM")
+  LAUNCH_NAME=$(item_name "$LAUNCH_ITEM")
+  [[ -n $LAUNCH_TASK ]] || LAUNCH_TASK=$LAUNCH_NAME
+}
+
+# The head step of a launch with a PR: the PR's head, from the remote the prime knows the head's repo by.
+_launch_head() {
+  local url
+  url=$(contract_json -r '.head_url // ""' <<<"$ITEM")
+  HEAD_REMOTE='' HEAD_URL=''
+  [[ -z $url ]] || head_remote_for "$REPO_PRIME" "$url"
+  head_checkout "$1" "$(contract_json -r '.head_branch' <<<"$ITEM")" "$HEAD_REMOTE" "$HEAD_URL" pr "$ITEM_REPO" \
+    "$ITEM_NUMBER" "$(_launch_command)${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
+}
+
+# The launch's command line without --request-id, for an error's next step.
+_launch_command() {
+  printf 'agent-slot launch %s' "$LAUNCH_REPO"
+  [[ -z $LAUNCH_ITEM_KIND ]] || printf ' --%s %s' "$LAUNCH_ITEM_KIND" "$(contract_quote "$LAUNCH_ITEM_REF")"
+}
+
+# Usage: launch_output <repo> <n> <created> [<trust-prompt-expected> <phases-json> [<fields-json>]]
 # prompt_delivered says whether this call's --prompt-file is the slot's first message: true for a new slot or a retry
-# of the request that made it, false for a slot another request made, null without a --prompt-file.
+# of the request that made it, false for a slot another request made, null without a --prompt-file. head_pushable says
+# whether this call checked out a PR's head that can be pushed to, null when it checked out none. <fields-json> is
+# merged over the output.
 launch_output() {
-  local repo=$1 n=$2 created=$3 trust=${4:-false} phases=${5:-null} delivered=null
+  local repo=$1 n=$2 created=$3 trust=${4:-false} phases=${5:-null} fields=${6:-'{}'} delivered=null path
+  path=$(slot_path "$repo" "$n")
   record_read "$repo" "$n" || RECORD='{}'
   if [[ -n $LAUNCH_PROMPT ]]; then
     delivered=false
     [[ $created != true && $LAUNCH_EXISTING_BY != request ]] || delivered=true
   fi
-  contract_ok "$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$(slot_path "$repo" "$n")" \
+  contract_ok "$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$path" \
     --argjson created "$created" --argjson trust "$trust" --argjson phases "$phases" --arg docs "$CONTRACT_DOCS" \
-    --argjson delivered "$delivered" \
+    --argjson delivered "$delivered" --arg branch "$(slot_branch "$path")" --argjson pushable "$HEAD_PUSHABLE" \
+    --argjson fields "$fields" \
     --argjson missing "$(printf '%s\n' "${PARITY_MISSING_SIBLINGS[@]}" | contract_json -R -s -c 'split("\n") | map(select(. != ""))')" \
-    '{created: $created, key: $key, repo: .repo, slot: .slot, path: $path, state: .state, task: .task,
-      request_id: .request_id, session_id: .session_id, base: .base, trust_prompt_expected: $trust,
+    "$SLOT_LABEL_DEF"'{created: $created, key: $key, repo: .repo, slot: .slot, path: $path, state: .state, task: .task,
+      name: .name, items: (.items // []), label_name: label_name($branch), request_id: .request_id,
+      session_id: .session_id, base: .base, head_pushable: $pushable, trust_prompt_expected: $trust,
       prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases,
       next_step: {action: "run", command: "agent-slot check \($key) --output json", docs: $docs,
                   note: ("each Rex client is asked to open this slot'"'"'s tab when the slot is made; a Mac that"
-                         + " is asleep or offline opens it once it is back")}}' <<<"$RECORD")" '
+                         + " is asleep or offline opens it once it is back")}} + $fields' <<<"$RECORD")" '
     "\(.key) \(if .created then "is ready" else "already holds this request" end) at \(.path)" +
-      (if .task then " (\(.task))" else "" end) +
+      (if .label_name then " (\(.label_name))" else "" end) +
       (if .trust_prompt_expected then "; Claude will ask to trust the folder" else "" end) +
       (if .prompt_delivered == false
-       then "; this first message was not delivered, because the slot already holds the task" else "" end)'
+       then "; this first message was not delivered, because the slot already holds the task" else "" end) +
+      (if .prior then "\n\(.prior.note)" else "" end)'
 }
 
-_launch_us() { printf '%s' "${EPOCHREALTIME/./}"; }
+# Usage: launch_prior <repo>; prints {prior: {session_id, ts, note}} for the newest torn-down slot of the repo that
+# worked on the launch's item, whose conversation reopen resumes, else {prior: null}.
+launch_prior() {
+  contract_json -c --arg cmd "$(contract_quote agent-slot reopen "$1" "--$LAUNCH_ITEM_KIND" "$LAUNCH_ITEM_REF")" '
+    {prior: (if . == null then null else {session_id, ts,
+      note: "a slot torn down \(.ts) worked on this item; \($cmd) resumes its conversation once no slot holds the item"}
+      end)}' \
+    <<<"$(reopen_source_event "$1" "$LAUNCH_ITEM")"
+}
 
 cmd_launch() {
-  local repo=$LAUNCH_REPO n live max=$AS_MAX_PER_REPO record path prompt_copy out state trust=false filter
-  local t_start t_clone t_setup t_trust t_tmux t_claude phases
+  local repo=$LAUNCH_REPO state seed head=''
   require_tools tmux claude trash
+  [[ -z $LAUNCH_ITEM_KIND ]] || require_tools gh
   repo_prime "$repo"
+  [[ -z $LAUNCH_ITEM_KIND ]] || launch_item
+  [[ $LAUNCH_ITEM_KIND != pr ]] || head=_launch_head
 
   mkdir -p "$AS_ROOT/$repo"
   record_lock_repo "$repo" 60 \
     || contract_fail slot-busy "another launch on $repo held its lock for 60 s" --value "$repo" \
-      --command "agent-slot launch $repo${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
-  launch_reclaim_abandoned "$repo"
+      --command "$(_launch_command)${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
+  slot_reclaim_abandoned "$repo"
   if launch_find_existing "$repo"; then
     record_unlock_repo "$repo"
     record_read "$repo" "$LAUNCH_EXISTING" || RECORD='{}'
@@ -158,96 +176,24 @@ cmd_launch() {
     if [[ $state != active ]]; then
       contract_fail slot-busy "$(slot_key "$repo" "$LAUNCH_EXISTING") is $state, so this launch cannot report it yet" \
         --value "$(slot_key "$repo" "$LAUNCH_EXISTING")" \
-        --command "agent-slot launch $repo${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
+        --command "$(_launch_command)${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
     fi
-    launch_output "$repo" "$LAUNCH_EXISTING" false
+    launch_output "$repo" "$LAUNCH_EXISTING" false false null '{"prior": null}'
     return
   fi
-  live=$(slot_numbers "$repo" | grep -c . || true)
-  if ((live >= max)); then
-    contract_fail slot-limit-reached "$repo already has $live live slots, the limit per repo" \
-      --value "$(slot_numbers "$repo" | sed "s|^|$repo/|" | paste -sd ' ')" \
-      --command "AGENT_SLOT_MAX_PER_REPO=$((max + 1)) agent-slot launch $repo"
-  fi
-  n=1
-  while slot_taken "$repo" "$n"; do n=$((n + 1)); done
-  record_lock_slot "$repo" "$n" --nowait \
-    || contract_fail slot-busy "$(slot_key "$repo" "$n") is locked by another process" --value "$(slot_key "$repo" "$n")" \
-      --command "agent-slot launch $repo${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
-  path=$(slot_path "$repo" "$n")
-  record=$(contract_json -n -c --arg repo "$repo" --argjson n "$n" --arg prime "$REPO_PRIME" \
-    --arg task "$LAUNCH_TASK" --arg request "$LAUNCH_REQUEST" --argjson requested "$LAUNCH_REQUESTED_AT" \
-    --arg session "$(cat /proc/sys/kernel/random/uuid)" --arg now "$(contract_now)" \
-    '{repo: $repo, slot: $n, state: "setting-up", task: (if $task == "" then null else $task end),
-      request_id: (if $request == "" then null else $request end), requested_at: $requested, prime: $prime,
-      base: null, session_id: $session, transcript: null, prompt_file: null, prs: [], finished_by_operator: false,
-      created_at: $now}')
-  record_write "$repo" "$n" "$record"
-  LAUNCH_ARMED=$repo/$n
-  contract_on_exit _launch_rollback_on_exit
-  record_unlock_repo "$repo"
-
-  t_start=$(_launch_us)
-  contract_use_tools git
-  # A partial prime lacks blobs its refs reach, so origin's thin pack can hold deltas against bases the reference cannot
-  # supply. Cloning with the prime's own filter leaves those blobs out of the pack, as they are out of the prime.
-  filter=$(git -C "$REPO_PRIME" config --get remote.origin.partialclonefilter || true)
-  if ! bounded out clone 900 /usr/bin/env GIT_SSH_COMMAND='ssh -o BatchMode=yes' GIT_TERMINAL_PROMPT=0 \
-    git clone -q --reference-if-able "$REPO_PRIME" --dissociate ${filter:+"--filter=$filter"} "$REPO_ORIGIN" "$path"; then
-    contract_fail clone-failed "git clone of $REPO_ORIGIN failed" --value "$REPO_ORIGIN" --side-effects none \
-      --command "agent-slot launch $repo${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}" --log "$BOUNDED_LOG"
-  fi
-  record_write "$repo" "$n" "$record"
-  t_clone=$(_launch_us)
-
-  contract_use_tools git git-crypt
-  parity_base "$path"
-  # In a partial clone the checkout fetches the base's blobs from origin, so it is bounded as the clone is.
-  if [[ $(git -C "$path" symbolic-ref --short HEAD) != "$PARITY_BASE" ]] \
-    && ! bounded out checkout 900 /usr/bin/env GIT_SSH_COMMAND='ssh -o BatchMode=yes' GIT_TERMINAL_PROMPT=0 \
-      git -C "$path" checkout -q -B "$PARITY_BASE" "origin/$PARITY_BASE"; then
-    contract_fail clone-failed "checking out $PARITY_BASE in the new clone failed" --value "$PARITY_BASE" \
-      --side-effects none --command "agent-slot launch $repo${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}" \
-      --log "$BOUNDED_LOG"
-  fi
-  parity_git_crypt "$path"
-  parity_hooks "$REPO_PRIME" "$path"
-  parity_solutions "$path"
-  parity_claude_settings "$REPO_PRIME" "$path"
-  parity_siblings "$repo" "$path"
-  prompt_copy=$path/.git/agent-slot-prompt.md
-  if [[ -n $LAUNCH_PROMPT ]]; then
-    cp "$LAUNCH_PROMPT" "$prompt_copy"
-  fi
-  record_update "$repo" "$n" --arg base "$PARITY_BASE" --argjson prompt "$([[ -n $LAUNCH_PROMPT ]] && echo true || echo false)" \
-    --arg file "$prompt_copy" '.base = $base | .prompt_file = (if $prompt then $file else null end)'
-  t_setup=$(_launch_us)
-
-  contract_use_tools tmux claude
-  if ! trust_known "$path" && ! { trust_known "$REPO_PRIME" && trust_accept "$path"; }; then
-    trust=true
-    record_update "$repo" "$n" '.trust_prompt_expected = true'
-  fi
-  t_trust=$(_launch_us)
-
-  record_read "$repo" "$n"
-  sessions_start "$repo" "$n" launch
-  t_tmux=$(_launch_us)
-  record_update "$repo" "$n" '.state = "active"'
-  LAUNCH_ARMED=
-  record_unlock_slot "$repo" "$n"
-  t_claude=$(_launch_us)
-
-  phases=$(contract_json -n -c --argjson a "$t_start" --argjson b "$t_clone" --argjson c "$t_setup" \
-    --argjson d "$t_trust" --argjson e "$t_tmux" --argjson f "$t_claude" \
-    '{clone: (($b - $a) / 1000000), setup: (($c - $b) / 1000000), trust: (($d - $c) / 1000000),
-      tmux: (($e - $d) / 1000000), claude: (($f - $e) / 1000000)}')
-  record_read "$repo" "$n"
-  ledger_append launch "$(contract_json -c --argjson phases "$phases" --argjson trust "$trust" --arg path "$path" \
-    '{request_id, requested_at, repo, slot, path: $path, task, session_id, created: true,
-      trust_prompt_expected: $trust, phases: $phases}' <<<"$RECORD")"
-  push_clients launch "$(slot_key "$repo" "$n")"
-  launch_output "$repo" "$n" true "$trust" "$phases"
+  # The session starts under the name, so named_as keeps the automatic sweep from typing a /rename to it.
+  seed=$(contract_json -n -c --arg task "$LAUNCH_TASK" --arg request "$LAUNCH_REQUEST" \
+    --argjson requested "$LAUNCH_REQUESTED_AT" --argjson item "${LAUNCH_ITEM:-null}" --arg name "$LAUNCH_NAME" \
+    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" "$ITEM_SAME_DEF"'
+    {task: (if $task == "" then null else $task end), request_id: (if $request == "" then null else $request end),
+     requested_at: $requested}
+    + if $item == null then {} else
+        {prs: (if $item.kind == "pr" and same_repo($item.repo; $origin) then [$item.number] else [] end),
+         items: [$item], name: $name, named_as: $name}
+      end')
+  slot_make "$repo" launch "$(_launch_command)" "$seed" "$LAUNCH_PROMPT" launch "$head"
+  launch_output "$repo" "$SLOT_MADE" true "$SLOT_MADE_TRUST" "$SLOT_MADE_PHASES" \
+    "$(if [[ -n $LAUNCH_ITEM ]]; then launch_prior "$repo"; else echo '{"prior": null}'; fi)"
 }
 
 cmd_resume() {

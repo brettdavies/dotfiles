@@ -27,13 +27,20 @@ declare -gA _AGENT_PPID=() _AGENT_PANES=() _AGENT_PANE_IDS=()
 _AGENT_UNDER=
 _AGENT_SCAN_PID=
 
-agentstate_load() {
-  local out line session pid id
+# Usage: agentstate_agents; sets AGENTS_JSON to the sessions `claude agents --json` lists, and AGENTS_OK to 0 with
+# AGENTS_JSON empty when it fails or answers with something other than a list.
+agentstate_agents() {
+  local out
   AGENTS_OK=1
   if ! bounded out claude-agents 15 "$AS_CLAUDE" agents --json \
     || ! AGENTS_JSON=$(contract_json -c 'if type == "array" then . else error("not an array") end' <<<"$out" 2>/dev/null); then
     AGENTS_OK=0 AGENTS_JSON='[]'
   fi
+}
+
+agentstate_load() {
+  local out line session pid id
+  agentstate_agents
 
   _AGENT_PANES=() _AGENT_PANE_IDS=()
   if slot_tmux out 5 list-panes -a -F '#{session_name} #{pane_pid} #{pane_id}'; then

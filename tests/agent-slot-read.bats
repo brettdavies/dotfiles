@@ -75,6 +75,19 @@ setup() {
   [[ "$output" == *"repoa/2"*"needs you: 1 unpushed commit"* ]]
 }
 
+@test "list labels a slot by its name, else its task, else its branch" {
+  slot repoa 1 '{"task": "fix-login", "name": "repoa-pr7-fix-login"}'
+  slot repoa 2 '{"task": "fix-login"}'
+  slot repoa 3
+  git -C "$AGENT_SLOT_ROOT/repoa/3" checkout -q -b feat/topic
+  printf 'repoa-1\nrepoa-2\nrepoa-3\n' >"$STUBS/tmux-sessions"
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  jaq -e '[.slots[].label_name] == ["repoa-pr7-fix-login", "fix-login", "feat/topic"]' <<<"$output"
+  run "$AGENT_SLOT" list
+  [[ ${lines[0]} == *$'\trepoa-pr7-fix-login' ]]
+  [[ ${lines[2]} == *$'\tfeat/topic' ]]
+}
+
 @test "list counts two Claude sessions in one slot as unknown" {
   slot repoa 1
   echo repoa-1 >"$STUBS/tmux-sessions"
@@ -109,6 +122,21 @@ setup() {
   [ "$status" -eq 0 ]
   jaq -e --arg p "$AGENT_SLOT_ROOT/repoa/4" '.slot.key == "repoa/4" and .slot.task == "t4" and .slot.path == $p' \
     <<<"$output"
+}
+
+@test "whoami labels a slot by its name, else its task, else its branch" {
+  slot repoa 1 '{"task": "fix-login", "name": "repoa-pr7-fix-login"}'
+  slot repoa 2 '{"task": "fix-login"}'
+  slot repoa 3
+  git -C "$AGENT_SLOT_ROOT/repoa/3" checkout -q -b feat/topic
+  run --separate-stderr "$AGENT_SLOT" whoami --path "$AGENT_SLOT_ROOT/repoa/1" --output json
+  jaq -e '.slot.label_name == "repoa-pr7-fix-login" and .slot.task == "fix-login"' <<<"$output"
+  run "$AGENT_SLOT" whoami --path "$AGENT_SLOT_ROOT/repoa/1"
+  [ "$output" = "repoa/1 at $AGENT_SLOT_ROOT/repoa/1 (repoa-pr7-fix-login)" ]
+  run "$AGENT_SLOT" whoami --path "$AGENT_SLOT_ROOT/repoa/2"
+  [ "$output" = "repoa/2 at $AGENT_SLOT_ROOT/repoa/2 (fix-login)" ]
+  run "$AGENT_SLOT" whoami --path "$AGENT_SLOT_ROOT/repoa/3"
+  [ "$output" = "repoa/3 at $AGENT_SLOT_ROOT/repoa/3 (feat/topic)" ]
 }
 
 @test "whoami resolves a slot reached through a symlink to the slot root" {

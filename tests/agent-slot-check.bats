@@ -288,6 +288,16 @@ listed() {
     | .message == "PR #9 closed without merging" and .values == ["9"])' <<<"$VERDICT"
 }
 
+@test "a PR closed without merging before the slot was reopened neither blocks nor finishes the task" {
+  work feat/y
+  git -C "$SLOT" push -q origin feat/y
+  pr 9 CLOSED feat/y
+  jaq '.prs = [9] | .settled_prs = [9]' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  check
+  lacks_blocker pr-closed-unmerged
+  jaq -e '.finished == false and .needs_you == [] and (.prs | map(.number)) == [9]' <<<"$VERDICT"
+}
+
 @test "AE10: a commit pushed after the merge, onto a recreated branch with no PR, blocks with commits-without-pr" {
   finished_task
   git -C "$SLOT" commit -q --allow-empty -m 'one more'
@@ -701,6 +711,53 @@ vale_slot() {
   echo repoa-1 >"$STUBS/tmux-sessions"
   run --separate-stderr "$AGENT_SLOT" list --output json
   jaq -e '.slots[0].needs_you[0].message == "1 unpushed commit"' <<<"$output"
+}
+
+record_has() { jaq -e "$1" "$SLOT/.git/agent-slot.json" >/dev/null; }
+
+@test "a slot with no item takes the first PR check adopts as its item and name, and keeps its task" {
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 OPEN feat/x 2026-06-01T00:00:00Z "Add the widget"
+  check
+  jaq -e '.prs[0].title == "Add the widget" and .prs[0].created_at == "2026-06-01T00:00:00Z"' <<<"$VERDICT"
+  record_has '.name == "repoa-pr7-add-the-widget" and .task == "t1" and .prs == [7]
+    and .items == [{kind: "pr", repo: "origins/repoa", number: 7, title: "Add the widget"}]'
+}
+
+@test "AE3: an issue-named slot whose PR check adopts keeps its name and holds both items, once each" {
+  jaq -c '.items = [{kind: "issue", repo: "origins/repoa", number: 12, title: "Fix the widget"}]
+    | .name = "repoa-issue12-fix-the-widget"' "$SLOT/.git/agent-slot.json" >"$T/r"
+  mv "$T/r" "$SLOT/.git/agent-slot.json"
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  pr 13 OPEN feat/x 2026-06-01T00:00:00Z "Fix the widget for good"
+  check
+  check
+  record_has '.name == "repoa-issue12-fix-the-widget" and .prs == [13]
+    and .items == [{kind: "issue", repo: "origins/repoa", number: 12, title: "Fix the widget"},
+                   {kind: "pr", repo: "origins/repoa", number: 13, title: "Fix the widget for good"}]'
+}
+
+@test "of two PRs one check adopts, the earlier created names the slot" {
+  work feat/a
+  git -C "$SLOT" push -q origin feat/a
+  pr 8 OPEN feat/a 2026-06-02T00:00:00Z "Later work"
+  work feat/b
+  git -C "$SLOT" push -q origin feat/b
+  pr 9 OPEN feat/b 2026-06-01T00:00:00Z "Earlier work"
+  check
+  record_has '.name == "repoa-pr9-earlier-work" and .prs == [8, 9] and ([.items[].number] | sort) == [8, 9]'
+}
+
+@test "a check run inside the slot's own agent records no item, as it records no PR; one from outside does" {
+  finished_task
+  check_as_agent repoa-1 "$SLOT" '[{pid: $pid, cwd: $slot, status: "busy"}]'
+  has_blocker checked-by-own-agent
+  record_has '.items == null and .name == null and .prs == []'
+  echo '[]' >"$STUBS/claude-agents.json"
+  check
+  record_has '.name == "repoa-pr7-pr-7" and .prs == [7] and ([.items[].number] == [7])'
 }
 
 # old_pr NUMBER BRANCH: a PR merged before the slot existed, from another clone, whose head the slot never had.

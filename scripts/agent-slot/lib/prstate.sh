@@ -25,7 +25,7 @@ pr_load() {
   PR_OK[$repo]=0 PR_LISTS[$repo]='[]'
   [[ -n $AS_GH ]] || return 0
   bounded out gh 30 "$AS_GH" pr list --repo "$(pr_repo_slug "$2")" --state all --limit 200 \
-    --json number,state,headRefName,headRefOid,createdAt,url || return 0
+    --json number,state,headRefName,headRefOid,createdAt,title,url || return 0
   out=$(contract_json -c 'if type == "array" then . else error("not an array") end' <<<"$out" 2>/dev/null) || return 0
   PR_LISTS[$repo]=$out PR_OK[$repo]=1
 }
@@ -46,7 +46,8 @@ _pr_head_held() {
   return 1
 }
 
-# Usage: pr_for_slot <repo> <slot path> <record>; prints the task's PRs as a JSON array.
+# Usage: pr_for_slot <repo> <slot path> <record>; prints the task's PRs as a JSON array of
+# {number, state, head, oid, url, title, created_at}.
 pr_for_slot() {
   local branches oid held=()
   branches=$({
@@ -66,5 +67,6 @@ pr_for_slot() {
     | [.[] | select((.number as $n | $known | index($n) != null)
         or ((.headRefName as $h | $branches | index($h) != null) and .headRefName != $base
             and (.createdAt >= $since or (.headRefOid as $o | $held | index($o) != null))))]
-    | map({number, state, head: .headRefName, oid: .headRefOid, url})' <<<"${PR_LISTS[$1]}"
+    | map({number, state, head: .headRefName, oid: .headRefOid, url, title, created_at: .createdAt})' \
+    <<<"${PR_LISTS[$1]}"
 }

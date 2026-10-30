@@ -12,8 +12,10 @@ Verbs:
   resume   bring back the tmux sessions and Claude conversation of a slot
   warm     trust the next slot paths of a repo in Claude ahead of time
   check    judge whether each slot can be torn down, and list what blocks it
+  adopt    attach a PR or issue to a live slot, naming the slot if it has no name
+  reopen   bring the work of a torn-down slot on a PR or issue back in a fresh slot, resuming its conversation
   sweep    tear down every slot whose task has finished and that check passes (reports only, without --yes)
-  finish   mark a task with no open PR finished and tear its slot down if check passes (reports only, without --yes)
+  finish   mark a task finished and tear its slot down if check passes (reports only, without --yes)
   release  hand this slot'"'"'s teardown upstream once its agent has run the closing skills; run from inside the slot
   doctor   check every launch prerequisite and summarize launch times
   schema   print the JSON Schema of the objects agent-slot prints, and every error reason
@@ -22,7 +24,7 @@ Every verb takes --output json (one JSON object on stdout, or an error object on
 Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.
 Reasons and their fixes: https://github.com/brettdavies/dotfiles/blob/main/README.md#agent-slot-reasons'
 
-VERBS=' repos list whoami launch resume warm check sweep finish release doctor schema '
+VERBS=' repos list whoami launch resume warm check adopt reopen sweep finish release doctor schema '
 
 verb_help() {
   case $1 in
@@ -31,25 +33,37 @@ verb_help() {
       'returns: repos[] of {name, prime, origin}' \
       'example: agent-slot repos --output json' ;;
     list) printf '%s\n' 'usage: agent-slot list [--output json]' \
-      'Lists every slot with its state, agent state, task, and its needs-you blockers.' \
-      'returns: slots[] of the slot record plus {key, path, state, branch, agent, agent_detail, sessions, needs_you}' \
+      'Lists every slot with its state, agent state, label, and its needs-you blockers. A slot'"'"'s label is its name,' \
+      'else its task, else its branch.' \
+      'returns: slots[] of the slot record plus {key, path, state, branch, label_name, agent, agent_detail, sessions,' \
+      '         needs_you}' \
       "example: agent-slot list --output json | jaq '.slots[] | select(.needs_you != [])'" ;;
     whoami) printf '%s\n' 'usage: agent-slot whoami [--path DIR] [--output json]' \
       'Prints the slot that DIR (default: the current directory) is inside. Outside a slot it fails with the error' \
       'reason not-in-slot (exit 1).' \
-      'returns: slot, the slot record plus {key, path}' \
+      'returns: slot, the slot record plus {key, path, label_name}' \
       'example: agent-slot whoami --output json' ;;
     launch) printf '%s\n' \
-      'usage: agent-slot launch <repo> [--request-id ID] [--task NAME] [--prompt-file FILE] [--requested-at EPOCH]' \
-      '                         [--output json]' \
+      'usage: agent-slot launch <repo> [--pr <ref> | --issue <ref>] [--request-id ID] [--task NAME]' \
+      '                         [--prompt-file FILE] [--requested-at EPOCH] [--output json]' \
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
-      '--dangerously-skip-permissions. A repeat with the same --request-id (or --task) returns the same slot. Agents' \
-      'always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _, -, and /,' \
-      'starting with a letter or digit, up to 64. A new slot pushes a restore to each Mac in AGENT_SLOT_REX_CLIENTS,' \
-      "so its tab opens in Rex; the push runs in the background and is logged to $AS_STATE_DIR/push.log." \
-      'returns: created, key, repo, slot, path, state, task, request_id, session_id, base, trust_prompt_expected,' \
-      '         prompt_delivered (false when the slot already held the task), missing_siblings, phases, next_step' \
-      'example: agent-slot launch dotfiles --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
+      '--dangerously-skip-permissions. A repeat with the same --request-id, --task, or work item returns the same' \
+      'slot. Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
+      '-, and /, starting with a letter or digit, up to 64. A new slot pushes a restore to each Mac in' \
+      "AGENT_SLOT_REX_CLIENTS, so its tab opens in Rex; the push runs in the background and is logged to" \
+      "$AS_STATE_DIR/push.log." \
+      '--pr or --issue gives the slot a work item and a name from it, <repo>-pr<N>-<slug> or <repo>-issue<N>-<slug>,' \
+      'which its Claude session takes and which is the task when --task is not given. A ref is N (in the origin' \
+      'repo), owner/name#N, or its GitHub URL, such as https://github.com/owner/name/pull/N. A PR'"'"'s head branch is' \
+      'checked out tracking the remote that holds it: origin, the remote the prime checkout has for that repo, or' \
+      'fork. A head whose branch or repository is gone is checked out from refs/pull/N/head with no upstream, and' \
+      'head_pushable is false. An issue leaves the base branch checked out.' \
+      'returns: created, key, repo, slot, path, state, task, name, items[] of {kind, repo, number, title}, label_name,' \
+      '         request_id, session_id, base, head_pushable (null without a PR head), trust_prompt_expected,' \
+      '         prompt_delivered (false when the slot already held the task), missing_siblings, phases, next_step,' \
+      '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
+      '         reopen resumes, else null)' \
+      'example: agent-slot launch oxipng --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
     resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--output json]' \
       "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID" \
       'with --dangerously-skip-permissions.' \
@@ -65,6 +79,36 @@ verb_help() {
       'returns: slots[] of {key, repo, slot, path, state, task, branch, prs, finished, finished_by (merge, operator,' \
       '         or release), blockers, needs_you, teardown}' \
       'example: agent-slot check dotfiles/2 --output json' ;;
+    adopt) printf '%s\n' 'usage: agent-slot adopt <repo>/<N> (--pr <ref> | --issue <ref>) [--output json]' \
+      "Attaches a PR or issue to a live slot's record, and names a slot that has no name from it:" \
+      "<repo>-pr<N>-<slug> or <repo>-issue<N>-<slug>. A ref is N (in the slot's origin repo), owner/name#N, or" \
+      "its GitHub URL. A PR of origin's repo also joins the slot's PRs, which check judges. When the slot's agent" \
+      "is idle, its Claude session is typed /rename <name>; the automatic sweep renames a busy agent's session once" \
+      'it is idle. It deletes nothing, so it needs no ask.' \
+      'returns: key, name, items[] of {kind, repo, number, title}, item (the one attached), renamed' \
+      'example: agent-slot adopt Pillow/1 --issue 10331 --output json' ;;
+    reopen) printf '%s\n' \
+      'usage: agent-slot reopen <repo> (--pr <ref> | --issue <ref>) [--session ID] [--prompt-file FILE]' \
+      '                         [--request-id ID] [--dry-run] [--output json]' \
+      "Finds the slot of the repo that worked on a PR or issue in the ledger after its teardown: the newest whose" \
+      "work items hold it, else, for a PR of origin's repo, the newest whose PRs hold its number. --session ID picks" \
+      'the teardown of the slot whose Claude session that was, as for a slot torn down before work items were' \
+      'recorded; one whose work items name another item is refused. A ref is N (in the origin repo),' \
+      'owner/name#N, or its GitHub URL. It refuses while a slot holds the item or the Claude session' \
+      '(item-held-by-slot), while a Claude agent has the session open (session-in-use), when no teardown names the' \
+      'item (item-not-found-in-ledger), and when Claude Code no longer has the transcript (transcript-missing).' \
+      '--dry-run changes nothing and exits 0 with the plan, or with the refusal a reopen would hit; a ref GitHub' \
+      'cannot read still fails. The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
+      'the base, fetched from the remote the ledger recorded for it when that is on origin'"'"'s host, else from the' \
+      "PR's head repository. Agents ask the operator first." \
+      'returns: launch'"'"'s fields (key, name, items, session_id, prompt_delivered, ...) plus reopened_from {slot,' \
+      '         session_id, ts}, settled_prs (the PRs already merged or closed, which neither finish nor block the' \
+      '         task), head, and head_moved; with --dry-run, dry_run, would_reopen, refusal (null, or {reason,' \
+      '         exit_code, message, value, next_step, recovery}), item, source (the teardown event, or {key, state,' \
+      '         name, items, session_id} of the slot that holds the item or request), name, items[] of {kind, repo,' \
+      '         number, title}, task, session_id, transcript, transcript_exists, head {branch, remote, url, oid,' \
+      '         source {branch, remote}}, slot, command, prompt_delivered' \
+      'example: agent-slot reopen oxipng --pr 887 --dry-run --output json' ;;
     sweep) printf '%s\n' 'usage: agent-slot sweep [--yes [--auto]] [--output json]' \
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \
       "reports what it would delete. Agents ask the operator first. A teardown deletes the slot's clone, moving it to" \
@@ -78,20 +122,23 @@ verb_help() {
       'naming them, once, before it is listed. Each --yes pass appends a line to' \
       "$AS_STATE_DIR/teardown.log." \
       'returns: dry_run, torn_down[], purge_failed[], would_tear_down[], closing_sent[], cleanup_sent[], reminded[],' \
-      '         not_yet[], needs_you[] of {key, needs_you}, slots[] (each with result, and a torn-down one with purge' \
-      '         {purged, entry, ms, and code, message, next_step, log when it failed})' \
+      '         not_yet[], renamed[] of {key, name}, needs_you[] of {key, needs_you}, slots[] (each with result, and a' \
+      '         torn-down one with purge {purged, entry, ms, and code, message, next_step, log when it failed})' \
       'example: agent-slot sweep --output json' ;;
-    finish) printf '%s\n' 'usage: agent-slot finish <repo>/<N> [--yes [--when-idle]] [--output json]' \
-      "Marks a task with no open PR finished and tears its slot down when check passes; it refuses a task with an" \
-      "open PR. Without --yes it only reports. Agents ask the operator first. A teardown deletes the slot's clone," \
-      'moving it to the trash and purging it from there at once; a purge that fails leaves the slot torn down and' \
-      'names the trash-rm command that finishes it. A teardown pushes a restore to each' \
-      "Rex client, which closes the slot's tab. --when-idle, which release starts, first waits up to" \
-      "$AS_RELEASE_WAIT s for the slot's agent to go idle. The finish a release starts marks the task finished on" \
-      'that release, and refuses with release-withdrawn once a --not-yet or a newer release replaces it. Each --yes' \
-      "run appends its outcome to $AS_STATE_DIR/teardown.log." \
-      'returns: key, then dry_run, would_tear_down, verdict without --yes, or torn_down and purge {purged, entry, ms,' \
-      '         and code, message, next_step, log when it failed} with it' \
+    finish) printf '%s\n' \
+      'usage: agent-slot finish <repo>/<N> [--yes [--when-idle] [--allow-open-pr]] [--output json]' \
+      'Marks a task finished and tears its slot down when check passes. It refuses a task that has an open PR' \
+      '(task-has-open-pr) unless given --allow-open-pr, which finishes the task whatever state its PRs are in;' \
+      'release and the Rex finish key never pass it. Without --yes it only reports, naming in would_need the flag' \
+      "the task would need. Agents ask the operator first. A teardown deletes the slot's clone, moving it to the" \
+      'trash and purging it from there at once; a purge that fails leaves the slot torn down and names the trash-rm' \
+      "command that finishes it. A teardown pushes a restore to each Rex client, which closes the slot's tab." \
+      "--when-idle, which release starts, first waits up to $AS_RELEASE_WAIT s for the slot's agent to go idle. The" \
+      'finish a release starts marks the task finished on that release, and refuses with release-withdrawn once a' \
+      '--not-yet or a newer release replaces it. Each --yes run appends its outcome, with allow_open_pr when it had' \
+      "the flag, to $AS_STATE_DIR/teardown.log." \
+      'returns: key, then dry_run, would_tear_down, would_need (null or --allow-open-pr), verdict without --yes, or' \
+      '         torn_down and purge {purged, entry, ms, and code, message, next_step, log when it failed} with it' \
       'example: agent-slot finish dotfiles/2 --yes' ;;
     release) printf '%s\n' 'usage: agent-slot release [--not-yet WHY] [--output json]' \
       "A slot's agent runs it as its last step, from inside the slot. It refuses with compound-not-run until this" \

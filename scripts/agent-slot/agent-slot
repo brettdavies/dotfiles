@@ -71,10 +71,20 @@ source "$AS_LIB/doctor.sh"
 source "$AS_LIB/parity.sh"
 # shellcheck source=lib/sessions.sh
 source "$AS_LIB/sessions.sh"
+# shellcheck source=lib/head.sh
+source "$AS_LIB/head.sh"
+# shellcheck source=lib/slotmake.sh
+source "$AS_LIB/slotmake.sh"
 # shellcheck source=lib/launch.sh
 source "$AS_LIB/launch.sh"
 # shellcheck source=lib/prstate.sh
 source "$AS_LIB/prstate.sh"
+# shellcheck source=lib/items.sh
+source "$AS_LIB/items.sh"
+# shellcheck source=lib/reopenlookup.sh
+source "$AS_LIB/reopenlookup.sh"
+# shellcheck source=lib/reopen.sh
+source "$AS_LIB/reopen.sh"
 # shellcheck source=lib/homescan.sh
 source "$AS_LIB/homescan.sh"
 # shellcheck source=lib/check.sh
@@ -179,6 +189,16 @@ main() {
       exec </dev/null
       cmd_resume "${args[0]}"
       ;;
+    adopt)
+      adopt_parse_args "${args[@]}"
+      exec </dev/null
+      cmd_adopt
+      ;;
+    reopen)
+      reopen_parse_args "${args[@]}"
+      exec </dev/null
+      cmd_reopen
+      ;;
     check)
       ((${#args[@]} <= 1)) || usage_fail "check takes at most one slot, <repo>/<N>" "${args[*]}"
       CHECK_KEY=${args[0]:-}
@@ -209,11 +229,12 @@ main() {
       ;;
     finish)
       local key=''
-      FINISH_YES=0 FINISH_WHEN_IDLE=0
+      FINISH_YES=0 FINISH_WHEN_IDLE=0 FINISH_ALLOW_OPEN_PR=0
       for arg in "${args[@]}"; do
         case $arg in
           --yes) FINISH_YES=1 ;;
           --when-idle) FINISH_WHEN_IDLE=1 ;;
+          --allow-open-pr) FINISH_ALLOW_OPEN_PR=1 ;;
           *)
             [[ -z $key ]] || usage_fail "finish takes one slot, <repo>/<N>" "$arg"
             key=$arg
@@ -222,6 +243,7 @@ main() {
       done
       [[ -n $key ]] || usage_fail "finish needs a slot, <repo>/<N>"
       ((FINISH_WHEN_IDLE == 0 || FINISH_YES == 1)) || usage_fail "--when-idle goes with --yes" --when-idle
+      ((FINISH_ALLOW_OPEN_PR == 0 || FINISH_YES == 1)) || usage_fail "--allow-open-pr goes with --yes" --allow-open-pr
       exec </dev/null
       cmd_finish "$key"
       ;;

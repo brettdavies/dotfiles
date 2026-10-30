@@ -13,6 +13,11 @@
 # neither a release nor a new --not-yet ends the hold, and the slot is listed as before. A --not-yet withdraws any
 # earlier release, so a slot counts as released only while its release is the newer of the two; the operator's finish
 # holds whatever the agent says.
+#
+# Every slot the sweep keeps, finished or not, has its Claude session renamed to the record's name while the session
+# carries another: an idle agent is typed /rename <name>, which Claude Code applies without a model turn, and the
+# record's named_as says which name the session has. A pass that typed the agent anything else leaves the rename to
+# the next pass, since an agent typed to in this pass is not known to be idle.
 
 RELEASE_AUTO=
 # The teardown blockers about files in the slot's tree, which its agent can clear itself.
@@ -24,6 +29,32 @@ release_send() {
   name=$(slot_session "$1" "$2")
   slot_tmux out 10 send-keys -t "=$name:" -l "$3" || return 1
   slot_tmux out 10 send-keys -t "=$name:" Enter
+}
+
+# Usage: release_rename <repo> <n>; after agentstate_of, under the slot's lock. Types /rename <name> into the slot's
+# Claude session when its agent is idle and the record names the slot something other than named_as, then records
+# named_as. Returns 1 when it typed nothing. The slot's agent can write its record, so a name that is not a task name,
+# which a newline would make into more than one line of input, is never typed.
+RELEASE_RENAMED=
+release_rename() {
+  local name
+  [[ $AGENT_STATE == idle ]] || return 1
+  record_read "$1" "$2" || return 1
+  name=$(contract_json -j 'if .name != null and .name != .named_as then .name else "" end' <<<"$RECORD" && printf .)
+  name=${name%.}
+  [[ -n $name && $name =~ $TASK_PATTERN ]] || return 1
+  release_send "$1" "$2" "/rename $name" || return 1
+  record_update "$1" "$2" --arg name "$name" '.named_as = $name' || true
+  RELEASE_RENAMED=$name
+}
+
+# Usage: release_rename_pass <repo> <n>; after check_record. Renames the session of an active slot the sweep keeps,
+# unless this pass typed its agent something else, and sets the verdict's renamed to the name it typed.
+release_rename_pass() {
+  contract_json -e '.state == "active" and .teardown != true' <<<"$CHECK_VERDICT" >/dev/null || return 0
+  case $RELEASE_AUTO in closing-sent | cleanup-sent | reminded) return 0 ;; esac
+  release_rename "$1" "$2" || return 0
+  CHECK_VERDICT=$(contract_json -c --arg name "$RELEASE_RENAMED" '.renamed = $name' <<<"$CHECK_VERDICT")
 }
 
 # Usage: release_send_closing <repo> <n>; types the closing steps into the slot's Claude session and records when.

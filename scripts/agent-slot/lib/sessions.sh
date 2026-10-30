@@ -1,9 +1,9 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
 # A slot's three tmux sessions on the slot server, each a login shell rooted at the slot with its program typed in:
 #
-#   <repo>-<N>        claude in bypass permissions mode, started with the slot's session ID, the task name when one was
-#                     given, and the first message read from a file by the shell itself, so the prompt never passes
-#                     through tmux or quoting
+#   <repo>-<N>        claude in bypass permissions mode, started with the slot's session ID, the slot's name (else its
+#                     task) when it has one, and the first message read from a file by the shell itself, so the prompt
+#                     never passes through tmux or quoting
 #   <repo>-<N>-files  yazi, through the `y` shell function when it exists
 #   <repo>-<N>-git    lazygit
 #
@@ -32,33 +32,44 @@ _sessions_conversation_saved() {
   local id
   id=$(contract_json -r '.session_id' <<<"$RECORD")
   [[ $id =~ ^[0-9A-Fa-f-]+$ ]] || return 0
-  [[ -n $(find "$AS_CLAUDE_PROJECTS" -mindepth 2 -maxdepth 2 -name "$id.jsonl" -print -quit 2>/dev/null) ]]
+  [[ -n $(sessions_transcript_find "$id") ]]
 }
 
-# Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume]
+# Usage: sessions_transcript_find <session id>; prints the path of the session's transcript in any of Claude's project
+# directories, or nothing. Claude names a project directory after its working directory in a form that cannot be read
+# back, so a transcript is found by its session ID alone. An ID that is not plain hex and dashes is not searched for.
+sessions_transcript_find() {
+  [[ $1 =~ ^[0-9A-Fa-f-]+$ ]] || return 0
+  find "$AS_CLAUDE_PROJECTS" -mindepth 2 -maxdepth 2 -name "$1.jsonl" -print -quit 2>/dev/null || true
+}
+
+# Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume | reopen]
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
-# value from it is shell-quoted. A resume whose conversation was never saved starts Claude as a launch does.
+# value from it is shell-quoted. A resume or reopen whose conversation was never saved starts Claude as a launch does.
+# In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name.
+# The first message goes with a launch and a reopen only: a resume brings back a slot that already had it.
 sessions_command() {
-  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd task prompt
+  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt
   case $kind in
     files) printf '%s' 'command -v y >/dev/null && y || yazi' ;;
     git) printf '%s' 'lazygit' ;;
     claude)
-      if [[ $mode == resume ]] && _sessions_conversation_saved; then
-        printf '%s --resume %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
-        return
-      fi
-      printf -v cmd '%s --session-id %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
-      task=$(contract_json -r '.task // ""' <<<"$RECORD")
-      [[ -z $task ]] || printf -v cmd '%s -n %q' "$cmd" "$task"
+      name=$(contract_json -r '.name // .task // ""' <<<"$RECORD")
       prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
+      if [[ $mode != launch ]] && _sessions_conversation_saved; then
+        printf -v cmd '%s --resume %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
+        [[ $mode == reopen ]] || prompt=''
+      else
+        printf -v cmd '%s --session-id %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
+      fi
+      [[ -z $name ]] || printf -v cmd '%s -n %q' "$cmd" "$name"
       [[ -z $prompt ]] || printf -v cmd '%s "$(cat %q)"' "$cmd" "$prompt"
       printf '%s' "$cmd"
       ;;
   esac
 }
 
-# Usage: sessions_start <repo> <n> <launch | resume>
+# Usage: sessions_start <repo> <n> <launch | resume | reopen>
 # Creates each of the slot's sessions that does not exist yet and types its program in, reading the record from
 # RECORD. Sets SESSIONS_CREATED to the sessions it made. The caller holds the slot lock, so two calls never race to
 # create the same session.

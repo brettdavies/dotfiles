@@ -125,6 +125,76 @@ last_event() { jaq -c -s --arg e "$2" 'map(select(.event == $e))[-1]' "$1"; }
   [ "$(record .finished_by_operator)" = false ]
 }
 
+@test "finish --yes alone on a task with an open PR names --allow-open-pr only in its message, with no command to run" {
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  pr 11 OPEN feat/x
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "task-has-open-pr" and (.message | test("--allow-open-pr"))
+    and .next_step.action == "none" and .next_step.command == null' <<<"$stderr"
+  [ -d "$SLOT/.git" ]
+}
+
+@test "finish --yes --allow-open-pr tears down a pushed task whose PR is open, and teardown.log records the flag" {
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  pr 11 OPEN feat/x
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --allow-open-pr --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == true' <<<"$output"
+  [ ! -e "$SLOT" ]
+  jaq -e -s 'map(select(.event == "finish"))[-1] | .key == "repoa/1" and .result == "torn-down"
+    and .allow_open_pr == true' "$AGENT_SLOT_STATE_DIR/teardown.log"
+}
+
+@test "finish --yes --allow-open-pr keeps a task with an open PR and an unpushed commit, with unpushed-commits" {
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  pr 11 OPEN feat/x
+  git -C "$SLOT" commit -q --allow-empty -m late
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --allow-open-pr --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "teardown-blocked" and (.message | test("1 unpushed commit"))' <<<"$stderr"
+  [ -d "$SLOT/.git" ]
+  [ "$(record '[.last_check.blockers[].code] == ["unpushed-commits"]')" = true ]
+  jaq -e -s 'map(select(.event == "finish"))[-1] | .result == "refused" and .reason == "teardown-blocked"
+    and .allow_open_pr == true' "$AGENT_SLOT_STATE_DIR/teardown.log"
+}
+
+@test "finish without --yes on a task with an open PR reports the flag it would need and deletes nothing" {
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  pr 11 OPEN feat/x
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.dry_run == true and .would_tear_down == true and .would_need == "--allow-open-pr"' <<<"$output"
+  [ "$(record .finished_by_operator)" = false ]
+  [ -d "$SLOT/.git" ]
+}
+
+@test "finish --allow-open-pr without --yes is a usage error" {
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  pr 11 OPEN feat/x
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --allow-open-pr --output json
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and .value == "--allow-open-pr" and (.message | test("goes with --yes"))' <<<"$stderr"
+  [ -d "$SLOT/.git" ]
+}
+
+@test "finish --yes --allow-open-pr still refuses with pr-state-unknown when gh fails" {
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  pr 11 OPEN feat/x
+  stub gh 'echo boom >&2; exit 1'
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --allow-open-pr --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "pr-state-unknown"' <<<"$stderr"
+  [ -d "$SLOT/.git" ]
+  [ "$(record .finished_by_operator)" = false ]
+}
+
 @test "finish --yes tears down a task that never had a PR, with every commit on an origin branch" {
   work feat/w
   git -C "$SLOT" push -q origin feat/w
@@ -406,5 +476,32 @@ exit 1'
   jaq -e -s --arg oid "$oid" 'map(select(.event == "teardown"))[-1]
     | .prs == [887] and .session_id == "s1"
       and .branches == [{name: "fix/r", oid: $oid, remote: "fork", url: "git@github.com:me/repoa.git"}]' \
+    "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+}
+
+@test "the teardown event keeps the slot's work items, its name, and the branch it had checked out" {
+  finished_task
+  jaq '.items = [{kind: "issue", repo: "x/repoa", number: 12, title: "Do it"},
+      {kind: "pr", repo: "origins/repoa", number: 7, title: "Did it"}] | .name = "repoa-issue12-do-it"' \
+    "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  jaq -e -s 'map(select(.event == "teardown"))[-1]
+    | .items == [{kind: "issue", repo: "x/repoa", number: 12, title: "Do it"},
+        {kind: "pr", repo: "origins/repoa", number: 7, title: "Did it"}]
+      and .name == "repoa-issue12-do-it" and .session_id == "s1" and .head == "feat/x"' \
+    "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+}
+
+@test "the teardown event of a slot with no items and a detached HEAD writes empty items and null name and head" {
+  work feat/w
+  git -C "$SLOT" push -q origin feat/w
+  operator_finished
+  git -C "$SLOT" checkout -q --detach
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  jaq -e -s 'map(select(.event == "teardown"))[-1] | .items == [] and .name == null and .head == null' \
     "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
 }

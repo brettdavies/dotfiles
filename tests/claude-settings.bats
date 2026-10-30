@@ -114,13 +114,15 @@ REPO="$BATS_TEST_DIRNAME/.."
 # agent-slot takes its verb as the first argument, so `agent-slot sweep *`
 # catches every flag order after it, and the bare verb too. An ask rule still
 # prompts in bypass permissions mode, which every slot's Claude starts in, so
-# these rules are what stop a slot's agent from deleting slots unasked.
-@test "agent-slot sweep and finish ask first" {
+# these rules are what stop a slot's agent from deleting slots, or reopening a
+# torn-down slot's conversation, unasked.
+@test "agent-slot sweep, finish, and reopen ask first" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
   [ "$status" -eq 0 ]
   grep -qxF 'Bash(agent-slot sweep *)' <<<"$output"
   grep -qxF 'Bash(agent-slot finish *)' <<<"$output"
+  grep -qxF 'Bash(agent-slot reopen *)' <<<"$output"
 }
 
 # agent-slot starts every slot's Claude with --dangerously-skip-permissions.
@@ -150,4 +152,22 @@ REPO="$BATS_TEST_DIRNAME/.."
   for verb in repos list whoami check doctor schema; do
     grep -qxF "Bash(agent-slot $verb *)" <<<"$output" || { echo "missing allow rule: $verb"; false; }
   done
+}
+
+# adopt changes only a slot's record and its Claude session's name, so it runs
+# without a prompt; an ask rule on it would prompt even in bypass mode.
+@test "agent-slot adopt runs without a prompt, and nothing asks first" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.allow // [] | .[]' "$SETTINGS"
+  grep -qxF 'Bash(agent-slot adopt *)' <<<"$output"
+  run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
+  [[ $output != *'agent-slot adopt'* ]]
+}
+
+# agent-slot reopen resumes a torn-down slot's Claude conversation by its session ID, and Claude Code deletes a
+# transcript once it has been idle for cleanupPeriodDays (30 when unset).
+@test "Claude Code keeps session transcripts for a year" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -e '.cleanupPeriodDays == 365' "$SETTINGS"
+  [ "$status" -eq 0 ]
 }
