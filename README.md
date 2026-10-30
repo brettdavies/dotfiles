@@ -143,7 +143,7 @@ knowing where the underlying implementation lives.
 
 | Binary                     | Purpose                                                                                        |
 | -------------------------- | ---------------------------------------------------------------------------------------------- |
-| `agent-slot`               | Hand out and tear down full clones of a repo for parallel Claude agents, one task per clone    |
+| `agent-slot`               | Hand out and tear down clones of a repo for parallel Claude agents, one task per clone         |
 | `agent-slot-rex`           | The Mac half of `agent-slot`: start agents and keep their slot tabs and panes attached in Rex  |
 | `backup-openclaw-settings` | Back up OpenClaw's settings to the NAS, run daily by `openclaw-settings-backup.timer`          |
 | `brave-search`             | Query the Brave Search API, printing ranked results as plain text or raw JSON                  |
@@ -257,13 +257,14 @@ bundle by default) on the Mac. `tests/mac-open.bats` and `tests/mac-open-here.ba
 
 ### Parallel Agents
 
-Many Claude Code agents can work on the same repo at once, each in an *agent slot*: a full clone of the repo at
+Many Claude Code agents can work on the same repo at once, each in an *agent slot*: a clone of the repo at
 `~/slots/<repo>/<N>` on the Linux server, set up like the repo's own checkout (its hooks, the `docs/solutions` link, its
-Claude memory and permission grants), with one task per slot. `agent-slot` on the server owns every slot and every check
-before a slot is deleted; `agent-slot-rex` on the Mac drives Rex, where each repo is one session and each agent one tab.
-Every slot runs three tmux sessions on the server's `agent-slots` socket (Claude, yazi, and lazygit), so agents keep
-working while the Mac sleeps, and each pane of a slot's tab reattaches by itself after a sleep or a network drop. A slot
-launched or torn down on the server, by an agent or by hand, opens or closes its tab in Rex with no key press.
+Claude memory and permission grants, and its partial-clone filter when it has one), with one task per slot. `agent-slot`
+on the server owns every slot and every check before a slot is deleted; `agent-slot-rex` on the Mac drives Rex, where
+each repo is one session and each agent one tab. Every slot runs three tmux sessions on the server's `agent-slots`
+socket (Claude, yazi, and lazygit), so agents keep working while the Mac sleeps, and each pane of a slot's tab
+reattaches by itself after a sleep or a network drop. A slot launched or torn down on the server, by an agent or by
+hand, opens or closes its tab in Rex with no key press.
 
 Each slot's Claude starts and resumes with `--dangerously-skip-permissions`, so it skips its permission prompts except
 under an ask rule and for the few actions Claude never auto-approves. Deny rules and hooks still block in that mode, ask
