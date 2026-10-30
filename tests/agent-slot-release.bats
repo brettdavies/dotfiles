@@ -116,6 +116,15 @@ record() { jaq -r "$1" "$SLOT/.git/agent-slot.json"; }
 release() {
   run --separate-stderr bash -c 'cd "$1" && shift && "$@"' _ "$SLOT" "$AGENT_SLOT" release --output json
 }
+not_yet() {
+  run --separate-stderr bash -c 'cd "$1" && shift && "$@"' _ "$SLOT" "$AGENT_SLOT" release --not-yet "$1" --output json
+}
+# verdict: sets VERDICT to check's verdict on the slot, from outside it.
+verdict() {
+  run --separate-stderr "$AGENT_SLOT" check repoa/1 --output json
+  [ "$status" -eq 0 ]
+  VERDICT=$(jaq -c '.slots[0]' <<<"$output")
+}
 
 # eventually COMMAND...: retries the command for up to 15 s until it succeeds.
 eventually() {
@@ -303,7 +312,7 @@ logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
   jaq -e '.not_yet == [] and .needs_you[0].needs_you[0].code == "not-released"' <<<"$output"
 }
 
-@test "release --not-yet needs a reason, and a release clears the one recorded" {
+@test "release --not-yet needs a reason, and a release after it clears the one recorded and tears the slot down" {
   finished_task
   run --separate-stderr bash -c 'cd "$1" && "$2" release --not-yet " " --output json' _ "$SLOT" "$AGENT_SLOT"
   [ "$status" -eq 2 ]
@@ -315,6 +324,110 @@ logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
   release
   [ "$status" -eq 0 ]
   [ "$(record '.not_yet')" = null ]
+  agent_status idle
+  eventually gone
+}
+
+# --- --not-yet after a release -----------------------------------------------------------------------------------------
+
+@test "a --not-yet after a release withdraws it, and the automatic sweep keeps the slot as not-yet" {
+  finished_task
+  echo scratch >"$SLOT/notes.txt"
+  ran ce-compound ce-compound-refresh
+  agent idle
+  release
+  [ "$status" -eq 0 ]
+  eventually logged 'any(.[]; .event == "finish" and .by == "release" and .result == "refused")'
+  eventually runner_done
+  not_yet "awaiting the operator's call on the next move"
+  [ "$status" -eq 0 ]
+  local said=$output
+  rm "$SLOT/notes.txt"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == [] and .not_yet == ["repoa/1"] and .needs_you == [] and .slots[0].result == "not-yet"' \
+    <<<"$output"
+  [ -d "$SLOT" ]
+  jaq -e '.not_yet.why == "awaiting the operator'"'"'s call on the next move" and .release_withdrawn == true' <<<"$said"
+  [ "$(record '.release')" = null ]
+}
+
+@test "a task with no PR that its agent released, then said is not ready, is no longer finished and is kept" {
+  mkdir -p "$SLOT/.context"
+  echo next >"$SLOT/.context/next-move.md"
+  ran ce-compound ce-compound-refresh
+  agent idle
+  release
+  [ "$status" -eq 0 ]
+  eventually logged 'any(.[]; .event == "finish" and .by == "release" and .result == "refused"
+    and .reason == "teardown-blocked")'
+  eventually runner_done
+  [ "$(record '.finished_by_operator')" = false ]
+  verdict
+  jaq -e '.finished == true and .finished_by == "release"' <<<"$VERDICT"
+  not_yet "waiting on the store convention, then a dotfiles change"
+  [ "$status" -eq 0 ]
+  verdict
+  jaq -e '.finished == false and .finished_by == null' <<<"$VERDICT"
+  find "$SLOT/.context" -delete
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == [] and .needs_you == []' <<<"$output"
+  [ -d "$SLOT" ]
+}
+
+@test "a teardown a release started stops waiting once the agent says it is not ready, and tears nothing down" {
+  finished_task
+  ran ce-compound ce-compound-refresh
+  agent busy
+  release
+  [ "$status" -eq 0 ]
+  local runner
+  runner=$(jaq -r .runner_pid <<<"$output")
+  not_yet "CI on the release chain"
+  [ "$status" -eq 0 ]
+  eventually logged 'any(.[]; .event == "finish" and .by == "release" and .result == "refused"
+    and .reason == "release-withdrawn")'
+  eventually bash -c "! kill -0 $runner"
+  [ -d "$SLOT" ]
+  [ "$(record '.not_yet.why')" = "CI on the release chain" ]
+}
+
+@test "a teardown an earlier release started stands down for the one a newer release starts" {
+  finished_task
+  ran ce-compound ce-compound-refresh
+  agent busy
+  release
+  [ "$status" -eq 0 ]
+  local first second
+  first=$(jaq -r .runner_pid <<<"$output")
+  not_yet "one more look"
+  [ "$status" -eq 0 ]
+  release
+  [ "$status" -eq 0 ]
+  second=$(jaq -r .runner_pid <<<"$output")
+  jaq -e '.already_requested == false' <<<"$output"
+  [ "$first" != "$second" ]
+  eventually bash -c "! kill -0 $first"
+  [ -d "$SLOT" ]
+  agent_status idle
+  eventually gone
+  eventually logged 'any(.[]; .event == "finish" and .by == "release" and .result == "torn-down")'
+}
+
+@test "--not-yet does not hold a slot the operator finished, says so, and changes nothing" {
+  finished_task
+  record_set '.finished_by_operator = true'
+  agent idle
+  not_yet "waiting"
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "finished-by-operator" and .value == "repoa/1"
+    and (.message | contains("the operator finished repoa/1"))' <<<"$stderr"
+  [ "$(record '.not_yet')" = null ]
+  logged 'any(.[]; .event == "release" and .result == "refused" and .reason == "finished-by-operator")'
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
 }
 
 # --- files left in a finished slot -------------------------------------------------------------------------------------
