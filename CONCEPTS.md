@@ -350,13 +350,13 @@ holds beyond the base, such as the PR a review round works on. The slot's agent 
 has run the closing skills that record its learnings and stopped every background job it no longer needs, it hands the
 slot's teardown upstream, to a finish outside the slot that waits for the agent to go idle. An agent still waiting on
 something, such as CI, never stops that wait to release: it records why the slot is *not yet* ready, which keeps the
-slot off the needs-you list while the agent is there and gets the agent reminded later. A *slot sweep* deletes the clone
-only when nothing in it is missing from GitHub (a PR's head, origin, or the fork on origin's host that one of its
-branches tracks or pushes to) and its agent is idle or gone; the *automatic sweep*, which a timer runs, deletes only a
-slot its agent released or the operator finished, and first reminds the agent of a finished slot held back only by files
-left in it to clean them up. A slot that fails that check stays put on the *needs-you list*, which names each blocker,
-and is never deleted. A slot whose tmux sessions are gone after a server reboot is *dormant* until resume restarts them
-and its conversation.
+slot off the needs-you list while the agent is there and gets the agent reminded later. A *slot sweep* deletes the
+clone, moving it to the trash and purging it from there at once, only when nothing in it is missing from GitHub (a PR's
+head, origin, or the fork on origin's host that one of its branches tracks or pushes to) and its agent is idle or gone;
+the *automatic sweep*, which a timer runs, deletes only a slot its agent released or the operator finished, and first
+reminds the agent of a finished slot held back only by files left in it to clean them up. A slot that fails that check
+stays put on the *needs-you list*, which names each blocker, and is never deleted. A slot whose tmux sessions are gone
+after a server reboot is *dormant* until resume restarts them and its conversation.
 
 ### Agent state
 

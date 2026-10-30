@@ -1,6 +1,8 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
 # Configuration and tool paths shared by agent-slot and the Claude hooks that act on slots. Every path has an
 # AGENT_SLOT_* override, which is how the tests point it at a sandbox; the defaults are listed in agent-slot's header.
+# The trash is the exception: it is trash-cli's home trash, found from XDG_DATA_HOME as trash-cli finds it, since a
+# teardown purges the entry trash-cli wrote there.
 
 # Usage: agent_slot_env <agent-slot directory>
 # Pins PATH, resolves the tools once, and sets the AS_* configuration. Returns 1 when neither jaq nor jq is installed,
@@ -22,6 +24,7 @@ agent_slot_env() {
   AS_STATE_DIR=${AGENT_SLOT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-slot}
   AS_LEDGER=$AS_STATE_DIR/ledger.jsonl
   AS_LOG_DIR=$AS_STATE_DIR/logs
+  AS_TRASH_DIR=${XDG_DATA_HOME:-$HOME/.local/share}/Trash
   AS_RUN_DIR=${AGENT_SLOT_RUN_DIR:-${XDG_RUNTIME_DIR:-/tmp}/agent-slot-$UID}
   AS_TMUX_SOCKET=${AGENT_SLOT_TMUX_SOCKET:-agent-slots}
   AS_TMUX_CONF=${AGENT_SLOT_TMUX_CONF:-$HOME/.config/tmux/slots.conf}

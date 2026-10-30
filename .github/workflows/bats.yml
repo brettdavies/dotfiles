@@ -57,15 +57,17 @@ jobs:
         # Without uv that suite skips rather than exercising anything.
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
-      - name: Install zsh + stow + jq
+      - name: Install zsh + stow + jq + trash-cli
         # zsh: shell-config.bats syntax-checks dot-zshrc / dot-zshenv / dot-zprofile.
         # stow: stow-deploy-args.bats checks exit codes; without stow the script
         #   exits with EXIT_DEPENDENCY (3) instead of EXIT_USAGE (2).
         # jq: heredoc-pr-guard.bats invokes jaq for fake JSON construction.
+        # trash-cli: the agent-slot suites trash slot clones with the real
+        #   trash-put into a sandbox trash, since teardown purges the entry it wrote.
         # Symlink jq as jaq (jaq is a jq-compatible Rust reimplementation; tests
         # use only the -n / -r / --arg / -e flags + standard filter syntax).
         run: |
-          sudo apt-get install -y zsh stow jq
+          sudo apt-get install -y zsh stow jq trash-cli
           sudo ln -sf "$(command -v jq)" /usr/local/bin/jaq
 
       - name: Run bats tests

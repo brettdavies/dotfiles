@@ -3,7 +3,8 @@
 #
 # Run: bats tests/agent-slot-teardown.bats
 #
-# Fixtures only: the slot root, home, and trash are sandboxed, and the trash is a stub that copies before it deletes.
+# Fixtures only: the slot root, home, and trash are sandboxed, and the trash is trash-cli writing to a trash under the
+# test's directory.
 
 bats_require_minimum_version 1.5.0
 
@@ -23,6 +24,7 @@ setup() {
 }
 
 teardown() {
+  [ ! -d "$TRASH/files" ] || chmod u+w "$TRASH/files"
   stop_spawned
   assert_no_leaks
 }
@@ -38,15 +40,24 @@ idle_agent() {
 
 record() { jaq -r "$1" "$SLOT/.git/agent-slot.json"; }
 
-@test "AE7: sweep --yes stops a finished, clean, idle slot's agent, kills its sessions, trashes it, and keeps its history" {
+# trash_entries: the sandbox trash's entries, one name per line, from both its files and its info directories.
+trash_entries() {
+  find "$TRASH/files" "$TRASH/info" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | sed 's/\.trashinfo$//'
+}
+
+# last_event FILE EVENT: the last line of a JSON-lines log whose event is EVENT.
+last_event() { jaq -c -s --arg e "$2" 'map(select(.event == $e))[-1]' "$1"; }
+
+@test "AE7: sweep --yes stops a finished, clean, idle slot's agent, kills its sessions, deletes it, and keeps its history" {
   finished_task
   idle_agent "touch '$T/agent-stopped'"
   run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
   [ "$status" -eq 0 ]
-  jaq -e '.torn_down == ["repoa/1"] and .needs_you == []' <<<"$output"
+  jaq -e '.torn_down == ["repoa/1"] and .needs_you == [] and .purge_failed == []
+    and .slots[0].purge.purged == true' <<<"$output"
   [ -f "$T/agent-stopped" ]
   [ ! -e "$SLOT" ]
-  [ -d "$STUBS/trashed/1/.git" ]
+  [ -z "$(trash_entries)" ]
   [ ! -s "$STUBS/tmux-sessions" ]
   jaq -e -s 'map(select(.event == "teardown")) | .[-1] | .repo == "repoa" and .slot == 1
     and .session_id == "s1" and .transcript == "/t/s1.jsonl" and .prs == [7]' "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
@@ -217,6 +228,86 @@ cat "$STUBS/gh-prs.json"'
   [ ! -e "$T/agent-stopped" ]
   [ -d "$SLOT/.git" ]
   [ "$(record .state)" = active ]
+}
+
+@test "finish --yes purges the clone from the trash and reports it in the result, the ledger, and teardown.log" {
+  finished_task
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e --arg e "$TRASH/files/1" '.torn_down == true and .purge.purged == true and .purge.entry == $e
+    and (.purge.ms | type == "number")' <<<"$output"
+  [ ! -e "$SLOT" ]
+  [ -z "$(trash_entries)" ]
+  jaq -e --arg e "$TRASH/files/1" '.trash_entry == $e' <<<"$(last_event "$AGENT_SLOT_STATE_DIR/ledger.jsonl" teardown)"
+  jaq -e --arg e "$TRASH/files/1" '.repo == "repoa" and .slot == 1 and .purged == true and .entry == $e' \
+    <<<"$(last_event "$AGENT_SLOT_STATE_DIR/ledger.jsonl" purge)"
+  jaq -e '.result == "torn-down" and .purge.purged == true' \
+    <<<"$(last_event "$AGENT_SLOT_STATE_DIR/teardown.log" finish)"
+}
+
+@test "a purge deletes only its own entry: an earlier copy of the slot, a same-named entry, and another entry stay" {
+  finished_task
+  mkdir -p "$T/other/1"
+  touch "$T/other/1/kept"
+  "$STUBS/trash" "$T/other/1"
+  mv "$SLOT" "$T/hold"
+  mkdir "$SLOT"
+  touch "$SLOT/earlier"
+  "$STUBS/trash" "$SLOT"
+  mv "$T/hold" "$SLOT"
+  echo notes >"$T/notes.md"
+  "$STUBS/trash" "$T/notes.md"
+  [ "$(trash_entries | sort -u | paste -sd ' ')" = "1 1_1 notes.md" ]
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e --arg e "$TRASH/files/1_2" '.purge.purged == true and .purge.entry == $e' <<<"$output"
+  [ "$(trash_entries | sort | paste -sd ' ')" = "1 1 1_1 1_1 notes.md notes.md" ]
+  [ -f "$TRASH/files/1/kept" ]
+  [ -f "$TRASH/files/1_1/earlier" ]
+  grep -qxF "Path=$SLOT" "$TRASH/info/1_1.trashinfo"
+  [ "$(cat "$TRASH/files/notes.md")" = notes ]
+}
+
+@test "a purge that fails leaves the slot torn down and reports the entry and a next step" {
+  finished_task
+  trash_stub "chmod 555 '$TRASH/files'"
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e --arg e "$TRASH/files/1" --arg cmd "trash-rm $SLOT" '.torn_down == true and .purge.purged == false
+    and .purge.code == "purge-failed" and .purge.entry == $e and .purge.next_step.action == "run"
+    and .purge.next_step.command == $cmd and (.purge.next_step.docs | endswith("#purge-failures"))
+    and (.purge.log | type == "string")' <<<"$output"
+  [ ! -e "$SLOT" ]
+  [ -f "$TRASH/info/1.trashinfo" ]
+  jaq -e '.purged == false and .code == "purge-failed"' <<<"$(last_event "$AGENT_SLOT_STATE_DIR/ledger.jsonl" purge)"
+  jaq -e '.result == "torn-down" and .purge.code == "purge-failed"' \
+    <<<"$(last_event "$AGENT_SLOT_STATE_DIR/teardown.log" finish)"
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  jaq -e '.slots == []' <<<"$output"
+}
+
+@test "sweep --yes names a slot whose purge failed, in its text and in teardown.log" {
+  finished_task
+  trash_stub "chmod 555 '$TRASH/files'"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes
+  [ "$status" -eq 0 ]
+  [[ $output == *"torn down"$'\t'"repoa/1"* ]]
+  [[ $output == *"clone left in the trash"$'\t'"repoa/1"$'\t'*"next: trash-rm $SLOT"* ]]
+  jaq -e '.torn_down == ["repoa/1"] and .purges[0].key == "repoa/1" and .purges[0].code == "purge-failed"' \
+    <<<"$(last_event "$AGENT_SLOT_STATE_DIR/teardown.log" sweep)"
+}
+
+@test "a trash that writes no entry for the clone leaves the trash as it was and reports trash-entry-unknown" {
+  finished_task
+  mkdir -p "$T/other/1"
+  "$STUBS/trash" "$T/other/1"
+  stub trash '[ "$1" != --version ] || { echo "trash 0.test"; exit 0; }
+mv "$1" "$STUBS/moved"'
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == true and .purge.purged == false and .purge.code == "trash-entry-unknown"
+    and .purge.entry == null' <<<"$output"
+  [ "$(trash_entries | paste -sd ' ')" = "1 1" ]
 }
 
 @test "a trash that fails leaves the slot active, so it can be resumed" {

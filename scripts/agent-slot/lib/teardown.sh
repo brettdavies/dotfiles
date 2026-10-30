@@ -2,11 +2,13 @@
 # Tearing down a slot, and sweep: deleting only the slots check passes. sweep, like finish in finish.sh, reports what it
 # would do unless given --yes.
 #
-# A teardown runs under the slot's lock, in order: mark the slot tearing-down, read the agent's state again, stop the
-# agent, check the tree again, kill its three tmux sessions, move the clone to the trash, and append the ledger. A
-# check that fails marks the slot active again with its sessions intact, so nothing written into the slot after the
-# verdict is lost, and so does a teardown that stops before the trash: through its exit handler, or, when it was
-# killed, through the next process that takes the slot lock.
+# A teardown deletes the slot's clone. Under the slot's lock, in order, it marks the slot tearing-down, reads the agent's
+# state again, stops the agent, checks the tree again, kills its three tmux sessions, moves the clone to the trash, and
+# appends the ledger, which names the clone's trash entry. A check that fails marks the slot active again with its
+# sessions intact, so nothing written into the slot after the verdict is lost, and so does a teardown that stops before
+# the trash: through its exit handler, or, when it was killed, through the next process that takes the slot lock. Then
+# it releases the lock and purges that entry from the trash (purge.sh). A purge that fails leaves the slot torn down
+# and is reported in the result, a purge ledger event, and teardown.log.
 
 TEARDOWN_BLOCKERS='[]'
 TEARDOWN_ARMED=
@@ -80,8 +82,9 @@ _teardown_branches() {
 }
 
 # Usage: slot_teardown <repo> <n>
-# Tears down a slot whose verdict passed; the caller holds its lock and the verdict's AGENT_PIDS. Returns 1, with the
-# slot active again and TEARDOWN_BLOCKERS set, when the re-check fails.
+# Tears down a slot whose verdict passed; the caller holds its lock and the verdict's AGENT_PIDS. Once the clone is in
+# the trash and the ledger, it releases the lock and purges the clone, setting PURGE_RESULT. Returns 1, with the slot
+# still locked and active again and TEARDOWN_BLOCKERS set, when the re-check fails.
 slot_teardown() {
   local repo=$1 n=$2 path real kind out branches
   path=$(slot_path "$repo" "$n")
@@ -109,12 +112,17 @@ slot_teardown() {
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
     slot_tmux out 10 kill-session -t "=$(slot_session "$repo" "$n" "$kind")" || true
   done
+  purge_before "$real"
   bounded out trash 120 "$AS_TRASH" "$path" \
     || contract_fail script-error "trash could not move $path to the trash" --value "$path" --side-effects partial \
       --reconcile "agent-slot list" --log "$BOUNDED_LOG"
   TEARDOWN_ARMED=
+  purge_find
   ledger_append teardown "$(contract_json -c --argjson branches "$branches" \
-    '{repo, slot, task, session_id, transcript, prs, request_id, branches: $branches}' <<<"$RECORD")"
+    --arg entry "${PURGE_ENTRY:+$AS_TRASH_DIR/files/$PURGE_ENTRY}" '{repo, slot, task, session_id, transcript, prs,
+      request_id, branches: $branches, trash_entry: (if $entry == "" then null else $entry end)}' <<<"$RECORD")"
+  record_unlock_slot "$repo" "$n"
+  purge_run "$repo" "$n"
 }
 
 # Usage: _teardown_one <repo> <n> <yes>; checks one slot and, with yes, tears it down. Sets TEARDOWN_RESULT to one of
@@ -142,6 +150,7 @@ _teardown_one() {
     TEARDOWN_RESULT=would-tear-down
   elif slot_teardown "$repo" "$n"; then
     TEARDOWN_RESULT=torn-down
+    CHECK_VERDICT=$(contract_json -c --argjson p "$PURGE_RESULT" '.purge = $p' <<<"$CHECK_VERDICT")
   else
     CHECK_VERDICT=$(contract_json -c --argjson b "$TEARDOWN_BLOCKERS" '.teardown = false | .blockers = $b
       | .needs_you = $b' <<<"$CHECK_VERDICT")
@@ -170,6 +179,7 @@ cmd_sweep() {
     map(select(. != null)) as $r
     | {dry_run: ($yes != 1),
        torn_down: [$r[] | select(.result == "torn-down") | .key],
+       purge_failed: [$r[] | select(.purge.purged == false) | .key],
        would_tear_down: [$r[] | select(.result == "would-tear-down") | .key],
        closing_sent: [$r[] | select(.result == "closing-sent") | .key],
        cleanup_sent: [$r[] | select(.result == "cleanup-sent") | .key],
@@ -178,12 +188,15 @@ cmd_sweep() {
        needs_you: [$r[] | select(.needs_you != []) | {key, needs_you}],
        slots: $r}')
   [[ ${SWEEP_YES:-0} != 1 ]] || teardown_log sweep "$(contract_json -c --arg by "$(_teardown_by)" \
-    --argjson ms "$(($(contract_ms) - start))" '{by: $by, ms: $ms, torn_down, closing_sent,
+    --argjson ms "$(($(contract_ms) - start))" '{by: $by, ms: $ms, torn_down,
+      purges: [.slots[] | select(.purge != null) | {key} + .purge], closing_sent,
       cleanup_sent: [.slots[] | select(.result == "cleanup-sent") | {key, files: [.blockers[] | .values[]? // .message]}],
       reminded, not_yet, kept: [.slots[] | select(.result == "kept" or .result == "busy") | {key, blockers: [.blockers[].code]}]}' \
     <<<"$out")"
   contract_ok "$out" '
     (.torn_down[] | "torn down\t\(.)"), (.would_tear_down[] | "would tear down\t\(.)"),
+    (.slots[] | select(.purge.purged == false)
+      | "clone left in the trash\t\(.key)\t\(.purge.message); next: \(.purge.next_step.command)"),
     (.closing_sent[] | "sent the closing steps\t\(.)"), (.cleanup_sent[] | "asked its agent to clean up\t\(.)"),
     (.reminded[] | "reminded its agent\t\(.)"),
     (.not_yet[] | "not ready to release, its agent says\t\(.)"),
