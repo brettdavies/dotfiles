@@ -81,8 +81,8 @@ cmd_reopen() {
 # and REOPEN_SESSION_ID, the event's.
 REOPEN_ITEMS='[]' REOPEN_NAME='' REOPEN_TASK='' REOPEN_SESSION_ID=''
 _reopen_plan() {
-  REOPEN_ITEMS=$(contract_json -c --argjson i "$REOPEN_ITEM" '(.items // [])
-    | if any(.[]; .kind == $i.kind and .repo == $i.repo and .number == $i.number) then . else . + [$i] end' \
+  REOPEN_ITEMS=$(contract_json -c --argjson i "$REOPEN_ITEM" "$ITEM_SAME_DEF"'(.items // [])
+    | if any(.[]; same_item($i)) then . else . + [$i] end' \
     <<<"$REOPEN_SOURCE")
   REOPEN_NAME=$(contract_json -r '.name // ""' <<<"$REOPEN_SOURCE")
   [[ -n $REOPEN_NAME ]] || REOPEN_NAME=$(item_name "$(contract_json -c '.[0]' <<<"$REOPEN_ITEMS")")

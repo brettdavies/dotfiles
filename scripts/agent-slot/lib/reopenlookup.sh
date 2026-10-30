@@ -69,10 +69,10 @@ or bring back its sessions with agent-slot resume" --value "$key" --command "age
 # not JSON is skipped. The caller has run repo_prime.
 reopen_source_event() {
   { [[ ! -r $AS_LEDGER ]] || contract_json -c -R --arg repo "$1" --argjson i "$2" --arg session "${3:-}" \
-    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" '
+    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" "$ITEM_SAME_DEF"'
     fromjson? | select(type == "object" and .event == "teardown" and .repo == $repo)
     | if $session != "" then select(.session_id == $session) | [0, .]
-      elif any(.items[]?; .kind == $i.kind and .repo == $i.repo and .number == $i.number) then [2, .]
+      elif any(.items[]?; same_item($i)) then [2, .]
       elif $i.kind == "pr" and $i.repo == $origin and any(.prs[]?; . == $i.number) then [1, .]
       else empty end' "$AS_LEDGER"; } \
     | contract_json -s -c 'if length == 0 then null
@@ -96,8 +96,8 @@ before its work items were recorded is reopened by its Claude session ID, with -
     return 1
   fi
   [[ -n $REOPEN_SESSION ]] || return 0
-  contract_json -e --argjson i "$REOPEN_ITEM" '(.items // []) | . == []
-    or any(.[]; .kind == $i.kind and .repo == $i.repo and .number == $i.number)' <<<"$REOPEN_SOURCE" >/dev/null \
+  contract_json -e --argjson i "$REOPEN_ITEM" "$ITEM_SAME_DEF"'(.items // []) | . == []
+    or any(.[]; same_item($i))' <<<"$REOPEN_SOURCE" >/dev/null \
     && return 0
   _reopen_refuse item-not-found-in-ledger "the teardown of $repo/$(contract_json -r .slot <<<"$REOPEN_SOURCE") with \
 session $REOPEN_SESSION names $(contract_json -r '[.items[] | "\(.repo)#\(.number)"] | join(", ")' <<<"$REOPEN_SOURCE"), \
@@ -107,7 +107,7 @@ not $key" --value "$key" --command "$(_reopen_launch_command)"
 }
 
 # Usage: _reopen_find_transcript <session id>; the source's transcript at its recorded path, else by its ID in any of
-# Claude's project directories. An ID that is not plain hex and dashes is not searched for.
+# Claude's project directories.
 _reopen_find_transcript() {
   local id=$1 found
   REOPEN_TRANSCRIPT=$(contract_json -r '.transcript // ""' <<<"$REOPEN_SOURCE") REOPEN_TRANSCRIPT_EXISTS=false
@@ -115,8 +115,7 @@ _reopen_find_transcript() {
     REOPEN_TRANSCRIPT_EXISTS=true
     return 0
   fi
-  [[ $id =~ ^[0-9A-Fa-f-]+$ ]] || return 0
-  found=$(find "$AS_CLAUDE_PROJECTS" -mindepth 2 -maxdepth 2 -name "$id.jsonl" -print -quit 2>/dev/null || true)
+  found=$(sessions_transcript_find "$id")
   [[ -z $found ]] || REOPEN_TRANSCRIPT=$found REOPEN_TRANSCRIPT_EXISTS=true
 }
 

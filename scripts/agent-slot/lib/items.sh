@@ -79,11 +79,14 @@ item_name() {
   printf '%s' "$name"
 }
 
+# A jq definition: whether a work item is $i, by kind, repo, and number, whatever its title.
+ITEM_SAME_DEF='def same_item($i): .kind == $i.kind and .repo == $i.repo and .number == $i.number;'
+
 # The update item_add applies to a record, with $items, $origin (owner/name), and $name bound: each item joins .items
 # unless one with its kind, repo, and number is there, each PR of origin's repo joins .prs, which means origin's PRs
 # wherever check reads it, and a record with no name takes $name.
 ITEM_ADD_FILTER='(if $items == [] then . else .items = reduce $items[] as $i (.items // [];
-      if any(.[]; .kind == $i.kind and .repo == $i.repo and .number == $i.number) then . else . + [$i] end) end)
+      if any(.[]; same_item($i)) then . else . + [$i] end) end)
   | .prs = ((.prs // []) + [$items[] | select(.kind == "pr" and .repo == $origin) | .number] | unique)
   | if .name == null and $name != "" then .name = $name else . end'
 
@@ -91,7 +94,7 @@ ITEM_ADD_FILTER='(if $items == [] then . else .items = reduce $items[] as $i (.i
 # to the slot's record under its lock, the first one naming a slot that has no name. A filter given runs after, in the
 # same update.
 item_add() {
-  local repo=$1 n=$2 origin items name='' filter=$ITEM_ADD_FILTER
+  local repo=$1 n=$2 origin items name='' filter=$ITEM_SAME_DEF$ITEM_ADD_FILTER
   origin=$(pr_repo_slug "$3")
   items=$(contract_json -c 'map({kind, repo, number, title: (.title // "")})' <<<"$4")
   shift 4

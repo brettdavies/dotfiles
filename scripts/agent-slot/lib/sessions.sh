@@ -32,7 +32,15 @@ _sessions_conversation_saved() {
   local id
   id=$(contract_json -r '.session_id' <<<"$RECORD")
   [[ $id =~ ^[0-9A-Fa-f-]+$ ]] || return 0
-  [[ -n $(find "$AS_CLAUDE_PROJECTS" -mindepth 2 -maxdepth 2 -name "$id.jsonl" -print -quit 2>/dev/null) ]]
+  [[ -n $(sessions_transcript_find "$id") ]]
+}
+
+# Usage: sessions_transcript_find <session id>; prints the path of the session's transcript in any of Claude's project
+# directories, or nothing. Claude names a project directory after its working directory in a form that cannot be read
+# back, so a transcript is found by its session ID alone. An ID that is not plain hex and dashes is not searched for.
+sessions_transcript_find() {
+  [[ $1 =~ ^[0-9A-Fa-f-]+$ ]] || return 0
+  find "$AS_CLAUDE_PROJECTS" -mindepth 2 -maxdepth 2 -name "$1.jsonl" -print -quit 2>/dev/null || true
 }
 
 # Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume | reopen]

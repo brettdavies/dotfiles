@@ -68,8 +68,8 @@ launch_find_existing() {
     request=$(contract_json -r '.request_id // ""' <<<"$RECORD")
     task=$(contract_json -r '.task // ""' <<<"$RECORD")
     state=$(contract_json -r '.state // ""' <<<"$RECORD")
-    [[ -z $LAUNCH_ITEM ]] || held=$(contract_json -r --argjson i "$LAUNCH_ITEM" --arg origin "$origin" '
-      any(.items[]?; .kind == $i.kind and .repo == $i.repo and .number == $i.number)
+    [[ -z $LAUNCH_ITEM ]] || held=$(contract_json -r --argjson i "$LAUNCH_ITEM" --arg origin "$origin" "$ITEM_SAME_DEF"'
+      any(.items[]?; same_item($i))
       or ($i.kind == "pr" and $i.repo == $origin and any(.prs[]?; . == $i.number))' <<<"$RECORD")
     if [[ -n $LAUNCH_REQUEST && $request == "$LAUNCH_REQUEST" ]]; then
       LAUNCH_EXISTING=$n LAUNCH_EXISTING_BY=request
