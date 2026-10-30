@@ -3,8 +3,22 @@
 # Registered in settings.json as PreToolUse matcher for "WebFetch".
 #
 # Protocol: exit 0 + JSON deny on stdout to block. Exit 0 + no output to allow.
-# permissionDecision: "deny" requires WebFetch NOT be in permissions.allow (Issue #18312).
+# Exit 2 + JSON deny when the call cannot be checked: no JSON parser on PATH,
+# or a failure inside this script.
+# The deny holds even for a URL that permissions.allow approves.
 set -euo pipefail
+
+readonly GUARD=defuddle-webfetch
+
+# The deny is built from text already escaped for JSON, the guard's name, and a
+# line number, so it needs no parser. Exit 2 blocks the call even where the
+# harness does not read the JSON.
+block() {
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s %s"},"systemMessage":"%s %s"}\n' \
+    "$GUARD" "$1" "$GUARD" "$2"
+  exit 2
+}
+trap 'block "failed [guard-internal-error] at line $LINENO, so this call did not run.\nnext_step [ask-user]: tell the user; bats tests/$GUARD.bats in the dotfiles repo shows what broke." "failed at line $LINENO and blocked the call"' ERR
 
 # Read hook input from fd 0.
 #
@@ -15,11 +29,12 @@ set -euo pipefail
 # works and also in the hook-runner context where the latter fails.
 INPUT=$(cat)
 
-# Guard: jaq required for JSON parsing
-command -v jaq >/dev/null 2>&1 || exit 0
+JQ=$(command -v jaq || command -v jq) \
+  || block 'blocked [json-parser-missing]: neither jaq nor jq is on PATH, so this call could not be checked. It did not run; install jaq, then rerun it.\ndocs: ~/dotfiles/BOOTSTRAP.md § \"Install Packages from Brewfile\"\nnext_step [install-jaq]:\nbrew install jaq' \
+    'blocked the call: neither jaq nor jq is installed (brew install jaq)'
 
 # Extract URL (confirmed field: tool_input.url, lowercase)
-URL=$(printf '%s' "$INPUT" | jaq -r '.tool_input.url // ""')
+URL=$(printf '%s' "$INPUT" | "$JQ" -r '.tool_input.url // ""')
 [[ -z "$URL" ]] && exit 0
 [[ "$URL" != http://* && "$URL" != https://* ]] && exit 0
 
@@ -41,10 +56,12 @@ esac
 
 # Marker-based passthrough: each URL gets one defuddle redirect per session.
 # Marker means "defuddle was attempted" (not "defuddle failed").
-MARKER_DIR="/tmp/.defuddle-markers"
+MARKER_DIR="${DEFUDDLE_MARKER_DIR:-/tmp/.defuddle-markers}"
 # shellcheck disable=SC2174  # mode applies to the leaf only by design — that's the dir we want 700 on
 mkdir -p -m 700 "$MARKER_DIR" 2>/dev/null || true
-URL_HASH=$(printf '%s' "$URL" | sha256sum | cut -c1-16)
+# cksum is POSIX, so this runs on macOS, where sha256sum ships only as
+# Homebrew coreutils' gsha256sum.
+URL_HASH=$(printf '%s' "$URL" | cksum | cut -d ' ' -f 1)
 MARKER="$MARKER_DIR/$URL_HASH"
 [[ -f "$MARKER" ]] && exit 0
 
@@ -55,7 +72,7 @@ touch "$MARKER"
 # containing quotes, backslashes, or newlines). Both permissionDecisionReason and
 # systemMessage are set for reliable delivery (Issue #12446).
 # shellcheck disable=SC2016  # jaq filter uses single quotes; $url and $msg are jaq variables, not shell
-jaq -n --arg url "$URL" '
+"$JQ" -n --arg url "$URL" '
   ("WebFetch intercepted. Use `defuddle parse " + $url + " --md` via Bash for clean markdown. If defuddle fails or returns empty, retry with WebFetch — the hook will allow the retry. If this content is worth saving, clip it with ~/.claude/skills/clip/scripts/clip.sh " + $url + ".") as $msg |
   {
     hookSpecificOutput: {

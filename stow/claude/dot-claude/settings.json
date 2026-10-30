@@ -459,7 +459,8 @@
           {
             "type": "command",
             "command": "~/.claude/defuddle-webfetch.sh",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       },
@@ -469,27 +470,32 @@
           {
             "type": "command",
             "command": "~/.claude/heredoc-pr-guard.sh",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "~/.claude/ai-attribution-guard.sh",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "~/.claude/sleep-guard.sh",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "~/.claude/self-match-guard.sh",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "~/.claude/piped-commit-guard.sh",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
           },
           {
             "type": "command",
@@ -504,7 +510,8 @@
           {
             "type": "command",
             "command": "~/.claude/model-tier-guard.sh",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
           }
         ]
       },
