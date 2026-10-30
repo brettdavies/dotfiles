@@ -209,7 +209,11 @@ shape that remote tooling reaches. All but one read at least one startup file an
 
 The `bash` non-login non-interactive row is the *bare launcher* case (see [CONCEPTS.md](CONCEPTS.md)): bash has no
 all-invocations file, so the shape inherits whatever its launcher handed it. Scripts in that position source the helper
-they need explicitly, per the section below. Claude Code's Bash tool is wired through `CLAUDE_ENV_FILE` by
+they need explicitly, per the section below. A `bash -c` that counts itself as top-level, as every bash started from
+`env -i` does, is the exception: it reads `.bashrc` when its stdin is a socket, or on Debian and Ubuntu when
+`SSH_CLIENT` or `SSH2_CLIENT` is set, taking itself for an sshd session (see
+[Invocation shape](CONCEPTS.md#invocation-shape)). A heredoc command in the agent Bash tool has a socket on stdin, so an
+`env -i ... bash -c` it starts reads `.bashrc`. Claude Code's Bash tool is wired through `CLAUDE_ENV_FILE` by
 `stow/claude/dot-claude/bash-env-path.sh`, which sources `config/shell/local-paths.sh` before each command to repair the
 order of keg-only Ruby, `~/.npm-global/bin`, and `~/.local/bin`; it assumes an inherited `PATH` rather than assembling
 one.
