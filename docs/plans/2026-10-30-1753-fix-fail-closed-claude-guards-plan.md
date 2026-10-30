@@ -15,16 +15,18 @@ execution: code
 - **Objective:** On every host this repo deploys to, a call that one of the dotfiles Claude Code guards exists to refuse
   is never let through because the guard could not run; the refusal tells the model which guard could not check the call
   and how to restore it.
-- **Means:** each guard parses its payload with jaq, else jq, and exits 2 when it finds neither (KTD1, KTD2), checks its
-  trigger text before it looks for a parser (KTD3), and runs under `onFailure: "block"` (KTD4); the Brewfile installs
-  jaq (KTD6).
+- **Means:** each guard parses its payload with jaq, else jq, and prints a fixed-text deny and exits 2 when it finds
+  neither (KTD1, KTD2), checks its trigger text before it looks for a parser (KTD3), turns a crash in its own script
+  into the same kind of deny (KTD10), and runs under `onFailure: "block"` (KTD4); the Brewfile installs jaq (KTD6).
 - **Product authority:** Brett's decision, relayed by the `xurl-rs-prime` session, outranks Requirements; Requirements
   govern behavior; KTDs govern mechanism within them; units override neither. Behavior measured on this host's Claude
   Code (2.1.314) outranks documentation or memory.
 - **Execution profile:** seven guard scripts edited in place under `stow/claude/dot-claude/`, their settings entries,
   one Brewfile line, one shared bats helper, two new suites, five extended suites, one core-env allowlist entry.
 - **Stop conditions:** stop and report to `xurl-rs-prime` if a guard's suite fails under jq alone with a filter error
-  (that invalidates KTD1), or if the live check shows a guard's exit 2 not blocking the call.
+  (that invalidates KTD1), or if the live check shows a guard's deny not blocking the call. If the live check shows
+  `onFailure: "block"` not protecting a subagent's call, report it to `xurl-rs-prime` with a proposed follow-up for
+  `never-send-guard.sh`, which leans on `onFailure` for its crash path, and leave that script unchanged in this PR.
 - **Who finishes:** the `dotfiles/4` slot ships U1-U6 on `fix/fail-closed-claude-guards` as one PR into `dev`.
   `xurl-rs-prime` approves and merges. Brett deploys: a `git pull` in `~/dotfiles` makes the scripts and `settings.json`
   live, and `brew bundle` installs jaq.
@@ -39,7 +41,7 @@ Seven PreToolUse guards stop allowing every call when jaq is missing. Each one l
 blocks the call with exit 2 and a reason naming the guard, the missing tool, and `brew install jaq`. A call that carries
 none of a guard's trigger text still runs, so a host with no parser keeps a usable Bash tool. Every guard's settings
 entry gains `onFailure: "block"`, so a guard that crashes, hangs, or is missing blocks the call instead of waving it
-through. The Brewfile installs jaq on macOS and Linux.
+through, and a crash inside a guard's own script says which guard failed. The Brewfile installs jaq on macOS and Linux.
 
 ### Problem Frame
 
@@ -112,6 +114,11 @@ hook block the call; this host runs 2.1.314.
 - **Not in scope: `never-send-guard.sh` (#368).** It needs no parser by design and already sets `onFailure: "block"`.
 - **Not in scope: CI's jq-as-jaq link in `bats.yml`.** It keeps working; the new jq-only tests exercise the fallback on
   every host anyway.
+- **Considered, not built: rewriting the guards to need no parser, as `never-send-guard.sh` does.** That guard matches
+  substrings of the raw payload, while these guards read the decoded command's shell structure: heredoc operators,
+  pipelines, flag values, line continuations. Decoding JSON strings by hand is the class of bug a parser exists to
+  prevent, and the jq fallback already keeps every host with Homebrew working. A host class with neither jaq nor jq
+  would change this.
 - **Considered, not built: a sourced helper for the parser lookup.** Rejected by KTD5. Evidence that would change it: a
   way to ship a new file under `~/.claude` that goes live on `git pull` without a restow.
 - **Considered, not built: a test that holds the seven lookup blocks textually identical.** The per-guard behavior tests
@@ -193,20 +200,31 @@ hook block the call; this host runs 2.1.314.
   holding the test's own bash and, in the jq case, the host's jq. The bash link keeps macOS from running the guard under
   `/bin/bash` 3.2. Links are built once per suite under `BATS_FILE_TMPDIR`. The helper's PATH assignment takes one entry
   in `scripts/core-env-allowlist.tsv`, as `tests/mac-open.bats` does.
-- KTD8. **Live check through a headless session, not the slot's settings.** `claude -p` from a scratch directory with
-  `--setting-sources project` and `--settings` registering one guard under a parser-free PATH proves the harness blocks
-  on the guard's exit 2, without touching this slot's `.claude/settings.local.json` or the deployed hooks.
-  `onFailure: "block"` on a missing script was already observed on 2.1.314 (Sources).
+- KTD8. **Live check through headless sessions, not the slot's settings.** Each check is a throwaway `claude -p` run
+  from a scratch directory with `--setting-sources project` and `--settings`, so it never touches this slot's
+  `.claude/settings.local.json` or the deployed hooks. One run registers sleep-guard under a parser-free PATH and proves
+  the harness blocks on its deny. Four more runs, one per hook variant and each matched to one harmless read-only tool,
+  have the main agent make that call and then spawn one subagent that makes it too: a hook that exits 2 with no JSON; a
+  hook that prints a JSON deny and exits 0; under `onFailure: "block"`, a hook that exits 1; under `onFailure: "block"`,
+  a hook whose script is missing. Each hook appends a line with the payload's `agent_id` to a scratch log before it
+  answers, and the stream-json output shows whether each call ran, so every case is recorded as allowed or blocked in
+  the main session and in the subagent. `xurl-rs-prime` asked for the matrix because
+  [anthropics/claude-code#40580](https://github.com/anthropics/claude-code/issues/40580) was filed against a much older
+  build, and because the leak that started the never-send work went out through a subagent. Every value in these runs is
+  made up.
+- KTD9. **`defuddle-webfetch.sh` gains a `DEFUDDLE_MARKER_DIR` override.** Its deny path writes a marker into
+  `/tmp/.defuddle-markers`, which live sessions read; tests point it at their own directory so a test never changes
+  whether a real WebFetch is redirected.
 - KTD10. **An ERR trap turns a crash inside a guard into the same kind of fixed-text deny.** The reason names the guard,
   `[guard-internal-error]`, and `$LINENO`, says the call did not run, and ends with `next_step [ask-user]:` naming
   `bats tests/<guard>.bats`; the trap then exits 2. A broken parser is the realistic crash: a Homebrew upgrade that
   strands jaq's or jq's libraries makes every guard fail on its first parse, and under `onFailure: "block"` alone the
-  agent reads only `failed; blocking because onFailure is "block"`. The trap fires only where `set -e` would exit, so it
-  changes no decision; failures inside functions and subshells, which do not inherit it, still end in a block through
-  `onFailure`, as do timeouts and a missing script. `never-send-guard.sh` uses the same `guard-internal-error` token.
-- KTD9. **`defuddle-webfetch.sh` gains a `DEFUDDLE_MARKER_DIR` override.** Its deny path writes a marker into
-  `/tmp/.defuddle-markers`, which live sessions read; tests point it at their own directory so a test never changes
-  whether a real WebFetch is redirected.
+  agent reads only `failed; blocking because onFailure is "block"`. Because the trap blocks on its own, a crash also
+  blocks where `onFailure` is not honored: on a Claude Code older than 2.1.295, or in a subagent if the KTD8 matrix
+  finds `onFailure` does not reach one. The trap fires only where `set -e` already ends the script, so an allow path is
+  unaffected and a crash that used to fail open now blocks; failures inside functions and subshells, which do not
+  inherit it, still end in a block through `onFailure`, as do timeouts and a missing script. `never-send-guard.sh` uses
+  the same `guard-internal-error` token.
 
 ### High-Level Technical Design
 
@@ -294,7 +312,7 @@ flowchart TD
 
 - **Goal:** heredoc-pr-guard, ai-attribution-guard, piped-commit-guard, sleep-guard, and self-match-guard each block
   without a parser and keep working with jq alone.
-- **Requirements:** R1, R3, R4.
+- **Requirements:** R1, R2, R3, R4.
 - **Dependencies:** U1.
 - **Files:**
   `stow/claude/dot-claude/{heredoc-pr-guard,ai-attribution-guard,piped-commit-guard,sleep-guard,self-match-guard}.sh`;
@@ -325,7 +343,7 @@ flowchart TD
 ### U3. model-tier-guard fails closed
 
 - **Goal:** the Agent guard looks for jaq, then jq, and blocks a TIER dispatch it cannot check.
-- **Requirements:** R1, R3, R4.
+- **Requirements:** R1, R2, R3, R4.
 - **Dependencies:** U1.
 - **Files:** `stow/claude/dot-claude/model-tier-guard.sh`, `tests/model-tier-guard.bats` (new).
 - **Approach:** a case-insensitive raw check for `TIER:` before the lookup (KTD3), then KTD1, KTD2, and KTD10. Its `sed`
@@ -346,7 +364,7 @@ flowchart TD
 
 - **Goal:** WebFetch is blocked when the guard cannot parse the call, and the header states the deny-over-allow
   behavior.
-- **Requirements:** R1, R3, R8.
+- **Requirements:** R1, R2, R3, R8.
 - **Dependencies:** U1.
 - **Files:** `stow/claude/dot-claude/defuddle-webfetch.sh`, `tests/defuddle-webfetch.bats` (new).
 - **Approach:**
@@ -401,17 +419,18 @@ flowchart TD
 
 ## Verification Contract
 
-| Gate           | Command                                                                                                                                                                                                                                              | Proves                                                                                |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Touched suites | `scripts/run-tests tests/heredoc-pr-guard.bats tests/ai-attribution-guard.bats tests/piped-commit-guard.bats tests/sleep-guard.bats tests/self-match-guard.bats tests/model-tier-guard.bats tests/defuddle-webfetch.bats tests/claude-settings.bats` | U1-U5                                                                                 |
-| Fail-first     | each new no-parser, jq-only, and settings test run against `origin/dev`'s version of its script or `settings.json`                                                                                                                                   | the tests detect the defect; output quoted in the PR                                  |
-| ShellCheck     | `scripts/lint-shell --all`                                                                                                                                                                                                                           | shellcheck job                                                                        |
-| actionlint     | `scripts/lint-workflows --all`                                                                                                                                                                                                                       | shellcheck job                                                                        |
-| Core env       | `scripts/core-env-guard.sh`                                                                                                                                                                                                                          | shellcheck job; U1's allowlist entry matches                                          |
-| Bash version   | `scripts/run-tests tests/bash-version-guard.bats tests/lint-shell.bats`                                                                                                                                                                              | no guard picked up a bash 4 construct without the guard block                         |
-| Perf           | `scripts/run-tests --perf-only`                                                                                                                                                                                                                      | the pre-push perf phase                                                               |
-| Markdown       | `markdownlint-cli2` on changed `.md` files                                                                                                                                                                                                           | plan and docs lint                                                                    |
-| Live           | KTD8's headless check with sleep-guard: `sleep 30` blocked with `[json-parser-missing]` in the tool result; `echo ok` runs; a second hook in the same run saves one Bash payload carrying `<<`, `\|`, and `TIER:`, read for those three literally    | the harness blocks on the no-parser exit, and the payload is written unescaped (KTD3) |
+| Gate            | Command                                                                                                                                                                                                                                              | Proves                                                                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Touched suites  | `scripts/run-tests tests/heredoc-pr-guard.bats tests/ai-attribution-guard.bats tests/piped-commit-guard.bats tests/sleep-guard.bats tests/self-match-guard.bats tests/model-tier-guard.bats tests/defuddle-webfetch.bats tests/claude-settings.bats` | U1-U5                                                                                   |
+| Fail-first      | each new no-parser, jq-only, and settings test run against `origin/dev`'s version of its script or `settings.json`                                                                                                                                   | the tests detect the defect; output quoted in the PR                                    |
+| ShellCheck      | `scripts/lint-shell --all`                                                                                                                                                                                                                           | shellcheck job                                                                          |
+| actionlint      | `scripts/lint-workflows --all`                                                                                                                                                                                                                       | shellcheck job                                                                          |
+| Core env        | `scripts/core-env-guard.sh`                                                                                                                                                                                                                          | shellcheck job; U1's allowlist entry matches                                            |
+| Bash version    | `scripts/run-tests tests/bash-version-guard.bats tests/lint-shell.bats`                                                                                                                                                                              | no guard picked up a bash 4 construct without the guard block                           |
+| Perf            | `scripts/run-tests --perf-only`                                                                                                                                                                                                                      | the pre-push perf phase                                                                 |
+| Markdown        | `markdownlint-cli2` on changed `.md` files                                                                                                                                                                                                           | plan and docs lint                                                                      |
+| Live            | KTD8's headless check with sleep-guard: `sleep 30` blocked with `[json-parser-missing]` in the tool result; `echo ok` runs; a second hook in the same run saves one Bash payload carrying `<<`, `\|`, and `TIER:`, read for those three literally    | the harness blocks on the no-parser deny, and the payload is written unescaped (KTD3)   |
+| Subagent matrix | KTD8's four runs: exit 2 with no JSON, JSON deny with exit 0, exit 1 under `onFailure: "block"`, missing script under `onFailure: "block"`, each on one read-only call in the main session and in a spawned subagent                                 | allowed or blocked for each of the eight cells, reported to `xurl-rs-prime` with the PR |
 
 `scripts/run-tests --all` is not run from the slot: its stow suites deploy into the real home directory. The push uses
 `--no-verify` after the gates above pass by hand, and the PR body says so.
@@ -423,7 +442,8 @@ flowchart TD
 - R1-R8 each hold, through the unit that cites them.
 - Every new no-parser, jq-only, and settings test was observed failing against the unfixed code, and the PR quotes that
   output beside the passing run.
-- Every gate in the Verification Contract passes, including the live check.
+- Every gate in the Verification Contract passes, including the live check, and the subagent matrix's eight results are
+  reported to `xurl-rs-prime`.
 - The PR from `fix/fail-closed-claude-guards` into `dev` is open with every check `SUCCESS` by rollup.
 - No scratch files, corpus output, or abandoned attempts remain in the diff or the slot.
 
@@ -484,13 +504,13 @@ the payload is JSON.stringify output | none yet; the live check reads one | unve
 ```
 
 ```text
-REALITY: premise-table finding 13 premises, unverified=1 (payload serialization), routed to the live check (E1) docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:240
+REALITY: premise-table finding 13 premises, unverified=1 (payload serialization), routed to the live check (E1) docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:258
 REALITY: already-done pass origin/dev since 2026-10-29 touches the named files only in 9edb373 (#368, never-send) and 1f88950 (#356, piped-commit), neither adds a parser fallback stow/claude/dot-claude/piped-commit-guard.sh:36
 REALITY: surface-check pass brew bundle check/list --file --verbose, claude --setting-sources/--settings/--allowedTools, scripts/run-tests FILE, scripts/lint-shell --all all confirmed by --help scripts/run-tests:13
-REALITY: binding-decisions pass Key Decisions entry (separate PR, onFailure block, jaq in Brewfile) honored; no recent branch decision contradicts it docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:86
-REALITY: numbers pass corpus figures re-derived from the per-guard result files [measured: corpus run 2026-10-30] docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:145; "a few lines" per lookup [estimated] docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:186
-REALITY: deferred-asks pass no linked issue; the brief's six asks each map to a unit (parser handling U2-U4, onFailure U5, Brewfile U6, per-guard tests U2-U4, defuddle comment U4, fix/ branch Goal Capsule) docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:28
-REALITY: pr-count pass one PR, as the brief asks; no ship-policy file docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:28
+REALITY: binding-decisions pass Key Decisions entry (separate PR, onFailure block, jaq in Brewfile) honored; no recent branch decision contradicts it docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:88
+REALITY: numbers pass corpus figures re-derived from the per-guard result files [measured: corpus run 2026-10-30] docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:152; "a few lines" per lookup [estimated] docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:193
+REALITY: deferred-asks pass no linked issue; the brief's six asks each map to a unit (parser handling U2-U4, onFailure U5, Brewfile U6, per-guard tests U2-U4, defuddle comment U4, fix/ branch Goal Capsule) docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:30
+REALITY: pr-count pass one PR, as the brief asks; no ship-policy file docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:30
 ```
 
 ### 1. Architecture
@@ -730,25 +750,23 @@ no-parser and crash reason is fixed text plus a line number. No verbose mode exi
 
 ### DX ledger
 
-| ID  | Pass | Finding                                                                                                                                   | Disposition                                      | Change                                                                              |
-| --- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| X1  | 3    | `CAP6:no-parser:fix,recovery`: the install command sat mid-reason and nothing said the call had not run                                   | accepted (restores the CLAUDE.md error contract) | KTD2 line order, fix last, recovery sentence                                        |
-| X2  | 3    | Channel: [anthropics/claude-code#40580](https://github.com/anthropics/claude-code/issues/40580) reports exit 2 ignored for subagent calls | accepted                                         | KTD2 prints a fixed-text JSON deny and exits 2; R1 names subagents                  |
-| X3  | 3    | `CAP6:crash:fix`: a crash under `onFailure` alone gives a bare harness line, and a broken parser makes every guard crash                  | accepted                                         | KTD10 ERR trap; U1 broken mode; one crash test per guard                            |
-| X4  | 3    | `CAP6:missing-script:fix` and timeout: the harness owns that text                                                                         | residual                                         | R6 test; recovery steps in the post-merge solutions entry                           |
-| X5  | 4    | Each guard's `Protocol:` header line would go stale                                                                                       | accepted                                         | U2 step 4, and the same in U3 and U4                                                |
-| X6  | 5    | No upgrade note for operators                                                                                                             | accepted                                         | Operational Notes: the Changelog entry and `brew bundle`                            |
-| X7  | 6    | The settings invariant's failure output did not say how to fix it                                                                         | accepted                                         | U5 scenario names the two fixes                                                     |
-| X8  | 8    | The live check runs in the main session only                                                                                              | residual                                         | the JSON deny is the mechanism the main-session guards already rely on in subagents |
+| ID  | Pass | Finding                                                                                                                                   | Disposition                                      | Change                                                                        |
+| --- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------- |
+| X1  | 3    | `CAP6:no-parser:fix,recovery`: the install command sat mid-reason and nothing said the call had not run                                   | accepted (restores the CLAUDE.md error contract) | KTD2 line order, fix last, recovery sentence                                  |
+| X2  | 3    | Channel: [anthropics/claude-code#40580](https://github.com/anthropics/claude-code/issues/40580) reports exit 2 ignored for subagent calls | accepted                                         | KTD2 prints a fixed-text JSON deny and exits 2; R1 names subagents            |
+| X3  | 3    | `CAP6:crash:fix`: a crash under `onFailure` alone gives a bare harness line, and a broken parser makes every guard crash                  | accepted                                         | KTD10 ERR trap; U1 broken mode; one crash test per guard                      |
+| X4  | 3    | `CAP6:missing-script:fix` and timeout: the harness owns that text                                                                         | residual                                         | R6 test; recovery steps in the post-merge solutions entry                     |
+| X5  | 4    | Each guard's `Protocol:` header line would go stale                                                                                       | accepted                                         | U2 step 4, and the same in U3 and U4                                          |
+| X6  | 5    | No upgrade note for operators                                                                                                             | accepted                                         | Operational Notes: the Changelog entry and `brew bundle`                      |
+| X7  | 6    | The settings invariant's failure output did not say how to fix it                                                                         | accepted                                         | U5 scenario names the two fixes                                               |
+| X8  | 8    | The live check runs in the main session only                                                                                              | accepted at `xurl-rs-prime`'s request            | KTD8's subagent matrix, four hook variants in the main session and a subagent |
 
 Approval readiness: PASS. X1, X5, X6, X7 restore declared contracts or docs; X2 and X3 are authorized auto-decisions
-under the brief's rule for this unattended slot; X4 and X8 are recorded residuals.
+under the brief's rule for this unattended slot; X8 was added at `xurl-rs-prime`'s request; X4 is a recorded residual.
 
 ### NOT in scope (DX)
 
 - Changing the harness's own failure text for a missing script or a timeout: Claude Code owns it.
-- A subagent case in the live check: it needs a dispatched subagent inside the headless run, and the deny path it would
-  test is the one every existing guard already uses.
 - A `--check` mode for the guards, as `never-send-guard.sh` has: the no-parser reason names the fix, and no operator
   task needs it.
 
@@ -811,6 +829,25 @@ DX IMPLEMENTATION CHECKLIST
 | 6 Dev Environment | 7      | 8     | the Mac path of the helper is exercised only by pre-push         |
 | 7 Community       | 5      | 5     | a private repo; no change in scope                               |
 | 8 DX Measurement  | 5      | 6     | the corpus replay is a one-off, not a repeatable script          |
+
+## Document Review
+
+The document review ran non-interactively, with the coherence, feasibility, scope-guardian, and adversarial lenses read
+in-process; the brief allows no delegated reviewers, so no cross-model pass ran. Five corrections were applied, each
+carrying out a decision the plan or `xurl-rs-prime` had already made:
+
+- **Goal Capsule and Summary** now name the fixed-text deny and the crash trap (coherence: both lagged KTD2 and KTD10).
+- **KTD10** sits after KTD9, keeps its ID, and says the trap leaves allow paths alone while a crash that failed open now
+  blocks, including where `onFailure` is not honored (coherence: "changes no decision" contradicted the plan's purpose).
+- **U2, U3, U4** list R2, which their crash tests prove (coherence).
+- **KTD8, the Verification Contract, the Definition of Done, and the stop conditions** carry the four-variant subagent
+  matrix `xurl-rs-prime` asked for, and the report of its results; the DX ledger's X8 is no longer a residual.
+- **Scope Boundaries** records the parser-free rewrite as considered and not built (adversarial: the obvious
+  alternative, which `never-send-guard.sh` takes, was unexamined).
+
+One observation needs no change: on a host where gstack's settings hook has replaced the `settings.json` symlink with a
+copy, the `onFailure` keys do not arrive, while the scripts, still symlinks, do; the no-parser deny and the crash trap
+block on their own there.
 
 ## DX Review Scorecard
 
