@@ -63,11 +63,27 @@ _teardown_stop_agent() {
   done
 }
 
+# Usage: _teardown_branches <slot path> <base>; prints the slot's local branches other than the base as a JSON array of
+# {name, oid, remote, url}: the remote each pushes to and its URL, or null for a branch with none. The ledger keeps them
+# so the work can be checked out again from wherever it was pushed, a fork included, once the clone is gone.
+_teardown_branches() {
+  local name oid remote url
+  while IFS=$'\t' read -r name oid remote; do
+    [[ -n $name && $name != "$2" ]] || continue
+    url=
+    [[ -z $remote ]] || url=$(git -C "$1" config --get "remote.$remote.url" || true)
+    contract_json -n -c --arg name "$name" --arg oid "$oid" --arg remote "$remote" --arg url "$url" \
+      '{name: $name, oid: $oid, remote: (if $remote == "" then null else $remote end),
+        url: (if $url == "" then null else $url end)}'
+  done < <(git -C "$1" for-each-ref --format='%(refname:short)%09%(objectname)%09%(push:remotename)' refs/heads) \
+    | contract_json -s -c .
+}
+
 # Usage: slot_teardown <repo> <n>
 # Tears down a slot whose verdict passed; the caller holds its lock and the verdict's AGENT_PIDS. Returns 1, with the
 # slot active again and TEARDOWN_BLOCKERS set, when the re-check fails.
 slot_teardown() {
-  local repo=$1 n=$2 path real kind out
+  local repo=$1 n=$2 path real kind out branches
   path=$(slot_path "$repo" "$n")
   real=$(realpath -m "$path")
   if [[ $real != "$AS_ROOT_REAL/$repo/$n" ]]; then
@@ -89,6 +105,7 @@ slot_teardown() {
     _teardown_keep "$repo" "$n"
     return 1
   fi
+  branches=$(_teardown_branches "$path" "$(contract_json -r '.base // "main"' <<<"$RECORD")")
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
     slot_tmux out 10 kill-session -t "=$(slot_session "$repo" "$n" "$kind")" || true
   done
@@ -96,7 +113,8 @@ slot_teardown() {
     || contract_fail script-error "trash could not move $path to the trash" --value "$path" --side-effects partial \
       --reconcile "agent-slot list" --log "$BOUNDED_LOG"
   TEARDOWN_ARMED=
-  ledger_append teardown "$(contract_json -c '{repo, slot, task, session_id, transcript, prs, request_id}' <<<"$RECORD")"
+  ledger_append teardown "$(contract_json -c --argjson branches "$branches" \
+    '{repo, slot, task, session_id, transcript, prs, request_id, branches: $branches}' <<<"$RECORD")"
 }
 
 # Usage: _teardown_one <repo> <n> <yes>; checks one slot and, with yes, tears it down. Sets TEARDOWN_RESULT to one of
