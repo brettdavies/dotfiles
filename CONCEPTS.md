@@ -222,6 +222,11 @@ The combination of shell dialect, login versus non-login, and interactive versus
 startup files a shell process reads. Two processes running the same command reach different environments when their
 shapes differ, so the shape is the unit at which shell environment behavior is specified and verified, not the command.
 
+Those three flags do not settle it for bash on their own. A non-login, non-interactive bash running a command string
+reads its interactive startup file when it counts itself as a top-level shell and its standard input is a socket,
+because it takes itself to have been started by a remote shell daemon. A launcher that clears the environment makes
+every bash it starts top-level, so where such a shape's standard input comes from is part of the shape.
+
 A shape that reads no startup file at all is a *bare launcher*. Verification has to reproduce the caller's exact shape:
 a pass obtained under a neighboring shape carries no information about the one that failed, and a shell descended from a
 correctly configured parent looks correct regardless of what its own startup files do. Shapes are enumerated
@@ -251,6 +256,13 @@ The failure is quiet in both directions. A stale copy earlier on `PATH` answers 
 idle, and a copy that merely *could* appear earlier turns a missing file into a silent substitution rather than an
 error. Tools are therefore installed from one source per host, and a second copy of the same command is drift to remove,
 not a fallback to keep.
+
+A deliberate wrapper is the one sanctioned second copy: a script installed under a tool's own name, earlier on `PATH`,
+so every call passes through it (to enforce a guard or supply configuration) before it hands off to the real binary. It
+works only while its directory precedes the wrapped copy's in every *invocation shape*. The *shell config chain*
+therefore moves such a directory to the front rather than adding it only when absent, since a PATH inherited from a
+parent can hold it behind the copy it wraps. When that happens the real binary answers, and nothing reports that the
+wrapper's guard never ran.
 
 ### Captured environment
 
