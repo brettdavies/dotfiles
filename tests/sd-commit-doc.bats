@@ -74,6 +74,19 @@ teardown() {
   [ "$output" = "workflow-issues/new.md" ]
 }
 
+# The commit runs under `git -C <worktree>`, so a message path is only usable
+# there once it no longer depends on the caller's directory.
+@test "accepts a message file given relative to the caller's directory" {
+  mkdir -p "$TMP/notes"
+  cp "$MSG" "$TMP/notes/msg.md"
+  echo hello >"$SD/workflow-issues/new.md"
+  cd "$TMP"
+  run "$SCRIPT" notes/msg.md workflow-issues/new.md
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$SD" log -1 --format=%s origin/main)" = "docs(x): add a thing" ]
+  [ -z "$(git -C "$SD" status --porcelain)" ]
+}
+
 @test "commits multiple files in one commit" {
   echo a >"$SD/workflow-issues/a.md"
   echo b >"$SD/workflow-issues/b.md"
