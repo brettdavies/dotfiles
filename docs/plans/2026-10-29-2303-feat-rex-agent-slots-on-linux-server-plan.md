@@ -358,9 +358,12 @@ Follow-Up Work and Considered and not built lists.
   a reconcile that runs first creates a repo's session, and rexurrect then restores a second one beside it.) Governs R5,
   R12, R13.
 - KTD5. **The periodic pass is a once-a-minute systemd user timer.** It follows
-  `stow/local/dot-config/systemd/user/agent-slot-sweep.{service,timer}`. A timer, push, or action pass exits 0 after
-  logging why it changed nothing: `skip` when no Rex server answers, `startup-pending` while the running server has no
-  start-up record (KTD4) and is younger than the start-up step's time limit, and `busy` when the lock is held. The
+  `stow/local/dot-config/systemd/user/agent-slot-sweep.{service,timer}`. A timer or push pass exits 0 after logging why
+  it changed nothing: `skip` when no Rex server answers, `startup-pending` while the running server has no start-up
+  record (KTD4) and is younger than the start-up step's time limit, and `busy` when the lock is held. A restore the
+  operator or an agent asked for, from the CLI or the restore action, reports the same three outcomes as errors instead
+  (`rex-server-down`, `startup-pending`, `reconcile-busy`), each with its exit code and next step, and the action's tab
+  holds to show it, since a pass someone waits on that changed nothing must not read as success (DX review D9). The
   follow loop and its wake detection are removed. (session-settled: user-approved — chosen over the follow loop, which
   exits whenever its Rex server does.) Governs R6, R18.
 - KTD6. **The push becomes a local reconcile.** After a launch, sweep, or finish, `scripts/agent-slot/lib/push.sh` runs
@@ -454,11 +457,11 @@ flowchart TB
   Kind -->|yes| Wait[take the lock, wait bounded for the server]
   Wait --> Once[rexurrect once per server, then reconcile, then record the start]
   Kind -->|no: push, timer, or an action| Up{Rex server answers?}
-  Up -->|no| Skip[log skip, exit 0, resume nothing]
+  Up -->|no| Skip[log skip, resume nothing, exit 0 or rex-server-down if asked for]
   Up -->|yes| Started{start-up recorded for this server?}
-  Started -->|no, server still young| Pending[log startup-pending, exit 0]
+  Started -->|no, server still young| Pending[log startup-pending, exit 0 or the startup-pending error if asked for]
   Started -->|yes, or the server outlived the start-up limit| Lock{reconcile lock free?}
-  Lock -->|no| Busy[log busy, exit 0, change nothing]
+  Lock -->|no| Busy[log busy, change nothing, exit 0 or reconcile-busy if asked for]
   Lock -->|yes| Fetch[list slots; resume dormant ones]
   Fetch --> Plan[plan open, rename, close against the tabs, prefix stripped]
   Plan --> Apply[open, then rename keeping the prefix, then close; an already-closed tab counts as closed]
@@ -627,6 +630,19 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      `rex-server.service` did not start: the pid `rex server status` prints differs from the unit's `MainPID`, and the
      next step names the commands that hand the socket back to the service.
   6. Record the server's Rex build in `scripts/agent-slot/verified-versions`.
+  7. Give every new doctor finding and pass outcome a reason in the closed set in `scripts/agent-slot/lib/contract.sh`,
+     with its row in the README's reasons table, which `tests/agent-slot-docs.bats` holds to that set:
+     `rex-server-down`, `startup-pending`, `reconcile-timer-inactive`, `tab-numbers-inactive`, `rexurrect-missing`,
+     `rex-server-foreign`, `rex-restart-pending`, `reconcile-stale`, and `wrong-host`. `server-unreachable` retires with
+     the SSH transport, and `reconcile-busy`'s row stops naming the Mac (DX review).
+  8. Doctor also reports two states a deploy or an upgrade leaves behind: `rex-restart-pending` when
+     `rex version --json`'s `rex_version` differs from the `version` that `rex server status` prints for the running
+     server, with the ordered next step (update Rex.app and the iOS app to at least that build, `rexurrect save`,
+     `systemctl --user restart rex-server.service`, then rerun the checklist); and `reconcile-stale` when the reconcile
+     timer is active but the newest line in `reconcile.log` is over 3 minutes old, or the last three passes all failed,
+     naming the log path and `agent-slot-rex restore` (DX review D10, D11).
+  9. On macOS the dispatcher stops before any work with `wrong-host`: the slot layer runs on the Linux server, so the
+     error names the Rex host to connect to and `ssh <server> agent-slot-rex doctor` as the next step (DX review D8).
 - **Patterns to follow:** the contract envelopes and closed reason set in `scripts/agent-slot/lib/contract.sh`; the
   stubs in `tests/lib/agent-slot-rex.bash`.
 - **Test scenarios:**
@@ -644,6 +660,13 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - With PATH set to the systemd user manager's default (no Homebrew), the helper still finds tmux, jq or jaq, and flock
     from the Homebrew bin, and a missing Homebrew prefix leaves PATH as it was.
   - doctor reports `version-unverified` for an unlisted Rex build and nothing for the listed one.
+  - doctor reports `rex-restart-pending` when the stubbed CLI and running-server versions differ, with the four ordered
+    steps in `next_step`, and nothing when they match.
+  - doctor reports `reconcile-stale` for a journal whose newest line is 4 minutes old with the timer active, and for
+    three failed passes in a row, and nothing for a fresh `ok` line.
+  - With `uname` stubbed to Darwin, any verb exits with `wrong-host` before calling `rex` or `agent-slot`.
+  - Every reason the helper can emit is in `CONTRACT_REASONS` and the README's reasons table, and `server-unreachable`
+    is in neither.
   - Overriding one setting changes only that value, and no library outside `settings.sh` names a host (text check).
 - **Verification:** `agent-slot-rex doctor` on the server is clean with every unit active, and the stub suites pass on
   CI.
@@ -655,20 +678,21 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Requirements:** R3, R4, R5, R6, R11, R13, R20; KTD4, KTD5, KTD6.
 - **Dependencies:** U2, U3.
 - **Files:** `scripts/agent-slot/lib/push.sh`, `scripts/agent-slot/lib/env.sh`, `scripts/agent-slot/agent-slot`,
-  `scripts/agent-slot-rex/lib/reconcile.sh`, `scripts/agent-slot-rex/lib/journal.sh`,
-  `stow/local/dot-config/systemd/user/agent-slot-reconcile.service` (new),
+  `scripts/agent-slot/lib/help.sh` (the launch, sweep, and finish text that names the push to each Mac),
+  `tests/lib/agent-slot.bash`, `scripts/agent-slot-rex/lib/reconcile.sh`, `scripts/agent-slot-rex/lib/journal.sh`,
+  `scripts/agent-slot-rex/lib/help.sh`, `stow/local/dot-config/systemd/user/agent-slot-reconcile.service` (new),
   `stow/local/dot-config/systemd/user/agent-slot-reconcile.timer` (new), `scripts/host-jobs-enable.sh`,
   `tests/agent-slot-push.bats`, `tests/agent-slot-rex.bats`, `tests/host-scheduled-jobs.bats`.
 - **Approach:**
   1. In `push.sh`, run a local `restore --by push` when the helper and a Rex server are present, in the background and
      waited on under `AGENT_SLOT_PUSH_WAIT` as today; default the client list to empty; skip when a slot tab's own
      helper ran the verb.
-  2. In `reconcile.sh`, add a start-up entry, in place of the wait for SSH, that takes the lock first, waits for the Rex
-     server to answer for a bounded time like today's restore wait, runs `rexurrect auto-restore --server-pid` in the
-     foreground under `timeout` with the bound from `settings.sh` when rexurrect is installed and this server instance
-     has no start-up record yet, journals rexurrect's outcome (done, failed, or stopped at the bound), reconciles with
-     dormant slots resumed whatever that outcome, and then writes the start-up record for the `instance:` UUID
-     `rex server status` prints.
+  2. In `reconcile.sh`, add a start-up entry, `restore --at-start` in place of `restore --wait-server` and its wait for
+     SSH, that takes the lock first, waits for the Rex server to answer for a bounded time like today's restore wait,
+     runs `rexurrect auto-restore --server-pid` in the foreground under `timeout` with the bound from `settings.sh` when
+     rexurrect is installed and this server instance has no start-up record yet, journals rexurrect's outcome (done,
+     failed, or stopped at the bound), reconciles with dormant slots resumed whatever that outcome, and then writes the
+     start-up record for the `instance:` UUID `rex server status` prints.
   3. Start every other pass by checking that a Rex server answers and that its instance has a start-up record; log
      `skip` or `startup-pending` and exit 0 without resuming any slot when either is missing, unless the server has
      outlived the start-up step's time limit.
@@ -685,6 +709,9 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - A launch with no Rex server present makes the slot, runs no restore, and returns its usual result (R20).
   - A launch run by a slot tab's own helper runs no push.
   - A timer pass with no Rex server answering logs a skip, resumes no slot, and exits 0.
+  - The same conditions on a restore run by hand give errors with their reasons, exit codes, and next steps:
+    `rex-server-down` naming `systemctl --user start rex-server.service`, `startup-pending` saying when the start-up
+    limit ends, and `reconcile-busy` naming the pid that holds the lock; each also writes its journal line.
   - A timer pass while another pass holds the lock logs busy and changes nothing.
   - Covers AE6. The start-up step calls rexurrect's restore before its first tab change, under the lock.
   - A start-up step whose server answers only after a delay still runs rexurrect's restore and then reconciles, and a
@@ -794,7 +821,10 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   `tests/rexurrect-deploy.bats` (new), `tests/host-scheduled-jobs.bats`.
 - **Approach:**
   1. Write a deploy script that downloads a pinned release into an empty directory, checks its SHA-256 and
-     `gh attestation verify --repo cemcatik/rexurrect`, and installs it to `~/.local/bin`.
+     `gh attestation verify --repo cemcatik/rexurrect`, and installs it to `~/.local/bin`. Each `FATAL:` line, in the
+     style of `scripts/rex-login-server-deploy.sh`, names the archive and pinned version, says nothing was installed,
+     and ends with the fix: for a checksum mismatch the expected and actual SHA-256 and the rerun command, for a failed
+     attestation the `gh attestation verify` command to rerun by hand.
   2. Stow the autosave service and timer (every 15 minutes, `rexurrect save`) instead of letting
      `rexurrect autosave install` write files dotfiles does not manage.
   3. Keep rexurrect's defaults of an empty `auto_resume` and `no_scrollback = ["claude"]`.
@@ -848,7 +878,18 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      the server, the units, `rexurrect save` before a planned restart, the Mac tunnel); and AGENTS.md wherever it names
      the Mac helper.
   3. Add *slot reconcile* to CONCEPTS.md, and update *agent slot* where it places tabs.
-  4. Make `slot-status.sh`'s header describe a tab on the same host.
+  4. Shape the README's Setup as the golden path, with doctor as its checklist. On the Linux server:
+     `scripts/stow-deploy --headless --all`, then `bash scripts/host-jobs-enable.sh`, then `agent-slot-rex doctor`,
+     which names `scripts/rexurrect-deploy.sh`, the login server deploy, and `agent-slot warm <repo>` with their exact
+     commands while any is missing. On the Mac: `scripts/stow-deploy --all`, then
+     `launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.bd-tunnel.plist` as BOOTSTRAP does for the
+     other LaunchAgents, then connect Rex.app to the Linux server's host.
+  5. Add a short "a slot's tab is missing" path: `agent-slot-rex doctor` first (it names a stale or failing reconcile),
+     then the newest lines of `~/.local/state/agent-slot-rex/reconcile.log`, read by their `by`, `ok`, and `error`
+     fields, then `agent-slot-rex restore`. For the phone's shell fallback, document `agent-slot launch <repo>` followed
+     by typing the first message into the new tab's Claude, since `launch` takes a first message only as
+     `--prompt-file`.
+  6. Make `slot-status.sh`'s header describe a tab on the same host.
 - **Test scenarios:**
   - The docs suite finds every helper verb in the README and no removed verb.
   - `tests/rex-config.bats`'s verb pin matches the new verb set.
@@ -863,9 +904,11 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Files:** none, beyond any `docs/solutions` entries the checklist produces.
 - **Approach:** In order:
   1. Update Rex.app and the Rex iOS app to builds at least as new as the server.
-  2. Disconnect both clients from the Linux server, close the operator's own sessions there, and confirm with
-     `rex --autostart=false server status` that the login server's quit-when-empty server is gone, so the deploy cannot
-     reload the new config into it.
+  2. From a plain SSH shell on the Linux server, not a Rex tab there, since this step stops that Rex server: disconnect
+     both clients, run `rexurrect save`, then `rex server stop`, and confirm with `rex --autostart=false server status`
+     that the login server's quit-when-empty server is gone, so the deploy cannot reload the new config into it. The
+     saved snapshot is what the start-up step restores the operator's own tabs from in step 4. If a client reconnects
+     before step 3 and the login server starts its own server again, repeat this step (DX review D12).
   3. Deploy dotfiles on the server and run `scripts/host-jobs-enable.sh`, which starts `rex-server.service`, the
      tab-number watcher, and the reconcile timer together.
   4. Reconnect Rex.app, confirm it lands on the service's server, and watch the start-up step give every live slot its
@@ -875,8 +918,10 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   6. Run AE1 through AE6 and F1 through F4, plus the agent-side checks: an agent launches a slot with the Mac and the
      phone both off, an agent releases its own slot and its tab closes, and the cutover itself runs while one agent is
      mid-turn.
-  7. Record versions and outcomes in the PR body, with the Rex server's resident memory at cutover and again after 24
-     hours, since the always-on server keeps every pane's scrollback and Rex documents no cap.
+  7. Record versions and outcomes in the PR body, with the time F1 takes from opening the Rex iOS app with the Mac
+     asleep to reading the waiting agent's tab (the DX review's target is under 2 minutes), with the Rex server's
+     resident memory at cutover and again after 24 hours, since the always-on server keeps every pane's scrollback and
+     Rex documents no cap.
 - **Test expectation:** none -- live verification on two machines and a phone.
 - **Verification:** Every AE and F passes, with the Mac lid closed for AE1 and F1.
 
@@ -1511,19 +1556,320 @@ under the operator's unattended instruction; the scope record (eng D1, A); routi
 Q3, P1, and the 11 planned tests, each a correction that makes an approved behavior work; and the push regression
 contract, carried forward from `scripts/agent-slot/lib/push.sh:3-4`.
 
+## Developer Experience Review
+
+Mode: DX POLISH, since this enhances the existing agent-slot product. Product type: CLI tool plus platform (the
+`agent-slot-rex` helper and its doctor, the systemd user units, and the Rex Lua config). The operator asked for the
+review to run unattended, so each question below was auto-decided to its recommended option (Decision Log).
+
+### Developer Persona Card
+
+| Persona                            | Who                                                                                                                                                                        | Wants                                                                                                                   | Reads                                                       |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Operator at a Rex client (primary) | A1. One person who owns the Linux server, the Mac, and the phone, and runs several agents in parallel slots; checks on them between other work, often with the Mac asleep. | Every agent's tab already there, current, and labeled; daily use with no manual step; a broken piece names its own fix. | Tab labels and status marks, doctor, the reconcile journal. |
+| Slot agent (secondary)             | A2. A Claude Code session in a slot, launching and releasing slots with no human present.                                                                                  | `agent-slot`'s verbs and JSON unchanged; errors it can act on literally.                                                | The JSON envelope, `--help`, the `agent-slot` skill.        |
+
+Tolerance: none for a manual step in daily use, by the operator's standing rule that slots run autonomously; a one-time
+setup of about 15 minutes per machine is acceptable when doctor names each step.
+
+### Developer Empathy Narrative
+
+Today, from the code and docs:
+
+> Operator: "It's 07:10, the Mac is shut in my bag, and I want to know whether last night's agent is stuck on a
+> question. I open the Rex iOS app and it has nothing for me: every repo session and slot tab lives in the Mac's Rex
+> server, which sleeps with the Mac. The agents are running on the Linux server in tmux, but from the phone the only
+> way in would be an SSH app and `tmux -L agent-slots attach -t =<repo>-<N>`, which nothing on the phone is set up
+> for. Back at the Mac an hour later, the follow loop notices the wake and restores, and the tabs reappear. The agent
+> has been waiting since 03:00."
+
+After this plan, predicted until U10 times it:
+
+> "I open the Rex iOS app with the Mac asleep. It connects to the Linux server through the login server and lists the
+> repo sessions. In dotfiles, the tab `3: dotfiles/2 · feat/rex-cutover` shows its agent waiting. I tap it, read the
+> question, answer, and the agent goes back to work. A tab I finished last night is already gone, because the sweep
+> closed it at 03:00 with nobody connected."
+
+Setup and upgrade, predicted from the plan as it stood before this review:
+
+> "After the merge I deploy the server, enable the host jobs, and run doctor. Then I hunt for rexurrect's deploy
+> script, the login server deploy, and the tunnel's LaunchAgent load in three different places. A week later I `apt
+> upgrade` Rex. Nothing tells me the server still runs the old build, and when I restart it, my phone, still on the
+> older app, shows blank tabs."
+
+Confirmed as accurate (D4, auto-decided).
+
+### Competitive DX Benchmark
+
+The clock, for the warm daily journey: it starts with the phone unlocked, the Mac asleep, and the Rex iOS app opening;
+it ends when the operator reads a waiting agent's question in its own tab. Setup is clocked separately and not compared.
+
+| Tool                                       | Start → result                                                           | Time + evidence type                                                                        | DX choice                                                   | Source                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------- |
+| This plan, before                          | Mac asleep → nothing the phone can reach                                 | not possible [observed: Problem Frame]                                                      | sessions live on the Mac                                    | this plan's Problem Frame                      |
+| This plan, after                           | open the iOS app → read the waiting tab                                  | under 1 min [estimated; U10 times it]                                                       | server-hosted sessions, tabs kept current with no client    | KTD1 through KTD6                              |
+| Claude Code Remote Control                 | open the Claude app → a session started with `--rc` on a running machine | seconds once paired [reported]; a sleeping machine is unreachable until it wakes [reported] | one remote-controlled session per agent                     | https://code.claude.com/docs/en/remote-control |
+| herdr                                      | a terminal client → a workspace on a remote server (`herdr --remote`)    | unknown                                                                                     | agent-aware workspaces with each agent's state in a sidebar | https://github.com/ogulcancelik/herdr          |
+| tmux, mosh, and Blink on an always-on host | open Blink → `mosh host -- tmux a -t <session>`                          | about 1 min warm [reported]                                                                 | a general terminal with no agent states                     | https://docs.blink.sh/basics/tips-and-tricks   |
+
+Limits: the peers' times are reported or unknown and were not measured on the same boundaries, so the comparison is
+between DX choices, not numbers. Remote Control and herdr both show agent state; Remote Control cannot reach a sleeping
+machine, which is the gap this plan closes by hosting on the always-on server.
+
+Target: Champion, under 2 minutes for the warm journey (D5, auto-decided). It is feasible because every trigger runs on
+the server before any client connects (R3 through R6, R11); the open unknown is the iOS app's own connect time.
+
+### Magical Moment Specification
+
+With the Mac asleep, the operator opens the Rex iOS app, and the agent that is waiting is already in its repo's session,
+numbered and labeled, with its status mark showing it needs them. Vehicle (D6, auto-decided): the existing Rex iOS app
+over the login server, with the server-side reconcile (U4), the tab numbers (U6), and the status hook through a local
+tmux client (U1 step 2); no new channel. It holds when U1 step 2's status check passes, U4's timer keeps tabs within a
+minute, U6 numbers them, and U10 runs F1 with the Mac lid closed and times it (U10 step 7).
+
+### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                                | FRICTION POINTS                                                       | STATUS
+----------------|-----------------------------------------------|-----------------------------------------------------------------------|--------------------------
+1. Discover     | reads README's Parallel Agents and BOOTSTRAP  | README places the helper on the Mac                                   | fixed (U9)
+2. Install      | deploys both machines                         | steps spread over five scripts; the tunnel's LaunchAgent load unnamed | fixed (U9 step 4)
+3. Hello World  | launches a slot from a server shell or palette | none; the tab appears within seconds (U4)                             | ok
+4. Real Usage   | answers agents from the phone; restarts Rex   | the phone's shell launch takes a first message only from a file      | fixed in docs (U9 step 5)
+5. Debug        | finds why a tab is missing                    | a restore by hand that changed nothing exited 0; no view of the last pass | fixed (D9, D10, U9 step 5)
+6. Upgrade      | applies a Rex preview                         | nothing shows the running server's older build or the client-first order | fixed (D11)
++  Cutover      | moves live slots, once                        | own sessions closed by hand, from a Rex tab on the server being stopped | fixed (D12)
+```
+
+### First-Time Developer Confusion Report
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: the operator, the morning after the merge, following the plan as it stood before this review
+Attempting: the server-hosted Rex layer, setup through first upgrade
+
+CONFUSION LOG:
+T+0:00  Deploys the server and runs host-jobs-enable; rex-server.service starts.
+T+2:00  agent-slot-rex doctor: rexurrect is missing. Finds scripts/rexurrect-deploy.sh in the plan's file list,
+        not in a next step.                                                → addressed: doctor names it (U3 step 5, U9 step 4)
+T+4:00  Deploys the Mac; the tunnel never comes up, because nothing loaded its LaunchAgent.
+                                                                           → addressed: U9 step 4 names the launchctl line
+T+6:00  Runs agent-slot-rex restore on the Mac out of habit; it finds the Mac's own agent-slot, no slots,
+        and exits 0 with nothing to show.                                  → addressed: wrong-host (D8)
+T+8:00  Restarts Rex on the server and, a few seconds later, runs agent-slot-rex restore by hand: exit 0,
+        no tabs yet, no message, because the start-up step is still restoring. → addressed: startup-pending (D9)
+T+9:00  The tabs appear. Success.
+T+7d    apt upgrade brings a new preview; doctor says nothing; a restart before the phone's app updates
+        gives blank tabs.                                                  → addressed: rex-restart-pending (D11)
+```
+
+### Error Path Matrix (agent-ready-v1, after review)
+
+```text
+ERROR PATH MATRIX (agent-ready-v1)
+Path                            | Class       | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+restore by hand, Rex down       | environment | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | none (was CAP4:channel)
+restore by hand, start-up runs  | environment | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | none (was CAP4:channel)
+doctor, a unit inactive         | environment | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | none (code was unnamed)
+rexurrect-deploy, bad checksum  | dependency  | pass | pass | pass     | N/A  | pass    | N/A   | pass      | pass    | none (was CAP6:fix)
+the helper on macOS             | usage       | pass | pass | N/A      | pass | N/A     | N/A   | pass      | pass    | none (new path)
+start-up step crashes           | unexpected  | pass | pass | pass     | pass | pass    | pass  | pass      | pass    | none
+```
+
+Code is N/A for `rexurrect-deploy.sh` because the repo's deploy scripts print `FATAL:` lines without codes (AGENTS.md,
+Shell Script Conventions), so the fix rides on the line itself. Trace is N/A on anticipated failures. On a crash, the
+start-up step's journal line records `script-error`, "stopped unexpectedly at" the last step, and the log path
+(`journal_exit` in `scripts/agent-slot-rex/lib/journal.sh`), and the timer reconciles once the start-up limit passes.
+
+Before this review, both manual-restore paths were CAP4:restore-by-hand:channel, since a pass someone asked for that
+changed nothing exited 0, and `rexurrect-deploy.sh` was CAP6:rexurrect-deploy:fix. What an agent saw, then the corrected
+shape:
+
+```text
+before: (no output; exit 0)
+after:  agent-slot-rex: restore: Rex is still starting; its start-up step has not finished (startup-pending)
+          nothing was changed (side effects: none); slot tabs return when the step finishes
+          next: rerun `agent-slot-rex restore` after the start-up limit, or run `agent-slot-rex doctor`
+```
+
+Permission and safety model: unchanged from the slot command, and the helper's only destructive act is closing a tab
+whose slot is gone. The eng review's A7 records the agents' reach into Rex tabs. Debug output: the journal holds a line
+per pass, and each failed call keeps its output under `~/.local/state/agent-slot-rex/`.
+
+### Decision Log
+
+| D   | Question                                              | Options (completeness)                                                                                 | Auto-decided answer and evidence                                                                                                                                |
+| --- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Product type                                          | CLI tool plus platform; library; skill                                                                 | CLI tool plus platform: the helper's verbs, its doctor, and the units (Execution profile)                                                                       |
+| D2  | Persona                                               | operator at a Rex client; agent first; a new host's admin                                              | Operator, with agents secondary (Actors A1, A2; Goal Capsule)                                                                                                   |
+| D3  | Run `/office-hours` first                             | run it; skip                                                                                           | Skip: the brainstorm's Product Contract is the design input (`product_contract_source: ce-brainstorm`)                                                          |
+| D4  | Empathy narrative                                     | accurate; partly wrong; way off                                                                        | Accurate: the Problem Frame and the README's Parallel Agents section state each "today" fact                                                                    |
+| D5  | Target                                                | Champion; Competitive; current                                                                         | Champion, under 2 minutes warm: every trigger runs on the server first                                                                                          |
+| D6  | Magical moment vehicle                                | Rex iOS app with server-side tabs (10); add a push notification (10, new channel); keep current (3)    | The iOS app with server-side tabs: the moment needs no new channel, and a notification is outside POLISH                                                        |
+| D7  | Mode                                                  | EXPANSION; POLISH; TRIAGE                                                                              | POLISH: an enhancement to an existing product                                                                                                                   |
+| D8  | The helper on the Mac after the cutover               | `wrong-host` before any work (10); drop it from the Mac's deploy (7)                                   | `wrong-host`: the shared `local` package ships both `agent-slot` and `agent-slot-rex` to the Mac, and a missing command gives an agent no next step             |
+| D9  | A restore someone asked for that changed nothing      | errors with reasons and next steps for CLI and action runs (10); exit 0 for every pass (4)             | Errors for asked-for runs; the push, timer, and start-up step keep exit 0 and the journal line (KTD5; the CLAUDE.md error contract)                             |
+| D10 | Seeing the last reconcile pass                        | doctor's `reconcile-stale` (10); documented journal reading only (7)                                   | `reconcile-stale`: the journal already records every pass (`journal.sh`), and doctor is where the operator looks first                                          |
+| D11 | A restart left pending after an upgrade               | doctor's `rex-restart-pending` with the client-first order (10); a BOOTSTRAP note only (6)             | `rex-restart-pending`: `rex version --json` prints the CLI's `rex_version` and `rex server status` the running server's `version`, so the check is a comparison |
+| D12 | The cutover's step 2                                  | save with rexurrect, then stop the server, from a plain SSH shell (10); close own sessions by hand (6) | Save and stop: rexurrect lands before U10 (U7), the start-up step restores the snapshot, and with eng R1 the service takes over                                 |
+| D13 | TODO: an inline first message for `agent-slot launch` | add to a TODO list; skip; build now                                                                    | Skip: launch, then type into the new tab, covers the phone, and the slot command's surface is outside this work; recorded under NOT in Scope                    |
+
+No decision is a consent, destructive, or operator-only call, and none is a deal breaker.
+
+### NOT in Scope
+
+- An inline first-message flag for `agent-slot launch` (D13): the slot command's surface is outside this work, and the
+  docs give launch, then type.
+- A push notification when an agent needs the operator: a new channel; the Rex iOS app's status marks carry the moment
+  (D6).
+- A check of client versions: already under Considered and not built; `rex-restart-pending` covers the server side.
+- An agent-state sidebar like herdr's: Rex's status marks and the tab label carry state.
+- Publishing the Rex layer: deferred by the Product Contract (R19).
+
+### What Already Exists
+
+- Doctor's findings with next steps, and the closed reason set with its README table and docs test
+  (`scripts/agent-slot/lib/contract.sh:28-29`, `tests/agent-slot-docs.bats`).
+- The reconcile journal, one bounded line per pass (`scripts/agent-slot-rex/lib/journal.sh`), and a kept log for each
+  failed call.
+- `version-unverified` and `scripts/agent-slot/verified-versions`.
+- BOOTSTRAP's `launchctl bootstrap` line for each LaunchAgent, and the deploy scripts' `FATAL:` lines that carry their
+  fix (`scripts/rex-login-server-deploy.sh:73-104`).
+- The blank-tab learning,
+  `docs/solutions/integration-issues/rex-app-older-than-server-shows-blank-tab-data-stream-closes-after-10s.md`, which
+  D11's next step puts into practice.
+
+### DX Implementation Checklist
+
+```text
+DX IMPLEMENTATION CHECKLIST
+============================
+[ ] F1, iOS app open to reading the waiting tab, under 2 minutes, timed in U10
+[ ] Setup is three commands on the server and three steps on the Mac; doctor names the rest
+[ ] A first launch from a server shell shows its tab within seconds
+[ ] The magical moment arrives through the Rex iOS app with server-side tabs
+[ ] Every new error and doctor finding meets agent-ready-v1 and carries a closed-set reason
+[ ] Agents' verbs are unchanged; the start-up entry is named restore --at-start
+[ ] Doctor names a pending restart and the client-first order after an upgrade
+[ ] The docs carry Setup, the missing-tab path, and the phone's launch
+[ ] Stub suites cover every new reason, unit, and the macOS guard on CI
+n/a for personal tooling: TypeScript types, a free tier, docs search, a community channel
+```
+
+### Implementation Tasks (DX)
+
+Synthesized from this review's findings. Effort assumes CC runs about 20x to 50x faster on scripts and tests.
+
+- [ ] **T1 (P1, human: ~2h / CC: ~10min)** — reconcile — Report an asked-for restore that changed nothing as
+  `rex-server-down`, `startup-pending`, or `reconcile-busy`
+  - Surfaced by: Pass 3 — CAP4:restore-by-hand:channel, D9
+  - Files: `scripts/agent-slot-rex/lib/reconcile.sh`, `scripts/agent-slot/lib/contract.sh`, `README.md`,
+    `tests/agent-slot-rex.bats`
+  - Verify: the U4 by-hand outcome test
+- [ ] **T2 (P2, human: ~1h / CC: ~5min)** — contract — Add every new reason to the closed set and the README table;
+  retire `server-unreachable`
+  - Surfaced by: Pass 3 — doctor findings without a reason
+  - Files: `scripts/agent-slot/lib/contract.sh`, `README.md`, `tests/agent-slot-docs.bats`
+  - Verify: `scripts/run-tests tests/agent-slot-docs.bats`
+- [ ] **T3 (P2, human: ~1h / CC: ~5min)** — doctor — Report `rex-restart-pending` with the client-first order
+  - Surfaced by: Pass 5 — D11
+  - Files: `scripts/agent-slot-rex/lib/doctor.sh`, `tests/agent-slot-doctor.bats`
+  - Verify: the U3 restart-pending test
+- [ ] **T4 (P2, human: ~1h / CC: ~5min)** — doctor — Report `reconcile-stale` from the journal's newest lines
+  - Surfaced by: Pass 8 — D10
+  - Files: `scripts/agent-slot-rex/lib/doctor.sh`, `tests/agent-slot-doctor.bats`
+  - Verify: the U3 stale-journal test
+- [ ] **T5 (P2, human: ~30min / CC: ~5min)** — agent-slot-rex — Stop with `wrong-host` on macOS before any work
+  - Surfaced by: Pass 6 — D8
+  - Files: `scripts/agent-slot-rex/agent-slot-rex`, `tests/agent-slot-rex.bats`
+  - Verify: the U3 Darwin-stub test
+- [ ] **T6 (P2, human: ~2h / CC: ~15min)** — docs — Write the Setup golden path, the missing-tab path, and the phone's
+  launch
+  - Surfaced by: Pass 1 and Pass 4 — U9 steps 4 and 5
+  - Files: `README.md`, `BOOTSTRAP.md`
+  - Verify: `tests/agent-slot-docs.bats`; markdownlint
+- [ ] **T7 (P2, human: ~30min / CC: ~5min)** — agent-slot — Drop the Mac push from `agent-slot`'s help text
+  - Surfaced by: Pass 2 — `scripts/agent-slot/lib/help.sh` names `AGENT_SLOT_REX_CLIENTS`
+  - Files: `scripts/agent-slot/lib/help.sh`, `tests/lib/agent-slot.bash`
+  - Verify: `agent-slot launch --help` names the local reconcile
+- [ ] **T8 (P3, human: ~30min / CC: ~5min)** — rexurrect-deploy — Put the fix on each `FATAL:` line
+  - Surfaced by: Pass 3 — CAP6:rexurrect-deploy:fix
+  - Files: `scripts/rexurrect-deploy.sh`, `tests/rexurrect-deploy.bats`
+  - Verify: the U7 mismatch test asserts the expected and actual checksums and the rerun command
+- [ ] **T9 (P2, human: ~15min / CC: ~2min)** — cutover — Follow the save-and-stop step 2 from a plain SSH shell
+  - Surfaced by: 0F Cutover — D12
+  - Files: none (U10)
+  - Verify: own tabs return after step 4
+- [ ] **T10 (P3, human: ~5min / CC: n/a)** — cutover — Time F1 and record it in the PR body
+  - Surfaced by: Pass 8 — the Champion target
+  - Files: none (the PR body)
+  - Verify: U10 step 7
+
+Task artifact: `~/.gstack/projects/brettdavies-dotfiles/tasks-devex-review-20261030-005000.jsonl`.
+
+### Outside Voice (DX)
+
+Disabled: `codex_reviews` is set to `disabled`, so no outside or native reviewer ran.
+
+## DX Review Scorecard
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend                      |
+|----------------------|--------|--------|----------------------------|
+| Getting Started      |  8/10  |  6/10  | ↑ (this review's start)     |
+| API/CLI/SDK          |  8/10  |  7/10  | ↑                           |
+| Error Messages       |  8/10  |  4/10  | ↑ (agent-ready-v1)          |
+| Documentation        |  8/10  |  6/10  | ↑                           |
+| Upgrade Path         |  8/10  |  5/10  | ↑                           |
+| Dev Environment      |  8/10  |  7/10  | ↑                           |
+| Community            |  5/10  |  5/10  | = (publishing deferred)     |
+| DX Measurement       |  8/10  |  6/10  | ↑                           |
++--------------------------------------------------------------------+
+| TTHW                 | <1 min est | not possible | ↑ (target <2 min) |
+| Competitive Rank     | Champion (target; estimated until U10)       |
+| Magical Moment       | designed via the Rex iOS app, server-side tabs |
+| Product Type         | CLI tool plus platform                       |
+| Mode                 | POLISH                                       |
+| Overall DX           |  8/10  |  6/10  | ↑                           |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered (no step in daily use; doctor-led setup) |
+| Learn by Doing     | covered (doctor's next steps are the setup)      |
+| Fight Uncertainty  | covered (D9, D10, D11)                           |
+| Opinionated + Escape Hatches | covered (settings library overrides)   |
+| Code in Context    | covered (real commands in Setup and runbooks)    |
+| Magical Moments    | covered (D6)                                     |
+| Agents Are Users   | covered (closed-set reasons, wrong-host, JSON)   |
++====================================================================+
+```
+
+"Prior" is this review's starting score for the plan as it stood. The branch log's only earlier DX review (2026-09-22)
+covered the yazi plan under an older rubric, so the Error Messages, API/CLI/SDK, and Overall rows are not comparable
+with it.
+
+Verdict: every pass but Community scores 8. Community stays at 5 because publishing the Rex layer is deferred (R19);
+that is not adoption debt for a personal tool. TTHW is under the 10-minute block line, estimated until U10 times it.
+
+Unresolved decisions: none.
+
 ## GSTACK REVIEW REPORT
 
-| Review         | Trigger               | Why                             | Runs | Status      | Findings                                                       |
-| -------------- | --------------------- | ------------------------------- | ---- | ----------- | -------------------------------------------------------------- |
-| CEO Review     | `/plan-ceo-review`    | Scope & strategy                | 0    | —           | —                                                              |
-| Outside Review | codex (plan review)   | Independent 2nd opinion         | 3    | disabled    | not run: `codex_reviews` is disabled                           |
-| Eng Review     | `/plan-eng-review`    | Architecture & tests (required) | 2    | issues_open | 23 issues, 1 critical gap (closed in the plan)                 |
-| Design Review  | `/plan-design-review` | UI/UX gaps                      | 0    | —           | —                                                              |
-| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 1    | stale       | 2026-09-22 run for another plan; this plan's DX review is next |
+| Review         | Trigger               | Why                             | Runs | Status      | Findings                                        |
+| -------------- | --------------------- | ------------------------------- | ---- | ----------- | ----------------------------------------------- |
+| CEO Review     | `/plan-ceo-review`    | Scope & strategy                | 0    | —           | —                                               |
+| Outside Review | codex (plan review)   | Independent 2nd opinion         | 4    | disabled    | not run: `codex_reviews` is disabled            |
+| Eng Review     | `/plan-eng-review`    | Architecture & tests (required) | 2    | issues_open | 23 issues, 1 critical gap (closed in the plan)  |
+| Design Review  | `/plan-design-review` | UI/UX gaps                      | 0    | —           | —                                               |
+| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 2    | clean       | score: 6/10 → 8/10, TTHW: not possible → <2 min |
 
-- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by configuration; no outside or native reviewer ran.
-- **VERDICT:** Eng Review logged issues_open: 23 findings, each auto-decided (eng D1 through D5) or applied as a routine
-  correction, 0 unresolved, 1 critical gap closed in the plan. Earlier runs counted here are the branch log's 2026-09-22
-  entries for the yazi plan. Eng review required by the dashboard rule until a clean run.
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by configuration for both the eng and the DX review; no
+  outside or native reviewer ran.
+- **VERDICT:** DX CLEARED. Eng Review logged issues_open: 23 findings, each auto-decided or applied, 0 unresolved, 1
+  critical gap closed in the plan; eng review required by the dashboard rule until a clean run. Earlier runs counted
+  here include the branch log's 2026-09-22 entries for the yazi plan.
 
 NO UNRESOLVED DECISIONS
