@@ -95,6 +95,43 @@ teardown() {
   [ "$(git -C "$SD" show origin/main:seed.md)" = changed ]
 }
 
+# One pathspec git does not know makes `git checkout -- <paths>` refuse every
+# path, so a single revert over a new file and a tracked one leaves the tracked
+# copy modified and the fast-forward blocked behind it.
+@test "reconciles the checkout when one call commits a new file and a modified one" {
+  echo hello >"$SD/workflow-issues/new.md"
+  echo changed >"$SD/seed.md"
+  run "$SCRIPT" "$MSG" workflow-issues/new.md seed.md
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"not fast-forwarded"* ]]
+
+  [ "$(git -C "$SD" rev-parse main)" = "$(git -C "$SD" rev-parse origin/main)" ]
+  [ -z "$(git -C "$SD" status --porcelain)" ]
+  [ "$(git -C "$SD" show origin/main:seed.md)" = changed ]
+  git -C "$SD" cat-file -e "origin/main:workflow-issues/new.md"
+}
+
+@test "fails loudly when the shared clone's copies cannot be reverted" {
+  echo changed >"$SD/seed.md"
+  # A held index lock is what a concurrent writer in the shared clone looks
+  # like; the push lands, but the revert and the fast-forward cannot.
+  local stub="$TMP/bin"
+  mkdir -p "$stub"
+  cat >"$stub/git" <<STUB
+#!/usr/bin/env bash
+[[ " \$* " == *" fetch "* && -e "$TMP/pushed" ]] && touch "$SD/.git/index.lock"
+[[ " \$* " == *" push "* ]] && touch "$TMP/pushed"
+exec "$(command -v git)" "\$@"
+STUB
+  chmod +x "$stub/git"
+
+  PATH="$stub:$PATH" run "$SCRIPT" "$MSG" seed.md
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"index.lock"* ]]
+  [[ "$output" == *"FAILED during reverting the shared clone's copies (the push already landed)"* ]]
+  [ "$(git -C "$SD" show origin/main:seed.md)" = changed ]
+}
+
 @test "leaves an unrelated uncommitted file in the clone untouched" {
   echo hello >"$SD/workflow-issues/new.md"
   echo scratch >"$SD/other-agent-wip.md"
