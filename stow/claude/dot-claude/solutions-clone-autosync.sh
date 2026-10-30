@@ -72,15 +72,20 @@ phantoms() {
     matches_origin "$f" && printf '%s\0' "$f"
   done < <(git -C "$SD" ls-files -z "$@")
 }
-revert_failed() {
-  echo "solutions-clone-autosync: could not revert the phantom copies in $SD; it stays behind origin/$branch" >&2
+# Claude Code's hook-error notice carries only the first stderr line, so this
+# script's own line goes ahead of git's.
+revert() {
+  local err
+  err=$(git -C "$SD" "$@" 2>&1) && return 0
+  printf 'solutions-clone-autosync: could not revert the phantom copies in %s; it stays behind origin/%s\n%s\n' \
+    "$SD" "$branch" "$err" >&2
   exit 1
 }
 mapfile -d '' -t tracked < <(phantoms --modified)
 mapfile -d '' -t untracked < <(phantoms --others --exclude-standard)
 if ((${#tracked[@]} + ${#untracked[@]} > 0)); then
-  ((${#tracked[@]} == 0)) || git -C "$SD" checkout -q -- "${tracked[@]}" || revert_failed
-  ((${#untracked[@]} == 0)) || git -C "$SD" clean -fq -- "${untracked[@]}" || revert_failed
+  ((${#tracked[@]} == 0)) || revert checkout -q -- "${tracked[@]}"
+  ((${#untracked[@]} == 0)) || revert clean -fq -- "${untracked[@]}"
   if git -C "$SD" merge --ff-only --autostash --quiet "origin/$branch" 2>/dev/null; then
     echo "solutions-clone-autosync: fast-forwarded $SD to origin/$branch (reconciled phantom copies)"
     exit 0

@@ -180,8 +180,9 @@ STUB
 
   run "$SCRIPT"
   [ "$status" -eq 1 ]
+  # Claude Code's hook-error notice shows only the first line.
+  [[ "${lines[0]}" == "solutions-clone-autosync: could not revert the phantom copies in $SD;"* ]]
   [[ "$output" == *"index.lock"* ]]
-  [[ "$output" == *"could not revert"* ]]
 }
 
 @test "skips a diverged clone without resetting it" {
