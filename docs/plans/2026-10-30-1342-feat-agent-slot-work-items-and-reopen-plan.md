@@ -139,10 +139,12 @@ with no PR yet.
   transcript `4e0a3f33-….jsonl` in oxipng/1's Claude project directory as present, branch `fix/trns-16-to-8` from remote
   `fork` at that URL, and the `claude --resume` command, and nothing on disk changes. While oxipng/1 still exists, the
   same dry run names it as the live slot that holds #887 and reports the real reopen as refused.
-- AE2. Covers R5, R10. **Given** Pillow/1 was adopted with `--issue 10331` (session
-  `a68a31ae-1a50-4f62-afe7-f853e237857f`, no work branch), **when** `agent-slot reopen Pillow --issue 10331 --dry-run`
-  runs, **then** it reports Pillow/1 as the live holder, its session and transcript, and that the branch to check out is
-  the base, `main`.
+- AE2. Covers R8, R10. **Given** Pillow/2 was torn down before items existed (task `issue-10330-next-move`, session
+  `e999f4ab-8387-4992-bb05-f4e6041b9b68`, `prs: []`, `branches: []`), **when**
+  `agent-slot reopen Pillow --issue python-pillow/Pillow#10330 --session e999f4ab-8387-4992-bb05-f4e6041b9b68 --dry-run`
+  runs, **then** it reports that teardown event, the session and its transcript, origin python-pillow/Pillow, and the
+  base, `main`, as the branch to check out; the new slot would record issue #10330 as its item. Without `--session` the
+  same reopen fails with `item-not-found-in-ledger`, whose message names `--session`.
 - AE3. Covers R4, R2. **Given** a slot launched with `--issue 10331`, **when** its agent opens PR #10400 and `check`
   adopts it, **then** the record's items are the issue and the PR, its name is unchanged, and `reopen Pillow --pr 10400`
   and `reopen Pillow --issue 10331` find the same slot after teardown.
@@ -523,7 +525,7 @@ stateDiagram-v2
   - A slot tearing down that holds the item refuses with retryable `slot-busy`; a stubbed `claude agents` entry with the
     session refuses with `session-in-use`.
 - **Verification:** suite passes; the dry run against the real ledger for oxipng #887, and against a scratch slot root
-  holding a copy of Pillow/1 adopted with `--issue 10331`, report AE1 and AE2.
+  the real ledger's Pillow/2 teardown event through `--session`, report AE1 and AE2.
 
 ### U6. Reopen a slot
 
@@ -619,13 +621,13 @@ stateDiagram-v2
 
 ## Verification Contract
 
-| Gate                 | Command                                                                                                                                                                                                     | Applies to        |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| Shell lint           | `scripts/lint-shell --all`                                                                                                                                                                                  | every unit        |
-| Bats                 | `scripts/run-tests tests/agent-slot-*.bats tests/slot-*.bats tests/claude-settings.bats`                                                                                                                    | U1-U9             |
-| Full local CI mirror | the `pre-push` hook                                                                                                                                                                                         | before every push |
-| Markdown             | `markdownlint-cli2 README.md CONCEPTS.md docs/plans/*.md`                                                                                                                                                   | U9                |
-| Real dry runs        | `agent-slot reopen oxipng --pr 887 --dry-run --output json`; `agent-slot reopen Pillow --issue 10331 --dry-run --output json` against a scratch slot root holding a copy of Pillow/1 adopted with the issue | U5, acceptance    |
+| Gate                 | Command                                                                                                                                                                                           | Applies to        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Shell lint           | `scripts/lint-shell --all`                                                                                                                                                                        | every unit        |
+| Bats                 | `scripts/run-tests tests/agent-slot-*.bats tests/slot-*.bats tests/claude-settings.bats`                                                                                                          | U1-U9             |
+| Full local CI mirror | the `pre-push` hook                                                                                                                                                                               | before every push |
+| Markdown             | `markdownlint-cli2 README.md CONCEPTS.md docs/plans/*.md`                                                                                                                                         | U9                |
+| Real dry runs        | `agent-slot reopen oxipng --pr 887 --dry-run --output json`; `agent-slot reopen Pillow --issue python-pillow/Pillow#10330 --session e999f4ab-8387-4992-bb05-f4e6041b9b68 --dry-run --output json` | U5, acceptance    |
 
 Every new test is observed failing against the code without its unit's change before it counts.
 
@@ -635,8 +637,8 @@ Every new test is observed failing against the code without its unit's change be
   on the rollup, since `tests/agent-slot-docs.bats` fails any verb or reason the README lacks; U9's skill PR merged in
   `brettdavies/agent-skills`, or its merge command sent to `rex-linux`.
 - The oxipng #887 dry run reports session `4e0a3f33-f697-4dff-a32f-2b0202be99d4`, its transcript path, and
-  `fix/trns-16-to-8` on `fork`; the Pillow #10331 dry run reports session `a68a31ae-1a50-4f62-afe7-f853e237857f`; both
-  outputs are in the PR body.
+  `fix/trns-16-to-8` on `fork`; the Pillow #10330 dry run reports session `e999f4ab-8387-4992-bb05-f4e6041b9b68` and
+  origin python-pillow/Pillow; both outputs are in the PR body.
 - No real reopen run by the implementer; no file under `~/.claude/projects` moved, copied, or deleted.
 - No abandoned-attempt code left in the diff.
 
