@@ -316,8 +316,10 @@ refusal and allow by emitting nothing at all, so silence is a verdict rather tha
 
 That encoding is what makes a guard's failure mode asymmetric. Any path that ends without an explicit refusal reads as
 permission, so a guard that errors, exits early, or misreads its own check allows the thing it exists to block, and does
-so indistinguishably from a genuine pass. Guards therefore need their allow path tested as deliberately as their deny
-path, and a guard whose verdict is derived from an exit status needs that status to be unambiguous.
+so indistinguishably from a genuine pass. A guard registered to block when it fails narrows that gap without closing it:
+a crash, a hang, or a missing script then refuses the action, but an early exit or a misread check that ends in silence
+still allows it. Guards therefore need their allow path tested as deliberately as their deny path, and a guard whose
+verdict is derived from an exit status needs that status to be unambiguous.
 
 ### Format hook
 
