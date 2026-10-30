@@ -285,6 +285,30 @@ Considered and not built:
   and name, and for reopen the source slot and session and the head source used (a separate event keeps reopen timings
   out of `doctor`'s launch statistics); the `teardown` event gains `items`, `name`, and `head`, the branch checked out.
   Readers treat each of these fields as optional, since older lines lack them. Governs R7.
+- KTD15. **Every new reason has a safe next step.** The new rows in `CONTRACT_REASONS`
+  (`scripts/agent-slot/lib/contract.sh`), each with the offending value in `value`:
+
+  | Reason                     | Exit | Retryable | Action         | `next_step.command`                                                   | `value`               |
+  | -------------------------- | ---- | --------- | -------------- | --------------------------------------------------------------------- | --------------------- |
+  | `item-not-found`           | 2    | false     | `run`          | `agent-slot <verb> --help` (the ref grammar)                          | the ref               |
+  | `item-kind-mismatch`       | 2    | false     | `rerun`        | the same command with `--pr` and `--issue` swapped                    | the ref               |
+  | `item-held-by-slot`        | 1    | false     | `run`          | `agent-slot resume <key>`, which only starts sessions that are gone   | the holding slot key  |
+  | `session-in-use`           | 1    | false     | `ask-operator` | the same reopen, once the operator closes that session                | `<pid> <cwd>`         |
+  | `item-not-found-in-ledger` | 1    | false     | `run`          | `agent-slot launch <repo> --pr\|--issue <ref>` (a fresh start)        | the item key          |
+  | `transcript-missing`       | 1    | false     | `run`          | `agent-slot launch <repo> --pr\|--issue <ref>` (a fresh start)        | the session ID        |
+
+  The `item-held-by-slot` message names the holder's slot name, so a dispatcher can send the new brief to that session
+  instead of reopening. Every refusal comes before anything is claimed, so its `recovery.side_effects` is `none`; a
+  GitHub outage reuses retryable `pr-state-unknown` and a failed head fetch reuses retryable `clone-failed`, both with
+  the slot rolled back. Governs R9.
+- KTD16. **A dry run reports a refusal instead of failing.** `reopen --dry-run` exits 0 whenever it got as far as the
+  item: a refusal a real reopen would hit is reported as `would_reopen: false` plus
+  `refusal: {reason, message, next_step}`, the error envelope's fields, as finish's report-only run reports
+  `would_tear_down: false`. A bad ref, `item-not-found`, `item-kind-mismatch`, and `pr-state-unknown` fail the dry run
+  as they fail the real one, since there is no plan to report. Governs R10.
+- KTD17. **Outputs name the slot.** `launch`, `adopt`, and `reopen` return `name` and `items` beside `key`, and `help`
+  lists them under `returns:` with an `example:` line, so a dispatcher can address the slot's Claude session by name
+  without a second call. Governs R6.
 
 ### High-Level Technical Design
 
@@ -386,7 +410,7 @@ stateDiagram-v2
 - **Approach:**
   1. The slot maker takes a record seed and an optional head-checkout step run after parity, implementing KTD4.
   2. `--pr` and `--issue` are mutually exclusive; either sets `items`, `name`, and, without `--task`, `task` (KTD1).
-  3. The `launch` ledger event gains `items` and `name` (KTD14).
+  3. The `launch` ledger event gains `items` and `name` (KTD14), and the launch output gains them too (KTD17).
 - **Patterns to follow:** the bounded base checkout in `cmd_launch`; `fork_remote` in `tests/lib/agent-slot.bash` for
   the fork fixture.
 - **Test scenarios:**
@@ -467,17 +491,19 @@ stateDiagram-v2
 - **Approach:**
   1. Lookup per KTD6, streaming the ledger as `release_transcripts` does.
   2. Transcript check per KTD5.
-  3. Output: `source` (the event, or the holding slot's key), `session_id`, `transcript`, `transcript_exists`, `head`
-     with its `remote`, `url`, and source, `slot` it would take, `command`, `prompt_delivered`, and `would_reopen` with
-     the refusal reason when false.
+  3. Output (KTD16, KTD17): `source` (the event, or the holding slot's key), `name`, `items`, `session_id`,
+     `transcript`, `transcript_exists`, `head` with its `remote`, `url`, and source, `slot` it would take, `command`,
+     `prompt_delivered`, and `would_reopen` with the refusal reason when false.
 - **Patterns to follow:** finish's report-only run (`{dry_run: true, would_tear_down, verdict}`) in
   `scripts/agent-slot/lib/finish.sh`; `doctor_launch_times` for a bounded ledger read.
 - **Test scenarios:**
   - Covers AE1. A ledger with oxipng-shaped teardown lines reports the newest event's session, transcript present,
     `fix/trns-16-to-8` on `fork` with its URL, and the `--resume` command; the fixture ledger, slot root, and Claude
     projects directory are byte-identical afterwards.
-  - Covers AE2. A live slot adopted with `--issue 12` is reported as the holder with `would_reopen: false` and
-    `item-held-by-slot`.
+  - Covers AE2. A live slot adopted with `--issue 12` is reported as the holder with exit 0, `would_reopen: false`, and
+    `refusal.reason: item-held-by-slot` whose `next_step.command` is `agent-slot resume repoa/1`.
+  - `--issue 7` where 7 is a PR fails the dry run with exit 2, `item-kind-mismatch`, and `next_step.command` naming
+    `--pr 7`.
   - A teardown line with `prs: [7]`, `branches` holding `feat/x` on `fork`, and no `items` or `head` (the shape oxipng/1
     leaves) is found by `--pr 7` and reports `feat/x` from `fork` at the recorded URL, the branch name coming from the
     stubbed `gh pr view`.
@@ -560,7 +586,9 @@ stateDiagram-v2
 - **Files:** modify `stow/claude/dot-claude/settings.json`; test `tests/claude-settings.bats`.
 - **Approach:** set `cleanupPeriodDays` to 365.
 - **Test scenarios:** the stowed settings carry `cleanupPeriodDays: 365`.
-- **Verification:** settings suite passes.
+- **Verification:** settings suite passes; after the merge reaches the prime, `~/.claude/settings.json` still resolves
+  to the stowed file, since a tool that rewrites settings by unlink-then-write leaves a plain copy the stowed change
+  never reaches.
 
 ### U9. Documentation and the agent-slot skill
 
@@ -572,7 +600,10 @@ stateDiagram-v2
   `agent-slot/SKILL.md`; test `tests/agent-slot-docs.bats`, `tests/slot-context.bats`.
 - **Approach:** present tense, no history; the skill tells a dispatcher to launch with `--pr`/`--issue`, to `adopt`
   items onto running slots, to `reopen` torn-down work instead of starting fresh, and that a reopen's first prompt is
-  the reopened agent's brief. The skill PR is made from a standalone clone in this slot's scratch directory, follows
+  the reopened agent's brief. README and the skill each carry one worked sequence on the oxipng #887 shape:
+  `launch oxipng --pr 887`, `reopen oxipng --pr 887 --dry-run --output json` with its real output, then
+  `reopen oxipng --pr 887 --prompt-file reply.md`; and one `adopt Pillow/1 --issue 10331` example. The reasons table
+  rows carry KTD15's next steps. The skill PR is made from a standalone clone in this slot's scratch directory, follows
   that repo's branch and PR conventions, and is opened after the dotfiles PR merges.
 - **Test scenarios:**
   - The docs test finds `adopt` and `reopen` in README and every new reason in the reasons table.
@@ -882,18 +913,215 @@ None from this review.
 
 None.
 
+## DX Review
+
+Mode: DX POLISH (an enhancement to an existing CLI; the operator's decisions fix the surface). Product type: CLI tool,
+with `--output json` as the agent channel. Every decision below was auto-chosen as the recommended option, since nobody
+watches this slot's tab.
+
+### Developer Persona Card
+
+```text
+TARGET DEVELOPER PERSONA
+========================
+Who:       the dispatcher: a Claude session such as rex-linux that hands work to slots, calling agent-slot
+           headlessly with --output json; second, the operator at a shell or a Rex tab
+Context:   a reviewer replied on a PR or an issue moved, and the slot that worked on it is gone
+Tolerance: one dry run and one real call; it reads errors literally and follows next_step.command
+Expects:   the PR or issue number is enough to find the work; a refusal says what to run next
+```
+
+### Developer Empathy Narrative
+
+I am rex-linux. The operator says oxipng #887 got a review reply and its slot is gone. Today I have a ledger line with
+`prs: [887]` and a session ID, and nothing that turns them into a working slot: I would launch a fresh slot, clone, add
+the fork remote by hand, check out `fix/trns-16-to-8`, and brief a new agent that remembers none of the first round.
+With this plan I run `agent-slot reopen oxipng --pr 887 --dry-run --output json` and see the session, that its
+transcript exists, the branch on `fork`, and the exact `claude --resume` line. If oxipng/1 still exists, the dry run
+tells me so and hands me `agent-slot resume oxipng/1` instead of failing. Then `reopen` with my reply brief, and the tab
+shows `oxipng-pr887-fix-16-bit-to-8-bit-reduction-with-trns`. What I could not tell from the first draft: what each new
+refusal asks me to do next, and whether a dry-run refusal is an error I should stop on (KTD15, KTD16 answer both).
+Predicted, not observed: the clone takes as long as a launch.
+
+### Competitive DX Benchmark
+
+Web research did not run for this review; the comparison uses tools on this host and local evidence, and times are
+estimates.
+
+| Tool                                        | Start → result                                       | Time + evidence type                      | DX choice                                            | Source                     |
+| ------------------------------------------- | ---------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------- | -------------------------- |
+| `gh pr checkout` + `claude --from-pr`       | PR number → branch checked out, session resumed      | ~1 min, estimated; manual, two tools      | Claude finds a session by its recorded `pr-link`     | `claude --help` on 2.1.314 |
+| Manual clone + `claude --resume <id>`       | session ID → resumed in a fresh clone                | 3-5 min, estimated; needs the ID and fork | Nothing to install; every step by hand               | verified in scratch dirs   |
+| `agent-slot reopen` (this plan)             | PR or issue number → slot on the head, session back  | ~1-2 min, estimated from launch timings   | One verb, dry run first, refusal names next command  | this plan, `doctor` phases |
+
+Target: Champion (under 2 minutes from "I have the number" to a resumed agent), measured by the reopen ledger event's
+phases like launch's.
+
+### Magical Moment Specification
+
+The dry run printing the exact session, transcript, branch, remote, and command for a PR number the dispatcher only
+remembers by number, followed by a resumed agent that knows the first round. Vehicle: `reopen --dry-run --output json`,
+then `reopen --prompt-file` (U5, U6); AE1 is its acceptance test.
+
+### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                                    | FRICTION POINTS                         | STATUS
+----------------|---------------------------------------------------|-----------------------------------------|-------
+1. Discover     | reads the agent-slot skill and `agent-slot --help` | reopen absent from docs                 | fixed (U9)
+2. Install      | nothing: ships with dotfiles                       | settings symlink may be a stale copy    | fixed (U8 check)
+3. Hello World  | `launch <repo> --pr N`                             | output lacked the slot's name           | fixed (KTD17)
+4. Real Usage   | `adopt`, `reopen --dry-run`, `reopen`              | dry-run refusal shape undefined         | fixed (KTD16)
+5. Debug        | reads `reason` and `next_step`                     | new reasons had no recovery or command  | fixed (KTD15)
+6. Upgrade      | old ledger lines, slots without items              | covered by legacy match and `adopt`     | ok
+```
+
+### First-Time Developer Confusion Report
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: the dispatcher (a Claude session calling agent-slot headlessly)
+Attempting: reopen oxipng #887 after its slot was torn down
+
+T+0:00  Runs `agent-slot reopen oxipng --pr 887 --dry-run --output json`; its own tab is watched, so the
+        ask rule's prompt reaches the operator. A slot agent would park here (KTD11 docs tell it to delegate).
+T+0:10  oxipng/1 still exists: the draft plan gave no exit code or next step for that refusal.  -> KTD15, KTD16
+T+0:20  Passes `--issue 887` by mistake: `item-kind-mismatch` names `--pr 887` as the rerun.   -> KTD15
+T+0:40  Runs the real reopen; output carries `name`, so it messages the new session by name.    -> KTD17
+T+1:30  Agent resumed on `fix/trns-16-to-8` with the first round's context. Succeeded.
+```
+
+### NOT in scope
+
+- A `doctor` summary of reopen outcomes and timings: the reopen ledger event carries the data; a report can come once
+  there are reopens to read.
+- A Rex key for reopen: the Mac side calls verbs the dispatcher already reaches.
+- `--explain <reason>`: the reasons table in README is the doc anchor every envelope already links.
+
+### What already exists
+
+- The error envelope with `reason`, `exit_code`, `next_step {action, command, docs}`, `recovery`, and `context`
+  (`scripts/agent-slot/lib/contract.sh`), and the reasons table it links.
+- Finish's report-only run, the model for a dry run that reports instead of failing
+  (`scripts/agent-slot/lib/finish.sh`).
+- `help.sh`'s per-verb `returns:` and `example:` lines, which `tests/agent-slot-contract.bats` requires.
+- `launch`'s `prompt_delivered` and request-ID retry, reused by reopen (KTD6).
+
+### DX Implementation Checklist
+
+```text
+DX IMPLEMENTATION CHECKLIST
+============================
+[ ] Reopen from a PR number to a resumed agent in under 2 minutes, measured by the reopen event's phases
+[ ] No install step: ships with dotfiles; live settings still resolve to the stowed file
+[ ] launch --pr prints the slot's name and items
+[ ] Magical moment delivered via reopen --dry-run, then reopen --prompt-file
+[ ] Every new reason meets the agent-ready contract with KTD15's next step
+[ ] --pr and --issue take the same ref grammar on launch, adopt, and reopen
+[ ] README and the skill carry the oxipng #887 and Pillow #10331 worked examples with real output
+[ ] Older ledger lines and item-less slots keep working (legacy match, adopt)
+```
+
+### Implementation Tasks
+
+Synthesized from this review's findings.
+
+- [ ] **T1 (P1, human: ~1h / CC: ~10min)** — contract — Add KTD15's six reason rows with their next steps
+  - Surfaced by: Pass 3 — new reasons had no recovery, action, or command (CAP6:reopen:fix)
+  - Files: `scripts/agent-slot/lib/contract.sh`, `README.md`
+  - Verify: `bats tests/agent-slot-contract.bats tests/agent-slot-docs.bats`
+- [ ] **T2 (P1, human: ~1h / CC: ~10min)** — reopen — Report dry-run refusals as `would_reopen: false` with `refusal`
+  - Surfaced by: Pass 3 — a dry-run refusal's exit status was undefined (KTD16)
+  - Files: `scripts/agent-slot/lib/reopen.sh`, `tests/agent-slot-reopen.bats`
+  - Verify: `bats tests/agent-slot-reopen.bats`
+- [ ] **T3 (P2, human: ~30min / CC: ~5min)** — launch/adopt/reopen — Return `name` and `items`; list them in help
+  - Surfaced by: Pass 2 — the slot's name was in the record but not the output (KTD17)
+  - Files: `scripts/agent-slot/lib/launch.sh`, `scripts/agent-slot/lib/items.sh`, `scripts/agent-slot/lib/help.sh`
+  - Verify: `bats tests/agent-slot-launch.bats tests/agent-slot-contract.bats`
+- [ ] **T4 (P2, human: ~1h / CC: ~10min)** — docs — Worked oxipng #887 and Pillow #10331 sequences in README and skill
+  - Surfaced by: Pass 4 — docs listed verbs without a sequence
+  - Files: `README.md`, `agent-slot/SKILL.md` in brettdavies/agent-skills
+  - Verify: `bats tests/agent-slot-docs.bats`; the examples' output is pasted from a real dry run
+- [ ] **T5 (P2, human: ~10min / CC: ~2min)** — settings — Check the live settings still resolve to the stowed file
+  - Surfaced by: Pass 5 — a rewritten settings file would never see `cleanupPeriodDays`
+  - Files: none (a verification step in U8)
+  - Verify: `readlink -f ~/.claude/settings.json` names the stowed file after the merge
+
+### Error path matrix
+
+```text
+ERROR PATH MATRIX (agent-ready-v1)
+Path                          | Class      | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+reopen: item held by slot     | refusal    | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | -
+reopen: transcript missing    | refusal    | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | -
+launch --issue on a PR number | usage      | pass | pass | N/A      | pass | N/A     | N/A   | pass      | pass    | -
+reopen: head fetch fails      | dependency | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | -
+reopen: script error          | unexpected | pass | pass | pass     | pass | pass    | pass  | pass      | pass    | -
+```
+
+Before KTD15, the first two paths failed `fix` and `recovery` (CAP6). The unexpected path reuses `script-error` with its
+kept log (`--log`, `bounded`'s failure logs). No path prints a secret: values are slot keys, refs, session IDs, and
+PIDs.
+
+## DX Review Scorecard
+
+Prior DX rows in this repo's review log score other plans, so there is no trend for this one.
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      | 8/10   | 6/10   | ↑      |
+| API/CLI/SDK          | 8/10   | 7/10   | ↑      |
+| Error Messages       | 8/10   | 6/10   | ↑      |
+| Documentation        | 8/10   | 7/10   | ↑      |
+| Upgrade Path         | 8/10   | 7/10   | ↑      |
+| Dev Environment      | 8/10   | 8/10   | =      |
+| Community            | 5/10   | 5/10   | =      |
+| DX Measurement       | 6/10   | 5/10   | ↑      |
++--------------------------------------------------------------------+
+| TTHW                 | ~1-2 min (est.) | 3-5 min manual | ↑    |
+| Competitive Rank     | Champion (target, estimated)                |
+| Magical Moment       | designed via reopen --dry-run, then reopen  |
+| Product Type         | CLI Tool                                    |
+| Mode                 | POLISH                                      |
+| Overall DX           | 7/10   | 6/10   | ↑      |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered                                        |
+| Learn by Doing     | covered (dry run, worked examples)             |
+| Fight Uncertainty  | covered (KTD15, KTD16)                         |
+| Opinionated + Escape Hatches | covered (--session, --request-id)    |
+| Code in Context    | covered (oxipng #887 sequence)                 |
+| Magical Moments    | covered                                        |
+| Agents Are Users   | covered (--output json, next_step)             |
++====================================================================+
+```
+
+Community stays at 5: this is one operator's internal tool, and its skill text is the only channel; nothing in scope
+changes that. DX Measurement stays at 6: reopen events carry their phases, and a report over them is out of scope until
+reopens exist.
+
+### Unresolved Decisions
+
+None. Every decision was auto-chosen as recommended; the operator's names and verbs were settled before this review.
+
 ## GSTACK REVIEW REPORT
 
-| Review | Trigger | Why | Runs | Status | Findings |
-| -------- | --------- | ----- | ------ | -------- | ---------- |
-| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
-| Outside Review | codex via `/plan-eng-review` | Independent 2nd opinion | 1 | disabled | — |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 3 | ISSUES OPEN | 7 issues, 0 critical gaps |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
-| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+| Review         | Trigger                      | Why                             | Runs | Status      | Findings                                   |
+| -------------- | ---------------------------- | ------------------------------- | ---- | ----------- | ------------------------------------------ |
+| CEO Review     | `/plan-ceo-review`           | Scope & strategy                | 0    | —           | —                                          |
+| Outside Review | codex via `/plan-eng-review` | Independent 2nd opinion         | 1    | disabled    | —                                          |
+| Eng Review     | `/plan-eng-review`           | Architecture & tests (required) | 3    | ISSUES OPEN | 7 issues, 0 critical gaps                  |
+| Design Review  | `/plan-design-review`        | UI/UX gaps                      | 0    | —           | —                                          |
+| DX Review      | `/plan-devex-review`         | Developer experience gaps       | 3    | ISSUES OPEN | score: 6/10 → 7/10, TTHW: 3-5 min → <2 min |
 
-- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no outside coverage.
-- **VERDICT:** Eng review ran with every finding resolved in the plan (issues_open records mapped work, not open
-  choices); eng review required for clearance on re-run; DX review next.
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews` for both the eng and DX reviews; no
+  outside coverage.
+- **VERDICT:** Eng and DX reviews ran with every finding resolved in the plan (issues_open records mapped work and DX
+  scores under 8, not open choices); ce-doc-review next.
 
 NO UNRESOLVED DECISIONS
