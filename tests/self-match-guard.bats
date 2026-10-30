@@ -6,6 +6,8 @@
 
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/self-match-guard.sh"
 
+load lib/json-parser
+
 # Feed a faked Bash tool input to the hook. Sets DECISION (ALLOW, DENY, or HOOK_ERROR) and
 # TEXT (the deny reason shown to the agent).
 # Args: command
@@ -98,4 +100,31 @@ setup() { command -v jaq >/dev/null 2>&1 || skip "jaq not available"; }
 @test "a command without pgrep or pkill passes" {
   decide 'ps -eo pid,args | grep -E "[v]llm"'
   [ "$DECISION" = ALLOW ]
+}
+
+# ---------------------------------------------------------------------------
+# Without a working JSON parser the guard blocks what it checks, never allows it
+# ---------------------------------------------------------------------------
+
+@test "with neither jaq nor jq, a call this guard checks is blocked naming the fix" {
+  run_hook_with_parser none "$HOOK" "$(bash_payload "pkill -f 'served-model-name lighton'")"
+  assert_parser_block json-parser-missing
+  [[ $REASON == "self-match-guard blocked [json-parser-missing]: "* ]]
+  [ "${REASON##*$'\n'}" = 'brew install jaq' ]
+}
+
+@test "with neither jaq nor jq, a call without this guard's trigger text still runs" {
+  run_hook_with_parser none "$HOOK" "$(bash_payload 'brew install jaq')"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "with jq and no jaq, the guard denies as it does with jaq" {
+  assert_same_deny_with_jq "$HOOK" "$(bash_payload "pkill -f 'served-model-name lighton'")"
+}
+
+@test "with a jaq that fails, the guard blocks naming its own failure" {
+  run_hook_with_parser broken "$HOOK" "$(bash_payload "pkill -f 'served-model-name lighton'")"
+  assert_parser_block guard-internal-error
+  [[ $REASON == "self-match-guard failed [guard-internal-error] at line "* ]]
 }

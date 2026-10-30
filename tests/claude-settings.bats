@@ -186,3 +186,43 @@ REPO="$BATS_TEST_DIRNAME/.."
   run jaq -e '.cleanupPeriodDays == 365' "$SETTINGS"
   [ "$status" -eq 0 ]
 }
+
+# Without onFailure "block", a guard that crashes, hangs, or is missing lets
+# the call through. Hooks that only advise or report must not stop a call
+# when they fail, so they are the exemptions.
+@test "every PreToolUse guard blocks the call when the guard itself fails" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.hooks.PreToolUse[].hooks[] | select(.type == "command" and .onFailure != "block") | .command' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  # shellcheck disable=SC2088 # settings.json names hooks by the literal ~ path
+  local exempt=('~/.claude/slot-status.sh' '~/.claude/skills/1password/hooks/op-skill-nudge.sh')
+  local cmd missing=()
+  while IFS= read -r cmd; do
+    [ -n "$cmd" ] || continue
+    [[ " ${exempt[*]} " == *" $cmd "* ]] || missing+=("$cmd")
+  done <<<"$output"
+  echo "PreToolUse hooks without onFailure \"block\": ${missing[*]:-none}"
+  echo "add \"onFailure\": \"block\" to each, or add it to this test's exemptions if it never denies"
+  [ "${#missing[@]}" -eq 0 ]
+  run jaq -r '.hooks.PreToolUse[].hooks[] | select(.command == "~/.claude/slot-status.sh"
+    or .command == "~/.claude/skills/1password/hooks/op-skill-nudge.sh") | .onFailure // "unset"' "$SETTINGS"
+  [ "$(sort -u <<<"$output")" = unset ]
+}
+
+# Under onFailure "block" a missing script blocks every call its matcher names,
+# on every host that pulls the change, so each one must be a script the claude
+# package ships at the path the command names.
+@test "every hook that blocks on failure names an executable script the claude package ships" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.hooks[][].hooks[]? | select(.onFailure == "block") | .command' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  [ -n "$output" ]
+  local cmd bad=()
+  while IFS= read -r cmd; do
+    # shellcheck disable=SC2088 # settings.json names hooks by the literal ~ path
+    [[ $cmd == '~/.claude/'* && -f "$REPO/stow/claude/dot-claude/${cmd#\~/.claude/}" &&
+      -x "$REPO/stow/claude/dot-claude/${cmd#\~/.claude/}" ]] || bad+=("$cmd")
+  done <<<"$output"
+  echo "block-on-failure hooks naming no executable under stow/claude/dot-claude: ${bad[*]:-none}"
+  [ "${#bad[@]}" -eq 0 ]
+}
