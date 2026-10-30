@@ -22,7 +22,7 @@ _teardown_recheck() {
   _check_stash "$path"
   _check_commits "$path" "$(contract_json -r '.base // "main"' <<<"$RECORD")" \
     "$(contract_json '.prs // [] | length' <<<"$RECORD")"
-  _check_files "$path"
+  _check_files "$path" "$(contract_json -r '.prime // ""' <<<"$RECORD")"
   ((${#CHECK_BLOCKERS[@]} == 0))
 }
 

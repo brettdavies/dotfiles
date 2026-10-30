@@ -33,6 +33,7 @@ agent_slot_env() {
   AS_MAX_PER_REPO=${AGENT_SLOT_MAX_PER_REPO:-8}
   AS_LOCK_WAIT=${AGENT_SLOT_LOCK_WAIT:-30}
   AS_SOLUTIONS=${AGENT_SLOT_SOLUTIONS:-$HOME/dev/solutions-docs}
+  AS_REPO_RECON=${AGENT_SLOT_REPO_RECON:-$HOME/dev/repo-recon}
   AS_GIT_CRYPT_KEY=${AGENT_SLOT_GIT_CRYPT_KEY:-$HOME/.config/git-crypt/key}
   AS_CLAUDE_STATE=${AGENT_SLOT_CLAUDE_STATE:-$HOME/.claude.json}
   AS_CLAUDE_PROJECTS=${AGENT_SLOT_CLAUDE_PROJECTS:-$HOME/.claude/projects}
@@ -59,7 +60,7 @@ agent_slot_env() {
   CONTRACT_LOG_DIR=$AS_LOG_DIR
   CONTRACT_CONFIG=$(contract_json -n -c --arg root "$AS_ROOT" --arg dev "$AS_DEV" --arg state "$AS_STATE_DIR" \
     --arg conf "$AS_TMUX_CONF" --arg socket "$AS_TMUX_SOCKET" --arg solutions "$AS_SOLUTIONS" \
-    --arg clients "$AS_REX_CLIENTS" \
+    --arg recon "$AS_REPO_RECON" --arg clients "$AS_REX_CLIENTS" \
     '{slot_root: $root, dev_root: $dev, state_dir: $state, tmux_conf: $conf, tmux_socket: $socket,
-      solutions: $solutions, rex_clients: ($clients | split(" ") | map(select(. != "")))}')
+      solutions: $solutions, repo_recon: $recon, rex_clients: ($clients | split(" ") | map(select(. != "")))}')
 }

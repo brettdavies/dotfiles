@@ -90,6 +90,21 @@ last_event() { jaq -c -s --arg e "$2" 'map(select(.event == $e))[-1]' "$1"; }
   [ ! -e "$SLOT" ]
 }
 
+@test "finish --yes tears down a fork's slot linked to its upstream's repo-recon store, which keeps what was filed there" {
+  recon_linked me up
+  finished_task
+  echo body >"$SLOT/.context/repo-recon/filed/issue-1.md"
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e '.torn_down == true and .purge.purged == true' <<<"$output"
+  [ ! -e "$SLOT" ]
+  [ "$(cat "$STORE/filed/issue-1.md")" = body ]
+  [ "$(cat "$STORE/profile.md")" = '# profile' ]
+}
+
 @test "finish --yes tears down a finished slot whose only extra file is Claude Code's scheduler lock" {
   finished_task
   printf '.claude/\n' >"$SLOT/.git/info/exclude"

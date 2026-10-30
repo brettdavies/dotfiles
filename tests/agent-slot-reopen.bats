@@ -473,6 +473,19 @@ snapshot() {
   [ "$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")" = "$before" ]
 }
 
+@test "a reopened slot links .context/repo-recon to its repo's repo-recon store" {
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"session_id\": \"$S2\", \"transcript\": \"$(transcript "$S2")\", \"items\": [$ISSUE12],
+    \"branches\": []}"
+  recon_store up/repoa
+  reopen repoa --issue 12
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  [ "$(readlink "$AGENT_SLOT_ROOT/repoa/1/.context/repo-recon")" = "$STORE" ]
+}
+
 @test "a reopen of an issue whose recorded branch the remote no longer has makes the slot on the base, not pushable" {
   gh_item issue 12 "Fix the widget"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],

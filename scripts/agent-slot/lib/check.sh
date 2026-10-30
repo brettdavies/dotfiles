@@ -12,16 +12,17 @@
 #   pushed remote; no untracked file exists beyond the files setup placed and Claude Code's own runtime files, and no ignored
 #   file beyond those, tool and build output, and byte-for-byte copies of files HEAD tracks; and no symlink under the
 #   home directory resolves into the slot. Tool output counts even inside a local-only directory, so Playwright's
-#   .context/test-results passes while any other file under .context blocks. So do the Vale style packages the slot's
-#   own .vale.ini names, each its StylesPath joined with the package's name, which `vale sync` downloads; anything else
-#   under StylesPath, such as the repo's own styles, is judged like any other file.
+#   .context/test-results passes while any other file under .context blocks, and so does setup's .context/repo-recon
+#   link while it still links to the repo's repo-recon store. So do the Vale style packages the slot's own .vale.ini
+#   names, each its StylesPath joined with the package's name, which `vale sync` downloads; anything else under
+#   StylesPath, such as the repo's own styles, is judged like any other file.
 
 CHECK_CODES='pr-state-unknown pr-closed-unmerged git-state-unknown agent-not-idle checked-by-own-agent
 agent-state-unknown uncommitted-changes stash-present unpushed-commits commits-without-pr untracked-files
 local-only-files home-symlink-into-slot home-scan-incomplete slot-busy not-released'
 CHECK_DOCS=${CONTRACT_DOCS%#*}#teardown-blockers
 
-CHECK_SETUP_FILES='docs/solutions .claude/settings.local.json'
+CHECK_SETUP_FILES='docs/solutions .claude/settings.local.json .context/repo-recon'
 # Files Claude Code writes into a project's .claude/ by itself: the scheduler's lock, and the tasks a session saved,
 # which run only in the folder that saved them (https://code.claude.com/docs/en/scheduled-tasks). Its other runtime
 # paths there, such as worktrees/ and agent-memory-local/, can hold a task's work, so they still block.
@@ -56,6 +57,15 @@ _check_local_only() {
     case $part in .context | todos | TODO* | .env*) return 0 ;; esac
   done
   return 1
+}
+
+# Usage: _check_setup_file <prime> <slot path> <path>; true for a file setup placed. The repo-recon link counts only
+# while it links to the store setup would link it to, so a directory there, or a link the agent pointed elsewhere, is
+# judged as local-only. The link is all teardown deletes: what was filed through it stays in the store.
+_check_setup_file() {
+  [[ " $CHECK_SETUP_FILES " == *" $3 "* ]] || return 1
+  [[ $3 == .context/repo-recon ]] || return 0
+  [[ -L $2/$3 && $(readlink "$2/$3") == "$(parity_repo_recon_store "$1")" ]]
 }
 
 # Usage: _check_tool_output <status> <path>; true for an ignored path under a tool directory.
@@ -165,9 +175,9 @@ _check_untracked_paths() {
   done <"$2"
 }
 
-# Usage: _check_files <slot path>; untracked files beyond what setup placed and Claude Code's runtime files, and ignored
-# files beyond those, build output, and copies of files HEAD tracks. HEAD's tree is listed once, and only for ignored
-# paths nothing else exempts.
+# Usage: _check_files <slot path> <prime>; untracked files beyond what setup placed and Claude Code's runtime files, and
+# ignored files beyond those, build output, and copies of files HEAD tracks. HEAD's tree is listed once, and only for
+# ignored paths nothing else exempts.
 _check_files() {
   local entry status path listing tree untracked=() ignored=() local_only=()
   CHECK_PACKAGE_DIRS=$(_check_vale_packages "$1")
@@ -180,10 +190,11 @@ _check_files() {
   while IFS= read -r -d '' entry; do
     status=${entry:0:2}
     path=${entry:3}
-    if _check_local_only "${path%/}"; then
+    if _check_setup_file "$2" "$1" "${path%/}" || [[ " $CHECK_RUNTIME_FILES " == *" ${path%/} "* ]]; then
+      continue
+    elif _check_local_only "${path%/}"; then
       _check_tool_output "$status" "$path" || local_only+=("${path%/}")
-    elif [[ " $CHECK_SETUP_FILES $CHECK_RUNTIME_FILES " == *" ${path%/} "* ]] \
-      || _check_build_output "$status" "$path" || _check_package_output "$status" "$path"; then
+    elif _check_build_output "$status" "$path" || _check_package_output "$status" "$path"; then
       continue
     elif [[ $status == '!!' ]]; then
       ignored+=("$path")
@@ -400,7 +411,7 @@ check_slot() {
     _check_uncommitted "$path"
     _check_stash "$path"
     _check_commits "$path" "$base" "$(contract_json 'length' <<<"$prs")"
-    _check_files "$path"
+    _check_files "$path" "$(contract_json -r '.prime // ""' <<<"$RECORD")"
 
     if ((HOME_SCAN_OK == 0)); then
       _check_block home-scan-incomplete "the scan for home-directory symlinks into the slot did not finish"

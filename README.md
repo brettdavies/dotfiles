@@ -258,13 +258,16 @@ bundle by default) on the Mac. `tests/mac-open.bats` and `tests/mac-open-here.ba
 ### Parallel Agents
 
 Many Claude Code agents can work on the same repo at once, each in an *agent slot*: a clone of the repo at
-`~/slots/<repo>/<N>` on the Linux server, set up like the repo's own checkout (its hooks, the `docs/solutions` link, its
-Claude memory and permission grants, and its partial-clone filter when it has one), with one task per slot. `agent-slot`
-on the server owns every slot and every check before a slot is deleted; `agent-slot-rex` on the Mac drives Rex, where
-each repo is one session and each agent one tab. Every slot runs three tmux sessions on the server's `agent-slots`
-socket (Claude, yazi, and lazygit), so agents keep working while the Mac sleeps, and each pane of a slot's tab
-reattaches by itself after a sleep or a network drop. A slot launched or torn down on the server, by an agent or by
-hand, opens or closes its tab in Rex with no key press.
+`~/slots/<repo>/<N>` on the Linux server, set up like the repo's own checkout (its hooks, the `docs/solutions` link, the
+`.context/repo-recon` link when the repo has a repo-recon store, its Claude memory and permission grants, and its
+partial-clone filter when it has one), with one task per slot. The repo-recon link points at
+`~/dev/repo-recon/<owner>/<repo>`, named for the prime's `origin`, else for its `upstream`, the remote a fork names its
+parent by. Setup never makes a store, and a teardown deletes the link but not the store, so whatever an agent filed
+through it stays. `agent-slot` on the server owns every slot and every check before a slot is deleted; `agent-slot-rex`
+on the Mac drives Rex, where each repo is one session and each agent one tab. Every slot runs three tmux sessions on the
+server's `agent-slots` socket (Claude, yazi, and lazygit), so agents keep working while the Mac sleeps, and each pane of
+a slot's tab reattaches by itself after a sleep or a network drop. A slot launched or torn down on the server, by an
+agent or by hand, opens or closes its tab in Rex with no key press.
 
 Each slot's Claude starts and resumes with `--dangerously-skip-permissions`, so it skips its permission prompts except
 under an ask rule and for the few actions Claude never auto-approves. Deny rules and hooks still block in that mode, ask
@@ -625,7 +628,7 @@ as it found it.
 | `unpushed-commits`       | Commits are in no PR's final head and on no origin branch or tag or fork branch, counting local tags |
 | `commits-without-pr`     | Commits sit only on an origin or fork branch that has no PR, such as one pushed after the merge      |
 | `untracked-files`        | Untracked files, or ignored ones other than build output and copies of tracked files                 |
-| `local-only-files`       | `.context`, `todos`, `TODO*`, or `.env*` files, which never reach origin                             |
+| `local-only-files`       | `.context` files except setup's repo-recon link, and `todos`, `TODO*`, or `.env*` files              |
 | `home-symlink-into-slot` | A symlink under the home directory resolves into the slot                                            |
 | `home-scan-incomplete`   | The scan for such symlinks did not finish                                                            |
 | `slot-busy`              | Another `agent-slot` process holds the slot                                                          |

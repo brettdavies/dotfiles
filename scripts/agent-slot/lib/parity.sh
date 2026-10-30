@@ -95,6 +95,40 @@ parity_solutions() {
     --command "agent-slot doctor" --side-effects none
 }
 
+# Usage: parity_repo_recon_store <prime>; prints the repo-recon store of the prime's repo: the directory under the store
+# root named for the GitHub owner/name of the prime's origin, else of its upstream, the remote a fork names its parent
+# by. Names match in any case, as GitHub matches them. Prints nothing when neither has a store. A slot's clone has only
+# origin, so the prime's remotes are the ones read.
+parity_repo_recon_store() {
+  local remote slug dir
+  # git -C '' reads the repo of the caller's working directory, which is no slot's prime.
+  [[ -d $1 ]] || return 0
+  for remote in origin upstream; do
+    slug=$(head_github_slug "$(git -C "$1" config --get "remote.$remote.url" 2>/dev/null || true)")
+    [[ -n $slug ]] || continue
+    for dir in "$AS_REPO_RECON"/*/*/; do
+      dir=${dir%/}
+      dir=${dir#"$AS_REPO_RECON"/}
+      if [[ ${dir,,} == "$slug" ]]; then
+        printf '%s/%s' "$AS_REPO_RECON" "$dir"
+        return
+      fi
+    done
+  done
+}
+
+# Usage: parity_repo_recon <prime> <slot>
+# Links .context/repo-recon to the repo's repo-recon store, as the prime's own link does, when the store exists and the
+# clone has nothing at that path. A slot never makes a store: repo-recon's init-context.sh does, with its stub files and
+# a rewrite of the repo's CLAUDE.local.md.
+parity_repo_recon() {
+  local store link=$2/.context/repo-recon
+  store=$(parity_repo_recon_store "$1")
+  [[ -n $store && ! -e $link && ! -L $link ]] || return 0
+  mkdir -p "$2/.context"
+  ln -s "$store" "$link"
+}
+
 # Usage: parity_memory_dir <prime>
 # Prints Claude's auto memory directory for the prime checkout. The project directory is found by what it holds, a
 # transcript recorded with the prime as its working directory, rather than by re-deriving Claude's naming rule; the

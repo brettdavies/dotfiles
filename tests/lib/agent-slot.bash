@@ -32,6 +32,7 @@ agent_slot_setup() {
   export AGENT_SLOT_TMUX_SOCKET=agent-slot-test
   export AGENT_SLOT_TMUX_CONF=$T/slots.conf
   export AGENT_SLOT_SOLUTIONS=$T/solutions
+  export AGENT_SLOT_REPO_RECON=$T/repo-recon
   export AGENT_SLOT_GIT_CRYPT_KEY=$T/git-crypt.key
   export AGENT_SLOT_CLAUDE_STATE=$T/claude.json
   export AGENT_SLOT_CLAUDE_PROJECTS=$T/claude-projects
@@ -332,6 +333,30 @@ squash_merge() {
   git -C "$T/merger" push -q origin HEAD:main
   git -C "$T/merger" push -q origin --delete "$1"
   chmod -R u+w "$T/merger" && find "$T/merger" -delete
+}
+
+# recon_store OWNER/NAME: a repo-recon store under the sandboxed store root, holding a profile and an empty filed/; sets
+# STORE to its path.
+recon_store() {
+  STORE=$AGENT_SLOT_REPO_RECON/$1
+  mkdir -p "$STORE/filed"
+  echo '# profile' >"$STORE/profile.md"
+}
+
+# recon_linked OWNER [UPSTREAM-OWNER]: repoa's prime and slot with origin OWNER/repoa on GitHub, which the test's git
+# config rewrites to the bare origin, and the prime with a remote named upstream at UPSTREAM-OWNER/repoa when given. A
+# repo-recon store for the upstream's repo, else origin's, and the slot with an ignored .context holding setup's link to
+# that store. Sets STORE.
+recon_linked() {
+  local url=https://github.com/$1/repoa.git
+  git config --file "$GIT_CONFIG_GLOBAL" --add "url.$T/origins/.insteadOf" "https://github.com/$1/"
+  git -C "$AGENT_SLOT_DEV/repoa" remote set-url origin "$url"
+  git -C "$SLOT" remote set-url origin "$url"
+  [ -z "${2:-}" ] || git -C "$AGENT_SLOT_DEV/repoa" remote add upstream "https://github.com/$2/repoa.git"
+  recon_store "${2:-$1}/repoa"
+  echo '.context/' >>"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/.context"
+  ln -s "$STORE" "$SLOT/.context/repo-recon"
 }
 
 # A finished task: one PR, pushed, squash-merged, with every local commit in the PR's final head.
