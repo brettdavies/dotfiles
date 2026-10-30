@@ -344,16 +344,19 @@ task at a time. A slot is set up like the repo's *prime checkout* (the operator'
 copy, the `docs/solutions` symlink is present, Claude reads and writes the repo's single auto memory, the prime's local
 permission grants apply, and a prime that is a partial clone gives the slot a partial clone with the same filter. A slot
 path is either empty or holds one task. The task keeps its slot through review rounds until it has finished: none of its
-PRs is open or closed without merging and one has merged, or the operator finished a task with no open PR. The slot's
-agent ends its task with a *release*: once it has run the closing skills that record its learnings and stopped every
-background job it no longer needs, it hands the slot's teardown upstream, to a finish outside the slot that waits for
-the agent to go idle. An agent still waiting on something, such as CI, never stops that wait to release: it records why
-the slot is *not yet* ready, which keeps the slot off the needs-you list while the agent is there and gets the agent
-reminded later. A *slot sweep* deletes the clone only when nothing in it is missing from origin and its agent is idle or
-gone; the *automatic sweep*, which a timer runs, deletes only a slot its agent released or the operator finished, and
-first reminds the agent of a finished slot held back only by files left in it to clean them up. A slot that fails that
-check stays put on the *needs-you list*, which names each blocker, and is never deleted. A slot whose tmux sessions are
-gone after a server reboot is *dormant* until resume restarts them and its conversation.
+PRs is open or closed without merging and one has merged, or the operator finished it, whatever state its PRs are in. A
+task's PRs are those opened from its branches after its slot was made, and an older one whose head a branch of the slot
+holds beyond the base, such as the PR a review round works on. The slot's agent ends its task with a *release*: once it
+has run the closing skills that record its learnings and stopped every background job it no longer needs, it hands the
+slot's teardown upstream, to a finish outside the slot that waits for the agent to go idle. An agent still waiting on
+something, such as CI, never stops that wait to release: it records why the slot is *not yet* ready, which keeps the
+slot off the needs-you list while the agent is there and gets the agent reminded later. A *slot sweep* deletes the clone
+only when nothing in it is missing from GitHub (a PR's head, origin, or the fork on origin's host that one of its
+branches tracks or pushes to) and its agent is idle or gone; the *automatic sweep*, which a timer runs, deletes only a
+slot its agent released or the operator finished, and first reminds the agent of a finished slot held back only by files
+left in it to clean them up. A slot that fails that check stays put on the *needs-you list*, which names each blocker,
+and is never deleted. A slot whose tmux sessions are gone after a server reboot is *dormant* until resume restarts them
+and its conversation.
 
 ### Agent state
 

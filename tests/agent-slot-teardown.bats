@@ -278,7 +278,7 @@ exit 1'
   git -C "$SLOT" push -q -u fork feat/f
   git -C "$SLOT" push -q origin feat/f
   git -C "$SLOT" branch -q spare main
-  jaq '.finished_by_operator = true' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  operator_finished
   local f main
   f=$(git -C "$SLOT" rev-parse feat/f)
   main=$(git -C "$SLOT" rev-parse main)
@@ -287,5 +287,33 @@ exit 1'
   jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
   jaq -e -s --arg f "$f" --arg main "$main" --arg url "$T/fork.git" 'map(select(.event == "teardown"))[-1].branches
     == [{name: "feat/f", oid: $f, remote: "fork", url: $url}, {name: "spare", oid: $main, remote: null, url: null}]' \
+    "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+}
+
+@test "sweep --yes tears down an operator-finished task whose only commits are on the fork its branch pushes to" {
+  fork_remote
+  work feat/f
+  git -C "$SLOT" push -q -u fork feat/f
+  operator_finished
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  [ ! -e "$SLOT" ]
+}
+
+@test "sweep --yes tears down an operator-finished review round whose PR from the fork is still open" {
+  fork_remote
+  work fix/r 2
+  git -C "$SLOT" push -q -u fork fix/r
+  pr 887 OPEN fix/r 2025-12-01T00:00:00Z
+  operator_finished
+  local oid
+  oid=$(git -C "$SLOT" rev-parse fix/r)
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  jaq -e -s --arg oid "$oid" 'map(select(.event == "teardown"))[-1]
+    | .prs == [887] and .session_id == "s1"
+      and .branches == [{name: "fix/r", oid: $oid, remote: "fork", url: "git@github.com:me/repoa.git"}]' \
     "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
 }

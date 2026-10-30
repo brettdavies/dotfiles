@@ -273,8 +273,12 @@ path it does not trust. Claude skips its own bypass warning only when `~/.claude
 `skipDangerousModePermissionPrompt` to `true`, as this repo's settings do; `agent-slot doctor` warns when it does not.
 
 A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
-merged with none open, or the operator finished it) and nothing in it is missing from origin. Anything else keeps it on
-the *needs-you list*, shown on its tab and in the `agent-slots` control session.
+merged with none open, or the operator finished it, whatever state its PRs are in) and nothing in it is missing from
+GitHub. A commit is safe there once a PR's final head holds it, an origin branch or tag holds it, or a branch of a fork
+holds it: a remote on origin's host that one of the slot's branches tracks or pushes to, as `gh pr checkout` sets up for
+a PR from a fork. A task owns the PRs opened from its branches after its slot was made, and an older PR whose head one
+of its branches holds beyond the base, such as the PR a review-round slot works on. Anything else keeps it on the
+*needs-you list*, shown on its tab and in the `agent-slots` control session.
 
 Teardown needs no one to press a key. A slot's agent closes its task by running `/compound-engineering:ce-compound` once
 per finding from its session, then `/compound-engineering:ce-compound-refresh`, then deletes the scratch files it made
@@ -449,24 +453,24 @@ message such as `1 unpushed commit`. A blocker can also carry a `next_step` in t
 idle. That blocker never joins the needs-you list, and a check run inside the slot's own agent leaves the slot's record
 as it found it.
 
-| Code                     | What keeps the slot                                                                      |
-| ------------------------ | ---------------------------------------------------------------------------------------- |
-| `pr-state-unknown`       | `gh` could not read the PRs, so whether the task has finished is unknown                 |
-| `pr-closed-unmerged`     | A PR closed without merging; reopen and merge it, or press the finish key                |
-| `git-state-unknown`      | `git` could not fetch, or read the slot's state                                          |
-| `agent-not-idle`         | The agent is mid-turn or waiting on the operator                                         |
-| `checked-by-own-agent`   | The check runs inside the slot's own agent, which keeps it busy until the check ends     |
-| `agent-state-unknown`    | The agent's state could not be read, or a process outside the slot's panes uses the slot |
-| `uncommitted-changes`    | Tracked files have changes beyond setup pointing `docs/solutions` at the shared repo     |
-| `stash-present`          | Something is stashed                                                                     |
-| `unpushed-commits`       | Commits are in no PR's final head and on no origin branch or tag, counting local tags    |
-| `commits-without-pr`     | Commits sit only on an origin branch that has no PR, such as one pushed after the merge  |
-| `untracked-files`        | Untracked files, or ignored ones other than build output and copies of tracked files     |
-| `local-only-files`       | `.context`, `todos`, `TODO*`, or `.env*` files, which never reach origin                 |
-| `home-symlink-into-slot` | A symlink under the home directory resolves into the slot                                |
-| `home-scan-incomplete`   | The scan for such symlinks did not finish                                                |
-| `slot-busy`              | Another `agent-slot` process holds the slot                                              |
-| `not-released`           | The automatic sweep found the task finished, but its agent is gone or never released it  |
+| Code                     | What keeps the slot                                                                                  |
+| ------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `pr-state-unknown`       | `gh` could not read the PRs, so whether the task has finished is unknown                             |
+| `pr-closed-unmerged`     | A PR closed without merging; reopen and merge it, or press the finish key                            |
+| `git-state-unknown`      | `git` could not fetch, or read the slot's state                                                      |
+| `agent-not-idle`         | The agent is mid-turn or waiting on the operator                                                     |
+| `checked-by-own-agent`   | The check runs inside the slot's own agent, which keeps it busy until the check ends                 |
+| `agent-state-unknown`    | The agent's state could not be read, or a process outside the slot's panes uses the slot             |
+| `uncommitted-changes`    | Tracked files have changes beyond setup pointing `docs/solutions` at the shared repo                 |
+| `stash-present`          | Something is stashed                                                                                 |
+| `unpushed-commits`       | Commits are in no PR's final head and on no origin branch or tag or fork branch, counting local tags |
+| `commits-without-pr`     | Commits sit only on an origin or fork branch that has no PR, such as one pushed after the merge      |
+| `untracked-files`        | Untracked files, or ignored ones other than build output and copies of tracked files                 |
+| `local-only-files`       | `.context`, `todos`, `TODO*`, or `.env*` files, which never reach origin                             |
+| `home-symlink-into-slot` | A symlink under the home directory resolves into the slot                                            |
+| `home-scan-incomplete`   | The scan for such symlinks did not finish                                                            |
+| `slot-busy`              | Another `agent-slot` process holds the slot                                                          |
+| `not-released`           | The automatic sweep found the task finished, but its agent is gone or never released it              |
 
 When processes outside the slot's panes use the slot, `agent-state-unknown` names each one in its message and in
 `values` as `<pid> <command>`, and names it by its oldest ancestor that still uses the slot. A loop that keeps starting
