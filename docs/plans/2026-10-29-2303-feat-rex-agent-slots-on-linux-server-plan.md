@@ -343,16 +343,26 @@ Follow-Up Work and Considered and not built lists.
   server is not running, it starts inside a transient user scope, so a finished timer run or a restarted Rex service
   cannot take the agents with it. (session-settled: user-approved — chosen over leaving tmux in its caller's cgroup,
   where systemd ends it with the unit.) `systemd-run --user --scope --collect` wraps the empty-environment start rather
-  than running inside it, because `env -i` drops the runtime directory and bus address systemd-run needs. When
-  systemd-run fails, the start falls back to today's direct start, which joins a server that a concurrent start already
-  made. Governs R7.
+  than running inside it, because `env -i` drops the runtime directory and bus address systemd-run needs. Each start
+  gets a scope name of its own (a fixed prefix plus the caller's pid and the time), because a scope lives as long as any
+  process in it, and the slot tmux server's cgroup already holds orphaned login shells (45 with parent 1 on 2026-10-30)
+  that would keep a fixed-name scope alive after tmux exits and make every later start collide; tmux's own start lock
+  already lands concurrent starts on one server. The direct start is kept only for when the user manager does not
+  answer, and doctor reports a slot tmux server whose cgroup is not one of these scopes, since a server in a Rex or
+  timer cgroup dies with that unit (document review round 2). Governs R7.
 - KTD4. **One start-up step orders the restores, once per Rex server.** When the Linux server's Rex server loads its
   config, a detached start-up step takes the reconcile lock at once and waits, for a bounded time, until the server
   answers, because Rex's APIs do not work while it is still loading. It then runs rexurrect's foreground once-per-server
   restore (`rexurrect auto-restore --server-pid` with the server's pid) under a time bound, reconciles slot tabs with
   dormant slots resumed, and records the server's instance ID as started. The instance ID is the `instance:` UUID that
   `rex server status` prints, so a pid reused after a reboot never matches an old record. A rexurrect run that outlives
-  its bound is stopped and journaled, and the reconcile still runs, so a hung restore never holds the lock. On a config
+  its bound is stopped and journaled, and the reconcile still runs, so a hung restore never holds the lock. The record
+  also stores rexurrect's outcome: done, failed, stopped at the bound, or skipped when rexurrect is absent; the first
+  pass that reconciles after the start-up limit with no record writes one with rexurrect skipped. Because
+  `rexurrect save` first restores into any server instance rexurrect has not restored, the autosave timer runs
+  `agent-slot-rex save`, which calls `rexurrect save` only when the record shows rexurrect done or failed (rexurrect has
+  then recorded the instance); otherwise it journals `save-paused`, and doctor's `own-tabs-unrestored` finding names
+  `systemctl --user restart rex-server.service` as the way to restore those tabs (document review round 2). On a config
   reload the step finds that record, skips rexurrect, and only reconciles; rexurrect's own background start-up hook is
   not installed on the Linux server. (session-settled: user-approved — chosen over letting rexurrect restore on its own:
   a reconcile that runs first creates a repo's session, and rexurrect then restores a second one beside it.) Governs R5,
@@ -528,18 +538,18 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 
 ## Implementation Units
 
-| U-ID | Title                                                     | Key files                                                                                    | Depends on     |
-| ---- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------- |
-| U1   | Measure Rex behavior on the Linux server                  | `docs/solutions/integration-issues/`                                                         | none           |
-| U2   | Run the Rex server and the slot tmux server under systemd | `rex-server.service`, `scripts/agent-slot/lib/sessions.sh`                                   | U1             |
-| U3   | Run the helper on the server                              | `scripts/agent-slot-rex/lib/{server,rex,attach,settings}.sh`                                 | U1             |
-| U4   | Trigger the reconcile on the server                       | `scripts/agent-slot/lib/push.sh`, `scripts/agent-slot-rex/lib/reconcile.sh`, reconcile units | U2, U3         |
-| U5   | Share the Rex config package                              | `scripts/stow-deploy`, `stow/rex/dot-config/rex/init.lua`                                    | U3, U4         |
-| U6   | Number every tab                                          | `stow/rex/dot-config/rex/tab-numbers.lua`, `rex-tab-numbers.service`, `reconcile.sh`         | U2, U5         |
-| U7   | Install rexurrect from dotfiles                           | `scripts/rexurrect-deploy.sh`, autosave units                                                | U4             |
-| U8   | Keep dev ports on the Mac's localhost                     | `stow/ssh/dot-ssh/config`, `com.user.bd-tunnel.plist`                                        | none           |
-| U9   | Retire the Mac half and rewrite the docs                  | `scripts/agent-slot-rex/lib/follow.sh`, README, BOOTSTRAP, CONCEPTS                          | U3, U4, U5, U6 |
-| U10  | Cut over and run the two-machine checklist                | none                                                                                         | U1 through U9  |
+| U-ID | Title                                                     | Key files                                                                                    | Depends on         |
+| ---- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------ |
+| U1   | Measure Rex behavior on the Linux server                  | `docs/solutions/integration-issues/`                                                         | none               |
+| U2   | Run the Rex server and the slot tmux server under systemd | `rex-server.service`, `scripts/agent-slot/lib/sessions.sh`                                   | U1                 |
+| U3   | Run the helper on the server                              | `scripts/agent-slot-rex/lib/{server,rex,attach,settings}.sh`                                 | U1                 |
+| U4   | Trigger the reconcile on the server                       | `scripts/agent-slot/lib/push.sh`, `scripts/agent-slot-rex/lib/reconcile.sh`, reconcile units | U2, U3             |
+| U5   | Share the Rex config package                              | `scripts/stow-deploy`, `stow/rex/dot-config/rex/init.lua`                                    | U3, U4             |
+| U6   | Number every tab                                          | `stow/rex/dot-config/rex/tab-numbers.lua`, `rex-tab-numbers.service`, `reconcile.sh`         | U2, U5             |
+| U7   | Install rexurrect from dotfiles                           | `scripts/rexurrect-deploy.sh`, autosave units                                                | U4                 |
+| U8   | Keep dev ports on the Mac's localhost                     | `stow/ssh/dot-ssh/config`, `com.user.bd-tunnel.plist`                                        | none               |
+| U9   | Retire the Mac half and rewrite the docs                  | `scripts/agent-slot-rex/lib/follow.sh`, README, BOOTSTRAP, CONCEPTS                          | U3, U4, U5, U6, U8 |
+| U10  | Cut over and run the two-machine checklist                | none                                                                                         | U1 through U9      |
 
 ### U1. Measure Rex behavior on the Linux server
 
@@ -586,8 +596,9 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   2. Enable it from `scripts/host-jobs-enable.sh` in a `SERVICES` list beside `TIMERS`, which the script's header and
      its closing status listing also cover.
   3. In `sessions_start`, when the `agent-slots` tmux server is not running and the user's systemd manager answers,
-     start it through `systemd-run --user --scope --collect` placed before the `env -i` start, under a fixed scope name;
-     when systemd-run fails, start it directly as today (KTD3).
+     start it through `systemd-run --user --scope --collect` placed before the `env -i` start, under a scope name unique
+     to the start (a fixed prefix plus the caller's pid and the time); only when the user manager does not answer, start
+     it directly as today (KTD3).
 - **Patterns to follow:** `stow/local/dot-config/systemd/user/agent-slot-sweep.service`; the `TIMERS` list and its gates
   in `scripts/host-jobs-enable.sh`; the `env -i -C /` start in `sessions.sh`.
 - **Test scenarios:**
@@ -597,8 +608,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - `host-jobs-enable.sh` lists the service under `SERVICES` and enables it only on Linux and the named host.
   - `sessions_start` with no slot tmux server running and a user manager that answers runs the tmux start through a
     stubbed transient scope, with `systemd-run` before `env -i` in the recorded argv.
-  - `sessions_start` whose stubbed `systemd-run` fails (a scope of that name already exists) starts tmux directly and
-    the launch succeeds.
+  - Two `sessions_start` calls in a row each pass a different scope name to the stubbed `systemd-run`, and a leftover
+    scope that holds only orphaned shells does not stop a new start from running through a new scope.
   - `sessions_start` with the slot tmux server already running starts the sessions without a scope.
   - `sessions_start` with no user manager starts tmux directly, as today.
 - **Verification:** After `systemctl --user restart rex-server.service`, `rex --autostart=false server status` answers
@@ -614,8 +625,9 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Files:** `scripts/agent-slot-rex/agent-slot-rex`, `scripts/agent-slot-rex/lib/server.sh`,
   `scripts/agent-slot-rex/lib/rex.sh`, `scripts/agent-slot-rex/lib/attach.sh`, `scripts/agent-slot-rex/lib/doctor.sh`,
   `scripts/agent-slot-rex/lib/help.sh`, `scripts/agent-slot-rex/lib/settings.sh` (new),
-  `scripts/agent-slot/verified-versions`, `tests/agent-slot-rex.bats`, `tests/lib/agent-slot-rex.bash`,
-  `tests/agent-slot-doctor.bats`.
+  `scripts/agent-slot/verified-versions`, `scripts/agent-slot/lib/contract.sh`, `README.md` (the reasons table),
+  `tests/agent-slot-rex.bats`, `tests/lib/agent-slot-rex.bash`, `tests/agent-slot-doctor.bats`,
+  `tests/agent-slot-docs.bats`.
 - **Approach:**
   1. Replace `server_ssh` with a local runner that keeps its argv and exit codes, and map a missing `agent-slot` to the
      existing `dependency-missing` reason.
@@ -633,8 +645,11 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   7. Give every new doctor finding and pass outcome a reason in the closed set in `scripts/agent-slot/lib/contract.sh`,
      with its row in the README's reasons table, which `tests/agent-slot-docs.bats` holds to that set:
      `rex-server-down`, `startup-pending`, `reconcile-timer-inactive`, `tab-numbers-inactive`, `rexurrect-missing`,
-     `rex-server-foreign`, `rex-restart-pending`, `reconcile-stale`, and `wrong-host`. `server-unreachable` retires with
-     the SSH transport, and `reconcile-busy`'s row stops naming the Mac (DX review).
+     `rex-server-foreign`, `rex-restart-pending`, `reconcile-stale`, `wrong-host`, `own-tabs-unrestored` (KTD4's paused
+     autosave), `tmux-outside-scope` (a slot tmux server whose cgroup is not one of KTD3's scopes), and
+     `agent-slot-timed-out` (a local `agent-slot` call that outlived its bound: exit 1, side effects unknown, next step
+     `agent-slot-rex restore`, replacing what the SSH path reported as `server-unreachable` on exit 124).
+     `server-unreachable` retires with the SSH transport, and `reconcile-busy`'s row stops naming the Mac (DX review).
   8. Doctor also reports two states a deploy or an upgrade leaves behind: `rex-restart-pending` when
      `rex version --json`'s `rex_version` differs from the `version` that `rex server status` prints for the running
      server, with the ordered next step (update Rex.app and the iOS app to at least that build, `rexurrect save`,
@@ -646,8 +661,11 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Patterns to follow:** the contract envelopes and closed reason set in `scripts/agent-slot/lib/contract.sh`; the
   stubs in `tests/lib/agent-slot-rex.bash`.
 - **Test scenarios:**
-  - A server verb through the local runner returns the same JSON and exit code the SSH path did, for success, for a
-    timeout, and for a missing `agent-slot`.
+  - A server verb through the local runner returns the same JSON and exit code the SSH path did for success and for a
+    missing `agent-slot`, and for a timeout returns the SSH path's exit code with the reason `agent-slot-timed-out`.
+  - doctor reports `tmux-outside-scope` for a slot tmux server whose stubbed cgroup is a Rex or timer unit, and
+    `own-tabs-unrestored` when the running server's start-up record shows rexurrect stopped or skipped, each with its
+    next step.
   - The CLI lookup picks `/usr/bin/rex` when `REX_BIN_DIR` is unset and no Mac app path exists.
   - Every `rex` call the stub records carries `--autostart=false`.
   - `attach` on a live slot runs a local tmux attach from `$HOME`, and attaches again after the tmux client exits while
@@ -665,6 +683,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - doctor reports `reconcile-stale` for a journal whose newest line is 4 minutes old with the timer active, and for
     three failed passes in a row, and nothing for a fresh `ok` line.
   - With `uname` stubbed to Darwin, any verb exits with `wrong-host` before calling `rex` or `agent-slot`.
+    `tests/lib/agent-slot-rex.bash` stubs `uname` as Linux by default and only this test overrides it, so the suite
+    still passes in the Mac's pre-push once the guard lands.
   - Every reason the helper can emit is in `CONTRACT_REASONS` and the README's reasons table, and `server-unreachable`
     is in neither.
   - Overriding one setting changes only that value, and no library outside `settings.sh` names a host (text check).
@@ -682,7 +702,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   `tests/lib/agent-slot.bash`, `scripts/agent-slot-rex/lib/reconcile.sh`, `scripts/agent-slot-rex/lib/journal.sh`,
   `scripts/agent-slot-rex/lib/help.sh`, `stow/local/dot-config/systemd/user/agent-slot-reconcile.service` (new),
   `stow/local/dot-config/systemd/user/agent-slot-reconcile.timer` (new), `scripts/host-jobs-enable.sh`,
-  `tests/agent-slot-push.bats`, `tests/agent-slot-rex.bats`, `tests/host-scheduled-jobs.bats`.
+  `scripts/agent-slot/lib/contract.sh` (the asked-for restore's reasons), `tests/agent-slot-push.bats`,
+  `tests/agent-slot-rex.bats`, `tests/host-scheduled-jobs.bats`.
 - **Approach:**
   1. In `push.sh`, run a local `restore --by push` when the helper and a Rex server are present, in the background and
      waited on under `AGENT_SLOT_PUSH_WAIT` as today; default the client list to empty; skip when a slot tab's own
@@ -695,7 +716,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      start-up record for the `instance:` UUID `rex server status` prints.
   3. Start every other pass by checking that a Rex server answers and that its instance has a start-up record; log
      `skip` or `startup-pending` and exit 0 without resuming any slot when either is missing, unless the server has
-     outlived the start-up step's time limit.
+     outlived the start-up step's time limit; the first pass that reconciles past that limit writes the start-up record
+     with rexurrect skipped (KTD4).
   4. Count a planned close of a tab that is already gone as done.
   5. Add the reconcile service and a one-minute timer shaped like the sweep units, including the sweep's
      `Environment=PATH=` line, and enable them from `scripts/host-jobs-enable.sh`.
@@ -715,7 +737,10 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - A timer pass while another pass holds the lock logs busy and changes nothing.
   - Covers AE6. The start-up step calls rexurrect's restore before its first tab change, under the lock.
   - A start-up step whose server answers only after a delay still runs rexurrect's restore and then reconciles, and a
-    timer pass that arrives during that wait logs busy and opens no tab.
+    timer pass that arrives during that wait logs `skip` while no server answers, or `startup-pending` once one answers
+    without a record, resumes no slot, and opens no tab.
+  - A config reload on a server whose start-up step never reached it, after the first post-limit pass wrote the record
+    with rexurrect skipped, never calls rexurrect.
   - A timer pass on a server instance with no start-up record logs `startup-pending` and changes no tabs; once the
     record exists, the next pass reconciles.
   - A second start-up step on the same server instance, as a config reload starts, does not call rexurrect and only
@@ -725,7 +750,7 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
     record.
   - A start-up step on a new server instance, with a record left by an older instance, runs rexurrect again.
   - A timer pass on a server with no start-up record that has outlived the start-up step's time limit reconciles instead
-    of logging `startup-pending`.
+    of logging `startup-pending`, and writes the record with rexurrect skipped.
   - Regression, carried forward from `push.sh`'s contract that a push never changes the verb's result or exit code: a
     local reconcile that fails or times out leaves the result and exit code of `launch`, `sweep`, and `finish`
     unchanged, and `push.log` records `restore-failed` or `timed-out`.
@@ -750,7 +775,11 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   1. Move `rex` to the shared package set, and skip `agent-slots.lua` and the watcher on macOS the way systemd units are
      skipped there, with a basename `--ignore`. `scripts/stow-deploy` also refuses `rex` on Linux in a second, hand-kept
      list (`ghostty | cursor | launchagent | rex` in its platform guard); derive that guard from `DESKTOP_PACKAGES` so
-     the move needs one edit (eng review R4).
+     the move needs one edit (eng review R4). Stow 2.4.1 also skips ignored files when it unstows (`unstow_contents`
+     checks the ignore list), so a restow on the Mac would leave the existing `~/.config/rex/agent-slots.lua` link in
+     place and `init.lua`'s presence gate would load the slot layer there; on Darwin, `stow-deploy` therefore removes
+     any target link that resolves to a Linux-only Rex file (`agent-slots.lua`, `tab-numbers.lua`) before it restows
+     `rex` (document review round 2).
   2. Make `init.lua` load the slot module and start the start-up step (U4) when the module is present, and otherwise
      keep the Mac's rexurrect auto-restore line; remove the restore and follow starts.
   3. Keep the three actions and bindings in `agent-slots.lua`, calling the helper by its `$HOME`-relative path, with
@@ -767,6 +796,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - `init.lua` names the helper's start-up entry exactly once.
   - The reload step runs on Linux with `/usr/bin/rex` and `--autostart=false`, and does nothing when no server answers.
   - Every helper verb the Lua names still exists in `help.sh`.
+  - With `uname` stubbed to Darwin, a redeploy over a target that already holds an `agent-slots.lua` link from an
+    earlier deploy leaves no `agent-slots.lua` or `tab-numbers.lua` link behind.
   - The Linux platform guard in `scripts/stow-deploy` reads `DESKTOP_PACKAGES`, so no package name appears in both, and
     on Linux it no longer skips `rex`.
 - **Verification:** `rex --autostart=false config check` passes on both machines, and Rex.app connected to the Linux
@@ -787,8 +818,10 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      numbers from its window order, and rewrite only labels whose prefix is wrong, stripping any existing prefix first
      so a restored label never doubles.
   2. Run it as a user service with `After=`, `BindsTo=`, and `WantedBy=rex-server.service`, so a server restart stops it
-     and starts it again, restarted on failure with `RestartSec=5s` and `StartLimitIntervalSec=0`, that starts the
-     watcher with `--autostart=false`. Enable it from the `SERVICES` list in `scripts/host-jobs-enable.sh`, which
+     and starts it again, with `Restart=always`, `RestartSec=5s`, and `StartLimitIntervalSec=0`, that starts the watcher
+     as `rex --autostart=false do --all <script>`: without `--all`, `rex do` hears only the sessions that exist when it
+     starts, which is before the start-up step creates any, and it exits 0 once the last of them is destroyed, which
+     `Restart=on-failure` would not restart. Enable it from the `SERVICES` list in `scripts/host-jobs-enable.sh`, which
      creates its `WantedBy=` link.
   3. Make the reconcile and `finish_key_of` strip the prefix before matching keys and computing labels, keep the current
      prefix on rename, and hold the whole label to 128 characters.
@@ -805,8 +838,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
     changes nothing.
   - `finish_key_of` resolves the key from a prefixed label.
   - The jq and Lua prefix patterns are identical text.
-  - The watcher's service is ordered after, bound to, and wanted by `rex-server.service`, restarts on failure every 5 s
-    with `StartLimitIntervalSec=0`, passes `--autostart=false`, and sets no `PrivateTmp`.
+  - The watcher's service is ordered after, bound to, and wanted by `rex-server.service`, has `Restart=always` every 5 s
+    with `StartLimitIntervalSec=0`, runs `rex do` with `--all` and `--autostart=false`, and sets no `PrivateTmp`.
   - On Linux, deploying `rex` also links the watcher script, and with `uname` stubbed to Darwin it does not.
 - **Verification:** Opening, closing, and moving tabs in Rex.app renumbers them within a second, and an hour of timer
   passes shows no renames in the reconcile journal.
@@ -818,15 +851,18 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Dependencies:** U4; lands on or after 2026-11-05, when v0.2.1 clears the 7-day gate.
 - **Files:** `scripts/rexurrect-deploy.sh` (new), `stow/local/dot-config/systemd/user/rexurrect-autosave.service` (new),
   `stow/local/dot-config/systemd/user/rexurrect-autosave.timer` (new), `scripts/host-jobs-enable.sh`,
-  `tests/rexurrect-deploy.bats` (new), `tests/host-scheduled-jobs.bats`.
+  `tests/rexurrect-deploy.bats` (new), `tests/host-scheduled-jobs.bats`, `scripts/agent-slot-rex/agent-slot-rex` and
+  `scripts/agent-slot-rex/lib/help.sh` (the `save` verb), `tests/agent-slot-rex.bats`, `README.md` (the helper table).
 - **Approach:**
   1. Write a deploy script that downloads a pinned release into an empty directory, checks its SHA-256 and
      `gh attestation verify --repo cemcatik/rexurrect`, and installs it to `~/.local/bin`. Each `FATAL:` line, in the
      style of `scripts/rex-login-server-deploy.sh`, names the archive and pinned version, says nothing was installed,
      and ends with the fix: for a checksum mismatch the expected and actual SHA-256 and the rerun command, for a failed
      attestation the `gh attestation verify` command to rerun by hand.
-  2. Stow the autosave service and timer (every 15 minutes, `rexurrect save`) instead of letting
-     `rexurrect autosave install` write files dotfiles does not manage.
+  2. Stow the autosave service and timer (every 15 minutes, `agent-slot-rex save`, which runs `rexurrect save` only once
+     the running server's start-up record shows rexurrect done or failed, per KTD4) instead of letting
+     `rexurrect autosave install` write files dotfiles does not manage. The `save` verb joins `help.sh` and the README's
+     helper table.
   3. Keep rexurrect's defaults of an empty `auto_resume` and `no_scrollback = ["claude"]`.
 - **Patterns to follow:** the pinned versions in `scripts/playwright-browsers-deploy.sh`; the `--dest` and `--root`
   sandbox flags in `scripts/sysctl-deploy.sh` and `scripts/rex-login-server-deploy.sh`.
@@ -835,7 +871,10 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - A checksum mismatch installs nothing and exits non-zero, naming the archive.
   - A failed attestation installs nothing.
   - A rerun with that version already installed reports nothing to do.
-  - The autosave timer fires every 15 minutes, its service runs `rexurrect save`, and it sets no `PrivateTmp`.
+  - The autosave timer fires every 15 minutes, its service runs `agent-slot-rex save`, and it sets no `PrivateTmp`.
+  - `agent-slot-rex save` calls the `rexurrect save` stub when the start-up record shows rexurrect done or failed, and
+    with the record showing rexurrect stopped at its bound or skipped, or with no record, it never calls it, journals
+    `save-paused`, and exits 0.
 - **Verification:** `rexurrect list` shows snapshots accruing, and AE2 passes in U10.
 
 ### U8. Keep dev ports on the Mac's localhost
@@ -866,7 +905,7 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 
 - **Goal:** Nothing slot-related runs on the Mac, and every doc describes the server-hosted layer (R18).
 - **Requirements:** R2, R18; KTD5, KTD14.
-- **Dependencies:** U3, U4, U5, U6.
+- **Dependencies:** U3, U4, U5, U6, U8 (the tunnel's host entry and LaunchAgent the docs describe).
 - **Files:** `scripts/agent-slot-rex/lib/follow.sh` (removed), `scripts/agent-slot-rex/lib/launch.sh`,
   `scripts/agent-slot-rex/lib/help.sh`, `tests/agent-slot-rex-follow.bats` (removed), `tests/agent-slot-docs.bats`,
   `tests/rex-config.bats`, `stow/claude/dot-claude/slot-status.sh`, `README.md`, `BOOTSTRAP.md`, `AGENTS.md`,
@@ -890,8 +929,12 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      by typing the first message into the new tab's Claude, since `launch` takes a first message only as
      `--prompt-file`.
   6. Make `slot-status.sh`'s header describe a tab on the same host.
+  7. In the README paragraph on slot agents' bypass permissions mode, state that slot agents run as the operator on the
+     Linux server and can drive any tab on its Rex server with `rex send` and `rex send-key`, so a `sudo` session or a
+     root shell on another host kept in that server is within an agent's reach (System-Wide Impact; eng review A7).
 - **Test scenarios:**
   - The docs suite finds every helper verb in the README and no removed verb.
+  - The docs suite finds `rex send-key` in the README's bypass-mode paragraph.
   - `tests/rex-config.bats`'s verb pin matches the new verb set.
 - **Verification:** The helper names no Mac host, Mac app path, or follow loop, and the docs describe only the current
   layout.
@@ -913,8 +956,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      tab-number watcher, and the reconcile timer together.
   4. Reconnect Rex.app, confirm it lands on the service's server, and watch the start-up step give every live slot its
      tab while the agents keep running in tmux.
-  5. Deploy dotfiles on the Mac, then reload its Rex config, stop the running follow loop, and close the Mac's slot
-     tabs.
+  5. Deploy dotfiles on the Mac and confirm `~/.config/rex/agent-slots.lua` is gone, then reload its Rex config, stop
+     the running follow loop, and close the Mac's slot tabs.
   6. Run AE1 through AE6 and F1 through F4, plus the agent-side checks: an agent launches a slot with the Mac and the
      phone both off, an agent releases its own slot and its tab closes, and the cutover itself runs while one agent is
      mid-turn.
@@ -950,8 +993,8 @@ the Rex config check and the U10 checklist.
 - Every unit's Verification holds, and CI is green on the PR.
 - AE1 through AE6 and F1 through F4 pass by hand, with versions recorded in the PR body.
 - U1's findings, and any surprise U10 turns up, are recorded under `docs/solutions/`.
-- The helper keeps no Mac-only code path, follow loop, or SSH transport, and the diff carries no code from abandoned
-  attempts.
+- The helper keeps no Mac SSH transport, Mac app path, or follow loop; its only macOS-specific behavior is the
+  `wrong-host` stop (U3 step 9). The diff carries no code from abandoned attempts.
 - README.md, BOOTSTRAP.md, AGENTS.md, and CONCEPTS.md describe the server-hosted layer, and the agent-skills PR updating
   the `agent-slot` skill is open.
 - rexurrect is installed from dotfiles only at a version that has cleared the 7-day gate.
@@ -1197,7 +1240,7 @@ its U4 test close it.
 | U5 shared package       | `scripts/stow-deploy`, `stow/rex`                                           | U3, U4                     |
 | U6 tab numbers          | `stow/rex`, `stow/local` units, `scripts/agent-slot-rex`                    | U2, U5                     |
 | U7 rexurrect            | `scripts`, `stow/local` units, `scripts/host-jobs-enable.sh`                | U4; on or after 2026-11-05 |
-| U9 retire and docs      | `scripts/agent-slot-rex`, root docs                                         | U3, U4, U5, U6             |
+| U9 retire and docs      | `scripts/agent-slot-rex`, root docs                                         | U3, U4, U5, U6, U8         |
 
 Lane A: U2 → U4 → U5 → U6 → U7 → U9 (shared units and `host-jobs-enable.sh`). Lane B: U3. Lane C: U8. After U1, launch
 U2, U3, and U8 together; merge all three; then run lane A in order. Conflict flags: U2, U4, and U7 all edit
