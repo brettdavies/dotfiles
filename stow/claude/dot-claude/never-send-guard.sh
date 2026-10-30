@@ -156,7 +156,8 @@ if [ "${1:-}" = --check ]; then
   exit 0
 fi
 
-# JSON-escape a string for a double-quoted field.
+# JSON-escape a string for a double-quoted field. No JSON tool, because the guard must not depend on one: a control
+# character this misses makes the output invalid, which onFailure turns into a block rather than an allow.
 # Args: text
 json() {
   local s=$1
