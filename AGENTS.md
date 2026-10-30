@@ -210,8 +210,15 @@ shape that remote tooling reaches. All but one read at least one startup file an
 The `bash` non-login non-interactive row is the *bare launcher* case (see [CONCEPTS.md](CONCEPTS.md)): bash has no
 all-invocations file, so the shape inherits whatever its launcher handed it. Scripts in that position source the helper
 they need explicitly, per the section below. Claude Code's Bash tool is wired through `CLAUDE_ENV_FILE` by
-`stow/claude/dot-claude/bash-env-path.sh`, which repairs keg-only Ruby ordering only; it assumes an inherited `PATH`
-rather than assembling one.
+`stow/claude/dot-claude/bash-env-path.sh`, which sources `config/shell/local-paths.sh` before each command to repair the
+order of keg-only Ruby, `~/.npm-global/bin`, and `~/.local/bin`; it assumes an inherited `PATH` rather than assembling
+one.
+
+Every directory whose binaries must shadow a same-named Homebrew or system binary is moved to the front of `PATH`, never
+added only when absent. A shell started under tmux or agent-slot inherits these directories, and `.profile`'s Homebrew
+block prepends itself ahead of the whole inherited `PATH`, so a directory skipped because it was present would stay
+behind Homebrew. `~/.local/bin`, whose `gh` wrapper carries the merge guard, ends up ahead of Homebrew in every shape
+above, including after macOS `path_helper` in a login zsh.
 
 On macOS, launchd is the launcher for every GUI application and LaunchAgent, and what it hands them is its user PATH,
 declared in `config/launchd/user-path` with Homebrew first (see

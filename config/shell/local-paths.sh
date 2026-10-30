@@ -3,7 +3,31 @@
 # This covers tools installed outside of Homebrew (CUDA, npm, Bun, etc.)
 #
 # All prepends are dedupe-guarded so re-sourcing (e.g., from .zshrc after
-# .zshenv) doesn't multiply entries. Same idiom as stow/shell/dot-profile.
+# .zshenv) doesn't multiply entries. A directory whose binaries must shadow
+# Homebrew's or the system's goes through _lp_to_front, which moves it to the
+# front even when PATH already holds it: an add-if-absent guard leaves a present
+# entry wherever the inherited PATH had it, which can be behind Homebrew or
+# /usr/bin.
+#
+# The agent Bash tool sources this file before every command, after its shell
+# snapshot restores the PATH captured when the session started
+# (stow/claude/dot-claude/bash-env-path.sh), so the moves below also repair a
+# snapshot taken in a shell whose order was wrong.
+
+# Moves $1 to the front of PATH, dropping every copy already on it. PATH is
+# walked by parameter expansion rather than an IFS=: word split, which zsh does
+# not perform on an unquoted $PATH. POSIX, no awk/sed.
+_lp_to_front() {
+  _lp_new=
+  _lp_rest="${PATH-}:"
+  while [ -n "$_lp_rest" ]; do
+    _lp_dir=${_lp_rest%%:*}
+    _lp_rest=${_lp_rest#*:}
+    [ "$_lp_dir" = "$1" ] || _lp_new="${_lp_new:+$_lp_new:}$_lp_dir"
+  done
+  export PATH="$1${_lp_new:+:$_lp_new}"
+  unset _lp_new _lp_rest _lp_dir
+}
 
 # CUDA toolkit
 if [ -d /usr/local/cuda/bin ]; then
@@ -19,12 +43,10 @@ if [ -d /usr/local/cuda/bin ]; then
   fi
 fi
 
-# npm global packages (Linux convention)
+# npm global packages (Linux convention). Its npm and npx shadow the copies
+# Homebrew's node formula installs.
 if [ -d "$HOME/.npm-global/bin" ]; then
-  case ":${PATH}:" in
-    *:"$HOME/.npm-global/bin":*) ;;
-    *) export PATH="$HOME/.npm-global/bin:$PATH" ;;
-  esac
+  _lp_to_front "$HOME/.npm-global/bin"
 fi
 
 # Bun
@@ -43,29 +65,20 @@ fi
 # under zsh when it matches nothing. Guarded by -d, so a host without keg-only
 # Homebrew Ruby is untouched.
 #
-# Force the dir to the FRONT (remove-then-prepend), not just "add if absent".
 # macOS /etc/profile path_helper (and earlier PATH steps) can leave /usr/bin
-# ahead of an already-present ruby/bin; an add-if-absent guard then skips and
-# the demoted entry stays behind system Ruby in bash, cron, and non-login
-# shells. zsh re-asserts the order in stow/zsh/dot-zprofile after path_helper;
-# this is the cross-shell equivalent for every .profile-sourcing context.
+# ahead of an already-present ruby/bin, so it is moved rather than skipped.
+# zsh re-asserts the order in stow/zsh/dot-zprofile after path_helper; this is
+# the cross-shell equivalent for every .profile-sourcing context.
 for _brew_prefix in /opt/homebrew /home/linuxbrew/.linuxbrew; do
   [ -d "$_brew_prefix/opt/ruby/bin" ] || continue
-  _ruby_bin="$_brew_prefix/opt/ruby/bin"
-  # Strip any existing occurrence, then prepend — promotes a demoted entry
-  # instead of skipping it, and stays dedup'd on re-source. PATH is walked by
-  # parameter expansion rather than an IFS=: word split, which zsh does not
-  # perform on an unquoted $PATH. POSIX, no awk/sed.
-  _new_path=
-  _rest="$PATH:"
-  while [ -n "$_rest" ]; do
-    _p=${_rest%%:*}
-    _rest=${_rest#*:}
-    [ "$_p" = "$_ruby_bin" ] && continue
-    _new_path="${_new_path:+$_new_path:}$_p"
-  done
-  export PATH="$_ruby_bin:$_new_path"
-  unset _ruby_bin _new_path _rest _p
+  _lp_to_front "$_brew_prefix/opt/ruby/bin"
   break
 done
 unset _brew_prefix
+
+# ~/.local/bin holds wrappers that shadow Homebrew binaries of the same name
+# (gh carries the merge guard), so it goes in front of everything. .profile
+# places it too; this copy is the one the agent Bash tool reaches.
+_lp_to_front "$HOME/.local/bin"
+
+unset -f _lp_to_front

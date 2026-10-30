@@ -29,6 +29,7 @@ tests/install-roots.bats	sourcing profile puts stock ~/.cargo/bin on PATH where 
 tests/shell-path-matrix.bats	_shape	models a launchd-spawned shell with env -i and a bare PATH, the startup shape under test; HOME, USER, and LOGNAME pass through unchanged
 tests/shell-path-matrix.bats	dash login non-interactive sources dot-profile without error	models a launchd-spawned shell with env -i and a bare PATH, the startup shape under test; HOME, USER, and LOGNAME pass through unchanged
 tests/shell-path-matrix.bats	agent Bash tool shape promotes keg-only Ruby via BASH_ENV wiring	models the agent Bash tool's bare environment with the demoted Ruby order the BASH_ENV wiring repairs; HOME passes through unchanged
+tests/shell-path-matrix.bats	_inherited_shape	starts each shape from env -i under a scratch HOME whose startup files link to this checkout, so the shells read the files under test rather than the deployed ~/.profile, with an inherited PATH that already holds that HOME's ~/.local/bin, the shape under test
 tests/shell-startup-shapes.bats	_gui_shell	models a launchd-spawned GUI shell with env -i and the system default PATH; HOME, USER, and LOGNAME pass through unchanged
 tests/taildrive.bats	the mount-table probe works without /sbin on PATH	drops /sbin from PATH, the launch environment under test
 tests/tmux-new-session.bats	script resolves its config dir with no dotfiles profile in the environment	starts from env -i with stubbed tmux and tmuxinator to prove the script needs no dotfiles profile; HOME passes through unchanged

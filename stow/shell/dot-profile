@@ -75,22 +75,35 @@ if [ -f ~/.secrets ]; then
     . ~/.secrets
 fi
 
+# Moves a directory to the front of PATH, dropping every copy already on it.
+# Skipping a directory PATH already holds is not enough here: a shell started
+# under tmux or agent-slot inherits these directories, and the Homebrew block
+# above has just prepended itself ahead of the whole inherited PATH, so a
+# skipped entry would stay behind Homebrew. PATH is walked by parameter
+# expansion because zsh does not word-split an unquoted $PATH.
+_path_to_front() {
+    _ptf_new=
+    _ptf_rest="${PATH-}:"
+    while [ -n "$_ptf_rest" ]; do
+        _ptf_dir=${_ptf_rest%%:*}
+        _ptf_rest=${_ptf_rest#*:}
+        [ "$_ptf_dir" = "$1" ] || _ptf_new="${_ptf_new:+$_ptf_new:}$_ptf_dir"
+    done
+    export PATH="$1${_ptf_new:+:$_ptf_new}"
+    unset _ptf_new _ptf_rest _ptf_dir
+}
+
 # Ensure ~/.local/bin is in PATH for user-installed binaries
 # Must come after Homebrew so local wrappers can shadow Homebrew binaries
-case ":${PATH}:" in
-    *:"$HOME/.local/bin":*) ;;
-    *) export PATH="$HOME/.local/bin:$PATH" ;;
-esac
+_path_to_front "$HOME/.local/bin"
 
 # Bun: packages from `bun add -g` land in ~/.bun/bin, the stock install root
 # bun resolves when nothing overrides it (same on Linux and macOS). The bun
 # binary itself comes from Homebrew and is already on PATH through it.
 if [ -d "$HOME/.bun/bin" ]; then
-    case ":${PATH}:" in
-        *:"$HOME/.bun/bin":*) ;;
-        *) export PATH="$HOME/.bun/bin:$PATH" ;;
-    esac
+    _path_to_front "$HOME/.bun/bin"
 fi
+unset -f _path_to_front
 
 # Obsidian CLI
 if [ "$(uname -s)" = "Darwin" ]; then

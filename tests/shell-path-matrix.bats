@@ -32,7 +32,12 @@
 #
 # Run: bats tests/shell-path-matrix.bats
 
+# `bats_test_function` generates the per-shape inherited-PATH tests below.
+bats_require_minimum_version 1.11.0
+
 BARE_PATH=/usr/bin:/bin:/usr/sbin:/sbin
+REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+CONFIG_DIR="$REPO_ROOT/config/shell"
 
 _skip_unless_deployed() {
   [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
@@ -203,6 +208,138 @@ _skip_unless_dash() {
 }
 
 # ---------------------------------------------------------------------------
+# Inherited ~/.local/bin: its wrappers must still shadow Homebrew
+# ---------------------------------------------------------------------------
+#
+# A shell started under tmux or agent-slot inherits a PATH that already holds
+# ~/.local/bin, and dot-profile's Homebrew block prepends itself ahead of the
+# whole inherited PATH. ~/.local/bin holds wrappers that must shadow Homebrew
+# binaries of the same name; the gh there carries the merge guard. A check that
+# PATH merely contains ~/.local/bin passes with the order inverted.
+#
+# These shapes run under a scratch HOME whose startup files link to this
+# checkout, so they test the files in the tree rather than the deployed
+# ~/.profile, and a gh stub in its ~/.local/bin stands in for the wrapper.
+
+PROFILE_SHAPES=("zsh -lic" "zsh -lc" "zsh -ic" "zsh -c" "bash -lic" "bash -lc" "bash -ic" "dash -lc")
+
+# Writes the Homebrew prefix the shell ended with, its PATH, and where gh
+# resolves, one per line. Startup files print to stdout under a scratch HOME
+# (config/shell/gogcli.sh runs stow against $HOME/dotfiles), so the results go
+# to a file instead.
+REPORT='printf "%s\n%s\n%s\n" "${HOMEBREW_PREFIX-}" "$PATH" "$(command -v gh)" >"$MATRIX_OUT"'
+
+_skip_unless_installed() {
+  command -v "$1" >/dev/null 2>&1 || skip "$1 not installed"
+}
+
+_gh_stub() {
+  mkdir -p "$1"
+  printf '#!/bin/sh\n' >"$1/gh"
+  chmod +x "$1/gh"
+}
+
+# Prints a HOME whose startup files are this checkout's, with a gh stub in
+# ~/.local/bin.
+_scratch_home() {
+  local home="$BATS_TEST_TMPDIR/home" f
+  mkdir -p "$home"
+  ln -s "$REPO_ROOT/stow/shell/dot-profile" "$home/.profile"
+  for f in zshenv zprofile zshrc; do
+    ln -s "$REPO_ROOT/stow/zsh/dot-$f" "$home/.$f"
+  done
+  for f in bashrc bash_profile; do
+    ln -s "$REPO_ROOT/stow/bash/dot-$f" "$home/.$f"
+  done
+  _gh_stub "$home/.local/bin"
+  printf '%s' "$home"
+}
+
+# Runs a script in one shape from env -i under HOME and an inherited PATH.
+# Arguments after the script are extra VAR=value entries for the environment.
+_inherited_shape() {
+  local home="$1" path_str="$2" shell="$3" flags="$4" script="$5"
+  shift 5
+  env -i \
+    HOME="$home" \
+    USER="${USER:-$(id -un)}" \
+    LOGNAME="${LOGNAME:-$(id -un)}" \
+    TERM=xterm-256color \
+    PATH="$path_str" \
+    MATRIX_OUT="$BATS_TEST_TMPDIR/out" \
+    "$@" \
+    "$shell" "$flags" "$script" >"$BATS_TEST_TMPDIR/startup.log" 2>&1
+}
+
+_report_line() {
+  [ -f "$BATS_TEST_TMPDIR/out" ] || {
+    echo "the shell wrote no report; its output:"
+    cat "$BATS_TEST_TMPDIR/startup.log"
+    return 1
+  }
+  sed -n "${1}p" "$BATS_TEST_TMPDIR/out"
+}
+
+_assert_gh_is_local_stub() {
+  local label="$1" home="$2" gh
+  gh=$(_report_line 3) || return 1
+  [ "$gh" = "$home/.local/bin/gh" ] || {
+    echo "$label: gh resolved to '$gh', not the stub in ~/.local/bin"
+    echo "PATH=$(_report_line 2)"
+    false
+  }
+}
+
+# The tmux-inherited shape. agent-slot pins this PATH and starts each slot
+# session from it with no HOMEBREW_PREFIX, so dot-profile detects the host's
+# Homebrew itself and prepends it.
+_assert_inherited_local_bin_leads_homebrew() {
+  local shell="$1" flags="$2" home prefix path_str lb hb
+  _skip_unless_installed "$shell"
+  home=$(_scratch_home)
+  _inherited_shape "$home" \
+    "$home/.local/bin:/home/linuxbrew/.linuxbrew/bin:/opt/homebrew/bin:/usr/local/bin:$BARE_PATH" \
+    "$shell" "$flags" "$REPORT"
+  prefix=$(_report_line 1) || return 1
+  [ -n "$prefix" ] || skip "no Homebrew on this host"
+  path_str=$(_report_line 2)
+  lb=$(_index_of "$path_str" "$home/.local/bin")
+  hb=$(_index_of "$path_str" "$prefix/bin")
+  [ "$lb" -ge 0 ] && [ "$hb" -ge 0 ] && [ "$lb" -lt "$hb" ] || {
+    echo "$shell $flags: ~/.local/bin (index $lb) must precede $prefix/bin (index $hb)"
+    echo "PATH=$path_str"
+    false
+  }
+  _assert_gh_is_local_stub "$shell $flags" "$home"
+}
+
+# A shell started from one that already holds Homebrew ahead of ~/.local/bin
+# with HOMEBREW_PREFIX exported, so dot-profile skips its Homebrew block. A
+# nested login shell in a slot, and the shell that takes Claude Code's PATH
+# snapshot, start this way.
+_assert_local_gh_beats_inherited_homebrew() {
+  local shell="$1" flags="$2" home brew="$BATS_TEST_TMPDIR/brew"
+  _skip_unless_installed "$shell"
+  home=$(_scratch_home)
+  _gh_stub "$brew/bin"
+  mkdir -p "$brew/sbin"
+  _inherited_shape "$home" "$brew/bin:$brew/sbin:$home/.local/bin:$BARE_PATH" \
+    "$shell" "$flags" "$REPORT" HOMEBREW_PREFIX="$brew"
+  _assert_gh_is_local_stub "$shell $flags" "$home"
+}
+
+for _shape in "${PROFILE_SHAPES[@]}"; do
+  # Deliberate word split: "zsh -lic" becomes zsh and -lic.
+  # shellcheck disable=SC2086
+  bats_test_function --description "$_shape keeps an inherited ~/.local/bin ahead of Homebrew" \
+    -- _assert_inherited_local_bin_leads_homebrew $_shape
+  # shellcheck disable=SC2086
+  bats_test_function --description "$_shape resolves gh from ~/.local/bin over an inherited Homebrew prefix" \
+    -- _assert_local_gh_beats_inherited_homebrew $_shape
+done
+unset _shape
+
+# ---------------------------------------------------------------------------
 # Every shape that reads a startup file must also get the shell config chain
 # ---------------------------------------------------------------------------
 
@@ -264,8 +401,9 @@ _skip_unless_dash() {
   # Non-login non-interactive bash reads no startup file, so Claude Code's Bash
   # tool is wired through CLAUDE_ENV_FILE by
   # stow/claude/dot-claude/bash-env-path.sh. That wiring sources local-paths.sh
-  # for one specific job: put keg-only Ruby ahead of /usr/bin so `bundle` does
-  # not resolve to macOS system Bundler 1.x, below the cooldown floor.
+  # to fix the order of a few directories; the one checked here is keg-only
+  # Ruby ahead of /usr/bin, so `bundle` does not resolve to macOS system
+  # Bundler 1.x, below the cooldown floor.
   #
   # It deliberately does not assemble PATH. The Bash tool is expected to inherit
   # a populated PATH from whatever launched Claude Code, and this wiring only
@@ -287,3 +425,23 @@ _skip_unless_dash() {
     false
   }
 }
+
+# The agent Bash tool restores the PATH its shell snapshot captured when the
+# session started, then sources config/shell/local-paths.sh before each command.
+# A snapshot taken in a shell that held Homebrew ahead of ~/.local/bin keeps
+# that order for the whole session unless local-paths.sh moves it back.
+_assert_local_paths_restores_local_bin() {
+  local shell="$1" flags="$2" home brew="$BATS_TEST_TMPDIR/brew"
+  _skip_unless_installed "$shell"
+  home=$(_scratch_home)
+  _gh_stub "$brew/bin"
+  _inherited_shape "$home" "$brew/bin:$home/.local/bin:$BARE_PATH" "$shell" "$flags" \
+    ". \"\$MATRIX_CONFIG_DIR/local-paths.sh\"; $REPORT" \
+    HOMEBREW_PREFIX="$brew" MATRIX_CONFIG_DIR="$CONFIG_DIR"
+  _assert_gh_is_local_stub "local-paths.sh under $shell" "$home"
+}
+
+bats_test_function --description "agent Bash tool shape: local-paths.sh puts ~/.local/bin back ahead of Homebrew under bash" \
+  -- _assert_local_paths_restores_local_bin bash -c
+bats_test_function --description "agent Bash tool shape: local-paths.sh puts ~/.local/bin back ahead of Homebrew under zsh" \
+  -- _assert_local_paths_restores_local_bin zsh -fc
