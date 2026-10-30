@@ -26,7 +26,7 @@ execution: code
   control proves the settings file loaded, shows the hook not firing for an MCP tool, or a missing guard script not
   blocking under `onFailure: "block"`. Also stop if Brett's answer
   to an Open Question changes a Requirement before the unit it affects.
-- **Who finishes:** the `dotfiles/1` slot ships U1-U3 on `feat/never-send-guard` as one PR to `dev`. `xurl-rs-prime`
+- **Who finishes:** the `dotfiles/1` slot ships U1-U4 on `feat/never-send-guard` as one PR to `dev`. `xurl-rs-prime`
   approves and merges. Brett deploys with `scripts/stow-deploy` and fills the list.
 
 ---
@@ -36,8 +36,9 @@ execution: code
 ### Summary
 
 A new hook, `never-send-guard.sh`, runs before every tool call in every session and subagent. It reads the account
-address from Claude Code's own config at call time, adds its local part and the entries of an untracked list, and denies
-any call whose input carries one of them, raw or URL-encoded, in any letter case. The deny reason tells the model the
+address from Claude Code's own config at call time, adds its local part and the entries of a git-crypt-encrypted list
+stowed to every host, and denies any call whose input carries one of them, raw or URL-encoded, in any letter case. The
+built-in Grep and Glob tools, which only read local files, are exempt. The deny reason tells the model the
 address must not go out in any form and lists what to do instead. A guard that crashes, hangs, or cannot start blocks
 the call rather than letting it through.
 
@@ -62,13 +63,16 @@ fix ([#98584](https://github.com/anthropics/claude-code/issues/98584), #81138).
   `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`, read on each call, plus `CLAUDE_CODE_USER_EMAIL` when set.
 - R2. It also protects that address's local part (the text before `@`), unless the local part is shorter than 6
   characters or appears in `$HOME`.
-- R3. It protects each entry of a private list at `${NEVER_SEND_LIST:-$HOME/.config/never-send/list}`: one entry per
-  line, with blank lines and `#` comments ignored and surrounding whitespace trimmed. An entry that appears in `$HOME`
-  is skipped. The list never enters this public repo in plaintext, and Brett fills it.
+- R3. It protects each entry of a private list at `${NEVER_SEND_LIST:-$HOME/.config/never-send/list}`, which the
+  `secrets` package stows from the git-crypt-encrypted `stow/secrets/dot-config/never-send/list`: one entry per line,
+  with blank lines and `#` comments ignored and surrounding whitespace trimmed. An entry that appears in `$HOME` is
+  skipped, and a list still in git-crypt ciphertext counts as no list. The list never enters this public repo in
+  plaintext, and Brett fills it.
 
 **Coverage and matching**
 
-- R4. Every tool call is checked: built-in tools, MCP tools, and tool calls made inside subagents.
+- R4. Every tool call is checked, MCP tools and calls inside subagents included, except the built-in Grep and Glob,
+  which read local files and send nothing. A payload naming more than one `tool_name` is never exempt.
 - R5. A call is denied when its hook payload contains a protected value, compared case-insensitively, either as written
   or after URL-decoding (`%XX` decoded, `+` read as a space).
 
@@ -98,16 +102,18 @@ fix ([#98584](https://github.com/anthropics/claude-code/issues/98584), #81138).
 - R12. An **Enforcement** sentence beside the #365 rule names the hook and its test suite, and a `docs/solutions` entry
   records the design, its limits, and how to recover a host where every call is blocked.
 - R13. `never-send-guard.sh --check` reports, without printing any value, whether the account address was found and in
-  which source, how many list entries load, and the line number of each entry it skips. It exits 1 when it finds nothing
-  to protect.
+  which source, how many list entries load, the line number of each entry it skips, and whether the list is locked. It
+  exits 1 when it finds nothing to protect.
 
 ### Key Decisions
 
-- **No carve-out for local searches of Brett's own work.** A Bash command line cannot be proven local, and his commits
-  are authored with the GitHub noreply address, so `git log --author=<github handle>` and Gmail's `from:me` find his
-  work without the literal. Pending Brett's answer (Open Questions, Q1). Governs R4.
-- **The list is an untracked file, not a git-crypt file.** It keeps the addresses out of the public repo's history
-  entirely, and the guard never meets git-crypt ciphertext on a locked host. Pending Brett's answer (Q2). Governs R3.
+- **Grep and Glob may carry the address.** (session-settled: user-directed, chosen over blocking every tool: they only
+  read local files and send nothing, which leaves a provably local way to audit for leaks.) Every other tool stays
+  blocked, because a Bash line cannot be proven local. Governs R4.
+- **The list is a git-crypt file the `secrets` package stows.** (session-settled: user-directed, chosen over an untracked
+  per-host file: one edit reaches every host.) On a locked checkout `scripts/stow-deploy` refuses the package, and a
+  list stowed then re-locked reads as ciphertext, which counts as no list while the account address still applies.
+  Governs R3.
 - **Keeping the address out of context is not built here.** It touches what the harness sends and how, which is Brett's
   call; the options are recorded under Scope Boundaries.
 
@@ -132,8 +138,8 @@ Not built, with the evidence that would change the call:
   block ("one left out is not sent"), and its `prompt.attachment` hook can blank an injected reminder per subagent
   (`{ text: null }`). A mod placed in `~/.claude/skills/<name>/` loads with no enable prompt on 2.1.287 and later. The
   other is a loopback relay on `ANTHROPIC_BASE_URL` that strips the section from each request (#81138 comments). Both
-  change what the harness sends; neither is built without Brett's decision. Settings-file hooks cannot do this: every
-  classic event can only add context.
+  change what the harness sends. Brett chose the mod as follow-up work (below). Settings-file hooks cannot do this:
+  every classic event can only add context.
 - **Values a command pulls in when it runs** (`$(git config user.email)`, a file, an environment variable) and
   **rewritten values** (Gmail dots, base64, HTML entities, `\u0040`). The guard reads only the call's text; the deny
   reason forbids these routes, and the harness-side check in #98584 is the fix that could see them.
@@ -143,6 +149,11 @@ Not built, with the evidence that would change the call:
   outside the config (another copy of it on disk); enforcing the list file's mode; denying calls that name the list's
   path (they read it into context but cannot send it past the guard). Any of these returns if a reported leak takes that
   route.
+
+### Deferred to Follow-Up Work
+
+- The presence fix: a mod that drops the `userEmail` context block, in a slot of its own.
+- The sibling guards' fail-open path: each one exits 0 when `jaq` is missing, while the Brewfile ships `jq`. Its own PR.
 
 ### Sources
 
@@ -266,7 +277,8 @@ with the reason shown to the model.
      no match, exit 0 silently.
   4. An `ERR` trap prints the R6 `guard-internal-error` line and exits 1, so `onFailure` blocks with a readable reason.
   5. `--check` (R13) runs the same value collection and prints a source summary instead of reading stdin.
-  6. The header comment states the protocol, the values, the list path and format, the `--check` flag, the limits from
+  6. A payload whose only `tool_name` is `Grep` or `Glob` exits 0 before any value is matched (R4).
+  7. The header comment states the protocol, the values, the list path and format, the `--check` flag, the limits from
      Scope Boundaries, and credits the #95258 comment.
 - **Execution note:** write the suite first and run it with the script absent; every case should fail with status 127
   before the script exists. Quote that output in the PR.
@@ -311,6 +323,9 @@ with the reason shown to the model.
   - `--check` with a config and a two-entry list, one entry inside `$HOME`, reports the account source, one loaded
     entry, and the skipped entry's line number, prints no value, and exits 0.
   - `--check` with no config, no environment value, and no list exits 1.
+  - A Grep call carrying a listed address and a Glob call carrying the account address are allowed.
+  - Read and Bash calls carrying the same address are still denied, and so is an MCP tool named `mcp__files__Grep`.
+  - A payload whose tool input carries its own `tool_name` key, ahead of the real one, is not exempt.
 - **Verification:** the suite passes, `scripts/lint-shell` is clean on both files, and `tests/bash-version-guard.bats`
   still passes with the new script.
 
@@ -329,6 +344,28 @@ with the reason shown to the model.
   - That hook sets `onFailure` to `block` and a numeric `timeout`.
   - The existing "hook commands name scripts under ~/.claude by the ~ path" test passes with the new entry.
 - **Verification:** `tests/claude-settings.bats` passes and `settings.json` parses with `jq`.
+
+### U4. Stow the list from git-crypt
+
+- **Goal:** the never-send list reaches every unlocked host from one encrypted file, and a locked one reads as no list.
+- **Requirements:** R3, R13.
+- **Dependencies:** U1.
+- **Files:** `.gitattributes` (modify), `stow/secrets/dot-config/never-send/list` (create, encrypted),
+  `stow/claude/dot-claude/never-send-guard.sh` and `tests/never-send-guard.bats` (modify).
+- **Approach:**
+  1. Add a `filter=git-crypt diff=git-crypt` line for the list beside the other `stow/` entries in `.gitattributes`.
+  2. Commit the list only from an unlocked clone: `git-crypt status` must list it as encrypted before the commit, and
+     the committed blob must start with `\0GITCRYPT\0`. A locked clone has no git-crypt filter and would commit
+     plaintext; there, commit only the rule and leave the file to Brett.
+  3. The guard reads a list whose first ten bytes, NULs removed, are `GITCRYPT` as locked, the same test
+     `scripts/agent-slot/lib/parity.sh` uses.
+- **Test scenarios:**
+  - A list fixture that starts with the git-crypt header, followed by a line holding a listed address, counts as no
+    list, so a payload with that address is allowed and stderr is empty.
+  - The account address is still denied while the list is locked.
+  - `--check` reports the list as locked and prints no value.
+- **Verification:** `git show HEAD:stow/secrets/dot-config/never-send/list | head -c 10 | od -c` starts with
+  `\0 G I T C R Y P T \0`, and a dry-run `stow -n` of the `secrets` package links `.config/never-send/list`.
 
 ### U3. Document the enforcement
 
@@ -370,26 +407,10 @@ with `--no-verify` and every other pre-push gate runs by hand, as the PR body st
 
 ## Definition of Done
 
-- U1-U3 are complete and the suites in the Verification Contract pass.
+- U1-U4 are complete and the suites in the Verification Contract pass.
 - The red-first failure output, the latency figures, and the live-harness results are quoted in the PR body.
 - The PR to `dev` is open with every rollup check `SUCCESS`, and the `docs/solutions` entry is pushed.
 - The live-check settings file, test lists, and timing scratch files are deleted; no abandoned code remains in the diff.
-
----
-
-## Open Questions
-
-For Brett, through `xurl-rs-prime`; neither blocks U1-U3, which build the recommended answer, and the other answer
-changes one branch.
-
-- Q1. **Local searches for his own work.** Recommended: block the address in every tool call, with no exception.
-  Alternative: exempt the built-in `Grep` and `Glob` tools, which only read local files. Exempting commands like `rg` or
-  `gh search --author-email` by name is not offered, because a Bash line can also send.
-- Q2. **Where the list lives.** Recommended: the untracked `~/.config/never-send/list`, filled on each host that needs
-  entries beyond the account address. Alternative: a git-crypt file stowed to the same path, which reaches every host
-  from one edit; the guard would then need to treat git-crypt ciphertext on a locked host as no list.
-- Q3. **Keeping the address out of context.** Not blocking. A mod that drops the `userEmail` context block is the
-  smaller of the two options under Scope Boundaries; the relay touches auth and transport.
 
 ---
 
@@ -448,13 +469,13 @@ a prompt.context hook can drop a block | plugin-authoring types, PromptContextRe
 mods auto-load from ~/.claude/skills on 2.1.287+ | davila7 secret-redactor README only | unverified
 bash 3.2 nocasematch and printf %b \xHH | no bash 3.2 on this host | unverified
 
-REALITY: premise-table finding 2 unverified premises, both recorded under Assumptions or Scope Boundaries docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:235
+REALITY: premise-table finding 2 unverified premises, both recorded under Assumptions or Scope Boundaries docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:246
 REALITY: already-done pass no commit on origin/dev touches the guard; only #365 touched the rule stow/claude/dot-claude/CLAUDE.md:123
 REALITY: surface-check pass onFailure, timeout, matcher, CLAUDE_CONFIG_DIR, and CLAUDE_CODE_USER_EMAIL found in the hooks reference and the 2.1.314 binary; sd-commit-doc is on PATH ~/.local/bin/sd-commit-doc:1
-REALITY: binding-decisions pass the brief's limits (no subagents, no stow, push with --no-verify) are in the Verification Contract docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:368
-REALITY: numbers pass measured figures carry their source in KTD3 docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:184; the chosen bounds are the 20 ms budget docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:96, the 6-character floor docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:63, and the 10 s timeout docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:174
-REALITY: deferred-asks pass every ask in the brief maps to R1-R12 or Open Questions; the presence fix is reported, not built, as the brief directs docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:131
-REALITY: pr-count pass one PR carries U1-U3 to dev; the repo has no ship policy file docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:29
+REALITY: binding-decisions pass the brief's limits (no subagents, no stow, push with --no-verify) are in the Verification Contract docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:405
+REALITY: numbers pass measured figures carry their source in KTD3 docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:195; the chosen bounds are the 20 ms budget docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:100, the 6-character floor docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:64, and the 10 s timeout docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:185
+REALITY: deferred-asks pass every ask in the brief maps to R1-R13, Key Decisions, or Deferred to Follow-Up Work; the presence fix is reported, not built, as the brief directs docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:137
+REALITY: pr-count pass one PR carries U1-U4 to dev; the repo has no ship policy file docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:29
 ```
 
 ### 1. Architecture
@@ -473,7 +494,7 @@ tool call (main or subagent, any tool)
 - **Two shapes.** Shape A, the plan's: a settings-file bash hook. Shape B: a mod's `tool.call` guard in TypeScript with
   a `.catch` that denies. B is the deeper module, in-process with no fork, and could also drop the context block. A wins
   because it is the pattern the repo already tests six times with bats, deploys through stow today, and needs no
-  decision on mods, which is Brett's (Q3).
+  decision on mods, which Brett took as follow-up work.
 - **Red flags:** one hand-synced value, the list path (E7, fixed). No other flag applies to a single-file hook.
 - **Security:** the guard reads `~/.claude.json`, which holds other account metadata; `sed` extracts only
   `emailAddress`, and no path prints a value.
@@ -524,7 +545,7 @@ cache would be another copy of the address on disk.
 
 ### NOT in scope
 
-- Keeping the address out of context: Brett's call (Q3).
+- Keeping the address out of context: the mod Brett chose as follow-up work.
 - The sibling guards' `jaq` dependency (E11): its own change.
 - Redacting tool output, a missing-list warning, and enforcing the list's file mode: listed under Scope Boundaries with
   the evidence that would bring each back.
@@ -571,8 +592,8 @@ Sequential implementation, no parallelization opportunity.
 
 ### Unresolved decisions
 
-None from this review. The plan's Q1 and Q2 wait on Brett through `xurl-rs-prime`; U1-U3 build their recommended
-answers.
+None from this review. Brett's answers on local searches and on where the list lives are recorded under Key
+Decisions.
 
 ### Completion summary
 
