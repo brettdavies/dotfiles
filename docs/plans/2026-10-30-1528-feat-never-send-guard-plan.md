@@ -128,8 +128,8 @@ Not built, with the evidence that would change the call:
   change what the harness sends; neither is built without Brett's decision. Settings-file hooks cannot do this: every
   classic event can only add context.
 - **Values a command pulls in when it runs** (`$(git config user.email)`, a file, an environment variable) and
-  **rewritten values** (Gmail dots, base64, HTML entities, `\u0040`). The guard reads only the call's text; the deny reason
-  forbids these routes, and the harness-side check in #98584 is the fix that could see them.
+  **rewritten values** (Gmail dots, base64, HTML entities, `\u0040`). The guard reads only the call's text; the deny
+  reason forbids these routes, and the harness-side check in #98584 is the fix that could see them.
 - **The model's plain-text replies and tool results.** No PreToolUse hook sees them.
 - **Considered and not built:** redacting tool output in PostToolUse (nothing reported leaks through a result); a
   session-start warning when the list is missing (the account address is guarded either way); a cache of the address
@@ -172,14 +172,16 @@ Not built, with the evidence that would change the call:
 - KTD2. **Match the whole hook payload read from stdin, not a parsed `tool_input`.** The guard then needs no JSON
   parser: the Brewfile ships `jq`, not `jaq`, and a parser-dependent guard would have to fail open without one or lock
   the host. The payload's other fields (`session_id`, `transcript_path`, `cwd`, `tool_name`, `agent_id`) carry no
-  address, so the payload is a superset of `tool_input` that adds no false positives in practice.
+  address, so the payload is a superset of `tool_input`. Its one extra false positive is a path field outside `$HOME`
+  that contains a value, such as a `cwd` under `/tmp/<entry>/`; the deny reason covers false positives.
 - KTD3. **Read the account address with one `sed` pass over the config, taking every `"emailAddress": "<value>"`
   string.** On this host that equals `jaq`'s `.oauthAccount.emailAddress` and costs 2.3 ms, against 3.7 ms for `jaq` and
   6.2 ms for `jq`. Over 3,000 reads while the session rewrote the file there were no torn reads, so an unparsable
   partial write is not a case to handle.
 - KTD4. **Stay inside bash 3.2.** Case folding uses `shopt -s nocasematch` with `[[ "$haystack" == *"$value"* ]]`, and
   URL-decoding uses `printf '%b'` after doubling every backslash, so a `\c` in the payload cannot cut the decoded text
-  short. With no bash 4 construct, the script needs no version-guard block and runs under macOS `/bin/bash`.
+  short. Decoding runs only when the payload holds a `%` or a `+`. With no bash 4 construct, the script needs no
+  version-guard block and runs under macOS `/bin/bash`.
 - KTD5. **Only an unreadable config blocks.** Missing optional inputs allow (R7) because a host with no list, or a
   session authenticated by API key, Bedrock, or Vertex (no `oauthAccount`, so no injected block), has nothing for the
   guard to protect. An existing config the guard cannot read (R8) is a state where the harness may still hold the
@@ -187,8 +189,8 @@ Not built, with the evidence that would change the call:
 - KTD6. **The deny envelope follows the sibling guards.** The reason is `never-send-guard denied [<reason>]: <message>`,
   then `next_step [<action>]: <text>` and `docs: ~/.claude/CLAUDE.md § "Secrets & private identifiers"`. Reasons are the
   closed set `address-in-tool-call` and `account-config-unreadable`; actions are `send-without-it` and `tell-user`. The
-  text adapts the #95258 comment's reason, whose URL the script header credits. The JSON is built without a parser
-  because every variable part is the sanitized tool name.
+  text adapts the #95258 comment's reason, whose URL the script header credits. The JSON is built without a parser: the
+  reason text is stored already JSON-escaped, and the only variable part is the tool name reduced to `[A-Za-z0-9_-]`.
 - KTD7. **Tests drive the script through stdin with `CLAUDE_CONFIG_DIR` and `NEVER_SEND_LIST` pointed into
   `BATS_TEST_TMPDIR`.** `HOME` is never reassigned (`scripts/core-env-guard.sh`), `CLAUDE_CODE_USER_EMAIL` is unset in
   `setup`, and every address is made up under `example.invalid`.
@@ -222,6 +224,9 @@ with the reason shown to the model.
   still denies matches but fails open on a crash.
 - The harness keeps writing `~/.claude.json` atomically and pretty-printed; KTD3 depends on one
   `"emailAddress": "<value>"` per line.
+- `nocasematch` and `printf '%b'` with `\xHH` behave the same under macOS `/bin/bash` 3.2 as under bash 5. This host has
+  no bash 3.2 and CI runs Linux, so it is unverified; on the Mac, Claude Code normally finds Homebrew bash first through
+  the launchd user PATH (`config/launchd/user-path`).
 - No future hook payload field carries the address. If one did, every call would be denied with `address-in-tool-call`,
   which is loud and safe but needs a manual settings edit to recover.
 
@@ -276,6 +281,13 @@ with the reason shown to the model.
   - List comments, blank lines, and padded entries count only as their trimmed entries.
   - A list entry found in `$HOME` is skipped, so a payload naming a path under `$HOME` is allowed.
   - A local part shorter than 6 characters is not derived, so a payload carrying only it is allowed.
+  - A list entry that matches `$HOME` only in letter case is still skipped.
+  - A list file that exists but cannot be read counts as no list, so an unrelated payload is allowed.
+  - A list entry with a space is denied when the payload spells the space as `+`.
+  - On a host whose real config holds an `emailAddress`, a payload built in memory from that value is denied, with
+    `CLAUDE_CONFIG_DIR` unset. The test reads the value at run time, never prints or writes it, and skips where no such
+    config exists. It catches a harness change to the config's key or format, which would otherwise disable R1 with no
+    error.
   - Every deny output parses as JSON with `hookSpecificOutput.permissionDecision` `deny` and `hookEventName`
     `PreToolUse`.
 - **Verification:** the suite passes, `scripts/lint-shell` is clean on both files, and `tests/bash-version-guard.bats`
@@ -308,7 +320,8 @@ with the reason shown to the model.
   repo).
 - **Approach:**
   1. Add one **Enforcement** sentence after Brett's paragraph, leaving his wording unchanged: the hook, its no-matcher
-     and `onFailure` wiring, the three value sources, the list path, and `bats tests/never-send-guard.bats`.
+     and `onFailure` wiring, what it matches, and `bats tests/never-send-guard.bats`. The list's path stays in the
+     script header alone, so the two cannot drift.
   2. Write the solutions entry: the problem, the design (KTD1-KTD5), the measured latency, the limits, and the
      presence-fix options. Commit it with `sd-commit-doc`.
 - **Test expectation:** none, documentation only; `markdownlint-cli2` clean on `CLAUDE.md`.
@@ -319,14 +332,14 @@ with the reason shown to the model.
 
 ## Verification Contract
 
-| Gate          | Command or method                                                                                                                                                                                                                                                                                    | Proves                                                                                                                      |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Red first     | `bats tests/never-send-guard.bats` with the script absent                                                                                                                                                                                                                                            | every scenario fails before the guard exists                                                                                |
-| Suites        | `bats tests/never-send-guard.bats tests/claude-settings.bats tests/bash-version-guard.bats`                                                                                                                                                                                                          | R1-R10, R4/R6 wiring, bash 3.2 compatibility                                                                                |
-| Lint          | `scripts/lint-shell --all`, `scripts/lint-workflows --all`, `scripts/core-env-guard.sh`, `markdownlint-cli2` on changed markdown                                                                                                                                                                     | the CI jobs' checks                                                                                                         |
-| Latency (R11) | 200 runs each of a 200-byte Bash payload and a 100 KiB Write payload, timed against a bare `bash -c 'exit 0'`                                                                                                                                                                                        | median and p95 added per call                                                                                               |
-| Live harness  | an untracked `.claude/settings.local.json` in this slot whose hook command runs the guard only before a deadline a few minutes out, with `NEVER_SEND_LIST` naming a list of one made-up address; then a Bash call, a Read call, and an MCP tool call carrying that address, and one carrying nothing | the real harness blocks every tool family and allows the clean call; the deadline means a guard bug cannot lock the session |
-| Fail closed   | the same live setup pointed at a missing script path                                                                                                                                                                                                                                                 | AE4: the harness blocks the call                                                                                            |
+| Gate          | Command or method                                                                                                                                                                                                                                                                                                                                                                               | Proves                                                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Red first     | `bats tests/never-send-guard.bats` with the script absent                                                                                                                                                                                                                                                                                                                                       | every scenario fails before the guard exists                                                                                |
+| Suites        | `bats tests/never-send-guard.bats tests/claude-settings.bats tests/bash-version-guard.bats`                                                                                                                                                                                                                                                                                                     | R1-R10, R4/R6 wiring, bash 3.2 compatibility                                                                                |
+| Lint          | `scripts/lint-shell --all`, `scripts/lint-workflows --all`, `scripts/core-env-guard.sh`, `markdownlint-cli2` on changed markdown                                                                                                                                                                                                                                                                | the CI jobs' checks                                                                                                         |
+| Latency (R11) | 200 runs each of a 200-byte Bash payload, a 100 KiB Write payload, and a 1 MiB Write payload, timed against a bare `bash -c 'exit 0'`                                                                                                                                                                                                                                                           | median and p95 added per call, worst case included                                                                          |
+| Live harness  | an untracked `.claude/settings.local.json` in this slot with one no-matcher hook whose command exits 0 once a deadline about two minutes out has passed (or if the deadline check itself errors) and otherwise runs the guard, with `NEVER_SEND_LIST` naming a list of one made-up address; then a Bash call, a Read call, and an MCP tool call carrying that address, and one carrying nothing | the real harness blocks every tool family and allows the clean call; the deadline means a guard bug cannot lock the session |
+| Fail closed   | a second hook in the same file, matched to one read-only MCP tool and pointed at a missing script path with `onFailure: "block"`                                                                                                                                                                                                                                                                | AE4: the harness blocks that tool's call; every other tool stays usable throughout                                          |
 
 `scripts/run-tests --all` is never run from a slot, because it stows into the real home directory. The branch is pushed
 with `--no-verify` and every other pre-push gate runs by hand, as the PR body states.
@@ -353,3 +366,219 @@ changes one branch.
   from one edit; the guard would then need to treat git-crypt ciphertext on a locked host as no list.
 - Q3. **Keeping the address out of context.** Not blocking. A mod that drops the `userEmail` context block is the
   smaller of the two options under Scope Boundaries; the relay touches auth and transport.
+
+---
+
+## Decision ledger
+
+The eng review ran headless in the `dotfiles/1` slot. Each choice below took the recommended option on the evidence
+cited, under the brief's rule that the slot settles what code, docs, and precedent settle and sends only Brett's
+decisions to `xurl-rs-prime`. Every accepted change is already applied to the sections above.
+
+| ID  | Severity, confidence | Finding                                                                                                                                                                                                                         | Disposition | Change                                                                                                   |
+| --- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------- |
+| E1  | INFORMATIONAL, 8/10  | Verification Contract, latency row: the largest payload timed was 100 KiB, while a Write call can carry 1 MiB and every value is matched twice against it                                                                       | accepted    | 1 MiB payload added to the gate; decoding skipped when the payload has no `%` or `+` (KTD4)              |
+| E2  | CRITICAL, 9/10       | Verification Contract, fail-closed row: a no-matcher hook on a missing script blocks every tool call in the checking session, including the edit that would remove it                                                           | accepted    | the AE4 check is matched to one read-only MCP tool; the live hook's deadline check allows when it errors |
+| E3  | INFORMATIONAL, 7/10  | KTD6: the static reason text holds quotes and newlines, so "no parser" needs pre-escaped text                                                                                                                                   | accepted    | KTD6 states the text is stored JSON-escaped; the JSON-parse scenario covers it                           |
+| E4  | INFORMATIONAL, 7/10  | U1 scenarios: the `$HOME` skip was not tested across letter case                                                                                                                                                                | accepted    | scenario added                                                                                           |
+| E5  | INFORMATIONAL, 6/10  | KTD4: bash 3.2 behavior of `nocasematch` and `printf '%b'` with `\xHH` is unverified here                                                                                                                                       | accepted    | recorded under Assumptions                                                                               |
+| E6  | INFORMATIONAL, 6/10  | KTD2 claimed no false positives; a `cwd` outside `$HOME` that contains a value would deny                                                                                                                                       | accepted    | KTD2 names the case                                                                                      |
+| E7  | INFORMATIONAL, 7/10  | U3: the list's path in both `CLAUDE.md` and the script is a hand-synced value                                                                                                                                                   | accepted    | the path stays in the script header alone                                                                |
+| E8  | INFORMATIONAL, 7/10  | U1 scenarios: an existing but unreadable list file had no test                                                                                                                                                                  | accepted    | scenario added                                                                                           |
+| E9  | INFORMATIONAL, 6/10  | U1 scenarios: `+` read as a space had no test                                                                                                                                                                                   | accepted    | scenario added                                                                                           |
+| E10 | CRITICAL, 8/10       | Failure modes: a harness change to the config's key or format leaves the guard with no account value, and it allows every call with no error                                                                                    | accepted    | canary scenario against the real config, skipped where none exists                                       |
+| E11 | INFORMATIONAL, 8/10  | Outside this plan: every sibling guard runs `command -v jaq >/dev/null 2>&1 \|\| exit 0` (`stow/claude/dot-claude/self-match-guard.sh:35`) while `stow/brew/Brewfile:48` ships `jq`, so a host without `jaq` runs them all open | deferred    | reported to `xurl-rs-prime` as a follow-up                                                               |
+
+Approval readiness: PASS. E1-E10 are authorized auto-decisions under the brief's headless rule; E11 is deferred to
+`xurl-rs-prime`.
+
+---
+
+## Eng Review
+
+### Scope Challenge
+
+- **What already exists:** six sibling PreToolUse guards supply the deny envelope
+  (`stow/claude/dot-claude/self-match-guard.sh`) and the test harness (`tests/self-match-guard.bats`, its `decide`
+  helper). Fail-closed behavior is a harness built-in, `onFailure: "block"` [Layer 1]. `sd-commit-doc` commits the
+  solutions entry.
+- **Minimum change:** five repo files, two of them new, plus one solutions entry; one new module. That is under the
+  complexity gate (8 files or 2 new services), so the complexity questions were skipped.
+- **Search check:** the only new pattern, a hook that fails closed, is documented in the hooks reference fetched this
+  session; no web search was needed beyond it.
+- **TODOS:** the repo has no TODOS file.
+- **Distribution:** the `claude` stow package; Brett deploys with `scripts/stow-deploy`.
+- **Result:** scope accepted as-is.
+
+```text
+PREMISES (unverified=2)
+onFailure "block" exists since 2.1.295 | Claude Code CHANGELOG.md, 2.1.295 entry | true
+an omitted matcher matches every tool | hooks reference, matcher table | true
+settings hooks run inside subagents with agent_id | hooks reference, "Hooks from settings files ... also run inside subagents" | true
+the Brewfile ships jq, not jaq | stow/brew/Brewfile:48 | true
+sibling guards exit 0 without jaq | stow/claude/dot-claude/self-match-guard.sh:35 | true
+config path is (CLAUDE_CONFIG_DIR or home)/.claude.json | claude 2.1.314 binary, function Obr | true
+sed extraction equals jaq, 2.3 ms against 3.7 ms | measured this session, 100 runs each | true
+classic hook events can only add context | plugin-authoring types, ClassicResultFields | true
+a prompt.context hook can drop a block | plugin-authoring types, PromptContextResult | true
+mods auto-load from ~/.claude/skills on 2.1.287+ | davila7 secret-redactor README only | unverified
+bash 3.2 nocasematch and printf %b \xHH | no bash 3.2 on this host | unverified
+
+REALITY: premise-table finding 2 unverified premises, both recorded under Assumptions or Scope Boundaries docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:227
+REALITY: already-done pass no commit on origin/dev touches the guard; only #365 touched the rule stow/claude/dot-claude/CLAUDE.md:123
+REALITY: surface-check pass onFailure, timeout, matcher, CLAUDE_CONFIG_DIR, and CLAUDE_CODE_USER_EMAIL found in the hooks reference and the 2.1.314 binary; sd-commit-doc is on PATH ~/.local/bin/sd-commit-doc:1
+REALITY: binding-decisions pass the brief's limits (no subagents, no stow, push with --no-verify) are in the Verification Contract docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:344
+REALITY: numbers pass measured figures carry their source in KTD3 docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:176; the chosen bounds are the 20 ms budget docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:92, the 6-character floor docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:62, and the 10 s timeout docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:167
+REALITY: deferred-asks pass every ask in the brief maps to R1-R12 or Open Questions; the presence fix is reported, not built, as the brief directs docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:124
+REALITY: pr-count pass one PR carries U1-U3 to dev; the repo has no ship policy file docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:28
+```
+
+### 1. Architecture
+
+```text
+tool call (main or subagent, any tool)
+  -> PreToolUse, no matcher, onFailure block
+       -> never-send-guard.sh  <- stdin payload
+            values: config emailAddress (+ local part) | CLAUDE_CODE_USER_EMAIL | list entries
+            match:  payload, then URL-decoded payload, case-insensitive
+            -> no match: exit 0, silent  -> call runs
+            -> match:    deny JSON       -> call blocked, reason to model, systemMessage to user
+       -> crash / timeout / missing script -> harness blocks (onFailure)
+```
+
+- **Two shapes.** Shape A, the plan's: a settings-file bash hook. Shape B: a mod's `tool.call` guard in TypeScript with
+  a `.catch` that denies. B is the deeper module, in-process with no fork, and could also drop the context block. A wins
+  because it is the pattern the repo already tests six times with bats, deploys through stow today, and needs no
+  decision on mods, which is Brett's (Q3).
+- **Red flags:** one hand-synced value, the list path (E7, fixed). No other flag applies to a single-file hook.
+- **Security:** the guard reads `~/.claude.json`, which holds other account metadata; `sed` extracts only
+  `emailAddress`, and no path prints a value.
+- **Production failure:** a config format change (E10). Findings: E2, E6, E10.
+
+### 2. Code quality
+
+E3 and E7. Shared code: each guard's bats file defines its own `decide`, but their payload shapes differ (Bash `command`
+against whole payloads), so no shared helper is proposed.
+
+### 3. Tests
+
+```text
+CODE PATHS (planned)                                   SCENARIOS (U1)
+never-send-guard.sh
+  values
+    config emailAddress ............................... AE1, %40, CLAUDE_CONFIG_DIR
+    local part >= 6, not in HOME ...................... AE2, local part alone, < 6 allowed
+    CLAUDE_CODE_USER_EMAIL ............................ env with no config
+    list entries, trimmed, HOME skipped (any case) .... comments/padding, HOME skip, case (E4)
+    list unreadable -> no list ........................ E8
+    config unreadable -> deny ......................... account-config-unreadable
+    real config key/format ............................ canary (E10)
+  match
+    raw, any case ..................................... AE1
+    decoded %XX ....................................... %40, AE2
+    decoded + as space ................................ E9
+    \c before encoded value ........................... \c scenario
+    > 128 KiB payload ................................. large payload
+    every tool family ................................. MCP, Write, agent_id (AE5)
+  output
+    deny JSON shape ................................... JSON-parse scenario
+    no value in any output ............................ no-value scenario
+    allow is silent exit 0 ............................ unrelated payload, other address
+harness
+  onFailure blocks a missing script ................... live check, AE4 [-> E2E]
+  real harness denies Bash, Read, MCP ................. live check [-> E2E]
+COVERAGE: every planned path has a scenario; the two harness paths are live checks
+```
+
+The suite tests the script at its real boundary (stdin to stdout) with no seam. No existing test becomes obsolete.
+Findings: E4, E5, E8, E9; the canary scenario belongs to E10 under Architecture.
+
+### 4. Performance
+
+E1. One `cat`, one `sed` over the config (2.3 ms measured), and up to two string matches per value; no cache, because a
+cache would be another copy of the address on disk.
+
+### NOT in scope
+
+- Keeping the address out of context: Brett's call (Q3).
+- The sibling guards' `jaq` dependency (E11): its own change.
+- Redacting tool output, a missing-list warning, and enforcing the list's file mode: listed under Scope Boundaries with
+  the evidence that would bring each back.
+
+### What already exists
+
+The deny envelope and the bats harness are reused from `self-match-guard.sh` and its suite; nothing is rebuilt. The
+fail-closed launcher from #95258 is replaced by the harness's `onFailure`.
+
+### Failure modes
+
+| Path                | Realistic failure                           | Covered by                                    | User sees                                               |
+| ------------------- | ------------------------------------------- | --------------------------------------------- | ------------------------------------------------------- |
+| guard on every call | script bug on a common payload shape        | U1 scenarios across tool families; live check | every call blocked with the harness's hook error (loud) |
+| account value       | harness renames the key or moves the config | canary scenario (E10)                         | a failing suite at the next pre-push on Brett's hosts   |
+| list                | Brett never creates it                      | R7                                            | nothing; the account address is still guarded           |
+| config              | unreadable                                  | R8 scenario                                   | every call denied with `account-config-unreadable`      |
+| live check          | guard bug during the check                  | deadline wrapper (E2)                         | blocked calls for at most two minutes                   |
+
+No failure mode is untested, unhandled, and silent at once.
+
+### Worktree parallelization
+
+Sequential implementation, no parallelization opportunity.
+
+### Implementation Tasks
+
+- [ ] **T1 (P1, human: ~3h / CC: ~30min)** — guard — write the suite red, then the guard to green
+  - Surfaced by: Tests — U1 scenarios including E4, E8, E9, E10
+  - Files: `tests/never-send-guard.bats`, `stow/claude/dot-claude/never-send-guard.sh`
+  - Verify: `bats tests/never-send-guard.bats`
+- [ ] **T2 (P1, human: ~30min / CC: ~5min)** — settings — wire the no-matcher hook with `onFailure: "block"`
+  - Surfaced by: Architecture — KTD1
+  - Files: `stow/claude/dot-claude/settings.json`, `tests/claude-settings.bats`
+  - Verify: `bats tests/claude-settings.bats`
+- [ ] **T3 (P1, human: ~1h / CC: ~10min)** — verification — time the three payload sizes and run the scoped live checks
+  - Surfaced by: Performance — E1; Architecture — E2
+  - Files: none committed
+  - Verify: figures and results quoted in the PR body
+- [ ] **T4 (P2, human: ~1h / CC: ~10min)** — docs — the Enforcement sentence and the solutions entry
+  - Surfaced by: Code quality — E7
+  - Files: `stow/claude/dot-claude/CLAUDE.md`, the solutions entry
+  - Verify: `markdownlint-cli2`, `sd-commit-doc` output
+
+### Unresolved decisions
+
+None from this review. The plan's Q1 and Q2 wait on Brett through `xurl-rs-prime`; U1-U3 build their recommended
+answers.
+
+### Completion summary
+
+- Step 0: Scope Challenge — scope accepted as-is
+- Reality rows: 7/7 applicable rows emitted, 2 unverified premises
+- Architecture Review: 3 issues found
+- Code Quality Review: 2 issues found
+- Test Review: diagram produced, 4 gaps identified
+- Performance Review: 1 issue found
+- NOT in scope: written
+- What already exists: written
+- TODOS.md updates: 0 items proposed (no TODOS file; E11 goes to `xurl-rs-prime`)
+- Failure modes: 0 critical gaps flagged after E10
+- Unresolved decisions: 0 in this review
+- Outside voice: codex, disabled (`codex_reviews` is `disabled`)
+- Parallelization: 1 lane, 0 parallel / 1 sequential
+- Lake Score: N/A (no Completeness-scored questions)
+
+## GSTACK REVIEW REPORT
+
+| Review         | Trigger                      | Why                             | Runs | Status      | Findings                                |
+| -------------- | ---------------------------- | ------------------------------- | ---- | ----------- | --------------------------------------- |
+| CEO Review     | `/plan-ceo-review`           | Scope & strategy                | 0    | —           | —                                       |
+| Outside Review | codex via `/plan-eng-review` | Independent 2nd opinion         | 1    | disabled    | —                                       |
+| Eng Review     | `/plan-eng-review`           | Architecture & tests (required) | 1    | ISSUES OPEN | 10 issues, 0 critical gaps, all applied |
+| Design Review  | `/plan-design-review`        | UI/UX gaps                      | 0    | —           | —                                       |
+| DX Review      | `/plan-devex-review`         | Developer experience gaps       | 0    | —           | —                                       |
+
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no outside findings.
+- **VERDICT:** Eng review complete with 10 findings applied to the plan; status stays ISSUES OPEN by the log's rule (any
+  finding counts). DX review is next.
+
+NO UNRESOLVED DECISIONS
