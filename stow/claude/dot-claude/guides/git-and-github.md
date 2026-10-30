@@ -324,7 +324,10 @@ repo has its own prose-linting pipeline.
    `git commit --file ...`. Never inline the body via `--body "..."`, `-m "..."`, or a `--body "$(cat <<'EOF' ... EOF)"`
    heredoc. **As soon as the `gh` (or `git commit`) call returns success, delete the tmp file with `trash <path>`.** The
    file is single-use; leaving it around invites accidental reuse with stale content on the next turn and clutters
-   `/tmp/`. If the submit fails, keep the file, fix, resubmit, then delete on success.
+   `/tmp/`. If the submit fails, keep the file, fix, resubmit, then delete on success. Chain the delete on the submit's
+   own status: `git commit --file "$MSG" && trash "$MSG"`. Piping the submit's output first
+   (`git commit --file "$MSG" | tail -2 && trash "$MSG"`) makes the pipeline exit with `tail`'s status, so a failed
+   commit still deletes the message; read the output in a later step instead.
 
 Typical flow (PR body):
 
@@ -365,6 +368,11 @@ Vale/LT still run `/unslop` as the minimum acceptable scrub.
 `stow/claude/dot-claude/settings.json` and runs on every Bash tool call. Tests covering 41 cases (positive, negative,
 and adversarial red-team bypasses) live at `tests/heredoc-pr-guard.bats` — run with `bats tests/heredoc-pr-guard.bats`.
 If a legitimate use is blocked, fix the regex; do NOT bypass the hook for individual commands.
+
+The `~/.claude/piped-commit-guard.sh` PreToolUse Bash hook rejects a `git commit` whose output is piped when a later
+step in the same command removes its message file with `trash`, `rm`, or `mv`, and its deny carries the command rebuilt
+without the pipe. `set -o pipefail` before the commit, with only `&&` from the pipe to that step, passes. Tests:
+`bats tests/piped-commit-guard.bats`.
 
 Why hook + docs (not docs alone): inline heredoc into `--body` produces wrapped-and-escape-trapped text that lands in
 the PR body AND in the squash-merge commit message. Cleanup after the fact requires either re-submitting via

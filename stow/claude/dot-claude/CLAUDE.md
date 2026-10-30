@@ -167,9 +167,11 @@ harness-injected attribution reminder. The `ai-attribution-guard.sh` PreToolUse 
 
 Author every GitHub body (PR, PR comment/review, issue, release notes, AND `git commit`) in a collision-proof `/tmp/`
 file, scrub with `/unslop`, and submit via `--body-file` / `--notes-file` / `git commit --file`. **Never inline
-`--body`, `-m`, or a heredoc** — the `heredoc-pr-guard.sh` PreToolUse hook rejects it. PR bodies fill the template
-cascade (repo `.github/pull_request_template.md` → global `~/.config/github/pull_request_template.md`). Full workflow
-(filenames, `/unslop`, changelog rules, escape rules) → `~/.claude/guides/git-and-github.md`; commit spec →
+`--body`, `-m`, or a heredoc** — the `heredoc-pr-guard.sh` PreToolUse hook rejects it. Delete the message file only on
+the commit's own status (`git commit --file f && trash f`), never behind a pipe (`git commit --file f | tail && trash f`
+exits with `tail`'s status); the `piped-commit-guard.sh` hook rejects that. PR bodies fill the template cascade (repo
+`.github/pull_request_template.md` → global `~/.config/github/pull_request_template.md`). Full workflow (filenames,
+`/unslop`, changelog rules, escape rules) → `~/.claude/guides/git-and-github.md`; commit spec →
 `~/.claude/templates/commit-message.md`.
 
 ## Voice notes
