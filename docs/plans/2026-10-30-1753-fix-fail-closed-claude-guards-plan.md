@@ -55,10 +55,11 @@ hook block the call; this host runs 2.1.314.
 
 **Failing closed**
 
-- R1. A guard that finds no JSON parser blocks every call it would have checked: exit 2, with a reason naming the guard,
-  the missing tools, and the install command. No guard exits 0 because a tool is missing.
+- R1. A guard that finds no JSON parser blocks every call it would have checked, in the main session and in subagents,
+  with a reason naming the guard, the missing tools, and the install command. No guard exits 0 because a tool is
+  missing.
 - R2. When one of the seven guards crashes, outlives its timeout, or is missing, the call it would have checked is
-  blocked.
+  blocked; a crash inside the script says which guard failed, that the call did not run, and what to do next.
 - R3. A guard with jq but no jaq makes the same decision it makes with jaq, for every input its suite covers.
 
 **Blast radius**
@@ -158,14 +159,17 @@ hook block the call; this host runs 2.1.314.
   under jq today. A host that has pulled this change but not yet run `brew bundle` still has jq from the Brewfile, and
   keeps every guard working. Rejected: jaq alone, which would block every trigger-carrying call on such a host though a
   working parser is installed.
-- KTD2. **No parser: exit 2 with the reason on stderr.** Exit 2 blocks a PreToolUse call whatever stdout holds and
-  whatever `onFailure` says, so no Claude Code version or settings state can read it as an allow. The reason follows
-  sleep-guard's text shape:
-  `<guard> blocked [json-parser-missing]: neither jaq nor jq is on PATH, so this call could not be checked`, then
-  `next_step [install-jaq]:` and the command `brew install jaq` on its own line, then
-  `docs: ~/dotfiles/BOOTSTRAP.md § "Install Packages from Brewfile"`. Rejected: a JSON deny on exit 0, which needs JSON
-  built without a parser and fails open if malformed; exit 1, which allows unless `onFailure: "block"` is set and
-  honored.
+- KTD2. **No parser: a fixed-text JSON deny on stdout, then exit 2.** Exit 2 blocks a PreToolUse call in the main
+  session whatever stdout holds and whatever `onFailure` says. The JSON deny covers what exit codes may not:
+  [anthropics/claude-code#40580](https://github.com/anthropics/claude-code/issues/40580) reports exit 2 ignored for
+  subagent tool calls (closed as not planned), while a JSON decision is read there, and the existing guards already deny
+  through JSON. With no parser, the JSON is printed from fixed, pre-escaped text, which
+  `docs/solutions/architecture-patterns/claude-code-hooks-authoring-pattern-2026-04-20.md` allows when a test parses the
+  output. The reason's lines, in order: `<guard> blocked [json-parser-missing]: neither jaq nor jq is on PATH, so this
+  call could not be checked. It did not run; install jaq, then rerun it.`;
+  `docs: ~/dotfiles/BOOTSTRAP.md § "Install Packages from Brewfile"`; `next_step [install-jaq]:`; and `brew install jaq`
+  last, where an agent looks for the fix. `systemMessage` gives the user the first line. Rejected: stderr with exit 2
+  alone, which a subagent call may ignore; exit 1, which allows unless `onFailure: "block"` is set and honored.
 - KTD3. **Trigger text is checked on the raw payload before the parser lookup.** Claude Code writes the payload with
   `JSON.stringify`, which leaves letters, spaces, `<`, `|`, and `:` unescaped, so a command containing a trigger means
   the payload contains it. Three guards already do this; the decoded check after parsing stays as the precise filter.
@@ -193,6 +197,13 @@ hook block the call; this host runs 2.1.314.
   `--setting-sources project` and `--settings` registering one guard under a parser-free PATH proves the harness blocks
   on the guard's exit 2, without touching this slot's `.claude/settings.local.json` or the deployed hooks.
   `onFailure: "block"` on a missing script was already observed on 2.1.314 (Sources).
+- KTD10. **An ERR trap turns a crash inside a guard into the same kind of fixed-text deny.** The reason names the guard,
+  `[guard-internal-error]`, and `$LINENO`, says the call did not run, and ends with `next_step [ask-user]:` naming
+  `bats tests/<guard>.bats`; the trap then exits 2. A broken parser is the realistic crash: a Homebrew upgrade that
+  strands jaq's or jq's libraries makes every guard fail on its first parse, and under `onFailure: "block"` alone the
+  agent reads only `failed; blocking because onFailure is "block"`. The trap fires only where `set -e` would exit, so it
+  changes no decision; failures inside functions and subshells, which do not inherit it, still end in a block through
+  `onFailure`, as do timeouts and a missing script. `never-send-guard.sh` uses the same `guard-internal-error` token.
 - KTD9. **`defuddle-webfetch.sh` gains a `DEFUDDLE_MARKER_DIR` override.** Its deny path writes a marker into
   `/tmp/.defuddle-markers`, which live sessions read; tests point it at their own directory so a test never changes
   whether a real WebFetch is redirected.
@@ -210,7 +221,8 @@ flowchart TD
   C -- found --> D{decoded command matches the guard's rule?}
   D -- no --> P
   D -- yes --> E[exit 0, JSON deny: blocked]
-  F[guard crashes, times out, or is missing] --> G[onFailure block: blocked]
+  D -- crash in the script --> T[ERR trap: exit 2, guard-internal-error deny: blocked]
+  F[guard times out or is missing] --> G[onFailure block: blocked]
 ```
 
 | Guard                     | Matcher  | Raw trigger checked before the parser                       |
@@ -253,19 +265,26 @@ flowchart TD
   branch is cut from `dev` after that commit, U5 adds keys only inside the other groups, and its new tests go at the end
   of the suite.
 
+### Operational Notes
+
+- The PR's `## Changelog` says, for users: the Claude Code guards block a call they cannot check instead of allowing it,
+  a guard that crashes blocks with a reason, and the Brewfile installs jaq, so run `brew bundle` after pulling.
+- On a host, the change goes live on `git pull` in `~/dotfiles`; until `brew bundle` runs, jq stands in for jaq.
+
 ---
 
 ## Implementation Units
 
 ### U1. Parser-free PATH helper for the suites
 
-- **Goal:** one helper every guard suite uses to run its hook with no JSON parser on PATH, or with jq alone.
+- **Goal:** one helper every guard suite uses to run its hook with no JSON parser on PATH, with jq alone, or with a jaq
+  that fails when run.
 - **Requirements:** R1, R3 (test support).
 - **Dependencies:** none.
 - **Files:** `tests/lib/json-parser.bash` (new), `scripts/core-env-allowlist.tsv`.
-- **Approach:** per KTD7. One function takes the mode (none or jq), the hook path, and the payload, and leaves bats'
-  `status`, `output`, and `stderr` set; the link directories are built on first use. The helper skips the test when jq
-  mode is asked for and the host has no jq.
+- **Approach:** per KTD7. One function takes the mode (none, jq, or broken: a `jaq` that exits 5), the hook path, and
+  the payload, and leaves bats' `status`, `output`, and `stderr` set; the link directories are built on first use. The
+  helper skips the test when jq mode is asked for and the host has no jq.
 - **Patterns to follow:** the "neither jaq nor jq" test in `tests/mac-open.bats`; `tests/lib/platform.bash` for helper
   shape.
 - **Test expectation:** none: it is exercised by every test in U2-U4.
@@ -285,14 +304,18 @@ flowchart TD
      (KTD3).
   2. Each guard replaces its `command -v jaq || exit 0` with the KTD1 lookup and the KTD2 exit, and calls the parser it
      found everywhere it called `jaq`.
+  3. Each guard sets the KTD10 trap before its first command that can fail.
+  4. Each header's `Protocol:` line adds the exit-2 block, so the comment matches what the script does.
 - **Execution note:** write the three tests per guard first and watch the no-parser and jq-only tests fail against the
   unchanged script; quote that output in the PR.
 - **Patterns to follow:** sleep-guard's raw-payload `case` and its deny text shape.
 - **Test scenarios, per guard:**
-  - No parser, a call the guard denies today (for sleep-guard, `sleep 60`): exit 2, stderr names the guard and
-    `[json-parser-missing]`, stdout empty.
+  - No parser, a call the guard denies today (for sleep-guard, `sleep 60`): exit 2, and stdout parses as a deny whose
+    reason names the guard and `[json-parser-missing]` and ends with `brew install jaq`.
   - No parser, a call without the guard's trigger text (`ls -la`): exit 0, no output.
   - jq only, the same denied call: exit 0 and a JSON deny whose reason matches the jaq run's.
+  - Broken parser, the same denied call: exit 2, and stdout parses as a deny naming the guard and
+    `[guard-internal-error]`.
   - heredoc-pr-guard and ai-attribution-guard, with jaq: a `description` field carrying the trigger text while the
     command does not still allows (the decoded check still governs).
 - **Verification:** each suite passes; each no-parser and jq-only test failed against `origin/dev`'s script. R3 across
@@ -305,15 +328,16 @@ flowchart TD
 - **Requirements:** R1, R3, R4.
 - **Dependencies:** U1.
 - **Files:** `stow/claude/dot-claude/model-tier-guard.sh`, `tests/model-tier-guard.bats` (new).
-- **Approach:** a case-insensitive raw check for `TIER:` before the lookup (KTD3), then KTD1 and KTD2. Its `sed` filter
-  stays as the precise check.
+- **Approach:** a case-insensitive raw check for `TIER:` before the lookup (KTD3), then KTD1, KTD2, and KTD10. Its `sed`
+  filter stays as the precise check.
 - **Execution note:** test-first, as in U2.
 - **Test scenarios:**
   - With a parser, `TIER: build` and `model: opus`: allowed.
   - With a parser, `TIER: build` and `model: sonnet`: denied, reason names `opus`.
   - With a parser, `TIER: build` and `subagent_type: fork`: denied for the fork rule.
   - A prompt with no TIER line: allowed.
-  - No parser, a `tier: Ceiling` dispatch (mixed case): exit 2 with `[json-parser-missing]`.
+  - No parser, a `tier: Ceiling` dispatch (mixed case): exit 2 with a `[json-parser-missing]` deny.
+  - Broken parser, a TIER dispatch: exit 2 with a `[guard-internal-error]` deny.
   - No parser, a dispatch with no TIER line: exit 0, no output.
   - jaq only, no jq: the mis-tiered dispatch is denied.
 - **Verification:** the suite passes; the no-parser and jaq-only tests failed against `origin/dev`'s script.
@@ -326,7 +350,7 @@ flowchart TD
 - **Dependencies:** U1.
 - **Files:** `stow/claude/dot-claude/defuddle-webfetch.sh`, `tests/defuddle-webfetch.bats` (new).
 - **Approach:**
-  1. KTD1 and KTD2; there is no raw trigger to check first (KTD3 table).
+  1. KTD1, KTD2, and KTD10; there is no raw trigger to check first (KTD3 table).
   2. KTD9's marker-directory override.
   3. Line 6's comment becomes a present-tense statement that the deny holds for a URL `permissions.allow` approves.
 - **Execution note:** test-first, as in U2.
@@ -335,7 +359,8 @@ flowchart TD
     directory.
   - The same URL again: allowed.
   - A `.pdf` URL, a `localhost` URL, a `192.168.` URL: allowed.
-  - No parser, any URL: exit 2 with `[json-parser-missing]`, and no marker written.
+  - No parser, any URL: exit 2 with a `[json-parser-missing]` deny, and no marker written.
+  - Broken parser, an HTML page: exit 2 with a `[guard-internal-error]` deny, and no marker written.
   - jq only, an HTML page: denied.
 - **Verification:** the suite passes and never writes under `/tmp/.defuddle-markers`; the no-parser and jq-only tests
   failed against `origin/dev`'s script.
@@ -353,7 +378,8 @@ flowchart TD
   script that does not exist.
 - **Test scenarios:**
   - Every PreToolUse command hook except `slot-status.sh` and `op-skill-nudge.sh` sets `onFailure` to `"block"`; the
-    failure output lists any that do not.
+    failure output lists any that do not and says to add the key, or to add the hook to the test's exemptions if it
+    never denies.
   - Every hook with `onFailure: "block"` names `~/.claude/<path>`, and `stow/claude/dot-claude/<path>` exists and is
     executable.
   - `op-skill-nudge.sh` and `slot-status.sh` carry no `onFailure`.
@@ -458,11 +484,11 @@ the payload is JSON.stringify output | none yet; the live check reads one | unve
 ```
 
 ```text
-REALITY: premise-table finding 13 premises, unverified=1 (payload serialization), routed to the live check (E1) docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:228
+REALITY: premise-table finding 13 premises, unverified=1 (payload serialization), routed to the live check (E1) docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:240
 REALITY: already-done pass origin/dev since 2026-10-29 touches the named files only in 9edb373 (#368, never-send) and 1f88950 (#356, piped-commit), neither adds a parser fallback stow/claude/dot-claude/piped-commit-guard.sh:36
 REALITY: surface-check pass brew bundle check/list --file --verbose, claude --setting-sources/--settings/--allowedTools, scripts/run-tests FILE, scripts/lint-shell --all all confirmed by --help scripts/run-tests:13
-REALITY: binding-decisions pass Key Decisions entry (separate PR, onFailure block, jaq in Brewfile) honored; no recent branch decision contradicts it docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:85
-REALITY: numbers pass corpus figures re-derived from the per-guard result files [measured: corpus run 2026-10-30] docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:144; "a few lines" per lookup [estimated] docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:182
+REALITY: binding-decisions pass Key Decisions entry (separate PR, onFailure block, jaq in Brewfile) honored; no recent branch decision contradicts it docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:86
+REALITY: numbers pass corpus figures re-derived from the per-guard result files [measured: corpus run 2026-10-30] docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:145; "a few lines" per lookup [estimated] docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:186
 REALITY: deferred-asks pass no linked issue; the brief's six asks each map to a unit (parser handling U2-U4, onFailure U5, Brewfile U6, per-guard tests U2-U4, defuddle comment U4, fix/ branch Goal Capsule) docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:28
 REALITY: pr-count pass one PR, as the brief asks; no ship-policy file docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:28
 ```
@@ -598,17 +624,248 @@ None.
 - Parallelization: 1 lane, 0 parallel / 1 sequential
 - Lake Score: N/A (no answer scored for completeness)
 
+## DX Review
+
+The DX review ran in the same unattended slot, in DX POLISH mode: the plan's scope is right, and the review hardens the
+touchpoints an agent or operator meets. Each choice took the recommended option on the evidence cited; none needed
+Brett.
+
+### Developer Persona Card
+
+```text
+TARGET DEVELOPER PERSONA
+========================
+Who:       an AI coding agent in a Claude Code session or agent slot on one of Brett's hosts; secondary, Brett as the
+           operator who deploys the dotfiles and recovers a host
+Context:   meets a guard only when a tool call is refused, mid-task, often with no human watching
+Tolerance: one blocked call; it reads the reason literally, cannot ask what was meant, and retries or stalls otherwise
+Expects:   the reason says whether the call ran, what is wrong, and the one command or person that fixes it
+```
+
+### Developer Empathy Narrative
+
+I'm an agent in a slot on a Linux server that was set up from the dotfiles but never got jaq. I want to wait for a
+build, so I run `sleep 60`. Today sleep-guard looks for jaq, finds nothing, and exits 0 (`sleep-guard.sh:35`): my sleep
+runs, the session sits for a minute, and nothing told me a guard was meant to stop it. The same silence covers a heredoc
+into `gh pr create --body` and a piped `git commit` before the message file is trashed. I learn the rules only when
+Brett finds the damage. After this change, the same `sleep 60` comes back as a hook error that starts
+`sleep-guard blocked [json-parser-missing]` and ends with `brew install jaq`. I know the call did not run, what is
+missing, and the one command that fixes it. I run it, rerun the sleep, and get sleep-guard's real answer: move the wait
+to the background. If the guard itself breaks, say a Homebrew upgrade stranded jaq's libraries, I get
+`[guard-internal-error]` with a line number and an instruction to tell the user, instead of a bare
+`failed; blocking because onFailure is "block"`.
+
+Evidence: today's silent allow is read from source; the post-change wording is KTD2 and KTD10 as planned, not captured
+output.
+
+### Competitive DX Benchmark
+
+Clock: the agent's first blocked call on a host with neither parser, to the same call running under a working guard.
+
+| Tool                  | Start to result                                     | Time and evidence                 | DX choice                                   | Source                                                                                                                |
+| --------------------- | --------------------------------------------------- | --------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| These guards today    | never: the call runs unchecked                      | none; silent [observed in source] | exit 0 without jaq                          | `stow/claude/dot-claude/sleep-guard.sh:35`                                                                            |
+| These guards, planned | blocked call, `brew install jaq`, rerun             | about 1 min [estimated]           | JSON deny plus exit 2, fix on the last line | KTD2                                                                                                                  |
+| `never-send-guard.sh` | needs no parser; a crash blocks through `onFailure` | n/a [observed in source]          | stderr reason, exit 1                       | `stow/claude/dot-claude/never-send-guard.sh:45-48`                                                                    |
+| `mac-open`            | fails closed naming the missing tool                | n/a [observed in test]            | jaq-else-jq lookup                          | `tests/mac-open.bats:287`                                                                                             |
+| Public hook guidance  | check for jq, exit 2 for security hooks             | reported                          | exit 2                                      | [dev.to: hook mistakes](https://dev.to/yurukusa/5-claude-code-hook-mistakes-that-silently-break-your-safety-net-58l3) |
+
+Target: Champion (under 2 minutes), chosen because the fix is one Homebrew bottle and the reason carries it.
+
+### Magical Moment Specification
+
+The first blocked call already names the command that restores the guard, and the rerun gets the guard's real answer.
+Vehicle: the deny reason itself (KTD2), an existing capability. Requirement: `brew install jaq` is the reason's last
+line, and nothing else in the reason asks the agent to read a file first.
+
+### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                               | FRICTION POINTS                         | STATUS
+----------------|----------------------------------------------|-----------------------------------------|---------
+1. Discover     | meets a guard only through a deny            | none                                    | ok
+2. Install      | Brett pulls, runs brew bundle                | jaq absent until brew bundle            | fixed (jq fallback, Operational Notes)
+3. Hello World  | first blocked call on a host with no parser  | fix buried mid-reason, no recovery line | fixed (X1)
+4. Real Usage   | parser present                               | none; decisions unchanged               | ok
+5. Debug        | a guard crashes or is missing                | crash gave a bare harness line          | fixed for crashes (X3); missing script residual (X4)
+6. Upgrade      | git pull switches settings and scripts       | none; no restow                         | ok
+```
+
+### First-Time Developer Confusion Report
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: AI coding agent on a host with neither jaq nor jq
+Attempting: a normal Bash call that a guard checks
+
+CONFUSION LOG:
+T+0:00  Runs `sleep 60`. Gets "sleep-guard blocked [json-parser-missing] ... It did not run; install jaq, then rerun it."
+T+0:05  Reads the last line, runs `brew install jaq`; it carries no trigger word, so every guard lets it through.
+T+0:40  [estimated] Install done. Reruns `sleep 60`; sleep-guard now denies it with a background next_step.
+T+1:00  Follows that next_step. Succeeded.
+```
+
+Addressed: the fix's position and the recovery line (X1). Residual: in a `cwd` that contains `sleep`, every Bash call is
+blocked until jaq is installed; the same reason and fix apply (Risks).
+
+### Error path matrix (agent-ready-v1)
+
+```text
+Path                   | Class       | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+no parser (before)     | dependency  | pass | fail | fail     | pass | pass    | N/A   | pass      | fail    | CAP6:fix,recovery
+no parser (after)      | dependency  | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | none
+guard crash (before)   | unexpected  | fail | fail | fail     | fail | fail    | fail  | pass      | pass    | CAP6:fix
+guard crash (after)    | unexpected  | pass | pass | pass     | pass | pass    | pass  | pass      | pass    | none
+missing script         | environment | pass | fail | fail     | N/A  | pass    | N/A   | pass      | pass    | CAP6:fix (harness text)
+timeout                | unexpected  | pass | fail | fail     | N/A  | fail    | fail  | pass      | pass    | CAP6:fix (harness text)
+```
+
+What an agent sees today on a missing script:
+`[~/.claude/sleep-guard.sh]: failed; blocking because onFailure is "block"` and
+`/bin/sh: 1: ~/.claude/sleep-guard.sh: not found`. That text is the harness's; R6's test keeps the case out of the repo,
+and the recovery steps go into the `docs/solutions` entry written after merge. Channel for the guards: a JSON deny on
+stdout plus exit 2, so a subagent call that ignores exit codes still reads the deny. No secret reaches any reason: every
+no-parser and crash reason is fixed text plus a line number. No verbose mode exists or is needed.
+
+### DX ledger
+
+| ID  | Pass | Finding                                                                                                                                   | Disposition                                      | Change                                                                              |
+| --- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| X1  | 3    | `CAP6:no-parser:fix,recovery`: the install command sat mid-reason and nothing said the call had not run                                   | accepted (restores the CLAUDE.md error contract) | KTD2 line order, fix last, recovery sentence                                        |
+| X2  | 3    | Channel: [anthropics/claude-code#40580](https://github.com/anthropics/claude-code/issues/40580) reports exit 2 ignored for subagent calls | accepted                                         | KTD2 prints a fixed-text JSON deny and exits 2; R1 names subagents                  |
+| X3  | 3    | `CAP6:crash:fix`: a crash under `onFailure` alone gives a bare harness line, and a broken parser makes every guard crash                  | accepted                                         | KTD10 ERR trap; U1 broken mode; one crash test per guard                            |
+| X4  | 3    | `CAP6:missing-script:fix` and timeout: the harness owns that text                                                                         | residual                                         | R6 test; recovery steps in the post-merge solutions entry                           |
+| X5  | 4    | Each guard's `Protocol:` header line would go stale                                                                                       | accepted                                         | U2 step 4, and the same in U3 and U4                                                |
+| X6  | 5    | No upgrade note for operators                                                                                                             | accepted                                         | Operational Notes: the Changelog entry and `brew bundle`                            |
+| X7  | 6    | The settings invariant's failure output did not say how to fix it                                                                         | accepted                                         | U5 scenario names the two fixes                                                     |
+| X8  | 8    | The live check runs in the main session only                                                                                              | residual                                         | the JSON deny is the mechanism the main-session guards already rely on in subagents |
+
+Approval readiness: PASS. X1, X5, X6, X7 restore declared contracts or docs; X2 and X3 are authorized auto-decisions
+under the brief's rule for this unattended slot; X4 and X8 are recorded residuals.
+
+### NOT in scope (DX)
+
+- Changing the harness's own failure text for a missing script or a timeout: Claude Code owns it.
+- A subagent case in the live check: it needs a dispatched subagent inside the headless run, and the deny path it would
+  test is the one every existing guard already uses.
+- A `--check` mode for the guards, as `never-send-guard.sh` has: the no-parser reason names the fix, and no operator
+  task needs it.
+
+### What already exists (DX)
+
+- The deny text shape with `[reason]`, `next_step [action]`, and the rebuilt command (`sleep-guard.sh`, the deny block
+  at the end of the script).
+- The `guard-internal-error` token (`never-send-guard.sh:45`).
+- The exit-code and audience tables in
+  `docs/solutions/best-practices/claude-code-hook-exit-codes-and-stdout-semantics-2026-04-20.md`.
+
+### DX Implementation Checklist
+
+```text
+DX IMPLEMENTATION CHECKLIST
+============================
+[ ] A blocked call on a host with no parser is fixable in under 2 minutes with the reason's last line
+[ ] The fix is one command: brew install jaq
+[ ] Every no-parser and crash reason meets the agent-ready error contract (Pass 3)
+[ ] Reason tokens follow the existing [reason] / next_step [action] shape
+[ ] Each no-parser and crash output parses as JSON in its test
+[ ] Each guard's Protocol: header matches its exits
+[ ] The PR's Changelog tells operators to run brew bundle
+[ ] Works in CI without special configuration (bats.yml unchanged)
+```
+
+### Implementation Tasks (DX)
+
+- [ ] **T4 (P1, human: ~1h / CC: ~10min)** — guards — print the KTD2 fixed-text JSON deny and exit 2, fix on the last
+  line
+  - Surfaced by: Pass 3, X1 and X2
+  - Files: the seven guard scripts
+  - Verify: the no-parser tests parse stdout as a deny ending in `brew install jaq`
+- [ ] **T5 (P1, human: ~1h / CC: ~10min)** — guards and helper — add the KTD10 trap and the helper's broken mode
+  - Surfaced by: Pass 3, X3
+  - Files: the seven guard scripts, `tests/lib/json-parser.bash`, the seven suites
+  - Verify: each broken-parser test shows exit 2 and `[guard-internal-error]`
+- [ ] **T6 (P2, human: ~10min / CC: ~2min)** — guards — update each `Protocol:` header line
+  - Surfaced by: Pass 4, X5
+  - Files: the seven guard scripts
+  - Verify: read each header against its exits
+- [ ] **T7 (P2, human: ~10min / CC: ~2min)** — settings test — name both fixes in the invariant's failure output
+  - Surfaced by: Pass 6, X7
+  - Files: `tests/claude-settings.bats`
+  - Verify: the fail-first run's output shows them
+- [ ] **T8 (P2, human: ~5min / CC: ~1min)** — PR body — the Changelog entry from Operational Notes
+  - Surfaced by: Pass 5, X6
+  - Files: the PR body
+  - Verify: the entry names `brew bundle`
+
+### Pass scores
+
+| Pass              | Before | After | Gap to 10                                                        |
+| ----------------- | ------ | ----- | ---------------------------------------------------------------- |
+| 1 Getting Started | 7      | 8     | a measured install time on a clean host                          |
+| 2 API/CLI design  | 7      | 8     | reason tokens are not yet listed in one place                    |
+| 3 Error Messages  | 6      | 6     | capped by X4: the harness's missing-script and timeout text      |
+| 4 Documentation   | 6      | 7     | the recovery steps land only after merge, in the solutions entry |
+| 5 Upgrade Path    | 7      | 8     | no Claude Code version floor is checked on a host                |
+| 6 Dev Environment | 7      | 8     | the Mac path of the helper is exercised only by pre-push         |
+| 7 Community       | 5      | 5     | a private repo; no change in scope                               |
+| 8 DX Measurement  | 5      | 6     | the corpus replay is a one-off, not a repeatable script          |
+
+## DX Review Scorecard
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      |  8/10  |  8/10  |   =    |
+| API/CLI/SDK          |  8/10  |  8/10  |   =    |
+| Error Messages       |  6/10  |  8/10  |   ↓    |
+| Documentation        |  7/10  |  8/10  |   ↓    |
+| Upgrade Path         |  8/10  |  7/10  |   ↑    |
+| Dev Environment      |  8/10  |  8/10  |   =    |
+| Community            |  5/10  |  5/10  |   =    |
+| DX Measurement       |  6/10  |  6/10  |   =    |
++--------------------------------------------------------------------+
+| TTHW                 | ~1 min | never (silent allow)                 |
+| Competitive Rank     | Champion                                     |
+| Magical Moment       | designed via the deny reason's last line     |
+| Product Type         | Claude Code hook                             |
+| Mode                 | POLISH                                       |
+| Overall DX           |  7/10  |  7/10  |   =    |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered                                        |
+| Learn by Doing     | covered                                        |
+| Fight Uncertainty  | covered, except the harness-owned paths (X4)   |
+| Opinionated + Escape Hatches | covered (disableAllHooks recovery)   |
+| Code in Context    | covered                                        |
+| Magical Moments    | covered                                        |
+| Agents Are Users   | covered                                        |
++====================================================================+
+```
+
+Prior scores are the latest DX review in this project, the never-send guard plan, a different plan under the same
+rubric. Error Messages stays at 6 because of X4, harness-owned text this plan cannot change; no pass is below 5, and the
+TTHW is under the target.
+
+Unresolved Decisions: none.
+
 ## GSTACK REVIEW REPORT
 
-| Review         | Trigger               | Why                             | Runs | Status      | Findings                  |
-| -------------- | --------------------- | ------------------------------- | ---- | ----------- | ------------------------- |
-| CEO Review     | `/plan-ceo-review`    | Scope & strategy                | 0    | —           | —                         |
-| Outside Review | codex, eng phase      | Independent 2nd opinion         | 1    | disabled    | —                         |
-| Eng Review     | `/plan-eng-review`    | Architecture & tests (required) | 1    | ISSUES OPEN | 7 issues, 0 critical gaps |
-| Design Review  | `/plan-design-review` | UI/UX gaps                      | 0    | —           | —                         |
-| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 0    | —           | —                         |
+| Review         | Trigger               | Why                             | Runs | Status      | Findings                                 |
+| -------------- | --------------------- | ------------------------------- | ---- | ----------- | ---------------------------------------- |
+| CEO Review     | `/plan-ceo-review`    | Scope & strategy                | 0    | —           | —                                        |
+| Outside Review | codex, eng and DX     | Independent 2nd opinion         | 2    | disabled    | —                                        |
+| Eng Review     | `/plan-eng-review`    | Architecture & tests (required) | 1    | ISSUES OPEN | 7 issues, 0 critical gaps                |
+| Design Review  | `/plan-design-review` | UI/UX gaps                      | 0    | —           | —                                        |
+| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 1    | ISSUES OPEN | score: 6/10 → 7/10, TTHW: never → ~1 min |
 
-- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no findings.
-- **VERDICT:** no review CLEAR; Eng Review ran with 7 findings, all accepted and applied in the plan, none unresolved.
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews` for both the eng and DX reviews; no
+  findings.
+- **VERDICT:** no review CLEAR; the eng and DX reviews ran, every finding is accepted and applied or recorded as a
+  residual, and none is unresolved. eng review required
 
 NO UNRESOLVED DECISIONS
