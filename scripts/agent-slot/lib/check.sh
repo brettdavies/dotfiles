@@ -3,7 +3,8 @@
 # share. Every lookup must show that it ran; a lookup that fails, or that returns nothing to judge, is a blocker.
 #
 # A task has finished when none of its PRs is open or closed without merging and one has merged, or when the operator
-# finished it, whatever state its PRs are in. A finished slot may go only when every check below passes:
+# finished it, or the finish its agent's release started did, whatever state its PRs are in. A finished slot may go only
+# when every check below passes:
 #
 #   the agent is idle or absent; the tree is clean apart from setup's docs/solutions link and nothing is stashed; every
 #   local commit is in the final head of one of the task's PRs, or, for a task that never had a PR, on a branch of a
@@ -351,7 +352,7 @@ check_inputs_load() {
 
 # Usage: check_slot <repo> <n>; sets CHECK_VERDICT. PR state comes from one gh call per repo, made on first use.
 check_slot() {
-  local repo=$1 n=$2 path real state base origin prs='[]' prs_known=1 refspecs=() number out finished operator
+  local repo=$1 n=$2 path real state base origin prs='[]' prs_known=1 refspecs=() number out finished marked
   local -a closed links
   CHECK_BLOCKERS=() CHECK_PUSH_REMOTES=()
   path=$(slot_path "$repo" "$n")
@@ -360,6 +361,7 @@ check_slot() {
     RECORD=$(contract_json -n -c --arg r "$repo" --argjson n "$n" '{repo: $r, slot: $n, state: "setting-up"}')
   fi
   state=$(contract_json -r '.state // "active"' <<<"$RECORD")
+  marked=$(contract_json -r '.finished_by_operator == true or .release.finished_at != null' <<<"$RECORD")
   if [[ $state != active ]]; then
     _check_block slot-busy "$(slot_key "$repo" "$n") is $state"
   else
@@ -383,9 +385,8 @@ check_slot() {
     fi
     _check_fetch_push_remotes "$path"
 
-    operator=$(contract_json -r '.finished_by_operator // false' <<<"$RECORD")
     mapfile -t closed < <(contract_json -r '.[] | select(.state == "CLOSED") | .number' <<<"$prs")
-    if ((${#closed[@]} > 0)) && [[ $operator != true ]]; then
+    if ((${#closed[@]} > 0)) && [[ $marked != true ]]; then
       _check_block pr-closed-unmerged "PR #$(printf '%s, PR #' "${closed[@]}" | sed 's/, PR #$//') closed without merging" \
         "" "${closed[@]}"
     fi
@@ -407,8 +408,7 @@ check_slot() {
     fi
   fi
 
-  finished=$(contract_json -r --argjson op "$(contract_json '.finished_by_operator // false' <<<"$RECORD")" \
-    --argjson ok "$prs_known" '
+  finished=$(contract_json -r --argjson op "$marked" --argjson ok "$prs_known" '
     if $ok == 0 then false
     else $op or ((any(.[]; .state == "OPEN" or .state == "CLOSED") | not) and any(.[]; .state == "MERGED"))
     end' <<<"$prs")
@@ -419,7 +419,8 @@ check_slot() {
     map(select(. != null)) as $blockers
     | {key: $key, repo: $record.repo, slot: $record.slot, path: $path, state: $state, task: $record.task,
        branch: (if $branch == "" then null else $branch end), prs: $prs, finished: $finished,
-       finished_by: (if $finished | not then null elif $record.finished_by_operator then "operator" else "merge" end),
+       finished_by: (if $finished | not then null elif $record.finished_by_operator then "operator"
+                     elif $record.release.finished_at != null then "release" else "merge" end),
        blockers: $blockers,
        needs_you: (if $finished or any($blockers[]; .code == "pr-closed-unmerged" or .code == "pr-state-unknown")
                    then [$blockers[] | select(.code != "checked-by-own-agent")] else [] end),

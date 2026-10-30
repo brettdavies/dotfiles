@@ -273,8 +273,8 @@ path it does not trust. Claude skips its own bypass warning only when `~/.claude
 `skipDangerousModePermissionPrompt` to `true`, as this repo's settings do; `agent-slot doctor` warns when it does not.
 
 A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
-merged with none open, or the operator finished it, whatever state its PRs are in) and nothing in it is missing from
-GitHub. A commit is safe there once a PR's final head holds it, an origin branch or tag holds it, or a branch of a fork
+merged with none open, the operator finished it, whatever state its PRs are in, or its agent released it with no PR
+open) and nothing in it is missing from GitHub. A commit is safe there once a PR's final head holds it, an origin branch or tag holds it, or a branch of a fork
 holds it: a remote on origin's host that one of the slot's branches tracks or pushes to, as `gh pr checkout` sets up for
 a PR from a fork. A task owns the PRs opened from its branches after its slot was made, and an older PR whose head one
 of its branches holds beyond the base, such as the PR a review-round slot works on. Anything else keeps it on the
@@ -293,10 +293,13 @@ and commits and PRs anything that is real work, then stops every background job 
 `agent-slot release`, which refuses until both skills have run in that slot and while the slot's Claude still runs a
 Bash tool command other than the release's own: Claude Code lists a session with a live background shell as busy, so a
 leftover job would hold the teardown back for as long as it runs. An agent still waiting on something, such as CI or a
-release chain, keeps that job and runs `agent-slot release --not-yet '<why>'` instead, which releases nothing and
-records why. The release starts `agent-slot finish <repo>/<N> --yes --when-idle` in a session of its own, outside the
-slot, which waits for the agent to go idle and then runs the same fail-closed finish the operator does. A slot whose PR
-is still open stays released, and `agent-slot-sweep.timer` tears it down once the PR merges: every ten minutes it runs
+release chain, keeps that job and runs `agent-slot release --not-yet '<why>'` instead, which records why and withdraws
+the agent's earlier release, if it made one: of a release and a `--not-yet`, the newer stands. The release starts
+`agent-slot finish <repo>/<N> --yes --when-idle` in a session of its own, outside the slot, which waits for the agent to
+go idle and then runs the same fail-closed finish the operator does, except that it marks the task finished on the
+release rather than as the operator's, so a `--not-yet` withdraws that mark with the release. Once a `--not-yet` or a
+newer release replaces the release that started it, that finish stops waiting and refuses with `release-withdrawn`,
+tearing nothing down. A slot whose PR is still open stays released, and `agent-slot-sweep.timer` tears it down once the PR merges: every ten minutes it runs
 `agent-slot sweep --yes --auto`, which tears down only a slot its agent released or the operator finished. A finished
 slot that is neither keeps its clone, so its learnings are not lost: its idle agent is typed the closing steps once, and
 a slot whose agent is gone, or that still has not released after those steps, joins the needs-you list as
@@ -308,6 +311,8 @@ idle agent a reminder naming them, once: delete what is scratch, commit and PR w
 It stays off the needs-you list while the agent is busy, and joins it when the agent is gone, or is idle after the
 reminder with the files still there and no `--not-yet` saying why. The operator's own `agent-slot sweep --yes`,
 `agent-slot finish --yes`, and the finish key ignore the release: they tear down any finished slot that check passes.
+An operator's finish is the operator's call, so `--not-yet` does not undo it: on a slot the operator finished, it
+refuses with `finished-by-operator`, records nothing, and the slot is torn down once its agent is idle and check passes.
 
 #### Setup
 
@@ -451,6 +456,8 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `reconcile-busy`              | 1    | Another restore, sweep, or finish on the Mac held the tab lock too long; retry                 |
 | `compound-not-run`            | 1    | `release` refused: the slot's session has not run `ce-compound` and `ce-compound-refresh` yet  |
 | `background-jobs-running`     | 1    | `release` refused: the slot's Claude still runs background jobs, named in `value`              |
+| `finished-by-operator`        | 1    | `release --not-yet` refused: the operator finished the slot, and `--not-yet` does not undo it  |
+| `release-withdrawn`           | 1    | A release's `finish` stood down: a `--not-yet` or a newer release replaced its release         |
 | `sweep-timer-inactive`        | 78   | The automatic sweep timer is not enabled; `bash scripts/host-jobs-enable.sh`                   |
 
 #### Teardown blockers

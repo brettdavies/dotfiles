@@ -10,7 +10,9 @@
 #
 # An agent that ran `release --not-yet WHY` holds the slot off the needs-you list while it is there. Once it is idle
 # and that record is AS_RELEASE_REMIND seconds old, it is typed a reminder, once. A reminder the agent answers with
-# neither a release nor a new --not-yet ends the hold, and the slot is listed as before.
+# neither a release nor a new --not-yet ends the hold, and the slot is listed as before. A --not-yet withdraws any
+# earlier release, so a slot counts as released only while its release is the newer of the two; the operator's finish
+# holds whatever the agent says.
 
 RELEASE_AUTO=
 # The teardown blockers about files in the slot's tree, which its agent can clear itself.

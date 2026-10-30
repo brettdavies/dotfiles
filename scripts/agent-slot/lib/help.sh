@@ -62,8 +62,8 @@ verb_help() {
       'example: agent-slot warm dotfiles --count 4' ;;
     check) printf '%s\n' 'usage: agent-slot check [<repo>/<N>] [--output json]' \
       'Judges each slot (or one): whether its task has finished and what blocks its teardown. It deletes nothing.' \
-      'returns: slots[] of {key, repo, slot, path, state, task, branch, prs, finished, finished_by, blockers,' \
-      '         needs_you, teardown}' \
+      'returns: slots[] of {key, repo, slot, path, state, task, branch, prs, finished, finished_by (merge, operator,' \
+      '         or release), blockers, needs_you, teardown}' \
       'example: agent-slot check dotfiles/2 --output json' ;;
     sweep) printf '%s\n' 'usage: agent-slot sweep [--yes [--auto]] [--output json]' \
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \
@@ -87,8 +87,9 @@ verb_help() {
       'moving it to the trash and purging it from there at once; a purge that fails leaves the slot torn down and' \
       'names the trash-rm command that finishes it. A teardown pushes a restore to each' \
       "Rex client, which closes the slot's tab. --when-idle, which release starts, first waits up to" \
-      "$AS_RELEASE_WAIT s for the slot's agent to go idle. Each --yes run appends its outcome to" \
-      "$AS_STATE_DIR/teardown.log." \
+      "$AS_RELEASE_WAIT s for the slot's agent to go idle. The finish a release starts marks the task finished on" \
+      'that release, and refuses with release-withdrawn once a --not-yet or a newer release replaces it. Each --yes' \
+      "run appends its outcome to $AS_STATE_DIR/teardown.log." \
       'returns: key, then dry_run, would_tear_down, verdict without --yes, or torn_down and purge {purged, entry, ms,' \
       '         and code, message, next_step, log when it failed} with it' \
       'example: agent-slot finish dotfiles/2 --yes' ;;
@@ -99,9 +100,12 @@ verb_help() {
       'Bash tool command other than this one, naming each. Then it records the request and starts finish --yes' \
       '--when-idle in a session of its own, outside the slot, which tears the slot down once the agent is idle and' \
       'check passes. A slot whose task has not finished stays requested until the automatic sweep tears it down. It' \
-      'deletes nothing itself, so it needs no ask. --not-yet releases nothing: it records why the slot is not ready,' \
-      'such as a wait on CI, so the automatic sweep reminds the agent later instead of listing the slot.' \
-      'returns: key, requested_at, runner_pid, skills[], already_requested; with --not-yet, key and not_yet {why, at}' \
+      'deletes nothing itself, so it needs no ask. --not-yet records why the slot is not ready, such as a wait on CI,' \
+      'so the automatic sweep reminds the agent later instead of listing the slot. Of a release and a --not-yet, the' \
+      'newer stands: --not-yet withdraws an earlier release, and the finish it started stands down. It does not undo' \
+      "the operator's finish: on a slot the operator finished it refuses with finished-by-operator." \
+      'returns: key, requested_at, runner_pid, skills[], already_requested; with --not-yet, key, not_yet {why, at},' \
+      '         release_withdrawn' \
       "example: agent-slot release --not-yet 'release.yml run 42 has not finished' --output json" ;;
     doctor) printf '%s\n' 'usage: agent-slot doctor [--output json]' \
       'Checks every launch prerequisite on this server and the time from key press to Claude idle.' \

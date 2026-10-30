@@ -10,7 +10,10 @@
 # does. A slot whose task has not finished stays requested, and the automatic sweep tears it down once it has.
 #
 # An agent still waiting on something, such as CI or a release chain, does not stop it to pass release's check: it runs
-# `release --not-yet WHY` instead, which releases nothing and records why for the automatic sweep (autosweep.sh).
+# `release --not-yet WHY` instead, which records why for the automatic sweep (autosweep.sh). Of the agent's release and
+# its --not-yet, the newer stands: a release clears the --not-yet, and a --not-yet withdraws the release along with the
+# finish mark its teardown left, and that teardown stands down rather than tear the slot down. An operator's finish is
+# the operator's call, so --not-yet refuses on a slot the operator finished instead of claiming to hold it.
 #
 # teardown.log in the state directory gets one JSON line per release request, refusal, and --not-yet, per finish --yes,
 # and per sweep --yes pass: what ran it, the slots it tore down, and why it kept or refused the rest.
@@ -105,18 +108,38 @@ run $RELEASE_COMMAND again. If you are still waiting on one, leave it running an
 $RELEASE_NOT_YET, and release once it is done" --value "$jobs" --command "$RELEASE_COMMAND"
 }
 
-# Usage: release_not_yet <repo> <n> <key>; records RELEASE_WHY as the reason the slot is not ready to release.
+# Usage: release_not_yet <repo> <n> <key>; records RELEASE_WHY as the reason the slot is not ready to release, and
+# withdraws the agent's earlier release. The record is judged under the same lock that changes it, so an operator's
+# finish landing at the same moment is either seen and refused or not yet made.
 release_not_yet() {
-  local at why=${RELEASE_WHY//[$'\n\t']/ }
+  local at withdrawn why=${RELEASE_WHY//[$'\n\t']/ }
   at=$(contract_now)
-  record_update "$1" "$2" --arg why "$why" --arg at "$at" '.not_yet = {why: $why, at: $at}' \
+  record_update "$1" "$2" --arg why "$why" --arg at "$at" \
+    'if .finished_by_operator == true then . else del(.release) | .not_yet = {why: $why, at: $at} end' \
     || contract_fail slot-busy "$3 stayed locked, so why it is not ready was not recorded" --value "$3" \
       --command "$RELEASE_NOT_YET"
-  teardown_log release "$(contract_json -n -c --arg key "$3" --arg why "$why" \
-    '{key: $key, result: "not-yet", why: $why}')"
-  contract_ok "$(contract_json -n -c --arg key "$3" --arg why "$why" --arg at "$at" \
-    '{key: $key, not_yet: {why: $why, at: $at}}')" \
-    '"\(.key): not released, since \(.not_yet.why); the automatic sweep reminds you later rather than listing the slot"'
+  if contract_json -e '.finished_by_operator == true' <<<"$RECORD" >/dev/null; then
+    teardown_log release "$(contract_json -n -c --arg key "$3" --arg why "$why" \
+      '{key: $key, result: "refused", reason: "finished-by-operator", why: $why}')"
+    contract_fail finished-by-operator "the operator finished $3, and --not-yet does not undo that: the slot is torn \
+down once you are idle and nothing in it would be lost. Push and PR now whatever has to outlive it" --value "$3"
+  fi
+  withdrawn=$(contract_json '.release != null' <<<"$RECORD")
+  teardown_log release "$(contract_json -n -c --arg key "$3" --arg why "$why" --argjson withdrawn "$withdrawn" \
+    '{key: $key, result: "not-yet", why: $why, release_withdrawn: $withdrawn}')"
+  contract_ok "$(contract_json -n -c --arg key "$3" --arg why "$why" --arg at "$at" --argjson withdrawn "$withdrawn" \
+    '{key: $key, not_yet: {why: $why, at: $at}, release_withdrawn: $withdrawn}')" \
+    '"\(.key): not released" + (if .release_withdrawn then " (your earlier release is withdrawn)" else "" end)
+      + ", since \(.not_yet.why); the automatic sweep reminds you later rather than listing the slot"'
+}
+
+# Usage: release_withdrawn <repo> <n>; in the finish a release started, true once the record no longer holds that
+# release: a --not-yet withdrew it, or a newer release replaced it. AGENT_SLOT_RELEASE_ID carries the release's id,
+# written before the finish starts. requested_at would not do: it counts whole seconds, and a release, a --not-yet, and
+# a second release can all fall in one.
+release_withdrawn() {
+  [[ -n ${AGENT_SLOT_RELEASE_ID:-} ]] && record_read "$1" "$2" \
+    && ! contract_json -e --arg id "$AGENT_SLOT_RELEASE_ID" '.release.id == $id' <<<"$RECORD" >/dev/null
 }
 
 # Usage: release_runner_alive <pid> <key>; true while that PID is the finish a release of the slot started.
@@ -125,8 +148,8 @@ release_runner_alive() {
     && tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null | grep -qF "finish $2 --yes --when-idle"
 }
 
-# Usage: release_start_runner <key>; sets RELEASE_PID. In a shell without job control a background job does not lead
-# its process group, so setsid makes the job itself a session leader, and $! is the finish's own PID.
+# Usage: release_start_runner <key> <release-id>; sets RELEASE_PID. In a shell without job control a background job
+# does not lead its process group, so setsid makes the job itself a session leader, and $! is the finish's own PID.
 release_start_runner() {
   local key=$1 log fd
   log=$AS_LOG_DIR/release-${key//\//-}.log
@@ -137,14 +160,14 @@ release_start_runner() {
       fd=${fd##*/}
       ((fd <= 2)) || eval "exec $fd>&-" 2>/dev/null || true
     done
-    exec env -u TMUX -u TMUX_PANE AGENT_SLOT_PUSH_WAIT=1 setsid "$AS_HOME/agent-slot" finish "$key" --yes --when-idle \
-      --output json
+    exec env -u TMUX -u TMUX_PANE AGENT_SLOT_PUSH_WAIT=1 AGENT_SLOT_RELEASE_ID="$2" \
+      setsid "$AS_HOME/agent-slot" finish "$key" --yes --when-idle --output json
   ) </dev/null >>"$log" 2>&1 &
   RELEASE_PID=$!
 }
 
 cmd_release() {
-  local at repo n key requested pid skills
+  local at repo n key requested id pid skills
   at=$(slot_at "$PWD") || at=''
   [[ -z $at ]] || read -r repo n <<<"$at"
   if [[ -z $at ]] || ! record_read "$repo" "$n"; then
@@ -179,14 +202,14 @@ $RELEASE_COMPOUND once per finding, then $RELEASE_REFRESH, then $RELEASE_COMMAND
         already_requested: true}' <<<"$RECORD")" '"\(.key): already released; its teardown (pid \(.runner_pid)) waits"'
     return
   fi
-  requested=$(contract_now)
-  record_update "$repo" "$n" --arg at "$requested" \
-    '.release = {requested_at: $at, session_id: .session_id} | del(.not_yet)' \
+  requested=$(contract_now) id="$(contract_ms)-$$"
+  record_update "$repo" "$n" --arg at "$requested" --arg id "$id" \
+    '.release = {id: $id, requested_at: $at, session_id: .session_id} | del(.not_yet)' \
     || contract_fail slot-busy "$key stayed locked, so its release was not recorded" --value "$key" \
       --command "$RELEASE_COMMAND"
   ledger_append release "$(contract_json -c --argjson skills "$skills" \
     '{repo, slot, task, session_id, transcript, skills: $skills}' <<<"$RECORD")"
-  release_start_runner "$key"
+  release_start_runner "$key" "$id"
   record_update "$repo" "$n" --argjson pid "$RELEASE_PID" '.release.runner_pid = $pid' || true
   teardown_log release "$(contract_json -n -c --arg key "$key" --argjson pid "$RELEASE_PID" \
     '{key: $key, result: "requested", runner_pid: $pid}')"
@@ -197,11 +220,13 @@ $RELEASE_COMPOUND once per finding, then $RELEASE_REFRESH, then $RELEASE_COMMAND
 }
 
 # Usage: release_wait_idle <repo> <n>; waits up to AS_RELEASE_WAIT seconds for the slot's agent to be idle or absent,
-# setting RELEASE_WAITED to the seconds it waited. Returns 1 when the agent is still busy, waiting, or unknown.
+# setting RELEASE_WAITED to the seconds it waited. Returns 1 when the agent is still busy, waiting, or unknown. It stops
+# waiting early once the release that started it is withdrawn, which the finish then refuses under the slot's lock.
 RELEASE_WAITED=0
 release_wait_idle() {
   local start=$SECONDS
   while true; do
+    ! release_withdrawn "$1" "$2" || return 0
     agentstate_load
     agentstate_of "$1" "$2"
     RELEASE_WAITED=$((SECONDS - start))
