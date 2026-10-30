@@ -6,8 +6,8 @@
 PARITY_BASE=
 PARITY_MISSING_SIBLINGS=()
 
-# Usage: parity_checkout_base <slot>; checks out dev when origin has it, else origin's default branch.
-parity_checkout_base() {
+# Usage: parity_base <slot>; sets PARITY_BASE to dev when origin has it, else to origin's default branch.
+parity_base() {
   local slot=$1 head
   if git -C "$slot" rev-parse --verify -q refs/remotes/origin/dev >/dev/null; then
     PARITY_BASE=dev
@@ -16,9 +16,6 @@ parity_checkout_base() {
     PARITY_BASE=${head#origin/}
   fi
   [[ -n $PARITY_BASE ]] || PARITY_BASE=$(git -C "$slot" symbolic-ref --short HEAD)
-  if [[ $(git -C "$slot" symbolic-ref --short HEAD) != "$PARITY_BASE" ]]; then
-    git -C "$slot" checkout -q -B "$PARITY_BASE" "origin/$PARITY_BASE"
-  fi
 }
 
 # Usage: parity_git_crypt <slot>
