@@ -27,9 +27,9 @@ deepened: 2026-10-30
 - **Stop conditions:** stop and report to `rex-linux` if `claude --resume <id>` stops finding a session from another
   project directory on the installed Claude Code; if an operator decision recorded under Key Decisions changes, update
   the plan before the unit it affects.
-- **Who finishes:** the implementing slot ships U1-U8 on `feat/agent-slot-pr-named-restore` as one PR to `dev`,
-  squash-merged once green, then U9's skill text as a PR to `brettdavies/agent-skills`. The operator runs the first real
-  reopen; the implementer runs only dry runs against live data.
+- **Who finishes:** the implementing slot ships U1-U8 and U9's dotfiles docs on `feat/agent-slot-pr-named-restore` as
+  one PR to `dev`, squash-merged once green, then U9's skill text as a PR to `brettdavies/agent-skills`. The operator
+  runs the first real reopen; the implementer runs only dry runs against live data.
 
 ---
 
@@ -238,15 +238,15 @@ Considered and not built:
   else by ID across every project directory; when it is missing, reopen refuses with `transcript-missing` before
   claiming a slot. Governs R8, R9, R11.
 - KTD6. **Lookup, exclusivity, and retries.** Under the repo lock, in order: a slot whose `request_id` equals
-  `--request-id` is returned, as launch does; a slot in any state whose `items` hold the item, whose `prs` hold the PR
-  number (origin items only), or whose `session_id` equals the found session refuses with `item-held-by-slot` (retryable
-  `slot-busy` when that slot is setting up or tearing down); a live Claude agent with that `sessionId` refuses with
-  `session-in-use`. The source is the teardown event `--session` names (refused with `item-not-found-in-ledger` when
-  that event names items and the item is not among them), else the newest teardown event whose `items` hold
+  `--request-id` is returned, as launch does; a slot in any state whose `items` hold the item, or whose `prs` hold the
+  PR number (origin items only), refuses with `item-held-by-slot` (retryable `slot-busy` when that slot is setting up or
+  tearing down); then the source is found: the teardown event `--session` names (refused with `item-not-found-in-ledger`
+  when that event names items and the item is not among them), else the newest teardown event whose `items` hold
   `{kind, repo, number}`, else for an origin PR the newest whose `.repo` is the local repo and whose `prs` hold the
-  number. No match is `item-not-found-in-ledger`, never an empty success. `launch --pr`/`--issue` matches a live slot by
-  item key the same way and reports a torn-down one as `prior: {session_id, ts}` with a note naming reopen. Governs R3,
-  R8, R9.
+  number, and no match is `item-not-found-in-ledger`, never an empty success; then a slot whose `session_id` equals the
+  source's session refuses with `item-held-by-slot`, and a live Claude agent with that `sessionId` refuses with
+  `session-in-use`. `launch --pr`/`--issue` matches a live slot by item key the same way and reports a torn-down one as
+  `prior: {session_id, ts}` with a note naming reopen. Governs R3, R8, R9.
 - KTD7. **Launch and reopen share one slot maker.** The claim, clone, base checkout, parity, prompt copy, trust, session
   start, ledger, and push block of `cmd_launch` moves into one function both verbs call, with hooks for the record seed,
   the head checkout, and the session mode. Nothing after the session starts can fail except the record's state update,
@@ -290,17 +290,19 @@ Considered and not built:
 
   | Reason                     | Exit | Retryable | Action         | `next_step.command`                                                   | `value`               |
   | -------------------------- | ---- | --------- | -------------- | --------------------------------------------------------------------- | --------------------- |
-  | `item-not-found`           | 2    | false     | `run`          | `agent-slot <verb> --help` (the ref grammar)                          | the ref               |
+  | `item-not-found`           | 2    | false     | `run`          | `agent-slot launch --help`, which documents the ref grammar           | the ref               |
   | `item-kind-mismatch`       | 2    | false     | `rerun`        | the same command with `--pr` and `--issue` swapped                    | the ref               |
   | `item-held-by-slot`        | 1    | false     | `run`          | `agent-slot resume <key>`, which only starts sessions that are gone   | the holding slot key  |
   | `session-in-use`           | 1    | false     | `ask-operator` | the same reopen, once the operator closes that session                | `<pid> <cwd>`         |
   | `item-not-found-in-ledger` | 1    | false     | `run`          | `agent-slot launch <repo> --pr\|--issue <ref>` (a fresh start)        | the item key          |
   | `transcript-missing`       | 1    | false     | `run`          | `agent-slot launch <repo> --pr\|--issue <ref>` (a fresh start)        | the session ID        |
 
-  The `item-held-by-slot` message names the holder's slot name, so a dispatcher can send the new brief to that session
-  instead of reopening. Every refusal comes before anything is claimed, so its `recovery.side_effects` is `none`; a
-  GitHub outage reuses retryable `pr-state-unknown` and a failed head fetch reuses retryable `clone-failed`, both with
-  the slot rolled back. Governs R9.
+  Every `next_step.command` runs without a permission prompt: `reopen --help` would hit reopen's ask rule (KTD11), so
+  `item-not-found` points at launch's help, which carries the same ref grammar. The `item-held-by-slot` message names
+  the holder's slot name, so a dispatcher can send the new brief to that session instead of reopening. Every refusal
+  comes before anything is claimed, so its `recovery.side_effects` is `none`; a GitHub outage reuses retryable
+  `pr-state-unknown` and a failed head fetch reuses retryable `clone-failed`, both with the slot rolled back. Governs
+  R9.
 - KTD16. **A dry run reports a refusal instead of failing.** `reopen --dry-run` exits 0 whenever it got as far as the
   item: a refusal a real reopen would hit is reported as `would_reopen: false` plus
   `refusal: {reason, message, next_step}`, the error envelope's fields, as finish's report-only run reports
@@ -320,11 +322,13 @@ flowchart TD
   B --> L[take repo lock]
   L --> Q{slot with this request ID?}
   Q -- yes --> RQ[return that slot]
-  Q -- no --> C{slot holds item or session, or agent has session?}
-  C -- yes --> R1[refuse item-held-by-slot or session-in-use]
+  Q -- no --> C{slot holds the item?}
+  C -- yes --> R1[refuse item-held-by-slot]
   C -- no --> D{source teardown event}
   D -- none --> R2[refuse item-not-found-in-ledger]
-  D -- found --> E{transcript exists?}
+  D -- found --> S{slot or live agent holds its session?}
+  S -- yes --> R4[refuse item-held-by-slot or session-in-use]
+  S -- no --> E{transcript exists?}
   E -- no --> R3[refuse transcript-missing]
   E -- yes --> F{--dry-run?}
   F -- yes --> G[report plan, change nothing]
@@ -514,8 +518,8 @@ stateDiagram-v2
   - Two teardown events for the item: the newer wins.
   - Covers AE4. A transcript absent from every project directory gives `transcript_exists: false` and
     `transcript-missing`.
-  - No matching event fails with `item-not-found-in-ledger`, and an empty or absent ledger is that error too.
-    - `agent-slot reopen` matches an ask rule in the stowed settings, beside finish's and sweep's.
+    - No matching event fails with `item-not-found-in-ledger`, and an empty or absent ledger is that error too.
+  - `agent-slot reopen` matches an ask rule in the stowed settings, beside finish's and sweep's.
   - A slot tearing down that holds the item refuses with retryable `slot-busy`; a stubbed `claude agents` entry with the
     session refuses with `session-in-use`.
 - **Verification:** suite passes; the dry run against the real ledger for oxipng #887, and against a scratch slot root
@@ -627,7 +631,8 @@ Every new test is observed failing against the code without its unit's change be
 
 ## Definition of Done
 
-- U1-U8 merged to `dev` in one PR with every check `SUCCESS` on the rollup; U9's skill PR merged in
+- U1-U8 and U9's README, CONCEPTS.md, and `slot-context.sh` changes merged to `dev` in one PR with every check `SUCCESS`
+  on the rollup, since `tests/agent-slot-docs.bats` fails any verb or reason the README lacks; U9's skill PR merged in
   `brettdavies/agent-skills`, or its merge command sent to `rex-linux`.
 - The oxipng #887 dry run reports session `4e0a3f33-f697-4dff-a32f-2b0202be99d4`, its transcript path, and
   `fix/trns-16-to-8` on `fork`; the Pillow #10331 dry run reports session `a68a31ae-1a50-4f62-afe7-f853e237857f`; both
