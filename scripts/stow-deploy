@@ -8,7 +8,9 @@ set -euo pipefail
 # to ensure reliable execution on freshly cloned repos across thousands
 # of headless servers. See docs/solutions/.../stow-conflict-resolution-wrapper.md
 #
-# Usage: scripts/stow-deploy [--headless] [--all] [package ...]
+# Usage: scripts/stow-deploy [--headless] [--all | --only] [package ...]
+#        --only deploys exactly the named packages instead of adding them to
+#        SHARED_PACKAGES.
 # Env:   STOW_DEPLOY_TARGET  deploy target directory (default: $HOME). The bats
 #        suite points it at a sandbox so no checkout can re-point live symlinks.
 
@@ -29,6 +31,7 @@ STOW_DIR="$REPO_ROOT/stow"
 TARGET="${STOW_DEPLOY_TARGET:-$HOME}"
 HEADLESS=false
 ALL=false
+ONLY=false
 
 # Parse flags
 while [[ "${1:-}" == --* ]]; do
@@ -41,12 +44,27 @@ while [[ "${1:-}" == --* ]]; do
       ALL=true
       shift
       ;;
+    --only)
+      ONLY=true
+      shift
+      ;;
     *)
       echo "ERROR: Unknown flag: $1" >&2
       exit "$EXIT_USAGE"
       ;;
   esac
 done
+
+if [ "$ONLY" = true ]; then
+  if [ "$ALL" = true ]; then
+    echo "ERROR: --only and --all cannot be combined; use scripts/stow-deploy --only <package>... or scripts/stow-deploy --all" >&2
+    exit "$EXIT_USAGE"
+  fi
+  if [ $# -eq 0 ]; then
+    echo "ERROR: --only needs at least one package name, e.g. scripts/stow-deploy --only claude" >&2
+    exit "$EXIT_USAGE"
+  fi
+fi
 
 # Package expansion
 if [ "$ALL" = true ]; then
@@ -65,7 +83,7 @@ if [ "$ALL" = true ]; then
   esac
 else
   # Extra args extend shared defaults; no args = shared only
-  set -- "${SHARED_PACKAGES[@]}" "$@"
+  [ "$ONLY" = true ] || set -- "${SHARED_PACKAGES[@]}" "$@"
 
   # Deduplicate while preserving order (bash 3.2 compatible — no associative arrays)
   _deduped=()
@@ -125,14 +143,13 @@ for pkg in "$@"; do
   esac
 done
 
-# Check for dirty stow directory
-dirty=$(git -C "$REPO_ROOT" status --porcelain stow/ 2>/dev/null || true)
-if [ -n "$dirty" ]; then
-  if [ "$HEADLESS" = true ]; then
-    echo "FATAL: stow/ has uncommitted changes. In --headless mode, --adopt followed" >&2
-    echo "       by git checkout would destroy these changes. Commit first." >&2
-    exit "$EXIT_PRECONDITION"
-  else
+# Check for dirty stow directory. Headless mode instead checks each package
+# just before it would adopt: --adopt followed by its git checkout is the only
+# step that can overwrite an uncommitted edit, and a deployed checkout is
+# routinely dirty (Claude Code writes settings back into stow/claude).
+if [ "$HEADLESS" = false ]; then
+  dirty=$(git -C "$REPO_ROOT" status --porcelain stow/ 2>/dev/null || true)
+  if [ -n "$dirty" ]; then
     echo "WARNING: stow/ has uncommitted changes. If --adopt runs, git diff will" >&2
     echo "         mix your edits with adopted files. Consider committing first." >&2
   fi
@@ -341,6 +358,17 @@ for pkg in "$@"; do
   fi
 
   # Still failing: adopt existing plain files
+  if [ "$HEADLESS" = true ]; then
+    pkg_dirty=$(git -C "$REPO_ROOT" status --porcelain -- "stow/$pkg/" 2>/dev/null || true)
+    if [ -n "$pkg_dirty" ]; then
+      echo "  ERROR: $pkg: --adopt would overwrite uncommitted changes in stow/$pkg/:" >&2
+      # shellcheck disable=SC2001
+      sed 's/^/    /' <<<"$pkg_dirty" >&2
+      echo "  Fix: commit or stash them, then rerun: scripts/stow-deploy --headless --only $pkg" >&2
+      echo "$pkg" >>"$failed_file"
+      continue
+    fi
+  fi
   echo "  Adopting existing files for $pkg..."
   if ! adopt_err=$(stow "${STOW_FLAGS[@]}" -R --adopt "$pkg" 2>&1); then
     echo "  ERROR: $pkg adopt failed:" >&2
