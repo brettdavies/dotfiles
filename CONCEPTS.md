@@ -357,21 +357,30 @@ copy, the `docs/solutions` symlink is present, Claude reads and writes the repo'
 permission grants apply, and a prime that is a partial clone gives the slot a partial clone with the same filter. A slot
 path is either empty or holds one task. The task keeps its slot through review rounds until it has finished: none of its
 PRs is open or closed without merging and one has merged, the operator finished it, whatever state its PRs are in, or
-its agent released it with no PR open. A
-task's PRs are those opened from its branches after its slot was made, and an older one whose head a branch of the slot
-holds beyond the base, such as the PR a review round works on. The slot's agent ends its task with a *release*: once it
-has run the closing skills that record its learnings and stopped every background job it no longer needs, it hands the
-slot's teardown upstream, to a finish outside the slot that waits for the agent to go idle. An agent still waiting on
-something, such as CI, never stops that wait to release: it records why the slot is *not yet* ready, which keeps the
-slot off the needs-you list while the agent is there and gets the agent reminded later. Of the agent's release and its
-not-yet, the newer stands: a not-yet withdraws an earlier release, and the finish that release started stands down. It
-never undoes the operator's finish, which is the operator's decision rather than the agent's. A *slot sweep* deletes the
-clone, moving it to the trash and purging it from there at once, only when nothing in it is missing from GitHub (a PR's
-head, origin, or the fork on origin's host that one of its branches tracks or pushes to) and its agent is idle or gone;
-the *automatic sweep*, which a timer runs, deletes only a slot its agent released or the operator finished, and first
-reminds the agent of a finished slot held back only by files left in it to clean them up. A slot that fails that check
-stays put on the *needs-you list*, which names each blocker, and is never deleted. A slot whose tmux sessions are gone
-after a server reboot is *dormant* until resume restarts them and its conversation.
+its agent released it with no PR open. A task's PRs are those opened from its branches after its slot was made, and an
+older one whose head a branch of the slot holds beyond the base, such as the PR a review round works on. The slot's
+agent ends its task with a *release*: once it has run the closing skills that record its learnings and stopped every
+background job it no longer needs, it hands the slot's teardown upstream, to a finish outside the slot that waits for
+the agent to go idle. An agent still waiting on something, such as CI, never stops that wait to release: it records why
+the slot is *not yet* ready, which keeps the slot off the needs-you list while the agent is there and gets the agent
+reminded later. Of the agent's release and its not-yet, the newer stands: a not-yet withdraws an earlier release, and
+the finish that release started stands down. It never undoes the operator's finish, which is the operator's decision
+rather than the agent's. A *slot sweep* deletes the clone, moving it to the trash and purging it from there at once,
+only when nothing in it is missing from GitHub (a PR's head, origin, or the fork on origin's host that one of its
+branches tracks or pushes to) and its agent is idle or gone; the *automatic sweep*, which a timer runs, deletes only a
+slot its agent released or the operator finished, and first reminds the agent of a finished slot held back only by files
+left in it to clean them up. A slot that fails that check stays put on the *needs-you list*, which names each blocker,
+and is never deleted. A slot whose tmux sessions are gone after a server reboot is *dormant* until resume restarts them
+and its conversation.
+
+A slot's *work items* are the GitHub PRs and issues its task works on, each known by kind, repository, and number. A
+slot gets them when it is launched or reopened on one, when one is adopted onto it, and when its own PRs are found. Its
+*slot name*, `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>`, comes from the first and never changes, so an issue's
+slot keeps the issue's name once its PR opens; it labels the slot and its Claude session wherever either is listed. A
+*reopen* brings a torn-down slot's work back by one of its work items: a fresh slot on the branch the old one had
+checked out, whose agent resumes the old slot's Claude conversation by its session ID. A reopened task's *settled PRs*,
+those already merged or closed when it was reopened, neither finish it nor hold its slot back, so only a new outcome
+ends it.
 
 ### Agent state
 
@@ -400,3 +409,6 @@ such as one a test run in the slot leaked, holds the slot until it exits, like a
   points at a separate repository whose files this repo does not track.
 - A *canonical checkout* is the one clone of this repo, `~/dotfiles`, that may deploy into the real home. A *prime
   checkout* is the operator's own clone of any repo, as opposed to its *agent slots*. The two do not interchange.
+- A *reopen* brings a torn-down slot's work back in a new slot, while resuming a *dormant* slot restarts that same
+  slot's sessions in place, and the Mac's restore matches Rex tabs to the slots that exist. Reopening a closed PR on
+  GitHub is none of these.

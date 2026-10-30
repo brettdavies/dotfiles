@@ -6,7 +6,7 @@
 #     either changed (a /clear starts a new session);
 #   - on the slot's first start sets the record's ready_at and, when the launch carried a request ID, appends the
 #     `ready` ledger line that agent-slot doctor joins to the launch line;
-#   - prints SessionStart additionalContext naming the slot and its working rules.
+#   - prints SessionStart additionalContext naming the slot, its task and work items, and its working rules.
 # Anywhere else it prints nothing. Always exits 0; failures go to the agent-slot hooks.log.
 
 if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
@@ -60,8 +60,10 @@ context_record() {
 # through --arg, never as part of its program, so an apostrophe or a backtick in one prints as written.
 # shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
 context_text() {
-  local task base prime rules plans closing rules_after
+  local task items base prime rules plans closing rules_after reopen
   task=$(contract_json -r '.task // ""' <<<"$RECORD")
+  items=$(contract_json -r '.items // [] | map("\(if .kind == "pr" then "PR" else .kind end) \(.repo)#\(.number)"
+    + (if (.title // "") == "" then "" else " (\(.title))" end)) | join(", ")' <<<"$RECORD")
   base=$(contract_json -r '.base // "the default branch"' <<<"$RECORD")
   prime=$(contract_json -r '.prime // "for this repo"' <<<"$RECORD")
   rules=$(
@@ -111,12 +113,15 @@ Stage with `git add`, then run a plain `git commit`; never `git commit -a` or `g
 Create no git worktrees inside this slot.
 EOF
   )
+  reopen="\`agent-slot reopen\` stops on a permission prompt, \`--help\` and \`--dry-run\` included, that nobody \
+here answers: send a reopen to the session your brief reports to."
   contract_json -n -c --arg text "$(
     printf '%s\n' "You are working in agent slot $(slot_key "$1" "$2"), a clone at $(slot_path "$1" "$2")."
     if [[ -n $task ]]; then printf 'Task: %s.\n' "$task"; else printf '%s\n' 'This slot was given no task name.'; fi
+    [[ -z $items ]] || printf 'Work items: %s.\n' "$items"
     printf '%s\n' "The base branch is $base." \
       "The prime checkout $prime is read-only for you; make every change in this slot." "$rules" "$plans" "$closing" \
-      "$rules_after"
+      "$rules_after" "$reopen"
   )" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $text}}'
 }
 

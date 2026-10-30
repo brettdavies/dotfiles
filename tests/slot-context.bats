@@ -108,11 +108,30 @@ what with agent-slot release --not-yet '<why>' --output json, and release when i
   [[ $context == *"If the brief names no such session, leave the decision open in the plan and in your report."* ]]
 }
 
+@test "the context sends a reopen to the brief's session, since its ask rule prompts on --help and --dry-run too" {
+  slot repo 1 '{"task": "t"}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"\`agent-slot reopen\` stops on a permission prompt, \`--help\` and \`--dry-run\` included, that \
+nobody here answers: send a reopen to the session your brief reports to."* ]]
+}
+
 @test "a slot with no task says so" {
   slot repo 1
   run start s1 startup
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
   [[ $context == *"no task name"* ]]
+  [[ $context != *"Work items"* ]]
+}
+
+@test "a slot with work items has its context name each one by kind, repo, number, and title" {
+  slot repo 1 '{"task": "t", "name": "oxipng-pr887-fix-trns", "items": [
+    {"kind": "pr", "repo": "oxipng/oxipng", "number": 887, "title": "Fix 16-bit to 8-bit reduction with tRNS"},
+    {"kind": "issue", "repo": "oxipng/oxipng", "number": 886, "title": "16-bit tRNS lost"}]}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"Task: t."*"Work items: PR oxipng/oxipng#887 (Fix 16-bit to 8-bit reduction with tRNS), \
+issue oxipng/oxipng#886 (16-bit tRNS lost)."* ]]
 }
 
 @test "a context line holding an apostrophe prints as written" {

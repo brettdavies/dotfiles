@@ -268,17 +268,18 @@ hand, opens or closes its tab in Rex with no key press.
 
 Each slot's Claude starts and resumes with `--dangerously-skip-permissions`, so it skips its permission prompts except
 under an ask rule and for the few actions Claude never auto-approves. Deny rules and hooks still block in that mode, ask
-rules are how `agent-slot sweep` and `agent-slot finish` keep asking first, and Claude's trust dialog still shows for a
-path it does not trust. Claude skips its own bypass warning only when `~/.claude/settings.json` sets
-`skipDangerousModePermissionPrompt` to `true`, as this repo's settings do; `agent-slot doctor` warns when it does not.
+rules are how `agent-slot sweep`, `agent-slot finish`, and `agent-slot reopen` keep asking first, and Claude's trust
+dialog still shows for a path it does not trust. Claude skips its own bypass warning only when `~/.claude/settings.json`
+sets `skipDangerousModePermissionPrompt` to `true`, as this repo's settings do; `agent-slot doctor` warns when it does
+not.
 
 A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
 merged with none open, the operator finished it, whatever state its PRs are in, or its agent released it with no PR
-open) and nothing in it is missing from GitHub. A commit is safe there once a PR's final head holds it, an origin branch or tag holds it, or a branch of a fork
-holds it: a remote on origin's host that one of the slot's branches tracks or pushes to, as `gh pr checkout` sets up for
-a PR from a fork. A task owns the PRs opened from its branches after its slot was made, and an older PR whose head one
-of its branches holds beyond the base, such as the PR a review-round slot works on. Anything else keeps it on the
-*needs-you list*, shown on its tab and in the `agent-slots` control session.
+open) and nothing in it is missing from GitHub. A commit is safe there once a PR's final head holds it, an origin branch
+or tag holds it, or a branch of a fork holds it: a remote on origin's host that one of the slot's branches tracks or
+pushes to, as `gh pr checkout` sets up for a PR from a fork. A task owns the PRs opened from its branches after its slot
+was made, and an older PR whose head one of its branches holds beyond the base, such as the PR a review-round slot works
+on. Anything else keeps it on the *needs-you list*, shown on its tab and in the `agent-slots` control session.
 
 Deleting a slot moves its clone, `.git` included, to the trash and purges that one entry from the trash at once: the
 trash shares the slot root's volume, so the move alone frees nothing. The entry is the one whose `.trashinfo` gives the
@@ -299,20 +300,21 @@ the agent's earlier release, if it made one: of a release and a `--not-yet`, the
 go idle and then runs the same fail-closed finish the operator does, except that it marks the task finished on the
 release rather than as the operator's, so a `--not-yet` withdraws that mark with the release. Once a `--not-yet` or a
 newer release replaces the release that started it, that finish stops waiting and refuses with `release-withdrawn`,
-tearing nothing down. A slot whose PR is still open stays released, and `agent-slot-sweep.timer` tears it down once the PR merges: every ten minutes it runs
-`agent-slot sweep --yes --auto`, which tears down only a slot its agent released or the operator finished. A finished
-slot that is neither keeps its clone, so its learnings are not lost: its idle agent is typed the closing steps once, and
-a slot whose agent is gone, or that still has not released after those steps, joins the needs-you list as
-`not-released`. A slot whose agent recorded `--not-yet` stays off that list while the agent is there; once the agent is
-idle and the record is `AGENT_SLOT_RELEASE_REMIND` seconds old (1800), it is typed a reminder with its own reason, once,
-and a reminder it answers with neither a release nor a new `--not-yet` lists the slot as before. A finished slot kept
-only by files left in its tree (`untracked-files`, `local-only-files`, `uncommitted-changes`), released or not, gets its
-idle agent a reminder naming them, once: delete what is scratch, commit and PR what is work, then close out and release.
-It stays off the needs-you list while the agent is busy, and joins it when the agent is gone, or is idle after the
-reminder with the files still there and no `--not-yet` saying why. The operator's own `agent-slot sweep --yes`,
-`agent-slot finish --yes`, and the finish key ignore the release: they tear down any finished slot that check passes.
-An operator's finish is the operator's call, so `--not-yet` does not undo it: on a slot the operator finished, it
-refuses with `finished-by-operator`, records nothing, and the slot is torn down once its agent is idle and check passes.
+tearing nothing down. A slot whose PR is still open stays released, and `agent-slot-sweep.timer` tears it down once the
+PR merges: every ten minutes it runs `agent-slot sweep --yes --auto`, which tears down only a slot its agent released or
+the operator finished. A finished slot that is neither keeps its clone, so its learnings are not lost: its idle agent is
+typed the closing steps once, and a slot whose agent is gone, or that still has not released after those steps, joins
+the needs-you list as `not-released`. A slot whose agent recorded `--not-yet` stays off that list while the agent is
+there; once the agent is idle and the record is `AGENT_SLOT_RELEASE_REMIND` seconds old (1800), it is typed a reminder
+with its own reason, once, and a reminder it answers with neither a release nor a new `--not-yet` lists the slot as
+before. A finished slot kept only by files left in its tree (`untracked-files`, `local-only-files`,
+`uncommitted-changes`), released or not, gets its idle agent a reminder naming them, once: delete what is scratch,
+commit and PR what is work, then close out and release. It stays off the needs-you list while the agent is busy, and
+joins it when the agent is gone, or is idle after the reminder with the files still there and no `--not-yet` saying why.
+The operator's own `agent-slot sweep --yes`, `agent-slot finish --yes`, and the finish key ignore the release: they tear
+down any finished slot that check passes. An operator's finish is the operator's call, so `--not-yet` does not undo it:
+on a slot the operator finished, it refuses with `finished-by-operator`, records nothing, and the slot is torn down once
+its agent is idle and check passes.
 
 #### Setup
 
@@ -336,7 +338,8 @@ refuses with `finished-by-operator`, records nothing, and the slot is torn down 
 
 In a session not named after a repo, `cmd+alt+n`'s tab comes forward instead and asks which repo to use.
 
-A slot's tab is labelled `<repo>/<N>`, then `· <task>` (the task name, or the agent's branch once it has one), then:
+A slot's tab is labelled `<repo>/<N>`, then `· <label>` (the slot's name, else its task name, else the agent's branch
+once it has one), then:
 
 - `· trust needed` when the repo's prime checkout is not trusted in Claude, or Claude's trust dialog for the slot path
   did not look as expected: accept it in the tab;
@@ -375,34 +378,162 @@ client, the result (`restored`, `restore-failed`, `unreachable`, `timed-out`, or
 taken, and ssh's last line on a failure. Each of these logs moves to `<log>.1` past 1 MiB. A poll that changes nothing
 writes about 145 bytes, so the reconcile log holds about five days of polls before it moves.
 
+#### Work items and reopen
+
+A slot's *work items* are the GitHub PRs and issues it works on, each kept in its record as
+`{kind, repo, number, title}`. A slot gets them from `agent-slot launch <repo> --pr <ref>` or `--issue <ref>`, from
+`agent-slot adopt`, and from `agent-slot check`, which adds each PR it finds for the task. A ref is `N` in origin's
+repo, `owner/name#N`, or the item's GitHub URL. The first item names the slot `<repo>-pr<N>-<slug>` or
+`<repo>-issue<N>-<slug>`, from the item repo's name and the item's title, cut at a dash to fit 64 characters. The name
+never changes after that, so an issue's slot keeps the issue's name once its PR opens; when check adopts several PRs at
+once, the earliest created names the slot. `agent-slot list`, `agent-slot whoami`, and the slot's tab show its
+`label_name`: the name, else the task, else the branch its clone has checked out. The slot's Claude session carries the
+name as well: launch, resume, and reopen start Claude with `-n <name>` (the task for a slot with no name), and a slot
+named while its agent runs has `/rename <name>` typed into its session, by `adopt` when the agent is idle, else by the
+first automatic sweep that finds it idle, which records the session's name in `named_as`. The agent's SessionStart
+context lists the slot's work items.
+
+A launch on a PR checks out the PR's head branch tracking the remote that holds it: origin, the remote the prime
+checkout has for that repository, or `fork`. A head whose branch or repository is gone is checked out from
+`refs/pull/<N>/head` with no upstream, and the launch reports `head_pushable: false`. A launch on an issue keeps the
+base branch. When a torn-down slot worked on the same item, the launch reports it in `prior`, with the reopen that
+resumes its conversation.
+
+Each teardown appends a `teardown` event to `~/.local/state/agent-slot/ledger.jsonl` with the slot's `items`, `name`,
+`head` (the branch its clone had checked out), and `branches` (each branch's name and commit, with the remote and URL it
+pushes to), beside its task, PRs, Claude session ID, and transcript path; `launch`, `adopt`, and `reopen` events carry
+the items and name too. `agent-slot reopen <repo> --pr <ref>` (or `--issue <ref>`) brings the work back. It finds the
+newest teardown whose items hold the item, or, for a PR of origin's repo, the newest whose PRs hold its number;
+`--session <id>` instead picks the teardown of the slot whose Claude session that was, for a teardown that names no
+items. It makes a fresh slot as launch does and checks out the head: the branch the old slot had checked out, else the
+PR's head branch, else the base, fetched from the remote the ledger recorded for it when that remote is on origin's
+host, else from the PR's head repository. It then starts Claude with `--resume <session ID>`, so the agent has the first
+round's conversation; nothing under `~/.claude/projects` moves, since Claude Code resumes a session by its ID from any
+directory. The `--prompt-file` text is the reopened agent's first prompt, its brief for the new round. Reopen refuses
+while a slot holds the item or the session, while a Claude agent has the session open, when no teardown names the item,
+and when Claude Code no longer has the transcript, each before it claims a slot. `--dry-run` changes nothing and exits 0
+with either the plan or, under `would_reopen: false`, the refusal a reopen would hit; a ref GitHub cannot read still
+fails.
+
+The reopened slot keeps the old one's items, name, task, and session, records its source in `reopened_from`, and lists
+in `settled_prs` the PRs already merged or closed when it was reopened. Those PRs neither finish the task nor keep it
+open, so it finishes only on a new outcome, such as a new PR merging or the operator's finish, and their heads still
+count as pushed. The release gate counts only the closing skills run since the slot was made, so the first round's
+`ce-compound` runs do not release the second. Claude Code keeps each session's transcript for 365 days
+(`cleanupPeriodDays` in the stowed `~/.claude/settings.json`), so a reopen reaches back that far; past that it refuses
+with `transcript-missing`.
+
+`reopen` has an ask rule, and an ask rule on a verb also prompts on its `--help` and `--dry-run`, so an agent in a slot
+nobody watches sends a reopen to the session its brief reports to instead of running it. `adopt` changes only a record
+and a session name, so it runs without one.
+
+The sequence below follows oxipng PR #887, whose head branch lives on a fork. A dispatcher hands the PR to a slot:
+
+```bash
+agent-slot launch oxipng --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json
+```
+
+Once that slot is torn down and a reviewer replies, a dry run shows what a reopen would do. An excerpt of its output on
+this host, with home paths shortened:
+
+```bash
+agent-slot reopen oxipng --pr 887 --dry-run --output json
+```
+
+```json
+{
+  "would_reopen": true,
+  "refusal": null,
+  "item": {"kind": "pr", "repo": "oxipng/oxipng", "number": 887, "title": "Fix 16-bit to 8-bit reduction with tRNS"},
+  "name": "oxipng-pr887-fix-16-bit-to-8-bit-reduction-with-trns",
+  "session_id": "4e0a3f33-f697-4dff-a32f-2b0202be99d4",
+  "transcript": "~/.claude/projects/-home-<user>-slots-oxipng-1/4e0a3f33-f697-4dff-a32f-2b0202be99d4.jsonl",
+  "transcript_exists": true,
+  "head": {
+    "branch": "fix/trns-16-to-8",
+    "remote": "fork",
+    "url": "git@github.com:brettdavies/oxipng.git",
+    "oid": "8fdb2520b0a97ed52c6235850cbcf87f08984113",
+    "source": {"branch": "gh", "remote": "ledger"}
+  },
+  "slot": "oxipng/1",
+  "command": "claude --dangerously-skip-permissions --resume 4e0a3f33-f697-4dff-a32f-2b0202be99d4 -n oxipng-pr887-fix-16-bit-to-8-bit-reduction-with-trns"
+}
+```
+
+`head.source` says where the head came from: this teardown recorded no `head`, so the branch is the PR's head branch on
+GitHub (`gh`), and its remote and URL are the ones the teardown's `branches` recorded for it (`ledger`). The reopen
+itself takes the reply as the agent's brief:
+
+```bash
+agent-slot reopen oxipng --pr 887 --prompt-file reply.md --output json
+```
+
+It returns launch's fields plus `reopened_from`, `settled_prs`, `head`, and `head_moved`, which is true when the remote
+branch's head is not the commit the teardown recorded.
+
+Pillow/2 worked on issue python-pillow/Pillow#10330, and its teardown event carries no items and no PRs, so no lookup by
+the item finds it. `--session` names it by its Claude session (an excerpt of the real output):
+
+```bash
+agent-slot reopen Pillow --issue python-pillow/Pillow#10330 --session e999f4ab-8387-4992-bb05-f4e6041b9b68 \
+  --dry-run --output json
+```
+
+```json
+{
+  "would_reopen": true,
+  "refusal": null,
+  "item": {"kind": "issue", "repo": "python-pillow/Pillow", "number": 10330},
+  "source": {"repo": "Pillow", "slot": 2, "ts": "2026-10-30T19:50:08Z", "prs": []},
+  "name": "Pillow-issue10330-16-bit-png-trns-key-convert-rgba-misses-the",
+  "session_id": "e999f4ab-8387-4992-bb05-f4e6041b9b68",
+  "transcript_exists": true,
+  "head": {"branch": "main", "remote": "origin", "source": {"branch": "base", "remote": "base"}},
+  "slot": "Pillow/1",
+  "command": "claude --dangerously-skip-permissions --resume e999f4ab-8387-4992-bb05-f4e6041b9b68 -n Pillow-issue10330-16-bit-png-trns-key-convert-rgba-misses-the"
+}
+```
+
+The name is cut at a dash to fit 64 characters, and an issue keeps the base branch. A live slot that works on an issue
+but has no item takes one with `adopt`, which names it `Pillow-issue10331-jpeg-dpi-read-from-exif-uses-xresolution-for`
+and returns `key`, `name`, `items`, `item`, and `renamed`:
+
+```bash
+agent-slot adopt Pillow/3 --issue 10331 --output json
+```
+
 #### Commands
 
 On the Linux server, `agent-slot repos` lists the repos a slot can be made from, `agent-slot list` every slot with its
 state, agent, and blockers, and `agent-slot whoami` the slot a directory is in. `agent-slot launch <repo> --request-id
 <id> [--prompt-file <file>]` starts an agent, and agents use it to hand a task to a slot; a repeat with the same request
-ID returns the same slot. `agent-slot resume <repo>/<N>` restarts a dormant slot's sessions and conversation,
-`agent-slot warm <repo>` trusts slot paths ahead of time, and `agent-slot check [<repo>/<N>]` gives the teardown
-verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or `--issue <ref>`) attaches a PR or issue to a live slot and names
-the slot `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's record and
-its Claude session's name, so it needs no ask. `agent-slot reopen <repo> --pr <ref> --dry-run` (or `--issue <ref>`)
-finds the teardown of the slot that worked on a PR or issue in the ledger, or the one whose Claude session `--session
-<id>` names, and reports its session and transcript, the branch and remote it would check out, and the `claude --resume`
-command it would type, or the refusal a reopen would hit; agents ask before running it, `--dry-run` included.
-`agent-slot sweep` and `agent-slot finish <repo>/<N>` delete slots, so both only report unless given `--yes`, and agents
-ask before running them. `agent-slot release`, run from inside a slot, hands that slot's teardown upstream; it deletes
-nothing itself, so it needs no ask. `agent-slot doctor` checks every prerequisite and the time from key press to Claude
-idle.
+ID returns the same slot; `--pr <ref>` or `--issue <ref>` gives the slot that work item, its name, and, for a PR, its
+head branch (see [work items and reopen](#work-items-and-reopen)). `agent-slot resume <repo>/<N>` restarts a dormant
+slot's sessions and conversation, `agent-slot warm <repo>` trusts slot paths ahead of time, and
+`agent-slot check [<repo>/<N>]` gives the teardown verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or
+`--issue <ref>`) attaches a PR or issue to a live slot and names the slot `<repo>-pr<N>-<slug>` or
+`<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's record and its Claude session's name, so it
+needs no ask. `agent-slot reopen <repo> --pr <ref> --prompt-file <file>` (or `--issue <ref>`) brings a torn-down slot's
+work on a PR or issue back in a fresh slot, with its Claude conversation resumed, and `--dry-run` reports what it would
+do or the refusal it would hit; agents ask before running it, `--dry-run` included. `agent-slot sweep` and
+`agent-slot finish <repo>/<N>` delete slots, so both only report unless given `--yes`, and agents ask before running
+them. `finish` refuses a task with an open PR (`task-has-open-pr`) unless the operator adds `--allow-open-pr` to
+`--yes`, as in `agent-slot finish oxipng/1 --yes --allow-open-pr`, which ends the task whatever state its PRs are in; a
+release and the finish key never pass it, and the report-only run names it in `would_need`. `agent-slot release`, run
+from inside a slot, hands that slot's teardown upstream; it deletes nothing itself, so it needs no ask.
+`agent-slot doctor` checks every prerequisite and the time from key press to Claude idle.
 
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore
 down with each clone's purge (whether it was purged, its trash entry, the milliseconds it took, and a failure's code and
 next step), the ones it kept with their blocker codes, the agents it typed the closing steps or a reminder to, the files
-each cleanup reminder named, the slots held by `--not-yet`, the Claude sessions it renamed, why a release or finish was
-refused, and, for a refusal over background jobs, each job's PID and command. A release's own finish writes its output
-to `~/.local/state/agent-slot/logs/release-<repo>-<N>.log`. The sweep timer's schedule is `OnCalendar=*:0/10` in
-`agent-slot-sweep.timer`; change it with `systemctl --user edit agent-slot-sweep.timer`, an empty `OnCalendar=` line,
-and the new schedule. A release's finish waits up to `AGENT_SLOT_RELEASE_WAIT` seconds (3600) for the agent, looking
-every `AGENT_SLOT_RELEASE_POLL` seconds (5).
+each cleanup reminder named, the slots held by `--not-yet`, the Claude sessions it renamed, whether a finish had
+`--allow-open-pr`, why a release or finish was refused, and, for a refusal over background jobs, each job's PID and
+command. A release's own finish writes its output to `~/.local/state/agent-slot/logs/release-<repo>-<N>.log`. The sweep
+timer's schedule is `OnCalendar=*:0/10` in `agent-slot-sweep.timer`; change it with
+`systemctl --user edit agent-slot-sweep.timer`, an empty `OnCalendar=` line, and the new schedule. A release's finish
+waits up to `AGENT_SLOT_RELEASE_WAIT` seconds (3600) for the agent, looking every `AGENT_SLOT_RELEASE_POLL` seconds (5).
 
 On the Mac, the keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`; each pane runs
 `agent-slot-rex attach <repo>/<N> claude|files|git`, the control session's tab runs `agent-slot-rex sweep`, Rex runs
