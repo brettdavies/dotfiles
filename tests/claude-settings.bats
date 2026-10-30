@@ -151,3 +151,11 @@ REPO="$BATS_TEST_DIRNAME/.."
     grep -qxF "Bash(agent-slot $verb *)" <<<"$output" || { echo "missing allow rule: $verb"; false; }
   done
 }
+
+# agent-slot reopen resumes a torn-down slot's Claude conversation by its session ID, and Claude Code deletes a
+# transcript once it has been idle for cleanupPeriodDays (30 when unset).
+@test "Claude Code keeps session transcripts for a year" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -e '.cleanupPeriodDays == 365' "$SETTINGS"
+  [ "$status" -eq 0 ]
+}
