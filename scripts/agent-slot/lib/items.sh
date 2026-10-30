@@ -30,13 +30,20 @@ item_parse_ref() {
 # for a PR also head_branch, head_repo (owner/name), head_url, and cross_repository, with head_repo and head_url null
 # once the head's repository is gone. state is gh's OPEN, CLOSED, or MERGED. The caller has required gh.
 #
-# The issues API answers for both kinds and says which one the number is; only a PR's own view names its head.
+# The issues API answers for both kinds and says which one the number is. It also names the repository as GitHub
+# does, which sets ITEM_REPO and the item's repo whatever case the ref was typed in. Only a PR's own view names its
+# head.
 ITEM='{}'
 item_resolve() {
-  local kind
+  local kind repo
+  local -a answer
   _item_gh api "repos/$ITEM_REPO/issues/$ITEM_NUMBER"
-  kind=$(contract_json -r 'if type == "object" and has("number") then (if has("pull_request") then "pr" else "issue" end)
-    else error("not an issue") end' <<<"$ITEM_GH_OUT") || _item_unreadable "gh answered with something other than an issue"
+  mapfile -t answer < <(contract_json -r 'if type == "object" and has("number") and (.repository_url | type) == "string"
+    then (if has("pull_request") then "pr" else "issue" end), (.repository_url | sub("^.*/repos/"; ""))
+    else error("not an issue") end' <<<"$ITEM_GH_OUT")
+  kind=${answer[0]:-} repo=${answer[1]:-}
+  [[ -n $kind && $repo =~ ^$ITEM_REPO_PATTERN$ ]] || _item_unreadable "gh answered with something other than an issue"
+  ITEM_REPO=$repo
   if [[ $kind != "$ITEM_KIND" ]]; then
     contract_fail item-kind-mismatch \
       "$ITEM_REPO#$ITEM_NUMBER is $(_item_kind_word "$kind"), not $(_item_kind_word "$ITEM_KIND")" \
@@ -79,15 +86,19 @@ item_name() {
   printf '%s' "$name"
 }
 
-# A jq definition: whether a work item is $i, by kind, repo, and number, whatever its title.
-ITEM_SAME_DEF='def same_item($i): .kind == $i.kind and .repo == $i.repo and .number == $i.number;'
+# jq definitions: same_repo, whether two owner/name strings name one GitHub repo, which GitHub matches in any case, so
+# an item's repo and origin's URL can differ in case; and same_item, whether a work item is $i, by kind, repo, and
+# number, whatever its title.
+ITEM_SAME_DEF='def same_repo($a; $b): ($a | if type == "string" then ascii_downcase else . end)
+    == ($b | if type == "string" then ascii_downcase else . end);
+  def same_item($i): .kind == $i.kind and same_repo(.repo; $i.repo) and .number == $i.number;'
 
 # The update item_add applies to a record, with $items, $origin (owner/name), and $name bound: each item joins .items
 # unless one with its kind, repo, and number is there, each PR of origin's repo joins .prs, which means origin's PRs
 # wherever check reads it, and a record with no name takes $name.
 ITEM_ADD_FILTER='(if $items == [] then . else .items = reduce $items[] as $i (.items // [];
       if any(.[]; same_item($i)) then . else . + [$i] end) end)
-  | .prs = ((.prs // []) + [$items[] | select(.kind == "pr" and .repo == $origin) | .number] | unique)
+  | .prs = ((.prs // []) + [$items[] | select(.kind == "pr" and same_repo(.repo; $origin)) | .number] | unique)
   | if .name == null and $name != "" then .name = $name else . end'
 
 # Usage: item_add <repo> <n> <origin url> <items> [<jq options...> <filter>]; adds the JSON array <items> of work items

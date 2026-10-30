@@ -407,13 +407,14 @@ newest teardown whose items hold the item, or, for a PR of origin's repo, the ne
 `--session <id>` instead picks the teardown of the slot whose Claude session that was, for a teardown that names no
 items. It makes a fresh slot as launch does and checks out the head: the branch the old slot had checked out, else the
 PR's head branch, else the base, fetched from the remote the ledger recorded for it when that remote is on origin's
-host, else from the PR's head repository. It then starts Claude with `--resume <session ID>`, so the agent has the first
-round's conversation; nothing under `~/.claude/projects` moves, since Claude Code resumes a session by its ID from any
-directory. The `--prompt-file` text is the reopened agent's first prompt, its brief for the new round. Reopen refuses
-while a slot holds the item or the session, while a Claude agent has the session open, when no teardown names the item,
-and when Claude Code no longer has the transcript, each before it claims a slot. `--dry-run` changes nothing and exits 0
-with either the plan or, under `would_reopen: false`, the refusal a reopen would hit; a ref GitHub cannot read still
-fails.
+host, else from the PR's head repository. A branch that remote no longer has comes from a PR's `refs/pull/<N>/head`, and
+for an issue the slot keeps the base; either way the reopen reports `head_pushable: false`. It then starts Claude with
+`--resume <session ID>`, so the agent has the first round's conversation; nothing under `~/.claude/projects` moves,
+since Claude Code resumes a session by its ID from any directory. The `--prompt-file` text is the reopened agent's first
+prompt, its brief for the new round. Reopen refuses while a slot holds the item or the session, while a Claude agent has
+the session open, when no teardown names the item, and when Claude Code no longer has the transcript, each before it
+claims a slot. `--dry-run` changes nothing and exits 0 with either the plan or, under `would_reopen: false`, the refusal
+a reopen would hit; a ref GitHub cannot read still fails.
 
 The reopened slot keeps the old one's items, name, task, and session, records its source in `reopened_from`, and lists
 in `settled_prs` the PRs already merged or closed when it was reopened. Those PRs neither finish the task nor keep it

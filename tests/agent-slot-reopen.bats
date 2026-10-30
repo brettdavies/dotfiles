@@ -207,6 +207,30 @@ snapshot() {
   jaq -e --arg s "$S1" '.would_reopen == true and .session_id == $s' <<<"$output"
 }
 
+@test "a ref or origin URL whose case differs from GitHub's name finds the item's teardown event and its holder" {
+  gh_item pr 7 "Fix the login" MERGED '{"headRefName": "feat/x", "headRepositoryOwner": {"id": "U_1", "login": "up"}}' \
+    Up/RepoA
+  origin_branch "$T/origins/repoa.git" feat/x
+  local pr7='{"kind": "pr", "repo": "Up/RepoA", "number": 7, "title": "Fix the login"}'
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$pr7]}"
+  reopen repoa --pr up/repoa#7 --dry-run
+  [ "$status" -eq 0 ]
+  jaq -e --arg s "$S1" '.would_reopen == true and .session_id == $s and .item.repo == "Up/RepoA"' <<<"$output"
+  : >"$LEDGER"
+  teardown_event "{\"session_id\": \"$S2\", \"transcript\": \"$(transcript "$S2")\", \"prs\": [7]}"
+  reopen repoa --pr 7
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e --arg s "$S2" '.created == true and .session_id == $s and .settled_prs == [7]' <<<"$output"
+  record_of '.prs == [7] and .items[0].repo == "Up/RepoA"' | grep -qx true
+  reopen repoa --pr UP/REPOA#7 --dry-run
+  [ "$status" -eq 0 ]
+  jaq -e '.would_reopen == false and .refusal.reason == "item-held-by-slot" and .refusal.value == "repoa/1"' \
+    <<<"$output"
+}
+
 @test "of two teardown events for the item the newer wins, and --session picks the older one" {
   gh_item pr 7 "Fix the login"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7]}"
@@ -447,6 +471,20 @@ snapshot() {
   [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --resume $S1 -n repoa-pr7-fix-the-login" ]
   jaq -e -s '.[-1] | .event == "reopen" and .head.source == {branch: "gh", remote: "gh"}' "$LEDGER"
   [ "$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")" = "$before" ]
+}
+
+@test "a reopen of an issue whose recorded branch the remote no longer has makes the slot on the base, not pushable" {
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
+    \"head\": \"feat/gone\", \"branches\": [{\"name\": \"feat/gone\", \"oid\": \"abc123\", \"remote\": \"origin\",
+    \"url\": \"https://github.com/up/repoa.git\"}]}"
+  reopen repoa --issue 12
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e '.created == true and .key == "repoa/1" and .head_pushable == false' <<<"$output"
+  [ "$(git -C "$AGENT_SLOT_ROOT/repoa/1" symbolic-ref --short HEAD)" = main ]
 }
 
 @test "a reopen whose clone fails rolls the slot back, leaves no claim, and writes no reopen line" {

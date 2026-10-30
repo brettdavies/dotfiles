@@ -33,14 +33,16 @@ release_send() {
 
 # Usage: release_rename <repo> <n>; after agentstate_of, under the slot's lock. Types /rename <name> into the slot's
 # Claude session when its agent is idle and the record names the slot something other than named_as, then records
-# named_as. Returns 1 when it typed nothing.
+# named_as. Returns 1 when it typed nothing. The slot's agent can write its record, so a name that is not a task name,
+# which a newline would make into more than one line of input, is never typed.
 RELEASE_RENAMED=
 release_rename() {
   local name
   [[ $AGENT_STATE == idle ]] || return 1
   record_read "$1" "$2" || return 1
-  name=$(contract_json -r 'if .name != null and .name != .named_as then .name else "" end' <<<"$RECORD")
-  [[ -n $name ]] || return 1
+  name=$(contract_json -j 'if .name != null and .name != .named_as then .name else "" end' <<<"$RECORD" && printf .)
+  name=${name%.}
+  [[ -n $name && $name =~ $TASK_PATTERN ]] || return 1
   release_send "$1" "$2" "/rename $name" || return 1
   record_update "$1" "$2" --arg name "$name" '.named_as = $name' || true
   RELEASE_RENAMED=$name

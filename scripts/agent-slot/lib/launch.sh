@@ -70,7 +70,7 @@ launch_find_existing() {
     state=$(contract_json -r '.state // ""' <<<"$RECORD")
     [[ -z $LAUNCH_ITEM ]] || held=$(contract_json -r --argjson i "$LAUNCH_ITEM" --arg origin "$origin" "$ITEM_SAME_DEF"'
       any(.items[]?; same_item($i))
-      or ($i.kind == "pr" and $i.repo == $origin and any(.prs[]?; . == $i.number))' <<<"$RECORD")
+      or ($i.kind == "pr" and same_repo($i.repo; $origin) and any(.prs[]?; . == $i.number))' <<<"$RECORD")
     if [[ -n $LAUNCH_REQUEST && $request == "$LAUNCH_REQUEST" ]]; then
       LAUNCH_EXISTING=$n LAUNCH_EXISTING_BY=request
       return 0
@@ -103,7 +103,7 @@ _launch_head() {
   url=$(contract_json -r '.head_url // ""' <<<"$ITEM")
   HEAD_REMOTE='' HEAD_URL=''
   [[ -z $url ]] || head_remote_for "$REPO_PRIME" "$url"
-  head_checkout "$1" "$(contract_json -r '.head_branch' <<<"$ITEM")" "$HEAD_REMOTE" "$HEAD_URL" "$ITEM_REPO" \
+  head_checkout "$1" "$(contract_json -r '.head_branch' <<<"$ITEM")" "$HEAD_REMOTE" "$HEAD_URL" pr "$ITEM_REPO" \
     "$ITEM_NUMBER" "$(_launch_command)${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
 }
 
@@ -184,12 +184,12 @@ cmd_launch() {
   # The session starts under the name, so named_as keeps the automatic sweep from typing a /rename to it.
   seed=$(contract_json -n -c --arg task "$LAUNCH_TASK" --arg request "$LAUNCH_REQUEST" \
     --argjson requested "$LAUNCH_REQUESTED_AT" --argjson item "${LAUNCH_ITEM:-null}" --arg name "$LAUNCH_NAME" \
-    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" '
+    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" "$ITEM_SAME_DEF"'
     {task: (if $task == "" then null else $task end), request_id: (if $request == "" then null else $request end),
      requested_at: $requested}
     + if $item == null then {} else
-        {prs: (if $item.kind == "pr" and $item.repo == $origin then [$item.number] else [] end), items: [$item],
-         name: $name, named_as: $name}
+        {prs: (if $item.kind == "pr" and same_repo($item.repo; $origin) then [$item.number] else [] end),
+         items: [$item], name: $name, named_as: $name}
       end')
   slot_make "$repo" launch "$(_launch_command)" "$seed" "$LAUNCH_PROMPT" launch "$head"
   launch_output "$repo" "$SLOT_MADE" true "$SLOT_MADE_TRUST" "$SLOT_MADE_PHASES" \

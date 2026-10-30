@@ -2,9 +2,10 @@
 # A PR's head, checked out in a fresh slot. The head branch comes from the remote that holds it and tracks that remote,
 # so check counts what is pushed there: origin when the head is on origin's repo, else a remote named as the prime
 # names that repo, else fork. A head whose branch or repository is gone is checked out from the item repo's
-# refs/pull/<N>/head under the head's name with no upstream, so check never fetches a remote that is gone. GitHub URLs
-# are compared as owner/name, whatever form each is written in. head_plan picks a reopen's head from the slot's teardown
-# event in the ledger, keeping the branch and remote the slot had over GitHub's.
+# refs/pull/<N>/head under the head's name with no upstream, so check never fetches a remote that is gone; an issue's
+# branch that is gone leaves the slot on the base. GitHub URLs are compared as owner/name, whatever form each is written
+# in. head_plan picks a reopen's head from the slot's teardown event in the ledger, keeping the branch and remote the
+# slot had over GitHub's.
 
 HEAD_REMOTE='' HEAD_URL='' HEAD_PUSHABLE=null
 
@@ -35,25 +36,27 @@ head_remote_for() {
   return 0
 }
 
-# Usage: head_checkout <slot> <branch> <remote> <url> <item repo> <number> <retry command>
+# Usage: head_checkout <slot> <branch> <remote> <url> <kind> <item repo> <number> <retry command>
 # Checks out <branch> from <remote> at <url>, adding the remote when the slot lacks it, and sets HEAD_PUSHABLE to true.
 # An empty <url> means GitHub reports the head's repository gone. When that is so, or the remote answers without the
-# branch, it checks out refs/pull/<number>/head of <item repo> (owner/name) instead and sets HEAD_PUSHABLE to false. A
-# fetch that fails any other way fails with clone-failed naming the remote, for the caller's rollback.
+# branch, it sets HEAD_PUSHABLE to false and, for a <kind> of pr, checks out refs/pull/<number>/head of <item repo>
+# (owner/name) instead; an issue has no such ref, so its slot keeps the base. A fetch that fails any other way fails
+# with clone-failed naming the remote, for the caller's rollback.
 head_checkout() {
-  local slot=$1 branch=$2 remote=$3 url=$4 item_repo=$5 number=$6 retry=$7 from
+  local slot=$1 branch=$2 remote=$3 url=$4 kind=$5 item_repo=$6 number=$7 retry=$8 from
   if [[ -n $url ]] && _head_fetch_branch "$slot" "$branch" "$remote" "$url" "$retry"; then
     _head_git checkout "$slot" "$retry" "$branch" checkout -q -B "$branch" --track "$remote/$branch"
     HEAD_PUSHABLE=true
     return 0
   fi
+  HEAD_PUSHABLE=false
+  [[ $kind == pr ]] || return 0
   from=origin
   if [[ $(head_github_slug "$(git -C "$slot" config --get remote.origin.url || true)") != "${item_repo,,}" ]]; then
     from=https://github.com/$item_repo.git
   fi
   _head_git fetch "$slot" "$retry" "$from" fetch -q -- "$from" "refs/pull/$number/head"
   _head_git checkout "$slot" "$retry" "$branch" checkout -q -B "$branch" FETCH_HEAD
-  HEAD_PUSHABLE=false
 }
 
 # Usage: head_plan <teardown event> <item>; sets HEAD_PLAN to the head a reopen of the slot the ledger event tore down

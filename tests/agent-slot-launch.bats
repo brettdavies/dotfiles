@@ -656,6 +656,24 @@ EOF
   [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
 }
 
+@test "an item takes GitHub's name for its repo, and a ref or origin URL in another case still finds the slot holding it" {
+  git config --file "$GIT_CONFIG_GLOBAL" "url.$T/origins/.insteadOf" https://github.com/Up/
+  git -C "$AGENT_SLOT_DEV/repoa" remote set-url origin https://github.com/Up/repoa.git
+  BEFORE=$(fingerprint "$AGENT_SLOT_DEV/repoa")
+  stub_gh_items
+  pr_head "$T/origins/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD" up/repoa
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  jaq -e '.created == true and .items[0].repo == "up/repoa"' <<<"$output"
+  jaq -e '.prs == [7]' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
+  launch repoa --pr UP/REPOA#7
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false and .key == "repoa/1"' <<<"$output"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
+  assert_prime_untouched
+}
+
 @test "launch's help documents --pr and --issue with the ref forms, and names name and items among its returns" {
   run "$AGENT_SLOT" launch --help
   [ "$status" -eq 0 ]

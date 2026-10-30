@@ -98,8 +98,9 @@ reopen_make() {
   local repo=$1 origin prs seed fields
   origin=$(pr_repo_slug "$REPO_ORIGIN")
   _reopen_plan
-  prs=$(contract_json -c --argjson items "$REOPEN_ITEMS" --arg origin "$origin" \
-    '(.prs // []) + [$items[] | select(.kind == "pr" and .repo == $origin) | .number] | unique' <<<"$REOPEN_SOURCE")
+  prs=$(contract_json -c --argjson items "$REOPEN_ITEMS" --arg origin "$origin" "$ITEM_SAME_DEF"'
+    (.prs // []) + [$items[] | select(.kind == "pr" and same_repo(.repo; $origin)) | .number] | unique' \
+    <<<"$REOPEN_SOURCE")
   _reopen_settled "$prs" "$origin"
   head_plan "$REOPEN_SOURCE" "$ITEM"
   seed=$(contract_json -c --arg request "$REOPEN_REQUEST" --argjson requested "$(date +%s.%N)" \
@@ -123,17 +124,18 @@ reopen_make() {
 REOPEN_SETTLED='[]'
 _reopen_settled() {
   local others list='[]'
-  others=$(contract_json -c --argjson i "$ITEM" --arg origin "$2" \
-    'map(select(($i.kind == "pr" and $i.repo == $origin and . == $i.number) | not))' <<<"$1")
+  others=$(contract_json -c --argjson i "$ITEM" --arg origin "$2" "$ITEM_SAME_DEF"'
+    map(select(($i.kind == "pr" and same_repo($i.repo; $origin) and . == $i.number) | not))' <<<"$1")
   if [[ $others != '[]' ]]; then
     pr_load "$REOPEN_REPO" "$REPO_ORIGIN"
     [[ ${PR_OK[$REOPEN_REPO]} == 1 ]] || contract_fail pr-state-unknown "gh could not read the PRs of $2, so which of \
 the source's PRs have merged or closed is unknown" --value "$2" --command "$(_reopen_command)"
     list=${PR_LISTS[$REOPEN_REPO]}
   fi
-  REOPEN_SETTLED=$(contract_json -c --argjson i "$ITEM" --arg origin "$2" --argjson list "$list" '
+  REOPEN_SETTLED=$(contract_json -c --argjson i "$ITEM" --arg origin "$2" --argjson list "$list" "$ITEM_SAME_DEF"'
     def settled: . == "MERGED" or . == "CLOSED";
-    [.[] as $n | if $i.kind == "pr" and $i.repo == $origin and $n == $i.number then $n | select($i.state | settled)
+    [.[] as $n | if $i.kind == "pr" and same_repo($i.repo; $origin) and $n == $i.number
+                 then $n | select($i.state | settled)
                  else $list[] | select(.number == $n and (.state | settled)) | .number end] | unique' <<<"$1")
 }
 
@@ -145,7 +147,7 @@ _reopen_head() {
   [[ $(contract_json -r .source.branch <<<"$HEAD_PLAN") != base ]] || return 0
   remote=$(contract_json -r '.remote // ""' <<<"$HEAD_PLAN")
   head_checkout "$1" "$(contract_json -r .branch <<<"$HEAD_PLAN")" "$remote" \
-    "$(contract_json -r '.url // ""' <<<"$HEAD_PLAN")" "$ITEM_REPO" "$ITEM_NUMBER" "$(_reopen_command)"
+    "$(contract_json -r '.url // ""' <<<"$HEAD_PLAN")" "$REOPEN_KIND" "$ITEM_REPO" "$ITEM_NUMBER" "$(_reopen_command)"
   oid=$(contract_json -r '.oid // ""' <<<"$HEAD_PLAN")
   [[ -z $oid ]] || REOPEN_HEAD_MOVED=$([[ $(git -C "$1" rev-parse HEAD) == "$oid" ]] && echo false || echo true)
 }

@@ -712,6 +712,15 @@ check: say what with agent-slot release --not-yet '<why>' --output json, and rel
   [ "$(record '.name + " " + .named_as')" = "repoa-pr7-add-the-widget repoa-pr7-add-the-widget" ]
 }
 
+@test "a record name that is not a task name is never typed as a rename" {
+  record_set '.name = "repoa-x\n/clear" | del(.named_as)'
+  agent idle
+  auto_sweep
+  [ ! -e "$STUBS/typed-repoa-1" ]
+  [ "$(renames_typed)" = 0 ]
+  [ "$(record '.named_as')" = null ]
+}
+
 @test "a pass that types an idle agent its closing steps leaves the rename to the next pass" {
   record_set 'del(.name, .named_as)'
   finished_task

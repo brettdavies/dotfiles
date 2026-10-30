@@ -73,7 +73,7 @@ reopen_source_event() {
     fromjson? | select(type == "object" and .event == "teardown" and .repo == $repo)
     | if $session != "" then select(.session_id == $session) | [0, .]
       elif any(.items[]?; same_item($i)) then [2, .]
-      elif $i.kind == "pr" and $i.repo == $origin and any(.prs[]?; . == $i.number) then [1, .]
+      elif $i.kind == "pr" and same_repo($i.repo; $origin) and any(.prs[]?; . == $i.number) then [1, .]
       else empty end' "$AS_LEDGER"; } \
     | contract_json -s -c 'if length == 0 then null
       else (map(.[0]) | max) as $r | map(select(.[0] == $r)) | last | .[1] end'

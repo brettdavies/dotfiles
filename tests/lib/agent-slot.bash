@@ -221,18 +221,20 @@ trusted() {
 }
 
 # stub_gh_items: gh answering `pr list` from $STUBS/gh-prs.json, and `api repos/<repo>/issues/<N>` and `pr view <N>`
-# from the fixtures gh_item writes. A number with no fixture gets GitHub's not-found answer.
+# from the fixtures gh_item writes. A number with no fixture gets GitHub's not-found answer. The issues API names the
+# item's repository as gh_item gave it, else as the request did.
 stub_gh_items() {
   stub gh '
 case "$1 ${2:-}" in
   "api repos/"*)
-    n=${2##*/}
+    n=${2##*/} repo=${2#repos/}
     [ -f "$STUBS/gh-issue-$n.json" ] || {
       echo "{\"message\":\"Not Found\",\"status\":\"404\"}"
       echo "gh: Not Found (HTTP 404)" >&2
       exit 1
     }
-    cat "$STUBS/gh-issue-$n.json" ;;
+    jaq -c --arg url "https://api.github.com/repos/${repo%/issues/*}" "{repository_url: \$url} + ." \
+      "$STUBS/gh-issue-$n.json" ;;
   "pr view")
     [ -f "$STUBS/gh-pr-$3.json" ] || {
       echo "GraphQL: Could not resolve to a PullRequest with the number of $3. (repository.pullRequest)" >&2
@@ -243,13 +245,15 @@ case "$1 ${2:-}" in
 esac'
 }
 
-# gh_item KIND NUMBER TITLE [STATE] [PR-FIELDS]: an issue or PR the stubbed gh reports. The issues API answers for both,
-# with pull_request set for a PR, and `gh pr view` answers for a PR, its head on branch pr-<N> of x/repoa unless
-# PR-FIELDS, which merge over gh's fields, say otherwise.
+# gh_item KIND NUMBER TITLE [STATE] [PR-FIELDS] [REPO]: an issue or PR the stubbed gh reports. The issues API answers for
+# both, with pull_request set for a PR and the repository GitHub names it under as REPO (owner/name), else as the
+# request names it; `gh pr view` answers for a PR, its head on branch pr-<N> of x/repoa unless PR-FIELDS, which merge
+# over gh's fields, say otherwise.
 gh_item() {
-  local kind=$1 n=$2 title=$3 state=${4:-OPEN} fields=${5:-'{}'}
-  jaq -n -c --arg kind "$kind" --argjson n "$n" --arg title "$title" --arg state "$state" '
+  local kind=$1 n=$2 title=$3 state=${4:-OPEN} fields=${5:-'{}'} repo=${6:-}
+  jaq -n -c --arg kind "$kind" --argjson n "$n" --arg title "$title" --arg state "$state" --arg repo "$repo" '
     {number: $n, title: $title, state: (if $state == "OPEN" then "open" else "closed" end)}
+    + (if $repo == "" then {} else {repository_url: "https://api.github.com/repos/\($repo)"} end)
     + (if $kind == "pr" then {pull_request: {html_url: "https://github.com/x/repoa/pull/\($n)"}} else {} end)' \
     >"$STUBS/gh-issue-$n.json"
   [ "$kind" = pr ] || return 0
