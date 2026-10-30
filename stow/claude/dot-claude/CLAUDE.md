@@ -120,6 +120,12 @@ to private identifiers (account/tenant IDs, internal URLs): if the user routed i
 or use a `<placeholder>` — quoting the value to show what happened re-leaks it. Examples and how-to-apply →
 `~/.claude/guides/writing-safety.md`.
 
+**Never send Brett's email address to an outside service:** not in a `User-Agent` header, any other request header, a
+query string, or a payload. An API's etiquette that asks for a contact in the `User-Agent` (crates.io, MusicBrainz,
+Wikipedia) does not override this; identify the client by tool name and repo URL instead, e.g.
+`xurl-rs-release-check (+https://github.com/brettdavies/xurl-rs)`. The address is for git authorship and for finding his
+own work, nothing else.
+
 ## Personal paths & hostnames in written artifacts
 
 In commit messages, PR/issue bodies, release notes, READMEs, and `docs/` (including `docs/solutions/`, which syncs to a
