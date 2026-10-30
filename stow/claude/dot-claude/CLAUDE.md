@@ -126,6 +126,13 @@ Wikipedia) does not override this; identify the client by tool name and repo URL
 `xurl-rs-release-check (+https://github.com/brettdavies/xurl-rs)`. The address is for git authorship and for finding his
 own work, nothing else.
 
+**Enforcement.** The `~/.claude/never-send-guard.sh` PreToolUse hook runs on every tool call, MCP tools and subagents'
+calls included, and blocks the call when the hook itself cannot run. It denies a call whose input, as written or
+URL-decoded, carries the account address from `~/.claude.json`, that address's local part, or an entry of the
+git-crypt-encrypted never-send list the `secrets` package stows; the built-in Grep and Glob, which only read local
+files, are exempt. `~/.claude/never-send-guard.sh --check` shows what it protects without printing a value. Tests:
+`bats tests/never-send-guard.bats`.
+
 ## Personal paths & hostnames in written artifacts
 
 In commit messages, PR/issue bodies, release notes, READMEs, and `docs/` (including `docs/solutions/`, which syncs to a

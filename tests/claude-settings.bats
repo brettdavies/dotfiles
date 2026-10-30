@@ -111,6 +111,21 @@ REPO="$BATS_TEST_DIRNAME/.."
   [ "$output" = 1 ]
 }
 
+# With no matcher the guard sees every tool, MCP tools and subagents' calls included.
+# Without onFailure a guard that crashes, times out, or is missing lets the call through.
+@test "never-send-guard.sh runs on every tool call and blocks when it fails" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -c '[.hooks.PreToolUse[] | select(any(.hooks[]; .command == "~/.claude/never-send-guard.sh"))]' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  groups="$output"
+  run jaq -e 'length == 1 and (.[0] | has("matcher") | not)' <<<"$groups"
+  echo "PreToolUse groups running the guard: $groups"
+  [ "$status" -eq 0 ]
+  run jaq -e '.[0].hooks[] | select(.command == "~/.claude/never-send-guard.sh")
+    | .onFailure == "block" and (.timeout | type == "number") and (has("async") | not)' <<<"$groups"
+  [ "$status" -eq 0 ]
+}
+
 # agent-slot takes its verb as the first argument, so `agent-slot sweep *`
 # catches every flag order after it, and the bare verb too. An ask rule still
 # prompts in bypass permissions mode, which every slot's Claude starts in, so
