@@ -12,9 +12,15 @@
 #   - every "emailAddress" string in ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json, the file
 #     the harness injects from, and CLAUDE_CODE_USER_EMAIL when set
 #   - the local part of each such address, when it has at least MIN_LOCAL characters
-#   - each line of ${NEVER_SEND_LIST:-$HOME/.config/never-send/list}, which lives outside
-#     the repo: one value per line, blank lines and # comments ignored
+#   - each line of ${NEVER_SEND_LIST:-$HOME/.config/never-send/list}, which the secrets
+#     package stows from the git-crypt-encrypted stow/secrets/dot-config/never-send/list:
+#     one value per line, blank lines and # comments ignored. A list still in git-crypt
+#     ciphertext, from a locked checkout, counts as no list.
 # A value that appears in $HOME is skipped, since it would match every path.
+#
+# The built-in Grep and Glob tools are exempt: they read local files and send nothing, so
+# they stay a way to search for the address locally. A payload naming more than one
+# tool_name is never exempt, since the second could be the real one.
 #
 # A call is denied when its payload, as written or URL-decoded (%XX, + as a space),
 # contains a value in any letter case. Only the call's text is checked: a value a command
@@ -105,7 +111,11 @@ if [ -n "${CLAUDE_CODE_USER_EMAIL:-}" ]; then
 fi
 
 if [ -f "$LIST" ]; then
-  if [ -r "$LIST" ]; then
+  if [ ! -r "$LIST" ]; then
+    list_state=unreadable
+  elif [ "$(head -c 10 "$LIST" | tr -d '\0')" = GITCRYPT ]; then
+    list_state=locked
+  else
     list_state=loaded
     n=0
     while IFS= read -r line || [ -n "$line" ]; do
@@ -120,8 +130,6 @@ if [ -f "$LIST" ]; then
         list_skipped+="${list_skipped:+, }$n"
       fi
     done <"$LIST"
-  else
-    list_state=unreadable
   fi
 fi
 
@@ -146,6 +154,7 @@ if [ "${1:-}" = --check ]; then
       ;;
     absent) echo "never-send-guard: list $LIST: absent" ;;
     unreadable) echo "never-send-guard: list $LIST: exists but cannot be read, so it counts as no list" ;;
+    locked) echo "never-send-guard: list $LIST: locked (git-crypt ciphertext), so it counts as no list; unlock the dotfiles checkout and run scripts/stow-deploy" ;;
   esac
   [ "$config_state" != unreadable ] || exit 1
   if [ "${#values[@]}" -eq 0 ]; then
@@ -182,7 +191,14 @@ payload=$(cat)
 tool=unknown
 tool_re='"tool_name"[[:space:]]*:[[:space:]]*"([^"]*)"'
 if [[ "$payload" =~ $tool_re ]]; then
-  tool=${BASH_REMATCH[1]//[^A-Za-z0-9_-]/}
+  named=${BASH_REMATCH[1]}
+  tool=${named//[^A-Za-z0-9_-]/}
+  case "$named" in
+    Grep | Glob)
+      rest=${payload#*\"tool_name\"}
+      [[ "$rest" == *'"tool_name"'* ]] || exit 0
+      ;;
+  esac
 fi
 
 if [ "$config_state" = unreadable ]; then

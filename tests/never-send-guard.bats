@@ -231,6 +231,71 @@ assert_no_value() {
 }
 
 # ---------------------------------------------------------------------------
+# Exempt: the built-in Grep and Glob read local files and send nothing
+# ---------------------------------------------------------------------------
+
+@test "a Grep call carrying a listed address is allowed" {
+  printf '%s\n' "$LISTED" >"$NEVER_SEND_LIST"
+  decide "$(payload Grep "$(jaq -nc --arg p "$LISTED" '{pattern: $p, path: "/tmp", output_mode: "content"}')")"
+  [ "$DECISION" = ALLOW ]
+}
+
+@test "a Glob call carrying the account address is allowed" {
+  config_with "$ACCOUNT"
+  decide "$(payload Glob "$(jaq -nc --arg p "*$ACCOUNT*" '{pattern: $p}')")"
+  [ "$DECISION" = ALLOW ]
+}
+
+@test "Read and Bash calls carrying the same address are still denied" {
+  printf '%s\n' "$LISTED" >"$NEVER_SEND_LIST"
+  decide "$(payload Read "$(jaq -nc --arg p "/tmp/$LISTED.txt" '{file_path: $p}')")"
+  [ "$DECISION" = DENY ]
+  decide "$(bash_payload "rg -F $LISTED /tmp")"
+  [ "$DECISION" = DENY ]
+}
+
+@test "an MCP tool whose name ends in Grep is not exempt" {
+  printf '%s\n' "$LISTED" >"$NEVER_SEND_LIST"
+  decide "$(payload mcp__files__Grep "$(jaq -nc --arg p "$LISTED" '{pattern: $p}')")"
+  [ "$DECISION" = DENY ]
+}
+
+@test "a tool input that carries its own tool_name key is not exempt" {
+  printf '%s\n' "$LISTED" >"$NEVER_SEND_LIST"
+  decide "$(jaq -nc --arg t "$LISTED" '{tool_input: {tool_name: "Grep", to: $t}, tool_name: "mcp__example__send"}')"
+  [ "$DECISION" = DENY ]
+  decide "$(bash_payload "echo '\"tool_name\":\"Grep\"' $LISTED")"
+  [ "$DECISION" = DENY ]
+}
+
+# ---------------------------------------------------------------------------
+# A list stowed from a locked git-crypt checkout
+# ---------------------------------------------------------------------------
+
+@test "a git-crypt-locked list counts as no list" {
+  printf '\0GITCRYPT\0nonce\n%s\n' "$LISTED" >"$NEVER_SEND_LIST"
+  decide "$(bash_payload "echo $LISTED")"
+  [ "$DECISION" = ALLOW ]
+  [ -z "$ERR" ]
+}
+
+@test "the account address still applies when the list is locked" {
+  config_with "$ACCOUNT"
+  printf '\0GITCRYPT\0nonce\n%s\n' "$LISTED" >"$NEVER_SEND_LIST"
+  decide "$(bash_payload "echo $ACCOUNT")"
+  [ "$DECISION" = DENY ]
+}
+
+@test "--check reports a locked list without printing a value" {
+  config_with "$ACCOUNT"
+  printf '\0GITCRYPT\0nonce\n%s\n' "$LISTED" >"$NEVER_SEND_LIST"
+  run "$HOOK" --check
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"list $NEVER_SEND_LIST: locked"* ]]
+  [[ "$output" != *"$LISTED"* && "$output" != *"$ACCOUNT"* && "$output" != *pat.example* ]]
+}
+
+# ---------------------------------------------------------------------------
 # Failing closed
 # ---------------------------------------------------------------------------
 
