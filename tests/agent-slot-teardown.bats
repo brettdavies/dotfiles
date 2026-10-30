@@ -270,3 +270,22 @@ exit 1'
   [ "$(jaq -r -s 'map(select(.event == "teardown"))[-1] | "\(.session_id) \(.transcript)"' \
     "$AGENT_SLOT_STATE_DIR/ledger.jsonl")" = "s1 /t/s1.jsonl" ]
 }
+
+@test "the ledger keeps each branch but the base, with the remote it pushes to and that remote's URL" {
+  git clone -q --bare "$ORIGIN" "$T/fork.git"
+  git -C "$SLOT" remote add fork "$T/fork.git"
+  work feat/f
+  git -C "$SLOT" push -q -u fork feat/f
+  git -C "$SLOT" push -q origin feat/f
+  git -C "$SLOT" branch -q spare main
+  jaq '.finished_by_operator = true' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  local f main
+  f=$(git -C "$SLOT" rev-parse feat/f)
+  main=$(git -C "$SLOT" rev-parse main)
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  jaq -e -s --arg f "$f" --arg main "$main" --arg url "$T/fork.git" 'map(select(.event == "teardown"))[-1].branches
+    == [{name: "feat/f", oid: $f, remote: "fork", url: $url}, {name: "spare", oid: $main, remote: null, url: null}]' \
+    "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+}
