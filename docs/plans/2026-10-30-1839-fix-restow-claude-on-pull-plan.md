@@ -784,7 +784,7 @@ because `stow-deploy` has no `--help`, which predates this work.
 | Outside Review | codex plan review     | Independent 2nd opinion         | 0    | disabled                  | —                                       |
 | Eng Review     | `/plan-eng-review`    | Architecture & tests (required) | 1    | ISSUES OPEN (all applied) | 6 issues, 0 critical gaps               |
 | Design Review  | `/plan-design-review` | UI/UX gaps                      | 0    | not run (no UI)           | —                                       |
-| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 1    | ISSUES OPEN (all applied) | score: 6/10 → 8/10, TTHW: manual → <1 s |
+| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 1    | CLEAR                     | score: 6/10 → 8/10, TTHW: manual → <1 s |
 
 - **OUTSIDE COVERAGE:** codex, plan-review phase, disabled in gstack config (`codex_reviews: disabled`); no findings.
 - **VERDICT:** DX CLEARED; ENG reviewed with every finding applied to the plan (eng review required); document review next.
