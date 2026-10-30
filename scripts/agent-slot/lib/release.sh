@@ -56,16 +56,24 @@ release_transcripts() {
 
 # Usage: release_skills_in <transcript>; prints the name of each skill the session ran, without its plugin prefix: a
 # Skill tool call of the agent's, or a slash command typed as a prompt. Text inside a tool's result never counts, so a
-# session that read a file quoting a skill's name is not taken for one that ran it.
+# session that read a file quoting a skill's name is not taken for one that ran it. A Skill call whose result is marked
+# is_error never ran: Claude Code answers a skill missing from its registry with "Unknown skill" that way. The result's
+# text is not read, since a skill that runs in a subagent returns its own output there. The failed ids gather in an
+# array and become an object once: updating an object on every user line triples jaq's peak memory on a 40 MB
+# transcript.
 release_skills_in() {
-  contract_json -r -R '(fromjson? // empty)
-    | if .type == "assistant" then
-        (.message.content[]? | select(type == "object" and .type == "tool_use" and .name == "Skill")
-         | .input.skill // empty)
-      elif .type == "user" and (.message.content | type) == "string" then
-        (.message.content | capture("<command-name>/?(?<s>[^<]+)</command-name>") | .s)
-      else empty end
-    | sub("^.*:"; "")' "$1" || true
+  contract_json -r -R -n 'reduce (inputs | fromjson? // empty) as $line ({calls: [], failed: []};
+      if $line.type == "assistant" then
+        .calls += [$line.message.content[]? | select(type == "object" and .type == "tool_use" and .name == "Skill")
+          | {id: (.id // ""), skill: (.input.skill // empty)}]
+      elif $line.type == "user" and ($line.message.content | type) == "string" then
+        .calls += [$line.message.content | capture("<command-name>/?(?<s>[^<]+)</command-name>") | {id: "", skill: .s}]
+      elif $line.type == "user" then
+        .failed += [$line.message.content[]? | select(type == "object" and .type == "tool_result" and .is_error == true)
+          | .tool_use_id | strings]
+      else . end)
+    | (.failed | map({key: ., value: true}) | from_entries) as $failed
+    | .calls[] | select($failed[.id] | not) | .skill | sub("^.*:"; "")' "$1" || true
 }
 
 # Usage: release_gate <repo> <n>; sets RELEASE_FOUND and RELEASE_MISSING from RELEASE_SKILLS.

@@ -77,6 +77,17 @@ ran() {
   record_set ".transcript = \"$T/transcript.jsonl\""
 }
 
+# skill_call SKILL ID RESULT [IS_ERROR]: appends a Skill call of the agent's to the transcript, then the tool result
+# Claude Code returned for it, marked is_error when IS_ERROR is true.
+skill_call() {
+  jaq -n -c --arg s "compound-engineering:$1" --arg id "$2" \
+    '{type: "assistant", message: {content: [{type: "tool_use", id: $id, name: "Skill", input: {skill: $s}}]}}' \
+    >>"$T/transcript.jsonl"
+  jaq -n -c --arg id "$2" --arg r "$3" --argjson e "${4:-false}" \
+    '{type: "user", message: {content: [{type: "tool_result", tool_use_id: $id, content: $r, is_error: $e}]}}' \
+    >>"$T/transcript.jsonl"
+}
+
 # agent_job: prints the PID of the stand-in agent's background Bash tool command while one runs.
 agent_job() {
   local pid
@@ -150,6 +161,23 @@ logged() { jaq -e -s "$1" "$TEARDOWN_LOG" >/dev/null; }
     >>"$T/transcript.jsonl"
   jaq -n -c '{type: "user", message: {content: "<command-name>/compound-engineering:ce-compound-refresh</command-name>"}}' \
     >>"$T/transcript.jsonl"
+  agent busy
+  release
+  [ "$status" -eq 0 ]
+}
+
+@test "a Skill call whose result is an error, such as an unknown skill, is not a run of that skill" {
+  finished_task
+  : >"$T/transcript.jsonl"
+  skill_call ce-compound toolu_1 '<tool_use_error>Unknown skill: compound-engineering:ce-compound</tool_use_error>' true
+  skill_call ce-compound-refresh toolu_2 \
+    '<tool_use_error>Unknown skill: compound-engineering:ce-compound-refresh</tool_use_error>' true
+  record_set ".transcript = \"$T/transcript.jsonl\""
+  release
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound ce-compound-refresh"' <<<"$stderr"
+  skill_call ce-compound toolu_3 'Launching skill: compound-engineering:ce-compound'
+  skill_call ce-compound-refresh toolu_4 'Launching skill: compound-engineering:ce-compound-refresh'
   agent busy
   release
   [ "$status" -eq 0 ]
