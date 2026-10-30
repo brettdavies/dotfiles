@@ -86,8 +86,11 @@ The Mac has the same shape and will hit it on its next pull of a change that add
 
 **Failure**
 
-- R7. A failed restow never changes the git command's exit status or undoes the update; it prints a `WARNING:` naming
-  the package and `stow-deploy`'s exit status, then `stow-deploy`'s output, then the exact command to rerun by hand.
+- R7. A failed restow never changes the git command's exit status or undoes the update. It prints a `WARNING:` line
+  carrying the reason `restow-failed`, the package, and `stow-deploy`'s exit status, and saying the update itself
+  completed and Claude Code tool calls may be blocked until the rerun succeeds; then `stow-deploy`'s output; then, as
+  its last line, the exact command to rerun by hand. A failure inside the restow code itself reports the same way with
+  the reason `restow-internal-error` and the failing line.
 
 **Deploy tool**
 
@@ -242,11 +245,13 @@ the shipped behavior and goes last.
 - **Dependencies:** none.
 - **Files:** `scripts/stow-deploy`, `tests/lib/dotfiles-fixture.bash` (new), `tests/stow-deploy-args.bats`.
 - **Approach:**
-  1. Parse `--only` beside `--headless` and `--all`; reject it with no packages and with `--all` (exit 2); skip the
-     shared-defaults expansion when set. Update the usage comment.
+  1. Parse `--only` beside `--headless` and `--all`; reject it with no packages and with `--all` (exit 2), each `ERROR:`
+     naming a working form such as `scripts/stow-deploy --only claude`; skip the shared-defaults expansion when set.
+     Update the usage comment.
   2. Remove the headless up-front dirty-tree exit; keep the interactive warning.
   3. Before the adopt step, in headless mode, check `git status --porcelain -- stow/<pkg>/`; when non-empty, print an
-     `ERROR:` saying the adopt would overwrite those changes, record the package as failed, and continue.
+     `ERROR:` saying the adopt would overwrite those changes, list the changed paths, and end with the fix: commit or
+     stash them, then rerun `scripts/stow-deploy --headless --only <pkg>`. Record the package as failed and continue.
 - **Patterns to follow:** the existing flag loop and `EXIT_*` codes; `tests/hook-git-env.bats` for a throwaway repo that
   holds a copy of a real script; the `STOW_DEPLOY_TARGET` sandbox in `tests/stow-deploy-args.bats`. The fixture helper
   builds a small repo with copies of `scripts/stow-deploy` and `.githooks/`, a `claude` and a `secrets` package, and a
@@ -280,8 +285,9 @@ the shipped behavior and goes last.
 - **Files:** `.githooks/lib/restow.sh` (new), `.githooks/post-merge`, `.githooks/post-checkout`, `scripts/lint-shell`,
   `tests/restow-on-pull.bats` (new).
 - **Approach:**
-  1. The library defines one entry point that takes the old and new refs and the deploy target, holds the package list,
-     and returns 0 whatever happens.
+  1. The library defines one entry point that takes the old and new refs and the deploy target and holds the package
+     list. The hooks run it in a subshell with an `ERR` trap, so a bug inside it prints the `restow-internal-error`
+     report (R7) with the line and command and still returns 0, and the LFS line still runs.
   2. `post-merge` passes `ORIG_HEAD HEAD`; `post-checkout` passes `$1 $2` only when `$3` is `1` and `$1` is not the null
      OID.
   3. Both hooks call it between the existing unlock block and the LFS line, and the LFS line stays last.
@@ -312,7 +318,10 @@ the shipped behavior and goes last.
   - `git checkout -- stow/claude/dot-claude/settings.json` calls nothing.
   - `git pull --rebase` with a local commit links the upstream's new script.
   - A probe `stow-deploy` that exits 5 leaves `git pull` and `git checkout <branch>` at exit 0, and the output carries
-    `WARNING:`, the package, `exit 5`, the probe's output, and `scripts/stow-deploy --headless --only claude`.
+    `WARNING:`, `restow-failed`, the package, `exit 5`, the probe's output, and, as the last line,
+    `cd <clone> && scripts/stow-deploy --headless --only claude`.
+  - With the fixture's `git` broken for `ls-files` only (a `PATH` wrapper), a pull that changes `stow/claude/` still
+    exits 0, prints `restow-internal-error` with the failing line, and the stubbed `git lfs post-merge` still runs.
   - A pull from a linked worktree whose links the target holds runs the probe with no `GIT_DIR`, `GIT_WORK_TREE`, or
     `GIT_INDEX_FILE` in its environment.
   - A pull that brings the new hook itself restows in that same pull: the fixture's base commit carries a `post-merge`
@@ -337,7 +346,9 @@ the shipped behavior and goes last.
   fail it.
 - **Test scenarios:**
   - The current `settings.json` passes, `statusline.sh` included.
-  - A copy whose non-blocking PostToolUse hook names `~/.claude/not-shipped.sh` fails, and the output lists that path.
+  - A copy whose non-blocking PostToolUse hook names `~/.claude/not-shipped.sh` fails, and the output lists that path
+    and ends with the fix: ship the script under `stow/claude/dot-claude/` with mode 755, or add the owning install to
+    the test's exemptions.
   - A copy whose `statusLine` command names `~/.claude/not-shipped.sh` fails.
   - A copy whose block-on-failure hook names `~/dotfiles/scripts/x.sh` still fails, as under #371.
   - A copy naming `~/.claude/md_wrap_fill.py` (shipped, mode 644) fails as not executable.
@@ -357,6 +368,9 @@ the shipped behavior and goes last.
   2. In `README.md`, update the same two rows in its Git Hooks table and drop the duplicated header row there.
   3. In `CONCEPTS.md`, add a *Restow on pull* entry under Packages: the process, the ownership rule, the two packages,
      and the gaps (conflicted merges, `git reset`).
+  4. In `AGENTS.md`, state the manual recovery (`cd ~/dotfiles && scripts/stow-deploy --headless --only claude`) beside
+     the hooks table, and that `git fetch` followed by `git diff HEAD..@{u} -- stow/` reviews a deploy before
+     `git merge` applies it.
 - **Test expectation:** none -- documentation only; markdownlint and `tests/release-docs-consistency.bats` cover the
   files.
 - **Verification:** markdownlint passes on the three files.
@@ -431,13 +445,13 @@ Approval readiness: PASS (E1-E8, each auto-decided per the slot's headless instr
 - **Result:** scope accepted as-is.
 
 ```text
-REALITY: premise-table pass 17 claims checked, unverified=2 (macOS GUI git bash, macOS timeout) docs/plans/2026-10-30-1839-fix-restow-claude-on-pull-plan.md:182
+REALITY: premise-table pass 17 claims checked, unverified=2 (macOS GUI git bash, macOS timeout) docs/plans/2026-10-30-1839-fix-restow-claude-on-pull-plan.md:185
 REALITY: already-done pass no restow work on origin/dev since 2026-10-29; 039f0f9 (#371) only adds the settings test U3 widens tests/claude-settings.bats:214
 REALITY: surface-check pass run-tests takes FILE..., lint-shell --all, git diff-tree --quiet, test -ef, git lfs post-merge all verified; --only is proposed scripts/run-tests:13
 REALITY: binding-decisions pass consistent with the fail-closed review's inline-lookup decision; no default reintroduced docs/plans/2026-10-30-1753-fix-fail-closed-claude-guards-plan.md:190
 REALITY: numbers finding 30 shared packages corrected to 28 (E8); 76-84 ms measured over 8 runs scripts/stow-deploy:23
 REALITY: deferred-asks pass no linked issue; every brief item (trigger, order, failure, environment, test, window) maps to an R or KTD docs/plans/2026-10-30-1839-fix-restow-claude-on-pull-plan.md:68
-REALITY: pr-count pass one PR into dev, no ship-policy file overrides the default docs/plans/2026-10-30-1839-fix-restow-claude-on-pull-plan.md:28
+REALITY: pr-count pass one PR into dev, no ship-policy file overrides the default docs/plans/2026-10-30-1839-fix-restow-claude-on-pull-plan.md:29
 ```
 
 ### 1. Architecture
@@ -509,7 +523,8 @@ files (about 50 for `claude`).
 
 ### Outside voice
 
-Skipped: the slot's brief forbids subagents, and an outside model review is one.
+Not run: outside reviews are disabled in gstack config (`codex_reviews: disabled`), and the slot's brief forbids
+subagents.
 
 ### NOT in scope
 
@@ -564,21 +579,214 @@ None.
 - TODOS.md updates: 0 items proposed
 - Failure modes: 0 critical gaps flagged
 - Unresolved decisions: 0 in this review
-- Outside voice: skipped (brief forbids subagents)
+- Outside voice: disabled (`codex_reviews: disabled`)
 - Parallelization: 0 lanes, 0 parallel / 4 sequential
 - Lake Score: N/A (no completeness-scored answers)
 
+---
+
+## DX Review
+
+Mode: DX POLISH, because the plan fixes an existing deploy path and adds no product surface. Product type: platform
+(deploy tooling) with a Claude Code hook consumer. Every choice below was decided by the reviewing agent from repository
+evidence under the slot's headless instructions; none needed Brett.
+
+### Developer Persona Card
+
+```text
+TARGET DEVELOPER PERSONA
+========================
+Who:       An AI coding agent (or Brett) running `git pull` in ~/dotfiles on a deployed host
+Context:   Told to update dotfiles, often unattended; its own Claude session reads the hooks being deployed
+Tolerance: Zero blocked tool calls; it cannot recover once every tool call is denied
+Expects:   A pull leaves the host working; anything else says so on the pull's own output, with the command
+```
+
+### Developer Empathy Narrative
+
+Observed today, from the 18:30 incident: I run `git pull` in `~/dotfiles`. It prints the merge summary and exits 0. My
+next tool call fails with
+`PreToolUse:Bash hook error: [~/.claude/never-send-guard.sh]: failed; blocking because onFailure is "block"` and
+`/bin/sh: 1: /home/brett/.claude/never-send-guard.sh: not found`. So does every call after it, Read, ToolSearch, and
+SendMessage included. Nothing on the pull told me a deploy step was owed, and the harness error does not name
+`stow-deploy`. I cannot run the fix myself, because running it needs a tool call. I stay stuck until a human restows
+from another terminal.
+
+Predicted after the plan: the same pull prints one extra line naming the relinked package, and my next call runs. If the
+restow fails, the pull's output ends with a `WARNING:` and the exact rerun command, while my tool calls still work for
+the existing scripts.
+
+### Competitive DX Benchmark
+
+Clock: from typing the update command on a deployed host to a new hook script being live, with no further command.
+
+| Tool             | Start → result                        | Time + evidence type                                             | DX choice                                            | Source                                                                                                               |
+| ---------------- | ------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| chezmoi          | `chezmoi update` → pulled and applied | one command, timing not measured [reported]                      | pull and apply in one step; `--apply=false` opts out | [update](https://www.chezmoi.io/reference/commands/update/), [#3539](https://github.com/twpayne/chezmoi/issues/3539) |
+| GNU Stow by hand | `git pull`, then a restow             | unbounded; 2 min in the incident with a human present [observed] | deploy is a separate manual step                     | this repo today                                                                                                      |
+| This plan        | `git pull` → new link present         | 76-84 ms after the tree is written [measured: prototype]         | the pull's own hook restows changed packages         | KTD9                                                                                                                 |
+
+Target: Champion (under 2 minutes), met by about three orders of magnitude.
+
+### Magical Moment Specification
+
+The pull's output ends with one line naming the relinked package, and the next tool call simply runs. Vehicle: the
+success line KTD5 already prints. No new surface.
+
+### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                         | FRICTION POINTS                          | STATUS
+----------------|----------------------------------------|------------------------------------------|--------
+1. Discover     | reads AGENTS.md hooks table            | restow undocumented                      | fixed (U4)
+2. Install      | git pull delivers the hook itself      | none; tested in U2                       | ok
+3. Hello World  | pull that adds a script                | link missing until manual stow           | fixed (U2)
+4. Real Usage   | pulls with a dirty settings.json       | headless refused the whole run           | fixed (KTD6)
+5. Debug        | restow or library fails                | no reason token, no recovery line        | fixed (D1, D4)
+6. Upgrade      | stow-deploy headless semantics change  | behavior change needs a changelog line   | fixed (PR changelog)
+```
+
+### First-Time Developer Confusion Report
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: AI coding agent on the deployed host
+Attempting: pull a dotfiles change that adds a hook script
+
+CONFUSION LOG:
+T+0:00  Runs `git pull`; sees the merge summary and "restow: claude relinked". Proceeds.
+T+0:05  Next tool call runs; the new guard is live.
+T+0:10  (Failure branch) Sees "WARNING: restow-failed ... claude ... exit 5", stow-deploy's output, and the rerun
+        command as the last line. Runs it; the new script links.
+T+0:20  (Dirty-tree branch) The rerun prints "ERROR: ... --adopt would overwrite uncommitted changes in stow/claude/",
+        lists settings.json, and ends with "commit or stash them, then rerun ...". Asks the human before stashing.
+```
+
+Every confusion point above maps to D1-D4.
+
+### Error path matrix (agent-ready-v1)
+
+```text
+Path                       | Class      | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+hook restow fails          | dependency | pass | pass | pass(D1) | pass | pass    | pass  | pass      | stderr* | none
+--only usage errors        | usage      | pass | D2   | N/A      | pass | N/A     | N/A   | pass      | pass    | none
+headless dirty adopt       | precond.   | pass | D3   | pass     | pass | pass    | N/A   | pass      | pass    | none
+restow library crashes     | unexpected | D4   | D4   | D4       | D4   | D4      | D4    | pass      | stderr* | none
+settings test failure      | validation | pass | D5   | N/A      | pass | N/A     | N/A   | pass      | pass    | none
+```
+
+`stderr*`: the hook reports on stderr and keeps git's exit status at 0. That is the brief's requirement ("must not fail
+the pull"), and a non-zero `post-checkout` would turn a completed checkout into a failed command (KTD4). The report
+names the reason token, so the failure is never presented as a successful restow. Before D1-D5 the restow path lacked
+recovery (CAP6:hook-restow:recovery), `--only` and the dirty refusal lacked a fix line (CAP6:only-usage:fix,
+CAP6:dirty-adopt:fix), and a crash inside the library would have stopped the hook before Git LFS and failed
+`git checkout` (CAP6:library-crash:trace).
+
+### DX ledger
+
+- D1. R7 gains the `restow-failed` reason, a recovery sentence (the update completed; tool calls may be blocked until
+  the rerun succeeds), and the rerun command as the last line.
+- D2. `--only` usage errors name a working form (U1 step 1).
+- D3. The headless dirty refusal lists the changed paths and ends with the fix (U1 step 3).
+- D4. The hooks run the library in a subshell with an `ERR` trap; a bug prints `restow-internal-error` with the line,
+  returns 0, and LFS still runs (U2 step 1, new U2 scenario).
+- D5. U3's failure output ends with the fix.
+- D6. `AGENTS.md` gains the manual recovery command and the fetch-then-diff review path (U4 step 4).
+
+### NOT in scope (DX)
+
+- An opt-out switch for the restow (chezmoi's `--apply=false` equivalent): `git fetch` plus
+  `git diff HEAD..@{u} -- stow/` already reviews a deploy before `git merge` applies it, and nobody has asked to pull
+  without deploying. A request to would change this.
+- `scripts/stow-deploy --help`: an unknown flag exits 2 without usage today; that predates this work.
+- A Claude-side notice when a restow failed (for example a SessionStart hook reading a marker): the failure prints on
+  the pull the agent itself ran. An agent observed missing that output would change this.
+
+### What already exists (DX)
+
+- `never-send-guard.sh`'s `(guard-internal-error)` report, the model for `restow-internal-error`.
+- `stow-deploy`'s `FAILURES` summary and exit codes, reused for the dirty refusal.
+- The `ERROR:`/`WARNING:`/`NOTE:` prefix convention in `AGENTS.md`.
+
+### DX Implementation Checklist
+
+```text
+DX IMPLEMENTATION CHECKLIST
+============================
+[ ] A pull that adds a claude script links it in under 1 s (Verification Contract, Window)
+[ ] The pull that delivers this change restows on its own (U2 scenario)
+[ ] Success prints one line naming the package
+[ ] restow-failed and restow-internal-error reports end with the rerun command
+[ ] --only usage errors and the dirty refusal name their fix
+[ ] AGENTS.md names the manual recovery command
+[ ] The PR changelog states the headless dirty-tree behavior change
+```
+
+### Implementation Tasks (DX)
+
+- [ ] T5 (P1, human: ~1h / CC: ~10min) — `.githooks/lib/restow.sh` — report text per D1, subshell and `ERR` trap per D4,
+  with the internal-error scenario. Verify: `scripts/run-tests tests/restow-on-pull.bats`.
+- [ ] T6 (P2, human: ~30min / CC: ~5min) — `scripts/stow-deploy` — fix lines per D2 and D3. Verify:
+  `scripts/run-tests tests/stow-deploy-args.bats`.
+- [ ] T7 (P2, human: ~15min / CC: ~3min) — `tests/claude-settings.bats`, `AGENTS.md` — D5 and D6. Verify: the suite and
+  markdownlint.
+
+### Unresolved Decisions (DX)
+
+None.
+
+---
+
+## DX Review Scorecard
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      |  9/10  |  —     |  new   |
+| API/CLI/SDK          |  7/10  |  —     |  new   |
+| Error Messages       |  8/10  |  —     |  new   |
+| Documentation        |  8/10  |  —     |  new   |
+| Upgrade Path         |  8/10  |  —     |  new   |
+| Dev Environment      |  7/10  |  —     |  new   |
+| Community            |  5/10  |  —     |  new   |
+| DX Measurement       |  7/10  |  —     |  new   |
++--------------------------------------------------------------------+
+| TTHW                 | <1 s   | manual | ↑      |
+| Competitive Rank     | Champion                                     |
+| Magical Moment       | designed via the pull's restow line          |
+| Product Type         | platform (deploy tooling)                    |
+| Mode                 | POLISH                                       |
+| Overall DX           |  8/10  | 6/10 before this review              |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered (deploy is the pull)                   |
+| Learn by Doing     | covered (rerun command printed)                |
+| Fight Uncertainty  | covered (D1-D5)                                |
+| Opinionated + Escape Hatches | covered (fetch-then-diff path, D6)   |
+| Code in Context    | covered (AGENTS.md recovery command)           |
+| Magical Moments    | covered                                        |
+| Agents Are Users   | covered (reason tokens, last-line fix)         |
++====================================================================+
+```
+
+Community is 5/10 because this is a single-owner dotfiles repo; nothing in scope changes that. API/CLI stays at 7
+because `stow-deploy` has no `--help`, which predates this work.
+
 ## GSTACK REVIEW REPORT
 
-| Review | Trigger | Why | Runs | Status | Findings |
-| -------- | --------- | ----- | ------ | -------- | ---------- |
-| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | not run | — |
-| Outside Review | codex plan review | Independent 2nd opinion | 0 | skipped (brief forbids subagents) | — |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | ISSUES OPEN (all resolved in plan) | 6 issues, 0 critical gaps |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | not run (no UI) | — |
-| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | not run yet | — |
+| Review         | Trigger               | Why                             | Runs | Status                    | Findings                                |
+| -------------- | --------------------- | ------------------------------- | ---- | ------------------------- | --------------------------------------- |
+| CEO Review     | `/plan-ceo-review`    | Scope & strategy                | 0    | not run                   | —                                       |
+| Outside Review | codex plan review     | Independent 2nd opinion         | 0    | disabled                  | —                                       |
+| Eng Review     | `/plan-eng-review`    | Architecture & tests (required) | 1    | ISSUES OPEN (all applied) | 6 issues, 0 critical gaps               |
+| Design Review  | `/plan-design-review` | UI/UX gaps                      | 0    | not run (no UI)           | —                                       |
+| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 1    | ISSUES OPEN (all applied) | score: 6/10 → 8/10, TTHW: manual → <1 s |
 
-- **OUTSIDE COVERAGE:** codex, plan-review phase, skipped: the slot's brief forbids subagents; no findings.
-- **VERDICT:** ENG reviewed, every finding applied to the plan (E1-E8); DX review next.
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled in gstack config (`codex_reviews: disabled`); no findings.
+- **VERDICT:** DX CLEARED; ENG reviewed with every finding applied to the plan (eng review required); document review next.
 
 NO UNRESOLVED DECISIONS
