@@ -74,25 +74,31 @@ fix ([#98584](https://github.com/anthropics/claude-code/issues/98584), #81138).
 **Failure behavior**
 
 - R6. The guard fails closed: a crash, a timeout, an unexpected exit status, or a script that cannot start blocks the
-  call.
+  call. A crash inside the script prints one stderr line, `guard-internal-error`, with the failing line and command,
+  that says the call did not run and to tell the user.
 - R7. A missing input never blocks: with no config file, no `emailAddress`, no list file, or an empty list, the guard
   checks what exists and allows the call when nothing is left to protect.
 - R8. A config file that exists but cannot be read blocks the call with a reason of its own.
 
 **What the model and user see**
 
-- R9. The deny reason says why the call was blocked and that shortened, re-spelled, encoded, split, or indirect copies
-  count too. It offers the alternatives: leave the value out, use a neutral value such as the tool name and repo URL in
-  a User-Agent, use another tool, skip the step and report it, or stop and ask. It warns that a match may be a false
-  positive, and it never contains the matched value.
-- R10. The user sees a one-line `systemMessage` naming the guard and the tool, never the value.
+- R9. The deny reason says why the call was blocked, that the call did not run and nothing was sent, and that shortened,
+  re-spelled, encoded, split, or indirect copies count too. It names which kind of source matched (the account address
+  or the list) and offers the alternatives: retry once without the value, use a neutral value such as the tool name and
+  the `git remote get-url origin` URL in a User-Agent, use another tool, skip the step and report it, or stop and ask.
+  It warns that a match may be a false positive, and it never contains the matched value.
+- R10. The user sees a one-line `systemMessage` naming the guard, the tool, and the source that matched (the config
+  file, `CLAUDE_CODE_USER_EMAIL`, or the list's line number), never the value.
 
 **Cost and documentation**
 
 - R11. The latency the guard adds per tool call is measured and reported. The budget is a median under 20 ms on this
   host.
 - R12. An **Enforcement** sentence beside the #365 rule names the hook and its test suite, and a `docs/solutions` entry
-  records the design and its limits.
+  records the design, its limits, and how to recover a host where every call is blocked.
+- R13. `never-send-guard.sh --check` reports, without printing any value, whether the account address was found and in
+  which source, how many list entries load, and the line number of each entry it skips. It exits 1 when it finds nothing
+  to protect.
 
 ### Key Decisions
 
@@ -244,8 +250,8 @@ with the reason shown to the model.
 
 ### U1. The guard and its suite
 
-- **Goal:** `never-send-guard.sh` exists, meets R1-R10, and is proven by a bats suite written first.
-- **Requirements:** R1-R10.
+- **Goal:** `never-send-guard.sh` exists, meets R1-R10 and R13, and is proven by a bats suite written first.
+- **Requirements:** R1-R10, R13.
 - **Dependencies:** none.
 - **Files:** `stow/claude/dot-claude/never-send-guard.sh` (create), `tests/never-send-guard.bats` (create).
 - **Approach:**
@@ -253,8 +259,10 @@ with the reason shown to the model.
   2. Test each value against the raw payload, then against the decoded payload, with `nocasematch`.
   3. On a match, print the deny JSON (KTD6) with the tool name taken from the payload and reduced to `[A-Za-z0-9_-]`; on
      no match, exit 0 silently.
-  4. The header comment states the protocol, the values, the limits from Scope Boundaries, and credits the #95258
-     comment.
+  4. An `ERR` trap prints the R6 `guard-internal-error` line and exits 1, so `onFailure` blocks with a readable reason.
+  5. `--check` (R13) runs the same value collection and prints a source summary instead of reading stdin.
+  6. The header comment states the protocol, the values, the list path and format, the `--check` flag, the limits from
+     Scope Boundaries, and credits the #95258 comment.
 - **Execution note:** write the suite first and run it with the script absent; every case should fail with status 127
   before the script exists. Quote that output in the PR.
 - **Patterns to follow:** `stow/claude/dot-claude/self-match-guard.sh` (deny envelope, header shape);
@@ -290,6 +298,13 @@ with the reason shown to the model.
     error.
   - Every deny output parses as JSON with `hookSpecificOutput.permissionDecision` `deny` and `hookEventName`
     `PreToolUse`.
+  - A list-entry deny's `systemMessage` names the list line number, and an account deny's names the config file; neither
+    names the value.
+  - A config path that is a directory makes `sed` fail, and the guard exits 1 with `guard-internal-error` and the
+    failing line on stderr.
+  - `--check` with a config and a two-entry list, one entry inside `$HOME`, reports the account source, one loaded
+    entry, and the skipped entry's line number, prints no value, and exits 0.
+  - `--check` with no config, no environment value, and no list exits 1.
 - **Verification:** the suite passes, `scripts/lint-shell` is clean on both files, and `tests/bash-version-guard.bats`
   still passes with the new script.
 
@@ -323,7 +338,10 @@ with the reason shown to the model.
      and `onFailure` wiring, what it matches, and `bats tests/never-send-guard.bats`. The list's path stays in the
      script header alone, so the two cannot drift.
   2. Write the solutions entry: the problem, the design (KTD1-KTD5), the measured latency, the limits, and the
-     presence-fix options. Commit it with `sd-commit-doc`.
+     presence-fix options. Add a recovery runbook for a host where every call is blocked: run `--check` and the suite
+     from a terminal, and `claude --settings '{"disableAllHooks": true}'` for one run. Say that the escape hatch for a
+     wanted send is the user running that step, and how to find denies afterward by searching transcripts for
+     `never-send-guard denied`. Commit it with `sd-commit-doc`.
 - **Test expectation:** none, documentation only; `markdownlint-cli2` clean on `CLAUDE.md`.
 - **Verification:** the sentence reads beside the rule without changing it, and `sd-commit-doc` reports the entry
   pushed.
@@ -424,12 +442,12 @@ a prompt.context hook can drop a block | plugin-authoring types, PromptContextRe
 mods auto-load from ~/.claude/skills on 2.1.287+ | davila7 secret-redactor README only | unverified
 bash 3.2 nocasematch and printf %b \xHH | no bash 3.2 on this host | unverified
 
-REALITY: premise-table finding 2 unverified premises, both recorded under Assumptions or Scope Boundaries docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:227
+REALITY: premise-table finding 2 unverified premises, both recorded under Assumptions or Scope Boundaries docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:233
 REALITY: already-done pass no commit on origin/dev touches the guard; only #365 touched the rule stow/claude/dot-claude/CLAUDE.md:123
 REALITY: surface-check pass onFailure, timeout, matcher, CLAUDE_CONFIG_DIR, and CLAUDE_CODE_USER_EMAIL found in the hooks reference and the 2.1.314 binary; sd-commit-doc is on PATH ~/.local/bin/sd-commit-doc:1
-REALITY: binding-decisions pass the brief's limits (no subagents, no stow, push with --no-verify) are in the Verification Contract docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:344
-REALITY: numbers pass measured figures carry their source in KTD3 docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:176; the chosen bounds are the 20 ms budget docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:92, the 6-character floor docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:62, and the 10 s timeout docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:167
-REALITY: deferred-asks pass every ask in the brief maps to R1-R12 or Open Questions; the presence fix is reported, not built, as the brief directs docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:124
+REALITY: binding-decisions pass the brief's limits (no subagents, no stow, push with --no-verify) are in the Verification Contract docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:362
+REALITY: numbers pass measured figures carry their source in KTD3 docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:183; the chosen bounds are the 20 ms budget docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:95, the 6-character floor docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:62, and the 10 s timeout docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:173
+REALITY: deferred-asks pass every ask in the brief maps to R1-R12 or Open Questions; the presence fix is reported, not built, as the brief directs docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:130
 REALITY: pr-count pass one PR carries U1-U3 to dev; the repo has no ship policy file docs/plans/2026-10-30-1528-feat-never-send-guard-plan.md:28
 ```
 
@@ -567,18 +585,188 @@ answers.
 - Parallelization: 1 lane, 0 parallel / 1 sequential
 - Lake Score: N/A (no Completeness-scored questions)
 
+---
+
+## DX Review
+
+The DX review ran headless in the `dotfiles/1` slot, with every choice settled on the evidence cited and recorded in the
+DX ledger below. Product type: Claude Code hook (an agent tool), reviewed in DX POLISH mode because the plan's scope is
+right and the review sharpens its touchpoints.
+
+### Developer Persona Card
+
+```text
+TARGET DEVELOPER PERSONA
+========================
+Who:       an AI coding agent, main session or subagent, that just had a tool call denied
+Context:   mid-task, often unattended (agent slots), retrying a request a site refused for lack of contact details
+Tolerance: none for ambiguity; it reads the reason literally, cannot ask, and retries or works around blindly
+Expects:   a reason that says what to send instead, whether the call ran, and when to stop
+
+Secondary: Brett, who deploys with scripts/stow-deploy, fills the list, and debugs a false positive or a blocked host
+```
+
+### Developer Empathy Narrative
+
+I'm a subagent checking a figure on Wikimedia Commons. My first `curl` came back 403 with a note asking for contact
+details in the User-Agent, and the account address is right there in my context, so I put it in. The call comes back
+denied by `never-send-guard`. The reason says the call contained the account address, that it did not run, and that
+nothing was sent. It tells me not to retry with the address shortened or encoded and not to pull it from git config, and
+it hands me the form to use: my tool name and the repo URL from `git remote get-url origin`. I retry once with that. If
+the site still refuses, the reason tells me to skip the step and say so in my report rather than hunt for another
+identifier. Without the "did not run" line I would not know whether the address already went out; without the
+replacement form I would reach for the next identifier in my context, as one #95258 commenter's model did with a GitHub
+handle.
+
+Brett's side: after `scripts/stow-deploy`, he runs `~/.claude/never-send-guard.sh --check` and sees the account address
+found in `~/.claude.json`, his list's entries loaded, and the line number of any entry the guard skipped because it
+appears in `$HOME`. Before R13, a skipped entry gave no signal at all.
+
+### Competitive DX Benchmark
+
+| Tool                    | Start to result                                   | Time and evidence type                                                       | DX choice                                                            | Source                           |
+| ----------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------- |
+| #95258 PowerShell guard | install hook and list, then the first denied call | unknown setup; 0.6 s added per call (reported)                               | fail-closed launcher, plain-text list, deny reason with alternatives | #95258 comment by scriptedfun    |
+| ECC hooks               | install the plugin's hooks                        | unknown                                                                      | stdin idle timeout and size cap so fail-closed hooks never hang      | `affaan-m/ECC` `hooks/README.md` |
+| Claude Code itself      | none                                              | n/a                                                                          | an instruction in the injected block, no enforcement                 | #81138                           |
+| This plan               | `scripts/stow-deploy`, then `--check`             | under 2 min estimated; a few ms added per call (measured per KTD3, R11 gate) | harness `onFailure`, no parser, source-aware deny, `--check`         | this plan                        |
+
+The times are not comparable boundaries: only this plan's per-call figure is measured on this host. Target: Champion
+(under 2 minutes from deploy to a confirmed active guard), because `--check` reaches the useful result without waiting
+for a model to attempt a leak.
+
+### Magical Moment Specification
+
+Brett runs `~/.claude/never-send-guard.sh --check` once after deploying and sees which sources are live, with no value
+printed (R13). For the agent, the moment is a deny that already contains the replacement User-Agent form, so the retry
+works on the first attempt (R9).
+
+### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                                  | FRICTION POINT                         | STATUS
+----------------|-------------------------------------------------|----------------------------------------|--------
+1. Discover     | Brett reads the Enforcement sentence (U3)       | none                                   | ok
+2. Install      | scripts/stow-deploy                             | none: settings and script ship together | ok
+3. Hello World  | --check shows active sources                    | no way to confirm before R13           | fixed (R13)
+4. Real Usage   | agent hits a deny and retries without the value | unclear whether the call ran           | fixed (R9)
+5. Debug        | Brett traces a false positive                   | which entry matched was unknowable     | fixed (R10 line number)
+6. Upgrade      | Claude Code changes its config                  | silent loss of the account match       | fixed (E10 canary)
+```
+
+### First-Time Developer Confusion Report
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: AI coding agent in a subagent
+Attempting: an outbound request after a 403 asking for contact details
+
+CONFUSION LOG:
+T+0:00  Sends curl -A with the address. Denied. (addressed: R9 says the call did not run)
+T+0:10  Unsure what identifier is acceptable. (addressed: R9 names the tool name + origin URL form)
+T+0:20  Retries with the form; site refuses again. (addressed: R9 says skip the step and report it)
+T+0:30  A later, unrelated call is denied by a crash. (addressed: R6 guard-internal-error tells it to stop and tell the user)
+```
+
+### DX ledger
+
+| ID  | Finding                                                                                                                                       | Disposition      | Change                                                                                       |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------- |
+| DX1 | CAP6:crash:fix,trace. A crash under `set -e` reaches the model as a bare bash error, which names no fix and does not say the call was blocked | accepted         | R6 `guard-internal-error` line from an `ERR` trap; U1 scenario                               |
+| DX2 | CAP6:address-in-tool-call:recovery. The deny never said whether the call ran or how many retries are allowed                                  | accepted         | R9 states the call did not run, nothing was sent, retry once                                 |
+| DX3 | Debugging a false positive: nothing named which source or list entry matched                                                                  | accepted         | R9 names the source kind for the model; R10 names the list line number for the user          |
+| DX4 | No recovery path documented for a host where every call is blocked, and no stated escape hatch                                                | accepted         | U3 runbook: `--check`, the suite, a one-run `disableAllHooks`, and the user running the step |
+| DX5 | A list entry skipped because it appears in `$HOME` gives no signal, so Brett would believe it is protected                                    | accepted         | R13 `--check`                                                                                |
+| DX6 | No way to see how often the guard fires                                                                                                       | accepted as docs | U3 names the transcript search; no deny log, which would be a new store                      |
+
+### Error path matrix (agent-ready-v1)
+
+```text
+Path                         | Class       | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+address-in-tool-call         | usage       | pass | pass | pass     | pass | N/A     | N/A   | pass      | pass    | none (after DX2)
+account-config-unreadable    | environment | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | none
+guard-internal-error         | unexpected  | pass | pass | pass     | pass | pass    | pass  | pass      | pass    | none (after DX1)
+timeout or missing script    | harness     | harness message names hook and "blocking"; fix lives in the U3 runbook   | outside the script
+```
+
+Context for the usage path is N/A because the call was rejected before any work. The deny goes through the hook
+protocol's native channel, `permissionDecision: "deny"`, never an exit 0 that allows.
+
+### NOT in scope (DX)
+
+- A deny log or counter: a new store; the transcripts already hold every deny.
+- Posting the design back to #95258 or #81138: outward-facing, Brett's call.
+- An override flag for the model: the brief's design and #95258 both keep the user as the only override.
+
+### What already exists (DX)
+
+The sibling guards' `denied [reason]` / `next_step [action]` / `docs:` layout, which agents in these sessions already
+read; the #95258 deny text, adapted rather than rewritten.
+
+### Claude Code Skill DX Checklist
+
+- AskUserQuestion design: n/a, the hook asks nothing.
+- State storage: the list under `~/.config/never-send/`; no other state.
+- Progressive consent: n/a.
+- Auto-upgrade: n/a; the canary catches a harness change.
+- Error recovery: R6, R9, and the U3 runbook.
+- Agent-readable errors: the matrix above.
+- Bounded autonomy: the guard has no override; the user is the escalation.
+
+## DX Review Scorecard
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend                      |
+|----------------------|--------|--------|----------------------------|
+| Getting Started      |  8/10  |  6/10  | ↑ (R13 --check)            |
+| API/CLI/SDK          |  8/10  |  7/10  | ↑                          |
+| Error Messages       |  8/10  |  6/10  | ↑ (DX1, DX2 cleared CAP6)  |
+| Documentation        |  8/10  |  6/10  | ↑ (U3 runbook)             |
+| Upgrade Path         |  7/10  |  7/10  | =                          |
+| Dev Environment      |  8/10  |  8/10  | =                          |
+| Community            |  5/10  |  5/10  | =                          |
+| DX Measurement       |  6/10  |  4/10  | ↑ (transcript search)      |
++--------------------------------------------------------------------+
+| TTHW                 | <2 min est. | unknown | ↑                    |
+| Competitive Rank     | Champion (estimated, measure at build)       |
+| Magical Moment       | designed via --check and the deny's form     |
+| Product Type         | Claude Code hook                            |
+| Mode                 | POLISH                                      |
+| Overall DX           |  7/10  |  6/10  | ↑                          |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered (ships with stow; --check)             |
+| Learn by Doing     | covered (--check)                              |
+| Fight Uncertainty  | covered (R6, R9, R10)                          |
+| Opinionated + Escape Hatches | covered (user runs the step; one-run disableAllHooks) |
+| Code in Context    | covered (replacement User-Agent form)          |
+| Magical Moments    | covered                                        |
+| Agents Are Users   | covered (agent-ready matrix)                   |
++====================================================================+
+```
+
+Prior scores are this review's starting assessment of the plan; the three earlier `plan-devex-review` rows in the log
+are for other plans and are not comparable. No dimension is below 6 except Community, which is a single-owner dotfiles
+repo with nothing to build there.
+
+Unresolved decisions: none from this review.
+
 ## GSTACK REVIEW REPORT
 
-| Review         | Trigger                      | Why                             | Runs | Status      | Findings                                |
-| -------------- | ---------------------------- | ------------------------------- | ---- | ----------- | --------------------------------------- |
-| CEO Review     | `/plan-ceo-review`           | Scope & strategy                | 0    | —           | —                                       |
-| Outside Review | codex via `/plan-eng-review` | Independent 2nd opinion         | 1    | disabled    | —                                       |
-| Eng Review     | `/plan-eng-review`           | Architecture & tests (required) | 1    | ISSUES OPEN | 10 issues, 0 critical gaps, all applied |
-| Design Review  | `/plan-design-review`        | UI/UX gaps                      | 0    | —           | —                                       |
-| DX Review      | `/plan-devex-review`         | Developer experience gaps       | 0    | —           | —                                       |
+| Review         | Trigger                                            | Why                             | Runs | Status      | Findings                                   |
+| -------------- | -------------------------------------------------- | ------------------------------- | ---- | ----------- | ------------------------------------------ |
+| CEO Review     | `/plan-ceo-review`                                 | Scope & strategy                | 0    | —           | —                                          |
+| Outside Review | codex via `/plan-eng-review`, `/plan-devex-review` | Independent 2nd opinion         | 2    | disabled    | —                                          |
+| Eng Review     | `/plan-eng-review`                                 | Architecture & tests (required) | 1    | ISSUES OPEN | 10 issues, 0 critical gaps, all applied    |
+| Design Review  | `/plan-design-review`                              | UI/UX gaps                      | 0    | —           | —                                          |
+| DX Review      | `/plan-devex-review`                               | Developer experience gaps       | 1    | ISSUES OPEN | score: 6/10 → 7/10, TTHW: unknown → <2 min |
 
-- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no outside findings.
-- **VERDICT:** Eng review complete with 10 findings applied to the plan; status stays ISSUES OPEN by the log's rule (any
-  finding counts). DX review is next.
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews` for both reviews; no outside findings.
+- **VERDICT:** Eng and DX reviews complete with every finding applied to the plan; both stay ISSUES OPEN by the log's
+  rule. Document review is next.
 
 NO UNRESOLVED DECISIONS
