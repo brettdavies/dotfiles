@@ -25,8 +25,8 @@ deepened: 2026-10-30
   `claude`, one stowed Claude setting, README and CONCEPTS.md, and a second PR to `brettdavies/agent-skills` for the
   `agent-slot` skill text.
 - **Stop conditions:** stop and report to `rex-linux` if `claude --resume <id>` stops finding a session from another
-  project directory on the installed Claude Code; if an operator answer to Q1-Q5 differs from the recommendation this
-  plan uses, update the plan before the unit it affects.
+  project directory on the installed Claude Code; if an operator decision recorded under Key Decisions changes, update
+  the plan before the unit it affects.
 - **Who finishes:** the implementing slot ships U1-U8 on `feat/agent-slot-pr-named-restore` as one PR to `dev`,
   squash-merged once green, then U9's skill text as a PR to `brettdavies/agent-skills`. The operator runs the first real
   reopen; the implementer runs only dry runs against live data.
@@ -67,14 +67,14 @@ with no PR yet.
 - R1. A slot record carries its work items, each a PR or an issue with the item's repo (`owner/name`), number, and
   title; a slot can carry several, such as an issue and the PR its work opened.
 - R2. A slot's name is derived from its first work item, `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>`, within
-  launch's task-name pattern (Q1); a name, once set, does not change when more items arrive or a title changes.
+  launch's task-name pattern; a name, once set, does not change when more items arrive or a title changes.
 - R3. `agent-slot launch <repo> --pr <ref>` or `--issue <ref>` resolves the item on GitHub, records it, names the slot,
   and for a PR checks out the PR's head branch from the remote that holds it; a repeated launch for the same item
   returns the slot that holds it.
 - R4. When `check` adopts a PR for a slot that has no work item, that PR becomes the slot's item and names it; a slot
   that has items gains the PR as another item without a rename.
 - R5. `agent-slot adopt <repo>/<N> (--pr <ref> | --issue <ref>)` attaches an item to a live slot and names the slot if
-  it has no name (Q5).
+  it has no name.
 - R6. The name shows in the slot's Claude session name, its Rex tab, `agent-slot list` and `whoami`, and its record; a
   running Claude session is renamed only while it is idle.
 - R7. A slot's items, name, and checked-out branch outlive it: the launch, adopt, and teardown ledger events carry them.
@@ -83,8 +83,7 @@ with no PR yet.
 
 - R8. `agent-slot reopen <repo> (--pr <ref> | --issue <ref>) [--session <id>] [--prompt-file F] [--request-id ID]` finds
   the newest torn-down slot for the item, or the one whose session `--session` names, and makes a fresh slot on the
-  item's head branch with the prior Claude conversation resumed under the slot's name and the optional first message
-  (Q2).
+  item's head branch with the prior Claude conversation resumed under the slot's name and the optional first message .
 - R9. Reopen refuses, naming the command that helps, when a live slot holds the item or its session, when a Claude agent
   outside slots has the session open, when no torn-down slot for the item exists, or when the prior conversation's
   transcript is gone; a retry with the request ID of a reopen that succeeded returns that slot.
@@ -100,8 +99,8 @@ with no PR yet.
 **Finish and retention**
 
 - R14. `agent-slot finish <key> --yes --allow-open-pr` finishes and tears down a task whose PR is still open when every
-  other teardown check passes; `finish --yes` alone keeps refusing with `task-has-open-pr` (Q3).
-- R15. Claude Code keeps session transcripts for 365 days on every host the dotfiles deploy to (Q4).
+  other teardown check passes; `finish --yes` alone keeps refusing with `task-has-open-pr`.
+- R15. Claude Code keeps session transcripts for 365 days on every host the dotfiles deploy to.
 
 **Documentation**
 
@@ -119,6 +118,17 @@ with no PR yet.
   R8, R11.
 - **The skill text changes by a PR to `brettdavies/agent-skills`.** (session-settled: user-directed — chosen over a
   patch file in the dotfiles PR: the skill lives in that repo.) Governs R16.
+- **Names are `<repo>-pr<N>-<slug>` and `<repo>-issue<N>-<slug>`, and an issue slot keeps its issue name when its PR
+  opens.** (session-settled: user-directed — chosen over `pr-<N>-<slug>` and `<repo>-<N>-<slug>`: sessions are listed
+  across repos, and pr/issue says what the number is.) Governs R2, R4.
+- **The verb is `reopen`, with its own help and ask rule.** (session-settled: user-directed — chosen over `restore`,
+  `revive`, and `launch --resume`: `restore` already means the Mac helper's tab reconcile.) Governs R8, R10.
+- **The finish flag is `--allow-open-pr`, separate from `--yes`.** (session-settled: user-directed — chosen over
+  `--open-pr-ok` and over dropping the refusal from `--yes`: release and the Rex finish key send `--yes`.) Governs R14.
+- **Claude Code keeps transcripts for 365 days through the stowed `cleanupPeriodDays`.** (session-settled: user-directed
+  — chosen over an agent-slot transcript archive and the 30-day default.) Governs R15.
+- **The attach verb is `adopt`, with no ask rule.** (session-settled: user-directed — chosen over `link` and `tag`:
+  adoption is already the word for check taking a PR.) Governs R5.
 
 ### Acceptance Examples
 
@@ -147,8 +157,8 @@ with no PR yet.
 Considered and not built:
 
 - **Copying or archiving transcripts at teardown.** Claude Code finds a session by ID from any directory (verified on
-  2.1.314), so the copy buys nothing while retention is long (R15). Revisit if the operator picks Q4's archive option or
-  a Claude Code release stops cross-directory resume.
+  2.1.314), so the copy buys nothing while retention is long (R15). Revisit if a Claude Code release stops
+  cross-directory resume.
 - **Matching an issue by a slot's free-form task name** for slots torn down before this ships. It guesses; `adopt`
   covers live issue slots before they go, and `--session` names a known older one exactly.
 - **A reopen that falls back to a fresh conversation** when the transcript is gone. That hands the dispatcher a slot
@@ -163,20 +173,6 @@ Considered and not built:
 
 - The Rex finish key passing `--allow-open-pr` (Mac-side `scripts/agent-slot-rex/lib/finish.sh`), if the operator wants
   it on a key.
-
-### Outstanding Questions
-
-Operator decisions sent to `rex-linux`; the plan uses each recommendation until an answer arrives, and a different
-answer changes only the named units:
-
-- Q1 (R2; U1, U2): name format. Recommended `<repo>-pr<N>-<slug>` / `<repo>-issue<N>-<slug>`; alternatives
-  `pr-<N>-<slug>` or `<repo>-<N>-<slug>`.
-- Q2 (R8; U5, U6): reopen verb name. Recommended `reopen`; alternatives `revive`, `restore` (collides with
-  `agent-slot-rex restore`), or `launch --resume`.
-- Q3 (R14; U7): finish flag. Recommended `--allow-open-pr`; alternative `--open-pr-ok`.
-- Q4 (R15; U8): transcript retention. Recommended `cleanupPeriodDays: 365`; alternatives an agent-slot transcript
-  archive, or the 30-day default.
-- Q5 (R5; U3): the verb that attaches an item to a live slot. Recommended `adopt`; alternatives `link`, `tag`.
 
 ### Sources
 
@@ -269,9 +265,12 @@ answer changes only the named units:
   when its agent is idle (never `waiting`) and records `named_as`, retrying each pass until `named_as == name`; `adopt`
   does the same once if the agent is idle. `check` never types, since it is an allowed read-only verb and also runs
   inside the slot's own agent. Governs R6.
-- KTD11. **Permission classes.** Reopen clones and starts an agent and deletes nothing, so it gets neither an allow nor
-  an ask rule in `stow/claude/dot-claude/settings.json`, as launch has none; `adopt` changes only a record and a session
-  name, so it joins the allowed verbs. `finish --allow-open-pr` stays under finish's ask rule. Governs R5, R8, R14.
+- KTD11. **Permission classes.** Reopen gets an ask rule in `stow/claude/dot-claude/settings.json`, as the operator
+  chose; that rule also prompts on `reopen --help` and `--dry-run`
+  (`docs/solutions/workflow-issues/ask-rule-on-a-cli-verb-also-guards-its-help-and-dry-run.md`), so the agent-slot skill
+  tells an agent in an unwatched slot to send a reopen to the session its brief reports to; `adopt` changes only a
+  record and a session name, so it joins the allowed verbs. `finish --allow-open-pr` stays under finish's ask rule.
+  Governs R5, R8, R14.
 - KTD12. **The open-PR refusal has one producer.** A helper decides whether finish refuses an open PR; `--allow-open-pr`
   requires `--yes`, as `--when-idle` does, and finish's report-only run names the flag in `would_need` instead of
   refusing. `task-has-open-pr` keeps `next_step.action: none` and names the flag only in its message, so a headless
@@ -326,8 +325,6 @@ stateDiagram-v2
 
 ### Assumptions
 
-- The operator answers Q1-Q5 with the recommended options; each answer that differs changes only the units named in
-  Outstanding Questions.
 - `gh` on the server can read both python-pillow/Pillow and oxipng/oxipng, as `pr_load` already does for origin repos.
 - Rex's tab label keeps coming from `agent-slot` output; the label expressions in
   `scripts/agent-slot-rex/lib/reconcile.sh` and `scripts/agent-slot-rex/lib/launch.sh` read `label_name` (KTD1), and the
@@ -335,13 +332,13 @@ stateDiagram-v2
 
 ### Risks
 
-| Risk                                                                    | Mitigation                                                                                                                                              |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A Claude Code release stops finding sessions across project directories | The dry run reports where the transcript was found; the Goal Capsule stop condition sends it to `rex-linux`; Q4's archive option is the fallback design |
-| Two reopens of one item, or a reopen and a `launch --pr`, race          | KTD6's held check and the claim both run under the repo lock                                                                                            |
-| Typing `/rename` into a pane an operator or a dialog is using           | Only an idle agent is typed to, the rule the closing-steps reminder follows                                                                             |
-| A fork or head branch that no longer exists                             | KTD4 falls back to `refs/pull/<N>/head` and leaves the branch without an upstream, so `check` never fetches a dead remote                               |
-| A resumed conversation sees itself in a new directory                   | The first prompt says the slot was reopened; the SessionStart hook's slot context names the new slot                                                    |
+| Risk                                                                    | Mitigation                                                                                                                                               |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A Claude Code release stops finding sessions across project directories | The dry run reports where the transcript was found; the Goal Capsule stop condition sends it to `rex-linux`; a transcript archive is the fallback design |
+| Two reopens of one item, or a reopen and a `launch --pr`, race          | KTD6's held check and the claim both run under the repo lock                                                                                             |
+| Typing `/rename` into a pane an operator or a dialog is using           | Only an idle agent is typed to, the rule the closing-steps reminder follows                                                                              |
+| A fork or head branch that no longer exists                             | KTD4 falls back to `refs/pull/<N>/head` and leaves the branch without an upstream, so `check` never fetches a dead remote                                |
+| A resumed conversation sees itself in a new directory                   | The first prompt says the slot was reopened; the SessionStart hook's slot context names the new slot                                                     |
 
 ---
 
@@ -464,8 +461,9 @@ stateDiagram-v2
 - **Dependencies:** U1, U4
 - **Files:** create `scripts/agent-slot/lib/reopen.sh`; modify `scripts/agent-slot/agent-slot`,
   `scripts/agent-slot/lib/help.sh`, `scripts/agent-slot/lib/contract.sh` (reasons `item-held-by-slot`, `session-in-use`,
-  `item-not-found-in-ledger`, `transcript-missing`), README's reasons table, `tests/agent-slot-contract.bats` (verb
-  list); test `tests/agent-slot-reopen.bats`.
+  `item-not-found-in-ledger`, `transcript-missing`), README's reasons table, `stow/claude/dot-claude/settings.json` (ask
+  rule for `agent-slot reopen`), `tests/agent-slot-contract.bats` (verb list); test `tests/agent-slot-reopen.bats`,
+  `tests/claude-settings.bats`.
 - **Approach:**
   1. Lookup per KTD6, streaming the ledger as `release_transcripts` does.
   2. Transcript check per KTD5.
@@ -491,6 +489,7 @@ stateDiagram-v2
   - Covers AE4. A transcript absent from every project directory gives `transcript_exists: false` and
     `transcript-missing`.
   - No matching event fails with `item-not-found-in-ledger`, and an empty or absent ledger is that error too.
+    - `agent-slot reopen` matches an ask rule in the stowed settings, beside finish's and sweep's.
   - A slot tearing down that holds the item refuses with retryable `slot-busy`; a stubbed `claude agents` entry with the
     session refuses with `session-in-use`.
 - **Verification:** suite passes; the dry run against the real ledger for oxipng #887, and against a scratch slot root
@@ -793,7 +792,7 @@ already loads.
 
 ### NOT in scope
 
-- Transcript archive at teardown: Claude Code resumes across directories and retention moves to 365 days (Q4).
+- Transcript archive at teardown: Claude Code resumes across directories and retention moves to 365 days.
 - Task-name matching for pre-feature issue slots: guesswork; `adopt` and `--session` cover the cases.
 - Rex finish key passing `--allow-open-pr`: Mac-side, deferred until the operator wants it on a key.
 
@@ -860,7 +859,7 @@ _No new tasks from Performance._
 
 ### Unresolved decisions
 
-None from this review. Q1-Q5 stay with the operator as Outstanding Questions.
+None from this review.
 
 ### Completion summary
 
