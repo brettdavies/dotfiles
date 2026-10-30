@@ -575,7 +575,7 @@ both as success, so the failed-unit list stays meaningful.
 
 ### Agent slots
 
-`agent-slot` hands out full clones of a repo for parallel Claude agents ([README](README.md#parallel-agents)). After the
+`agent-slot` hands out clones of a repo for parallel Claude agents ([README](README.md#parallel-agents)). After the
 `tmux` and `local` packages are deployed, enable the slot tmux server's prune timer, check the prerequisites, and trust
 the slot paths of the repos you start agents on. `warm` trusts slot paths only for a repo whose prime checkout you have
 already trusted in Claude:

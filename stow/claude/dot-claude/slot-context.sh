@@ -112,7 +112,7 @@ Create no git worktrees inside this slot.
 EOF
   )
   contract_json -n -c --arg text "$(
-    printf '%s\n' "You are working in agent slot $(slot_key "$1" "$2"), a full clone at $(slot_path "$1" "$2")."
+    printf '%s\n' "You are working in agent slot $(slot_key "$1" "$2"), a clone at $(slot_path "$1" "$2")."
     if [[ -n $task ]]; then printf 'Task: %s.\n' "$task"; else printf '%s\n' 'This slot was given no task name.'; fi
     printf '%s\n' "The base branch is $base." \
       "The prime checkout $prime is read-only for you; make every change in this slot." "$rules" "$plans" "$closing" \

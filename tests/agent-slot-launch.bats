@@ -39,6 +39,29 @@ launch() {
   run --separate-stderr "$AGENT_SLOT" launch "$@" --output json
 }
 
+# partial_prime NAME: a blobless clone of NAME's origin, served over file:// so the filter applies, whose origin/main
+# has moved past its checkout as a fetch leaves it. The prime lacks the blob at origin/main, and the origin stores the
+# next blob as a delta against that one, so a thin pack built against the prime's refs carries a delta it cannot
+# resolve. Origin's dev, which the prime has never fetched, adds g, whose blob reaches a slot only when it checks out
+# dev.
+partial_prime() {
+  local origin=$T/origins/$1.git seed=$T/seed-$1
+  git init -q --bare "$origin"
+  git -C "$origin" config uploadpack.allowFilter true
+  git clone -q "$origin" "$seed" 2>/dev/null
+  origin_file "$1" f "$(seq 1 20000)"
+  git clone -q --filter=blob:none "file://$origin" "$AGENT_SLOT_DEV/$1"
+  origin_file "$1" f "$(seq 1 30000)"
+  git -C "$AGENT_SLOT_DEV/$1" fetch -q origin
+  origin_file "$1" f "$(seq 1 29999)"
+  git -C "$seed" checkout -q -b dev
+  echo 'on dev only' >"$seed/g"
+  git -C "$seed" add g
+  git -C "$seed" commit -q -m 'add g'
+  git -C "$seed" push -q origin dev
+  git -C "$origin" repack -q -a -d -f
+}
+
 @test "AE1: with slots 1-3 holding tasks and slot 4 torn down, launch clones into slot 4" {
   slot repoa 1
   slot repoa 2
@@ -49,8 +72,46 @@ launch() {
   [ -d "$AGENT_SLOT_ROOT/repoa/4/.git" ]
   [ "$(git -C "$AGENT_SLOT_ROOT/repoa/4" config --get remote.origin.url)" = "$T/origins/repoa.git" ]
   [ ! -s "$AGENT_SLOT_ROOT/repoa/4/.git/objects/info/alternates" ]
+  [ -z "$(git -C "$AGENT_SLOT_ROOT/repoa/4" config --get-regexp '^remote\.origin\.(promisor|partialclonefilter)$' || true)" ]
   printf 'repoa-4\nrepoa-4-files\nrepoa-4-git\n' | diff - <(grep '^repoa-4' "$STUBS/tmux-sessions")
   assert_prime_untouched
+}
+
+@test "a prime that is a partial clone gets a slot cloned with the prime's filter, which needs no blob the prime lacks" {
+  partial_prime pc
+  local prime=$AGENT_SLOT_DEV/pc slot=$AGENT_SLOT_ROOT/pc/1
+  trusted "$(realpath -m "$slot")"
+  BEFORE=$(fingerprint "$prime")
+  launch pc --request-id r-partial
+  [ "$status" -eq 0 ]
+  jaq -e '.created == true and .key == "pc/1" and .base == "dev"' <<<"$output"
+  [ "$(git -C "$slot" config --get remote.origin.partialclonefilter)" = blob:none ]
+  [ "$(git -C "$slot" config --get remote.origin.promisor)" = true ]
+  [ ! -s "$slot/.git/objects/info/alternates" ]
+  [ "$(git -C "$slot" rev-parse HEAD)" = "$(git -C "$T/origins/pc.git" rev-parse dev)" ]
+  [ "$(wc -l <"$slot/f")" -eq 29999 ]
+  [ "$(cat "$slot/g")" = 'on dev only' ]
+  [ "$(fingerprint "$prime")" = "$BEFORE" ]
+}
+
+@test "a partial slot whose base checkout cannot fetch its blobs fails with clone-failed and leaves no slot" {
+  partial_prime pc
+  local blob slot=$AGENT_SLOT_ROOT/pc/1
+  blob=$(git -C "$T/origins/pc.git" rev-parse dev:g)
+  # A pack-objects hook only global config can set: origin refuses the one fetch that asks for dev's blob.
+  printf '#!/usr/bin/env bash\nin=%s/pack-objects-in.$$\ncat >"$in"\n! grep -q %s "$in" || exit 1\nexec "$@" <"$in"\n' \
+    "$T" "$blob" >"$T/refuse-g"
+  chmod +x "$T/refuse-g"
+  git config --file "$GIT_CONFIG_GLOBAL" uploadpack.packObjectsHook "$T/refuse-g"
+  trusted "$(realpath -m "$slot")"
+  launch pc --request-id r-partial-fail
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "clone-failed" and .value == "dev" and (.message | test("checking out dev"))
+    and .next_step.command == "agent-slot launch pc --request-id r-partial-fail"' <<<"$stderr"
+  grep -q 'could not fetch' "$(jaq -r .log <<<"$stderr")"
+  [ ! -e "$slot" ]
+  [ ! -e "$AGENT_SLOT_ROOT/pc/.1.claim.json" ]
+  [ "$(grep -c 'new-session' "$CALLS")" -eq 0 ]
 }
 
 @test "AE2: with the shared solutions repo missing, launch refuses and leaves no slot and no session" {

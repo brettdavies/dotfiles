@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# agent-slot — hands out full clones of a repo ("slots") on this server, one agent task per slot, and owns every
+# agent-slot — hands out clones of a repo ("slots") on this server, one agent task per slot, and owns every
 # check before a slot is torn down. The Rex helper on the Mac, the operator's shell, and agents all call it.
 #
 # Usage: agent-slot <verb> [options] [--output json]
