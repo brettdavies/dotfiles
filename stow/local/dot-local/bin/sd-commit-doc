@@ -124,8 +124,20 @@ wt=
 step="fast-forwarding the shared clone"
 git -C "$SD" fetch --quiet origin "$branch"
 if ! git -C "$SD" merge --ff-only --quiet "origin/$branch" 2>/dev/null; then
-  git -C "$SD" checkout -q -- "$@" 2>/dev/null || true   # revert tracked-modified copies
-  git -C "$SD" clean -fq -- "$@" >/dev/null 2>&1 || true # remove untracked-new copies
+  # Split by what the shared index knows: `git checkout -- <paths>` refuses
+  # every path when any one is unknown to it, and `git clean` is for the rest.
+  step="reverting the shared clone's copies (the push already landed)"
+  tracked=() untracked=()
+  for f in "$@"; do
+    if git -C "$SD" ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then
+      tracked+=("$f")
+    else
+      untracked+=("$f")
+    fi
+  done
+  ((${#tracked[@]} == 0)) || git -C "$SD" checkout -q -- "${tracked[@]}"
+  ((${#untracked[@]} == 0)) || git -C "$SD" clean -fq -- "${untracked[@]}"
+  step="fast-forwarding the shared clone"
   git -C "$SD" merge --ff-only --quiet "origin/$branch" 2>/dev/null \
     || echo "sd-commit-doc: pushed OK; shared checkout not fast-forwarded (diverged or busy) — nightly sync will reconcile" >&2
 fi
