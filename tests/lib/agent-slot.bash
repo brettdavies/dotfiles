@@ -234,15 +234,38 @@ work() {
   for ((i = 0; i < ${2:-1}; i++)); do git -C "$SLOT" commit -q --allow-empty -m "work $i on $1"; done
 }
 
-# pr NUMBER STATE BRANCH: a PR whose final head is the branch's current tip in the slot.
+# pr NUMBER STATE BRANCH [CREATED]: a PR whose final head is the branch's current tip in the slot, opened at CREATED,
+# which defaults to a time after the slot's record was made.
 pr() {
   local sha
   sha=$(git -C "$SLOT" rev-parse "$3")
   git -C "$SLOT" push -q origin "$sha:refs/pull/$1/head"
-  jaq -c --argjson n "$1" --arg state "$2" --arg head "$3" --arg oid "$sha" \
-    '. + [{number: $n, state: $state, headRefName: $head, headRefOid: $oid, createdAt: "2026-06-01T00:00:00Z",
+  pr_listed "$1" "$2" "$3" "$sha" "${4:-2026-06-01T00:00:00Z}"
+}
+
+# pr_listed NUMBER STATE BRANCH OID CREATED: an entry in the stubbed `gh pr list`.
+pr_listed() {
+  jaq -c --argjson n "$1" --arg state "$2" --arg head "$3" --arg oid "$4" --arg created "$5" \
+    '. + [{number: $n, state: $state, headRefName: $head, headRefOid: $oid, createdAt: $created,
       url: "https://github.com/x/repoa/pull/\($n)"}]' "$STUBS/gh-prs.json" >"$STUBS/gh-prs.new"
   mv "$STUBS/gh-prs.new" "$STUBS/gh-prs.json"
+}
+
+# fork_remote: points the slot's origin at GitHub's https URL for up/repoa and adds a remote named fork at GitHub's ssh
+# URL for me/repoa, the shape `gh pr checkout` leaves for a PR from a fork. The test's git config rewrites both URLs to
+# bare repos under $T, so check reads both remotes as on github.com while git reaches the local repos.
+fork_remote() {
+  mkdir -p "$T/forks"
+  git clone -q --bare "$ORIGIN" "$T/forks/repoa.git"
+  git config --file "$GIT_CONFIG_GLOBAL" "url.$T/origins/.insteadOf" https://github.com/up/
+  git config --file "$GIT_CONFIG_GLOBAL" "url.$T/forks/.insteadOf" git@github.com:me/
+  git -C "$SLOT" remote set-url origin https://github.com/up/repoa.git
+  git -C "$SLOT" remote add fork git@github.com:me/repoa.git
+}
+
+# operator_finished: the record of a task the operator finished.
+operator_finished() {
+  jaq '.finished_by_operator = true' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
 }
 
 # squash_merge BRANCH: GitHub's squash merge: one commit on main, and the head branch deleted.

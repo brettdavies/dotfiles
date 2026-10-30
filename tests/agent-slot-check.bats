@@ -386,7 +386,7 @@ listed() {
   work feat/z
   git -C "$SLOT" push -q origin feat/z
   git --git-dir="$ORIGIN" update-ref -d refs/heads/feat/z
-  jaq '.finished_by_operator = true' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  operator_finished
   git -C "$SLOT" rev-parse -q --verify refs/remotes/origin/feat/z
   check
   jaq -e '.needs_you[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
@@ -395,7 +395,7 @@ listed() {
 @test "a task with no PR whose commits are on an origin branch passes once the operator finished it" {
   work feat/w
   git -C "$SLOT" push -q origin feat/w
-  jaq '.finished_by_operator = true' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  operator_finished
   check
   jaq -e '.finished == true and .finished_by == "operator" and .teardown == true' <<<"$VERDICT"
 }
@@ -703,13 +703,114 @@ vale_slot() {
   jaq -e '.slots[0].needs_you[0].message == "1 unpushed commit"' <<<"$output"
 }
 
-@test "a PR opened before the slot existed does not count as the task's" {
+# old_pr NUMBER BRANCH: a PR merged before the slot existed, from another clone, whose head the slot never had.
+old_pr() {
+  git clone -q "$ORIGIN" "$T/other"
+  git -C "$T/other" checkout -q -b "$2"
+  git -C "$T/other" commit -q --allow-empty -m 'old work'
+  git -C "$T/other" push -q origin "HEAD:refs/pull/$1/head"
+  pr_listed "$1" MERGED "$2" "$(git -C "$T/other" rev-parse HEAD)" 2025-01-01T00:00:00Z
+}
+
+@test "a PR opened before the slot existed that only reused the branch name does not count as the task's" {
+  old_pr 3 feat/x
   work feat/x
   git -C "$SLOT" push -q origin feat/x
-  pr 3 MERGED feat/x
-  jaq '(.[0].createdAt) = "2025-01-01T00:00:00Z"' "$STUBS/gh-prs.json" >"$T/p" && mv "$T/p" "$STUBS/gh-prs.json"
   check
   jaq -e '.prs == [] and .finished == false' <<<"$VERDICT"
+}
+
+@test "a PR opened before the slot existed whose head main holds through a merge commit does not count as the task's" {
+  old_pr 3 feat/x
+  git -C "$T/other" checkout -q main
+  git -C "$T/other" merge -q --no-ff -m 'Merge pull request #3' feat/x
+  git -C "$T/other" push -q origin main
+  git -C "$SLOT" pull -q --ff-only origin main
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  git -C "$SLOT" merge-base --is-ancestor "$(jaq -r '.[0].headRefOid' "$STUBS/gh-prs.json")" feat/x
+  check
+  jaq -e '.prs == [] and .finished == false' <<<"$VERDICT"
+}
+
+@test "a PR opened before the slot existed whose head the slot's branch holds is the task's, as in a review round" {
+  work fix/r
+  git -C "$SLOT" push -q origin fix/r
+  pr 887 OPEN fix/r 2025-12-01T00:00:00Z
+  git -C "$SLOT" commit -q --allow-empty -m 'address the review'
+  check
+  jaq -e '([.prs[].number] == [887]) and .finished == false
+    and (.blockers[] | select(.code == "unpushed-commits") | .count == 1)' <<<"$VERDICT"
+}
+
+@test "a PR the record names keeps counting though it predates the slot and the slot no longer holds its head" {
+  old_pr 5 feat/x
+  jaq '.prs = [5]' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  check
+  jaq -e '[.prs[].number] == [5]' <<<"$VERDICT"
+}
+
+@test "an operator finish ends a review round whose PR from the fork is still open, once the PR holds every commit" {
+  fork_remote
+  work fix/r 2
+  git -C "$SLOT" push -q -u fork fix/r
+  pr 887 OPEN fix/r 2025-12-01T00:00:00Z
+  operator_finished
+  check
+  jaq -e '([.prs[].number] == [887]) and .finished == true and .finished_by == "operator" and .blockers == []
+    and .teardown == true' <<<"$VERDICT"
+}
+
+@test "a commit on a branch pushed to the fork it tracks, on origin's host, counts as pushed" {
+  fork_remote
+  work feat/f
+  git -C "$SLOT" push -q -u fork feat/f
+  operator_finished
+  check
+  jaq -e '.finished == true and .blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "a commit on the fork that no local branch pushes to still counts as unpushed" {
+  fork_remote
+  work feat/f
+  git -C "$SLOT" push -q fork feat/f
+  operator_finished
+  check
+  jaq -e '.blockers[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
+}
+
+@test "a branch's upstream at a local path, off origin's host, does not count as pushed" {
+  git clone -q --bare "$ORIGIN" "$T/backup.git"
+  git -C "$SLOT" remote add backup "$T/backup.git"
+  work feat/f
+  git -C "$SLOT" push -q -u backup feat/f
+  operator_finished
+  check
+  jaq -e '.blockers[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
+}
+
+@test "a branch the fork deletes after a check saw it counts as unpushed again, whatever the slot's fork refs hold" {
+  fork_remote
+  work feat/f
+  git -C "$SLOT" push -q -u fork feat/f
+  operator_finished
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+  git --git-dir="$T/forks/repoa.git" update-ref -d refs/heads/feat/f
+  git -C "$SLOT" rev-parse -q --verify refs/remotes/fork/feat/f
+  check
+  jaq -e '.needs_you[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
+}
+
+@test "a fork its branch pushes to that cannot be fetched blocks with git-state-unknown" {
+  fork_remote
+  work feat/f
+  git -C "$SLOT" push -q -u fork feat/f
+  git -C "$SLOT" remote set-url fork git@github.com:me/missing.git
+  operator_finished
+  check
+  jaq -e 'any(.blockers[]; .code == "git-state-unknown" and (.message | startswith("git fetch from fork failed")))
+    and .teardown == false' <<<"$VERDICT"
 }
 
 @test "a merged PR whose branch the slot deleted after switching to the base, before any check, finishes the task" {

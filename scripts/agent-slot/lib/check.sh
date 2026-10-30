@@ -3,11 +3,11 @@
 # share. Every lookup must show that it ran; a lookup that fails, or that returns nothing to judge, is a blocker.
 #
 # A task has finished when none of its PRs is open or closed without merging and one has merged, or when the operator
-# finished it with no PR open. A finished slot may go only when every check below passes:
+# finished it, whatever state its PRs are in. A finished slot may go only when every check below passes:
 #
 #   the agent is idle or absent; the tree is clean apart from setup's docs/solutions link and nothing is stashed; every
-#   local commit is in the final head of one of the task's PRs, or, for a task that never had a PR, on a branch on
-#   origin; no untracked file exists beyond the files setup placed and Claude Code's own runtime files, and no ignored
+#   local commit is in the final head of one of the task's PRs, or, for a task that never had a PR, on a branch of a
+#   pushed remote; no untracked file exists beyond the files setup placed and Claude Code's own runtime files, and no ignored
 #   file beyond those, tool and build output, and byte-for-byte copies of files HEAD tracks; and no symlink under the
 #   home directory resolves into the slot. Tool output counts even inside a local-only directory, so Playwright's
 #   .context/test-results passes while any other file under .context blocks. So do the Vale style packages the slot's
@@ -33,6 +33,7 @@ CHECK_BUILD_DIRS='target dist build venv coverage'
 CHECK_BLOCKERS=()
 CHECK_VERDICT=
 CHECK_PACKAGE_DIRS=
+CHECK_PUSH_REMOTES=()
 
 # Usage: _check_block <code> <message> [count] [value...]
 _check_block() {
@@ -249,24 +250,78 @@ ends; run agent-slot release as your last step, and the slot is torn down once y
   esac
 }
 
+# Usage: check_local_heads <slot path>; prints the commit of HEAD, of each local branch, and of each linked worktree's
+# HEAD, once each.
+check_local_heads() {
+  {
+    git -C "$1" rev-parse HEAD
+    git -C "$1" for-each-ref --format='%(objectname)' refs/heads
+    git -C "$1" worktree list --porcelain | sed -n 's/^HEAD //p'
+  } | sort -u
+}
+
+# Usage: _check_url_host <url>; prints the host of a remote URL git reaches over a network, and nothing for a local
+# path. Git reads a URL with no scheme as scp-style host:path only when no slash comes before its first colon.
+_check_url_host() {
+  local url=$1
+  case $url in
+    file://*) return 0 ;;
+    *://*) url=${url#*://} ;;
+    *:*) [[ ${url%%:*} != */* ]] || return 0 ;;
+    *) return 0 ;;
+  esac
+  url=${url%%[/:]*}
+  printf '%s' "${url##*@}"
+}
+
+# Usage: _check_push_remotes <slot path>; prints each remote besides origin that a local branch tracks or pushes to,
+# when its URL is on origin's host: a fork that a PR runs from. Such a remote holds what was pushed to it as durably as
+# origin does. A remote at a local path never counts, since it can sit inside the slot that teardown deletes, and a
+# remote no branch names is left unfetched.
+_check_push_remotes() {
+  local host remote
+  host=$(_check_url_host "$(git -C "$1" config --get remote.origin.url || true)")
+  [[ -n $host ]] || return 0
+  while read -r remote; do
+    [[ -n $remote && $remote != origin ]] || continue
+    if [[ $(_check_url_host "$(git -C "$1" config --get "remote.$remote.url" || true)") == "$host" ]]; then
+      printf '%s\n' "$remote"
+    fi
+  done < <(git -C "$1" for-each-ref --format='%(upstream:remotename)%0a%(push:remotename)' refs/heads | sort -u)
+}
+
+# Usage: _check_fetch_push_remotes <slot path>; fetches the branches of each remote _check_push_remotes names into
+# refs/agent-slot/remotes/<remote>, pruned, and sets CHECK_PUSH_REMOTES to those fetched. Only refs this check fetched
+# count, so a remote-tracking ref the slot kept for a branch the fork has since deleted never does.
+_check_fetch_push_remotes() {
+  local remote out
+  CHECK_PUSH_REMOTES=()
+  while read -r remote; do
+    [[ -n $remote ]] || continue
+    if bounded out fetch 120 /usr/bin/env GIT_SSH_COMMAND='ssh -o BatchMode=yes' GIT_TERMINAL_PROMPT=0 \
+      git -C "$1" fetch -q --no-tags --prune "$remote" "+refs/heads/*:refs/agent-slot/remotes/$remote/*"; then
+      CHECK_PUSH_REMOTES+=("$remote")
+    else
+      _check_block git-state-unknown "git fetch from $remote failed (log: $BOUNDED_LOG)"
+    fi
+  done < <(_check_push_remotes "$1")
+}
+
 # Usage: _check_commits <slot path> <base> <pr count>
-# A commit counts as pushed once an origin branch or tag holds it; local tags count as heads, so a commit only a local
-# tag still reaches is unpushed. Origin's tags are fetched into refs/agent-slot/origin-tags.
+# A commit counts as pushed once an origin branch or tag, or a branch of a remote in CHECK_PUSH_REMOTES, holds it; local
+# tags count as heads, so a commit only a local tag still reaches is unpushed. Origin's tags are fetched into
+# refs/agent-slot/origin-tags.
 _check_commits() {
-  local path=$1 base=$2 has_prs=$3 baseref heads uncontained unpushed_heads unpushed
+  local path=$1 base=$2 has_prs=$3 baseref heads uncontained unpushed_heads unpushed remote
   baseref=refs/remotes/origin/$base
   git -C "$path" rev-parse -q --verify "$baseref" >/dev/null || baseref=refs/remotes/origin/HEAD
-  if ! git -C "$path" rev-parse -q --verify "$baseref" >/dev/null \
-    || ! heads=$({
-      git -C "$path" rev-parse HEAD
-      git -C "$path" for-each-ref --format='%(objectname)' refs/heads
-      git -C "$path" worktree list --porcelain | sed -n 's/^HEAD //p'
-    } | sort -u); then
+  if ! git -C "$path" rev-parse -q --verify "$baseref" >/dev/null || ! heads=$(check_local_heads "$path"); then
     _check_block git-state-unknown "the slot's local heads or origin's $base could not be read"
     return
   fi
   local -a h contained=("$baseref" --glob='refs/agent-slot/pr/*')
   local -a on_origin=(--remotes=origin --glob='refs/agent-slot/origin-tags/*')
+  for remote in "${CHECK_PUSH_REMOTES[@]}"; do on_origin+=(--glob="refs/agent-slot/remotes/$remote/*"); done
   mapfile -t h <<<"$heads"
   # A clone keeps a local copy of origin's default branch, whose history need not be in the base (dev).
   ! git -C "$path" rev-parse -q --verify refs/remotes/origin/HEAD >/dev/null || contained+=(refs/remotes/origin/HEAD)
@@ -298,7 +353,7 @@ check_inputs_load() {
 check_slot() {
   local repo=$1 n=$2 path real state base origin prs='[]' prs_known=1 refspecs=() number out finished operator
   local -a closed links
-  CHECK_BLOCKERS=()
+  CHECK_BLOCKERS=() CHECK_PUSH_REMOTES=()
   path=$(slot_path "$repo" "$n")
   real=$(realpath -m "$path")
   if ! record_read "$repo" "$n"; then
@@ -326,6 +381,7 @@ check_slot() {
       git -C "$path" fetch -q --no-tags --prune origin "${refspecs[@]}"; then
       _check_block git-state-unknown "git fetch from origin failed (log: $BOUNDED_LOG)"
     fi
+    _check_fetch_push_remotes "$path"
 
     operator=$(contract_json -r '.finished_by_operator // false' <<<"$RECORD")
     mapfile -t closed < <(contract_json -r '.[] | select(.state == "CLOSED") | .number' <<<"$prs")
@@ -354,8 +410,7 @@ check_slot() {
   finished=$(contract_json -r --argjson op "$(contract_json '.finished_by_operator // false' <<<"$RECORD")" \
     --argjson ok "$prs_known" '
     if $ok == 0 then false
-    else (any(.[]; .state == "OPEN") | not) as $none_open
-      | ($none_open and ((any(.[]; .state == "MERGED") and (any(.[]; .state == "CLOSED") | not)) or $op))
+    else $op or ((any(.[]; .state == "OPEN" or .state == "CLOSED") | not) and any(.[]; .state == "MERGED"))
     end' <<<"$prs")
   [[ $state == active ]] || finished=false
   CHECK_VERDICT=$(printf '%s\n' "${CHECK_BLOCKERS[@]}" | contract_json -s -c --arg key "$(slot_key "$repo" "$n")" \
