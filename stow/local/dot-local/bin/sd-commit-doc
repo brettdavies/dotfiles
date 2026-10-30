@@ -56,6 +56,9 @@ trap on_exit EXIT
 msg=$1
 shift
 [[ -f $msg ]] || die "message file not found: $msg"
+# The commit runs under `git -C "$wt"`, which reads a relative path from the
+# worktree, not from the directory the caller named it in.
+[[ $msg == /* ]] || msg="$(cd "$(dirname "$msg")" && pwd)/$(basename "$msg")"
 
 SD=${SD_DIR:-$HOME/dev/solutions-docs}
 [[ -d $SD/.git ]] || die "not a solutions git repo: $SD"
