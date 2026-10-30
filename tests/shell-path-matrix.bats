@@ -36,6 +36,10 @@
 bats_require_minimum_version 1.11.0
 
 BARE_PATH=/usr/bin:/bin:/usr/sbin:/sbin
+# Every shape below runs with stdin from /dev/null. A non-login `bash -c` that
+# sees itself as top-level (env -i clears SHLVL) reads ~/.bashrc when stdin is a
+# socket, taking itself for an sshd session, and the Claude Code Bash tool can
+# hand bats a socket.
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 CONFIG_DIR="$REPO_ROOT/config/shell"
 
@@ -52,7 +56,7 @@ _shape() {
     LOGNAME="${LOGNAME:-$(id -un)}" \
     TERM=xterm-256color \
     PATH="$BARE_PATH" \
-    "$shell" "$flags" "$script"
+    "$shell" "$flags" "$script" </dev/null
 }
 
 _path_in() {
@@ -268,7 +272,7 @@ _inherited_shape() {
     PATH="$path_str" \
     MATRIX_OUT="$BATS_TEST_TMPDIR/out" \
     "$@" \
-    "$shell" "$flags" "$script" >"$BATS_TEST_TMPDIR/startup.log" 2>&1
+    "$shell" "$flags" "$script" </dev/null >"$BATS_TEST_TMPDIR/startup.log" 2>&1
 }
 
 _report_line() {
@@ -416,7 +420,7 @@ unset _shape
 
   # Reproduce the demoted order: ruby present but behind /usr/bin.
   run env -i HOME="$HOME" PATH="/usr/bin:/bin:$bp/opt/ruby/bin" \
-    bash -c "source '$env_file'; command -v bundle"
+    bash -c "source '$env_file'; command -v bundle" </dev/null
   rm -f "$env_file"
 
   [ "$status" -eq 0 ]
