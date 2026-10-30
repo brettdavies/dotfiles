@@ -81,6 +81,8 @@ source "$AS_LIB/launch.sh"
 source "$AS_LIB/prstate.sh"
 # shellcheck source=lib/items.sh
 source "$AS_LIB/items.sh"
+# shellcheck source=lib/reopen.sh
+source "$AS_LIB/reopen.sh"
 # shellcheck source=lib/homescan.sh
 source "$AS_LIB/homescan.sh"
 # shellcheck source=lib/check.sh
@@ -189,6 +191,11 @@ main() {
       adopt_parse_args "${args[@]}"
       exec </dev/null
       cmd_adopt
+      ;;
+    reopen)
+      reopen_parse_args "${args[@]}"
+      exec </dev/null
+      cmd_reopen
       ;;
     check)
       ((${#args[@]} <= 1)) || usage_fail "check takes at most one slot, <repo>/<N>" "${args[*]}"

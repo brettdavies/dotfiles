@@ -3,7 +3,8 @@
 # so check counts what is pushed there: origin when the head is on origin's repo, else a remote named as the prime
 # names that repo, else fork. A head whose branch or repository is gone is checked out from the item repo's
 # refs/pull/<N>/head under the head's name with no upstream, so check never fetches a remote that is gone. GitHub URLs
-# are compared as owner/name, whatever form each is written in.
+# are compared as owner/name, whatever form each is written in. head_plan picks a reopen's head from the slot's teardown
+# event in the ledger, keeping the branch and remote the slot had over GitHub's.
 
 HEAD_REMOTE='' HEAD_URL='' HEAD_PUSHABLE=null
 
@@ -53,6 +54,51 @@ head_checkout() {
   _head_git fetch "$slot" "$retry" "$from" fetch -q -- "$from" "refs/pull/$number/head"
   _head_git checkout "$slot" "$retry" "$branch" checkout -q -B "$branch" FETCH_HEAD
   HEAD_PUSHABLE=false
+}
+
+# Usage: head_plan <teardown event> <item>; sets HEAD_PLAN to the head a reopen of the slot the ledger event tore down
+# checks out, {branch, remote, url, oid, source: {branch, remote}}, for an item as item_resolve reads it. The caller
+# has run repo_prime. The branch is the event's head when the event kept that branch, else a PR's head branch on
+# GitHub, else the base. Its remote and URL are the event's for that branch only when the URL is on origin's host,
+# since the slot's own agent wrote them, and are origin when they name origin's repo; else they are a PR's head
+# repository on GitHub, under the prime's name for it or fork, with a null remote when that repository is gone, so the
+# head comes from refs/pull/<N>/head.
+HEAD_PLAN=null
+head_plan() {
+  local event=$1 item=$2 kind branch from=ledger entry url remote host origin_slug
+  kind=$(contract_json -r .kind <<<"$item")
+  parity_base "$REPO_PRIME"
+  branch=$(contract_json -r '.head as $h | if $h != null and any(.branches[]?; .name == $h) then $h else "" end' \
+    <<<"$event")
+  if [[ -z $branch && $kind == pr ]]; then
+    branch=$(contract_json -r '.head_branch // ""' <<<"$item") from=gh
+  fi
+  entry=$(contract_json -c --arg b "$branch" '[.branches[]? | select(.name == $b)] | last // {}' <<<"$event")
+  url=$(contract_json -r '.url // ""' <<<"$entry")
+  remote=$(contract_json -r '.remote // ""' <<<"$entry")
+  host=$(_check_url_host "$REPO_ORIGIN")
+  if [[ -n $branch && -n $remote && -n $host && $(_check_url_host "$url") == "$host" ]]; then
+    origin_slug=$(head_github_slug "$REPO_ORIGIN")
+    if [[ -n $origin_slug && $(head_github_slug "$url") == "$origin_slug" ]]; then
+      remote=origin url=$REPO_ORIGIN
+    fi
+    _head_plan_json "$branch" "$remote" "$url" "$entry" "$from" ledger
+  elif [[ -n $branch && $kind == pr ]]; then
+    url=$(contract_json -r '.head_url // ""' <<<"$item")
+    HEAD_REMOTE='' HEAD_URL=''
+    [[ -z $url ]] || head_remote_for "$REPO_PRIME" "$url"
+    _head_plan_json "$branch" "$HEAD_REMOTE" "$HEAD_URL" "$entry" "$from" gh
+  else
+    _head_plan_json "$PARITY_BASE" origin "$REPO_ORIGIN" '{}' base base
+  fi
+}
+
+_head_plan_json() {
+  HEAD_PLAN=$(contract_json -n -c --arg branch "$1" --arg remote "$2" --arg url "$3" --argjson entry "$4" \
+    --arg from "$5" --arg remote_from "$6" '
+    {branch: $branch, remote: (if $remote == "" then null else $remote end),
+     url: (if $url == "" then null else $url end), oid: ($entry.oid // null),
+     source: {branch: $from, remote: (if $remote == "" then null else $remote_from end)}}')
 }
 
 # Returns 1 when the remote answers that it has no such branch.

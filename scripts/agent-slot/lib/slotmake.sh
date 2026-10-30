@@ -48,6 +48,9 @@ slot_reclaim_abandoned() {
 
 _slot_us() { printf '%s' "${EPOCHREALTIME/./}"; }
 
+# Usage: slot_prompt_file <slot path>; prints where a slot keeps the first message it was made with.
+slot_prompt_file() { printf '%s/.git/agent-slot-prompt.md' "$1"; }
+
 # Usage: slot_make <repo> <event> <command> <seed> <prompt file> <launch | resume> [<head step>]
 # Makes a slot of the repo whose prime repo_prime set, from under the repo lock the caller holds and releases here. The
 # record is a setting-up record with a fresh session ID and the JSON object <seed> merged over it; <prompt file>, when
@@ -111,7 +114,7 @@ slot_make() {
   parity_solutions "$path"
   parity_claude_settings "$REPO_PRIME" "$path"
   parity_siblings "$repo" "$path"
-  prompt_copy=$path/.git/agent-slot-prompt.md
+  prompt_copy=$(slot_prompt_file "$path")
   if [[ -n $prompt ]]; then
     cp "$prompt" "$prompt_copy"
   fi

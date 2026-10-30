@@ -13,6 +13,7 @@ Verbs:
   warm     trust the next slot paths of a repo in Claude ahead of time
   check    judge whether each slot can be torn down, and list what blocks it
   adopt    attach a PR or issue to a live slot, naming the slot if it has no name
+  reopen   bring the work of a torn-down slot on a PR or issue back in a fresh slot, resuming its conversation
   sweep    tear down every slot whose task has finished and that check passes (reports only, without --yes)
   finish   mark a task finished and tear its slot down if check passes (reports only, without --yes)
   release  hand this slot'"'"'s teardown upstream once its agent has run the closing skills; run from inside the slot
@@ -23,7 +24,7 @@ Every verb takes --output json (one JSON object on stdout, or an error object on
 Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.
 Reasons and their fixes: https://github.com/brettdavies/dotfiles/blob/main/README.md#agent-slot-reasons'
 
-VERBS=' repos list whoami launch resume warm check adopt sweep finish release doctor schema '
+VERBS=' repos list whoami launch resume warm check adopt reopen sweep finish release doctor schema '
 
 verb_help() {
   case $1 in
@@ -84,6 +85,26 @@ verb_help() {
       'it is idle. It deletes nothing, so it needs no ask.' \
       'returns: key, name, items[] of {kind, repo, number, title}, item (the one attached), renamed' \
       'example: agent-slot adopt Pillow/1 --issue 10331 --output json' ;;
+    reopen) printf '%s\n' \
+      'usage: agent-slot reopen <repo> (--pr <ref> | --issue <ref>) [--session ID] [--prompt-file FILE]' \
+      '                         [--request-id ID] [--dry-run] [--output json]' \
+      "Finds the slot of the repo that worked on a PR or issue in the ledger after its teardown: the newest whose" \
+      "work items hold it, else, for a PR of origin's repo, the newest whose PRs hold its number. --session ID picks" \
+      'the teardown of the slot whose Claude session that was, as for a slot torn down before work items were' \
+      'recorded; one whose work items name another item is refused. A ref is N (in the origin repo),' \
+      'owner/name#N, or its GitHub URL. It refuses while a slot holds the item or the Claude session' \
+      '(item-held-by-slot), while a Claude agent has the session open (session-in-use), when no teardown names the' \
+      'item (item-not-found-in-ledger), and when Claude Code no longer has the transcript (transcript-missing).' \
+      '--dry-run changes nothing and exits 0 with the plan, or with the refusal a reopen would hit; a ref GitHub' \
+      'cannot read still fails. The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
+      'the base, fetched from the remote the ledger recorded for it when that is on origin'"'"'s host, else from the' \
+      "PR's head repository. Agents ask the operator first." \
+      'returns: with --dry-run, dry_run, would_reopen, refusal (null, or {reason, exit_code, message, value,' \
+      '         next_step, recovery}), item, source (the teardown event, or {key, state, name, items, session_id} of' \
+      '         the slot that holds the item or request), name, items[] of {kind, repo, number, title}, task,' \
+      '         session_id, transcript, transcript_exists, head {branch, remote, url, oid, source {branch, remote}},' \
+      '         slot, command, prompt_delivered' \
+      'example: agent-slot reopen oxipng --pr 887 --dry-run --output json' ;;
     sweep) printf '%s\n' 'usage: agent-slot sweep [--yes [--auto]] [--output json]' \
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \
       "reports what it would delete. Agents ask the operator first. A teardown deletes the slot's clone, moving it to" \

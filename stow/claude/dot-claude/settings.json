@@ -346,6 +346,7 @@
     ],
     "ask": [
       "Bash(agent-slot finish *)",
+      "Bash(agent-slot reopen *)",
       "Bash(agent-slot sweep *)",
       "Bash(apt:*)",
       "Bash(docker:*)",

@@ -48,6 +48,10 @@ tmux-failed                   1     true       1            retry
 pr-state-unknown              1     true       3            retry
 item-not-found                2     false      0            run
 item-kind-mismatch            2     false      0            rerun
+item-held-by-slot             1     false      0            run
+session-in-use                1     false      0            ask-operator
+item-not-found-in-ledger      1     false      0            run
+transcript-missing            1     false      0            run
 task-has-open-pr              1     false      0            none
 teardown-blocked              1     false      0            run
 slot-outside-root             78    false      0            ask-operator

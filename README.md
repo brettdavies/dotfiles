@@ -384,10 +384,14 @@ ID returns the same slot. `agent-slot resume <repo>/<N>` restarts a dormant slot
 `agent-slot warm <repo>` trusts slot paths ahead of time, and `agent-slot check [<repo>/<N>]` gives the teardown
 verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or `--issue <ref>`) attaches a PR or issue to a live slot and names
 the slot `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's record and
-its Claude session's name, so it needs no ask. `agent-slot sweep` and `agent-slot finish <repo>/<N>` delete slots, so
-both only report unless given `--yes`, and agents ask before running them. `agent-slot release`, run from inside a slot,
-hands that slot's teardown upstream; it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks every
-prerequisite and the time from key press to Claude idle.
+its Claude session's name, so it needs no ask. `agent-slot reopen <repo> --pr <ref> --dry-run` (or `--issue <ref>`)
+finds the teardown of the slot that worked on a PR or issue in the ledger, or the one whose Claude session `--session
+<id>` names, and reports its session and transcript, the branch and remote it would check out, and the `claude --resume`
+command it would type, or the refusal a reopen would hit; agents ask before running it, `--dry-run` included.
+`agent-slot sweep` and `agent-slot finish <repo>/<N>` delete slots, so both only report unless given `--yes`, and agents
+ask before running them. `agent-slot release`, run from inside a slot, hands that slot's teardown upstream; it deletes
+nothing itself, so it needs no ask. `agent-slot doctor` checks every prerequisite and the time from key press to Claude
+idle.
 
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore
@@ -442,6 +446,10 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `pr-state-unknown`            | 1    | `gh` could not read the repo's PRs or a work item; check `gh auth status`, then retry          |
 | `item-not-found`              | 2    | GitHub has no such PR or issue that `gh` can see; `agent-slot launch --help` gives the forms   |
 | `item-kind-mismatch`          | 2    | The number is a PR given as `--issue`, or an issue given as `--pr`; swap the flag              |
+| `item-held-by-slot`           | 1    | A live slot holds the item or its session; brief that slot, or `agent-slot resume` it          |
+| `session-in-use`              | 1    | A Claude agent has the session open; the operator closes it, then the reopen runs again        |
+| `item-not-found-in-ledger`    | 1    | No teardown names the item; `--session <id>` finds an older slot, or launch a fresh one        |
+| `transcript-missing`          | 1    | Claude Code no longer has the conversation to resume; launch a fresh slot for the item         |
 | `task-has-open-pr`            | 1    | `finish` refused an open PR; merge or close it, or the operator reruns with `--allow-open-pr`  |
 | `teardown-blocked`            | 1    | `finish` kept the slot; `agent-slot check <repo>/<N>` names why                                |
 | `slot-outside-root`           | 78   | The slot path resolves outside the slot root, so nothing was deleted; look at it by hand       |
