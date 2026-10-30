@@ -60,14 +60,14 @@ _skip_unless_deployed() {
 }
 
 @test "profile sources config/shell after ~/.local/bin is on PATH" {
-  local_line=$(_line_of 'HOME/\.local/bin:\$PATH')
+  local_line=$(_line_of '_path_to_front "\$HOME/\.local/bin"')
   loop_line=$(_line_of '\$_CONFIG_DIR"/\*\.sh')
   [ -n "$local_line" ] && [ -n "$loop_line" ]
   [ "$local_line" -lt "$loop_line" ]
 }
 
 @test "profile sources config/shell after the bun path is on PATH" {
-  bun_line=$(_line_of 'HOME/\.bun/bin:\$PATH')
+  bun_line=$(_line_of '_path_to_front "\$HOME/\.bun/bin"')
   loop_line=$(_line_of '\$_CONFIG_DIR"/\*\.sh')
   [ -n "$bun_line" ] && [ -n "$loop_line" ]
   [ "$bun_line" -lt "$loop_line" ]

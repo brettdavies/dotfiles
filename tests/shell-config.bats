@@ -113,6 +113,30 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   }
 }
 
+# path_helper also pushes ~/.local/bin behind /usr/bin, and the Homebrew repair
+# lands Homebrew ahead of it, which leaves Homebrew's gh shadowing the merge-guard
+# wrapper in every macOS terminal. A uname stub runs the Darwin branch anywhere.
+@test "dot-zprofile puts ~/.local/bin back ahead of Homebrew and /usr/bin" {
+  command -v zsh >/dev/null 2>&1 || skip "zsh not installed"
+  local stub="$BATS_TEST_TMPDIR/stub" brew="$BATS_TEST_TMPDIR/brew"
+  mkdir -p "$stub" "$brew/bin" "$brew/sbin"
+  printf '#!/bin/sh\necho Darwin\n' >"$stub/uname"
+  chmod +x "$stub/uname"
+  # The order path_helper leaves: system dirs first, then the inherited PATH.
+  run zsh -fc "
+    export HOMEBREW_PREFIX='$brew'
+    path=('$stub' /usr/local/bin /usr/bin /bin /usr/sbin /sbin \"\$HOME/.local/bin\" '$brew/bin' '$brew/sbin')
+    source '$STOW_DIR/zsh/dot-zprofile'
+    print -r -- \"\$PATH\"
+  "
+  [ "$status" -eq 0 ]
+  [[ "$output" == "$HOME/.local/bin:$brew/bin:$brew/sbin:"* ]] || {
+    echo "expected ~/.local/bin, then the Homebrew pair, at the front; got:"
+    echo "$output"
+    false
+  }
+}
+
 # Regression: bash and non-login shells (the pre-push bats run, cron, editor
 # shell tools) demote keg-only Homebrew Ruby behind /usr/bin too, but never
 # source dot-zprofile. config/shell/local-paths.sh must FORCE the Ruby bin to
