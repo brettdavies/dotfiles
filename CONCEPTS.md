@@ -252,6 +252,13 @@ idle, and a copy that merely *could* appear earlier turns a missing file into a 
 error. Tools are therefore installed from one source per host, and a second copy of the same command is drift to remove,
 not a fallback to keep.
 
+A deliberate wrapper is the one sanctioned second copy: a script installed under a tool's own name, earlier on `PATH`,
+so every call passes through it (to enforce a guard or supply configuration) before it hands off to the real binary. It
+works only while its directory precedes the wrapped copy's in every *invocation shape*. The *shell config chain*
+therefore moves such a directory to the front rather than adding it only when absent, since a PATH inherited from a
+parent can hold it behind the copy it wraps. When that happens the real binary answers, and nothing reports that the
+wrapper's guard never ran.
+
 ### Captured environment
 
 The environment or argument list a long-lived process took at start and continues to serve, regardless of what the files
