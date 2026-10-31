@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Auto-unlock git-crypt if key is available
+# Auto-unlock git-crypt if key is available, then relink the stow packages this
+# update changed (lib/restow.sh)
 
 set -euo pipefail
 
@@ -13,6 +14,9 @@ if command -v git-crypt >/dev/null 2>&1; then
     fi
   fi
 fi
+
+# A merge records the pre-merge HEAD in ORIG_HEAD.
+"$BASH" "$(dirname "$0")/lib/restow.sh" ORIG_HEAD HEAD || true
 
 # Chain Git LFS hook (core.hooksPath overrides .git/hooks/)
 command -v git-lfs >/dev/null 2>&1 && git lfs post-merge "$@"

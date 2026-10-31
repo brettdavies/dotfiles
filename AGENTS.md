@@ -63,11 +63,14 @@ GNU Stow has no `--force` flag. The `scripts/stow-deploy` wrapper handles three 
 scripts/stow-deploy --all                     # macOS: shared + desktop packages
 scripts/stow-deploy --headless --all          # headless: shared packages only
 scripts/stow-deploy ghostty cursor            # shared defaults + explicit extras
+scripts/stow-deploy --headless --only claude  # exactly the named packages
 ```
 
 **Flags:** `--all` expands to `SHARED_PACKAGES` + `DESKTOP_PACKAGES` (macOS) or `SHARED_PACKAGES` only (Linux). Without
-`--all`, extra args extend `SHARED_PACKAGES`. `--headless` auto-restores repo versions after adopt. Encrypted packages
-(`secrets`, `ssh`, `git`) require git-crypt unlock first.
+`--all`, extra args extend `SHARED_PACKAGES`; `--only` deploys exactly the named packages instead. `--headless`
+auto-restores repo versions after adopt, and refuses to adopt into a package whose `stow/<package>/` has uncommitted
+changes, since the restore would overwrite them; it lists that package under `FAILURES` and deploys the rest. Encrypted
+packages (`secrets`, `ssh`, `git`) require git-crypt unlock first.
 
 ### System-Level Units (`config/systemd/system/`)
 
@@ -321,9 +324,27 @@ This is set during bootstrap (see README) or via `bash .githooks/setup`.
 | Hook            | Purpose                                                            |
 | --------------- | ------------------------------------------------------------------ |
 | `pre-commit`    | Branch + signing policy, then the CI checks scoped to staged files |
-| `post-checkout` | Auto-unlocks git-crypt if key is available, chains Git LFS         |
-| `post-merge`    | Auto-unlocks git-crypt if key is available, chains Git LFS         |
+| `post-checkout` | Auto-unlocks git-crypt, restows changed packages, chains Git LFS   |
+| `post-merge`    | Auto-unlocks git-crypt, restows changed packages, chains Git LFS   |
 | `pre-push`      | Full local CI mirror, then chains Git LFS pre-push                 |
+
+### Restow on pull
+
+A pull switches `~/.claude/settings.json` at once, because it is a symlink into the checkout, while a hook script added
+in the same pull has no link until a restow. `post-merge` and `post-checkout` therefore run `.githooks/lib/restow.sh`,
+which relinks the `claude` and `secrets` packages through `scripts/stow-deploy --headless --only` whenever a merge or a
+branch checkout changed `stow/claude/` or `stow/secrets/`, before git returns. Without it, a hook that blocks on failure
+blocks every Claude Code tool call on the host until someone restows.
+
+- Only the checkout that the deploy target's links already resolve into restows a package. An agent slot or scratch
+  clone runs the same hooks and never touches the live links; a package the host never deployed stays undeployed.
+- A failed restow prints `WARNING: restow-failed` (or `restow-internal-error`), ends with the command to rerun, and
+  never changes the git command's exit status. By hand: `cd ~/dotfiles && scripts/stow-deploy --headless --only claude`.
+- `git reset`, a squash merge, and a merge that stops on conflicts run no restow.
+- To review a deploy before applying it: `git fetch`, `git diff HEAD..@{u} -- stow/`, then `git merge`.
+
+`tests/restow-on-pull.bats` drives the hooks through real pulls, checkouts, and a linked worktree against a sandbox
+target.
 
 ### Local gates mirror CI
 

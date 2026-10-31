@@ -76,6 +76,8 @@ _flags_for() {
     scripts/agent-slot/lib/*.sh | scripts/agent-slot-rex/lib/*.sh | tests/lib/agent-slot.bash | tests/lib/agent-slot-rex.bash)
       echo "--shell=bash --exclude=SC2016"
       ;;
+    # The one hook library run as a script of its own; it sources git-env.sh.
+    .githooks/lib/restow.sh) echo "-x" ;;
     config/shell/*.sh | .githooks/lib/*.sh | scripts/*/lib/*.sh | tests/lib/*.bash) echo "--shell=bash" ;;
     config/shell/shell-functions) echo "--shell=bash --exclude=SC1003" ;;
     # -x follows the `# shellcheck source=` directives, such as the hooks' to
