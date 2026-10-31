@@ -209,20 +209,35 @@ REPO="$BATS_TEST_DIRNAME/.."
   [ "$(sort -u <<<"$output")" = unset ]
 }
 
-# Under onFailure "block" a missing script blocks every call its matcher names,
-# on every host that pulls the change, so each one must be a script the claude
-# package ships at the path the command names.
-@test "every hook that blocks on failure names an executable script the claude package ships" {
+# Only the claude stow package links a script into ~/.claude, and a pull switches
+# settings.json before any restow can run, so every ~/.claude path a command
+# names has to be a script the package ships, executable. Under onFailure
+# "block" a missing script blocks every call its matcher names, so a blocking
+# hook names such a script and nothing else.
+@test "every ~/.claude script a command names is an executable the claude package ships" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
-  run jaq -r '.hooks[][].hooks[]? | select(.onFailure == "block") | .command' "$SETTINGS"
+  run jaq -r '.. | objects | select(has("command")) | .command' "$SETTINGS"
   [ "$status" -eq 0 ]
   [ -n "$output" ]
-  local cmd bad=()
+  local path file missing=()
+  while IFS= read -r path; do
+    # ~/.claude/skills is a symlink to the separate agent-skills clone, not part of the package.
+    # shellcheck disable=SC2088 # settings.json names scripts by the literal ~ path
+    [[ $path == '~/.claude/skills/'* ]] && continue
+    file="$REPO/stow/claude/dot-claude/${path#\~/.claude/}"
+    [[ -f $file && -x $file ]] || missing+=("$path")
+  done < <(grep -oE "[~]/\.claude/[^[:space:]\"';|&)]+" <<<"$output" | sort -u)
+
+  run jaq -r '.hooks[][].hooks[]? | select(.onFailure == "block") | .command' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  local cmd blocking=()
   while IFS= read -r cmd; do
-    # shellcheck disable=SC2088 # settings.json names hooks by the literal ~ path
-    [[ $cmd == '~/.claude/'* && -f "$REPO/stow/claude/dot-claude/${cmd#\~/.claude/}" &&
-      -x "$REPO/stow/claude/dot-claude/${cmd#\~/.claude/}" ]] || bad+=("$cmd")
+    [[ $cmd =~ ^~/\.claude/[^[:space:]]+$ ]] || blocking+=("$cmd")
   done <<<"$output"
-  echo "block-on-failure hooks naming no executable under stow/claude/dot-claude: ${bad[*]:-none}"
-  [ "${#bad[@]}" -eq 0 ]
+
+  echo "Scripts under ~/.claude that stow/claude/dot-claude does not ship executable: ${missing[*]:-none}"
+  echo "block-on-failure hooks that name something other than one ~/.claude script: ${blocking[*]:-none}"
+  echo "Fix: ship the script under stow/claude/dot-claude/ with mode 755, or exempt the install that owns it in this test."
+  [ "${#missing[@]}" -eq 0 ]
+  [ "${#blocking[@]}" -eq 0 ]
 }
