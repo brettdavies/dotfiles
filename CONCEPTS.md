@@ -119,6 +119,15 @@ every file in a deployed package. On a healthy deployed dotfiles host every stow
 canonical checkout's `stow/` tree. One that resolves anywhere else, or dangles, is drift, and the signature of a deploy
 run from a non-canonical checkout.
 
+### Restow on pull
+
+The git hooks' relinking of a package that a merge or branch checkout changed, so the links match the new tree before
+the git command returns. It covers the packages whose stale links break something at once: `claude`, whose
+`settings.json` switches with the pull while a new hook script it names has no link yet, and `secrets`, which carries a
+file a `claude` hook reads. A checkout restows a package only when it owns that package's stow-managed links in the
+target, which makes the canonical checkout the only one that can. Updates that run no hook (a reset, a squash merge, a
+merge stopped on conflicts) leave the restow to `scripts/stow-deploy` by hand.
+
 ## Shared trees
 
 ### Foreign subtree

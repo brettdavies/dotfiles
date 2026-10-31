@@ -769,11 +769,9 @@ Activated via `core.hooksPath` (set automatically by `stow-deploy`):
 
 | Hook            | Purpose                                                                 |
 | --------------- | ----------------------------------------------------------------------- |
-| Hook            | Purpose                                                                 |
-| --------------- | --------------------------------------------------------------------    |
 | `pre-commit`    | Blocks commits on `main`, verifies `commit.gpgsign`, gates staged paths |
-| `post-checkout` | Auto-unlocks git-crypt, chains Git LFS                                  |
-| `post-merge`    | Auto-unlocks git-crypt, chains Git LFS                                  |
+| `post-checkout` | Auto-unlocks git-crypt, restows changed packages, chains Git LFS        |
+| `post-merge`    | Auto-unlocks git-crypt, restows changed packages, chains Git LFS        |
 | `pre-push`      | Mirrors CI (shellcheck, actionlint, bats, core-env), chains Git LFS     |
 
 Both gates call the same dispatchers CI calls — `scripts/lint-shell`, `scripts/lint-workflows`, `scripts/run-tests`,
