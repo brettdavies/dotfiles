@@ -447,6 +447,21 @@ exit 1'
     "$AGENT_SLOT_STATE_DIR/ledger.jsonl")" = "s1 /t/s1.jsonl" ]
 }
 
+@test "a teardown whose recorded transcript is missing keeps the session's transcript, found by its ID" {
+  finished_task
+  local sid=e999f4ab-8387-4992-bb05-f4e6041b9b68 real
+  real=$AGENT_SLOT_CLAUDE_PROJECTS/-slots-repoa-2/$sid.jsonl
+  mkdir -p "${real%/*}"
+  echo '{}' >"$real"
+  jaq -c --arg sid "$sid" --arg t "$AGENT_SLOT_CLAUDE_PROJECTS/-slots-repoa-1/$sid.jsonl" \
+    '.session_id = $sid | .transcript = $t' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  [ "$(jaq -r -s 'map(select(.event == "teardown"))[-1] | "\(.session_id) \(.transcript)"' \
+    "$AGENT_SLOT_STATE_DIR/ledger.jsonl")" = "$sid $real" ]
+}
+
 @test "the ledger keeps each branch but the base, with the remote it pushes to and that remote's URL" {
   git clone -q --bare "$ORIGIN" "$T/fork.git"
   git -C "$SLOT" remote add fork "$T/fork.git"

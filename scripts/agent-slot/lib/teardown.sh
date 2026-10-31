@@ -120,9 +120,10 @@ slot_teardown() {
   TEARDOWN_ARMED=
   purge_find
   ledger_append teardown "$(contract_json -c --argjson branches "$branches" --arg head "$head" \
-    --arg entry "${PURGE_ENTRY:+$AS_TRASH_DIR/files/$PURGE_ENTRY}" '{repo, slot, task, session_id, transcript, prs,
-      request_id, items: (.items // []), name, head: (if $head == "" then null else $head end), branches: $branches,
-      trash_entry: (if $entry == "" then null else $entry end)}' <<<"$RECORD")"
+    --arg entry "${PURGE_ENTRY:+$AS_TRASH_DIR/files/$PURGE_ENTRY}" --arg transcript "$(sessions_record_transcript)" '
+    def text: if . == "" then null else . end;
+    {repo, slot, task, session_id, transcript: ($transcript | text), prs, request_id, items: (.items // []), name,
+      head: ($head | text), branches: $branches, trash_entry: ($entry | text)}' <<<"$RECORD")"
   record_unlock_slot "$repo" "$n"
   purge_run "$repo" "$n"
 }

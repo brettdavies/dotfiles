@@ -43,6 +43,26 @@ sessions_transcript_find() {
   find "$AS_CLAUDE_PROJECTS" -mindepth 2 -maxdepth 2 -name "$1.jsonl" -print -quit 2>/dev/null || true
 }
 
+# Usage: sessions_transcript_of <session id> [<path>]; prints the session's transcript: <path> when it is a file, else
+# the one sessions_transcript_find finds, else <path>. A conversation resumed from another working directory, as a
+# reopen does, goes on in the file it started in, under the project directory of the slot it started in, while Claude
+# Code's SessionStart payload names one under the new working directory's.
+sessions_transcript_of() {
+  local found
+  if [[ -n ${2:-} && -f $2 ]]; then
+    printf '%s' "$2"
+    return 0
+  fi
+  found=$(sessions_transcript_find "$1")
+  printf '%s' "${found:-${2:-}}"
+}
+
+# Usage: sessions_record_transcript; prints the transcript of the session in RECORD, as sessions_transcript_of finds it.
+sessions_record_transcript() {
+  sessions_transcript_of "$(contract_json -r '.session_id // ""' <<<"$RECORD")" \
+    "$(contract_json -r '.transcript // ""' <<<"$RECORD")"
+}
+
 # Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume | reopen]
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
 # value from it is shell-quoted. A resume or reopen whose conversation was never saved starts Claude as a launch does.

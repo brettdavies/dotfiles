@@ -33,10 +33,10 @@ esac'
 }
 
 # start SESSION_ID SOURCE [CWD] [HOOK]: runs the hook, or the copy HOOK names, for a SessionStart as the pane's
-# top-level Claude.
+# top-level Claude. The payload's transcript_path is REPORTED when set, else /t/<SESSION_ID>.jsonl.
 start() {
-  jaq -n -c --arg sid "$1" --arg src "$2" --arg cwd "${3:-$SLOT}" \
-    '{hook_event_name: "SessionStart", session_id: $sid, transcript_path: "/t/\($sid).jsonl", cwd: $cwd,
+  jaq -n -c --arg sid "$1" --arg src "$2" --arg cwd "${3:-$SLOT}" --arg tr "${REPORTED:-/t/$1.jsonl}" \
+    '{hook_event_name: "SessionStart", session_id: $sid, transcript_path: $tr, cwd: $cwd,
       source: $src}' | "$T/pane-shell" "$FAKE/claude" -c "$RUNS" claude "${4:-$HOOK}"
 }
 
@@ -192,6 +192,30 @@ issue oxipng/oxipng#886 (16-bit tRNS lost)."* ]]
   [ "$(ledger session | wc -l)" -eq 1 ]
   ledger session | jaq -e '.repo == "repo" and .slot == 1 and .task == "t" and .session_id == "s2"
     and .transcript == "/t/s2.jsonl" and .source == "clear" and .schema == "dotfiles.agent-slot/1"'
+}
+
+@test "a resume whose reported transcript is missing records the session's transcript, found by its ID" {
+  local sid=e999f4ab-8387-4992-bb05-f4e6041b9b68 real
+  real=$AGENT_SLOT_CLAUDE_PROJECTS/-slots-repo-2/$sid.jsonl
+  mkdir -p "${real%/*}"
+  echo '{}' >"$real"
+  slot repo 1 "{\"session_id\": \"$sid\", \"transcript\": \"$real\", \"ready_at\": 5}"
+  export REPORTED=$AGENT_SLOT_CLAUDE_PROJECTS/-slots-repo-1/$sid.jsonl
+  start "$sid" resume >/dev/null
+  [ "$(record .transcript)" = "\"$real\"" ]
+  [ -z "$(ledger session)" ]
+  start "$sid" compact >/dev/null
+  [ "$(record .transcript)" = "\"$real\"" ]
+  [ -z "$(ledger session)" ]
+}
+
+@test "a start whose session has no transcript anywhere yet records the reported path" {
+  local sid=0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0 reported
+  reported=$AGENT_SLOT_CLAUDE_PROJECTS/-slots-repo-1/$sid.jsonl
+  slot repo 1
+  REPORTED=$reported start "$sid" startup >/dev/null
+  [ "$(record .transcript)" = "\"$reported\"" ]
+  ledger session | jaq -e --arg t "$reported" '.transcript == $t'
 }
 
 @test "a start with the session already recorded appends no session line" {

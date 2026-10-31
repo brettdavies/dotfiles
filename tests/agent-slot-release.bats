@@ -243,6 +243,38 @@ renames_typed() { grep -c -- ' -l /rename ' "$CALLS" || true; }
   }
 }
 
+@test "a reopened slot whose recorded transcript is missing reads its session's transcript, found by session ID" {
+  finished_task
+  local sid=e999f4ab-8387-4992-bb05-f4e6041b9b68 real wrong skill
+  real=$AGENT_SLOT_CLAUDE_PROJECTS/-slots-repoa-2/$sid.jsonl
+  wrong=$AGENT_SLOT_CLAUDE_PROJECTS/-slots-repoa-1/$sid.jsonl
+  mkdir -p "${real%/*}"
+  for skill in ce-compound ce-compound-refresh; do
+    jaq -n -c --arg s "compound-engineering:$skill" '{type: "assistant", timestamp: "2026-10-30T18:55:32.143Z",
+      message: {content: [{type: "tool_use", name: "Skill", input: {skill: $s}}]}}' >>"$real"
+  done
+  record_set ".created_at = \"2026-10-30T23:16:19Z\" | .session_id = \"$sid\" | .transcript = \"$wrong\""
+  jaq -n -c --arg sid "$sid" --arg t "$wrong" '{event: "session", ts: "2026-10-30T23:16:22Z", repo: "repoa", slot: 1,
+    session_id: $sid, transcript: $t, source: "resume"}' >>"$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+  release
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound ce-compound-refresh"' <<<"$stderr"
+  for skill in ce-compound ce-compound-refresh; do
+    jaq -n -c --arg s "compound-engineering:$skill" '{type: "assistant", timestamp: "2026-10-30T23:34:58.601Z",
+      message: {content: [{type: "tool_use", name: "Skill", input: {skill: $s}}]}}' >>"$real"
+  done
+  agent busy
+  release
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e '.skills == ["ce-compound", "ce-compound-refresh"]' <<<"$output"
+  jaq -e -s --arg t "$real" 'map(select(.event == "release"))[-1].transcript == $t' \
+    "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+  [ ! -e "$wrong" ]
+}
+
 # --- background jobs ---------------------------------------------------------------------------------------------------
 
 @test "release refuses while the agent's Claude still runs a background Bash tool command, and names it" {
