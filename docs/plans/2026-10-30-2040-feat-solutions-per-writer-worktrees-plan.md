@@ -224,9 +224,10 @@ Considered and not built:
   the doctor call it.
 - KTD3. **`sd-commit-doc` commits in place in a worktree, by pathspec.** One agent can start two publishes in parallel,
   and two sessions can share a prime checkout's worktree, so a commit must never pick up a path another publish staged.
-  A pathspec commit gives that without a lock of its own: git's index lock serializes the two calls, and each commit
-  holds only its named paths (measured on git 2.56.0: an add, a delete, and an `R100` rename committed by pathspec, with
-  another staged path left staged). Then:
+  A pathspec commit gives that without a lock of its own: git's index lock keeps the two calls from overlapping (the
+  second fails fast with `git-failed`, KTD4, and its rerun completes), and each commit holds only its named paths
+  (measured on git 2.56.0: an add, a delete, and an `R100` rename committed by pathspec, with another staged path left
+  staged). Then:
   1. It pre-flights with the worktree's own `.githooks/lib-validate.sh`: `validate_files` over the named files that
      exist, and `validate_changed_since HEAD`, the function the repo's pre-commit itself runs, which covers every
      modified tracked doc. A failing draft is named before anything is staged, and the set is never derived twice. The
@@ -1231,8 +1232,8 @@ code, and the pathspec commit was measured on git 2.56.0.
 Applied under the review's grant (implementation and verification sections):
 
 - KTD3 commits by pathspec instead of taking a lock. That keeps another publish's staged path out of a commit, git's own
-  index lock serializes the two calls, and the `staged-extra` refusal, which would misfire under concurrency, goes too
-  (scope-guardian).
+  index lock keeps two calls from overlapping (the second fails fast and is rerun), and the `staged-extra` refusal,
+  which would misfire under concurrency, goes too (scope-guardian).
 - A commit the pre-commit hook rejects, for example on the prose gate, unstages the named paths and exits
   `commit-hook-failed` (feasibility).
 - KTD4's resume command uses `rebase --autostash`, so another tracked edit in the worktree no longer stops it
