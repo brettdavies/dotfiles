@@ -216,8 +216,9 @@ Considered and not built:
      path is one that origin changed or added since HEAD, naming the path. Otherwise it runs
      `rebase --autostash origin/main`, whose stash can no longer conflict on re-apply, so nothing reaches the corpus's
      shared `refs/stash`.
-  5. It pushes `HEAD:main`. Only a non-fast-forward rejection gets one more fetch, rebase, and push; a pre-push hook
-     failure or a network failure exits with its own step name.
+  5. It pushes `HEAD:main`, capturing git's stderr rather than discarding it, so the rejection can be classified. Only a
+     non-fast-forward rejection gets one more fetch, rebase, and push; a pre-push hook failure or a network failure
+     exits with its own reason, and git's own lines are printed under it.
   6. It fast-forwards the read copy with `merge --ff-only`, since qmd indexes only the read copy. On this path it never
      reverts or cleans anything in the read copy: a file there at a published path can be a prime session's in-flight
      edit, so a refused fast-forward is reported and left for the autosync hook, which reverts only content-equal
@@ -228,8 +229,13 @@ Considered and not built:
   `git -C <worktree> add <path>`, and `git -C <worktree> rebase --continue`, before rerunning the same `sd-commit-doc`.
   A rerun while a rebase is in progress (the agent's own, or one a timeout killed) refuses and names `rebase --continue`
   or `rebase --abort`. A rerun with nothing to stage pushes the local commit. A rerun with nothing to stage or push
-  exits 0 saying the paths are on origin/main. Every failure ends with one `sd-commit-doc: next: <command>` line on
-  stderr after the existing `FAILED during <step>` marker, so an agent finds the resuming command in a fixed place.
+  exits 0 saying the paths are on origin/main. Success names the tree and the path it took
+  (`committed and pushed N file(s) from <tree> (worktree)` or `(copy-out)`). Every failure ends, after the existing
+  `FAILED during <step>` marker, with three stderr lines an agent finds in a fixed place:
+  `sd-commit-doc: reason: <code>`, `sd-commit-doc: state: <nothing staged | committed in <tree>, not pushed | pushed>`,
+  and `sd-commit-doc: next: <command>`. The codes are a closed set the usage text lists: `usage`, `path-invalid`,
+  `tree-unresolved`, `validation-failed`, `lock-busy`, `rebase-in-progress`, `staged-extra`, `overlap-with-origin`,
+  `rebase-conflict`, `push-rejected`, `push-hook-failed`, `push-failed`, and, in Phase 2, `read-copy-refused`.
 - KTD5. **`sd-commit-doc` finds the caller's worktree from the caller's checkout.** Resolution order: `SD_TREE`, then
   the current directory when it is inside a linked worktree of the corpus (true from inside `docs/solutions`, since git
   reads the physical path), then the resolved `docs/solutions` of `git rev-parse --show-toplevel`. `SD_DIR` keeps naming
@@ -483,7 +489,10 @@ lacks `solutions_worktree`.
   - Every existing copy-out test passes unchanged, whether the caller's link resolves to the read copy or the caller
     runs from a directory with no checkout at all (regression contract: today's callers keep today's behavior).
   - Called from outside its checkout for a doc that exists only in its worktree, it fails naming `SD_TREE`.
-  - Every failure's last stderr line is `sd-commit-doc: next: <command>`.
+  - Every failure ends with the `reason:`, `state:`, and `next:` lines, its reason is in the closed set, and a success
+    line names the tree and the path taken.
+  - `sd-commit-doc --help` prints the usage text, including the resolution order, `SD_TREE`, `SD_DIR`, and the reason
+    codes, and exits 0.
   - With `GIT_DIR` and `GIT_INDEX_FILE` exported by the caller, it still commits in the worktree.
 - **Verification:** every scenario passes in `tests/sd-commit-doc.bats`, and each new one fails against the current
   script.
@@ -542,7 +551,9 @@ lacks `solutions_worktree`.
   3. `slot_teardown` removes the worktree without `--force` after the re-check and before `purge_before`, keeps the slot
      with `solutions-unpublished` through `_teardown_keep` when git refuses, then prunes (KTD7).
   4. Add `solutions-unpublished` to `RELEASE_FILE_CODES`, and have the cleanup reminder say that a `docs/solutions` path
-     is published with `sd-commit-doc` or discarded.
+     is published with `sd-commit-doc` or discarded. The blocker carries a `next_step` in the error object's shape, as
+     `checked-by-own-agent` does: action `run`, command `git -C <worktree> status --short`, and the README
+     teardown-blockers anchor.
 - **Patterns to follow:** `_check_stash` and `_check_commits` for blocker shape and fail-closed reads; the exemption
   test in `tests/agent-slot-check.bats`, "a tracked docs/solutions link that setup points at the solutions repo".
 - **Test scenarios:**
@@ -560,6 +571,8 @@ lacks `solutions_worktree`.
   - A slot with no `solutions_worktree` and a link to the shared clone is judged exactly as today.
   - A finished slot held only by `solutions-unpublished` gets the cleanup reminder once, and the reminder names
     `sd-commit-doc`.
+  - `agent-slot check --output json` gives the `solutions-unpublished` blocker a `next_step` whose command is
+    `git -C <worktree> status --short`.
 - **Verification:** the suites pass, and `tests/agent-slot-docs.bats` holds the README table equal to `CHECK_CODES`.
 
 ### U4. Report orphaned worktrees
@@ -651,10 +664,14 @@ lacks `solutions_worktree`.
      mark a tracked link `skip-worktree` (KTD10, KTD11). An existing worktree at that path counts as success, so two
      sessions starting at once need no lock.
   2. A non-symlink path or a failed `worktree add` leaves the link alone and reports through the hook's `systemMessage`.
-  3. Add `Read(~/.local/state/solutions-worktrees/**)` beside `Read(~/dev/solutions-docs/**)`.
+  3. The same step runs on demand as `~/.claude/solutions-clone-autosync.sh --provision <checkout>`, which is the
+     command U8's refusal names, because an agent cannot start a new session to get its worktree.
+  4. Add `Read(~/.local/state/solutions-worktrees/**)` beside `Read(~/dev/solutions-docs/**)`.
 - **Patterns to follow:** U2's worktree step; the hook's fail-open shape.
 - **Test scenarios:**
   - A first session in a prime checkout gets a worktree and a re-pointed link, and a second session reuses both.
+  - `solutions-clone-autosync.sh --provision <checkout>` run by hand gives that checkout the same worktree and link, and
+    exits 0 when they already exist.
   - Two sessions starting at once end with one worktree and the link pointing at it.
   - A tracked link is re-pointed and `git status` in that checkout stays clean.
   - A checkout under the slot root, and one with no `docs/solutions`, are left alone.
@@ -672,8 +689,8 @@ lacks `solutions_worktree`.
   `scripts/nightly-autocommit.sh`, `stow/local/dot-config/systemd/user/nightly-autocommit.service` (description),
   `tests/sd-commit-doc.bats`, `tests/solutions-clone-autosync.bats`, `tests/nightly-autocommit.bats` (new)
 - **Approach:**
-  1. `sd-commit-doc` refuses a tree that resolves to the read copy, naming the checkout and the new session that gives
-     it a worktree. The copy-out path and its revert step go.
+  1. `sd-commit-doc` refuses a tree that resolves to the read copy with reason `read-copy-refused`, and its `next:` line
+     is `~/.claude/solutions-clone-autosync.sh --provision <checkout>` (U7). The copy-out path and its revert step go.
   2. The autosync hook prints one JSON object built with `jaq` (KTD12): `additionalContext` for its fast-forward lines,
      and a `systemMessage` naming each stray in sessions outside the slot root.
   3. `nightly-autocommit.sh` gains a per-repo mode. The solutions entry uses `sync`, which fast-forwards with the
@@ -724,6 +741,9 @@ lacks `solutions_worktree`.
   abandoned code left in the diff.
 - Phase 2: U7-U9 merged in a second PR after Q1 resolves to A, with the real-session check recorded; under B, the plan
   closes after Phase 1.
+- Each PR's `## Changelog` states its user-visible changes: Phase 1, that slots publish solutions docs from their own
+  worktree, that `sd-commit-doc` handles deletions and renames, and that a slot with an unpublished doc is not torn
+  down; Phase 2, that every checkout gets its own worktree and that the shared clone takes no writes.
 - Each unit is done when its Verification line holds.
 - The implementing slot's close-out refreshes
   `workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` rule 1 through
@@ -788,7 +808,7 @@ REALITY: premise-table pass 16 claims checked, unverified=1 (that a bypass-mode 
 REALITY: already-done pass no per-writer worktree work on origin/dev since 2026-10-29 across the six named scripts stow/local/dot-local/bin/sd-commit-doc:1
 REALITY: surface-check pass worktree add/remove/prune/list --porcelain, rebase --autostash, merge --ff-only, update-index --skip-worktree, rev-parse --git-path, agent-slot list --output json, scripts/run-tests FILE... verified scripts/run-tests:13
 REALITY: binding-decisions pass consistent with the restow plan's no-new-hook-script rollout and the fail-closed guard decisions; no overruled default returns docs/plans/2026-10-30-1839-fix-restow-claude-on-pull-plan.md:61
-REALITY: numbers finding force-push assumption corrected (E9) docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:365; worktree add 0.05 s [measured: 3 runs, gtime git worktree add on a corpus copy] docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:879; status 0.06 s [measured: gtime git status, same copy] docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:880; dotfiles is the one prime that tracks its link [measured: readlink and ls-files survey of ~/dotfiles and ~/dev/*] docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:271
+REALITY: numbers finding force-push assumption corrected (E9) docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:371; worktree add 0.05 s [measured: 3 runs, gtime git worktree add on a corpus copy] docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:899; status 0.06 s [measured: gtime git status, same copy] docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:900; dotfiles is the one prime that tracks its link [measured: readlink and ls-files survey of ~/dotfiles and ~/dev/*] docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:277
 REALITY: deferred-asks pass no linked issue; every brief item maps to an R, KTD, Q, or Scope entry, and symlink removal is a recorded follow-up docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:63
 REALITY: pr-count pass two PRs, Phase 2 gated on Q1 and droppable; no ship-policy file docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:31
 ```
@@ -959,18 +979,225 @@ Effort ratios assumed: features ~30x, tests ~50x, docs ~10x.
 
 ---
 
+## DX Review
+
+Mode: DX POLISH, because the plan reworks an existing write path and adds no new product. Product type: platform
+(agent-slot and its commit helper), whose main surface is a CLI an agent calls (`sd-commit-doc`) and a JSON check an
+agent reads (`agent-slot check`). Every choice below was decided by the reviewing agent from repository evidence under
+the slot's headless instructions; none needed Brett.
+
+### Developer Persona Card
+
+```text
+TARGET DEVELOPER PERSONA
+========================
+Who:       An AI coding agent closing out a slot: it runs ce-compound, then sd-commit-doc, then agent-slot release
+Context:   Unattended; nobody reads its tab; other slots publish to the same corpus at the same time
+Tolerance: One command per doc; any failure must name the next command, or the slot sits on the needs-you list
+Expects:   Writing docs/solutions/<path> and running sd-commit-doc publishes exactly that doc, and nothing it did not
+           write ships under its message
+Secondary: Brett, who reads the needs-you list and agent-slot doctor, and decides what happens to strays
+```
+
+### Developer Empathy Narrative
+
+Observed today, from the 2026-10-30 report and this evening's shared clone: I write
+`docs/solutions/best-practices/<slug>.md`, and it lands in `~/dev/solutions-docs` next to whatever every other agent is
+drafting. I run `sd-commit-doc "$MSG" best-practices/<slug>.md`. It works, but it copies the whole file as it stands in
+the shared tree, so if another agent edited the same doc a moment ago, their edit ships under my message. If I only
+wanted to delete or rename a doc, `sd-commit-doc` cannot express it, and the solutions repo's `AGENTS.md` sends me to a
+hand-rolled worktree recipe. If I forget to publish, my draft sits in the shared tree as an untracked file nobody can
+tell from an orphan, until the nightly job commits it under its own message.
+
+Predicted after Phase 1: I write the same path, and it lands in my slot's own worktree. `sd-commit-doc` stages exactly
+my paths, deletions included, rebases if someone else published meanwhile, and prints the tree it used. If origin
+changed the same doc, it stops with `reason: rebase-conflict`, my commit kept, and the three commands that finish it. If
+I forget, `agent-slot release` does not tear my slot down, and the cleanup reminder names `sd-commit-doc`.
+
+### Competitive DX Benchmark
+
+Clock: from the agent finishing a doc to that doc being on origin/main with the slot free to tear down. Search was not
+run for this review, so the peers are described from in-distribution knowledge and labeled that way.
+
+| Tool                                 | Start → result                      | Time + evidence type                                                                               | DX choice                                              | Source                 |
+| ------------------------------------ | ----------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ---------------------- |
+| Shared clone + `sd-commit-doc` today | write, one command                  | seconds when nobody else is writing; unbounded after a collision [observed: the 2026-10-30 report] | isolate the commit only                                | this repo              |
+| Claude Code `isolation: "worktree"`  | subagent writes in its own worktree | worktree per task [in-distribution, not measured]                                                  | isolate the whole working tree                         | Claude Code Agent tool |
+| Conductor-style workspaces           | one workspace per agent             | worktree per agent [in-distribution, not measured]                                                 | isolate the whole working tree                         | Conductor              |
+| This plan                            | write, one command                  | seconds, measured parts: 0.05 s worktree add and 0.06 s status [measured], push time unchanged     | isolate the working tree per checkout, commit in place | KTD2, KTD3             |
+
+Target: Champion (under 2 minutes, one command). The plan meets it on the happy path. A collision is no longer silent:
+it names its fix (D3).
+
+### Magical Moment Specification
+
+The agent's `sd-commit-doc` prints `committed and pushed 1 file(s) from <slot worktree> (worktree)`, and
+`agent-slot release` tears the slot down, with the agent never touching a tree another agent writes in. Vehicle: the
+success line D1 adds to an existing command. No new surface.
+
+### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                          | FRICTION POINTS                              | STATUS
+----------------|-----------------------------------------|----------------------------------------------|--------
+1. Discover     | reads slot context and CLAUDE.md rule   | "shared with every other agent" line         | fixed (U6, E6)
+2. Install      | nothing; slot setup links the worktree  | none                                         | ok
+3. Hello World  | writes a doc, runs sd-commit-doc        | which tree did it use?                       | fixed (D1)
+4. Real Usage   | refresh renames and deletes docs        | deletions and renames unsupported            | fixed (U1)
+5. Debug        | conflict, lock, validation, network     | one marker line, no code, no state, no fix   | fixed (D3, D7)
+6. Upgrade      | old slots, Phase 2 cutover              | Phase 2 refusal names no agent-runnable fix  | fixed (D5); changelog (D6)
+```
+
+### First-Time Developer Confusion Report
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: slot agent at close-out
+Attempting: publish one new doc and one edited doc
+
+CONFUSION LOG:
+T+0:00  ce-compound writes docs/solutions/workflow-issues/<slug>.md. The slot context says docs/solutions is this
+        slot's own worktree, so the agent does not look for other agents' drafts.
+T+0:10  Runs sd-commit-doc "$MSG" workflow-issues/<slug>.md workflow-issues/<old>.md. Sees "committed and pushed
+        2 file(s) from ~/slots/<repo>/.solutions/<n>-<suffix> (worktree)".
+T+0:20  (Conflict branch) Sees "FAILED during rebasing", "reason: rebase-conflict", "state: committed in <tree>, not
+        pushed", and "next: git -C <tree> rebase origin/main". Resolves, continues, reruns; it pushes.
+T+0:30  (Forgot branch) Runs agent-slot release; check reports solutions-unpublished with docs/solutions/<path> and a
+        next_step. Publishes, releases again; the slot tears down.
+```
+
+Every confusion point above maps to D1-D7 or to E6.
+
+### Error path matrix (agent-ready-v1)
+
+```text
+Path                          | Class       | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+sd-commit-doc usage/path      | usage       | pass | pass | N/A      | D3   | N/A     | N/A   | pass      | pass    | none
+sd-commit-doc rebase conflict | partial     | pass | pass | D3       | D3   | pass    | N/A   | pass      | pass    | none
+sd-commit-doc lock busy       | dependency  | pass | pass | D3       | D3   | pass    | N/A   | pass      | pass    | none
+sd-commit-doc push failure    | dependency  | pass | pass | D3       | D3   | D7      | N/A   | pass      | pass    | none
+solutions-unpublished blocker | precond.    | pass | D4   | pass     | pass | N/A     | N/A   | pass      | pass    | none
+Phase 2 read-copy refusal     | precond.    | pass | D5   | D3       | D3   | pass    | N/A   | pass      | pass    | none
+sd-commit-doc crashes mid-run | unexpected  | pass | pass | D3       | D3   | D7      | pass  | pass      | pass    | none
+```
+
+Before D3-D7: every `sd-commit-doc` failure had a step marker but no stable code or state line
+(CAP6:sd-commit-doc-rebase:recovery). The first push discarded git's stderr
+(`git -C "$wt" push --quiet origin "HEAD:$branch" 2>/dev/null`), so a hook rejection and a network failure looked the
+same as a race (CAP6:sd-commit-doc-push:context). The blocker had no `next_step` (CAP6:solutions-unpublished:fix). The
+Phase 2 refusal's fix was to start a new session, which an agent cannot do (CAP6:read-copy-refusal:fix). The crash trace
+is the existing `FAILED during <step>` marker plus git's own stderr, which the script does not swallow. No path signals
+failure as success or prints a secret, so there is no CAP4 finding.
+
+### DX ledger
+
+- D1. A successful `sd-commit-doc` names the tree it published from and the path it took, worktree or copy-out (KTD4).
+- D2. `sd-commit-doc --help` prints the usage text with the resolution order, the two environment variables, and the
+  reason codes (U1).
+- D3. Every `sd-commit-doc` failure ends with `reason:`, `state:`, and `next:` lines, the reason taken from a closed set
+  the usage text lists (KTD4). This replaces E3's single `next:` line with the full footer.
+- D4. The `solutions-unpublished` blocker carries a `next_step` in the error object's shape (U3).
+- D5. Phase 2's refusal names `solutions-clone-autosync.sh --provision <checkout>`, a mode U7 adds for exactly this (U7,
+  U8).
+- D6. Each PR's `## Changelog` states its user-visible changes (Definition of Done).
+- D7. The push step captures git's stderr to classify the rejection and prints it on failure (KTD3 step 5).
+
+### NOT in scope (DX)
+
+- A `--dry-run` for `sd-commit-doc`: the success line names the tree, and `git -C <tree> status` shows what would be
+  staged. An agent publishing the wrong tree would change this.
+- A JSON mode for `sd-commit-doc`: the three footer lines are stable and line-oriented, and nothing parses more.
+- Web research on peer tools: the benchmark compares DX choices, not timings, and the plan's numbers are measured
+  locally.
+
+### What already exists (DX)
+
+- `sd-commit-doc`'s `FAILED during <step>` marker, which D3 extends rather than replaces.
+- The `next_step` object `checked-by-own-agent` already carries, which D4 reuses.
+- The autosweep cleanup reminder, which already lists a slot's blocking files.
+
+### DX Implementation Checklist
+
+```text
+DX IMPLEMENTATION CHECKLIST
+============================
+[ ] sd-commit-doc success names the tree and the path taken
+[ ] sd-commit-doc --help prints usage, resolution order, env vars, reason codes
+[ ] Every failure ends with reason:, state:, next: lines from the closed set
+[ ] Push stderr is classified and printed, never discarded
+[ ] solutions-unpublished carries next_step git -C <worktree> status --short
+[ ] Phase 2 refusal names --provision, and --provision is idempotent
+[ ] Each PR's Changelog states the user-visible change
+```
+
+### Implementation Tasks (DX)
+
+- [ ] T10 (P1, human: ~1 h / CC: ~10 min) — `sd-commit-doc` — D1-D3, D7, folded into T1. Verify:
+  `scripts/run-tests tests/sd-commit-doc.bats`.
+- [ ] T11 (P2, human: ~30 min / CC: ~5 min) — `scripts/agent-slot/lib/check.sh` — D4, folded into T3. Verify:
+  `scripts/run-tests tests/agent-slot-check.bats`.
+- [ ] T12 (P3, after Q1) — `solutions-clone-autosync.sh --provision` — D5, folded into Phase 2.
+
+### Unresolved Decisions (DX)
+
+None beyond Q1, which predates this review.
+
+---
+
+## DX Review Scorecard
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      |  9/10  |  —     |  new   |
+| API/CLI/SDK          |  8/10  |  —     |  new   |
+| Error Messages       |  8/10  |  —     |  new   |
+| Documentation        |  8/10  |  —     |  new   |
+| Upgrade Path         |  8/10  |  —     |  new   |
+| Dev Environment      |  7/10  |  —     |  new   |
+| Community            |  5/10  |  —     |  new   |
+| DX Measurement       |  6/10  |  —     |  new   |
++--------------------------------------------------------------------+
+| TTHW                 | one command, seconds | unbounded on collision | ↑ |
+| Competitive Rank     | Champion                                     |
+| Magical Moment       | designed via sd-commit-doc's success line    |
+| Product Type         | platform (agent-slot + commit helper)        |
+| Mode                 | POLISH                                       |
+| Overall DX           |  8/10  | 6/10 before this review              |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered (setup links the worktree)             |
+| Learn by Doing     | covered (resume commands printed)              |
+| Fight Uncertainty  | covered (D1, D3, D7)                           |
+| Opinionated + Escape Hatches | covered (SD_TREE, SD_DIR)            |
+| Code in Context    | covered (usage text, D2)                       |
+| Magical Moments    | covered (D1)                                   |
+| Agents Are Users   | covered (closed reason set, next_step, D4)     |
++====================================================================+
+```
+
+Community stays at 5 because this is a single-owner dotfiles repo. Dev Environment stays at 7 because there is no
+dry-run (NOT in scope). DX Measurement is 6: Phase 1 is measured by one manual check on its first day, and only Phase
+2's stray report measures it continuously.
+
+---
+
 ## GSTACK REVIEW REPORT
 
-| Review         | Trigger               | Why                             | Runs | Status                    | Findings                   |
-| -------------- | --------------------- | ------------------------------- | ---- | ------------------------- | -------------------------- |
-| CEO Review     | `/plan-ceo-review`    | Scope & strategy                | 0    | not run                   | —                          |
-| Outside Review | codex plan review     | Independent 2nd opinion         | 0    | disabled                  | —                          |
-| Eng Review     | `/plan-eng-review`    | Architecture & tests (required) | 1    | ISSUES OPEN (all applied) | 10 issues, 0 critical gaps |
-| Design Review  | `/plan-design-review` | UI/UX gaps                      | 0    | not run (no UI)           | —                          |
-| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 0    | not run yet               | —                          |
+| Review         | Trigger               | Why                             | Runs | Status                    | Findings                                                       |
+| -------------- | --------------------- | ------------------------------- | ---- | ------------------------- | -------------------------------------------------------------- |
+| CEO Review     | `/plan-ceo-review`    | Scope & strategy                | 0    | not run                   | —                                                              |
+| Outside Review | codex plan review     | Independent 2nd opinion         | 0    | disabled                  | —                                                              |
+| Eng Review     | `/plan-eng-review`    | Architecture & tests (required) | 1    | ISSUES OPEN (all applied) | 10 issues, 0 critical gaps                                     |
+| Design Review  | `/plan-design-review` | UI/UX gaps                      | 0    | not run (no UI)           | —                                                              |
+| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 1    | CLEAR (all applied)       | score: 6/10 → 8/10, TTHW: unbounded on collision → one command |
 
 - **OUTSIDE COVERAGE:** codex, plan-review phase, disabled in gstack config (`codex_reviews: disabled`); no findings.
-- **VERDICT:** ENG reviewed with every finding applied to the plan (eng review required); DX review and document review
+- **VERDICT:** DX CLEARED; ENG reviewed with every finding applied to the plan (eng review required); document review
   next.
 
 **UNRESOLVED DECISIONS:**
