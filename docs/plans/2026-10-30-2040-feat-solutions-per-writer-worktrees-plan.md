@@ -194,17 +194,21 @@ Considered and not built:
   and ce-compound-refresh's writes with no CE change.
 - KTD2. **A slot's worktree lives at `<slot root>/<repo>/.solutions/<n>-<random>`, recorded as `solutions_worktree` in
   the slot record.** It sits outside the clone because Claude Code asks before writing under `.git/` even with
-  `--dangerously-skip-permissions` (README "Parallel Agents": "the few actions Claude never auto-approves"), and a
-  prompt in a slot waits forever; any other path inside the clone is an untracked file every check flags. The random
-  suffix keeps a leftover worktree from colliding with a later slot of the same number, so a leftover never blocks a
-  launch and only this setup's rollback can remove what this setup made. The dot directory stays out of the
-  `slot_numbers` and `slot_repos` globs, and no qmd collection covers the slot root.
+  `--dangerously-skip-permissions` (README "Parallel Agents": "the few actions Claude never auto-approves"; Claude Code
+  2.1.314 lists `.git`, `.vscode`, `.idea`, `.claude`, `.husky`, `.cargo`, `.devcontainer`, `.yarn`, and `.mvn` as
+  protected directories), and a prompt in a slot waits forever; any other path inside the clone is an untracked file
+  every check flags. The random suffix keeps a leftover worktree from colliding with a later slot of the same number, so
+  a leftover never blocks a launch and only this setup's rollback can remove what this setup made. The dot directory
+  stays out of the `slot_numbers` and `slot_repos` globs (`scripts/agent-slot/lib/record.sh:42-68`), and no qmd
+  collection covers the slot root. One function next to `slot_path` in `record.sh` owns the layout, and both setup and
+  the doctor call it.
 - KTD3. **`sd-commit-doc` commits in place in a worktree, under a per-worktree lock.** It takes a lock in the worktree's
   own git dir (a directory lock with the holder's pid, a bounded wait under 10 s, and a dead holder's lock taken over),
   because one agent can start two publishes in parallel and an unlocked add-then-commit can bundle the other's paths.
   Then:
-  1. It pre-flights the named files plus every modified tracked doc with the worktree's own `.githooks/lib-validate.sh`,
-     the same set the repo's pre-commit validates, so a failing draft is named before anything is staged.
+  1. It pre-flights with the worktree's own `.githooks/lib-validate.sh`: `validate_files` over the named files that
+     exist, and `validate_changed_since HEAD`, the function the repo's pre-commit itself runs, which covers every
+     modified tracked doc. A failing draft is named before anything is staged, and the set is never derived twice.
   2. It stages the named paths with `git add -A --`, which stages an add, a `R100` rename, and a delete (measured), and
      refuses when anything else is staged.
   3. It commits with `--file` when anything is staged.
@@ -214,20 +218,27 @@ Considered and not built:
      shared `refs/stash`.
   5. It pushes `HEAD:main`. Only a non-fast-forward rejection gets one more fetch, rebase, and push; a pre-push hook
      failure or a network failure exits with its own step name.
-  6. It fast-forwards the read copy, as it does today, since qmd indexes only the read copy.
+  6. It fast-forwards the read copy with `merge --ff-only`, since qmd indexes only the read copy. On this path it never
+     reverts or cleans anything in the read copy: a file there at a published path can be a prime session's in-flight
+     edit, so a refused fast-forward is reported and left for the autosync hook, which reverts only content-equal
+     phantoms.
 - KTD4. **A failed publish always has one resuming command, and rerunning never stacks a commit.** A rebase conflict on
   a named path is aborted when, and only when, a rebase is in progress. That leaves the commit local and the tree clean
   (measured), and the command prints `git -C <worktree> rebase origin/main`, then resolve,
   `git -C <worktree> add <path>`, and `git -C <worktree> rebase --continue`, before rerunning the same `sd-commit-doc`.
   A rerun while a rebase is in progress (the agent's own, or one a timeout killed) refuses and names `rebase --continue`
   or `rebase --abort`. A rerun with nothing to stage pushes the local commit. A rerun with nothing to stage or push
-  exits 0 saying the paths are on origin/main.
+  exits 0 saying the paths are on origin/main. Every failure ends with one `sd-commit-doc: next: <command>` line on
+  stderr after the existing `FAILED during <step>` marker, so an agent finds the resuming command in a fixed place.
 - KTD5. **`sd-commit-doc` finds the caller's worktree from the caller's checkout.** Resolution order: `SD_TREE`, then
   the current directory when it is inside a linked worktree of the corpus (true from inside `docs/solutions`, since git
   reads the physical path), then the resolved `docs/solutions` of `git rev-parse --show-toplevel`. `SD_DIR` keeps naming
-  the read copy. A tree that resolves to the read copy takes today's copy-out path in Phase 1 and is refused in Phase 2
-  (U8). The script clears the `GIT_*` variables first, because a caller inside a git hook would otherwise steer every
-  `git -C` (`docs/solutions/test-failures/linked-worktree-push-exports-git-dir-into-prepush-test-suite.md`).
+  the read copy. In Phase 1, when none of these finds a worktree (no checkout, a checkout with no `docs/solutions`, or a
+  link to the read copy), the tree is the read copy and today's copy-out path runs, so every caller that works today
+  keeps working; only a `docs/solutions` that resolves outside the corpus is refused. A named file missing from the read
+  copy on that path fails with a message naming `SD_TREE` and the caller's checkout. Phase 2 refuses the read copy (U8).
+  The script clears the `GIT_*` variables first, because a caller inside a git hook would otherwise steer every `git -C`
+  (`docs/solutions/test-failures/linked-worktree-push-exports-git-dir-into-prepush-test-suite.md`).
 - KTD6. **One helper judges a slot's worktree, from the recorded path and local state only, and both `check` and the
   teardown re-check call it.** It judges the worktree the record names whatever the link points at, so an agent
   re-pointing its link cannot hide a draft. It reads only that worktree's own state: status with untracked files, a
@@ -260,8 +271,10 @@ Considered and not built:
 - KTD11. **A tracked `docs/solutions` link is re-pointed and marked `skip-worktree`.** dotfiles tracks its link as
   `../../dev/solutions-docs`. Marked `skip-worktree`, the re-pointed link stays out of `git status` and out of any
   `git add -A`, so no PR can commit a link to a slot's temporary path, and the clone keeps the path tracked for hosts
-  that never run Claude. The check's existing `M docs/solutions` exemption stays as a fallback and accepts either
-  target. Untracking the link instead was rejected, because a pull would delete every existing checkout's link.
+  that never run Claude (measured on git 2.56.0: status stays clean, `git add -A` and `git add -f` both leave it
+  unstaged, and a branch switch keeps the link). The check's existing exemption for an unstaged change to
+  `docs/solutions` stays as a fallback and accepts either target. Untracking the link instead was rejected, because a
+  pull would delete every existing checkout's link.
 - KTD12. **After Phase 2 the read copy is enforced by detection, not prevention.** `sd-commit-doc` refuses a tree that
   resolves to the read copy. The nightly job's solutions entry runs in a `sync` mode that fast-forwards and logs strays
   without committing. The autosync hook keeps reverting phantoms whose content equals origin's
@@ -309,10 +322,10 @@ stateDiagram-v2
 ```mermaid
 flowchart TB
   S[clear GIT_*] --> T{resolve tree, KTD5}
-  T -->|read copy| P1{phase}
+  T -->|no worktree found, or the read copy| P1{phase}
   P1 -->|Phase 1| C[today's copy-out path]
   P1 -->|Phase 2| X[refuse, name the fix]
-  T -->|neither| E[refuse: docs/solutions does not reach the corpus]
+  T -->|docs/solutions resolves outside the corpus| E[refuse, name the link's target]
   T -->|linked worktree| LK[take the worktree lock]
   LK --> RB{rebase in progress?}
   RB -->|yes| E1[refuse: rebase --continue or --abort]
@@ -349,8 +362,9 @@ flowchart TB
 - Prime checkouts where agents compound are trusted in Claude Code, so the SessionStart hook runs there (KTD10). A first
   session in an untrusted checkout runs no hook, and its link keeps resolving to the read copy until a trusted session
   starts there (`docs/solutions/integration-issues/claude-code-workspace-trust-at-stable-paths.md`).
-- No force-push ever rewrites origin/main, so a commit the local `refs/remotes/origin/main` contains is on origin
-  (KTD6). The solutions repo's rules forbid force-pushes.
+- No force-push rewrites origin/main, so a commit the local `refs/remotes/origin/main` contains is on origin (KTD6).
+  Nothing on the server enforces this: the repo is private on the free plan, where the rulesets and branch-protection
+  APIs answer 403. The repo's `AGENTS.md` forbids force-pushes, and Risks covers the window a force-push would open.
 - rex-linux answers Q1 with A. Phase 1 holds under any answer.
 
 ### Sequencing
@@ -374,14 +388,15 @@ lacks `solutions_worktree`.
 
 ### Risks
 
-| Risk                                                                                                                | Mitigation                                                                                                                            |
-| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| A Write through the link prompts in bypass mode and stops the slot                                                  | Real-slot check in U2's verification, and a stop condition in the Goal Capsule                                                        |
-| Formatter churn through the link dirties a worktree and holds a teardown                                            | The blocker names the files, and the cleanup reminder asks the agent to publish or discard them (U3)                                  |
-| Concurrent fetches into the shared ref store fail with `cannot lock ref`                                            | The check never fetches (KTD6); setup and the hook fall back to the local ref; `sd-commit-doc` exits non-zero and its rerun completes |
-| A slot made before the deploy and one made after edit the same doc                                                  | The second push hits a rebase conflict, keeps its commit, and prints the resume steps (KTD4)                                          |
-| A prime session drafting through the old link when another session's start re-points it                             | The draft stays in the read copy as a stray, the report names it, and the stray recipe recovers it (Rollout Notes)                    |
-| md-wrap or ce-compound's `validate-doc-claims.py` resolve the edited file's tree differently through the new target | U6's verification makes one real edit through the link and checks both                                                                |
+| Risk                                                                                                                | Mitigation                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A Write through the link prompts in bypass mode and stops the slot                                                  | Real-slot check in U2's verification, and a stop condition in the Goal Capsule                                                                                                                             |
+| Formatter churn through the link dirties a worktree and holds a teardown                                            | The blocker names the files, and the cleanup reminder asks the agent to publish or discard them (U3)                                                                                                       |
+| Concurrent fetches into the shared ref store fail with `cannot lock ref`                                            | The check never fetches (KTD6); setup and the hook fall back to the local ref; `sd-commit-doc` exits non-zero and its rerun completes                                                                      |
+| A slot made before the deploy and one made after edit the same doc                                                  | The second push hits a rebase conflict, keeps its commit, and prints the resume steps (KTD4)                                                                                                               |
+| A prime session drafting through the old link when another session's start re-points it                             | The draft stays in the read copy as a stray, the report names it, and the stray recipe recovers it (Rollout Notes)                                                                                         |
+| md-wrap or ce-compound's `validate-doc-claims.py` resolve the edited file's tree differently through the new target | U6's verification makes one real edit through the link and checks both                                                                                                                                     |
+| A force-push drops a published commit from origin before the read copy fetches again                                | The check reads the stale ref as published and teardown removes the worktree; the commit stays in the shared object store until `git gc` prunes it, and the next fetch makes every later check fail closed |
 
 ### Alternatives Considered
 
@@ -429,8 +444,8 @@ lacks `solutions_worktree`.
 - **Dependencies:** none
 - **Files:** `stow/local/dot-local/bin/sd-commit-doc`, `tests/sd-commit-doc.bats`
 - **Approach:**
-  1. Clear the `GIT_*` set and resolve the tree (KTD5). A tree that is neither a linked worktree of the corpus nor the
-     corpus itself fails, naming the checkout and the link's target.
+  1. Clear the `GIT_*` set and resolve the tree (KTD5), falling back to the read copy when no worktree is found. Only a
+     `docs/solutions` that resolves outside the corpus fails, naming the checkout and the link's target.
   2. On the worktree path, accept each named path that is a file in the tree, or a path HEAD tracks that the tree no
      longer has (a deletion), and refuse a directory.
   3. Lock, pre-flight, stage, commit, rebase, push, and fast-forward the read copy (KTD3), with the resume behavior of
@@ -458,11 +473,17 @@ lacks `solutions_worktree`.
     without making a second one.
   - A pre-push hook rejection exits naming the push step, with no rebase attempted.
   - With nothing to stage or push, it exits 0 and says the paths are on origin/main.
-  - Two calls started together in one worktree with different paths make two commits, each holding only its own path.
+  - With the worktree's lock held by a live process, a call waits, then exits non-zero naming the holder's pid before 10
+    s; with the lock left by a dead pid, a call takes it over and publishes.
+  - With the read copy holding an edit at the published path that differs from origin, a successful publish leaves that
+    edit in place.
   - Called from a consuming checkout whose `docs/solutions` links to the worktree, from inside the worktree, and with
     `SD_TREE` set, it resolves the same tree.
   - A directory path is refused.
-  - With a consuming checkout's link resolving to the read copy, the existing copy-out tests pass unchanged.
+  - Every existing copy-out test passes unchanged, whether the caller's link resolves to the read copy or the caller
+    runs from a directory with no checkout at all (regression contract: today's callers keep today's behavior).
+  - Called from outside its checkout for a doc that exists only in its worktree, it fails naming `SD_TREE`.
+  - Every failure's last stderr line is `sd-commit-doc: next: <command>`.
   - With `GIT_DIR` and `GIT_INDEX_FILE` exported by the caller, it still commits in the worktree.
 - **Verification:** every scenario passes in `tests/sd-commit-doc.bats`, and each new one fails against the current
   script.
@@ -473,14 +494,15 @@ lacks `solutions_worktree`.
   setup removes it.
 - **Requirements:** R1, R4, R6
 - **Dependencies:** U1
-- **Files:** `scripts/agent-slot/lib/parity.sh`, `scripts/agent-slot/lib/slotmake.sh`, `scripts/agent-slot/agent-slot`
-  (header layout note), `tests/lib/agent-slot.bash`, `tests/agent-slot-launch.bats`, `tests/agent-slot-reopen.bats`
+- **Files:** `scripts/agent-slot/lib/record.sh`, `scripts/agent-slot/lib/parity.sh`,
+  `scripts/agent-slot/lib/slotmake.sh`, `scripts/agent-slot/agent-slot` (header layout note),
+  `tests/lib/agent-slot.bash`, `tests/agent-slot-launch.bats`, `tests/agent-slot-reopen.bats`
 - **Approach:**
   1. `parity_solutions` prunes stale worktree registrations, makes a bounded best-effort fetch of the corpus, and adds a
-     detached worktree at the local `refs/remotes/origin/main` under `<slot root>/<repo>/.solutions/` with a random
-     suffix (KTD2). It writes `solutions_worktree` to the record and links `docs/solutions` to the worktree, marking a
-     tracked link `skip-worktree` (KTD11). A corpus with no `refs/remotes/origin/main`, or a failed `worktree add`,
-     fails setup with the existing `solutions-symlink-missing` reason and a message naming the step.
+     detached worktree at the local `refs/remotes/origin/main` under the directory the new `record.sh` layout function
+     names, with a random suffix (KTD2). It writes `solutions_worktree` to the record and links `docs/solutions` to the
+     worktree, marking a tracked link `skip-worktree` (KTD11). A corpus with no `refs/remotes/origin/main`, or a failed
+     `worktree add`, fails setup with the existing `solutions-symlink-missing` reason and a message naming the step.
   2. `slot_rollback` force-removes the worktree the record names and prunes before it trashes the clone (KTD7).
   3. The test library makes `$AGENT_SLOT_SOLUTIONS` a clone of a bare origin with one seeded commit on `main`, the shape
      `prime()` already builds.
@@ -512,10 +534,11 @@ lacks `solutions_worktree`.
 - **Approach:**
   1. Add `solutions-unpublished` to `CHECK_CODES`, and the KTD6 helper that `check_slot` and `_teardown_recheck` both
      call. It skips a record with no `solutions_worktree` (a slot made before Phase 1) and a recorded worktree whose
-     directory is gone (only a removal that git allowed takes it). Its `values` are `docs/solutions/<path>` for each
-     dirty path, so the agent sees them through its own link, plus `<n> unpublished commit(s)` and `rebase in progress`
-     when they apply.
-  2. `_check_uncommitted` exempts `M docs/solutions` when the link names the recorded worktree or the shared clone.
+     directory is gone, which leaves nothing to protect, and prunes that registration at teardown. Its `values` are
+     `docs/solutions/<path>` for each dirty path, so the agent sees them through its own link, plus
+     `<n> unpublished commit(s)` and `rebase in progress` when they apply.
+  2. `_check_uncommitted` exempts the unstaged change to `docs/solutions` when the link names the recorded worktree or
+     the shared clone, as a fallback for a tracked link that lost its `skip-worktree` bit.
   3. `slot_teardown` removes the worktree without `--force` after the re-check and before `purge_before`, keeps the slot
      with `solutions-unpublished` through `_teardown_keep` when git refuses, then prunes (KTD7).
   4. Add `solutions-unpublished` to `RELEASE_FILE_CODES`, and have the cleanup reminder say that a `docs/solutions` path
@@ -550,7 +573,8 @@ lacks `solutions_worktree`.
 - **Approach:**
   1. Extend the `solutions-corpus-missing` check to a corpus that is not a git repo with `refs/remotes/origin/main`.
   2. Add the warning reason `solutions-worktree-orphaned` (KTD8) to the closed table, with `values` of
-     `<path> <dirty count> <unpublished count>` and the next step `git -C <path> status`.
+     `<path> <dirty count> <unpublished count>` and the next step `git -C <path> status`. The scan's root comes from the
+     same `record.sh` layout function U2 uses, never a second copy of the path.
 - **Patterns to follow:** the existing `doctor_finding warning slot-path-untrusted` entries.
 - **Test scenarios:**
   - A worktree under the slot root whose slot was deleted by hand is reported with its counts.
@@ -601,13 +625,14 @@ lacks `solutions_worktree`.
      Drop the solo-writer exception (Key Decisions). Limit the instruction to recreate a missing link to repos' own
      checkouts, since in a slot that would orphan the slot's worktree.
   2. Change `slot-context.sh`'s line to say that `docs/solutions` is the slot's own worktree of the solutions repo,
-     published only through `sd-commit-doc`.
+     published only through `sd-commit-doc`, when the record names `solutions_worktree`; a slot made before Phase 1
+     keeps today's line.
   3. Add "writer worktree" and "read copy" to `CONCEPTS.md`.
 - **Patterns to follow:** the present-tense rule for in-repo docs in `~/.claude/guides/code-comments.md`; the existing
   README table formats.
 - **Test scenarios:**
-  - `tests/slot-context.bats` still finds `sd-commit-doc` in the context and finds the wording about the slot's own
-    worktree.
+  - `tests/slot-context.bats` still finds `sd-commit-doc` in the context, finds the wording about the slot's own
+    worktree for a record with `solutions_worktree`, and finds today's wording for one without it.
 - **Verification:** one real edit through a post-deploy slot's `docs/solutions` keeps md-wrap's width for the solutions
   repo and passes ce-compound's `validate-doc-claims.py`; `/unslop` and the solutions repo's hooks pass on its
   `AGENTS.md`.
@@ -703,3 +728,251 @@ lacks `solutions_worktree`.
 - The implementing slot's close-out refreshes
   `workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` rule 1 through
   `ce-compound-refresh`.
+
+---
+
+## Decision ledger
+
+Every choice below was decided by the reviewing agent from repository evidence and measurements, because this slot runs
+headless and its instructions say to answer review questions from the code, docs, and precedent. The one decision only
+Brett's side can make, Q1, went to rex-linux and is not decided here.
+
+- E1. In worktree mode, `sd-commit-doc`'s last step fast-forwards the read copy and never reverts or cleans anything
+  there (KTD3 step 6). Evidence: today's revert branch (`stow/local/dot-local/bin/sd-commit-doc`, "reverting the shared
+  clone's copies") checks out or cleans each named path in the shared clone, and in Phase 1 a prime session can hold an
+  in-flight edit at that same path.
+- E2. The pre-flight calls the solutions repo's own `validate_files` and `validate_changed_since HEAD` rather than
+  deriving the modified-doc set itself (KTD3 step 1). Evidence: `.githooks/lib-validate.sh:89-97` already computes the
+  staged plus modified tracked set for pre-commit.
+- E3. Every `sd-commit-doc` failure ends with one `sd-commit-doc: next: <command>` line (KTD4).
+- E4. In Phase 1, tree resolution falls back to the read copy whenever no worktree is found, and refuses only a link
+  that resolves outside the corpus (KTD5). U1 carries this as a regression contract. Evidence: the current script needs
+  no checkout (`SD=${SD_DIR:-$HOME/dev/solutions-docs}`), so the draft's "neither" refusal would have broken every
+  caller outside a checkout.
+- E5. One `record.sh` function owns the slot worktree layout, and setup and the doctor both call it (KTD2, U2, U4).
+- E6. `slot-context.sh` chooses its `docs/solutions` line from the record's `solutions_worktree`, so a slot made before
+  Phase 1 keeps the line that is true for it (U6).
+- E7. U1's racy two-calls-at-once scenario becomes two deterministic lock scenarios, a live holder and a dead holder,
+  plus a scenario that a publish leaves a read-copy edit at the same path alone (E1).
+- E8. U3's skip case for a missing worktree directory states what is true: nothing is left to protect, and teardown
+  prunes the registration.
+- E9. The assumption that the solutions repo forbids force-pushes on the server is corrected. Its rulesets and
+  branch-protection APIs answer 403 (private repo, free plan), so the plan relies on its `AGENTS.md` rule, and Risks
+  records the window.
+
+Approval readiness: PASS (E1-E9, each auto-decided under the slot's headless instructions; no prior approval reopened).
+
+---
+
+## Eng Review
+
+### Scope Challenge
+
+- **What already exists:** `sd-commit-doc` already commits from a detached worktree and owns the push retry and the
+  failure marker. `solutions-clone-autosync.sh` owns the content-equal phantom revert. agent-slot's `parity_*` steps,
+  `_check_*` blockers, `_teardown_recheck`, `RELEASE_FILE_CODES`, and the doctor's findings give every hook point the
+  plan needs. The plan reuses all of them and builds only the slot worktree lifecycle, the in-place commit path, and the
+  Phase 2 enforcement.
+- **Minimum change:** Phase 1 alone, slots plus `sd-commit-doc`, removes the bulk of the shared-tree writes, since every
+  slot compounds at close-out. Phase 2 is already gated on Q1 and can be dropped.
+- **Complexity:** Phase 1 touches about 28 files, mostly tests and docs, and adds no new module, only functions in
+  existing libraries. That trips the 8-file gate, so the structure question was asked, and resolved to the original
+  arrangement: no smaller arrangement keeps R1-R11, the blockers, and the doc updates. Splitting `sd-commit-doc` into a
+  library was considered and left out (NOT in scope).
+- **Search check:** git worktrees, `skip-worktree`, and `rebase --autostash` are [Layer 1] built-ins, and their behavior
+  was measured on this host instead of searched for.
+- **Result:** scope accepted as-is.
+
+```text
+REALITY: premise-table pass 16 claims checked, unverified=1 (that a bypass-mode Write under .git prompts; the protected list was read from the 2.1.314 binary, not observed live) docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:196
+REALITY: already-done pass no per-writer worktree work on origin/dev since 2026-10-29 across the six named scripts stow/local/dot-local/bin/sd-commit-doc:1
+REALITY: surface-check pass worktree add/remove/prune/list --porcelain, rebase --autostash, merge --ff-only, update-index --skip-worktree, rev-parse --git-path, agent-slot list --output json, scripts/run-tests FILE... verified scripts/run-tests:13
+REALITY: binding-decisions pass consistent with the restow plan's no-new-hook-script rollout and the fail-closed guard decisions; no overruled default returns docs/plans/2026-10-30-1839-fix-restow-claude-on-pull-plan.md:61
+REALITY: numbers finding force-push assumption corrected (E9) docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:365; worktree add 0.05 s [measured: 3 runs, gtime git worktree add on a corpus copy] docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:879; status 0.06 s [measured: gtime git status, same copy] docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:880; dotfiles is the one prime that tracks its link [measured: readlink and ls-files survey of ~/dotfiles and ~/dev/*] docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:271
+REALITY: deferred-asks pass no linked issue; every brief item maps to an R, KTD, Q, or Scope entry, and symlink removal is a recorded follow-up docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:63
+REALITY: pr-count pass two PRs, Phase 2 gated on Q1 and droppable; no ship-policy file docs/plans/2026-10-30-2040-feat-solutions-per-writer-worktrees-plan.md:31
+```
+
+### 1. Architecture
+
+- [CRITICAL] (confidence: 9/10) `stow/local/dot-local/bin/sd-commit-doc` —
+  `((${#tracked[@]} == 0)) || git -C "$SD" checkout -q -- "${tracked[@]}"`: the draft's "fast-forward the read copy as
+  today" would carry this revert into worktree mode, where the named path in the read copy can be a prime session's
+  in-flight edit. Fixed by E1.
+- [CRITICAL] (confidence: 9/10) `stow/local/dot-local/bin/sd-commit-doc` — `SD=${SD_DIR:-$HOME/dev/solutions-docs}`:
+  today's callers need no checkout, and the draft's KTD5 refused a tree that was "neither" a worktree nor the corpus.
+  Fixed by E4, with a regression contract in U1.
+- [INFORMATIONAL] (confidence: 8/10) Assumptions — "The solutions repo's rules forbid force-pushes" has no server-side
+  backing (`gh api repos/brettdavies/solutions-docs/rulesets` answers 403). Fixed by E9.
+- Design twice. Shape A (chosen): one worktree per checkout, linked from `docs/solutions`, owned by whatever owns the
+  checkout's lifecycle (agent-slot for slots, the SessionStart hook for primes); `sd-commit-doc` publishes in place.
+  Shape B: `sd-commit-doc` owns every worktree, made per publish (`sd-commit-doc open`), and the link keeps pointing at
+  the read copy. B hides more behind one tool, but ce-compound writes before any tool runs, so B cannot route the draft
+  (Alternatives). A wins, because the link is the only boundary ce-compound respects (KTD1).
+- Red flags: #6 two ways to do one task, transitional: `sd-commit-doc` keeps the copy-out path through Phase 1, and
+  Phase 2 deletes it (U8). #2 information leakage: the worktree layout would have lived in both setup and the doctor;
+  fixed by E5. #8 hand-synced lists: `CHECK_CODES` and the reasons table are already held equal to the README by
+  `tests/agent-slot-docs.bats`. No other flag applies.
+- Production failure per new path: a slot setup when GitHub is unreachable still makes the worktree at the local
+  origin/main (U2), and a publish that cannot reach origin keeps its commit and names the rerun (KTD4). Both covered.
+- Dispositions: E1, E4, E9 accepted.
+
+### 2. Code quality
+
+- [INFORMATIONAL] (confidence: 8/10) `.githooks/lib-validate.sh:94-97` —
+  `files=$( { git diff --name-only --cached --diff-filter=ACM; git diff --name-only --diff-filter=ACM HEAD; } ...`: the
+  draft's pre-flight restated this set in `sd-commit-doc`. Fixed by E2.
+- [INFORMATIONAL] (confidence: 7/10) KTD4 — the resume commands had no fixed place in the output for an agent to find.
+  Fixed by E3.
+- [INFORMATIONAL] (confidence: 7/10) KTD2 and U4 — the slot worktree layout was spelled out in two places. Fixed by E5.
+- [INFORMATIONAL] (confidence: 7/10) `stow/claude/dot-claude/slot-context.sh:71` —
+  `docs/solutions is the solutions repo shared with every other agent; ...`: a single new line would be false for slots
+  made before Phase 1. Fixed by E6.
+- `sd-commit-doc` goes past the 200-line trigger in Phase 1 with two paths. By SRP it still does one job, publishing
+  named docs, and Phase 2 deletes the copy-out path, so it stays one file (NOT in scope).
+- Dispositions: E2, E3, E5, E6 accepted.
+
+### 3. Tests
+
+```text
+CODE PATHS                                               USER FLOWS
+[+] sd-commit-doc (U1, U8)                               [+] Slot close-out publishes a doc
+  ├── resolve: SD_TREE / cwd worktree / link [★★★ plan]    ├── [★★★ plan] new, edit, delete, rename land on origin
+  ├── resolve: no worktree -> read copy (E4) [★★★ plan]    ├── [★★★ plan] origin moved: rebase and push
+  ├── resolve: link outside corpus -> refuse [★★  plan]    ├── [★★★ plan] conflict: abort, resume, rerun pushes
+  ├── lock: live holder / dead holder (E7)  [★★★ plan]     └── [★★  plan] offline: rerun pushes, no second commit
+  ├── pre-flight via lib-validate (E2)      [★★★ plan]   [+] Slot teardown
+  ├── staged-set guard                      [★★  plan]     ├── [★★★ plan] published worktree removed with the slot
+  ├── overlap guard before rebase           [★★★ plan]     ├── [★★★ plan] draft, commit, or rebase holds the slot
+  ├── rebase in progress -> refuse          [★★  plan]     ├── [★★  plan] cleanup reminder names sd-commit-doc
+  ├── push: non-ff retry / hook / network   [★★★ plan]     └── [★★  plan] slot made before Phase 1 judged as today
+  ├── ff read copy, never revert (E1)       [★★★ plan]   [+] Session start
+  └── Phase 2: refuse read copy             [★★  plan]     ├── [★★★ plan] behind worktree fast-forwarded
+[+] agent-slot setup/check/teardown/doctor (U2-U4)         └── [★★  plan] overlapping draft left alone, named
+  ├── worktree add, record, link, skip-worktree [★★★]    [+] Prime checkout (Phase 2)
+  ├── rollback removes what setup made      [★★  plan]     ├── [★★★ plan] first session links its own worktree
+  ├── KTD6 helper, shared by check+recheck  [★★★ plan]     └── [★★★ plan] stray reported, never committed
+  └── orphan report                         [★★  plan]
+[+] solutions-clone-autosync.sh (U5, U7, U8)
+  └── worktree ff / prime provision / JSON  [★★★ plan]
+COVERAGE: 27/27 planned paths have a planned test  |  GAPS: 3 found and closed (E7, E1, E4)
+```
+
+- [INFORMATIONAL] (confidence: 8/10) U1 — "Two calls started together" depends on scheduling and would flake. Fixed by
+  E7.
+- [CRITICAL] (confidence: 9/10) U1 — no scenario held today's behavior for a caller outside any checkout while KTD5
+  changes resolution. Fixed by E4's regression contract: every existing copy-out test passes unchanged from a directory
+  with no checkout.
+- [INFORMATIONAL] (confidence: 7/10) U3 — the missing-directory parenthetical claimed something the code cannot
+  guarantee. Fixed by E8.
+- Value cards: each planned scenario names the behavior it protects and the regression that breaks it in U1-U8. No
+  planned test needs a production seam beyond the existing `SD_DIR`, `AGENT_SLOT_*`, and `SD_TREE`, the last of which is
+  a caller-facing override.
+- Tests made obsolete: `tests/sd-commit-doc.bats`'s three shared-clone revert cases ("commits a modification to an
+  existing tracked file and reconciles the checkout", "reconciles the checkout when one call commits a new file and a
+  modified one", "fails loudly when the shared clone's copies cannot be reverted") retire with the copy-out path in
+  Phase 2 (U8), not before.
+- Dispositions: E4, E7, E8 accepted.
+
+### 4. Performance
+
+No issues found. Setup adds one bounded fetch and one `git worktree add`, which took 0.05 s on a copy of the corpus
+(1051 files, 12 MB) [measured: 3 runs]. The teardown check adds one `git status` per slot, 0.06 s on the same tree
+[measured], and no fetch (KTD6). The SessionStart hook reuses its one fetch for the worktree's fast-forward.
+
+### Outside voice
+
+Disabled in gstack config (`codex_reviews: disabled`); no outside reviewer ran and no native replacement was dispatched.
+
+### NOT in scope
+
+- Splitting `sd-commit-doc` into a library to stay under 200 lines: Phase 2 removes the copy-out path, which brings it
+  back under the trigger, and a split would outlive the reason for it.
+- Recording a worktree's HEAD in the teardown ledger for recovery after a force-push: it needs a force-push nobody may
+  make (E9) and a fetch window, and `git gc` keeps the object for two weeks.
+- A PreToolUse guard on the read copy, a JSON mode for `sd-commit-doc`, and more than one push retry: Scope Boundaries
+  records why each was not built.
+
+### Failure modes
+
+| New path                | Realistic failure                                | Test                 | Who sees it                                                      |
+| ----------------------- | ------------------------------------------------ | -------------------- | ---------------------------------------------------------------- |
+| Slot setup              | GitHub unreachable during the fetch              | U2 offline scenario  | nobody needs to; the worktree is made at the local ref           |
+| Slot setup              | corpus has no origin/main                        | U2 refusal scenario  | the launcher, as `solutions-symlink-missing`                     |
+| Publish                 | origin moved a named doc                         | U1 conflict scenario | the agent: exit 1 and the resume commands                        |
+| Publish                 | another publish holds the lock                   | U1 lock scenarios    | the agent: exit 1 naming the holder, after at most 10 s          |
+| Publish                 | read copy holds a prime's edit at the path       | U1 E1 scenario       | nobody; the edit is left alone and the ff is reported            |
+| Teardown                | draft or unpushed commit left behind             | U3 blocker scenarios | the agent, through the cleanup reminder; then the needs-you list |
+| Teardown                | `worktree remove` refuses after the re-check     | U3 keeps the slot    | needs-you list, `solutions-unpublished`                          |
+| Doctor                  | slot deleted by hand with drafts in its worktree | U4 orphan scenario   | whoever runs `agent-slot doctor`                                 |
+| Session start (Phase 2) | stray in the read copy                           | U8 stray scenario    | the user, through `systemMessage`                                |
+
+No critical gap: no path is untested, unhandled, and silent at once.
+
+### Worktree parallelization
+
+Three lanes by module: Lane A, U1 (`stow/local/dot-local/bin`); Lane B, U2 then U3 then U4 (`scripts/agent-slot`); Lane
+C, U5 (`stow/claude/dot-claude`). U6 waits for all three. The implementing slot creates no git worktrees, so it runs the
+lanes in order, A, B, C, then U6; separate slots could run them in parallel and merge before U6.
+
+### Implementation Tasks
+
+- [ ] T1 (P1, human: ~1 day / CC: ~45 min) — `sd-commit-doc` — in-place publish with lock, pre-flight, overlap guard,
+  resume line, and read-copy fallback (U1; E1-E4, E7). Verify: `scripts/run-tests tests/sd-commit-doc.bats`, red first.
+- [ ] T2 (P1, human: ~4 h / CC: ~25 min) — agent-slot setup — layout function, worktree, record field, link,
+  `skip-worktree`, rollback (U2; E5). Verify:
+  `scripts/run-tests tests/agent-slot-launch.bats tests/agent-slot-reopen.bats`.
+- [ ] T3 (P1, human: ~4 h / CC: ~25 min) — agent-slot check and teardown — shared helper, blocker, removal, cleanup
+  reminder (U3; E8). Verify: `scripts/run-tests tests/agent-slot-check.bats tests/agent-slot-teardown.bats
+  tests/agent-slot-release.bats tests/agent-slot-docs.bats`.
+- [ ] T4 (P2, human: ~1 h / CC: ~10 min) — agent-slot doctor — orphan warning and corpus check (U4). Verify:
+  `scripts/run-tests tests/agent-slot-doctor.bats tests/agent-slot-docs.bats`.
+- [ ] T5 (P2, human: ~2 h / CC: ~15 min) — autosync hook — fast-forward the session's worktree (U5). Verify:
+  `scripts/run-tests tests/solutions-clone-autosync.bats`.
+- [ ] T6 (P2, human: ~2 h / CC: ~20 min) — docs — Phase 1 wording, conditional slot-context line, the solutions repo's
+  `AGENTS.md` (U6; E6). Verify: `scripts/run-tests tests/slot-context.bats`, then one real edit through a new slot's
+  link.
+- [ ] T7-T9 (P3, after Q1) — Phase 2 (U7-U9).
+
+Effort ratios assumed: features ~30x, tests ~50x, docs ~10x.
+
+### Unresolved decisions
+
+- Q1 (how prime checkouts get a worktree) is with rex-linux and blocks Phase 2 only. Phase 1 holds under any answer.
+
+### Completion summary
+
+- Step 0: Scope Challenge — scope accepted as-is
+- Reality rows: 7/7 applicable rows emitted, 1 unverified premise
+- Architecture Review: 3 issues found
+- Code Quality Review: 4 issues found
+- Test Review: diagram produced, 3 gaps identified
+- Performance Review: 0 issues found
+- NOT in scope: written
+- What already exists: written
+- TODOS.md updates: 0 items proposed (the repo keeps no TODOS.md, and the deferred items live in Scope Boundaries)
+- Failure modes: 0 critical gaps flagged
+- Unresolved decisions: 1 in this review (Q1, already with rex-linux)
+- Outside voice: codex, disabled (`codex_reviews: disabled`)
+- Parallelization: 3 lanes, 0 parallel / 4 sequential in the implementing slot
+- Lake Score: N/A (no completeness-scored answers)
+
+---
+
+## GSTACK REVIEW REPORT
+
+| Review         | Trigger               | Why                             | Runs | Status                    | Findings                   |
+| -------------- | --------------------- | ------------------------------- | ---- | ------------------------- | -------------------------- |
+| CEO Review     | `/plan-ceo-review`    | Scope & strategy                | 0    | not run                   | —                          |
+| Outside Review | codex plan review     | Independent 2nd opinion         | 0    | disabled                  | —                          |
+| Eng Review     | `/plan-eng-review`    | Architecture & tests (required) | 1    | ISSUES OPEN (all applied) | 10 issues, 0 critical gaps |
+| Design Review  | `/plan-design-review` | UI/UX gaps                      | 0    | not run (no UI)           | —                          |
+| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 0    | not run yet               | —                          |
+
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled in gstack config (`codex_reviews: disabled`); no findings.
+- **VERDICT:** ENG reviewed with every finding applied to the plan (eng review required); DX review and document review
+  next.
+
+**UNRESOLVED DECISIONS:**
+
+- Q1: how prime checkouts get a worktree, with rex-linux; blocks Phase 2 only.
