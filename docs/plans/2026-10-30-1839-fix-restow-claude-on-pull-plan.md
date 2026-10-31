@@ -54,9 +54,9 @@ blocked.
 
 That happened on this host at about 18:30 on 2026-10-30: `~/dotfiles` was pulled from `bb85317` to `ddd3878`, and every
 tool call failed with
-`/bin/sh: 1: /home/brett/.claude/never-send-guard.sh: not found ... blocking because onFailure is "block"` until a
-manual restow at 18:32. Bash, ToolSearch, and SendMessage were all blocked, so a blocked agent could not even report it.
-The Mac has the same shape and will hit it on its next pull of a change that adds a script.
+`/bin/sh: 1: $HOME/.claude/never-send-guard.sh: not found ... blocking because onFailure is "block"` until a manual
+restow at 18:32. Bash, ToolSearch, and SendMessage were all blocked, so a blocked agent could not even report it. The
+Mac has the same shape and will hit it on its next pull of a change that adds a script.
 
 ### Key Decisions
 
@@ -289,8 +289,9 @@ the shipped behavior and goes last.
   `tests/restow-on-pull.bats` (new).
 - **Approach:**
   1. The library defines one entry point that takes the old and new refs and the deploy target and holds the package
-     list. The hooks run it in a subshell with an `ERR` trap, so a bug inside it prints the `restow-internal-error`
-     report (R7) with the line and command and still returns 0, and the LFS line still runs.
+     list. The hooks run it as its own `bash` process with errexit and an `ERR` trap, because bash ignores both inside a
+     subshell or function called from an `||` list. A failure inside it prints the `restow-internal-error` report (R7)
+     with the line and command and still exits 0, and the LFS line still runs.
   2. `post-merge` passes `ORIG_HEAD HEAD`; `post-checkout` passes `$1 $2` only when `$3` is `1` and `$1` is not the null
      OID.
   3. Both hooks call it between the existing unlock block and the LFS line, and the LFS line stays last.
@@ -323,8 +324,9 @@ the shipped behavior and goes last.
   - A probe `stow-deploy` that exits 5 leaves `git pull` and `git checkout <branch>` at exit 0, and the output carries
     `WARNING:`, `restow-failed`, the package, `exit 5`, the probe's output, and, as the last line,
     `cd <clone> && scripts/stow-deploy --headless --only claude`.
-  - With the fixture's `git` broken for `ls-files` only (a `PATH` wrapper), a pull that changes `stow/claude/` still
-    exits 0, prints `restow-internal-error` with the failing line, and the stubbed `git lfs post-merge` still runs.
+  - `post-checkout` called with a previous HEAD that names no object exits 0, prints `restow-internal-error` with the
+    failing line, and the stubbed `git lfs post-checkout` still runs. Git puts its own exec-path first on a hook's
+    `PATH`, so a `PATH` wrapper cannot fail one git call from inside a real update.
   - A pull from a linked worktree whose links the target holds runs the probe with no `GIT_DIR`, `GIT_WORK_TREE`, or
     `GIT_INDEX_FILE` in its environment.
   - A pull that brings the new hook itself restows in that same pull: the fixture's base commit carries a `post-merge`
@@ -610,7 +612,7 @@ Expects:   A pull leaves the host working; anything else says so on the pull's o
 Observed today, from the 18:30 incident: I run `git pull` in `~/dotfiles`. It prints the merge summary and exits 0. My
 next tool call fails with
 `PreToolUse:Bash hook error: [~/.claude/never-send-guard.sh]: failed; blocking because onFailure is "block"` and
-`/bin/sh: 1: /home/brett/.claude/never-send-guard.sh: not found`. So does every call after it, Read, ToolSearch, and
+`/bin/sh: 1: $HOME/.claude/never-send-guard.sh: not found`. So does every call after it, Read, ToolSearch, and
 SendMessage included. Nothing on the pull told me a deploy step was owed, and the harness error does not name
 `stow-deploy`. I cannot run the fix myself, because running it needs a tool call. I stay stuck until a human restows
 from another terminal.
@@ -692,8 +694,8 @@ CAP6:dirty-adopt:fix), and a crash inside the library would have stopped the hoo
   the rerun succeeds), and the rerun command as the last line.
 - D2. `--only` usage errors name a working form (U1 step 1).
 - D3. The headless dirty refusal lists the changed paths and ends with the fix (U1 step 3).
-- D4. The hooks run the library in a subshell with an `ERR` trap; a bug prints `restow-internal-error` with the line,
-  returns 0, and LFS still runs (U2 step 1, new U2 scenario).
+- D4. The hooks run the restow as its own `bash` process with an `ERR` trap; a failure prints `restow-internal-error`
+  with the line, exits 0, and LFS still runs (U2 step 1, new U2 scenario).
 - D5. U3's failure output ends with the fix.
 - D6. `AGENTS.md` gains the manual recovery command and the fetch-then-diff review path (U4 step 4).
 
@@ -728,8 +730,8 @@ DX IMPLEMENTATION CHECKLIST
 
 ### Implementation Tasks (DX)
 
-- [ ] T5 (P1, human: ~1h / CC: ~10min) — `.githooks/lib/restow.sh` — report text per D1, subshell and `ERR` trap per D4,
-  with the internal-error scenario. Verify: `scripts/run-tests tests/restow-on-pull.bats`.
+- [ ] T5 (P1, human: ~1h / CC: ~10min) — `.githooks/lib/restow.sh` — report text per D1, own process and `ERR` trap per
+  D4, with the internal-error scenario. Verify: `scripts/run-tests tests/restow-on-pull.bats`.
 - [ ] T6 (P2, human: ~30min / CC: ~5min) — `scripts/stow-deploy` — fix lines per D2 and D3. Verify:
   `scripts/run-tests tests/stow-deploy-args.bats`.
 - [ ] T7 (P2, human: ~15min / CC: ~3min) — `tests/claude-settings.bats`, `AGENTS.md` — D5 and D6. Verify: the suite and
@@ -743,15 +745,15 @@ None.
 
 ## Document Review
 
-Run non-interactively with the review lenses inline (coherence, feasibility, scope-guardian, and adversarial on technical
-assumptions), because the slot's brief forbids subagents; no cross-model pass ran.
+Run non-interactively with the review lenses inline (coherence, feasibility, scope-guardian, and adversarial on
+technical assumptions), because the slot's brief forbids subagents; no cross-model pass ran.
 
-| Lens | Findings | Applied |
-| ---- | -------- | ------- |
-| feasibility | 1 | 1 |
-| coherence | 4 | 4 |
-| scope-guardian | 0 | 0 |
-| adversarial | 1 FYI | 1 (assumption now cites evidence) |
+| Lens           | Findings | Applied                           |
+| -------------- | -------- | --------------------------------- |
+| feasibility    | 1        | 1                                 |
+| coherence      | 4        | 4                                 |
+| scope-guardian | 0        | 0                                 |
+| adversarial    | 1 FYI    | 1 (assumption now cites evidence) |
 
 Applied under the review's grant (implementation and verification sections):
 
