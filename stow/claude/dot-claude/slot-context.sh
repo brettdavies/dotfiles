@@ -2,8 +2,8 @@
 # SessionStart Claude hook: gives an agent in a slot its slot context. Inside a slot (the payload's cwd, or the working
 # directory, under the slot root with a record) and only for the pane's top-level Claude in the slot's Claude session
 # (see scripts/agent-slot/lib/hook.sh), it:
-#   - records the payload's session ID and transcript in the slot record, and appends a `session` ledger line when
-#     either changed (a /clear starts a new session);
+#   - records the payload's session ID and its transcript (sessions_transcript_of) in the slot record, and appends a
+#     `session` ledger line when either changed (a /clear starts a new session);
 #   - on the slot's first start sets the record's ready_at and, when the launch carried a request ID, appends the
 #     `ready` ledger line that agent-slot doctor joins to the launch line;
 #   - prints SessionStart additionalContext naming the slot, its task and work items, and its working rules.
@@ -25,7 +25,7 @@ AS_HOME=$(realpath -m "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../
 context_record() {
   local repo=$1 n=$2 sid transcript source ready old_sid old_transcript first request task
   sid=$(hook_field .session_id)
-  transcript=$(hook_field .transcript_path)
+  transcript=$(sessions_transcript_of "$sid" "$(hook_field .transcript_path)")
   source=$(hook_field .source)
   ready=$(date +%s.%N)
   if ! record_lock_slot "$repo" "$n" --wait 10; then

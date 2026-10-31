@@ -45,16 +45,19 @@ teardown_log() {
 }
 
 # Usage: release_transcripts <repo> <n>; prints the transcript of every Claude session this slot's task has had: the
-# ledger's session lines since the slot was made, and the record's own.
+# ledger's session lines since the slot was made, and the record's own, each as sessions_transcript_of finds it. The
+# two fields are split on a unit separator, since read collapses an empty field between tabs.
 release_transcripts() {
-  local since
+  local since sid transcript pair='"\(.session_id // "")\u001f\(.transcript // "")"'
   since=$(contract_json -r '.created_at // ""' <<<"$RECORD")
   {
     [[ ! -r $AS_LEDGER ]] || contract_json -r --arg repo "$1" --argjson n "$2" --arg since "$since" '
-      select(.event == "session" and .repo == $repo and .slot == $n and .ts >= $since) | .transcript // empty' \
-      "$AS_LEDGER"
-    contract_json -r '.transcript // empty' <<<"$RECORD"
-  } | sort -u
+      select(.event == "session" and .repo == $repo and .slot == $n and .ts >= $since) | '"$pair" "$AS_LEDGER"
+    contract_json -r "$pair" <<<"$RECORD"
+  } | sort -u | while IFS=$'\x1f' read -r sid transcript; do
+    sessions_transcript_of "$sid" "$transcript"
+    echo
+  done | sort -u
 }
 
 # Usage: release_skills_in <transcript> [<since>]; prints the name of each skill the session ran, without its plugin
@@ -220,7 +223,8 @@ $RELEASE_COMPOUND once per finding, then $RELEASE_REFRESH, then $RELEASE_COMMAND
     || contract_fail slot-busy "$key stayed locked, so its release was not recorded" --value "$key" \
       --command "$RELEASE_COMMAND"
   ledger_append release "$(contract_json -c --argjson skills "$skills" \
-    '{repo, slot, task, session_id, transcript, skills: $skills}' <<<"$RECORD")"
+    --arg transcript "$(sessions_record_transcript)" '{repo, slot, task, session_id,
+      transcript: (if $transcript == "" then null else $transcript end), skills: $skills}' <<<"$RECORD")"
   release_start_runner "$key" "$id"
   record_update "$repo" "$n" --argjson pid "$RELEASE_PID" '.release.runner_pid = $pid' || true
   teardown_log release "$(contract_json -n -c --arg key "$key" --argjson pid "$RELEASE_PID" \

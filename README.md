@@ -423,7 +423,10 @@ The reopened slot keeps the old one's items, name, task, and session, records it
 in `settled_prs` the PRs already merged or closed when it was reopened. Those PRs neither finish the task nor keep it
 open, so it finishes only on a new outcome, such as a new PR merging or the operator's finish, and their heads still
 count as pushed. The release gate counts only the closing skills run since the slot was made, so the first round's
-`ce-compound` runs do not release the second. Claude Code keeps each session's transcript for 365 days
+`ce-compound` runs do not release the second. Claude Code goes on writing the resumed conversation to its transcript
+under the old slot's project directory while its SessionStart payload names a path under the new slot's, so wherever a
+recorded transcript path does not exist, the slot record, the release gate, and the `release` and `teardown` events use
+the transcript found by session ID instead. Claude Code keeps each session's transcript for 365 days
 (`cleanupPeriodDays` in the stowed `~/.claude/settings.json`), so a reopen reaches back that far; past that it refuses
 with `transcript-missing`.
 

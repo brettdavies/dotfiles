@@ -106,17 +106,11 @@ not $key" --value "$key" --command "$(_reopen_launch_command)"
   return 1
 }
 
-# Usage: _reopen_find_transcript <session id>; the source's transcript at its recorded path, else by its ID in any of
-# Claude's project directories.
+# Usage: _reopen_find_transcript <session id>; the source's transcript, as sessions_transcript_of finds it.
 _reopen_find_transcript() {
-  local id=$1 found
-  REOPEN_TRANSCRIPT=$(contract_json -r '.transcript // ""' <<<"$REOPEN_SOURCE") REOPEN_TRANSCRIPT_EXISTS=false
-  if [[ -n $REOPEN_TRANSCRIPT && -f $REOPEN_TRANSCRIPT ]]; then
-    REOPEN_TRANSCRIPT_EXISTS=true
-    return 0
-  fi
-  found=$(sessions_transcript_find "$id")
-  [[ -z $found ]] || REOPEN_TRANSCRIPT=$found REOPEN_TRANSCRIPT_EXISTS=true
+  REOPEN_TRANSCRIPT=$(sessions_transcript_of "$1" "$(contract_json -r '.transcript // ""' <<<"$REOPEN_SOURCE")")
+  REOPEN_TRANSCRIPT_EXISTS=false
+  [[ -z $REOPEN_TRANSCRIPT || ! -f $REOPEN_TRANSCRIPT ]] || REOPEN_TRANSCRIPT_EXISTS=true
 }
 
 # Refuses, returning 1, when a slot of any repo has the session as its own.
