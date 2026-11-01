@@ -13,6 +13,10 @@ declare -gA RECORD_LOCK_FDS=()
 
 slot_path() { printf '%s/%s/%s' "$AS_ROOT" "$1" "$2"; }
 slot_claim_file() { printf '%s/%s/.%s.claim.json' "$AS_ROOT" "$1" "$2"; }
+# Where a repo's slots keep their worktrees of the solutions repo, each named <n>-<random suffix>. A dot directory, so
+# slot_numbers and slot_repos never list it, and outside every clone, because Claude Code asks before any write under a
+# .git directory even with permission prompts skipped.
+slot_solutions_dir() { printf '%s/%s/.solutions' "$AS_ROOT" "$1"; }
 
 # The record a reader sees: the clone's own once it has one, else the claim, which also covers a clone whose setup
 # stopped before its record moved in.

@@ -11,20 +11,37 @@ SLOT_ARMED=
 SLOT_MADE='' SLOT_MADE_TRUST=false SLOT_MADE_PHASES=null
 
 # Usage: slot_rollback <repo> <n>
-# Removes a slot whose setup never finished: its tmux sessions, its clone, and its claim. The caller holds the slot
-# lock.
+# Removes a slot whose setup never finished: its tmux sessions, its worktree of the solutions repo, which no agent has
+# written in yet, its clone, and its claim. The caller holds the slot lock.
 slot_rollback() {
   local repo=$1 n=$2 path kind out real
   path=$(slot_path "$repo" "$n")
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
     slot_tmux out 5 kill-session -t "=$(slot_session "$repo" "$n" "$kind")" || true
   done
+  _slot_rollback_solutions "$repo" "$n" || return 1
   if [[ -e $path ]]; then
     real=$(realpath -m "$path")
     [[ $real == "$AS_ROOT_REAL"/*/* ]] || return 1
     bounded out trash 60 "$AS_TRASH" "$path" || return 1
   fi
   rm -f "$(slot_claim_file "$repo" "$n")"
+}
+
+# Usage: _slot_rollback_solutions <repo> <n>; force-removes the worktree the record names, and only one under the
+# repo's solutions directory, then prunes its registration.
+_slot_rollback_solutions() {
+  local wt real out
+  record_read "$1" "$2" || return 0
+  wt=$(contract_json -r '.solutions_worktree // ""' <<<"$RECORD")
+  [[ -n $wt ]] || return 0
+  real=$(realpath -m "$wt")
+  [[ $real == "$(realpath -m "$(slot_solutions_dir "$1")")"/* ]] || return 1
+  git -C "$AS_SOLUTIONS" worktree remove --force "$wt" 2>/dev/null || true
+  if [[ -e $wt ]]; then
+    bounded out trash 60 "$AS_TRASH" "$wt" || return 1
+  fi
+  git -C "$AS_SOLUTIONS" worktree prune 2>/dev/null || true
 }
 
 _slot_rollback_on_exit() {
@@ -112,7 +129,7 @@ slot_make() {
   [[ -z $head ]] || "$head" "$path"
   parity_git_crypt "$path"
   parity_hooks "$REPO_PRIME" "$path"
-  parity_solutions "$path"
+  parity_solutions "$repo" "$n" "$path"
   parity_repo_recon "$REPO_PRIME" "$path"
   parity_claude_settings "$REPO_PRIME" "$path"
   parity_siblings "$repo" "$path"

@@ -260,9 +260,12 @@ bundle by default) on the Mac. `tests/mac-open.bats` and `tests/mac-open-here.ba
 Many Claude Code agents can work on the same repo at once, each in an *agent slot*: a clone of the repo at
 `~/slots/<repo>/<N>` on the Linux server, set up like the repo's own checkout (its hooks, the `docs/solutions` link, the
 `.context/repo-recon` link when the repo has a repo-recon store, its Claude memory and permission grants, and its
-partial-clone filter when it has one), with one task per slot. The repo-recon link points at
-`~/dev/repo-recon/<owner>/<repo>`, named for the prime's `origin`, else for its `upstream`, the remote a fork names its
-parent by. Setup never makes a store, and a teardown deletes the link but not the store, so whatever an agent filed
+partial-clone filter when it has one), with one task per slot. A slot's `docs/solutions` links to its own detached
+worktree of the solutions repo at `~/slots/<repo>/.solutions/<N>-<suffix>`, made at origin/main during setup and
+recorded as `solutions_worktree`; its agent writes and publishes there with `sd-commit-doc`, the slot is kept while that
+worktree holds anything origin/main lacks (`solutions-unpublished`), and teardown removes it. The repo-recon link points
+at `~/dev/repo-recon/<owner>/<repo>`, named for the prime's `origin`, else for its `upstream`, the remote a fork names
+its parent by. Setup never makes a store, and a teardown deletes the link but not the store, so whatever an agent filed
 through it stays. `agent-slot` on the server owns every slot and every check before a slot is deleted; `agent-slot-rex`
 on the Mac drives Rex, where each repo is one session and each agent one tab. Every slot runs three tmux sessions on the
 server's `agent-slots` socket (Claude, yazi, and lazygit), so agents keep working while the Mac sleeps, and each pane of
@@ -575,7 +578,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `prompt-file-unreadable`      | 2    | The first-message file cannot be read                                                          |
 | `slot-limit-reached`          | 78   | The repo holds the most live slots allowed; finish one, or raise `AGENT_SLOT_MAX_PER_REPO`     |
 | `clone-failed`                | 1    | Cloning from origin failed; retry with the same request ID                                     |
-| `solutions-symlink-missing`   | 78   | The shared solutions repo is missing, so the slot cannot get its `docs/solutions` link         |
+| `solutions-symlink-missing`   | 78   | The solutions repo is missing or has no origin/main, so the slot gets no worktree of it        |
 | `hooks-path-outside-checkout` | 78   | The repo's own `core.hooksPath` points outside its checkout                                    |
 | `git-crypt-locked`            | 78   | A git-crypt repo could not be unlocked: git-crypt or its key is missing                        |
 | `trust-dialog-unrecognized`   | 78   | Claude showed a screen other than its trust dialog for the path; accept it by hand             |

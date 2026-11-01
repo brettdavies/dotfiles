@@ -77,9 +77,13 @@ parity_hooks() {
   git -C "$slot" config core.hooksPath "${real#"$prime_real"/}"
 }
 
-# Usage: parity_solutions <slot>
+# Usage: parity_solutions <repo> <n> <slot>
+# Gives the slot its own detached worktree of the shared solutions repo at origin/main, records it as the record's
+# solutions_worktree before it exists so a rollback can always find it, and links docs/solutions to it: the slot's agent
+# drafts and publishes in a tree no other agent writes in. A tracked link is marked skip-worktree, so the re-pointed
+# link never reaches a commit. The fetch is best effort; offline, the worktree starts at the local origin/main.
 parity_solutions() {
-  local slot=$1 link=$1/docs/solutions
+  local repo=$1 n=$2 slot=$3 link=$3/docs/solutions root wt out
   if [[ ! -d $AS_SOLUTIONS ]]; then
     contract_fail solutions-symlink-missing \
       "the docs/solutions symlink could not be created: the shared solutions repo is missing at $AS_SOLUTIONS" \
@@ -89,8 +93,27 @@ parity_solutions() {
     contract_fail solutions-symlink-missing "docs/solutions exists in the repo as a real path, not a symlink" \
       --value "$link" --command "git -C $slot ls-files docs/solutions" --side-effects none
   fi
+  git -C "$AS_SOLUTIONS" worktree prune 2>/dev/null || true
+  bounded out solutions-fetch 30 /usr/bin/env GIT_SSH_COMMAND='ssh -o BatchMode=yes' GIT_TERMINAL_PROMPT=0 \
+    git -C "$AS_SOLUTIONS" fetch -q origin main || rm -f "$BOUNDED_LOG"
+  if ! git -C "$AS_SOLUTIONS" rev-parse -q --verify refs/remotes/origin/main >/dev/null 2>&1; then
+    contract_fail solutions-symlink-missing \
+      "the shared solutions repo at $AS_SOLUTIONS has no origin/main to make the slot's worktree from" \
+      --value "$AS_SOLUTIONS" --command "git -C $AS_SOLUTIONS fetch origin main" --side-effects none
+  fi
+  root=$(slot_solutions_dir "$repo")
+  mkdir -p "$root"
+  wt=$(mktemp -d "$root/$n-XXXXXX")
+  record_update "$repo" "$n" --arg wt "$wt" '.solutions_worktree = $wt'
+  if ! bounded out solutions-worktree 60 git -C "$AS_SOLUTIONS" worktree add -q --detach "$wt" refs/remotes/origin/main; then
+    contract_fail solutions-symlink-missing "git worktree add of the shared solutions repo failed" --value "$wt" \
+      --command "agent-slot doctor" --side-effects none --log "$BOUNDED_LOG"
+  fi
   mkdir -p "$slot/docs"
-  ln -sfn "$AS_SOLUTIONS" "$link"
+  ln -sfn "$wt" "$link"
+  if git -C "$slot" ls-files --error-unmatch -- docs/solutions >/dev/null 2>&1; then
+    git -C "$slot" update-index --skip-worktree -- docs/solutions
+  fi
   [[ -d $link/ ]] || contract_fail solutions-symlink-missing "docs/solutions does not resolve" --value "$link" \
     --command "agent-slot doctor" --side-effects none
 }

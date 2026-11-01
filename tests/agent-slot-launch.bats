@@ -146,7 +146,7 @@ partial_prime() {
 }
 
 @test "AE2: with the shared solutions repo missing, launch refuses and leaves no slot and no session" {
-  rmdir "$AGENT_SLOT_SOLUTIONS"
+  rm -rf "$AGENT_SLOT_SOLUTIONS"
   launch repoa --request-id r-ae2
   [ "$status" -eq 78 ]
   jaq -e '.reason == "solutions-symlink-missing" and (.message | test("symlink could not be created"))' <<<"$stderr"
@@ -156,10 +156,79 @@ partial_prime() {
   assert_prime_untouched
 }
 
-@test "every slot gets docs/solutions as an absolute link to the shared repo" {
+# assert_own_worktree N: repoa/N's docs/solutions links to a linked worktree of the corpus, detached at origin/main,
+# under the repo's .solutions directory, and the record names it. Sets WT to its path.
+assert_own_worktree() {
+  local slot=$AGENT_SLOT_ROOT/repoa/$1
+  WT=$(readlink "$slot/docs/solutions")
+  [[ $WT == "$AGENT_SLOT_ROOT/repoa/.solutions/$1-"* ]]
+  [ "$(jaq -r .solutions_worktree "$slot/.git/agent-slot.json")" = "$WT" ]
+  solutions_worktrees | grep -qxF "$WT"
+  [ "$(git -C "$WT" rev-parse HEAD)" = "$(git -C "$AGENT_SLOT_SOLUTIONS" rev-parse refs/remotes/origin/main)" ]
+  ! git -C "$WT" symbolic-ref -q HEAD
+}
+
+@test "every slot's docs/solutions links to its own worktree of the shared repo, and the shared clone's tree is untouched" {
+  local before
+  before=$(fingerprint "$AGENT_SLOT_SOLUTIONS" | grep -v '\./\.git')
   launch repoa --request-id r-sol
   [ "$status" -eq 0 ]
-  [ "$(readlink "$AGENT_SLOT_ROOT/repoa/1/docs/solutions")" = "$AGENT_SLOT_SOLUTIONS" ]
+  assert_own_worktree 1
+  [ "$(fingerprint "$AGENT_SLOT_SOLUTIONS" | grep -v '\./\.git')" = "$before" ]
+  [ -z "$(git -C "$AGENT_SLOT_SOLUTIONS" status --porcelain)" ]
+  [ -z "$(git -C "$WT" status --porcelain)" ]
+}
+
+@test "two slots of one repo get two different worktrees" {
+  launch repoa --request-id r-sol1
+  [ "$status" -eq 0 ]
+  launch repoa --request-id r-sol2
+  [ "$status" -eq 0 ]
+  assert_own_worktree 1
+  local first=$WT
+  assert_own_worktree 2
+  [ "$WT" != "$first" ]
+  [ "$(solutions_worktrees | grep -c .)" -eq 2 ]
+}
+
+@test "a tracked docs/solutions link is pointed at the slot's worktree, and git status in the slot stays clean" {
+  origin_symlink repoa docs/solutions ../../dev/solutions-docs
+  launch repoa --request-id r-tracked
+  [ "$status" -eq 0 ]
+  assert_own_worktree 1
+  [ -z "$(git -C "$AGENT_SLOT_ROOT/repoa/1" status --porcelain --untracked-files=no)" ]
+  git -C "$AGENT_SLOT_ROOT/repoa/1" add -A
+  git -C "$AGENT_SLOT_ROOT/repoa/1" add -f -- docs/solutions 2>/dev/null || true
+  [ -z "$(git -C "$AGENT_SLOT_ROOT/repoa/1" diff --cached --name-only -- docs/solutions)" ]
+}
+
+@test "with the corpus's origin unreachable, the worktree is still made at the local origin/main" {
+  mv "$T/solutions-origin.git" "$T/solutions-origin.away"
+  launch repoa --request-id r-offline
+  [ "$status" -eq 0 ]
+  assert_own_worktree 1
+}
+
+@test "a corpus with no origin/main refuses with solutions-symlink-missing and leaves no slot and no worktree" {
+  git -C "$AGENT_SLOT_SOLUTIONS" update-ref -d refs/remotes/origin/main
+  mv "$T/solutions-origin.git" "$T/solutions-origin.away"
+  launch repoa --request-id r-noref
+  [ "$status" -eq 78 ]
+  jaq -e '.reason == "solutions-symlink-missing" and (.message | test("origin/main"))' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+  [ -z "$(ls -A "$AGENT_SLOT_ROOT/repoa/.solutions" 2>/dev/null)" ]
+  [ -z "$(solutions_worktrees)" ]
+  assert_prime_untouched
+}
+
+@test "a setup that fails after the worktree is made removes the worktree and its registration" {
+  stub tmux 'exit 1'
+  launch repoa --request-id r-rollback
+  [ "$status" -ne 0 ]
+  jaq -e '.reason == "tmux-failed"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+  [ -z "$(ls -A "$AGENT_SLOT_ROOT/repoa/.solutions" 2>/dev/null)" ]
+  [ -z "$(solutions_worktrees)" ]
 }
 
 @test "a slot links .context/repo-recon to its origin's repo-recon store before its upstream's, and writes no store" {

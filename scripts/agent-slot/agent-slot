@@ -18,7 +18,8 @@
 #   AGENT_SLOT_TRUST_TIMEOUT   seconds the trust step watches Claude's screen (45)
 #   AGENT_SLOT_TMUX_SOCKET     slot tmux socket name (agent-slots)
 #   AGENT_SLOT_TMUX_CONF       slot tmux config (~/.config/tmux/slots.conf)
-#   AGENT_SLOT_SOLUTIONS       shared solutions repo (~/dev/solutions-docs)
+#   AGENT_SLOT_SOLUTIONS       shared solutions repo; each slot gets a worktree of it under <slot root>/<repo>/.solutions
+#                              (~/dev/solutions-docs)
 #   AGENT_SLOT_REPO_RECON      repo-recon's store, read only (~/dev/repo-recon)
 #   AGENT_SLOT_GIT_CRYPT_KEY   git-crypt key (~/.config/git-crypt/key)
 #   AGENT_SLOT_CLAUDE_STATE    Claude's app-state file, read only (~/.claude.json)
