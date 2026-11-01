@@ -699,6 +699,104 @@ vale_slot() {
   jaq -e '.blockers == [{code: "uncommitted-changes", message: "1 uncommitted change", count: 1}]' <<<"$VERDICT"
 }
 
+@test "a clean solutions worktree on origin/main does not block" {
+  finished_task
+  own_solutions_worktree
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "an untracked doc in the slot's solutions worktree blocks with solutions-unpublished, named through docs/solutions" {
+  finished_task
+  own_solutions_worktree
+  mkdir -p "$SWT/workflow-issues"
+  echo draft >"$SWT/workflow-issues/new.md"
+  check
+  jaq -e --arg wt "$SWT" '.teardown == false and (.blockers[] | select(.code == "solutions-unpublished")
+    | .values == ["docs/solutions/workflow-issues/new.md"] and .count == 1
+      and .next_step == {action: "run", command: "git -C \($wt) status --short", docs: .next_step.docs}
+      and (.next_step.docs | endswith("#teardown-blockers")))' <<<"$VERDICT"
+}
+
+@test "an edit to a tracked doc in the solutions worktree blocks with solutions-unpublished" {
+  solutions_origin_doc workflow-issues/a.md original
+  finished_task
+  own_solutions_worktree
+  echo edited >"$SWT/workflow-issues/a.md"
+  check
+  jaq -e '.blockers[] | select(.code == "solutions-unpublished") | .values == ["docs/solutions/workflow-issues/a.md"]' \
+    <<<"$VERDICT"
+}
+
+@test "a commit in the solutions worktree that origin/main lacks blocks with its count, and passes once it is pushed" {
+  finished_task
+  own_solutions_worktree
+  echo doc >"$SWT/new.md"
+  git -C "$SWT" add new.md
+  git -C "$SWT" commit -q -m doc
+  check
+  jaq -e '.blockers[] | select(.code == "solutions-unpublished") | .values == ["1 unpublished commit"]' <<<"$VERDICT"
+  git -C "$SWT" push -q origin HEAD:main
+  mv "$T/solutions-origin.git" "$T/solutions-origin.away"
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "a rebase left in progress in the solutions worktree blocks" {
+  solutions_origin_doc a.md one
+  finished_task
+  own_solutions_worktree
+  echo mine >"$SWT/a.md"
+  git -C "$SWT" commit -q -am mine
+  solutions_origin_doc a.md theirs
+  git -C "$SWT" rebase -q refs/remotes/origin/main >/dev/null 2>&1 || true
+  check
+  jaq -e '.blockers[] | select(.code == "solutions-unpublished") | any(.values[]; . == "rebase in progress")' \
+    <<<"$VERDICT"
+}
+
+@test "a slot whose agent pointed docs/solutions at the shared clone is still judged by its recorded worktree" {
+  finished_task
+  own_solutions_worktree
+  echo draft >"$SWT/new.md"
+  ln -sfn "$AGENT_SLOT_SOLUTIONS" "$SLOT/docs/solutions"
+  check
+  has_blocker solutions-unpublished
+}
+
+@test "a stash or a stray in the shared solutions clone blocks no slot" {
+  finished_task
+  own_solutions_worktree
+  echo wip >"$AGENT_SLOT_SOLUTIONS/wip.md"
+  git -C "$AGENT_SLOT_SOLUTIONS" stash -q -u
+  echo stray >"$AGENT_SLOT_SOLUTIONS/stray.md"
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "a slot with no recorded worktree and a link to the shared clone is judged by its own tree alone" {
+  finished_task
+  mkdir -p "$SLOT/docs"
+  ln -s "$AGENT_SLOT_SOLUTIONS" "$SLOT/docs/solutions"
+  echo draft >"$AGENT_SLOT_SOLUTIONS/draft.md"
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "a tracked docs/solutions link pointed at the slot's recorded worktree does not block" {
+  work feat/x
+  mkdir -p "$SLOT/docs"
+  ln -s ../../dev/solutions-docs "$SLOT/docs/solutions"
+  git -C "$SLOT" add docs/solutions
+  git -C "$SLOT" commit -q -m 'track the solutions link'
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 MERGED feat/x
+  squash_merge feat/x
+  own_solutions_worktree
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
 @test "a symlink in the home directory into the slot blocks with home-symlink-into-slot" {
   finished_task
   mkdir -p "$T/home/.local/bin"

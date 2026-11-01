@@ -616,10 +616,11 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 #### Teardown blockers
 
 `agent-slot check` names what keeps a finished slot with one of these codes, a count or the offending paths, and a
-message such as `1 unpushed commit`. A blocker can also carry a `next_step` in the error object's shape:
+message such as `1 unpushed commit`. A blocker can also carry a `next_step` in the error object's shape.
 `checked-by-own-agent` does, pointing at `agent-slot release`, which tears the slot down from outside once its agent is
-idle. That blocker never joins the needs-you list, and a check run inside the slot's own agent leaves the slot's record
-as it found it.
+idle; that blocker never joins the needs-you list, and a check run inside the slot's own agent leaves the slot's record
+as it found it. `solutions-unpublished` does too, pointing at `git -C <worktree> status --short`, and its `values` name
+each file as `docs/solutions/<path>`, the path the slot's agent reaches it by.
 
 | Code                     | What keeps the slot                                                                                  |
 | ------------------------ | ---------------------------------------------------------------------------------------------------- |
@@ -629,13 +630,14 @@ as it found it.
 | `agent-not-idle`         | The agent is mid-turn or waiting on the operator                                                     |
 | `checked-by-own-agent`   | The check runs inside the slot's own agent, which keeps it busy until the check ends                 |
 | `agent-state-unknown`    | The agent's state could not be read, or a process outside the slot's panes uses the slot             |
-| `uncommitted-changes`    | Tracked files have changes beyond setup pointing `docs/solutions` at the shared repo                 |
+| `uncommitted-changes`    | Tracked files have changes beyond setup pointing `docs/solutions` at the slot's solutions worktree   |
 | `stash-present`          | Something is stashed                                                                                 |
 | `unpushed-commits`       | Commits are in no PR's final head and on no origin branch or tag or fork branch, counting local tags |
 | `commits-without-pr`     | Commits sit only on an origin or fork branch that has no PR, such as one pushed after the merge      |
 | `untracked-files`        | Untracked files, or ignored ones other than build output and copies of tracked files                 |
 | `local-only-files`       | `.context` files except setup's repo-recon link, and `todos`, `TODO*`, or `.env*` files              |
 | `home-symlink-into-slot` | A symlink under the home directory resolves into the slot                                            |
+| `solutions-unpublished`  | The slot's solutions worktree holds a file, commit, or rebase origin/main lacks; publish or discard  |
 | `home-scan-incomplete`   | The scan for such symlinks did not finish                                                            |
 | `slot-busy`              | Another `agent-slot` process holds the slot                                                          |
 | `not-released`           | The automatic sweep found the task finished, but its agent is gone or never released it              |

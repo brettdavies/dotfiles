@@ -21,7 +21,7 @@
 
 RELEASE_AUTO=
 # The teardown blockers about files in the slot's tree, which its agent can clear itself.
-RELEASE_FILE_CODES='untracked-files local-only-files uncommitted-changes'
+RELEASE_FILE_CODES='untracked-files local-only-files uncommitted-changes solutions-unpublished'
 
 # Usage: release_send <repo> <n> <text>; types one line into the slot's Claude session and submits it.
 release_send() {
@@ -73,12 +73,14 @@ release_files_only() {
 
 # Usage: release_cleanup_text; the reminder for a slot kept by files, naming them from CHECK_VERDICT.
 release_cleanup_text() {
-  local files
+  local files publish=''
   files=$(contract_json -r '[.blockers[] | if .values then .values[] else .message end] as $f
     | ($f[:10] | join(", ")) + (if ($f | length) > 10 then ", and \(($f | length) - 10) more" else "" end)' \
     <<<"$CHECK_VERDICT")
+  ! contract_json -e 'any(.blockers[]; .code == "solutions-unpublished")' <<<"$CHECK_VERDICT" >/dev/null \
+    || publish='Publish each docs/solutions file with sd-commit-doc, or discard it. '
   printf '%s' "This slot's task has finished, but its teardown is held by what is left in it: ${files//[$'\n\t']/ }. \
-Delete each one that is scratch, such as local config, test output, or a tool log, and commit and PR each one that is \
+${publish}Delete each one that is scratch, such as local config, test output, or a tool log, and commit and PR each one that is \
 real work; then close out and release as your closing steps say. If one of them cannot go yet, say why with \
 $RELEASE_NOT_YET."
 }
