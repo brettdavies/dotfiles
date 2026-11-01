@@ -742,6 +742,26 @@ vale_slot() {
   jaq -e '.teardown == true' <<<"$VERDICT"
 }
 
+@test "a solutions worktree git cannot read blocks with git-state-unknown naming it" {
+  finished_task
+  own_solutions_worktree
+  echo 'gitdir: /nonexistent' >"$SWT/.git"
+  check
+  jaq -e --arg wt "$SWT" '.teardown == false and any(.blockers[]; .code == "git-state-unknown"
+    and (.message | contains($wt)))' <<<"$VERDICT"
+}
+
+@test "a solutions worktree holding only an unpublished commit points its next step at that commit" {
+  finished_task
+  own_solutions_worktree
+  echo doc >"$SWT/new.md"
+  git -C "$SWT" add new.md
+  git -C "$SWT" commit -q -m doc
+  check
+  jaq -e --arg wt "$SWT" '.blockers[] | select(.code == "solutions-unpublished")
+    | .next_step.command == "git -C \($wt) log --stat origin/main..HEAD"' <<<"$VERDICT"
+}
+
 @test "a rebase left in progress in the solutions worktree blocks" {
   solutions_origin_doc a.md one
   finished_task

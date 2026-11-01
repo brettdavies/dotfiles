@@ -269,7 +269,13 @@ _check_solutions() {
   _check_block solutions-unpublished "the slot's solutions worktree holds what origin/main lacks: ${values[*]:0:3}$(
     ((${#values[@]} <= 3)) || echo ' and more'); publish it with sd-commit-doc or discard it" "${#values[@]}" \
     "${values[@]}"
-  _check_solutions_next "$wt"
+  if ((${#SOLUTIONS_PATHS[@]} > 0)); then
+    _check_solutions_next git -C "$wt" status --short
+  elif ((SOLUTIONS_REBASE == 1)); then
+    _check_solutions_next git -C "$wt" status
+  else
+    _check_solutions_next git -C "$wt" log --stat origin/main..HEAD
+  fi
 }
 
 # Usage: solutions_state <worktree>; sets SOLUTIONS_PATHS to each path that differs from HEAD there, untracked ones
@@ -292,9 +298,9 @@ solutions_state() {
   done <<<"$rebase"
 }
 
-# Usage: _check_solutions_next <worktree>; gives the last blocker the next step that shows what the worktree holds.
+# Usage: _check_solutions_next <command...>; gives the last blocker the next step that shows what the worktree holds.
 _check_solutions_next() {
-  CHECK_BLOCKERS[-1]=$(contract_json -c --arg docs "$CHECK_DOCS" --arg cmd "$(contract_quote git -C "$1" status --short)" \
+  CHECK_BLOCKERS[-1]=$(contract_json -c --arg docs "$CHECK_DOCS" --arg cmd "$(contract_quote "$@")" \
     '. + {next_step: {action: "run", command: $cmd, docs: $docs}}' <<<"${CHECK_BLOCKERS[-1]}")
 }
 

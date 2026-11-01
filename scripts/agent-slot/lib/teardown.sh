@@ -38,7 +38,7 @@ _teardown_solutions() {
   if [[ -d $wt ]] && ! err=$(git -C "$AS_SOLUTIONS" worktree remove "$wt" 2>&1); then
     CHECK_BLOCKERS=()
     _check_block solutions-unpublished "git would not remove the slot's solutions worktree: ${err//$'\n'/ }" 1 "$wt"
-    _check_solutions_next "$wt"
+    _check_solutions_next git -C "$wt" status --short
     return 1
   fi
   git -C "$AS_SOLUTIONS" worktree prune 2>/dev/null || true
