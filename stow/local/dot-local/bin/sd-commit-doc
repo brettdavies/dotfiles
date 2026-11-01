@@ -64,8 +64,8 @@ Reason codes:
 
 After a rebase conflict:
   git -C <tree> rebase --autostash origin/$branch
-  resolve the conflicted doc
-  git -C <tree> add <path>
+  resolve each doc git -C <tree> diff --name-only --diff-filter=U lists
+  git -C <tree> add -A -- <each conflicted doc>
   git -C <tree> rebase --continue
   then rerun the same sd-commit-doc
 EOF
@@ -128,7 +128,7 @@ refuse() {
 }
 
 validation_failed="frontmatter validation failed; fix the fields above and rerun"
-not_forwarded="sd-commit-doc: pushed; $SD not fast-forwarded (it holds a change at a published path, diverged, or is busy); the session-start autosync and the nightly sync reconcile it"
+not_forwarded="sd-commit-doc: pushed; $SD not fast-forwarded (it holds a change at a published path, diverged, or is busy); the session-start report and the nightly log name what blocks it"
 
 physical() { (cd "$1" 2>/dev/null && pwd -P); }
 
@@ -171,7 +171,7 @@ resolve_tree() {
   elif found=$(corpus_worktree .); then
     :
   elif [[ -n $checkout && -L $checkout/docs/solutions ]]; then
-    link=$(physical "$checkout/docs/solutions") || link=$checkout/docs/solutions
+    link=$(physical "$checkout/docs/solutions") || return 0
     [[ $link != "$sd_top" ]] || return 0
     if ! found=$(corpus_worktree "$link") || [[ $found != "$link" ]]; then
       refuse tree-unresolved "sd-commit-doc --help" \
@@ -223,20 +223,24 @@ rebase_in_progress() {
 }
 
 refuse_shared_clone_copy() {
-  refuse path-in-shared-clone "cp $(q "$SD/$1") $(q "$tree/$1")" \
+  refuse path-in-shared-clone "diff -u $(q "$tree/$1") $(q "$SD/$1")" \
     "the shared clone holds $SD/$1, and the worktree's copy $tree/$1 is missing or differs;" \
     "that copy can be another session's draft, so nothing was changed in either tree;" \
-    "when it is your own edit, copy it into the worktree and rerun"
+    "only when it is your own edit, copy it into the worktree and rerun: cp $(q "$SD/$1") $(q "$tree/$1")"
 }
+
+# A commit this tree has not pushed yet that touched the path, such as a
+# deletion or a rename whose push failed.
+unpublished_change() { [[ -n $(git -C "$tree" log -1 --format=%H "origin/$branch..HEAD" -- "$1" 2>/dev/null) ]]; }
 
 check_paths() {
   local f
   for f in "${paths[@]}"; do
     if [[ -d $tree/$f ]]; then
       refuse path-invalid "git -C $(q "$tree") status --short" "a directory, not a doc: $f"
-    elif [[ -f $tree/$f || $(git -C "$tree" cat-file -t "HEAD:$f" 2>/dev/null) == blob ]]; then
+    elif [[ -f $tree/$f || $(git -C "$tree" cat-file -t "HEAD:$f" 2>/dev/null) == blob ]] || unpublished_change "$f"; then
       continue
-    elif [[ -e $SD/$f ]]; then
+    elif [[ -n $(git -C "$SD" status --porcelain -- "$f" 2>/dev/null) ]]; then
       refuse_shared_clone_copy "$f"
     else
       refuse path-invalid "git -C $(q "$tree") status --short" "not in $tree and not tracked by its HEAD: $f"
@@ -304,7 +308,8 @@ refuse_overlap() {
 
 sync_with_origin() {
   step="fetching origin/$branch"
-  git -C "$tree" fetch --quiet origin "$branch"
+  git -C "$tree" fetch --quiet origin "$branch" \
+    || refuse push-failed "" "could not fetch origin/$branch (git's error is above); the commit stays in $tree"
   if git -C "$tree" merge-base --is-ancestor "origin/$branch" HEAD; then
     return 0
   fi
@@ -320,7 +325,8 @@ sync_with_origin() {
     "a named doc conflicts with origin/$branch; the rebase was aborted and the commit stays in $tree" \
     "resume with:" \
     "  git -C $t rebase --autostash origin/$branch" \
-    "  resolve the conflicted doc, then: git -C $t add $(qlist "${paths[@]}")" \
+    "  resolve each conflicted doc that git -C $t diff --name-only --diff-filter=U lists," \
+    "  then: git -C $t add -A -- <each conflicted doc>" \
     "  git -C $t rebase --continue" \
     "  then rerun: $(rerun_command)"
 }
@@ -328,8 +334,12 @@ sync_with_origin() {
 push_output=
 push_head() { push_output=$(git -C "$tree" push --quiet origin "HEAD:$branch" 2>&1); }
 
+# origin moving between the push's negotiation and its ref update is the same
+# race as a non-fast-forward, reported as a remote rejection.
 push_rejected_non_ff() {
-  [[ $push_output == *"[rejected]"*"(fetch first)"* || $push_output == *"[rejected]"*"(non-fast-forward)"* ]]
+  [[ $push_output == *"[rejected]"*"(fetch first)"* || $push_output == *"[rejected]"*"(non-fast-forward)"* ||
+    $push_output == *"[remote rejected]"*"(incorrect old value provided)"* ||
+    $push_output == *"[remote rejected]"*"(cannot lock ref"* || $push_output == *"[remote rejected]"*"(failed to update ref)"* ]]
 }
 
 refuse_push() {

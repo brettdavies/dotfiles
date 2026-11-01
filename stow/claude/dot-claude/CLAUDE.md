@@ -106,13 +106,14 @@ shared clone `~/dev/solutions-docs`, which every such checkout drafts in and qmd
 `/unslop` a captured-path `/tmp` message (never `ls -t | head -1`, never `-m`), then
 `sd-commit-doc <msg-file> <category>/<slug>.md`. From a slot's worktree it commits exactly the named paths in place
 (deletions and renames included), rebases, and pushes; from the shared clone it copies them out to a throwaway worktree.
-Both fast-forward the shared clone. A failure ends with `reason:`, `state:`, and `next:` lines; run the `next:` command,
-then the same call again. **Never** commit by hand in the shared clone or amend + force-push it, and edit a doc a qmd
-hit names at `docs/solutions/<path>` in your checkout, never at `~/dev/solutions-docs/<path>`. No automation commits in
-the shared clone: the nightly job only fast-forwards it, and session start reports what it holds that origin lacks,
-which can be another session's unpublished draft, so act only on what you wrote. A slot is not torn down while its
-worktree holds anything unpublished (`solutions-unpublished`). Script source `~/.local/bin/sd-commit-doc` (`--help` for
-the resolution order and reasons); the two trees and symlink-recreate → `~/.claude/guides/workflows-and-skills.md`;
+Both fast-forward the shared clone. A failure ends with `reason:`, `state:`, and `next:` lines; `next:` names what
+resolves it, and the same call then publishes; `path-in-shared-clone`'s `next:` only shows the difference, because that
+copy can be another session's draft. **Never** commit by hand in the shared clone or amend + force-push it, and edit a
+doc a qmd hit names at `docs/solutions/<path>` in your checkout, never at `~/dev/solutions-docs/<path>`. No automation
+commits in the shared clone: the nightly job only fast-forwards it, and session start reports what it holds that origin
+lacks, which can be another session's unpublished draft, so act only on what you wrote. A slot is not torn down while
+its worktree holds anything unpublished (`solutions-unpublished`). Script source `~/.local/bin/sd-commit-doc` (`--help`
+for the resolution order and reasons); the two trees and symlink-recreate → `~/.claude/guides/workflows-and-skills.md`;
 rationale → `docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
 `.../unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 

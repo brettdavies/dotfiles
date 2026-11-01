@@ -413,7 +413,8 @@ LIB
   SD_TREE=$WT run "$SCRIPT" "$MSG" workflow-issues/a.md
   assert_failed_with rebase-conflict
   [[ "$output" == *"git -C $WT rebase --autostash origin/main"* ]]
-  [[ "$output" == *"git -C $WT add workflow-issues/a.md"* ]]
+  [[ "$output" == *"git -C $WT diff --name-only --diff-filter=U"* ]]
+  [[ "$output" == *"git -C $WT add -A -- <each conflicted doc>"* ]]
   [[ "$output" == *"git -C $WT rebase --continue"* ]]
   [ ! -e "$(git -C "$WT" rev-parse --path-format=absolute --git-path rebase-merge)" ]
   [ "$(git -C "$WT" log -1 --format=%s)" = "docs(x): add a thing" ]
@@ -458,7 +459,7 @@ LIB
   mv "$ORIGIN" "$TMP/origin.away"
   SD_TREE=$WT run "$SCRIPT" "$MSG" workflow-issues/new.md
   mv "$TMP/origin.away" "$ORIGIN"
-  assert_failed_with "$(sed -n 's/^sd-commit-doc: reason: //p' <<<"$output")"
+  assert_failed_with push-failed
   [[ "$output" == *"sd-commit-doc: state: committed in $WT, not pushed"* ]]
   [ "$(git -C "$WT" log -1 --format=%s)" = "docs(x): add a thing" ]
 
@@ -466,6 +467,62 @@ LIB
   [ "$status" -eq 0 ]
   [ "$(git -C "$SD" rev-list --count "$before..origin/main")" -eq 1 ]
   [ "$(git -C "$SD" show origin/main:workflow-issues/new.md)" = mine ]
+}
+
+@test "worktree: a deletion whose push failed publishes on the rerun without bringing the doc back" {
+  seed_docs
+  make_wt
+  local before
+  before=$(git -C "$SD" rev-parse origin/main)
+  git -C "$WT" rm -q workflow-issues/b.md
+
+  mv "$ORIGIN" "$TMP/origin.away"
+  SD_TREE=$WT run "$SCRIPT" "$MSG" workflow-issues/b.md
+  mv "$TMP/origin.away" "$ORIGIN"
+  assert_failed_with push-failed
+
+  SD_TREE=$WT run "$SCRIPT" "$MSG" workflow-issues/b.md
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$SD" rev-list --count "$before..origin/main")" -eq 1 ]
+  ! git -C "$SD" cat-file -e origin/main:workflow-issues/b.md || false
+  [ ! -e "$WT/workflow-issues/b.md" ]
+}
+
+@test "worktree: a push that loses a race to another writer is rebased and retried once" {
+  make_wt
+  echo mine >"$WT/workflow-issues/new.md"
+  install_hook pre-push <<HOOK
+#!/usr/bin/env bash
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+[ -e "$TMP/raced" ] && exit 0
+touch "$TMP/raced"
+git clone -q -b main "$ORIGIN" "$TMP/racer"
+git -C "$TMP/racer" -c user.email=r@example.com -c user.name=R -c commit.gpgsign=false commit -q --allow-empty -m race
+git -C "$TMP/racer" push -q origin main
+HOOK
+
+  SD_TREE=$WT run "$SCRIPT" "$MSG" workflow-issues/new.md
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$SD" show origin/main:workflow-issues/new.md)" = mine ]
+  [ "$(git -C "$SD" log -1 --format=%s origin/main~1)" = race ]
+}
+
+@test "worktree: a push that loses the race again after its retry stops with push-rejected and keeps the commit" {
+  make_wt
+  echo mine >"$WT/workflow-issues/new.md"
+  install_hook pre-push <<HOOK
+#!/usr/bin/env bash
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+[ -d "$TMP/racer" ] || git clone -q -b main "$ORIGIN" "$TMP/racer"
+git -C "$TMP/racer" pull -q origin main
+git -C "$TMP/racer" -c user.email=r@example.com -c user.name=R -c commit.gpgsign=false commit -q --allow-empty -m race
+git -C "$TMP/racer" push -q origin main
+HOOK
+
+  SD_TREE=$WT run "$SCRIPT" "$MSG" workflow-issues/new.md
+  assert_failed_with push-rejected
+  [[ "$output" == *"sd-commit-doc: state: committed in $WT, not pushed"* ]]
+  [ "$(git -C "$WT" log -1 --format=%s)" = "docs(x): add a thing" ]
 }
 
 @test "worktree: a pre-push hook rejection names the push step and is not retried" {
@@ -502,7 +559,8 @@ HOOK
   [[ "$output" == *"$SD/seed.md"* ]]
   [[ "$output" == *"$WT/seed.md"* ]]
   [[ "$output" == *"another session's draft"* ]]
-  [ "$(next_command)" = "cp $SD/seed.md $WT/seed.md" ]
+  [ "$(next_command)" = "diff -u $WT/seed.md $SD/seed.md" ]
+  [[ "$output" == *"cp $SD/seed.md $WT/seed.md"* ]]
   [ "$(git -C "$SD" show origin/main:seed.md)" = seed ]
   [ "$(cat "$SD/seed.md")" = edited-in-shared-clone ]
   [ -z "$(git -C "$WT" status --porcelain)" ]
@@ -623,6 +681,19 @@ HOOK
   echo shared >"$SD/workflow-issues/x.md"
 
   cd "$TMP/plain"
+  run "$SCRIPT" "$MSG" workflow-issues/x.md
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"from $SD (copy-out)"* ]]
+  [ "$(git -C "$SD" show origin/main:workflow-issues/x.md)" = shared ]
+}
+
+@test "copy-out: a docs/solutions link that does not resolve publishes from the shared clone" {
+  mkdir -p "$TMP/a/b/checkout/docs"
+  git init -q "$TMP/a/b/checkout"
+  ln -s ../../nowhere/solutions-docs "$TMP/a/b/checkout/docs/solutions"
+  echo shared >"$SD/workflow-issues/x.md"
+
+  cd "$TMP/a/b/checkout"
   run "$SCRIPT" "$MSG" workflow-issues/x.md
   [ "$status" -eq 0 ]
   [[ "$output" == *"from $SD (copy-out)"* ]]

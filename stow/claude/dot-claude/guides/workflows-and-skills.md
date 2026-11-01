@@ -149,8 +149,10 @@ is pinned by `tests/sd-commit-doc.bats` in dotfiles.
 
 **Its exit status is the contract.** A failed run prints `sd-commit-doc: FAILED during <step>`, then
 `sd-commit-doc: reason: <code>`, `sd-commit-doc: state: <...>`, and `sd-commit-doc: next: <command>` on stderr, and
-exits non-zero. Run the `next:` command, then the same `sd-commit-doc` call again; a rerun pushes a commit it already
-made rather than making a second one. After a rebase conflict the lines above the footer list the resume steps. Read the
+exits non-zero. `next:` names what resolves the failure (for some reasons it is the rerun itself), and the same
+`sd-commit-doc` call then publishes; a rerun pushes a commit it already made rather than making a second one. After a
+rebase conflict the lines above the footer list the resume steps. `path-in-shared-clone`'s `next:` is only a `diff`: the
+shared clone's copy can be another session's draft, so copy it into your worktree only when the edit is yours. Read the
 status directly (`sd-commit-doc "$MSG" <path>; rc=$?`); piping the command into `tail` or `head` yields the pipe's
 status rather than the helper's, so a rejected commit reads as a success and the message file gets cleaned up as though
 it had been used. Full rationale:
