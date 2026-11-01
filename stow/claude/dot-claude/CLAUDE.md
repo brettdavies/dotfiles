@@ -98,17 +98,23 @@ Routing table, per-skill rules, and the `qmd-learnings-researcher` companion-dis
 
 ## Solutions repo
 
-`docs/solutions/` is a symlink to `~/dev/solutions-docs` (a separate private repo). The consuming repo's `git status`
-shows nothing for it. **After writing there** (e.g. via `/compound`), commit and push in that repo — but it's a single
-clone that concurrent agents (parallel compounders) share, so committing in it directly races their
-`git add`/`git commit` on the one index. **Commit with `sd-commit-doc`** (dotfiles-provided, on `PATH`): write your
-doc(s) into `docs/solutions/<category>/<slug>.md`, author + `/unslop` a captured-path `/tmp` message (never
-`ls -t | head -1`, never `-m`), then `sd-commit-doc <msg-file> <category>/<slug>.md`. It commits from an isolated
-detached worktree (never `git add -A` the shared index), pushes with fetch/rebase-retry, and fast-forwards the shared
-clone so it never drifts behind origin. **Never** commit directly in the shared clone or amend + force-push it. Script
-source `~/.local/bin/sd-commit-doc`; solo-session exception + symlink-recreate →
-`~/.claude/guides/workflows-and-skills.md`; rationale →
-`docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
+`docs/solutions/` links into the solutions repo (`brettdavies/solutions-docs`, a separate private repo); the consuming
+repo's `git status` shows nothing for it. **In an agent slot** it links to the slot's own detached worktree of that
+repo, under `~/slots/<repo>/.solutions/`, which no other agent writes in. **In a repo's own checkout** it links to the
+shared clone `~/dev/solutions-docs`, which every such checkout drafts in and qmd indexes. Either way, **publish with
+`sd-commit-doc`** (dotfiles-provided, on `PATH`): write your doc(s) into `docs/solutions/<category>/<slug>.md`, author +
+`/unslop` a captured-path `/tmp` message (never `ls -t | head -1`, never `-m`), then
+`sd-commit-doc <msg-file> <category>/<slug>.md`. From a slot's worktree it commits exactly the named paths in place
+(deletions and renames included), rebases, and pushes; from the shared clone it copies them out to a throwaway worktree.
+Both fast-forward the shared clone. A failure ends with `reason:`, `state:`, and `next:` lines; `next:` names what
+resolves it, and the same call then publishes; `path-in-shared-clone`'s `next:` only shows the difference, because that
+copy can be another session's draft. **Never** commit by hand in the shared clone or amend + force-push it, and edit a
+doc a qmd hit names at `docs/solutions/<path>` in your checkout, never at `~/dev/solutions-docs/<path>`. No automation
+commits in the shared clone: the nightly job only fast-forwards it, and session start reports what it holds that origin
+lacks, which can be another session's unpublished draft, so act only on what you wrote. A slot is not torn down while
+its worktree holds anything unpublished (`solutions-unpublished`). Script source `~/.local/bin/sd-commit-doc` (`--help`
+for the resolution order and reasons); the two trees and symlink-recreate → `~/.claude/guides/workflows-and-skills.md`;
+rationale → `docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
 `.../unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 
 ## Secrets & private identifiers

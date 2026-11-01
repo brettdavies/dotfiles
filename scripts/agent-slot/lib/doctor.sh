@@ -49,9 +49,15 @@ doctor_check_config() {
   [[ -r $AS_GIT_CRYPT_KEY ]] || doctor_finding error git-crypt-key-missing \
     "no git-crypt key at $AS_GIT_CRYPT_KEY, so slots of git-crypt repos cannot be unlocked" --value "$AS_GIT_CRYPT_KEY" \
     --command "op document get 'git-crypt key' --vault secrets-dev --out-file $AS_GIT_CRYPT_KEY"
-  [[ -d $AS_SOLUTIONS ]] || doctor_finding error solutions-corpus-missing \
-    "the shared solutions repo is missing at $AS_SOLUTIONS, so no slot can get its docs/solutions link" \
-    --value "$AS_SOLUTIONS" --command "git clone git@github.com:brettdavies/solutions-docs.git $AS_SOLUTIONS"
+  if [[ ! -d $AS_SOLUTIONS/.git ]]; then
+    doctor_finding error solutions-corpus-missing \
+      "the shared solutions repo is missing at $AS_SOLUTIONS, so no slot can get its worktree of it" \
+      --value "$AS_SOLUTIONS" --command "git clone git@github.com:brettdavies/solutions-docs.git $AS_SOLUTIONS"
+  elif ! git -C "$AS_SOLUTIONS" rev-parse -q --verify refs/remotes/origin/main >/dev/null 2>&1; then
+    doctor_finding error solutions-corpus-missing \
+      "the shared solutions repo at $AS_SOLUTIONS has no origin/main, so no slot can get its worktree of it" \
+      --value "$AS_SOLUTIONS" --command "git -C $AS_SOLUTIONS fetch origin main"
+  fi
   [[ -r $AS_TMUX_CONF ]] || doctor_finding error slots-config-missing \
     "$AS_TMUX_CONF is missing, so the slot tmux server would load the default config" --value "$AS_TMUX_CONF" \
     --command "cd ~/dotfiles && scripts/stow-deploy tmux"
@@ -91,6 +97,37 @@ doctor_check_trust() {
       "$(slot_key "$repo" "$n") is not trusted in Claude yet, so its first launch spends time on the trust step" \
       --value "$(slot_path "$repo" "$n")" --command "agent-slot warm $repo"
   done < <(slot_repos)
+}
+
+# A worktree of the solutions repo under a repo's slot solutions directory that no live slot's record names belongs to
+# a slot that is gone. Its files can be the only copy of a doc, so it is reported with what it holds that origin/main
+# lacks and never removed here.
+doctor_check_solutions_worktrees() {
+  local repo n wt dirty commits roots=()
+  local -A live=()
+  [[ -d $AS_SOLUTIONS/.git ]] || return 0
+  while read -r repo; do
+    [[ -n $repo ]] || continue
+    roots+=("$(slot_solutions_dir "$repo")")
+    while read -r n; do
+      if [[ -n $n ]] && record_read "$repo" "$n"; then
+        wt=$(record_solutions_worktree)
+        [[ -z $wt ]] || live[$(realpath -m "$wt")]=1
+      fi
+    done < <(slot_numbers "$repo")
+  done < <(slot_repos)
+  ((${#roots[@]} > 0)) || return 0
+  while IFS= read -r wt; do
+    [[ -d $wt && -z ${live[$(realpath -m "$wt")]:-} ]] || continue
+    path_under "$wt" "${roots[@]}" || continue
+    dirty='?' commits='?'
+    if solutions_state "$wt"; then
+      dirty=${#SOLUTIONS_PATHS[@]} commits=$SOLUTIONS_COMMITS
+    fi
+    doctor_finding warning solutions-worktree-orphaned "$wt is a worktree of the solutions repo whose slot is gone; it \
+holds $dirty changed file(s) and $commits unpublished commit(s) that origin/main lacks" \
+      --value "$wt $dirty $commits" --command "git -C $wt status"
+  done < <(git -C "$AS_SOLUTIONS" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
 }
 
 doctor_check_versions() {
@@ -140,6 +177,7 @@ cmd_doctor() {
   doctor_check_tools
   doctor_check_config
   doctor_check_trust
+  doctor_check_solutions_worktrees
   doctor_check_versions
   times=$(doctor_launch_times)
   findings=$(printf '%s\n' "${DOCTOR_FINDINGS[@]}" | contract_json -s -c 'map(select(. != null))')

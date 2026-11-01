@@ -58,6 +58,7 @@ slot-outside-root             78    false      0            ask-operator
 gh-auth-missing               77    false      0            authenticate
 git-crypt-key-missing         78    false      0            fix-config
 solutions-corpus-missing      78    false      0            fix-config
+solutions-worktree-orphaned   0     false      0            run
 slots-config-missing          78    false      0            install
 prune-timer-inactive          78    false      0            run
 slot-path-untrusted           78    false      0            run

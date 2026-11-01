@@ -66,6 +66,19 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"--dangerously-skip-permissions"* ]]
 }
 
+@test "a slot with its own solutions worktree is told docs/solutions is that worktree; an older slot, the shared repo" {
+  slot repo 1 '{"task": "t", "solutions_worktree": "/s/repo/.solutions/1-abc"}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"docs/solutions is this slot's own worktree of the solutions repo"*sd-commit-doc* ]]
+  [[ $context != *"shared with every other agent"* ]]
+  jaq '.solutions_worktree = null' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  run start s1 resume
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"docs/solutions is the solutions repo shared with every other agent"*sd-commit-doc* ]]
+  [[ $context != *"own worktree"* ]]
+}
+
 @test "the context closes the task in order: PRs, ce-compound, ce-compound-refresh, jobs, release, report and stop" {
   slot repo 1 '{"task": "t"}'
   run start s1 startup

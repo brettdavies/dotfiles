@@ -503,6 +503,24 @@ renames_typed() { grep -c -- ' -l /rename ' "$CALLS" || true; }
 
 # --- files left in a finished slot -------------------------------------------------------------------------------------
 
+@test "a finished slot kept only by an unpublished solutions doc gets one cleanup reminder that names sd-commit-doc" {
+  finished_task
+  own_solutions_worktree
+  echo draft >"$SWT/new.md"
+  agent idle
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.needs_you == [] and .cleanup_sent == ["repoa/1"] and .torn_down == []' <<<"$output"
+  grep -qF "docs/solutions/new.md" "$STUBS/typed-repoa-1"
+  grep -qF "Publish each docs/solutions file with sd-commit-doc, or discard it" "$STUBS/typed-repoa-1"
+  : >"$STUBS/typed-repoa-1"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.cleanup_sent == [] and .needs_you[0].needs_you[0].code == "solutions-unpublished"' <<<"$output"
+  [ ! -s "$STUBS/typed-repoa-1" ]
+  [ -d "$SLOT" ]
+}
+
 @test "a finished slot kept only by a leftover scratch file gets its idle agent a cleanup reminder, not a listing" {
   finished_task
   echo 'API_TOKEN=x' >"$SLOT/.dev.vars.staging"

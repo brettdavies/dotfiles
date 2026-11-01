@@ -3,7 +3,8 @@
 # would do unless given --yes.
 #
 # A teardown deletes the slot's clone. Under the slot's lock, in order, it marks the slot tearing-down, reads the agent's
-# state again, stops the agent, checks the tree again, kills its three tmux sessions, moves the clone to the trash, and
+# state again, stops the agent, checks the tree again, removes its worktree of the solutions repo, kills its three tmux
+# sessions, moves the clone to the trash, and
 # appends the ledger, which names the clone's trash entry. A check that fails marks the slot active again with its
 # sessions intact, so nothing written into the slot after the verdict is lost, and so does a teardown that stops before
 # the trash: through its exit handler, or, when it was killed, through the next process that takes the slot lock. Then
@@ -23,7 +24,24 @@ _teardown_recheck() {
   _check_commits "$path" "$(contract_json -r '.base // "main"' <<<"$RECORD")" \
     "$(contract_json '.prs // [] | length' <<<"$RECORD")"
   _check_files "$path" "$(contract_json -r '.prime // ""' <<<"$RECORD")"
+  _check_solutions
   ((${#CHECK_BLOCKERS[@]} == 0))
+}
+
+# Usage: _teardown_solutions; removes the slot's worktree of the solutions repo that RECORD names and prunes its
+# registration. It never forces the removal, so git itself refuses a worktree that holds a change; then it sets
+# CHECK_BLOCKERS and returns 1.
+_teardown_solutions() {
+  local wt err
+  wt=$(record_solutions_worktree)
+  [[ -n $wt ]] || return 0
+  if [[ -d $wt ]] && ! err=$(git -C "$AS_SOLUTIONS" worktree remove "$wt" 2>&1); then
+    CHECK_BLOCKERS=()
+    _check_block solutions-unpublished "git would not remove the slot's solutions worktree: ${err//$'\n'/ }" 1 "$wt"
+    _check_solutions_next git -C "$wt" status --short
+    return 1
+  fi
+  git -C "$AS_SOLUTIONS" worktree prune 2>/dev/null || true
 }
 
 # Usage: _teardown_keep <repo> <n>; marks the slot active again with the blockers in CHECK_BLOCKERS.
@@ -104,7 +122,7 @@ slot_teardown() {
   fi
   _teardown_stop_agent
   record_read "$repo" "$n"
-  if ! _teardown_recheck "$repo" "$n"; then
+  if ! _teardown_recheck "$repo" "$n" || ! _teardown_solutions; then
     _teardown_keep "$repo" "$n"
     return 1
   fi

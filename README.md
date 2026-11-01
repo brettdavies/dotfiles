@@ -158,7 +158,7 @@ knowing where the underlying implementation lives.
 | `op-ssh-sign-wrapper`      | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless         |
 | `qmd-gpu-verify`           | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU                |
 | `qmd-ollama-unload-all`    | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely     |
-| `sd-commit-doc`            | Commit and push `docs/solutions/` files from the shared clone without racing another agent     |
+| `sd-commit-doc`            | Publish `docs/solutions/` files from a slot's worktree or the shared clone without races       |
 | `tmux-new-session`         | Write a tmuxinator config for a repo and start its 3-pane session                              |
 | `transcribe-diarize`       | Local GPU speaker-diarized transcription (ffmpeg → whisperx → pyannote)                        |
 | `unslop`                   | Machine-level entry point for the prose scorer, resolved through `~/.claude/skills`            |
@@ -260,9 +260,12 @@ bundle by default) on the Mac. `tests/mac-open.bats` and `tests/mac-open-here.ba
 Many Claude Code agents can work on the same repo at once, each in an *agent slot*: a clone of the repo at
 `~/slots/<repo>/<N>` on the Linux server, set up like the repo's own checkout (its hooks, the `docs/solutions` link, the
 `.context/repo-recon` link when the repo has a repo-recon store, its Claude memory and permission grants, and its
-partial-clone filter when it has one), with one task per slot. The repo-recon link points at
-`~/dev/repo-recon/<owner>/<repo>`, named for the prime's `origin`, else for its `upstream`, the remote a fork names its
-parent by. Setup never makes a store, and a teardown deletes the link but not the store, so whatever an agent filed
+partial-clone filter when it has one), with one task per slot. A slot's `docs/solutions` links to its own detached
+worktree of the solutions repo at `~/slots/<repo>/.solutions/<N>-<suffix>`, made at origin/main during setup and
+recorded as `solutions_worktree`; its agent writes and publishes there with `sd-commit-doc`, the slot is kept while that
+worktree holds anything origin/main lacks (`solutions-unpublished`), and teardown removes it. The repo-recon link points
+at `~/dev/repo-recon/<owner>/<repo>`, named for the prime's `origin`, else for its `upstream`, the remote a fork names
+its parent by. Setup never makes a store, and a teardown deletes the link but not the store, so whatever an agent filed
 through it stays. `agent-slot` on the server owns every slot and every check before a slot is deleted; `agent-slot-rex`
 on the Mac drives Rex, where each repo is one session and each agent one tab. Every slot runs three tmux sessions on the
 server's `agent-slots` socket (Claude, yazi, and lazygit), so agents keep working while the Mac sleeps, and each pane of
@@ -575,7 +578,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `prompt-file-unreadable`      | 2    | The first-message file cannot be read                                                          |
 | `slot-limit-reached`          | 78   | The repo holds the most live slots allowed; finish one, or raise `AGENT_SLOT_MAX_PER_REPO`     |
 | `clone-failed`                | 1    | Cloning from origin failed; retry with the same request ID                                     |
-| `solutions-symlink-missing`   | 78   | The shared solutions repo is missing, so the slot cannot get its `docs/solutions` link         |
+| `solutions-symlink-missing`   | 78   | The solutions repo is missing or has no origin/main, so the slot gets no worktree of it        |
 | `hooks-path-outside-checkout` | 78   | The repo's own `core.hooksPath` points outside its checkout                                    |
 | `git-crypt-locked`            | 78   | A git-crypt repo could not be unlocked: git-crypt or its key is missing                        |
 | `trust-dialog-unrecognized`   | 78   | Claude showed a screen other than its trust dialog for the path; accept it by hand             |
@@ -593,7 +596,8 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `slot-outside-root`           | 78   | The slot path resolves outside the slot root, so nothing was deleted; look at it by hand       |
 | `gh-auth-missing`             | 77   | `gh` is not signed in; `gh auth login`                                                         |
 | `git-crypt-key-missing`       | 78   | There is no git-crypt key to unlock git-crypt repos with                                       |
-| `solutions-corpus-missing`    | 78   | The shared solutions repo is not cloned                                                        |
+| `solutions-corpus-missing`    | 78   | The shared solutions repo is not cloned, or has no origin/main to make slot worktrees from     |
+| `solutions-worktree-orphaned` | 0    | Doctor warning: a slot's solutions worktree outlived its slot; `value` is path, files, commits |
 | `slots-config-missing`        | 78   | `slots.conf` is not deployed; `scripts/stow-deploy tmux`                                       |
 | `prune-timer-inactive`        | 78   | The slot server's orphan-client prune timer is not enabled                                     |
 | `slot-path-untrusted`         | 78   | Doctor warning: a slot path, or the repo's prime checkout, is not trusted in Claude yet        |
@@ -613,10 +617,11 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 #### Teardown blockers
 
 `agent-slot check` names what keeps a finished slot with one of these codes, a count or the offending paths, and a
-message such as `1 unpushed commit`. A blocker can also carry a `next_step` in the error object's shape:
+message such as `1 unpushed commit`. A blocker can also carry a `next_step` in the error object's shape.
 `checked-by-own-agent` does, pointing at `agent-slot release`, which tears the slot down from outside once its agent is
-idle. That blocker never joins the needs-you list, and a check run inside the slot's own agent leaves the slot's record
-as it found it.
+idle; that blocker never joins the needs-you list, and a check run inside the slot's own agent leaves the slot's record
+as it found it. `solutions-unpublished` does too, pointing at `git -C <worktree> status --short`, and its `values` name
+each file as `docs/solutions/<path>`, the path the slot's agent reaches it by.
 
 | Code                     | What keeps the slot                                                                                  |
 | ------------------------ | ---------------------------------------------------------------------------------------------------- |
@@ -626,12 +631,13 @@ as it found it.
 | `agent-not-idle`         | The agent is mid-turn or waiting on the operator                                                     |
 | `checked-by-own-agent`   | The check runs inside the slot's own agent, which keeps it busy until the check ends                 |
 | `agent-state-unknown`    | The agent's state could not be read, or a process outside the slot's panes uses the slot             |
-| `uncommitted-changes`    | Tracked files have changes beyond setup pointing `docs/solutions` at the shared repo                 |
+| `uncommitted-changes`    | Tracked files have changes beyond setup pointing `docs/solutions` at the slot's solutions worktree   |
 | `stash-present`          | Something is stashed                                                                                 |
 | `unpushed-commits`       | Commits are in no PR's final head and on no origin branch or tag or fork branch, counting local tags |
 | `commits-without-pr`     | Commits sit only on an origin or fork branch that has no PR, such as one pushed after the merge      |
 | `untracked-files`        | Untracked files, or ignored ones other than build output and copies of tracked files                 |
 | `local-only-files`       | `.context` files except setup's repo-recon link, and `todos`, `TODO*`, or `.env*` files              |
+| `solutions-unpublished`  | The slot's solutions worktree holds a file, commit, or rebase origin/main lacks; publish or discard  |
 | `home-symlink-into-slot` | A symlink under the home directory resolves into the slot                                            |
 | `home-scan-incomplete`   | The scan for such symlinks did not finish                                                            |
 | `slot-busy`              | Another `agent-slot` process holds the slot                                                          |

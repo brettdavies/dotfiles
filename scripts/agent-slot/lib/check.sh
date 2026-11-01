@@ -19,7 +19,7 @@
 
 CHECK_CODES='pr-state-unknown pr-closed-unmerged git-state-unknown agent-not-idle checked-by-own-agent
 agent-state-unknown uncommitted-changes stash-present unpushed-commits commits-without-pr untracked-files
-local-only-files home-symlink-into-slot home-scan-incomplete slot-busy not-released'
+local-only-files solutions-unpublished home-symlink-into-slot home-scan-incomplete slot-busy not-released'
 CHECK_DOCS=${CONTRACT_DOCS%#*}#teardown-blockers
 
 CHECK_SETUP_FILES='docs/solutions .claude/settings.local.json .context/repo-recon'
@@ -218,15 +218,20 @@ _check_files() {
 }
 
 # Usage: _check_uncommitted <slot path>; changes to tracked files beyond setup's docs/solutions link. A repo can track
-# docs/solutions with a relative target that does not resolve from a slot, so setup re-points it at the solutions repo;
-# that unstaged change is setup's, not the task's.
+# docs/solutions with a relative target that does not resolve from a slot, so setup re-points it at the slot's
+# worktree of the solutions repo and marks it skip-worktree. An unstaged change to it that points at the recorded
+# worktree or at the shared clone is setup's, not the task's, should the skip-worktree bit be lost.
 _check_uncommitted() {
-  local out
+  local out target
   if ! out=$(git -C "$1" status --porcelain=v1 --untracked-files=no); then
     _check_block git-state-unknown "git status failed in the slot"
     return
   fi
-  [[ $(readlink "$1/docs/solutions") != "$AS_SOLUTIONS" ]] || out=$(grep -vxF ' M docs/solutions' <<<"$out" || true)
+  target=$(readlink "$1/docs/solutions" || true)
+  if [[ -n $target && ($target == "$AS_SOLUTIONS" \
+    || $target == "$(record_solutions_worktree)") ]]; then
+    out=$(grep -vxF ' M docs/solutions' <<<"$out" || true)
+  fi
   [[ -z $out ]] || _check_block uncommitted-changes \
     "$(_check_plural "$(grep -c . <<<"$out")" "uncommitted change")" "$(grep -c . <<<"$out")"
 }
@@ -240,6 +245,63 @@ _check_stash() {
   fi
   [[ -z $out ]] || _check_block stash-present \
     "$(_check_plural "$(grep -c . <<<"$out")" "stash entry" "stash entries")" "$(grep -c . <<<"$out")"
+}
+
+# Usage: _check_solutions; blocks while the worktree of the solutions repo that RECORD names holds anything origin/main
+# lacks: a changed or untracked file, a commit, or a rebase in progress. It judges the recorded worktree whatever the
+# slot's docs/solutions points at, and reads only that worktree's own state and the local origin/main, which every
+# publish from any worktree updates, so it needs no fetch: a commit the local ref lacks counts as unpublished. The
+# shared clone's stash and other worktrees are never read. A record with no worktree, or one whose directory is gone,
+# leaves nothing to protect.
+_check_solutions() {
+  local wt path
+  local -a values=()
+  wt=$(record_solutions_worktree)
+  [[ -n $wt && -d $wt ]] || return 0
+  if ! solutions_state "$wt"; then
+    _check_block git-state-unknown "git could not read the slot's solutions worktree $wt"
+    return
+  fi
+  for path in "${SOLUTIONS_PATHS[@]}"; do values+=("docs/solutions/$path"); done
+  ((SOLUTIONS_COMMITS == 0)) || values+=("$(_check_plural "$SOLUTIONS_COMMITS" "unpublished commit")")
+  ((SOLUTIONS_REBASE == 0)) || values+=("rebase in progress")
+  ((${#values[@]} > 0)) || return 0
+  _check_block solutions-unpublished "the slot's solutions worktree holds what origin/main lacks: ${values[*]:0:3}$(
+    ((${#values[@]} <= 3)) || echo ' and more'); publish it with sd-commit-doc or discard it" "${#values[@]}" \
+    "${values[@]}"
+  if ((${#SOLUTIONS_PATHS[@]} > 0)); then
+    _check_solutions_next git -C "$wt" status --short
+  elif ((SOLUTIONS_REBASE == 1)); then
+    _check_solutions_next git -C "$wt" status
+  else
+    _check_solutions_next git -C "$wt" log --stat origin/main..HEAD
+  fi
+}
+
+# Usage: solutions_state <worktree>; sets SOLUTIONS_PATHS to each path that differs from HEAD there, untracked ones
+# included, SOLUTIONS_COMMITS to the count of its commits the local origin/main lacks, and SOLUTIONS_REBASE to 1 while
+# a rebase is in progress. Returns 1 when git cannot read the worktree.
+SOLUTIONS_PATHS=() SOLUTIONS_COMMITS=0 SOLUTIONS_REBASE=0
+solutions_state() {
+  local status rebase line
+  SOLUTIONS_PATHS=() SOLUTIONS_COMMITS=0 SOLUTIONS_REBASE=0
+  status=$(git -C "$1" -c core.quotePath=false status --porcelain=v1 --untracked-files=all --no-renames 2>/dev/null) \
+    || return 1
+  SOLUTIONS_COMMITS=$(git -C "$1" rev-list --count HEAD --not refs/remotes/origin/main 2>/dev/null) || return 1
+  rebase=$(git -C "$1" rev-parse --path-format=absolute --git-path rebase-merge --git-path rebase-apply 2>/dev/null) \
+    || return 1
+  while IFS= read -r line; do
+    [[ -z $line ]] || SOLUTIONS_PATHS+=("${line:3}")
+  done <<<"$status"
+  while IFS= read -r line; do
+    [[ ! -d $line ]] || SOLUTIONS_REBASE=1
+  done <<<"$rebase"
+}
+
+# Usage: _check_solutions_next <command...>; gives the last blocker the next step that shows what the worktree holds.
+_check_solutions_next() {
+  CHECK_BLOCKERS[-1]=$(contract_json -c --arg docs "$CHECK_DOCS" --arg cmd "$(contract_quote "$@")" \
+    '. + {next_step: {action: "run", command: $cmd, docs: $docs}}' <<<"${CHECK_BLOCKERS[-1]}")
 }
 
 # Usage: _check_agent <repo> <n>; blocks unless the slot's agent is idle or absent, from the agents agentstate_load read.
@@ -412,6 +474,7 @@ check_slot() {
     _check_stash "$path"
     _check_commits "$path" "$base" "$(contract_json 'length' <<<"$prs")"
     _check_files "$path" "$(contract_json -r '.prime // ""' <<<"$RECORD")"
+    _check_solutions
 
     if ((HOME_SCAN_OK == 0)); then
       _check_block home-scan-incomplete "the scan for home-directory symlinks into the slot did not finish"

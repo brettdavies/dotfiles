@@ -271,6 +271,60 @@ last_event() { jaq -c -s --arg e "$2" 'map(select(.event == $e))[-1]' "$1"; }
   [ "$(grep -c 'kill-session' "$CALLS")" -eq 0 ]
 }
 
+@test "finish --yes removes a published solutions worktree with the slot, and the corpus no longer lists it" {
+  finished_task
+  own_solutions_worktree
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e '.torn_down == true' <<<"$output"
+  [ ! -e "$SLOT" ]
+  [ ! -e "$SWT" ]
+  [ -z "$(solutions_worktrees)" ]
+}
+
+@test "finish --yes keeps a slot whose solutions worktree holds an unpublished doc, and the doc" {
+  finished_task
+  own_solutions_worktree
+  echo draft >"$SWT/new.md"
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  [ "$status" -ne 0 ]
+  jaq -e '.reason == "teardown-blocked" and (.message | contains("docs/solutions/new.md"))' <<<"$stderr"
+  [ -d "$SLOT/.git" ]
+  [ "$(cat "$SWT/new.md")" = draft ]
+  [ "$(record '.last_check.blockers[0].code')" = solutions-unpublished ]
+}
+
+@test "a doc written into the solutions worktree between the verdict and the re-check keeps the slot active" {
+  finished_task
+  own_solutions_worktree
+  idle_agent "echo late >'$SWT/late.md'"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == [] and (.needs_you[0].needs_you[] | select(.code == "solutions-unpublished")
+    | .values == ["docs/solutions/late.md"])' <<<"$output"
+  [ -d "$SLOT/.git" ]
+  [ "$(record .state)" = active ]
+  [ "$(record '.last_check.blockers[0].code')" = solutions-unpublished ]
+  [ "$(cat "$SWT/late.md")" = late ]
+  [ "$(grep -c 'kill-session' "$CALLS")" -eq 0 ]
+}
+
+@test "a solutions worktree git will not remove keeps the slot active with solutions-unpublished" {
+  finished_task
+  own_solutions_worktree
+  git -C "$AGENT_SLOT_SOLUTIONS" worktree lock "$SWT"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == [] and any(.needs_you[0].needs_you[]; .code == "solutions-unpublished")' <<<"$output"
+  [ -d "$SLOT/.git" ]
+  [ -d "$SWT" ]
+  [ "$(record .state)" = active ]
+  [ "$(grep -c 'kill-session' "$CALLS")" -eq 0 ]
+}
+
 @test "a commit made while the agent stops keeps the slot with unpushed-commits" {
   finished_task
   idle_agent "git -C '$SLOT' commit -q --allow-empty -m late"

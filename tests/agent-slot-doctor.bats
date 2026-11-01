@@ -123,6 +123,53 @@ ledger_line() {
     and .next_step.command == null and .severity == "warning"' <<<"$output"
 }
 
+# solutions_worktree REPO NAME: a worktree of the corpus at origin/main under REPO's slot solutions directory; prints its
+# path.
+solutions_worktree() {
+  local wt=$AGENT_SLOT_ROOT/$1/.solutions/$2
+  mkdir -p "${wt%/*}"
+  git -C "$AGENT_SLOT_SOLUTIONS" worktree add -q --detach "$wt" refs/remotes/origin/main
+  printf '%s' "$wt"
+}
+
+@test "a solutions worktree under the slot root whose slot is gone is a warning with what it holds" {
+  local wt
+  wt=$(solutions_worktree repoa 3-abc123)
+  echo draft >"$wt/a.md"
+  echo draft >"$wt/b.md"
+  git -C "$wt" add b.md
+  git -C "$wt" commit -q -m b
+  run --separate-stderr "$AGENT_SLOT" doctor --output json
+  [ "$status" -eq 0 ]
+  jaq -e --arg wt "$wt" '.ok == true and ([.findings[] | select(.reason == "solutions-worktree-orphaned")] | length == 1)
+    and (.findings[] | select(.reason == "solutions-worktree-orphaned") | .severity == "warning"
+      and .value == "\($wt) 1 1" and .next_step.command == "git -C \($wt) status")' <<<"$output"
+}
+
+@test "a live slot's solutions worktree and one outside the slot root are not reported" {
+  local wt
+  wt=$(solutions_worktree repoa 1-abc123)
+  slot repoa 1 "{\"solutions_worktree\": \"$wt\"}"
+  echo draft >"$wt/a.md"
+  git -C "$AGENT_SLOT_SOLUTIONS" worktree add -q --detach "$T/scratch-wt" refs/remotes/origin/main
+  run --separate-stderr "$AGENT_SLOT" doctor --output json
+  [ "$status" -eq 0 ]
+  jaq -e 'all(.findings[]; .reason != "solutions-worktree-orphaned")' <<<"$output"
+}
+
+@test "a shared solutions repo that is a plain directory, or has no origin/main, is solutions-corpus-missing" {
+  git -C "$AGENT_SLOT_SOLUTIONS" update-ref -d refs/remotes/origin/main
+  run --separate-stderr "$AGENT_SLOT" doctor --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.findings[] | select(.reason == "solutions-corpus-missing") | .severity == "error"
+    and (.message | contains("origin/main"))' <<<"$output"
+  rm -rf "$AGENT_SLOT_SOLUTIONS"
+  mkdir -p "$AGENT_SLOT_SOLUTIONS"
+  run --separate-stderr "$AGENT_SLOT" doctor --output json
+  [ "$status" -eq 1 ]
+  jaq -e 'any(.findings[]; .reason == "solutions-corpus-missing")' <<<"$output"
+}
+
 @test "launch times give the median and p90 over measured launches, leaving out unready and skewed ones" {
   local i
   for i in 1 2 3 4 5; do

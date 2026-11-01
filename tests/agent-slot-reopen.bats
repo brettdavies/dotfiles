@@ -486,6 +486,23 @@ snapshot() {
   [ "$(readlink "$AGENT_SLOT_ROOT/repoa/1/.context/repo-recon")" = "$STORE" ]
 }
 
+@test "a reopened slot gets a fresh worktree of the shared repo at origin/main" {
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"session_id\": \"$S2\", \"transcript\": \"$(transcript "$S2")\", \"items\": [$ISSUE12],
+    \"branches\": []}"
+  reopen repoa --issue 12
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  local wt
+  wt=$(readlink "$AGENT_SLOT_ROOT/repoa/1/docs/solutions")
+  [[ $wt == "$AGENT_SLOT_ROOT/repoa/.solutions/1-"* ]]
+  [ "$(jaq -r .solutions_worktree "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json")" = "$wt" ]
+  solutions_worktrees | grep -qxF "$wt"
+  [ "$(git -C "$wt" rev-parse HEAD)" = "$(git -C "$AGENT_SLOT_SOLUTIONS" rev-parse refs/remotes/origin/main)" ]
+}
+
 @test "a reopen of an issue whose recorded branch the remote no longer has makes the slot on the base, not pushable" {
   gh_item issue 12 "Fix the widget"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],

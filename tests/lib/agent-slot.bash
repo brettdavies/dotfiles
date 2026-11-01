@@ -13,7 +13,7 @@ agent_slot_setup() {
   T=$BATS_TEST_TMPDIR
   STUBS=$T/stubs
   CALLS=$T/calls.log
-  mkdir -p "$STUBS" "$T/dev" "$T/state" "$T/solutions"
+  mkdir -p "$STUBS" "$T/dev" "$T/state"
   : >"$CALLS"
   export CALLS STUBS
 
@@ -24,6 +24,12 @@ agent_slot_setup() {
   git config --file "$GIT_CONFIG_GLOBAL" init.defaultBranch main
   : >"$T/gitignore"
   git config --file "$GIT_CONFIG_GLOBAL" core.excludesFile "$T/gitignore"
+
+  # The shared solutions corpus, shaped as ~/dev/solutions-docs is: a clone of a bare origin with one commit on main.
+  git init -q --bare "$T/solutions-origin.git"
+  git clone -q "$T/solutions-origin.git" "$T/solutions" 2>/dev/null
+  git -C "$T/solutions" commit -q --allow-empty -m seed
+  git -C "$T/solutions" push -q origin HEAD:main
 
   export AGENT_SLOT_ROOT=$T/slots
   export AGENT_SLOT_DEV=$T/dev
@@ -170,6 +176,34 @@ slot() {
     '{schema: "dotfiles.agent-slot/1", repo: $repo, slot: $n, state: "active", task: null, base: "main",
       prime: $prime, session_id: "11111111-2222-3333-4444-555555555555", prs: []} + $f' \
     >"$path/.git/agent-slot.json"
+}
+
+# solutions_worktrees: the corpus's linked worktrees, one path per line.
+solutions_worktrees() {
+  git -C "$AGENT_SLOT_SOLUTIONS" worktree list --porcelain | sed -n 's/^worktree //p' | grep -vxF "$AGENT_SLOT_SOLUTIONS" || true
+}
+
+# own_solutions_worktree: gives the task slot its own worktree of the corpus at origin/main, as setup does: the record
+# names it and docs/solutions links to it. Sets SWT to its path.
+own_solutions_worktree() {
+  SWT=$AGENT_SLOT_ROOT/repoa/.solutions/1-test
+  mkdir -p "${SWT%/*}" "$SLOT/docs"
+  git -C "$AGENT_SLOT_SOLUTIONS" worktree add -q --detach "$SWT" refs/remotes/origin/main
+  ln -sfn "$SWT" "$SLOT/docs/solutions"
+  jaq --arg wt "$SWT" '.solutions_worktree = $wt' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+}
+
+# solutions_origin_doc PATH CONTENT: another writer publishes PATH to the corpus's origin, and the corpus fetches it.
+solutions_origin_doc() {
+  [ -d "$T/solutions-pusher" ] || git clone -q "$T/solutions-origin.git" "$T/solutions-pusher"
+  git -C "$T/solutions-pusher" pull -q origin main
+  mkdir -p "$(dirname "$T/solutions-pusher/$1")"
+  printf '%s\n' "$2" >"$T/solutions-pusher/$1"
+  git -C "$T/solutions-pusher" add "$1"
+  git -C "$T/solutions-pusher" commit -q -m "publish $1"
+  git -C "$T/solutions-pusher" push -q origin HEAD:main
+  git -C "$AGENT_SLOT_SOLUTIONS" fetch -q origin main
 }
 
 # Asserts a JSON error object carries every field the contract promises.
