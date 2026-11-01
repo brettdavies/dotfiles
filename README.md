@@ -158,7 +158,7 @@ knowing where the underlying implementation lives.
 | `op-ssh-sign-wrapper`      | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless         |
 | `qmd-gpu-verify`           | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU                |
 | `qmd-ollama-unload-all`    | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely     |
-| `sd-commit-doc`            | Commit and push `docs/solutions/` files from the shared clone without racing another agent     |
+| `sd-commit-doc`            | Publish `docs/solutions/` files from a slot's worktree or the shared clone without races       |
 | `tmux-new-session`         | Write a tmuxinator config for a repo and start its 3-pane session                              |
 | `transcribe-diarize`       | Local GPU speaker-diarized transcription (ffmpeg → whisperx → pyannote)                        |
 | `unslop`                   | Machine-level entry point for the prose scorer, resolved through `~/.claude/skills`            |
@@ -637,8 +637,8 @@ each file as `docs/solutions/<path>`, the path the slot's agent reaches it by.
 | `commits-without-pr`     | Commits sit only on an origin or fork branch that has no PR, such as one pushed after the merge      |
 | `untracked-files`        | Untracked files, or ignored ones other than build output and copies of tracked files                 |
 | `local-only-files`       | `.context` files except setup's repo-recon link, and `todos`, `TODO*`, or `.env*` files              |
-| `home-symlink-into-slot` | A symlink under the home directory resolves into the slot                                            |
 | `solutions-unpublished`  | The slot's solutions worktree holds a file, commit, or rebase origin/main lacks; publish or discard  |
+| `home-symlink-into-slot` | A symlink under the home directory resolves into the slot                                            |
 | `home-scan-incomplete`   | The scan for such symlinks did not finish                                                            |
 | `slot-busy`              | Another `agent-slot` process holds the slot                                                          |
 | `not-released`           | The automatic sweep found the task finished, but its agent is gone or never released it              |

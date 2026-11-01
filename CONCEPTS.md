@@ -154,6 +154,20 @@ a writer commits only the paths it authored, and from an isolated checkout rathe
 also drifts behind its remote while other writers push, so a safe write syncs first rather than assuming the local tip
 is current.
 
+The solutions repo's shared clone, `~/dev/solutions-docs`, is the tree every repo's own checkout drafts in, the one qmd
+indexes, and the object store every *writer worktree* shares. Automation changes it only by fast-forward or by reverting
+a *phantom copy*; any other change it holds that the remote lacks is a *stray*, which is reported to a person and never
+committed or deleted by automation, since it can be a session's draft in progress.
+
+### Writer worktree
+
+A detached worktree of the solutions repo that belongs to one *agent slot*: made at the remote's main branch when the
+slot is set up, recorded in the slot's record, and linked from the slot's `docs/solutions`. The slot's agent drafts
+there and publishes from there in place, so no other session's work ever sits in its tree. A slot is not deleted while
+its writer worktree holds a file, commit, or rebase the remote lacks, and the teardown that deletes the slot removes the
+worktree. One that outlives its slot some other way is an *orphan*: it is reported with what it holds and never removed
+automatically, since it can hold the only copy of a doc.
+
 ### Phantom copy
 
 A file in a *shared clone*'s working tree whose content already equals the remote's version of that path, left behind
@@ -364,25 +378,26 @@ unreachable or the hand-off fails, the file goes to the host's local opener wher
 A clone of a repo, at a stable numbered path (`~/slots/<repo>/<N>`) on the headless host, that holds exactly one agent
 task at a time. A slot is set up like the repo's *prime checkout* (the operator's own clone under `~/dev`, or
 `~/dotfiles`, which is never part of the slot pool and never changed by it): the repo's hooks run from the slot's own
-copy, the `docs/solutions` symlink is present, `.context/repo-recon` links to the repo's repo-recon store when it has
-one, Claude reads and writes the repo's single auto memory, the prime's local permission grants apply, and a prime that
-is a partial clone gives the slot a partial clone with the same filter. A slot path is either empty or holds one task.
-The task keeps its slot through review rounds until it has finished: none of its PRs is open or closed without merging
-and one has merged, the operator finished it, whatever state its PRs are in, or its agent released it with no PR open. A
-task's PRs are those opened from its branches after its slot was made, and an older one whose head a branch of the slot
-holds beyond the base, such as the PR a review round works on. The slot's agent ends its task with a *release*: once it
-has run the closing skills that record its learnings and stopped every background job it no longer needs, it hands the
-slot's teardown upstream, to a finish outside the slot that waits for the agent to go idle. An agent still waiting on
-something, such as CI, never stops that wait to release: it records why the slot is *not yet* ready, which keeps the
-slot off the needs-you list while the agent is there and gets the agent reminded later. Of the agent's release and its
-not-yet, the newer stands: a not-yet withdraws an earlier release, and the finish that release started stands down. It
-never undoes the operator's finish, which is the operator's decision rather than the agent's. A *slot sweep* deletes the
-clone, moving it to the trash and purging it from there at once, only when nothing in it is missing from GitHub (a PR's
-head, origin, or the fork on origin's host that one of its branches tracks or pushes to) and its agent is idle or gone;
-the *automatic sweep*, which a timer runs, deletes only a slot its agent released or the operator finished, and first
-reminds the agent of a finished slot held back only by files left in it to clean them up. A slot that fails that check
-stays put on the *needs-you list*, which names each blocker, and is never deleted. A slot whose tmux sessions are gone
-after a server reboot is *dormant* until resume restarts them and its conversation.
+copy, `docs/solutions` links to the slot's own *writer worktree* of the solutions repo, `.context/repo-recon` links to
+the repo's repo-recon store when it has one, Claude reads and writes the repo's single auto memory, the prime's local
+permission grants apply, and a prime that is a partial clone gives the slot a partial clone with the same filter. A slot
+path is either empty or holds one task. The task keeps its slot through review rounds until it has finished: none of its
+PRs is open or closed without merging and one has merged, the operator finished it, whatever state its PRs are in, or
+its agent released it with no PR open. A task's PRs are those opened from its branches after its slot was made, and an
+older one whose head a branch of the slot holds beyond the base, such as the PR a review round works on. The slot's
+agent ends its task with a *release*: once it has run the closing skills that record its learnings and stopped every
+background job it no longer needs, it hands the slot's teardown upstream, to a finish outside the slot that waits for
+the agent to go idle. An agent still waiting on something, such as CI, never stops that wait to release: it records why
+the slot is *not yet* ready, which keeps the slot off the needs-you list while the agent is there and gets the agent
+reminded later. Of the agent's release and its not-yet, the newer stands: a not-yet withdraws an earlier release, and
+the finish that release started stands down. It never undoes the operator's finish, which is the operator's decision
+rather than the agent's. A *slot sweep* deletes the clone, moving it to the trash and purging it from there at once,
+only when nothing in it is missing from GitHub (a PR's head, origin, or the fork on origin's host that one of its
+branches tracks or pushes to) and its agent is idle or gone; the *automatic sweep*, which a timer runs, deletes only a
+slot its agent released or the operator finished, and first reminds the agent of a finished slot held back only by files
+left in it to clean them up. A slot that fails that check stays put on the *needs-you list*, which names each blocker,
+and is never deleted. A slot whose tmux sessions are gone after a server reboot is *dormant* until resume restarts them
+and its conversation.
 
 A slot's *work items* are the GitHub PRs and issues its task works on, each known by kind, repository, and number. A
 slot gets them when it is launched or reopened on one, when one is adopted onto it, and when its own PRs are found. Its

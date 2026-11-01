@@ -2,10 +2,10 @@
 # Claude Code SessionStart hook: fast-forward the shared solutions clone and
 # report what it holds that origin lacks.
 #
-# ~/dev/solutions-docs (symlinked as docs/solutions/ in every repo) is one clone
-# that parallel compounding agents share. The write path is sd-commit-doc, which
-# commits from a detached worktree and fast-forwards the shared checkout so it
-# never drifts. When an agent hand-rolls the git flow and skips that
+# ~/dev/solutions-docs (docs/solutions/ in every repo's own checkout; each agent
+# slot links to a worktree of its own) is one clone that parallel compounding
+# agents share. The write path is sd-commit-doc, which publishes from a
+# detached worktree and fast-forwards the shared checkout so it never drifts. When an agent hand-rolls the git flow and skips that
 # fast-forward, already-pushed files resurface in the clone as phantom "modified"
 # entries and the branch strands behind origin until a human notices. This hook
 # is the read-path safety net: at session start it advances the clone to origin.

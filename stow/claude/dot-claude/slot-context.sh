@@ -60,15 +60,20 @@ context_record() {
 # through --arg, never as part of its program, so an apostrophe or a backtick in one prints as written.
 # shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
 context_text() {
-  local task items base prime rules plans closing rules_after reopen
+  local task items base prime solutions rules plans closing rules_after reopen
   task=$(contract_json -r '.task // ""' <<<"$RECORD")
   items=$(contract_json -r '.items // [] | map("\(if .kind == "pr" then "PR" else .kind end) \(.repo)#\(.number)"
     + (if (.title // "") == "" then "" else " (\(.title))" end)) | join(", ")' <<<"$RECORD")
   base=$(contract_json -r '.base // "the default branch"' <<<"$RECORD")
   prime=$(contract_json -r '.prime // "for this repo"' <<<"$RECORD")
+  if [[ -n $(contract_json -r '.solutions_worktree // ""' <<<"$RECORD") ]]; then
+    solutions="docs/solutions is this slot's own worktree of the solutions repo, which no other agent writes in; \
+publish from it only through \`sd-commit-doc\`, and the slot is not torn down while it holds anything unpublished."
+  else
+    solutions='docs/solutions is the solutions repo shared with every other agent; commit to it only through `sd-commit-doc`.'
+  fi
   rules=$(
     cat <<'EOF'
-docs/solutions is the solutions repo shared with every other agent; commit to it only through `sd-commit-doc`.
 `agent-slot whoami` names this slot.
 Run agent-slot verbs with `--output json` after the verb; `--help` on any verb lists its flags and fields.
 `agent-slot schema --output json` prints the whole contract: the success and error objects and every reason.
@@ -120,7 +125,8 @@ here answers: send a reopen to the session your brief reports to."
     if [[ -n $task ]]; then printf 'Task: %s.\n' "$task"; else printf '%s\n' 'This slot was given no task name.'; fi
     [[ -z $items ]] || printf 'Work items: %s.\n' "$items"
     printf '%s\n' "The base branch is $base." \
-      "The prime checkout $prime is read-only for you; make every change in this slot." "$rules" "$plans" "$closing" \
+      "The prime checkout $prime is read-only for you; make every change in this slot." "$solutions" "$rules" \
+      "$plans" "$closing" \
       "$rules_after" "$reopen"
   )" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $text}}'
 }
