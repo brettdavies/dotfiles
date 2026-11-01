@@ -12,25 +12,28 @@ execution: code
 
 ## Goal Capsule
 
-- **Objective:** no agent drafts a solutions doc in a working tree that agents in other checkouts write in, no
-  unpublished doc is lost when its slot is deleted, and the clone qmd indexes changes only by fast-forward, with
-  anything in it that origin lacks reported to a person rather than committed.
-- **Means:** each writer's checkout links `docs/solutions` to a detached worktree of brettdavies/solutions-docs that
-  belongs to that checkout, and `sd-commit-doc` publishes from it in place (KTD1, KTD3). Slots come first (Phase 1).
-  Prime checkouts come second, in the shape rex-linux picks (Q1, KTD10).
-- **Product authority:** Brett's words in the brief and rex-linux's answer to Q1 outrank Requirements. Requirements
-  govern behavior, KTDs govern mechanism within them, and units override neither. Git behavior measured on this host
-  (git 2.56.0, Claude Code 2.1.314) outranks documentation or memory.
-- **Execution profile:** Phase 1 changes `sd-commit-doc`, eight agent-slot libraries, their suites, and the docs. Phase
-  2 changes the SessionStart autosync hook, `scripts/nightly-autocommit.sh`, `sd-commit-doc`'s shared-clone path, one
-  permission rule, and the docs. No change to compound-engineering, qmd, or the solutions repo's hooks.
+- **Objective:** no slot agent drafts a solutions doc in a working tree that agents in other checkouts write in, no
+  unpublished doc is lost when its slot is deleted, and no automation commits in the clone qmd indexes: automation
+  changes it only by fast-forward or by reverting a copy origin already holds, and reports anything else in it that
+  origin lacks to a person.
+- **Means:** each agent slot links `docs/solutions` to a detached worktree of brettdavies/solutions-docs that belongs to
+  that slot, and `sd-commit-doc` publishes from it in place (KTD1, KTD3). A prime checkout keeps its link to the shared
+  clone and publishes through `sd-commit-doc`'s copy-out path (Q1, option B). The nightly job only fast-forwards the
+  shared clone, and the session-start hook reports what it holds that origin lacks (KTD12).
+- **Product authority:** Brett's words in the brief and the operator's answers under Resolved Questions outrank
+  Requirements. Requirements govern behavior, KTDs govern mechanism within them, and units override neither. Git
+  behavior measured on this host (git 2.56.0, Claude Code 2.1.314) outranks documentation or memory.
+- **Execution profile:** one PR changes `sd-commit-doc`, eight agent-slot libraries, the SessionStart autosync hook's
+  report, `scripts/nightly-autocommit.sh`, their suites, and the docs. No change to compound-engineering, qmd, or the
+  solutions repo's hooks.
 - **Stop conditions:** report to rex-linux and stop if a bypass-mode Write through a slot's `docs/solutions` into its
   worktree prompts, if publishing in place turns out to need a change to the solutions repo's own hooks, or if the work
   needs a compound-engineering change.
-- **Who finishes:** implementation starts only on rex-linux's go-ahead. A slot ships Phase 1 (U1-U4, U6) as one PR into
-  `dev`. Phase 2 (U5, U7-U9) is a second PR once Q1 and Q3 are answered, and is dropped if Q1's answer is option B.
-  rex-linux approves and merges. Brett deploys with a `git pull` in `~/dotfiles`; slots made after the pull get
-  worktrees, and slots made before it finish on the current flow.
+- **Who finishes:** a slot ships Phase 1 (U1-U4, U6) with the nightly `sync` mode and the session-start stray report
+  (U8, as built under option B) as one PR into `dev`, and squash-merges it once every check is green. Phase 2's
+  prime-checkout units (U5, U7, U9, and U8's refusal of the shared clone) are not built (Q1). The operator deploys with
+  a `git pull` in `~/dotfiles`; slots made after the pull get worktrees, and slots made before it finish on the current
+  flow.
 
 ---
 
@@ -41,9 +44,10 @@ execution: code
 Every agent slot gets its own detached worktree of the solutions repo at setup, and the slot's `docs/solutions` links to
 it. ce-compound and ce-compound-refresh write there unchanged. `sd-commit-doc` commits the named paths in place,
 deletions and renames included, rebases onto origin/main, and pushes. Teardown keeps the slot until the worktree holds
-nothing origin lacks, then removes it. Phase 2 gives prime checkouts the same arrangement and makes
-`~/dev/solutions-docs` a read copy: nothing links to it, nothing commits in it, and a stray edit there is reported to
-the user instead of committed.
+nothing origin lacks, then removes it. A prime checkout keeps its `docs/solutions` link to the shared clone
+`~/dev/solutions-docs`, where its agents draft, and `sd-commit-doc` publishes from there by copy-out as it does today.
+No automation commits in the shared clone: the nightly job fast-forwards it and logs what it holds that origin lacks,
+and the session-start hook reports the same to the person in the session.
 
 ### Problem Frame
 
@@ -81,19 +85,17 @@ detached worktree, right?"
   deletes the slot removes its worktree.
 - R6. A reopened slot gets a fresh worktree. A slot made before Phase 1 ships keeps today's flow until it is torn down.
 
-**The read copy**
+**The shared clone**
 
-- R7. `~/dev/solutions-docs` stays the clone qmd indexes and the object store every worktree shares, and its working
-  tree changes only by fast-forward to origin/main or by reverting a copy whose content origin already holds.
-- R8. After Phase 2, every checkout where a trusted session has started links `docs/solutions` to its own worktree,
-  nothing commits in the read copy, and `sd-commit-doc` refuses a tree that resolves to it and names the command that
-  gives the checkout its worktree.
-- R9. After Phase 2, a change in the read copy that origin lacks (a stray) is reported at session start and in the
-  nightly log, and automation never commits or deletes it. A session in a prime checkout is also told what its own
-  worktree holds that origin lacks.
-- R10. A worktree whose owner is gone is reported with what it holds: `agent-slot doctor` reports one under the slot
-  root whose slot is gone, and after Phase 2 the session-start report names one under the prime worktree root that no
-  checkout links to.
+- R7. `~/dev/solutions-docs` stays the clone qmd indexes, the object store every worktree shares, and the tree prime
+  checkouts' agents draft in. Automation changes its working tree only by fast-forward to origin/main or by reverting a
+  copy whose content origin already holds, and never commits in it.
+- R8. A prime checkout's `docs/solutions` links to the shared clone, and `sd-commit-doc` called from it, or from no
+  checkout at all, publishes the named files by copy-out exactly as it does today.
+- R9. A change in the shared clone that origin lacks (a stray) is reported at session start and in the nightly log, and
+  automation never commits or deletes it. The report is informational: in a prime session a stray can be that session's
+  own draft, waiting for its `sd-commit-doc` copy-out.
+- R10. A slot worktree whose slot is gone is reported with what it holds by `agent-slot doctor`.
 
 **Docs**
 
@@ -103,27 +105,34 @@ detached worktree, right?"
 
 ### Key Decisions
 
-- **Slots first, prime checkouts by rex-linux's decision.** Slots run the close-out compound in every task, so they
-  write most docs, and agent-slot already owns their setup and teardown. Prime checkouts share one link per checkout,
-  which raises a scope and behavior question only the operator can settle (Q1). Governs R4, R5, R6, R8.
+- **Slots get worktrees; prime checkouts stay on the shared clone (Q1, option B).** Slots run the close-out compound in
+  every task, so they write most docs, and agent-slot already owns their setup and teardown. A prime checkout shares one
+  link among all its sessions, and the operator kept it on the shared clone with today's copy-out publish: "B seems
+  fine, we haven't had an issue in a long time." Governs R4, R5, R6, R8.
 - **Strays are reported, never committed or deleted by automation.** A stray can be the only copy of someone's work, and
-  the nightly job's commit is itself a write into the read copy. Governs R7, R9, R10.
+  the nightly job's commit is itself a write into the shared clone. Governs R7, R9, R10.
 - **Removing the `docs/solutions` symlink is out of scope.** Brett called it "kindof a different question all together";
   it is a follow-up.
 - **Agent-facing docs drop the solo-writer exception.** The current docs let an agent commit straight in the shared
   clone when it is sure no other writer is active. No agent can be sure of that while slots run, and Brett wants every
-  writer in its own worktree. Phase 1 leaves Brett's manual use of the clone, such as the "Compounded Solutions"
-  tmuxinator session, as it is. Under Phase 2 his uncommitted edits there would be reported as strays and no longer
-  committed by the nightly job, which is Q3. Governs R11.
+  writer in its own worktree. The operator's manual use of the clone, such as the "Compounded Solutions" tmuxinator
+  session, stays as it is. The nightly job no longer commits there, so the operator commits those edits by hand in
+  lazygit, and until then the stray report lists them. Governs R11.
 
 ### Scope Boundaries
 
 Considered and not built:
 
-- **A PreToolUse guard that denies writes into the read copy.** After Phase 2 the remaining way in is an agent using
-  `~/dev/solutions-docs/<path>` as an absolute path, and a Bash `cd` there gets past any Write/Edit guard anyway
-  (`docs/solutions/workflow-issues/worktree-agent-bash-cd-to-shared-checkout-escapes-isolation.md`). The session-start
-  stray report (R9) catches the result. Strays that keep appearing in that report after Phase 2 would change the call.
+- **A PreToolUse guard that denies writes into the shared clone.** Prime checkouts' agents draft there (Q1, option B),
+  and a Bash `cd` there gets past any Write/Edit guard anyway
+  (`docs/solutions/workflow-issues/worktree-agent-bash-cd-to-shared-checkout-escapes-isolation.md`). A slot agent's
+  write there is caught by `sd-commit-doc`'s `path-in-shared-clone` refusal and the session-start stray report (R9).
+- **Prime checkout worktrees, because the operator chose option B for Q1.** Not built: a per-checkout worktree under
+  `~/.local/state/solutions-worktrees/` and the SessionStart step that provisions it (U7, KTD10), with its `--provision`
+  mode; `sd-commit-doc`'s refusal of a tree that resolves to the shared clone (`read-copy-refused`, U8), since a prime
+  caller publishes from there by copy-out; the session-start fast-forward of a checkout's worktree (U5, KTD9); the stray
+  report's lines about a prime checkout's own worktree and unlinked prime worktrees (U8); and the docs for that flow
+  (U9).
 - **A JSON output mode for `sd-commit-doc`.** Its callers act on the exit status and the `FAILED during <step>` line,
   and nothing parses its output.
 - **More than one push retry.** A second rejection exits non-zero, and rerunning (R3) completes the publish.
@@ -151,31 +160,32 @@ Considered and not built:
   worktree per live post-deploy slot and none for a torn-down one.
 - On that first day, every slot held by `solutions-unpublished` traces to a draft its own agent wrote and left
   unpublished, and none to formatter churn or setup.
-- After Phase 2, that `status --porcelain` stays empty apart from strays the session-start report names.
+- From the deploy on, the nightly log's solutions-docs entry shows a fast-forward and its strays and never a commit, and
+  every stray it names is a prime session's draft, the operator's own edit, or a file a person then publishes or
+  discards.
 
-### Open Questions
+### Resolved Questions
 
-- Q1. **How does a prime checkout get its worktree?** This blocks Phase 2 only and was sent to rex-linux. Options: (A) a
-  per-checkout worktree the SessionStart hook makes and keeps current, shared by every session in that checkout; (B)
-  primes stay linked to the shared clone with today's copy-out commit; (C) primes stay linked for reads, a guard refuses
-  writes into the clone, and `sd-commit-doc open` hands out a worktree per write. Recommended: A, the only option that
-  leaves no writer in the read copy without breaking ce-compound's write path. U5 and U7-U9 assume A. Under B they are
-  dropped; under C, U7 is replaced (Alternatives). Consequences to weigh: under A, sessions sharing one prime checkout
-  share its worktree, so one session's half-written tracked doc fails another session's publish pre-flight (and the
-  repo's own pre-commit), its untracked draft at a path origin just added makes another's publish refuse before
-  rebasing, and a rebase carries the other sessions' live edits through `--autostash`. Under B, the nightly job keeps
-  committing whatever the read copy holds, so the strays decision and the Objective's last clause hold only under A.
-- Q3. **Where does Brett edit the corpus by hand once Phase 2 ships?** This blocks Phase 2 only. The "Compounded
-  Solutions" tmuxinator session (`stow/tmuxinator/dot-config/tmuxinator/solutions.yml`) runs yazi, a shell, and lazygit
-  in the read copy. Under Phase 2, an edit left there is reported as a stray at every prime session's start and is no
-  longer committed by the nightly job, and a commit there is the write R8 forbids. Options: (A) root that session at a
-  worktree of its own, provisioned by `--provision` (recommended: his edits then publish like everyone else's); (B) keep
-  editing the read copy, with R8 and R9 carrying an exemption for his commits, which the stray report cannot tell apart
-  from an agent's; (C) keep editing there and accept the stray reports, committing and pushing by hand.
-- Q2. **Names (non-blocking).** The defaults used unless rex-linux renames them: the slot worktree path
-  `<slot root>/<repo>/.solutions/<n>-<random>`, the record field `solutions_worktree`, the teardown blocker
-  `solutions-unpublished`, the doctor warning `solutions-worktree-orphaned`, the nightly mode `sync`, and the prime
-  worktree root `~/.local/state/solutions-worktrees/`.
+The operator answered Q1 directly. Q3 is moot under that answer, and Q2's names stand unless the operator objects.
+
+- Q1. **How does a prime checkout get its worktree? Option B: it does not.** A prime checkout keeps its `docs/solutions`
+  link to the shared clone `~/dev/solutions-docs`, and `sd-commit-doc` keeps the copy-out path for every caller whose
+  tree resolves there. On option A the operator said: "I have no idea if A is overengineering. B seems fine, we haven't
+  had an issue in a long time," and chose "B + ship Phase 1". Option A's per-checkout worktree, its SessionStart
+  provisioning, `--provision`, and the refusal of the shared clone for prime callers are not built (Scope Boundaries).
+  The consequence the operator accepted: the nightly job no longer commits edits in the shared clone, the operator's own
+  included, and the operator commits those by hand in lazygit. The stray report stays informational for prime sessions,
+  since a prime agent's in-progress write sits in the shared clone until its `sd-commit-doc` copy-out.
+- Q3. **Where does the operator edit the corpus by hand?** Moot under option B: the "Compounded Solutions" tmuxinator
+  session (`stow/tmuxinator/dot-config/tmuxinator/solutions.yml`) keeps editing the shared clone, and nothing refuses a
+  commit there.
+- Q2. **Names.** The slot worktree path `<slot root>/<repo>/.solutions/<n>-<random>` (`~/slots/<repo>/.solutions/...` on
+  this host), the record field `solutions_worktree`, the teardown blocker `solutions-unpublished`, the doctor warning
+  `solutions-worktree-orphaned`, and the nightly mode `sync`. The prime worktree root
+  `~/.local/state/solutions-worktrees/` belongs to option A and is unused.
+- **Kept as planned:** the nightly job's `sync` mode for the solutions repo, which fast-forwards and reports strays
+  without committing them (U8); the session-start stray report through `systemMessage` (U8, KTD12); and dropping the
+  solo-writer exception from the agent-facing docs (Key Decisions).
 
 ### Sources
 
@@ -243,10 +253,10 @@ Considered and not built:
   5. It pushes `HEAD:main`, capturing git's stderr rather than discarding it, so the rejection can be classified. Only a
      non-fast-forward rejection gets one more fetch, rebase, and push; a pre-push hook failure or a network failure
      exits with its own reason, and git's own lines are printed under it.
-  6. It fast-forwards the read copy with `merge --ff-only`, since qmd indexes only the read copy. On this path it never
-     reverts or cleans anything in the read copy: a file there at a published path can be a prime session's in-flight
-     edit, so a refused fast-forward is reported and left for the autosync hook, which reverts only content-equal
-     phantoms.
+  6. It fast-forwards the shared clone with `merge --ff-only`, since qmd indexes only the shared clone. On this path it
+     never reverts or cleans anything in the shared clone: a file there at a published path can be a prime session's
+     in-flight edit, so a refused fast-forward is reported and left for the autosync hook, which reverts only
+     content-equal phantoms.
 - KTD4. **A failed publish always has one resuming command, and rerunning never stacks a commit.** A rebase conflict on
   a named path is aborted when, and only when, a rebase is in progress. That leaves the commit local and the tree clean
   (measured), and the command prints `git -C <worktree> rebase --autostash origin/main`, the same form KTD3 step 4 runs,
@@ -254,29 +264,31 @@ Considered and not built:
   `git -C <worktree> rebase --continue`, before rerunning the same `sd-commit-doc`. A rerun while a rebase is in
   progress (the agent's own, or one a timeout killed) refuses and names `rebase --continue` or `rebase --abort`. A rerun
   with nothing to stage pushes the local commit. A rerun with nothing to stage or push exits 0 saying the paths are on
-  origin/main, unless the read copy holds a copy of a named path that differs from the worktree's. That is the mark of
-  an edit made at `~/dev/solutions-docs/<path>` instead of through `docs/solutions`, so the call exits with
-  `path-in-read-copy`, names both paths, and its `next:` line copies the edit into the worktree when it is the caller's
-  own. Success names the tree and the path it took (`committed and pushed N file(s) from <tree> (worktree)` or
-  `(copy-out)`). Every failure ends, after the existing `FAILED during <step>` marker, with three stderr lines an agent
-  finds in a fixed place: `sd-commit-doc: reason: <code>`,
+  origin/main, unless the shared clone holds a copy of a named path that differs from the worktree's. That is the mark
+  of an edit made at `~/dev/solutions-docs/<path>` instead of through `docs/solutions`, so the call exits with
+  `path-in-shared-clone`, names both paths, and its `next:` line copies the edit into the worktree when it is the
+  caller's own. A named path the worktree neither has nor tracks, but the shared clone holds, exits the same way. Both
+  checks run only on the worktree path, and a prime session can be drafting at that path in the shared clone (Q1, option
+  B), so the message says the copy can be another session's draft, and the call changes nothing in either tree. Success
+  names the tree and the path it took (`committed and pushed N file(s) from <tree> (worktree)` or `(copy-out)`). Every
+  failure ends, after the existing `FAILED during <step>` marker, with three stderr lines an agent finds in a fixed
+  place: `sd-commit-doc: reason: <code>`,
   `sd-commit-doc: state: <nothing staged | committed in <tree>, not pushed | pushed>`, and
   `sd-commit-doc: next: <command>`. The codes are a closed set the usage text lists: `usage`, `path-invalid`,
-  `tree-unresolved`, `validation-failed`, `commit-hook-failed`, `path-in-read-copy`, `rebase-in-progress`,
-  `overlap-with-origin`, `rebase-conflict`, `push-rejected`, `push-hook-failed`, `push-failed`, `git-failed` (any other
-  git step, such as an index lock another call holds, with git's own error printed), and, in Phase 2,
-  `read-copy-refused`.
+  `tree-unresolved`, `validation-failed`, `commit-hook-failed`, `path-in-shared-clone`, `rebase-in-progress`,
+  `overlap-with-origin`, `rebase-conflict`, `push-rejected`, `push-hook-failed`, `push-failed`, and `git-failed` (any
+  other git step, such as an index lock another call holds, with git's own error printed).
 - KTD5. **`sd-commit-doc` finds the caller's worktree from the caller's checkout.** Resolution order: `SD_TREE`, then
   the current directory when it is inside a linked worktree of the corpus (true from inside `docs/solutions`, since git
   reads the physical path), then the resolved `docs/solutions` of `git rev-parse --show-toplevel`. `SD_DIR` keeps naming
-  the read copy. In Phase 1, when none of these finds a worktree (no checkout, a checkout with no `docs/solutions`, or a
-  link to the read copy), the tree is the read copy and today's copy-out path runs, so every caller that works today
-  keeps working; only a `docs/solutions` that resolves outside the corpus is refused. A worktree found by any step whose
-  common git dir is not `SD_DIR`'s is refused with `tree-unresolved` and is never committed in or pushed from, so a test
-  fixture can never reach a real corpus through the host's link. A named file missing from the read copy on the copy-out
-  path fails with a message naming `SD_TREE` and the caller's checkout. Phase 2 refuses the read copy (U8). The script
-  clears the `GIT_*` variables first, because a caller inside a git hook would otherwise steer every `git -C`
-  (`docs/solutions/test-failures/linked-worktree-push-exports-git-dir-into-prepush-test-suite.md`).
+  the shared clone. When none of these finds a worktree (no checkout, a checkout with no `docs/solutions`, or a link to
+  the shared clone, which is every prime checkout under option B), the tree is the shared clone and today's copy-out
+  path runs, so every caller that works today keeps working; only a `docs/solutions` that resolves outside the corpus is
+  refused. A worktree found by any step whose common git dir is not `SD_DIR`'s is refused with `tree-unresolved` and is
+  never committed in or pushed from, so a test fixture can never reach a real corpus through the host's link. A named
+  file missing from the shared clone on the copy-out path fails with a message naming `SD_TREE` and the caller's
+  checkout. The script clears the `GIT_*` variables first, because a caller inside a git hook would otherwise steer
+  every `git -C` (`docs/solutions/test-failures/linked-worktree-push-exports-git-dir-into-prepush-test-suite.md`).
 - KTD6. **One helper judges a slot's worktree, from the recorded path and local state only, and both `check` and the
   teardown re-check call it.** It judges the worktree the record names whatever the link points at, so an agent
   re-pointing its link cannot hide a draft. It reads only that worktree's own state: status with untracked files, a
@@ -291,26 +303,16 @@ Considered and not built:
   recorded with `--force`. Reopen makes a new slot and so a new worktree, with nothing to carry over, because the old
   one was published before its slot went
   (`docs/solutions/workflow-issues/chained-worktree-integration-teardown-outruns-a-rejected-commit.md`).
-- KTD8. **`agent-slot doctor` reports a worktree whose slot is gone.** `git worktree list --porcelain` on the read copy,
-  filtered to paths under `<slot root>/*/.solutions/` that no live slot record names, gives each orphan with its dirty
-  and unpublished counts. It is a warning, the doctor stays read-only, and the next step is `git -C <path> status`.
-- KTD9. **In Phase 2, the SessionStart autosync hook keeps the session's worktree current.** It belongs with the prime
-  worktrees, which live as long as their checkouts; a slot's worktree is made at origin/main and a slot session starts
-  only at launch, after a `/clear`, or on a resume, so in Phase 1 the publish's own rebase covers it. After it
-  fast-forwards the read copy, it runs `merge --ff-only` without `--autostash` in the worktree the session's checkout
-  links to, when that worktree is behind origin/main and holds no unpublished commit. Git itself refuses when an
-  incoming change would overwrite a local edit or an untracked file, and the hook then leaves the worktree alone with a
-  line naming the path. ce-compound's overlap search and an agent's edits then start from the current corpus, and fewer
-  pushes need a rebase.
-- KTD10. **Under Q1 option A, a prime checkout's worktree lives at `~/.local/state/solutions-worktrees/<checkout key>`
-  and is made by the SessionStart autosync hook.** The hook makes it the first time a trusted session starts in a
-  checkout outside the slot root whose `docs/solutions` symlink resolves to the read copy, then re-points the link
-  (KTD11 covers a tracked one). Sessions in one checkout share that worktree the same way they already share the
-  checkout. KTD3's pathspec commit keeps each publish to its own paths, but one session's in-flight work still reaches
-  another's publish: a half-written tracked doc fails the pre-flight, and an untracked draft at a path origin just added
-  makes the publish refuse before rebasing (Q1 lists these consequences). `~/.local/state` is outside every qmd
-  collection, including `meum`, which is rooted at `~/dev` with `meum*/**/*.md`. Prime sessions run in `auto` mode, so
-  the permission rule that lets them read `~/dev/solutions-docs/**` gains a sibling for the new root.
+- KTD8. **`agent-slot doctor` reports a worktree whose slot is gone.** `git worktree list --porcelain` on the shared
+  clone, filtered to paths under `<slot root>/*/.solutions/` that no live slot record names, gives each orphan with its
+  dirty and unpublished counts. It is a warning, the doctor stays read-only, and the next step is
+  `git -C <path> status`.
+- KTD9. **Not built (Q1, option B): no session-start fast-forward of a worktree.** It paid off for long-lived prime
+  worktrees. A slot's worktree is made at origin/main, a slot session starts only at launch, after a `/clear`, or on a
+  resume, and the publish's own rebase (KTD3 step 4) brings the worktree current.
+- KTD10. **Not built (Q1, option B): prime checkout worktrees.** Option A would have given each prime checkout a
+  worktree at `~/.local/state/solutions-worktrees/<checkout key>`, made by the SessionStart hook. A prime checkout keeps
+  its link to the shared clone instead.
 - KTD11. **A tracked `docs/solutions` link is re-pointed and marked `skip-worktree`.** dotfiles tracks its link as
   `../../dev/solutions-docs`. Marked `skip-worktree`, the re-pointed link stays out of `git status` and out of any
   `git add -A`, so no PR can commit a link to a slot's temporary path, and the clone keeps the path tracked for hosts
@@ -318,27 +320,28 @@ Considered and not built:
   unstaged, and a branch switch keeps the link). The check's existing exemption for an unstaged change to
   `docs/solutions` stays as a fallback and accepts either target. Untracking the link instead was rejected, because a
   pull would delete every existing checkout's link.
-- KTD12. **After Phase 2 the read copy is enforced by detection, not prevention.** `sd-commit-doc` refuses a tree that
-  resolves to the read copy. The nightly job's solutions entry runs in a `sync` mode that fast-forwards and logs strays
-  without committing. The autosync hook keeps reverting phantoms whose content equals origin's
+- KTD12. **The shared clone is watched by detection, not prevention.** Prime sessions draft there and publish by
+  copy-out (Q1, option B), so nothing refuses a write or a publish there. The nightly job's solutions entry runs in a
+  `sync` mode that fast-forwards with the existing guard and logs strays without committing. The autosync hook keeps
+  reverting phantoms whose content equals origin's
   (`docs/solutions/logic-errors/phantom-revert-list-from-git-diff-against-origin-holds-in-flight-work.md`) and reports
-  every other dirty path as a stray. Sessions outside the slot root get the report as a JSON `systemMessage` plus
-  `additionalContext`, the channel
-  `docs/solutions/best-practices/claude-code-sessionstart-plain-stdout-reaches-only-claude.md` names for a warning a
-  person must act on. Slot agents get only `additionalContext`, saying the stray is not theirs to change.
+  every other dirty path as a stray. The report is informational: it says a stray can be a prime session's draft waiting
+  for its copy-out or the operator's own edit, and asks nothing of a session that did not write it. Sessions outside the
+  slot root get it as a JSON `systemMessage` plus `additionalContext`, the channel
+  `docs/solutions/best-practices/claude-code-sessionstart-plain-stdout-reaches-only-claude.md` names for a line the
+  person must see. Slot agents get only `additionalContext`, saying the stray is not theirs to change.
 
 ### High-Level Technical Design
 
-Where a doc goes, from draft to the read copy:
+Where a doc goes, from draft to the shared clone:
 
 ```mermaid
 flowchart TB
   A[Agent in slot N] -->|Write/Edit docs/solutions/x.md| L[slot N docs/solutions link]
   L --> W[slot worktree .solutions/N-abc123, detached]
   W -->|sd-commit-doc: add named paths, commit, rebase, push HEAD:main| O[(origin/main)]
-  O -->|fetch + ff-only: sd-commit-doc, autosync hook, nightly| R[read copy ~/dev/solutions-docs]
+  O -->|fetch + ff-only: sd-commit-doc, autosync hook, nightly| R[shared clone ~/dev/solutions-docs]
   R --> Q[qmd solutions collection]
-  O -->|autosync ff at session start| W
   W -. shares objects and refs .- R
 ```
 
@@ -365,9 +368,7 @@ stateDiagram-v2
 ```mermaid
 flowchart TB
   S[clear GIT_*] --> T{resolve tree, KTD5}
-  T -->|no worktree found, or the read copy| P1{phase}
-  P1 -->|Phase 1| C[today's copy-out path]
-  P1 -->|Phase 2| X[refuse, name the fix]
+  T -->|no worktree found, or the shared clone| C[copy-out path, prime callers]
   T -->|docs/solutions resolves outside the corpus| E[refuse, name the link's target]
   T -->|worktree of another corpus| E5[refuse: tree-unresolved]
   T -->|linked worktree of SD_DIR's corpus| RB{rebase in progress?}
@@ -379,8 +380,8 @@ flowchart TB
   M -->|hook rejects| UN[unstage the paths, exit commit-hook-failed]
   K -->|no| N{HEAD in origin/main?}
   N -->|no| F
-  N -->|yes| RC{read copy holds a different copy of a path?}
-  RC -->|yes| E6[refuse: path-in-read-copy]
+  N -->|yes| RC{shared clone holds a different copy of a path?}
+  RC -->|yes| E6[refuse: path-in-shared-clone]
   RC -->|no| D0[exit 0: already published]
   M --> F[fetch]
   F --> B{origin/main in HEAD?}
@@ -393,7 +394,7 @@ flowchart TB
   PU -->|non-fast-forward| RT[fetch, rebase, push once more]
   PU -->|hook or network| E4[exit 1 naming the step, commit kept]
   RT -->|fails| E4
-  PU --> FF[ff the read copy, exit 0]
+  PU --> FF[ff the shared clone, exit 0]
   RT --> FF
 ```
 
@@ -402,35 +403,36 @@ flowchart TB
 - Claude Code writes through a slot's `docs/solutions` into `<slot root>/<repo>/.solutions/...` without a prompt in
   bypass mode, as it writes into `~/dev/solutions-docs` today. U2 verifies this in a real slot before it lands.
 - Slots made before Phase 1 deploys are short-lived enough that a transitional period, in which they still write into
-  the shared clone, needs no migration step. Phase 2 waits for them.
-- Prime checkouts where agents compound are trusted in Claude Code, so the SessionStart hook runs there (KTD10). A first
-  session in an untrusted checkout runs no hook, and its link keeps resolving to the read copy until a trusted session
-  starts there (`docs/solutions/integration-issues/claude-code-workspace-trust-at-stable-paths.md`).
+  the shared clone, needs no migration step.
+- Prime checkouts where agents compound are trusted in Claude Code, so the SessionStart hook runs there and its stray
+  report reaches the person; a session in an untrusted checkout runs no hook and shows no report
+  (`docs/solutions/integration-issues/claude-code-workspace-trust-at-stable-paths.md`).
 - No force-push rewrites origin/main, so a commit the local `refs/remotes/origin/main` contains is on origin (KTD6).
   Nothing on the server enforces this: the repo is private on the free plan, where the rulesets and branch-protection
   APIs answer 403. The repo's `AGENTS.md` forbids force-pushes, and Risks covers the window a force-push would open.
-- rex-linux answers Q1 with A. Phase 1 holds under any answer.
 
 ### Sequencing
 
-Phase 1 (U1-U4, U6) ships as one PR. U1 lands first, because U2 makes the worktrees U1 publishes from, and U3 and U4
-build on U2's record field. U6 comes last. Phase 2 (U5, U7-U9) is a second PR after Q1 and Q3, merged once no live slot
-record lacks `solutions_worktree`. In Phase 1 a slot's worktree stays at its setup commit until the slot publishes, so
-ce-compound's overlap search there misses docs published since setup; qmd, which reads the read copy, still finds them,
-and the publish rebases (KTD3).
+Phase 1 (U1-U4, U6, and U8 as built under option B) ships as one PR. U1 lands first, because U2 makes the worktrees U1
+publishes from, and U3 and U4 build on U2's record field. U8 depends on none of them. U6 comes last. A slot's worktree
+stays at its setup commit until the slot publishes, so ce-compound's overlap search there misses docs published since
+setup; qmd, which reads the shared clone, still finds them, and the publish rebases (KTD3).
 
 ### System-Wide Impact
 
 - **Every slot's close-out.** The closing steps already say to run ce-compound and publish through `sd-commit-doc`. That
   still holds, but the files land in the slot's worktree, and a slot with an unpublished doc stays alive until its agent
   publishes or discards it. The automatic sweep's cleanup reminder covers the new blocker (U3).
-- **qmd.** Nothing about indexing changes. A doc becomes searchable once the read copy fast-forwards, as it does today
-  after `sd-commit-doc`.
+- **qmd.** Nothing about indexing changes. A doc becomes searchable once the shared clone fast-forwards, as it does
+  today after `sd-commit-doc`.
 - **Other agents' instructions.** Every instruction that names `~/dev/solutions-docs` as a place to write, or tells an
-  agent to recreate `docs/solutions` pointing there, changes in the PR for the same phase (U6, U9): the global CLAUDE.md
-  rule, the guide, the solutions repo's `AGENTS.md`, `slot-context.sh`, and the `qmd-learnings-researcher` description.
-- **The Mac.** `sd-commit-doc` and the autosync hook run there too. Phase 1 changes nothing there unless a checkout's
-  link resolves to a worktree. Phase 2's prime provisioning runs wherever a solutions clone exists.
+  agent to recreate `docs/solutions` pointing there, changes in this PR (U6): the global CLAUDE.md rule, the guide, the
+  solutions repo's `AGENTS.md`, `slot-context.sh`, and the `qmd-learnings-researcher` description.
+- **The operator's manual edits.** The nightly job no longer commits edits in the shared clone; the operator commits
+  them by hand, and until then the session-start report lists them.
+- **The Mac.** `sd-commit-doc` and the autosync hook run there too. `sd-commit-doc` changes nothing there unless a
+  checkout's link resolves to a worktree, and the hook's stray report runs wherever a solutions clone exists. The
+  nightly job is a Linux systemd unit.
 
 ### Risks
 
@@ -440,9 +442,9 @@ and the publish rebases (KTD3).
 | Formatter churn through the link dirties a worktree and holds a teardown                                            | The blocker names the files, and the cleanup reminder asks the agent to publish or discard them (U3)                                                                                                       |
 | Concurrent fetches into the shared ref store fail with `cannot lock ref`                                            | The check never fetches (KTD6); setup and the hook fall back to the local ref; `sd-commit-doc` exits non-zero and its rerun completes                                                                      |
 | A slot made before the deploy and one made after edit the same doc                                                  | The second push hits a rebase conflict, keeps its commit, and prints the resume steps (KTD4)                                                                                                               |
-| A prime session drafting through the old link when another session's start re-points it                             | The draft stays in the read copy as a stray, the report names it, and the stray recipe recovers it (Rollout Notes)                                                                                         |
+| A prime session edits a doc a slot has since published                                                              | None new: the prime's copy-out commits its whole file over origin's, as today; the operator kept this with option B, and the doc's history shows both commits                                              |
 | md-wrap or ce-compound's `validate-doc-claims.py` resolve the edited file's tree differently through the new target | U6's verification makes one real edit through the link and checks both                                                                                                                                     |
-| A force-push drops a published commit from origin before the read copy fetches again                                | The check reads the stale ref as published and teardown removes the worktree; the commit stays in the shared object store until `git gc` prunes it, and the next fetch makes every later check fail closed |
+| A force-push drops a published commit from origin before the shared clone fetches again                             | The check reads the stale ref as published and teardown removes the worktree; the commit stays in the shared object store until `git gc` prunes it, and the next fetch makes every later check fail closed |
 
 ### Alternatives Considered
 
@@ -450,32 +452,31 @@ and the publish rebases (KTD3).
   isolated, but ce-compound writes to `docs/solutions/` before `sd-commit-doc` runs, so the draft would still land
   wherever the link points. It is option C's write path for prime checkouts.
 - **A full clone per slot instead of a worktree.** It isolates refs as well, but it duplicates the corpus per slot, and
-  the read copy would no longer see a slot's pushes in its own remote-tracking ref, which KTD6 depends on.
+  the shared clone would no longer see a slot's pushes in its own remote-tracking ref, which KTD6 depends on.
 - **The worktree inside the slot's `.git/`.** It would vanish with the clone and stay out of git status, but Claude
   Code's protected-path prompt rules it out (KTD2).
 
 ### Documentation Plan
 
-- Phase 1 (U6): the global CLAUDE.md rule and the guide say that a slot's `docs/solutions` is the slot's own worktree
-  and that a repo's own checkout links to the shared clone, and that a doc found through qmd at `qmd://solutions/<path>`
-  is edited at `docs/solutions/<path>` in the caller's checkout, never at `~/dev/solutions-docs/<path>`.
-  `sd-commit-doc`'s usage text describes both trees and the resume steps. The solutions repo's `AGENTS.md` describes the
-  worktree flow and drops the solo-writer exception. `README.md` covers the new teardown blocker, the doctor warning,
-  and the slot layout. `CONCEPTS.md` gains "writer worktree" and "read copy".
-- Phase 2 (U9): the same docs say that every checkout's `docs/solutions` is its own worktree, that the clone is a read
-  copy that only fast-forwards, and how a stray is resolved.
+- U6: the global CLAUDE.md rule and the guide say that a slot's `docs/solutions` is the slot's own worktree, that a
+  repo's own checkout links to the shared clone, where its agent drafts and `sd-commit-doc` copies out, that no
+  automation commits in the shared clone, and that a doc found through qmd at `qmd://solutions/<path>` is edited at
+  `docs/solutions/<path>` in the caller's checkout, never at `~/dev/solutions-docs/<path>`. `sd-commit-doc`'s usage text
+  describes both trees and the resume steps. The solutions repo's `AGENTS.md` describes the worktree flow and drops the
+  solo-writer exception. `README.md` covers the new teardown blocker, the doctor warning, and the slot layout.
+  `CONCEPTS.md` gains "writer worktree" and "shared clone".
+- No Phase 2 docs: U9 is not built.
 
 ### Operational / Rollout Notes
 
-- Phase 1 needs no deploy step beyond the pull: setup, check, and teardown run from `~/dotfiles`, and `sd-commit-doc` is
-  a stowed link that changes in place. It adds no hook script, so the pull-before-restow lock
+- No deploy step beyond the pull: setup, check, and teardown run from `~/dotfiles`; `sd-commit-doc` and the autosync
+  hook are files the `local` and `claude` packages already link, which change in place; and the nightly unit runs
+  `scripts/nightly-autocommit.sh` from `~/dotfiles`, so the pull switches the solutions entry to `sync` with no unit
+  change. The PR adds no file under `stow/`, so the pull-before-restow lock
   (`docs/solutions/deployment-issues/pull-before-restow-blocks-every-claude-tool-call.md`) does not apply.
-- Phase 2 merges once `agent-slot list --output json` shows no live slot whose record lacks `solutions_worktree`, and
-  the read copy is clean.
-- Resolving a stray, as the Phase 2 docs describe: when it is work worth keeping, copy it to the same path under a
-  checkout's `docs/solutions` and publish it with `sd-commit-doc`. Its copy in the read copy then matches origin, and
-  the next session start reverts it as a phantom. Otherwise Brett discards it. A person decides either way, because the
-  file can be the only copy.
+- Resolving a stray: a prime session's own draft is published from its checkout with `sd-commit-doc`, whose copy-out
+  reverts it; the operator's own edit is committed by hand; anything else is published from a checkout or discarded by a
+  person, because the file can be the only copy.
 - An orphaned worktree that `agent-slot doctor` reports is handled the same way: publish its files with
   `SD_TREE=<path> sd-commit-doc ...`, then `git -C ~/dev/solutions-docs worktree remove <path>`.
 
@@ -491,14 +492,14 @@ and the publish rebases (KTD3).
 - **Dependencies:** none
 - **Files:** `stow/local/dot-local/bin/sd-commit-doc`, `tests/sd-commit-doc.bats`
 - **Approach:**
-  1. Clear the `GIT_*` set and resolve the tree (KTD5), falling back to the read copy when no worktree is found. A
+  1. Clear the `GIT_*` set and resolve the tree (KTD5), falling back to the shared clone when no worktree is found. A
      `docs/solutions` that resolves outside the corpus, or a worktree of another corpus, fails, naming the checkout and
      the link's target.
   2. On the worktree path, accept each named path that is a file in the tree, or a path HEAD tracks that the tree no
      longer has (a deletion), and refuse a directory.
-  3. Pre-flight, stage, commit by pathspec, rebase, push, and fast-forward the read copy (KTD3), with the resume
-     behavior and read-copy check of KTD4. Each step sets `step`, so the existing EXIT marker names it.
-  4. Leave the copy-out path as it is for a tree that resolves to the read copy.
+  3. Pre-flight, stage, commit by pathspec, rebase, push, and fast-forward the shared clone (KTD3), with the resume
+     behavior and shared-clone check of KTD4. Each step sets `step`, so the existing EXIT marker names it.
+  4. Leave the copy-out path as it is for a tree that resolves to the shared clone.
   5. The suite's `setup` changes into `$TMP`, outside any checkout, so no scenario resolves the host checkout's own
      `docs/solutions`. Each scenario that exercises checkout resolution builds its own fixture checkout whose link
      points into the `SD_DIR` fixture.
@@ -506,7 +507,7 @@ and the publish rebases (KTD3).
   `.githooks/lib/git-env.sh` for the variable set to clear.
 - **Test scenarios:**
   - A new doc in a worktree is committed and pushed, origin has it, the worktree is clean at origin/main, and the read
-    copy fast-forwarded without the doc ever being written into the read copy's tree.
+    copy fast-forwarded without the doc ever being written into the shared clone's tree.
   - An edit to a tracked doc, a deletion of a tracked doc, and a rename passed as old and new paths land on origin as M,
     D, and R.
   - A path another publish has already staged in the worktree stays staged and out of this commit, which holds only the
@@ -528,17 +529,20 @@ and the publish rebases (KTD3).
     without making a second one.
   - A pre-push hook rejection exits naming the push step, with no rebase attempted.
   - With nothing to stage or push, it exits 0 and says the paths are on origin/main.
-  - With the worktree's copy unchanged and the read copy holding an edit to the same path, it exits with
-    `path-in-read-copy`, names both paths, and publishes nothing.
+  - With the worktree's copy unchanged and the shared clone holding an edit to the same path, it exits with
+    `path-in-shared-clone`, names both paths, and publishes nothing.
+  - A named path the worktree lacks but the shared clone holds exits with `path-in-shared-clone` and publishes nothing.
   - Called with a fixture checkout whose link resolves to a worktree of a different corpus, it exits with
     `tree-unresolved` and neither commits nor pushes there.
-  - With the read copy holding an edit at the published path that differs from origin, a successful publish leaves that
-    edit in place.
+  - With the shared clone holding an edit at the published path that differs from origin, a successful publish leaves
+    that edit in place.
   - Called from a consuming checkout whose `docs/solutions` links to the worktree, from inside the worktree, and with
     `SD_TREE` set, it resolves the same tree.
   - A directory path is refused.
-  - Every existing copy-out test passes unchanged, whether the caller's link resolves to the read copy or the caller
+  - Every existing copy-out test passes unchanged, whether the caller's link resolves to the shared clone or the caller
     runs from a directory with no checkout at all (regression contract: today's callers keep today's behavior).
+  - A prime caller: from a fixture checkout whose `docs/solutions` links to the shared clone, a doc written there
+    through the link is committed and pushed by copy-out, and the shared clone ends clean at origin/main (Q1, option B).
   - Called from outside its checkout for a doc that exists only in its worktree, it fails naming `SD_TREE`.
   - Every failure ends with the `reason:`, `state:`, and `next:` lines, its reason is in the closed set, and a success
     line names the tree and the path taken.
@@ -650,31 +654,9 @@ and the publish rebases (KTD3).
 - **Verification:** the suite passes, and `tests/agent-slot-docs.bats` holds the README reasons table equal to the
   contract table.
 
-### U5. Keep the session's worktree current (Phase 2)
+### U5. Keep the session's worktree current (not built)
 
-- **Goal:** at session start, the autosync hook fast-forwards the worktree the session's checkout links to, as well as
-  the read copy.
-- **Requirements:** R1, R7
-- **Dependencies:** U2, Q1
-- **Files:** `stow/claude/dot-claude/solutions-clone-autosync.sh`, `tests/solutions-clone-autosync.bats`
-- **Approach:**
-  1. Read the session's directory from the payload's `cwd`, falling back to the working directory, and resolve its
-     checkout's `docs/solutions`.
-  2. Fetch once. The early exit for a current read copy moves after the worktree step, so a current read copy no longer
-     skips a worktree that is behind.
-  3. Fast-forward the linked worktree when it qualifies (KTD9), capturing git's output. A worktree with unpublished
-     commits is left alone, with a line naming the count and `sd-commit-doc`.
-  4. The suite runs from a directory outside any checkout, and each scenario builds its own fixture checkout, so the
-     working-directory fallback never reaches the host's own `docs/solutions`.
-- **Patterns to follow:** the hook's own phantom-revert flow and its `revert` error shape.
-- **Test scenarios:**
-  - A session in a checkout whose worktree is behind origin/main fast-forwards both the worktree and the read copy.
-  - An in-flight edit to a tracked doc origin did not change survives the fast-forward.
-  - An in-flight edit to a doc origin did change leaves the worktree untouched, with a line naming the doc.
-  - An untracked draft at a path origin just added leaves the worktree untouched, with a line naming it.
-  - A worktree with an unpublished commit is left untouched, with a line naming the count.
-  - A session outside any checkout, and one whose link resolves to the read copy, behave as today.
-- **Verification:** the suite passes, and the hook still finishes within its SessionStart timeout on this host.
+Not built: Q1's answer is option B (KTD9).
 
 ### U6. Describe the Phase 1 flow
 
@@ -689,15 +671,16 @@ and the publish rebases (KTD3).
   with `sd-commit-doc`
 - **Approach:**
   1. Rewrite the CLAUDE.md "Solutions repo" rule and the guide section around the two trees: a slot's own worktree,
-     which the agent writes in and publishes from, and a repo's own checkout, which still links to the shared clone.
-     Drop the solo-writer exception (Key Decisions). Limit the instruction to recreate a missing link to repos' own
-     checkouts, since in a slot that would orphan the slot's worktree. Say that a doc found through qmd is edited at
-     `docs/solutions/<path>`, never at `~/dev/solutions-docs/<path>`, in the guide and in the `qmd-learnings-researcher`
-     description, which today names `~/dev/solutions-docs/` as its backing corpus.
+     which the agent writes in and publishes from, and a repo's own checkout, which links to the shared clone, where its
+     agent drafts and `sd-commit-doc` copies out. Say that no automation commits in the shared clone and that the
+     session-start stray report is informational. Drop the solo-writer exception (Key Decisions). Limit the instruction
+     to recreate a missing link to repos' own checkouts, since in a slot that would orphan the slot's worktree. Say that
+     a doc found through qmd is edited at `docs/solutions/<path>`, never at `~/dev/solutions-docs/<path>`, in the guide
+     and in the `qmd-learnings-researcher` description, which today names `~/dev/solutions-docs/` as its backing corpus.
   2. Change `slot-context.sh`'s line to say that `docs/solutions` is the slot's own worktree of the solutions repo,
      published only through `sd-commit-doc`, when the record names `solutions_worktree`; a slot made before Phase 1
      keeps today's line.
-  3. Add "writer worktree" and "read copy" to `CONCEPTS.md`.
+  3. Add "writer worktree" and "shared clone" to `CONCEPTS.md`.
 - **Patterns to follow:** the present-tense rule for in-repo docs in `~/.claude/guides/code-comments.md`; the existing
   README table formats.
 - **Test scenarios:**
@@ -707,106 +690,61 @@ and the publish rebases (KTD3).
   repo and passes ce-compound's `validate-doc-claims.py`; `/unslop` and the solutions repo's hooks pass on its
   `AGENTS.md`.
 
-### U7. Give prime checkouts their own worktree (Q1 option A)
+### U7. Give prime checkouts their own worktree (not built)
 
-- **Goal:** the first trusted session in a prime checkout gets that checkout its own worktree, and its link points
-  there.
-- **Requirements:** R1, R8
-- **Dependencies:** U5, Q1
-- **Files:** `stow/claude/dot-claude/solutions-clone-autosync.sh`, `stow/claude/dot-claude/settings.json` (one Read
-  rule), `tests/solutions-clone-autosync.bats`, `tests/claude-settings.bats`
+Not built: Q1's answer is option B (KTD10).
+
+### U8. Report strays in the shared clone
+
+- **Goal:** no automation commits in the shared clone, and a stray there reaches a person.
+- **Requirements:** R7, R9
+- **Dependencies:** none
+- **Files:** `stow/claude/dot-claude/solutions-clone-autosync.sh`, `scripts/nightly-autocommit.sh`,
+  `tests/solutions-clone-autosync.bats`, `tests/nightly-autocommit.bats` (new)
 - **Approach:**
-  1. For a session in a checkout outside the slot root whose `docs/solutions` symlink resolves to the read copy, add a
-     detached worktree at `~/.local/state/solutions-worktrees/<checkout key>` when none exists, re-point the link, and
-     mark a tracked link `skip-worktree` (KTD10, KTD11). An existing worktree at that path counts as success, so two
-     sessions starting at once need no lock.
-  2. A non-symlink path or a failed `worktree add` leaves the link alone and reports through the hook's `systemMessage`.
-  3. The same step runs on demand as `~/.claude/solutions-clone-autosync.sh --provision <checkout>`, which is the
-     command U8's refusal names, because an agent cannot start a new session to get its worktree.
-  4. Add `Read(~/.local/state/solutions-worktrees/**)` beside `Read(~/dev/solutions-docs/**)`.
-  5. Carry out Q3's answer for Brett's "Compounded Solutions" session; under its recommended option, `solutions.yml` is
-     rooted at a worktree `--provision` makes for it.
-- **Patterns to follow:** U2's worktree step; the hook's fail-open shape.
-- **Test scenarios:**
-  - A first session in a prime checkout gets a worktree and a re-pointed link, and a second session reuses both.
-  - `solutions-clone-autosync.sh --provision <checkout>` run by hand gives that checkout the same worktree and link, and
-    exits 0 when they already exist.
-  - Two sessions starting at once end with one worktree and the link pointing at it.
-  - A tracked link is re-pointed and `git status` in that checkout stays clean.
-  - A checkout under the slot root, and one with no `docs/solutions`, are left alone.
-  - `tests/claude-settings.bats` finds the new Read rule written with `~/`, which its "no machine-absolute home paths"
-    test already requires.
-- **Verification:** the suite passes, and a session started in `~/dotfiles` after deploy links to its own worktree with
-  `git status` clean.
-
-### U8. Keep the read copy read-only (Q1 option A)
-
-- **Goal:** nothing commits in the read copy, and a stray there reaches a person.
-- **Requirements:** R7, R8, R9
-- **Dependencies:** U1, U7
-- **Files:** `stow/local/dot-local/bin/sd-commit-doc`, `stow/claude/dot-claude/solutions-clone-autosync.sh`,
-  `scripts/nightly-autocommit.sh`, `stow/local/dot-config/systemd/user/nightly-autocommit.service` (description),
-  `tests/sd-commit-doc.bats`, `tests/solutions-clone-autosync.bats`, `tests/nightly-autocommit.bats` (new)
-- **Approach:**
-  1. `sd-commit-doc` refuses a tree that resolves to the read copy with reason `read-copy-refused`, and its `next:` line
-     is `~/.claude/solutions-clone-autosync.sh --provision <checkout>` (U7). The copy-out path and its revert step go.
-  2. The autosync hook prints one JSON object built with `jaq` (KTD12): `additionalContext` for its fast-forward lines,
-     and a `systemMessage` naming each stray in sessions outside the slot root. In a prime session the same report also
-     names what the checkout's own worktree holds that origin lacks, and every worktree under the prime worktree root
-     that no checkout links to any longer, with its dirty and unpublished counts (R9, R10).
-  3. `nightly-autocommit.sh` gains a per-repo mode. The solutions entry uses `sync`, which fast-forwards with the
+  1. The autosync hook prints one JSON object built with `jaq` (KTD12) whenever it has anything to say:
+     `additionalContext` for its fast-forward lines and the strays, and, in sessions outside the slot root, a
+     `systemMessage` naming each stray. The message is informational and says a stray can be a prime session's draft
+     waiting for its copy-out. The session's directory comes from the payload's `cwd`, else the working directory.
+  2. `nightly-autocommit.sh` gains a per-repo mode. The solutions entry uses `sync`, which fast-forwards with the
      existing guard and logs each stray as a `WARNING:` line instead of committing.
+  3. Not built under option B: `sd-commit-doc`'s refusal of the shared clone (`read-copy-refused`), and the report's
+     lines about a prime checkout's own worktree and unlinked prime worktrees.
 - **Patterns to follow:** `scripts/fseventsd-check.sh --claude-hook` for the JSON shape.
 - **Test scenarios:**
-  - `sd-commit-doc` called from a checkout whose link resolves to the read copy exits non-zero with the fix named, and
-    the read copy is unchanged.
-  - A stray untracked doc in the read copy produces a `systemMessage` naming it in a prime session, only
+  - A stray untracked doc in the shared clone produces a `systemMessage` naming it in a prime session, only
     `additionalContext` in a slot session, and is neither committed nor deleted.
+  - A stray edit to a tracked doc is reported the same way and survives.
   - A phantom copy is still reverted and produces no stray report.
-  - A prime session whose own worktree holds an unpublished draft is told its path, and a prime worktree whose checkout
-    was deleted is named with its counts; neither is removed.
   - The hook's output parses as one JSON object in every case that prints anything.
-  - The nightly job in `sync` mode fast-forwards a behind read copy and logs a stray without making a commit.
+  - The nightly job in `sync` mode fast-forwards a behind shared clone and logs a stray without making a commit.
   - The nightly job's other repos still commit as today.
-- **Verification:** the suites pass, and a session started after a stray is planted in a scratch read copy shows
-  `SessionStart:startup says:` with the stray's path.
+- **Verification:** the suites pass, and the hook run with a SessionStart payload against a scratch shared clone holding
+  a planted stray prints one JSON object whose `systemMessage` names the stray.
 
-### U9. Describe the Phase 2 flow (Q1 option A)
+### U9. Describe the Phase 2 flow (not built)
 
-- **Goal:** the docs describe every checkout's own worktree and the read copy.
-- **Requirements:** R11
-- **Dependencies:** U7, U8
-- **Files:** `stow/claude/dot-claude/CLAUDE.md`, `stow/claude/dot-claude/guides/workflows-and-skills.md`,
-  `stow/local/dot-local/bin/sd-commit-doc`, `stow/claude/dot-claude/agents/qmd-learnings-researcher.md`, `README.md`,
-  `CONCEPTS.md`; in brettdavies/solutions-docs, `AGENTS.md`
-- **Approach:** state that every checkout's `docs/solutions` is that checkout's own worktree, that
-  `~/dev/solutions-docs` is the read copy, which only fast-forwards and is never a write target, and how a stray is
-  resolved (Operational / Rollout Notes).
-- **Test expectation:** none -- prose only; the docs-table suites from U3 and U4 still hold.
-- **Verification:** no doc in either repo names `~/dev/solutions-docs` as a place to write.
+Not built: Q1's answer is option B. U6 describes the shipped flow.
 
 ---
 
 ## Verification Contract
 
-| Gate           | Command or check                                                                                                                                                                                                                                                                | Applies to    |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| Unit suites    | `scripts/run-tests tests/sd-commit-doc.bats tests/agent-slot-launch.bats tests/agent-slot-check.bats tests/agent-slot-teardown.bats tests/agent-slot-release.bats tests/agent-slot-reopen.bats tests/agent-slot-doctor.bats tests/agent-slot-docs.bats tests/slot-context.bats` | U1-U4, U6     |
-| Phase 2 suites | the above plus `tests/solutions-clone-autosync.bats`, `tests/nightly-autocommit.bats`, and `tests/claude-settings.bats`                                                                                                                                                         | U5, U7-U9     |
-| Full mirror    | `.githooks/pre-push` (ShellCheck, actionlint, Bats, core-env guard)                                                                                                                                                                                                             | each PR       |
-| Red first      | each new scenario observed failing against the unchanged code, with the failure quoted in the PR                                                                                                                                                                                | U1-U5, U7, U8 |
-| Real slot      | after deploy, one new slot: its `docs/solutions` resolves to its worktree, a Write there lands with no prompt, `sd-commit-doc` publishes, `git -C ~/dev/solutions-docs status --porcelain` stays empty, and teardown removes the worktree                                       | Phase 1       |
-| Real session   | a session started in `~/dotfiles` links to its own worktree with `git status` clean, and a planted stray shows in `SessionStart:startup says:`                                                                                                                                  | Phase 2       |
+| Gate        | Command or check                                                                                                                                                                                                                                                                                                                                  | Applies to    |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| Unit suites | `scripts/run-tests tests/sd-commit-doc.bats tests/agent-slot-launch.bats tests/agent-slot-check.bats tests/agent-slot-teardown.bats tests/agent-slot-release.bats tests/agent-slot-reopen.bats tests/agent-slot-doctor.bats tests/agent-slot-docs.bats tests/slot-context.bats tests/solutions-clone-autosync.bats tests/nightly-autocommit.bats` | U1-U4, U6, U8 |
+| Full mirror | `.githooks/pre-push` (ShellCheck, actionlint, Bats, core-env guard)                                                                                                                                                                                                                                                                               | the PR        |
+| Red first   | each new scenario observed failing against the unchanged code, with the failure quoted in the PR                                                                                                                                                                                                                                                  | U1-U4, U8     |
+| Real slot   | after deploy, one new slot: its `docs/solutions` resolves to its worktree, a Write there lands with no prompt, `sd-commit-doc` publishes, `git -C ~/dev/solutions-docs status --porcelain` lists nothing the slot wrote, and teardown removes the worktree                                                                                        | Phase 1       |
 
 ## Definition of Done
 
-- Phase 1: U1-U4 and U6 merged into `dev` in one PR with every gate above green, the real-slot check recorded in the PR,
-  and no abandoned code left in the diff.
-- Phase 2: U5 and U7-U9 merged in a second PR after Q1 resolves to A and Q3 is answered, with the real-session check
-  recorded; under B, the plan closes after Phase 1.
-- Each PR's `## Changelog` states its user-visible changes: Phase 1, that slots publish solutions docs from their own
-  worktree, that `sd-commit-doc` handles deletions and renames, and that a slot with an unpublished doc is not torn
-  down; Phase 2, that every checkout gets its own worktree and that the shared clone takes no writes.
+- U1-U4, U6, and U8 (as built under option B) merged into `dev` in one PR with every gate above green, and no abandoned
+  code left in the diff; the real-slot check runs on the first slot made after the deploy. Q1's answer closes the plan
+  with this PR.
+- The PR's `## Changelog` states its user-visible changes: that slots publish solutions docs from their own worktree,
+  that `sd-commit-doc` handles deletions and renames, that a slot with an unpublished doc is not torn down, that the
+  nightly job no longer commits in the shared clone, and that strays there are reported at session start.
 - Each unit is done when its Verification line holds.
 - The implementing slot's close-out refreshes
   `workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` rule 1 through
@@ -818,9 +756,9 @@ and the publish rebases (KTD3).
 
 Every choice below was decided by the reviewing agent from repository evidence and measurements, because this slot runs
 headless and its instructions say to answer review questions from the code, docs, and precedent. The one decision only
-Brett's side can make, Q1, went to rex-linux and is not decided here.
+Brett's side can make, Q1, went to the operator, whose answer is under Resolved Questions.
 
-- E1. In worktree mode, `sd-commit-doc`'s last step fast-forwards the read copy and never reverts or cleans anything
+- E1. In worktree mode, `sd-commit-doc`'s last step fast-forwards the shared clone and never reverts or cleans anything
   there (KTD3 step 6). Evidence: today's revert branch (`stow/local/dot-local/bin/sd-commit-doc`, "reverting the shared
   clone's copies") checks out or cleans each named path in the shared clone, and in Phase 1 a prime session can hold an
   in-flight edit at that same path.
@@ -828,7 +766,7 @@ Brett's side can make, Q1, went to rex-linux and is not decided here.
   deriving the modified-doc set itself (KTD3 step 1). Evidence: `.githooks/lib-validate.sh:89-97` already computes the
   staged plus modified tracked set for pre-commit.
 - E3. Every `sd-commit-doc` failure ends with one `sd-commit-doc: next: <command>` line (KTD4).
-- E4. In Phase 1, tree resolution falls back to the read copy whenever no worktree is found, and refuses only a link
+- E4. In Phase 1, tree resolution falls back to the shared clone whenever no worktree is found, and refuses only a link
   that resolves outside the corpus (KTD5). U1 carries this as a regression contract. Evidence: the current script needs
   no checkout (`SD=${SD_DIR:-$HOME/dev/solutions-docs}`), so the draft's "neither" refusal would have broken every
   caller outside a checkout.
@@ -836,8 +774,8 @@ Brett's side can make, Q1, went to rex-linux and is not decided here.
 - E6. `slot-context.sh` chooses its `docs/solutions` line from the record's `solutions_worktree`, so a slot made before
   Phase 1 keeps the line that is true for it (U6).
 - E7. U1's racy two-calls-at-once scenario becomes a deterministic one, plus a scenario that a publish leaves a
-  read-copy edit at the same path alone (E1). The document review then replaced the lock this scenario first tested with
-  a pathspec commit, and the scenario now checks that a path another publish staged stays out of the commit.
+  shared-clone edit at the same path alone (E1). The document review then replaced the lock this scenario first tested
+  with a pathspec commit, and the scenario now checks that a path another publish staged stays out of the commit.
 - E8. U3's skip case for a missing worktree directory states what is true: nothing is left to protect, and teardown
   prunes the registration.
 - E9. The assumption that the solutions repo forbids force-pushes on the server is corrected. Its rulesets and
@@ -880,9 +818,9 @@ REALITY: pr-count pass two PRs, Phase 2 gated on Q1 and droppable; no ship-polic
 ### 1. Architecture
 
 - [CRITICAL] (confidence: 9/10) `stow/local/dot-local/bin/sd-commit-doc` —
-  `((${#tracked[@]} == 0)) || git -C "$SD" checkout -q -- "${tracked[@]}"`: the draft's "fast-forward the read copy as
-  today" would carry this revert into worktree mode, where the named path in the read copy can be a prime session's
-  in-flight edit. Fixed by E1.
+  `((${#tracked[@]} == 0)) || git -C "$SD" checkout -q -- "${tracked[@]}"`: the draft's "fast-forward the shared clone
+  as today" would carry this revert into worktree mode, where the named path in the shared clone can be a prime
+  session's in-flight edit. Fixed by E1.
 - [CRITICAL] (confidence: 9/10) `stow/local/dot-local/bin/sd-commit-doc` — `SD=${SD_DIR:-$HOME/dev/solutions-docs}`:
   today's callers need no checkout, and the draft's KTD5 refused a tree that was "neither" a worktree nor the corpus.
   Fixed by E4, with a regression contract in U1.
@@ -891,8 +829,8 @@ REALITY: pr-count pass two PRs, Phase 2 gated on Q1 and droppable; no ship-polic
 - Design twice. Shape A (chosen): one worktree per checkout, linked from `docs/solutions`, owned by whatever owns the
   checkout's lifecycle (agent-slot for slots, the SessionStart hook for primes); `sd-commit-doc` publishes in place.
   Shape B: `sd-commit-doc` owns every worktree, made per publish (`sd-commit-doc open`), and the link keeps pointing at
-  the read copy. B hides more behind one tool, but ce-compound writes before any tool runs, so B cannot route the draft
-  (Alternatives). A wins, because the link is the only boundary ce-compound respects (KTD1).
+  the shared clone. B hides more behind one tool, but ce-compound writes before any tool runs, so B cannot route the
+  draft (Alternatives). A wins, because the link is the only boundary ce-compound respects (KTD1).
 - Red flags: #6 two ways to do one task, transitional: `sd-commit-doc` keeps the copy-out path through Phase 1, and
   Phase 2 deletes it (U8). #2 information leakage: the worktree layout would have lived in both setup and the doctor;
   fixed by E5. #8 hand-synced lists: `CHECK_CODES` and the reasons table are already held equal to the README by
@@ -922,7 +860,7 @@ REALITY: pr-count pass two PRs, Phase 2 gated on Q1 and droppable; no ship-polic
 CODE PATHS                                               USER FLOWS
 [+] sd-commit-doc (U1, U8)                               [+] Slot close-out publishes a doc
   ├── resolve: SD_TREE / cwd worktree / link [★★★ plan]    ├── [★★★ plan] new, edit, delete, rename land on origin
-  ├── resolve: no worktree -> read copy (E4) [★★★ plan]    ├── [★★★ plan] origin moved: rebase and push
+  ├── resolve: no worktree -> shared clone (E4) [★★★ plan]    ├── [★★★ plan] origin moved: rebase and push
   ├── resolve: link outside corpus -> refuse [★★  plan]    ├── [★★★ plan] conflict: abort, resume, rerun pushes
   ├── pathspec commit leaves others' paths  [★★★ plan]     └── [★★  plan] offline: rerun pushes, no second commit
   ├── pre-flight via lib-validate (E2)      [★★★ plan]   [+] Slot teardown
@@ -930,8 +868,8 @@ CODE PATHS                                               USER FLOWS
   ├── overlap guard before rebase           [★★★ plan]     ├── [★★★ plan] draft, commit, or rebase holds the slot
   ├── rebase in progress -> refuse          [★★  plan]     ├── [★★  plan] cleanup reminder names sd-commit-doc
   ├── push: non-ff retry / hook / network   [★★★ plan]     └── [★★  plan] slot made before Phase 1 judged as today
-  ├── ff read copy, never revert (E1)       [★★★ plan]   [+] Session start
-  └── Phase 2: refuse read copy             [★★  plan]     ├── [★★★ plan] behind worktree fast-forwarded
+  ├── ff shared clone, never revert (E1)       [★★★ plan]   [+] Session start
+  └── Phase 2: refuse shared clone             [★★  plan]     ├── [★★★ plan] behind worktree fast-forwarded
 [+] agent-slot setup/check/teardown/doctor (U2-U4)         └── [★★  plan] overlapping draft left alone, named
   ├── worktree add, record, link, skip-worktree [★★★]    [+] Prime checkout (Phase 2)
   ├── rollback removes what setup made      [★★  plan]     ├── [★★★ plan] first session links its own worktree
@@ -974,8 +912,8 @@ Disabled in gstack config (`codex_reviews: disabled`); no outside reviewer ran a
   back under the trigger, and a split would outlive the reason for it.
 - Recording a worktree's HEAD in the teardown ledger for recovery after a force-push: it needs a force-push nobody may
   make (E9) and a fetch window, and `git gc` keeps the object for two weeks.
-- A PreToolUse guard on the read copy, a JSON mode for `sd-commit-doc`, and more than one push retry: Scope Boundaries
-  records why each was not built.
+- A PreToolUse guard on the shared clone, a JSON mode for `sd-commit-doc`, and more than one push retry: Scope
+  Boundaries records why each was not built.
 
 ### Failure modes
 
@@ -985,11 +923,11 @@ Disabled in gstack config (`codex_reviews: disabled`); no outside reviewer ran a
 | Slot setup              | corpus has no origin/main                        | U2 refusal scenario  | the launcher, as `solutions-symlink-missing`                     |
 | Publish                 | origin moved a named doc                         | U1 conflict scenario | the agent: exit 1 and the resume commands                        |
 | Publish                 | another publish staged its path in the same tree | U1 pathspec scenario | nobody needs to; each commit holds only its own paths            |
-| Publish                 | read copy holds a prime's edit at the path       | U1 E1 scenario       | nobody; the edit is left alone and the ff is reported            |
+| Publish                 | shared clone holds a prime's edit at the path    | U1 E1 scenario       | nobody; the edit is left alone and the ff is reported            |
 | Teardown                | draft or unpushed commit left behind             | U3 blocker scenarios | the agent, through the cleanup reminder; then the needs-you list |
 | Teardown                | `worktree remove` refuses after the re-check     | U3 keeps the slot    | needs-you list, `solutions-unpublished`                          |
 | Doctor                  | slot deleted by hand with drafts in its worktree | U4 orphan scenario   | whoever runs `agent-slot doctor`                                 |
-| Session start (Phase 2) | stray in the read copy                           | U8 stray scenario    | the user, through `systemMessage`                                |
+| Session start (Phase 2) | stray in the shared clone                        | U8 stray scenario    | the user, through `systemMessage`                                |
 
 No critical gap: no path is untested, unhandled, and silent at once.
 
@@ -1002,7 +940,7 @@ run the lanes in parallel and merge before U6. U5 moved to Phase 2 in the docume
 ### Implementation Tasks
 
 - [ ] T1 (P1, human: ~1 day / CC: ~45 min) — `sd-commit-doc` — in-place pathspec publish, pre-flight, overlap guard,
-  resume line, read-copy check, and read-copy fallback (U1; E1-E4, E7). Verify:
+  resume line, shared-clone check, and shared-clone fallback (U1; E1-E4, E7). Verify:
   `scripts/run-tests tests/sd-commit-doc.bats`, red first.
 - [ ] T2 (P1, human: ~4 h / CC: ~25 min) — agent-slot setup — layout function, worktree, record field, link,
   `skip-worktree`, rollback (U2; E5). Verify:
@@ -1012,19 +950,17 @@ run the lanes in parallel and merge before U6. U5 moved to Phase 2 in the docume
   tests/agent-slot-release.bats tests/agent-slot-docs.bats`.
 - [ ] T4 (P2, human: ~1 h / CC: ~10 min) — agent-slot doctor — orphan warning and corpus check (U4). Verify:
   `scripts/run-tests tests/agent-slot-doctor.bats tests/agent-slot-docs.bats`.
-- [ ] T5 (P3, Phase 2, human: ~2 h / CC: ~15 min) — autosync hook — fast-forward the session's worktree (U5). Verify:
-  `scripts/run-tests tests/solutions-clone-autosync.bats`.
+- T5 (U5): not built, Q1 option B.
 - [ ] T6 (P2, human: ~2 h / CC: ~20 min) — docs — Phase 1 wording, conditional slot-context line, the solutions repo's
   `AGENTS.md` (U6; E6). Verify: `scripts/run-tests tests/slot-context.bats`, then one real edit through a new slot's
   link.
-- [ ] T7-T9 (P3, after Q1) — Phase 2 (U7-U9).
+- T7 and T9 (U7, U9): not built, Q1 option B. U8 ships as built under option B.
 
 Effort ratios assumed: features ~30x, tests ~50x, docs ~10x.
 
 ### Unresolved decisions
 
-- Q1 (how prime checkouts get a worktree) is with rex-linux and blocks Phase 2 only. Phase 1 holds under any answer.
-- Q3 (where Brett edits the corpus by hand once Phase 2 ships), raised by the document review, blocks Phase 2 only.
+None: Q1 is option B and Q3 is moot (Resolved Questions).
 
 ### Completion summary
 
@@ -1164,8 +1100,7 @@ failure as success or prints a secret, so there is no CAP4 finding.
 - D3. Every `sd-commit-doc` failure ends with `reason:`, `state:`, and `next:` lines, the reason taken from a closed set
   the usage text lists (KTD4). This replaces E3's single `next:` line with the full footer.
 - D4. The `solutions-unpublished` blocker carries a `next_step` in the error object's shape (U3).
-- D5. Phase 2's refusal names `solutions-clone-autosync.sh --provision <checkout>`, a mode U7 adds for exactly this (U7,
-  U8).
+- D5. Not built, Q1 option B: the shared-clone refusal and its `--provision` fix exist only under option A.
 - D6. Each PR's `## Changelog` states its user-visible changes (Definition of Done).
 - D7. The push step captures git's stderr to classify the rejection and prints it on failure (KTD3 step 5).
 
@@ -1193,7 +1128,7 @@ DX IMPLEMENTATION CHECKLIST
 [ ] Every failure ends with reason:, state:, next: lines from the closed set
 [ ] Push stderr is classified and printed, never discarded
 [ ] solutions-unpublished carries next_step git -C <worktree> status --short
-[ ] Phase 2 refusal names --provision, and --provision is idempotent
+[-] Phase 2 refusal and --provision: not built, Q1 option B
 [ ] Each PR's Changelog states the user-visible change
 ```
 
@@ -1203,11 +1138,11 @@ DX IMPLEMENTATION CHECKLIST
   `scripts/run-tests tests/sd-commit-doc.bats`.
 - [ ] T11 (P2, human: ~30 min / CC: ~5 min) — `scripts/agent-slot/lib/check.sh` — D4, folded into T3. Verify:
   `scripts/run-tests tests/agent-slot-check.bats`.
-- [ ] T12 (P3, after Q1) — `solutions-clone-autosync.sh --provision` — D5, folded into Phase 2.
+- T12 (D5): not built, Q1 option B.
 
 ### Unresolved Decisions (DX)
 
-None beyond Q1, which predates this review.
+None: Q1 is option B (Resolved Questions).
 
 ---
 
@@ -1238,8 +1173,8 @@ Applied under the review's grant (implementation and verification sections):
   `commit-hook-failed` (feasibility).
 - KTD4's resume command uses `rebase --autostash`, so another tracked edit in the worktree no longer stops it
   (feasibility, adversarial).
-- An exit 0 with nothing to publish first checks the read copy: an edit made at `~/dev/solutions-docs/<path>` now fails
-  as `path-in-read-copy` instead of passing as published, and U6 tells agents to edit qmd hits through
+- An exit 0 with nothing to publish first checks the shared clone: an edit made at `~/dev/solutions-docs/<path>` now
+  fails as `path-in-shared-clone` instead of passing as published, and U6 tells agents to edit qmd hits through
   `docs/solutions/<path>` (adversarial, product-lens).
 - KTD5 refuses a worktree of any other corpus, and the suites run outside any checkout, so a test can never commit to
   the real corpus through the host's link (feasibility).
@@ -1256,8 +1191,8 @@ Applied by the plan's author, outside the review's grant:
   before a close-out, and the long-lived prime worktrees are where it pays (scope-guardian). The Phase 1 cost of a
   worktree that stays at its setup commit is recorded under Sequencing.
 - The Objective now says what the plan guarantees: no agent drafts in a tree that agents in other checkouts write in,
-  and the read copy changes only by fast-forward, with anything origin lacks reported rather than committed (coherence,
-  adversarial).
+  and the shared clone changes only by fast-forward, with anything origin lacks reported rather than committed
+  (coherence, adversarial).
 - R8 names the untrusted-checkout exception and the refusal's remedy, and R9 and R10 cover prime worktrees (coherence,
   product-lens).
 - The Execution profile counts eight agent-slot libraries, the Problem Frame records that the 20:38 doc was published at
@@ -1267,7 +1202,7 @@ Applied by the plan's author, outside the review's grant:
 Left for rex-linux:
 
 - Q1 now lists option A's cost for sessions sharing a prime worktree, and option B's cost: the nightly job keeps
-  committing the read copy (adversarial, product-lens).
+  committing the shared clone (adversarial, product-lens).
 - Q3, new: where Brett edits the corpus by hand once Phase 2 ships, since his Compounded Solutions session would
   otherwise produce strays and lose the nightly commit (product-lens, adversarial).
 
@@ -1279,16 +1214,16 @@ Left for rex-linux:
 +====================================================================+
 |              DX PLAN REVIEW — SCORECARD                             |
 +====================================================================+
-| Dimension            | Score  | Prior  | Trend  |
-|----------------------|--------|--------|--------|
-| Getting Started      |  9/10  |  —     |  new   |
-| API/CLI/SDK          |  8/10  |  —     |  new   |
-| Error Messages       |  8/10  |  —     |  new   |
-| Documentation        |  8/10  |  —     |  new   |
-| Upgrade Path         |  8/10  |  —     |  new   |
-| Dev Environment      |  7/10  |  —     |  new   |
-| Community            |  5/10  |  —     |  new   |
-| DX Measurement       |  6/10  |  —     |  new   |
+| Dimension       | Score | Prior | Trend |
+| --------------- | ----- | ----- | ----- |
+| Getting Started | 9/10  | —     | new   |
+| API/CLI/SDK     | 8/10  | —     | new   |
+| Error Messages  | 8/10  | —     | new   |
+| Documentation   | 8/10  | —     | new   |
+| Upgrade Path    | 8/10  | —     | new   |
+| Dev Environment | 7/10  | —     | new   |
+| Community       | 5/10  | —     | new   |
+| DX Measurement  | 6/10  | —     | new   |
 +--------------------------------------------------------------------+
 | TTHW                 | one command, seconds | unbounded on collision | ↑ |
 | Competitive Rank     | Champion                                     |
@@ -1326,10 +1261,9 @@ dry-run (NOT in scope). DX Measurement is 6: Phase 1 is measured by one manual c
 
 - **OUTSIDE COVERAGE:** codex, plan-review phase, disabled in gstack config (`codex_reviews: disabled`); no findings.
 - **VERDICT:** DX CLEARED; ENG reviewed with every finding applied to the plan (eng review required); document review
-  complete, with 12 corrections applied and two questions left for rex-linux. Phase 1 is ready to implement on
-  rex-linux's go-ahead.
+  complete, with 12 corrections applied. The operator chose option B for Q1, which makes Q3 moot, and Phase 1 ships with
+  the nightly `sync` mode and the stray report.
 
 **UNRESOLVED DECISIONS:**
 
-- Q1: how prime checkouts get a worktree, with rex-linux; blocks Phase 2 only.
-- Q3: where Brett edits the corpus by hand once Phase 2 ships, with rex-linux; blocks Phase 2 only.
+None: Q1 is option B and Q3 is moot (Resolved Questions).
