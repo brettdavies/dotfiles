@@ -108,16 +108,22 @@ for entry in "${REPOS[@]}"; do
   # up here as phantom working-tree changes and the local branch silently falls
   # behind. Fast-forward first so the sweep below only ever sees genuinely
   # uncommitted leftovers, never a re-commit (or stale re-commit) of upstream
-  # content. --ff-only refuses to merge or clobber if the branch has diverged;
-  # --autostash preserves in-flight edits across the fast-forward.
+  # content. --ff-only refuses to merge or clobber if the branch has diverged.
+  # In commit mode --autostash carries in-flight edits across the fast-forward.
+  # Sync mode never stashes: a conflicting re-apply would write conflict markers
+  # into another session's draft, and a plain fast-forward instead refuses,
+  # writing nothing, when origin changed a path that holds a local change.
+  ff_flags=(--ff-only)
+  [[ $mode == sync ]] || ff_flags+=(--autostash)
   if ! git -C "$repo_path" fetch --quiet origin "$default_branch" 2>>"$LOG_FILE"; then
     log "  WARNING: $repo_name — fetch failed; proceeding without sync"
   elif $DRY_RUN; then
     behind=$(git -C "$repo_path" rev-list --count "HEAD..origin/$default_branch" 2>/dev/null || echo '?')
     log "DRY-RUN: $repo_name — would fast-forward ($behind behind origin/$default_branch)"
-  elif ! git -C "$repo_path" merge --ff-only --autostash "origin/$default_branch" 2>>"$LOG_FILE"; then
-    log "WARNING: $repo_name — local diverged from origin/$default_branch (ff-only refused); skipping, needs manual reconcile"
+  elif ! git -C "$repo_path" merge "${ff_flags[@]}" "origin/$default_branch" 2>>"$LOG_FILE"; then
+    log "WARNING: $repo_name — ff-only to origin/$default_branch refused (diverged, or a local change is in the way); skipping, needs manual reconcile"
     FAILED=$((FAILED + 1))
+    [[ $mode != sync ]] || log_strays "$repo_path" "$repo_name"
     continue
   fi
 

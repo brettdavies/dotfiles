@@ -12,12 +12,15 @@
 #
 # Guard shape per
 # docs/solutions/workflow-issues/unattended-autocommit-on-shared-clone-must-sync-then-rebase.md:
-# `git fetch` then `git merge --ff-only --autostash`. A merely-behind clone
-# fast-forwards; a genuinely-diverged one is surfaced-and-skipped (merge --ff-only
-# aborts rather than merging or forcing). It NEVER commits, git-adds, resets, or
-# forces — a hard reset would destroy a concurrent writer's in-flight work.
-# --autostash carries in-flight tracked edits across the fast-forward; phantom
-# copies of already-pushed files are reverted, then the fast-forward retried.
+# `git fetch` then `git merge --ff-only`. A merely-behind clone fast-forwards;
+# a genuinely-diverged one is surfaced-and-skipped (merge --ff-only aborts
+# rather than merging or forcing). It NEVER commits, git-adds, stashes, resets,
+# or forces — a hard reset would destroy a concurrent writer's in-flight work.
+# A plain fast-forward carries in-flight edits to paths origin did not change,
+# and refuses, writing nothing, when origin changed a path holding one; with
+# --autostash that re-apply would write conflict markers into the draft and
+# leave it in the shared stash. Phantom copies of already-pushed files are
+# reverted, then the fast-forward retried.
 #
 # Every other dirty path is a stray: prime checkouts draft in this clone and
 # publish by sd-commit-doc's copy-out, so a stray can be a draft still in
@@ -94,18 +97,24 @@ report() {
   exit 0
 }
 
-# git prints "Created autostash" on stdout even with --quiet, and anything
-# beside the JSON object turns the hook's output into plain text.
 ff() {
-  git -C "$SD" merge --ff-only --autostash --quiet "origin/$branch" >/dev/null 2>&1
+  git -C "$SD" merge --ff-only --quiet "origin/$branch" >/dev/null 2>&1
 }
 
-git -C "$SD" fetch --quiet origin "$branch" 2>/dev/null || report
+# A hung fetch would run past the hook's 15 s budget and take the stray report
+# with it.
+fetch() {
+  local bound=()
+  ! command -v timeout >/dev/null 2>&1 || bound=(timeout 10)
+  GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=5' GIT_TERMINAL_PROMPT=0 \
+    "${bound[@]}" git -C "$SD" fetch --quiet origin "$branch" 2>/dev/null
+}
+
+fetch || report
 local_ref=$(git -C "$SD" rev-parse --quiet --verify "$branch" 2>/dev/null) || report
 remote_ref=$(git -C "$SD" rev-parse --quiet --verify "origin/$branch" 2>/dev/null) || report
 [ "$local_ref" = "$remote_ref" ] && report
 
-# Behind-and-clean fast-forwards; --autostash preserves in-flight tracked edits.
 # --ff-only refuses (aborts, never force-resets) a genuinely-diverged branch.
 if ff; then
   notes+=("solutions-clone-autosync: fast-forwarded $SD to origin/$branch")
@@ -116,7 +125,7 @@ fi
 # already pushed, as worktree edits or untracked files, and an untracked one
 # blocks the ff. A dirty path is a phantom only when its content matches
 # origin's, so discarding it loses nothing; any other dirty path is in-flight
-# work, left for --autostash to carry or to block the ff. Tracked phantoms go to
+# work, which the ff carries or which blocks it. Tracked phantoms go to
 # checkout and untracked ones to clean, because `git checkout -- <paths>`
 # refuses every path when any one is unknown to the index.
 matches_origin() {
@@ -153,5 +162,5 @@ if ((${#tracked[@]} + ${#untracked[@]} > 0)); then
   fi
 fi
 
-notes+=("solutions-clone-autosync: $SD diverged from origin/$branch; left untouched (needs manual reconcile)")
+notes+=("solutions-clone-autosync: $SD not fast-forwarded to origin/$branch: it diverged, or origin changed a path that holds a local change; left untouched (needs manual reconcile)")
 report

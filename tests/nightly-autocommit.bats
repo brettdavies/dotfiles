@@ -82,6 +82,23 @@ origin_head() {
   grep -E 'Summary: .*synced=1' "$LOG"
 }
 
+@test "sync leaves a draft of a doc origin also changed as it was, and still logs it" {
+  make_repo sd
+  git clone -q "$T/sd.git" "$T/sd-other"
+  echo upstream-edit >"$T/sd-other/seed.md"
+  git -C "$T/sd-other" commit -q -am "upstream edit"
+  git -C "$T/sd-other" push -q origin main
+  echo "prime draft" >"$T/sd/seed.md"
+
+  NIGHTLY_AUTOCOMMIT_REPOS="$T/sd|main|sync" run "$SCRIPT"
+  [ "$status" -eq 0 ]
+
+  [ "$(cat "$T/sd/seed.md")" = "prime draft" ]
+  [ -z "$(git -C "$T/sd" stash list)" ]
+  [ "$(git -C "$T/sd" status --porcelain)" = " M seed.md" ]
+  grep -E '^[^ ]+ WARNING: sd .*not committed.*seed\.md$' "$LOG"
+}
+
 @test "a commit repo still commits and pushes beside a sync repo" {
   make_repo vault
   make_repo sd

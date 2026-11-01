@@ -307,6 +307,21 @@ STUB
   [ "$(cat "$SD/seed.md")" = "operator edit" ]
 }
 
+@test "leaves a draft of a doc origin also changed exactly as it was, with no stash and no conflict markers" {
+  echo upstream-edit >"$PUSHER/seed.md"
+  git -C "$PUSHER" commit -q -am "upstream edit"
+  git -C "$PUSHER" push -q origin main
+  echo "prime draft" >"$SD/seed.md"
+
+  run "$SCRIPT" <"$TMP/prime.json"
+  [ "$status" -eq 0 ]
+  one_json_object
+  [ "$(cat "$SD/seed.md")" = "prime draft" ]
+  [ -z "$(git -C "$SD" stash list)" ]
+  [ "$(git -C "$SD" status --porcelain)" = " M seed.md" ]
+  [[ "$(field .systemMessage)" == *seed.md* ]]
+}
+
 @test "reverts a phantom copy without reporting it as a stray" {
   leave_phantom_new_and_edit
 
