@@ -229,7 +229,7 @@ _check_uncommitted() {
   fi
   target=$(readlink "$1/docs/solutions" || true)
   if [[ -n $target && ($target == "$AS_SOLUTIONS" \
-    || $target == "$(contract_json -r '.solutions_worktree // ""' <<<"$RECORD")") ]]; then
+    || $target == "$(record_solutions_worktree)") ]]; then
     out=$(grep -vxF ' M docs/solutions' <<<"$out" || true)
   fi
   [[ -z $out ]] || _check_block uncommitted-changes \
@@ -254,31 +254,42 @@ _check_stash() {
 # shared clone's stash and other worktrees are never read. A record with no worktree, or one whose directory is gone,
 # leaves nothing to protect.
 _check_solutions() {
-  local wt status commits paths line
+  local wt path
   local -a values=()
-  wt=$(contract_json -r '.solutions_worktree // ""' <<<"$RECORD")
+  wt=$(record_solutions_worktree)
   [[ -n $wt && -d $wt ]] || return 0
-  if ! status=$(git -C "$wt" -c core.quotePath=false status --porcelain=v1 --untracked-files=all --no-renames) \
-    || ! commits=$(git -C "$wt" rev-list --count HEAD --not refs/remotes/origin/main) \
-    || ! paths=$(git -C "$wt" rev-parse --path-format=absolute --git-path rebase-merge --git-path rebase-apply); then
+  if ! solutions_state "$wt"; then
     _check_block git-state-unknown "git could not read the slot's solutions worktree $wt"
     return
   fi
-  while IFS= read -r line; do
-    [[ -z $line ]] || values+=("docs/solutions/${line:3}")
-  done <<<"$status"
-  ((commits == 0)) || values+=("$(_check_plural "$commits" "unpublished commit")")
-  while IFS= read -r line; do
-    if [[ -d $line ]]; then
-      values+=("rebase in progress")
-      break
-    fi
-  done <<<"$paths"
+  for path in "${SOLUTIONS_PATHS[@]}"; do values+=("docs/solutions/$path"); done
+  ((SOLUTIONS_COMMITS == 0)) || values+=("$(_check_plural "$SOLUTIONS_COMMITS" "unpublished commit")")
+  ((SOLUTIONS_REBASE == 0)) || values+=("rebase in progress")
   ((${#values[@]} > 0)) || return 0
   _check_block solutions-unpublished "the slot's solutions worktree holds what origin/main lacks: ${values[*]:0:3}$(
     ((${#values[@]} <= 3)) || echo ' and more'); publish it with sd-commit-doc or discard it" "${#values[@]}" \
     "${values[@]}"
   _check_solutions_next "$wt"
+}
+
+# Usage: solutions_state <worktree>; sets SOLUTIONS_PATHS to each path that differs from HEAD there, untracked ones
+# included, SOLUTIONS_COMMITS to the count of its commits the local origin/main lacks, and SOLUTIONS_REBASE to 1 while
+# a rebase is in progress. Returns 1 when git cannot read the worktree.
+SOLUTIONS_PATHS=() SOLUTIONS_COMMITS=0 SOLUTIONS_REBASE=0
+solutions_state() {
+  local status rebase line
+  SOLUTIONS_PATHS=() SOLUTIONS_COMMITS=0 SOLUTIONS_REBASE=0
+  status=$(git -C "$1" -c core.quotePath=false status --porcelain=v1 --untracked-files=all --no-renames 2>/dev/null) \
+    || return 1
+  SOLUTIONS_COMMITS=$(git -C "$1" rev-list --count HEAD --not refs/remotes/origin/main 2>/dev/null) || return 1
+  rebase=$(git -C "$1" rev-parse --path-format=absolute --git-path rebase-merge --git-path rebase-apply 2>/dev/null) \
+    || return 1
+  while IFS= read -r line; do
+    [[ -z $line ]] || SOLUTIONS_PATHS+=("${line:3}")
+  done <<<"$status"
+  while IFS= read -r line; do
+    [[ ! -d $line ]] || SOLUTIONS_REBASE=1
+  done <<<"$rebase"
 }
 
 # Usage: _check_solutions_next <worktree>; gives the last blocker the next step that shows what the worktree holds.

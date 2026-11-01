@@ -31,12 +31,11 @@ slot_rollback() {
 # Usage: _slot_rollback_solutions <repo> <n>; force-removes the worktree the record names, and only one under the
 # repo's solutions directory, then prunes its registration.
 _slot_rollback_solutions() {
-  local wt real out
+  local wt out
   record_read "$1" "$2" || return 0
-  wt=$(contract_json -r '.solutions_worktree // ""' <<<"$RECORD")
+  wt=$(record_solutions_worktree)
   [[ -n $wt ]] || return 0
-  real=$(realpath -m "$wt")
-  [[ $real == "$(realpath -m "$(slot_solutions_dir "$1")")"/* ]] || return 1
+  path_under "$wt" "$(slot_solutions_dir "$1")" || return 1
   git -C "$AS_SOLUTIONS" worktree remove --force "$wt" 2>/dev/null || true
   if [[ -e $wt ]]; then
     bounded out trash 60 "$AS_TRASH" "$wt" || return 1

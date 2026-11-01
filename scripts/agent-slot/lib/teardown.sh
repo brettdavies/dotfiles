@@ -33,7 +33,7 @@ _teardown_recheck() {
 # CHECK_BLOCKERS and returns 1.
 _teardown_solutions() {
   local wt err
-  wt=$(contract_json -r '.solutions_worktree // ""' <<<"$RECORD")
+  wt=$(record_solutions_worktree)
   [[ -n $wt ]] || return 0
   if [[ -d $wt ]] && ! err=$(git -C "$AS_SOLUTIONS" worktree remove "$wt" 2>&1); then
     CHECK_BLOCKERS=()

@@ -18,6 +18,17 @@ slot_claim_file() { printf '%s/%s/.%s.claim.json' "$AS_ROOT" "$1" "$2"; }
 # .git directory even with permission prompts skipped.
 slot_solutions_dir() { printf '%s/%s/.solutions' "$AS_ROOT" "$1"; }
 
+# Usage: path_under <path> <root>...; true when the path is inside one of the roots, each resolved as realpath -m does.
+path_under() {
+  local path root
+  path=$(realpath -m "$1")
+  shift
+  for root in "$@"; do
+    [[ $path != "$(realpath -m "$root")"/* ]] || return 0
+  done
+  return 1
+}
+
 # The record a reader sees: the clone's own once it has one, else the claim, which also covers a clone whose setup
 # stopped before its record moved in.
 record_file() {
@@ -119,6 +130,9 @@ record_read() {
   RECORD=$(<"$file")
   record_check_schema "$RECORD" "$file"
 }
+
+# Usage: record_solutions_worktree; prints the worktree of the solutions repo that RECORD names, or nothing.
+record_solutions_worktree() { contract_json -r '.solutions_worktree // ""' <<<"$RECORD"; }
 
 record_check_schema() {
   local schema version

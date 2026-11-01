@@ -103,40 +103,31 @@ doctor_check_trust() {
 # a slot that is gone. Its files can be the only copy of a doc, so it is reported with what it holds that origin/main
 # lacks and never removed here.
 doctor_check_solutions_worktrees() {
-  local repo n wt real dirty commits roots=()
+  local repo n wt dirty commits roots=()
   local -A live=()
   [[ -d $AS_SOLUTIONS/.git ]] || return 0
   while read -r repo; do
     [[ -n $repo ]] || continue
-    roots+=("$(realpath -m "$(slot_solutions_dir "$repo")")")
+    roots+=("$(slot_solutions_dir "$repo")")
     while read -r n; do
       if [[ -n $n ]] && record_read "$repo" "$n"; then
-        wt=$(contract_json -r '.solutions_worktree // ""' <<<"$RECORD")
+        wt=$(record_solutions_worktree)
         [[ -z $wt ]] || live[$(realpath -m "$wt")]=1
       fi
     done < <(slot_numbers "$repo")
   done < <(slot_repos)
   ((${#roots[@]} > 0)) || return 0
   while IFS= read -r wt; do
-    real=$(realpath -m "$wt")
-    [[ -d $wt && -z ${live[$real]:-} ]] || continue
-    _doctor_under_any "$real" "${roots[@]}" || continue
-    dirty=$(git -C "$wt" status --porcelain --untracked-files=all 2>/dev/null | grep -c . || true)
-    commits=$(git -C "$wt" rev-list --count HEAD --not refs/remotes/origin/main 2>/dev/null || echo '?')
+    [[ -d $wt && -z ${live[$(realpath -m "$wt")]:-} ]] || continue
+    path_under "$wt" "${roots[@]}" || continue
+    dirty='?' commits='?'
+    if solutions_state "$wt"; then
+      dirty=${#SOLUTIONS_PATHS[@]} commits=$SOLUTIONS_COMMITS
+    fi
     doctor_finding warning solutions-worktree-orphaned "$wt is a worktree of the solutions repo whose slot is gone; it \
 holds $dirty changed file(s) and $commits unpublished commit(s) that origin/main lacks" \
       --value "$wt $dirty $commits" --command "git -C $wt status"
   done < <(git -C "$AS_SOLUTIONS" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
-}
-
-# Usage: _doctor_under_any <path> <root>...; true when the path is inside one of the roots.
-_doctor_under_any() {
-  local path=$1 root
-  shift
-  for root in "$@"; do
-    [[ $path != "$root"/* ]] || return 0
-  done
-  return 1
 }
 
 doctor_check_versions() {

@@ -66,7 +66,7 @@ context_text() {
     + (if (.title // "") == "" then "" else " (\(.title))" end)) | join(", ")' <<<"$RECORD")
   base=$(contract_json -r '.base // "the default branch"' <<<"$RECORD")
   prime=$(contract_json -r '.prime // "for this repo"' <<<"$RECORD")
-  if [[ -n $(contract_json -r '.solutions_worktree // ""' <<<"$RECORD") ]]; then
+  if [[ -n $(record_solutions_worktree) ]]; then
     solutions="docs/solutions is this slot's own worktree of the solutions repo, which no other agent writes in; \
 publish from it only through \`sd-commit-doc\`, and the slot is not torn down while it holds anything unpublished."
   else

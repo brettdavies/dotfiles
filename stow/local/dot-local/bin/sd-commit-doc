@@ -127,6 +127,9 @@ refuse() {
   exit 1
 }
 
+validation_failed="frontmatter validation failed; fix the fields above and rerun"
+not_forwarded="sd-commit-doc: pushed; $SD not fast-forwarded (it holds a change at a published path, diverged, or is busy); the session-start autosync and the nightly sync reconcile it"
+
 physical() { (cd "$1" 2>/dev/null && pwd -P); }
 
 # validate_in <root> <newline-separated paths> [changed]
@@ -150,7 +153,6 @@ validate_in() {
   )
 }
 
-# Prints the toplevel of the linked worktree of SD's corpus that holds $1.
 corpus_worktree() {
   local common top
   common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
@@ -207,8 +209,6 @@ sd_top=$(physical "$SD")
 step="resolving the tree"
 checkout=$(git rev-parse --show-toplevel 2>/dev/null) || checkout=
 resolve_tree
-
-# ---------------------------------------------------------------- worktree --
 
 head_published() { git -C "$tree" merge-base --is-ancestor HEAD "origin/$branch"; }
 
@@ -351,7 +351,7 @@ publish_in_place() {
   check_paths
 
   step="validating the docs"
-  preflight || refuse validation-failed "" "frontmatter validation failed; fix the fields above and rerun"
+  preflight || refuse validation-failed "" "$validation_failed"
 
   step="staging in $tree"
   stage_paths
@@ -376,8 +376,7 @@ publish_in_place() {
   # Never revert or clean here: a file at a published path in the shared
   # clone can be a prime session's draft.
   step="fast-forwarding the shared clone"
-  git -C "$SD" merge --ff-only --quiet "origin/$branch" 2>/dev/null \
-    || echo "sd-commit-doc: pushed; $SD not fast-forwarded (it holds a change at a published path, or is busy); the autosync and nightly sync reconcile it" >&2
+  git -C "$SD" merge --ff-only --quiet "origin/$branch" 2>/dev/null || echo "$not_forwarded" >&2
   echo "sd-commit-doc: committed and pushed ${#paths[@]} file(s) from $tree (worktree)"
 }
 
@@ -385,8 +384,6 @@ if [[ $mode == worktree ]]; then
   publish_in_place
   exit 0
 fi
-
-# ---------------------------------------------------------------- copy-out --
 
 step="checking the named files"
 for f in "${paths[@]}"; do
@@ -398,7 +395,7 @@ done
 
 step="frontmatter pre-flight"
 validate_in "$SD" "$(printf '%s\n' "${paths[@]}")" \
-  || refuse validation-failed "" "frontmatter validation failed; fix the fields above and retry"
+  || refuse validation-failed "" "$validation_failed"
 
 step="fetching origin/$branch"
 git -C "$SD" fetch --quiet origin "$branch"
@@ -450,8 +447,7 @@ if ! git -C "$SD" merge --ff-only --quiet "origin/$branch" 2>/dev/null; then
   ((${#tracked[@]} == 0)) || git -C "$SD" checkout -q -- "${tracked[@]}"
   ((${#untracked[@]} == 0)) || git -C "$SD" clean -fq -- "${untracked[@]}"
   step="fast-forwarding the shared clone"
-  git -C "$SD" merge --ff-only --quiet "origin/$branch" 2>/dev/null \
-    || echo "sd-commit-doc: pushed OK; shared checkout not fast-forwarded (diverged or busy) — nightly sync will reconcile" >&2
+  git -C "$SD" merge --ff-only --quiet "origin/$branch" 2>/dev/null || echo "$not_forwarded" >&2
 fi
 
 echo "sd-commit-doc: committed and pushed ${#paths[@]} file(s) from $SD (copy-out)"

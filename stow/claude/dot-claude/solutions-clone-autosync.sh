@@ -52,8 +52,6 @@ JQ=$(command -v jaq || command -v jq) || JQ=
 notes=()
 max_named=10
 
-# The SessionStart payload's cwd, else the working directory, is under the
-# agent-slot root.
 in_slot() {
   local payload="" dir="" root
   if [ ! -t 0 ]; then
@@ -65,7 +63,6 @@ in_slot() {
   [[ $dir == "$root"/* ]]
 }
 
-# Prints the one JSON object when there is anything to say, then exits 0.
 report() {
   local entry named n noun them any held msg=""
   local -a strays=()
@@ -103,7 +100,6 @@ ff() {
   git -C "$SD" merge --ff-only --autostash --quiet "origin/$branch" >/dev/null 2>&1
 }
 
-# Already current: only strays can be left to report (the common path).
 git -C "$SD" fetch --quiet origin "$branch" 2>/dev/null || report
 local_ref=$(git -C "$SD" rev-parse --quiet --verify "$branch" 2>/dev/null) || report
 remote_ref=$(git -C "$SD" rev-parse --quiet --verify "origin/$branch" 2>/dev/null) || report
