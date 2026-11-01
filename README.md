@@ -596,7 +596,8 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `slot-outside-root`           | 78   | The slot path resolves outside the slot root, so nothing was deleted; look at it by hand       |
 | `gh-auth-missing`             | 77   | `gh` is not signed in; `gh auth login`                                                         |
 | `git-crypt-key-missing`       | 78   | There is no git-crypt key to unlock git-crypt repos with                                       |
-| `solutions-corpus-missing`    | 78   | The shared solutions repo is not cloned                                                        |
+| `solutions-corpus-missing`    | 78   | The shared solutions repo is not cloned, or has no origin/main to make slot worktrees from     |
+| `solutions-worktree-orphaned` | 0    | Doctor warning: a slot's solutions worktree outlived its slot; `value` is path, files, commits |
 | `slots-config-missing`        | 78   | `slots.conf` is not deployed; `scripts/stow-deploy tmux`                                       |
 | `prune-timer-inactive`        | 78   | The slot server's orphan-client prune timer is not enabled                                     |
 | `slot-path-untrusted`         | 78   | Doctor warning: a slot path, or the repo's prime checkout, is not trusted in Claude yet        |
