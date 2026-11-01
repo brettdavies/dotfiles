@@ -1,7 +1,10 @@
 #!/usr/bin/env bats
 # Tests for solutions-clone-autosync: the SessionStart safety net that
-# fast-forwards the shared solutions clone to origin.
-# Uses local bare repos as origin so nothing touches the network.
+# fast-forwards the shared solutions clone to origin and reports what the clone
+# holds that origin lacks.
+# Uses local bare repos as origin so nothing touches the network. Each run gets
+# a SessionStart payload whose cwd is a fixture directory, judged against a
+# fixture slot root, so where bats itself runs never matters.
 
 bats_require_minimum_version 1.5.0
 
@@ -40,10 +43,31 @@ setup() {
   git -C "$PUSHER" checkout -q -b main origin/main
 
   export SD_DIR="$SD"
+
+  export AGENT_SLOT_ROOT="$TMP/slots"
+  PRIME="$TMP/prime-checkout"
+  SLOT="$AGENT_SLOT_ROOT/dotfiles/1"
+  mkdir -p "$PRIME" "$SLOT"
+  payload "$PRIME" >"$TMP/prime.json"
+  payload "$SLOT" >"$TMP/slot.json"
 }
 
 teardown() {
   rm -rf "$TMP"
+}
+
+payload() {
+  jaq -n -c --arg cwd "$1" '{session_id: "test", hook_event_name: "SessionStart", source: "startup", cwd: $cwd}'
+}
+
+# The whole output is one JSON object and nothing else.
+one_json_object() {
+  [ "$(printf '%s' "$output" | jaq -s 'length')" = 1 ]
+  printf '%s' "$output" | jaq -e 'type == "object" and .hookSpecificOutput.hookEventName == "SessionStart"' >/dev/null
+}
+
+field() {
+  printf '%s' "$output" | jaq -r "$1 // empty"
 }
 
 # Advance origin/main by one commit via the independent PUSHER clone, so SD is
@@ -94,7 +118,7 @@ STUB
 
 @test "no-ops a clone already current with origin" {
   before=$(git -C "$SD" rev-parse main)
-  run "$SCRIPT"
+  run "$SCRIPT" <"$TMP/prime.json"
   [ "$status" -eq 0 ]
   [ "$(git -C "$SD" rev-parse main)" = "$before" ]
   [ -z "$(git -C "$SD" status --porcelain)" ]
@@ -102,7 +126,7 @@ STUB
 }
 
 @test "exits cleanly when the solutions repo is absent" {
-  SD_DIR="$TMP/does-not-exist" run "$SCRIPT"
+  SD_DIR="$TMP/does-not-exist" run "$SCRIPT" <"$TMP/prime.json"
   [ "$status" -eq 0 ]
 }
 
@@ -110,12 +134,14 @@ STUB
   advance_origin
   [ "$(git -C "$SD" rev-parse main)" != "$(git -C "$SD" rev-parse origin/main)" ]
 
-  run "$SCRIPT"
+  run "$SCRIPT" <"$TMP/prime.json"
   [ "$status" -eq 0 ]
 
   [ "$(git -C "$SD" rev-parse main)" = "$(git -C "$SD" rev-parse origin/main)" ]
   [ -z "$(git -C "$SD" status --porcelain)" ]
   [[ "$output" == *"fast-forwarded"* ]]
+  one_json_object
+  [ -z "$(field .systemMessage)" ]
 }
 
 @test "fast-forwards past a phantom copy of an already-pushed file" {
@@ -125,7 +151,7 @@ STUB
   name=$(advance_origin new.md)
   git -C "$SD" show "origin/main:$name" >"$SD/$name" # phantom worktree copy blocks ff
 
-  run "$SCRIPT"
+  run "$SCRIPT" <"$TMP/prime.json"
   [ "$status" -eq 0 ]
 
   [ "$(git -C "$SD" rev-parse main)" = "$(git -C "$SD" rev-parse origin/main)" ]
@@ -136,7 +162,7 @@ STUB
   leave_phantom_new_and_edit
   record_reverts
 
-  PATH="$TMP/bin:$PATH" run "$SCRIPT"
+  PATH="$TMP/bin:$PATH" run "$SCRIPT" <"$TMP/prime.json"
   [ "$status" -eq 0 ]
   cat "$REVERTS"
 
@@ -153,7 +179,7 @@ STUB
   git -C "$SD" show "origin/main:$name" >"$SD/$name" # phantom copy blocks ff
   echo wip >"$SD/seed.md"                            # origin never touched seed.md
 
-  run "$SCRIPT"
+  run "$SCRIPT" <"$TMP/prime.json"
   [ "$status" -eq 0 ]
 
   [ "$(git -C "$SD" rev-parse main)" = "$(git -C "$SD" rev-parse origin/main)" ]
@@ -164,7 +190,7 @@ STUB
   name=$(advance_origin new.md)
   echo "local draft" >"$SD/$name" # same path as the pushed doc, other content
 
-  run "$SCRIPT"
+  run "$SCRIPT" <"$TMP/prime.json"
   [ "$status" -eq 0 ]
 
   [ "$(cat "$SD/$name")" = "local draft" ]
@@ -178,7 +204,7 @@ STUB
   # like; the checkout of the edited copy cannot take it.
   touch "$SD/.git/index.lock"
 
-  run "$SCRIPT"
+  run "$SCRIPT" <"$TMP/prime.json"
   [ "$status" -eq 1 ]
   # Claude Code's hook-error notice shows only the first line.
   [[ "${lines[0]}" == "solutions-clone-autosync: could not revert the phantom copies in $SD;"* ]]
@@ -194,7 +220,7 @@ STUB
   advance_origin
   [ "$local_head" != "$(git -C "$SD" rev-parse origin/main)" ]
 
-  run "$SCRIPT"
+  run "$SCRIPT" <"$TMP/prime.json"
   [ "$status" -eq 0 ] # fail-open: the hook never breaks the session
 
   # The diverged clone is NOT reset: its local commit and file survive.
@@ -202,6 +228,7 @@ STUB
   [ -f "$SD/local.md" ]
   [ "$(git -C "$SD" log -1 --format=%s main)" = "local divergent commit" ]
   [[ "$output" == *"diverged"* ]]
+  one_json_object
 }
 
 @test "leaves a diverged clone's uncommitted local work untouched" {
@@ -213,9 +240,117 @@ STUB
   advance_origin
   echo wip >"$SD/other-agent-wip.md" # untracked in-flight work
 
-  run "$SCRIPT"
+  run "$SCRIPT" <"$TMP/prime.json"
   [ "$status" -eq 0 ]
 
   [ -f "$SD/other-agent-wip.md" ]
   [ "$(cat "$SD/other-agent-wip.md")" = wip ]
+}
+
+@test "names a stray untracked doc to the person in a prime session and keeps it" {
+  echo "draft in progress" >"$SD/workflow-issues/draft.md"
+  before=$(git -C "$SD" rev-parse main)
+
+  run "$SCRIPT" <"$TMP/prime.json"
+  [ "$status" -eq 0 ]
+  one_json_object
+
+  [[ "$(field .systemMessage)" == *"workflow-issues/draft.md"* ]]
+  [[ "$(field .systemMessage)" == *"sd-commit-doc"* ]]
+  [[ "$(field .hookSpecificOutput.additionalContext)" == *"workflow-issues/draft.md"* ]]
+  [ "$(cat "$SD/workflow-issues/draft.md")" = "draft in progress" ]
+  [ "$(git -C "$SD" rev-parse main)" = "$before" ]
+  [ "$(git -C "$SD" status --porcelain --untracked-files=all)" = "?? workflow-issues/draft.md" ]
+}
+
+@test "tells a slot session about a stray untracked doc only through additionalContext" {
+  echo "draft in progress" >"$SD/workflow-issues/draft.md"
+
+  run "$SCRIPT" <"$TMP/slot.json"
+  [ "$status" -eq 0 ]
+  one_json_object
+
+  [ -z "$(field .systemMessage)" ]
+  ctx=$(field .hookSpecificOutput.additionalContext)
+  [[ "$ctx" == *"workflow-issues/draft.md"* ]]
+  [[ "$ctx" == *"not this slot's worktree"* ]]
+  [[ "$ctx" == *"is not this agent's to change"* ]]
+  [ "$(git -C "$SD" status --porcelain --untracked-files=all)" = "?? workflow-issues/draft.md" ]
+}
+
+@test "reports a stray edit to a tracked doc after fast-forwarding, and the edit survives" {
+  advance_origin
+  echo "operator edit" >"$SD/seed.md"
+
+  run "$SCRIPT" <"$TMP/prime.json"
+  [ "$status" -eq 0 ]
+  one_json_object
+
+  [ "$(git -C "$SD" rev-parse main)" = "$(git -C "$SD" rev-parse origin/main)" ]
+  [[ "$(field .systemMessage)" == *"seed.md"* ]]
+  ctx=$(field .hookSpecificOutput.additionalContext)
+  [[ "$ctx" == *"fast-forwarded"* ]]
+  [[ "$ctx" == *"seed.md"* ]]
+  [ "$(cat "$SD/seed.md")" = "operator edit" ]
+  [ "$(git -C "$SD" status --porcelain)" = " M seed.md" ]
+}
+
+@test "reports a stray edit to a tracked doc to a slot session without a systemMessage" {
+  echo "operator edit" >"$SD/seed.md"
+
+  run "$SCRIPT" <"$TMP/slot.json"
+  [ "$status" -eq 0 ]
+  one_json_object
+
+  [ -z "$(field .systemMessage)" ]
+  [[ "$(field .hookSpecificOutput.additionalContext)" == *"seed.md"* ]]
+  [ "$(cat "$SD/seed.md")" = "operator edit" ]
+}
+
+@test "reverts a phantom copy without reporting it as a stray" {
+  leave_phantom_new_and_edit
+
+  run "$SCRIPT" <"$TMP/prime.json"
+  [ "$status" -eq 0 ]
+  one_json_object
+
+  [ -z "$(git -C "$SD" status --porcelain)" ]
+  [ -z "$(field .systemMessage)" ]
+  ctx=$(field .hookSpecificOutput.additionalContext)
+  [[ "$ctx" == *"reconciled phantom copies"* ]]
+  [[ "$ctx" != *"lacks"* ]]
+}
+
+@test "reports strays when the fetch fails" {
+  git -C "$SD" remote set-url origin "$TMP/unreachable.git"
+  echo "draft in progress" >"$SD/offline.md"
+
+  run "$SCRIPT" <"$TMP/prime.json"
+  [ "$status" -eq 0 ]
+  one_json_object
+  [[ "$(field .systemMessage)" == *"offline.md"* ]]
+  [ -f "$SD/offline.md" ]
+}
+
+@test "names ten strays and counts the rest" {
+  for i in $(seq -w 1 12); do echo "draft $i" >"$SD/draft-$i.md"; done
+
+  run "$SCRIPT" <"$TMP/prime.json"
+  [ "$status" -eq 0 ]
+  one_json_object
+  msg=$(field .systemMessage)
+  [[ "$msg" == *"draft-10.md"* ]]
+  [[ "$msg" != *"draft-11.md"* ]]
+  [[ "$msg" == *"and 2 more"* ]]
+}
+
+@test "takes the session directory from the working directory without a payload" {
+  echo "draft in progress" >"$SD/draft.md"
+
+  cd "$SLOT"
+  run "$SCRIPT" </dev/null
+  [ "$status" -eq 0 ]
+  one_json_object
+  [ -z "$(field .systemMessage)" ]
+  [[ "$(field .hookSpecificOutput.additionalContext)" == *"draft.md"* ]]
 }
