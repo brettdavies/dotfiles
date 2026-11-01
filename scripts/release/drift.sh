@@ -27,20 +27,29 @@
 #                       _lib.sh's delegate_to_subscript; suppresses the summary
 #
 # Gates:
-#   0. The anchor release itself reached base: the version carriers and
-#      CHANGELOG.md at the anchor match base's copies (a release whose
-#      backport never ran is invisible to gate 1, which only looks past it).
+#   0. The anchor release itself reached base: for each version carrier and
+#      CHANGELOG.md the anchor changed, every line the release added is in
+#      base's copy or was held by base at some commit, and every line it
+#      removed is gone from base's copy (a release whose backport never ran is
+#      invisible to gate 1, which only looks past it).
 #   1. Every commit on head since the anchor, and every file those commits
 #      touched that base does not already contain. A file base has moved
 #      further on its own is not drift: head's change (anchor to head) is
 #      checked against base's copy, first by three-way merge and then line by
-#      line (every added line present, every removed line gone). Lockfiles
+#      line (every added line present, every removed line gone). In a
+#      package.json, a dependency entry counts as present when base declares
+#      it in the same section at the same or a newer lower bound. Lockfiles
 #      are handled by gate 3.
-#   2. .github/ matches exactly between base and head.
+#   2. .github/ paths head carries that base does not contain. A path
+#      base holds and head does not is what the release delivers, not
+#      drift, so only the head-ahead direction fails.
 #   3. For each lockfile head carries (package-lock.json, bun.lock,
 #      Cargo.lock): every
 #      package head resolves newer than base, one line per package name so
-#      nested copies and hoisting moves never show. The count of base-newer
+#      nested copies and hoisting moves never show. Only resolved versions
+#      compare; a file:, workspace:, link: or git spec is left out. A copy
+#      head nests under a package base no longer carries is not counted,
+#      since base dropped what pulled it in. The count of base-newer
 #      packages (routine updates awaiting release) is reported for context.
 #
 # Exit codes:
@@ -63,7 +72,7 @@ DO_FETCH=1
 RESULT_FILE=""
 
 usage() {
-  sed -n '2,42p' "$0" | sed 's/^# \?//'
+  print_usage_header
   exit 2
 }
 
@@ -108,7 +117,11 @@ fi
 readonly JQ_BIN
 
 readonly LOCKFILE_PATTERN='(^|/)(package-lock\.json|bun\.lock|Cargo\.lock)$'
-readonly VERSION_CARRIERS='Cargo.toml package.json pyproject.toml VERSION CHANGELOG.md'
+# Overridable from release.env, which _lib.sh sourced above. A workspace names
+# each member manifest and each member changelog here: the root list covers a
+# single-package repo, and a carrier this list omits is a file whose
+# release-time edit the gate silently treats as ordinary drift.
+readonly VERSION_CARRIERS="${VERSION_CARRIERS:-Cargo.toml package.json pyproject.toml VERSION CHANGELOG.md}"
 
 # Setup ----------------------------------------------------------------------
 
@@ -161,8 +174,20 @@ resolve_anchor() {
 # Gate 1 only looks past the anchor, so a release whose backport never ran
 # is invisible to it. Compare the version carriers and CHANGELOG.md at the
 # anchor against base: base must already hold every change the release made
-# to them (three-way containment, same as gate 1), or the next overlay cut
-# reverts the release's own bookkeeping.
+# to them, or the next overlay cut reverts the release's own bookkeeping.
+#
+# The release's diff mixes two kinds of line: those the cut wrote itself (the
+# version bump, the new changelog section) and content the overlay carried
+# over from base. Base may later edit or delete the second kind on its own, so
+# an added line counts as held when base's copy has it or base held it at any
+# commit; a line base once held and then dropped is base's own edit, not a
+# missing backport. The lines the cut wrote were never on base before the
+# backport, so a skipped backport still fails, and a version bump fails twice:
+# its new line was never held and its old line is still in base's copy.
+#
+# A line that repeats within a file, such as a changelog's "### Fixed",
+# counts as present wherever it appears. The version line and the release
+# heading are unique to the release, and those keep the check sound.
 
 gate_anchor_backported() {
   header "Anchor release backported to $BASE_REF"
@@ -184,7 +209,7 @@ gate_anchor_backported() {
       [[ -n "$(blob_at "$BASE_REF" "$path")" ]] || flagged+=("missing $path")
       continue
     fi
-    verdict=$(classify_file_at "$ANCHOR" "$prev" "$path")
+    verdict=$(classify_file_at "$ANCHOR" "$prev" "$path" history)
     [[ "$verdict" == contained ]] || flagged+=("$verdict $path")
   done
   if [[ ${#flagged[@]} -eq 0 ]]; then
@@ -205,7 +230,8 @@ blob_at() {
 }
 
 # Classifies PATH as "contained", "differs", or "missing": whether base
-# already holds everything head changed in it since the anchor. First a
+# already holds everything head changed in it since the anchor. A path base
+# deleted counts as contained when head's copy is still the anchor's. First a
 # three-way merge of head's change onto base's copy; a clean merge that leaves
 # base's copy untouched is contained. When base has also edited nearby lines
 # the merge cannot answer, so the fallback checks head's change line by line:
@@ -217,15 +243,26 @@ classify_file() {
 }
 
 # Same as classify_file, for an explicit head ref and anchor ref (an empty
-# anchor means "no prior state", so any difference from base is drift).
+# anchor means "no prior state", so any difference from base is drift). With
+# a fourth argument, the line check also counts an added line as present when
+# base held PATH with that line at any commit (gate 0's rule).
 classify_file_at() {
-  local head_ref="$1" anchor_ref="$2" path="$3" anchor_blob head_blob base_blob tmp merged status
+  local head_ref="$1" anchor_ref="$2" path="$3" history="${4:-}"
+  local anchor_blob head_blob base_blob tmp merged status held=""
   head_blob=$(blob_at "$head_ref" "$path")
   base_blob=$(blob_at "$BASE_REF" "$path")
   anchor_blob=""
   [[ -n "$anchor_ref" ]] && anchor_blob=$(blob_at "$anchor_ref" "$path")
   if [[ -z "$base_blob" ]]; then
-    echo missing
+    # Base deleted a path head has not touched since the anchor: head carries
+    # nothing base never received, and the deletion is base's own change for
+    # the release to deliver. Only a head-side change since the anchor is
+    # missing from base.
+    if [[ -n "$anchor_blob" && "$head_blob" == "$anchor_blob" ]]; then
+      echo contained
+    else
+      echo missing
+    fi
     return
   fi
   if [[ "$head_blob" == "$base_blob" ]]; then
@@ -246,7 +283,14 @@ classify_file_at() {
   set -e
   if [[ $status -eq 0 && "$merged" == "$(<"$tmp/base")" ]]; then
     echo contained
-  elif lines_contained "$tmp/anchor" "$tmp/head" "$tmp/base"; then
+    rm -rf "$tmp"
+    return
+  fi
+  if [[ -n "$history" ]]; then
+    held="$tmp/held"
+    base_history_lines "$path" "$held"
+  fi
+  if lines_contained "$tmp/anchor" "$tmp/head" "$tmp/base" "$path" "$held"; then
     echo contained
   else
     echo differs
@@ -254,18 +298,112 @@ classify_file_at() {
   rm -rf "$tmp"
 }
 
+# Writes to OUT every line PATH held at any commit on BASE_REF that touched it,
+# each once. A package.json copy is qualified first, as lines_contained
+# qualifies the copies it compares.
+base_history_lines() {
+  local path="$1" out="$2" commit
+  : >"$out.all"
+  while IFS= read -r commit; do
+    git cat-file -p "$commit:$path" >"$out.rev" 2>/dev/null || continue
+    if [[ "${path##*/}" == package.json ]]; then
+      qualify_dependency_entries "$out.rev"
+    fi
+    cat "$out.rev" >>"$out.all"
+  done < <(git rev-list "$BASE_REF" -- "$path")
+  sort -u "$out.all" >"$out"
+}
+
+# Lines on one side of a diff between two files, marker stripped. `+` gives the
+# lines added going from the first file to the second, `-` the lines removed.
+#
+# `git diff --no-index` rather than diff's --unchanged-line-format family:
+# those belong to GNU diffutils, and BSD diff rejects them outright. The
+# rejection printed a usage message and produced no lines, so every line-level
+# containment check silently answered "nothing changed" on a BSD host, which
+# passed gates that should have failed. git is already a hard dependency here.
+diff_side() {
+  local marker="$1" left="$2" right="$3"
+  git diff --no-index --no-color -U0 -- "$left" "$right" 2>/dev/null \
+    | grep -E "^\\${marker}" \
+    | grep -vE "^\\${marker}{3}" \
+    | cut -c2-
+  return 0
+}
+
 # Returns 0 when every content line ADDED between ANCHOR_FILE and HEAD_FILE
 # is present in BASE_FILE and every content line REMOVED is absent from it.
+# When PATH names a package.json, the three copies are first rewritten in place
+# by qualify_dependency_entries, and an added dependency entry base does not
+# hold verbatim still counts as present when dependency_covered finds base's
+# range at or past it, since a range base has bumped since still carries it.
+# With HELD_FILE, an added line found there counts as present too.
 lines_contained() {
-  local anchor_file="$1" head_file="$2" base_file="$3" line
+  local anchor_file="$1" head_file="$2" base_file="$3" path="${4:-}" held_file="${5:-}" manifest=0 line
+  if [[ "${path##*/}" == package.json ]]; then
+    manifest=1
+    qualify_dependency_entries "$anchor_file" "$head_file" "$base_file"
+  fi
   while IFS= read -r line; do
     [[ "$line" =~ ^[[:space:][:punct:]]*$ ]] && continue
-    grep -qxF -- "$line" "$base_file" || return 1
-  done < <(diff --unchanged-line-format= --old-line-format= --new-line-format='%L' "$anchor_file" "$head_file" || true)
+    grep -qxF -- "$line" "$base_file" && continue
+    [[ -n "$held_file" ]] && grep -qxF -- "$line" "$held_file" && continue
+    [[ $manifest -eq 1 ]] && dependency_covered "$line" "$base_file" && continue
+    return 1
+  done < <(diff_side + "$anchor_file" "$head_file")
   while IFS= read -r line; do
     [[ "$line" =~ ^[[:space:][:punct:]]*$ ]] && continue
     grep -qxF -- "$line" "$base_file" && return 1
-  done < <(diff --unchanged-line-format= --old-line-format='%L' --new-line-format= "$anchor_file" "$head_file" || true)
+  done < <(diff_side - "$anchor_file" "$head_file")
+  return 0
+}
+
+# Rewrites each entry of a package.json dependency section (dependencies,
+# devDependencies, peerDependencies, optionalDependencies) in FILE... in place
+# as "<section><TAB><name><TAB><range>". The line check then compares an entry
+# within its own section and ignores its indentation and trailing comma, so a
+# removed range that another section repeats still counts as gone. Expects one
+# entry per line, as npm and bun write the file; other lines are left as is.
+qualify_dependency_entries() {
+  # shellcheck disable=SC2016  # perl variables, not shell expansions
+  perl -i -ne '
+    if (/^\s*"(dependencies|devDependencies|peerDependencies|optionalDependencies)"\s*:\s*\{\s*$/) { $s = $1 }
+    elsif (defined $s && /^\s*\}/) { undef $s }
+    elsif (defined $s && /^\s*"([^"]+)"\s*:\s*"([^"]*)"\s*,?\s*$/) { $_ = "$s\t$1\t$2\n" }
+    print;
+    undef $s if eof;
+  ' "$@"
+}
+
+# Returns 0 when BASE_FILE covers the qualified dependency LINE: base declares
+# the same package in the same section at a range whose lower bound is the same
+# as or newer than the line's. Only a bare version or one led by ^, ~, >=, or =
+# has a lower bound here; any other range (a URL, a tag, a workspace or
+# compound range) is never covered.
+dependency_covered() {
+  local line="$1" base_file="$2" section name range want base_range
+  local entry=$'^(dependencies|devDependencies|peerDependencies|optionalDependencies)\t([^\t]+)\t(.+)$'
+  local floor='^(\^|~|>=|=)?([0-9]+(\.[0-9]+)*)$'
+  [[ "$line" =~ $entry ]] || return 1
+  section="${BASH_REMATCH[1]}" name="${BASH_REMATCH[2]}" range="${BASH_REMATCH[3]}"
+  [[ "$range" =~ $floor ]] || return 1
+  want="${BASH_REMATCH[2]}"
+  base_range=$(awk -F'\t' -v s="$section" -v n="$name" '$1 == s && $2 == n { print $3; exit }' "$base_file")
+  [[ "$base_range" =~ $floor ]] || return 1
+  version_at_least "${BASH_REMATCH[2]}" "$want"
+}
+
+# Returns 0 when dotted version A is the same as or newer than dotted version
+# B, comparing component by component as numbers (a missing component is 0).
+version_at_least() {
+  local -a a b
+  local i
+  IFS=. read -ra a <<<"$1"
+  IFS=. read -ra b <<<"$2"
+  for ((i = 0; i < ${#a[@]} || i < ${#b[@]}; i++)); do
+    ((10#${a[i]:-0} > 10#${b[i]:-0})) && return 0
+    ((10#${a[i]:-0} < 10#${b[i]:-0})) && return 1
+  done
   return 0
 }
 
@@ -301,32 +439,50 @@ gate_head_commits() {
 
 gate_github_dir() {
   header ".github/ parity"
-  local diff
-  diff=$(git diff --name-status "$BASE_REF" "$HEAD_REF" -- .github/ || true)
-  if [[ -z "$diff" ]]; then
+  local paths path verdict count
+  local -a flagged=()
+  paths=$(git diff --name-only "$BASE_REF" "$HEAD_REF" -- .github/ || true)
+  if [[ -z "$paths" ]]; then
     gate_pass ".github/ identical on $BASE_REF and $HEAD_REF"
     return
   fi
-  gate_fail ".github/ differs between $BASE_REF and $HEAD_REF" "$(printf '%s\n' "$diff" | wc -l | tr -d ' ') paths"
-  printf '%s\n' "$diff" | sed 's/^/    /'
+  count=$(printf '%s\n' "$paths" | wc -l | tr -d ' ')
+  # Only the head-ahead direction is drift. Config that reached base and not
+  # head is what the release delivers, and failing on it would turn this gate
+  # red on every release that touches a workflow. `classify_file` is gate 1's
+  # containment test: whether base already holds everything head changed.
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    # Absent on head: base-only, so head cannot be carrying anything here.
+    [[ -n "$(blob_at "$HEAD_REF" "$path")" ]] || continue
+    verdict=$(classify_file "$path")
+    [[ "$verdict" == contained ]] || flagged+=("$verdict $path")
+  done <<<"$paths"
+  if [[ ${#flagged[@]} -eq 0 ]]; then
+    gate_pass ".github/: $BASE_REF contains every change $HEAD_REF carries ($count paths the release delivers)"
+    return
+  fi
+  gate_fail ".github/ on $HEAD_REF holds changes $BASE_REF never received" "${#flagged[@]} of $count paths"
+  printf '%s\n' "${flagged[@]}" | sed 's/^/    /'
 }
 
 # Gate 3: lockfile resolution ------------------------------------------------
 
-# Prints "name version scope" per package for the lockfile PATH at REF,
-# keeping only the highest version per name. scope is dev/runtime for npm
-# and crate for Cargo.
-lockfile_versions() {
+# Prints "key name version scope" per package entry in the lockfile PATH at
+# REF. key is the entry's lockfile path (npm's `node_modules/a/node_modules/b`,
+# Bun's `a/b`, a crate's name), which places a nested copy under the package
+# that pulled it in. scope is dev/runtime for npm and crate for Cargo.
+lockfile_entries() {
   local ref="$1" path="$2"
   case "$path" in
     *package-lock.json)
       git show "$ref:$path" | "$JQ_BIN" -r '.packages | to_entries[]
         | select(.key | contains("node_modules/"))
         | select(.value.version != null)
-        | "\(.key | sub(".*node_modules/"; "")) \(.value.version) \(if .value.dev then "dev" else "runtime" end)"'
+        | "\(.key) \(.key | sub(".*node_modules/"; "")) \(.value.version) \(if .value.dev then "dev" else "runtime" end)"'
       ;;
     *bun.lock)
-      # Each entry is `name: ["name@version", ...]`; the first element carries
+      # Each entry is `key: ["name@version", ...]`; the first element carries
       # the resolved version. Everything is "dev" or "runtime" by workspace
       # section, which the entry does not record, so scope is unknown.
       # Bun writes trailing commas, which jq and jaq reject; strip them
@@ -335,14 +491,39 @@ lockfile_versions() {
       git show "$ref:$path" | perl -0pe 's/,(\s*[}\]])/$1/g' | "$JQ_BIN" -r '.packages | to_entries[]
         | select(.value[0] | type == "string")
         | (.value[0] | capture("^(?<name>@?[^@]+)@(?<ver>[^@]+)$")) as $m
-        | "\($m.name) \($m.ver) pkg"'
+        | "\(.key) \($m.name) \($m.ver) pkg"'
       ;;
     *Cargo.lock)
       git show "$ref:$path" | awk -F'"' '
         /^name = /    { name = $2 }
-        /^version = / { if (name != "") { print name " " $2 " crate"; name = "" } }'
+        /^version = / { if (name != "") { print name " " name " " $2 " crate"; name = "" } }'
       ;;
-  esac | sort -k1,1 -k2,2V | awk '{ last[$1] = $0 } END { for (k in last) print last[k] }' | sort -k1,1
+  esac
+}
+
+# Prints "name version scope" per package for the lockfile PATH at REF,
+# keeping only the highest resolved version per name. A spec that is not a
+# version (file:, workspace:, link:, a git URL) has no order against a
+# registry version and is left out. With PARENT_REF, a nested entry counts
+# only when its parent's key exists in PARENT_REF's lockfile: a copy pulled in
+# by a package that side no longer carries is nothing it could have received.
+lockfile_versions() {
+  local ref="$1" path="$2" parent_ref="${3:-}" tmp
+  tmp=$(mktemp -d)
+  : >"$tmp/keys"
+  [[ -n "$parent_ref" ]] && lockfile_entries "$parent_ref" "$path" | cut -d' ' -f1 >"$tmp/keys"
+  lockfile_entries "$ref" "$path" >"$tmp/entries"
+  awk -v filter="${parent_ref:+1}" '
+    FILENAME == ARGV[1] { have[$1] = 1; next }
+    $3 !~ /^[0-9]/ { next }
+    filter && length($1) > length($2) && substr($1, length($1) - length($2)) == "/" $2 {
+      parent = substr($1, 1, length($1) - length($2) - 1)
+      sub(/\/?node_modules$/, "", parent)
+      if (parent != "" && !(parent in have)) next
+    }
+    { print $2, $3, $4 }' "$tmp/keys" "$tmp/entries" \
+    | sort -k1,1 -k2,2V | awk '{ last[$1] = $0 } END { for (k in last) print last[k] }' | sort -k1,1
+  rm -rf "$tmp"
 }
 
 # Runs the resolution comparison for one lockfile path.
@@ -367,7 +548,7 @@ compare_lockfile() {
     else
       base_newer=$((base_newer + 1))
     fi
-  done < <(join <(lockfile_versions "$BASE_REF" "$path") <(lockfile_versions "$HEAD_REF" "$path"))
+  done < <(join <(lockfile_versions "$BASE_REF" "$path") <(lockfile_versions "$HEAD_REF" "$path" "$BASE_REF"))
   if [[ $head_newer -eq 0 && $base_newer -eq 0 ]] \
     && [[ -z "$(lockfile_versions "$HEAD_REF" "$path" 2>/dev/null | head -1)" ]]; then
     gate_fail "$path" "parsed zero packages on $HEAD_REF; the lockfile format is not understood"
