@@ -5,6 +5,7 @@
 # Run: bats tests/agent-slot-adopt.bats
 #
 # repoa/1 is task_slot_setup's slot (tests/lib/agent-slot.bash), and gh answers from gh_item's fixtures.
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

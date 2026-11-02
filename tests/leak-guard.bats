@@ -4,6 +4,7 @@
 # agent slot does, and checks what that run left running.
 #
 # Run: bats tests/leak-guard.bats
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 
@@ -41,9 +42,9 @@ none_in_cwd() {
   return 1
 }
 
-# nested FILE: runs bats on FILE from the scratch directory.
+# nested FILE [FLAG...]: runs bats on FILE from the scratch directory, with any flags given ahead of it.
 nested() {
-  run --separate-stderr bash -c 'cd "$1" && exec bats "$2"' _ "$CWD" "$1"
+  run --separate-stderr bash -c 'cd "$1" && exec bats "${@:3}" "$2"' _ "$CWD" "$1" "${@:2}"
 }
 
 # probe BODY: a one-test suite under the scratch directory whose test runs BODY and whose teardown runs the guard.
@@ -76,7 +77,10 @@ probe() {
 }
 
 @test "the release suite, run from a scratch directory, leaves no process behind with that directory as its cwd" {
-  nested "$BATS_TEST_DIRNAME/agent-slot-release.bats"
+  # Its tests run concurrently, as scripts/run-tests runs a suite that declares `# run-tests: parallel`.
+  local flags=()
+  if command -v flock >/dev/null 2>&1; then flags=(--jobs "$(nproc)" --no-parallelize-across-files); fi
+  nested "$BATS_TEST_DIRNAME/agent-slot-release.bats" "${flags[@]}"
   [ "$status" -eq 0 ]
   none_in_cwd
 }

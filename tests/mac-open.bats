@@ -32,6 +32,7 @@
 #   DRIVE_SELF_INT       interrupt mac-open (SIGINT) while it reads the share table
 # The guard reads a real /proc environment: tests start a background `sleep`
 # carrying the SSH_CONNECTION they want the tmux client to have.
+# run-tests: parallel
 
 SCRIPT="$BATS_TEST_DIRNAME/../stow/local/dot-local/bin/mac-open"
 

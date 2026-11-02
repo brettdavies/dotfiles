@@ -207,6 +207,70 @@ _probes_run() {
   [[ "$output" == *"--shard"* ]]
 }
 
+# ---------------------------------------------------------------------------
+# Tests within a file in parallel
+# ---------------------------------------------------------------------------
+
+# _rendezvous <path> [marker]: a two-test file whose tests each wait up to 5 s
+# for the other to start, so it passes only when its tests run concurrently.
+_rendezvous() {
+  local wait='deadline=$((SECONDS + 5)); until [ -e "$BATS_FILE_TMPDIR/$2" ]; do ((SECONDS < deadline)) || return 1; sleep 0.1; done'
+  {
+    printf '%s\n' '#!/usr/bin/env bats'
+    [ -z "${2:-}" ] || printf '%s\n' "$2"
+    printf '%s\n' "meet() { touch \"\$BATS_FILE_TMPDIR/\$1\"; $wait; }"
+    printf '%s\n' '@test "first" { meet first second; }' '@test "second" { meet second first; }'
+  } >"$1"
+}
+
+@test "a file that declares run-tests: parallel runs its tests concurrently" {
+  _sandbox
+  command -v flock >/dev/null 2>&1 || skip "flock not installed"
+  _rendezvous "$SANDBOX/tests/a.bats" '# run-tests: parallel'
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok 1 first"* ]]
+  [[ "$output" == *"ok 2 second"* ]]
+}
+
+@test "a file without the declaration runs its tests one at a time" {
+  _sandbox
+  _rendezvous "$SANDBOX/tests/a.bats"
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not ok 1 first"* ]]
+}
+
+@test "a shard left with one declared file still runs its tests concurrently" {
+  _sandbox
+  command -v flock >/dev/null 2>&1 || skip "flock not installed"
+  _rendezvous "$SANDBOX/tests/a.bats" '# run-tests: parallel'
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf --shard 1/2
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok 2 second"* ]]
+}
+
+@test "named files run one process each, behind their markers, as the main suite's do" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "a probe" "[ 1 -eq 1 ]"
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" tests/a.bats tests/b.bats
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"# tests/a.bats ("* ]]
+  [[ "$output" == *"# tests/b.bats ("* ]]
+}
+
+@test "a declared file named alone still runs its tests concurrently" {
+  _sandbox
+  command -v flock >/dev/null 2>&1 || skip "flock not installed"
+  _rendezvous "$SANDBOX/tests/a.bats" '# run-tests: parallel'
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" tests/a.bats
+  [ "$status" -eq 0 ]
+}
+
 @test "a mode still succeeds when the suite it names is empty" {
   _sandbox
   _probe "$SANDBOX/tests/main.bats" "main probe" "[ 1 -eq 1 ]"

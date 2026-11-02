@@ -2,6 +2,7 @@
 # agent-slot doctor: launch prerequisites on the Linux server, version drift, and launch times from the ledger.
 #
 # Run: bats tests/agent-slot-doctor.bats
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

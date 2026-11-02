@@ -5,6 +5,7 @@
 #
 # The scratch Claude runs in a stubbed tmux whose capture-pane prints $STUBS/screen; the fixture screens below copy
 # the dialog Claude Code 2.1.310 shows. An Enter on the trust socket swaps in $STUBS/screen-after.
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

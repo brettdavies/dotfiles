@@ -12,7 +12,7 @@
 #   scripts/run-tests --no-perf    the main suite alone
 #   scripts/run-tests MODE --shard I/N
 #                                  shard I of N of what MODE runs
-#   scripts/run-tests FILE...      run the given .bats files
+#   scripts/run-tests FILE...      run the given .bats files, as the main suite runs
 #
 # --shard deals the main suite's files round-robin in glob order, so shard I
 # runs every Nth file from the Ith, and only shard 1 runs the perf suite; the N
@@ -28,6 +28,11 @@
 # carries its own TAP plan and its own test numbering rather than one run-wide
 # sequence, and the log shows which files the run's time went to.
 # RUN_TESTS_JOBS=1 restores the single combined stream.
+#
+# A file whose tests share no state, each keeping its own under its own
+# BATS_TEST_TMPDIR, can declare `# run-tests: parallel` on a line of its own.
+# Its tests then run concurrently too, as many at a time as there are jobs, so
+# one long file no longer runs on one core while the others wait on it.
 #
 # A bats process that leaves a process running after it exits fails: run-tests
 # gives the process 3 s, then kills it and names it under the bats output.
@@ -97,9 +102,25 @@ _bats() {
     -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_NAMESPACE \
     RUN_TESTS_RUN="$run" \
     perl -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "run-tests: exec $ARGV[0]: $!\n"' \
-    bats "$@" || rc="$EXIT_FAILURE"
+    bats "${BATS_FLAGS[@]}" "$@" || rc="$EXIT_FAILURE"
   stop_leaks "RUN_TESTS_RUN=$run" "$*" "bats exited" || rc="$EXIT_FAILURE"
   return "$rc"
+}
+
+# Flags _bats passes to bats ahead of the files. Flags rather than bats's
+# environment variables, which every bats a test starts would inherit.
+BATS_FLAGS=()
+
+# Usage: _parallel_flags <file> <jobs>; sets BATS_FLAGS so the file's tests run
+# concurrently, as many at a time as there are jobs, when the file declares
+# `# run-tests: parallel` on a line of its own. bats coordinates the tests
+# through flock, so without flock the file's tests run one at a time.
+_parallel_flags() {
+  BATS_FLAGS=()
+  [ "$2" -gt 1 ] || return 0
+  command -v flock >/dev/null 2>&1 || return 0
+  grep -qx '# run-tests: parallel' "$1" || return 0
+  BATS_FLAGS=(--jobs "$2" --no-parallelize-across-files)
 }
 
 # Milliseconds since the epoch, from bash 5's EPOCHREALTIME, whose separator
@@ -142,6 +163,7 @@ _run_parallel() {
   [ "$jobs" -ge 1 ] || jobs=1
 
   if [ "$jobs" -eq 1 ] || [ "$#" -le 1 ]; then
+    [ "$#" -ne 1 ] || _parallel_flags "$1" "$jobs"
     _bats "$@" || return "$EXIT_FAILURE"
     return 0
   fi
@@ -154,6 +176,7 @@ _run_parallel() {
     # file, which would read as a missing result rather than a test failure.
     {
       set +e
+      _parallel_flags "$file" "$jobs"
       started=$(_now_ms)
       _bats "$file" >"$outdir/$key.out" 2>&1
       printf '%s' "$?" >"$outdir/$key.rc"
@@ -252,4 +275,4 @@ for f in "$@"; do
 done
 
 [ "${#targets[@]}" -gt 0 ] || exit 0
-_bats "${targets[@]}" || exit "$EXIT_FAILURE"
+_run_parallel "${targets[@]}" || exit "$EXIT_FAILURE"

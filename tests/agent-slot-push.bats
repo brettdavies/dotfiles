@@ -4,6 +4,7 @@
 # verb's result, skips the Mac whose helper started the verb, and logs one line per client.
 #
 # Run: bats tests/agent-slot-push.bats
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

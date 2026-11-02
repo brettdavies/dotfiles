@@ -4,6 +4,7 @@
 # released or finished by the operator, sending a finished slot's idle agent its closing steps instead.
 #
 # Run: bats tests/agent-slot-release.bats
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 
