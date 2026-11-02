@@ -242,7 +242,21 @@ with_tty() {
   if script --version 2>/dev/null | grep -q util-linux; then
     script -qec "$cmd" /dev/null
   else
-    script -q /dev/null bash -c "$cmd"
+    # BSD script(1) sends the EOF of a non-terminal stdin to the pty ahead of the input
+    # already read, so the helper's first key is ^D and a line read sees end of input.
+    # Python's pty writes the input, then that ^D, in util-linux script's order.
+    python3 -c '
+import os, pty, sys
+eof_sent = False
+def stdin_read(fd):
+    global eof_sent
+    data = os.read(fd, 1024)
+    if data or eof_sent:
+        return data
+    eof_sent = True
+    return b"\x04"
+sys.exit(os.waitstatus_to_exitcode(pty.spawn(["bash", "-c", sys.argv[1]], stdin_read=stdin_read)))
+' "$cmd"
   fi
 }
 

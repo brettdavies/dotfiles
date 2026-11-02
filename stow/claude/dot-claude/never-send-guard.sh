@@ -92,6 +92,9 @@ add_account() {
 }
 
 if [ -e "$CONFIG" ]; then
+  # GNU sed fails on a directory and trips the ERR trap; BSD sed reads one as empty and
+  # exits 0, which would leave the account address unprotected on macOS.
+  [ -f "$CONFIG" ] || internal_error "$LINENO" "$CONFIG is not a regular file"
   if [ -r "$CONFIG" ]; then
     config_state=none
     found=$(sed -n 's/.*"emailAddress"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG")

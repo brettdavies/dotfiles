@@ -150,7 +150,7 @@ exit 1'
   follow_bg
   eventually at_least '^agent-slot-rex restore --by reconnect --output json$' 1
   local order
-  order=$(grep -E '^(agent-slot-rex restore|ssh-stub-verb probe)' "$CALLS" | head -4 | paste -sd '|')
+  order=$(grep -E '^(agent-slot-rex restore|ssh-stub-verb probe)' "$CALLS" | head -4 | paste -sd '|' -)
   [ "$order" = 'agent-slot-rex restore --by poll --output json|ssh-stub-verb probe|ssh-stub-verb probe|agent-slot-rex restore --by reconnect --output json' ]
   logged '[.[].event] | index("unreachable") < index("reachable")'
   logged 'any(.[]; .event == "reachable" and (.down_s | type == "number"))'

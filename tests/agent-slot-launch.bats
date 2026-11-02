@@ -665,7 +665,7 @@ EOF
   launch repoa --pr 7
   [ "$status" -eq 0 ]
   local slot=$AGENT_SLOT_ROOT/repoa/1
-  [ "$(git -C "$slot" remote | sort | paste -sd ' ')" = 'mine origin' ]
+  [ "$(git -C "$slot" remote | sort | paste -sd ' ' -)" = 'mine origin' ]
   [ "$(git -C "$slot" for-each-ref --format='%(upstream:short) %(push:remotename)' refs/heads/feat/x)" = 'mine/feat/x mine' ]
   [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
   assert_prime_untouched

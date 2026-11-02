@@ -396,11 +396,11 @@ cat "$STUBS/gh-prs.json"'
   mv "$T/hold" "$SLOT"
   echo notes >"$T/notes.md"
   "$STUBS/trash" "$T/notes.md"
-  [ "$(trash_entries | sort -u | paste -sd ' ')" = "1 1_1 notes.md" ]
+  [ "$(trash_entries | sort -u | paste -sd ' ' -)" = "1 1_1 notes.md" ]
   run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
   [ "$status" -eq 0 ]
   jaq -e --arg e "$TRASH/files/1_2" '.purge.purged == true and .purge.entry == $e' <<<"$output"
-  [ "$(trash_entries | sort | paste -sd ' ')" = "1 1 1_1 1_1 notes.md notes.md" ]
+  [ "$(trash_entries | sort | paste -sd ' ' -)" = "1 1 1_1 1_1 notes.md notes.md" ]
   [ -f "$TRASH/files/1/kept" ]
   [ -f "$TRASH/files/1_1/earlier" ]
   grep -qxF "Path=$SLOT" "$TRASH/info/1_1.trashinfo"
@@ -446,7 +446,7 @@ mv "$1" "$STUBS/moved"'
   [ "$status" -eq 0 ]
   jaq -e '.torn_down == true and .purge.purged == false and .purge.code == "trash-entry-unknown"
     and .purge.entry == null' <<<"$output"
-  [ "$(trash_entries | paste -sd ' ')" = "1 1" ]
+  [ "$(trash_entries | paste -sd ' ' -)" = "1 1" ]
 }
 
 @test "a trash that fails leaves the slot active, so it can be resumed" {
