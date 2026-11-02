@@ -2,7 +2,7 @@
 # Single source of truth for which bats suites run and in what order.
 #
 # Consumed by three callers that must not drift apart:
-#   .github/workflows/bats.yml  --all                    (CI)
+#   .github/workflows/bats.yml  --all --shard I/N        (CI, one shard per runner)
 #   .githooks/pre-push          --perf-only, --no-perf   (mirrors CI)
 #   .githooks/pre-commit        <file>...                (staged test files)
 #
@@ -10,7 +10,15 @@
 #   scripts/run-tests --all        the perf suite, then the main suite
 #   scripts/run-tests --perf-only  the perf suite alone
 #   scripts/run-tests --no-perf    the main suite alone
+#   scripts/run-tests MODE --shard I/N
+#                                  shard I of N of what MODE runs
 #   scripts/run-tests FILE...      run the given .bats files
+#
+# --shard deals the main suite's files round-robin in glob order, so shard I
+# runs every Nth file from the Ith, and only shard 1 runs the perf suite; the N
+# shards together run exactly what the mode runs alone. The costliest files are
+# the agent-slot suites, which sit together in the alphabet, so dealing them
+# round-robin spreads them across the shards with no table of costs to keep.
 #
 # The perf suite measures shell-startup latency against a budget, so it runs
 # alone on an unloaded machine and is never parallelized. The main suite runs
@@ -173,7 +181,26 @@ _run_parallel() {
   return "$rc"
 }
 
+SHARD=1
+SHARDS=1
+
+# Usage: _set_shard <I/N>; sets SHARD and SHARDS, or exits with a usage error.
+_set_shard() {
+  case "$1" in
+    [1-9]*/[1-9]*)
+      SHARD=${1%%/*} SHARDS=${1#*/}
+      case "$SHARD$SHARDS" in
+        *[!0-9]*) ;;
+        *) [ "$SHARD" -le "$SHARDS" ] && return 0 ;;
+      esac
+      ;;
+  esac
+  echo "run-tests: --shard takes I/N with 1 <= I <= N, got '$1'" >&2
+  exit "$EXIT_USAGE"
+}
+
 _run_perf() {
+  [ "$SHARD" -eq 1 ] || return 0
   compgen -G "tests/perf/*.bats" >/dev/null || return 0
   # Serial and alone: these assert on wall-clock, and a loaded machine fails
   # them with nothing about the shell config having changed.
@@ -181,14 +208,24 @@ _run_perf() {
 }
 
 _run_main() {
+  local files=() i=0 file
   compgen -G "tests/*.bats" >/dev/null || return 0
-  _run_parallel tests/*.bats || return "$EXIT_FAILURE"
+  for file in tests/*.bats; do
+    if [ $((i % SHARDS)) -eq $((SHARD - 1)) ]; then files+=("$file"); fi
+    i=$((i + 1))
+  done
+  [ "${#files[@]}" -gt 0 ] || return 0
+  _run_parallel "${files[@]}" || return "$EXIT_FAILURE"
 }
 
 case "$1" in
   --all | --perf-only | --no-perf)
+    if [ "$#" -ge 2 ] && [ "$2" = --shard ]; then
+      _set_shard "${3:-}"
+      set -- "$1" "${@:4}"
+    fi
     [ "$#" -eq 1 ] || {
-      echo "run-tests: $1 takes no other arguments" >&2
+      echo "run-tests: $1 takes no other arguments but --shard I/N" >&2
       exit "$EXIT_USAGE"
     }
     case "$1" in
@@ -206,6 +243,10 @@ esac
 targets=()
 for f in "$@"; do
   case "$f" in
+    -*)
+      echo "run-tests: $f is not a test file; options follow the mode, as in --all --shard I/N" >&2
+      exit "$EXIT_USAGE"
+      ;;
     *.bats) [ -f "$f" ] && targets+=("$f") ;;
   esac
 done

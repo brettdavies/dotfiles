@@ -45,6 +45,11 @@ _line_of() {
   printf '%s\n' "$output" | grep -n -- "$1" | head -1 | cut -d: -f1
 }
 
+# Prints the letters of the "<letter> probe" tests in $output, sorted and joined.
+_probes_run() {
+  printf '%s\n' "$output" | sed -n 's/^ok [0-9]* \([a-z]\) probe$/\1/p' | sort | tr -d '\n'
+}
+
 @test "run-tests is executable" {
   [ -x "$SCRIPT" ]
 }
@@ -139,6 +144,67 @@ _line_of() {
   run "$SANDBOX/scripts/run-tests" --all
   [ "$status" -eq 0 ]
   [ "$(_line_of 'perf probe')" -lt "$(_line_of 'main probe')" ]
+}
+
+# ---------------------------------------------------------------------------
+# Sharding
+# ---------------------------------------------------------------------------
+
+@test "--shard deals the main suite's files round-robin, so each file runs in exactly one shard" {
+  _sandbox
+  local f
+  for f in a b c d e; do _probe "$SANDBOX/tests/$f.bats" "$f probe" "[ 1 -eq 1 ]"; done
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf --shard 1/2
+  [ "$status" -eq 0 ]
+  [ "$(_probes_run)" = ace ]
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf --shard 2/2
+  [ "$status" -eq 0 ]
+  [ "$(_probes_run)" = bd ]
+}
+
+@test "only the first shard runs the perf suite" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "a probe" "[ 1 -eq 1 ]"
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  _probe "$SANDBOX/tests/perf/slow.bats" "perf probe" "[ 1 -eq 1 ]"
+  run "$SANDBOX/scripts/run-tests" --all --shard 1/2
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"perf probe"* ]]
+  [ "$(_probes_run)" = a ]
+  run "$SANDBOX/scripts/run-tests" --all --shard 2/2
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"perf probe"* ]]
+  [ "$(_probes_run)" = b ]
+}
+
+@test "a shard left with no files passes" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "a probe" "[ 1 -eq 1 ]"
+  run "$SANDBOX/scripts/run-tests" --no-perf --shard 3/3
+  [ "$status" -eq 0 ]
+  [ -z "$(_probes_run)" ]
+}
+
+@test "a --shard that is not I/N with 1 <= I <= N is a usage error" {
+  _require_bats
+  local spec
+  for spec in 0/2 3/2 1/0 2 x/2 1/x 1/2/3 ''; do
+    run "$SCRIPT" --no-perf --shard "$spec"
+    [ "$status" -eq 2 ] || {
+      echo "--shard '$spec' exited $status"
+      false
+    }
+    [[ "$output" == *"--shard"* ]]
+  done
+  run "$SCRIPT" --all --shard
+  [ "$status" -eq 2 ]
+}
+
+@test "an option before the mode is a usage error, not a run of no files" {
+  _require_bats
+  run "$SCRIPT" --shard 1/2 --all
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--shard"* ]]
 }
 
 @test "a mode still succeeds when the suite it names is empty" {

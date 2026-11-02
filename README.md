@@ -793,7 +793,7 @@ them over staged paths only. See [AGENTS.md § Local gates mirror CI](AGENTS.md#
 | --------------------------- | ---------------------- | ------------------------------------------------------------- |
 | `release.yml`               | Push to `main`         | CalVer tag + GitHub Release, notes read from `CHANGELOG.md`   |
 | `shellcheck.yml`            | Pull request           | Lints shell scripts and hooks, then workflows with actionlint |
-| `bats.yml`                  | Pull request           | Runs the bats-core test suites                                |
+| `bats.yml`                  | Pull request           | Runs the bats-core test suites, split across parallel shards  |
 | `guard-main-docs.yml`       | Pull request to `main` | Blocks engineering docs from reaching `main`                  |
 | `guard-main-provenance.yml` | Pull request to `main` | Requires every commit to carry a PR reference                 |
 | `guard-release-branch.yml`  | Pull request to `main` | Rejects any head branch that is not `release/*`               |

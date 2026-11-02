@@ -17,10 +17,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  bats:
+  shard:
+    # One 4-vCPU runner runs the suite CPU-bound: twice as many jobs as cores
+    # finishes no sooner, so only more runners shorten it. scripts/run-tests
+    # decides which files each shard runs; the matrix only sets how many shards.
+    name: bats shard ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-latest
     # About 5x this job's median successful run, rounded up to the minute.
     timeout-minutes: 13
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -71,8 +79,26 @@ jobs:
           sudo ln -sf "$(command -v jq)" /usr/local/bin/jaq
 
       - name: Run bats tests
-        # scripts/run-tests owns which suites run and in what order.
-        # .githooks/pre-push runs this exact command and .githooks/pre-commit
-        # runs the same script over staged test files, so the local gates and
-        # this job cannot drift apart.
-        run: ./scripts/run-tests --all
+        # scripts/run-tests owns which suites run, in what order, and which
+        # shard runs each. .githooks/pre-push runs the same script over the
+        # whole suite and .githooks/pre-commit over staged test files, so the
+        # local gates and this job cannot drift apart.
+        env:
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: ./scripts/run-tests --all --shard "$SHARD"
+
+  bats:
+    # The required status check. A skipped required check counts as passing,
+    # so this job runs whatever the shards concluded and fails unless every
+    # shard passed.
+    needs: shard
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Every shard passed
+        env:
+          RESULT: ${{ needs.shard.result }}
+        run: |
+          echo "bats shards: $RESULT"
+          [ "$RESULT" = success ]
