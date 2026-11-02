@@ -690,9 +690,11 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - `sessions_start` with the slot tmux server already running starts the sessions without a scope.
   - `sessions_start` with no user manager, or with no systemd-run, starts tmux directly, as today.
 - **Verification:** After `systemctl --user restart rex-server.service`, `rex --autostart=false server status` answers
-  with no client connected, and stopping the unit that started the slot tmux server leaves the agents running. With the
-  login server's quit-when-empty server holding the socket, the service retries every 10 s and holds the socket within
-  10 s of that server exiting.
+  with no client connected, and stopping the unit that started the slot tmux server leaves the agents running. A slot
+  tmux server first started from an ssh shell, a slot shell, or a Rex tab sits in an `agent-slots-tmux-*.scope`
+  (`systemctl --user status <server pid>`), since leaving a login session's or a service's cgroup relies on the system
+  manager moving the process for the user manager. With the login server's quit-when-empty server holding the socket,
+  the service retries every 10 s and holds the socket within 10 s of that server exiting.
 
 ### U3. Run the helper on the server
 
