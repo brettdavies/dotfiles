@@ -598,12 +598,18 @@ fi
 
 # launchd hands GUI applications and LaunchAgents the user PATH it reads at
 # boot, never the shell config chain. Writing that value needs sudo, so a deploy
-# only reports drift; the script's own output names the fix. Scoped to a real
-# $HOME deploy so a sandboxed target never reads the host's launchd config.
+# only reports drift; the script's own output names the fix. Hex's transform
+# config is copied rather than stowed, because Hex refuses a symlinked config;
+# a deploy reports its drift too, so an edit made in place is never overwritten.
+# Scoped to a real $HOME deploy so a sandboxed target never reads the host's
+# launchd or Hex config.
 if [ "$(uname -s)" = "Darwin" ] && [ "$TARGET" = "$HOME" ]; then
   echo ""
   echo "==> Checking launchd user PATH"
   "$REPO_ROOT/scripts/launchd-user-path.sh" || true
+  echo ""
+  echo "==> Checking Hex transforms"
+  "$REPO_ROOT/scripts/hex-config.sh" || true
 fi
 
 # Headless summary
