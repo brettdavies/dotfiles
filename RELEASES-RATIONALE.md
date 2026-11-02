@@ -139,11 +139,11 @@ or already on `main` via a prior squash, it's a false positive.
 `scripts/generate-changelog.py` (vendored from the `github-repo-setup` skill, with the repo-local `cliff.toml`) is the
 only sanctioned way to update `CHANGELOG.md`. On the overlay-built release branch it runs as `--from-dev-prs`: the PRs
 merged into `dev` since the previous release are the entries, and each PR's body supplies its
-`## Changelog → ### Breaking changes / Added / Changed / Fixed / Documentation` subsections (with author and PR-link
-attribution). The window starts at the earlier of the previous tag's commit time and the previous `release/*` PR's
-creation time, and PR numbers the changelog already lists are dropped, so a PR merged between the previous cut and its
-tag is neither lost nor doubled. On a cherry-picked branch it runs `git-cliff` first to prepend a versioned entry from
-the branch's commits, then expands the same way.
+`## Changelog → ### Breaking changes / Added / Changed / Deprecated / Removed / Fixed / Documentation` subsections (with
+author and PR-link attribution). The window starts at the earlier of the previous tag's commit time and the previous
+`release/*` PR's creation time, and PR numbers the changelog already lists are dropped, so a PR merged between the
+previous cut and its tag is neither lost nor doubled. On a cherry-picked branch it runs `git-cliff` first to prepend a
+versioned entry from the branch's commits, then expands the same way.
 
 If a PR's body carries no changelog content, its title becomes a `Changed` bullet, except for `chore`, `ci`, `build`,
 `style`, and `test` PRs, which stay out unless they carry a `## Changelog` of their own. To fix a wrong entry, fix the
