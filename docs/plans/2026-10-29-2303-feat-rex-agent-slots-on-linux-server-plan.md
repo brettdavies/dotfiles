@@ -144,8 +144,10 @@ flowchart TB
 
 - R8. From either client, the operator sees every repo session and slot tab with its agent's status (working, done, or
   waiting on the operator), and can open any of them, read it, and type into it.
-- R9. From either client, the operator can start a slot on a repo with an optional first message, restore slot tabs, and
-  finish a slot, through slot actions defined on the Linux server.
+- R9. From Rex.app, the operator can start a slot on a repo with an optional first message, restore slot tabs, and
+  finish a slot, through the slot actions' keys and palette entries, whichever session has focus; every one of them acts
+  on the Linux server. Rex.app offers only its home server's actions (U1), so the actions also load on the Mac, and the
+  helper forwards them to the Linux server (KTD1).
 - R10. Where a client cannot run a named action, running the slot command in a shell tab on the Linux server is the
   supported path, and the slot's tab appears on its own (R3).
 - R11. A client that connects, such as the Mac waking or the phone opening, shows the current sessions and tabs with
@@ -169,7 +171,9 @@ flowchart TB
 - R17. While the Mac is awake, every port the `bd-dev` host entry in `stow/ssh/dot-ssh/config` forwards today reaches
   the same port on the Linux server at the Mac's localhost, with no SSH tab open.
 - R18. The Mac-side machinery the cutover makes unnecessary is retired, not left running beside the server's layer: the
-  SSH attach loops, the push to each Mac, the wake detection, and the Mac's minute-by-minute restore.
+  SSH attach loops, the push to each Mac, the wake detection, and the Mac's minute-by-minute restore. The Mac keeps only
+  the slot actions and the helper as a forwarder to the Linux server (R9); nothing on the Mac reconciles, attaches,
+  pushes, or restores slots.
 
 **Shape and boundaries**
 
@@ -355,7 +359,10 @@ Follow-Up Work and Considered and not built lists.
   `agent-slot-rex` makes to the server goes through one seam (`server_ssh` in `scripts/agent-slot-rex/lib/server.sh`); a
   local runner keeps that seam's argv and exit-code contract, so the reconcile, its lock, and its journal stay one
   implementation. (session-settled: user-approved — chosen over a new server-only tool: the reconcile the two-machine
-  checklist proved stays as it is.) Governs R3, R4, R5, R6, R18, R20.
+  checklist proved stays as it is.) Off the Linux server the helper keeps its SSH transport as a forwarder: a slot verb
+  that a Rex.app action runs on the Mac goes to the Linux server's helper over SSH, so the actions act on the Linux
+  server whichever session has focus (Brett's direction, 2026-11-02: every dev session and slot runs there, and Rex.app
+  is only a client). Governs R3, R4, R5, R6, R9, R18, R20.
 - KTD2. **A systemd user service keeps the operator's Rex server running.** It runs `rex server run` without
   `--exit-empty`, modeled on the user service Rex's own home-manager module ships, so a server exists at boot and when
   an agent launches a slot with no client connected. Rex's Login Server docs say the login server uses an account's
@@ -442,10 +449,13 @@ Follow-Up Work and Considered and not built lists.
   Rex restart can never start a second server (KTD11). (session-settled: user-approved — chosen over the reconcile
   numbering tabs and over the community module as-is: one writer per part of a label, and the module needs macOS's
   `shlock`.) Governs R15, R16.
-- KTD9. **The `rex` stow package becomes shared, with the slot pieces Linux-only.** `init.lua` and `layout.lua` deploy
-  to both machines; `agent-slots.lua` and the tab-number watcher are skipped on macOS the way `scripts/stow-deploy`
-  already skips systemd units there. `init.lua` loads the slot pieces only when they are present, and otherwise keeps
-  the Mac's own rexurrect auto-restore line. Governs R2, R19.
+- KTD9. **The `rex` stow package becomes shared, with the server-only pieces Linux-only.** `init.lua`, `layout.lua`, and
+  the slot actions and bindings deploy to both machines, since Rex.app runs only its home server's actions (U1). The
+  start-up step and the tab-number watcher are skipped on macOS the way `scripts/stow-deploy` already skips systemd
+  units there, and `init.lua` loads them only when they are present, otherwise keeping the Mac's own rexurrect
+  auto-restore line. Every action names the helper by a bare `agent-slot-rex` that each host's login shell resolves,
+  never a path built from `$HOME` when the config loads, so a pane the action opens in a Linux session runs the Linux
+  helper (U1). Governs R2, R9, R19.
 - KTD10. **The Mac tunnel is a LaunchAgent around `ssh -N` to its own host entry.** The forwards `bd-dev` carries today
   move to a new tunnel entry in `stow/ssh/dot-ssh/config`, and `bd-dev` keeps none, so an interactive `ssh bd-dev` never
   collides with the tunnel's bound ports. (session-settled: user-approved — chosen over reusing `bd-dev`, whose
@@ -573,7 +583,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 
 ### System-Wide Impact
 
-- Every repo's slots and the operator's own sessions move hosts; the Mac's Rex keeps only Mac-local sessions.
+- Every repo's slots and the operator's own sessions move hosts; the Mac's Rex keeps only Mac-local sessions and the
+  slot actions, which forward to the Linux server.
 - The Linux server gains four user units (the Rex server, the reconcile timer, the tab-number watcher, rexurrect's
   autosave), and `scripts/host-jobs-enable.sh` enables them, the two services from a `SERVICES` list beside `TIMERS`.
 - Slot agents, which run in bypass permissions mode under the operator's own account, can now reach the operator's Rex
@@ -712,8 +723,10 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      `systemctl --user restart rex-server.service`, then rerun the checklist); and `reconcile-stale` when the reconcile
      timer is active but the newest line in `reconcile.log` is over 3 minutes old, or the last three passes all failed,
      naming the log path and `agent-slot-rex restore` (DX review D10, D11).
-  9. On macOS the dispatcher stops before any work with `wrong-host`: the slot layer runs on the Linux server, so the
-     error names the Rex host to connect to and `ssh <server> agent-slot-rex doctor` as the next step (DX review D8).
+  9. On macOS the dispatcher forwards every slot verb a Rex.app action or the operator runs (`launch`, `restore`,
+     `finish`, `sweep`, `doctor`) to the Linux server's helper over the SSH transport (KTD1), keeping argv and exit
+     codes. Only the verbs that drive the server's own Rex (the reconcile pass and the start-up step) stop with
+     `wrong-host` there, naming the Rex host and `ssh <server> agent-slot-rex doctor` as the next step (DX review D8).
   10. Add `Bash(agent-slot-rex finish *)` and `Bash(agent-slot-rex sweep *)` to the ask rules in
       `stow/claude/dot-claude/settings.json`, beside the ones for `agent-slot finish` and `agent-slot sweep`. Once the
       runner is local, those helper verbs run `finish --yes` and `sweep --yes` on this host, and a slot agent in bypass
@@ -834,18 +847,21 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Files:** `scripts/stow-deploy`, `stow/rex/dot-config/rex/init.lua`, `stow/rex/dot-config/rex/agent-slots.lua`,
   `tests/stow-deploy-packages.bats`, `tests/rex-config.bats`.
 - **Approach:**
-  1. Move `rex` to the shared package set, and skip `agent-slots.lua` and the watcher on macOS the way systemd units are
-     skipped there, with a basename `--ignore`. `scripts/stow-deploy` also refuses `rex` on Linux in a second, hand-kept
-     list (`ghostty | cursor | launchagent | rex | hex` in its platform guard); derive that guard from
-     `DESKTOP_PACKAGES` so the move needs one edit (eng review R4). Stow 2.4.1 also skips ignored files when it unstows
-     (`unstow_contents` checks the ignore list), so a restow on the Mac would leave the existing
+  1. Move `rex` to the shared package set, and skip the Linux-only module (the start-up step) and the watcher on macOS
+     the way systemd units are skipped there, with a basename `--ignore`. `scripts/stow-deploy` also refuses `rex` on
+     Linux in a second, hand-kept list (`ghostty | cursor | launchagent | rex | hex` in its platform guard); derive that
+     guard from `DESKTOP_PACKAGES` so the move needs one edit (eng review R4). Stow 2.4.1 also skips ignored files when
+     it unstows (`unstow_contents` checks the ignore list), so a restow on the Mac would leave the existing
      `~/.config/rex/agent-slots.lua` link in place and `init.lua`'s presence gate would load the slot layer there; on
      Darwin, `stow-deploy` therefore removes any target link that resolves to a Linux-only Rex file (`agent-slots.lua`,
      `tab-numbers.lua`) before it restows `rex` (document review round 2).
   2. Make `init.lua` load the slot module and start the start-up step (U4) when the module is present, and otherwise
      keep the Mac's rexurrect auto-restore line; remove the restore and follow starts.
-  3. Keep the three actions and bindings in `agent-slots.lua`, calling the helper by its `$HOME`-relative path, with
-     restore and finish still running in the agents control session.
+  3. Keep the three actions and bindings in `agent-slots.lua`, deployed to both machines, calling the helper by the bare
+     name `agent-slot-rex` in every pane command and `rex.exec` call (KTD9). Pressed on the Mac, each runs on the Linux
+     server: a pane opened in a Linux session runs the Linux helper, and anything that runs on the Mac reaches the
+     server through the helper's forwarder (KTD1). Drop the Mac-file repo check (`is_known_repo`); the server's helper
+     decides which repo a session names and always queues the tab selection.
   4. Run `scripts/stow-deploy`'s config-reload step on both platforms, finding `/usr/bin/rex` on Linux and always
      passing `--autostart=false`.
 - **Patterns to follow:** the systemd-unit skip on Darwin in `scripts/stow-deploy`;
@@ -863,7 +879,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - The Linux platform guard in `scripts/stow-deploy` reads `DESKTOP_PACKAGES`, so no package name appears in both, and
     on Linux it no longer skips `rex`.
 - **Verification:** `rex --autostart=false config check` passes on both machines, and Rex.app connected to the Linux
-  server lists the slot actions in its palette and runs them from their keys.
+  server runs the slot actions from their keys and palette entries on the Linux server, with a Linux session focused and
+  with a Mac session focused (Rex.app lists its home server's actions, U1).
 
 ### U6. Number every tab
 
@@ -976,7 +993,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 
 ### U9. Retire the Mac half and rewrite the docs
 
-- **Goal:** Nothing slot-related runs on the Mac, and every doc describes the server-hosted layer (R18).
+- **Goal:** Nothing slot-related runs on the Mac beyond the slot actions and the helper's forwarder, and every doc
+  describes the server-hosted layer (R18).
 - **Requirements:** R2, R18; KTD5, KTD14.
 - **Dependencies:** U3, U4, U5, U6, U8 (the tunnel's host entry and LaunchAgent the docs describe).
 - **Files:** `scripts/agent-slot-rex/lib/follow.sh` (removed), `scripts/agent-slot-rex/lib/launch.sh`,
