@@ -32,6 +32,7 @@
 #   DRIVE_SELF_INT       interrupt mac-open (SIGINT) while it reads the share table
 # The guard reads a real /proc environment: tests start a background `sleep`
 # carrying the SSH_CONNECTION they want the tmux client to have.
+# run-tests: parallel
 
 SCRIPT="$BATS_TEST_DIRNAME/../stow/local/dot-local/bin/mac-open"
 
@@ -164,6 +165,14 @@ EOF
 }
 
 dispatch() { PATH="$STUBS:$PATH" run --separate-stderr "$SCRIPT" "$@"; }
+
+# Like dispatch, but starts mac-open with SIGINT at its default, as a terminal does. bats starts a test it runs
+# concurrently as a background job, which bash 5.3 starts with SIGINT ignored, and a script cannot trap a signal that
+# was ignored when it started.
+# shellcheck disable=SC2016 # the $SIG and @ARGV in single quotes are perl's
+dispatch_interruptible() {
+  PATH="$STUBS:$PATH" run --separate-stderr perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' "$SCRIPT" "$@"
+}
 
 # A process whose /proc environment carries SSH_CONNECTION=$1 (none when empty),
 # standing in for a tmux client. Sets CLIENT_PID.
@@ -647,7 +656,7 @@ ya_line() {
 @test "Ctrl-C during a call exits 130 without blaming the Mac" {
   fixture "$FIX/outside/a.png"
   fixture "$FIX/outside/b.png"
-  SSH_SELF_INT=1 dispatch view "$FIX/outside/a.png" "$FIX/outside/b.png"
+  SSH_SELF_INT=1 dispatch_interruptible view "$FIX/outside/a.png" "$FIX/outside/b.png"
   [ "$status" -eq 130 ]
   [[ $stderr != *"unreachable"* ]]
   [ "$(ssh_calls)" -eq 1 ]
@@ -655,7 +664,7 @@ ya_line() {
 
 @test "Ctrl-C before any call is made exits 130 and dials nothing" {
   fixture "$FIX/outside/a.png"
-  DRIVE_SELF_INT=1 dispatch view "$FIX/outside/a.png"
+  DRIVE_SELF_INT=1 dispatch_interruptible view "$FIX/outside/a.png"
   [ "$status" -eq 130 ]
   [ "$(ssh_calls)" -eq 0 ]
   [[ $stderr != *"share-table"* ]]

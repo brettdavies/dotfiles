@@ -259,16 +259,18 @@ _rendezvous() {
   [[ "$output" == *"ok 2 second"* ]]
 }
 
-@test "no suite that declares run-tests: parallel interrupts the code under test" {
+@test "a suite that declares run-tests: parallel and interrupts the code under test resets the signal first" {
   # bats starts each concurrent test as a background job, and bash 5.3 starts those with SIGINT and SIGQUIT ignored,
-  # so a test that relies on trapping either fails when its suite runs concurrently.
+  # so code under test that traps either must be started with the signal at its default, as perl's $SIG{...} = "DEFAULT"
+  # does before an exec.
   local f bad=()
   for f in "$BATS_TEST_DIRNAME"/*.bats; do
     grep -qx '# run-tests: parallel' "$f" || continue
-    if grep -qE 'kill -(INT|QUIT|2|3)\b|SIG(INT|QUIT)' "$f"; then bad+=("${f##*/}"); fi
+    grep -qE 'kill -(INT|QUIT|2|3)\b' "$f" || continue
+    grep -qF '$SIG{' "$f" || bad+=("${f##*/}")
   done
   [ "${#bad[@]}" -eq 0 ] || {
-    printf 'declares run-tests: parallel yet sends SIGINT or SIGQUIT: %s\n' "${bad[@]}"
+    printf 'declares run-tests: parallel and sends SIGINT or SIGQUIT without resetting it: %s\n' "${bad[@]}"
     false
   }
 }
