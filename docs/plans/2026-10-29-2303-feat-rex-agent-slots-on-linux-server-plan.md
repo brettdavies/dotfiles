@@ -79,6 +79,12 @@ to it as a remote host.
   R7, R21.
 - **Whole repo sessions move, not only slot tabs.** (session-settled: user-approved — chosen over leaving the operator's
   own tabs on the Mac over SSH: one place holds a repo's work, and the phone sees all of it.) Governs R1, R12.
+- **A repo's prime agent is the first tab in its repo session; cross-repo coordinators share one session.**
+  (session-settled: user-directed — chosen over every prime in a repo session and over every prime in its own session,
+  as on the Mac today: a repo's prime and the slots it launches share one place, its tab number holds because slot tabs
+  open after it, and an agent that coordinates slots across repos has a home that is not one repo's.) Each prime tab
+  runs a local `tmux attach` to the prime's existing tmuxinator session, so moving it restarts no conversation. Governs
+  R1, R12.
 - **Dev ports stay on the Mac's localhost through a tunnel, for now.** (session-settled: user-approved — chosen over
   browsing the Linux server's tailnet name and over leaving dev-server work in SSH tabs: flows tied to localhost, such
   as OAuth callbacks and secure-origin rules, keep working.) Governs R17.
@@ -977,7 +983,11 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Files:** none, beyond any `docs/solutions` entries the checklist produces.
 - **Approach:** In order:
   1. Update Rex.app and the Rex iOS app to builds at least as new as the server. Confirm the Linux server's `rex`
-     package is held at 0.1.0~preview.10 (`apt-mark showhold`) and stays there until U7 lands rexurrect v0.3.0.
+     package is held at 0.1.0~preview.10 (`apt-mark showhold`) and stays there until U7 lands rexurrect v0.3.0. Then, in
+     Rex.app connected to the Linux server, build the operator's own tabs there per the prime-placement decision (Key
+     Decisions): in each repo session, a first tab attached locally to that repo's prime tmuxinator session, and one
+     shared session holding a tab for each cross-repo coordinator. Close the matching prime tabs on the Mac. These are
+     the own tabs step 2's `rexurrect save` captures.
   2. From a plain SSH shell on the Linux server, not a Rex tab there, since this step stops that Rex server: disconnect
      both clients, run `rexurrect save`, then `rex server stop`, and confirm with `rex --autostart=false server status`
      that the login server's quit-when-empty server is gone, so the deploy cannot reload the new config into it. The
