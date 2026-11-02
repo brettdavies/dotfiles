@@ -28,8 +28,9 @@ deepened: 2026-10-29
   server beside the service's, a status report not reaching a Rex tab through a local tmux client, or a tmux server
   dying with the unit that started it; and when any teardown test shows a deletion the check should have blocked.
 - **Who finishes:** `ce-work` executes U1 through U9 on a `feat/` branch cut from `dev` in dotfiles and opens the PR. U7
-  lands on or after 2026-11-05. The operator runs U10 on both machines and the phone before merge, and a matching PR
-  updates the `agent-slot` skill in the agent-skills repo.
+  lands when rexurrect v0.3.0 clears the 7-day gate on 2026-11-07; the cutover does not wait for it. The operator runs
+  U10 on both machines and the phone before merge, and a matching PR updates the `agent-slot` skill in the agent-skills
+  repo.
 - **Open blockers:** None.
 
 ---
@@ -204,7 +205,8 @@ flowchart TB
   03:00, then the phone opened at 07:00 shows that repo's session without the slot's tab.
 - AE2. **Covers R5, R7, R13, R16.** Given three working agents and two of the operator's own tabs, all numbered, when
   the Linux server's Rex server restarts for a preview, then all three agents are still on their tasks, each slot has
-  one tab, the own tabs are back, and every tab shows a single number.
+  one tab, the own tabs are back with each pane's last command typed at its prompt once U7's recorder is in, and every
+  tab shows a single number.
 - AE3. **Covers R10.** Given an iOS app that offers no way to run the new-agent action, when the operator types
   `agent-slot launch <repo>` in a shell tab on the Linux server, then a tab for the new slot appears in that repo's
   session.
@@ -261,10 +263,17 @@ flowchart TB
   (`docs/solutions/integration-issues/rex-app-older-than-server-shows-blank-tab-data-stream-closes-after-10s.md`). The
   iOS app needs updating before phone verification, and a server preview can require a client update.
 - rexurrect v0.2.1 (MIT) was tested on the Linux server on 2026-10-29 against a throwaway Rex server. Its Claude resume,
-  its restore when a server starts, its systemd autosave, and its zsh recorder were not exercised. It enters dotfiles
-  only after it clears the 7-day supply-chain gate on 2026-11-05.
+  its restore when a server starts, its systemd autosave, and its zsh recorder were not exercised. A copy installed by
+  hand on 2026-10-29 sits at `~/.local/bin/rexurrect` on the Linux server, and the cutover uses it until U7 replaces it.
+- Rex 0.1.0~preview.12 and later restore a server's sessions on their own when it starts (the server has a
+  `--restore=false` switch), keeping their labels but not their scrollback or programs. rexurrect v0.2.1 counts those
+  sessions as live, restores nothing, and records the instance as restored, so the next autosave keeps the bare copies;
+  v0.3.0 (2026-10-31) replaces them at server start. Until U7 installs v0.3.0, the Linux server's `rex` package stays at
+  0.1.0~preview.10, held with `apt-mark hold rex`. Unattended upgrades never move it, since they allow only Ubuntu's
+  origins; only a manual apt upgrade could. v0.3.0 enters dotfiles only after it clears the 7-day supply-chain gate on
+  2026-11-07.
 - Rex has no documented extension format. The Rex layer is Lua modules loaded from the server's `init.lua`, as the Mac's
-  layer is today; the `rex` stow package deploys on macOS only (`scripts/stow-deploy:25`).
+  layer is today; the `rex` stow package deploys on macOS only (`DESKTOP_PACKAGES` at `scripts/stow-deploy:27`).
 - Two Rex.app behaviors still held on build 1642 on 2026-10-29: a split made in the tab the app is showing records 0.5
   whatever ratio was asked, and `rex focus` does not move the tab the app shows
   (`docs/solutions/integration-issues/rex-app-records-even-splits-in-the-tab-it-is-showing.md`,
@@ -300,7 +309,7 @@ committed roadmap.
 - `docs/plans/2026-10-22-1818-feat-rex-parallel-agent-slots-plan.md`: the deferred cutover (Scope Boundaries, Deferred
   to Follow-Up Work), R22, KTD6 (tmux sessions per slot), KTD7 (the status path), KTD10 (restore, follow, push).
 - Current code the cutover replaces or moves: `scripts/agent-slot/lib/push.sh`,
-  `scripts/agent-slot-rex/lib/reconcile.sh` (slot keying at lines 4-5, relabeling at line 78),
+  `scripts/agent-slot-rex/lib/reconcile.sh` (slot keying at lines 4-5, relabeling at line 79),
   `scripts/agent-slot-rex/lib/attach.sh`, `stow/rex/dot-config/rex/init.lua`, `stow/rex/dot-config/rex/agent-slots.lua`,
   `stow/rex/dot-config/rex/layout.lua`.
 - Server automation that stays: `stow/local/dot-config/systemd/user/agent-slot-sweep.timer`,
@@ -348,8 +357,10 @@ Follow-Up Work and Considered and not built lists.
   process in it, and the slot tmux server's cgroup already holds orphaned login shells (45 with parent 1 on 2026-10-30)
   that would keep a fixed-name scope alive after tmux exits and make every later start collide; tmux's own start lock
   already lands concurrent starts on one server. The direct start is kept only for when the user manager does not
-  answer, and doctor reports a slot tmux server whose cgroup is not one of these scopes, since a server in a Rex or
-  timer cgroup dies with that unit (document review round 2). Governs R7.
+  answer, and doctor reports a slot tmux server whose cgroup is a service unit's (a path ending in `.service`), since a
+  server in a Rex or timer cgroup dies with that unit (document review round 2). These scopes and a login session's
+  scope pass: no unit stop takes those down, and the slot tmux server live at the cutover sits in a login session's
+  scope. Governs R7.
 - KTD4. **One start-up step orders the restores, once per Rex server.** When the Linux server's Rex server loads its
   config, a detached start-up step takes the reconcile lock at once and waits, for a bounded time, until the server
   answers, because Rex's APIs do not work while it is still loading. It then runs rexurrect's foreground once-per-server
@@ -482,7 +493,8 @@ The label grammar both writers share (directional; KTD8 owns it):
 ```text
 label     := [ number ": " ] rest              number: written only by the tab-number watcher
 rest      := slot-rest | free-text             free-text: the operator's own tab labels, never rewritten by the reconcile
-slot-rest := key " · " task-or-branch [ " · needs you: " message ]
+slot-rest := key [ " · " name ] [ " · trust needed" ] [ " · needs you: " message ]
+                                               name: the slot's label name, else task, else branch
 key       := repo "/" N                        the only slot identifier (KTD14)
 total     := at most 128 characters, the prefix included; the reconcile cuts slot-rest, never the prefix
 ```
@@ -507,7 +519,7 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 | A Rex preview changes an API the Lua or the helper uses                                         | `scripts/agent-slot/verified-versions` records the tested build, doctor warns on any other, and the checklist reruns after an upgrade                             |
 | The tmux server wedges on a blocking write to a dead client                                     | the reconcile never captures tmux output through command substitution (learnings research)                                                                        |
 | A unit with mount-namespace hardening hides `/proc` entries from the agent-state scan           | no new unit sets `PrivateTmp`, `ProtectHome`, or `PrivateDevices`                                                                                                 |
-| rexurrect is days old                                                                           | a pinned version, checksum, and attestation; installed only after 2026-11-05; the reconcile owns slot tabs regardless                                             |
+| rexurrect is days old                                                                           | a pinned version, checksum, and attestation; installed only after 2026-11-07; the reconcile owns slot tabs regardless                                             |
 | A client older than the server shows blank tabs                                                 | clients update first (U10); the log signature is in `docs/solutions/integration-issues/rex-app-older-than-server-shows-blank-tab-data-stream-closes-after-10s.md` |
 
 ### Alternative Approaches Considered
@@ -530,8 +542,9 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   adds reach rather than a new privilege; the docs U9 rewrites state it.
 - The `rex` stow package changes sets on both machines, and `stow/ssh/dot-ssh/config` stops forwarding ports for
   `bd-dev`.
-- Claude Code hooks and the slot command's safety logic are unchanged; the `agent-slot` skill's text changes in the
-  agent-skills repo.
+- Claude Code hooks and the slot command's safety logic are unchanged; the helper's `finish` and `sweep` gain ask rules
+  (U3), since they now run locally on the server where slot agents run in bypass mode. The `agent-slot` skill's text
+  changes in the agent-skills repo.
 - README.md, BOOTSTRAP.md, AGENTS.md, and CONCEPTS.md change, so the work goes through the feature-branch PR flow.
 
 ---
@@ -627,7 +640,7 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   `scripts/agent-slot-rex/lib/help.sh`, `scripts/agent-slot-rex/lib/settings.sh` (new),
   `scripts/agent-slot/verified-versions`, `scripts/agent-slot/lib/contract.sh`, `README.md` (the reasons table),
   `tests/agent-slot-rex.bats`, `tests/lib/agent-slot-rex.bash`, `tests/agent-slot-doctor.bats`,
-  `tests/agent-slot-docs.bats`.
+  `tests/agent-slot-docs.bats`, `stow/claude/dot-claude/settings.json` (two ask rules).
 - **Approach:**
   1. Replace `server_ssh` with a local runner that keeps its argv and exit codes, and map a missing `agent-slot` to the
      existing `dependency-missing` reason.
@@ -646,7 +659,7 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      with its row in the README's reasons table, which `tests/agent-slot-docs.bats` holds to that set:
      `rex-server-down`, `startup-pending`, `reconcile-timer-inactive`, `tab-numbers-inactive`, `rexurrect-missing`,
      `rex-server-foreign`, `rex-restart-pending`, `reconcile-stale`, `wrong-host`, `own-tabs-unrestored` (KTD4's paused
-     autosave), `tmux-outside-scope` (a slot tmux server whose cgroup is not one of KTD3's scopes), and
+     autosave), `tmux-outside-scope` (a slot tmux server whose cgroup is a service unit's, per KTD3), and
      `agent-slot-timed-out` (a local `agent-slot` call that outlived its bound: exit 1, side effects unknown, next step
      `agent-slot-rex restore`, replacing what the SSH path reported as `server-unreachable` on exit 124).
      `server-unreachable` retires with the SSH transport, and `reconcile-busy`'s row stops naming the Mac (DX review).
@@ -658,11 +671,16 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      naming the log path and `agent-slot-rex restore` (DX review D10, D11).
   9. On macOS the dispatcher stops before any work with `wrong-host`: the slot layer runs on the Linux server, so the
      error names the Rex host to connect to and `ssh <server> agent-slot-rex doctor` as the next step (DX review D8).
+  10. Add `Bash(agent-slot-rex finish *)` and `Bash(agent-slot-rex sweep *)` to the ask rules in
+      `stow/claude/dot-claude/settings.json`, beside the ones for `agent-slot finish` and `agent-slot sweep`. Once the
+      runner is local, those helper verbs run `finish --yes` and `sweep --yes` on this host, and a slot agent in bypass
+      mode must still be asked before it ends another slot or sweeps them all.
 - **Patterns to follow:** the contract envelopes and closed reason set in `scripts/agent-slot/lib/contract.sh`; the
   stubs in `tests/lib/agent-slot-rex.bash`.
 - **Test scenarios:**
   - A server verb through the local runner returns the same JSON and exit code the SSH path did for success and for a
     missing `agent-slot`, and for a timeout returns the SSH path's exit code with the reason `agent-slot-timed-out`.
+  - doctor reports nothing for a slot tmux server whose stubbed cgroup is a login session's `session-c1.scope`.
   - doctor reports `tmux-outside-scope` for a slot tmux server whose stubbed cgroup is a Rex or timer unit, and
     `own-tabs-unrestored` when the running server's start-up record shows rexurrect stopped or skipped, each with its
     next step.
@@ -774,12 +792,12 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Approach:**
   1. Move `rex` to the shared package set, and skip `agent-slots.lua` and the watcher on macOS the way systemd units are
      skipped there, with a basename `--ignore`. `scripts/stow-deploy` also refuses `rex` on Linux in a second, hand-kept
-     list (`ghostty | cursor | launchagent | rex` in its platform guard); derive that guard from `DESKTOP_PACKAGES` so
-     the move needs one edit (eng review R4). Stow 2.4.1 also skips ignored files when it unstows (`unstow_contents`
-     checks the ignore list), so a restow on the Mac would leave the existing `~/.config/rex/agent-slots.lua` link in
-     place and `init.lua`'s presence gate would load the slot layer there; on Darwin, `stow-deploy` therefore removes
-     any target link that resolves to a Linux-only Rex file (`agent-slots.lua`, `tab-numbers.lua`) before it restows
-     `rex` (document review round 2).
+     list (`ghostty | cursor | launchagent | rex | hex` in its platform guard); derive that guard from
+     `DESKTOP_PACKAGES` so the move needs one edit (eng review R4). Stow 2.4.1 also skips ignored files when it unstows
+     (`unstow_contents` checks the ignore list), so a restow on the Mac would leave the existing
+     `~/.config/rex/agent-slots.lua` link in place and `init.lua`'s presence gate would load the slot layer there; on
+     Darwin, `stow-deploy` therefore removes any target link that resolves to a Linux-only Rex file (`agent-slots.lua`,
+     `tab-numbers.lua`) before it restows `rex` (document review round 2).
   2. Make `init.lua` load the slot module and start the start-up step (U4) when the module is present, and otherwise
      keep the Mac's rexurrect auto-restore line; remove the restore and follow starts.
   3. Keep the three actions and bindings in `agent-slots.lua`, calling the helper by its `$HOME`-relative path, with
@@ -848,29 +866,39 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 
 - **Goal:** rexurrect saves the operator's own tabs on a timer, and the start-up step restores them (R12, R14).
 - **Requirements:** R12, R13, R14; KTD4.
-- **Dependencies:** U4; lands on or after 2026-11-05, when v0.2.1 clears the 7-day gate.
+- **Dependencies:** U4; pins rexurrect v0.3.0 and lands on or after 2026-11-07, when it clears the 7-day gate. U10 does
+  not depend on it. Landing it lets the `rex` package hold lift (Dependencies / Assumptions).
 - **Files:** `scripts/rexurrect-deploy.sh` (new), `stow/local/dot-config/systemd/user/rexurrect-autosave.service` (new),
   `stow/local/dot-config/systemd/user/rexurrect-autosave.timer` (new), `scripts/host-jobs-enable.sh`,
   `tests/rexurrect-deploy.bats` (new), `tests/host-scheduled-jobs.bats`, `scripts/agent-slot-rex/agent-slot-rex` and
-  `scripts/agent-slot-rex/lib/help.sh` (the `save` verb), `tests/agent-slot-rex.bats`, `README.md` (the helper table).
+  `scripts/agent-slot-rex/lib/help.sh` (the `save` verb), `tests/agent-slot-rex.bats`, `README.md` (the helper table),
+  `stow/zsh/dot-zshrc` (sources the zsh recorder).
 - **Approach:**
   1. Write a deploy script that downloads a pinned release into an empty directory, checks its SHA-256 and
      `gh attestation verify --repo cemcatik/rexurrect`, and installs it to `~/.local/bin`. Each `FATAL:` line, in the
      style of `scripts/rex-login-server-deploy.sh`, names the archive and pinned version, says nothing was installed,
      and ends with the fix: for a checksum mismatch the expected and actual SHA-256 and the rerun command, for a failed
-     attestation the `gh attestation verify` command to rerun by hand.
+     attestation the `gh attestation verify` command to rerun by hand. The install counts as current only when the file
+     at `~/.local/bin/rexurrect` has the SHA-256 of the binary inside the verified archive, pinned in the script beside
+     the archive's; the script never runs an existing file to ask its version. Any other file there, including the copy
+     installed by hand on 2026-10-29, is replaced from the verified download.
   2. Stow the autosave service and timer (every 15 minutes, `agent-slot-rex save`, which runs `rexurrect save` only once
      the running server's start-up record shows rexurrect done or failed, per KTD4) instead of letting
      `rexurrect autosave install` write files dotfiles does not manage. The `save` verb joins `help.sh` and the README's
      helper table.
   3. Keep rexurrect's defaults of an empty `auto_resume` and `no_scrollback = ["claude"]`.
+  4. Install the zsh recorder, `rexurrect.plugin.zsh`, from the same verified archive to
+     `~/.local/share/rexurrect/rexurrect.plugin.zsh`, and have `stow/zsh/dot-zshrc` source it when that file exists. It
+     records each block's last command, which R12 needs, and does nothing outside a Rex block.
 - **Patterns to follow:** the pinned versions in `scripts/playwright-browsers-deploy.sh`; the `--dest` and `--root`
   sandbox flags in `scripts/sysctl-deploy.sh` and `scripts/rex-login-server-deploy.sh`.
 - **Test scenarios:**
   - A sandboxed deploy with a matching checksum installs the binary into the target directory.
   - A checksum mismatch installs nothing and exits non-zero, naming the archive.
   - A failed attestation installs nothing.
-  - A rerun with that version already installed reports nothing to do.
+  - A rerun over the deploy's own install reports nothing to do, without running the binary.
+  - A binary already at the target with a different checksum is replaced, even when it reports the pinned version.
+  - A sandboxed deploy installs the zsh recorder from the verified archive, and `.zshrc` sources it only when present.
   - The autosave timer fires every 15 minutes, its service runs `agent-slot-rex save`, and it sets no `PrivateTmp`.
   - `agent-slot-rex save` calls the `rexurrect save` stub when the start-up record shows rexurrect done or failed, and
     with the record showing rexurrect stopped at its bound or skipped, or with no record, it never calls it, journals
@@ -913,9 +941,10 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Approach:**
   1. Remove the `follow` verb and its suite, and the code paths only the Mac used: the SSH retry, wake detection, Mac
      app paths, `open -a` next steps, and the client naming.
-  2. Rewrite README's agent-slot sections and helper table; BOOTSTRAP's Rex config and agent-slot sections (deploying on
-     the server, the units, `rexurrect save` before a planned restart, the Mac tunnel); and AGENTS.md wherever it names
-     the Mac helper.
+  2. Rewrite README's agent-slot sections and helper table, naming the helper's `finish` and `sweep` beside the
+     `agent-slot` verbs where it says which commands ask first; BOOTSTRAP's Rex config and agent-slot sections
+     (deploying on the server, the units, `rexurrect save` before a planned restart, the Mac tunnel); and AGENTS.md
+     wherever it names the Mac helper.
   3. Add *slot reconcile* to CONCEPTS.md, and update *agent slot* where it places tabs.
   4. Shape the README's Setup as the golden path, with doctor as its checklist. On the Linux server:
      `scripts/stow-deploy --headless --all`, then `bash scripts/host-jobs-enable.sh`, then `agent-slot-rex doctor`,
@@ -943,10 +972,12 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 
 - **Goal:** Live slots move without restarting their agents, and AE1 through AE6 pass by hand (R21, Success Criteria).
 - **Requirements:** R1, R8, R9, R10, R11, R21; F1 through F4; AE1 through AE6.
-- **Dependencies:** U1 through U9.
+- **Dependencies:** U1 through U6, U8, and U9. U7 follows on or after 2026-11-07; until then the own-tab restore runs on
+  the rexurrect v0.2.1 installed by hand.
 - **Files:** none, beyond any `docs/solutions` entries the checklist produces.
 - **Approach:** In order:
-  1. Update Rex.app and the Rex iOS app to builds at least as new as the server.
+  1. Update Rex.app and the Rex iOS app to builds at least as new as the server. Confirm the Linux server's `rex`
+     package is held at 0.1.0~preview.10 (`apt-mark showhold`) and stays there until U7 lands rexurrect v0.3.0.
   2. From a plain SSH shell on the Linux server, not a Rex tab there, since this step stops that Rex server: disconnect
      both clients, run `rexurrect save`, then `rex server stop`, and confirm with `rex --autostart=false server status`
      that the login server's quit-when-empty server is gone, so the deploy cannot reload the new config into it. The
@@ -1239,7 +1270,7 @@ its U4 test close it.
 | U4 triggers             | `scripts/agent-slot/lib`, `scripts/agent-slot-rex`, `stow/local` units      | U2, U3                     |
 | U5 shared package       | `scripts/stow-deploy`, `stow/rex`                                           | U3, U4                     |
 | U6 tab numbers          | `stow/rex`, `stow/local` units, `scripts/agent-slot-rex`                    | U2, U5                     |
-| U7 rexurrect            | `scripts`, `stow/local` units, `scripts/host-jobs-enable.sh`                | U4; on or after 2026-11-05 |
+| U7 rexurrect            | `scripts`, `stow/local` units, `scripts/host-jobs-enable.sh`                | U4; on or after 2026-11-07 |
 | U9 retire and docs      | `scripts/agent-slot-rex`, root docs                                         | U3, U4, U5, U6, U8         |
 
 Lane A: U2 → U4 → U5 → U6 → U7 → U9 (shared units and `host-jobs-enable.sh`). Lane B: U3. Lane C: U8. After U1, launch
