@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Dev-port tunnel (macOS). Holds `ssh -N bd-tunnel` open so the dev ports
+    that host entry forwards reach the Linux server from the Mac's localhost
+    with no SSH tab open.
+
+    ssh exits once its keepalives find the connection dead after a sleep or a
+    network change, and KeepAlive opens a new one; ThrottleInterval spaces
+    those attempts while the server is unreachable. launchd-run.sh appends
+    ssh's standard error, which names any forward refused for a busy local
+    port, to ~/Library/Logs/bd-tunnel.error.log and keeps it under 1 MiB.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.bd-tunnel</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec "$HOME/dotfiles/scripts/launchd-run.sh" bd-tunnel.log ssh -N bd-tunnel</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
