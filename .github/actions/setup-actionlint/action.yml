@@ -7,8 +7,8 @@ description: Install a pinned actionlint, so CI and the local gates judge the sa
 # the skew shows up as findings that exist on one side only.
 #
 # Not cached: fetching, verifying, and unpacking the release takes 0.1-0.3 s,
-# while restoring the same file from the Actions cache took 1.2 s on a warm
-# run, and every pull request's first run misses the cache and pays for a save
+# while restoring the same file from the Actions cache took 1.2-1.5 s on warm
+# runs, and every pull request's first run misses the cache and pays for a save
 # as well. The binary goes to a directory under $HOME that joins PATH.
 #
 # Keep VERSION in step with the Homebrew formula; bumping is a reviewed change.

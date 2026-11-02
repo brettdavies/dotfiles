@@ -9,8 +9,8 @@ description: Install Ubuntu packages with apt, from cached .deb files when the r
 #
 # apt picks package versions from the lists the runner image ships, so one image
 # version always fetches the same files: the key is the image and the package
-# list. Asking apt for the exact files instead costs 0.7-2 s per job, as long as
-# the download it saves.
+# list. Asking apt for the exact files instead costs 0.7-6.5 s per job, as long
+# as the download it saves.
 #
 # The archives directory lives under $HOME because cache restore runs
 # unprivileged; apt reads it through Dir::Cache::Archives. apt leaves files in it

@@ -8,7 +8,7 @@ description: Install a pinned ShellCheck, so CI and the local gates judge the sa
 # prevent. Pinning both sides to one version is what makes the mirror faithful.
 #
 # Not cached: fetching, verifying, and unpacking the release takes 0.2-0.5 s,
-# while restoring the same file from the Actions cache took 0.9-1.7 s on warm
+# while restoring the same file from the Actions cache took 0.6-1.9 s on warm
 # runs, and every pull request's first run misses the cache and pays for a save
 # as well. The binary goes to a directory under $HOME that joins PATH.
 #
