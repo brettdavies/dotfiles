@@ -290,8 +290,13 @@ flowchart TB
 - Neither client runs the Linux server's named actions. U1 loaded a scratch action and binding into a server the apps
   reached through the login server: the server sent both to each app in `client.keymap`, yet Rex.app Beta 0.1.0 (1696)
   listed only its home server's actions in the palette (the Mac's own "New Agent" appeared, the scratch action did not),
-  its key did nothing, and neither app ever asked the server to run it. The iOS app (Rex Dev 0.1.0 (1759)) offers no
-  custom actions. The same action ran from a server shell with `rex do`. R10 covers both clients today.
+  its key did nothing, and the action never ran from either app. The iOS app (Rex Dev 0.1.0 (1759)) offers no custom
+  actions. The same action ran from a server shell with `rex do`. R10 covers both clients today.
+- A Mac action pressed in a Linux session acts there. The Mac's own "New Agent" (Cmd-Option-N), pressed with a Linux
+  session focused, opened its tab in that session on the Linux server, and the pane's command ran there through the
+  login shell; it failed because the helper path in `stow/rex/dot-config/rex/agent-slots.lua` is built from the Mac's
+  `$HOME` when the config loads. A Mac action whose pane commands each host resolves for itself can therefore act on the
+  Linux server, while its `rex.exec` calls run on the Mac by Rex's docs (U1; the pane route is undocumented).
 - Rex's agent session-renaming never fires inside slots. Rex's SessionStart hook (`rex __internal session-start`) tells
   Claude to rename the Rex session only when `REX_SESSION` and `REX_BLOCK` are set; slot sessions start from an empty
   environment, tmux's `update-environment` never copies the two from an attaching client, and with them unset the hook
