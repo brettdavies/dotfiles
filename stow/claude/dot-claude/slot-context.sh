@@ -27,7 +27,7 @@ context_record() {
   sid=$(hook_field .session_id)
   transcript=$(sessions_transcript_of "$sid" "$(hook_field .transcript_path)")
   source=$(hook_field .source)
-  # macOS date has no %N; bash 5's EPOCHREALTIME is portable, written with a . in every locale.
+  # EPOCHREALTIME uses the locale's decimal mark, and --argjson needs a period.
   ready=${EPOCHREALTIME:-}
   ready=${ready/,/.}
   [[ -n $ready ]] || ready=$(printf '%(%s)T' -1)
