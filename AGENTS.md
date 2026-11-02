@@ -150,6 +150,17 @@ never prompts. launchd reads the plist only at boot, so a change reaches GUI app
 reboot. `tests/launchd-user-path.bats` stubs `uname`, `plutil`, `stat`, `sysctl`, and `sudo`, and points
 `LAUNCHD_USER_PLIST` at a sandbox file.
 
+### Hex Transforms (`config/hex/hex.config.ts`)
+
+macOS only. `config/hex/hex.config.ts` holds the Hex dictation app's custom transformations. Hex refuses a config whose
+real path is outside `~/.config/hex` ("only files inside the config folder can be imported"), so a stow symlink never
+loads and the `hex` package cannot own this file. `scripts/hex-config.sh` compares it with
+`~/.config/hex/hex.config.ts`, exits 0 when they match or when Hex is not installed, and on drift prints the diff and
+exits 1; `--apply` copies the repo's file into place, and Hex reloads it within a second. `scripts/stow-deploy` runs the
+check without `--apply` on every macOS deploy to `$HOME`, so an edit made in place is reported, never overwritten. Edit
+the repo's copy, then run `--apply`. `tests/hex-config.bats` stubs `uname` and points `HEX_CONFIG_DIR` and `HEX_APP` at
+sandbox paths.
+
 ---
 
 ## Shell Config Chain

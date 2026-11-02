@@ -369,6 +369,18 @@ version, links it back, and prints the diff (with `--headless`, it restores the 
 follows then loads the old files, which define no agent-slot actions. To recover, run `git checkout -- stow/rex/` in
 `~/dotfiles`, then `rex config reload` from a Rex terminal.
 
+Then check the Mac's side, which also runs the server's doctor over ssh:
+
+```bash
+agent-slot-rex doctor
+```
+
+`cmd+alt+n` starts an agent on the session's repo in a background tab, `cmd+alt+r` gives every live slot its tab back,
+and `cmd+alt+f` finishes the focused tab's task. The helper reaches the Linux server through the ssh alias the `ssh`
+package defines for it; `AGENT_SLOT_REX_SERVER` names another. It logs to `~/.local/state/agent-slot-rex/`:
+`restore.log` holds the restore Rex starts when it loads, and `reconcile.log` one line for each restore, sweep, or
+finish pass over the tabs.
+
 ### Hex dictation settings
 
 The `hex` package deploys `~/Library/Application Support/hex/settings.json`, the settings of the Hex dictation app
@@ -389,17 +401,10 @@ cd ~/dotfiles && scripts/stow-deploy --only hex
 
 An existing settings file is adopted: it replaces the repo's copy, is linked back, and the diff is printed for review.
 
-Then check the Mac's side, which also runs the server's doctor over ssh:
-
-```bash
-agent-slot-rex doctor
-```
-
-`cmd+alt+n` starts an agent on the session's repo in a background tab, `cmd+alt+r` gives every live slot its tab back,
-and `cmd+alt+f` finishes the focused tab's task. The helper reaches the Linux server through the ssh alias the `ssh`
-package defines for it; `AGENT_SLOT_REX_SERVER` names another. It logs to `~/.local/state/agent-slot-rex/`:
-`restore.log` holds the restore Rex starts when it loads, and `reconcile.log` one line for each restore, sweep, or
-finish pass over the tabs.
+Hex's transforms in `~/.config/hex/hex.config.ts` are copied, not stowed: Hex refuses a config whose real path is
+outside that folder, so a symlink into this repo never loads. Edit `config/hex/hex.config.ts` here, then run
+`scripts/hex-config.sh --apply`; Hex reloads it within a second, and every macOS deploy reports drift between the two
+without overwriting either.
 
 ### fseventsd memory check
 
