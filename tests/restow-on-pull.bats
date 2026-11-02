@@ -18,7 +18,8 @@ setup() {
   unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
   load lib/dotfiles-fixture
 
-  FIX="$BATS_TEST_TMPDIR"
+  # git prints the checkout's resolved path, and macOS temp dirs sit behind the /var -> /private/var link.
+  FIX=$(cd "$BATS_TEST_TMPDIR" && pwd -P)
   T="$FIX/home"
   export STOW_DEPLOY_TARGET="$T"
   mkdir -p "$T" "$FIX/bin"

@@ -14,6 +14,11 @@ load lib/agent-slot
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/slot-context.sh"
 RUNS='"$@"; exit $?'
 
+setup_file() {
+  load lib/platform
+  require_linux "the hook finds the pane's top-level Claude through /proc"
+}
+
 setup() {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   agent_slot_setup
