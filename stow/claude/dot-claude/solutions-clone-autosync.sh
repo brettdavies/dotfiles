@@ -61,8 +61,8 @@ in_slot() {
     IFS= read -r -d '' -t 2 payload || true
   fi
   [ -z "$payload" ] || dir=$("$JQ" -r '.cwd // empty' <<<"$payload" 2>/dev/null) || dir=""
-  dir=$(realpath -m -- "${dir:-$PWD}" 2>/dev/null) || return 1
-  root=$(realpath -m -- "${AGENT_SLOT_ROOT:-$HOME/slots}" 2>/dev/null) || return 1
+  dir=$(readlink -f -- "${dir:-$PWD}" 2>/dev/null) || return 1
+  root=$(readlink -f -- "${AGENT_SLOT_ROOT:-$HOME/slots}" 2>/dev/null) || return 1
   [[ $dir == "$root"/* ]]
 }
 

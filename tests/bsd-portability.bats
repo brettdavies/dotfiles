@@ -21,3 +21,18 @@ REPO="$BATS_TEST_DIRNAME/.."
     return 1
   fi
 }
+
+# The claude package is shared, so its hooks fire on the Mac as well as in the Linux
+# server's slots. BSD realpath and readlink have no -m, and BSD date prints %N as a
+# literal N; bash 5's EPOCHREALTIME and printf '%(%s)T' give the time portably.
+@test "the Claude hooks use no GNU-only realpath -m, readlink -m, or date %N" {
+  local hits
+  hits=$(cd "$REPO" && git ls-files -z -- 'stow/claude/dot-claude/*.sh' \
+    | xargs -0 rg -n --no-heading -P \
+      '^(?!\s*#).*(\b(realpath|readlink) (-[a-zA-Z]*m\b|--canonicalize-missing)|\bdate [^|;)]*%[0-9]*N)' -- 2>/dev/null || true)
+  if [ -n "$hits" ]; then
+    echo "GNU-only path or time call in a hook that also runs on macOS:"
+    echo "$hits"
+    return 1
+  fi
+}

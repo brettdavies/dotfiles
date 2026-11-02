@@ -22,7 +22,8 @@ SLOTS_CONF="$TMUX_CONF_DIR/slots.conf"
 setup() {
   # A unix socket path is capped near 104 bytes, which a long TMPDIR under
   # BATS_TEST_TMPDIR can exceed.
-  SOCK_DIR=$(mktemp -d /tmp/tmux-slots-test.XXXXXX)
+  # tmux reports its socket under the resolved path, and macOS /tmp links to /private/tmp.
+  SOCK_DIR=$(cd "$(mktemp -d /tmp/tmux-slots-test.XXXXXX)" && pwd -P)
   export TMUX_TMPDIR="$SOCK_DIR"
   export TMUX=
   export TMUX_PLUGIN_MANAGER_PATH="$BATS_TEST_TMPDIR/plugins/"
@@ -201,6 +202,8 @@ focus_round_trip() {
 }
 
 @test "on both servers, a terminal that loses focus tints the whole view amber, and regaining focus restores it" {
+  load lib/platform
+  require_linux "the client attaches through util-linux script -c; under BSD script(1), started in the background, it never attaches"
   focus_round_trip "$TMUX_CONF" focus-operator
   focus_round_trip "$SLOTS_CONF" focus-slots
 }

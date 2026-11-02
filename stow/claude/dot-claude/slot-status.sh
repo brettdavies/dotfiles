@@ -23,10 +23,16 @@ if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); 
   exit 1
 fi
 
-STATUS_STARTED=$(date +%s%N)
+# Nanoseconds, the unit of the @slot_status_at stamps already stored. macOS date has no %N; bash 5's EPOCHREALTIME
+# is portable, to the microsecond.
+if [[ -n ${EPOCHREALTIME:-} ]]; then
+  STATUS_STARTED=${EPOCHREALTIME/[.,]/}000
+else
+  STATUS_STARTED=$(($(printf '%(%s)T' -1) * 1000000000))
+fi
 STATUS_LOCK_FD=
 
-AS_HOME=$(realpath -m "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
+AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
 
 status_record() {
   local event tool

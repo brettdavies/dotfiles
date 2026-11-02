@@ -15,6 +15,11 @@ load lib/agent-slot
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/slot-status.sh"
 RUNS='"$@"; exit $?'
 
+setup_file() {
+  load lib/platform
+  require_linux "the hook finds the pane's top-level Claude through /proc"
+}
+
 setup() {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   agent_slot_setup
@@ -130,7 +135,7 @@ wrapped() { printf '\033Ptmux;\033\033]7501;%s\007\033\\' "$1"; }
 
 @test "a report stamped earlier than the stored one is dropped" {
   printf '%s' state=blocked:kind=permission:app=claude-code >"$STUBS/panes/7/opts/@slot_status"
-  later=$(($(date +%s%N) + 60000000000))
+  later=$((${EPOCHREALTIME/[.,]/}000 + 60000000000))
   printf '%s' "$later" >"$STUBS/panes/7/opts/@slot_status_at"
   run report PostToolUse Bash
   [ "$status" -eq 0 ]
