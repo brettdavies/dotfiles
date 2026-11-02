@@ -165,6 +165,20 @@ _line_of() {
   [ "$(_line_of 'bravo probe')" -lt "$(_line_of '# tests/c.bats')" ]
 }
 
+@test "each file's marker says how long that file ran" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "alpha probe" "[ 1 -eq 1 ]"
+  _probe "$SANDBOX/tests/b.bats" "bravo probe" "sleep 0.3"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 0 ]
+  local a b
+  a=$(sed -n 's|^# tests/a\.bats (\([0-9]*\.[0-9]\) s)$|\1|p' <<<"$output")
+  b=$(sed -n 's|^# tests/b\.bats (\([0-9]*\.[0-9]\) s)$|\1|p' <<<"$output")
+  [ -n "$a" ]
+  [ -n "$b" ]
+  ((10#${b/./} >= 3))
+}
+
 @test "one failing file fails the run without suppressing the others" {
   _sandbox
   _probe "$SANDBOX/tests/a.bats" "alpha probe" "[ 1 -eq 1 ]"
