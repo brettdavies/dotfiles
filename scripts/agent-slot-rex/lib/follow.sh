@@ -98,8 +98,11 @@ follow_restore() {
 follow_loop() {
   local before after last_pass by
   last_pass=$(follow_now)
+  after=$last_pass
   while true; do
-    before=$(follow_now)
+    # The gap runs from the last tick's clock reading to this one, so a sleep of the Mac during a tick's checks counts
+    # as much as one during its sleep. A probe or a restore resets it, since either can take far longer than a tick.
+    before=$after
     sleep "$AR_TICK"
     after=$(follow_now)
     if ! follow_mine; then
@@ -115,7 +118,10 @@ follow_loop() {
       ((FOLLOW_DOWN == 2)) || FOLLOW_DOWN=1
     fi
     if ((FOLLOW_DOWN != 0)); then
-      follow_probe || continue
+      if ! follow_probe; then
+        after=$(follow_now)
+        continue
+      fi
       by=reconnect
     elif ((after - last_pass >= AR_POLL_INTERVAL)); then
       by=poll
@@ -124,6 +130,7 @@ follow_loop() {
     fi
     follow_restore "$by"
     last_pass=$(follow_now)
+    after=$last_pass
   done
 }
 
