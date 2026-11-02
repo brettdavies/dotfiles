@@ -75,7 +75,9 @@ jobs:
         # Without uv that suite skips rather than exercising anything.
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          cache-suffix: cold-probe-1
+          # The cache holds only the wcwidth wheel. Restoring it takes 0.3-0.5 s,
+          # about what fetching the wheel costs the one suite that needs it.
+          enable-cache: false
 
       - name: Install zsh + stow + jq + trash-cli
         # zsh: shell-config.bats syntax-checks dot-zshrc / dot-zshenv / dot-zprofile.

@@ -1,15 +1,15 @@
 name: Setup actionlint
-description: Install a pinned, cached actionlint, so CI and the local gates judge the same workflow the same way.
+description: Install a pinned actionlint, so CI and the local gates judge the same workflow the same way.
 
 # Same reasoning as .github/actions/setup-shellcheck: a version that drifts
 # between CI and the developer machine means a workflow passes the local gate
 # and fails here, or the reverse. actionlint gains checks between releases, so
 # the skew shows up as findings that exist on one side only.
 #
-# The install is cached per version and runner, so a warm job unpacks nothing
-# and reaches no network. The cache lives under $HOME rather than /usr/local/bin
-# because cache restore runs unprivileged; the directory joins PATH instead of
-# the binary being copied into a root-owned one.
+# Not cached: fetching, verifying, and unpacking the release takes 0.1-0.3 s,
+# while an Actions cache restore of the same file takes 0.1-1.6 s (median
+# 0.5 s), and every pull request's first run misses the cache and pays for a
+# save as well. The binary goes to a directory under $HOME that joins PATH.
 #
 # Keep VERSION in step with the Homebrew formula; bumping is a reviewed change.
 
@@ -26,15 +26,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Cache actionlint
-      id: cache
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ~/.cache/actionlint/${{ inputs.version }}
-        key: actionlint-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}-cold-probe-1
-
     - name: Download pinned actionlint
-      if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         AL_VERSION: ${{ inputs.version }}
@@ -44,7 +36,7 @@ runs:
         dest="$HOME/.cache/actionlint/${AL_VERSION}"
         mkdir -p "$dest"
         url="https://github.com/rhysd/actionlint/releases/download/v${AL_VERSION}/actionlint_${AL_VERSION}_linux_amd64.tar.gz"
-        curl -fsSL "$url" -o /tmp/actionlint.tar.gz
+        curl -fsSL --retry 3 --retry-connrefused "$url" -o /tmp/actionlint.tar.gz
         echo "${AL_SHA256}  /tmp/actionlint.tar.gz" | sha256sum --check --strict
         tar -xzf /tmp/actionlint.tar.gz -C "$dest" actionlint
         chmod +x "$dest/actionlint"
@@ -58,7 +50,7 @@ runs:
         set -euo pipefail
         dest="$HOME/.cache/actionlint/${AL_VERSION}"
         [ -x "$dest/actionlint" ] || {
-          echo "setup-actionlint: $dest/actionlint missing after install/restore" >&2
+          echo "setup-actionlint: $dest/actionlint missing after install" >&2
           exit 1
         }
         echo "$dest" >>"$GITHUB_PATH"
