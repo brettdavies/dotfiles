@@ -31,7 +31,7 @@
 #
 # A file whose tests share no state, each keeping its own under its own
 # BATS_TEST_TMPDIR, can declare `# run-tests: parallel` on a line of its own.
-# Its tests then run concurrently too, as many at a time as there are jobs, so
+# Its tests then run concurrently too, up to four at a time, so
 # one long file no longer runs on one core while the others wait on it.
 #
 # A bats process that leaves a process running after it exits fails: run-tests
@@ -112,15 +112,21 @@ _bats() {
 BATS_FLAGS=()
 
 # Usage: _parallel_flags <file> <jobs>; sets BATS_FLAGS so the file's tests run
-# concurrently, as many at a time as there are jobs, when the file declares
-# `# run-tests: parallel` on a line of its own. bats coordinates the tests
-# through flock, so without flock the file's tests run one at a time.
+# concurrently when the file declares `# run-tests: parallel` on a line of its
+# own. bats coordinates the tests through flock, so without flock the file's
+# tests run one at a time.
+#
+# At most four of a file's tests run at once, so a run with a file per core
+# runs at most four tests per core. A 16-core host running sixteen per file
+# failed a test whose two concurrent resumes each make bounded calls.
 _parallel_flags() {
+  local tests=$2
   BATS_FLAGS=()
-  [ "$2" -gt 1 ] || return 0
+  [ "$tests" -gt 1 ] || return 0
   command -v flock >/dev/null 2>&1 || return 0
   grep -qx '# run-tests: parallel' "$1" || return 0
-  BATS_FLAGS=(--jobs "$2" --no-parallelize-across-files)
+  [ "$tests" -le 4 ] || tests=4
+  BATS_FLAGS=(--jobs "$tests" --no-parallelize-across-files)
 }
 
 # Milliseconds since the epoch, from bash 5's EPOCHREALTIME, whose separator
