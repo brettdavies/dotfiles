@@ -177,6 +177,23 @@ _all_sweep() {
   [[ "$output" == *"In tests/lib/helper.bash line 2"* ]]
 }
 
+@test "a sweep that lints files concurrently reports every file's findings and fails" {
+  _require_shellcheck
+  local root="$BATS_TEST_TMPDIR/repo" n
+  mkdir -p "$root/scripts" "$root/tests/lib" "$root/.githooks/lib" "$root/config/shell"
+  cp "$SCRIPT" "$root/scripts/lint-shell"
+  for n in 1 2 3 4 5 6; do
+    printf '%s\n' '# shellcheck shell=bash' 'helper() { echo $1; }' >"$root/tests/lib/helper$n.bash"
+  done
+  printf '%s\n' '# shellcheck shell=bash' 'clean() { echo "$1"; }' >"$root/tests/lib/clean.bash"
+  run "$root/scripts/lint-shell" --all
+  [ "$status" -eq 1 ]
+  for n in 1 2 3 4 5 6; do
+    [[ "$output" == *"In tests/lib/helper$n.bash line 2"* ]]
+  done
+  [[ "$output" != *"clean.bash"* ]]
+}
+
 @test "tools-atime is linted together with the libraries it sources" {
   _require_shellcheck
   # Without -x the lib/ sources are SC1091 notes and their contents go unread.
