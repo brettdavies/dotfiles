@@ -23,8 +23,7 @@ if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); 
   exit 1
 fi
 
-# Nanoseconds, the unit of the @slot_status_at stamps already stored. macOS date has no %N; bash 5's EPOCHREALTIME
-# is portable, to the microsecond.
+# Nanoseconds, the unit of the @slot_status_at stamps already stored.
 if [[ -n ${EPOCHREALTIME:-} ]]; then
   STATUS_STARTED=${EPOCHREALTIME/[.,]/}000
 else
