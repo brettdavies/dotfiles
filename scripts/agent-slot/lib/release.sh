@@ -118,7 +118,7 @@ release_jobs_gate() {
     reason: "background-jobs-running", jobs: (split("\n") | map(select(. != "")
       | capture("^(?<pid>[0-9]+) (?<command>.*)$") | .pid |= tonumber))}' <<<"$jobs")"
   contract_fail background-jobs-running "this slot's Claude still runs $(_check_plural "$count" "background job") \
-(PID $(cut -d' ' -f1 <<<"$jobs" | paste -sd ' '); value names each command). Stop each one you no longer need, then \
+(PID $(cut -d' ' -f1 <<<"$jobs" | paste -sd ' ' -); value names each command). Stop each one you no longer need, then \
 run $RELEASE_COMMAND again. If you are still waiting on one, leave it running and do not release yet: say what with \
 $RELEASE_NOT_YET, and release once it is done" --value "$jobs" --command "$RELEASE_COMMAND"
 }

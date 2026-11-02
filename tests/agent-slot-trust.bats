@@ -103,7 +103,7 @@ EOF
   jaq -e '.trust_prompt_expected == false' <<<"$output"
   grep -qF -- "-L agent-slot-trust -f /dev/null new-session -d -s trust-" "$CALLS"
   grep -qF -- "-c $AGENT_SLOT_ROOT/repoa/1 $STUBS/claude" "$CALLS"
-  keys=$(grep -F -- '-L agent-slot-trust send-keys' "$CALLS" | awk '{ print $NF }' | paste -sd ' ')
+  keys=$(grep -F -- '-L agent-slot-trust send-keys' "$CALLS" | awk '{ print $NF }' | paste -sd ' ' -)
   [ "$keys" = "Down Enter" ]
 }
 
@@ -132,7 +132,7 @@ EOF
   run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-lost --output json
   [ "$status" -eq 0 ]
   jaq -e '.trust_prompt_expected == false' <<<"$output"
-  keys=$(grep -F -- '-L agent-slot-trust send-keys' "$CALLS" | awk '{ print $NF }' | paste -sd ' ')
+  keys=$(grep -F -- '-L agent-slot-trust send-keys' "$CALLS" | awk '{ print $NF }' | paste -sd ' ' -)
   [ "$keys" = "Down Down Enter" ]
   mapfile -t downs < <(awk '/ send-keys .* Down$/ { print $1 }' "$T/trust-clock")
   [ "$((downs[1] - downs[0]))" -ge 1000000 ]

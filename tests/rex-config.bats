@@ -82,7 +82,7 @@ SLOTS="$REX_DIR/agent-slots.lua"
   local verbs named verb
   verbs=$(grep '^VERBS=' "$BATS_TEST_DIRNAME/../scripts/agent-slot-rex/lib/help.sh")
   named=$(grep -ohE 'helper_pane\("[a-z]+"|HELPER, "[a-z]+"|agent-slot-rex", "[a-z]+"' "$SLOTS" "$INIT" \
-    | grep -oE '"[a-z]+"$' | tr -d '"' | sort -u | paste -sd ' ')
+    | grep -oE '"[a-z]+"$' | tr -d '"' | sort -u | paste -sd ' ' -)
   [ "$named" = "attach finish follow launch restore" ]
   for verb in $named; do
     [[ $verbs == *" $verb "* ]] || {

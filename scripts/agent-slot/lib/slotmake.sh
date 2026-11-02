@@ -84,7 +84,7 @@ slot_make() {
   live=$(slot_numbers "$repo" | grep -c . || true)
   if ((live >= max)); then
     contract_fail slot-limit-reached "$repo already has $live live slots, the limit per repo" \
-      --value "$(slot_numbers "$repo" | sed "s|^|$repo/|" | paste -sd ' ')" \
+      --value "$(slot_numbers "$repo" | sed "s|^|$repo/|" | paste -sd ' ' -)" \
       --command "AGENT_SLOT_MAX_PER_REPO=$((max + 1)) $command"
   fi
   n=1

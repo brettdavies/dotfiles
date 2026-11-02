@@ -766,7 +766,7 @@ sweep_tore_down() {
   run "$AGENT_SLOT_REX" sweep </dev/null
   [ "$status" -eq 0 ]
   called '^ssh-stub .*agent-slot.* sweep --yes --output json'
-  [ "$(grep '^ssh-stub-verb' "$CALLS" | head -2 | paste -sd ' ')" = 'ssh-stub-verb sweep ssh-stub-verb list' ]
+  [ "$(grep '^ssh-stub-verb' "$CALLS" | head -2 | paste -sd ' ' -)" = 'ssh-stub-verb sweep ssh-stub-verb list' ]
 }
 
 @test "after a launch from a just-merged task's tab, the sweep tears that slot down and closes its tab" {
