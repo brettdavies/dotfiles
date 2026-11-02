@@ -160,6 +160,13 @@ mutable ref to point at compromised code) doesn't apply when source and consumer
 source. Third-party reusables and all GitHub Actions still require SHAs. Tag→SHA resolution and audit script →
 `~/.claude/guides/supply-chain-pinning.md`.
 
+## CI caching
+
+Every CI job caches what it downloads or installs (apt packages, toolchains, CLI tools such as bats-core or ShellCheck,
+dependency stores) wherever a cache pays for itself. Measure each cache cold and warm and keep only the ones that save
+time. A job split into shards finishes with its slowest shard, so one uncached install in one shard costs the whole run.
+Cache actions are pinned to commit SHAs like every other action.
+
 ## Local-only files
 
 Never `git add` (even `-f`) any `TODO*.md` / `*todo*.md` variant or anything under `.context/` — they're gitignored by
