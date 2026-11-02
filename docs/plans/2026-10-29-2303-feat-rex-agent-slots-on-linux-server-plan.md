@@ -312,7 +312,6 @@ flowchart TB
 
 - Whether rexurrect's Claude resume hook earns a place for the operator's own tabs that run Claude; slot panes do not
   need it.
-- The exact transient-scope invocation and unit names, settled in U2 against the host's systemd 255.
 
 <!-- ce-section: work-relationships -->
 ### How This Work Fits Together
@@ -652,25 +651,36 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Requirements:** R3, R5, R7; KTD2, KTD3.
 - **Dependencies:** U1.
 - **Files:** `stow/local/dot-config/systemd/user/rex-server.service` (new), `scripts/agent-slot/lib/sessions.sh`,
-  `scripts/host-jobs-enable.sh`, `tests/host-scheduled-jobs.bats`, `tests/agent-slot-launch.bats`.
+  `scripts/agent-slot/lib/env.sh`, `scripts/agent-slot/agent-slot` (its header's tool overrides),
+  `scripts/host-jobs-enable.sh`, `scripts/core-env-allowlist.tsv`, `tests/host-scheduled-jobs.bats`,
+  `tests/agent-slot-launch.bats`, `tests/lib/agent-slot.bash`.
 - **Approach:**
   1. Add `rex-server.service`, modeled on Rex's home-manager user service: `rex server run` without `--exit-empty`,
      `Type=notify`, `Restart=always` with `RestartSec=10s` and `StartLimitIntervalSec=0`, gated with `ConditionHost=`
-     like the sweep units, and with no mount-namespace hardening (KTD2).
+     like the sweep units, and with no sandboxing, since every program the server starts for a tab runs in the unit's
+     cgroup and inherits it: no mount-namespace hardening (KTD2), and no `NoNewPrivileges=`, which would stop `sudo` in
+     every tab.
   2. Enable it from `scripts/host-jobs-enable.sh` in a `SERVICES` list beside `TIMERS`, which the script's header and
-     its closing status listing also cover.
+     its closing status listing also cover. Services are enabled with `--now --no-block`: on systemd 255 a failed first
+     try fails the start job even though `Restart=` goes on retrying, since the unit passes through
+     `failed-before-auto-restart`, a failed state that ends the running job (read from v255's `service.c` and `unit.c`,
+     not run live). The first try exits whenever the login server's own server holds the socket, as at the cutover, and
+     a failed start would end the script under `set -e`.
   3. In `sessions_start`, when the `agent-slots` tmux server is not running and the user's systemd manager answers,
-     start it through `systemd-run --user --scope --collect` placed before the `env -i` start, under a scope name unique
-     to the start (a fixed prefix plus the caller's pid and the time), giving systemd-run
-     `XDG_RUNTIME_DIR=/run/user/<uid>` when the caller has none; only when the user manager does not answer, start it
-     directly as today (KTD3).
+     start it through `systemd-run --user --scope --collect --quiet --unit=agent-slots-tmux-<pid>-<epoch seconds>`
+     placed before the `env -i` start, the pid being the `agent-slot` process's, giving systemd-run
+     `XDG_RUNTIME_DIR=/run/user/<uid>` when the caller has none. Only the session that starts the server goes through a
+     scope. When systemd-run is missing or fails, as it does when the user manager does not answer, start it directly
+     as today; the failed attempt's output stays in the slot command's log directory (KTD3). The tool resolves like the
+     others, with an `AGENT_SLOT_SYSTEMD_RUN` override the suites point at a stub.
 - **Patterns to follow:** `stow/local/dot-config/systemd/user/agent-slot-sweep.service`; the `TIMERS` list and its gates
   in `scripts/host-jobs-enable.sh`; the `env -i -C /` start in `sessions.sh`.
 - **Test scenarios:**
   - `rex-server.service` runs `rex server run` with no `--exit-empty`, is `Type=notify`, restarts always every 10 s with
-    `StartLimitIntervalSec=0`, and sets none of `PrivateTmp`, `ProtectHome`, or `PrivateDevices`.
+    `StartLimitIntervalSec=0`, and sets none of `PrivateTmp`, `ProtectHome`, `PrivateDevices`, or `NoNewPrivileges`.
   - `systemd-analyze --user verify` accepts the unit where it is available, and the test skips where it is not.
-  - `host-jobs-enable.sh` lists the service under `SERVICES` and enables it only on Linux and the named host.
+  - `host-jobs-enable.sh` lists the service under `SERVICES` and enables it only on Linux and the named host, with
+    `--no-block`, so a start systemd fails while another server holds the socket does not end the script.
   - `sessions_start` with no slot tmux server running and a user manager that answers runs the tmux start through a
     stubbed transient scope, with `systemd-run` before `env -i` in the recorded argv.
   - Two `sessions_start` calls in a row each pass a different scope name to the stubbed `systemd-run`, and a leftover
@@ -678,7 +688,7 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - `sessions_start` from a caller with no `XDG_RUNTIME_DIR` passes `XDG_RUNTIME_DIR=/run/user/<uid>` to the stubbed
     `systemd-run`.
   - `sessions_start` with the slot tmux server already running starts the sessions without a scope.
-  - `sessions_start` with no user manager starts tmux directly, as today.
+  - `sessions_start` with no user manager, or with no systemd-run, starts tmux directly, as today.
 - **Verification:** After `systemctl --user restart rex-server.service`, `rex --autostart=false server status` answers
   with no client connected, and stopping the unit that started the slot tmux server leaves the agents running. With the
   login server's quit-when-empty server holding the socket, the service retries every 10 s and holds the socket within
