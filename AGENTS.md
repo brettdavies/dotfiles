@@ -70,7 +70,7 @@ scripts/stow-deploy --headless --only claude  # exactly the named packages
 `--all`, extra args extend `SHARED_PACKAGES`; `--only` deploys exactly the named packages instead. `--headless`
 auto-restores repo versions after adopt, and refuses to adopt into a package whose `stow/<package>/` has uncommitted
 changes, since the restore would overwrite them; it lists that package under `FAILURES` and deploys the rest. Encrypted
-packages (`secrets`, `ssh`, `git`) require git-crypt unlock first.
+packages (`secrets`, `ssh`, `git`, `hex`) require git-crypt unlock first.
 
 ### System-Level Units (`config/systemd/system/`)
 

@@ -116,7 +116,7 @@ cd ~/dotfiles/stow
 # .DS_Store Finder leaves in a package, which collides with ~/.DS_Store.
 stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' --ignore='\.DS_Store$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
-  rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent rex
+  rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent rex hex
 
 # Headless (shared only)
 stow --dotfiles --no-folding --target="$HOME" \
@@ -368,6 +368,26 @@ Left in place, the plain files are adopted: `stow-deploy` moves each one into `s
 version, links it back, and prints the diff (with `--headless`, it restores the repo's version itself). The reload that
 follows then loads the old files, which define no agent-slot actions. To recover, run `git checkout -- stow/rex/` in
 `~/dotfiles`, then `rex config reload` from a Rex terminal.
+
+### Hex dictation settings
+
+The `hex` package deploys `~/Library/Application Support/hex/settings.json`, the settings of the Hex dictation app
+(`brew install --cask anomalyco/tap/hex`): shortcuts, Labs toggles, per-app modes with their corrections, and the shared
+vocabulary. Hex writes the file whenever a setting changes, from its window or `hex settings set`, and follows the link
+to write the repo's copy, so each change appears in `git status` here to commit or discard. Every file in the package is
+git-crypt encrypted (`stow/hex/**` in `.gitattributes`), because the vocabulary holds people's names and Hex can store
+calendar identifiers and an API key in the same file; `tests/hex-package.bats` fails on a file the rule misses.
+
+Hex keeps its settings in memory and writes all of them back on its next save, so an edit made while it runs is lost.
+Quit it before the first deploy and before editing the file by hand:
+
+```bash
+/Applications/Hex.app/Contents/MacOS/hex quit
+cd ~/dotfiles && scripts/stow-deploy --only hex
+/Applications/Hex.app/Contents/MacOS/hex start
+```
+
+An existing settings file is adopted: it replaces the repo's copy, is linked back, and the diff is printed for review.
 
 Then check the Mac's side, which also runs the server's doctor over ssh:
 

@@ -90,11 +90,13 @@ _require_unlocked_checkout() {
   [[ "$desktop" == *"cursor"* ]]
   [[ "$desktop" == *"launchagent"* ]]
   [[ " $desktop " == *" rex "* ]]
+  [[ " $desktop " == *" hex "* ]]
 }
 
 @test "macOS-only case block covers expected packages" {
   # rex holds Rex's init.lua and its agent-slot actions; Rex runs only on the Mac.
-  grep -qE 'ghostty *\| *cursor *\| *launchagent *\| *rex *\)' "$SCRIPT"
+  # hex holds the Hex dictation app's settings under ~/Library/Application Support.
+  grep -qE 'ghostty *\| *cursor *\| *launchagent *\| *rex *\| *hex *\)' "$SCRIPT"
 }
 
 @test "deploying rex reloads Rex's config only on a real macOS \$HOME deploy, and never fails on it" {

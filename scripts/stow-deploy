@@ -24,7 +24,7 @@ EXIT_PLATFORM=6     # Platform mismatch (launchagent on Linux)
 # Package sets — single source of truth
 # Ordering: secrets first (git-crypt dep), shell (PATH/env), then the rest
 SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew cargo rust tmux lazygit micro yazi rclone qmd obsidian caddy gogcli codex-proxy cswap)
-DESKTOP_PACKAGES=(ghostty cursor launchagent rex)
+DESKTOP_PACKAGES=(ghostty cursor launchagent rex hex)
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STOW_DIR="$REPO_ROOT/stow"
@@ -129,7 +129,7 @@ done
 # Check git-crypt unlock status for encrypted packages
 for pkg in "$@"; do
   case "$pkg" in
-    secrets | ssh | git)
+    secrets | ssh | git | hex)
       if [ -f "$STOW_DIR/secrets/dot-secrets" ]; then
         # grep -qI treats binary files as non-matching (no `file` command needed)
         if ! grep -qI '' "$STOW_DIR/secrets/dot-secrets" 2>/dev/null; then
@@ -301,7 +301,7 @@ for pkg in "$@"; do
   # Platform guards
   if [ "$(uname -s)" != "Darwin" ]; then
     case "$pkg" in
-      ghostty | cursor | launchagent | rex)
+      ghostty | cursor | launchagent | rex | hex)
         echo "WARNING: $pkg is macOS-only, skipping on $(uname -s)" >&2
         continue
         ;;
