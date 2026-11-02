@@ -14,11 +14,13 @@
 #                                  shard I of N of what MODE runs
 #   scripts/run-tests FILE...      run the given .bats files, as the main suite runs
 #
-# --shard deals the main suite's files round-robin in glob order, so shard I
-# runs every Nth file from the Ith, and only shard 1 runs the perf suite; the N
-# shards together run exactly what the mode runs alone. The costliest files are
-# the agent-slot suites, which sit together in the alphabet, so dealing them
-# round-robin spreads them across the shards with no table of costs to keep.
+# --shard deals the main suite's files by size, largest first, in a snake:
+# shards 1 to N, then N back to 1, and so on. Only shard 1 runs the perf suite,
+# and the N shards together run exactly what the mode runs alone. A suite's size
+# tracks its cost closely enough to balance the shards with no table of measured
+# costs to keep current: on one run's per-file times, the slowest of three
+# shards modeled at 75 s dealt this way against 93 s dealt round-robin by name.
+# Each shard also starts its largest suites first.
 #
 # The perf suite measures shell-startup latency against a budget, so it runs
 # alone on an unloaded machine and is never parallelized. The main suite runs
@@ -33,6 +35,9 @@
 # BATS_TEST_TMPDIR, can declare `# run-tests: parallel` on a line of its own.
 # Its tests then run concurrently too, up to four at a time, so
 # one long file no longer runs on one core while the others wait on it.
+# bats starts each of them as a background job, which bash 5.3 starts with
+# SIGINT and SIGQUIT ignored, so a suite whose tests trap either cannot declare
+# it; tests/run-tests.bats fails one that does.
 #
 # A bats process that leaves a process running after it exits fails: run-tests
 # gives the process 3 s, then kills it and names it under the bats output.
@@ -237,12 +242,22 @@ _run_perf() {
 }
 
 _run_main() {
-  local files=() i=0 file
+  local files=() ordered=() i=0 file slot
   compgen -G "tests/*.bats" >/dev/null || return 0
-  for file in tests/*.bats; do
-    if [ $((i % SHARDS)) -eq $((SHARD - 1)) ]; then files+=("$file"); fi
-    i=$((i + 1))
-  done
+  if [ "$SHARDS" -eq 1 ]; then
+    files=(tests/*.bats)
+  else
+    mapfile -t ordered < <(
+      for file in tests/*.bats; do printf '%s\t%s\n' "$(($(wc -c <"$file")))" "$file"; done |
+        sort -t $'\t' -k1,1nr -k2,2 | cut -f2
+    )
+    for file in "${ordered[@]}"; do
+      slot=$((i % SHARDS))
+      if [ $((i / SHARDS % 2)) -eq 1 ]; then slot=$((SHARDS - 1 - slot)); fi
+      if [ "$slot" -eq $((SHARD - 1)) ]; then files+=("$file"); fi
+      i=$((i + 1))
+    done
+  fi
   [ "${#files[@]}" -gt 0 ] || return 0
   _run_parallel "${files[@]}" || return "$EXIT_FAILURE"
 }

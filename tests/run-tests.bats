@@ -150,16 +150,22 @@ _probes_run() {
 # Sharding
 # ---------------------------------------------------------------------------
 
-@test "--shard deals the main suite's files round-robin, so each file runs in exactly one shard" {
+@test "--shard deals files largest first in a snake, so each file runs in exactly one shard" {
   _sandbox
-  local f
-  for f in a b c d e; do _probe "$SANDBOX/tests/$f.bats" "$f probe" "[ 1 -eq 1 ]"; done
+  local f pad=0
+  # a is the smallest file and e the largest, so the deal order is e d c b a: e to shard 1, d to 2, then back from
+  # 2, c to 2 and b to 1, then a to 1.
+  for f in a b c d e; do
+    _probe "$SANDBOX/tests/$f.bats" "$f probe" "[ 1 -eq 1 ]"
+    printf '# %*s\n' "$pad" '' >>"$SANDBOX/tests/$f.bats"
+    pad=$((pad + 100))
+  done
   run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf --shard 1/2
   [ "$status" -eq 0 ]
-  [ "$(_probes_run)" = ace ]
+  [ "$(_probes_run)" = abe ]
   run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf --shard 2/2
   [ "$status" -eq 0 ]
-  [ "$(_probes_run)" = bd ]
+  [ "$(_probes_run)" = cd ]
 }
 
 @test "only the first shard runs the perf suite" {
