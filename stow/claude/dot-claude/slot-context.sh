@@ -17,7 +17,7 @@ if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); 
   exit 1
 fi
 
-AS_HOME=$(realpath -m "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
+AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
 
 # Usage: context_record <repo> <n>
 # Under the slot lock, so the first-start check and the ready line happen once.
@@ -27,7 +27,10 @@ context_record() {
   sid=$(hook_field .session_id)
   transcript=$(sessions_transcript_of "$sid" "$(hook_field .transcript_path)")
   source=$(hook_field .source)
-  ready=$(date +%s.%N)
+  # macOS date has no %N; bash 5's EPOCHREALTIME is portable, written with a . in every locale.
+  ready=${EPOCHREALTIME:-}
+  ready=${ready/,/.}
+  [[ -n $ready ]] || ready=$(printf '%(%s)T' -1)
   if ! record_lock_slot "$repo" "$n" --wait 10; then
     hook_log "slot $repo/$n lock not taken; session $sid not recorded"
     return 0
