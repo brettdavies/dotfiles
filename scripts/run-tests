@@ -36,8 +36,9 @@
 # Its tests then run concurrently too, up to four at a time, so
 # one long file no longer runs on one core while the others wait on it.
 # bats starts each of them as a background job, which bash 5.3 starts with
-# SIGINT and SIGQUIT ignored, so a suite whose tests trap either cannot declare
-# it; tests/run-tests.bats fails one that does.
+# SIGINT and SIGQUIT ignored, so a declared suite that interrupts the code under
+# test starts it with the signal reset to its default; tests/run-tests.bats
+# fails one that does not.
 #
 # A bats process that leaves a process running after it exits fails: run-tests
 # gives the process 3 s, then kills it and names it under the bats output.
