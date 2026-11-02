@@ -75,4 +75,10 @@ jobs:
         # .githooks/pre-push runs this exact command and .githooks/pre-commit
         # runs the same script over staged test files, so the local gates and
         # this job cannot drift apart.
-        run: ./scripts/run-tests --all
+        run: |
+          nproc
+          grep -m1 'model name' /proc/cpuinfo
+          free -m | head -2
+          ps -e --no-headers | wc -l
+          time RUN_TESTS_JOBS=4 ./scripts/run-tests --all
+          time RUN_TESTS_JOBS=8 ./scripts/run-tests --no-perf | grep -E '^# tests/|^not ok'

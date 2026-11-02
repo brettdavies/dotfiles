@@ -89,7 +89,7 @@ _bats() {
     -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_NAMESPACE \
     RUN_TESTS_RUN="$run" \
     perl -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "run-tests: exec $ARGV[0]: $!\n"' \
-    bats "$@" || rc="$EXIT_FAILURE"
+    bats --timing "$@" || rc="$EXIT_FAILURE"
   stop_leaks "RUN_TESTS_RUN=$run" "$*" "bats exited" || rc="$EXIT_FAILURE"
   return "$rc"
 }
