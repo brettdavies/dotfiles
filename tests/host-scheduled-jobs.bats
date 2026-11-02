@@ -3,7 +3,8 @@
 # the GitHub stars sync, the daily brew and uv tool upgrades, and the automatic agent slot sweep. They run as systemd user timers shipped in shared
 # stow packages, so every unit carries ConditionHost=bigdaddy: stow-deploy restarts every timer a package ships on
 # each Linux deploy, and `restart` starts a timer whether or not it was enabled. scripts/host-jobs-enable.sh enables
-# them on that host and retires the crontab lines they replace.
+# them on that host and retires the crontab lines they replace. The same script enables the host's long-running user
+# services: the Rex server that keeps the account's tabs up with no client connected.
 #
 # Run: bats tests/host-scheduled-jobs.bats
 
@@ -12,6 +13,7 @@ OBS_UNITS="$REPO_ROOT/stow/obsidian/dot-config/systemd/user"
 LOCAL_UNITS="$REPO_ROOT/stow/local/dot-config/systemd/user"
 LOCAL_BIN="$REPO_ROOT/stow/local/dot-local/bin"
 ENABLE="$REPO_ROOT/scripts/host-jobs-enable.sh"
+REX_SERVER="$LOCAL_UNITS/rex-server.service"
 
 HOST_JOBS=(
   "$OBS_UNITS/vault-agent-sync"
@@ -66,6 +68,14 @@ EOF
 
 _enable() {
   run env PATH="$STUBS:$PATH" bash "$ENABLE"
+}
+
+# _unit_key FILE SECTION KEY: each value KEY takes in SECTION of the unit FILE, one per line.
+_unit_key() {
+  awk -v sec="[$2]" -v key="$3" '
+    /^\[/ { in_sec = ($0 == sec); next }
+    in_sec && index($0, key "=") == 1 { print substr($0, length(key) + 2) }
+  ' "$1"
 }
 
 _crontab_fixture() {
@@ -181,6 +191,36 @@ EOF
   [ "$status" -eq 1 ]
 }
 
+# --- the Rex server -----------------------------------------------------------
+
+@test "the Rex server unit runs rex server run with no quit-when-empty, reporting ready to systemd, on its host" {
+  [ "$(_unit_key "$REX_SERVER" Service ExecStart)" = '/usr/bin/rex server run' ]
+  [ "$(_unit_key "$REX_SERVER" Service Type)" = notify ]
+  [ "$(_unit_key "$REX_SERVER" Unit ConditionHost)" = bigdaddy ]
+  [ "$(_unit_key "$REX_SERVER" Install WantedBy)" = default.target ]
+}
+
+@test "the Rex server unit restarts always, every 10 s, with no start limit" {
+  [ "$(_unit_key "$REX_SERVER" Service Restart)" = always ]
+  [ "$(_unit_key "$REX_SERVER" Service RestartSec)" = 10s ]
+  [ "$(_unit_key "$REX_SERVER" Unit StartLimitIntervalSec)" = 0 ]
+}
+
+@test "the Rex server unit sets no sandboxing, which every program its tabs run would inherit" {
+  run grep -nE '^(PrivateTmp|ProtectHome|PrivateDevices|NoNewPrivileges)=' "$REX_SERVER"
+  [ "$status" -eq 1 ]
+}
+
+@test "systemd accepts the Rex server unit" {
+  command -v systemd-analyze >/dev/null 2>&1 || skip "systemd-analyze not installed"
+  [ -x /usr/bin/rex ] || skip "rex not installed"
+  local runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+  [ -d "$runtime" ] || skip "no user runtime directory"
+  run env XDG_RUNTIME_DIR="$runtime" systemd-analyze --user verify "$REX_SERVER"
+  [ "$status" -eq 0 ]
+  [[ $output != *"rex-server.service:"* ]]
+}
+
 # --- enable script ------------------------------------------------------------
 
 @test "enable script does nothing off Linux" {
@@ -240,6 +280,19 @@ _mode() {
   for job in "${HOST_JOBS[@]}"; do
     grep -qx -- "--user enable --now $(basename "$job").timer" "$SYSTEMCTL_LOG" || { cat "$SYSTEMCTL_LOG"; return 1; }
   done
+}
+
+@test "enable script enables the Rex server without waiting on its start, and lists it at the end" {
+  # systemd fails a start that waits while the login server's own Rex server holds the account socket.
+  cat >"$STUBS/systemctl" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
+case "$*" in *--now*rex-server.service) case "$*" in *--no-block*) ;; *) exit 1 ;; esac ;; esac
+EOF
+  _enable
+  [ "$status" -eq 0 ]
+  grep -qx -- '--user enable --now --no-block rex-server.service' "$SYSTEMCTL_LOG"
+  grep -qE -- '^--user list-units .*rex-server\.service' "$SYSTEMCTL_LOG"
 }
 
 @test "enable script retires exactly the crontab lines the timers replace" {
