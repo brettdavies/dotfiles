@@ -285,13 +285,15 @@ flowchart TB
   (`docs/solutions/integration-issues/rex-app-records-even-splits-in-the-tab-it-is-showing.md`,
   `docs/solutions/integration-issues/rex-app-shows-its-own-tab-selection-not-the-servers-active-window.md`).
 - Whether the Rex iOS app can run a named action is unknown; R10 covers the case where it cannot.
+- Rex's agent session-renaming never fires inside slots. Rex's SessionStart hook (`rex __internal session-start`) tells
+  Claude to rename the Rex session only when `REX_SESSION` and `REX_BLOCK` are set; slot sessions start from an empty
+  environment, tmux's `update-environment` never copies the two from an attaching client, and with them unset the hook
+  prints nothing and starts no server (U1).
 
 ### Outstanding Questions
 
 **Deferred to Implementation**
 
-- Whether Rex's agent session-renaming fires inside slots on the server, where Claude runs in tmux without Rex's session
-  variables; U1 checks, and it is turned off only if it fires.
 - Whether rexurrect's Claude resume hook earns a place for the operator's own tabs that run Claude; slot panes do not
   need it.
 - The exact transient-scope invocation and unit names, settled in U2 against the host's systemd 255.
@@ -358,15 +360,18 @@ Follow-Up Work and Considered and not built lists.
   server is not running, it starts inside a transient user scope, so a finished timer run or a restarted Rex service
   cannot take the agents with it. (session-settled: user-approved — chosen over leaving tmux in its caller's cgroup,
   where systemd ends it with the unit.) `systemd-run --user --scope --collect` wraps the empty-environment start rather
-  than running inside it, because `env -i` drops the runtime directory and bus address systemd-run needs. Each start
-  gets a scope name of its own (a fixed prefix plus the caller's pid and the time), because a scope lives as long as any
-  process in it, and the slot tmux server's cgroup already holds orphaned login shells (45 with parent 1 on 2026-10-30)
-  that would keep a fixed-name scope alive after tmux exits and make every later start collide; tmux's own start lock
-  already lands concurrent starts on one server. The direct start is kept only for when the user manager does not
-  answer, and doctor reports a slot tmux server whose cgroup is a service unit's (a path ending in `.service`), since a
-  server in a Rex or timer cgroup dies with that unit (document review round 2). These scopes and a login session's
-  scope pass: no unit stop takes those down, and the slot tmux server live at the cutover sits in a login session's
-  scope. Governs R7.
+  than running inside it, because `env -i` drops the runtime directory and bus address systemd-run needs. The caller can
+  lack the runtime directory too: a shell in a slot tmux session has no `XDG_RUNTIME_DIR`, and there
+  `systemd-run --user` fails with `Failed to connect to bus: No medium found`, so the start gives systemd-run
+  `XDG_RUNTIME_DIR=/run/user/<uid>` when it is unset. U1 measured both sides on systemd 255: tmux started directly in a
+  oneshot unit ends with the unit, and tmux started through the scope outlives it. Each start gets a scope name of its
+  own (a fixed prefix plus the caller's pid and the time), because a scope lives as long as any process in it, and the
+  slot tmux server's cgroup already holds orphaned login shells (45 with parent 1 on 2026-10-30) that would keep a
+  fixed-name scope alive after tmux exits and make every later start collide; tmux's own start lock already lands
+  concurrent starts on one server. The direct start is kept only for when the user manager does not answer, and doctor
+  reports a slot tmux server whose cgroup is a service unit's (a path ending in `.service`), since a server in a Rex or
+  timer cgroup dies with that unit (document review round 2). These scopes and a login session's scope pass: no unit
+  stop takes those down, and the slot tmux server live at the cutover sits in a login session's scope. Governs R7.
 - KTD4. **One start-up step orders the restores, once per Rex server.** When the Linux server's Rex server loads its
   config, a detached start-up step takes the reconcile lock at once and waits, for a bounded time, until the server
   answers, because Rex's APIs do not work while it is still loading. It then runs rexurrect's foreground once-per-server
@@ -382,8 +387,15 @@ Follow-Up Work and Considered and not built lists.
   `systemctl --user restart rex-server.service` as the way to restore those tabs (document review round 2). On a config
   reload the step finds that record, skips rexurrect, and only reconciles; rexurrect's own background start-up hook is
   not installed on the Linux server. (session-settled: user-approved — chosen over letting rexurrect restore on its own:
-  a reconcile that runs first creates a repo's session, and rexurrect then restores a second one beside it.) Governs R5,
-  R12, R13.
+  a reconcile that runs first creates a repo's session, and rexurrect then restores a second one beside it.) U1 measured
+  rexurrect 0.2.1 against Rex 0.1.0~preview.10: `auto-restore --server-pid` waits while the server loads its config,
+  restores within a second of the server reporting ready, and records the instance, which a config reload keeps, so a
+  second run on that instance restores nothing. It returns only after watching `app_session_watch` seconds (30 by
+  default) for a blank session Rex.app opens, so the bound in `settings.sh` covers that watch plus the restore itself;
+  rexurrect reads the setting only from its `config.toml`, never from `REXURRECT_APP_SESSION_WATCH`. Its snapshot keeps
+  a slot tab's label but not its command, so it restores slot tabs as plain shells, which the reconcile after it closes
+  and replaces. A reconcile run first leaves a second session with the repo's label, and the next reconcile closes that
+  session's tab but leaves the session itself, empty. Governs R5, R12, R13.
 - KTD5. **The periodic pass is a once-a-minute systemd user timer.** It follows
   `stow/local/dot-config/systemd/user/agent-slot-sweep.{service,timer}`. A timer or push pass exits 0 after logging why
   it changed nothing: `skip` when no Rex server answers, `startup-pending` while the running server has no start-up
@@ -400,16 +412,21 @@ Follow-Up Work and Considered and not built lists.
 - KTD7. **Slot panes stay a supervising loop around a local tmux attach, started outside the slot.** The pane's own
   process stays `agent-slot-rex attach <repo>/<N> <kind>`, so the reconcile keeps recognizing slot tabs by command. It
   attaches locally in a loop that ends when the slot is gone, from `$HOME`, so the agent-state scan never counts the
-  pane as using the slot. Governs R7, R13.
+  pane as using the slot. U1 measured that `rex new` and `rex window new` without `-c` start a pane in `$HOME` whatever
+  the caller's directory, and that `agent-slot check` reports no blocker while three such panes attach, yet names a Rex
+  pane started inside the slot. Governs R7, R13.
 - KTD8. **Tab numbers come from one watcher that owns only the label's leading `<n>:`.** A `rex do` script subscribed to
-  window events runs as a user service bound to the Rex server's service and started again with it, restarting every 5 s
-  with no start limit while the server is slow to answer; it renumbers tabs from each session's window order and writes
-  a label only when its prefix is wrong. The reconcile and finish match slot keys and compute labels with the prefix
-  removed, keep the current prefix when they relabel, and count it inside the 128-character cap. The prefix pattern is
-  written once in jq and once in Lua, and a test holds the two to the same text. The watcher connects with
-  `--autostart=false`, so a reconnect during a Rex restart can never start a second server (KTD11). (session-settled:
-  user-approved — chosen over the reconcile numbering tabs and over the community module as-is: one writer per part of a
-  label, and the module needs macOS's `shlock`.) Governs R15, R16.
+  window events, `session_view_changed`, and `session_created` runs as a user service bound to the Rex server's service
+  and started again with it, restarting every 5 s with no start limit while the server is slow to answer; it renumbers
+  tabs from each session's window order and writes a label only when its prefix is wrong. U1 measured why the two
+  session events are needed: a window move emits only `session_view_changed`, and a new session's first window emits
+  only `session_created`, never `window_created`; `session.view` inside a handler already lists the windows in their new
+  order. The reconcile and finish match slot keys and compute labels with the prefix removed, keep the current prefix
+  when they relabel, and count it inside the 128-character cap. The prefix pattern is written once in jq and once in
+  Lua, and a test holds the two to the same text. The watcher connects with `--autostart=false`, so a reconnect during a
+  Rex restart can never start a second server (KTD11). (session-settled: user-approved — chosen over the reconcile
+  numbering tabs and over the community module as-is: one writer per part of a label, and the module needs macOS's
+  `shlock`.) Governs R15, R16.
 - KTD9. **The `rex` stow package becomes shared, with the slot pieces Linux-only.** `init.lua` and `layout.lua` deploy
   to both machines; `agent-slots.lua` and the tab-number watcher are skipped on macOS the way `scripts/stow-deploy`
   already skips systemd units there. `init.lua` loads the slot pieces only when they are present, and otherwise keeps
@@ -425,8 +442,10 @@ Follow-Up Work and Considered and not built lists.
 - KTD12. **Machine-specific values live in one settings library.** The helper's defaults that name a host, a path, a
   socket, or a session, spread over nine files today, move into one library the dispatcher sources first; the Lua names
   only `$HOME`-relative helper paths. The library also puts the Homebrew bin first on the helper's PATH: a Rex server
-  started by systemd or by the login server's PAM session hands its children a PATH without Homebrew, where tmux, jq,
-  jaq, and flock live on the Linux server (eng review R2). Governs R19.
+  started by systemd or by the login server's PAM session hands what `rex.exec` starts, the start-up step and each
+  action's helper call, a PATH without Homebrew, where tmux, jq, jaq, and flock live on the Linux server (eng review
+  R2). A pane started with a command runs through the account's login shell and gets the dotfiles PATH (U1). Governs
+  R19.
 - KTD13. **Live measurement comes before dependent code.** U1 settles the behaviors this plan rests on that Rex does not
   document, each with a stop condition in the Goal Capsule. Governs R5, R7, R8, R9, R13.
 - KTD14. **Agents keep the verbs they have.** Agents launch and release slots as today and never run the helper's
@@ -616,8 +635,9 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      its closing status listing also cover.
   3. In `sessions_start`, when the `agent-slots` tmux server is not running and the user's systemd manager answers,
      start it through `systemd-run --user --scope --collect` placed before the `env -i` start, under a scope name unique
-     to the start (a fixed prefix plus the caller's pid and the time); only when the user manager does not answer, start
-     it directly as today (KTD3).
+     to the start (a fixed prefix plus the caller's pid and the time), giving systemd-run
+     `XDG_RUNTIME_DIR=/run/user/<uid>` when the caller has none; only when the user manager does not answer, start it
+     directly as today (KTD3).
 - **Patterns to follow:** `stow/local/dot-config/systemd/user/agent-slot-sweep.service`; the `TIMERS` list and its gates
   in `scripts/host-jobs-enable.sh`; the `env -i -C /` start in `sessions.sh`.
 - **Test scenarios:**
@@ -629,6 +649,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
     stubbed transient scope, with `systemd-run` before `env -i` in the recorded argv.
   - Two `sessions_start` calls in a row each pass a different scope name to the stubbed `systemd-run`, and a leftover
     scope that holds only orphaned shells does not stop a new start from running through a new scope.
+  - `sessions_start` from a caller with no `XDG_RUNTIME_DIR` passes `XDG_RUNTIME_DIR=/run/user/<uid>` to the stubbed
+    `systemd-run`.
   - `sessions_start` with the slot tmux server already running starts the sessions without a scope.
   - `sessions_start` with no user manager starts tmux directly, as today.
 - **Verification:** After `systemctl --user restart rex-server.service`, `rex --autostart=false server status` answers
@@ -734,10 +756,11 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      helper ran the verb.
   2. In `reconcile.sh`, add a start-up entry, `restore --at-start` in place of `restore --wait-server` and its wait for
      SSH, that takes the lock first, waits for the Rex server to answer for a bounded time like today's restore wait,
-     runs `rexurrect auto-restore --server-pid` in the foreground under `timeout` with the bound from `settings.sh` when
-     rexurrect is installed and this server instance has no start-up record yet, journals rexurrect's outcome (done,
-     failed, or stopped at the bound), reconciles with dormant slots resumed whatever that outcome, and then writes the
-     start-up record for the `instance:` UUID `rex server status` prints.
+     runs `rexurrect auto-restore --server-pid` in the foreground under `timeout` with the bound from `settings.sh`,
+     longer than rexurrect's 30 s app-session watch plus the restore (KTD4), when rexurrect is installed and this server
+     instance has no start-up record yet, journals rexurrect's outcome (done, failed, or stopped at the bound),
+     reconciles with dormant slots resumed whatever that outcome, and then writes the start-up record for the
+     `instance:` UUID `rex server status` prints.
   3. Start every other pass by checking that a Rex server answers and that its instance has a start-up record; log
      `skip` or `startup-pending` and exit 0 without resuming any slot when either is missing, unless the server has
      outlived the start-up step's time limit; the first pass that reconciles past that limit writes the start-up record
@@ -838,9 +861,10 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   `scripts/agent-slot-rex/lib/finish.sh`, `scripts/agent-slot-rex/lib/rex.sh`, `scripts/host-jobs-enable.sh`,
   `tests/agent-slot-rex.bats`, `tests/rex-config.bats`, `tests/host-scheduled-jobs.bats`.
 - **Approach:**
-  1. Write the watcher to subscribe to window create, destroy, move, and label-change events, recompute each session's
-     numbers from its window order, and rewrite only labels whose prefix is wrong, stripping any existing prefix first
-     so a restored label never doubles.
+  1. Write the watcher to subscribe to `window_created`, `window_closed`, `window_label_changed`, `session_view_changed`
+     (the only event a move emits), and `session_created` (a new session's first window emits no `window_created`),
+     recompute each session's numbers from its window order, and rewrite only labels whose prefix is wrong, stripping
+     any existing prefix first so a restored label never doubles.
   2. Run it as a user service with `After=`, `BindsTo=`, and `WantedBy=rex-server.service`, so a server restart stops it
      and starts it again, with `Restart=always`, `RestartSec=5s`, and `StartLimitIntervalSec=0`, that starts the watcher
      as `rex --autostart=false do --all <script>`: without `--all`, `rex do` hears only the sessions that exist when it
