@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Fixtures for the agent-slot suites. Each test gets its own slot root, dev root, and state directory under
 # BATS_TEST_TMPDIR, reached through agent-slot's AGENT_SLOT_* overrides; tmux, claude, gh, git-crypt, trash, systemctl,
-# and ssh are stubs that record their argv, and no Rex client is configured, so nothing pushes. git is real, with
+# systemd-run, and ssh are stubs that record their argv, and no Rex client is configured, so nothing pushes. git is real, with
 # GIT_CONFIG_GLOBAL pointing at a test config, so no fixture repo inherits the host's signing or URL rewrites. The trash
 # stub runs the real trash-cli on a trash under BATS_TEST_TMPDIR, since a teardown purges the entry trash-cli wrote.
 
@@ -121,6 +121,44 @@ exit "$(cat "$STUBS/ssh-$host.rc" 2>/dev/null || echo 0)"'
   export AGENT_SLOT_GIT_CRYPT=$STUBS/git-crypt AGENT_SLOT_TRASH=$STUBS/trash AGENT_SLOT_SYSTEMCTL=$STUBS/systemctl
   export AGENT_SLOT_SSH=$STUBS/ssh AGENT_SLOT_REX_CLIENTS=
   unset AGENT_SLOT_REX_CLIENT
+  systemd_run_stub
+}
+
+# systemd_run_stub: a systemd-run that logs each call to $STUBS/systemd-run.log as "XDG_RUNTIME_DIR=<value> <argv>", then
+# runs the command after its options as a transient scope would. It keeps every --unit name it ran in
+# $STUBS/systemd-run.units and refuses one it already holds, as systemd refuses a scope that orphaned processes keep
+# alive. With $STUBS/systemd-run.no-bus present it answers as a caller with no user manager gets answered. It logs
+# outside $CALLS, whose tmux lines the suites count.
+systemd_run_stub() {
+  cat >"$STUBS/systemd-run" <<EOF
+#!/usr/bin/env bash
+STUBS='$STUBS'
+EOF
+  cat >>"$STUBS/systemd-run" <<'EOF'
+printf 'XDG_RUNTIME_DIR=%s %s\n' "${XDG_RUNTIME_DIR-}" "$*" >>"$STUBS/systemd-run.log"
+if [ -e "$STUBS/systemd-run.no-bus" ]; then
+  echo 'Failed to connect to bus: No medium found' >&2
+  exit 1
+fi
+unit=
+while (($#)); do
+  case $1 in
+    --unit=*) unit=${1#--unit=} ;;
+    --) shift; break ;;
+    -*) ;;
+    *) break ;;
+  esac
+  shift
+done
+if grep -qxF "$unit" "$STUBS/systemd-run.units" 2>/dev/null; then
+  echo "Failed to start transient scope unit: Unit $unit.scope already exists." >&2
+  exit 1
+fi
+printf '%s\n' "$unit" >>"$STUBS/systemd-run.units"
+exec "$@"
+EOF
+  chmod +x "$STUBS/systemd-run"
+  export AGENT_SLOT_SYSTEMD_RUN=$STUBS/systemd-run
 }
 
 # trash_stub [AFTER]: the trash stub, which runs trash-cli's trash-put on the sandbox trash under $T/data, then AFTER once
