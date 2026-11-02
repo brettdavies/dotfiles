@@ -102,7 +102,10 @@ to it as a remote host.
   for drop-in reuse: proving it works on two live machines is the expensive part, and generality multiplies that.)
   Governs R19.
 - **Slot status keeps the existing Claude hook path.** Claude inside tmux still reports nothing to Rex on its own, so
-  the hook that writes status through tmux stays rather than going away as the 2026-10-22 plan expected. Governs R8.
+  the hook that writes status through tmux stays rather than going away as the 2026-10-22 plan expected. U1 measured it
+  through a local tmux client on the Linux server: Rex.app 1696 marked the unfocused tab (three dots while working, a
+  bump and a macOS notification while blocked) and the session in the session picker when done. The focused tab shows no
+  mark. Governs R8.
 
 ### Requirements
 
@@ -284,7 +287,11 @@ flowchart TB
   whatever ratio was asked, and `rex focus` does not move the tab the app shows
   (`docs/solutions/integration-issues/rex-app-records-even-splits-in-the-tab-it-is-showing.md`,
   `docs/solutions/integration-issues/rex-app-shows-its-own-tab-selection-not-the-servers-active-window.md`).
-- Whether the Rex iOS app can run a named action is unknown; R10 covers the case where it cannot.
+- Neither client runs the Linux server's named actions. U1 loaded a scratch action and binding into a server the apps
+  reached through the login server: the server sent both to each app in `client.keymap`, yet Rex.app Beta 0.1.0 (1696)
+  listed only its home server's actions in the palette (the Mac's own "New Agent" appeared, the scratch action did not),
+  its key did nothing, and neither app ever asked the server to run it. The iOS app (Rex Dev 0.1.0 (1759)) offers no
+  custom actions. The same action ran from a server shell with `rex do`. R10 covers both clients today.
 - Rex's agent session-renaming never fires inside slots. Rex's SessionStart hook (`rex __internal session-start`) tells
   Claude to rename the Rex session only when `REX_SESSION` and `REX_BLOCK` are set; slot sessions start from an empty
   environment, tmux's `update-environment` never copies the two from an attaching client, and with them unset the hook
@@ -347,15 +354,18 @@ Follow-Up Work and Considered and not built lists.
 - KTD2. **A systemd user service keeps the operator's Rex server running.** It runs `rex server run` without
   `--exit-empty`, modeled on the user service Rex's own home-manager module ships, so a server exists at boot and when
   an agent launches a slot with no client connected. Rex's Login Server docs say the login server uses an account's
-  running server instead of starting one; U1 confirms that on this host before anything depends on it. (session-settled:
-  user-approved — chosen over the login server's start-on-connect, quit-when-empty server: slots need tabs while nobody
-  is connected.) Starting a server on demand came close as an alternative but did not need a bake-off: a server the
-  helper starts inherits its caller's environment and cgroup (KTD3, KTD11). The unit is `Type=notify`, since
-  `rex server run` reports readiness to systemd, and it restarts always, every 10 s, with no start limit. Whenever it is
-  down, a client's connection makes the login server start its own quit-when-empty server; a second `rex server run` on
-  the held socket exits 1 (`server endpoint is already in use`), and once the start-up step has opened slot sessions in
-  that server it never quits, so the service keeps retrying and doctor names the server it did not start (eng review
-  R1). Governs R3, R5, R7.
+  running server instead of starting one, and U1 measured it on this host: with a service-started server on the socket,
+  Rex.app and the iOS app connected through the login server to that server, and no second server started.
+  (session-settled: user-approved — chosen over the login server's start-on-connect, quit-when-empty server: slots need
+  tabs while nobody is connected.) Starting a server on demand came close as an alternative but did not need a bake-off:
+  a server the helper starts inherits its caller's environment and cgroup (KTD3, KTD11). The unit is `Type=notify`,
+  since `rex server run` reports readiness to systemd, and it restarts always, every 10 s, with no start limit. Whenever
+  it is down, a client's connection makes the login server start its own quit-when-empty server; a second
+  `rex server run` on the held socket exits 1 (`server endpoint is already in use`), and once the start-up step has
+  opened slot sessions in that server it never quits, so the service keeps retrying and doctor names the server it did
+  not start (eng review R1). That server counts control connections as well as sessions, and the Mac's background Rex
+  server stays connected while Rex.app is quit, so it can outlive its last session even with no slots open. U1 measured
+  the service taking the socket 3.1 s after that server exited, at its next 10 s retry. Governs R3, R5, R7.
 - KTD3. **The slot tmux server runs in its own systemd scope.** When a slot's sessions must start and the `agent-slots`
   server is not running, it starts inside a transient user scope, so a finished timer run or a restarted Rex service
   cannot take the agents with it. (session-settled: user-approved — chosen over leaving tmux in its caller's cgroup,
@@ -534,18 +544,18 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 
 ### Risks & Dependencies
 
-| Risk                                                                                            | Mitigation                                                                                                                                                        |
-| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The login server starts its own quit-when-empty server instead of reusing the service's         | U1 checks it first, and it is a stop condition                                                                                                                    |
-| While the service is down, a client connects and the login server's own server takes the socket | the service retries every 10 s with no start limit and takes over once that server exits; doctor names a server the unit did not start (KTD2, eng review R1)      |
-| A Rex server's children get a PATH without Homebrew                                             | the helper's settings library puts the Homebrew bin first itself (KTD12, eng review R2)                                                                           |
-| rexurrect hangs during the start-up step, holding the reconcile lock                            | its run is bounded, journaled, and followed by the reconcile either way (KTD4)                                                                                    |
-| A Claude status report does not reach a Rex tab through a local tmux client                     | U1 measures it; the fallback is the 2026-10-22 plan's: status in the tab label from `agent-slot list`                                                             |
-| A Rex preview changes an API the Lua or the helper uses                                         | `scripts/agent-slot/verified-versions` records the tested build, doctor warns on any other, and the checklist reruns after an upgrade                             |
-| The tmux server wedges on a blocking write to a dead client                                     | the reconcile never captures tmux output through command substitution (learnings research)                                                                        |
-| A unit with mount-namespace hardening hides `/proc` entries from the agent-state scan           | no new unit sets `PrivateTmp`, `ProtectHome`, or `PrivateDevices`                                                                                                 |
-| rexurrect is days old                                                                           | a pinned version, checksum, and attestation; installed only after 2026-11-07; the reconcile owns slot tabs regardless                                             |
-| A client older than the server shows blank tabs                                                 | clients update first (U10); the log signature is in `docs/solutions/integration-issues/rex-app-older-than-server-shows-blank-tab-data-stream-closes-after-10s.md` |
+| Risk                                                                                            | Mitigation                                                                                                                                                                                    |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The login server starts its own quit-when-empty server instead of reusing the service's         | U1 checks it first, and it is a stop condition                                                                                                                                                |
+| While the service is down, a client connects and the login server's own server takes the socket | the service retries every 10 s with no start limit and takes over once that server exits; doctor names a server the unit did not start (KTD2, eng review R1)                                  |
+| A Rex server's children get a PATH without Homebrew                                             | the helper's settings library puts the Homebrew bin first itself (KTD12, eng review R2)                                                                                                       |
+| rexurrect hangs during the start-up step, holding the reconcile lock                            | its run is bounded, journaled, and followed by the reconcile either way (KTD4)                                                                                                                |
+| A Claude status report does not reach a Rex tab through a local tmux client                     | U1 measured the report reaching the tab and Rex.app 1696 marking it; if a later build stops marking it, the fallback is the 2026-10-22 plan's: status in the tab label from `agent-slot list` |
+| A Rex preview changes an API the Lua or the helper uses                                         | `scripts/agent-slot/verified-versions` records the tested build, doctor warns on any other, and the checklist reruns after an upgrade                                                         |
+| The tmux server wedges on a blocking write to a dead client                                     | the reconcile never captures tmux output through command substitution (learnings research)                                                                                                    |
+| A unit with mount-namespace hardening hides `/proc` entries from the agent-state scan           | no new unit sets `PrivateTmp`, `ProtectHome`, or `PrivateDevices`                                                                                                                             |
+| rexurrect is days old                                                                           | a pinned version, checksum, and attestation; installed only after 2026-11-07; the reconcile owns slot tabs regardless                                                                         |
+| A client older than the server shows blank tabs                                                 | clients update first (U10); the log signature is in `docs/solutions/integration-issues/rex-app-older-than-server-shows-blank-tab-data-stream-closes-after-10s.md`                             |
 
 ### Alternative Approaches Considered
 
@@ -1095,28 +1105,28 @@ Scope Challenge findings:
 
 ### Reality rows
 
-| Premise | Claim                                                                               | Receipt                                                                                                                                  | Verdict                           |
-| ------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| P1      | every server call goes through `server_ssh`                                         | `scripts/agent-slot-rex/lib/server.sh:19`; callers at `attach.sh:61`, `server.sh:54`, `reconcile.sh:174`, `doctor.sh:59`, `follow.sh:74` | true                              |
-| P2      | the `rex` package deploys on macOS only                                             | `scripts/stow-deploy:25`; also the Linux guard at `scripts/stow-deploy:286`                                                              | true, through two lists (Q1)      |
-| P3      | the reconcile keys slots at lines 4-5 and relabels near line 78                     | `scripts/agent-slot-rex/lib/reconcile.sh:4-5`, `reconcile.sh:79-80`                                                                      | true                              |
-| P4      | the sweep units are the pattern for a timer                                         | `stow/local/dot-config/systemd/user/agent-slot-sweep.service:1-12`, `agent-slot-sweep.timer:1-12`                                        | true                              |
-| P5      | `host-jobs-enable.sh` gates on Linux and the host and lists the timers              | `scripts/host-jobs-enable.sh:17-39`                                                                                                      | true; timers only (Q3)            |
-| P6      | slot sessions start from an empty environment at `/`                                | `scripts/agent-slot/lib/sessions.sh:76-78`                                                                                               | true                              |
-| P7      | a push never changes the verb's result, and a oneshot waits for it                  | `scripts/agent-slot/lib/push.sh:3-4`, `push.sh:19-20`                                                                                    | true                              |
-| P8      | the client list defaults to the Mac                                                 | `scripts/agent-slot/lib/env.sh:38`                                                                                                       | true                              |
-| P9      | labels are capped at 128 characters                                                 | `scripts/agent-slot-rex/lib/rex.sh:17-20`                                                                                                | true                              |
-| P10     | the reconcile journal is bounded                                                    | `scripts/agent-slot-rex/lib/journal.sh:5-6`                                                                                              | true                              |
-| P11     | `rex server run` takes `--exit-empty`, and every call takes `--autostart`           | `rex server run --help`; `rex server --help` global options                                                                              | true                              |
-| P12     | Rex exposes a server instance ID                                                    | `rex --autostart=false server status` prints `instance: <uuid>`                                                                          | true                              |
-| P13     | `rexurrect auto-restore --server-pid` restores in the foreground, once per instance | rexurrect 0.2.1 help: `--server-pid <pid>  Wait for the Rex server with this pid and restore into it, in the foreground`                 | true                              |
-| P14     | a second Rex server on a held socket fails                                          | throwaway probe on 2026-10-30: exit 1, `server endpoint is already in use`                                                               | true (new)                        |
-| P15     | the login server starts its own server when none runs                               | Login Server docs, How It Works step 3; the live account server runs `rex server run --exit-empty`                                       | true                              |
-| P16     | linger is on                                                                        | `loginctl show-user` reports `Linger=yes`                                                                                                | true                              |
-| P17     | a Rex server's children find the Homebrew tools                                     | `systemctl --user show-environment` and the live server's environment: no Homebrew on PATH                                               | false (A2)                        |
-| P18     | `rex server run` reports readiness to systemd                                       | throwaway `Type=notify` unit reached active/running in 0.04 s                                                                            | true (new)                        |
-| P19     | the iOS app can run named actions                                                   | none                                                                                                                                     | unverified; U1 step 3 measures it |
-| P20     | Rex's agent session-renaming fires inside slots                                     | none                                                                                                                                     | unverified; U1 step 8 measures it |
+| Premise | Claim                                                                               | Receipt                                                                                                                                  | Verdict                         |
+| ------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| P1      | every server call goes through `server_ssh`                                         | `scripts/agent-slot-rex/lib/server.sh:19`; callers at `attach.sh:61`, `server.sh:54`, `reconcile.sh:174`, `doctor.sh:59`, `follow.sh:74` | true                            |
+| P2      | the `rex` package deploys on macOS only                                             | `scripts/stow-deploy:25`; also the Linux guard at `scripts/stow-deploy:286`                                                              | true, through two lists (Q1)    |
+| P3      | the reconcile keys slots at lines 4-5 and relabels near line 78                     | `scripts/agent-slot-rex/lib/reconcile.sh:4-5`, `reconcile.sh:79-80`                                                                      | true                            |
+| P4      | the sweep units are the pattern for a timer                                         | `stow/local/dot-config/systemd/user/agent-slot-sweep.service:1-12`, `agent-slot-sweep.timer:1-12`                                        | true                            |
+| P5      | `host-jobs-enable.sh` gates on Linux and the host and lists the timers              | `scripts/host-jobs-enable.sh:17-39`                                                                                                      | true; timers only (Q3)          |
+| P6      | slot sessions start from an empty environment at `/`                                | `scripts/agent-slot/lib/sessions.sh:76-78`                                                                                               | true                            |
+| P7      | a push never changes the verb's result, and a oneshot waits for it                  | `scripts/agent-slot/lib/push.sh:3-4`, `push.sh:19-20`                                                                                    | true                            |
+| P8      | the client list defaults to the Mac                                                 | `scripts/agent-slot/lib/env.sh:38`                                                                                                       | true                            |
+| P9      | labels are capped at 128 characters                                                 | `scripts/agent-slot-rex/lib/rex.sh:17-20`                                                                                                | true                            |
+| P10     | the reconcile journal is bounded                                                    | `scripts/agent-slot-rex/lib/journal.sh:5-6`                                                                                              | true                            |
+| P11     | `rex server run` takes `--exit-empty`, and every call takes `--autostart`           | `rex server run --help`; `rex server --help` global options                                                                              | true                            |
+| P12     | Rex exposes a server instance ID                                                    | `rex --autostart=false server status` prints `instance: <uuid>`                                                                          | true                            |
+| P13     | `rexurrect auto-restore --server-pid` restores in the foreground, once per instance | rexurrect 0.2.1 help: `--server-pid <pid>  Wait for the Rex server with this pid and restore into it, in the foreground`                 | true                            |
+| P14     | a second Rex server on a held socket fails                                          | throwaway probe on 2026-10-30: exit 1, `server endpoint is already in use`                                                               | true (new)                      |
+| P15     | the login server starts its own server when none runs                               | Login Server docs, How It Works step 3; the live account server runs `rex server run --exit-empty`                                       | true                            |
+| P16     | linger is on                                                                        | `loginctl show-user` reports `Linger=yes`                                                                                                | true                            |
+| P17     | a Rex server's children find the Homebrew tools                                     | `systemctl --user show-environment` and the live server's environment: no Homebrew on PATH                                               | false (A2)                      |
+| P18     | `rex server run` reports readiness to systemd                                       | throwaway `Type=notify` unit reached active/running in 0.04 s                                                                            | true (new)                      |
+| P19     | the iOS app can run named actions                                                   | U1 step 3: neither app lists or binds the Linux server's actions; Rex.app 1696 offers only its home server's                             | false (U1), for Rex.app as well |
+| P20     | Rex's agent session-renaming fires inside slots                                     | U1 step 8: Rex's SessionStart hook asks for a rename only when `REX_SESSION` and `REX_BLOCK` are set, and slot sessions never have them  | false (U1)                      |
 
 unverified=2
 
