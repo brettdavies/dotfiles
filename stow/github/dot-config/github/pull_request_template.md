@@ -1,4 +1,5 @@
-<!-- Canonical version: 2026.10.22 (generic) -->
+<!-- Canonical version: 2026.11.02 (generic) -->
+
 ## Summary
 
 <!-- Provide a brief overview of the changes in this PR. What feature/fix/improvement does this introduce?
