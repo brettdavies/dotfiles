@@ -43,11 +43,21 @@ jobs:
         # needs bats >= 1.5.0, and the distro package version is whatever the
         # runner image happens to ship.
         # The action caches its own install (actions/cache internally), so a warm
-        # run restores rather than clones.
+        # run restores rather than clones. Its cache key carries bats-version and
+        # nothing else, so an unset version keys every release the same and the
+        # first one cached is the one every later run gets. Keep the version in
+        # step with the Homebrew formula the local gates run.
         uses: bats-core/bats-action@77d6fb60505b4d0d1d73e48bd035b55074bbfb43 # 4.0.0
         with:
-          # The action downloads bats and its libraries through api.github.com. Without a token those calls share the
-          # runner's anonymous rate limit, which a busy runner exhausts, and the install fails with HTTP 403.
+          bats-version: 1.14.0
+          # No suite loads bats-support, bats-assert, bats-detik, or bats-file,
+          # and the action installs all four unless told not to.
+          support-install: false
+          assert-install: false
+          detik-install: false
+          file-install: false
+          # The action downloads bats through api.github.com. Without a token those calls share the runner's anonymous
+          # rate limit, which a busy runner exhausts, and the install fails with HTTP 403.
           github-token: ${{ github.token }}
 
       - name: Install yq
@@ -72,11 +82,14 @@ jobs:
         # jq: heredoc-pr-guard.bats invokes jaq for fake JSON construction.
         # trash-cli: the agent-slot suites trash slot clones with the real
         #   trash-put into a sandbox trash, since teardown purges the entry it wrote.
-        # Symlink jq as jaq (jaq is a jq-compatible Rust reimplementation; tests
-        # use only the -n / -r / --arg / -e flags + standard filter syntax).
-        run: |
-          sudo apt-get install -y zsh stow jq trash-cli
-          sudo ln -sf "$(command -v jq)" /usr/local/bin/jaq
+        uses: ./.github/actions/setup-apt-packages
+        with:
+          packages: zsh stow jq trash-cli
+
+      - name: Name jq as jaq
+        # jaq is a jq-compatible Rust reimplementation; tests use only the
+        # -n / -r / --arg / -e flags and standard filter syntax.
+        run: sudo ln -sf "$(command -v jq)" /usr/local/bin/jaq
 
       - name: Run bats tests
         # scripts/run-tests owns which suites run, in what order, and which

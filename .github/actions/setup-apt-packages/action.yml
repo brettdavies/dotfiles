@@ -1,0 +1,54 @@
+name: Setup apt packages
+description: Install Ubuntu packages with apt, from cached .deb files when the cache holds the versions apt would fetch.
+
+# The packages come from the runner image's Ubuntu mirror, which is usually fast
+# and sometimes is not: one bats shard spent 87 s fetching 5.3 MB at 61.5 kB/s
+# while its sibling shards took under 5 s. The .deb files are cached under a key
+# built from the exact files apt would fetch, by name and checksum, so a warm job
+# downloads nothing, and an image whose package lists move to new versions misses
+# once and caches those.
+#
+# The archives directory lives under $HOME because cache restore runs
+# unprivileged; apt reads it through Dir::Cache::Archives. apt leaves files in it
+# that only root can read, so it is handed back to the runner user for the cache
+# save. man-db rebuilds its database after any install that ships a manual page,
+# about 2 s per job, and nothing in CI reads one.
+
+inputs:
+  packages:
+    description: Space-separated apt package names
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Name the package files apt would fetch
+      id: files
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        # shellcheck disable=SC2086 # PACKAGES is a list of package names
+        uris=$(apt-get install --print-uris -qq $PACKAGES)
+        printf '%s\n' "$uris" | awk 'NF {print $2}'
+        echo "hash=$(printf '%s\n' "$uris" | awk 'NF {print $2, $4}' | sort | sha256sum | cut -c1-16)" >>"$GITHUB_OUTPUT"
+
+    - name: Cache package files
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/apt-archives
+        key: apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.files.outputs.hash }}
+
+    - name: Install packages
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        archives="$HOME/.cache/apt-archives"
+        mkdir -p "$archives/partial"
+        sudo rm -f /var/lib/man-db/auto-update
+        # shellcheck disable=SC2086 # PACKAGES is a list of package names
+        sudo apt-get install -y -o Dir::Cache::Archives="$archives" -o APT::Sandbox::User=root $PACKAGES
+        sudo chown -R "$(id -u):$(id -g)" "$archives"
