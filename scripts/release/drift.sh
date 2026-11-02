@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Canonical version: 2026.11.01 (generic)
+#
 # Release drift gate: what does the release branch's base carry that the
 # integration branch never received?
 #
@@ -31,7 +33,9 @@
 #      CHANGELOG.md the anchor changed, every line the release added is in
 #      base's copy or was held by base at some commit, and every line it
 #      removed is gone from base's copy (a release whose backport never ran is
-#      invisible to gate 1, which only looks past it).
+#      invisible to gate 1, which only looks past it). With
+#      DRIFT_MANIFEST_COMPARE=version in release.env, a manifest carrier
+#      passes when base declares the release's version or a newer one.
 #   1. Every commit on head since the anchor, and every file those commits
 #      touched that base does not already contain. A file base has moved
 #      further on its own is not drift: head's change (anchor to head) is
@@ -71,9 +75,11 @@ SINCE_REF=""
 DO_FETCH=1
 RESULT_FILE=""
 
+# usage [CODE]: prints the header and exits CODE, 2 (a usage error) by default;
+# --help passes 0.
 usage() {
   print_usage_header
-  exit 2
+  exit "${1:-2}"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -98,7 +104,7 @@ while [[ $# -gt 0 ]]; do
       RESULT_FILE="$2"
       shift 2
       ;;
-    -h | --help) usage ;;
+    -h | --help) usage 0 ;;
     *)
       echo "unknown arg: $1" >&2
       usage
@@ -122,6 +128,21 @@ readonly LOCKFILE_PATTERN='(^|/)(package-lock\.json|bun\.lock|Cargo\.lock)$'
 # single-package repo, and a carrier this list omits is a file whose
 # release-time edit the gate silently treats as ordinary drift.
 readonly VERSION_CARRIERS="${VERSION_CARRIERS:-Cargo.toml package.json pyproject.toml VERSION CHANGELOG.md}"
+# How gate 0 compares a manifest carrier (Cargo.toml, package.json,
+# pyproject.toml), also overridable from release.env. "lines" holds the
+# release's change to the whole manifest to base. "version" checks only that
+# base declares the release's version or a newer one, for a repo whose
+# releases ship less than dev: a release branch that strips a feature dev
+# keeps removes manifest lines dev still holds on every release. Changelogs
+# and other carriers stay on the line check either way.
+readonly DRIFT_MANIFEST_COMPARE="${DRIFT_MANIFEST_COMPARE:-lines}"
+case "$DRIFT_MANIFEST_COMPARE" in
+  lines | version) ;;
+  *)
+    echo "DRIFT_MANIFEST_COMPARE must be lines or version, not: $DRIFT_MANIFEST_COMPARE" >&2
+    exit 2
+    ;;
+esac
 
 # Setup ----------------------------------------------------------------------
 
@@ -144,14 +165,18 @@ require_ref() {
 # Resolves the anchor commit for "since the last release" and prints how it
 # was chosen. Honors --since when given.
 resolve_anchor() {
-  local tag subject_commit
+  local tag subject_commit glob
   if [[ -n "$SINCE_REF" ]]; then
     require_ref "$SINCE_REF"
     ANCHOR=$(git rev-parse "$SINCE_REF^{commit}")
     ANCHOR_HOW="--since $SINCE_REF"
     return
   fi
-  if tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --match '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*' "$HEAD_REF" 2>/dev/null); then
+  local -a match=()
+  for glob in "${RELEASE_TAG_GLOBS[@]}"; do
+    match+=(--match "$glob")
+  done
+  if tag=$(git describe --tags --abbrev=0 "${match[@]}" "$HEAD_REF" 2>/dev/null); then
     ANCHOR=$(git rev-parse "$tag^{commit}")
     ANCHOR_HOW="tag $tag"
     return
@@ -188,10 +213,14 @@ resolve_anchor() {
 # A line that repeats within a file, such as a changelog's "### Fixed",
 # counts as present wherever it appears. The version line and the release
 # heading are unique to the release, and those keep the check sound.
+#
+# Under DRIFT_MANIFEST_COMPARE=version a manifest carrier compares by its
+# declared version alone. A skipped backport still fails: base still declares
+# the previous version, and the changelog stays on the line check.
 
 gate_anchor_backported() {
   header "Anchor release backported to $BASE_REF"
-  local path verdict head_blob prev
+  local path verdict head_blob prev released held
   local -a flagged=()
   if [[ "$ANCHOR" == "$(git merge-base "$BASE_REF" "$HEAD_REF")" ]]; then
     gate_skip "anchor bookkeeping" "anchor is the merge base; nothing to compare"
@@ -207,6 +236,17 @@ gate_anchor_backported() {
       # contain; base only has to carry the file. Base may since have moved
       # it on (a routine bump), which is not drift.
       [[ -n "$(blob_at "$BASE_REF" "$path")" ]] || flagged+=("missing $path")
+      continue
+    fi
+    if [[ "$DRIFT_MANIFEST_COMPARE" == version ]] && is_manifest "$path"; then
+      released=$(manifest_version_at "$ANCHOR" "$path")
+      # A manifest that declares no version (a virtual workspace root, a
+      # member that inherits one) has nothing to compare under this rule.
+      [[ -n "$released" ]] || continue
+      held=$(manifest_version_at "$BASE_REF" "$path")
+      if [[ -z "$held" || "$(printf '%s\n%s\n' "$released" "$held" | sort -V | tail -n 1)" != "$held" ]]; then
+        flagged+=("version $path (${held:-none} on $BASE_REF, release $released)")
+      fi
       continue
     fi
     verdict=$(classify_file_at "$ANCHOR" "$prev" "$path" history)
@@ -227,6 +267,31 @@ gate_anchor_backported() {
 # Prints the blob id of PATH at REF, or nothing when the path is absent.
 blob_at() {
   git rev-parse --verify --quiet "$1:$2" 2>/dev/null || true
+}
+
+# Returns 0 when PATH names a manifest that declares a version.
+is_manifest() {
+  case "${1##*/}" in
+    Cargo.toml | package.json | pyproject.toml) return 0 ;;
+  esac
+  return 1
+}
+
+# Prints the version the manifest PATH declares at REF: the first top-level
+# `version = "..."` line of a Cargo.toml or pyproject.toml, or the first
+# "version" key of a package.json. Prints nothing when it declares none.
+manifest_version_at() {
+  local ref="$1" path="$2"
+  case "${path##*/}" in
+    Cargo.toml | pyproject.toml)
+      git show "$ref:$path" 2>/dev/null \
+        | sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' | head -n 1 || true
+      ;;
+    package.json)
+      git show "$ref:$path" 2>/dev/null \
+        | sed -nE 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' | head -n 1 || true
+      ;;
+  esac
 }
 
 # Classifies PATH as "contained", "differs", or "missing": whether base

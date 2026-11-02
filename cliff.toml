@@ -1,3 +1,5 @@
+# Canonical version: 2026.11.02 (generic)
+# canonical:begin shared-config
 # git-cliff configuration.
 #
 # Two-stage pipeline driven by `scripts/generate-changelog.py`:
@@ -5,9 +7,11 @@
 #      subject line, linking `(#N)` squash-merge references to the PR via
 #      the `[remote.github]` owner/repo below.
 #   2. The script's Python post-processor fetches each PR body from the
-#      GitHub API, extracts its `## Changelog` -> `### Added / Changed /
-#      Fixed / Documentation` subsections, and rewrites the skeleton
-#      bullets with the richer PR-body content. Author + PR links remain.
+#      GitHub API, extracts its `## Changelog` section (a workspace member's
+#      own `## Changelog (<crate>)`) -> `### Breaking changes / Added /
+#      Changed / Deprecated / Removed / Fixed / Documentation` subsections, and
+#      rewrites the skeleton bullets with the richer PR-body content. Author +
+#      PR links remain.
 #
 # The PR body is the source of truth. If a bullet is wrong, edit the PR
 # body on GitHub (PR bodies stay editable after merge) and re-run
@@ -73,5 +77,6 @@ commit_parsers = [
 ]
 
 [remote.github]
+# canonical:end shared-config
 owner = "brettdavies"
 repo = "dotfiles"

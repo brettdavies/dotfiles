@@ -1,4 +1,5 @@
 #!/usr/bin/env -S PYTHONDONTWRITEBYTECODE=1 uv run --script
+# Canonical version: 2026.10.29 (generic)
 # /// script
 # requires-python = ">=3.11"
 # dependencies = []
@@ -400,10 +401,15 @@ def prefetch_prs(owner: str, repo: str, numbers: list[int]) -> None:
 
 def fetch_pr(owner: str, repo: str, num: int) -> dict | None:
     key = (owner, repo, num)
-    if key in _PR_CACHE:
-        return _PR_CACHE[key]
-    _PR_CACHE[key] = _fetch_pr_uncached(owner, repo, num)
-    return _PR_CACHE[key]
+    if key not in _PR_CACHE:
+        _PR_CACHE[key] = _fetch_pr_uncached(owner, repo, num)
+    pr = _PR_CACHE[key]
+    # GitHub returns some PR bodies with CRLF line endings. Split on "\n", a
+    # bullet keeps its "\r" ahead of the appended attribution, and the next
+    # text-mode rewrite of CHANGELOG.md turns that CR into a line break.
+    if pr and pr.get("body"):
+        pr["body"] = re.sub(r"\r\n?", "\n", pr["body"])
+    return pr
 
 
 def _fetch_pr_uncached(owner: str, repo: str, num: int) -> dict | None:

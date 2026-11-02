@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Canonical version: 2026.11.01 (generic)
+#
 # Shared bash utilities for the release-(pre|post)flight orchestrators and any
 # project-authored surface-smoke suite that wants to participate in the
 # orchestrator's PASS/FAIL/SKIP accounting. Source via:
@@ -87,6 +89,14 @@ count_and_list() {
 }
 
 # Release package ------------------------------------------------------------
+
+# Release tags this fleet cuts: `vX.Y.Z`, or a bare CalVer `YYYY.MM.DD[.N]` for a
+# repo that releases by date. The globs select tags for git; the regex checks a
+# version argument. drift.sh and sync-dev-after-release.sh both read these.
+# shellcheck disable=SC2034  # read by the scripts that source this file
+readonly RELEASE_TAG_GLOBS=('v[0-9]*' '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*')
+# shellcheck disable=SC2034  # read by the scripts that source this file
+readonly RELEASE_TAG_RE='^(v[0-9]+\.[0-9]+\.[0-9]+|[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?)$'
 
 # Per-repo release configuration, sourced when present. preflight, postflight
 # and sync-dev are three separate entry points, so a value declared in one of

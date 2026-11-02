@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Canonical version: 2026.10.28 (generic)
+#
 # core-env-guard.sh - Fail when a test resets a core environment variable.
 #
 # Usage:
