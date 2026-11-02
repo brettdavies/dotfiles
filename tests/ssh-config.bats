@@ -38,6 +38,15 @@ option() {
   [ "$(option bd-tunnel exitonforwardfailure)" = no ]
 }
 
+# ssh logs a forward's bind failure at INFO only for the last loopback address it tries; a refusal on the other
+# address (a local server holding the port on ::1 alone, say) reaches the log only at VERBOSE or above.
+@test "the tunnel logs a forward refused on either loopback address" {
+  case "$(option bd-tunnel loglevel)" in
+    VERBOSE | DEBUG | DEBUG1 | DEBUG2 | DEBUG3) ;;
+    *) return 1 ;;
+  esac
+}
+
 @test "the tunnel notices a dead connection within a minute" {
   interval=$(option bd-tunnel serveraliveinterval)
   count=$(option bd-tunnel serveralivecountmax)

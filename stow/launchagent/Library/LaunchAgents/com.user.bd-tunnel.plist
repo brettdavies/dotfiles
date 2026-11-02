@@ -9,7 +9,12 @@
     network change, and KeepAlive opens a new one; ThrottleInterval spaces
     those attempts while the server is unreachable. launchd-run.sh appends
     ssh's standard error, which names any forward refused for a busy local
-    port, to ~/Library/Logs/bd-tunnel.error.log and keeps it under 1 MiB.
+    port, to ~/Library/Logs/bd-tunnel.error.log, and cuts that log to its last
+    1 MiB each time ssh starts.
+
+    ssh binds its forwards only when it connects, so a refused forward stays
+    down after its port frees until the next connection;
+    `launchctl kickstart -k "gui/$(id -u)/com.user.bd-tunnel"` makes one at once.
 -->
 <plist version="1.0">
 <dict>
