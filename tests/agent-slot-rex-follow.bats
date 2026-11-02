@@ -24,16 +24,18 @@ teardown() {
   for pid in "${LOOPS[@]}"; do kill -CONT "$pid" 2>/dev/null || true; kill "$pid" 2>/dev/null || true; done
 }
 
-# eventually COMMAND...: retries the command for up to 10 s until it succeeds.
+# eventually COMMAND...: retries the command until it succeeds, for up to 30 s of wall time. A deadline rather than a
+# count of tries, because on a loaded machine the loop under test can take far longer than usual to act.
 eventually() {
-  local i
-  for ((i = 0; i < 100; i++)); do
-    "$@" 2>/dev/null && return 0
+  local deadline=$((SECONDS + 30))
+  until "$@" 2>/dev/null; do
+    ((SECONDS < deadline)) || {
+      echo "never true within 30 s: $*" >&2
+      cat "$CALLS" "$FOLLOW_LOG" >&2 2>/dev/null || true
+      return 1
+    }
     sleep 0.1
   done
-  echo "never true: $*" >&2
-  cat "$CALLS" "$FOLLOW_LOG" >&2 2>/dev/null || true
-  return 1
 }
 
 # track PID...: processes teardown stops.

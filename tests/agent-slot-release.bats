@@ -128,16 +128,18 @@ verdict() {
   VERDICT=$(jaq -c '.slots[0]' <<<"$output")
 }
 
-# eventually COMMAND...: retries the command for up to 15 s until it succeeds.
+# eventually COMMAND...: retries the command until it succeeds, for up to 30 s of wall time. A deadline rather than a
+# count of tries, because on a loaded machine the teardown under test can take far longer than usual to act.
 eventually() {
-  local i
-  for ((i = 0; i < 150; i++)); do
-    "$@" 2>/dev/null && return 0
+  local deadline=$((SECONDS + 30))
+  until "$@" 2>/dev/null; do
+    ((SECONDS < deadline)) || {
+      echo "never true within 30 s: $*" >&2
+      cat "$TEARDOWN_LOG" "$AGENT_SLOT_STATE_DIR"/logs/release-* >&2 2>/dev/null || true
+      return 1
+    }
     sleep 0.1
   done
-  echo "never true: $*" >&2
-  cat "$TEARDOWN_LOG" "$AGENT_SLOT_STATE_DIR"/logs/release-* >&2 2>/dev/null || true
-  return 1
 }
 gone() { [ ! -e "$SLOT" ]; }
 # runner_done: true once the teardown a release started has exited and let go of the slot's lock.

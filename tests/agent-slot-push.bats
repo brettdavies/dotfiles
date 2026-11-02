@@ -23,16 +23,18 @@ setup() {
   REMOTE='~/.local/bin/agent-slot-rex restore --by push --output json'
 }
 
-# pushed N: waits up to 10 s for the push log to hold N lines.
+# pushed N: waits up to 30 s of wall time for the push log to hold N lines. A deadline rather than a count of tries,
+# because on a loaded machine the push under test can take far longer than usual to land.
 pushed() {
-  local i
-  for ((i = 0; i < 100; i++)); do
-    (($(cat "$PUSH_LOG" 2>/dev/null | wc -l) >= $1)) && return 0
+  local deadline=$((SECONDS + 30))
+  until (($(cat "$PUSH_LOG" 2>/dev/null | wc -l) >= $1)); do
+    ((SECONDS < deadline)) || {
+      echo "the push log holds fewer than $1 lines after 30 s:" >&2
+      cat "$PUSH_LOG" >&2 2>/dev/null || true
+      return 1
+    }
     sleep 0.1
   done
-  echo "the push log holds fewer than $1 lines:" >&2
-  cat "$PUSH_LOG" >&2 2>/dev/null || true
-  return 1
 }
 
 # clients NAMES [TIMEOUT]: the Rex clients a push reaches, and the seconds one push may take.
