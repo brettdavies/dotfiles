@@ -380,7 +380,10 @@ registered before it could block anything. It also runs after ShellCheck is on P
 fails a test that resets `HOME`, `TMPDIR`, an `XDG_*` directory, a tool home, or the whole value of `PATH`;
 `scripts/core-env-allowlist.tsv` holds each exception with its reason, and a sweep fails on an entry that matches
 nothing. The script is a verbatim copy of the github-repo-setup skill's `templates/core-env-guard.sh`, whose own suite
-covers it.
+covers it. `scripts/lint-workflows` also runs `scripts/check-workflow-concurrency.sh`, a verbatim copy of the same
+skill's `templates/check-workflow-concurrency.sh`, whenever a workflow is in scope. It fails a `concurrency.group` that
+starts with an expression rather than a literal token naming its workflow: inside a called workflow `github.workflow` is
+the caller's name, so an unprefixed group collides with the caller's own and cancels it.
 
 The bats workflow is a matrix of shards, each running `scripts/run-tests --all --shard I/N` on its own runner, and a job
 named `bats` that passes only when every shard did. One 4-vCPU runner runs the suite CPU-bound, so more runners are what
