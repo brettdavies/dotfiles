@@ -54,6 +54,54 @@ has_prettier_config() {
     || [[ -f "$CLAUDE_PROJECT_DIR/prettier.config.mjs" ]]
 }
 
+# Prints the edition `cargo fmt` passes to rustfmt for the package that owns
+# $1, or nothing when no Cargo.toml above it declares a package. Standalone
+# rustfmt reads no edition from the manifest and formats as 2015, whose style
+# sorts `use` lists differently from 2024's. The walk follows Cargo: the nearest
+# manifest with a [package] table owns the file, a package with no edition key
+# is 2015, and only `edition.workspace = true` inherits, from the nearest
+# manifest at or above it that declares a workspace.
+rust_edition_for() {
+  local dir manifests=()
+  dir=$(cd "$(dirname "$1")" 2>/dev/null && pwd) || return 0
+  while :; do
+    [[ -f "$dir/Cargo.toml" ]] && manifests+=("$dir/Cargo.toml")
+    [[ "$dir" == / ]] && break
+    dir=$(dirname "$dir")
+  done
+  ((${#manifests[@]})) || return 0
+  awk '
+    function settle() {
+      if (want == "package" && pkg != "") {
+        if (pkg != "inherit") { print (pkg == "unset" ? "2015" : pkg); done = 1; exit }
+        want = "workspace"
+      }
+      if (want == "workspace" && ws != "") {
+        if (ws != "unset") print ws
+        done = 1; exit
+      }
+      pkg = ""; ws = ""
+    }
+    BEGIN { want = "package" }
+    FNR == 1 { if (NR > 1) settle(); sec = "" }
+    { line = $0; sub(/#.*/, "", line) }
+    line ~ /^[[:space:]]*\[/ {
+      sec = line; gsub(/[[:space:]]/, "", sec)
+      if (sec == "[package]" && pkg == "") pkg = "unset"
+      if ((sec == "[workspace]" || sec ~ /^\[workspace\./) && ws == "") ws = "unset"
+      next
+    }
+    line ~ /^[[:space:]]*edition[[:space:]]*[=.]/ {
+      if (line ~ /workspace/) v = "inherit"
+      else if (match(line, /[0-9][0-9][0-9][0-9]/)) v = substr(line, RSTART, RLENGTH)
+      else next
+      if (sec == "[package]") pkg = v
+      else if (sec == "[workspace.package]" && v != "inherit") ws = v
+    }
+    END { if (!done) settle() }
+  ' "${manifests[@]}" 2>/dev/null || true
+}
+
 case "$ext" in
   ts | tsx | js | jsx | json | jsonc)
     # No report_errors: pure formatters either fix everything or fail on parse errors (already visible)
@@ -266,7 +314,10 @@ MD013 fix hint: line length limit is ${max_len} characters. Wrap lines to fill u
     ;;
   rs)
     if command -v rustfmt &>/dev/null; then
-      rustfmt "$file" 2>&1 || true
+      rustfmt_args=()
+      edition=$(rust_edition_for "$file")
+      [[ -z "$edition" ]] || rustfmt_args=(--edition "$edition")
+      rustfmt "${rustfmt_args[@]}" "$file" 2>&1 || true
     fi
     ;;
   sh)
