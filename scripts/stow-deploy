@@ -126,21 +126,31 @@ for pkg in "$@"; do
   fi
 done
 
-# Check git-crypt unlock status for encrypted packages
-for pkg in "$@"; do
-  case "$pkg" in
-    secrets | ssh | git | hex)
-      if [ -f "$STOW_DIR/secrets/dot-secrets" ]; then
-        # grep -qI treats binary files as non-matching (no `file` command needed)
-        if ! grep -qI '' "$STOW_DIR/secrets/dot-secrets" 2>/dev/null; then
-          echo "FATAL: git-crypt is locked. Encrypted files would be deployed as binary blobs." >&2
-          echo "       Run: git-crypt unlock ~/.config/git-crypt/key" >&2
-          exit "$EXIT_PRECONDITION"
-        fi
+# encrypted_files <pkg>: the package's tracked files that .gitattributes marks
+# filter=git-crypt, NUL-separated, so a newly encrypted package needs no list here.
+encrypted_files() {
+  local path _attr value
+  git -C "$REPO_ROOT" ls-files -z -- "stow/$1" 2>/dev/null |
+    git -C "$REPO_ROOT" check-attr -z --stdin filter 2>/dev/null |
+    while IFS= read -r -d '' path && IFS= read -r -d '' _attr && IFS= read -r -d '' value; do
+      if [ "$value" = git-crypt ]; then
+        printf '%s\0' "$path"
       fi
-      break # only need to check once
-      ;;
-  esac
+    done
+}
+
+# Refuse a package whose encrypted files are still ciphertext: grep -qI reads
+# ciphertext as binary (no `file` command needed).
+for pkg in "$@"; do
+  while IFS= read -r -d '' file; do
+    [ -f "$REPO_ROOT/$file" ] || continue
+    if ! grep -qI '' "$REPO_ROOT/$file" 2>/dev/null; then
+      echo "FATAL: git-crypt is locked. Encrypted files would be deployed as binary blobs." >&2
+      echo "       Locked: $file (package $pkg)" >&2
+      echo "       Run: git-crypt unlock ~/.config/git-crypt/key" >&2
+      exit "$EXIT_PRECONDITION"
+    fi
+  done < <(encrypted_files "$pkg")
 done
 
 # Check for dirty stow directory. Headless mode instead checks each package
