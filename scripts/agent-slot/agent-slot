@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # agent-slot — hands out clones of a repo ("slots") on this server, one agent task per slot, and owns every
-# check before a slot is torn down. The Rex helper on the Mac, the operator's shell, and agents all call it.
+# check before a slot is torn down. The Rex helper, the operator's shell, and agents all call it.
 #
 # Usage: agent-slot <verb> [options] [--output json]
 # Verbs and options: agent-slot --help, and agent-slot <verb> --help.
@@ -23,17 +23,16 @@
 #   AGENT_SLOT_REPO_RECON      repo-recon's store, read only (~/dev/repo-recon)
 #   AGENT_SLOT_GIT_CRYPT_KEY   git-crypt key (~/.config/git-crypt/key)
 #   AGENT_SLOT_CLAUDE_STATE    Claude's app-state file, read only (~/.claude.json)
-#   AGENT_SLOT_REX_CLIENTS     space-separated ssh aliases of the Macs whose Rex a launch or teardown pushes a restore
-#                              to (bretts-air); empty pushes to none
-#   AGENT_SLOT_REX_CLIENT      the Rex client whose helper ran this verb, which the push skips; the helper sets it
-#   AGENT_SLOT_PUSH_CONNECT_TIMEOUT  seconds a push waits for a Mac's ssh to connect (5)
+#   AGENT_SLOT_REX_HELPER      the Rex helper a launch or teardown pushes a restore to (~/.local/bin/agent-slot-rex);
+#                              without it nothing is pushed
+#   AGENT_SLOT_REX_CLIENT      set by the Rex helper when it runs a verb, which then pushes nothing
 #   AGENT_SLOT_PUSH_TIMEOUT    seconds one push may take in all (60)
-#   AGENT_SLOT_PUSH_WAIT       1 to wait for a verb's pushes before it exits, for a caller nothing waits on (0)
+#   AGENT_SLOT_PUSH_WAIT       1 to wait for a verb's push before it exits, for a caller nothing waits on (0)
 #   AGENT_SLOT_RELEASE_WAIT    seconds a released slot's teardown waits for its agent to go idle (3600)
 #   AGENT_SLOT_RELEASE_POLL    seconds between that teardown's looks at the agent (5)
 #   AGENT_SLOT_RELEASE_REMIND  seconds after an agent says it is not ready to release before the sweep reminds it (1800)
 #   AGENT_SLOT_RELEASE_ID      in the finish a release starts, the id of that release; release sets it
-#   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL, _SYSTEMD_RUN, _SSH, _FIND
+#   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL, _SYSTEMD_RUN, _FIND
 #                              absolute paths that replace the binaries found on the pinned PATH
 #   XDG_DATA_HOME              holds the trash a torn-down clone is purged from, trash-cli's home trash
 #                              (~/.local/share/Trash)

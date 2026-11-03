@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Fixtures for the agent-slot suites. Each test gets its own slot root, dev root, and state directory under
 # BATS_TEST_TMPDIR, reached through agent-slot's AGENT_SLOT_* overrides; tmux, claude, gh, git-crypt, trash, systemctl,
-# systemd-run, and ssh are stubs that record their argv, and no Rex client is configured, so nothing pushes. git is real, with
+# and systemd-run are stubs that record their argv, and the Rex helper is absent, so nothing pushes. git is real, with
 # GIT_CONFIG_GLOBAL pointing at a test config, so no fixture repo inherits the host's signing or URL rewrites. The trash
 # stub runs the real trash-cli on a trash under BATS_TEST_TMPDIR, since a teardown purges the entry trash-cli wrote.
 
@@ -110,16 +110,9 @@ esac'
   TRASH_PUT=$(command -v trash-put || true)
   trash_stub
   stub systemctl 'echo enabled'
-  # ssh reaches the Rex clients a push names. Each host answers from $STUBS/ssh-<host>.{rc,err}, and while
-  # $STUBS/ssh-<host>.hold exists it does not answer at all, for up to 30 s, as a Mac that is asleep.
-  stub ssh '
-host=${@: -2:1}
-for ((i = 0; i < 300; i++)); do [ -e "$STUBS/ssh-$host.hold" ] || break; sleep 0.1; done
-[ ! -e "$STUBS/ssh-$host.err" ] || cat "$STUBS/ssh-$host.err" >&2
-exit "$(cat "$STUBS/ssh-$host.rc" 2>/dev/null || echo 0)"'
   export AGENT_SLOT_TMUX=$STUBS/tmux AGENT_SLOT_CLAUDE=$STUBS/claude AGENT_SLOT_GH=$STUBS/gh
   export AGENT_SLOT_GIT_CRYPT=$STUBS/git-crypt AGENT_SLOT_TRASH=$STUBS/trash AGENT_SLOT_SYSTEMCTL=$STUBS/systemctl
-  export AGENT_SLOT_SSH=$STUBS/ssh AGENT_SLOT_REX_CLIENTS=
+  export AGENT_SLOT_REX_HELPER=$T/no-rex-helper
   unset AGENT_SLOT_REX_CLIENT
   systemd_run_stub
 }

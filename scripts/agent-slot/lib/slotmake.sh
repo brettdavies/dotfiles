@@ -163,6 +163,6 @@ slot_make() {
   ledger_append "$event" "$(contract_json -c --argjson phases "$phases" --argjson trust "$trust" --arg path "$path" \
     --argjson fields "$fields" '{request_id, requested_at, repo, slot, path: $path, task, session_id, created: true,
       trust_prompt_expected: $trust, phases: $phases, items: (.items // []), name} + $fields' <<<"$RECORD")"
-  push_clients "$event" "$(slot_key "$repo" "$n")"
+  push_restore "$event" "$(slot_key "$repo" "$n")"
   SLOT_MADE=$n SLOT_MADE_TRUST=$trust SLOT_MADE_PHASES=$phases
 }

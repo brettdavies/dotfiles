@@ -49,9 +49,8 @@ verb_help() {
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
       '--dangerously-skip-permissions. A repeat with the same --request-id, --task, or work item returns the same' \
       'slot. Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
-      '-, and /, starting with a letter or digit, up to 64. A new slot pushes a restore to each Mac in' \
-      "AGENT_SLOT_REX_CLIENTS, so its tab opens in Rex; the push runs in the background and is logged to" \
-      "$AS_STATE_DIR/push.log." \
+      '-, and /, starting with a letter or digit, up to 64. A new slot pushes a restore to the Rex helper on this' \
+      "host, so its tab opens in Rex; the push runs in the background and is logged to $AS_STATE_DIR/push.log." \
       '--pr or --issue gives the slot a work item and a name from it, <repo>-pr<N>-<slug> or <repo>-issue<N>-<slug>,' \
       'which its Claude session takes and which is the task when --task is not given. A ref is N (in the origin' \
       'repo), owner/name#N, or its GitHub URL, such as https://github.com/owner/name/pull/N. A PR'"'"'s head branch is' \
@@ -113,7 +112,7 @@ verb_help() {
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \
       "reports what it would delete. Agents ask the operator first. A teardown deletes the slot's clone, moving it to" \
       'the trash and purging it from there at once; a purge that fails leaves the slot torn down, lists it under' \
-      'purge_failed, and names the trash-rm command that finishes it. A teardown pushes a restore to each Rex client,' \
+      'purge_failed, and names the trash-rm command that finishes it. A teardown pushes a restore to the Rex helper,' \
       "which closes the slot's tab. --auto, which agent-slot-sweep.timer runs, tears down only a slot its agent" \
       'released or the operator finished: a finished slot that is neither is kept, its idle agent is typed the' \
       'closing steps once, and a slot whose agent is gone or never releases joins the needs-you list as' \
@@ -132,7 +131,7 @@ verb_help() {
       'release and the Rex finish key never pass it. Without --yes it only reports, naming in would_need the flag' \
       "the task would need. Agents ask the operator first. A teardown deletes the slot's clone, moving it to the" \
       'trash and purging it from there at once; a purge that fails leaves the slot torn down and names the trash-rm' \
-      "command that finishes it. A teardown pushes a restore to each Rex client, which closes the slot's tab." \
+      "command that finishes it. A teardown pushes a restore to the Rex helper, which closes the slot's tab." \
       "--when-idle, which release starts, first waits up to $AS_RELEASE_WAIT s for the slot's agent to go idle. The" \
       'finish a release starts marks the task finished on that release, and refuses with release-withdrawn once a' \
       '--not-yet or a newer release replaces it. Each --yes run appends its outcome, with allow_open_pr when it had' \

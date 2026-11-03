@@ -92,7 +92,7 @@ it anyway with --yes $FINISH_NEED" \
   fi
   _finish_log "$(contract_json -n -c --arg key "$key" --argjson waited "$RELEASE_WAITED" --argjson purge "$PURGE_RESULT" \
     '{key: $key, result: "torn-down", waited_s: $waited, purge: $purge}')"
-  push_clients finish "$key"
+  push_restore finish "$key"
   contract_ok "$(contract_json -n -c --arg key "$key" --argjson purge "$PURGE_RESULT" \
     '{key: $key, torn_down: true, purge: $purge}')" '"\(.key): torn down",
     (.purge | select(.purged == false) | "  its clone is still in the trash: \(.message)", "  next: \(.next_step.command)")'
