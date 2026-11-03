@@ -65,6 +65,7 @@ slot-path-untrusted           78    false      0            run
 bypass-mode-unaccepted        78    false      0            fix-config
 version-unverified            0     false      0            ask-operator
 repo-required                 2     false      0            run
+prime-not-running             1     false      0            ask-operator
 server-unreachable            1     true       5            retry
 rex-action-unregistered       78    false      0            run
 rex-failed                    1     true       2            retry

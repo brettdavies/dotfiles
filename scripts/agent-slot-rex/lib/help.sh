@@ -5,28 +5,39 @@
 USAGE='usage: agent-slot-rex <verb> [options] [--output json]
 
 Verbs:
-  launch   start an agent in a fresh slot, in a background Rex tab that becomes its tab
+  launch   start an agent in a fresh slot, in a background Rex tab that becomes its tab, or open the repo'"'"'s prime
+  prime    keep a tab attached to a repo'"'"'s prime tmux session, dropping to a shell on detach
   attach   keep a pane attached to one of a slot'"'"'s tmux sessions
   restore  give every live slot a tab, resume dormant slots, and close tabs whose slot is gone
   sweep    tear down finished slots, restore, then list the slots that need you
   finish   finish a task with no open PR and tear its slot down, from the control session
   doctor   check the Rex server, the units, rexurrect, and the reconcile journal, then run agent-slot'"'"'s doctor
 
-On macOS, launch, restore, finish, sweep, and doctor run on the Linux server'"'"'s helper over ssh; the other verbs
-run only there.
+On macOS, launch, prime, restore, finish, sweep, and doctor run on the Linux server'"'"'s helper over ssh; the other
+verbs run only there.
 
 Every verb takes --help. launch, restore, sweep, finish, and doctor take --output json (one JSON object on stdout, or an error
 object on stderr). Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.'
 
-VERBS=' launch attach restore sweep finish doctor '
+VERBS=' launch prime attach restore sweep finish doctor '
 
 verb_help() {
   case $1 in
-    launch) printf '%s\n' 'usage: agent-slot-rex launch [--repo NAME] [--task NAME] [--here] [--output json]' \
+    launch) printf '%s\n' \
+      'usage: agent-slot-rex launch [--repo NAME] [--task NAME] [--here [--wait-shown]] [--output json]' \
       "Starts an agent in a fresh slot of a repo: --repo, else the Rex session's name when it names a repo, else" \
       "a numbered list when a terminal is attached. --here turns this tab into the agent's tab (the new-agent key" \
-      "passes it); without it the launch runs in a new background tab in the repo's session." \
+      "passes it); without it the launch runs in a new background tab in the repo's session. With --here and no" \
+      "--repo, in a session named after a repo that has a prime tmux session (prime --help), and with no tab of" \
+      "the session attached to it, this tab becomes the prime's tab instead: first in the session, labelled" \
+      "with the prime's name, and running prime. --wait-shown, which a key or palette press adds, first waits up" \
+      "to $AR_SHOWN_WAIT s for the app to make this tab the session's active window; a tab never shown starts" \
+      "nothing, and closes itself unless Enter comes within $AR_SHOWN_HOLD s." \
       'example: agent-slot-rex launch --repo dotfiles --task fix/login' ;;
+    prime) printf '%s\n' 'usage: agent-slot-rex prime <repo>' \
+      "Attaches to the repo's prime tmux session on the default tmux server, named in $AR_PRIMES, from \$HOME," \
+      "and becomes a login shell ($AR_LOGIN_SHELL -l) when the client detaches or the attach fails." \
+      'example: agent-slot-rex prime xurl-rs' ;;
     attach) printf '%s\n' 'usage: agent-slot-rex attach <repo>/<N> claude|files|git' \
       "Attaches to the slot's tmux session from \$HOME, resuming the slot when the session is missing, and waits" \
       'for Enter after a detach; it ends once the slot is gone.' \

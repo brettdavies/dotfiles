@@ -24,9 +24,10 @@ forward_verb() {
 $AR_SERVER" --value "$AR_SERVER" --command "ssh $AR_SERVER agent-slot-rex doctor"
       ;;
   esac
-  # --here names the Mac tab the new-agent key opened; on the server, launch opens the agent's tab in its repo's session.
+  # --here and --wait-shown name the Mac tab the new-agent key opened; on the server, launch opens the agent's tab in its
+  # repo's session.
   for arg in "$@"; do
-    [[ $verb == launch && $arg == --here ]] || args+=("$arg")
+    [[ $verb == launch && ($arg == --here || $arg == --wait-shown) ]] || args+=("$arg")
   done
   [[ $CONTRACT_OUTPUT != json ]] || args+=(--output json)
   # A terminal merges the server's stderr into its stdout, so only text output, where a tab waits for keys, gets one.

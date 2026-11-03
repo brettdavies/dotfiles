@@ -66,6 +66,24 @@ NUMBERS="$REX_DIR/tab-numbers.lua"
   grep -q 'helper_pane("launch", "--here")' "$BATS_TEST_TMPDIR/new"
 }
 
+@test "the new-agent action refuses a context that names no session, before it opens anything" {
+  awk '/name = "agent_slot_new"/,/^}/' "$SLOTS" >"$BATS_TEST_TMPDIR/new"
+  local guard open
+  guard=$(grep -n -A1 'if not ctx.session_id then' "$BATS_TEST_TMPDIR/new" | grep -E '^[0-9]+-\s+error\(' | cut -d- -f1)
+  open=$(grep -n 'rex.session.new_window{' "$BATS_TEST_TMPDIR/new" | cut -d: -f1)
+  [ -n "$guard" ]
+  [ -n "$open" ]
+  [ "$guard" -lt "$open" ]
+  grep -q 'cmd+t' "$BATS_TEST_TMPDIR/new"
+}
+
+@test "a key or palette press makes the new-agent tab wait to be shown, and rex do's does not" {
+  awk '/name = "agent_slot_new"/,/^}/' "$SLOTS" >"$BATS_TEST_TMPDIR/new"
+  grep -q 'ctx.origin == "key" or ctx.origin == "palette"' "$BATS_TEST_TMPDIR/new"
+  grep -q 'helper_pane("launch", "--here", "--wait-shown")' "$BATS_TEST_TMPDIR/new"
+  grep -q 'helper_pane("launch", "--here")' "$BATS_TEST_TMPDIR/new"
+}
+
 @test "the new-agent action always brings its tab forward, through the client that pressed the key" {
   awk '/name = "agent_slot_new"/,/^}/' "$SLOTS" >"$BATS_TEST_TMPDIR/new"
   grep -qx '    pcall(rex.client.queue, "session.select", { session_id = ctx.session_id, window_id = w.window_id })' \

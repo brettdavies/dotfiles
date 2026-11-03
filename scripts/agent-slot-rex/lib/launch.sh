@@ -1,9 +1,10 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
-# launch: the new-agent key's tab. The key opens a background tab running `launch --here`; on success that tab becomes
-# the slot's tab (relabelled, laid out, and attached), and on failure it stays open with the error and, for a
-# retryable reason, a retry under the same request ID, so the server returns the slot the first try may have made.
+# launch: the new-agent key's tab. The key opens a background tab running `launch --here`. In a repo's session whose
+# prime is open in none of its tabs, that tab becomes the prime's tab; otherwise, on success it becomes the slot's tab
+# (relabelled, laid out, and attached), and on failure it stays open with the error and, for a retryable reason, a retry
+# under the same request ID, so the server returns the slot the first try may have made.
 
-LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_HERE=0 LAUNCH_PICKED=0 LAUNCH_WINDOW=''
+LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_HERE=0 LAUNCH_WAIT_SHOWN=0 LAUNCH_PICKED=0 LAUNCH_NAMED=0 LAUNCH_WINDOW=''
 LAUNCH_REPOS='[]'
 
 launch_parse_args() {
@@ -19,6 +20,10 @@ launch_parse_args() {
         ;;
       --here)
         LAUNCH_HERE=1
+        shift
+        ;;
+      --wait-shown)
+        LAUNCH_WAIT_SHOWN=1
         shift
         ;;
       *) usage_fail "unknown argument $1" "$1" ;;
@@ -38,8 +43,8 @@ launch_request_id() {
   fi
 }
 
-# Sets LAUNCH_REPO from --repo or the Rex session's name, else from a numbered list when a terminal is attached, which
-# sets LAUNCH_PICKED; with neither, refuses with repo-required.
+# Sets LAUNCH_REPO from --repo, else from the Rex session's name, which sets LAUNCH_NAMED, else from a numbered list
+# when a terminal is attached, which sets LAUNCH_PICKED; with none of them, refuses with repo-required.
 launch_resolve_repo() {
   local label=''
   if [[ -n $LAUNCH_REPO ]]; then
@@ -51,7 +56,7 @@ launch_resolve_repo() {
     rex_session_label "$REX_SESSION"
     label=$REX_OUT
     if launch_is_repo "$label"; then
-      LAUNCH_REPO=$label
+      LAUNCH_REPO=$label LAUNCH_NAMED=1
       return 0
     fi
   fi
@@ -151,6 +156,48 @@ launch_call() {
   done
 }
 
+# Returns once the app that pressed the key shows this tab: its queued selection makes the tab the session's active
+# window. Rex.app gives a key pressed in a session with no tabs the context of the pane it last focused, so the tab can
+# open in another session, even on another host, where nobody sees it and its select fails. Such a tab starts nothing:
+# it asks for Enter, in case the app showed it without moving the active window, and closes itself unanswered.
+launch_wait_shown() {
+  local deadline=$((SECONDS + AR_SHOWN_WAIT)) key
+  while true; do
+    if rex_run session inspect "$REX_SESSION" --json \
+      && [[ $(contract_json -r '.active_window_id // ""' <<<"$REX_OUT") == "$LAUNCH_WINDOW" ]]; then
+      return 0
+    fi
+    ((SECONDS < deadline)) || break
+    sleep 0.25
+  done
+  printf 'agent-slot-rex: Rex.app has not shown this tab, so the new-agent key may have opened it in another session\n'
+  printf 'press Enter to go on, or q to close it; it closes in %s s\n' "$AR_SHOWN_HOLD"
+  if IFS= read -r -s -n 1 -t "$AR_SHOWN_HOLD" key && [[ $key != q ]]; then
+    return 0
+  fi
+  CONTRACT_EMITTED=1
+  rex_close "$REX_SESSION" "$LAUNCH_WINDOW"
+  exit 0
+}
+
+# Makes this tab the repo's prime tab, first in its session and labelled with the prime session's name, and becomes the
+# prime's attach. A prime that is not running stops the tab with the reason, since attaching would fail.
+launch_prime() {
+  if ! prime_running "$PRIME_SESSION"; then
+    launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$LAUNCH_REPO · prime not running"
+    [[ $CONTRACT_OUTPUT != text || ! -t 0 ]] || AR_HOLD=1
+    ar_fail "$(contract_error_json prime-not-running "the prime tmux session of $LAUNCH_REPO, $PRIME_SESSION, is not \
+running on the default tmux server; start it, then press the key again" --value "$PRIME_SESSION" \
+      --command "$(contract_quote tmux has-session -t "=$PRIME_SESSION")")"
+  fi
+  launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$PRIME_SESSION"
+  launch_try rex_or_fail window move -s "$REX_SESSION" "$LAUNCH_WINDOW" --index 1
+  contract_ok "$(contract_json -n -c --arg repo "$LAUNCH_REPO" --arg prime "$PRIME_SESSION" \
+    '{repo: $repo, prime: $prime}')" '"opening the prime of \(.repo), \(.prime)"'
+  rm -f "$CONTRACT_NOISE"
+  exec "$AR_SELF" prime "$LAUNCH_REPO"
+}
+
 launch_here() {
   local args
   args=("$LAUNCH_REPO" --request-id "$(launch_request_id)" --requested-at "$(date +%s)")
@@ -170,6 +217,7 @@ cmd_launch() {
       || usage_fail "--here runs only in a Rex terminal, which sets REX_SESSION and REX_BLOCK"
     rex_window_of "$REX_SESSION" "$REX_BLOCK"
     LAUNCH_WINDOW=$REX_OUT
+    ((LAUNCH_WAIT_SHOWN == 0)) || launch_wait_shown
   fi
   launch_call 30 repos
   LAUNCH_REPOS=$(contract_json -c '[.repos[].name]' <<<"$SERVER_OUT")
@@ -177,6 +225,9 @@ cmd_launch() {
   if ((LAUNCH_PICKED == 1 || LAUNCH_HERE == 0)); then
     launch_elsewhere
     return
+  fi
+  if ((LAUNCH_NAMED == 1)) && prime_of "$LAUNCH_REPO" && ! prime_tab_open "$REX_SESSION" "$PRIME_SESSION"; then
+    launch_prime
   fi
   launch_here
 }

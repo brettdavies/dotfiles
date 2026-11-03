@@ -1,0 +1,8 @@
+# The prime tmux session of each repo that has one, on the Linux server's default tmux server: the session its prime
+# checkout works in. The new-agent key opens it as the first tab of the repo's Rex session (agent-slot-rex launch --here)
+# and starts a slot instead for a repo not listed here. One line per repo: <repo>, a tab, <prime session>.
+dotfiles	dotfiles
+xurl-rs	XR CLI
+agentnative-cli	ANC CLI
+agentnative-site	ANC Website
+ingest-lab	ingest-lab-prime

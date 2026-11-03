@@ -23,12 +23,14 @@
 # AGENT_SLOT_REX_CLIENT and XDG_RUNTIME_DIR it was given as `agent-slot-client <name>` and `agent-slot-runtime <dir>`.
 # tmux answers has-session and attach from $STUBS/tmux-answers the same way, logs the directory each attach ran from as
 # `tmux-cwd <dir>`, and reports $STUBS/tmux-answers/pid as its server's pid, or exits with
-# $STUBS/tmux-answers/display-message.rc when present. ssh answers the forwarded helper verbs from $STUBS/ssh/<verb>.*,
+# $STUBS/tmux-answers/display-message.rc when present. A call to the default tmux server, where the primes run, answers
+# from $STUBS/tmux-default the same way. The prime map is $STUBS/primes, and the login shell a prime tab ends in logs
+# `login-shell <args>`. ssh answers the forwarded helper verbs from $STUBS/ssh/<verb>.*,
 # and a bare `true` as probe, and appends each remote command to $STUBS/ssh-remote.log; with $STUBS/ssh/unreachable
 # present every call fails as ssh does, and with $STUBS/ssh/hang every call hangs. systemctl reports each unit active
 # unless $STUBS/units/<unit> says otherwise, and rex-server.service's MainPID as $STUBS/units/rex-server.service.pid,
 # else $REX_STUB_PID, unless $STUBS/units/show-fails makes `show` fail as an unreachable user manager does. ps reports
-# $STUBS/cgroup.txt for `-o cgroup=`.
+# $STUBS/cgroup.txt for `-o cgroup=`, and $STUBS/tty/<pid> for `-o tty=`.
 
 # shellcheck disable=SC2034 # the suites that load this file run it
 AGENT_SLOT_REX="$BATS_TEST_DIRNAME/../scripts/agent-slot-rex/agent-slot-rex"
@@ -37,7 +39,8 @@ agent_slot_rex_setup() {
   T=$BATS_TEST_TMPDIR
   STUBS=$T/stubs
   CALLS=$T/calls.log
-  mkdir -p "$STUBS/rexdata" "$STUBS/ssh" "$STUBS/slot" "$STUBS/tmux-answers" "$STUBS/units" "$STUBS/os"
+  mkdir -p "$STUBS/rexdata" "$STUBS/ssh" "$STUBS/slot" "$STUBS/tmux-answers" "$STUBS/tmux-default" "$STUBS/units" \
+    "$STUBS/os" "$STUBS/tty"
   : >"$CALLS"
   printf '{"sessions":[]}\n' >"$STUBS/rexdata/sessions.json"
   : >"$STUBS/ps.txt"
@@ -55,6 +58,9 @@ agent_slot_rex_setup() {
   export AGENT_SLOT_REX_STATE_DIR=$T/state
   export AGENT_SLOT_REX_SERVER=testserver
   export AGENT_SLOT_REX_RETRY_DELAY=0
+  export AGENT_SLOT_REX_PRIMES=$STUBS/primes AGENT_SLOT_REX_LOGIN_SHELL=$STUBS/login-shell
+  export AGENT_SLOT_REX_SHOWN_WAIT=0 AGENT_SLOT_REX_SHOWN_HOLD=2
+  printf '# repo\tprime session\n' >"$STUBS/primes"
   export REX_STUB_PID=4242 REX_STUB_INSTANCE=11111111-2222-3333-4444-555555555555
   unset REX_SESSION REX_BLOCK UNAME_STUB
   printf '#!/bin/sh\necho "${UNAME_STUB:-Linux}"\n' >"$STUBS/os/uname"
@@ -167,6 +173,10 @@ printf "agent-slot-client %s\n" "${AGENT_SLOT_REX_CLIENT:-}" >>"$CALLS"
 printf "agent-slot-runtime %s\n" "${XDG_RUNTIME_DIR:-unset}" >>"$CALLS"
 answer slot "$1"'
   stub tmux '
+if [ "$1" != -L ]; then
+  [ "$1" = attach ] && printf "tmux-cwd %s\n" "$PWD" >>"$CALLS"
+  answer tmux-default "$1"
+fi
 [ "$3" = attach ] && printf "tmux-cwd %s\n" "$PWD" >>"$CALLS"
 [ "$3" = attach ] && printf "PATH=%s\n" "$PATH" >>"$STUBS/path.log"
 case $3 in
@@ -204,9 +214,11 @@ answer ssh "$verb"'
   stub ps '
 case " $* " in
   *" -o cgroup= "*) cat "$STUBS/cgroup.txt" 2>/dev/null ;;
+  *" -o tty= "*) cat "$STUBS/tty/${!#}" 2>/dev/null || echo "?" ;;
   *) cat "$STUBS/ps.txt" ;;
 esac'
   stub rexurrect 'exit 0'
+  stub login-shell 'exit 0'
   stub agent-slot-rex 'exit 0'
 }
 
@@ -254,6 +266,9 @@ slot_answer() { _answer slot "$@"; }
 # tmux_answer VERB [N] RC: what tmux returns for has-session or attach.
 tmux_answer() { _answer tmux-answers "$@"; }
 
+# tmux_default_answer VERB [N] RC [STDOUT]: what tmux returns for a call to the default server, where the primes run.
+tmux_default_answer() { _answer tmux-default "$@"; }
+
 # ssh_answer VERB [N] RC [STDOUT [STDERR]]: what the server's helper returns for a forwarded verb, over ssh.
 ssh_answer() { _answer ssh "$@"; }
 
@@ -298,6 +313,33 @@ session() {
   jaq -n -c --arg id "$1" --arg l "$2" --argjson w "$3" '{session_id: $id, label: $l, windows: [$w[] |
     {window_id, label, layers: [{blocks: [.blocks[] | {block_id: ., flavor: "com.superlogical.terminal.shell"}]}]}]}' \
     >"$STUBS/rexdata/session-$1.json"
+}
+
+# primes REPO PRIME...: the prime map holds each repo with its prime tmux session, in pairs.
+primes() {
+  while (($# >= 2)); do
+    printf '%s\t%s\n' "$1" "$2" >>"$STUBS/primes"
+    shift 2
+  done
+}
+
+# on_tty BLOCK PID TTY: the block's own process is PID, on terminal TTY, such as pts/9.
+on_tty() {
+  runs "$1" "$2" "zsh -l"
+  printf '%s\n' "$3" >"$STUBS/tty/$2"
+}
+
+# prime_clients TTY...: the default tmux server's clients of the prime asked about are on these terminals, as
+# `tmux list-clients -F '#{client_tty}'` prints them.
+prime_clients() {
+  tmux_default_answer list-clients 0 "$(printf '/dev/%s\n' "$@")"
+}
+
+# shown SESSION WINDOW: the session's active window, which a Rex.app selection moves, is WINDOW.
+shown() {
+  local f=$STUBS/rexdata/session-$1.json
+  jaq -c --arg w "$2" '.active_window_id = $w' "$f" >"$f.new"
+  mv "$f.new" "$f"
 }
 
 # runs BLOCK PID COMMAND: the block's own process is PID, and ps shows it running COMMAND.
