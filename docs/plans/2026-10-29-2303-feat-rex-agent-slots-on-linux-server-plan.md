@@ -1001,7 +1001,9 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
     log path.
 - **Verification:** Covers AE4 by hand: with the Mac awake and no SSH tab open, `http://localhost:8787` reaches a dev
   server on the Linux server, and after a sleep and wake the tunnel comes back on its own. With a Mac-local process
-  holding 5173, the other forwards still reach the Linux server, and the log names the refused port.
+  holding 5173, the other forwards still reach the Linux server, and the log names the refused port. Run that check
+  twice, once with the local process bound to `localhost` and once bound to the wildcard address (Node's default), and
+  record for each whether the tunnel's bind is refused and logged or the tunnel takes the port's localhost traffic.
 
 ### U9. Retire the Mac half and rewrite the docs
 

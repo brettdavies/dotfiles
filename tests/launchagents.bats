@@ -25,6 +25,15 @@ AGENT_PATH='PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"; exec '
   }
 }
 
+@test "the dev-port tunnel keeps ssh -N to its host entry running, throttled, with standard error logged" {
+  plist="$AGENT_DIR/com.user.bd-tunnel.plist"
+  grep -A1 '<key>Label</key>' "$plist" | grep -qF '<string>com.user.bd-tunnel</string>'
+  grep -qF "<string>$AGENT_PATH\"\$HOME/dotfiles/scripts/launchd-run.sh\" bd-tunnel.log ssh -N bd-tunnel</string>" "$plist"
+  grep -A1 '<key>RunAtLoad</key>' "$plist" | grep -qF '<true/>'
+  grep -A1 '<key>KeepAlive</key>' "$plist" | grep -qF '<true/>'
+  grep -A1 '<key>ThrottleInterval</key>' "$plist" | grep -qE '<integer>[1-9][0-9]*</integer>'
+}
+
 @test "every LaunchAgent plist parses" {
   command -v plutil >/dev/null 2>&1 || skip "plutil is macOS-only"
   for plist in "$AGENT_DIR"/*.plist; do
