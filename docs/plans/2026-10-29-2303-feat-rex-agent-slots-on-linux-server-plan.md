@@ -833,12 +833,17 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      `skipped` as `rex-server-down` or `startup-pending` and exit 0 without resuming any slot when either is missing,
      unless the server has outlived the start-up step's time limit; the first pass that reconciles past that limit
      writes the start-up record with rexurrect skipped once it holds the lock (KTD4). A timer pass takes the lock only
-     if it is free, a push waits for it as a restore does, so a launch right behind another pass still gets its tab,
-     and each journals `reconcile-busy` when it gives up. A sweep or finish whose teardown succeeded passes the gate the
-     same way, so with no Rex server it reports the teardown and exits 0.
+     if it is free, a push waits for it up to half of agent-slot's push bound, so a launch right behind another pass
+     still gets its tab and the push is never stopped partway through a pass, and each journals `reconcile-busy` when it
+     gives up. A pass that waited runs the gate again once it holds the lock, so it neither overwrites a record the pass
+     ahead wrote nor reconciles a server that restarted meanwhile. doctor's `reconcile-stale` counts three busy passes in
+     a row as it counts three failures, since a busy pass journals ok. A sweep or finish whose teardown succeeded passes
+     the gate the same way, so with no Rex server it reports the teardown and exits 0.
   4. Count a planned close of a tab that is already gone as done.
   5. Add the reconcile service and a one-minute timer shaped like the sweep units, including the sweep's
-     `Environment=PATH=` line, and enable them from `scripts/host-jobs-enable.sh`.
+     `Environment=PATH=` line, and enable them from `scripts/host-jobs-enable.sh`. Neither the reconcile service nor
+     the sweep service, whose push now runs a pass that resumes dormant slots, sets `NoNewPrivileges=` or other
+     sandboxing, which the resumed agents would inherit.
   6. In `journal.sh` and the `--by` values in `help.sh`, journal the start-up step as the existing `restore-at-start`
      and the timer pass as the existing `poll`. `reconnect` stays until U9 removes the follow loop that sends it.
 - **Patterns to follow:** `stow/local/dot-config/systemd/user/agent-slot-sweep.{service,timer}`; the push log and its

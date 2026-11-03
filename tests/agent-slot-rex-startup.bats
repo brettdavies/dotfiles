@@ -126,6 +126,47 @@ no_tab_change() {
   no_tab_change
 }
 
+@test "a pass that waited for the lock checks the start-up record again, and keeps the one written meanwhile" {
+  hold_lock
+  spawn env AGENT_SLOT_REX_LOCK_WAIT=20 "$AGENT_SLOT_REX" restore --by push --output json </dev/null >"$T/push.out" 2>&1 3>&-
+  local push=$! i
+  for ((i = 0; i < 100; i++)); do
+    grep -q '^rex server status' "$CALLS" && break
+    sleep 0.1
+  done
+  sleep 0.5
+  recorded "$REX_STUB_INSTANCE" "done"
+  kill "$HOLDER"
+  for ((i = 0; i < 100; i++)); do
+    kill -0 "$push" 2>/dev/null || break
+    sleep 0.1
+  done
+  jaq -e '.rexurrect == "done"' "$RECORD"
+  called "^rex new A --window A/1"
+  jaq -e '.by == "push" and .ok and .rexurrect == null' "$LOG"
+}
+
+@test "a pass that waited for the lock across a Rex restart skips as startup-pending for the new instance" {
+  hold_lock
+  spawn env AGENT_SLOT_REX_LOCK_WAIT=20 "$AGENT_SLOT_REX" restore --by push --output json </dev/null >"$T/push.out" 2>&1 3>&-
+  local push=$! i
+  for ((i = 0; i < 100; i++)); do
+    grep -q '^rex server status' "$CALLS" && break
+    sleep 0.1
+  done
+  sleep 0.5
+  printf '%s\n' 99999999-aaaa-bbbb-cccc-dddddddddddd >"$STUBS/rexdata/instance"
+  printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$STUBS/rexdata/started"
+  kill "$HOLDER"
+  for ((i = 0; i < 100; i++)); do
+    kill -0 "$push" 2>/dev/null || break
+    sleep 0.1
+  done
+  jaq -e '.skipped.reason == "startup-pending"' "$T/push.out"
+  no_tab_change
+  [ ! -e "$RECORD" ]
+}
+
 # --- a restore asked for by hand ---------------------------------------------------------------------------------------
 
 @test "a restore asked for by hand with no Rex server answering is rex-server-down, naming the service to start" {

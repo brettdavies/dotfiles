@@ -6,7 +6,8 @@ ConditionPathIsDirectory=%h/slots
 [Service]
 Type=oneshot
 Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
-# systemd stops whatever a oneshot unit leaves running, so the sweep waits for its pushes to the Rex clients.
+# systemd stops whatever a oneshot unit leaves running, so the sweep waits for its push to the Rex helper.
 Environment=AGENT_SLOT_PUSH_WAIT=1
 ExecStart=%h/.local/bin/agent-slot sweep --yes --auto --output json
-NoNewPrivileges=true
+# No sandboxing: the push's reconcile pass resumes dormant slots, and their tmux server and agents would inherit it,
+# NoNewPrivileges= among it, which no later process can drop.

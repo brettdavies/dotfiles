@@ -277,6 +277,23 @@ rex_tab() {
     "$T/rex-state/reconcile.log"
 }
 
+@test "a push behind a pass that holds the lock gives up inside its own bound, logged as deferred" {
+  real_helper
+  push_timeout 4
+  mkdir -p "$T/rex-state" "$T/holder"
+  printf '#!/usr/bin/env bash\ntrap '"'"'kill $!; exit 0'"'"' TERM\nsleep 30 &\nwait\n' >"$T/holder/agent-slot-rex"
+  chmod +x "$T/holder/agent-slot-rex"
+  "$T/holder/agent-slot-rex" </dev/null >/dev/null 2>&1 3>&- &
+  local holder=$!
+  ln -s "$holder" "$T/rex-state/reconcile.lock"
+  launch_repoa
+  [ "$status" -eq 0 ]
+  pushed 1
+  kill "$holder"
+  jaq -e '.result == "deferred" and .detail == "reconcile-busy"' "$PUSH_LOG"
+  jaq -e '.by == "push" and .ok and .skipped == "reconcile-busy"' "$T/rex-state/reconcile.log"
+}
+
 @test "the finish a release starts closes its slot's tab and leaves another slot's tmux sessions alone" {
   real_helper
   task_slot_setup

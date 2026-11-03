@@ -5,7 +5,8 @@
 # code. Without the helper at AGENT_SLOT_REX_HELPER it does nothing, and the helper's pass changes nothing when no Rex
 # server answers. A verb the helper ran itself names it in AGENT_SLOT_REX_CLIENT and is not pushed, since that helper
 # reconciles right after. The helper gets the user manager's runtime directory, which a shell in a slot's tmux session
-# lacks and the rex CLI finds the server's socket by.
+# lacks and the rex CLI finds the server's socket by, and waits for the reconcile lock for at most half the push's
+# bound, so it gives up as reconcile-busy rather than being stopped partway through a pass.
 #
 # Each push gets one JSON line in $AS_STATE_DIR/push.log: when the push began, the verb and the slots it made or tore
 # down, the result, the helper's exit code, how long the push took, and a detail. The result is one of:
@@ -48,7 +49,7 @@ _push_one() {
   at=$(contract_now) start=$(contract_ms)
   out=$(mktemp) err=$(mktemp)
   timeout --kill-after=2 "$AS_PUSH_TIMEOUT" /usr/bin/env "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$UID}" \
-    "$AS_REX_HELPER" restore --by push --output json </dev/null >"$out" 2>"$err" || status=$?
+    "AGENT_SLOT_REX_LOCK_WAIT=$((AS_PUSH_TIMEOUT / 2))" "$AS_REX_HELPER" restore --by push --output json </dev/null >"$out" 2>"$err" || status=$?
   case $status in
     0)
       result=restored

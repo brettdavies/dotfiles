@@ -16,7 +16,9 @@
 # must have recorded its instance, unless the server has outlived AR_STARTUP_LIMIT, when the pass records rexurrect as
 # skipped and goes on. A pass that a timer, a push, or a teardown ran logs why it changed nothing and exits 0; a restore
 # asked for by hand reports the same outcome as an error. A timer pass never waits for the lock, since the next one
-# comes a minute later; a push waits, so a launch right behind another pass still gets its tab within seconds.
+# comes a minute later; a push waits, so a launch right behind another pass still gets its tab within seconds. The gate
+# runs again once the lock is held, since the pass ahead may have recorded the start-up step, or the server may have
+# restarted, while this one waited.
 
 RECONCILE_SLOTS='[]'
 RECONCILE_RESUMED=()
@@ -164,6 +166,7 @@ the reconcile lock" --value "$AR_LOCK" --command "agent-slot-rex restore")
 reconcile_skipped() {
   JOURNAL_SKIPPED=$(contract_json -r '.reason' <<<"$RECONCILE_SKIP")
   journal_end
+  lock_release
   RECONCILE_RESULT=$(contract_json -c '{skipped: {reason, message}, slots: null, resumed: [], opened: [],
     relabeled: [], closed: [], needs_you: []}' <<<"$RECONCILE_SKIP")
 }
@@ -176,7 +179,7 @@ reconcile() {
   local by=$1 plan
   journal_begin "$by"
   if [[ $by != restore-at-start ]]; then
-    if ! reconcile_gate "$by" || ! reconcile_take_lock "$by"; then
+    if ! reconcile_gate "$by" || ! reconcile_take_lock "$by" || ! reconcile_gate "$by"; then
       reconcile_skipped
       return 0
     fi

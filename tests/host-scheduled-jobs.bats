@@ -231,9 +231,12 @@ EOF
   [ "$(_unit_key "$RECONCILE.timer" Timer Persistent)" = true ]
 }
 
-@test "the reconcile service sets no sandboxing, which the slots it resumes would inherit" {
-  run grep -nE '^(PrivateTmp|ProtectHome|PrivateDevices|NoNewPrivileges)=' "$RECONCILE.service"
-  [ "$status" -eq 1 ]
+@test "the reconcile and sweep services set no sandboxing, which the slots their passes resume would inherit" {
+  local unit
+  for unit in "$RECONCILE.service" "$LOCAL_UNITS/agent-slot-sweep.service"; do
+    run grep -nE '^(PrivateTmp|ProtectHome|PrivateDevices|NoNewPrivileges)=' "$unit"
+    [ "$status" -eq 1 ] || { echo "$unit: $output"; return 1; }
+  done
 }
 
 @test "systemd accepts the reconcile units" {
