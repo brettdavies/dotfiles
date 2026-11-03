@@ -444,10 +444,10 @@ ends it.
 ### Prime tab
 
 The tab of a repo's Rex session on the Linux server that holds a tmux client of the repo's *prime session*: the tmux
-session on the server's default tmux server where the prime checkout's own work runs, named per repo in
-`config/agent-slot-rex/primes.tsv`. What makes a tab the prime tab is that attachment, never its label or position: a
-renamed tab still is one, and a tab whose client detached is not. The new-agent key opens one, first in the session,
-while the session has none, and starts a slot once it does.
+session on the server's default tmux server where the prime checkout's own work runs, which a map in the repo names for
+each repo that has one. What makes a tab the prime tab is that attachment, never its label or position: a renamed tab
+still is one, and a tab whose client detached is not. The new-agent key opens one, first in the session, while the
+session has none, and starts a slot once it does.
 
 ### Slot reconcile
 
