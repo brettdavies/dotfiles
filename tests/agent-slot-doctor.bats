@@ -80,6 +80,14 @@ ledger_line() {
     and .findings[0].next_step.command == "systemctl --user enable --now agent-slot-sweep.timer"' <<<"$output"
 }
 
+@test "an inactive warm timer is reported, with the command that enables it" {
+  stub systemctl '[ "$3" = agent-slot-warm.timer ] && { echo disabled; exit 1; }; echo enabled'
+  run --separate-stderr "$AGENT_SLOT" doctor --output json
+  [ "$status" -eq 1 ]
+  jaq -e '[.findings[].reason] == ["warm-timer-inactive"] and .findings[0].severity == "error"
+    and .findings[0].next_step.command == "systemctl --user enable --now agent-slot-warm.timer"' <<<"$output"
+}
+
 @test "from a shell with no XDG_RUNTIME_DIR, as in a slot, the timers are read from the user's own manager" {
   stub systemctl '[ "${XDG_RUNTIME_DIR-}" = "/run/user/$(id -u)" ] || { echo "Failed to connect to bus: No medium found" >&2; exit 1; }
 echo enabled'

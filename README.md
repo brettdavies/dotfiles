@@ -697,6 +697,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `finished-by-operator`        | 1    | `release --not-yet` refused: the operator finished the slot, and `--not-yet` does not undo it  |
 | `release-withdrawn`           | 1    | A release's `finish` stood down: a `--not-yet` or a newer release replaced its release         |
 | `sweep-timer-inactive`        | 78   | The automatic sweep timer is not enabled; `bash scripts/host-jobs-enable.sh`                   |
+| `warm-timer-inactive`         | 78   | The timer that trusts new slot paths is not enabled; `bash scripts/host-jobs-enable.sh`        |
 | `agent-slot-timed-out`        | 1    | A local `agent-slot` call outlived its bound; its outcome is unknown. `agent-slot-rex restore` |
 | `wrong-host`                  | 2    | That `agent-slot-rex` verb runs only on the Linux server; `ssh <server> agent-slot-rex doctor` |
 | `rex-server-down`             | 78   | No Rex server answers on the Linux server; `systemctl --user start rex-server.service`         |

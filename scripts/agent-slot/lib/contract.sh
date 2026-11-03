@@ -76,6 +76,7 @@ background-jobs-running       1     false      0            run
 finished-by-operator          1     false      0            none
 release-withdrawn             1     false      0            none
 sweep-timer-inactive          78    false      0            run
+warm-timer-inactive           78    false      0            run
 agent-slot-timed-out          1     true       1            run
 wrong-host                    2     false      0            run
 rex-server-down               78    false      0            run
