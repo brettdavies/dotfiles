@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for the qmd stow package (qmd-serve, qmd-embed, qmd-update) and the
+# Tests for the qmd wrapper in the qmd stow package, the qmd systemd user units
+# (qmd-serve, qmd-embed, qmd-update, qmd-cleanup) in the local package, and the
 # qmd-serve enable script.
 #
 # Static assertions only — live daemon behavior (sequential VRAM cycling,
