@@ -294,8 +294,11 @@ scripts/sync-dev-after-release.sh "$TAG" --dry-run
 # 2. Sync. With no contested paths, the bare form is enough. Otherwise name the
 #    ones that should come back; anything left unnamed stays diverged.
 scripts/sync-dev-after-release.sh "$TAG"
-scripts/sync-dev-after-release.sh "$TAG" --only CHANGELOG.md --only README.md
+scripts/sync-dev-after-release.sh "$TAG" --only README.md
 ```
+
+`CHANGELOG.md` comes from `main` on every run, so it is never an `--only` path; `--only` names only the release-prep and
+contested paths the dry run lists, and the script exits 64 on any other.
 
 It discovers what to sync by comparing `origin/dev` against `origin/main` and excluding the guarded set, then lands the
 result on a `chore/sync-dev-after-<version>` branch and opens a PR to `dev`. The set is computed, never hardcoded, so a
