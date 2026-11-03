@@ -921,8 +921,10 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Dependencies:** U3, U4.
 - **Files:** `scripts/stow-deploy`, `stow/rex/dot-config/rex/init.lua`, `stow/rex/dot-config/rex/agent-slots.lua`,
   `stow/rex/dot-config/rex/slot-startup.lua` (new), `scripts/agent-slot-rex/lib/launch.sh` (the repo list only the
-  dropped check read), `tests/stow-deploy-packages.bats`, `tests/rex-config.bats`, `tests/agent-slot-rex.bats`,
-  `README.md` and `BOOTSTRAP.md` (the new-agent key and the package lists).
+  dropped check read, and the key's prime, slot, or picker), `scripts/agent-slot-rex/lib/prime.sh` (new),
+  `config/agent-slot-rex/primes.tsv` (new), `tests/stow-deploy-packages.bats`, `tests/rex-config.bats`,
+  `tests/agent-slot-rex.bats`, `README.md`, `BOOTSTRAP.md`, and `CONCEPTS.md` (the new-agent key, the prime tab, and the
+  package lists).
 - **Approach:**
   1. Move `rex` to the shared package set, and skip the Linux-only module, `slot-startup.lua` (the start-up step), and
      the watcher on macOS the way systemd units are skipped there, with an `--ignore` that stow matches against the
@@ -940,8 +942,30 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      (`docs/solutions/integration-issues/rex-exec-gets-the-servers-bare-path-while-command-panes-get-the-login-shells.md`),
      so it names the helper by that host's `$HOME` path. Pressed on the Mac, each runs on the Linux server: a pane
      opened in a Linux session runs the Linux helper, and anything that runs on the Mac reaches the server through the
-     helper's forwarder (KTD1). Drop the Mac-file repo check (`is_known_repo`); the server's helper decides which repo a
-     session names and always queues the tab selection.
+     helper's forwarder (KTD1). There is no Mac-file repo check (`is_known_repo`): the new-agent action refuses a
+     context that names no session, opens its tab without focus running `agent-slot-rex launch --here`, adds
+     `--wait-shown` for a key or palette press, and always queues the tab selection, and the helper in the tab decides
+     what the tab becomes:
+     - In a Linux server session named after a repo that `config/agent-slot-rex/primes.tsv` maps to a prime tmux session
+       (dotfiles → `dotfiles`, xurl-rs → `XR CLI`, agentnative-cli → `ANC CLI`, agentnative-site → `ANC Website`,
+       ingest-lab → `ingest-lab-prime`, on the server's default tmux server), with no tab of the session holding a tmux
+       client of that prime, the tab becomes the prime's tab: first in the session, labelled with the prime's name,
+       attached from `$HOME` by `agent-slot-rex prime <repo>`, and a login shell once the client detaches. In a session
+       with no tabs, the key's tab is already the first. A prime whose tmux session is not running stops the tab with
+       `prime-not-running`.
+     - A tab is the prime tab while a tmux client of the prime runs on its terminal
+       (`tmux list-clients -t =<prime> -F '#{client_tty}'` against `ps -o tty=` of each block's own process), so a
+       renamed or renumbered tab still counts, a tab only labelled with the prime's name does not, and a hand-built
+       prime tab counts the same as one the key opened.
+     - In a Linux server session named after a repo whose prime is open, or a repo with no prime, the tab starts a slot
+       of the repo with no picker.
+     - In a session not named after a repo, every session on the Mac included, the tab asks which repo; Mac sessions
+       keep this until `docs/plans/2026-11-02-2324-feat-agent-slots-on-the-mac-plan.md` takes them over.
+     - In a session with no tabs, Rex.app gives the action the session of the pane it last focused, which can be another
+       session on another host, and no Rex call tells which session the app shows. With `--wait-shown`, the tab waits
+       `AGENT_SLOT_REX_SHOWN_WAIT` seconds (5) for its queued selection to make it the session's active window, which a
+       Rex.app selection does; a tab never shown starts nothing, asks for Enter, and closes itself after
+       `AGENT_SLOT_REX_SHOWN_HOLD` seconds (60).
   4. Run `scripts/stow-deploy`'s config-reload step on both platforms, finding `/usr/bin/rex` on Linux and always
      passing `--autostart=false`. `STOW_DEPLOY_REX_PATHS` replaces the CLI candidates, so a test that deploys to its own
      `HOME` (the timer-recovery test deploys every shared package) reloads a stub, never the account's live server,
@@ -961,9 +985,22 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - Every helper verb the Lua names still exists in `help.sh`.
   - The Linux platform guard in `scripts/stow-deploy` reads `DESKTOP_PACKAGES`, so no package name appears in both, and
     on Linux it no longer skips `rex`.
+  - The new-agent action refuses a context that names no session before it opens anything, and passes `--wait-shown`
+    only for a key or palette press.
+  - In a repo session with no prime tab, the key's tab is renamed for the prime, moved first, and becomes
+    `agent-slot-rex prime <repo>`; with the prime attached in a tab of the session, renamed or not, the key starts a
+    slot; a tab only labelled with the prime's name does not count; a prime not running stops the tab with
+    `prime-not-running`; `launch --repo` never opens the prime.
+  - `agent-slot-rex prime` attaches to the prime on the default tmux server from `$HOME` and becomes a login shell
+    after.
+  - A tab the key opened that Rex.app never shows starts nothing and closes itself; with a terminal, Enter lets it go
+    on.
 - **Verification:** `rex --autostart=false config check` passes on both machines, and Rex.app connected to the Linux
   server runs the slot actions from their keys and palette entries on the Linux server, with a Linux session focused and
-  with a Mac session focused (Rex.app lists its home server's actions, U1).
+  with a Mac session focused (Rex.app lists its home server's actions, U1). A scratch Rex server on its own socket, with
+  the action invoked through `rex do` and through `client.action` with `origin` set to `key`, shows the new-agent key's
+  cases: an empty repo session, a repo session without a prime, one with its prime attached (renamed, hand-built, and
+  detached), a session not named after a repo, with and without tabs, and a key-opened tab nobody selects.
 
 ### U6. Number every tab
 
