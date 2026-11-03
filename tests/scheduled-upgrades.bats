@@ -375,7 +375,8 @@ _fake_proc() {
   printf '0::%s\n' "$3" >"$PROC/$1/cgroup"
 }
 
-# The status lines the scan's probe reads: <pid> <owner uid> <permitted capability mask>.
+# The status lines that make a fake process one of the user's with the given capabilities, the kind a probe that reads
+# other processes would pick: <pid> <owner uid> <permitted capability mask>.
 _fake_status() {
   printf 'Uid:\t%s\t%s\t%s\t%s\nCapPrm:\t%s\n' "$2" "$2" "$2" "$2" "$3" >"$PROC/$1/status"
 }
