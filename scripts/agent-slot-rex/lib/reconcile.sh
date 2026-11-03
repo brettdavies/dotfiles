@@ -208,6 +208,8 @@ cmd_sweep() {
   contract_use_tools rex agent-slot
   [[ $CONTRACT_OUTPUT != text ]] || AR_HOLD=1 AR_AGAIN=sweep
   sweep_teardown
+  [[ $SWEEP_TORN_DOWN == '[]' ]] \
+    || AR_DONE="agent-slot sweep tore down $(contract_json -r 'join(", ")' <<<"$SWEEP_TORN_DOWN")"
   reconcile sweep
   RECONCILE_RESULT=$(contract_json -c --argjson t "$SWEEP_TORN_DOWN" '. + {torn_down: $t}' <<<"$RECONCILE_RESULT")
   contract_ok "$RECONCILE_RESULT" '(.torn_down[] | "torn down: \(.)"), '"$RECONCILE_TEXT"'

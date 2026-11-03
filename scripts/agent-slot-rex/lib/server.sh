@@ -1,8 +1,10 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
 # Calls to agent-slot on this host: the one seam every slot verb's work on the slots goes through. Each call runs
 # agent-slot by path under timeout, reads no stdin, and names this helper in AGENT_SLOT_REX_CLIENT, so the push
-# agent-slot runs after a launch or teardown skips the reconcile this helper runs right after. agent-slot exits with
-# its own codes, which never include 124 or 137 (timeout stopped the call) or 127 (agent-slot is not installed).
+# agent-slot runs after a launch or teardown skips the reconcile this helper runs right after. It also hands agent-slot
+# the user manager's runtime directory, which a shell in a slot's tmux session lacks and agent-slot's systemctl --user
+# calls need. agent-slot exits with its own codes, which never include 124 or 137 (timeout stopped the call) or 127
+# (agent-slot is not installed).
 #
 # server_ssh is the bounded ssh call to the server that restore --wait-server and the follow loop probe it with; ssh
 # reports its own failure (no route, a refused key, a changed host key) as exit 255.
@@ -57,8 +59,8 @@ server_call() {
   local secs=$1 verb=$2
   shift 2
   AR_ERROR=
-  server_run "$secs" "$verb" env AGENT_SLOT_REX_CLIENT="$AR_CLIENT" "$AR_AGENT_SLOT" "$verb" "$@" --output json \
-    && return 0
+  server_run "$secs" "$verb" env AGENT_SLOT_REX_CLIENT="$AR_CLIENT" XDG_RUNTIME_DIR="$AR_RUNTIME_DIR" \
+    "$AR_AGENT_SLOT" "$verb" "$@" --output json && return 0
   server_error "$secs" "$verb"
   return "$SERVER_STATUS"
 }
@@ -96,13 +98,20 @@ server_error() {
 
 # Usage: ar_fail <error-json>
 # Records the error as the outcome of a reconcile pass under way, prints it as contract_fail does, and exits with its
-# code; with AR_HOLD set, waits for q first, so a tab shows the error until the operator has read it.
+# code; with AR_HOLD set, waits for q first, so a tab shows the error until the operator has read it. With AR_DONE
+# naming what a slot verb had already done before the pass that failed, the error says so and reports partial side
+# effects, so a caller never reads a completed teardown as one that did nothing.
 AR_HOLD=0
+AR_DONE=
 ar_fail() {
-  local code
-  code=$(contract_json -r '.exit_code' <<<"$1")
-  journal_end "$1"
-  contract_emit_error "$1"
+  local error=$1 code
+  if [[ -n $AR_DONE ]]; then
+    error=$(contract_json -c --arg did "$AR_DONE" '.message += " (after \($did))"
+      | .recovery.side_effects = "partial" | .recovery.reconcile = "agent-slot-rex restore"' <<<"$error")
+  fi
+  code=$(contract_json -r '.exit_code' <<<"$error")
+  journal_end "$error"
+  contract_emit_error "$error"
   ((AR_HOLD == 0)) || ar_hold
   exit "$code"
 }

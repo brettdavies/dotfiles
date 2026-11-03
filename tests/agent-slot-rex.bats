@@ -901,3 +901,40 @@ settings_value() {
   run grep -rlE 'bigdaddy|bretts-air' "$BATS_TEST_DIRNAME/../scripts/agent-slot-rex/lib"
   [ "$output" = "$BATS_TEST_DIRNAME/../scripts/agent-slot-rex/lib/settings.sh" ]
 }
+
+# --- a pass that fails after its slot verb succeeded ------------------------------------------------------------------
+
+@test "a finish whose teardown succeeded reports a failed reconcile with partial side effects and the restore to run" {
+  slot_answer finish 0 '{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"finish","key":"X/2","torn_down":true}'
+  slots '[]'
+  rex_fails 'ls --json' 1 'Error: no Rex server is running at unix:///run/user/1000/rex/server.sock'
+  run --separate-stderr "$AGENT_SLOT_REX" finish X/2 --output json </dev/null
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "rex-failed" and .recovery.side_effects == "partial"
+    and .recovery.reconcile == "agent-slot-rex restore" and (.message | contains("agent-slot finish tore X/2 down"))' \
+    <<<"$stderr"
+}
+
+@test "a sweep that tore slots down reports a failed reconcile as partial, and one that tore none down as none" {
+  sweep_tore_down X/1 X/4
+  slots '[]'
+  rex_fails 'ls --json' 1 'Error: no Rex server is running at unix:///run/user/1000/rex/server.sock'
+  run --separate-stderr "$AGENT_SLOT_REX" sweep --output json </dev/null
+  [ "$status" -eq 1 ]
+  jaq -e '.recovery.side_effects == "partial" and (.message | contains("agent-slot sweep tore down X/1, X/4"))' \
+    <<<"$stderr"
+  sweep_tore_down
+  run --separate-stderr "$AGENT_SLOT_REX" sweep --output json </dev/null
+  [ "$status" -eq 1 ]
+  jaq -e '.recovery.side_effects == "none" and (.message | contains("tore") | not)' <<<"$stderr"
+}
+
+@test "attach waits out a tmux server that does not answer, and resumes nothing while it waits" {
+  tmux_answer has-session 0 124
+  run "$AGENT_SLOT_REX" attach X/2 claude </dev/null
+  [ "$status" -eq 0 ]
+  [[ $output == *"X/2 claude: the agent-slots tmux server did not answer; retrying in 0 s"* ]]
+  not_called '^agent-slot resume'
+  called '^tmux -L agent-slots attach -t =X-2$'
+}

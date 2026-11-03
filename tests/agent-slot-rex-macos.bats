@@ -14,9 +14,13 @@ setup() {
   export UNAME_STUB=Darwin
 }
 
-# forwarded VERB-AND-ARGS: the ssh stub ran the server's helper with exactly these arguments, without a terminal.
+# forwarded VERB-AND-ARGS: the ssh stub ran the server's helper with exactly these arguments, each word single-quoted,
+# without a terminal.
 forwarded() {
-  called "^ssh-stub -n -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 -o LogLevel=ERROR testserver ~/.local/bin/agent-slot-rex $1\$"
+  local words
+  # shellcheck disable=SC2086 # the argument is a word list
+  words=$(printf "'%s' " $1)
+  called "^ssh-stub -n -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 -o LogLevel=ERROR testserver ~/.local/bin/agent-slot-rex ${words% }\$"
 }
 
 @test "launch, restore, finish, sweep, and doctor run on the server's helper with the same arguments" {
@@ -54,7 +58,33 @@ forwarded() {
   command -v script >/dev/null || skip "script(1) gives the helper a terminal"
   run with_tty "$AGENT_SLOT_REX" sweep <<<"q"
   [ "$status" -eq 0 ]
-  called '^ssh-stub -t -o BatchMode=yes .* testserver ~/.local/bin/agent-slot-rex sweep$'
+  called "^ssh-stub -t -o BatchMode=yes .* testserver ~/.local/bin/agent-slot-rex 'sweep'\$"
+}
+
+@test "with --output json, a forward allocates no terminal, so the server's error object stays on stderr" {
+  command -v script >/dev/null || skip "script(1) gives the helper a terminal"
+  run with_tty "$AGENT_SLOT_REX" finish X/2 --output json <<<"q"
+  called "^ssh-stub -n -o BatchMode=yes .* testserver ~/.local/bin/agent-slot-rex 'finish' 'X/2' '--output' 'json'\$"
+}
+
+@test "a forwarded argument reaches the server's shell as one literal word, whatever it holds" {
+  local task=$'=ls it\'s $(id); `id` ~ "x" *'
+  run "$AGENT_SLOT_REX" launch --repo =ls --task "$task" </dev/null
+  [ "$status" -eq 0 ]
+  local remote shell
+  remote=$(tail -1 "$STUBS/ssh-remote.log")
+  remote=${remote#\~/.local/bin/agent-slot-rex }
+  for shell in "zsh -f" bash; do
+    command -v "${shell%% *}" >/dev/null || continue
+    # shellcheck disable=SC2086 # the shell carries its own flags
+    run $shell -c "printf '%s\n' $remote"
+    [ "${#lines[@]}" -eq 5 ]
+    [ "${lines[0]}" = launch ]
+    [ "${lines[1]}" = --repo ]
+    [ "${lines[2]}" = =ls ]
+    [ "${lines[3]}" = --task ]
+    [ "${lines[4]}" = "$task" ]
+  done
 }
 
 @test "attach, follow, restore --by, and restore --wait-server stop with wrong-host before calling anything" {

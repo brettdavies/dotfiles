@@ -1,7 +1,8 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
 # attach: a pane's hold on one of its slot's tmux sessions, as a loop around a local tmux attach. It runs from $HOME, so
 # the agent-state scan never counts the pane as using the slot. A missing session is resumed first; a client that ends
-# while its session lives was detached, so the loop waits for Enter before attaching again. A pane ends only when
+# while its session lives was detached, so the loop waits for Enter before attaching again. A tmux server that does not
+# answer is waited out rather than resumed, since a resume would wait on the same server. A pane ends only when
 # agent-slot says its slot is gone.
 
 ATTACH_KEY='' ATTACH_KIND='' ATTACH_NAME=''
@@ -32,7 +33,7 @@ attach_resume() {
 }
 
 cmd_attach() {
-  local attached=0 resumed=0
+  local attached=0 resumed=0 status
   slot_parse_key "$1"
   case $2 in
     claude | files | git) ;;
@@ -43,13 +44,19 @@ cmd_attach() {
   contract_use_tools tmux
   cd "$HOME" || exit "$EXIT_GENERAL"
   while true; do
-    if attach_has_session; then
+    status=0
+    attach_has_session || status=$?
+    if ((status == 0)); then
       if ((attached == 1)); then
         printf 'agent-slot-rex: detached from %s; press Enter to reattach\n' "$ATTACH_NAME"
         IFS= read -r _ || exit 0
       fi
       attached=1 resumed=0
       "$AR_TMUX" -L "$AR_TMUX_SOCKET" attach -t "=$ATTACH_NAME" || true
+      continue
+    fi
+    if ((status == 124 || status == 137)); then
+      attach_pause "the $AR_TMUX_SOCKET tmux server did not answer"
       continue
     fi
     attached=0

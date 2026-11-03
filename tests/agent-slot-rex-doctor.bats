@@ -209,6 +209,47 @@ esac'
   run --separate-stderr env -u XDG_RUNTIME_DIR "$AGENT_SLOT_REX" doctor --output json
   [ "$status" -eq 0 ]
   [ "$(grep '^systemctl-runtime ' "$CALLS" | sort -u)" = "systemctl-runtime /run/user/$(id -u)" ]
+  called "^agent-slot-runtime /run/user/$(id -u)\$"
+}
+
+@test "a Rex server that has not loaded the slot actions, or does not list its actions, is an error finding" {
+  printf '{"actions":[{"name":"dev_layout"}]}\n' >"$STUBS/rexdata/actions.json"
+  doctor
+  [ "$status" -eq 1 ]
+  jaq -e '.severity == "error" and .value == "agent_slot_new"
+    and .next_step.command == "cd ~/dotfiles && scripts/stow-deploy rex"' <<<"$(finding rex-action-unregistered)"
+  rex_fails 'actions --json' 1 'Error: request timed out'
+  doctor
+  [ "$status" -eq 1 ]
+  jaq -e '.severity == "error" and .next_step.command == "rex --autostart=false actions --json"' \
+    <<<"$(finding rex-failed)"
+  [ -z "$(finding rex-action-unregistered)" ]
+}
+
+@test "an agent-slot doctor that outlives its bound or is not installed is a finding marked as the server's" {
+  slot_answer doctor 124
+  doctor
+  [ "$status" -eq 1 ]
+  jaq -e '.severity == "error" and .host == "server" and .value == "120"' <<<"$(finding agent-slot-timed-out)"
+  export AGENT_SLOT_REX_AGENT_SLOT=$T/no-such/agent-slot
+  doctor
+  [ "$status" -eq 1 ]
+  jaq -e --arg p "$T/no-such/agent-slot" '.severity == "error" and .host == "server" and .value == $p' \
+    <<<"$(finding dependency-missing)"
+}
+
+@test "a slot tmux server that does not answer is tmux-unresponsive, with the command that probes it" {
+  printf '124\n' >"$STUBS/tmux-answers/display-message.rc"
+  doctor
+  [ "$status" -eq 1 ]
+  jaq -e --arg t "$STUBS/tmux" '.severity == "error" and .value == "agent-slots"
+    and .next_step.command == "\($t) -L agent-slots list-sessions"' <<<"$(finding tmux-unresponsive)"
+}
+
+@test "with the user manager unreachable, doctor names no foreign Rex server from the MainPID it could not read" {
+  touch "$STUBS/units/show-fails"
+  doctor
+  [ -z "$(finding rex-server-foreign)" ]
 }
 
 @test "agent-slot's own findings join the helper's, each marked as the server's" {

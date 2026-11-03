@@ -66,8 +66,8 @@ doctor_check_server() {
       "Rex has not loaded agent-slots.lua: agent_slot_new is not among its actions" --value agent_slot_new \
       --command "cd ~/dotfiles && scripts/stow-deploy rex"
   fi
-  unit_pid=$(doctor_systemctl --user show -p MainPID --value "$AR_REX_UNIT" || true)
-  if [[ $REX_SERVER_PID != "${unit_pid:-0}" ]]; then
+  if unit_pid=$(doctor_systemctl --user show -p MainPID --value "$AR_REX_UNIT") \
+    && [[ $REX_SERVER_PID != "${unit_pid:-0}" ]]; then
     doctor_finding error rex-server-foreign "the Rex server on this host (pid $REX_SERVER_PID) is not the one \
 $AR_REX_UNIT started (MainPID ${unit_pid:-0}), so the service cannot take the socket until that server stops" \
       --value "$REX_SERVER_PID" --action ask-operator \
@@ -133,18 +133,20 @@ good pass: $verdict" --value "$log" --command "agent-slot-rex restore"
 }
 
 # The agent-slots tmux server dies with the unit whose cgroup holds it, so a service unit's is a hazard; a scope of its
-# own or a login session's is not.
+# own or a login session's is not. One that runs and does not answer is reported as such; none running is no finding.
 doctor_check_tmux() {
-  local out pid unit
+  local out pid unit status=0
   out=$(mktemp)
-  if ! timeout --kill-after=2 10 "$AR_TMUX" -L "$AR_TMUX_SOCKET" display-message -p '#{pid}' </dev/null >"$out" \
-    2>/dev/null; then
-    rm -f "$out"
-    return 0
-  fi
+  timeout --kill-after=2 10 "$AR_TMUX" -L "$AR_TMUX_SOCKET" display-message -p '#{pid}' </dev/null >"$out" \
+    2>/dev/null || status=$?
   pid=$(<"$out")
   rm -f "$out"
-  [[ $pid =~ ^[0-9]+$ ]] || return 0
+  if ((status == 124 || status == 137)); then
+    doctor_finding error tmux-unresponsive "the $AR_TMUX_SOCKET tmux server did not answer within 10 s" \
+      --value "$AR_TMUX_SOCKET" --command "$AR_TMUX -L $AR_TMUX_SOCKET list-sessions"
+    return 0
+  fi
+  ((status == 0)) && [[ $pid =~ ^[0-9]+$ ]] || return 0
   unit=$("$AR_PS" -o cgroup= -p "$pid" 2>/dev/null | tail -1 || true)
   unit=${unit##*/}
   unit=${unit%%[[:space:]]*}

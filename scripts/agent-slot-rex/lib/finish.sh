@@ -39,6 +39,7 @@ cmd_finish() {
     server_timed_out || reconcile finish
     ar_fail "$error"
   fi
+  AR_DONE="agent-slot finish tore $key down"
   reconcile finish
   contract_ok "$(contract_json -c --arg k "$key" '{key: $k, torn_down: true, reconcile: .}' <<<"$RECONCILE_RESULT")" '
     "\(.key) is torn down", (.reconcile.closed[] | "closed: \(.label) (\(.why))")'

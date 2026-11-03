@@ -15,12 +15,14 @@
 # rex_versions set, else the CLI's, or fails while $STUBS/rexdata/server-down exists.
 #
 # agent-slot answers each verb from $STUBS/slot/<verb>.{out,err,rc}, or from <verb>.<n>.* on its nth call, and logs the
-# AGENT_SLOT_REX_CLIENT it was given as `agent-slot-client <name>`. tmux answers has-session and attach from
-# $STUBS/tmux-answers the same way, logs the directory each attach ran from as `tmux-cwd <dir>`, and reports
-# $STUBS/tmux-answers/pid as its server's pid. ssh answers the forwarded helper verbs from $STUBS/ssh/<verb>.*, and a
-# bare `true` as probe; with $STUBS/ssh/unreachable present every call fails as ssh does, and with $STUBS/ssh/hang
-# every call hangs. systemctl reports each unit active unless $STUBS/units/<unit> says otherwise, and
-# rex-server.service's MainPID as $STUBS/units/rex-server.service.pid, else $REX_STUB_PID. ps reports
+# AGENT_SLOT_REX_CLIENT and XDG_RUNTIME_DIR it was given as `agent-slot-client <name>` and `agent-slot-runtime <dir>`.
+# tmux answers has-session and attach from $STUBS/tmux-answers the same way, logs the directory each attach ran from as
+# `tmux-cwd <dir>`, and reports $STUBS/tmux-answers/pid as its server's pid, or exits with
+# $STUBS/tmux-answers/display-message.rc when present. ssh answers the forwarded helper verbs from $STUBS/ssh/<verb>.*,
+# and a bare `true` as probe, and appends each remote command to $STUBS/ssh-remote.log; with $STUBS/ssh/unreachable
+# present every call fails as ssh does, and with $STUBS/ssh/hang every call hangs. systemctl reports each unit active
+# unless $STUBS/units/<unit> says otherwise, and rex-server.service's MainPID as $STUBS/units/rex-server.service.pid,
+# else $REX_STUB_PID, unless $STUBS/units/show-fails makes `show` fail as an unreachable user manager does. ps reports
 # $STUBS/cgroup.txt for `-o cgroup=`.
 
 # shellcheck disable=SC2034 # the suites that load this file run it
@@ -140,12 +142,14 @@ case "$1 $2" in
 esac' nolog
   stub agent-slot '
 printf "agent-slot-client %s\n" "${AGENT_SLOT_REX_CLIENT:-}" >>"$CALLS"
+printf "agent-slot-runtime %s\n" "${XDG_RUNTIME_DIR:-unset}" >>"$CALLS"
 answer slot "$1"'
   stub tmux '
 [ "$3" = attach ] && printf "tmux-cwd %s\n" "$PWD" >>"$CALLS"
 [ "$3" = attach ] && printf "PATH=%s\n" "$PATH" >>"$STUBS/path.log"
 case $3 in
   display-message)
+    [ -e "$STUBS/tmux-answers/display-message.rc" ] && exit "$(cat "$STUBS/tmux-answers/display-message.rc")"
     [ -e "$STUBS/tmux-answers/pid" ] || { echo "no server running on /tmp/tmux-1000/agent-slots" >&2; exit 1; }
     cat "$STUBS/tmux-answers/pid" ;;
   *) answer tmux-answers "$3" ;;
@@ -157,7 +161,9 @@ case $1 in
     state=$(cat "$STUBS/units/$2" 2>/dev/null || echo active)
     echo "$state"
     [ "$state" = active ] ;;
-  show) cat "$STUBS/units/$5.pid" 2>/dev/null || echo "$REX_STUB_PID" ;;
+  show)
+    [ -e "$STUBS/units/show-fails" ] && { echo "Failed to connect to bus: No medium found" >&2; exit 1; }
+    cat "$STUBS/units/$5.pid" 2>/dev/null || echo "$REX_STUB_PID" ;;
 esac'
   stub ssh-stub '
 [ -e "$STUBS/ssh/hang" ] && exec sleep 30
@@ -166,9 +172,10 @@ if [ -e "$STUBS/ssh/unreachable" ]; then
   exit 255
 fi
 remote=${!#}
+printf "%s\n" "$remote" >>"$STUBS/ssh-remote.log"
 case $remote in
   true) verb=probe ;;
-  *agent-slot-rex\ *) verb=${remote#*agent-slot-rex }; verb=${verb%% *} ;;
+  *agent-slot-rex\ *) verb=${remote#*agent-slot-rex }; verb=${verb%% *}; verb=${verb#?}; verb=${verb%?} ;;
   *) verb=other ;;
 esac
 answer ssh "$verb"'
