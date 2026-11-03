@@ -185,10 +185,11 @@ the next group. Use git add -p <file> if a single file has unrelated changes.
 - If multiple skills/modules changed independently, make separate commits for each"
 
     log "  Running claude -p for staging and commit..."
-    if timeout "$CLAUDE_TIMEOUT" claude -p "$PROMPT" \
+    # claude has no flag naming its project: the directory it starts in sets the
+    # Bash tool's cwd and which CLAUDE.md and project settings load.
+    if (cd "$repo_path" && exec timeout "$CLAUDE_TIMEOUT" claude -p "$PROMPT" \
       --allowedTools "Bash(git *)" \
-      -d "$repo_path" \
-      --verbose 2>>"$LOG_FILE" >>"$LOG_FILE"; then
+      --verbose) 2>>"$LOG_FILE" >>"$LOG_FILE"; then
       # Verify claude actually committed (check if working tree is clean)
       if git -C "$repo_path" diff --quiet && git -C "$repo_path" diff --cached --quiet \
         && [[ -z "$(git -C "$repo_path" ls-files --others --exclude-standard)" ]]; then

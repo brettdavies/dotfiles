@@ -3,8 +3,9 @@
 # committed and pushed, and a `sync` repo is only fast-forwarded, with every
 # change origin lacks logged as a WARNING and left exactly as it was.
 # Origins are local bare repos, git reads a test config through
-# GIT_CONFIG_GLOBAL, and claude is a stub that fails, so a commit takes the
-# script's fallback path.
+# GIT_CONFIG_GLOBAL, and claude is a stub that records its working directory
+# and its arguments, one per line, then fails, so a commit takes the script's
+# fallback path.
 
 bats_require_minimum_version 1.5.0
 
@@ -22,10 +23,12 @@ setup() {
 
   STUBS=$T/stubs
   CLAUDE_CALLS=$T/claude.calls
+  CLAUDE_CWD=$T/claude.cwd
   mkdir -p "$STUBS"
   cat >"$STUBS/claude" <<STUB
 #!/usr/bin/env bash
-echo "\$*" >>"$CLAUDE_CALLS"
+printf '%q\\n' "\$@" >>"$CLAUDE_CALLS"
+printf '%s\\n' "\$PWD" >>"$CLAUDE_CWD"
 exit 1
 STUB
   chmod +x "$STUBS/claude"
@@ -209,4 +212,16 @@ STUB
   grep -F -- '--- solutions-docs ---' "$LOG"
   grep -F -- '--- agent-skills ---' "$LOG"
   run ! grep -F obsidian-vault "$LOG"
+}
+
+@test "claude runs from inside the repo it commits in, with no -d, which claude reads as --debug" {
+  make_repo skills
+  echo "new note" >"$T/skills/note.md"
+
+  NIGHTLY_AUTOCOMMIT_REPOS="$T/skills|main" run "$SCRIPT"
+  [ "$status" -eq 0 ]
+
+  [ "$(cat "$CLAUDE_CWD")" = "$T/skills" ]
+  run ! grep -xE -- '-d|--debug(=.*)?' "$CLAUDE_CALLS"
+  grep -x -- -p "$CLAUDE_CALLS"
 }
