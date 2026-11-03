@@ -52,13 +52,22 @@ _stale_procs_settle() { # <own-unit> <kind> <unit> <exe> <pids>
   items+="${items:+,}{\"unit\":$(_run_log_str "$unit"),\"exe\":$(_run_log_str "$4"),\"pids\":[$5],\"action\":\"$action\"}"
 }
 
+# Succeeds unless the job runs in a nested user namespace, which PrivateTmp= and every other namespace directive give
+# a user unit. There the kernel refuses the executable link of every process outside the namespace, so the scan would
+# find nothing and claim nothing is stale. Only the initial namespace maps the whole uid range onto itself. Reading
+# another process's link is no probe: one holding a capability the job lacks (the user manager, the job's parent,
+# holds CAP_WAKE_ALARM) or one that is not dumpable refuses it from any namespace.
+_stale_procs_can_see() { # <proc-root>
+  local inside outside count
+  read -r inside outside count 2>/dev/null <"$1/self/uid_map" || return 0
+  [ "$inside $outside $count" = "0 0 4294967295" ]
+}
+
 # Usage: stale_procs_restart <proc-root> <prefix>
 stale_procs_restart() {
   local own items='' settled='|' group='' g_kind='' g_unit='' g_exe='' pids='' kind unit exe pid
-  # Inside a user namespace (which PrivateTmp= gives a user unit) every process outside it reads as blank, so a scan
-  # that cannot read its own parent would find nothing and claim nothing is stale.
-  if [ -e "$1/$PPID" ] && ! readlink "$1/$PPID/exe" >/dev/null 2>&1; then
-    run_log_note warning "Warning: cannot read the executable of the job's parent (pid $PPID), so stale processes are not checked; a user unit with PrivateTmp= runs in a user namespace that hides them"
+  if ! _stale_procs_can_see "$1"; then
+    run_log_note warning "Warning: the job runs in a user namespace, which hides every process outside it, so stale processes are not checked; remove PrivateTmp= and any other namespace directive from its unit"
     return 0
   fi
   own=$(_stale_procs_unit "$1/self/cgroup" | cut -f2)

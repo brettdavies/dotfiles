@@ -375,6 +375,12 @@ _fake_proc() {
   printf '0::%s\n' "$3" >"$PROC/$1/cgroup"
 }
 
+# The status lines that make a fake process one of the user's with the given capabilities, the kind a probe that reads
+# other processes would pick: <pid> <owner uid> <permitted capability mask>.
+_fake_status() {
+  printf 'Uid:\t%s\t%s\t%s\t%s\nCapPrm:\t%s\n' "$2" "$2" "$2" "$2" "$3" >"$PROC/$1/status"
+}
+
 @test "processes on a removed Homebrew binary: long-running user services restart, the rest are reported" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   find / -maxdepth 0 -printf '' 2>/dev/null || skip "the scan lists /proc with GNU find's -printf"
@@ -413,12 +419,45 @@ _fake_proc() {
     and .line == "restarted caddy.service, which was running the removed /opt/brew/Cellar/caddy/2/bin/caddy")' | grep -q .
 }
 
-@test "a scan that cannot read its parent's executable reports stale processes as unchecked" {
+# Outside a user namespace, a process may still refuse its executable link to the job: the user manager, the job's
+# parent under systemd, holds CAP_WAKE_ALARM, and a process that is not dumpable refuses it to everyone. Neither may
+# stop the scan.
+@test "processes whose executables do not read, the job's parent among them, do not stop the scan" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
-  PROC="$BATS_TEST_TMPDIR/proc"
-  _fake_proc 101 "/opt/brew/Cellar/caddy/2/bin/caddy (deleted)" /user.slice/user-1000.slice/user@1000.service/app.slice/caddy.service
+  find / -maxdepth 0 -printf '' 2>/dev/null || skip "the scan lists /proc with GNU find's -printf"
+  PROC="$BATS_TEST_TMPDIR/proc" US=/user.slice/user-1000.slice/user@1000.service
+  mkdir -p "$PROC/self"
+  printf '0::%s\n' "$US/app.slice/brew-upgrade.service" >"$PROC/self/cgroup"
+  printf '%10s %10s %10s\n' 0 0 4294967295 >"$PROC/self/uid_map"
+  _fake_proc 101 "/opt/brew/Cellar/bash/5/bin/bash (deleted)" "$US/app.slice/brew-upgrade.service"
+  _fake_status 101 "$(id -u)" 0000000000000000
+  mkdir -p "$PROC/102/exe"
+  printf '0::%s\n' "$US/app.slice/agent.service" >"$PROC/102/cgroup"
+  _fake_status 102 "$(id -u)" 0000000000000000
   run env PATH="$STUBS:$PATH" bash -c '
     mkdir -p "$2/$PPID/exe"
+    printf "0::%s\n" "$3/init.scope" >"$2/$PPID/cgroup"
+    printf "Uid:\t%s\t%s\t%s\t%s\nCapPrm:\t0000000800000000\n" "$4" "$4" "$4" "$4" >"$2/$PPID/status"
+    . "$1/run-log.sh"; . "$1/stale-procs.sh"
+    RUN_JOB=brew-upgrade RUN_ID=x RUN_HOST="\"h\"" RUN_LOG_JOURNALD=0 RUN_WARNINGS=0 RUN_STALE=null
+    stale_procs_restart "$2" /opt/brew
+    printf "%s\n%s\n" "$RUN_WARNINGS" "$RUN_STALE"' _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC" "$US" "$(id -u)"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c 'map([.unit, .action, .pids])')" = '[["brew-upgrade.service","left-running",[101]]]' ]
+  [ "$(printf '%s\n' "$output" | tail -n 2 | head -n 1)" = 1 ]
+  [ ! -e "$SYSTEMCTL_LOG" ] || ! grep -q try-restart "$SYSTEMCTL_LOG"
+}
+
+# The one-uid map is what the user manager gives a unit that carries PrivateTmp=. Every process outside the namespace
+# reads blank there, so even a stale process the fixture leaves readable must not be reported.
+@test "a scan inside a nested user namespace reports stale processes as unchecked" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  PROC="$BATS_TEST_TMPDIR/proc" US=/user.slice/user-1000.slice/user@1000.service/app.slice
+  mkdir -p "$PROC/self"
+  printf '0::%s\n' "$US/brew-upgrade.service" >"$PROC/self/cgroup"
+  printf '%10s %10s %10s\n' 1000 1000 1 >"$PROC/self/uid_map"
+  _fake_proc 101 "/opt/brew/Cellar/caddy/2/bin/caddy (deleted)" "$US/caddy.service"
+  run env PATH="$STUBS:$PATH" bash -c '
     . "$1/run-log.sh"; . "$1/stale-procs.sh"
     RUN_JOB=brew-upgrade RUN_ID=x RUN_HOST="\"h\"" RUN_LOG_JOURNALD=0 RUN_WARNINGS=0 RUN_STALE=null
     stale_procs_restart "$2" /opt/brew
@@ -427,7 +466,7 @@ _fake_proc() {
   [ "$(printf '%s\n' "$output" | tail -n 1)" = null ]
   [ "$(printf '%s\n' "$output" | tail -n 2 | head -n 1)" = 1 ]
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning"
-    and (.line | startswith("Warning: cannot read the executable of the job'"'"'s parent")))' | grep -q .
+    and (.line | startswith("Warning: the job runs in a user namespace")))' | grep -q .
   [ ! -e "$SYSTEMCTL_LOG" ]
 }
 
