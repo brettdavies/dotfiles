@@ -88,7 +88,7 @@ $list
 - [ ] No special deployment steps required
 - [x] Deployment steps documented below:
 
-The brew job fast-forwards the Linux server's checkout after this merges when it can, and every host's next daily brew run installs the new pins. To install them at once: \`git -C ~/dotfiles pull --ff-only && ya pkg install\`.
+The brew job fast-forwards the Linux server's checkout after this merges when it can, and every host's next daily brew run installs the new pins. To install them at once: \`git -C ~/dotfiles pull --ff-only && ya pkg install --discard\`.
 
 ## Checklist
 

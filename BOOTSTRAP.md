@@ -680,9 +680,15 @@ Lingering must be on for the timers to fire while logged out (`loginctl enable-l
 
 #### yazi plugin pins
 
-After `bu`, the brew job runs `ya pkg install` on both operating systems, so the installed yazi plugins and flavor match
-what `stow/yazi/dot-config/yazi/package.toml` pins. A failed install is a warning in the run log; the run still
-succeeds.
+After `bu`, the brew job runs `ya pkg install --discard` on both operating systems, so the installed yazi plugins and
+flavor match what `stow/yazi/dot-config/yazi/package.toml` pins; `scripts/stow-deploy` runs the same install after a
+`$HOME` deploy that stows yazi. A failed install is a warning in the run log; the run still succeeds.
+
+`--discard` is what moves an installed package to a new pin. Without it, ya refuses to replace a package whose files
+differ from the hash `package.toml` records, and after a pin moves, the old revision's files always do: the install
+stops at the first such package with `You have modified the contents of the ...` and leaves every package where
+it was. `package.toml` owns the installed plugins and flavor, so nothing under them is a local edit to keep. To install
+by hand, run `ya pkg install --discard`.
 
 On the server, the job also keeps the pins working with the yazi Homebrew installs. When `yazi --version` differs from
 the version the pins were last proven on (`~/.local/state/dotfiles/yazi-pins-proven`), it runs
@@ -695,7 +701,7 @@ the version the pins were last proven on (`~/.local/state/dotfiles/yazi-pins-pro
    piper.
 3. When the hashes changed and the check passes, opens a PR to `dev`, waits up to 30 minutes for its checks (updating
    the branch if `dev` moved), squash-merges it at the head the checks passed on, and fast-forwards `~/dotfiles` when it
-   is on `dev` and git can fast-forward, then runs `ya pkg install`.
+   is on `dev` and git can fast-forward, then runs `ya pkg install --discard`.
 
 `run.end` reports the result under `yazi_pins`, `null` on runs that did not bump:
 

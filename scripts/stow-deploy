@@ -588,21 +588,24 @@ fi
 # pins, and only `ya pkg install` moves them; Homebrew upgrades yazi itself on
 # its own, and a plugin left behind an API change fails on every directory. ya
 # writes the hashes it computes back through the stowed package.toml symlink, so
-# a hash in package.toml that differs from ya's dirties the checkout. The
-# install fetches every package from GitHub into ~/.cache/yazi, so like the
-# timer recovery it is scoped to a real $HOME deploy.
+# a hash in package.toml that differs from ya's dirties the checkout. ya also
+# refuses to replace an installed package whose files differ from the hash
+# package.toml records, which an older pin's files always do, so the install
+# passes --discard; package.toml owns those directories. The install fetches
+# every package from GitHub into ~/.cache/yazi, so like the timer recovery it
+# is scoped to a real $HOME deploy.
 if [ "$TARGET" = "$HOME" ] && grep -qx "yazi" "$deployed_file" 2>/dev/null; then
   echo ""
   echo "==> Installing yazi packages"
   if ! command -v ya >/dev/null 2>&1; then
     echo "  ya not installed, skipping (install with: brew install yazi)"
-  elif _ya_out=$(YAZI_CONFIG_HOME="$TARGET/.config/yazi" ya pkg install 2>&1); then
-    echo "  Done: ya pkg install"
+  elif _ya_out=$(YAZI_CONFIG_HOME="$TARGET/.config/yazi" ya pkg install --discard 2>&1); then
+    echo "  Done: ya pkg install --discard"
   else
     echo "  WARNING: ya pkg install failed; yazi keeps the packages it already had:" >&2
     # shellcheck disable=SC2001
     sed 's/^/    /' <<<"$_ya_out" >&2
-    echo "  Rerun: ya pkg install" >&2
+    echo "  Rerun: ya pkg install --discard" >&2
   fi
   unset _ya_out
 fi

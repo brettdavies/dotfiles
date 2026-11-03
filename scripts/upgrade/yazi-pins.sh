@@ -97,8 +97,9 @@ emit() {
 }
 [ -n "$YAZI_VERSION" ] || emit failed check-failed "yazi --version printed no version" "" "" null rerun "$SELF"
 
-# Fast-forwards the host checkout when it sits on the base branch, then installs what it now pins; git refuses on
-# its own when a local edit would be overwritten. Prints the host_update object.
+# Fast-forwards the host checkout when it sits on the base branch, then installs what it now pins over the old pins'
+# files (--discard, for the reason yazi_pkg_install in lib/yazi.sh gives); git refuses on its own when a local edit
+# would be overwritten. Prints the host_update object.
 pull_host() {
   local branch out action=pulled reason=ok msg="fast-forwarded and installed the new pins"
   if [ -z "$checkout" ] || ! git -C "$checkout" rev-parse --git-dir >/dev/null 2>&1; then
@@ -107,7 +108,7 @@ pull_host() {
     action=skipped reason=not-on-base msg="checkout is on ${branch:-a detached HEAD}, not $base"
   elif ! out=$(git -C "$checkout" pull --ff-only -q 2>&1); then
     action=failed reason=pull-failed msg=$(tr '\n' ' ' <<<"$out")
-  elif ! out=$(ya pkg install 2>&1); then
+  elif ! out=$(ya pkg install --discard 2>&1); then
     action=failed reason=install-failed msg=$(tail -n 3 <<<"$out" | tr '\n' ' ')
   fi
   printf '{"action":"%s","reason":"%s","checkout":%s,"message":%s}' \
@@ -134,7 +135,7 @@ land() { # <pr-url> <head-sha>
     emit bumped pr-merged "merged $1" "" "$1" "$host" none ""
   fi
   emit bumped pr-merged "merged $1; this host still installs the old pins until its checkout is pulled" "" "$1" \
-    "$host" pull "git -C ${checkout:-~/dotfiles} pull --ff-only && ya pkg install"
+    "$host" pull "git -C ${checkout:-~/dotfiles} pull --ff-only && ya pkg install --discard"
 }
 
 # Installs <package.toml lines> into a fresh scratch HOME holding the clone's yazi config and checks it there.

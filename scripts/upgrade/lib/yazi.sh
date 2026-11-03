@@ -10,18 +10,21 @@ _yazi_info_lines() {
 }
 
 # Usage: yazi_pkg_install
-# Runs `ya pkg install` when ya is on PATH. Its lines are info events, since an error ya prints is not the run's error;
-# a non-zero exit adds one warning, and the run's outcome still follows the upgrade alone.
+# Runs `ya pkg install --discard` when ya is on PATH. Without --discard, ya refuses to replace an installed package whose
+# files differ from the hash package.toml records, and an older pin's files always differ from a newer pin's hash;
+# package.toml owns every installed plugin and flavor, so there is no local edit to keep. Its lines are info events,
+# since an error ya prints is not the run's error; a non-zero exit adds one warning, and the run's outcome still follows
+# the upgrade alone.
 yazi_pkg_install() {
   local status
   command -v ya >/dev/null 2>&1 || return 0
-  if ya pkg install 2>&1 | _yazi_info_lines; then
+  if ya pkg install --discard 2>&1 | _yazi_info_lines; then
     status=0
   else
     status=${PIPESTATUS[0]}
   fi
   if [ "$status" -ne 0 ]; then
-    run_log_note warning "Warning: ya pkg install exited $status; installed yazi packages may not match package.toml. Rerun: ya pkg install"
+    run_log_note warning "Warning: ya pkg install exited $status; installed yazi packages may not match package.toml. Rerun: ya pkg install --discard"
   fi
 }
 

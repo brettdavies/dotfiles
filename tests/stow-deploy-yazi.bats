@@ -37,13 +37,13 @@ _home_deploy() {
   HOME="$target" STOW_DEPLOY_TARGET="$target" PATH="$stubs:$PATH" run "$fixture/scripts/stow-deploy" "$@"
 }
 
-@test "a \$HOME deploy of yazi installs the packages package.toml pins" {
+@test "a \$HOME deploy of yazi installs the packages package.toml pins, discarding what an older pin left" {
   _home_deploy --headless --only yazi
   echo "$output"
   [ "$status" -eq 0 ]
   [ -L "$target/.fixture-yazi" ]
   [[ "$output" == *"==> Installing yazi packages"* ]]
-  [ "$(cat "$ya_log")" = "$target/.config/yazi|pkg install" ]
+  [ "$(cat "$ya_log")" = "$target/.config/yazi|pkg install --discard" ]
 }
 
 @test "a failed yazi package install warns, names the rerun, and the deploy still succeeds" {
@@ -52,7 +52,7 @@ _home_deploy() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"WARNING: ya pkg install failed"* ]]
   [[ "$output" == *"    Error: failed to fetch yazi-rs/plugins"* ]]
-  [[ "$output" == *"Rerun: ya pkg install"* ]]
+  [[ "$output" == *"Rerun: ya pkg install --discard"* ]]
 }
 
 @test "a sandboxed deploy target never runs ya" {
