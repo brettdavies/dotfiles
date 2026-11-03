@@ -513,3 +513,237 @@ labeled() {
   not_called '^rex '
   not_called '^rexurrect '
 }
+
+# --- the prime tabs rexurrect restores ---------------------------------------------------------------------------------
+
+# restored_prime: rexurrect brought session A back with its prime tab, "1: A Prime", as a plain zsh at its prompt in
+# block pb on pts/9, and the prime map names A's prime session "A Prime", which runs with no client attached.
+restored_prime() {
+  primes A 'A Prime'
+  session sess-a A '[{"window_id": "pw", "label": "1: A Prime", "blocks": ["pb"]}]'
+  at_prompt pb 701 pts/9
+}
+
+# typed_prime REPO: what the start-up step types into a restored prime tab, as the stub rex logs it: the keys that clear
+# the prompt's line, then the prime command and Enter.
+typed_prime() {
+  printf '%s' $'\005\025'" exec $STUBS/agent-slot-rex prime $1"$'\r'
+}
+
+# sent_to BLOCK REPO: the calls log has the prime command typed into the block.
+sent_to() {
+  grep -qxF "rex send -s sess-a -b $1 $(typed_prime "$2")" "$CALLS" || {
+    echo "no prime command was typed into $1" >&2
+    cat -v "$CALLS" >&2
+    return 1
+  }
+}
+
+# primes_journaled JQ: the start-up step's journal line carries the prime outcomes the jq expression, applied to them,
+# accepts.
+primes_journaled() {
+  jaq -e "select(.by == \"restore-at-start\") | .primes | $1" "$LOG" >/dev/null || {
+    echo "journaled primes do not match: $1" >&2
+    cat "$LOG" >&2
+    return 1
+  }
+}
+
+@test "after a restart the start-up step makes a restored prime tab the prime, between rexurrect and the reconcile" {
+  started_by_rex
+  restored_prime
+  attaches_on_send pb pts/9
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  sent_to pb A
+  local restore send list
+  restore=$(grep -n '^rexurrect auto-restore' "$CALLS" | cut -d: -f1)
+  send=$(grep -n '^rex send ' "$CALLS" | cut -d: -f1)
+  list=$(grep -n '^agent-slot list' "$CALLS" | cut -d: -f1)
+  ((restore < send && send < list))
+  primes_journaled '. == [{repo: "A", prime: "A Prime", outcome: "reattached", session_id: "sess-a", window_id: "pw"}]'
+  jaq -e '.ok and .rexurrect == "done"' "$LOG"
+  grep -q 'A Prime.*reattached' "$AGENT_SLOT_REX_STATE_DIR/restore.log"
+}
+
+@test "after the start-up step reattached a prime, the new-agent key in its session starts a slot, not a second prime" {
+  started_by_rex
+  slots '[]'
+  restored_prime
+  attaches_on_send pb pts/9
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  local f=$STUBS/rexdata/session-sess-a.json
+  jaq -c '.windows += [{window_id: "win-a", label: "new agent", layers: [{blocks: [{block_id: "blk-a"}]}]}]' "$f" \
+    >"$f.new"
+  mv "$f.new" "$f"
+  repos A
+  slot_answer launch 0 '{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"launch","created":true,"key":"A/3",
+    "repo":"A","slot":3,"path":"/srv/slots/A/3","task":null,"request_id":"r","session_id":"s","base":"main",
+    "trust_prompt_expected":false}'
+  : >"$CALLS"
+  REX_SESSION=sess-a REX_BLOCK=blk-a run "$AGENT_SLOT_REX" launch --here </dev/null
+  [ "$status" -eq 0 ]
+  called '^agent-slot launch A --request-id '
+  not_called '^agent-slot-rex prime'
+  not_called '^rex window move'
+}
+
+@test "a prime that a tab of its session already holds is left alone" {
+  started_by_rex
+  restored_prime
+  prime_clients pts/9
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  primes_journaled '.[0].outcome == "already-open"'
+}
+
+@test "a tab with the prime's label whose shell is running a program is left alone" {
+  started_by_rex
+  primes A 'A Prime'
+  session sess-a A '[{"window_id": "pw", "label": "1: A Prime", "blocks": ["pb"]}]'
+  running_in pb 701 pts/9 nvim
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  primes_journaled '.[0].outcome == "not-idle" and .[0].window_id == "pw"'
+}
+
+@test "a tab with the prime's label whose own process is a script in its terminal's foreground is left alone" {
+  started_by_rex
+  primes A 'A Prime'
+  session sess-a A '[{"window_id": "pw", "label": "1: A Prime", "blocks": ["pb"]}]'
+  runs pb 701 "bash $STUBS/agent-slot-rex prime A"
+  printf 'pts/9\n' >"$STUBS/tty/701"
+  printf '{"child":{"pid":701,"name":"bash"},"foreground":{"pid":701,"name":"bash"}}\n' >"$STUBS/rexdata/process-pb.json"
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  primes_journaled '.[0].outcome == "not-idle"'
+}
+
+@test "a tab with the prime's label that holds more than one pane is left alone" {
+  started_by_rex
+  primes A 'A Prime'
+  session sess-a A '[{"window_id": "pw", "label": "1: A Prime", "blocks": ["pb", "pc"]}]'
+  at_prompt pb 701 pts/9
+  at_prompt pc 702 pts/10
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  primes_journaled '.[0].outcome == "not-idle"'
+}
+
+@test "a restored prime tab whose prime tmux session is not running is left alone and journaled prime-not-running" {
+  started_by_rex
+  restored_prime
+  tmux_default_answer has-session 1
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  primes_journaled '.[0].outcome == "prime-not-running" and .[0].window_id == "pw"'
+  grep -qF "tmux has-session -t '=A Prime'" "$AGENT_SLOT_REX_STATE_DIR/restore.log"
+  called "^rex window new -s sess-a A/1 "
+}
+
+@test "a repo with no session, or whose session has no tab labelled exactly as its prime, gets nothing typed" {
+  started_by_rex
+  primes A 'A Prime' B 'B Prime'
+  session sess-a A '[{"window_id": "w1", "label": "2: A Prime notes", "blocks": ["b1"]},
+    {"window_id": "w2", "label": "A Prime", "blocks": ["b2"]}]'
+  at_prompt b1 701 pts/9
+  running_in b2 702 pts/10 htop
+  session sess-x X '[{"window_id": "wx", "label": "1: B Prime", "blocks": ["bx"]}]'
+  at_prompt bx 703 pts/11
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  primes_journaled '[.[] | {repo, outcome}] == [{repo: "A", outcome: "not-idle"}, {repo: "B", outcome: "no-session"}]'
+  : >"$CALLS"
+  rm "$RECORD"
+  at_prompt b2 702 pts/10
+  printf '%s\n' "$NEW_INSTANCE" >"$STUBS/rexdata/instance"
+  jaq -c '.windows |= map(select(.window_id != "w2"))' "$STUBS/rexdata/session-sess-a.json" >"$T/s.json"
+  mv "$T/s.json" "$STUBS/rexdata/session-sess-a.json"
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  [ "$(jaq -s -r '.[-1].primes[0].outcome' "$LOG")" = no-tab ]
+}
+
+@test "of two tabs that carry the prime's label, only the first becomes the prime" {
+  started_by_rex
+  primes A 'A Prime'
+  session sess-a A '[{"window_id": "pw", "label": "1: A Prime", "blocks": ["pb"]},
+    {"window_id": "qw", "label": "2: A Prime", "blocks": ["qb"]}]'
+  at_prompt pb 701 pts/9
+  at_prompt qb 702 pts/10
+  attaches_on_send pb pts/9
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  sent_to pb A
+  [ "$(grep -c '^rex send ' "$CALLS")" -eq 1 ]
+  primes_journaled '. == [{repo: "A", prime: "A Prime", outcome: "reattached", session_id: "sess-a", window_id: "pw"}]'
+}
+
+@test "a prime command that brings no client within the wait is journaled unconfirmed" {
+  started_by_rex
+  restored_prime
+  export AGENT_SLOT_REX_PRIME_WAIT=1
+  run timeout 45 "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  sent_to pb A
+  primes_journaled '.[0].outcome == "unconfirmed"'
+}
+
+@test "a rex call that fails while reattaching one prime still reattaches the next and reconciles every slot" {
+  started_by_rex
+  restored_prime
+  primes B 'B Prime' A 'A Prime again'
+  rm "$STUBS/rexdata/session-sess-a.json"
+  session sess-b B '[{"window_id": "bw", "label": "1: B Prime", "blocks": ["bb"]}]'
+  at_prompt bb 702 pts/10
+  attaches_on_send bb pts/10
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex send -s sess-a '
+  called "^rex send -s sess-b -b bb "
+  called "^rex window new -s sess-a A/1 "
+  primes_journaled '[.[] | {repo, outcome}] == [{repo: "A", outcome: "rex-failed"}, {repo: "B", outcome: "reattached"}]'
+  jaq -e 'select(.by == "restore-at-start") | .ok and .changed' "$LOG"
+  grep -q 'session sess-a not found' "$AGENT_SLOT_REX_STATE_DIR/restore.log"
+}
+
+@test "a Rex restart while the start-up step reattaches primes types nothing more and leaves the tabs to the new instance" {
+  started_by_rex
+  restored_prime
+  restarts_after 'block call'
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  no_tab_change
+  not_called '^agent-slot list'
+  primes_journaled '.[0].outcome == "rex-server-restarted"'
+  jaq -e '.ok and .skipped == "rex-server-restarted"' "$LOG"
+  [ ! -L "$LOCK" ]
+}
+
+@test "a start-up step on an instance it already recorded, as a config reload runs, types into no prime tab" {
+  started_by_rex
+  recorded "$REX_STUB_INSTANCE" "done"
+  restored_prime
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  not_called '^tmux list-clients'
+  jaq -e 'has("primes") and .primes == null' "$LOG"
+}
+
+@test "only the start-up step journals prime outcomes; every other pass journals primes as null" {
+  restored_prime
+  run "$AGENT_SLOT_REX" restore --by poll
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  jaq -e '.by == "poll" and has("primes") and .primes == null' "$LOG"
+}

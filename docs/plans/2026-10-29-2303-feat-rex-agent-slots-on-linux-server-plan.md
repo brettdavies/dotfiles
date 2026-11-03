@@ -865,6 +865,19 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      and once after the last, and in `reconcile.sh` end a pass that finds another instance, or none, as skipped with
      `rex-server-restarted` or `rex-server-down`, journaling only the changes it made. In `startup.sh`, right before
      rexurrect, kill each session of the instance that holds nothing but slot tabs.
+  8. In `reattach.sh`, make each prime tab rexurrect restores the prime again, once per server instance, after rexurrect
+     and before the reconcile. rexurrect restores a prime tab as a plain shell, and the new-agent key counts a tab as
+     the prime only while a tmux client of the prime runs in it, so without this the next key press opens a second
+     prime beside the restored tab. For each repo of `config/agent-slot-rex/primes.tsv` whose Rex session has no tab
+     holding its prime, type `exec agent-slot-rex prime <repo>`, the key's own prime command, into the first tab whose
+     label past its number is the prime's name, when that tab is one pane whose own process is a shell given options
+     alone and is its terminal's foreground process; clear the prompt's line first. Leave every other tab alone, and a
+     prime whose tmux session is not running (`prime-not-running`). Run each repo's check in a subshell of its own, so a
+     failed rex call costs that repo alone, and pin the instance as a pass does: a restart seen partway ends the step as
+     skipped, with no reconcile. Journal each repo's outcome under `primes`. It runs before the reconcile because a
+     prime tab is the operator's working tab, which should not wait on slot resumes, and because a reconcile that fails
+     ends the step; neither touches the other's tabs. A config reload's step types into no tab, since a prime-labelled
+     shell there is a prime the operator detached.
 - **Patterns to follow:** `stow/local/dot-config/systemd/user/agent-slot-sweep.{service,timer}`; the push log and its
   result names in `push.sh`; `reconcile_plan`'s pure-jq planning.
 - **Test scenarios:**
@@ -910,6 +923,12 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
     restore whose plan closes that slot's tab, and the restore never touches another slot's tmux sessions.
   - `agent-slot list` and `agent-slot check` report the same state for a working slot before and after a reconcile that
     rebuilt its tab.
+  - A start-up step on a new instance types the prime command into a restored prime tab after rexurrect and before the
+    reconcile, and the next new-agent key in that session starts a slot. It types nothing into a tab whose prime a tab
+    already holds, whose shell runs a program, whose own process is a script, or that holds several panes; nothing
+    when the prime's tmux session is not running; into only the first of two tabs with the prime's label; and nothing
+    on a config reload. A failed rex call for one repo still leaves the next repo and the reconcile to run, and a
+    restart partway types nothing more and skips the reconcile.
 - **Verification:** With no client connected, a slot launched from a server shell gets its tab within seconds, and
   restarting `rex-server.service` brings every slot tab back once.
 
@@ -1076,7 +1095,13 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      helper table. A `failed` record admits a save only when rexurrect's `restored-instances` lists the instance, since
      a restore whose every attempt failed leaves it unrecorded and `rexurrect save` would then restore into a filled
      server (`docs/plans/2026-11-02-2324-feat-agent-slots-on-the-mac-plan.md`, KTD8).
-  3. Keep rexurrect's defaults of an empty `auto_resume` and `no_scrollback = ["claude"]`.
+  3. Keep rexurrect's defaults of an empty `auto_resume` and `no_scrollback = ["claude"]`. The recorder does not
+     re-attach a prime tab: v0.3.0 types a restored block's last command at its prompt without running it, so the
+     start-up step's prime re-attach (U4 step 8) stays and coexists with it by clearing the prompt's line before it
+     types the prime command. No `[programs.*]` definition is added for the prime: one in `auto_resume` would need
+     `agent-slot-rex prime` to report its repo through `rexurrect report`, would run its command whether or not the
+     prime's tmux session is running, and would journal nothing, where the step applies the key's own prime check and
+     journals each repo.
   4. Install the zsh recorder, `rexurrect.plugin.zsh`, from the same verified archive to
      `~/.local/share/rexurrect/rexurrect.plugin.zsh`, and have `stow/zsh/dot-zshrc` source it when that file exists. It
      records each block's last command, which R12 needs, and does nothing outside a Rex block.
@@ -1090,6 +1115,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - A binary already at the target with a different checksum is replaced, even when it reports the pinned version.
   - A sandboxed deploy installs the zsh recorder from the verified archive, and `.zshrc` sources it only when present.
   - The autosave timer fires every 15 minutes, its service runs `agent-slot-rex save`, and it sets no `PrivateTmp`.
+  - On a scratch Rex server with v0.3.0 and the recorder in a prime tab's shell, a restart leaves that tab attached to
+    its prime once the start-up step has run, with the recorded command cleared from its prompt.
   - `agent-slot-rex save` calls the `rexurrect save` stub when the start-up record shows rexurrect done or failed, and
     with the record showing rexurrect stopped at its bound or skipped, or with no record, it never calls it, journals
     `save-paused`, and exits 0.
