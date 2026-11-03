@@ -1,0 +1,12 @@
+[Unit]
+Description=Trust every agent slot path in Claude before its first launch
+ConditionHost=bigdaddy
+ConditionPathIsDirectory=%h/slots
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+# warm sets the unit's status text through systemd-notify, which is not the main process, and the failed-units notice
+# at session start shows that text beside the unit's name.
+NotifyAccess=all
+ExecStart=%h/.local/bin/agent-slot warm --all

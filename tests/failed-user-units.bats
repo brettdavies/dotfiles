@@ -4,8 +4,8 @@
 # (vault-agent-sync-check on a stalled NAS mirror) shows at the start of every Claude session. It runs at every session
 # start on every host, so it must never fail or hold up a session: each failure path below exits 0 and prints nothing.
 #
-# systemctl is a stub. It logs its arguments and XDG_RUNTIME_DIR, then answers the list query from STUB_FAILED, fails
-# like a missing user bus when STUB_FAIL is set, or never answers when STUB_HANG is set.
+# systemctl is a stub. It logs its arguments and XDG_RUNTIME_DIR, then answers the list query from STUB_FAILED and
+# `show` from STUB_STATUS, fails like a missing user bus when STUB_FAIL is set, or never answers when STUB_HANG is set.
 #
 # Run: bats tests/failed-user-units.bats
 
@@ -23,7 +23,10 @@ setup() {
 printf '%s XDG_RUNTIME_DIR=%s\n' "$*" "${XDG_RUNTIME_DIR-}" >>"$SYSTEMCTL_LOG"
 [ -z "${STUB_HANG-}" ] || exec sleep 30
 [ -z "${STUB_FAIL-}" ] || { echo 'Failed to connect to bus: No medium found' >&2; exit 1; }
-printf '%b' "${STUB_FAILED-}"
+case "$*" in
+  *" show "*) printf '%b' "${STUB_STATUS-}" ;;
+  *) printf '%b' "${STUB_FAILED-}" ;;
+esac
 EOF
   chmod +x "$STUBS/systemctl"
 }
@@ -38,7 +41,16 @@ EOF
   [ "$message" = 'WARNING: failed systemd user units: vault-agent-sync-check.service, brew-upgrade.service; inspect with: systemctl --user status <unit>' ]
   [ "$(jaq -r '.hookSpecificOutput.hookEventName' <<<"$output")" = SessionStart ]
   [ "$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")" = "$message" ]
-  [ "$(cat "$SYSTEMCTL_LOG")" = "--user list-units --state=failed --no-legend --plain XDG_RUNTIME_DIR=/run/user/$(id -u)" ]
+  [ "$(cat "$SYSTEMCTL_LOG")" = "--user list-units --state=failed --no-legend --plain XDG_RUNTIME_DIR=/run/user/$(id -u)
+--user show -p Id -p StatusText vault-agent-sync-check.service brew-upgrade.service XDG_RUNTIME_DIR=/run/user/$(id -u)" ]
+}
+
+@test "a failed unit's own status text follows its name, so the notice says why it failed" {
+  STUB_FAILED='agent-slot-warm.service loaded failed failed Trust slot paths\nbrew-upgrade.service loaded failed failed Update Homebrew\n' \
+    STUB_STATUS='StatusText=prime untrusted in Claude for 2 repos: "a", b\\c; run claude once in each prime\nId=agent-slot-warm.service\n\nStatusText=\nId=brew-upgrade.service\n' \
+    PATH="$STUBS:$PATH" run --separate-stderr "$HOOK"
+  [ "$status" -eq 0 ]
+  [ "$(jaq -r '.systemMessage' <<<"$output")" = 'WARNING: failed systemd user units: agent-slot-warm.service (prime untrusted in Claude for 2 repos: "a", b\c; run claude once in each prime), brew-upgrade.service; inspect with: systemctl --user status <unit>' ]
 }
 
 @test "a unit name holding systemd's backslash escape stays valid JSON" {

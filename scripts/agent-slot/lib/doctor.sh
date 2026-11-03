@@ -82,6 +82,11 @@ doctor_check_config() {
 finishes later is never torn down" --value agent-slot-sweep.timer \
       --command "systemctl --user enable --now agent-slot-sweep.timer"
   fi
+  if ! doctor_unit_enabled agent-slot-warm.timer; then
+    doctor_finding error warm-timer-inactive "the warm timer is not enabled, so a slot path nobody warmed by hand \
+spends its first launch on Claude's trust step" --value agent-slot-warm.timer \
+      --command "systemctl --user enable --now agent-slot-warm.timer"
+  fi
 }
 
 doctor_check_trust() {

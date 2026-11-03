@@ -10,7 +10,7 @@ Verbs:
   whoami   print the slot the current directory is inside
   launch   start an agent in a fresh slot of a repo, optionally with its first message
   resume   bring back the tmux sessions and Claude conversation of a slot
-  warm     trust the next slot paths of a repo in Claude ahead of time
+  warm     trust the slot paths of one repo, or of every repo, in Claude ahead of time
   check    judge whether each slot can be torn down, and list what blocks it
   adopt    attach a PR or issue to a live slot, naming the slot if it has no name
   reopen   bring the work of a torn-down slot on a PR or issue back in a fresh slot, resuming its conversation
@@ -72,10 +72,13 @@ verb_help() {
       'with --dangerously-skip-permissions.' \
       'returns: key, started[] (the sessions it created)' \
       'example: agent-slot resume dotfiles/2' ;;
-    warm) printf '%s\n' 'usage: agent-slot warm <repo> [--count N] [--output json]' \
-      "Trusts slot paths 1 through N (default 3) in Claude, so no launch there spends time on the trust step," \
-      "when Claude already trusts the repo's prime checkout." \
-      'returns: paths[] of {key, path, result: trusted, already-trusted, in-use, prime-untrusted, or unrecognized}' \
+    warm) printf '%s\n' 'usage: agent-slot warm <repo> | --all [--count N] [--output json]' \
+      "Trusts slot paths 1 through N (default: the per-repo slot limit, $AS_MAX_PER_REPO) in Claude, so no launch there" \
+      "spends time on the trust step, when Claude already trusts the repo's prime checkout. --all does it for every" \
+      'repo agent-slot repos lists, and fails with prime-untrusted naming each repo whose prime Claude does not trust.' \
+      'agent-slot-warm.timer runs warm --all every ten minutes.' \
+      'returns: paths[] of {key, path, result: trusted, already-trusted, in-use, prime-untrusted, or unrecognized};' \
+      '         with --all, repos[] of {repo, prime, paths[]}' \
       'example: agent-slot warm dotfiles --count 4' ;;
     check) printf '%s\n' 'usage: agent-slot check [<repo>/<N>] [--output json]' \
       'Judges each slot (or one): whether its task has finished and what blocks its teardown. It deletes nothing.' \

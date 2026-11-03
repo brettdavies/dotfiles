@@ -32,7 +32,7 @@
 #   AGENT_SLOT_RELEASE_POLL    seconds between that teardown's looks at the agent (5)
 #   AGENT_SLOT_RELEASE_REMIND  seconds after an agent says it is not ready to release before the sweep reminds it (1800)
 #   AGENT_SLOT_RELEASE_ID      in the finish a release starts, the id of that release; release sets it
-#   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL, _SYSTEMD_RUN, _FIND, _SSH
+#   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL, _SYSTEMD_RUN, _SYSTEMD_NOTIFY, _FIND, _SSH
 #                              absolute paths that replace the binaries found on the pinned PATH
 #   XDG_DATA_HOME              holds the trash a torn-down clone is purged from, trash-cli's home trash
 #                              (~/.local/share/Trash)
@@ -64,6 +64,8 @@ source "$AS_LIB/bounded.sh"
 source "$AS_LIB/agentstate.sh"
 # shellcheck source=lib/trust.sh
 source "$AS_LIB/trust.sh"
+# shellcheck source=lib/warm.sh
+source "$AS_LIB/warm.sh"
 # shellcheck source=lib/read.sh
 source "$AS_LIB/read.sh"
 # shellcheck source=lib/doctor.sh
@@ -251,7 +253,7 @@ main() {
     warm)
       warm_parse_args "${args[@]}"
       exec </dev/null
-      cmd_warm "$WARM_REPO" "$WARM_COUNT"
+      cmd_warm
       ;;
   esac
 }
