@@ -42,9 +42,11 @@ none_in_cwd() {
   return 1
 }
 
-# nested FILE [FLAG...]: runs bats on FILE from the scratch directory, with any flags given ahead of it.
+# nested FILE [FLAG...]: runs bats on FILE from the scratch directory, with any flags given ahead of it, and with the
+# BATS_killer_pid scripts/run-tests gives bats.
 nested() {
-  run --separate-stderr bash -c 'cd "$1" && exec bats "${@:3}" "$2"' _ "$CWD" "$1" "${@:2}"
+  run --separate-stderr env BATS_killer_pid="$BATS_WATCHDOG_JOB" \
+    bash -c 'cd "$1" && exec bats "${@:3}" "$2"' _ "$CWD" "$1" "${@:2}"
 }
 
 # probe BODY: a one-test suite under the scratch directory whose test runs BODY and whose teardown runs the guard.
@@ -73,6 +75,56 @@ probe() {
   LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/leaky.bats"
   [ "$status" -eq 1 ]
   [[ $stderr == *"processes $CWD/leaky.bats started were still running after bats exited, and were killed:"*"sleep 31"* ]]
+  [ -z "$(processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]
+}
+
+@test "the guard gives a leak at least 3 s of wall clock, however long each scan takes" {
+  # A loaded host makes every scan slow. A leak must still be killed and named inside the window, before a short-lived
+  # one exits on its own and the guard finds nothing.
+  eval "scan_$(declare -f processes_with)"
+  processes_with() {
+    sleep 0.5
+    scan_processes_with "$@"
+  }
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR bash -c 'cd "$1" && exec sleep 30' _ "$CWD" &
+  until [ -n "$(scan_processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]; do sleep 0.1; done
+  local started=$SECONDS
+  run --separate-stderr stop_leaks "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR" "the probe" "the check"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"sleep 30"* ]]
+  ((SECONDS - started < 10))
+  none_in_cwd
+}
+
+@test "under a time limit, the guard passes a passing test and fails a failing one only for its failure" {
+  probe "true"
+  BATS_TEST_TIMEOUT=60 nested "$BATS_TEST_TMPDIR/probe.bats"
+  [ "$status" -eq 0 ]
+  probe "false"
+  BATS_TEST_TIMEOUT=60 nested "$BATS_TEST_TMPDIR/probe.bats"
+  [ "$status" -eq 1 ]
+  [[ $output != *timeout* ]]
+  [[ $output != *"were killed"* ]]
+  none_in_cwd
+}
+
+@test "a test stopped at the time limit is named, and teardown stops what it left, even what ignores SIGTERM" {
+  probe "spawn bash -c 'trap \"\" TERM; exec sleep 30'; bash -c 'trap \"\" TERM; exec sleep 31' & sleep 32"
+  BATS_TEST_TIMEOUT=2 nested "$BATS_TEST_TMPDIR/probe.bats"
+  [ "$status" -eq 1 ]
+  [[ $output == *"not ok 1 probe # timeout after 2s"* ]]
+  [[ $output == *"processes this test started were still running after teardown, and were killed:"*"sleep 31"* ]]
+  none_in_cwd
+}
+
+@test "run-tests names and stops what a test stopped at the time limit left running, even what ignores SIGTERM" {
+  printf '%s\n' "@test \"hang\" { bash -c 'trap \"\" TERM; exec sleep 31' </dev/null >/dev/null 2>&1 3>&- & sleep 32; }" \
+    >"$CWD/hung.bats"
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=2 \
+    run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/hung.bats"
+  [ "$status" -eq 1 ]
+  [[ $output == *"not ok 1 hang # timeout after 2s"* ]]
+  [[ $stderr == *"processes $CWD/hung.bats started were still running after bats exited, and were killed:"*"sleep 31"* ]]
   [ -z "$(processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]
 }
 

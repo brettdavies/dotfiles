@@ -12,6 +12,8 @@
 SCRIPT="$BATS_TEST_DIRNAME/../scripts/run-tests"
 PROBE="$BATS_TEST_DIRNAME/.run-probe.bats"
 
+load lib/processes
+
 teardown() {
   rm -f "$PROBE"
   [ -n "${SANDBOX:-}" ] && rm -rf "$SANDBOX"
@@ -111,6 +113,51 @@ _probes_run() {
     GIT_ALTERNATE_OBJECT_DIRECTORIES=/nonexistent/alt GIT_PREFIX=sub/ GIT_NAMESPACE=ns \
     "$SCRIPT" "tests/$(basename "$PROBE")"
   [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Time limit
+# ---------------------------------------------------------------------------
+
+@test "a hung test fails at the default time limit, named, and leaves nothing running" {
+  _sandbox
+  # The sandbox copy's default comes down to 2 s, so the hang costs seconds.
+  sed -i.orig 's/^DEFAULT_TEST_TIMEOUT=[0-9]*$/DEFAULT_TEST_TIMEOUT=2/' "$SANDBOX/scripts/run-tests"
+  grep -qx 'DEFAULT_TEST_TIMEOUT=2' "$SANDBOX/scripts/run-tests"
+  # A passthrough stub that finds itself first on PATH re-executes itself forever, all in one process.
+  mkdir "$SANDBOX/stubs"
+  printf '%s\n' '#!/usr/bin/env bash' 'exec /usr/bin/env mktemp "$@"' >"$SANDBOX/stubs/mktemp"
+  chmod +x "$SANDBOX/stubs/mktemp"
+  _probe "$SANDBOX/tests/hang.bats" "hang probe" "PATH=\"$SANDBOX/stubs:\$PATH\" mktemp"
+  local started=$SECONDS
+  HANG_PROBE=$BATS_TEST_TMPDIR run env -u BATS_TEST_TIMEOUT "$SANDBOX/scripts/run-tests" tests/hang.bats
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not ok 1 hang probe # timeout after 2s"* ]]
+  ((SECONDS - started < 15))
+  [ -z "$(processes_with "HANG_PROBE=$BATS_TEST_TMPDIR")" ]
+}
+
+@test "a failing test does not hold the run for the rest of its time limit" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "alpha probe" "false"
+  local started=$SECONDS
+  run env BATS_TEST_TIMEOUT=30 "$SANDBOX/scripts/run-tests" tests/a.bats
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not ok 1 alpha probe"* ]]
+  [[ "$output" != *"timeout"* ]]
+  ((SECONDS - started < 20))
+}
+
+@test "a BATS_TEST_TIMEOUT that is not a whole number of seconds above 0 is a usage error" {
+  local value
+  for value in 0 010 -5 1.5 2s 'x+1'; do
+    run env BATS_TEST_TIMEOUT="$value" "$SCRIPT" README.md
+    [ "$status" -eq 2 ] || {
+      echo "BATS_TEST_TIMEOUT='$value' exited $status"
+      false
+    }
+    [[ "$output" == *"BATS_TEST_TIMEOUT"* ]]
+  done
 }
 
 # ---------------------------------------------------------------------------
