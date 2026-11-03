@@ -448,8 +448,9 @@ and that `gh auth status` succeeds (the script reads `GITHUB_TOKEN` when set and
 
 **`drift.sh` reports dozens of files after a release that clearly shipped:** The anchor resolved to an older release
 than the one that shipped. Gate 0's result and gate 1's header name the anchor it used (`tag <tag>` or
-`release commit <sha> <subject>`). An older one means `origin/main` was stale, as in a `--no-fetch` run, or `--since`
-pointed too far back. Rerun without `--no-fetch`, or pass `--since <tag>` explicitly; see
+`release commit <sha> <subject>`). A `release:` commit anchors whether or not its tag is in the clone, so an older
+anchor means `--since` pointed too far back, or the shipped release's commit has a subject that does not start with
+`release:` and its tag has not been fetched. Pass `--since <tag>` explicitly, or run `git fetch --tags` and rerun; see
 [§ Project specifics](#project-specifics).
 
 **`drift.sh` fails gate 0 (`origin/dev lacks the tag <tag> bookkeeping`):** The previous release's `CHANGELOG.md`
