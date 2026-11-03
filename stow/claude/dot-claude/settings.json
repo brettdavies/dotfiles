@@ -421,6 +421,23 @@
             "command": "command -v terminal-notifier >/dev/null 2>&1 && terminal-notifier -sound Funky -title \"🔔 Claude Code\" -message \"Claude needs your input\" || true"
           }
         ]
+      },
+      {
+        "matcher": "permission_prompt|elicitation_dialog|agent_needs_input",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-unattended.sh",
+            "async": true,
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -527,6 +544,16 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion|EnterPlanMode|ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-unattended.sh",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PermissionRequest": [
@@ -537,6 +564,15 @@
             "command": "~/.claude/slot-status.sh",
             "async": true,
             "timeout": 30
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-unattended.sh",
+            "timeout": 15
           }
         ]
       }

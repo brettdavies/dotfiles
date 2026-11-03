@@ -120,7 +120,7 @@ what with agent-slot release --not-yet '<why>' --output json, and release when i
 "/compound-engineering:ce-doc-review"*"commit and push the plan once it is written and again after each review."*\
 "Your task is finished when"* ]]
   [[ $context == *"Answer each review question yourself"*"record the choice and its evidence in the plan."* ]]
-  [[ $context == *"Nobody watches this tab, so a question asked here, \`AskUserQuestion\` included, waits forever."* ]]
+  [[ $context == *"Nobody watches this tab, so a question asked here, \`AskUserQuestion\` included, is never answered."* ]]
   [[ $context == *"a name, a breaking change, a version call, or a scope cut, to the session your brief reports to"*\
 "one \`SendMessage\`: the question, the options, your recommendation, and its evidence."* ]]
   [[ $context == *"then end your turn; the answer arrives as a message."* ]]
@@ -131,8 +131,17 @@ what with agent-slot release --not-yet '<why>' --output json, and release when i
   slot repo 1 '{"task": "t"}'
   run start s1 startup
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"\`agent-slot reopen\` stops on a permission prompt, \`--help\` and \`--dry-run\` included, that \
-nobody here answers: send a reopen to the session your brief reports to."* ]]
+  [[ $context == *"\`agent-slot reopen\` asks for permission, \`--help\` and \`--dry-run\` included, and nobody here \
+can grant it: send a reopen to the session your brief reports to."* ]]
+}
+
+@test "the context says the agent runs unattended and that its dialogs are denied" {
+  slot repo 1 '{"task": "t"}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"You run unattended: nobody answers a prompt or a question in this tab, so a hook denies every \
+permission request, \`AskUserQuestion\`, and plan mode here; do the work another way within your brief, and send a \
+decision only a person can make to the session your brief reports to."* ]]
 }
 
 @test "a slot with no task says so" {
