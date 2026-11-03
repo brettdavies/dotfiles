@@ -357,7 +357,7 @@ default rules don't cover:
 - `.service`: `Type=oneshot`, `ExecStart=/home/brett/dotfiles/scripts/sync/claude-code-archive.sh`,
   `Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin`,
   `StandardOutput=append:%h/.gbrain/claude-code-archive.log`, `StandardError=append:%h/.gbrain/claude-code-archive.err`,
-  hardening: `NoNewPrivileges=true`, `PrivateTmp=true`
+  hardening: `NoNewPrivileges=true` and no namespace directive
 - `.timer`: `OnCalendar=*:0/30`, `RandomizedDelaySec=60`, `Persistent=true`, `WantedBy=timers.target`
 - Deploy via `scripts/stow-deploy gbrain` then
   `systemctl --user daemon-reload && systemctl --user enable --now claude-code-archive.timer`

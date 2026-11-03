@@ -10,7 +10,6 @@ RestartSec=5
 
 # Hardening
 NoNewPrivileges=true
-PrivateTmp=true
 
 [Install]
 WantedBy=default.target

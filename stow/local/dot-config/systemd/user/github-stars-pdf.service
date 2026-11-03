@@ -10,4 +10,3 @@ ExecStart=%h/.local/bin/github-stars-pdf
 
 # Hardening
 NoNewPrivileges=true
-PrivateTmp=true

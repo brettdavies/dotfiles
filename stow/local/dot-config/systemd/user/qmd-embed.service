@@ -29,4 +29,3 @@ CPUQuota=200%
 
 # Hardening
 NoNewPrivileges=true
-PrivateTmp=true

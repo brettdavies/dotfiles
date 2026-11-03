@@ -201,8 +201,8 @@ The credential handoff is file-based, which is why no restart is needed.
   1. `Type=oneshot` on the service with no `Restart=` directive; `OnCalendar=minutely`, `Persistent=true`, and
      `WantedBy=timers.target` on the timer.
   2. `SuccessExitStatus=2 3` per KTD7, and `Environment=PATH=` per KTD8.
-  3. `%h`-addressed `ExecStart` per KTD6, plus the `NoNewPrivileges` / `PrivateTmp` hardening pair the repo's other user
-     units carry.
+  3. `%h`-addressed `ExecStart` per KTD6, plus the `NoNewPrivileges=true` hardening the repo's other user units carry and
+     no namespace directive (`tests/user-unit-sandboxing.bats`).
   4. `After=network-online.target` with the matching `Wants=`, since a tick with no network can only fail.
   5. `cswap` registered in `SHARED_PACKAGES` and in the non-Linux guard case in `scripts/stow-deploy`, per KTD5.
 - **Patterns to follow:** `stow/rclone/dot-config/systemd/user/box-bisync.timer` for the minutely-and-persistent shape;
