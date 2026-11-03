@@ -78,6 +78,24 @@ probe() {
   [ -z "$(processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]
 }
 
+@test "the guard gives a leak at least 3 s of wall clock, however long each scan takes" {
+  # A loaded host makes every scan slow. A leak must still be killed and named inside the window, before a short-lived
+  # one exits on its own and the guard finds nothing.
+  eval "scan_$(declare -f processes_with)"
+  processes_with() {
+    sleep 0.5
+    scan_processes_with "$@"
+  }
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR bash -c 'cd "$1" && exec sleep 30' _ "$CWD" &
+  until [ -n "$(scan_processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]; do sleep 0.1; done
+  local started=$SECONDS
+  run --separate-stderr stop_leaks "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR" "the probe" "the check"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"sleep 30"* ]]
+  ((SECONDS - started < 10))
+  none_in_cwd
+}
+
 @test "under a time limit, the guard passes a passing test and fails a failing one only for its failure" {
   probe "true"
   BATS_TEST_TIMEOUT=60 nested "$BATS_TEST_TMPDIR/probe.bats"
