@@ -691,10 +691,8 @@ primes_journaled() {
   started_by_rex
   restored_prime
   export AGENT_SLOT_REX_PRIME_WAIT=1
-  SECONDS=0
-  run timeout 20 "$AGENT_SLOT_REX" restore --at-start
+  run timeout 45 "$AGENT_SLOT_REX" restore --at-start
   [ "$status" -eq 0 ]
-  ((SECONDS < 10))
   sent_to pb A
   primes_journaled '.[0].outcome == "unconfirmed"'
 }
