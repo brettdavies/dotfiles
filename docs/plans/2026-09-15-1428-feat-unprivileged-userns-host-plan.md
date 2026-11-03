@@ -39,8 +39,8 @@ execution: code
 ### Summary
 
 Ship `config/sysctl.d/20-apparmor.conf` (`kernel.apparmor_restrict_unprivileged_userns = 0`) with a copy-based
-`scripts/sysctl-deploy.sh`, apply it on the Linux host, and prove the previously inert `PrivateTmp=true` sandboxing,
-Obsidian, and Playwright Chromium now work. Retire the Playwright AppArmor profile, its boot-reload unit, and
+`scripts/sysctl-deploy.sh`, apply it on the Linux host, and prove that `PrivateTmp=true` now isolates `/tmp` and that
+Obsidian and Playwright Chromium now work. Retire the Playwright AppArmor profile, its boot-reload unit, and
 `scripts/apparmor-deploy.sh` together with every reference to them. Declare the sandbox dependencies in the repo and
 turn on Claude Code's sandbox in the stowed settings with the boundaries that make it a real one. Bring the
 `docs/solutions/` record to present state.
@@ -49,14 +49,19 @@ turn on Claude Code's sandbox in the stowed settings with the boundaries that ma
 
 Ubuntu 24.04 ships `kernel.apparmor_restrict_unprivileged_userns = 1` (from `/usr/lib/sysctl.d/10-apparmor.conf`), which
 denies user-namespace creation to any process without an AppArmor `userns` grant. The restriction is enforced by the
-AppArmor LSM itself, so it holds even with no policy loaded: on this host every process runs `unconfined` and user
-namespaces are still denied. That has four measured consequences:
+AppArmor LSM itself, so it holds even with no policy loaded. What an unconfined process gets depends on the boot: with
+no policy loaded the kernel refuses the namespace, and on a boot whose `apparmor.service` loaded
+`/etc/apparmor.d/unprivileged_userns` the kernel creates it and moves the process into that profile, which denies every
+capability. That has four measured consequences:
 
-- Every systemd user unit with `PrivateTmp=true` (ten in the repo) runs unsandboxed. systemd 255 needs a user namespace
-  before it can build the mount namespace, logs `Failed to set up user namespacing for unprivileged user, ignoring` at
-  info level once per `Exec*` line, and continues in the host mount namespace. A `PrivateTmp=true` unit sees the full
-  host `/tmp` and shares the login shell's mount-namespace inode. `NoNewPrivileges=true` is the only directive that
-  takes effect. The journal carries roughly 35,000 of those lines this boot.
+- No systemd user unit with `PrivateTmp=true` gets a private `/tmp`. systemd 255 needs a user namespace before it can
+  build the mount namespace. With no policy loaded, it logs
+  `Failed to set up user namespacing for unprivileged user, ignoring` once per `Exec*` line and runs the unit
+  unsandboxed. With the profile loaded, the namespace is created but the mount setup is denied `CAP_SYS_ADMIN`, so the
+  unit keeps the host mount namespace and the host's whole `/tmp`, inside a user namespace that maps only the user's
+  uid, where every root-owned file reads as owned by nobody. That map breaks ssh
+  (`docs/solutions/integration-issues/systemd-user-unit-namespace-breaks-ssh-root-owned-include.md`).
+  `NoNewPrivileges=true` is the only directive that takes effect as written.
 - `obsidian.service` has been in `activating (auto-restart)` since the current boot began (115,000+ restarts), dying
   every ~10 s on Chromium's `sandbox/linux/services/credentials.cc … Permission denied`. Its allow-list profile
   `/etc/apparmor.d/obsidian` (Ubuntu's stock `apparmor`-package stub, a dpkg conffile) never loads because
@@ -146,10 +151,10 @@ persists across reboots with no custom unit, unlike the AppArmor path.
   symlink, and signed commits on both platforms. Memory writes under `~/.claude/` go through the Write/Edit tools, which
   run outside the sandbox, and need no Bash write grant. `1Password` `op` calls follow the Open Question below. The
   allow-lists that make this true ship in the same change.
-- R16. A `claude -p` session shaped like the nightly unit's (`NoNewPrivileges=true` + `PrivateTmp=true`, the unit's
-  `PATH`, started from a repo directory) runs under the sandbox: it completes, its Bash call runs in a mount namespace
-  different from the launching shell's, and a write outside that repo is denied. The nightly job itself is not the proof
-  vehicle: its Claude path has failed at baseline since 2026-07-30 (see Scope Boundaries).
+- R16. A `claude -p` session shaped like the nightly unit's (`NoNewPrivileges=true`, the unit's `PATH`, started from a
+  repo directory) runs under the sandbox: it completes, its Bash call runs in a mount namespace different from the
+  launching shell's, and a write outside that repo is denied. The nightly job itself is not the proof vehicle: its
+  Claude path has failed at baseline since 2026-07-30 (see Scope Boundaries).
 
 **Knowledge record**
 
@@ -194,11 +199,13 @@ persists across reboots with no custom unit, unlike the AppArmor path.
   package-owned files deviates the host from its package baseline for no gain.
 - `memory-distill.service`, a decommissioned openclaw unit that still carries `PrivateTmp=true`, is not restarted,
   verified, or removed here.
-- No unit's `PrivateTmp` value changes. The directives are correct declarative intent on any host where user namespaces
-  are allowed.
-- `apparmor.service` not running this boot is not investigated. Its consequence is named so the residual-risk entry is
-  honest: Ubuntu's stock confinement profiles (`cupsd`, `snap-confine`, and the rest of `/etc/apparmor.d/`) are inert on
-  this host today; this plan neither causes nor changes that.
+- Units that run ssh carry no `PrivateTmp=` (dotfiles PR #415), and opening user namespaces does not change that:
+  systemd still maps only the user's uid, so ssh still refuses the root-owned files `/etc/ssh/ssh_config` includes. No
+  other unit's `PrivateTmp` value changes here.
+- Why `apparmor.service` loads policy on some boots and not others is not investigated (it did not on the boot from
+  2026-08-31 to 2026-10-05, and did on the boot after). Its consequence is named so the residual-risk entry is honest:
+  on a boot without it, Ubuntu's stock confinement profiles (`cupsd`, `snap-confine`, and the rest of
+  `/etc/apparmor.d/`) are inert; this plan neither causes nor changes that.
 - `box-bisync.service` failing since the 2026-08-31 boot on `invalid_grant` is a dead Box OAuth refresh token, unrelated
   to namespaces. Re-authorization runs on the Mac (`rclone authorize`) and is a separate task; R11's delta baseline
   keeps the two from masking each other.
@@ -593,9 +600,9 @@ OQ1 while everything before it proceeds. U6 runs after the PR merges so the docs
      runtime as an exact-pinned npm global and asserts `vendor/seccomp` exists under `npm root -g` (KTD6).
   2. Agent smoke: a `bwrap` invocation that binds root read-only with fresh `/proc` and `/dev` and a new network
      namespace (the shape Claude's sandbox uses with its `socat` proxy) from a shell, then the same inside
-     `systemd-run --user -p PrivateTmp=true -p NoNewPrivileges=true` with wait and collect, to prove the nested case the
-     nightly unit relies on. If the nested probe fails on `/proc`, do not set `enableWeakerNestedSandbox` in the stowed
-     file; record it for the deferred nightly repair as a per-invocation `--settings` override.
+     `systemd-run --user -p NoNewPrivileges=true` with wait and collect, to prove the case the nightly unit relies on.
+     If the nested probe fails on `/proc`, do not set `enableWeakerNestedSandbox` in the stowed file; record it for the
+     deferred nightly repair as a per-invocation `--settings` override.
   3. Settings: add the `sandbox` block and the `permissions.ask` rule per KTD7 (with OQ1's answer applied); extend the
      bats guard per KTD9.
   4. Fresh `claude` session on the host: `/sandbox` shows active with no Dependencies tab; a Bash call's mount-namespace
@@ -605,9 +612,9 @@ OQ1 while everything before it proceeds. U6 runs after the PR merges so the docs
      (allowedDomains plus the `WebFetch(domain:…)` rules), record every prompt or block, and fold the needed domains,
      write paths, and exclusions back into the settings before the PR merges.
   5. Prove R16 directly: from a scratch clone of a small repo, run `claude -p` with a trivial staging-and-commit prompt
-     and `--allowedTools "Bash(git *)"` under `systemd-run --user -p PrivateTmp=true -p NoNewPrivileges=true` with the
-     nightly unit's `PATH`, started in that repo directory; assert the session completes, its Bash call ran in a mount
-     namespace different from the shell's, and a write outside the scratch repo was denied. Do not use
+     and `--allowedTools "Bash(git *)"` under `systemd-run --user -p NoNewPrivileges=true` with the nightly unit's
+     `PATH`, started in that repo directory; assert the session completes, its Bash call ran in a mount namespace
+     different from the shell's, and a write outside the scratch repo was denied. Do not use
      `nightly-autocommit.service` as the vehicle (Scope Boundaries); the next morning's timer-triggered run is checked
      only for no new failure mode.
   6. Rewrite the session memory note on the Linux sandbox and its index line to present state (user namespaces open,
@@ -623,7 +630,7 @@ OQ1 while everything before it proceeds. U6 runs after the PR merges so the docs
 - **Test scenarios:**
   - `tests/claude-settings.bats`: the KTD9 key set is asserted in the stowed file, including the `~/` prefix on every
     `denyWrite` and `credentials.files` entry and the absence of `credentials.envVars`.
-  - Nested probe under `PrivateTmp=true` + `NoNewPrivileges=true` with a network namespace exits 0.
+  - Probe under `NoNewPrivileges=true` with a network namespace exits 0.
   - Escape probes: `systemd-run --user` and `tmux run-shell` from sandboxed Bash both fail.
   - Write-denial probe: a write into `~/dotfiles/scripts` from sandboxed Bash fails; a write into
     `~/dev/solutions-docs/notes` succeeds; a write into `~/dev/solutions-docs/.githooks` fails.
