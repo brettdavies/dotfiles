@@ -694,6 +694,12 @@ def dev_release_anchor(base: str, prev_tag: str | None) -> str | None:
     or `backport <tag> artifacts` from older backport scripts. Only the subject
     counts, because a later commit's message can quote it. Falling back to the
     tag covers a repo whose previous release was never synced back.
+
+    A tag on main in a squash-merge flow is no ancestor of BASE, so as an anchor
+    it would open the window at the merge base, the start of BASE's history.
+    The newest BASE commit at or before the tag's commit time bounds the window
+    instead, and stderr names it, since a time bound is a guess a backport with
+    an unrecognized subject leaves the generator to make.
     """
     if not prev_tag:
         return None
@@ -705,8 +711,26 @@ def dev_release_anchor(base: str, prev_tag: str | None) -> str | None:
         sha, _, subject = line.partition(" ")
         if backport.match(subject):
             return sha
-    found = run(["git", "rev-parse", "--verify", "--quiet", prev_tag]).stdout.strip()
-    return prev_tag if found else None
+    commit = run(["git", "rev-parse", "--verify", "--quiet", f"{prev_tag}^{{commit}}"]).stdout.strip()
+    if not commit:
+        return None
+    if run(["git", "merge-base", "--is-ancestor", commit, f"origin/{base}"]).returncode == 0:
+        return prev_tag
+    when = run(["git", "log", "-1", "--format=%cI", commit]).stdout.strip()
+    bound = run(["git", "rev-list", "-1", f"--before={when}", f"origin/{base}"]).stdout.strip()
+    if bound:
+        print(
+            f"no `sync dev after {prev_tag}` backport on {base}; "
+            f"bounding by the tag's time at {bound[:12]}",
+            file=sys.stderr,
+        )
+        return bound
+    print(
+        f"no `sync dev after {prev_tag}` backport on {base}, and no {base} commit "
+        "precedes the tag; reading the whole branch",
+        file=sys.stderr,
+    )
+    return None
 
 
 def binary_tag_beside(tag: str) -> str | None:
