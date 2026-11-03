@@ -6,8 +6,8 @@
 # calls need. agent-slot exits with its own codes, which never include 124 or 137 (timeout stopped the call) or 127
 # (agent-slot is not installed).
 #
-# server_ssh is the bounded ssh call to the server that restore --wait-server and the follow loop probe it with; ssh
-# reports its own failure (no route, a refused key, a changed host key) as exit 255.
+# server_ssh is the bounded ssh call to the server that the follow loop probes it with; ssh reports its own failure (no
+# route, a refused key, a changed host key) as exit 255.
 
 SERVER_STATUS=0
 SERVER_OUT=

@@ -86,9 +86,7 @@ $REX_SERVER_VERSION; to move the server to it, in order: $steps" --value "$REX_S
 # The start-up step records, for the server instance it ran in, whether rexurrect restored the operator's own tabs.
 doctor_check_startup() {
   local outcome
-  [[ -r $AR_STARTUP_RECORD ]] || return 0
-  outcome=$(contract_json -r --arg i "$REX_SERVER_INSTANCE" 'select(.instance == $i) | .rexurrect // empty' \
-    "$AR_STARTUP_RECORD" || true)
+  outcome=$(startup_record_outcome "$REX_SERVER_INSTANCE")
   case $outcome in
     stopped | skipped)
       doctor_finding warning own-tabs-unrestored "the start-up step did not restore the operator's own tabs into this \

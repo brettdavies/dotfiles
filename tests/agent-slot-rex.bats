@@ -664,37 +664,6 @@ started_by() {
   printf '1 %s\n' "$1" >>"$STUBS/ps.txt"
 }
 
-@test "restore at Rex start gives up after its bound when ssh never answers, and logs why" {
-  started_by '/Applications/Rex.app/Contents/MacOS/rex server run --listen unix:///tmp/rex.sock'
-  touch "$STUBS/ssh/hang"
-  export AGENT_SLOT_REX_RESTORE_WAIT=2
-  run timeout 20 "$AGENT_SLOT_REX" restore --wait-server
-  [ "$status" -eq 1 ]
-  grep -q 'gave up: testserver did not answer ssh within 2 s' "$AGENT_SLOT_REX_STATE_DIR/restore.log"
-  grep -q 'server-unreachable' "$AGENT_SLOT_REX_STATE_DIR/restore.log"
-  not_called '^rex (new|window new|window close)'
-}
-
-@test "restore at Rex start reconciles once the server answers" {
-  started_by '/Applications/Rex.app/Contents/MacOS/rex server run --listen unix:///tmp/rex.sock'
-  ssh_answer probe 0 1
-  slots '[{"repo": "A", "slot": 1}]'
-  run "$AGENT_SLOT_REX" restore --wait-server
-  [ "$status" -eq 0 ]
-  [ "$(grep -c '^ssh-verb probe$' "$CALLS")" -eq 2 ]
-  called "^rex new A --window A/1 --json -- $STUBS/agent-slot-rex attach A/1 claude$"
-}
-
-@test "restore at Rex start does nothing when rex config check, not a Rex server, loaded init.lua" {
-  started_by '/Applications/Rex.app/Contents/MacOS/rex config check /tmp/init.lua'
-  slots '[{"repo": "A", "slot": 1}]'
-  run "$AGENT_SLOT_REX" restore --wait-server
-  [ "$status" -eq 0 ]
-  grep -q 'not started by a Rex server' "$AGENT_SLOT_REX_STATE_DIR/restore.log"
-  not_called '^ssh-stub '
-  not_called '^rex '
-}
-
 # --- the reconcile log ------------------------------------------------------------------------------------------------
 
 RECONCILE_LOG=reconcile.log
@@ -721,9 +690,9 @@ RECONCILE_LOG=reconcile.log
 }
 
 @test "the reconcile log names a restore at Rex start and a finish, and records a pass that stopped before its plan" {
-  started_by '/Applications/Rex.app/Contents/MacOS/rex server run --listen unix:///tmp/rex.sock'
+  started_by '/usr/bin/rex server run'
   slots '[]'
-  run "$AGENT_SLOT_REX" restore --wait-server
+  run "$AGENT_SLOT_REX" restore --at-start
   [ "$status" -eq 0 ]
   slot_answer finish 0 '{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"finish","key":"X/2","torn_down":true}'
   run "$AGENT_SLOT_REX" finish X/2 </dev/null
