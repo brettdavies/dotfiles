@@ -34,6 +34,19 @@ shell_value() {
   diff <(echo "$expected") <(echo "$code")
 }
 
+@test "every reason agent-slot-rex can emit is in the closed set" {
+  local reason known missing=()
+  known=$(bash -c 'source "$1"; contract_reasons' _ "$REPO/scripts/agent-slot/lib/contract.sh")
+  while read -r reason; do
+    grep -qxF "$reason" <<<"$known" || missing+=("$reason")
+  done < <(grep -rhoE '^[^#]*(contract_error_json|contract_fail|doctor_finding (error|warning)) [a-z][a-z-]+' \
+    "$REPO/scripts/agent-slot-rex" | awk '{ print $NF }' | sort -u)
+  [ "${#missing[@]}" -eq 0 ] || {
+    echo "not in CONTRACT_REASONS: ${missing[*]}"
+    false
+  }
+}
+
 @test "every error's docs link names the README section that holds the table" {
   run grep -c '^#### agent-slot reasons$' "$README"
   [ "$output" = 1 ]

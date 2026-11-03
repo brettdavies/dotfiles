@@ -140,6 +140,17 @@ REPO="$BATS_TEST_DIRNAME/.."
   grep -qxF 'Bash(agent-slot reopen *)' <<<"$output"
 }
 
+# agent-slot-rex runs on the same host as the slots, so its finish and sweep run
+# agent-slot finish --yes and sweep --yes here. They ask first for the same
+# reason agent-slot's own verbs do.
+@test "agent-slot-rex finish and sweep ask first" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  grep -qxF 'Bash(agent-slot-rex finish *)' <<<"$output"
+  grep -qxF 'Bash(agent-slot-rex sweep *)' <<<"$output"
+}
+
 # agent-slot starts every slot's Claude with --dangerously-skip-permissions.
 # Without this acceptance on record, each one stops on the bypass permissions
 # warning until someone answers it in the slot's tab.

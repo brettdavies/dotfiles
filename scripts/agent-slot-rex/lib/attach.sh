@@ -1,38 +1,29 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
-# attach: a pane's connection to one of its slot's tmux sessions on the server. ServerAlive notices a dropped
-# connection within about ten seconds; the loop then retries every few seconds plus up to AR_JITTER seconds of random
-# delay, so the panes of every tab reconnecting after a wake do not reach sshd at once and trip its MaxStartups. A pane
-# never exits on a disconnect: it ends only when the server says its slot is gone.
+# attach: a pane's hold on one of its slot's tmux sessions, as a loop around a local tmux attach. It runs from $HOME, so
+# the agent-state scan never counts the pane as using the slot. A missing session is resumed first; a client that ends
+# while its session lives was detached, so the loop waits for Enter before attaching again. A tmux server that does not
+# answer is waited out rather than resumed, since a resume would wait on the same server. A pane ends only when
+# agent-slot says its slot is gone.
 
-ATTACH_SOCKET=agent-slots
-# The server's shell expands $HOME and $PATH; its login PATH is not trusted to hold tmux.
-# shellcheck disable=SC2016
-ATTACH_PATH='export PATH="$HOME/.local/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH";'
-ATTACH_MISSING=3
+ATTACH_KEY='' ATTACH_KIND='' ATTACH_NAME=''
 
-# The server's login shell is zsh, which expands a word that starts with = to a command's path, so the exact-match
-# target is always single-quoted. A session name holds only letters, digits, _, and -.
-attach_target() { printf "'=%s'" "$1"; }
-
-attach_remote() {
-  printf '%s tmux -L %s has-session -t %s 2>/dev/null || exit %s; exec tmux -L %s attach -t %s' \
-    "$ATTACH_PATH" "$ATTACH_SOCKET" "$(attach_target "$1")" "$ATTACH_MISSING" "$ATTACH_SOCKET" "$(attach_target "$1")"
+# True while the pane's session exists.
+attach_has_session() {
+  timeout --kill-after=2 10 "$AR_TMUX" -L "$AR_TMUX_SOCKET" has-session -t "=$ATTACH_NAME" </dev/null >/dev/null 2>&1
 }
 
-# Usage: attach_pause <tries> <why>
+# Usage: attach_pause <why>
 attach_pause() {
-  local delay=$((AR_RETRY + RANDOM % (AR_JITTER + 1)))
-  printf 'agent-slot-rex: %s %s: %s; retry %s in %s s\n' "$ATTACH_KEY" "$ATTACH_KIND" "$2" "$1" "$delay"
-  sleep "$delay"
+  printf 'agent-slot-rex: %s %s: %s; retrying in %s s\n' "$ATTACH_KEY" "$ATTACH_KIND" "$1" "$AR_RETRY"
+  sleep "$AR_RETRY"
 }
 
-# Usage: attach_resume; returns 0 when the slot's sessions were started, 1 to retry later, and exits when the slot is
-# gone.
+# Returns 0 when the slot's sessions were started, 1 to retry later, and exits when the slot is gone.
 attach_resume() {
   printf 'agent-slot-rex: %s has no %s session; resuming the slot\n' "$ATTACH_KEY" "$ATTACH_KIND"
   server_call 60 resume "$ATTACH_KEY" && return 0
   if [[ $(contract_json -r '.reason' <<<"$AR_ERROR") == slot-not-found ]]; then
-    printf 'agent-slot-rex: %s is gone from %s (%s); this pane is done\n' "$ATTACH_KEY" "$AR_SERVER" \
+    printf 'agent-slot-rex: %s is gone (%s); this pane is done\n' "$ATTACH_KEY" \
       "$(contract_json -r '.message' <<<"$AR_ERROR")"
     CONTRACT_EMITTED=1
     exit 0
@@ -42,7 +33,7 @@ attach_resume() {
 }
 
 cmd_attach() {
-  local status tries=0 resumed=0 err line
+  local attached=0 resumed=0 status
   slot_parse_key "$1"
   case $2 in
     claude | files | git) ;;
@@ -50,39 +41,32 @@ cmd_attach() {
   esac
   ATTACH_KEY=$1 ATTACH_KIND=$2
   ATTACH_NAME=$(slot_session "$SLOT_REPO" "$SLOT_N" "$2")
-  err=$(mktemp)
-  contract_on_exit rm -f "$err"
-  contract_use_tools ssh
+  contract_use_tools tmux
+  cd "$HOME" || exit "$EXIT_GENERAL"
   while true; do
     status=0
-    "$AR_SSH" -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 -t \
-      "$AR_SERVER" "$(attach_remote "$ATTACH_NAME")" 2>"$err" || status=$?
+    attach_has_session || status=$?
     if ((status == 0)); then
-      server_ssh 20 has-session "$ATTACH_PATH tmux -L $ATTACH_SOCKET has-session -t $(attach_target "$ATTACH_NAME")" \
-        || status=$SERVER_STATUS
-      ((status != 1)) || status=$ATTACH_MISSING
-      if ((status == 0)); then
+      if ((attached == 1)); then
         printf 'agent-slot-rex: detached from %s; press Enter to reattach\n' "$ATTACH_NAME"
         IFS= read -r _ || exit 0
-        tries=0 resumed=0
-        continue
       fi
-    fi
-    if ((status == ATTACH_MISSING)); then
-      if ((resumed == 0)); then
-        resumed=1
-        attach_resume && continue
-        line="resume failed: $(contract_json -r '.reason' <<<"$AR_ERROR")"
-      else
-        resumed=0 line="$ATTACH_NAME is still missing after a resume"
-      fi
-      tries=$((tries + 1))
-      attach_pause "$tries" "$line"
+      attached=1 resumed=0
+      "$AR_TMUX" -L "$AR_TMUX_SOCKET" attach -t "=$ATTACH_NAME" || true
       continue
     fi
-    tries=$((tries + 1)) resumed=0
-    line=$(grep . "$err" | tail -1 || true)
-    [[ $status != 255 || -n $line ]] || line="ssh to $AR_SERVER failed"
-    attach_pause "$tries" "${line:-ssh exited $status}"
+    if ((status == 124 || status == 137)); then
+      attach_pause "the $AR_TMUX_SOCKET tmux server did not answer"
+      continue
+    fi
+    attached=0
+    if ((resumed == 1)); then
+      resumed=0
+      attach_pause "$ATTACH_NAME is still missing after a resume"
+    elif attach_resume; then
+      resumed=1
+    else
+      attach_pause "resume failed: $(contract_json -r '.reason' <<<"$AR_ERROR")"
+    fi
   done
 }

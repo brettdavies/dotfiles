@@ -1,15 +1,29 @@
 # shellcheck shell=bash
-# Fixtures for the agent-slot-rex suite. rex, ssh, ps, and the helper's own path (the command every pane and exec runs)
-# are stubs that append their argv to $CALLS, reached through REX_BIN_DIR and the AGENT_SLOT_REX_* overrides.
+# Fixtures for the agent-slot-rex suites. rex, agent-slot, tmux, systemctl, ssh, ps, rexurrect, and the helper's own
+# path (the command every pane and exec runs) are stubs that append their argv to $CALLS, reached through REX_BIN_DIR
+# and the AGENT_SLOT_REX_* overrides. uname is a stub on PATH that reports Linux, or $UNAME_STUB when set, so the suite
+# runs the server's code paths on a Mac too.
 #
 # rex answers from files under $STUBS/rexdata: sessions.json for `ls`, session-<id>.json for `session inspect`, and
 # process-<block>.json for `block call process`. `new` adds the session it makes to sessions.json and writes its
 # session-<id>.json, so a later lookup or inspect finds it; `window new` adds its window to the session's file and starts
 # its block's command, as ps sees it; `window rename` changes the window's label there. As Rex does, rex refuses a tab
 # label longer than 128 characters with exit 2 and the same two stderr lines, and a subcommand named by rex_fails fails
-# as told. ssh answers each agent-slot verb from $STUBS/ssh/<verb>.{out,err,rc}, or from <verb>.<n>.* on its nth call;
-# the attach loop's tmux calls count as the verbs attach and has-session, and a bare `true` as probe. With
-# $STUBS/ssh/unreachable present every call fails as ssh does, and with $STUBS/ssh/hang every call hangs.
+# as told. rex refuses any call whose first argument is not --autostart=false, and logs the call without it; every raw
+# argv also goes to $STUBS/rex-argv.log. `version --json` answers with the build rex_versions set, 0.0.1 by default.
+# `server status` answers as the running server pid $REX_STUB_PID, instance $REX_STUB_INSTANCE, and the server build
+# rex_versions set, else the CLI's, or fails while $STUBS/rexdata/server-down exists.
+#
+# agent-slot answers each verb from $STUBS/slot/<verb>.{out,err,rc}, or from <verb>.<n>.* on its nth call, and logs the
+# AGENT_SLOT_REX_CLIENT and XDG_RUNTIME_DIR it was given as `agent-slot-client <name>` and `agent-slot-runtime <dir>`.
+# tmux answers has-session and attach from $STUBS/tmux-answers the same way, logs the directory each attach ran from as
+# `tmux-cwd <dir>`, and reports $STUBS/tmux-answers/pid as its server's pid, or exits with
+# $STUBS/tmux-answers/display-message.rc when present. ssh answers the forwarded helper verbs from $STUBS/ssh/<verb>.*,
+# and a bare `true` as probe, and appends each remote command to $STUBS/ssh-remote.log; with $STUBS/ssh/unreachable
+# present every call fails as ssh does, and with $STUBS/ssh/hang every call hangs. systemctl reports each unit active
+# unless $STUBS/units/<unit> says otherwise, and rex-server.service's MainPID as $STUBS/units/rex-server.service.pid,
+# else $REX_STUB_PID, unless $STUBS/units/show-fails makes `show` fail as an unreachable user manager does. ps reports
+# $STUBS/cgroup.txt for `-o cgroup=`.
 
 # shellcheck disable=SC2034 # the suites that load this file run it
 AGENT_SLOT_REX="$BATS_TEST_DIRNAME/../scripts/agent-slot-rex/agent-slot-rex"
@@ -18,7 +32,7 @@ agent_slot_rex_setup() {
   T=$BATS_TEST_TMPDIR
   STUBS=$T/stubs
   CALLS=$T/calls.log
-  mkdir -p "$STUBS/rexdata" "$STUBS/ssh"
+  mkdir -p "$STUBS/rexdata" "$STUBS/ssh" "$STUBS/slot" "$STUBS/tmux-answers" "$STUBS/units" "$STUBS/os"
   : >"$CALLS"
   printf '{"sessions":[]}\n' >"$STUBS/rexdata/sessions.json"
   : >"$STUBS/ps.txt"
@@ -27,14 +41,29 @@ agent_slot_rex_setup() {
   export REX_BIN_DIR=$STUBS
   export AGENT_SLOT_REX_SSH=$STUBS/ssh-stub
   export AGENT_SLOT_REX_PS=$STUBS/ps
+  export AGENT_SLOT_REX_TMUX=$STUBS/tmux
+  export AGENT_SLOT_REX_SYSTEMCTL=$STUBS/systemctl
+  export AGENT_SLOT_REX_AGENT_SLOT=$STUBS/agent-slot
+  export AGENT_SLOT_REX_REXURRECT=$STUBS/rexurrect
   export AGENT_SLOT_REX_SELF=$STUBS/agent-slot-rex
   export AGENT_SLOT_REX_APP_PATHS=
   export AGENT_SLOT_REX_STATE_DIR=$T/state
   export AGENT_SLOT_REX_SERVER=testserver
-  export AGENT_SLOT_REX_RETRY_DELAY=0 AGENT_SLOT_REX_JITTER=0
-  unset REX_SESSION REX_BLOCK
+  export AGENT_SLOT_REX_RETRY_DELAY=0
+  export REX_STUB_PID=4242 REX_STUB_INSTANCE=11111111-2222-3333-4444-555555555555
+  unset REX_SESSION REX_BLOCK UNAME_STUB
+  printf '#!/bin/sh\necho "${UNAME_STUB:-Linux}"\n' >"$STUBS/os/uname"
+  chmod +x "$STUBS/os/uname"
+  export PATH="$STUBS/os:$PATH"
 
   stub rex '
+printf "%s\n" "$*" >>"$STUBS/rex-argv.log"
+if [ "$1" != --autostart=false ]; then
+  echo "rex stub: called without --autostart=false: $*" >&2
+  exit 99
+fi
+shift
+printf "rex %s\n" "$*" >>"$CALLS"
 fails="$STUBS/rexdata/fails-$1-$2"
 if [ -e "$fails" ]; then
   tail -n +2 "$fails" >&2
@@ -90,7 +119,16 @@ case "$1 $2" in
     printf "%s %s\n" "$((9000 + n))" "$*" >>"$STUBS/ps.txt"
     echo "{\"window_id\":\"win-new-$n\",\"block_ids\":[\"blk-new-$n\"]}" ;;
   "actions --json") cat "$STUBS/rexdata/actions.json" 2>/dev/null || echo "{\"actions\":[{\"name\":\"agent_slot_new\"}]}" ;;
-  "version --json") echo "{\"rex_version\":\"${REX_STUB_VERSION:-0.0.1}\"}" ;;
+  "version --json") echo "{\"rex_version\":\"$(cat "$STUBS/rexdata/version" 2>/dev/null || echo 0.0.1)\"}" ;;
+  "server status")
+    if [ -e "$STUBS/rexdata/server-down" ]; then
+      echo "Error: no Rex server is running at unix:///run/user/1000/rex/server.sock" >&2
+      exit 1
+    fi
+    printf "%s\n" "you: uid 1000 over unix" "endpoint: unix:///run/user/1000/rex/server.sock" \
+      "pid: $REX_STUB_PID" "instance: $REX_STUB_INSTANCE" \
+      "version: $({ cat "$STUBS/rexdata/server-version" "$STUBS/rexdata/version" 2>/dev/null; echo 0.0.1; } | head -1)" \
+      "exit-empty: false" "sessions: 1" ;;
   *)
     if [ "$1" = new ]; then
       n=$(grep -c "^rex window new\|^rex new" "$CALLS")
@@ -101,6 +139,31 @@ case "$1 $2" in
         >"$STUBS/rexdata/session-sess-$2.json"
       echo "{\"session_id\":\"sess-$2\",\"initial_windows\":[{\"window_id\":\"win-new-$n\",\"block_ids\":[\"blk-new-$n\"]}]}"
     fi ;;
+esac' nolog
+  stub agent-slot '
+printf "agent-slot-client %s\n" "${AGENT_SLOT_REX_CLIENT:-}" >>"$CALLS"
+printf "agent-slot-runtime %s\n" "${XDG_RUNTIME_DIR:-unset}" >>"$CALLS"
+answer slot "$1"'
+  stub tmux '
+[ "$3" = attach ] && printf "tmux-cwd %s\n" "$PWD" >>"$CALLS"
+[ "$3" = attach ] && printf "PATH=%s\n" "$PATH" >>"$STUBS/path.log"
+case $3 in
+  display-message)
+    [ -e "$STUBS/tmux-answers/display-message.rc" ] && exit "$(cat "$STUBS/tmux-answers/display-message.rc")"
+    [ -e "$STUBS/tmux-answers/pid" ] || { echo "no server running on /tmp/tmux-1000/agent-slots" >&2; exit 1; }
+    cat "$STUBS/tmux-answers/pid" ;;
+  *) answer tmux-answers "$3" ;;
+esac'
+  stub systemctl '
+[ "$1" = --user ] && shift
+case $1 in
+  is-active)
+    state=$(cat "$STUBS/units/$2" 2>/dev/null || echo active)
+    echo "$state"
+    [ "$state" = active ] ;;
+  show)
+    [ -e "$STUBS/units/show-fails" ] && { echo "Failed to connect to bus: No medium found" >&2; exit 1; }
+    cat "$STUBS/units/$5.pid" 2>/dev/null || echo "$REX_STUB_PID" ;;
 esac'
   stub ssh-stub '
 [ -e "$STUBS/ssh/hang" ] && exec sleep 30
@@ -109,60 +172,88 @@ if [ -e "$STUBS/ssh/unreachable" ]; then
   exit 255
 fi
 remote=${!#}
+printf "%s\n" "$remote" >>"$STUBS/ssh-remote.log"
 case $remote in
-  *" attach -t "*) verb=attach ;;
-  *has-session*) verb=has-session ;;
   true) verb=probe ;;
-  *agent-slot\ *) verb=${remote#*agent-slot }; verb=${verb%% *} ;;
+  *agent-slot-rex\ *) verb=${remote#*agent-slot-rex }; verb=${verb%% *}; verb=${verb#?}; verb=${verb%?} ;;
   *) verb=other ;;
 esac
-n=$(grep -c "^ssh-stub-verb $verb\$" "$CALLS")
-printf "ssh-stub-verb %s\n" "$verb" >>"$CALLS"
-base=$STUBS/ssh/$verb
-[ -e "$base.$n.rc" ] || [ -e "$base.$n.out" ] || [ -e "$base.$n.err" ] && base=$base.$n
-[ -e "$base.out" ] && cat "$base.out"
-[ -e "$base.err" ] && cat "$base.err" >&2
-exit "$(cat "$base.rc" 2>/dev/null || echo 0)"'
-  stub ps 'cat "$STUBS/ps.txt"'
+answer ssh "$verb"'
+  stub ps '
+case " $* " in
+  *" -o cgroup= "*) cat "$STUBS/cgroup.txt" 2>/dev/null ;;
+  *) cat "$STUBS/ps.txt" ;;
+esac'
+  stub rexurrect 'exit 0'
   stub agent-slot-rex 'exit 0'
 }
 
-# stub NAME BODY: an executable that appends "NAME argv" to the calls log, then runs BODY.
+# stub NAME BODY [nolog]: an executable that appends "NAME argv" to the calls log, unless nolog, then runs BODY. BODY
+# can call `answer DIR VERB`, which prints $STUBS/DIR/VERB.out and .err and exits with VERB.rc (0 when there is none),
+# or with VERB.<n>.* on the stub's nth call of that verb.
 stub() {
   cat >"$STUBS/$1" <<EOF
 #!/usr/bin/env bash
 STUBS='$STUBS'
 CALLS='$CALLS'
-printf '%s %s\n' "$1" "\$*" >>"\$CALLS"
-$2
+answer() {
+  local n base=\$STUBS/\$1/\$2
+  n=\$(grep -c "^\$1-verb \$2\\\$" "\$CALLS")
+  printf '%s-verb %s\n' "\$1" "\$2" >>"\$CALLS"
+  [ -e "\$base.\$n.rc" ] || [ -e "\$base.\$n.out" ] || [ -e "\$base.\$n.err" ] && base=\$base.\$n
+  [ -e "\$base.out" ] && cat "\$base.out"
+  [ -e "\$base.err" ] && cat "\$base.err" >&2
+  exit "\$(cat "\$base.rc" 2>/dev/null || echo 0)"
+}
 EOF
+  [[ ${3:-} == nolog ]] || printf "printf '%%s %%s\\\\n' '%s' \"\$*\" >>\"\$CALLS\"\n" "$1" >>"$STUBS/$1"
+  printf '%s\n' "$2" >>"$STUBS/$1"
   chmod +x "$STUBS/$1"
 }
 
-# ssh_answer VERB [N] RC [STDOUT [STDERR]]: what the ssh stub returns for an agent-slot verb, on every call or the nth.
-ssh_answer() {
-  local verb=$1 base
-  if [[ $2 =~ ^[0-9]+$ && $# -ge 3 && $3 =~ ^[0-9]+$ ]]; then
-    base=$STUBS/ssh/$verb.$2
+# _answer DIR VERB [N] RC [STDOUT [STDERR]]: what a stub returns for a verb, on every call or the nth.
+_answer() {
+  local dir=$1 verb=$2 base
+  shift 2
+  if [[ $1 =~ ^[0-9]+$ && $# -ge 2 && $2 =~ ^[0-9]+$ ]]; then
+    base=$STUBS/$dir/$verb.$1
     shift
   else
-    base=$STUBS/ssh/$verb
+    base=$STUBS/$dir/$verb
   fi
-  printf '%s\n' "$2" >"$base.rc"
-  if [[ -n ${3:-} ]]; then printf '%s\n' "$3" >"$base.out"; else rm -f "$base.out"; fi
-  if [[ -n ${4:-} ]]; then printf '%s\n' "$4" >"$base.err"; else rm -f "$base.err"; fi
+  printf '%s\n' "$1" >"$base.rc"
+  if [[ -n ${2:-} ]]; then printf '%s\n' "$2" >"$base.out"; else rm -f "$base.out"; fi
+  if [[ -n ${3:-} ]]; then printf '%s\n' "$3" >"$base.err"; else rm -f "$base.err"; fi
 }
+
+# slot_answer VERB [N] RC [STDOUT [STDERR]]: what agent-slot on this host returns for a verb.
+slot_answer() { _answer slot "$@"; }
+
+# tmux_answer VERB [N] RC: what tmux returns for has-session or attach.
+tmux_answer() { _answer tmux-answers "$@"; }
+
+# ssh_answer VERB [N] RC [STDOUT [STDERR]]: what the server's helper returns for a forwarded verb, over ssh.
+ssh_answer() { _answer ssh "$@"; }
+
+# rex_versions CLI [SERVER]: the rex CLI's build, and the running server's, which is the CLI's unless given.
+rex_versions() {
+  printf '%s\n' "$1" >"$STUBS/rexdata/version"
+  if [[ -n ${2:-} ]]; then printf '%s\n' "$2" >"$STUBS/rexdata/server-version"; else rm -f "$STUBS/rexdata/server-version"; fi
+}
+
+# unit UNIT STATE: systemctl reports the unit in that state.
+unit() { printf '%s\n' "$2" >"$STUBS/units/$1"; }
 
 # repos NAME...: the server's repos verb lists these repos.
 repos() {
-  ssh_answer repos 0 "$(printf '%s\n' "$@" | jaq -R -s -c '{schema: "dotfiles.agent-slot/1", ok: true, verb: "repos",
+  slot_answer repos 0 "$(printf '%s\n' "$@" | jaq -R -s -c '{schema: "dotfiles.agent-slot/1", ok: true, verb: "repos",
     repos: split("\n") | map(select(. != "") | {name: ., prime: ("/srv/" + .), origin: "git@example.com:o/\(.).git"})}')"
 }
 
 # slots JSON-ARRAY: the server's list verb reports these slots, each merged over the defaults of an active slot, with a
 # label_name, unless one is given, as list gives it: the slot's name, else its task, else its branch.
 slots() {
-  ssh_answer list 0 "$(jaq -c '{schema: "dotfiles.agent-slot/1", ok: true, verb: "list",
+  slot_answer list 0 "$(jaq -c '{schema: "dotfiles.agent-slot/1", ok: true, verb: "list",
     slots: map({state: "active", task: null, branch: null, agent: "idle", needs_you: [],
                 sessions: {claude: true, files: true, git: true}} + . + {key: "\(.repo)/\(.slot)"}
                | {label_name: (.name // .task // .branch)} + .)}' <<<"$1")"

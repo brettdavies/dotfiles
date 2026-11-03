@@ -90,14 +90,6 @@ follow_bg() {
   (($(wc -c <"$STATE/reconcile.log") * 1440 < 1048576))
 }
 
-@test "every server call names this Mac, so the server's push skips the Mac that is already reconciling" {
-  export AGENT_SLOT_REX_CLIENT=testmac
-  slots '[]'
-  run "$AGENT_SLOT_REX" restore
-  [ "$status" -eq 0 ]
-  called '^ssh-stub .* AGENT_SLOT_REX_CLIENT=testmac ~/.local/bin/agent-slot list --output json$'
-}
-
 # --- follow -------------------------------------------------------------------------------------------------------------
 
 @test "follow restores once each interval, as a poll" {
@@ -145,7 +137,7 @@ follow_bg() {
   kill -CONT "$LOOP"
   eventually at_least '^agent-slot-rex restore --by reconnect --output json$' 1
   [ "$(count '^agent-slot-rex restore --by poll')" -eq 0 ]
-  called '^ssh-stub-verb probe$'
+  called '^ssh-verb probe$'
   logged 'any(.[]; .event == "wake" and .gap_s >= 3)'
 }
 
@@ -172,8 +164,8 @@ exit 1'
   follow_bg
   eventually at_least '^agent-slot-rex restore --by reconnect --output json$' 1
   local order
-  order=$(grep -E '^(agent-slot-rex restore|ssh-stub-verb probe)' "$CALLS" | head -4 | paste -sd '|' -)
-  [ "$order" = 'agent-slot-rex restore --by poll --output json|ssh-stub-verb probe|ssh-stub-verb probe|agent-slot-rex restore --by reconnect --output json' ]
+  order=$(grep -E '^(agent-slot-rex restore|ssh-verb probe)' "$CALLS" | head -4 | paste -sd '|' -)
+  [ "$order" = 'agent-slot-rex restore --by poll --output json|ssh-verb probe|ssh-verb probe|agent-slot-rex restore --by reconnect --output json' ]
   logged '[.[].event] | index("unreachable") < index("reachable")'
   logged 'any(.[]; .event == "reachable" and (.down_s | type == "number"))'
   [ -z "$(ls "$STATE/logs" 2>/dev/null)" ]

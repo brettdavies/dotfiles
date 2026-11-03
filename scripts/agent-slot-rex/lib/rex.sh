@@ -1,18 +1,17 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
 # Every call to the rex CLI, and the process lookup that tells whether a pane's attach loop is running.
 #
-# Rex sets REX_BIN_DIR, REX_SESSION, and REX_BLOCK in every terminal it opens. A command Rex starts at load, or a shell
-# over ssh, has none of them, so the CLI is also looked for where the app installs it. Each call is bounded, reads no
-# stdin, and names its session by ID.
+# Rex sets REX_BIN_DIR, REX_SESSION, and REX_BLOCK in every terminal it opens. A command Rex starts at load, a timer, or
+# a shell over ssh has none of them, so the CLI is also looked for where the rex package installs it. Each call is
+# bounded, reads no stdin, names its session by ID, and passes --autostart=false: a Rex server this helper started would
+# carry the caller's environment, an agent's included, into everything it runs.
 
 AR_REX=
 REX_OUT=
 REX_ERR=
 REX_SID=
 REX_NEW_SESSION='' REX_NEW_WINDOW='' REX_NEW_BLOCK=''
-
-REX_APP_PATHS="/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex:\
-$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
+REX_SERVER_PID='' REX_SERVER_INSTANCE='' REX_SERVER_VERSION=''
 
 # Rex refuses a window label longer than 128 characters, so every tab label is cut to fit, ending in an ellipsis. jq
 # counts characters, where bash's ${#} counts bytes in the C locale, and `·` is two bytes but one character. A label
@@ -24,12 +23,11 @@ rex_label() {
   contract_json -n -r --arg l "$1" "$REX_LABEL_DEF"'$l | rex_label'
 }
 
-# Sets AR_REX to the rex CLI: REX_BIN_DIR's, else the first of AGENT_SLOT_REX_APP_PATHS (colon-separated; the app's
-# install paths when unset) that exists.
+# Sets AR_REX to the rex CLI: REX_BIN_DIR's, else the first of AR_REX_PATHS that exists.
 rex_find() {
   local candidate candidates=()
   AR_REX=
-  IFS=: read -r -a candidates <<<"${AGENT_SLOT_REX_APP_PATHS-$REX_APP_PATHS}"
+  IFS=: read -r -a candidates <<<"$AR_REX_PATHS"
   for candidate in "${REX_BIN_DIR:+$REX_BIN_DIR/rex}" "${candidates[@]}"; do
     if [[ -n $candidate && -x $candidate ]]; then
       AR_REX=$candidate
@@ -45,7 +43,7 @@ rex_run() {
   REX_OUT='' REX_ERR=''
   [[ -n $AR_REX ]] || return 127
   out=$(mktemp) err=$(mktemp)
-  timeout --kill-after=2 20 "$AR_REX" "$@" </dev/null >"$out" 2>"$err" || status=$?
+  timeout --kill-after=2 20 "$AR_REX" --autostart=false "$@" </dev/null >"$out" 2>"$err" || status=$?
   REX_OUT=$(<"$out")
   REX_ERR=$(<"$err")
   rm -f "$out" "$err"
@@ -59,11 +57,11 @@ rex_or_fail() {
   ((status != 0)) || return 0
   contract_use_tools rex
   if ((status == 127)) && [[ -z $AR_REX ]]; then
-    ar_fail "$(contract_error_json dependency-missing "the rex CLI is not in REX_BIN_DIR or the Rex app" \
-      --value "${REX_BIN_DIR:-}" --command "open -a 'Rex Beta'")"
+    ar_fail "$(contract_error_json dependency-missing "the rex CLI is not in REX_BIN_DIR or at any of: \
+${AR_REX_PATHS//:/, }" --value "${REX_BIN_DIR:-}" --command "sudo apt-get install rex")"
   fi
   ar_fail "$(contract_error_json rex-failed "rex $1 exited $status: $(rex_error_line)" \
-    --value "$*" --command "$(contract_quote rex "$@")")"
+    --value "$*" --command "$(contract_quote rex --autostart=false "$@")")"
 }
 
 # The line of REX_ERR that says why rex failed: its Error: line, since rex ends with a pointer to --help, else its last
@@ -131,6 +129,15 @@ rex_layout() { rex_or_fail "do" agent_slot_layout -s "$1" -b "$2" "key=$3" "bloc
 
 # Usage: rex_actions; sets REX_OUT to the server's actions as JSON, or returns rex's status.
 rex_actions() { rex_run actions --json; }
+
+# Sets REX_SERVER_PID, REX_SERVER_INSTANCE, and REX_SERVER_VERSION from `rex server status`, or returns rex's status
+# when no Rex server answers.
+rex_server_status() {
+  rex_run server status || return
+  REX_SERVER_PID=$(awk '$1 == "pid:" { print $2 }' <<<"$REX_OUT")
+  REX_SERVER_INSTANCE=$(awk '$1 == "instance:" { print $2 }' <<<"$REX_OUT")
+  REX_SERVER_VERSION=$(awk '$1 == "version:" { print $2 }' <<<"$REX_OUT")
+}
 
 # Usage: rex_version; sets REX_OUT to the CLI's rex_version, or returns rex's status.
 rex_version() {
