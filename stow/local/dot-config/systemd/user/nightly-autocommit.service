@@ -7,6 +7,6 @@ Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/home/brett/.bun/bin:/home/brett
 Environment=HOME=/home/brett
 ExecStart=/home/brett/dotfiles/scripts/nightly-autocommit.sh
 
-# Hardening
+# Hardening. No PrivateTmp= or other namespace setting: in a user unit it maps root to nobody, and ssh, which git fetch
+# and push run here, then rejects every root-owned file /etc/ssh/ssh_config includes (tests/user-unit-sandboxing.bats).
 NoNewPrivileges=true
-PrivateTmp=true
