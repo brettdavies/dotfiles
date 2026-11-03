@@ -585,6 +585,29 @@ if grep -qx "qmd" "$deployed_file" 2>/dev/null; then
   fi
 fi
 
+# yazi plugins and flavors live outside the repo, at the revisions package.toml
+# pins, and only `ya pkg install` moves them; Homebrew upgrades yazi itself on
+# its own, and a plugin left behind an API change fails on every directory. ya
+# writes the hashes it computes back through the stowed package.toml symlink, so
+# a hash in package.toml that differs from ya's dirties the checkout. The
+# install fetches every package from GitHub into ~/.cache/yazi, so like the
+# timer recovery it is scoped to a real $HOME deploy.
+if [ "$TARGET" = "$HOME" ] && grep -qx "yazi" "$deployed_file" 2>/dev/null; then
+  echo ""
+  echo "==> Installing yazi packages"
+  if ! command -v ya >/dev/null 2>&1; then
+    echo "  ya not installed, skipping (install with: brew install yazi)"
+  elif _ya_out=$(YAZI_CONFIG_HOME="$TARGET/.config/yazi" ya pkg install 2>&1); then
+    echo "  Done: ya pkg install"
+  else
+    echo "  WARNING: ya pkg install failed; yazi keeps the packages it already had:" >&2
+    # shellcheck disable=SC2001
+    sed 's/^/    /' <<<"$_ya_out" >&2
+    echo "  Rerun: ya pkg install" >&2
+  fi
+  unset _ya_out
+fi
+
 # The rustup install profile decides whether every future toolchain drags in
 # rust-docs, ~800MB of offline HTML per toolchain that a headless host has no
 # reader for. It cannot be set from config/shell: rustup has no environment

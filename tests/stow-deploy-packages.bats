@@ -288,7 +288,7 @@ NOT_DEPLOYED=(tmuxinator ollama)
   mkdir -p "$units"
   printf '[Timer]\nOnCalendar=daily\n' >"$units/on.timer"
   printf '[Timer]\nOnCalendar=daily\n' >"$units/off.timer"
-  # Stubs keep the live user manager and the real rustup out of it: off.timer reads as not enabled.
+  # Stubs keep the live user manager, the real rustup, and the real ya out of it: off.timer reads as not enabled.
   stubs="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$stubs"
   printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\n[ "$*" != "--user is-enabled --quiet off.timer" ]\n' \
@@ -296,6 +296,7 @@ NOT_DEPLOYED=(tmuxinator ollama)
   printf '#!/bin/sh\necho minimal\n' >"$stubs/rustup"
   # The deploy reloads Rex's config when it stows rex to HOME; this rex stands in for the live server's CLI.
   printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\n' "$BATS_TEST_TMPDIR/rex.log" >"$stubs/rex"
+  printf '#!/bin/sh\n' >"$stubs/ya"
   chmod +x "$stubs"/*
   target="$BATS_TEST_TMPDIR/home"
   mkdir -p "$target"
