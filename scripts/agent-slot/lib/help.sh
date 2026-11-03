@@ -45,7 +45,8 @@ verb_help() {
       'example: agent-slot whoami --output json' ;;
     launch) printf '%s\n' \
       'usage: agent-slot launch <repo> [--pr <ref> | --issue <ref>] [--request-id ID] [--task NAME]' \
-      '                         [--prompt-file FILE] [--requested-at EPOCH] [--output json]' \
+      '                         [--prompt-file FILE] [--requested-at EPOCH] [--opened-at EPOCH] [--shown-at EPOCH]' \
+      '                         [--output json]' \
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
       '--dangerously-skip-permissions. A repeat with the same --request-id, --task, or work item returns the same' \
       'slot. Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
@@ -57,6 +58,9 @@ verb_help() {
       'checked out tracking the remote that holds it: origin, the remote the prime checkout has for that repo, or' \
       'fork. A head whose branch or repository is gone is checked out from refs/pull/N/head with no upstream, and' \
       'head_pushable is false. An issue leaves the base branch checked out.' \
+      '--requested-at, --opened-at, and --shown-at are seconds since the epoch: when the launch was asked for, and' \
+      'for a launch from the new-agent key, when its tab opened and when Rex.app showed it; the launch'"'"'s ledger' \
+      'line keeps them for doctor'"'"'s key to ready.' \
       'returns: created, key, repo, slot, path, state, task, name, items[] of {kind, repo, number, title}, label_name,' \
       '         request_id, session_id, base, head_pushable (null without a PR head), trust_prompt_expected,' \
       '         prompt_delivered (false when the slot already held the task), missing_siblings, phases, next_step,' \
@@ -154,8 +158,10 @@ verb_help() {
       '         release_withdrawn' \
       "example: agent-slot release --not-yet 'release.yml run 42 has not finished' --output json" ;;
     doctor) printf '%s\n' 'usage: agent-slot doctor [--output json]' \
-      'Checks every launch prerequisite on this server and the time from key press to Claude idle.' \
-      'returns: ok, findings[] (error objects with severity), launch_times, verified_versions' \
+      'Checks every launch prerequisite on this server and the time from key press to Claude idle: launch_times' \
+      'from each launch request, and key_to_ready from the new-agent key'"'"'s tab opening, with the median of each step.' \
+      'returns: ok, findings[] (error objects with severity), launch_times, key_to_ready {launches, measured,' \
+      '         not_ready[], median_s, p90_s, phases}, verified_versions' \
       'example: agent-slot doctor' ;;
     schema) printf '%s\n' 'usage: agent-slot schema [--output json]' \
       'Prints the JSON Schema of the success and error objects, and every reason an error can carry.' \

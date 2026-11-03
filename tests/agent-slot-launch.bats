@@ -520,6 +520,28 @@ assert_own_worktree() {
     and ([.phases[] | type] | unique) == ["number"]' "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
 }
 
+@test "a key's launch line carries when its tab opened and was shown, and when the slot's setup started and ended" {
+  launch repoa --request-id r-key --requested-at 1793000002.5 --opened-at 1793000000.25 --shown-at 1793000002.25
+  [ "$status" -eq 0 ]
+  jaq -e -s '.[-1] | .event == "launch" and .opened_at == 1793000000.25 and .shown_at == 1793000002.25
+    and .started_at > .requested_at and .made_at >= .started_at
+    and .made_at - .started_at >= ([.phases[]] | add) - 0.01' "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+  launch repoa --request-id r-agent
+  [ "$status" -eq 0 ]
+  jaq -e -s '.[-1] | .request_id == "r-agent" and .opened_at == null and .shown_at == null
+    and (.started_at | type) == "number"' "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+}
+
+@test "--opened-at and --shown-at take seconds since the epoch, and refuse anything else before touching a slot" {
+  local flag
+  for flag in --opened-at --shown-at; do
+    launch repoa "$flag" yesterday
+    [ "$status" -eq 2 ]
+    jaq -e --arg f "$flag" '.reason == "usage" and .value == "yesterday" and (.message | startswith($f))' <<<"$stderr"
+  done
+  [ ! -e "$AGENT_SLOT_ROOT/repoa" ]
+}
+
 @test "task names with ., :, spaces, or a leading - exit 2 naming the allowed characters" {
   local bad
   for bad in 'a.b' 'a:b' 'a b' '-a'; do

@@ -7,11 +7,13 @@ TASK_RULE='a task name uses letters, digits, -, _, and /, starts with a letter o
 REQUEST_PATTERN='^[A-Za-z0-9._-]{1,128}$'
 
 LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_REQUEST='' LAUNCH_PROMPT='' LAUNCH_REQUESTED_AT=''
+LAUNCH_OPENED_AT='' LAUNCH_SHOWN_AT=''
+EPOCH_PATTERN='^[0-9]+(\.[0-9]+)?$'
 LAUNCH_ITEM_KIND='' LAUNCH_ITEM_REF='' LAUNCH_ITEM='' LAUNCH_NAME=''
 
 # Usage: launch_parse_args <args...>; sets the LAUNCH_* inputs, refusing bad ones before anything is touched.
 launch_parse_args() {
-  LAUNCH_REQUESTED_AT=''
+  LAUNCH_REQUESTED_AT='' LAUNCH_OPENED_AT='' LAUNCH_SHOWN_AT=''
   while (($#)); do
     case $1 in
       --pr | --issue)
@@ -20,13 +22,15 @@ launch_parse_args() {
         LAUNCH_ITEM_KIND=${1#--} LAUNCH_ITEM_REF=$2
         shift 2
         ;;
-      --task | --request-id | --prompt-file | --requested-at)
+      --task | --request-id | --prompt-file | --requested-at | --opened-at | --shown-at)
         (($# >= 2)) || usage_fail "$1 needs a value" "$1"
         case $1 in
           --task) LAUNCH_TASK=$2 ;;
           --request-id) LAUNCH_REQUEST=$2 ;;
           --prompt-file) LAUNCH_PROMPT=$2 ;;
           --requested-at) LAUNCH_REQUESTED_AT=$2 ;;
+          --opened-at) LAUNCH_OPENED_AT=$2 ;;
+          --shown-at) LAUNCH_SHOWN_AT=$2 ;;
         esac
         shift 2
         ;;
@@ -50,8 +54,11 @@ launch_parse_args() {
     LAUNCH_PROMPT=$(realpath "$LAUNCH_PROMPT")
   fi
   [[ -n $LAUNCH_REQUESTED_AT ]] || LAUNCH_REQUESTED_AT=$(date +%s.%N)
-  [[ $LAUNCH_REQUESTED_AT =~ ^[0-9]+(\.[0-9]+)?$ ]] \
-    || usage_fail "--requested-at takes seconds since the epoch" "$LAUNCH_REQUESTED_AT"
+  local flag value
+  for flag in "requested-at $LAUNCH_REQUESTED_AT" "opened-at $LAUNCH_OPENED_AT" "shown-at $LAUNCH_SHOWN_AT"; do
+    value=${flag#* }
+    [[ -z $value || $value =~ $EPOCH_PATTERN ]] || usage_fail "--${flag%% *} takes seconds since the epoch" "$value"
+  done
 }
 
 # Sets LAUNCH_EXISTING to the slot holding this request ID, this task when one was given, or this work item when one
@@ -191,7 +198,9 @@ cmd_launch() {
         {prs: (if $item.kind == "pr" and same_repo($item.repo; $origin) then [$item.number] else [] end),
          items: [$item], name: $name, named_as: $name}
       end')
-  slot_make "$repo" launch "$(_launch_command)" "$seed" "$LAUNCH_PROMPT" launch "$head"
+  slot_make "$repo" launch "$(_launch_command)" "$seed" "$LAUNCH_PROMPT" launch "$head" \
+    "$(contract_json -n -c --argjson opened "${LAUNCH_OPENED_AT:-null}" --argjson shown "${LAUNCH_SHOWN_AT:-null}" \
+      '{opened_at: $opened, shown_at: $shown}')"
   launch_output "$repo" "$SLOT_MADE" true "$SLOT_MADE_TRUST" "$SLOT_MADE_PHASES" \
     "$(if [[ -n $LAUNCH_ITEM ]]; then launch_prior "$repo"; else echo '{"prior": null}'; fi)"
 }
