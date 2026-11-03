@@ -604,15 +604,28 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `bypass-mode-unaccepted`      | 78   | Doctor warning: settings.json does not accept bypass mode; `scripts/stow-deploy claude`        |
 | `version-unverified`          | 0    | Doctor warning: Claude or Rex differs from the version the checklist last ran on               |
 | `repo-required`               | 2    | The new-agent key was pressed outside a repo's session, with no terminal to ask in             |
-| `server-unreachable`          | 1    | ssh to the Linux server failed; retry once the network is back                                 |
+| `server-unreachable`          | 1    | ssh from the Mac to the Linux server failed; retry once the network is back                    |
 | `rex-action-unregistered`     | 78   | Rex has not loaded the agent-slot actions; deploy the `rex` package or run `rex config reload` |
 | `rex-failed`                  | 1    | A `rex` command failed; retry                                                                  |
-| `reconcile-busy`              | 1    | Another restore, sweep, or finish on the Mac held the tab lock too long; retry                 |
+| `reconcile-busy`              | 1    | Another restore, sweep, or finish held the tab lock too long; retry                            |
 | `compound-not-run`            | 1    | `release` refused: the slot's session has not run `ce-compound` and `ce-compound-refresh` yet  |
 | `background-jobs-running`     | 1    | `release` refused: the slot's Claude still runs background jobs, named in `value`              |
 | `finished-by-operator`        | 1    | `release --not-yet` refused: the operator finished the slot, and `--not-yet` does not undo it  |
 | `release-withdrawn`           | 1    | A release's `finish` stood down: a `--not-yet` or a newer release replaced its release         |
 | `sweep-timer-inactive`        | 78   | The automatic sweep timer is not enabled; `bash scripts/host-jobs-enable.sh`                   |
+| `agent-slot-timed-out`        | 1    | A local `agent-slot` call outlived its bound; its outcome is unknown. `agent-slot-rex restore` |
+| `wrong-host`                  | 2    | That `agent-slot-rex` verb runs only on the Linux server; `ssh <server> agent-slot-rex doctor` |
+| `rex-server-down`             | 78   | No Rex server answers on the Linux server; `systemctl --user start rex-server.service`         |
+| `startup-pending`             | 1    | Rex is still starting and its start-up step has not finished; rerun after the start-up limit   |
+| `rex-server-foreign`          | 78   | Doctor: `rex-server.service` did not start the Rex server holding the socket; see `next_step`  |
+| `rex-restart-pending`         | 0    | Doctor warning: the installed Rex is newer than the running server; update the apps first      |
+| `reconcile-timer-inactive`    | 78   | The once-a-minute reconcile timer is not running; `systemctl --user enable --now` it           |
+| `tab-numbers-inactive`        | 78   | The tab-number watcher is not running; `systemctl --user enable --now rex-tab-numbers.service` |
+| `login-server-inactive`       | 78   | The Rex login server is not running, so no Rex client can reach the Linux server               |
+| `rexurrect-missing`           | 78   | Doctor warning: rexurrect is not installed, so own tabs are not restored after a Rex restart   |
+| `reconcile-stale`             | 1    | The reconcile timer runs but its journal shows no recent good pass; `agent-slot-rex restore`   |
+| `own-tabs-unrestored`         | 0    | Doctor warning: the start-up step did not restore the operator's own tabs into this Rex server |
+| `tmux-outside-scope`          | 0    | Doctor warning: the slot tmux server runs in a service's cgroup and would end with that unit   |
 
 #### Teardown blockers
 

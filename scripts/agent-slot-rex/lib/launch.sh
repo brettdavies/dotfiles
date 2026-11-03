@@ -44,8 +44,8 @@ launch_resolve_repo() {
   local label=''
   if [[ -n $LAUNCH_REPO ]]; then
     launch_is_repo "$LAUNCH_REPO" && return 0
-    contract_fail repo-not-found "$AR_SERVER has no prime checkout named $LAUNCH_REPO" --value "$LAUNCH_REPO" \
-      --command "ssh $AR_SERVER '$AR_REMOTE repos'"
+    contract_fail repo-not-found "no prime checkout is named $LAUNCH_REPO" --value "$LAUNCH_REPO" \
+      --command "agent-slot repos"
   fi
   if [[ -n ${REX_SESSION:-} ]]; then
     rex_session_label "$REX_SESSION"
@@ -163,8 +163,7 @@ launch_here() {
   args=("$LAUNCH_REPO" --request-id "$(launch_request_id)" --requested-at "$(date +%s)")
   [[ -z $LAUNCH_TASK ]] || args+=(--task "$LAUNCH_TASK")
   launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$LAUNCH_REPO · launching"
-  printf 'agent-slot-rex: starting an agent in a fresh slot of %s on %s (request %s)\n' "$LAUNCH_REPO" "$AR_SERVER" \
-    "${args[2]}"
+  printf 'agent-slot-rex: starting an agent in a fresh slot of %s (request %s)\n' "$LAUNCH_REPO" "${args[2]}"
   # Outlasts the server's own bounds end to end: repo lock 60 s, clone 900 s, git-crypt 120 s, trust 45 s, and the
   # three sessions' tmux calls 90 s.
   launch_call 1260 launch "${args[@]}"
@@ -172,7 +171,7 @@ launch_here() {
 }
 
 cmd_launch() {
-  contract_use_tools rex ssh
+  contract_use_tools rex agent-slot
   if ((LAUNCH_HERE == 1)); then
     [[ -n ${REX_SESSION:-} && -n ${REX_BLOCK:-} ]] \
       || usage_fail "--here runs only in a Rex terminal, which sets REX_SESSION and REX_BLOCK"

@@ -32,11 +32,11 @@ cmd_finish_tab() {
 # Usage: cmd_finish <repo>/<N>
 cmd_finish() {
   local key=$1 error
-  contract_use_tools rex ssh
+  contract_use_tools rex agent-slot
   reconcile_hold_on_error
   if ! server_call 300 finish "$key" --yes; then
     error=$AR_ERROR
-    ((SERVER_STATUS == 255 || SERVER_STATUS == 124)) || reconcile finish
+    server_timed_out || reconcile finish
     ar_fail "$error"
   fi
   reconcile finish

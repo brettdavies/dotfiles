@@ -5,13 +5,16 @@
 USAGE='usage: agent-slot-rex <verb> [options] [--output json]
 
 Verbs:
-  launch   start an agent on the server in a fresh slot, in a background Rex tab that becomes its tab
-  attach   keep a pane attached to one of a slot'"'"'s tmux sessions on the server
+  launch   start an agent in a fresh slot, in a background Rex tab that becomes its tab
+  attach   keep a pane attached to one of a slot'"'"'s tmux sessions
   restore  give every live slot a tab, resume dormant slots, and close tabs whose slot is gone
   follow   keep this Mac'"'"'s tabs following the server: a restore each minute, and at once after a sleep or reconnect
-  sweep    tear down finished slots on the server, restore, then list the slots that need you
+  sweep    tear down finished slots, restore, then list the slots that need you
   finish   finish a task with no open PR and tear its slot down, from the control session
-  doctor   check the Mac'"'"'s prerequisites, then run the server'"'"'s doctor through the ssh alias
+  doctor   check the Rex server, the units, rexurrect, and the reconcile journal, then run agent-slot'"'"'s doctor
+
+On macOS, launch, restore, finish, sweep, and doctor run on the Linux server'"'"'s helper over ssh; the other verbs
+run only there.
 
 Every verb takes --help. launch, restore, sweep, finish, and doctor take --output json (one JSON object on stdout, or an error
 object on stderr). Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.'
@@ -26,7 +29,8 @@ verb_help() {
       "passes it); without it the launch runs in a new background tab in the repo's session." \
       'example: agent-slot-rex launch --repo dotfiles --task fix/login' ;;
     attach) printf '%s\n' 'usage: agent-slot-rex attach <repo>/<N> claude|files|git' \
-      "Attaches to the slot's tmux session and reattaches after every disconnect until the slot is gone." \
+      "Attaches to the slot's tmux session from \$HOME, resuming the slot when the session is missing, and waits" \
+      'for Enter after a detach; it ends once the slot is gone.' \
       'example: agent-slot-rex attach dotfiles/2 claude' ;;
     restore) printf '%s\n' \
       'usage: agent-slot-rex restore [--tab | --wait-server | --by push|poll|reconnect] [--output json]' \
@@ -44,19 +48,21 @@ verb_help() {
       "Rex server is gone or a newer one's loop takes over. It logs each event to $AR_STATE/follow.log." \
       'example: agent-slot-rex follow' ;;
     sweep) printf '%s\n' 'usage: agent-slot-rex sweep [--output json]' \
-      "Runs the server's sweep --yes, which tears down every finished slot that check passes, then restores tabs" \
+      "Runs agent-slot sweep --yes, which tears down every finished slot that check passes, then restores tabs" \
       'and lists the slots that need you. In text mode it waits for q while any slot needs you or the server could' \
       'not be reached.' \
       'example: agent-slot-rex sweep --output json' ;;
     finish) printf '%s\n' 'usage: agent-slot-rex finish <repo>/<N> [--output json]' \
       '       agent-slot-rex finish --tab --session ID --block ID' \
-      "Runs the server's finish --yes for the slot: a task with no open PR is marked finished and its slot torn down" \
+      "Runs agent-slot finish --yes for the slot: a task with no open PR is marked finished and its slot torn down" \
       "when check passes; then restores tabs, which closes the task's tab. --tab, which the finish key passes, finds" \
       "the slot of the tab holding the block and runs the finish in a tab of the agent-slots session." \
       'example: agent-slot-rex finish dotfiles/2' ;;
     doctor) printf '%s\n' 'usage: agent-slot-rex doctor [--output json]' \
-      "Checks rex, the new-agent action, and ssh to $AR_SERVER, then runs the server's doctor with each next step" \
-      'rewritten to run through the alias. Versions that differ from the verified ones only warn.' \
+      "Checks the rex CLI, the Rex server (that $AR_REX_UNIT started it, its build, and the new-agent action)," \
+      "the reconcile timer, the tab-number watcher, the login server, rexurrect, the reconcile journal, and where" \
+      "the agent-slots tmux server runs, then adds agent-slot doctor's findings. Versions that differ from the" \
+      'verified ones only warn.' \
       'example: agent-slot-rex doctor --output json' ;;
   esac
 }

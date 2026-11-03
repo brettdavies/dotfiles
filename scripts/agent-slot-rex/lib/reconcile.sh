@@ -34,15 +34,14 @@ reconcile_fetch() {
   local key gone=()
   server_call_or_fail 60 list
   RECONCILE_SLOTS=$(contract_json -c '.slots | arrays' <<<"$SERVER_OUT" || true)
-  [[ -n $RECONCILE_SLOTS ]] || ar_fail "$(contract_error_json script-error \
-    "agent-slot list on $AR_SERVER printed no slots array" --value "${SERVER_OUT:0:200}" \
-    --command "ssh $AR_SERVER '$AR_REMOTE list --output json'")"
+  [[ -n $RECONCILE_SLOTS ]] || ar_fail "$(contract_error_json script-error "agent-slot list printed no slots array" \
+    --value "${SERVER_OUT:0:200}" --command "agent-slot list --output json")"
   RECONCILE_RESUMED=()
   while read -r key; do
     [[ -n $key ]] || continue
     if server_call 60 resume "$key"; then
       RECONCILE_RESUMED+=("$key")
-    elif ((SERVER_STATUS == 255 || SERVER_STATUS == 124)); then
+    elif server_timed_out; then
       ar_fail "$AR_ERROR"
     elif [[ $(contract_json -r '.reason' <<<"$AR_ERROR") == slot-not-found ]]; then
       gone+=("$key")
@@ -143,7 +142,7 @@ reconcile_hold_on_error() {
 
 # Usage: cmd_restore [restore-at-start|push|poll|reconnect]
 cmd_restore() {
-  contract_use_tools rex ssh
+  contract_use_tools rex agent-slot
   reconcile_hold_on_error
   reconcile "${1:-restore}"
   contract_ok "$RECONCILE_RESULT" "$RECONCILE_TEXT"
@@ -206,7 +205,7 @@ sweep_teardown() {
 
 cmd_sweep() {
   local count
-  contract_use_tools rex ssh
+  contract_use_tools rex agent-slot
   [[ $CONTRACT_OUTPUT != text ]] || AR_HOLD=1 AR_AGAIN=sweep
   sweep_teardown
   reconcile sweep

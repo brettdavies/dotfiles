@@ -1,26 +1,37 @@
 #!/usr/bin/env bash
-# agent-slot-rex — the Mac half of agent slots. It runs inside Rex tabs and panes: it starts an agent on the Linux
-# server through `agent-slot`, keeps each pane attached to its slot's tmux session over ssh, and keeps one Rex tab per
-# live slot in that repo's session. Every slot decision is the server's; this helper only calls it and moves tabs.
+# agent-slot-rex — the Rex half of agent slots, run on the Linux server beside the slots and its own Rex server. It
+# runs inside Rex tabs and panes and from the timers: it starts an agent through `agent-slot`, keeps each pane attached
+# to its slot's tmux session, and keeps one Rex tab per live slot in that repo's session. Every slot decision is
+# agent-slot's; this helper only calls it and moves tabs. On macOS it runs a slot verb on the Linux server's helper
+# over ssh, so a Rex.app action acts there.
 #
 # Usage: agent-slot-rex <verb> [options] [--output json]
 # Verbs and options: agent-slot-rex --help, and agent-slot-rex <verb> --help.
 #
-# Env (each defaults to the value in parentheses):
-#   AGENT_SLOT_REX_SERVER         the server's ssh alias (bigdaddy)
-#   AGENT_SLOT_REX_CLIENT         this Mac's name in the server's AGENT_SLOT_REX_CLIENTS (bretts-air)
-#   AGENT_SLOT_REX_SSH            the ssh binary (ssh)
-#   AGENT_SLOT_REX_PS             the ps binary (ps)
-#   AGENT_SLOT_REX_SELF           the helper path every pane runs (~/.local/bin/agent-slot-rex)
-#   AGENT_SLOT_REX_STATE_DIR      logs (~/.local/state/agent-slot-rex)
-#   AGENT_SLOT_REX_RETRY_DELAY    seconds between ssh retries (3)
-#   AGENT_SLOT_REX_JITTER         most seconds of random delay added to each retry (3)
-#   AGENT_SLOT_REX_RESTORE_WAIT   seconds restore --wait-server waits for the server (600)
-#   AGENT_SLOT_REX_LOCK_WAIT      seconds a restore, sweep, or finish waits for the one ahead of it (300)
-#   AGENT_SLOT_REX_POLL_INTERVAL  seconds between the follow loop's restores (60)
-#   AGENT_SLOT_REX_TICK           seconds between the follow loop's checks (5)
-#   AGENT_SLOT_REX_WAKE_GAP       seconds one tick must overrun to count as a sleep of the Mac (30)
-#   AGENT_SLOT_REX_VERIFIED_VERSIONS  the verified-versions file (scripts/agent-slot/verified-versions)
+# Env (defaults in lib/settings.sh):
+#   AGENT_SLOT_REX_SERVER         the Linux server's ssh alias, which the Mac runs verbs on
+#   AGENT_SLOT_REX_CLIENT         the name the helper gives agent-slot, whose push then skips the reconcile run next
+#   AGENT_SLOT_REX_AGENT_SLOT     the agent-slot command
+#   AGENT_SLOT_REX_REXURRECT      the rexurrect command
+#   AGENT_SLOT_REX_SELF           the helper path every pane runs
+#   AGENT_SLOT_REX_SSH            the ssh binary
+#   AGENT_SLOT_REX_PS             the ps binary
+#   AGENT_SLOT_REX_TMUX           the tmux binary
+#   AGENT_SLOT_REX_SYSTEMCTL      the systemctl binary
+#   AGENT_SLOT_REX_HOMEBREW       the Homebrew prefix, whose bin moves to the front of PATH
+#   AGENT_SLOT_REX_APP_PATHS      where to look for the rex CLI when REX_BIN_DIR has none, colon-separated
+#   AGENT_SLOT_REX_STATE_DIR      the state directory: logs, the reconcile journal, the start-up record
+#   AGENT_SLOT_REX_RETRY_DELAY    seconds between restore --wait-server's probes, and between an attach's resumes
+#   AGENT_SLOT_REX_RESTORE_WAIT   seconds restore --wait-server waits for the server
+#   AGENT_SLOT_REX_LOCK_WAIT      seconds a restore, sweep, or finish waits for the one ahead of it
+#   AGENT_SLOT_REX_POLL_INTERVAL  seconds between the follow loop's restores
+#   AGENT_SLOT_REX_TICK           seconds between the follow loop's checks
+#   AGENT_SLOT_REX_WAKE_GAP       seconds one tick must overrun to count as a sleep of the Mac
+#   AGENT_SLOT_REX_RECONCILE_STALE  seconds after which doctor calls the reconcile journal's newest pass stale
+#   AGENT_SLOT_REX_STARTUP_WAIT   seconds the start-up step waits for a loading Rex server to answer
+#   AGENT_SLOT_REX_REXURRECT_BOUND  seconds the start-up step lets rexurrect's restore run
+#   AGENT_SLOT_REX_STARTUP_LIMIT  the age past which a pass reconciles a Rex server that has no start-up record
+#   AGENT_SLOT_REX_VERIFIED_VERSIONS  the verified-versions file
 #   REX_BIN_DIR                   where the rex CLI lives; Rex sets it in its terminals
 #   AGENT_SLOT_JQ                 the jaq or jq binary
 
@@ -37,6 +48,8 @@ set -euo pipefail
 AR_HOME=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 AR_LIB=$AR_HOME/lib
 
+# shellcheck source=lib/settings.sh
+source "$AR_LIB/settings.sh"
 # shellcheck source=../agent-slot/lib/contract.sh
 source "$AR_HOME/../agent-slot/lib/contract.sh"
 # shellcheck source=../agent-slot/lib/names.sh
@@ -61,39 +74,25 @@ source "$AR_LIB/doctor.sh"
 source "$AR_LIB/finish.sh"
 # shellcheck source=lib/follow.sh
 source "$AR_LIB/follow.sh"
+# shellcheck source=lib/forward.sh
+source "$AR_LIB/forward.sh"
 # shellcheck source=lib/help.sh
 source "$AR_LIB/help.sh"
 
-# A Rex tab or a command Rex starts at load hands over launchd's PATH, which may lack Homebrew.
-PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:$PATH"
 AGENT_SLOT_JQ=${AGENT_SLOT_JQ:-$(command -v jaq || command -v jq || true)}
 if [[ -z $AGENT_SLOT_JQ ]] || ! command -v -- "$AGENT_SLOT_JQ" >/dev/null; then
   contract_no_json_tool agent-slot-rex "$@"
   exit "$EXIT_CONFIG"
 fi
 
-AR_SERVER=${AGENT_SLOT_REX_SERVER:-bigdaddy}
-AR_CLIENT=${AGENT_SLOT_REX_CLIENT:-bretts-air}
-AR_SSH=${AGENT_SLOT_REX_SSH:-ssh}
-AR_PS=${AGENT_SLOT_REX_PS:-ps}
-AR_SELF=${AGENT_SLOT_REX_SELF:-$HOME/.local/bin/agent-slot-rex}
-AR_STATE=${AGENT_SLOT_REX_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-slot-rex}
-AR_LOG_DIR=$AR_STATE/logs
-AR_RETRY=${AGENT_SLOT_REX_RETRY_DELAY:-3}
-AR_JITTER=${AGENT_SLOT_REX_JITTER:-3}
-AR_RESTORE_WAIT=${AGENT_SLOT_REX_RESTORE_WAIT:-600}
-AR_LOCK_WAIT=${AGENT_SLOT_REX_LOCK_WAIT:-300}
-AR_POLL_INTERVAL=${AGENT_SLOT_REX_POLL_INTERVAL:-60}
-AR_TICK=${AGENT_SLOT_REX_TICK:-5}
-AR_WAKE_GAP=${AGENT_SLOT_REX_WAKE_GAP:-30}
-AR_VERIFIED=${AGENT_SLOT_REX_VERIFIED_VERSIONS:-$AR_HOME/../agent-slot/verified-versions}
-AR_CONTROL=agent-slots
 rex_find || true
 
 CONTRACT_REPO=$AR_HOME
 CONTRACT_LOG_DIR=$AR_LOG_DIR
 CONTRACT_TOOL_PATHS[rex]=${AR_REX:-rex}
 CONTRACT_TOOL_PATHS[ssh]=$AR_SSH
+CONTRACT_TOOL_PATHS[tmux]=$AR_TMUX
+CONTRACT_TOOL_PATHS[agent-slot]=$AR_AGENT_SLOT
 CONTRACT_CONFIG=$(contract_json -n -c --arg server "$AR_SERVER" --arg client "$AR_CLIENT" --arg state "$AR_STATE" \
   --arg rex "$AR_REX" '{server: $server, client: $client, state_dir: $state,
     rex: (if $rex == "" then null else $rex end)}')
@@ -134,6 +133,7 @@ main() {
     esac
     shift
   done
+  [[ $AR_OS != Darwin ]] || forward_verb "$verb" "${args[@]}"
 
   case $verb in
     launch)

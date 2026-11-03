@@ -1,5 +1,5 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
-# The output contract shared by agent-slot on the Linux server and agent-slot-rex on the Mac.
+# The output contract shared by agent-slot and agent-slot-rex.
 #
 # Text output is for people; `--output json` is for agents and the Rex helper. In JSON mode a success prints one object
 # on stdout and an error prints one object on stderr. Schema dotfiles.agent-slot/1: fields are only ever added.
@@ -74,6 +74,19 @@ background-jobs-running       1     false      0            run
 finished-by-operator          1     false      0            none
 release-withdrawn             1     false      0            none
 sweep-timer-inactive          78    false      0            run
+agent-slot-timed-out          1     true       1            run
+wrong-host                    2     false      0            run
+rex-server-down               78    false      0            run
+startup-pending               1     true       3            retry
+rex-server-foreign            78    false      0            ask-operator
+rex-restart-pending           0     false      0            ask-operator
+reconcile-timer-inactive      78    false      0            run
+tab-numbers-inactive          78    false      0            run
+login-server-inactive         78    false      0            run
+rexurrect-missing             78    false      0            install
+reconcile-stale               1     false      0            run
+own-tabs-unrestored           0     false      0            ask-operator
+tmux-outside-scope            0     false      0            ask-operator
 '
 
 CONTRACT_VERB=agent-slot
