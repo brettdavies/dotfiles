@@ -1,5 +1,5 @@
 [Unit]
-Description=Nightly autocommit for knowledge repos (obsidian-vault, solutions-docs, agent-skills)
+Description=Nightly autocommit for knowledge repos (solutions-docs, agent-skills)
 
 [Service]
 Type=oneshot
