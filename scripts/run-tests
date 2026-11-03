@@ -43,11 +43,11 @@
 # A bats process that leaves a process running after it exits fails: run-tests
 # gives the process 3 s, then kills it and names it under the bats output.
 #
-# Every test fails once it has run for BATS_TEST_TIMEOUT seconds, 180 unless
+# Every test fails once it has run for BATS_TEST_TIMEOUT seconds, 60 unless
 # the environment sets it, so a hung test fails as `not ok N <name> # timeout
-# after 180s` instead of holding the run. The slowest test runs in under 45 s on
-# a CI runner and in about 20 s on an idle 16-core host, and that test, a nested
-# run of a whole suite, slows about fourfold on a host running several suites at
+# after 60s` instead of holding the run. The slowest test runs in under 45 s on
+# a CI runner and in about 20 s on an idle 16-core host; that test, a nested run
+# of a whole suite, can pass the limit on a host running several suites at
 # once. bats sends SIGTERM to the test and every process below it, then
 # runs its teardown; a foreground command that ignores SIGTERM keeps its test
 # running past the limit. A suite with a deliberately longer test sets
@@ -78,7 +78,7 @@ if [ "$#" -eq 0 ]; then
   exit "$EXIT_USAGE"
 fi
 
-DEFAULT_TEST_TIMEOUT=180
+DEFAULT_TEST_TIMEOUT=60
 TEST_TIMEOUT=${BATS_TEST_TIMEOUT:-$DEFAULT_TEST_TIMEOUT}
 # bats evaluates the value as arithmetic, where a leading 0 reads as octal.
 case "$TEST_TIMEOUT" in

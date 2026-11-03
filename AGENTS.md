@@ -422,11 +422,11 @@ own, and once bats exits, any process still carrying it fails the run, named and
 before its suite ends gets past this scan, which is what the per-test guard is for. `tests/leak-guard.bats` covers both
 guards, and runs the release suite from a scratch directory to check that it leaves nothing behind there.
 
-Every test runs under a time limit: `scripts/run-tests` hands bats `BATS_TEST_TIMEOUT`, 180 s unless the environment
-sets it, four times the slowest test on a CI runner and over twice what that test takes on a host running several suites
-at once. A test that outlives it fails as `not ok N <name> # timeout after 180s`: bats sends SIGTERM to it and to every
-process below it, then runs its `teardown`, so both guards still stop whatever it left. A suite with a deliberately
-longer test sets `BATS_TEST_TIMEOUT` at its top level. bats 1.14 leaves a failed test's watchdog running out the limit
+Every test runs under a time limit: `scripts/run-tests` hands bats `BATS_TEST_TIMEOUT`, 60 s unless the environment sets
+it, about 1.3 times the slowest test on a CI runner. A test that outlives it fails as
+`not ok N <name> # timeout after 60s`: bats sends SIGTERM to it and to every process below it, then runs its `teardown`,
+so both guards still stop whatever it left. A suite with a deliberately longer test sets `BATS_TEST_TIMEOUT` at its top
+level. bats 1.14 leaves a failed test's watchdog running out the limit
 ([bats-core/bats-core#1206](https://github.com/bats-core/bats-core/issues/1206)), which `run-tests` avoids through
 `BATS_killer_pid`; a test that starts bats itself passes the same value, `BATS_WATCHDOG_JOB` from
 `tests/lib/processes.bash`.
