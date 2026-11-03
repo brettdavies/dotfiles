@@ -10,4 +10,3 @@ ExecStart=/home/brett/.cargo/bin/rustup update stable --no-self-update
 
 # Hardening
 NoNewPrivileges=true
-PrivateTmp=true

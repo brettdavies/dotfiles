@@ -10,4 +10,3 @@ StandardOutput=append:%h/.openclaw/logs/pool-sync-check.log
 
 # Hardening
 NoNewPrivileges=true
-PrivateTmp=true

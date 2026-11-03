@@ -18,4 +18,3 @@ SuccessExitStatus=2 3
 
 # Hardening
 NoNewPrivileges=true
-PrivateTmp=true

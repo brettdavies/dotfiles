@@ -10,4 +10,3 @@ IOSchedulingClass=idle
 
 # Hardening
 NoNewPrivileges=true
-PrivateTmp=true
