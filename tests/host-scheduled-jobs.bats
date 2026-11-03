@@ -15,6 +15,7 @@ LOCAL_UNITS="$REPO_ROOT/stow/local/dot-config/systemd/user"
 LOCAL_BIN="$REPO_ROOT/stow/local/dot-local/bin"
 ENABLE="$REPO_ROOT/scripts/host-jobs-enable.sh"
 REX_SERVER="$LOCAL_UNITS/rex-server.service"
+NUMBERS="$LOCAL_UNITS/rex-tab-numbers.service"
 
 HOST_JOBS=(
   "$OBS_UNITS/vault-agent-sync"
@@ -250,6 +251,29 @@ EOF
   [[ $output != *"agent-slot-reconcile."* ]]
 }
 
+@test "the tab-number watcher runs with the Rex server, restarting every 5 s with no start limit" {
+  [ "$(_unit_key "$NUMBERS" Unit After)" = rex-server.service ]
+  [ "$(_unit_key "$NUMBERS" Unit BindsTo)" = rex-server.service ]
+  [ "$(_unit_key "$NUMBERS" Install WantedBy)" = rex-server.service ]
+  [ "$(_unit_key "$NUMBERS" Unit StartLimitIntervalSec)" = 0 ]
+  [ "$(_unit_key "$NUMBERS" Unit ConditionHost)" = bigdaddy ]
+  [ "$(_unit_key "$NUMBERS" Service Restart)" = always ]
+  [ "$(_unit_key "$NUMBERS" Service RestartSec)" = 5s ]
+  [ "$(_unit_key "$NUMBERS" Service ExecStart)" = '/usr/bin/rex --autostart=false do --all %h/.config/rex/tab-numbers.lua' ]
+  run grep -nE '^(PrivateTmp|ProtectHome|PrivateDevices|NoNewPrivileges)=' "$NUMBERS"
+  [ "$status" -eq 1 ]
+}
+
+@test "systemd accepts the tab-number watcher unit" {
+  command -v systemd-analyze >/dev/null 2>&1 || skip "systemd-analyze not installed"
+  [ -x /usr/bin/rex ] || skip "rex not installed"
+  local runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+  [ -d "$runtime" ] || skip "no user runtime directory"
+  run env XDG_RUNTIME_DIR="$runtime" systemd-analyze --user verify "$REX_SERVER" "$NUMBERS"
+  [ "$status" -eq 0 ]
+  [[ $output != *"rex-tab-numbers.service:"* ]]
+}
+
 # --- enable script ------------------------------------------------------------
 
 @test "enable script does nothing off Linux" {
@@ -321,7 +345,8 @@ EOF
   _enable
   [ "$status" -eq 0 ]
   grep -qx -- '--user enable --now --no-block rex-server.service' "$SYSTEMCTL_LOG"
-  grep -qE -- '^--user list-units .*rex-server\.service' "$SYSTEMCTL_LOG"
+  grep -qx -- '--user enable --now --no-block rex-tab-numbers.service' "$SYSTEMCTL_LOG"
+  grep -qE -- '^--user list-units .*rex-server\.service rex-tab-numbers\.service' "$SYSTEMCTL_LOG"
 }
 
 @test "enable script retires exactly the crontab lines the timers replace" {

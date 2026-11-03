@@ -1,0 +1,18 @@
+[Unit]
+Description=Number every tab on this account's Rex server by its position in its session
+ConditionHost=bigdaddy
+# Bound to the Rex server, so its stop stops the watcher, and wanted by it, so its start starts the watcher again.
+After=rex-server.service
+BindsTo=rex-server.service
+# A server still loading its config answers nothing, so the watcher retries every 5 s for as long as that lasts.
+StartLimitIntervalSec=0
+
+[Service]
+# --all hears every session, including those created after the watcher starts, and keeps it running once the last of
+# them is gone; --autostart=false keeps a reconnect during a Rex restart from starting a second server.
+ExecStart=/usr/bin/rex --autostart=false do --all %h/.config/rex/tab-numbers.lua
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=rex-server.service

@@ -898,3 +898,51 @@ settings_value() {
   not_called '^agent-slot resume'
   called '^tmux -L agent-slots attach -t =X-2$'
 }
+
+# --- tab numbers ------------------------------------------------------------------------------------------------------
+
+@test "a tab whose label carries a number, even a doubled one, is keyed to its slot by the rest of the label" {
+  slots '[{"repo": "dotfiles", "slot": 3, "task": "task"}]'
+  session sess-d dotfiles '[{"window_id": "w1", "label": "4: 1: dotfiles/3 · task", "blocks": ["b1"]}]'
+  run "$AGENT_SLOT_REX" restore --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.closed == [{key: "dotfiles/3", label: "4: 1: dotfiles/3 · task", why: "attach loop is not running"}]
+    and .opened == ["dotfiles/3"]' <<<"$output"
+}
+
+@test "a numbered tab whose rest matches its slot is left alone, and a rename for a changed task keeps its number" {
+  slots '[{"repo": "dotfiles", "slot": 3, "task": "task"}, {"repo": "dotfiles", "slot": 4, "task": "new"}]'
+  session sess-d dotfiles '[{"window_id": "w1", "label": "2: dotfiles/3 · task", "blocks": ["b1"]},
+    {"window_id": "w2", "label": "3: dotfiles/4 · old", "blocks": ["b2"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach dotfiles/3 claude"
+  runs b2 102 "bash $STUBS/agent-slot-rex attach dotfiles/4 claude"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  not_called '^rex window rename -s sess-d w1 '
+  called '^rex window rename -s sess-d w2 3: dotfiles/4 · new$'
+  not_called '^rex (new|window new|window close)'
+}
+
+@test "a numbered label at Rex's limit is cut in its rest, never its number, and a second pass changes nothing" {
+  slots "$(with_long_needs '[{"repo": "agentnative-site", "slot": 1, "task": "release-main-2026-10-27",
+    "needs_you": "long"}]')"
+  session sess-ans agentnative-site '[{"window_id": "w1", "label": "12: agentnative-site/1", "blocks": ["b1"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach agentnative-site/1 claude"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  local renamed
+  renamed=$(sed -n 's/^rex window rename -s sess-ans w1 //p' "$CALLS")
+  jaq -n -e --arg l "$renamed" '($l | length) <= 128 and ($l | startswith("12: agentnative-site/1 · "))
+    and ($l | endswith("…"))' >/dev/null
+  : >"$CALLS"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  not_called '^rex (new|window new|window rename|window close)'
+}
+
+@test "the finish key finds the slot from a numbered label when no attach loop names it" {
+  session sess-x X '[{"window_id": "w1", "label": "3: X/2 · t", "blocks": ["b1"]}]'
+  run "$AGENT_SLOT_REX" finish --tab --session sess-x --block b1
+  [ "$status" -eq 0 ]
+  called "^rex new agent-slots --window finish X/2 --json -- $STUBS/agent-slot-rex finish X/2$"
+}

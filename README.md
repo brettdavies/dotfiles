@@ -355,6 +355,10 @@ its agent is idle and check passes.
 In a session not named after a repo, every session on the Mac included, `cmd+alt+n`'s tab asks which repo to use, and
 the agent's tab opens in the background in that repo's session on the Linux server.
 
+On the Linux server every tab's label starts with its position in its session, `<n>:`, which `rex-tab-numbers.service`
+keeps current as tabs open, close, and move; the slot helper matches and relabels tabs past that number and never writes
+it.
+
 A slot's tab is labelled `<repo>/<N>`, then `· <label>` (the slot's name, else its task name, else the agent's branch
 once it has one), then:
 

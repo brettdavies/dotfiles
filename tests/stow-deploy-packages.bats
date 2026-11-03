@@ -83,7 +83,7 @@ _require_unlocked_checkout() {
   # an explicit Darwin gate.
   grep -q 'if \[ "\$(uname -s)" = "Darwin" \]; then' "$SCRIPT"
   grep -q "STOW_FLAGS+=(--ignore='\\\\.(service|timer)\$')" "$SCRIPT"
-  grep -qF "STOW_FLAGS+=(--ignore='(^|/)slot-startup\\.lua$')" "$SCRIPT"
+  grep -qF "STOW_FLAGS+=(--ignore='(^|/)(slot-startup|tab-numbers)\\.lua$')" "$SCRIPT"
 }
 
 # rex_deploy OS: deploys only the rex package into $BATS_TEST_TMPDIR/<OS>, from a copy of the script and that
@@ -99,17 +99,18 @@ rex_deploy() {
   run env PATH="$fixture/os:$PATH" STOW_DEPLOY_TARGET="$BATS_TEST_TMPDIR/$1" "$fixture/scripts/stow-deploy" --only rex
 }
 
-@test "on Linux the rex package links the start-up module beside the shared files, and on macOS it does not" {
+@test "on Linux the rex package links the start-up module and tab-number watcher beside the shared files, and on macOS it does not" {
   local rex=$BATS_TEST_TMPDIR/Linux/.config/rex
   rex_deploy Linux
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
   [ -L "$rex/init.lua" ] && [ -L "$rex/layout.lua" ] && [ -L "$rex/agent-slots.lua" ] && [ -L "$rex/slot-startup.lua" ]
+  [ -L "$rex/tab-numbers.lua" ]
   [[ $output != *"rex is macOS-only"* ]]
   rex=$BATS_TEST_TMPDIR/Darwin/.config/rex
   rex_deploy Darwin
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
   [ -L "$rex/init.lua" ] && [ -L "$rex/layout.lua" ] && [ -L "$rex/agent-slots.lua" ]
-  [ ! -e "$rex/slot-startup.lua" ]
+  [ ! -e "$rex/slot-startup.lua" ] && [ ! -e "$rex/tab-numbers.lua" ]
 }
 
 @test "DESKTOP_PACKAGES contains expected packages" {

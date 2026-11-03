@@ -308,8 +308,9 @@ STOW_FLAGS+=(--ignore='\.DS_Store$')
 # pattern is safe to apply broadly. No-op on Linux.
 if [ "$(uname -s)" = "Darwin" ]; then
   STOW_FLAGS+=(--ignore='\.(service|timer)$')
-  # The start-up step that restores the slot tabs runs only beside the slots, on the Linux server.
-  STOW_FLAGS+=(--ignore='(^|/)slot-startup\.lua$')
+  # The start-up step that restores the slot tabs and the watcher that numbers every tab run only beside the slots, on
+  # the Linux server.
+  STOW_FLAGS+=(--ignore='(^|/)(slot-startup|tab-numbers)\.lua$')
 fi
 
 cd "$STOW_DIR"

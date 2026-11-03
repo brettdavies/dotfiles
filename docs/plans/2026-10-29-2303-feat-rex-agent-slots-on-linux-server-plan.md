@@ -947,12 +947,16 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Files:** `stow/rex/dot-config/rex/tab-numbers.lua` (new),
   `stow/local/dot-config/systemd/user/rex-tab-numbers.service` (new), `scripts/agent-slot-rex/lib/reconcile.sh`,
   `scripts/agent-slot-rex/lib/finish.sh`, `scripts/agent-slot-rex/lib/rex.sh`, `scripts/host-jobs-enable.sh`,
-  `tests/agent-slot-rex.bats`, `tests/rex-config.bats`, `tests/host-scheduled-jobs.bats`.
+  `scripts/stow-deploy` (the macOS ignore), `tests/agent-slot-rex.bats`, `tests/rex-config.bats`,
+  `tests/host-scheduled-jobs.bats`, `tests/stow-deploy-packages.bats`.
 - **Approach:**
   1. Write the watcher to subscribe to `window_created`, `window_closed`, `window_label_changed`, `session_view_changed`
      (the only event a move emits), and `session_created` (a new session's first window emits no `window_created`),
      recompute each session's numbers from its window order, and rewrite only labels whose prefix is wrong, stripping
-     any existing prefix first so a restored label never doubles.
+     any existing prefix first so a restored label never doubles. Number the sessions that already exist from a
+     `rex.after(0, …)` timer: under `--all`, a script is attached to the sessions only once its top level returns, and
+     a `session.view` call made there fails with `stream is not attached to session` (measured against a scratch Rex
+     server, 0.1.0~preview.10).
   2. Run it as a user service with `After=`, `BindsTo=`, and `WantedBy=rex-server.service`, so a server restart stops it
      and starts it again, with `Restart=always`, `RestartSec=5s`, and `StartLimitIntervalSec=0`, that starts the watcher
      as `rex --autostart=false do --all <script>`: without `--all`, `rex do` hears only the sessions that exist when it
@@ -961,7 +965,9 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      creates its `WantedBy=` link.
   3. Make the reconcile and `finish_key_of` strip the prefix before matching keys and computing labels, keep the current
      prefix on rename, and hold the whole label to 128 characters.
-  4. Count characters, not bytes, on both sides, so neither writer cuts what the other wrote.
+  4. Count characters, not bytes, on both sides, so neither writer cuts what the other wrote. The watcher counts UTF-8
+     lead bytes itself rather than rely on a `utf8` library Rex's Lua may not carry. On macOS, `stow-deploy` ignores
+     `tab-numbers.lua` beside `slot-startup.lua`.
 - **Patterns to follow:** the event-driven watcher and its restore-on-remove mode in the community tab-numbers module
   (as a model only); `rex_label` in `scripts/agent-slot-rex/lib/rex.sh`.
 - **Test scenarios:**

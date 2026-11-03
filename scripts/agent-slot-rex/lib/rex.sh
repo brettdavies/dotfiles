@@ -16,7 +16,16 @@ REX_SERVER_PID='' REX_SERVER_INSTANCE='' REX_SERVER_VERSION='' REX_SERVER_STARTE
 # Rex refuses a window label longer than 128 characters, so every tab label is cut to fit, ending in an ellipsis. jq
 # counts characters, where bash's ${#} counts bytes in the C locale, and `·` is two bytes but one character. A label
 # that fits passes through unchanged, so cutting one twice gives the same label.
-REX_LABEL_DEF='def rex_label: if length <= 128 then . else .[:127] | sub(" +$"; "") + "…" end;'
+#
+# A tab's label starts with its position in its session, "<n>: ", which only the tab-number watcher
+# (stow/rex/dot-config/rex/tab-numbers.lua) writes. This helper matches and labels a tab by the rest, keeps the number
+# the tab has when it relabels one, and cuts the rest, never the number, to fit. REX_NUMBER_PREFIX is that number as a
+# pattern, the same text as the watcher's NUMBER_PREFIX.
+REX_NUMBER_PREFIX='^[0-9]+: '
+REX_LABEL_DEF='def rex_label_within($n): if length <= $n then . else .[:$n - 1] | sub(" +$"; "") + "…" end;
+def rex_label: rex_label_within(128);
+def rex_number: (capture("(?<n>'"$REX_NUMBER_PREFIX"')").n // "");
+def rex_unnumbered: if test("'"$REX_NUMBER_PREFIX"'") then sub("'"$REX_NUMBER_PREFIX"'"; "") | rex_unnumbered else . end;'
 
 # Usage: rex_label <label>; prints the label cut to Rex's limit.
 rex_label() {

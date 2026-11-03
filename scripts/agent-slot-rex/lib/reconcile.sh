@@ -1,7 +1,8 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
 # Reconcile: one Rex tab per live slot, in the session named after its repo, used by restore and sweep.
 #
-# A tab is keyed to a slot when its label starts with <repo>/<N> in the session named <repo>, or when one of its blocks
+# A tab is keyed to a slot when its label, past its number, starts with <repo>/<N> in the session named <repo>, or when
+# one of its blocks
 # runs `agent-slot-rex attach <repo>/<N>` in any session. A tab elsewhere whose label merely looks like a key is the
 # operator's, and is left alone. A keyed tab is present when its Claude pane's attach loop runs. Reconcile resumes
 # dormant slots, opens a tab for each live slot without a present one, relabels present tabs, and closes keyed tabs
@@ -30,14 +31,14 @@ RECONCILE_PAST_LIMIT=0
 # dotfiles are older than this Mac's, whether Claude is still waiting on the folder trust dialog, and the first thing
 # that keeps it from being torn down. Rex's limit cuts it from the end, so the key a tab is matched by stays in front,
 # and cuts it the same way each pass, so a relabelled tab is not relabelled again.
-RECONCILE_LABEL="$REX_LABEL_DEF"'def tab_label:
+RECONCILE_LABEL="$REX_LABEL_DEF"'def tab_rest:
   (.key
    + ((.label_name // .task // .branch) as $name | if $name then " · \($name)" else "" end)
    + ((.agent // "") as $agent
       | if .trust_prompt_expected == true and (["idle", "busy", "waiting"] | index($agent)) == null
         then " · trust needed" else "" end)
-   + (if ((.needs_you // []) | length) > 0 then " · needs you: \(.needs_you[0].message)" else "" end))
-  | rex_label;'
+   + (if ((.needs_you // []) | length) > 0 then " · needs you: \(.needs_you[0].message)" else "" end));
+def tab_label: tab_rest | rex_label;'
 
 # Sets RECONCILE_SLOTS to the server's slots, after resuming the dormant ones. A dormant slot whose resume finds it gone
 # is dropped; any other resume failure leaves it to its panes' attach loops.
@@ -67,7 +68,7 @@ reconcile_plan() {
   contract_json -n -c --argjson tabs "$1" --argjson slots "$2" --arg key "$SLOT_KEY_PATTERN" "$RECONCILE_LABEL"'
     def keyed:
       . as $tab
-      | (((.label // "") | capture("^(?<k>" + $key + ")( |$)").k
+      | (((.label // "") | rex_unnumbered | capture("^(?<k>" + $key + ")( |$)").k
           | select(split("/")[0] == $tab.session)) // null) as $by_label
       | (first(.commands[] | capture("agent-slot-rex attach (?<k>" + $key + ") (claude|files|git)").k)
          // $by_label) as $key
@@ -86,7 +87,9 @@ reconcile_plan() {
     | ([.[].keep | select(. != null)]) as $kept
     | {open: [$live[] | select(.key as $k | $kept | map(.key) | index($k) | not)
               | {key, repo, label: tab_label}],
-       rename: [$kept[] | ($by_key[.key] | tab_label) as $want | select(.label != $want)
+       rename: [$kept[] | ((.label // "") | rex_number) as $n
+                | ($n + ($by_key[.key] | tab_rest | rex_label_within(128 - ($n | length)))) as $want
+                | select(.label != $want)
                 | {session_id, window_id, key, label: $want}],
        close: ($gone + [.[].close[]] | map({session_id, window_id, key, label, why}))}'
 }
