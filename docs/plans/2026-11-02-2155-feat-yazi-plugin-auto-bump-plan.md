@@ -75,9 +75,11 @@ also moves the plugins.
 - R4. When every candidate hash equals the current hash, the bump runs the check against those pins: pass is
   `not-needed`; fail is `waiting` when any pinned upstream repo has commits newer than the cutoff, else `failed`.
 - R5. When a hash changed, the bump runs the check against the candidates: fail is `waiting` or `failed` as in R4 and
-  opens nothing; pass commits the new `package.toml` on `fix/yazi-pins-<yazi-version>` from the base branch, opens a PR
-  whose body fills the repo's PR template, waits on CI under D6, squash-merges, and confirms the PR is `MERGED`.
-- R6. An open PR from an earlier bump blocks a new one: the outcome is `failed` with reason `pr-open` and the PR's link.
+  opens nothing; pass commits the new `package.toml` on `fix/yazi-pins-<yazi-version>-<UTC yyyymmdd>` from the base
+  branch, opens a PR whose body fills the repo's PR template, waits on CI under D6, squash-merges with
+  `--match-head-commit` set to the head CI passed on, and confirms the PR is `MERGED`.
+- R6. An open PR from an earlier bump (head branch `fix/yazi-pins-*`) is resumed rather than duplicated: the bump waits
+  on its checks under D6 and merges it when they pass; red checks end `failed` with reason `pr-open` and the PR's link.
 - R7. `run.end` gains `yazi_pins`: `null` when the run did not bump, else
   `{outcome, reason, message, yazi_version, pr, next_step {action, command, docs}}`. `outcome` is
   `bumped | not-needed | waiting | failed`; `reason` is a closed kebab-case set; `next_step.action` is
@@ -117,9 +119,13 @@ also moves the plugins.
   `commits/<rev>` for the current rev's date, and `commits?since=<cutoff>&per_page=1` for "newer commits exist".
 - **Hashes** come from ya alone: write the candidate `package.toml` with `hash = ""`, run `ya pkg install` under the
   scratch HOME, read the file back. #399 showed ya fills an empty hash and rewrites the file in place.
+- **Parsing `package.toml`** is an awk pass over its `[[plugin.deps]]`/`[[flavor.deps]]` blocks and their `use`, `rev`,
+  and `hash` lines. ya writes the file, so its shape is fixed, and the bump hands ya the candidate file and commits what
+  ya writes back, never its own formatting. No TOML tool joins the dependencies.
 - **Run log.** `run_log_start` sets `RUN_YAZI_PINS=null`; `run_log_finish` appends `"yazi_pins":$RUN_YAZI_PINS`. The
-  bump prints its outcome as one JSON object on its last stdout line; `brew.sh` validates it with `jaq` before storing
-  it, and records `failed`/`bad-output` when it is missing or malformed.
+  bump sources `run-log.sh` for `_run_log_str` and builds its outcome object with it, printed as its last stdout line.
+  `brew.sh` accepts that line only when it starts with `{"outcome":"` and one of the four outcomes, and otherwise
+  records `failed` with reason `bad-output`, so `brew.sh` needs no JSON tool either.
 
 ### Sequencing
 
@@ -149,12 +155,13 @@ check) and U3 (bump) follow. U4 wires the bump into `brew.sh`. U5 documents. U6 
 
 - `scripts/upgrade/yazi-pins.sh`: parse `package.toml` (`use`, `rev`, `hash` per dep), resolve candidates (D2, D3),
   compute hashes in a scratch HOME, decide (R4, R5), and for a bump: clone, branch, commit, push, `gh pr create`, CI
-  wait (D6), `gh pr merge --squash --delete-branch`, confirm `MERGED`. Prints the outcome object last. Scratch dirs and
-  the tmux server go away on every exit path.
+  wait (D6), `gh pr merge --squash --delete-branch --match-head-commit <sha>`, confirm `MERGED`. Prints the outcome
+  object last. Scratch dirs and the tmux server go away on every exit path.
 - **Tests first** (`tests/yazi-pins.bats`), with `gh`, `ya`, and the check stubbed and a local bare repo as `--repo`:
   `not-needed` (hashes equal, check passes), `waiting` (hashes equal, check fails, newer commits exist), `failed`
   `check-failed`, `bumped` (branch pushed to the bare repo with the new revs and hashes, PR created against the base,
-  merged after a green rollup), `ci-failed`, `ci-timeout`, `pr-open`, and no backwards move (D3).
+  merged with the pushed head's SHA after a green rollup), `ci-failed`, `ci-timeout`, an open earlier PR resumed and
+  merged when green, an open earlier PR with red checks (`pr-open`), and no backwards move (D3).
 
 ### U4. Wire the bump into `brew.sh`
 
@@ -196,3 +203,157 @@ CI runs for a PR into any base.
   `bats.yml` triggers, `protect-dev.json` required checks), and #399's measurements.
 - D7: sent to `rex-linux` 2026-11-02 with options A (leave the pull to the operator, recommended) and B (fast-forward a
   clean `dev` checkout after the merge). The plan follows A until an answer arrives.
+- E1-E4: decided in the Eng Review below; each is applied to the requirements above.
+
+## Eng Review
+
+Run unattended in agent slot dotfiles/3: every question below was answered from the code, the repo's docs, and this
+session's measurements, and the choice is recorded with its evidence. No question went to a person.
+
+### Scope Challenge
+
+- **What already solves each sub-problem.** `run_log_upgrade` already computes `changes`
+  (`scripts/upgrade/lib/run-log.sh`, `run_log_changes`), so the yazi trigger reads `RUN_CHANGES` rather than listing
+  versions again. `_run_log_str` already escapes JSON strings. `ya pkg install` already computes hashes and writes them
+  back. `gh pr merge --match-head-commit` already pins a merge to a head (`gh pr merge --help`). Nothing in the repo
+  already resolves upstream revs or drives yazi in tmux.
+- **Minimum change.** R1 alone fixes drift between hosts and `package.toml`; R2-R7 are what makes the fix automatic.
+  Both are in the brief, so neither is deferred.
+- **Complexity.** About 10 files: 3 new scripts, `brew.sh`, `run-log.sh`, 1 new suite and its fixtures, the existing
+  upgrade suite, `BOOTSTRAP.md`, `yazi.toml` [estimated]. The gate trips at 8 files. Structure question: one
+  `yazi-pins.sh` holding the check would pass 300 lines and mix two jobs, so the original three-file arrangement
+  stands. **Scope accepted as-is.**
+- **Search.** Renovate and Dependabot cover neither `ya pkg` nor a yazi-run proof; the repo already carries its own
+  supply-chain gate (the seven-day cooldown in `config/shell/supply-chain.sh`). [Layer 1: reuse the repo's own run log
+  and gate conventions.]
+
+### Reality rows
+
+- REALITY: premise-table pass unverified=0 (yazi upgrades through brew: `brew list --versions yazi` = 26.9.1; `changes`
+  names packages by brew name: `run-log.sh` `run_log_changes`; unit PATH puts Homebrew first:
+  `stow/local/dot-config/systemd/user/brew-upgrade.service` `Environment=PATH=`; start timeout 2h: same file
+  `TimeoutStartSec=2h`; `dev` requires `shellcheck` and `bats`: `.github/rulesets/protect-dev.json`; CI runs for any
+  base: `.github/workflows/bats.yml` `pull_request:` with no branch filter; `gh` auth from `hosts.yml`: `gh auth
+  status`)
+- REALITY: already-done pass (origin/dev at 5106ada holds no yazi pin automation; #399 added only the deploy step)
+- REALITY: surface-check pass (`commits?until=`/`since=` answered for yazi-rs/plugins and yazi-rs/flavors;
+  `gh pr merge --squash --delete-branch --match-head-commit`, `gh pr create --body-file --head --repo` in `--help`)
+- REALITY: binding-decisions pass (the operator's "auto-upgrade, auto-fix" choice via `rex-linux`; D7 open with the
+  same session)
+- REALITY: numbers pass (CI 81 s [measured: run 41574663201]; repeat `ya pkg install` 40.5 s and first install up to
+  about 2.5 min [measured: this session's scratch installs]; 30 min CI cap and 60 min bump cap [estimated], both under
+  the unit's 2 h)
+- REALITY: deferred-asks pass (no linked issue; the brief's four items map to R1, R2-R6, R7, D5/D6)
+- REALITY: pr-count pass (one PR)
+
+### 1. Architecture
+
+- `[CRITICAL] (confidence: 8/10) plan R5 — "waits on CI under D6, squash-merges"`: a merge by PR number takes whatever
+  head the PR has at merge time, so a push after the green rollup would merge unchecked content. **E1, accepted:** merge
+  with `--match-head-commit` set to the SHA the job pushed and CI passed on (R5).
+- `[INFORMATIONAL] (confidence: 8/10) plan R6 — "An open PR from an earlier bump blocks a new one"`: a bump whose CI
+  outlived the cap leaves a green PR that every later run reports as `pr-open` until a person merges it. **E2,
+  accepted:** resume an open `fix/yazi-pins-*` PR, merging it when green, and report `pr-open` only for red checks (R6).
+- `[INFORMATIONAL] (confidence: 7/10) plan R5 — "fix/yazi-pins-<yazi-version>"`: a failed run that pushed its branch
+  before `gh pr create` failed leaves the name taken, and the next day's push is rejected. **E3, accepted:** suffix the
+  UTC date (R5).
+- D1's marker is written before the bump starts, so a run the unit kills mid-bump retries. A permanent failure retries
+  daily with a warning each day, which is the visibility wanted; it clears itself once a person fixes the pins.
+
+Dispositions: E1 accepted, E2 accepted, E3 accepted.
+
+### 2. Code quality
+
+- `[INFORMATIONAL] (confidence: 7/10) plan Key Technical Decisions — "brew.sh validates it with jaq"`: `brew.sh` loads
+  no JSON tool today, and the bump writes the line itself. **E4, accepted:** a prefix check on the outcome line, and
+  `_run_log_str` reused for building it.
+- `package.toml` is parsed with awk over ya's own format, and every file the bump commits is ya's own output, so the
+  committed file always matches what `ya pkg install` writes on a host (#399 showed a mismatch dirties the checkout).
+
+Dispositions: E4 accepted.
+
+### 3. Tests
+
+```text
+brew.sh
+├── ya pkg install (both OSes) ............ stub ok → info lines; stub fail → 1 warning, run success   [U1]
+├── run.end yazi_pins null (macOS, no yazi change) ...........................................          [U1]
+└── yazi_pins_after_upgrade (Linux)
+    ├── changes name yazi → bump runs, outcome logged ........................................        [U4]
+    ├── marker only → bump runs .........................................................            [U4]
+    ├── neither → no bump ...................................................................         [U4]
+    ├── waiting/failed → warning event, marker kept; bumped/not-needed → marker cleared .......        [U4]
+    └── malformed outcome line → failed/bad-output ............................................       [U4]
+yazi-pins.sh
+├── not-needed / waiting / check-failed ......................................................        [U3]
+├── bumped: branch in bare repo with ya's revs and hashes, PR, green rollup, merge pinned to head .   [U3]
+├── ci-failed / ci-timeout ...................................................................        [U3]
+├── open earlier PR: green → merged; red → pr-open ...........................................        [U3]
+└── current rev newer than candidate → kept (no backwards move) ..............................        [U3]
+yazi-check
+├── pane verdict: failed tasks / N left / no sign / ok (#399 captures) ...........................    [U2]
+└── live tmux run ............................................................ U6 only (needs yazi)
+end to end against a throwaway base on GitHub ..................................................     [U6]
+```
+
+Every new case is observed failing before its code exists. No existing behavior changes besides the added field, and
+`_assert_run_log` checks only the shared fields, so no existing test needs a regression case.
+
+### 4. Performance
+
+`ya pkg install` re-fetches every package each run: about 40 s a day on each host [measured]. The bump costs one
+scratch install (1-3 min) plus CI (about 1.5 min) [measured], only on runs that upgrade yazi or retry. Both are fine for
+a daily background job.
+
+### Failure modes
+
+| Failure | Handling | Outcome |
+| --- | --- | --- |
+| GitHub API or clone unreachable | no PR | `failed` (`upstream-unreachable` / `git-failed`), marker kept |
+| scratch `ya pkg install` fails | no PR | `failed` (`hash-failed`), marker kept |
+| check fails | no PR | `waiting` when newer upstream commits exist, else `failed` (`check-failed`) |
+| `gh pr create` fails after the push | branch left, dated name frees tomorrow's | `failed` (`gh-failed`) |
+| CI red | PR left open | `failed` (`ci-failed`), resumed or reported `pr-open` next run |
+| CI slower than the cap | PR left open | `failed` (`ci-timeout`), resumed next run (E2) |
+| unit start timeout kills the run | `run.end` reason `script-error` from the trap | marker kept, retried |
+
+Failure modes: 0 critical gaps flagged.
+
+### Outside voice
+
+Skipped: the slot runs unattended and `/compound-engineering:ce-doc-review` gives this plan an independent pass next.
+
+### NOT in scope
+
+Pulling `~/dotfiles` after a merge (D7, open). Changing the unit, timer, or LaunchAgent. Pins for plugins
+`package.toml` does not list.
+
+### Worktree parallelization
+
+Sequential: U1-U5 touch the same two library files and one suite, and U6 needs them all.
+
+### Unresolved decisions
+
+- D7 (pull after merge) is open with `rex-linux`; the plan follows option A until it answers.
+
+### Completion summary
+
+Scope accepted as-is; 4 findings in Sections 1-4 (1 critical, 3 informational), all accepted and applied to the plan;
+0 critical gaps in failure modes; premise table unverified=0.
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | not run | — |
+| Outside Review | none | Independent 2nd opinion | 0 | skipped (unattended) | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | ISSUES OPEN | 4 issues, 0 critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | not run | — |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | not run | — |
+
+- **OUTSIDE COVERAGE:** outside voice skipped in this unattended run; no external provider ran.
+- **VERDICT:** Eng Review ran with all 4 findings accepted and applied; one decision (D7) stays open with `rex-linux`.
+
+**UNRESOLVED DECISIONS:**
+
+- D7: whether the bump job pulls `~/dotfiles` after a merge (open with `rex-linux`, plan follows option A)
