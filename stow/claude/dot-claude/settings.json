@@ -794,5 +794,10 @@
   "skipDangerousModePermissionPrompt": true,
   "crossSessionInbound": "accept",
   "agentPushNotifEnabled": true,
-  "autoContinueAtUsageLimit": false
+  "autoContinueAtUsageLimit": false,
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "xhigh"
+    }
+  }
 }
