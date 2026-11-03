@@ -69,7 +69,7 @@ orphan_probe() {
     "  echo \"\$watchdog\" >'$BATS_TEST_TMPDIR/watchdog.pid'" \
     '  kill -KILL "$shell"' \
     '  wait "$shell" 2>/dev/null || true' \
-    "  { ls -l /proc/\$watchdog/fd; cut -d' ' -f1-8 /proc/\$watchdog/stat; tr '\\0' '\\n' </proc/\$watchdog/environ | grep -E '^BATS_TEST_TIMEOUT='; } >'$BATS_TEST_TMPDIR/watchdog.diag' 2>&1" \
+    "  { cut -d' ' -f1-8 /proc/\$watchdog/stat; tr '\\0' '\\n' </proc/\$watchdog/environ | grep -E '^BATS_(TEST_TIMEOUT|killer_pid)='; } >'$BATS_TEST_TMPDIR/watchdog.diag' 2>&1" \
     '}' >"$1"
 }
 
@@ -98,9 +98,8 @@ orphan_probe() {
 
 @test "run-tests stops a timeout watchdog its countdown shell left running, without failing the run" {
   orphan_probe "$CWD/orphan.bats"
-  # The watchdog closes descriptors 0 to 255 only, so one above that, open in the caller, stays open in its sleep.
-  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=37 run --separate-stderr \
-    bash -c 'exec 300</dev/null && exec "$@"' _ "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/orphan.bats"
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=37 \
+    run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/orphan.bats"
   printf '%s\n' "$output" "$stderr"
   cat "$BATS_TEST_TMPDIR/watchdog.diag" 2>/dev/null || true
   [ "$status" -eq 0 ]
@@ -111,8 +110,9 @@ orphan_probe() {
   [ -z "$(tr -d '\0' <"/proc/$watchdog/cmdline" 2>/dev/null)" ]
 }
 
-@test "run-tests still fails a leaked sleep of the time limit whose output goes to a file" {
-  printf '%s\n' '@test "leak" { sleep 37 </dev/null >"$BATS_TEST_TMPDIR/leak.out" 2>&1 3>&- & }' >"$CWD/leaky.bats"
+@test "run-tests still fails a leaked sleep of the time limit whose descriptors match the watchdog's" {
+  # Closed descriptors and stdio on /dev/null are what the watchdog's sleep has on GitHub's runners.
+  printf '%s\n' '@test "leak" {' '  (eval exec {3..255}">&-"; exec sleep 37 </dev/null >/dev/null 2>&1) &' '}' >"$CWD/leaky.bats"
   LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=37 \
     run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/leaky.bats"
   [ "$status" -eq 1 ]
