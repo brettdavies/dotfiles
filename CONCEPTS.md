@@ -471,6 +471,19 @@ still is one, and a tab whose client detached is not. The new-agent key opens on
 session has none, and starts a slot once it does. After a Rex restart, rexurrect brings a prime tab back as a plain
 shell, and the *start-up step* makes it the prime again by running the key's prime command in it.
 
+### New-agent key
+
+The Rex key that opens a tab in the session its context names, normally the one the operator is in, and makes it that
+repo's *prime tab*, a new *agent slot*'s tab, or, in a session named after no repo, a picker that launches the chosen
+repo's slot in that repo's session.
+
+The tab starts nothing until a Rex app *shows* it, because Rex.app can hand the key the context of a pane in another
+session, even on another host, where nobody would see the tab; a tab never shown asks for Enter, goes on if it comes,
+and otherwise closes itself. A tab counts as shown once some Rex client has asked the server for a size for its
+terminal, which an app does only for the panes it lays out on screen. The session's active window is never taken as that
+sign: Rex.app can show a tab without the active window moving to it in time, and a tab that opens alone in a session
+becomes its active window with nobody looking.
+
 ### Slot reconcile
 
 The pass that makes the headless host's Rex tabs match its live slots: it resumes dormant slots, opens a tab for each
