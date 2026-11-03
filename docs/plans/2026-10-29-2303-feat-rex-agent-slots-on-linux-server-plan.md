@@ -788,6 +788,13 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
     failure is `server-unreachable`, and `attach`, `follow`, `restore --by`, and `restore --wait-server` exit with
     `wrong-host` before calling `rex`, `agent-slot`, or ssh. `tests/lib/agent-slot-rex.bash` stubs `uname` as Linux
     by default and only the macOS suite overrides it, so the suites still pass in the Mac's pre-push.
+  - A forwarded argument reaches the server's login shell as one literal word, a leading `=` included, and with
+    `--output json` the forward allocates no terminal, so the server's error object stays on stderr.
+  - A `finish` or `sweep` whose teardown succeeded but whose reconcile then fails reports the failure with partial side
+    effects, naming what was torn down and `agent-slot-rex restore`.
+  - `attach` waits out a tmux server that does not answer instead of resuming the slot, and doctor reports that server
+    as `tmux-unresponsive`; doctor names no foreign Rex server when the user manager cannot report the unit's `MainPID`,
+    and hands agent-slot's doctor the runtime directory too.
   - Every reason the helper can emit is in `CONTRACT_REASONS` and the README's reasons table.
   - The settings file holds `Bash(agent-slot-rex finish *)` and `Bash(agent-slot-rex sweep *)` among its ask rules.
   - Overriding one setting changes only that value, and no library outside `settings.sh` names a host (text check).
