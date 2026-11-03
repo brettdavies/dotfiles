@@ -175,17 +175,22 @@ launch_call() {
   done
 }
 
-# Returns once the app that pressed the key shows this tab: its queued selection makes the tab the session's active
-# window. Rex.app gives a key pressed in a session with no tabs the context of the pane it last focused, so the tab can
-# open in another session, even on another host, where nobody sees it and its select fails. Such a tab starts nothing:
-# it asks for Enter, in case the app showed it without moving the active window, and closes itself unanswered.
+# True once a client has asked the server for a size for this tab's terminal. Rex.app asks one for each pane it lays
+# out on screen, so only for a tab it shows; its reads of a background tab's title, status, and output ask none. The
+# session's active window is no such sign: Rex.app has shown a tab it selected without moving it.
+launch_shown() {
+  rex_run block call -s "$REX_SESSION" -b "$REX_BLOCK" size \
+    && contract_json -e '(.desired // []) | length > 0' <<<"$REX_OUT" >/dev/null
+}
+
+# Returns once an app shows this tab. Rex.app gives a key pressed in a session with no tabs the context of the pane it
+# last focused, so the tab can open in another session, even on another host, where nobody sees it and its select
+# fails. Such a tab starts nothing: it asks for Enter, in case an app showed it without asking a size, and closes itself
+# unanswered.
 launch_wait_shown() {
   local deadline=$((SECONDS + AR_SHOWN_WAIT)) key
   while true; do
-    if rex_run session inspect "$REX_SESSION" --json \
-      && [[ $(contract_json -r '.active_window_id // ""' <<<"$REX_OUT") == "$LAUNCH_WINDOW" ]]; then
-      return 0
-    fi
+    launch_shown && return 0
     ((SECONDS < deadline)) || break
     sleep 0.25
   done

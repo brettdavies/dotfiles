@@ -383,10 +383,12 @@ On the Mac:
 - **Any other session, every session on the Mac included.** The tab asks which repo to use, and the agent's tab opens in
   the background in that repo's session on the Linux server.
 
-The tab waits up to `AGENT_SLOT_REX_SHOWN_WAIT` seconds (5) for Rex.app to show it before it does anything. In a session
-with no tabs, Rex.app hands the key the session of the pane it last focused, which can be another session on another
-host, where nobody sees the tab. Such a tab starts nothing, asks for Enter, and closes itself after
-`AGENT_SLOT_REX_SHOWN_HOLD` seconds (60). In a session with no tabs, open one with `cmd+t` first, then press the key.
+The tab waits up to `AGENT_SLOT_REX_SHOWN_WAIT` seconds (10) for Rex.app to show it before it does anything. It reads
+"shown" from the terminal size the app asks for each pane it lays out on screen, never from the session's active window,
+which Rex.app does not always move to a tab it shows. In a session with no tabs, Rex.app hands the key the session of
+the pane it last focused, which can be another session on another host, where nobody sees the tab. Such a tab starts
+nothing, asks for Enter, and closes itself after `AGENT_SLOT_REX_SHOWN_HOLD` seconds (60). In a session with no tabs,
+open one with `cmd+t` first, then press the key.
 
 On the Linux server every tab's label starts with its position in its session, `<n>:`, which `rex-tab-numbers.service`
 keeps current as tabs open, close, and move; the slot helper matches and relabels tabs past that number and never writes
