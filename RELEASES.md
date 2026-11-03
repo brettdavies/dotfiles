@@ -434,10 +434,13 @@ Rotate via `op read "op://secrets-dev/dotfiles_RELEASE_TOKEN/credential" | gh se
 **`generate-changelog.py` errors with "could not detect version":** Run it from a `release/YYYY.MM.DD` branch, or pass
 `--tag YYYY.MM.DD` explicitly. Confirm detection without a full run via `scripts/generate-changelog.py --print-tag`.
 
-**`--from-dev-prs` lists PRs that already shipped, or misses recent ones:** The window starts at the earlier of the
-previous release tag's commit time and the previous `release/*` PR's creation time, and PR numbers the changelog already
-lists are dropped. Check `gh pr list --base dev --state merged --search "merged:>=<timestamp>"` against the section, and
-fix the previous section on `main` (via a backport) if it is what is stale.
+**`--from-dev-prs` lists PRs that already shipped, or misses recent ones:** The window opens at the previous release's
+backport commit on `dev` (`chore(release): sync dev after <tag>`), or at the previous tag when there is none. PRs merged
+after the previous cut but before that backport are carried over, and PR numbers the changelog already lists are
+dropped. Find the boundary with
+`git log origin/dev --format='%h %s' | grep -E '^[0-9a-f]+ chore\(release\): (sync dev after|backport) '`, list what
+follows it with `git log <boundary>..origin/dev --format='%s'`, and compare that against the section. Fix the previous
+section on `main` (via a backport) if it is what is stale.
 
 **Empty changelog sections:** Ensure `cliff.toml` has `[remote.github]` with `owner` and `repo` for PR-body expansion,
 and that `gh auth status` succeeds (the script reads `GITHUB_TOKEN` when set and falls back to `gh auth token`).

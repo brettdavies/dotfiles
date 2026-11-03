@@ -140,10 +140,12 @@ or already on `main` via a prior squash, it's a false positive.
 only sanctioned way to update `CHANGELOG.md`. On the overlay-built release branch it runs as `--from-dev-prs`: the PRs
 merged into `dev` since the previous release are the entries, and each PR's body supplies its
 `## Changelog → ### Breaking changes / Added / Changed / Deprecated / Fixed / Documentation` subsections (with author
-and PR-link attribution). The window starts at the earlier of the previous tag's commit time and the previous
-`release/*` PR's creation time, and PR numbers the changelog already lists are dropped, so a PR merged between the
-previous cut and its tag is neither lost nor doubled. On a cherry-picked branch it runs `git-cliff` first to prepend a
-versioned entry from the branch's commits, then expands the same way.
+and PR-link attribution). The window opens at the previous release's backport commit on `dev`
+(`chore(release): sync dev after <tag>`), or at the previous tag when that release was never synced back. The PRs merged
+after the previous cut but before its backport are carried over, and PR numbers the changelog already lists are dropped,
+so such a PR is neither lost nor doubled. The PR numbers come from the `(#N)` in `dev`'s squash subjects, not from a
+`gh pr list` query. On a cherry-picked branch it runs `git-cliff` first to prepend a versioned entry from the branch's
+commits, then expands the same way.
 
 If a PR's body carries no changelog content, its title becomes a `Changed` bullet, except for `chore`, `ci`, `build`,
 `style`, and `test` PRs, which stay out unless they carry a `## Changelog` of their own. To fix a wrong entry, fix the
