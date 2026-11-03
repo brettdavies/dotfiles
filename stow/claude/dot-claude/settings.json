@@ -348,6 +348,8 @@
       "Bash(agent-slot finish *)",
       "Bash(agent-slot reopen *)",
       "Bash(agent-slot sweep *)",
+      "Bash(agent-slot-rex finish *)",
+      "Bash(agent-slot-rex sweep *)",
       "Bash(apt:*)",
       "Bash(docker:*)",
       "Bash(gh pr close *)",
