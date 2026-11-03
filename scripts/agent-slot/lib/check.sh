@@ -373,7 +373,7 @@ _check_fetch_push_remotes() {
   CHECK_PUSH_REMOTES=()
   while read -r remote; do
     [[ -n $remote ]] || continue
-    if bounded out fetch 120 /usr/bin/env GIT_SSH_COMMAND='ssh -o BatchMode=yes' GIT_TERMINAL_PROMPT=0 \
+    if bounded out fetch 120 "${AS_GIT_REMOTE[@]}" \
       git -C "$1" fetch -q --no-tags --prune "$remote" "+refs/heads/*:refs/agent-slot/remotes/$remote/*"; then
       CHECK_PUSH_REMOTES+=("$remote")
     else
@@ -456,7 +456,7 @@ check_slot() {
     while read -r number; do
       [[ -n $number ]] && refspecs+=("+refs/pull/$number/head:refs/agent-slot/pr/$number")
     done < <(contract_json -r '.[].number' <<<"$prs")
-    if ! bounded out fetch 120 /usr/bin/env GIT_SSH_COMMAND='ssh -o BatchMode=yes' GIT_TERMINAL_PROMPT=0 \
+    if ! bounded out fetch 120 "${AS_GIT_REMOTE[@]}" \
       git -C "$path" fetch -q --no-tags --prune origin "${refspecs[@]}"; then
       _check_block git-state-unknown "git fetch from origin failed (log: $BOUNDED_LOG)"
     fi

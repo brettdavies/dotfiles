@@ -134,6 +134,6 @@ _head_git() {
 _head_bounded() {
   local var=$1 label=$2 secs=$3 slot=$4
   shift 4
-  bounded "$var" "$label" "$secs" /usr/bin/env GIT_SSH_COMMAND='ssh -o BatchMode=yes' GIT_TERMINAL_PROMPT=0 \
+  bounded "$var" "$label" "$secs" "${AS_GIT_REMOTE[@]}" \
     git -C "$slot" "$@"
 }

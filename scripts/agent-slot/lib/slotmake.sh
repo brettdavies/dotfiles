@@ -105,10 +105,11 @@ slot_make() {
 
   t_start=$(_slot_us)
   contract_use_tools git
+  parity_solutions_fetch_start
   # A partial prime lacks blobs its refs reach, so origin's thin pack can hold deltas against bases the reference cannot
   # supply. Cloning with the prime's own filter leaves those blobs out of the pack, as they are out of the prime.
   filter=$(git -C "$REPO_PRIME" config --get remote.origin.partialclonefilter || true)
-  if ! bounded out clone 900 /usr/bin/env GIT_SSH_COMMAND='ssh -o BatchMode=yes' GIT_TERMINAL_PROMPT=0 \
+  if ! bounded out clone 900 "${AS_GIT_REMOTE[@]}" \
     git clone -q --reference-if-able "$REPO_PRIME" --dissociate ${filter:+"--filter=$filter"} "$REPO_ORIGIN" "$path"; then
     contract_fail clone-failed "git clone of $REPO_ORIGIN failed" --value "$REPO_ORIGIN" --side-effects none \
       --command "$retry" --log "$BOUNDED_LOG"
@@ -120,7 +121,7 @@ slot_make() {
   parity_base "$path"
   # In a partial clone the checkout fetches the base's blobs from origin, so it is bounded as the clone is.
   if [[ $(git -C "$path" symbolic-ref --short HEAD) != "$PARITY_BASE" ]] \
-    && ! bounded out checkout 900 /usr/bin/env GIT_SSH_COMMAND='ssh -o BatchMode=yes' GIT_TERMINAL_PROMPT=0 \
+    && ! bounded out checkout 900 "${AS_GIT_REMOTE[@]}" \
       git -C "$path" checkout -q -B "$PARITY_BASE" "origin/$PARITY_BASE"; then
     contract_fail clone-failed "checking out $PARITY_BASE in the new clone failed" --value "$PARITY_BASE" \
       --side-effects none --command "$retry" --log "$BOUNDED_LOG"

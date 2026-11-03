@@ -77,6 +77,28 @@ parity_hooks() {
   git -C "$slot" config core.hooksPath "${real#"$prime_real"/}"
 }
 
+# The shared solutions repo's fetch of origin/main, best effort, in the background: the slot maker starts it with its
+# clone, since both wait on the network and neither needs the other. parity_solutions waits for it, and so does the exit
+# of a command that stops first, so no fetch outlives the command that started it. As in bounded, the child closes the
+# lock descriptors.
+PARITY_SOLUTIONS_FETCH=
+parity_solutions_fetch_start() {
+  local fd
+  [[ -d $AS_SOLUTIONS ]] || return 0
+  (
+    for fd in "${RECORD_LOCK_FDS[@]}"; do exec {fd}>&-; done
+    exec timeout --kill-after=2 30 "${AS_GIT_REMOTE[@]}" git -C "$AS_SOLUTIONS" fetch -q origin main
+  ) </dev/null >/dev/null 2>&1 &
+  PARITY_SOLUTIONS_FETCH=$!
+  contract_on_exit parity_solutions_fetch_wait
+}
+
+parity_solutions_fetch_wait() {
+  [[ -n $PARITY_SOLUTIONS_FETCH ]] || return 0
+  wait "$PARITY_SOLUTIONS_FETCH" 2>/dev/null || true
+  PARITY_SOLUTIONS_FETCH=
+}
+
 # Usage: parity_solutions <repo> <n> <slot>
 # Gives the slot its own detached worktree of the shared solutions repo at origin/main, records it as the record's
 # solutions_worktree before it exists so a rollback can always find it, and links docs/solutions to it: the slot's agent
@@ -94,8 +116,8 @@ parity_solutions() {
       --value "$link" --command "git -C $slot ls-files docs/solutions" --side-effects none
   fi
   git -C "$AS_SOLUTIONS" worktree prune 2>/dev/null || true
-  bounded out solutions-fetch 30 /usr/bin/env GIT_SSH_COMMAND='ssh -o BatchMode=yes' GIT_TERMINAL_PROMPT=0 \
-    git -C "$AS_SOLUTIONS" fetch -q origin main || rm -f "$BOUNDED_LOG"
+  [[ -n $PARITY_SOLUTIONS_FETCH ]] || parity_solutions_fetch_start
+  parity_solutions_fetch_wait
   if ! git -C "$AS_SOLUTIONS" rev-parse -q --verify refs/remotes/origin/main >/dev/null 2>&1; then
     contract_fail solutions-symlink-missing \
       "the shared solutions repo at $AS_SOLUTIONS has no origin/main to make the slot's worktree from" \

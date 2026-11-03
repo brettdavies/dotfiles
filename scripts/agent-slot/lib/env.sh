@@ -46,7 +46,7 @@ agent_slot_env() {
   AS_RELEASE_REMIND=${AGENT_SLOT_RELEASE_REMIND:-1800}
 
   declare -gA AS_TOOL=() CONTRACT_TOOL_PATHS
-  for tool in tmux claude gh git-crypt git flock timeout trash systemctl systemd-run find; do
+  for tool in tmux claude gh git-crypt git flock timeout trash systemctl systemd-run find ssh; do
     override=AGENT_SLOT_${tool^^}
     override=${override//-/_}
     AS_TOOL[$tool]=${!override:-$(command -v "$tool" || true)}
@@ -54,6 +54,14 @@ agent_slot_env() {
     CONTRACT_TOOL_PATHS[$tool]=${AS_TOOL[$tool]:-$tool}
     printf -v "AS_${override#AGENT_SLOT_}" '%s' "${AS_TOOL[$tool]}"
   done
+
+  # The command every git call that reaches a remote runs under: no prompt, ssh in batch mode, and /bin/sh as $SHELL.
+  # ssh runs each Match exec line of its config with $SHELL, and the account's zsh reads the whole profile for each one:
+  # 0.37 s per connection on the Linux server against 0.01 s with /bin/sh. SHELL is set for git rather than inside
+  # GIT_SSH_COMMAND, because git picks its ssh flavour from that command's first word.
+  local ssh_command
+  printf -v ssh_command '%q -o BatchMode=yes' "${AS_SSH:-ssh}"
+  AS_GIT_REMOTE=(/usr/bin/env SHELL=/bin/sh "GIT_SSH_COMMAND=$ssh_command" GIT_TERMINAL_PROMPT=0)
 
   CONTRACT_REPO=$AS_HOME
   CONTRACT_LOG_DIR=$AS_LOG_DIR

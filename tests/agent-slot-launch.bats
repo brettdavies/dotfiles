@@ -512,6 +512,48 @@ assert_own_worktree() {
   grep -qx repoa-2 "$STUBS/tmux-sessions"
 }
 
+# ssh_origins [SLOW]: points the prime's origin and the solutions repo's origin at ssh URLs served by an ssh stub, which
+# runs the remote git command against the bare repo on this host. Each call logs its start and end times, the $SHELL it
+# was given, and its argv to $STUBS/ssh.log; a call whose command names SLOW takes a second longer, as a remote does.
+ssh_origins() {
+  cat >"$STUBS/ssh" <<EOF
+#!/usr/bin/env bash
+cmd=\${!#}
+printf '%s start SHELL=%s %s\n' "\$EPOCHREALTIME" "\${SHELL-}" "\$*" >>'$STUBS/ssh.log'
+[[ -z '${1:-}' || \$cmd != *'${1:-}'* ]] || sleep 1
+sh -c "\$cmd"
+rc=\$?
+printf '%s end %s\n' "\$EPOCHREALTIME" "\$cmd" >>'$STUBS/ssh.log'
+exit \$rc
+EOF
+  chmod +x "$STUBS/ssh"
+  export AGENT_SLOT_SSH=$STUBS/ssh
+  git -C "$AGENT_SLOT_DEV/repoa" remote set-url origin "ssh://example.invalid$T/origins/repoa.git"
+  git -C "$AGENT_SLOT_SOLUTIONS" remote set-url origin "ssh://example.invalid$T/solutions-origin.git"
+}
+
+@test "every git call that reaches a remote runs ssh in batch mode, with /bin/sh for the ssh config's Match exec lines" {
+  ssh_origins
+  launch repoa --request-id r-ssh
+  [ "$status" -eq 0 ]
+  [ "$(grep -c ' start ' "$STUBS/ssh.log")" -eq 2 ]
+  grep ' start .*repoa.git' "$STUBS/ssh.log"
+  grep ' start .*solutions-origin.git' "$STUBS/ssh.log"
+  run grep -v ' start SHELL=/bin/sh -o BatchMode=yes ' <(grep ' start ' "$STUBS/ssh.log")
+  [ "$status" -eq 1 ]
+}
+
+@test "the solutions repo's fetch runs while the clone does, since both wait on the network" {
+  local clone_end fetch_start
+  ssh_origins repoa.git
+  launch repoa --request-id r-overlap
+  [ "$status" -eq 0 ]
+  clone_end=$(awk '$2 == "end" && /repoa.git/ { print $1; exit }' "$STUBS/ssh.log")
+  fetch_start=$(awk '$2 == "start" && /solutions-origin.git/ { print $1; exit }' "$STUBS/ssh.log")
+  [ -n "$clone_end" ] && [ -n "$fetch_start" ]
+  awk -v f="$fetch_start" -v c="$clone_end" 'BEGIN { exit !(f < c) }'
+}
+
 @test "the launch's ledger line carries requested_at, each phase's duration, and the schema" {
   launch repoa --request-id r-ledger --requested-at 1793000000.5
   [ "$status" -eq 0 ]
