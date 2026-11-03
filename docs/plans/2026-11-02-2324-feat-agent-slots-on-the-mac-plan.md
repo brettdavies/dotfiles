@@ -27,10 +27,11 @@ execution: code
   the hand-run checklist (U11). The work ships as six dotfiles PRs in a line, plus one in agent-skills (Implementation
   Units).
 - **Stop conditions:** Stop and bring the finding to the operator when U1 shows a Claude in the launchd-held slot tmux
-  server unable to read its credentials; a Mac slot's commit, or a scheduled pass's `git fetch`, stopping at a 1Password
-  prompt; no Rex event that reports a session closing; a stopping Rex server emitting closes while it still answers as
-  the same instance; or the Mac's process reader missing a process `/proc` would have named. Also stop when any teardown
-  test shows a deletion the check should have blocked.
+  server unable to read its credentials; a gui-domain kickstart refused from an ssh shell while a GUI login exists; a
+  Mac slot's commit, or a scheduled pass's `git fetch`, stopping at a 1Password prompt, locked or not; no Rex event that
+  reports a session closing; a stopping Rex server emitting closes while it still answers as the same instance; or the
+  Mac's process reader missing a process `/proc` would have named. Also stop when any teardown test shows a deletion the
+  check should have blocked.
 - **Who finishes:** `ce-work` executes U1 through U10 on `feat/` branches cut from `dev` in dotfiles and opens the PRs;
   U1 runs over ssh on the Mac while it is awake. U8 and U9 start once the cutover's U7 (rexurrect v0.3.0 from dotfiles,
   on or after 2026-11-07) has merged. The operator runs U11 on both machines before the docs PR merges, and a matching
@@ -78,8 +79,8 @@ otherwise whenever the restart came before the next autosave.
 
 - **Each machine runs the whole slot layer for its own sessions.** (session-settled: user-directed — chosen over Rex.app
   being only a client into the Linux server, the direction the cutover was built on: "agent slot needs to run on the
-  mac. exact same dev process on both mac and bigdaddy. mac rex will connect to mac tmux sessions", 2026-11-02.) Governs
-  R1 through R9.
+  mac. exact same dev process on both mac and [the Linux server]. mac rex will connect to mac tmux sessions",
+  2026-11-02; the bracket replaces the server's hostname.) Governs R1 through R9.
 - **The Linux server keeps everything it has.** (session-settled: user-directed — chosen over the Mac taking over any of
   the server's work: the brief that carries Brett's statements frames the Mac capability as an extension, and asks that
   anything taking from the server be confirmed first.) Governs R22, R23.
@@ -87,13 +88,13 @@ otherwise whenever the restart came before the next autosave.
   opens lands in the focused session and runs on that host, so doing all of an action's work in such a pane makes every
   key host-relative without knowing which host it is on. A Mac shell's helper then acts on the Mac, and the ssh
   forwarder the cutover added (its KTD1) retires. (session-settled: user-approved — chosen over keeping the forwarder
-  for Mac shells: a key in a Mac session and a Mac shell's helper act on the Mac, `ssh bigdaddy agent-slot-rex …` is the
+  for Mac shells: a key in a Mac session and a Mac shell's helper act on the Mac, `ssh <server> agent-slot-rex …` is the
   explicit route to the server, and nothing on the server changes; Brett through `rex-linux`, 2026-11-02.) Governs R10,
   R11.
 - **The new-agent key behaves per Brett's spec on both machines.** (session-settled: user-directed — chosen over the
   cutover's key, which always started a slot: the spec of 2026-11-02 for sessions on both servers, "sessions on mac
-  should connect to local mac repos, not bigdaddy repos".) Governs R12 through R15. Conflict: in a session with no tabs,
-  Rex.app hands an action the last-focused pane's session, which can be another session on either machine
+  should connect to local mac repos, not [the Linux server's] repos".) Governs R12 through R15. Conflict: in a session
+  with no tabs, Rex.app hands an action the last-focused pane's session, which can be another session on either machine
   (`docs/solutions/integration-issues/rex-app-gives-an-action-in-a-session-with-no-tabs-the-last-focused-panes-context.md`),
   so R12's no-tabs case holds only where Rex.app hands over the empty session itself. Until it does, a session with no
   tabs gets its prime when the operator opens a tab first, which R13 turns into the prime, and a press in an empty
@@ -206,7 +207,8 @@ flowchart TB
 ### Key Flows
 
 - F1. A new agent in a Mac session
-  - **Trigger:** The operator presses the new-agent key in the Mac session `dotfiles`, which has no tabs.
+  - **Trigger:** The operator presses the new-agent key in the Mac session `dotfiles`, which holds only a plain shell
+    tab.
   - **Actors:** A1, A4
   - **Steps:** The tab opens in the Mac session, becomes the prime tab attached to the Mac's `dotfiles` tmux session,
     and moves to first. A second press starts slot `dotfiles/1` on the Mac, whose tab appears in the same session.
@@ -301,8 +303,12 @@ flowchart TB
 
 - A dark-wake gate on the reconcile: a pass with no network changes tabs correctly or not at all, and the next pass
   after wake converges. Only the sweep, which types into agents, runs behind a network check (KTD5).
-- A doctor check that names a locked 1Password: a locked agent makes the sweep's `git fetch` fail, which already keeps
-  the slot with `git-state-unknown`. Revisit if U1 shows 1Password prompting rather than failing.
+- A doctor check that names a locked 1Password: U1 measures whether a locked 1Password makes the sweep's `git fetch` and
+  a slot's signed commit fail at once, which keeps the slot with `git-state-unknown`, or wait on an unlock prompt, which
+  is a stop condition. Revisit if U1 records a wait.
+- A doctor finding for a rexurrect LaunchAgent dotfiles does not own: U9 boots out the one hand-installed agent, and the
+  deploy refuses while it is loaded, so the finding would guard a one-time migration; a reinstalled agent shows as
+  doubled saves and is cheap to boot out. Revisit if one comes back.
 - Reloading the Rex config from the restow-on-pull hook: until a reload, a host runs its old actions against the new
   helper, which in this rollout only acts on the wrong machine's tabs or fails on an unknown session; the deploy's own
   reload ends it, and U10 says to run it on both machines after PR 3. Revisit if a later change to the actions does harm
@@ -353,7 +359,7 @@ This plan covers the Mac's slot layer, host-relative keys, and close-triggered s
 below is the current understanding, not a committed roadmap.
 
 - The Linux-server cutover (`docs/plans/2026-10-29-2303-feat-rex-agent-slots-on-linux-server-plan.md`): this plan
-  depends on it and changes only its Mac-side decisions (R2, R18, KTD1's forwarder).
+  depends on it and changes only its Mac-side decisions (the cutover's R2 and R18, and its KTD1 forwarder).
   - The new-agent key for Linux-server sessions (#413): this plan depends on it and extends it to the Mac.
   - rexurrect from dotfiles (cutover U7): this plan shares it and extends it to the Mac.
 - The close-triggered save and the empty state: can proceed independently of Mac slots, and helps the Linux server on
@@ -385,12 +391,12 @@ below is the current understanding, not a committed roadmap.
 
 ## Planning Contract
 
-**Product Contract preservation:** changed: AE1, AE8, AE9 — AE1's setup moves from a session with no tabs to one holding
-a plain tab, because Rex.app cannot hand an action a session with no tabs (the conflict call-out on the new-agent Key
-Decision); AE8 names a holder the Mac's reader can see; AE9 also checks `gh`'s credentials. Otherwise restructured, no
-scope change: Outstanding Questions' deferred item is answered by KTD3, KTD4, KTD5, and U1, and its place holds the one
-execution-time question left (signing); Scope Boundaries gains a Considered and not built list; the Goal Capsule gains
-its execution profile, stop conditions, and who finishes.
+**Product Contract preservation:** changed: AE1, F1, AE8, AE9 — AE1's and F1's setup moves from a session with no tabs
+to one holding a plain tab, because Rex.app cannot hand an action a session with no tabs (the conflict call-out on the
+new-agent Key Decision); AE8 names a holder the Mac's reader can see; AE9 also checks `gh`'s credentials. Otherwise
+restructured, no scope change: Outstanding Questions' deferred item is answered by KTD3, KTD4, KTD5, and U1, and its
+place holds the one execution-time question left (signing); Scope Boundaries gains a Considered and not built list; the
+Goal Capsule gains its execution profile, stop conditions, and who finishes.
 
 ### Key Technical Decisions
 
@@ -469,8 +475,12 @@ its execution profile, stop conditions, and who finishes.
 - KTD7. **The rex package ships the same files to both machines.** `slot-startup.lua`, `tab-numbers.lua`, and the new
   `save-on-close.lua` link on the Mac too: `scripts/stow-deploy` drops its macOS `--ignore`, and `init.lua` requires the
   start-up module on every host, so the Mac's own `rexurrect auto-restore` line goes and both machines restore in the
-  start-up step's order (cutover KTD4). The Mac's helper finds the CLI at
-  `~/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex`,
+  start-up step's order (cutover KTD4). The Mac switches to the start-up step only in U9, together with the pinned
+  rexurrect it drives: until then the Mac keeps its own `auto-restore` line against the hand-installed build, and its
+  slot tabs come from the minute reconcile, whose start-up gate waits out the limit rather than racing that restore. The
+  start-up step runs only under a parent whose command holds `rex server run` (`scripts/agent-slot-rex/lib/startup.sh`);
+  U1 reads Rex.app's server command, and U9 widens that test to match it if it differs. The Mac's helper finds the CLI
+  at `~/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex`,
   whose `Current` link follows the server Rex.app installs, then in the app bundle, the candidates `scripts/stow-deploy`
   already reloads the config through. The Mac's LaunchAgents name the first path, and a test holds them, `settings.sh`,
   and `stow-deploy` to one text. Every Mac job passes `--autostart=false`, so none starts a Rex server in place of
@@ -505,15 +515,18 @@ its execution profile, stop conditions, and who finishes.
   latest snapshot, the next start's rexurrect restores nothing and records the instance, so later saves start fresh
   (rexurrect v0.3.0 `src/store.rs`, `src/restore.rs`), and every snapshot stays restorable with
   `rexurrect restore --snapshot <id>`. The autosave, a save run by hand, and an instance whose start-up shows rexurrect
-  `failed`, `stopped`, or `skipped` never record it. The `nothing to save` wording is pinned with the rexurrect version
-  in `scripts/agent-slot/verified-versions`, so an upgrade that rewords it skips the step and doctor warns, rather than
+  `failed`, `stopped`, or `skipped` never record it. A logout or restart can end the Mac's Rex server and the close-save
+  watcher at once, with no systemd-style ordering between them, so the server may still answer during the second look;
+  `save --watch` and `save --by close` therefore trap TERM and skip the empty-state step once it arrives, and U1
+  measures that case. The `nothing to save` wording is pinned with the rexurrect version in
+  `scripts/agent-slot/verified-versions`, so an upgrade that rewords it skips the step and doctor warns, rather than
   losing the empty state silently. The step goes once
   [cemcatik/rexurrect#93](https://github.com/cemcatik/rexurrect/issues/93) ships an option. The how-level choice
   instantiates the Key Decision that governs R18 and R19. Governs R18, R19.
 - KTD10. **rexurrect reaches the Mac through the same deploy script.** `scripts/rexurrect-deploy.sh` (cutover U7) pins
   the `aarch64-apple-darwin` archive and its binary's checksum beside the Linux pins and picks by `uname -s` and
-  `uname -m`. The Mac's autosave runs `agent-slot-rex save --by timer` from a LaunchAgent every 15 minutes. Every
-  rexurrect call the helper makes, on both machines, passes `REXURRECT_STATE_DIR` set in `settings.sh` to
+  `uname -m`. The Mac's autosave runs `agent-slot-rex save --by timer` from a LaunchAgent every 15 minutes. From U8 on,
+  every rexurrect call the helper makes, on both machines, passes `REXURRECT_STATE_DIR` set in `settings.sh` to
   `${XDG_STATE_HOME:-~/.local/state}/rexurrect`, where the Mac's snapshots already are (its `init.lua` line and the
   hand-installed autosave both pass that directory, read 2026-11-02), so nothing depends on rexurrect's default on
   either OS. The migration runs in this order: boot out `io.github.cemcatik.rexurrect.autosave` and trash the plist that
@@ -521,8 +534,9 @@ its execution profile, stop conditions, and who finishes.
   `rexurrect save` ungated and would race the start-up step once the binary is 0.3.0; replace the hand-installed binary
   the way the cutover's U7 replaces any file at the target that is not the verified one; load the dotfiles autosave;
   then restart the Mac's Rex server once, so the start-up step records the running instance instead of the post-limit
-  pass recording rexurrect `skipped` and pausing saves until Rex.app next restarts. Doctor names any LaunchAgent
-  dotfiles does not own that runs rexurrect, as `rexurrect-autosave-foreign`. Governs R20, R21.
+  pass recording rexurrect `skipped` and pausing saves until Rex.app next restarts. The same unit makes the Mac's switch
+  to the start-up step (KTD7) and loads the Mac's close-save LaunchAgent, so neither runs against the hand-installed
+  build. Governs R20, R21.
 - KTD11. **One prime map, read on each machine against its own tmux.** The map's header names each machine's default
   tmux server, and the key needs nothing more on the Mac once the helper acts locally (KTD6): the key's pane runs the
   Mac's helper, whose repo list holds the Mac's checkouts. Governs R12, R13, R14, R15.
@@ -629,7 +643,7 @@ flowchart TB
 | The cutover's U7 slips past 2026-11-07                                                  | U1 through U7 do not wait on it; U8 and U9 do                                                                                   |
 | A stopping Rex server emits closes, and a close-triggered save records the empty state  | the second look needs the same instance answering 3 s later (KTD9); U1 measures what a stop emits, and it is a stop condition   |
 | A restore whose every attempt failed lets rexurrect's save restore into a filled server | the save gate needs `done`, or `failed` with the instance in `restored-instances` (KTD8)                                        |
-| The hand-installed autosave runs rexurrect 0.3.0 ungated during the migration           | it is booted out before the new binary lands, and doctor names any rexurrect LaunchAgent dotfiles does not own (KTD10)          |
+| The hand-installed autosave runs rexurrect 0.3.0 ungated during the migration           | it is booted out before the new binary lands, and the deploy refuses while it is loaded (KTD10)                                 |
 | A press in a session with no tabs starts another repo's slot on the Mac                 | a documented Rex.app limit (the new-agent Key Decision); the operator opens a tab first                                         |
 | A pass frozen by sleep resumes with its bounds already spent                            | U1 measures `timeout` and `flock -w` across a sleep; a step cut short reports partial side effects, as on Linux                 |
 
@@ -653,7 +667,9 @@ flowchart TB
   today's behavior, the close-triggered save and empty state excepted, which are new there too.
 - Slot agents on the Mac run as the operator inside the login session, so in bypass mode they can reach the login
   Keychain, other apps through automation, and every tab on the Mac's Rex server with `rex send` and `rex send-key`; the
-  README's bypass-mode paragraph says so beside the Linux server's statement.
+  README's bypass-mode paragraph says so beside the Linux server's statement. Because the launchd-held server gives
+  every Mac slot that reach whoever asked for it, anything that can ssh into the Mac as the operator, the Linux server's
+  slot agents included, can start such an agent with `agent-slot launch`; the paragraph names that route too.
 - The Brewfile adds util-linux, findutils, and an unlinked trash-cli on macOS; nothing changes in the operator's
   interactive tools.
 - README.md, BOOTSTRAP.md, AGENTS.md, CONCEPTS.md, and the agent-skills repo's `agent-slot/SKILL.md` change, so the docs
@@ -673,7 +689,7 @@ flowchart TB
 | U6   | Make the Mac's helper act locally                     | `scripts/agent-slot-rex/agent-slot-rex`, `lib/forward.sh`, `lib/settings.sh`, `lib/doctor.sh` | U5             |
 | U7   | Make every key host-relative and share the Rex config | `stow/rex/dot-config/rex/`, `scripts/stow-deploy`, reconcile and tab-number plists            | U6             |
 | U8   | Save on close, and record the empty state             | `save-on-close.lua`, the helper's `save`, `rex-save-on-close.service`                         | U7, cutover U7 |
-| U9   | Bring rexurrect to the Mac from dotfiles              | `scripts/rexurrect-deploy.sh`, autosave plist, `scripts/host-jobs-enable.sh`                  | U8, cutover U7 |
+| U9   | Bring rexurrect and the start-up step to the Mac      | `scripts/rexurrect-deploy.sh`, `init.lua`, autosave and close-save plists                     | U8, cutover U7 |
 | U10  | Document the Mac's slot layer                         | README, BOOTSTRAP, CONCEPTS, AGENTS, the agent-slot skill                                     | U9             |
 | U11  | Run the two-machine checklist                         | none                                                                                          | U1 through U10 |
 
@@ -695,27 +711,39 @@ settings, or the Rex config that an earlier group creates. Stack them with `gh s
   1. Load a scratch LaunchAgent running `tmux -L <scratch> -D`, start a session in it from the ssh shell, and in it run
      a one-word `claude -p` and `gh auth status`; record whether each signs in. Repeat with a tmux server started
      directly from the ssh shell. Record whether the launchd-held server outlives the ssh shell and a scratch interval
-     job that kicked it, and what `launchctl kickstart` reports from an ssh shell when no GUI login exists, if one can
-     be arranged.
+     job that kicked it. From an ssh shell with the operator logged in at the Mac, run `launchctl kickstart` and
+     `launchctl print` on the scratch label and record whether the kick succeeds, since every ssh-started Mac launch
+     depends on it (KTD4); a refusal is a stop condition. Record what the kick reports when no GUI login exists, if that
+     can be arranged.
   2. In that session, make a signed commit in a scratch repo, and from a scratch interval job run `git fetch` over ssh;
-     record whether the 1Password agent prompts for either.
+     record whether the 1Password agent prompts for either. Run both again with the 1Password app locked, by the
+     operator or after its own auto-lock and never by changing its settings, and record whether each fails at once or
+     waits on an unlock prompt, and for how long; a wait is a stop condition.
   3. Time `lsof -nP -F pfn` over every process with the operator's usual apps open, and record its exit codes and
      standard error with and without a match; confirm it lists a scratch process's working directory and an open file
      under a scratch root; confirm `ps -E` shows a scratch child's `TMUX` and `TMUX_PANE`; record `ps -o comm=` against
-     argv[0] for a running Claude. Keep a scrubbed sample of each command's output as a fixture for U2's suite, and
-     record the time of one whole holder scan (both parent reads and the `lsof`), which U2's step 3 compares with 1 s.
-     From an ssh shell, start the trust step's scratch tmux server and record whether Claude shows its trust dialog
-     there.
-  4. Against the scratch Rex server, run a `rex do --all` script that logs every event it hears, then close a tab, a
+     argv[0] for a running Claude. Record the time of one whole holder scan (both parent reads and the `lsof`), which
+     U2's step 3 compares with 1 s. From an ssh shell, start the trust step's scratch tmux server and record whether
+     Claude shows its trust dialog there.
+  4. Keep fixtures for U2's suite that hold nothing to scrub, since the repo is public and the operator's shells export
+     the tokens `~/.secrets` holds: start every scratch process whose `ps -E` output is kept under `env -i` with only
+     `HOME`, `PATH`, `TMUX`, and `TMUX_PANE`; cut the whole-system `ps` and `lsof` samples down to the scratch processes
+     and a few other rows with their commands and paths replaced by placeholders; and write the home directory as
+     `/Users/operator`.
+  5. Against the scratch Rex server, run a `rex do --all` script that logs every event it hears, then close a tab, a
      session with one tab, a session with two tabs, and the last session, and stop the server; record which events each
-     emits, and whether the server still answers when the stop's events arrive.
-  5. From a scratch LaunchAgent, run the Rex CLI at the `Versions/Current` path with `--autostart=false` against
-     Rex.app's server (`server status` only), and record whether it finds the socket without `REX_SERVER`. Record
-     whether Rex.app starts a new server after `rex --autostart=false server stop`, from a scratch server's behavior or
-     Rex's docs, never by stopping the operator's.
-  6. Run a scratch job that holds `flock -w 60` and a `timeout 60 sleep 120` across a lid-closed sleep, and record when
+     emits, and whether the server still answers when the stop's events arrive. Then end the scratch server and a
+     scratch watcher with TERM at the same moment, as launchd ends a login session at logout, and record whether a
+     close-triggered save could reach its second look while the server still answers.
+  6. From a scratch LaunchAgent, run the Rex CLI at the `Versions/Current` path with `--autostart=false` against
+     Rex.app's server (`server status` only), and record whether it finds the socket without `REX_SERVER` and with
+     `XDG_RUNTIME_DIR` set to a path that does not exist. Read `ps -o command=` for Rex.app's running server and record
+     whether it holds `rex server run`, which the start-up step's parent test requires (KTD7). Record whether Rex.app
+     starts a new server after `rex --autostart=false server stop`, from a scratch server's behavior or Rex's docs,
+     never by stopping the operator's.
+  7. Run a scratch job that holds `flock -w 60` and a `timeout 60 sleep 120` across a lid-closed sleep, and record when
      each fires after wake.
-  7. Confirm that Homebrew's keg-only util-linux provides `flock` and `setsid`, and that an unlinked trash-cli trashes a
+  8. Confirm that Homebrew's keg-only util-linux provides `flock` and `setsid`, and that an unlinked trash-cli trashes a
      path under a scratch root in `~/slots` into `~/.local/share/Trash`, moves a symlink rather than its target, and
      `trash-rm` purges the entry.
 - **Test expectation:** none -- live measurement; its findings adjust KTD3, KTD4, KTD7, KTD8, and KTD9 before U2 starts.
@@ -747,7 +775,8 @@ Waits on: none; U1's findings are needed before this group starts.
      exclusions, and drive its suite with the `ps` and `lsof` samples U1 captured on the Mac.
   3. If U1 measures one holder scan on the Mac at over 1 s, `agent-slot list` gains `--skip-holders`, which reads agent
      state from `claude agents` and the panes only, and the reconcile, whose labels need only idle, busy, or waiting,
-     passes it on both machines; `check`, `sweep`, `finish`, and `release` keep the full scan.
+     passes it on the Mac only, so the Linux server's minute pass keeps its full scan (R23); `check`, `sweep`, `finish`,
+     and `release` keep the full scan on both machines.
   4. `os_uuid` reads `/proc/sys/kernel/random/uuid` on Linux and lowercases `uuidgen` on the Mac; `os_login_shell` reads
      `getent passwd` on Linux and `dscl . -read /Users/<user> UserShell` on the Mac, both falling back to `/bin/bash` as
      today.
@@ -775,14 +804,17 @@ Waits on: none; U1's findings are needed before this group starts.
   - A child that appears only in the second parent read keeps its parent.
   - The Darwin side parses U1's captured `ps` and `lsof` samples into the same holders and parents a hand-written stub
     of that output gives.
+  - The suite fails when any file under `tests/fixtures/agent-slot-macos/` holds an environment assignment other than
+    `HOME`, `PATH`, `TMUX`, and `TMUX_PANE`, or a `/Users/` path other than `/Users/operator`, so a fixture never
+    carries a token or a username into the public repo.
   - When step 3 applies, `agent-slot list --skip-holders` with a stubbed outside holder reports the agent idle and runs
-    no `lsof`, the reconcile's `list` call carries the flag, and `agent-slot check` on the same slot still reports
-    `unknown`.
+    no `lsof`, the reconcile's `list` call carries the flag on the Darwin side and no flag on the Linux side, and
+    `agent-slot check` on the same slot still reports `unknown`.
   - `os_uuid` prints a lowercase UUID on both sides, and `os_login_shell` prints the stubbed `dscl` shell on the macOS
     side.
   - On Linux, every existing agentstate, check, teardown, release, and hook suite passes unchanged.
-  - `tests/bsd-portability.bats` fails on a `/proc/` read in agent-slot's libraries or the slot hooks outside
-    `platform.sh`.
+  - `tests/bsd-portability.bats` fails on a `/proc/` read in agent-slot's libraries or the slot hooks outside the
+    platform library (`platform.sh`, `platform-linux.sh`, `platform-darwin.sh`).
 - **Verification:** The Linux suites pass unchanged, and the macOS-side suite passes on CI and in the Mac's pre-push.
 
 #### U3. Give agent-slot a GNU userland on the Mac
@@ -893,9 +925,11 @@ Waits on: PR 1 (merge order).
      probe is defined once (KTD5).
   4. The sweep plist runs the sweep unit's command every 600 s with `AGENT_SLOT_PUSH_WAIT=1` behind that probe, and the
      prune plist runs `scripts/tmux/prune-orphans.sh -L agent-slots` daily at 02:15, both through `launchd-run.sh`.
-  5. `host-jobs-enable.sh` keeps its Linux branch as it is and gains a Darwin branch that loads each label in `AGENTS`
-     not yet loaded, kicks a kept-alive one only when it holds no pid, and prints the same status listing; a rerun
-     changes nothing. It never boots out or force-restarts a loaded job, so a rerun never ends the slot tmux server.
+  5. `host-jobs-enable.sh` keeps its Linux branch, adding `tmux-prune-orphans-slots.timer` to `TIMERS` (BOOTSTRAP.md
+     enables it by hand today, and enabling an enabled timer changes nothing), and gains a Darwin branch that loads each
+     label in `AGENTS` not yet loaded, kicks a kept-alive one only when it holds no pid, and prints the same status
+     listing; a rerun changes nothing. It never boots out or force-restarts a loaded job, so a rerun never ends the slot
+     tmux server.
 - **Patterns to follow:** the `TIMERS` and `SERVICES` lists in `scripts/host-jobs-enable.sh`;
   `stow/launchagent/Library/LaunchAgents/com.user.brew-upgrade.plist`.
 - **Test scenarios:**
@@ -932,14 +966,16 @@ Waits on: PR 2 (merge order).
 - **Requirements:** R7, R11, R22, R23.
 - **Dependencies:** U5.
 - **Files:** `scripts/agent-slot-rex/agent-slot-rex`, `scripts/agent-slot-rex/lib/forward.sh` (removed),
-  `scripts/agent-slot-rex/lib/settings.sh`, `scripts/agent-slot-rex/lib/rex.sh` (the CLI lookup),
-  `scripts/agent-slot-rex/lib/doctor.sh`, `scripts/agent-slot-rex/lib/help.sh`, `README.md` (the reasons table),
-  `tests/agent-slot-rex-macos.bats` (rewritten), `tests/agent-slot-rex.bats`, `tests/agent-slot-rex-doctor.bats`,
-  `tests/agent-slot-docs.bats`.
+  `scripts/agent-slot-rex/lib/settings.sh`, `scripts/agent-slot/lib/push.sh` (its runtime directory),
+  `scripts/agent-slot-rex/lib/rex.sh` (the CLI lookup), `scripts/agent-slot-rex/lib/doctor.sh`,
+  `scripts/agent-slot-rex/lib/help.sh`, `README.md` (the reasons table), `tests/agent-slot-rex-macos.bats` (rewritten),
+  `tests/agent-slot-rex.bats`, `tests/agent-slot-rex-doctor.bats`, `tests/agent-slot-docs.bats`.
 - **Approach:**
   1. Remove `forward.sh`, the dispatcher's Darwin branch, and the ssh settings only the forwarder read; the config
      object keeps its `server` key, now null.
-  2. Add the Darwin CLI candidates (KTD7).
+  2. Add the Darwin CLI candidates (KTD7). On Darwin, `AR_RUNTIME_DIR` in `settings.sh` and the push in
+     `scripts/agent-slot/lib/push.sh` pass `XDG_RUNTIME_DIR` only when the caller has one, with no `/run/user/$UID`
+     default, which names no directory on the Mac and could point the rex CLI at a socket that is not there.
   3. Route doctor's job findings through `jobs.sh`: on the Mac there is no Rex server unit or login server to check, a
      Rex server that does not answer names starting Rex.app, and the reconcile, tab-number, close-save, and autosave
      findings name their LaunchAgents.
@@ -959,6 +995,8 @@ Waits on: PR 2 (merge order).
   - `wrong-host` and `server-unreachable` stay in `CONTRACT_REASONS`, the README marks them as no longer emitted, and no
     library emits them (text check).
   - agent-slot's push on the Darwin side runs a local `restore --by push`.
+  - On the Darwin side with `XDG_RUNTIME_DIR` unset, no `/run/user` path reaches the helper's environment, any `rex`
+    call, or agent-slot's push; on Linux the default stays as today.
 - **Verification:** On the Mac with Rex.app running, `agent-slot-rex doctor` is clean, and `agent-slot-rex restore` from
   a Mac shell changes only Mac tabs.
 
@@ -980,7 +1018,8 @@ Waits on: PR 2 (merge order).
      new-agent action does, the finish passing the session and the focused block.
   2. `restore --tab` and `finish --tab` do their work in the tab that runs them, close it on success, and hold it with
      the error on failure, instead of opening a tab in the `agent-slots` control session.
-  3. Drop the macOS `--ignore` in `scripts/stow-deploy`, and have `init.lua` require `slot-startup.lua` on every host.
+  3. Narrow the macOS `--ignore` in `scripts/stow-deploy` to `slot-startup.lua`, so `tab-numbers.lua` links on the Mac;
+     the Mac keeps its own `rexurrect auto-restore` line until U9 (KTD7).
   4. Add the reconcile plist (every 60 s, the reconcile unit's command, through `launchd-run.sh`) and the tab-number
      plist (kept alive, `ThrottleInterval` 5, the CLI path KTD7 names), both in `AGENTS`.
   5. The prime map's header names each machine's default tmux server (KTD11).
@@ -992,8 +1031,9 @@ Waits on: PR 2 (merge order).
     keeps the tab and shows `reconcile-busy`.
   - `finish --tab` on a slot with an open PR keeps its tab with the refusal; on a clean slot it tears the slot down,
     closes the slot's tab, then its own.
-  - With `uname` stubbed to Darwin, deploying `rex` links `slot-startup.lua` and `tab-numbers.lua`.
-  - `init.lua` requires the start-up module unconditionally and names no `rexurrect auto-restore`.
+  - With `uname` stubbed to Darwin, deploying `rex` links `tab-numbers.lua` and still skips `slot-startup.lua`.
+  - Covers AE4 until U9. On the Darwin side with no start-up step, a reconcile pass on a server younger than the
+    start-up limit logs `startup-pending`, and the first pass past it opens the new slot's tab.
   - The reconcile plist's command equals the reconcile unit's `ExecStart`, and the tab-number plist's CLI path equals
     `settings.sh`'s first Darwin candidate.
   - Covers AE2. `launch --here` on the Darwin side in a session named `xurl-rs`, with the stubbed repo list lacking it,
@@ -1006,25 +1046,25 @@ Waits on: PR 2 (merge order).
   (F1, F2, AE1, AE3 in U11). Until a machine reloads, its old actions run against the new helper (Scope Boundaries,
   Considered and not built).
 
-### PR 4: close-triggered saves on both machines
+### PR 4: close-triggered saves, the Linux server first
 
 Waits on: PR 3 (merge order); the cutover's U7 PR (needed before this group starts: the `save` verb, its start-up gate,
 and the rexurrect deploy).
 
 #### U8. Save on close, and record the empty state
 
-- **Goal:** Closing a session or tab saves the snapshot on both machines, and closing everything records an empty state
-  (KTD8, KTD9).
+- **Goal:** Closing a session or tab saves the snapshot, and closing everything records an empty state, on the Linux
+  server now and on the Mac once U9 gives it the pinned rexurrect (KTD8, KTD9).
 - **Requirements:** R16, R17, R18, R19, R21; F3, F4; AE5, AE6, AE7.
 - **Dependencies:** U7; the cutover's U7.
 - **Files:** `stow/rex/dot-config/rex/save-on-close.lua` (new), the helper's `save` verb and its library from the
   cutover's U7, `scripts/agent-slot-rex/agent-slot-rex`, `scripts/agent-slot-rex/lib/help.sh`,
-  `scripts/agent-slot-rex/lib/journal.sh`, `scripts/agent-slot-rex/lib/settings.sh`,
+  `scripts/agent-slot-rex/lib/journal.sh`, `scripts/agent-slot-rex/lib/settings.sh` (`REXURRECT_STATE_DIR`, the delays,
+  trash-cli's binary), the helper's rexurrect calls in `scripts/agent-slot-rex/lib/startup.sh`,
   `scripts/agent-slot-rex/lib/doctor.sh`, `scripts/agent-slot/verified-versions`,
-  `stow/local/dot-config/systemd/user/rex-save-on-close.service` (new),
-  `stow/launchagent/Library/LaunchAgents/com.user.rex-save-on-close.plist` (new), `scripts/host-jobs-enable.sh`
-  (`SERVICES` and `AGENTS`), `tests/agent-slot-rex-save.bats` (new), `tests/rex-config.bats`,
-  `tests/host-scheduled-jobs.bats`, `tests/launchagents.bats`.
+  `stow/local/dot-config/systemd/user/rex-save-on-close.service` (new), `scripts/host-jobs-enable.sh` (`SERVICES`),
+  `tests/agent-slot-rex-save.bats` (new), `tests/agent-slot-rex-startup.bats`, `tests/rex-config.bats`,
+  `tests/host-scheduled-jobs.bats`.
 - **Approach:**
   1. `save-on-close.lua` subscribes to the close events U1 found and prints one line per event; it does nothing else.
   2. `save --watch` runs the watcher, debounces per KTD8, and exits when the watcher does, so the job's restart rule
@@ -1032,12 +1072,14 @@ and the rexurrect deploy).
   3. Saves carry `--by close`, `--by timer`, `--by start`, or nothing for a save by hand, and take the helper's save
      lock and the gate KTD8 defines, which replaces the cutover's `done or failed` test for every save.
   4. The start-up step ends with one gated save `--by start`.
-  5. The empty state follows KTD9, with rexurrect's version recorded in `verified-versions`, and the helper's trash-cli
-     binary named in `settings.sh`.
-  6. The 5 s quiet period and the 3 s second look are settings, which the suite sets to fractions of a second, since
+  5. The empty state follows KTD9, with rexurrect's version recorded in `verified-versions`, the helper's trash-cli
+     binary named in `settings.sh`, and TERM trapped by `save --watch` and `save --by close` so a save under way when
+     the session ends never records it.
+  6. Pass `REXURRECT_STATE_DIR` from `settings.sh` on every rexurrect call the helper makes, the start-up step's
+     included, on both machines (KTD10).
+  7. The 5 s quiet period and the 3 s second look are settings, which the suite sets to fractions of a second, since
      `scripts/run-tests` limits each test to 60 s (#414).
-  7. The Linux unit is shaped like `rex-tab-numbers.service`, in `SERVICES`; the Mac's plist is kept alive with
-     `ThrottleInterval` 5, in `AGENTS`.
+  8. The Linux unit is shaped like `rex-tab-numbers.service`, in `SERVICES`; the Mac's LaunchAgent comes in U9.
 - **Patterns to follow:** `rex-tab-numbers.service`; the journal lines in `scripts/agent-slot-rex/lib/journal.sh`; the
   lock in `scripts/agent-slot-rex/lib/lock.sh`.
 - **Test scenarios:**
@@ -1048,6 +1090,7 @@ and the rexurrect deploy).
     leaves every snapshot, and journals `empty-recorded`.
   - The same save whose second look finds no server answering, or another instance, leaves `latest.json` and journals
     `empty-skipped`.
+  - The same save that receives TERM before its second look ends leaves `latest.json` and journals `empty-skipped`.
   - Covers AE7. The same with the record showing `failed`, `stopped`, or `skipped`, with no record, or with a record for
     another instance, leaves `latest.json`.
   - A save of any kind with the record showing `failed` and the instance missing from the stubbed `restored-instances`
@@ -1058,40 +1101,43 @@ and the rexurrect deploy).
   - A close-triggered save during which `latest.json` comes to point at a new snapshot leaves it.
   - With a rexurrect version other than the verified one, the empty-state step is skipped, and doctor reports
     `version-unverified`.
-  - The watcher exiting ends `save --watch` non-zero, and the unit and the plist both restart it after 5 s with no start
-    limit.
+  - Every rexurrect call the stubbed helper records, the start-up step's included, carries `REXURRECT_STATE_DIR` set to
+    the sandbox state directory, on both sides.
+  - The watcher exiting ends `save --watch` non-zero, and the unit restarts it after 5 s with no start limit.
   - `host-jobs-enable.sh` on Linux enables `rex-save-on-close.service` with `--no-block`.
-- **Verification:** On each machine, closing a session and restarting Rex brings back only what stayed open, and closing
-  everything brings back nothing (AE5, AE6 in U11).
+- **Verification:** On the Linux server, closing a session and restarting Rex brings back only what stayed open, and
+  closing everything brings back nothing (AE5, AE6 in U11); the Mac's half follows U9.
 
-### PR 5: rexurrect on the Mac
+### PR 5: rexurrect and the start-up step on the Mac
 
 Waits on: PR 4 (merge order); the cutover's U7 PR (needed before this group starts).
 
-#### U9. Bring rexurrect to the Mac from dotfiles
+#### U9. Bring rexurrect and the start-up step to the Mac
 
-- **Goal:** The Mac runs the pinned rexurrect, autosaves from dotfiles, and no longer runs the hand-installed autosave
-  (KTD10).
-- **Requirements:** R20, R21.
+- **Goal:** The Mac runs the pinned rexurrect from dotfiles, restores through the start-up step, autosaves and saves on
+  close from dotfiles, and no longer runs the hand-installed autosave (KTD7, KTD10).
+- **Requirements:** R8, R16, R17, R18, R19, R20, R21; AE4, AE5, AE6.
 - **Dependencies:** U8; the cutover's U7.
-- **Files:** `scripts/rexurrect-deploy.sh`, `stow/launchagent/Library/LaunchAgents/com.user.rexurrect-autosave.plist`
-  (new), `scripts/host-jobs-enable.sh`, `scripts/agent-slot-rex/lib/settings.sh` (`REXURRECT_STATE_DIR`), the helper's
-  rexurrect calls in `scripts/agent-slot-rex/lib/startup.sh` and the `save` library,
-  `scripts/agent-slot-rex/lib/doctor.sh` (`rexurrect-autosave-foreign`), `scripts/agent-slot/lib/contract.sh`,
-  `README.md` (the reasons table), `tests/rexurrect-deploy.bats`, `tests/launchagents.bats`,
-  `tests/host-scheduled-jobs.bats`, `tests/agent-slot-rex-doctor.bats`, `tests/agent-slot-rex-startup.bats`.
+- **Files:** `scripts/rexurrect-deploy.sh`, `scripts/stow-deploy` (the last macOS `--ignore`),
+  `stow/rex/dot-config/rex/init.lua`, `scripts/agent-slot-rex/lib/startup.sh` (its parent test, if U1 requires it),
+  `stow/launchagent/Library/LaunchAgents/com.user.rexurrect-autosave.plist` (new),
+  `stow/launchagent/Library/LaunchAgents/com.user.rex-save-on-close.plist` (new), `scripts/host-jobs-enable.sh`
+  (`AGENTS`), `tests/rexurrect-deploy.bats`, `tests/rex-config.bats`, `tests/stow-deploy-packages.bats`,
+  `tests/agent-slot-rex-startup.bats`, `tests/launchagents.bats`, `tests/host-scheduled-jobs.bats`.
 - **Approach:**
   1. Pin the `aarch64-apple-darwin` archive and its binary's SHA-256 beside the Linux pins, pick by `uname -s` and
      `uname -m`, and apply the same checksum and attestation checks and the same zsh recorder install.
-  2. Pass `REXURRECT_STATE_DIR` from `settings.sh` on every rexurrect call the helper makes, on both machines (KTD10).
-  3. The autosave plist runs `agent-slot-rex save --by timer` every 900 s through `launchd-run.sh`.
-  4. The Darwin branch of `host-jobs-enable.sh` boots out `io.github.cemcatik.rexurrect.autosave` when it is loaded and
-     trashes its plist, then loads the dotfiles autosave. On the Mac, `rexurrect-deploy.sh` refuses to install while
-     that agent is loaded, naming `bash scripts/host-jobs-enable.sh`, so the migration's order (KTD10) holds whichever
-     command runs first.
-  5. Doctor reports `rexurrect-autosave-foreign` for any loaded LaunchAgent dotfiles does not own whose program is
-     rexurrect, with the boot-out command; the reason joins `CONTRACT_REASONS` and the README.
-  6. The setup path ends with one restart of the Mac's Rex server (KTD7's command), so the start-up step records the
+  2. The Darwin branch of `host-jobs-enable.sh` boots out `io.github.cemcatik.rexurrect.autosave` when it is loaded and
+     trashes its plist, then loads the dotfiles autosave and close-save LaunchAgents. On the Mac, `rexurrect-deploy.sh`
+     refuses to install while that agent is loaded, naming `bash scripts/host-jobs-enable.sh`, so the migration's order
+     (KTD10) holds whichever command runs first.
+  3. The autosave plist runs `agent-slot-rex save --by timer` every 900 s through `launchd-run.sh`; the close-save plist
+     runs `save --watch`, kept alive with `ThrottleInterval` 5.
+  4. Make the Mac's switch to the start-up step (KTD7): drop the last macOS `--ignore` in `scripts/stow-deploy`, so
+     `slot-startup.lua` links on the Mac, and have `init.lua` require it on every host, removing the Mac's own
+     `rexurrect auto-restore` line. If U1 found that Rex.app's server command lacks `rex server run`, widen the start-up
+     step's parent test in `startup.sh` to match it.
+  5. The setup path ends with one restart of the Mac's Rex server (KTD7's command), so the start-up step records the
      running instance.
 - **Patterns to follow:** the cutover's U7 deploy script and its tests.
 - **Test scenarios:**
@@ -1100,18 +1146,19 @@ Waits on: PR 4 (merge order); the cutover's U7 PR (needed before this group star
   - A rerun on the Darwin side over its own install reports nothing to do without running the binary, and a different
     binary at the target is replaced.
   - `host-jobs-enable.sh` on the Darwin side, with the stubbed `launchctl` reporting
-    `io.github.cemcatik.rexurrect.autosave` loaded, boots it out, trashes its plist, and loads the dotfiles autosave; a
-    rerun does nothing more.
-  - The autosave plist passes the shape checks and runs `agent-slot-rex save --by timer` every 900 s.
+    `io.github.cemcatik.rexurrect.autosave` loaded, boots it out, trashes its plist, and loads the dotfiles autosave and
+    close-save agents; a rerun does nothing more.
   - `rexurrect-deploy.sh` on the Darwin side, with the stubbed `launchctl` reporting the hand-installed agent loaded,
     installs nothing and names `host-jobs-enable.sh`.
-  - Every rexurrect call the stubbed helper records, the start-up step's included, carries `REXURRECT_STATE_DIR` set to
-    the sandbox state directory, on both sides.
-  - Doctor on the Darwin side names a stubbed LaunchAgent outside dotfiles whose program is rexurrect as
-    `rexurrect-autosave-foreign`, and nothing for the dotfiles autosave.
+  - The autosave plist passes the shape checks and runs `agent-slot-rex save --by timer` every 900 s; the close-save
+    plist runs `save --watch`, kept alive, and the stubbed watcher's exit restarts it.
+  - With `uname` stubbed to Darwin, deploying `rex` links `slot-startup.lua` and `tab-numbers.lua`.
+  - `init.lua` requires the start-up module unconditionally and names no `rexurrect auto-restore`.
+  - Covers AE4. When U1's parent check required widening, the start-up step on the Darwin side runs under a stubbed
+    parent with Rex.app's server command and still skips under any other parent.
 - **Verification:** On the Mac, `rexurrect --version` reports the pinned version, `launchctl print` shows only the
-  dotfiles autosave, `rexurrect list` still shows the snapshots taken before the switch, and after the one Rex restart
-  doctor reports no `own-tabs-unrestored`.
+  dotfiles autosave, `rexurrect list` still shows the snapshots taken before the switch, after the one Rex restart
+  doctor reports no `own-tabs-unrestored`, and AE5 and AE6 pass on the Mac in U11.
 
 ### PR 6: docs
 
@@ -1132,9 +1179,9 @@ PR merges).
      with doctor: a first run of `agent-slot-rex doctor` on a Mac that has none of it names the first missing step with
      its exact command, so the path also works as doctor, fix, doctor again.
   2. A table in README says which machine each surface acts on: a key in a Mac session, a key in a Linux session, a Mac
-     shell, a Linux shell, and `ssh bigdaddy agent-slot-rex …`.
+     shell, a Linux shell, and `ssh <server> agent-slot-rex …`.
   3. README states that a key acts on the host of the session it was pressed in, that a Mac shell acts on the Mac, and
-     that `ssh bigdaddy agent-slot-rex …` drives the server; its bypass-mode paragraph adds the Mac reach (System-Wide
+     that `ssh <server> agent-slot-rex …` drives the server; its bypass-mode paragraph adds the Mac reach (System-Wide
      Impact). Its restore section names `rexurrect list` and `rexurrect restore --snapshot <id>` as the way back to a
      layout an empty state or a bad save left out.
   4. BOOTSTRAP's Rex and agent-slot sections cover the Mac, including the retired hand-installed autosave.
@@ -1191,8 +1238,8 @@ through stubs, and against the real tools only by the Mac's pre-push and U11.
 - Every unit's Verification holds, and CI is green on each PR.
 - AE1 through AE10 and F1 through F5 pass by hand, with versions recorded in the docs PR.
 - U1's findings, and any surprise U11 turns up, are recorded under `docs/solutions/`.
-- No library outside `scripts/agent-slot/lib/platform.sh` reads `/proc`, and the helper keeps no ssh forwarder; the diff
-  carries no code from abandoned attempts.
+- No library outside the platform library (`scripts/agent-slot/lib/platform.sh` and the two OS files beside it) reads
+  `/proc`, and the helper keeps no ssh forwarder; the diff carries no code from abandoned attempts.
 - On the Linux server, every suite that passed before the work passes unchanged, and both doctors are clean.
 - README.md, BOOTSTRAP.md, AGENTS.md, and CONCEPTS.md describe the slot layer on both machines, and the agent-skills PR
   updating the `agent-slot` skill is open.
@@ -1689,7 +1736,7 @@ T+2:00  After `brew bundle`, the launch fails `dependency-missing` naming `host-
         loaded). [addressed: U4's next step]
 T+3:00  Runs it; the launch works. Closes a session; after the next Rex update it comes back. [addressed: the save
         watcher's LaunchAgent comes with host-jobs-enable.sh, and U9's restart records the instance]
-T+5:00  From the Linux server, an agent runs `ssh bretts-air agent-slot launch dotfiles` with the Mac at the login
+T+5:00  From the Linux server, an agent runs `ssh <mac> agent-slot launch dotfiles` with the Mac at the login
         window after a reboot. [addressed: `login-session-missing` before any clone, naming a login at the Mac (DX D6)]
 ```
 
