@@ -178,6 +178,9 @@ Helper files are sourced directly from the repo -- no symlink needed for individ
 ~/.zshenv (symlink) --> stow/zsh/dot-zshenv
   sources: ~/.profile (if not already loaded)
   PURPOSE: ensures non-interactive zsh (SSH commands, cron) has environment
+  EXCEPT: a command string opening with ': ssh-match-exec; ' returns before
+  .profile. ssh runs every ~/.ssh/config Match exec test through $SHELL on
+  every connection, and those tests need nothing the profile sets.
 
 ~/.zprofile (symlink) --> stow/zsh/dot-zprofile
   fires AFTER /etc/zprofile in zsh login shells
