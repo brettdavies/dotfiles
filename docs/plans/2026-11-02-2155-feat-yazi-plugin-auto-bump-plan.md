@@ -27,8 +27,9 @@ execution: code
 
 ### Summary
 
-Two additions to `scripts/upgrade/brew.sh`. On both operating systems it runs `ya pkg install` after the upgrade, so
-installed plugins match `package.toml`. On the Linux server it runs a pin bump whenever the installed yazi differs from
+Two additions to `scripts/upgrade/brew.sh`. On both operating systems it runs `ya pkg install --discard` after the
+upgrade, so installed plugins match `package.toml`.
+On the Linux server it runs a pin bump whenever the installed yazi differs from
 the version the pins were last proven against: the bump resolves the newest upstream revisions past the seven-day
 supply-chain gate, installs them into a scratch HOME to get ya's hashes, proves them by running yazi in a private tmux
 server, and opens, waits on, and squash-merges a PR to `dev`, then fast-forwards the host checkout when it can. Every
@@ -37,7 +38,8 @@ outcome is a field of the run log's `run.end`.
 ### Problem Frame
 
 Homebrew upgrades yazi daily and unattended, while plugins move only when someone edits `package.toml` and runs
-`ya pkg install`. yazi 26.8 replaced the fetcher API and the pinned git.yazi failed on every directory until #399
+`ya pkg install --discard`. yazi 26.8 replaced the fetcher API and the pinned git.yazi failed on every directory
+until #399
 repinned it by hand. The same drift recurs on the next breaking yazi release unless the job that upgrades the binary
 also moves the plugins.
 
@@ -72,17 +74,20 @@ also moves the plugins.
   `gh pr update-branch`; the new head is trusted only when it is a merge commit whose parents include the head the job
   pushed, and the merge is pinned to it with `--match-head-commit`.
 - **D7. Pull when safe.** After the job's own bump PR merges, it runs `git -C ~/dotfiles pull --ff-only` only when that
-  checkout is on the base branch, letting git refuse a pull that would overwrite a local edit, then `ya pkg install`.
+  checkout is on the base branch, letting git refuse a pull that would overwrite a local edit, then
+  `ya pkg install --discard`.
   Any other state leaves the checkout alone and names the pull command as `next_step`. The pull also brings everything
   else merged to `dev` since the last pull, and the post-merge hook restows `claude` and `secrets`; the operator
   accepted both.
 
 ### Requirements
 
-- R1. `brew.sh` runs `ya pkg install` after the upgrade on Linux and macOS when `ya` is on PATH. ya's output lines
-  become `info` events; a non-zero exit adds one `warning` event,
-  `Warning: ya pkg install exited <n>; installed yazi packages may not match package.toml. Rerun: ya pkg install`, and
-  the run's outcome still follows the upgrade alone.
+- R1. `brew.sh` runs `ya pkg install --discard` after the upgrade on Linux and macOS when `ya` is on PATH. ya's
+  output lines become `info` events; a non-zero exit adds one `warning` event,
+  `Warning: ya pkg install exited <n>; installed yazi packages may not match package.toml. Rerun: ya pkg install --discard`,
+  and the run's outcome still follows the upgrade alone. Without `--discard`, ya refuses to replace an installed package
+  whose files differ from the hash `package.toml` records, which an older pin's files always do, so a plain install
+  moves nothing on a host that already has the packages.
 - R2. On Linux, when the installed yazi version differs from the proven stamp (D1), `brew.sh` runs the bump and records
   its outcome. On macOS it never runs the bump.
 - R3. The bump clones the base branch, resolves each `package.toml` dep's candidate rev under D2 and D3, installs the
@@ -172,7 +177,8 @@ check) and U3 (bump) follow. U4 wires the bump into `brew.sh`. U5 documents. U6 
 - `scripts/upgrade/lib/yazi.sh`: `yazi_pkg_install` streams ya's output as `info` events and notes one warning on a
   non-zero exit. `brew.sh` calls it after `run_log_upgrade`, on both OSes.
 - `scripts/upgrade/lib/run-log.sh`: `RUN_YAZI_PINS`, appended to `run.end`; schema comment updated.
-- **Tests first** (`tests/scheduled-upgrades.bats`): the brew job runs `ya pkg install` after `bu` with a `ya` stub;
+- **Tests first** (`tests/scheduled-upgrades.bats`): the brew job runs `ya pkg install --discard` after `bu` with a
+  `ya` stub;
   a failing stub yields a `warning` event and a `success` run; `run.end` carries `"yazi_pins": null` on a run that did
   not bump, for both jobs.
 
@@ -319,7 +325,7 @@ Dispositions: E4 accepted.
 
 ```text
 brew.sh
-├── ya pkg install (both OSes) ............ stub ok → info lines; stub fail → 1 warning, run success   [U1]
+├── ya pkg install --discard (both OSes) .. stub ok → info lines; stub fail → 1 warning, run success   [U1]
 ├── run.end yazi_pins null (macOS, no yazi change) ...........................................          [U1]
 └── yazi_pins_after_upgrade (Linux)
     ├── changes name yazi → bump runs, outcome logged ........................................        [U4]
@@ -445,7 +451,7 @@ STAGE           | DEVELOPER DOES                                  | FRICTION POI
 T+0:00  Queries run.end, sees yazi_pins: waiting. Needs to know until when.  → message names the newest commit's date
 T+0:30  Sees failed/check-failed. Needs to see what yazi showed.             → value names the saved pane capture (X4)
 T+1:00  Wants to retry by hand without opening a PR.                         → --dry-run (X3)
-T+2:00  Sees bumped, but yazi on this host still fails.                      → next_step: pull, then ya pkg install
+T+2:00  Sees bumped, but yazi on this host still fails.                      → next_step: pull, then ya pkg install --discard
 ```
 
 ### Passes
