@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Canonical version: 2026.10.05 (generic)
+#
 # Emits one ERE matching every path that must never reach `main`, for `grep -E`.
 #
 # `guard-main-docs` rejects two sets on a PR to main: a base list hardcoded in

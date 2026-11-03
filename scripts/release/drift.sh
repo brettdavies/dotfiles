@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Canonical version: 2026.11.03 (generic)
+#
 # Release drift gate: what does the release branch's base carry that the
 # integration branch never received?
 #
@@ -16,11 +18,13 @@
 #   --base REF          Integration branch (default: origin/dev)
 #   --head REF          Release base (default: origin/main)
 #   --since REF         Anchor for "commits on head since the last release".
-#                       Default, in order: the newest release tag reachable
-#                       from head (vX.Y.Z or a bare CalVer YYYY.MM.DD[.N]);
-#                       the newest head commit whose subject starts with
-#                       "release:" or "release v"; the merge base of the two
-#                       refs.
+#                       Default: whichever is newer on head of the newest
+#                       release tag reachable from it (vX.Y.Z or a bare CalVer
+#                       YYYY.MM.DD[.N]) and the newest head commit whose
+#                       subject starts with "release:" or "release v", so a
+#                       release that bumped no version and was never tagged
+#                       still anchors; with neither, the merge base of the
+#                       two refs.
 #   --no-fetch          Skip `git fetch origin` (default: fetch when a ref
 #                       starts with origin/)
 #   --result-file PATH  Write "<pass> <fail> <skip>" to PATH at exit for
@@ -31,7 +35,9 @@
 #      CHANGELOG.md the anchor changed, every line the release added is in
 #      base's copy or was held by base at some commit, and every line it
 #      removed is gone from base's copy (a release whose backport never ran is
-#      invisible to gate 1, which only looks past it).
+#      invisible to gate 1, which only looks past it). With
+#      DRIFT_MANIFEST_COMPARE=version in release.env, a manifest carrier
+#      passes when base declares the release's version or a newer one.
 #   1. Every commit on head since the anchor, and every file those commits
 #      touched that base does not already contain. A file base has moved
 #      further on its own is not drift: head's change (anchor to head) is
@@ -49,8 +55,10 @@
 #      nested copies and hoisting moves never show. Only resolved versions
 #      compare; a file:, workspace:, link: or git spec is left out. A copy
 #      head nests under a package base no longer carries is not counted,
-#      since base dropped what pulled it in. The count of base-newer
-#      packages (routine updates awaiting release) is reported for context.
+#      since base dropped what pulled it in, and neither is a top-level
+#      (hoisted) copy when base carries none of the packages it serves. The
+#      count of base-newer packages (routine updates awaiting release) is
+#      reported for context.
 #
 # Exit codes:
 #   0 = no drift
@@ -71,9 +79,11 @@ SINCE_REF=""
 DO_FETCH=1
 RESULT_FILE=""
 
+# usage [CODE]: prints the header and exits CODE, 2 (a usage error) by default;
+# --help passes 0.
 usage() {
   print_usage_header
-  exit 2
+  exit "${1:-2}"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -98,7 +108,7 @@ while [[ $# -gt 0 ]]; do
       RESULT_FILE="$2"
       shift 2
       ;;
-    -h | --help) usage ;;
+    -h | --help) usage 0 ;;
     *)
       echo "unknown arg: $1" >&2
       usage
@@ -122,6 +132,21 @@ readonly LOCKFILE_PATTERN='(^|/)(package-lock\.json|bun\.lock|Cargo\.lock)$'
 # single-package repo, and a carrier this list omits is a file whose
 # release-time edit the gate silently treats as ordinary drift.
 readonly VERSION_CARRIERS="${VERSION_CARRIERS:-Cargo.toml package.json pyproject.toml VERSION CHANGELOG.md}"
+# How gate 0 compares a manifest carrier (Cargo.toml, package.json,
+# pyproject.toml), also overridable from release.env. "lines" holds the
+# release's change to the whole manifest to base. "version" checks only that
+# base declares the release's version or a newer one, for a repo whose
+# releases ship less than dev: a release branch that strips a feature dev
+# keeps removes manifest lines dev still holds on every release. Changelogs
+# and other carriers stay on the line check either way.
+readonly DRIFT_MANIFEST_COMPARE="${DRIFT_MANIFEST_COMPARE:-lines}"
+case "$DRIFT_MANIFEST_COMPARE" in
+  lines | version) ;;
+  *)
+    echo "DRIFT_MANIFEST_COMPARE must be lines or version, not: $DRIFT_MANIFEST_COMPARE" >&2
+    exit 2
+    ;;
+esac
 
 # Setup ----------------------------------------------------------------------
 
@@ -144,22 +169,29 @@ require_ref() {
 # Resolves the anchor commit for "since the last release" and prints how it
 # was chosen. Honors --since when given.
 resolve_anchor() {
-  local tag subject_commit
+  local tag subject_commit glob
   if [[ -n "$SINCE_REF" ]]; then
     require_ref "$SINCE_REF"
     ANCHOR=$(git rev-parse "$SINCE_REF^{commit}")
     ANCHOR_HOW="--since $SINCE_REF"
     return
   fi
-  if tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --match '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*' "$HEAD_REF" 2>/dev/null); then
-    ANCHOR=$(git rev-parse "$tag^{commit}")
-    ANCHOR_HOW="tag $tag"
-    return
-  fi
+  local -a match=()
+  for glob in "${RELEASE_TAG_GLOBS[@]}"; do
+    match+=(--match "$glob")
+  done
+  tag=$(git describe --tags --abbrev=0 "${match[@]}" "$HEAD_REF" 2>/dev/null || true)
   # `git log --grep` searches the whole message, so a body that quotes a
   # release line would match; filter on the subject line itself.
   subject_commit=$(git log --format='%H %s' "$HEAD_REF" 2>/dev/null \
     | grep -E -m1 '^[0-9a-f]+ release(: | v?[0-9])' | cut -d' ' -f1 || true)
+  # A tagged release's own commit carries the subject too; the tag names it.
+  if [[ -n "$tag" ]] && { [[ -z "$subject_commit" ]] \
+    || git merge-base --is-ancestor "$subject_commit" "$tag^{commit}"; }; then
+    ANCHOR=$(git rev-parse "$tag^{commit}")
+    ANCHOR_HOW="tag $tag"
+    return
+  fi
   if [[ -n "$subject_commit" ]]; then
     ANCHOR="$subject_commit"
     ANCHOR_HOW="release commit $(git log -1 --format='%h %s' "$subject_commit")"
@@ -188,10 +220,14 @@ resolve_anchor() {
 # A line that repeats within a file, such as a changelog's "### Fixed",
 # counts as present wherever it appears. The version line and the release
 # heading are unique to the release, and those keep the check sound.
+#
+# Under DRIFT_MANIFEST_COMPARE=version a manifest carrier compares by its
+# declared version alone. A skipped backport still fails: base still declares
+# the previous version, and the changelog stays on the line check.
 
 gate_anchor_backported() {
   header "Anchor release backported to $BASE_REF"
-  local path verdict head_blob prev
+  local path verdict head_blob prev released held
   local -a flagged=()
   if [[ "$ANCHOR" == "$(git merge-base "$BASE_REF" "$HEAD_REF")" ]]; then
     gate_skip "anchor bookkeeping" "anchor is the merge base; nothing to compare"
@@ -207,6 +243,17 @@ gate_anchor_backported() {
       # contain; base only has to carry the file. Base may since have moved
       # it on (a routine bump), which is not drift.
       [[ -n "$(blob_at "$BASE_REF" "$path")" ]] || flagged+=("missing $path")
+      continue
+    fi
+    if [[ "$DRIFT_MANIFEST_COMPARE" == version ]] && is_manifest "$path"; then
+      released=$(manifest_version_at "$ANCHOR" "$path")
+      # A manifest that declares no version (a virtual workspace root, a
+      # member that inherits one) has nothing to compare under this rule.
+      [[ -n "$released" ]] || continue
+      held=$(manifest_version_at "$BASE_REF" "$path")
+      if [[ -z "$held" || "$(printf '%s\n%s\n' "$released" "$held" | sort -V | tail -n 1)" != "$held" ]]; then
+        flagged+=("version $path (${held:-none} on $BASE_REF, release $released)")
+      fi
       continue
     fi
     verdict=$(classify_file_at "$ANCHOR" "$prev" "$path" history)
@@ -227,6 +274,31 @@ gate_anchor_backported() {
 # Prints the blob id of PATH at REF, or nothing when the path is absent.
 blob_at() {
   git rev-parse --verify --quiet "$1:$2" 2>/dev/null || true
+}
+
+# Returns 0 when PATH names a manifest that declares a version.
+is_manifest() {
+  case "${1##*/}" in
+    Cargo.toml | package.json | pyproject.toml) return 0 ;;
+  esac
+  return 1
+}
+
+# Prints the version the manifest PATH declares at REF: the first top-level
+# `version = "..."` line of a Cargo.toml or pyproject.toml, or the first
+# "version" key of a package.json. Prints nothing when it declares none.
+manifest_version_at() {
+  local ref="$1" path="$2"
+  case "${path##*/}" in
+    Cargo.toml | pyproject.toml)
+      git show "$ref:$path" 2>/dev/null \
+        | sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' | head -n 1 || true
+      ;;
+    package.json)
+      git show "$ref:$path" 2>/dev/null \
+        | sed -nE 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' | head -n 1 || true
+      ;;
+  esac
 }
 
 # Classifies PATH as "contained", "differs", or "missing": whether base
@@ -501,27 +573,87 @@ lockfile_entries() {
   esac
 }
 
+# Prints "top-level-key user" for each package a top-level entry of the
+# lockfile PATH at REF serves. A dependency resolves to the nearest copy up the
+# requiring package's path (Bun's `a/b/name`, then `a/name`; npm's
+# `.../node_modules/a/node_modules/name`, then `.../node_modules/name`) and
+# reaches the top-level copy only when none is nearer, so a package with its
+# own nearer copy is not a user. A dependency of the root or of a workspace
+# prints as user `@workspace`.
+lockfile_hoist_users() {
+  local ref="$1" path="$2"
+  case "$path" in
+    *package-lock.json)
+      # shellcheck disable=SC2016
+      git show "$ref:$path" | "$JQ_BIN" -r '
+        def deps: (.dependencies // {}) + (.optionalDependencies // {}) + (.peerDependencies // {});
+        def parents: if test("/node_modules/") then sub("/node_modules/(@[^/]+/)?[^/]+$"; "") | (., parents) else empty end;
+        .packages as $p
+        | ($p | with_entries(.value = true)) as $have
+        | $p | to_entries[]
+        | .key as $k
+        | ($k | contains("node_modules/")) as $installed
+        | (.value | deps + (if $installed then {} else (.devDependencies // {}) end)) | keys[] as $n
+        | select($have["node_modules/" + $n])
+        | select(if $k == "" then [] else [$k, ($k | parents)] end
+            | map(. + "/node_modules/" + $n | select($have[.])) | length == 0)
+        | "node_modules/\($n) \(if $installed then $k else "@workspace" end)"'
+      ;;
+    *bun.lock)
+      # A package entry is `["name@version", ...]` with its dependency map as
+      # the first object after the spec; a scoped name is one key component.
+      # shellcheck disable=SC2016
+      git show "$ref:$path" | perl -0pe 's/,(\s*[}\]])/$1/g' | "$JQ_BIN" -r '
+        def comps: split("/") | reduce .[] as $t ([];
+          if length > 0 and (.[-1] | startswith("@")) and (.[-1] | contains("/") | not)
+          then .[:-1] + [.[-1] + "/" + $t] else . + [$t] end);
+        def deps: (.dependencies // {}) + (.optionalDependencies // {}) + (.peerDependencies // {});
+        (.packages | with_entries(.value = true)) as $have
+        | ((.workspaces // {}) | to_entries[] | .value | (deps + (.devDependencies // {})) | keys[]
+            | select($have[.]) | "\(.) @workspace"),
+          (.packages | to_entries[]
+            | select(.value[0] | type == "string")
+            | .key as $k
+            | ([.value[1:][] | select(type == "object")] | .[0] // {}) | deps | keys[] as $n
+            | select($have[$n])
+            | ($k | comps) as $c
+            | select([range(0; $c | length) as $i
+                | ($c[: ($c | length) - $i] | join("/")) + "/" + $n | select($have[.])] | length == 0)
+            | "\($n) \($k)")'
+      ;;
+  esac
+}
+
 # Prints "name version scope" per package for the lockfile PATH at REF,
 # keeping only the highest resolved version per name. A spec that is not a
 # version (file:, workspace:, link:, a git URL) has no order against a
 # registry version and is left out. With PARENT_REF, a nested entry counts
 # only when its parent's key exists in PARENT_REF's lockfile: a copy pulled in
 # by a package that side no longer carries is nothing it could have received.
+# For the same reason a top-level entry some package serves counts only when
+# PARENT_REF carries one of those packages or a workspace depends on it.
 lockfile_versions() {
   local ref="$1" path="$2" parent_ref="${3:-}" tmp
   tmp=$(mktemp -d)
   : >"$tmp/keys"
-  [[ -n "$parent_ref" ]] && lockfile_entries "$parent_ref" "$path" | cut -d' ' -f1 >"$tmp/keys"
+  : >"$tmp/users"
+  if [[ -n "$parent_ref" ]]; then
+    lockfile_entries "$parent_ref" "$path" | cut -d' ' -f1 >"$tmp/keys"
+    # A lockfile this parse cannot read leaves every top-level copy counted.
+    lockfile_hoist_users "$ref" "$path" >"$tmp/users" || : >"$tmp/users"
+  fi
   lockfile_entries "$ref" "$path" >"$tmp/entries"
   awk -v filter="${parent_ref:+1}" '
     FILENAME == ARGV[1] { have[$1] = 1; next }
+    FILENAME == ARGV[2] { used[$1] = 1; if ($2 == "@workspace" || ($2 in have)) served[$1] = 1; next }
     $3 !~ /^[0-9]/ { next }
     filter && length($1) > length($2) && substr($1, length($1) - length($2)) == "/" $2 {
       parent = substr($1, 1, length($1) - length($2) - 1)
       sub(/\/?node_modules$/, "", parent)
       if (parent != "" && !(parent in have)) next
     }
-    { print $2, $3, $4 }' "$tmp/keys" "$tmp/entries" \
+    filter && ($1 in used) && !($1 in served) { next }
+    { print $2, $3, $4 }' "$tmp/keys" "$tmp/users" "$tmp/entries" \
     | sort -k1,1 -k2,2V | awk '{ last[$1] = $0 } END { for (k in last) print last[k] }' | sort -k1,1
   rm -rf "$tmp"
 }

@@ -48,9 +48,10 @@ STUB
   # annotated signed tag and fails for want of a message.
   git -C "$WORK" config tag.gpgsign false
 
-  # The script resolves the guarded set through the real workflow + resolver.
+  # The script resolves the guarded set through the real workflow + resolver,
+  # and its tag pattern and changelog helpers through the release lib it sources.
   mkdir -p "$WORK/scripts/release" "$WORK/.github/workflows"
-  cp "$REPO_SRC/scripts/release/guarded-paths.sh" "$WORK/scripts/release/"
+  cp "$REPO_SRC/scripts/release/_lib.sh" "$REPO_SRC/scripts/release/guarded-paths.sh" "$WORK/scripts/release/"
   cp "$REPO_SRC/.github/workflows/guard-main-docs.yml" "$WORK/.github/workflows/"
   cp "$REPO_SRC/scripts/sync-dev-after-release.sh" "$WORK/scripts/"
 
@@ -102,11 +103,11 @@ _run_sync_regen() {
 }
 
 @test "adopts a file only the release branch changed" {
-  _release_main bash -c "echo 'new changelog' > '$WORK/CHANGELOG.md'"
+  _release_main bash -c "echo 'readme release' > '$WORK/README.md'"
   _run_sync 2026.02.02 --dry-run
   [ "$status" -eq 0 ]
-  [[ "$output" == *"release-prep"* ]]
-  [[ "$output" == *"CHANGELOG.md"* ]]
+  [[ "$output" == *"syncing ("*"  README.md"* ]]
+  [[ "$output" != *"contested"* ]]
 }
 
 @test "withholds a file both branches changed since the previous tag" {
@@ -204,15 +205,16 @@ _run_sync_regen() {
   git -C "$WORK" commit -q -m "docs: dev edits readme"
   git -C "$WORK" push -q origin dev
 
-  _release_main bash -c "echo 'readme release' > '$WORK/README.md'; echo 'new changelog' > '$WORK/CHANGELOG.md'"
+  _release_main bash -c "echo 'readme release' > '$WORK/README.md'; echo 'settings v2' > '$WORK/settings.json'"
 
-  # README.md and CHANGELOG.md both diverged; only the changelog is named.
-  _run_sync 2026.02.02 --only CHANGELOG.md
+  # README.md (contested) and settings.json (release-prep) both diverged; only
+  # the contested one is named.
+  _run_sync 2026.02.02 --only README.md
   [ "$status" -eq 0 ]
 
   run git -C "$WORK" show --name-only --format= "chore/sync-dev-after-2026.02.02"
-  [[ "$output" == *"CHANGELOG.md"* ]]
-  [[ "$output" != *"README.md"* ]]
+  [[ "$output" == *"README.md"* ]]
+  [[ "$output" != *"settings.json"* ]]
 }
 
 @test "--only refuses a path that is not a diverged candidate" {
@@ -371,7 +373,7 @@ STUB
 +++ CHANGELOG.md (regenerated)
 @@ -1 +1 @@' 2026.02.02
   [ "$status" -eq 0 ]
-  [[ "$output" == *"did not pass for 2026.02.02: DRY RUN: CHANGELOG.md differs only in line wrapping"* ]]
+  [[ "$output" == *"did not pass for CHANGELOG.md at 2026.02.02: DRY RUN: CHANGELOG.md differs only in line wrapping"* ]]
   [[ "$output" != *"@@ -1 +1 @@"* ]]
 }
 
