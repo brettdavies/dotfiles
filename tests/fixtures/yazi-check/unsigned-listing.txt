@@ -1,0 +1,14 @@
+$SCRATCH/demo
+    after          │   .git                            │   hooks
+    bad            │   build                        !  │   info
+    before         │   docs                            │   logs
+    demo           │   src                           M │   objects
+    final          │   .gitignore                      │   refs
+    probe          │   debug.log                       │   COMMIT_EDITMSG
+    upstream       │   new.txt                         │   config
+    empty.tsv      │   notes.txt                     M │   description
+    mkdemo.sh      │   README.md                       │   HEAD
+    proof.sh       │   staged.txt                   M  │   index
+    red.txt        │   untracked.txt                   │
+    sandbox.sh     │                                   │
+  NOR   4K   .git                                                                                                           drwxr-xr-x   Top    1/11
