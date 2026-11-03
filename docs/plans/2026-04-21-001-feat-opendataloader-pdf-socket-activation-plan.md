@@ -77,7 +77,7 @@ the recommended implementation path.
 - `stow/obsidian/` — closest precedent. Ships a systemd user unit (`dot-config/systemd/user/obsidian.service`) and a
   launcher in `dot-local/bin/obsidian`. Same directory structure applies here.
 - `~/.config/systemd/user/qmd-serve.service` (live on dev host) — reference for `Type=simple`, `Restart=on-failure`,
-  `NoNewPrivileges`, `PrivateTmp` hardening.
+  `NoNewPrivileges` hardening.
 - `scripts/stow-deploy` line 23 — `SHARED_PACKAGES` array. Add `opendataloader-pdf` between `obsidian` and `caam`
   (alphabetical ordering broken here by deployment ordering, so position by convention: after `obsidian`).
 - `scripts/stow-deploy` lines 263–270 — Linux-only package guard. Extend `rclone|qmd|obsidian)` case to
@@ -193,7 +193,7 @@ just enough for the deploy path to be testable. Unit 2 adds the real launcher lo
 
 - `.socket`: `ListenStream=127.0.0.1:5002`, `Accept=no`, `WantedBy=sockets.target`.
 - `.service`: `Type=simple`, `Requires=opendataloader-pdf.socket`, `After=opendataloader-pdf.socket`, `ExecStart=`
-  invokes the launcher with `--force-ocr --log-level warning`. Hardening: `NoNewPrivileges=true`, `PrivateTmp=true`.
+  invokes the launcher with `--force-ocr --log-level warning`. Hardening: `NoNewPrivileges=true`.
   `Restart=on-failure`, `RestartSec=5`.
 - Launcher: executable Python script with shebang `/home/brett/.local/share/uv/tools/opendataloader-pdf/bin/python`. In
   this unit it simply invokes upstream `main()` (no FD handling yet).
@@ -423,7 +423,7 @@ sanity). A manual smoke checklist documents the live-behavior tests that require
 2. Socket unit references `:5002` and `Accept=no` (default or explicit).
 3. Service unit `ExecStart` references `%h/.local/bin/opendataloader-pdf-hybrid-sa` and includes
    `--force-ocr --idle-timeout`.
-4. Service unit sets `NoNewPrivileges=true` and `PrivateTmp=true`.
+4. Service unit sets `NoNewPrivileges=true`.
 5. Launcher is executable (0755) and has a shebang referencing a real interpreter path.
 6. `scripts/opendataloader-pdf-enable.sh` is executable and references `opendataloader-pdf.socket` and
    `curl .../health`.

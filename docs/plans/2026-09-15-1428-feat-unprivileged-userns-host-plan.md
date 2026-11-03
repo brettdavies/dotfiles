@@ -12,10 +12,9 @@ execution: code
 
 ## Goal Capsule
 
-- **Objective:** Every sandbox on the Linux host that asks for a user namespace gets one: the systemd user units run
-  with the private `/tmp` they declare, headless Obsidian and Playwright Chromium run with their own sandboxes instead
-  of crash-looping or needing an allow-list, and Claude Code's Bash sandbox is available. The sandboxing directives the
-  repo's systemd user units declare are the ones the kernel enforces.
+- **Objective:** Every sandbox on the Linux host that asks for a user namespace gets one: headless Obsidian and
+  Playwright Chromium run with their own sandboxes instead of crash-looping or needing an allow-list, and Claude Code's
+  Bash sandbox is available. The repo's systemd user units ask for none (see Scope Boundaries).
 - **Means:** Ubuntu's documented sysctl opt-out shipped from this repo and copy-deployed to `/etc/sysctl.d/` (KTD1,
   KTD2), with the per-binary AppArmor machinery retired (KTD4).
 - **Authority:** Requirements govern behavior. KTDs govern mechanism. The host's observed state wins over any doc or
@@ -123,16 +122,16 @@ persists across reboots with no custom unit, unlike the AppArmor path.
 
 **Host verification**
 
-- R9. After the sysctl is applied, a `PrivateTmp=true` user unit runs in its own mount namespace with an empty `/tmp`
-  and a single-line `uid_map`, and no unit activated after the apply timestamp logs the namespacing line or exits
-  `226/NAMESPACE`.
+- R9. After the sysctl is applied, a transient `systemd-run --user -p PrivateTmp=true` probe runs in its own mount
+  namespace with an empty `/tmp` and a single-line `uid_map`, and no unit activated after the apply timestamp logs the
+  namespacing line or exits `226/NAMESPACE`.
 - R10. `obsidian.service` leaves auto-restart and stays `active (running)`: two reads at least 60 s apart show an
   identical `NRestarts` and `SubState=running`, and one `obsidian` CLI round-trip succeeds.
 - R11. Health is measured as a delta against a baseline taken before the apply: no unit that was healthy before is
-  failed after, every timer keeps a scheduled next run, and the long-running units (`caddy`, `qmd-serve`) are restarted
-  and re-checked. `box-bisync` is failed before and after on an unrelated `invalid_grant` (expired Box OAuth token) and
-  is tracked outside this plan. `nightly-autocommit` and `rustup-update` are not restarted to verify (that runs them);
-  their first timer-triggered runs after the apply are part of U2's done criteria.
+  failed after, every timer keeps a scheduled next run, and the long-running units (`caddy`, `qmd-serve`) still answer.
+  `box-bisync` is failed before and after on an unrelated `invalid_grant` (expired Box OAuth token) and is tracked
+  outside this plan. `nightly-autocommit` and `rustup-update` are not restarted to verify (that runs them); their first
+  timer-triggered runs after the apply are part of U2's done criteria.
 - R12. Playwright Chromium launches with its sandbox on and no AppArmor profile loaded: the launched Chromium's command
   line lacks `--no-sandbox` and its label reads exactly `unconfined`. `tmux-prune-orphans` (needs the real `/tmp`) and
   `obsidian` (X socket in `/tmp/.X11-unix`) keep their current `/tmp` visibility.
@@ -199,9 +198,9 @@ persists across reboots with no custom unit, unlike the AppArmor path.
   package-owned files deviates the host from its package baseline for no gain.
 - `memory-distill.service`, a decommissioned openclaw unit that still carries `PrivateTmp=true`, is not restarted,
   verified, or removed here.
-- Units that run ssh carry no `PrivateTmp=` (dotfiles PR #415), and opening user namespaces does not change that:
-  systemd still maps only the user's uid, so ssh still refuses the root-owned files `/etc/ssh/ssh_config` includes. No
-  other unit's `PrivateTmp` value changes here.
+- No repo user unit sets `PrivateTmp=` or another namespace directive (`tests/user-unit-sandboxing.bats`), and opening
+  user namespaces does not change that: systemd still maps only the user's uid, so ssh would still refuse the root-owned
+  files `/etc/ssh/ssh_config` includes, and a unit would still read every other process's `/proc/<pid>/exe` as blank.
 - Why `apparmor.service` loads policy on some boots and not others is not investigated (it did not on the boot from
   2026-08-31 to 2026-10-05, and did on the boot after). Its consequence is named so the residual-risk entry is honest:
   on a boot without it, Ubuntu's stock confinement profiles (`cupsd`, `snap-confine`, and the rest of
@@ -372,7 +371,7 @@ flowchart TB
   B0 --> OP1[Operator: sudo sysctl-deploy.sh]
   OP1 --> G1{userns open?<br/>unshare -U ok<br/>PrivateTmp probe isolates /tmp}
   G1 -- no --> STOP[Stop: keep profiles, ask]
-  G1 -- yes --> V2[U2 verify: two minute-ticks clean, obsidian stable,<br/>caddy + qmd-serve restarted, delta vs baseline]
+  G1 -- yes --> V2[U2 verify: two minute-ticks clean, obsidian stable,<br/>caddy + qmd-serve answer, delta vs baseline]
   V2 --> OP3[Operator: disable unit, unload + remove the Playwright profile, paste aa-status]
   OP3 --> V3[U3 verify: Chromium label unconfined, no --no-sandbox]
   V3 --> U4[U4 scripts + docs to present state]
@@ -427,9 +426,10 @@ OQ1 while everything before it proceeds. U6 runs after the PR merges so the docs
   2026-07-30. Mitigation: R16 proves the unit shape directly with a `systemd-run` reproduction; the nightly repair is a
   deferred follow-up; the first timer-triggered run after the change is re-checked the next morning for no new failure
   mode.
-- **`PrivateTmp` can fail hard once it engages.** A mount-namespace error exits the unit `226/NAMESPACE` on every tick
-  while the timer keeps a healthy next run. Mitigation: the `systemd-run` probe before any restart, the delta baseline
-  in R11, and the journal grep for `226/NAMESPACE`.
+- **A namespace directive from outside the repo can fail hard once it engages.** No repo user unit sets one, but a
+  mount-namespace error in any other unit that does exits it `226/NAMESPACE` on every tick while the timer keeps a
+  healthy next run. Mitigation: the `systemd-run` probe before any restart, the delta baseline in R11, and the journal
+  grep for `226/NAMESPACE`.
 - **Nested sandbox under systemd.** `bwrap` inside a `PrivateTmp` mount namespace can fail to mount a fresh `/proc`; the
   docs' workaround (`enableWeakerNestedSandbox`) is a global setting that would weaken every interactive session if
   written into the stowed file. Mitigation: U5's nested smoke is the gate; if it fails, the nightly path gets a
@@ -488,8 +488,8 @@ OQ1 while everything before it proceeds. U6 runs after the PR merges so the docs
 - **Files:** none in the repo; host state only.
 - **Approach:**
   1. Baseline before anything changes: reset any failed transient `run-*` probe units, snapshot
-     `systemctl --user --failed`, and record each `PrivateTmp=true` unit's `Result` and last start time; note the apply
-     timestamp immediately before the deploy script runs.
+     `systemctl --user --failed`, and record each user service's `Result` and last start time; note the apply timestamp
+     immediately before the deploy script runs.
   2. Operator runs the deploy script with sudo; the script's own assertion proves the live value.
   3. Agent confirms `unshare -U true` succeeds and runs the `systemd-run --user -p PrivateTmp=true` probe (with wait and
      collect so a failure leaves no failed transient unit): started after the apply timestamp, mount-namespace inode
@@ -499,10 +499,8 @@ OQ1 while everything before it proceeds. U6 runs after the PR merges so the docs
      three minutes), then reads the journal: no namespacing line, no `226/NAMESPACE`; `cswap-auto` shows
      `Result=success` (its `SuccessExitStatus=2 3` means exit 2 is success); `box-bisync` stays failed on its
      pre-existing `invalid_grant`.
-  5. Agent restarts `caddy.service` and `qmd-serve.service` (brief Ollama-proxy blip and model reload are expected) and
-     checks each `MainPID`'s mount namespace and `/tmp` view, that Ollama answers through the Caddy VIP, and that one
-     `qmd query` returns. `opendataloader-pdf` is socket-activated and picks up the namespace on its next activation.
-     `nightly-autocommit` and `rustup-update` are not restarted.
+  5. No repo user unit sets a namespace directive, so none is restarted to pick one up. Agent checks that Ollama answers
+     through the Caddy VIP and that one `qmd query` returns. `nightly-autocommit` and `rustup-update` are not restarted.
   6. Agent confirms R10 for `obsidian.service`, the R11 delta (no newly failed unit, every timer has a next run), and
      that `tmux-prune-orphans` still sees `/tmp/tmux-<uid>`.
   7. Next morning: the first timer-triggered `nightly-autocommit` and `rustup-update` runs after the apply show
@@ -510,9 +508,8 @@ OQ1 while everything before it proceeds. U6 runs after the PR merges so the docs
      regression).
 - **Rollback:** Operator removes the drop-in from `/etc/sysctl.d/` and restarts `systemd-sysctl.service` (Ubuntu's `= 1`
   re-applies); the live value reads `1` and `unshare -U` is denied again. Running processes keep their namespaces until
-  restarted, so `caddy` and `qmd-serve` stay in a private `/tmp` and `obsidian` stays up until its next restart. The
-  known-good signal is the namespacing line reappearing on the next minute tick. The repo file stays committed; rollback
-  is host-only.
+  restarted, so `obsidian` stays up until its next restart. The known-good signal is the namespacing line reappearing on
+  the next minute tick. The repo file stays committed; rollback is host-only.
 - **Execution note:** This is host verification; the evidence is command output pasted into the PR body's Testing
   section, not a test file.
 - **Test scenarios:** Test expectation: none -- operational unit; its checks are the Verification Contract's host rows.
