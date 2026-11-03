@@ -319,9 +319,8 @@ flowchart TB
 
 ### Dependencies / Assumptions
 
-- The new-agent key spec for Linux-server sessions, in progress in slot dotfiles/2 (task `rex-new-agent-key`, branch
-  `feat/rex-new-agent-key-prime`), lands on `dev` first; this plan carries its prime map, `prime` verb, and
-  `--wait-shown` to the Mac.
+- The new-agent key spec for Linux-server sessions is on `dev` (#413: the prime map, the `prime` verb, and
+  `--wait-shown`); this plan carries it to the Mac.
 - The cutover's U7 (rexurrect v0.3.0 from dotfiles, on or after 2026-11-07) lands first or together with this plan's
   rexurrect work.
 - The Mac runs macOS 27 on Apple silicon with Homebrew under `/opt/homebrew`, 16 GB and 8 cores (read on 2026-11-02);
@@ -355,7 +354,7 @@ below is the current understanding, not a committed roadmap.
 
 - The Linux-server cutover (`docs/plans/2026-10-29-2303-feat-rex-agent-slots-on-linux-server-plan.md`): this plan
   depends on it and changes only its Mac-side decisions (R2, R18, KTD1's forwarder).
-  - The new-agent key in slot dotfiles/2: this plan depends on it.
+  - The new-agent key for Linux-server sessions (#413): this plan depends on it and extends it to the Mac.
   - rexurrect from dotfiles (cutover U7): this plan shares it and extends it to the Mac.
 - The close-triggered save and the empty state: can proceed independently of Mac slots, and helps the Linux server on
   its own.
@@ -398,9 +397,12 @@ its execution profile, stop conditions, and who finishes.
 - KTD1. **Platform differences live in one library that agent-slot and its hooks source.**
   `scripts/agent-slot/lib/platform.sh` answers what `/proc` answers on Linux (each process's parent and command, which
   processes hold a path under the slot root, a gitstatusd's tmux variables, this process's open descriptors), plus a
-  UUID and the account's login shell. Its Linux functions are today's code moved as it is, so every Linux suite passes
-  unchanged (R23); its macOS functions are new (KTD3). Chosen over branching inside each caller, since five files read
-  those facts and two branches in each would drift. Governs R1, R2, R23.
+  UUID and the account's login shell. It reads `uname -s` once and sources `platform-linux.sh` or `platform-darwin.sh`
+  beside it, so each OS's code sits in its own file behind one interface: the Linux file is today's code moved as it is,
+  so every Linux suite passes unchanged (R23), and the Darwin file is new (KTD3) and can be sourced directly by a suite
+  on any OS. The helper reads the OS from the same library rather than keeping its own `uname` read. Chosen over
+  branching inside each caller, since five files read those facts and two branches in each would drift. Governs R1, R2,
+  R23.
 - KTD2. **On the Mac, agent-slot runs on a GNU userland on its own pinned PATH.** `agent_slot_env` already pins PATH; on
   Darwin it puts Homebrew's coreutils and findutils `gnubin` directories, the keg-only util-linux `bin`, and an unlinked
   trash-cli keg first. That gives the GNU-only calls (`realpath -m`, `env -i -C`, `date +%s.%N`, `xargs -r`,
@@ -434,20 +436,25 @@ its execution profile, stop conditions, and who finishes.
   `bash scripts/host-jobs-enable.sh`; doctor still reports a server launchd does not hold as `tmux-outside-scope`. This
   is the launchd counterpart of the cutover's KTD3 scope: the GUI domain is where the login Keychain is reachable,
   whoever asked for the slot (an ssh shell, a scheduled pass, an agent), and launchd ends no other job's processes with
-  it. Nothing that runs routinely boots the job out or restarts it, since that ends every Mac agent. U1 measures the
-  Keychain and lifetime behavior. Governs R3.
+  it. Nothing that runs routinely boots the job out or restarts it, since that ends every Mac agent. The trust step's
+  scratch tmux server (`AGENT_SLOT_TRUST_SOCKET`) starts a Claude too; U1 checks whether Claude shows its trust dialog
+  without its credentials, and if it does not, the Mac runs the trust step's session in the launchd-held server instead
+  of a scratch one. U1 measures the Keychain and lifetime behavior. Governs R3.
 - KTD5. **The Mac's scheduled jobs are LaunchAgents matching the Linux units one for one.** The sweep runs every 10
   minutes, the reconcile every minute, the slot-client prune daily at 02:15, and the tab-number and close-save watchers
   stay alive; each runs through `/bin/sh -c 'PATH=…; exec …'` (`tests/launchagents.bats`) and `scripts/launchd-run.sh`
-  for its log. A shared `scripts/agent-slot/lib/jobs.sh` answers, per OS, whether a job is running and which command
-  starts it, for both doctors and for `scripts/host-jobs-enable.sh`, whose new Darwin branch loads an explicit `AGENTS`
-  list as the Linux branch enables its `TIMERS` and `SERVICES`. A job counts as running when it is loaded and, for a
-  kept-alive job, holds a pid, or, for an interval job, last exited 0, since a crash-looping job stays loaded. The
-  teardown check already fails closed with no network (`pr-state-unknown`, `git-state-unknown`), but the sweep also
-  types its closing steps and reminders into idle agents once each, and a dark wake would spend them on turns that fail
-  offline, so the Mac's sweep runs only when the network probe `scripts/upgrade/daily-gate.sh` uses answers, moved into
-  a script both call; a fire with no network exits 0 having done nothing. The reconcile runs ungated, since a pass with
-  no network changes tabs correctly or not at all. Governs R4, R5, R6.
+  for its log. A shared `scripts/agent-slot/lib/jobs.sh` owns the slot jobs' names: one table maps each job to its
+  systemd unit and its LaunchAgent label, and answers, per OS, whether the job is running and which command starts it,
+  for both doctors; the unit names `scripts/agent-slot-rex/lib/settings.sh` holds today move into it.
+  `scripts/host-jobs-enable.sh` stays a standalone script that sources no agent-slot library: its new Darwin branch
+  loads an explicit `AGENTS` list as the Linux branch enables its `TIMERS` and `SERVICES`, and a test holds the slot
+  entries of those lists, the table, the units, and the plists to one set. A job counts as running when it is loaded
+  and, for a kept-alive job, holds a pid, or, for an interval job, last exited 0, since a crash-looping job stays
+  loaded. The teardown check already fails closed with no network (`pr-state-unknown`, `git-state-unknown`), but the
+  sweep also types its closing steps and reminders into idle agents once each, and a dark wake would spend them on turns
+  that fail offline, so the Mac's sweep runs only when the network probe `scripts/upgrade/daily-gate.sh` uses answers,
+  moved into a script both call; a fire with no network exits 0 having done nothing. The reconcile runs ungated, since a
+  pass with no network changes tabs correctly or not at all. Governs R4, R5, R6.
 - KTD6. **Every slot action opens a pane in the session it was pressed in and does its work there.** The new-agent key
   already does. Restore and finish stop calling `rex.exec`, which runs on the Mac whatever session is focused, and open
   a background launcher tab whose command is the bare `agent-slot-rex restore --tab` or
@@ -488,14 +495,15 @@ its execution profile, stop conditions, and who finishes.
   restored server that is still running.** When `save --by close` reads `latest.json`'s target, runs `rexurrect save`,
   sees it exit 0 with its `nothing to save` line, and finds that the start-up record for the running instance shows
   rexurrect `done`, it waits 3 s and asks the server again. Only when the same instance still answers does it trash
-  `latest.json` with trash-cli, which moves the symlink and never its snapshot, if the link still points where it did,
-  and journal `empty-recorded`; otherwise it journals `empty-skipped`. The second look is the guard against a stopping
-  server, whose closes would otherwise wipe the restore on every Rex.app update or service restart: a stopping server no
-  longer answers, and one that restarted answers as another instance. A restored session that the operator has not
-  touched still counts as worth saving, since it keeps its last command (rexurrect's README). The save lock covers the
-  read, the save, the second look, and the trash, so no save of this layer's lands between them. With no latest
-  snapshot, the next start's rexurrect restores nothing and records the instance, so later saves start fresh (rexurrect
-  v0.3.0 `src/store.rs`, `src/restore.rs`), and every snapshot stays restorable with
+  `latest.json` with trash-cli, which moves the symlink and never its snapshot (the helper names trash-cli's own binary
+  in `settings.sh`, the unlinked keg's on the Mac, since its PATH there finds Apple's `trash` first), if the link still
+  points where it did, and journal `empty-recorded`; otherwise it journals `empty-skipped`. The second look is the guard
+  against a stopping server, whose closes would otherwise wipe the restore on every Rex.app update or service restart: a
+  stopping server no longer answers, and one that restarted answers as another instance. A restored session that the
+  operator has not touched still counts as worth saving, since it keeps its last command (rexurrect's README). The save
+  lock covers the read, the save, the second look, and the trash, so no save of this layer's lands between them. With no
+  latest snapshot, the next start's rexurrect restores nothing and records the instance, so later saves start fresh
+  (rexurrect v0.3.0 `src/store.rs`, `src/restore.rs`), and every snapshot stays restorable with
   `rexurrect restore --snapshot <id>`. The autosave, a save run by hand, and an instance whose start-up shows rexurrect
   `failed`, `stopped`, or `skipped` never record it. The `nothing to save` wording is pinned with the rexurrect version
   in `scripts/agent-slot/verified-versions`, so an upgrade that rewords it skips the step and doctor warns, rather than
@@ -694,7 +702,10 @@ settings, or the Rex config that an earlier group creates. Stack them with `gh s
   3. Time `lsof -nP -F pfn` over every process with the operator's usual apps open, and record its exit codes and
      standard error with and without a match; confirm it lists a scratch process's working directory and an open file
      under a scratch root; confirm `ps -E` shows a scratch child's `TMUX` and `TMUX_PANE`; record `ps -o comm=` against
-     argv[0] for a running Claude.
+     argv[0] for a running Claude. Keep a scrubbed sample of each command's output as a fixture for U2's suite, and
+     record the time of one whole holder scan (both parent reads and the `lsof`), which U2's step 3 compares with 1 s.
+     From an ssh shell, start the trust step's scratch tmux server and record whether Claude shows its trust dialog
+     there.
   4. Against the scratch Rex server, run a `rex do --all` script that logs every event it hears, then close a tab, a
      session with one tab, a session with two tabs, and the last session, and stop the server; record which events each
      emits, and whether the server still answers when the stop's events arrive.
@@ -721,20 +732,27 @@ Waits on: none; U1's findings are needed before this group starts.
   and a macOS side (KTD1, KTD3).
 - **Requirements:** R1, R2, R23; AE8.
 - **Dependencies:** U1.
-- **Files:** `scripts/agent-slot/lib/platform.sh` (new), `scripts/agent-slot/lib/agentstate.sh`,
+- **Files:** `scripts/agent-slot/lib/platform.sh`, `scripts/agent-slot/lib/platform-linux.sh`, and
+  `scripts/agent-slot/lib/platform-darwin.sh` (new), `scripts/agent-slot/lib/agentstate.sh`,
   `scripts/agent-slot/lib/hook.sh`, `scripts/agent-slot/lib/release.sh`, `scripts/agent-slot/lib/slotmake.sh`,
-  `scripts/agent-slot/lib/sessions.sh` (the login shell), `scripts/agent-slot-rex/lib/launch.sh` (the request UUID),
-  `scripts/agent-slot/agent-slot` (sourcing), `tests/agent-slot-platform.bats` (new), `tests/lib/agent-slot.bash` (`ps`,
-  `lsof`, and `dscl` stubs), `tests/bsd-portability.bats`.
+  `scripts/agent-slot/lib/sessions.sh` (the login shell), `scripts/agent-slot/lib/read.sh` (`--skip-holders`, if step 3
+  applies), `scripts/agent-slot-rex/lib/launch.sh` (the request UUID), `scripts/agent-slot-rex/lib/settings.sh` (the OS
+  read), `scripts/agent-slot/agent-slot` (sourcing), `tests/agent-slot-platform.bats` (new),
+  `tests/fixtures/agent-slot-macos/` (U1's samples), `tests/lib/agent-slot.bash` (`ps`, `lsof`, and `dscl` stubs),
+  `tests/bsd-portability.bats`.
 - **Approach:**
-  1. Move each `/proc` read in `agentstate.sh`, `hook.sh`, and `release.sh` into a named platform function; the Linux
-     bodies are today's code.
-  2. Write the macOS bodies per KTD3, keeping the twice-read parent map and the scan's own-pid exclusions.
-  3. `os_uuid` reads `/proc/sys/kernel/random/uuid` on Linux and lowercases `uuidgen` on the Mac; `os_login_shell` reads
+  1. Move each `/proc` read in `agentstate.sh`, `hook.sh`, and `release.sh` into a named function in
+     `platform-linux.sh`, its body today's code, behind the interface `platform.sh` defines (KTD1).
+  2. Write the same functions in `platform-darwin.sh` per KTD3, keeping the twice-read parent map and the scan's own-pid
+     exclusions, and drive its suite with the `ps` and `lsof` samples U1 captured on the Mac.
+  3. If U1 measures one holder scan on the Mac at over 1 s, `agent-slot list` gains `--skip-holders`, which reads agent
+     state from `claude agents` and the panes only, and the reconcile, whose labels need only idle, busy, or waiting,
+     passes it on both machines; `check`, `sweep`, `finish`, and `release` keep the full scan.
+  4. `os_uuid` reads `/proc/sys/kernel/random/uuid` on Linux and lowercases `uuidgen` on the Mac; `os_login_shell` reads
      `getent passwd` on Linux and `dscl . -read /Users/<user> UserShell` on the Mac, both falling back to `/bin/bash` as
      today.
-  4. Release's walk over its own descriptors reads `/dev/fd` on the Mac.
-  5. The library reads `uname -s` once, with an override the suites set.
+  5. Release's walk over its own descriptors reads `/dev/fd` on the Mac.
+  6. The library reads `uname -s` once, with an override the suites set.
 - **Patterns to follow:** `_agent_read_parents`, `_agent_command`, and `_agent_pane_daemon` in `agentstate.sh`; the
   `uname` stub in `tests/lib/agent-slot-rex.bash`;
   `docs/solutions/best-practices/attribute-processes-to-a-tmux-pane-by-environment-not-ancestry.md`.
@@ -752,6 +770,11 @@ Waits on: none; U1's findings are needed before this group starts.
   - A stubbed `lsof` that fails, and one that outlasts the bound, each make the state `unknown` with the reader's
     failure in the detail, and teardown refuses.
   - A child that appears only in the second parent read keeps its parent.
+  - The Darwin side parses U1's captured `ps` and `lsof` samples into the same holders and parents a hand-written stub
+    of that output gives.
+  - When step 3 applies, `agent-slot list --skip-holders` with a stubbed outside holder reports the agent idle and runs
+    no `lsof`, the reconcile's `list` call carries the flag, and `agent-slot check` on the same slot still reports
+    `unknown`.
   - `os_uuid` prints a lowercase UUID on both sides, and `os_login_shell` prints the stubbed `dscl` shell on the macOS
     side.
   - On Linux, every existing agentstate, check, teardown, release, and hook suite passes unchanged.
@@ -853,7 +876,8 @@ Waits on: PR 1 (merge order).
 - **Approach:**
   1. `jobs.sh` maps each job name to its systemd unit and its LaunchAgent label in one table, and answers whether it
      runs (`systemctl --user is-active`, `launchctl print gui/<uid>/<label>`) and which command starts it
-     (`systemctl --user enable --now`, `launchctl bootstrap gui/<uid> <plist>`).
+     (`systemctl --user enable --now`, `launchctl bootstrap gui/<uid> <plist>`); the unit names in
+     `scripts/agent-slot-rex/lib/settings.sh` move into its table (KTD5).
   2. agent-slot doctor's sweep and prune findings go through it.
   3. Move the network probe out of `scripts/upgrade/daily-gate.sh` into a script both it and the sweep job call, so the
      probe is defined once (KTD5).
@@ -878,7 +902,9 @@ Waits on: PR 1 (merge order).
     on Linux the finding and command are today's.
   - `host-jobs-enable.sh` on the Darwin side loads every label the stubbed `launchctl` reports missing, skips the loaded
     ones, and calls no `systemctl`; on Linux its lists and calls are today's.
-  - Every slot LaunchAgent in `stow/launchagent` is in `AGENTS`, and every label in `AGENTS` has its plist.
+  - Every slot LaunchAgent in `stow/launchagent` is in `AGENTS`, every label in `AGENTS` has its plist, and the slot
+    entries of `TIMERS`, `SERVICES`, and `AGENTS` are the units and labels of `jobs.sh`'s table, so no list can gain or
+    lose a slot job alone.
   - The sweep plist's command equals the sweep unit's `ExecStart`, so a test holds them to one argv.
   - Covers AE10. A sweep whose stubbed `gh` fails as it does with no network keeps a released slot with
     `pr-state-unknown`, and the next sweep with `gh` answering tears it down.
@@ -887,8 +913,7 @@ Waits on: PR 1 (merge order).
 
 ### PR 3: the Mac's Rex layer
 
-Waits on: PR 2 (merge order); the new-agent-key PR from slot dotfiles/2 (merge order, since U7 edits its Lua and prime
-map).
+Waits on: PR 2 (merge order).
 
 #### U6. Make the Mac's helper act locally
 
@@ -932,7 +957,7 @@ map).
 - **Goal:** Each slot action acts on the pressed session's host (KTD6), the Mac loads the same Rex config as the Linux
   server (KTD7), and the Mac runs the reconcile and tab-number jobs.
 - **Requirements:** R7, R8, R10, R12, R13, R14, R15, R22; F1, F2; AE1, AE2, AE3, AE4.
-- **Dependencies:** U6; the new-agent-key PR.
+- **Dependencies:** U6.
 - **Files:** `stow/rex/dot-config/rex/agent-slots.lua`, `stow/rex/dot-config/rex/init.lua`, `scripts/stow-deploy`,
   `scripts/agent-slot-rex/lib/reconcile.sh` and `scripts/agent-slot-rex/lib/finish.sh` (the `--tab` verbs),
   `config/agent-slot-rex/primes.tsv` (its header),
@@ -997,8 +1022,11 @@ and the rexurrect deploy).
   3. Saves carry `--by close`, `--by timer`, `--by start`, or nothing for a save by hand, and take the helper's save
      lock and the gate KTD8 defines, which replaces the cutover's `done or failed` test for every save.
   4. The start-up step ends with one gated save `--by start`.
-  5. The empty state follows KTD9, with rexurrect's version recorded in `verified-versions`.
-  6. The Linux unit is shaped like `rex-tab-numbers.service`, in `SERVICES`; the Mac's plist is kept alive with
+  5. The empty state follows KTD9, with rexurrect's version recorded in `verified-versions`, and the helper's trash-cli
+     binary named in `settings.sh`.
+  6. The 5 s quiet period and the 3 s second look are settings, which the suite sets to fractions of a second, since
+     `scripts/run-tests` limits each test to 60 s (#414).
+  7. The Linux unit is shaped like `rex-tab-numbers.service`, in `SERVICES`; the Mac's plist is kept alive with
      `ThrottleInterval` 5, in `AGENTS`.
 - **Patterns to follow:** `rex-tab-numbers.service`; the journal lines in `scripts/agent-slot-rex/lib/journal.sh`; the
   lock in `scripts/agent-slot-rex/lib/lock.sh`.
@@ -1016,6 +1044,7 @@ and the rexurrect deploy).
     never calls `rexurrect save` and journals `save-paused`; with the instance listed, it saves.
   - The start-up step's closing save runs once, after its reconcile, and never records the empty state.
   - A timer save and a save by hand that see nothing to save leave `latest.json`.
+  - On the Darwin side, the empty-state step runs the trash-cli binary `settings.sh` names, and never `/usr/bin/trash`.
   - A close-triggered save during which `latest.json` comes to point at a new snapshot leaves it.
   - With a rexurrect version other than the verified one, the empty-state step is skipped, and doctor reports
     `version-unverified`.
@@ -1092,7 +1121,8 @@ PR merges).
      restart of the Mac's Rex server, then `agent-slot doctor` and `agent-slot-rex doctor` as the checklist.
   2. README states that a key acts on the host of the session it was pressed in, that a Mac shell acts on the Mac, and
      that `ssh bigdaddy agent-slot-rex …` drives the server; its bypass-mode paragraph adds the Mac reach (System-Wide
-     Impact).
+     Impact). Its restore section names `rexurrect list` and `rexurrect restore --snapshot <id>` as the way back to a
+     layout an empty state or a bad save left out.
   3. BOOTSTRAP's Rex and agent-slot sections cover the Mac, including the retired hand-installed autosave.
   4. CONCEPTS updates *agent slot* and *slot reconcile* for both machines and adds the close-triggered save.
   5. AGENTS.md names the Darwin branch of `scripts/host-jobs-enable.sh` where it lists how jobs are enabled.
@@ -1150,3 +1180,416 @@ through stubs, and against the real tools only by the Mac's pre-push and U11.
 - README.md, BOOTSTRAP.md, AGENTS.md, and CONCEPTS.md describe the slot layer on both machines, and the agent-skills PR
   updating the `agent-slot` skill is open.
 - The signing question is answered: Mac slots sign without a prompt, or the operator's choice is built.
+
+---
+
+## Eng Review
+
+Target: this plan, `docs/plans/2026-11-02-2324-feat-agent-slots-on-the-mac-plan.md`, reviewed with `/plan-eng-review`
+after `ce-plan` wrote it. The run is unattended at the operator's direction, relayed by `rex-linux` ("decide anything
+else from evidence"), so each choice below was auto-decided to its recommended option and is recorded in the Decision
+ledger; a choice only the operator could make would be listed under Unresolved decisions. The gstack upgrade prompt the
+preamble raised was skipped, since a slot does not upgrade the operator's tooling.
+
+Prior learning applied: dotfiles-same-version-all-hosts (confidence 10/10, from 2026-09-22). It supports one prime map
+for both machines (KTD11) and a guard sized to a rollout's minutes rather than to lasting version skew (the reload entry
+under Considered and not built).
+
+### Scope record
+
+Feature answers: no cuts or deferrals proposed. The complexity gate trips: about 55 changed files [estimated, from the
+units' file lists], and new pieces for the platform library and its two OS files, the jobs library, the network probe,
+the close-save watcher and its `save --watch` verb, seven LaunchAgents, and one systemd unit. Structure: A, the original
+arrangement of six PRs (eng D1, auto-decided). The one smaller arrangement that keeps the features folds PR 4 into PR 5,
+but the close-triggered save changes the Linux server and carries the empty-state risk, while PR 5 is a Mac-only
+migration, and the plan rule for several PRs is different risk that can merge on its own. Accepted scope: the plan as
+written, with the corrections below. Pending remedies: none. Scope Challenge result: scope accepted as-is.
+
+Scope Challenge findings:
+
+- Reuse: the plan reuses the reconcile, its lock and journal, the start-up step and its record, the contract envelopes
+  and closed reason set, the pinned PATH, `launchd-run.sh`, the daily gate's network probe, the LaunchAgent shape
+  `tests/launchagents.bats` enforces, `rex-tab-numbers.service` as the watcher pattern, and #413's prime map and verb.
+- Search check: web search was not run (in-distribution knowledge only). `tmux -D` is tmux's own foreground mode for a
+  service manager, documented in `tmux.1` ("Do not start the tmux server as a daemon. This also turns the exit-empty
+  option off") [Layer 1]. The coreutils `gnubin` shim is the repo's own precedent
+  (`docs/solutions/developer-experience/gnu-coreutils-path-shim-for-macos-pre-push-gate.md`) [Layer 1].
+- No `TODOS.md` exists.
+- SC1 [INFORMATIONAL] (9/10) Dependencies / Assumptions — the new-agent key was "in progress in slot dotfiles/2"; #413
+  merged it to `dev` (`git log`: f5760d3), so PR 3 waits on nothing beyond PR 2. Factual correction, applied.
+
+### Reality rows
+
+| Premise | Claim                                                                          | Receipt                                                                                                                          | Verdict                 |
+| ------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| P1      | the teardown check reads `/proc` for holders, parents, argv, comm, and environ | `scripts/agent-slot/lib/agentstate.sh:60`, `:74`, `:130`, `:154-156`                                                             | true                    |
+| P2      | the slot hooks find the pane's Claude through `/proc/<pid>/stat`               | `scripts/agent-slot/lib/hook.sh:91`                                                                                              | true                    |
+| P3      | release starts its finish under `setsid` after walking `/proc/$BASHPID/fd`     | `scripts/agent-slot/lib/release.sh:174-179`                                                                                      | true                    |
+| P4      | three callers name `/usr/bin/env -i -C` by path                                | `sessions.sh:107`, `trust.sh:61`, `parity.sh:33`                                                                                 | true (eng finding A2)   |
+| P5      | agent-slot pins its own PATH                                                   | `scripts/agent-slot/lib/env.sh:13`                                                                                               | true                    |
+| P6      | on macOS every helper verb forwards over ssh                                   | `scripts/agent-slot-rex/agent-slot-rex` (`forward_verb` call), `lib/forward.sh`                                                  | true                    |
+| P7      | the restore and finish actions run through `rex.exec`                          | `stow/rex/dot-config/rex/agent-slots.lua` (`agent_slot_restore`, `agent_slot_finish`)                                            | true                    |
+| P8      | `stow-deploy` ignores `slot-startup.lua` and `tab-numbers.lua` on macOS        | `scripts/stow-deploy:312`                                                                                                        | true                    |
+| P9      | the Mac's `init.lua` runs `rexurrect auto-restore` itself                      | `stow/rex/dot-config/rex/init.lua:11-15`                                                                                         | true                    |
+| P10     | the Mac runs a hand-installed rexurrect and its own autosave agent             | ssh read 2026-11-02: `~/Library/LaunchAgents/io.github.cemcatik.rexurrect.autosave.plist`                                        | true                    |
+| P11     | the Mac lacks `flock`, `setsid`, GNU findutils, and trash-cli                  | ssh read 2026-11-02 (`command -v`)                                                                                               | true                    |
+| P12     | Homebrew's util-linux on macOS installs `flock` and `setsid`                   | `brew cat util-linux`: neither is in its Linux-only list                                                                         | unverified (U1)         |
+| P13     | `brew bundle` honors `link: false`                                             | Homebrew `Library/Homebrew/bundle/brew.rb:101`, `:269`                                                                           | true                    |
+| P14     | rexurrect never saves an empty server                                          | rexurrect v0.3.0 `src/save.rs:188-190`                                                                                           | true                    |
+| P15     | `latest.json` is a symlink, and a missing one means no latest snapshot         | rexurrect v0.3.0 `src/store.rs:49-56`                                                                                            | true                    |
+| P16     | a restore with no snapshot records the instance                                | rexurrect v0.3.0 `src/restore.rs:347-362`                                                                                        | true                    |
+| P17     | a `failed` start-up record admits a save                                       | cutover plan U7 approach 2                                                                                                       | true, and unsafe (KTD8) |
+| P18     | the prime sessions have the same names on both machines                        | `stow/tmuxinator/dot-config/tmuxinator/xurl-rs.yml` (`name: XR CLI`), `config/shell/tmuxinator.sh`                               | true                    |
+| P19     | Rex.app gives a tab-less session's action another session                      | `docs/solutions/integration-issues/rex-app-gives-an-action-in-a-session-with-no-tabs-the-last-focused-panes-context.md`          | true                    |
+| P20     | Claude's credentials on the Mac are in the Keychain                            | ssh read: no `~/.claude/.credentials.json`                                                                                       | unverified (U1)         |
+| P21     | the minute reconcile runs the full holder scan                                 | `scripts/agent-slot-rex/lib/reconcile.sh:67` calls `agent-slot list`; `scripts/agent-slot/lib/read.sh:87` runs `agentstate_load` | true (eng finding P1)   |
+| P22     | `ps -E` shows another of the operator's processes' environment on macOS 27     | none                                                                                                                             | unverified (U1)         |
+| P23     | `lsof` over every process is fast enough for a minute pass                     | none                                                                                                                             | unverified (U1)         |
+| P24     | `host-jobs-enable.sh` exits on any OS but Linux                                | `scripts/host-jobs-enable.sh:17-21`                                                                                              | true                    |
+| P25     | `tmux -D` runs the server in the foreground with `exit-empty` off              | `tmux.1` (Homebrew tmux 3.8)                                                                                                     | true                    |
+
+unverified=5
+
+REALITY: premise-table finding 25 premises, one unsafe (P17, fixed by KTD8) and five unverified that U1 measures
+scripts/agent-slot/lib/agentstate.sh:60 REALITY: already-done pass origin/dev since 2026-11-02 carries #413 (the Linux
+new-agent key) and no Mac slot work scripts/agent-slot-rex/lib/prime.sh:1 REALITY: surface-check pass `tmux -D`,
+`rex server stop`, `rexurrect restore --snapshot`, and `brew bundle`'s `link:` exist; the macOS-only `ps -E` and
+`launchctl` verbs are U1 and stub items stow/brew/Brewfile:110 REALITY: binding-decisions pass the operator's four
+answers of 2026-11-02 are in Key Decisions, and the branch decision log holds none this plan contradicts
+docs/plans/2026-11-02-2324-feat-agent-slots-on-the-mac-plan.md:83 REALITY: numbers finding the file count is an
+estimate, and the 1 s scan budget and 3 s and 5 s delays are choices U1 and the suites check, not measurements
+docs/plans/2026-11-02-2324-feat-agent-slots-on-the-mac-plan.md:22 REALITY: deferred-asks pass no linked issue; Brett's
+statements are the Product Contract docs/plans/2026-11-02-2324-feat-agent-slots-on-the-mac-plan.md:13 REALITY: pr-count
+finding six dotfiles PRs in a line plus the agent-skills PR; each extra PR costs a stack restack and one CI run per
+branch above it, which the atomic `gh stack merge` avoids at the end
+docs/plans/2026-11-02-2324-feat-agent-slots-on-the-mac-plan.md:27
+
+`PLAN_REALITY: phase=eng rows=7/7 missing=none verdict=complete`
+
+### Section 1: Architecture
+
+Two shapes for the new boundary, the platform library: (1) branches inside each of the five callers on `uname`, or (2)
+one interface whose functions live in one file per OS, picked when the library is sourced. Shape 2 hides the whole OS
+difference behind the interface and lets a suite source the Darwin file on Linux, so the pick is 2 (A3). Red flags
+screened: a hand-synced list of job names in three places (A1), two OS reads (A3), and a binary name resolved on the
+wrong PATH (A4); none of the other five applies.
+
+- A1 [INFORMATIONAL] (9/10) KTD5 and `scripts/agent-slot-rex/lib/settings.sh:49-52` — the slot jobs' names would live in
+  `jobs.sh`'s table, the helper's settings (`AR_REX_UNIT=rex-server.service`, `AR_RECONCILE_TIMER=…`), and
+  `host-jobs-enable.sh`'s lists, and the plan had `host-jobs-enable.sh` source an agent-slot library. D2: `jobs.sh` owns
+  the names, the settings' unit names move into it, `host-jobs-enable.sh` stays standalone, and a test holds the lists
+  to the table.
+- A2 [CRITICAL] (9/10) `scripts/agent-slot/lib/sessions.sh:107` — `start=(/usr/bin/env -i -C / …)` names BSD `env` on
+  the Mac, which the GNU PATH cannot shadow, so a slot's first session would fail there. Factual correction: U3 approach
+  3 takes `env` from the pinned PATH (added during `ce-plan`; confirmed here).
+- A3 [INFORMATIONAL] (8/10) `scripts/agent-slot-rex/lib/settings.sh:10` (`AR_OS=$(uname -s)`) — a second OS read beside
+  the platform library's. D4 with D9: one OS read in `platform.sh`, OS files behind it, and the helper takes the OS from
+  it.
+- A4 [CRITICAL] (8/10) KTD9 and `scripts/agent-slot-rex/lib/settings.sh:30-36` — the helper moves only the Homebrew
+  `bin` to the front of its PATH, and trash-cli is unlinked on the Mac, so the empty-state step's `trash` would be
+  Apple's `/usr/bin/trash`, whose handling of a symlink is unmeasured. D5: `settings.sh` names trash-cli's binary.
+- A5 [INFORMATIONAL] (7/10) `scripts/agent-slot/lib/trust.sh:61` — the trust step starts a Claude in a scratch tmux
+  server from its caller, which on the Mac can be an ssh shell outside the login session. D3: U1 checks whether Claude
+  shows its trust dialog without its credentials; if not, the Mac runs that session in the launchd-held server.
+- A6 [INFORMATIONAL] (6/10) KTD8 — a `rex do` stream that stays open with no events while the server is gone would leave
+  `save --watch` running and saving nothing. Medium confidence, verify this is actually an issue: the 15-minute autosave
+  still saves, so the loss is bounded to one interval. No change; listed under Failure modes.
+
+Dispositions: A1 accepted (D2); A2 accepted (correction); A3 accepted (D4, D9); A4 accepted (D5); A5 accepted (D3); A6
+no change.
+
+### Section 2: Code quality
+
+- Q1 [INFORMATIONAL] (8/10) U4 approach 2 — `login-session-missing` is a new reason with no exit code named. The
+  contract gives each reason an exit code and a README row (`tests/agent-slot-docs.bats`); the implementer takes the
+  class `dependency-missing` uses, since both name a precondition the operator fixes. Applied as an implementation note,
+  no question.
+- Q2 [INFORMATIONAL] (7/10) the helper keeps its symlink lock (`scripts/agent-slot-rex/lib/lock.sh:3`) while agent-slot
+  uses `flock`; two ways to lock predate this plan, and porting the helper's lock is unrelated. Not in scope.
+- No error-handling gap remains beyond those the flow analysis raised and KTD3 through KTD10 now carry.
+
+Dispositions: Q1 applied; Q2 not in scope.
+
+### Section 3: Tests
+
+Framework: bats, run by `scripts/run-tests` with a 60 s limit per test (#414); CI on Ubuntu, the Mac's pre-push on
+macOS.
+
+```text
+CODE PATHS                                              USER FLOWS
+[+] platform-darwin.sh (U2)                             [+] F1 new agent in a Mac session
+  ├── holders from lsof  [★★★ planned] stubs + U1 fixture  ├── [★★ planned] launch --here stubs (U7)
+  ├── reader failure → unknown  [★★★ planned]             └── [GAP→live] tab-less press (Rex.app limit, U11)
+  ├── gitstatusd env exemption  [★★★ planned]           [+] F2 key in a Linux session
+  └── --skip-holders (conditional)  [★★ planned]          └── [→E2E live] U11 only (no Rex on CI)
+[+] env.sh Darwin PATH (U3)  [★★ planned]                [+] F3/F4 close, then restart
+[+] sessions_start Darwin (U4)                             ├── [★★★ planned] debounce, gate, empty state (U8)
+  ├── kick → running server  [★★★ planned]                 └── [→E2E live] AE5, AE6 (U11)
+  ├── no GUI login / not loaded / no answer  [★★★ planned] [+] F5 sleep and dark wake
+  └── Linux scope path  [★★★ existing]                     ├── [★★ planned] probe-gated sweep (U5)
+[+] jobs.sh (U5)  [★★★ planned]                            └── [GAP→live] timeout across sleep (U1 measures)
+[+] host-jobs-enable Darwin (U5, U9)  [★★★ planned]
+[+] helper local on Darwin (U6)  [★★★ planned]
+[+] agent-slots.lua actions (U7)  [★ text checks only; live U11]
+[+] save --watch + empty state (U8)  [★★★ planned]
+[+] rexurrect-deploy Darwin + migration (U9)  [★★★ planned]
+
+COVERAGE: every new code path has a planned test; the Lua actions and the live flows rest on U11
+GAPS: 2 live-only (tab-less press, timeout across sleep), both measured or documented, not code paths
+```
+
+Regression rule: the existing Linux suites are the regression contract for R23 (every agentstate, check, teardown,
+release, hook, reconcile, and start-up suite passes unchanged); this carries the plan's own R23 and needs no new
+question.
+
+- T1 [INFORMATIONAL] (8/10) U2 — stubs alone test the parser against output the author imagined. D6: U1 keeps scrubbed
+  real `ps` and `lsof` samples as fixtures, and U2's suite parses them.
+- T2 [INFORMATIONAL] (9/10) U8 — a 5 s quiet period and a 3 s second look, exercised several times per test, crowd the
+  60 s per-test limit. D7: both are settings the suite shortens.
+
+Value cards for the critical paths are in the test plan artifact (`~/.gstack/projects/brettdavies-dotfiles/`).
+
+Dispositions: T1 accepted (D6); T2 accepted (D7).
+
+### Section 4: Performance
+
+- P1 [INFORMATIONAL] (8/10) `scripts/agent-slot-rex/lib/reconcile.sh:67` and `scripts/agent-slot/lib/read.sh:87` — the
+  reconcile runs `agent-slot list` every minute, and `list` runs the full holder scan, so on the Mac a minute pass costs
+  one `lsof` over every process, at a scale U1 measures [unknown until measured]; the Linux scan costs 100-220 ms
+  (`docs/solutions/logic-errors/process-scan-named-a-short-lived-child-not-the-loop-and-the-pane-exemption-lets-the-loop-through.md`).
+  D8: if U1 measures a scan over 1 s, `list --skip-holders` serves the reconcile on both machines.
+- P2 [INFORMATIONAL] (6/10) KTD8 — each close-triggered save writes every block's scrollback. Medium confidence, verify
+  this is actually an issue: the debounce bounds it to two saves per burst of closes. No change.
+
+Dispositions: P1 accepted (D8); P2 no change.
+
+### Outside voice
+
+Outside voice disabled (`codex_reviews` is `disabled` in gstack's config), so no outside or native second review ran,
+and the review earns no cross-model credit. The flow analysis `ce-plan` ran before this review is the plan's independent
+pass.
+
+### Failure modes
+
+| New path             | Realistic failure                              | Covered by                               | What the operator sees                       |
+| -------------------- | ---------------------------------------------- | ---------------------------------------- | -------------------------------------------- |
+| Mac holder scan      | `lsof` cannot inspect a process                | KTD3's complete-read rule; U2 tests      | the slot stays, `agent-state-unknown`        |
+| Mac slot tmux start  | no GUI login (after a reboot)                  | U4 tests                                 | `login-session-missing` with its next step   |
+| Mac jobs             | a crash-looping LaunchAgent                    | jobs.sh's running rule; U5 tests         | a doctor finding                             |
+| Close-triggered save | a stopping server's closes                     | KTD9's second look; U8 tests             | nothing lost; `empty-skipped` in the journal |
+| Close-triggered save | the watcher stream stays open with no events   | none; the autosave runs every 15 minutes | at most one interval of closes lost (A6)     |
+| Migration            | the old autosave runs 0.3.0 ungated            | U9's deploy refusal; doctor              | the deploy names `host-jobs-enable.sh`       |
+| Keys during rollout  | a host runs old actions against the new helper | the deploy's config reload               | a failed finish or a Mac-side restore, once  |
+
+Critical gaps: 0. The watcher row is the one silent failure, and the autosave bounds it.
+
+### What already exists
+
+The reconcile, its lock and journal, and the start-up step (cutover U3, U4) serve the Mac unchanged; the contract
+library and closed reasons; agent-slot's pinned PATH; `launchd-run.sh` and the LaunchAgent shape; the daily gate's
+network probe; `rex-tab-numbers.service` as the watcher shape; #413's prime map, `prime` verb, and `--wait-shown`; the
+solutions corpus's coreutils shim and Rex.app findings. The plan builds new only where the OS differs: the Darwin
+reader, the jobs table, the launchd jobs, and the close-save watcher.
+
+### NOT in scope
+
+- Porting the helper's symlink lock to `flock` (Q2): no gap it closes.
+- A liveness check for the close-save watcher (A6): the autosave bounds the loss.
+- Folding PR 4 into PR 5 (D1): different risk, merged separately.
+
+### Worktree parallelization strategy
+
+Sequential implementation, no parallelization opportunity: each PR edits files the next one edits
+(`scripts/agent-slot/lib/sessions.sh` in U2, U3, U4; `scripts/agent-slot-rex/lib/settings.sh` in U2, U6, U8, U9;
+`scripts/host-jobs-enable.sh` in U5, U7, U8, U9), and U1's findings gate U2.
+
+### Implementation Tasks
+
+Synthesized from this review's findings. Each task derives from a specific finding above.
+
+- [ ] **T1 (P1, human: ~1h / CC: ~10min)** — jobs — make `jobs.sh` own the slot jobs' names
+  - Surfaced by: Section 1 — A1
+  - Files: `scripts/agent-slot/lib/jobs.sh`, `scripts/agent-slot-rex/lib/settings.sh`, `tests/host-scheduled-jobs.bats`
+  - Verify: the list-sync test fails when a slot job is added to one list only
+- [ ] **T2 (P1, human: ~30min / CC: ~5min)** — agent-slot — take `env` from the pinned PATH
+  - Surfaced by: Section 1 — A2
+  - Files: `scripts/agent-slot/lib/sessions.sh`, `trust.sh`, `parity.sh`
+  - Verify: U3's `env` test on the Darwin side
+- [ ] **T3 (P1, human: ~30min / CC: ~5min)** — helper — name trash-cli's binary in settings
+  - Surfaced by: Section 1 — A4
+  - Files: `scripts/agent-slot-rex/lib/settings.sh`, `tests/agent-slot-rex-save.bats`
+  - Verify: U8's trash-cli test
+- [ ] **T4 (P2, human: ~30min / CC: ~5min)** — platform — one OS read, two OS files
+  - Surfaced by: Section 1 — A3
+  - Files: `scripts/agent-slot/lib/platform*.sh`, `scripts/agent-slot-rex/lib/settings.sh`
+  - Verify: U2's suite sources `platform-darwin.sh` on Linux
+- [ ] **T5 (P2, human: ~1h / CC: ~15min)** — measurement — the trust step from an ssh shell
+  - Surfaced by: Section 1 — A5
+  - Files: `docs/solutions/integration-issues/`
+  - Verify: U1 records whether Claude shows its trust dialog there
+- [ ] **T6 (P2, human: ~1h / CC: ~10min)** — tests — real `ps` and `lsof` fixtures
+  - Surfaced by: Section 3 — T1
+  - Files: `tests/fixtures/agent-slot-macos/`, `tests/agent-slot-platform.bats`
+  - Verify: the fixture test in U2
+- [ ] **T7 (P2, human: ~15min / CC: ~5min)** — save — make the delays settings
+  - Surfaced by: Section 3 — T2
+  - Files: `scripts/agent-slot-rex/lib/settings.sh`, `tests/agent-slot-rex-save.bats`
+  - Verify: U8's suite runs well inside 60 s per test
+- [ ] **T8 (P2, human: ~2h / CC: ~20min)** — list — `--skip-holders`, only if U1 measures a scan over 1 s
+  - Surfaced by: Section 4 — P1
+  - Files: `scripts/agent-slot/lib/read.sh`, `scripts/agent-slot-rex/lib/reconcile.sh`
+  - Verify: U2's `--skip-holders` scenario
+
+### Unresolved decisions
+
+None. Every choice was auto-decided to its recommendation; none needed an answer only the operator has.
+
+### Completion summary
+
+- Step 0: Scope Challenge — scope accepted as-is
+- Reality rows: 7/7 applicable rows emitted (`PLAN_REALITY: phase=eng rows=7/7 missing=none verdict=complete`), 5
+  unverified premises
+- Architecture Review: 6 issues found
+- Code Quality Review: 2 issues found
+- Test Review: diagram produced, 2 gaps identified
+- Performance Review: 2 issues found
+- NOT in scope: written
+- What already exists: written
+- TODOS.md updates: 0 items proposed to user (no `TODOS.md`)
+- Failure modes: 0 critical gaps flagged
+- Unresolved decisions: 0 in this review
+- Outside voice: codex, disabled (`codex_reviews` disabled)
+- Parallelization: 1 lane, 0 parallel / 6 sequential
+- Lake Score: 6/8
+
+## Decision ledger
+
+Every entry below was auto-decided as the recommended option under the operator's instruction, relayed by `rex-linux`,
+that the reviews run unattended. Each option's effort is human-team / Claude Code time.
+
+### D1: The PR arrangement
+
+Finding: complexity gate, Scope Challenge, eng review. Plan baseline: six PRs in a line. Runtime evidence: none needed.
+
+| Choice         | Current | A                              | B                                                     |
+| -------------- | ------- | ------------------------------ | ----------------------------------------------------- |
+| PR arrangement | six PRs | six PRs (original arrangement) | five PRs, PR 4 folded into PR 5 (smaller arrangement) |
+
+Recommendation: A, because the close-triggered save changes the Linux server and carries the empty-state risk, while PR
+5 is a Mac-only migration. Completeness: A=10/10, B=10/10 (same features).
+
+State: approved. Actual answer: A, auto-decided. Accepted scope: the arrangement as written. History: none.
+
+### D2: Who owns the slot jobs' names (A1)
+
+Finding: A1, INFORMATIONAL, 9/10, KTD5 and `scripts/agent-slot-rex/lib/settings.sh:49-52`; reviewer: eng review. Plan
+baseline: `jobs.sh` holds a table and serves `host-jobs-enable.sh` too. Runtime evidence: the settings hold four unit
+names today; `host-jobs-enable.sh` sources nothing.
+
+| Choice                  | Current           | A                                             | B                        |
+| ----------------------- | ----------------- | --------------------------------------------- | ------------------------ |
+| Owner of slot job names | three places      | `jobs.sh`, settings' names move in            | three places, as planned |
+| `host-jobs-enable.sh`   | sources `jobs.sh` | standalone, lists held to the table by a test | sources `jobs.sh`        |
+
+Recommendation: A, because one owner plus a sync test catches a job added in one place, and the general host script
+keeps no dependency on agent-slot's libraries. Completeness: A=10/10, B=6/10. Effort: A human ~1h / CC ~10min.
+
+State: approved. Actual answer: A, auto-decided. Accepted scope: KTD5's sentence, U5 approach 1, U5's list-sync test.
+History: none.
+
+### D3: The trust step on the Mac (A5)
+
+Finding: A5, INFORMATIONAL, 7/10, `scripts/agent-slot/lib/trust.sh:61`. Plan baseline: the trust step unchanged on the
+Mac. Runtime evidence: unknown until U1.
+
+| Choice            | Current                        | A                                                                                                       | B         |
+| ----------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------- | --------- |
+| Trust step's tmux | scratch server from the caller | U1 measures; if Claude needs its credentials first, the Mac runs the session in the launchd-held server | unchanged |
+
+Recommendation: A, because a launch from an ssh shell is a named Mac starter (AE9), and a trust step that cannot show
+its dialog there would stop that launch. Completeness: A=9/10, B=5/10. Effort: A human ~1h / CC ~15min if needed.
+
+State: approved. Actual answer: A, auto-decided. Accepted scope: KTD4's trust-step sentence, U1 step 3's measurement.
+History: none.
+
+### D4: One OS read (A3)
+
+Finding: A3, INFORMATIONAL, 8/10, `scripts/agent-slot-rex/lib/settings.sh:10`. Plan baseline: the platform library and
+the helper each read `uname`.
+
+| Choice  | Current | A                                             | B   |
+| ------- | ------- | --------------------------------------------- | --- |
+| OS read | two     | one, in `platform.sh`, which the helper takes | two |
+
+Recommendation: A, because a suite's OS override then reaches both tools at once. Completeness: A=10/10, B=7/10.
+
+State: approved. Actual answer: A, auto-decided. Accepted scope: KTD1's OS sentence, U2's settings file. History: none.
+
+### D5: Which trash the helper uses (A4)
+
+Finding: A4, CRITICAL, 8/10, KTD9 and `scripts/agent-slot-rex/lib/settings.sh:30-36`. Plan baseline: "trash with
+trash-cli" with no binary named. Runtime evidence: the helper's PATH puts Homebrew's `bin` first, where an unlinked
+trash-cli is absent, so `trash` is `/usr/bin/trash` on the Mac.
+
+| Choice                   | Current                      | A                                          | B                   |
+| ------------------------ | ---------------------------- | ------------------------------------------ | ------------------- |
+| Empty-state trash binary | `trash` on the helper's PATH | trash-cli's binary, named in `settings.sh` | `trash` on the PATH |
+
+Recommendation: A, because the empty state rests on moving the link and never its snapshot, which only trash-cli's
+behavior is known to do. Completeness: A=10/10, B=3/10. Effort: A human ~30min / CC ~5min.
+
+State: approved. Actual answer: A, auto-decided. Accepted scope: KTD9's sentence, U8 approach 5, U8's trash test.
+History: none.
+
+### D6: Real fixtures for the Mac reader (T1)
+
+Finding: T1, INFORMATIONAL, 8/10, U2. Plan baseline: hand-written stubs. Accepted: U1 keeps scrubbed samples, U2's suite
+parses them. Recommendation A (fixtures plus stubs), Completeness A=10/10, B (stubs only)=7/10. State: approved. Actual
+answer: A, auto-decided. History: none.
+
+### D7: Test-time delays (T2)
+
+Finding: T2, INFORMATIONAL, 9/10, U8. Plan baseline: fixed 5 s and 3 s. Accepted: both are settings the suite shortens.
+Recommendation A (settings), Completeness A=10/10, B (fixed)=6/10. State: approved. Actual answer: A, auto-decided.
+History: none.
+
+### D8: The minute pass's holder scan on the Mac (P1)
+
+Finding: P1, INFORMATIONAL, 8/10, `scripts/agent-slot-rex/lib/reconcile.sh:67`, `scripts/agent-slot/lib/read.sh:87`.
+Plan baseline: the reconcile's `list` runs the full scan. Runtime evidence: unknown on the Mac until U1.
+
+| Choice           | Current                | A                                                                                   | B                      |
+| ---------------- | ---------------------- | ----------------------------------------------------------------------------------- | ---------------------- |
+| Reconcile's scan | full scan every minute | full scan unless U1 measures over 1 s; then `list --skip-holders` for the reconcile | full scan every minute |
+| Teardown's scan  | full                   | full                                                                                | full                   |
+
+Recommendation: A, because the reconcile's labels need only idle, busy, or waiting, and a laptop should not pay a
+whole-system `lsof` every minute if it is slow; teardown keeps the full scan either way. Completeness: A=9/10, B=7/10.
+Effort: A human ~2h / CC ~20min only if the measurement trips it.
+
+State: approved. Actual answer: A, auto-decided. Accepted scope: U2 approach 3 and its scenario, U1's timing. History:
+none.
+
+### D9: The platform library's shape (design-twice)
+
+Finding: Section 1 design-twice; reviewer: eng review. Plan baseline: one file with OS branches inside. Accepted: one
+interface in `platform.sh` and one file per OS. Recommendation A (OS files), B (one file); options differ in kind, not
+coverage. State: approved. Actual answer: A, auto-decided. History: none.
+
+Approval readiness: PASS (D1 through D9, each auto-decided as recorded above).
+
+## GSTACK REVIEW REPORT
+
+| Review         | Trigger                      | Why                             | Runs | Status      | Findings                   |
+| -------------- | ---------------------------- | ------------------------------- | ---- | ----------- | -------------------------- |
+| CEO Review     | `/plan-ceo-review`           | Scope & strategy                | 0    | —           | —                          |
+| Outside Review | codex via `/plan-eng-review` | Independent 2nd opinion         | 1    | disabled    | —                          |
+| Eng Review     | `/plan-eng-review`           | Architecture & tests (required) | 1    | issues_open | 12 issues, 0 critical gaps |
+| Design Review  | `/plan-design-review`        | UI/UX gaps                      | 0    | —           | —                          |
+| DX Review      | `/plan-devex-review`         | Developer experience gaps       | 0    | —           | —                          |
+
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no findings.
+- **VERDICT:** no review CLEAR yet; every eng finding is resolved in the plan, so the open status is mapped work, not
+  open choices. Eng review required to clear: rerun after U1's measurements land.
+
+NO UNRESOLVED DECISIONS
