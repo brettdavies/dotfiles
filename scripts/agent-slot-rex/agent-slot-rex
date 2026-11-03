@@ -24,9 +24,6 @@
 #   AGENT_SLOT_REX_RETRY_DELAY    seconds between the start-up step's probes of the Rex server, and between an attach's
 #                                 resumes
 #   AGENT_SLOT_REX_LOCK_WAIT      seconds a restore, sweep, or finish waits for the one ahead of it
-#   AGENT_SLOT_REX_POLL_INTERVAL  seconds between the follow loop's restores
-#   AGENT_SLOT_REX_TICK           seconds between the follow loop's checks
-#   AGENT_SLOT_REX_WAKE_GAP       seconds one tick must overrun to count as a sleep of the Mac
 #   AGENT_SLOT_REX_RECONCILE_STALE  seconds after which doctor calls the reconcile journal's newest pass stale
 #   AGENT_SLOT_REX_STARTUP_WAIT   seconds the start-up step waits for a loading Rex server to answer
 #   AGENT_SLOT_REX_REXURRECT_BOUND  seconds the start-up step lets rexurrect's restore run
@@ -74,8 +71,6 @@ source "$AR_LIB/attach.sh"
 source "$AR_LIB/doctor.sh"
 # shellcheck source=lib/finish.sh
 source "$AR_LIB/finish.sh"
-# shellcheck source=lib/follow.sh
-source "$AR_LIB/follow.sh"
 # shellcheck source=lib/forward.sh
 source "$AR_LIB/forward.sh"
 # shellcheck source=lib/help.sh
@@ -151,13 +146,9 @@ main() {
         '') cmd_restore ;;
         --tab) cmd_restore_tab ;;
         --at-start) cmd_restore_at_start ;;
-        '--by push' | '--by poll' | '--by reconnect') cmd_restore "${args[1]}" ;;
-        *) usage_fail "restore takes --tab, --at-start, or --by push|poll|reconnect" "${args[*]}" ;;
+        '--by push' | '--by poll') cmd_restore "${args[1]}" ;;
+        *) usage_fail "restore takes --tab, --at-start, or --by push|poll" "${args[*]}" ;;
       esac
-      ;;
-    follow)
-      ((${#args[@]} == 0)) || usage_fail "follow takes no arguments" "${args[0]}"
-      cmd_follow
       ;;
     sweep)
       ((${#args[@]} == 0)) || usage_fail "sweep takes no arguments" "${args[0]}"

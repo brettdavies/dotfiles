@@ -144,7 +144,7 @@ knowing where the underlying implementation lives.
 | Binary                     | Purpose                                                                                        |
 | -------------------------- | ---------------------------------------------------------------------------------------------- |
 | `agent-slot`               | Hand out and tear down clones of a repo for parallel Claude agents, one task per clone         |
-| `agent-slot-rex`           | The Mac half of `agent-slot`: start agents and keep their slot tabs and panes attached in Rex  |
+| `agent-slot-rex`           | The Rex half of `agent-slot`: one tab per slot in the server's Rex; on the Mac, a forwarder    |
 | `backup-openclaw-settings` | Back up OpenClaw's settings to the NAS, run daily by `openclaw-settings-backup.timer`          |
 | `brave-search`             | Query the Brave Search API, printing ranked results as plain text or raw JSON                  |
 | `charcount`                | Count characters against platform length caps, exiting non-zero so it gates in scripts         |
@@ -267,17 +267,23 @@ worktree holds anything origin/main lacks (`solutions-unpublished`), and teardow
 at `~/dev/repo-recon/<owner>/<repo>`, named for the prime's `origin`, else for its `upstream`, the remote a fork names
 its parent by. Setup never makes a store, and a teardown deletes the link but not the store, so whatever an agent filed
 through it stays. `agent-slot` on the server owns every slot and every check before a slot is deleted; `agent-slot-rex`
-on the Mac drives Rex, where each repo is one session and each agent one tab. Every slot runs three tmux sessions on the
-server's `agent-slots` socket (Claude, yazi, and lazygit), so agents keep working while the Mac sleeps, and each pane of
-a slot's tab reattaches by itself after a sleep or a network drop. A slot launched or torn down on the server, by an
-agent or by hand, opens or closes its tab in Rex with no key press.
+on the same server drives that server's Rex, where each repo is one session and each agent one tab, and Rex.app and the
+Rex iOS app are windows onto it through the Rex login server. Every slot runs three tmux sessions on the server's
+`agent-slots` socket (Claude, yazi, and lazygit), so agents keep working with no client connected and through a restart
+of the Rex server, and each pane of a slot's tab attaches again by itself when its tab is rebuilt. A slot launched or
+torn down on the server, by an agent or by hand, opens or closes its tab with no key press and no client connected. On
+the Mac, `agent-slot-rex` hands each slot verb to the server's helper over ssh, so the slot keys act on the server
+whichever session has focus.
 
 Each slot's Claude starts and resumes with `--dangerously-skip-permissions`, so it skips its permission prompts except
 under an ask rule and for the few actions Claude never auto-approves. Deny rules and hooks still block in that mode, ask
-rules are how `agent-slot sweep`, `agent-slot finish`, and `agent-slot reopen` keep asking first, and Claude's trust
-dialog still shows for a path it does not trust. Claude skips its own bypass warning only when `~/.claude/settings.json`
-sets `skipDangerousModePermissionPrompt` to `true`, as this repo's settings do; `agent-slot doctor` warns when it does
-not.
+rules are how `agent-slot sweep`, `agent-slot finish`, and `agent-slot reopen`, and the helper's `agent-slot-rex finish`
+and `agent-slot-rex sweep`, which run them with `--yes` on the same host, keep asking first, and Claude's trust dialog
+still shows for a path it does not trust. Claude skips its own bypass warning only when `~/.claude/settings.json` sets
+`skipDangerousModePermissionPrompt` to `true`, as this repo's settings do; `agent-slot doctor` warns when it does not.
+Slot agents run as the operator on the Linux server, so they can reach its Rex server's socket and drive any tab there
+with `rex send` and `rex send-key`, a `sudo` session or a root shell on another host kept in that server included. The
+account already gives them the operator's files and keys, so this adds reach rather than a privilege.
 
 Nobody watches a slot's tab, so no agent there waits on a dialog. `slot-unattended.sh` (in `stow/claude/dot-claude/`)
 answers every dialog Claude Code raises in a slot, for the slot's own Claude and for its subagents. It denies a
@@ -334,15 +340,26 @@ its agent is idle and check passes.
 
 #### Setup
 
-1. Deploy both machines: `scripts/stow-deploy --headless --all` on the Linux server, then enable its prune timer with
-   `systemctl --user enable --now tmux-prune-orphans-slots.timer` and its sweep timer with
-   `bash scripts/host-jobs-enable.sh`; `scripts/stow-deploy --all` on the Mac, which also reloads Rex's config (see
-   BOOTSTRAP.md for moving a hand-written `~/.config/rex` aside first).
-2. Run `agent-slot-rex doctor` on the Mac. It checks the Mac's side, then runs `agent-slot doctor` on the server, with
-   every next step written to run through the ssh alias.
-3. Run `agent-slot warm <repo>` on the server for the repos you use, so a first launch there skips Claude's trust step.
-   A slot is trusted automatically only for a repo whose prime checkout you have trusted in Claude, because trust lets
-   Claude load the repo's own settings and hooks; open Claude once in any other repo's prime checkout first.
+On the Linux server:
+
+1. `scripts/stow-deploy --headless --all` deploys the slot commands, the Rex config with its start-up step and
+   tab-number watcher, and the units, then reloads the running Rex server's config.
+2. `bash scripts/host-jobs-enable.sh` enables the sweep and reconcile timers and starts `rex-server.service` and
+   `rex-tab-numbers.service`; `systemctl --user enable --now tmux-prune-orphans-slots.timer` adds the slot tmux server's
+   orphan sweep.
+3. `agent-slot-rex doctor` is the checklist from there. Each finding names what is missing with the command that fixes
+   it, such as the login server's deploy, rexurrect's, or `agent-slot warm <repo>` for a repo whose first launch would
+   stop at Claude's trust step. Rerun it until it reports no errors. A slot is trusted automatically only for a repo
+   whose prime checkout you have trusted in Claude, because trust lets Claude load the repo's own settings and hooks;
+   open Claude once in any other repo's prime checkout first.
+
+On the Mac:
+
+1. `scripts/stow-deploy --all` deploys the slot actions and keys and reloads the Mac's Rex config (see BOOTSTRAP.md for
+   moving a hand-written `~/.config/rex` aside first).
+2. `launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.bd-tunnel.plist` keeps the dev ports the Linux
+   server serves at the Mac's localhost, with no ssh tab open.
+3. In Rex.app, connect to the Linux server's host, which reaches its Rex server through the login server.
 
 #### Keys and tab labels
 
@@ -402,6 +419,19 @@ Every trigger is logged, so the interval can be tuned from data. Each pass's lin
 (`restored`, `deferred` with the reason in `detail`, `restore-failed`, `timed-out`, or `skipped`), the helper's exit
 code, the time taken, and the helper's last line on a failure. Each of these logs moves to `<log>.1` past 1 MiB. A timer
 pass that changes nothing writes about 180 bytes, so the reconcile log holds about four days of passes before it moves.
+
+#### A slot's tab is missing
+
+1. `agent-slot-rex doctor` on the server names a Rex server that `rex-server.service` did not start, a reconcile timer
+   that is stopped or whose journal shows no recent good pass (`reconcile-stale`), and a start-up step that left the
+   operator's own tabs unrestored.
+2. The newest lines of `~/.local/state/agent-slot-rex/reconcile.log` say what the passes did: `by` names what ran each
+   one, `ok` whether it finished, `skipped` why it changed nothing on purpose, and `error.reason` what stopped it.
+3. `agent-slot-rex restore` reconciles at once, and reports as an error any outcome a timer pass only logs.
+
+The Rex iOS app runs no slot actions, so from the phone open a shell tab on the Linux server and run
+`agent-slot launch <repo>`: the slot's tab opens in that repo's session within seconds. `launch` takes a first message
+only as `--prompt-file`, so type the first message into the new tab's Claude.
 
 #### Work items and reopen
 
@@ -564,17 +594,17 @@ timer's schedule is `OnCalendar=*:0/10` in `agent-slot-sweep.timer`; change it w
 `systemctl --user edit agent-slot-sweep.timer`, an empty `OnCalendar=` line, and the new schedule. A release's finish
 waits up to `AGENT_SLOT_RELEASE_WAIT` seconds (3600) for the agent, looking every `AGENT_SLOT_RELEASE_POLL` seconds (5).
 
-On the Mac, the keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`; each pane runs
-`agent-slot-rex attach <repo>/<N> claude|files|git`, the control session's tab runs `agent-slot-rex sweep`, Rex runs
-`agent-slot-rex follow` in the background, and `agent-slot-rex doctor` checks both machines. Every verb answers
-`--help`. Each launch runs the sweep again in the control session's one sweep tab, opening it when there is none; the
-tab stays open while something needs you, and `r` in it sweeps again. Restore, sweep, and finish change tabs one at a
-time: each waits up to `AGENT_SLOT_REX_LOCK_WAIT` seconds (300) for the one ahead of it to finish, so it sees the tabs
-that one opened. Each of those passes appends one JSON line to `~/.local/state/agent-slot-rex/reconcile.log`: when it
-ran, what ran it (`restore`, `restore-at-start`, `push`, `reconnect`, `poll`, `sweep`, or `finish`), how long it took,
-whether it changed a tab, the tabs it planned to open, relabel, and close, and `ok` or the error that stopped it. Past 1
-MiB the log moves to `reconcile.log.1`. Rex takes a tab label of at most 128 characters, so a longer one is cut at the
-end of its needs-you message and ends in `…`.
+The keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`, which on the Mac hand the
+verb to the server's helper; each pane runs `agent-slot-rex attach <repo>/<N> claude|files|git`, the control session's
+tab runs `agent-slot-rex sweep`, and `agent-slot-rex doctor` checks the server's side. Every verb answers `--help`. Each
+launch runs the sweep again in the control session's one sweep tab, opening it when there is none; the tab stays open
+while something needs you, and `r` in it sweeps again. Restore, sweep, and finish change tabs one at a time: each waits
+up to `AGENT_SLOT_REX_LOCK_WAIT` seconds (300) for the one ahead of it to finish, so it sees the tabs that one opened.
+Each of those passes appends one JSON line to `~/.local/state/agent-slot-rex/reconcile.log`: when it ran, what ran it
+(`restore`, `restore-at-start`, `push`, `poll`, `sweep`, or `finish`), how long it took, whether it changed a tab, the
+tabs it planned to open, relabel, and close, and `ok` or the error that stopped it. Past 1 MiB the log moves to
+`reconcile.log.1`. Rex takes a tab label of at most 128 characters, so a longer one is cut at the end of its needs-you
+message and ends in `…`.
 
 With `--output json`, every verb prints one JSON object on success and one error object on stderr, with a `reason` from
 the table below, an exit code (0 ok, 1 failed, 2 usage, 77 auth, 78 configuration), a `next_step`, a `recovery` that

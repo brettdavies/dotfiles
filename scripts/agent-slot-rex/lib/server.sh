@@ -5,9 +5,7 @@
 # the user manager's runtime directory, which a shell in a slot's tmux session lacks and agent-slot's systemctl --user
 # calls need. agent-slot exits with its own codes, which never include 124 or 137 (timeout stopped the call) or 127
 # (agent-slot is not installed).
-#
-# server_ssh is the bounded ssh call to the server that the follow loop probes it with; ssh reports its own failure (no
-# route, a refused key, a changed host key) as exit 255.
+
 
 SERVER_STATUS=0
 SERVER_OUT=
@@ -28,11 +26,6 @@ server_run() {
   ((SERVER_STATUS == 0)) || SERVER_LOG=$(_server_keep "$label" "$(contract_quote "$@")" "$out" "$err")
   rm -f "$out" "$err"
   return "$SERVER_STATUS"
-}
-
-# Usage: server_ssh <seconds> <label> <remote command>
-server_ssh() {
-  server_run "$1" "$2" "$AR_SSH" -n -o BatchMode=yes -o ConnectTimeout=10 "$AR_SERVER" "$3"
 }
 
 _server_keep() {
@@ -63,11 +56,6 @@ server_call() {
     "$AR_AGENT_SLOT" "$verb" "$@" --output json && return 0
   server_error "$secs" "$verb"
   return "$SERVER_STATUS"
-}
-
-# The last line ssh printed: on a failure, its verdict.
-server_ssh_line() {
-  grep . <<<"$SERVER_STDERR" | tail -1 || true
 }
 
 # Usage: server_error <seconds> <verb>; sets AR_ERROR for the failed call.

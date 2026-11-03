@@ -10,7 +10,7 @@
 AR_OS=$(uname -s)
 
 AR_SERVER=${AGENT_SLOT_REX_SERVER:-bigdaddy}
-AR_CLIENT=${AGENT_SLOT_REX_CLIENT:-bretts-air}
+AR_CLIENT=${AGENT_SLOT_REX_CLIENT:-agent-slot-rex}
 
 AR_SSH=${AGENT_SLOT_REX_SSH:-ssh}
 AR_PS=${AGENT_SLOT_REX_PS:-ps}
@@ -23,9 +23,7 @@ AR_SELF=${AGENT_SLOT_REX_SELF:-$HOME/.local/bin/agent-slot-rex}
 # shellcheck disable=SC2088
 AR_REMOTE_SELF='~/.local/bin/agent-slot-rex'
 
-AR_REX_PATHS=${AGENT_SLOT_REX_APP_PATHS-"/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex:\
-$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex:\
-/usr/bin/rex"}
+AR_REX_PATHS=${AGENT_SLOT_REX_APP_PATHS-/usr/bin/rex}
 
 case $AR_OS in
   Darwin) AR_HOMEBREW=${AGENT_SLOT_REX_HOMEBREW:-/opt/homebrew} ;;
@@ -54,9 +52,6 @@ AR_TAB_NUMBERS_UNIT=rex-tab-numbers.service
 
 AR_RETRY=${AGENT_SLOT_REX_RETRY_DELAY:-3}
 AR_LOCK_WAIT=${AGENT_SLOT_REX_LOCK_WAIT:-300}
-AR_POLL_INTERVAL=${AGENT_SLOT_REX_POLL_INTERVAL:-60}
-AR_TICK=${AGENT_SLOT_REX_TICK:-5}
-AR_WAKE_GAP=${AGENT_SLOT_REX_WAKE_GAP:-30}
 AR_RECONCILE_STALE=${AGENT_SLOT_REX_RECONCILE_STALE:-180}
 # The start-up step's bounds: how long it waits for a Rex server that is still loading its config to answer, how long
 # rexurrect's restore may run (its 30 s watch for a blank Rex.app session plus the restore), and the age past which a

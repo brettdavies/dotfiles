@@ -174,7 +174,7 @@ reconcile_skipped() {
     relabeled: [], closed: [], needs_you: []}' <<<"$RECONCILE_SKIP")
 }
 
-# Usage: reconcile <restore|restore-at-start|push|poll|reconnect|sweep|finish>, naming what ran the pass for the
+# Usage: reconcile <restore|restore-at-start|push|poll|sweep|finish>, naming what ran the pass for the
 # reconcile log.
 # Sets RECONCILE_RESULT to what reconcile found and changed, or why it changed nothing. It holds the reconcile lock from
 # the slot list to the last tab change.
@@ -220,7 +220,7 @@ reconcile_hold_on_error() {
   if [[ $CONTRACT_OUTPUT == text && -t 0 ]]; then AR_HOLD=1; fi
 }
 
-# Usage: cmd_restore [push|poll|reconnect]; without one, a restore asked for by hand.
+# Usage: cmd_restore [push|poll]; without one, a restore asked for by hand.
 cmd_restore() {
   contract_use_tools rex agent-slot
   reconcile_hold_on_error

@@ -8,7 +8,6 @@ Verbs:
   launch   start an agent in a fresh slot, in a background Rex tab that becomes its tab
   attach   keep a pane attached to one of a slot'"'"'s tmux sessions
   restore  give every live slot a tab, resume dormant slots, and close tabs whose slot is gone
-  follow   keep this Mac'"'"'s tabs following the server: a restore each minute, and at once after a sleep or reconnect
   sweep    tear down finished slots, restore, then list the slots that need you
   finish   finish a task with no open PR and tear its slot down, from the control session
   doctor   check the Rex server, the units, rexurrect, and the reconcile journal, then run agent-slot'"'"'s doctor
@@ -19,7 +18,7 @@ run only there.
 Every verb takes --help. launch, restore, sweep, finish, and doctor take --output json (one JSON object on stdout, or an error
 object on stderr). Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.'
 
-VERBS=' launch attach restore follow sweep finish doctor '
+VERBS=' launch attach restore sweep finish doctor '
 
 verb_help() {
   case $1 in
@@ -33,7 +32,7 @@ verb_help() {
       'for Enter after a detach; it ends once the slot is gone.' \
       'example: agent-slot-rex attach dotfiles/2 claude' ;;
     restore) printf '%s\n' \
-      'usage: agent-slot-rex restore [--tab | --at-start | --by push|poll|reconnect] [--output json]' \
+      'usage: agent-slot-rex restore [--tab | --at-start | --by push|poll] [--output json]' \
       "Gives every live slot a tab in its repo's session, resumes dormant slots, relabels tabs, and closes tabs" \
       'whose slot is gone or that duplicate another. With no Rex server answering, or before the start-up step has' \
       "run in it (until the server is $AR_STARTUP_LIMIT s old), it changes nothing and fails with rex-server-down or" \
@@ -41,16 +40,10 @@ verb_help() {
       "runs when it loads: it waits up to $AR_STARTUP_WAIT s for the server, runs rexurrect's restore once per" \
       "server instance (up to $AR_REXURRECT_BOUND s), records the instance in $AR_STARTUP_RECORD, then restores," \
       "logging to $AR_STATE/restore.log; it does nothing unless a Rex server started it. --by names what ran it:" \
-      "push, after agent-slot's launch or teardown, poll, from agent-slot-reconcile.timer each minute, or" \
-      'reconnect, from the follow loop; such a pass exits 0 when it changes nothing, and says why under skipped.' \
+      "push, after agent-slot's launch or teardown, or poll, from agent-slot-reconcile.timer each minute; such a" \
+      'pass exits 0 when it changes nothing, and says why under skipped.' \
       "Every restore, sweep, and finish appends its plan, duration, and outcome to $AR_STATE/reconcile.log." \
       'example: agent-slot-rex restore' ;;
-    follow) printf '%s\n' 'usage: agent-slot-rex follow' \
-      "Restores every $AR_POLL_INTERVAL s, and at once when the server answers after the Mac slept or a call could" \
-      "not reach it; until it answers, it probes the server every $AR_TICK s. Rex starts it at load. It does nothing" \
-      'unless a Rex server started it, exits when a loop for the same Rex server already runs, and exits once its' \
-      "Rex server is gone or a newer one's loop takes over. It logs each event to $AR_STATE/follow.log." \
-      'example: agent-slot-rex follow' ;;
     sweep) printf '%s\n' 'usage: agent-slot-rex sweep [--output json]' \
       "Runs agent-slot sweep --yes, which tears down every finished slot that check passes, then restores tabs" \
       'and lists the slots that need you. In text mode it waits for q while any slot needs you or the server could' \

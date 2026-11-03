@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Async Claude hook: reports the state of a slot's Claude to Rex. Claude Code inside tmux sends nothing that reaches
-# the Mac, so for the pane's top-level Claude in a slot's Claude session (see scripts/agent-slot/lib/hook.sh) this
+# the Rex tab attached to it on the same host, so for the pane's top-level Claude in a slot's Claude session (see scripts/agent-slot/lib/hook.sh) this
 # writes a tmux-wrapped OSC 7501 report to the pane's terminal and stores the record in the pane option @slot_status.
 #
 #   SessionStart idle; UserPromptSubmit and PostToolUse working; PermissionRequest blocked, kind=question on

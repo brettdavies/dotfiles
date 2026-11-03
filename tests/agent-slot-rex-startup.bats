@@ -167,6 +167,34 @@ no_tab_change() {
   [ ! -e "$RECORD" ]
 }
 
+@test "restore --by names what ran the pass in the reconcile log, with how long the pass took" {
+  local by
+  slots '[]'
+  for by in push poll; do
+    run "$AGENT_SLOT_REX" restore --by "$by" --output json
+    [ "$status" -eq 0 ]
+  done
+  jaq -s -e '[.[].by] == ["push", "poll"] and all(.[]; .ok and (.ms | type == "number" and . >= 0))' "$LOG"
+}
+
+@test "restore --by takes only push or poll" {
+  local by
+  for by in sweep reconnect; do
+    run --separate-stderr "$AGENT_SLOT_REX" restore --by "$by" --output json
+    [ "$status" -eq 2 ]
+    jaq -e --arg v "--by $by" '.reason == "usage" and .value == $v and (.message | contains("--by push|poll"))' \
+      <<<"$stderr"
+  done
+}
+
+@test "a timer pass that changes nothing still logs its line, small enough for a day of passes in the first 1 MiB" {
+  slots '[]'
+  run "$AGENT_SLOT_REX" restore --by poll
+  [ "$status" -eq 0 ]
+  jaq -e '.by == "poll" and .changed == false' "$LOG"
+  (($(wc -c <"$LOG") * 1440 < 1048576))
+}
+
 # --- a restore asked for by hand ---------------------------------------------------------------------------------------
 
 @test "a restore asked for by hand with no Rex server answering is rex-server-down, naming the service to start" {

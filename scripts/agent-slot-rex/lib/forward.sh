@@ -2,7 +2,7 @@
 # The helper on the Mac. Every slot and every repo session lives on the Linux server, and Rex.app is a client of that
 # server's Rex, so on macOS a slot verb that a Rex.app action or the operator runs goes to the server's own helper over
 # ssh, which prints its output and exits with its code. The verbs that drive a Rex server of their own (a pane's attach
-# loop, the follow loop, the start-up step, and the reconcile passes a trigger runs) stop with wrong-host instead.
+# loop, the start-up step, and the reconcile passes a trigger runs) stop with wrong-host instead.
 
 # Usage: forward_quote <word...>; the words as one command line for the server's login shell. zsh expands an unquoted
 # word that starts with = to a command's path, so every word is single-quoted.
@@ -19,7 +19,7 @@ forward_verb() {
   local verb=$1 arg args=() status=0 tty=-n err line
   shift
   case "$verb ${1:-}" in
-    'attach '* | 'follow '* | 'restore --by' | 'restore --at-start')
+    'attach '* | 'restore --by' | 'restore --at-start')
       contract_fail wrong-host "agent-slot-rex $verb drives the Rex server on the Linux server, so it runs only on \
 $AR_SERVER" --value "$AR_SERVER" --command "ssh $AR_SERVER agent-slot-rex doctor"
       ;;
