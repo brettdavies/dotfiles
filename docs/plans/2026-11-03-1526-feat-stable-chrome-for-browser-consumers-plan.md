@@ -13,17 +13,16 @@ execution: code
 ## Goal Capsule
 
 - **Objective:** Every tool on the Linux server and the Mac that opens web pages Brett does not control runs a Chrome
-  that carries Google's current stable security fixes, with its sandbox on. The machine downloads a Playwright-pinned
-  Chromium only for consumers that still need a pinned build.
+  that carries Google's current stable security fixes, with its sandbox on and certificate checks enforced.
 - **Means:** Google Chrome stable, installed from Google's signed apt repository on the Linux server and kept current by
   the host's unattended upgrades. On the Mac it is the existing install, kept current by Google's own updater. Consumers
   reach it by Playwright's `chrome` channel or an executable path.
 - **Product authority:** Requirements govern behavior and Key Decisions record why. The measurements in this plan are
   the evidence. Where a solutions doc or runbook disagrees with a measurement here, the doc is what gets rewritten. The
   scope of the pinned-download removal waits on Brett's answer to the first Outstanding Question.
-- **Open blockers:** the sandbox at Chrome's real install path is unmeasured until Brett installs the package (third
-  Outstanding Question). Brett also has to decide the local browser for the e2e suites and whether Chrome is exempt from
-  the seven-day gate (first and second Outstanding Questions).
+- **Open blockers:** Brett decides the local browser for the e2e suites, whether Chrome is exempt from the seven-day
+  gate, and what gstack's headed sessions run on (Resolve Before Planning). The sandbox at Chrome's real install path is
+  measured at the first deploy, before any consumer is pointed at it.
 - **Execution profile:** System package plus apt configuration, applied by the operator because the agent's settings
   deny `sudo`. Plus dotfiles shell config, provisioning-script trimming, and doc updates, and one upstream gstack issue
   Brett files. Proof is runtime measurement on both machines. bats covers the script seams.
@@ -41,8 +40,8 @@ execution: code
 
 Install Google Chrome stable on the Linux server from Google's apt repository and let unattended upgrades keep it
 current. Leave the Mac's Google-updated Chrome as it is. Point every consumer that opens untrusted pages at it with the
-sandbox on: gstack browse, crawl4ai, and agent scripts. Dotfiles keeps provisioning a Playwright-pinned Chromium only
-where a test suite's reproducibility needs it.
+sandbox on: gstack browse, crawl4ai, and agent scripts. Dotfiles keeps provisioning a Playwright-pinned Chromium only if
+Brett keeps local e2e runs on the pin (first Outstanding Question).
 
 The recommendation splits consumers by trust boundary. Browsing agents move to stable Chrome now, because that is where
 the measured security gap is. The e2e suites keep the pin in CI. Brett decides whether they also leave it locally, and
@@ -98,9 +97,9 @@ as provisioned by Playwright or dotfiles.
 | Consumer                                                                                    | Machine                           | Pages it opens                                                                   | Browser today                                                        | Sandbox today                                                | Under this plan                                                            |
 | ------------------------------------------------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------- |
 | gstack browse (`/browse`, `/qa`, `/scrape`, handoff, cookie import)                         | Linux, gstack 1.94.33.0           | arbitrary URLs, including credentialed sessions                                  | pinned 156.0.8078.4                                                  | on, through the dotfiles AppArmor profile                    | stable Chrome, sandbox on (R6)                                             |
-| gstack browse                                                                               | Mac, gstack 1.93.42               | same                                                                             | pinned 151.0.7922.34                                                 | on                                                           | stable Chrome, sandbox on (R6)                                             |
-| crawl4ai CLI and the crawl4ai skill's scripts                                               | Linux, 0.9.5 on Playwright 1.64.1 | arbitrary sites                                                                  | pinned 156.0.8078.4                                                  | off (`--no-sandbox` unless `CRAWL4AI_CHROMIUM_SANDBOX=true`) | stable Chrome, sandbox on (R7)                                             |
-| crawl4ai CLI                                                                                | Mac, 0.7.7 on Playwright 1.56.0   | arbitrary sites                                                                  | none: the Mac cache holds no chromium for 1.56.0 (unverified launch) | off                                                          | stable Chrome, sandbox on (R7)                                             |
+| gstack browse                                                                               | Mac, gstack 1.93.42               | same                                                                             | pinned 151.0.7922.34                                                 | on                                                           | per the gstack headed-session question (R6)                                |
+| crawl4ai CLI and the crawl4ai skill's scripts                                               | Linux, 0.9.5 on Playwright 1.64.1 | arbitrary sites                                                                  | pinned 156.0.8078.4                                                  | off (`--no-sandbox` unless `CRAWL4AI_CHROMIUM_SANDBOX=true`) | stable Chrome, sandbox and certificate checks on (R7)                      |
+| crawl4ai CLI                                                                                | Mac, 0.7.7 on Playwright 1.56.0   | arbitrary sites                                                                  | none: the Mac cache holds no chromium for 1.56.0 (unverified launch) | off                                                          | stable Chrome, sandbox and certificate checks on (R7)                      |
 | Ad hoc agent scripts and scrapers                                                           | both                              | arbitrary sites                                                                  | whatever the script launches, by default pinned with `--no-sandbox`  | off by Playwright default                                    | stable Chrome, sandbox on, by guidance (R8)                                |
 | Puppeteer downloads in `~/.cache/puppeteer`                                                 | Linux                             | unknown; no consumer identified                                                  | Chrome for Testing 133.0.6943.141 and 150.0.7871.24 (929 MB)         | unknown                                                      | identified, then repointed or removed (Deferred to Planning)               |
 | Codex browser plugin, Cursor `@agentdeskai/browser-tools-mcp@1.2.0`                         | Mac                               | arbitrary sites                                                                  | the Mac's real Chrome 156.0.8078.80                                  | on                                                           | unchanged                                                                  |
@@ -117,8 +116,10 @@ as provisioned by Playwright or dotfiles.
 - **Google's signed apt repository on Linux, kept current by the host's unattended upgrades.** This is the update path
   Google's package itself installs, and unattended upgrades already run daily on the host. Google's origin joins them
   through an `Origins-Pattern` drop-in, copy-deployed like `config/sysctl.d`, which leaves Ubuntu's stock list as it is.
-  A dotfiles download script would rebuild what apt provides, the same shape as the pinned-set script this plan shrinks.
-  Governs R1, R2.
+  The upgrade timer runs `apt.systemd.daily install`, which never refreshes package lists, so a copy-deployed drop-in on
+  `apt-daily-upgrade.service` refreshes Google's list alone just before each run (`/usr/lib/apt/apt.systemd.daily` lines
+  437 and 491). A dotfiles download script would rebuild what apt provides, the same shape as the pinned-set script this
+  plan shrinks. Governs R1, R2.
 - **The install is per host, never fleet-wide.** This repo deploys to many headless servers that run no browser, so only
   a host where the operator runs the Chrome deploy gets Chrome, and a host without it keeps its consumers' current
   behavior. Governs R1, R15.
@@ -130,11 +131,12 @@ as provisioned by Playwright or dotfiles.
   R3.
 - **Dotfiles adds no AppArmor profile for stable Chrome.** Ubuntu's own `chrome` profile already grants `userns` at the
   install path, and the setuid helper is the fallback when no profile is loaded. Both claims are measured only once the
-  package is installed (third Outstanding Question). Governs R5.
+  package is installed (the first execution gate, Deferred to Planning). Governs R5.
 - **gstack moves by pointing, not patching.** `GSTACK_CHROMIUM_PATH` reaches every browse launch path, so dotfiles sets
-  it and edits nothing inside gstack. gstack keeps fetching its own pinned Chromium on each Playwright bump until
-  upstream fixes its probes (Dependencies). PR #431's registration keeps that fetch from deleting anything else. Governs
-  R6.
+  it and edits nothing inside gstack. The same variable drives headed sessions, where branded Chrome drops gstack's side
+  panel, so where it is set is the gstack headed-session question. gstack keeps fetching its own pinned Chromium on each
+  Playwright bump until upstream fixes its probes (Dependencies). PR #431's registration keeps that fetch from deleting
+  anything else. Governs R6.
 - **The pinned-set machinery shrinks to what still launches from it.** It does not disappear outright, because WebKit
   has no system alternative and gstack and crawl4ai still install their own pinned builds into the shared cache. Governs
   R12, R13.
@@ -147,11 +149,13 @@ as provisioned by Playwright or dotfiles.
   install is declared in dotfiles and applied by a deploy script the operator runs on each host that needs it, never by
   an ad hoc `sudo` command.
 - R2. Chrome on the Linux server updates without operator action within a day of Google publishing a new stable build to
-  its apt repository.
+  its apt repository. Each unattended-upgrade run refreshes Google's package list first, because the stock timers can
+  run the upgrade on lists up to a day and a half old.
 - R3. The Mac keeps its existing Google-updated Chrome. Dotfiles neither installs a second copy nor moves it under
   Homebrew.
-- R4. A check that changes nothing fails when an installed Chrome is older than the newest stable build its update
-  channel offers, or when the host's unattended upgrades do not cover it, and names the command that fixes it.
+- R4. A check that changes nothing fails when an installed Chrome is older than a stable build that an unattended run
+  has already had the chance to install, or when the host's unattended upgrades do not cover it, and names the command
+  that fixes it. A build newer than the last unattended run is noted as pending, not failed.
 
 **Sandbox**
 
@@ -160,10 +164,13 @@ as provisioned by Playwright or dotfiles.
 
 **Browsing agents**
 
-- R6. gstack browse on both machines launches stable Chrome with its sandbox on, through every launch path gstack
-  exposes for a custom browser.
+- R6. gstack browse on both machines opens pages in stable Chrome with its sandbox on, through every launch path that
+  opens a page, within the bounds of the gstack headed-session question. gstack's install probe, which renders a local
+  test page in a pinned build, is outside R6 and R9 until upstream honors `GSTACK_CHROMIUM_PATH` in it.
 - R7. crawl4ai on both machines (the CLI, the crawl4ai skill's scripts, and repos that import it) launches stable Chrome
-  with its sandbox on.
+  with its sandbox on and certificate errors enforced. crawl4ai takes its browser per caller, not from the environment,
+  so each covered caller sets the Chrome channel, the sandbox opt-in, and `ignore_https_errors` off. Each runs a
+  crawl4ai that honors `CRAWL4AI_CHROMIUM_SANDBOX` (0.9.5 does; 0.8.9 and earlier always pass `--no-sandbox`).
 - R8. The guidance agents read before writing browser automation tells any script that opens pages Brett does not
   control to launch the Chrome binary dotfiles names, with the sandbox on. That guidance is the always-loaded
   `stow/claude/dot-claude/CLAUDE.md`, the CLI tools guide, and the browser-related skills. For Playwright its form is
@@ -175,14 +182,15 @@ as provisioned by Playwright or dotfiles.
 **Test suites**
 
 - R10. Each e2e suite's CI keeps running its Chromium-family projects on the Playwright-pinned build.
-- R11. Each e2e suite can run its Chromium-family projects on stable Chrome locally through one switch with the same
-  name in every suite. Whether that switch is the local default is the first Outstanding Question.
+- R11. If Brett picks stable Chrome as the local default (first Outstanding Question), each e2e suite runs its
+  Chromium-family projects on stable Chrome locally through one switch with the same name in every suite.
 
 **Provisioning**
 
 - R12. The dotfiles-provisioned Playwright set carries only the browsers some consumer on the machine still launches
   from it. Its registration with Playwright's cleanup, its `--check`, and its aliases cover exactly that set.
-- R13. No AppArmor grant stays deployed for a browser binary that nothing launches with its sandbox on.
+- R13. No AppArmor grant stays deployed on a host for a browser binary that nothing on that host launches with its
+  sandbox on. The Playwright profile stays in the repo while any host can still fall back to a pinned build (R15).
 
 **Docs**
 
@@ -192,14 +200,17 @@ as provisioned by Playwright or dotfiles.
 
 **Hosts without Chrome, processes an upgrade left behind, and failure output**
 
-- R15. A host without stable Chrome keeps its browsing agents on their current browser. Dotfiles never points a consumer
-  at a Chrome binary that is absent, and on such a host the R4 check only notes the absence.
+- R15. A host without stable Chrome keeps gstack and crawl4ai on their current browser. Dotfiles never points a consumer
+  at a Chrome binary that is absent, and on such a host the R4 check only notes the absence. New scripts follow R18
+  instead.
 - R16. The R4 check also reports any running Chrome process still on an executable an upgrade replaced, and names the
   restart that picks up the new build.
 - R17. Each R4 failure carries a stable reason from a closed set, the values it compared (installed and offered
   versions, the configuration file read), and the fix command, on stderr with a non-zero exit.
 - R18. A script following the R8 guidance on a host without stable Chrome stops and names the operator's deploy command.
-  It never falls back to a pinned build for pages Brett does not control and never runs `playwright install chrome`.
+  It never falls back to a pinned build for pages Brett does not control and never runs `playwright install chrome`. A
+  bare `executablePath` from an unset variable is `undefined`, which silently launches the bundled build, so the
+  guidance checks the variable before launching.
 
 ### Acceptance Examples
 
@@ -207,18 +218,20 @@ as provisioned by Playwright or dotfiles.
   `browse goto https://dv-g3b-emudhra.we-have-a-problem.com/` runs, **then** the navigation fails with a certificate
   error, and the browser's renderer processes run in their own user namespace.
 - AE2. **Covers R2, R4, R17.** **Given** Google publishes a new stable build, **when** the host's next daily
-  unattended-upgrade run completes, **then** the installed version matches it and the R4 check passes. **Given**
-  Google's origin is missing from the unattended-upgrade configuration, **when** the R4 check runs a day after a
-  release, **then** it exits non-zero with a stable reason, the configuration file it read, and the deploy command.
-- AE9. **Covers R18.** **Given** a host without stable Chrome, **when** an agent's script launches a browser the way the
-  guidance says, **then** it exits before opening any page with a message that the host has no stable Chrome and names
-  the deploy command, rather than Playwright's `Run "npx playwright install chrome"`.
+  unattended-upgrade run completes, **then** the installed version matches it and the R4 check passes; the time from the
+  build entering Google's index to its install is under a day. **Given** a build Google published after the last
+  unattended run started, **when** the R4 check runs, **then** it notes the pending upgrade and exits 0. **Given**
+  Google's origin is missing from the unattended-upgrade configuration, **when** the R4 check runs after an unattended
+  run has had the chance to install a build, **then** it exits non-zero with a stable reason, the configuration file it
+  read, and the deploy command.
 - AE3. **Covers R5.** **Given** stable Chrome is installed, **when** Playwright launches it with `channel: 'chrome'` and
   `chromiumSandbox: true` on a boot where Ubuntu's `chrome` profile is loaded, **then** it starts and its renderers have
   their own user and PID namespaces. **When** the same launch runs with that profile unloaded, **then** it still starts
   sandboxed through the setuid helper.
 - AE4. **Covers R7, R9.** **Given** crawl4ai is configured by dotfiles, **when** it crawls a page, **then** the browser
-  process is `/opt/google/chrome/chrome` (or the Mac's Chrome) and its command line carries no `--no-sandbox`.
+  process is `/opt/google/chrome/chrome` (or the Mac's Chrome) and its command line carries no `--no-sandbox`. **When**
+  it crawls `https://dv-g3b-emudhra.we-have-a-problem.com/`, **then** the crawl fails with a certificate error, as AE1
+  does for gstack.
 - AE5. **Covers R11, R12.** **Given** Brett chose stable Chrome as the local default, **when** the deploy script's
   `--check` runs, **then** it passes with no chromium or headless-shell directory and no chromium aliases in the set.
   lmgroktfy's, meum-sites', and streamsgrp's suites, and agentnative-site's Chromium-family projects, pass locally on
@@ -230,18 +243,21 @@ as provisioned by Playwright or dotfiles.
   check exits 0 with a note that Chrome is not installed.
 - AE8. **Covers R16.** **Given** a gstack browse daemon started before the morning's unattended upgrade replaced Chrome,
   **when** the R4 check runs, **then** it names that process and the command that restarts it.
+- AE9. **Covers R18.** **Given** a host without stable Chrome, **when** an agent's script launches a browser the way the
+  guidance says, **then** it exits before opening any page with a message that the host has no stable Chrome and names
+  the deploy command, rather than Playwright's `Run "npx playwright install chrome"`.
 
 ### What Happens to the Pinned-Browser Machinery
 
-| Item                                                             | Today                                                                     | Under the recommendation                                                                                                                                                                                                                               |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `scripts/playwright-browsers-deploy.sh`                          | provisions chromium, headless shell, WebKit, ffmpeg for Playwright 1.62.1 | provisions WebKit and ffmpeg only if Brett picks stable Chrome for local e2e. Otherwise it is unchanged, because the e2e suites still launch chromium from it.                                                                                         |
-| Chromium aliases 1223 and 1228                                   | serve crawl4ai 0.8.9 (now 0.9.5, which uses 1248) and the 1.61.1 suites   | 1223's named consumer, crawl4ai 0.8.9, has moved to 1248, and no other Playwright 1.60.0 consumer was found. 1228 goes with the chromium entries above.                                                                                                |
-| PR #431's `.links` registration and `--check`                    | registers the whole set                                                   | still needed for whatever the set keeps, because gstack's and crawl4ai's installs still run Playwright's cleanup against the shared cache                                                                                                              |
-| gstack's own `playwright install chromium`                       | fetches 1248 into the shared cache when its probe fails                   | unchanged until upstream honors `GSTACK_CHROMIUM_PATH` in its probes (Dependencies). Harmless under #431.                                                                                                                                              |
-| `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`   | one shared cache; no auto-download on `bun install`                       | both stay: WebKit and the tool-pinned builds still land in that one cache                                                                                                                                                                              |
-| `config/apparmor.d/playwright` and `apparmor-playwright.service` | grant `userns` to pinned chromium and headless shell                      | retired once no pinned build launches sandbox-on (R13). That holds when gstack and crawl4ai run on stable Chrome, because Playwright's default and the e2e suites run sandbox-off.                                                                     |
-| `scripts/playwright-deps-deploy.sh`                              | entry point for binaries, AppArmor, opt-in apt deps                       | keeps the WebKit apt-deps role. Its `--chromium` flag goes with the chromium entries: it runs `bun x playwright install --with-deps chromium`, which downloads a chromium as well as the deps, and the Chrome deb's own dependencies cover those deps. |
+| Item                                                             | Today                                                                     | Under the recommendation                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/playwright-browsers-deploy.sh`                          | provisions chromium, headless shell, WebKit, ffmpeg for Playwright 1.62.1 | provisions WebKit and ffmpeg only if Brett picks stable Chrome for local e2e. Otherwise it is unchanged, because the e2e suites still launch chromium from it.                                                                                                                                                       |
+| Chromium aliases 1223 and 1228                                   | serve crawl4ai 0.8.9 (now 0.9.5, which uses 1248) and the 1.61.1 suites   | 1223's named consumer, crawl4ai 0.8.9, has moved to 1248, and no other Playwright 1.60.0 consumer was found. 1228 goes with the chromium entries above.                                                                                                                                                              |
+| PR #431's `.links` registration and `--check`                    | registers the whole set                                                   | still needed for whatever the set keeps, because gstack's and crawl4ai's installs still run Playwright's cleanup against the shared cache                                                                                                                                                                            |
+| gstack's own `playwright install chromium`                       | fetches 1248 into the shared cache when its probe fails                   | unchanged until upstream honors `GSTACK_CHROMIUM_PATH` in its probes (Dependencies). Harmless under #431.                                                                                                                                                                                                            |
+| `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`   | one shared cache; no auto-download on `bun install`                       | both stay: WebKit and the tool-pinned builds still land in that one cache                                                                                                                                                                                                                                            |
+| `config/apparmor.d/playwright` and `apparmor-playwright.service` | grant `userns` to pinned chromium and headless shell                      | unloaded per host once nothing on that host launches a pinned build sandbox-on (R13): on hosts where the Chrome deploy ran and gstack and crawl4ai point at stable Chrome. The profile stays in the repo while any host can still fall back to a pinned build (R15), and while gstack's headed sessions stay pinned. |
+| `scripts/playwright-deps-deploy.sh`                              | entry point for binaries, AppArmor, opt-in apt deps                       | keeps the WebKit apt-deps role. Its `--chromium` flag goes with the chromium entries: it runs `bun x playwright install --with-deps chromium`, which downloads a chromium as well as the deps, and the Chrome deb's own dependencies cover those deps.                                                               |
 
 ### Scope Boundaries
 
@@ -269,9 +285,14 @@ as provisioned by Playwright or dotfiles.
   does not wait on it.
 - **gstack's CRLSet issue.** garrytan/gstack#3338 reports stable Chrome 155 trusting the eMudhra intermediates through
   `GSTACK_CHROMIUM_PATH`. Stable 156.0.8078.79 rejects them even with component updates disabled (Measured Findings), so
-  the fix now ships in the binary. #3440's broader point stands: a Playwright-launched profile never receives component
-  updates, so revocations that arrive only by CRLSet reach it with the next binary update and no sooner. Daily updates
-  (R2) bound that delay.
+  the fix now ships in the binary. #3440's broader point stands, and it is not bounded by R2. gstack's default headless
+  launch keeps Playwright's `--disable-component-update` (only its headed and extension paths strip it), and crawl4ai
+  adds the flag itself. Chrome receives a CRLSet only through the component updater. So a revocation Google ships only
+  by CRLSet never reaches these agents; R2 bounds only the lag behind a release that compiles the distrust into the
+  binary, as 156.0.8078.79 did. The gstack issue Brett files also asks for the headless path to strip that flag.
+- **Scripts that ignore the guidance still find a pinned build.** A default `chromium.launch()` from a Playwright 1.64.1
+  script resolves gstack's chromium 1248 in the shared cache and runs it with `--no-sandbox`. Nothing errors, so R9 has
+  no backstop for such a script while gstack keeps fetching 1248.
 - **Ubuntu keeps shipping its `chrome` AppArmor profile.** It is part of the `apparmor` package on 24.04. If a later
   release drops it, Google's deb installs its own.
 - **Playwright drives newer stable Chrome.** The measured case is 1.61.1 driving 156. A Chrome major far ahead of a
@@ -291,27 +312,42 @@ as provisioned by Playwright or dotfiles.
   runs Chrome 151 locally while CI runs 149. lmgroktfy passed 16/16 on Chrome 156, no suite uses screenshot assertions,
   and (a) removes the per-version revision map, the aliases, and the extractor workaround for chromium. The cost of (a)
   is a suite that passes locally and fails in CI, or the reverse, on a browser-version difference. (b) is what
-  Playwright recommends.
+  Playwright recommends. Either way, gstack's and crawl4ai's own pinned builds stay in the shared cache until gstack
+  honors `GSTACK_CHROMIUM_PATH` in its probes, so (a) ends the dotfiles download, not every pinned download.
+- **What do gstack's headed sessions run on?** (Brett) gstack reads one variable, `GSTACK_CHROMIUM_PATH`, for headless,
+  headed (`/open-gstack-browser`), and handoff launches. Its headed path loads the side-panel extension with
+  `--load-extension`, which branded Chrome ignores (`browse/src/browser-manager.ts:876`: "Real Chrome
+  (executablePath/channel) silently blocks --load-extension"). Options: (a) point gstack at stable Chrome on both
+  machines and accept that headed and handoff sessions open without the side panel; (b) point it only where headed
+  sessions do not run (the Linux server, which has no display) and keep the Mac on gstack's pinned build until gstack
+  takes a headless-only variable, which the upstream issue also asks for; (c) hold gstack on its pinned build everywhere
+  until upstream separates the paths. Recommendation: (b). The unattended untrusted browsing happens headless on the
+  Linux server, and the side panel is the point of a headed session. The Mac's gstack 1.93.42 should move to 1.94.31.0
+  or later regardless, where handoff began honoring the variable.
 - **Is Chrome exempt from the seven-day release-age gate?** (Brett) Recommendation: yes, recorded as a named exemption
   in the supply-chain guide. Google's apt index serves only the newest stable build, so apt cannot hold Chrome back
   seven days without mirroring old debs. The builds the gate would delay are the ones fixing exploited-in-the-wild bugs.
   The gate's threat, a malicious upload to an open registry, does not match a vendor-signed first-party repository.
-- **Does stable Chrome's sandbox work at `/opt/google/chrome/chrome` under this host's userns restriction, and does
-  `channel: 'chrome'` run a real suite?** (measurement, blocked on Brett installing the package) Needed for R5 and AE3.
-  Expected: the namespace sandbox through Ubuntu's `chrome` profile, and the setuid helper when that profile is not
-  loaded.
-
 **Deferred to Planning**
 
-- Where the machine-wide pointers live (likely `config/shell/*.sh` exports for `GSTACK_CHROMIUM_PATH` and
-  `CRAWL4AI_CHROMIUM_SANDBOX`), and how crawl4ai's CLI and skill scripts pick up `chrome_channel` without per-script
-  edits.
+- **The first execution gate is the sandbox measurement.** After the R1 deploy runs on the Linux server, and before any
+  consumer is pointed at Chrome: does Chrome at `/opt/google/chrome/chrome` start with its sandbox on under the host's
+  userns restriction (R5, AE3), and does `channel: 'chrome'` run a real suite? Expected: the namespace sandbox through
+  Ubuntu's `chrome` profile, and the setuid helper when that profile is not loaded. A failure takes the Goal Capsule's
+  stop condition.
+- Where the shell-config block that owns the Chrome path lives, and which crawl4ai callers dotfiles configures: the
+  crawl4ai skill's scripts and browser template, `crwl` through `-b` or a `-B` config file, and each importing repo such
+  as scrawl2. crawl4ai's managed-browser modes (profiles, persistent contexts, CDP) resolve their binary through
+  `~/.crawl4ai/chromium.path` rather than `chrome_channel`, so planning decides whether R7 covers them or excludes them.
 - What populated `~/.cache/puppeteer` on the Linux server (bun's cache holds puppeteer and puppeteer-core 24.43.1), and
   whether that tool should get `PUPPETEER_EXECUTABLE_PATH` or the cache should go.
-- Whether the Mac's crawl4ai 0.7.7 launches at all today, and whether the Mac's gstack 1.93.42 should move to the Linux
-  server's version first.
-- The R4 check's source of truth for "newest stable", per machine: Google's apt index on Linux, and on the Mac either
-  Google's version history API or the updater's own state.
+- The Mac's crawl4ai moves from 0.7.7 to a release that honors `CRAWL4AI_CHROMIUM_SANDBOX` (R7); planning lists each
+  importing repo's crawl4ai version.
+- The R4 check's source of truth for "newest stable": Google's apt index on Linux. On the Mac, Google stages each stable
+  rollout over days, so the check reports the installed version and the updater's presence rather than comparing against
+  Google's version history.
+- When R4 runs unattended, and where a failure shows: the repo already surfaces host checks at Claude Code session start
+  (`failed-user-units.sh`), silent when they pass.
 - Whether `apparmor.service` runs on every boot of this host or only some, which decides whether the setuid fallback in
   AE3 is a backstop or a routine path.
 
@@ -375,7 +411,8 @@ Scope findings:
   `tests/playwright-browsers-deploy.bats` does not exist, yet R12 and AE5 build on both. Disposition: accepted;
   Dependencies now says #431 merges first.
 - S2. [INFORMATIONAL] (confidence: 8/10) The brief asked for one real consumer on `channel: 'chrome'`; only
-  `executablePath` runs were possible without the install. Disposition: no change; it is the third Outstanding Question.
+  `executablePath` runs were possible without the install. Disposition: no change; it is the first execution gate
+  (Deferred to Planning).
 
 Reality rows:
 
@@ -792,5 +829,5 @@ Unresolved decisions from this review: none.
 
 **UNRESOLVED DECISIONS:**
 
-- \+ 3 unresolved from prior reviews: the local e2e browser, the seven-day gate exemption for Chrome, and the install
-  go-ahead for the sandbox measurement (all Brett's)
+- \+ 3 unresolved for Brett (plan Outstanding Questions): the local e2e browser, the seven-day gate exemption for
+  Chrome, and what gstack's headed sessions run on
