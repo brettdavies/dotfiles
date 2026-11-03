@@ -29,9 +29,10 @@ stop_spawned() {
 }
 
 # Usage: processes_with <NAME=value> [<test pid>]; prints "<pid> <command>" for each live process whose environment
-# holds exactly that entry, other than the timeout watchdog of the bats test running as <test pid>. The environment /proc
-# shows is the one a process was started with, so a process that only set the variable in its own shell lacks it. grep
-# runs without the variable and reads the entry from stdin, so it never matches itself.
+# holds exactly that entry, other than the timeout watchdog of the bats test running as <test pid>. A detached timeout
+# watchdog it comes across is killed instead of printed. The environment /proc shows is the one a process was started
+# with, so a process that only set the variable in its own shell lacks it. grep runs without the variable and reads the
+# entry from stdin, so it never matches itself.
 processes_with() {
   local file pid cmd
   [ -d /proc/self ] || return 0
@@ -40,6 +41,10 @@ processes_with() {
     pid=${pid%%/*}
     cmd=$(tr '\0' ' ' 2>/dev/null <"/proc/$pid/cmdline" | cut -c1-160)
     [ -z "${2:-}" ] || ! is_timeout_watchdog "$pid" "$cmd" "$2" || continue
+    if is_detached_watchdog "$pid" "$cmd"; then
+      kill -KILL "$pid" 2>/dev/null || true
+      continue
+    fi
     printf '%s %s\n' "$pid" "$cmd"
   done
 }
@@ -51,6 +56,22 @@ processes_with() {
 is_timeout_watchdog() {
   [ -n "${BATS_TEST_TIMEOUT:-}" ] && [ "$2" = "sleep $BATS_TEST_TIMEOUT " ] &&
     [ "$(parent_of "$(parent_of "$1")")" = "$3" ]
+}
+
+# Usage: is_detached_watchdog <pid> <command>; true when the process is the sleep of a bats timeout watchdog whose
+# countdown shell is gone, so nothing stops it before the limit runs out. bats 1.14's countdown shell forks that sleep
+# and only then installs the TERM trap that kills it; a TERM from a fast test's exit trap inside that window kills the
+# shell, and the sleep runs on under a new parent. The shape is exact: `sleep <n>` with BATS_TEST_TIMEOUT=<n> in its
+# environment and no open file descriptor, since the watchdog closes 0 to 255 before it execs.
+is_detached_watchdog() {
+  local limit=${2#sleep } entry
+  limit=${limit% }
+  [[ $limit =~ ^[1-9][0-9]*$ && $2 == "sleep $limit " ]] || return 1
+  [ -r "/proc/$1/fd" ] && ! compgen -G "/proc/$1/fd/*" >/dev/null || return 1
+  while IFS= read -r -d '' entry; do
+    [ "$entry" != "BATS_TEST_TIMEOUT=$limit" ] || return 0
+  done 2>/dev/null <"/proc/$1/environ"
+  return 1
 }
 
 # Usage: parent_of <pid>; prints the parent pid of a live process, and nothing for one that is gone.

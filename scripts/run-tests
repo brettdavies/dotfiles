@@ -41,7 +41,10 @@
 # fails one that does not.
 #
 # A bats process that leaves a process running after it exits fails: run-tests
-# gives the process 3 s, then kills it and names it under the bats output.
+# gives the process 3 s, then kills it and names it under the bats output. A
+# timeout watchdog's sleep that bats itself left behind is killed without
+# failing the run; tests/lib/processes.bash has its shape, at
+# is_detached_watchdog.
 #
 # Every test fails once it has run for BATS_TEST_TIMEOUT seconds, 60 unless
 # the environment sets it, so a hung test fails as `not ok N <name> # timeout

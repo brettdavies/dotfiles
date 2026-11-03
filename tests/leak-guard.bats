@@ -55,6 +55,23 @@ probe() {
     'teardown() { stop_spawned; assert_no_leaks; }' "@test \"probe\" { $1; }" >"$BATS_TEST_TMPDIR/probe.bats"
 }
 
+# orphan_probe FILE: a one-test suite whose test kills its own timeout watchdog's countdown shell, which leaves the
+# watchdog's sleep running under a new parent, as bats does itself when a test's exit trap stops the countdown shell
+# before that shell has set its TERM trap. The test writes the sleep's pid to $BATS_TEST_TMPDIR/watchdog.pid.
+orphan_probe() {
+  printf '%s\n' '@test "orphan" {' \
+    '  local shell watchdog="" i' \
+    '  for ((i = 0; i < 100; i++)); do' \
+    '    for shell in $(pgrep -P $$); do watchdog=$(pgrep -x -P "$shell" sleep) && break 2; done' \
+    '    sleep 0.1' \
+    '  done' \
+    '  [ -n "$watchdog" ]' \
+    "  echo \"\$watchdog\" >'$BATS_TEST_TMPDIR/watchdog.pid'" \
+    '  kill -KILL "$shell"' \
+    '  wait "$shell" 2>/dev/null || true' \
+    '}' >"$1"
+}
+
 @test "the guard fails a test that leaves a grandchild running, names it, and stops it" {
   probe "bash -c 'sleep 30 & exit 0'"
   nested "$BATS_TEST_TMPDIR/probe.bats"
@@ -75,6 +92,27 @@ probe() {
   LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/leaky.bats"
   [ "$status" -eq 1 ]
   [[ $stderr == *"processes $CWD/leaky.bats started were still running after bats exited, and were killed:"*"sleep 31"* ]]
+  [ -z "$(processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]
+}
+
+@test "run-tests stops a timeout watchdog its countdown shell left running, without failing the run" {
+  orphan_probe "$CWD/orphan.bats"
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=37 \
+    run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/orphan.bats"
+  [ "$status" -eq 0 ]
+  [[ $output == *"ok 1 orphan"* ]]
+  [[ $stderr != *"were killed"* ]]
+  local watchdog
+  watchdog=$(cat "$BATS_TEST_TMPDIR/watchdog.pid")
+  [ -z "$(tr -d '\0' <"/proc/$watchdog/cmdline" 2>/dev/null)" ]
+}
+
+@test "run-tests still fails a leaked sleep of the time limit that keeps a file descriptor open" {
+  printf '%s\n' '@test "leak" { sleep 37 </dev/null >/dev/null 2>&1 3>&- & }' >"$CWD/leaky.bats"
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=37 \
+    run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/leaky.bats"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"processes $CWD/leaky.bats started were still running after bats exited, and were killed:"*"sleep 37"* ]]
   [ -z "$(processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]
 }
 
