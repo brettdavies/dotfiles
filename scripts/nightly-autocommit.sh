@@ -28,9 +28,9 @@ log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" | tee -a "$LOG_FILE"; }
 # sync. A sync repo is fast-forwarded and each change origin lacks is logged as
 # a WARNING, never staged, committed, or deleted. solutions-docs is sync because
 # prime sessions draft in it and publish by sd-commit-doc's copy-out, so a
-# change there can be a draft still in progress.
+# change there can be a draft still in progress. The Obsidian vault is never
+# listed: its contents are sensitive, so it is committed by hand.
 REPOS=(
-  "$HOME/obsidian-vault|main"
   "$HOME/dev/solutions-docs|main|sync"
   "$HOME/dev/agent-skills|main"
 )
@@ -94,15 +94,6 @@ for entry in "${REPOS[@]}"; do
     log "SKIP: $repo_name — index.lock exists (another process has the repo)"
     SKIPPED=$((SKIPPED + 1))
     continue
-  fi
-
-  # Pre-flight: git-crypt check (for obsidian-vault)
-  if [[ "$repo_name" == "obsidian-vault" ]]; then
-    if git -C "$repo_path" crypt status -e 2>/dev/null | head -1 | grep -q "encrypted:"; then
-      log "SKIP: $repo_name — git-crypt is locked"
-      SKIPPED=$((SKIPPED + 1))
-      continue
-    fi
   fi
 
   # Sync local branch to origin BEFORE detecting changes. On a shared clone that

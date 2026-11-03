@@ -112,18 +112,18 @@ make_split_repo() {
 }
 
 @test "a commit repo still commits and pushes beside a sync repo" {
-  make_repo vault
+  make_repo skills
   make_repo sd
-  echo "new note" >"$T/vault/note.md"
+  echo "new note" >"$T/skills/note.md"
   echo "draft in progress" >"$T/sd/draft.md"
   sd_before=$(origin_head sd)
 
-  NIGHTLY_AUTOCOMMIT_REPOS="$T/vault|main
+  NIGHTLY_AUTOCOMMIT_REPOS="$T/skills|main
 $T/sd|main|sync" run "$SCRIPT"
   [ "$status" -eq 0 ]
 
-  [ "$(git -C "$T/vault.git" show main:note.md)" = "new note" ]
-  [ -z "$(git -C "$T/vault" status --porcelain)" ]
+  [ "$(git -C "$T/skills.git" show main:note.md)" = "new note" ]
+  [ -z "$(git -C "$T/skills" status --porcelain)" ]
   [ "$(origin_head sd)" = "$sd_before" ]
   [ -f "$T/sd/draft.md" ]
   grep -E 'Summary: committed=1 .*synced=1' "$LOG"
@@ -157,40 +157,56 @@ $T/sd|main|sync" run "$SCRIPT"
 }
 
 @test "a clone whose .git file names a separate git directory is committed and pushed" {
-  make_split_repo vault
-  [ -f "$T/vault/.git" ]
-  echo "new note" >"$T/vault/note.md"
+  make_split_repo skills
+  [ -f "$T/skills/.git" ]
+  echo "new note" >"$T/skills/note.md"
 
-  NIGHTLY_AUTOCOMMIT_REPOS="$T/vault|main" run "$SCRIPT"
+  NIGHTLY_AUTOCOMMIT_REPOS="$T/skills|main" run "$SCRIPT"
   [ "$status" -eq 0 ]
 
-  [ "$(git -C "$T/vault.git" show main:note.md)" = "new note" ]
-  [ -z "$(git -C "$T/vault" status --porcelain)" ]
+  [ "$(git -C "$T/skills.git" show main:note.md)" = "new note" ]
+  [ -z "$(git -C "$T/skills" status --porcelain)" ]
   grep -E 'Summary: committed=1 ' "$LOG"
 }
 
 @test "an index.lock in a separate git directory skips the repo" {
-  make_split_repo vault
-  echo "new note" >"$T/vault/note.md"
-  : >"$T/vault-gitdir/index.lock"
-  before=$(origin_head vault)
+  make_split_repo skills
+  echo "new note" >"$T/skills/note.md"
+  : >"$T/skills-gitdir/index.lock"
+  before=$(origin_head skills)
 
-  NIGHTLY_AUTOCOMMIT_REPOS="$T/vault|main" run "$SCRIPT"
+  NIGHTLY_AUTOCOMMIT_REPOS="$T/skills|main" run "$SCRIPT"
   [ "$status" -eq 0 ]
 
-  [ "$(origin_head vault)" = "$before" ]
-  grep -E 'SKIP: vault .*index\.lock exists' "$LOG"
+  [ "$(origin_head skills)" = "$before" ]
+  grep -E 'SKIP: skills .*index\.lock exists' "$LOG"
 }
 
 @test "a directory inside a repo but not at its top is skipped as not a git repo" {
-  make_repo vault
-  mkdir "$T/vault/sub"
-  echo "new note" >"$T/vault/sub/note.md"
-  before=$(origin_head vault)
+  make_repo skills
+  mkdir "$T/skills/sub"
+  echo "new note" >"$T/skills/sub/note.md"
+  before=$(origin_head skills)
 
-  NIGHTLY_AUTOCOMMIT_REPOS="$T/vault/sub|main" run "$SCRIPT"
+  NIGHTLY_AUTOCOMMIT_REPOS="$T/skills/sub|main" run "$SCRIPT"
   [ "$status" -eq 0 ]
 
-  [ "$(origin_head vault)" = "$before" ]
+  [ "$(origin_head skills)" = "$before" ]
   grep -E 'SKIP: sub .*not a git repo' "$LOG"
+}
+
+@test "the default list leaves the Obsidian vault out" {
+  cat >"$STUBS/git" <<'STUB'
+#!/usr/bin/env bash
+exit 1
+STUB
+  chmod +x "$STUBS/git"
+
+  unset NIGHTLY_AUTOCOMMIT_REPOS
+  run "$SCRIPT" --dry-run
+  [ "$status" -eq 0 ]
+
+  grep -F -- '--- solutions-docs ---' "$LOG"
+  grep -F -- '--- agent-skills ---' "$LOG"
+  run ! grep -F obsidian-vault "$LOG"
 }
