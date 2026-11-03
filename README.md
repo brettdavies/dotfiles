@@ -355,34 +355,38 @@ once it has one), then:
 
 #### Tabs follow the server
 
-Three triggers keep each Mac's tabs in step with the server, and each one runs `agent-slot-rex restore`:
+Three triggers on the Linux server keep its Rex tabs in step with the slots, with no client connected, and each one
+runs an `agent-slot-rex restore` pass:
 
 - **Push.** After `agent-slot launch` makes a slot, and after `agent-slot sweep --yes` or `agent-slot finish --yes`
-  tears one down, the server runs `ssh <client> agent-slot-rex restore --by push` in the background for each Mac in
-  `AGENT_SLOT_REX_CLIENTS`. That variable holds space-separated ssh aliases, defaults to the Mac alias `mac-open` uses,
-  and pushes to none when empty. ssh gets `AGENT_SLOT_PUSH_CONNECT_TIMEOUT` seconds (5) to connect, and the whole push
-  `AGENT_SLOT_PUSH_TIMEOUT` seconds (60); the verb never waits for it, so a Mac that is asleep costs nothing. The Mac
-  helper names its own Mac in `AGENT_SLOT_REX_CLIENT` (default: that same alias) on every server call, and the server
-  skips that client, because the helper reconciles right after its own launch, sweep, or finish.
-- **Reconnect.** Rex starts `agent-slot-rex follow` when it loads. Every `AGENT_SLOT_REX_TICK` seconds (5) the loop
-  checks that its Rex server still runs. A tick that overran by more than `AGENT_SLOT_REX_WAKE_GAP` seconds (30) means
-  the Mac slept; then, and after a call that could not reach the server, the loop probes the server each tick and
-  restores as soon as it answers.
-- **Poll.** The same loop restores every `AGENT_SLOT_REX_POLL_INTERVAL` seconds (60). That catches a push that never
-  arrived and relabels a tab once its agent has made its branch.
+  tears one down, agent-slot runs `agent-slot-rex restore --by push` in the background. It finds the helper at
+  `AGENT_SLOT_REX_HELPER` (`~/.local/bin/agent-slot-rex`) and pushes nothing without it, and the verb never waits for
+  it unless `AGENT_SLOT_PUSH_WAIT=1`, as the sweep timer and a release's finish set; `AGENT_SLOT_PUSH_TIMEOUT` (60 s)
+  bounds it. A verb the helper ran itself pushes nothing, because the helper reconciles right after it.
+- **Timer.** `agent-slot-reconcile.timer` runs `agent-slot-rex restore --by poll` every minute, which catches a push
+  that changed nothing and relabels a tab once its agent has made its branch.
+- **Start-up.** When the Rex server loads its config, it starts `agent-slot-rex restore --at-start`, which waits up to
+  `AGENT_SLOT_REX_STARTUP_WAIT` seconds (120) for the server to answer, runs `rexurrect auto-restore` once per server
+  instance under `AGENT_SLOT_REX_REXURRECT_BOUND` seconds (90), records the instance in
+  `~/.local/state/agent-slot-rex/startup.json`, then reconciles with dormant slots resumed. It logs to `restore.log`
+  in that directory.
 
-One follow loop runs per Rex server: a second start exits, the loop of a restarted Rex server takes over from the old
-one, and a loop exits once its Rex server is gone.
+Every other pass first checks that a Rex server answers and that the start-up step has recorded its instance. A push
+or timer pass that finds either missing changes nothing, says why under `skipped` (`rex-server-down` or
+`startup-pending`), and exits 0; so does one that finds another pass holding the lock, as `reconcile-busy`, where a
+timer pass never waits for the lock and a push waits as a restore does. A restore asked for by hand reports each of
+these as an error. A server older than `AGENT_SLOT_REX_STARTUP_LIMIT` seconds (300) with no record is reconciled
+anyway, and that pass records rexurrect as skipped.
 
-Every trigger is logged, so the intervals can be tuned from data. Each restore's line in
-`~/.local/state/agent-slot-rex/reconcile.log` names its trigger in `by`, with `ms` (how long the pass took) and
-`changed` (whether it opened, relabelled, or closed a tab); a poll with `changed` true found work no push had brought.
-The loop writes its own events to `follow.log` beside it: `start`, `wake` with the gap in seconds, `unreachable`,
-`reachable` with how long the server was gone, and `rex-gone` or `superseded` when it ends. On the server,
-`~/.local/state/agent-slot/push.log` holds one line per client per push: when it began, the verb and its slots, the
-client, the result (`restored`, `restore-failed`, `unreachable`, `timed-out`, or `skipped`), ssh's exit code, the time
-taken, and ssh's last line on a failure. Each of these logs moves to `<log>.1` past 1 MiB. A poll that changes nothing
-writes about 145 bytes, so the reconcile log holds about five days of polls before it moves.
+Every trigger is logged, so the interval can be tuned from data. Each pass's line in
+`~/.local/state/agent-slot-rex/reconcile.log` names its trigger in `by`, with `ms` (how long the pass took),
+`changed` (whether it opened, relabelled, or closed a tab), `skipped`, and `rexurrect` (the outcome the pass recorded:
+`done`, `failed`, `stopped`, or `skipped`); a timer pass with `changed` true found work no push had brought.
+`~/.local/state/agent-slot/push.log` holds one line per push: when it began, the verb and its slots, the result
+(`restored`, `deferred` with the reason in `detail`, `restore-failed`, `timed-out`, or `skipped`), the helper's exit
+code, the time taken, and the helper's last line on a failure. Each of these logs moves to `<log>.1` past 1 MiB. A
+timer pass that changes nothing writes about 180 bytes, so the reconcile log holds about four days of passes before it
+moves.
 
 #### Work items and reopen
 

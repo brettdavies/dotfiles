@@ -810,30 +810,37 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Files:** `scripts/agent-slot/lib/push.sh`, `scripts/agent-slot/lib/env.sh`, `scripts/agent-slot/agent-slot`,
   `scripts/agent-slot/lib/help.sh` (the launch, sweep, and finish text that names the push to each Mac),
   `tests/lib/agent-slot.bash`, `scripts/agent-slot-rex/lib/reconcile.sh`, `scripts/agent-slot-rex/lib/journal.sh`,
-  `scripts/agent-slot-rex/lib/help.sh`, `stow/local/dot-config/systemd/user/agent-slot-reconcile.service` (new),
+  `scripts/agent-slot-rex/lib/help.sh`, `scripts/agent-slot-rex/lib/startup.sh` (new), `scripts/agent-slot-rex/lib/lock.sh`,
+  `scripts/agent-slot-rex/lib/rex.sh`, `stow/local/dot-config/systemd/user/agent-slot-reconcile.service` (new),
   `stow/local/dot-config/systemd/user/agent-slot-reconcile.timer` (new), `scripts/host-jobs-enable.sh`,
   `scripts/agent-slot/lib/contract.sh` (the asked-for restore's reasons), `tests/agent-slot-push.bats`,
-  `tests/agent-slot-rex.bats`, `tests/host-scheduled-jobs.bats`.
+  `tests/agent-slot-rex.bats`, `tests/agent-slot-rex-startup.bats` (new), `tests/host-scheduled-jobs.bats`.
 - **Approach:**
-  1. In `push.sh`, run a local `restore --by push` when the helper and a Rex server are present, in the background and
-     waited on under `AGENT_SLOT_PUSH_WAIT` as today; default the client list to empty; skip when a slot tab's own
-     helper ran the verb.
+  1. In `push.sh`, run a local `restore --by push` whenever the helper is installed, in the background and waited on
+     under `AGENT_SLOT_PUSH_WAIT` as today, and skip it when the helper ran the verb. The helper's pass itself does
+     nothing when no Rex server answers. The client list and its ssh push go: a Mac's helper forwards `restore --by` to
+     nothing but a `wrong-host` stop (U3), so a push to a Mac could only fail. The push hands the helper the user
+     manager's runtime directory, which a shell in a slot's tmux session lacks.
   2. In `reconcile.sh`, add a start-up entry, `restore --at-start` in place of `restore --wait-server` and its wait for
      SSH, that takes the lock first, waits for the Rex server to answer for a bounded time like today's restore wait,
      runs `rexurrect auto-restore --server-pid` in the foreground under `timeout` with the bound from `settings.sh`,
      longer than rexurrect's 30 s app-session watch plus the restore (KTD4), when rexurrect is installed and this server
      instance has no start-up record yet, journals rexurrect's outcome (done, failed, or stopped at the bound),
-     reconciles with dormant slots resumed whatever that outcome, and then writes the start-up record for the
-     `instance:` UUID `rex server status` prints.
-  3. Start every other pass by checking that a Rex server answers and that its instance has a start-up record; log
-     `skip` or `startup-pending` and exit 0 without resuming any slot when either is missing, unless the server has
-     outlived the start-up step's time limit; the first pass that reconciles past that limit writes the start-up record
-     with rexurrect skipped (KTD4).
+     writes the start-up record for the `instance:` UUID `rex server status` prints, and then reconciles with dormant
+     slots resumed whatever that outcome. The record goes in before the reconcile, so a reconcile that fails leaves the
+     next timer pass free to repair the tabs instead of waiting out the start-up limit.
+  3. Start every other pass by checking that a Rex server answers and that its instance has a start-up record; journal
+     `skipped` as `rex-server-down` or `startup-pending` and exit 0 without resuming any slot when either is missing,
+     unless the server has outlived the start-up step's time limit; the first pass that reconciles past that limit
+     writes the start-up record with rexurrect skipped once it holds the lock (KTD4). A timer pass takes the lock only
+     if it is free, a push waits for it as a restore does, so a launch right behind another pass still gets its tab,
+     and each journals `reconcile-busy` when it gives up. A sweep or finish whose teardown succeeded passes the gate the
+     same way, so with no Rex server it reports the teardown and exits 0.
   4. Count a planned close of a tab that is already gone as done.
   5. Add the reconcile service and a one-minute timer shaped like the sweep units, including the sweep's
      `Environment=PATH=` line, and enable them from `scripts/host-jobs-enable.sh`.
   6. In `journal.sh` and the `--by` values in `help.sh`, journal the start-up step as the existing `restore-at-start`
-     and the timer pass as the existing `poll`, and drop `reconnect`.
+     and the timer pass as the existing `poll`. `reconnect` stays until U9 removes the follow loop that sends it.
 - **Patterns to follow:** `stow/local/dot-config/systemd/user/agent-slot-sweep.{service,timer}`; the push log and its
   result names in `push.sh`; `reconcile_plan`'s pure-jq planning.
 - **Test scenarios:**
