@@ -1,3 +1,5 @@
+<!-- canonical: version-scheme calver -->
+
 # Releasing `dotfiles`
 
 Operational runbook. Rationale lives in [`RELEASES-RATIONALE.md`](./RELEASES-RATIONALE.md); the pre-cut go/no-go
@@ -71,14 +73,29 @@ Every PR (feature, fix, docs, release) uses `.github/pull_request_template.md` v
   intermediate state, or how the release branch was assembled.
 - **Zero verification artifacts in the body.** No diff stats, leak-check output, drift-gate output, pre-push gate
   results, CI status, or prose-scrub findings. Anomalies get fixed before push, not audit-trailed.
-- **Changelog** subsections (`### Added` / `### Changed` / `### Fixed` / `### Documentation`): 1-5 bullets each, delete
-  empty subsections, each bullet starts with a verb.
+- **Changelog** subsections (`### Breaking changes` / `### Added` / `### Changed` / `### Deprecated` / `### Fixed` /
+  `### Documentation`): 1-5 bullets each, delete empty subsections, each bullet starts with a verb.
 - **Related Issues/Stories** (`Story:` / `Issue:` / `Architecture:` / `Related PRs:`) and **Files Modified** (`Modified`
   / `Created` / `Renamed` / `Deleted`): every sub-label required even when empty; write `- None.` or `n/a`.
 - **One logical line per paragraph or bullet; no hard wraps.** GitHub soft-wraps for display.
 - **No AI attribution** in commits or PR bodies.
 
 → Rationale: [`RELEASES-RATIONALE.md` § PR body conventions](./RELEASES-RATIONALE.md#pr-body-conventions).
+
+## Versioning
+
+<!-- canonical:begin versioning-calver -->
+
+This repo versions by date: a release is tagged `YYYY.MM.DD`, the day it lands, with `.N` for a later release the same
+day (`YYYY.MM.DD.1`). The tag carries no `v`. The changelog keeps its six headings (`Breaking changes`, `Added`,
+`Changed`, `Deprecated`, `Fixed`, `Documentation`) for the notes; they set no version.
+
+A bare `YYYY.MM.DD` tag sorts below every `v` tag, so a repo moving from `v` tags first makes every version-sorted
+lookup prefix-aware: `previous_tag` in `generate-changelog.py`, `last_tag_on_line` in `scripts/release/_lib.sh`, and the
+previous-tag lookup in `sync-dev-after-release.sh`
+(`docs/solutions/workflow-issues/lower-sorting-tag-scheme-strands-version-sorted-previous-tag-lookups.md`).
+
+<!-- canonical:end versioning-calver -->
 
 ## Releasing dev to main
 
@@ -386,10 +403,10 @@ gh api -X PUT repos/brettdavies/dotfiles/rulesets/<id> --input .github/rulesets/
 
 - **CalVer, computed in CI.** The tag is `YYYY.MM.DD[.N]`, bare (no `v` prefix), created by `release.yml` on every push
   to `main`. There is no version file in the tree, so the release commit bumps nothing.
-- **`scripts/sync-dev-after-release.sh`** is this repo's CalVer variant of the fleet template. The template builds its
-  synced set by probing for version carriers (`Cargo.toml`, `package.json`, `pyproject.toml`, `VERSION`) and writing the
-  released number into each; this repo has no carrier and must not grow one, so its copy skips that step entirely and
-  keeps only the branch-comparison discovery both share. That makes it a repo-owned fork rather than a verbatim copy.
+- **`scripts/sync-dev-after-release.sh`** is a verbatim copy of the github-repo-setup skill's template. It writes the
+  released version into each version carrier a repo has (`Cargo.toml`, `package.json`, `pyproject.toml`, `VERSION`).
+  This repo has none and must not grow one; for a bare CalVer tag the script creates no `VERSION`, since the tag is the
+  version, so here the synced set comes from the branch comparison alone.
 - **`scripts/release/drift.sh` anchors on the newest CalVer tag reachable from `main`.** Gate 0 then checks that `dev`
   already carries that release's `CHANGELOG.md`; a failure there means the backport PR never merged, so run
   `scripts/sync-dev-after-release.sh <tag>` and merge it before cutting the release. `--since <ref>` overrides the

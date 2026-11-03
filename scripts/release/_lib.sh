@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Canonical version: 2026.11.03 (generic)
+#
 # Shared bash utilities for the release-(pre|post)flight orchestrators and any
 # project-authored surface-smoke suite that wants to participate in the
 # orchestrator's PASS/FAIL/SKIP accounting. Source via:
@@ -87,6 +89,16 @@ count_and_list() {
 }
 
 # Release package ------------------------------------------------------------
+
+# Release tags this fleet cuts: `vX.Y.Z`; a site's deploy stamp
+# `v<base>.<epoch>-g<sha7>` (site-version.sh); or a bare CalVer `YYYY.MM.DD[.N]`
+# for a repo that releases by date. The globs select tags for git, and `v[0-9]*`
+# covers the stamp; the regex checks a version argument. drift.sh and
+# sync-dev-after-release.sh both read these.
+# shellcheck disable=SC2034  # read by the scripts that source this file
+readonly RELEASE_TAG_GLOBS=('v[0-9]*' '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*')
+# shellcheck disable=SC2034  # read by the scripts that source this file
+readonly RELEASE_TAG_RE='^(v[0-9]+\.[0-9]+\.[0-9]+(-g[0-9a-f]{7})?|[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?)$'
 
 # Per-repo release configuration, sourced when present. preflight, postflight
 # and sync-dev are three separate entry points, so a value declared in one of
@@ -255,8 +267,27 @@ semver_release_type() {
   local b_major="${baseline%%.*}" c_major="${current%%.*}"
   local b_rest="${baseline#*.}" c_rest="${current#*.}"
   local b_minor="${b_rest%%.*}" c_minor="${c_rest%%.*}"
+  local b_patch="${b_rest#*.}" c_patch="${c_rest#*.}"
+  b_patch="${b_patch%%[-+]*}"
+  c_patch="${c_patch%%[-+]*}"
+  # Before 1.0 each position shifts one place up, as Cargo's compatibility
+  # rules and cargo-semver-checks' own version-derived type read it: a 0.y
+  # middle change is the breaking one, a 0.y last-number change is a minor,
+  # and every 0.0.z change breaks. An explicit --release-type is applied as
+  # given, so passing `minor` for 0.4 -> 0.5 would fail a break the version
+  # legitimately announces.
   if [[ "$c_major" != "$b_major" ]]; then
     echo major
+  elif [[ "$c_major" == 0 && "$c_minor" == 0 ]]; then
+    if [[ "$c_patch" != "$b_patch" ]]; then echo major; else echo patch; fi
+  elif [[ "$c_major" == 0 ]]; then
+    if [[ "$c_minor" != "$b_minor" ]]; then
+      echo major
+    elif [[ "$c_patch" != "$b_patch" ]]; then
+      echo minor
+    else
+      echo patch
+    fi
   elif [[ "$c_minor" != "$b_minor" ]]; then
     echo minor
   else
