@@ -132,14 +132,12 @@ EOF
   grep -qx 'OnCalendar=\*-\*-\* \*:00:00' "$OBS_UNITS/vault-agent-sync.timer"
 }
 
-@test "vault sync check runs at five past, appending to its log" {
-  grep -qx 'ExecStart=%h/obsidian-vault/scripts/pool-sync-check.sh' "$OBS_UNITS/vault-agent-sync-check.service"
+@test "vault sync check runs the repo's check at five past, appending to its log and alerting through the journal" {
+  grep -qx 'ExecStart=%h/dotfiles/scripts/vault-agent-sync-check.sh' "$OBS_UNITS/vault-agent-sync-check.service"
   grep -qx 'StandardOutput=append:%h/.openclaw/logs/pool-sync-check.log' "$OBS_UNITS/vault-agent-sync-check.service"
+  grep -qx 'StandardError=journal' "$OBS_UNITS/vault-agent-sync-check.service"
+  grep -qx 'SyslogLevel=err' "$OBS_UNITS/vault-agent-sync-check.service"
   grep -qx 'OnCalendar=\*-\*-\* \*:05:00' "$OBS_UNITS/vault-agent-sync-check.timer"
-}
-
-@test "vault sync check can reach the openclaw CLI for alerts" {
-  grep -qE '^Environment=PATH=.*%h/\.npm-global/bin' "$OBS_UNITS/vault-agent-sync-check.service"
 }
 
 @test "stars sync runs hourly and the clone pass at quarter hours, both randomized" {
