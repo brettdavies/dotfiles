@@ -350,6 +350,19 @@ a sandbox of its own and to start any code it interrupts with interrupt handling
 each test as a background job and a shell starts background jobs with interrupts ignored. The runner bounds how many of
 a concurrent suite's tests run at once, since suites already run side by side and the two levels multiply.
 
+### Leak guard
+
+A check that fails a test, or a whole suite run, that leaves a process running after it ends, and kills and names that
+process. *Avoid:* leak check, process guard
+
+The guard finds a test's processes by an environment entry that every program the test runs inherits, so what it sees is
+whatever the test started, however deep and whichever parent each ended with; a process that only forked and never ran a
+program carries the environment its parent started with and is invisible to it. The test framework's own time-limit
+watchdog inherits that entry too and is spared by its shape rather than its marker. The guard gives what it finds a
+short grace measured in wall clock, not in scans, because a scan reads every process on the host and slows with load. A
+leak matters beyond the test: it keeps the directory the tests ran from as its working directory, so a leak inside an
+*agent slot* holds the slot against teardown.
+
 ### Guard hook
 
 A hook that inspects a proposed action before it happens and answers allow or deny, as opposed to a *local gate*, which
