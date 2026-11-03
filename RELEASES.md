@@ -1,3 +1,5 @@
+<!-- canonical: version-scheme calver -->
+
 # Releasing `dotfiles`
 
 Operational runbook. Rationale lives in [`RELEASES-RATIONALE.md`](./RELEASES-RATIONALE.md); the pre-cut go/no-go
@@ -79,6 +81,21 @@ Every PR (feature, fix, docs, release) uses `.github/pull_request_template.md` v
 - **No AI attribution** in commits or PR bodies.
 
 → Rationale: [`RELEASES-RATIONALE.md` § PR body conventions](./RELEASES-RATIONALE.md#pr-body-conventions).
+
+## Versioning
+
+<!-- canonical:begin versioning-calver -->
+
+This repo versions by date: a release is tagged `YYYY.MM.DD`, the day it lands, with `.N` for a later release the same
+day (`YYYY.MM.DD.1`). The tag carries no `v`. The changelog keeps its six headings (`Breaking changes`, `Added`,
+`Changed`, `Deprecated`, `Fixed`, `Documentation`) for the notes; they set no version.
+
+A bare `YYYY.MM.DD` tag sorts below every `v` tag, so a repo moving from `v` tags first makes every version-sorted
+lookup prefix-aware: `previous_tag` in `generate-changelog.py`, `last_tag_on_line` in `scripts/release/_lib.sh`, and the
+previous-tag lookup in `sync-dev-after-release.sh`
+(`docs/solutions/workflow-issues/lower-sorting-tag-scheme-strands-version-sorted-previous-tag-lookups.md`).
+
+<!-- canonical:end versioning-calver -->
 
 ## Releasing dev to main
 
