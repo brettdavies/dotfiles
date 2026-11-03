@@ -119,6 +119,11 @@ every file in a deployed package. On a healthy deployed dotfiles host every stow
 canonical checkout's `stow/` tree. One that resolves anywhere else, or dangles, is drift, and the signature of a deploy
 run from a non-canonical checkout.
 
+Not every link into the `stow/` tree is stow's. Enabling a service-manager unit writes its own link straight at the
+unit's file inside the package, and stow neither owns nor removes it. A restow prunes the links stow made when a file
+leaves its package, but not the enable link: a unit deleted while still enabled leaves it dangling until someone removes
+it by hand. Disabling the unit clears it only while the file is still present.
+
 ### Restow on pull
 
 The git hooks' relinking of a package that a merge or branch checkout changed, so the links match the new tree before
