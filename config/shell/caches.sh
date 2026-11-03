@@ -76,9 +76,10 @@ export PLAYWRIGHT_BROWSERS_PATH="$XDG_CACHE_HOME/playwright"
 # scripts/playwright-browsers-deploy.sh (curl + unzip). This skips Playwright's
 # auto-download during `bun install` (its postinstall), where Node/libuv's
 # io_uring extractor deadlocks on this kernel. It does NOT stop an explicit
-# `playwright install`; the provisioned markers do that. A browser missing from
-# the dotfiles set fails fast ("Executable doesn't exist") instead of wedging;
-# the fix is a dotfiles bump.
+# `playwright install`; the provisioned markers make one for the dotfiles set a
+# no-op, and the script's .links registration keeps one for another version
+# from deleting that set. A browser missing from the dotfiles set fails fast
+# ("Executable doesn't exist") instead of wedging; the fix is a dotfiles bump.
 export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 export PUPPETEER_CACHE_DIR="$XDG_CACHE_HOME/puppeteer"
 
