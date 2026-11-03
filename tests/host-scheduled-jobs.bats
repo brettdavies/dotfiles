@@ -1,18 +1,17 @@
 #!/usr/bin/env bats
-# The Linux server's scheduled jobs: the vault agent-workspace sync and its health check, the OpenClaw settings backup,
-# the GitHub stars sync, the daily brew and uv tool upgrades, the automatic agent slot sweep, and the agent slot tab
-# reconcile. They run as systemd user timers shipped in shared
-# stow packages, so every unit carries ConditionHost=bigdaddy: stow-deploy restarts every timer a package ships on
-# each Linux deploy, and `restart` starts a timer whether or not it was enabled. scripts/host-jobs-enable.sh enables
-# them on that host and retires the crontab lines they replace. The same script enables the host's long-running user
-# services: the Rex server that keeps the account's tabs up with no client connected.
+# The Linux server's scheduled jobs: the vault agent-workspace sync and its health check, the GitHub stars sync, the
+# daily brew and uv tool upgrades, the automatic agent slot sweep, and the agent slot tab reconcile. They run as systemd
+# user timers shipped in shared stow packages, so every unit carries ConditionHost=bigdaddy: stow-deploy restarts every
+# timer a package ships on each Linux deploy, and `restart` starts a timer whether or not it was enabled.
+# scripts/host-jobs-enable.sh enables them on that host and retires the crontab lines they replace. The same script
+# enables the host's long-running user services: the Rex server that keeps the account's tabs up with no client
+# connected.
 #
 # Run: bats tests/host-scheduled-jobs.bats
 
 REPO_ROOT="$BATS_TEST_DIRNAME/.."
 OBS_UNITS="$REPO_ROOT/stow/obsidian/dot-config/systemd/user"
 LOCAL_UNITS="$REPO_ROOT/stow/local/dot-config/systemd/user"
-LOCAL_BIN="$REPO_ROOT/stow/local/dot-local/bin"
 ENABLE="$REPO_ROOT/scripts/host-jobs-enable.sh"
 REX_SERVER="$LOCAL_UNITS/rex-server.service"
 NUMBERS="$LOCAL_UNITS/rex-tab-numbers.service"
@@ -20,7 +19,6 @@ NUMBERS="$LOCAL_UNITS/rex-tab-numbers.service"
 HOST_JOBS=(
   "$OBS_UNITS/vault-agent-sync"
   "$OBS_UNITS/vault-agent-sync-check"
-  "$LOCAL_UNITS/openclaw-settings-backup"
   "$LOCAL_UNITS/github-stars"
   "$LOCAL_UNITS/github-stars-clone"
   "$LOCAL_UNITS/brew-upgrade"
@@ -91,7 +89,6 @@ _crontab_fixture() {
 0 * * * * /home/brett/obsidian-vault/scripts/sync-to-pool.sh
 0 * * * * sleep $((RANDOM \% 120)) && /home/brett/obsidian-vault/areas/infrastructure/scripts/github-stars.sh -j 4 >> /home/brett/.openclaw/logs/github-stars.log 2>&1
 15,30,45 * * * * sleep $((RANDOM \% 120)) && /home/brett/obsidian-vault/areas/infrastructure/scripts/github-stars.sh --clone-only -j 4 >> /home/brett/.openclaw/logs/github-stars.log 2>&1
-0 3 * * * /home/brett/obsidian-vault/areas/infrastructure/scripts/backup-openclaw-settings.sh
 5 * * * * /home/brett/obsidian-vault/scripts/pool-sync-check.sh >> /home/brett/.openclaw/logs/pool-sync-check.log 2>&1
 # DISABLED: 0 * * * * /home/brett/obsidian-vault/scripts/sync-to-pool.sh
 30 4 * * * /usr/local/bin/other-job
@@ -145,11 +142,6 @@ EOF
   grep -qE '^Environment=PATH=.*%h/\.npm-global/bin' "$OBS_UNITS/vault-agent-sync-check.service"
 }
 
-@test "settings backup runs the stowed command daily at 03:00" {
-  grep -qx 'ExecStart=%h/.local/bin/backup-openclaw-settings' "$LOCAL_UNITS/openclaw-settings-backup.service"
-  grep -qx 'OnCalendar=\*-\*-\* 03:00:00' "$LOCAL_UNITS/openclaw-settings-backup.timer"
-}
-
 @test "stars sync runs hourly and the clone pass at quarter hours, both randomized" {
   grep -qx 'ExecStart=%h/.local/bin/github-stars -j 8' "$LOCAL_UNITS/github-stars.service"
   grep -qx 'ExecStart=%h/.local/bin/github-stars --clone-only -j 8' "$LOCAL_UNITS/github-stars-clone.service"
@@ -187,12 +179,6 @@ EOF
   for unit in github-stars github-stars-clone; do
     grep -qx 'EnvironmentFile=-%h/.config/github-stars/env' "$LOCAL_UNITS/$unit.service" || { echo "$unit.service"; return 1; }
   done
-}
-
-@test "backup-openclaw-settings is an executable stowed command with no hardcoded home" {
-  [ -x "$LOCAL_BIN/backup-openclaw-settings" ]
-  run grep -nE '/home/[a-z]' "$LOCAL_BIN/backup-openclaw-settings"
-  [ "$status" -eq 1 ]
 }
 
 # --- the Rex server -----------------------------------------------------------
@@ -335,6 +321,16 @@ _mode() {
   done
 }
 
+# Under set -e, `enable --now` of a unit no package ships fails the script on the host before the jobs after it.
+@test "every unit the enable script names ships in a package" {
+  local unit count=0
+  while read -r unit; do
+    count=$((count + 1))
+    [ -f "$OBS_UNITS/$unit" ] || [ -f "$LOCAL_UNITS/$unit" ] || { echo "no package ships $unit"; return 1; }
+  done < <(awk '/^(TIMERS|SERVICES)=\(/ { on = 1; next } on && /^\)/ { on = 0 } on { print $1 }' "$ENABLE")
+  [ "$count" -gt 0 ]
+}
+
 @test "enable script enables the Rex server without waiting on its start, and lists it at the end" {
   # systemd fails a start that waits while the login server's own Rex server holds the account socket.
   cat >"$STUBS/systemctl" <<'EOF'
@@ -353,7 +349,7 @@ EOF
   _crontab_fixture
   _enable
   [ "$status" -eq 0 ]
-  run grep -cE '^[^#]*(sync-to-pool|pool-sync-check|github-stars|backup-openclaw-settings)\.sh' "$CRON_FILE"
+  run grep -cE '^[^#]*(sync-to-pool|pool-sync-check|github-stars)\.sh' "$CRON_FILE"
   [ "$output" = "0" ]
   grep -qx '\*/5 \* \* \* \* /usr/bin/true' "$CRON_FILE"
   grep -qx '30 4 \* \* \* /usr/local/bin/other-job' "$CRON_FILE"
@@ -381,8 +377,8 @@ EOF
   [ "$status" -eq 0 ]
 }
 
-@test "enable script and the stowed command pass shellcheck" {
+@test "enable script passes shellcheck" {
   command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
-  run shellcheck "$ENABLE" "$LOCAL_BIN/backup-openclaw-settings"
+  run shellcheck "$ENABLE"
   [ "$status" -eq 0 ]
 }

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # One-shot enable script for the Linux server's scheduled jobs and long-running user services. The timers run the vault
-# agent-workspace mirror and its health check, the OpenClaw settings backup, the GitHub stars sync, the daily brew and
-# uv tool upgrades, the automatic agent slot sweep, and the minute pass that keeps agent slot tabs matched to the
-# slots. The services keep the account's Rex server running with no client connected, and number its tabs.
+# agent-workspace mirror and its health check, the GitHub stars sync, the daily brew and uv tool upgrades, the automatic
+# agent slot sweep, and the minute pass that keeps agent slot tabs matched to the slots. The services keep the account's
+# Rex server running with no client connected, and number its tabs.
 #
 # The units ship in the shared `obsidian` and `local` packages and carry ConditionHost=bigdaddy, so a deploy on any
 # other host leaves them inert. This script enables them on that host and retires the crontab lines the timers replace.
@@ -31,7 +31,6 @@ fi
 TIMERS=(
   vault-agent-sync.timer
   vault-agent-sync-check.timer
-  openclaw-settings-backup.timer
   github-stars.timer
   github-stars-clone.timer
   brew-upgrade.timer
@@ -43,7 +42,7 @@ SERVICES=(
   rex-server.service
   rex-tab-numbers.service
 )
-RETIRED_CRON='(sync-to-pool|pool-sync-check|github-stars|backup-openclaw-settings)[.]sh'
+RETIRED_CRON='(sync-to-pool|pool-sync-check|github-stars)[.]sh'
 OP_SKILL="${OP_SKILL:-$HOME/.claude/skills/1password/scripts}"
 STARS_ENV="${STARS_ENV:-$HOME/.config/github-stars/env}"
 # 1Password item "GitHub Token - stars sync read (public repos)"
