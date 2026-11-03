@@ -69,6 +69,7 @@ orphan_probe() {
     "  echo \"\$watchdog\" >'$BATS_TEST_TMPDIR/watchdog.pid'" \
     '  kill -KILL "$shell"' \
     '  wait "$shell" 2>/dev/null || true' \
+    "  { ls -l /proc/\$watchdog/fd; cut -d' ' -f1-8 /proc/\$watchdog/stat; tr '\\0' '\\n' </proc/\$watchdog/environ | grep -E '^BATS_TEST_TIMEOUT='; } >'$BATS_TEST_TMPDIR/watchdog.diag' 2>&1" \
     '}' >"$1"
 }
 
@@ -100,6 +101,8 @@ orphan_probe() {
   # The watchdog closes descriptors 0 to 255 only, so one above that, open in the caller, stays open in its sleep.
   LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=37 run --separate-stderr \
     bash -c 'exec 300</dev/null && exec "$@"' _ "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/orphan.bats"
+  printf '%s\n' "$output" "$stderr"
+  cat "$BATS_TEST_TMPDIR/watchdog.diag" 2>/dev/null || true
   [ "$status" -eq 0 ]
   [[ $output == *"ok 1 orphan"* ]]
   [[ $stderr != *"were killed"* ]]
