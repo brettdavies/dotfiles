@@ -429,7 +429,11 @@ so both guards still stop whatever it left. A suite with a deliberately longer t
 level. bats 1.14 leaves a failed test's watchdog running out the limit
 ([bats-core/bats-core#1206](https://github.com/bats-core/bats-core/issues/1206)), which `run-tests` avoids through
 `BATS_killer_pid`; a test that starts bats itself passes the same value, `BATS_WATCHDOG_JOB` from
-`tests/lib/processes.bash`.
+`tests/lib/processes.bash`. bats 1.14 can also leave a passing test's watchdog running: its shell forks the `sleep` and
+only then sets the trap that stops it, so a test that ends inside that window on a loaded host leaves the `sleep`
+running under a new parent. Both guards kill that `sleep` without failing anything, recognised by its shape:
+`sleep <limit>` with `BATS_TEST_TIMEOUT=<limit>` in its environment and no descriptor below 256
+open on anything but `/dev/null` (`is_detached_watchdog`).
 
 ---
 
