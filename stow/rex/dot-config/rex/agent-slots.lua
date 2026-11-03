@@ -1,48 +1,26 @@
 -- Agent slots: Claude agents on the Linux server, each in its own clone, each
--- shown as one tab in its repo's session. Every tab and pane runs
--- agent-slot-rex, which talks to the server's agent-slot over ssh; this file
--- only opens the tabs and lays out a slot's panes.
+-- shown as one tab in its repo's session on the Linux server's Rex server.
+-- Both machines load these actions, since Rex.app offers only its own server's.
+-- Pressed on the Mac, an action still acts on the Linux server: a pane it opens
+-- in a Linux session runs there, and the Mac's helper hands what it runs on the
+-- Mac to the Linux server's helper over ssh. This file only opens the tabs and
+-- lays out a slot's panes.
 local layout = require("layout")
 
+-- A pane runs its command through the login shell of the host whose session
+-- holds it, so the bare name finds that host's helper. rex.exec runs on the
+-- host that loaded this file, with that server's bare PATH, so it takes the path.
+local PANE_HELPER = "agent-slot-rex"
 local HELPER = os.getenv("HOME") .. "/.local/bin/agent-slot-rex"
 
-local function env(name)
-  local value = os.getenv(name)
-  if value == "" then return nil end
-  return value
-end
-
--- The helper's state directory, found the way the helper finds it.
-local function state_dir()
-  return env("AGENT_SLOT_REX_STATE_DIR")
-    or (env("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")) .. "/agent-slot-rex"
-end
-
--- The server's repos as of the helper's last launch, one name per line.
-local REPOS_FILE = state_dir() .. "/repos"
-
-local function is_known_repo(name)
-  if not name then return false end
-  local file = io.open(REPOS_FILE, "r")
-  if not file then return false end
-  for line in file:lines() do
-    if line == name then
-      file:close()
-      return true
-    end
-  end
-  file:close()
-  return false
-end
-
 local function helper_pane(...)
-  return layout.block{ command = { HELPER, ... } }
+  return layout.block{ command = { PANE_HELPER, ... } }
 end
 
 rex.action{
   name = "agent_slot_new",
   title = "New Agent",
-  description = "Start a Claude agent in a fresh slot of this session's repo, in a background tab.",
+  description = "Start a Claude agent in a fresh slot of this session's repo, in a new tab.",
   category = "Agents",
   run = function(ctx)
     local w = layout.check(rex.session.new_window{
@@ -50,13 +28,10 @@ rex.action{
       window_label = "new agent",
       layout = helper_pane("launch", "--here"),
     })
-    -- Outside a repo's session the new tab asks which repo to use, so it comes forward. Rex.app shows the tab its own
-    -- client selects, not the server's active window that `rex focus` sets, and it takes a client action from the CLI
-    -- only with Remote Control on, so the selection is queued here, on the client that pressed the key.
-    local view = rex.session.view{}
-    if not is_known_repo(view and view.label) then
-      pcall(rex.client.queue, "session.select", { session_id = ctx.session_id, window_id = w.window_id })
-    end
+    -- The new tab comes forward, since outside a repo's session it asks which repo to use. Rex.app shows the tab its
+    -- own client selects, not the server's active window that `rex focus` sets, and it takes a client action from the
+    -- CLI only with Remote Control on, so the selection is queued here, on the client that pressed the key.
+    pcall(rex.client.queue, "session.select", { session_id = ctx.session_id, window_id = w.window_id })
     return { window_id = w.window_id, block_ids = w.block_ids }
   end,
 }

@@ -112,9 +112,11 @@ cd ~/dotfiles/stow
 
 # macOS (shared + desktop). The Linux-only packages are omitted: stow-deploy
 # skips rclone, obsidian, codex-proxy, and cargo on Darwin.
-# --ignore drops the systemd units that cross-platform packages carry, and the
-# .DS_Store Finder leaves in a package, which collides with ~/.DS_Store.
-stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' --ignore='\.DS_Store$' \
+# --ignore drops the systemd units that cross-platform packages carry, the Linux
+# server's Rex start-up step, and the .DS_Store Finder leaves in a package,
+# which collides with ~/.DS_Store.
+stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' \
+  --ignore='(^|/)slot-startup\.lua$' --ignore='\.DS_Store$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
   rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent rex hex
 
@@ -122,7 +124,7 @@ stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' --ig
 stow --dotfiles --no-folding --target="$HOME" \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
   cargo rust tmux lazygit micro yazi rclone qmd obsidian caddy \
-  gogcli codex-proxy
+  gogcli codex-proxy rex
 ```
 
 `tmuxinator` is deliberately absent from both lists: its session configs are read in place from the repo and stowing
@@ -132,9 +134,11 @@ them would shadow the source of truth. `ollama` is also absent — it targets `/
 ### Restow After Changes
 
 ```bash
-cd ~/dotfiles/stow
-stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" -R <package>
+cd ~/dotfiles && scripts/stow-deploy --only <package>
 ```
+
+`stow-deploy` applies each platform's ignores, such as the Linux-only units and Rex start-up step it leaves off the Mac,
+in one place; a hand-run `stow -R` skips them.
 
 ## Install Packages from Brewfile
 
@@ -352,7 +356,9 @@ AppCleaner), which would otherwise close mid-session. A manual `bu` still upgrad
 ### Rex config and agent slots
 
 The `rex` package deploys `~/.config/rex/init.lua`, `layout.lua` (the dev layout actions), and `agent-slots.lua` (the
-agent-slot actions and keys). Rex reads `init.lua` only when it starts and on `rex config reload`, so
+agent-slot actions and keys) to both machines, and on the Linux server also `slot-startup.lua`, the start-up step that
+restores the operator's own tabs with rexurrect and then gives every live slot its tab. Without that file, as on the Mac,
+`init.lua` runs `rexurrect auto-restore` itself. Rex reads `init.lua` only when it starts and on `rex config reload`, so
 `scripts/stow-deploy` runs `rex config reload` after it stows the package; with no rex CLI found, or Rex not running, it
 says so and the deploy still succeeds.
 
@@ -375,7 +381,7 @@ Then check the Mac's side, which also runs the server's doctor over ssh:
 agent-slot-rex doctor
 ```
 
-`cmd+alt+n` starts an agent on the session's repo in a background tab, `cmd+alt+r` gives every live slot its tab back,
+`cmd+alt+n` starts an agent on the session's repo in a new tab, `cmd+alt+r` gives every live slot its tab back,
 and `cmd+alt+f` finishes the focused tab's task. The helper reaches the Linux server through the ssh alias the `ssh`
 package defines for it; `AGENT_SLOT_REX_SERVER` names another. It logs to `~/.local/state/agent-slot-rex/`:
 `restore.log` holds the restore Rex starts when it loads, and `reconcile.log` one line for each restore, sweep, or

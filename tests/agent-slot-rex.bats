@@ -153,15 +153,6 @@ in_rex_session() {
   not_called '^agent-slot launch'
 }
 
-@test "launch writes the server's repo names, one per line, where the new-agent key's action reads them" {
-  in_rex_session X
-  repos X Y
-  slot_answer launch 0 "$LAUNCHED"
-  run "$AGENT_SLOT_REX" launch --here
-  [ "$status" -eq 0 ]
-  [ "$(cat "$AGENT_SLOT_REX_STATE_DIR/repos")" = "$(printf 'X\nY')" ]
-}
-
 @test "a retryable launch failure waits for Enter, then retries with the same request ID" {
   in_rex_session X
   repos X

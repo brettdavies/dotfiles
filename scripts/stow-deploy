@@ -13,6 +13,8 @@ set -euo pipefail
 #        SHARED_PACKAGES.
 # Env:   STOW_DEPLOY_TARGET  deploy target directory (default: $HOME). The bats
 #        suite points it at a sandbox so no checkout can re-point live symlinks.
+#        STOW_DEPLOY_REX_PATHS  colon-separated rex CLIs the post-deploy config
+#        reload tries, in place of REX_BIN_DIR, the Mac app paths, and /usr/bin/rex.
 
 # Exit codes — distinct values for automation/CI (all non-zero still indicate failure)
 EXIT_USAGE=2        # Bad arguments or flags
@@ -23,8 +25,17 @@ EXIT_PLATFORM=6     # Platform mismatch (launchagent on Linux)
 
 # Package sets — single source of truth
 # Ordering: secrets first (git-crypt dep), shell (PATH/env), then the rest
-SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew cargo rust tmux lazygit micro yazi rclone qmd obsidian caddy gogcli codex-proxy cswap)
-DESKTOP_PACKAGES=(ghostty cursor launchagent rex hex)
+SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew cargo rust tmux lazygit micro yazi rclone qmd obsidian caddy gogcli codex-proxy cswap rex)
+DESKTOP_PACKAGES=(ghostty cursor launchagent hex)
+
+# Usage: is_desktop_package <package>
+is_desktop_package() {
+  local _desktop
+  for _desktop in "${DESKTOP_PACKAGES[@]}"; do
+    [ "$_desktop" != "$1" ] || return 0
+  done
+  return 1
+}
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STOW_DIR="$REPO_ROOT/stow"
@@ -297,6 +308,8 @@ STOW_FLAGS+=(--ignore='\.DS_Store$')
 # pattern is safe to apply broadly. No-op on Linux.
 if [ "$(uname -s)" = "Darwin" ]; then
   STOW_FLAGS+=(--ignore='\.(service|timer)$')
+  # The start-up step that restores the slot tabs runs only beside the slots, on the Linux server.
+  STOW_FLAGS+=(--ignore='(^|/)slot-startup\.lua$')
 fi
 
 cd "$STOW_DIR"
@@ -309,13 +322,9 @@ trap 'rm -f "$adopted_file" "$deployed_file" "$failed_file"' EXIT
 
 for pkg in "$@"; do
   # Platform guards
-  if [ "$(uname -s)" != "Darwin" ]; then
-    case "$pkg" in
-      ghostty | cursor | launchagent | rex | hex)
-        echo "WARNING: $pkg is macOS-only, skipping on $(uname -s)" >&2
-        continue
-        ;;
-    esac
+  if [ "$(uname -s)" != "Darwin" ] && is_desktop_package "$pkg"; then
+    echo "WARNING: $pkg is macOS-only, skipping on $(uname -s)" >&2
+    continue
   fi
   if [ "$(uname -s)" != "Linux" ]; then
     case "$pkg" in
@@ -449,20 +458,23 @@ if [ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ] \
   done <"$deployed_file"
 fi
 
-# --- Reload Rex's config (macOS) ---
+# --- Reload Rex's config ---
 #
 # Rex reads ~/.config/rex/init.lua when it starts and on `rex config reload`,
 # not when the file changes, so a deploy of the rex package reloads the running
-# server. The CLI is in REX_BIN_DIR inside a Rex terminal and in the app bundle
-# otherwise. Rex being absent or not running is reported and never fails the
-# deploy; --autostart=false keeps the reload from starting a server.
-if [ "$(uname -s)" = "Darwin" ] && [ "$TARGET" = "$HOME" ] && grep -qx "rex" "$deployed_file" 2>/dev/null; then
+# server. The CLI is in REX_BIN_DIR inside a Rex terminal, in the app bundle on
+# macOS, and at /usr/bin/rex from the Linux package; STOW_DEPLOY_REX_PATHS, a
+# colon-separated list, replaces those candidates, which is how a test that
+# deploys to its own HOME keeps the reload off the account's live Rex server.
+# Rex being absent or not running is reported and never fails the deploy;
+# --autostart=false keeps the reload from starting a server.
+if [ "$TARGET" = "$HOME" ] && grep -qx "rex" "$deployed_file" 2>/dev/null; then
   echo ""
   echo "==> Reloading Rex config"
   _rex=""
-  for _candidate in "${REX_BIN_DIR:+$REX_BIN_DIR/rex}" \
-    "/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex" \
-    "$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"; do
+  _rex_paths=${STOW_DEPLOY_REX_PATHS-"${REX_BIN_DIR:+$REX_BIN_DIR/rex}:/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex:$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex:/usr/bin/rex"}
+  IFS=: read -r -a _rex_candidates <<<"$_rex_paths"
+  for _candidate in "${_rex_candidates[@]+"${_rex_candidates[@]}"}"; do
     if [ -n "$_candidate" ] && [ -x "$_candidate" ]; then
       _rex=$_candidate
       break

@@ -348,11 +348,12 @@ its agent is idle and check passes.
 
 | Key         | Action                                                                                          |
 | ----------- | ----------------------------------------------------------------------------------------------- |
-| `cmd+alt+n` | Start an agent on the session's repo in a background tab; focus stays where it is               |
+| `cmd+alt+n` | Start an agent on the session's repo in a new tab, which comes forward                          |
 | `cmd+alt+r` | Give every live slot its tab back, resume dormant slots, and close tabs whose slot is gone      |
 | `cmd+alt+f` | Finish the focused tab's task (no open PR) and delete its slot when nothing in it would be lost |
 
-In a session not named after a repo, `cmd+alt+n`'s tab comes forward instead and asks which repo to use.
+In a session not named after a repo, every session on the Mac included, `cmd+alt+n`'s tab asks which repo to use, and
+the agent's tab opens in the background in that repo's session on the Linux server.
 
 A slot's tab is labelled `<repo>/<N>`, then `· <label>` (the slot's name, else its task name, else the agent's branch
 once it has one), then:

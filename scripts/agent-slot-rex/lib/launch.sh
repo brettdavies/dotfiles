@@ -79,13 +79,6 @@ launch_pick_repo() {
   done
 }
 
-# The new-agent key's action reads this list, one name per line, to tell a repo's session from any other.
-launch_save_repos() {
-  mkdir -p "$AR_STATE"
-  contract_json -r '.[]' <<<"$LAUNCH_REPOS" >"$AR_STATE/repos.$$"
-  mv -f "$AR_STATE/repos.$$" "$AR_STATE/repos"
-}
-
 launch_elsewhere() {
   local args=(launch --here --repo "$LAUNCH_REPO")
   [[ -z $LAUNCH_TASK ]] || args+=(--task "$LAUNCH_TASK")
@@ -180,7 +173,6 @@ cmd_launch() {
   fi
   launch_call 30 repos
   LAUNCH_REPOS=$(contract_json -c '[.repos[].name]' <<<"$SERVER_OUT")
-  launch_try launch_save_repos
   launch_resolve_repo
   if ((LAUNCH_PICKED == 1 || LAUNCH_HERE == 0)); then
     launch_elsewhere
