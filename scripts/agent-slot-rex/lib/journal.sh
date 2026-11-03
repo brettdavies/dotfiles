@@ -13,7 +13,7 @@ JOURNAL_PLAN=null
 JOURNAL_SKIPPED=''
 JOURNAL_REXURRECT=''
 
-# Usage: journal_begin <restore|restore-at-start|push|poll|reconnect|sweep|finish>; does nothing while a pass is under
+# Usage: journal_begin <restore|restore-at-start|push|poll|sweep|finish>; does nothing while a pass is under
 # way, so the start-up step's line also times its wait for the server and rexurrect's restore.
 journal_begin() {
   [[ -z $JOURNAL_BY ]] || return 0

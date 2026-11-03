@@ -26,7 +26,7 @@ in_rex_session() {
 
 @test "every verb answers --help with a usage line and an example" {
   local verb
-  for verb in launch attach restore sweep finish follow doctor; do
+  for verb in launch attach restore sweep finish doctor; do
     run "$AGENT_SLOT_REX" "$verb" --help
     [ "$status" -eq 0 ]
     [[ ${lines[0]} == "usage: agent-slot-rex $verb"* ]]
@@ -834,9 +834,9 @@ settings_value() {
     "$BATS_TEST_DIRNAME/../scripts/agent-slot-rex/lib/settings.sh" "$name"
 }
 
-@test "with REX_BIN_DIR unset, the CLI lookup ends at /usr/bin/rex and takes the first candidate that exists" {
+@test "with REX_BIN_DIR unset, the CLI lookup is /usr/bin/rex and takes the first candidate that exists" {
   unset AGENT_SLOT_REX_APP_PATHS
-  [[ $(settings_value AR_REX_PATHS) == *:/usr/bin/rex ]]
+  [ "$(settings_value AR_REX_PATHS)" = /usr/bin/rex ]
   unset REX_BIN_DIR
   mkdir -p "$T/usr/bin"
   cp "$STUBS/rex" "$T/usr/bin/rex"

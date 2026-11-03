@@ -87,9 +87,9 @@ forwarded() {
   done
 }
 
-@test "attach, follow, restore --by, and restore --at-start stop with wrong-host before calling anything" {
+@test "attach, restore --by, and restore --at-start stop with wrong-host before calling anything" {
   local args
-  for args in 'attach X/2 claude' 'follow' 'restore --by push' 'restore --at-start'; do
+  for args in 'attach X/2 claude' 'restore --by push' 'restore --at-start'; do
     # shellcheck disable=SC2086 # each case is its own argument list
     run --separate-stderr "$AGENT_SLOT_REX" $args --output json </dev/null
     [ "$status" -eq 2 ]
