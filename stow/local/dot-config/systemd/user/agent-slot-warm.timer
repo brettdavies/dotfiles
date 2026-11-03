@@ -1,0 +1,11 @@
+[Unit]
+Description=Trust new agent slot paths in Claude every ten minutes
+ConditionHost=bigdaddy
+
+[Timer]
+# Five minutes off the sweep's schedule, so the two never start together.
+OnCalendar=*:5/10
+Persistent=true
+
+[Install]
+WantedBy=timers.target

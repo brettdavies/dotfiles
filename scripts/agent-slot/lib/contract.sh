@@ -43,6 +43,7 @@ solutions-symlink-missing     78    false      0            fix-config
 hooks-path-outside-checkout   78    false      0            fix-config
 git-crypt-locked              78    false      0            fix-config
 trust-dialog-unrecognized     78    false      0            ask-operator
+prime-untrusted               78    false      0            ask-operator
 tmux-unresponsive             1     true       3            retry
 tmux-failed                   1     true       1            retry
 pr-state-unknown              1     true       3            retry

@@ -343,14 +343,17 @@ On the Linux server:
 
 1. `scripts/stow-deploy --headless --all` deploys the slot commands, the Rex config with its start-up step and
    tab-number watcher, and the units, then reloads the running Rex server's config.
-2. `bash scripts/host-jobs-enable.sh` enables the sweep and reconcile timers and starts `rex-server.service` and
+2. `bash scripts/host-jobs-enable.sh` enables the sweep, reconcile, and warm timers and starts `rex-server.service` and
    `rex-tab-numbers.service`; `systemctl --user enable --now tmux-prune-orphans-slots.timer` adds the slot tmux server's
    orphan sweep.
 3. `agent-slot-rex doctor` is the checklist from there. Each finding names what is missing with the command that fixes
-   it, such as the login server's deploy, rexurrect's, or `agent-slot warm <repo>` for a repo whose first launch would
-   stop at Claude's trust step. Rerun it until it reports no errors. A slot is trusted automatically only for a repo
-   whose prime checkout you have trusted in Claude, because trust lets Claude load the repo's own settings and hooks;
-   open Claude once in any other repo's prime checkout first.
+   it, such as the login server's deploy or rexurrect's. Rerun it until it reports no errors.
+4. Open Claude once in each repo's prime checkout and accept its trust dialog, and do the same for every repo cloned
+   under `~/dev` later. A slot path is trusted only for a repo whose prime checkout you have trusted in Claude, because
+   trust lets Claude load the repo's own settings and hooks. `agent-slot-warm.timer` runs `agent-slot warm --all` every
+   ten minutes, which trusts every slot path of every repo `agent-slot repos` lists, so a new repo's slots start warm
+   within ten minutes of its prime being trusted. While any prime is untrusted the unit fails, and the failed-units
+   notice at every Claude session start names those repos.
 
 On the Mac:
 
@@ -596,7 +599,7 @@ state, agent, and blockers, and `agent-slot whoami` the slot a directory is in. 
 <id> [--prompt-file <file>]` starts an agent, and agents use it to hand a task to a slot; a repeat with the same request
 ID returns the same slot; `--pr <ref>` or `--issue <ref>` gives the slot that work item, its name, and, for a PR, its
 head branch (see [work items and reopen](#work-items-and-reopen)). `agent-slot resume <repo>/<N>` restarts a dormant
-slot's sessions and conversation, `agent-slot warm <repo>` trusts slot paths ahead of time, and
+slot's sessions and conversation, `agent-slot warm <repo>` (or `--all`) trusts slot paths ahead of time, and
 `agent-slot check [<repo>/<N>]` gives the teardown verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or
 `--issue <ref>`) attaches a PR or issue to a live slot and names the slot `<repo>-pr<N>-<slug>` or
 `<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's record and its Claude session's name, so it
@@ -661,6 +664,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `hooks-path-outside-checkout` | 78   | The repo's own `core.hooksPath` points outside its checkout                                    |
 | `git-crypt-locked`            | 78   | A git-crypt repo could not be unlocked: git-crypt or its key is missing                        |
 | `trust-dialog-unrecognized`   | 78   | Claude showed a screen other than its trust dialog for the path; accept it by hand             |
+| `prime-untrusted`             | 78   | `warm --all` found repos whose prime Claude does not trust; open Claude once in each prime     |
 | `tmux-unresponsive`           | 1    | The `agent-slots` tmux server did not answer in time                                           |
 | `tmux-failed`                 | 1    | A tmux session could not be started; `agent-slot resume` tries again                           |
 | `pr-state-unknown`            | 1    | `gh` could not read the repo's PRs or a work item; check `gh auth status`, then retry          |

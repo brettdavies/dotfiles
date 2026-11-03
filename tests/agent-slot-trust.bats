@@ -206,3 +206,78 @@ EOF
   [ "$status" -eq 0 ]
   [ "$(grep -cF -- '-L agent-slot-trust' "$CALLS")" -eq 0 ]
 }
+
+@test "warm trusts every slot path up to the per-repo limit unless --count says fewer" {
+  prompt_screen >"$STUBS/screen"
+  AGENT_SLOT_MAX_PER_REPO=4 run --separate-stderr "$AGENT_SLOT" warm repoa --output json
+  [ "$status" -eq 0 ]
+  [ "$(jaq -c '[.paths[].key]' <<<"$output")" = '["repoa/1","repoa/2","repoa/3","repoa/4"]' ]
+}
+
+@test "warm --all trusts the slot paths of every repo whose prime Claude trusts" {
+  prime repob
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repob")"
+  prompt_screen >"$STUBS/screen"
+  AGENT_SLOT_MAX_PER_REPO=2 run --separate-stderr "$AGENT_SLOT" warm --all --output json
+  [ "$status" -eq 0 ]
+  [ "$(jaq -c '[.repos[] | [.repo, [.paths[].result]]]' <<<"$output")" \
+    = '[["repoa",["trusted","trusted"]],["repob",["trusted","trusted"]]]' ]
+  [ -d "$AGENT_SLOT_ROOT/repob/2" ]
+}
+
+@test "warm --all picks up a repo cloned under the dev root since its last pass" {
+  trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")" "$(realpath -m "$AGENT_SLOT_ROOT/repoa/2")"
+  prompt_screen >"$STUBS/screen"
+  AGENT_SLOT_MAX_PER_REPO=2 run --separate-stderr "$AGENT_SLOT" warm --all --output json
+  [ "$status" -eq 0 ]
+  [ "$(jaq -c '[.repos[].repo]' <<<"$output")" = '["repoa"]' ]
+  prime repoc
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoc")"
+  AGENT_SLOT_MAX_PER_REPO=2 run --separate-stderr "$AGENT_SLOT" warm --all --output json
+  [ "$status" -eq 0 ]
+  [ "$(jaq -c '[.repos[] | [.repo, [.paths[].result]]]' <<<"$output")" \
+    = '[["repoa",["already-trusted","already-trusted"]],["repoc",["trusted","trusted"]]]' ]
+}
+
+@test "warm --all warms the rest, then fails with prime-untrusted naming each repo whose prime Claude does not trust" {
+  prime repob
+  prime repoc
+  prompt_screen >"$STUBS/screen"
+  AGENT_SLOT_MAX_PER_REPO=2 run --separate-stderr "$AGENT_SLOT" warm --all --output json
+  [ "$status" -eq 78 ]
+  assert_error_shape "$stderr"
+  jaq -e --arg prime "$AGENT_SLOT_DEV/repob" '.reason == "prime-untrusted" and .value == "repob repoc"
+    and .next_step.action == "ask-operator" and .next_step.command == "cd \($prime) && claude"
+    and (.message | contains("2 repos") and contains("repob, repoc"))' <<<"$stderr"
+  grep -qF -- "-c $AGENT_SLOT_ROOT/repoa/2 " "$CALLS"
+  [ ! -e "$AGENT_SLOT_ROOT/repob" ] && [ ! -e "$AGENT_SLOT_ROOT/repoc" ]
+}
+
+@test "under systemd, warm --all sets its unit's status to what it found, for the failed-units notice" {
+  export NOTIFY_SOCKET=$T/notify.sock
+  stub systemd-notify 'exit 0'
+  export AGENT_SLOT_SYSTEMD_NOTIFY=$STUBS/systemd-notify
+  prompt_screen >"$STUBS/screen"
+  AGENT_SLOT_MAX_PER_REPO=1 run --separate-stderr "$AGENT_SLOT" warm --all --output json
+  [ "$status" -eq 0 ]
+  grep -qx 'systemd-notify --status=all slot paths of 1 repo trusted in Claude' "$CALLS"
+  prime repob
+  AGENT_SLOT_MAX_PER_REPO=1 run --separate-stderr "$AGENT_SLOT" warm --all --output json
+  [ "$status" -eq 78 ]
+  grep -qx 'systemd-notify --status=prime untrusted in Claude for 1 repo: repob; run claude once in its prime' "$CALLS"
+}
+
+@test "warm takes a repo or --all, never both or neither" {
+  run --separate-stderr "$AGENT_SLOT" warm --output json
+  [ "$status" -eq 2 ]
+  run --separate-stderr "$AGENT_SLOT" warm repoa --all --output json
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage"' <<<"$stderr"
+}
+
+@test "the warm timer's unit runs warm --all and lets it set the unit's status" {
+  local unit=$BATS_TEST_DIRNAME/../stow/local/dot-config/systemd/user/agent-slot-warm.service
+  grep -qx 'NotifyAccess=all' "$unit"
+  grep -qx 'ExecStart=%h/.local/bin/agent-slot warm --all' "$unit"
+  grep -q '^OnCalendar=' "${unit%.service}.timer"
+}
