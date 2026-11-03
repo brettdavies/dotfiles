@@ -19,7 +19,8 @@ done <<<"$listing"
 [ "${#units[@]}" -gt 0 ] || exit 0
 
 # A unit can say why it failed in its status text (systemd-notify --status), which follows its name. `show` prints one
-# block per unit, in the order asked, each ended by an empty line; a block whose Id is not the unit asked for is skipped.
+# block per unit, in the order asked, with an empty line between blocks and none after the last, so the read adds one;
+# a block whose Id is not the unit asked for gives its unit no status text.
 shown=$(XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$UID} \
   timeout 2 systemctl --user show -p Id -p StatusText "${units[@]}" 2>/dev/null) || shown=''
 names='' i=0 id='' text=''
@@ -37,7 +38,7 @@ while IFS= read -r line; do
       ;;
   esac
 done <<<"$shown"$'\n'
-for ((; i < ${#units[@]}; i++)); do
+for (( ; i < ${#units[@]}; i++)); do
   names+="${names:+, }${units[$i]}"
 done
 
