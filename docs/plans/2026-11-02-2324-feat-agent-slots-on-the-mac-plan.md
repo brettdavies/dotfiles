@@ -768,7 +768,10 @@ Waits on: none; U1's findings are needed before this group starts.
     from `/proc`'s argv.
   - A process whose kernel name is `2.1.316` and whose argv[0] is `claude` counts as a Claude process.
   - A stubbed `lsof` that fails, and one that outlasts the bound, each make the state `unknown` with the reader's
-    failure in the detail, and teardown refuses.
+    failure in the detail, and teardown refuses; the bound case's detail names the bound in seconds and the setting that
+    changes it.
+  - Where a real `lsof` exists, as in the Mac's pre-push, the Darwin reader names a scratch process whose working
+    directory is under a scratch slot root; the test skips where `lsof` is missing, as on Linux CI.
   - A child that appears only in the second parent read keeps its parent.
   - The Darwin side parses U1's captured `ps` and `lsof` samples into the same holders and parents a hand-written stub
     of that output gives.
@@ -829,11 +832,11 @@ Waits on: PR 1 (merge order).
 - **Requirements:** R3; AE9.
 - **Dependencies:** U2, U3.
 - **Files:** `stow/launchagent/Library/LaunchAgents/com.user.agent-slots-tmux.plist` (new),
-  `scripts/agent-slot/lib/sessions.sh`, `scripts/agent-slot/lib/env.sh` (an `AGENT_SLOT_LAUNCHCTL` override),
-  `scripts/agent-slot/agent-slot` (its header), `scripts/agent-slot/lib/contract.sh` (`login-session-missing`),
-  `scripts/agent-slot-rex/lib/doctor.sh` (`tmux-outside-scope` on the Mac), `README.md` (the reasons table),
-  `tests/agent-slot-launch.bats`, `tests/launchagents.bats`, `tests/agent-slot-rex-doctor.bats`,
-  `tests/agent-slot-docs.bats`.
+  `scripts/agent-slot/lib/sessions.sh`, `scripts/agent-slot/lib/launch.sh` (the login check before the clone),
+  `scripts/agent-slot/lib/env.sh` (an `AGENT_SLOT_LAUNCHCTL` override), `scripts/agent-slot/agent-slot` (its header),
+  `scripts/agent-slot/lib/contract.sh` (`login-session-missing`), `scripts/agent-slot-rex/lib/doctor.sh`
+  (`tmux-outside-scope` on the Mac), `README.md` (the reasons table), `tests/agent-slot-launch.bats`,
+  `tests/launchagents.bats`, `tests/agent-slot-rex-doctor.bats`, `tests/agent-slot-docs.bats`.
 - **Approach:**
   1. The plist runs the server per KTD4 through the required `/bin/sh -c` shape, with `RunAtLoad`, `KeepAlive`,
      `ThrottleInterval` 10, and its standard error in a log file.
@@ -842,7 +845,11 @@ Waits on: PR 1 (merge order).
      job not loaded it fails with `dependency-missing` naming `bash scripts/host-jobs-enable.sh`, and with no answer in
      time it fails with `tmux-failed` and the job's log. Each new reason gets its row in `CONTRACT_REASONS` and the
      README's reasons table.
-  3. On the Mac, doctor compares the slot tmux server's pid with the job's and reports `tmux-outside-scope` when they
+  3. `launch` on the Mac checks for the GUI login before it makes the clone, so a launch with nobody logged in fails
+     with `login-session-missing` and side effects none, naming a login at the Mac as what a human must provide; a
+     `resume` or a reconcile pass that meets it later reports side effects partial and `agent-slot resume <key>` as the
+     command to run once someone has logged in.
+  4. On the Mac, doctor compares the slot tmux server's pid with the job's and reports `tmux-outside-scope` when they
      differ, with the next step the Linux finding gives.
 - **Patterns to follow:** `_sessions_scoped` and its fallback in `sessions.sh`;
   `stow/launchagent/Library/LaunchAgents/com.user.qmd-serve.plist`.
@@ -854,6 +861,9 @@ Waits on: PR 1 (merge order).
     server; with the job not loaded, it fails with `dependency-missing` naming `host-jobs-enable.sh`; with a kick after
     which the server never answers, it fails with `tmux-failed`. None of the three starts the server directly.
   - With the server already running, no kick happens.
+  - `launch` on the Darwin side with no GUI login fails with `login-session-missing` before any clone exists under the
+    slot root, reporting side effects none; `resume` of an existing slot in the same state reports side effects partial
+    and names `agent-slot resume <key>`.
   - On Linux, the scope path and its tests are unchanged.
   - The plist passes the shape checks and runs `tmux -D` on the `agent-slots` socket with `slots.conf`, with
     `RunAtLoad`, `KeepAlive`, and an environment of exactly the seven variables KTD4 names.
@@ -1118,15 +1128,19 @@ PR merges).
 - **Approach:**
   1. README's setup golden path gains the Mac, in this order: `scripts/stow-deploy --all` (which reloads Rex's config),
      `brew bundle --file stow/brew/Brewfile`, `bash scripts/host-jobs-enable.sh`, `scripts/rexurrect-deploy.sh`, one
-     restart of the Mac's Rex server, then `agent-slot doctor` and `agent-slot-rex doctor` as the checklist.
-  2. README states that a key acts on the host of the session it was pressed in, that a Mac shell acts on the Mac, and
+     restart of the Mac's Rex server, then `agent-slot doctor` and `agent-slot-rex doctor` as the checklist. It leads
+     with doctor: a first run of `agent-slot-rex doctor` on a Mac that has none of it names the first missing step with
+     its exact command, so the path also works as doctor, fix, doctor again.
+  2. A table in README says which machine each surface acts on: a key in a Mac session, a key in a Linux session, a Mac
+     shell, a Linux shell, and `ssh bigdaddy agent-slot-rex …`.
+  3. README states that a key acts on the host of the session it was pressed in, that a Mac shell acts on the Mac, and
      that `ssh bigdaddy agent-slot-rex …` drives the server; its bypass-mode paragraph adds the Mac reach (System-Wide
      Impact). Its restore section names `rexurrect list` and `rexurrect restore --snapshot <id>` as the way back to a
      layout an empty state or a bad save left out.
-  3. BOOTSTRAP's Rex and agent-slot sections cover the Mac, including the retired hand-installed autosave.
-  4. CONCEPTS updates *agent slot* and *slot reconcile* for both machines and adds the close-triggered save.
-  5. AGENTS.md names the Darwin branch of `scripts/host-jobs-enable.sh` where it lists how jobs are enabled.
-  6. The agent-skills PR places a slot on the machine the command runs on.
+  4. BOOTSTRAP's Rex and agent-slot sections cover the Mac, including the retired hand-installed autosave.
+  5. CONCEPTS updates *agent slot* and *slot reconcile* for both machines and adds the close-triggered save.
+  6. AGENTS.md names the Darwin branch of `scripts/host-jobs-enable.sh` where it lists how jobs are enabled.
+  7. The agent-skills PR places a slot on the machine the command runs on.
 - **Test scenarios:**
   - The docs suite finds every helper verb, `save --watch` included, in the README; no forwarder wording in README,
     BOOTSTRAP, AGENTS, or CONCEPTS; and `Keychain` in the bypass-mode paragraph.
@@ -1143,7 +1157,10 @@ PR merges).
   2. Run AE1, AE2, AE4, and AE9 on the Mac, then AE3 and F2 from Rex.app in Linux sessions.
   3. Run AE5 and AE6 on both machines, and AE7 on the Linux server by stopping its Rex server process.
   4. Run AE8, then AE10 with the Mac's network off, then F5 overnight with the lid closed.
-  5. Record versions, the Mac's `lsof` scan time, and the Mac's memory with three slots running in the docs PR's body.
+  5. Record versions, the Mac's `lsof` scan time, and the Mac's memory with three slots running in the docs PR's body,
+     with two times: the setup path in step 1, from the first command to clean doctors, and the daily journey, from
+     pressing the new-agent key in a Mac repo session with its prime open to the new slot's agent working in its tab
+     (the DX review's target is under 2 minutes).
 - **Test expectation:** none -- live verification on two machines.
 - **Verification:** Every AE and F passes, recorded in the docs PR.
 
@@ -1578,18 +1595,225 @@ coverage. State: approved. Actual answer: A, auto-decided. History: none.
 
 Approval readiness: PASS (D1 through D9, each auto-decided as recorded above).
 
+---
+
+## Developer Experience Review
+
+Mode: DX POLISH, since this extends the existing agent-slot product to a second machine (DX D5). Product type: CLI tool
+plus platform (`agent-slot`, `agent-slot-rex` and their doctors, the LaunchAgents and units, the Rex Lua config). The
+review runs unattended at the operator's direction, relayed by `rex-linux`, so each question below was auto-decided to
+its recommended option (Decision Log). Web research ran through the host's search tool, since Aside is not installed.
+
+### Developer Persona Card
+
+| Persona                           | Who                                                                                                                                   | Wants                                                                                                                                       | Reads                                                                      |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Operator at the Mac (primary)     | A1. One person who works in local Mac sessions and in the Linux server's sessions from the same Rex.app, often several agents at once | The same keys and the same automatic tabs in a Mac session as in a Linux one, against the Mac's own repos; a broken piece names its own fix | Tab labels and status marks, both doctors, the reconcile and save journals |
+| Slot agent on the Mac (secondary) | A2. A Claude Code session in a Mac slot, launching and releasing slots with no human present, sometimes over ssh                      | `agent-slot`'s verbs and JSON exactly as on Linux; errors it can act on literally, including what only a human can fix                      | The JSON envelope, `--help`, the `agent-slot` skill                        |
+
+Tolerance: no manual step in daily use, by the operator's standing rule that slots run autonomously; a one-time Mac
+setup of about 15 minutes is acceptable when doctor names each step.
+
+### Developer Empathy Narrative
+
+Today, from the code and the Mac (read 2026-11-02):
+
+> Operator: "I'm in my Mac session for agentnative-site and press the new-agent key. A tab opens, but the helper sends
+> the launch to the Linux server, so the agent starts there, against the server's checkout, not the one I have open
+> here. If I run `agent-slot launch` in a Mac shell, it fails: there is no `~/slots`, no `flock`, and the teardown
+> check reads `/proc`. And when Rex.app updates, the session I closed this morning is back, because the last autosave
+> still had it."
+
+After this plan, predicted until U11 times it:
+
+> "Same session, same key. The tab becomes the prime's first, attached to my Mac's `ANC Website` tmux session; I press
+> it again and a slot of my Mac checkout starts, its tab in this session, numbered. An hour later the agent releases
+> its slot and the tab closes on its own. I close two sessions and Rex.app updates: only what I left open comes back."
+
+Confirmed as accurate (DX D2, auto-decided).
+
+### Competitive DX Benchmark
+
+The clock, for the daily journey: it starts with the operator in a Mac repo session whose prime is open; it ends when
+the new slot's agent is working in its own tab. Setup is clocked separately (U11 step 5) and not compared.
+
+| Tool                            | Start → result                                                                 | Time + evidence type                                                       | DX choice                                                              | Source                                                                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| This plan, before               | the new-agent key in a Mac session → an agent on the Linux server, not the Mac | not possible on the Mac [observed: `agent-slot-rex` forwards on Darwin]    | Rex.app as a client only                                               | this plan's Problem Frame                                                                                                     |
+| This plan, after                | the new-agent key → a Mac slot's agent working in its tab                      | about 1 min [estimated: clone, git-crypt unlock, trust step; U11 times it] | the same layer per machine, keys acting on the pressed session's host  | KTD1 through KTD7                                                                                                             |
+| claude-squad                    | `cs` in a repo → a new agent in a tmux session on its own worktree             | seconds after install [reported]                                           | a TUI over tmux and git worktrees; agents survive a closed laptop      | [smtg-ai/claude-squad](https://github.com/smtg-ai/claude-squad)                                                               |
+| Claude Code `--worktree --tmux` | `claude -w <name> --tmux` → an agent in a worktree with its own tmux session   | seconds [reported]                                                         | built into Claude Code; each worktree needs its own dependency install | [Claude Squad write-up](https://dev.to/stevengonsalvez/claude-squad-run-multiple-ai-agents-in-parallel-without-the-mess-1hfl) |
+
+Limits: the peers' times are reported, not measured on the same boundary, and both use worktrees where this layer uses
+full clones with git-crypt unlocked and a trust step, which is slower to start and is what the teardown check and the
+per-slot solutions worktree rely on. The comparison is between DX choices: the peers have no automatic tab per agent in
+a terminal app, no reconcile, and no teardown check.
+
+Target: Champion, under 2 minutes for the daily journey (DX D3, auto-decided). It is feasible because the key, the
+launch, and the reconcile are the Linux server's, already in use; the open unknown is the clone time on the Mac's disk.
+
+### Magical Moment Specification
+
+In a Mac session named after a repo, the operator presses the new-agent key twice: the first press makes the prime the
+session's first tab, the second starts an agent in a slot of the Mac's own checkout, its tab appearing in the same
+session, numbered and with its status mark. Vehicle (DX D4, auto-decided): the existing new-agent key and #413's prime
+logic, run by the Mac's own helper once it acts locally (KTD6, KTD11); no new channel. It holds when U7's tests pass and
+U11 times AE1.
+
+### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                                   | FRICTION POINTS                         | STATUS
+----------------|--------------------------------------------------|-----------------------------------------|--------
+1. Discover     | reads README's agent-slot section                | which machine does a command act on?    | fixed (DX D8: machine table)
+2. Install      | stow-deploy, brew bundle, host jobs, rexurrect   | six steps in three tools, order matters | fixed (DX D7: doctor-led path; U9's deploy refusal)
+3. Hello World  | new-agent key twice in a Mac repo session        | a tab-less session acts elsewhere       | documented (Rex.app limit, Key Decisions)
+4. Real Usage   | agents launch, release, tabs follow              | none new                                | ok
+5. Debug        | doctor, journals, an error JSON                  | login missing after a launch began      | fixed (DX D6: check before the clone)
+6. Upgrade      | pull, deploy, reload Rex config                  | old Lua against a new helper            | documented (U7 verification, Considered and not built)
+```
+
+### First-Time Developer Confusion Report
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: Operator at the Mac
+Attempting: the first Mac slot after the PRs merge
+
+CONFUSION LOG:
+T+0:00  Pulls dotfiles on the Mac and runs `scripts/stow-deploy --all`; Rex's config reloads.
+T+0:30  Presses the new-agent key in `agentnative-site`; the slot fails: `flock` is missing. [addressed: README's path
+        puts `brew bundle` second, and doctor names it first when it is missing (DX D7)]
+T+2:00  After `brew bundle`, the launch fails `dependency-missing` naming `host-jobs-enable.sh` (the slot tmux job is not
+        loaded). [addressed: U4's next step]
+T+3:00  Runs it; the launch works. Closes a session; after the next Rex update it comes back. [addressed: the save
+        watcher's LaunchAgent comes with host-jobs-enable.sh, and U9's restart records the instance]
+T+5:00  From the Linux server, an agent runs `ssh bretts-air agent-slot launch dotfiles` with the Mac at the login
+        window after a reboot. [addressed: `login-session-missing` before any clone, naming a login at the Mac (DX D6)]
+```
+
+### Error Path Matrix (agent-ready-v1, after review)
+
+```text
+Path                                   | Class        | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+launch with no GUI login (U4)          | precondition | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | none
+slot tmux job not loaded (U4)          | dependency   | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | none
+foreign rexurrect autosave (U9 doctor) | dependency   | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | none
+lsof outlasts its bound (U2)           | unexpected   | pass | pass | pass     | pass | pass    | pass  | pass      | pass    | none
+```
+
+Before this review two paths were capped. `CAP6:launch-no-login:recovery`: the plan had the launch fail inside
+`sessions_start`, after the clone, with no side effects named; an agent saw a failed launch and a slot it did not know
+existed. Corrected: `login-session-missing: no GUI login session on this Mac, so the slot's agents could not reach the
+login Keychain; nothing was made (side effects: none); a human must log in at the Mac, then rerun the launch`.
+`CAP6:lsof-bound:context`: the detail gave the failure but not the bound or the setting that changes it; corrected to
+name both. The trace for the unexpected path is the bounded call's log, which the contract already names in `--log`.
+Every reason is in the closed set with its exit code and README row; secrets never appear, since the paths name only
+labels, paths, and commands.
+
+### Decision Log
+
+| ID     | Decision                        | Answer                                                                                                        |
+| ------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| DX D1  | Primary persona                 | the operator at the Mac, with the slot agent on the Mac second                                                |
+| DX D2  | Empathy narrative               | accurate as written                                                                                           |
+| DX D3  | Daily-journey target            | Champion, under 2 minutes                                                                                     |
+| DX D4  | Magical-moment vehicle          | the existing new-agent key run by the Mac's own helper                                                        |
+| DX D5  | Review mode                     | DX POLISH                                                                                                     |
+| DX D6  | A launch with no GUI login      | check before the clone; side effects none; resume and reconcile report partial with `agent-slot resume <key>` |
+| DX D7  | The Mac setup path              | doctor-led: the first missing step named with its command, in the README's order                              |
+| DX D8  | Which machine a command acts on | a README table of the five surfaces                                                                           |
+| DX D9  | The scan-bound detail           | names the bound and its setting                                                                               |
+| DX D10 | Real-tool coverage on the Mac   | a test that runs the real `lsof` where it exists                                                              |
+| DX D11 | Measuring the journeys          | U11 times the setup path and the daily journey                                                                |
+
+Every row was auto-decided to its recommended option under the operator's instruction that the reviews run unattended.
+
+### NOT in scope
+
+- A hint in `repo-not-found` on the Mac that names the Linux server: its next step, `agent-slot repos`, already lists
+  the machine's repos, which is the fix an agent needs.
+- A Mac TTHW faster than the clone allows, such as worktrees instead of full clones: the teardown check and the per-slot
+  solutions worktree rely on full clones.
+
+### What already exists
+
+The contract's envelopes, closed reasons, exit codes, and `--side-effects` field; both doctors' finding shape with an
+exact next step; the README reasons table and its docs suite; #413's prime map and `--wait-shown`; the reconcile and
+start-up journals; `launchd-run.sh` logs.
+
+### DX Implementation Checklist
+
+```text
+DX IMPLEMENTATION CHECKLIST
+============================
+[ ] Daily journey under 2 minutes on the Mac (U11 times it)
+[ ] Mac setup is the README's path, with doctor naming each missing step
+[ ] The first key press in a Mac repo session gives visible output (the prime tab)
+[ ] Magical moment delivered via the existing new-agent key on the Mac
+[ ] Every new error meets the agent-ready contract (matrix above)
+[ ] Command names unchanged across machines
+[ ] Every new setting has a default (KTD4, KTD8, KTD9 delays and bounds)
+[ ] README's Mac path is copy-paste complete
+[ ] README says which machine each surface acts on
+[ ] Upgrade: the migration order is enforced, and the rollout's config reload is documented
+[ ] Works in CI without macOS: stubbed suites plus the Mac's pre-push
+```
+
+## DX Review Scorecard
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      |  7/10  |  5/10  |  +2    |
+| API/CLI/SDK          |  8/10  |  7/10  |  +1    |
+| Error Messages       |  8/10  |  6/10  |  +2    |
+| Documentation        |  8/10  |  6/10  |  +2    |
+| Upgrade Path         |  8/10  |  6/10  |  +2    |
+| Dev Environment      |  8/10  |  7/10  |  +1    |
+| Community            |  3/10  |  3/10  |  0     |
+| DX Measurement       |  7/10  |  5/10  |  +2    |
++--------------------------------------------------------------------+
+| TTHW (daily)         | ~1 min | n/a    | new    |
+| Competitive Rank     | Champion (estimated)                         |
+| Magical Moment       | designed via the existing new-agent key      |
+| Product Type         | CLI tool plus platform                       |
+| Mode                 | POLISH                                       |
+| Overall DX           |  7/10  |  6/10  |  +1    |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered (doctor-led setup)                     |
+| Learn by Doing     | covered (the key gives the prime first)        |
+| Fight Uncertainty  | covered (machine table, error matrix)          |
+| Opinionated + Escape Hatches | covered (settings for every bound)   |
+| Code in Context    | covered (copy-paste setup path)                |
+| Magical Moments    | covered                                        |
+| Agents Are Users   | covered (JSON contract, preflight errors)      |
++====================================================================+
+```
+
+"Prior" is this review's opening score for the plan as `ce-plan` wrote it; no earlier DX review of this plan exists.
+Community stays at 3: a personal dotfiles repo, shared as a reference (cutover R19), with no community channel planned.
+No dimension is below 6 except Community, which is out of scope for this product. TTHW is under 10 minutes.
+
+Unresolved Decisions: none.
+
 ## GSTACK REVIEW REPORT
 
-| Review         | Trigger                      | Why                             | Runs | Status      | Findings                   |
-| -------------- | ---------------------------- | ------------------------------- | ---- | ----------- | -------------------------- |
-| CEO Review     | `/plan-ceo-review`           | Scope & strategy                | 0    | —           | —                          |
-| Outside Review | codex via `/plan-eng-review` | Independent 2nd opinion         | 1    | disabled    | —                          |
-| Eng Review     | `/plan-eng-review`           | Architecture & tests (required) | 1    | issues_open | 12 issues, 0 critical gaps |
-| Design Review  | `/plan-design-review`        | UI/UX gaps                      | 0    | —           | —                          |
-| DX Review      | `/plan-devex-review`         | Developer experience gaps       | 0    | —           | —                          |
+| Review         | Trigger                                            | Why                             | Runs | Status      | Findings                               |
+| -------------- | -------------------------------------------------- | ------------------------------- | ---- | ----------- | -------------------------------------- |
+| CEO Review     | `/plan-ceo-review`                                 | Scope & strategy                | 0    | —           | —                                      |
+| Outside Review | codex via `/plan-eng-review`, `/plan-devex-review` | Independent 2nd opinion         | 2    | disabled    | —                                      |
+| Eng Review     | `/plan-eng-review`                                 | Architecture & tests (required) | 1    | issues_open | 12 issues, 0 critical gaps             |
+| Design Review  | `/plan-design-review`                              | UI/UX gaps                      | 0    | —           | —                                      |
+| DX Review      | `/plan-devex-review`                               | Developer experience gaps       | 1    | issues_open | score: 6/10 → 7/10, TTHW: n/a → ~1 min |
 
-- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no findings.
-- **VERDICT:** no review CLEAR yet; every eng finding is resolved in the plan, so the open status is mapped work, not
-  open choices. Eng review required to clear: rerun after U1's measurements land.
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews` for both reviews; no findings.
+- **VERDICT:** no review CLEAR yet; every eng and DX finding is resolved in the plan, so the open statuses are mapped
+  work, not open choices. Eng review required to clear: rerun after U1's measurements land.
 
 NO UNRESOLVED DECISIONS
