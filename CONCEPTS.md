@@ -186,6 +186,18 @@ test: a path is a phantom only when its content matches the remote, and being un
 does not make it one. Every other uncommitted change in a shared clone is another writer's in-progress work, which a
 sync carries across or leaves alone and never reverts.
 
+### Canonical browser set
+
+The one set of Playwright browser builds that dotfiles provisions into the machine's shared browser cache for every repo
+and tool, so that no repository installs browsers itself. *Avoid:* the pinned set, the dotfiles browsers
+
+A tool pinned to a slightly older Playwright release asks for its own build by name and is answered by an alias to the
+canonical build, never by a second download; a tool on a newer release installs its own build alongside. Because any
+Playwright install deletes the cache's browser directories that no registered client names, the set survives other
+tools' installs only while it is registered with Playwright's cleanup. It is a test-reproducibility artifact: a pinned
+build lags stable Chrome's security fixes and launches unsandboxed by default, so it is not the browser for pages nobody
+vetted.
+
 ## System configuration
 
 ### System-level unit
