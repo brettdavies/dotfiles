@@ -1073,7 +1073,9 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   2. Stow the autosave service and timer (every 15 minutes, `agent-slot-rex save`, which runs `rexurrect save` only once
      the running server's start-up record shows rexurrect done or failed, per KTD4) instead of letting
      `rexurrect autosave install` write files dotfiles does not manage. The `save` verb joins `help.sh` and the README's
-     helper table.
+     helper table. A `failed` record admits a save only when rexurrect's `restored-instances` lists the instance, since
+     a restore whose every attempt failed leaves it unrecorded and `rexurrect save` would then restore into a filled
+     server (`docs/plans/2026-11-02-2324-feat-agent-slots-on-the-mac-plan.md`, KTD8).
   3. Keep rexurrect's defaults of an empty `auto_resume` and `no_scrollback = ["claude"]`.
   4. Install the zsh recorder, `rexurrect.plugin.zsh`, from the same verified archive to
      `~/.local/share/rexurrect/rexurrect.plugin.zsh`, and have `stow/zsh/dot-zshrc` source it when that file exists. It
