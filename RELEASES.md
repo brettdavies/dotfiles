@@ -71,8 +71,8 @@ Every PR (feature, fix, docs, release) uses `.github/pull_request_template.md` v
   intermediate state, or how the release branch was assembled.
 - **Zero verification artifacts in the body.** No diff stats, leak-check output, drift-gate output, pre-push gate
   results, CI status, or prose-scrub findings. Anomalies get fixed before push, not audit-trailed.
-- **Changelog** subsections (`### Breaking changes` / `### Added` / `### Changed` / `### Deprecated` / `### Removed` /
-  `### Fixed` / `### Documentation`): 1-5 bullets each, delete empty subsections, each bullet starts with a verb.
+- **Changelog** subsections (`### Breaking changes` / `### Added` / `### Changed` / `### Deprecated` / `### Fixed` /
+  `### Documentation`): 1-5 bullets each, delete empty subsections, each bullet starts with a verb.
 - **Related Issues/Stories** (`Story:` / `Issue:` / `Architecture:` / `Related PRs:`) and **Files Modified** (`Modified`
   / `Created` / `Renamed` / `Deleted`): every sub-label required even when empty; write `- None.` or `n/a`.
 - **One logical line per paragraph or bullet; no hard wraps.** GitHub soft-wraps for display.
