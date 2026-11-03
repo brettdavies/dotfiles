@@ -319,7 +319,8 @@ the next fire run.
 
 Their scripts in `scripts/upgrade/` load `config/shell/*.sh` because launchd reads no startup file, so the brew run
 keeps the shell's analytics opt-out and cache location, and the uv run refuses to start unless the release cooldown from
-`config/shell/supply-chain.sh` is set. Load both once:
+`config/shell/supply-chain.sh` is set. After `bu`, the brew run also installs the yazi plugins `package.toml` pins
+([yazi plugin pins](#yazi-plugin-pins)); bumping the pins is the Linux server's job. Load both once:
 
 ```bash
 cd ~/dotfiles/stow && stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" launchagent
@@ -676,6 +677,47 @@ journalctl --user -t brew-upgrade -o cat | jaq -Rc 'fromjson? | select(.event ==
 ```
 
 Lingering must be on for the timers to fire while logged out (`loginctl enable-linger $USER`).
+
+#### yazi plugin pins
+
+After `bu`, the brew job runs `ya pkg install` on both operating systems, so the installed yazi plugins and flavor match
+what `stow/yazi/dot-config/yazi/package.toml` pins. A failed install is a warning in the run log; the run still
+succeeds.
+
+On the server, the job also keeps the pins working with the yazi Homebrew installs. When `yazi --version` differs from
+the version the pins were last proven on (`~/.local/state/dotfiles/yazi-pins-proven`), it runs
+`scripts/upgrade/yazi-pins.sh`, which:
+
+1. Clones `dev` into a scratch directory and, for each upstream repo, takes the newest commit that reached its default
+   branch at least seven days ago by GitHub's push time, never moving a pin backwards.
+2. Installs those revisions into a scratch HOME, where `ya` records their hashes, and runs yazi on them in a private
+   tmux server: the git sign must render, no fetcher may fail or stay pending, and a Markdown file must preview through
+   piper.
+3. When the hashes changed and the check passes, opens a PR to `dev`, waits up to 30 minutes for its checks (updating
+   the branch if `dev` moved), squash-merges it at the head the checks passed on, and fast-forwards `~/dotfiles` when it
+   is on `dev` and git can fast-forward, then runs `ya pkg install`.
+
+`run.end` reports the result under `yazi_pins`, `null` on runs that did not bump:
+
+```bash
+journalctl --user -t brew-upgrade -o cat | jaq -Rc 'fromjson? | select(.event == "run.end") | .yazi_pins' | tail -n 1
+```
+
+| `outcome`    | `reason`                                                                                       | Meaning                                                                                                             |
+| ------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `bumped`     | `pr-merged`                                                                                    | The PR merged; `host_update` says whether `~/dotfiles` was pulled, and `next_step` gives the pull when it was not   |
+| `not-needed` | `up-to-date`                                                                                   | The current pins work with this yazi; `value` names any candidate that failed the check                             |
+| `waiting`    | `cooldown`                                                                                     | No pins passed, and a pinned plugin changed upstream within the gate; the next daily run retries                    |
+| `failed`     | `check-failed`                                                                                 | No pins passed, and nothing newer is upstream; the saved screen is in `~/.local/state/dotfiles/yazi-pins-check.txt` |
+| `failed`     | `ci-failed`, `ci-timeout`, `merge-failed`, `pr-open`                                           | The PR's checks, merge, or ownership; `next_step` names the `gh` command to inspect it                              |
+| `failed`     | `upstream-unreachable`, `git-failed`, `gh-failed`, `hash-failed`, `bad-output`, `script-error` | A step failed before a PR existed, or the job ended mid-bump; the next daily run retries                            |
+
+Only `bumped` and `not-needed` write the stamp, so every other outcome retries on the next daily run. The bump also runs
+by hand, with the same output and exit codes (0 done, 75 waiting, 1 failed):
+
+```bash
+~/dotfiles/scripts/upgrade/yazi-pins.sh --help
+```
 
 ## Restart Shell
 
