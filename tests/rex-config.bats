@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# The Rex config package: init.lua, layout.lua, agent-slots.lua, and the Linux server's slot-startup.lua. CI has no Lua
+# The Rex config package: init.lua, layout.lua, agent-slots.lua, and the Linux server's slot-startup.lua and
+# tab-numbers.lua. CI has no Lua
 # and no Rex, so these hold the files to their contracts by text; `rex config check` loads them for real.
 #
 # Run: bats tests/rex-config.bats
@@ -9,6 +10,7 @@ INIT="$REX_DIR/init.lua"
 LAYOUT="$REX_DIR/layout.lua"
 SLOTS="$REX_DIR/agent-slots.lua"
 STARTUP="$REX_DIR/slot-startup.lua"
+NUMBERS="$REX_DIR/tab-numbers.lua"
 
 @test "init.lua loads the start-up step only where its module is deployed, else restores with rexurrect, and starts no follow loop" {
   grep -qx 'require("layout")' "$INIT"
@@ -111,4 +113,28 @@ STARTUP="$REX_DIR/slot-startup.lua"
 @test "agent-slots.lua binds the finish key, which hands the focused pane to the helper's finish --tab" {
   grep -q 'rex.bind("cmd+alt+f", "agent_slot_finish")' "$REX_DIR/agent-slots.lua"
   grep -q '"finish", "--tab", "--session", ctx.session_id, "--block", ctx.block_id' "$REX_DIR/agent-slots.lua"
+}
+
+@test "the tab-number watcher hears window moves and new sessions, numbers existing tabs first, and writes only a wrong prefix" {
+  local event
+  for event in window_created window_closed window_label_changed session_view_changed session_created; do
+    grep -q "\"$event\"" "$NUMBERS" || { echo "no handler for $event"; return 1; }
+  done
+  grep -q 'rex.after(0, function()' "$NUMBERS"
+  grep -q 'rex.call("session.list")' "$NUMBERS"
+  grep -qx '    if w.label ~= want then' "$NUMBERS"
+  grep -qx '  while rest:find(NUMBER_PREFIX) do rest = rest:gsub(NUMBER_PREFIX, "", 1) end' "$NUMBERS"
+}
+
+@test "the reconcile's tab-number prefix and the watcher's are one pattern" {
+  local lua sh
+  lua=$(sed -n 's/^local NUMBER_PREFIX = "\(.*\)"$/\1/p' "$NUMBERS")
+  sh=$(sed -n "s/^REX_NUMBER_PREFIX='\(.*\)'\$/\1/p" "$BATS_TEST_DIRNAME/../scripts/agent-slot-rex/lib/rex.sh")
+  [ -n "$lua" ]
+  [ "$lua" = "$sh" ]
+}
+
+@test "the reconcile and the watcher hold labels to the same limit" {
+  grep -qx 'local LABEL_LIMIT = 128' "$NUMBERS"
+  grep -q 'def rex_label: rex_label_within(128);' "$BATS_TEST_DIRNAME/../scripts/agent-slot-rex/lib/rex.sh"
 }

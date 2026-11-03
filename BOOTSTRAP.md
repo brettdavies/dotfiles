@@ -113,10 +113,10 @@ cd ~/dotfiles/stow
 # macOS (shared + desktop). The Linux-only packages are omitted: stow-deploy
 # skips rclone, obsidian, codex-proxy, and cargo on Darwin.
 # --ignore drops the systemd units that cross-platform packages carry, the Linux
-# server's Rex start-up step, and the .DS_Store Finder leaves in a package,
-# which collides with ~/.DS_Store.
+# server's Rex start-up step and tab-number watcher, and the .DS_Store Finder
+# leaves in a package, which collides with ~/.DS_Store.
 stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' \
-  --ignore='(^|/)slot-startup\.lua$' --ignore='\.DS_Store$' \
+  --ignore='(^|/)(slot-startup|tab-numbers)\.lua$' --ignore='\.DS_Store$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
   rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent rex hex
 
