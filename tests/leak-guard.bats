@@ -111,8 +111,8 @@ orphan_probe() {
   [ -z "$(tr -d '\0' <"/proc/$watchdog/cmdline" 2>/dev/null)" ]
 }
 
-@test "run-tests still fails a leaked sleep of the time limit that keeps a file descriptor open" {
-  printf '%s\n' '@test "leak" { sleep 37 </dev/null >/dev/null 2>&1 3>&- & }' >"$CWD/leaky.bats"
+@test "run-tests still fails a leaked sleep of the time limit whose output goes to a file" {
+  printf '%s\n' '@test "leak" { sleep 37 </dev/null >"$BATS_TEST_TMPDIR/leak.out" 2>&1 3>&- & }' >"$CWD/leaky.bats"
   LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=37 \
     run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/leaky.bats"
   [ "$status" -eq 1 ]
