@@ -80,6 +80,14 @@ ledger_line() {
     and .findings[0].next_step.command == "systemctl --user enable --now agent-slot-sweep.timer"' <<<"$output"
 }
 
+@test "from a shell with no XDG_RUNTIME_DIR, as in a slot, the timers are read from the user's own manager" {
+  stub systemctl '[ "${XDG_RUNTIME_DIR-}" = "/run/user/$(id -u)" ] || { echo "Failed to connect to bus: No medium found" >&2; exit 1; }
+echo enabled'
+  run --separate-stderr env -u XDG_RUNTIME_DIR "$AGENT_SLOT" doctor --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.findings == []' <<<"$output"
+}
+
 @test "settings that never accepted bypass permissions mode are a warning naming the claude package deploy" {
   local settings
   for settings in '{}' '{"skipDangerousModePermissionPrompt": false}' ''; do

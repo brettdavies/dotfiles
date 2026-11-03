@@ -40,6 +40,14 @@ doctor_check_tools() {
   done
 }
 
+# Usage: doctor_unit_enabled <unit>; true when the user manager says the unit is enabled, or when there is no systemctl
+# to ask. A shell in a slot has no XDG_RUNTIME_DIR, without which systemctl --user cannot reach the user manager, so the
+# check names the user's own runtime directory.
+doctor_unit_enabled() {
+  [[ -n $AS_SYSTEMCTL ]] || return 0
+  [[ $(XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$UID} "$AS_SYSTEMCTL" --user is-enabled "$1" 2>/dev/null) == enabled ]]
+}
+
 doctor_check_config() {
   local out
   if [[ -n ${AS_TOOL[gh]:-} ]] && ! bounded out gh-auth 15 "${AS_TOOL[gh]}" auth status; then
@@ -65,13 +73,11 @@ doctor_check_config() {
     || doctor_finding warning bypass-mode-unaccepted \
       "$AS_CLAUDE_SETTINGS does not accept bypass permissions mode, so every slot's Claude stops on its warning first" \
       --value "$AS_CLAUDE_SETTINGS" --command "cd ~/dotfiles && scripts/stow-deploy claude"
-  if [[ -n $AS_SYSTEMCTL ]] \
-    && [[ $("$AS_SYSTEMCTL" --user is-enabled tmux-prune-orphans-slots.timer 2>/dev/null) != enabled ]]; then
+  if ! doctor_unit_enabled tmux-prune-orphans-slots.timer; then
     doctor_finding error prune-timer-inactive "the slot server's orphan-client prune timer is not enabled" \
       --value tmux-prune-orphans-slots.timer --command "systemctl --user enable --now tmux-prune-orphans-slots.timer"
   fi
-  if [[ -n $AS_SYSTEMCTL ]] \
-    && [[ $("$AS_SYSTEMCTL" --user is-enabled agent-slot-sweep.timer 2>/dev/null) != enabled ]]; then
+  if ! doctor_unit_enabled agent-slot-sweep.timer; then
     doctor_finding error sweep-timer-inactive "the automatic sweep timer is not enabled, so a released slot whose task \
 finishes later is never torn down" --value agent-slot-sweep.timer \
       --command "systemctl --user enable --now agent-slot-sweep.timer"
