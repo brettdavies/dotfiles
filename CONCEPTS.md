@@ -316,6 +316,10 @@ paired with a version floor for every PM it covers. The gate is enforced via she
 shell-launched processes) and, where the tool supports a global config file, written into that file (covering cron,
 systemd units, and other non-shell invocations).
 
+The gate also covers dependencies pinned to a commit rather than a release, such as editor plugins: the pinned commit
+must have been on its upstream branch for the gate's number of days. That age is measured by the hosting service's
+record of when the commit reached the branch, never by the commit's own dates, which whoever pushes the commit sets.
+
 ## Local checks
 
 ### Local gate
