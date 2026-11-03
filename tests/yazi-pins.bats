@@ -70,7 +70,9 @@ case $1 in
   pr)
     case $2 in
       list) cat "$T/stub/open-prs" 2>/dev/null || true ;;
-      create) echo "https://github.com/fixture/dotfiles/pull/7" ;;
+      create)
+        while [ $# -gt 0 ]; do [ "$1" != --body-file ] || cp "$2" "$T/pr-body"; shift; done
+        echo "https://github.com/fixture/dotfiles/pull/7" ;;
       view)
         case $* in
           *statusCheckRollup*)
@@ -155,7 +157,7 @@ _branch_pins() { # the package.toml on the pushed bump branch
   grep -qx 'aaaaaaa aaaaaaa aaaaaaa bbbbbbb ' "$T/check.log"
 }
 
-@test "a passing candidate is pushed as ya wrote it, merged at the head CI passed on, and pulled into the host" {
+@test "a passing candidate is pushed as ya wrote it, merged at the head CI passed on, and pulled into the host over its older pins" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   _bump
   [ "$BUMP_STATUS" -eq 0 ]
@@ -166,6 +168,8 @@ _branch_pins() { # the package.toml on the pushed bump branch
   grep -q -- "pr create -R fixture/dotfiles --base dev --head fix/yazi-pins-26.10.1-20261102 " "$T/gh.log"
   grep -q -- "pr merge https://github.com/fixture/dotfiles/pull/7 -R fixture/dotfiles --squash --delete-branch --match-head-commit $head" "$T/gh.log"
   [ "$(cat "$T/checkout/stow/yazi/dot-config/yazi/package.toml")" = "$(_pins ccccccc bbbbbbb)" ]
+  [ "$(grep -v "HOME=.*/yazi-pins\." "$T/ya.log")" = "pkg install --discard HOME=$HOME" ]
+  grep -qF 'To install them at once: `git -C ~/dotfiles pull --ff-only && ya pkg install --discard`' "$T/pr-body"
   [ "$(cat "$T/state/yazi-pins-proven")" = 26.10.1 ]
   [ ! -e "$T/state/yazi-pins-pr" ]
 }
@@ -177,7 +181,7 @@ _branch_pins() { # the package.toml on the pushed bump branch
   [ "$BUMP_STATUS" -eq 0 ]
   [ "$(_field '[.outcome, .host_update.action, .host_update.reason, .next_step.action] | tostring')" = \
     '["bumped","skipped","not-on-base","pull"]' ]
-  [[ "$(_field .next_step.command)" == "git -C $T/checkout pull --ff-only && ya pkg install" ]]
+  [[ "$(_field .next_step.command)" == "git -C $T/checkout pull --ff-only && ya pkg install --discard" ]]
   [ "$(cat "$T/checkout/stow/yazi/dot-config/yazi/package.toml")" = "$(_pins aaaaaaa bbbbbbb)" ]
 }
 

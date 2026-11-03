@@ -97,8 +97,9 @@ emit() {
 }
 [ -n "$YAZI_VERSION" ] || emit failed check-failed "yazi --version printed no version" "" "" null rerun "$SELF"
 
-# Fast-forwards the host checkout when it sits on the base branch, then installs what it now pins; git refuses on
-# its own when a local edit would be overwritten. Prints the host_update object.
+# Fast-forwards the host checkout when it sits on the base branch, then installs what it now pins over the old pins'
+# files (--discard, for the reason yazi_pkg_install in lib/yazi.sh gives); git refuses on its own when a local edit
+# would be overwritten. Prints the host_update object.
 pull_host() {
   local branch out action=pulled reason=ok msg="fast-forwarded and installed the new pins"
   if [ -z "$checkout" ] || ! git -C "$checkout" rev-parse --git-dir >/dev/null 2>&1; then
@@ -107,7 +108,7 @@ pull_host() {
     action=skipped reason=not-on-base msg="checkout is on ${branch:-a detached HEAD}, not $base"
   elif ! out=$(git -C "$checkout" pull --ff-only -q 2>&1); then
     action=failed reason=pull-failed msg=$(tr '\n' ' ' <<<"$out")
-  elif ! out=$(ya pkg install 2>&1); then
+  elif ! out=$(ya pkg install --discard 2>&1); then
     action=failed reason=install-failed msg=$(tail -n 3 <<<"$out" | tr '\n' ' ')
   fi
   printf '{"action":"%s","reason":"%s","checkout":%s,"message":%s}' \
@@ -124,17 +125,17 @@ land() { # <pr-url> <head-sha>
     2) emit failed ci-timeout "checks still running on $1 after ${YAZI_PINS_CI_TIMEOUT:-1800} s; the next run resumes it" \
       "" "$1" null inspect-pr "gh pr checks $1" ;;
   esac
-  gh pr merge "$1" -R "$gh_repo" --squash --delete-branch --match-head-commit "$head" >&2 ||
-    emit failed merge-failed "gh pr merge refused $1" "$head" "$1" null inspect-pr "gh pr view $1"
-  [ "$(gh pr view "$1" -R "$gh_repo" --json state --jq .state)" = MERGED ] ||
-    emit failed merge-failed "$1 is not merged after gh pr merge" "$head" "$1" null inspect-pr "gh pr view $1"
+  gh pr merge "$1" -R "$gh_repo" --squash --delete-branch --match-head-commit "$head" >&2 \
+    || emit failed merge-failed "gh pr merge refused $1" "$head" "$1" null inspect-pr "gh pr view $1"
+  [ "$(gh pr view "$1" -R "$gh_repo" --json state --jq .state)" = MERGED ] \
+    || emit failed merge-failed "$1 is not merged after gh pr merge" "$head" "$1" null inspect-pr "gh pr view $1"
   rm -f "$pr_file"
   host=$(pull_host)
   if [[ "$host" == '{"action":"pulled"'* ]]; then
     emit bumped pr-merged "merged $1" "" "$1" "$host" none ""
   fi
   emit bumped pr-merged "merged $1; this host still installs the old pins until its checkout is pulled" "" "$1" \
-    "$host" pull "git -C ${checkout:-~/dotfiles} pull --ff-only && ya pkg install"
+    "$host" pull "git -C ${checkout:-~/dotfiles} pull --ff-only && ya pkg install --discard"
 }
 
 # Installs <package.toml lines> into a fresh scratch HOME holding the clone's yazi config and checks it there.
@@ -154,26 +155,26 @@ save_capture() { # <home>
 # A PR this job opened is resumed when it was proven on the installed yazi, and replaced when it was not; any other
 # open bump PR stops the run.
 open=$(gh pr list -R "$gh_repo" --state open --base "$base" --json url,headRefName,headRefOid \
-  --jq '.[] | select(.headRefName | startswith("fix/yazi-pins-")) | "\(.url) \(.headRefName) \(.headRefOid)"') ||
-  emit failed gh-failed "gh pr list failed for $gh_repo" "" "" null rerun "$SELF"
+  --jq '.[] | select(.headRefName | startswith("fix/yazi-pins-")) | "\(.url) \(.headRefName) \(.headRefOid)"') \
+  || emit failed gh-failed "gh pr list failed for $gh_repo" "" "" null rerun "$SELF"
 if [ -n "$open" ]; then
   read -r url name head <<<"$open"
-  [ "$(cat "$pr_file" 2>/dev/null)" = "$url $head" ] ||
-    emit failed pr-open "an open bump PR this job did not push, or whose head moved: $url" "$head" "$url" null \
+  [ "$(cat "$pr_file" 2>/dev/null)" = "$url $head" ] \
+    || emit failed pr-open "an open bump PR this job did not push, or whose head moved: $url" "$head" "$url" null \
       inspect-pr "gh pr view $url"
   proven=${name#fix/yazi-pins-}
   if [ "${proven%-*}" = "$YAZI_VERSION" ]; then
     land "$url" "$head"
   fi
   echo "yazi-pins: closing $url, proven on yazi ${proven%-*}, not $YAZI_VERSION" >&2
-  gh pr close "$url" -R "$gh_repo" --delete-branch >&2 ||
-    emit failed gh-failed "gh pr close failed for $url" "" "$url" null inspect-pr "gh pr view $url"
+  gh pr close "$url" -R "$gh_repo" --delete-branch >&2 \
+    || emit failed gh-failed "gh pr close failed for $url" "" "$url" null inspect-pr "gh pr view $url"
   rm -f "$pr_file"
 fi
 
 echo "yazi-pins: cloning $repo at $base" >&2
-git clone -q --branch "$base" --single-branch "$repo" "$work/clone" >&2 ||
-  emit failed git-failed "git clone of $repo at $base failed" "" "" null rerun "$SELF"
+git clone -q --branch "$base" --single-branch "$repo" "$work/clone" >&2 \
+  || emit failed git-failed "git clone of $repo at $base failed" "" "" null rerun "$SELF"
 pkg=$work/clone/$PKG_PATH
 current=$(yazi_pins_parse "$pkg")
 
@@ -182,8 +183,8 @@ while IFS='|' read -r kind use rev hash; do
   up=${use%%:*}
   cand=$(awk -v r="$up" '$1 == r { print $2 }' <<<"$seen")
   if [ -z "$cand" ]; then
-    cand=$(yazi_pins_candidate "$up" "$cutoff") ||
-      emit failed upstream-unreachable "no revision of $up reached its branch by $cutoff" "$up" "" null rerun "$SELF"
+    cand=$(yazi_pins_candidate "$up" "$cutoff") \
+      || emit failed upstream-unreachable "no revision of $up reached its branch by $cutoff" "$up" "" null rerun "$SELF"
     seen+="$up $cand"$'\n'
   fi
   keep=0
@@ -194,8 +195,8 @@ while IFS='|' read -r kind use rev hash; do
 done <<<"$current"
 
 echo "yazi-pins: installing and checking the candidates in yazi $YAZI_VERSION" >&2
-verdict=$(try_pins "$work/candidate" "$candidates") ||
-  emit failed hash-failed "ya pkg install of the candidates failed" "$(tr '\n' ' ' <<<"$candidates")" "" null rerun "$SELF"
+verdict=$(try_pins "$work/candidate" "$candidates") \
+  || emit failed hash-failed "ya pkg install of the candidates failed" "$(tr '\n' ' ' <<<"$candidates")" "" null rerun "$SELF"
 save_capture "$work/candidate"
 changes=''
 while IFS='|' read -r kind use rev hash; do
@@ -233,10 +234,10 @@ cp "$work/candidate/.config/yazi/package.toml" "$pkg"
 . "$here/lib/yazi-pins-pr.sh"
 yazi_pins_messages "$work" "$changes"
 {
-  git -C "$work/clone" switch -q -c "$branch" &&
-    git -C "$work/clone" add "$PKG_PATH" &&
-    git -C "$work/clone" commit -q --file "$work/commit-msg" &&
-    git -C "$work/clone" push -q origin "$branch"
+  git -C "$work/clone" switch -q -c "$branch" \
+    && git -C "$work/clone" add "$PKG_PATH" \
+    && git -C "$work/clone" commit -q --file "$work/commit-msg" \
+    && git -C "$work/clone" push -q origin "$branch"
 } >&2 || emit failed git-failed "committing or pushing $branch failed" "$changes" "" null rerun "$SELF"
 sha=$(git -C "$work/clone" rev-parse HEAD)
 url=$(gh pr create -R "$gh_repo" --base "$base" --head "$branch" --title "$(head -n 1 "$work/commit-msg")" \

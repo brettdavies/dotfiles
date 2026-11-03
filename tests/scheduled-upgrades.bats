@@ -206,11 +206,11 @@ _assert_run_log() {
   [ "$(printf '%s' "$END" | jaq -c '[.outcome, .reason, .warnings, .changes]')" = '["success","ok",1,null]' ]
 }
 
-@test "brew job installs the yazi packages package.toml pins once bu has finished, logging ya's lines as info" {
+@test "brew job installs the yazi packages package.toml pins once bu has finished, discarding what an older pin left, logging ya's lines as info" {
   run env -u DOTFILES_SHELL_DIR PATH="$STUBS:$PATH" bash "$BREW_JOB"
   [ "$status" -eq 0 ]
   _assert_run_log brew-upgrade
-  [ "$(cat "$YA_LOG")" = "pkg install|after-bu=yes" ]
+  [ "$(cat "$YA_LOG")" = "pkg install --discard|after-bu=yes" ]
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "info" and .line == "Deploying package `git.yazi`")' |
     grep -q .
   [ "$(printf '%s' "$END" | jaq -c '[.outcome, .warnings, .errors]')" = '["success",1,0]' ]
@@ -220,7 +220,7 @@ _assert_run_log() {
   run env -u DOTFILES_SHELL_DIR STUB_YA_FAIL=1 PATH="$STUBS:$PATH" bash "$BREW_JOB"
   [ "$status" -eq 0 ]
   _assert_run_log brew-upgrade
-  printf '%s\n' "$output" | jaq -c --arg l "Warning: ya pkg install exited 1; installed yazi packages may not match package.toml. Rerun: ya pkg install" \
+  printf '%s\n' "$output" | jaq -c --arg l "Warning: ya pkg install exited 1; installed yazi packages may not match package.toml. Rerun: ya pkg install --discard" \
     'select(.event == "output" and .level == "warning" and .line == $l)' | grep -q .
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "info" and .line == "Error: failed to fetch yazi-rs/plugins")' |
     grep -q .
