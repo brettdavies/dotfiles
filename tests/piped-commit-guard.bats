@@ -278,6 +278,141 @@ bash -n /tmp/x.sh"
 }
 
 # ---------------------------------------------------------------------------
+# sd-commit-doc and gh body and notes files: every command that reads a
+# message file loses it the same way
+# ---------------------------------------------------------------------------
+
+@test "sd-commit-doc piped into tail before trash of its message file is denied" {
+  decide 'sd-commit-doc /tmp/m.md workflow-issues/x.md | tail -3 && trash /tmp/m.md'
+  [ "$DECISION" = DENY ]
+  [[ "$TEXT" == *"[commit-status-masked-by-pipe]"* ]]
+  [[ "$TEXT" == *'`sd-commit-doc /tmp/m.md workflow-issues/x.md | tail -3` exits with the status of `tail`, not of sd-commit-doc,'* ]]
+  [[ "$TEXT" == *'`trash /tmp/m.md` runs even when sd-commit-doc fails'* ]]
+  [ "$(next_command)" = 'sd-commit-doc /tmp/m.md workflow-issues/x.md && trash /tmp/m.md' ]
+}
+
+@test "sd-commit-doc by path, through a variable, with 2>&1 is denied" {
+  decide 'MSG=/tmp/sd-msg-1.md; ~/.local/bin/sd-commit-doc "$MSG" a/x.md b/y.md 2>&1 | tail -5 && trash "$MSG"'
+  [ "$DECISION" = DENY ]
+  [ "$(next_command)" = 'MSG=/tmp/sd-msg-1.md; ~/.local/bin/sd-commit-doc "$MSG" a/x.md b/y.md && trash "$MSG"' ]
+}
+
+@test "each gh pr and issue submission piped before trash of its body file is denied" {
+  local c
+  for c in 'pr create' 'pr new' 'pr edit 12' 'pr comment 12' 'pr review 12' 'issue create' 'issue new' 'issue edit 7' 'issue comment 7'; do
+    decide "gh $c --body-file /tmp/b.md | tail -1 && trash /tmp/b.md"
+    if [ "$DECISION" != DENY ]; then
+      echo "not denied: gh $c ($DECISION)"
+      return 1
+    fi
+    [ "$(next_command)" = "gh $c --body-file /tmp/b.md && trash /tmp/b.md" ]
+  done
+}
+
+@test "each gh release submission piped before trash of its notes file is denied" {
+  local c
+  for c in 'release create v1.2.0' 'release new v1.2.0' 'release edit v1.2.0'; do
+    decide "gh $c --notes-file /tmp/n.md | tail -1 && trash /tmp/n.md"
+    if [ "$DECISION" != DENY ]; then
+      echo "not denied: gh $c ($DECISION)"
+      return 1
+    fi
+    [ "$(next_command)" = "gh $c --notes-file /tmp/n.md && trash /tmp/n.md" ]
+  done
+}
+
+@test "a gh deny names the gh subcommand" {
+  decide 'gh pr create --base dev --title "fix: x" --body-file /tmp/b.md | tail -1 && trash /tmp/b.md'
+  [ "$DECISION" = DENY ]
+  [[ "$TEXT" == *'exits with the status of `tail`, not of gh pr create,'* ]]
+  [[ "$TEXT" == *'`trash /tmp/b.md` runs even when gh pr create fails'* ]]
+  [ "$(next_command)" = 'gh pr create --base dev --title "fix: x" --body-file /tmp/b.md && trash /tmp/b.md' ]
+}
+
+@test "RED: the PR-body flow through a variable" {
+  decide 'BODY=/tmp/pr-body-dotfiles.fix-x.md; gh pr create --base dev --title "fix: x" --body-file "$BODY" | tail -1 && trash "$BODY"'
+  [ "$DECISION" = DENY ]
+  [ "$(next_command)" = 'BODY=/tmp/pr-body-dotfiles.fix-x.md; gh pr create --base dev --title "fix: x" --body-file "$BODY" && trash "$BODY"' ]
+}
+
+@test "RED: the gh file flag as -F, attached, =value, or after a bundle" {
+  decide 'gh pr comment 12 -F /tmp/b.md | tail && trash /tmp/b.md'
+  [ "$DECISION" = DENY ]
+  decide 'gh pr comment 12 -F/tmp/b.md | tail && trash /tmp/b.md'
+  [ "$DECISION" = DENY ]
+  decide 'gh issue comment 7 --body-file=/tmp/b.md | tail && trash /tmp/b.md'
+  [ "$DECISION" = DENY ]
+  decide 'gh release create v1 --notes-file=/tmp/n.md | cat && rm /tmp/n.md'
+  [ "$DECISION" = DENY ]
+  decide 'gh pr create -dF /tmp/b.md | tail && trash /tmp/b.md'
+  [ "$DECISION" = DENY ]
+}
+
+@test "RED: gh's boolean -c before the body file does not hide it" {
+  decide 'gh pr review 12 -c --body-file /tmp/b.md | tail && trash /tmp/b.md'
+  [ "$DECISION" = DENY ]
+  decide 'gh pr review 12 -c -F /tmp/b.md | tail && trash /tmp/b.md'
+  [ "$DECISION" = DENY ]
+}
+
+@test "RED: --repo before the gh subcommand" {
+  decide 'gh pr -R brettdavies/dotfiles create --body-file /tmp/b.md | tail && trash /tmp/b.md'
+  [ "$DECISION" = DENY ]
+  decide 'gh --repo=brettdavies/dotfiles issue comment 7 -F /tmp/b.md | tail && trash /tmp/b.md'
+  [ "$DECISION" = DENY ]
+}
+
+@test "RED: pipefail does not cover a semicolon after a piped sd-commit-doc or gh" {
+  decide 'set -o pipefail; sd-commit-doc /tmp/m.md workflow-issues/x.md | tail; trash /tmp/m.md'
+  [ "$DECISION" = DENY ]
+  decide 'set -o pipefail; gh pr comment 12 --body-file /tmp/b.md | tail; trash /tmp/b.md'
+  [ "$DECISION" = DENY ]
+}
+
+@test "unpiped sd-commit-doc and gh submissions before trash of their file are allowed" {
+  decide 'sd-commit-doc /tmp/m.md workflow-issues/x.md && trash /tmp/m.md'
+  [ "$DECISION" = ALLOW ]
+  decide 'gh pr create --base dev --title "fix: x" --body-file /tmp/b.md && trash /tmp/b.md'
+  [ "$DECISION" = ALLOW ]
+  decide 'gh release create v1 --notes-file /tmp/n.md && trash /tmp/n.md'
+  [ "$DECISION" = ALLOW ]
+}
+
+@test "pipefail before sd-commit-doc or gh with && to the trash is allowed" {
+  decide 'set -o pipefail; sd-commit-doc /tmp/m.md workflow-issues/x.md 2>&1 | tail -3 && trash /tmp/m.md'
+  [ "$DECISION" = ALLOW ]
+  decide 'set -o pipefail; gh pr comment 12 --body-file /tmp/b.md | tail -1 && trash /tmp/b.md'
+  [ "$DECISION" = ALLOW ]
+}
+
+@test "piped sd-commit-doc and gh submissions that keep their file are allowed" {
+  decide 'sd-commit-doc /tmp/m.md workflow-issues/x.md 2>&1 | tail -3'
+  [ "$DECISION" = ALLOW ]
+  decide 'gh pr create --body-file /tmp/b.md | tail -1 && trash /tmp/build.log'
+  [ "$DECISION" = ALLOW ]
+  decide 'gh release edit v1 --notes-file /tmp/n.md | tail'
+  [ "$DECISION" = ALLOW ]
+}
+
+@test "gh and sd-commit-doc calls that submit no file are allowed" {
+  decide 'gh pr view 12 --json body | jaq -r .body && trash /tmp/b.md'
+  [ "$DECISION" = ALLOW ]
+  decide 'gh pr create --body "x" | tail && trash /tmp/b.md'
+  [ "$DECISION" = ALLOW ]
+  decide 'gh pr comment 12 -F - < /tmp/b.md && trash /tmp/b.md'
+  [ "$DECISION" = ALLOW ]
+  decide 'sd-commit-doc --help | head -20 && trash /tmp/m.md'
+  [ "$DECISION" = ALLOW ]
+}
+
+@test "RED: the sd-commit-doc and gh patterns inside quotes are allowed" {
+  decide "rg 'sd-commit-doc m x | tail && trash m' docs/"
+  [ "$DECISION" = ALLOW ]
+  decide 'echo "gh pr create --body-file b | tail && trash b"'
+  [ "$DECISION" = ALLOW ]
+}
+
+# ---------------------------------------------------------------------------
 # Without a working JSON parser the guard blocks what it checks, never allows it
 # ---------------------------------------------------------------------------
 
@@ -286,6 +421,11 @@ bash -n /tmp/x.sh"
   assert_parser_block json-parser-missing
   [[ $REASON == "piped-commit-guard blocked [json-parser-missing]: "* ]]
   [ "${REASON##*$'\n'}" = 'brew install jaq' ]
+}
+
+@test "with neither jaq nor jq, a piped gh submission is blocked naming the fix" {
+  run_hook_with_parser none "$HOOK" "$(bash_payload 'gh pr create -F /tmp/b.md | tail -1 && trash /tmp/b.md')"
+  assert_parser_block json-parser-missing
 }
 
 @test "with neither jaq nor jq, a call without this guard's trigger text still runs" {

@@ -371,10 +371,12 @@ Vale/LT still run `/unslop` as the minimum acceptable scrub.
 and adversarial red-team bypasses) live at `tests/heredoc-pr-guard.bats` — run with `bats tests/heredoc-pr-guard.bats`.
 If a legitimate use is blocked, fix the regex; do NOT bypass the hook for individual commands.
 
-The `~/.claude/piped-commit-guard.sh` PreToolUse Bash hook rejects a `git commit` whose output is piped when a later
-step in the same command removes its message file with `trash`, `rm`, or `mv`, and its deny carries the command rebuilt
-without the pipe. `set -o pipefail` before the commit, with only `&&` from the pipe to that step, passes. Tests:
-`bats tests/piped-commit-guard.bats`.
+The `~/.claude/piped-commit-guard.sh` PreToolUse Bash hook rejects a command that submits a message file, piped, when a
+later step in the same command removes that file with `trash`, `rm`, or `mv`, and its deny carries the command rebuilt
+without the pipe. The submissions it reads are `git commit -F`/`--file`, `sd-commit-doc <msg-file>`,
+`gh pr (create|edit|comment|review)` and `gh issue (create|edit|comment)` with `-F`/`--body-file`, and
+`gh release (create|edit)` with `-F`/`--notes-file`. `set -o pipefail` before the submission, with only `&&` from the
+pipe to that step, passes. Tests: `bats tests/piped-commit-guard.bats`.
 
 Why hook + docs (not docs alone): inline heredoc into `--body` produces wrapped-and-escape-trapped text that lands in
 the PR body AND in the squash-merge commit message. Cleanup after the fact requires either re-submitting via
