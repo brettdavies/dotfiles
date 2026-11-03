@@ -60,6 +60,18 @@ origin_head() {
   git -C "$T/$1.git" rev-parse main
 }
 
+# Usage: make_split_repo <name>; like make_repo, but the clone's .git is a file
+# naming a git directory at $T/<name>-gitdir, as `git clone --separate-git-dir`
+# leaves it.
+make_split_repo() {
+  git init -q --bare "$T/$1.git"
+  git clone -q --separate-git-dir "$T/$1-gitdir" "$T/$1.git" "$T/$1" 2>/dev/null
+  echo seed >"$T/$1/seed.md"
+  git -C "$T/$1" add seed.md
+  git -C "$T/$1" commit -q -m seed
+  git -C "$T/$1" push -q -u origin main
+}
+
 @test "sync fast-forwards a behind clone and logs its strays without committing them" {
   make_repo sd
   advance_origin sd
@@ -142,4 +154,43 @@ $T/sd|main|sync" run "$SCRIPT"
   [ -f "$T/sd/draft.md" ]
   grep -E "ERROR: sd .*unknown mode 'synk'" "$LOG"
   grep -E 'Summary: .*failed=1' "$LOG"
+}
+
+@test "a clone whose .git file names a separate git directory is committed and pushed" {
+  make_split_repo vault
+  [ -f "$T/vault/.git" ]
+  echo "new note" >"$T/vault/note.md"
+
+  NIGHTLY_AUTOCOMMIT_REPOS="$T/vault|main" run "$SCRIPT"
+  [ "$status" -eq 0 ]
+
+  [ "$(git -C "$T/vault.git" show main:note.md)" = "new note" ]
+  [ -z "$(git -C "$T/vault" status --porcelain)" ]
+  grep -E 'Summary: committed=1 ' "$LOG"
+}
+
+@test "an index.lock in a separate git directory skips the repo" {
+  make_split_repo vault
+  echo "new note" >"$T/vault/note.md"
+  : >"$T/vault-gitdir/index.lock"
+  before=$(origin_head vault)
+
+  NIGHTLY_AUTOCOMMIT_REPOS="$T/vault|main" run "$SCRIPT"
+  [ "$status" -eq 0 ]
+
+  [ "$(origin_head vault)" = "$before" ]
+  grep -E 'SKIP: vault .*index\.lock exists' "$LOG"
+}
+
+@test "a directory inside a repo but not at its top is skipped as not a git repo" {
+  make_repo vault
+  mkdir "$T/vault/sub"
+  echo "new note" >"$T/vault/sub/note.md"
+  before=$(origin_head vault)
+
+  NIGHTLY_AUTOCOMMIT_REPOS="$T/vault/sub|main" run "$SCRIPT"
+  [ "$status" -eq 0 ]
+
+  [ "$(origin_head vault)" = "$before" ]
+  grep -E 'SKIP: sub .*not a git repo' "$LOG"
 }
