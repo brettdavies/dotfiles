@@ -211,6 +211,11 @@ that establishes PATH, the package-manager prefix, secrets, and the per-tool con
 through its own startup file. It is the authoritative place to set environment for shells, and it does not run for a
 *bare launcher*.
 
+One shell skips it on purpose: a non-interactive zsh whose command string opens with the fixed no-op prefix that marks
+an ssh `Match exec` test. ssh runs each such test through the login shell on every connection, the chain costs a
+noticeable fraction of a second to read, and the tests need nothing it sets. The match is on that exact prefix, so every
+other command string still reads the chain.
+
 Order within the chain is load-bearing. A per-tool fragment decides whether to apply by testing, at the moment it is
 sourced, whether its tool is reachable on PATH. A fragment reached before the chain has finished assembling PATH
 therefore finds nothing and silently applies none of its configuration, in every shell that did not inherit a populated
