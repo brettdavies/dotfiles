@@ -72,6 +72,17 @@ esac
 EOF
   # The daily gate's connectivity probe always answers, so no test reaches the network.
   printf '#!/bin/sh\nexit 0\n' >"$STUBS/curl"
+  # Records whether bu had finished (its cleanup step logged) when ya ran, and fails on STUB_YA_FAIL.
+  export YA_LOG="$BATS_TEST_TMPDIR/ya.log"
+  cat >"$STUBS/ya" <<'EOF'
+#!/bin/sh
+after=no
+grep -q '^cleanup' "$BREW_LOG" 2>/dev/null && after=yes
+printf '%s|after-bu=%s\n' "$*" "$after" >>"$YA_LOG"
+echo "Deploying package \`git.yazi\`"
+[ -n "${STUB_YA_FAIL-}" ] && { echo "Error: failed to fetch yazi-rs/plugins" >&2; exit 1; }
+echo "Done!"
+EOF
   chmod +x "$STUBS"/*
 }
 
@@ -180,6 +191,37 @@ _assert_run_log() {
   [ "$status" -eq 0 ]
   _assert_run_log uv-tools-upgrade
   [ "$(printf '%s' "$END" | jaq -c '[.outcome, .reason, .warnings, .changes]')" = '["success","ok",1,null]' ]
+}
+
+@test "brew job installs the yazi packages package.toml pins once bu has finished, logging ya's lines as info" {
+  run env -u DOTFILES_SHELL_DIR PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  [ "$status" -eq 0 ]
+  _assert_run_log brew-upgrade
+  [ "$(cat "$YA_LOG")" = "pkg install|after-bu=yes" ]
+  printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "info" and .line == "Deploying package `git.yazi`")' |
+    grep -q .
+  [ "$(printf '%s' "$END" | jaq -c '[.outcome, .warnings, .errors]')" = '["success",1,0]' ]
+}
+
+@test "a failed ya pkg install is one warning with the rerun command, and the brew run still succeeds" {
+  run env -u DOTFILES_SHELL_DIR STUB_YA_FAIL=1 PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  [ "$status" -eq 0 ]
+  _assert_run_log brew-upgrade
+  printf '%s\n' "$output" | jaq -c --arg l "Warning: ya pkg install exited 1; installed yazi packages may not match package.toml. Rerun: ya pkg install" \
+    'select(.event == "output" and .level == "warning" and .line == $l)' | grep -q .
+  printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "info" and .line == "Error: failed to fetch yazi-rs/plugins")' |
+    grep -q .
+  [ "$(printf '%s' "$END" | jaq -c '[.outcome, .reason, .warnings, .errors]')" = '["success","ok",2,0]' ]
+}
+
+@test "run.end carries yazi_pins as null when the run did not bump the pins" {
+  run env -u DOTFILES_SHELL_DIR PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  [ "$status" -eq 0 ]
+  _assert_run_log brew-upgrade
+  [ "$(printf '%s' "$END" | jaq -c '[has("yazi_pins"), .yazi_pins]')" = '[true,null]' ]
+  run env -u DOTFILES_SHELL_DIR PATH="$STUBS:$PATH" bash "$UV_JOB"
+  _assert_run_log uv-tools-upgrade
+  [ "$(printf '%s' "$END" | jaq -c '[has("yazi_pins"), .yazi_pins]')" = '[true,null]' ]
 }
 
 @test "on macOS the brew job leaves stale_processes unchecked" {

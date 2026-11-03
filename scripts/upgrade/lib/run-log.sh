@@ -17,7 +17,8 @@
 #              or removed package (changes itself is null when the run ended before comparing versions or a version
 #              listing failed, which also logs a warning), next_step {action (none | inspect-config | rerun), command,
 #              docs}, stale_processes [{unit, exe, pids, action}] from lib/stale-procs.sh, null when the job does not
-#              check
+#              check, yazi_pins: the pin bump's outcome object from scripts/upgrade/yazi-pins.sh, null when the run did
+#              not bump (BOOTSTRAP.md lists its outcomes and reasons)
 #
 # outcome follows the exit status alone, so a successful run can still report errors > 0 when the tool printed error
 # lines and exited 0. A run that dies after run.start, from a failed command or a kill such as the systemd start
@@ -50,7 +51,7 @@ run_log_start() {
   # Ubuntu ships uuidgen in an optional package; the kernel's generator needs nothing installed.
   RUN_ID=${INVOCATION_ID:-$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr '[:upper:]' '[:lower:]')}
   RUN_HOST=$(_run_log_str "$(hostname -s)")
-  RUN_ERRORS=0 RUN_WARNINGS=0 RUN_FIRST_ERROR='' RUN_CHANGES=null RUN_STALE=null
+  RUN_ERRORS=0 RUN_WARNINGS=0 RUN_FIRST_ERROR='' RUN_CHANGES=null RUN_STALE=null RUN_YAZI_PINS=null
   # systemd.exec(5): a child can inherit JOURNAL_STREAM after its stdout moved elsewhere, so it names the journal only
   # while it still matches stdout's device and inode.
   RUN_LOG_JOURNALD=0
@@ -180,7 +181,7 @@ run_log_finish() {
     next_step="{\"action\":\"$5\",\"command\":$(_run_log_str "$6"),\"docs\":\"$RUN_LOG_DOCS#scheduled-brew-and-uv-upgrades-$scheduler\"}"
   fi
   [ -z "$RUN_FIRST_ERROR" ] || first_error=$(_run_log_str "$RUN_FIRST_ERROR")
-  _run_log_emit "$priority" run.end "\"outcome\":\"$outcome\",\"exit_code\":$1,\"reason\":\"$2\",\"message\":$(_run_log_str "$3"),\"duration_s\":$((SECONDS - RUN_STARTED)),\"errors\":$RUN_ERRORS,\"warnings\":$RUN_WARNINGS,\"first_error\":$first_error,\"changes\":$4,\"next_step\":$next_step,\"stale_processes\":$RUN_STALE"
+  _run_log_emit "$priority" run.end "\"outcome\":\"$outcome\",\"exit_code\":$1,\"reason\":\"$2\",\"message\":$(_run_log_str "$3"),\"duration_s\":$((SECONDS - RUN_STARTED)),\"errors\":$RUN_ERRORS,\"warnings\":$RUN_WARNINGS,\"first_error\":$first_error,\"changes\":$4,\"next_step\":$next_step,\"stale_processes\":$RUN_STALE,\"yazi_pins\":$RUN_YAZI_PINS"
   exit "$1"
 }
 
