@@ -397,13 +397,13 @@ opened since the last automatic save is not lost; the start-up step restores the
 rexurrect save && systemctl --user restart rex-server.service
 ```
 
-`cmd+alt+n` starts an agent on the session's repo in a new tab, `cmd+alt+r` gives every live slot its tab back, and
-`cmd+alt+f` finishes the focused tab's task. On the Mac each forwards to the Linux server's helper through the ssh alias
-the `ssh` package defines for it; `AGENT_SLOT_REX_SERVER` names another. The Mac's dev ports reach the Linux server
-through the `com.user.bd-tunnel` LaunchAgent, which
-`launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.bd-tunnel.plist` loads. The helper logs to
-`~/.local/state/agent-slot-rex/` on the server: `restore.log` holds the start-up step Rex runs when it loads, and
-`reconcile.log` one line for each pass over the tabs.
+`cmd+alt+n` opens the session's repo prime or starts an agent on the repo in a new tab (README.md, "Keys and tab
+labels"), `cmd+alt+r` gives every live slot its tab back, and `cmd+alt+f` finishes the focused tab's task. On the Mac
+each forwards to the Linux server's helper through the ssh alias the `ssh` package defines for it;
+`AGENT_SLOT_REX_SERVER` names another. The Mac's dev ports reach the Linux server through the `com.user.bd-tunnel`
+LaunchAgent, which `launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.bd-tunnel.plist` loads. The
+helper logs to `~/.local/state/agent-slot-rex/` on the server: `restore.log` holds the start-up step Rex runs when it
+loads, and `reconcile.log` one line for each pass over the tabs.
 
 ### Hex dictation settings
 

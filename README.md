@@ -364,12 +364,26 @@ On the Mac:
 
 | Key         | Action                                                                                          |
 | ----------- | ----------------------------------------------------------------------------------------------- |
-| `cmd+alt+n` | Start an agent on the session's repo in a new tab, which comes forward                          |
+| `cmd+alt+n` | Open the session's repo prime as its first tab, or start an agent on the repo in a new tab      |
 | `cmd+alt+r` | Give every live slot its tab back, resume dormant slots, and close tabs whose slot is gone      |
 | `cmd+alt+f` | Finish the focused tab's task (no open PR) and delete its slot when nothing in it would be lost |
 
-In a session not named after a repo, every session on the Mac included, `cmd+alt+n`'s tab asks which repo to use, and
-the agent's tab opens in the background in that repo's session on the Linux server.
+`cmd+alt+n` opens a tab that comes forward and decides what it becomes from the session's name:
+
+- **A Linux server session named after a repo with a prime.** `config/agent-slot-rex/primes.tsv` names each such repo's
+  prime tmux session on the server's default tmux server, such as `XR CLI` for `xurl-rs`. While no tab of the session
+  is attached to that prime, the new tab becomes the prime's tab: first in the session, labelled with the prime's name,
+  attached from `$HOME` by `agent-slot-rex prime <repo>`, and a login shell once you detach. A tab counts as the prime
+  only while a tmux client of the prime runs in it, so a renamed tab still counts and a detached one does not. Once
+  the prime is open, the key starts a slot of the repo.
+- **A Linux server session named after any other repo.** The key starts a slot of the repo, with no question.
+- **Any other session, every session on the Mac included.** The tab asks which repo to use, and the agent's tab opens
+  in the background in that repo's session on the Linux server.
+
+The tab waits up to `AGENT_SLOT_REX_SHOWN_WAIT` seconds (5) for Rex.app to show it before it does anything. In a
+session with no tabs, Rex.app hands the key the session of the pane it last focused, which can be another session on
+another host, where nobody sees the tab. Such a tab starts nothing, asks for Enter, and closes itself after
+`AGENT_SLOT_REX_SHOWN_HOLD` seconds (60). In a session with no tabs, open one with `cmd+t` first, then press the key.
 
 On the Linux server every tab's label starts with its position in its session, `<n>:`, which `rex-tab-numbers.service`
 keeps current as tabs open, close, and move; the slot helper matches and relabels tabs past that number and never writes
@@ -599,8 +613,9 @@ timer's schedule is `OnCalendar=*:0/10` in `agent-slot-sweep.timer`; change it w
 waits up to `AGENT_SLOT_RELEASE_WAIT` seconds (3600) for the agent, looking every `AGENT_SLOT_RELEASE_POLL` seconds (5).
 
 The keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`, which on the Mac hand the
-verb to the server's helper; each pane runs `agent-slot-rex attach <repo>/<N> claude|files|git`, the control session's
-tab runs `agent-slot-rex sweep`, and `agent-slot-rex doctor` checks the server's side. Every verb answers `--help`. Each
+verb to the server's helper; each pane runs `agent-slot-rex attach <repo>/<N> claude|files|git`, a prime tab runs
+`agent-slot-rex prime <repo>`, the control session's tab runs `agent-slot-rex sweep`, and `agent-slot-rex doctor` checks
+the server's side. Every verb answers `--help`. Each
 launch runs the sweep again in the control session's one sweep tab, opening it when there is none; the tab stays open
 while something needs you, and `r` in it sweeps again. Restore, sweep, and finish change tabs one at a time: each waits
 up to `AGENT_SLOT_REX_LOCK_WAIT` seconds (300) for the one ahead of it to finish, so it sees the tabs that one opened.
@@ -657,6 +672,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `bypass-mode-unaccepted`      | 78   | Doctor warning: settings.json does not accept bypass mode; `scripts/stow-deploy claude`        |
 | `version-unverified`          | 0    | Doctor warning: Claude or Rex differs from the version the checklist last ran on               |
 | `repo-required`               | 2    | The new-agent key was pressed outside a repo's session, with no terminal to ask in             |
+| `prime-not-running`           | 1    | The new-agent key found the session's prime tmux session not running; start it, press again    |
 | `server-unreachable`          | 1    | ssh from the Mac to the Linux server failed; retry once the network is back                    |
 | `rex-action-unregistered`     | 78   | Rex has not loaded the agent-slot actions; deploy the `rex` package or run `rex config reload` |
 | `rex-failed`                  | 1    | A `rex` command failed; retry                                                                  |

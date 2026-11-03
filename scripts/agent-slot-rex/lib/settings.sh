@@ -40,6 +40,11 @@ AR_STATE=${AGENT_SLOT_REX_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent
 AR_LOG_DIR=$AR_STATE/logs
 AR_STARTUP_RECORD=$AR_STATE/startup.json
 AR_VERIFIED=${AGENT_SLOT_REX_VERIFIED_VERSIONS:-$AR_HOME/../agent-slot/verified-versions}
+AR_PRIMES=${AGENT_SLOT_REX_PRIMES:-${AR_HOME%/*/*}/config/agent-slot-rex/primes.tsv}
+AR_LOGIN_SHELL=${AGENT_SLOT_REX_LOGIN_SHELL:-${SHELL:-zsh}}
+# How long a tab a key opened waits for the app to show it, and then how long it waits for Enter before it closes.
+AR_SHOWN_WAIT=${AGENT_SLOT_REX_SHOWN_WAIT:-5}
+AR_SHOWN_HOLD=${AGENT_SLOT_REX_SHOWN_HOLD:-60}
 # systemctl --user finds the user manager through XDG_RUNTIME_DIR, which a shell in a slot's tmux session lacks.
 AR_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$UID}
 

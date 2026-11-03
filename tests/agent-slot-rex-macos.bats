@@ -47,11 +47,16 @@ forwarded() {
   [ "$output" = '{"ok":true,"verb":"sweep","torn_down":["X/1"]}' ]
 }
 
-@test "the new-agent key in a Mac session forwards launch without --here, since the tab it names is the Mac's" {
+@test "the new-agent key in a Mac session forwards launch without --here or --wait-shown, which name the Mac's tab" {
   export REX_SESSION=sess-mac REX_BLOCK=blk-mac
   run "$AGENT_SLOT_REX" launch --here </dev/null
   [ "$status" -eq 0 ]
   forwarded 'launch'
+  : >"$CALLS"
+  run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
+  [ "$status" -eq 0 ]
+  forwarded 'launch'
+  not_called 'wait-shown'
 }
 
 @test "with a terminal attached, the forward gives the server's helper one, so it can ask and wait for keys" {

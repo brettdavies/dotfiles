@@ -20,17 +20,28 @@ end
 rex.action{
   name = "agent_slot_new",
   title = "New Agent",
-  description = "Start a Claude agent in a fresh slot of this session's repo, in a new tab.",
+  description = "Open the repo's prime as the session's first tab, or start an agent in a fresh slot, in a new tab.",
   category = "Agents",
   run = function(ctx)
+    -- Rex.app gives an action the session of the pane it last focused. In a session with no tabs that pane can be in
+    -- another session, on another host, and nothing an action can call tells which session the app shows; an action
+    -- run with no session at all, as `rex do` outside a Rex terminal runs it, has no ctx.session_id.
+    if not ctx.session_id then
+      error("no session to open the tab in; in a session with no tabs, open one with cmd+t, then press the key", 0)
+    end
+    -- The helper in the tab decides what the tab becomes: the repo's prime, a slot's tab, or a repo picker. A key or
+    -- palette press comes from an app, which performs the selection queued below, so the helper first waits to be
+    -- shown; `rex do` has no app to select the tab.
+    local launch = helper_pane("launch", "--here")
+    if ctx.origin == "key" or ctx.origin == "palette" then launch = helper_pane("launch", "--here", "--wait-shown") end
     local w = layout.check(rex.session.new_window{
       focus = false,
       window_label = "new agent",
-      layout = helper_pane("launch", "--here"),
+      layout = launch,
     })
-    -- The new tab comes forward, since outside a repo's session it asks which repo to use. Rex.app shows the tab its
-    -- own client selects, not the server's active window that `rex focus` sets, and it takes a client action from the
-    -- CLI only with Remote Control on, so the selection is queued here, on the client that pressed the key.
+    -- The new tab comes forward, since it may ask which repo to use. Rex.app shows the tab its own client selects, not
+    -- the server's active window that `rex focus` sets, and it takes a client action from the CLI only with Remote
+    -- Control on, so the selection is queued here, on the client that pressed the key.
     pcall(rex.client.queue, "session.select", { session_id = ctx.session_id, window_id = w.window_id })
     return { window_id = w.window_id, block_ids = w.block_ids }
   end,
