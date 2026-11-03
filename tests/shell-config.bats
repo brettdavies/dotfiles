@@ -178,6 +178,26 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   grep -q 'DOTFILES_SHELL_DIR' "$STOW_DIR/zsh/dot-zshenv"
 }
 
+# ssh runs each `Match exec` test in the SSH config as `$SHELL -c '<test>'`, once per test on every ssh.
+@test "zshenv skips the profile only for a command opening with the ssh Match exec marker" {
+  command -v zsh >/dev/null 2>&1 || skip "zsh is not installed"
+  home="$BATS_TEST_TMPDIR/home"
+  log="$BATS_TEST_TMPDIR/profile.log"
+  mkdir -p "$home"
+  ln -s "$STOW_DIR/zsh/dot-zshenv" "$home/.zshenv"
+  printf 'echo read >>"%s"\n' "$log" >"$home/.profile"
+
+  run -0 env HOME="$home" ZDOTDIR="$home" zsh -c ': ssh-match-exec; test 1 = 1 && echo ran'
+  [ "$output" = ran ]
+  run -1 env HOME="$home" ZDOTDIR="$home" zsh -c ': ssh-match-exec; test 1 = 2'
+  [ ! -e "$log" ]
+
+  run -0 env HOME="$home" ZDOTDIR="$home" zsh -c 'test 1 = 1'
+  run -0 env HOME="$home" ZDOTDIR="$home" zsh -c 'true; : ssh-match-exec; true'
+  run -0 env HOME="$home" ZDOTDIR="$home" zsh -c ': ssh-match-exec true'
+  [ "$(wc -l <"$log")" -eq 3 ]
+}
+
 # ---------------------------------------------------------------------------
 # Interactive guards
 # ---------------------------------------------------------------------------

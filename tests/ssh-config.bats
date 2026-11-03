@@ -25,6 +25,37 @@ option() {
   resolved "$1" | awk -v key="$2" '$1 == key { print $2 }'
 }
 
+# Every concrete name a Host or Match line claims, plus one no entry claims, so each Match line gets evaluated.
+named_hosts() {
+  awk 'tolower($1) == "host" { for (i = 2; i <= NF; i++) print $i }
+       tolower($1) == "match" { for (i = 2; i < NF; i++) if (tolower($i) ~ /^(original)?host$/) print $(i + 1) }' \
+    "$SSH_CONFIG" | tr ',' '\n' | grep -v '[*?!]' | sort -u
+  echo unlisted.invalid
+}
+
+# ssh runs each Match exec test as `$SHELL -c '<test>'`. For zsh that reads ~/.zshenv and, through it, the whole
+# profile: about 0.4 s per test, on every ssh and every git fetch or push over ssh.
+@test "no Match exec test reads the shell profile" {
+  command -v zsh >/dev/null 2>&1 || skip "zsh is not installed"
+  home="$BATS_TEST_TMPDIR/home"
+  log="$BATS_TEST_TMPDIR/profile.log"
+  mkdir -p "$home"
+  ln -s "$BATS_TEST_DIRNAME/../stow/zsh/dot-zshenv" "$home/.zshenv"
+  printf 'echo read >>"%s"\n' "$log" >"$home/.profile"
+  env HOME="$home" ZDOTDIR="$home" zsh -c true
+  [ -s "$log" ]
+
+  readers=()
+  for host in $(named_hosts); do
+    : >"$log"
+    env HOME="$home" ZDOTDIR="$home" SHELL="$(command -v zsh)" \
+      ssh -G -F "$SSH_CONFIG" "$host" </dev/null >/dev/null 2>&1
+    [ ! -s "$log" ] || readers+=("$host")
+  done
+  echo "read the profile: ${readers[*]}"
+  [ "${#readers[@]}" -eq 0 ]
+}
+
 @test "the tunnel entry forwards every dev port to the same port on the Linux server" {
   [ "$(option bd-tunnel hostname)" = "$(option bigdaddy hostname)" ]
   [ "$(option bd-tunnel localforward | sort -n | xargs)" = "$DEV_PORTS" ]
