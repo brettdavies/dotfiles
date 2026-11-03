@@ -461,6 +461,56 @@ assert_own_worktree() {
   [ "$(grep -c 'send-keys -t =repoa-1-files: Enter' "$CALLS")" -eq 1 ]
 }
 
+@test "a launch with no slot tmux server starts it in a transient user scope wrapped around the empty-environment start" {
+  launch repoa --request-id r-scope
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$STUBS/systemd-run.log")" -eq 1 ]
+  local line
+  line=$(cat "$STUBS/systemd-run.log")
+  [[ $line == *" --user "* && $line == *" --scope "* && $line == *" --collect "* ]]
+  [[ $line =~ \ --unit=agent-slots-tmux-[0-9]+-[0-9]+\ .*\ /usr/bin/env\ -i\ -C\ /\ .*\ new-session\ -d\ -s\ repoa-1\  ]]
+  printf 'repoa-1\nrepoa-1-files\nrepoa-1-git\n' | diff - "$STUBS/tmux-sessions"
+}
+
+@test "each start of the slot tmux server gets a scope of its own, past the old scopes orphaned shells keep alive" {
+  launch repoa --request-id r-scope-1
+  [ "$status" -eq 0 ]
+  rm "$STUBS/tmux-sessions"
+  launch repoa --request-id r-scope-2
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$STUBS/systemd-run.log")" -eq 2 ]
+  [ "$(sort -u "$STUBS/systemd-run.units" | wc -l)" -eq 2 ]
+  grep -qx repoa-2 "$STUBS/tmux-sessions"
+}
+
+@test "a launch from a shell with no XDG_RUNTIME_DIR hands systemd-run the user's runtime directory" {
+  run --separate-stderr env -u XDG_RUNTIME_DIR "$AGENT_SLOT" launch repoa --request-id r-xdg --output json
+  [ "$status" -eq 0 ]
+  grep -q "^XDG_RUNTIME_DIR=/run/user/$(id -u) .* --scope " "$STUBS/systemd-run.log"
+}
+
+@test "with the slot tmux server running, a launch starts its sessions without a scope" {
+  echo other-1 >"$STUBS/tmux-sessions"
+  launch repoa --request-id r-running
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/systemd-run.log" ]
+  printf 'other-1\nrepoa-1\nrepoa-1-files\nrepoa-1-git\n' | diff - "$STUBS/tmux-sessions"
+}
+
+@test "with no user manager answering, or no systemd-run, a launch starts the slot tmux server directly" {
+  : >"$STUBS/systemd-run.no-bus"
+  launch repoa --request-id r-no-bus
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$STUBS/systemd-run.log")" -eq 1 ]
+  [ ! -e "$STUBS/systemd-run.units" ]
+  printf 'repoa-1\nrepoa-1-files\nrepoa-1-git\n' | diff - "$STUBS/tmux-sessions"
+  rm "$STUBS/tmux-sessions"
+  AGENT_SLOT_SYSTEMD_RUN=$T/no-such-systemd-run launch repoa --request-id r-no-systemd-run
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$STUBS/systemd-run.log")" -eq 1 ]
+  grep -qx repoa-2 "$STUBS/tmux-sessions"
+}
+
 @test "the launch's ledger line carries requested_at, each phase's duration, and the schema" {
   launch repoa --request-id r-ledger --requested-at 1793000000.5
   [ "$status" -eq 0 ]

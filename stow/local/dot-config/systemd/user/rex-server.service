@@ -1,0 +1,18 @@
+[Unit]
+Description=Rex server for this account, kept running with no client connected
+ConditionHost=bigdaddy
+# While the login server's own server holds the account socket, every start exits 1. Retrying with no limit lets the
+# unit take the socket at its first retry after that server exits.
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/bin/rex server run
+Restart=always
+RestartSec=10s
+# No sandboxing: every program the server starts for a tab runs in this unit and would inherit it, and
+# NoNewPrivileges= would stop sudo in every tab.
+
+[Install]
+WantedBy=default.target

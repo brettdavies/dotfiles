@@ -10,7 +10,8 @@
 # A typed command leaves the shell behind when the program exits, so a pane outlives its program. Sessions start from
 # an empty environment: a tmux server started from inside a Claude session would otherwise inherit its child-session
 # marker, and every Claude in the slot would then save no transcript. They start from /, so the server a first session
-# starts never holds a slot as its working directory.
+# starts never holds a slot as its working directory. That first session starts the server in a transient user scope of
+# its own, so the server and its agents outlive whatever asked for them.
 #
 # Bypass permissions mode still stops on ask rules, deny rules, and hooks, and on Claude's trust dialog for an untrusted
 # path. It starts without its own warning only when ~/.claude/settings.json accepts it (agent-slot doctor checks).
@@ -95,6 +96,7 @@ sessions_command() {
 # create the same session.
 sessions_start() {
   local repo=$1 n=$2 mode=$3 path kind name shell out
+  local -a start
   path=$(slot_path "$repo" "$n")
   shell=$(_sessions_shell)
   SESSIONS_CREATED=()
@@ -102,15 +104,33 @@ sessions_start() {
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
     name=$(slot_session "$repo" "$n" "$kind")
     grep -qxF "$name" <<<"$SLOT_SESSIONS" && continue
-    bounded out tmux 10 /usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$shell" TERM=xterm-256color \
-      LANG="${LANG:-C.UTF-8}" PATH="$PATH" \
-      "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$name" -c "$path" "$shell" -l \
-      || _sessions_fail "$repo" "$n" "$name"
+    start=(/usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$shell" TERM=xterm-256color
+      LANG="${LANG:-C.UTF-8}" PATH="$PATH"
+      "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$name" -c "$path" "$shell" -l)
+    if [[ -n $SLOT_SESSIONS || ${#SESSIONS_CREATED[@]} -gt 0 ]] || ! _sessions_scoped "${start[@]}"; then
+      bounded out tmux 10 "${start[@]}" || _sessions_fail "$repo" "$n" "$name"
+    fi
     slot_tmux out 10 send-keys -t "=$name:" -l "$(sessions_command "$repo" "$n" "$kind" "$mode")" \
       || _sessions_fail "$repo" "$n" "$name"
     slot_tmux out 10 send-keys -t "=$name:" Enter || _sessions_fail "$repo" "$n" "$name"
     SESSIONS_CREATED+=("$name")
   done
+}
+
+# Usage: _sessions_scoped <command...>
+# Runs the command that starts the slot server inside a transient user scope. systemd ends every process in a unit's
+# cgroup with the unit, so a server started from a timer run or from the Rex server's service would otherwise take the
+# agents with it. systemd-run wraps the empty environment rather than running inside it, since it needs the runtime
+# directory and bus address, and a caller without a runtime directory, such as any shell in a slot, gets the user's.
+# Each start names a scope of its own: a scope lasts while any process in it does, and the slot server's orphaned login
+# shells keep an old one alive. Fails when systemd-run is missing or fails, and the caller then starts the server
+# directly.
+_sessions_scoped() {
+  local out stamp
+  [[ -n $AS_SYSTEMD_RUN ]] || return 1
+  printf -v stamp '%(%s)T' -1
+  bounded out systemd-run 10 /usr/bin/env "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$UID}" "$AS_SYSTEMD_RUN" \
+    --user --scope --collect --quiet --unit="agent-slots-tmux-$$-$stamp" -- "$@"
 }
 
 _sessions_fail() {

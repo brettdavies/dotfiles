@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# One-shot enable script for the Linux server's scheduled jobs: the vault agent-workspace mirror and its health check,
-# the OpenClaw settings backup, the GitHub stars sync, the daily brew and uv tool upgrades, and the automatic agent slot
-# sweep.
+# One-shot enable script for the Linux server's scheduled jobs and long-running user services. The timers run the vault
+# agent-workspace mirror and its health check, the OpenClaw settings backup, the GitHub stars sync, the daily brew and
+# uv tool upgrades, and the automatic agent slot sweep. The services keep the account's Rex server running with no
+# client connected.
 #
-# The timers ship in the shared `obsidian` and `local` packages and carry ConditionHost=bigdaddy, so a deploy on any
-# other host leaves them inert. This script enables them on that host and retires the crontab lines they replace.
+# The units ship in the shared `obsidian` and `local` packages and carry ConditionHost=bigdaddy, so a deploy on any
+# other host leaves them inert. This script enables them on that host and retires the crontab lines the timers replace.
 #
 # The stars sync authenticates with a read-only GitHub token that the units load from ~/.config/github-stars/env. When
 # that file is missing, this script writes it from 1Password through the 1password skill's read_field.sh; without
@@ -37,6 +38,9 @@ TIMERS=(
   uv-tools-upgrade.timer
   agent-slot-sweep.timer
 )
+SERVICES=(
+  rex-server.service
+)
 RETIRED_CRON='(sync-to-pool|pool-sync-check|github-stars|backup-openclaw-settings)[.]sh'
 OP_SKILL="${OP_SKILL:-$HOME/.claude/skills/1password/scripts}"
 STARS_ENV="${STARS_ENV:-$HOME/.config/github-stars/env}"
@@ -56,13 +60,21 @@ if [ ! -s "$STARS_ENV" ]; then
   fi
 fi
 
-# --- Reload systemd user manager + enable the timers ---
+# --- Reload systemd user manager + enable the timers and services ---
 echo "==> systemctl --user daemon-reload"
 systemctl --user daemon-reload
 
 for timer in "${TIMERS[@]}"; do
   echo "==> systemctl --user enable --now ${timer}"
   systemctl --user enable --now "$timer"
+done
+
+# systemd fails a start that waits when the first try exits, though Restart= goes on retrying, and the Rex server's
+# first try exits while the login server's own server holds the account socket. Under set -e that failure would end
+# this script.
+for service in "${SERVICES[@]}"; do
+  echo "==> systemctl --user enable --now --no-block ${service}"
+  systemctl --user enable --now --no-block "$service"
 done
 
 # --- Retire the crontab lines the timers replace ---
@@ -80,3 +92,4 @@ fi
 
 echo ""
 systemctl --user list-timers "${TIMERS[@]}" --no-pager || true
+systemctl --user list-units --all "${SERVICES[@]}" --no-pager || true
