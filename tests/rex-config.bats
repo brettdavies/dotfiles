@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# The Rex config package: init.lua, layout.lua, and agent-slots.lua. CI has no Lua and no Rex, so these hold the files
-# to their contracts by text; `rex config check` on the Mac loads them for real.
+# The Rex config package: init.lua, layout.lua, agent-slots.lua, and the Linux server's slot-startup.lua. CI has no Lua
+# and no Rex, so these hold the files to their contracts by text; `rex config check` loads them for real.
 #
 # Run: bats tests/rex-config.bats
 
@@ -8,17 +8,24 @@ REX_DIR="$BATS_TEST_DIRNAME/../stow/rex/dot-config/rex"
 INIT="$REX_DIR/init.lua"
 LAYOUT="$REX_DIR/layout.lua"
 SLOTS="$REX_DIR/agent-slots.lua"
+STARTUP="$REX_DIR/slot-startup.lua"
 
-@test "init.lua runs rexurrect from HOME, requires both modules, and starts a background restore and follow loop" {
+@test "init.lua loads the start-up step only where its module is deployed, else restores with rexurrect, and starts no follow loop" {
+  grep -qx 'require("layout")' "$INIT"
+  grep -qx 'require("agent-slots")' "$INIT"
+  grep -q '"/rex/slot-startup.lua"' "$INIT"
+  grep -qx '  require("slot-startup")' "$INIT"
   grep -q 'rex.exec({ os.getenv("HOME") .. "/.local/bin/rexurrect", "auto-restore" }' "$INIT"
   grep -q 'REXURRECT_STATE_DIR = os.getenv("HOME") .. "/.local/state/rexurrect"' "$INIT"
   [ "$(grep -c '/Users/' "$INIT")" -eq 0 ]
-  grep -qx 'require("layout")' "$INIT"
-  grep -qx 'require("agent-slots")' "$INIT"
-  [ "$(grep -c 'rex.exec.start' "$INIT")" -eq 2 ]
-  grep -q 'rex.exec.start({ os.getenv("HOME") .. "/.local/bin/agent-slot-rex", "restore", "--at-start" }, { detach = true })' \
-    "$INIT"
-  grep -q 'rex.exec.start({ os.getenv("HOME") .. "/.local/bin/agent-slot-rex", "follow" }, { detach = true })' "$INIT"
+  run grep -n 'follow' "$INIT" "$STARTUP"
+  [ "$status" -eq 1 ]
+}
+
+@test "the start-up step is named once, in the Linux-only module, started detached by the helper's path" {
+  [ "$(cat "$INIT" "$SLOTS" "$STARTUP" | grep -c -- '--at-start')" -eq 1 ]
+  grep -qF 'rex.exec.start({ os.getenv("HOME") .. "/.local/bin/agent-slot-rex", "restore", "--at-start" }, { detach = true })' \
+    "$STARTUP"
 }
 
 @test "layout.lua keeps both dev layout actions, their ratios, programs, and focus" {
@@ -57,12 +64,12 @@ SLOTS="$REX_DIR/agent-slots.lua"
   grep -q 'helper_pane("launch", "--here")' "$BATS_TEST_TMPDIR/new"
 }
 
-@test "the new-agent action brings its tab forward, through the client that pressed the key, outside a repo's session" {
+@test "the new-agent action always brings its tab forward, through the client that pressed the key" {
   awk '/name = "agent_slot_new"/,/^}/' "$SLOTS" >"$BATS_TEST_TMPDIR/new"
-  grep -q 'if not is_known_repo(view and view.label) then' "$BATS_TEST_TMPDIR/new"
-  grep -q 'pcall(rex.client.queue, "session.select", { session_id = ctx.session_id, window_id = w.window_id })' \
+  grep -qx '    pcall(rex.client.queue, "session.select", { session_id = ctx.session_id, window_id = w.window_id })' \
     "$BATS_TEST_TMPDIR/new"
-  grep -q 'local REPOS_FILE = state_dir() .. "/repos"' "$SLOTS"
+  run grep -nE 'is_known_repo|REPOS_FILE' "$SLOTS"
+  [ "$status" -eq 1 ]
 }
 
 @test "the restore action starts the helper detached, and the layout action attaches the files and git panes" {
@@ -70,7 +77,16 @@ SLOTS="$REX_DIR/agent-slots.lua"
   grep -q 'helper_pane("attach", args.key, "files")' "$SLOTS"
   grep -q 'helper_pane("attach", args.key, "git")' "$SLOTS"
   grep -q 'layout.around(anchor,' "$SLOTS"
-  grep -q 'local HELPER = os.getenv("HOME") .. "/.local/bin/agent-slot-rex"' "$SLOTS"
+}
+
+@test "panes name the helper bare, for the login shell of the host whose session holds them, and rex.exec by its path" {
+  grep -qx 'local PANE_HELPER = "agent-slot-rex"' "$SLOTS"
+  grep -qx 'local HELPER = os.getenv("HOME") .. "/.local/bin/agent-slot-rex"' "$SLOTS"
+  grep -q 'command = { PANE_HELPER, ... }' "$SLOTS"
+  run grep -n 'command = { HELPER' "$SLOTS"
+  [ "$status" -eq 1 ]
+  run grep -nE 'rex\.exec(\.start)?\(\{ PANE_HELPER' "$SLOTS"
+  [ "$status" -eq 1 ]
 }
 
 @test "agent-slots.lua binds the new-agent and restore keys" {
@@ -81,9 +97,9 @@ SLOTS="$REX_DIR/agent-slots.lua"
 @test "every helper verb the Lua names is one agent-slot-rex has" {
   local verbs named verb
   verbs=$(grep '^VERBS=' "$BATS_TEST_DIRNAME/../scripts/agent-slot-rex/lib/help.sh")
-  named=$(grep -ohE 'helper_pane\("[a-z]+"|HELPER, "[a-z]+"|agent-slot-rex", "[a-z]+"' "$SLOTS" "$INIT" \
+  named=$(grep -ohE 'helper_pane\("[a-z]+"|HELPER, "[a-z]+"|agent-slot-rex", "[a-z]+"' "$SLOTS" "$INIT" "$STARTUP" \
     | grep -oE '"[a-z]+"$' | tr -d '"' | sort -u | paste -sd ' ' -)
-  [ "$named" = "attach finish follow launch restore" ]
+  [ "$named" = "attach finish launch restore" ]
   for verb in $named; do
     [[ $verbs == *" $verb "* ]] || {
       echo "the Lua names a verb agent-slot-rex lacks: $verb" >&2

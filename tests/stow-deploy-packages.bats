@@ -36,6 +36,7 @@ _require_unlocked_checkout() {
   [[ "$shared" == *"local"* ]]
   [[ "$shared" == *"brew"* ]]
   [[ "$shared" == *"codex-proxy"* ]]
+  [[ " $shared " == *" rex "* ]]
 }
 
 @test "every SHARED_PACKAGES entry exists as a stow package" {
@@ -82,6 +83,33 @@ _require_unlocked_checkout() {
   # an explicit Darwin gate.
   grep -q 'if \[ "\$(uname -s)" = "Darwin" \]; then' "$SCRIPT"
   grep -q "STOW_FLAGS+=(--ignore='\\\\.(service|timer)\$')" "$SCRIPT"
+  grep -qF "STOW_FLAGS+=(--ignore='(^|/)slot-startup\\.lua$')" "$SCRIPT"
+}
+
+# rex_deploy OS: deploys only the rex package into $BATS_TEST_TMPDIR/<OS>, from a copy of the script and that
+# package, with uname reporting OS.
+rex_deploy() {
+  command -v stow >/dev/null 2>&1 || skip "stow not installed"
+  local fixture=$BATS_TEST_TMPDIR/fixture-$1
+  mkdir -p "$fixture/scripts" "$fixture/stow" "$fixture/os" "$BATS_TEST_TMPDIR/$1"
+  cp "$SCRIPT" "$fixture/scripts/stow-deploy"
+  cp -R "$STOW_DIR/rex" "$fixture/stow/rex"
+  printf '#!/bin/sh\necho %s\n' "$1" >"$fixture/os/uname"
+  chmod +x "$fixture/os/uname"
+  run env PATH="$fixture/os:$PATH" STOW_DEPLOY_TARGET="$BATS_TEST_TMPDIR/$1" "$fixture/scripts/stow-deploy" --only rex
+}
+
+@test "on Linux the rex package links the start-up module beside the shared files, and on macOS it does not" {
+  local rex=$BATS_TEST_TMPDIR/Linux/.config/rex
+  rex_deploy Linux
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [ -L "$rex/init.lua" ] && [ -L "$rex/layout.lua" ] && [ -L "$rex/agent-slots.lua" ] && [ -L "$rex/slot-startup.lua" ]
+  [[ $output != *"rex is macOS-only"* ]]
+  rex=$BATS_TEST_TMPDIR/Darwin/.config/rex
+  rex_deploy Darwin
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [ -L "$rex/init.lua" ] && [ -L "$rex/layout.lua" ] && [ -L "$rex/agent-slots.lua" ]
+  [ ! -e "$rex/slot-startup.lua" ]
 }
 
 @test "DESKTOP_PACKAGES contains expected packages" {
@@ -89,21 +117,27 @@ _require_unlocked_checkout() {
   [[ "$desktop" == *"ghostty"* ]]
   [[ "$desktop" == *"cursor"* ]]
   [[ "$desktop" == *"launchagent"* ]]
-  [[ " $desktop " == *" rex "* ]]
   [[ " $desktop " == *" hex "* ]]
 }
 
-@test "macOS-only case block covers expected packages" {
-  # rex holds Rex's init.lua and its agent-slot actions; Rex runs only on the Mac.
-  # hex holds the Hex dictation app's settings under ~/Library/Application Support.
-  grep -qE 'ghostty *\| *cursor *\| *launchagent *\| *rex *\| *hex *\)' "$SCRIPT"
+@test "off macOS the platform guard skips exactly DESKTOP_PACKAGES, and no package is in both sets" {
+  # The guard reads the set itself, so moving a package between the sets is one edit.
+  shared=$(grep '^SHARED_PACKAGES=' "$SCRIPT" | sed 's/.*(\(.*\))/\1/')
+  desktop=$(grep '^DESKTOP_PACKAGES=' "$SCRIPT" | sed 's/.*(\(.*\))/\1/')
+  for pkg in $desktop; do
+    [[ " $shared " != *" $pkg "* ]] || { echo "$pkg is in both sets"; return 1; }
+  done
+  grep -q 'is_desktop_package "$pkg"' "$SCRIPT"
+  run grep -nE 'ghostty *\| *cursor' "$SCRIPT"
+  [ "$status" -eq 1 ]
 }
 
-@test "deploying rex reloads Rex's config only on a real macOS \$HOME deploy, and never fails on it" {
+@test "deploying rex reloads Rex's config only on a real \$HOME deploy, on either platform, and never fails on it" {
   # Rex reads init.lua only at start and on reload. A sandboxed deploy must not
-  # reload the operator's running Rex, and a Mac without Rex still deploys.
-  grep -qF 'if [ "$(uname -s)" = "Darwin" ] && [ "$TARGET" = "$HOME" ] && grep -qx "rex" "$deployed_file"' "$SCRIPT"
+  # reload the operator's running Rex, and a host without Rex still deploys.
+  grep -qF 'if [ "$TARGET" = "$HOME" ] && grep -qx "rex" "$deployed_file"' "$SCRIPT"
   grep -qF '"$_rex" --autostart=false config reload' "$SCRIPT"
+  grep -qF '"/usr/bin/rex"' "$SCRIPT"
   [ "$(awk '/^# --- Reload Rex/,/^# --- Post-stow/' "$SCRIPT" | grep -cE 'exit|EXIT_')" -eq 0 ]
 }
 

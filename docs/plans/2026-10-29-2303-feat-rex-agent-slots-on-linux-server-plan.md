@@ -893,20 +893,25 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Requirements:** R2, R9, R10, R18, R19; KTD9.
 - **Dependencies:** U3, U4.
 - **Files:** `scripts/stow-deploy`, `stow/rex/dot-config/rex/init.lua`, `stow/rex/dot-config/rex/agent-slots.lua`,
-  `tests/stow-deploy-packages.bats`, `tests/rex-config.bats`.
+  `stow/rex/dot-config/rex/slot-startup.lua` (new), `scripts/agent-slot-rex/lib/launch.sh` (the repo list only the
+  dropped check read), `tests/stow-deploy-packages.bats`, `tests/rex-config.bats`, `tests/agent-slot-rex.bats`,
+  `README.md` and `BOOTSTRAP.md` (the new-agent key and the package lists).
 - **Approach:**
-  1. Move `rex` to the shared package set, and skip the Linux-only module (the start-up step) and the watcher on macOS
-     the way systemd units are skipped there, with a basename `--ignore`. `scripts/stow-deploy` also refuses `rex` on
-     Linux in a second, hand-kept list (`ghostty | cursor | launchagent | rex | hex` in its platform guard); derive that
-     guard from `DESKTOP_PACKAGES` so the move needs one edit (eng review R4). Stow 2.4.1 also skips ignored files when
-     it unstows (`unstow_contents` checks the ignore list), so a restow on the Mac would leave the existing
-     `~/.config/rex/agent-slots.lua` link in place and `init.lua`'s presence gate would load the slot layer there; on
-     Darwin, `stow-deploy` therefore removes any target link that resolves to a Linux-only Rex file (`agent-slots.lua`,
-     `tab-numbers.lua`) before it restows `rex` (document review round 2).
-  2. Make `init.lua` load the slot module and start the start-up step (U4) when the module is present, and otherwise
-     keep the Mac's rexurrect auto-restore line; remove the restore and follow starts.
+  1. Move `rex` to the shared package set, and skip the Linux-only module, `slot-startup.lua` (the start-up step), and
+     the watcher on macOS the way systemd units are skipped there, with an `--ignore` that stow matches against the
+     file's path in the package, so it is written `(^|/)slot-startup\.lua$`. `scripts/stow-deploy` also refused `rex`
+     on Linux in a second, hand-kept list in its platform guard; the guard now reads `DESKTOP_PACKAGES`, so the move is
+     one edit (eng review R4). Stow 2.4.1 skips ignored files when it unstows, so a link made before its file was
+     ignored would outlive a restow; every Linux-only Rex file is ignored on macOS from the commit that adds it, so the
+     Mac never holds such a link and `stow-deploy` needs no cleanup step for one.
+  2. Make `init.lua` require `slot-startup.lua`, which starts the start-up step (U4), when that file is in the config
+     directory, and otherwise keep the Mac's rexurrect auto-restore line; remove the restore and follow starts. Both
+     machines load `agent-slots.lua`.
   3. Keep the three actions and bindings in `agent-slots.lua`, deployed to both machines, calling the helper by the bare
-     name `agent-slot-rex` in every pane command and `rex.exec` call (KTD9). Pressed on the Mac, each runs on the Linux
+     name `agent-slot-rex` in every pane command (KTD9). A `rex.exec` call runs on the host that loaded the file, with
+     that Rex server's bare PATH, which lacks `~/.local/bin`
+     (`docs/solutions/integration-issues/rex-exec-gets-the-servers-bare-path-while-command-panes-get-the-login-shells.md`),
+     so it names the helper by that host's `$HOME` path. Pressed on the Mac, each runs on the Linux
      server: a pane opened in a Linux session runs the Linux helper, and anything that runs on the Mac reaches the
      server through the helper's forwarder (KTD1). Drop the Mac-file repo check (`is_known_repo`); the server's helper
      decides which repo a session names and always queues the tab selection.
@@ -916,14 +921,13 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   `docs/solutions/architecture-patterns/cross-platform-stow-package-gating-2026-05-17.md`; the text contracts in
   `tests/rex-config.bats`.
 - **Test scenarios:**
-  - On Linux, deploying `rex` links `init.lua`, `layout.lua`, and `agent-slots.lua`; with `uname` stubbed to Darwin, it
-    links only `init.lua` and `layout.lua`.
-  - `init.lua` loads the slot module only when its file exists, starts no follow loop, and names no `/Users/` path.
-  - `init.lua` names the helper's start-up entry exactly once.
+  - On Linux, deploying `rex` links `init.lua`, `layout.lua`, `agent-slots.lua`, and `slot-startup.lua`; with `uname`
+    stubbed to Darwin, it links the first three and not `slot-startup.lua`.
+  - `init.lua` loads the start-up module only when its file exists, starts no follow loop, and names no `/Users/` path.
+  - The Lua names the helper's start-up entry exactly once, in `slot-startup.lua`.
+  - Every pane names the helper bare, and every `rex.exec` call by its path.
   - The reload step runs on Linux with `/usr/bin/rex` and `--autostart=false`, and does nothing when no server answers.
   - Every helper verb the Lua names still exists in `help.sh`.
-  - With `uname` stubbed to Darwin, a redeploy over a target that already holds an `agent-slots.lua` link from an
-    earlier deploy leaves no `agent-slots.lua` or `tab-numbers.lua` link behind.
   - The Linux platform guard in `scripts/stow-deploy` reads `DESKTOP_PACKAGES`, so no package name appears in both, and
     on Linux it no longer skips `rex`.
 - **Verification:** `rex --autostart=false config check` passes on both machines, and Rex.app connected to the Linux
