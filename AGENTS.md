@@ -454,8 +454,8 @@ process a test starts carries as the watchdog's pid instead (`is_detached_watchd
 
 `dev` is never merged into `main` and `main` is never merged into `dev`. The two branches share no common ancestor, so
 either merge produces conflicts on every file both sides touched. Releases go through the overlay recipe in
-[RELEASES.md](RELEASES.md#releasing-dev-to-main), and the released `CHANGELOG.md` returns to `dev` through
-`scripts/sync-dev-after-release.sh`, which copies that one file by PR.
+[RELEASES.md](RELEASES.md#releasing-dev-to-main), and the released `CHANGELOG.md`, with any other path the release
+changed, returns to `dev` by PR through `scripts/sync-dev-after-release.sh`.
 
 Never commit directly to `main`. All work goes through feature branches and PRs.
 
@@ -513,7 +513,8 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
   `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`; remove it where one still does.
 - **Commit signing:** The release bot (`github-actions[bot]`) creates unsigned commits, and the `dev` ruleset requires
   signed commits, so nothing from `main` can be merged into `dev`. This is one of the reasons the post-release backport
-  is a surgical `CHANGELOG.md` copy on a fresh branch (`scripts/sync-dev-after-release.sh`) rather than a branch merge.
+  is a surgical copy of the released files on a fresh branch (`scripts/sync-dev-after-release.sh`) rather than a branch
+  merge.
 - **Guard workflows:** `guard-main-docs.yml`, `guard-main-provenance.yml`, and `guard-release-branch.yml` run only on
   PRs to `main` and are required checks there. They call first-party reusables in `brettdavies/.github`, which are
   pinned to `@main` deliberately; third-party actions still require commit SHAs.

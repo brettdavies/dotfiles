@@ -49,18 +49,27 @@ The anchor is the newest CalVer tag reachable from `origin/main`; `--since <ref>
 
 <!-- canonical:begin drift-gate -->
 
-- [ ] The previous release's own bookkeeping reached `dev` (gate 0: the version carriers and `CHANGELOG.md` as the
-  release left them). It fails when a backport never ran; run `scripts/sync-dev-after-release.sh v<previous>`, merge its
-  PR, and rerun.
-- [ ] Every commit on `main` since the last release has its changes on `dev` (gate 1 lists the ones that do not, as
-  `differs` or `missing`). Backport them by PR into `dev` first, merge, and rerun.
-- [ ] Nothing under `.github/` on `main` is missing from `dev` (gate 2). `.github/` reaches `main` through the release,
-  so config that has reached `dev` and not `main` is what this release delivers, and the gate counts it. The gate fails
-  on the other direction, where `main` holds workflow or ruleset config `dev` never received, and names each path as
-  `missing` or `differs`.
-- [ ] No lockfile package resolves newer on `main` than on `dev` (gate 3, which reads `package-lock.json`, `bun.lock`,
-  and `Cargo.lock`). The one benign case is a version still inside the local package manager's release-age window when
-  the advisory is already patched at `dev`'s version.
+- [ ] The previous release's own bookkeeping reached `dev` (gate 0).
+
+  Gate 0 checks the version carriers and `CHANGELOG.md` as the release left them. It fails when a backport never ran;
+  run `scripts/sync-dev-after-release.sh v<previous>`, merge its PR, and rerun.
+
+- [ ] Every commit on `main` since the last release has its changes on `dev` (gate 1).
+
+  Gate 1 lists each commit that does not, as `differs` or `missing`. Backport them by PR into `dev` first, merge, and
+  rerun.
+
+- [ ] Nothing under `.github/` on `main` is missing from `dev` (gate 2).
+
+  `.github/` reaches `main` through the release, so config that has reached `dev` and not `main` is what this release
+  delivers, and the gate counts it. The gate fails on the other direction, where `main` holds workflow or ruleset
+  config `dev` never received, and names each path as `missing` or `differs`.
+
+- [ ] No lockfile package resolves newer on `main` than on `dev` (gate 3).
+
+  Gate 3 reads `package-lock.json`, `bun.lock`, and `Cargo.lock`. The one benign case is a version still inside the
+  local package manager's release-age window when the advisory is already patched at `dev`'s version.
+
 - [ ] `dev`-newer packages are the routine updates this release ships; the gate counts them and does not list them.
 
 <!-- canonical:end drift-gate -->

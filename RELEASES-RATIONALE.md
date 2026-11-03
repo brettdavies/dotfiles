@@ -139,8 +139,8 @@ or already on `main` via a prior squash, it's a false positive.
 `scripts/generate-changelog.py` (vendored from the `github-repo-setup` skill, with the repo-local `cliff.toml`) is the
 only sanctioned way to update `CHANGELOG.md`. On the overlay-built release branch it runs as `--from-dev-prs`: the PRs
 merged into `dev` since the previous release are the entries, and each PR's body supplies its
-`## Changelog → ### Breaking changes / Added / Changed / Deprecated / Removed / Fixed / Documentation` subsections (with
-author and PR-link attribution). The window starts at the earlier of the previous tag's commit time and the previous
+`## Changelog → ### Breaking changes / Added / Changed / Deprecated / Fixed / Documentation` subsections (with author
+and PR-link attribution). The window starts at the earlier of the previous tag's commit time and the previous
 `release/*` PR's creation time, and PR numbers the changelog already lists are dropped, so a PR merged between the
 previous cut and its tag is neither lost nor doubled. On a cherry-picked branch it runs `git-cliff` first to prepend a
 versioned entry from the branch's commits, then expands the same way.
@@ -210,12 +210,12 @@ The backport is a PR opened by `scripts/sync-dev-after-release.sh`, never a merg
 direct push. `dev` is normally many commits ahead of `main`, the two histories share no ancestry, and `main` carries
 only the release squash plus the regenerated changelog, so a merge conflicts on every file both sides touched and drags
 `main`'s tree state across `dev`'s unreleased work; a direct push bypasses `dev`'s required checks. Only the paths that
-legitimately diverged move, one file at a time, which is what keeps this a copy rather than a merge. The fleet template
-of this script builds its synced set by probing for version carriers (`Cargo.toml`, `package.json`, `pyproject.toml`,
-`VERSION`) and writing the released number into each; this repo has no version carrier, since CI derives the tag from
-the date, so its copy discovers the set from the branch comparison instead and never grows a `VERSION` file that nothing
-reads. The script refuses to run on a dirty tree or before the GitHub Release is published, and is idempotent (no-op
-when `dev` already matches `main`).
+legitimately diverged move, one file at a time, which is what keeps this a copy rather than a merge. The script also
+writes the released version into each version carrier a repo has (`Cargo.toml`, `package.json`, `pyproject.toml`,
+`VERSION`). This repo has none, since CI derives the tag from the date, and for a bare CalVer tag the script creates no
+`VERSION` file that nothing would read, so the synced set comes from the branch comparison alone. The script refuses to
+run on a dirty tree or before the GitHub Release is published, and is idempotent (no-op when `dev` already matches
+`main`).
 
 ### Rollback
 

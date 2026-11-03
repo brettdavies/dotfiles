@@ -1,5 +1,5 @@
 #!/usr/bin/env -S PYTHONDONTWRITEBYTECODE=1 uv run --script
-# Canonical version: 2026.10.29 (generic)
+# Canonical version: 2026.11.03 (generic)
 # /// script
 # requires-python = ">=3.11"
 # dependencies = []
@@ -14,6 +14,7 @@ Usage:
     generate-changelog.py --from-dev-prs [--dev-branch dev] [--tag vX.Y.Z] [repo-path]
     generate-changelog.py --crate NAME --tag NAME-vX.Y.Z [repo-path]
     generate-changelog.py --audit-sections [--crate NAME] [--tag TAG] [repo-path]
+    generate-changelog.py --bump [--crate NAME] [--tag TAG] [repo-path]
 
 Options:
     --tag vX.Y.Z   Override version tag (default: extracted from branch name).
@@ -29,6 +30,15 @@ Options:
                    fall back to their title because the body never offered the
                    changelog section; exit 1 when any does. A section left
                    empty is an answer and passes. Writes nothing.
+    --bump         Print the next version the PRs --from-dev-prs would read
+                   call for, on the first line, and why below it: the highest
+                   heading among their sections, raised to a minor when
+                   rust-version rose since the previous tag, with a major or a
+                   minor moving the middle number before 1.0, naming any
+                   heading outside the six, which counts as a patch. The rules are
+                   references/versioning.md in github-repo-setup. With --tag,
+                   that release's own section stays in the window. Writes
+                   nothing.
     --crate NAME   Generate a workspace member's own changelog. The member's
                    [package.metadata.changelog] table in its Cargo.toml names
                    the PR-body heading that addresses it, its tag prefix, its
@@ -55,8 +65,8 @@ Pipeline:
        (prepended onto CHANGELOG.md, or created if missing).
     2. PR numbers in that section are fetched from GitHub; each PR body's
        ## Changelog section is parsed for ### Breaking changes / ### Added /
-       ### Changed / ### Deprecated / ### Removed / ### Fixed /
-       ### Documentation bullets.
+       ### Changed / ### Deprecated / ### Fixed / ### Documentation bullets,
+       the six headings of references/versioning.md in github-repo-setup.
     3. The version section in CHANGELOG.md is rewritten with the aggregated,
        attributed bullets and a Full Changelog compare link.
 
@@ -79,18 +89,22 @@ import sys
 import tomllib
 from pathlib import Path
 
-# Emitted in this order; any other `###` heading a PR body uses follows them.
-# "Breaking changes" is also the git-cliff group for `type!:` commits in
-# cliff.toml, so the skeleton and the PR-body pass agree on the label.
+# The six headings of references/versioning.md in github-repo-setup, emitted in
+# this order; any other `###` heading a PR body uses follows them. "Breaking
+# changes" is also the git-cliff group for `type!:` commits in cliff.toml, so
+# the skeleton and the PR-body pass agree on the label.
 CATEGORIES = [
     "Breaking changes",
     "Added",
     "Changed",
     "Deprecated",
-    "Removed",
     "Fixed",
     "Documentation",
 ]
+
+# The bump each heading calls for; every other heading is a patch.
+MAJOR_HEADINGS = {"Breaking changes"}
+MINOR_HEADINGS = {"Added", "Deprecated"}
 
 
 def fail(msg: str) -> None:
@@ -106,14 +120,17 @@ def have(cmd: str) -> bool:
     return run(["bash", "-c", f"command -v {cmd}"]).returncode == 0
 
 
-SEMVER_BRANCH_RE = re.compile(r"^release/v(\d+\.\d+\.\d+)")
+# A site's deploy stamp keeps its `-g<sha7>`; any other suffix, such as
+# `-ci-migration`, names the branch and not the version.
+SEMVER_BRANCH_RE = re.compile(r"^release/v(\d+\.\d+\.\d+(?:-g[0-9a-f]{7})?)")
 CALVER_BRANCH_RE = re.compile(r"^release/(\d{4}\.\d{2}\.\d{2}(?:\.\d+)?)")
 
 
 def release_branch_tag() -> tuple[str, str | None]:
     """The current branch, and the tag its release-branch name carries or None.
 
-    `release/vX.Y.Z` yields `vX.Y.Z`; a CalVer branch `release/YYYY.MM.DD`
+    `release/vX.Y.Z` yields `vX.Y.Z`, and a site's `release/v<base>.<epoch>-g<sha7>`
+    the whole stamp; a CalVer branch `release/YYYY.MM.DD`
     (optionally `.N`) yields the bare date, since CalVer repos tag without
     a `v` prefix.
     """
@@ -257,6 +274,7 @@ def read_crate_changelog_config(repo: Path, crate: str) -> dict:
             "changelog": repo / table.get("changelog", f"{rel}/CHANGELOG.md"),
             "include_paths": table.get("include_paths", [f"{rel}/**"]),
             "exclude_paths": table.get("exclude_paths", []),
+            "manifest": f"{rel}/Cargo.toml",
         }
     fail(f"{crate} is not a workspace member of {repo}")
 
@@ -300,15 +318,17 @@ def pr_touches_member(
 # in its order, for a PR that supplied no changelog block and falls back to its
 # title. Kept in step with that file, so a title lands where the same commit
 # would: a `type!:` subject is a breaking change before its type is skipped.
+# A type may carry more than one scope: Dependabot's detected prefix yields
+# `chore(ci)(deps): ...`, which cliff.toml's `^chore` parser already skips.
 TITLE_GROUPS: list[tuple[re.Pattern[str], str | None]] = [
     (re.compile(r"^release"), None),
-    (re.compile(r"^[a-z]+(\([^)]*\))?!:"), "Breaking changes"),
+    (re.compile(r"^[a-z]+(\([^)]*\))*!:"), "Breaking changes"),
     (re.compile(r"^feat"), "Added"),
     (re.compile(r"^fix"), "Fixed"),
     (re.compile(r"^refactor"), "Changed"),
     (re.compile(r"^perf"), "Changed"),
     (re.compile(r"^docs"), "Documentation"),
-    (re.compile(r"^(chore|ci|build|style|test)(\([^)]*\))?:"), None),
+    (re.compile(r"^(chore|ci|build|style|test)(\([^)]*\))*:"), None),
 ]
 
 
@@ -1090,6 +1110,129 @@ def from_dev_prs_mode(
             changelog.write_text(dry_run_original)
 
 
+BUMP_RANK = {"patch": 0, "minor": 1, "major": 2}
+
+
+def heading_bump(headings: list[str]) -> str:
+    """The bump the highest of HEADINGS calls for."""
+    if MAJOR_HEADINGS.intersection(headings):
+        return "major"
+    if MINOR_HEADINGS.intersection(headings):
+        return "minor"
+    return "patch"
+
+
+def rust_version_at(ref: str, manifest: str) -> tuple[int, ...] | None:
+    """The `rust-version` MANIFEST declares at REF, or None when it declares none.
+
+    A member that inherits it (`rust-version.workspace = true`) reads the root
+    manifest's `[workspace.package]`, as Cargo does.
+    """
+    proc = run(["git", "show", f"{ref}:{manifest}"])
+    if proc.returncode != 0:
+        return None
+    try:
+        data = tomllib.loads(proc.stdout)
+    except tomllib.TOMLDecodeError:
+        return None
+    value = (data.get("package") or {}).get("rust-version")
+    if isinstance(value, dict) and manifest != "Cargo.toml":
+        return rust_version_at(ref, "Cargo.toml")
+    if not isinstance(value, str):
+        value = ((data.get("workspace") or {}).get("package") or {}).get("rust-version")
+    if not isinstance(value, str) or not re.fullmatch(r"\d+(\.\d+){0,2}", value):
+        return None
+    # Padded to three parts, as Cargo reads a short rust-version, so "1.91" and
+    # "1.91.0" compare equal.
+    parts = [int(part) for part in value.split(".")]
+    return tuple(parts + [0] * (3 - len(parts)))
+
+
+def dotted(version: tuple[int, ...] | None) -> str:
+    return ".".join(str(part) for part in version) if version else "none"
+
+
+def next_version(previous: str, bump: str) -> str:
+    """PREVIOUS moved by BUMP. Before 1.0 a major or a minor moves the middle
+    number and a patch the last, so a 0.x line never reaches 1.0 on its own."""
+    major, minor, patch = (int(part) for part in previous.split("."))
+    if major == 0:
+        return f"0.{minor + 1}.0" if bump != "patch" else f"0.{minor}.{patch + 1}"
+    if bump == "major":
+        return f"{major + 1}.0.0"
+    if bump == "minor":
+        return f"{major}.{minor + 1}.0"
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def bump_mode(
+    args,
+    cliff_toml: Path,
+    changelog: Path,
+    prefix: str = "",
+    crate_config: dict | None = None,
+) -> int:
+    """Print the next version the unreleased PRs' sections call for, then why."""
+    owner, repo_name = read_remote_github(cliff_toml)
+    if not (owner and repo_name):
+        fail("--bump needs [remote.github] owner/repo in cliff.toml")
+    if not have("gh"):
+        fail("--bump needs the gh CLI")
+    ensure_github_token()
+
+    prev = previous_tag(args.tag or "", prefix)
+    previous = version_from_tag(prev, prefix) if prev else "0.0.0"
+    if not re.fullmatch(r"\d+\.\d+\.\d+", previous):
+        fail(f"--bump reads a vX.Y.Z line, and the previous tag {prev} is not on one")
+    content = changelog.read_text() if changelog.exists() else ""
+    version = version_from_tag(args.tag, prefix) if args.tag else None
+    pr_nums = unreleased_pr_numbers(args.dev_branch, prev, content, version, prefix)
+    prefetch_prs(owner, repo_name, pr_nums)
+    heading = r"^## Changelog\s*$"
+    if crate_config:
+        if pr_nums:
+            pr_nums, _ = member_pr_numbers(owner, repo_name, pr_nums, crate_config)
+        heading = rf"^## {re.escape(crate_config['heading'])}\s*$"
+    entries = collect_entries(owner, repo_name, pr_nums, heading) if pr_nums else {}
+    headings = [cat for cat in CATEGORIES if entries.get(cat)]
+    headings += [cat for cat, bullets in entries.items() if bullets and cat not in CATEGORIES]
+    window = f"since {prev}" if prev else "in its whole history"
+    if not headings:
+        print(
+            f"error: no PR merged into {args.dev_branch} {window} carries a changelog entry, "
+            "so nothing calls for a bump\n"
+            f"fix: merge the release's PRs into {args.dev_branch} first, or pass --tag "
+            "for a release whose section the changelog already holds",
+            file=sys.stderr,
+        )
+        return 1
+
+    by_headings = heading_bump(headings)
+    manifest = crate_config["manifest"] if crate_config else "Cargo.toml"
+    msrv_then = rust_version_at(prev, manifest) if prev else None
+    msrv_now = rust_version_at(f"origin/{args.dev_branch}", manifest)
+    msrv_raised = bool(msrv_then and msrv_now and msrv_now > msrv_then)
+    bump = by_headings
+    if msrv_raised and BUMP_RANK[bump] < BUMP_RANK["minor"]:
+        bump = "minor"
+
+    print(next_version(previous, bump))
+    print(f"  {bump} bump over {prev or 'no earlier release (from 0.0.0)'}")
+    print(f"  headings {window}: {', '.join(headings)} -> {by_headings}")
+    outside = [cat for cat in headings if cat not in CATEGORIES]
+    if outside:
+        print(f"  outside the six headings: {', '.join(outside)}; each counts as a patch")
+    if msrv_then or msrv_now:
+        verdict = "raised, a minor" if msrv_raised else "not raised"
+        print(
+            f"  rust-version {dotted(msrv_then)} at {prev or 'the start'}, "
+            f"{dotted(msrv_now)} on origin/{args.dev_branch}: {verdict}"
+        )
+    if previous.startswith("0.") and bump != "patch":
+        print(f"  before 1.0 a {bump} moves the middle number")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true")
@@ -1126,6 +1269,15 @@ def main() -> int:
             "when any does. A section left empty passes. Writes nothing."
         ),
     )
+    parser.add_argument(
+        "--bump",
+        action="store_true",
+        help=(
+            "Print the next version the unreleased PRs' sections call for on the first "
+            "line, then why: the highest heading, a rust-version raise since the "
+            "previous tag, and the pre-1.0 shift. Writes nothing."
+        ),
+    )
     parser.add_argument("--tag")
     parser.add_argument(
         "--crate",
@@ -1153,7 +1305,7 @@ def main() -> int:
         prefix = crate_config["tag_prefix"]
         # A release branch names the binary's tag, so only a member on some
         # other tag line has to be told which one is being cut.
-        if not args.tag and not (args.check or args.audit_sections) and prefix != "v":
+        if not args.tag and not (args.check or args.audit_sections or args.bump) and prefix != "v":
             fail(f"--crate needs --tag {prefix}X.Y.Z")
 
     if not cliff_toml.exists():
@@ -1168,6 +1320,9 @@ def main() -> int:
 
     if args.audit_sections:
         return audit_sections_mode(args, cliff_toml, changelog, prefix, crate_config)
+
+    if args.bump:
+        return bump_mode(args, cliff_toml, changelog, prefix, crate_config)
 
     if args.print_tag:
         print(args.tag or detect_tag_from_branch())

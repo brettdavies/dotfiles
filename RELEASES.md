@@ -386,10 +386,10 @@ gh api -X PUT repos/brettdavies/dotfiles/rulesets/<id> --input .github/rulesets/
 
 - **CalVer, computed in CI.** The tag is `YYYY.MM.DD[.N]`, bare (no `v` prefix), created by `release.yml` on every push
   to `main`. There is no version file in the tree, so the release commit bumps nothing.
-- **`scripts/sync-dev-after-release.sh`** is this repo's CalVer variant of the fleet template. The template builds its
-  synced set by probing for version carriers (`Cargo.toml`, `package.json`, `pyproject.toml`, `VERSION`) and writing the
-  released number into each; this repo has no carrier and must not grow one, so its copy skips that step entirely and
-  keeps only the branch-comparison discovery both share. That makes it a repo-owned fork rather than a verbatim copy.
+- **`scripts/sync-dev-after-release.sh`** is a verbatim copy of the github-repo-setup skill's template. It writes the
+  released version into each version carrier a repo has (`Cargo.toml`, `package.json`, `pyproject.toml`, `VERSION`).
+  This repo has none and must not grow one; for a bare CalVer tag the script creates no `VERSION`, since the tag is the
+  version, so here the synced set comes from the branch comparison alone.
 - **`scripts/release/drift.sh` anchors on the newest CalVer tag reachable from `main`.** Gate 0 then checks that `dev`
   already carries that release's `CHANGELOG.md`; a failure there means the backport PR never merged, so run
   `scripts/sync-dev-after-release.sh <tag>` and merge it before cutting the release. `--since <ref>` overrides the
