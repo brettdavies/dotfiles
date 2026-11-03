@@ -92,10 +92,12 @@ shell_value() {
   }
 }
 
-@test "the README's paragraph on bypass mode says slot agents can drive any tab on the Linux server's Rex server" {
+@test "the README's paragraph on bypass mode names the helper's asking verbs and slot agents' reach into Rex tabs" {
   awk '/^Each slot.s Claude starts and resumes with `--dangerously-skip-permissions`/,/^$/' "$README" >"$BATS_TEST_TMPDIR/p"
   grep -q 'rex send-key' "$BATS_TEST_TMPDIR/p"
   grep -q 'rex send`' "$BATS_TEST_TMPDIR/p"
+  grep -q 'agent-slot-rex finish' "$BATS_TEST_TMPDIR/p"
+  grep -q 'agent-slot-rex sweep' "$BATS_TEST_TMPDIR/p"
 }
 
 @test "the README names every verb agent-slot and agent-slot-rex accept" {

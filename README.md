@@ -277,12 +277,13 @@ whichever session has focus.
 
 Each slot's Claude starts and resumes with `--dangerously-skip-permissions`, so it skips its permission prompts except
 under an ask rule and for the few actions Claude never auto-approves. Deny rules and hooks still block in that mode, ask
-rules are how `agent-slot sweep`, `agent-slot finish`, and `agent-slot reopen` keep asking first, and Claude's trust
-dialog still shows for a path it does not trust. Claude skips its own bypass warning only when `~/.claude/settings.json`
-sets `skipDangerousModePermissionPrompt` to `true`, as this repo's settings do; `agent-slot doctor` warns when it does
-not. Slot agents run as the operator on the Linux server, so they can reach its Rex server's socket and drive any tab
-there with `rex send` and `rex send-key`, a `sudo` session or a root shell on another host kept in that server included.
-The account already gives them the operator's files and keys, so this adds reach rather than a privilege.
+rules are how `agent-slot sweep`, `agent-slot finish`, and `agent-slot reopen`, and the helper's `agent-slot-rex finish`
+and `agent-slot-rex sweep`, which run them with `--yes` on the same host, keep asking first, and Claude's trust dialog
+still shows for a path it does not trust. Claude skips its own bypass warning only when `~/.claude/settings.json` sets
+`skipDangerousModePermissionPrompt` to `true`, as this repo's settings do; `agent-slot doctor` warns when it does not.
+Slot agents run as the operator on the Linux server, so they can reach its Rex server's socket and drive any tab there
+with `rex send` and `rex send-key`, a `sudo` session or a root shell on another host kept in that server included. The
+account already gives them the operator's files and keys, so this adds reach rather than a privilege.
 
 Nobody watches a slot's tab, so no agent there waits on a dialog. `slot-unattended.sh` (in `stow/claude/dot-claude/`)
 answers every dialog Claude Code raises in a slot, for the slot's own Claude and for its subagents. It denies a
