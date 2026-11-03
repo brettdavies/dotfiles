@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
-# PreToolUse Bash hook: deny a `git commit` whose output is piped when a later
-# step in the same command deletes or moves the commit's message file.
+# PreToolUse Bash hook: deny a command that submits a message file when its
+# output is piped and a later step in the same command deletes or moves that
+# file. The submissions are `git commit -F`, `sd-commit-doc <msg-file>`, and
+# the gh pr, issue, and release subcommands that read a body or notes file.
 #
 # In `git commit --file f | tail -2 && trash f` the pipeline exits with tail's
 # status, so trash runs even when the commit fails and the message is lost
 # (docs/solutions/workflow-issues/chained-gate-and-commit-masks-failing-local-gate.md).
 #
 # The command is split the way the shell splits it, so quoted text, heredoc
-# bodies, and comments never count. A commit is piped when its output reaches a
-# `|` or `|&`, directly or through the group or command substitution around it.
-# The later step is trash, trash-put, rm, or mv with an operand naming the
-# commit's -F/--file path, compared after quote removal, after expanding the
+# bodies, and comments never count. A submission is piped when its output
+# reaches a `|` or `|&`, directly or through the group or command substitution
+# around it. The later step is trash, trash-put, rm, or mv with an operand
+# naming the submitted file, compared after quote removal, after expanding the
 # variables the command assigns literally, and as a glob. `set -o pipefail`
-# before the commit, with only `&&` from the pipe to that step, passes: the
-# commit's failure then reaches the step. A script inside `bash -c '...'` is one
-# quoted word here and is not read.
+# before the submission, with only `&&` from the pipe to that step, passes: its
+# failure then reaches the step. A script inside `bash -c '...'` is one quoted
+# word here and is not read.
 #
-# A deny names the reason (commit-status-masked-by-pipe), the piped commit, and
-# a next_step (rerun-unpiped) carrying the command with the pipe removed.
+# A deny names the reason (commit-status-masked-by-pipe), the piped submission,
+# and a next_step (rerun-unpiped) carrying the command with the pipe removed.
 #
 # Protocol: exit 0 + JSON deny on stdout to block. Exit 0 + no output to allow.
 # Exit 2 + JSON deny when the call cannot be checked: no JSON parser on PATH,
@@ -45,8 +47,9 @@ readonly DOCS='~/.claude/guides/git-and-github.md § "Authoring GitHub correspon
 
 INPUT=$(cat)
 
-# Fast path: a denial needs both a commit and a pipe.
-case "$INPUT" in *commit*) ;; *) exit 0 ;; esac
+# Fast path: a denial needs both a submission and a pipe. `commit` is in the
+# names git commit and sd-commit-doc, `gh` in gh's.
+case "$INPUT" in *commit* | *gh*) ;; *) exit 0 ;; esac
 case "$INPUT" in *'|'*) ;; *) exit 0 ;; esac
 JQ=$(command -v jaq || command -v jq) \
   || block 'blocked [json-parser-missing]: neither jaq nor jq is on PATH, so this call could not be checked. It did not run; install jaq, then rerun it.\ndocs: ~/dotfiles/BOOTSTRAP.md § \"Install Packages from Brewfile\"\nnext_step [install-jaq]:\nbrew install jaq' \
@@ -260,6 +263,78 @@ message_file() {
   [[ $out == - ]] || printf '%s' "$out"
 }
 
+# Prints the -F/--$2 path of a gh submission whose arguments start at WD[$1]:
+# -F alone, with its value attached, or last in a bundle. No option value is
+# skipped, since gh's -c is a flag where git's takes a commit.
+body_file() {
+  local i w out=""
+  for ((i = $1; i < ${#WD[@]}; i++)); do
+    w=${WD[i]}
+    case $w in
+      --) break ;;
+      "--$2="*) out=${w#*=} ;;
+      "--$2" | -F)
+        out=${WD[i + 1]:-}
+        i=$((i + 1))
+        ;;
+      -F=*) out=${w#-F=} ;;
+      -F?*) out=${w#-F} ;;
+      -[!-]*F)
+        out=${WD[i + 1]:-}
+        i=$((i + 1))
+        ;;
+    esac
+  done
+  [[ $out == - ]] || printf '%s' "$out"
+}
+
+# Sets MSG to the message file that command $1 submits, LABEL to what submits
+# it, and NOUN to how the deny names its failure. Returns 1 when the command
+# submits no file.
+submission() {
+  local i=$((NIS[$1] + 1)) ops=()
+  MSG="" LABEL="" NOUN=""
+  case ${NAMES[$1]} in
+    git)
+      while ((i < ${#WD[@]})); do
+        case ${WD[i]} in
+          -C | -c | --git-dir | --work-tree | --namespace | --super-prefix | --config-env) i=$((i + 2)) ;;
+          -*) i=$((i + 1)) ;;
+          *) break ;;
+        esac
+      done
+      [[ ${WD[i]:-} == commit ]] || return 1
+      MSG=$(message_file $((i + 1))) LABEL="git commit" NOUN="the commit"
+      ;;
+    sd-commit-doc)
+      if [[ ${WD[i]:-} != -* ]]; then MSG=${WD[i]:-}; fi
+      LABEL=sd-commit-doc
+      ;;
+    gh)
+      while ((i < ${#WD[@]} && ${#ops[@]} < 2)); do
+        case ${WD[i]} in
+          -R | --repo) i=$((i + 1)) ;;
+          -*) ;;
+          *) ops+=("${WD[i]}") ;;
+        esac
+        i=$((i + 1))
+      done
+      LABEL="gh ${ops[*]:-}"
+      case $LABEL in
+        'gh pr create' | 'gh pr new' | 'gh pr edit' | 'gh pr comment' | 'gh pr review' | \
+          'gh issue create' | 'gh issue new' | 'gh issue edit' | 'gh issue comment')
+          MSG=$(body_file "$i" body-file)
+          ;;
+        'gh release create' | 'gh release new' | 'gh release edit') MSG=$(body_file "$i" notes-file) ;;
+        *) return 1 ;;
+      esac
+      ;;
+    *) return 1 ;;
+  esac
+  NOUN=${NOUN:-$LABEL}
+  [[ -n $MSG ]]
+}
+
 # Prints the pipe that carries the output of the command ending at token $1:
 # its own pipeline's, or that of a group or substitution enclosing it.
 piped_at() {
@@ -321,24 +396,13 @@ for ((j = 0; j < NC; j++)); do
   fi
 done
 
-# Pass 2: find a piped commit and a later step that removes its message file.
+# Pass 2: find a piped submission and a later step that removes its file.
 found=0
 for ((j = 0; j < NC; j++)); do
-  [[ ${NAMES[j]} == git ]] || continue
   words_of "$j"
-  i=$((NIS[j] + 1))
-  while ((i < ${#WD[@]})); do
-    case ${WD[i]} in
-      -C | -c | --git-dir | --work-tree | --namespace | --super-prefix | --config-env) i=$((i + 2)) ;;
-      -*) i=$((i + 1)) ;;
-      *) break ;;
-    esac
-  done
-  [[ ${WD[i]:-} == commit ]] || continue
-  msg=$(message_file $((i + 1)))
-  [[ -n $msg ]] || continue
-  msg=$(expand "$msg")
-  commit_tok=${WT[NIS[j]]}
+  submission "$j" || continue
+  msg=$(expand "$MSG")
+  submit_tok=${WT[NIS[j]]}
   p=$(piped_at "${CL[j]}") || continue
   q=$(pipe_end "$p")
   for ((d = j + 1; d < NC; d++)); do
@@ -364,7 +428,7 @@ fi
 
 # Rebuild right to left, so each edit leaves the offsets before it valid:
 # connectors from the pipeline to the step become &&, the pipe stages go, and so
-# does a 2>&1 on the commit that only fed the pipe.
+# does a 2>&1 on the submission that only fed the pipe.
 out=$CMD
 for ((t = CF[d] - 1; t >= q; t--)); do
   [[ ${NK[t]} == L && ${AD[t]} -le ${AD[p]} ]] || continue
@@ -388,7 +452,7 @@ for ((t = p - 1; t >= CF[j]; t--)); do
   out=${left%"${left##*[![:space:]]}"}${out:E[t]}
 done
 
-offending=${CMD:S[commit_tok]:qs-S[commit_tok]}
+offending=${CMD:S[submit_tok]:qs-S[submit_tok]}
 offending=${offending%"${offending##*[![:space:]]}"}
 last=pipe
 for ((k = 0; k < NC; k++)); do
@@ -397,7 +461,7 @@ done
 step_tok=${WT[NIS[d]]}
 step=${CMD:S[step_tok]:E[CL[d]]-S[step_tok]}
 
-text="piped-commit-guard denied [$REASON]: \`$offending\` exits with the status of \`$last\`, not of git commit, so \`$step\` runs even when the commit fails and the message file is lost.
+text="piped-commit-guard denied [$REASON]: \`$offending\` exits with the status of \`$last\`, not of $LABEL, so \`$step\` runs even when $NOUN fails and the message file is lost.
 next_step [rerun-unpiped]: rerun with the commit unpiped, so the step after it waits on the commit's own status:
 $out
 docs: $DOCS"
