@@ -13,6 +13,14 @@ REX_SID=
 REX_NEW_SESSION='' REX_NEW_WINDOW='' REX_NEW_BLOCK=''
 REX_SERVER_PID='' REX_SERVER_INSTANCE='' REX_SERVER_VERSION='' REX_SERVER_STARTED=''
 
+# A reconcile pass sets REX_PIN to the server instance it planned against, and every tab change below then first checks
+# that the instance still answers. A Rex restart takes about 0.1 s, so a pass could otherwise plan against one server
+# and make its changes on the next, before that one's start-up step has run rexurrect, which would then restore a
+# second session beside each repo's. A change by ID cannot reach another instance, since IDs differ per instance;
+# `rex new` and a session found by its label can. The first check that fails sets REX_PIN_LOST to the error that says
+# why, and every later change is skipped.
+REX_PIN='' REX_PIN_LOST=''
+
 # Rex refuses a window label longer than 128 characters, so every tab label is cut to fit, ending in an ellipsis. jq
 # counts characters, where bash's ${#} counts bytes in the C locale, and `·` is two bytes but one character. A label
 # that fits passes through unchanged, so cutting one twice gives the same label.
@@ -101,14 +109,35 @@ rex_window_of() {
     '[.windows[] | select([.layers[]?.blocks[]?.block_id] | index($b))][0].window_id // ""' <<<"$REX_OUT")
 }
 
+# True while no server instance is pinned, or the pinned one still answers; otherwise sets REX_PIN_LOST, once, and
+# returns 1.
+rex_pinned() {
+  [[ -n $REX_PIN ]] || return 0
+  [[ -z $REX_PIN_LOST ]] || return 1
+  if ! rex_server_status; then
+    REX_PIN_LOST=$(contract_error_json rex-server-down "the Rex server this pass planned against (instance $REX_PIN) \
+stopped answering partway through ($(rex_error_line)), so the pass made no further tab change" \
+      --value "$REX_PIN" --command "systemctl --user start $AR_REX_UNIT")
+  elif [[ $REX_SERVER_INSTANCE != "$REX_PIN" ]]; then
+    REX_PIN_LOST=$(contract_error_json rex-server-restarted "the Rex server restarted partway through this pass: it \
+planned against instance $REX_PIN and instance $REX_SERVER_INSTANCE now answers, so it made no further tab change; \
+the new instance's start-up step reconciles its tabs" --value "$REX_SERVER_INSTANCE" --command "agent-slot-rex restore")
+  else
+    return 0
+  fi
+  return 1
+}
+
 # Usage: rex_open_tab <session-label> <tab-label> <command...>
 # Opens a tab running the command in the session with that label, creating the session when there is none, and never
-# takes focus. Sets REX_NEW_SESSION, REX_NEW_WINDOW, and REX_NEW_BLOCK.
+# takes focus. Sets REX_NEW_SESSION, REX_NEW_WINDOW, and REX_NEW_BLOCK, which stay empty when rex_pinned refuses.
 rex_open_tab() {
   local session=$1 label
+  REX_NEW_SESSION='' REX_NEW_WINDOW='' REX_NEW_BLOCK=''
   label=$(rex_label "$2")
   shift 2
   rex_session_find "$session"
+  rex_pinned || return 0
   if [[ -n $REX_SID ]]; then
     rex_or_fail window new -s "$REX_SID" "$label" --focus=false --json -- "$@"
     REX_NEW_SESSION=$REX_SID
@@ -125,12 +154,14 @@ rex_open_tab() {
 # Usage: rex_rename <session-id> <window-id> <label>
 rex_rename() {
   local label
+  rex_pinned || return 0
   label=$(rex_label "$3")
   rex_or_fail window rename -s "$1" "$2" "$label"
 }
 
 # Usage: rex_close <session-id> <window-id>; a tab that is already gone, with its session or without, counts as closed.
 rex_close() {
+  rex_pinned || return 0
   rex_run window close -s "$1" "$2" && return 0
   rex_window_gone "$1" "$2" && return 0
   rex_or_fail window close -s "$1" "$2"
@@ -147,11 +178,20 @@ rex_window_gone() {
 }
 
 # Usage: rex_send <session-id> <block-id> <text>; types the text into the block's terminal.
-rex_send() { rex_or_fail send -s "$1" -b "$2" "$3"; }
+rex_send() {
+  rex_pinned || return 0
+  rex_or_fail send -s "$1" -b "$2" "$3"
+}
 
 # Usage: rex_layout <session-id> <block-id> <key>
 # Adds the slot's files and git panes around its Claude pane, through agent-slots.lua's agent_slot_layout.
-rex_layout() { rex_or_fail "do" agent_slot_layout -s "$1" -b "$2" "key=$3" "block=$2"; }
+rex_layout() {
+  rex_pinned || return 0
+  rex_or_fail "do" agent_slot_layout -s "$1" -b "$2" "key=$3" "block=$2"
+}
+
+# Usage: rex_kill <session-id>; ends the session and every tab in it, or returns rex's status.
+rex_kill() { rex_run kill "$1"; }
 
 # Usage: rex_actions; sets REX_OUT to the server's actions as JSON, or returns rex's status.
 rex_actions() { rex_run actions --json; }

@@ -1,10 +1,11 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
 # The reconcile log: one JSON line per reconcile pass in $AR_STATE/reconcile.log, written whatever ran the pass and
 # however it ended: when it began, what ran it, how long it took, whether it changed any tab, the plan's opens, renames,
-# and closes (null when it stopped before planning), why a pass changed nothing on purpose (skipped: rex-server-down,
-# startup-pending, or reconcile-busy, else null), rexurrect's outcome when the pass recorded one, and ok or the error
-# that stopped it. A pass that changed nothing still writes its line, so the timer's interval can be tuned from how
-# often a pass finds work. contract_log_line bounds the log.
+# and closes (null when it stopped before planning; only those it carried out when the Rex server restarted or stopped
+# partway), why a pass stopped short on purpose (skipped: rex-server-down, startup-pending, reconcile-busy, or
+# rex-server-restarted, else null), rexurrect's outcome when the pass recorded one, and ok or the error that stopped it.
+# A pass that changed nothing still writes its line, so the timer's interval can be tuned from how often a pass finds
+# work. contract_log_line bounds the log.
 
 JOURNAL_BY=''
 JOURNAL_AT=''

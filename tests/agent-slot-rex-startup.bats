@@ -54,7 +54,27 @@ hold_lock() {
 }
 
 no_tab_change() {
-  not_called '^rex (new|window new|window close|window rename)'
+  not_called '^rex (new|window new|window close|window rename|do|kill) '
+}
+
+# The instance restarts_after and stops_after hand the stub server by default.
+NEW_INSTANCE=99999999-aaaa-bbbb-cccc-dddddddddddd
+
+# restores_session ID LABEL TAB: the rexurrect stub restores a saved session as rexurrect does, under the ID ID whatever
+# session already carries LABEL, with one tab, TAB, as a plain shell.
+restores_session() {
+  stub rexurrect '
+jaq -c --arg id "'"$1"'" --arg l "'"$2"'" ".sessions += [{session_id: \$id, label: \$l}]" \
+  "$STUBS/rexdata/sessions.json" >"$STUBS/rexdata/sessions.new"
+mv "$STUBS/rexdata/sessions.new" "$STUBS/rexdata/sessions.json"
+jaq -n -c --arg id "'"$1"'" --arg l "'"$2"'" --arg t "'"$3"'" "{session_id: \$id, label: \$l,
+  windows: [{window_id: (\$id + \"-w\"), label: \$t, layers: [{blocks: [{block_id: (\$id + \"-b\")}]}]}]}" \
+  >"$STUBS/rexdata/session-'"$1"'.json"'
+}
+
+# labeled LABEL: prints how many sessions carry LABEL.
+labeled() {
+  jaq --arg l "$1" '[.sessions[] | select(.label == $l)] | length' "$STUBS/rexdata/sessions.json"
 }
 
 # --- timer and push passes ---------------------------------------------------------------------------------------------
@@ -256,6 +276,73 @@ no_tab_change() {
   called '^rex window close -s sess-a w2$'
 }
 
+# --- a Rex restart under a pass ----------------------------------------------------------------------------------------
+
+@test "a timer pass whose Rex server restarts after its gate makes no tab change on the new instance" {
+  recorded "$REX_STUB_INSTANCE" "done"
+  restarts_after 'ls --json'
+  run --separate-stderr "$AGENT_SLOT_REX" restore --by poll --output json
+  [ "$status" -eq 0 ]
+  no_tab_change
+  jaq -e --arg old "$REX_STUB_INSTANCE" --arg new "$NEW_INSTANCE" '.skipped.reason == "rex-server-restarted"
+    and (.skipped.message | contains($old) and contains($new)) and .opened == []' <<<"$output"
+  jaq -e '.ok and .skipped == "rex-server-restarted" and (.changed | not) and .plan.open == []' "$LOG"
+  [ ! -L "$LOCK" ]
+}
+
+@test "a pass whose Rex server restarts between two tab changes makes neither the second nor any after it" {
+  recorded "$REX_STUB_INSTANCE" "done"
+  slots '[{"repo": "A", "slot": 1}, {"repo": "B", "slot": 1}]'
+  restarts_after 'new A'
+  run --separate-stderr "$AGENT_SLOT_REX" restore --by push --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.skipped.reason == "rex-server-restarted" and .opened == ["A/1"]' <<<"$output"
+  called '^rex new A '
+  not_called '^rex (do|new B) '
+  jaq -e '.skipped == "rex-server-restarted" and .changed and [.plan.open[].key] == ["A/1"]' "$LOG"
+}
+
+@test "a pass whose Rex server restarts right after its last tab change journals the restart" {
+  recorded "$REX_STUB_INSTANCE" "done"
+  restarts_after 'do agent_slot_layout'
+  run --separate-stderr "$AGENT_SLOT_REX" restore --by poll --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.skipped.reason == "rex-server-restarted" and .opened == ["A/1"]' <<<"$output"
+  jaq -e '.skipped == "rex-server-restarted" and [.plan.open[].key] == ["A/1"]' "$LOG"
+}
+
+@test "a pass whose Rex server stops answering partway makes no further tab change and logs rex-server-down" {
+  recorded "$REX_STUB_INSTANCE" "done"
+  stops_after 'ls --json'
+  run --separate-stderr "$AGENT_SLOT_REX" restore --by poll --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.skipped.reason == "rex-server-down"' <<<"$output"
+  no_tab_change
+  jaq -e '.ok and .skipped == "rex-server-down"' "$LOG"
+}
+
+@test "a restore asked for by hand whose Rex server restarts partway is rex-server-restarted, and is journaled" {
+  recorded "$REX_STUB_INSTANCE" "done"
+  restarts_after 'ls --json'
+  run --separate-stderr "$AGENT_SLOT_REX" restore --output json
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e --arg new "$NEW_INSTANCE" '.reason == "rex-server-restarted" and .value == $new
+    and .next_step.command == "agent-slot-rex restore"' <<<"$stderr"
+  no_tab_change
+  jaq -e '.ok == false and .error.reason == "rex-server-restarted"' "$LOG"
+}
+
+@test "a pass that changes no tab asks the Rex server for its instance only at the gate" {
+  recorded "$REX_STUB_INSTANCE" "done"
+  session sess-a A '[{"window_id": "w1", "label": "A/1", "blocks": ["b1"]}]'
+  runs b1 1001 "agent-slot-rex attach A/1 claude"
+  run "$AGENT_SLOT_REX" restore --by poll
+  [ "$status" -eq 0 ]
+  jaq -e '.ok and (.changed | not)' "$LOG"
+  [ "$(grep -c '^rex server status' "$CALLS")" -eq 2 ]
+}
+
 # --- the start-up step -------------------------------------------------------------------------------------------------
 
 @test "the start-up step runs rexurrect under the lock before its first tab change, then records the instance" {
@@ -272,6 +359,46 @@ no_tab_change() {
   jaq -e --arg i "$REX_STUB_INSTANCE" '.instance == $i and .rexurrect == "done"' "$RECORD"
   jaq -e '.by == "restore-at-start" and .ok and .rexurrect == "done" and .changed' "$LOG"
   [ ! -L "$LOCK" ]
+}
+
+@test "the start-up step kills a session a reconcile opened before rexurrect ran, so rexurrect doubles none" {
+  started_by_rex
+  session sess-early A '[{"window_id": "w1", "label": "A/1", "blocks": ["b1"]}]'
+  runs b1 1001 "agent-slot-rex attach A/1 claude"
+  restores_session sess-saved A A/1
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  called '^rex kill sess-early$'
+  local kill restore
+  kill=$(grep -n '^rex kill ' "$CALLS" | head -1 | cut -d: -f1)
+  restore=$(grep -n '^rexurrect auto-restore' "$CALLS" | cut -d: -f1)
+  ((kill < restore))
+  [ "$(labeled A)" -eq 1 ]
+  called '^rex window new -s sess-saved A/1 '
+  grep -q 'sess-early' "$AGENT_SLOT_REX_STATE_DIR/restore.log"
+  jaq -e '.ok and .rexurrect == "done"' "$LOG"
+}
+
+@test "the start-up step keeps a session that holds a tab the reconcile did not open" {
+  started_by_rex
+  session sess-own A '[{"window_id": "w1", "label": "prime", "blocks": ["b1"]},
+    {"window_id": "w2", "label": "A/1", "blocks": ["b2"]}]'
+  runs b2 1002 "agent-slot-rex attach A/1 claude"
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex kill '
+  called '^rexurrect auto-restore'
+}
+
+@test "a start-up step on an instance it already recorded kills no session" {
+  started_by_rex
+  recorded "$REX_STUB_INSTANCE" "done"
+  session sess-a A '[{"window_id": "w1", "label": "A/1", "blocks": ["b1"]}]'
+  runs b1 1001 "agent-slot-rex attach A/1 claude"
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex kill '
+  not_called '^rexurrect '
 }
 
 @test "a second start-up step on the same instance, as a config reload starts, only reconciles" {

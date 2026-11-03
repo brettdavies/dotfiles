@@ -5,7 +5,10 @@
 # server instance, records that instance as started, and then reconciles slot tabs with dormant slots resumed.
 # rexurrect goes first because it decides which sessions to restore by ID: a reconcile that made a repo's session first
 # would get a second one beside it. Its snapshot keeps a slot tab's label but not its command, so the reconcile that
-# follows closes the plain shells it restores in place of slot tabs and opens fresh ones.
+# follows closes the plain shells it restores in place of slot tabs and opens fresh ones. A pass that began on the
+# server this one replaced can still have opened slot tabs here before the step took the lock, so right before
+# rexurrect the step kills every session of this instance that holds nothing but slot tabs; the reconcile after
+# rexurrect opens them again. A session that also holds any other tab is left alone.
 #
 # The record, $AR_STARTUP_RECORD, is {instance, rexurrect, at}: the `instance:` UUID `rex server status` prints, so a
 # pid reused after a reboot never matches an old record, and rexurrect's outcome there: done, failed, stopped (it
@@ -49,6 +52,22 @@ start-up step ($(rex_error_line))" --value "$AR_REX_UNIT" --command "agent-slot-
   done
 }
 
+# Kills each session of the running server whose every tab is a slot tab, logging each one and any kill that fails.
+startup_kill_slot_sessions() {
+  local sid label
+  rex_snapshot
+  while IFS=$'\t' read -r sid label; do
+    [[ -n $sid ]] || continue
+    if rex_kill "$sid"; then
+      startup_log "killed session $label ($sid) before rexurrect: it holds only slot tabs, opened before this step ran"
+    else
+      startup_log "could not kill session $label ($sid) before rexurrect: $(rex_error_line)"
+    fi
+  done < <(contract_json -r --arg key "$SLOT_KEY_PATTERN" "$REX_LABEL_DEF$RECONCILE_KEYED"'
+    group_by(.session_id)[] | select(all(.[]; keyed | .key != null)) | [.[0].session_id, .[0].session // ""] | @tsv' \
+    <<<"$REX_TABS")
+}
+
 # Runs rexurrect's restore into the running server under AR_REXURRECT_BOUND, and sets STARTUP_REXURRECT to its outcome.
 # rexurrect returns only after watching for the blank session Rex.app opens, 30 s by default, so the bound covers that
 # watch as well as the restore.
@@ -59,6 +78,7 @@ startup_rexurrect() {
     startup_log "rexurrect: skipped, not installed at $AR_REXURRECT"
     return 0
   fi
+  startup_kill_slot_sessions
   startup_log "rexurrect auto-restore --server-pid $REX_SERVER_PID, for up to $AR_REXURRECT_BOUND s"
   timeout --kill-after=2 "$AR_REXURRECT_BOUND" "$AR_REXURRECT" auto-restore --server-pid "$REX_SERVER_PID" \
     </dev/null || status=$?
