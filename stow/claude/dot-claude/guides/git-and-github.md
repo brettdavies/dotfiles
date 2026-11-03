@@ -72,9 +72,9 @@ into Claude Code's system prompt and any skill/command template (e.g., the offic
 **Enforcement.** The `~/.claude/ai-attribution-guard.sh` PreToolUse Bash hook denies `git commit` and
 `gh pr|issue|release` calls whose message or body carries the trailer. It resolves `--file` / `-F` / `--body-file` /
 `--notes-file` and reads the artifact, so a trailer authored into a `/tmp/` body is caught at the same gate as an inline
-one; a human `Co-Authored-By:` passes. Tests at `tests/ai-attribution-guard.bats` (22 cases) — run with
-`bats tests/ai-attribution-guard.bats`. The hook exists because the rule alone loses to a mid-session harness reminder
-that instructs the opposite, and the cleanup is a signed-history rewrite plus a force-push to a protected branch.
+one; a human `Co-Authored-By:` passes. Tests: `bats tests/ai-attribution-guard.bats`. The hook exists because the rule
+alone loses to a mid-session harness reminder that instructs the opposite, and the cleanup is a signed-history rewrite
+plus a force-push to a protected branch.
 
 ## Rewriting pushed history (reword, force-push)
 
@@ -367,9 +367,9 @@ Vale/LT still run `/unslop` as the minimum acceptable scrub.
 **Enforcement.** The `~/.claude/heredoc-pr-guard.sh` PreToolUse Bash hook rejects
 `gh pr (create|edit|comment|review) --body "<heredoc>"`, `gh issue (create|edit|comment) --body "<heredoc>"`,
 `gh release (create|edit) --notes "<heredoc>"`, and `git commit -m "<heredoc>"`. The hook is wired into
-`stow/claude/dot-claude/settings.json` and runs on every Bash tool call. Tests covering 41 cases (positive, negative,
-and adversarial red-team bypasses) live at `tests/heredoc-pr-guard.bats` — run with `bats tests/heredoc-pr-guard.bats`.
-If a legitimate use is blocked, fix the regex; do NOT bypass the hook for individual commands.
+`stow/claude/dot-claude/settings.json` and runs on every Bash tool call. Its tests cover positive, negative, and
+adversarial red-team bypass cases: `bats tests/heredoc-pr-guard.bats`. If a legitimate use is blocked, fix the regex; do
+NOT bypass the hook for individual commands.
 
 The `~/.claude/piped-commit-guard.sh` PreToolUse Bash hook rejects a command that submits a message file, piped, when a
 later step in the same command removes that file with `trash`, `rm`, or `mv`, and its deny carries the command rebuilt
