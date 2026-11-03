@@ -241,6 +241,8 @@ EOF
 
 @test "systemd accepts the reconcile units" {
   command -v systemd-analyze >/dev/null 2>&1 || skip "systemd-analyze not installed"
+  # verify fails a unit whose ExecStart names a missing file, and the service runs the stowed helper.
+  [ -x "$HOME/.local/bin/agent-slot-rex" ] || skip "agent-slot-rex not deployed"
   local runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
   [ -d "$runtime" ] || skip "no user runtime directory"
   run env XDG_RUNTIME_DIR="$runtime" systemd-analyze --user verify "$RECONCILE.service" "$RECONCILE.timer"
