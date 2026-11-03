@@ -407,7 +407,8 @@ branches tracks or pushes to) and its agent is idle or gone; the *automatic swee
 slot its agent released or the operator finished, and first reminds the agent of a finished slot held back only by files
 left in it to clean them up. A slot that fails that check stays put on the *needs-you list*, which names each blocker,
 and is never deleted. A slot whose tmux sessions are gone after a server reboot is *dormant* until resume restarts them
-and its conversation.
+and its conversation. Each live slot has one tab in its repo's session on the headless host's Rex server, which the
+*slot reconcile* keeps; Rex clients on the macOS development machine and the phone only show it.
 
 A slot's *work items* are the GitHub PRs and issues its task works on, each known by kind, repository, and number. A
 slot gets them when it is launched or reopened on one, when one is adopted onto it, and when its own PRs are found. Its
@@ -417,6 +418,17 @@ slot keeps the issue's name once its PR opens; it labels the slot and its Claude
 checked out, whose agent resumes the old slot's Claude conversation by its session ID. A reopened task's *settled PRs*,
 those already merged or closed when it was reopened, neither finish it nor hold its slot back, so only a new outcome
 ends it.
+
+### Slot reconcile
+
+The pass that makes the headless host's Rex tabs match its live slots: it resumes dormant slots, opens a tab for each
+live slot without one, relabels a tab whose slot's label changed, and closes a tab whose slot is gone, whose attach loop
+has stopped, or that duplicates another. A tab is matched to its slot by the attach loop it runs, else by its label past
+its position number. Four triggers run it: a *push* after each launch or teardown, a timer every minute, a *start-up
+step* when the Rex server loads its config, which first restores the operator's own tabs with rexurrect once per server
+instance, and the operator's restore. Every pass but the start-up step changes nothing until a Rex server answers and
+its start-up step has run; a pass a trigger ran logs why, and one the operator asked for reports it. One pass changes
+tabs at a time.
 
 ### Agent state
 

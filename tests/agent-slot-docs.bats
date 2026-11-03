@@ -83,6 +83,21 @@ shell_value() {
   [ "$output" = https://github.com/brettdavies/dotfiles/blob/main/README.md#purge-failures ]
 }
 
+@test "the README names no helper verb or trigger that no longer exists" {
+  run grep -nE 'agent-slot-rex follow|--by reconnect|follow\.log|AGENT_SLOT_REX_(TICK|WAKE_GAP|POLL_INTERVAL)' "$README" \
+    "$REPO/BOOTSTRAP.md" "$REPO/AGENTS.md" "$REPO/CONCEPTS.md"
+  [ "$status" -eq 1 ] || {
+    echo "$output"
+    false
+  }
+}
+
+@test "the README's paragraph on bypass mode says slot agents can drive any tab on the Linux server's Rex server" {
+  awk '/^Each slot.s Claude starts and resumes with `--dangerously-skip-permissions`/,/^$/' "$README" >"$BATS_TEST_TMPDIR/p"
+  grep -q 'rex send-key' "$BATS_TEST_TMPDIR/p"
+  grep -q 'rex send`' "$BATS_TEST_TMPDIR/p"
+}
+
 @test "the README names every verb agent-slot and agent-slot-rex accept" {
   local verb missing=()
   for verb in $(verbs_of "$REPO/scripts/agent-slot/lib/help.sh"); do

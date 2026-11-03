@@ -1061,13 +1061,17 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   describes the server-hosted layer (R18).
 - **Requirements:** R2, R18; KTD5, KTD14.
 - **Dependencies:** U3, U4, U5, U6, U8 (the tunnel's host entry and LaunchAgent the docs describe).
-- **Files:** `scripts/agent-slot-rex/lib/follow.sh` (removed), `scripts/agent-slot-rex/lib/launch.sh`,
-  `scripts/agent-slot-rex/lib/help.sh`, `tests/agent-slot-rex-follow.bats` (removed), `tests/agent-slot-docs.bats`,
-  `tests/rex-config.bats`, `stow/claude/dot-claude/slot-status.sh`, `README.md`, `BOOTSTRAP.md`, `AGENTS.md`,
-  `CONCEPTS.md`.
+- **Files:** `scripts/agent-slot-rex/lib/follow.sh` (removed), `scripts/agent-slot-rex/agent-slot-rex`,
+  `scripts/agent-slot-rex/lib/{help,settings,server,forward,journal,reconcile}.sh`, `tests/agent-slot-rex-follow.bats`
+  (removed; its `restore --by` tests move to `tests/agent-slot-rex-startup.bats`), `tests/agent-slot-rex.bats`,
+  `tests/agent-slot-rex-macos.bats`, `tests/agent-slot-docs.bats`, `stow/claude/dot-claude/slot-status.sh`,
+  `README.md`, `BOOTSTRAP.md`, `CONCEPTS.md`. `AGENTS.md` names no Mac helper, so it is unchanged.
 - **Approach:**
-  1. Remove the `follow` verb and its suite, and the code paths only the Mac used: the SSH retry, wake detection, Mac
-     app paths, `open -a` next steps, and the client naming.
+  1. Remove the `follow` verb and its suite, `restore --by reconnect`, the follow loop's settings, and the code paths
+     only the Mac used: the ssh probe the loop's wake detection ran, the Mac app paths in the CLI lookup (on the Mac
+     the helper forwards every verb before it needs a rex CLI, so the lookup is `/usr/bin/rex`), and the Mac host the
+     client name defaulted to (the helper names itself `agent-slot-rex`, which is all agent-slot's push skip needs).
+     The attach loop keeps no SSH retry, and no next step names `open -a`.
   2. Rewrite README's agent-slot sections and helper table, naming the helper's `finish` and `sweep` beside the
      `agent-slot` verbs where it says which commands ask first; BOOTSTRAP's Rex config and agent-slot sections
      (deploying on the server, the units, `rexurrect save` before a planned restart, the Mac tunnel); and AGENTS.md
@@ -1089,9 +1093,10 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      Linux server and can drive any tab on its Rex server with `rex send` and `rex send-key`, so a `sudo` session or a
      root shell on another host kept in that server is within an agent's reach (System-Wide Impact; eng review A7).
 - **Test scenarios:**
-  - The docs suite finds every helper verb in the README and no removed verb.
+  - The docs suite finds every helper verb in the README, and no removed verb, trigger, or setting in the README,
+    BOOTSTRAP, AGENTS, or CONCEPTS.
   - The docs suite finds `rex send-key` in the README's bypass-mode paragraph.
-  - `tests/rex-config.bats`'s verb pin matches the new verb set.
+  - `tests/rex-config.bats`'s verb pin matches the new verb set, and `restore --by` takes only `push` and `poll`.
 - **Verification:** The helper names no Mac host, Mac app path, or follow loop, and the docs describe only the current
   layout.
 

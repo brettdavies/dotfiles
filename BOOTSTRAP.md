@@ -357,10 +357,10 @@ AppCleaner), which would otherwise close mid-session. A manual `bu` still upgrad
 
 The `rex` package deploys `~/.config/rex/init.lua`, `layout.lua` (the dev layout actions), and `agent-slots.lua` (the
 agent-slot actions and keys) to both machines, and on the Linux server also `slot-startup.lua`, the start-up step that
-restores the operator's own tabs with rexurrect and then gives every live slot its tab. Without that file, as on the Mac,
-`init.lua` runs `rexurrect auto-restore` itself. Rex reads `init.lua` only when it starts and on `rex config reload`, so
-`scripts/stow-deploy` runs `rex config reload` after it stows the package; with no rex CLI found, or Rex not running, it
-says so and the deploy still succeeds.
+restores the operator's own tabs with rexurrect and then gives every live slot its tab. Without that file, as on the
+Mac, `init.lua` runs `rexurrect auto-restore` itself. Rex reads `init.lua` only when it starts and on
+`rex config reload`, so `scripts/stow-deploy` runs `rex config reload` after it stows the package; with no rex CLI
+found, or Rex not running, it says so and the deploy still succeeds.
 
 Stow does not replace a plain file with a link, so move hand-written copies aside before the first deploy:
 
@@ -375,17 +375,34 @@ version, links it back, and prints the diff (with `--headless`, it restores the 
 follows then loads the old files, which define no agent-slot actions. To recover, run `git checkout -- stow/rex/` in
 `~/dotfiles`, then `rex config reload` from a Rex terminal.
 
-Then check the Mac's side, which also runs the server's doctor over ssh:
+Every slot and every repo session lives on the Linux server's Rex server, and Rex.app and the Rex iOS app connect to it
+through the Rex login server. On the Linux server, `scripts/stow-deploy --headless --all` deploys the package, and
+`bash scripts/host-jobs-enable.sh` enables and starts the units that run the slot layer:
+
+- `rex-server.service` keeps the account's Rex server running with no client connected.
+- `rex-tab-numbers.service` keeps each tab's position number at the start of its label.
+- `agent-slot-reconcile.timer` matches slot tabs to the live slots every minute.
+
+Then run the checklist, which names each missing piece with the command that adds it:
 
 ```bash
 agent-slot-rex doctor
 ```
 
-`cmd+alt+n` starts an agent on the session's repo in a new tab, `cmd+alt+r` gives every live slot its tab back,
-and `cmd+alt+f` finishes the focused tab's task. The helper reaches the Linux server through the ssh alias the `ssh`
-package defines for it; `AGENT_SLOT_REX_SERVER` names another. It logs to `~/.local/state/agent-slot-rex/`:
-`restore.log` holds the restore Rex starts when it loads, and `reconcile.log` one line for each restore, sweep, or
-finish pass over the tabs.
+Before a planned restart of the Rex server, such as applying a new preview, save the operator's own tabs first, so a tab
+opened since the last automatic save is not lost; the start-up step restores them when the server starts again:
+
+```bash
+rexurrect save && systemctl --user restart rex-server.service
+```
+
+`cmd+alt+n` starts an agent on the session's repo in a new tab, `cmd+alt+r` gives every live slot its tab back, and
+`cmd+alt+f` finishes the focused tab's task. On the Mac each forwards to the Linux server's helper through the ssh alias
+the `ssh` package defines for it; `AGENT_SLOT_REX_SERVER` names another. The Mac's dev ports reach the Linux server
+through the `com.user.bd-tunnel` LaunchAgent, which
+`launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.bd-tunnel.plist` loads. The helper logs to
+`~/.local/state/agent-slot-rex/` on the server: `restore.log` holds the start-up step Rex runs when it loads, and
+`reconcile.log` one line for each pass over the tabs.
 
 ### Hex dictation settings
 
@@ -619,8 +636,9 @@ agent-slot warm <repo>
 ```
 
 The timer prunes orphaned clients on the `agent-slots` tmux server daily, as `tmux-prune-orphans.timer` does for the
-default server. `agent-slot doctor` names anything else that is missing, each with the command that fixes it. The Mac's
-side is under [Rex config and agent slots](#rex-config-and-agent-slots).
+default server. `agent-slot doctor` names anything else that is missing, each with the command that fixes it. The Rex
+layer that gives each slot its tab, on this server, and the Mac's forwarding keys are under
+[Rex config and agent slots](#rex-config-and-agent-slots).
 
 ### Scheduled brew and uv upgrades (systemd)
 
