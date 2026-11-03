@@ -66,8 +66,9 @@ also moves the plugins.
 ### Requirements
 
 - R1. `brew.sh` runs `ya pkg install` after the upgrade on Linux and macOS when `ya` is on PATH. ya's output lines
-  become `info` events; a non-zero exit adds one `warning` event naming the exit status and the rerun command, and the
-  run's outcome still follows the upgrade alone.
+  become `info` events; a non-zero exit adds one `warning` event,
+  `Warning: ya pkg install exited <n>; installed yazi packages may not match package.toml. Rerun: ya pkg install`, and
+  the run's outcome still follows the upgrade alone.
 - R2. On Linux, when the run's `changes` name yazi or a pending marker exists, `brew.sh` runs the bump and records its
   outcome. On macOS it never runs the bump.
 - R3. The bump resolves each `package.toml` dep's candidate rev under D2 and D3, installs the candidates into a scratch
@@ -81,12 +82,16 @@ also moves the plugins.
 - R6. An open PR from an earlier bump (head branch `fix/yazi-pins-*`) is resumed rather than duplicated: the bump waits
   on its checks under D6 and merges it when they pass; red checks end `failed` with reason `pr-open` and the PR's link.
 - R7. `run.end` gains `yazi_pins`: `null` when the run did not bump, else
-  `{outcome, reason, message, yazi_version, pr, next_step {action, command, docs}}`. `outcome` is
-  `bumped | not-needed | waiting | failed`; `reason` is a closed kebab-case set; `next_step.action` is
-  `none | pull | rerun | inspect-pr`. A `waiting` or `failed` outcome also emits one `warning` output event. No existing
-  field changes.
-- R8. The bump is also runnable by hand (`scripts/upgrade/yazi-pins.sh [--base BRANCH] [--repo URL]`) and prints the
-  same outcome object on stdout, so a person can rerun or prove it outside the brew job.
+  `{outcome, reason, exit_code, message, value, yazi_version, pr, next_step {action, command, docs}}`. `outcome` is
+  `bumped | not-needed | waiting | failed`; `reason` is a closed kebab-case set listed in the `run-log.sh` schema
+  comment and `BOOTSTRAP.md`; `exit_code` is the bump's; `value` is the offending value or `null` (the deps whose
+  candidate failed, the check's verdict and the path of its saved pane capture, the red checks); `next_step.action` is
+  `none | pull | rerun | inspect-pr`, its `command` a verbatim headless command, and its `docs` the `BOOTSTRAP.md`
+  anchor. A `waiting` or `failed` outcome also emits one `warning` output event. No existing field changes.
+- R8. The bump is also runnable by hand: `scripts/upgrade/yazi-pins.sh [--base BRANCH] [--repo URL] [--dry-run]`, with
+  `--help`. It prints the outcome object on stdout and progress on stderr, and exits 0 for `bumped`/`not-needed`, 75 for
+  `waiting`, 1 for `failed`, and 2 for a usage error. `--dry-run` resolves, installs, and checks, then reports outcome
+  `would-bump` with the `package.toml` diff in `value` instead of pushing; the brew job never passes it.
 
 ### Success Criteria
 
@@ -147,7 +152,8 @@ check) and U3 (bump) follow. U4 wires the bump into `brew.sh`. U5 documents. U6 
 
 - `scripts/upgrade/lib/yazi-check.sh`: `yazi_check_pane <file>` prints `ok` or a reason (`failed-fetchers`,
   `pending-fetchers`, `no-git-sign`); `yazi_check <home>` builds the demo repo, runs yazi in a private tmux server,
-  waits for the listing, opens the task view, captures, and kills the server on every exit path.
+  waits for the listing, opens the task view, captures, and kills the server on every exit path. It keeps the last
+  capture at `$YAZI_PINS_STATE_DIR/yazi-pins-check.txt`, whose path a failed check names in `value`.
 - **Tests first** (`tests/yazi-pins.bats`): `yazi_check_pane` against the #399 captures (failed tasks → reason, clean
   view → `ok`, a listing without the sign → `no-git-sign`). The live tmux path is exercised in U6.
 
@@ -221,8 +227,8 @@ session's measurements, and the choice is recorded with its evidence. No questio
   Both are in the brief, so neither is deferred.
 - **Complexity.** About 10 files: 3 new scripts, `brew.sh`, `run-log.sh`, 1 new suite and its fixtures, the existing
   upgrade suite, `BOOTSTRAP.md`, `yazi.toml` [estimated]. The gate trips at 8 files. Structure question: one
-  `yazi-pins.sh` holding the check would pass 300 lines and mix two jobs, so the original three-file arrangement
-  stands. **Scope accepted as-is.**
+  `yazi-pins.sh` holding the check would pass 300 lines and mix two jobs, so the original three-file arrangement stands.
+  **Scope accepted as-is.**
 - **Search.** Renovate and Dependabot cover neither `ya pkg` nor a yazi-run proof; the repo already carries its own
   supply-chain gate (the seven-day cooldown in `config/shell/supply-chain.sh`). [Layer 1: reuse the repo's own run log
   and gate conventions.]
@@ -233,13 +239,13 @@ session's measurements, and the choice is recorded with its evidence. No questio
   names packages by brew name: `run-log.sh` `run_log_changes`; unit PATH puts Homebrew first:
   `stow/local/dot-config/systemd/user/brew-upgrade.service` `Environment=PATH=`; start timeout 2h: same file
   `TimeoutStartSec=2h`; `dev` requires `shellcheck` and `bats`: `.github/rulesets/protect-dev.json`; CI runs for any
-  base: `.github/workflows/bats.yml` `pull_request:` with no branch filter; `gh` auth from `hosts.yml`: `gh auth
-  status`)
+  base: `.github/workflows/bats.yml` `pull_request:` with no branch filter; `gh` auth from `hosts.yml`:
+  `gh auth status`)
 - REALITY: already-done pass (origin/dev at 5106ada holds no yazi pin automation; #399 added only the deploy step)
 - REALITY: surface-check pass (`commits?until=`/`since=` answered for yazi-rs/plugins and yazi-rs/flavors;
   `gh pr merge --squash --delete-branch --match-head-commit`, `gh pr create --body-file --head --repo` in `--help`)
-- REALITY: binding-decisions pass (the operator's "auto-upgrade, auto-fix" choice via `rex-linux`; D7 open with the
-  same session)
+- REALITY: binding-decisions pass (the operator's "auto-upgrade, auto-fix" choice via `rex-linux`; D7 open with the same
+  session)
 - REALITY: numbers pass (CI 81 s [measured: run 41574663201]; repeat `ya pkg install` 40.5 s and first install up to
   about 2.5 min [measured: this session's scratch installs]; 30 min CI cap and 60 min bump cap [estimated], both under
   the unit's 2 h)
@@ -301,21 +307,21 @@ Every new case is observed failing before its code exists. No existing behavior 
 
 ### 4. Performance
 
-`ya pkg install` re-fetches every package each run: about 40 s a day on each host [measured]. The bump costs one
-scratch install (1-3 min) plus CI (about 1.5 min) [measured], only on runs that upgrade yazi or retry. Both are fine for
-a daily background job.
+`ya pkg install` re-fetches every package each run: about 40 s a day on each host [measured]. The bump costs one scratch
+install (1-3 min) plus CI (about 1.5 min) [measured], only on runs that upgrade yazi or retry. Both are fine for a daily
+background job.
 
 ### Failure modes
 
-| Failure | Handling | Outcome |
-| --- | --- | --- |
-| GitHub API or clone unreachable | no PR | `failed` (`upstream-unreachable` / `git-failed`), marker kept |
-| scratch `ya pkg install` fails | no PR | `failed` (`hash-failed`), marker kept |
-| check fails | no PR | `waiting` when newer upstream commits exist, else `failed` (`check-failed`) |
-| `gh pr create` fails after the push | branch left, dated name frees tomorrow's | `failed` (`gh-failed`) |
-| CI red | PR left open | `failed` (`ci-failed`), resumed or reported `pr-open` next run |
-| CI slower than the cap | PR left open | `failed` (`ci-timeout`), resumed next run (E2) |
-| unit start timeout kills the run | `run.end` reason `script-error` from the trap | marker kept, retried |
+| Failure                             | Handling                                      | Outcome                                                                     |
+| ----------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------- |
+| GitHub API or clone unreachable     | no PR                                         | `failed` (`upstream-unreachable` / `git-failed`), marker kept               |
+| scratch `ya pkg install` fails      | no PR                                         | `failed` (`hash-failed`), marker kept                                       |
+| check fails                         | no PR                                         | `waiting` when newer upstream commits exist, else `failed` (`check-failed`) |
+| `gh pr create` fails after the push | branch left, dated name frees tomorrow's      | `failed` (`gh-failed`)                                                      |
+| CI red                              | PR left open                                  | `failed` (`ci-failed`), resumed or reported `pr-open` next run              |
+| CI slower than the cap              | PR left open                                  | `failed` (`ci-timeout`), resumed next run (E2)                              |
+| unit start timeout kills the run    | `run.end` reason `script-error` from the trap | marker kept, retried                                                        |
 
 Failure modes: 0 critical gaps flagged.
 
@@ -325,8 +331,8 @@ Skipped: the slot runs unattended and `/compound-engineering:ce-doc-review` give
 
 ### NOT in scope
 
-Pulling `~/dotfiles` after a merge (D7, open). Changing the unit, timer, or LaunchAgent. Pins for plugins
-`package.toml` does not list.
+Pulling `~/dotfiles` after a merge (D7, open). Changing the unit, timer, or LaunchAgent. Pins for plugins `package.toml`
+does not list.
 
 ### Worktree parallelization
 
@@ -338,8 +344,115 @@ Sequential: U1-U5 touch the same two library files and one suite, and U6 needs t
 
 ### Completion summary
 
-Scope accepted as-is; 4 findings in Sections 1-4 (1 critical, 3 informational), all accepted and applied to the plan;
-0 critical gaps in failure modes; premise table unverified=0.
+Scope accepted as-is; 4 findings in Sections 1-4 (1 critical, 3 informational), all accepted and applied to the plan; 0
+critical gaps in failure modes; premise table unverified=0.
+
+
+## DX Review
+
+Run unattended in agent slot dotfiles/3; every choice below was made from the code, the repo's docs, and #399's
+evidence, with no question sent to a person. Product type: CLI tool and scheduled automation (the surface is
+`scripts/upgrade/yazi-pins.sh` and the run log's `yazi_pins`). Mode: **DX POLISH**, since this extends an existing
+job. Web research was not run; comparisons below use in-distribution knowledge only.
+
+### Developer Persona Card
+
+```text
+TARGET DEVELOPER PERSONA
+========================
+Who:       an agent (or the operator) reading the brew job's run log, often the coordinating session
+Context:   the morning after Homebrew upgraded yazi, or when yazi's git column looks wrong
+Tolerance: one query and one command; it cannot ask what a message meant
+Expects:   a stable reason, the PR link, and a verbatim next command, as every other run.end field gives
+```
+
+### Developer Empathy Narrative
+
+I query the run log the way `run-log.sh`'s header says (`journalctl --user -t brew-upgrade -o cat | jaq ...`). Today a
+yazi upgrade shows up only as a `changes` entry, and nothing tells me the plugins are now broken; I learn it from 76
+failed tasks in yazi. With this plan, `run.end.yazi_pins` says `bumped` with the PR, `waiting` with when to expect the
+gate to open, or `failed` with the reason, the offending deps or check verdict, and the command to rerun. The one thing
+I could still miss is the pull (D7): `bumped` is not the same as installed on this host, so `next_step` has to say so.
+
+### Competitive DX Benchmark
+
+| Tool | Start → result | Time + evidence type | DX choice | Source |
+| --- | --- | --- | --- | --- |
+| Renovate / Dependabot | dependency release → merged PR | hours to days, reported | PRs with age gates and auto-merge on green | in-distribution knowledge |
+| `ya pkg upgrade` by hand | notice breakage → repinned | 30+ min, observed (#399) | manual, no gate, no proof | this session |
+| This plan | yazi upgrade → `yazi_pins` outcome | one daily run, estimated | gated, proven in yazi, merged on green, logged | plan R1-R8 |
+
+Target: Champion for the persona's clock (one query to a decision), which R7 meets.
+
+### Magical Moment Specification
+
+The morning after a breaking yazi release, `run.end.yazi_pins` reads `bumped` with a merged PR, and nobody saw a failed
+fetcher. Vehicle: the existing run log, no new channel.
+
+### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                                  | FRICTION POINTS                 | STATUS
+----------------|-------------------------------------------------|---------------------------------|-------
+1. Discover     | reads BOOTSTRAP.md scheduled-upgrades section   | yazi steps undocumented today   | fixed (U5)
+2. Install      | nothing: brew job already scheduled             | none                            | ok
+3. Hello World  | one jaq query for run.end.yazi_pins             | query not documented            | fixed (U5)
+4. Real Usage   | reads outcome, follows next_step                | pull after bump (D7)            | fixed (next_step names it)
+5. Debug        | reruns yazi-pins.sh, reads the saved check pane | no dry run, no saved capture    | fixed (X3, X4)
+6. Upgrade      | nothing: schema only adds fields                | none                            | ok
+```
+
+### First-Time Developer Confusion Report
+
+```text
+T+0:00  Queries run.end, sees yazi_pins: waiting. Needs to know until when.  → message names the newest commit's date
+T+0:30  Sees failed/check-failed. Needs to see what yazi showed.             → value names the saved pane capture (X4)
+T+1:00  Wants to retry by hand without opening a PR.                         → --dry-run (X3)
+T+2:00  Sees bumped, but yazi on this host still fails.                      → next_step: pull, then ya pkg install
+```
+
+### Passes
+
+| Pass | Before | After | Note |
+| --- | --- | --- | --- |
+| 1 Getting started | 6 | 9 | documented query and manual entry point (U5, R8) |
+| 2 CLI design | 5 | 8 | `--help`, `--dry-run`, distinct exit codes (X2, X3) |
+| 3 Errors | 5 | 8 | error-contract fields `exit_code` and `value` (X1); see matrix |
+| 4 Docs | 5 | 8 | BOOTSTRAP section with reasons and queries (U5) |
+| 5 Upgrade | 9 | 9 | additive schema change only |
+| 6 Tooling | 6 | 8 | dry run, saved check capture, test seams |
+| 7 Ecosystem | n/a | n/a | private dotfiles; no community surface |
+| 8 Measurement | 7 | 8 | every outcome is a queryable run-log field |
+
+```text
+ERROR PATH MATRIX (agent-ready-v1)
+Path                   | Class       | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+ya pkg install fails   | dependency  | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | -
+check fails            | partial     | pass | pass | pass     | pass | pass    | pass  | pass      | pass    | - (after X4)
+CI red on bump PR      | partial     | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | -
+bump crashes/killed    | unexpected  | pass | pass | pass     | pass | pass    | pass  | pass      | pass    | -
+```
+
+Before X1 the plan had no offending value or exit code (CAP6 on `check fails`: context); before X4 a failed check left
+nothing to inspect (CAP6: trace). Corrected line: `{"outcome":"failed","reason":"check-failed","exit_code":1,
+"value":"failed-fetchers; pane ~/.local/state/dotfiles/yazi-pins-check.txt",...}`. No secret reaches the log: `gh` and
+`git` read credentials from their own config and nothing echoes them.
+
+### Decisions
+
+- X1 accepted: `yazi_pins` carries `exit_code` and `value` (R7), meeting the repo's error contract.
+- X2 accepted: `--help` and exit codes 0 / 75 / 1 / 2 (R8).
+- X3 accepted: `--dry-run` with outcome `would-bump` for manual runs (R8).
+- X4 accepted: the check saves its last pane capture and names it (U2).
+- X5 accepted: the `ya pkg install` warning wording, starting `Warning:` so the run log counts it (R1).
+
+### DX Scorecard
+
+Overall 6/10 → 8/10. TTHW for the persona's clock: one query, under 2 minutes [estimated].
+
+### Unresolved Decisions
+
+- D7 stays open with `rex-linux`.
 
 ## GSTACK REVIEW REPORT
 
@@ -349,10 +462,10 @@ Scope accepted as-is; 4 findings in Sections 1-4 (1 critical, 3 informational), 
 | Outside Review | none | Independent 2nd opinion | 0 | skipped (unattended) | — |
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | ISSUES OPEN | 4 issues, 0 critical gaps |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | not run | — |
-| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | not run | — |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 1 | ISSUES OPEN | score: 6/10 → 8/10, TTHW: one query → one query under 2 min |
 
-- **OUTSIDE COVERAGE:** outside voice skipped in this unattended run; no external provider ran.
-- **VERDICT:** Eng Review ran with all 4 findings accepted and applied; one decision (D7) stays open with `rex-linux`.
+- **OUTSIDE COVERAGE:** outside voice skipped in both unattended runs; no external provider ran.
+- **VERDICT:** Eng and DX reviews ran with every finding accepted and applied; D7 stays open with `rex-linux`.
 
 **UNRESOLVED DECISIONS:**
 
