@@ -122,7 +122,10 @@ run from a non-canonical checkout.
 Not every link into the `stow/` tree is stow's. Enabling a service-manager unit writes its own link straight at the
 unit's file inside the package, and stow neither owns nor removes it. A restow prunes the links stow made when a file
 leaves its package, but not the enable link: a unit deleted while still enabled leaves it dangling until someone removes
-it by hand. Disabling the unit clears it only while the file is still present.
+it by hand. Disabling the unit clears it only while the file is still present, and takes the unit's stow-managed link
+with it, because systemd treats a unit file linked from outside its search path as a link of its own to remove.
+`systemctl reenable` disables first, so it removes that link too and then cannot find the unit to enable; a restow puts
+the link back, and plain `enable` is what repoints an enable link.
 
 ### Restow on pull
 
