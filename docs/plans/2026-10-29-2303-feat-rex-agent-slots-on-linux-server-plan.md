@@ -704,9 +704,12 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Files:** `scripts/agent-slot-rex/agent-slot-rex`, `scripts/agent-slot-rex/lib/server.sh`,
   `scripts/agent-slot-rex/lib/rex.sh`, `scripts/agent-slot-rex/lib/attach.sh`, `scripts/agent-slot-rex/lib/doctor.sh`,
   `scripts/agent-slot-rex/lib/help.sh`, `scripts/agent-slot-rex/lib/settings.sh` (new),
+  `scripts/agent-slot-rex/lib/forward.sh` (new), the runner's call sites in `scripts/agent-slot-rex/lib/reconcile.sh`,
+  `scripts/agent-slot-rex/lib/launch.sh`, and `scripts/agent-slot-rex/lib/finish.sh`,
   `scripts/agent-slot/verified-versions`, `scripts/agent-slot/lib/contract.sh`, `README.md` (the reasons table),
-  `tests/agent-slot-rex.bats`, `tests/lib/agent-slot-rex.bash`, `tests/agent-slot-doctor.bats`,
-  `tests/agent-slot-docs.bats`, `stow/claude/dot-claude/settings.json` (two ask rules).
+  `tests/agent-slot-rex.bats`, `tests/lib/agent-slot-rex.bash`, `tests/agent-slot-rex-doctor.bats` (new),
+  `tests/agent-slot-rex-macos.bats` (new), `tests/agent-slot-rex-follow.bats` (the stub rename only),
+  `tests/agent-slot-docs.bats`, `tests/claude-settings.bats`, `stow/claude/dot-claude/settings.json` (two ask rules).
 - **Approach:**
   1. Replace `server_ssh` with a local runner that keeps its argv and exit codes, and map a missing `agent-slot` to the
      existing `dependency-missing` reason.
@@ -714,21 +717,26 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   3. Make `attach` loop over a local `tmux -L agent-slots attach -t =<session>` from `$HOME`, keeping resume-on-missing
      and the exit when the slot is gone, and dropping the SSH retry and jitter (KTD7).
   4. Move the host, path, socket, and session defaults into `lib/settings.sh`, sourced first, and list each setting in
-     the dispatcher header. The library puts the Homebrew bin first on PATH when it exists and is missing, and holds the
-     start-up step's bounds (KTD12).
+     the dispatcher header. The library moves the Homebrew bin to the front of PATH when it exists, gives `systemctl
+     --user` the uid's runtime directory when the caller has none (a shell in a slot's tmux session has none), and
+     holds the start-up step's bounds (KTD12).
   5. Make doctor report server-side findings (the Rex server service, the login server, the reconcile timer, the
      tab-number service, rexurrect, the verified Rex build) and drop the Mac hints. One finding names a Rex server that
      `rex-server.service` did not start: the pid `rex server status` prints differs from the unit's `MainPID`, and the
-     next step names the commands that hand the socket back to the service.
+     next step names the commands that hand the socket back to the service. Another reads the start-up record U4
+     writes, `startup.json` in the helper's state directory (`{instance, rexurrect, at}`, with rexurrect one of done,
+     failed, stopped, or skipped), for the running server's instance.
   6. Record the server's Rex build in `scripts/agent-slot/verified-versions`.
   7. Give every new doctor finding and pass outcome a reason in the closed set in `scripts/agent-slot/lib/contract.sh`,
      with its row in the README's reasons table, which `tests/agent-slot-docs.bats` holds to that set:
-     `rex-server-down`, `startup-pending`, `reconcile-timer-inactive`, `tab-numbers-inactive`, `rexurrect-missing`,
+     `rex-server-down`, `startup-pending`, `reconcile-timer-inactive`, `tab-numbers-inactive`,
+     `login-server-inactive`, `rexurrect-missing`,
      `rex-server-foreign`, `rex-restart-pending`, `reconcile-stale`, `wrong-host`, `own-tabs-unrestored` (KTD4's paused
      autosave), `tmux-outside-scope` (a slot tmux server whose cgroup is a service unit's, per KTD3), and
      `agent-slot-timed-out` (a local `agent-slot` call that outlived its bound: exit 1, side effects unknown, next step
      `agent-slot-rex restore`, replacing what the SSH path reported as `server-unreachable` on exit 124).
-     `server-unreachable` retires with the SSH transport, and `reconcile-busy`'s row stops naming the Mac (DX review).
+     `server-unreachable` stays for the Mac's forwarder, whose ssh can fail with 255 (step 9), and `reconcile-busy`'s
+     row stops naming the Mac (DX review).
   8. Doctor also reports two states a deploy or an upgrade leaves behind: `rex-restart-pending` when
      `rex version --json`'s `rex_version` differs from the `version` that `rex server status` prints for the running
      server, with the ordered next step (update Rex.app and the iOS app to at least that build, `rexurrect save`,
@@ -736,9 +744,12 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      timer is active but the newest line in `reconcile.log` is over 3 minutes old, or the last three passes all failed,
      naming the log path and `agent-slot-rex restore` (DX review D10, D11).
   9. On macOS the dispatcher forwards every slot verb a Rex.app action or the operator runs (`launch`, `restore`,
-     `finish`, `sweep`, `doctor`) to the Linux server's helper over the SSH transport (KTD1), keeping argv and exit
-     codes. Only the verbs that drive the server's own Rex (the reconcile pass and the start-up step) stop with
-     `wrong-host` there, naming the Rex host and `ssh <server> agent-slot-rex doctor` as the next step (DX review D8).
+     `restore --tab`, `finish`, `sweep`, `doctor`) to the Linux server's helper over the SSH transport (KTD1), keeping
+     argv and exit codes, with a terminal when one is attached so the server's helper can ask and wait for keys.
+     `launch --here` forwards as `launch`: `--here` names the Mac tab the new-agent key opened, so the server opens the
+     agent's tab in its repo's session instead. The verbs that drive the server's own Rex (`attach`, `follow`,
+     `restore --by`, and the start-up step) stop with `wrong-host` there, naming the Rex host and
+     `ssh <server> agent-slot-rex doctor` as the next step (DX review D8).
   10. Add `Bash(agent-slot-rex finish *)` and `Bash(agent-slot-rex sweep *)` to the ask rules in
       `stow/claude/dot-claude/settings.json`, beside the ones for `agent-slot finish` and `agent-slot sweep`. Once the
       runner is local, those helper verbs run `finish --yes` and `sweep --yes` on this host, and a slot agent in bypass
@@ -748,6 +759,8 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
 - **Test scenarios:**
   - A server verb through the local runner returns the same JSON and exit code the SSH path did for success and for a
     missing `agent-slot`, and for a timeout returns the SSH path's exit code with the reason `agent-slot-timed-out`.
+  - Every `agent-slot` call carries the helper's `AGENT_SLOT_REX_CLIENT`, so agent-slot's push skips the reconcile the
+    helper runs next.
   - doctor reports nothing for a slot tmux server whose stubbed cgroup is a login session's `session-c1.scope`.
   - doctor reports `tmux-outside-scope` for a slot tmux server whose stubbed cgroup is a Rex or timer unit, and
     `own-tabs-unrestored` when the running server's start-up record shows rexurrect stopped or skipped, each with its
@@ -762,17 +775,21 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
   - doctor names a Rex server whose pid differs from `rex-server.service`'s `MainPID`, with the hand-back commands, and
     reports nothing when they match.
   - With PATH set to the systemd user manager's default (no Homebrew), the helper still finds tmux, jq or jaq, and flock
-    from the Homebrew bin, and a missing Homebrew prefix leaves PATH as it was.
+    from the Homebrew bin; a Homebrew bin already on PATH moves to its front, and a missing Homebrew prefix leaves PATH
+    as it was.
+  - From a shell with no `XDG_RUNTIME_DIR`, doctor's `systemctl --user` calls still reach the user manager.
   - doctor reports `version-unverified` for an unlisted Rex build and nothing for the listed one.
   - doctor reports `rex-restart-pending` when the stubbed CLI and running-server versions differ, with the four ordered
-    steps in `next_step`, and nothing when they match.
+    steps in its message and the two runnable ones in `next_step.command`, and nothing when they match.
   - doctor reports `reconcile-stale` for a journal whose newest line is 4 minutes old with the timer active, and for
     three failed passes in a row, and nothing for a fresh `ok` line.
-  - With `uname` stubbed to Darwin, any verb exits with `wrong-host` before calling `rex` or `agent-slot`.
-    `tests/lib/agent-slot-rex.bash` stubs `uname` as Linux by default and only this test overrides it, so the suite
-    still passes in the Mac's pre-push once the guard lands.
-  - Every reason the helper can emit is in `CONTRACT_REASONS` and the README's reasons table, and `server-unreachable`
-    is in neither.
+  - With `uname` stubbed to Darwin, `launch`, `restore`, `restore --tab`, `finish`, `sweep`, and `doctor` run the
+    server's helper over ssh with the same argv, output, and exit code, `launch --here` runs as `launch`, an ssh
+    failure is `server-unreachable`, and `attach`, `follow`, `restore --by`, and `restore --wait-server` exit with
+    `wrong-host` before calling `rex`, `agent-slot`, or ssh. `tests/lib/agent-slot-rex.bash` stubs `uname` as Linux
+    by default and only the macOS suite overrides it, so the suites still pass in the Mac's pre-push.
+  - Every reason the helper can emit is in `CONTRACT_REASONS` and the README's reasons table.
+  - The settings file holds `Bash(agent-slot-rex finish *)` and `Bash(agent-slot-rex sweep *)` among its ask rules.
   - Overriding one setting changes only that value, and no library outside `settings.sh` names a host (text check).
 - **Verification:** `agent-slot-rex doctor` on the server is clean with every unit active, and the stub suites pass on
   CI.
@@ -1105,8 +1122,8 @@ the Rex config check and the U10 checklist.
 - Every unit's Verification holds, and CI is green on the PR.
 - AE1 through AE6 and F1 through F4 pass by hand, with versions recorded in the PR body.
 - U1's findings, and any surprise U10 turns up, are recorded under `docs/solutions/`.
-- The helper keeps no Mac SSH transport, Mac app path, or follow loop; its only macOS-specific behavior is the
-  `wrong-host` stop (U3 step 9). The diff carries no code from abandoned attempts.
+- The helper keeps no Mac app path, follow loop, or SSH call of its own on the Linux server; its only macOS-specific
+  behavior is the forwarder and the `wrong-host` stop (U3 step 9). The diff carries no code from abandoned attempts.
 - README.md, BOOTSTRAP.md, AGENTS.md, and CONCEPTS.md describe the server-hosted layer, and the agent-skills PR updating
   the `agent-slot` skill is open.
 - rexurrect is installed from dotfiles only at a version that has cleared the 7-day gate.
