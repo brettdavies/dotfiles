@@ -117,7 +117,8 @@ built as a **clean descendant of `main`** with `dev`'s tree overlaid on top, ass
 
 ```bash
 # 0. Nothing on main that dev never received (security PRs, hotfixes, config). Exits 1
-#    while drift exists. The anchor is the newest CalVer tag on main; gate 0 fails when
+#    while drift exists. The anchor is the newer of the newest CalVer tag on main and
+#    the newest main commit whose subject starts with "release:"; gate 0 fails when
 #    that release's CHANGELOG.md never reached dev, so run the backport step first.
 scripts/release/drift.sh
 
@@ -410,10 +411,12 @@ gh api -X PUT repos/brettdavies/dotfiles/rulesets/<id> --input .github/rulesets/
   released version into each version carrier a repo has (`Cargo.toml`, `package.json`, `pyproject.toml`, `VERSION`).
   This repo has none and must not grow one; for a bare CalVer tag the script creates no `VERSION`, since the tag is the
   version, so here the synced set comes from the branch comparison alone.
-- **`scripts/release/drift.sh` anchors on the newest CalVer tag reachable from `main`.** Gate 0 then checks that `dev`
-  already carries that release's `CHANGELOG.md`; a failure there means the backport PR never merged, so run
-  `scripts/sync-dev-after-release.sh <tag>` and merge it before cutting the release. `--since <ref>` overrides the
-  anchor.
+- **`scripts/release/drift.sh` anchors on the newest release.** That is the newer of the newest CalVer tag reachable
+  from `main` and the newest `main` commit whose subject starts with `release:`. Every release commit on `main` is
+  tagged once `release.yml` finishes, so the two agree; a release commit whose tag step has not run yet, or failed,
+  anchors as itself. Gate 0 then checks that `dev` already carries that release's `CHANGELOG.md`; a failure there means
+  the backport PR never merged, so run `scripts/sync-dev-after-release.sh <tag>` and merge it before cutting the
+  release. `--since <ref>` overrides the anchor.
 - **Stray or same-day tags.** `release.yml` derives `.N` from the tags already present for today, so a test tag created
   out of band shifts the next same-day suffix. Delete such tags and their GitHub Releases rather than working around
   them.
@@ -439,9 +442,11 @@ fix the previous section on `main` (via a backport) if it is what is stale.
 **Empty changelog sections:** Ensure `cliff.toml` has `[remote.github]` with `owner` and `repo` for PR-body expansion,
 and that `gh auth status` succeeds (the script reads `GITHUB_TOKEN` when set and falls back to `gh auth token`).
 
-**`drift.sh` reports dozens of files after a release that clearly shipped:** The anchor resolved to the wrong commit,
-usually because the release tag is not present locally. Run `git fetch --tags` and rerun, or pass `--since <tag>`
-explicitly; see [§ Project specifics](#project-specifics).
+**`drift.sh` reports dozens of files after a release that clearly shipped:** The anchor resolved to an older release
+than the one that shipped. Gate 0's result and gate 1's header name the anchor it used (`tag <tag>` or
+`release commit <sha> <subject>`). An older one means `origin/main` was stale, as in a `--no-fetch` run, or `--since`
+pointed too far back. Rerun without `--no-fetch`, or pass `--since <tag>` explicitly; see
+[§ Project specifics](#project-specifics).
 
 **`drift.sh` fails gate 0 (`origin/dev lacks the tag <tag> bookkeeping`):** The previous release's `CHANGELOG.md`
 backport never merged into `dev`. Run `scripts/sync-dev-after-release.sh <tag>` (see § Backport to dev after release),
