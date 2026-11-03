@@ -433,7 +433,7 @@ level. bats 1.14 leaves a failed test's watchdog running out the limit
 only then sets the trap that stops it, so a test that ends inside that window on a loaded host leaves the `sleep`
 running under a new parent. Both guards kill that `sleep` without failing anything, recognised by its exact shape:
 `sleep <limit>` with `BATS_TEST_TIMEOUT=<limit>` in its environment and no open file descriptor
-(`is_detached_watchdog`).
+below 256 (`is_detached_watchdog`).
 
 ---
 

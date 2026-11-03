@@ -97,8 +97,9 @@ orphan_probe() {
 
 @test "run-tests stops a timeout watchdog its countdown shell left running, without failing the run" {
   orphan_probe "$CWD/orphan.bats"
-  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=37 \
-    run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/orphan.bats"
+  # The watchdog closes descriptors 0 to 255 only, so one above that, open in the caller, stays open in its sleep.
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=37 run --separate-stderr \
+    bash -c 'exec 300</dev/null && exec "$@"' _ "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/orphan.bats"
   [ "$status" -eq 0 ]
   [[ $output == *"ok 1 orphan"* ]]
   [[ $stderr != *"were killed"* ]]

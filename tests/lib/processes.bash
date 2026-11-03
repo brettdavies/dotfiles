@@ -62,12 +62,17 @@ is_timeout_watchdog() {
 # countdown shell is gone, so nothing stops it before the limit runs out. bats 1.14's countdown shell forks that sleep
 # and only then installs the TERM trap that kills it; a TERM from a fast test's exit trap inside that window kills the
 # shell, and the sleep runs on under a new parent. The shape is exact: `sleep <n>` with BATS_TEST_TIMEOUT=<n> in its
-# environment and no open file descriptor, since the watchdog closes 0 to 255 before it execs.
+# environment and no open file descriptor below 256, since the watchdog closes 0 to 255 before it execs. A descriptor
+# above 255 that bats inherited stays open in the sleep.
 is_detached_watchdog() {
-  local limit=${2#sleep } entry
+  local limit=${2#sleep } entry fd
   limit=${limit% }
   [[ $limit =~ ^[1-9][0-9]*$ && $2 == "sleep $limit " ]] || return 1
-  [ -r "/proc/$1/fd" ] && ! compgen -G "/proc/$1/fd/*" >/dev/null || return 1
+  [ -r "/proc/$1/fd" ] || return 1
+  for fd in "/proc/$1/fd"/*; do
+    [ -L "$fd" ] || continue
+    ((10#${fd##*/} >= 256)) || return 1
+  done
   while IFS= read -r -d '' entry; do
     [ "$entry" != "BATS_TEST_TIMEOUT=$limit" ] || return 0
   done 2>/dev/null <"/proc/$1/environ"
