@@ -331,6 +331,16 @@ run per change, the gate is the only check some work ever gets, so a gate that s
 Activation is per clone and does not travel with the checkout, which makes an unwired gate the common failure: it looks
 identical to a passing one.
 
+### Concurrent suite
+
+A test suite that declares its tests share no state, so the test runner may run several of its tests at once rather than
+only running it alongside other suites. *Avoid:* parallel file, declared file
+
+The declaration is the suite's own promise, and the runner takes it on trust. It obliges every test to keep its state in
+a sandbox of its own and to start any code it interrupts with interrupt handling restored, because the runner starts
+each test as a background job and a shell starts background jobs with interrupts ignored. The runner bounds how many of
+a concurrent suite's tests run at once, since suites already run side by side and the two levels multiply.
+
 ### Guard hook
 
 A hook that inspects a proposed action before it happens and answers allow or deny, as opposed to a *local gate*, which
