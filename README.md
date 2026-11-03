@@ -415,7 +415,12 @@ an `agent-slot-rex restore` pass:
   instance under `AGENT_SLOT_REX_REXURRECT_BOUND` seconds (90), records the instance in
   `~/.local/state/agent-slot-rex/startup.json`, then reconciles with dormant slots resumed. Right before rexurrect, it
   kills each session of the new server that holds nothing but slot tabs, since rexurrect counts a session as live by ID
-  and would restore a second one beside it; the reconcile then opens those tabs again. It logs to `restore.log` in that
+  and would restore a second one beside it; the reconcile then opens those tabs again. rexurrect brings each prime tab
+  back as a plain shell, so before the reconcile the step makes it the prime again: in each repo session of
+  `config/agent-slot-rex/primes.tsv` with no tab attached to its prime, it types `agent-slot-rex prime <repo>` into the
+  first tab labelled with the prime's name when that tab is one pane at a shell prompt, clearing whatever the prompt
+  holds first. Any other tab is left alone, and so is a prime whose tmux session is not running. A config reload's step
+  types into no tab, since a prime-labelled shell there is a prime you detached. It logs to `restore.log` in that
   directory.
 
 Every other pass first checks that a Rex server answers and that the start-up step has recorded its instance. A push or
@@ -431,8 +436,12 @@ record is reconciled anyway, and that pass records rexurrect as skipped. `agent-
 
 Every trigger is logged, so the interval can be tuned from data. Each pass's line in
 `~/.local/state/agent-slot-rex/reconcile.log` names its trigger in `by`, with `ms` (how long the pass took), `changed`
-(whether it opened, relabelled, or closed a tab), `skipped`, and `rexurrect` (the outcome the pass recorded: `done`,
-`failed`, `stopped`, or `skipped`); a timer pass with `changed` true found work no push had brought.
+(whether it opened, relabelled, or closed a tab), `skipped`, `rexurrect` (the outcome the pass recorded: `done`,
+`failed`, `stopped`, or `skipped`), and `primes`, null except in a start-up step on a new instance, where it holds each
+repo's prime outcome: `reattached`, `unconfirmed` (typed, but no client showed within `AGENT_SLOT_REX_PRIME_WAIT`
+seconds, 5), `already-open`, `no-session`, `no-tab`, `not-idle`, `prime-not-running`, `rex-server-restarted`,
+`rex-server-down`, or the reason of the error that stopped that repo's check. A timer pass with `changed` true found
+work no push had brought.
 `~/.local/state/agent-slot/push.log` holds one line per push: when it began, the verb and its slots, the result
 (`restored`, `deferred` with the reason in `detail`, `restore-failed`, `timed-out`, or `skipped`), the helper's exit
 code, the time taken, and the helper's last line on a failure. Each of these logs moves to `<log>.1` past 1 MiB. A timer

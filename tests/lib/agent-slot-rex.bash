@@ -7,7 +7,8 @@
 # rex answers from files under $STUBS/rexdata: sessions.json for `ls`, session-<id>.json for `session inspect`, and
 # process-<block>.json for `block call process`. `new` adds the session it makes to sessions.json and writes its
 # session-<id>.json, so a later lookup or inspect finds it; `window new` adds its window to the session's file and starts
-# its block's command, as ps sees it; `window rename` changes the window's label there. As Rex does, rex refuses a tab
+# its block's command, as ps sees it; `window rename` changes the window's label there; `send` to a block that
+# attaches_on_send names adds a client of the prime on that block's terminal. As Rex does, rex refuses a tab
 # label longer than 128 characters with exit 2 and the same two stderr lines, and a subcommand named by rex_fails fails
 # as told. rex refuses any call whose first argument is not --autostart=false, and logs the call without it; every raw
 # argv also goes to $STUBS/rex-argv.log. `version --json` answers with the build rex_versions set, 0.0.1 by default.
@@ -30,7 +31,7 @@
 # present every call fails as ssh does, and with $STUBS/ssh/hang every call hangs. systemctl reports each unit active
 # unless $STUBS/units/<unit> says otherwise, and rex-server.service's MainPID as $STUBS/units/rex-server.service.pid,
 # else $REX_STUB_PID, unless $STUBS/units/show-fails makes `show` fail as an unreachable user manager does. ps reports
-# $STUBS/cgroup.txt for `-o cgroup=`, and $STUBS/tty/<pid> for `-o tty=`.
+# $STUBS/cgroup.txt for `-o cgroup=`, $STUBS/tty/<pid> for `-o tty=`, and the command runs gave a pid for `-o args=`.
 
 # shellcheck disable=SC2034 # the suites that load this file run it
 AGENT_SLOT_REX="$BATS_TEST_DIRNAME/../scripts/agent-slot-rex/agent-slot-rex"
@@ -136,6 +137,10 @@ case "$1 $2" in
     printf "{\"child\":{\"pid\":%s}}\n" "$((9000 + n))" >"$STUBS/rexdata/process-blk-new-$n.json"
     printf "%s %s\n" "$((9000 + n))" "$*" >>"$STUBS/ps.txt"
     echo "{\"window_id\":\"win-new-$n\",\"block_ids\":[\"blk-new-$n\"]}" ;;
+  "send -s")
+    if [ -e "$STUBS/rexdata/attaches-on-send-$5" ]; then
+      printf "/dev/%s\n" "$(cat "$STUBS/rexdata/attaches-on-send-$5")" >>"$STUBS/tmux-default/list-clients.out"
+    fi ;;
   "actions --json") cat "$STUBS/rexdata/actions.json" 2>/dev/null || echo "{\"actions\":[{\"name\":\"agent_slot_new\"}]}" ;;
   "version --json") echo "{\"rex_version\":\"$(cat "$STUBS/rexdata/version" 2>/dev/null || echo 0.0.1)\"}" ;;
   "server status")
@@ -215,6 +220,7 @@ answer ssh "$verb"'
 case " $* " in
   *" -o cgroup= "*) cat "$STUBS/cgroup.txt" 2>/dev/null ;;
   *" -o tty= "*) cat "$STUBS/tty/${!#}" 2>/dev/null || echo "?" ;;
+  *" -o args= "*) awk -v p="${!#}" '"'"'$1 == p { sub(/^[0-9]+ /, ""); print; exit }'"'"' "$STUBS/ps.txt" ;;
   *) cat "$STUBS/ps.txt" ;;
 esac'
   stub rexurrect 'exit 0'
@@ -333,6 +339,27 @@ on_tty() {
 # `tmux list-clients -F '#{client_tty}'` prints them.
 prime_clients() {
   tmux_default_answer list-clients 0 "$(printf '/dev/%s\n' "$@")"
+}
+
+# at_prompt BLOCK PID TTY: the block's own process is PID, a zsh on terminal TTY sitting at its prompt, so its terminal's
+# foreground process is the shell itself.
+at_prompt() {
+  on_tty "$1" "$2" "$3"
+  printf '{"child":{"pid":%s,"name":"zsh"},"foreground":{"pid":%s,"name":"zsh"}}\n' "$2" "$2" \
+    >"$STUBS/rexdata/process-$1.json"
+}
+
+# running_in BLOCK PID TTY PROGRAM: as at_prompt, except that the shell runs PROGRAM in the foreground.
+running_in() {
+  on_tty "$1" "$2" "$3"
+  printf '{"child":{"pid":%s,"name":"zsh"},"foreground":{"pid":%s,"name":"%s"}}\n' "$2" "$(($2 + 1))" "$4" \
+    >"$STUBS/rexdata/process-$1.json"
+}
+
+# attaches_on_send BLOCK TTY: text sent to the block starts a tmux client of the prime on TTY, as the prime command
+# typed at its shell's prompt does.
+attaches_on_send() {
+  printf '%s\n' "$2" >"$STUBS/rexdata/attaches-on-send-$1"
 }
 
 # shown SESSION WINDOW: the session's active window, which a Rex.app selection moves, is WINDOW.

@@ -447,7 +447,8 @@ The tab of a repo's Rex session on the Linux server that holds a tmux client of 
 session on the server's default tmux server where the prime checkout's own work runs, which a map in the repo names for
 each repo that has one. What makes a tab the prime tab is that attachment, never its label or position: a renamed tab
 still is one, and a tab whose client detached is not. The new-agent key opens one, first in the session, while the
-session has none, and starts a slot once it does.
+session has none, and starts a slot once it does. After a Rex restart, rexurrect brings a prime tab back as a plain
+shell, and the *start-up step* makes it the prime again by running the key's prime command in it.
 
 ### Slot reconcile
 
