@@ -86,9 +86,7 @@ $REX_SERVER_VERSION; to move the server to it, in order: $steps" --value "$REX_S
 # The start-up step records, for the server instance it ran in, whether rexurrect restored the operator's own tabs.
 doctor_check_startup() {
   local outcome
-  [[ -r $AR_STARTUP_RECORD ]] || return 0
-  outcome=$(contract_json -r --arg i "$REX_SERVER_INSTANCE" 'select(.instance == $i) | .rexurrect // empty' \
-    "$AR_STARTUP_RECORD" || true)
+  outcome=$(startup_record_outcome "$REX_SERVER_INSTANCE")
   case $outcome in
     stopped | skipped)
       doctor_finding warning own-tabs-unrestored "the start-up step did not restore the operator's own tabs into this \
@@ -116,7 +114,8 @@ doctor_check_rexurrect() {
 do not come back after a Rex restart" --value "$AR_REXURRECT" --command "cd ~/dotfiles && scripts/rexurrect-deploy.sh"
 }
 
-# A running timer whose journal has no recent pass, or whose last three passes failed, is keeping no tab current.
+# A running timer whose journal has no recent pass, or whose last three passes failed or found the reconcile lock
+# held, is keeping no tab current: a busy pass journals ok, so a lock nobody releases would otherwise look healthy.
 doctor_check_journal() {
   local log=$AR_STATE/reconcile.log verdict
   [[ -s $log ]] || return 0
@@ -124,8 +123,10 @@ doctor_check_journal() {
   verdict=$(tail -n 3 "$log" | contract_json -s -r --argjson stale "$AR_RECONCILE_STALE" '
     (now - (.[-1].at | fromdateiso8601) | floor) as $age
     | if $age > $stale then "its newest pass ran \($age) s ago"
-      elif length == 3 and all(.[]; .ok == false)
-      then "its last 3 passes failed, the newest with \(.[-1].error.reason // "an error")"
+      elif length == 3 and all(.[]; .skipped == "reconcile-busy")
+      then "its last 3 passes found the reconcile lock held"
+      elif length == 3 and all(.[]; .ok == false or .skipped == "reconcile-busy")
+      then "its last 3 passes failed, the newest with \(.[-1].error.reason // .[-1].skipped // "an error")"
       else empty end' || true)
   [[ -n $verdict ]] || return 0
   doctor_finding error reconcile-stale "$AR_RECONCILE_TIMER is running, but the reconcile journal shows no recent \

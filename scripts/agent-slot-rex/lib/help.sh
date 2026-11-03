@@ -33,13 +33,17 @@ verb_help() {
       'for Enter after a detach; it ends once the slot is gone.' \
       'example: agent-slot-rex attach dotfiles/2 claude' ;;
     restore) printf '%s\n' \
-      'usage: agent-slot-rex restore [--tab | --wait-server | --by push|poll|reconnect] [--output json]' \
+      'usage: agent-slot-rex restore [--tab | --at-start | --by push|poll|reconnect] [--output json]' \
       "Gives every live slot a tab in its repo's session, resumes dormant slots, relabels tabs, and closes tabs" \
-      'whose slot is gone or that duplicate another. --tab runs it in a new tab of the agent-slots session;' \
-      "--wait-server first waits up to $AR_RESTORE_WAIT s for the server, logging to $AR_STATE/restore.log, and" \
-      'does nothing unless a Rex server started it. --by names what ran it: push, when the server asks after a' \
-      'launch or teardown, or poll and reconnect, from the follow loop. Every restore, sweep, and finish appends' \
-      "its plan, duration, and outcome to $AR_STATE/reconcile.log." \
+      'whose slot is gone or that duplicate another. With no Rex server answering, or before the start-up step has' \
+      "run in it (until the server is $AR_STARTUP_LIMIT s old), it changes nothing and fails with rex-server-down or" \
+      'startup-pending. --tab runs it in a new tab of the agent-slots session. --at-start is the start-up step Rex' \
+      "runs when it loads: it waits up to $AR_STARTUP_WAIT s for the server, runs rexurrect's restore once per" \
+      "server instance (up to $AR_REXURRECT_BOUND s), records the instance in $AR_STARTUP_RECORD, then restores," \
+      "logging to $AR_STATE/restore.log; it does nothing unless a Rex server started it. --by names what ran it:" \
+      "push, after agent-slot's launch or teardown, poll, from agent-slot-reconcile.timer each minute, or" \
+      'reconnect, from the follow loop; such a pass exits 0 when it changes nothing, and says why under skipped.' \
+      "Every restore, sweep, and finish appends its plan, duration, and outcome to $AR_STATE/reconcile.log." \
       'example: agent-slot-rex restore' ;;
     follow) printf '%s\n' 'usage: agent-slot-rex follow' \
       "Restores every $AR_POLL_INTERVAL s, and at once when the server answers after the Mac slept or a call could" \

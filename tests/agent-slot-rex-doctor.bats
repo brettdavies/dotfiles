@@ -134,6 +134,18 @@ startup_record() {
   jaq -e '.message | contains("last 3 passes failed")' <<<"$(finding reconcile-stale)"
 }
 
+@test "doctor reports reconcile-stale for three passes in a row that found the reconcile lock held" {
+  local i
+  for i in 90 60 30; do
+    jaq -n -c --arg at "$(jaq -n -r --argjson s "$i" 'now - $s | floor | todate')" '{at: $at, by: "poll", pid: 1,
+      ok: true, ms: 5, changed: false, plan: null, skipped: "reconcile-busy", rexurrect: null, error: null}' \
+      >>"$STATE/reconcile.log"
+  done
+  doctor
+  [ "$status" -eq 1 ]
+  jaq -e '.message | contains("last 3 passes found the reconcile lock held")' <<<"$(finding reconcile-stale)"
+}
+
 @test "a stale journal is not reported while the reconcile timer is off, which its own finding covers" {
   journal_line 600 true
   unit agent-slot-reconcile.timer inactive

@@ -42,5 +42,6 @@ cmd_finish() {
   AR_DONE="agent-slot finish tore $key down"
   reconcile finish
   contract_ok "$(contract_json -c --arg k "$key" '{key: $k, torn_down: true, reconcile: .}' <<<"$RECONCILE_RESULT")" '
-    "\(.key) is torn down", (.reconcile.closed[] | "closed: \(.label) (\(.why))")'
+    "\(.key) is torn down", (.reconcile.closed[] | "closed: \(.label) (\(.why))"),
+    (.reconcile.skipped | select(. != null) | "tabs not reconciled: \(.message)")'
 }

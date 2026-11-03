@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 # The Linux server's scheduled jobs: the vault agent-workspace sync and its health check, the OpenClaw settings backup,
-# the GitHub stars sync, the daily brew and uv tool upgrades, and the automatic agent slot sweep. They run as systemd user timers shipped in shared
+# the GitHub stars sync, the daily brew and uv tool upgrades, the automatic agent slot sweep, and the agent slot tab
+# reconcile. They run as systemd user timers shipped in shared
 # stow packages, so every unit carries ConditionHost=bigdaddy: stow-deploy restarts every timer a package ships on
 # each Linux deploy, and `restart` starts a timer whether or not it was enabled. scripts/host-jobs-enable.sh enables
 # them on that host and retires the crontab lines they replace. The same script enables the host's long-running user
@@ -24,7 +25,9 @@ HOST_JOBS=(
   "$LOCAL_UNITS/brew-upgrade"
   "$LOCAL_UNITS/uv-tools-upgrade"
   "$LOCAL_UNITS/agent-slot-sweep"
+  "$LOCAL_UNITS/agent-slot-reconcile"
 )
+RECONCILE="$LOCAL_UNITS/agent-slot-reconcile"
 
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
@@ -219,6 +222,32 @@ EOF
   run env XDG_RUNTIME_DIR="$runtime" systemd-analyze --user verify "$REX_SERVER"
   [ "$status" -eq 0 ]
   [[ $output != *"rex-server.service:"* ]]
+}
+
+@test "the reconcile timer runs the helper's timer pass every minute, and catches up after downtime" {
+  [ "$(_unit_key "$RECONCILE.service" Service ExecStart)" = '%h/.local/bin/agent-slot-rex restore --by poll --output json' ]
+  [ "$(_unit_key "$RECONCILE.timer" Timer OnCalendar)" = 'minutely' ]
+  [ "$(_unit_key "$RECONCILE.timer" Timer AccuracySec)" = 1s ]
+  [ "$(_unit_key "$RECONCILE.timer" Timer Persistent)" = true ]
+}
+
+@test "the reconcile and sweep services set no sandboxing, which the slots their passes resume would inherit" {
+  local unit
+  for unit in "$RECONCILE.service" "$LOCAL_UNITS/agent-slot-sweep.service"; do
+    run grep -nE '^(PrivateTmp|ProtectHome|PrivateDevices|NoNewPrivileges)=' "$unit"
+    [ "$status" -eq 1 ] || { echo "$unit: $output"; return 1; }
+  done
+}
+
+@test "systemd accepts the reconcile units" {
+  command -v systemd-analyze >/dev/null 2>&1 || skip "systemd-analyze not installed"
+  # verify fails a unit whose ExecStart names a missing file, and the service runs the stowed helper.
+  [ -x "$HOME/.local/bin/agent-slot-rex" ] || skip "agent-slot-rex not deployed"
+  local runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+  [ -d "$runtime" ] || skip "no user runtime directory"
+  run env XDG_RUNTIME_DIR="$runtime" systemd-analyze --user verify "$RECONCILE.service" "$RECONCILE.timer"
+  [ "$status" -eq 0 ]
+  [[ $output != *"agent-slot-reconcile."* ]]
 }
 
 # --- enable script ------------------------------------------------------------

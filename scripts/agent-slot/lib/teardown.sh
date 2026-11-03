@@ -196,7 +196,7 @@ cmd_sweep() {
       [[ $TEARDOWN_RESULT != torn-down ]] || removed+=("$(slot_key "$repo" "$n")")
     done < <(slot_numbers "$repo")
   done < <(slot_repos)
-  ((${#removed[@]} == 0)) || push_clients sweep "${removed[@]}"
+  ((${#removed[@]} == 0)) || push_restore sweep "${removed[@]}"
   out=$(printf '%s\n' "${results[@]}" | contract_json -s -c --argjson yes "${SWEEP_YES:-0}" '
     map(select(. != null)) as $r
     | {dry_run: ($yes != 1),

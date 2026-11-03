@@ -21,8 +21,8 @@
 #   AGENT_SLOT_REX_HOMEBREW       the Homebrew prefix, whose bin moves to the front of PATH
 #   AGENT_SLOT_REX_APP_PATHS      where to look for the rex CLI when REX_BIN_DIR has none, colon-separated
 #   AGENT_SLOT_REX_STATE_DIR      the state directory: logs, the reconcile journal, the start-up record
-#   AGENT_SLOT_REX_RETRY_DELAY    seconds between restore --wait-server's probes, and between an attach's resumes
-#   AGENT_SLOT_REX_RESTORE_WAIT   seconds restore --wait-server waits for the server
+#   AGENT_SLOT_REX_RETRY_DELAY    seconds between the start-up step's probes of the Rex server, and between an attach's
+#                                 resumes
 #   AGENT_SLOT_REX_LOCK_WAIT      seconds a restore, sweep, or finish waits for the one ahead of it
 #   AGENT_SLOT_REX_POLL_INTERVAL  seconds between the follow loop's restores
 #   AGENT_SLOT_REX_TICK           seconds between the follow loop's checks
@@ -64,6 +64,8 @@ source "$AR_LIB/lock.sh"
 source "$AR_LIB/journal.sh"
 # shellcheck source=lib/reconcile.sh
 source "$AR_LIB/reconcile.sh"
+# shellcheck source=lib/startup.sh
+source "$AR_LIB/startup.sh"
 # shellcheck source=lib/launch.sh
 source "$AR_LIB/launch.sh"
 # shellcheck source=lib/attach.sh
@@ -148,9 +150,9 @@ main() {
       case ${args[*]} in
         '') cmd_restore ;;
         --tab) cmd_restore_tab ;;
-        --wait-server) cmd_restore_at_start ;;
+        --at-start) cmd_restore_at_start ;;
         '--by push' | '--by poll' | '--by reconnect') cmd_restore "${args[1]}" ;;
-        *) usage_fail "restore takes --tab, --wait-server, or --by push|poll|reconnect" "${args[*]}" ;;
+        *) usage_fail "restore takes --tab, --at-start, or --by push|poll|reconnect" "${args[*]}" ;;
       esac
       ;;
     follow)

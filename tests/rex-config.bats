@@ -16,7 +16,7 @@ SLOTS="$REX_DIR/agent-slots.lua"
   grep -qx 'require("layout")' "$INIT"
   grep -qx 'require("agent-slots")' "$INIT"
   [ "$(grep -c 'rex.exec.start' "$INIT")" -eq 2 ]
-  grep -q 'rex.exec.start({ os.getenv("HOME") .. "/.local/bin/agent-slot-rex", "restore", "--wait-server" }, { detach = true })' \
+  grep -q 'rex.exec.start({ os.getenv("HOME") .. "/.local/bin/agent-slot-rex", "restore", "--at-start" }, { detach = true })' \
     "$INIT"
   grep -q 'rex.exec.start({ os.getenv("HOME") .. "/.local/bin/agent-slot-rex", "follow" }, { detach = true })' "$INIT"
 }
