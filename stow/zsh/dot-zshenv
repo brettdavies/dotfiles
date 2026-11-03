@@ -1,5 +1,13 @@
 # ~/.zshenv - sourced by ALL zsh invocations (interactive + non-interactive)
 # Ensures secrets and environment are available to SSH commands, cron, etc.
+
+# ssh runs each `Match exec` test in ~/.ssh/config as `$SHELL -c '<test>'`, on every ssh and every git fetch or push
+# over ssh, and reading the profile costs about 0.4 s per test. Those tests open with this exact no-op and need only
+# builtins and tools /usr/bin carries, so nothing the profile sets changes their answer.
+case "${ZSH_EXECUTION_STRING-}" in
+    ': ssh-match-exec; '*) return 0 ;;
+esac
+
 if [ -z "${DOTFILES_SHELL_DIR:-}" ] && [ -f "$HOME/.profile" ]; then
     . "$HOME/.profile"
 fi
