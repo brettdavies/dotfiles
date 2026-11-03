@@ -435,9 +435,10 @@ Rotate via `op read "op://secrets-dev/dotfiles_RELEASE_TOKEN/credential" | gh se
 `--tag YYYY.MM.DD` explicitly. Confirm detection without a full run via `scripts/generate-changelog.py --print-tag`.
 
 **`--from-dev-prs` lists PRs that already shipped, or misses recent ones:** The window opens at the previous release's
-backport commit on `dev` (`chore(release): sync dev after <tag>`), or at the previous tag when there is none. PRs merged
-after the previous cut but before that backport are carried over, and PR numbers the changelog already lists are
-dropped. Find the boundary with
+backport commit on `dev` (`chore(release): sync dev after <tag>`). With no backport, it opens at the newest `dev` commit
+at or before the previous tag's commit time, and the generator names that commit on stderr. After a backport boundary,
+PRs merged after the previous cut but before that backport are carried over, and PR numbers the changelog already lists
+are dropped. Find the boundary with
 `git log origin/dev --format='%h %s' | grep -E '^[0-9a-f]+ chore\(release\): (sync dev after|backport) '`, list what
 follows it with `git log <boundary>..origin/dev --format='%s'`, and compare that against the section. Fix the previous
 section on `main` (via a backport) if it is what is stale.
