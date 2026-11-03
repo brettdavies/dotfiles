@@ -275,9 +275,38 @@ in_rex_session() {
   run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
   [ "$status" -eq 0 ]
   called '^rex window close -s sess-a win-a$'
-  not_called '^agent-slot (repos|launch)'
+  not_called '^agent-slot launch'
   not_called '^rex window (rename|move)'
   not_called '^tmux '
+}
+
+@test "a key's tab reads the repos while it waits to be shown, and launches from that one read" {
+  in_rex_session X '[{"window_id": "win-o", "label": "1: notes", "blocks": ["blk-o"]},
+    {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
+  shown sess-a win-o
+  repos X
+  run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^agent-slot repos ' "$CALLS")" -eq 1 ]
+  : >"$CALLS"
+  shown sess-a win-a
+  slot_answer launch 0 "$LAUNCHED"
+  run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^agent-slot repos ' "$CALLS")" -eq 1 ]
+  called '^agent-slot launch X '
+}
+
+@test "a key's tab whose early read of the repos fails reads them again once shown, with the launch's retry" {
+  in_rex_session X
+  shown sess-a win-a
+  slot_answer repos 0 1 '' '{"ok": false, "reason": "script-error", "exit_code": 1, "message": "boom"}'
+  repos X
+  slot_answer launch 0 "$LAUNCHED"
+  run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^agent-slot repos ' "$CALLS")" -eq 2 ]
+  called '^agent-slot launch X '
 }
 
 @test "with a terminal, a tab the app never made active goes on after Enter" {

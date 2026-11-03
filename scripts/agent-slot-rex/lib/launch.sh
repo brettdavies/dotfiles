@@ -199,6 +199,39 @@ launch_wait_shown() {
   exit 0
 }
 
+# A key's tab reads the repos in the background while it waits for Rex.app to show it, a wait of 2 to 3 s, since
+# the read changes nothing. launch_repos takes that read, or reads again through launch_call, with its retry, when the
+# early one failed. The exit of a tab that is never shown waits for the read, so it outlives no tab.
+LAUNCH_REPOS_EARLY='' LAUNCH_REPOS_PID=''
+launch_repos_early() {
+  LAUNCH_REPOS_EARLY=$(mktemp)
+  (server_call 30 repos && printf '%s\n' "$SERVER_OUT" >"$LAUNCH_REPOS_EARLY") </dev/null >/dev/null 2>&1 &
+  LAUNCH_REPOS_PID=$!
+  contract_on_exit launch_repos_reap
+}
+
+launch_repos_reap() {
+  [[ -z $LAUNCH_REPOS_PID ]] || wait "$LAUNCH_REPOS_PID" 2>/dev/null || true
+  LAUNCH_REPOS_PID=
+  [[ -z $LAUNCH_REPOS_EARLY ]] || rm -f "$LAUNCH_REPOS_EARLY"
+  LAUNCH_REPOS_EARLY=
+}
+
+# Sets SERVER_OUT to the server's repos.
+launch_repos() {
+  local early=''
+  if [[ -n $LAUNCH_REPOS_PID ]] && wait "$LAUNCH_REPOS_PID" && [[ -s $LAUNCH_REPOS_EARLY ]]; then
+    early=$(<"$LAUNCH_REPOS_EARLY")
+  fi
+  LAUNCH_REPOS_PID=
+  launch_repos_reap
+  if [[ -n $early ]]; then
+    SERVER_OUT=$early
+  else
+    launch_call 30 repos
+  fi
+}
+
 # Makes this tab the repo's prime tab, first in its session and labelled with the prime session's name, and becomes the
 # prime's attach. A prime that is not running stops the tab with the reason, since attaching would fail.
 launch_prime() {
@@ -239,10 +272,11 @@ cmd_launch() {
       || usage_fail "--here runs only in a Rex terminal, which sets REX_SESSION and REX_BLOCK"
     rex_window_of "$REX_SESSION" "$REX_BLOCK"
     LAUNCH_WINDOW=$REX_OUT
+    ((LAUNCH_WAIT_SHOWN == 0)) || launch_repos_early
     ((LAUNCH_WAIT_SHOWN == 0)) || launch_wait_shown
     ((LAUNCH_WAIT_SHOWN == 0)) || LAUNCH_SHOWN_AT=$(launch_now)
   fi
-  launch_call 30 repos
+  launch_repos
   LAUNCH_REPOS=$(contract_json -c '[.repos[].name]' <<<"$SERVER_OUT")
   launch_resolve_repo
   if ((LAUNCH_PICKED == 1 || LAUNCH_HERE == 0)); then
