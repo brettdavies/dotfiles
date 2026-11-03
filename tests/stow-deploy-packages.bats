@@ -78,9 +78,7 @@ _require_unlocked_checkout() {
 @test "STOW_FLAGS ignores systemd units on macOS only" {
   # Linux .service/.timer files scattered inside otherwise-shared packages
   # (stow/local, stow/rclone, stow/rust, stow/obsidian) must not symlink to ~/.config/systemd/user/
-  # on a Mac. File-extension regex is required because stow's --ignore
-  # filters file basenames, not directory names. The pattern lives inside
-  # an explicit Darwin gate.
+  # on a Mac. The patterns live inside an explicit Darwin gate.
   grep -q 'if \[ "\$(uname -s)" = "Darwin" \]; then' "$SCRIPT"
   grep -q "STOW_FLAGS+=(--ignore='\\\\.(service|timer)\$')" "$SCRIPT"
   grep -qF "STOW_FLAGS+=(--ignore='(^|/)(slot-startup|tab-numbers)\\.lua$')" "$SCRIPT"

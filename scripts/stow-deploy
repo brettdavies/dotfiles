@@ -302,14 +302,13 @@ STOW_FLAGS+=(--ignore='\.DS_Store$')
 
 # macOS: skip Linux-only systemd user units that share packages with cross-platform
 # content (e.g. stow/local holds both ~/.local/bin/* helpers AND ~/.config/systemd/user/*
-# units). Stow's --ignore matches file basenames (not directories), so we pattern on
-# the file extension. Every .service and .timer file in this repo is a systemd unit
-# (verified across stow/{local,rclone,rust,obsidian}), so the
-# pattern is safe to apply broadly. No-op on Linux.
+# units). Every .service and .timer file in this repo is a systemd unit, so the
+# extension pattern is safe to apply broadly. No-op on Linux.
 if [ "$(uname -s)" = "Darwin" ]; then
   STOW_FLAGS+=(--ignore='\.(service|timer)$')
   # The start-up step that restores the slot tabs and the watcher that numbers every tab run only beside the slots, on
-  # the Linux server.
+  # the Linux server. Stow matches an ignore against the end of the node's path under the target
+  # (.config/rex/slot-startup.lua), so a name anchored with ^ never matches a nested file.
   STOW_FLAGS+=(--ignore='(^|/)(slot-startup|tab-numbers)\.lua$')
 fi
 
