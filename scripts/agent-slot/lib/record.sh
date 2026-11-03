@@ -87,7 +87,7 @@ _record_lock() {
   local file=$1 key=$2 mode=$3 secs=${4:-0} fd
   [[ -z ${RECORD_LOCK_FDS[$key]:-} ]] || return 0
   mkdir -p "${file%/*}"
-  exec {fd}>>"$file"
+  exec {fd}>>"$file" || return 1
   if [[ $mode == --nowait ]]; then
     flock -n "$fd" || {
       exec {fd}>&-

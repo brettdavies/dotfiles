@@ -144,6 +144,15 @@ permission request, \`AskUserQuestion\`, and plan mode here; do the work another
 decision only a person can make to the session your brief reports to."* ]]
 }
 
+@test "a slot lock that cannot be opened is logged, and the context still prints" {
+  slot repo 1 '{"task": "t"}'
+  mkdir -p "$AGENT_SLOT_ROOT/repo/.1.lock"
+  run start s1 startup
+  [ "$status" -eq 0 ]
+  jaq -e '.hookSpecificOutput.additionalContext | contains("repo/1")' <<<"$output"
+  grep -q 'slot repo/1 lock not taken' "$AGENT_SLOT_STATE_DIR/logs/hooks.log"
+}
+
 @test "a slot with no task says so" {
   slot repo 1
   run start s1 startup
