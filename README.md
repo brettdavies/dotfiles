@@ -279,6 +279,16 @@ dialog still shows for a path it does not trust. Claude skips its own bypass war
 sets `skipDangerousModePermissionPrompt` to `true`, as this repo's settings do; `agent-slot doctor` warns when it does
 not.
 
+Nobody watches a slot's tab, so no agent there waits on a dialog. `slot-unattended.sh` (in `stow/claude/dot-claude/`)
+answers every dialog Claude Code raises in a slot, for the slot's own Claude and for its subagents. It denies a
+permission request, which an ask rule still raises in bypass mode, and a call to `AskUserQuestion`, `EnterPlanMode`, or
+`ExitPlanMode`. The denial message tells the agent to do the work another way within its brief, or to send the decision
+to the session its brief reports to. Each denial appends a `prompt-denied` event to
+`~/.local/state/agent-slot/ledger.jsonl` with the slot, the tool, and the first 200 characters of its input. A dialog
+still waiting after about 6 s got past the hook, for example because the hook failed, which leaves the dialog to show.
+That wait appends a `prompt-waiting` event, and `slot-status.sh` marks the tab blocked. Outside a slot the hook does
+nothing, so an ask rule prompts there as it always has.
+
 A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
 merged with none open, the operator finished it, whatever state its PRs are in, or its agent released it with no PR
 open) and nothing in it is missing from GitHub. A commit is safe there once a PR's final head holds it, an origin branch

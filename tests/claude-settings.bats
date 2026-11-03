@@ -98,7 +98,7 @@ REPO="$BATS_TEST_DIRNAME/.."
 @test "slot-status.sh is registered async on every status event" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   run jaq -c '["SessionStart", "UserPromptSubmit", "PostToolUse", "PermissionRequest", "Elicitation", "PreToolUse",
-      "Stop", "StopFailure", "SessionEnd"]
+      "Notification", "Stop", "StopFailure", "SessionEnd"]
     - [.hooks | to_entries[]
        | select(any(.value[]; any(.hooks[]; .command == "~/.claude/slot-status.sh" and .async == true)))
        | .key]' "$SETTINGS"
@@ -109,6 +109,22 @@ REPO="$BATS_TEST_DIRNAME/.."
   [ "$output" = '["AskUserQuestion"]' ]
   run jaq -c '[.hooks.SessionStart[] | .hooks[] | select(.command == "~/.claude/slot-context.sh")] | length' "$SETTINGS"
   [ "$output" = 1 ]
+}
+
+# A slot's tab has nobody to answer a dialog, so slot-unattended.sh answers each one Claude Code raises there: a
+# permission request, the tools that wait on a person, and, after about 6 s, a dialog still waiting. The first two are
+# synchronous, since the answer is their output. Neither sets onFailure: a hook that fails or times out leaves the
+# dialog to show, as it does without the hook, rather than denying the call in every session on the host.
+@test "slot-unattended.sh answers each dialog a slot raises, and a failed run leaves the dialog to show" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -c '[.hooks | to_entries[] | .key as $event | .value[]
+    | {event: $event, matcher: (.matcher // ""), hook: (.hooks[] | select(.command == "~/.claude/slot-unattended.sh"))}
+    | {event, matcher, async: (.hook.async // false), onFailure: (.hook.onFailure // "unset")}] | sort_by(.event)' \
+    "$SETTINGS"
+  echo "slot-unattended.sh registrations: $output"
+  [ "$output" = '[{"event":"Notification","matcher":"permission_prompt|elicitation_dialog|agent_needs_input",'\
+'"async":true,"onFailure":"unset"},{"event":"PermissionRequest","matcher":"","async":false,"onFailure":"unset"},'\
+'{"event":"PreToolUse","matcher":"AskUserQuestion|EnterPlanMode|ExitPlanMode","async":false,"onFailure":"unset"}]' ]
 }
 
 # With no matcher the guard sees every tool, MCP tools and subagents' calls included.
@@ -206,17 +222,21 @@ REPO="$BATS_TEST_DIRNAME/.."
   run jaq -r '.hooks.PreToolUse[].hooks[] | select(.type == "command" and .onFailure != "block") | .command' "$SETTINGS"
   [ "$status" -eq 0 ]
   # shellcheck disable=SC2088 # settings.json names hooks by the literal ~ path
-  local exempt=('~/.claude/slot-status.sh' '~/.claude/skills/1password/hooks/op-skill-nudge.sh')
+  # slot-unattended.sh denies only in a slot, and a failed run there leaves the dialog to show.
+  local exempt=('~/.claude/slot-status.sh' '~/.claude/skills/1password/hooks/op-skill-nudge.sh'
+    '~/.claude/slot-unattended.sh')
   local cmd missing=()
   while IFS= read -r cmd; do
     [ -n "$cmd" ] || continue
     [[ " ${exempt[*]} " == *" $cmd "* ]] || missing+=("$cmd")
   done <<<"$output"
   echo "PreToolUse hooks without onFailure \"block\": ${missing[*]:-none}"
-  echo "add \"onFailure\": \"block\" to each, or add it to this test's exemptions if it never denies"
+  echo "add \"onFailure\": \"block\" to each, or add it to this test's exemptions if it never denies or is meant"
+  echo "to leave the call to its dialog when it fails"
   [ "${#missing[@]}" -eq 0 ]
   run jaq -r '.hooks.PreToolUse[].hooks[] | select(.command == "~/.claude/slot-status.sh"
-    or .command == "~/.claude/skills/1password/hooks/op-skill-nudge.sh") | .onFailure // "unset"' "$SETTINGS"
+    or .command == "~/.claude/skills/1password/hooks/op-skill-nudge.sh" or .command == "~/.claude/slot-unattended.sh")
+    | .onFailure // "unset"' "$SETTINGS"
   [ "$(sort -u <<<"$output")" = unset ]
 }
 

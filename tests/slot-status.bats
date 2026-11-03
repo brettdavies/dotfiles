@@ -123,6 +123,21 @@ wrapped() { printf '\033Ptmux;\033\033]7501;%s\007\033\\' "$1"; }
   [ "$(cat "$T/tty-7")" = "$(wrapped state=blocked:kind=question:app=claude-code)" ]
 }
 
+@test "a Notification of a waiting dialog reports blocked; one of another kind reports nothing" {
+  notify() {
+    jaq -n -c --arg t "$1" '{hook_event_name: "Notification", session_id: "s1", notification_type: $t}' |
+      "$T/pane-shell" "$FAKE/claude" -c "$RUNS" claude "$HOOK"
+  }
+  notify idle_prompt
+  [ -z "$(option @slot_status)" ]
+  notify permission_prompt
+  [ "$(option @slot_status)" = state=blocked:kind=permission:app=claude-code ]
+  for type in elicitation_dialog agent_needs_input; do
+    notify "$type"
+    [ "$(option @slot_status)" = state=blocked:kind=question:app=claude-code ]
+  done
+}
+
 @test "each event maps to its state" {
   for pair in SessionStart:idle UserPromptSubmit:working PostToolUse:working Elicitation:blocked:kind=question \
     StopFailure:error SessionEnd:clear; do

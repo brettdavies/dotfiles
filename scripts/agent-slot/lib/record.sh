@@ -87,7 +87,7 @@ _record_lock() {
   local file=$1 key=$2 mode=$3 secs=${4:-0} fd
   [[ -z ${RECORD_LOCK_FDS[$key]:-} ]] || return 0
   mkdir -p "${file%/*}"
-  exec {fd}>>"$file"
+  exec {fd}>>"$file" || return 1
   if [[ $mode == --nowait ]]; then
     flock -n "$fd" || {
       exec {fd}>&-
@@ -185,7 +185,7 @@ ledger_append() {
   mkdir -p "${AS_LEDGER%/*}"
   line=$(contract_json -c --arg schema "$CONTRACT_SCHEMA" --arg ts "$(contract_now)" --arg event "$1" \
     '{schema: $schema, ts: $ts, event: $event} + .' <<<"$2")
-  exec {fd}>>"$AS_LEDGER.lock"
+  exec {fd}>>"$AS_LEDGER.lock" || return 1
   flock -w 5 "$fd" || true
   printf '%s\n' "$line" >>"$AS_LEDGER"
   exec {fd}>&-
