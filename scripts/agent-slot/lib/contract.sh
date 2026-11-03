@@ -78,6 +78,7 @@ agent-slot-timed-out          1     true       1            run
 wrong-host                    2     false      0            run
 rex-server-down               78    false      0            run
 startup-pending               1     true       3            retry
+rex-server-restarted          1     true       1            retry
 rex-server-foreign            78    false      0            ask-operator
 rex-restart-pending           0     false      0            ask-operator
 reconcile-timer-inactive      78    false      0            run

@@ -14,8 +14,10 @@
 # `server status` answers as the running server pid $REX_STUB_PID, instance $REX_STUB_INSTANCE, started at
 # $REX_STUB_STARTED (default long past the start-up limit), and the server build rex_versions set, else the CLI's, or
 # fails while $STUBS/rexdata/server-down exists; $STUBS/rexdata/instance and started, when present, stand in for a
-# server that restarted while a pass ran. `window close` of a window with $STUBS/rexdata/closed-elsewhere-<id>
-# present fails as a close of a tab already gone does, after removing it from its session's file.
+# server that restarted while a pass ran, and restarts_after and stops_after make the server restart or stop once a
+# given subcommand has answered. `kill` removes each session it names. `window close` of a window with
+# $STUBS/rexdata/closed-elsewhere-<id> present fails as a close of a tab already gone does, after removing it from its
+# session's file.
 #
 # agent-slot answers each verb from $STUBS/slot/<verb>.{out,err,rc}, or from <verb>.<n>.* on its nth call, and logs the
 # AGENT_SLOT_REX_CLIENT and XDG_RUNTIME_DIR it was given as `agent-slot-client <name>` and `agent-slot-runtime <dir>`.
@@ -78,6 +80,7 @@ if [ -e "$fails" ]; then
   tail -n +2 "$fails" >&2
   exit "$(head -1 "$fails")"
 fi
+restarts="$STUBS/rexdata/restarts-after-$1-$2" stops="$STUBS/rexdata/stops-after-$1-$2"
 label= sub=
 case "$1 $2" in
   "window rename") label=$6 sub="window rename" ;;
@@ -148,8 +151,17 @@ case "$1 $2" in
         (\"win-new-\" + \$n), label: \$l, layers: [{blocks: [{block_id: (\"blk-new-\" + \$n)}]}]}]}" \
         >"$STUBS/rexdata/session-sess-$2.json"
       echo "{\"session_id\":\"sess-$2\",\"initial_windows\":[{\"window_id\":\"win-new-$n\",\"block_ids\":[\"blk-new-$n\"]}]}"
+    elif [ "$1" = kill ]; then
+      shift
+      for sid in "$@"; do
+        jaq -c --arg s "$sid" "del(.sessions[] | select(.session_id == \$s))" "$STUBS/rexdata/sessions.json" \
+          >"$STUBS/rexdata/sessions.new" && mv "$STUBS/rexdata/sessions.new" "$STUBS/rexdata/sessions.json"
+        rm -f "$STUBS/rexdata/session-$sid.json"
+      done
     fi ;;
-esac' nolog
+esac
+[ ! -e "$restarts" ] || mv "$restarts" "$STUBS/rexdata/instance"
+[ ! -e "$stops" ] || mv "$stops" "$STUBS/rexdata/server-down"' nolog
   stub agent-slot '
 printf "agent-slot-client %s\n" "${AGENT_SLOT_REX_CLIENT:-}" >>"$CALLS"
 printf "agent-slot-runtime %s\n" "${XDG_RUNTIME_DIR:-unset}" >>"$CALLS"
@@ -299,6 +311,17 @@ runs() {
 starts_on_inspect() {
   printf '{"child":{"pid":%s}}\n' "$3" >"$STUBS/rexdata/process-$2.json"
   printf '%s %s\n' "$3" "$4" >"$STUBS/rexdata/starts-on-inspect-$1"
+}
+
+# restarts_after 'WORD WORD' [INSTANCE]: once rex has answered that subcommand, the Rex server answers as a new
+# instance, 99999999-aaaa-bbbb-cccc-dddddddddddd unless given, as when it restarts in the middle of a pass.
+restarts_after() {
+  printf '%s\n' "${2:-99999999-aaaa-bbbb-cccc-dddddddddddd}" >"$STUBS/rexdata/restarts-after-${1// /-}"
+}
+
+# stops_after 'WORD WORD': once rex has answered that subcommand, no Rex server answers.
+stops_after() {
+  : >"$STUBS/rexdata/stops-after-${1// /-}"
 }
 
 # rex_fails 'WORD WORD' RC STDERR: rex exits RC on that subcommand, printing STDERR, and changes nothing.

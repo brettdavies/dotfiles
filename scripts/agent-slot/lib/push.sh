@@ -12,8 +12,9 @@
 # down, the result, the helper's exit code, how long the push took, and a detail. The result is one of:
 #
 #   restored        the helper's restore ran its pass
-#   deferred        the helper's pass changed nothing on purpose, and detail names why: rex-server-down,
-#                   startup-pending, or reconcile-busy; the start-up step or the next timer pass reconciles instead
+#   deferred        the helper's pass stopped short on purpose, and detail names why: rex-server-down,
+#                   startup-pending, reconcile-busy, or rex-server-restarted; the start-up step or the next timer pass
+#                   reconciles instead
 #   restore-failed  the helper's restore failed; detail is the last line it printed
 #   timed-out       the push outlived AGENT_SLOT_PUSH_TIMEOUT seconds
 #   skipped         the helper ran the verb

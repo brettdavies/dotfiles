@@ -13,6 +13,11 @@
 # for their panes, so the start-up step's reconcile finds them keyed and not running, opens fresh tabs, and closes
 # rexurrect's.
 #
+# A pass pins the server instance it planned against (REX_PIN in rex.sh), and checks it before every tab change and once
+# after the last. When another instance answers, or none does, the pass makes no further change and ends as skipped
+# with rex-server-restarted or rex-server-down, journaling the part of its plan it carried out; a restore asked for by
+# hand fails with that error instead. A pass with nothing to change asks for no instance beyond its gate's.
+#
 # Every pass but the start-up step first goes through reconcile_gate: a Rex server must answer, and the start-up step
 # must have recorded its instance, unless the server has outlived AR_STARTUP_LIMIT, when the pass records rexurrect as
 # skipped and goes on. A pass that a timer, a push, or a teardown ran logs why it changed nothing and exits 0; a restore
@@ -26,6 +31,7 @@ RECONCILE_RESUMED=()
 RECONCILE_RESULT='{}'
 RECONCILE_SKIP=''
 RECONCILE_PAST_LIMIT=0
+RECONCILE_APPLIED='{"open":[],"rename":[],"close":[]}'
 
 # The label a slot's tab carries: its key, the label_name list gives it, else its task or branch for a server whose
 # dotfiles are older than this Mac's, whether Claude is still waiting on the folder trust dialog, and the first thing
@@ -39,6 +45,18 @@ RECONCILE_LABEL="$REX_LABEL_DEF"'def tab_rest:
         then " · trust needed" else "" end)
    + (if ((.needs_you // []) | length) > 0 then " · needs you: \(.needs_you[0].message)" else "" end));
 def tab_label: tab_rest | rex_label;'
+
+# keyed: a tab from rex_snapshot, with the key of the slot it belongs to (null when none) and whether its Claude pane's
+# attach loop runs. $key is SLOT_KEY_PATTERN, and rex_unnumbered comes from REX_LABEL_DEF.
+RECONCILE_KEYED='def keyed:
+  . as $tab
+  | (((.label // "") | rex_unnumbered | capture("^(?<k>" + $key + ")( |$)").k
+      | select(split("/")[0] == $tab.session)) // null) as $by_label
+  | (first(.commands[] | capture("agent-slot-rex attach (?<k>" + $key + ") (claude|files|git)").k)
+     // $by_label) as $key
+  | . + {key: $key,
+         running: ($key != null and (any(.commands[]; contains("agent-slot-rex attach \($key) claude"))
+           or ($by_label == $key and any(.commands[]; contains("agent-slot-rex launch"))))) };'
 
 # Sets RECONCILE_SLOTS to the server's slots, after resuming the dormant ones. A dormant slot whose resume finds it gone
 # is dropped; any other resume failure leaves it to its panes' attach loops.
@@ -65,16 +83,8 @@ reconcile_fetch() {
 
 # Usage: reconcile_plan <tabs-json> <slots-json>; prints {open, rename, close}.
 reconcile_plan() {
-  contract_json -n -c --argjson tabs "$1" --argjson slots "$2" --arg key "$SLOT_KEY_PATTERN" "$RECONCILE_LABEL"'
-    def keyed:
-      . as $tab
-      | (((.label // "") | rex_unnumbered | capture("^(?<k>" + $key + ")( |$)").k
-          | select(split("/")[0] == $tab.session)) // null) as $by_label
-      | (first(.commands[] | capture("agent-slot-rex attach (?<k>" + $key + ") (claude|files|git)").k)
-         // $by_label) as $key
-      | . + {key: $key,
-             running: ($key != null and (any(.commands[]; contains("agent-slot-rex attach \($key) claude"))
-               or ($by_label == $key and any(.commands[]; contains("agent-slot-rex launch"))))) };
+  contract_json -n -c --argjson tabs "$1" --argjson slots "$2" --arg key "$SLOT_KEY_PATTERN" \
+    "$RECONCILE_LABEL$RECONCILE_KEYED"'
     ($slots | map({(.key): .}) | add // {}) as $by_key
     | ($slots | map(select(.state == "active" or .state == "dormant"))) as $live
     | [$tabs[] | keyed | select(.key != null)] as $keyed
@@ -94,21 +104,29 @@ reconcile_plan() {
        close: ($gone + [.[].close[]] | map({session_id, window_id, key, label, why}))}'
 }
 
-# Opens the planned tabs, then relabels, then closes, so a repo's session is never left empty mid-way.
+# Opens the planned tabs, then relabels, then closes, so a repo's session is never left empty mid-way, and checks the
+# pinned instance once more after the last change. Sets RECONCILE_APPLIED to the part of the plan it carried out before
+# rex_pinned refused a change, the whole plan when none was refused.
 reconcile_apply() {
-  local plan=$1 key repo label sid wid
+  local plan=$1 key repo label sid wid opened=0 renamed=0 closed=0
   while IFS=$'\t' read -r key repo label; do
-    [[ -n $key ]] || continue
+    [[ -n $key && -z $REX_PIN_LOST ]] || continue
     reconcile_open_tab "$repo" "$key" "$label"
+    [[ -z $REX_NEW_WINDOW ]] || opened=$((opened + 1))
   done < <(contract_json -r '.open[] | [.key, .repo, .label] | @tsv' <<<"$plan")
   while IFS=$'\t' read -r sid wid label; do
-    [[ -n $sid ]] || continue
+    [[ -n $sid && -z $REX_PIN_LOST ]] || continue
     rex_rename "$sid" "$wid" "$label"
+    [[ -n $REX_PIN_LOST ]] || renamed=$((renamed + 1))
   done < <(contract_json -r '.rename[] | [.session_id, .window_id, .label] | @tsv' <<<"$plan")
   while IFS=$'\t' read -r sid wid; do
-    [[ -n $sid ]] || continue
+    [[ -n $sid && -z $REX_PIN_LOST ]] || continue
     rex_close "$sid" "$wid"
+    [[ -n $REX_PIN_LOST ]] || closed=$((closed + 1))
   done < <(contract_json -r '.close[] | [.session_id, .window_id] | @tsv' <<<"$plan")
+  ((opened + renamed + closed == 0)) || rex_pinned || true
+  RECONCILE_APPLIED=$(contract_json -c --argjson o "$opened" --argjson r "$renamed" --argjson c "$closed" \
+    '{open: .open[:$o], rename: .rename[:$r], close: .close[:$c]}' <<<"$plan")
 }
 
 # Usage: reconcile_open_tab <repo> <key> <label>
@@ -191,16 +209,24 @@ reconcile() {
       startup_record_write "$REX_SERVER_INSTANCE" skipped
     fi
   fi
+  REX_PIN=$REX_SERVER_INSTANCE REX_PIN_LOST=''
   reconcile_fetch
   rex_snapshot
   plan=$(reconcile_plan "$REX_TABS" "$RECONCILE_SLOTS")
   JOURNAL_PLAN=$plan
   reconcile_apply "$plan"
+  REX_PIN=''
+  plan=$RECONCILE_APPLIED JOURNAL_PLAN=$RECONCILE_APPLIED
+  if [[ -n $REX_PIN_LOST ]]; then
+    [[ $by != restore ]] || ar_fail "$REX_PIN_LOST"
+    JOURNAL_SKIPPED=$(contract_json -r '.reason' <<<"$REX_PIN_LOST")
+  fi
   journal_end
   lock_release
   RECONCILE_RESULT=$(printf '%s\n' "${RECONCILE_RESUMED[@]}" | contract_json -R -s -c --argjson plan "$plan" \
-    --argjson slots "$RECONCILE_SLOTS" '
-    {skipped: null, slots: ($slots | length), resumed: split("\n") | map(select(. != "")),
+    --argjson slots "$RECONCILE_SLOTS" --arg lost "$REX_PIN_LOST" '
+    {skipped: (if $lost == "" then null else $lost | fromjson | {reason, message} end),
+     slots: ($slots | length), resumed: split("\n") | map(select(. != "")),
      opened: [$plan.open[].key], relabeled: [$plan.rename[] | {key, label}],
      closed: [$plan.close[] | {key, label, why}],
      needs_you: [$slots[] | select((.needs_you // []) | length > 0)
@@ -208,12 +234,11 @@ reconcile() {
 }
 
 RECONCILE_TEXT='
-  if .skipped then "tabs not reconciled: \(.skipped.message)" else
   (if .resumed != [] then "resumed: \(.resumed | join(", "))" else empty end),
   (.opened[] | "opened: \(.)"),
   (.relabeled[] | "relabeled: \(.label)"),
   (.closed[] | "closed: \(.label) (\(.why))"),
-  "\(.slots) slot(s) on the server; tabs match" end'
+  if .skipped then "tabs not reconciled: \(.skipped.message)" else "\(.slots) slot(s) on the server; tabs match" end'
 
 # A tab shows its result until the operator has read it: in text mode with a terminal attached, an error waits for q.
 reconcile_hold_on_error() {

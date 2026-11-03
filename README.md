@@ -400,16 +400,21 @@ an `agent-slot-rex restore` pass:
 - **Start-up.** When the Rex server loads its config, it starts `agent-slot-rex restore --at-start`, which waits up to
   `AGENT_SLOT_REX_STARTUP_WAIT` seconds (120) for the server to answer, runs `rexurrect auto-restore` once per server
   instance under `AGENT_SLOT_REX_REXURRECT_BOUND` seconds (90), records the instance in
-  `~/.local/state/agent-slot-rex/startup.json`, then reconciles with dormant slots resumed. It logs to `restore.log` in
-  that directory.
+  `~/.local/state/agent-slot-rex/startup.json`, then reconciles with dormant slots resumed. Right before rexurrect, it
+  kills each session of the new server that holds nothing but slot tabs, since rexurrect counts a session as live by ID
+  and would restore a second one beside it; the reconcile then opens those tabs again. It logs to `restore.log` in that
+  directory.
 
 Every other pass first checks that a Rex server answers and that the start-up step has recorded its instance. A push or
 timer pass that finds either missing changes nothing, says why under `skipped` (`rex-server-down` or `startup-pending`),
 and exits 0; so does one that finds another pass holding the lock, as `reconcile-busy`, where a timer pass never waits
 for the lock and a push waits up to half of `AGENT_SLOT_PUSH_TIMEOUT`. A pass that waited checks again once it holds the
-lock. A restore asked for by hand reports each of these as an error. A server older than `AGENT_SLOT_REX_STARTUP_LIMIT`
-seconds (300) with no record is reconciled anyway, and that pass records rexurrect as skipped. `agent-slot-rex doctor`
-reports `reconcile-stale` once three passes in a row failed or found the lock held.
+lock. Each pass then checks, before every tab change and once after its last, that the server instance it planned
+against still answers; when the server restarted or stopped partway, the pass makes no further change and logs
+`rex-server-restarted` or `rex-server-down` under `skipped`, with the part of its plan it carried out. A restore asked
+for by hand reports each of these as an error. A server older than `AGENT_SLOT_REX_STARTUP_LIMIT` seconds (300) with no
+record is reconciled anyway, and that pass records rexurrect as skipped. `agent-slot-rex doctor` reports
+`reconcile-stale` once three passes in a row failed or found the lock held.
 
 Every trigger is logged, so the interval can be tuned from data. Each pass's line in
 `~/.local/state/agent-slot-rex/reconcile.log` names its trigger in `by`, with `ms` (how long the pass took), `changed`
@@ -666,6 +671,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `wrong-host`                  | 2    | That `agent-slot-rex` verb runs only on the Linux server; `ssh <server> agent-slot-rex doctor` |
 | `rex-server-down`             | 78   | No Rex server answers on the Linux server; `systemctl --user start rex-server.service`         |
 | `startup-pending`             | 1    | Rex is still starting and its start-up step has not finished; rerun after the start-up limit   |
+| `rex-server-restarted`        | 1    | The Rex server restarted under a reconcile pass, which then stopped; the new one reconciles    |
 | `rex-server-foreign`          | 78   | Doctor: `rex-server.service` did not start the Rex server holding the socket; see `next_step`  |
 | `rex-restart-pending`         | 0    | Doctor warning: the installed Rex is newer than the running server; update the apps first      |
 | `reconcile-timer-inactive`    | 78   | The once-a-minute reconcile timer is not running; `systemctl --user enable --now` it           |
