@@ -120,17 +120,15 @@ reconcile_gate() {
   RECONCILE_SKIP='' RECONCILE_PAST_LIMIT=0
   if ! rex_server_status; then
     if [[ -z $AR_REX ]]; then
-      error=$(contract_error_json dependency-missing "the rex CLI is not in REX_BIN_DIR or at any of: \
-${AR_REX_PATHS//:/, }" --value "${REX_BIN_DIR:-}" --command "sudo apt-get install rex")
+      error=$(rex_missing_error)
     else
       error=$(contract_error_json rex-server-down "no Rex server answers on this host ($(rex_error_line))" \
         --value "$AR_REX_UNIT" --command "systemctl --user start $AR_REX_UNIT")
     fi
   elif [[ -z $(startup_record_outcome "$REX_SERVER_INSTANCE") ]]; then
-    age=$(contract_json -n -r --arg s "$REX_SERVER_STARTED" 'now - ($s | fromdateiso8601) | floor' || true)
-    if [[ $age =~ ^-?[0-9]+$ ]] && ((age < AR_STARTUP_LIMIT)); then
-      limit_at=$(contract_json -n -r --arg s "$REX_SERVER_STARTED" --argjson l "$AR_STARTUP_LIMIT" \
-        '$s | fromdateiso8601 + $l | todateiso8601')
+    read -r age limit_at < <(contract_json -n -r --arg s "$REX_SERVER_STARTED" --argjson l "$AR_STARTUP_LIMIT" \
+      '$s | fromdateiso8601 | "\(now - . | floor) \(. + $l | todateiso8601)"' || true) || true
+    if [[ ${age:-} =~ ^-?[0-9]+$ ]] && ((age < AR_STARTUP_LIMIT)); then
       error=$(contract_error_json startup-pending "the Rex server started at $REX_SERVER_STARTED and its start-up \
 step has not yet restored the operator's tabs; until it records this instance, passes reconcile only from $limit_at" \
         --value "$REX_SERVER_INSTANCE" --command "agent-slot-rex restore")
@@ -147,11 +145,16 @@ step has not yet restored the operator's tabs; until it records this instance, p
 # Usage: reconcile_take_lock <by>; the lock as the pass waits for it, or 1 with RECONCILE_SKIP set when a timer or push
 # pass gives up on it.
 reconcile_take_lock() {
+  local wait
   case $1 in
-    poll) lock_take 0 ;;
-    push) lock_take "$AR_LOCK_WAIT" ;;
-    *) lock_acquire && return 0 ;;
-  esac && return 0
+    poll) wait=0 ;;
+    push) wait=$AR_LOCK_WAIT ;;
+    *)
+      lock_acquire
+      return 0
+      ;;
+  esac
+  lock_take "$wait" && return 0
   RECONCILE_SKIP=$(contract_error_json reconcile-busy "another agent-slot-rex (pid ${AR_LOCK_OWNER:-unknown}) holds \
 the reconcile lock" --value "$AR_LOCK" --command "agent-slot-rex restore")
   return 1

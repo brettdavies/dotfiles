@@ -50,16 +50,19 @@ rex_run() {
   return "$status"
 }
 
+# Prints the dependency-missing error for a host with no rex CLI where the helper looks.
+rex_missing_error() {
+  contract_error_json dependency-missing "the rex CLI is not in REX_BIN_DIR or at any of: ${AR_REX_PATHS//:/, }" \
+    --value "${REX_BIN_DIR:-}" --command "sudo apt-get install rex"
+}
+
 # Usage: rex_or_fail <args...>; rex_run, ending the command with rex-failed (or dependency-missing) on failure.
 rex_or_fail() {
   local status=0
   rex_run "$@" || status=$?
   ((status != 0)) || return 0
   contract_use_tools rex
-  if ((status == 127)) && [[ -z $AR_REX ]]; then
-    ar_fail "$(contract_error_json dependency-missing "the rex CLI is not in REX_BIN_DIR or at any of: \
-${AR_REX_PATHS//:/, }" --value "${REX_BIN_DIR:-}" --command "sudo apt-get install rex")"
-  fi
+  ((status != 127)) || [[ -n $AR_REX ]] || ar_fail "$(rex_missing_error)"
   ar_fail "$(contract_error_json rex-failed "rex $1 exited $status: $(rex_error_line)" \
     --value "$*" --command "$(contract_quote rex --autostart=false "$@")")"
 }
