@@ -416,7 +416,19 @@ Follow-Up Work and Considered and not built lists.
   rexurrect reads the setting only from its `config.toml`, never from `REXURRECT_APP_SESSION_WATCH`. Its snapshot keeps
   a slot tab's label but not its command, so it restores slot tabs as plain shells, which the reconcile after it closes
   and replaces. A reconcile run first leaves a second session with the repo's label, and the next reconcile closes that
-  session's tab but leaves the session itself, empty. Governs R5, R12, R13.
+  session's tab but leaves the session itself, empty. A Rex restart fits inside one pass: U10's restart check measured
+  72 ms from the old server's stop to the new one answering, so a timer pass that passes its gate against the old
+  instance can make its tab changes on the new one before that one's start-up step runs, and rexurrect then doubles
+  every repo session. Every pass therefore pins the instance its gate saw (the start-up step, the one it waited for),
+  checks it before each tab change and once after the last, and on a mismatch makes no further change and ends as
+  skipped with `rex-server-restarted`, or `rex-server-down` when no server answers, journaling the part of its plan it
+  carried out; a restore asked for by hand fails with that error. A check costs about 27 ms, and a pass that changes
+  nothing makes none. Rex has no write that names an instance, so a restart inside the few tens of milliseconds between
+  a check and its write stays possible; the start-up step therefore also kills, right before rexurrect, every session of
+  its instance that holds nothing but slot tabs, and the reconcile after rexurrect opens those tabs again. Leaving slot
+  tabs out of rexurrect's snapshot would not stop the doubling: rexurrect 0.2.1 has no setting that leaves a window out,
+  and a repo session that holds the operator's prime tab is restored whether or not its slot tabs were saved. Governs
+  R5, R12, R13.
 - KTD5. **The periodic pass is a once-a-minute systemd user timer.** It follows
   `stow/local/dot-config/systemd/user/agent-slot-sweep.{service,timer}`. A timer or push pass exits 0 after logging why
   it changed nothing: `skip` when no Rex server answers, `startup-pending` while the running server has no start-up
@@ -846,6 +858,10 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      sandboxing, which the resumed agents would inherit.
   6. In `journal.sh` and the `--by` values in `help.sh`, journal the start-up step as the existing `restore-at-start`
      and the timer pass as the existing `poll`. `reconnect` stays until U9 removes the follow loop that sends it.
+  7. Pin each pass to the server instance its gate saw (KTD4): in `rex.sh`, check that instance before each tab change
+     and once after the last, and in `reconcile.sh` end a pass that finds another instance, or none, as skipped with
+     `rex-server-restarted` or `rex-server-down`, journaling only the changes it made. In `startup.sh`, right before
+     rexurrect, kill each session of the instance that holds nothing but slot tabs.
 - **Patterns to follow:** `stow/local/dot-config/systemd/user/agent-slot-sweep.{service,timer}`; the push log and its
   result names in `push.sh`; `reconcile_plan`'s pure-jq planning.
 - **Test scenarios:**
@@ -878,6 +894,14 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
     local reconcile that fails or times out leaves the result and exit code of `launch`, `sweep`, and `finish`
     unchanged, and `push.log` records `restore-failed` or `timed-out`.
   - A planned close whose tab is already gone counts as done, and the pass succeeds.
+  - A timer pass whose Rex server restarts after its gate makes no tab change on the new instance and journals
+    `rex-server-restarted`; one that restarts between two changes makes neither the second nor any after it and journals
+    only the first; one whose server stops answering partway journals `rex-server-down`; a restore asked for by hand
+    across a restart fails with `rex-server-restarted`.
+  - A pass that changes no tab asks for the server instance only at its gate.
+  - A start-up step that meets a session holding only slot tabs, opened before it ran, kills it before rexurrect, so
+    rexurrect's restore leaves one session per label; a session that also holds another tab is kept, and a start-up step
+    on an instance it already recorded kills nothing.
   - The reconcile timer fires every minute and is persistent, and its service sets no `PrivateTmp`.
   - An agent's `agent-slot release`, whose finish tears the slot down while a Rex server is present, runs one local
     restore whose plan closes that slot's tab, and the restore never touches another slot's tmux sessions.
