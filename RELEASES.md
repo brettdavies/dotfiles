@@ -288,8 +288,10 @@ the release tag and GitHub Release have published, run:
 ```bash
 TAG="$(git describe --tags --abbrev=0 origin/main)"
 
-# 1. Classify first. This creates nothing and is what tells you whether any
-#    contested path needs naming in step 2.
+# 1. Classify first. This creates no branch, commit, or PR, and it tells you
+#    whether any contested path needs naming in step 2. It needs a clean tree,
+#    and like the real run it switches the checkout to dev and fast-forwards
+#    it from origin/dev, then leaves you there.
 scripts/sync-dev-after-release.sh "$TAG" --dry-run
 
 # 2. Sync. With no contested paths, the bare form is enough. Otherwise name the
