@@ -77,5 +77,3 @@ if command -v qmd >/dev/null 2>&1; then
 else
   echo '(qmd not installed)'
 fi
-
-"$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/failed-user-units.sh"

@@ -1,14 +1,18 @@
 #!/usr/bin/env bats
-# stow/claude/dot-claude/failed-user-units.sh: the session-context section that lists failed systemd user units, so a
-# scheduled job that fails (vault-agent-sync-check on a stalled NAS mirror) shows at the start of every Claude session.
-# systemctl is a stub that answers the list query from STUB_FAILED.
+# stow/claude/dot-claude/failed-user-units.sh: the SessionStart hook that names the failed systemd user units to the user
+# (systemMessage, under the startup banner) and to Claude (additionalContext), so a scheduled job that fails
+# (vault-agent-sync-check on a stalled NAS mirror) shows at the start of every Claude session. It runs at every session
+# start on every host, so it must never fail or hold up a session: each failure path below exits 0 and prints nothing.
+#
+# systemctl is a stub. It logs its arguments and XDG_RUNTIME_DIR, then answers the list query from STUB_FAILED, fails
+# like a missing user bus when STUB_FAIL is set, or never answers when STUB_HANG is set.
 #
 # Run: bats tests/failed-user-units.bats
 
 bats_require_minimum_version 1.5.0
 
 REPO_ROOT="$BATS_TEST_DIRNAME/.."
-SECTION="$REPO_ROOT/stow/claude/dot-claude/failed-user-units.sh"
+HOOK="$REPO_ROOT/stow/claude/dot-claude/failed-user-units.sh"
 
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
@@ -16,28 +20,68 @@ setup() {
   export SYSTEMCTL_LOG="$BATS_TEST_TMPDIR/systemctl.log"
   cat >"$STUBS/systemctl" <<'EOF'
 #!/bin/sh
-printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
+printf '%s XDG_RUNTIME_DIR=%s\n' "$*" "${XDG_RUNTIME_DIR-}" >>"$SYSTEMCTL_LOG"
+[ -z "${STUB_HANG-}" ] || exec sleep 30
+[ -z "${STUB_FAIL-}" ] || { echo 'Failed to connect to bus: No medium found' >&2; exit 1; }
 printf '%b' "${STUB_FAILED-}"
 EOF
   chmod +x "$STUBS/systemctl"
 }
 
-@test "failed user units print as one comma-separated section" {
+@test "failed user units reach the user and Claude as one SessionStart JSON object" {
   STUB_FAILED='vault-agent-sync-check.service loaded failed failed Alert when the vault mirror has stalled\nbrew-upgrade.service loaded failed failed Update Homebrew\n' \
-    PATH="$STUBS:$PATH" run "$SECTION"
+    PATH="$STUBS:$PATH" run --separate-stderr env -u XDG_RUNTIME_DIR "$HOOK"
   [ "$status" -eq 0 ]
-  [ "$output" = "$(printf '\n%s\n%s' '--- Failed systemd user units (systemctl --user status <unit>) ---' \
-    'vault-agent-sync-check.service, brew-upgrade.service')" ]
-  [ "$(cat "$SYSTEMCTL_LOG")" = '--user list-units --state=failed --no-legend --plain' ]
+  [ -z "$stderr" ]
+  [ "${#lines[@]}" -eq 1 ]
+  message=$(jaq -r '.systemMessage' <<<"$output")
+  [ "$message" = 'WARNING: failed systemd user units: vault-agent-sync-check.service, brew-upgrade.service; inspect with: systemctl --user status <unit>' ]
+  [ "$(jaq -r '.hookSpecificOutput.hookEventName' <<<"$output")" = SessionStart ]
+  [ "$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")" = "$message" ]
+  [ "$(cat "$SYSTEMCTL_LOG")" = "--user list-units --state=failed --no-legend --plain XDG_RUNTIME_DIR=/run/user/$(id -u)" ]
+}
+
+@test "a unit name holding systemd's backslash escape stays valid JSON" {
+  STUB_FAILED='mnt-nas\\x2dold.mount loaded failed failed NAS\n' PATH="$STUBS:$PATH" run --separate-stderr "$HOOK"
+  [ "$status" -eq 0 ]
+  [[ $(jaq -r '.systemMessage' <<<"$output") == *': mnt-nas\x2dold.mount;'* ]]
 }
 
 @test "no failed user unit prints nothing" {
-  PATH="$STUBS:$PATH" run "$SECTION"
+  PATH="$STUBS:$PATH" run --separate-stderr "$HOOK"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+  [ -z "$stderr" ]
 }
 
-@test "session-context.sh ends with the section, resolved beside its own target" {
-  [ "$(tail -n 1 "$REPO_ROOT/stow/claude/dot-claude/session-context.sh")" = \
-    '"$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/failed-user-units.sh"' ]
+@test "a systemctl that fails prints nothing and exits 0" {
+  STUB_FAIL=1 STUB_FAILED='brew-upgrade.service loaded failed failed Update Homebrew\n' \
+    PATH="$STUBS:$PATH" run --separate-stderr "$HOOK"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+}
+
+@test "a user manager that never answers holds the session start about 2 s, then prints nothing and exits 0" {
+  local started=$SECONDS
+  STUB_HANG=1 PATH="$STUBS:$PATH" run --separate-stderr "$HOOK"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+  ((SECONDS - started < 5))
+}
+
+@test "a host without systemctl, macOS among them, prints nothing and exits 0" {
+  mkdir "$BATS_TEST_TMPDIR/empty"
+  run --separate-stderr env PATH="$BATS_TEST_TMPDIR/empty" "$BASH" "$HOOK"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+}
+
+@test "settings.json runs the hook as a SessionStart entry of its own, and session-context.sh leaves the units to it" {
+  run jaq -e '[.hooks.SessionStart[] | select(.hooks == [{type: "command", command: "~/.claude/failed-user-units.sh", timeout: 5}])] | length == 1' \
+    "$REPO_ROOT/stow/claude/dot-claude/settings.json"
+  [ "$status" -eq 0 ]
+  run ! grep -F failed-user-units "$REPO_ROOT/stow/claude/dot-claude/session-context.sh"
 }
