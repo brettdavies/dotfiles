@@ -61,23 +61,21 @@ is_timeout_watchdog() {
 # Usage: is_detached_watchdog <pid> <command>; true when the process is the sleep of a bats timeout watchdog whose
 # countdown shell is gone, so nothing stops it before the limit runs out. bats 1.14's countdown shell forks that sleep
 # and only then installs the TERM trap that kills it; a TERM from a fast test's exit trap inside that window kills the
-# shell, and the sleep runs on under a new parent. Its shape: `sleep <n>` with BATS_TEST_TIMEOUT=<n> in its environment,
-# and no descriptor below 256 open on anything but /dev/null. The watchdog closes 0 to 255 before it execs; on GitHub's
-# runners the sleep still starts with 0 to 2 on /dev/null, and a descriptor above 255 that bats inherited stays open. A
-# test that leaks exactly `sleep <limit>` with all its output on /dev/null has the same shape.
+# shell, and the sleep runs on under a new parent. The sleep is `sleep <n>` with BATS_TEST_TIMEOUT=<n> and
+# BATS_killer_pid=$BATS_WATCHDOG_JOB in its environment. bats forks the countdown before it sets BATS_killer_pid to the
+# watchdog's pid, in a local that keeps the export a bats started with that job spec gives it, so every process a test
+# starts carries the pid instead.
 is_detached_watchdog() {
-  local limit=${2#sleep } entry fd
+  local limit=${2#sleep } entry timeout='' job=''
   limit=${limit% }
   [[ $limit =~ ^[1-9][0-9]*$ && $2 == "sleep $limit " ]] || return 1
-  [ -r "/proc/$1/fd" ] || return 1
-  for fd in "/proc/$1/fd"/*; do
-    [ -L "$fd" ] || continue
-    ((10#${fd##*/} >= 256)) || [ "$(readlink "$fd")" = /dev/null ] || return 1
-  done
   while IFS= read -r -d '' entry; do
-    [ "$entry" != "BATS_TEST_TIMEOUT=$limit" ] || return 0
+    case $entry in
+      "BATS_TEST_TIMEOUT=$limit") timeout=1 ;;
+      "BATS_killer_pid=$BATS_WATCHDOG_JOB") job=1 ;;
+    esac
   done 2>/dev/null <"/proc/$1/environ"
-  return 1
+  [ -n "$timeout" ] && [ -n "$job" ]
 }
 
 # Usage: parent_of <pid>; prints the parent pid of a live process, and nothing for one that is gone.

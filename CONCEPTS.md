@@ -361,10 +361,11 @@ process. *Avoid:* leak check, process guard
 The guard finds a test's processes by an environment entry that every program the test runs inherits, so what it sees is
 whatever the test started, however deep and whichever parent each ended with; a process that only forked and never ran a
 program carries the environment its parent started with and is invisible to it. The test framework's own time-limit
-watchdog inherits that entry too and is spared by its shape rather than its marker. The guard gives what it finds a
-short grace measured in wall clock, not in scans, because a scan reads every process on the host and slows with load. A
-leak matters beyond the test: it keeps the directory the tests ran from as its working directory, so a leak inside an
-*agent slot* holds the slot against teardown.
+watchdog inherits that entry too: while it runs the guard spares it by its shape rather than its marker, and one the
+framework fails to stop when its test ends is stopped without failing anything. The guard gives what it finds a short
+grace measured in wall clock, not in scans, because a scan reads every process on the host and slows with load. A leak
+matters beyond the test: it keeps the directory the tests ran from as its working directory, so a leak inside an *agent
+slot* holds the slot against teardown.
 
 ### Guard hook
 
