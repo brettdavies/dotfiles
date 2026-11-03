@@ -10,6 +10,14 @@
 # rexurrect the step kills every session of this instance that holds nothing but slot tabs; the reconcile after
 # rexurrect opens them again. A session that also holds any other tab is left alone.
 #
+# rexurrect brings the operator's prime tabs back as plain shells too, so on a new instance the step then re-attaches
+# them (reattach.sh), before the reconcile: a prime tab is the operator's working tab, which should not wait on slot
+# resumes, and a reconcile that fails ends the step, which would leave every prime detached. Neither touches the
+# other's tabs: the reconcile changes only tabs keyed to a slot, and no prime the map names is labelled like a slot
+# key. A config reload's step re-attaches nothing, since there a prime-labelled shell is a prime the operator
+# detached. A restart seen while it re-attaches ends the step as skipped, with no reconcile, since the new instance's
+# step runs its own.
+#
 # The record, $AR_STARTUP_RECORD, is {instance, rexurrect, at}: the `instance:` UUID `rex server status` prints, so a
 # pid reused after a reboot never matches an old record, and rexurrect's outcome there: done, failed, stopped (it
 # outlived its bound), or skipped (it is not installed, or a pass reconciled past the start-up limit first). Until the
@@ -115,7 +123,14 @@ cmd_restore_at_start() {
     startup_rexurrect
     JOURNAL_REXURRECT=$STARTUP_REXURRECT
     startup_record_write "$REX_SERVER_INSTANCE" "$STARTUP_REXURRECT"
+    reattach_primes
   fi
-  reconcile restore-at-start
+  if [[ -n $REX_PIN_LOST ]]; then
+    RECONCILE_SKIP=$REX_PIN_LOST
+    reconcile_skipped
+  else
+    reconcile restore-at-start
+  fi
+  RECONCILE_RESULT=$(contract_json -c --argjson p "$PRIME_REATTACHED" '. + {primes: $p}' <<<"$RECONCILE_RESULT")
   contract_ok "$RECONCILE_RESULT" "$RECONCILE_TEXT"
 }

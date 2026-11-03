@@ -45,6 +45,8 @@ AR_LOGIN_SHELL=${AGENT_SLOT_REX_LOGIN_SHELL:-${SHELL:-zsh}}
 # How long a tab a key opened waits for the app to show it, and then how long it waits for Enter before it closes.
 AR_SHOWN_WAIT=${AGENT_SLOT_REX_SHOWN_WAIT:-5}
 AR_SHOWN_HOLD=${AGENT_SLOT_REX_SHOWN_HOLD:-60}
+# How long the start-up step waits for the prime tabs it typed the prime command into to show a client.
+AR_PRIME_WAIT=${AGENT_SLOT_REX_PRIME_WAIT:-5}
 # systemctl --user finds the user manager through XDG_RUNTIME_DIR, which a shell in a slot's tmux session lacks.
 AR_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$UID}
 
