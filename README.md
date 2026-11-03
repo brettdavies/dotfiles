@@ -371,18 +371,18 @@ On the Mac:
 `cmd+alt+n` opens a tab that comes forward and decides what it becomes from the session's name:
 
 - **A Linux server session named after a repo with a prime.** `config/agent-slot-rex/primes.tsv` names each such repo's
-  prime tmux session on the server's default tmux server, such as `XR CLI` for `xurl-rs`. While no tab of the session
-  is attached to that prime, the new tab becomes the prime's tab: first in the session, labelled with the prime's name,
+  prime tmux session on the server's default tmux server, such as `XR CLI` for `xurl-rs`. While no tab of the session is
+  attached to that prime, the new tab becomes the prime's tab: first in the session, labelled with the prime's name,
   attached from `$HOME` by `agent-slot-rex prime <repo>`, and a login shell once you detach. A tab counts as the prime
-  only while a tmux client of the prime runs in it, so a renamed tab still counts and a detached one does not. Once
-  the prime is open, the key starts a slot of the repo.
+  only while a tmux client of the prime runs in it, so a renamed tab still counts and a detached one does not. Once the
+  prime is open, the key starts a slot of the repo.
 - **A Linux server session named after any other repo.** The key starts a slot of the repo, with no question.
-- **Any other session, every session on the Mac included.** The tab asks which repo to use, and the agent's tab opens
-  in the background in that repo's session on the Linux server.
+- **Any other session, every session on the Mac included.** The tab asks which repo to use, and the agent's tab opens in
+  the background in that repo's session on the Linux server.
 
-The tab waits up to `AGENT_SLOT_REX_SHOWN_WAIT` seconds (5) for Rex.app to show it before it does anything. In a
-session with no tabs, Rex.app hands the key the session of the pane it last focused, which can be another session on
-another host, where nobody sees the tab. Such a tab starts nothing, asks for Enter, and closes itself after
+The tab waits up to `AGENT_SLOT_REX_SHOWN_WAIT` seconds (5) for Rex.app to show it before it does anything. In a session
+with no tabs, Rex.app hands the key the session of the pane it last focused, which can be another session on another
+host, where nobody sees the tab. Such a tab starts nothing, asks for Enter, and closes itself after
 `AGENT_SLOT_REX_SHOWN_HOLD` seconds (60). In a session with no tabs, open one with `cmd+t` first, then press the key.
 
 On the Linux server every tab's label starts with its position in its session, `<n>:`, which `rex-tab-numbers.service`
@@ -441,11 +441,11 @@ Every trigger is logged, so the interval can be tuned from data. Each pass's lin
 repo's prime outcome: `reattached`, `unconfirmed` (typed, but no client showed within `AGENT_SLOT_REX_PRIME_WAIT`
 seconds, 5), `already-open`, `no-session`, `no-tab`, `not-idle`, `prime-not-running`, `rex-server-restarted`,
 `rex-server-down`, or the reason of the error that stopped that repo's check. A timer pass with `changed` true found
-work no push had brought.
-`~/.local/state/agent-slot/push.log` holds one line per push: when it began, the verb and its slots, the result
-(`restored`, `deferred` with the reason in `detail`, `restore-failed`, `timed-out`, or `skipped`), the helper's exit
-code, the time taken, and the helper's last line on a failure. Each of these logs moves to `<log>.1` past 1 MiB. A timer
-pass that changes nothing writes about 180 bytes, so the reconcile log holds about four days of passes before it moves.
+work no push had brought. `~/.local/state/agent-slot/push.log` holds one line per push: when it began, the verb and its
+slots, the result (`restored`, `deferred` with the reason in `detail`, `restore-failed`, `timed-out`, or `skipped`), the
+helper's exit code, the time taken, and the helper's last line on a failure. Each of these logs moves to `<log>.1` past
+1 MiB. A timer pass that changes nothing writes about 180 bytes, so the reconcile log holds about four days of passes
+before it moves.
 
 #### A slot's tab is missing
 
@@ -608,7 +608,10 @@ them. `finish` refuses a task with an open PR (`task-has-open-pr`) unless the op
 `--yes`, as in `agent-slot finish oxipng/1 --yes --allow-open-pr`, which ends the task whatever state its PRs are in; a
 release and the finish key never pass it, and the report-only run names it in `would_need`. `agent-slot release`, run
 from inside a slot, hands that slot's teardown upstream; it deletes nothing itself, so it needs no ask.
-`agent-slot doctor` checks every prerequisite and the time from key press to Claude idle.
+`agent-slot doctor` checks every prerequisite and the time from key press to Claude idle. Its `key_to_ready` covers the
+last 20 launches from the new-agent key, from the moment the key's tab opened to the slot's Claude starting its session,
+with the median of each step between: Rex.app showing the tab, the helper's own calls, agent-slot's checks before the
+clone, the clone, setup, trust, and tmux phases, and Claude's start.
 
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore
@@ -624,15 +627,14 @@ waits up to `AGENT_SLOT_RELEASE_WAIT` seconds (3600) for the agent, looking ever
 The keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`, which on the Mac hand the
 verb to the server's helper; each pane runs `agent-slot-rex attach <repo>/<N> claude|files|git`, a prime tab runs
 `agent-slot-rex prime <repo>`, the control session's tab runs `agent-slot-rex sweep`, and `agent-slot-rex doctor` checks
-the server's side. Every verb answers `--help`. Each
-launch runs the sweep again in the control session's one sweep tab, opening it when there is none; the tab stays open
-while something needs you, and `r` in it sweeps again. Restore, sweep, and finish change tabs one at a time: each waits
-up to `AGENT_SLOT_REX_LOCK_WAIT` seconds (300) for the one ahead of it to finish, so it sees the tabs that one opened.
-Each of those passes appends one JSON line to `~/.local/state/agent-slot-rex/reconcile.log`: when it ran, what ran it
-(`restore`, `restore-at-start`, `push`, `poll`, `sweep`, or `finish`), how long it took, whether it changed a tab, the
-tabs it planned to open, relabel, and close, and `ok` or the error that stopped it. Past 1 MiB the log moves to
-`reconcile.log.1`. Rex takes a tab label of at most 128 characters, so a longer one is cut at the end of its needs-you
-message and ends in `…`.
+the server's side. Every verb answers `--help`. Each launch runs the sweep again in the control session's one sweep tab,
+opening it when there is none; the tab stays open while something needs you, and `r` in it sweeps again. Restore, sweep,
+and finish change tabs one at a time: each waits up to `AGENT_SLOT_REX_LOCK_WAIT` seconds (300) for the one ahead of it
+to finish, so it sees the tabs that one opened. Each of those passes appends one JSON line to
+`~/.local/state/agent-slot-rex/reconcile.log`: when it ran, what ran it (`restore`, `restore-at-start`, `push`, `poll`,
+`sweep`, or `finish`), how long it took, whether it changed a tab, the tabs it planned to open, relabel, and close, and
+`ok` or the error that stopped it. Past 1 MiB the log moves to `reconcile.log.1`. Rex takes a tab label of at most 128
+characters, so a longer one is cut at the end of its needs-you message and ends in `…`.
 
 With `--output json`, every verb prints one JSON object on success and one error object on stderr, with a `reason` from
 the table below, an exit code (0 ok, 1 failed, 2 usage, 77 auth, 78 configuration), a `next_step`, a `recovery` that

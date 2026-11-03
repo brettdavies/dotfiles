@@ -197,3 +197,40 @@ solutions_worktree() {
   run --separate-stderr "$AGENT_SLOT" doctor --output json
   jaq -e '.launch_times | .launches == 20 and .measured == 20 and .median_s == 15.5' <<<"$output"
 }
+
+@test "key to ready splits a key's launches into the tab's wait, the server's phases, and Claude's start" {
+  local i
+  for i in 1 2 3; do
+    ledger_line "$(jaq -n -c --argjson i "$i" '{event: "launch", request_id: "k\($i)", opened_at: 1000, shown_at: 1002.5,
+      requested_at: 1003, started_at: 1003.25, made_at: (1006 + $i),
+      phases: {clone: 1, setup: 1, trust: $i, tmux: 0.5, claude: 0}}')"
+    ledger_line "{\"event\":\"ready\",\"request_id\":\"k$i\",\"ready_at\":$((1007 + i))}"
+  done
+  ledger_line '{"event":"launch","request_id":"agent","requested_at":1000,"phases":{"clone":1}}'
+  ledger_line '{"event":"ready","request_id":"agent","ready_at":1005}'
+  ledger_line '{"event":"launch","request_id":"waiting","opened_at":2000,"requested_at":2001}'
+  run --separate-stderr "$AGENT_SLOT" doctor --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.key_to_ready | .launches == 4 and .measured == 3 and .not_ready == ["waiting"]
+    and .median_s == 9 and .p90_s == 10
+    and .phases == {app_shows_tab: 2.5, helper: 0.5, prep: 0.25, clone: 1, setup: 1, trust: 2, tmux: 0.5,
+      claude: 0, claude_start: 1}' <<<"$output"
+  jaq -e '.launch_times.measured == 4' <<<"$output"
+  run "$AGENT_SLOT" doctor
+  [[ "$output" == *"key to ready: median 9 s, p90 10 s over 3 key presses; median phases (s): app shows tab 2.5, helper 0.5, prep 0.25, clone 1, setup 1, trust 2, tmux 0.5, claude 0, claude start 1"* ]]
+}
+
+@test "a key's launch with no shown time counts the helper from the tab's opening" {
+  ledger_line '{"event":"launch","request_id":"k","opened_at":1000,"requested_at":1000.5,"started_at":1000.5,"made_at":1002,"phases":{"clone":1}}'
+  ledger_line '{"event":"ready","request_id":"k","ready_at":1003}'
+  run --separate-stderr "$AGENT_SLOT" doctor --output json
+  jaq -e '.key_to_ready | .measured == 1 and .median_s == 3 and .phases.app_shows_tab == null
+    and .phases.helper == 0.5' <<<"$output"
+}
+
+@test "with no key's launch in the ledger, key to ready says none measured yet" {
+  run --separate-stderr "$AGENT_SLOT" doctor --output json
+  jaq -e '.key_to_ready | .launches == 0 and .measured == 0 and .median_s == null' <<<"$output"
+  run "$AGENT_SLOT" doctor
+  [[ "$output" == *"key to ready: no key press measured yet"* ]]
+}

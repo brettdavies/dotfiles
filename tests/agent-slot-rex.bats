@@ -63,7 +63,7 @@ in_rex_session() {
   slot_answer launch 0 "$LAUNCHED"
   run "$AGENT_SLOT_REX" launch --here
   [ "$status" -eq 0 ]
-  called '^agent-slot launch X --request-id [0-9a-f-]{36} --requested-at [0-9]+ --output json$'
+  called '^agent-slot launch X --request-id [0-9a-f-]{36} --requested-at [0-9]+\.[0-9]+ --opened-at [0-9]+\.[0-9]+ --output json$'
   called '^rex window rename -s sess-a win-a X/3$'
   called '^rex do agent_slot_layout -s sess-a -b blk-a key=X/3 block=blk-a$'
   called '^agent-slot-rex attach X/3 claude$'
@@ -247,6 +247,23 @@ in_rex_session() {
   [ "$status" -eq 0 ]
   called '^agent-slot launch X '
   not_called '^rex window close'
+}
+
+@test "a key's launch tells the server when its tab opened and was shown, each before the request" {
+  local args opened shown requested now
+  in_rex_session X
+  shown sess-a win-a
+  repos X
+  slot_answer launch 0 "$LAUNCHED"
+  run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
+  [ "$status" -eq 0 ]
+  now=$EPOCHREALTIME
+  args=$(grep '^agent-slot launch X ' "$CALLS")
+  [[ $args =~ --requested-at\ ([0-9]+\.[0-9]+)\ --opened-at\ ([0-9]+\.[0-9]+)\ --shown-at\ ([0-9]+\.[0-9]+)\ --output ]]
+  requested=${BASH_REMATCH[1]} opened=${BASH_REMATCH[2]} shown=${BASH_REMATCH[3]}
+  # The tab's process started within the test, a moment before the helper read the clock.
+  jaq -n -e --argjson o "$opened" --argjson s "$shown" --argjson r "$requested" --argjson now "${now/,/.}" \
+    '$o <= $s and $s <= $r and $r <= $now and $now - $o < 30'
 }
 
 @test "a tab a key opened that the app never shows starts nothing and closes itself" {

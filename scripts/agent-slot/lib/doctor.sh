@@ -171,8 +171,46 @@ doctor_launch_times() {
        target_s: $t}'
 }
 
+DOCTOR_KEY_PHASES='["app_shows_tab", "helper", "prep", "clone", "setup", "trust", "tmux", "claude", "claude_start"]'
+
+# Key to ready over the last 20 launches a key's tab asked for, the launch lines with an opened_at: from the tab's
+# process starting to the slot's Claude starting its session, and the median of each step between. The tab's helper and
+# agent-slot share one clock, so no step is left out as skewed.
+#   app_shows_tab  opened_at to shown_at, Rex.app selecting the tab; null when the tab did not wait to be shown
+#   helper         shown_at, else opened_at, to requested_at: the helper's own calls before it asks for the slot
+#   prep           requested_at to started_at: agent-slot's checks and locks before the clone
+#   clone .. claude  the launch's own phases
+#   claude_start   made_at to ready_at: Claude starting, up to its SessionStart hook
+doctor_key_to_ready() {
+  [[ -r $AS_LEDGER ]] || {
+    contract_json -n -c '{launches: 0, measured: 0, not_ready: [], median_s: null, p90_s: null, phases: null}'
+    return
+  }
+  tail -n 4000 "$AS_LEDGER" | contract_json -s -c --argjson names "$DOCTOR_KEY_PHASES" '
+    def r2: if . == null then null else (. * 100 | round) / 100 end;
+    def median: sort | length as $n
+      | if $n == 0 then null elif $n % 2 == 1 then .[($n - 1) / 2 | floor]
+        else (.[$n / 2 - 1 | floor] + .[$n / 2 | floor]) / 2 end;
+    def p90: sort | length as $n | if $n == 0 then null else .[($n * 0.9 | ceil) - 1 | floor] end;
+    (map(select(.event == "ready")) | map({key: .request_id, value: .ready_at}) | from_entries) as $ready
+    | (map(select(.event == "launch" and .opened_at != null and (.request_id // "") != "")) | .[-20:]) as $keys
+    | [$keys[] | . + {ready_at: $ready[.request_id]}] as $rows
+    | [$rows[] | select(.ready_at != null) | {total: (.ready_at - .opened_at),
+        app_shows_tab: (if .shown_at == null then null else .shown_at - .opened_at end),
+        helper: (.requested_at - (.shown_at // .opened_at)),
+        prep: (if .started_at == null then null else .started_at - .requested_at end),
+        clone: .phases.clone, setup: .phases.setup, trust: .phases.trust, tmux: .phases.tmux,
+        claude: .phases.claude,
+        claude_start: (if .made_at == null then null else .ready_at - .made_at end)}] as $m
+    | {launches: ($keys | length), measured: ($m | length),
+       not_ready: [$rows[] | select(.ready_at == null) | .request_id],
+       median_s: ([$m[].total] | median | r2), p90_s: ([$m[].total] | p90 | r2),
+       phases: (if ($m | length) == 0 then null
+                else reduce $names[] as $k ({}; . + {($k): ([$m[] | .[$k] | select(. != null)] | median | r2)}) end)}'
+}
+
 cmd_doctor() {
-  local findings times errors
+  local findings times keys errors
   contract_use_tools tmux claude gh git-crypt
   doctor_check_tools
   doctor_check_config
@@ -180,15 +218,22 @@ cmd_doctor() {
   doctor_check_solutions_worktrees
   doctor_check_versions
   times=$(doctor_launch_times)
+  keys=$(doctor_key_to_ready)
   findings=$(printf '%s\n' "${DOCTOR_FINDINGS[@]}" | contract_json -s -c 'map(select(. != null))')
   errors=$(contract_json '[.[] | select(.severity == "error")] | length' <<<"$findings")
-  contract_ok "$(contract_json -n -c --argjson f "$findings" --argjson t "$times" --argjson e "$errors" \
-    --arg verified "$(doctor_verified)" '{ok: ($e == 0), findings: $f, launch_times: $t,
+  contract_ok "$(contract_json -n -c --argjson f "$findings" --argjson t "$times" --argjson k "$keys" \
+    --argjson e "$errors" --arg verified "$(doctor_verified)" '{ok: ($e == 0), findings: $f, launch_times: $t,
+      key_to_ready: $k,
       verified_versions: ($verified | split("\n") | map(select(. != "") | split(" ")) | map({(.[0]): .[1]}) | add)}')" '
+    def fmt: if . == floor then floor else . end;
     (.findings[] | "\(.severity | ascii_upcase)\t\(.reason): \(.message)" +
       (if .next_step.command then "\n\tnext: \(.next_step.command)" else "" end)),
     (.launch_times | if .measured == 0 then "launch times: none measured yet (target \(.target_s) s)"
      else "launch times: median \(.median_s) s, p90 \(.p90_s) s over \(.measured) launches (target \(.target_s) s)"
+     end + (if (.not_ready | length) > 0 then ", \(.not_ready | length) not ready" else "" end)),
+    (.key_to_ready | if .measured == 0 then "key to ready: no key press measured yet"
+     else "key to ready: median \(.median_s | fmt) s, p90 \(.p90_s | fmt) s over \(.measured) key presses; "
+       + "median phases (s): " + ([.phases | to_entries[] | select(.value != null) | "\(.key | gsub("_"; " ")) \(.value | fmt)"] | join(", "))
      end + (if (.not_ready | length) > 0 then ", \(.not_ready | length) not ready" else "" end)),
     (if .ok then "doctor: no errors" else "doctor: \([.findings[] | select(.severity == "error")] | length) error(s)" end)'
   ((errors == 0)) || exit "$EXIT_GENERAL"

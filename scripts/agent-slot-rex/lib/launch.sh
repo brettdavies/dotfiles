@@ -6,6 +6,7 @@
 
 LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_HERE=0 LAUNCH_WAIT_SHOWN=0 LAUNCH_PICKED=0 LAUNCH_NAMED=0 LAUNCH_WINDOW=''
 LAUNCH_REPOS='[]'
+LAUNCH_OPENED_AT='' LAUNCH_SHOWN_AT=''
 
 launch_parse_args() {
   while (($#)); do
@@ -33,6 +34,24 @@ launch_parse_args() {
 
 launch_is_repo() {
   contract_json -e --arg r "$1" 'index($r) != null' <<<"$LAUNCH_REPOS" >/dev/null
+}
+
+# The wall clock in seconds since the epoch, to the microsecond. EPOCHREALTIME takes the locale's decimal mark.
+launch_now() {
+  printf '%s' "${EPOCHREALTIME/,/.}"
+}
+
+# Prints when this tab's process started, in seconds since the epoch, or nothing where /proc cannot say. Rex starts a
+# tab's command as a child of its server, and exec keeps a process's start time, so this is when the tab opened. /proc
+# gives the start in clock ticks since boot, on the clock /proc/uptime reads, so its age places it on the wall clock.
+launch_opened_at() {
+  local stat uptime now fields
+  { stat=$(<"/proc/$$/stat") && read -r uptime _ </proc/uptime; } 2>/dev/null || return 0
+  now=$(launch_now)
+  # The fields after the command name, which ends at the last ") ", start at the third: the start time is the 22nd.
+  read -r -a fields <<<"${stat##*) }"
+  awk -v now="$now" -v up="$uptime" -v start="${fields[19]}" -v hz="$(getconf CLK_TCK)" \
+    'BEGIN { if (start ~ /^[0-9]+$/ && hz > 0) printf "%.3f", now - (up - start / hz) }'
 }
 
 launch_request_id() {
@@ -200,7 +219,9 @@ running on the default tmux server; start it, then press the key again" --value 
 
 launch_here() {
   local args
-  args=("$LAUNCH_REPO" --request-id "$(launch_request_id)" --requested-at "$(date +%s)")
+  args=("$LAUNCH_REPO" --request-id "$(launch_request_id)" --requested-at "$(launch_now)")
+  [[ -z $LAUNCH_OPENED_AT ]] || args+=(--opened-at "$LAUNCH_OPENED_AT")
+  [[ -z $LAUNCH_SHOWN_AT ]] || args+=(--shown-at "$LAUNCH_SHOWN_AT")
   [[ -z $LAUNCH_TASK ]] || args+=(--task "$LAUNCH_TASK")
   launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$LAUNCH_REPO · launching"
   printf 'agent-slot-rex: starting an agent in a fresh slot of %s (request %s)\n' "$LAUNCH_REPO" "${args[2]}"
@@ -213,11 +234,13 @@ launch_here() {
 cmd_launch() {
   contract_use_tools rex agent-slot
   if ((LAUNCH_HERE == 1)); then
+    LAUNCH_OPENED_AT=$(launch_opened_at)
     [[ -n ${REX_SESSION:-} && -n ${REX_BLOCK:-} ]] \
       || usage_fail "--here runs only in a Rex terminal, which sets REX_SESSION and REX_BLOCK"
     rex_window_of "$REX_SESSION" "$REX_BLOCK"
     LAUNCH_WINDOW=$REX_OUT
     ((LAUNCH_WAIT_SHOWN == 0)) || launch_wait_shown
+    ((LAUNCH_WAIT_SHOWN == 0)) || LAUNCH_SHOWN_AT=$(launch_now)
   fi
   launch_call 30 repos
   LAUNCH_REPOS=$(contract_json -c '[.repos[].name]' <<<"$SERVER_OUT")
