@@ -434,6 +434,11 @@ instance, and the operator's restore. Every pass but the start-up step changes n
 its start-up step has run; a pass a trigger ran logs why, and one the operator asked for reports it. One pass changes
 tabs at a time.
 
+A pass holds to the Rex server it started against: when a different server answers partway through, as after a restart,
+or none answers, it makes no further tab change and leaves the tabs to that server's start-up step. That step ends every
+session holding nothing but slot tabs before rexurrect restores, so rexurrect does not restore a second copy beside a
+session a pass opened early.
+
 ### Agent state
 
 What a slot's agent is doing as the slot tooling reads it, from Claude Code's own list of sessions joined on the slot's
