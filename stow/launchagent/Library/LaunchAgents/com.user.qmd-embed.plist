@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
     QMD vector embedding — macOS port of qmd-embed.service + qmd-embed.timer
-    (Linux systemd, see stow/qmd/dot-config/systemd/user/).
+    (Linux systemd, see stow/local/dot-config/systemd/user/).
 
     Runs `qmd embed` every 5 minutes and at load time. Each invocation
     picks up wherever the previous one left off (qmd skips already-embedded

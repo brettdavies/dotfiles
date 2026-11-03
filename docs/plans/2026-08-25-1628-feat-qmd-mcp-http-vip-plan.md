@@ -328,16 +328,16 @@ healthy before the Serve bind in U1's script is run. U3 should land with U2 so `
   `scripts/qmd-llama-rebuild.sh` (restart `qmd-mcp.service` instead of `qmd-serve.service`).
 - **Patterns:** Current `qmd-serve.service`: `Type=simple`, `Restart=on-failure`, `NODE_LLAMA_CPP_GPU=cuda`, absolute
   ExecStart to `$HOME/.bun/bin/qmd` (keep the same binary-resolution invariant as today's serve unit),
-  `NoNewPrivileges=true`, `PrivateTmp=true`. Enable script: Linux gate, clear orphan port, `daemon-reload`,
-  `enable --now`, smoke `/health`.
+  `NoNewPrivileges=true`. Enable script: Linux gate, clear orphan port, `daemon-reload`, `enable --now`, smoke
+  `/health`.
 - **Approach:** ExecStart: the same absolute bun qmd binary as today's serve unit, then
   `mcp --http --port 8181 --host 127.0.0.1` (KTD1). Copy that unit's `Environment=PATH` line. Also set `QMD_LOW_VRAM=1`,
-  `NODE_LLAMA_CPP_GPU=cuda`, `QMD_ALLOWED_HOSTS=qmd.tail42ba87.ts.net` (KTD2, KTD6). Copy `NoNewPrivileges=true` and
-  `PrivateTmp=true`. Do not set `QMD_ALLOWED_ORIGINS` until a captured IDE Origin requires it.
-  `Conflicts=qmd-serve.service`. Enable script `disable --now qmd-serve.service`, then enable MCP, smoke
-  `http://127.0.0.1:8181/health` (KTD5). Fail-closed: request with a foreign Host is 403; VIP Host and no Origin is
-  200-class. Port-clear: stop `qmd-mcp.service` and pkill `qmd mcp` only. Do not pkill `qmd serve` or `bun .*qmd` (that
-  would kill an overlapping embed). Do not use `--daemon`. Do not edit embed units.
+  `NODE_LLAMA_CPP_GPU=cuda`, `QMD_ALLOWED_HOSTS=qmd.tail42ba87.ts.net` (KTD2, KTD6). Copy `NoNewPrivileges=true` and set
+  no namespace directive (`tests/user-unit-sandboxing.bats`). Do not set `QMD_ALLOWED_ORIGINS` until a captured IDE
+  Origin requires it. `Conflicts=qmd-serve.service`. Enable script `disable --now qmd-serve.service`, then enable MCP,
+  smoke `http://127.0.0.1:8181/health` (KTD5). Fail-closed: request with a foreign Host is 403; VIP Host and no Origin
+  is 200-class. Port-clear: stop `qmd-mcp.service` and pkill `qmd mcp` only. Do not pkill `qmd serve` or `bun .*qmd`
+  (that would kill an overlapping embed). Do not use `--daemon`. Do not edit embed units.
 - **Test scenarios:** Happy: enable script → `/health` JSON with `status: ok`. Error: missing binary → script prints
   last journal lines and exits nonzero. Edge: `:8181` occupied by a non-unit process → script fails after the port-clear
   wait. Fail-closed: foreign `Host` on `/mcp` and `/query` is 403. Integration:

@@ -117,7 +117,7 @@ also cleaning up two pre-existing inconsistencies in `stow/qmd/` uncovered durin
 - `dot-config/systemd/user/opendataloader-pdf.service:8` — `ExecStart=%h/.local/bin/opendataloader-pdf-hybrid-sa ...`.
   Uses systemd's `%h` specifier, not a hardcoded path.
 - `dot-config/systemd/user/opendataloader-pdf.service:10-14` — hardening (`Restart=on-failure`, `RestartSec=5`,
-  `NoNewPrivileges=true`, `PrivateTmp=true`). qmd-serve inherits this shape; qmd-embed/update already have the subset
+  `NoNewPrivileges=true`). qmd-serve inherits this shape; qmd-embed/update already have the subset
   they need.
 - **Enable script template:** `scripts/opendataloader-pdf-enable.sh`. Line-for-line structure qmd-serve-enable will
   mirror — Linux gate, port detection, idempotent systemd enable, `/health` smoke with 30 s budget, error path that
@@ -303,7 +303,8 @@ currently-running hand-made unit on the dev workstation but uses `%h/.local/bin/
 
 - Unit shape: `[Unit]` Description; `[Service]` `Type=simple`,
   `ExecStart=%h/.local/bin/qmd serve --port 7832 --bind 127.0.0.1 --low-vram`, `Restart=on-failure`, `RestartSec=5`;
-  hardening `NoNewPrivileges=true`, `PrivateTmp=true`; `[Install]` `WantedBy=default.target`.
+  hardening `NoNewPrivileges=true` and no namespace directive (`tests/user-unit-sandboxing.bats`); `[Install]`
+  `WantedBy=default.target`.
 - No `After=network-online.target` needed — binds loopback.
 - Port 7832 must match `QMD_REMOTE_URL`. Bind 127.0.0.1 is explicit (no external exposure).
 - Before committing, compare against `~/.config/systemd/user/qmd-serve.service` on the dev workstation and capture any
@@ -312,7 +313,7 @@ currently-running hand-made unit on the dev workstation but uses `%h/.local/bin/
 **Patterns to follow:**
 
 - `stow/opendataloader-pdf/dot-config/systemd/user/opendataloader-pdf.service` — `Type=simple`, `%h/.local/bin/...`
-  ExecStart, `Restart=on-failure` `RestartSec=5`, hardening triple (`NoNewPrivileges`, `PrivateTmp`),
+  ExecStart, `Restart=on-failure` `RestartSec=5`, `NoNewPrivileges=true` hardening,
   `WantedBy=default.target`.
 
 **Test scenarios:**
@@ -320,7 +321,7 @@ currently-running hand-made unit on the dev workstation but uses `%h/.local/bin/
 - *Happy path:* `qmd-serve.service` exists at the expected path in the stow package.
 - *Structure:* `ExecStart=%h/.local/bin/qmd serve` is present (leading anchor + trailing space to avoid false matches).
 - *Structure:* `--low-vram`, `--port 7832`, `--bind 127.0.0.1` all present on the ExecStart line.
-- *Hardening:* `NoNewPrivileges=true` and `PrivateTmp=true` present.
+- *Hardening:* `NoNewPrivileges=true` present.
 - *Restart policy:* `Restart=on-failure` present, `RestartSec=` present with a numeric value.
 - *Install:* `WantedBy=default.target` present so the service autostarts on login.
 - *No hardcoded paths:* `! grep -q '/home/[a-z]*/' qmd-serve.service`.

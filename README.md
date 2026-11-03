@@ -117,7 +117,7 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `ollama`      | systemd service override binding Ollama to loopback `127.0.0.1:11434`; system-level, stowed into `/etc` with `sudo` (Linux only) |
 | `opencode`    | `.config/opencode/config.json`                                                                                                   |
 | `pip`         | `.config/pip/pip.conf`                                                                                                           |
-| `qmd`         | `.local/bin/qmd` wrapper (both platforms) + systemd user units for the qmd-serve daemon and index timers (Linux)                 |
+| `qmd`         | `.local/bin/qmd` wrapper (both platforms); the qmd-serve daemon and index-timer units ship in `local` (Linux)                    |
 | `rex`         | `.config/rex/`: Rex's `init.lua`, the dev layout actions, and the agent-slot actions and keys (macOS only)                       |
 | `rclone`      | `.config/rclone/`, Box bisync systemd service + timer (Linux only)                                                               |
 | `rust`        | `rustup-update.service` + `.timer` (nightly `rustup update stable --no-self-update`; units land on Linux only)                   |

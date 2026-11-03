@@ -8,4 +8,3 @@ ExecStart=/bin/sh -c '%h/.local/bin/qmd cleanup'
 
 # Hardening
 NoNewPrivileges=true
-PrivateTmp=true
