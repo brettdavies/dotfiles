@@ -3,7 +3,8 @@
 # vault-agent-sync.service runs the mirror hourly and logs each success to the sync log, and vault-agent-sync-check.timer
 # runs this check at five past each hour. Every run prints one line, which the unit appends to its own log. A stall also
 # goes to stderr, which the unit sends to the journal at err priority, and exits 1: the unit then stays failed until a
-# run finds a recent success, and session-context.sh lists failed user units at the start of every Claude session.
+# run finds a recent success, and the failed-user-units.sh hook names failed user units at the start of every Claude
+# session, on screen and to Claude.
 #
 # Usage: vault-agent-sync-check.sh
 # VAULT_SYNC_LOG names the sync log to read (default ~/.openclaw/logs/sync-pool.log).
