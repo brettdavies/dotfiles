@@ -122,8 +122,9 @@ as provisioned by Playwright or dotfiles.
 - **The install is per host, never fleet-wide.** This repo deploys to many headless servers that run no browser, so only
   a host where the operator runs the Chrome deploy gets Chrome, and a host without it keeps its consumers' current
   behavior. Governs R1, R15.
-- **One owner for the Chrome executable path.** The per-OS path is defined once in shell config. The gstack pointer, the
-  crawl4ai settings, and the R4 check all read it there, so no second copy can drift. Governs R6, R7, R15.
+- **One owner for the Chrome executable path.** The per-OS path is defined once in shell config, as the variable agents'
+  scripts read too. The gstack pointer, the crawl4ai settings, the guidance, and the R4 check all read it there, so no
+  second copy can drift. Governs R6, R7, R8, R15, R18.
 - **The Mac keeps Google's own updater, not Homebrew.** Chrome is already installed outside Homebrew and updated by
   Google. The cask declares `auto_updates`, so `brew-upgrade`'s `bu --no-greedy` would never upgrade it anyway. Governs
   R3.
@@ -164,9 +165,10 @@ as provisioned by Playwright or dotfiles.
 - R7. crawl4ai on both machines (the CLI, the crawl4ai skill's scripts, and repos that import it) launches stable Chrome
   with its sandbox on.
 - R8. The guidance agents read before writing browser automation tells any script that opens pages Brett does not
-  control to launch stable Chrome with the sandbox on. That guidance is the CLI tools guide and the browser-related
-  skills, and its form is `channel: 'chrome'` with `chromiumSandbox: true` for Playwright, or the equivalent for other
-  libraries.
+  control to launch the Chrome binary dotfiles names, with the sandbox on. That guidance is the always-loaded
+  `stow/claude/dot-claude/CLAUDE.md`, the CLI tools guide, and the browser-related skills. For Playwright its form is
+  `executablePath` from the dotfiles-owned variable with `chromiumSandbox: true`, which works on both machines;
+  `channel: 'chrome'` is equivalent only where Chrome is installed at the Linux path.
 - R9. No browsing agent on either machine passes `--no-sandbox` outside a context where the sandbox cannot work (root, a
   container, CI).
 
@@ -184,25 +186,33 @@ as provisioned by Playwright or dotfiles.
 
 **Docs**
 
-- R14. The Playwright runbook, the CLI tools guide, and the solutions docs on Playwright launch describe which consumers
-  use stable Chrome and which use a pinned build, and why. Each states the boot-time AppArmor behavior as measured.
+- R14. The always-loaded `stow/claude/dot-claude/CLAUDE.md`, the Playwright runbook, the CLI tools guide, and the
+  solutions docs on Playwright launch describe which consumers use stable Chrome and which use a pinned build, and why.
+  Each states the boot-time AppArmor behavior as measured.
 
-**Hosts without Chrome, and processes an upgrade left behind**
+**Hosts without Chrome, processes an upgrade left behind, and failure output**
 
 - R15. A host without stable Chrome keeps its browsing agents on their current browser. Dotfiles never points a consumer
   at a Chrome binary that is absent, and on such a host the R4 check only notes the absence.
 - R16. The R4 check also reports any running Chrome process still on an executable an upgrade replaced, and names the
   restart that picks up the new build.
+- R17. Each R4 failure carries a stable reason from a closed set, the values it compared (installed and offered
+  versions, the configuration file read), and the fix command, on stderr with a non-zero exit.
+- R18. A script following the R8 guidance on a host without stable Chrome stops and names the operator's deploy command.
+  It never falls back to a pinned build for pages Brett does not control and never runs `playwright install chrome`.
 
 ### Acceptance Examples
 
 - AE1. **Covers R6, R9.** **Given** stable Chrome is installed and gstack is pointed at it, **when**
   `browse goto https://dv-g3b-emudhra.we-have-a-problem.com/` runs, **then** the navigation fails with a certificate
   error, and the browser's renderer processes run in their own user namespace.
-- AE2. **Covers R2, R4.** **Given** Google publishes a new stable build, **when** the host's next daily
+- AE2. **Covers R2, R4, R17.** **Given** Google publishes a new stable build, **when** the host's next daily
   unattended-upgrade run completes, **then** the installed version matches it and the R4 check passes. **Given**
   Google's origin is missing from the unattended-upgrade configuration, **when** the R4 check runs a day after a
-  release, **then** it exits non-zero and names the deploy command.
+  release, **then** it exits non-zero with a stable reason, the configuration file it read, and the deploy command.
+- AE9. **Covers R18.** **Given** a host without stable Chrome, **when** an agent's script launches a browser the way the
+  guidance says, **then** it exits before opening any page with a message that the host has no stable Chrome and names
+  the deploy command, rather than Playwright's `Run "npx playwright install chrome"`.
 - AE3. **Covers R5.** **Given** stable Chrome is installed, **when** Playwright launches it with `channel: 'chrome'` and
   `chromiumSandbox: true` on a boot where Ubuntu's `chrome` profile is loaded, **then** it starts and its renderers have
   their own user and PID namespaces. **When** the same launch runs with that profile unloaded, **then** it still starts
@@ -583,21 +593,204 @@ The task store also carries eight tasks from the 2026-11-03 eng review of
 - Parallelization: 3 lanes, 2 parallel / 1 sequential
 - Lake Score: N/A (no answers scored for Completeness)
 
+### DX Review (plan-devex-review, 2026-11-03)
+
+Run unattended under the same rule as the engineering review. Product type: Platform (host provisioning), with a CLI
+surface (the deploy script and its `--check`) and a guidance surface agents read. Mode: DX POLISH, because this enhances
+existing provisioning. No design doc exists; the `/office-hours` offer was skipped as unattended. The prior DX rows on
+`dev` belong to other plans, so there is no trend to compare.
+
+#### Developer Persona Card
+
+```text
+TARGET DEVELOPER PERSONA
+========================
+Who:       an AI coding agent in an agent slot on the Linux server or the Mac, unattended
+Context:   asked to scrape a page, run /qa or /browse, or write a script that opens a URL nobody vetted
+Tolerance: one launch attempt; it follows the first fix line an error prints, literally
+Expects:   the always-loaded CLAUDE.md and the CLI tools guide to say which browser to launch and how
+Secondary: the operator at a terminal, opting a host in with one sudo command
+```
+
+#### Developer Empathy Narrative
+
+I am an agent asked to pull the text of a vendor's status page. The always-loaded instructions
+(`stow/claude/dot-claude/CLAUDE.md:291`) tell me Playwright browsers are system-provided and never to run
+`playwright install`, so I write `chromium.launch()`. It works in about a second. Nothing tells me that I just ran
+Chrome for Testing 156.0.8078.4 with `--no-sandbox` (measured), or that this build still trusts a compromised CA
+(measured). With the plan as first written, the guidance would say `channel: 'chrome'`. On a host without Chrome I would
+get `Chromium distribution 'chrome' is not found at /opt/google/chrome/chrome` and `Run "npx playwright install chrome"`
+(captured), and I would run it: an apt install as root that the slot denies, or that bypasses the dotfiles deploy where
+sudo works.
+
+#### Competitive DX Benchmark
+
+| Tool                           | Start → result                              | Time + evidence type                                                                   | DX choice                                                                   | Source                        |
+| ------------------------------ | ------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------- |
+| Playwright library, default    | `chromium.launch()` → page loaded           | ~1-2 s [observed: probes]                                                              | pinned build, sandbox off by default                                        | `chromiumSandbox` docs; probe |
+| Playwright `channel: 'chrome'` | launch → page in installed Chrome           | ~1-2 s once installed [observed: 157 via `executablePath`]; error if absent [observed] | relies on the OS install; prints `npx playwright install chrome`            | coreBundle.js; probe          |
+| crawl4ai                       | `crwl <url>` → markdown                     | unknown here                                                                           | pinned build, `--no-sandbox` unless `CRAWL4AI_CHROMIUM_SANDBOX=true`        | `browser_manager.py:44-54`    |
+| This plan                      | agent script → sandboxed stable Chrome page | <2 min including reading the guidance [estimated]                                      | one dotfiles variable, sandbox on, stop with the deploy command when absent | R8, R18                       |
+
+Target (auto-decided): Champion, under 2 minutes, from reading the guidance to a page loaded in sandboxed stable Chrome.
+That endpoint is unreachable on the Linux server today, because stable Chrome is not installed.
+
+#### Magical Moment Specification
+
+The operator's `--check` on an opted-in host prints one line naming the installed Chrome version, that unattended
+upgrades cover it, and that nothing runs a replaced executable (R4, R16, R17). The agent's moment is AE1: the
+compromised-CA test host fails with a certificate error, where the pinned build loaded it. Both use capabilities the
+plan already has.
+
+#### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                                    | FRICTION POINTS                                   | STATUS
+----------------|---------------------------------------------------|---------------------------------------------------|--------
+1. Discover     | reads CLAUDE.md:291 and the CLI tools guide        | both say "pinned, never install"; no Chrome word  | fixed (R8, R14)
+2. Install      | operator runs the deploy with sudo once per host   | sudo denied to agents; root needed for apt        | ok (operator step, D1 shape)
+3. Hello World  | agent launches the dotfiles-named Chrome, sandbox  | absent-Chrome error prints an unsafe fix          | fixed (R18, AE9)
+4. Real Usage   | gstack and crawl4ai through the pointers           | crawl4ai CLI needs `-b`/`-B` or global config     | deferred to planning (already listed)
+5. Debug        | runs `--check`                                    | failure output had no stable reason or values     | fixed (R17)
+6. Upgrade      | nothing: unattended upgrades daily                 | a running daemon keeps the old build              | fixed (R16)
+```
+
+#### First-Time Developer Confusion Report
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: agent in a slot, task "fetch this page"
+T+0:00  Reads CLAUDE.md:291: browsers are system-provided; never run playwright install.
+T+0:20  Writes chromium.launch(); page loads. Unaware it is pinned and unsandboxed.      → addressed by R8, R14
+T+0:40  (plan as first written) switches to channel 'chrome' per the guide.
+T+0:45  On a host without Chrome: "Run npx playwright install chrome". Runs it.          → addressed by R18, AE9
+T+1:00  sudo denied by the slot, or apt installs Chrome outside the dotfiles deploy.    → addressed by R18
+T+1:30  (after the plan) reads the variable, launches sandboxed stable Chrome, done.
+```
+
+#### Passes
+
+- Pass 1, Getting Started: 6 → 8. The operator path is one sudo command plus `--check`; the agent path is one launch
+  line. Residual: the operator install needs root on each host, by design.
+- Pass 2, API/CLI/SDK: 6 → 8. One variable is the interface for every consumer (Key Decision, one owner); `--check`
+  follows `scripts/sysctl-deploy.sh --check`. Residual: crawl4ai's CLI and SDK take the setting differently.
+- Pass 3, Error Messages: 4 → 7. Finding DX1 below was a CAP4. The check's failures gain reasons and values (R17).
+  Residual: what an old `@playwright/test` prints against a far newer Chrome is unknown.
+- Pass 4, Documentation: 6 → 8. The always-loaded CLAUDE.md line joins R8 and R14.
+- Pass 5, Upgrade: 7 → 8. Updates are unattended; stale processes are reported (R16).
+- Pass 6, Dev Environment: 7 → 8. One variable covers the Mac path (spaces) and the Linux path; Google ships amd64 and
+  arm64 debs (measured); CI unchanged (R10).
+- Pass 7, Community: 3 → 3. Personal dotfiles; no community surface, and none proposed.
+- Pass 8, DX Measurement: 5 → 7. `--check` is the standing measure, and the live checks (AE1, AE3, AE9) measure the
+  clock once Chrome is installed. No telemetry proposed.
+
+```text
+ERROR PATH MATRIX (agent-ready-v1)
+Path                             | Class      | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+agent launch, Chrome absent      | dependency | pass | fail | fail     | fail | pass    | N/A   | pass      | pass    | CAP4:launch:fix  → R18
+--check, Chrome stale            | dependency | pass | pass | gap      | gap  | gap     | N/A   | pass      | pass    | CAP6:check:context → R17
+--check, origin not covered      | config     | pass | pass | gap      | gap  | gap     | N/A   | pass      | pass    | CAP6:check:context → R17
+deploy run without root          | usage      | gap  | gap  | N/A      | gap  | N/A     | N/A   | pass      | gap     | none (usage; D1 shape)
+unexpected: apt-get fails        | dependency | gap  | gap  | gap      | gap  | gap     | gap   | pass      | gap     | CAP6:deploy:trace (planning: pass apt's stderr through, name the rerun)
+```
+
+- DX1. [CRITICAL] `CAP4:launch:fix unsafe fix on a host without Chrome`. Playwright prints
+  `Run "npx playwright install chrome"`, which runs `reinstall_chrome_stable_linux.sh` (`apt-get install` as root) and
+  contradicts the CLI guide. Corrected line, from the script the guidance shows: `stable Chrome is not installed on this
+  host (DOTFILES chrome variable unset); ask the operator to run the Chrome deploy; not falling back to a pinned build`.
+  Disposition: accepted (DX-D1): R8 uses `executablePath` from the dotfiles variable; R18; AE9.
+- DX2. [HIGH] `CAP6:check:context failure output names no reason or values`. R4 named only the fix command. Precedent:
+  `sd-commit-doc` ends failures with `reason:`, `state:`, `next:` lines, and the global error contract asks for a stable
+  reason. Disposition: accepted (DX-D2): R17; AE2 extended.
+- DX3. [INFORMATIONAL] The always-loaded `stow/claude/dot-claude/CLAUDE.md:291` is the first thing every agent reads and
+  was outside R8 and R14. Disposition: accepted (DX-D3): both name it.
+- DX4. [INFORMATIONAL] `crwl` takes browser settings through `-b key=value` and `-B <file>` (`crwl --help`).
+  Disposition: no change; the existing Deferred to Planning item covers it.
+- DX5. [INFORMATIONAL] A deploy run without root, and an apt failure, need the usage and dependency error shapes.
+  Disposition: implementation constraint under D1's script shape, carried in the Implementation Tasks; no new
+  requirement.
+
+Decision ledger (auto-decided): DX-D1 `executablePath` from the dotfiles variable, stopping when absent (chosen) over
+`channel: 'chrome'` with Playwright's error, and over a fallback to the pinned build. DX-D2 stable reasons and values in
+check failures (chosen) over the fix command alone. DX-D3 include CLAUDE.md (chosen) over the guide alone. Outside
+voice: disabled (`codex_reviews`), recorded as skipped.
+
+NOT in scope: telemetry on agent launches; a `--json` form of `--check` (no current consumer reads one); a community
+surface.
+
+What already exists: `scripts/sysctl-deploy.sh --check` and its bats suite, `sd-commit-doc`'s `reason:`/`next:` lines,
+gstack's `GSTACK_CHROMIUM_PATH` launch error, crawl4ai's `-b`/`-B` flags.
+
+TODOS: none proposed; there is no tracked TODOS file.
+
+Implementation tasks (DX):
+
+- [ ] **DX-T1 (P1, human: ~30min / CC: ~5min)** — guidance — launch line with the dotfiles variable and the
+  stop-when-absent branch
+  - Surfaced by: Pass 3 — DX1
+  - Files: `stow/claude/dot-claude/CLAUDE.md`, `stow/claude/dot-claude/guides/cli-tools.md`
+  - Verify: AE9 on a host without Chrome
+- [ ] **DX-T2 (P1, human: ~30min / CC: ~10min)** — check — stable reasons, compared values, distinct exits
+  - Surfaced by: Pass 3 — DX2
+  - Files: the deploy script, `tests/chrome-deploy.bats`
+  - Verify: bats cases assert each reason line
+
+## DX Review Scorecard
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      | 8/10   | 6/10   | ↑      |
+| API/CLI/SDK          | 8/10   | 6/10   | ↑      |
+| Error Messages       | 7/10   | 4/10   | ↑      |
+| Documentation        | 8/10   | 6/10   | ↑      |
+| Upgrade Path         | 8/10   | 7/10   | ↑      |
+| Dev Environment      | 8/10   | 7/10   | ↑      |
+| Community            | 3/10   | 3/10   | =      |
+| DX Measurement       | 7/10   | 5/10   | ↑      |
++--------------------------------------------------------------------+
+| TTHW                 | <2 min | unreachable today (no stable Chrome) |
+| Competitive Rank     | Champion (target)                            |
+| Magical Moment       | designed via --check line and AE1            |
+| Product Type         | Platform with a CLI and guidance surface     |
+| Mode                 | POLISH                                       |
+| Overall DX           | 7/10   | 6/10   | ↑      |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered                                        |
+| Learn by Doing     | covered (copy-paste launch line, R8)           |
+| Fight Uncertainty  | covered (R17, R18)                             |
+| Opinionated + Escape Hatches | covered (one variable; env override) |
+| Code in Context    | covered                                        |
+| Magical Moments    | covered                                        |
+| Agents Are Users   | covered (no interactive step; stop with a command) |
++====================================================================+
+```
+
+Prior column: this review's initial scores; no earlier DX review of this plan exists. Community stays at 3, honestly: no
+community surface is in scope. Error Messages stays at 7 until the old-Playwright-versus-new-Chrome failure is observed.
+
+Unresolved decisions from this review: none.
+
 ## GSTACK REVIEW REPORT
 
-| Review         | Trigger                              | Why                             | Runs | Status             | Findings                   |
-| -------------- | ------------------------------------ | ------------------------------- | ---- | ------------------ | -------------------------- |
-| CEO Review     | `/plan-ceo-review`                   | Scope & strategy                | 0    | —                  | —                          |
-| Outside Review | codex, plan-eng-review outside voice | Independent 2nd opinion         | 1    | disabled           | —                          |
-| Eng Review     | `/plan-eng-review`                   | Architecture & tests (required) | 1    | ISSUES OPEN (PLAN) | 22 issues, 0 critical gaps |
-| Design Review  | `/plan-design-review`                | UI/UX gaps                      | 0    | —                  | —                          |
-| DX Review      | `/plan-devex-review`                 | Developer experience gaps       | 0    | —                  | —                          |
+| Review         | Trigger                                                    | Why                             | Runs | Status             | Findings                                             |
+| -------------- | ---------------------------------------------------------- | ------------------------------- | ---- | ------------------ | ---------------------------------------------------- |
+| CEO Review     | `/plan-ceo-review`                                         | Scope & strategy                | 0    | —                  | —                                                    |
+| Outside Review | codex, plan-eng-review and plan-devex-review outside voice | Independent 2nd opinion         | 2    | disabled           | —                                                    |
+| Eng Review     | `/plan-eng-review`                                         | Architecture & tests (required) | 1    | ISSUES OPEN (PLAN) | 22 issues, 0 critical gaps                           |
+| Design Review  | `/plan-design-review`                                      | UI/UX gaps                      | 0    | —                  | —                                                    |
+| DX Review      | `/plan-devex-review`                                       | Developer experience gaps       | 1    | ISSUES OPEN        | score: 6/10 → 7/10, TTHW: unreachable today → <2 min |
 
-- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no findings.
-- **VERDICT:** no review CLEAR yet — eng review required (issues are mapped work, all accepted into the plan).
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews` for both reviews; no findings.
+- **VERDICT:** no review CLEAR yet — eng review required (both reviews' findings are accepted into the plan as mapped
+  work).
 
 **UNRESOLVED DECISIONS:**
 
-- Local e2e default browser: stable Chrome or the pin (Brett)
-- Seven-day release-age gate exemption for Chrome (Brett)
-- Install go-ahead for the sandbox and `channel: 'chrome'` measurement (Brett)
+- \+ 3 unresolved from prior reviews: the local e2e browser, the seven-day gate exemption for Chrome, and the install
+  go-ahead for the sandbox measurement (all Brett's)
