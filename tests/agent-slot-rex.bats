@@ -2,6 +2,7 @@
 # agent-slot-rex: the Mac half of agent slots, against stubbed rex, ssh, and ps.
 #
 # Run: bats tests/agent-slot-rex.bats
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

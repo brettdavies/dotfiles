@@ -3,6 +3,7 @@
 # minute, one at once after a sleep or once the server answers again, an exit when Rex is gone, and a log line for each.
 #
 # Run: bats tests/agent-slot-rex-follow.bats
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 
@@ -22,18 +23,23 @@ setup() {
 teardown() {
   local pid
   for pid in "${LOOPS[@]}"; do kill -CONT "$pid" 2>/dev/null || true; kill "$pid" 2>/dev/null || true; done
+  # A loop runs its exit handler, which writes the follow log, only once its current sleep ends; bats removes the
+  # directory the log lives in as soon as teardown returns.
+  for pid in "${LOOPS[@]}"; do eventually gone "$pid" || true; done
 }
 
-# eventually COMMAND...: retries the command for up to 10 s until it succeeds.
+# eventually COMMAND...: retries the command until it succeeds, for up to 30 s of wall time. A deadline rather than a
+# count of tries, because on a loaded machine the loop under test can take far longer than usual to act.
 eventually() {
-  local i
-  for ((i = 0; i < 100; i++)); do
-    "$@" 2>/dev/null && return 0
+  local deadline=$((SECONDS + 30))
+  until "$@" 2>/dev/null; do
+    ((SECONDS < deadline)) || {
+      echo "never true within 30 s: $*" >&2
+      cat "$CALLS" "$FOLLOW_LOG" >&2 2>/dev/null || true
+      return 1
+    }
     sleep 0.1
   done
-  echo "never true: $*" >&2
-  cat "$CALLS" "$FOLLOW_LOG" >&2 2>/dev/null || true
-  return 1
 }
 
 # track PID...: processes teardown stops.
@@ -131,12 +137,28 @@ follow_bg() {
 
 @test "after the Mac sleeps, follow restores at once, as a reconnect" {
   follow_bg
+  # The loop's first clock reading comes after it takes the lock, and a stop before that reading is no gap it can see.
+  # Its second ps call is its first tick's check, so the loop is reading the clock by then.
+  eventually at_least '^ps -o command=' 2
   kill -STOP "$LOOP"
   sleep 3
   kill -CONT "$LOOP"
   eventually at_least '^agent-slot-rex restore --by reconnect --output json$' 1
   [ "$(count '^agent-slot-rex restore --by poll')" -eq 0 ]
   called '^ssh-stub-verb probe$'
+  logged 'any(.[]; .event == "wake" and .gap_s >= 3)'
+}
+
+@test "a sleep of the Mac while follow checks the Rex server still counts as a wake" {
+  # ps blocks while ps-hold exists, which holds the loop inside its checks rather than its sleep between ticks.
+  stub ps '[ ! -e "$STUBS/ps-hold" ] || { touch "$STUBS/ps-held"; while [ -e "$STUBS/ps-hold" ]; do sleep 0.1; done; }
+cat "$STUBS/ps.txt"'
+  follow_bg
+  touch "$STUBS/ps-hold"
+  eventually test -e "$STUBS/ps-held"
+  sleep 3
+  rm "$STUBS/ps-hold"
+  eventually at_least '^agent-slot-rex restore --by reconnect --output json$' 1
   logged 'any(.[]; .event == "wake" and .gap_s >= 3)'
 }
 

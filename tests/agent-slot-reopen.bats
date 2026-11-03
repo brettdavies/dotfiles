@@ -6,6 +6,7 @@
 #
 # repoa's prime has origin up/repoa on GitHub, gh answers from gh_item's fixtures, and transcripts live under the
 # sandboxed Claude projects directory.
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

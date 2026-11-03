@@ -2,6 +2,7 @@
 # agent-slot's read verbs: repos, list, and whoami.
 #
 # Run: bats tests/agent-slot-read.bats
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

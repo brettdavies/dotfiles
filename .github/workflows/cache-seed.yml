@@ -1,0 +1,32 @@
+name: cache-seed
+
+on:
+  # The push trigger does work no pull_request run can: a cache saved by a
+  # pull_request run is scoped to that pull request, so a pull request's first
+  # run can restore only caches saved on its base branch or the default branch.
+  # This workflow installs the bats suite's tools on dev, which saves their
+  # caches there, and runs no tests: the suite still runs once per change, on
+  # the pull request.
+  push:
+    branches: [dev]
+
+# The group key leads with a literal token naming the workflow that owns it,
+# as in bats.yml, so no called reusable can share the group.
+concurrency:
+  group: cache-seed-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    # Long enough for a slow Ubuntu mirror, which has taken over two minutes to
+    # deliver this job's apt packages.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the bats suite's tools, saving their caches on dev
+        uses: ./.github/actions/setup-bats-suite

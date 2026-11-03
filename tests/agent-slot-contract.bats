@@ -2,6 +2,7 @@
 # The agent-slot output contract: exit codes, the JSON error envelope, --help, bounded calls, and record schemas.
 #
 # Run: bats tests/agent-slot-contract.bats
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

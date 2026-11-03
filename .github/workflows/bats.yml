@@ -17,62 +17,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  bats:
+  shard:
+    # One 4-vCPU runner runs the suite CPU-bound: twice as many jobs as cores
+    # finishes no sooner, so only more runners shorten it. scripts/run-tests
+    # decides which files each shard runs; the matrix only sets how many shards.
+    name: bats shard ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-latest
     # About 5x this job's median successful run, rounded up to the minute.
-    timeout-minutes: 13
+    timeout-minutes: 11
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install ShellCheck
-        # tests/lint-shell.bats and the per-file lint tests shell out to
-        # shellcheck, so this job needs the same pinned version as the
-        # ShellCheck workflow or the two disagree about identical files.
-        uses: ./.github/actions/setup-shellcheck
-
-      - name: Install bats-core
-        # Pinned rather than apt-installed: several suites use `run !`, which
-        # needs bats >= 1.5.0, and the distro package version is whatever the
-        # runner image happens to ship.
-        # The action caches its own install (actions/cache internally), so a warm
-        # run restores rather than clones.
-        uses: bats-core/bats-action@77d6fb60505b4d0d1d73e48bd035b55074bbfb43 # 4.0.0
-        with:
-          # The action downloads bats and its libraries through api.github.com. Without a token those calls share the
-          # runner's anonymous rate limit, which a busy runner exhausts, and the install fails with HTTP 403.
-          github-token: ${{ github.token }}
-
-      - name: Install yq
-        # auto-format-ignores.bats and auto-format-config-resolution.bats assert
-        # on behaviour the hook derives from a markdownlint config, and the hook
-        # reads every config through yq. Without it the hook silently reads none
-        # of them, so those suites would pass without exercising anything.
-        # Deliberately not apt: the distro `yq` is kislyuk/yq, a different tool
-        # that rejects the v4 syntax the hook uses. See the action for detail.
-        uses: ./.github/actions/setup-yq
-
-      - name: Install uv
-        # md-align-tables.bats runs the table aligner's unit tests through
-        # `uv run --with wcwidth`, because the script imports wcwidth at load.
-        # Without uv that suite skips rather than exercising anything.
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-
-      - name: Install zsh + stow + jq + trash-cli
-        # zsh: shell-config.bats syntax-checks dot-zshrc / dot-zshenv / dot-zprofile.
-        # stow: stow-deploy-args.bats checks exit codes; without stow the script
-        #   exits with EXIT_DEPENDENCY (3) instead of EXIT_USAGE (2).
-        # jq: heredoc-pr-guard.bats invokes jaq for fake JSON construction.
-        # trash-cli: the agent-slot suites trash slot clones with the real
-        #   trash-put into a sandbox trash, since teardown purges the entry it wrote.
-        # Symlink jq as jaq (jaq is a jq-compatible Rust reimplementation; tests
-        # use only the -n / -r / --arg / -e flags + standard filter syntax).
-        run: |
-          sudo apt-get install -y zsh stow jq trash-cli
-          sudo ln -sf "$(command -v jq)" /usr/local/bin/jaq
+      - name: Install the suite's tools
+        # The action lists each tool and why the suite needs it; the cache seed
+        # in .github/workflows/cache-seed.yml runs the same action on dev.
+        uses: ./.github/actions/setup-bats-suite
 
       - name: Run bats tests
-        # scripts/run-tests owns which suites run and in what order.
-        # .githooks/pre-push runs this exact command and .githooks/pre-commit
-        # runs the same script over staged test files, so the local gates and
-        # this job cannot drift apart.
-        run: ./scripts/run-tests --all
+        # scripts/run-tests owns which suites run, in what order, and which
+        # shard runs each. .githooks/pre-push runs the same script over the
+        # whole suite and .githooks/pre-commit over staged test files, so the
+        # local gates and this job cannot drift apart.
+        env:
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: ./scripts/run-tests --all --shard "$SHARD"
+
+  bats:
+    # The required status check. A skipped required check counts as passing,
+    # so this job runs whatever the shards concluded and fails unless every
+    # shard passed.
+    needs: shard
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Every shard passed
+        env:
+          RESULT: ${{ needs.shard.result }}
+        run: |
+          echo "bats shards: $RESULT"
+          [ "$RESULT" = success ]

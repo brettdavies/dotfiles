@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 # Tests for sd-commit-doc: isolated-worktree commit + push + shared-clone fast-forward.
 # Uses a local bare repo as origin so nothing touches the network.
+# run-tests: parallel
 
 setup() {
   # An inherited GIT_DIR outranks `-C`, so every `git -C "$SD"` below would

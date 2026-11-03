@@ -3,6 +3,7 @@
 # rolling back what never finished.
 #
 # Run: bats tests/agent-slot-launch.bats
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

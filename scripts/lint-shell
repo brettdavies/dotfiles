@@ -133,18 +133,45 @@ else
   candidates=("$@")
 fi
 
-status=0
-checked=0
+targets=()
 for f in "${candidates[@]}"; do
   [ -f "$f" ] || continue
   _is_target "$f" || continue
-  # Word splitting is the point: _flags_for returns zero or more flags.
-  # shellcheck disable=SC2046
-  if ! shellcheck $(_flags_for "$f") "$f"; then
-    status="$EXIT_FINDINGS"
-  fi
-  checked=$((checked + 1))
+  targets+=("$f")
 done
+
+# One shellcheck per file, as many at a time as there are cores: a sweep covers
+# a few hundred files, and one after another they take tens of seconds. Each
+# file's findings are buffered and printed whole, in target order.
+jobs=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+outdir=$(mktemp -d)
+trap 'rm -rf "$outdir"' EXIT
+running=0
+for i in "${!targets[@]}"; do
+  f=${targets[$i]}
+  # errexit is off inside the job so a file with findings still records its
+  # status rather than ending the job first.
+  {
+    set +e
+    # Word splitting is the point: _flags_for returns zero or more flags.
+    # shellcheck disable=SC2046
+    shellcheck $(_flags_for "$f") "$f" >"$outdir/$i.out" 2>&1
+    printf '%s' "$?" >"$outdir/$i.rc"
+  } &
+  running=$((running + 1))
+  if [ "$running" -ge "$jobs" ]; then
+    wait -n
+    running=$((running - 1))
+  fi
+done
+wait
+
+status=0
+for i in "${!targets[@]}"; do
+  cat "$outdir/$i.out"
+  [ "$(cat "$outdir/$i.rc" 2>/dev/null)" = 0 ] || status="$EXIT_FINDINGS"
+done
+checked=${#targets[@]}
 
 if [ "$status" -eq 0 ]; then
   echo "lint-shell: $checked file(s) clean"

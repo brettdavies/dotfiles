@@ -7,6 +7,7 @@
 # The hook runs under the process chain a real slot pane gives it: a pane shell that records its own pid as the pane's
 # #{pane_pid}, then `claude` (a symlink to bash, so /proc comm reads claude), then the hook. The tmux stub serves one
 # pane per directory under $STUBS/panes and keeps pane options as files, and the pane's tty is a regular file.
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

@@ -379,6 +379,16 @@ fails a test that resets `HOME`, `TMPDIR`, an `XDG_*` directory, a tool home, or
 nothing. The script is a verbatim copy of the github-repo-setup skill's `templates/core-env-guard.sh`, whose own suite
 covers it.
 
+The bats workflow is a matrix of shards, each running `scripts/run-tests --all --shard I/N` on its own runner, and a job
+named `bats` that passes only when every shard did. One 4-vCPU runner runs the suite CPU-bound, so more runners are what
+shorten it; `run-tests` decides which files each shard gets, and the `bats` job keeps the required context the rulesets
+name. Locally the suite runs whole, with no `--shard`. A suite whose tests share no state, each keeping its own under
+its own `BATS_TEST_TMPDIR`, declares `# run-tests: parallel` on a line of its own, and `run-tests` then runs its tests
+concurrently as well, so no single long file paces a shard. The shard jobs install their tools through
+`.github/actions/setup-bats-suite`, and `.github/workflows/cache-seed.yml` runs that same action on every push to `dev`:
+a pull request's run can restore caches saved on its base branch but not those of another pull request, so without the
+seed every pull request's first run would start cold. The seed checks nothing, so it has no `pre-push` counterpart.
+
 `pre-push` is the repo-wide mirror: its steps map one-to-one onto CI jobs, and passing it should mean passing the
 pipeline. `pre-commit` runs the same scripts over staged paths only, so it stays fast enough for every commit while
 catching the same class of failure. The two policy checks in `pre-commit` (protected branch, signing) have no CI

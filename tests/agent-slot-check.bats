@@ -4,6 +4,7 @@
 # Run: bats tests/agent-slot-check.bats
 #
 # Each test builds a real slot clone of a bare origin (task_slot_setup in tests/lib/agent-slot.bash).
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

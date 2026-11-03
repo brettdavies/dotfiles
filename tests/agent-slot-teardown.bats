@@ -5,6 +5,7 @@
 #
 # Fixtures only: the slot root, home, and trash are sandboxed, and the trash is trash-cli writing to a trash under the
 # test's directory.
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

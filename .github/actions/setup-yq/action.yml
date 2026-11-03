@@ -1,5 +1,5 @@
 name: Setup yq
-description: Install a pinned, cached mikefarah yq, so the hooks CI exercises read config the same way the local ones do.
+description: Install a pinned mikefarah yq, so the hooks CI exercises read config the same way the local ones do.
 
 # `apt-get install -y yq` on the runner image installs kislyuk/yq, a Python jq
 # wrapper (3.1.0), NOT mikefarah/yq. They share a name and nothing else:
@@ -14,10 +14,10 @@ description: Install a pinned, cached mikefarah yq, so the hooks CI exercises re
 # so the hook silently reads no config and the suites asserting on config-driven
 # behaviour pass while proving nothing.
 #
-# The install is cached per version and runner, so a warm job unpacks nothing and
-# reaches no network. The cache lives under $HOME rather than /usr/local/bin
-# because cache restore runs unprivileged; the directory joins PATH instead of
-# the binary being copied into a root-owned one.
+# Not cached: fetching and verifying the release takes 0.1-0.4 s, while
+# restoring the same file from the Actions cache took 0.4-1.9 s on warm runs,
+# and every pull request's first run misses the cache and pays for a save as
+# well. The binary goes to a directory under $HOME that joins PATH.
 #
 # Keep VERSION in step with the Homebrew formula; bumping is a reviewed change.
 # The checksum is the SHA-256 column of the release's `checksums` file, whose
@@ -36,15 +36,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Cache yq
-      id: cache
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ~/.cache/yq/${{ inputs.version }}
-        key: yq-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
-
     - name: Download pinned yq
-      if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         YQ_VERSION: ${{ inputs.version }}
@@ -54,7 +46,7 @@ runs:
         dest="$HOME/.cache/yq/${YQ_VERSION}"
         mkdir -p "$dest"
         url="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
-        curl -fsSL "$url" -o /tmp/yq_linux_amd64
+        curl -fsSL --retry 3 --retry-connrefused "$url" -o /tmp/yq_linux_amd64
         echo "${YQ_SHA256}  /tmp/yq_linux_amd64" | sha256sum --check --strict
         install /tmp/yq_linux_amd64 "$dest/yq"
         rm -f /tmp/yq_linux_amd64
@@ -67,7 +59,7 @@ runs:
         set -euo pipefail
         dest="$HOME/.cache/yq/${YQ_VERSION}"
         [ -x "$dest/yq" ] || {
-          echo "setup-yq: $dest/yq missing after install/restore" >&2
+          echo "setup-yq: $dest/yq missing after install" >&2
           exit 1
         }
         echo "$dest" >>"$GITHUB_PATH"

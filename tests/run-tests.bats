@@ -45,6 +45,11 @@ _line_of() {
   printf '%s\n' "$output" | grep -n -- "$1" | head -1 | cut -d: -f1
 }
 
+# Prints the letters of the "<letter> probe" tests in $output, sorted and joined.
+_probes_run() {
+  printf '%s\n' "$output" | sed -n 's/^ok [0-9]* \([a-z]\) probe$/\1/p' | sort | tr -d '\n'
+}
+
 @test "run-tests is executable" {
   [ -x "$SCRIPT" ]
 }
@@ -141,6 +146,153 @@ _line_of() {
   [ "$(_line_of 'perf probe')" -lt "$(_line_of 'main probe')" ]
 }
 
+# ---------------------------------------------------------------------------
+# Sharding
+# ---------------------------------------------------------------------------
+
+@test "--shard deals files largest first in a snake, so each file runs in exactly one shard" {
+  _sandbox
+  local f pad=0
+  # a is the smallest file and e the largest, so the deal order is e d c b a: e to shard 1, d to 2, then back from
+  # 2, c to 2 and b to 1, then a to 1.
+  for f in a b c d e; do
+    _probe "$SANDBOX/tests/$f.bats" "$f probe" "[ 1 -eq 1 ]"
+    printf '# %*s\n' "$pad" '' >>"$SANDBOX/tests/$f.bats"
+    pad=$((pad + 100))
+  done
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf --shard 1/2
+  [ "$status" -eq 0 ]
+  [ "$(_probes_run)" = abe ]
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf --shard 2/2
+  [ "$status" -eq 0 ]
+  [ "$(_probes_run)" = cd ]
+}
+
+@test "only the first shard runs the perf suite" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "a probe" "[ 1 -eq 1 ]"
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  _probe "$SANDBOX/tests/perf/slow.bats" "perf probe" "[ 1 -eq 1 ]"
+  run "$SANDBOX/scripts/run-tests" --all --shard 1/2
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"perf probe"* ]]
+  [ "$(_probes_run)" = a ]
+  run "$SANDBOX/scripts/run-tests" --all --shard 2/2
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"perf probe"* ]]
+  [ "$(_probes_run)" = b ]
+}
+
+@test "a shard left with no files passes" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "a probe" "[ 1 -eq 1 ]"
+  run "$SANDBOX/scripts/run-tests" --no-perf --shard 3/3
+  [ "$status" -eq 0 ]
+  [ -z "$(_probes_run)" ]
+}
+
+@test "a --shard that is not I/N with 1 <= I <= N is a usage error" {
+  _require_bats
+  local spec
+  for spec in 0/2 3/2 1/0 2 x/2 1/x 1/2/3 ''; do
+    run "$SCRIPT" --no-perf --shard "$spec"
+    [ "$status" -eq 2 ] || {
+      echo "--shard '$spec' exited $status"
+      false
+    }
+    [[ "$output" == *"--shard"* ]]
+  done
+  run "$SCRIPT" --all --shard
+  [ "$status" -eq 2 ]
+}
+
+@test "an option before the mode is a usage error, not a run of no files" {
+  _require_bats
+  run "$SCRIPT" --shard 1/2 --all
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--shard"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Tests within a file in parallel
+# ---------------------------------------------------------------------------
+
+# _rendezvous <path> [marker]: a two-test file whose tests each wait up to 5 s
+# for the other to start, so it passes only when its tests run concurrently.
+_rendezvous() {
+  local wait='deadline=$((SECONDS + 5)); until [ -e "$BATS_FILE_TMPDIR/$2" ]; do ((SECONDS < deadline)) || return 1; sleep 0.1; done'
+  {
+    printf '%s\n' '#!/usr/bin/env bats'
+    [ -z "${2:-}" ] || printf '%s\n' "$2"
+    printf '%s\n' "meet() { touch \"\$BATS_FILE_TMPDIR/\$1\"; $wait; }"
+    printf '%s\n' '@test "first" { meet first second; }' '@test "second" { meet second first; }'
+  } >"$1"
+}
+
+@test "a file that declares run-tests: parallel runs its tests concurrently" {
+  _sandbox
+  command -v flock >/dev/null 2>&1 || skip "flock not installed"
+  _rendezvous "$SANDBOX/tests/a.bats" '# run-tests: parallel'
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok 1 first"* ]]
+  [[ "$output" == *"ok 2 second"* ]]
+}
+
+@test "a file without the declaration runs its tests one at a time" {
+  _sandbox
+  _rendezvous "$SANDBOX/tests/a.bats"
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not ok 1 first"* ]]
+}
+
+@test "a shard left with one declared file still runs its tests concurrently" {
+  _sandbox
+  command -v flock >/dev/null 2>&1 || skip "flock not installed"
+  _rendezvous "$SANDBOX/tests/a.bats" '# run-tests: parallel'
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf --shard 1/2
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok 2 second"* ]]
+}
+
+@test "a suite that declares run-tests: parallel and interrupts the code under test resets the signal first" {
+  # bats starts each concurrent test as a background job, and bash 5.3 starts those with SIGINT and SIGQUIT ignored,
+  # so code under test that traps either must be started with the signal at its default, as perl's $SIG{...} = "DEFAULT"
+  # does before an exec.
+  local f bad=()
+  for f in "$BATS_TEST_DIRNAME"/*.bats; do
+    grep -qx '# run-tests: parallel' "$f" || continue
+    grep -qE 'kill -(INT|QUIT|2|3)\b' "$f" || continue
+    grep -qF '$SIG{' "$f" || bad+=("${f##*/}")
+  done
+  [ "${#bad[@]}" -eq 0 ] || {
+    printf 'declares run-tests: parallel and sends SIGINT or SIGQUIT without resetting it: %s\n' "${bad[@]}"
+    false
+  }
+}
+
+@test "named files run one process each, behind their markers, as the main suite's do" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "a probe" "[ 1 -eq 1 ]"
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" tests/a.bats tests/b.bats
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"# tests/a.bats ("* ]]
+  [[ "$output" == *"# tests/b.bats ("* ]]
+}
+
+@test "a declared file named alone still runs its tests concurrently" {
+  _sandbox
+  command -v flock >/dev/null 2>&1 || skip "flock not installed"
+  _rendezvous "$SANDBOX/tests/a.bats" '# run-tests: parallel'
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" tests/a.bats
+  [ "$status" -eq 0 ]
+}
+
 @test "a mode still succeeds when the suite it names is empty" {
   _sandbox
   _probe "$SANDBOX/tests/main.bats" "main probe" "[ 1 -eq 1 ]"
@@ -163,6 +315,20 @@ _line_of() {
   [ "$(_line_of '# tests/a.bats')" -lt "$(_line_of 'alpha probe')" ]
   [ "$(_line_of 'alpha probe')" -lt "$(_line_of '# tests/b.bats')" ]
   [ "$(_line_of 'bravo probe')" -lt "$(_line_of '# tests/c.bats')" ]
+}
+
+@test "each file's marker says how long that file ran" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "alpha probe" "[ 1 -eq 1 ]"
+  _probe "$SANDBOX/tests/b.bats" "bravo probe" "sleep 0.3"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 0 ]
+  local a b
+  a=$(sed -n 's|^# tests/a\.bats (\([0-9]*\.[0-9]\) s)$|\1|p' <<<"$output")
+  b=$(sed -n 's|^# tests/b\.bats (\([0-9]*\.[0-9]\) s)$|\1|p' <<<"$output")
+  [ -n "$a" ]
+  [ -n "$b" ]
+  ((10#${b/./} >= 3))
 }
 
 @test "one failing file fails the run without suppressing the others" {

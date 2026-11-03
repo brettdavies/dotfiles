@@ -5,6 +5,7 @@
 # Run: bats tests/agent-slot-items.bats
 #
 # gh is the stub tests/lib/agent-slot.bash's stub_gh_items installs, answering from gh_item's fixtures.
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 

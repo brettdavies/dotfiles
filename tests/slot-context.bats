@@ -6,6 +6,7 @@
 #
 # The hook runs as the pane's top-level Claude: a pane shell that records its own pid as the pane's #{pane_pid}, then
 # `claude` (a symlink to bash, so /proc comm reads claude), then the hook. The tmux stub answers display from files.
+# run-tests: parallel
 
 bats_require_minimum_version 1.5.0
 
