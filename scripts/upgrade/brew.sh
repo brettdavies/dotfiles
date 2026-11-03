@@ -24,6 +24,7 @@ _brew_versions() {
 run_log_start brew-upgrade "bu --no-greedy" "$(brew --version 2>&1 | head -n 1)" HOMEBREW_NO_ANALYTICS HOMEBREW_CACHE
 run_log_upgrade _brew_versions bu --no-greedy
 yazi_pkg_install
+yazi_pins_after_upgrade
 if [ "$RUN_OS" = Linux ] && prefix=$(brew --prefix 2>/dev/null); then
   stale_procs_restart /proc "$prefix"
 fi

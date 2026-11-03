@@ -83,6 +83,19 @@ echo "Deploying package \`git.yazi\`"
 [ -n "${STUB_YA_FAIL-}" ] && { echo "Error: failed to fetch yazi-rs/plugins" >&2; exit 1; }
 echo "Done!"
 EOF
+  # The pins are proven on the stub yazi's version, so a run bumps nothing unless a test changes the stamp; the bump
+  # stub logs that it ran, prints a line of progress, and prints STUB_PINS_OUT as its outcome.
+  export YAZI_PINS_STATE_DIR="$BATS_TEST_TMPDIR/state" PINS_LOG="$BATS_TEST_TMPDIR/pins.log"
+  mkdir -p "$YAZI_PINS_STATE_DIR"
+  echo 26.10.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
+  printf '#!/bin/sh\nprintf "Yazi\\n    Version: 26.10.1 (Homebrew 2026-10-30)\\n"\n' >"$STUBS/yazi"
+  cat >"$STUBS/yazi-pins" <<'EOF'
+#!/bin/sh
+echo ran >>"$PINS_LOG"
+echo "yazi-pins: checking the candidates" >&2
+printf '%s\n' "${STUB_PINS_OUT-}"
+EOF
+  export YAZI_PINS_CMD="$STUBS/yazi-pins"
   chmod +x "$STUBS"/*
 }
 
@@ -224,11 +237,85 @@ _assert_run_log() {
   [ "$(printf '%s' "$END" | jaq -c '[has("yazi_pins"), .yazi_pins]')" = '[true,null]' ]
 }
 
+PINS_BUMPED='{"outcome":"bumped","reason":"pr-merged","exit_code":0,"message":"merged","value":null,"yazi_version":"26.10.1","pr":"https://github.com/o/r/pull/7","host_update":null,"next_step":{"action":"none","command":null,"docs":null}}'
+PINS_WAITING='{"outcome":"waiting","reason":"cooldown","exit_code":75,"message":"wait","value":null,"yazi_version":"26.10.1","pr":null,"host_update":null,"next_step":{"action":"rerun","command":"x","docs":null}}'
+
+@test "a Linux run whose yazi differs from the version the pins were proven on runs the bump and records its outcome" {
+  echo 26.9.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
+  run env -u DOTFILES_SHELL_DIR STUB_PINS_OUT="$PINS_BUMPED" PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  [ "$status" -eq 0 ]
+  _assert_run_log brew-upgrade
+  [ "$(cat "$PINS_LOG")" = ran ]
+  printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "info" and .line == "yazi-pins: checking the candidates")' |
+    grep -q .
+  [ "$(printf '%s' "$END" | jaq -c '[.outcome, .warnings, .yazi_pins.outcome, .yazi_pins.pr]')" = \
+    '["success",1,"bumped","https://github.com/o/r/pull/7"]' ]
+}
+
+@test "a missing stamp runs the bump, and a matching one skips it" {
+  rm -f "$YAZI_PINS_STATE_DIR/yazi-pins-proven"
+  run env -u DOTFILES_SHELL_DIR STUB_PINS_OUT="$PINS_BUMPED" PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$PINS_LOG")" = ran ]
+  : >"$PINS_LOG"
+  echo 26.10.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
+  run env -u DOTFILES_SHELL_DIR STUB_PINS_OUT="$PINS_BUMPED" PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  [ "$status" -eq 0 ]
+  _assert_run_log brew-upgrade
+  [ ! -s "$PINS_LOG" ]
+  [ "$(printf '%s' "$END" | jaq -c .yazi_pins)" = null ]
+}
+
+@test "a bump that waits is one warning naming its outcome, and the run still succeeds" {
+  echo 26.9.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
+  run env -u DOTFILES_SHELL_DIR STUB_PINS_OUT="$PINS_WAITING" PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  [ "$status" -eq 0 ]
+  _assert_run_log brew-upgrade
+  printf '%s\n' "$output" | jaq -c --arg l "Warning: the yazi pin bump ended waiting (cooldown); run.end yazi_pins holds the next step" \
+    'select(.event == "output" and .level == "warning" and .line == $l)' | grep -q .
+  [ "$(printf '%s' "$END" | jaq -c '[.outcome, .warnings, .yazi_pins.outcome]')" = '["success",2,"waiting"]' ]
+}
+
+@test "a bump that prints no outcome object is recorded as failed with reason bad-output" {
+  echo 26.9.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
+  run env -u DOTFILES_SHELL_DIR STUB_PINS_OUT="not json" PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  [ "$status" -eq 0 ]
+  _assert_run_log brew-upgrade
+  [ "$(printf '%s' "$END" | jaq -c '[.yazi_pins.outcome, .yazi_pins.reason, .yazi_pins.next_step.action]')" = \
+    '["failed","bad-output","rerun"]' ]
+  [[ "$(printf '%s' "$END" | jaq -r .yazi_pins.next_step.command)" == *scripts/upgrade/yazi-pins.sh ]]
+}
+
+@test "a brew job that dies during the bump reports the bump as script-error" {
+  echo 26.9.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
+  printf '#!/bin/sh\ncase "$*" in *yazi-pins-log*) exit 1 ;; esac\nexec %s "$@"\n' "$(command -v mktemp)" >"$STUBS/mktemp"
+  chmod +x "$STUBS/mktemp"
+  run env -u DOTFILES_SHELL_DIR PATH="$STUBS:$PATH" bash "$BREW_JOB"
+  [ "$status" -ne 0 ]
+  _assert_run_log brew-upgrade
+  [ "$(printf '%s' "$END" | jaq -c '[.reason, .yazi_pins.outcome, .yazi_pins.reason, .yazi_pins.yazi_version]')" = \
+    '["script-error","failed","script-error","26.10.1"]' ]
+}
+
+@test "on macOS the brew job never runs the bump" {
+  darwin="$BATS_TEST_TMPDIR/darwin"
+  mkdir -p "$darwin" "$BATS_TEST_TMPDIR/bu-only"
+  printf '#!/bin/sh\n[ "$1" = -s ] && echo Darwin || exec %s "$@"\n' "$(command -v uname)" >"$darwin/uname"
+  chmod +x "$darwin/uname"
+  ln -s "$REPO_ROOT/config/shell/shell-functions" "$BATS_TEST_TMPDIR/bu-only/"
+  echo 26.9.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
+  run env DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_PINS_OUT="$PINS_BUMPED" PATH="$darwin:$STUBS:$PATH" bash "$BREW_JOB"
+  [ "$status" -eq 0 ]
+  _assert_run_log brew-upgrade
+  [ ! -e "$PINS_LOG" ]
+  [ "$(printf '%s' "$END" | jaq -c .yazi_pins)" = null ]
+}
+
 @test "on macOS the brew job leaves stale_processes unchecked" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   darwin="$BATS_TEST_TMPDIR/darwin"
   mkdir -p "$darwin" "$BATS_TEST_TMPDIR/bu-only"
-  printf '#!/bin/sh\n[ "$1" = -s ] && echo Darwin || /usr/bin/env uname "$@"\n' >"$darwin/uname"
+  printf '#!/bin/sh\n[ "$1" = -s ] && echo Darwin || exec %s "$@"\n' "$(command -v uname)" >"$darwin/uname"
   chmod +x "$darwin/uname"
   ln -s "$REPO_ROOT/config/shell/shell-functions" "$BATS_TEST_TMPDIR/bu-only/"
   run env DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" PATH="$darwin:$STUBS:$PATH" bash "$BREW_JOB"
