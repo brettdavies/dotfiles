@@ -59,10 +59,10 @@ straight to `dev` under the Branches rule in `~/.claude/CLAUDE.md`.
 Answer each review question yourself where evidence settles it: the code, the repo's docs, `docs/solutions`, or
 precedent. Record the choice and its evidence in the plan. Some decisions only a person can make, such as a name, a
 breaking change, a version call, or a scope cut. In a session the user is watching, ask them. In an agent slot nobody
-watches the tab, so a question asked there waits forever: send it to the session the brief reports to, as one
-`SendMessage` with the question, the options, a recommendation, and the evidence. Keep working on whatever the question
-does not block, then end the turn; the answer arrives as a message. When the brief names no such session, the decision
-stays open in the plan and in the final report.
+watches the tab, so a question asked there is never answered, and a hook denies `AskUserQuestion` there: send it to the
+session the brief reports to, as one `SendMessage` with the question, the options, a recommendation, and the evidence.
+Keep working on whatever the question does not block, then end the turn; the answer arrives as a message. When the brief
+names no such session, the decision stays open in the plan and in the final report.
 
 ### $100 Rule
 

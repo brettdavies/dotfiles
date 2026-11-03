@@ -5,7 +5,8 @@
 #
 #   SessionStart idle; UserPromptSubmit and PostToolUse working; PermissionRequest blocked, kind=question on
 #   AskUserQuestion and kind=permission otherwise; Elicitation, and PreToolUse on AskUserQuestion, blocked
-#   kind=question; Stop done; StopFailure error; SessionEnd clear.
+#   kind=question; Notification of a dialog still waiting after about 6 s blocked, kind=permission on a permission
+#   prompt and kind=question otherwise; Stop done; StopFailure error; SessionEnd clear.
 #
 # Async hooks can finish out of order, so each report carries the time its hook started (@slot_status_at), and under a
 # per-pane lock a report older than the stored one is dropped.
@@ -41,6 +42,12 @@ status_record() {
     UserPromptSubmit | PostToolUse) echo working ;;
     PermissionRequest) [[ $tool == AskUserQuestion ]] && echo blocked:kind=question || echo blocked:kind=permission ;;
     Elicitation) echo blocked:kind=question ;;
+    Notification)
+      case $(hook_field .notification_type) in
+        permission_prompt) echo blocked:kind=permission ;;
+        elicitation_dialog | agent_needs_input) echo blocked:kind=question ;;
+      esac
+      ;;
     PreToolUse) [[ $tool != AskUserQuestion ]] || echo blocked:kind=question ;;
     Stop) echo "done" ;;
     StopFailure) echo error ;;
