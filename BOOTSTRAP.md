@@ -255,7 +255,7 @@ done < ~/dotfiles/stow/cursor/extensions.txt
 
 ### QMD LaunchAgents (Knowledge-Base Index Maintenance)
 
-macOS port of the Linux systemd timers under `stow/qmd/dot-config/systemd/user/`. Three LaunchAgents keep the qmd
+macOS port of the Linux systemd timers under `stow/local/dot-config/systemd/user/`. Three LaunchAgents keep the qmd
 knowledge-base index fresh:
 
 | Agent                  | Schedule              | What it does                                                            |

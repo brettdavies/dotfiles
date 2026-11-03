@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
     QMD nightly cleanup — macOS port of qmd-cleanup.service + qmd-cleanup.timer
-    (Linux systemd, see stow/qmd/dot-config/systemd/user/).
+    (Linux systemd, see stow/local/dot-config/systemd/user/).
 
     Runs `qmd cleanup` nightly at 03:00 (vacuum index, drop stale rerank
     cache). The Linux equivalent adds RandomizedDelaySec=2h; launchd has
