@@ -916,7 +916,11 @@ total     := at most 128 characters, the prefix included; the reconcile cuts slo
      server through the helper's forwarder (KTD1). Drop the Mac-file repo check (`is_known_repo`); the server's helper
      decides which repo a session names and always queues the tab selection.
   4. Run `scripts/stow-deploy`'s config-reload step on both platforms, finding `/usr/bin/rex` on Linux and always
-     passing `--autostart=false`.
+     passing `--autostart=false`. `STOW_DEPLOY_REX_PATHS` replaces the CLI candidates, so a test that deploys to its
+     own `HOME` (the timer-recovery test deploys every shared package) reloads a stub, never the account's live server,
+     whose socket the sandbox `HOME` does not cover. BOOTSTRAP's restow goes through `stow-deploy --only`, since a
+     hand-run `stow -R` skips the macOS ignores and would link `slot-startup.lua` on the Mac, where a later restow
+     cannot remove it.
 - **Patterns to follow:** the systemd-unit skip on Darwin in `scripts/stow-deploy`;
   `docs/solutions/architecture-patterns/cross-platform-stow-package-gating-2026-05-17.md`; the text contracts in
   `tests/rex-config.bats`.

@@ -13,6 +13,8 @@ set -euo pipefail
 #        SHARED_PACKAGES.
 # Env:   STOW_DEPLOY_TARGET  deploy target directory (default: $HOME). The bats
 #        suite points it at a sandbox so no checkout can re-point live symlinks.
+#        STOW_DEPLOY_REX_PATHS  colon-separated rex CLIs the post-deploy config
+#        reload tries, in place of REX_BIN_DIR, the Mac app paths, and /usr/bin/rex.
 
 # Exit codes — distinct values for automation/CI (all non-zero still indicate failure)
 EXIT_USAGE=2        # Bad arguments or flags
@@ -461,17 +463,18 @@ fi
 # Rex reads ~/.config/rex/init.lua when it starts and on `rex config reload`,
 # not when the file changes, so a deploy of the rex package reloads the running
 # server. The CLI is in REX_BIN_DIR inside a Rex terminal, in the app bundle on
-# macOS, and at /usr/bin/rex from the Linux package. Rex being absent or not
-# running is reported and never fails the deploy; --autostart=false keeps the
-# reload from starting a server.
+# macOS, and at /usr/bin/rex from the Linux package; STOW_DEPLOY_REX_PATHS, a
+# colon-separated list, replaces those candidates, which is how a test that
+# deploys to its own HOME keeps the reload off the account's live Rex server.
+# Rex being absent or not running is reported and never fails the deploy;
+# --autostart=false keeps the reload from starting a server.
 if [ "$TARGET" = "$HOME" ] && grep -qx "rex" "$deployed_file" 2>/dev/null; then
   echo ""
   echo "==> Reloading Rex config"
   _rex=""
-  for _candidate in "${REX_BIN_DIR:+$REX_BIN_DIR/rex}" \
-    "/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex" \
-    "$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex" \
-    "/usr/bin/rex"; do
+  _rex_paths=${STOW_DEPLOY_REX_PATHS-"${REX_BIN_DIR:+$REX_BIN_DIR/rex}:/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex:$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex:/usr/bin/rex"}
+  IFS=: read -r -a _rex_candidates <<<"$_rex_paths"
+  for _candidate in "${_rex_candidates[@]+"${_rex_candidates[@]}"}"; do
     if [ -n "$_candidate" ] && [ -x "$_candidate" ]; then
       _rex=$_candidate
       break

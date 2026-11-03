@@ -137,7 +137,7 @@ rex_deploy() {
   # reload the operator's running Rex, and a host without Rex still deploys.
   grep -qF 'if [ "$TARGET" = "$HOME" ] && grep -qx "rex" "$deployed_file"' "$SCRIPT"
   grep -qF '"$_rex" --autostart=false config reload' "$SCRIPT"
-  grep -qF '"/usr/bin/rex"' "$SCRIPT"
+  grep -qF ':/usr/bin/rex"}' "$SCRIPT"
   [ "$(awk '/^# --- Reload Rex/,/^# --- Post-stow/' "$SCRIPT" | grep -cE 'exit|EXIT_')" -eq 0 ]
 }
 
@@ -293,11 +293,15 @@ NOT_DEPLOYED=(tmuxinator ollama)
   printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\n[ "$*" != "--user is-enabled --quiet off.timer" ]\n' \
     "$BATS_TEST_TMPDIR/systemctl.log" >"$stubs/systemctl"
   printf '#!/bin/sh\necho minimal\n' >"$stubs/rustup"
+  # The deploy reloads Rex's config when it stows rex to HOME; this rex stands in for the live server's CLI.
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\n' "$BATS_TEST_TMPDIR/rex.log" >"$stubs/rex"
   chmod +x "$stubs"/*
   target="$BATS_TEST_TMPDIR/home"
   mkdir -p "$target"
-  run env HOME="$target" STOW_DEPLOY_TARGET="$target" PATH="$stubs:$PATH" "$fixture/scripts/stow-deploy"
+  run env -u REX_BIN_DIR HOME="$target" STOW_DEPLOY_TARGET="$target" STOW_DEPLOY_REX_PATHS="$stubs/rex" \
+    PATH="$stubs:$PATH" "$fixture/scripts/stow-deploy"
   [ "$status" -eq 0 ]
+  [ "$(cat "$BATS_TEST_TMPDIR/rex.log")" = "--autostart=false config reload" ]
   [[ "$output" == *"Recovered systemd timer: on.timer"* ]]
   grep -qx -- '--user restart on.timer' "$BATS_TEST_TMPDIR/systemctl.log"
   run grep -E -- '(restart|reset-failed) off\.timer' "$BATS_TEST_TMPDIR/systemctl.log"

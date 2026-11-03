@@ -134,9 +134,11 @@ them would shadow the source of truth. `ollama` is also absent — it targets `/
 ### Restow After Changes
 
 ```bash
-cd ~/dotfiles/stow
-stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" -R <package>
+cd ~/dotfiles && scripts/stow-deploy --only <package>
 ```
+
+`stow-deploy` applies each platform's ignores, such as the Linux-only units and Rex start-up step it leaves off the Mac,
+in one place; a hand-run `stow -R` skips them.
 
 ## Install Packages from Brewfile
 

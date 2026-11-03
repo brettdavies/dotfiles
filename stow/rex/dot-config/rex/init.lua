@@ -1,3 +1,6 @@
+require("layout")
+require("agent-slots")
+
 -- The Linux server, which hosts the slots, deploys slot-startup.lua: its start-up step restores the operator's own tabs
 -- with rexurrect before it gives every live slot its tab, since a slot tab opened first would make rexurrect restore a
 -- second copy of that repo's session. Elsewhere rexurrect restores on its own.
@@ -11,5 +14,3 @@ else
   local r = rex.exec({ os.getenv("HOME") .. "/.local/bin/rexurrect", "auto-restore" }, { env = { REXURRECT_STATE_DIR = os.getenv("HOME") .. "/.local/state/rexurrect" } })
   if r then io.stderr:write(r.stderr) end
 end
-require("layout")
-require("agent-slots")
