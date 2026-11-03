@@ -72,8 +72,10 @@ for entry in "${REPOS[@]}"; do
     continue
   fi
 
-  # Pre-flight: repo exists
-  if [[ ! -d "$repo_path/.git" ]]; then
+  # Pre-flight: repo exists. Its .git is a directory, or a file naming the git
+  # directory, as `git clone --separate-git-dir` leaves it.
+  if [[ ! -e "$repo_path/.git" ]] \
+    || ! git_dir=$(git -C "$repo_path" rev-parse --absolute-git-dir 2>/dev/null); then
     log "SKIP: $repo_name — not a git repo"
     SKIPPED=$((SKIPPED + 1))
     continue
@@ -88,7 +90,7 @@ for entry in "${REPOS[@]}"; do
   fi
 
   # Pre-flight: no lock file
-  if [[ -f "$repo_path/.git/index.lock" ]]; then
+  if [[ -f "$git_dir/index.lock" ]]; then
     log "SKIP: $repo_name — index.lock exists (another process has the repo)"
     SKIPPED=$((SKIPPED + 1))
     continue
