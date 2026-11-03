@@ -477,10 +477,11 @@ Stable channel into a cache: no sudo, but it rebuilds download, verification, an
 glob again, and ships a build Google labels for testing. A is the deeper module behind the smaller surface. Red flags 6
 and 8 are A5 and A4; no others apply.
 
-Failure modes: a release upgrade disabling Google's source is re-enabled by the deb's cron job and caught by R4.
-Google's index lagging the blog by hours (measured about 9 h on 2026-11-03) is why R2 counts from the apt index. A
-Chrome major outrunning an old `@playwright/test` breaks local runs only, with CI pinned. Ubuntu's profile not loading
-at boot falls to the setuid helper (AE3, to measure).
+Failure modes: a release upgrade disabling Google's source is re-enabled by the deb's cron job and caught by R4. R2
+counts from the apt index rather than Google's post, though the index followed the post within about 50 minutes on
+2026-11-03 (post 20:38 UTC, index 21:28 UTC); the stock apt timers are the real lag (R2). A Chrome major outrunning an
+old `@playwright/test` breaks local runs only, with CI pinned. Ubuntu's profile not loading at boot falls to the setuid
+helper (AE3, to measure).
 
 Security: the deb installs a `signed-by` keyring of its own; its management service stays inert unless the browser is
 enrolled; nothing signs in to Chrome.
