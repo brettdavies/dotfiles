@@ -666,6 +666,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "~/.claude/failed-user-units.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
             "command": "~/dotfiles/scripts/fseventsd-check.sh --claude-hook",
             "timeout": 5
           }
