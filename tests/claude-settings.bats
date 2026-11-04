@@ -208,11 +208,8 @@ REPO="$BATS_TEST_DIRNAME/.."
 
 # A slot closes its own probes through agent-slot close-probe, whose checks stand in for the prompt. Raw gh pr close keeps
 # its ask rule, which nobody can answer in a slot, and an ask rule on either verb would stop it there the same way.
-@test "gh pr close asks, and agent-slot probe and close-probe run without a prompt" {
+@test "gh pr close asks, and nothing asks before agent-slot probe or close-probe" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
-  run jaq -r '.permissions.allow // [] | .[]' "$SETTINGS"
-  grep -qxF 'Bash(agent-slot probe *)' <<<"$output"
-  grep -qxF 'Bash(agent-slot close-probe *)' <<<"$output"
   run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
   grep -qxF 'Bash(gh pr close *)' <<<"$output"
   [[ $output != *'agent-slot probe'* && $output != *'agent-slot close-probe'* ]]

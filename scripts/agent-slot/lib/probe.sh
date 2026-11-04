@@ -6,8 +6,9 @@
 #
 # Both verbs run from inside the slot, on a PR of origin's repo, and qualify a PR the same way: an open draft on a branch
 # this clone created, whose current head this clone pushed. A remote-tracking ref's reflog is the proof. git writes
-# "update by push" there only for a push from this clone and a fetch message for what it merely received, so the oldest
-# entry says who brought the branch here, and a fixup on another writer's branch does not make it this slot's. A head
+# "update by push" there only for a push from this clone and a fetch message for what it merely received, and a clone
+# writes no entry at all for the branches it brings. So a log that starts from an all-zero old oid with a push says this
+# clone created the branch, while a fixup on another writer's branch starts its log from that branch's old head. A head
 # another writer moved has no push entry either. A push that moved nothing still writes that line when the tracking ref
 # was missing: a branch only ever seen through a pull ref and re-pushed reads as this clone's, which the reflog cannot
 # tell apart. A fetch that stores the new head before the push's own update leaves no push entry for a head this clone
@@ -67,11 +68,12 @@ dropped; closing it is the operator's call" --value "$ITEM_REF" --command "$(_pr
 }
 
 # Usage: _probe_pushed_here; true when a remote of this clone at the head's repository has a remote-tracking ref for the
-# head branch whose reflog starts with a push and records the PR's current head commit as pushed. `log -g` lists newest
-# first, so the last line is the oldest. The reflog goes through a variable because a grep that stops at its first match
-# would fail a pipeline under pipefail.
+# head branch whose reflog starts with the push that created it and records the PR's current head commit as pushed. It
+# reads the log file because only that holds an entry's old oid, which no `git log` format prints. Its lines are
+# "<old> <new> <who> <when>\t<message>", oldest first. A reftable repository has no such file, so the proof fails closed.
 _probe_pushed_here() {
-  local head_repo branch oid remote slug pushes
+  local head_repo branch oid remote slug log entries
+  local created='^0+ .*'$'\t''update by push$'
   head_repo=$(contract_json -r '.head_repo // ""' <<<"$ITEM")
   branch=$(contract_json -r '.head_branch // ""' <<<"$ITEM")
   oid=$(contract_json -r '.head_oid // ""' <<<"$ITEM")
@@ -79,9 +81,11 @@ _probe_pushed_here() {
   while read -r remote; do
     slug=$(pr_repo_slug "$(git -C "$PROBE_PATH" config --get "remote.$remote.url" || true)")
     [[ ${slug,,} == "${head_repo,,}" ]] || continue
-    pushes=$(git -C "$PROBE_PATH" log -g --format='%H %gs' "refs/remotes/$remote/$branch" 2>/dev/null) || continue
-    [[ ${pushes##*$'\n'} == *' update by push' ]] || continue
-    ! grep -qxF "$oid update by push" <<<"$pushes" || return 0
+    log=$(git -C "$PROBE_PATH" rev-parse --path-format=absolute --git-path "logs/refs/remotes/$remote/$branch") || continue
+    [[ -r $log ]] || continue
+    entries=$(<"$log")
+    [[ ${entries%%$'\n'*} =~ $created ]] || continue
+    ! grep -qE "^[0-9a-f]+ $oid .*"$'\t'"update by push\$" <<<"$entries" || return 0
   done < <(git -C "$PROBE_PATH" remote)
   return 1
 }
@@ -90,7 +94,8 @@ _probe_require_pushed_here() {
   _probe_pushed_here || contract_fail pr-not-from-this-slot "PR #$ITEM_NUMBER's head \
 $(contract_json -r '"\(.head_repo // "(repository gone)"):\(.head_branch) at \(.head_oid // "(unknown)")"' <<<"$ITEM") \
 is not on a branch this slot created with that commit pushed from here, so it is another writer's to close. If this \
-slot did push it, a fetch can have landed first: push a new commit and rerun" --value "$ITEM_REF" \
+slot created the branch and pushed that commit, a fetch can have landed first: push a new commit and rerun" \
+    --value "$ITEM_REF" \
     --command "$(_probe_view_command)"
 }
 
@@ -101,10 +106,9 @@ _probe_ledger() {
 }
 
 # Usage: cmd_probe <ref>; marks an open draft this slot pushed as a probe, in the same record update that attaches it as
-# a work item. A probe names no slot, so the update drops the name this PR would give, whether item_add just gave it or a
-# check took it before the PR was marked. A PR already marked succeeds and changes nothing.
+# a work item. A PR already marked succeeds and changes nothing.
 cmd_probe() {
-  local already work_item own
+  local already work_item
   _probe_resolve "$1"
   [[ $(_probe_state) == OPEN ]] || _probe_refuse_not_open
   _probe_require_draft
@@ -112,9 +116,8 @@ cmd_probe() {
   already=$(_probe_marked)
   if [[ $already != true ]]; then
     work_item=$(contract_json -c '{kind, repo, number, title}' <<<"$ITEM")
-    own=$(item_name "$work_item")
-    item_add "$PROBE_REPO" "$PROBE_N" "$PROBE_ORIGIN" "[$work_item]" --argjson n "$ITEM_NUMBER" --arg own "$own" \
-      '.probes = ((.probes // []) + [$n] | unique) | if .name == $own then del(.name) else . end' \
+    item_add "$PROBE_REPO" "$PROBE_N" "$PROBE_ORIGIN" "[$work_item]" --argjson n "$ITEM_NUMBER" \
+      '.probes = ((.probes // []) + [$n] | unique)' \
       || contract_fail slot-busy "$PROBE_KEY stayed locked, so PR #$ITEM_NUMBER was not marked" --value "$PROBE_KEY" \
         --command "$(contract_quote "$CONTRACT_PROGRAM" "${CONTRACT_ARGV[@]}")"
     record_read "$PROBE_REPO" "$PROBE_N"

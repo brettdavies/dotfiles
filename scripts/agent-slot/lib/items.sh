@@ -1,9 +1,8 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
 # Work items: the GitHub PR or issue a slot works on. A ref names one as N, owner/name#N, or its GitHub URL, a bare N
 # being in origin's repo; item_resolve reads it from GitHub, and item_name alone derives a slot's name from it. A slot's
-# record holds its items as {kind, repo, number, title} and its name, which the first item other than a probe gives and
-# which no later item changes; item_add is the one writer of both, for check's adoption of a PR and for the adopt and
-# probe verbs.
+# record holds its items as {kind, repo, number, title} and its name, which the first item gives and which no later item
+# changes; item_add is the one writer of both, for check's adoption of a PR and for the adopt and probe verbs.
 
 ITEM_NUMBER_PATTERN='[1-9][0-9]{0,9}'
 ITEM_REPO_PATTERN='[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
@@ -99,10 +98,6 @@ ITEM_SAME_DEF='def same_repo($a; $b): ($a | if type == "string" then ascii_downc
     == ($b | if type == "string" then ascii_downcase else . end);
   def same_item($i): .kind == $i.kind and same_repo(.repo; $i.repo) and .number == $i.number;'
 
-# jq definition: not_probe($source), whether a work item is anything but a PR the teardown event or record $source marks a
-# probe.
-ITEM_NOT_PROBE_DEF='def not_probe($source): .kind != "pr" or (.number as $n | any(($source.probes // [])[]; . == $n) | not);'
-
 # The update item_add applies to a record, with $items, $origin (owner/name), and $name bound: each item joins .items
 # unless one with its kind, repo, and number is there, each PR of origin's repo joins .prs, which means origin's PRs
 # wherever check reads it, and a record with no name takes $name.
@@ -112,20 +107,18 @@ ITEM_ADD_FILTER='(if $items == [] then . else .items = reduce $items[] as $i (.i
   | if .name == null and $name != "" then .name = $name else . end'
 
 # Usage: item_add <repo> <n> <origin url> <items> [<jq options...> <filter>]; adds the JSON array <items> of work items
-# to the slot's record under its lock, the first one naming a slot that has no name. An item with probe: true never names
-# it, because a name never changes and a throwaway PR would label the slot's real task for good. A filter given runs
-# after, in the same update.
+# to the slot's record under its lock, the first one naming a slot that has no name. A filter given runs after, in the
+# same update.
 item_add() {
-  local repo=$1 n=$2 origin items namer name='' filter=$ITEM_SAME_DEF$ITEM_ADD_FILTER
+  local repo=$1 n=$2 origin items name='' filter=$ITEM_SAME_DEF$ITEM_ADD_FILTER
   origin=$(pr_repo_slug "$3")
   items=$(contract_json -c 'map({kind, repo, number, title: (.title // "")})' <<<"$4")
-  namer=$(contract_json -c 'map(select(.probe != true)) | .[0]' <<<"$4")
   shift 4
   if (($# > 0)); then
     filter+=" | ${*: -1}"
     set -- "${@:1:$#-1}"
   fi
-  [[ $namer == null ]] || name=$(item_name "$namer")
+  [[ $items == '[]' ]] || name=$(item_name "$(contract_json -c '.[0]' <<<"$items")")
   record_update "$repo" "$n" --argjson items "$items" --arg origin "$origin" --arg name "$name" "$@" "$filter"
 }
 

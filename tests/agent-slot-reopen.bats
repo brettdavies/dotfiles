@@ -196,39 +196,6 @@ snapshot() {
     and (.refusal.message | contains($s))' <<<"$output"
 }
 
-@test "--session naming an event whose only items are probes reopens on another item" {
-  gh_item issue 12 "Fix the widget"
-  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7], \"probes\": [7]}"
-  reopen repoa --issue 12 --session "$S1" --dry-run
-  [ "$status" -eq 0 ]
-  jaq -e '.would_reopen == true and .refusal == null' <<<"$output"
-}
-
-@test "--session still reopens on a probe the event names, beside a real item" {
-  gh_item pr 7 "Fix the login"
-  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7, $ISSUE12],
-    \"probes\": [7]}"
-  reopen repoa --pr 7 --session "$S1" --dry-run
-  [ "$status" -eq 0 ]
-  jaq -e '.would_reopen == true' <<<"$output"
-}
-
-@test "a reopened slot with no name takes it from the first item that is no probe, else from the probe" {
-  gh_item issue 12 "Fix the widget"
-  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7, $ISSUE12],
-    \"probes\": [7]}"
-  reopen repoa --issue 12 --dry-run
-  [ "$status" -eq 0 ]
-  jaq -e '.name == "repoa-issue12-fix-the-widget"' <<<"$output"
-  gh_item pr 8 "Throwaway CI probe"
-  teardown_event "{\"session_id\": \"$S2\", \"transcript\": \"$(transcript "$S2")\",
-    \"items\": [{\"kind\": \"pr\", \"repo\": \"up/repoa\", \"number\": 8, \"title\": \"Throwaway CI probe\"}],
-    \"probes\": [8]}"
-  reopen repoa --pr 8 --dry-run
-  [ "$status" -eq 0 ]
-  jaq -e '.name == "repoa-pr8-throwaway-ci-probe"' <<<"$output"
-}
-
 @test "--pr of the upstream repo on a fork-origin repo does not match a legacy line whose prs hold the number" {
   git -C "$AGENT_SLOT_DEV/repoa" remote set-url origin https://github.com/me/repoa.git
   gh_item pr 7 "Fix the login"
@@ -426,8 +393,7 @@ snapshot() {
   local path brief=$T/brief.md before expected slot=$AGENT_SLOT_ROOT/repoa/1
   path=$(transcript "$S1")
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$path\", \"items\": [$PR7],
-    \"name\": \"repoa-pr7-fix-the-login\", \"prs\": [7], \"probes\": [7], \"head\": \"feat/x\",
-    \"branches\": [{\"name\": \"feat/x\",
+    \"name\": \"repoa-pr7-fix-the-login\", \"prs\": [7], \"head\": \"feat/x\", \"branches\": [{\"name\": \"feat/x\",
     \"oid\": \"$HEAD_SHA\", \"remote\": \"origin\", \"url\": \"https://github.com/up/repoa.git\"}]}"
   printf '%s' $'Answer the "review": it'"'"'s $HOME, $(touch '"$T"'/pwned), and `date`\nsecond line' >"$brief"
   before=$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")
@@ -441,7 +407,7 @@ snapshot() {
     and .head_pushable == true and .settled_prs == [7] and .reopened_from.slot == 1' <<<"$output"
   jaq -e --arg s "$S1" --arg t "$path" --argjson items "[$PR7]" '.state == "active" and .session_id == $s
     and .transcript == $t and .items == $items and .name == "repoa-pr7-fix-the-login" and .named_as == .name
-    and .task == "t1" and .prs == [7] and .settled_prs == [7] and .probes == [7] and .request_id == "r-1"
+    and .task == "t1" and .prs == [7] and .settled_prs == [7] and .request_id == "r-1"
     and .reopened_from == {slot: 1, session_id: $s, ts: "2026-10-01T00:00:00Z"} and .finished_by_operator == false
     and ([has("release", "not_yet", "closing_sent_at", "last_check")] | any | not)
     and .created_at != "2026-10-01T00:00:00Z"' "$slot/.git/agent-slot.json"

@@ -133,7 +133,6 @@ runs, and tears the slot down once you are idle and its task has finished." \
     cat <<'EOF'
 You need not run `agent-slot check` on this slot; you are busy running it, so it reports `checked-by-own-agent`.
 `agent-slot sweep` and `agent-slot finish` delete slots: ask the operator before running either with `--yes`.
-`gh pr close` is denied here. To end a throwaway draft you pushed, mark it with `agent-slot probe <pr>` right after `gh pr create --draft`, and close it with `agent-slot close-probe <pr>` before you release; any other PR closed unmerged holds this slot for the operator.
 In a review round, re-check the state of the PR before stacking new commits on it.
 Stage with `git add`, then run a plain `git commit`; never `git commit -a` or `git commit <path>`.
 Create no git worktrees inside this slot.

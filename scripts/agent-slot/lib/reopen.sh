@@ -77,16 +77,15 @@ cmd_reopen() {
 }
 
 # Usage: _reopen_plan; sets what a slot reopened from the source teardown event carries: REOPEN_ITEMS, the event's
-# items with the item added when they lack it, REOPEN_NAME, the event's name, else that of the first item other than a
-# probe, else the first item's, and REOPEN_TASK and REOPEN_SESSION_ID, the event's.
+# items with the item added when they lack it, REOPEN_NAME, the event's name, else the first item's, and REOPEN_TASK
+# and REOPEN_SESSION_ID, the event's.
 REOPEN_ITEMS='[]' REOPEN_NAME='' REOPEN_TASK='' REOPEN_SESSION_ID=''
 _reopen_plan() {
   REOPEN_ITEMS=$(contract_json -c --argjson i "$REOPEN_ITEM" "$ITEM_SAME_DEF"'(.items // [])
     | if any(.[]; same_item($i)) then . else . + [$i] end' \
     <<<"$REOPEN_SOURCE")
   REOPEN_NAME=$(contract_json -r '.name // ""' <<<"$REOPEN_SOURCE")
-  [[ -n $REOPEN_NAME ]] || REOPEN_NAME=$(item_name "$(contract_json -c --argjson source "$REOPEN_SOURCE" "$ITEM_NOT_PROBE_DEF"'
-    (map(select(not_probe($source))) + .)[0]' <<<"$REOPEN_ITEMS")")
+  [[ -n $REOPEN_NAME ]] || REOPEN_NAME=$(item_name "$(contract_json -c '.[0]' <<<"$REOPEN_ITEMS")")
   REOPEN_TASK=$(contract_json -r '.task // ""' <<<"$REOPEN_SOURCE")
   REOPEN_SESSION_ID=$(contract_json -r '.session_id // ""' <<<"$REOPEN_SOURCE")
 }
@@ -111,7 +110,6 @@ reopen_make() {
     def text: if . == "" then null else . end;
     {request_id: ($request | text), requested_at: $requested, items: $items, name: $name, named_as: $name,
      task: ($task | text), session_id: $session, transcript: ($transcript | text), prs: $prs, settled_prs: $settled,
-     probes: (.probes // []),
      reopened_from: {slot, session_id, ts}}' <<<"$REOPEN_SOURCE")
   fields=$(contract_json -n -c --argjson item "$REOPEN_ITEM" --argjson seed "$seed" --argjson head "$HEAD_PLAN" \
     '{item: $item, reopened_from: $seed.reopened_from, head: $head}')

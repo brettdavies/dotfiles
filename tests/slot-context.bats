@@ -162,16 +162,6 @@ what with agent-slot release --not-yet '<why>' --output json, and release when i
 can grant it: send a reopen to the session your brief reports to."* ]]
 }
 
-@test "the context says gh pr close is denied and names the verbs that end a throwaway draft" {
-  slot repo 1 '{"task": "t1", "transcript": "/t/s1.jsonl"}'
-  run start s1 startup
-  [ "$status" -eq 0 ]
-  context=$(jaq -r .hookSpecificOutput.additionalContext <<<"$output")
-  [[ $context == *'`gh pr close` is denied here'* ]]
-  [[ $context == *'`agent-slot probe <pr>`'* ]]
-  [[ $context == *'`agent-slot close-probe <pr>`'* ]]
-}
-
 @test "the context says the agent runs unattended and that its dialogs are denied" {
   slot repo 1 '{"task": "t"}'
   run start s1 startup

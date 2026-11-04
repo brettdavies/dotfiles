@@ -80,26 +80,6 @@ pr_moved() {
   pr_fields "$1" ".headRefOid = \"$oid\""
 }
 
-# agent STATUS: the slot's Claude, as claude agents reports it.
-agent() {
-  jaq -n -c --arg cwd "$SLOT" --arg s "$1" '[{pid: 1, cwd: $cwd, status: $s, sessionId: "s1"}]' \
-    >"$STUBS/claude-agents.json"
-}
-
-auto_sweep() {
-  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
-  [ "$status" -eq 0 ] || {
-    echo "$stderr"
-    false
-  }
-}
-
-# not_yet WHY: the slot's agent says why the slot is not ready to release.
-not_yet() {
-  run --separate-stderr bash -c 'cd "$1" && "$2" release --not-yet "$3" --output json' _ "$SLOT" "$AGENT_SLOT" "$1"
-  [ "$status" -eq 0 ]
-}
-
 # released: the record of a task its agent released.
 released() {
   record_set '.release = {id: "r1", requested_at: "2026-06-02T00:00:00Z", session_id: "s1"}'
@@ -245,7 +225,7 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   [ "$status" -eq 0 ]
   jaq -e '.torn_down == ["repoa/1"] and .needs_you == []' <<<"$output"
   [ ! -e "$SLOT" ]
-  ledger teardown | jaq -e '.prs == [7, 9] and .probes == [9]'
+  ledger teardown | jaq -e '.prs == [7, 9]'
 }
 
 @test "a closed probe is no PR to the commit checks: a pushed branch with no PR beside it passes once released" {
@@ -305,92 +285,6 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   record_has '.probes == []'
 }
 
-@test "a task whose PRs are all settled or closed probes gets its --not-yet reminder" {
-  pushed feat/s
-  draft_pr 8 feat/s CLOSED false
-  closed_probe 9 feat/p
-  record_set '.prs = [8, 9] | .settled_prs = [8]'
-  agent idle
-  not_yet "CI on the probe"
-  AGENT_SLOT_RELEASE_REMIND=0 auto_sweep
-  jaq -e '.reminded == ["repoa/1"]' <<<"$output"
-}
-
-@test "a PR closed unmerged that is no probe gets no --not-yet reminder, and stays on the needs-you list" {
-  pushed feat/p
-  draft_pr 9 feat/p CLOSED
-  agent idle
-  not_yet "waiting on review"
-  AGENT_SLOT_RELEASE_REMIND=0 auto_sweep
-  jaq -e '.reminded == [] and .needs_you[0].needs_you[0].code == "pr-closed-unmerged"' <<<"$output"
-}
-
-@test "a forgotten open probe gets its idle agent one reminder, then joins the needs-you list" {
-  finished_task
-  marked_probe 9 feat/p
-  agent idle
-  auto_sweep
-  jaq -e '.reminded == ["repoa/1"] and .needs_you == [] and .torn_down == []' <<<"$output"
-  grep -qF 'agent-slot close-probe 9 --output json' "$STUBS/typed-repoa-1"
-  : >"$STUBS/typed-repoa-1"
-  auto_sweep
-  jaq -e '.reminded == [] and .torn_down == [] and (.needs_you[0].needs_you[0]
-    | .code == "probe-left-open" and .values == ["9"] and (.message | contains("#9")))' <<<"$output"
-  [ ! -s "$STUBS/typed-repoa-1" ]
-  [ -d "$SLOT/.git" ]
-}
-
-@test "a forgotten open probe whose agent is gone joins the needs-you list at once" {
-  finished_task
-  marked_probe 9 feat/p
-  auto_sweep
-  jaq -e '.reminded == [] and .needs_you[0].needs_you[0].code == "probe-left-open"' <<<"$output"
-}
-
-@test "a slot with no open PR draws no probe reminder or listing, with no PR at all or only a closed probe" {
-  agent idle
-  auto_sweep
-  jaq -e '.reminded == [] and .needs_you == []' <<<"$output"
-  closed_probe 9 feat/p
-  auto_sweep
-  jaq -e '.reminded == [] and .needs_you == []' <<<"$output"
-  [ ! -s "$STUBS/typed-repoa-1" ]
-}
-
-@test "an open probe draws nothing while the agent is busy, or while a real PR is also open" {
-  finished_task
-  marked_probe 9 feat/p
-  agent busy
-  auto_sweep
-  jaq -e '.reminded == [] and .needs_you == []' <<<"$output"
-  pushed feat/r
-  draft_pr 10 feat/r OPEN false
-  agent idle
-  auto_sweep
-  jaq -e '.reminded == [] and .needs_you == []' <<<"$output"
-  [ ! -s "$STUBS/typed-repoa-1" ]
-}
-
-@test "an agent that says it still needs its open probe is held, and not reminded about the probe" {
-  marked_probe 9 feat/p
-  agent idle
-  not_yet "CI on the probe"
-  AGENT_SLOT_RELEASE_REMIND=3600 auto_sweep
-  jaq -e '.not_yet == ["repoa/1"] and .reminded == [] and .needs_you == []' <<<"$output"
-  [ ! -s "$STUBS/typed-repoa-1" ]
-}
-
-@test "a task whose only PR is a closed probe gets its --not-yet reminder, as a task with no PR does" {
-  closed_probe 9 feat/p
-  jaq -n -c --arg cwd "$SLOT" '[{pid: 1, cwd: $cwd, status: "idle", sessionId: "s1"}]' >"$STUBS/claude-agents.json"
-  run --separate-stderr bash -c 'cd "$1" && "$2" release --not-yet "CI on the probe" --output json' _ "$SLOT" "$AGENT_SLOT"
-  [ "$status" -eq 0 ]
-  AGENT_SLOT_RELEASE_REMIND=0 run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
-  [ "$status" -eq 0 ]
-  jaq -e '.reminded == ["repoa/1"]' <<<"$output"
-  grep -qF 'You said this slot was not ready to release: CI on the probe.' "$STUBS/typed-repoa-1"
-}
-
 @test "probe marks an open draft this slot pushed, attaches it as a work item, and logs it" {
   pushed feat/p
   draft_pr 9 feat/p
@@ -406,18 +300,6 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   record_has '.probes == [9] and .prs == [9] and ([.items[].number] == [9]) and .items[0].kind == "pr"'
   ledger probe | jaq -e --arg oid "$oid" '.repo == "repoa" and .slot == 1 and .session_id == "s1" and .number == 9
     and .head == "feat/p" and .oid == $oid'
-}
-
-@test "a marked probe never names a slot, so a real PR opened after it still does" {
-  record_set 'del(.name, .named_as)'
-  marked_probe 9 feat/p
-  record_has '.name == null and .probes == [9]'
-  check
-  record_has '.name == null'
-  pushed feat/q
-  draft_pr 10 feat/q OPEN false
-  check
-  record_has '.name == "repoa-pr10-pr-10" and ([.items[].number] | sort) == [9, 10]'
 }
 
 @test "probe on a PR already marked succeeds and changes nothing" {
@@ -461,7 +343,6 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   draft_pr 9 feat/o
   in_slot probe 9
   refused pr-not-from-this-slot
-  jaq -e '.message | contains("push a new commit")' <<<"$stderr"
   record_set '.prs = [9] | .probes = [9]'
   in_slot close-probe 9
   refused pr-not-from-this-slot
@@ -555,21 +436,6 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   done
 }
 
-@test "a slot a check named after an unmarked draft loses that name when the draft is marked" {
-  record_set 'del(.name, .named_as)'
-  pushed feat/p
-  draft_pr 9 feat/p
-  check
-  record_has '.name == "repoa-pr9-pr-9"'
-  in_slot probe 9
-  [ "$status" -eq 0 ]
-  record_has '.name == null'
-  pushed feat/q
-  draft_pr 10 feat/q OPEN false
-  check
-  record_has '.name == "repoa-pr10-pr-10"'
-}
-
 @test "both gh calls ask for the fields the verdict and the verbs read" {
   marked_probe 9 feat/p
   check
@@ -587,12 +453,34 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   record_has '.probes == null'
 }
 
-@test "probe refuses a head another writer moved past what this slot pushed" {
+@test "probe refuses a head another writer moved past what this slot pushed, and says what restores the proof" {
   pushed feat/p
   other_slot_pushes feat/p
   git -C "$SLOT" checkout -q -B feat/p origin/feat/p
   draft_pr 9 feat/p
   in_slot probe 9
+  refused pr-not-from-this-slot
+  jaq -e '.message | contains("push a new commit")' <<<"$stderr"
+}
+
+@test "a branch present at clone does not qualify, even after this slot pushes a fixup to it" {
+  git clone -q "$ORIGIN" "$T/other"
+  git -C "$T/other" checkout -q -b feat/o
+  git -C "$T/other" commit -q --allow-empty -m "another writer's work"
+  git -C "$T/other" push -q origin feat/o
+  local record
+  record=$(cat "$SLOT/.git/agent-slot.json")
+  find "$SLOT" -delete
+  git clone -q "$ORIGIN" "$SLOT"
+  printf '%s\n' "$record" >"$SLOT/.git/agent-slot.json"
+  git -C "$SLOT" checkout -q -b feat/o origin/feat/o
+  git -C "$SLOT" commit -q --allow-empty -m 'a review fixup'
+  git -C "$SLOT" push -q origin feat/o
+  draft_pr 9 feat/o
+  in_slot probe 9
+  refused pr-not-from-this-slot
+  record_set '.prs = [9] | .probes = [9]'
+  in_slot close-probe 9
   refused pr-not-from-this-slot
 }
 

@@ -610,39 +610,32 @@ agent-slot adopt Pillow/3 --issue 10331 --output json
 
 A *probe* is a draft a slot opens to exercise CI or a reusable workflow and never means to merge. Nothing infers one:
 the slot's agent declares it with `agent-slot probe <pr>`, run from inside the slot, which adds the PR's number to the
-record's `probes` and attaches it as a work item. A probe never names the slot, so a real PR opened after it still does,
-and marking a draft a check already named the slot after drops that name. The mark counts only while the PR stays a
-draft: the first check or verb that sees the PR out of draft drops the mark, so a return to draft does not make it a
-probe again. `agent-slot check` reports `draft` and `probe` on each of a slot's `prs`.
+record's `probes` and attaches it as a work item. The mark counts only while the PR stays a draft: the first check or
+verb that sees the PR out of draft drops the mark, so a return to draft does not make it a probe again.
+`agent-slot check` reports `draft` and `probe` on each of a slot's `prs`.
 
 A probe closed unmerged neither finishes its task nor blocks its teardown, as with a reopened slot's settled PRs, and
 the commit checks count it as no PR while its head still counts as pushed. A slot whose only PR is a closed probe
-finishes through `agent-slot release`. Every other check still holds, and any other PR closed unmerged stays the
-`pr-closed-unmerged` blocker.
-
-An open probe keeps the task open like any open PR, but nothing else will ever end it. So when probes are the only PRs
-open, the automatic sweep types an idle agent one reminder naming them, and lists the slot as `probe-left-open` when its
-agent is gone or is idle after that reminder. `release --not-yet` holds the slot off both, as it does for a finished
-one.
+finishes through `agent-slot release`. An open probe keeps the task open like any open PR, every other check still
+holds, and any other PR closed unmerged stays the `pr-closed-unmerged` blocker.
 
 A slot closes its probe with `agent-slot close-probe <pr>`, also from inside the slot, because `gh pr close` sits behind
 an ask rule nobody can answer there. Both verbs act only on an open draft in the repo of the slot's origin, on a branch
 this clone created, whose current head this clone pushed. They read that from the reflog of the remote-tracking ref: git
-writes `update by push` there for a push from this clone and a fetch message for what it merely received, so the oldest
-entry says who brought the branch here. A fixup on another writer's branch does not make it this slot's, and a head
-another writer moved does not qualify. A PR already closed cannot be marked afterwards. `close-probe` also needs the
+writes `update by push` there for a push from this clone and a fetch message for what it merely received, and a clone
+writes no entry for the branches it brings. So a log that starts from an all-zero old oid with a push says this clone
+created the branch, while a fixup on another writer's branch starts its log from that branch's old head. A head another
+writer moved does not qualify either. A PR already closed cannot be marked afterwards. `close-probe` also needs the
 mark. It leaves a comment on the PR saying why and deletes no branch, so `gh pr reopen` undoes it, and rerunning it on a
 closed probe succeeds without closing again. Neither verb has an ask rule, since a close is undoable and reaches only
-work this clone pushed. Each appends a line to the ledger, as a `probe` or `close-probe` event, and the teardown event
-names the slot's `probes`.
+work this clone pushed. Each appends a line to the ledger, as a `probe` or `close-probe` event.
 
 The guard stops an agent closing, by mistake, a PR it did not push. It does not stop a deliberately adversarial agent
 with a shell, which could forge a reflog entry, edit the record, or call the API with the gh token; that is the
-environment's trust boundary. Three limits follow from the proof. A push that moved nothing still writes
-`update by push` when the tracking ref was missing, so a branch only ever seen through a pull ref and re-pushed reads as
-this clone's. A fetch that lands just before a push's own update leaves a head with no push entry, and the refusal says
-to push a new commit. A reopened slot's fresh clone has no such reflog, so it keeps the marks but cannot close a probe
-from before the reopen; the operator does.
+environment's trust boundary. Two limits follow from the proof. A push that moved nothing still writes `update by push`
+when the tracking ref was missing, so a branch only ever seen through a pull ref and re-pushed reads as this clone's. A
+fetch that lands just before a push's own update leaves a head with no push entry; on a branch this clone created, the
+refusal's advice to push a new commit restores the proof.
 
 ```bash
 gh pr create --draft --fill
@@ -806,7 +799,6 @@ each file as `docs/solutions/<path>`, the path the slot's agent reaches it by.
 | `home-scan-incomplete`   | The scan for such symlinks did not finish                                                            |
 | `slot-busy`              | Another `agent-slot` process holds the slot                                                          |
 | `not-released`           | The automatic sweep found the task finished, but its agent is gone or never released it              |
-| `probe-left-open`        | A probe stays open with nobody to end it: its agent is gone, or did not close it after a reminder    |
 
 When processes outside the slot's panes use the slot, `agent-state-unknown` names each one in its message and in
 `values` as `<pid> <command>`, and names it by its oldest ancestor that still uses the slot. A loop that keeps starting

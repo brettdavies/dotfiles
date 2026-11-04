@@ -20,8 +20,7 @@
 
 CHECK_CODES='pr-state-unknown pr-closed-unmerged git-state-unknown agent-not-idle checked-by-own-agent
 agent-state-unknown uncommitted-changes stash-present unpushed-commits commits-without-pr untracked-files
-local-only-files solutions-unpublished home-symlink-into-slot home-scan-incomplete slot-busy not-released
-probe-left-open'
+local-only-files solutions-unpublished home-symlink-into-slot home-scan-incomplete slot-busy not-released'
 CHECK_DOCS=${CONTRACT_DOCS%#*}#teardown-blockers
 
 CHECK_SETUP_FILES='docs/solutions .claude/settings.local.json .context/repo-recon'
@@ -520,17 +519,17 @@ check_slot() {
 }
 
 # Records the PRs a verdict found, as the slot's items too, and the needs-you list it produced, when the slot's lock is
-# free; a slot with no name takes the earliest created PR's that is no probe. It also drops the mark of each PR the
-# verdict shows out of draft, so a return to draft does not make it a probe again. A check run inside the slot's own
-# agent records nothing: it sees that agent mid-turn, which says nothing about the slot once the turn ends, and its
-# needs-you list would stand on the slot's tab until a check from outside replaced it.
+# free; a slot with no name takes the earliest created PR's. It also drops the mark of each PR the verdict shows out of
+# draft, so a return to draft does not make it a probe again. A check run inside the slot's own agent records nothing: it
+# sees that agent mid-turn, which says nothing about the slot once the turn ends, and its needs-you list would stand on
+# the slot's tab until a check from outside replaced it.
 check_record() {
   local repo=$1 n=$2 origin items
   [[ $(contract_json -r .state <<<"$CHECK_VERDICT") == active ]] || return 0
   ! contract_json -e 'any(.blockers[]; .code == "checked-by-own-agent")' <<<"$CHECK_VERDICT" >/dev/null || return 0
   origin=$(git -C "$(slot_path "$repo" "$n")" config --get remote.origin.url || true)
   items=$(contract_json -c --arg repo "$(pr_repo_slug "$origin")" \
-    '.prs | sort_by(.created_at) | map({kind: "pr", repo: $repo, number, title, probe})' <<<"$CHECK_VERDICT")
+    '.prs | sort_by(.created_at) | map({kind: "pr", repo: $repo, number, title})' <<<"$CHECK_VERDICT")
   item_add "$repo" "$n" "$origin" "$items" --argjson v "$CHECK_VERDICT" --arg at "$(contract_now)" \
     '.last_check = {at: $at, finished: $v.finished, blockers: $v.needs_you}
     | if .probes then .probes -= [$v.prs[] | select(.draft == false) | .number] else . end' || true

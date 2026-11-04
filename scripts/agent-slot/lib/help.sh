@@ -105,8 +105,8 @@ verb_help() {
       'pushed; anything else is refused with pr-not-open, pr-not-draft, or pr-not-from-this-slot. It attaches the PR' \
       "as a work item and changes only the slot's record, so it needs no ask." \
       'A marked PR closed unmerged neither finishes the task nor blocks it (see check); one taken out of draft stops' \
-      'being a probe, and a probe never names the slot. Marking one already marked changes nothing. Other errors:' \
-      'not-in-slot, pr-state-unknown, item-not-found, item-kind-mismatch, and slot-busy, which is safe to retry.' \
+      'being a probe. Marking one already marked changes nothing. Other errors: not-in-slot, pr-state-unknown,' \
+      'item-not-found, item-kind-mismatch, and slot-busy, which is safe to retry.' \
       'returns: key, pr {repo, number, title, head, oid, url}, probes[], already_marked' \
       'example: agent-slot probe 487 --output json' ;;
     close-probe) printf '%s\n' 'usage: agent-slot close-probe <pr> [--output json]' \
