@@ -421,11 +421,22 @@ crypt_attr() { printf 'lifted.bin filter=git-crypt diff=git-crypt\n' >.gitattrib
   [ "$(grep -c '^git-crypt unlock' "$CALLS")" -eq 0 ]
 }
 
-@test "a foreign head on a base that uses git-crypt is still unlocked" {
+@test "a foreign head on a base that uses git-crypt is never unlocked, and a missing key does not stop the launch" {
   origin_file repoa .gitattributes 'secret/** filter=git-crypt diff=git-crypt'
-  git -C "$AGENT_SLOT_DEV/repoa" fetch -q origin
-  stub git-crypt '[ "$1" != unlock ] || git config filter.git-crypt.smudge cat'
   foreign_pr
+  AGENT_SLOT_GIT_CRYPT_KEY=$T/no-such-key run --separate-stderr "$AGENT_SLOT" launch repoa --pr 7 --output json
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  [ "$(grep -c '^git-crypt unlock' "$CALLS")" -eq 0 ]
+  [ -z "$(git -C "$SLOT" config --local --get filter.git-crypt.smudge || true)" ]
+}
+
+@test "an own fork on a base that uses git-crypt is still unlocked" {
+  origin_file repoa .gitattributes 'secret/** filter=git-crypt diff=git-crypt'
+  stub git-crypt '[ "$1" != unlock ] || git config filter.git-crypt.smudge cat'
+  own_pr
   launch repoa --pr 7
   [ "$status" -eq 0 ]
   [ "$(grep -c '^git-crypt unlock' "$CALLS")" -eq 1 ]
@@ -928,38 +939,28 @@ real_solutions_dir() {
   [[ $output == *head_foreign* ]]
 }
 
-# encrypted_head: a head with a Claude settings file under the git-crypt filter the base branch declares.
-encrypted_head() {
-  mkdir -p .claude
-  printf '{"under": "the filter"}\n' >.claude/filtered.json
-}
-
-@test "the real git-crypt unlocks a foreign head under its sparse checkout, and the tree's config stays off disk" {
+@test "a foreign head on a real git-crypt base stays ciphertext, with a clean status and no key in the slot" {
   command -v git-crypt >/dev/null || skip "git-crypt is not installed"
   local seed=$T/seed-repoa
   (cd "$seed" && git-crypt init >/dev/null && git-crypt export-key "$AGENT_SLOT_GIT_CRYPT_KEY")
   mkdir -p "$seed/secret"
-  printf 'secret/** filter=git-crypt diff=git-crypt\n.claude/filtered.json filter=git-crypt diff=git-crypt\n' \
-    >"$seed/.gitattributes"
+  printf 'secret/** filter=git-crypt diff=git-crypt\n' >"$seed/.gitattributes"
   printf 'THE-SECRET\n' >"$seed/secret/x"
   git -C "$seed" add -A
   git -C "$seed" commit -q -m 'encrypted base'
   git -C "$seed" push -q origin HEAD:main
   export AGENT_SLOT_GIT_CRYPT
   AGENT_SLOT_GIT_CRYPT=$(command -v git-crypt)
-  foreign_pr encrypted_head
+  foreign_pr
   launch repoa --pr 7
   [ "$status" -eq 0 ] || {
     echo "$stderr"
     false
   }
-  [ "$(cat "$SLOT/secret/x")" = THE-SECRET ]
-  [ ! -e "$SLOT/.claude" ]
-  [ -z "$(git -C "$SLOT" status --porcelain -- secret .claude)" ]
-  printf 'new\n' >"$SLOT/secret/y"
-  git -C "$SLOT" add secret/y
-  git -C "$SLOT" commit -q -m work
-  [ "$(git -C "$SLOT" cat-file blob HEAD:secret/y | head -c 8 | tail -c 7)" = GITCRYP ]
+  [ "$(head -c 9 "$SLOT/secret/x" | tail -c 8)" = GITCRYPT ]
+  run ! grep -q THE-SECRET "$SLOT/secret/x"
+  [ ! -e "$SLOT/.git/git-crypt" ]
+  [ -z "$(git -C "$SLOT" status --porcelain -- secret)" ]
 }
 
 @test "a fork someone has reviewed gets the full setup by a launch with its owner added for that one command" {
@@ -974,4 +975,41 @@ encrypted_head() {
   run "$AGENT_SLOT" launch --help
   [ "$status" -eq 0 ]
   [[ $output == *'once someone has reviewed it'*AGENT_SLOT_TRUSTED_OWNERS* ]]
+}
+
+# every_git_hook: a marker hook at every event git can fire, a settings.local.json and a docs/solutions link the head
+# tracks, so setup's own index writes have something to fire.
+every_git_hook() {
+  local hook
+  for hook in applypatch-msg commit-msg fsmonitor-watchman post-applypatch post-checkout post-commit post-index-change \
+    post-merge post-receive post-rewrite post-update pre-applypatch pre-auto-gc pre-commit pre-merge-commit pre-push \
+    pre-rebase pre-receive prepare-commit-msg proc-receive push-to-checkout reference-transaction sendemail-validate \
+    update; do
+    printf '#!/bin/sh\ntouch %s/git-%s\n' "$T/marks" "$hook" >".githooks/$hook"
+    chmod +x ".githooks/$hook"
+  done
+  mkdir -p docs
+  ln -s ../../dev/solutions-docs docs/solutions
+  printf '{}\n' >.claude/settings.local.json
+}
+
+@test "no git command setup runs on a foreign head fires a hook the head tracks" {
+  foreign_pr every_git_hook
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -z "$(ls "$T/marks")" ]
+  [ -z "$(hooks_path)" ]
+}
+
+@test "no git command setup runs on an own fork fires a tracked hook either, and its hooks are live once setup ends" {
+  own_pr every_git_hook
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -z "$(ls "$T/marks")" ] || {
+    ls "$T/marks"
+    false
+  }
+  [ "$(hooks_path)" = .githooks ]
+  git -C "$SLOT" commit -q --allow-empty -m work
+  [ -e "$T/marks/git-pre-commit" ]
 }

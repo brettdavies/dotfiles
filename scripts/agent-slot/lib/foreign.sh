@@ -47,23 +47,20 @@ foreign_fields() {
 # with git show and intact in what the agent pushes.
 FOREIGN_SPARSE=('/*' '!.claude' '!.mcp.json' '!CLAUDE.md' '!CLAUDE.local.md' '!bunfig.toml' '!.env' '!.env.*' '!node_modules')
 
-# Usage: foreign_prepare <slot>; runs on the base's tree, before the head is checked out. git-crypt comes first, for two
-# reasons: the key decrypts any file under its filter, so only the base gets to ask for it, not a head that names the
-# filter on a blob lifted from another repo; and unlock checks out every encrypted file by name, which fails on one the
-# sparse patterns leave out. The filter then decrypts the head's files as they land. Checking out an LFS pointer calls the
-# server the head's own .lfsconfig names, and a server that never answers holds the slot's setup for as long as the
-# checkout's bound, so pointers stay pointers for the slot's whole life.
+# Usage: foreign_prepare <slot>; runs before the head is checked out. Checking out an LFS pointer calls the server the
+# head's own .lfsconfig names, and a server that never answers holds the slot's setup for as long as the checkout's bound,
+# so pointers stay pointers for the slot's whole life.
 foreign_prepare() {
-  parity_git_crypt "$1"
   git -C "$1" config filter.lfs.smudge 'git-lfs smudge --skip -- %f'
   git -C "$1" config filter.lfs.process 'git-lfs filter-process --skip'
   git -C "$1" sparse-checkout set --no-cone "${FOREIGN_SPARSE[@]}"
 }
 
 # Usage: foreign_parity <repo> <n> <slot>; the setup a foreign head gets in place of the full parity steps. It leaves out
-# core.hooksPath and hook copies, which would run the head's hooks or hooks that call into its tree; the prime's Claude
-# settings, which Claude would not load here, and whose auto memory a slot on an unreviewed head should not share; and
-# the repo-recon and sibling links, whose paths and targets the head's tree decides.
+# git-crypt, since the key decrypts any file under its filter, a blob lifted from another repo included, so encrypted files
+# stay ciphertext here; core.hooksPath and hook copies, which would run the head's hooks or hooks that call into its tree;
+# the prime's Claude settings, which Claude would not load here, and whose auto memory a slot on an unreviewed head should
+# not share; and the repo-recon and sibling links, whose paths and targets the head's tree decides.
 #
 # A sparse checkout clears the skip-worktree bit from a file on disk, and that bit is what keeps the solutions link's
 # re-point out of a commit, so a tracked link goes outside the patterns, with git told to expect it there. A real directory

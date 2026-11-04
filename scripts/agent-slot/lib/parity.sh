@@ -1,7 +1,7 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
-# Setting a fresh clone up like the repo's prime checkout. The order matters: git-crypt unlocks the tree before any
-# hook path is set, so no hook runs against ciphertext, and a clone that stays locked is refused rather than handed
-# out, because it would commit plaintext into encrypted paths.
+# Setting a fresh clone up like the repo's prime checkout. The order matters: the hook path is set last, so no git command
+# setup runs fires a hook the tree tracks and none runs against ciphertext, and a clone that stays locked is refused rather
+# than handed out, because it would commit plaintext into encrypted paths. A foreign head gets foreign_parity instead.
 
 PARITY_BASE=
 PARITY_MISSING_SIBLINGS=()

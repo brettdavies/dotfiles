@@ -143,11 +143,11 @@ slot_make() {
     foreign_parity "$repo" "$n" "$path"
   else
     parity_git_crypt "$path"
-    parity_hooks "$REPO_PRIME" "$path"
     parity_solutions "$repo" "$n" "$path"
     parity_repo_recon "$REPO_PRIME" "$path"
     parity_claude_settings "$REPO_PRIME" "$path"
     parity_siblings "$repo" "$path"
+    parity_hooks "$REPO_PRIME" "$path"
   fi
   prompt_copy=$(slot_prompt_file "$path")
   if [[ -n $prompt ]]; then
