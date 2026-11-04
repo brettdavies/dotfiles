@@ -11,19 +11,22 @@ execution: code
 
 ## Goal Capsule
 
-- **Objective:** Brett opens any repo's prime with one key press and gets the same three-pane tab, keys, and phone view
-  a slot has, with no per-repo session config to maintain.
+- **Objective:** Brett sees every running prime as a tab in Rex.app and opens any repo's prime with one key press, with
+  the same three-pane tab, keys, and phone view a slot has and no per-repo session config to maintain.
 - **Means:** one session builder for primes and slots, with a prime keyed `<repo>/prime` and started on demand (KTD1,
   KTD2).
 - **Authority:** Brett's decisions in Key Decisions, then the Requirements, then the KTDs. A unit overrides none of
   them.
 - **Stop conditions:**
-  - Evidence that a settled decision cannot work: send it to `rex-linux` and stop that unit.
+  - Evidence that a settled decision cannot work: send it to `dotfiles-prime`, the coordinating session, and stop that
+    unit.
   - No merges, no `scripts/stow-deploy`, no edits to `~/dotfiles`.
   - No starting, killing, or attaching to live tmux sessions or Rex tabs. Reading a live session list is allowed; tests
     use stubs and scratch sockets.
-- **Execution profile:** one PR to `dev`, one commit per unit, test-first with each new test observed failing. The
-  deletion (U8) lands in the same PR, after the units that replace what it deletes.
+- **Execution profile:** one PR to `dev`, one commit per unit, test-first. A test of new or changed behavior is observed
+  failing against the unfixed code. A characterization test (U4's unattended and context scenarios, U6) already passes
+  on today's code, so it is observed failing against a planted regression instead. The deletion (U8) lands in the same
+  PR, after the units that replace what it deletes.
 - **Who finishes:** slot `dotfiles/5` opens the PR and runs the review stack. `skills-prime` merges it.
 
 ---
@@ -34,8 +37,9 @@ execution: code
 
 A prime becomes a slot-shaped set of three tmux sessions on the slot server, rooted in the repo's own checkout and
 running bypass Claude named `<repo>-prime`. The new-agent key, a slot launch, a reopen, and a resume each start it when
-it is not running. A prime still running the old way on the default tmux server is found by name and used until Brett
-closes it. `stow/tmuxinator`, `tmux-new-session`, and `mux`/`mux-all` are deleted.
+it is not running, and reconcile keeps a tab for every running prime, as it does for slots. A prime still running the
+old way on the default tmux server, one holding a Claude, is found by name, shown in a tab, and used until Brett closes
+it. `stow/tmuxinator`, `tmux-new-session`, and `mux`/`mux-all` are deleted, on the Mac as well.
 
 ### Problem Frame
 
@@ -44,6 +48,9 @@ resize, zoom, and keys, a full-size pane on the phone, and a wedged yazi or lazy
 Claude. A prime is one tmux session with three panes, because it predates Rex and agent-slot. It is started by hand or
 from 29 tmuxinator projects whose pane 2 is a blank shell, and the key stops with `prime-not-running` when none is
 running.
+
+Those blank panes mean a session on the default server is not always a prime: 11 of the sessions that map to a repo hold
+no Claude today, and continuum brings sessions back after a reboot with shells only.
 
 Slots already use a generic template, so the per-repo projects are a second source of truth. Brett asked why a prime is
 started differently from a slot and chose to remove the difference.
@@ -63,6 +70,16 @@ started differently from a slot and chose to remove the difference.
 - **A prime differs from a slot in eight named ways.** (session-settled: user-approved — chosen over a prime that
   behaves as a slot in every respect; Brett through `rex-linux`: "1 - true, 2 - true, 3 - true, 4 - true, 5 - true, 6 -
   ok, 7 - true, 8 - yes".) Governs R11 through R18.
+- **Every running prime has a tab in Rex.app, old-style primes included.** (session-settled: user-directed — chosen over
+  the key alone opening a prime's tab, and over leaving old-style primes key-opened until closed, with the first pass's
+  new Rex sessions and tabs shown: "_all_ tabs must be visible in Rex.app at all times".) Governs R9, R21.
+- **tmuxinator goes everywhere now, the Mac included.** (session-settled: user-directed — chosen over keeping it on the
+  Mac until the Mac plan ships; the Mac uses `tmux new -s` by hand until then.) Governs R19.
+- **Streams Control and GBrain become on-demand primes; Coordinator and Brett GBrain Skillpack stay hand-started.**
+  (session-settled: user-approved — chosen over leaving every session with no listed repo hand-started.) Governs R22.
+- **A prime's conversation is matched by its exact title, with no alias table.** (session-settled: user-approved —
+  chosen over a table mapping old conversation names; Brett renames each conversation just before closing its session,
+  since slots message those names today.) Governs R18.
 - **Standing rules from Brett:** every session, prime and slot, starts Claude with
   `claude --dangerously-skip-permissions`, and each Rex tab keeps multiple tmux sessions. Governs R3, R4.
 
@@ -88,15 +105,24 @@ started differently from a slot and chose to remove the difference.
 
 **Transition**
 
-- R8. A prime session still running on the default tmux server is found by its name and used, and no second prime is
-  built while it runs.
-- R9. Nothing here kills, moves, renames, or attaches on its own to a running old-style session, apart from the key and
-  start-up attaches that already exist.
+- R8. An old-style prime is a session on the default tmux server with the repo's display name and a Claude in one of its
+  panes. It is found and used, and no second prime is built while it runs. A same-named session with no Claude is not a
+  prime: it stays running and untouched, and the prime is built on the slot server.
+- R9. Nothing here kills, moves, or renames a session on the default server. The only new thing done to one is a tab
+  attaching to it (R21).
+
+**Visibility**
+
+- R21. Every running prime, old-style or on the slot server, has a tab in its repo's Rex session. Reconcile opens one
+  when none holds it, creating the Rex session if needed, and opens it again if it is closed, as it does for a slot. A
+  pass with nothing to do changes nothing.
 
 **Names**
 
 - R10. `config/agent-slot-rex/primes.tsv` keeps each repo's display name, which labels the prime's tab and names its
   old-style session. A repo with no line uses its own name.
+- R22. `streams-control` and `gbrain` join the repos `agent-slot repos` lists, through the extra-primes default, under
+  the display names `Streams Control` and `GBrain`. `Coordinator` and `Brett GBrain Skillpack` stay hand-started.
 
 **How a prime differs from a slot**
 
@@ -111,21 +137,22 @@ started differently from a slot and chose to remove the difference.
 - R16. A prime's `docs/solutions` link stays pointed at the shared clone, never a per-slot worktree.
 - R17. Starting a prime whose path Claude has not trusted shows Claude's trust dialog; nothing trusts that path
   automatically.
-- R18. A restarted prime resumes its `<repo>-prime` conversation, and never starts fresh while one exists (KTD3 names
-  the rule).
+- R18. A restarted prime resumes its `<repo>-prime` conversation, and starts fresh only when no such conversation is
+  free. One that a running Claude holds is not free (KTD3 names the rule).
 
 **Removal and portability**
 
 - R19. `stow/tmuxinator`, `tmux-new-session`, and `mux`/`mux-all` are deleted, along with everything that exists only
-  for them.
+  for them. The Mac starts its local sessions with `tmux new -s` by hand until its plan ships, and the README and the PR
+  body say so.
 - R20. The new code runs on the Mac through the same paths once the Mac plan makes the helper act locally, and this plan
   states exactly what that plan inherits.
 
 ### Acceptance Examples
 
-- AE1. **Covers R5, R8.** Given `xurl-rs`'s `XR CLI` session running on the default server and no tab holding it, when
-  Brett presses the key in the `xurl-rs` Rex session, then the tab attaches to `XR CLI` and no `xurl-rs-prime` session
-  exists.
+- AE1. **Covers R5, R8.** Given `xurl-rs`'s `XR CLI` session on the default server holding a Claude and no tab holding
+  it, when Brett presses the key in the `xurl-rs` Rex session, then the tab attaches to `XR CLI` and no `xurl-rs-prime`
+  session exists.
 - AE2. **Covers R1, R2, R3, R5, R18.** Given `bird` with no session anywhere and a transcript titled `bird-prime`, when
   Brett presses the key in the `bird` Rex session, then `bird-prime`, `bird-prime-files`, and `bird-prime-git` start in
   `~/dev/bird`, Claude resumes that transcript in bypass mode, and the tab has three panes.
@@ -139,6 +166,13 @@ started differently from a slot and chose to remove the difference.
 - AE7. **Covers R18.** Given a prime's Claude has exited and its pane is at a shell, when `exit` is typed there, then
   the tab's attach loop finds the session gone, `agent-slot prime` starts it again, and Claude resumes the same
   conversation.
+- AE8. **Covers R8.** Given `Bird CLI` running on the default server with no Claude in it, when the key is pressed in
+  `bird`'s Rex session, then `bird-prime`, `bird-prime-files`, and `bird-prime-git` start, and `Bird CLI` is untouched.
+- AE9. **Covers R17, R21.** Given an agent runs `agent-slot launch bird` with no prime running, then `bird-prime`'s
+  three-pane tab opens in the `bird` Rex session with no key press, showing Claude's trust dialog when the path is
+  untrusted. Closing that tab brings it back on the next pass.
+- AE10. **Covers R8, R21.** Given `XR CLI` holding a Claude and no tab holding it, then a pass opens a one-pane tab
+  attached to it and starts no `xurl-rs-prime` session, and the next pass changes nothing.
 
 ### Scope Boundaries
 
@@ -149,12 +183,11 @@ Non-goals, considered and not built:
   call.
 - **A table of old conversation titles.** `/rename <repo>-prime` before closing a session carries a conversation over.
   Many running primes needing it would change this call; four do today.
-- **A verb that stops a prime.** A prime is never torn down. To stop one by hand, close its tab, then
-  `tmux -L agent-slots kill-session` its three sessions. An open tab's attach loop restarts killed sessions, as it does
-  for a slot. Memory pressure from idle primes would change this call.
-- **Primes in `agent-slot list`.** Reverse-mapping session names needs `repo_primes`, one `git config` per repo, on a
-  call the reconcile timer runs every minute. `agent-slot prime <repo>` reports one prime, and `claude agents` names
-  them all.
+- **A verb that stops a prime.** A prime is never torn down. To stop one by hand, close its tab and kill its three
+  sessions right after: an open tab's attach loop restarts killed sessions, and a pass reopens the closed tab of a prime
+  still running. Memory pressure from idle primes would change this call.
+- **Letting the key start a slot while the prime cannot start.** A failed prime holds that press at its error and retry,
+  and `agent-slot-rex launch --repo <repo>` starts a slot regardless. Primes failing often would change this call.
 - **Detecting an old session Brett renamed.** Detection is by name (KTD5). Renaming one is rare, and the cost is a
   second prime that shows in the session's tab.
 - **Teaching slots who their prime is.** Briefs name who a slot reports to, and `<repo>-prime` is predictable.
@@ -176,19 +209,17 @@ Non-goals, considered and not built:
 
 - Remove the old-style branch (default-server lookup, the helper's old attach, and the single-pane re-attach) once no
   old-style session runs on either machine.
-- Add `~/box/TX-AI/streams-control` and `~/gbrain` to `AGENT_SLOT_EXTRA_PRIMES` if Brett's answer to the open question
-  says so.
 - Update `docs/plans/2026-11-02-2324-feat-agent-slots-on-the-mac-plan.md` per "What the Mac plan inherits".
 - Name the `agent-slot prime` verb in the `agent-slot` skill, which lives in `brettdavies/agent-skills`.
 
 ### Outstanding Questions
 
-Both were sent to `rex-linux` for Brett; neither blocks. The plan proceeds on the stated default.
+Sent to the coordinating session for Brett. It does not block, and the plan proceeds on the stated default.
 
-- **What replaces each session with no repo?** See the "not a repo" rows in the Appendix. Default: nothing touches them,
-  so they run as they do now, and only `mux` recreating Streams Control is lost.
-- **Should a prime that a slot launch started get a tab automatically?** Default: no. It runs with no tab until the key
-  opens one, the same first-press rule as today (Assumption A1).
+- **Does a prime keep user-bus access?** Old-style panes carry `DBUS_SESSION_BUS_ADDRESS`, and the slot builder starts
+  from an empty environment, so `systemctl --user` fails with `Failed to connect to bus: No medium found` in a prime
+  built the slot way. Default: a prime's sessions get that variable, a ninth difference from a slot (Assumption A5).
+  Declining means a prime prefixes those commands by hand.
 
 ---
 
@@ -198,30 +229,29 @@ Both were sent to `rex-linux` for Brett; neither blocks. The plan proceeds on th
 
 Inferred bets, not confirmed by Brett:
 
-- A1. A prime started by a slot launch gets no tab until the key opens one. An untrusted path's dialog waits there, and
-  the slot's own tab already says `· trust needed`. Reconcile opening prime tabs is additive if Brett wants it.
 - A2. Primes run on the slot server (KTD4). Brett said "same as slots" without naming a server.
 - A3. A three-pane tab that rexurrect restores under a prime's label means that prime was open, so the start-up step
   starts it if needed and replaces the tab (KTD12). This starts only primes whose tabs were open.
 - A4. A prime's Claude pane gets the slot status marks (KTD10). Brett's list bars the unattended and context hooks and
-  does not mention status.
+  does not mention status, and "same as slots" followed an explanation that named the Claude pane's status key.
+- A5. A prime's sessions start with `DBUS_SESSION_BUS_ADDRESS` set where the user bus exists, pending Brett's answer.
 
 ### Key Technical Decisions
 
 - KTD1. **A prime's key is `<repo>/prime`.** `slot_session <repo> prime <kind>` already gives `<repo>-prime`,
-  `<repo>-prime-files`, and `<repo>-prime-git`. `SLOT_KEY_PATTERN` stays digits-only, so `check`, `finish`, `resume`,
-  and reconcile's tab matching cannot match a prime, which makes R15 true by construction. Only `agent-slot-rex attach`
-  takes the wider pattern. `agent_slot_layout` passes its key through to `attach`, so its Lua needs a description change
-  only and works before a config reload.
+  `<repo>-prime-files`, and `<repo>-prime-git`. `SLOT_KEY_PATTERN` stays digits-only, so `check`, `finish`, and `resume`
+  cannot name a prime, and reconcile's slot rules (relabel, close when gone, close duplicates) never match its tab,
+  which makes R15 true by construction. Only `agent-slot-rex attach` takes the wider pattern. `agent_slot_layout` passes
+  its key through to `attach`, so its Lua needs a description change only and works before a config reload.
 - KTD2. **`sessions_start` takes the root path, and a prime passes its checkout.** A prime calls the same
   `sessions_start` and `sessions_command` a slot does, with `RECORD` set in memory to
   `{name, session_id, prompt_file: null}` and mode `resume`. `SESSIONS_CLAUDE` stays the one place the bypass flag is
   written (R3). Governs R1, R2. (Inherits the settled "built the same way" decision.)
 - KTD3. **The conversation rule: the newest transcript, across Claude's project directories, whose latest `custom-title`
   is exactly `<repo>-prime` and whose session no running Claude holds; with none, a fresh session under that name.**
-  - The newest transcript wins because `/clear` starts a new transcript that carries the title: the `rex-linux`
-    transcript opens with its `custom-title` line and a `SessionStart:clear` hook. So the rule follows `/clear` with no
-    record and no hook.
+  - The newest transcript wins because `/clear` starts a new transcript that carries the title: a live transcript under
+    `~/.claude/projects/-home-brett-dotfiles/` opens with its `custom-title` line and a `SessionStart:clear` hook. So
+    the rule follows `/clear` with no record and no hook.
   - The search covers all project directories because a conversation resumed from elsewhere stays in the file it started
     in (`docs/solutions/best-practices/resume-a-claude-session-by-id-from-another-directory.md`).
   - Only the latest title counts, so a renamed conversation stops matching. A title line is one that starts with
@@ -237,11 +267,19 @@ Inferred bets, not confirmed by Brett:
   replay, `detach-on-destroy`) and no resurrect plugins, and the server outlives what started it through
   `_sessions_scoped`. The default server is rejected because its continuum restore would bring back prime sessions the
   builder also starts.
-- KTD5. **An old-style prime is found by name, from `list-sessions` on `tmux -L default`.** Paths cannot identify one:
-  `Bird CLI`'s session path is `~/dev`, `Meum Sites`' is `~`, and `Coordinator`'s Claude works in `~/dev/agent-skills`.
-  The socket is named because `agent-slot` often runs inside a slot pane, whose `TMUX` points at the slot server. A
-  default server that does not answer stops the start with `tmux-unresponsive` rather than risk a duplicate. Old-style
-  wins when both exist. Governs R8.
+- KTD5. **An old-style prime is a display-named session holding a Claude, read from `list-panes -a` on
+  `tmux -L default`.** A pane holds a Claude when its `pane_current_command` is `claude` or a bare version number, the
+  name Claude's versioned binary can run under.
+  - **By name:** paths cannot identify one. `Bird CLI`'s session path is `~/dev`, `Meum Sites`' is `~`, and
+    `Coordinator`'s Claude works in `~/dev/agent-skills`.
+  - **Holding a Claude:** 11 of the sessions that map to a repo hold none today, and continuum restores sessions with
+    shells only, so a name alone would keep attaching the key to a blank session in those repos and report a prime that
+    is not running. An old prime whose Claude has exited gets a new prime beside it on the next press, which this
+    accepts.
+  - **The socket is named** because `agent-slot` often runs inside a slot pane, whose `TMUX` points at the slot server.
+    A default server that does not answer stops the start with `tmux-unresponsive` rather than risk a duplicate.
+  - Old-style wins when both exist. `prime_start`, `cmd_prime`, the tab check, the start-up step, and `list` all use
+    this one test, which lives in `names.sh`. Governs R8.
 - KTD6. **`agent-slot prime <repo>` is the one start path, under the existing lock mechanism.** It takes a flock through
   `_record_lock` at `$AS_STATE_DIR/primes/<repo>.lock`, reads the sessions under the lock, and creates only what is
   missing, as `resume` does. It is idempotent and takes every caller. The lock stays out of `~/slots/<repo>/` because
@@ -256,6 +294,11 @@ Inferred bets, not confirmed by Brett:
     `cmd_resume`. A child `agent-slot` is rejected because `repo_prime` walks every repo, 0.47 s per launch here
     (`agent-slot repos`), and killing one at a time bound can leave a session with nothing typed into it.
   - Each step is already bounded (lock 30 s, each tmux call 5 to 10 s, the scan 30 s), so the subshell needs no timer.
+  - `slot_make` runs it before `push_restore`, so the pass that opens the slot's tab opens the prime's too. `cmd_resume`
+    runs it after `record_unlock_slot`, so the slot's other panes do not wait on the prime behind the slot lock.
+  - The prime's worst case, 180 s, now sits inside `agent-slot resume`, so the helper's `server_call 60 resume` bounds
+    in `attach.sh` and `reconcile.sh` rise to 240 s. A timeout there would otherwise cut a start between `new-session`
+    and `send-keys`, and on the reconcile path end the pass with no tabs opened.
   - A failure goes into an additive `prime` field in the output, with the launch still succeeding. Governs R6.
 - KTD8. **The map keeps its format, and one reader serves both dispatchers.** `prime_display_name` in `names.sh` reads
   `<repo><TAB><display>` and falls back to the repo's name, so `agent-slot` (new `AS_PRIMES`) and `agent-slot-rex`
@@ -270,7 +313,8 @@ Inferred bets, not confirmed by Brett:
   and `slot-context.sh` print nothing for a prime with no code change. A new `slot_session_is_prime` (`*-prime`) admits
   a prime's Claude to `slot-status.sh` alone. Slot names always end in digits, `-files`, or `-git`, so the two never
   overlap, whatever the repo's name. Governs R11.
-- KTD11. **A tab holds the prime when any of three things is true**, and the key checks all of them before choosing:
+- KTD11. **A tab holds the prime when any of three things is true**, and the key and reconcile both check all of them
+  before choosing:
   - a block's own process is `agent-slot-rex attach <repo>/prime claude`, which stays true while the loop waits for
     Enter after a detach;
   - a client of the old-style session runs on a block's terminal, the existing check;
@@ -279,19 +323,46 @@ Inferred bets, not confirmed by Brett:
 
   Two near-simultaneous presses can still make two tabs on one prime, which costs a tab and never a duplicate prime.
   Governs R5.
-- KTD12. **The start-up step replaces a restored three-pane prime tab.** rexurrect restores it as plain shells. When
-  every pane is a shell at its prompt, the step runs `agent-slot prime`, opens a fresh tab with the layout at index 1,
-  and closes the restored one, the order reconcile uses for slots. A one-pane tab keeps today's rules: old session
-  running gets the prime command typed, otherwise `prime-not-running` and left alone. The walk covers map lines plus
-  every other repo with a Rex session, since a repo with a default name has no line. Governs R9.
-- KTD13. **`agent-slot-rex prime <repo>` holds a pane on the prime however it runs.** With the old session running, it
-  attaches and then becomes a login shell, as today. Otherwise it `exec`s `attach <repo>/prime claude`. The key's tab
-  and the typed re-attach keep using this one verb. Governs R5, R8.
+- KTD12. **The start-up step replaces a restored three-pane prime tab.** rexurrect restores it as plain shells, and
+  without this step each Rex restart would leave those shells beside the tab reconcile opens. When every pane is a shell
+  at its prompt, the step runs `agent-slot prime`, opens a fresh tab through reconcile's own open, and closes the
+  restored one, the order reconcile uses for slots. A one-pane tab keeps today's rules: an old-style prime running gets
+  the prime command typed, otherwise `prime-not-running` and left alone. The walk covers map lines plus every other repo
+  with a Rex session, since a repo with a default name has no line. Governs R9, R21.
+- KTD13. **`agent-slot-rex prime <repo>` holds a pane on the prime however it runs.** With an old-style prime running,
+  it attaches and then becomes a login shell, as today. Otherwise it `exec`s `attach <repo>/prime claude`. The key's
+  tab, reconcile's old-style tab, and the typed re-attach all use this one verb. Governs R5, R8, R21.
 - KTD14. **The builder never trusts and never touches git.** No `trust_accept`, no `parity_*`, no checkout, no `.git`
   write. `trust_prompt_expected` in the output comes from `trust_known`. `warm` keeps treating the prime path as the
   anchor for its slots. Governs R13, R14, R16, R17.
 - KTD15. **`prime-not-running` leaves the closed set of reasons.** The key now starts the prime instead of stopping. The
   start-up step's journal outcome of the same name stays, because it is a log string and not an error reason.
+- KTD16. **Reconcile keeps a tab for every running prime, and only ever opens one.** Governs R21, and through it the
+  settled decision on tabs.
+  - **What it reads:** `agent-slot list` gains an additive `primes[]` of `{key, repo, server, session, label}`.
+    Slot-server primes come from `list-sessions -F '#{session_name}\t#{session_path}'`: a `*-prime` session's path
+    basename is its repo, since `repo_primes` names a repo by its directory. Old-style primes come from KTD5's read,
+    mapped through `primes.tsv` or the session's own name and kept only when that repo exists. Old-style wins per repo.
+  - **Cost:** `repo_prime` looks a name up directly (`$AS_DEV/<name>`, then the extra list) rather than walking every
+    repo, which costs one `git config` per candidate on a call the timer runs every minute, and saves 0.47 s on each
+    launch as well.
+  - **What it plans:** prime rows join `open` only, so relabel, close, and duplicate handling never see a prime's tab
+    (R15). A pass with no prime lacking a tab plans nothing.
+  - **What it opens:** `rex_open_tab` in the repo's session, creating the session when there is none, then
+    `window move --index 1`. A slot-server prime gets `attach <repo>/prime claude` and the layout. An old-style prime
+    gets one pane running `agent-slot-rex prime <repo>`, which leaves the session itself untouched (R9).
+  - **How it knows a tab holds a prime:** KTD11's test, in any Rex session. `rex_snapshot` adds each block's terminal
+    from one `ps -A -o pid= -o tty=`, and each old-style prime adds one `list-clients`, so a session Brett attached by
+    hand in any tab counts and gets no second tab.
+  - **Who triggers it:** `slot_make`'s push (KTD7), the minute timer, and `agent-slot prime`, which pushes when it
+    created a session and no helper called it, under the rule `AGENT_SLOT_REX_CLIENT` already sets for launches.
+- KTD17. **Two more repos come through the extra-primes default.** `AS_EXTRA_PRIMES` adds
+  `$HOME/box/TX-AI/streams-control:$HOME/gbrain`. A host without a checkout passes over it, so the Mac and other servers
+  are unaffected, and these repos now also take slots and warm like any other. Governs R22.
+- KTD18. **A prime's sessions carry the user bus.** Where `/run/user/$UID/bus` exists, a prime's `new-session` adds
+  `-e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$UID/bus`, the value old-style panes carry. `systemctl --user` then
+  works there: from a slot's shell it fails with `Failed to connect to bus: No medium found` and answers once this
+  variable is set. Only this variable, so `AS_RUN_DIR` keeps resolving as it does. Pending Brett's answer (A5).
 
 ### High-Level Technical Design
 
@@ -307,14 +378,25 @@ flowchart TB
   verb[agent-slot prime repo] --> start_fn[prime_start]
   start_fn --> builder[sessions_start, shared with slots]
   builder --> tmux[(agent-slots tmux server)]
-  start_fn -. finds by name, never builds .-> old[(default tmux server: old-style session)]
+  start_fn -. finds by name and Claude, never builds .-> old[(default tmux server: old-style prime)]
+```
+
+Who shows a prime:
+
+```mermaid
+flowchart TB
+  pass[Reconcile pass: push or minute timer] --> list[agent-slot list: primes]
+  list --> both{Any tab holding it? KTD11}
+  both -->|yes| none[Change nothing]
+  both -->|no, slot server| three[Open three panes at index 1]
+  both -->|no, old-style| one[Open one pane on the old session at index 1]
 ```
 
 What `prime_start` decides, under the lock in KTD6:
 
 ```mermaid
 flowchart TB
-  a[repo_prime: checkout path] --> b{Old-style session on the default server?}
+  a[repo_prime: checkout path] --> b{Display-named session on the default server holding a Claude?}
   b -->|yes| c[Report server: default, start nothing]
   b -->|no| d{All three sessions on the slot server?}
   d -->|yes| e[Report server: slots, started: none]
@@ -351,26 +433,31 @@ sequenceDiagram
   end
 ```
 
-|               | Slot                           | Prime                              |
-| ------------- | ------------------------------ | ---------------------------------- |
-| Key           | `<repo>/<N>`                   | `<repo>/prime`                     |
-| Root          | `~/slots/<repo>/<N>`, a clone  | the checkout `repo_prime` names    |
-| tmux sessions | `<repo>-<N>`, `-files`, `-git` | `<repo>-prime`, `-files`, `-git`   |
-| tmux server   | `agent-slots`                  | `agent-slots`                      |
-| Claude        | bypass, named for the slot     | bypass, named `<repo>-prime`       |
-| Record        | `.git/agent-slot.json`         | none                               |
-| Lock          | `~/slots/<repo>/.<N>.lock`     | `$AS_STATE_DIR/primes/<repo>.lock` |
-| Count         | up to 8 per repo               | one per repo per host              |
-| Hooks         | unattended, context, status    | status only                        |
-| Ends          | `release`, `finish`, `sweep`   | never, except by hand              |
+|               | Slot                              | Prime                                     |
+| ------------- | --------------------------------- | ----------------------------------------- |
+| Key           | `<repo>/<N>`                      | `<repo>/prime`                            |
+| Root          | `~/slots/<repo>/<N>`, a clone     | the checkout `repo_prime` names           |
+| tmux sessions | `<repo>-<N>`, `-files`, `-git`    | `<repo>-prime`, `-files`, `-git`          |
+| tmux server   | `agent-slots`                     | `agent-slots`                             |
+| Claude        | bypass, named for the slot        | bypass, named `<repo>-prime`              |
+| Record        | `.git/agent-slot.json`            | none                                      |
+| Lock          | `~/slots/<repo>/.<N>.lock`        | `$AS_STATE_DIR/primes/<repo>.lock`        |
+| Count         | up to 8 per repo                  | one per repo per host                     |
+| Hooks         | unattended, context, status       | status only                               |
+| Tab           | reconcile opens, relabels, closes | reconcile opens; never relabels or closes |
+| Ends          | `release`, `finish`, `sweep`      | never, except by hand                     |
 
 ### System-Wide Impact
 
 - **Slot launch latency:** each launch gains two `tmux list-sessions` calls when the prime already runs (KTD7). U3
   measures it, with a 50 ms target `[estimated]`.
-- **Reconcile:** no change. Tests hold that prime tabs are never keyed, closed, or relabelled.
-- **Mac:** deleting `mux` removes the Mac's way to start its local sessions until the Mac plan ships. Running sessions
-  keep running, and `tmux new -s` still works by hand.
+- **Reconcile:** it now opens tabs for primes (KTD16) and never relabels or closes them. Each pass adds one more
+  `list-sessions`, one `list-panes` on the default server, and one `ps`.
+- **First pass after deploy:** it opens a tab for each old-style prime no tab holds, from the 12 that hold a Claude
+  today, and creates the 7 Rex sessions they lack: the six Meum repos and `obsidian-vault`. The tmux sessions themselves
+  do not change, and the sessions with no Claude get no tab.
+- **Mac:** `mux` goes there too, so its local sessions start with `tmux new -s` by hand until the Mac plan ships.
+  Running sessions keep running.
 - **Running tmux servers:** `TMUXINATOR_CONFIG` stays in their environment until they restart, unused.
 - **Open PRs:** #445 changes `slotmake.sh`. Whichever lands second rebases.
 
@@ -379,7 +466,8 @@ sequenceDiagram
 | Risk                                                                                       | Handling                                                                                             |
 | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | A Claude release changes the `custom-title` line, so resume finds nothing and starts fresh | The output and ledger say `fresh`, the tab shows it at once, and `/resume` recovers the conversation |
-| Continuum restores an old-style session Brett closed less than 15 minutes before a reboot  | It is found and used as an old-style prime; closing it again settles it                              |
+| Continuum restores old sessions after a reboot, with shells only                           | They hold no Claude, so they are not primes (R8); the key builds a prime and they stay until closed  |
+| Primes and slots share one tmux server, so a wedge or a `kill-server` stops them together  | R18 limits the loss to a restart; each prime comes back on its own conversation                      |
 | An old-style session Brett keeps blocks that repo's new prime                              | That is R8 working as decided                                                                        |
 | Reattach replaces a three-pane tab an operator labelled exactly like a prime               | Only when every pane is an idle shell, so only those shells are lost                                 |
 | A failed prime start goes unnoticed in a launch                                            | The launch's `prime` field names the reason, and the next launch or key press retries                |
@@ -387,20 +475,22 @@ sequenceDiagram
 ### What the Mac plan inherits
 
 The Mac plan (`docs/plans/2026-11-02-2324-feat-agent-slots-on-the-mac-plan.md`) is still awaiting Brett's review, and
-this PR does not edit it. These parts of it change:
+this PR does not edit it. It needs an edit before it runs, because these parts of it change:
 
 1. **R12, R13, R15, KTD11, and the "One prime map" decision** describe a prime as a session on the machine's default
    tmux server. That is now the transition case. A prime built on the Mac runs on the Mac's `agent-slots` server in the
    Mac's checkout. R12's "a repo with no prime gets a new slot" no longer exists; R5 here replaces it.
 2. **Line 388 and P18** rest on tmuxinator's `name:` fields. `primes.tsv` now holds those names. The Mac's local
-   sessions are found by name through the same lookup until closed.
+   sessions holding a Claude are found by name through the same lookup until closed.
 3. **Linux-only calls:** `agent-slot prime` runs on the Mac once KTD6 of that plan makes the helper act locally, through
    calls the plan already replaces (`env -i -C`, `getent`, `flock`). This work routes session ID generation through one
    function, so its `os_uuid` step changes one line.
-4. **The Vault project's Taildrive mount** (`on_project_start: taildrive-mount vault`) has no replacement. The Mac plan
-   owns the answer. `taildrive-mount vault` still works by hand.
-5. **Until that plan ships,** a key pressed in a Linux session keeps acting on the Linux server (`forward.sh`), and the
-   Mac has no `mux`.
+4. **The Vault project's Taildrive mount** (`on_project_start: taildrive-mount vault`) has no replacement. Brett
+   assigned the answer to the Mac plan. `taildrive-mount vault` still works by hand.
+5. **Reconcile:** the Mac's pass, once it runs one, reads `list.primes` and keeps prime tabs as this plan does (R21,
+   KTD16). KTD18's bus variable is skipped where `/run/user/$UID/bus` does not exist, so it needs no Mac change.
+6. **Until that plan ships,** a key pressed in a Linux session keeps acting on the Linux server (`forward.sh`), and the
+   Mac starts its local sessions with `tmux new -s` by hand.
 
 ---
 
@@ -409,14 +499,15 @@ this PR does not edit it. These parts of it change:
 ### U1. Names and the prime map
 
 - **Goal:** one definition of a prime's key, names, and display name.
-- **Requirements:** R2, R10; KTD1, KTD8.
+- **Requirements:** R2, R8, R10, R22; KTD1, KTD5, KTD8, KTD17.
 - **Dependencies:** none.
 - **Files:** `scripts/agent-slot/lib/names.sh`, `scripts/agent-slot/lib/env.sh`, `scripts/agent-slot-rex/lib/prime.sh`,
   `config/agent-slot-rex/primes.tsv`, `tests/agent-slot-prime.bats` (new), `tests/agent-slot-rex.bats`.
 - **Approach:**
-  1. Add the prime token, its attach-only key pattern and parser, `slot_session_is_prime`, the Claude name helper, and
-     `prime_display_name` to `names.sh`.
-  2. Add `AS_PRIMES` (`AGENT_SLOT_PRIMES`) to `env.sh`.
+  1. Add the prime token, its attach-only key pattern and parser, `slot_session_is_prime`, the Claude name helper,
+     `prime_display_name`, and KTD5's test of a `list-panes` line to `names.sh`.
+  2. Add `AS_PRIMES` (`AGENT_SLOT_PRIMES`) to `env.sh`, and add `streams-control` and `gbrain` to the `AS_EXTRA_PRIMES`
+     default (KTD17).
   3. Make the helper's `prime_of` use the shared reader and always succeed, renaming `PRIME_SESSION` to say it holds a
      display name.
   4. Set `primes.tsv` to the table in the Appendix and rewrite its header for what the column now means.
@@ -434,6 +525,8 @@ this PR does not edit it. These parts of it change:
   - `slot_session_is_claude` stays false for `foo-prime` and `foo-2-prime`.
   - The real `primes.tsv`: every line has two fields, each repo appears once, and no name holds `.` or `:`, which tmux
     refuses.
+  - KTD5's test holds for a pane running `claude` or `2.1.318`, and not for `zsh` or `lazygit`.
+  - The extra-primes default lists a present `streams-control` and passes over an absent `gbrain`.
 - **Verification:** both dispatchers source one reader, and no second parse of the map remains.
 
 ### U2. The shared builder and `agent-slot prime`
@@ -447,11 +540,14 @@ this PR does not edit it. These parts of it change:
   `scripts/agent-slot/agent-slot`, `tests/agent-slot-prime.bats`, `tests/claude-bypass-flag.bats`,
   `tests/lib/agent-slot.bash`.
 - **Approach:**
-  1. `sessions_start` takes an optional root path, and `_sessions_fail` names the right retry command for a prime.
-  2. Generalize the session listing in `bounded.sh` so the default server's list reads through the same bounded call,
-     without `-f`, so it never starts a server.
-  3. `prime.sh` holds the old-style lookup, the conversation rule, and `cmd_prime`.
-  4. Move new session ID generation to one function that `slot_make` also uses.
+  1. `sessions_start` takes an optional root path and optional extra `new-session` arguments, and `_sessions_fail` names
+     the right retry command for a prime. A prime passes KTD18's bus variable through them, read from a path the tests
+     can override.
+  2. Add a bounded read of `list-panes -a` on the default server to `bounded.sh`, without `-f`, so it never starts a
+     server, and extend the fixture's tmux stub so `list-panes` answers per socket.
+  3. `prime.sh` holds `prime_start`, the old-style lookup, the conversation rule, and `cmd_prime`.
+  4. Move new session ID generation to one function that `slot_make` also uses, and name the verb in the README's verb
+     list here, since `tests/agent-slot-docs.bats` holds that list equal to `VERBS`.
   5. Output: `{key, repo, path, name, server: "slots"|"default", session, started[], conversation: {mode:
      "running"|"resumed"|"fresh", session_id}, trust_prompt_expected, next_step}`. `next_step.command` is the attach
      that holds it (`agent-slot-rex prime <repo>`), and its note says other sessions reach it by the name
@@ -464,6 +560,7 @@ this PR does not edit it. These parts of it change:
      `tmux -L default list-sessions`, not to the slot server. Each `contract_fail` here retries with
      `agent-slot prime <repo>`.
   8. `help.sh` gets the verb's usage, one example, and a `returns:` line, as `warm` has.
+  9. After a start that created a session, the verb calls `push_restore`, which skips itself when a helper called it.
 - **Patterns to follow:** `cmd_resume` for locking and the output shape; `sessions_transcript_find` for the
   project-directory walk; `launch_output` for `next_step`.
 - **Execution note:** test-first; the fixture repo's fingerprint (`assert_prime_untouched`) backs R13 and R14 in every
@@ -482,8 +579,12 @@ this PR does not edit it. These parts of it change:
   - A `claude -p` transcript with no title in the same project directory is never chosen.
   - A killed `repoa-prime-files` alone restarts with no new Claude and no second session.
   - All three running starts nothing, reports `started: []`, and writes no ledger line.
-  - Covers AE1. With `repoa`'s display-named session on the `default` socket, nothing starts on either socket and
-    `server` is `default`.
+  - Covers AE1. With `repoa`'s display-named session on the `default` socket holding a Claude, nothing starts on either
+    socket and `server` is `default`, and a slot launch there starts no prime session either.
+  - Covers AE8. With that session holding no Claude, the three prime sessions start on the slot socket, and no call
+    names the session on the `default` socket other than the read.
+  - A prime's `new-session` carries the bus variable where the bus path exists, and omits it where it does not.
+  - A start pushes a restore, and one run with `AGENT_SLOT_REX_CLIENT` set does not.
   - A default socket with no server creates no session there.
   - A default server that does not answer exits `tmux-unresponsive` with value `default` and a `next_step.command`
     naming that socket, and starts nothing.
@@ -510,20 +611,24 @@ this PR does not edit it. These parts of it change:
 - **Requirements:** R6, R8; KTD7.
 - **Dependencies:** U2.
 - **Files:** `scripts/agent-slot/lib/slotmake.sh`, `scripts/agent-slot/lib/launch.sh`,
-  `scripts/agent-slot/lib/reopen.sh`, `scripts/agent-slot-rex/lib/launch.sh`, `tests/agent-slot-launch.bats`,
-  `tests/agent-slot-reopen.bats`, `tests/agent-slot-prime.bats`.
+  `scripts/agent-slot/lib/reopen.sh`, `scripts/agent-slot-rex/lib/launch.sh`, `scripts/agent-slot-rex/lib/attach.sh`,
+  `scripts/agent-slot-rex/lib/reconcile.sh`, `tests/agent-slot-launch.bats`, `tests/agent-slot-reopen.bats`,
+  `tests/agent-slot-prime.bats`.
 - **Approach:**
-  1. `slot_make` runs `prime_start` in a subshell after the slot is committed (`SLOT_ARMED` clear, slot lock released),
-     so nothing it does can roll the slot back.
-  2. `cmd_resume` runs it after its own `sessions_start`, with the checkout path from the record's `.prime`.
+  1. `slot_make` runs `prime_start` in a subshell after the slot is committed (`SLOT_ARMED` clear, slot lock released)
+     and before `push_restore`, so nothing it does can roll the slot back and the pass that follows opens the prime's
+     tab.
+  2. `cmd_resume` runs it after `record_unlock_slot`, with the checkout path from the record's `.prime`.
   3. `launch`, `reopen`, and `resume` outputs gain `prime`: its object, or `{error: {reason, message, next_step, log}}`,
      so an agent reading a launch gets the retry command. A subshell that dies with no error object gives `script-error`
      with its stderr kept in `AS_LOG_DIR`, as `reattach_primes` does. A launch's text line adds "; its prime did not
      start: `<reason>`", so `ok: true` never hides it. A launch that returns a slot already holding its request starts
      nothing and reports `prime: null`.
-  4. Raise `launch_call`'s bound and comment in the helper to cover the prime's worst case.
-  5. `prime` in `tests/lib/agent-slot.bash` seeds a same-named session on the fixture's `default` socket, so the suites'
-     existing `new-session` counts stay as they are with no test-only seam; `tests/agent-slot-prime.bats` clears it.
+  4. Raise `launch_call`'s bound and comment in the helper to cover the prime's worst case, and raise both
+     `server_call 60 resume` bounds to 240 s (KTD7).
+  5. `prime` in `tests/lib/agent-slot.bash` seeds a same-named session holding a Claude on the fixture's `default`
+     socket, so the suites' existing `new-session` counts stay as they are with no test-only seam;
+     `tests/agent-slot-prime.bats` clears it.
 - **Patterns to follow:** the subshell and capture in `reattach_primes`; the `$fields` merge in `launch_output`.
 - **Test scenarios:**
   - A launch starts the slot's three sessions and the prime's three, and `prime.started` lists the latter.
@@ -586,7 +691,8 @@ this PR does not edit it. These parts of it change:
   4. `attach` takes `<repo>/prime`, and its resume path calls `agent-slot prime` under the same 180 s bound;
      `repo-not-found` ends the pane as `slot-not-found` ends a slot's.
   5. `cmd_prime` implements KTD13.
-  6. Remove the `prime-not-running` reason and fix the Lua descriptions.
+  6. Remove the `prime-not-running` reason and its row in the README's reasons table, which `tests/agent-slot-docs.bats`
+     holds equal, and fix the Lua descriptions.
   7. `launch_failed` names what failed: "the prime of X did not start", a label of `X · prime failed`, and a retry line
      with no request ID, since a prime has none.
   8. The 32 `launch --here` calls in `tests/agent-slot-rex.bats` assume a repo with no map line gets a slot. A fixture
@@ -618,15 +724,58 @@ this PR does not edit it. These parts of it change:
 - **Verification:** the Rex stubs show the exact call order above. A live Rex tab is out of bounds here, so Brett's
   first key press after merge is the end-to-end check, and the PR says so.
 
+### U10. Reconcile keeps a tab for every running prime
+
+- **Goal:** every running prime is visible in Rex.app with no key press, and a pass with nothing to do changes nothing.
+- **Requirements:** R9, R15, R17, R21; KTD11, KTD13, KTD16, and the "every running prime has a tab" Key Decision.
+- **Dependencies:** U2, U5.
+- **Files:** `scripts/agent-slot/lib/read.sh`, `scripts/agent-slot-rex/lib/reconcile.sh`,
+  `scripts/agent-slot-rex/lib/rex.sh`, `tests/agent-slot-read.bats`,
+  `tests/agent-slot-rex.bats`, `tests/lib/agent-slot-rex.bash`.
+- **Approach:**
+  1. `list` adds `primes[]`, and `repo_prime` becomes the direct lookup KTD16 describes.
+  2. `reconcile_fetch` keeps the array, and `reconcile_plan` adds an `open` row for each prime no tab holds.
+  3. `rex_snapshot` adds each block's terminal, so the plan can apply KTD11's client check.
+  4. `reconcile_open_tab` opens by kind: a slot, a slot-server prime with the layout, or an old-style prime with one
+     pane, the last two moved to index 1. The start-up step (U7) calls this same function.
+  5. The ps stub in `tests/lib/agent-slot-rex.bash` answers `-A -o pid= -o tty=`.
+- **Patterns to follow:** `reconcile_plan`, `reconcile_open_tab`, and the slot tab tests under "reconcile: restore and sweep" in
+  `tests/agent-slot-rex.bats`, which these mirror.
+- **Execution note:** test-first, as the slot tab tests are, against the `rex` stub's plan and call log.
+- **Test scenarios:**
+  - `list` reports `repoa/prime` with `server: slots` for a running `repoa-prime`, and `slots[]` keeps its shape.
+  - `list` reports an old-style prime with `server: default` and its display name, for a session named by the map and
+    for one named by its own repo.
+  - `list` omits a blank old session, `Coordinator` (a Claude but no repo), and a repo with no checkout on this host.
+  - `list` with both running reports one row, the old-style one.
+  - Covers AE9. A running slot-server prime with no tab gets one on the next pass: `rex window new` in its repo's
+    session, the layout with key `X/prime`, then `window move --index 1`.
+  - A running prime in a repo with no live slot gets a tab too.
+  - A repo with no Rex session gets one through `rex new`.
+  - Closing the tab brings it back on the next pass.
+  - Covers AE10. A running old-style prime no tab holds gets one pane running `agent-slot-rex prime X`, with no layout,
+    and no call changes the tmux session.
+  - A hand-attached old-style prime, whose client runs on a block's terminal in any Rex session, gets no second tab.
+  - A prime tab with the label changed gets no rename, and two tabs on one prime get no close.
+  - A window with the display label running `agent-slot-rex launch` counts, so a pass during a key press opens no second
+    tab.
+  - A pass with every prime's tab present makes no `window new`, `new`, `rename`, `move`, or `close` call, and journals
+    an empty plan.
+  - No session a pass reads on the default server gets any call but the read and `list-clients`.
+  - A pass that a restart interrupts stops opening prime tabs, under the same pin checks as slot tabs.
+- **Verification:** the reconcile journal shows prime keys under `open`. A live Rex pass is out of bounds here, so the
+  PR names the first pass after deploy as the end-to-end check, with the System-Wide Impact counts as what to expect.
+
 ### U6. Nothing that ends a slot reaches a prime
 
 - **Goal:** hold R15 with tests.
 - **Requirements:** R15; KTD1.
-- **Dependencies:** U2, U5.
+- **Dependencies:** U2, U5, U10.
 - **Files:** `tests/agent-slot-teardown.bats`, `tests/agent-slot-check.bats`, `tests/agent-slot-release.bats`,
   `tests/agent-slot-rex.bats`, `tests/agent-slot-rex-startup.bats`.
-- **Approach:** mostly characterization, since `SLOT_KEY_PATTERN` stays digits-only. Any test that fails here finds a
-  real gap to fix in the code it names.
+- **Approach:** characterization, since `SLOT_KEY_PATTERN` stays digits-only. Each test is observed failing against a
+  planted regression, such as that pattern widened to admit `prime`, and is then restored. Any test that fails against
+  the built code finds a real gap to fix in the code it names.
 - **Test scenarios:**
   - Covers AE5. `finish`, `check`, and `resume` given `repoa/prime` exit with a usage error that names
     `agent-slot prime`, and change nothing.
@@ -635,9 +784,8 @@ this PR does not edit it. These parts of it change:
     the prime's sessions.
   - `slot_rollback` of a failed launch leaves the prime's sessions.
   - `whoami` and `release` from the prime's checkout exit `not-in-slot`.
-  - `list` reports slots only and its output shape is unchanged.
-  - Reconcile with a tab running `attach X/prime claude` plans no open, rename, or close for it, whether or not the repo
-    has slots.
+  - Reconcile with a tab running `attach X/prime claude` plans no rename or close for it, whether or not the repo has
+    slots.
   - `agent-slot-rex finish --tab` on a prime's tab fails with "not an agent slot's tab".
   - `startup_kill_slot_sessions` leaves a session holding a prime's tab and slot tabs, and a session holding only a
     prime's tab.
@@ -646,14 +794,14 @@ this PR does not edit it. These parts of it change:
 ### U7. The start-up step restores a prime's tab
 
 - **Goal:** after a Rex restart, a prime's three-pane tab comes back holding the prime.
-- **Requirements:** R5, R9; KTD12.
-- **Dependencies:** U2, U5.
+- **Requirements:** R5, R9, R21; KTD12.
+- **Dependencies:** U2, U5, U10.
 - **Files:** `scripts/agent-slot-rex/lib/reattach.sh`, `scripts/agent-slot-rex/lib/startup.sh`,
   `tests/agent-slot-rex-startup.bats`.
 - **Approach:**
   1. Walk map lines plus every other `repos` entry with a Rex session.
-  2. For a label-matched tab of three idle shells, call `agent-slot prime`, then replace the tab (open with layout, move
-     to index 1, close the restored one), under the pin checks. The outcome is `reopened`.
+  2. For a label-matched tab of three idle shells, call `agent-slot prime`, then replace the tab through U10's
+     `reconcile_open_tab` and close the restored one, under the pin checks. The outcome is `reopened`.
   3. A server answer of `default` on a three-pane tab is `not-idle`.
   4. One-pane behavior stays as tested today.
 - **Patterns to follow:** `reattach_repo`, `reattach_shell_idle`, and its per-repo subshell; `reconcile_open_tab`.
@@ -683,48 +831,53 @@ this PR does not edit it. These parts of it change:
     `tests/taildrive.bats`, `tests/sync-dev-after-release.bats`, `tests/agent-slot-launch.bats`,
     `stow/rex/dot-config/rex/layout.lua`.
 - **Approach:**
-  1. The shell-shape suites use `TMUXINATOR_CONFIG` as a canary for "the `config/shell` layer loaded". Swap it for
-     `DO_NOT_TRACK` (`config/shell/telemetry.sh`), an unconditional export, and drop their `command -v tmuxinator`
-     skips, so they run everywhere.
+  1. The shell-shape suites use `TMUXINATOR_CONFIG` as a canary because a `command -v` gate sets it, which proves PATH
+     was assembled before the sourcing loop ran. Swap it for `UV_MALWARE_CHECK` (`config/shell/supply-chain.sh`), set
+     under a `command -v uv` gate, and swap the `command -v tmuxinator` skips for `command -v uv`. An unconditional
+     export would pass with the loop before PATH, the bug these suites exist to catch. Keep the comment saying why a
+     gated file is the canary.
   2. Delete the test that lists tmuxinator projects.
   3. Reword the stale comments in `tests/taildrive.bats`, `layout.lua`, and the `tests/agent-slot-launch.bats` test
      title, and rename the `sync-dev-after-release` fixture path.
   4. Remove the `compdef mux=tmuxinator` wiring and the `NOT_DEPLOYED` exemption.
 - **Test scenarios:**
-  - A sweep test fails on `tmuxinator`, `tmux-new-session`, or `mux-all` in any tracked file outside `docs/plans/`,
-    `CHANGELOG.md`, and `RELEASES-RATIONALE.md`.
-  - The canary tests pass with no tmuxinator installed.
+  - The canary tests pass with no tmuxinator installed, and fail against a `.profile` planted to source `config/shell`
+    before it assembles PATH.
   - `scripts/core-env-guard.sh` passes with no allowlist entry left matching nothing.
   - `tests/stow-deploy-packages.bats` passes with `stow/tmuxinator` gone.
 - **Verification:** the full suite and `scripts/lint-shell --all` pass. Nothing in `stow/` or `config/shell/` sets
-  `TMUXINATOR_CONFIG`.
+  `TMUXINATOR_CONFIG`. A one-time `rg` for `tmuxinator`, `tmux-new-session`, and `mux-all` over tracked files finds only
+  `docs/plans/`, `CHANGELOG.md`, `RELEASES-RATIONALE.md`, and what U9 still has to edit.
 
 ### U9. Docs say what is true
 
 - **Goal:** the docs describe this design in the present tense.
-- **Requirements:** R5, R10, R15, R19.
-- **Dependencies:** U5, U7, U8.
+- **Requirements:** R5, R10, R15, R19, R21, R22.
+- **Dependencies:** U5, U7, U8, U10.
 - **Files:** `README.md`, `BOOTSTRAP.md`, `PROJECT.md`, `CONCEPTS.md`, `scripts/agent-slot/lib/sessions.sh` (header),
   `tests/agent-slot-docs.bats`.
 - **Approach:**
-  - **README:** the new verb with its example output; the key's rule, "Keys and tab labels", and the start-up paragraph;
-    the `reopened` outcome; the reasons table without `prime-not-running`; the tmuxinator row, tool row, and section
-    removed. A "Primes" reference holds what a prime is plus these copy-paste steps:
+  - **README:** the verb's example output; the key's rule, "Keys and tab labels", and the start-up paragraph; the
+    `reopened` outcome; the reconcile section's rule that every running prime has a tab, which comes back within a
+    minute of being closed; the tmuxinator row, tool row, and section removed; the Mac starting its local sessions with
+    `tmux new -s` by hand until its plan ships. A "Primes" reference holds what a prime is plus these copy-paste steps:
     - **Move a running prime to the slot shape:** check the conversation's name with `claude agents --json`; run
       `/rename <repo>-prime` in it if the name differs; exit Claude;
       `tmux -L default kill-session -t '=<display name>'`; press the key in the repo's Rex session.
     - **Restart a prime's Claude:** type `exit` at the pane's shell; the tab brings it back on the same conversation.
     - **Stop a prime:** close its tab, then kill `<repo>-prime`, `<repo>-prime-files`, and `<repo>-prime-git` on
-      `tmux -L agent-slots`, since an open tab restarts them.
+      `tmux -L agent-slots` right after, since an open tab restarts them and a pass reopens the closed tab of a prime
+      still running.
     - **Start a slot without the prime tab first:** `agent-slot-rex launch --repo <repo>`.
   - **CONCEPTS:** replace "Prime tab" with a "Prime" entry that holds the role Brett defined (orchestrates, answers
     other sessions, point of contact for other repos, as long-lived as the session) and the tab definition; update
-    "New-agent key".
+    "New-agent key" and "Slot reconcile".
   - **BOOTSTRAP and PROJECT:** drop tmuxinator; step 4's trust instruction gains the key as the way to open a prime.
 - **Test scenarios:**
   - `tests/agent-slot-docs.bats` holds the reasons table equal to the code and finds the `prime` verb named.
   - A new assertion that the README names `<repo>/prime`.
-- **Verification:** no `previously`-style narration in the changed docs; `/code-comments` scan clean on changed scripts.
+- **Verification:** no `previously`-style narration in the changed docs; `/code-comments` scan clean on changed scripts;
+  the one-time `rg` from U8 now finds only `docs/plans/`, `CHANGELOG.md`, and `RELEASES-RATIONALE.md`.
 
 ---
 
@@ -741,20 +894,23 @@ this PR does not edit it. These parts of it change:
 | CI                                         | Rollup query from `~/.claude/guides/git-and-github.md`, every live conclusion `SUCCESS`                                                                                       | The PR                      |
 | Real artifact                              | Real tmux on a scratch socket with a fixture repo and stub `claude`: `agent-slot prime` twice, then `tmux -L <scratch> list-sessions` and `display -p '#{pane_current_path}'` | U2, U3                      |
 
-A green suite does not prove a live key press. Rex tabs are out of bounds in this slot, so the PR names Brett's first
-press as the remaining end-to-end check, with AE1 through AE3 as what to look for.
+A green suite does not prove a live key press or a live pass. Rex tabs are out of bounds in this slot, so the PR names
+the first pass after deploy and Brett's first press as the remaining end-to-end checks, with AE1 through AE3, AE9, and
+AE10 as what to look for.
 
 ---
 
 ## Definition of Done
 
-- Every R has a test or a stated manual check, and every behavior test was observed failing against unfixed code.
-- All nine units are committed, the PR to `dev` follows the repo's template, and the rollup is green.
+- Every R has a test or a stated manual check. Each test of new or changed behavior was observed failing against unfixed
+  code, and each characterization test against a planted regression.
+- All ten units are committed, the PR to `dev` follows the repo's template, and the rollup is green. The PR body says
+  the Mac starts its local sessions with `tmux new -s` by hand until its plan ships.
 - The PR's `## Changelog` names the removed `mux`, `mux-all`, and `tmux-new-session` and what replaces them, and the
   key's new first press in a repo session that had no prime, since each changes something Brett does by habit.
 - `ce-code-review` (report-only, no cross-model peer) and `devex-review` have run, with confirmed findings fixed in
   their own commits.
-- The PR head and verdicts are with `skills-prime` and `rex-linux`.
+- The PR head and verdicts are with `skills-prime` and `dotfiles-prime`.
 - No abandoned-attempt code, scratch sockets, or fixture files remain in the tree.
 - No live session, tab, or `~/dotfiles` was touched.
 
@@ -797,6 +953,8 @@ press as the remaining end-to-end check, with AE1 through AE3 as what to look fo
 | streamsgrp         | Streams Website          | new      |
 | xurl-rs-skill      | XR Agent Skill           | new      |
 | obsidian-vault     | Vault                    | new      |
+| streams-control    | Streams Control          | new      |
+| gbrain             | GBrain                   | new      |
 
 `_github` is the name tmux actually gave the `.github` project, since a session name cannot hold `.`.
 
@@ -829,43 +987,43 @@ press as the remaining end-to-end check, with AE1 through AE3 as what to look fo
 | `skills`         | Agent Skills                | agent-skills                                           | already a prime               |
 | `solutions`      | Compounded Solutions        | solutions-docs                                         | on-demand prime               |
 | `ssite`          | Streams Website             | streamsgrp                                             | on-demand prime               |
-| `streams`        | Streams Control             | none: `~/box/TX-AI/streams-control` is outside `~/dev` | not a repo                    |
+| `streams`        | Streams Control             | streams-control, through the extra-primes default      | on-demand prime               |
 | `vault`          | Vault                       | obsidian-vault                                         | on-demand prime               |
 | `xrskill`        | XR Agent Skill              | xurl-rs-skill                                          | on-demand prime               |
 | `xurl-rs`        | XR CLI                      | xurl-rs                                                | already a prime               |
 
 ### Inventory: default-server sessions, read 2026-11-03
 
-Each session with a repo keeps running and is used as that repo's prime until Brett closes it.
+A session that holds a Claude is used as its repo's prime until Brett closes it. A session with no Claude stays running and is not a prime (R8), so that repo's prime is built on the slot server. Claude is as read on this date.
 
 | Session                | Repo                                                                 | Becomes                                               |
 | ---------------------- | -------------------------------------------------------------------- | ----------------------------------------------------- |
 | ANC CLI                | agentnative-cli                                                      | already a prime                                       |
 | ANC Website            | agentnative-site                                                     | already a prime                                       |
 | Agent Skills           | agent-skills                                                         | already a prime                                       |
-| Bird CLI               | bird                                                                 | on-demand prime                                       |
-| Brett GBrain Skillpack | none; pane at `~`                                                    | not a repo                                            |
-| Compounded Solutions   | solutions-docs                                                       | on-demand prime                                       |
-| Coordinator            | none; pane at `~`, its Claude `skills-prime` in `~/dev/agent-skills` | not a repo                                            |
-| Crawl4AI Skill         | crawl4ai-skill                                                       | on-demand prime                                       |
-| GBrain                 | none: `~/gbrain` is outside `~/dev`                                  | not a repo                                            |
-| Home Media Server      | home-media-server                                                    | on-demand prime                                       |
+| Bird CLI               | bird                                                                 | on-demand prime; old session holds no Claude |
+| Brett GBrain Skillpack | none; pane at `~`                                                    | stays hand-started |
+| Compounded Solutions   | solutions-docs                                                       | on-demand prime; old session holds no Claude |
+| Coordinator            | none; pane at `~`, its Claude `skills-prime` in `~/dev/agent-skills` | stays hand-started |
+| Crawl4AI Skill         | crawl4ai-skill                                                       | on-demand prime; old session holds no Claude |
+| GBrain                 | gbrain, through the extra-primes default | on-demand prime; old session holds no Claude |
+| Home Media Server      | home-media-server                                                    | on-demand prime; old session holds no Claude |
 | Meum API               | meum-api                                                             | already a prime                                       |
 | Meum Control           | meum-control                                                         | already a prime                                       |
 | Meum GitHub            | meum-id-dot-github                                                   | already a prime                                       |
 | Meum SDK               | meum-sdk                                                             | already a prime                                       |
 | Meum Sites             | meum-sites                                                           | already a prime                                       |
 | Meum iOS               | meum-ios                                                             | already a prime                                       |
-| Paxel                  | paxel-main                                                           | on-demand prime                                       |
-| Streams Control        | none: `~/box/TX-AI/streams-control` is outside `~/dev`               | not a repo                                            |
-| Streams Website        | streamsgrp                                                           | on-demand prime                                       |
-| Vault                  | obsidian-vault                                                       | on-demand prime                                       |
+| Paxel                  | paxel-main                                                           | on-demand prime; old session holds no Claude |
+| Streams Control        | streams-control, through the extra-primes default | on-demand prime; old session holds no Claude |
+| Streams Website        | streamsgrp                                                           | on-demand prime; old session holds no Claude |
+| Vault                  | obsidian-vault                                                       | old-style prime until closed; holds a Claude |
 | XR CLI                 | xurl-rs                                                              | already a prime                                       |
-| _github                | dot-github                                                           | on-demand prime                                       |
+| _github                | dot-github                                                           | on-demand prime; old session holds no Claude |
 | dotfiles               | dotfiles                                                             | already a prime                                       |
 | ingest-lab-prime       | ingest-lab                                                           | already a prime; in the map, not running at this read |
-| last30days Skill       | last30days-skill                                                     | on-demand prime                                       |
-| qmd                    | qmd                                                                  | on-demand prime, default name                         |
+| last30days Skill       | last30days-skill                                                     | on-demand prime; old session holds no Claude |
+| qmd                    | qmd                                                                  | on-demand prime, default name; old session holds no Claude |
 
 ### Sources
 
@@ -958,8 +1116,8 @@ Findings:
   to end" is the rule for a helper's bound. The first draft's 60 s on the key's call to the verb does not outlast 30 s
   of lock plus 90 s of session calls.
 - [INFORMATIONAL] (confidence: 9/10) `scripts/agent-slot-rex/lib/reconcile.sh:85` —
-  `reconcile_plan <tabs-json> <slots-json>` reads no prime, so U3's first draft was wrong to order the prime start "so
-  the reconcile sees the prime". Factual correction.
+  `reconcile_plan <tabs-json> <slots-json>` read no prime when this review ran, so U3's first draft had no reason to order the
+  prime start before the push. Brett's later decision on tabs gives it one (KTD7, KTD16).
 
 Dispositions: all four accepted and applied (KTD7, KTD6, U5, U3).
 
@@ -1060,7 +1218,7 @@ are the restored-tab checks. `agent_slot_layout` needs no behavior change. Not i
 | Old-session lookup         | Default server hung      | U2                       | `tmux-unresponsive`, nothing built                            | Clear error                                                       |
 | Conversation rule          | Title format changes     | U2, for each match shape | Mode `fresh` in the output and the ledger                     | A fresh conversation in the tab, recoverable with `/resume`       |
 | Conversation rule          | Scan fails               | U2                       | `script-error`                                                | Clear error                                                       |
-| Untrusted path             | Dialog with no tab       | U2                       | `trust_prompt_expected`; the slot's tab says `· trust needed` | Dialog on opening the tab (A1)                                    |
+| Untrusted path             | Dialog before Brett looks | U2                       | `trust_prompt_expected`; the slot's tab says `· trust needed` | Dialog in the tab the next pass opens (R21) |
 | Partial start              | `send-keys` fails        | none                     | Not built; see Scope Boundaries                               | A shell prompt where Claude should be, visible on opening the tab |
 | Restored tab               | `agent-slot prime` fails | U7                       | Tab left in place, reason journaled                           | Plain shells, reason in `restore.log`                             |
 
@@ -1083,7 +1241,7 @@ settle, and none reopens a Key Decision.
 | ER8 | Key-rule fixture                                 | Helper opens a prime tab (U5)            | 32 calls in `agent-slot-rex.bats`                |
 | ER9 | Rollback for a partial prime start               | Not built (Scope Boundaries)             | Visible in the tab; milliseconds apart           |
 
-Approval readiness: PASS for ER1 through ER9. Brett's open questions stay with `rex-linux` and do not gate this review.
+Approval readiness: PASS for ER1 through ER9. Brett's open question stays with `dotfiles-prime` and does not gate this review.
 
 ### Worktree parallelization
 
@@ -1266,7 +1424,7 @@ The draft's capped paths and their corrections:
 - **CAP6:agent-slot resume repo/prime:fix.** Today's line, `a slot is named <repo>/<N>, such as dotfiles/2`, gives no
   route to the prime. Corrected:
   `<repo>/prime is a prime, not a slot; agent-slot prime <repo> starts it, and nothing here ends it`.
-- **CAP6:default server hung:fix.** `tmux_unresponsive` (`scripts/agent-slot/lib/bounded.sh:84`) names
+- **CAP6:default server hung:fix.** `tmux_unresponsive` (`scripts/agent-slot/lib/bounded.sh:86`) names
   `$AS_TMUX_SOCKET`, so it would send the reader to the slot server. Corrected: `value: default`,
   `next_step.command: tmux -L default list-sessions`.
 - **CAP6:launch with a failed prime:fix.** `{error: {reason, message, log}}` gave no command. Corrected: it carries
@@ -1287,7 +1445,7 @@ example. The `agent-slot` skill text lives in another repo and stays deferred.
 
 Nothing breaks at deploy: old sessions keep working and are used until closed, and the move is one repo at a time. What
 does change at once is `mux` going away and the key's first press in a repo with no prime, so the PR's Changelog carries
-both. Residual: the Mac has no `mux` and no local prime until its plan ships, sent to `rex-linux`.
+both. Residual: the Mac has no `mux` and no local prime until its plan ships, which Brett accepted.
 
 ### Pass 6. Developer Environment: 7 to 7
 
@@ -1425,7 +1583,9 @@ None from this review. Brett's open questions are listed under Outstanding Quest
 - **OUTSIDE COVERAGE:** codex, plan-review, disabled by `codex_reviews`, for both the Eng and DX reviews. No outside
   reviewer ran.
 - **CROSS-MODEL:** none; only native reviews ran.
-- **VERDICT:** Eng and DX reviews have run with every finding applied or recorded as not built, so implementation can
-  start after the document review. The review log's other rows on this branch belong to other plans.
+- **VERDICT:** Eng, DX, and document reviews have run with every finding applied or recorded as not built, so implementation can
+  start. The review log's other rows on this branch belong to other plans.
 
-NO UNRESOLVED DECISIONS
+**UNRESOLVED DECISIONS:**
+
+- Does a prime keep user-bus access? Sent to `dotfiles-prime`; the plan proceeds on yes (A5, KTD18), and it does not block.
