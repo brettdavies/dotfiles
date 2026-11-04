@@ -581,9 +581,11 @@ nested_config() {
   mkdir -p sub/.claude
   cp .claude/settings.json sub/.claude/settings.json
   printf 'nested\n' >sub/CLAUDE.md
+  printf 'nested\n' >sub/AGENTS.md
   printf 'kept\n' >sub/kept.txt
   printf 'tree prompt\n' >CLAUDE.md
   printf 'tree prompt\n' >CLAUDE.local.md
+  printf 'tree prompt\n' >AGENTS.md
 }
 
 @test "a foreign head's Claude config stays off disk through git restores and branch switches" {
@@ -591,7 +593,9 @@ nested_config() {
   launch repoa --pr 7
   [ "$status" -eq 0 ]
   local path restored=restored
-  for path in .claude .mcp.json CLAUDE.md CLAUDE.local.md sub/.claude sub/CLAUDE.md; do [ ! -e "$SLOT/$path" ]; done
+  for path in .claude .mcp.json AGENTS.md CLAUDE.md CLAUDE.local.md sub/.claude sub/AGENTS.md sub/CLAUDE.md; do
+    [ ! -e "$SLOT/$path" ]
+  done
   [ -f "$SLOT/sub/kept.txt" ]
   [ -f "$SLOT/.githooks/pre-commit" ]
   [ -z "$(git -C "$SLOT" status --porcelain -- .claude .mcp.json CLAUDE.md CLAUDE.local.md sub)" ]
@@ -741,9 +745,10 @@ tool_config() {
   printf 'require("fs").writeFileSync("%s/bun-preload", "");\n' "$T/marks" >tree-preload.js
   printf 'FROM_TREE=1\n' >.env
   printf 'FROM_TREE=1\n' >.env.local
-  mkdir -p node_modules/.bin sub
+  mkdir -p node_modules/.bin sub/node_modules/.bin
   printf '#!/bin/sh\ntouch %s/tree-bin\n' "$T/marks" >node_modules/.bin/qmd
   chmod +x node_modules/.bin/qmd
+  printf '#!/bin/sh\ntouch %s/tree-bin\n' "$T/marks" >sub/node_modules/.bin/qmd
   cp bunfig.toml sub/bunfig.toml
   printf 'FROM_TREE=1\n' >sub/.env
 }
@@ -753,7 +758,9 @@ tool_config() {
   launch repoa --pr 7
   [ "$status" -eq 0 ]
   local path
-  for path in bunfig.toml .env .env.local node_modules sub/bunfig.toml sub/.env; do [ ! -e "$SLOT/$path" ]; done
+  for path in bunfig.toml .env .env.local node_modules sub/bunfig.toml sub/.env sub/node_modules; do
+    [ ! -e "$SLOT/$path" ]
+  done
   [ -f "$SLOT/tree-preload.js" ]
   git -C "$SLOT" show HEAD:bunfig.toml | grep -q preload
 }
@@ -1012,4 +1019,93 @@ every_git_hook() {
   [ "$(hooks_path)" = .githooks ]
   git -C "$SLOT" commit -q --allow-empty -m work
   [ -e "$T/marks/git-pre-commit" ]
+}
+
+# conflicted_slot: a foreign head's slot with origin's main moved on the same excluded files, merged, so the conflict puts
+# them back on disk with conflict markers. Sets nothing; the slot is SLOT.
+conflicted_slot() {
+  foreign_pr tool_config
+  launch repoa --pr 7
+  origin_file repoa bunfig.toml 'preload = ["./base-preload.js"]'
+  origin_file repoa .claude/settings.json '{"from": "main"}'
+  git -C "$SLOT" fetch -q origin
+  git -C "$SLOT" merge -q --no-edit origin/main >/dev/null 2>&1 || true
+  [ -f "$SLOT/bunfig.toml" ]
+  [ -f "$SLOT/.claude/settings.json" ]
+  git -C "$SLOT" status --porcelain -- bunfig.toml | grep -q '^AA\|^UU'
+}
+
+@test "with a merge conflict back on disk nothing runs it on its own: not the slot's Claude, a plain claude, or the status line" {
+  [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
+  conflicted_slot
+  run_typed_line
+  [ -z "$(ls "$T/marks")" ]
+  run_plain_claude
+  [ -z "$(ls "$T/marks")" ]
+  "$BATS_TEST_DIRNAME/../stow/claude/dot-claude/statusline.sh" >/dev/null 2>&1 \
+    <<<"{\"workspace\": {\"current_dir\": \"$SLOT\"}, \"model\": {}, \"cost\": {}, \"context_window\": {}}" || true
+  [ -z "$(ls "$T/marks")" ]
+}
+
+@test "with that conflict resolved to the head's side the slot's Claude still loads none of it, though a plain claude does" {
+  [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
+  conflicted_slot
+  git -C "$SLOT" checkout -q --theirs -- .claude/settings.json 2>/dev/null || true
+  git -C "$SLOT" checkout -q --ours -- .claude/settings.json
+  jaq -e .hooks "$SLOT/.claude/settings.json" >/dev/null
+  run_typed_line
+  [ -z "$(ls "$T/marks")" ]
+  run_plain_claude
+  [ -e "$T/marks/settings-hook" ]
+}
+
+@test "the session-start hook runs nothing from that conflict, even resolved to the head's side" {
+  command -v qmd >/dev/null || skip "qmd is not installed"
+  conflicted_slot
+  git -C "$SLOT" checkout -q --ours -- bunfig.toml
+  (cd "$SLOT" && timeout 45 "$BATS_TEST_DIRNAME/../stow/claude/dot-claude/session-context.sh" >/dev/null 2>&1 </dev/null) || true
+  [ -z "$(ls "$T/marks")" ]
+}
+
+@test "resolving a conflict with git add --sparse and committing leaves the file on disk until sparse-checkout reapply" {
+  conflicted_slot
+  git -C "$SLOT" checkout -q --ours -- bunfig.toml .claude/settings.json
+  git -C "$SLOT" add --sparse -- bunfig.toml .claude/settings.json
+  git -C "$SLOT" commit -q -m merged
+  [ -f "$SLOT/bunfig.toml" ]
+  git -C "$SLOT" sparse-checkout reapply
+  [ ! -e "$SLOT/bunfig.toml" ]
+  [ ! -e "$SLOT/.claude" ]
+  git -C "$SLOT" show HEAD:bunfig.toml >/dev/null
+}
+
+# run_in_real_tmux ENV-ARGS...: git status below the bare-shaped directory, in a pane of a real tmux server of this test's
+# own, with those -e arguments on new-session, as the slot's sessions start.
+run_in_real_tmux() {
+  local i
+  export TMUX_TMPDIR=$T
+  tmux -L env-test -f /dev/null new-session -d -x 200 -y 50 "$@" -c "$SLOT/src/code" \
+    sh -c "git status --short >/dev/null 2>&1; touch $T/pane-done"
+  for ((i = 0; i < 100; i++)); do
+    [ ! -e "$T/pane-done" ] || break
+    sleep 0.1
+  done
+  tmux -L env-test kill-server 2>/dev/null || true
+  [ -e "$T/pane-done" ]
+  rm -f "$T/pane-done"
+}
+
+@test "the session environment reaches git through a real tmux pane, and the same pane without it runs the head's command" {
+  command -v tmux >/dev/null || skip "tmux is not installed"
+  foreign_pr bare_shaped
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  run_in_real_tmux
+  [ -e "$T/marks/fsmonitor" ]
+  rm "$T/marks/fsmonitor"
+  local -a settings=()
+  local setting
+  while read -r setting; do settings+=(-e "$setting"); done < <(session_env '')
+  run_in_real_tmux "${settings[@]}"
+  [ ! -e "$T/marks/fsmonitor" ]
 }
