@@ -23,6 +23,11 @@ SESSIONS_CLAUDE='claude --dangerously-skip-permissions'
 # settings.local.json, and any git restore puts back the file setup would otherwise overwrite. --setting-sources alone
 # kept .mcp.json from starting when measured; --strict-mcp-config is the flag documented to do it.
 SESSIONS_FOREIGN_ARGS=(--setting-sources user --strict-mcp-config)
+# The environment of a foreign head's sessions. A head can track a directory shaped like a repository, whose config names
+# a command in core.fsmonitor, and git run below it, as by a status line, discovers that repository and runs the command.
+# Git reads this setting only from protected config such as this, never from the clone's own, and it holds for a shape
+# that arrives in a later commit.
+SESSIONS_FOREIGN_ENV=(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.bareRepository GIT_CONFIG_VALUE_0=explicit)
 SESSIONS_CREATED=()
 
 # The login shell a session runs: the account's own, from the password database.
@@ -107,10 +112,13 @@ sessions_command() {
 # RECORD. Sets SESSIONS_CREATED to the sessions it made. The caller holds the slot lock, so two calls never race to
 # create the same session.
 sessions_start() {
-  local repo=$1 n=$2 mode=$3 path kind name shell out
-  local -a start
+  local repo=$1 n=$2 mode=$3 path kind name shell out setting
+  local -a start env=()
   path=$(slot_path "$repo" "$n")
   shell=$(_sessions_shell)
+  if _sessions_foreign; then
+    for setting in "${SESSIONS_FOREIGN_ENV[@]}"; do env+=(-e "$setting"); done
+  fi
   SESSIONS_CREATED=()
   slot_sessions_or_fail
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
@@ -118,7 +126,7 @@ sessions_start() {
     grep -qxF "$name" <<<"$SLOT_SESSIONS" && continue
     start=(/usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$shell" TERM=xterm-256color
       LANG="${LANG:-C.UTF-8}" PATH="$PATH"
-      "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$name" -c "$path" "$shell" -l)
+      "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$name" "${env[@]}" -c "$path" "$shell" -l)
     if [[ -n $SLOT_SESSIONS || ${#SESSIONS_CREATED[@]} -gt 0 ]] || ! _sessions_scoped "${start[@]}"; then
       bounded out tmux 10 "${start[@]}" || _sessions_fail "$repo" "$n" "$name"
     fi

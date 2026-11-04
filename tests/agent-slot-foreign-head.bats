@@ -750,3 +750,82 @@ run_qmd() { (cd "$SLOT" && qmd collection list >/dev/null 2>&1) || true; }
   run_qmd
   [ -e "$T/marks/bun-preload" ]
 }
+
+# bare_shaped: a tracked directory git takes for a bare repository once a command runs below it, whose config runs a
+# command on `git status` and names the directory itself as its work tree.
+bare_shaped() {
+  mkdir -p src/objects/info src/refs/heads src/code
+  printf 'ref: refs/heads/main\n' >src/HEAD
+  printf '[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = .\n\tfsmonitor = touch %s/fsmonitor; false\n' \
+    "$T/marks" >src/config
+  printf 'x\n' >src/objects/info/keep
+  printf 'x\n' >src/refs/heads/keep
+  printf 'x\n' >src/code/file.txt
+}
+
+# session_env KIND: the -e values the slot's session of that kind started with, one per line.
+session_env() {
+  grep -E "^tmux .*new-session .*-s repoa-1$1 " "$CALLS" | grep -oE -- '-e [^ ]+' | cut -d' ' -f2
+}
+
+@test "each of a foreign head's sessions starts with bare repository discovery off" {
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local kind expected
+  expected=$'GIT_CONFIG_COUNT=1\nGIT_CONFIG_KEY_0=safe.bareRepository\nGIT_CONFIG_VALUE_0=explicit'
+  for kind in '' -files -git; do [ "$(session_env "$kind")" = "$expected" ]; done
+}
+
+@test "an own fork's sessions start with no such environment" {
+  own_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -z "$(session_env '')" ]
+}
+
+@test "resume starts a foreign head's sessions with the same environment" {
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  : >"$STUBS/tmux-sessions"
+  : >"$CALLS"
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
+  [ "$status" -eq 0 ]
+  [ "$(session_env '' | wc -l)" -eq 3 ]
+}
+
+@test "under that environment git below a bare-shaped directory runs nothing, though without it git does" {
+  foreign_pr bare_shaped
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -f "$SLOT/src/config" ]
+  git -C "$SLOT/src/code" status --short >/dev/null 2>&1 || true
+  [ -e "$T/marks/fsmonitor" ]
+  rm "$T/marks/fsmonitor"
+  local -a settings
+  mapfile -t settings < <(session_env '')
+  (
+    export "${settings[@]}"
+    git -C "$SLOT/src/code" status --short >/dev/null 2>&1 || true
+    "$BATS_TEST_DIRNAME/../stow/claude/dot-claude/statusline.sh" >/dev/null 2>&1 \
+      <<<"{\"workspace\": {\"current_dir\": \"$SLOT/src/code\"}, \"model\": {}, \"cost\": {}, \"context_window\": {}}" || true
+  )
+  [ ! -e "$T/marks/fsmonitor" ]
+}
+
+@test "that environment leaves git working at the slot's root, below it, and in the solutions worktree" {
+  foreign_pr bare_shaped
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local -a settings
+  mapfile -t settings < <(session_env '')
+  (
+    export "${settings[@]}"
+    git -C "$SLOT" status --short >/dev/null
+    git -C "$SLOT/.githooks" log -1 --format=%h >/dev/null
+    git -C "$SLOT/docs/solutions" status --short >/dev/null
+    git -C "$SLOT" commit -q --allow-empty -m work
+    git -C "$SLOT" push -q fork HEAD:refs/heads/pushed
+  )
+}

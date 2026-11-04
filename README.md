@@ -508,6 +508,7 @@ head's tracked files would otherwise act as this account:
 | `claude --dangerously-skip-permissions`               | adds `--setting-sources user --strict-mcp-config`                                  |
 | The whole tree on disk                                | `.claude`, `.mcp.json`, `CLAUDE.md`, `CLAUDE.local.md`, `bunfig.toml`, `.env`, `.env.*`, and `node_modules` left out at any depth by a sparse checkout, so a `claude` or a Bun-run tool such as `qmd` started in the slot finds none of them; `git show` still reads them and pushes still carry them |
 | yazi in the files session                             | `ls -A`, since yazi's previewers parse what the cursor lands on with no key pressed |
+| Git finds a bare repository below the slot's root     | The sessions set `safe.bareRepository=explicit`, since a directory the head tracks in that shape runs what its config names when git runs below it |
 | The trust step starts Claude plainly                  | The trust step starts Claude with the same flags, since accepting runs what it loads |
 | `core.hooksPath` or copies of the prime's hooks       | No hooks                                                                           |
 | `.claude/settings.local.json` written from the prime  | Not written, since a tracked link would carry the write to the file it names       |
