@@ -53,6 +53,8 @@ run_log_start() {
   RUN_ID=${INVOCATION_ID:-$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr '[:upper:]' '[:lower:]')}
   RUN_HOST=$(_run_log_str "$(hostname -s)")
   RUN_ERRORS=0 RUN_WARNINGS=0 RUN_FIRST_ERROR='' RUN_CHANGES=null RUN_STALE=null RUN_YAZI_PINS=null RUN_SUMMARY=''
+  # A temp file a job step holds while a command runs, which the exit path removes if a kill ends the job first.
+  RUN_TEMP=''
   # systemd.exec(5): a child can inherit JOURNAL_STREAM after its stdout moved elsewhere, so it names the journal only
   # while it still matches stdout's device and inode.
   RUN_LOG_JOURNALD=0
@@ -186,6 +188,7 @@ run_log_upgrade() {
 _run_log_exit() { # <exit-status>
   [ "$RUN_LOG_FINISHED" = 0 ] || return 0
   _run_log_summary
+  [ -z "$RUN_TEMP" ] || rm -f "$RUN_TEMP"
   run_log_finish "$(($1 == 0 ? 1 : $1))" script-error "the job exited before finishing its run" null rerun "$RUN_SCRIPT"
 }
 

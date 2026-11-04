@@ -35,7 +35,7 @@ YAZI_PINS_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/yazi-pins.sh"
 # stamp the bump writes on bumped or not-needed), and records its outcome object as RUN_YAZI_PINS. The bump's stderr
 # becomes info events. A job that dies during the bump still ends with a failed/script-error object.
 yazi_pins_after_upgrade() {
-  local version stamp out last log next
+  local version stamp out last next
   [ "$RUN_OS" = Linux ] || return 0
   version=$(yazi --version 2>/dev/null | awk '/Version:/ { print $2; exit }' || true)
   [ -n "$version" ] || return 0
@@ -43,10 +43,11 @@ yazi_pins_after_upgrade() {
   [ "$version" != "$stamp" ] || return 0
   next="\"next_step\":{\"action\":\"rerun\",\"command\":$(_run_log_str "$YAZI_PINS_SCRIPT"),\"docs\":\"$RUN_LOG_DOCS#yazi-plugin-pins\"}"
   RUN_YAZI_PINS="{\"outcome\":\"failed\",\"reason\":\"script-error\",\"exit_code\":null,\"message\":\"the brew job ended during the pin bump\",\"value\":null,\"yazi_version\":$(_run_log_str "$version"),\"pr\":null,\"host_update\":null,$next}"
-  log=$(mktemp "${TMPDIR:-/tmp}/yazi-pins-log.XXXXXX")
-  out=$(timeout "${YAZI_PINS_TIMEOUT:-3600}" "${YAZI_PINS_CMD:-$YAZI_PINS_SCRIPT}" 2>"$log") || true
-  _yazi_info_lines <"$log"
-  rm -f "$log"
+  RUN_TEMP=$(mktemp "${TMPDIR:-/tmp}/yazi-pins-log.XXXXXX")
+  out=$(timeout "${YAZI_PINS_TIMEOUT:-3600}" "${YAZI_PINS_CMD:-$YAZI_PINS_SCRIPT}" 2>"$RUN_TEMP") || true
+  _yazi_info_lines <"$RUN_TEMP"
+  rm -f "$RUN_TEMP"
+  RUN_TEMP=''
   last=$(tail -n 1 <<<"$out")
   case $last in
     '{"outcome":"bumped"'* | '{"outcome":"not-needed"'* | '{"outcome":"waiting"'* | '{"outcome":"failed"'*)

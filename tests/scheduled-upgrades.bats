@@ -586,11 +586,23 @@ _wait_for_log() {
   grep -q "$1" "$log"
 }
 
+# What a stop has to leave, however the signals arrived: run.end while the tool still runs, nothing after it, and the
+# counts the job had logged. exit_code reads 1, as run-log.sh documents.
+_assert_stop_ended_log() {
+  local deadline=$((SECONDS + 10))
+  until grep -qs '"event":"run.end"' "$log" || ((SECONDS > deadline)); do sleep 0.1; done
+  [ "$(jaq -c 'select(.event == "run.end") | [.outcome, .exit_code, .reason, .errors, .warnings, .first_error]' "$log")" = \
+    '["failure",1,"script-error",1,1,"Error: a mirror failed"]' ]
+  [ "$(tail -n 1 "$log" | jaq -r .event)" = run.end ]
+  kill -0 -- "-$job"
+  [ -z "$(ls -A "$SUMMARY_DIR")" ]
+}
+
 # launchd's stop of a job, through the agent's real chain: a SIGTERM to its main process alone, which is the daily gate
-# because the wrapper execs it, then once that has exited a SIGTERM to the rest of its process group, the sweep
-# launchd.plist(5) documents under AbandonProcessGroup. run.end has to arrive while the tool still runs.
+# because the wrapper execs it, then once that has exited a SIGTERM to the rest of its process group. launchd.plist(5)
+# documents that sweep under AbandonProcessGroup without naming its signal; launchd's public source names it (job_reap,
+# core.c:3623, `killpg2(j->p, SIGTERM)`).
 _assert_launchd_stop_ends_log() { # <job> <script>
-  local deadline
   log=$LAUNCHD_LOG_DIR/$1.jsonl
   spawn env PATH="$STUBS:$PATH" "$REPO_ROOT/scripts/launchd-run.sh" "$1.jsonl" \
     "$REPO_ROOT/scripts/upgrade/daily-gate.sh" "$1" "$2" >/dev/null 2>&1 3>&-
@@ -600,14 +612,20 @@ _assert_launchd_stop_ends_log() { # <job> <script>
   kill -TERM "$job"
   wait "$job" || true
   kill -TERM -- "-$job"
-  deadline=$((SECONDS + 10))
-  until grep -qs '"event":"run.end"' "$log" || ((SECONDS > deadline)); do sleep 0.1; done
-
-  [ "$(jaq -c 'select(.event == "run.end") | [.outcome, .reason, .errors, .warnings, .first_error]' "$log")" = \
-    '["failure","script-error",1,1,"Error: a mirror failed"]' ]
-  kill -0 -- "-$job"
-  [ -z "$(ls -A "$SUMMARY_DIR")" ]
+  _assert_stop_ended_log
   [ ! -e "$UPGRADE_STATE_DIR/$1.last-success" ]
+}
+
+# systemd's stop of a unit, which its start timeout also uses: one SIGTERM to every process in the unit at once, with no
+# wrapper and no gate.
+_assert_systemd_stop_ends_log() { # <script>
+  log=$BATS_TEST_TMPDIR/journal.jsonl
+  spawn env PATH="$STUBS:$PATH" "$1" >"$log" 2>/dev/null 3>&-
+  job=$!
+  _wait_for_log 'a slow mirror'
+
+  kill -TERM -- "-$job"
+  _assert_stop_ended_log
 }
 
 @test "a launchd stop ends the brew job's log at once with the counts so far, even while a tool ignores SIGTERM" {
@@ -618,6 +636,16 @@ _assert_launchd_stop_ends_log() { # <job> <script>
 @test "a launchd stop ends the uv job's log at once with the counts so far, even while a tool ignores SIGTERM" {
   _stalled_tool_fixture
   _assert_launchd_stop_ends_log uv-tools-upgrade "$UV_JOB"
+}
+
+@test "a systemd stop ends the brew job's log at once with the counts so far, even while a tool ignores SIGTERM" {
+  _stalled_tool_fixture
+  _assert_systemd_stop_ends_log "$BREW_JOB"
+}
+
+@test "a systemd stop ends the uv job's log at once with the counts so far, even while a tool ignores SIGTERM" {
+  _stalled_tool_fixture
+  _assert_systemd_stop_ends_log "$UV_JOB"
 }
 
 @test "a line logged after a kill does not bring the removed summary file back" {
@@ -634,6 +662,34 @@ _assert_launchd_stop_ends_log() { # <job> <script>
 
   : >"$TOOL_RESUME"
   _wait_for_log 'after the stop'
+  [ -z "$(ls -A "$SUMMARY_DIR")" ]
+}
+
+# The upgrade finishes here and the bump is what stalls. The timeout stub keeps the bump in the job's process group,
+# which the real timeout leaves, so the test can stop all of it.
+@test "a kill during the pin bump leaves no temp file" {
+  _stalled_tool_fixture
+  export BUMP_STARTED="$BATS_TEST_TMPDIR/bump-started" YAZI_PINS_CMD="$STUBS/stalled-bump"
+  log=$BATS_TEST_TMPDIR/journal.jsonl
+  linux="$BATS_TEST_TMPDIR/linux"
+  mkdir -p "$linux"
+  printf '#!/bin/sh\n[ "$1" = -s ] && echo Linux || exec %s "$@"\n' "$(command -v uname)" >"$linux/uname"
+  printf '#!/bin/sh\necho "==> upgraded"\n' >"$STUBS/stalled-tool"
+  printf '#!/bin/sh\nshift\nexec "$@"\n' >"$STUBS/timeout"
+  printf '#!/bin/sh\necho "yazi-pins: checking" >&2\n: >"$BUMP_STARTED"\nexec sleep 30\n' >"$STUBS/stalled-bump"
+  chmod +x "$STUBS"/* "$linux/uname"
+  echo 26.9.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
+
+  spawn env PATH="$linux:$STUBS:$PATH" "$BREW_JOB" >"$log" 2>/dev/null 3>&-
+  job=$!
+  deadline=$((SECONDS + 30))
+  until [ -e "$BUMP_STARTED" ] || ((SECONDS > deadline)); do sleep 0.1; done
+  [ -e "$BUMP_STARTED" ]
+
+  kill -TERM -- "-$job"
+  wait "$job" || true
+  _wait_for_log '"event":"run.end"'
+  [ "$(jaq -c 'select(.event == "run.end") | [.reason, .yazi_pins.reason]' "$log")" = '["script-error","script-error"]' ]
   [ -z "$(ls -A "$SUMMARY_DIR")" ]
 }
 
