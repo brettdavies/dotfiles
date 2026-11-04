@@ -367,6 +367,26 @@ JSON
   run ! grep -q ' new-session ' "$CALLS"
 }
 
+@test "list names a tmux server whose primes it could not read, and still answers" {
+  wrap_tmux '[[ " $* " != *" -L default "* ]] || exec sleep 60'
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.primes_unread == ["default"] and .primes == []' <<<"$output"
+  run "$AGENT_SLOT" list
+  [ "$status" -eq 0 ]
+  [[ $output == *"primes on the default tmux server: unknown, it did not answer"* ]]
+}
+
+@test "list names the slot server when only its second read goes unanswered, and neither when both answer" {
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.primes_unread == []' <<<"$output"
+  wrap_tmux '[[ " $* " != *" -u list-sessions "* ]] || exec sleep 60'
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.primes_unread == ["slots"]' <<<"$output"
+}
+
 @test "a read of the default server that fails for another reason exits tmux-failed, and starts nothing" {
   wrap_tmux '[[ " $* " != *" -L default "* ]] || { echo "lost server" >&2; exit 1; }'
   start

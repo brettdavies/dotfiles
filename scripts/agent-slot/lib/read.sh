@@ -133,12 +133,13 @@ cmd_list() {
   done < <(slot_repos)
   prime_list
   contract_ok "$(printf '%s\n' "${views[@]}" | contract_json -s -c --argjson primes "$PRIME_LIST" \
-    '{slots: ., primes: $primes}')" '
+    --argjson unread "$PRIME_UNREAD" '{slots: ., primes: $primes, primes_unread: $unread}')" '
     (if (.slots | length) == 0 then "no slots"
      else .slots[] | "\(.key)\t\(.state)\t\(.agent)\t\(.label_name // "-")" +
        (if (.needs_you | length) > 0 then "\tneeds you: \(.needs_you[0].message)" else "" end)
      end),
-    (.primes[] | "\(.key)\t\(.server)\t\(.session)")'
+    (.primes[] | "\(.key)\t\(.server)\t\(.session)"),
+    (.primes_unread[] | "primes on the \(.) tmux server: unknown, it did not answer")'
 }
 
 # Usage: slot_at <dir>; prints "<repo> <n>" for the slot holding dir, or returns 1.

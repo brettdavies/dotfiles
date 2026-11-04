@@ -121,10 +121,11 @@ prime_start() {
 # Usage: prime_list; sets PRIME_LIST to the running primes as [{key, repo, server, session, label}], one per repo, the
 # old-style one when both run, and only for a repo with a checkout here. An old-style session is named by the map, or by
 # its own repo when the map gives that repo no other name. A server that does not answer costs only its own rows, since
-# the list's callers only open tabs from it, and a slot's state must still reach them.
-PRIME_LIST='[]'
+# the list's callers only open tabs from it, and a slot's state must still reach them; PRIME_UNREAD names such a server.
+PRIME_LIST='[]' PRIME_UNREAD='[]'
 prime_list() {
   local out name path repo rows=''
+  local -a unread=()
   local -A seen=()
   if default_tmux_panes; then
     while IFS= read -r name; do
@@ -136,6 +137,8 @@ prime_list() {
       seen[$repo]=1
       rows+=$repo$'\t'$TMUX_DEFAULT_SOCKET$'\t'$name$'\t'$name$'\n'
     done < <(prime_old_sessions <<<"$DEFAULT_PANES")
+  else
+    unread+=("$TMUX_DEFAULT_SOCKET")
   fi
   if slot_tmux out 5 -u list-sessions -F $'#{session_name}\t#{session_path}'; then
     while IFS=$'\t' read -r name path; do
@@ -144,9 +147,10 @@ prime_list() {
       repo_lookup "$repo" || continue
       rows+=$repo$'\tslots\t'$name$'\t'$(prime_display_name "$repo" "$AS_PRIMES")$'\n'
     done <<<"$out"
-  elif ((BOUNDED_STATUS != 124)); then
-    tmux_no_server || true
+  elif ((BOUNDED_STATUS == 124)) || ! tmux_no_server; then
+    unread+=(slots)
   fi
+  PRIME_UNREAD=$(printf '%s\n' "${unread[@]}" | contract_json -R -s -c 'split("\n") | map(select(. != ""))')
   PRIME_LIST=$(contract_json -R -s -c --arg prime "$SLOT_PRIME" 'split("\n") | map(select(. != "") | split("\t")
     | {key: "\(.[0])/\($prime)", repo: .[0], server: .[1], session: .[2], label: .[3]})' <<<"$rows")
 }

@@ -41,10 +41,11 @@ verb_help() {
     list) printf '%s\n' 'usage: agent-slot list [--output json]' \
       'Lists every slot with its state, agent state, label, and its needs-you blockers, and every running prime. A' \
       'slot'"'"'s label is its name, else its task, else its branch. A tmux server that does not answer costs only its own' \
-      'primes, so a prime missing from the list is not proof that it is not running.' \
+      'primes, and primes_unread names it, so a prime missing from the list is proof only while that is empty.' \
       'returns: slots[] of the slot record plus {key, path, state, branch, label_name, agent, agent_detail, sessions,' \
       '         needs_you}, and primes[] of {key, repo, server, session, label}, where server is slots, or default for' \
-      '         a session on the default tmux server that holds the prime' \
+      '         a session on the default tmux server that holds the prime, and primes_unread[], the servers it could' \
+      '         not read' \
       "example: agent-slot list --output json | jaq '.slots[] | select(.needs_you != [])'" ;;
     whoami) printf '%s\n' 'usage: agent-slot whoami [--path DIR] [--output json]' \
       'Prints the slot that DIR (default: the current directory) is inside. Outside a slot it fails with the error' \
