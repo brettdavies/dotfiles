@@ -292,7 +292,9 @@ names no prime session for the vault, so the new-agent key always starts a slot 
 vault. A vault slot commits only its own task's work, on main, and runs `git fetch` then `git rebase origin/main` before
 each push, so parallel slots never clobber each other. Its SessionStart context carries those rules, and tells it to
 keep vault content out of `docs/solutions`, other repos, PR bodies, and every outside service. With no PR, its task
-finishes when its agent runs `agent-slot release`.
+finishes when its agent runs `agent-slot release`. A slot clones from origin, so it holds only what is pushed, and its
+work reaches `~/obsidian-vault`, which Obsidian and qmd read, when the operator pulls there. A slot's teardown treats no
+ignored directory as tool output, since the vault's whitelist `.gitignore` ignores every new top-level directory.
 
 Nobody watches a slot's tab, so no agent there waits on a dialog. `slot-unattended.sh` (in `stow/claude/dot-claude/`)
 answers every dialog Claude Code raises in a slot, for the slot's own Claude and for its subagents. It denies a

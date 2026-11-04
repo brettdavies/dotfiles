@@ -30,12 +30,12 @@ teardown() {
   assert_no_leaks
 }
 
-# idle_agent [ON-TERM]: a stand-in for the slot's Claude, idle in claude agents, running ON-TERM when stopped. Its
+# idle_agent [ON-TERM [SLOT-PATH]]: a stand-in for a slot's Claude, idle in claude agents, running ON-TERM when stopped. Its
 # working directory is outside the slot, so only claude agents ties it to the slot.
 idle_agent() {
   spawn bash -c "trap '${1:-:}; exit 0' TERM; sleep 120 & wait" </dev/null >/dev/null 2>&1 3>&-
   AGENT=$!
-  jaq -n -c --arg cwd "$SLOT" --argjson pid "$AGENT" '[{pid: $pid, cwd: $cwd, status: "idle", sessionId: "s1"}]' \
+  jaq -n -c --arg cwd "${2:-$SLOT}" --argjson pid "$AGENT" '[{pid: $pid, cwd: $cwd, status: "idle", sessionId: "s1"}]' \
     >"$STUBS/claude-agents.json"
 }
 
@@ -91,37 +91,62 @@ last_event() { jaq -c -s --arg e "$2" 'map(select(.event == $e))[-1]' "$1"; }
   [ ! -e "$SLOT" ]
 }
 
-# The vault's whole shape: a separate git dir, a whitelist .gitignore that covers what setup places, and work pushed to
-# main with no PR.
+# whitelist_slot NAME: launches slot 1 of a prime with the vault's shape, named NAME: a separate git dir, and a whitelist
+# .gitignore that also covers what setup places. Sets CHECKOUT to the prime's checkout and CLONE to the slot's path.
+whitelist_slot() {
+  CHECKOUT=$T/outside/$1 CLONE=$AGENT_SLOT_ROOT/$1/1
+  split_prime "$CHECKOUT" "$AGENT_SLOT_DEV/$1-git"
+  origin_file "$1" .gitignore "$(printf '/*\n!/.gitignore\n!/notes/\n!/docs/\n!/.claude/\n.claude/settings.local.json\ndocs/solutions')"
+  git -C "$CHECKOUT" pull -q origin main
+  export AGENT_SLOT_EXTRA_PRIMES=$CHECKOUT
+  trusted "$CHECKOUT" "$(realpath -m "$CLONE")"
+  "$AGENT_SLOT" launch "$1" --request-id r-whitelist --task t1 --output json >/dev/null
+}
+
 @test "a real slot of a prime with a separate git dir and a whitelist .gitignore pushes to main and tears down clean" {
-  local vault=$T/outside/vault key=vault/1
-  local clone=$AGENT_SLOT_ROOT/vault/1
-  split_prime "$vault" "$AGENT_SLOT_DEV/vault-git"
-  origin_file vault .gitignore "$(printf '/*\n!/.gitignore\n!/notes/\n!/docs/\n!/.claude/\n.claude/settings.local.json\ndocs/solutions')"
-  git -C "$vault" pull -q origin main
-  export AGENT_SLOT_EXTRA_PRIMES=$vault
-  trusted "$vault" "$(realpath -m "$clone")"
-  run --separate-stderr "$AGENT_SLOT" launch vault --request-id r-vault --task t1 --output json
-  [ "$status" -eq 0 ]
-  mkdir -p "$clone/notes"
-  echo note >"$clone/notes/a.md"
-  git -C "$clone" add notes/a.md
-  git -C "$clone" commit -q -m note
-  printf 'vault-1\nvault-1-files\nvault-1-git\n' >>"$STUBS/tmux-sessions"
-  run --separate-stderr "$AGENT_SLOT" finish "$key" --yes --output json
+  whitelist_slot vault
+  mkdir -p "$CLONE/notes"
+  echo note >"$CLONE/notes/a.md"
+  git -C "$CLONE" add notes/a.md
+  git -C "$CLONE" commit -q -m note
+  run --separate-stderr "$AGENT_SLOT" finish vault/1 --yes --output json
   [ "$status" -eq 1 ]
   jaq -e '.reason == "teardown-blocked" and (.message | endswith(": 1 unpushed commit"))' <<<"$stderr"
-  [ -d "$clone/.git" ]
-  git -C "$clone" push -q origin main
+  [ -d "$CLONE/.git" ]
+  git -C "$CLONE" push -q origin main
   [ "$(git -C "$T/origins/vault.git" log -1 --format=%s main)" = note ]
-  run --separate-stderr "$AGENT_SLOT" finish "$key" --yes --output json
+  run --separate-stderr "$AGENT_SLOT" finish vault/1 --yes --output json
   [ "$status" -eq 0 ]
   jaq -e '.torn_down == true' <<<"$output"
-  [ ! -e "$clone" ]
+  [ ! -e "$CLONE" ]
   [ -z "$(solutions_worktrees)" ]
-  [ -f "$vault/.git" ]
-  [ -z "$(git -C "$vault" status --porcelain)" ]
-  [ "$(git -C "$vault" rev-parse --git-dir)" = "$AGENT_SLOT_DEV/vault-git" ]
+  [ -f "$CHECKOUT/.git" ]
+  [ -z "$(git -C "$CHECKOUT" status --porcelain)" ]
+  [ "$(git -C "$CHECKOUT" rev-parse --git-dir)" = "$AGENT_SLOT_DEV/vault-git" ]
+}
+
+# The whitelist ignored `coverage/` by accident, so in the vault the name says nothing about what the directory holds.
+@test "a vault slot's notes in a directory named like build output keep the slot rather than being purged" {
+  whitelist_slot obsidian-vault
+  mkdir -p "$CLONE/coverage"
+  echo note >"$CLONE/coverage/a.md"
+  run --separate-stderr "$AGENT_SLOT" finish obsidian-vault/1 --yes --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "teardown-blocked" and (.message | contains("coverage"))' <<<"$stderr"
+  [ -f "$CLONE/coverage/a.md" ]
+}
+
+@test "a vault slot kept by a leftover file is reminded to push its real work, not to open a PR" {
+  whitelist_slot obsidian-vault
+  echo x >"$CLONE/leftover.tmp"
+  run --separate-stderr "$AGENT_SLOT" finish obsidian-vault/1 --yes --output json
+  [ "$status" -eq 1 ]
+  idle_agent : "$CLONE"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.cleanup_sent == ["obsidian-vault/1"]' <<<"$output"
+  grep -qF "commit on main and push each one that is real work" "$STUBS/typed-obsidian-vault-1"
+  run ! grep -qF "commit and PR" "$STUBS/typed-obsidian-vault-1"
 }
 
 @test "finish --yes tears down a fork's slot linked to its upstream's repo-recon store, which keeps what was filed there" {

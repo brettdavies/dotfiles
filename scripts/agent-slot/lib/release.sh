@@ -36,6 +36,11 @@ RELEASE_FOUND=()
 RELEASE_MISSING=()
 RELEASE_PID=
 
+# Usage: release_deliver <repo>; prints how a slot of the repo delivers real work.
+release_deliver() {
+  if [[ $1 == "$VAULT_REPO" ]]; then printf 'commit on main and push'; else printf 'commit and PR'; fi
+}
+
 # Usage: teardown_log <event> <json-object>; one line in teardown.log.
 teardown_log() {
   local line
@@ -137,7 +142,7 @@ release_not_yet() {
     teardown_log release "$(contract_json -n -c --arg key "$3" --arg why "$why" \
       '{key: $key, result: "refused", reason: "finished-by-operator", why: $why}')"
     contract_fail finished-by-operator "the operator finished $3, and --not-yet does not undo that: the slot is torn \
-down once you are idle and nothing in it would be lost. Push and PR now whatever has to outlive it" --value "$3"
+down once you are idle and nothing in it would be lost. Now $(release_deliver "$1") whatever has to outlive it" --value "$3"
   fi
   withdrawn=$(contract_json '.release != null' <<<"$RECORD")
   teardown_log release "$(contract_json -n -c --arg key "$3" --arg why "$why" --argjson withdrawn "$withdrawn" \

@@ -84,6 +84,9 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"no vault content"*"docs/solutions"* ]]
   [[ $context == *"finished when its work is on origin/main"* ]]
   [[ $context != *"finished when its PRs are open"* ]]
+  [[ $context == *"commit on main and push anything that is real work"* ]]
+  [[ $context != *"commit and PR"* ]]
+  [[ $context == *"record only a tooling or process lesson, with no note title, path, name, or quotation"* ]]
 }
 
 @test "a slot of any other repo gets no vault rules and finishes on its PRs" {
@@ -93,6 +96,7 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
   [[ $context != *"git rebase origin/main"* ]]
   [[ $context == *"finished when its PRs are open"* ]]
+  [[ $context == *"commit and PR anything that is real work"* ]]
 }
 
 @test "a slot with its own solutions worktree is told docs/solutions is that worktree; an older slot, the shared repo" {

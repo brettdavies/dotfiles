@@ -180,6 +180,9 @@ _check_untracked_paths() {
 # ignored paths nothing else exempts.
 _check_files() {
   local entry status path listing tree untracked=() ignored=() local_only=()
+  # The vault's whitelist .gitignore ignores every new top-level directory, so a name that means tool output anywhere
+  # else says nothing about what it holds there, and a teardown would purge the notes in it.
+  [[ ${2##*/} != "$VAULT_REPO" ]] || local CHECK_TOOL_DIRS='' CHECK_BUILD_DIRS=''
   CHECK_PACKAGE_DIRS=$(_check_vale_packages "$1")
   listing=$(mktemp)
   if ! git -C "$1" status --porcelain=v1 -z --ignored=matching --untracked-files=all >"$listing" 2>/dev/null; then
