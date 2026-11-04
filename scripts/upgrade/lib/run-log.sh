@@ -74,8 +74,7 @@ run_log_start() {
   done
   # No TERM trap, though one could put 143 in run.end. bash runs it only once the foreground pipeline ends, so a tool
   # that the capture runs directly (uv) and that outlives the signal would hold run.end back, up to the SIGKILL that
-  # follows under systemd. It would also end the job through exit(), which systemd counts as a failure, where bash here
-  # runs this EXIT trap at once and then ends on the signal, which systemd counts as a clean stop.
+  # follows under systemd. A fatal signal runs this EXIT trap at once.
   trap '_run_log_exit $?' EXIT
   _run_log_emit 6 run.start "\"os\":\"$RUN_OS\",\"trigger\":\"$trigger\",\"pid\":$$,\"command\":$(_run_log_str "$2"),\"tool_version\":$(_run_log_str "$3"),\"settings\":{$settings}"
 }
