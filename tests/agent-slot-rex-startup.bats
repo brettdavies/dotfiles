@@ -379,7 +379,7 @@ labeled() {
   jaq -e '.ok and .rexurrect == "done"' "$LOG"
 }
 
-@test "the start-up step keeps a session holding only a prime's tab, and one holding a prime's and a slot's tab" {
+@test "the start-up step kills a session holding only tabs a pass opens, prime tabs included, so rexurrect doubles none" {
   started_by_rex
   session sess-p A '[{"window_id": "w1", "label": "1: A", "blocks": ["b1"]}]'
   runs b1 1001 "agent-slot-rex attach A/prime claude"
@@ -387,6 +387,21 @@ labeled() {
     {"window_id": "w3", "label": "B/1", "blocks": ["b3"]}]'
   runs b2 1002 "agent-slot-rex attach B/prime claude"
   runs b3 1003 "agent-slot-rex attach B/1 claude"
+  session sess-r C '[{"window_id": "w4", "label": "1: C", "blocks": ["b4"]}]'
+  runs b4 1004 "agent-slot-rex prime C"
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  called '^rex kill sess-p$'
+  called '^rex kill sess-q$'
+  called '^rex kill sess-r$'
+}
+
+@test "the start-up step keeps a session holding a prime's tab beside a tab no pass opens" {
+  started_by_rex
+  session sess-p A '[{"window_id": "w1", "label": "1: A", "blocks": ["b1"]},
+    {"window_id": "w2", "label": "2: notes", "blocks": ["b2"]}]'
+  runs b1 1001 "agent-slot-rex attach A/prime claude"
+  runs b2 1002 "zsh"
   run "$AGENT_SLOT_REX" restore --at-start
   [ "$status" -eq 0 ]
   not_called '^rex kill '
@@ -639,8 +654,10 @@ primes_journaled() {
 @test "a tab already running the prime command already holds the prime, so nothing is typed into it" {
   started_by_rex
   primes A 'A Prime'
-  session sess-a A '[{"window_id": "pw", "label": "1: A Prime", "blocks": ["pb"]}]'
+  session sess-a A '[{"window_id": "pw", "label": "1: A Prime", "blocks": ["pb"]},
+    {"window_id": "nw", "label": "2: notes", "blocks": ["nb"]}]'
   runs pb 701 "bash $STUBS/agent-slot-rex prime A"
+  runs nb 702 "zsh"
   run "$AGENT_SLOT_REX" restore --at-start
   [ "$status" -eq 0 ]
   not_called '^rex send '
