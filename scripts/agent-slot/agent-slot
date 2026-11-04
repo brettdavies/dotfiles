@@ -33,7 +33,7 @@
 #   AGENT_SLOT_RELEASE_REMIND  seconds after an agent says it is not ready to release before the sweep reminds it (1800)
 #   AGENT_SLOT_RELEASE_ID      in the finish a release starts, the id of that release; release sets it
 #   AGENT_SLOT_TRUSTED_OWNERS  GitHub owners, space-separated, whose repositories count as the operator's own; a head in
-#                              any other owner's repo runs nothing (brettdavies meum-id)
+#                              any other owner's repo runs nothing (config/agent-slot/trusted-owners)
 #   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL, _SYSTEMD_RUN, _SYSTEMD_NOTIFY, _FIND, _SSH
 #                              absolute paths that replace the binaries found on the pinned PATH
 #   XDG_DATA_HOME              holds the trash a torn-down clone is purged from, trash-cli's home trash
@@ -78,6 +78,8 @@ source "$AS_LIB/parity.sh"
 source "$AS_LIB/sessions.sh"
 # shellcheck source=lib/head.sh
 source "$AS_LIB/head.sh"
+# shellcheck source=lib/owners.sh
+source "$AS_LIB/owners.sh"
 # shellcheck source=lib/foreign.sh
 source "$AS_LIB/foreign.sh"
 # shellcheck source=lib/slotmake.sh

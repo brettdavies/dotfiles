@@ -1,0 +1,5 @@
+# GitHub owners whose repositories count as the operator's own, one per line. A PR head in any other owner's repository
+# is a foreign head: a slot on it runs nothing from it (scripts/agent-slot/lib/foreign.sh), and the gh wrapper refuses to
+# check it out inside a slot. AGENT_SLOT_TRUSTED_OWNERS replaces this list for one command.
+brettdavies
+meum-id

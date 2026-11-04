@@ -498,10 +498,10 @@ checkout has for that repository, or `fork`. A head whose branch or repository i
 base branch. When a torn-down slot worked on the same item, the launch reports it in `prior`, with the reopen that
 resumes its conversation.
 
-A head in a repository whose owner is not in `AGENT_SLOT_TRUSTED_OWNERS` (`brettdavies meum-id`, matched in any case) or
-cannot be determined is a *foreign head*, on a fork or on the PR's own repo, and nothing from it runs before someone has
-read it. The launch reports `head_foreign: true` and `head_owner`, and each difference from a normal slot exists because
-the head's tracked files would otherwise act as this account:
+A head in a repository whose owner is not in `config/agent-slot/trusted-owners`, or `AGENT_SLOT_TRUSTED_OWNERS` when
+set, matched in any case, or cannot be determined is a *foreign head*, on a fork or on the PR's own repo, and nothing
+from it runs before someone has read it. The launch reports `head_foreign: true` and `head_owner`, and each difference
+from a normal slot exists because the head's tracked files would otherwise act as this account:
 
 | Normal slot                                          | Foreign head                                                                                                                                                                                                                                                                                          |
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -521,12 +521,12 @@ A head a trusted owner holds keeps the normal setup, and so does a slot on the b
 prime chose that base. A same-repo PR on a third party's origin is that third party's code, so it is foreign. `resume`
 keeps a foreign head's flags. A reopen is foreign when the slot it reopens was, whatever branch that slot's agent left
 behind, and when the head it plans or the PR's head on GitHub is. The SessionStart context tells the agent all of this
-and tells it not to run the tree's code. No gate covers an agent that runs the tree's code anyway, or a fork head
-checked out inside a normal slot, which every slot's context warns against.
+and tells it not to run the tree's code. Inside a slot, the `gh` wrapper refuses `gh pr checkout` of a head a trusted
+owner does not hold.
 
 A fork stays foreign until someone trusts its owner. To run one once someone has reviewed it, tear its slot down and
 launch again with the owner added for that one command:
-`AGENT_SLOT_TRUSTED_OWNERS='brettdavies meum-id <owner>' agent-slot launch <repo> --pr <ref>`. That checks out the
+`AGENT_SLOT_TRUSTED_OWNERS='<the trusted owners> <owner>' agent-slot launch <repo> --pr <ref>`. That checks out the
 branch as it is then, and its hooks run at once, so compare it with what was reviewed first. A reopen cannot do this,
 since a foreign slot's reopen stays foreign.
 

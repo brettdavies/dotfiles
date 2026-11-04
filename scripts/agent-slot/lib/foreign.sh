@@ -11,18 +11,13 @@
 # A jq definition: foreign_fields, the verdict as an output or a ledger line reports it, on a slot's record.
 FOREIGN_FIELDS_DEF='def foreign_fields: {head_foreign: (.head_foreign // false), head_owner: (.head_owner // null)};'
 
-# Usage: foreign_url <url>; true unless the URL is a GitHub repo whose owner is in AS_TRUSTED_OWNERS. An empty URL, which
-# is how a head whose repository is gone reaches here, and a URL that is not GitHub's are foreign.
+# Usage: foreign_url <url>; true unless the URL is a GitHub repo with a trusted owner (owners.sh). An empty URL, which is
+# how a head whose repository is gone reaches here, and a URL that is not GitHub's are foreign.
 foreign_url() {
-  local slug trusted
-  local -a owners
+  local slug
   slug=$(head_github_slug "$1")
   [[ -n $slug ]] || return 0
-  read -ra owners <<<"${AS_TRUSTED_OWNERS,,}"
-  for trusted in "${owners[@]}"; do
-    [[ ${slug%%/*} != "$trusted" ]] || return 1
-  done
-  return 0
+  ! owner_trusted "${slug%%/*}"
 }
 
 # Usage: foreign_fields <url>...; prints the JSON object a slot's seed merges: {head_foreign: true, head_owner} for the

@@ -44,8 +44,6 @@ agent_slot_env() {
   AS_RELEASE_WAIT=${AGENT_SLOT_RELEASE_WAIT:-3600}
   AS_RELEASE_POLL=${AGENT_SLOT_RELEASE_POLL:-5}
   AS_RELEASE_REMIND=${AGENT_SLOT_RELEASE_REMIND:-1800}
-  # Unset takes the default; set and empty trusts no owner, so every head off origin is foreign.
-  AS_TRUSTED_OWNERS=${AGENT_SLOT_TRUSTED_OWNERS-brettdavies meum-id}
 
   declare -gA AS_TOOL=() CONTRACT_TOOL_PATHS
   for tool in tmux claude gh git-crypt git flock timeout trash systemctl systemd-run systemd-notify find ssh; do

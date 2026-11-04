@@ -63,7 +63,7 @@ verb_help() {
       "A head in a repo whose owner is outside AGENT_SLOT_TRUSTED_OWNERS or cannot be determined, on a fork or on the" \
       "PR's own repo, is a foreign head: head_foreign is true, Claude starts with user settings only, and git" \
       'gets no hooks. To run a fork once someone has reviewed it, tear its slot down and launch again with its owner' \
-      "added for that one command: AGENT_SLOT_TRUSTED_OWNERS='brettdavies meum-id <owner>' agent-slot launch <repo> --pr" \
+      "added for that one command: AGENT_SLOT_TRUSTED_OWNERS='$(owners_list) <owner>' agent-slot launch <repo> --pr" \
       '<ref>. That checks out the branch as it is then, so compare it with what was reviewed. See the README.' \
       '--requested-at, --opened-at, and --shown-at are seconds since the epoch: when the launch was asked for, and' \
       'for a launch from the new-agent key, when its tab opened and when Rex.app showed it; the launch'"'"'s ledger' \
