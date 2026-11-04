@@ -48,6 +48,17 @@ reopen() {
   run --separate-stderr "$AGENT_SLOT" reopen "$@" --output json
 }
 
+# js_prime: repoa with a lockfile on origin, a stub bun that marks its run, and a prime set up to install.
+js_prime() {
+  origin_file repoa .gitignore 'node_modules/'
+  origin_file repoa package.json '{"name": "repoa"}'
+  origin_file repoa bun.lock 'locked'
+  stub bun 'touch "$STUBS/install-ran"'
+  export AGENT_SLOT_BUN=$STUBS/bun
+  mkdir -p "$AGENT_SLOT_DEV/repoa/node_modules/some-tool"
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
+}
+
 # teardown_event FIELDS: a ledger line for the teardown of repoa/1, with FIELDS merged over its defaults.
 teardown_event() {
   mkdir -p "$AGENT_SLOT_STATE_DIR"
@@ -152,6 +163,35 @@ snapshot() {
   [ "$status" -eq 1 ]
   assert_error_shape "$stderr"
   jaq -e '.reason == "item-not-found-in-ledger" and .value == "up/repoa#12"' <<<"$stderr"
+}
+
+@test "a reopen on a head the base does not hold leaves its install to the agent, as a launch does" {
+  js_prime
+  gh_item pr 7 "Fix the login" MERGED '{"headRefName": "feat/x", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
+  origin_branch "$T/origins/repoa.git" feat/x
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"prs\": [7]}"
+  reopen repoa --pr 7
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  [ ! -e "$STUBS/install-ran" ]
+  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
+}
+
+@test "a reopen on a fork head runs no install" {
+  js_prime
+  fork_repo
+  origin_branch "$T/forks/repoa.git" feat/x
+  gh_item pr 7 "Fix the login" MERGED "$FORK_HEAD"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"prs\": [7], \"branches\": [$FORK_BRANCH]}"
+  reopen repoa --pr 7
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  [ ! -e "$STUBS/install-ran" ]
+  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
 }
 
 @test "--issue on a PR's number fails the dry run with exit 2 and item-kind-mismatch, naming --pr" {
