@@ -258,32 +258,20 @@ bundle by default) on the Mac. `tests/mac-open.bats` and `tests/mac-open-here.ba
 
 Many Claude Code agents can work on the same repo at once, each in an *agent slot*: a clone of the repo at
 `~/slots/<repo>/<N>` on the Linux server, set up like the repo's own checkout (its hooks, the `docs/solutions` link, the
-`.context/repo-recon` link when the repo has a repo-recon store, its Claude memory and permission grants, its
-partial-clone filter when it has one, and the dependencies its root lockfile pins), with one task per slot. Setup runs
-`bun install --frozen-lockfile`, `pnpm install --frozen-lockfile`, or `npm ci` before the slot's agent starts, so the
-repo's tool-backed hooks work on the first push. An install runs the repo's lifecycle scripts with this account's
-credentials before anyone reads them, so setup runs one only where that is already chosen: `prime-not-set-up` means the
-prime's `node_modules` holds no package or Claude does not trust it, and `head-not-on-base` means the head is not one
-this host has chosen, since any tracked file can change what an install runs. `deps.off_base` says why:
-`prime-lacks-base` (the prime holds no branch named as the base that it has seen on origin), `base-rewritten` (origin's
-base no longer holds what the prime last knew of it), `base-lacks-head`, `pr-base-lacks-head`, or `head-behind-base`
-(the head is not the base's tip). Both are left to the agent, whose session context says what to read. A repo worked
-only through slots gets its install once the operator has run it in the prime, holds a local branch of the base's name
-there (`git -C <prime> fetch origin <base>:<base>`), and has opened Claude there. A frozen install writes no lockfile,
-and it takes whatever the lockfile pins without consulting the supply-chain age gate, so the gate binds only whoever
-wrote the lock. An install that does not finish keeps the slot, and so does one setup declines to start: the launch's
-`deps.status` also reads `failed`, `timed-out` (past `AGENT_SLOT_DEPS_TIMEOUT` seconds, 60), `tool-missing`, or
-`not-ignored` (the repo does not ignore `node_modules`), and the agent's session context says what each means and what
-to do. `deps.dirty` names up to 50 of the paths an install left changed, untracked, or ignored outside tool and build
-output, with `deps.dirty_total` the count, which past those 50 can include build output. `deps.stopped` names up to 50
-of the processes setup stopped, whether still in the install's session or carrying its environment, with
-`deps.stopped_total` the count; a process that left that session and cleared its environment stays running, and
-`agent-slot check` names it if it holds the slot. A slot's `docs/solutions` links to its own detached worktree of the
-solutions repo at `~/slots/<repo>/.solutions/<N>-<suffix>`, made at origin/main during setup and recorded as
-`solutions_worktree`; its agent writes and publishes there with `sd-commit-doc`, the slot is kept while that worktree
-holds anything origin/main lacks (`solutions-unpublished`), and teardown removes it. The repo-recon link points at
-`~/dev/repo-recon/<owner>/<repo>`, named for the prime's `origin`, else for its `upstream`, the remote a fork names its
-parent by. Setup never makes a store, and a teardown deletes the link but not the store, so whatever an agent filed
+`.context/repo-recon` link when the repo has a repo-recon store, its Claude memory and permission grants, and its
+partial-clone filter when it has one), with one task per slot. Setup also runs `bun install --frozen-lockfile`,
+`pnpm install --frozen-lockfile`, or `npm ci` before the slot's agent starts, so the repo's tool-backed hooks work on the
+first push. An install runs the head's code with this account's credentials before anyone reads it, so it runs only when
+the prime has `node_modules`, Claude trusts the prime, and the base branch holds the head; `deps.status` reads
+`prime-not-set-up` or `head-not-on-base` otherwise, `failed`, `timed-out` (past `AGENT_SLOT_DEPS_TIMEOUT` seconds, 60), or
+`tool-missing` when an install does not finish, and `installed` when it does. A frozen install writes no lockfile, and it
+takes whatever the lockfile pins without consulting the supply-chain age gate, so the gate binds only whoever wrote the
+lock. A slot's `docs/solutions` links to its own detached
+worktree of the solutions repo at `~/slots/<repo>/.solutions/<N>-<suffix>`, made at origin/main during setup and
+recorded as `solutions_worktree`; its agent writes and publishes there with `sd-commit-doc`, the slot is kept while that
+worktree holds anything origin/main lacks (`solutions-unpublished`), and teardown removes it. The repo-recon link points
+at `~/dev/repo-recon/<owner>/<repo>`, named for the prime's `origin`, else for its `upstream`, the remote a fork names
+its parent by. Setup never makes a store, and a teardown deletes the link but not the store, so whatever an agent filed
 through it stays. `agent-slot` on the server owns every slot and every check before a slot is deleted; `agent-slot-rex`
 on the same server drives that server's Rex, where each repo is one session and each agent one tab, and Rex.app and the
 Rex iOS app are windows onto it through the Rex login server. Every slot runs three tmux sessions on the server's
@@ -648,7 +636,7 @@ from inside a slot, hands that slot's teardown upstream; it deletes nothing itse
 `agent-slot doctor` checks every prerequisite and the time from key press to Claude idle. Its `key_to_ready` covers the
 last 20 launches from the new-agent key, from the moment the key's tab opened to the slot's Claude starting its session,
 with the median of each step between: Rex.app showing the tab, the helper's own calls, agent-slot's checks before the
-clone, the clone, setup, dependency install, trust, and tmux phases, and Claude's start.
+clone, the clone, setup, trust, and tmux phases, and Claude's start.
 
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore

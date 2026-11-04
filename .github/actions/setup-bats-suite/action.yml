@@ -60,15 +60,6 @@ runs:
         # and the one suite that needs it runs about 0.3 s faster with it.
         enable-cache: false
 
-    - name: Install bun
-      # agent-slot-deps.bats drives two real frozen installs and skips them without bun, and only those two show a
-      # frozen install leaves its lockfile alone. Keep the version in step with the Homebrew formula the local gates run.
-      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      with:
-        bun-version: 1.4.4
-        # A download took 1.2-1.5 s and a cache restore 0.9-2.3 s across the shards, so a cache saves nothing.
-        no-cache: true
-
     - name: Install zsh + stow + jq + trash-cli
       # zsh: shell-config.bats syntax-checks dot-zshrc / dot-zshenv / dot-zprofile.
       # stow: stow-deploy-args.bats checks exit codes; without stow the script

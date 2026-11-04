@@ -76,7 +76,6 @@ parity_hooks() {
       "the prime checkout's core.hooksPath points outside it, so a slot cannot run its own copy of the hooks" \
       --value "$path" --command "git -C $prime config core.hooksPath" --side-effects none
   fi
-  # Relative to the slot, so the hooks that run are the checked-out head's own, read or not.
   git -C "$slot" config core.hooksPath "${real#"$prime_real"/}"
 }
 

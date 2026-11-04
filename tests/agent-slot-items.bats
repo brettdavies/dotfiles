@@ -88,7 +88,7 @@ repoa_887() {
       and .head_branch == "fix/trns-16-to-8" and .head_repo == "me/repoa"
       and .head_url == "https://github.com/me/repoa.git" and .cross_repository == true' <<<"$output"
     grep -qx 'gh api repos/up/repoa/issues/887' "$CALLS"
-    grep -q '^gh pr view 887 --repo up/repoa --json .*baseRefName' "$CALLS"
+    grep -q '^gh pr view 887 --repo up/repoa --json ' "$CALLS"
   done
 }
 

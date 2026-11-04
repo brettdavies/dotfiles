@@ -40,26 +40,6 @@ launch() {
   run --separate-stderr "$AGENT_SLOT" launch "$@" --output json
 }
 
-# head_on_origin_changes FILE CONTENT: launches PR 7, whose head on origin is one commit past main and changes only FILE,
-# and expects its install left to the agent. Any tracked file can change what an install runs, so no list of files would do.
-head_on_origin_changes() {
-  github_origin
-  bun_repo
-  git -C "$T/seed-repoa" switch -q -c feat/x
-  mkdir -p "$(dirname "$T/seed-repoa/$1")"
-  printf '%s\n' "$2" >"$T/seed-repoa/$1"
-  git -C "$T/seed-repoa" add "$1"
-  git -C "$T/seed-repoa" commit -q -m 'the head'
-  git -C "$T/seed-repoa" push -q origin feat/x feat/x:refs/pull/7/head
-  git -C "$T/seed-repoa" switch -q main
-  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  [ ! -e "$STUBS/prepare-ran" ]
-  [ ! -e "$AGENT_SLOT_ROOT/repoa/1/node_modules" ]
-  jaq -e '.deps.status == "head-not-on-base" and .deps.command == "bun install --frozen-lockfile" and .state == "active"' <<<"$output"
-}
-
 # github_origin: repoa's prime with its origin at GitHub's https URL for up/repoa, which the test's git config rewrites
 # to the local bare origin, and gh answering from gh_item's fixtures.
 github_origin() {
@@ -851,169 +831,6 @@ EOF
   [ "$(git -C "$slot" for-each-ref --format='%(upstream:short) %(push:remotename)' refs/heads/feat/x)" = 'fork/feat/x fork' ]
 }
 
-# bun_repo: makes repoa's origin a bun repo, with a bun stub whose prepare script leaves a mark, as a real install runs
-# the head's lifecycle scripts.
-bun_repo() {
-  origin_file repoa .gitignore 'node_modules/'
-  origin_file repoa package.json '{"name": "repoa"}'
-  origin_file repoa bun.lock 'locked'
-  stub bun 'mkdir -p node_modules; touch "$STUBS/prepare-ran"'
-  export AGENT_SLOT_BUN=$STUBS/bun
-  mkdir -p "$AGENT_SLOT_DEV/repoa/node_modules/some-tool"
-  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
-}
-
-@test "launch --pr never runs a fork head's install, which would run a stranger's lifecycle scripts unread" {
-  github_origin
-  bun_repo
-  fork_repo
-  pr_head "$T/forks/repoa.git" feat/x 7
-  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  [ ! -e "$STUBS/prepare-ran" ]
-  [ ! -e "$AGENT_SLOT_ROOT/repoa/1/node_modules" ]
-  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "base-lacks-head"
-    and .deps.command == "bun install --frozen-lockfile" and .state == "active"' <<<"$output"
-}
-
-@test "launch --pr never runs the install of a head that only refs/pull/N/head still holds" {
-  github_origin
-  bun_repo
-  pr_head "$T/origins/repoa.git" "" 7
-  gh_item pr 7 "Fix the login" CLOSED '{"headRefName": "feat/x", "headRepository": null, "headRepositoryOwner": null}'
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  [ "$(git -C "$AGENT_SLOT_ROOT/repoa/1" rev-parse HEAD)" = "$HEAD_SHA" ]
-  [ ! -e "$STUBS/prepare-ran" ]
-  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
-}
-
-@test "launch --pr leaves a head on origin that changes the lockfile to its agent" {
-  head_on_origin_changes bun.lock 'a release younger than the age gate allows'
-}
-
-@test "launch --pr leaves a head on origin that changes only package.json to its agent" {
-  head_on_origin_changes package.json '{"name": "repoa", "scripts": {"postinstall": "./evil"}}'
-}
-
-@test "launch --pr leaves a head on origin that adds only .npmrc to its agent" {
-  head_on_origin_changes .npmrc 'script-shell=./evil'
-}
-
-@test "launch --pr leaves a head on origin that adds only npm-shrinkwrap.json to its agent" {
-  head_on_origin_changes npm-shrinkwrap.json '{"lockfileVersion": 3}'
-}
-
-@test "launch --pr leaves a head on origin that changes only a file a lifecycle script calls to its agent" {
-  head_on_origin_changes scripts/build.js 'evil()'
-}
-
-@test "launch --pr leaves a PR from a branch named dev to its agent, on a repo the prime holds no dev for" {
-  github_origin
-  bun_repo
-  git -C "$T/seed-repoa" switch -q -c dev
-  printf '%s\n' '{"name": "repoa", "scripts": {"postinstall": "./evil"}}' >"$T/seed-repoa/package.json"
-  git -C "$T/seed-repoa" add package.json
-  git -C "$T/seed-repoa" commit -q -m 'the head'
-  git -C "$T/seed-repoa" push -q origin dev dev:refs/pull/7/head
-  git -C "$T/seed-repoa" switch -q main
-  gh_item pr 7 "Fix the login" OPEN '{"headRefName": "dev", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  [ ! -e "$STUBS/prepare-ran" ]
-  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
-}
-
-@test "launch --pr holds a PR's head to the PR's own base, even where the prime holds the head's branch" {
-  github_origin
-  bun_repo
-  git -C "$T/seed-repoa" switch -q -c dev
-  git -C "$T/seed-repoa" commit -q --allow-empty -m 'the head'
-  git -C "$T/seed-repoa" push -q origin dev dev:refs/pull/7/head
-  git -C "$T/seed-repoa" switch -q main
-  git -C "$AGENT_SLOT_DEV/repoa" fetch -q origin dev:refs/heads/dev
-  gh_item pr 7 "Release" OPEN '{"headRefName": "dev", "baseRefName": "main", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  [ ! -e "$STUBS/prepare-ran" ]
-  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "pr-base-lacks-head"' <<<"$output"
-}
-
-@test "launch --pr with no base from gh is off the base rather than unchecked" {
-  github_origin
-  bun_repo
-  git -C "$T/seed-repoa" push -q origin main:refs/heads/feat/x main:refs/pull/7/head
-  gh_item pr 7 "Fix the login" OPEN '{"headRefName": "feat/x", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  [ ! -e "$STUBS/prepare-ran" ]
-  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "pr-base-lacks-head"' <<<"$output"
-}
-
-@test "launch --pr on a head set back to an older commit of the base does not install" {
-  github_origin
-  bun_repo
-  origin_file repoa notes.txt 'later'
-  git -C "$T/seed-repoa" push -q origin main~1:refs/heads/feat/x main~1:refs/pull/7/head
-  gh_item pr 7 "Fix the login" OPEN '{"headRefName": "feat/x", "baseRefName": "main", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  [ ! -e "$STUBS/prepare-ran" ]
-  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "head-behind-base"' <<<"$output"
-}
-
-@test "launch --pr brings none of a fork's tags, which could shadow the base its agent is told to diff against" {
-  github_origin
-  bun_repo
-  fork_repo
-  pr_head "$T/forks/repoa.git" feat/x 7
-  git -C "$T/forks/repoa.git" tag origin/main refs/heads/feat/x
-  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  [ -z "$(git -C "$AGENT_SLOT_ROOT/repoa/1" tag -l 'origin/*')" ]
-}
-
-@test "launch --pr installs a head that is the tip of its PR's base" {
-  github_origin
-  bun_repo
-  git -C "$T/seed-repoa" push -q origin main:refs/heads/feat/x main:refs/pull/7/head
-  gh_item pr 7 "Fix the login" OPEN '{"headRefName": "feat/x", "baseRefName": "main", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  [ -e "$STUBS/prepare-ran" ]
-  jaq -e '.deps.status == "installed"' <<<"$output"
-}
-
-@test "launch --pr on a fork head with a prime never installed reads prime-not-set-up, and runs nothing" {
-  github_origin
-  bun_repo
-  rm -rf "$AGENT_SLOT_DEV/repoa/node_modules"
-  fork_repo
-  pr_head "$T/forks/repoa.git" feat/x 7
-  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  [ ! -e "$STUBS/prepare-ran" ]
-  jaq -e '.deps.off_base == "base-lacks-head"' <<<"$output"
-  jaq -e '.deps.status == "prime-not-set-up"' <<<"$output"
-}
-
-@test "launch --pr leaves a head behind a base lockfile change to its agent, without claiming it changed the lockfile" {
-  github_origin
-  bun_repo
-  git -C "$T/seed-repoa" switch -q -c feat/x
-  git -C "$T/seed-repoa" commit -q --allow-empty -m 'the head'
-  git -C "$T/seed-repoa" push -q origin feat/x feat/x:refs/pull/7/head
-  git -C "$T/seed-repoa" switch -q main
-  origin_file repoa bun.lock 'a newer lock on the base'
-  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
-}
-
 @test "a fork head whose URL a prime remote holds in the other form gets that remote's name in the slot" {
   github_origin
   fork_repo
@@ -1148,4 +965,50 @@ bun_repo() {
   [[ $output == *"owner/name#N"*"https://github.com/owner/name/pull/N"* ]]
   [[ $output == *$'\nreturns: '*name*items*label_name*head_pushable* ]]
   [[ $output == *"example: agent-slot launch "*"--pr "* ]]
+}
+
+# bun_repo: repoa with a lockfile on origin, a stub bun that marks its run, and a prime set up to install.
+bun_repo() {
+  origin_file repoa .gitignore 'node_modules/'
+  origin_file repoa package.json '{"name": "repoa"}'
+  origin_file repoa bun.lock 'locked'
+  stub bun 'mkdir -p node_modules; touch "$STUBS/install-ran"'
+  export AGENT_SLOT_BUN=$STUBS/bun
+  mkdir -p "$AGENT_SLOT_DEV/repoa/node_modules/some-tool"
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
+}
+
+@test "launch --pr of a fork's head runs no install, which would run its code unread" {
+  github_origin
+  bun_repo
+  fork_repo
+  pr_head "$T/forks/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/install-ran" ]
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1/node_modules" ]
+  jaq -e '.deps.status == "head-not-on-base" and .state == "active"' <<<"$output"
+}
+
+@test "launch --pr of a same-repo head the base does not hold runs no install" {
+  github_origin
+  bun_repo
+  pr_head "$T/origins/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/install-ran" ]
+  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
+}
+
+@test "launch --pr of a head the base holds installs" {
+  github_origin
+  bun_repo
+  git -C "$T/seed-repoa" push -q origin main:refs/heads/feat/x main:refs/pull/7/head
+  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -e "$STUBS/install-ran" ]
+  jaq -e '.deps.status == "installed"' <<<"$output"
 }

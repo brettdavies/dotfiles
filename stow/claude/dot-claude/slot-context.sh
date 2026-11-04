@@ -76,7 +76,15 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
   else
     solutions='docs/solutions is the solutions repo shared with every other agent; commit to it only through `sd-commit-doc`.'
   fi
-  deps=$(context_deps)
+  deps=$(contract_json -r '(.prime // "the prime") as $prime | (.base // "the base branch") as $base | .deps // {}
+    | "Setup did not run `\(.command)`" as $skipped
+    | ", which runs code from this tree, so read the tree before you run it." as $read
+    | {installed: "Setup ran `\(.command)` before you started.",
+       failed: "Setup ran `\(.command)` and it failed, log: \(.log).",
+       "timed-out": "Setup stopped `\(.command)` at its time limit, so dependencies may be missing, log: \(.log).",
+       "tool-missing": "\($skipped), because \(.manager) is not installed here.",
+       "prime-not-set-up": "\($skipped), because \($prime) has no node_modules or Claude does not trust it\($read)",
+       "head-not-on-base": "\($skipped), because \($base) does not hold this head\($read)"}[.status // ""] // ""' <<<"$RECORD")
   rules=$(
     cat <<'EOF'
 `agent-slot whoami` names this slot.
@@ -176,8 +184,6 @@ HOOK_PAYLOAD_IN=$(cat)
   exec 2>/dev/null
   # shellcheck source=/dev/null
   source "$AS_HOME/lib/hook.sh"
-  # shellcheck source=/dev/null
-  source "$AS_HOME/lib/deps-context.sh"
   hook_init slot-context "$AS_HOME"
   # shellcheck disable=SC2034 # read by hook.sh
   HOOK_PAYLOAD=$HOOK_PAYLOAD_IN
