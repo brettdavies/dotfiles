@@ -348,12 +348,12 @@ On the Linux server:
    orphan sweep.
 3. `agent-slot-rex doctor` is the checklist from there. Each finding names what is missing with the command that fixes
    it, such as the login server's deploy or rexurrect's. Rerun it until it reports no errors.
-4. Open Claude once in each repo's prime checkout and accept its trust dialog, and do the same for every repo cloned
-   under `~/dev` later. A slot path is trusted only for a repo whose prime checkout you have trusted in Claude, because
-   trust lets Claude load the repo's own settings and hooks. `agent-slot-warm.timer` runs `agent-slot warm --all` every
-   ten minutes, which trusts every slot path of every repo `agent-slot repos` lists, so a new repo's slots start warm
-   within ten minutes of its prime being trusted. While any prime is untrusted the unit fails, and the failed-units
-   notice at every Claude session start names those repos.
+4. Run `claude --dangerously-skip-permissions` once in each repo's prime checkout and accept its trust dialog, which the
+   flag does not skip, and do the same for every repo cloned under `~/dev` later. A slot path is trusted only for a repo
+   whose prime checkout you have trusted in Claude, because trust lets Claude load the repo's own settings and hooks.
+   `agent-slot-warm.timer` runs `agent-slot warm --all` every ten minutes, which trusts every slot path of every repo
+   `agent-slot repos` lists, so a new repo's slots start warm within ten minutes of its prime being trusted. While any
+   prime is untrusted the unit fails, and the failed-units notice at every Claude session start names those repos.
 
 On the Mac:
 
