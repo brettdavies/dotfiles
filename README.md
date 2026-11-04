@@ -506,7 +506,7 @@ head's tracked files would otherwise act as this account:
 | Normal slot                                           | Foreign head                                                                       |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `claude --dangerously-skip-permissions`               | adds `--setting-sources user --strict-mcp-config`                                  |
-| The whole tree on disk                                | `.claude/`, `.mcp.json`, `CLAUDE.md`, and `CLAUDE.local.md` left out at any depth by a sparse checkout, so a `claude` started by hand or by a tool finds none of them; `git show` still reads them and pushes still carry them |
+| The whole tree on disk                                | `.claude`, `.mcp.json`, `CLAUDE.md`, `CLAUDE.local.md`, `bunfig.toml`, `.env`, `.env.*`, and `node_modules` left out at any depth by a sparse checkout, so a `claude` or a Bun-run tool such as `qmd` started in the slot finds none of them; `git show` still reads them and pushes still carry them |
 | yazi in the files session                             | `ls -A`, since yazi's previewers parse what the cursor lands on with no key pressed |
 | The trust step starts Claude plainly                  | The trust step starts Claude with the same flags, since accepting runs what it loads |
 | `core.hooksPath` or copies of the prime's hooks       | No hooks                                                                           |

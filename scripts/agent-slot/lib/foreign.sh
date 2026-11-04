@@ -38,11 +38,13 @@ foreign_fields() {
   printf '{}'
 }
 
-# The sparse patterns that leave Claude's config out of a foreign head's tree, at any depth. Claude's flags cover only the
-# Claude the slot starts: skills shell out to `claude -p`, and a person can type `claude` in any of the slot's panes.
-# A sparse checkout survives git checkout, reset, and stash, and leaves the files readable with git show and intact in
-# what the agent pushes.
-FOREIGN_SPARSE=('/*' '!.claude/' '!.mcp.json' '!CLAUDE.md' '!CLAUDE.local.md')
+# The sparse patterns that leave out of a foreign head's tree, at any depth, what a tool started there would load. Claude's
+# flags cover only the Claude the slot starts: skills shell out to `claude -p`, and a person can type `claude` in any of
+# the slot's panes. Every Bun-run CLI, qmd among them, runs the preload bunfig.toml names and takes .env's variables into
+# its children, and bunx prefers node_modules/.bin over the tool it was asked for. The patterns have no trailing slash so
+# that a tracked link goes too. A sparse checkout survives git checkout, reset, and stash, and leaves the files readable
+# with git show and intact in what the agent pushes.
+FOREIGN_SPARSE=('/*' '!.claude' '!.mcp.json' '!CLAUDE.md' '!CLAUDE.local.md' '!bunfig.toml' '!.env' '!.env.*' '!node_modules')
 
 # Usage: foreign_prepare <slot>; runs before the head is checked out. Checking out an LFS pointer calls the server the
 # head's own .lfsconfig names, and a server that never answers holds the slot's setup for as long as the checkout's

@@ -675,3 +675,78 @@ lockfile() {
   jaq -e '(.deps // null) == null' <<<"$output"
   jaq -e '(.deps // null) == null' "$SLOT/.git/agent-slot.json"
 }
+
+# claude_links: .claude as a tracked link, at the root and below it, to a tracked directory holding the settings.
+claude_links() {
+  mkdir -p cfg sub
+  cp .claude/settings.json cfg/settings.json
+  rm -rf .claude
+  ln -s cfg .claude
+  ln -s ../cfg sub/.claude
+  printf 'kept\n' >sub/kept.txt
+}
+
+@test "a tracked .claude link stays off disk at the root and below it, and a plain claude runs nothing through it" {
+  foreign_pr claude_links
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -L "$SLOT/.claude" ] && [ ! -e "$SLOT/.claude" ]
+  [ ! -L "$SLOT/sub/.claude" ] && [ ! -e "$SLOT/sub/.claude" ]
+  [ -f "$SLOT/sub/kept.txt" ]
+  git -C "$SLOT" checkout -q -- .
+  git -C "$SLOT" reset -q --hard
+  [ ! -L "$SLOT/.claude" ]
+  if [ -n "$REAL_CLAUDE" ]; then
+    run_plain_claude
+    run_plain_claude sub
+    [ -z "$(ls "$T/marks")" ] || {
+      ls "$T/marks"
+      false
+    }
+  fi
+}
+
+# tool_config: what a host tool started in the tree reads from its working directory: a Bun preload and .env files, which
+# every Bun-run CLI loads, and a node_modules/.bin, which bunx prefers over the tool it was asked for.
+tool_config() {
+  printf 'preload = ["./tree-preload.js"]\n' >bunfig.toml
+  printf 'require("fs").writeFileSync("%s/bun-preload", "");\n' "$T/marks" >tree-preload.js
+  printf 'FROM_TREE=1\n' >.env
+  printf 'FROM_TREE=1\n' >.env.local
+  mkdir -p node_modules/.bin sub
+  printf '#!/bin/sh\ntouch %s/tree-bin\n' "$T/marks" >node_modules/.bin/qmd
+  chmod +x node_modules/.bin/qmd
+  cp bunfig.toml sub/bunfig.toml
+  printf 'FROM_TREE=1\n' >sub/.env
+}
+
+@test "the config host tools read from their working directory stays off disk on a foreign head" {
+  foreign_pr tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local path
+  for path in bunfig.toml .env .env.local node_modules sub/bunfig.toml sub/.env; do [ ! -e "$SLOT/$path" ]; done
+  [ -f "$SLOT/tree-preload.js" ]
+  git -C "$SLOT" show HEAD:bunfig.toml | grep -q preload
+}
+
+# run_qmd: the real qmd, whose launcher runs under Bun, listing its collections from the slot's root.
+run_qmd() { (cd "$SLOT" && qmd collection list >/dev/null 2>&1) || true; }
+
+@test "the real qmd started in a foreign head's slot runs nothing from the tree" {
+  command -v qmd >/dev/null || skip "qmd is not installed"
+  foreign_pr tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  run_qmd
+  [ -z "$(ls "$T/marks")" ]
+}
+
+@test "the real qmd started in an own fork's slot does run a tracked preload, so the test above is not vacuous" {
+  command -v qmd >/dev/null || skip "qmd is not installed"
+  own_pr tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  run_qmd
+  [ -e "$T/marks/bun-preload" ]
+}
