@@ -956,6 +956,13 @@ EOF
   [ ! -e "$AGENT_SLOT_ROOT/repoa" ]
 }
 
+@test "a task named after the repo's prime is refused, since the prime would resume its conversation" {
+  launch repoa --task repoa-prime
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "invalid-task-name" and .value == "repoa-prime" and (.message | contains("prime"))' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa" ]
+}
+
 @test "with 8 live slots a ninth launch refuses with slot-limit-reached; the override raises the limit" {
   local n
   for n in 1 2 3 4 5 6 7 8; do slot repoa "$n"; done

@@ -53,6 +53,9 @@ launch_parse_args() {
   model_check "$LAUNCH_MODEL" launch
   [[ -z $LAUNCH_TASK || $LAUNCH_TASK =~ $TASK_PATTERN ]] \
     || contract_fail invalid-task-name "$TASK_RULE" --value "$LAUNCH_TASK" --command "agent-slot launch --help"
+  [[ $LAUNCH_TASK != "$(prime_claude_name "$LAUNCH_REPO")" ]] \
+    || contract_fail invalid-task-name "$LAUNCH_TASK names the repo's prime, whose next start would resume this slot's conversation" \
+      --value "$LAUNCH_TASK" --command "agent-slot launch --help"
   [[ -z $LAUNCH_REQUEST || $LAUNCH_REQUEST =~ $REQUEST_PATTERN ]] \
     || usage_fail "a request ID uses letters, digits, ., _, and -, up to 128 characters" "$LAUNCH_REQUEST"
   if [[ -n $LAUNCH_PROMPT ]]; then

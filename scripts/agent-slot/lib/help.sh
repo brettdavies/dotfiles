@@ -68,7 +68,8 @@ verb_help() {
       'it may add or none; both go into the slot record as scope, and slot-scope-guard.sh denies a git push of a path' \
       'no Touches: glob covers.' \
       'Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
-      '-, and /, starting with a letter or digit, up to 64. A new slot pushes a restore to the Rex helper on this' \
+      '-, and /, starting with a letter or digit, up to 64, and not <repo>-prime, the name of the repo'"'"'s prime. A new' \
+      'slot pushes a restore to the Rex helper on this' \
       "host, so its tab opens in Rex; the push runs in the background and is logged to $AS_STATE_DIR/push.log." \
       '--pr or --issue gives the slot a work item and a name from it, <repo>-pr<N>-<slug> or <repo>-issue<N>-<slug>,' \
       'which its Claude session takes and which is the task when --task is not given. A ref is N (in the origin' \
