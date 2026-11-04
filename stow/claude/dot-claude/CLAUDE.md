@@ -306,6 +306,12 @@ When the user asks for a substantial artifact (detailed prompt, plan, spec, long
 path (`~/.gstack/projects/<slug>/` for repo-scoped planning artifacts; repo root for artifacts that belong with the
 code) or ask. Show diffs if asked to see changes, never the whole file again.
 
+**Files Brett is meant to read go in the prime repo's `.context/` folder**, never in `/tmp` or a session scratchpad: he
+never looks there. The prime is the repo's own checkout (for an agent slot, the checkout it was cloned from), and
+`.context/` there is gitignored and local-only. An agent slot writes such files to its prime's `.context/` directly;
+that folder is the only place in a prime checkout a slot may write. `/tmp` and the scratchpad stay for the agent's own
+temporary files.
+
 ## System configs → dotfiles
 
 Machine-level config (AppArmor profiles, sysctl, udev rules, systemd units) lives in `~/dotfiles/` and deploys via stow
