@@ -37,6 +37,7 @@ slot-not-found                1     false      0            run
 slot-busy                     1     true       3            retry
 invalid-task-name             2     false      0            run
 prompt-file-unreadable        2     false      0            run
+brief-incomplete              2     false      0            run
 slot-limit-reached            78    false      0            ask-operator
 clone-failed                  1     true       2            retry
 solutions-symlink-missing     78    false      0            fix-config

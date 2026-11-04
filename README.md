@@ -259,7 +259,14 @@ bundle by default) on the Mac. `tests/mac-open.bats` and `tests/mac-open-here.ba
 Many Claude Code agents can work on the same repo at once, each in an *agent slot*: a clone of the repo at
 `~/slots/<repo>/<N>` on the Linux server, set up like the repo's own checkout (its hooks, the `docs/solutions` link, the
 `.context/repo-recon` link when the repo has a repo-recon store, its Claude memory and permission grants, and its
-partial-clone filter when it has one), with one task per slot. A slot's `docs/solutions` links to its own detached
+partial-clone filter when it has one), with one task per slot. Setup also runs `bun install --frozen-lockfile`,
+`pnpm install --frozen-lockfile`, or `npm ci` before the slot's agent starts, so the repo's tool-backed hooks work on the
+first push. An install runs the head's code with this account's credentials before anyone reads it, so it runs only when
+the prime has `node_modules`, Claude trusts the prime, and the base branch holds the head; `deps.status` reads
+`prime-not-set-up` or `head-not-on-base` otherwise, `failed`, `timed-out` (past `AGENT_SLOT_DEPS_TIMEOUT` seconds, 60), or
+`tool-missing` when an install does not finish, and `installed` when it does. A frozen install writes no lockfile, and it
+takes whatever the lockfile pins without consulting the supply-chain age gate, so the gate binds only whoever wrote the
+lock. A slot's `docs/solutions` links to its own detached
 worktree of the solutions repo at `~/slots/<repo>/.solutions/<N>-<suffix>`, made at origin/main during setup and
 recorded as `solutions_worktree`; its agent writes and publishes there with `sd-commit-doc`, the slot is kept while that
 worktree holds anything origin/main lacks (`solutions-unpublished`), and teardown removes it. The repo-recon link points
@@ -322,7 +329,7 @@ a `purge` ledger event, and in `teardown.log`, with one of the [purge failures](
 `trash-rm` command that finishes it.
 
 Teardown needs no one to press a key. A slot's agent closes its task by running `/compound-engineering:ce-compound` once
-per finding from its session, then `/compound-engineering:ce-compound-refresh`, then deletes the scratch files it made
+per finding from its session, then `/compound-engineering:ce-compound mode:refresh`, then deletes the scratch files it made
 and commits and PRs anything that is real work, then stops every background job it no longer needs, then runs
 `agent-slot release`, which refuses until both skills have run in that slot and while the slot's Claude still runs a
 Bash tool command other than the release's own: Claude Code lists a session with a live background shell as busy, so a
@@ -530,37 +537,38 @@ with `transcript-missing`.
 nobody watches sends a reopen to the session its brief reports to instead of running it. `adopt` changes only a record
 and a session name, so it runs without one.
 
-The sequence below follows oxipng PR #887, whose head branch lives on a fork. A dispatcher hands the PR to a slot:
+The sequence below follows PR #887 of `acme/widget`, an illustrative upstream repo checked out as `widget`, whose head
+branch lives on a fork. A dispatcher hands the PR to a slot:
 
 ```bash
-agent-slot launch oxipng --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json
+agent-slot launch widget --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json
 ```
 
-Once that slot is torn down and a reviewer replies, a dry run shows what a reopen would do. An excerpt of its output on
-this host, with home paths shortened:
+Once that slot is torn down and a reviewer replies, a dry run shows what a reopen would do. An excerpt of its output,
+with home paths shortened:
 
 ```bash
-agent-slot reopen oxipng --pr 887 --dry-run --output json
+agent-slot reopen widget --pr 887 --dry-run --output json
 ```
 
 ```json
 {
   "would_reopen": true,
   "refusal": null,
-  "item": {"kind": "pr", "repo": "oxipng/oxipng", "number": 887, "title": "Fix 16-bit to 8-bit reduction with tRNS"},
-  "name": "oxipng-pr887-fix-16-bit-to-8-bit-reduction-with-trns",
+  "item": {"kind": "pr", "repo": "acme/widget", "number": 887, "title": "Fix 16-bit to 8-bit reduction with tRNS"},
+  "name": "widget-pr887-fix-16-bit-to-8-bit-reduction-with-trns",
   "session_id": "4e0a3f33-f697-4dff-a32f-2b0202be99d4",
-  "transcript": "~/.claude/projects/-home-<user>-slots-oxipng-1/4e0a3f33-f697-4dff-a32f-2b0202be99d4.jsonl",
+  "transcript": "~/.claude/projects/-home-<user>-slots-widget-1/4e0a3f33-f697-4dff-a32f-2b0202be99d4.jsonl",
   "transcript_exists": true,
   "head": {
     "branch": "fix/trns-16-to-8",
     "remote": "fork",
-    "url": "git@github.com:brettdavies/oxipng.git",
+    "url": "git@github.com:me/widget.git",
     "oid": "8fdb2520b0a97ed52c6235850cbcf87f08984113",
     "source": {"branch": "gh", "remote": "ledger"}
   },
-  "slot": "oxipng/1",
-  "command": "claude --dangerously-skip-permissions --resume 4e0a3f33-f697-4dff-a32f-2b0202be99d4 -n oxipng-pr887-fix-16-bit-to-8-bit-reduction-with-trns"
+  "slot": "widget/1",
+  "command": "claude --dangerously-skip-permissions --resume 4e0a3f33-f697-4dff-a32f-2b0202be99d4 -n widget-pr887-fix-16-bit-to-8-bit-reduction-with-trns"
 }
 ```
 
@@ -569,17 +577,17 @@ GitHub (`gh`), and its remote and URL are the ones the teardown's `branches` rec
 itself takes the reply as the agent's brief:
 
 ```bash
-agent-slot reopen oxipng --pr 887 --prompt-file reply.md --output json
+agent-slot reopen widget --pr 887 --prompt-file reply.md --output json
 ```
 
 It returns launch's fields plus `reopened_from`, `settled_prs`, `head`, and `head_moved`, which is true when the remote
 branch's head is not the commit the teardown recorded.
 
-Pillow/2 worked on issue python-pillow/Pillow#10330, and its teardown event carries no items and no PRs, so no lookup by
-the item finds it. `--session` names it by its Claude session (an excerpt of the real output):
+widget/2 worked on issue acme/widget#10330, and its teardown event carries no items and no PRs, so no lookup by the item
+finds it. `--session` names it by its Claude session (an excerpt of the output):
 
 ```bash
-agent-slot reopen Pillow --issue python-pillow/Pillow#10330 --session e999f4ab-8387-4992-bb05-f4e6041b9b68 \
+agent-slot reopen widget --issue acme/widget#10330 --session e999f4ab-8387-4992-bb05-f4e6041b9b68 \
   --dry-run --output json
 ```
 
@@ -587,23 +595,23 @@ agent-slot reopen Pillow --issue python-pillow/Pillow#10330 --session e999f4ab-8
 {
   "would_reopen": true,
   "refusal": null,
-  "item": {"kind": "issue", "repo": "python-pillow/Pillow", "number": 10330},
-  "source": {"repo": "Pillow", "slot": 2, "ts": "2026-10-30T19:50:08Z", "prs": []},
-  "name": "Pillow-issue10330-16-bit-png-trns-key-convert-rgba-misses-the",
+  "item": {"kind": "issue", "repo": "acme/widget", "number": 10330},
+  "source": {"repo": "widget", "slot": 2, "ts": "2026-10-30T19:50:08Z", "prs": []},
+  "name": "widget-issue10330-16-bit-png-trns-key-convert-rgba-misses-the",
   "session_id": "e999f4ab-8387-4992-bb05-f4e6041b9b68",
   "transcript_exists": true,
   "head": {"branch": "main", "remote": "origin", "source": {"branch": "base", "remote": "base"}},
-  "slot": "Pillow/1",
-  "command": "claude --dangerously-skip-permissions --resume e999f4ab-8387-4992-bb05-f4e6041b9b68 -n Pillow-issue10330-16-bit-png-trns-key-convert-rgba-misses-the"
+  "slot": "widget/1",
+  "command": "claude --dangerously-skip-permissions --resume e999f4ab-8387-4992-bb05-f4e6041b9b68 -n widget-issue10330-16-bit-png-trns-key-convert-rgba-misses-the"
 }
 ```
 
 The name is cut at a dash to fit 64 characters, and an issue keeps the base branch. A live slot that works on an issue
-but has no item takes one with `adopt`, which names it `Pillow-issue10331-jpeg-dpi-read-from-exif-uses-xresolution-for`
+but has no item takes one with `adopt`, which names it `widget-issue10331-jpeg-dpi-read-from-exif-uses-xresolution-for`
 and returns `key`, `name`, `items`, `item`, and `renamed`:
 
 ```bash
-agent-slot adopt Pillow/3 --issue 10331 --output json
+agent-slot adopt widget/3 --issue 10331 --output json
 ```
 
 #### Probe PRs
@@ -649,9 +657,11 @@ agent-slot close-probe 487 --output json
 #### Commands
 
 On the Linux server, `agent-slot repos` lists the repos a slot can be made from, `agent-slot list` every slot with its
-state, agent, and blockers, and `agent-slot whoami` the slot a directory is in. `agent-slot launch <repo> --request-id
-<id> [--prompt-file <file>]` starts an agent, and agents use it to hand a task to a slot; a repeat with the same request
-ID returns the same slot; `--pr <ref>` or `--issue <ref>` gives the slot that work item, its name, and, for a PR, its
+state, agent, and blockers, and `agent-slot whoami` the slot a directory is in. `agent-slot launch <repo> --model (opus | sonnet)
+--request-id <id> [--prompt-file <file>]` starts an agent on that model at `--effort xhigh`, a Sonnet one with Opus as
+its advisor, and agents use it to hand a task to a slot; a repeat with the same request
+ID returns the same slot, and a `--prompt-file` that finds a slot another request made for the task or item is refused
+with `item-held-by-slot`, so no brief is dropped; `--pr <ref>` or `--issue <ref>` gives the slot that work item, its name, and, for a PR, its
 head branch (see [work items and reopen](#work-items-and-reopen)). `agent-slot resume <repo>/<N>` restarts a dormant
 slot's sessions and conversation, `agent-slot warm <repo>` (or `--all`) trusts slot paths ahead of time, and
 `agent-slot check [<repo>/<N>]` gives the teardown verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or
@@ -664,8 +674,8 @@ or issue back in a fresh slot, with its Claude conversation resumed, and `--dry-
 refusal it would hit; agents ask before running it, `--dry-run` included. `agent-slot sweep` and
 `agent-slot finish <repo>/<N>` delete slots, so both only report unless given `--yes`, and agents ask before running
 them. `finish` refuses a task with an open PR (`task-has-open-pr`) unless the operator adds `--allow-open-pr` to
-`--yes`, as in `agent-slot finish oxipng/1 --yes --allow-open-pr`, which ends the task whatever state its PRs are in; a
-release and the finish key never pass it, and the report-only run names it in `would_need`. `agent-slot release`, run
+`--yes`, as in `agent-slot finish dotfiles/2 --yes --allow-open-pr`, which ends the task whatever state its PRs are in;
+a release and the finish key never pass it, and the report-only run names it in `would_need`. `agent-slot release`, run
 from inside a slot, hands that slot's teardown upstream; it deletes nothing itself, so it needs no ask.
 `agent-slot doctor` checks every prerequisite and the time from key press to Claude idle. Its `key_to_ready` covers the
 last 20 launches from the new-agent key, from the moment the key's tab opened to the slot's Claude starting its session,
@@ -714,6 +724,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `slot-busy`                   | 1    | Another `agent-slot` process holds the slot, or it is still setting up; retry                  |
 | `invalid-task-name`           | 2    | A task name uses letters, digits, `-`, `_`, and `/`, and starts with a letter or digit         |
 | `prompt-file-unreadable`      | 2    | The first-message file cannot be read                                                          |
+| `brief-incomplete`            | 2    | The launch brief lacks a `Scope:`, `Limits:`, `Reviews:`, or `Reports to:` line; `value` names them |
 | `slot-limit-reached`          | 78   | The repo holds the most live slots allowed; finish one, or raise `AGENT_SLOT_MAX_PER_REPO`     |
 | `clone-failed`                | 1    | Cloning from origin failed; retry with the same request ID                                     |
 | `solutions-symlink-missing`   | 78   | The solutions repo is missing or has no origin/main, so the slot gets no worktree of it        |
@@ -754,7 +765,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `rex-action-unregistered`     | 78   | Rex has not loaded the agent-slot actions; deploy the `rex` package or run `rex config reload` |
 | `rex-failed`                  | 1    | A `rex` command failed; retry                                                                  |
 | `reconcile-busy`              | 1    | Another restore, sweep, or finish held the tab lock too long; retry                            |
-| `compound-not-run`            | 1    | `release` refused: the slot's session has not run `ce-compound` and `ce-compound-refresh` yet  |
+| `compound-not-run`            | 1    | `release` refused: the slot's session has not run `ce-compound` and its `mode:refresh` run yet |
 | `background-jobs-running`     | 1    | `release` refused: the slot's Claude still runs background jobs, named in `value`              |
 | `finished-by-operator`        | 1    | `release --not-yet` refused: the operator finished the slot, and `--not-yet` does not undo it  |
 | `release-withdrawn`           | 1    | A release's `finish` stood down: a `--not-yet` or a newer release replaced its release         |

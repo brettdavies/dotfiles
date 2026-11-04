@@ -430,11 +430,13 @@ unreachable or the hand-off fails, the file goes to the host's local opener wher
 
 A clone of a repo, at a stable numbered path (`~/slots/<repo>/<N>`) on the headless host, that holds exactly one agent
 task at a time. A slot is set up like the repo's *prime checkout* (the operator's own clone under `~/dev`, or
-`~/dotfiles` or `~/obsidian-vault`, which is never part of the slot pool and never changed by it): the repo's hooks run
+`~/dotfiles` or `~/obsidian-vault`, which is never part of the slot pool and never changed by it, except for files left
+for the operator in its `.context/`): the repo's hooks run
 from the slot's own copy, `docs/solutions` links to the slot's own *writer worktree* of the solutions repo,
 `.context/repo-recon` links to the repo's repo-recon store when it has one, Claude reads and writes the repo's single
 auto memory, the prime's local permission grants apply, and a prime that is a partial clone gives the slot a partial
-clone with the same filter. A slot path is either empty or holds one task. The task keeps its slot through review rounds
+clone with the same filter. A prime with `node_modules` that Claude trusts also gives a slot on its base branch a frozen
+install of the root lockfile before its agent starts. A slot path is either empty or holds one task. The task keeps its slot through review rounds
 until it has finished: none of its PRs is open or closed without merging and one has merged, the operator finished it,
 whatever state its PRs are in, or its agent released it with no PR open. A task's PRs are those opened from its branches
 after its slot was made, and an older one whose head a branch of the slot holds beyond the base, such as the PR a review

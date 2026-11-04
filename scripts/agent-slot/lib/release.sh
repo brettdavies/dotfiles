@@ -18,9 +18,9 @@
 # teardown.log in the state directory gets one JSON line per release request, refusal, and --not-yet, per finish --yes,
 # and per sweep --yes pass: what ran it, the slots it tore down, and why it kept or refused the rest.
 
-RELEASE_SKILLS='ce-compound ce-compound-refresh'
+RELEASE_SKILLS='ce-compound ce-compound:refresh'
 RELEASE_COMPOUND='/compound-engineering:ce-compound mode:non-interactive depth:full <the finding, from this session only>'
-RELEASE_REFRESH='/compound-engineering:ce-compound-refresh <scope> mode:non-interactive'
+RELEASE_REFRESH='/compound-engineering:ce-compound mode:refresh mode:non-interactive <scope>'
 RELEASE_COMMAND='agent-slot release --output json'
 RELEASE_NOT_YET="agent-slot release --not-yet '<why>' --output json"
 RELEASE_CLEANUP="delete the scratch files you made (local config, test output, tool logs), and commit and PR anything \
@@ -66,7 +66,9 @@ release_transcripts() {
 }
 
 # Usage: release_skills_in <transcript> [<since>]; prints the name of each skill the session ran, without its plugin
-# prefix: a Skill tool call of the agent's, or a slash command typed as a prompt. Text inside a tool's result never
+# prefix: a Skill tool call of the agent's, or a slash command typed as a prompt. A ce-compound run whose arguments
+# carry mode:refresh as a whole word prints as ce-compound:refresh, so the refresh run never counts as the compound run
+# too. The deprecated ce-compound-refresh skill prints under its own name and counts as neither. Text inside a tool's result never
 # counts, so a session that read a file quoting a skill's name is not taken for one that ran it. A Skill call whose
 # result is marked is_error never ran: Claude Code answers a skill missing from its registry with "Unknown skill" that
 # way. The result's text is not read, since a skill that runs in a subagent returns its own output there. The failed
@@ -86,15 +88,19 @@ release_skills_in() {
       ({calls: [], failed: []};
       if $line.type == "assistant" then
         .calls += [$line.message.content[]? | select(type == "object" and .type == "tool_use" and .name == "Skill")
-          | {id: (.id // ""), skill: (.input.skill // empty)}]
+          | {id: (.id // ""), skill: (.input.skill // empty), args: (.input.args // "" | tostring)}]
       elif $line.type == "user" and ($line.message.content | type) == "string" then
-        .calls += [$line.message.content | capture("<command-name>/?(?<s>[^<]+)</command-name>") | {id: "", skill: .s}]
+        .calls += [$line.message.content | capture("<command-name>/?(?<s>[^<]+)</command-name>") as $m
+          | {id: "", skill: $m.s,
+             args: (($line.message.content | capture("<command-args>(?<a>[^<]*)</command-args>") | .a) // "")}]
       elif $line.type == "user" then
         .failed += [$line.message.content[]? | select(type == "object" and .type == "tool_result" and .is_error == true)
           | .tool_use_id | strings]
       else . end)
     | (.failed | map({key: ., value: true}) | from_entries) as $failed
-    | .calls[] | select($failed[.id] | not) | .skill | sub("^.*:"; "")' "$1" || true
+    | .calls[] | select($failed[.id] | not) | (.skill | sub("^.*:"; "")) as $s
+    | if $s == "ce-compound" and (.args | test("(^|\\s)mode:refresh(\\s|$)")) then "ce-compound:refresh" else $s end
+  ' "$1" || true
 }
 
 # Usage: release_gate <repo> <n>; sets RELEASE_FOUND and RELEASE_MISSING from RELEASE_SKILLS, counting only the calls

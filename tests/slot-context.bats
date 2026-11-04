@@ -36,6 +36,30 @@ case " $* " in
 esac'
   SLOT=$AGENT_SLOT_ROOT/repo/1
   LEDGER=$AGENT_SLOT_STATE_DIR/ledger.jsonl
+  export AGENT_SLOT_SKILL=$T/SKILL.md
+  cat >"$AGENT_SLOT_SKILL" <<'SKILL'
+# Agent slots
+
+## Hand a task to a slot
+
+Launching text the slot's context leaves out.
+
+## Inside a slot
+
+Work only in the slot. Stage with `git add`, then run a plain `git commit`. Create no worktrees inside the slot.
+
+Your task is finished when each of its PRs is open, closed, or merged, and nothing is left unpushed. Then close it out:
+
+1. Run `/compound-engineering:ce-compound mode:non-interactive depth:full <finding>` once per finding.
+2. Run `/compound-engineering:ce-compound mode:refresh mode:non-interactive <scope>`.
+3. Run `agent-slot release --output json`.
+
+A slot you launch from here is independent: hand off the brief, report its key, and neither wait on it nor watch it.
+
+## When a slot goes away
+
+Teardown text the slot's context leaves out.
+SKILL
 }
 
 # start SESSION_ID SOURCE [CWD] [HOOK]: runs the hook, or the copy HOOK names, for a SessionStart as the pane's
@@ -61,9 +85,8 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *fix-login* ]]
   [[ $context == *"base branch is main"* ]]
   [[ $context == *"$AGENT_SLOT_DEV/repo"*read-only* ]]
+  [[ $context == *"meant for Brett"*"$AGENT_SLOT_DEV/repo/.context/"* ]]
   [[ $context == *sd-commit-doc* ]]
-  [[ $context == *"git add"*"git commit"* ]]
-  [[ $context == *worktree* ]]
   [[ $context == *"--output json"* ]]
   [[ $context == *"agent-slot whoami"* ]]
   [[ $context == *"agent-slot schema"* ]]
@@ -83,20 +106,17 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"Nothing automated commits in the vault"* ]]
   [[ $context == *"no vault content"*"docs/solutions"* ]]
   [[ $context == *"finished when its work is on origin/main"* ]]
-  [[ $context != *"finished when its PRs are open"* ]]
-  [[ $context == *"commit on main and push anything that is real work"* ]]
-  [[ $context != *"commit and PR"* ]]
+  [[ $context == *"Commit only your own task's work, on main, with no branch or PR"* ]]
   [[ $context == *"record only a tooling or process lesson, with no note title, path, name, or quotation"* ]]
 }
 
-@test "a slot of any other repo gets no vault rules and finishes on its PRs" {
+@test "a slot of any other repo gets no vault rules" {
   slot repo 1 '{"task": "fix-login"}'
   run start s1 startup
   [ "$status" -eq 0 ]
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context != *"git rebase origin/main"* ]]
-  [[ $context == *"finished when its PRs are open"* ]]
-  [[ $context == *"commit and PR anything that is real work"* ]]
+  [[ $context != *"This is the Obsidian vault."* ]]
+  [[ $context != *"finished when its work is on origin/main"* ]]
 }
 
 @test "a slot with its own solutions worktree is told docs/solutions is that worktree; an older slot, the shared repo" {
@@ -112,29 +132,63 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context != *"own worktree"* ]]
 }
 
-@test "the context closes the task in order: PRs, ce-compound, ce-compound-refresh, jobs, release, report and stop" {
+@test "each install status gives the agent one line saying what happened" {
+  local status phrase deps
+  while IFS='|' read -r status phrase; do
+    deps=$(jaq -n -c --arg s "$status" '{manager: "bun", command: "bun install --frozen-lockfile", status: $s, log: "/logs/deps.log"}')
+    slot repo 1 "$(jaq -n -c --argjson d "$deps" '{task: "t", prime: "/dev/the-prime", base: "main", deps: $d}')"
+    context=$(start s1 startup | jaq -r '.hookSpecificOutput.additionalContext')
+    echo "$status: $context"
+    [ "$(grep -c -e '--frozen-lockfile' <<<"$context")" -eq 1 ]
+    [[ $context == *"$phrase"* ]]
+    rm -rf "$SLOT"
+  done <<'EOF'
+installed|Setup ran `bun install --frozen-lockfile` before you started.
+failed|and it failed, log: /logs/deps.log.
+timed-out|at its time limit, so dependencies may be missing, log: /logs/deps.log.
+tool-missing|because bun is not installed here.
+prime-not-set-up|because /dev/the-prime has no node_modules or Claude does not trust it, which runs code from this tree
+head-not-on-base|because main does not hold this head, which runs code from this tree, so read the tree before you run it.
+EOF
+}
+
+@test "a slot with nothing to install, or a record from before installs, hears nothing about them" {
+  local record
+  for record in '{"task": "t", "deps": null}' '{"task": "t"}'; do
+    slot repo 1 "$record"
+    run start s1 startup
+    [[ $output != *"Setup ran"* && $output != *"Setup did not"* && $output != *"Setup stopped"* ]]
+    rm -rf "$SLOT"
+  done
+}
+
+@test "the context carries the agent-slot skill's Inside a slot section, from its heading to the next" {
   slot repo 1 '{"task": "t"}'
   run start s1 startup
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"PRs are open, or merged if the brief says so"*"nothing is left unpushed"*\
-"/compound-engineering:ce-compound mode:non-interactive depth:full"*"once per finding"*\
-"/compound-engineering:ce-compound-refresh"*"mode:non-interactive"*\
-"Before you release, delete the scratch files you made (local config, test output, tool logs), and commit and PR \
-anything that is real work."*\
-"Stop every background job you no longer need."*\
-"If you are still waiting on something, such as CI or a release chain, never stop it to pass release's check: say \
-what with agent-slot release --not-yet '<why>' --output json, and release when it is done."*\
-"agent-slot release --output json\`; it refuses until both skills have run and while a background job of yours"*\
-"report what you did and stop"* ]]
-  [[ $context != *"teardown happens from outside"* ]]
+  [[ $context == *"agent-slot skill's \"Inside a slot\" section ($AGENT_SLOT_SKILL), and they bind you"* ]]
+  [[ $context == *"Stage with \`git add\`"*"finished when each of its PRs is open, closed, or merged"*\
+"/compound-engineering:ce-compound mode:non-interactive depth:full"*\
+"/compound-engineering:ce-compound mode:refresh mode:non-interactive"*"agent-slot release --output json"* ]]
+  [[ $context != *"Launching text the slot's context leaves out."* ]]
+  [[ $context != *"Teardown text the slot's context leaves out."* ]]
   [[ $context == *"need not run \`agent-slot check\` on this slot"*"checked-by-own-agent"* ]]
+}
+
+@test "with no readable skill, the context tells the agent to load /agent-slot before anything else" {
+  slot repo 1 '{"task": "t"}'
+  export AGENT_SLOT_SKILL=$T/missing/SKILL.md
+  run start s1 startup
+  [ "$status" -eq 0 ]
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"Before anything else, load the \`/agent-slot\` skill and follow its \"Inside a slot\" section"* ]]
 }
 
 @test "the context makes a slot the agent launches fire-and-forget, and keeps it watching its own PRs and CI" {
   slot repo 1 '{"task": "t"}'
   run start s1 startup
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"A slot you launch is independent: hand off the brief, report its key, and don't wait on it"* ]]
+  [[ $context == *"A slot you launch from here is independent: hand off the brief, report its key"* ]]
   [[ $context == *"Launching a slot is not a delegated wait: set no watchdog or watcher on it;"* ]]
   [[ $context == *"watch your own PRs and CI to the end."* ]]
 }
@@ -189,13 +243,13 @@ decision only a person can make to the session your brief reports to."* ]]
 }
 
 @test "a slot with work items has its context name each one by kind, repo, number, and title" {
-  slot repo 1 '{"task": "t", "name": "oxipng-pr887-fix-trns", "items": [
-    {"kind": "pr", "repo": "oxipng/oxipng", "number": 887, "title": "Fix 16-bit to 8-bit reduction with tRNS"},
-    {"kind": "issue", "repo": "oxipng/oxipng", "number": 886, "title": "16-bit tRNS lost"}]}'
+  slot repo 1 '{"task": "t", "name": "repo-pr887-fix-trns", "items": [
+    {"kind": "pr", "repo": "up/repo", "number": 887, "title": "Fix 16-bit to 8-bit reduction with tRNS"},
+    {"kind": "issue", "repo": "up/repo", "number": 886, "title": "16-bit tRNS lost"}]}'
   run start s1 startup
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"Task: t."*"Work items: PR oxipng/oxipng#887 (Fix 16-bit to 8-bit reduction with tRNS), \
-issue oxipng/oxipng#886 (16-bit tRNS lost)."* ]]
+  [[ $context == *"Task: t."*"Work items: PR up/repo#887 (Fix 16-bit to 8-bit reduction with tRNS), \
+issue up/repo#886 (16-bit tRNS lost)."* ]]
 }
 
 @test "a context line holding an apostrophe prints as written" {
@@ -203,13 +257,13 @@ issue oxipng/oxipng#886 (16-bit tRNS lost)."* ]]
   local copy=$T/checkout/stow/claude/dot-claude/slot-context.sh
   mkdir -p "${copy%/*}" "$T/checkout/scripts"
   ln -s "$BATS_TEST_DIRNAME/../scripts/agent-slot" "$T/checkout/scripts/agent-slot"
-  sed "s/Create no git worktrees inside this slot\./Create no git worktrees in this slot's clone./" "$HOOK" >"$copy"
+  sed "s/names this slot\./names this slot's clone./" "$HOOK" >"$copy"
   chmod +x "$copy"
   grep -qF "this slot's clone" "$copy"
   slot repo 1 '{"task": "t"}'
   run start s1 startup "$SLOT" "$copy"
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"Create no git worktrees in this slot's clone."* ]]
+  [[ $context == *"names this slot's clone."* ]]
 }
 
 @test "outside a slot the hook prints nothing" {

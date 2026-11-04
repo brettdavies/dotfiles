@@ -65,7 +65,7 @@ helper_answers() {
 launch_repoa() {
   prime repoa
   trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")"
-  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-push --output json
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r-push --output json
 }
 
 @test "a launch that makes a slot runs one local restore by push, and logs it" {
@@ -120,7 +120,7 @@ launch_repoa() {
 @test "the restore gets the user manager's runtime directory when the caller has none" {
   prime repoa
   trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")"
-  run --separate-stderr env -u XDG_RUNTIME_DIR "$AGENT_SLOT" launch repoa --request-id r-push --output json
+  run --separate-stderr env -u XDG_RUNTIME_DIR "$AGENT_SLOT" launch repoa --model opus --request-id r-push --output json
   [ "$status" -eq 0 ]
   pushed 1
   grep -qx "${PUSHED}/run/user/$(id -u)" "$CALLS"
@@ -147,7 +147,7 @@ launch_repoa() {
   launch_repoa
   [ "$status" -eq 0 ]
   pushed 1
-  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-push --output json
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r-push --output json
   [ "$status" -eq 0 ]
   jaq -e '.created == false' <<<"$output"
   sleep 1
