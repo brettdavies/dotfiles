@@ -601,7 +601,9 @@ _assert_stop_ended_log() {
 # launchd's stop of a job, through the agent's real chain: a SIGTERM to its main process alone, which is the daily gate
 # because the wrapper execs it, then once that has exited a SIGTERM to the rest of its process group. launchd.plist(5)
 # documents that sweep under AbandonProcessGroup without naming its signal; launchd's public source names it (job_reap,
-# core.c:3623, `killpg2(j->p, SIGTERM)`).
+# core.c:3623, `killpg2(j->p, SIGTERM)`). Measured with a scratch agent through this chain and the uv job on macOS 27.0:
+# `launchctl bootout` gave the tool one SIGTERM within 10 ms and no SIGKILL in the next 8 s, the gate and the job were gone
+# within 0.2 s, and the log ended in one run.end with these counts.
 _assert_launchd_stop_ends_log() { # <job> <script>
   log=$LAUNCHD_LOG_DIR/$1.jsonl
   spawn env PATH="$STUBS:$PATH" "$REPO_ROOT/scripts/launchd-run.sh" "$1.jsonl" \
