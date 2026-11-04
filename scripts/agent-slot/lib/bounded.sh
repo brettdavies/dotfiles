@@ -72,9 +72,6 @@ _tmux_no_server() {
   BOUNDED_LOG=
 }
 
-# The tmux server an operator's own sessions run on. Calls name it, since a slot pane's TMUX points at the slot server.
-TMUX_DEFAULT_SOCKET=default
-
 # Sets DEFAULT_PANES to the default server's panes in PRIME_OLD_PANES_FORMAT; empty when no server is running, and this
 # read never starts one. Returns 124 when the server did not answer.
 DEFAULT_PANES=

@@ -59,6 +59,7 @@ in_rex_session() {
 
 @test "launch from the repo's session launches it, relabels and lays out its tab, and becomes the attach" {
   in_rex_session X
+  prime_tab_in sess-a X
   repos X Y
   slot_answer launch 0 "$LAUNCHED"
   run "$AGENT_SLOT_REX" launch --here
@@ -72,6 +73,7 @@ in_rex_session() {
 
 @test "launch adds trust needed to the label when the server expects the trust dialog" {
   in_rex_session X
+  prime_tab_in sess-a X
   repos X
   slot_answer launch 0 "$(jaq -c '. + {task: "fix/y", label_name: "fix/y", trust_prompt_expected: true}' <<<"$LAUNCHED")"
   run "$AGENT_SLOT_REX" launch --here
@@ -81,6 +83,7 @@ in_rex_session() {
 
 @test "launch labels the tab with the label the server gives the slot, its name over its task" {
   in_rex_session X
+  prime_tab_in sess-a X
   repos X
   slot_answer launch 0 "$(jaq -c '. + {task: "fix/y", name: "X-pr7-fix-y", label_name: "X-pr7-fix-y"}' <<<"$LAUNCHED")"
   run "$AGENT_SLOT_REX" launch --here
@@ -90,6 +93,7 @@ in_rex_session() {
 
 @test "launch labels the tab by the slot's task when the server's answer has no label_name" {
   in_rex_session X
+  prime_tab_in sess-a X
   repos X
   slot_answer launch 0 "$(jaq -c '. + {task: "fix/y"}' <<<"$LAUNCHED")"
   run "$AGENT_SLOT_REX" launch --here
@@ -99,6 +103,7 @@ in_rex_session() {
 
 @test "after a launch a sweep tab opens in the agent-slots session, and the session is made when missing" {
   in_rex_session X
+  prime_tab_in sess-a X
   repos X
   slot_answer launch 0 "$LAUNCHED"
   run "$AGENT_SLOT_REX" launch --here
@@ -111,6 +116,7 @@ in_rex_session() {
 
 @test "after a launch with a sweep tab already open, that tab sweeps again and no second one opens" {
   in_rex_session X
+  prime_tab_in sess-a X
   repos X
   slot_answer launch 0 "$LAUNCHED"
   session sess-agent-slots agent-slots '[{"window_id": "w-sweep", "label": "sweep", "blocks": ["b-sweep"]}]'
@@ -123,6 +129,7 @@ in_rex_session() {
 
 @test "a tab in the agent-slots session that is not a running sweep gets no keys, and a sweep tab opens" {
   in_rex_session X
+  prime_tab_in sess-a X
   repos X
   slot_answer launch 0 "$LAUNCHED"
   session sess-agent-slots agent-slots '[{"window_id": "w-restore", "label": "sweep", "blocks": ["b-restore"]}]'
@@ -157,20 +164,118 @@ in_rex_session() {
 
 # --- the new-agent key and the repo's prime ---------------------------------------------------------------------------
 
-@test "in a repo session with no prime tab, the key's tab becomes the prime: renamed for it, moved first, then attached" {
+PRIME_STARTED='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key":"X/prime","repo":"X","path":"/srv/X",
+  "name":"X-prime","server":"slots","session":"X-prime","started":["X-prime","X-prime-files","X-prime-git"],
+  "conversation":{"mode":"fresh","session_id":"s"},"trust_prompt_expected":false}'
+PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key":"X/prime","repo":"X","path":"/srv/X",
+  "name":"X-prime","server":"default","session":"X Prime","started":[],
+  "conversation":{"mode":"running","session_id":null},"trust_prompt_expected":false}'
+
+# in_call_order PATTERN...: the calls log has a line for each extended regex, each after the one before.
+in_call_order() {
+  local pattern at from=0
+  for pattern in "$@"; do
+    at=$(tail -n "+$((from + 1))" "$CALLS" | grep -nE -m1 "$pattern" | cut -d: -f1)
+    [ -n "$at" ] || {
+      echo "no call after line $from matches: $pattern" >&2
+      cat "$CALLS" >&2
+      return 1
+    }
+    from=$((from + at))
+  done
+}
+
+@test "in a repo session with no prime tab, the key's tab becomes the prime: named, started, moved first, laid out, held" {
   in_rex_session X
   repos X
   primes X 'X Prime'
+  slot_answer prime 0 "$PRIME_STARTED"
   run "$AGENT_SLOT_REX" launch --here
   [ "$status" -eq 0 ]
-  called '^tmux has-session -t =X Prime$'
-  called '^rex window rename -s sess-a win-a X Prime$'
-  called '^rex window move -s sess-a win-a --index 1$'
+  in_call_order '^rex window rename -s sess-a win-a X Prime$' '^agent-slot prime X --output json$' \
+    '^rex window move -s sess-a win-a --index 1$' '^rex do agent_slot_layout -s sess-a -b blk-a key=X/prime block=blk-a$'
   [ "$(tail -1 "$CALLS")" = "agent-slot-rex prime X" ]
   not_called '^agent-slot launch'
 }
 
-@test "in a repo session whose prime is attached in one of its tabs, the key starts a slot with no picker" {
+@test "with the prime running old-style on the default server, the key's tab holds it, with no layout" {
+  in_rex_session X
+  repos X
+  primes X 'X Prime'
+  slot_answer prime 0 "$PRIME_OLD_STYLE"
+  run "$AGENT_SLOT_REX" launch --here
+  [ "$status" -eq 0 ]
+  in_call_order '^rex window rename -s sess-a win-a X Prime$' '^agent-slot prime X --output json$' \
+    '^rex window move -s sess-a win-a --index 1$'
+  not_called '^rex do agent_slot_layout'
+  [ "$(tail -1 "$CALLS")" = "agent-slot-rex prime X" ]
+  not_called '^agent-slot launch'
+}
+
+@test "a repo with no map line opens its prime under its own name, and starts no slot on the first press" {
+  in_rex_session X
+  repos X
+  slot_answer prime 0 "$PRIME_STARTED"
+  run "$AGENT_SLOT_REX" launch --here
+  [ "$status" -eq 0 ]
+  called '^rex window rename -s sess-a win-a X$'
+  called '^agent-slot prime X --output json$'
+  [ "$(tail -1 "$CALLS")" = "agent-slot-rex prime X" ]
+  not_called '^agent-slot launch'
+}
+
+@test "a tab whose own process holds the prime makes the key start a slot, even with no client attached there" {
+  in_rex_session X '[{"window_id": "win-p", "label": "1: renamed", "blocks": ["blk-p"]},
+    {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
+  repos X
+  runs blk-p 501 'bash /x/agent-slot-rex attach X/prime claude'
+  slot_answer launch 0 "$LAUNCHED"
+  run "$AGENT_SLOT_REX" launch --here </dev/null
+  [ "$status" -eq 0 ]
+  called '^agent-slot launch X --request-id '
+  [ "$(tail -1 "$CALLS")" = "agent-slot-rex attach X/3 claude" ]
+  not_called '^agent-slot prime'
+  not_called '^rex window move'
+}
+
+@test "a tab holding only the prime's files pane does not count as the prime's tab" {
+  in_rex_session X '[{"window_id": "win-p", "label": "1: renamed", "blocks": ["blk-p"]},
+    {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
+  repos X
+  runs blk-p 501 'bash /x/agent-slot-rex attach X/prime files'
+  slot_answer prime 0 "$PRIME_STARTED"
+  run "$AGENT_SLOT_REX" launch --here </dev/null
+  [ "$status" -eq 0 ]
+  called '^agent-slot prime X '
+  not_called '^agent-slot launch'
+}
+
+@test "another tab labelled for the prime while it runs the key's own helper makes a second press start a slot" {
+  in_rex_session X '[{"window_id": "win-o", "label": "1: X Prime", "blocks": ["blk-o"]},
+    {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
+  repos X
+  primes X 'X Prime'
+  runs blk-o 501 'bash /x/agent-slot-rex launch --here --wait-shown'
+  slot_answer launch 0 "$LAUNCHED"
+  run "$AGENT_SLOT_REX" launch --here </dev/null
+  [ "$status" -eq 0 ]
+  called '^agent-slot launch X --request-id '
+  not_called '^agent-slot prime'
+}
+
+@test "the key's own tab, already labelled for the prime, does not count as holding it" {
+  in_rex_session X '[{"window_id": "win-a", "label": "X Prime", "blocks": ["blk-a"]}]'
+  repos X
+  primes X 'X Prime'
+  runs blk-a 501 'bash /x/agent-slot-rex launch --here'
+  slot_answer prime 0 "$PRIME_STARTED"
+  run "$AGENT_SLOT_REX" launch --here </dev/null
+  [ "$status" -eq 0 ]
+  called '^agent-slot prime X '
+  not_called '^agent-slot launch'
+}
+
+@test "in a repo session whose old-style prime is attached in one of its tabs, the key starts a slot with no picker" {
   in_rex_session X '[{"window_id": "win-p", "label": "1: X Prime", "blocks": ["blk-p"]},
     {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
   repos X
@@ -180,14 +285,14 @@ in_rex_session() {
   slot_answer launch 0 "$LAUNCHED"
   run "$AGENT_SLOT_REX" launch --here </dev/null
   [ "$status" -eq 0 ]
-  called '^tmux list-clients -t =X Prime -F #\{client_tty\}$'
+  called '^tmux -L default list-clients -t =X Prime -F #\{client_tty\}$'
   called '^agent-slot launch X --model opus --request-id '
   [ "$(tail -1 "$CALLS")" = "agent-slot-rex attach X/3 claude" ]
   not_called '^rex window move'
   not_called '^agent-slot-rex prime'
 }
 
-@test "the prime tab is known by its tmux client: a renamed tab counts, and a tab only labelled as the prime does not" {
+@test "an old-style prime's tab is known by its tmux client: a renamed tab counts, and a tab only labelled so does not" {
   in_rex_session X '[{"window_id": "win-f", "label": "1: X Prime", "blocks": ["blk-f"]},
     {"window_id": "win-r", "label": "2: notes", "blocks": ["blk-r"]},
     {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
@@ -196,6 +301,7 @@ in_rex_session() {
   on_tty blk-f 501 pts/4
   on_tty blk-r 502 pts/3
   slot_answer launch 0 "$LAUNCHED"
+  slot_answer prime 0 "$PRIME_OLD_STYLE"
   prime_clients pts/3
   run "$AGENT_SLOT_REX" launch --here </dev/null
   [ "$status" -eq 0 ]
@@ -210,17 +316,49 @@ in_rex_session() {
   not_called '^agent-slot launch'
 }
 
-@test "with its prime's tmux session not running, the key's tab says so, holds, and starts nothing" {
+@test "a client on a session holding no Claude is no prime's tab" {
+  in_rex_session X '[{"window_id": "win-p", "label": "1: X Prime", "blocks": ["blk-p"]},
+    {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
+  repos X
+  primes X 'X Prime'
+  no_old_primes
+  on_tty blk-p 501 pts/9
+  prime_clients pts/9
+  slot_answer prime 0 "$PRIME_STARTED"
+  run "$AGENT_SLOT_REX" launch --here </dev/null
+  [ "$status" -eq 0 ]
+  called '^agent-slot prime X '
+  not_called '^agent-slot launch'
+}
+
+@test "an agent-slot prime that fails shows the prime did not start, labels the tab, starts no slot, and offers a retry" {
   in_rex_session X
   repos X
   primes X 'X Prime'
-  tmux_default_answer has-session 1
-  run --separate-stderr "$AGENT_SLOT_REX" launch --here --output json </dev/null
-  [ "$status" -eq 1 ]
-  assert_error_shape "$stderr"
-  jaq -e '.reason == "prime-not-running" and .value == "X Prime"
-    and .next_step.command == "tmux has-session -t '"'"'=X Prime'"'"'"' <<<"$stderr"
-  called '^rex window rename -s sess-a win-a X · prime not running$'
+  slot_answer prime 0 1 "" "$(server_error tmux-failed "could not start the tmux session X-prime" 1 true)"
+  slot_answer prime 0 "$PRIME_STARTED"
+  run "$AGENT_SLOT_REX" launch --here <<<""
+  [ "$status" -eq 0 ]
+  [[ $output == *"the prime of X did not start"* ]]
+  [[ $output == *"tmux-failed: could not start the tmux session X-prime"* ]]
+  [[ $output == *"press Enter to retry, or q to close this tab"* ]]
+  [[ $output != *"request ID"* ]]
+  in_call_order '^rex window rename -s sess-a win-a X Prime$' '^agent-slot prime X ' \
+    '^rex window rename -s sess-a win-a X · prime failed$' '^rex window rename -s sess-a win-a X Prime$' \
+    '^agent-slot prime X ' '^rex window move -s sess-a win-a --index 1$'
+  not_called '^agent-slot launch'
+  [ "$(tail -1 "$CALLS")" = "agent-slot-rex prime X" ]
+}
+
+@test "an agent-slot prime that cannot be retried holds the tab until q and starts nothing" {
+  in_rex_session X
+  repos X
+  slot_answer prime 2 "" "$(server_error repo-not-found "no prime checkout named X" 2 false)"
+  run "$AGENT_SLOT_REX" launch --here <<<$'\nq'
+  [ "$status" -eq 2 ]
+  [[ $output == *"the prime of X did not start"* ]]
+  [[ $output == *"press q to close this tab"* ]]
+  called '^rex window rename -s sess-a win-a X · prime failed$'
   not_called '^agent-slot launch'
   not_called '^rex window move'
   not_called '^agent-slot-rex prime'
@@ -235,11 +373,13 @@ in_rex_session() {
   [ "$status" -eq 0 ]
   called '^agent-slot launch X '
   not_called '^tmux '
+  not_called '^agent-slot prime'
   not_called '^agent-slot-rex prime'
 }
 
 @test "a tab a key opened goes on once an app has asked a size for its terminal, as an app does for the tab it shows" {
   in_rex_session X
+  prime_tab_in sess-a X
   sized blk-a
   repos X
   slot_answer launch 0 "$LAUNCHED"
@@ -253,6 +393,7 @@ in_rex_session() {
 @test "a tab the app sized goes on though the server's active window is still another tab" {
   in_rex_session X '[{"window_id": "win-o", "label": "1: notes", "blocks": ["blk-o"]},
     {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
+  prime_tab_in sess-a X
   active sess-a win-o
   sized blk-a
   repos X
@@ -266,6 +407,7 @@ in_rex_session() {
 @test "a key's launch tells the server when its tab opened and was shown, each before the request" {
   local args opened shown requested now
   in_rex_session X
+  prime_tab_in sess-a X
   sized blk-a
   repos X
   slot_answer launch 0 "$LAUNCHED"
@@ -310,6 +452,7 @@ in_rex_session() {
 @test "a key's tab reads the repos while it waits to be shown, and launches from that one read" {
   in_rex_session X '[{"window_id": "win-o", "label": "1: notes", "blocks": ["blk-o"]},
     {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
+  prime_tab_in sess-a X
   active sess-a win-o
   repos X
   run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
@@ -326,6 +469,7 @@ in_rex_session() {
 
 @test "a key's tab whose early read of the repos fails reads them again once shown, with the launch's retry" {
   in_rex_session X
+  prime_tab_in sess-a X
   sized blk-a
   slot_answer repos 0 1 '' '{"ok": false, "reason": "script-error", "exit_code": 1, "message": "boom"}'
   repos X
@@ -340,6 +484,7 @@ in_rex_session() {
   command -v script >/dev/null || skip "script(1) gives the helper a terminal"
   in_rex_session X '[{"window_id": "win-o", "label": "1: notes", "blocks": ["blk-o"]},
     {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
+  prime_tab_in sess-a X
   active sess-a win-o
   repos X
   slot_answer launch 0 "$LAUNCHED"
@@ -350,26 +495,37 @@ in_rex_session() {
   not_called '^rex window close'
 }
 
-@test "prime attaches to the repo's prime session on the default tmux server from HOME, then becomes a login shell" {
+@test "prime with an old-style session running attaches to it from HOME, then becomes a login shell" {
   primes X 'X Prime'
   run "$AGENT_SLOT_REX" prime X
   [ "$status" -eq 0 ]
-  called '^tmux attach -t =X Prime$'
+  called '^tmux -L default list-panes -a '
+  called '^tmux -L default attach -t =X Prime$'
   called "^tmux-cwd $HOME\$"
   [ "$(tail -1 "$CALLS")" = "login-shell -l" ]
+  not_called '^agent-slot-rex attach'
 }
 
-@test "prime of a repo the prime map does not name is a usage error that names the map" {
+@test "prime with no old-style session holding a Claude becomes the attach loop of the prime's Claude pane" {
   primes X 'X Prime'
-  run --separate-stderr "$AGENT_SLOT_REX" prime Y --output json
-  [ "$status" -eq 2 ]
-  assert_error_shape "$stderr"
-  jaq -e --arg map "$STUBS/primes" '.reason == "usage" and .value == "Y" and (.message | contains($map))' <<<"$stderr"
-  not_called '^tmux '
+  no_old_primes
+  run "$AGENT_SLOT_REX" prime X
+  [ "$status" -eq 0 ]
+  [ "$(tail -1 "$CALLS")" = "agent-slot-rex attach X/prime claude" ]
+  not_called '^tmux -L default attach'
+  not_called '^login-shell'
+}
+
+@test "prime of a repo the map does not name goes by its own name" {
+  tmux_default_answer list-panes 0 $'Y\tclaude'
+  run "$AGENT_SLOT_REX" prime Y
+  [ "$status" -eq 0 ]
+  called '^tmux -L default attach -t =Y$'
 }
 
 @test "a retryable launch failure waits for Enter, then retries with the same request ID" {
   in_rex_session X
+  prime_tab_in sess-a X
   repos X
   slot_answer launch 0 1 "" "$(server_error slot-busy "X/3 is locked" 1 true)"
   slot_answer launch 0 "$LAUNCHED"
@@ -383,6 +539,7 @@ in_rex_session() {
 
 @test "a git-crypt-locked failure offers no retry, keeps the tab until q, and opens no slot tab" {
   in_rex_session X
+  prime_tab_in sess-a X
   repos X
   slot_answer launch 78 "" "$(server_error git-crypt-locked "the slot could not be unlocked" 78 false)"
   run "$AGENT_SLOT_REX" launch --here <<<$'\nq'
@@ -397,6 +554,7 @@ in_rex_session() {
 
 @test "a launch error envelope is shown readably with its value, next step, and log path" {
   in_rex_session X
+  prime_tab_in sess-a X
   repos X
   slot_answer launch 78 "" "$(server_error solutions-symlink-missing "docs/solutions is not a link" 78 false)"
   run "$AGENT_SLOT_REX" launch --here </dev/null
@@ -409,6 +567,7 @@ in_rex_session() {
 
 @test "a launch whose agent-slot call outlives its bound reports agent-slot-timed-out and offers a retry" {
   in_rex_session X
+  prime_tab_in sess-a X
   repos X
   slot_answer launch 124
   run --separate-stderr "$AGENT_SLOT_REX" launch --here --output json </dev/null
@@ -426,6 +585,7 @@ in_rex_session() {
 
 @test "a server verb through the local runner returns agent-slot's own JSON and exit code" {
   in_rex_session X
+  prime_tab_in sess-a X
   repos X
   slot_answer launch 0 "$LAUNCHED"
   run --separate-stderr "$AGENT_SLOT_REX" launch --here --output json
@@ -507,6 +667,68 @@ in_rex_session() {
   [[ $output == *"X/2 claude: resume failed: tmux-failed; retrying in 0 s"* ]]
   [ "$(grep -c '^slot-verb resume$' "$CALLS")" -eq 2 ]
   called '^tmux -L agent-slots attach -t =X-2$'
+}
+
+@test "attach to a prime's pane runs a local tmux attach to its session on the slot server" {
+  run "$AGENT_SLOT_REX" attach X/prime git <<<""
+  [ "$status" -eq 0 ]
+  called '^tmux -L agent-slots attach -t =X-prime-git$'
+  not_called '^agent-slot '
+}
+
+@test "attach to a prime's pane whose session is gone starts the prime, not a resume, then attaches again" {
+  tmux_answer has-session 1 1
+  slot_answer prime 0 '{"ok":true,"key":"X/prime","server":"slots","started":["X-prime"]}'
+  run "$AGENT_SLOT_REX" attach X/prime claude </dev/null
+  [ "$status" -eq 0 ]
+  [[ $output == *"X/prime has no claude session; starting the prime"* ]]
+  in_call_order '^tmux -L agent-slots attach -t =X-prime$' '^agent-slot prime X --output json$' \
+    '^tmux -L agent-slots attach -t =X-prime$'
+  not_called '^agent-slot resume'
+}
+
+@test "attach to a prime whose repo has no checkout ends the pane after saying why" {
+  tmux_answer has-session 1
+  slot_answer prime 2 "" "$(server_error repo-not-found "no prime checkout named X" 2 false)"
+  run "$AGENT_SLOT_REX" attach X/prime claude </dev/null
+  [ "$status" -eq 0 ]
+  [[ $output == *"X/prime is gone (no prime checkout named X); this pane is done"* ]]
+  not_called '^tmux -L agent-slots attach'
+}
+
+@test "attach keeps retrying a prime that fails for another reason, naming the call" {
+  tmux_answer has-session 0 1
+  tmux_answer has-session 1 1
+  slot_answer prime 0 1 "" "$(server_error tmux-failed "tmux would not start" 1 true)"
+  slot_answer prime 1 0 '{"ok":true}'
+  run "$AGENT_SLOT_REX" attach X/prime claude </dev/null
+  [ "$status" -eq 0 ]
+  [[ $output == *"X/prime claude: agent-slot prime failed: tmux-failed; retrying in 0 s"* ]]
+  called '^tmux -L agent-slots attach -t =X-prime$'
+}
+
+@test "attach waits out a prime still missing after agent-slot prime, as with the old-style session still running" {
+  tmux_answer has-session 0 1
+  tmux_answer has-session 1 1
+  tmux_answer has-session 2 0
+  slot_answer prime 0 "$PRIME_OLD_STYLE"
+  run "$AGENT_SLOT_REX" attach X/prime claude </dev/null
+  [ "$status" -eq 0 ]
+  [[ $output == *"X-prime is still missing after agent-slot prime; retrying in 0 s"* ]]
+}
+
+@test "attach to a prime with a bad pane name is a usage error" {
+  run --separate-stderr "$AGENT_SLOT_REX" attach X/prime nope --output json
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and .value == "nope"' <<<"$stderr"
+  not_called '^tmux '
+}
+
+@test "attach with a key that is neither a slot nor a prime is a usage error naming both" {
+  run --separate-stderr "$AGENT_SLOT_REX" attach X/nope claude --output json
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and (.message | contains("<repo>/prime"))' <<<"$stderr"
+  not_called '^tmux '
 }
 
 # with_brew DIR: a Homebrew prefix whose bin holds tmux, flock, and a jaq that logs each run.

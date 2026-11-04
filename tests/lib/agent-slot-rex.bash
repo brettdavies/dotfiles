@@ -25,9 +25,9 @@
 # AGENT_SLOT_REX_CLIENT and XDG_RUNTIME_DIR it was given as `agent-slot-client <name>` and `agent-slot-runtime <dir>`.
 # tmux answers has-session and attach from $STUBS/tmux-answers the same way, logs the directory each attach ran from as
 # `tmux-cwd <dir>`, and reports $STUBS/tmux-answers/pid as its server's pid, or exits with
-# $STUBS/tmux-answers/display-message.rc when present. A call to the default tmux server, where the primes run, answers
-# from $STUBS/tmux-default the same way. The prime map is $STUBS/primes, and the login shell a prime tab ends in logs
-# `login-shell <args>`. ssh answers the forwarded helper verbs from $STUBS/ssh/<verb>.*,
+# $STUBS/tmux-answers/display-message.rc when present. A call to the default tmux server, which the helper names with
+# `-L default` and where an old-style prime runs, answers from $STUBS/tmux-default the same way. The prime map is
+# $STUBS/primes, and the login shell an old-style prime's tab ends in logs `login-shell <args>`. ssh answers the forwarded helper verbs from $STUBS/ssh/<verb>.*,
 # and a bare `true` as probe, and appends each remote command to $STUBS/ssh-remote.log; with $STUBS/ssh/unreachable
 # present every call fails as ssh does, and with $STUBS/ssh/hang every call hangs. systemctl reports each unit active
 # unless $STUBS/units/<unit> says otherwise, and rex-server.service's MainPID as $STUBS/units/rex-server.service.pid,
@@ -182,9 +182,9 @@ printf "agent-slot-client %s\n" "${AGENT_SLOT_REX_CLIENT:-}" >>"$CALLS"
 printf "agent-slot-runtime %s\n" "${XDG_RUNTIME_DIR:-unset}" >>"$CALLS"
 answer slot "$1"'
   stub tmux '
-if [ "$1" != -L ]; then
-  [ "$1" = attach ] && printf "tmux-cwd %s\n" "$PWD" >>"$CALLS"
-  answer tmux-default "$1"
+if [ "$1 $2" = "-L default" ]; then
+  [ "$3" = attach ] && printf "tmux-cwd %s\n" "$PWD" >>"$CALLS"
+  answer tmux-default "$3"
 fi
 [ "$3" = attach ] && printf "tmux-cwd %s\n" "$PWD" >>"$CALLS"
 [ "$3" = attach ] && printf "PATH=%s\n" "$PATH" >>"$STUBS/path.log"
@@ -276,7 +276,8 @@ slot_answer() { _answer slot "$@"; }
 # tmux_answer VERB [N] RC: what tmux returns for has-session or attach.
 tmux_answer() { _answer tmux-answers "$@"; }
 
-# tmux_default_answer VERB [N] RC [STDOUT]: what tmux returns for a call to the default server, where the primes run.
+# tmux_default_answer VERB [N] RC [STDOUT]: what tmux returns for a call to the default server, where old-style primes
+# run.
 tmux_default_answer() { _answer tmux-default "$@"; }
 
 # ssh_answer VERB [N] RC [STDOUT [STDERR]]: what the server's helper returns for a forwarded verb, over ssh.
@@ -325,12 +326,29 @@ session() {
     >"$STUBS/rexdata/session-$1.json"
 }
 
-# primes REPO PRIME...: the prime map holds each repo with its prime tmux session, in pairs.
+# primes REPO NAME...: the prime map holds each repo with its display name, in pairs, and a session of that name holds a
+# Claude on the default tmux server. no_old_primes takes those sessions away.
 primes() {
   while (($# >= 2)); do
     printf '%s\t%s\n' "$1" "$2" >>"$STUBS/primes"
+    printf '%s\tclaude\n' "$2" >>"$STUBS/tmux-default/list-panes.out"
     shift 2
   done
+}
+
+# no_old_primes: the default tmux server's sessions hold no Claude.
+no_old_primes() {
+  rm -f "$STUBS/tmux-default/list-panes.out"
+}
+
+# prime_tab_in SESSION REPO: a tab of the Rex session whose own process holds the repo's prime, as a key's or a pass's tab
+# does, so the new-agent key there starts a slot.
+prime_tab_in() {
+  local f=$STUBS/rexdata/session-$1.json
+  jaq -c '.windows = [{window_id: "win-prime", label: "1: the prime", layers: [{blocks: [{block_id: "blk-prime"}]}]}]
+    + .windows' "$f" >"$f.new"
+  mv "$f.new" "$f"
+  runs blk-prime 777 "bash /x/agent-slot-rex attach $2/prime claude"
 }
 
 # on_tty BLOCK PID TTY: the block's own process is PID, on terminal TTY, such as pts/9.
@@ -339,7 +357,7 @@ on_tty() {
   printf '%s\n' "$3" >"$STUBS/tty/$2"
 }
 
-# prime_clients TTY...: the default tmux server's clients of the prime asked about are on these terminals, as
+# prime_clients TTY...: the default tmux server's clients of the old-style prime asked about are on these terminals, as
 # `tmux list-clients -F '#{client_tty}'` prints them.
 prime_clients() {
   tmux_default_answer list-clients 0 "$(printf '/dev/%s\n' "$@")"

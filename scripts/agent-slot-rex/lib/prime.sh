@@ -1,50 +1,73 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
-# prime: a repo's prime tab, the tab of its Rex session that holds a tmux client of the repo's prime session on the
-# default tmux server. The prime map (AR_PRIMES) names each repo's prime session, one `<repo><TAB><session>` line each.
+# prime: holding a repo's prime in a tab. A prime runs on the slot server, three sessions a tab shows as a slot's are, or
+# old-style, as one session on the default tmux server named by the prime map (AR_PRIMES, `<repo><TAB><name>` lines),
+# until that session is closed. A repo's name in a tab is the map's, else the repo's own. A session on the default server
+# holding no Claude is no prime.
 
-PRIME_SESSION=
+PRIME_LABEL=
 
-# Usage: prime_of <repo>; sets PRIME_SESSION to the repo's prime session, or returns 1 when the map names none.
+# Usage: prime_of <repo>; sets PRIME_LABEL to the name the repo's prime goes by.
 prime_of() {
   [[ -r $AR_PRIMES ]] || ar_fail "$(contract_error_json dependency-missing "the prime map $AR_PRIMES is not readable" \
     --value "$AR_PRIMES" --command "git -C $(contract_quote "${AR_HOME%/*/*}") status config/agent-slot-rex")"
-  PRIME_SESSION=$(awk -F '\t' -v repo="$1" '!/^#/ && NF == 2 && $1 == repo { print $2; exit }' "$AR_PRIMES")
-  [[ -n $PRIME_SESSION ]]
+  PRIME_LABEL=$(prime_display_name "$1" "$AR_PRIMES")
 }
 
-# Usage: prime_running <session>; true when the default tmux server has the session.
-prime_running() {
-  timeout --kill-after=2 10 "$AR_TMUX" has-session -t "=$1" </dev/null >/dev/null 2>&1
+# Usage: prime_old_running <label>; true when the session of that name on the default tmux server holds a Claude. A
+# server that does not answer counts as none, since agent-slot prime, which every start goes through, refuses then.
+prime_old_running() {
+  local panes held
+  panes=$(timeout --kill-after=2 10 "$AR_TMUX" -L "$TMUX_DEFAULT_SOCKET" list-panes -a -F "$PRIME_OLD_PANES_FORMAT" \
+    </dev/null 2>/dev/null) || return 1
+  held=$(prime_old_sessions <<<"$panes")
+  grep -qxF -- "$(tmux_name "$1")" <<<"$held"
 }
 
-# Usage: prime_tab_open <rex-session-id> <prime-session>
-# True when a tmux client of the prime session runs in a tab of the Rex session: the client's terminal is the terminal
-# of a block's own process. A tab's label and position play no part, so neither a rename nor a number fools it, and a
-# tab whose client detached no longer counts.
+# Usage: prime_tab_open <rex-session-id> <repo> <label>
+# True when a tab of the Rex session holds the repo's prime: a block's own process is the attach loop of its Claude pane,
+# which stays true while the loop waits after a detach; a tmux client of its old-style session runs on a block's terminal;
+# or another window carries its label while its own process is this helper's launch, as a key's tab does before it asks
+# the server to start anything. A tab's label alone plays no part, so neither a rename nor a number fools it.
 prime_tab_open() {
-  local clients block tty
-  clients=$(timeout --kill-after=2 10 "$AR_TMUX" list-clients -t "=$2" -F '#{client_tty}' </dev/null 2>/dev/null) \
-    || return 1
-  [[ -n $clients ]] || return 1
-  rex_or_fail session inspect "$1" --json
-  for block in $(contract_json -r '(.windows // [])[].layers[]?.blocks[]?.block_id' <<<"$REX_OUT"); do
-    rex_block_pid "$1" "$block" || continue
-    [[ ${REX_OUT:-0} != 0 ]] || continue
-    tty=$("$AR_PS" -o tty= -p "$REX_OUT" 2>/dev/null) || continue
+  local sid=$1 repo=$2 label=$3 clients='' rows window title block pid command tty
+  if prime_old_running "$label"; then
+    clients=$(timeout --kill-after=2 10 "$AR_TMUX" -L "$TMUX_DEFAULT_SOCKET" list-clients -t "=$(tmux_name "$label")" \
+      -F '#{client_tty}' </dev/null 2>/dev/null) || clients=''
+  fi
+  rex_or_fail session inspect "$sid" --json
+  rows=$(contract_json -r "$REX_LABEL_DEF"'(.windows // [])[] | .window_id as $w | ((.label // "") | rex_unnumbered) as $l
+    | .layers[]?.blocks[]?.block_id | [$w, $l, .] | @tsv' <<<"$REX_OUT")
+  rex_helper_processes
+  while IFS=$'\t' read -r window title block; do
+    [[ -n $block ]] || continue
+    rex_block_pid "$sid" "$block" || continue
+    pid=${REX_OUT:-0}
+    [[ $pid != 0 ]] || continue
+    command=${REX_HELPER_CMD[$pid]:-}
+    [[ $command != *"agent-slot-rex attach $repo/$SLOT_PRIME claude" ]] || return 0
+    if [[ $window != "${LAUNCH_WINDOW:-}" && $title == "$label" && $command == *"agent-slot-rex launch"* ]]; then
+      return 0
+    fi
+    [[ -n $clients ]] || continue
+    tty=$("$AR_PS" -o tty= -p "$pid" 2>/dev/null) || continue
     tty=${tty//[[:space:]]/}
     [[ -n $tty && $tty != '?' ]] || continue
-    grep -qxF "/dev/$tty" <<<"$clients" && return 0
-  done
+    ! grep -qxF "/dev/$tty" <<<"$clients" || return 0
+  done <<<"$rows"
   return 1
 }
 
 # Usage: cmd_prime <repo>
-# Attaches to the repo's prime session from $HOME, so the client holds no checkout, and becomes a login shell once the
-# client ends, so a detach leaves the tab open.
+# Holds this pane on the repo's prime, from $HOME, so the client holds no checkout. An old-style session is attached to
+# until the client ends, and the pane then becomes a login shell, so a detach leaves the tab open. Anything else becomes
+# the attach loop of the prime's Claude pane, which starts the prime if it is not running.
 cmd_prime() {
-  prime_of "$1" || usage_fail "the prime map $AR_PRIMES names no prime session for $1" "$1"
+  prime_of "$1"
   contract_use_tools tmux
   cd "$HOME" || exit "$EXIT_GENERAL"
-  "$AR_TMUX" attach -t "=$PRIME_SESSION" || true
-  exec "$AR_LOGIN_SHELL" -l
+  if prime_old_running "$PRIME_LABEL"; then
+    "$AR_TMUX" -L "$TMUX_DEFAULT_SOCKET" attach -t "=$(tmux_name "$PRIME_LABEL")" || true
+    exec "$AR_LOGIN_SHELL" -l
+  fi
+  exec "$AR_SELF" attach "$(slot_key "$1" "$SLOT_PRIME")" claude
 }

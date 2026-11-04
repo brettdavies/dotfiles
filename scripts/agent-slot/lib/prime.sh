@@ -8,7 +8,7 @@
 PRIME_TITLE_LINE='{"type":"custom-title","customTitle":"'
 
 # Usage: _prime_old_session <repo>; sets PRIME_OLD to the session on the default tmux server that holds the repo's prime,
-# else to nothing. tmux stores a `.` or `:` in a session's name as `_`.
+# else to nothing.
 PRIME_OLD=
 _prime_old_session() {
   local repo=$1 status=0 session held
@@ -20,8 +20,7 @@ _prime_old_session() {
     contract_fail tmux-failed "tmux list-panes on the $TMUX_DEFAULT_SOCKET server exited $status" \
       --value "$TMUX_DEFAULT_SOCKET" --command "agent-slot prime $repo" --log "$BOUNDED_LOG"
   fi
-  session=$(prime_display_name "$repo" "$AS_PRIMES")
-  session=${session//[.:]/_}
+  session=$(tmux_name "$(prime_display_name "$repo" "$AS_PRIMES")")
   held=$(prime_old_sessions <<<"$DEFAULT_PANES")
   ! grep -qxF -- "$session" <<<"$held" || PRIME_OLD=$session
 }

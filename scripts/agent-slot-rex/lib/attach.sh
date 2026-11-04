@@ -1,11 +1,12 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
-# attach: a pane's hold on one of its slot's tmux sessions, as a loop around a local tmux attach. It runs from $HOME, so
-# the agent-state scan never counts the pane as using the slot. A missing session is resumed first; a client that ends
-# while its session lives was detached, so the loop waits for Enter before attaching again. A tmux server that does not
-# answer is waited out rather than resumed, since a resume would wait on the same server. A pane ends only when
-# agent-slot says its slot is gone.
+# attach: a pane's hold on one of the tmux sessions of its slot or prime, as a loop around a local tmux attach. It runs
+# from $HOME, so the agent-state scan never counts the pane as using the slot. A missing session is started first,
+# through resume for a slot and agent-slot prime for a prime; a client that ends while its session lives was detached, so
+# the loop waits for Enter before attaching again. A tmux server that does not answer is waited out rather than started
+# on, since the start would wait on the same server. A pane ends only when agent-slot says its slot, or its prime's
+# checkout, is gone.
 
-ATTACH_KEY='' ATTACH_KIND='' ATTACH_NAME=''
+ATTACH_KEY='' ATTACH_KIND='' ATTACH_NAME='' ATTACH_RESTART=''
 
 # True while the pane's session exists.
 attach_has_session() {
@@ -18,11 +19,18 @@ attach_pause() {
   sleep "$AR_RETRY"
 }
 
-# Returns 0 when the slot's sessions were started, 1 to retry later, and exits when the slot is gone.
+# Returns 0 when the sessions were started, 1 to retry later, and exits when the slot or the prime's checkout is gone.
 attach_resume() {
-  printf 'agent-slot-rex: %s has no %s session; resuming the slot\n' "$ATTACH_KEY" "$ATTACH_KIND"
-  server_call 240 resume "$ATTACH_KEY" && return 0
-  if [[ $(contract_json -r '.reason' <<<"$AR_ERROR") == slot-not-found ]]; then
+  local gone=slot-not-found
+  if [[ $SLOT_N == "$SLOT_PRIME" ]]; then
+    gone=repo-not-found
+    printf 'agent-slot-rex: %s has no %s session; starting the prime\n' "$ATTACH_KEY" "$ATTACH_KIND"
+    server_call 180 prime "$SLOT_REPO" && return 0
+  else
+    printf 'agent-slot-rex: %s has no %s session; resuming the slot\n' "$ATTACH_KEY" "$ATTACH_KIND"
+    server_call 240 resume "$ATTACH_KEY" && return 0
+  fi
+  if [[ $(contract_json -r '.reason' <<<"$AR_ERROR") == "$gone" ]]; then
     printf 'agent-slot-rex: %s is gone (%s); this pane is done\n' "$ATTACH_KEY" \
       "$(contract_json -r '.message' <<<"$AR_ERROR")"
     CONTRACT_EMITTED=1
@@ -34,7 +42,9 @@ attach_resume() {
 
 cmd_attach() {
   local attached=0 resumed=0 status
-  slot_parse_key "$1"
+  slot_parse_attach_key "$1"
+  ATTACH_RESTART='a resume'
+  [[ $SLOT_N != "$SLOT_PRIME" ]] || ATTACH_RESTART='agent-slot prime'
   case $2 in
     claude | files | git) ;;
     *) usage_fail "the pane is claude, files, or git" "$2" ;;
@@ -62,11 +72,11 @@ cmd_attach() {
     attached=0
     if ((resumed == 1)); then
       resumed=0
-      attach_pause "$ATTACH_NAME is still missing after a resume"
+      attach_pause "$ATTACH_NAME is still missing after $ATTACH_RESTART"
     elif attach_resume; then
       resumed=1
     else
-      attach_pause "resume failed: $(contract_json -r '.reason' <<<"$AR_ERROR")"
+      attach_pause "${ATTACH_RESTART#a } failed: $(contract_json -r '.reason' <<<"$AR_ERROR")"
     fi
   done
 }

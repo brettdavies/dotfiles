@@ -54,7 +54,7 @@ reattach_repo() {
   rex_session_find "$repo"
   if [[ -z $REX_SID ]]; then
     outcome=no-session
-  elif prime_tab_open "$REX_SID" "$prime"; then
+  elif prime_tab_open "$REX_SID" "$repo" "$prime"; then
     outcome=already-open
   else
     rex_or_fail session inspect "$REX_SID" --json
@@ -65,7 +65,7 @@ reattach_repo() {
       || true
     if [[ -z $wid ]]; then
       outcome=no-tab
-    elif ! prime_running "$prime"; then
+    elif ! prime_old_running "$prime"; then
       outcome='prime-not-running'
     elif [[ -z $block ]] || ! reattach_shell_idle "$REX_SID" "$block"; then
       outcome=not-idle
@@ -88,24 +88,24 @@ reattach_log() {
     no-session) what="no Rex session is named $1" ;;
     no-tab) what="no tab of the session is labelled $2" ;;
     not-idle) what="tab $4 is not a single pane at a shell prompt, so it is left alone" ;;
-    prime-not-running) what="the prime tmux session is not running, so tab $4 stays a shell; start it, then run \
-$(contract_quote "$AR_SELF" prime "$1") in that tab (check: $(contract_quote tmux has-session -t "=$2"))" ;;
+    prime-not-running) what="no session named $2 on the default tmux server holds a Claude, so tab $4 stays a shell; \
+$(contract_quote "$AR_SELF" prime "$1") in that tab starts the prime" ;;
     *) what=$4 ;;
   esac
   startup_log "prime $1 ($2): $3: $what"
 }
 
-# Usage: reattach_wait <outcomes-array-name> <sessions-array-name> <primes-array-name>
+# Usage: reattach_wait <outcomes-array-name> <sessions-array-name> <repos-array-name> <primes-array-name>
 # Turns each `sent` outcome into reattached once a tab of its session holds a client of the prime, polling until none
 # is left or AR_PRIME_WAIT seconds pass, and the rest into unconfirmed.
 reattach_wait() {
-  local -n outcomes_=$1 sessions_=$2 primes_=$3
+  local -n outcomes_=$1 sessions_=$2 repos_=$3 primes_=$4
   local deadline=$((SECONDS + AR_PRIME_WAIT)) i waiting
   while true; do
     waiting=0
     for i in "${!outcomes_[@]}"; do
       [[ ${outcomes_[i]} == sent ]] || continue
-      if (JOURNAL_BY='' && prime_tab_open "${sessions_[i]}" "${primes_[i]}") >/dev/null 2>&1; then
+      if (JOURNAL_BY='' && prime_tab_open "${sessions_[i]}" "${repos_[i]}" "${primes_[i]}") >/dev/null 2>&1; then
         outcomes_[i]=reattached
       else
         waiting=1
@@ -153,7 +153,7 @@ reattach_primes() {
   [[ " ${outcomes[*]} " != *" rex-server-restarted "* && " ${outcomes[*]} " != *" rex-server-down "* ]] \
     || rex_pinned || true
   REX_PIN=''
-  [[ -n $REX_PIN_LOST ]] || reattach_wait outcomes sids primes
+  [[ -n $REX_PIN_LOST ]] || reattach_wait outcomes sids repos primes
   for i in "${!outcomes[@]}"; do
     reattach_log "${repos[i]}" "${primes[i]}" "${outcomes[i]}" "${notes[i]}"
     rows+=$(printf '%s\t%s\t%s\t%s\t%s' "${repos[i]}" "${primes[i]}" "${outcomes[i]}" "${sids[i]}" "${wids[i]}")$'\n'

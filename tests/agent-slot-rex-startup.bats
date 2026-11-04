@@ -638,12 +638,12 @@ primes_journaled() {
 @test "a restored prime tab whose prime tmux session is not running is left alone and journaled prime-not-running" {
   started_by_rex
   restored_prime
-  tmux_default_answer has-session 1
+  no_old_primes
   run "$AGENT_SLOT_REX" restore --at-start
   [ "$status" -eq 0 ]
   not_called '^rex send '
   primes_journaled '.[0].outcome == "prime-not-running" and .[0].window_id == "pw"'
-  grep -qF "tmux has-session -t '=A Prime'" "$AGENT_SLOT_REX_STATE_DIR/restore.log"
+  grep -qF "no session named A Prime on the default tmux server holds a Claude" "$AGENT_SLOT_REX_STATE_DIR/restore.log"
   called "^rex window new -s sess-a A/1 "
 }
 
@@ -736,7 +736,7 @@ primes_journaled() {
   run "$AGENT_SLOT_REX" restore --at-start
   [ "$status" -eq 0 ]
   not_called '^rex send '
-  not_called '^tmux list-clients'
+  not_called '^tmux -L default list-clients'
   jaq -e 'has("primes") and .primes == null' "$LOG"
 }
 

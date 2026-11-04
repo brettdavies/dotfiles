@@ -19,10 +19,16 @@ SLOT_SESSION_KINDS=(claude files git)
 
 slot_key() { printf '%s/%s' "$1" "$2"; }
 
-# Usage: slot_session <repo> <n> [claude | files | git]; tmux session names cannot hold `.` or `:`, and the Claude
-# session has no kind suffix.
+# The tmux server an operator's own sessions run on. Calls name it, since a slot pane's TMUX points at the slot server.
+TMUX_DEFAULT_SOCKET=default
+
+# Usage: tmux_name <name>; prints the name as tmux stores it, which holds no `.` or `:`.
+tmux_name() { printf '%s' "${1//[.:]/_}"; }
+
+# Usage: slot_session <repo> <n> [claude | files | git]; the Claude session has no kind suffix.
 slot_session() {
-  local name="${1//[.:]/_}-$2"
+  local name
+  name=$(tmux_name "$1")-$2
   [[ ${3:-claude} == claude ]] || name+=-$3
   printf '%s' "$name"
 }

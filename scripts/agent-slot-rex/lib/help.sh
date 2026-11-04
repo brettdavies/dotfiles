@@ -28,19 +28,22 @@ verb_help() {
       "Starts an agent in a fresh slot of a repo: --repo, else the Rex session's name when it names a repo, else" \
       "a numbered list when a terminal is attached. --here turns this tab into the agent's tab (the new-agent key" \
       "passes it); without it the launch runs in a new background tab in the repo's session. With --here and no" \
-      "--repo, in a session named after a repo that has a prime tmux session (prime --help), and with no tab of" \
-      "the session attached to it, this tab becomes the prime's tab instead: first in the session, labelled" \
-      "with the prime's name, and running prime. --wait-shown, which a key or palette press adds, first waits up" \
+      "--repo, in a session named after a repo whose prime no tab of the session holds, this tab becomes the prime's" \
+      "tab instead: it runs agent-slot prime, moves first in the session under the prime's name, and holds the prime" \
+      "(prime --help). --wait-shown, which a key or palette press adds, first waits up" \
       "to $AR_SHOWN_WAIT s for an app to show this tab, which it does by asking a size for its terminal; a tab" \
       "never shown starts nothing, and closes itself unless Enter comes within $AR_SHOWN_HOLD s." \
       'example: agent-slot-rex launch --repo dotfiles --task fix/login' ;;
     prime) printf '%s\n' 'usage: agent-slot-rex prime <repo>' \
-      "Attaches to the repo's prime tmux session on the default tmux server, named in $AR_PRIMES, from \$HOME," \
-      "and becomes a login shell ($AR_LOGIN_SHELL -l) when the client detaches or the attach fails." \
+      "Holds this pane on the repo's prime, from \$HOME. A session named in $AR_PRIMES, else after the repo, that" \
+      "holds a Claude on the default tmux server is attached to, and the pane becomes a login shell" \
+      "($AR_LOGIN_SHELL -l) when the client detaches or the attach fails. Otherwise the pane becomes" \
+      'attach <repo>/prime claude.' \
       'example: agent-slot-rex prime xurl-rs' ;;
-    attach) printf '%s\n' 'usage: agent-slot-rex attach <repo>/<N> claude|files|git' \
-      "Attaches to the slot's tmux session from \$HOME, resuming the slot when the session is missing, and waits" \
-      'for Enter after a detach; it ends once the slot is gone.' \
+    attach) printf '%s\n' 'usage: agent-slot-rex attach <repo>/<N> | <repo>/prime claude|files|git' \
+      "Attaches to the tmux session of the slot or prime from \$HOME, starting it when the session is missing, through" \
+      'resume for a slot and agent-slot prime for a prime, and waits for Enter after a detach; it ends once the slot, or' \
+      "the prime's checkout, is gone." \
       'example: agent-slot-rex attach dotfiles/2 claude' ;;
     restore) printf '%s\n' \
       'usage: agent-slot-rex restore [--tab | --at-start | --by push|poll] [--output json]' \

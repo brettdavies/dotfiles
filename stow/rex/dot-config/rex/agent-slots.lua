@@ -79,13 +79,13 @@ rex.action{
 rex.action{
   name = "agent_slot_layout",
   title = "Agent Slot Layout Around Pane",
-  description = "Add a slot's files pane to the left of a pane and its git pane below it.",
+  description = "Add the files pane of a slot or prime to the left of a pane and its git pane below it.",
   category = "Agents",
   args = {
     type = "object",
     properties = {
-      key = { type = "string", description = "The slot, as <repo>/<N>." },
-      block = { type = "string", description = "The slot's Claude pane; the focused pane when left out." },
+      key = { type = "string", description = "The slot, as <repo>/<N>, or the prime, as <repo>/prime." },
+      block = { type = "string", description = "Its Claude pane; the focused pane when left out." },
     },
     required = { "key" },
   },

@@ -890,7 +890,6 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `bypass-mode-unaccepted`      | 78   | Doctor warning: settings.json does not accept bypass mode; `scripts/stow-deploy claude`        |
 | `version-unverified`          | 0    | Doctor warning: Claude or Rex differs from the version the checklist last ran on               |
 | `repo-required`               | 2    | The new-agent key was pressed outside a repo's session, with no terminal to ask in             |
-| `prime-not-running`           | 1    | The new-agent key found the session's prime tmux session not running; start it, press again    |
 | `server-unreachable`          | 1    | ssh from the Mac to the Linux server failed; retry once the network is back                    |
 | `rex-action-unregistered`     | 78   | Rex has not loaded the agent-slot actions; deploy the `rex` package or run `rex config reload` |
 | `rex-failed`                  | 1    | A `rex` command failed; retry                                                                  |
