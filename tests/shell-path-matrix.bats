@@ -32,6 +32,8 @@
 #
 # Run: bats tests/shell-path-matrix.bats
 
+load lib/shell-canary
+
 # `bats_test_function` generates the per-shape inherited-PATH tests below.
 bats_require_minimum_version 1.11.0
 
@@ -366,17 +368,14 @@ unset _shape
 
 @test "every startup-file-reading shape gets config/shell exports" {
   _skip_unless_deployed
-  command -v tmuxinator >/dev/null 2>&1 || skip "tmuxinator not installed"
-  # TMUXINATOR_CONFIG stands in for the whole config/shell layer: it is set by a
-  # file gated on `command -v`, so it proves PATH was assembled before the
-  # sourcing loop ran, not merely by the end of the file.
+  skip_unless_canary
   local failures=""
   for shape in "zsh -lic" "zsh -lc" "zsh -ic" "zsh -c" \
     "bash -lic" "bash -lc" "bash -ic"; do
     # Deliberate word split: "zsh -lic" becomes $1=zsh $2=-lic.
     # shellcheck disable=SC2086
     set -- $shape
-    out=$(_shape "$1" "$2" 'printf "%s" "${TMUXINATOR_CONFIG:-UNSET}"')
+    out=$(_shape "$1" "$2" 'printf "%s" "${UV_MALWARE_CHECK:-UNSET}"')
     [ "$out" = "UNSET" ] && failures="$failures [$shape]"
   done
   [ -z "$failures" ] || {

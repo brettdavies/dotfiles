@@ -54,8 +54,8 @@ prime_display_name() {
 PRIME_OLD_PANES_FORMAT=$'#{session_name}\t#{pane_current_command}'
 
 # Reads panes in PRIME_OLD_PANES_FORMAT and prints each session holding a Claude, which can run under a bare version
-# number, its versioned binary's name. A session with no Claude is not a prime: every tmuxinator project left a blank
-# pane, and continuum restores a session with shells only.
+# number, its versioned binary's name. A session with no Claude is not a prime: continuum restores a session with shells
+# only, and a name alone would attach the key to it.
 prime_old_sessions() {
   awk -F '\t' '$2 == "claude" || $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ { print $1 }' | sort -u
 }

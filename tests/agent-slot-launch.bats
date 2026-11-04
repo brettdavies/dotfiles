@@ -812,7 +812,7 @@ exec "$STUBS/tmux.inner" "$@"'
   [ "$(cat "$STUBS/typed-repoa-2")" = "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --session-id $session -n t1" ]
 }
 
-@test "the three sessions are rooted at the slot on the slot server, with the tmuxinator commands typed into shells" {
+@test "the three sessions are rooted at the slot on the slot server, with their programs typed into shells" {
   launch repoa --request-id r-sessions
   [ "$status" -eq 0 ]
   local name
