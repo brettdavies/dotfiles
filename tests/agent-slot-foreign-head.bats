@@ -26,6 +26,8 @@ setup() {
   agent_slot_setup
   export AGENT_SLOT_CLAUDE_PROJECTS=$T/projects AGENT_SLOT_LOCK_WAIT=2 AGENT_SLOT_TRUST_TIMEOUT=3
   export AGENT_SLOT_TRUSTED_OWNERS=me
+  # A runner's system config sets git-lfs's own filter.lfs.process, which outranks the smudge the LFS tests read.
+  export GIT_CONFIG_NOSYSTEM=1
   mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS" "$T/marks" "$T/outside"
   prime repoa
   local n owner

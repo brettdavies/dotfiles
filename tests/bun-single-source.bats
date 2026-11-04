@@ -32,6 +32,7 @@ BREWFILE="$BATS_TEST_DIRNAME/../stow/brew/Brewfile"
 }
 
 @test "no curl-installed bun executable shadows the Homebrew one" {
+  command -v brew >/dev/null 2>&1 || skip "Homebrew not installed on this host, so ~/.bun/bin shadows nothing"
   local found=""
   for exe in bun bunx; do
     [ -e "$HOME/.bun/bin/$exe" ] && found="$found $exe"
