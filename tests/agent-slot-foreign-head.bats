@@ -829,3 +829,42 @@ session_env() {
     git -C "$SLOT" push -q fork HEAD:refs/heads/pushed
   )
 }
+
+# tracked_solutions_link: docs/solutions as a tracked link, as this repo's own branches hold it.
+tracked_solutions_link() {
+  mkdir -p docs
+  ln -s ../../dev/solutions-docs docs/solutions
+}
+
+@test "a foreign head's tracked docs/solutions link keeps the slot's worktree and stays out of every commit" {
+  foreign_pr tracked_solutions_link
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local worktree
+  worktree=$(jaq -r .solutions_worktree "$SLOT/.git/agent-slot.json")
+  [ "$(readlink "$SLOT/docs/solutions")" = "$worktree" ]
+  [ -z "$(git -C "$SLOT" status --porcelain -- docs)" ]
+  git -C "$SLOT" checkout -q -b work
+  git -C "$SLOT" reset -q --hard
+  [ "$(readlink "$SLOT/docs/solutions")" = "$worktree" ]
+  [ -z "$(git -C "$SLOT" status --porcelain -- docs)" ]
+  printf 'x\n' >"$SLOT/work.txt"
+  git -C "$SLOT" add -A
+  git -C "$SLOT" commit -q -m work
+  [ "$(git -C "$SLOT" show HEAD:docs/solutions)" = ../../dev/solutions-docs ]
+}
+
+# real_solutions_dir: docs/solutions as a real directory, which the slot's link has nowhere to go.
+real_solutions_dir() {
+  mkdir -p docs/solutions
+  printf 'x\n' >docs/solutions/a.md
+}
+
+@test "a foreign head with a real docs/solutions directory is refused, as any other head is" {
+  foreign_pr real_solutions_dir
+  launch repoa --pr 7
+  [ "$status" -ne 0 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "solutions-symlink-missing"' <<<"$stderr"
+  [ ! -e "$SLOT" ]
+}

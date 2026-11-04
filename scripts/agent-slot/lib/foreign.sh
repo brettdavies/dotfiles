@@ -59,8 +59,16 @@ foreign_prepare() {
 # core.hooksPath and hook copies, which would run the head's hooks or hooks that call into its tree; the prime's Claude
 # settings, which Claude would not load here, and whose auto memory a slot on an unreviewed head should not share; and
 # the repo-recon and sibling links, whose paths and targets the head's tree decides. git-crypt follows the base branch.
+#
+# A sparse checkout clears the skip-worktree bit from a file on disk, and that bit is what keeps the solutions link's
+# re-point out of a commit, so a tracked link goes outside the patterns, with git told to expect it there. A real directory
+# stays inside them, for parity_solutions to refuse.
 foreign_parity() {
   local repo=$1 n=$2 slot=$3
   parity_git_crypt "$slot" "refs/remotes/origin/$PARITY_BASE"
+  if [[ $(git -C "$slot" ls-tree HEAD -- docs/solutions | cut -d' ' -f1) == 120000 ]]; then
+    git -C "$slot" config sparse.expectFilesOutsideOfPatterns true
+    git -C "$slot" sparse-checkout set --no-cone "${FOREIGN_SPARSE[@]}" '!/docs/solutions'
+  fi
   parity_solutions "$repo" "$n" "$slot"
 }
