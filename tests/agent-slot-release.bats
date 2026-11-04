@@ -426,6 +426,50 @@ renames_typed() { grep -c -- ' -l /rename ' "$CALLS" || true; }
   [ "$(record '.release')" = null ]
 }
 
+@test "a task with no PR that pushed its work to main is torn down by its release, through the detached finish" {
+  echo note >"$SLOT/a.md"
+  git -C "$SLOT" add a.md
+  git -C "$SLOT" commit -q -m note
+  git -C "$SLOT" push -q origin main
+  ran ce-compound ce-compound-refresh
+  agent idle
+  release
+  [ "$status" -eq 0 ]
+  eventually gone
+  eventually logged 'any(.[]; .event == "finish" and .by == "release" and .result == "torn-down" and .key == "repoa/1")'
+}
+
+@test "a task with no PR whose release's finish died is torn down by the automatic sweep once its agent is idle" {
+  agent busy
+  record_set '.release = {at: "2026-01-01T00:00:00Z", runner_pid: 999999}'
+  auto_sweep
+  jaq -e '.torn_down == [] and .needs_you == []' <<<"$output"
+  verdict
+  jaq -e '.finished == false and .finished_by == null' <<<"$VERDICT"
+  agent_status idle
+  verdict
+  jaq -e '.finished == true and .finished_by == "release" and .teardown == true' <<<"$VERDICT"
+  auto_sweep
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  gone
+}
+
+@test "a task with no PR whose agent said it is not ready is reminded once, since no merge would bring it back" {
+  agent idle
+  not_yet "a note is still syncing"
+  [ "$status" -eq 0 ]
+  AGENT_SLOT_RELEASE_REMIND=0 run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == [] and .needs_you == []' <<<"$output"
+  grep -qF "You said this slot was not ready to release: a note is still syncing." "$STUBS/typed-repoa-1"
+  [ "$(record '.not_yet.reminded_at | test("^[0-9]{4}-")')" = true ]
+  : >"$STUBS/typed-repoa-1"
+  AGENT_SLOT_RELEASE_REMIND=0 run --separate-stderr "$AGENT_SLOT" sweep --yes --auto --output json
+  [ "$status" -eq 0 ]
+  [ ! -s "$STUBS/typed-repoa-1" ]
+  [ -d "$SLOT" ]
+}
+
 @test "a task with no PR that its agent released, then said is not ready, is no longer finished and is kept" {
   mkdir -p "$SLOT/.context"
   echo next >"$SLOT/.context/next-move.md"
