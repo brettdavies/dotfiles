@@ -17,7 +17,38 @@
 # path. It starts without its own warning only when ~/.claude/settings.json accepts it (agent-slot doctor checks).
 
 SESSIONS_CLAUDE='claude --dangerously-skip-permissions'
+# Every slot's Claude runs at this effort, set on its command line so no settings file decides it.
+SESSIONS_EFFORT=xhigh
+# The models a slot can run on, by the name launch and reopen take. A Sonnet slot starts with Opus as its advisor.
+# The advisor stays off in a session whose telemetry opt-outs (DISABLE_TELEMETRY, DO_NOT_TRACK) stop Claude Code's
+# feature flags, and CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 turns it on for that one process with the opt-outs
+# still set.
+SESSIONS_MODELS='opus sonnet'
+SESSIONS_ADVISOR=opus
+SESSIONS_ADVISOR_ENV=CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1
 SESSIONS_CREATED=()
+
+# Usage: sessions_model_id <model>; prints the Claude model ID for one of SESSIONS_MODELS, or returns 1.
+sessions_model_id() {
+  case $1 in
+    opus) printf '%s' claude-opus-5-5 ;;
+    sonnet) printf '%s' claude-sonnet-5-5 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Usage: sessions_claude <model>; prints the start of a slot's claude command line for the model: the bypass flag,
+# the model ID, the effort, and for Sonnet the advisor, behind the variable that turns it on.
+sessions_claude() {
+  local id
+  id=$(sessions_model_id "$1") || id=$(sessions_model_id opus)
+  if [[ $1 == sonnet ]]; then
+    printf '%s %s --model %s --effort %s --advisor %s' "$SESSIONS_ADVISOR_ENV" "$SESSIONS_CLAUDE" "$id" \
+      "$SESSIONS_EFFORT" "$SESSIONS_ADVISOR"
+  else
+    printf '%s --model %s --effort %s' "$SESSIONS_CLAUDE" "$id" "$SESSIONS_EFFORT"
+  fi
+}
 
 # The login shell a session runs: the account's own, from the password database.
 _sessions_shell() {
@@ -67,21 +98,23 @@ sessions_record_transcript() {
 # Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume | reopen]
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
 # value from it is shell-quoted. A resume or reopen whose conversation was never saved starts Claude as a launch does.
-# In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name.
+# In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name,
+# and runs on the record's model through sessions_claude; a record from before slots took a model runs on Opus.
 # The first message goes with a launch and a reopen only: a resume brings back a slot that already had it.
 sessions_command() {
-  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt
+  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude
   case $kind in
     files) printf '%s' 'command -v y >/dev/null && y || yazi' ;;
     git) printf '%s' 'lazygit' ;;
     claude)
       name=$(contract_json -r '.name // .task // ""' <<<"$RECORD")
+      claude=$(sessions_claude "$(contract_json -r '.model // "opus"' <<<"$RECORD")")
       prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
       if [[ $mode != launch ]] && _sessions_conversation_saved; then
-        printf -v cmd '%s --resume %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
+        printf -v cmd '%s --resume %q' "$claude" "$(contract_json -r '.session_id' <<<"$RECORD")"
         [[ $mode == reopen ]] || prompt=''
       else
-        printf -v cmd '%s --session-id %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
+        printf -v cmd '%s --session-id %q' "$claude" "$(contract_json -r '.session_id' <<<"$RECORD")"
       fi
       [[ -z $name ]] || printf -v cmd '%s -n %q' "$cmd" "$name"
       [[ -z $prompt ]] || printf -v cmd '%s "$(cat %q)"' "$cmd" "$prompt"

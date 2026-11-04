@@ -6,6 +6,7 @@
 # nothing, so it takes no lock.
 
 REOPEN_REPO='' REOPEN_KIND='' REOPEN_REF='' REOPEN_SESSION='' REOPEN_PROMPT='' REOPEN_REQUEST='' REOPEN_DRY_RUN=0
+REOPEN_MODEL=''
 
 # Usage: reopen_parse_args <args...>; sets the REOPEN_* inputs, refusing bad ones before anything is read.
 reopen_parse_args() {
@@ -17,10 +18,11 @@ reopen_parse_args() {
         REOPEN_KIND=${1#--} REOPEN_REF=$2
         shift 2
         ;;
-      --session | --prompt-file | --request-id)
+      --session | --prompt-file | --request-id | --model)
         (($# >= 2)) || usage_fail "$1 needs a value" "$1"
         case $1 in
           --session) REOPEN_SESSION=$2 ;;
+          --model) REOPEN_MODEL=$2 ;;
           --prompt-file) REOPEN_PROMPT=$2 ;;
           --request-id) REOPEN_REQUEST=$2 ;;
         esac
@@ -40,6 +42,7 @@ reopen_parse_args() {
   done
   [[ -n $REOPEN_REPO ]] || usage_fail "reopen needs a repo; agent-slot repos lists them"
   [[ -n $REOPEN_KIND ]] || usage_fail "reopen needs --pr <ref> or --issue <ref>"
+  model_check "$REOPEN_MODEL" reopen
   [[ -z $REOPEN_REQUEST || $REOPEN_REQUEST =~ $REQUEST_PATTERN ]] \
     || usage_fail "a request ID uses letters, digits, ., _, and -, up to 128 characters" "$REOPEN_REQUEST"
   if [[ -n $REOPEN_PROMPT ]]; then
@@ -106,9 +109,9 @@ reopen_make() {
   seed=$(contract_json -c --arg request "$REOPEN_REQUEST" --argjson requested "$(date +%s.%N)" \
     --argjson items "$REOPEN_ITEMS" --arg name "$REOPEN_NAME" --arg task "$REOPEN_TASK" \
     --arg session "$REOPEN_SESSION_ID" --arg transcript "$REOPEN_TRANSCRIPT" --argjson prs "$prs" \
-    --argjson settled "$REOPEN_SETTLED" '
+    --argjson settled "$REOPEN_SETTLED" --arg model "$REOPEN_MODEL" '
     def text: if . == "" then null else . end;
-    {request_id: ($request | text), requested_at: $requested, items: $items, name: $name, named_as: $name,
+    {request_id: ($request | text), requested_at: $requested, model: $model, items: $items, name: $name, named_as: $name,
      task: ($task | text), session_id: $session, transcript: ($transcript | text), prs: $prs, settled_prs: $settled,
      reopened_from: {slot, session_id, ts}}' <<<"$REOPEN_SOURCE")
   fields=$(contract_json -n -c --argjson item "$REOPEN_ITEM" --argjson seed "$seed" --argjson head "$HEAD_PLAN" \
@@ -180,9 +183,9 @@ reopen_report() {
     slot=$(slot_key "$repo" "$n")
     head_plan "$REOPEN_SOURCE" "$ITEM"
     head=$HEAD_PLAN
-    RECORD=$(contract_json -n -c --arg session "$session" --arg name "$name" --arg task "$task" \
+    RECORD=$(contract_json -n -c --arg session "$session" --arg name "$name" --arg task "$task" --arg model "$REOPEN_MODEL" \
       --arg prompt "${REOPEN_PROMPT:+$(slot_prompt_file "$(slot_path "$repo" "$n")")}" '
-      {session_id: $session, name: $name, task: (if $task == "" then null else $task end),
+      {session_id: $session, name: $name, model: $model, task: (if $task == "" then null else $task end),
        prompt_file: (if $prompt == "" then null else $prompt end)}')
     command=$(sessions_command "$repo" "$n" claude reopen)
   fi
@@ -214,7 +217,7 @@ reopen_report() {
 # Usage: _reopen_command [no-request]; the reopen's command line without --dry-run, for an error's next step, and
 # without --request-id too when asked.
 _reopen_command() {
-  local -a argv=(agent-slot reopen "$REOPEN_REPO" "--$REOPEN_KIND" "$REOPEN_REF")
+  local -a argv=(agent-slot reopen "$REOPEN_REPO" --model "$REOPEN_MODEL" "--$REOPEN_KIND" "$REOPEN_REF")
   [[ -z $REOPEN_SESSION ]] || argv+=(--session "$REOPEN_SESSION")
   [[ -z $REOPEN_PROMPT ]] || argv+=(--prompt-file "$REOPEN_PROMPT")
   [[ ${1:-} == no-request || -z $REOPEN_REQUEST ]] || argv+=(--request-id "$REOPEN_REQUEST")
@@ -223,5 +226,5 @@ _reopen_command() {
 
 # A fresh start for the same item, the next step when there is nothing to reopen.
 _reopen_launch_command() {
-  contract_quote agent-slot launch "$REOPEN_REPO" "--$REOPEN_KIND" "$REOPEN_REF"
+  contract_quote agent-slot launch "$REOPEN_REPO" --model "$REOPEN_MODEL" "--$REOPEN_KIND" "$REOPEN_REF"
 }

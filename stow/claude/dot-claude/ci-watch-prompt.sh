@@ -20,13 +20,11 @@
 #
 # The agent must:
 #   - Spawn `gh run watch <id> --exit-status` per active run with
-#     run_in_background: true (one Bash call per run, in parallel)
-#   - For PR creates/merges, prefer `gh pr checks <pr> --watch` which covers
-#     all checks across all triggered workflows on the PR head
-#   - VERIFY STATUS AFTER COMPLETION, NOT JUST EXIT CODE. `gh pr checks --watch`
-#     exits 1 if any check ends FAILURE/ERROR/TIMED_OUT/ACTION_REQUIRED, but
-#     exits 0 when the rest are CANCELLED/SKIPPED/NEUTRAL, and it only sees
-#     checks registered when it polls (late/chained workflows can be missed).
+#     run_in_background: true (one Bash call per run, in parallel), and only
+#     for runs its own push or PR action started. `gh pr checks --watch` and a
+#     loop of `gh pr view` poll GitHub's GraphQL API until the checks end, so
+#     neither is used to watch.
+#   - VERIFY STATUS AFTER COMPLETION, NOT JUST EXIT CODE.
 #     `gh run watch` exits 0 on failure unless `--exit-status` is passed. So
 #     treat a non-zero exit as red, but a zero exit as "not proven green".
 #     After every completion notification, re-query and read per-check
@@ -155,8 +153,9 @@ reminder=$({
   echo ""
   printf '%s' "$runs" | "$JQ" -r '.[] | "  gh run watch \(.databaseId) --exit-status"'
   echo ""
-  echo "If this was a PR action, prefer the PR-scoped watcher instead:"
-  echo "  gh pr checks <pr-number> --watch"
+  echo "Watch only these runs, the ones your own action started. Never watch with"
+  echo "gh pr checks --watch or a loop of gh pr view: read the rollup once, when"
+  echo "the watchers are done."
   echo ""
   echo "After all watchers complete, re-run gh run list to catch any"
   echo "dispatched chains (release.yml → homebrew dispatch → finalize-release etc.)."

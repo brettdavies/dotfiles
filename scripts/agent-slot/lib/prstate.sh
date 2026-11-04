@@ -25,9 +25,37 @@ pr_load() {
   PR_OK[$repo]=0 PR_LISTS[$repo]='[]'
   [[ -n $AS_GH ]] || return 0
   bounded out gh 30 "$AS_GH" pr list --repo "$(pr_repo_slug "$2")" --state all --limit 200 \
-    --json number,state,headRefName,headRefOid,createdAt,title,url || return 0
+    --json number,state,headRefName,headRefOid,createdAt,title,url,isCrossRepository || return 0
   out=$(contract_json -c 'if type == "array" then . else error("not an array") end' <<<"$out" 2>/dev/null) || return 0
   PR_LISTS[$repo]=$out PR_OK[$repo]=1
+}
+
+# Usage: pr_prune_branches <repo> <slot path>; deletes each local branch of the slot, other than its base and the one
+# checked out, whose PRs from origin's own branches are all merged or closed, and deletes origin's branch of that name
+# with it. Only branches the slot holds are touched, never the rest of origin's. A branch whose tip is neither one of
+# its PRs' heads nor held by origin's branch has work nowhere else and stays. Prints each branch it deleted, one per
+# line; with no PR list from GitHub it deletes nothing.
+pr_prune_branches() {
+  local repo=$1 path=$2 base current branch tip heads
+  pr_load "$repo" "$(git -C "$path" remote get-url origin 2>/dev/null || true)"
+  [[ ${PR_OK[$repo]} == 1 ]] || return 0
+  base=$(contract_json -r '.base // ""' <<<"$RECORD")
+  current=$(git -C "$path" symbolic-ref -q --short HEAD || true)
+  while read -r branch; do
+    [[ -n $branch && $branch != "$base" && $branch != "$current" ]] || continue
+    heads=$(contract_json -r --arg b "$branch" '[.[] | select(.headRefName == $b and (.isCrossRepository | not))]
+      | if length > 0 and all(.[]; .state == "MERGED" or .state == "CLOSED") then .[].headRefOid else empty end' \
+      <<<"${PR_LISTS[$repo]}")
+    [[ -n $heads ]] || continue
+    tip=$(git -C "$path" rev-parse "refs/heads/$branch")
+    grep -qxF "$tip" <<<"$heads" \
+      || git -C "$path" merge-base --is-ancestor "$tip" "refs/remotes/origin/$branch" 2>/dev/null || continue
+    git -C "$path" branch -q -D "$branch"
+    if bounded out prune 60 "${AS_GIT_REMOTE[@]}" git -C "$path" ls-remote --exit-code --heads origin "$branch"; then
+      bounded out prune 120 "${AS_GIT_REMOTE[@]}" git -C "$path" push -q origin --delete "$branch" || true
+    fi
+    printf '%s\n' "$branch"
+  done < <(git -C "$path" for-each-ref --format='%(refname:short)' refs/heads)
 }
 
 # Usage: _pr_head_held <slot path> <base> <oid>; true when a local head holds the commit and neither origin's base nor

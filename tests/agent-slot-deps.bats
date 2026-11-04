@@ -34,7 +34,7 @@ teardown() {
 }
 
 launch() {
-  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id "$1" --output json
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id "$1" --output json
   echo "launch: status=$status output=$output stderr=${stderr:-}"
 }
 

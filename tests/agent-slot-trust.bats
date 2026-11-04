@@ -99,7 +99,7 @@ EOF
 
 @test "AE15: a dialog naming the slot path is accepted with Down then Enter, and launch expects no prompt" {
   dialog_fixture "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")"
-  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r1 --output json
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r1 --output json
   [ "$status" -eq 0 ]
   jaq -e '.trust_prompt_expected == false' <<<"$output"
   grep -qF -- "-L agent-slot-trust -f /dev/null new-session -d -s trust-" "$CALLS"
@@ -111,7 +111,7 @@ EOF
 @test "launch of a repo whose prime checkout is untrusted sends no keys and expects the prompt" {
   untrust_prime
   dialog_fixture "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")"
-  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-untrusted --output json
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r-untrusted --output json
   [ "$status" -eq 0 ]
   jaq -e '.trust_prompt_expected == true and .key == "repoa/1"' <<<"$output"
   [ "$(grep -cF -- '-L agent-slot-trust' "$CALLS")" -eq 0 ]
@@ -130,7 +130,7 @@ EOF
   dialog_fixture "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")"
   touch "$STUBS/drop-first-down"
   clock_trust
-  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-lost --output json
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r-lost --output json
   [ "$status" -eq 0 ]
   jaq -e '.trust_prompt_expected == false' <<<"$output"
   keys=$(grep -F -- '-L agent-slot-trust send-keys' "$CALLS" | awk '{ print $NF }' | paste -sd ' ' -)
@@ -141,7 +141,7 @@ EOF
 
 @test "a dialog naming another path sends no keys, and launch goes on expecting the prompt" {
   dialog_screen /somewhere/else >"$STUBS/screen"
-  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r2 --output json
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r2 --output json
   [ "$status" -eq 0 ]
   jaq -e '.trust_prompt_expected == true and .key == "repoa/1"' <<<"$output"
   [ "$(grep -cF -- '-L agent-slot-trust send-keys' "$CALLS")" -eq 0 ]
@@ -194,7 +194,7 @@ EOF
   prompt_screen >"$STUBS/screen"
   "$AGENT_SLOT" warm repoa --count 2 --output json >/dev/null
   trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")"
-  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r3 --output json
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r3 --output json
   [ "$status" -eq 0 ]
   jaq -e '.key == "repoa/1"' <<<"$output"
   [ -d "$AGENT_SLOT_ROOT/repoa/1/.git" ]
@@ -202,7 +202,7 @@ EOF
 
 @test "launch skips the trust step for a path Claude already marks trusted" {
   trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")"
-  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r4 --output json
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r4 --output json
   [ "$status" -eq 0 ]
   [ "$(grep -cF -- '-L agent-slot-trust' "$CALLS")" -eq 0 ]
 }

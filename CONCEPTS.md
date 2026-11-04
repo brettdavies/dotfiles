@@ -430,7 +430,8 @@ unreachable or the hand-off fails, the file goes to the host's local opener wher
 
 A clone of a repo, at a stable numbered path (`~/slots/<repo>/<N>`) on the headless host, that holds exactly one agent
 task at a time. A slot is set up like the repo's *prime checkout* (the operator's own clone under `~/dev`, or
-`~/dotfiles` or `~/obsidian-vault`, which is never part of the slot pool and never changed by it): the repo's hooks run
+`~/dotfiles` or `~/obsidian-vault`, which is never part of the slot pool and never changed by it, except for files left
+for the operator in its `.context/`): the repo's hooks run
 from the slot's own copy, `docs/solutions` links to the slot's own *writer worktree* of the solutions repo,
 `.context/repo-recon` links to the repo's repo-recon store when it has one, Claude reads and writes the repo's single
 auto memory, the prime's local permission grants apply, and a prime that is a partial clone gives the slot a partial
