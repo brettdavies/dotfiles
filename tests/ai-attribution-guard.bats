@@ -111,6 +111,22 @@ Co-Authored-By: Claude <noreply@anthropic.com>')
   [ "$(classify "gh pr create --base dev --title t --body-file $f")" = "DENY" ]
 }
 
+@test "gh -R o/r pr create --body-file whose body carries the trailer → DENY" {
+  local f
+  f=$(fixture body.md 'Ships the thing.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)')
+  [ "$(classify "gh -R o/r pr create --base dev --title t --body-file $f")" = "DENY" ]
+}
+
+@test "gh --repo o/r pr create --body-file whose body carries the trailer → DENY" {
+  local f
+  f=$(fixture body.md 'Ships the thing.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)')
+  [ "$(classify "gh --repo o/r pr create --base dev --title t --body-file $f")" = "DENY" ]
+}
+
 @test "gh release create --notes-file whose body carries the trailer → DENY" {
   local f
   f=$(fixture notes.md 'Release notes.
