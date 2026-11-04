@@ -234,8 +234,13 @@ carries `state`, so a filter that reads only `conclusion // state` counts in-pro
 ```bash
 gh pr view <n> --json headRefOid,mergeStateStatus,statusCheckRollup --jq '
   def st: if .__typename == "CheckRun" then (if .status == "COMPLETED" then .conclusion else .status end) else .state end;
-  {merge: .mergeStateStatus, tally: ([.statusCheckRollup[] | st] | group_by(.) | map({(.[0]): length}) | add)}'
+  {merge: .mergeStateStatus, count: (.statusCheckRollup | length),
+   tally: ([.statusCheckRollup[] | st] | group_by(.) | map({(.[0]): length}) | add)}'
 ```
+
+An empty rollup means nothing ran, not that everything passed. `mergeStateStatus` reads `CLEAN` and "every conclusion is
+`SUCCESS`" holds over an empty list, so `count: 0` with `merge: CLEAN` is not a green head. Compare an upper PR's
+workflows with the lower PR's before calling it green; the usual cause is an unlinked stack (see `gh stack link` below).
 
 ### Sequential merges, when the stack must land in pieces
 
@@ -274,7 +279,11 @@ every PR up to and including the one named, so call it on the lowest unmerged PR
 
 - **`gh stack link --base <trunk> <pr...>`** creates or updates the GitHub stack from existing PRs, bottom to top,
   without adopting local tracking. This is the entry point when the branches are managed by hand or by another tool. It
-  never rewrites the branches.
+  never rewrites the branches. Run it right after opening each upper PR: in a repo whose workflows set
+  `on.pull_request.branches`, a PR whose base is another PR's branch gets none of those workflows until the stack is
+  linked, and `gh pr checks --watch` reports `no checks reported`. Linking starts them without changing the PR's head or
+  base. Background:
+  `docs/solutions/workflow-issues/stacked-pr-in-a-base-filtered-repo-has-no-checks-until-the-stack-is-linked.md`.
 - **`gh stack init --base <trunk> <branch...>`** adopts existing branches into local tracking, bottom to top, leaving
   every branch SHA untouched.
 - **`gh stack view --short`** lists the chain with each PR's state; `--json` for machine reading. `gh stack rebase`
