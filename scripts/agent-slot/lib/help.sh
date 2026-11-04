@@ -13,7 +13,7 @@ Verbs:
   warm     trust the slot paths of one repo, or of every repo, in Claude ahead of time
   check    judge whether each slot can be torn down, and list what blocks it
   adopt    attach a PR or issue to a live slot, naming the slot if it has no name
-  probe    mark an open draft this slot pushed as a throwaway probe, so closing it does not block teardown
+  probe    mark a draft this slot pushed, titled test(probe): <what it probes>, so closing it does not block teardown
   close-probe  close a draft this slot marked a probe; run from inside the slot
   reopen   bring the work of a torn-down slot on a PR or issue back in a fresh slot, resuming its conversation
   sweep    tear down every slot whose task has finished and that check passes (reports only, without --yes)
@@ -100,10 +100,11 @@ verb_help() {
       'example: agent-slot adopt Pillow/1 --issue 10331 --output json' ;;
     probe) printf '%s\n' 'usage: agent-slot probe <pr> [--output json]' \
       'Marks a PR a probe: a draft this slot opened to exercise CI or a workflow and never means to merge. Run it from' \
-      'inside the slot, right after gh pr create --draft. A ref is N, owner/name#N, or its GitHub URL, in the repo of' \
-      "the slot's origin. The PR must be an open draft on a branch this clone created, whose current head this clone" \
-      'pushed; anything else is refused with pr-not-open, pr-not-draft, or pr-not-from-this-slot. It attaches the PR' \
-      "as a work item and changes only the slot's record, so it needs no ask." \
+      'inside the slot, right after opening the PR with gh pr create --draft and the title' \
+      'test(probe): <what it probes>; any other title is refused with pr-title-not-probe. A ref is N, owner/name#N, or' \
+      "its GitHub URL, in the repo of the slot's origin. The PR must be an open draft on a branch this clone created," \
+      'whose current head this clone pushed; anything else is refused with pr-not-open, pr-not-draft, or' \
+      "pr-not-from-this-slot. It attaches the PR as a work item and changes only the slot's record, so it needs no ask." \
       'A marked PR closed unmerged neither finishes the task nor blocks it (see check); one taken out of draft stops' \
       'being a probe. Marking one already marked, open or closed, changes nothing. Other errors: not-in-slot,' \
       'pr-state-unknown, item-not-found, item-kind-mismatch, and slot-busy, which is safe to retry.' \
@@ -111,7 +112,8 @@ verb_help() {
       'example: agent-slot probe 487 --output json' ;;
     close-probe) printf '%s\n' 'usage: agent-slot close-probe <pr> [--output json]' \
       'Closes a PR this slot marked with agent-slot probe, for a slot where gh pr close is denied. Run it from inside' \
-      'the slot. It closes only a marked PR (else pr-not-probe) that is still a draft (else pr-not-draft),' \
+      'the slot. It closes only a PR titled test(probe): <what it probes> (else pr-title-not-probe) that is marked' \
+      '(else pr-not-probe) and still a draft (else pr-not-draft),' \
       'on a branch this clone created, whose current head this clone pushed (else pr-not-from-this-slot). It leaves a' \
       'comment saying why and deletes no branch, so gh pr reopen undoes it, and it needs no ask. A marked draft already' \
       'closed succeeds without closing again; a merged one fails with pr-not-open. A close whose outcome is unknown' \

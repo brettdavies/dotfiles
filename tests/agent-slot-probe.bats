@@ -51,15 +51,15 @@ pushed() {
 }
 
 # draft_pr N BRANCH [STATE] [DRAFT] [OWNER]: PR N on BRANCH's tip in the slot, opened on origin's repo, as `gh pr list`
-# and `gh pr view` report it, with its head in OWNER/repoa.
+# and `gh pr view` report it, with its head in OWNER/repoa and the title a probe PR carries.
 draft_pr() {
-  local n=$1 branch=$2 state=${3:-OPEN} draft=${4:-true} owner=${5:-origins} oid
+  local n=$1 branch=$2 state=${3:-OPEN} draft=${4:-true} owner=${5:-origins} oid title="test(probe): PR $1"
   oid=$(git -C "$SLOT" rev-parse "$branch")
-  pr "$n" "$state" "$branch"
+  pr "$n" "$state" "$branch" "" "$title"
   jaq -c --argjson n "$n" --argjson d "$draft" 'map(if .number == $n then .isDraft = $d else . end)' \
     "$STUBS/gh-prs.json" >"$STUBS/gh-prs.new"
   mv "$STUBS/gh-prs.new" "$STUBS/gh-prs.json"
-  gh_item pr "$n" "PR $n" "$state" "$(jaq -n -c --arg b "$branch" --arg o "$oid" --argjson d "$draft" --arg owner "$owner" \
+  gh_item pr "$n" "$title" "$state" "$(jaq -n -c --arg b "$branch" --arg o "$oid" --argjson d "$draft" --arg owner "$owner" \
     '{headRefName: $b, headRefOid: $o, isDraft: $d, headRepository: {id: "R", name: "repoa"},
       headRepositoryOwner: {id: "U", login: $owner}}')"
 }
@@ -292,6 +292,26 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   in_slot close-probe 10
   refused pr-not-draft 10
   record_has '.probes == []'
+}
+
+@test "a PR whose title lacks the probe marker is refused by both verbs, and nothing is marked or closed" {
+  local title
+  pushed feat/p
+  draft_pr 9 feat/p
+  for title in 'feat: real work' 'test(probe):' 'test(probe): ' 'test(probes): nearly' 'Test(probe): cased' \
+    'fix: test(probe): inside'; do
+    record_set 'del(.probes) | .prs = []'
+    pr_fields 9 ".title = \"$title\""
+    in_slot probe 9
+    refused pr-title-not-probe
+    jaq -e --arg t "$title" '.next_step.action == "run" and .next_step.command == "agent-slot probe --help"
+      and (.message | contains($t)) and (.message | contains("test(probe): "))' <<<"$stderr"
+    record_has '.probes == null and .prs == []'
+    record_set '.prs = [9] | .probes = [9]'
+    in_slot close-probe 9
+    refused pr-title-not-probe
+    jaq -e '.next_step.action == "run" and .next_step.command == "agent-slot close-probe --help"' <<<"$stderr"
+  done
 }
 
 @test "probe marks an open draft this slot pushed, attaches it as a work item, and logs it" {
@@ -704,9 +724,12 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   [ "$status" -eq 0 ]
   [[ $output == *"on a branch this clone created"* ]]
   [[ $output == *"gh pr create --draft"* ]]
+  [[ $output == *"test(probe): <what it probes>"* ]]
   run "$AGENT_SLOT" close-probe --help
   [ "$status" -eq 0 ]
   [[ $output == *"on a branch this clone created"* ]]
+  [[ $output == *"test(probe): <what it probes>"* ]]
+  grep -qF 'test(probe): <what it probes>' "$BATS_TEST_DIRNAME/../README.md"
 }
 
 @test "text mode says what happened and what comes next" {
@@ -714,7 +737,7 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   draft_pr 9 feat/p
   run --separate-stderr bash -c 'cd "$1" && shift && exec "$@"' _ "$SLOT" "$AGENT_SLOT" probe 9
   [ "$status" -eq 0 ]
-  [ "$output" = "repoa/1: PR #9 (PR 9) is marked a probe; close it with agent-slot close-probe 9" ]
+  [ "$output" = "repoa/1: PR #9 (test(probe): PR 9) is marked a probe; close it with agent-slot close-probe 9" ]
   run --separate-stderr bash -c 'cd "$1" && shift && exec "$@"' _ "$SLOT" "$AGENT_SLOT" close-probe 9
   [ "$status" -eq 0 ]
   [ "$output" = "repoa/1: PR #9 closed as a probe" ]

@@ -50,6 +50,7 @@ pr-state-unknown              1     true       3            retry
 item-not-found                2     false      0            run
 item-kind-mismatch            2     false      0            rerun
 item-held-by-slot             1     false      0            run
+pr-title-not-probe            1     false      0            run
 pr-not-probe                  1     false      0            run
 pr-not-draft                  1     false      0            ask-operator
 pr-not-open                   1     false      0            none

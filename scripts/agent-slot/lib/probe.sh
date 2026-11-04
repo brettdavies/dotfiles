@@ -4,8 +4,9 @@
 # one close open to a slot, since `gh pr close` sits behind an ask rule nobody can answer there. check counts a closed
 # probe toward neither finishing the task nor blocking it, as it does a settled PR, and every other check still holds.
 #
-# Both verbs run from inside the slot, on a PR of origin's repo, and qualify a PR the same way: an open draft on a branch
-# this clone created, whose current head this clone pushed. A remote-tracking ref's reflog is the proof. git writes
+# Both verbs run from inside the slot, on a PR of origin's repo titled "test(probe): <what it probes>", which keeps the
+# verbs off every other PR and stays a Conventional Commits title. They qualify a PR the same way: an open draft on a
+# branch this clone created, whose current head this clone pushed. A remote-tracking ref's reflog is the proof. git writes
 # "update by push" there only for a push from this clone and a fetch message for what it merely received, and a clone
 # writes no entry at all for the branches it brings. So a log that starts from an all-zero old oid with a push says this
 # clone created the branch, while a fixup on another writer's branch starts its log from that branch's old head. A head
@@ -15,10 +16,12 @@
 # did push. On a later push a new commit restores the proof, and the refusal says so; on a branch's first push the branch
 # reads as another writer's, and the operator closes it.
 
+PROBE_TITLE_PREFIX='test(probe): '
 PROBE_REPO='' PROBE_N='' PROBE_KEY='' PROBE_PATH='' PROBE_ORIGIN='' PROBE_PR='{}' PROBE_PROOF='' PROBE_TRACKING=''
 
 # Usage: _probe_resolve <ref>; sets PROBE_* for the slot holding the current directory, reads the record, and reads the
-# PR into ITEM and PROBE_PR. A ref naming another repo than origin's is refused unread.
+# PR into ITEM and PROBE_PR. A ref naming another repo than origin's is refused unread, and a PR without a probe's title
+# is refused once read.
 _probe_resolve() {
   local at slug
   at=$(slot_at "$PWD") || at=''
@@ -38,6 +41,15 @@ this slot's origin, whose PRs are the only ones check judges" --value "$ITEM_REF
   require_tools gh
   item_resolve
   PROBE_PR=$(contract_json -c '{repo, number, title, head: .head_branch, oid: .head_oid, url}' <<<"$ITEM")
+  _probe_require_title
+}
+
+_probe_require_title() {
+  local title
+  title=$(contract_json -r '.title // ""' <<<"$ITEM")
+  [[ $title == "$PROBE_TITLE_PREFIX"?* ]] || contract_fail pr-title-not-probe "PR #$ITEM_NUMBER's title is \"$title\", \
+and $CONTRACT_VERB acts only on a PR titled '${PROBE_TITLE_PREFIX}<what it probes>'; open a probe PR as a draft with that \
+title" --value "$ITEM_REF" --command "$(contract_help_command)"
 }
 
 _probe_view_command() { contract_quote gh pr view "$ITEM_NUMBER" --repo "$ITEM_REPO"; }
