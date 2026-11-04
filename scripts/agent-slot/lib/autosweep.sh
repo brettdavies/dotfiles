@@ -134,8 +134,10 @@ release_auto_gate() {
   local repo=$1 n=$2 sent why blocker reminded released=0
   RELEASE_AUTO=
   if [[ $(contract_json -r .finished <<<"$CHECK_VERDICT") != true ]]; then
-    # A task with no PR has no merge to bring its agent back, so its --not-yet reminder cannot wait for one.
-    ! contract_json -e '.prs == []' <<<"$CHECK_VERDICT" >/dev/null || release_hold "$repo" "$n" || true
+    # A task with no PR, or none but closed probes, has no merge to bring its agent back, so its --not-yet reminder
+    # cannot wait for one.
+    ! contract_json -e 'all(.prs[]; .state == "CLOSED" and .probe)' <<<"$CHECK_VERDICT" >/dev/null \
+      || release_hold "$repo" "$n" || true
     return 0
   fi
   ! contract_json -e '.release != null or .finished_by_operator == true' <<<"$RECORD" >/dev/null || released=1

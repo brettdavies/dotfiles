@@ -5,7 +5,8 @@
 # A task has finished when none of its PRs is open or closed without merging and one has merged, or when the operator
 # finished it, or the finish its agent's release started did, whatever state its PRs are in. A reopened slot's
 # settled_prs, its PRs already merged or closed when it was reopened, count toward neither, so only a new outcome
-# finishes it; their heads still count as pushed. A finished slot may go only when every check below passes:
+# finishes it; their heads still count as pushed. A probe closed unmerged (probe.sh) counts toward neither in the same
+# way. A finished slot may go only when every check below passes:
 #
 #   the agent is idle or absent; the tree is clean apart from setup's docs/solutions link and nothing is stashed; every
 #   local commit is in the final head of one of the task's PRs, or, for a task that never had a PR, on a branch of a
@@ -449,7 +450,8 @@ check_slot() {
     if [[ ${PR_OK[$repo]} == 1 ]]; then
       prs=$(pr_for_slot "$repo" "$path" "$RECORD")
       judged=$(contract_json -c --argjson record "$RECORD" \
-        '($record.settled_prs // []) as $s | map(select(.number as $n | any($s[]; . == $n) | not))' <<<"$prs")
+        '($record.settled_prs // []) as $s
+        | map(select((.number as $n | any($s[]; . == $n)) or (.state == "CLOSED" and .probe) | not))' <<<"$prs")
     else
       prs_known=0
       _check_block pr-state-unknown "gh could not read the PRs of $(pr_repo_slug "$origin")"
@@ -517,16 +519,16 @@ check_slot() {
 }
 
 # Records the PRs a verdict found, as the slot's items too, and the needs-you list it produced, when the slot's lock is
-# free; a slot with no name takes the earliest created PR's. A check run inside the slot's own agent records nothing:
-# it sees that agent mid-turn, which says nothing about the slot once the turn ends, and its needs-you list would stand
-# on the slot's tab until a check from outside replaced it.
+# free; a slot with no name takes the earliest created PR's that is no probe. A check run inside the slot's own agent
+# records nothing: it sees that agent mid-turn, which says nothing about the slot once the turn ends, and its needs-you
+# list would stand on the slot's tab until a check from outside replaced it.
 check_record() {
   local repo=$1 n=$2 origin items
   [[ $(contract_json -r .state <<<"$CHECK_VERDICT") == active ]] || return 0
   ! contract_json -e 'any(.blockers[]; .code == "checked-by-own-agent")' <<<"$CHECK_VERDICT" >/dev/null || return 0
   origin=$(git -C "$(slot_path "$repo" "$n")" config --get remote.origin.url || true)
   items=$(contract_json -c --arg repo "$(pr_repo_slug "$origin")" \
-    '.prs | sort_by(.created_at) | map({kind: "pr", repo: $repo, number, title})' <<<"$CHECK_VERDICT")
+    '.prs | sort_by(.created_at) | map({kind: "pr", repo: $repo, number, title, probe})' <<<"$CHECK_VERDICT")
   item_add "$repo" "$n" "$origin" "$items" --argjson v "$CHECK_VERDICT" --arg at "$(contract_now)" \
     '.last_check = {at: $at, finished: $v.finished, blockers: $v.needs_you}' || true
 }

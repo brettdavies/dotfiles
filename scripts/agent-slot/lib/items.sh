@@ -1,8 +1,9 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
 # Work items: the GitHub PR or issue a slot works on. A ref names one as N, owner/name#N, or its GitHub URL, a bare N
 # being in origin's repo; item_resolve reads it from GitHub, and item_name alone derives a slot's name from it. A slot's
-# record holds its items as {kind, repo, number, title} and its name, which the first item gives and which no later item
-# changes; item_add is the one writer of both, for check's adoption of a PR and for the adopt verb.
+# record holds its items as {kind, repo, number, title} and its name, which the first item other than a probe gives and
+# which no later item changes; item_add is the one writer of both, for check's adoption of a PR and for the adopt and
+# probe verbs.
 
 ITEM_NUMBER_PATTERN='[1-9][0-9]{0,9}'
 ITEM_REPO_PATTERN='[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
@@ -27,8 +28,8 @@ item_parse_ref() {
 }
 
 # Usage: item_resolve; reads the item item_parse_ref named from GitHub into ITEM: {kind, repo, number, title, state}, and
-# for a PR also head_branch, head_repo (owner/name), head_url, and cross_repository, with head_repo and head_url null
-# once the head's repository is gone. state is gh's OPEN, CLOSED, or MERGED. The caller has required gh.
+# for a PR also head_branch, head_oid, head_repo (owner/name), head_url, cross_repository, draft, and url, with head_repo
+# and head_url null once the head's repository is gone. state is gh's OPEN, CLOSED, or MERGED. The caller has required gh.
 #
 # The issues API answers for both kinds and says which one the number is. It also names the repository as GitHub
 # does, which sets ITEM_REPO and the item's repo whatever case the ref was typed in. Only a PR's own view names its
@@ -56,14 +57,15 @@ item_resolve() {
     return 0
   fi
   _item_gh pr view "$ITEM_NUMBER" --repo "$ITEM_REPO" \
-    --json headRefName,headRepository,headRepositoryOwner,isCrossRepository,state,title,url
+    --json headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository,isDraft,state,title,url
   ITEM=$(contract_json -c --arg repo "$ITEM_REPO" --argjson number "$ITEM_NUMBER" '
     if type == "object" and has("headRefName") then . else error("not a PR") end
     | (if .headRepository and .headRepositoryOwner
        then "\(.headRepositoryOwner.login)/\(.headRepository.name)" else null end) as $head
     | {kind: "pr", repo: $repo, number: $number, title: (.title // ""), state, head_branch: .headRefName,
-       head_repo: $head, head_url: (if $head then "https://github.com/\($head).git" else null end),
-       cross_repository: (.isCrossRepository == true)}' <<<"$ITEM_GH_OUT") \
+       head_oid: (.headRefOid // null), head_repo: $head,
+       head_url: (if $head then "https://github.com/\($head).git" else null end),
+       cross_repository: (.isCrossRepository == true), draft: (.isDraft == true), url: (.url // null)}' <<<"$ITEM_GH_OUT") \
     || _item_unreadable "gh answered with something other than a PR"
 }
 
@@ -102,18 +104,20 @@ ITEM_ADD_FILTER='(if $items == [] then . else .items = reduce $items[] as $i (.i
   | if .name == null and $name != "" then .name = $name else . end'
 
 # Usage: item_add <repo> <n> <origin url> <items> [<jq options...> <filter>]; adds the JSON array <items> of work items
-# to the slot's record under its lock, the first one naming a slot that has no name. A filter given runs after, in the
-# same update.
+# to the slot's record under its lock, the first one naming a slot that has no name. An item with probe: true never names
+# it, because a name never changes and a throwaway PR would label the slot's real task for good. A filter given runs
+# after, in the same update.
 item_add() {
-  local repo=$1 n=$2 origin items name='' filter=$ITEM_SAME_DEF$ITEM_ADD_FILTER
+  local repo=$1 n=$2 origin items namer name='' filter=$ITEM_SAME_DEF$ITEM_ADD_FILTER
   origin=$(pr_repo_slug "$3")
   items=$(contract_json -c 'map({kind, repo, number, title: (.title // "")})' <<<"$4")
+  namer=$(contract_json -c 'map(select(.probe != true)) | .[0]' <<<"$4")
   shift 4
   if (($# > 0)); then
     filter+=" | ${*: -1}"
     set -- "${@:1:$#-1}"
   fi
-  [[ $items == '[]' ]] || name=$(item_name "$(contract_json -c '.[0]' <<<"$items")")
+  [[ $namer == null ]] || name=$(item_name "$namer")
   record_update "$repo" "$n" --argjson items "$items" --arg origin "$origin" --arg name "$name" "$@" "$filter"
 }
 
@@ -186,7 +190,7 @@ _item_gh() {
   fi
   if grep -q 'HTTP 404' "$BOUNDED_LOG"; then
     contract_fail item-not-found "GitHub has no PR or issue $ITEM_REPO#$ITEM_NUMBER that gh can see" \
-      --value "$ITEM_REF" --command "agent-slot launch --help" --log "$BOUNDED_LOG"
+      --value "$ITEM_REF" --command "$(contract_help_command)" --log "$BOUNDED_LOG"
   fi
   if ((BOUNDED_STATUS == 124)); then
     _item_unreadable "gh did not answer within 30 s"

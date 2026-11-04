@@ -461,7 +461,10 @@ slot keeps the issue's name once its PR opens; it labels the slot and its Claude
 *reopen* brings a torn-down slot's work back by one of its work items: a fresh slot on the branch the old one had
 checked out, whose agent resumes the old slot's Claude conversation by its session ID. A reopened task's *settled PRs*,
 those already merged or closed when it was reopened, neither finish it nor hold its slot back, so only a new outcome
-ends it.
+ends it. A *probe* is a draft PR the slot's agent has declared throwaway, opened to exercise CI or a workflow and never
+meant to merge. Nothing infers one, it never names its slot, and it stops being one if it leaves draft. Closed unmerged
+it counts like a settled PR, and the slot closes it itself, through a verb that acts only on a marked draft whose head
+that slot pushed.
 
 ### Prime tab
 
