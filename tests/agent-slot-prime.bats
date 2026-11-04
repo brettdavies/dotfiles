@@ -280,6 +280,13 @@ JSON
   jaq -e '.conversation.mode == "fresh"' <<<"$output"
 }
 
+@test "a flag where the repo goes is a usage error, not a search for a repo of that name" {
+  run --separate-stderr "$AGENT_SLOT" prime --bogus --output json
+  [ "$status" -eq 2 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "usage" and .value == "--bogus" and (.message | contains("unknown option"))' <<<"$stderr"
+}
+
 @test "a title scan that fails stops the start with script-error and starts no session" {
   [ "$(id -u)" -ne 0 ] || skip "root reads an unreadable file"
   local file=$AGENT_SLOT_CLAUDE_PROJECTS/-fixture-dev-repoa/aaaaaaaa-0000-4000-8000-000000000001.jsonl

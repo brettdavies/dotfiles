@@ -218,6 +218,7 @@ main() {
       ;;
     prime)
       ((${#args[@]} == 1)) || usage_fail "prime takes one repo" "${args[*]}"
+      [[ ${args[0]} != -* ]] || usage_fail "unknown option ${args[0]}" "${args[0]}"
       exec </dev/null
       cmd_prime "${args[0]}"
       ;;
