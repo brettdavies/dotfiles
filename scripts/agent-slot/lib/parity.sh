@@ -234,7 +234,7 @@ parity_claude_settings() {
 # prime-not-set-up, head-not-on-base, or null when the repo has nothing to install.
 PARITY_DEPS=null
 parity_deps() {
-  local prime=$1 slot=$2 manager tool out status=installed log=''
+  local prime=$1 slot=$2 manager tool out started status=installed log=''
   local -a args run
   PARITY_DEPS=null
   [[ -f $slot/package.json ]] || return 0
@@ -260,10 +260,15 @@ parity_deps() {
     run=("$tool" "${args[@]}")
     [[ $manager == bun ]] \
       || run=(bash -c 'source "$1"; shift; exec "$@"' gate "$AS_HOME/../../config/shell/supply-chain.sh" "${run[@]}")
+    started=$SECONDS
     if ! bounded out deps "$AS_DEPS_TIMEOUT" "${AS_GIT_REMOTE[@]}" "PATH=${tool%/*}:$PATH" \
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 /usr/bin/env -C "$slot" "${run[@]}"; then
       status=failed
-      ((BOUNDED_STATUS != 124)) || status='timed-out'
+      # A manager that ignores TERM takes timeout's KILL and exits 137; a KILL from outside, such as the OOM killer, ends
+      # the install before the limit and stays a failure.
+      if ((BOUNDED_STATUS == 124 || (BOUNDED_STATUS == 137 && SECONDS - started >= AS_DEPS_TIMEOUT))); then
+        status='timed-out'
+      fi
       log=$BOUNDED_LOG
     fi
   fi

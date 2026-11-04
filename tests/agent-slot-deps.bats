@@ -229,6 +229,23 @@ real_bun() {
   [ -r "$(jaq -r '.deps.log' <<<"$output")" ]
 }
 
+@test "an install that ignores its stop signal and has to be killed still reads as timed-out" {
+  js_repo bun.lock
+  stub_manager bun "trap '' TERM; exec sleep 30"
+  AGENT_SLOT_DEPS_TIMEOUT=1 launch r-wedged
+  [ "$status" -eq 0 ]
+  jaq -e '.deps.status == "timed-out" and .state == "active"' <<<"$output"
+}
+
+@test "an install killed from outside before its limit reads as failed, not timed-out" {
+  js_repo bun.lock
+  stub_manager bun 'kill -9 $$'
+  launch r-killed
+  [ "$status" -eq 0 ]
+  jaq -e '.deps.status == "failed"' <<<"$output"
+  grep -q '^exit: 137' "$(jaq -r '.deps.log' <<<"$output")"
+}
+
 @test "a package manager this host lacks is reported, and the slot is still made" {
   js_repo pnpm-lock.yaml
   export AGENT_SLOT_PNPM=$T/no-such-pnpm
