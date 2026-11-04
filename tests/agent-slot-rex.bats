@@ -1107,6 +1107,31 @@ assert_nothing_changed() {
   not_called '^rex window close'
 }
 
+@test "reconcile plans no rename or close for a prime's tab, whether or not its repo has slots" {
+  slots '[]' '[{"repo": "X"}]'
+  session sess-x X '[{"window_id": "w1", "label": "1: X/prime · not this", "blocks": ["b1"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach X/prime claude"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  assert_nothing_changed
+
+  : >"$CALLS"
+  slots '[{"repo": "X", "slot": 1, "task": "t"}]' '[{"repo": "X"}]'
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called "^rex window new -s sess-x X/1 · t "
+  not_called '^rex window (rename|close)'
+}
+
+@test "a prime's tab whose prime no longer runs is left for its loop, and never closed" {
+  slots '[]'
+  session sess-x X '[{"window_id": "w1", "label": "1: X", "blocks": ["b1"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach X/prime claude"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  assert_nothing_changed
+}
+
 @test "a pass with every prime's tab present changes nothing and journals an empty plan" {
   slots '[]' "$(jaq -n -c '[{repo: "X"}, {repo: "Y", server: "default", session: "Y Prime", label: "Y Prime"}]')"
   session sess-x X '[{"window_id": "w1", "label": "1: X", "blocks": ["b1"]}]'
@@ -1389,6 +1414,23 @@ sweep_tore_down() {
   run "$AGENT_SLOT_REX" finish --tab --session sess-x --block b2
   [ "$status" -eq 0 ]
   called "^rex new agent-slots --window finish X/2 --json -- $STUBS/agent-slot-rex finish X/2$"
+  not_called '^agent-slot '
+}
+
+@test "the finish key on a prime's tab is a usage error, and nothing is finished" {
+  session sess-x X '[{"window_id": "w1", "label": "1: X", "blocks": ["b1"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach X/prime claude"
+  run --separate-stderr "$AGENT_SLOT_REX" finish --tab --session sess-x --block b1 --output json
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and (.message | contains("not an agent slot'"'"'s tab"))' <<<"$stderr"
+  not_called '^agent-slot finish'
+  not_called '^rex (new|window new|window close)'
+}
+
+@test "agent-slot-rex finish given a prime's key is refused, and nothing is finished" {
+  run --separate-stderr "$AGENT_SLOT_REX" finish X/prime --output json
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and .value == "X/prime"' <<<"$stderr"
   not_called '^agent-slot '
 }
 

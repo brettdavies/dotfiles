@@ -282,6 +282,20 @@ assert_own_worktree() {
   assert_prime_untouched
 }
 
+@test "a launch that fails and rolls back leaves the prime's sessions" {
+  rm -f "$STUBS/tmux-panes-default"
+  printf 'repoa-prime\nrepoa-prime-files\nrepoa-prime-git\n' >"$STUBS/tmux-sessions"
+  cp "$STUBS/tmux" "$STUBS/tmux.inner"
+  stub tmux '[[ " $* " != *" new-session "*"-s repoa-1-git "* ]] || exit 1
+exec "$STUBS/tmux.inner" "$@"'
+  launch repoa --request-id r-rollback
+  [ "$status" -ne 0 ]
+  jaq -e '.reason == "tmux-failed"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+  [ "$(cat "$STUBS/tmux-sessions")" = $'repoa-prime\nrepoa-prime-files\nrepoa-prime-git' ]
+  run ! grep -q 'kill-session -t =repoa-prime' "$CALLS"
+}
+
 @test "a setup that fails after the worktree is made removes the worktree and its registration" {
   stub tmux 'exit 1'
   launch repoa --request-id r-rollback
@@ -1078,9 +1092,9 @@ EOF
 
 @test "two concurrent resumes create each session once" {
   slot repoa 1
-  "$AGENT_SLOT" resume repoa/1 --output json >/dev/null 2>&1 &
+  AGENT_SLOT_LOCK_WAIT=60 "$AGENT_SLOT" resume repoa/1 --output json >/dev/null 2>&1 &
   local a=$!
-  "$AGENT_SLOT" resume repoa/1 --output json >/dev/null 2>&1 &
+  AGENT_SLOT_LOCK_WAIT=60 "$AGENT_SLOT" resume repoa/1 --output json >/dev/null 2>&1 &
   wait "$a"
   wait $!
   [ "$(grep -c 'new-session' "$CALLS")" -eq 3 ]

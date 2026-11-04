@@ -379,6 +379,19 @@ labeled() {
   jaq -e '.ok and .rexurrect == "done"' "$LOG"
 }
 
+@test "the start-up step keeps a session holding only a prime's tab, and one holding a prime's and a slot's tab" {
+  started_by_rex
+  session sess-p A '[{"window_id": "w1", "label": "1: A", "blocks": ["b1"]}]'
+  runs b1 1001 "agent-slot-rex attach A/prime claude"
+  session sess-q B '[{"window_id": "w2", "label": "1: B", "blocks": ["b2"]},
+    {"window_id": "w3", "label": "B/1", "blocks": ["b3"]}]'
+  runs b2 1002 "agent-slot-rex attach B/prime claude"
+  runs b3 1003 "agent-slot-rex attach B/1 claude"
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex kill '
+}
+
 @test "the start-up step keeps a session that holds a tab the reconcile did not open" {
   started_by_rex
   session sess-own A '[{"window_id": "w1", "label": "prime", "blocks": ["b1"]},
