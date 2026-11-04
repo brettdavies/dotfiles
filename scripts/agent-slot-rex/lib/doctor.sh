@@ -144,7 +144,7 @@ doctor_check_tmux() {
   rm -f "$out"
   if ((status == 124 || status == 137)); then
     doctor_finding error tmux-unresponsive "the $AR_TMUX_SOCKET tmux server did not answer within 10 s" \
-      --value "$AR_TMUX_SOCKET" --command "timeout 5 $AR_TMUX -L $AR_TMUX_SOCKET list-sessions"
+      --value "$AR_TMUX_SOCKET" --command "$AR_TMUX -L $AR_TMUX_SOCKET list-sessions"
     return 0
   fi
   ((status == 0)) && [[ $pid =~ ^[0-9]+$ ]] || return 0
