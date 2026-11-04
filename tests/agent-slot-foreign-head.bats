@@ -786,6 +786,31 @@ run_qmd() { (cd "$SLOT" && qmd collection list >/dev/null 2>&1) || true; }
   [ -e "$T/marks/bun-preload" ]
 }
 
+# run_bun_script: a Bun script kept outside the tree and started from the slot's root, as a Bun-run tool such as qmd is:
+# Bun reads its config and .env from the working directory. Prints the value the tree's .env gave it.
+run_bun_script() {
+  printf 'console.log(process.env.FROM_TREE ?? "unset");\n' >"$T/outside/probe.ts"
+  (cd "$SLOT" && bun run "$T/outside/probe.ts" 2>/dev/null </dev/null) || true
+}
+
+@test "a Bun script started in a foreign head's slot runs no preload and reads no .env from the tree" {
+  command -v bun >/dev/null || skip "bun is not installed"
+  foreign_pr tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(run_bun_script)" = unset ]
+  [ -z "$(ls "$T/marks")" ]
+}
+
+@test "the same Bun script in an own fork's slot does both, so the test above is not vacuous" {
+  command -v bun >/dev/null || skip "bun is not installed"
+  own_pr tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(run_bun_script)" = 1 ]
+  [ -e "$T/marks/bun-preload" ]
+}
+
 # bare_shaped: a tracked directory git takes for a bare repository once a command runs below it, whose config runs a
 # command on `git status` and names the directory itself as its work tree.
 bare_shaped() {

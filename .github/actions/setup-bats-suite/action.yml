@@ -55,6 +55,17 @@ runs:
       # running. Without it those tests skip, and a change in what the flags mean would pass here.
       uses: ./.github/actions/setup-claude-code
 
+    - name: Install lazygit
+      # agent-slot-foreign-head.bats proves what lazygit loads from a tree, and skips without it.
+      uses: ./.github/actions/setup-lazygit
+
+    - name: Install Bun
+      # agent-slot-foreign-head.bats proves Bun reads a tree's preload and .env from its working directory, which is why
+      # a foreign head keeps them off disk, and skips without it. The version follows the machine, as every Bun pin does.
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      with:
+        bun-version: 1.4.4
+
     - name: Install uv
       # md-align-tables.bats runs the table aligner's unit tests through
       # `uv run --with wcwidth`, because the script imports wcwidth at load.
@@ -65,16 +76,17 @@ runs:
         # and the one suite that needs it runs about 0.3 s faster with it.
         enable-cache: false
 
-    - name: Install zsh + stow + jq + trash-cli
+    - name: Install zsh + stow + jq + trash-cli + git-crypt
       # zsh: shell-config.bats syntax-checks dot-zshrc / dot-zshenv / dot-zprofile.
       # stow: stow-deploy-args.bats checks exit codes; without stow the script
       #   exits with EXIT_DEPENDENCY (3) instead of EXIT_USAGE (2).
       # jq: heredoc-pr-guard.bats invokes jaq for fake JSON construction.
       # trash-cli: the agent-slot suites trash slot clones with the real
       #   trash-put into a sandbox trash, since teardown purges the entry it wrote.
+      # git-crypt: agent-slot-foreign-head.bats proves on a real encrypted base that a foreign head stays ciphertext.
       uses: ./.github/actions/setup-apt-packages
       with:
-        packages: zsh stow jq trash-cli
+        packages: zsh stow jq trash-cli git-crypt
 
     - name: Name jq as jaq
       # jaq is a jq-compatible Rust reimplementation; tests use only the
