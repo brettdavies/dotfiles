@@ -72,6 +72,33 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"--dangerously-skip-permissions"* ]]
 }
 
+@test "a slot of the vault is told to work on main, rebase before each push, and keep the vault's content in the vault" {
+  printf '%s' obsidian-vault-1 >"$STUBS/pane-session"
+  slot obsidian-vault 1 '{"task": "tidy-notes"}'
+  run start s1 startup "$AGENT_SLOT_ROOT/obsidian-vault/1"
+  [ "$status" -eq 0 ]
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"only your own task's work, on main"* ]]
+  [[ $context == *'`git fetch` then `git rebase origin/main` before each push'* ]]
+  [[ $context == *"Nothing automated commits in the vault"* ]]
+  [[ $context == *"no vault content"*"docs/solutions"* ]]
+  [[ $context == *"finished when its work is on origin/main"* ]]
+  [[ $context != *"finished when its PRs are open"* ]]
+  [[ $context == *"commit on main and push anything that is real work"* ]]
+  [[ $context != *"commit and PR"* ]]
+  [[ $context == *"record only a tooling or process lesson, with no note title, path, name, or quotation"* ]]
+}
+
+@test "a slot of any other repo gets no vault rules and finishes on its PRs" {
+  slot repo 1 '{"task": "fix-login"}'
+  run start s1 startup
+  [ "$status" -eq 0 ]
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context != *"git rebase origin/main"* ]]
+  [[ $context == *"finished when its PRs are open"* ]]
+  [[ $context == *"commit and PR anything that is real work"* ]]
+}
+
 @test "a slot with its own solutions worktree is told docs/solutions is that worktree; an older slot, the shared repo" {
   slot repo 1 '{"task": "t", "solutions_worktree": "/s/repo/.solutions/1-abc"}'
   run start s1 startup

@@ -4,8 +4,9 @@
 # and the AGENT_SLOT_REX_* overrides. uname is a stub on PATH that reports Linux, or $UNAME_STUB when set, so the suite
 # runs the server's code paths on a Mac too.
 #
-# rex answers from files under $STUBS/rexdata: sessions.json for `ls`, session-<id>.json for `session inspect`, and
-# process-<block>.json for `block call process`. `new` adds the session it makes to sessions.json and writes its
+# rex answers from files under $STUBS/rexdata: sessions.json for `ls`, session-<id>.json for `session inspect`,
+# process-<block>.json for `block call process`, and size-<block>.json for `block call size`, a terminal no client has
+# asked a size of when absent. `new` adds the session it makes to sessions.json and writes its
 # session-<id>.json, so a later lookup or inspect finds it; `window new` adds its window to the session's file and starts
 # its block's command, as ps sees it; `window rename` changes the window's label there; `send` to a block that
 # attaches_on_send names adds a client of the prime on that block's terminal. As Rex does, rex refuses a tab
@@ -114,7 +115,10 @@ case "$1 $2" in
     cat "$STUBS/rexdata/session-$3.json" 2>/dev/null || { echo "session $3 not found" >&2; exit 1; } ;;
   "block call")
     b=$(printf "%s\n" "$@" | sed -n "/^-b$/{n;p;}")
-    cat "$STUBS/rexdata/process-$b.json" 2>/dev/null || echo "{\"child\":{\"pid\":0}}" ;;
+    case ${!#} in
+      size) cat "$STUBS/rexdata/size-$b.json" 2>/dev/null || echo "{\"owner\":null,\"desired\":[]}" ;;
+      *) cat "$STUBS/rexdata/process-$b.json" 2>/dev/null || echo "{\"child\":{\"pid\":0}}" ;;
+    esac ;;
   "window new")
     n=$(grep -c "^rex window new\|^rex new" "$CALLS")
     sid=$4 label=$5
@@ -362,11 +366,18 @@ attaches_on_send() {
   printf '%s\n' "$2" >"$STUBS/rexdata/attaches-on-send-$1"
 }
 
-# shown SESSION WINDOW: the session's active window, which a Rex.app selection moves, is WINDOW.
-shown() {
+# active SESSION WINDOW: the session's active window is WINDOW.
+active() {
   local f=$STUBS/rexdata/session-$1.json
   jaq -c --arg w "$2" '.active_window_id = $w' "$f" >"$f.new"
   mv "$f.new" "$f"
+}
+
+# sized BLOCK: an app has asked the server for a size for the block's terminal, as Rex.app does for each pane of a tab
+# it shows.
+sized() {
+  printf '%s\n' '{"owner":"client:app","desired":[{"client_id":"client:app","columns":120,"rows":40,
+    "updated_at":"2026-11-03T14:24:52Z"}]}' >"$STUBS/rexdata/size-$1.json"
 }
 
 # runs BLOCK PID COMMAND: the block's own process is PID, and ps shows it running COMMAND.

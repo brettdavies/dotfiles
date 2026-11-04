@@ -186,6 +186,18 @@ test: a path is a phantom only when its content matches the remote, and being un
 does not make it one. Every other uncommitted change in a shared clone is another writer's in-progress work, which a
 sync carries across or leaves alone and never reverts.
 
+### Canonical browser set
+
+The one set of Playwright browser builds that dotfiles provisions into the machine's shared browser cache for every repo
+and tool, so that no repository installs browsers itself. *Avoid:* the pinned set, the dotfiles browsers
+
+A tool pinned to a slightly older Playwright release asks for its own build by name and is answered by an alias to the
+canonical build, never by a second download; a tool on a newer release installs its own build alongside. Because any
+Playwright install deletes the cache's browser directories that no registered client names, the set survives other
+tools' installs only while it is registered with Playwright's cleanup. It is a test-reproducibility artifact: a pinned
+build lags stable Chrome's security fixes and launches unsandboxed by default, so it is not the browser for pages nobody
+vetted.
+
 ## System configuration
 
 ### System-level unit
@@ -418,28 +430,29 @@ unreachable or the hand-off fails, the file goes to the host's local opener wher
 
 A clone of a repo, at a stable numbered path (`~/slots/<repo>/<N>`) on the headless host, that holds exactly one agent
 task at a time. A slot is set up like the repo's *prime checkout* (the operator's own clone under `~/dev`, or
-`~/dotfiles`, which is never part of the slot pool and never changed by it): the repo's hooks run from the slot's own
-copy, `docs/solutions` links to the slot's own *writer worktree* of the solutions repo, `.context/repo-recon` links to
-the repo's repo-recon store when it has one, Claude reads and writes the repo's single auto memory, the prime's local
-permission grants apply, and a prime that is a partial clone gives the slot a partial clone with the same filter. A slot
-path is either empty or holds one task. The task keeps its slot through review rounds until it has finished: none of its
-PRs is open or closed without merging and one has merged, the operator finished it, whatever state its PRs are in, or
-its agent released it with no PR open. A task's PRs are those opened from its branches after its slot was made, and an
-older one whose head a branch of the slot holds beyond the base, such as the PR a review round works on. The slot's
-agent ends its task with a *release*: once it has run the closing skills that record its learnings and stopped every
-background job it no longer needs, it hands the slot's teardown upstream, to a finish outside the slot that waits for
-the agent to go idle. An agent still waiting on something, such as CI, never stops that wait to release: it records why
-the slot is *not yet* ready, which keeps the slot off the needs-you list while the agent is there and gets the agent
-reminded later. Of the agent's release and its not-yet, the newer stands: a not-yet withdraws an earlier release, and
-the finish that release started stands down. It never undoes the operator's finish, which is the operator's decision
-rather than the agent's. A *slot sweep* deletes the clone, moving it to the trash and purging it from there at once,
-only when nothing in it is missing from GitHub (a PR's head, origin, or the fork on origin's host that one of its
-branches tracks or pushes to) and its agent is idle or gone; the *automatic sweep*, which a timer runs, deletes only a
-slot its agent released or the operator finished, and first reminds the agent of a finished slot held back only by files
-left in it to clean them up. A slot that fails that check stays put on the *needs-you list*, which names each blocker,
-and is never deleted. A slot whose tmux sessions are gone after a server reboot is *dormant* until resume restarts them
-and its conversation. Each live slot has one tab in its repo's session on the headless host's Rex server, which the
-*slot reconcile* keeps; Rex clients on the macOS development machine and the phone only show it.
+`~/dotfiles` or `~/obsidian-vault`, which is never part of the slot pool and never changed by it): the repo's hooks run
+from the slot's own copy, `docs/solutions` links to the slot's own *writer worktree* of the solutions repo,
+`.context/repo-recon` links to the repo's repo-recon store when it has one, Claude reads and writes the repo's single
+auto memory, the prime's local permission grants apply, and a prime that is a partial clone gives the slot a partial
+clone with the same filter. A slot path is either empty or holds one task. The task keeps its slot through review rounds
+until it has finished: none of its PRs is open or closed without merging and one has merged, the operator finished it,
+whatever state its PRs are in, or its agent released it with no PR open. A task's PRs are those opened from its branches
+after its slot was made, and an older one whose head a branch of the slot holds beyond the base, such as the PR a review
+round works on. The slot's agent ends its task with a *release*: once it has run the closing skills that record its
+learnings and stopped every background job it no longer needs, it hands the slot's teardown upstream, to a finish
+outside the slot that waits for the agent to go idle. An agent still waiting on something, such as CI, never stops that
+wait to release: it records why the slot is *not yet* ready, which keeps the slot off the needs-you list while the agent
+is there and gets the agent reminded later. Of the agent's release and its not-yet, the newer stands: a not-yet
+withdraws an earlier release, and the finish that release started stands down. It never undoes the operator's finish,
+which is the operator's decision rather than the agent's. A *slot sweep* deletes the clone, moving it to the trash and
+purging it from there at once, only when nothing in it is missing from GitHub (a PR's head, origin, or the fork on
+origin's host that one of its branches tracks or pushes to) and its agent is idle or gone; the *automatic sweep*, which
+a timer runs, deletes only a slot its agent released or the operator finished, and first reminds the agent of a finished
+slot held back only by files left in it to clean them up. A slot that fails that check stays put on the *needs-you
+list*, which names each blocker, and is never deleted. A slot whose tmux sessions are gone after a server reboot is
+*dormant* until resume restarts them and its conversation. Each live slot has one tab in its repo's session on the
+headless host's Rex server, which the *slot reconcile* keeps; Rex clients on the macOS development machine and the phone
+only show it.
 
 A slot's *work items* are the GitHub PRs and issues its task works on, each known by kind, repository, and number. A
 slot gets them when it is launched or reopened on one, when one is adopted onto it, and when its own PRs are found. Its
@@ -458,6 +471,19 @@ each repo that has one. What makes a tab the prime tab is that attachment, never
 still is one, and a tab whose client detached is not. The new-agent key opens one, first in the session, while the
 session has none, and starts a slot once it does. After a Rex restart, rexurrect brings a prime tab back as a plain
 shell, and the *start-up step* makes it the prime again by running the key's prime command in it.
+
+### New-agent key
+
+The Rex key that opens a tab in the session its context names, normally the one the operator is in, and makes it that
+repo's *prime tab*, a new *agent slot*'s tab, or, in a session named after no repo, a picker that launches the chosen
+repo's slot in that repo's session.
+
+The tab starts nothing until a Rex app *shows* it, because Rex.app can hand the key the context of a pane in another
+session, even on another host, where nobody would see the tab; a tab never shown asks for Enter, goes on if it comes,
+and otherwise closes itself. A tab counts as shown once some Rex client has asked the server for a size for its
+terminal, which an app does only for the panes it lays out on screen. The session's active window is never taken as that
+sign: Rex.app can show a tab without the active window moving to it in time, and a tab that opens alone in a session
+becomes its active window with nobody looking.
 
 ### Slot reconcile
 

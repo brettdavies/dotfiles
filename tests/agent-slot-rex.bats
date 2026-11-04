@@ -238,9 +238,23 @@ in_rex_session() {
   not_called '^agent-slot-rex prime'
 }
 
-@test "a tab a key opened goes on once the app shows it, which makes it the session's active window" {
+@test "a tab a key opened goes on once an app has asked a size for its terminal, as an app does for the tab it shows" {
   in_rex_session X
-  shown sess-a win-a
+  sized blk-a
+  repos X
+  slot_answer launch 0 "$LAUNCHED"
+  run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
+  [ "$status" -eq 0 ]
+  called '^rex block call -s sess-a -b blk-a size$'
+  called '^agent-slot launch X '
+  not_called '^rex window close'
+}
+
+@test "a tab the app sized goes on though the server's active window is still another tab" {
+  in_rex_session X '[{"window_id": "win-o", "label": "1: notes", "blocks": ["blk-o"]},
+    {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
+  active sess-a win-o
+  sized blk-a
   repos X
   slot_answer launch 0 "$LAUNCHED"
   run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
@@ -252,7 +266,7 @@ in_rex_session() {
 @test "a key's launch tells the server when its tab opened and was shown, each before the request" {
   local args opened shown requested now
   in_rex_session X
-  shown sess-a win-a
+  sized blk-a
   repos X
   slot_answer launch 0 "$LAUNCHED"
   run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
@@ -266,10 +280,11 @@ in_rex_session() {
     '$o <= $s and $s <= $r and $r <= $now and $now - $o < 30'
 }
 
-@test "a tab a key opened that the app never shows starts nothing and closes itself" {
+@test "a tab a key opened that no app shows starts nothing and closes itself" {
   in_rex_session X '[{"window_id": "win-o", "label": "1: notes", "blocks": ["blk-o"]},
     {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
-  shown sess-a win-o
+  active sess-a win-o
+  sized blk-o
   repos X
   primes X 'X Prime'
   run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
@@ -280,16 +295,28 @@ in_rex_session() {
   not_called '^tmux '
 }
 
+@test "a tab no app shows starts nothing even as its session's active window, as in a session it opened alone" {
+  in_rex_session X
+  active sess-a win-a
+  repos X
+  primes X 'X Prime'
+  run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
+  [ "$status" -eq 0 ]
+  called '^rex window close -s sess-a win-a$'
+  not_called '^agent-slot launch'
+  not_called '^tmux '
+}
+
 @test "a key's tab reads the repos while it waits to be shown, and launches from that one read" {
   in_rex_session X '[{"window_id": "win-o", "label": "1: notes", "blocks": ["blk-o"]},
     {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
-  shown sess-a win-o
+  active sess-a win-o
   repos X
   run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
   [ "$status" -eq 0 ]
   [ "$(grep -c '^agent-slot repos ' "$CALLS")" -eq 1 ]
   : >"$CALLS"
-  shown sess-a win-a
+  sized blk-a
   slot_answer launch 0 "$LAUNCHED"
   run "$AGENT_SLOT_REX" launch --here --wait-shown </dev/null
   [ "$status" -eq 0 ]
@@ -299,7 +326,7 @@ in_rex_session() {
 
 @test "a key's tab whose early read of the repos fails reads them again once shown, with the launch's retry" {
   in_rex_session X
-  shown sess-a win-a
+  sized blk-a
   slot_answer repos 0 1 '' '{"ok": false, "reason": "script-error", "exit_code": 1, "message": "boom"}'
   repos X
   slot_answer launch 0 "$LAUNCHED"
@@ -309,11 +336,11 @@ in_rex_session() {
   called '^agent-slot launch X '
 }
 
-@test "with a terminal, a tab the app never made active goes on after Enter" {
+@test "with a terminal, a tab no app has shown goes on after Enter" {
   command -v script >/dev/null || skip "script(1) gives the helper a terminal"
   in_rex_session X '[{"window_id": "win-o", "label": "1: notes", "blocks": ["blk-o"]},
     {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
-  shown sess-a win-o
+  active sess-a win-o
   repos X
   slot_answer launch 0 "$LAUNCHED"
   run with_tty "$AGENT_SLOT_REX" launch --here --wait-shown <<<""

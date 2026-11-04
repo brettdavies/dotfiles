@@ -31,8 +31,8 @@ verb_help() {
       "--repo, in a session named after a repo that has a prime tmux session (prime --help), and with no tab of" \
       "the session attached to it, this tab becomes the prime's tab instead: first in the session, labelled" \
       "with the prime's name, and running prime. --wait-shown, which a key or palette press adds, first waits up" \
-      "to $AR_SHOWN_WAIT s for the app to make this tab the session's active window; a tab never shown starts" \
-      "nothing, and closes itself unless Enter comes within $AR_SHOWN_HOLD s." \
+      "to $AR_SHOWN_WAIT s for an app to show this tab, which it does by asking a size for its terminal; a tab" \
+      "never shown starts nothing, and closes itself unless Enter comes within $AR_SHOWN_HOLD s." \
       'example: agent-slot-rex launch --repo dotfiles --task fix/login' ;;
     prime) printf '%s\n' 'usage: agent-slot-rex prime <repo>' \
       "Attaches to the repo's prime tmux session on the default tmux server, named in $AR_PRIMES, from \$HOME," \

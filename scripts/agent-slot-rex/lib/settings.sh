@@ -42,8 +42,9 @@ AR_STARTUP_RECORD=$AR_STATE/startup.json
 AR_VERIFIED=${AGENT_SLOT_REX_VERIFIED_VERSIONS:-$AR_HOME/../agent-slot/verified-versions}
 AR_PRIMES=${AGENT_SLOT_REX_PRIMES:-${AR_HOME%/*/*}/config/agent-slot-rex/primes.tsv}
 AR_LOGIN_SHELL=${AGENT_SLOT_REX_LOGIN_SHELL:-${SHELL:-zsh}}
-# How long a tab a key opened waits for the app to show it, and then how long it waits for Enter before it closes.
-AR_SHOWN_WAIT=${AGENT_SLOT_REX_SHOWN_WAIT:-5}
+# How long a tab a key opened waits for the app to show it, and then how long it waits for Enter before it closes. A
+# shown tab returns at once, so the wait costs time only in a tab nobody sees; Rex.app has taken up to 2.9 s to show one.
+AR_SHOWN_WAIT=${AGENT_SLOT_REX_SHOWN_WAIT:-10}
 AR_SHOWN_HOLD=${AGENT_SLOT_REX_SHOWN_HOLD:-60}
 # How long the start-up step waits for the prime tabs it typed the prime command into to show a client.
 AR_PRIME_WAIT=${AGENT_SLOT_REX_PRIME_WAIT:-5}

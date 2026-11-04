@@ -186,16 +186,29 @@ gitstatusd_standin() {
   printf '%s\n' "$T/gitstatusd-linux-x86_64"
 }
 
+# seed_origin NAME ORIGIN: a bare repo at ORIGIN with one commit on main, pushed from a clone at $T/seed-NAME.
+seed_origin() {
+  [ ! -d "$2" ] || return 0
+  git init -q --bare "$2"
+  git clone -q "$2" "$T/seed-$1" 2>/dev/null
+  git -C "$T/seed-$1" commit -q --allow-empty -m seed
+  git -C "$T/seed-$1" push -q origin HEAD:main
+}
+
 # prime NAME [ORIGIN]: a clone under the dev root whose origin is a bare repo with one commit on main.
 prime() {
   local name=$1 origin=${2:-$T/origins/$1.git}
-  if [ ! -d "$origin" ]; then
-    git init -q --bare "$origin"
-    git clone -q "$origin" "$T/seed-$name" 2>/dev/null
-    git -C "$T/seed-$name" commit -q --allow-empty -m seed
-    git -C "$T/seed-$name" push -q origin HEAD:main
-  fi
+  seed_origin "$name" "$origin"
   git clone -q "$origin" "$AGENT_SLOT_DEV/$name"
+}
+
+# split_prime CHECKOUT GIT_DIR: a clone named for its checkout whose .git is a file naming GIT_DIR, the shape
+# `git clone --separate-git-dir` leaves, with a bare origin of one commit on main.
+split_prime() {
+  local name=${1##*/}
+  seed_origin "$name" "$T/origins/$name.git"
+  mkdir -p "${2%/*}"
+  git clone -q --separate-git-dir "$2" "$T/origins/$name.git" "$1"
 }
 
 # slot REPO N [JSON-FIELDS]: a slot clone with a record; the record merges the given fields over its defaults.

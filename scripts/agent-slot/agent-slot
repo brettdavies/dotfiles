@@ -8,7 +8,7 @@
 # Env (each defaults to the path in parentheses):
 #   AGENT_SLOT_ROOT            slot root (~/slots)
 #   AGENT_SLOT_DEV             where prime checkouts live (~/dev)
-#   AGENT_SLOT_EXTRA_PRIMES    colon-separated prime checkouts outside it (~/dotfiles)
+#   AGENT_SLOT_EXTRA_PRIMES    colon-separated prime checkouts outside it (~/dotfiles:~/obsidian-vault)
 #   AGENT_SLOT_STATE_DIR       ledger and failure logs (~/.local/state/agent-slot)
 #   AGENT_SLOT_RUN_DIR         the status hook's per-pane locks ($XDG_RUNTIME_DIR/agent-slot-<uid>)
 #   AGENT_SLOT_CLAUDE_PROJECTS Claude's per-project directories, read only (~/.claude/projects)

@@ -77,10 +77,10 @@ warm_fail_untrusted() {
   names=$(printf '%s, ' "$@")
   names=${names%, }
   (($# > 1)) || each=its
-  warm_status "prime untrusted in Claude for $count: $names; run claude once in $each prime"
+  warm_status "prime untrusted in Claude for $count: $names; run $SESSIONS_CLAUDE once in $each prime"
   contract_fail prime-untrusted "Claude does not trust the prime checkout of $count, so their slot paths cannot be \
 trusted: $names. Open Claude once in each prime and accept its trust dialog; the next warm trusts the paths." \
-    --value "$*" --command "cd $(contract_quote "$prime") && claude"
+    --value "$*" --command "cd $(contract_quote "$prime") && $SESSIONS_CLAUDE"
 }
 
 cmd_warm() {
@@ -108,7 +108,7 @@ cmd_warm() {
     contract_fail trust-dialog-unrecognized \
       "Claude showed a screen at $(contract_json -r .path <<<"$bad") that is not its trust dialog for that path, so \
 the path was left untrusted" --value "$(contract_json -r .path <<<"$bad")" \
-      --command "cd $(contract_json -r .path <<<"$bad") && claude" --side-effects partial \
+      --command "cd $(contract_json -r .path <<<"$bad") && $SESSIONS_CLAUDE" --side-effects partial \
       --log "$(contract_json -r .log <<<"$bad")"
   fi
   if ((WARM_ALL == 0)); then
