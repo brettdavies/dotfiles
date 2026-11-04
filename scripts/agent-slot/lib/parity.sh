@@ -53,10 +53,11 @@ parity_git_crypt() {
 # slot, and hooks installed straight into the prime's git directory are copied. That directory is asked of git, since a
 # prime's .git can be a file naming one elsewhere.
 parity_hooks() {
-  local prime=$1 slot=$2 path abs real prime_real hook
+  local prime=$1 slot=$2 path abs real prime_real hook hooks
   path=$(git -C "$prime" config --local --get core.hooksPath || true)
   if [[ -z $path ]]; then
-    for hook in "$(git -C "$prime" rev-parse --path-format=absolute --git-path hooks)"/*; do
+    hooks=$(git -C "$prime" rev-parse --path-format=absolute --git-path hooks) || return 0
+    for hook in "$hooks"/*; do
       [[ -f $hook && -x $hook && $hook != *.sample ]] || continue
       cp -p "$hook" "$slot/.git/hooks/"
     done

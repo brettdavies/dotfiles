@@ -29,7 +29,8 @@ VERBS=' repos list whoami launch resume warm check adopt reopen sweep finish rel
 verb_help() {
   case $1 in
     repos) printf '%s\n' 'usage: agent-slot repos [--output json]' \
-      'Lists each git repo under ~/dev (and ~/dotfiles and ~/obsidian-vault) that has an origin.' \
+      'Lists each git repo under ~/dev (and ~/dotfiles and ~/obsidian-vault) that has an origin. A repo goes by its' \
+      "directory's name, so the Obsidian vault is obsidian-vault." \
       'returns: repos[] of {name, prime, origin}' \
       'example: agent-slot repos --output json' ;;
     list) printf '%s\n' 'usage: agent-slot list [--output json]' \

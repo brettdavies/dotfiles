@@ -40,8 +40,8 @@ repo_prime() {
       return 0
     fi
   done < <(repo_primes)
-  contract_fail repo-not-found "no prime checkout named $1 with an origin under $AS_DEV" --value "$1" \
-    --command "agent-slot repos"
+  contract_fail repo-not-found "no prime checkout named $1 with an origin, under $AS_DEV or in \
+AGENT_SLOT_EXTRA_PRIMES; a repo goes by its directory's name" --value "$1" --command "agent-slot repos"
 }
 
 cmd_repos() {

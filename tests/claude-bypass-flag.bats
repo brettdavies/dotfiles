@@ -12,8 +12,9 @@
 REPO="$BATS_TEST_DIRNAME/.."
 FLAG=--dangerously-skip-permissions
 
-# What precedes `claude` when a line runs it: the line's start, a shell separator, exec, timeout, or a tmux send-keys.
-START='(^|&&|\|\||;|\bexec|\bthen|\bdo|timeout +[^ ]+|send-keys .*)[ "'"'"']*claude( |"|'"'"'|$)'
+# What precedes `claude` when a line runs it: the line's start, a shell separator or substitution, a wrapper command, a
+# variable assignment, or a tmux command that starts or types into a pane.
+START='(^|&&|\|\||;|\$\(|\bexec|\bthen|\bdo|\bnohup|\bcommand|\benv( +[A-Z_]+=[^ ]*)*|[A-Z_]+=[^ "'"'"']* |timeout +[^ ]+|(send-keys|new-session|new-window|split-window|respawn-pane) .*)[ "'"'"']*claude( |"|'"'"'|$)'
 # Past the subcommands, a case label reads as `claude | files | git)`.
 NOT_A_SESSION='claude +(-p|--print|agents|model|mcp|plugin|config|doctor|update|install|--version|--help|\|)( |"|$)'
 
@@ -35,6 +36,15 @@ exec claude --resume id
 timeout 5 claude
 tmux send-keys -t x "claude" C-m
 claude -n meum-api-prime
+tmux new-session -d -s x claude
+tmux new-window "claude"
+tmux split-window -h claude
+tmux respawn-pane -k claude
+FOO=1 claude
+nohup claude
+env X=1 claude
+command claude
+out=$(claude --resume id)
 EOF
   cat >"$dir/good.sh" <<'EOF'
 # cd /x && claude
@@ -44,9 +54,11 @@ SESSION_KINDS=(claude files git)
 cd /x && claude --dangerously-skip-permissions
 echo "claude agents --json failed"
   claude | files | git) ;;
+command -v claude >/dev/null
+DETAIL="claude process 42 has no session"
 EOF
   run bare_starts "$dir/bad.sh"
-  [ "${#lines[@]}" -eq 5 ]
+  [ "${#lines[@]}" -eq 14 ]
   run bare_starts "$dir/good.sh"
   [ -z "$output" ]
 }

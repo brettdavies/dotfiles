@@ -78,6 +78,14 @@ setup() {
   [ "$(jaq -c '[.repos[].name]' <<<"$output")" = '[]' ]
 }
 
+@test "a launch on a name no prime goes by says where it looked and how a repo is named" {
+  run --separate-stderr "$AGENT_SLOT" launch vault --request-id r-wrong-name --output json
+  [ "$status" -eq 2 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "repo-not-found" and .value == "vault" and .next_step.command == "agent-slot repos"
+    and (.message | contains("AGENT_SLOT_EXTRA_PRIMES") and contains("directory"))' <<<"$stderr"
+}
+
 @test "the extra primes default to the dotfiles checkout and the vault, whose name is the one its slots go by" {
   lib=$BATS_TEST_DIRNAME/../scripts/agent-slot/lib
   run bash -c 'unset AGENT_SLOT_EXTRA_PRIMES
