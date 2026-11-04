@@ -155,7 +155,7 @@ EOF
   run --separate-stderr "$AGENT_SLOT" warm repoa --count 1 --output json
   [ "$status" -eq 78 ]
   jaq -e --arg p "$AGENT_SLOT_ROOT/repoa/1" '.reason == "trust-dialog-unrecognized" and .value == $p
-    and .next_step.command == "cd \($p) && claude" and .next_step.action == "ask-operator"' <<<"$stderr"
+    and .next_step.command == "cd \($p) && claude --dangerously-skip-permissions" and .next_step.action == "ask-operator"' <<<"$stderr"
   grep -q 'Something else entirely' "$(jaq -r .log <<<"$stderr")"
   [ "$(grep -cF -- '-L agent-slot-trust send-keys' "$CALLS")" -eq 0 ]
   mapfile -t span < <(awk '/ new-session / || / kill-session / { print $1 }' "$T/trust-clock")
@@ -247,7 +247,7 @@ EOF
   [ "$status" -eq 78 ]
   assert_error_shape "$stderr"
   jaq -e --arg prime "$AGENT_SLOT_DEV/repob" '.reason == "prime-untrusted" and .value == "repob repoc"
-    and .next_step.action == "ask-operator" and .next_step.command == "cd \($prime) && claude"
+    and .next_step.action == "ask-operator" and .next_step.command == "cd \($prime) && claude --dangerously-skip-permissions"
     and (.message | contains("2 repos") and contains("repob, repoc"))' <<<"$stderr"
   grep -qF -- "-c $AGENT_SLOT_ROOT/repoa/2 " "$CALLS"
   [ ! -e "$AGENT_SLOT_ROOT/repob" ] && [ ! -e "$AGENT_SLOT_ROOT/repoc" ]
@@ -264,7 +264,7 @@ EOF
   prime repob
   AGENT_SLOT_MAX_PER_REPO=1 run --separate-stderr "$AGENT_SLOT" warm --all --output json
   [ "$status" -eq 78 ]
-  grep -qx 'systemd-notify --status=prime untrusted in Claude for 1 repo: repob; run claude once in its prime' "$CALLS"
+  grep -qx 'systemd-notify --status=prime untrusted in Claude for 1 repo: repob; run claude --dangerously-skip-permissions once in its prime' "$CALLS"
 }
 
 @test "warm takes a repo or --all, never both or neither" {

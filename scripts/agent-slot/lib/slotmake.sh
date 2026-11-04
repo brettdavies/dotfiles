@@ -12,7 +12,8 @@ SLOT_MADE='' SLOT_MADE_TRUST=false SLOT_MADE_PHASES=null
 
 # Usage: slot_rollback <repo> <n>
 # Removes a slot whose setup never finished: its tmux sessions, its worktree of the solutions repo, which no agent has
-# written in yet, its clone, and its claim. The caller holds the slot lock.
+# written in yet, its clone, and its claim. The clone's trash entry goes at once, as a teardown's does: no agent has
+# worked in it, and an unlocked clone of a git-crypt repo is plaintext. The caller holds the slot lock.
 slot_rollback() {
   local repo=$1 n=$2 path kind out real
   path=$(slot_path "$repo" "$n")
@@ -23,7 +24,10 @@ slot_rollback() {
   if [[ -e $path ]]; then
     real=$(realpath -m "$path")
     [[ $real == "$AS_ROOT_REAL"/*/* ]] || return 1
+    purge_before "$real"
     bounded out trash 60 "$AS_TRASH" "$path" || return 1
+    purge_find
+    purge_run "$repo" "$n"
   fi
   rm -f "$(slot_claim_file "$repo" "$n")"
 }

@@ -284,6 +284,18 @@ Slot agents run as the operator on the Linux server, so they can reach its Rex s
 with `rex send` and `rex send-key`, a `sudo` session or a root shell on another host kept in that server included. The
 account already gives them the operator's files and keys, so this adds reach rather than a privilege.
 
+The Obsidian vault takes slots too, several at once, under the name `agent-slot repos` lists it by:
+`agent-slot launch obsidian-vault --request-id <id> --prompt-file <brief>`. `~/obsidian-vault` keeps its git directory
+in `~/dev/vault-git`, so its `.git` is a file. A prime's `.git` may be a file when its git directory is also its common
+directory, which rules out a linked worktree; the git directory itself has no `.git` and is never listed. The prime map
+names no prime session for the vault, so the new-agent key always starts a slot of it. Nothing automated commits in the
+vault. A vault slot commits only its own task's work, on main, and runs `git fetch` then `git rebase origin/main` before
+each push, so parallel slots never clobber each other. Its SessionStart context carries those rules, and tells it to
+keep vault content out of `docs/solutions`, other repos, PR bodies, and every outside service. With no PR, its task
+finishes when its agent runs `agent-slot release`. A slot clones from origin, so it holds only what is pushed, and its
+work reaches `~/obsidian-vault`, which Obsidian and qmd read, when the operator pulls there. A slot's teardown treats no
+ignored directory as tool output, since the vault's whitelist `.gitignore` ignores every new top-level directory.
+
 Nobody watches a slot's tab, so no agent there waits on a dialog. `slot-unattended.sh` (in `stow/claude/dot-claude/`)
 answers every dialog Claude Code raises in a slot, for the slot's own Claude and for its subagents. It denies a
 permission request, which an ask rule still raises in bypass mode, and a call to `AskUserQuestion`, `EnterPlanMode`, or
@@ -348,12 +360,12 @@ On the Linux server:
    orphan sweep.
 3. `agent-slot-rex doctor` is the checklist from there. Each finding names what is missing with the command that fixes
    it, such as the login server's deploy or rexurrect's. Rerun it until it reports no errors.
-4. Open Claude once in each repo's prime checkout and accept its trust dialog, and do the same for every repo cloned
-   under `~/dev` later. A slot path is trusted only for a repo whose prime checkout you have trusted in Claude, because
-   trust lets Claude load the repo's own settings and hooks. `agent-slot-warm.timer` runs `agent-slot warm --all` every
-   ten minutes, which trusts every slot path of every repo `agent-slot repos` lists, so a new repo's slots start warm
-   within ten minutes of its prime being trusted. While any prime is untrusted the unit fails, and the failed-units
-   notice at every Claude session start names those repos.
+4. Run `claude --dangerously-skip-permissions` once in each repo's prime checkout and accept its trust dialog, which the
+   flag does not skip, and do the same for every repo cloned under `~/dev` later. A slot path is trusted only for a repo
+   whose prime checkout you have trusted in Claude, because trust lets Claude load the repo's own settings and hooks.
+   `agent-slot-warm.timer` runs `agent-slot warm --all` every ten minutes, which trusts every slot path of every repo
+   `agent-slot repos` lists, so a new repo's slots start warm within ten minutes of its prime being trusted. While any
+   prime is untrusted the unit fails, and the failed-units notice at every Claude session start names those repos.
 
 On the Mac:
 

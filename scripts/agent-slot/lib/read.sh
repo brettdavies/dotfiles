@@ -1,8 +1,19 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
 # The read verbs: repos, list, whoami.
 
-# Prime checkouts, as tab-separated name, path, and origin URL, sorted by name. A prime checkout is a clone (a .git
-# directory, never a worktree's .git file) with an origin, directly under the dev root or named in the extra list.
+# Usage: repo_is_clone <dir>; true when <dir> is the top of a clone: its .git is a directory, or a file naming a git
+# directory of its own, as --separate-git-dir leaves. A linked worktree's .git file names a directory inside the clone
+# it belongs to, which is why its git directory and its common directory differ. A git directory has no .git at all.
+repo_is_clone() {
+  local -a dirs
+  [[ ! -d $1/.git ]] || return 0
+  [[ -f $1/.git ]] || return 1
+  mapfile -t dirs < <(git -C "$1" rev-parse --path-format=absolute --git-dir --git-common-dir 2>/dev/null)
+  ((${#dirs[@]} == 2)) && [[ ${dirs[0]} == "${dirs[1]}" ]]
+}
+
+# Prime checkouts, as tab-separated name, path, and origin URL, sorted by name. A prime checkout is a clone with an
+# origin, directly under the dev root or named in the extra list, and a slot of it goes by its directory's name.
 repo_primes() {
   local dir origin
   local -a dirs=("$AS_DEV"/*/)
@@ -12,7 +23,7 @@ repo_primes() {
   unset IFS
   for dir in "${dirs[@]}"; do
     dir=${dir%/}
-    [[ -d $dir/.git ]] || continue
+    repo_is_clone "$dir" || continue
     origin=$(git -C "$dir" config --get remote.origin.url 2>/dev/null) || continue
     printf '%s\t%s\t%s\n' "${dir##*/}" "$dir" "$origin"
   done | sort -t $'\t' -k1,1 -u
@@ -29,8 +40,8 @@ repo_prime() {
       return 0
     fi
   done < <(repo_primes)
-  contract_fail repo-not-found "no prime checkout named $1 with an origin under $AS_DEV" --value "$1" \
-    --command "agent-slot repos"
+  contract_fail repo-not-found "no prime checkout named $1 with an origin, under $AS_DEV or in \
+AGENT_SLOT_EXTRA_PRIMES; a repo goes by its directory's name" --value "$1" --command "agent-slot repos"
 }
 
 cmd_repos() {

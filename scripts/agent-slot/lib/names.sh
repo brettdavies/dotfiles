@@ -6,6 +6,10 @@
 SLOT_REPO_PATTERN='[A-Za-z0-9._-]+'
 SLOT_KEY_PATTERN="$SLOT_REPO_PATTERN/[0-9]+"
 
+# The repo whose slots share main: the vault takes no branches or PRs, keeps a whitelist .gitignore, and holds the
+# operator's private notes.
+VAULT_REPO=obsidian-vault
+
 # A slot's three sessions, by kind.
 SLOT_SESSION_KINDS=(claude files git)
 
