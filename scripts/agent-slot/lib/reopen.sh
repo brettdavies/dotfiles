@@ -21,7 +21,11 @@ reopen_parse_args() {
         (($# >= 2)) || usage_fail "$1 needs a value" "$1"
         case $1 in
           --session) REOPEN_SESSION=$2 ;;
-          --prompt-file) REOPEN_PROMPT=$2 ;;
+          --prompt-file)
+            [[ -n $2 ]] || contract_fail prompt-file-unreadable "--prompt-file names no file" --value "" \
+              --command "agent-slot reopen --help"
+            REOPEN_PROMPT=$2
+            ;;
           --request-id) REOPEN_REQUEST=$2 ;;
         esac
         shift 2
@@ -47,6 +51,7 @@ reopen_parse_args() {
       || contract_fail prompt-file-unreadable "the first-message file cannot be read" --value "$REOPEN_PROMPT" \
         --command "agent-slot launch --help"
     REOPEN_PROMPT=$(realpath "$REOPEN_PROMPT")
+    launch_brief_check "$REOPEN_PROMPT"
   fi
 }
 
