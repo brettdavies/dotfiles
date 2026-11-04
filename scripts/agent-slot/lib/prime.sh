@@ -27,7 +27,9 @@ _prime_old_session() {
 
 # Usage: _prime_scan_fail <repo> <what failed>; a start never chooses a fresh conversation blind, since one may exist.
 _prime_scan_fail() {
-  contract_fail script-error "$2, so no conversation could be chosen and nothing started" \
+  local cause=''
+  [[ -z $BOUNDED_LOG ]] || cause=$(awk 'seen && NF { last = $0 } /^--- stderr$/ { seen = 1 } END { print last }' "$BOUNDED_LOG")
+  contract_fail script-error "$2: ${cause:-no error output, exit $BOUNDED_STATUS}, so no conversation could be chosen and nothing started" \
     --value "$(slot_key "$1" "$SLOT_PRIME")" --command "agent-slot prime $1" --log "$BOUNDED_LOG"
 }
 
@@ -53,7 +55,7 @@ _prime_conversation() {
     END { for (file in latest) if (index(latest[file], want) == 1) print file }' <<<"$out")
   [[ -n $titled ]] || return 0
   agentstate_agents
-  ((AGENTS_OK == 1)) || _prime_scan_fail "$repo" "claude agents --json failed, which says which conversations are held"
+  ((AGENTS_OK == 1)) || _prime_scan_fail "$repo" "claude agents --json, which says which conversations are held, failed"
   held=$(contract_json -r '.[].sessionId // empty' <<<"$AGENTS_JSON")
   while IFS= read -r path; do
     id=${path##*/}

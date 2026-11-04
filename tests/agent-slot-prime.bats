@@ -297,16 +297,17 @@ JSON
   [ "$status" -eq 1 ]
   assert_error_shape "$stderr"
   jaq -e '.reason == "script-error" and .next_step.command == "agent-slot prime repoa"
-    and (.log | type == "string")' <<<"$stderr"
+    and (.log | type == "string") and (.message | contains("Permission denied"))' <<<"$stderr"
   run ! grep -q ' new-session ' "$CALLS"
 }
 
 @test "a claude agents that fails stops the start with script-error and starts no session" {
-  stub claude 'exit 1'
+  stub claude 'echo "not logged in" >&2; exit 1'
   transcript -fixture-dev-repoa aaaaaaaa-0000-4000-8000-000000000001 repoa-prime
   start
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "script-error" and .next_step.command == "agent-slot prime repoa"' <<<"$stderr"
+  jaq -e '.reason == "script-error" and .next_step.command == "agent-slot prime repoa"
+    and (.message | contains("not logged in"))' <<<"$stderr"
   run ! grep -q ' new-session ' "$CALLS"
 }
 
