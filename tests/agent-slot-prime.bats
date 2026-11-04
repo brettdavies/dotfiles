@@ -174,7 +174,8 @@ rex_helper() {
     and .name == "repoa-prime" and .server == "slots" and .session == "repoa-prime"
     and .started == ["repoa-prime", "repoa-prime-files", "repoa-prime-git"]
     and .conversation.mode == "fresh" and (.conversation.session_id | test("^[0-9a-f-]{36}$"))
-    and .next_step.command == "agent-slot-rex prime repoa" and (.next_step.note | contains("repoa-prime"))' <<<"$json"
+    and .next_step.command == "agent-slot list --output json"
+    and (.next_step.note | contains("repoa-prime") and contains("agent-slot-rex prime repoa"))' <<<"$json"
 }
 
 @test "a checkout keeps its dirty file, its branch, and its docs/solutions link, with nothing written to git" {

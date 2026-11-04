@@ -38,7 +38,7 @@ verb_help() {
       "Holds this pane on the repo's prime, from \$HOME. A session named in $AR_PRIMES, else after the repo, that" \
       "holds a Claude on the default tmux server is attached to, and the pane becomes a login shell" \
       "($AR_LOGIN_SHELL -l) when the client detaches or the attach fails. Otherwise the pane becomes" \
-      'attach <repo>/prime claude.' \
+      'attach <repo>/prime claude. It needs a terminal; agent-slot prime starts a prime without one.' \
       'example: agent-slot-rex prime xurl-rs' ;;
     attach) printf '%s\n' 'usage: agent-slot-rex attach <repo>/<N> | <repo>/prime claude|files|git' \
       "Attaches to the tmux session of the slot or prime from \$HOME, starting it when the session is missing, through" \

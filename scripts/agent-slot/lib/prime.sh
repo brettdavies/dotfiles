@@ -100,6 +100,7 @@ prime_start() {
     RECORD=$(contract_json -n -c --arg name "$name" --arg id "$id" '{name: $name, session_id: $id, prompt_file: null}')
     sessions_start "$repo" "$SLOT_PRIME" resume "$path" "${bus[@]}"
   fi
+  # An agent runs next_step.command, so it is never the pane's attach, which waits on a terminal.
   PRIME_JSON=$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$key" --arg repo "$repo" \
     --arg path "$path" --arg name "$name" --arg server "$server" --arg session "$session" --arg mode "$mode" \
     --arg id "$id" --argjson trust "$trust" --arg docs "$CONTRACT_DOCS" '
@@ -107,8 +108,8 @@ prime_start() {
      started: (split("\n") | map(select(. != ""))),
      conversation: {mode: $mode, session_id: (if $id == "" then null else $id end)},
      trust_prompt_expected: $trust,
-     next_step: {action: "run", command: "agent-slot-rex prime \($repo)", docs: $docs,
-                 note: "other sessions reach it by the name \($name)"}}')
+     next_step: {action: "run", command: "agent-slot list --output json", docs: $docs,
+                 note: "other sessions reach it by the name \($name); a terminal holds it with agent-slot-rex prime \($repo)"}}')
   ((${#SESSIONS_CREATED[@]} == 0)) || ledger_append prime-start "$(contract_json -c --argjson from "$started" \
     --argjson to "$(_slot_us)" '{repo, key, path, started, conversation: .conversation.mode,
       session_id: .conversation.session_id, started_at: ($from / 1000000), made_at: ($to / 1000000)}' <<<"$PRIME_JSON")"
