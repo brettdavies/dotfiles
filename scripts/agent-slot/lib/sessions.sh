@@ -1,5 +1,6 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
-# A slot's three tmux sessions on the slot server, each a login shell rooted at the slot with its program typed in:
+# A slot's three tmux sessions on the slot server, each a login shell rooted at the slot with its program typed in, and
+# through the same code a prime's, rooted at the repo's checkout under the names prime.sh gives them:
 #
 #   <repo>-<N>        claude in bypass permissions mode, started with the slot's session ID, the slot's name (else its
 #                     task) when it has one, and the first message read from a file by the shell itself, so the prompt

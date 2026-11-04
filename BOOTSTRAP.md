@@ -127,8 +127,7 @@ stow --dotfiles --no-folding --target="$HOME" \
   gogcli codex-proxy rex
 ```
 
-`tmuxinator` is deliberately absent from both lists: its session configs are read in place from the repo and stowing
-them would shadow the source of truth. `ollama` is also absent — it targets `/etc`, not `$HOME` (see
+`ollama` is deliberately absent from both lists: it targets `/etc`, not `$HOME` (see
 [stow/ollama/README.md](stow/ollama/README.md)).
 
 ### Restow After Changes
@@ -629,7 +628,8 @@ both as success, so the failed-unit list stays meaningful.
 `agent-slot` hands out clones of a repo for parallel Claude agents ([README](README.md#parallel-agents)). After the
 `tmux` and `local` packages are deployed, enable the slot tmux server's prune timer, check the prerequisites, and trust
 the slot paths of the repos you start agents on. `warm` trusts slot paths only for a repo whose prime checkout you have
-already trusted in Claude:
+already trusted in Claude, which the new-agent key's first press in the repo's Rex session lets you do, by opening its
+prime and showing Claude's trust dialog:
 
 ```bash
 systemctl --user daemon-reload
@@ -689,9 +689,9 @@ flavor match what `stow/yazi/dot-config/yazi/package.toml` pins; `scripts/stow-d
 
 `--discard` is what moves an installed package to a new pin. Without it, ya refuses to replace a package whose files
 differ from the hash `package.toml` records, and after a pin moves, the old revision's files always do: the install
-stops at the first such package with `You have modified the contents of the ...` and leaves every package where
-it was. `package.toml` owns the installed plugins and flavor, so nothing under them is a local edit to keep. To install
-by hand, run `ya pkg install --discard`.
+stops at the first such package with `You have modified the contents of the ...` and leaves every package where it was.
+`package.toml` owns the installed plugins and flavor, so nothing under them is a local edit to keep. To install by hand,
+run `ya pkg install --discard`.
 
 On the server, the job also keeps the pins working with the yazi Homebrew installs. When `yazi --version` differs from
 the version the pins were last proven on (`~/.local/state/dotfiles/yazi-pins-proven`), it runs
