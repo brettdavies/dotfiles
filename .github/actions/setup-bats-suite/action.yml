@@ -50,6 +50,11 @@ runs:
       # that rejects the v4 syntax the hook uses. See the action for detail.
       uses: ./.github/actions/setup-yq
 
+    - name: Install Claude Code
+      # agent-slot-foreign-head.bats proves against the real binary, with a refused API, what its flags keep a head from
+      # running. Without it those tests skip, and a change in what the flags mean would pass here.
+      uses: ./.github/actions/setup-claude-code
+
     - name: Install uv
       # md-align-tables.bats runs the table aligner's unit tests through
       # `uv run --with wcwidth`, because the script imports wcwidth at load.
