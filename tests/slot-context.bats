@@ -50,6 +50,12 @@ record() { jaq -c "$1" "$SLOT/.git/agent-slot.json"; }
 
 ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
 
+# context_for_deps DEPS: the context a slot gets whose record's deps is the JSON DEPS.
+context_for_deps() {
+  slot repo 1 "$(jaq -n -c --argjson d "$1" '{task: "t", prime: "/dev/the-prime", deps: $d}')"
+  start s1 startup | jaq -r '.hookSpecificOutput.additionalContext'
+}
+
 # context_for_status MANAGER COMMAND STATUS LOG [SOURCE]: the context a slot gets whose install ended in STATUS. LOG is
 # JSON, a quoted path or null.
 context_for_status() {
@@ -192,6 +198,38 @@ context_for_status() {
     [[ $context == *"If your head has since left the base branch, read what it changes first"* ]]
     rm -rf "$SLOT"
   done
+}
+
+@test "an install that left files dirty names them, even when it read installed" {
+  context=$(context_for_deps '{"manager": "bun", "command": "bun install --frozen-lockfile", "status": "installed", "log": null,
+    "dirty": ["package.json", "stamp.txt"], "stopped": []}')
+  echo "context: $context"
+  [[ $context == *"package.json, stamp.txt"* ]]
+  [[ $context == *"block teardown"*"commit"* ]]
+  [[ $context != *"did not"* ]]
+}
+
+@test "an install that left a process running names what setup stopped" {
+  context=$(context_for_deps '{"manager": "bun", "command": "bun install --frozen-lockfile", "status": "installed", "log": null,
+    "dirty": [], "stopped": ["esbuild --service"]}')
+  echo "context: $context"
+  [[ $context == *"esbuild --service"* ]]
+  [[ $context == *"stopped"* ]]
+}
+
+@test "a failed install that also left files dirty hears both" {
+  context=$(context_for_deps '{"manager": "bun", "command": "bun install --frozen-lockfile", "status": "failed", "log": "/l",
+    "dirty": ["half-done.txt"], "stopped": []}')
+  echo "context: $context"
+  [[ $context == *"/l"* ]]
+  [[ $context == *"half-done.txt"* ]]
+}
+
+@test "a record from before an install reported these fields hears nothing about them" {
+  context=$(context_for_deps '{"manager": "bun", "command": "bun install --frozen-lockfile", "status": "installed", "log": null}')
+  echo "context: $context"
+  [[ $context != *"first push"* ]]
+  [[ $context != *"block teardown"* ]]
 }
 
 @test "a failed install hears nothing about reading a head" {

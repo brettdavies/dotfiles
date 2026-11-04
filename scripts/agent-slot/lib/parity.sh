@@ -233,13 +233,15 @@ parity_claude_settings() {
 # may not have set; bun reads it from ~/.bunfig.toml. A nested lockfile is left alone: the repos' hooks pass on the root
 # install, and some nested ones are fixtures. bun comes first because the repo that holds two lockfiles installs with
 # bun. An install that does not finish leaves a usable slot, so it is reported rather than fatal: PARITY_DEPS is
-# {manager, command, status, log}, with status one of installed, failed, timed-out, tool-missing, not-ignored,
-# prime-not-set-up, head-not-on-base, or null when the repo has nothing to install.
+# {manager, command, status, log, dirty, stopped}, with status one of installed, failed, timed-out, tool-missing,
+# not-ignored, prime-not-set-up, head-not-on-base, or null when the repo has nothing to install. A script can leave what
+# blocks teardown under any status: dirty names the paths git status gained, and stopped the processes left running in
+# the install's own session, by name only, since an argument can hold a secret and the ledger keeps this.
 PARITY_DEPS=null
 parity_deps() {
-  local prime=$1 slot=$2 manager tool out started status=installed log=''
+  local prime=$1 slot=$2 manager tool out started status=installed log='' before session dirty=''
   local -a args run
-  PARITY_DEPS=null
+  PARITY_DEPS=null PARITY_STOPPED=()
   [[ -f $slot/package.json ]] || return 0
   if [[ -f $slot/bun.lock ]]; then
     manager=bun args=(install --frozen-lockfile)
@@ -263,6 +265,9 @@ parity_deps() {
     run=("$tool" "${args[@]}")
     [[ $manager == bun ]] \
       || run=(bash -c 'source "$1"; shift; exec "$@"' gate "$AS_HOME/../../config/shell/supply-chain.sh" "${run[@]}")
+    before=$(git -C "$slot" status --porcelain)
+    session=$(mktemp)
+    run=(setsid --wait bash -c 'printf "%s" "$$" >"$1"; shift; exec "$@"' session "$session" "${run[@]}")
     started=$SECONDS
     if ! bounded out deps "$AS_DEPS_TIMEOUT" "${AS_GIT_REMOTE[@]}" "PATH=${tool%/*}:$PATH" \
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 /usr/bin/env -C "$slot" "${run[@]}"; then
@@ -274,9 +279,34 @@ parity_deps() {
       fi
       log=$BOUNDED_LOG
     fi
+    _parity_stop_session "$(<"$session")"
+    rm -f "$session"
+    dirty=$(comm -13 <(sort <<<"$before") <(git -C "$slot" status --porcelain | sort) | cut -c4-)
   fi
   PARITY_DEPS=$(contract_json -n -c --arg manager "$manager" --arg command "$manager ${args[*]}" --arg status "$status" \
-    --arg log "$log" '{manager: $manager, command: $command, status: $status, log: (if $log == "" then null else $log end)}')
+    --arg log "$log" --argjson dirty "$(_parity_json_lines "$dirty")" \
+    --argjson stopped "$(_parity_json_lines "$(printf '%s\n' "${PARITY_STOPPED[@]}")")" \
+    '{manager: $manager, command: $command, status: $status, log: (if $log == "" then null else $log end),
+      dirty: $dirty, stopped: $stopped}')
+}
+
+# Usage: _parity_json_lines <text>; prints its non-empty lines as a JSON array.
+_parity_json_lines() {
+  contract_json -R -s -c 'split("\n") | map(select(. != ""))' <<<"$1"
+}
+
+# Usage: _parity_stop_session <session id>; stops what is left in that session, and sets PARITY_STOPPED to its names.
+_parity_stop_session() {
+  local session=$1 name
+  PARITY_STOPPED=()
+  [[ $session =~ ^[0-9]+$ ]] || return 0
+  while read -r _ name; do
+    PARITY_STOPPED+=("$name")
+  done < <(pgrep -l -s "$session" 2>/dev/null || true)
+  ((${#PARITY_STOPPED[@]})) || return 0
+  pkill -TERM -s "$session" 2>/dev/null || true
+  sleep 0.2
+  pkill -KILL -s "$session" 2>/dev/null || true
 }
 
 # True when a prime's node_modules holds a package. A tool's cache there shows no install: prettier and others make one

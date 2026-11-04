@@ -271,7 +271,8 @@ and it takes whatever the lockfile pins without consulting the supply-chain age 
 wrote the lock. An install that does not finish keeps the slot, and so does one setup declines to start: the launch's
 `deps.status` also reads `failed`, `timed-out` (past `AGENT_SLOT_DEPS_TIMEOUT` seconds, 60), `tool-missing`, or
 `not-ignored` (the repo does not ignore `node_modules`), and the agent's session context says what each means and what
-to do. A slot's `docs/solutions` links to its own detached worktree of the solutions repo at
+to do. `deps.dirty` names the paths an install left changed or untracked, and `deps.stopped` the processes it left
+running, which setup stops. A slot's `docs/solutions` links to its own detached worktree of the solutions repo at
 `~/slots/<repo>/.solutions/<N>-<suffix>`, made at origin/main during setup and recorded as `solutions_worktree`; its
 agent writes and publishes there with `sd-commit-doc`, the slot is kept while that worktree holds anything origin/main
 lacks (`solutions-unpublished`), and teardown removes it. The repo-recon link points at

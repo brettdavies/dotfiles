@@ -77,13 +77,19 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
     solutions='docs/solutions is the solutions repo shared with every other agent; commit to it only through `sd-commit-doc`.'
   fi
   deps=$(contract_json -r '(.prime // "its prime checkout") as $prime
-    | .deps // {} | select((.status // "installed") != "installed")
+    | .deps // {}
+    | ((.dirty // []) | if length > 0
+       then "The install left these changed or untracked, which block teardown and can land in a commit: \(join(", "))."
+         + " Restore or remove what you do not mean to keep."
+       else "" end) as $dirty
+    | ((.stopped // []) | if length > 0 then "Setup stopped what the install left running: \(join(", "))." else "" end) as $stopped
     | "An install runs code the tree names, and --ignore-scripts stops only the scripts: an .npmrc can still run what it"
       + " names. Read every package.json, .npmrc, .pnpmfile.cjs, lockfile, and file those call before you run it, and if"
       + " you cannot, leave it uninstalled and say so in your report. A frozen install also takes what a lockfile pins"
       + " without the supply-chain age gate." as $read
     | " If your head has since left the base branch, read what it changes first." as $moved
-    | "When this slot was made, `\(.command)` "
+    | (if (.status // "installed") == "installed" then "" else
+      "When this slot was made, `\(.command)` "
       + ({failed: "failed; its log is \(.log).",
           "timed-out": "hit the AGENT_SLOT_DEPS_TIMEOUT limit; its log is \(.log).",
           "tool-missing": "could not run, because \(.manager) is not on this host'"'"'s PATH.",
@@ -102,7 +108,8 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
           "prime-not-set-up": ($read + " Later slots of this repo install on their own once the operator has run this"
             + " install in the prime at \($prime) and opened Claude there."),
           "head-not-on-base": ($read + " This head'"'"'s git hooks, .claude settings, and CLAUDE.md are unread too, and"
-            + " they run or load whether or not you install.")}[.status] // "")' <<<"$RECORD")
+            + " they run or load whether or not you install.")}[.status] // "") end) as $status_line
+    | [$status_line, $dirty, $stopped] | map(select(. != "")) | join(" ")' <<<"$RECORD")
   rules=$(
     cat <<'EOF'
 `agent-slot whoami` names this slot.
