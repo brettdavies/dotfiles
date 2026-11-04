@@ -20,7 +20,8 @@ agent_slot_env() {
   AS_ROOT=${AGENT_SLOT_ROOT:-$HOME/slots}
   AS_ROOT_REAL=$(realpath -m "$AS_ROOT")
   AS_DEV=${AGENT_SLOT_DEV:-$HOME/dev}
-  AS_EXTRA_PRIMES=${AGENT_SLOT_EXTRA_PRIMES-$HOME/dotfiles:$HOME/obsidian-vault}
+  AS_EXTRA_PRIMES=${AGENT_SLOT_EXTRA_PRIMES-$HOME/dotfiles:$HOME/obsidian-vault:$HOME/box/TX-AI/streams-control:$HOME/gbrain}
+  AS_PRIMES=${AGENT_SLOT_PRIMES:-${AS_HOME%/*/*}/config/agent-slot-rex/primes.tsv}
   AS_STATE_DIR=${AGENT_SLOT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-slot}
   AS_LEDGER=$AS_STATE_DIR/ledger.jsonl
   AS_LOG_DIR=$AS_STATE_DIR/logs

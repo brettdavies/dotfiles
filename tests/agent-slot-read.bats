@@ -86,12 +86,12 @@ setup() {
     and (.message | contains("AGENT_SLOT_EXTRA_PRIMES") and contains("directory"))' <<<"$stderr"
 }
 
-@test "the extra primes default to the dotfiles checkout and the vault, whose name is the one its slots go by" {
+@test "the extra primes default to the dotfiles checkout, the vault, and the two repos kept outside the dev root" {
   lib=$BATS_TEST_DIRNAME/../scripts/agent-slot/lib
   run bash -c 'unset AGENT_SLOT_EXTRA_PRIMES
     source "$1/contract.sh"; source "$1/env.sh"; agent_slot_env "$1/.."; printf %s "$AS_EXTRA_PRIMES"' _ "$lib"
   [ "$status" -eq 0 ]
-  [ "$output" = "$HOME/dotfiles:$HOME/obsidian-vault" ]
+  [ "$output" = "$HOME/dotfiles:$HOME/obsidian-vault:$HOME/box/TX-AI/streams-control:$HOME/gbrain" ]
 }
 
 @test "list with no slot root returns an empty list and exits 0" {
