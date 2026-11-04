@@ -20,10 +20,15 @@ fi
 
 AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
 
-UNATTENDED_PERMISSION="This agent slot runs unattended: nobody watches its tab, so nobody can approve this \
+UNATTENDED_PERMISSION_START="This agent slot runs unattended: nobody watches its tab, so nobody can approve this \
 permission request, and it was denied without a prompt. Do the work another way within your brief, such as \`cp\` then \
-\`trash\` in place of \`mv\`, or \`uv run\` in place of \`python\`. If nothing within your brief does it, send what \
-you need to the session your brief reports to as one \`SendMessage\`, and keep working on what it does not block."
+\`trash\` in place of \`mv\`"
+UNATTENDED_PERMISSION_END="If nothing within your brief does it, send what you need to the session your brief reports \
+to as one \`SendMessage\`, and keep working on what it does not block."
+UNATTENDED_PERMISSION="$UNATTENDED_PERMISSION_START, or \`uv run\` in place of \`python\`. $UNATTENDED_PERMISSION_END"
+# `uv run` inside a tree builds its project, which runs the build backend that tree names.
+UNATTENDED_PERMISSION_FOREIGN="$UNATTENDED_PERMISSION_START. Start python, uv, and every other tool from outside this \
+tree, since \`uv run\` inside it builds the head's project. $UNATTENDED_PERMISSION_END"
 
 UNATTENDED_QUESTION="This agent slot runs unattended: nobody watches its tab, so a question asked here is never \
 answered, and it was denied. Answer it yourself where the code, the repo's docs, \`docs/solutions\`, or precedent \
@@ -77,6 +82,17 @@ unattended_answer() {
   fi
 }
 
+# Prints the denial of a permission request. A slot whose record cannot be read may be foreign, so it gets that advice.
+unattended_permission_message() {
+  local repo n
+  read -r repo n <<<"$(unattended_slot)"
+  if record_read "$repo" "$n" && ! sessions_foreign; then
+    printf '%s' "$UNATTENDED_PERMISSION"
+  else
+    printf '%s' "$UNATTENDED_PERMISSION_FOREIGN"
+  fi
+}
+
 unattended_main() {
   local fields event tool type
   hook_use_socket "${TMUX%%,*}" || return 0
@@ -94,7 +110,7 @@ unattended_main() {
   case $event:$tool:$type in
     PermissionRequest:*)
       unattended_deny
-      unattended_answer "$event" "$UNATTENDED_PERMISSION"
+      unattended_answer "$event" "$(unattended_permission_message)"
       ;;
     PreToolUse:AskUserQuestion:*)
       unattended_deny
