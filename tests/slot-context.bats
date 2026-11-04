@@ -113,13 +113,13 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context != *"own worktree"* ]]
 }
 
-@test "the context closes the task in order: PRs, ce-compound, ce-compound-refresh, jobs, release, report and stop" {
+@test "the context closes the task in order: PRs, ce-compound, its mode:refresh run, jobs, release, report and stop" {
   slot repo 1 '{"task": "t"}'
   run start s1 startup
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
   [[ $context == *"PRs are open, or merged if the brief says so"*"nothing is left unpushed"*\
 "/compound-engineering:ce-compound mode:non-interactive depth:full"*"once per finding"*\
-"/compound-engineering:ce-compound-refresh"*"mode:non-interactive"*\
+"/compound-engineering:ce-compound mode:refresh mode:non-interactive"*\
 "Before you release, delete the scratch files you made (local config, test output, tool logs), and commit and PR \
 anything that is real work."*\
 "Stop every background job you no longer need."*\
