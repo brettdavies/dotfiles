@@ -59,15 +59,21 @@ case "$*" in
 esac
 EOF
   # Never reaches the live user manager: Type is oneshot for box-bisync, unanswered for gone.service and simple
-  # otherwise, and a restart of the unit named in STUB_RESTART_FAIL fails.
+  # otherwise, transient.service is transient, and a restart of the unit named in STUB_RESTART_FAIL fails. The unit in
+  # STUB_RESTART_DIES is not active after its restart, the one in STUB_RESTART_LOOPS answers each InvocationID lookup
+  # with a new value, and the one in STUB_LOOKUP_FAIL fails that lookup.
   cat >"$STUBS/systemctl" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
 case "$*" in
+  "--user show -p Transient --value transient.service") echo yes ;;
   "--user show -p Type --value box-bisync.service") echo oneshot ;;
   "--user show -p Type --value gone.service") ;;
   "--user show -p Type --value "*) echo simple ;;
   "--user try-restart ${STUB_RESTART_FAIL-}") exit 1 ;;
+  "--user is-active --quiet ${STUB_RESTART_DIES-}") exit 3 ;;
+  "--user show -p InvocationID --value ${STUB_RESTART_LOOPS-}") wc -l <"$SYSTEMCTL_LOG" ;;
+  "--user show -p InvocationID --value ${STUB_LOOKUP_FAIL-}") exit 1 ;;
 esac
 EOF
   # The daily gate's connectivity probe always answers, so no test reaches the network.
@@ -384,6 +390,7 @@ _fake_status() {
 @test "processes on a removed Homebrew binary: long-running user services restart, the rest are reported" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   find / -maxdepth 0 -printf '' 2>/dev/null || skip "the scan lists /proc with GNU find's -printf"
+  _stub_settle_sleep
   PROC="$BATS_TEST_TMPDIR/proc" P=/opt/brew US=/user.slice/user-1000.slice/user@1000.service/app.slice
   mkdir -p "$PROC/self"
   printf '0::%s\n' "$US/brew-upgrade.service" >"$PROC/self/cgroup"
@@ -414,7 +421,7 @@ _fake_status() {
     "/opt/brew/Cellar/gone/1/bin/gone /opt/brew/Cellar/root/1/bin/root" ]
   [ "$(printf '%s\n' "$output" | tail -n 2 | head -n 1)" = 8 ]
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning" and .line ==
-    "Warning: restarting qmd-serve.service onto the upgrade failed; check systemctl --user status qmd-serve.service")' | grep -q .
+    "Warning: restarting qmd-serve.service onto the upgrade failed or did not stay up; check systemctl --user status qmd-serve.service")' | grep -q .
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "info"
     and .line == "restarted caddy.service, which was running the removed /opt/brew/Cellar/caddy/2/bin/caddy")' | grep -q .
 }
@@ -468,6 +475,60 @@ _fake_status() {
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning"
     and (.line | startswith("Warning: the job runs in a user namespace")))' | grep -q .
   [ ! -e "$SYSTEMCTL_LOG" ]
+}
+
+# Logs the settle wait beside the systemctl calls, so a test can check their order and does not wait it out.
+_stub_settle_sleep() {
+  printf '#!/bin/sh\nprintf "sleep %%s\\n" "$*" >>"$SYSTEMCTL_LOG"\n' >"$STUBS/sleep"
+  chmod +x "$STUBS/sleep"
+}
+
+# Under set -e as in brew.sh, so a failed lookup that stopped the scan would lose the units sorted after it.
+@test "a restart counts only if the unit is still up on the same invocation 3 s later" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  find / -maxdepth 0 -printf '' 2>/dev/null || skip "the scan lists /proc with GNU find's -printf"
+  _stub_settle_sleep
+  PROC="$BATS_TEST_TMPDIR/proc" US=/user.slice/user-1000.slice/user@1000.service/app.slice
+  mkdir -p "$PROC/self"
+  printf '0::%s\n' "$US/brew-upgrade.service" >"$PROC/self/cgroup"
+  _fake_proc 101 "/opt/brew/Cellar/a/1/bin/a (deleted)" "$US/caddy.service"
+  _fake_proc 102 "/opt/brew/Cellar/b/1/bin/b (deleted)" "$US/dies.service"
+  _fake_proc 103 "/opt/brew/Cellar/c/1/bin/c (deleted)" "$US/loops.service"
+  _fake_proc 104 "/opt/brew/Cellar/d/1/bin/d (deleted)" "$US/noid.service"
+  _fake_proc 105 "/opt/brew/Cellar/e/1/bin/e (deleted)" "$US/zed.service"
+  run env STUB_RESTART_DIES=dies.service STUB_RESTART_LOOPS=loops.service STUB_LOOKUP_FAIL=noid.service \
+    PATH="$STUBS:$PATH" bash -c '
+    set -euo pipefail
+    . "$1/run-log.sh"; . "$1/stale-procs.sh"
+    RUN_JOB=brew-upgrade RUN_ID=x RUN_HOST="\"h\"" RUN_LOG_JOURNALD=0 RUN_WARNINGS=0
+    stale_procs_restart "$2" /opt/brew
+    printf "%s\n%s\n" "$RUN_WARNINGS" "$RUN_STALE"' _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c 'map([.unit, .action])')" = \
+    '[["caddy.service","restarted"],["dies.service","restart-failed"],["loops.service","restart-failed"],["noid.service","restarted"],["zed.service","restarted"]]' ]
+  [ "$(printf '%s\n' "$output" | tail -n 2 | head -n 1)" = 2 ]
+  printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning" and .line ==
+    "Warning: restarting dies.service onto the upgrade failed or did not stay up; check systemctl --user status dies.service")' | grep -q .
+  [ "$(sed -n '/try-restart caddy.service/,$p' "$SYSTEMCTL_LOG" | head -n 5)" = "$(printf '%s\n' \
+    '--user try-restart caddy.service' '--user show -p InvocationID --value caddy.service' 'sleep 3' \
+    '--user is-active --quiet caddy.service' '--user show -p InvocationID --value caddy.service')" ]
+}
+
+@test "a transient service stays running, since a restart would rerun its command" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  find / -maxdepth 0 -printf '' 2>/dev/null || skip "the scan lists /proc with GNU find's -printf"
+  PROC="$BATS_TEST_TMPDIR/proc" US=/user.slice/user-1000.slice/user@1000.service/app.slice
+  mkdir -p "$PROC/self"
+  printf '0::%s\n' "$US/brew-upgrade.service" >"$PROC/self/cgroup"
+  _fake_proc 101 "/opt/brew/Cellar/a/1/bin/a (deleted)" "$US/transient.service"
+  run env PATH="$STUBS:$PATH" bash -c '
+    . "$1/run-log.sh"; . "$1/stale-procs.sh"
+    RUN_JOB=brew-upgrade RUN_ID=x RUN_HOST="\"h\"" RUN_LOG_JOURNALD=0 RUN_WARNINGS=0
+    stale_procs_restart "$2" /opt/brew
+    printf "%s\n%s\n" "$RUN_WARNINGS" "$RUN_STALE"' _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c 'map([.unit, .action])')" = '[["transient.service","left-running"]]' ]
+  [ -z "$(grep try-restart "$SYSTEMCTL_LOG" || true)" ]
 }
 
 @test "brew job reports a process still running a binary the upgrade removed" {
