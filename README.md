@@ -261,11 +261,7 @@ Many Claude Code agents can work on the same repo at once, each in an *agent slo
 `.context/repo-recon` link when the repo has a repo-recon store, its Claude memory and permission grants, its
 partial-clone filter when it has one, and the dependencies its root lockfile pins), with one task per slot. Setup runs
 `bun install --frozen-lockfile`, `pnpm install --frozen-lockfile`, or `npm ci` before the slot's agent starts, so the
-repo's tool-backed hooks work on the first push. A frozen install resolves no version, so it writes no lockfile and
-takes no release the supply-chain age gate would refuse. One that does not finish keeps the slot: the launch's
-`deps.status` reads `failed`, `timed-out` (past `AGENT_SLOT_DEPS_TIMEOUT` seconds, 60), `tool-missing`, `not-ignored` (the repo does not ignore `node_modules`), or `untrusted-head`, and the agent's session context says so. `untrusted-head` means no ref
-of origin holds the checked-out head, as with a fork's PR: the install would run that head's lifecycle scripts before
-anyone had read them, so it is left to the agent. A slot's `docs/solutions` links to
+repo's tool-backed hooks work on the first push. A frozen install writes no lockfile, and it takes whatever the lockfile pins without consulting the supply-chain age gate, so the gate binds only whoever wrote the lock. One that does not finish keeps the slot, and so does one setup declines to start: the launch's `deps.status` reads `failed`, `timed-out` (past `AGENT_SLOT_DEPS_TIMEOUT` seconds, 60), `tool-missing`, `not-ignored` (the repo does not ignore `node_modules`), `untrusted-head`, or `lockfile-changed`, and the agent's session context says so. `untrusted-head` means no ref of origin holds the checked-out head, as with a fork's PR: the install would run that head's lifecycle scripts before anyone had read them. `lockfile-changed` means the head's lockfile differs from the base branch's, as with a bot's PR: the install would take a release the gate exists to hold back. Both are left to the agent. A slot's `docs/solutions` links to
 its own detached worktree of the solutions repo at `~/slots/<repo>/.solutions/<N>-<suffix>`, made at origin/main during
 setup and recorded as `solutions_worktree`; its agent writes and publishes there with `sd-commit-doc`, the slot is kept
 while that worktree holds anything origin/main lacks (`solutions-unpublished`), and teardown removes it. The repo-recon

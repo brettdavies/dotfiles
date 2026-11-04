@@ -81,7 +81,10 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
       + (if .log then "; its log is \(.log)" else "" end)
       + ". The repo'"'"'s hooks fail their tool gates until they are, so fix that before your first push."
       + (if .status == "untrusted-head" then " This head is not on origin and the install runs its lifecycle scripts, so"
-           + " read what it changes in package.json and the lockfile before you run it." else "" end)' <<<"$RECORD")
+           + " read what it changes in package.json and the lockfile before you run it."
+         elif .status == "lockfile-changed" then " This head changes the lockfile from the base branch, and a frozen"
+           + " install takes what a lockfile pins without the supply-chain age gate, so read that change before you"
+           + " run it." else "" end)' <<<"$RECORD")
   rules=$(
     cat <<'EOF'
 `agent-slot whoami` names this slot.

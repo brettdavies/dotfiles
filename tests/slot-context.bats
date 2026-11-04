@@ -136,11 +136,21 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"not on origin"*"lifecycle scripts"* ]]
 }
 
+@test "a slot whose head changes the lockfile is told a frozen install takes what it pins past the age gate" {
+  slot repo 1 '{"task": "t", "deps": {"manager": "bun", "command": "bun install --frozen-lockfile", "status": "lockfile-changed", "log": null}}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"bun install --frozen-lockfile"*lockfile-changed* ]]
+  [[ $context == *"age gate"* ]]
+  [[ $context != *"not on origin"* ]]
+}
+
 @test "a slot whose install failed hears nothing about an untrusted head" {
   slot repo 1 '{"task": "t", "deps": {"manager": "bun", "command": "bun install --frozen-lockfile", "status": "failed", "log": "/l"}}'
   run start s1 startup
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
   [[ $context != *"not on origin"* ]]
+  [[ $context != *"age gate"* ]]
 }
 
 @test "a slot with its dependencies installed, or none to install, hears nothing about them" {

@@ -219,33 +219,39 @@ parity_claude_settings() {
 
 # Usage: parity_deps <slot>
 # Installs what the clone's root lockfile pins, because a repo's hooks fail every tool-backed gate in a clone without it.
-# Only a frozen install runs: it resolves no version, so it cannot write a lockfile or take a release the supply-chain age
-# gate would refuse, and a lockfile that disagrees with its package.json fails. bun reads that gate from ~/.bunfig.toml;
-# npm and pnpm read it from the environment, which an SSH command or a Claude hook may not have set, so they get it from
-# its one definition. A nested lockfile is left alone: the repos' hooks pass on the root install, and some nested ones
-# are fixtures. bun comes first because the repo that holds two lockfiles installs with bun. A head no ref of origin holds,
-# such as a fork's PR, is never installed: an install runs that tree's lifecycle scripts, which would then run with this
-# account's credentials before anyone has read them. An install that does not finish leaves a usable slot, so it is
-# reported rather than fatal: PARITY_DEPS is {manager, command, status, log}, with status one of installed, failed,
-# timed-out, tool-missing, not-ignored, untrusted-head, or null when the repo has nothing to install.
+# Only a frozen install runs: it writes no lockfile, and a lockfile that disagrees with its package.json fails. It also
+# takes whatever the lockfile pins without consulting the supply-chain age gate, a release published that day included
+# (measured on npm 11.16 and bun 1.4.4), so the gate binds only whoever wrote the lock. That sets which heads get
+# installed. A head no ref of origin holds, such as a fork's PR, would run its lifecycle scripts with this account's
+# credentials before anyone read them. A head whose lockfile differs from the base branch's, such as a bot's PR on
+# origin, could pin a release the gate exists to hold back. Both are left to the agent. npm and pnpm still get the gate
+# from its one definition, because a lifecycle script that resolves a version reads it from the environment, which an SSH
+# command or a Claude hook may not have set; bun reads it from ~/.bunfig.toml. A nested lockfile is left alone: the repos'
+# hooks pass on the root install, and some nested ones are fixtures. bun comes first because the repo that holds two
+# lockfiles installs with bun. An install that does not finish leaves a usable slot, so it is reported rather than fatal:
+# PARITY_DEPS is {manager, command, status, log}, with status one of installed, failed, timed-out, tool-missing,
+# not-ignored, untrusted-head, lockfile-changed, or null when the repo has nothing to install.
 PARITY_DEPS=null
 parity_deps() {
-  local slot=$1 manager tool out status=installed log=''
+  local slot=$1 manager lock tool out status=installed log=''
   local -a args run
   PARITY_DEPS=null
   [[ -f $slot/package.json ]] || return 0
   if [[ -f $slot/bun.lock ]]; then
-    manager=bun args=(install --frozen-lockfile)
+    manager=bun lock=bun.lock args=(install --frozen-lockfile)
   elif [[ -f $slot/pnpm-lock.yaml ]]; then
-    manager=pnpm args=(install --frozen-lockfile)
+    manager=pnpm lock=pnpm-lock.yaml args=(install --frozen-lockfile)
   elif [[ -f $slot/package-lock.json ]]; then
-    manager=npm args=(ci)
+    manager=npm lock=package-lock.json args=(ci)
   else
     return 0
   fi
   tool=${AS_TOOL[$manager]}
   if [[ -z $(git -C "$slot" for-each-ref --count=1 --contains HEAD refs/remotes/origin) ]]; then
     status='untrusted-head'
+  elif [[ $(git -C "$slot" rev-parse -q --verify "HEAD:$lock") != \
+    "$(git -C "$slot" rev-parse -q --verify "refs/remotes/origin/$PARITY_BASE:$lock")" ]]; then
+    status='lockfile-changed'
   elif ! git -C "$slot" check-ignore -q node_modules/; then
     status='not-ignored'
   elif [[ -z $tool ]]; then

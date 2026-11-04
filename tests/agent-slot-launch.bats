@@ -877,6 +877,39 @@ bun_repo() {
   jaq -e '.deps.status == "untrusted-head"' <<<"$output"
 }
 
+# bun_branch_on_origin LOCK: pushes feat/x to origin and to PR 7's ref, with bun.lock holding LOCK.
+bun_branch_on_origin() {
+  git -C "$T/seed-repoa" switch -q -c feat/x
+  printf '%s\n' "$1" >"$T/seed-repoa/bun.lock"
+  git -C "$T/seed-repoa" add bun.lock
+  git -C "$T/seed-repoa" commit -q --allow-empty -m 'the head'
+  git -C "$T/seed-repoa" push -q origin feat/x feat/x:refs/pull/7/head
+  git -C "$T/seed-repoa" switch -q main
+}
+
+@test "launch --pr leaves a head that changes the lockfile to its agent, since a frozen install takes what a lock pins past the age gate" {
+  github_origin
+  bun_repo
+  bun_branch_on_origin 'a release younger than the age gate allows'
+  gh_item pr 7 "Bump a dependency" OPEN "$SAME_REPO_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/prepare-ran" ]
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1/node_modules" ]
+  jaq -e '.deps.status == "lockfile-changed" and .deps.command == "bun install --frozen-lockfile" and .state == "active"' <<<"$output"
+}
+
+@test "launch --pr still installs a head on origin whose lockfile matches the base's, after other changes" {
+  github_origin
+  bun_repo
+  bun_branch_on_origin 'locked'
+  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -e "$STUBS/prepare-ran" ]
+  jaq -e '.deps.status == "installed"' <<<"$output"
+}
+
 @test "a fork head whose URL a prime remote holds in the other form gets that remote's name in the slot" {
   github_origin
   fork_repo
