@@ -458,6 +458,20 @@ not_called() {
   fi
 }
 
+# in_call_order PATTERN...: the calls log has a line for each extended regex, each after the one before.
+in_call_order() {
+  local pattern at from=0
+  for pattern in "$@"; do
+    at=$(tail -n "+$((from + 1))" "$CALLS" | grep -nE -m1 "$pattern" | cut -d: -f1)
+    [ -n "$at" ] || {
+      echo "no call after line $from matches: $pattern" >&2
+      cat "$CALLS" >&2
+      return 1
+    }
+    from=$((from + at))
+  done
+}
+
 # no_rex: the rex CLI is nowhere the helper looks.
 no_rex() {
   export REX_BIN_DIR=$T/no-rex

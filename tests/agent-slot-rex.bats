@@ -171,20 +171,6 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
   "name":"X-prime","server":"default","session":"X Prime","started":[],
   "conversation":{"mode":"running","session_id":null},"trust_prompt_expected":false}'
 
-# in_call_order PATTERN...: the calls log has a line for each extended regex, each after the one before.
-in_call_order() {
-  local pattern at from=0
-  for pattern in "$@"; do
-    at=$(tail -n "+$((from + 1))" "$CALLS" | grep -nE -m1 "$pattern" | cut -d: -f1)
-    [ -n "$at" ] || {
-      echo "no call after line $from matches: $pattern" >&2
-      cat "$CALLS" >&2
-      return 1
-    }
-    from=$((from + at))
-  done
-}
-
 @test "in a repo session with no prime tab, the key's tab becomes the prime: named, started, moved first, laid out, held" {
   in_rex_session X
   repos X

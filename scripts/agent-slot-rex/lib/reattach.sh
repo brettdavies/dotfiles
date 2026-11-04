@@ -1,19 +1,22 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
 # The start-up step's re-attach of the prime tabs rexurrect restores. rexurrect brings a prime tab back under its label
-# and in its place, but as a plain shell, so the tab no longer counts as the prime (prime_tab_open) and the next
-# new-agent key would open a second prime beside it. Once per server instance, after rexurrect and before the
-# reconcile, the step takes each repo of the prime map whose Rex session has no tab holding its prime, and types the
-# prime command, the one the key's prime tab runs, into the first tab whose label past its number is the prime's name,
-# when that tab is a single pane whose shell sits at its prompt. Any other tab is left alone, and a prime session that
-# is not running gets nothing typed.
+# and in its place, but as plain shells, so the tab no longer counts as the prime (prime_tab_open) and the next
+# new-agent key would open a second prime tab beside it. Once per server instance, after rexurrect and before the
+# reconcile, the step takes each repo of the prime map, and each other repo with a Rex session, whose session has no tab
+# holding its prime, and looks at the first tab whose label past its number is the prime's name. When that tab is one pane
+# whose shell sits at its prompt, it types the prime command, the one an old-style prime's tab runs, unless no old-style
+# session holds a Claude, which gets nothing typed. When it is three panes whose shells each sit at a prompt, it starts
+# the prime and replaces the tab through reconcile's own open, since no typed command can make plain shells into the
+# layout. Any other tab is left alone.
 #
 # Each repo's check runs in a subshell of its own, so a rex call that fails there costs that repo alone and the step
 # still reaches its reconcile. A restart seen partway ends the walk and leaves REX_PIN_LOST set.
 #
 # PRIME_REATTACHED holds each repo's outcome as {repo, prime, outcome, session_id, window_id}, the outcome being
-# reattached, unconfirmed (typed, but no client of the prime showed within AR_PRIME_WAIT), already-open, no-session,
-# no-tab, not-idle, prime-not-running, rex-server-restarted, rex-server-down, or the reason of the error that stopped
-# the repo's check. It stays null in every pass that does not re-attach.
+# reattached, unconfirmed (typed, but no client of the prime showed within AR_PRIME_WAIT), reopened (replaced by a new
+# tab, whose ID is not the one kept here), already-open, no-session, no-tab, not-idle, prime-not-running,
+# rex-server-restarted, rex-server-down, or the reason of the error that stopped the repo's check. It stays null in every
+# pass that does not re-attach.
 
 PRIME_REATTACHED=null
 
@@ -45,37 +48,82 @@ reattach_shell_idle() {
   done
 }
 
+# Usage: reattach_reopen <repo> <prime> <window-id> <block...>
+# Sets REATTACH_OUTCOME and REATTACH_NOTE for a restored tab of several panes: replaced when every pane is a shell at its
+# prompt and the prime runs on the slot server, else left as it is. A new tab opens before the old one closes, the order
+# reconcile uses, so the session is never left empty.
+REATTACH_OUTCOME='' REATTACH_NOTE=''
+reattach_reopen() {
+  local repo=$1 prime=$2 wid=$3 sid=$REX_SID block
+  shift 3
+  REATTACH_OUTCOME=not-idle
+  for block in "$@"; do
+    reattach_shell_idle "$sid" "$block" || return 0
+  done
+  if ! server_call 180 prime "$repo"; then
+    REATTACH_OUTCOME=$(contract_json -r '.reason' <<<"$AR_ERROR")
+    REATTACH_NOTE=$(contract_json -r '.message' <<<"$AR_ERROR")
+    return 0
+  fi
+  [[ $(contract_json -r '.server' <<<"$SERVER_OUT") == slots ]] || return 0
+  reconcile_open_tab "$repo" "$(slot_key "$repo" "$SLOT_PRIME")" "$prime" slots
+  rex_close "$sid" "$wid"
+  REATTACH_OUTCOME=reopened
+  [[ -z $REX_PIN_LOST ]] || REATTACH_OUTCOME=$(contract_json -r '.reason' <<<"$REX_PIN_LOST")
+}
+
 # Usage: reattach_repo <repo> <prime>
-# Prints the repo's outcome, session ID, window ID, and the tab's label, joined by REATTACH_SEP, and types the prime
-# command into its restored prime tab where the outcome is `sent`. It can end its shell through ar_fail, so it runs
-# only in reattach_primes's subshell.
+# Prints the repo's outcome, session ID, window ID, and the tab's label or what stopped it, joined by REATTACH_SEP, and
+# types the prime command into its restored prime tab where the outcome is `sent`. It can end its shell through ar_fail,
+# so it runs only in reattach_primes's subshell.
 reattach_repo() {
-  local repo=$1 prime=$2 outcome wid='' block='' label=''
+  local repo=$1 prime=$2 outcome wid='' blocks='' label='' sid
+  local -a panes=()
   rex_session_find "$repo"
+  sid=$REX_SID
   if [[ -z $REX_SID ]]; then
     outcome=no-session
   elif prime_tab_open "$REX_SID" "$repo" "$prime"; then
     outcome=already-open
   else
     rex_or_fail session inspect "$REX_SID" --json
-    IFS=$REATTACH_SEP read -r wid block label < <(contract_json -r --arg p "$prime" --arg sep "$REATTACH_SEP" \
+    IFS=$REATTACH_SEP read -r wid blocks label < <(contract_json -r --arg p "$prime" --arg sep "$REATTACH_SEP" \
       "$REX_LABEL_DEF"'first(.windows[] | select((.label // "") | rex_unnumbered == $p))
-      | [.layers[]?.blocks[]?.block_id] as $blocks
-      | [.window_id, (if ($blocks | length) == 1 then $blocks[0] else "" end), .label] | join($sep)' <<<"$REX_OUT") \
+      | [.window_id, ([.layers[]?.blocks[]?.block_id] | join(" ")), .label] | join($sep)' <<<"$REX_OUT") \
       || true
+    read -r -a panes <<<"$blocks"
     if [[ -z $wid ]]; then
       outcome=no-tab
+    elif ((${#panes[@]} == 3)); then
+      reattach_reopen "$repo" "$prime" "$wid" "${panes[@]}"
+      outcome=$REATTACH_OUTCOME
+      label=${REATTACH_NOTE:-$label}
     elif ! prime_old_running "$prime"; then
       outcome='prime-not-running'
-    elif [[ -z $block ]] || ! reattach_shell_idle "$REX_SID" "$block"; then
+    elif ((${#panes[@]} != 1)) || ! reattach_shell_idle "$sid" "${panes[0]}"; then
       outcome=not-idle
     else
-      rex_send "$REX_SID" "$block" "$REATTACH_CLEAR_LINE exec $(contract_quote "$AR_SELF" prime "$repo")"$'\r'
+      rex_send "$sid" "${panes[0]}" "$REATTACH_CLEAR_LINE exec $(contract_quote "$AR_SELF" prime "$repo")"$'\r'
       outcome=sent
       [[ -z $REX_PIN_LOST ]] || outcome=$(contract_json -r '.reason' <<<"$REX_PIN_LOST")
     fi
   fi
-  printf '%s\n' "$outcome$REATTACH_SEP$REX_SID$REATTACH_SEP$wid$REATTACH_SEP$label"
+  printf '%s\n' "$outcome$REATTACH_SEP$sid$REATTACH_SEP$wid$REATTACH_SEP$label"
+}
+
+# Prints what the step walks, one `<repo><TAB><name>` line each: the prime map's lines, then each other repo the server
+# lists with a Rex session, under its own name. A repos call that fails leaves the map's lines.
+reattach_walk() {
+  local mapped name
+  awk -F '\t' '!/^#/ && NF == 2 && !seen[$1]++' "$AR_PRIMES"
+  mapped=$(awk -F '\t' '!/^#/ && NF == 2 { print $1 }' "$AR_PRIMES")
+  server_call 30 repos || return 0
+  rex_run ls --json || return 0
+  while IFS= read -r name; do
+    [[ -n $name ]] || continue
+    grep -qxF -- "$name" <<<"$mapped" || printf '%s\t%s\n' "$name" "$name"
+  done < <(contract_json -r --argjson rex "$REX_OUT" '([$rex.sessions[].label]) as $labels
+    | .repos[]?.name | select(. as $n | $labels | index($n) != null)' <<<"$SERVER_OUT" || true)
 }
 
 # Usage: reattach_log <repo> <prime> <outcome> <tab label, or the error's message>
@@ -83,11 +131,12 @@ reattach_log() {
   local what
   case $3 in
     reattached) what="tab $4 holds the prime again" ;;
+    reopened) what="tab $4 was three plain shells, so a new tab holds the prime in its place" ;;
     unconfirmed) what="typed the prime command into tab $4, but no client showed within $AR_PRIME_WAIT s" ;;
     already-open) what='a tab of the session holds it' ;;
     no-session) what="no Rex session is named $1" ;;
     no-tab) what="no tab of the session is labelled $2" ;;
-    not-idle) what="tab $4 is not a single pane at a shell prompt, so it is left alone" ;;
+    not-idle) what="tab $4 is not one pane or three at shell prompts holding this prime, so it is left alone" ;;
     prime-not-running) what="no session named $2 on the default tmux server holds a Claude, so tab $4 stays a shell; \
 $(contract_quote "$AR_SELF" prime "$1") in that tab starts the prime" ;;
     *) what=$4 ;;
@@ -148,7 +197,7 @@ reattach_primes() {
     fi
     repos+=("$repo") primes+=("$prime") outcomes+=("$outcome") sids+=("$sid") wids+=("$wid") notes+=("$label")
     [[ $outcome != rex-server-restarted && $outcome != rex-server-down ]] || break
-  done < <(awk -F '\t' '!/^#/ && NF == 2 && !seen[$1]++' "$AR_PRIMES")
+  done < <(reattach_walk)
   rm -f "$out" "$err"
   [[ " ${outcomes[*]} " != *" rex-server-restarted "* && " ${outcomes[*]} " != *" rex-server-down "* ]] \
     || rex_pinned || true

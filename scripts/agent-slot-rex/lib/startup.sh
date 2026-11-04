@@ -12,9 +12,9 @@
 #
 # rexurrect brings the operator's prime tabs back as plain shells too, so on a new instance the step then re-attaches
 # them (reattach.sh), before the reconcile: a prime tab is the operator's working tab, which should not wait on slot
-# resumes, and a reconcile that fails ends the step, which would leave every prime detached. Neither touches the
-# other's tabs: the reconcile changes only tabs keyed to a slot, and no prime the map names is labelled like a slot
-# key. A config reload's step re-attaches nothing, since there a prime-labelled shell is a prime the operator
+# resumes, and a reconcile that fails ends the step, which would leave every prime detached. Neither changes the
+# other's tabs: the reconcile changes only tabs keyed to a slot, opens a tab only for a prime no tab holds, and no prime
+# is labelled like a slot key. A config reload's step re-attaches nothing, since there a prime-labelled shell is a prime the operator
 # detached. A restart seen while it re-attaches ends the step as skipped, with no reconcile, since the new instance's
 # step runs its own.
 #
