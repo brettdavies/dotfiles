@@ -136,6 +136,9 @@ started differently from a slot and chose to remove the difference.
   tab remain, and `agent-slot finish dotfiles/prime --yes` exits with a usage error.
 - AE6. **Covers R8.** Given Brett closes the old `XR CLI` session, when the key is next pressed there, then the prime is
   built on the slot server and resumes a conversation titled `xurl-rs-prime`.
+- AE7. **Covers R18.** Given a prime's Claude has exited and its pane is at a shell, when `exit` is typed there, then
+  the tab's attach loop finds the session gone, `agent-slot prime` starts it again, and Claude resumes the same
+  conversation.
 
 ### Scope Boundaries
 
@@ -155,6 +158,13 @@ Non-goals, considered and not built:
 - **Detecting an old session Brett renamed.** Detection is by name (KTD5). Renaming one is rare, and the cost is a
   second prime that shows in the session's tab.
 - **Teaching slots who their prime is.** Briefs name who a slot reports to, and `<repo>-prime` is predictable.
+- **A `--dry-run` on `agent-slot prime`.** It would show which conversation a prime would resume before an old session
+  closes, but `claude agents --json` already shows each running conversation's name, and a wrong guess costs a
+  `/resume`.
+- **A `mux` shim that points at the replacement.** Brett asked for the name to go so nothing stays confusing. The PR's
+  Changelog names what replaces it.
+- **A doctor check listing old-style sessions.** It would warn for as long as Brett keeps one by choice. The follow-up
+  that removes the old-style branch can list them when it runs.
 - **Cleaning up after a prime start that fails partway.** A slot's launch rolls back; a prime has no rollback, so a
   `send-keys` that fails right after its `new-session` leaves a session at a shell prompt that later runs count as
   running. It shows the moment a tab opens, and `tmux` has to fail between two calls milliseconds apart. Seeing this
@@ -252,9 +262,10 @@ Inferred bets, not confirmed by Brett:
   (`AR_PRIMES`) share it. The map lists only names that differ from the repo, plus the existing `dotfiles` line. Governs
   R10.
 - KTD9. **A prime writes one ledger event: `prime-start`.** One line per `agent-slot prime` that created a session, with
-  repo, key, path, started sessions, conversation mode, and session ID. The ledger is where automatic triggers are
-  logged for tuning, and a prime started by a slot launch is one. Readers are safe: `doctor`, `reopenlookup`, and
-  `release` each filter on `.event`. It writes no other event, and slot hooks do not run for it. Governs R15.
+  repo, key, path, started sessions, conversation mode, session ID, `started_at`, and `made_at`, the same stamps a
+  launch line carries, so the time a start takes can be read back. The ledger is where automatic triggers are logged for
+  tuning, and a prime started by a slot launch is one. Readers are safe: `doctor`, `reopenlookup`, and `release` each
+  filter on `.event`. It writes no other event, and slot hooks do not run for it. Governs R15.
 - KTD10. **Hooks split on session name.** `hook_claude_session` stays slot-only (`-[0-9]+$`), so `slot-unattended.sh`
   and `slot-context.sh` print nothing for a prime with no code change. A new `slot_session_is_prime` (`*-prime`) admits
   a prime's Claude to `slot-status.sh` alone. Slot names always end in digits, `-files`, or `-git`, so the two never
@@ -409,6 +420,9 @@ this PR does not edit it. These parts of it change:
   3. Make the helper's `prime_of` use the shared reader and always succeed, renaming `PRIME_SESSION` to say it holds a
      display name.
   4. Set `primes.tsv` to the table in the Appendix and rewrite its header for what the column now means.
+  5. `slot_parse_key` given `<repo>/prime` says so: "`<repo>/prime` is a prime, not a slot; `agent-slot prime <repo>`
+     starts it, and nothing here ends it", still as a usage error, so an agent that tries `resume` or `finish` on a
+     prime learns the right verb.
 - **Patterns to follow:** `slot_session`, `slot_parse_key`; `AR_PRIMES` in `scripts/agent-slot-rex/lib/settings.sh`.
 - **Test scenarios:**
   - `prime_display_name` returns the listed name for `xurl-rs` and the repo's own name for `qmd`.
@@ -439,8 +453,17 @@ this PR does not edit it. These parts of it change:
   3. `prime.sh` holds the old-style lookup, the conversation rule, and `cmd_prime`.
   4. Move new session ID generation to one function that `slot_make` also uses.
   5. Output: `{key, repo, path, name, server: "slots"|"default", session, started[], conversation: {mode:
-     "running"|"resumed"|"fresh", session_id}, trust_prompt_expected, next_step}`, with a text line that says what
-     happened.
+     "running"|"resumed"|"fresh", session_id}, trust_prompt_expected, next_step}`. `next_step.command` is the attach
+     that holds it (`agent-slot-rex prime <repo>`), and its note says other sessions reach it by the name
+     `<repo>-prime`.
+  6. The text line says what happened in one of three forms:
+     - `xurl-rs/prime: runs in XR CLI on the default tmux server; close that session to rebuild it on the slot server`
+     - `bird/prime: started bird-prime, bird-prime-files, bird-prime-git, resuming <id>`
+     - `bird/prime: already running`
+  7. `tmux_unresponsive` takes the socket it names, so a hung default server's error sends the reader to
+     `tmux -L default list-sessions`, not to the slot server. Each `contract_fail` here retries with
+     `agent-slot prime <repo>`.
+  8. `help.sh` gets the verb's usage, one example, and a `returns:` line, as `warm` has.
 - **Patterns to follow:** `cmd_resume` for locking and the output shape; `sessions_transcript_find` for the
   project-directory walk; `launch_output` for `next_step`.
 - **Execution note:** test-first; the fixture repo's fingerprint (`assert_prime_untouched`) backs R13 and R14 in every
@@ -462,7 +485,9 @@ this PR does not edit it. These parts of it change:
   - Covers AE1. With `repoa`'s display-named session on the `default` socket, nothing starts on either socket and
     `server` is `default`.
   - A default socket with no server creates no session there.
-  - A default server that does not answer exits `tmux-unresponsive` and starts nothing.
+  - A default server that does not answer exits `tmux-unresponsive` with value `default` and a `next_step.command`
+    naming that socket, and starts nothing.
+  - An old-style session's text line names the session and how to rebuild it.
   - Two concurrent runs give one set of sessions, with three `new-session` calls in all.
   - Covers R12. With 8 live slots, `prime` still starts, and `launch` still refuses at the limit with the prime running.
   - An untrusted path starts Claude all the same, reports `trust_prompt_expected: true`, and leaves the trust record and
@@ -491,8 +516,11 @@ this PR does not edit it. These parts of it change:
   1. `slot_make` runs `prime_start` in a subshell after the slot is committed (`SLOT_ARMED` clear, slot lock released),
      so nothing it does can roll the slot back.
   2. `cmd_resume` runs it after its own `sessions_start`, with the checkout path from the record's `.prime`.
-  3. `launch`, `reopen`, and `resume` outputs gain `prime`: its object, or `{error: {reason, message, log}}`. A launch
-     that returns a slot already holding its request starts nothing and reports `prime: null`.
+  3. `launch`, `reopen`, and `resume` outputs gain `prime`: its object, or `{error: {reason, message, next_step, log}}`,
+     so an agent reading a launch gets the retry command. A subshell that dies with no error object gives `script-error`
+     with its stderr kept in `AS_LOG_DIR`, as `reattach_primes` does. A launch's text line adds "; its prime did not
+     start: `<reason>`", so `ok: true` never hides it. A launch that returns a slot already holding its request starts
+     nothing and reports `prime: null`.
   4. Raise `launch_call`'s bound and comment in the helper to cover the prime's worst case.
   5. `prime` in `tests/lib/agent-slot.bash` seeds a same-named session on the fixture's `default` socket, so the suites'
      existing `new-session` counts stay as they are with no test-only seam; `tests/agent-slot-prime.bats` clears it.
@@ -506,9 +534,10 @@ this PR does not edit it. These parts of it change:
   - A prime start that fails (stub tmux failing `new-session` for a `*-prime` name) leaves the launch at exit 0, the
     slot active, and `prime.error.reason` set.
   - A failed prime start never rolls the slot back.
+  - That `prime.error.next_step.command` is `agent-slot prime <repo>`.
+  - A subshell that dies with no error object reports `script-error` and keeps a log.
   - The launch's own exit traps run once, unchanged by the subshell's `contract_fail`.
-  - Existing tests that count `new-session` calls or list session files are updated to the new counts, with each changed
-    count checked against its reason.
+  - The suites' existing `new-session` counts pass unchanged with the seeded fixture.
 - **Verification:** measure the launch's added wall-clock on a fixture repo with the prime already running, and record
   it in the PR.
 
@@ -558,7 +587,9 @@ this PR does not edit it. These parts of it change:
      `repo-not-found` ends the pane as `slot-not-found` ends a slot's.
   5. `cmd_prime` implements KTD13.
   6. Remove the `prime-not-running` reason and fix the Lua descriptions.
-  7. The 32 `launch --here` calls in `tests/agent-slot-rex.bats` assume a repo with no map line gets a slot. A fixture
+  7. `launch_failed` names what failed: "the prime of X did not start", a label of `X · prime failed`, and a retry line
+     with no request ID, since a prime has none.
+  8. The 32 `launch --here` calls in `tests/agent-slot-rex.bats` assume a repo with no map line gets a slot. A fixture
      helper gives a session an open prime tab, and each test that expects a slot uses it, so the suite keeps testing
      what it tested.
 - **Patterns to follow:** `launch_succeeded`, `launch_call`; the `rex_helper_block` process lookup; the existing key
@@ -572,7 +603,9 @@ this PR does not edit it. These parts of it change:
   - Covers AE3. A block whose own process is `agent-slot-rex attach X/prime claude` makes the key start a slot, even
     when that loop is waiting after a detach (no tmux client).
   - A window carrying the display label while running `agent-slot-rex launch` makes a second press start a slot.
-  - A failing `agent-slot prime` shows the error with a retry in the tab and starts no slot.
+  - A failing `agent-slot prime` shows "the prime of X did not start" with a retry in the tab, labels it
+    `X · prime failed`, and starts no slot.
+  - Covers AE7. A client that ends with its session gone leads to `agent-slot prime X`, then a new attach.
   - `launch --repo X` still starts a slot and never opens the prime.
   - A session named after no repo still shows the picker.
   - `attach X/prime git` attaches to `X-prime-git` on the slot socket.
@@ -595,7 +628,8 @@ this PR does not edit it. These parts of it change:
 - **Approach:** mostly characterization, since `SLOT_KEY_PATTERN` stays digits-only. Any test that fails here finds a
   real gap to fix in the code it names.
 - **Test scenarios:**
-  - Covers AE5. `finish`, `check`, and `resume` given `repoa/prime` exit with a usage error and change nothing.
+  - Covers AE5. `finish`, `check`, and `resume` given `repoa/prime` exit with a usage error that names
+    `agent-slot prime`, and change nothing.
   - `agent-slot-rex finish repoa/prime` is refused.
   - `sweep --yes` and `sweep --yes --auto`, with a finished slot beside a running prime, tear down the slot and leave
     the prime's sessions.
@@ -673,9 +707,16 @@ this PR does not edit it. These parts of it change:
 - **Files:** `README.md`, `BOOTSTRAP.md`, `PROJECT.md`, `CONCEPTS.md`, `scripts/agent-slot/lib/sessions.sh` (header),
   `tests/agent-slot-docs.bats`.
 - **Approach:**
-  - **README:** the new verb; the key's rule, "Keys and tab labels", and the start-up paragraph; the `reopened` outcome;
-    the reasons table without `prime-not-running`; a short "what a prime is" reference; the tmuxinator row, tool row,
-    and section removed.
+  - **README:** the new verb with its example output; the key's rule, "Keys and tab labels", and the start-up paragraph;
+    the `reopened` outcome; the reasons table without `prime-not-running`; the tmuxinator row, tool row, and section
+    removed. A "Primes" reference holds what a prime is plus these copy-paste steps:
+    - **Move a running prime to the slot shape:** check the conversation's name with `claude agents --json`; run
+      `/rename <repo>-prime` in it if the name differs; exit Claude;
+      `tmux -L default kill-session -t '=<display name>'`; press the key in the repo's Rex session.
+    - **Restart a prime's Claude:** type `exit` at the pane's shell; the tab brings it back on the same conversation.
+    - **Stop a prime:** close its tab, then kill `<repo>-prime`, `<repo>-prime-files`, and `<repo>-prime-git` on
+      `tmux -L agent-slots`, since an open tab restarts them.
+    - **Start a slot without the prime tab first:** `agent-slot-rex launch --repo <repo>`.
   - **CONCEPTS:** replace "Prime tab" with a "Prime" entry that holds the role Brett defined (orchestrates, answers
     other sessions, point of contact for other repos, as long-lived as the session) and the tab definition; update
     "New-agent key".
@@ -709,6 +750,8 @@ press as the remaining end-to-end check, with AE1 through AE3 as what to look fo
 
 - Every R has a test or a stated manual check, and every behavior test was observed failing against unfixed code.
 - All nine units are committed, the PR to `dev` follows the repo's template, and the rollup is green.
+- The PR's `## Changelog` names the removed `mux`, `mux-all`, and `tmux-new-session` and what replaces them, and the
+  key's new first press in a repo session that had no prime, since each changes something Brett does by habit.
 - `ce-code-review` (report-only, no cross-model peer) and `devex-review` have run, with confirmed findings fixed in
   their own commits.
 - The PR head and verdicts are with `skills-prime` and `rex-linux`.
@@ -1090,19 +1133,299 @@ Synthesized from this review's findings. Each is folded into the unit named.
 - Parallelization: 1 lane, 0 parallel / 9 sequential
 - Lake Score: N/A; no answers were scored for Completeness
 
+## DX Review
+
+Mode: DX POLISH, an enhancement to an existing tool. Product type: CLI tool on a platform. The session is unattended, so
+each choice below was decided from the code and recorded here, with no prompt. Accepted changes are already in the plan
+above.
+
+### Developer Persona Card
+
+```text
+TARGET DEVELOPER PERSONA
+========================
+Who:       Brett, pressing the new-agent key in a repo's Rex session, on the Mac or the phone.
+           Second reader: an agent running agent-slot unattended, which reads errors literally and cannot ask.
+Context:   Moving between about 40 repos, wanting the repo's long-lived point of contact up now.
+Tolerance: Seconds. Anything needing a manual step is what this work removes.
+Expects:   The same key, the same three panes as a slot, the last conversation back.
+```
+
+### Developer Empathy Narrative
+
+Predicted from the code and not sourced to Brett; the first person is the persona's.
+
+I press the key in `bird`'s Rex session. A tab appears as `new agent`, turns into `Bird CLI`, and moves to the front.
+Today it attaches to the old session if I started one, and otherwise stops with `prime-not-running`, telling me to start
+something by hand. After this work the tab splits into three panes within seconds and Claude comes back with what I was
+doing, or asks once to trust the folder. I press again and get a slot. In `xurl-rs`, where the old `XR CLI` session
+still runs, nothing looks different, and I keep working until I choose to close it. When I do, I want to know whether my
+conversation comes with me. If Claude ever exits, I want the obvious thing to bring it back. I type `mux qmd` out of
+habit and it is gone, and I need to know what replaced it.
+
+### Competitive DX Benchmark
+
+Clock: from pressing the key, or running the one command, to a Claude ready in that repo with its panes on screen. No
+peer publishes a time for an equivalent boundary, so the times below are this product's only, and the peers compare by
+choice.
+
+| Tool                     | Start to result                                                    | Time and evidence                                                                                             | DX choice                                                          | Source                                                                                                                                  |
+| ------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| tmuxinator               | `mux start <project>` to a session from YAML                       | not measured here                                                                                             | One declared file per project                                      | [tmux alternatives](https://tmux.app/alternatives/)                                                                                     |
+| sesh                     | `sesh connect` to a session from a directory or config             | not published; the "more performant" claim is its author's                                                    | Idempotent connect, config optional                                | [sesh and tmux](https://wostal.eu/blog/tools-02-sesh-and-tmux/), [sesh discussion](https://github.com/joshmedeski/sesh/discussions/230) |
+| tmux-sessionizer (`tms`) | Pick a git folder to a new session                                 | not published                                                                                                 | No per-project config                                              | [tms](https://github.com/stefhol/tmux-sessionizer)                                                                                      |
+| Zellij                   | `zellij attach --create` plus a layout                             | not published                                                                                                 | Create-or-attach built in, KDL layouts                             | [Zellij guide](https://petronellatech.com/blog/zellij-terminal-multiplexer-guide-2026/)                                                 |
+| This plan, today         | Key to the old session, or to `prime-not-running` and a hand start | about 30 s by hand [estimated]                                                                                | Per-project YAML, Claude started by hand                           | `scripts/agent-slot-rex/lib/launch.sh:246`                                                                                              |
+| This plan, after         | Key to three panes and a Claude prompt                             | under 10 s [estimated]: 2 to 3 s for the app to show the tab, then the verb, then Claude's own start, unknown | Create-or-attach with no per-project config, plus the conversation | R5, KTD3                                                                                                                                |
+
+The plan lands on what sesh and `tms` chose: no per-project config and an idempotent connect. What none of them offers
+is the conversation coming back.
+
+Target: Champion tier, under 10 s from the key to a Claude prompt. Search through Aside was unavailable, so the peer
+facts came from one web search.
+
+### Magical Moment Specification
+
+Press the key in any repo's session, with nothing configured for that repo, and its prime comes up in three panes
+holding its last conversation. The vehicle is the existing key (R5, AE2), so the moment needs nothing beyond the plan's
+own units, and Brett's first press after merge is where it shows.
+
+### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                                | FRICTION POINT                                | STATUS
+----------------|-----------------------------------------------|-----------------------------------------------|------
+1. Discover     | Presses the same key                          | Nothing announces the change                  | fixed: PR Changelog
+2. Install      | Pulls dotfiles; stow runs on pull             | None: no new tool or config                   | ok
+3. Hello World  | First press in a repo session                 | Trust dialog, once per repo                   | ok: R17 keeps it
+4. Real Usage   | Second press gets a slot; agents reach        | First press now a prime where it was a slot   | fixed: Changelog, launch --repo
+                | the prime by name                             |                                               |
+5. Debug        | Claude exits; a verb fails                    | No path back to the conversation              | fixed: `exit` restarts it (AE7)
+                |                                               | Errors pointed at the wrong server or nowhere | fixed: U1, U2, U3, U5
+6. Upgrade      | Closes an old session when ready              | No steps; conversation may not follow         | fixed: Primes reference
+```
+
+### First-Time Developer Confusion Report
+
+Predicted from the code. Each line names how the plan answers it.
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: Brett, first key press after merge
+Attempting: a prime in a repo with no session, then moving one that runs the old way
+
+T+0:00  Press the key in bird's session. Bird CLI still runs, so the tab attaches as it always has.
+        Nothing looks new. Fine, and agent-slot prime bird says how to rebuild it. (U2 text line)
+T+0:30  Close Bird CLI, press again. Three panes. No title matched, so Claude starts fresh.
+        "Where did my conversation go?" (README Primes: /rename first; /resume recovers it)
+T+1:00  In homebrew-tap's session, which has slot tabs, press for another slot and get a prime.
+        Second press gives the slot. (PR Changelog; agent-slot-rex launch --repo goes straight to one)
+T+2:00  /exit in the prime's Claude, leaving a shell. The up-arrow retypes the start line, which on a
+        session started fresh passes --session-id for a conversation that now exists. (README: type exit)
+T+3:00  mux qmd: command not found. (PR Changelog names the key and agent-slot prime)
+```
+
+The up-arrow outcome at T+2:00 is predicted and not run here; the documented `exit` avoids it either way.
+
+### Pass 1. Getting Started: 7 to 8
+
+There is nothing to install: stow deploys it and the key already exists. The first press gives visible output, and the
+only per-repo step is Claude's own trust dialog, which R17 requires and which also clears that repo from the
+failed-units notice. To 10 would mean a tab with no Rex session named for the repo first, which is the documented
+Rex.app limit in
+`docs/solutions/integration-issues/rex-app-gives-an-action-in-a-session-with-no-tabs-the-last-focused-panes-context.md`.
+
+### Pass 2. CLI Design: 7 to 8
+
+The Eng Review's finding on two verbs named `prime` is resolved by keeping both. The pair already share verbs by role:
+`launch`, `finish`, `sweep`, and `doctor` each exist on both, where `agent-slot` does the work and `agent-slot-rex`
+shows it in a tab. `agent-slot prime` and `agent-slot-rex prime` follow that convention, and renaming one would break
+it. The key `<repo>/prime` reads like `<repo>/<N>`, the verb is idempotent, and `launch --repo` is the escape hatch from
+the key's first-press rule. Agent ergonomics: non-interactive, JSON on `--output json`, `--help` with `returns:`, and
+exit codes from the closed table. To 10 would add a read-only status, recorded as a non-goal.
+
+### Pass 3. Error Messages: 5 to 8
+
+```text
+ERROR PATH MATRIX (agent-ready-v1), after the fixes
+Path                              | Class      | what | fix  | recovery | code | context | trace | redaction | channel | Cap in the draft
+agent-slot prime <unknown repo>   | usage      | pass | pass | N/A      | pass | N/A     | N/A   | pass      | pass    | none
+agent-slot resume <repo>/prime    | usage      | pass | pass | N/A      | pass | N/A     | N/A   | pass      | pass    | CAP6:fix
+default tmux server hung          | dependency | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | CAP6:fix
+launch whose prime fails          | partial    | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | CAP6:fix
+prime_start subshell dies         | unexpected | pass | pass | pass     | pass | pass    | pass  | pass      | pass    | CAP6:trace
+```
+
+No CAP4 finding. `agent-slot prime` reads no stdin, and Claude's trust dialog waits in its own pane, so nothing blocks
+the caller. A launch whose prime fails exits 0 because the slot it was asked for started, and its text line and
+`prime.error` both say so.
+
+The draft's capped paths and their corrections:
+
+- **CAP6:agent-slot resume repo/prime:fix.** Today's line, `a slot is named <repo>/<N>, such as dotfiles/2`, gives no
+  route to the prime. Corrected:
+  `<repo>/prime is a prime, not a slot; agent-slot prime <repo> starts it, and nothing here ends it`.
+- **CAP6:default server hung:fix.** `tmux_unresponsive` (`scripts/agent-slot/lib/bounded.sh:84`) names
+  `$AS_TMUX_SOCKET`, so it would send the reader to the slot server. Corrected: `value: default`,
+  `next_step.command: tmux -L default list-sessions`.
+- **CAP6:launch with a failed prime:fix.** `{error: {reason, message, log}}` gave no command. Corrected: it carries
+  `next_step`, `agent-slot prime <repo>`.
+- **CAP6:subshell dies:trace.** The draft named no outcome. Corrected: `script-error` with stderr kept in `AS_LOG_DIR`.
+
+In the key's tab, `launch_failed` said "the launch on X failed" and offered a retry "with the same request ID", neither
+true of a prime (`scripts/agent-slot-rex/lib/launch.sh:151`); U5 corrects it. To 10 would mean each path observed live,
+not only read.
+
+### Pass 4. Documentation: 5 to 8
+
+The draft had a "what a prime is" line and no steps. U9 now holds a Primes reference with copy-paste steps for the four
+things Brett will do: move a prime, restart its Claude, stop one, and skip the prime tab. The verb's help shows an
+example. The `agent-slot` skill text lives in another repo and stays deferred.
+
+### Pass 5. Upgrade Path: 5 to 7
+
+Nothing breaks at deploy: old sessions keep working and are used until closed, and the move is one repo at a time. What
+does change at once is `mux` going away and the key's first press in a repo with no prime, so the PR's Changelog carries
+both. Residual: the Mac has no `mux` and no local prime until its plan ships, sent to `rex-linux`.
+
+### Pass 6. Developer Environment: 7 to 7
+
+Linux is complete: same deploy, same tests, a scratch-socket smoke in the Verification Contract. The Mac runs this
+through its own plan, so that gap stays. No change.
+
+### Pass 7. Community: 5 to 5
+
+A personal dotfiles repo with one operator, so channels and plugins do not apply. No issues, moving on.
+
+### Pass 8. DX Measurement: 4 to 7
+
+The clock runs from the key to a Claude prompt. `prime-start` now carries `started_at` and `made_at`, which give the
+verb's share. The rest needs a live tab, so `/devex-review` and Brett's first press measure it against the 10 s target.
+No telemetry or recurring process is proposed. Doctor's key summary stays slot-only, since a prime starts rarely.
+
+### Outside Voice
+
+Disabled: `codex_reviews` is `disabled` on this machine.
+
+### What already exists
+
+The closed reason table and `contract_fail` carry the error contract, so the fixes are arguments rather than new
+reasons. `launch_call` already shows a failure with a retry. The attach loop already restarts a missing session, which
+makes `exit` the restart with no new code. README's "Keys and tab labels" and its reasons table are the docs to extend.
+Not in scope: see Scope Boundaries.
+
+### Decision record
+
+| ID   | Choice                                | Taken                                  | Evidence                                                |
+| ---- | ------------------------------------- | -------------------------------------- | ------------------------------------------------------- |
+| DX1  | Product type and persona              | CLI on a platform; Brett, then agents  | The brief names both                                    |
+| DX2  | Target                                | Champion, under 10 s                   | Key flow in `launch.sh`; no install step                |
+| DX3  | Vehicle                               | The existing key                       | R5                                                      |
+| DX4  | Mode                                  | POLISH                                 | Enhancement to an existing tool                         |
+| DX5  | Two verbs named `prime`               | Keep both                              | `launch`, `finish`, `sweep`, `doctor` already pair      |
+| DX6  | Error fixes                           | Apply all four, plus the tab's wording | Matrix above                                            |
+| DX7  | Restarting Claude                     | Document `exit`; no new code           | `scripts/agent-slot-rex/lib/attach.sh:66`               |
+| DX8  | Migration steps                       | Add to U9                              | R8 leaves the move to Brett, with no steps in the draft |
+| DX9  | `--dry-run`, `mux` shim, doctor check | Not built (Scope Boundaries)           | Each fails the 3.8 test                                 |
+| DX10 | Timing in the ledger line             | Add `started_at`, `made_at`            | Same stamps as a launch line                            |
+
+### DX Implementation Checklist
+
+```text
+DX IMPLEMENTATION CHECKLIST
+============================
+[ ] Key to three panes and a Claude prompt under 10 s, measured on Brett's first press
+[n/a] Installation is one command: nothing to install
+[ ] First press produces the prime; second press produces a slot
+[ ] Magical moment delivered via the key
+[ ] Every error path in the matrix meets the agent-ready contract, each with a test
+[ ] agent-slot prime --help shows usage, an example, and returns
+[ ] agent-slot prime is idempotent and needs only the repo
+[ ] README Primes steps are copy-paste complete
+[ ] PR Changelog names what was removed and what replaces it
+[n/a] Deprecation shim: Brett chose deletion
+[ ] tests/agent-slot-prime.bats runs in CI with stubs only
+```
+
+### DX Implementation Tasks
+
+Synthesized from this review's findings. Each is folded into the unit named.
+
+- [ ] **DT1 (P1, human: ~1h / CC: ~10min)** — agent-slot — Fix the error paths in the matrix
+  - Surfaced by: Pass 3
+  - Files: `scripts/agent-slot/lib/names.sh`, `scripts/agent-slot/lib/bounded.sh`, `scripts/agent-slot/lib/slotmake.sh`
+  - Verify: U1, U2, and U3 scenarios
+- [ ] **DT2 (P1, human: ~30min / CC: ~5min)** — helper — Name the prime in `launch_failed`
+  - Surfaced by: Pass 3, `launch.sh:151`
+  - Files: `scripts/agent-slot-rex/lib/launch.sh`
+  - Verify: U5 scenario
+- [ ] **DT3 (P1, human: ~1h / CC: ~10min)** — docs — Add the Primes reference with its four steps
+  - Surfaced by: Pass 4, journey stages 5 and 6
+  - Files: `README.md`
+  - Verify: `tests/agent-slot-docs.bats`
+- [ ] **DT4 (P2, human: ~15min / CC: ~2min)** — agent-slot — Add `started_at` and `made_at` to `prime-start`
+  - Surfaced by: Pass 8
+  - Files: `scripts/agent-slot/lib/prime.sh`
+  - Verify: U2's ledger scenario
+
+## DX Review Scorecard
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      |  8/10  |  7/10  | +1     |
+| API/CLI/SDK          |  8/10  |  7/10  | +1     |
+| Error Messages       |  8/10  |  5/10  | +3     |
+| Documentation        |  8/10  |  5/10  | +3     |
+| Upgrade Path         |  7/10  |  5/10  | +2     |
+| Dev Environment      |  7/10  |  7/10  |  0     |
+| Community            |  5/10  |  5/10  |  0     |
+| DX Measurement       |  7/10  |  4/10  | +3     |
+|--------------------------------------------------------------------|
+| TTHW                 | <10 s [estimated] | ~30 s by hand [estimated] |
+| Competitive Rank     | Champion                                     |
+| Magical Moment       | designed via the new-agent key               |
+| Product Type         | CLI on a platform                            |
+| Mode                 | POLISH                                       |
+| Overall DX           |  7/10  |  6/10  | +1     |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered                                        |
+| Learn by Doing     | covered: first press shows the result          |
+| Fight Uncertainty  | covered: text lines and next_step on each path |
+| Opinionated + Escape Hatches | covered: launch --repo               |
+| Code in Context    | covered: Primes steps                          |
+| Magical Moments    | covered                                        |
+| Agents Are Users   | covered                                        |
++====================================================================+
+```
+
+Scores are this review's judgment of the plan; the "Prior" column is the draft before this review, and no earlier DX
+review of this plan exists. The Community score is low because the dimension does not fit a one-operator repo, not
+because of a defect.
+
+### Unresolved Decisions
+
+None from this review. Brett's open questions are listed under Outstanding Questions and do not gate implementation.
+
 ## GSTACK REVIEW REPORT
 
-| Review         | Trigger               | Why                             | Runs | Status                              | Findings                   |
-| -------------- | --------------------- | ------------------------------- | ---- | ----------------------------------- | -------------------------- |
-| CEO Review     | `/plan-ceo-review`    | Scope & strategy                | 0    | not run; Brett set the scope        | none                       |
-| Outside Review | codex, default-on     | Independent 2nd opinion         | 0    | disabled                            | none                       |
-| Eng Review     | `/plan-eng-review`    | Architecture & tests (required) | 1    | ISSUES OPEN (all mapped into units) | 10 issues, 0 critical gaps |
-| Design Review  | `/plan-design-review` | UI/UX gaps                      | 0    | not run; no UI                      | none                       |
-| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 0    | next                                | none                       |
+| Review         | Trigger               | Why                             | Runs | Status                              | Findings                                                  |
+| -------------- | --------------------- | ------------------------------- | ---- | ----------------------------------- | --------------------------------------------------------- |
+| CEO Review     | `/plan-ceo-review`    | Scope & strategy                | 0    | not run; Brett set the scope        | none                                                      |
+| Outside Review | codex, default-on     | Independent 2nd opinion         | 0    | disabled                            | none                                                      |
+| Eng Review     | `/plan-eng-review`    | Architecture & tests (required) | 1    | ISSUES OPEN (all mapped into units) | 10 issues, 0 critical gaps                                |
+| Design Review  | `/plan-design-review` | UI/UX gaps                      | 0    | not run; no UI                      | none                                                      |
+| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 1    | ISSUES OPEN (all mapped into units) | score: 6/10 → 7/10, TTHW: about 30 s by hand → under 10 s |
 
-- **OUTSIDE COVERAGE:** codex, plan-review, disabled by `codex_reviews`. No outside reviewer ran.
-- **CROSS-MODEL:** none; only the native review ran.
-- **VERDICT:** Eng Review has run with every finding applied or recorded as not built, so implementation can start after
-  the DX and document reviews. The review log's other rows on this branch belong to other plans.
+- **OUTSIDE COVERAGE:** codex, plan-review, disabled by `codex_reviews`, for both the Eng and DX reviews. No outside
+  reviewer ran.
+- **CROSS-MODEL:** none; only native reviews ran.
+- **VERDICT:** Eng and DX reviews have run with every finding applied or recorded as not built, so implementation can
+  start after the document review. The review log's other rows on this branch belong to other plans.
 
 NO UNRESOLVED DECISIONS
