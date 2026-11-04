@@ -1410,8 +1410,9 @@ Entries are review items left for the author; they do not block implementation.
 
   The report restarts nothing and needs a report-only split of `scripts/upgrade/lib/stale-procs.sh`, which `brew.sh`
   also uses. R10's idle timeout already bounds agent-browser's daemon. A long-lived gstack daemon on a superseded CfT goes
-  unreported either way, because a deleted-executable scan sees it only once the next release removes the directory. A running browser survived its directory being removed (measured on CfT), though replacing Chrome's files
-  under a live daemon through dpkg was not run.
+  unreported either way, because a deleted-executable scan sees it only once the next release removes the directory. A
+  running browser survived its directory being removed (measured on CfT), though replacing Chrome's files under a live
+  daemon through dpkg was not run.
 
   Change: drop the report and AE12 if the first Chrome upgrade under a live daemon shows no breakage.
 
