@@ -71,7 +71,7 @@ release_files_only() {
     | ($b | length) > 0 and all($b[]; .code as $c | any($f[]; . == $c))' <<<"$CHECK_VERDICT" >/dev/null
 }
 
-# Usage: release_cleanup_text; the reminder for a slot kept by files, naming them from CHECK_VERDICT.
+# Usage: release_cleanup_text <repo>; the reminder for a slot kept by files, naming them from CHECK_VERDICT.
 release_cleanup_text() {
   local files publish=''
   files=$(contract_json -r '[.blockers[] | if .values then .values[] else .message end] as $f
@@ -80,8 +80,8 @@ release_cleanup_text() {
   ! contract_json -e 'any(.blockers[]; .code == "solutions-unpublished")' <<<"$CHECK_VERDICT" >/dev/null \
     || publish='Publish each docs/solutions file with sd-commit-doc, or discard it. '
   printf '%s' "This slot's task has finished, but its teardown is held by what is left in it: ${files//[$'\n\t']/ }. \
-${publish}Delete each one that is scratch, such as local config, test output, or a tool log, and commit and PR each one that is \
-real work; then close out and release as your closing steps say. If one of them cannot go yet, say why with \
+${publish}Delete each one that is scratch, such as local config, test output, or a tool log, and $(release_deliver "$1") each \
+one that is real work; then close out and release as your closing steps say. If one of them cannot go yet, say why with \
 $RELEASE_NOT_YET."
 }
 
@@ -96,7 +96,7 @@ release_cleanup() {
     return 0
   fi
   [[ -z $(contract_json -r '.cleanup_sent_at // ""' <<<"$RECORD") ]] || return 0
-  release_send "$repo" "$n" "$(release_cleanup_text)" || return 0
+  release_send "$repo" "$n" "$(release_cleanup_text "$repo")" || return 0
   record_update "$repo" "$n" --arg at "$(contract_now)" '.cleanup_sent_at = $at' || true
   CHECK_VERDICT=$(contract_json -c '.needs_you = []' <<<"$CHECK_VERDICT")
   RELEASE_AUTO=cleanup-sent
@@ -117,7 +117,7 @@ release_hold() {
   why=$(contract_json -r .not_yet.why <<<"$RECORD")
   sent=closing_sent_at text=$RELEASE_CLOSING
   if release_files_only; then
-    sent=cleanup_sent_at text=$(release_cleanup_text)
+    sent=cleanup_sent_at text=$(release_cleanup_text "$repo")
   fi
   release_send "$repo" "$n" "You said this slot was not ready to release: $why. If that still holds, say so again \
 with $RELEASE_NOT_YET. Otherwise: $text" || return 0
@@ -133,7 +133,11 @@ with $RELEASE_NOT_YET. Otherwise: $text" || return 0
 release_auto_gate() {
   local repo=$1 n=$2 sent why blocker reminded released=0
   RELEASE_AUTO=
-  [[ $(contract_json -r .finished <<<"$CHECK_VERDICT") == true ]] || return 0
+  if [[ $(contract_json -r .finished <<<"$CHECK_VERDICT") != true ]]; then
+    # A task with no PR has no merge to bring its agent back, so its --not-yet reminder cannot wait for one.
+    ! contract_json -e '.prs == []' <<<"$CHECK_VERDICT" >/dev/null || release_hold "$repo" "$n" || true
+    return 0
+  fi
   ! contract_json -e '.release != null or .finished_by_operator == true' <<<"$RECORD" >/dev/null || released=1
   ((released == 1)) || ! release_hold "$repo" "$n" || return 0
   if [[ $(contract_json -r .teardown <<<"$CHECK_VERDICT") != true ]]; then

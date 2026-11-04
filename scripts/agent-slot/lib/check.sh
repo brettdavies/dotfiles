@@ -180,6 +180,9 @@ _check_untracked_paths() {
 # ignored paths nothing else exempts.
 _check_files() {
   local entry status path listing tree untracked=() ignored=() local_only=()
+  # The vault's whitelist .gitignore ignores every new top-level directory, so a name that means tool output anywhere
+  # else says nothing about what it holds there, and a teardown would purge the notes in it.
+  [[ ${2##*/} != "$VAULT_REPO" ]] || local CHECK_TOOL_DIRS='' CHECK_BUILD_DIRS=''
   CHECK_PACKAGE_DIRS=$(_check_vale_packages "$1")
   listing=$(mktemp)
   if ! git -C "$1" status --porcelain=v1 -z --ignored=matching --untracked-files=all >"$listing" 2>/dev/null; then
@@ -427,7 +430,7 @@ check_inputs_load() {
 # Usage: check_slot <repo> <n>; sets CHECK_VERDICT. PR state comes from one gh call per repo, made on first use.
 check_slot() {
   local repo=$1 n=$2 path real state base origin prs='[]' prs_known=1 refspecs=() number out finished marked
-  local judged='[]'
+  local judged='[]' released=false
   local -a closed links
   CHECK_BLOCKERS=() CHECK_PUSH_REMOTES=()
   path=$(slot_path "$repo" "$n")
@@ -486,19 +489,27 @@ check_slot() {
     fi
   fi
 
-  finished=$(contract_json -r --argjson op "$marked" --argjson ok "$prs_known" '
+  # A release's own finish marks the task once the agent is idle, but a finish that died first marks nothing, and a task
+  # with no PR has no merge to finish it. So the release itself stands as the mark once the agent is idle or gone.
+  [[ ${AGENT_STATE:-} != idle && ${AGENT_STATE:-} != absent ]] \
+    || released=$(contract_json -r '.release != null' <<<"$RECORD")
+  finished=$(contract_json -r --argjson op "$marked" --argjson ok "$prs_known" --argjson released "$released" '
     if $ok == 0 then false
-    else $op or ((any(.[]; .state == "OPEN" or .state == "CLOSED") | not) and any(.[]; .state == "MERGED"))
+    else $op or ((any(.[]; .state == "OPEN" or .state == "CLOSED") | not)
+      and (any(.[]; .state == "MERGED") or $released))
     end' <<<"$judged")
   [[ $state == active ]] || finished=false
   CHECK_VERDICT=$(printf '%s\n' "${CHECK_BLOCKERS[@]}" | contract_json -s -c --arg key "$(slot_key "$repo" "$n")" \
     --arg path "$path" --arg state "$state" --argjson prs "$prs" --argjson finished "$finished" \
+    --argjson judged "$judged" \
     --arg branch "$(git -C "$path" symbolic-ref --short -q HEAD 2>/dev/null || true)" --argjson record "$RECORD" '
     map(select(. != null)) as $blockers
     | {key: $key, repo: $record.repo, slot: $record.slot, path: $path, state: $state, task: $record.task,
        branch: (if $branch == "" then null else $branch end), prs: $prs, finished: $finished,
        finished_by: (if $finished | not then null elif $record.finished_by_operator then "operator"
-                     elif $record.release.finished_at != null then "release" else "merge" end),
+                     elif $record.release.finished_at != null
+                       or ($record.release != null and (any($judged[]; .state == "MERGED") | not))
+                     then "release" else "merge" end),
        blockers: $blockers,
        needs_you: (if $finished or any($blockers[]; .code == "pr-closed-unmerged" or .code == "pr-state-unknown")
                    then [$blockers[] | select(.code != "checked-by-own-agent")] else [] end),
