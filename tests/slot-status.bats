@@ -192,6 +192,38 @@ wrapped() { printf '\033Ptmux;\033\033]7501;%s\007\033\\' "$1"; }
   done
 }
 
+@test "a prime's top-level Claude reports and stores its status, whatever digits its repo's name holds" {
+  local session
+  for session in repoa-prime foo-2-prime; do
+    printf '%s' "$session" >"$STUBS/panes/7/session"
+    : >"$T/tty-7"
+    run report Stop
+    [ "$status" -eq 0 ]
+    [ "$(cat "$T/tty-7")" = "$(wrapped state=done:app=claude-code)" ]
+    [ "$(option @slot_status)" = state=done:app=claude-code ]
+    rm -f "$STUBS/panes/7/opts/@slot_status" "$STUBS/panes/7/opts/@slot_status_at"
+  done
+}
+
+@test "a nested claude -p under a prime's Claude reports nothing" {
+  printf '%s' repoa-prime >"$STUBS/panes/7/session"
+  report UserPromptSubmit
+  : >"$T/tty-7"
+  payload Stop | "$T/pane-shell" "$FAKE/claude" -c "$RUNS" claude bash -c "$RUNS" tool \
+    "$FAKE/claude" -c "$RUNS" claude "$HOOK"
+  [ "$(option @slot_status)" = state=working:app=claude-code ]
+  [ ! -s "$T/tty-7" ]
+}
+
+@test "a Claude started by hand in a prime's files or git session reports nothing" {
+  for session in repoa-prime-files repoa-prime-git; do
+    printf '%s' "$session" >"$STUBS/panes/7/session"
+    report Stop
+    [ -z "$(option @slot_status)" ]
+    [ ! -s "$T/tty-7" ]
+  done
+}
+
 @test "outside the slot socket, or outside tmux, the hook does nothing and exits 0" {
   export TMUX="/tmp/tmux-1000/default,4242,0"
   run report Stop

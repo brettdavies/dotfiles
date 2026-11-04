@@ -324,6 +324,19 @@ issue up/repo#886 (16-bit tRNS lost)."* ]]
   [[ $(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output") == *"repo/1"* ]]
 }
 
+@test "a prime's Claude at its checkout gets no slot context, and nothing is recorded" {
+  local session checkout=$AGENT_SLOT_DEV/repoa
+  mkdir -p "$checkout"
+  for session in repoa-prime foo-2-prime; do
+    printf '%s' "$session" >"$STUBS/pane-session"
+    run start s1 startup "$checkout"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+  done
+  [ ! -e "$LEDGER" ]
+  [ ! -e "$checkout/.git" ]
+}
+
 @test "outside the slot socket, or for a Claude not on the pane's shell, the hook prints nothing" {
   slot repo 1
   export TMUX="/tmp/tmux-1000/default,4242,0"
