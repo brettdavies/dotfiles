@@ -219,43 +219,39 @@ parity_claude_settings() {
 
 # Usage: parity_deps <prime> <slot>
 # Installs what the clone's root lockfile pins, because a repo's hooks fail every tool-backed gate in a clone without it.
-# An install runs the repo's lifecycle scripts with this account's credentials before anyone reads them, so it follows
-# the prime: a prime with no node_modules, or one Claude does not trust, shows no install has been chosen on this host.
-# Only a frozen install runs: it writes no lockfile, and a lockfile that disagrees with its package.json fails. It also
-# takes whatever the lockfile pins without consulting the supply-chain age gate, a release published that day included
-# (measured on npm 11.16 and bun 1.4.4), so the gate binds only whoever wrote the lock. That sets which heads get
-# installed. A head no ref of origin holds, such as a fork's PR, would run its lifecycle scripts with this account's
-# credentials before anyone read them. A head whose lockfile differs from the base branch's, such as a bot's PR on
-# origin, could pin a release the gate exists to hold back. Both are left to the agent. npm and pnpm still get the gate
-# from its one definition, because a lifecycle script that resolves a version reads it from the environment, which an SSH
-# command or a Claude hook may not have set; bun reads it from ~/.bunfig.toml. A nested lockfile is left alone: the repos'
-# hooks pass on the root install, and some nested ones are fixtures. bun comes first because the repo that holds two
-# lockfiles installs with bun. An install that does not finish leaves a usable slot, so it is reported rather than fatal:
-# PARITY_DEPS is {manager, command, status, log}, with status one of installed, failed, timed-out, tool-missing,
-# not-ignored, prime-not-set-up, untrusted-head, lockfile-changed, or null when the repo has nothing to install.
+# An install runs lifecycle scripts with this account's credentials before anyone reads them, so it runs only where that
+# is already chosen. A prime with no node_modules, or one Claude does not trust, shows no install has been chosen on this
+# host. A head the base branch does not hold could change what runs through any tracked file: a package.json, an
+# .npmrc's script-shell, an npm-shrinkwrap.json that outranks the lock, or a script they call. Only a frozen install runs:
+# it writes no lockfile, and a lockfile that disagrees with its package.json fails. It also takes whatever the lockfile
+# pins without consulting the supply-chain age gate, a release published that day included (measured on npm 11.16 and
+# bun 1.4.4), so the gate binds only whoever wrote the lock. npm and pnpm still get the gate from its one definition,
+# because a lifecycle script that resolves a version reads it from the environment, which an SSH command or a Claude hook
+# may not have set; bun reads it from ~/.bunfig.toml. A nested lockfile is left alone: the repos' hooks pass on the root
+# install, and some nested ones are fixtures. bun comes first because the repo that holds two lockfiles installs with
+# bun. An install that does not finish leaves a usable slot, so it is reported rather than fatal: PARITY_DEPS is
+# {manager, command, status, log}, with status one of installed, failed, timed-out, tool-missing, not-ignored,
+# prime-not-set-up, head-not-on-base, or null when the repo has nothing to install.
 PARITY_DEPS=null
 parity_deps() {
-  local prime=$1 slot=$2 manager lock tool out status=installed log=''
+  local prime=$1 slot=$2 manager tool out status=installed log=''
   local -a args run
   PARITY_DEPS=null
   [[ -f $slot/package.json ]] || return 0
   if [[ -f $slot/bun.lock ]]; then
-    manager=bun lock=bun.lock args=(install --frozen-lockfile)
+    manager=bun args=(install --frozen-lockfile)
   elif [[ -f $slot/pnpm-lock.yaml ]]; then
-    manager=pnpm lock=pnpm-lock.yaml args=(install --frozen-lockfile)
+    manager=pnpm args=(install --frozen-lockfile)
   elif [[ -f $slot/package-lock.json ]]; then
-    manager=npm lock=package-lock.json args=(ci)
+    manager=npm args=(ci)
   else
     return 0
   fi
   tool=${AS_TOOL[$manager]}
   if ! trust_known "$prime" || [[ ! -d $prime/node_modules ]]; then
     status='prime-not-set-up'
-  elif [[ -z $(git -C "$slot" for-each-ref --count=1 --contains HEAD refs/remotes/origin) ]]; then
-    status='untrusted-head'
-  elif [[ $(git -C "$slot" rev-parse -q --verify "HEAD:$lock") != \
-    "$(git -C "$slot" rev-parse -q --verify "refs/remotes/origin/$PARITY_BASE:$lock")" ]]; then
-    status='lockfile-changed'
+  elif ! git -C "$slot" merge-base --is-ancestor HEAD "refs/remotes/origin/$PARITY_BASE"; then
+    status='head-not-on-base'
   elif ! git -C "$slot" check-ignore -q node_modules/; then
     status='not-ignored'
   elif [[ -z $tool ]]; then

@@ -40,6 +40,26 @@ launch() {
   run --separate-stderr "$AGENT_SLOT" launch "$@" --output json
 }
 
+# head_on_origin_changes FILE CONTENT: launches PR 7, whose head on origin is one commit past main and changes only FILE,
+# and expects its install left to the agent. Any tracked file can change what an install runs, so no list of files would do.
+head_on_origin_changes() {
+  github_origin
+  bun_repo
+  git -C "$T/seed-repoa" switch -q -c feat/x
+  mkdir -p "$(dirname "$T/seed-repoa/$1")"
+  printf '%s\n' "$2" >"$T/seed-repoa/$1"
+  git -C "$T/seed-repoa" add "$1"
+  git -C "$T/seed-repoa" commit -q -m 'the head'
+  git -C "$T/seed-repoa" push -q origin feat/x feat/x:refs/pull/7/head
+  git -C "$T/seed-repoa" switch -q main
+  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/prepare-ran" ]
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1/node_modules" ]
+  jaq -e '.deps.status == "head-not-on-base" and .deps.command == "bun install --frozen-lockfile" and .state == "active"' <<<"$output"
+}
+
 # github_origin: repoa's prime with its origin at GitHub's https URL for up/repoa, which the test's git config rewrites
 # to the local bare origin, and gh answering from gh_item's fixtures.
 github_origin() {
@@ -843,10 +863,11 @@ bun_repo() {
   trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
 }
 
-@test "launch --pr installs dependencies for a head on origin" {
+@test "launch --pr installs a head the base branch already holds" {
   github_origin
   bun_repo
-  pr_head "$T/origins/repoa.git" feat/x 7
+  origin_file repoa notes.txt 'later'
+  git -C "$T/seed-repoa" push -q origin main~1:refs/heads/feat/x main~1:refs/pull/7/head
   gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
   launch repoa --pr 7
   [ "$status" -eq 0 ]
@@ -864,7 +885,7 @@ bun_repo() {
   [ "$status" -eq 0 ]
   [ ! -e "$STUBS/prepare-ran" ]
   [ ! -e "$AGENT_SLOT_ROOT/repoa/1/node_modules" ]
-  jaq -e '.deps.status == "untrusted-head" and .deps.command == "bun install --frozen-lockfile" and .state == "active"' <<<"$output"
+  jaq -e '.deps.status == "head-not-on-base" and .deps.command == "bun install --frozen-lockfile" and .state == "active"' <<<"$output"
 }
 
 @test "launch --pr never runs the install of a head that only refs/pull/N/head still holds" {
@@ -876,40 +897,41 @@ bun_repo() {
   [ "$status" -eq 0 ]
   [ "$(git -C "$AGENT_SLOT_ROOT/repoa/1" rev-parse HEAD)" = "$HEAD_SHA" ]
   [ ! -e "$STUBS/prepare-ran" ]
-  jaq -e '.deps.status == "untrusted-head"' <<<"$output"
+  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
 }
 
-# bun_branch_on_origin LOCK: pushes feat/x to origin and to PR 7's ref, with bun.lock holding LOCK.
-bun_branch_on_origin() {
+@test "launch --pr leaves a head on origin that changes the lockfile to its agent" {
+  head_on_origin_changes bun.lock 'a release younger than the age gate allows'
+}
+
+@test "launch --pr leaves a head on origin that changes only package.json to its agent" {
+  head_on_origin_changes package.json '{"name": "repoa", "scripts": {"postinstall": "./evil"}}'
+}
+
+@test "launch --pr leaves a head on origin that adds only .npmrc to its agent" {
+  head_on_origin_changes .npmrc 'script-shell=./evil'
+}
+
+@test "launch --pr leaves a head on origin that adds only npm-shrinkwrap.json to its agent" {
+  head_on_origin_changes npm-shrinkwrap.json '{"lockfileVersion": 3}'
+}
+
+@test "launch --pr leaves a head on origin that changes only a file a lifecycle script calls to its agent" {
+  head_on_origin_changes scripts/build.js 'evil()'
+}
+
+@test "launch --pr leaves a head behind a base lockfile change to its agent, without claiming it changed the lockfile" {
+  github_origin
+  bun_repo
   git -C "$T/seed-repoa" switch -q -c feat/x
-  printf '%s\n' "$1" >"$T/seed-repoa/bun.lock"
-  git -C "$T/seed-repoa" add bun.lock
   git -C "$T/seed-repoa" commit -q --allow-empty -m 'the head'
   git -C "$T/seed-repoa" push -q origin feat/x feat/x:refs/pull/7/head
   git -C "$T/seed-repoa" switch -q main
-}
-
-@test "launch --pr leaves a head that changes the lockfile to its agent, since a frozen install takes what a lock pins past the age gate" {
-  github_origin
-  bun_repo
-  bun_branch_on_origin 'a release younger than the age gate allows'
-  gh_item pr 7 "Bump a dependency" OPEN "$SAME_REPO_HEAD"
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  [ ! -e "$STUBS/prepare-ran" ]
-  [ ! -e "$AGENT_SLOT_ROOT/repoa/1/node_modules" ]
-  jaq -e '.deps.status == "lockfile-changed" and .deps.command == "bun install --frozen-lockfile" and .state == "active"' <<<"$output"
-}
-
-@test "launch --pr still installs a head on origin whose lockfile matches the base's, after other changes" {
-  github_origin
-  bun_repo
-  bun_branch_on_origin 'locked'
+  origin_file repoa bun.lock 'a newer lock on the base'
   gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
   launch repoa --pr 7
   [ "$status" -eq 0 ]
-  [ -e "$STUBS/prepare-ran" ]
-  jaq -e '.deps.status == "installed"' <<<"$output"
+  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
 }
 
 @test "a fork head whose URL a prime remote holds in the other form gets that remote's name in the slot" {
