@@ -45,7 +45,8 @@ release, and Dependabot raises the same fix again.
 scripts/release/drift.sh
 ```
 
-The anchor is the newest CalVer tag reachable from `origin/main`; `--since <ref>` overrides it.
+The anchor is the newer of the newest CalVer tag reachable from `origin/main` and the newest `origin/main` commit whose
+subject starts with `release:`; `--since <ref>` overrides it.
 
 <!-- canonical:begin drift-gate -->
 

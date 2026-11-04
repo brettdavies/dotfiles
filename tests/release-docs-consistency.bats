@@ -36,6 +36,19 @@ setup() {
   }
 }
 
+@test "the runbook never names CHANGELOG.md as a backport --only path" {
+  # The script takes CHANGELOG.md from main on every run, before it discovers
+  # candidates, so `--only CHANGELOG.md` is rejected with exit 64 and the
+  # backport opens no PR.
+  local named
+  named=$(grep -oE 'sync-dev-after-release\.sh[^`]*' "$RUNBOOK" \
+    | grep -oE -- '--only [^ ]+' | sort -u)
+  ! grep -qx -- '--only CHANGELOG.md' <<<"$named" || {
+    echo "runbook passes --only CHANGELOG.md, which the backport script rejects" >&2
+    return 1
+  }
+}
+
 @test "the backport script's --help and its no-argument error print the same usage" {
   local help_usage
   run "$SYNC" --help

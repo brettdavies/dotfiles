@@ -67,7 +67,7 @@ dotfiles/
 │   ├── lint-shell, lint-workflows, run-tests   CI gate dispatchers, shared by CI and the git hooks
 │   ├── core-env-guard.sh  Fails a test that resets HOME or another core env var (allowlist beside it)
 │   ├── generate-changelog.py      Release changelog extraction from merged PR bodies
-│   ├── sync-dev-after-release.sh  Backport the released CHANGELOG.md to dev by PR
+│   ├── sync-dev-after-release.sh  Backport a release's CHANGELOG.md and release-branch edits to dev by PR
 │   ├── release/           Release gates (drift.sh, guarded-paths.sh)
 │   ├── tools-atime/       Multi-package-manager unused-tool audit + reclaim
 │   └── sync/              iCloud and Box sync
