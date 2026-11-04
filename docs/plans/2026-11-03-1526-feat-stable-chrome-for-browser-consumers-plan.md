@@ -153,7 +153,7 @@ build. Every point below was measured on the same version, 157.0.8103.38, except
 | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Google's position                                                     | Unsafe on untrusted sites                                                                                                                                                                                                                                                              | The browser Google ships to users; no such restriction                                                                                                     |
 | Update path                                                           | None. dotfiles would poll and download.                                                                                                                                                                                                                                                | Signed apt index; Google's updater on the Mac                                                                                                              |
-| Time behind Linux stable, last 20 releases (2026-08-06 to 2026-11-03) | 15 releases: 0.3 to 1.5 h, median 0.8 h. 3 releases: a newer CfT already existed. 2 releases: no CfT build at all, about 5 days behind.                                                                                                                                                | The Linux stable build, by definition. Each host's unattended run adds up to a day.                                                                        |
+| Time behind Linux stable, last 20 releases (2026-08-06 to 2026-11-03) | 15 releases: 0.3 to 1.5 h, median 0.8 h. 3 releases: a newer CfT already existed. 2 releases: no CfT at that version, about 5 days behind.                                                                                                                                             | The Linux stable build, by definition. Each host's unattended run adds up to a day.                                                                        |
 | The two gaps                                                          | 151.0.7922.108 (41 security fixes): 122 h until CfT 151.0.7922.138. 154.0.8037.97 (11 security fixes): 113.5 h until CfT 155.                                                                                                                                                          | Shipped                                                                                                                                                    |
 | Integrity of the download                                             | HTTPS from `storage.googleapis.com`; the JSON API lists URLs and publishes no hash                                                                                                                                                                                                     | SHA256 in a signed apt index                                                                                                                               |
 | Compiled-in distrust, default flags                                   | Rejects the compromised-CA host with `ERR_CERT_REVOKED`                                                                                                                                                                                                                                | Same                                                                                                                                                       |
@@ -585,8 +585,8 @@ Who opens pages Brett does not control, what they run today, and where each goes
 
 ### Dependencies / Assumptions
 
-- **PR #431 merges before the provisioning work.** The `.links` registration, the deploy script's `--check`, and
-  `tests/playwright-browsers-deploy.bats` exist only on that branch.
+- **The provisioning work builds on PR #431, merged to `dev`.** It holds the `.links` registration, the deploy script's
+  `--check`, and `tests/playwright-browsers-deploy.bats`.
 - **gstack upstream.** A gstack issue draft (its probes ignore `GSTACK_CHROMIUM_PATH`; its install deletes other tools'
   browsers) is pending with Brett. The alias removes this plan's dependence on the first half, and `.links` with
   `PLAYWRIGHT_SKIP_BROWSER_GC` covers the second. The launcher covers gstack's headless `--disable-component-update`,
@@ -610,10 +610,10 @@ Who opens pages Brett does not control, what they run today, and where each goes
    gstack's headed sessions. (b) CfT only, no Chrome, with an hourly timer and the launcher. Recommendation: (a). This
    answers "no chrome?": tests and gstack's headed sessions do not need Chrome, and untrusted browsing is the one place
    it earns its one-time deploy. Google calls CfT unsafe for untrusted sites, and 2 of the last 20 stable releases (41
-   and 11 security fixes) never got a CfT build, leaving it about 5 days behind. (b) is workable: CfT receives CRLSet
-   and Safe Browsing the same way once the flags are gone, runs closer to stable on 18 of 20 releases, and needs no
-   `sudo`. It keeps Google's unsafe-for-untrusted statement and those 5-day gaps. Cumulative time behind is about equal,
-   so this choice is about support and worst case, not average freshness.
+   and 11 security fixes) had no CfT build at that version, leaving it about 5 days behind. (b) is workable: CfT
+   receives CRLSet and Safe Browsing the same way once the flags are gone, runs closer to stable on 18 of 20 releases,
+   and needs no `sudo`. It keeps Google's unsafe-for-untrusted statement and those 5-day gaps. Cumulative time behind is
+   about equal, so this choice is about support and worst case, not average freshness.
 2. **Which tool do agents drive it with?** (a) Playwright CLI. (b) Chrome DevTools CLI. (c) agent-browser, without its
    skill. (d) No new tool: gstack browse and crawl4ai only. Recommendation: (a). Token cost is a near tie across the
    CLIs, and MCP is what costs more. The Playwright CLI takes all its settings from the environment on both machines,
@@ -683,8 +683,7 @@ Who opens pages Brett does not control, what they run today, and where each goes
 
 - Repo: `scripts/playwright-browsers-deploy.sh`, `scripts/playwright-deps-deploy.sh`, `config/apparmor.d/playwright`,
   `config/systemd/system/apparmor-playwright.service`, `config/shell/caches.sh`, `config/shell/supply-chain.sh`,
-  `docs/runbooks/playwright-browser-launch.md`, `stow/claude/dot-claude/guides/cli-tools.md`, PR #431
-  (`fix/playwright-cache-gc-guard`, open).
+  `docs/runbooks/playwright-browser-launch.md`, `stow/claude/dot-claude/guides/cli-tools.md`, PR #431.
 - Solutions: `docs/solutions/tooling-decisions/browsing-agents-run-stable-chrome-not-a-playwright-pinned-build.md`,
   `docs/solutions/runtime-errors/playwright-chromium-sandbox-ubuntu-2404-2026-04-17.md`,
   `docs/solutions/runtime-errors/playwright-install-deletes-unregistered-browsers-from-shared-cache.md`,
@@ -721,13 +720,13 @@ Who opens pages Brett does not control, what they run today, and where each goes
 The review ran unattended in an agent slot, with no question tool. Each choice below was auto-decided on its
 recommendation, under the slot's standing instruction to settle review questions from code, docs, and precedent and
 record them here. Brett's four Outstanding Questions are not review decisions and stay open. Evidence kinds:
-`coreBundle.js`, `scripts/`, and #431's branch are static reads; the Measured sections of the plan are live runs in
-scratch directories. Proposed files are proposals, and no product code ran.
+`coreBundle.js`, `scripts/`, and #431 are static reads; the Measured sections of the plan are live runs in scratch
+directories. Proposed files are proposals, and no product code ran.
 
 #### Scope Challenge
 
 - **What already exists:** the alias mechanism (`link_consumer_alias`,
-  `scripts/playwright-browsers-deploy.sh:223`); #431's per-alias `.links` clients and `--check`; the copy-deploy shape
+  `scripts/playwright-browsers-deploy.sh:365`); #431's per-alias `.links` clients and `--check`; the copy-deploy shape
   with `--check` and `--dest` (`scripts/sysctl-deploy.sh`, `tests/sysctl-deploy.bats`); the deleted-executable scan in
   `scripts/upgrade/lib/stale-procs.sh`; the browser environment in `config/shell/caches.sh`; the dotfiles AppArmor glob;
   Google's deb and Ubuntu's `chrome` profile; unattended-upgrade's `Origins-Pattern`; Playwright's `PLAYWRIGHT_MCP_*`
@@ -752,19 +751,18 @@ scratch directories. Proposed files are proposals, and no product code ran.
 
 Scope findings:
 
-- S1. [INFORMATIONAL] (confidence: 9/10) `scripts/playwright-browsers-deploy.sh:117` reads
+- S1. [INFORMATIONAL] (confidence: 9/10) `scripts/playwright-browsers-deploy.sh:143` reads
   `if [ "$(uname -s)" != "Linux" ]; then` and exits 0 with "these are linux64 builds", so the script provisions nothing
   on the Mac, yet R1 and AE2 name the Mac. Disposition: accepted (D2): R1 now requires macOS provisioning from the same
   pin, and the Mac's archive names enter the deploy.
-- S2. [INFORMATIONAL] (confidence: 9/10) `scripts/playwright-browsers-deploy.sh` on `dev` has no `--check` and
-  `tests/playwright-browsers-deploy.bats` does not exist. They live on #431's branch. Disposition: no change;
-  Dependencies already says #431 merges first.
+- S2. [INFORMATIONAL] (confidence: 9/10) `--check` in `scripts/playwright-browsers-deploy.sh` and
+  `tests/playwright-browsers-deploy.bats` come from #431, merged to `dev`. Disposition: no change.
 
 Reality rows:
 
 ```text
 REALITY: premise-table finding about 70 premises [estimated], unverified=5 (CfT 157 sandbox at the covered path, launcher over Chrome, launcher on the Mac, Chrome sandbox at /opt, crawl4ai sandbox from /proc) docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1
-REALITY: already-done pass no commit on origin/dev since 2026-11-03 touches the named Playwright, AppArmor, or shell-cache files; #431 is open scripts/playwright-browsers-deploy.sh:1
+REALITY: already-done pass the only commit on origin/dev since 2026-11-03 touching the named Playwright, AppArmor, or shell-cache files is #431, which this plan builds on scripts/playwright-browsers-deploy.sh:1
 REALITY: surface-check pass every named variable and flag was exercised or read: PLAYWRIGHT_MCP_EXECUTABLE_PATH, _SANDBOX, _CONFIG, _OUTPUT_DIR, PLAYWRIGHT_CLI_SESSION, NO_UPDATE_NOTIFIER, AGENT_BROWSER_EXECUTABLE_PATH, _SESSION, --chrome-for-testing-config, PLAYWRIGHT_SKIP_BROWSER_GC (playwright-core 1.61.1 lib/coreBundle.js line 29090) scripts/playwright-browsers-deploy.sh:113
 REALITY: binding-decisions pass recorded eng decisions for this plan's earlier shape (conditional pointer, per-host install, report-not-restart, one path owner) are carried into R15, R16, and the launcher; Brett's direction outranks the pin-in-CI default and CI is asked as a question docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1
 REALITY: numbers pass suite counts and times from JSON reporter and GNU time; lag table from chromiumdash and chrome-for-testing git history; sizes from du and wc [measured]; about 20 files and about 400 symlinks [estimated] docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1
@@ -875,7 +873,7 @@ Framework: bats through `scripts/run-tests` (AGENTS.md, Local gates mirror CI).
 
 ```text
 CODE PATHS                                              USER FLOWS
-[+] scripts/playwright-browsers-deploy.sh (on #431)     [+] A repo runs its suite
+[+] scripts/playwright-browsers-deploy.sh               [+] A repo runs its suite
   ├── [GAP] missing or malformed pin → usage error        ├── [GAP] [→E2E] set deployed, suites pass (AE1, live)
   ├── [GAP] sha256 mismatch → stop, keep the set          └── [GAP] [→E2E] newer Playwright, no dotfiles change (AE3, live)
   ├── [GAP] Linux and macOS archive names               [+] Another tool installs
