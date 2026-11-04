@@ -1,36 +1,41 @@
 ---
-title: Stable Google Chrome for the Machine's Browser Consumers - Plan
+title: System Browser Set and Agent Browsing - Plan
 type: feat
 date: 2026-11-03
-topic: stable-chrome-for-browser-consumers
+topic: system-browser-set-and-agent-browsing
 artifact_contract: ce-unified-plan/v1
 product_contract_source: ce-brainstorm
 execution: code
 ---
 
-# Stable Google Chrome for the Machine's Browser Consumers - Plan
+# System Browser Set and Agent Browsing - Plan
 
 ## Goal Capsule
 
-- **Objective:** Every tool on the Linux server and the Mac that opens web pages Brett does not control runs a Chrome
-  that carries Google's current stable security fixes, with its sandbox on and certificate checks enforced.
-- **Means:** Google Chrome stable, installed from Google's signed apt repository on the Linux server and kept current by
-  the host's unattended upgrades. On the Mac it is the existing install, kept current by Google's own updater. Consumers
-  reach it by Playwright's `chrome` channel or an executable path.
+- **Objective:** One system-owned browser set, updated by dotfiles on its own cadence, that every consumer on the Linux
+  server and the Mac launches and none downloads. Separately, a chosen answer for what agents use on pages nobody
+  vetted, with the sandbox on, certificate checks enforced, and revocation data live.
+- **Means:** One Chrome for Testing (CfT) build plus one WebKit build, aliased for every Playwright revision, serve the
+  tests and every default Playwright launch. A small dotfiles launcher enforces the hardened flags for agent browsing.
+  Google Chrome stable is the recommended browser behind that launcher, and a CLI (not MCP) is the recommended tool
+  agents drive it with.
+- **Brett's direction (verbatim):** "let's harden a single system playwright and tests. We update it separately from any
+  repo. repo's use what's available on the system, not their own preferences. gstack, etc incl". My reading: one
+  system-owned set that dotfiles updates, used by the e2e repos, gstack, crawl4ai, and agent scripts, with no consumer
+  downloading its own.
 - **Product authority:** Requirements govern behavior and Key Decisions record why. The measurements in this plan are
-  the evidence. Where a solutions doc or runbook disagrees with a measurement here, the doc is what gets rewritten. The
-  scope of the pinned-download removal waits on Brett's answer to the first Outstanding Question.
-- **Open blockers:** Brett decides the local browser for the e2e suites, whether Chrome is exempt from the seven-day
-  gate, and what gstack's headed sessions run on (Resolve Before Planning). The sandbox at Chrome's real install path is
-  measured at the first deploy, before any consumer is pointed at it.
-- **Execution profile:** System package plus apt configuration, applied by the operator because the agent's settings
-  deny `sudo`. Plus dotfiles shell config, provisioning-script trimming, and doc updates, and one upstream gstack issue
-  Brett files. Proof is runtime measurement on both machines. bats covers the script seams.
-- **Stop conditions:** Stop and bring the finding to Brett if stable Chrome at `/opt/google/chrome/chrome` cannot start
-  with its sandbox on, if the unattended-upgrade run does not pick Chrome up from Google's origin, or if an e2e suite
-  fails on stable Chrome where it passes on the pinned build.
+  the evidence. Where a solutions doc or runbook disagrees with a measurement here, the doc is what gets rewritten.
+- **Open blockers:** Brett decides what agents browse with, which tool they drive it with, how the seven-day gate
+  applies to browser builds, and whether CI joins the set (Outstanding Questions). The system set for tests does not
+  wait on the first two.
+- **Execution profile:** User-space provisioning, shell config, one launcher, doc updates, and a bump workflow. If
+  Chrome is chosen, also a system package and apt configuration that the operator applies, because the agent's settings
+  deny `sudo`. Proof is runtime measurement on both machines. bats covers the script seams.
+- **Stop conditions:** Stop and bring the finding to Brett if a real suite fails on a candidate CfT build where it
+  passes on the set's current build, if the launcher breaks a consumer's pipe connection, or if any browser behind the
+  launcher runs a renderer without its own user and PID namespaces on the Linux server.
 - **Who finishes:** `ce-plan` enriches this file in place. The operator runs every `/etc` step. Brett files the gstack
-  issue.
+  issue, which is drafted and pending with him.
 
 ---
 
@@ -38,797 +43,560 @@ execution: code
 
 ### Summary
 
-Install Google Chrome stable on the Linux server from Google's apt repository and let unattended upgrades keep it
-current. Leave the Mac's Google-updated Chrome as it is. Point every consumer that opens untrusted pages at it with the
-sandbox on: gstack browse, crawl4ai, and agent scripts. Dotfiles keeps provisioning a Playwright-pinned Chromium only if
-Brett keeps local e2e runs on the pin (first Outstanding Question).
+Replace the per-Playwright-version browser map with one CfT build and one WebKit build, aliased for every revision a
+consumer can ask for. The four e2e repos, gstack, and crawl4ai then resolve to that build with no configuration of their
+own, and their installs become no-ops. dotfiles chooses the version and moves it on a schedule of its own.
 
-The recommendation splits consumers by trust boundary. Browsing agents move to stable Chrome now, because that is where
-the measured security gap is. The e2e suites keep the pin in CI. Brett decides whether they also leave it locally, and
-that choice is what would let the dotfiles Chromium download go away entirely.
+The tests and the open web then split, because the two have different needs. Tests need a stable, reproducible build.
+Agents on untrusted pages need the newest fixes and a supported update path. The recommendation is Chrome stable behind
+a hardened launcher for agent browsing, the Playwright CLI as the agent's tool, and CfT for tests and for gstack's
+headed sessions, which need `--load-extension` and which branded Chrome blocks.
 
 ### Problem Frame
 
-Today the Linux server runs every browser consumer on Chrome for Testing builds that Playwright pins, provisioned by
-`scripts/playwright-browsers-deploy.sh` into `$PLAYWRIGHT_BROWSERS_PATH`. Brett's question is whether that download can
-go, replaced by a regular Chrome the machine keeps updated itself. He raised it after Playwright's guidance that the
-pinned build "can miss Chrome security fixes until the next Playwright release" and runs sandbox-off by default ("Do not
-use it on the hostile web").
+The Linux server runs its browser consumers on CfT builds that Playwright pins. The canonical set carries CfT
+151.0.7922.34 for Playwright 1.61.1 and 1.62.1; gstack and crawl4ai add their own 156.0.8078.4. Three things follow.
 
-The measurements below confirm both halves of that warning on this host. Both pinned builds still trust a CA
-intermediate whose key was compromised on 2026-10-17. The canonical set predates two Chrome fixes that Google reports as
-exploited in the wild. crawl4ai and every Playwright default launch run with `--no-sandbox`. Meanwhile the pinned set
-carries its own upkeep: a revision map per Playwright version, alias symlinks for lagging tools, an io_uring extractor
-workaround, and the `.links` registration from PR #431. On 2026-11-03 another tool's `playwright install` deleted the
-canonical set and broke three repos' e2e at once.
+- **Staleness.** Both pinned builds trust a CA intermediate whose key was compromised on 2026-10-17, and the 151 build
+  predates two fixes Google reports as exploited in the wild.
+- **Sandbox off.** Playwright's default launch passes `--no-sandbox`, and crawl4ai does the same.
+- **Upkeep.** A revision map per Playwright version, alias symlinks for lagging tools, an io_uring extractor workaround,
+  and a `.links` registration exist only to keep each tool's own pin satisfied. On 2026-11-03 another tool's
+  `playwright install` deleted the canonical set and broke three repos' e2e at once.
 
-### Measured Findings
+### What Playwright Requires From a Browser
+
+Playwright pins a build for reproducibility. It does not enforce the pin.
+
+| Aspect            | What Playwright does                                                                                                                                                                                                                                                                  | Evidence                                                |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Which file runs   | Default headless launch: `<browsers>/chromium_headless_shell-<rev>/chrome-headless-shell-linux64/chrome-headless-shell`. `channel: 'chromium'`: `<browsers>/chromium-<rev>/chrome-linux64/chrome`. `channel: 'chrome'`: only `/opt/google/chrome/chrome`. `executablePath`: any file. | `EXECUTABLE_PATHS` in `coreBundle.js`                   |
+| Revision          | `browsers.json` names a revision and a `browserVersion`. They choose the directory and the download URL. Nothing compares the running build with the pin.                                                                                                                             | Aliased runs below                                      |
+| Protocol          | CDP over `--remote-debugging-pipe`, with no minimum or maximum version check. A few code paths branch on `majorVersion() >= 143`. A method Chrome removes fails at runtime as a protocol error, not at launch.                                                                        | `coreBundle.js`; a launcher that `exec`s keeps the pipe |
+| Support statement | `executablePath`: "Note that Playwright only works with the bundled Chromium, Firefox or WebKit, use at your own risk." Channels: "the current Playwright version will support Stable and Beta channels."                                                                             | `types.d.ts`; playwright.dev/docs/browsers              |
+| Directory layout  | Playwright 1.57 and later use `chrome-linux64`. Playwright 1.56 and earlier use `chrome-linux`, so a CfT alias cannot serve them; they need `executablePath` or an upgrade.                                                                                                           | `registry/index.js` of 1.55.1, 1.57.0, 1.59.1           |
+| Install markers   | `INSTALLATION_COMPLETE` makes `playwright install` a no-op. `DEPENDENCIES_VALIDATED` skips the host check. Alias directories carry both.                                                                                                                                              | `scripts/playwright-browsers-deploy.sh`                 |
+| Cleanup           | `playwright install` deletes directories no `.links` client claims, unless `PLAYWRIGHT_SKIP_BROWSER_GC` is set.                                                                                                                                                                       | `coreBundle.js` line 29090; solutions doc               |
+| WebKit            | Playwright's own patched build; no branded Safari. It has its own revision per release.                                                                                                                                                                                               | playwright.dev/docs/browsers                            |
+
+**Drift, measured with a 23-step probe.** The probe covers launch, context, tracing, navigation, fill, click, role
+locators, aria snapshot, frames, evaluate, console, workers, routing, popups, downloads, dialogs, screenshots, PDF,
+cookies and storage state, media emulation, coverage, video, and close. The rows at CfT 157 ran against the full binary and the headless shell; the canary and CfT 151 rows ran against the full binary.
+
+| Playwright                             | Its pin       | Build under test          | Drift             | Result                                                                                                                                                                                               |
+| -------------------------------------- | ------------- | ------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.40.0, 1.45.0, 1.49.1                 | 120, 127, 131 | CfT 157.0.8103.38         | +37 to +26 majors | 22 of 23 steps; video not run (no ffmpeg for those revisions here). A `Target closed` rejection stays unhandled, and Node 26 exits on it unless trapped. Not checked against each version's own pin. |
+| 1.52.0, 1.55.1, 1.57.0, 1.59.1, 1.60.0, 1.62.1 | 136 to 151 | CfT 157                   | +21 to +9         | 22 of 23; video not run for the same reason                                                                                                                                                          |
+| 1.61.1, 1.64.1                         | 149, 156      | CfT 157                   | +8, +1            | 23 of 23                                                                                                                                                                                             |
+| 1.61.1, 1.64.1                         | 149, 156      | CfT 159.0.8141.0 (canary) | +10, +3           | 23 of 23                                                                                                                                                                                             |
+| 1.64.1                                 | 156           | CfT 151.0.7922.34         | -5                | 23 of 23                                                                                                                                                                                             |
+
+No break appeared across that range, and nothing guarantees the next build. So the set moves through a gate that runs
+the real suites, and a Chrome change that breaks Playwright stops at the bump instead of reaching every consumer at
+once.
+
+**Real suites on the Linux server, from scratch clones.** Each arm used a scratch `PLAYWRIGHT_BROWSERS_PATH` with the
+revision the suite asks for mapped to the build under test. "Shell" is Playwright's default headless shell; "full" is
+the same suite with `channel: 'chromium'`.
+
+| Consumer                                                                | Playwright      | Control build                                             | CfT 157 shell                                                             | CfT 157 full                  |
+| ----------------------------------------------------------------------- | --------------- | --------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------- |
+| lmgroktfy (`apps/web`)                                                  | 1.61.1          | 16 of 16, 22.5 s (CfT 151)                                | 16 of 16, 22.1 s                                                          | 16 of 16, 22.6 s              |
+| meum-sites                                                              | 1.61.1          | 65 of 65, 115.8 s (CfT 151)                               | 65 of 65, 105.4 s                                                         | 65 of 65, 118.9 s             |
+| agentnative-site (`chromium`, `mobile-android`, `mobile-ios`, `tablet`) | 1.61.1          | 260 pass, 10 fail, 8 skip, 116.8 s (CfT 151, WebKit 2311) | same 260 and same 10, 114.1 s                                             | same 260 and same 10, 146.6 s |
+| gstack browse (10 of its `browse/test` files, 406 tests)                | 1.64.1          | 404 pass, 2 fail, 61.9 s (CfT 156)                        | 404 pass, same 2 fail, 59.1 s                                             | not run                       |
+| streamsgrp                                                              | 1.61.1          | no browser launched                                       | no browser launched                                                       | no browser launched           |
+| crawl4ai 0.9.5 (`crwl crawl`)                                           | 1.64.1 (Python) | not run                                                   | fixture page, example.com, and news.ycombinator.com all returned markdown | not run                       |
+
+- agentnative-site's 10 failures and gstack's 2 are the same tests on every arm, so the browser does not cause them. The
+  first agentnative-site failure is an origin assertion against the production origin in a scratch build.
+- streamsgrp's 19 tests all use the `request` fixture and never open a page. Against a local `wrangler dev` they gave 1
+  pass and 18 fails on every arm, because that local worker answers its routes differently from staging. Its Access
+  token was not read for this run.
+- WebKit tolerates revision drift on this evidence. agentnative-site's `mobile-ios` and `tablet` projects on Playwright
+  1.61.1 gave 88 pass, 4 fail, 8 skip on WebKit 2311 (its own), and the same result on WebKit 2336 and on 2370
+  (1.64.1's) aliased as 2311. The 4 fails match the control.
+- Nothing here ran on the Mac; its first run is the deploy gate (AE2).
+
+**gstack and crawl4ai need no pointer.** With revision 1248 aliased, gstack's own probe (`bin/gstack-browser-ensure`)
+printed `BROWSER_OK node 157.0.8103.38`, and its bare `chromium.launch()` calls resolve the same way. The probe that
+ignores `GSTACK_CHROMIUM_PATH` stops being a problem, because nothing is left for it to fetch. crawl4ai's default
+`chromium` channel resolves through the same alias.
+
+**CfT works for tests.** For this purpose it is also preferable to Chrome stable: it can be pinned to a version, it
+ships the headless shell that Playwright's default launch runs, and it has no updater to move it between runs.
+
+### Is CfT Safe for Open-Web Browsing
+
+Chromium's security FAQ answers directly: "It does not auto-update. Therefore, it may lack recent fixes for security
+bugs. Security bugs can more easily be exploited once their fixes are published in the main Chromium source code
+repository and so it is unsafe to use Chrome for Testing to access any untrusted website. You should use Chrome for
+Testing only for browser automation and testing purposes, consuming only trustworthy content." It says the same of
+`chrome-headless-shell`.
+
+The FAQ's stated reason is staleness. A timer narrows that reason and leaves a gap: some stable releases never get a CfT
+build. Every point below was measured on the same version, 157.0.8103.38, except where marked.
+
+| Point                                                                 | CfT                                                                                                                                                                                                                                                                                    | Chrome stable                                                                                                                                              |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Google's position                                                     | Unsafe on untrusted sites                                                                                                                                                                                                                                                              | The browser Google ships to users; no such restriction                                                                                                                                      |
+| Update path                                                           | None. dotfiles would poll and download.                                                                                                                                                                                                                                                | Signed apt index; Google's updater on the Mac                                                                                                              |
+| Time behind Linux stable, last 20 releases (2026-08-06 to 2026-11-03) | 15 releases: 0.3 to 1.5 h, median 0.8 h. 3 releases: a newer CfT already existed. 2 releases: no CfT build at all, about 5 days behind.                                                                                                                                                | The Linux stable build, by definition. Each host's unattended run adds up to a day.                                                                        |
+| The two gaps                                                          | 151.0.7922.108 (41 security fixes): 122 h until CfT 151.0.7922.138. 154.0.8037.97 (11 security fixes): 113.5 h until CfT 155.                                                                                                                                                          | Shipped                                                                                                                                                    |
+| Integrity of the download                                             | HTTPS from `storage.googleapis.com`; the JSON API lists URLs and publishes no hash                                                                                                                                                                                                     | SHA256 in a signed apt index                                                                                                                               |
+| Compiled-in distrust, default flags                                   | Rejects the compromised-CA host with `ERR_CERT_REVOKED`                                                                                                                                                                                                                                | Same                                                                                                                                                       |
+| CRLSet under Playwright's default flags                               | None: `--disable-component-update` blocks it, and `revoked.badssl.com` loads with status 200                                                                                                                                                                                           | Same                                                                                                                                                       |
+| CRLSet with that one flag removed                                     | Version 10881 arrives at about 62 s; `revoked.badssl.com` then fails with `ERR_CERT_REVOKED`                                                                                                                                                                                           | Version 10881 at about 70 s; same result                                                                                                                   |
+| Time until a revoked certificate fails, one context held open         | 65 s (6 s with the seeded config below)                                                                                                                                                                                                                                                | 65 s                                                                                                                                                       |
+| Other components with that flag removed                               | 5 of 21 populated (CRLSet, Subresource Filter, Hyphenation, MEI Preload, Widevine); PKI Metadata stays 0.0.0.0. `--chrome-for-testing-config` with `requiredComponents: ["*"]` brings 21 of 21 to the versions Chrome holds, except Origin Trials.                                     | 20 of 21 populated, PKI Metadata 1825, no config                                                                                                           |
+| Safe Browsing test pages (`testsafebrowsing.appspot.com`, 230 s wait) | Blocked with `ERR_BLOCKED_BY_CLIENT` on 2 of 2 runs when both `--disable-component-update` and `--disable-background-networking` are removed. Loaded with either flag still present, on 1 of 1 run per arm.                                                                            | Blocked on 2 of 2 runs with both removed, and on 1 of 1 with only `--disable-background-networking` removed. Loaded while that flag stayed.                |
+| Sandbox                                                               | On unless the launcher disables it. Needs an AppArmor `userns` grant at its path. The dotfiles profile's `chromium-*` glob covers the set, through aliases too. Elsewhere it dies with `FATAL ... No usable sandbox!`. It ships `chrome_sandbox`, not setuid, so there is no fallback. | Same sandbox. Ubuntu's `chrome` profile covers `/opt/google/chrome/chrome`, and a setuid `chrome-sandbox` is the fallback. Measured only at first install. |
+| Sandbox measured on the host                                          | CfT 156.0.8078.4 at the covered path: renderers in their own user and PID namespaces, seccomp mode 2, label `playwright-chromium`. CfT 157 at that path waits for the first deploy, because this research left the real cache untouched.                                               | First deploy gate                                                                                                                                          |
+| `--load-extension`                                                    | Works: the extension's service worker and panel page load                                                                                                                                                                                                                              | Blocked: no service worker appears                                                                                                                         |
+| Headed UI                                                             | A non-removable "Chrome for Testing" banner                                                                                                                                                                                                                                            | None                                                                                                                                                       |
+
+**`requiredComponents` has a cost.** A CfT launch with that config dies when the update servers are unreachable, even
+with every component already on disk: through a dead proxy the browser closed about 250 ms after launch. The CfT docs
+state this ("Fail Fast"). It fits a testing tool, and it makes every browser start depend on Google's update servers.
+Without it, removing the flag gives CRLSet and Safe Browsing in about a minute to a few minutes. The first CRLSet needs
+an open browser context, so a very short-lived session has only what is compiled in.
+
+**A hardened launch needs five things**, on either build:
+
+1. No `--no-sandbox` and no `--disable-setuid-sandbox`.
+2. An AppArmor `userns` grant at the binary's real path on Ubuntu.
+3. No `--disable-component-update`, for CRLSet.
+4. No `--disable-background-networking`, for Safe Browsing. This lets the browser's background traffic to Google
+   through.
+5. No `--ignore-certificate-errors`, and any tool setting that ignores HTTPS errors turned off.
+
+**One launcher enforces this for every tool that accepts an executable path.** A trial script that drops those flags and
+`exec`s the real binary was measured under a default `chromium.launch()`: no `--no-sandbox` on the process, renderers
+sandboxed, label `playwright-chromium`, pipes intact, `revoked.badssl.com` loading at launch and failing with
+`ERR_CERT_REVOKED` after 100 s. Under agent-browser, the launcher kept `--args "--no-sandbox"` from reaching the browser, and the revoked host failed by 140 s. The launcher was not measured over Chrome stable or on the Mac.
+
+### "No Chrome?"
+
+Chrome is not needed for tests or for gstack's headed sessions, where CfT is the better fit. Chrome is needed only if
+agents browse untrusted pages on a build Google supports for that.
+
+|                      | Chrome stable                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Buys**             | Google's supported browser for untrusted pages. Every Linux stable release, including those CfT skips (41 and 11 security fixes in the last 20 releases). A signed update path. A setuid sandbox fallback when no AppArmor profile is loaded. PKI Metadata and the other components with no config. The standard path that Playwright CLI, Playwright MCP, Chrome DevTools, and agent-browser all find by themselves. |
+| **Costs on Linux**   | One operator `sudo` deploy per host. Google's apt source and keyring, `/etc/cron.daily/google-chrome`, a `chromemgmt` group, and update-alternatives entries for `google-chrome` and `x-www-browser`. An `Origins-Pattern` drop-in and a list refresh for unattended upgrades. 453 MB. A version that moves on Google's schedule, with running browsers left on the replaced executable until restarted.              |
+| **Costs on the Mac** | None new: Chrome 156.0.8078.80 is already installed and updated by Google.                                                                                                                                                                                                                                                                                                                                            |
+| **Cannot do**        | Load gstack's side panel, because branded Chrome blocks `--load-extension`. So gstack's headed sessions stay on CfT in every option.                                                                                                                                                                                                                                                                                  |
+
+### Agent Browsers
+
+Each tool was installed into a scratch directory at the newest version the seven-day gate allows on 2026-11-03, and
+driven through one job on a local page: open, snapshot, fill, click, read a heading, follow a link to a new tab. All
+three candidates finished it.
+
+|                                 | Playwright CLI                                                                                                                                                | Chrome DevTools for agents (CLI)                                                                                                | agent-browser                                                                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Publisher, license              | Microsoft, Apache-2.0                                                                                                                                         | Google, Apache-2.0                                                                                                              | Vercel Labs, Apache-2.0                                                                                                                                          |
+| Newest / newest the gate allows | 0.1.23 / 0.1.22 (2026-09-28)                                                                                                                                  | 1.12.0 / 1.12.0 (2026-10-22)                                                                                                    | 0.41.2 / 0.40.0 (2026-10-27)                                                                                                                                     |
+| Size installed                  | 19 MB (bundles `playwright-core` 1.64.0-alpha)                                                                                                                | 15 MB, no dependencies                                                                                                          | 115 MB (native binaries for seven platforms); bun blocks its postinstall and the launcher still works                                                            |
+| Browser by default              | `chrome` channel at `/opt/google/chrome/chrome`; absent, it fails and prints `Run "npx playwright install chrome"`                                            | Stable at `/opt/google/chrome/chrome`; absent, it fails                                                                         | Its own download, then Chrome on PATH, then `~/.cache/puppeteer`, then `~/.cache/ms-playwright`. On this host that means the Puppeteer cache's stale 133 or 150. |
+| Downloads a browser             | Only if asked (`install-browser`)                                                                                                                             | No                                                                                                                              | `agent-browser install` downloads CfT; `doctor --fix` can reinstall                                                                                              |
+| Points at a chosen binary by    | `PLAYWRIGHT_MCP_EXECUTABLE_PATH`, or a config named by `PLAYWRIGHT_MCP_CONFIG`                                                                                | `--executablePath` on `start`                                                                                                   | `AGENT_BROWSER_EXECUTABLE_PATH`                                                                                                                                  |
+| Sandbox                         | On for branded channels; off for CfT and `executablePath` unless `PLAYWRIGHT_MCP_SANDBOX=true`. Measured on with it set.                                      | On, measured at the covered CfT path                                                                                            | On unless `CI` is set, or root, or a container. Measured on at the covered path. At an uncovered path it fails and suggests `--args "--no-sandbox"`.             |
+| CRLSet with no launcher         | Blocks it; `ignoreDefaultArgs` in the config lifts that (measured `ERR_CERT_REVOKED`)                                                                         | Does not block it (measured `ERR_CERT_REVOKED`)                                                                                 | Hard-coded; only the launcher lifts it                                                                                                                           |
+| Separating two agents           | `PLAYWRIGHT_CLI_SESSION` or `-s=`; measured apart                                                                                                             | One browser for all, including with `CHROME_DEVTOOLS_MCP_SESSION_ID`; a per-agent `XDG_RUNTIME_DIR` separated them              | `AGENT_BROWSER_SESSION`; measured apart                                                                                                                          |
+| Phones home                     | Update check, off with `NO_UPDATE_NOTIFIER` or `CI`                                                                                                           | Usage statistics on by default; update check. `CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS`, `CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS` | None documented; `upgrade` is a command                                                                                                                             |
+| Guardrails for untrusted pages  | `PLAYWRIGHT_MCP_ALLOWED_ORIGINS`, which its docs say is not a security boundary; file access limited to workspace roots                                       | None                                                                                                                            | `--allowed-domains` (measured blocking), `--content-boundaries` (measured nonce markers), `--max-output` (measured cap), `--action-policy`, encrypted auth vault |
+| Known advisories                | `@playwright/mcp` before 0.0.40 (CVE-2025-9611); `playwright` before 1.55.1 (CVE-2025-59288)                                                                  | Before 1.1.0 (CVE-2026-53765, CVE-2026-53766)                                                                                   | None listed                                                                                                                                                      |
+| Release pace                    | About monthly lately                                                                                                                                          | 2 in the last 3 weeks                                                                                                           | 6 in the last 9 days                                                                                                                                             |
+| Install under the gate          | `bunx @playwright/cli@0.1.22`; the gate rejected 0.1.23 with `blocked by minimum-release-age`. Its banner prints `npm install -g ...@latest` unless silenced. | `bunx chrome-devtools-mcp@1.12.0`                                                                                               | `bunx agent-browser@0.40.0`; never `agent-browser upgrade`                                                                                                       |
+| Homebrew formula                | `playwright-cli` 0.1.23                                                                                                                                       | `chrome-devtools-mcp` 1.12.0                                                                                                    | `agent-browser` 0.41.1                                                                                                                                           |
+
+Homebrew installs fall outside the seven-day gate, so these tools install through bun at exact pins.
+
+**Token cost with Claude Code.** From Maximilian Fabian Kirchner's benchmark, published 2026-10-31, with Claude Code
+2.1.303, Opus 5.5 at medium effort, and Chrome 155: one signed-in web-app job, 12 runs per setup, across macOS, WSL, and
+Windows. Its 216-row table recomputes to the published medians. It did not run on a Linux server, and it measures one
+job.
+
+| Setup (median)       | Playwright              | Chrome DevTools   | agent-browser       |
+| -------------------- | ----------------------- | ----------------- | ------------------- |
+| CLI + official skill | 332K input, $0.32, 90 s | 341K, $0.32, 97 s | 652K, $0.48, 104 s  |
+| CLI, no skill        | 353K, $0.33, 99 s       | 348K, $0.32, 98 s | 304K, $0.28, 96 s   |
+| MCP                  | 513K, $0.41, 98 s       | 517K, $0.40, 72 s | 1.59M, $1.02, 106 s |
+
+Connection matters more than tool. The CLI forms sit within about 15 percent of each other, excluding agent-browser's
+skill. MCP costs about 1.5 times as much, or 5 times for agent-browser. A script over CDP did the same job in a median
+1.5 s with no model calls, which is the pattern for any repeated job. Most of each run is model time; the tool itself
+took 4 to 18 s.
+
+**What each tool loads, measured here at the versions above** (about 4 characters per token):
+
+|                                 | Playwright CLI                                                | Chrome DevTools                        | agent-browser                                                                                     | gstack browse              |
+| ------------------------------- | ------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------- |
+| `--help`                        | 7,651                                                         | 21,572                                 | 28,109, opening with "Start here (for AI agents): agent-browser skills get core --full" (150,835) | 2,635                      |
+| Official skill                  | 15,428                                                        | 12,031      | 3,457 stub plus 39,038 guide                                                                      | 34,684 (`browse/SKILL.md`) |
+| MCP `tools/list`                | 20,286 (25 tools)                                             | 29,661 (32 tools); 1,201 with `--slim` | 82,282 (29 tools, core profile)                                                                   | none                       |
+| Snapshot of a 200-row test page | 18,534 (or a 265-character reply with the snapshot in a file) | 7,970                                  | 13,521                                                                                            | 16,736                     |
+
+**Others considered, not trialed:**
+
+- browser-use (0.13.14, MIT) and Stagehand (4.3.0, MIT) run a model of their own inside the tool, a second agent loop on
+  top of Claude Code.
+- browser-harness (0.1.13, MIT), mcp-chrome, and gstack's Aside drive the person's real signed-in browser, a different
+  trust model.
+- Lightpanda (AGPL-3.0) and Obscura (Apache-2.0) are non-Chromium engines; agent-browser's own docs warn of Obscura's
+  fidelity limits.
+- patchright (Apache-2.0) and Camoufox (MPL-2.0) aim at evading bot detection, which is not this plan's goal.
+- dev-browser (1.0.0, MIT) is a skill over Playwright with no advantage over the Playwright CLI for this job.
+
+### The Split
+
+|                                    | Option A: CfT for tests, Chrome for browsing (recommended)                  | Option B: CfT only, no Chrome                                                                                                                     |
+| ---------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tests, default Playwright launches | System CfT set                                                              | System CfT set                                                                                                                                    |
+| gstack headed (Mac)                | System CfT set, side panel works                                            | Same                                                                                                                                              |
+| gstack headless (Linux)            | Launcher over Chrome through `GSTACK_CHROMIUM_PATH`                         | Launcher over CfT, or the alias alone                                                                                                             |
+| crawl4ai                           | `chrome_channel: chrome` per covered caller, sandbox opt-in                 | Alias, sandbox opt-in                                                                                                                             |
+| Agent CLI                          | Launcher over Chrome                                                        | Launcher over CfT                                                                                                                                 |
+| Who updates the browsing build     | apt with unattended upgrades on Linux; Google's updater on the Mac          | A dotfiles timer polling CfT, hourly                                                                                                              |
+| Who updates the test set           | dotfiles, weekly, through a bump that runs the suites                       | The same, as a second build on disk unless tests also follow stable hourly                                                                        |
+| Operator work                      | One `sudo` deploy per host that browses                                     | None                                                                                                                                              |
+| Security residue                   | Up to a day of apt lag; running browsers keep the old build until restarted | Google's "unsafe" statement stands; about 5-day gaps on releases CfT skips (2 of the last 20); no setuid fallback; download integrity is TLS only |
+
+Option B's appeal, one binary everywhere, does not fully survive: a test set under a bump gate and a browsing build on
+an hourly timer are two builds, unless tests give up the gate.
+
+**Recommendation: Option A with the Playwright CLI, no MCP, no skill loaded by default.** The Chrome deploy is a
+one-time operator step, and in exchange agents run the build Google supports and never sit on a release CfT skipped. The
+tool choice follows from this fleet: every setting reaches the Playwright CLI through the environment on both machines,
+including the per-agent session, and it has the smallest `--help` and MCP surface. Its token cost is tied with Chrome
+DevTools. Chrome DevTools stays the tool to reach for when a task needs performance traces, Lighthouse, or heap
+snapshots. agent-browser is the choice if Brett wants a domain allowlist and content boundaries more than he wants a
+slow-moving dependency, used without its skill and with its executable path set.
+
+### Other Measured Findings
 
 Measured on the Linux server (Ubuntu 24.04.5, kernel 6.8.0-146, `kernel.apparmor_restrict_unprivileged_userns = 1`) and
-read-only on the Mac (macOS 27.0, arm64), 2026-11-03. Chrome stable 156.0.8078.79 and 157.0.8103.38 were taken from
-Google's apt repository: each sha256 matched the Packages index, and each was extracted into a scratch directory, not
-installed.
+read-only on the Mac (macOS 27.0, arm64), 2026-11-03. Chrome stable was taken from Google's apt repository, sha256
+checked against the Packages index, and extracted into a scratch directory, not installed.
 
-| Finding                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Evidence                                                                                                                           |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Playwright 1.61.1 resolves chromium 1228 to the 1234 alias, Chrome 151.0.7922.34. gstack's and crawl4ai's Playwright 1.64.1 run chromium 1248, Chrome for Testing 156.0.8078.4.                                                                                                                                                                                                                                                                              | `browser.version()` from each package's `chromium.launch()`; the browsers.json of 1.64.1                                           |
-| Playwright's default launch passes `--no-sandbox`, and no child process gets its own user or PID namespace. With `chromiumSandbox: true` the pinned headless shell gets both namespaces and seccomp filter mode, under the dotfiles `playwright-chromium-headless` AppArmor label (the profile attaches through the alias symlink).                                                                                                                          | `/proc/<pid>/cmdline`, `ns/user`, `ns/pid`, `status`, `attr/current` of the browser tree                                           |
-| Both pinned builds (151.0.7922.34 and 156.0.8078.4) load `https://dv-g3b-emudhra.we-have-a-problem.com/` with status 200 and the page's "That's bad!" text. Stable 156.0.8078.79, launched by Playwright with its default `--disable-component-update`, rejects it with `net::ERR_CERT_REVOKED`.                                                                                                                                                             | navigation through Playwright on each build                                                                                        |
-| Chrome for Testing 151.0.7922.34 predates two fixes Google reports as exploited in the wild: CVE-2026-85046 (fixed in 152.0.7977.82, 2026-09-03) and CVE-2026-87491 (fixed in 153.0.8010.36, 2026-09-08). 156.0.8078.4 predates the four Criticals fixed in 156.0.8078.73 (2026-10-27: CVE-2026-118306, -118331, -118348, -118344) and CVE-2026-76024 (156.0.8078.79, 2026-10-29). Chrome 157.0.8103.38 went stable on 2026-11-03 with seven more Criticals. | Chrome Releases stable-channel posts                                                                                               |
-| No Playwright release since 1.64.1 (2026-10-14). Playwright main (1.65.0-alpha-2026-11-03) pins 158.0.8127.2, which matches Chrome's current beta.                                                                                                                                                                                                                                                                                                           | npm registry times; the alpha's browsers.json                                                                                      |
-| Playwright 1.61.1 drives full Chrome through `executablePath`: lmgroktfy's suite passes 16/16 on 156.0.8078.79 (22.3 s) and on 157.0.8103.38 (25.9 s, 22.1 s), against 16/16 on the pinned build (22.0 s, 22.3 s). Peak RSS is about 225 MB on full Chrome against 205 MB on the pinned headless shell. Host load average was about 29 throughout.                                                                                                           | scratch config over the repo's tests and `dist/`; `gtime -f '%e s %M KB'`, one or two runs each                                    |
-| At a path no AppArmor profile covers, Chrome 156 with its sandbox on falls back to the setuid helper and aborts because the scratch copy is not root-owned mode 4755. With `--no-sandbox` it renders and no library is missing.                                                                                                                                                                                                                              | direct headless launch; `ldd`                                                                                                      |
-| `channel: 'chrome'` resolves only to `/opt/google/chrome/chrome`.                                                                                                                                                                                                                                                                                                                                                                                            | Playwright 1.61.1 launch error; coreBundle.js in 1.64.1                                                                            |
-| Ubuntu's `apparmor` package ships `/etc/apparmor.d/chrome`, granting `userns` to `/opt/google/chrome/chrome`, and it is loaded on the current boot as `chrome`. Google's deb ships its own equivalent profile and installs it only when Ubuntu's is absent.                                                                                                                                                                                                  | `dpkg -S`, `/sys/kernel/security/apparmor/policy/profiles/`, the deb's postinst                                                    |
-| On the current boot (2026-10-05) `apparmor.service` ran and loaded `/etc/apparmor.d`. The runbook says it is skipped at boot on this host.                                                                                                                                                                                                                                                                                                                   | `systemctl show apparmor.service -p ConditionResult` is `yes`; `journalctl -b -u apparmor.service`                                 |
-| Installing the deb installs `/opt/google/chrome` with a setuid `chrome-sandbox` and adds Google's apt source with the keyring `/usr/share/keyrings/google-chrome.gpg`. It also adds `/etc/cron.daily/google-chrome`, which keeps that source in place, creates a `chromemgmt` group, and registers update-alternatives for `google-chrome` and `x-www-browser`.                                                                                              | the deb's control files and payload                                                                                                |
-| Google's apt index lists one version per channel. On 2026-11-03, the day Chrome 157 went stable, amd64 stable was 156.0.8078.79 at 12:14 UTC and 157.0.8103.38 from 21:28 UTC. The arm64 index already listed 157.0.8103.38 at 21:37 UTC.                                                                                                                                                                                                                    | `dists/stable/main/binary-{amd64,arm64}/Packages.gz`, `Release` Last-Modified                                                      |
-| unattended-upgrades is enabled on the Linux server, but its Allowed-Origins cover only Ubuntu's own origins. The repository's `Origin: Google LLC` is not among them. unattended-upgrade builds its origin list from `Allowed-Origins` plus every `Origins-Pattern` entry, so a separate drop-in adds an origin without replacing the stock list.                                                                                                            | `/etc/apt/apt.conf.d/50unattended-upgrades`; `/usr/bin/unattended-upgrade:787-797`; `systemctl is-enabled apt-daily-upgrade.timer` |
-| The Mac runs Google Chrome 156.0.8078.80 from Google's own installer, not Homebrew (the `google-chrome` cask reports not installed, `auto_updates`), and Google's user-level updater is present.                                                                                                                                                                                                                                                             | `defaults read`, `brew info --cask`, `~/Library/Application Support/Google/GoogleUpdater`                                          |
-| GitHub's Ubuntu 24.04 runner image 20261026 ships Google Chrome 156.0.8078.47.                                                                                                                                                                                                                                                                                                                                                                               | actions/runner-images `Ubuntu2404-Readme.md`                                                                                       |
-| Lighthouse CI cannot find a Chrome on the Linux server today: chrome-launcher 0.13.4 raises `ERR_LAUNCHER_PATH_NOT_SET`. Both repos' `.lighthouserc.json` set `--no-sandbox` and no `chromePath`.                                                                                                                                                                                                                                                            | `Launcher.getInstallations()` from agentnative-site's install                                                                      |
-| None of the four e2e suites uses screenshot or snapshot assertions.                                                                                                                                                                                                                                                                                                                                                                                          | search of the suites' specs                                                                                                        |
+| Finding                                                                                                                                                                                                                                                                                                                                 | Evidence                                                                           |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Playwright's default launch passes `--no-sandbox`, and no child process gets its own user or PID namespace. With `chromiumSandbox: true` the pinned headless shell gets both namespaces and seccomp filter mode, under the dotfiles `playwright-chromium-headless` label, through the alias symlink.                                    | `/proc/<pid>` of the browser tree                                                  |
+| Both pinned builds (151.0.7922.34 and 156.0.8078.4) load `https://dv-g3b-emudhra.we-have-a-problem.com/` with status 200. Stable 156.0.8078.79 and later reject it under Playwright's default flags.                                                                                                                                    | Navigation through Playwright on each build                                        |
+| CfT 151.0.7922.34 predates CVE-2026-85046 (fixed in 152.0.7977.82, 2026-09-03) and CVE-2026-87491 (fixed in 153.0.8010.36, 2026-09-08), both reported exploited. 156.0.8078.4 predates the four Criticals fixed in 156.0.8078.73 and CVE-2026-76024 (156.0.8078.79). 157.0.8103.38 went stable on 2026-11-03 with seven more Criticals. | Chrome Releases                                                                    |
+| Playwright 1.64.1 (2026-10-14) is the newest release. Playwright main pins 158.0.8127.2, Chrome's current beta.                                                                                                                                                                                                                         | npm registry; the alpha's `browsers.json`                                          |
+| Ubuntu's `apparmor` package ships `/etc/apparmor.d/chrome`, granting `userns` to `/opt/google/chrome/chrome`, loaded on the current boot. Google's deb installs its own equivalent only when Ubuntu's is absent.                                                                                                                        | `dpkg -S`; `/sys/kernel/security/apparmor/policy/profiles/`                        |
+| On the current boot `apparmor.service` ran and loaded `/etc/apparmor.d`.                                                                                                                                                                                                                                                                | `systemctl show apparmor.service -p ConditionResult`; journal                      |
+| Google's apt index lists one version per channel. On 2026-11-03 amd64 stable was 156.0.8078.79 at 12:14 UTC and 157.0.8103.38 from 21:28 UTC.                                                                                                                                                                                           | `Packages.gz`, `Release`                                                           |
+| unattended-upgrades is enabled on the Linux server, its Allowed-Origins cover only Ubuntu's own, and an `Origins-Pattern` drop-in adds an origin without replacing the stock list.                                                                                                                                                      | `/etc/apt/apt.conf.d/50unattended-upgrades`; `/usr/bin/unattended-upgrade:787-797` |
+| The Mac runs Chrome 156.0.8078.80 from Google's installer, with Google's user-level updater present. Its gstack is 1.93.42.0, its shared cache holds chromium 1228 and 1234, and its crawl4ai is 0.7.7 on Playwright 1.56.0, below the alias floor.                                                                                     | `ssh`, read-only                                                                   |
+| Lighthouse CI cannot find a Chrome on the Linux server: chrome-launcher 0.13.4 raises `ERR_LAUNCHER_PATH_NOT_SET`.                                                                                                                                                                                                                      | `Launcher.getInstallations()`                                                      |
+| None of the four e2e suites uses screenshot or snapshot assertions.                                                                                                                                                                                                                                                                     | Search of the suites' specs                                                        |
+| GitHub's Ubuntu 24.04 runner image 20261026 ships Google Chrome 156.0.8078.47.                                                                                                                                                                                                                                                          | actions/runner-images                                                              |
+| Disk: CfT full 409 MB, headless shell 278 MB, Chrome 453 MB, the Puppeteer cache 929 MB.                                                                                                                                                                                                                                                | `du`                                                                               |
+
+Brett's supplied Playwright security notes check out against these sources: the 156.0.8078.4 pin, the `.73` to `.80`
+releases, `chromiumSandbox` defaulting off, and the MCP CVE and its 0.0.40 fix. The Playwright CLI and MCP do default to
+Chrome rather than a bundled build. The phrase "Do not use it on the hostile web" was not found in the Playwright pages
+read here; Chromium's FAQ states the same thing.
 
 ### Consumer Risk
 
-Who opens pages Brett does not control, on which browser, with or without the sandbox. "Pinned" means Chrome for Testing
-as provisioned by Playwright or dotfiles.
+Who opens pages Brett does not control, what they run today, and where each goes under the recommendation.
 
-| Consumer                                                                                    | Machine                           | Pages it opens                                                                   | Browser today                                                        | Sandbox today                                                | Under this plan                                                            |
-| ------------------------------------------------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| gstack browse (`/browse`, `/qa`, `/scrape`, handoff, cookie import)                         | Linux, gstack 1.94.33.0           | arbitrary URLs, including credentialed sessions                                  | pinned 156.0.8078.4                                                  | on, through the dotfiles AppArmor profile                    | stable Chrome, sandbox on (R6)                                             |
-| gstack browse                                                                               | Mac, gstack 1.93.42               | same                                                                             | pinned 151.0.7922.34                                                 | on                                                           | per the gstack headed-session question (R6)                                |
-| crawl4ai CLI and the crawl4ai skill's scripts                                               | Linux, 0.9.5 on Playwright 1.64.1 | arbitrary sites                                                                  | pinned 156.0.8078.4                                                  | off (`--no-sandbox` unless `CRAWL4AI_CHROMIUM_SANDBOX=true`) | stable Chrome, sandbox and certificate checks on (R7)                      |
-| crawl4ai CLI                                                                                | Mac, 0.7.7 on Playwright 1.56.0   | arbitrary sites                                                                  | none: the Mac cache holds no chromium for 1.56.0 (unverified launch) | off                                                          | stable Chrome, sandbox and certificate checks on (R7)                      |
-| Ad hoc agent scripts and scrapers                                                           | both                              | arbitrary sites                                                                  | whatever the script launches, by default pinned with `--no-sandbox`  | off by Playwright default                                    | stable Chrome, sandbox on, by guidance (R8)                                |
-| Puppeteer downloads in `~/.cache/puppeteer`                                                 | Linux                             | unknown; no consumer identified                                                  | Chrome for Testing 133.0.6943.141 and 150.0.7871.24 (929 MB)         | unknown                                                      | identified, then repointed or removed (Deferred to Planning)               |
-| Codex browser plugin, Cursor `@agentdeskai/browser-tools-mcp@1.2.0`                         | Mac                               | arbitrary sites                                                                  | the Mac's real Chrome 156.0.8078.80                                  | on                                                           | unchanged                                                                  |
-| Playwright MCP                                                                              | neither                           | none configured in Claude Code, Claude Desktop, or any `.mcp.json` under `~/dev` | n/a                                                                  | n/a                                                          | not adopted (Scope Boundaries)                                             |
-| e2e suites: lmgroktfy, agentnative-site, meum-sites, streamsgrp (`@playwright/test` 1.61.1) | Linux                             | own local builds and own staging or production                                   | pinned 151.0.7922.34 locally; pinned 149 in CI                       | off                                                          | CI keeps the pin (R10); local is Brett's call (first Outstanding Question) |
-| Lighthouse CI (agentnative-site, meum-sites)                                                | Linux                             | own site                                                                         | cannot launch locally; runner Chrome in CI                           | off by config                                                | finds stable Chrome locally once R1 lands                                  |
+| Consumer                                                            | Machine                         | Pages it opens                                                      | Browser today                            | Sandbox today                               | Under the recommendation                                                                                |
+| ------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| gstack browse (`/browse`, `/qa`, `/scrape`, handoff, cookie import) | Linux, 1.94.33.0                | Arbitrary URLs, credentialed sessions too                           | CfT 156.0.8078.4                         | On, through the dotfiles AppArmor profile   | Launcher over Chrome, sandbox on (R9)                                                                   |
+| gstack browse, headed                                               | Mac, 1.93.42.0                  | Same; its skill prefers Aside there                             | CfT 151.0.7922.34                        | On                                          | System CfT set, side panel works (R6)                                                                   |
+| crawl4ai CLI and skill scripts                                      | Linux, 0.9.5                    | Arbitrary sites                                                     | CfT 156.0.8078.4                         | Off unless `CRAWL4AI_CHROMIUM_SANDBOX=true` | Chrome where installed, sandbox and certificate checks on (R7)                                          |
+| crawl4ai CLI                                                        | Mac, 0.7.7 on Playwright 1.56.0 | Arbitrary sites                                                     | None found in the cache for 1.56.0       | Off                                         | Moves to a release at or above 0.9.5, then as Linux (R7)                                                |
+| Agent CLI, new                                                      | Both                            | Arbitrary sites                                                     | Not installed                            | n/a                                         | Launcher over Chrome (R9, R10)                                                                          |
+| Ad hoc agent scripts                                                | Both                            | Arbitrary sites                                                     | Default pinned build with `--no-sandbox` | Off                                         | Launcher by guidance (R11); a script that ignores it gets the system set, never older than a bump cycle |
+| Puppeteer downloads in `~/.cache/puppeteer`                         | Linux                           | No consumer identified; agent-browser's auto-detect would find them | CfT 133.0.6943.141, 150.0.7871.24        | Unknown                                     | Identified, then repointed or removed (Deferred)                                                        |
+| Codex browser plugin, Cursor `browser-tools-mcp@1.2.0`              | Mac                             | Arbitrary sites                                                     | Mac's Chrome                             | On                                          | Unchanged                                                                                               |
+| e2e suites: lmgroktfy, agentnative-site, meum-sites, streamsgrp     | Linux                           | Own builds and own staging                                          | CfT 151 locally; CfT 149 in CI           | Off                                         | System CfT set (R5); CI per the fourth question                                                         |
+| Lighthouse CI (agentnative-site, meum-sites)                        | Linux                           | Own site                                                            | Cannot launch locally                    | Off by config                               | `CHROME_PATH` to the set's binary (Deferred)                                                            |
 
 ### Key Decisions
 
-- **Split consumers by trust boundary.** Browsing agents move to stable Chrome with the sandbox on, and own-app test
-  suites keep a Playwright-pinned build in CI. The measured gap (compromised-CA trust, missing exploited-in-the-wild
-  fixes, sandbox off) is all on the browsing side. Playwright's own guidance keeps tests on the pin for reproducibility.
-  Governs R6, R7, R8, R10.
-- **Google's signed apt repository on Linux, kept current by the host's unattended upgrades.** This is the update path
-  Google's package itself installs, and unattended upgrades already run daily on the host. Google's origin joins them
-  through an `Origins-Pattern` drop-in, copy-deployed like `config/sysctl.d`, which leaves Ubuntu's stock list as it is.
-  The upgrade timer runs `apt.systemd.daily install`, which never refreshes package lists, so a copy-deployed drop-in on
-  `apt-daily-upgrade.service` refreshes Google's list alone just before each run (`/usr/lib/apt/apt.systemd.daily` lines
-  437 and 491). A dotfiles download script would rebuild what apt provides, the same shape as the pinned-set script this
-  plan shrinks. Governs R1, R2.
-- **The install is per host, never fleet-wide.** This repo deploys to many headless servers that run no browser, so only
-  a host where the operator runs the Chrome deploy gets Chrome, and a host without it keeps its consumers' current
-  behavior. Governs R1, R15.
-- **One owner for the Chrome executable path.** The per-OS path is defined once in shell config, as the variable agents'
-  scripts read too. The gstack pointer, the crawl4ai settings, the guidance, and the R4 check all read it there, so no
-  second copy can drift. Governs R6, R7, R8, R15, R18.
-- **The Mac keeps Google's own updater, not Homebrew.** Chrome is already installed outside Homebrew and updated by
-  Google. The cask declares `auto_updates`, so `brew-upgrade`'s `bu --no-greedy` would never upgrade it anyway. Governs
-  R3.
-- **Dotfiles adds no AppArmor profile for stable Chrome.** Ubuntu's own `chrome` profile already grants `userns` at the
-  install path, and the setuid helper is the fallback when no profile is loaded. Both claims are measured only once the
-  package is installed (the first execution gate, Deferred to Planning). Governs R5.
-- **gstack moves by pointing, not patching.** `GSTACK_CHROMIUM_PATH` reaches every browse launch path, so dotfiles sets
-  it and edits nothing inside gstack. The same variable drives headed sessions, where branded Chrome drops gstack's side
-  panel, so where it is set is the gstack headed-session question. gstack keeps fetching its own pinned Chromium on each
-  Playwright bump until upstream fixes its probes (Dependencies). PR #431's registration keeps that fetch from deleting
-  anything else. Governs R6.
-- **The pinned-set machinery shrinks to what still launches from it.** It does not disappear outright, because WebKit
-  has no system alternative and gstack and crawl4ai still install their own pinned builds into the shared cache. Governs
-  R12, R13.
+- **One physical build, aliased per revision.** The set holds one CfT build, its headless shell, one WebKit, and ffmpeg.
+  Every revision resolves to them. Real suites at 1.61.1 and 1.64.1 passed as they do on their pins, and the alias
+  mechanism is already live for 1228. Governs R1, R2, R5, R6, R7.
+- **Aliases run ahead of today's revisions.** A forward range of symlinks serves a revision that does not exist yet, so
+  a Dependabot bump of `@playwright/test` works on the day it lands, and a repo's Playwright version stops being
+  something dotfiles tracks. Governs R2.
+- **The version is pinned in the repo, and a job bumps it.** Machines run the same dotfiles version, so the pin belongs
+  in dotfiles. A scheduled job proposes the newest CfT Stable the gate allows, and the real suites run before it merges.
+  This follows the bump pattern in `docs/plans/2026-11-02-2155-feat-yazi-plugin-auto-bump-plan.md`. Governs R4.
+- **The bump records a hash.** CfT publishes none, so the bump writes the sha256 of each archive it verified into the
+  pin, and hosts check against it. Governs R3, R4.
+- **Tests and untrusted browsing get separate decisions.** Reproducibility and security pull a browser's update cadence
+  in opposite directions. Governs R4, R9, R13.
+- **gstack's headed sessions run on CfT in every option.** The side panel needs `--load-extension`, which CfT honors and
+  Chrome blocks (measured). Governs R6.
+- **One launcher is the single point of hardening.** gstack's headless path, agent-browser, and any script that forgets
+  `chromiumSandbox: true` have no setting that reaches all five conditions. A launcher that strips those flags and
+  `exec`s the binary covers them with one small file, and it keeps the per-OS browser path in one place. Governs R9,
+  R10, R11.
+- **Tests stay outside the launcher.** Suites use the raw alias path: their pages are trusted, and background network
+  traffic and component downloads would make runs less hermetic. Governs R5.
+- **CLI, not MCP, for agents.** Benchmarked at 1.5 to 5 times less input than MCP for the same job, and an MCP schema
+  sits in context for the whole session. Governs R10.
+- **Per-agent sessions by environment.** All three tools default to one shared browser across agents on a host, which
+  would mix tabs and cookies across slots (measured on Chrome DevTools). The session variable is set wherever an agent's
+  environment is built. Governs R10.
+- **The install is per host for Chrome, and shared for the set.** The repo deploys to many headless servers that run no
+  browser, so the Chrome deploy is opt-in per host. A host without it keeps the set's behavior. Governs R13, R15.
+- **The Mac keeps Google's own updater.** Chrome there is outside Homebrew, and the cask declares `auto_updates`.
+  Governs R14.
+- **Dotfiles adds no AppArmor profile for Chrome and needs no new one for CfT.** Ubuntu's `chrome` profile covers the
+  install path, and the existing `chromium-*` glob covers the set when its directories keep that prefix. Governs R3,
+  R13.
 
 ### Requirements
 
-**Install and updates**
+**System browser set**
 
-- R1. The Linux server has Google Chrome stable installed from Google's signed apt repository at its standard path. The
-  install is declared in dotfiles and applied by a deploy script the operator runs on each host that needs it, never by
-  an ad hoc `sudo` command.
-- R2. Chrome on the Linux server updates without operator action within a day of Google publishing a new stable build to
-  its apt repository. Each unattended-upgrade run refreshes Google's package list first, because the stock timers can
-  run the upgrade on lists up to a day and a half old.
-- R3. The Mac keeps its existing Google-updated Chrome. Dotfiles neither installs a second copy nor moves it under
+- R1. Each host that deploys it holds exactly one CfT build (full and headless shell), one WebKit build, and ffmpeg in
+  `$PLAYWRIGHT_BROWSERS_PATH`, at versions named once in dotfiles.
+- R2. Every Playwright revision a consumer at 1.57 or later asks for resolves to that build through an alias, for
+  Chromium and WebKit, including revisions newer than the set. Each alias directory carries the install markers.
+- R3. `playwright install` in any consumer is a no-op and deletes nothing. The set survives a consumer's cleanup through
+  registration in `.links` and `PLAYWRIGHT_SKIP_BROWSER_GC`. Provisioning verifies each archive against its recorded
+  sha256 and keeps the `curl` plus `unzip` path, because node's extractor deadlocks on this kernel.
+- R4. dotfiles moves the set on its own schedule with no repo involved. A candidate version passes the real suites
+  before it lands. A check that changes nothing fails when a host's set differs from the pin or the pin is older than a
+  stated age, names the fix command, and carries a stable reason and the values it compared.
+
+**Consumers**
+
+- R5. Each e2e suite runs locally on the set with no change to its Playwright config or its version pin.
+- R6. gstack browse resolves to the set with no pointer and no patch, in every launch path including its install probes.
+  Its headed sessions load the side panel on CfT.
+- R7. crawl4ai resolves to the set with no per-caller browser setting. `CRAWL4AI_CHROMIUM_SANDBOX=true` is exported
+  wherever the sandbox can work. Covered callers set `ignore_https_errors` off. With Chrome installed, covered callers
+  also set the Chrome channel.
+- R8. No browsing consumer on either machine passes `--no-sandbox` outside a context where the sandbox cannot work
+  (root, a container, CI).
+
+**Agent browsing**
+
+- R9. A dotfiles-owned launcher on PATH drops `--no-sandbox`, `--disable-setuid-sandbox`, `--disable-component-update`,
+  `--disable-background-networking`, and `--ignore-certificate-errors`, then `exec`s the agent browser, so the browser
+  keeps the caller's pipes and AppArmor's path match. It reads the browser's path from one place. gstack's Linux
+  pointer, the agent CLI, and the guidance all name the launcher. When the browser is absent it exits before opening a
+  page, says the host has no agent browser, and names the deploy command.
+- R10. The agent CLI chosen in the second question installs at an exact version the gate allows, with its update notices
+  and any telemetry off, and each agent gets its own browser through an environment variable. Its output directory is
+  outside the working tree.
+- R11. The guidance agents read before opening a page routes them: read a page with `defuddle`, scrape with crawl4ai,
+  interact with the agent CLI, run product QA with gstack. It says never to run `playwright install`, never pass
+  `--no-sandbox`, never install a browser tool at `@latest`, and to script any job that repeats. That guidance is the
+  always-loaded `stow/claude/dot-claude/CLAUDE.md`, the CLI tools guide, and the browser-related skills.
+- R12. An agent browser on the Linux server runs renderers with their own user and PID namespaces and seccomp filter
+  mode, rejects the compromised-CA host from launch, and rejects a revoked certificate within two minutes of launch with
+  a context open.
+
+**If Option A: Chrome**
+
+- R13. The Linux server has Chrome stable from Google's signed apt repository at its standard path, declared in dotfiles
+  and applied by a deploy script the operator runs on each host that needs it. It updates without operator action within
+  a day of Google publishing to its index: an `Origins-Pattern` drop-in adds Google's origin to unattended upgrades, and
+  a drop-in on `apt-daily-upgrade.service` refreshes Google's list first.
+- R14. The Mac keeps its existing Google-updated Chrome. Dotfiles neither installs a second copy nor moves it under
   Homebrew.
-- R4. A check that changes nothing fails when an installed Chrome is older than a stable build that an unattended run
-  has already had the chance to install, or when the host's unattended upgrades do not cover it, and names the command
-  that fixes it. A build newer than the last unattended run is noted as pending, not failed.
+- R15. A host without Chrome keeps its consumers on the set, never exports a pointer to an absent binary, and notes the
+  absence without failing. `GSTACK_CHROMIUM_PATH` is set only where the browser exists and only where headed sessions do
+  not run.
+- R16. The check in R4 also fails when an installed Chrome is older than a build an unattended run has had the chance to
+  install, or when unattended upgrades do not cover it. A newer build than the last run is noted as pending. It reports
+  any running browser on a replaced executable and names the restart, without restarting anything.
 
-**Sandbox**
+**If Option B: CfT only**
 
-- R5. Stable Chrome launched from Playwright with `chromiumSandbox: true` starts with Chromium's sandbox active on the
-  Linux server, under the host's userns restriction, without the dotfiles Playwright AppArmor profile.
+- R17. A user-level timer on each browsing host polls CfT's Stable channel hourly and installs the browsing build beside
+  the set. The check in R4 fails when that build is more than a day behind. The launcher points at that build. Its
+  components config is not used, so an update-server outage cannot stop browser launches.
 
-**Browsing agents**
+**Provisioning cleanup**
 
-- R6. gstack browse on both machines opens pages in stable Chrome with its sandbox on, through every launch path that
-  opens a page, within the bounds of the gstack headed-session question. gstack's install probe, which renders a local
-  test page in a pinned build, is outside R6 and R9 until upstream honors `GSTACK_CHROMIUM_PATH` in it.
-- R7. crawl4ai on both machines (the CLI, the crawl4ai skill's scripts, and repos that import it) launches stable Chrome
-  with its sandbox on and certificate errors enforced. crawl4ai takes its browser per caller, not from the environment,
-  so each covered caller sets the Chrome channel, the sandbox opt-in, and `ignore_https_errors` off. Each runs a
-  crawl4ai that honors `CRAWL4AI_CHROMIUM_SANDBOX` (0.9.5 does; 0.8.9 and earlier always pass `--no-sandbox`).
-- R8. The guidance agents read before writing browser automation tells any script that opens pages Brett does not
-  control to launch the Chrome binary dotfiles names, with the sandbox on. That guidance is the always-loaded
-  `stow/claude/dot-claude/CLAUDE.md`, the CLI tools guide, and the browser-related skills. For Playwright its form is
-  `executablePath` from the dotfiles-owned variable with `chromiumSandbox: true`, which works on both machines;
-  `channel: 'chrome'` is equivalent only where Chrome is installed at the Linux path.
-- R9. No browsing agent on either machine passes `--no-sandbox` outside a context where the sandbox cannot work (root, a
-  container, CI).
-
-**Test suites**
-
-- R10. Each e2e suite's CI keeps running its Chromium-family projects on the Playwright-pinned build.
-- R11. If Brett picks stable Chrome as the local default (first Outstanding Question), each e2e suite runs its
-  Chromium-family projects on stable Chrome locally through one switch with the same name in every suite.
-
-**Provisioning**
-
-- R12. The dotfiles-provisioned Playwright set carries only the browsers some consumer on the machine still launches
-  from it. Its registration with Playwright's cleanup, its `--check`, and its aliases cover exactly that set.
-- R13. No AppArmor grant stays deployed on a host for a browser binary that nothing on that host launches with its
-  sandbox on. The Playwright profile stays in the repo while any host can still fall back to a pinned build (R15).
+- R18. No AppArmor grant stays deployed on a host for a browser path nothing on that host launches with its sandbox on.
+  `config/apparmor.d/playwright` stays while the set runs sandboxed anywhere.
 
 **Docs**
 
-- R14. The always-loaded `stow/claude/dot-claude/CLAUDE.md`, the Playwright runbook, the CLI tools guide, and the
-  solutions docs on Playwright launch describe which consumers use stable Chrome and which use a pinned build, and why.
-  Each states the boot-time AppArmor behavior as measured.
-
-**Hosts without Chrome, processes an upgrade left behind, and failure output**
-
-- R15. A host without stable Chrome keeps gstack and crawl4ai on their current browser. Dotfiles never points a consumer
-  at a Chrome binary that is absent, and on such a host the R4 check only notes the absence. New scripts follow R18
-  instead.
-- R16. The R4 check also reports any running Chrome process still on an executable an upgrade replaced, and names the
-  restart that picks up the new build.
-- R17. Each R4 failure carries a stable reason from a closed set, the values it compared (installed and offered
-  versions, the configuration file read), and the fix command, on stderr with a non-zero exit.
-- R18. A script following the R8 guidance on a host without stable Chrome stops and names the operator's deploy command.
-  It never falls back to a pinned build for pages Brett does not control and never runs `playwright install chrome`. A
-  bare `executablePath` from an unset variable is `undefined`, which silently launches the bundled build, so the
-  guidance checks the variable before launching.
+- R19. The always-loaded `CLAUDE.md`, the Playwright runbook, the CLI tools guide, and the solutions docs on Playwright
+  launch describe the set, the launcher, and the browsing build as they are, and state the boot-time AppArmor behavior
+  as measured.
 
 ### Acceptance Examples
 
-- AE1. **Covers R6, R9.** **Given** stable Chrome is installed and gstack is pointed at it, **when**
-  `browse goto https://dv-g3b-emudhra.we-have-a-problem.com/` runs, **then** the navigation fails with a certificate
-  error, and the browser's renderer processes run in their own user namespace.
-- AE2. **Covers R2, R4, R17.** **Given** Google publishes a new stable build, **when** the host's next daily
-  unattended-upgrade run completes, **then** the installed version matches it and the R4 check passes; the time from the
-  build entering Google's index to its install is under a day. **Given** a build Google published after the last
-  unattended run started, **when** the R4 check runs, **then** it notes the pending upgrade and exits 0. **Given**
-  Google's origin is missing from the unattended-upgrade configuration, **when** the R4 check runs after an unattended
-  run has had the chance to install a build, **then** it exits non-zero with a stable reason, the configuration file it
-  read, and the deploy command.
-- AE3. **Covers R5.** **Given** stable Chrome is installed, **when** Playwright launches it with `channel: 'chrome'` and
-  `chromiumSandbox: true` on a boot where Ubuntu's `chrome` profile is loaded, **then** it starts and its renderers have
-  their own user and PID namespaces. **When** the same launch runs with that profile unloaded, **then** it still starts
-  sandboxed through the setuid helper.
-- AE4. **Covers R7, R9.** **Given** crawl4ai is configured by dotfiles, **when** it crawls a page, **then** the browser
-  process is `/opt/google/chrome/chrome` (or the Mac's Chrome) and its command line carries no `--no-sandbox`. **When**
-  it crawls `https://dv-g3b-emudhra.we-have-a-problem.com/`, **then** the crawl fails with a certificate error, as AE1
-  does for gstack.
-- AE5. **Covers R11, R12.** **Given** Brett chose stable Chrome as the local default, **when** the deploy script's
-  `--check` runs, **then** it passes with no chromium or headless-shell directory and no chromium aliases in the set.
-  lmgroktfy's, meum-sites', and streamsgrp's suites, and agentnative-site's Chromium-family projects, pass locally on
-  stable Chrome. agentnative-site's WebKit projects still pass on the provisioned WebKit.
-- AE6. **Covers R10.** **Given** any of the four suites opens a pull request, **when** CI runs its e2e job, **then** the
-  Chromium projects run on the pinned build that the suite's `@playwright/test` version installs, as they do today.
-- AE7. **Covers R15.** **Given** a host where the Chrome deploy never ran, **when** a shell starts and gstack browse
-  launches, **then** `GSTACK_CHROMIUM_PATH` is unset, browse launches its own pinned build as it does today, and the R4
-  check exits 0 with a note that Chrome is not installed.
-- AE8. **Covers R16.** **Given** a gstack browse daemon started before the morning's unattended upgrade replaced Chrome,
-  **when** the R4 check runs, **then** it names that process and the command that restarts it.
-- AE9. **Covers R18.** **Given** a host without stable Chrome, **when** an agent's script launches a browser the way the
-  guidance says, **then** it exits before opening any page with a message that the host has no stable Chrome and names
-  the deploy command, rather than Playwright's `Run "npx playwright install chrome"`.
+- AE1. **Covers R2, R5.** **Given** the set is deployed at any CfT version, **when** lmgroktfy, meum-sites, and
+  agentnative-site run their suites from a checkout with no local changes, **then** they pass as they do on the previous
+  build and no file under `$PLAYWRIGHT_BROWSERS_PATH` changes.
+- AE2. **Covers R1, R6.** **Given** the set is deployed on the Mac, **when** gstack's headed session opens, **then** the
+  side panel loads, and a suite passes there.
+- AE3. **Covers R2.** **Given** a repo bumps `@playwright/test` to a release newer than the set's last deploy, **when**
+  its suite runs, **then** it runs on the set with no dotfiles change and no download.
+- AE4. **Covers R3.** **Given** another tool runs `playwright install chromium`, **when** it finishes, **then** the set
+  is intact and nothing downloaded. **Given** an archive whose hash differs from the pin, **when** provisioning runs,
+  **then** it stops, names both hashes, and leaves the existing set in place.
+- AE5. **Covers R4.** **Given** a candidate CfT build that fails a real suite, **when** the bump job runs, **then** the
+  pin does not move and the job reports which suite failed.
+- AE6. **Covers R6.** **Given** the set is deployed and no gstack variable is set, **when** `gstack-browser-ensure`
+  runs, **then** it prints `BROWSER_OK` with the set's version and fetches nothing.
+- AE7. **Covers R7, R8.** **Given** crawl4ai under the shell's defaults, **when** it crawls a page, **then** its
+  browser's command line carries no `--no-sandbox`. **When** a covered caller crawls `https://expired.badssl.com/`,
+  **then** the crawl fails with a certificate error.
+- AE8. **Covers R9, R12.** **Given** the launcher and the agent browser are installed, **when** a default Playwright
+  launch names the launcher as its executable, **then** renderers run in their own user and PID namespaces,
+  `dv-g3b-emudhra.we-have-a-problem.com` fails at once, and `revoked.badssl.com` fails within two minutes.
+- AE9. **Covers R9.** **Given** a host without the agent browser, **when** an agent launches through the launcher,
+  **then** it exits before opening any page, names the deploy command, and never suggests `playwright install chrome`.
+- AE10. **Covers R10.** **Given** two agents on one host, **when** each opens a page through the agent CLI, **then**
+  neither sees the other's tabs, and neither working tree gains a file.
+- AE11. **Covers R13, R16.** **Given** Google publishes a new stable build, **when** the host's next daily
+  unattended-upgrade run completes, **then** the installed version matches it. **Given** Google's origin is missing from
+  the unattended-upgrade configuration, **when** the check runs after an unattended run had the chance to install a
+  build, **then** it exits non-zero with a stable reason, the file it read, and the deploy command.
+- AE12. **Covers R16.** **Given** a gstack browse daemon started before an unattended upgrade replaced Chrome, **when**
+  the check runs, **then** it names that process and the restart command.
 
 ### What Happens to the Pinned-Browser Machinery
 
-| Item                                                             | Today                                                                     | Under the recommendation                                                                                                                                                                                                                                                                                             |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scripts/playwright-browsers-deploy.sh`                          | provisions chromium, headless shell, WebKit, ffmpeg for Playwright 1.62.1 | provisions WebKit and ffmpeg only if Brett picks stable Chrome for local e2e. Otherwise it is unchanged, because the e2e suites still launch chromium from it.                                                                                                                                                       |
-| Chromium aliases 1223 and 1228                                   | serve crawl4ai 0.8.9 (now 0.9.5, which uses 1248) and the 1.61.1 suites   | 1223's named consumer, crawl4ai 0.8.9, has moved to 1248, and no other Playwright 1.60.0 consumer was found. 1228 goes with the chromium entries above.                                                                                                                                                              |
-| PR #431's `.links` registration and `--check`                    | registers the whole set                                                   | still needed for whatever the set keeps, because gstack's and crawl4ai's installs still run Playwright's cleanup against the shared cache                                                                                                                                                                            |
-| gstack's own `playwright install chromium`                       | fetches 1248 into the shared cache when its probe fails                   | unchanged until upstream honors `GSTACK_CHROMIUM_PATH` in its probes (Dependencies). Harmless under #431.                                                                                                                                                                                                            |
-| `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`   | one shared cache; no auto-download on `bun install`                       | both stay: WebKit and the tool-pinned builds still land in that one cache                                                                                                                                                                                                                                            |
-| `config/apparmor.d/playwright` and `apparmor-playwright.service` | grant `userns` to pinned chromium and headless shell                      | unloaded per host once nothing on that host launches a pinned build sandbox-on (R13): on hosts where the Chrome deploy ran and gstack and crawl4ai point at stable Chrome. The profile stays in the repo while any host can still fall back to a pinned build (R15), and while gstack's headed sessions stay pinned. |
-| `scripts/playwright-deps-deploy.sh`                              | entry point for binaries, AppArmor, opt-in apt deps                       | keeps the WebKit apt-deps role. Its `--chromium` flag goes with the chromium entries: it runs `bun x playwright install --with-deps chromium`, which downloads a chromium as well as the deps, and the Chrome deb's own dependencies cover those deps.                                                               |
+| Item                                                                                                  | Today                                                 | Under this plan                                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/playwright-browsers-deploy.sh`                                                               | A revision map per Playwright version                 | One pin (CfT version, WebKit revision, ffmpeg revision, hashes) and an alias range; no per-version map                                                              |
+| `CONSUMER_CHROMIUM_REVS`                                                                              | Hand-kept list, 1223 and 1228                         | Replaced by the range                                                                                                                                               |
+| PR #431's `.links` registration and `--check`                                                         | Registers the whole set                               | Kept and extended to the alias range; `--check` grows into R4's check                                                                                               |
+| gstack's own `playwright install chromium`                                                            | Fetches 1248 when its probe fails                     | Never fires: its probe passes on the alias                                                                                                                          |
+| `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`                                        | One shared cache; no auto-download on `bun install`   | Both stay; `PLAYWRIGHT_SKIP_BROWSER_GC` joins them                                                                                                                  |
+| `config/apparmor.d/playwright`, `apparmor-playwright.service`                                         | Grant `userns` to `chromium-*` and the headless shell | Stay: the glob covers the set's directories and aliases                                                                                                             |
+| `scripts/playwright-deps-deploy.sh`                                                                   | Binaries, AppArmor, opt-in apt deps                   | Keeps its role. Its `--chromium` flag, which runs `bun x playwright install --with-deps chromium` and downloads a browser, is replaced by installing the deps alone |
+| `docs/solutions/tooling-decisions/browsing-agents-run-stable-chrome-not-a-playwright-pinned-build.md` | States that nothing headless receives a CRLSet        | Updated: the flag is the blocker, and one flag's removal restores it on both builds                                                                                 |
 
 ### Scope Boundaries
 
-- CI moving to `channel: 'chrome'` on the runner's preinstalled Chrome is deferred. The runner image's Chrome
-  (156.0.8078.47 in image 20261026) moves on GitHub's schedule, which is the drift the pin exists to prevent.
-- WebKit stays Playwright-provisioned. There is no system WebKitGTK build that Playwright drives.
-- Playwright MCP is not adopted. None is configured on either machine. If one is ever added, it is pinned to an exact
-  version that has cleared the age gate, at least 0.0.40 (CVE-2025-9611), and runs with stable Chrome.
-- Browsers in containers or as root keep the sandbox off by necessity. No browser process was running on the Linux
-  server at review time, and none of the consumers found runs one in a container.
+- Chrome stable is never the test suites' browser. It moves on Google's schedule, which is the drift the set
+  exists to prevent, and it has no headless shell.
+- Firefox is not in the set; no consumer launches it.
+- Playwright MCP is not adopted. If one is ever added, it is pinned to an exact gate-cleared version at or above 0.0.40.
+- Browsers in containers or as root keep the sandbox off by necessity. None of the consumers found runs one in a
+  container.
 - Lifting `kernel.apparmor_restrict_unprivileged_userns` host-wide
-  (`docs/plans/2026-09-15-1428-feat-unprivileged-userns-host-plan.md`) is independent of this plan, and this plan needs
-  no change to it.
-- The headed GStack Browser on the Mac is a custom Chromium build and out of scope.
+  (`docs/plans/2026-09-15-1428-feat-unprivileged-userns-host-plan.md`) is independent of this plan.
+- The GStack Browser app on the Mac, a custom Chromium build, and gstack's Aside path are out of scope.
 - emdash (an upstream third-party clone) and cf_office_hours (no Playwright config) are out of scope.
-- Microsoft Edge is not installed and not proposed.
+- Microsoft Edge is not proposed.
+- Running each agent browser on Claude Code end to end was not done, so token cost rests on the benchmark plus the sizes
+  measured here.
 
 ### Dependencies / Assumptions
 
 - **PR #431 merges before the provisioning work.** The `.links` registration, the deploy script's `--check`, and
-  `tests/playwright-browsers-deploy.bats` exist only on that branch, and R12 and AE5 build on them.
-- **gstack upstream.** gstack's `ensure_playwright_browser()` in `setup` and its `bin/gstack-browser-ensure` probe with
-  a bare `chromium.launch()`, so neither honors `GSTACK_CHROMIUM_PATH`, and `gstack-browser-ensure` ignores
-  `GSTACK_SKIP_PLAYWRIGHT`. Skills run `gstack-browser-ensure` on every browser task. Brett files the issue; this plan
-  does not wait on it.
-- **gstack's CRLSet issue.** garrytan/gstack#3338 reports stable Chrome 155 trusting the eMudhra intermediates through
-  `GSTACK_CHROMIUM_PATH`. Stable 156.0.8078.79 rejects them even with component updates disabled (Measured Findings), so
-  the fix now ships in the binary. #3440's broader point stands, and it is not bounded by R2. gstack's default headless
-  launch keeps Playwright's `--disable-component-update` (only its headed and extension paths strip it), and crawl4ai
-  adds the flag itself. Chrome receives a CRLSet only through the component updater. So a revocation Google ships only
-  by CRLSet never reaches these agents; R2 bounds only the lag behind a release that compiles the distrust into the
-  binary, as 156.0.8078.79 did. The gstack issue Brett files also asks for the headless path to strip that flag.
-- **Scripts that ignore the guidance still find a pinned build.** A default `chromium.launch()` from a Playwright 1.64.1
-  script resolves gstack's chromium 1248 in the shared cache and runs it with `--no-sandbox`. Nothing errors, so R9 has
-  no backstop for such a script while gstack keeps fetching 1248.
-- **Ubuntu keeps shipping its `chrome` AppArmor profile.** It is part of the `apparmor` package on 24.04. If a later
-  release drops it, Google's deb installs its own.
-- **Playwright drives newer stable Chrome.** The measured case is 1.61.1 driving 156. A Chrome major far ahead of a
-  suite's `@playwright/test` can eventually break that suite's local runs. Dependabot keeps the suites' Playwright
-  moving.
-- **Chrome adds about 447 MB and its apt dependencies.** If local e2e moves to stable Chrome, the chromium and
-  headless-shell directories it replaces total about 650 MB per Playwright revision.
+  `tests/playwright-browsers-deploy.bats` exist only on that branch.
+- **gstack upstream.** A gstack issue draft (its probes ignore `GSTACK_CHROMIUM_PATH`; its install deletes other tools'
+  browsers) is pending with Brett. The alias removes this plan's dependence on the first half, and `.links` with
+  `PLAYWRIGHT_SKIP_BROWSER_GC` covers the second. The launcher covers gstack's headless `--disable-component-update`,
+  which issues garrytan/gstack#3338 and #3440 raise.
+- **Aliasing depends on Playwright's layout.** A Playwright that moves its executable path breaks the alias for that
+  release. `--check` and the bump's suite run catch it before machines pull it.
+- **CfT keeps publishing a headless shell and Stable channel data.** Both come from Google's public JSON API.
+- **WebKit drift is measured on one project set.** agentnative-site's flows are the only WebKit consumer. A failure
+  there drops back to one real WebKit directory per revision for that release, the one place the set might grow.
+- **Ubuntu keeps shipping its `chrome` AppArmor profile** (Option A). If a later release drops it, Google's deb installs
+  its own.
+- **Removing `--disable-background-networking` lets the agent browser reach Google's services in the background.** That
+  is the price of Safe Browsing, and it applies only behind the launcher.
 
 ### Outstanding Questions
 
-**Resolve Before Planning**
+**Resolve Before Planning (Brett)**
 
-- **Should the e2e suites run on stable Chrome by default when run locally?** (Brett) Options: (a) yes: local runs use
-  stable Chrome, CI keeps the pin, and dotfiles stops provisioning chromium entirely; (b) no: local and CI both keep the
-  pin, and dotfiles keeps provisioning chromium for them. Recommendation: (a). Locally the suites only open their own
-  builds and staging, so the security case is nil either way. Exact local and CI parity is already gone: the 1228 alias
-  runs Chrome 151 locally while CI runs 149. lmgroktfy passed 16/16 on Chrome 156, no suite uses screenshot assertions,
-  and (a) removes the per-version revision map, the aliases, and the extractor workaround for chromium. The cost of (a)
-  is a suite that passes locally and fails in CI, or the reverse, on a browser-version difference. (b) is what
-  Playwright recommends. Either way, gstack's and crawl4ai's own pinned builds stay in the shared cache until gstack
-  honors `GSTACK_CHROMIUM_PATH` in its probes, so (a) ends the dotfiles download, not every pinned download.
-- **What do gstack's headed sessions run on?** (Brett) gstack reads one variable, `GSTACK_CHROMIUM_PATH`, for headless,
-  headed (`/open-gstack-browser`), and handoff launches. Its headed path loads the side-panel extension with
-  `--load-extension`, which branded Chrome ignores (`browse/src/browser-manager.ts:876`: "Real Chrome
-  (executablePath/channel) silently blocks --load-extension"). Options: (a) point gstack at stable Chrome on both
-  machines and accept that headed and handoff sessions open without the side panel; (b) point it only where headed
-  sessions do not run (the Linux server, which has no display) and keep the Mac on gstack's pinned build until gstack
-  takes a headless-only variable, which the upstream issue also asks for; (c) hold gstack on its pinned build everywhere
-  until upstream separates the paths. Recommendation: (b). The unattended untrusted browsing happens headless on the
-  Linux server, and the side panel is the point of a headed session. The Mac's gstack 1.93.42 should move to 1.94.31.0
-  or later regardless, where handoff began honoring the variable.
-- **Is Chrome exempt from the seven-day release-age gate?** (Brett) Recommendation: yes, recorded as a named exemption
-  in the supply-chain guide. Google's apt index serves only the newest stable build, so apt cannot hold Chrome back
-  seven days without mirroring old debs. The builds the gate would delay are the ones fixing exploited-in-the-wild bugs.
-  The gate's threat, a malicious upload to an open registry, does not match a vendor-signed first-party repository.
+1. **What do agents browse with on pages nobody vetted?** (a) Chrome stable behind the launcher, with CfT for tests and
+   gstack's headed sessions. (b) CfT only, no Chrome, with an hourly timer and the launcher. Recommendation: (a). This
+   answers "no chrome?": tests and gstack's headed sessions do not need Chrome, and untrusted browsing is the one place
+   it earns its one-time deploy. Google calls CfT unsafe for untrusted sites, and 2 of the last 20 stable releases (41
+   and 11 security fixes) never got a CfT build, leaving it about 5 days behind. (b) is workable: CfT receives CRLSet
+   and Safe Browsing the same way once the flags are gone. It keeps those two risks and needs no `sudo`.
+2. **Which tool do agents drive it with?** (a) Playwright CLI. (b) Chrome DevTools CLI. (c) agent-browser, without its
+   skill. (d) No new tool: gstack browse and crawl4ai only. Recommendation: (a). Token cost is a near tie across the
+   CLIs, and MCP is what costs more. The Playwright CLI takes all its settings from the environment on both machines,
+   has the smallest help and schema, and separates agents with one variable. (b) has the strongest defaults (sandbox on,
+   CRLSet not blocked, smallest snapshot) but needs a per-agent `XDG_RUNTIME_DIR` and sends usage statistics unless told
+   not to. (c) is the only one with a domain allowlist and content boundaries, and it released 6 times in 9 days. (d)
+   adds nothing to maintain; agents outside gstack's skills would call `browse` directly, and its skill file is 34,684 characters.
+3. **How does the seven-day gate apply to browser builds?** (a) The test set stays under the gate (the bump takes the
+   newest CfT Stable at least seven days old), the agent browser is exempt by name in the supply-chain guide, and the
+   agent CLI stays under the gate at an exact pin. (b) Every browser build is exempt, and the test set follows stable as
+   soon as the suites pass. (c) No exemption. Recommendation: (a). Tests open only their own pages, so a week's lag
+   costs nothing and gives regressions time to surface. The builds the gate would delay on the browsing side are the
+   ones fixing exploited bugs, and Google's apt index serves only the newest build, so holding Chrome back means
+   mirroring old debs. The gate's threat, a malicious upload to an open registry, does not match a vendor-signed
+   repository. (c) leaves agents a week behind on exploited-in-the-wild fixes.
+4. **Does CI join the set?** (a) CI stays as it is: each repo's workflow runs `playwright install` for its pinned build.
+   (b) CI downloads the set's CfT version through a shared action, so local and CI run one build. Recommendation: (a)
+   for now. CI is not the system dotfiles owns, and no suite here has screenshot assertions or failed across the 149 to
+   157 gap. The cost is that a browser-version bug can pass locally and fail in CI, or the reverse. Choose (b) when that
+   first happens. If Brett reads "repos use what's available on the system" as covering CI, (b) is the change: one
+   action in `brettdavies/.github` plus a line in each of four workflows.
+
 **Deferred to Planning**
 
-- **The first execution gate is the sandbox measurement.** After the R1 deploy runs on the Linux server, and before any
-  consumer is pointed at Chrome: does Chrome at `/opt/google/chrome/chrome` start with its sandbox on under the host's
-  userns restriction (R5, AE3), and does `channel: 'chrome'` run a real suite? Expected: the namespace sandbox through
-  Ubuntu's `chrome` profile, and the setuid helper when that profile is not loaded. A failure takes the Goal Capsule's
-  stop condition.
-- Where the shell-config block that owns the Chrome path lives, and which crawl4ai callers dotfiles configures: the
-  crawl4ai skill's scripts and browser template, `crwl` through `-b` or a `-B` config file, and each importing repo such
-  as scrawl2. crawl4ai's managed-browser modes (profiles, persistent contexts, CDP) resolve their binary through
-  `~/.crawl4ai/chromium.path` rather than `chrome_channel`, so planning decides whether R7 covers them or excludes them.
-- What populated `~/.cache/puppeteer` on the Linux server (bun's cache holds puppeteer and puppeteer-core 24.43.1), and
-  whether that tool should get `PUPPETEER_EXECUTABLE_PATH` or the cache should go.
-- The Mac's crawl4ai moves from 0.7.7 to a release that honors `CRAWL4AI_CHROMIUM_SANDBOX` (R7); planning lists each
-  importing repo's crawl4ai version.
-- The R4 check's source of truth for "newest stable": Google's apt index on Linux. On the Mac, Google stages each stable
-  rollout over days, so the check reports the installed version and the updater's presence rather than comparing against
-  Google's version history.
-- When R4 runs unattended, and where a failure shows: the repo already surfaces host checks at Claude Code session start
+- **The first execution gate.** After the first deploy and before any consumer moves: does CfT at its real path start
+  with its sandbox on (R12), and under Option A does Chrome at `/opt/google/chrome/chrome`? A failure takes the Goal
+  Capsule's stop condition.
+- Where the bump job runs, and how a host picks up a moved pin: a CI runner lacks local state a suite assumes (agentnative-site's local Worker expects a cached Sandbox image), so the bump may need to run on the Linux server. Hosts need a daily
+  user-level timer or a post-merge step, because a 330 MB download does not belong in `git pull`.
+- The alias range's bounds, and how `.links` registers a range of revisions. A forward range for both Chromium and
+  WebKit is about 400 symlinks.
+- Where the shell-config block that owns the launcher's target lives, and which crawl4ai callers dotfiles configures:
+  the crawl4ai skill's scripts and browser template, `crwl` through `-b` or `-B`, and each importing repo such as
+  scrawl2. crawl4ai's CLI result on an expired certificate was inconclusive here: both settings ended in the same
+  `NoneType` error, so AE7 measures it properly. crawl4ai's managed-browser modes resolve their binary through
+  `~/.crawl4ai/chromium.path` rather than `chrome_channel`.
+- Which variable names the per-agent session, and where it is set: the agent-slot launcher knows the slot's key, and an
+  interactive shell needs a default.
+- What populated `~/.cache/puppeteer` (bun's cache holds puppeteer 24.43.1), and whether that tool gets
+  `PUPPETEER_EXECUTABLE_PATH` or the cache goes. agent-browser's auto-detect would find it if ever installed without its
+  path set.
+- Lighthouse CI's local path: `CHROME_PATH` to the set's binary, or to Chrome under Option A.
+- The Mac's crawl4ai moves from 0.7.7 to a release at or above 0.9.5, and planning lists each importing repo's version.
+- When the check runs unattended and where a failure shows: the repo already surfaces host checks at session start
   (`failed-user-units.sh`), silent when they pass.
-- Whether `apparmor.service` runs on every boot of this host or only some, which decides whether the setuid fallback in
-  AE3 is a backstop or a routine path.
+- Whether `apparmor.service` runs on every boot of this host or only some, which decides how much the setuid fallback
+  matters.
 
 ### Sources / Research
 
-- `scripts/playwright-browsers-deploy.sh`, `scripts/playwright-deps-deploy.sh`, `config/apparmor.d/playwright`,
-  `config/systemd/system/apparmor-playwright.service`, `config/shell/caches.sh` (`PLAYWRIGHT_BROWSERS_PATH`,
-  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`), `config/shell/supply-chain.sh`, `scripts/upgrade/brew.sh`,
-  `docs/runbooks/playwright-browser-launch.md`, `stow/claude/dot-claude/guides/cli-tools.md`.
-- Solutions: `docs/solutions/runtime-errors/playwright-chromium-sandbox-ubuntu-2404-2026-04-17.md`,
+- Repo: `scripts/playwright-browsers-deploy.sh`, `scripts/playwright-deps-deploy.sh`, `config/apparmor.d/playwright`,
+  `config/systemd/system/apparmor-playwright.service`, `config/shell/caches.sh`, `config/shell/supply-chain.sh`,
+  `docs/runbooks/playwright-browser-launch.md`, `stow/claude/dot-claude/guides/cli-tools.md`, PR #431
+  (`fix/playwright-cache-gc-guard`, open).
+- Solutions: `docs/solutions/tooling-decisions/browsing-agents-run-stable-chrome-not-a-playwright-pinned-build.md`,
+  `docs/solutions/runtime-errors/playwright-chromium-sandbox-ubuntu-2404-2026-04-17.md`,
   `docs/solutions/runtime-errors/playwright-install-deletes-unregistered-browsers-from-shared-cache.md`,
-  `docs/solutions/runtime-errors/playwright-browser-install-stall-manual-cache-install.md`.
-- PR #431 (`fix/playwright-cache-gc-guard`), open: registration of the provisioned set.
-- gstack at v1.94.33.0: `browse/src/browser-manager.ts` (`launch()`, `shouldEnableChromiumSandbox()`), `setup`
-  (`ensure_playwright_browser()`), `bin/gstack-browser-ensure`, `qa/sections/browser-setup.md`. Issues
-  garrytan/gstack#3338 and #3440 (open), #3645 and #2771 (closed), PR #3947 (merged 2026-11-03).
-- crawl4ai 0.9.5 `browser_manager.py` (`chromium_sandbox_requested()`, `chrome_channel`).
-- agentnative-site `playwright.config.ts` (its existing `PW_CHANNEL` switch) and `.lighthouserc.json`; lmgroktfy
-  `apps/web/playwright.config.ts`.
-- Google: Chrome Releases stable-channel posts of 2026-09-03, 2026-09-08, 2026-10-27, 2026-10-29, and 2026-11-03
-  (chromereleases.googleblog.com); the apt repository at `https://dl.google.com/linux/chrome/deb/`.
-- Playwright: the `chromiumSandbox` launch option (default false), browser channels, and the
-  `reinstall_chrome_stable_linux.sh` that `playwright install chrome` runs, an apt install of Google's deb.
-- actions/runner-images `images/ubuntu/Ubuntu2404-Readme.md`, image 20261026.354.1.
-
----
-
-## Appendix
-
-### Engineering Review (plan-eng-review, 2026-11-03)
-
-The review ran unattended in an agent slot, with no question tool. Each choice below was auto-decided on its
-recommendation, under the slot's standing instruction to settle review questions from code, docs, and precedent and
-record them here. Brett's three Outstanding Questions are not review decisions and stay open.
-
-#### Scope Challenge
-
-- **What already exists:** the copy-deploy shape with `--check` and `--dest` (`scripts/sysctl-deploy.sh`,
-  `tests/sysctl-deploy.bats`); the deleted-executable scan in `scripts/upgrade/lib/stale-procs.sh`; the browser
-  environment in `config/shell/caches.sh`; Google's deb, which maintains its own source and keyring; Ubuntu's `chrome`
-  AppArmor profile; unattended-upgrade's `Origins-Pattern`; Playwright's `channel`; gstack's `GSTACK_CHROMIUM_PATH`;
-  crawl4ai's `CRAWL4AI_CHROMIUM_SANDBOX` and `chrome_channel`; agentnative-site's `PW_CHANNEL`; Puppeteer's
-  `PUPPETEER_EXECUTABLE_PATH`.
-- **Minimum change:** install, drop-in, check, pointers, and guidance. The provisioning shrink (R12) waits on #431 and
-  the first Outstanding Question; AppArmor retirement (R13) waits on the hostile-web consumers moving; the Puppeteer
-  cleanup is deferred.
-- **Complexity:** about 17 dotfiles files [estimated]: 3 new (deploy script, apt drop-in, bats suite) and about 14 edits
-  or retirements, plus one config line in each of three e2e repos. No new classes or services. The 8-file gate trips.
-- **Search:** primary sources were fetched directly (Chrome Releases, Google's apt index, the npm registry,
-  actions/runner-images); Aside was not used. A vendor apt repository with the OS's unattended upgrades is the standard
-  path [Layer 1].
-- **TODOS:** the repo has no tracked TODOS file; local TODO files are gitignored by policy.
-- **Distribution:** nothing is published. The operator runs the deploy script per host.
-- **Complexity selectors (auto-decided):** no feature cuts, because R12 and R13 are already conditional. Structure: the
-  smaller arrangement (D1).
-- **Scope result:** scope accepted as-is.
-
-Scope findings:
-
-- S1. [INFORMATIONAL] (confidence: 9/10) `scripts/playwright-browsers-deploy.sh` on dev has no `--check` (0 matches) and
-  `tests/playwright-browsers-deploy.bats` does not exist, yet R12 and AE5 build on both. Disposition: accepted;
-  Dependencies now says #431 merges first.
-- S2. [INFORMATIONAL] (confidence: 8/10) The brief asked for one real consumer on `channel: 'chrome'`; only
-  `executablePath` runs were possible without the install. Disposition: no change; it is the first execution gate
-  (Deferred to Planning).
-
-Reality rows:
-
-- `REALITY: premise-table finding 25 premises, unverified=3 (Mac crawl4ai launch, sandbox at /opt, Mac gstack browse on
-  stable Chrome) docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md`
-- `REALITY: already-done pass no commit on origin/dev since 2026-11-02 touches the named Playwright, AppArmor, or
-  shell-cache files scripts/playwright-browsers-deploy.sh:1`
-- `REALITY: surface-check pass GSTACK_CHROMIUM_PATH browser-manager.ts:674, CRAWL4AI_CHROMIUM_SANDBOX
-  browser_manager.py:48, Origins-Pattern /usr/bin/unattended-upgrade:794, PUPPETEER_EXECUTABLE_PATH
-  Configuration.d.ts:36, browse goto (browse --help:5); --check is S1 scripts/playwright-browsers-deploy.sh:1`
-- `REALITY: binding-decisions pass no recorded branch decision on Playwright or Chrome; the alias rule (leading
-  consumers install their own build) is kept in the machinery table scripts/playwright-browsers-deploy.sh:100`
-- `REALITY: numbers pass 447 MB, 651 MB (389+262), 929 MB, 22-26 s, 205/225 MB [measured: du, gtime]; ~17 files
-  [estimated]; "within a day" from apt-daily-upgrade.timer [measured: systemctl]
-  docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md`
-- `REALITY: deferred-asks finding Brett's ask has five parts; the channel:'chrome' run and the /opt sandbox measurement
-  wait on his install (Outstanding Questions)
-  docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md`
-- `REALITY: pr-count pass no ship policy; two dotfiles PRs (install and pointers; provisioning shrink after #431 and Q1)
-  plus one per e2e repo, stated under Parallelization
-  docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md`
-
-#### 1. Architecture
-
-```text
-Google apt repo ──signed──▶ apt (unattended-upgrades, daily; Origins-Pattern drop-in)
-                                 │
-                                 ▼
-                    /opt/google/chrome/chrome ◀── Ubuntu `chrome` AppArmor profile (userns)
-                                 │                 └─ fallback: setuid chrome-sandbox
-          shell config: one owner of the per-OS Chrome path (exports only if the binary exists)
-                 ┌───────────────┼──────────────────┬──────────────────────────┐
-                 ▼               ▼                  ▼                          ▼
-          gstack browse      crawl4ai         agent scripts            e2e suites (local, Q1)
-       GSTACK_CHROMIUM_PATH  sandbox on +    channel:'chrome' +        one switch; CI keeps the pin
-                             chrome_channel  chromiumSandbox:true
-                                 │
-          check (--check): stale vs Google's index │ origin not covered │ running on replaced exe
-```
-
-- A1. [CRITICAL] (confidence: 8/10) gstack `browse/src/browser-manager.ts:674`:
-  `const executablePath = process.env.GSTACK_CHROMIUM_PATH || undefined;` and line 678 throws
-  `Chromium at GSTACK_CHROMIUM_PATH=... failed to launch`. An unconditional export breaks browse on every host without
-  Chrome. Disposition: accepted (D2): R15, AE7.
-- A2. [INFORMATIONAL] (confidence: 8/10) `AGENTS.md:5`: "deployed to thousands of headless Ubuntu servers"; R1 named
-  only "the Linux server". Disposition: accepted (D3): the install is per host, as a Key Decision.
-- A3. [INFORMATIONAL] (confidence: 6/10) unattended-upgrades replaces Chrome as root while a long-lived browse daemon
-  keeps the old executable. `scripts/upgrade/lib/stale-procs.sh` handles this for Homebrew user services only. Medium
-  confidence on misbehavior; high that the fix waits for a restart. Disposition: accepted (D4): R16, AE8; report, never
-  restart.
-- A4. [INFORMATIONAL] (confidence: 7/10) The per-OS Chrome path would be copied into the gstack pointer, the crawl4ai
-  settings, the check, and docs (red flag 8, hand-synced list). Disposition: accepted (D5): one owner, as a Key
-  Decision.
-- A5. [INFORMATIONAL] (confidence: 7/10) `scripts/playwright-deps-deploy.sh:103`:
-  `bun x playwright install --with-deps "${browsers[@]}"` fetches a chromium alongside the deps, a second chromium path
-  once the set drops chromium (red flag 6). Disposition: accepted (D6): the machinery table retires `--chromium` with
-  the chromium entries.
-
-Design twice: shape A (chosen) is the vendor deb under apt and unattended upgrades, which hides signing, updates, and
-the sandbox helper behind the OS package manager. Shape B is a user-space dotfiles timer fetching Chrome for Testing's
-Stable channel into a cache: no sudo, but it rebuilds download, verification, and updates, needs a dotfiles AppArmor
-glob again, and ships a build Google labels for testing. A is the deeper module behind the smaller surface. Red flags 6
-and 8 are A5 and A4; no others apply.
-
-Failure modes: a release upgrade disabling Google's source is re-enabled by the deb's cron job and caught by R4. R2
-counts from the apt index rather than Google's post, though the index followed the post within about 50 minutes on
-2026-11-03 (post 20:38 UTC, index 21:28 UTC); the stock apt timers are the real lag (R2). A Chrome major outrunning an
-old `@playwright/test` breaks local runs only, with CI pinned. Ubuntu's profile not loading at boot falls to the setuid
-helper (AE3, to measure).
-
-Security: the deb installs a `signed-by` keyring of its own; its management service stays inert unless the browser is
-enrolled; nothing signs in to Chrome.
-
-#### 2. Code quality
-
-- Q1. [INFORMATIONAL] (confidence: 6/10) The Mac path, `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`,
-  has spaces; every consumer that reads the pointer has to keep it whole. Disposition: accepted (D7): an edge-case test
-  in the Test Plan.
-- Q2. [INFORMATIONAL] (confidence: 7/10) R16's process scan duplicates `stale-procs.sh`'s `/proc` deleted-executable
-  scan (red flag 6). Rubric: callers `stale_procs_restart /proc "$prefix"` in `scripts/upgrade/brew.sh` and the proposed
-  R16 check (plan assumption). Disposition: accepted (D8): R16 reuses the scan and only reports.
-
-The check follows the repo's script conventions (`ERROR:`/`NOTE:` on stderr, the fix command named, `--check` changes
-nothing), as `scripts/sysctl-deploy.sh` does.
-
-#### 3. Tests
-
-Framework: bats through `scripts/run-tests` (AGENTS.md, Local gates mirror CI).
-
-```text
-CODE PATHS                                             USER FLOWS
-[+] Chrome deploy script (new)                         [+] Operator opts a host in
-  ├── [GAP] install via stubbed apt-get, --dest copy     └── [GAP] [→E2E] deploy → --check passes (live)
-  └── --check                                          [+] Browsing agent on stable Chrome
-      ├── [GAP] Chrome absent → note, exit 0             ├── [GAP] [→E2E] browse rejects eMudhra host (AE1, live)
-      ├── [GAP] current → exit 0                         ├── [GAP] [→E2E] sandboxed renderers (AE3, live)
-      ├── [GAP] stale vs index → exit 1, names command   └── [GAP] [→E2E] crawl4ai no --no-sandbox (AE4, live)
-      ├── [GAP] origin not covered → exit 1            [+] Local e2e on stable Chrome (Q1)
-      └── [GAP] running on replaced exe → reported       └── [GAP] [→E2E] suites + WebKit pass (AE5, live)
-[+] Shell-config Chrome pointer (new)
-  ├── [GAP] binary present → exports set
-  ├── [GAP] binary absent → nothing exported (REGRESSION, CRITICAL)
-  └── [GAP] Mac path with spaces stays whole
-
-COVERAGE: 0/13 paths tested (all new)  |  Code paths: 0/8  |  User flows: 0/5
-QUALITY: none yet  |  GAPS: 13 (5 live E2E, 0 eval)
-```
-
-Proposed tests, with value cards in the Test Plan artifact: a new `tests/chrome-deploy.bats` for the install and every
-`--check` branch, over fixture Packages files, fixture apt config, and a fixture `/proc` tree; pointer cases added to
-`tests/shell-config.bats`; the shrink cases added to `tests/playwright-browsers-deploy.bats` once #431 lands. The live
-checks (AE1, AE3, AE4, AE5) are runtime and have no CI equivalent. The regression to protect is browse on hosts without
-Chrome (AE7). Tests to retire: the chromium and alias cases of #431's suite, if chromium leaves the set. Test Plan:
-`~/.gstack/projects/brettdavies-dotfiles/brett-dev-eng-review-test-plan-20261103-154325.md`.
-
-#### 4. Performance
-
-- P1. [INFORMATIONAL] (confidence: 7/10) Full Chrome against the headless shell: about 10% more peak RSS (225 MB against
-  205 MB) and the same wall time on lmgroktfy [measured: gtime, one or two runs, load about 29]. Disposition: no action;
-  re-measure on a quiet host if browse memory matters.
-- P2. [INFORMATIONAL] (confidence: 6/10) The pointer block adds one file test to every shell start, inside the pre-push
-  startup budget. Disposition: keep it to a single `[ -x ]` with no subprocess.
-
-Disk: Chrome adds 447 MB [measured]; dropping chromium and the headless shell frees 651 MB per revision [measured].
-
-#### Outside voice
-
-Disabled (`codex_reviews` is `disabled`); recorded as skipped. No outside or replacement review ran.
-
-#### Decision ledger
-
-Each entry was auto-decided on its recommendation (unattended slot, standing authorization).
-
-| ID  | Finding         | Options                                              | Chosen      | Accepted scope                                                                                                                         |
-| --- | --------------- | ---------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | complexity gate | original arrangement; smaller arrangement            | smaller     | one deploy script whose `--check` is the R4/R16 check, one apt drop-in, one shell-config block for the path; second PR for R12 and R13 |
-| D2  | A1              | conditional pointer; unconditional pointer plus docs | conditional | R15, AE7                                                                                                                               |
-| D3  | A2              | per-host opt-in; fleet-wide install                  | per-host    | Key Decision, R1 wording                                                                                                               |
-| D4  | A3              | report stale processes; restart them; do nothing     | report      | R16, AE8                                                                                                                               |
-| D5  | A4              | one owner for the path; per-consumer copies          | one owner   | Key Decision                                                                                                                           |
-| D6  | A5              | retire `--chromium` with chromium; keep it           | retire      | machinery table row                                                                                                                    |
-| D7  | Q1              | edge-case test; none                                 | test        | Test Plan edge case                                                                                                                    |
-| D8  | Q2              | reuse stale-procs scan; new scan                     | reuse       | R16 implementation constraint                                                                                                          |
-
-Approval readiness: PASS (D1 to D8, auto-decided under the slot's standing authorization).
-
-#### NOT in scope
-
-- CI on the runner's Chrome, WebKit replacement, Playwright MCP, Edge, the headed GStack Browser: see Scope Boundaries.
-- Restarting a user's browse daemon automatically: R16 reports instead, because the daemon may hold a live session.
-- Patching gstack's probes: Brett files the upstream issue.
-
-#### Parallelization
-
-| Step                                     | Modules touched                                                      | Depends on               |
-| ---------------------------------------- | -------------------------------------------------------------------- | ------------------------ |
-| Install, check, pointers                 | `scripts/`, `config/`, `config/shell/`, `tests/`                     | —                        |
-| Guidance and docs                        | `stow/claude/dot-claude/guides/`, `docs/runbooks/`, README           | install, check, pointers |
-| Provisioning shrink, AppArmor retirement | `scripts/`, `config/apparmor.d/`, `config/systemd/system/`, `tests/` | #431, Q1, install        |
-| e2e switch                               | lmgroktfy, meum-sites, streamsgrp, agentnative-site                  | Q1                       |
-
-Lane A: install, check, pointers, then guidance (one PR). Lane B: e2e switch, independent repos. Lane C: provisioning
-shrink after #431 and Q1. Launch A and B; merge A; then C.
-
-#### Implementation Tasks
-
-- [ ] **T1 (P1, human: ~4h / CC: ~30min)** — deploy — Chrome deploy script, apt drop-in, and `--check`
-  - Surfaced by: Scope Challenge — D1; R1, R2, R4
-  - Files: `scripts/`, `config/`, `tests/chrome-deploy.bats`
-  - Verify: `scripts/run-tests tests/chrome-deploy.bats`; live `--check` on the server
-- [ ] **T2 (P1, human: ~1h / CC: ~10min)** — shell — one owner for the Chrome path; exports only when the binary exists
-  - Surfaced by: Architecture — A1, A4
-  - Files: `config/shell/`, `tests/shell-config.bats`
-  - Verify: AE7 on a host without Chrome
-- [ ] **T3 (P1, human: ~1h / CC: ~10min)** — check — report Chrome processes on a replaced executable, reusing the
-  stale-procs scan
-  - Surfaced by: Architecture — A3; Code quality — Q2
-  - Files: `scripts/upgrade/lib/stale-procs.sh`, the deploy script
-  - Verify: AE8 fixture case
-- [ ] **T4 (P2, human: ~1h / CC: ~15min)** — crawl4ai — stable Chrome with the sandbox on, both machines
-  - Surfaced by: Requirements — R7
-  - Files: `config/shell/`, crawl4ai skill scripts
-  - Verify: AE4
-- [ ] **T5 (P2, human: ~1h / CC: ~10min)** — docs — guidance and present-state docs
-  - Surfaced by: Requirements — R8, R14
-  - Files: `stow/claude/dot-claude/guides/cli-tools.md`, `docs/runbooks/playwright-browser-launch.md`, `README.md`
-  - Verify: `markdownlint-cli2`; read-through
-- [ ] **T6 (P1, human: ~2h / CC: ~20min)** — provisioning — shrink the set and retire `--chromium` (after #431 and Q1)
-  - Surfaced by: Architecture — A5; Scope — S1
-  - Files: `scripts/playwright-browsers-deploy.sh`, `scripts/playwright-deps-deploy.sh`,
-    `tests/playwright-browsers-deploy.bats`
-  - Verify: AE5
-- [ ] **T7 (P1, human: ~30min / CC: ~10min)** — live — sandbox and channel measurement after the install
-  - Surfaced by: Scope — S2
-  - Files: none
-  - Verify: AE1, AE3
-
-The task store also carries eight tasks from the 2026-11-03 eng review of
-`docs/plans/2026-11-02-2324-feat-agent-slots-on-the-mac-plan.md`, unchanged; they are that plan's work, not this one's.
-
-#### Completion summary
-
-- Step 0: Scope Challenge — scope accepted as-is
-- Reality rows: 7/7 applicable rows emitted, 3 unverified premises
-- Architecture Review: 5 issues found
-- Code Quality Review: 2 issues found
-- Test Review: diagram produced, 13 gaps identified
-- Performance Review: 2 issues found
-- NOT in scope: written
-- What already exists: written
-- TODOS.md updates: 0 items proposed (no tracked TODOS file)
-- Failure modes: 0 critical gaps flagged (A1's silent break is closed by R15)
-- Unresolved decisions: 3, all the plan's Resolve Before Planning questions for Brett; none of this review's own choices
-  is open
-- Outside voice: codex, disabled (`codex_reviews`)
-- Parallelization: 3 lanes, 2 parallel / 1 sequential
-- Lake Score: N/A (no answers scored for Completeness)
-
-### DX Review (plan-devex-review, 2026-11-03)
-
-Run unattended under the same rule as the engineering review. Product type: Platform (host provisioning), with a CLI
-surface (the deploy script and its `--check`) and a guidance surface agents read. Mode: DX POLISH, because this enhances
-existing provisioning. No design doc exists; the `/office-hours` offer was skipped as unattended. The prior DX rows on
-`dev` belong to other plans, so there is no trend to compare.
-
-#### Developer Persona Card
-
-```text
-TARGET DEVELOPER PERSONA
-========================
-Who:       an AI coding agent in an agent slot on the Linux server or the Mac, unattended
-Context:   asked to scrape a page, run /qa or /browse, or write a script that opens a URL nobody vetted
-Tolerance: one launch attempt; it follows the first fix line an error prints, literally
-Expects:   the always-loaded CLAUDE.md and the CLI tools guide to say which browser to launch and how
-Secondary: the operator at a terminal, opting a host in with one sudo command
-```
-
-#### Developer Empathy Narrative
-
-I am an agent asked to pull the text of a vendor's status page. The always-loaded instructions
-(`stow/claude/dot-claude/CLAUDE.md:291`) tell me Playwright browsers are system-provided and never to run
-`playwright install`, so I write `chromium.launch()`. It works in about a second. Nothing tells me that I just ran
-Chrome for Testing 156.0.8078.4 with `--no-sandbox` (measured), or that this build still trusts a compromised CA
-(measured). With the plan as first written, the guidance would say `channel: 'chrome'`. On a host without Chrome I would
-get `Chromium distribution 'chrome' is not found at /opt/google/chrome/chrome` and `Run "npx playwright install chrome"`
-(captured), and I would run it: an apt install as root that the slot denies, or that bypasses the dotfiles deploy where
-sudo works.
-
-#### Competitive DX Benchmark
-
-| Tool                           | Start → result                              | Time + evidence type                                                                   | DX choice                                                                   | Source                        |
-| ------------------------------ | ------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------- |
-| Playwright library, default    | `chromium.launch()` → page loaded           | ~1-2 s [observed: probes]                                                              | pinned build, sandbox off by default                                        | `chromiumSandbox` docs; probe |
-| Playwright `channel: 'chrome'` | launch → page in installed Chrome           | ~1-2 s once installed [observed: 157 via `executablePath`]; error if absent [observed] | relies on the OS install; prints `npx playwright install chrome`            | coreBundle.js; probe          |
-| crawl4ai                       | `crwl <url>` → markdown                     | unknown here                                                                           | pinned build, `--no-sandbox` unless `CRAWL4AI_CHROMIUM_SANDBOX=true`        | `browser_manager.py:44-54`    |
-| This plan                      | agent script → sandboxed stable Chrome page | <2 min including reading the guidance [estimated]                                      | one dotfiles variable, sandbox on, stop with the deploy command when absent | R8, R18                       |
-
-Target (auto-decided): Champion, under 2 minutes, from reading the guidance to a page loaded in sandboxed stable Chrome.
-That endpoint is unreachable on the Linux server today, because stable Chrome is not installed.
-
-#### Magical Moment Specification
-
-The operator's `--check` on an opted-in host prints one line naming the installed Chrome version, that unattended
-upgrades cover it, and that nothing runs a replaced executable (R4, R16, R17). The agent's moment is AE1: the
-compromised-CA test host fails with a certificate error, where the pinned build loaded it. Both use capabilities the
-plan already has.
-
-#### Developer Journey Map
-
-```text
-STAGE           | DEVELOPER DOES                                    | FRICTION POINTS                                   | STATUS
-----------------|---------------------------------------------------|---------------------------------------------------|--------
-1. Discover     | reads CLAUDE.md:291 and the CLI tools guide        | both say "pinned, never install"; no Chrome word  | fixed (R8, R14)
-2. Install      | operator runs the deploy with sudo once per host   | sudo denied to agents; root needed for apt        | ok (operator step, D1 shape)
-3. Hello World  | agent launches the dotfiles-named Chrome, sandbox  | absent-Chrome error prints an unsafe fix          | fixed (R18, AE9)
-4. Real Usage   | gstack and crawl4ai through the pointers           | crawl4ai CLI needs `-b`/`-B` or global config     | deferred to planning (already listed)
-5. Debug        | runs `--check`                                    | failure output had no stable reason or values     | fixed (R17)
-6. Upgrade      | nothing: unattended upgrades daily                 | a running daemon keeps the old build              | fixed (R16)
-```
-
-#### First-Time Developer Confusion Report
-
-```text
-FIRST-TIME DEVELOPER REPORT
-============================
-Persona: agent in a slot, task "fetch this page"
-T+0:00  Reads CLAUDE.md:291: browsers are system-provided; never run playwright install.
-T+0:20  Writes chromium.launch(); page loads. Unaware it is pinned and unsandboxed.      → addressed by R8, R14
-T+0:40  (plan as first written) switches to channel 'chrome' per the guide.
-T+0:45  On a host without Chrome: "Run npx playwright install chrome". Runs it.          → addressed by R18, AE9
-T+1:00  sudo denied by the slot, or apt installs Chrome outside the dotfiles deploy.    → addressed by R18
-T+1:30  (after the plan) reads the variable, launches sandboxed stable Chrome, done.
-```
-
-#### Passes
-
-- Pass 1, Getting Started: 6 → 8. The operator path is one sudo command plus `--check`; the agent path is one launch
-  line. Residual: the operator install needs root on each host, by design.
-- Pass 2, API/CLI/SDK: 6 → 8. One variable is the interface for every consumer (Key Decision, one owner); `--check`
-  follows `scripts/sysctl-deploy.sh --check`. Residual: crawl4ai's CLI and SDK take the setting differently.
-- Pass 3, Error Messages: 4 → 7. Finding DX1 below was a CAP4. The check's failures gain reasons and values (R17).
-  Residual: what an old `@playwright/test` prints against a far newer Chrome is unknown.
-- Pass 4, Documentation: 6 → 8. The always-loaded CLAUDE.md line joins R8 and R14.
-- Pass 5, Upgrade: 7 → 8. Updates are unattended; stale processes are reported (R16).
-- Pass 6, Dev Environment: 7 → 8. One variable covers the Mac path (spaces) and the Linux path; Google ships amd64 and
-  arm64 debs (measured); CI unchanged (R10).
-- Pass 7, Community: 3 → 3. Personal dotfiles; no community surface, and none proposed.
-- Pass 8, DX Measurement: 5 → 7. `--check` is the standing measure, and the live checks (AE1, AE3, AE9) measure the
-  clock once Chrome is installed. No telemetry proposed.
-
-```text
-ERROR PATH MATRIX (agent-ready-v1)
-Path                             | Class      | what | fix  | recovery | code | context | trace | redaction | channel | Cap
-agent launch, Chrome absent      | dependency | pass | fail | fail     | fail | pass    | N/A   | pass      | pass    | CAP4:launch:fix  → R18
---check, Chrome stale            | dependency | pass | pass | gap      | gap  | gap     | N/A   | pass      | pass    | CAP6:check:context → R17
---check, origin not covered      | config     | pass | pass | gap      | gap  | gap     | N/A   | pass      | pass    | CAP6:check:context → R17
-deploy run without root          | usage      | gap  | gap  | N/A      | gap  | N/A     | N/A   | pass      | gap     | none (usage; D1 shape)
-unexpected: apt-get fails        | dependency | gap  | gap  | gap      | gap  | gap     | gap   | pass      | gap     | CAP6:deploy:trace (planning: pass apt's stderr through, name the rerun)
-```
-
-- DX1. [CRITICAL] `CAP4:launch:fix unsafe fix on a host without Chrome`. Playwright prints
-  `Run "npx playwright install chrome"`, which runs `reinstall_chrome_stable_linux.sh` (`apt-get install` as root) and
-  contradicts the CLI guide. Corrected line, from the script the guidance shows: `stable Chrome is not installed on this
-  host (DOTFILES chrome variable unset); ask the operator to run the Chrome deploy; not falling back to a pinned build`.
-  Disposition: accepted (DX-D1): R8 uses `executablePath` from the dotfiles variable; R18; AE9.
-- DX2. [HIGH] `CAP6:check:context failure output names no reason or values`. R4 named only the fix command. Precedent:
-  `sd-commit-doc` ends failures with `reason:`, `state:`, `next:` lines, and the global error contract asks for a stable
-  reason. Disposition: accepted (DX-D2): R17; AE2 extended.
-- DX3. [INFORMATIONAL] The always-loaded `stow/claude/dot-claude/CLAUDE.md:291` is the first thing every agent reads and
-  was outside R8 and R14. Disposition: accepted (DX-D3): both name it.
-- DX4. [INFORMATIONAL] `crwl` takes browser settings through `-b key=value` and `-B <file>` (`crwl --help`).
-  Disposition: no change; the existing Deferred to Planning item covers it.
-- DX5. [INFORMATIONAL] A deploy run without root, and an apt failure, need the usage and dependency error shapes.
-  Disposition: implementation constraint under D1's script shape, carried in the Implementation Tasks; no new
-  requirement.
-
-Decision ledger (auto-decided): DX-D1 `executablePath` from the dotfiles variable, stopping when absent (chosen) over
-`channel: 'chrome'` with Playwright's error, and over a fallback to the pinned build. DX-D2 stable reasons and values in
-check failures (chosen) over the fix command alone. DX-D3 include CLAUDE.md (chosen) over the guide alone. Outside
-voice: disabled (`codex_reviews`), recorded as skipped.
-
-NOT in scope: telemetry on agent launches; a `--json` form of `--check` (no current consumer reads one); a community
-surface.
-
-What already exists: `scripts/sysctl-deploy.sh --check` and its bats suite, `sd-commit-doc`'s `reason:`/`next:` lines,
-gstack's `GSTACK_CHROMIUM_PATH` launch error, crawl4ai's `-b`/`-B` flags.
-
-TODOS: none proposed; there is no tracked TODOS file.
-
-Implementation tasks (DX):
-
-- [ ] **DX-T1 (P1, human: ~30min / CC: ~5min)** — guidance — launch line with the dotfiles variable and the
-  stop-when-absent branch
-  - Surfaced by: Pass 3 — DX1
-  - Files: `stow/claude/dot-claude/CLAUDE.md`, `stow/claude/dot-claude/guides/cli-tools.md`
-  - Verify: AE9 on a host without Chrome
-- [ ] **DX-T2 (P1, human: ~30min / CC: ~10min)** — check — stable reasons, compared values, distinct exits
-  - Surfaced by: Pass 3 — DX2
-  - Files: the deploy script, `tests/chrome-deploy.bats`
-  - Verify: bats cases assert each reason line
-
-## DX Review Scorecard
-
-```text
-+====================================================================+
-|              DX PLAN REVIEW — SCORECARD                             |
-+====================================================================+
-| Dimension            | Score  | Prior  | Trend  |
-|----------------------|--------|--------|--------|
-| Getting Started      | 8/10   | 6/10   | ↑      |
-| API/CLI/SDK          | 8/10   | 6/10   | ↑      |
-| Error Messages       | 7/10   | 4/10   | ↑      |
-| Documentation        | 8/10   | 6/10   | ↑      |
-| Upgrade Path         | 8/10   | 7/10   | ↑      |
-| Dev Environment      | 8/10   | 7/10   | ↑      |
-| Community            | 3/10   | 3/10   | =      |
-| DX Measurement       | 7/10   | 5/10   | ↑      |
-+--------------------------------------------------------------------+
-| TTHW                 | <2 min | unreachable today (no stable Chrome) |
-| Competitive Rank     | Champion (target)                            |
-| Magical Moment       | designed via --check line and AE1            |
-| Product Type         | Platform with a CLI and guidance surface     |
-| Mode                 | POLISH                                       |
-| Overall DX           | 7/10   | 6/10   | ↑      |
-+====================================================================+
-| DX PRINCIPLE COVERAGE                                               |
-| Zero Friction      | covered                                        |
-| Learn by Doing     | covered (copy-paste launch line, R8)           |
-| Fight Uncertainty  | covered (R17, R18)                             |
-| Opinionated + Escape Hatches | covered (one variable; env override) |
-| Code in Context    | covered                                        |
-| Magical Moments    | covered                                        |
-| Agents Are Users   | covered (no interactive step; stop with a command) |
-+====================================================================+
-```
-
-Prior column: this review's initial scores; no earlier DX review of this plan exists. Community stays at 3, honestly: no
-community surface is in scope. Error Messages stays at 7 until the old-Playwright-versus-new-Chrome failure is observed.
-
-Unresolved decisions from this review: none.
-
-## GSTACK REVIEW REPORT
-
-| Review         | Trigger                                                    | Why                             | Runs | Status             | Findings                                             |
-| -------------- | ---------------------------------------------------------- | ------------------------------- | ---- | ------------------ | ---------------------------------------------------- |
-| CEO Review     | `/plan-ceo-review`                                         | Scope & strategy                | 0    | —                  | —                                                    |
-| Outside Review | codex, plan-eng-review and plan-devex-review outside voice | Independent 2nd opinion         | 2    | disabled           | —                                                    |
-| Eng Review     | `/plan-eng-review`                                         | Architecture & tests (required) | 1    | ISSUES OPEN (PLAN) | 22 issues, 0 critical gaps                           |
-| Design Review  | `/plan-design-review`                                      | UI/UX gaps                      | 0    | —                  | —                                                    |
-| DX Review      | `/plan-devex-review`                                       | Developer experience gaps       | 1    | ISSUES OPEN        | score: 6/10 → 7/10, TTHW: unreachable today → <2 min |
-
-- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews` for both reviews; no findings.
-- **VERDICT:** no review CLEAR yet — eng review required (both reviews' findings are accepted into the plan as mapped
-  work).
-
-**UNRESOLVED DECISIONS:**
-
-- \+ 3 unresolved for Brett (plan Outstanding Questions): the local e2e browser, the seven-day gate exemption for
-  Chrome, and what gstack's headed sessions run on
+  `docs/solutions/runtime-errors/playwright-browser-install-stall-manual-cache-install.md`,
+  `docs/solutions/configuration-fixes/unattended-upgrades-install-from-day-old-lists-so-third-party-security-builds-lag.md`.
+- Chromium: `docs/security/faq.md` (threat model for Chrome for Testing; certificate revocation),
+  `docs/chrome_for_testing/README.md`, `docs/chrome_for_testing/chrome_for_testing_configuration.md`.
+- Chrome for Testing: developer.chrome.com/blog/chrome-for-testing; `last-known-good-versions*.json`,
+  `known-good-versions.json`, and the GitHub history of `data/last-known-good-versions.json` in
+  GoogleChromeLabs/chrome-for-testing.
+- Chrome Releases: stable-channel posts of 2026-08-06, 2026-09-03, 2026-09-08, 2026-10-01, 2026-10-27, 2026-10-29,
+  2026-11-03; `chromiumdash.appspot.com/fetch_releases`.
+- Playwright: playwright.dev/docs/browsers, `/docs/getting-started-cli`, `/docs/getting-started-mcp`; `coreBundle.js`
+  and `browsers.json` of each version tested; GHSA-6fg3-hvw7-2fwq, GHSA-7mvr-c777-76hp.
+- Agent tools: npm metadata and installed packages of `@playwright/cli` 0.1.22, `@playwright/mcp` 0.0.83,
+  `chrome-devtools-mcp` 1.12.0, `agent-browser` 0.40.0; agent-browser's `cli/src/native/cdp/chrome.rs` at v0.40.0;
+  GHSA-3pvj-jv98-qhjq, GHSA-8qf9-62x2-82pp.
+- Benchmark: maximilianfabian.dev/blog/browser-tools-for-agents (published 2026-10-31; runs 19 to 22 October 2026).
+- Comparisons read for other candidates: browser-use.com/posts/best-mcp-servers-to-control-a-browser (vendor-run) and
+  test-lab.ai/blog/agent-browser-vs-playwright-cli; each carries a vendor's interest, and their token figures were not
+  used.
+- gstack at v1.94.33.0 (commit 18d557d3): `browse/src/browser-manager.ts`, `browse/src/stealth.ts`,
+  `bin/gstack-browser-ensure`, `browse/SKILL.md`; issues garrytan/gstack#3338 and #3440.
+- crawl4ai 0.9.5: `browser_manager.py`, `async_configs.py`.
+- Consumer repos at their `dev` tips on 2026-11-03: lmgroktfy 02ac676, agentnative-site 8777e6a, meum-sites 5d15fb1,
+  streamsgrp 2fb7cf4.
