@@ -102,6 +102,6 @@ tmux_unresponsive() {
   local socket=${2:-$AS_TMUX_SOCKET}
   contract_use_tools tmux
   contract_fail tmux-unresponsive "the $socket tmux server did not answer within its bound" \
-    --value "$socket" --command "$AS_TMUX -L $socket list-sessions" --side-effects "${1:-none}" \
+    --value "$socket" --command "timeout 5 $AS_TMUX -L $socket list-sessions" --side-effects "${1:-none}" \
     --log "$BOUNDED_LOG"
 }

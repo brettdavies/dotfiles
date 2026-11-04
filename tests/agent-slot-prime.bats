@@ -362,7 +362,7 @@ JSON
   [ "$status" -eq 1 ]
   assert_error_shape "$stderr"
   jaq -e '.reason == "tmux-unresponsive" and .value == "default"
-    and (.next_step.command | endswith("-L default list-sessions"))' <<<"$stderr"
+    and (.next_step.command | startswith("timeout 5 ") and endswith("-L default list-sessions"))' <<<"$stderr"
   run ! grep -q ' new-session ' "$CALLS"
 }
 

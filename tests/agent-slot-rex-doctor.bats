@@ -255,7 +255,7 @@ esac'
   doctor
   [ "$status" -eq 1 ]
   jaq -e --arg t "$STUBS/tmux" '.severity == "error" and .value == "agent-slots"
-    and .next_step.command == "\($t) -L agent-slots list-sessions"' <<<"$(finding tmux-unresponsive)"
+    and .next_step.command == "timeout 5 \($t) -L agent-slots list-sessions"' <<<"$(finding tmux-unresponsive)"
 }
 
 @test "with the user manager unreachable, doctor names no foreign Rex server from the MainPID it could not read" {
