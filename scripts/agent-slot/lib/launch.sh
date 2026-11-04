@@ -185,6 +185,17 @@ launch_prior() {
     <<<"$(reopen_source_event "$1" "$LAUNCH_ITEM")"
 }
 
+# Usage: launch_model_same <fail-function> <key> <model>; with RECORD the record of the slot a repeat found, calls
+# <fail-function> with model-differs when that slot runs on another model than <model>, so a repeat never returns a
+# slot on a model it did not name. A record with no model runs on Opus.
+launch_model_same() {
+  local have
+  have=$(contract_json -r '.model // "opus"' <<<"$RECORD")
+  [[ $have == "$3" ]] || "$1" model-differs "$2 already holds this work and runs on $have, so this call's --model $3 \
+would not reach it; use that slot as it is, or launch on $3 once that slot is torn down" --value "$3" \
+    --command "agent-slot check $2 --output json"
+}
+
 cmd_launch() {
   local repo=$LAUNCH_REPO state seed head=''
   require_tools tmux claude trash
@@ -215,6 +226,7 @@ brief to that slot's Claude session, or launch again once that slot is torn down
         --value "$(slot_key "$repo" "$LAUNCH_EXISTING")" \
         --command "agent-slot check $(slot_key "$repo" "$LAUNCH_EXISTING") --output json"
     fi
+    launch_model_same contract_fail "$(slot_key "$repo" "$LAUNCH_EXISTING")" "$LAUNCH_MODEL"
     launch_output "$repo" "$LAUNCH_EXISTING" false false null '{"prior": null}'
     return
   fi

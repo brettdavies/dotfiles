@@ -563,6 +563,32 @@ snapshot() {
   [ "$(jaq -s '[.[] | select(.event == "reopen")] | length' "$LEDGER")" -eq 1 ]
 }
 
+@test "a retry of a reopen's request ID that names another model is refused, and the dry run reports the refusal" {
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12]}"
+  reopen repoa --issue 12 --request-id r-1
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e '.created == true and .key == "repoa/1"' <<<"$output"
+  reopen repoa --issue 12 --request-id r-1 --model sonnet --dry-run
+  [ "$status" -eq 0 ]
+  jaq -e '.would_reopen == false and .refusal.reason == "model-differs" and .refusal.value == "sonnet"
+    and .refusal.next_step.command == "agent-slot check repoa/1 --output json"' <<<"$output"
+  reopen repoa --issue 12 --request-id r-1 --model sonnet
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "model-differs" and .value == "sonnet"
+    and (.message | contains("repoa/1 already holds this work and runs on opus"))
+    and .next_step.command == "agent-slot check repoa/1 --output json"' <<<"$stderr"
+  record_of '.model == "opus"' | grep -qx true
+  reopen repoa --issue 12 --request-id r-1
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false and .key == "repoa/1"' <<<"$output"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
+}
+
 @test "the settled PRs are the source's PRs that are merged or closed when the slot is reopened" {
   gh_item issue 12 "Fix the widget"
   jaq -n -c '[{number: 7, state: "MERGED"}, {number: 8, state: "CLOSED"}, {number: 9, state: "OPEN"}]

@@ -489,6 +489,34 @@ assert_own_worktree() {
 --model claude-sonnet-5-5 --effort xhigh --advisor opus --session-id $session -n t-sonnet" ]
 }
 
+@test "a repeat that names another model than its slot runs on is refused, never answered with that slot" {
+  launch repoa --request-id r-1 --task t1
+  [ "$status" -eq 0 ]
+  launch repoa --request-id r-1 --task t1 --model sonnet
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "model-differs" and .exit_code == 1 and .value == "sonnet"
+    and (.message | contains("repoa/1 already holds this work and runs on opus"))
+    and .recovery.side_effects == "none"
+    and .next_step.command == "agent-slot check repoa/1 --output json"' <<<"$stderr"
+  launch repoa --task t1 --model sonnet
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "model-differs" and .value == "sonnet"' <<<"$stderr"
+  jaq -e '.model == "opus"' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
+  launch repoa --request-id r-1 --task t1
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false and .key == "repoa/1"' <<<"$output"
+  slot repoa 3 '{"request_id": "r-nomodel"}'
+  launch repoa --request-id r-nomodel --model sonnet
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "model-differs" and (.message | contains("repoa/3 already holds this work and runs on opus"))' \
+    <<<"$stderr"
+  launch repoa --request-id r-nomodel
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false and .key == "repoa/3"' <<<"$output"
+}
+
 @test "a brief with no Scope:, Limits:, Reviews:, or Reports to: line is refused before any slot is made" {
   printf '%s\n' 'Fix the login.' '- **Scope:** the login form only.' 'reviews: ce-code-review' >"$T/brief.md"
   launch repoa --request-id r-brief --prompt-file "$T/brief.md"
