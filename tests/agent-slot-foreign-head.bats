@@ -868,3 +868,79 @@ real_solutions_dir() {
   jaq -e '.reason == "solutions-symlink-missing"' <<<"$stderr"
   [ ! -e "$SLOT" ]
 }
+
+@test "a reopen's dry run reports no verdict, rather than a safe one, while a live slot holds the item" {
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  reopen repoa --pr 7 --dry-run
+  [ "$status" -eq 0 ]
+  jaq -e '.would_reopen == false and .head_foreign == null and .head_owner == null' <<<"$output"
+}
+
+@test "a reopen's dry run reports no verdict when no teardown names the item" {
+  foreign_pr
+  reopen repoa --pr 7 --dry-run
+  [ "$status" -eq 0 ]
+  jaq -e '.would_reopen == false and .head_foreign == null and .head_owner == null' <<<"$output"
+}
+
+@test "a reopen on an issue with no branch stays on the base and is not foreign" {
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"items\": [$ISSUE12]}"
+  reopen repoa --issue 12
+  [ "$status" -eq 0 ]
+  jaq -e '.head_foreign == false' <<<"$output"
+  [ "$(hooks_path)" = .githooks ]
+}
+
+@test "a refused head's next step shows the PR, since an agent cannot repair a link in someone else's branch" {
+  mkdir -p "$T/outside/docs"
+  foreign_pr docs_out
+  launch repoa --pr 7
+  [ "$status" -ne 0 ]
+  jaq -e '.next_step.action == "ask-operator" and .next_step.command == "gh pr view 7 --repo up/repoa"' <<<"$stderr"
+}
+
+@test "launch and reopen's help say a dry run with no plan reports null, and whoami's says the record carries the verdict" {
+  run "$AGENT_SLOT" reopen --help
+  [ "$status" -eq 0 ]
+  [[ $output == *'head_owner, null when a dry run plans no head'* ]]
+  run "$AGENT_SLOT" whoami --help
+  [ "$status" -eq 0 ]
+  [[ $output == *head_foreign* ]]
+}
+
+# encrypted_head: a head with a Claude settings file under the git-crypt filter the base branch declares.
+encrypted_head() {
+  mkdir -p .claude
+  printf '{"under": "the filter"}\n' >.claude/filtered.json
+}
+
+@test "the real git-crypt unlocks a foreign head under its sparse checkout, and the tree's config stays off disk" {
+  command -v git-crypt >/dev/null || skip "git-crypt is not installed"
+  local seed=$T/seed-repoa
+  (cd "$seed" && git-crypt init >/dev/null && git-crypt export-key "$AGENT_SLOT_GIT_CRYPT_KEY")
+  mkdir -p "$seed/secret"
+  printf 'secret/** filter=git-crypt diff=git-crypt\n.claude/filtered.json filter=git-crypt diff=git-crypt\n' \
+    >"$seed/.gitattributes"
+  printf 'THE-SECRET\n' >"$seed/secret/x"
+  git -C "$seed" add -A
+  git -C "$seed" commit -q -m 'encrypted base'
+  git -C "$seed" push -q origin HEAD:main
+  export AGENT_SLOT_GIT_CRYPT
+  AGENT_SLOT_GIT_CRYPT=$(command -v git-crypt)
+  foreign_pr encrypted_head
+  launch repoa --pr 7
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  [ "$(cat "$SLOT/secret/x")" = THE-SECRET ]
+  [ ! -e "$SLOT/.claude" ]
+  [ -z "$(git -C "$SLOT" status --porcelain -- secret .claude)" ]
+  printf 'new\n' >"$SLOT/secret/y"
+  git -C "$SLOT" add secret/y
+  git -C "$SLOT" commit -q -m work
+  [ "$(git -C "$SLOT" cat-file blob HEAD:secret/y | head -c 8 | tail -c 7)" = GITCRYP ]
+}

@@ -993,7 +993,8 @@ EOF
 # the link's target, and no slot is left behind.
 assert_refused_link() {
   assert_error_shape "$2"
-  jaq -e --arg v "$AGENT_SLOT_ROOT/repoa/1/$1" '.reason == "tracked-link-leaves-slot" and .value == $v' <<<"$2"
+  jaq -e --arg v "$AGENT_SLOT_ROOT/repoa/1/$1" '.reason == "tracked-link-leaves-slot" and .value == $v
+    and .next_step.action == "ask-operator" and (.next_step.command | contains("ls-tree"))' <<<"$2"
   [ -z "$(ls -A "$T/outside-dir")" ]
   [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
 }

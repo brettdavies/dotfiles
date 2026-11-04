@@ -183,7 +183,7 @@ _reopen_output() {
 # free slot, and the command sessions_command would type there.
 reopen_report() {
   local repo=$REOPEN_REPO n=1 would=false delivered=null items='[]' name='' task='' session='' slot='' command=''
-  local head=null foreign='{}'
+  local head=null foreign=null
   if [[ -n $REOPEN_HOLDER ]]; then
     items=$(contract_json -c .items <<<"$REOPEN_SOURCE")
     name=$(contract_json -r '.name // ""' <<<"$REOPEN_SOURCE")
@@ -211,7 +211,8 @@ reopen_report() {
     --argjson exists "$REOPEN_TRANSCRIPT_EXISTS" --argjson head "$head" --arg slot "$slot" \
     --arg command "$command" --argjson delivered "$delivered" --argjson foreign "$foreign" '
     def text: if . == "" then null else . end;
-    {head_foreign: ($foreign.head_foreign // false), head_owner: ($foreign.head_owner // null), dry_run: true, would_reopen: $would, refusal: $refusal, item: $item, source: $source, name: ($name | text),
+    {head_foreign: (if $foreign == null then null else $foreign.head_foreign // false end),
+     head_owner: (if $foreign == null then null else $foreign.head_owner // null end), dry_run: true, would_reopen: $would, refusal: $refusal, item: $item, source: $source, name: ($name | text),
      items: $items, task: ($task | text), session_id: ($session | text), transcript: ($transcript | text),
      transcript_exists: $exists, head: $head, slot: ($slot | text), command: ($command | text),
      prompt_delivered: $delivered}')" '

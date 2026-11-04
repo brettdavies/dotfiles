@@ -42,7 +42,8 @@ verb_help() {
     whoami) printf '%s\n' 'usage: agent-slot whoami [--path DIR] [--output json]' \
       'Prints the slot that DIR (default: the current directory) is inside. Outside a slot it fails with the error' \
       'reason not-in-slot (exit 1).' \
-      'returns: slot, the slot record plus {key, path, label_name}' \
+      'returns: slot, the slot record plus {key, path, label_name}; the record has head_foreign and head_owner only' \
+      '         when its head is a foreign head' \
       'example: agent-slot whoami --output json' ;;
     launch) printf '%s\n' \
       'usage: agent-slot launch <repo> [--pr <ref> | --issue <ref>] [--request-id ID] [--task NAME]' \
@@ -119,7 +120,8 @@ verb_help() {
       '         exit_code, message, value, next_step, recovery}), item, source (the teardown event, or {key, state,' \
       '         name, items, session_id} of the slot that holds the item or request), name, items[] of {kind, repo,' \
       '         number, title}, task, session_id, transcript, transcript_exists, head {branch, remote, url, oid,' \
-      '         source {branch, remote}}, slot, command, prompt_delivered, head_foreign, head_owner' \
+      '         source {branch, remote}}, slot, command, prompt_delivered. Both forms return head_foreign and' \
+      '         head_owner, null when a dry run plans no head' \
       'example: agent-slot reopen oxipng --pr 887 --dry-run --output json' ;;
     sweep) printf '%s\n' 'usage: agent-slot sweep [--yes [--auto]] [--output json]' \
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \
