@@ -77,6 +77,47 @@ there() { git -C "$ORIGIN" rev-parse -q --verify "refs/heads/$1" >/dev/null && e
   [ "$(here forked)" = yes ]
 }
 
+@test "a commit pushed after its PR merged is kept, here and on origin" {
+  work after-merge
+  git -C "$SLOT" push -q origin after-merge
+  pr 8 MERGED after-merge
+  git -C "$SLOT" commit -q --allow-empty -m 'work after the PR merged'
+  git -C "$SLOT" push -q origin after-merge
+  git -C "$SLOT" checkout -q main
+  resume
+  [ "$status" -eq 0 ]
+  jaq -e '.pruned_branches == []' <<<"$output"
+  [ "$(here after-merge)" = yes ]
+  [ "$(there after-merge)" = yes ]
+}
+
+@test "a branch another clone moved on origin after its PR merged is kept on both sides" {
+  work moved
+  git -C "$SLOT" push -q origin moved
+  pr 9 MERGED moved
+  git clone -q --branch moved "$ORIGIN" "$T/other"
+  git -C "$T/other" commit -q --allow-empty -m 'work from another clone'
+  git -C "$T/other" push -q origin moved
+  git -C "$SLOT" checkout -q main
+  resume
+  [ "$status" -eq 0 ]
+  jaq -e '.pruned_branches == []' <<<"$output"
+  [ "$(here moved)" = yes ]
+  [ "$(there moved)" = yes ]
+}
+
+@test "with origin out of reach, resume keeps a merged PR's branch" {
+  work unreachable
+  git -C "$SLOT" push -q origin unreachable
+  pr 10 MERGED unreachable
+  git -C "$SLOT" checkout -q main
+  git -C "$SLOT" remote set-url origin "$T/no-such-origin.git"
+  resume
+  [ "$status" -eq 0 ]
+  jaq -e '.pruned_branches == []' <<<"$output"
+  [ "$(here unreachable)" = yes ]
+}
+
 @test "with no PR list from GitHub, resume prunes nothing" {
   work merged-two
   pr 7 MERGED merged-two

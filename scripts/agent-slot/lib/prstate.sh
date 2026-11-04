@@ -32,11 +32,12 @@ pr_load() {
 
 # Usage: pr_prune_branches <repo> <slot path>; deletes each local branch of the slot, other than its base and the one
 # checked out, whose PRs from origin's own branches are all merged or closed, and deletes origin's branch of that name
-# with it. Only branches the slot holds are touched, never the rest of origin's. A branch whose tip is neither one of
-# its PRs' heads nor held by origin's branch has work nowhere else and stays. Prints each branch it deleted, one per
-# line; with no PR list from GitHub it deletes nothing.
+# with it. Only branches the slot holds are touched, never the rest of origin's. A branch is deleted only when its tip,
+# and origin's tip of that name if origin has one, are each a PR's head or an ancestor of one, so a commit pushed after
+# the PR, from here or another clone, keeps the branch on both sides. With origin out of reach, or no PR list from
+# GitHub, it deletes nothing. Prints each branch it deleted, one per line.
 pr_prune_branches() {
-  local repo=$1 path=$2 base current branch tip heads
+  local repo=$1 path=$2 base current branch tip heads remote out
   pr_load "$repo" "$(git -C "$path" remote get-url origin 2>/dev/null || true)"
   [[ ${PR_OK[$repo]} == 1 ]] || return 0
   base=$(contract_json -r '.base // ""' <<<"$RECORD")
@@ -48,14 +49,32 @@ pr_prune_branches() {
       <<<"${PR_LISTS[$repo]}")
     [[ -n $heads ]] || continue
     tip=$(git -C "$path" rev-parse "refs/heads/$branch")
-    grep -qxF "$tip" <<<"$heads" \
-      || git -C "$path" merge-base --is-ancestor "$tip" "refs/remotes/origin/$branch" 2>/dev/null || continue
-    git -C "$path" branch -q -D "$branch"
-    if bounded out prune 60 "${AS_GIT_REMOTE[@]}" git -C "$path" ls-remote --exit-code --heads origin "$branch"; then
-      bounded out prune 120 "${AS_GIT_REMOTE[@]}" git -C "$path" push -q origin --delete "$branch" || true
+    _pr_in_heads "$path" "$tip" "$heads" || continue
+    remote=
+    # ls-remote --exit-code exits 2 when origin has no such branch; any other failure leaves origin's tip unknown.
+    if bounded remote prune 60 "${AS_GIT_REMOTE[@]}" \
+      git -C "$path" ls-remote --exit-code origin "refs/heads/$branch"; then
+      remote=${remote%%[[:space:]]*}
+      _pr_in_heads "$path" "$remote" "$heads" || continue
+    elif ((BOUNDED_STATUS != 2)); then
+      continue
     fi
+    git -C "$path" branch -q -D "$branch"
+    [[ -z $remote ]] \
+      || bounded out prune 120 "${AS_GIT_REMOTE[@]}" git -C "$path" push -q origin --delete "$branch" || true
     printf '%s\n' "$branch"
   done < <(git -C "$path" for-each-ref --format='%(refname:short)' refs/heads)
+}
+
+# Usage: _pr_in_heads <slot path> <oid> <heads, one per line>; true when the commit is one of the heads, or an ancestor
+# of one the slot has.
+_pr_in_heads() {
+  local head
+  while read -r head; do
+    [[ $2 != "$head" ]] || return 0
+    ! git -C "$1" merge-base --is-ancestor "$2" "$head" 2>/dev/null || return 0
+  done <<<"$3"
+  return 1
 }
 
 # Usage: _pr_head_held <slot path> <base> <oid>; true when a local head holds the commit and neither origin's base nor
