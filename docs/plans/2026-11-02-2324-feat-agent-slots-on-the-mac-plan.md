@@ -99,8 +99,8 @@ otherwise whenever the restart came before the next autosave.
   so R12's no-tabs case holds only where Rex.app hands over the empty session itself. Until it does, a session with no
   tabs gets its prime when the operator opens a tab first, which R13 turns into the prime, and a press in an empty
   session acts on the last-focused one, the documented limit on both machines.
-- **One prime map serves both machines.** The tmuxinator projects are shared between the machines, so each repo's prime
-  session has the same name on both, and each machine looks it up on its own tmux. Governs R15.
+- **One prime map serves both machines.** `config/agent-slot-rex/primes.tsv` holds each repo's display name, the same on
+  both machines, and each machine builds and finds its primes on its own tmux. Governs R15.
 - **rexurrect stays, and saves when something closes.** (session-settled: user-directed — chosen over replacing
   rexurrect: "`rexurrect` is fine, but we need to trigger a new snapshot when a session closes".) Closing a tab inside a
   session that stays open triggers it too, debounced. (session-settled: user-approved — chosen over session close only:
@@ -174,13 +174,19 @@ flowchart TB
 **The new-agent key**
 
 - R12. In a session named after one of its machine's repos that has no tabs, the key opens the repo's prime as the
-  session's first tab, attached to the prime tmux session on that machine; a repo with no prime gets a new slot instead.
-- R13. In such a session that has tabs, whichever tab is focused, the key opens the prime when no tab holds it, and
-  otherwise starts a new slot of that repo with no picker.
+  session's first tab: three panes on that machine's `agent-slots` tmux server, started in the repo's checkout when it
+  is not running, or attached to an old-style prime, a display-named session holding a Claude on that machine's default
+  tmux server. Every repo has a prime.
+- R13. In such a session that has tabs, whichever tab is focused, the key opens the prime when no tab holds it, starting
+  it when it is not running, and otherwise starts a new slot of that repo with no picker.
 - R14. In a session not named after one of its machine's repos, the key shows the repo picker, listing that machine's
   repos.
-- R15. The map from repo to prime session is one file of dotfiles config that both machines read; each machine finds the
-  prime session on its own default tmux server, so a Mac session reaches only Mac repos and Mac primes.
+- R15. The map from repo to display name is one file of dotfiles config that both machines read, and a repo it does not
+  list uses its own name. Each machine builds a prime on its own `agent-slots` tmux server and finds an old-style prime
+  on its own default tmux server, so a Mac session reaches only Mac repos and Mac primes.
+- R24. Every running prime on a machine has a tab in that machine's session for its repo. The Mac's reconcile reads
+  `primes` from `agent-slot list` and opens and reopens those tabs as the Linux server's does, and never relabels or
+  closes one.
 
 **Restores match what was open**
 
@@ -210,7 +216,7 @@ flowchart TB
   - **Trigger:** The operator presses the new-agent key in the Mac session `dotfiles`, which holds only a plain shell
     tab.
   - **Actors:** A1, A4
-  - **Steps:** The tab opens in the Mac session, becomes the prime tab attached to the Mac's `dotfiles` tmux session,
+  - **Steps:** The tab opens in the Mac session, becomes the prime's three panes on the Mac's `agent-slots` tmux server,
     and moves to first. A second press starts slot `dotfiles/1` on the Mac, whose tab appears in the same session.
   - **Covered by:** R1, R7, R10, R12, R13, R15
 - F2. A key pressed in a Linux session
@@ -242,9 +248,9 @@ flowchart TB
 
 ### Acceptance Examples
 
-- AE1. **Covers R13.** Given the Mac session `dotfiles` holding only a plain shell tab and the Mac's `dotfiles` tmux
-  session running, when the operator presses the new-agent key, then the session's first tab is attached to the Mac's
-  `dotfiles` prime; when they press it again, then slot `dotfiles/1` starts on the Mac with no picker.
+- AE1. **Covers R13.** Given the Mac session `dotfiles` holding only a plain shell tab, when the operator presses the
+  new-agent key, then the session's first tab holds the Mac's `dotfiles` prime in three panes, started if it was not
+  running; when they press it again, then slot `dotfiles/1` starts on the Mac with no picker.
 - AE2. **Covers R14, R15.** Given a Mac session named `xurl-rs` and no `xurl-rs` checkout on the Mac, when the operator
   presses the new-agent key, then the repo picker lists the Mac's repos.
 - AE3. **Covers R10, R22.** Given Rex.app showing the Linux server's `agentnative-cli` session with its prime tab open,
@@ -351,6 +357,10 @@ flowchart TB
   1Password agent, and `op-ssh-sign-wrapper` falls back to `ssh-keygen` only on Linux (`AGENTS.md`, Git Signing), so an
   unattended slot could stop at a prompt. U1 measures it; a prompt stops the work for the operator's choice, since
   signing with a key file kept on the Mac would change where the signing key lives.
+- What opens the vault on the Mac. Its checkout lives on the Linux server and reaches the Mac through the Taildrive
+  share at `/Volumes/vault`, mounted by `taildrive-mount vault`, where the checkout's git directory is out of reach. A
+  prime there has no git pane to run. Until this is answered, `taildrive-mount vault` and a session started by hand
+  work.
 
 <!-- ce-section: work-relationships -->
 ### How This Work Fits Together
@@ -385,7 +395,9 @@ below is the current understanding, not a committed roadmap.
 - rexurrect v0.3.0 source (github.com/cemcatik/rexurrect): `src/save.rs` (empty servers are never saved, and a save
   restores first into an unrestored instance), `src/store.rs` (`latest.json` is a symlink), `src/restore.rs` (with no
   latest snapshot a restore records the instance and creates nothing).
-- The tmuxinator projects shared through `config/shell/tmuxinator.sh`, whose `name:` fields are the prime session names.
+- `config/agent-slot-rex/primes.tsv`, which holds each prime's display name for both machines, and the prime the slot
+  code builds (`docs/plans/2026-11-03-2116-feat-prime-as-slot-plan.md`). Until this plan ships, the Mac starts its local
+  sessions with `tmux new -s` by hand; one that holds a Claude under a display name counts as an old-style prime.
 
 ---
 
@@ -537,9 +549,10 @@ Goal Capsule gains its execution profile, stop conditions, and who finishes.
   pass recording rexurrect `skipped` and pausing saves until Rex.app next restarts. The same unit makes the Mac's switch
   to the start-up step (KTD7) and loads the Mac's close-save LaunchAgent, so neither runs against the hand-installed
   build. Governs R20, R21.
-- KTD11. **One prime map, read on each machine against its own tmux.** The map's header names each machine's default
-  tmux server, and the key needs nothing more on the Mac once the helper acts locally (KTD6): the key's pane runs the
-  Mac's helper, whose repo list holds the Mac's checkouts. Governs R12, R13, R14, R15.
+- KTD11. **One prime map, read on each machine against its own tmux.** The map holds display names and says nothing of
+  where a prime runs. The key and reconcile need nothing more on the Mac once the helper acts locally (KTD6): the key's
+  pane runs the Mac's helper, whose repo list holds the Mac's checkouts, and `agent-slot prime` builds on the Mac's own
+  `agent-slots` server. Governs R12, R13, R14, R15, R24.
 - KTD12. **Live measurement on the Mac comes before dependent code.** U1 settles what KTD3, KTD4, and KTD8 rest on, and
   the signing question, each with a stop condition in the Goal Capsule (the cutover's KTD13 rule).
 
@@ -1022,7 +1035,7 @@ Waits on: PR 2 (merge order).
      the Mac keeps its own `rexurrect auto-restore` line until U9 (KTD7).
   4. Add the reconcile plist (every 60 s, the reconcile unit's command, through `launchd-run.sh`) and the tab-number
      plist (kept alive, `ThrottleInterval` 5, the CLI path KTD7 names), both in `AGENTS`.
-  5. The prime map's header names each machine's default tmux server (KTD11).
+  5. The prime map's header says both machines read it (KTD11).
 - **Patterns to follow:** `agent_slot_new` in `agent-slots.lua`; `rex-tab-numbers.service`.
 - **Test scenarios:**
   - No `rex.action` in `agent-slots.lua` calls `rex.exec`; each opens a window in its own session whose pane names the
@@ -1038,9 +1051,10 @@ Waits on: PR 2 (merge order).
     `settings.sh`'s first Darwin candidate.
   - Covers AE2. `launch --here` on the Darwin side in a session named `xurl-rs`, with the stubbed repo list lacking it,
     shows the picker of the listed repos.
-  - Covers AE1. `launch --here` on the Darwin side in a session named `dotfiles` holding one plain tab, with the stubbed
-    prime session running and no tab attached to it, makes the new tab the prime's; a second run starts a slot with no
-    picker.
+  - Covers AE1. `launch --here` on the Darwin side in a session named `dotfiles` holding one plain tab, with no tab
+    holding its prime, makes the new tab the prime's; a second run starts a slot with no picker.
+  - Covers R24. On the Darwin side, a pass with a running prime no tab holds opens its tab, and the next pass changes
+    nothing.
 - **Verification:** Once PR 3 is deployed and `scripts/stow-deploy` has reloaded the Rex config on both machines, each
   key in Rex.app acts on the Mac when pressed in a Mac session and on the Linux server when pressed in a Linux session
   (F1, F2, AE1, AE3 in U11). Until a machine reloads, its old actions run against the new helper (Scope Boundaries,
@@ -1303,7 +1317,7 @@ Scope Challenge findings:
 | P15     | `latest.json` is a symlink, and a missing one means no latest snapshot         | rexurrect v0.3.0 `src/store.rs:49-56`                                                                                            | true                    |
 | P16     | a restore with no snapshot records the instance                                | rexurrect v0.3.0 `src/restore.rs:347-362`                                                                                        | true                    |
 | P17     | a `failed` start-up record admits a save                                       | cutover plan U7 approach 2                                                                                                       | true, and unsafe (KTD8) |
-| P18     | the prime sessions have the same names on both machines                        | `stow/tmuxinator/dot-config/tmuxinator/xurl-rs.yml` (`name: XR CLI`), `config/shell/tmuxinator.sh`                               | true                    |
+| P18     | a prime has the same display name on both machines                             | `config/agent-slot-rex/primes.tsv` holds one name per repo | true |
 | P19     | Rex.app gives a tab-less session's action another session                      | `docs/solutions/integration-issues/rex-app-gives-an-action-in-a-session-with-no-tabs-the-last-focused-panes-context.md`          | true                    |
 | P20     | Claude's credentials on the Mac are in the Keychain                            | ssh read: no `~/.claude/.credentials.json`                                                                                       | unverified (U1)         |
 | P21     | the minute reconcile runs the full holder scan                                 | `scripts/agent-slot-rex/lib/reconcile.sh:67` calls `agent-slot list`; `scripts/agent-slot/lib/read.sh:87` runs `agentstate_load` | true (eng finding P1)   |
@@ -1673,7 +1687,7 @@ Today, from the code and the Mac (read 2026-11-02):
 
 After this plan, predicted until U11 times it:
 
-> "Same session, same key. The tab becomes the prime's first, attached to my Mac's `ANC Website` tmux session; I press
+> "Same session, same key. The tab becomes the prime's first, three panes on my Mac's own checkout; I press
 > it again and a slot of my Mac checkout starts, its tab in this session, numbered. An hour later the agent releases
 > its slot and the tab closes on its own. I close two sessions and Rex.app updates: only what I left open comes back."
 

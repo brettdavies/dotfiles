@@ -23,7 +23,7 @@ setup() {
   agent_slot_setup
   stub_gh_items
   echo '[]' >"$STUBS/gh-prs.json"
-  export ORIGIN_URL=git@github.com:oxipng/oxipng.git
+  export ORIGIN_URL=git@github.com:up/repoa.git
 }
 
 teardown() {
@@ -48,10 +48,10 @@ lib_run() {
     eval "$code"' _ "$LIB" "$code" "$@"
 }
 
-# resolve KIND REF: resolves REF as `agent-slot launch oxipng --KIND REF` does for a repo whose origin is $ORIGIN_URL,
+# resolve KIND REF: resolves REF as `agent-slot launch repoa --KIND REF` does for a repo whose origin is $ORIGIN_URL,
 # printing the item.
 resolve() {
-  lib_run 'item_parse_ref "${3#--}" "$4" "$ORIGIN_URL"; item_resolve; printf "%s\n" "$ITEM"' launch oxipng "--$1" "$2"
+  lib_run 'item_parse_ref "${3#--}" "$4" "$ORIGIN_URL"; item_resolve; printf "%s\n" "$ITEM"' launch repoa "--$1" "$2"
 }
 
 # name ITEM: the slot name derived from a {kind, repo, number, title} item.
@@ -67,38 +67,38 @@ task_pattern() {
   bash -c 'source "$1/launch.sh"; printf %s "$TASK_PATTERN"' _ "$LIB"
 }
 
-oxipng_887() {
+repoa_887() {
   gh_item pr 887 "Fix 16-bit to 8-bit reduction with tRNS" OPEN '{"headRefName": "fix/trns-16-to-8",
-    "headRepository": {"id": "R_2", "name": "oxipng"}, "headRepositoryOwner": {"id": "U_2", "login": "andrews05"},
-    "isCrossRepository": true, "url": "https://github.com/oxipng/oxipng/pull/887"}'
+    "headRepository": {"id": "R_2", "name": "repoa"}, "headRepositoryOwner": {"id": "U_2", "login": "me"},
+    "isCrossRepository": true, "url": "https://github.com/up/repoa/pull/887"}'
 }
 
-@test "887, oxipng/oxipng#887, and the PR's URL resolve to the same PR of the origin's repo, with its head" {
+@test "887, up/repoa#887, and the PR's URL resolve to the same PR of the origin's repo, with its head" {
   local ref
-  oxipng_887
-  for ref in 887 oxipng/oxipng#887 https://github.com/oxipng/oxipng/pull/887; do
+  repoa_887
+  for ref in 887 up/repoa#887 https://github.com/up/repoa/pull/887; do
     : >"$CALLS"
     resolve pr "$ref"
     [ "$status" -eq 0 ] || {
       echo "$ref: $stderr"
       false
     }
-    jaq -e '.kind == "pr" and .repo == "oxipng/oxipng" and .number == 887
+    jaq -e '.kind == "pr" and .repo == "up/repoa" and .number == 887
       and .title == "Fix 16-bit to 8-bit reduction with tRNS" and .state == "OPEN"
-      and .head_branch == "fix/trns-16-to-8" and .head_repo == "andrews05/oxipng"
-      and .head_url == "https://github.com/andrews05/oxipng.git" and .cross_repository == true' <<<"$output"
-    grep -qx 'gh api repos/oxipng/oxipng/issues/887' "$CALLS"
-    grep -q '^gh pr view 887 --repo oxipng/oxipng --json .*baseRefName' "$CALLS"
+      and .head_branch == "fix/trns-16-to-8" and .head_repo == "me/repoa"
+      and .head_url == "https://github.com/me/repoa.git" and .cross_repository == true' <<<"$output"
+    grep -qx 'gh api repos/up/repoa/issues/887' "$CALLS"
+    grep -q '^gh pr view 887 --repo up/repoa --json .*baseRefName' "$CALLS"
   done
 }
 
 @test "a ref naming another repo resolves there, whatever the origin" {
-  gh_item issue 10331 "Pillow 12 fails to build" CLOSED
-  ORIGIN_URL=https://github.com/me/dotfiles.git resolve issue python-pillow/Pillow#10331
+  gh_item issue 10331 "repob 12 fails to build" CLOSED
+  ORIGIN_URL=https://github.com/me/dotfiles.git resolve issue other/repob#10331
   [ "$status" -eq 0 ]
-  jaq -e '. == {kind: "issue", repo: "python-pillow/Pillow", number: 10331, title: "Pillow 12 fails to build",
+  jaq -e '. == {kind: "issue", repo: "other/repob", number: 10331, title: "repob 12 fails to build",
     state: "CLOSED"}' <<<"$output"
-  grep -qx 'gh api repos/python-pillow/Pillow/issues/10331' "$CALLS"
+  grep -qx 'gh api repos/other/repob/issues/10331' "$CALLS"
   run ! grep -q 'pr view' "$CALLS"
 }
 
@@ -110,24 +110,24 @@ oxipng_887() {
 }
 
 @test "--issue on a PR's number, or --pr on an issue's, fails with item-kind-mismatch and the command with the flag swapped" {
-  oxipng_887
+  repoa_887
   gh_item issue 3 "An issue"
   resolve issue 887
   [ "$status" -eq 2 ]
   assert_error_shape "$stderr"
   jaq -e '.reason == "item-kind-mismatch" and .value == "887" and (.message | contains("PR"))
-    and .next_step.action == "rerun" and .next_step.command == "agent-slot launch oxipng --pr 887"
+    and .next_step.action == "rerun" and .next_step.command == "agent-slot launch repoa --pr 887"
     and .recovery.retryable == false and .recovery.side_effects == "none"' <<<"$stderr"
   resolve pr 3
   [ "$status" -eq 2 ]
-  jaq -e '.reason == "item-kind-mismatch" and .next_step.command == "agent-slot launch oxipng --issue 3"' <<<"$stderr"
+  jaq -e '.reason == "item-kind-mismatch" and .next_step.command == "agent-slot launch repoa --issue 3"' <<<"$stderr"
 }
 
 @test "GitHub's not-found answer fails with item-not-found naming the ref" {
-  resolve pr oxipng/oxipng#999
+  resolve pr up/repoa#999
   [ "$status" -eq 2 ]
   assert_error_shape "$stderr"
-  jaq -e '.reason == "item-not-found" and .value == "oxipng/oxipng#999" and (.message | contains("oxipng/oxipng#999"))
+  jaq -e '.reason == "item-not-found" and .value == "up/repoa#999" and (.message | contains("up/repoa#999"))
     and .next_step.action == "run" and .next_step.command == "agent-slot launch --help"
     and .recovery.retryable == false' <<<"$stderr"
 }
@@ -143,7 +143,7 @@ oxipng_887() {
     }
     assert_error_shape "$stderr"
     jaq -e '.reason == "pr-state-unknown" and .value == "887" and .recovery.retryable == true
-      and .next_step.action == "retry" and .next_step.command == "agent-slot launch oxipng --pr 887"
+      and .next_step.action == "retry" and .next_step.command == "agent-slot launch repoa --pr 887"
       and .log != null' <<<"$stderr"
   done
 }
@@ -151,7 +151,7 @@ oxipng_887() {
 @test "gh with no usable sign-in fails with gh-auth-missing" {
   local body
   for body in 'echo "To get started with GitHub CLI, please run:  gh auth login" >&2; exit 4' \
-    'echo "HTTP 401: Bad credentials (https://api.github.com/repos/oxipng/oxipng/issues/887)" >&2; exit 1'; do
+    'echo "HTTP 401: Bad credentials (https://api.github.com/repos/up/repoa/issues/887)" >&2; exit 1'; do
     stub gh "$body"
     resolve pr 887
     [ "$status" -eq 77 ] || {
@@ -164,7 +164,7 @@ oxipng_887() {
 
 @test "a ref in none of the forms fails with usage before gh is called" {
   local ref
-  for ref in '#887' 'oxipng#887' 'https://github.com/oxipng/oxipng/commit/887' '0' 'pr887' '887 ' 'a/b/c#1'; do
+  for ref in '#887' 'repoa#887' 'https://github.com/up/repoa/commit/887' '0' 'pr887' '887 ' 'a/b/c#1'; do
     resolve pr "$ref"
     [ "$status" -eq 2 ] || {
       echo "$ref: $status $stderr"
@@ -176,8 +176,8 @@ oxipng_887() {
 }
 
 @test "a title names the slot <repo>-pr<N>-<slug>" {
-  name '{"kind": "pr", "repo": "oxipng/oxipng", "number": 887, "title": "Fix 16-bit to 8-bit reduction with tRNS"}'
-  [ "$output" = oxipng-pr887-fix-16-bit-to-8-bit-reduction-with-trns ]
+  name '{"kind": "pr", "repo": "up/repoa", "number": 887, "title": "Fix 16-bit to 8-bit reduction with tRNS"}'
+  [ "$output" = repoa-pr887-fix-16-bit-to-8-bit-reduction-with-trns ]
 }
 
 @test "a long title is cut at a dash to fit a task name, and a long repo name keeps the number" {
@@ -185,8 +185,8 @@ oxipng_887() {
   pattern=$(task_pattern)
   title=$(printf 'word%s ' $(seq 1 40))
   title=${title:0:200}
-  name "$(jaq -n -c --arg t "$title" '{kind: "pr", repo: "oxipng/oxipng", number: 887, title: $t}')"
-  full="oxipng-pr887-$(tr ' ' - <<<"${title% }")"
+  name "$(jaq -n -c --arg t "$title" '{kind: "pr", repo: "up/repoa", number: 887, title: $t}')"
+  full="repoa-pr887-$(tr ' ' - <<<"${title% }")"
   ((${#output} <= 64))
   [[ $output =~ $pattern ]]
   [[ $output != *- ]]
@@ -199,8 +199,8 @@ oxipng_887() {
 }
 
 @test "a title of only punctuation names <repo>-pr<N>, and a repo's dots become dashes with leading ones dropped" {
-  name '{"kind": "pr", "repo": "oxipng/oxipng", "number": 887, "title": "?!... ---"}'
-  [ "$output" = oxipng-pr887 ]
+  name '{"kind": "pr", "repo": "up/repoa", "number": 887, "title": "?!... ---"}'
+  [ "$output" = repoa-pr887 ]
   name '{"kind": "issue", "repo": "x/x.github.io", "number": 3, "title": "Broken link"}'
   [ "$output" = x-github-io-issue3-broken-link ]
   name '{"kind": "issue", "repo": "x/.github", "number": 4, "title": "Add a template"}'

@@ -19,6 +19,20 @@ download itself is fine; only node's extractor wedges. `curl` + `unzip` sidestep
 browser directories, each carrying the `INSTALLATION_COMPLETE` + `DEPENDENCIES_VALIDATED` markers that make Playwright
 treat them as real installs.
 
+**Other Playwright installs keep the set.** Any `playwright install` or `uninstall`, of any version, records its own
+package in `$PLAYWRIGHT_BROWSERS_PATH/.links` and then deletes every browser directory that no `.links` entry names: it
+reads each entry's `browsers.json` and keeps `<name>-<revision>` for the first entry of each browser name. A directory
+the deploy script provisioned belongs to no package, so the script registers its own entries: one per version
+(`.links/dotfiles-playwright-<version>`) and one per chromium alias (`.links/dotfiles-chromium-alias-<rev>`), each
+naming a `browsers.json` under `$PLAYWRIGHT_BROWSERS_PATH/.dotfiles/`. The cleanup judges a directory by its name and
+never follows an alias symlink, so an unregistered canonical directory is deleted even while a registered alias still
+points at it. A tool on a newer Playwright than the canonical set (gstack's `browse`) installs its own browser next to
+it.
+
+`scripts/playwright-browsers-deploy.sh --check` reports a missing or incomplete browser, an alias that no longer
+resolves, and a set that is not registered, changing nothing; it exits 1 on any finding and names the command that
+restores the set.
+
 **Bumping the canonical version:** edit the revision map in `scripts/playwright-browsers-deploy.sh` (the `case` matching
 `$VERSION`) and set `DEFAULT_VERSION`, then re-run the script. Read the new revisions from any repo's
 `node_modules/playwright-core/browsers.json` (per-browser `revision`, plus chromium's `browserVersion` for the
@@ -30,6 +44,7 @@ Chrome-for-Testing CDN path). The default is **Playwright 1.62.1** (chromium 123
 | Symptom                                                                                         | Cause                                 |
 | ----------------------------------------------------------------------------------------------- | ------------------------------------- |
 | Playwright `browserType.launch: Executable doesn't exist at …/<browser>_<revision>/…`           | Browser binaries not provisioned      |
+| `Removing unused browser at …/chromium-<canonical rev>` in another tool's install output        | Set not registered in `.links`        |
 | `browse` / Chromium dies with `FATAL:sandbox/linux/services/credentials.cc … Permission denied` | AppArmor userns profile not loaded    |
 | Playwright `browserType.launch: Host system is missing dependencies to run browsers` (WebKit)   | WebKit system libraries not installed |
 
@@ -77,6 +92,7 @@ are heavy and only needed for Safari/iOS testing. To provision (or re-provision)
 
 ```bash
 scripts/playwright-browsers-deploy.sh                                  # → SKIP lines for all four (already provisioned)
+scripts/playwright-browsers-deploy.sh --check                          # → OK lines, exit 0
 # From a Playwright project, scoped to the provisioned browsers:
 ./node_modules/.bin/playwright install chromium chromium-headless-shell webkit ffmpeg  # → instant no-op, exit 0
 systemctl is-enabled apparmor-playwright.service                       # → enabled

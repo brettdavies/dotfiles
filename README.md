@@ -549,37 +549,38 @@ with `transcript-missing`.
 nobody watches sends a reopen to the session its brief reports to instead of running it. `adopt` changes only a record
 and a session name, so it runs without one.
 
-The sequence below follows oxipng PR #887, whose head branch lives on a fork. A dispatcher hands the PR to a slot:
+The sequence below follows PR #887 of `acme/widget`, an illustrative upstream repo checked out as `widget`, whose head
+branch lives on a fork. A dispatcher hands the PR to a slot:
 
 ```bash
-agent-slot launch oxipng --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json
+agent-slot launch widget --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json
 ```
 
-Once that slot is torn down and a reviewer replies, a dry run shows what a reopen would do. An excerpt of its output on
-this host, with home paths shortened:
+Once that slot is torn down and a reviewer replies, a dry run shows what a reopen would do. An excerpt of its output,
+with home paths shortened:
 
 ```bash
-agent-slot reopen oxipng --pr 887 --dry-run --output json
+agent-slot reopen widget --pr 887 --dry-run --output json
 ```
 
 ```json
 {
   "would_reopen": true,
   "refusal": null,
-  "item": {"kind": "pr", "repo": "oxipng/oxipng", "number": 887, "title": "Fix 16-bit to 8-bit reduction with tRNS"},
-  "name": "oxipng-pr887-fix-16-bit-to-8-bit-reduction-with-trns",
+  "item": {"kind": "pr", "repo": "acme/widget", "number": 887, "title": "Fix 16-bit to 8-bit reduction with tRNS"},
+  "name": "widget-pr887-fix-16-bit-to-8-bit-reduction-with-trns",
   "session_id": "4e0a3f33-f697-4dff-a32f-2b0202be99d4",
-  "transcript": "~/.claude/projects/-home-<user>-slots-oxipng-1/4e0a3f33-f697-4dff-a32f-2b0202be99d4.jsonl",
+  "transcript": "~/.claude/projects/-home-<user>-slots-widget-1/4e0a3f33-f697-4dff-a32f-2b0202be99d4.jsonl",
   "transcript_exists": true,
   "head": {
     "branch": "fix/trns-16-to-8",
     "remote": "fork",
-    "url": "git@github.com:brettdavies/oxipng.git",
+    "url": "git@github.com:me/widget.git",
     "oid": "8fdb2520b0a97ed52c6235850cbcf87f08984113",
     "source": {"branch": "gh", "remote": "ledger"}
   },
-  "slot": "oxipng/1",
-  "command": "claude --dangerously-skip-permissions --resume 4e0a3f33-f697-4dff-a32f-2b0202be99d4 -n oxipng-pr887-fix-16-bit-to-8-bit-reduction-with-trns"
+  "slot": "widget/1",
+  "command": "claude --dangerously-skip-permissions --resume 4e0a3f33-f697-4dff-a32f-2b0202be99d4 -n widget-pr887-fix-16-bit-to-8-bit-reduction-with-trns"
 }
 ```
 
@@ -588,17 +589,17 @@ GitHub (`gh`), and its remote and URL are the ones the teardown's `branches` rec
 itself takes the reply as the agent's brief:
 
 ```bash
-agent-slot reopen oxipng --pr 887 --prompt-file reply.md --output json
+agent-slot reopen widget --pr 887 --prompt-file reply.md --output json
 ```
 
 It returns launch's fields plus `reopened_from`, `settled_prs`, `head`, and `head_moved`, which is true when the remote
 branch's head is not the commit the teardown recorded.
 
-Pillow/2 worked on issue python-pillow/Pillow#10330, and its teardown event carries no items and no PRs, so no lookup by
-the item finds it. `--session` names it by its Claude session (an excerpt of the real output):
+widget/2 worked on issue acme/widget#10330, and its teardown event carries no items and no PRs, so no lookup by the item
+finds it. `--session` names it by its Claude session (an excerpt of the output):
 
 ```bash
-agent-slot reopen Pillow --issue python-pillow/Pillow#10330 --session e999f4ab-8387-4992-bb05-f4e6041b9b68 \
+agent-slot reopen widget --issue acme/widget#10330 --session e999f4ab-8387-4992-bb05-f4e6041b9b68 \
   --dry-run --output json
 ```
 
@@ -606,23 +607,23 @@ agent-slot reopen Pillow --issue python-pillow/Pillow#10330 --session e999f4ab-8
 {
   "would_reopen": true,
   "refusal": null,
-  "item": {"kind": "issue", "repo": "python-pillow/Pillow", "number": 10330},
-  "source": {"repo": "Pillow", "slot": 2, "ts": "2026-10-30T19:50:08Z", "prs": []},
-  "name": "Pillow-issue10330-16-bit-png-trns-key-convert-rgba-misses-the",
+  "item": {"kind": "issue", "repo": "acme/widget", "number": 10330},
+  "source": {"repo": "widget", "slot": 2, "ts": "2026-10-30T19:50:08Z", "prs": []},
+  "name": "widget-issue10330-16-bit-png-trns-key-convert-rgba-misses-the",
   "session_id": "e999f4ab-8387-4992-bb05-f4e6041b9b68",
   "transcript_exists": true,
   "head": {"branch": "main", "remote": "origin", "source": {"branch": "base", "remote": "base"}},
-  "slot": "Pillow/1",
-  "command": "claude --dangerously-skip-permissions --resume e999f4ab-8387-4992-bb05-f4e6041b9b68 -n Pillow-issue10330-16-bit-png-trns-key-convert-rgba-misses-the"
+  "slot": "widget/1",
+  "command": "claude --dangerously-skip-permissions --resume e999f4ab-8387-4992-bb05-f4e6041b9b68 -n widget-issue10330-16-bit-png-trns-key-convert-rgba-misses-the"
 }
 ```
 
 The name is cut at a dash to fit 64 characters, and an issue keeps the base branch. A live slot that works on an issue
-but has no item takes one with `adopt`, which names it `Pillow-issue10331-jpeg-dpi-read-from-exif-uses-xresolution-for`
+but has no item takes one with `adopt`, which names it `widget-issue10331-jpeg-dpi-read-from-exif-uses-xresolution-for`
 and returns `key`, `name`, `items`, `item`, and `renamed`:
 
 ```bash
-agent-slot adopt Pillow/3 --issue 10331 --output json
+agent-slot adopt widget/3 --issue 10331 --output json
 ```
 
 #### Commands
@@ -641,8 +642,8 @@ work on a PR or issue back in a fresh slot, with its Claude conversation resumed
 do or the refusal it would hit; agents ask before running it, `--dry-run` included. `agent-slot sweep` and
 `agent-slot finish <repo>/<N>` delete slots, so both only report unless given `--yes`, and agents ask before running
 them. `finish` refuses a task with an open PR (`task-has-open-pr`) unless the operator adds `--allow-open-pr` to
-`--yes`, as in `agent-slot finish oxipng/1 --yes --allow-open-pr`, which ends the task whatever state its PRs are in; a
-release and the finish key never pass it, and the report-only run names it in `would_need`. `agent-slot release`, run
+`--yes`, as in `agent-slot finish dotfiles/2 --yes --allow-open-pr`, which ends the task whatever state its PRs are in;
+a release and the finish key never pass it, and the report-only run names it in `would_need`. `agent-slot release`, run
 from inside a slot, hands that slot's teardown upstream; it deletes nothing itself, so it needs no ask.
 `agent-slot doctor` checks every prerequisite and the time from key press to Claude idle. Its `key_to_ready` covers the
 last 20 launches from the new-agent key, from the moment the key's tab opened to the slot's Claude starting its session,
@@ -836,8 +837,10 @@ The **browser binaries** are provisioned into the shared cache (`$PLAYWRIGHT_BRO
 `scripts/playwright-browsers-deploy.sh` (run directly, or via the script above) using `curl` + `unzip` rather than
 `playwright install` — node's extractor deadlocks on this host's io_uring/kernel combo. One canonical version serves
 every repo, so per-repo `playwright install` becomes a no-op; bumping it is a dotfiles edit (the revision map in that
-script). WebKit deps are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios`
-/ `tablet` projects). See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for
+script). The script registers the set in the cache's `.links`, so another tool's install of a different Playwright
+version does not delete it, and `scripts/playwright-browsers-deploy.sh --check` reports a missing or unregistered set.
+WebKit deps are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios` /
+`tablet` projects). See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for
 failure signatures, the io_uring root cause, and recovery.
 
 **AppArmor profiles** (`config/apparmor.d/`) are deployed by `scripts/apparmor-deploy.sh` (called by the script above,

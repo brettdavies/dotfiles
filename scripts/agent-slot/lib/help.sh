@@ -71,7 +71,7 @@ verb_help() {
       '         next_step,' \
       '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
       '         reopen resumes, else null)' \
-      'example: agent-slot launch oxipng --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
+      'example: agent-slot launch dotfiles --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
     resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--output json]' \
       "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID" \
       'with --dangerously-skip-permissions.' \
@@ -97,7 +97,7 @@ verb_help() {
       "is idle, its Claude session is typed /rename <name>; the automatic sweep renames a busy agent's session once" \
       'it is idle. It deletes nothing, so it needs no ask.' \
       'returns: key, name, items[] of {kind, repo, number, title}, item (the one attached), renamed' \
-      'example: agent-slot adopt Pillow/1 --issue 10331 --output json' ;;
+      'example: agent-slot adopt dotfiles/2 --issue 10331 --output json' ;;
     reopen) printf '%s\n' \
       'usage: agent-slot reopen <repo> (--pr <ref> | --issue <ref>) [--session ID] [--prompt-file FILE]' \
       '                         [--request-id ID] [--dry-run] [--output json]' \
@@ -119,7 +119,7 @@ verb_help() {
       '         name, items, session_id} of the slot that holds the item or request), name, items[] of {kind, repo,' \
       '         number, title}, task, session_id, transcript, transcript_exists, head {branch, remote, url, oid,' \
       '         source {branch, remote}}, slot, command, prompt_delivered' \
-      'example: agent-slot reopen oxipng --pr 887 --dry-run --output json' ;;
+      'example: agent-slot reopen dotfiles --pr 887 --dry-run --output json' ;;
     sweep) printf '%s\n' 'usage: agent-slot sweep [--yes [--auto]] [--output json]' \
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \
       "reports what it would delete. Agents ask the operator first. A teardown deletes the slot's clone, moving it to" \
