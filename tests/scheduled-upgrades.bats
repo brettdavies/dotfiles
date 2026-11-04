@@ -586,16 +586,19 @@ _wait_for_log() {
   grep -q "$1" "$log"
 }
 
-# What a stop has to leave, however the signals arrived: run.end while the tool still runs, nothing after it, and the
-# counts the job had logged. exit_code reads 1, as run-log.sh documents.
+# What a stop has to leave, however the signals arrived: run.end while the tool still runs, and the counts the job had
+# logged. exit_code reads 1, as run-log.sh documents. The tool then logs one more line, which only a reader that outlived
+# the stop would write after run.end.
 _assert_stop_ended_log() {
   local deadline=$((SECONDS + 10))
   until grep -qs '"event":"run.end"' "$log" || ((SECONDS > deadline)); do sleep 0.1; done
   [ "$(jaq -c 'select(.event == "run.end") | [.outcome, .exit_code, .reason, .errors, .warnings, .first_error]' "$log")" = \
     '["failure",1,"script-error",1,1,"Error: a mirror failed"]' ]
-  [ "$(tail -n 1 "$log" | jaq -r .event)" = run.end ]
   kill -0 -- "-$job"
   [ -z "$(ls -A "$SUMMARY_DIR")" ]
+  : >"$TOOL_RESUME"
+  sleep 1
+  [ "$(tail -n 1 "$log" | jaq -r .event)" = run.end ]
 }
 
 # launchd's stop of a job, through the agent's real chain: a SIGTERM to its main process alone, which is the daily gate
@@ -669,7 +672,7 @@ _assert_systemd_stop_ends_log() { # <script>
 
 # The upgrade finishes here and the bump is what stalls. The timeout stub keeps the bump in the job's process group,
 # which the real timeout leaves, so the test can stop all of it.
-@test "a kill during the pin bump leaves no temp file" {
+@test "a kill during the pin bump logs the bump's stderr and leaves no temp file" {
   _stalled_tool_fixture
   export BUMP_STARTED="$BATS_TEST_TMPDIR/bump-started" YAZI_PINS_CMD="$STUBS/stalled-bump"
   log=$BATS_TEST_TMPDIR/journal.jsonl
@@ -692,6 +695,8 @@ _assert_systemd_stop_ends_log() { # <script>
   wait "$job" || true
   _wait_for_log '"event":"run.end"'
   [ "$(jaq -c 'select(.event == "run.end") | [.reason, .yazi_pins.reason]' "$log")" = '["script-error","script-error"]' ]
+  [ "$(tail -n 1 "$log" | jaq -r .event)" = run.end ]
+  jaq -c 'select(.event == "output" and .level == "info" and .line == "yazi-pins: checking")' "$log" | grep -q .
   [ -z "$(ls -A "$SUMMARY_DIR")" ]
 }
 
