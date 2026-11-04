@@ -41,7 +41,6 @@ slot-limit-reached            78    false      0            ask-operator
 clone-failed                  1     true       2            retry
 solutions-symlink-missing     78    false      0            fix-config
 tracked-link-leaves-slot      78    false      0            ask-operator
-head-not-expected             78    false      0            ask-operator
 hooks-path-outside-checkout   78    false      0            fix-config
 git-crypt-locked              78    false      0            fix-config
 trust-dialog-unrecognized     78    false      0            ask-operator

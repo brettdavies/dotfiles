@@ -530,11 +530,10 @@ skips it through its flags, and the session-start hooks start their tools outsid
 committed, `git sparse-checkout reapply` takes it off disk again.
 
 A fork stays foreign until someone trusts its owner. To run one once someone has reviewed it, tear its slot down and
-launch again with the owner added for that one command, naming the commit that was reviewed:
-`AGENT_SLOT_TRUSTED_OWNERS='<the trusted owners> <owner>' agent-slot launch <repo> --pr <ref> --expect-head <commit>`.
-Its hooks would run at once, so a head at any other commit is refused with `head-not-expected` ahead of the checkout. A
-reopen cannot run a fork this way, since a foreign slot's reopen stays foreign; `--expect-head` there only checks the
-head it fetches.
+launch again with the owner added for that one command:
+`AGENT_SLOT_TRUSTED_OWNERS='<the trusted owners> <owner>' agent-slot launch <repo> --pr <ref>`. That checks out the
+branch as it is then, and its hooks run at once, so compare it with what was reviewed first. A reopen cannot do this,
+since a foreign slot's reopen stays foreign.
 
 Setup writes nothing through a link in the tree, on a slot of any head, since any branch can track one. A tracked
 `.claude/settings.local.json` link is replaced in the slot and marked skip-worktree, and a `.claude`, `docs`, or
@@ -719,7 +718,6 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `clone-failed`                | 1    | Cloning from origin failed; retry with the same request ID                                     |
 | `solutions-symlink-missing`   | 78   | The solutions repo is missing or has no origin/main, so the slot gets no worktree of it        |
 | `tracked-link-leaves-slot`    | 78   | The head tracks `.claude`, `docs`, or `.context` as a link that leaves the slot                |
-| `head-not-expected`           | 78   | The head is not the commit `--expect-head` names, so it is not what was reviewed               |
 | `hooks-path-outside-checkout` | 78   | The repo's own `core.hooksPath` points outside its checkout                                    |
 | `git-crypt-locked`            | 78   | A git-crypt repo could not be unlocked: git-crypt or its key is missing                        |
 | `trust-dialog-unrecognized`   | 78   | Claude showed a screen other than its trust dialog for the path; accept it by hand             |
