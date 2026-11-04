@@ -77,6 +77,9 @@ started differently from a slot and chose to remove the difference.
   Mac until the Mac plan ships; the Mac uses `tmux new -s` by hand until then.) Governs R19.
 - **Streams Control and GBrain become on-demand primes; Coordinator and Brett GBrain Skillpack stay hand-started.**
   (session-settled: user-approved — chosen over leaving every session with no listed repo hand-started.) Governs R22.
+- **A prime keeps user-bus access, a ninth difference from a slot.** (session-settled: user-approved — chosen over each
+  prime prefixing `systemctl --user` by hand; Brett through the coordinating session: the primes run it daily.) Governs
+  R23.
 - **A prime's conversation is matched by its exact title, with no alias table.** (session-settled: user-approved —
   chosen over a table mapping old conversation names; Brett renames each conversation just before closing its session,
   since slots message those names today.) Governs R18.
@@ -139,6 +142,8 @@ started differently from a slot and chose to remove the difference.
   automatically.
 - R18. A restarted prime resumes its `<repo>-prime` conversation, and starts fresh only when no such conversation is
   free. One that a running Claude holds is not free (KTD3 names the rule).
+- R23. A prime keeps user-bus access, so `systemctl --user` works in its sessions: where the bus exists, they carry
+  `DBUS_SESSION_BUS_ADDRESS`, as old-style panes do (KTD18).
 
 **Removal and portability**
 
@@ -212,15 +217,6 @@ Non-goals, considered and not built:
 - Update `docs/plans/2026-11-02-2324-feat-agent-slots-on-the-mac-plan.md` per "What the Mac plan inherits".
 - Name the `agent-slot prime` verb in the `agent-slot` skill, which lives in `brettdavies/agent-skills`.
 
-### Outstanding Questions
-
-Sent to the coordinating session for Brett. It does not block, and the plan proceeds on the stated default.
-
-- **Does a prime keep user-bus access?** Old-style panes carry `DBUS_SESSION_BUS_ADDRESS`, and the slot builder starts
-  from an empty environment, so `systemctl --user` fails with `Failed to connect to bus: No medium found` in a prime
-  built the slot way. Default: a prime's sessions get that variable, a ninth difference from a slot (Assumption A5).
-  Declining means a prime prefixes those commands by hand.
-
 ---
 
 ## Planning Contract
@@ -234,7 +230,6 @@ Inferred bets, not confirmed by Brett:
   starts it if needed and replaces the tab (KTD12). This starts only primes whose tabs were open.
 - A4. A prime's Claude pane gets the slot status marks (KTD10). Brett's list bars the unattended and context hooks and
   does not mention status, and "same as slots" followed an explanation that named the Claude pane's status key.
-- A5. A prime's sessions start with `DBUS_SESSION_BUS_ADDRESS` set where the user bus exists, pending Brett's answer.
 
 ### Key Technical Decisions
 
@@ -362,7 +357,7 @@ Inferred bets, not confirmed by Brett:
 - KTD18. **A prime's sessions carry the user bus.** Where `/run/user/$UID/bus` exists, a prime's `new-session` adds
   `-e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$UID/bus`, the value old-style panes carry. `systemctl --user` then
   works there: from a slot's shell it fails with `Failed to connect to bus: No medium found` and answers once this
-  variable is set. Only this variable, so `AS_RUN_DIR` keeps resolving as it does. Pending Brett's answer (A5).
+  variable is set. Only this variable, so `AS_RUN_DIR` keeps resolving as it does. Governs R23.
 
 ### High-Level Technical Design
 
@@ -1241,7 +1236,7 @@ settle, and none reopens a Key Decision.
 | ER8 | Key-rule fixture                                 | Helper opens a prime tab (U5)            | 32 calls in `agent-slot-rex.bats`                |
 | ER9 | Rollback for a partial prime start               | Not built (Scope Boundaries)             | Visible in the tab; milliseconds apart           |
 
-Approval readiness: PASS for ER1 through ER9. Brett's open question stays with `dotfiles-prime` and does not gate this review.
+Approval readiness: PASS for ER1 through ER9.
 
 ### Worktree parallelization
 
@@ -1568,7 +1563,7 @@ because of a defect.
 
 ### Unresolved Decisions
 
-None from this review. Brett's open questions are listed under Outstanding Questions and do not gate implementation.
+None.
 
 ## GSTACK REVIEW REPORT
 
@@ -1586,6 +1581,4 @@ None from this review. Brett's open questions are listed under Outstanding Quest
 - **VERDICT:** Eng, DX, and document reviews have run with every finding applied or recorded as not built, so implementation can
   start. The review log's other rows on this branch belong to other plans.
 
-**UNRESOLVED DECISIONS:**
-
-- Does a prime keep user-bus access? Sent to `dotfiles-prime`; the plan proceeds on yes (A5, KTD18), and it does not block.
+NO UNRESOLVED DECISIONS
