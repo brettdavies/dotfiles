@@ -791,6 +791,7 @@ and, for a PR, its head branch (see [work items and reopen](#work-items-and-reop
 restarts a dormant slot's sessions and conversation, then deletes its local branches whose PRs all merged or closed,
 with origin's branch of each, keeping the base, origin's default branch, the branch checked out, any branch a PR
 targets, and any branch holding work its PRs never had, and reports each delete that failed in `prune_failed`;
+`agent-slot prime <repo>` starts the repo's prime if it is not running and says where it runs;
 `agent-slot warm <repo>` (or `--all`) trusts slot paths ahead of time, and `agent-slot check [<repo>/<N>]` gives the
 teardown verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or `--issue <ref>`) attaches a PR or issue to a live slot
 and names the slot `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's

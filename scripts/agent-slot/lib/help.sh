@@ -10,6 +10,7 @@ Verbs:
   whoami   print the slot the current directory is inside
   launch   start an agent in a fresh slot of a repo, optionally with its first message
   resume   bring back the tmux sessions and Claude conversation of a slot
+  prime    start the prime of a repo if it is not running, and say where it runs
   warm     trust the slot paths of one repo, or of every repo, in Claude ahead of time
   check    judge whether each slot can be torn down, and list what blocks it
   adopt    attach a PR or issue to a live slot, naming the slot if it has no name
@@ -28,13 +29,13 @@ Every verb takes --output json (one JSON object on stdout, or an error object on
 Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.
 Reasons and their fixes: https://github.com/brettdavies/dotfiles/blob/main/README.md#agent-slot-reasons'
 
-VERBS=' repos list whoami launch resume warm check adopt probe close-probe reopen sweep finish grant-review grant-scope release doctor schema '
+VERBS=' repos list whoami launch resume prime warm check adopt probe close-probe reopen sweep finish grant-review grant-scope release doctor schema '
 
 verb_help() {
   case $1 in
     repos) printf '%s\n' 'usage: agent-slot repos [--output json]' \
-      'Lists each git repo under ~/dev (and ~/dotfiles and ~/obsidian-vault) that has an origin. A repo goes by its' \
-      "directory's name, so the Obsidian vault is obsidian-vault." \
+      'Lists each git repo under ~/dev, and each one AGENT_SLOT_EXTRA_PRIMES names, that has an origin. A repo goes by' \
+      "its directory's name, so the Obsidian vault is obsidian-vault." \
       'returns: repos[] of {name, prime, origin}' \
       'example: agent-slot repos --output json' ;;
     list) printf '%s\n' 'usage: agent-slot list [--output json]' \
@@ -101,6 +102,16 @@ verb_help() {
       '         (a delete that failed here or on origin; the next resume retries it), prune_checked (false when' \
       '         GitHub gave no PR list, so nothing was pruned)' \
       'example: agent-slot resume dotfiles/2' ;;
+    prime) printf '%s\n' 'usage: agent-slot prime <repo> [--output json]' \
+      "Starts the repo's prime if it is not running: <repo>-prime, <repo>-prime-files, and <repo>-prime-git on the slot" \
+      "server, at the repo's own checkout, with Claude in bypass permissions mode resuming its last conversation under" \
+      'the name <repo>-prime. It creates only what is missing and never touches git or trust, so the checkout keeps its' \
+      'branch and local changes and Claude asks to trust an untrusted one. A session the prime map names for the repo' \
+      'that holds a Claude on the default tmux server is the prime until it is closed, and nothing starts. Nothing that' \
+      'ends a slot ends a prime.' \
+      'returns: key, repo, path, name, server (slots or default), session, started[],' \
+      '         conversation {mode: running, resumed, or fresh; session_id}, trust_prompt_expected, next_step' \
+      'example: agent-slot prime bird --output json' ;;
     warm) printf '%s\n' 'usage: agent-slot warm <repo> | --all [--count N] [--output json]' \
       "Trusts slot paths 1 through N (default: the per-repo slot limit, $AS_MAX_PER_REPO) in Claude, so no launch there" \
       "spends time on the trust step, when Claude already trusts the repo's prime checkout. --all does it for every" \

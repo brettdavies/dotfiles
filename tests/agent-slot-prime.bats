@@ -9,6 +9,7 @@ bats_require_minimum_version 1.5.0
 
 load lib/platform
 load lib/agent-slot
+load lib/processes
 
 setup_file() {
   require_linux "agent-slot reads /proc for agent state"
@@ -21,6 +22,11 @@ setup() {
   NAMES=$BATS_TEST_DIRNAME/../scripts/agent-slot/lib/names.sh
   MAP=$BATS_TEST_DIRNAME/../config/agent-slot-rex/primes.tsv
   prime repoa
+}
+
+teardown() {
+  stop_spawned
+  assert_no_leaks
 }
 
 # names EXPRESSION: runs a shell expression with the names library loaded.
@@ -102,4 +108,385 @@ names() {
   [ "$status" -eq 2 ]
   jaq -e '.reason == "usage" and .value == "repoa/prime"
     and (.message | contains("agent-slot prime repoa"))' <<<"$stderr"
+}
+
+# --- the verb ---------------------------------------------------------------------------------------------------------
+
+# start [REPO]: runs the verb with JSON output.
+start() {
+  run --separate-stderr "$AGENT_SLOT" prime "${1:-repoa}" --output json
+}
+
+# transcript PROJECT ID [TITLE...]: a transcript under that project directory holding a message and each title in order.
+transcript() {
+  local file=$AGENT_SLOT_CLAUDE_PROJECTS/$1/$2.jsonl id=$2 title
+  shift 2
+  mkdir -p "${file%/*}"
+  echo '{"type":"user","message":"hello"}' >"$file"
+  for title in "$@"; do
+    printf '{"type":"custom-title","customTitle":"%s","sessionId":"%s"}\n' "$title" "$id" >>"$file"
+  done
+}
+
+# wrap_tmux BODY: runs BODY ahead of the fixture's tmux stub on every call, which then logs each call twice.
+wrap_tmux() {
+  cp "$STUBS/tmux" "$STUBS/tmux.inner"
+  stub tmux "$1
+exec \"\$STUBS/tmux.inner\" \"\$@\""
+}
+
+# old_style NAME COMMAND: a session of that name on the default tmux server with one pane running COMMAND, and the map
+# giving repoa that display name.
+old_style() {
+  printf 'repoa\t%s\n' "$1" >"$T/map"
+  export AGENT_SLOT_PRIMES=$T/map
+  printf '%s\t%s\n' "$1" "$2" >"$STUBS/tmux-panes-default"
+}
+
+prime_starts() { jaq -c 'select(.event == "prime-start")' "$AGENT_SLOT_STATE_DIR/ledger.jsonl" 2>/dev/null || true; }
+
+@test "with no sessions, three start on the slot socket at the checkout, typing what a slot's sessions type" {
+  local checkout=$AGENT_SLOT_DEV/repoa json kind
+  start
+  [ "$status" -eq 0 ]
+  json=$output
+  [ "$(grep -c ' new-session ' "$CALLS")" -eq 3 ]
+  for kind in repoa-prime repoa-prime-files repoa-prime-git; do
+    grep -qF -- "-L agent-slot-test -f $AGENT_SLOT_TMUX_CONF new-session -d -s $kind -c $checkout " "$CALLS"
+  done
+  [ "$(cat "$STUBS/typed-repoa-prime-files")" = 'command -v y >/dev/null && y || yazi' ]
+  [ "$(cat "$STUBS/typed-repoa-prime-git")" = lazygit ]
+  [[ $(cat "$STUBS/typed-repoa-prime") =~ ^claude\ --dangerously-skip-permissions\ --session-id\ [0-9a-f-]{36}\ -n\ repoa-prime$ ]]
+  jaq -e --arg path "$checkout" '.key == "repoa/prime" and .repo == "repoa" and .path == $path
+    and .name == "repoa-prime" and .server == "slots" and .session == "repoa-prime"
+    and .started == ["repoa-prime", "repoa-prime-files", "repoa-prime-git"]
+    and .conversation.mode == "fresh" and (.conversation.session_id | test("^[0-9a-f-]{36}$"))
+    and .next_step.command == "agent-slot-rex prime repoa" and (.next_step.note | contains("repoa-prime"))' <<<"$json"
+}
+
+@test "a checkout keeps its dirty file, its branch, and its docs/solutions link, with nothing written to git" {
+  local checkout=$AGENT_SLOT_DEV/repoa before
+  git -C "$checkout" checkout -q -b feat/mine
+  echo dirty >"$checkout/dirty.txt"
+  mkdir -p "$checkout/docs"
+  ln -s "$AGENT_SLOT_SOLUTIONS" "$checkout/docs/solutions"
+  before=$(fingerprint "$checkout")
+  start
+  [ "$status" -eq 0 ]
+  [ "$(fingerprint "$checkout")" = "$before" ]
+  [ "$(git -C "$checkout" worktree list | wc -l)" -eq 1 ]
+}
+
+@test "a transcript titled for the prime is resumed under that name" {
+  local id=aaaaaaaa-0000-4000-8000-000000000001
+  transcript -fixture-dev-repoa "$id" repoa-prime
+  start
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUBS/typed-repoa-prime")" = "claude --dangerously-skip-permissions --resume $id -n repoa-prime" ]
+  jaq -e --arg id "$id" '.conversation == {mode: "resumed", session_id: $id}' <<<"$output"
+}
+
+@test "of two transcripts titled for the prime, the newer is resumed" {
+  local old=aaaaaaaa-0000-4000-8000-000000000001 new=aaaaaaaa-0000-4000-8000-000000000002
+  transcript -fixture-dev-repoa "$new" repoa-prime
+  transcript -fixture-dev-repoa "$old" repoa-prime
+  touch -d '-10 minutes' "$AGENT_SLOT_CLAUDE_PROJECTS/-fixture-dev-repoa/$old.jsonl"
+  start
+  jaq -e --arg id "$new" '.conversation.session_id == $id' <<<"$output"
+}
+
+@test "only a transcript's latest title counts, and it must match exactly" {
+  transcript -fixture-dev-repoa aaaaaaaa-0000-4000-8000-000000000001 repoa-prime renamed
+  transcript -fixture-dev-repoa aaaaaaaa-0000-4000-8000-000000000002 repoa-prime-old
+  transcript -fixture-dev-repoa aaaaaaaa-0000-4000-8000-000000000003 xrepoa-prime
+  start
+  jaq -e '.conversation.mode == "fresh"' <<<"$output"
+}
+
+@test "a transcript in another project's directory is found" {
+  local id=aaaaaaaa-0000-4000-8000-000000000001
+  transcript -somewhere-else-entirely "$id" repoa-prime
+  start
+  jaq -e --arg id "$id" '.conversation == {mode: "resumed", session_id: $id}' <<<"$output"
+}
+
+@test "a transcript a running Claude holds is skipped for the next newest, and with none left the start is fresh" {
+  local old=aaaaaaaa-0000-4000-8000-000000000001 new=aaaaaaaa-0000-4000-8000-000000000002
+  transcript -fixture-dev-repoa "$new" repoa-prime
+  transcript -fixture-dev-repoa "$old" repoa-prime
+  touch -d '-10 minutes' "$AGENT_SLOT_CLAUDE_PROJECTS/-fixture-dev-repoa/$old.jsonl"
+  jaq -n --arg id "$new" '[{sessionId: $id, cwd: "/elsewhere", status: "busy"}]' >"$STUBS/claude-agents.json"
+  start
+  jaq -e --arg id "$old" '.conversation == {mode: "resumed", session_id: $id}' <<<"$output"
+
+  : >"$STUBS/tmux-sessions"
+  jaq -n --arg a "$new" --arg b "$old" '[{sessionId: $a}, {sessionId: $b}]' >"$STUBS/claude-agents.json"
+  start
+  jaq -e '.conversation.mode == "fresh"' <<<"$output"
+}
+
+@test "a transcript with no title, as a claude -p run leaves, is never chosen" {
+  transcript -fixture-dev-repoa aaaaaaaa-0000-4000-8000-000000000001
+  start
+  jaq -e '.conversation.mode == "fresh"' <<<"$output"
+}
+
+@test "a transcript quoting a title in a tool result is not chosen" {
+  local file=$AGENT_SLOT_CLAUDE_PROJECTS/-fixture-dev-repoa/aaaaaaaa-0000-4000-8000-000000000001.jsonl
+  mkdir -p "${file%/*}"
+  cat >"$file" <<'JSON'
+{"type":"user","message":{"content":"{\"type\":\"custom-title\",\"customTitle\":\"repoa-prime\"}"}}
+{"type":"user","note":{"type":"custom-title","customTitle":"repoa-prime"}}
+JSON
+  start
+  jaq -e '.conversation.mode == "fresh"' <<<"$output"
+}
+
+@test "a transcript holding a binary byte is still read" {
+  local id=aaaaaaaa-0000-4000-8000-000000000001
+  transcript -fixture-dev-repoa "$id" repoa-prime
+  printf '{"type":"user","message":"\000\377"}\n' >>"$AGENT_SLOT_CLAUDE_PROJECTS/-fixture-dev-repoa/$id.jsonl"
+  start
+  jaq -e --arg id "$id" '.conversation.session_id == $id' <<<"$output"
+}
+
+@test "with no project directory yet, the start is fresh" {
+  find "$AGENT_SLOT_CLAUDE_PROJECTS" -delete
+  start
+  [ "$status" -eq 0 ]
+  jaq -e '.conversation.mode == "fresh"' <<<"$output"
+}
+
+@test "a title scan that fails stops the start with script-error and starts no session" {
+  [ "$(id -u)" -ne 0 ] || skip "root reads an unreadable file"
+  local file=$AGENT_SLOT_CLAUDE_PROJECTS/-fixture-dev-repoa/aaaaaaaa-0000-4000-8000-000000000001.jsonl
+  transcript -fixture-dev-repoa aaaaaaaa-0000-4000-8000-000000000001 repoa-prime
+  chmod 000 "$file"
+  start
+  chmod 644 "$file"
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "script-error" and .next_step.command == "agent-slot prime repoa"
+    and (.log | type == "string")' <<<"$stderr"
+  run ! grep -q ' new-session ' "$CALLS"
+}
+
+@test "a claude agents that fails stops the start with script-error and starts no session" {
+  stub claude 'exit 1'
+  transcript -fixture-dev-repoa aaaaaaaa-0000-4000-8000-000000000001 repoa-prime
+  start
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "script-error" and .next_step.command == "agent-slot prime repoa"' <<<"$stderr"
+  run ! grep -q ' new-session ' "$CALLS"
+}
+
+@test "a killed files session alone restarts, with no new Claude and no second session" {
+  printf 'repoa-prime\nrepoa-prime-git\n' >"$STUBS/tmux-sessions"
+  start
+  [ "$status" -eq 0 ]
+  jaq -e '.started == ["repoa-prime-files"] and .conversation == {mode: "running", session_id: null}' <<<"$output"
+  [ "$(grep -c ' new-session ' "$CALLS")" -eq 1 ]
+  [ ! -e "$STUBS/typed-repoa-prime" ]
+  [ "$(sort "$STUBS/tmux-sessions" | uniq -d)" = "" ]
+}
+
+@test "with all three running, nothing starts and the ledger gets no line" {
+  printf 'repoa-prime\nrepoa-prime-files\nrepoa-prime-git\n' >"$STUBS/tmux-sessions"
+  start
+  [ "$status" -eq 0 ]
+  jaq -e '.started == [] and .server == "slots" and .conversation.mode == "running"' <<<"$output"
+  run ! grep -q ' new-session ' "$CALLS"
+  [ -z "$(prime_starts)" ]
+}
+
+@test "a display-named session holding a Claude on the default server is the prime, and nothing starts" {
+  old_style 'Repo A' claude
+  start
+  [ "$status" -eq 0 ]
+  jaq -e '.server == "default" and .session == "Repo A" and .started == []
+    and .conversation == {mode: "running", session_id: null} and .trust_prompt_expected == false' <<<"$output"
+  run ! grep -q ' new-session ' "$CALLS"
+  [ -z "$(prime_starts)" ]
+}
+
+@test "a display-named session holding no Claude is no prime: three start, and the default server is only read" {
+  old_style 'Repo A' zsh
+  start
+  [ "$status" -eq 0 ]
+  jaq -e '.server == "slots" and (.started | length) == 3' <<<"$output"
+  [ "$(grep -c ' new-session ' "$CALLS")" -eq 3 ]
+  [ "$(grep -c -- '-L default ' "$CALLS")" -eq 1 ]
+  grep -q -- '-L default list-panes -a ' "$CALLS"
+}
+
+@test "a default socket with no server gets no session and no server" {
+  start
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/tmux-sessions-default" ]
+  [ "$(grep -c -- '-L default ' "$CALLS")" -eq 1 ]
+}
+
+@test "a default server that does not answer exits tmux-unresponsive naming that socket, and starts nothing" {
+  wrap_tmux '[[ " $* " != *" -L default "* ]] || exec sleep 60'
+  start
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "tmux-unresponsive" and .value == "default"
+    and (.next_step.command | endswith("-L default list-sessions"))' <<<"$stderr"
+  run ! grep -q ' new-session ' "$CALLS"
+}
+
+@test "a prime's sessions carry the user bus where its socket exists, and only then" {
+  export AGENT_SLOT_USER_BUS=$T/bus
+  start
+  run ! grep -q DBUS_SESSION_BUS_ADDRESS "$CALLS"
+
+  : >"$AGENT_SLOT_USER_BUS"
+  : >"$STUBS/tmux-sessions"
+  : >"$CALLS"
+  start
+  [ "$(grep -c " new-session .*-e DBUS_SESSION_BUS_ADDRESS=unix:path=$T/bus " "$CALLS")" -eq 3 ]
+}
+
+@test "a start pushes a restore, a run that starts nothing does not, and neither does a helper's own call" {
+  stub agent-slot-rex 'exit 0'
+  export AGENT_SLOT_REX_HELPER=$STUBS/agent-slot-rex AGENT_SLOT_PUSH_WAIT=1
+  start
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^agent-slot-rex restore --by push' "$CALLS")" -eq 1 ]
+  start
+  [ "$(grep -c '^agent-slot-rex restore --by push' "$CALLS")" -eq 1 ]
+
+  : >"$STUBS/tmux-sessions"
+  export AGENT_SLOT_REX_CLIENT=1
+  start
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^agent-slot-rex restore --by push' "$CALLS")" -eq 1 ]
+  [ "$(tail -1 "$AGENT_SLOT_STATE_DIR/push.log" | jaq -r '.verb + " " + .result')" = 'prime skipped' ]
+}
+
+@test "the text line says what happened in each of its forms" {
+  local id=aaaaaaaa-0000-4000-8000-000000000001
+  transcript -fixture-dev-repoa "$id" repoa-prime
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
+  run --separate-stderr "$AGENT_SLOT" prime repoa
+  [ "$output" = "repoa/prime: started repoa-prime, repoa-prime-files, repoa-prime-git, resuming $id" ]
+  run --separate-stderr "$AGENT_SLOT" prime repoa
+  [ "$output" = 'repoa/prime: already running' ]
+
+  old_style 'Repo A' 2.1.318
+  run --separate-stderr "$AGENT_SLOT" prime repoa
+  [ "$output" = 'repoa/prime: runs in Repo A on the default tmux server; close that session to rebuild it on the slot server' ]
+}
+
+@test "two concurrent runs give one set of sessions" {
+  local one two
+  wrap_tmux '[[ " $* " != *" new-session "* ]] || sleep 0.2'
+  "$AGENT_SLOT" prime repoa --output json >"$T/one" 2>&1 &
+  one=$!
+  "$AGENT_SLOT" prime repoa --output json >"$T/two" 2>&1 &
+  two=$!
+  wait "$one"
+  wait "$two"
+  [ "$(wc -l <"$STUBS/tmux-sessions")" -eq 3 ]
+  [ "$(sort "$STUBS/tmux-sessions" | uniq -d)" = "" ]
+  [ "$(cat "$T/one" "$T/two" | jaq -s -c '[.[].started | length] | sort')" = '[0,3]' ]
+}
+
+@test "a run that waits past the bound on another's lock exits slot-busy, and retrying names the verb" {
+  export AGENT_SLOT_LOCK_WAIT=1
+  mkdir -p "$AGENT_SLOT_STATE_DIR/primes"
+  spawn flock "$AGENT_SLOT_STATE_DIR/primes/repoa.lock" sleep 60 3>&-
+  until [ -n "$(find /proc/$!/fd -lname "$AGENT_SLOT_STATE_DIR/primes/repoa.lock" 2>/dev/null)" ]; do sleep 0.1; done
+  start
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "slot-busy" and .next_step.command == "agent-slot prime repoa"' <<<"$stderr"
+  run ! grep -q ' new-session ' "$CALLS"
+}
+
+@test "a new-session that fails exits tmux-failed, and retrying names the verb" {
+  wrap_tmux '[[ " $* " != *" new-session "* ]] || exit 1'
+  start
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "tmux-failed" and .value == "repoa-prime"
+    and .next_step.command == "agent-slot prime repoa"' <<<"$stderr"
+}
+
+@test "with 8 live slots the prime still starts, and a launch still refuses at the limit with it running" {
+  local n
+  for n in 1 2 3 4 5 6 7 8; do slot repoa "$n"; done
+  start
+  [ "$status" -eq 0 ]
+  jaq -e '(.started | length) == 3' <<<"$output"
+  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-nine --output json
+  [ "$status" -eq 78 ]
+  jaq -e '.reason == "slot-limit-reached"' <<<"$stderr"
+}
+
+@test "an untrusted checkout starts Claude all the same, reports it, and leaves trust alone" {
+  local state_before
+  state_before=$(sha256sum <"$AGENT_SLOT_CLAUDE_STATE")
+  start
+  [ "$status" -eq 0 ]
+  jaq -e '.trust_prompt_expected == true' <<<"$output"
+  [ -e "$STUBS/typed-repoa-prime" ]
+  [ "$(sha256sum <"$AGENT_SLOT_CLAUDE_STATE")" = "$state_before" ]
+  run ! grep -q -- '-L agent-slot-trust' "$CALLS"
+}
+
+@test "a trusted checkout reports no prompt coming" {
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
+  start
+  jaq -e '.trust_prompt_expected == false' <<<"$output"
+}
+
+@test "an unknown repo exits repo-not-found" {
+  start nope
+  [ "$status" -eq 2 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "repo-not-found" and .value == "nope"' <<<"$stderr"
+  run ! grep -q ' new-session ' "$CALLS"
+}
+
+@test "a start writes one prime-start line with the stamps a launch line carries, and a later no-op writes none" {
+  local line
+  start
+  start
+  line=$(prime_starts)
+  [ "$(wc -l <<<"$line")" -eq 1 ]
+  jaq -e --arg path "$AGENT_SLOT_DEV/repoa" '.repo == "repoa" and .key == "repoa/prime" and .path == $path
+    and .started == ["repoa-prime", "repoa-prime-files", "repoa-prime-git"] and .conversation == "fresh"
+    and (.session_id | type == "string") and (.started_at | type == "number") and .made_at >= .started_at' <<<"$line"
+}
+
+@test "a checkout whose .git is a file starts the same way" {
+  local before
+  split_prime "$AGENT_SLOT_DEV/splitrepo" "$T/gitdirs/splitrepo"
+  before=$(fingerprint "$AGENT_SLOT_DEV/splitrepo")
+  start splitrepo
+  [ "$status" -eq 0 ]
+  jaq -e '.session == "splitrepo-prime" and (.started | length) == 3' <<<"$output"
+  [ "$(fingerprint "$AGENT_SLOT_DEV/splitrepo")" = "$before" ]
+}
+
+@test "a start creates nothing under the slot root" {
+  start
+  [ "$status" -eq 0 ]
+  [ ! -e "$AGENT_SLOT_ROOT/repoa" ]
+}
+
+@test "the verb takes one repo" {
+  run --separate-stderr "$AGENT_SLOT" prime --output json
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage"' <<<"$stderr"
+  run --separate-stderr "$AGENT_SLOT" prime repoa repob --output json
+  [ "$status" -eq 2 ]
+}
+
+@test "the verb's help names its usage, what it returns, and an example" {
+  run "$AGENT_SLOT" prime --help
+  [ "$status" -eq 0 ]
+  [[ $output == *'usage: agent-slot prime <repo>'* ]]
+  [[ $output == *'returns:'* ]]
+  [[ $output == *'example: agent-slot prime '* ]]
 }

@@ -142,14 +142,14 @@ sessions_command() {
   esac
 }
 
-# Usage: sessions_start <repo> <n> <launch | resume | reopen>
+# Usage: sessions_start <repo> <n> <launch | resume | reopen> [<root> [<new-session argument>...]]
 # Creates each of the slot's sessions that does not exist yet and types its program in, reading the record from
-# RECORD. Sets SESSIONS_CREATED to the sessions it made. The caller holds the slot lock, so two calls never race to
-# create the same session.
+# RECORD. Each session is rooted at <root>, by default the slot's own path. Sets SESSIONS_CREATED to the sessions it
+# made. The caller holds the slot's or the prime's lock, so two calls never race to create the same session.
 sessions_start() {
-  local repo=$1 n=$2 mode=$3 path kind name shell out setting
-  local -a start env=()
-  path=$(slot_path "$repo" "$n")
+  local repo=$1 n=$2 mode=$3 path=${4:-} kind name shell out setting
+  local -a start env=() extra=("${@:5}")
+  [[ -n $path ]] || path=$(slot_path "$repo" "$n")
   shell=$(_sessions_shell)
   if sessions_foreign; then
     for setting in "${SESSIONS_FOREIGN_ENV[@]}"; do env+=(-e "$setting"); done
@@ -161,7 +161,7 @@ sessions_start() {
     grep -qxF "$name" <<<"$SLOT_SESSIONS" && continue
     start=(/usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$shell" TERM=xterm-256color
       LANG="${LANG:-C.UTF-8}" PATH="$PATH"
-      "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$name" "${env[@]}" -c "$path" "$shell" -l)
+      "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$name" "${env[@]}" -c "$path" "${extra[@]}" "$shell" -l)
     if [[ -n $SLOT_SESSIONS || ${#SESSIONS_CREATED[@]} -gt 0 ]] || ! _sessions_scoped "${start[@]}"; then
       bounded out tmux 10 "${start[@]}" || _sessions_fail "$repo" "$n" "$name"
     fi
@@ -189,8 +189,13 @@ _sessions_scoped() {
 }
 
 _sessions_fail() {
+  local retry="agent-slot prime $1"
+  [[ $2 == "$SLOT_PRIME" ]] || retry=$(printf 'agent-slot resume %s' "$(slot_key "$1" "$2")")
   ((BOUNDED_STATUS != 124)) || tmux_unresponsive partial
   contract_use_tools tmux
   contract_fail tmux-failed "could not start the tmux session $3" --value "$3" --side-effects partial \
-    --command "agent-slot resume $(slot_key "$1" "$2")" --log "$BOUNDED_LOG"
+    --command "$retry" --log "$BOUNDED_LOG"
 }
+
+# Prints a new session ID for a Claude conversation.
+session_new_id() { cat /proc/sys/kernel/random/uuid; }

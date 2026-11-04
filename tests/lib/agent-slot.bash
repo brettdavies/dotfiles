@@ -51,9 +51,11 @@ agent_slot_setup() {
   printf '{"projects":{}}\n' >"$AGENT_SLOT_CLAUDE_STATE"
   printf '{"skipDangerousModePermissionPrompt":true}\n' >"$AGENT_SLOT_CLAUDE_SETTINGS"
 
-  # tmux keeps each socket's sessions in a file: no file means no server. capture-pane prints $STUBS/screen. On any
-  # socket but the slot one (the trust step's), Down swaps in $STUBS/screen-down and Enter $STUBS/screen-after when
-  # they exist; with $STUBS/drop-first-down present, the first Down is lost, as a key sent before the dialog listens.
+  # tmux keeps each socket's sessions in a file: no file means no server. list-panes prints $STUBS/tmux-panes on the
+  # slot socket and $STUBS/tmux-panes-<socket> on any other, where no file means no server. capture-pane prints
+  # $STUBS/screen. On any socket but the slot one (the trust step's), Down swaps in $STUBS/screen-down and Enter
+  # $STUBS/screen-after when they exist; with $STUBS/drop-first-down present, the first Down is lost, as a key sent
+  # before the dialog listens.
   stub tmux '
 sock=default
 while (($#)); do
@@ -85,7 +87,13 @@ case $cmd in
     [ -f "$sessions" ] || exit 1
     grep -vxF "$target" "$sessions" >"$sessions.new" || true
     cat "$sessions.new" >"$sessions" ;;
-  list-panes) cat "$STUBS/tmux-panes" 2>/dev/null || true ;;
+  list-panes)
+    if [ "$sock" = agent-slot-test ]; then
+      cat "$STUBS/tmux-panes" 2>/dev/null || true
+    else
+      [ -f "$STUBS/tmux-panes-$sock" ] || { echo "no server running on /tmp/tmux-test/$sock" >&2; exit 1; }
+      cat "$STUBS/tmux-panes-$sock"
+    fi ;;
   capture-pane) cat "$STUBS/screen" 2>/dev/null || true ;;
   send-keys)
     if [ "$sock" = agent-slot-test ]; then

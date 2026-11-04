@@ -102,7 +102,7 @@ slot_make() {
       --command "$retry"
   path=$(slot_path "$repo" "$n")
   initial=$(contract_json -n -c --arg repo "$repo" --argjson n "$n" --arg prime "$REPO_PRIME" --argjson seed "$seed" \
-    --arg session "$(cat /proc/sys/kernel/random/uuid)" --arg now "$(contract_now)" \
+    --arg session "$(session_new_id)" --arg now "$(contract_now)" \
     '{repo: $repo, slot: $n, state: "setting-up", task: null, request_id: null, requested_at: null, prime: $prime,
       base: null, session_id: $session, transcript: null, prompt_file: null, prs: [], finished_by_operator: false,
       created_at: $now} + $seed')
