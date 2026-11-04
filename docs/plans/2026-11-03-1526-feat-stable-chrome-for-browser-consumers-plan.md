@@ -35,8 +35,8 @@ execution: code
   agent's settings deny `sudo`. Proof is runtime measurement on both machines. bats covers the script seams.
 - **Stop conditions:** Stop and bring the finding to Brett if a real suite fails on a candidate CfT build where it
   passes on the set's current build, if the launcher or wrapper breaks a consumer's pipe connection, or if any browser
-  behind them runs a renderer without its own user and PID namespaces on the Linux server, or without Chrome's seatbelt
-  switch on the Mac.
+  behind them runs a renderer without its own user and PID namespaces and seccomp filter mode on the Linux server, or
+  without Chrome's seatbelt switch on the Mac.
 - **Who finishes:** `ce-plan` enriches this file in place. The operator runs every `/etc` step. Brett files the gstack
   issue, which is drafted and pending with him.
 
@@ -328,7 +328,8 @@ Its costs each have an answer here:
 - **Release churn** (6 releases in 9 days): an exact pin under the seven-day gate.
 - **Auto-detecting stale caches:** the shim always sets the executable path, and the Puppeteer cache goes.
 - **Install and repair verbs that download Chrome:** the shim refuses them.
-- **`--ignore-https-errors`, which the launcher cannot strip:** the shim refuses it.
+- **Certificate checks a flag, a variable, or a project `agent-browser.json` can turn off (measured), which the launcher
+  cannot strip:** the shim names its own config and refuses the flags.
 - **A 28,109-character `--help` that opens by pointing at a 150,835-character skill, and a skill that doubles its token
   cost (652K against 304K):** no skill is loaded, and the guidance carries the commands agents need.
 
@@ -381,21 +382,27 @@ Who opens pages Brett does not control, what they run today, and where each goes
 - **One physical build, aliased per revision.** The set holds one CfT build, its headless shell, one WebKit, and one
   ffmpeg. Revisions a consumer asks for resolve to them. Real suites at 1.61.1 and 1.64.1 passed as they do on their
   pins, and the alias mechanism is already live for 1228. Governs R1, R2, R5, R6, R7.
-- **Chromium and ffmpeg aliases run ahead; WebKit's do not.** A forward range of symlinks serves a revision that does
-  not exist yet, so a repo that moves its library still runs on Chromium the day it moves. A forward WebKit alias would
-  fail on every `newPage` (measured), so WebKit's pin follows the newest Playwright release, and older libraries run on
-  it (measured). Governs R2, R4.
-- **The version is pinned in the repo, and a job moves it.** Machines run the same dotfiles version, so the pin belongs
-  in dotfiles. The job follows the bump pattern in `docs/plans/2026-11-02-2155-feat-yazi-plugin-auto-bump-plan.md`,
-  including its squash-merge without a person, because the suites are the gate. Hosts read the pin from `origin/dev`
-  rather than their checkout, so a pin reaches a host within the hour on any branch. Governs R4.
+- **Aliases come from released `browsers.json` files, and WebKit's stop at the pin.** Every revision a released
+  Playwright at 1.57 or later names gets an alias, and the hourly job adds a new release's revisions when it reads that
+  file, so a repo's library is covered before the repo can move to it. A repo can only ask for a released revision, so
+  no range of guessed revisions is needed. A forward WebKit alias would fail on every `newPage` (measured), so WebKit's
+  pin follows the newest Playwright release, and older libraries run on it (measured). Governs R2, R4.
+- **The version is pinned in the repo, and a job moves it forward only.** Machines run the same dotfiles version, so the
+  pin belongs in dotfiles. The job follows the bump pattern in
+  `docs/plans/2026-11-02-2155-feat-yazi-plugin-auto-bump-plan.md`, including its squash-merge without a person, because
+  the suites are the gate. Hosts read the pin file from `dev` over HTTPS at raw.githubusercontent.com rather than
+  through git. The repo is public, so this needs no key, and on the Mac every git-over-SSH call goes through 1Password's
+  agent, which an unattended timer cannot count on. Any commit can reach `dev`'s pin (its ruleset has no pull-request
+  rule), so a host parses the file as data and refuses a version lower than it has. Governs R4, R24.
 - **The bump records a hash.** CfT publishes none, so the bump writes the sha256 of each archive it verified into the
   pin, and hosts check against it. Governs R3, R4.
 - **Every browser build is exempt from the seven-day gate.** The gate's threat, a malicious upload to an open registry,
   does not match a vendor-signed repository or Google's own bucket, and the regressions a week of bake time would
   surface are what the suite run catches. Google's apt index serves only the newest build, so holding Chrome back would
-  mean mirroring old debs. agent-browser and the Playwright library are npm packages and stay under the gate. Governs
-  R4, R10, R13, R21.
+  mean mirroring old debs. WebKit and ffmpeg come from `cdn.playwright.dev`, which signs nothing: their archives are
+  trusted on first download and held to the recorded sha256 afterward, and the revision numbers are read from an npm
+  tarball as integers, with no install and no script run. agent-browser and the Playwright library are npm packages and
+  stay under the gate. Governs R3, R4, R10, R13, R21.
 - **Tests and untrusted browsing get separate browsers.** Reproducibility and security pull a browser's update cadence
   in opposite directions. Governs R4, R9, R13.
 - **gstack runs on CfT in every session.** The side panel needs `--load-extension`, which CfT honors and Chrome blocks
@@ -431,34 +438,54 @@ Who opens pages Brett does not control, what they run today, and where each goes
 **System browser set**
 
 - R1. Each host that deploys it, the Linux server and the Mac alike, holds exactly one CfT build (full and headless
-  shell), one WebKit build, and ffmpeg in `$PLAYWRIGHT_BROWSERS_PATH`, at versions named once in dotfiles. WebKit is
-  there for agentnative-site's `mobile-ios`, `tablet`, and `web-audit-webkit` projects, and leaves the pin when no
-  repo's suite uses it.
-- R2. Every Chromium and ffmpeg revision a consumer at Playwright 1.57 or later asks for resolves to the set through an
-  alias, including revisions newer than the set. WebKit revisions alias only at or below the set's WebKit. Each alias
-  directory carries the install markers.
-- R3. `playwright install` naming browsers in the set, from any consumer, is a no-op and deletes nothing. A deploy
-  replaces a real directory found at an alias name, which `--force` installs create, with the alias. `--check` fails
-  with a stable reason on such a directory and on any browser directory the pin does not name, such as the `firefox-*` a
-  bare `playwright install` downloads. The set survives a consumer's cleanup through one `.links` client per aliased
-  revision, numeric names on its real directories (cleanup parses revisions as integers), and
-  `PLAYWRIGHT_SKIP_BROWSER_GC` as a second layer. Provisioning verifies each archive against its recorded sha256 and
-  keeps the `curl` plus `unzip` path, because node's extractor deadlocks on this kernel.
-- R4. dotfiles moves the set on its own schedule with no repo involved, exempt from the seven-day gate. An hourly user
-  timer on the Linux server reads CfT's Stable channel and exits when it matches the pin. On a new version it runs the
-  candidate and the current build through lmgroktfy, meum-sites, agentnative-site, and gstack's browse tests, about 11
-  minutes in all (measured per suite). It moves the pin only when both arms produce a per-test report for every suite,
-  with a test count at or above the current arm's, and the set of passing tests does not shrink. A missing report counts
-  as failure, and a test failing only on the candidate is rerun once before it counts. A failure leaves the pin alone
-  and names the suite, and the next run retries only on a newer version. It also loads an extension on the candidate, so
-  a dropped `--load-extension` stops the move. WebKit and ffmpeg revisions come from `browsers.json` of the newest
-  Playwright release. A move is a PR to `dev` that squash-merges itself once CI is green. Each host runs an hourly timer
-  (a LaunchAgent on the Mac) that reads the pin from `origin/dev`, provisions what differs, launches the new build
-  through Playwright with its sandbox on and loads a page, and on the Mac also loads gstack's side panel extension. A
-  failure leaves the aliases alone and fails the check. A deploy flips aliases atomically and keeps the previous build
-  until the next deploy. A check that changes nothing fails when a host's set differs from the pin for more than two
-  cycles, or when the pin trails CfT Stable by more than a day with no recorded suite failure, names the fix command,
-  and carries a stable reason and the values it compared.
+  shell) plus the previous one until the next deploy, one WebKit build, and ffmpeg in `$PLAYWRIGHT_BROWSERS_PATH`, at
+  versions named once in dotfiles. WebKit is there for agentnative-site's `mobile-ios`, `tablet`, and `web-audit-webkit`
+  projects, and leaves the pin when no repo's suite uses it.
+- R2. Every Chromium and ffmpeg revision named by `browsers.json` of a Playwright release at 1.57 or later resolves to
+  the set through an alias, whether that release's pin is older or newer than the set's build. WebKit revisions alias
+  only at or below the set's WebKit. The list of revisions lives in the pin, and R4's job adds a new release's. Each
+  alias directory carries the install markers.
+- R3. `playwright install` naming browsers in the set, from any consumer at Playwright 1.57 or later, is a no-op and
+  deletes nothing. A deploy replaces a real directory found at an alias name, which `--force` installs create, with the
+  alias. `--check` fails with a stable reason on such a directory and on any browser directory the pin does not name and
+  no deploy or job has recorded under `$PLAYWRIGHT_BROWSERS_PATH/.dotfiles/`, such as the `firefox-*` a bare
+  `playwright install` downloads or what a consumer below the floor installs. The set survives a consumer's cleanup
+  through one `.links` client per aliased revision and per recorded directory, numeric names on its real directories
+  (cleanup parses revisions as integers), and `PLAYWRIGHT_SKIP_BROWSER_GC` as a second layer. Provisioning verifies each
+  archive against its recorded sha256, downloads only from hosts fixed in the script (Google's bucket for CfT,
+  `cdn.playwright.dev` for WebKit and ffmpeg), and keeps the `curl` plus `unzip` path, because node's extractor
+  deadlocks on this kernel.
+- R4. dotfiles moves the set forward on its own schedule with no repo involved, exempt from the seven-day gate. An
+  hourly user timer on the Linux server reads CfT's Stable channel and exits unless it is higher than the pin. On a
+  higher version it provisions the candidate's full and headless builds as numeric directories under
+  `$PLAYWRIGHT_BROWSERS_PATH`, the only paths the AppArmor profile covers, each with a `.links` client and recorded as
+  the job's candidate, and removes them if the candidate fails. It runs both arms through lmgroktfy, meum-sites,
+  agentnative-site, and gstack's browse tests, about 11 minutes in all (measured per suite), launching through R20's
+  wrapper from a scratch browsers path.
+  - **Each arm** runs in a child with its environment cleared to R9's allowlist plus what the suite names, with no
+    `GH_TOKEN`, `SSH_AUTH_SOCK`, or values from `~/.secrets`, and installs from the frozen lockfile. It runs under
+    `timeout -s INT -k 30`, because a default `timeout` leaves a suite's `webServer` running (measured). A suite's port
+    held before or after an arm fails that arm, because `reuseExistingServer` would otherwise test a leftover server.
+  - **The gate:** the pin moves only when both arms produce a per-test report for every suite, with a test count at or
+    above the current arm's, and the set of passing tests does not shrink. A missing report counts as failure, and a
+    test failing only on the candidate is rerun once before it counts. A failure leaves the pin alone and names the
+    suite, and the next run retries only on a newer version. The job also loads an extension on the candidate, so a
+    dropped `--load-extension` stops the move.
+  - **Other revisions:** WebKit and ffmpeg revisions, and new alias revisions, come from `browsers.json` of the newest
+    Playwright release, read from its npm tarball with no install and no script run, and accepted only as integers.
+  - **The move** is a PR to `dev` that squash-merges itself once CI is green, from the parent process, pinned to the
+    head commit, and only when the diff touches nothing but the pin file. A bats case in CI validates the pin's shape.
+- R24. Each host runs an hourly timer (a LaunchAgent on the Mac) that reads the pin file from `dev` over HTTPS at
+  raw.githubusercontent.com and provisions what differs. It parses the file as data, never through `source` or `eval`,
+  accepts only dotted-numeric versions, integer revisions, and 64-hex hashes, and takes download hosts from the script.
+  It refuses a version lower than the one it has deployed, leaving the aliases alone and naming a stable reason and both
+  values; a person moves a host back with `--allow-downgrade`. Before flipping aliases it launches the new build through
+  Playwright with its sandbox on and loads a page, and on the Mac also loads gstack's side panel extension. A failure
+  leaves the aliases alone and fails the check. A deploy flips aliases atomically, records the previous build's
+  directories under `$PLAYWRIGHT_BROWSERS_PATH/.dotfiles/`, and keeps that build until the next deploy. A check that
+  changes nothing fails when a host's set differs from the pin for more than two cycles, or when the pin trails CfT
+  Stable by more than a day with no recorded suite failure, names the fix command, and carries a stable reason and the
+  values it compared.
 - R20. Every alias's Chromium executable is a small wrapper, in one numeric directory the aliases point at, that drops
   only `--no-sandbox` and `--disable-setuid-sandbox`, keeps them when running as root, clears the environment as R9
   does, and `exec`s the real build at its AppArmor-covered path. The same wrapper is reachable at one path that does not
@@ -485,8 +512,13 @@ Who opens pages Brett does not control, what they run today, and where each goes
 **Agent browsing**
 
 - R9. A dotfiles-owned launcher on PATH drops `--no-sandbox`, `--disable-setuid-sandbox`, `--disable-component-update`,
-  `--disable-background-networking`, and every `--ignore-certificate-errors*` form, adds
-  `--component-updater=fast-update`, clears the environment down to what a browser needs (`HOME`, `PATH`, `TMPDIR`,
+  `--disable-background-networking`, and every `--ignore-certificate-errors*` form. It also drops the sibling switches:
+  `--disable-seccomp-filter-sandbox` (measured: it turns renderer seccomp off), `--disable-namespace-sandbox`,
+  `--disable-gpu-sandbox`, `--no-zygote`, `--no-zygote-sandbox`, `--single-process`, `--in-process-gpu`,
+  `--disable-web-security`, `--disable-site-isolation-trials`, `--allow-running-insecure-content`,
+  `--allow-insecure-localhost`, and `--renderer-cmd-prefix`, `--gpu-launcher`, `--utility-cmd-prefix`, and
+  `--browser-subprocess-path`. It matches on the normalized switch name, so `-no-sandbox` and `--no-sandbox=1` count. It
+  adds `--component-updater=fast-update`, clears the environment down to what a browser needs (`HOME`, `PATH`, `TMPDIR`,
   `LANG`, `LC_*`, `TZ`, `DISPLAY`, `XAUTHORITY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, and proxy variables),
   then `exec`s Chrome, so the browser keeps the caller's pipes and AppArmor's path match. It refuses to run as root,
   naming why, because the browser's sandbox cannot start there. It reads the browser's path from one variable that shell
@@ -495,17 +527,25 @@ Who opens pages Brett does not control, what they run today, and where each goes
   stderr, that says the host has no browsing build, carries a stable reason, and names `sudo scripts/chrome-deploy.sh`,
   because some callers keep only the last line.
 - R10. A stowed shim named `agent-browser` runs agent-browser at one exact version the seven-day gate allows (0.40.0 on
-  2026-11-03), named once in dotfiles, with no skill. It always sets `AGENT_BROWSER_EXECUTABLE_PATH` to the launcher, so
-  the tool's auto-detect never runs and a host without Chrome gets the launcher's error. It refuses `install`,
-  `upgrade`, `doctor --fix`, and `--ignore-https-errors` with one line saying why. It turns content boundaries on
-  (`AGENT_BROWSER_CONTENT_BOUNDARIES`), caps output (`AGENT_BROWSER_MAX_OUTPUT`), sets a short idle timeout
-  (`AGENT_BROWSER_IDLE_TIMEOUT_MS`, an hour by default) and a download directory outside the working tree, and derives
-  `AGENT_BROWSER_SESSION` from the working tree, so each slot is separate with no per-slot setup. `agent-slot` teardown
-  closes that session before its blocker check. A weekly job proposes the pin at the newest version the gate allows, in
-  a PR a person merges, because no suite stands behind it.
+  2026-11-03), named once in dotfiles, with no skill. It unsets every inherited `AGENT_BROWSER_*` variable it does not
+  set itself. It always sets `AGENT_BROWSER_EXECUTABLE_PATH` to the launcher, so the tool's auto-detect never runs and a
+  host without Chrome gets the launcher's error, and `AGENT_BROWSER_CONFIG` to a dotfiles-owned file, which makes the
+  tool skip a project's `agent-browser.json` (measured). In any argument position, and in `--flag=value` form, it
+  refuses with one line saying why: `--ignore-https-errors`, `--executable-path`, `--config`, `--ca-cert`, `--cdp`,
+  `--auto-connect`, `--engine`, `-p` or `--provider`, `--profile`, `--extension`, `--allow-file-access`, and `--args`,
+  and the verbs `install`, `upgrade`, `doctor --fix`, `plugin add`, and `mcp`. This stops accidents and planted config,
+  not an agent that runs the binary directly. The shim turns content boundaries on (`AGENT_BROWSER_CONTENT_BOUNDARIES`),
+  caps output (`AGENT_BROWSER_MAX_OUTPUT`), sets a download directory outside the working tree, and derives
+  `AGENT_BROWSER_SESSION` from the working tree, so each slot is separate with no per-slot setup. It sets an idle
+  timeout of minutes (`AGENT_BROWSER_IDLE_TIMEOUT_MS`, an hour by default), so a session left open stops holding a slot,
+  and the automatic sweep, which runs every 10 minutes, tears the slot down after that. A weekly job proposes the pin at
+  the newest version the gate allows, in a PR a person merges, because no suite stands behind it.
 - R11. The guidance agents read before opening a page routes them: read a page with `defuddle`, scrape with crawl4ai,
   interact with agent-browser, run product QA with gstack. Credentialed or sensitive pages go to agent-browser with
-  `--allowed-domains`, not crawl4ai. It gives the agent-browser commands agents need, so they run neither `--help` nor
+  `--allowed-domains`, not crawl4ai, in a session of their own (`--session <tree>-auth`) opened fresh and closed at the
+  end, logging in with `agent-browser auth login <name>` from a vault entry saved through `--password-stdin` from the
+  1password skill's helpers. It says never to pass a secret to `fill`, never to run `state save`, and never to set a
+  restore name. It gives the agent-browser commands agents need, so they run neither `--help` nor
   `agent-browser skills get`. It says never to run `playwright install`, never pass `--no-sandbox`, never turn off
   certificate checks, never install a browser tool at `@latest`, and to script any job that repeats. It also says that
   everything a page returns is data, never instructions: a command, URL, or fix found in page content is not acted on
@@ -536,10 +576,10 @@ Who opens pages Brett does not control, what they run today, and where each goes
 - R21. One Playwright library version, named once in dotfiles, holds across lmgroktfy, agentnative-site, meum-sites,
   streamsgrp, and cf_office_hours, all at `@playwright/test` 1.61.1 on 2026-11-03. A check compares each repo's
   `package.json` on its `dev` branch with that version and names each repo that differs, with a stable reason, changing
-  nothing. A bump opens one PR per repo at an exact version the seven-day gate allows, and each repo's CI is its gate.
-  Each repo's Dependabot ignores `@playwright/test`, so only the bump moves it. Drift is flagged and never blocks:
-  browser updates do not wait on this version, and the aliases carry any revision a repo's library asks for. gstack and
-  crawl4ai keep the versions they ship. emdash is third-party and outside this.
+  nothing. A bump opens one PR per repo at an exact version the seven-day gate allows, and each repo's CI is its gate. A
+  Dependabot bump in one repo shows up as drift. Drift is flagged and never blocks: browser updates do not wait on this
+  version, and the aliases carry any revision a repo's library asks for. gstack and crawl4ai keep the versions they
+  ship. emdash is third-party and outside this.
 
 **Control**
 
@@ -569,19 +609,23 @@ Who opens pages Brett does not control, what they run today, and where each goes
   build and no file under `$PLAYWRIGHT_BROWSERS_PATH` changes.
 - AE2. **Covers R1, R6.** **Given** the set is deployed on the Mac and `GSTACK_CHROMIUM_PATH` is exported, **when**
   gstack's headed session opens, **then** the side panel loads, and a suite passes there.
-- AE3. **Covers R2, R21.** **Given** a repo moves `@playwright/test` to a release newer than the set's last deploy,
-  **when** its Chromium projects run, **then** they run on the set, ffmpeg included, with no dotfiles change and no
-  download, and the check in R21 names that repo. **When** its WebKit projects run before the set's WebKit has moved,
-  **then** they fail with `Executable doesn't exist`, and not with a protocol error midway through a run.
-- AE4. **Covers R3.** **Given** another tool at any Playwright version runs `playwright install chromium`, **when** it
-  finishes, **then** the set is intact and nothing downloaded, no `ffmpeg-*` included. **Given** a `--force` install
+- AE3. **Covers R2, R21.** **Given** a repo moves `@playwright/test` to a release the hourly job has read, newer than
+  the set's last deploy, **when** its Chromium projects run, **then** they run on the set, ffmpeg included, with no
+  change by a person and no download, and the check in R21 names that repo. **When** its WebKit projects run before the
+  set's WebKit has moved, **then** they fail with `Executable doesn't exist`, and not with a protocol error midway
+  through a run.
+- AE4. **Covers R3.** **Given** another tool at Playwright 1.57 or later runs `playwright install chromium`, **when** it
+  finishes, **then** the set is intact and nothing downloaded, no `ffmpeg-*` included. **Given** a tool below that floor
+  installs, **then** the set is intact and `--check` names the directory it downloaded. **Given** a `--force` install
   replaced an alias with a real directory, **when** the next deploy runs, **then** the alias is back, and until then
   `--check` fails naming the directory. **Given** an archive whose hash differs from the pin, **when** provisioning
   runs, **then** it stops, names both hashes, and leaves the existing set in place.
 - AE5. **Covers R4.** **Given** a candidate CfT build that fails a test a current run passes, or a suite that produces
   no per-test report, **when** the job runs, **then** the pin does not move and the job names the suite. **Given** a
-  candidate-only failure that passes on rerun, **then** the move proceeds. **Given** CfT Stable matches the pin,
-  **when** the hourly timer fires, **then** it exits after one fetch and runs no suite.
+  candidate-only failure that passes on rerun, **then** the move proceeds. **Given** CfT Stable is not higher than the
+  pin, **when** the hourly timer fires, **then** it exits after one fetch and runs no suite. **Given** a suite's port is
+  held when an arm starts, **then** that arm fails naming the holder. **Given** an arm hits its time limit, **then** no
+  `webServer` process survives it.
 - AE6. **Covers R6.** **Given** the set is deployed, **when** `gstack-browser-ensure` runs, **then** it prints
   `BROWSER_OK` with the set's version and fetches nothing.
 - AE7. **Covers R7, R8.** **Given** crawl4ai under the shell's defaults, **when** it crawls a page, **then** its
@@ -589,47 +633,57 @@ Who opens pages Brett does not control, what they run today, and where each goes
   browser's. **When** a covered caller crawls `https://expired.badssl.com/`, **then** the crawl fails with a certificate
   error. **When** it crawls `https://revoked.badssl.com/`, **then** the result is recorded as this path's known limit.
 - AE8. **Covers R9, R12.** **Given** the launcher and Chrome are installed on either machine, **when** a Playwright
-  launch sets its executable to the launcher, **then** renderers are sandboxed as R12 states,
-  `dv-g3b-emudhra.we-have-a-problem.com` fails at once, `revoked.badssl.com` fails within 30 seconds, and a token
-  planted in the caller's environment is absent from the browser's main process's `/proc/<pid>/environ` on Linux.
+  launch sets its executable to the launcher, **then** renderers are sandboxed as R12 states, including when it passes
+  `--disable-seccomp-filter-sandbox`, `dv-g3b-emudhra.we-have-a-problem.com` fails at once, `revoked.badssl.com` fails
+  within 30 seconds, and a token planted in the caller's environment is absent from the browser's main process's
+  `/proc/<pid>/environ` on Linux.
 - AE9. **Covers R9, R10.** **Given** a host without Chrome, **when** an agent runs `agent-browser open <url>`, **then**
   it exits before opening any page, names the deploy command, and never suggests `agent-browser install`.
-- AE10. **Covers R10.** **Given** two agents on one host, **when** each opens a page through agent-browser, **then**
-  neither sees the other's tabs, neither working tree gains a file, and page output carries boundary markers.
+- AE10. **Covers R10, R11.** **Given** two agents on one host, **when** each opens a page through agent-browser,
+  **then** neither sees the other's tabs, neither working tree gains a file, and page output carries boundary markers.
+  **Given** a login through `auth login`, **then** no file in the working tree or `~/.agent-browser/sessions/` holds the
+  token.
 - AE11. **Covers R13, R16.** **Given** Google publishes a new stable build, **when** the host's next timer run
   completes, **then** the installed version matches it. **Given** the timer is disabled, **when** the check runs after a
   newer build has been in the index for two cycles, **then** it exits non-zero with a stable reason, the versions it
   compared, and the deploy command.
 - AE12. **Covers R16.** **Given** an agent-browser daemon started before the timer replaced Chrome, **when** the check
   runs, **then** it names that process and the restart command.
-- AE13. **Covers R10.** **Given** a slot's agent used agent-browser and left its session open, **when** the slot tears
-  down, **then** `agent-slot check` reports no `agent-state-unknown` blocker from the tool's daemon.
+- AE13. **Covers R10.** **Given** a slot's agent used agent-browser and left its session open, **when** the idle timeout
+  has passed, **then** `agent-slot check` reports no `agent-state-unknown` blocker from the tool's daemon, and the next
+  sweep tears the slot down.
 - AE14. **Covers R20.** **Given** the set is deployed, **when** a script calls bare `chromium.launch()`, **then** the
   browser process carries no `--no-sandbox`, renderers are sandboxed, and a planted token is absent from its
   environment.
 - AE15. **Covers R10.** **Given** the shim, **when** an agent runs `agent-browser install`, `agent-browser upgrade`,
-  `agent-browser doctor --fix`, or passes `--ignore-https-errors`, **then** it refuses with one line and downloads
-  nothing.
+  `agent-browser doctor --fix`, or passes `--ignore-https-errors` or `--executable-path`, **then** it refuses with one
+  line and downloads nothing. **Given** a working tree holding `agent-browser.json` with `ignoreHttpsErrors: true`, or
+  an inherited `AGENT_BROWSER_IGNORE_HTTPS_ERRORS=1`, **then** `https://expired.badssl.com/` still fails.
 - AE16. **Covers R21.** **Given** one repo's `package.json` differs from the dotfiles version, **when** the check runs,
   **then** it exits non-zero naming that repo and both versions, and no browser update is held back.
 - AE17. **Covers R22, R23.** **Given** a tool downloaded a browser into `~/.cache/puppeteer`, **when** the check runs,
   **then** it exits non-zero listing the path, version, and size, and removes nothing. **Given** `--remove`, **then** it
-  deletes what it listed and nothing exempted.
+  deletes what it listed and nothing exempted or recorded. **Given** a healthy set the day after a move, **then** the
+  previous build fails neither `--check` nor this check.
+- AE18. **Covers R24.** **Given** the pin file on `dev` names a version lower than a host has deployed, or holds
+  anything but the accepted shapes, **when** the host's timer runs, **then** the aliases stay, nothing downloads, and
+  the check names a stable reason and both values. **Given** `--allow-downgrade`, **then** the deploy moves the host
+  back.
 
 ### What Happens to the Pinned-Browser Machinery
 
-| Item                                                                                                  | Today                                                 | Under this plan                                                                                                                                                     |
-| ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scripts/playwright-browsers-deploy.sh`                                                               | A revision map per Playwright version                 | One pin (CfT version, WebKit revision, ffmpeg revision, hashes) and an alias range; no per-version map                                                              |
-| `CONSUMER_CHROMIUM_REVS`                                                                              | Hand-kept list, 1223 and 1228                         | Replaced by the range                                                                                                                                               |
-| PR #431's `.links` registration and `--check`                                                         | Registers the whole set                               | Kept and extended to the alias range; `--check` grows into R4's check                                                                                               |
-| gstack's own `playwright install chromium`                                                            | Fetches 1248 when its probe fails                     | Never fires: its probe passes on the alias                                                                                                                          |
-| `chromium-1248`, its headless shell, `webkit-2311`, `ffmpeg-1013`                                     | Real directories from other installs                  | Replaced by aliases, or removed once nothing asks for them (R3, R23)                                                                                                |
-| `~/.cache/puppeteer`                                                                                  | 929 MB; CfT 133 and 150; no consumer identified       | Removed, with `PUPPETEER_EXECUTABLE_PATH` and `PUPPETEER_SKIP_DOWNLOAD` set (R22, R23)                                                                              |
-| `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`                                        | One shared cache; no auto-download on `bun install`   | Both stay; `PLAYWRIGHT_SKIP_BROWSER_GC` and the other pointers join them (R22)                                                                                      |
-| `config/apparmor.d/playwright`, `apparmor-playwright.service`                                         | Grant `userns` to `chromium-*` and the headless shell | Stay: the glob covers the set's directories and aliases, and every launch now depends on them                                                                       |
-| `scripts/playwright-deps-deploy.sh`                                                                   | Binaries, AppArmor, opt-in apt deps                   | Keeps its role. Its `--chromium` flag, which runs `bun x playwright install --with-deps chromium` and downloads a browser, is replaced by installing the deps alone |
-| `docs/solutions/tooling-decisions/browsing-agents-run-stable-chrome-not-a-playwright-pinned-build.md` | Holds the launch-flag measurements                    | Stays, updated with what ships                                                                                                                                      |
+| Item                                                                                                  | Today                                                 | Under this plan                                                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/playwright-browsers-deploy.sh`                                                               | A revision map per Playwright version                 | One pin (CfT version, WebKit revision, ffmpeg revision, hashes, alias revisions); no per-version map                                                                                                                         |
+| `CONSUMER_CHROMIUM_REVS`                                                                              | Hand-kept list, 1223 and 1228                         | Replaced by the list in the pin, which the job extends                                                                                                                                                                       |
+| PR #431's `.links` registration and `--check`                                                         | Registers the whole set                               | Kept and extended to every alias and recorded directory; `--check` grows into R24's check                                                                                                                                    |
+| gstack's own `playwright install chromium`                                                            | Fetches 1248 when its probe fails                     | Never fires: its probe passes on the alias                                                                                                                                                                                   |
+| `chromium-1248`, its headless shell, `webkit-2311`, `ffmpeg-1013`                                     | Real directories from other installs                  | Replaced by aliases, or removed once nothing asks for them (R3, R23)                                                                                                                                                         |
+| `~/.cache/puppeteer`                                                                                  | 929 MB; CfT 133 and 150; no consumer identified       | Removed, with `PUPPETEER_EXECUTABLE_PATH` and `PUPPETEER_SKIP_DOWNLOAD` set (R22, R23)                                                                                                                                       |
+| `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`                                        | One shared cache; no auto-download on `bun install`   | Both stay; `PLAYWRIGHT_SKIP_BROWSER_GC` and the other pointers join them (R22)                                                                                                                                               |
+| `config/apparmor.d/playwright`, `apparmor-playwright.service`                                         | Grant `userns` to `chromium-*` and the headless shell | Stay: the glob covers the set's directories and aliases, and every launch now depends on them                                                                                                                                |
+| `scripts/playwright-deps-deploy.sh`                                                                   | Binaries, AppArmor, opt-in apt deps                   | Keeps its role. `--chromium`, `--webkit`, and `--all`, which reach `bun x playwright install --with-deps` and download a browser, install system libraries through `playwright install-deps` at the dotfiles library version |
+| `docs/solutions/tooling-decisions/browsing-agents-run-stable-chrome-not-a-playwright-pinned-build.md` | Holds the launch-flag measurements                    | Stays, updated with what ships                                                                                                                                                                                               |
 
 ### Scope Boundaries
 
@@ -637,6 +691,9 @@ Who opens pages Brett does not control, what they run today, and where each goes
   prevent, and it has no headless shell.
 - CI does not join the set. Each repo's workflow keeps installing its own pinned build.
 - Firefox is not in the set; no consumer launches it.
+- Aliases for revisions no release has named are not built. A repo can ask only for a released revision.
+- Dependabot configuration in the consumer repos is not changed. A Dependabot bump shows up as drift (R21).
+- `agent-slot` gains no agent-browser handling. The idle timeout and the automatic sweep free a slot.
 - Removing AppArmor grants per host is not built. `config/apparmor.d/playwright` stays while the set runs sandboxed
   anywhere, and a stale grant on an unused path costs little.
 - The Playwright CLI, Playwright MCP, and the Chrome DevTools CLI are not adopted. A task that needs performance traces,
@@ -704,25 +761,27 @@ Split.
 Each phase ends in a merged PR to `dev`, except phase 2, which is measurement, and the operator's `sudo` step in
 phase 4.
 
-1. **System set.** One pin, the alias range, per-alias `.links` clients, numeric real directories, macOS archives,
-   sha256, atomic flip, and `--check` (R1, R2, R3). CfT moves to current stable here, which ends the stale builds.
-2. **First execution gate.** After the first deploy, on both machines: does CfT at its real path start with its sandbox
-   on, and through the wrapper? Does gstack's side panel load through the wrapper on the Mac? Does a sandboxed browser
-   keep working with its directory removed, which A2 measured only unsandboxed? A failure takes the Goal Capsule's stop
-   condition.
-3. **Wrapper and control.** The alias wrapper and stable path (R20), every pointer and download switch (R22), the
-   consumer moves (R5, R6, R7, R8), and the inventory check (R23), then removal of what it lists.
+1. **System set and wrapper.** One pin, the alias list, per-alias `.links` clients, numeric real directories, macOS
+   archives, sha256, atomic flip with the pre-flip launch, `--check`, and the alias wrapper with its stable path (R1,
+   R2, R3, R20, and R24's deploy half). CfT moves to current stable here, which ends the stale builds, and every launch
+   through the set gets the sandbox and a clean environment from the first deploy.
+2. **First execution gate.** After the first deploy, on both machines, at the real alias path, because the wrapper sits
+   inside the AppArmor glob and only a scratch copy has been measured: does a bare `chromium.launch()` start with its
+   sandbox on? Does gstack's side panel load through the wrapper on the Mac, with `GSTACK_CHROMIUM_PATH` set by hand?
+   Does a sandboxed browser keep working with its directory removed, which A2 measured only unsandboxed? A failure takes
+   the Goal Capsule's stop condition.
+3. **Control.** Every pointer and download switch (R22), the consumer moves (R5, R6, R7, R8), and the inventory check
+   (R23), then removal of what it lists.
 4. **Chrome and agent browsing.** `scripts/chrome-deploy.sh` and its timer (R13, R14, R15, R16), the launcher (R9, R12),
-   the agent-browser shim (R10), and session close at slot teardown. The operator runs the deploy.
-5. **Keeping current.** The hourly CfT job and each host's pickup (R4), with the weekly agent-browser pin proposal
-   (R10).
-6. **Library.** The dotfiles version, its check, the bump, and each repo's Dependabot ignore (R21). Start at 1.61.1,
-   which all five repos hold, then take the first bump through it.
+   and the agent-browser shim (R10). The operator runs the deploy.
+5. **Keeping current.** The hourly CfT job and each host's hourly pickup (R4, R24), with the weekly agent-browser pin
+   proposal (R10).
+6. **Library.** The dotfiles version, its check, and the bump (R21). Start at 1.61.1, which all five repos hold, then
+   take the first bump through it.
 7. **Docs.** Guidance and runbooks (R11, R19), once the behavior they describe exists.
 
-Phases 1, 2, 3, and 5 run in that order. Phase 4 can run alongside phase 3 once phase 2 passes. Phase 6 needs only phase
-
-1. `config/shell/` is shared, so phase 3's shell change merges first.
+Phases 1, 2, 3, and 5 run in that order. Phase 4 can run alongside phase 3 once phase 2 passes. Phase 6 needs only the
+system set. `config/shell/` is shared, so phase 3's shell change merges first.
 
 ### Deferred to Planning
 
@@ -732,8 +791,6 @@ Phases 1, 2, 3, and 5 run in that order. Phase 4 can run alongside phase 3 once 
   long-lived sessions. It is unmeasured, and it costs a setting per caller.
 - The Chrome deploy uses the paths the deb's cron job maintains, `/etc/apt/sources.list.d/google-chrome.sources` and
   `/usr/share/keyrings/google-chrome.gpg`, so apt never sees the repository configured twice.
-- The alias range's bounds. A forward range for Chromium and ffmpeg, plus WebKit up to the pin, is several hundred
-  symlinks and as many `.links` clients.
 - Which crawl4ai callers dotfiles configures: the crawl4ai skill's scripts and browser template, `crwl` through `-b` or
   `-B`, and each importing repo such as scrawl2. crawl4ai's CLI result on an expired certificate was inconclusive here:
   both settings ended in the same `NoneType` error, so AE7 measures it properly.
@@ -741,6 +798,9 @@ Phases 1, 2, 3, and 5 run in that order. Phase 4 can run alongside phase 3 once 
   needs more than `PUPPETEER_SKIP_DOWNLOAD`.
 - agent-browser's values for output cap and idle timeout, and whether its daemon keeps the slot as its working directory
   as the Playwright CLI's does (AE13 measures it).
+- Three agent-browser facts T9 measures before the guidance relies on them: whether `batch --json` on stdin can run a
+  refused verb, past the shim's argument inspection; whether `auth login` works under `--allowed-domains`; and where the
+  vault keeps its key.
 - The Mac's crawl4ai moves from 0.7.7 to a release at or above 0.9.5, and planning lists each importing repo's version.
 - Whether `apparmor.service` runs on every boot of this host or only some, which decides how much the setuid fallback
   matters.
@@ -782,7 +842,8 @@ Phases 1, 2, 3, and 5 run in that order. Phase 4 can run alongside phase 3 once 
 ## Appendix
 
 These reviews are the record of what each one examined. Where one names Option A or B, a numbered question, the
-Playwright CLI as the agent tool, or a weekly browser bump, Settled Decisions and the Requirements govern.
+Playwright CLI as the agent tool, a weekly browser bump, or a forward alias range, Settled Decisions and the
+Requirements govern.
 
 ### Engineering Review (plan-eng-review, 2026-11-03)
 
@@ -1039,15 +1100,15 @@ Approval readiness: PASS (D1 to D9, auto-decided under the slot's standing autho
 
 #### Parallelization
 
-| Phase                  | Modules touched                                                                                       | Depends on         |
-| ---------------------- | ----------------------------------------------------------------------------------------------------- | ------------------ |
-| 1 System set           | `scripts/`, `config/playwright/`, `tests/`                                                            | #431, merged       |
-| 2 First execution gate | none                                                                                                  | phase 1            |
-| 3 Wrapper and control  | `scripts/`, `config/shell/`, `tests/`                                                                 | phase 2            |
-| 4 Chrome and agents    | `scripts/`, `config/systemd/system/`, `stow/local/`, `config/shell/`, `scripts/agent-slot/`, `tests/` | phase 2            |
-| 5 Keeping current      | `scripts/`, `stow/local/`, `stow/launchagent/`, `tests/`                                              | phases 2 and 3     |
-| 6 Library              | `scripts/`, `config/playwright/`, each repo's Dependabot config                                       | phase 1            |
-| 7 Docs                 | `stow/claude/dot-claude/`, `docs/runbooks/`                                                           | phases 3, 4, and 5 |
+| Phase                    | Modules touched                                                                | Depends on         |
+| ------------------------ | ------------------------------------------------------------------------------ | ------------------ |
+| 1 System set and wrapper | `scripts/`, `config/playwright/`, `tests/`                                     | #431, merged       |
+| 2 First execution gate   | none                                                                           | phase 1            |
+| 3 Control                | `scripts/`, `config/shell/`, `tests/`                                          | phase 2            |
+| 4 Chrome and agents      | `scripts/`, `config/systemd/system/`, `stow/local/`, `config/shell/`, `tests/` | phase 2            |
+| 5 Keeping current        | `scripts/`, `stow/local/`, `stow/launchagent/`, `tests/`                       | phases 2 and 3     |
+| 6 Library                | `scripts/`, `config/playwright/`, `tests/`                                     | phase 1            |
+| 7 Docs                   | `stow/claude/dot-claude/`, `docs/runbooks/`                                    | phases 3, 4, and 5 |
 
 Lane A: phases 1, 2, 3, and 5, in order. Lane B: phase 4, alongside phase 3 once phase 2 passes; `config/shell/` is
 shared, so merge phase 3's shell change first, and `scripts/upgrade/lib/stale-procs.sh` belongs to this lane alone. Lane
@@ -1055,57 +1116,61 @@ C: phase 6, any time after phase 1. Phase 7 closes.
 
 #### Implementation Tasks
 
-- [ ] **T1 (P1, human: ~1d / CC: ~45min)** — phase 1, provisioning — one pin, Chromium and ffmpeg alias range, WebKit
-  aliases up to the pin, per-alias clients, numeric real directories, macOS archives, sha256, real directory at an alias
-  replaced
+- [ ] **T1 (P1, human: ~1d / CC: ~45min)** — phase 1, provisioning — one pin, Chromium and ffmpeg aliases from released
+  `browsers.json` files, WebKit aliases up to the pin, per-alias clients, numeric real directories, macOS archives,
+  sha256, fixed download hosts, real directory at an alias replaced
   - Surfaced by: Architecture — A1; Scope — S1
   - Files: `scripts/playwright-browsers-deploy.sh`, `config/playwright/`, `tests/playwright-browsers-deploy.bats`
   - Verify: `scripts/run-tests tests/playwright-browsers-deploy.bats`; AE1, AE3, AE4 live, after T5
-- [ ] **T2 (P1, human: ~1h / CC: ~10min)** — phase 1, provisioning — flip aliases atomically and keep the previous build
-  one cycle
-  - Surfaced by: Architecture — A2
+- [ ] **T2 (P1, human: ~2h / CC: ~15min)** — phase 1, provisioning — pre-flip launch, atomic flip, and the previous
+  build recorded and kept one cycle, named to `--check`
+  - Surfaced by: Architecture — A2; document review
   - Files: the deploy script, its bats
-  - Verify: bats case; a live daemon survives a flip
-- [ ] **T5 (P1, human: ~30min / CC: ~10min)** — phase 2, live — sandbox measurement at the real paths after the first
-  deploy, through the wrapper, on both machines; side panel through the wrapper on the Mac; a sandboxed browser with its
-  directory removed
-  - Surfaced by: premise table, unverified rows
-  - Files: none
-  - Verify: AE2, AE14
-- [ ] **T6 (P1, human: ~2h / CC: ~15min)** — phase 3, alias wrapper — sandbox-only wrapper at the alias, its stable path
+  - Verify: bats case; a live daemon survives a flip; AE17's healthy-set case
+- [ ] **T6 (P1, human: ~2h / CC: ~15min)** — phase 1, alias wrapper — sandbox-only wrapper at the alias, its stable
+  path, and `--check` for the AppArmor profile
   - Surfaced by: document review, bare launches
   - Files: the deploy script, its bats
   - Verify: AE14; the suites through the wrapper on both machines
+- [ ] **T5 (P1, human: ~30min / CC: ~10min)** — phase 2, live — at the real alias path on both machines: a bare launch
+  with its sandbox on; the side panel on the Mac with `GSTACK_CHROMIUM_PATH` set by hand; a sandboxed browser with its
+  directory removed
+  - Surfaced by: premise table, unverified rows; feasibility review
+  - Files: none
+  - Verify: AE14 live
 - [ ] **T7 (P1, human: ~3h / CC: ~20min)** — phase 3, control — every pointer and download switch,
-  `~/.crawl4ai/chromium.path`, the inventory check, and removal of what it lists
+  `~/.crawl4ai/chromium.path`, the deps script's flags, the inventory check, and removal of what it lists
   - Surfaced by: decision 8
-  - Files: `config/shell/caches.sh`, the deploy script, a new check, `tests/shell-config.bats`
-  - Verify: AE6, AE7, AE17
+  - Files: `config/shell/caches.sh`, the deploy script, `scripts/playwright-deps-deploy.sh`, a new check,
+    `tests/shell-config.bats`
+  - Verify: AE2, AE6, AE7, AE17
 - [ ] **T8 (P1, human: ~3h / CC: ~20min)** — phase 4, Chrome — `scripts/chrome-deploy.sh`, its hourly timer, and the
   Chrome check
   - Surfaced by: decisions 1 and 3
   - Files: `scripts/`, `config/systemd/system/`, `tests/chrome-deploy.bats`
   - Verify: AE11, AE12 live, after the operator's deploy
-- [ ] **T3 (P1, human: ~3h / CC: ~20min)** — phase 4, launcher — strip flags in every form, add the fast-update flag,
-  clear the environment, refuse root, read the shell's variable, `exec`
-  - Surfaced by: Architecture — A3, A4; Code quality — Q1
+- [ ] **T3 (P1, human: ~3h / CC: ~20min)** — phase 4, launcher — strip flags by normalized name, add the fast-update
+  flag, clear the environment, refuse root, read the shell's variable, `exec`
+  - Surfaced by: Architecture — A3, A4; Code quality — Q1; security review
   - Files: `stow/local/dot-local/bin/`, `config/shell/`, `tests/browsing-launcher.bats`, `tests/shell-config.bats`
   - Verify: `scripts/run-tests tests/browsing-launcher.bats`; AE8, AE9
-- [ ] **T9 (P1, human: ~3h / CC: ~20min)** — phase 4, agent-browser — the stowed shim, refused verbs, session from the
-  working tree, close at slot teardown
-  - Surfaced by: decision 2
-  - Files: `stow/local/dot-local/bin/`, `scripts/agent-slot/`, its bats
+- [ ] **T9 (P1, human: ~4h / CC: ~30min)** — phase 4, agent-browser — the stowed shim, its own config, refused flags and
+  verbs, session from the working tree, idle timeout, and the three facts Deferred to Planning names
+  - Surfaced by: decision 2; security review
+  - Files: `stow/local/dot-local/bin/`, a config file in dotfiles, its bats
   - Verify: AE9, AE10, AE13, AE15
-- [ ] **T4 (P2, human: ~1d / CC: ~30min)** — phase 5, update job — hourly check of CfT Stable, per-test comparison with
-  reports required and one rerun, WebKit and ffmpeg revisions from the newest Playwright, self-merging PR, and each
-  host's hourly pickup with its pre-flip launch
-  - Surfaced by: Architecture — A5; decision 3
-  - Files: `scripts/`, `stow/local/`, `stow/launchagent/`, `tests/browser-set-bump.bats`
-  - Verify: AE5
-- [ ] **T10 (P2, human: ~3h / CC: ~20min)** — phase 6, library — the dotfiles version, the drift check, the bump across
-  repos, each repo's Dependabot ignore
+- [ ] **T4 (P2, human: ~1.5d / CC: ~45min)** — phase 5, update job and pickup — hourly forward-only check of CfT Stable,
+  candidate placement, isolated arms under `timeout -s INT -k 30` with a port check, per-test comparison with reports
+  required and one rerun, revisions read as integers from the npm tarball, self-merging pin-only PR, and each host's
+  hourly pickup over HTTPS, parsing the pin as data
+  - Surfaced by: Architecture — A5; decision 3; feasibility and security reviews
+  - Files: `scripts/`, `stow/local/`, `stow/launchagent/`, `tests/browser-set-bump.bats`,
+    `tests/playwright-browsers-deploy.bats`
+  - Verify: AE5, AE18
+- [ ] **T10 (P2, human: ~3h / CC: ~20min)** — phase 6, library — the dotfiles version, the drift check, and the bump
+  across repos
   - Surfaced by: decision 7
-  - Files: `config/playwright/`, `scripts/`, a bats suite, each repo's `.github/dependabot.yml`
+  - Files: `config/playwright/`, `scripts/`, a bats suite
   - Verify: AE3, AE16
 
 The task store also carries eight tasks from the 2026-11-03 eng review of
@@ -1323,15 +1388,6 @@ Entries are review items left for the author; they do not block implementation.
 
 ### From 2026-11-03 review
 
-- **The launcher's strip list names exact switches** — R9, the launcher (P3, security-lens, confidence 50)
-
-  An agent that hits `No usable sandbox!` and sees `--no-sandbox` have no effect may try a sibling switch. Chromium also
-  honors `--disable-seccomp-filter-sandbox`, `--disable-namespace-sandbox`, `--single-process`,
-  `--disable-web-security`, and `--disable-site-isolation-trials`, and reads `-no-sandbox` and `--no-sandbox=1` as the
-  same switch. Not measured here.
-
-  Change: match on the normalized switch name and add those five, with a bats case for each form.
-
 - **The launcher can reach the owner's signed-in Chrome on the Mac** — R9, the launcher, with R14, the Mac keeps its
   Chrome (P2, security-lens, confidence 50)
 
@@ -1353,10 +1409,43 @@ Entries are review items left for the author; they do not block implementation.
   confidence 50)
 
   The report restarts nothing and needs a report-only split of `scripts/upgrade/lib/stale-procs.sh`, which `brew.sh`
-  also uses. A running browser survived its directory being removed (measured on CfT), though replacing Chrome's files
+  also uses. R10's idle timeout already bounds agent-browser's daemon. A long-lived gstack daemon on a superseded CfT goes
+  unreported either way, because a deleted-executable scan sees it only once the next release removes the directory. A running browser survived its directory being removed (measured on CfT), though replacing Chrome's files
   under a live daemon through dpkg was not run.
 
   Change: drop the report and AE12 if the first Chrome upgrade under a live daemon shows no breakage.
+
+- **Chrome's first key is trusted on fetch** — R13, the Chrome deploy (P2, security-lens, confidence 50)
+
+  The case for Chrome's update path rests on a signed index, and an HTTPS fetch of the key with no fingerprint check makes
+  that chain only as strong as the fetch.
+
+  Change: `scripts/chrome-deploy.sh` compares the key's fingerprint with one committed in dotfiles before writing the
+  keyring, and stops on a mismatch with a stable reason and both values.
+
+- **WebKit's revision comes from a release younger than the gate** — R4, other revisions (P2, security-lens,
+  confidence 75)
+
+  Decision 3 exempts every browser build, so R4 reads the newest release, as integers from its tarball with no install.
+  The reviewer would read the newest release the gate allows: no repo can be ahead of that, and "updated often" names
+  Chrome and CfT.
+
+  Change: take WebKit and ffmpeg revisions from the newest gate-cleared release, if Brett reads the exemption as covering
+  the two browsers only.
+
+- **The weekly agent-browser proposal could be a report** — R10 (P3, scope-guardian, confidence 50)
+
+  A person merges each proposal anyway, and the tool released 6 times in 9 days, so the job can produce a steady stream
+  of small PRs.
+
+  Change: drop the job, and have the check in R21 report when the pin trails the newest gate-cleared version.
+
+- **The wrapper's list is narrower than the launcher's** — R20 (P3, document review, confidence 50)
+
+  A bare launch that passes a sibling switch such as `--disable-seccomp-filter-sandbox` keeps it. The two-flag list is
+  what the suites were measured through.
+
+  Change: have R20 drop the launcher's sandbox siblings too, and rerun the suites through it at the first execution gate.
 
 ## DX Review Scorecard
 
