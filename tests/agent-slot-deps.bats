@@ -282,7 +282,7 @@ real_bun() {
   run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-text
   [ "$status" -eq 0 ]
   echo "output: $output"
-  [[ $output == *"is ready"*"dependencies not installed (failed)"*"log: "*deps.log* ]]
+  [[ $output == *"is ready"*"dependencies did not install when this slot was made (failed)"*"log: "*deps.log* ]]
 }
 
 @test "a launch in text mode says nothing about dependencies that installed" {

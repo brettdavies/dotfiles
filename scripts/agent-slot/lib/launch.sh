@@ -151,7 +151,8 @@ launch_output() {
       (if .prompt_delivered == false
        then "; this first message was not delivered, because the slot already holds the task" else "" end) +
       (if ((.deps // {}).status // "installed") != "installed"
-       then "; dependencies not installed (\(.deps.status))" + (if .deps.log then ", log: \(.deps.log)" else "" end)
+       then "; dependencies did not install when this slot was made (\(.deps.status))"
+         + (if .deps.log then ", log: \(.deps.log)" else "" end)
        else "" end) +
       (if .prior then "\n\(.prior.note)" else "" end)'
 }
