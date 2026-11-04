@@ -340,7 +340,9 @@ Each run appends JSON Lines to `~/Library/Logs/brew-upgrade.jsonl` or `~/Library
 `reason`, what changed, and a `next_step`. `scripts/upgrade/lib/run-log.sh` documents the schema. Anything the script
 itself writes to stderr lands in the matching `.error.log`, which stays empty on a healthy run. Both agents start their
 job through `scripts/launchd-run.sh`, which cuts a log past 1 MiB down to its last 1 MiB before the run, starting at the
-first whole line so the JSON Lines log still parses, and keeps no older copy.
+first whole line so the JSON Lines log still parses, and keeps no older copy. A stop of the job ends the run with a
+`run.end` whose reason is `script-error` and whose counts hold what it had logged, and the next fire runs it again,
+since the daily gate records only a run that exits 0.
 
 ```bash
 jaq -c 'select(.event == "run.end")' ~/Library/Logs/brew-upgrade.jsonl | tail -n 5

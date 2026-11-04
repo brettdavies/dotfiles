@@ -14,6 +14,13 @@ BREW_JOB="$REPO_ROOT/scripts/upgrade/brew.sh"
 UNITS="$REPO_ROOT/stow/local/dot-config/systemd/user"
 AGENTS="$REPO_ROOT/stow/launchagent/Library/LaunchAgents"
 
+load lib/processes
+
+teardown() {
+  stop_spawned
+  assert_no_leaks
+}
+
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$STUBS"
@@ -529,6 +536,105 @@ _stub_settle_sleep() {
   [ "$status" -eq 0 ]
   [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c 'map([.unit, .action])')" = '[["transient.service","left-running"]]' ]
   [ -z "$(grep try-restart "$SYSTEMCTL_LOG" || true)" ]
+}
+
+# A tool that logs an error and a warning and then outlives a SIGTERM, standing in for one that is slow to exit, as what
+# both jobs' upgrade commands run. It logs one more warning once TOOL_RESUME exists. The job's temp files land in
+# SUMMARY_DIR. The uv job runs its tool directly in the capture's pipeline, so a TERM trap would wait on the tool there,
+# and run.end would arrive too late to pass. The brew job runs it below a function's subshell, which dies on the signal.
+_stalled_tool_fixture() {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  export LAUNCHD_LOG_DIR="$BATS_TEST_TMPDIR/Logs" UPGRADE_STATE_DIR="$BATS_TEST_TMPDIR/state"
+  export SUMMARY_DIR="$BATS_TEST_TMPDIR/summaries" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only"
+  export TOOL_RESUME="$BATS_TEST_TMPDIR/tool-resume" UV_EXCLUDE_NEWER=2026-01-01
+  mkdir -p "$LAUNCHD_LOG_DIR" "$SUMMARY_DIR" "$DOTFILES_SHELL_DIR"
+  ln -s "$REPO_ROOT/config/shell/shell-functions" "$DOTFILES_SHELL_DIR/"
+  cat >"$STUBS/stalled-tool" <<'EOF'
+#!/bin/sh
+trap '' TERM
+echo "Error: a mirror failed"
+echo "Warning: a slow mirror"
+until [ -e "$TOOL_RESUME" ]; do sleep 0.1; done
+echo "Warning: after the stop"
+exec sleep 30
+EOF
+  cat >"$STUBS/brew" <<'EOF'
+#!/bin/sh
+case "$1" in
+  --version) echo "Homebrew 5.0.0" ;;
+  list) echo "uv 0.11.19" ;;
+  upgrade) exec stalled-tool ;;
+  *) echo "==> $1" ;;
+esac
+EOF
+  cat >"$STUBS/uv" <<'EOF'
+#!/bin/sh
+case "$*" in
+  --version) echo "uv 0.11.20" ;;
+  "tool list") echo "claude-swap v0.26.0" ;;
+  *) exec stalled-tool ;;
+esac
+EOF
+  printf '#!/bin/sh\nf="$SUMMARY_DIR/summary.$$"\n: >"$f"\necho "$f"\n' >"$STUBS/mktemp"
+  chmod +x "$STUBS"/*
+}
+
+# Usage: _wait_for_log <pattern>; fails when the run log does not show the pattern within 30 s.
+_wait_for_log() {
+  local deadline=$((SECONDS + 30))
+  until grep -qs "$1" "$log" || ((SECONDS > deadline)); do sleep 0.1; done
+  grep -q "$1" "$log"
+}
+
+# launchd's stop of a job, through the agent's real chain: a SIGTERM to its main process alone, which is the daily gate
+# because the wrapper execs it, then once that has exited a SIGTERM to the rest of its process group, the sweep
+# launchd.plist(5) documents under AbandonProcessGroup. run.end has to arrive while the tool still runs.
+_assert_launchd_stop_ends_log() { # <job> <script>
+  local deadline
+  log=$LAUNCHD_LOG_DIR/$1.jsonl
+  spawn env PATH="$STUBS:$PATH" "$REPO_ROOT/scripts/launchd-run.sh" "$1.jsonl" \
+    "$REPO_ROOT/scripts/upgrade/daily-gate.sh" "$1" "$2" >/dev/null 2>&1 3>&-
+  job=$!
+  _wait_for_log 'a slow mirror'
+
+  kill -TERM "$job"
+  wait "$job" || true
+  kill -TERM -- "-$job"
+  deadline=$((SECONDS + 10))
+  until grep -qs '"event":"run.end"' "$log" || ((SECONDS > deadline)); do sleep 0.1; done
+
+  [ "$(jaq -c 'select(.event == "run.end") | [.outcome, .reason, .errors, .warnings, .first_error]' "$log")" = \
+    '["failure","script-error",1,1,"Error: a mirror failed"]' ]
+  kill -0 -- "-$job"
+  [ -z "$(ls -A "$SUMMARY_DIR")" ]
+  [ ! -e "$UPGRADE_STATE_DIR/$1.last-success" ]
+}
+
+@test "a launchd stop ends the brew job's log at once with the counts so far, even while a tool ignores SIGTERM" {
+  _stalled_tool_fixture
+  _assert_launchd_stop_ends_log brew-upgrade "$BREW_JOB"
+}
+
+@test "a launchd stop ends the uv job's log at once with the counts so far, even while a tool ignores SIGTERM" {
+  _stalled_tool_fixture
+  _assert_launchd_stop_ends_log uv-tools-upgrade "$UV_JOB"
+}
+
+@test "a line logged after a kill does not bring the removed summary file back" {
+  _stalled_tool_fixture
+  log=$LAUNCHD_LOG_DIR/brew-upgrade.jsonl
+  spawn env PATH="$STUBS:$PATH" "$REPO_ROOT/scripts/launchd-run.sh" brew-upgrade.jsonl "$BREW_JOB" >/dev/null 2>&1 3>&-
+  job=$!
+  _wait_for_log 'a slow mirror'
+
+  kill -TERM "$job"
+  wait "$job" || true
+  _wait_for_log '"event":"run.end"'
+  [ -z "$(ls -A "$SUMMARY_DIR")" ]
+
+  : >"$TOOL_RESUME"
+  _wait_for_log 'after the stop'
+  [ -z "$(ls -A "$SUMMARY_DIR")" ]
 }
 
 @test "brew job reports a process still running a binary the upgrade removed" {
