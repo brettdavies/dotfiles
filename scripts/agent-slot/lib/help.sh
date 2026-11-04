@@ -39,10 +39,12 @@ verb_help() {
       'returns: repos[] of {name, prime, origin}' \
       'example: agent-slot repos --output json' ;;
     list) printf '%s\n' 'usage: agent-slot list [--output json]' \
-      'Lists every slot with its state, agent state, label, and its needs-you blockers. A slot'"'"'s label is its name,' \
-      'else its task, else its branch.' \
+      'Lists every slot with its state, agent state, label, and its needs-you blockers, and every running prime. A' \
+      'slot'"'"'s label is its name, else its task, else its branch. A tmux server that does not answer costs only its own' \
+      'primes, so a prime missing from the list is not proof that it is not running.' \
       'returns: slots[] of the slot record plus {key, path, state, branch, label_name, agent, agent_detail, sessions,' \
-      '         needs_you}' \
+      '         needs_you}, and primes[] of {key, repo, server, session, label}, where server is slots, or default for' \
+      '         a session on the default tmux server that holds the prime' \
       "example: agent-slot list --output json | jaq '.slots[] | select(.needs_you != [])'" ;;
     whoami) printf '%s\n' 'usage: agent-slot whoami [--path DIR] [--output json]' \
       'Prints the slot that DIR (default: the current directory) is inside. Outside a slot it fails with the error' \
@@ -91,7 +93,8 @@ verb_help() {
       '         next_step,' \
       '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
       '         reopen resumes, else null), prime (what agent-slot prime returns for the repo, or' \
-      '         {error: {reason, message, next_step, log}} when it did not start, which leaves the slot running;' \
+      '         {error: {reason, exit_code, message, value, next_step, recovery, log}} when it did not start, which' \
+      '         leaves the slot running;' \
       '         null when the slot already held the request)' \
       'example: agent-slot launch dotfiles --model sonnet --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
     resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--output json]' \

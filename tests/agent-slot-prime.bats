@@ -358,6 +358,16 @@ JSON
   run ! grep -q ' new-session ' "$CALLS"
 }
 
+@test "a read of the default server that fails for another reason exits tmux-failed, and starts nothing" {
+  wrap_tmux '[[ " $* " != *" -L default "* ]] || { echo "lost server" >&2; exit 1; }'
+  start
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "tmux-failed" and .value == "default"
+    and .next_step.command == "agent-slot prime repoa"' <<<"$stderr"
+  run ! grep -q ' new-session ' "$CALLS"
+}
+
 @test "a prime's sessions carry the user bus where its socket exists, and only then" {
   export AGENT_SLOT_USER_BUS=$T/bus
   start
@@ -529,6 +539,12 @@ JSON
   [ "$status" -eq 2 ]
 }
 
+@test "list's help names the primes it reports" {
+  run "$AGENT_SLOT" list --help
+  [ "$status" -eq 0 ]
+  [[ $output == *'primes[] of {key, repo, server, session, label}'* ]]
+}
+
 @test "the verb's help names its usage, what it returns, and an example" {
   run "$AGENT_SLOT" prime --help
   [ "$status" -eq 0 ]
@@ -623,7 +639,9 @@ PRIME_SESSIONS='["repoa-prime", "repoa-prime-files", "repoa-prime-git"]'
   [ "$(wc -l <<<"$output")" -eq 1 ]
   jaq -e '.ok == true and .key == "repoa/1" and .prime.error.reason == "tmux-failed"
     and .prime.error.next_step.command == "agent-slot prime repoa"
-    and (.prime.error.log | type == "string") and (.prime.error.message | type == "string")' <<<"$output"
+    and (.prime.error.log | type == "string") and (.prime.error.message | type == "string")
+    and .prime.error.exit_code == 1 and .prime.error.value == "repoa-prime"
+    and (.prime.error.recovery.retryable | type == "boolean")' <<<"$output"
   [ -z "$stderr" ]
   [ "$(jaq -r '.state' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json")" = active ]
   [ "$(sort -u "$STUBS/tmux-sessions")" = $'repoa-1\nrepoa-1-files\nrepoa-1-git' ]
