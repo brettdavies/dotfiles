@@ -13,9 +13,7 @@
 # A prime's tab is only ever opened. SLOT_KEY_PATTERN never matches <repo>/prime, so no tab is keyed to a prime, and a
 # prime's tab that an operator renamed, duplicated, or left is theirs. A prime no tab in any Rex session holds gets one
 # first in its repo's session: three panes for a prime on the slot server, and one pane on an old-style session, which
-# the tab attaches to and nothing here changes. A tab holds a prime as prime_tab_open says, in any Rex session, or through
-# the prime command as its own process, which is all a tab this pass's predecessor just opened shows until its client
-# attaches.
+# the tab attaches to and nothing here changes. A tab holds a prime as prime_tab_open says, in any Rex session.
 #
 # After a Rex restart, rexurrect brings slot tabs back under their labels but as plain shells, since it saves no command
 # for their panes, so the start-up step's reconcile finds them keyed and not running, opens fresh tabs, and closes
@@ -113,7 +111,8 @@ reconcile_plan() {
   contract_json -n -c --argjson tabs "$1" --argjson slots "$2" --argjson primes "$3" --arg key "$SLOT_KEY_PATTERN" \
     "$RECONCILE_LABEL$RECONCILE_KEYED"'
     def holds($p): . as $tab
-      | any(.commands[]; endswith("agent-slot-rex attach \($p.key) claude") or endswith("agent-slot-rex prime \($p.repo)"))
+      | any(.commands[]; endswith("agent-slot-rex attach \($p.key) claude"))
+        or ($p.server == "default" and any($tab.commands[]; endswith("agent-slot-rex prime \($p.repo)")))
         or ((.label // "") | rex_unnumbered) == $p.label and any($tab.commands[]; contains("agent-slot-rex launch"))
         or any(.ttys[]; . as $tty | $p.clients | index("/dev/\($tty)") != null);
     ($slots | map({(.key): .}) | add // {}) as $by_key

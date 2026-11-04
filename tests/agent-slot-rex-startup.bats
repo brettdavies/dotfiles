@@ -627,13 +627,24 @@ primes_journaled() {
   started_by_rex
   primes A 'A Prime'
   session sess-a A '[{"window_id": "pw", "label": "1: A Prime", "blocks": ["pb"]}]'
-  runs pb 701 "bash $STUBS/agent-slot-rex prime A"
+  runs pb 701 "bash $STUBS/some-script"
   printf 'pts/9\n' >"$STUBS/tty/701"
   printf '{"child":{"pid":701,"name":"bash"},"foreground":{"pid":701,"name":"bash"}}\n' >"$STUBS/rexdata/process-pb.json"
   run "$AGENT_SLOT_REX" restore --at-start
   [ "$status" -eq 0 ]
   not_called '^rex send '
   primes_journaled '.[0].outcome == "not-idle"'
+}
+
+@test "a tab already running the prime command already holds the prime, so nothing is typed into it" {
+  started_by_rex
+  primes A 'A Prime'
+  session sess-a A '[{"window_id": "pw", "label": "1: A Prime", "blocks": ["pb"]}]'
+  runs pb 701 "bash $STUBS/agent-slot-rex prime A"
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  primes_journaled '.[0].outcome == "already-open"'
 }
 
 @test "a tab with the prime's label that holds more than one pane is left alone" {

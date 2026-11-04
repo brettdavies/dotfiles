@@ -302,6 +302,33 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
   not_called '^agent-slot launch'
 }
 
+@test "a tab whose own process is the prime command holds an old-style prime after its client detached" {
+  in_rex_session X '[{"window_id": "win-p", "label": "1: X Prime", "blocks": ["blk-p"]},
+    {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
+  repos X
+  primes X 'X Prime'
+  runs blk-p 501 'bash /x/agent-slot-rex prime X'
+  slot_answer launch 0 "$LAUNCHED"
+  run "$AGENT_SLOT_REX" launch --here </dev/null
+  [ "$status" -eq 0 ]
+  called '^agent-slot launch X --request-id '
+  not_called '^agent-slot prime'
+}
+
+@test "a tab left running the prime command holds nothing once no old-style session holds a Claude" {
+  in_rex_session X '[{"window_id": "win-p", "label": "1: X Prime", "blocks": ["blk-p"]},
+    {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
+  repos X
+  primes X 'X Prime'
+  no_old_primes
+  runs blk-p 501 'bash /x/agent-slot-rex prime X'
+  slot_answer prime 0 "$PRIME_STARTED"
+  run "$AGENT_SLOT_REX" launch --here </dev/null
+  [ "$status" -eq 0 ]
+  called '^agent-slot prime X '
+  not_called '^agent-slot launch'
+}
+
 @test "a client on a session holding no Claude is no prime's tab" {
   in_rex_session X '[{"window_id": "win-p", "label": "1: X Prime", "blocks": ["blk-p"]},
     {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
@@ -490,6 +517,24 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
   called "^tmux-cwd $HOME\$"
   [ "$(tail -1 "$CALLS")" = "login-shell -l" ]
   not_called '^agent-slot-rex attach'
+}
+
+@test "after a detach from a session still running, the login shell is a child, so the helper stays the tab's own process" {
+  primes X 'X Prime'
+  stub login-shell 'ps -o args= -p "$PPID" >"$STUBS/shell-parent"'
+  run "$AGENT_SLOT_REX" prime X
+  [ "$status" -eq 0 ]
+  [[ $(cat "$STUBS/shell-parent") == *"agent-slot-rex prime X"* ]]
+}
+
+@test "after the session itself ends, the login shell replaces the helper, so the tab no longer holds anything" {
+  primes X 'X Prime'
+  no_old_primes
+  tmux_default_answer list-panes 0 0 $'X Prime\tclaude'
+  stub login-shell 'ps -o args= -p "$PPID" >"$STUBS/shell-parent"'
+  run "$AGENT_SLOT_REX" prime X
+  [ "$status" -eq 0 ]
+  [[ $(cat "$STUBS/shell-parent") != *"agent-slot-rex prime X"* ]]
 }
 
 @test "prime with no old-style session holding a Claude becomes the attach loop of the prime's Claude pane" {
@@ -1052,6 +1097,15 @@ assert_nothing_changed() {
   run "$AGENT_SLOT_REX" restore
   [ "$status" -eq 0 ]
   assert_nothing_changed
+}
+
+@test "a tab left running the prime command holds no prime rebuilt on the slot server" {
+  slots '[]' '[{"repo": "X", "label": "X"}]'
+  session sess-x X '[{"window_id": "w9", "label": "1: X", "blocks": ["b9"]}]'
+  runs b9 901 "bash $STUBS/agent-slot-rex prime X"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called "^rex window new -s sess-x X --focus=false --json -- $STUBS/agent-slot-rex attach X/prime claude\$"
 }
 
 @test "the prime command of a repo whose name starts another's holds only its own" {

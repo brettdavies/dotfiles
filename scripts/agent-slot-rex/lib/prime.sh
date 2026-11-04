@@ -32,12 +32,14 @@ prime_old_clients() {
 
 # Usage: prime_tab_open <rex-session-id> <repo> <label> [<window to leave out>]
 # True when a tab of the Rex session holds the repo's prime: a block's own process is the attach loop of its Claude pane,
-# which stays true while the loop waits after a detach; a tmux client of its old-style session runs on a block's terminal;
-# or another window carries its label while its own process is this helper's launch, as a key's tab does before it asks
-# the server to start anything. A tab's label alone plays no part, so neither a rename nor a number fools it.
+# which stays true while the loop waits after a detach; while an old-style session holds it, a block's own process is this
+# helper's prime command, or a tmux client of that session runs on a block's terminal; or another window carries its label
+# while its own process is this helper's launch, as a key's tab does before it asks the server to start anything. A tab's
+# label alone plays no part, so neither a rename nor a number fools it.
 prime_tab_open() {
-  local sid=$1 repo=$2 label=$3 own_window=${4:-} clients='' rows window title block pid command tty
+  local sid=$1 repo=$2 label=$3 own_window=${4:-} old=0 clients='' rows window title block pid command tty
   if prime_old_running "$label"; then
+    old=1
     clients=$(prime_old_clients "$label")
   fi
   rex_or_fail session inspect "$sid" --json
@@ -52,6 +54,7 @@ prime_tab_open() {
     [[ $pid != 0 ]] || continue
     command=${REX_HELPER_CMD[$pid]:-}
     [[ $command != *"agent-slot-rex attach $repo/$SLOT_PRIME claude" ]] || return 0
+    [[ $old == 0 || $command != *"agent-slot-rex prime $repo" ]] || return 0
     if [[ $window != "$own_window" && $title == "$label" && $command == *"agent-slot-rex launch"* ]]; then
       return 0
     fi
@@ -65,15 +68,19 @@ prime_tab_open() {
 
 # Usage: cmd_prime <repo>
 # Holds this pane on the repo's prime, from $HOME, so the client holds no checkout. An old-style session is attached to
-# until the client ends, and the pane then becomes a login shell, so a detach leaves the tab open. Anything else becomes
-# the attach loop of the prime's Claude pane, which starts the prime if it is not running.
+# until the client ends, and the pane then becomes a login shell, so a detach leaves the tab open. While the session still
+# runs that shell is a child, so this process stays the tab's own and the tab still holds the prime; a pass would otherwise
+# open a second tab on it. Anything else becomes the attach loop of the prime's Claude pane, which starts the prime if it
+# is not running.
 cmd_prime() {
   prime_of "$1"
   contract_use_tools tmux
   cd "$HOME" || exit "$EXIT_GENERAL"
   if prime_old_running "$PRIME_LABEL"; then
     "$AR_TMUX" -L "$TMUX_DEFAULT_SOCKET" attach -t "=$(tmux_name "$PRIME_LABEL")" || true
-    exec "$AR_LOGIN_SHELL" -l
+    prime_old_running "$PRIME_LABEL" || exec "$AR_LOGIN_SHELL" -l
+    "$AR_LOGIN_SHELL" -l || true
+    exit 0
   fi
   exec "$AR_SELF" attach "$(slot_key "$1" "$SLOT_PRIME")" claude
 }
