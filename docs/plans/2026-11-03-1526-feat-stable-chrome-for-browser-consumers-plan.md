@@ -345,9 +345,9 @@ Who opens pages Brett does not control, what they run today, and where each goes
   traffic and component downloads would make runs less hermetic. Governs R5.
 - **CLI, not MCP, for agents.** Benchmarked at 1.5 to 5 times less input than MCP for the same job, and an MCP schema
   sits in context for the whole session. Governs R10.
-- **Per-agent sessions by environment.** All three tools default to one shared browser across agents on a host, which
-  would mix tabs and cookies across slots (measured on Chrome DevTools). The session variable is set wherever an agent's
-  environment is built. Governs R10.
+- **Per-agent sessions from the working tree.** All three tools default to one shared browser across agents on a host,
+  which would mix tabs and cookies across slots (measured on Chrome DevTools; each measured apart through an environment
+  variable). The shim in R10 derives the session from the working tree, and a slot has its own tree. Governs R10.
 - **The install is per host for Chrome, and shared for the set.** The repo deploys to many headless servers that run no
   browser, so the Chrome deploy is opt-in per host. A host without it keeps the set's behavior. Governs R13, R15.
 - **The Mac keeps Google's own updater.** Chrome there is outside Homebrew, and the cask declares `auto_updates`.
@@ -392,11 +392,14 @@ Who opens pages Brett does not control, what they run today, and where each goes
   the browser keeps the caller's pipes and AppArmor's path match. It refuses to run as root, naming why, because the
   browser's sandbox cannot start there. It reads the browser's path from one variable that shell config exports only
   when the binary exists, and it holds no path of its own. gstack's Linux pointer, the agent CLI, and the guidance all
-  name the launcher. When the browser is absent it exits before opening a page, says the host has no agent browser, and
-  names the deploy command.
-- R10. The agent CLI chosen in the second question installs at an exact version the gate allows, with its update notices
-  and any telemetry off, and each agent gets its own browser through an environment variable. Its output directory is
-  outside the working tree.
+  name the launcher. When the browser is absent it exits before opening a page with one self-contained line, last on
+  stderr, that says the host has no agent browser, carries a stable reason, and names the deploy command, because some
+  callers keep only the last line.
+- R10. A stowed shim, named as the tool's upstream command, runs the agent CLI chosen in the second question at an exact
+  version the gate allows. The shim always points the tool at the launcher, so a host without an agent browser gets the
+  launcher's error and never the tool's own install advice. It turns update notices and telemetry off, sets an output
+  directory outside the working tree, and derives the agent's browser session from the working tree, so each slot is
+  separate with no per-slot setup. The weekly job in R4 proposes its pin too.
 - R11. The guidance agents read before opening a page routes them: read a page with `defuddle`, scrape with crawl4ai,
   interact with the agent CLI, run product QA with gstack. It says never to run `playwright install`, never pass
   `--no-sandbox`, never install a browser tool at `@latest`, and to script any job that repeats. That guidance is the
@@ -413,9 +416,9 @@ Who opens pages Brett does not control, what they run today, and where each goes
   a drop-in on `apt-daily-upgrade.service` refreshes Google's list first.
 - R14. The Mac keeps its existing Google-updated Chrome. Dotfiles neither installs a second copy nor moves it under
   Homebrew.
-- R15. A host without Chrome keeps its consumers on the set, never exports a pointer to an absent binary, and notes the
-  absence without failing. `GSTACK_CHROMIUM_PATH` is set only where the browser exists and only where headed sessions do
-  not run.
+- R15. A host without Chrome keeps gstack and crawl4ai on the set, exports no gstack or crawl4ai pointer to an absent
+  binary, and notes the absence without failing. `GSTACK_CHROMIUM_PATH` is set only where the browser exists and only
+  where headed sessions do not run, because gstack throws on a failed launch.
 - R16. The check in R4 also fails when an installed Chrome is older than a build an unattended run has had the chance to
   install, or when unattended upgrades do not cover it. A newer build than the last run is noted as pending. It reports
   any running browser on a replaced executable and names the restart, without restarting anything.
@@ -435,7 +438,8 @@ Who opens pages Brett does not control, what they run today, and where each goes
 
 - R19. The always-loaded `CLAUDE.md`, the Playwright runbook, the CLI tools guide, and the solutions docs on Playwright
   launch describe the set, the launcher, and the browsing build as they are, and state the boot-time AppArmor behavior
-  as measured.
+  as measured. The CLI tools guide's rule that repos exact-pin the canonical version and never bump Playwright
+  independently goes, because aliasing makes it false.
 
 ### Acceptance Examples
 
@@ -564,8 +568,6 @@ Who opens pages Brett does not control, what they run today, and where each goes
   scrawl2. crawl4ai's CLI result on an expired certificate was inconclusive here: both settings ended in the same
   `NoneType` error, so AE7 measures it properly. crawl4ai's managed-browser modes resolve their binary through
   `~/.crawl4ai/chromium.path` rather than `chrome_channel`.
-- Which variable names the per-agent session, and where it is set: the agent-slot launcher knows the slot's key, and an
-  interactive shell needs a default.
 - What populated `~/.cache/puppeteer` (bun's cache holds puppeteer 24.43.1), and whether that tool gets
   `PUPPETEER_EXECUTABLE_PATH` or the cache goes. agent-browser's auto-detect would find it if ever installed without its
   path set.
@@ -659,28 +661,15 @@ Scope findings:
 
 Reality rows:
 
-- `REALITY: premise-table finding about 70 premises [estimated], unverified=5 (CfT 157 sandbox at the covered path,
-  launcher over Chrome, launcher on the Mac, Chrome sandbox at /opt, crawl4ai sandbox from /proc)
-  docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1`
-- `REALITY: already-done pass no commit on origin/dev since 2026-11-03 touches the named Playwright, AppArmor, or
-  shell-cache files; #431 is open scripts/playwright-browsers-deploy.sh:1`
-- `REALITY: surface-check pass every named variable and flag was exercised or read: PLAYWRIGHT_MCP_EXECUTABLE_PATH,
-  _SANDBOX, _CONFIG, _OUTPUT_DIR, PLAYWRIGHT_CLI_SESSION, NO_UPDATE_NOTIFIER, AGENT_BROWSER_EXECUTABLE_PATH, _SESSION,
-  --chrome-for-testing-config, PLAYWRIGHT_SKIP_BROWSER_GC (playwright-core 1.61.1 lib/coreBundle.js line 29090)
-  scripts/playwright-browsers-deploy.sh:113`
-- `REALITY: binding-decisions pass recorded eng decisions for this plan's earlier shape (conditional pointer, per-host
-  install, report-not-restart, one path owner) are carried into R15, R16, and the launcher; Brett's direction outranks
-  the pin-in-CI default and CI is asked as a question
-  docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1`
-- `REALITY: numbers pass suite counts and times from JSON reporter and GNU time; lag table from chromiumdash and
-  chrome-for-testing git history; sizes from du and wc [measured]; about 20 files and about 400 symlinks [estimated]
-  docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1`
-- `REALITY: deferred-asks finding the brief asked for real-suite runs per consumer; streamsgrp opens no browser,
-  crawl4ai ran through its CLI with no upstream suite, gstack ran 10 of its test files, the Mac ran nothing because this
-  research is read-only there docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1`
-- `REALITY: pr-count finding no ship policy on file, so the default is one PR per wave; this plan needs three dotfiles
-  PRs (set, agent path, Chrome deploy) for review size and to keep the set independent of Brett's first two answers
-  docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1`
+```text
+REALITY: premise-table finding about 70 premises [estimated], unverified=5 (CfT 157 sandbox at the covered path, launcher over Chrome, launcher on the Mac, Chrome sandbox at /opt, crawl4ai sandbox from /proc) docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1
+REALITY: already-done pass no commit on origin/dev since 2026-11-03 touches the named Playwright, AppArmor, or shell-cache files; #431 is open scripts/playwright-browsers-deploy.sh:1
+REALITY: surface-check pass every named variable and flag was exercised or read: PLAYWRIGHT_MCP_EXECUTABLE_PATH, _SANDBOX, _CONFIG, _OUTPUT_DIR, PLAYWRIGHT_CLI_SESSION, NO_UPDATE_NOTIFIER, AGENT_BROWSER_EXECUTABLE_PATH, _SESSION, --chrome-for-testing-config, PLAYWRIGHT_SKIP_BROWSER_GC (playwright-core 1.61.1 lib/coreBundle.js line 29090) scripts/playwright-browsers-deploy.sh:113
+REALITY: binding-decisions pass recorded eng decisions for this plan's earlier shape (conditional pointer, per-host install, report-not-restart, one path owner) are carried into R15, R16, and the launcher; Brett's direction outranks the pin-in-CI default and CI is asked as a question docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1
+REALITY: numbers pass suite counts and times from JSON reporter and GNU time; lag table from chromiumdash and chrome-for-testing git history; sizes from du and wc [measured]; about 20 files and about 400 symlinks [estimated] docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1
+REALITY: deferred-asks finding the brief asked for real-suite runs per consumer; streamsgrp opens no browser, crawl4ai ran through its CLI with no upstream suite, gstack ran 10 of its test files, the Mac ran nothing because this research is read-only there docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1
+REALITY: pr-count finding no ship policy on file, so the default is one PR per wave; this plan needs three dotfiles PRs (set, agent path, Chrome deploy) for review size and to keep the set independent of Brett's first two answers docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:1
+```
 
 #### 1. Architecture
 
@@ -931,20 +920,247 @@ The task store also carries eight tasks from the 2026-11-03 eng review of
 - Parallelization: 3 lanes, 2 parallel / 1 sequential
 - Lake Score: N/A (no answers scored for Completeness)
 
+### DX Review (plan-devex-review, 2026-11-03)
+
+Run unattended under the same rule as the engineering review. Product type: Platform (host provisioning), with a CLI
+surface (the deploy script, its `--check`, the launcher, the agent CLI's shim) and a guidance surface agents read. Mode:
+DX POLISH, because this enhances existing provisioning. No design doc exists; the `/office-hours` offer was skipped as
+unattended. The prior DX row belongs to this plan's earlier shape, so its scores are shown as the Prior column with a
+note.
+
+#### Developer Persona Card
+
+```text
+TARGET DEVELOPER PERSONA
+========================
+Who:       an AI coding agent in an agent slot on the Linux server or the Mac, unattended
+Context:   asked to read a JavaScript-heavy page, click through a vendor site, or run a repo's e2e suite
+Tolerance: one launch attempt; it follows the first fix line an error prints, literally
+Expects:   the always-loaded CLAUDE.md and the CLI tools guide to say which browser tool to use
+Secondary: the operator at a terminal, deploying a host and reading --check
+```
+
+#### Developer Empathy Narrative
+
+I am an agent asked to pull a table from a vendor's status page that needs JavaScript. The always-loaded instructions
+(`stow/claude/dot-claude/CLAUDE.md:291`) tell me Playwright browsers are system-provided and never to run
+`playwright install`, so I write a script around `chromium.launch()`. It works in about a second. Nothing tells me I
+just ran a pinned build with `--no-sandbox` (measured). If I reach for `npx playwright-cli`, I get a version the gate
+did not vet, and on a host without Chrome it prints `Run "npx playwright install chrome"` (captured), which I would run.
+In a repo, the CLI tools guide (`guides/cli-tools.md:83`) tells me never to bump Playwright independently, so a
+Dependabot PR sits until someone coordinates a dotfiles change. With this plan as drafted, I still have no named command
+to run: R10 says the CLI "installs", but not what I type.
+
+#### Competitive DX Benchmark
+
+The clock runs from the first command to a loaded page, on the covered CfT 156 path with the browser already on disk,
+one run each [measured: GNU time]. Each tool's first-run reading cost is in the Agent Browsers tables.
+
+| Tool                        | Start → result                                                                    | Time, evidence                                                                                                         | DX choice                                                | Source                        |
+| --------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------- |
+| Playwright library, default | `chromium.launch()` → page                                                        | about 1 s [observed: probes]                                                                                           | pinned build, sandbox off                                | `chromiumSandbox` docs; probe |
+| Playwright CLI              | `open <url>` → page                                                               | 0.68 s, then 0.24 s per command [measured]                                                                             | snapshot to a file; sandbox on only for branded channels | trial                         |
+| agent-browser               | `open <url>` → page                                                               | 0.32 s, then under 0.01 s per command [measured]                                                                       | native daemon; hunts for a browser                       | trial                         |
+| Chrome DevTools             | `new_page <url>` → page, after `start`                                            | 0.39 s, then 0.08 s per command [measured]                                                                             | daemon; shared browser unless separated                  | trial                         |
+| This plan                   | read one guidance line, `playwright-cli open <url>` → page in a sandboxed browser | under 2 min including the read [estimated]; the shim adds about 0.1 s through `bunx` [measured: 0.33 s against 0.22 s] | one command, hardening invisible                         | R9, R10                       |
+
+Target (auto-decided): Champion, under 2 minutes from reading the guidance to a page loaded in a sandboxed browser. Tool
+speed does not separate the candidates; the benchmark shows model time dominates.
+
+#### Magical Moment Specification
+
+For the agent: `playwright-cli open https://dv-g3b-emudhra.we-have-a-problem.com/` returns `net::ERR_CERT_REVOKED`, from
+a tool it learned in one line, with no flags and a sandboxed renderer. For a repo: a Dependabot bump of
+`@playwright/test` runs its suite the same day, with no dotfiles change and no download (AE3). For the operator:
+`--check` prints one line naming the set's version and that every alias resolves. All use capabilities in this plan.
+
+#### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                                 | FRICTION POINTS                                  | STATUS
+----------------|------------------------------------------------|--------------------------------------------------|--------
+1. Discover     | reads CLAUDE.md:291 and cli-tools.md:73-86     | both say "exact-pin, never bump independently"    | fixed (R19, DX4)
+2. Install      | nothing for the agent; operator deploys a host | the agent CLI had no named command                | fixed (R10, DX5)
+3. Hello World  | playwright-cli open <url>                      | absent browser printed an unsafe fix              | fixed (R10, R15, DX1)
+4. Real Usage   | snapshot, fill, click; per-agent session       | agents shared one browser by default              | fixed (R10, DX5)
+5. Debug        | reads the launcher's error, runs --check       | agent-browser surfaces only the last stderr line  | fixed (R9, DX2)
+6. Upgrade      | nothing; the weekly job moves pins             | the CLI's pin had no owner                        | fixed (R10, DX6)
+```
+
+#### First-Time Developer Confusion Report
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: agent in a slot, task "click through this vendor page"
+T+0:00  Reads CLAUDE.md: browsers are system-provided; interact with playwright-cli.     → addressed by R11
+T+0:15  Runs playwright-cli open <url>. Page opens; a 265-character reply, snapshot in a file outside the tree.
+T+0:30  Reads the snapshot, runs fill and click by ref. Another agent's tabs never appear.  → addressed by R10
+T+1:00  (host without an agent browser) sees one line: no agent browser, the operator's deploy command. Stops and reports.
+                                                                                            → addressed by R9, DX1, DX2
+T+1:30  A page fails with ERR_CERT_REVOKED. The agent reports it; there is no flag to bypass it.  → addressed by R9
+```
+
+#### Passes
+
+- Pass 1, Getting Started: 5 → 8. The agent path is one named command; the operator path is one deploy and `--check`.
+  Residual: the Chrome deploy needs root on each host, under Option A.
+- Pass 2, API/CLI/SDK: 6 → 8. The agent uses the upstream command name, so upstream's `--help` and skill match. Every
+  setting has a default in the shim; `-s=` remains the escape hatch. Residual: Option B or a different tool changes the
+  shim's contents, not its shape.
+- Pass 3, Error Messages: 4 → 7. DX1 was a CAP4. The launcher's failure becomes one self-contained line. Residual:
+  Playwright's own `Executable doesn't exist` text for a consumer below the alias floor prints `npx playwright install`,
+  which this plan cannot rewrite (DX3).
+- Pass 4, Documentation: 5 → 8. DX4 corrects the guide. Routing fits in one line of the always-loaded file.
+- Pass 5, Upgrade: 6 → 8. Pins move by PR with a suite run behind them; `--check` reports drift. Residual: a Chrome
+  upgrade leaves running browsers on the old build until restarted, reported and not fixed (R16).
+- Pass 6, Dev Environment: 7 → 8. Linux and Mac share the pin, shim, and launcher; CfT publishes both platforms.
+  `~/.local/bin` is ahead of Homebrew in every supported shell shape (AGENTS.md). Residual: nothing has run on the Mac
+  yet (AE2).
+- Pass 7, Community: 3 → 3. Personal dotfiles; no community surface, and none proposed. The upstream gstack issue is
+  pending with Brett.
+- Pass 8, DX Measurement: 5 → 7. `--check` is the standing measure, and the live checks measure the clock once deployed.
+  No telemetry proposed.
+
+```text
+ERROR PATH MATRIX (agent-ready-v1)
+Path                                    | Class      | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+agent CLI, no agent browser             | dependency | pass | fail | fail     | fail | pass    | N/A   | pass      | pass    | CAP4:agent-cli:fix  → R10, R15
+launcher, variable unset                | dependency | gap  | gap  | gap      | gap  | pass    | N/A   | pass      | gap     | CAP6:launcher:fix   → R9
+launcher, run as root                   | usage      | gap  | gap  | N/A      | gap  | N/A     | N/A   | pass      | pass    | none (usage; R9 specifies it)
+consumer below the alias floor          | dependency | pass | fail | fail     | fail | pass    | N/A   | pass      | pass    | CAP6:alias-floor:fix (Playwright's text; DX3)
+--check, set differs from the pin       | dependency | pass | pass | gap      | gap  | gap     | N/A   | pass      | pass    | CAP6:check:context  → R4
+unexpected: curl or unzip fails         | dependency | gap  | gap  | gap      | gap  | gap     | gap   | pass      | gap     | CAP6:deploy:trace (planning: pass the tool's stderr through, name the rerun)
+```
+
+Permission and safety model: the shim and launcher hold no credentials, and nothing here signs in to a browser. The
+launcher refuses flags rather than asking, and there is no bypass by design; a job that truly needs an insecure browser
+uses Playwright directly and is outside this guidance. No verbose mode is proposed; the browser's own `--enable-logging`
+still passes through.
+
+- DX1. [CRITICAL] `CAP4:agent-cli:fix unsafe fix on a host without an agent browser`. R15 as written exports no pointer
+  when the browser is absent, so the Playwright CLI falls back to its default channel and prints
+  `Run "npx playwright install chrome"` (captured), which runs an `apt-get install` as root or wedges on this kernel's
+  extractor. Corrected: the shim always points the CLI at the launcher, which is always on PATH and fails closed. Only
+  gstack's pointer stays conditional, because gstack throws on a failed launch and would lose its working fallback (the
+  set). Disposition: accepted (DX-D1): R10, R15.
+- DX2. [HIGH] `CAP6:launcher:fix error must survive every caller's framing`. Captured from the trial: agent-browser
+  prints `Chrome stderr (last 1 lines)`; Playwright CLI prints the line beneath a stack trace and repeats it in a call
+  log; gstack prints the launch error and then its own "Fix: point GSTACK_CHROMIUM_PATH at a working Chromium". A
+  multi-line error loses its fix under agent-browser. Corrected line: `ERROR: no agent browser on this host
+  (DOTFILES_AGENT_BROWSER_BIN unset); reason: no-agent-browser; next: ask the operator to run the agent browser deploy;
+  never run playwright install`. Disposition: accepted (DX-D2): R9 requires one self-contained line, last on stderr,
+  with a stable reason.
+- DX3. [HIGH] `CAP6:alias-floor:fix Playwright's message for a missing executable`. `coreBundle.js:28665` throws
+  `Executable doesn't exist at ...` and prints `npx playwright install`, which hangs on this kernel. This plan narrows
+  when it fires (the forward range) but cannot rewrite it. The remaining reach is a consumer at Playwright 1.56 or
+  earlier, which today means the Mac's crawl4ai before its upgrade. Disposition: no new requirement. R11 already forbids
+  the command, and the Mac's crawl4ai upgrade is on the Deferred list.
+- DX4. [INFORMATIONAL] `guides/cli-tools.md:83-85` and `CLAUDE.md:293` say repos exact-pin the one canonical version and
+  to "never bump a repo's Playwright independently". Aliasing makes that false, and leaving it would have agents hold
+  back Dependabot PRs. Disposition: accepted (DX-D3): R19 names the rewrite.
+- DX5. [INFORMATIONAL] R10 said the CLI "installs" and agents get a session "through an environment variable", with no
+  command or session source. Disposition: accepted (DX-D4): a stowed shim named as upstream's command holds the pin, the
+  launcher pointer, the notifier setting, and the output directory, and derives the session from the working tree, so
+  each slot is separate with no per-slot setup. `bunx` at an exact version adds about 0.1 s and passes the age gate
+  (measured).
+- DX6. [INFORMATIONAL] The agent CLI's pin had no owner. Disposition: accepted (DX-D5): the weekly bump job proposes it
+  too, at the newest version the gate allows.
+- DX7. [INFORMATIONAL] The Playwright CLI's `--help` opens with an update banner when a newer release exists, naming
+  `npm install -g ...@latest`. Silenced by `NO_UPDATE_NOTIFIER` (read in `playwright-cli.js:40`). Disposition: covered
+  by DX-D4.
+
+Decision ledger (auto-decided on recommendation): DX-D1 shim always names the launcher (chosen) over a conditional
+pointer with Playwright's error. DX-D2 one self-contained stderr line (chosen) over the multi-line `reason:`/`next:`
+shape of `sd-commit-doc`, because a caller may keep only the last line. DX-D3 rewrite the guide's exact-pin rule
+(chosen) over leaving it. DX-D4 a stowed shim (chosen) over shell functions, which non-login bash never sees, and over a
+permanent global install. DX-D5 one bump job for browser and CLI pins (chosen) over a second job. Outside voice:
+disabled (`codex_reviews`), recorded as skipped.
+
+NOT in scope: telemetry on agent launches; a `--json` form of `--check` (no current consumer reads one); a community
+surface; rewriting Playwright's or gstack's error text.
+
+What already exists: `sd-commit-doc`'s reason lines, `scripts/sysctl-deploy.sh --check`, the stowed scripts in
+`stow/local/dot-local/bin/`, gstack's launch error, Playwright's `PLAYWRIGHT_MCP_*` environment.
+
+TODOS: none proposed; there is no tracked TODOS file.
+
+Implementation tasks (DX):
+
+- [ ] **DX-T1 (P1, human: ~1h / CC: ~10min)** — shim — agent CLI shim: pin, launcher pointer, notifier off, output
+  directory, session from the working tree
+  - Surfaced by: Pass 3 — DX1; Pass 2 — DX5
+  - Files: `stow/local/dot-local/bin/`, a bats case
+  - Verify: AE9, AE10
+- [ ] **DX-T2 (P1, human: ~30min / CC: ~5min)** — launcher — one self-contained last stderr line with a stable reason
+  - Surfaced by: Pass 3 — DX2
+  - Files: the launcher, `tests/agent-browser-launcher.bats`
+  - Verify: bats asserts the last line; a live run through each tool
+- [ ] **DX-T3 (P1, human: ~1h / CC: ~10min)** — guidance — routing line, and the exact-pin rule rewritten
+  - Surfaced by: Pass 4 — DX4
+  - Files: `stow/claude/dot-claude/CLAUDE.md`, `stow/claude/dot-claude/guides/cli-tools.md`
+  - Verify: `markdownlint-cli2`; read-through
+- [ ] **DX-T4 (P2, human: ~30min / CC: ~5min)** — bump — the weekly job also proposes the agent CLI's pin
+  - Surfaced by: Pass 5 — DX6
+  - Files: the bump script, its bats
+  - Verify: fixture case for a too-new release
+
+## DX Review Scorecard
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      | 8/10   | 5/10   | ↑      |
+| API/CLI/SDK          | 8/10   | 6/10   | ↑      |
+| Error Messages       | 7/10   | 4/10   | ↑      |
+| Documentation        | 8/10   | 5/10   | ↑      |
+| Upgrade Path         | 8/10   | 6/10   | ↑      |
+| Dev Environment      | 8/10   | 7/10   | ↑      |
+| Community            | 3/10   | 3/10   | =      |
+| DX Measurement       | 7/10   | 5/10   | ↑      |
++--------------------------------------------------------------------+
+| TTHW                 | <2 min | no named command today               |
+| Competitive Rank     | Champion (target)                            |
+| Magical Moment       | designed via playwright-cli and --check      |
+| Product Type         | Platform with a CLI and guidance surface     |
+| Mode                 | POLISH                                       |
+| Overall DX           | 7/10   | 5/10   | ↑      |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered                                        |
+| Learn by Doing     | covered (one command, upstream's help)         |
+| Fight Uncertainty  | covered (DX1, DX2, R4)                         |
+| Opinionated + Escape Hatches | covered (shim defaults; -s=; direct Playwright) |
+| Code in Context    | covered                                        |
+| Magical Moments    | covered                                        |
+| Agents Are Users   | covered (no interactive step; stop with a command) |
++====================================================================+
+```
+
+Prior column: this review's initial scores for the plan as written. Community stays at 3, honestly: no community surface
+is in scope. Error Messages stays at 7 because Playwright's own message for a missing executable is not this plan's to
+change.
+
+Unresolved decisions from this review: none.
+
 ## GSTACK REVIEW REPORT
 
-| Review         | Trigger                              | Why                             | Runs | Status             | Findings                   |
-| -------------- | ------------------------------------ | ------------------------------- | ---- | ------------------ | -------------------------- |
-| CEO Review     | `/plan-ceo-review`                   | Scope & strategy                | 0    | —                  | —                          |
-| Outside Review | codex, plan-eng-review outside voice | Independent 2nd opinion         | 1    | disabled           | —                          |
-| Eng Review     | `/plan-eng-review`                   | Architecture & tests (required) | 1    | ISSUES OPEN (PLAN) | 35 issues, 0 critical gaps |
-| Design Review  | `/plan-design-review`                | UI/UX gaps                      | 0    | —                  | —                          |
-| DX Review      | `/plan-devex-review`                 | Developer experience gaps       | 0    | —                  | —                          |
+| Review         | Trigger                                                    | Why                             | Runs | Status             | Findings                                                  |
+| -------------- | ---------------------------------------------------------- | ------------------------------- | ---- | ------------------ | --------------------------------------------------------- |
+| CEO Review     | `/plan-ceo-review`                                         | Scope & strategy                | 0    | —                  | —                                                         |
+| Outside Review | codex, plan-eng-review and plan-devex-review outside voice | Independent 2nd opinion         | 2    | disabled           | —                                                         |
+| Eng Review     | `/plan-eng-review`                                         | Architecture & tests (required) | 2    | ISSUES OPEN (PLAN) | 35 issues, 0 critical gaps                                |
+| Design Review  | `/plan-design-review`                                      | UI/UX gaps                      | 0    | —                  | —                                                         |
+| DX Review      | `/plan-devex-review`                                       | Developer experience gaps       | 2    | ISSUES OPEN        | score: 5/10 → 7/10, TTHW: no named command today → <2 min |
 
-- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no findings.
-- **VERDICT:** no review CLEAR yet — eng review required (its findings are accepted into the plan as mapped work).
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews` for both reviews; no findings.
+- **VERDICT:** no review CLEAR yet — eng review required (both reviews' findings are accepted into the plan as mapped
+  work).
 
 **UNRESOLVED DECISIONS:**
 
-- what agents browse with, which agent tool, how the seven-day gate applies to browser builds, and whether CI joins the
-  set (plan Outstanding Questions)
+- - 4 unresolved for Brett (plan Outstanding Questions): what agents browse with, which agent tool, how the seven-day
+  gate applies to browser builds, and whether CI joins the set
