@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Wrapper to block AI agents from merging PRs into main, anyone from opening a PR
-# on a repository under a PR freeze, and any checkout, inside an agent slot, of a
-# PR head another person owns. All other gh commands (including pr merge to
-# non-main branches) pass through.
+# Wrapper to block AI agents from merging PRs into main, and anyone from opening
+# a PR on a repository under a PR freeze. All other gh commands (including pr
+# merge to non-main branches) pass through.
 
 self="${BASH_SOURCE[0]}"
 
@@ -180,54 +179,34 @@ is_pr_merge() {
   strip_word pr --version "$@" && strip_word merge '' "${STRIPPED[@]}" && MERGE_ARGS=("${STRIPPED[@]}")
 }
 
-# True for a `pr checkout` command line or gh's default `co` alias for it, with
-# CHECKOUT_ARGS holding its other arguments in order.
-is_pr_checkout() {
-  if strip_word co --version "$@"; then
-    CHECKOUT_ARGS=("${STRIPPED[@]}")
-  else
-    strip_word pr --version "$@" && strip_word checkout '' "${STRIPPED[@]}" && CHECKOUT_ARGS=("${STRIPPED[@]}")
-  fi
-}
-
-# Usage: read_pr_args <bare long flags> <long flags with a value> <bare short flags> <short flags with a value> <args...>
-# Reads a pull request command's other arguments against its own flags, so a flag's
-# value is never taken for the pull request. --help, -h, --repo, and -R are every
-# command's. Sets PR_SELECTOR and PR_REPO to what the lookup must carry to resolve the
-# PR the command will resolve, and PR_HELP. A token it cannot place, a flag from a later
-# gh or a second PR, lands in PR_UNREADABLE.
-read_pr_args() {
-  local bare_long=" $1 " value_long=" $2 " bare_short=$3 value_short=$4 arg cluster flag value
-  shift 4
-  PR_SELECTOR=() PR_REPO=() PR_HELP=false PR_UNREADABLE=''
+# Reads MERGE_ARGS against `gh pr merge`'s own flags, so a flag's value is never
+# taken for the pull request. Sets MERGE_SELECTOR and MERGE_REPO to what the lookup
+# must carry to resolve the PR the merge will resolve, and MERGE_HELP. A token it
+# cannot place, a flag from a later gh or a second PR, lands in MERGE_UNREADABLE.
+read_merge_args() {
+  local arg cluster flag value
+  MERGE_SELECTOR=() MERGE_REPO=() MERGE_HELP=false MERGE_UNREADABLE=''
+  set -- "${MERGE_ARGS[@]}"
   while (($#)); do
     arg=$1
     shift
     case $arg in
       --)
-        PR_SELECTOR+=("$@")
+        MERGE_SELECTOR+=("$@")
         break
         ;;
-      --help) PR_HELP=true ;;
-      --repo)
+      --help) MERGE_HELP=true ;;
+      --admin | --auto | --delete-branch | --disable-auto | --merge | --rebase | --squash) ;;
+      --repo | --subject | --body | --body-file | --author-email | --match-head-commit)
         value=${1-}
         shift
-        PR_REPO=(--repo "$value")
+        [[ $arg != --repo ]] || MERGE_REPO=(--repo "$value")
         ;;
-      --repo=*) PR_REPO=(--repo "${arg#--repo=}") ;;
-      --*=*)
-        if [[ $value_long != *" ${arg%%=*} "* ]]; then
-          PR_UNREADABLE=$arg
-          return
-        fi
-        ;;
+      --repo=*) MERGE_REPO=(--repo "${arg#--repo=}") ;;
+      --subject=* | --body=* | --body-file=* | --author-email=* | --match-head-commit=*) ;;
       --*)
-        if [[ $value_long == *" $arg "* ]]; then
-          shift
-        elif [[ $bare_long != *" $arg "* ]]; then
-          PR_UNREADABLE=$arg
-          return
-        fi
+        MERGE_UNREADABLE=$arg
+        return
         ;;
       -?*)
         cluster=${arg#-}
@@ -235,32 +214,32 @@ read_pr_args() {
           flag=${cluster:0:1}
           cluster=${cluster:1}
           case $flag in
-            h) PR_HELP=true ;;
-            R | ["$value_short"])
+            h) MERGE_HELP=true ;;
+            d | m | r | s) ;;
+            A | b | F | R | t)
               if [[ -n $cluster ]]; then
                 value=${cluster#=}
               else
                 value=${1-}
                 shift
               fi
-              [[ $flag != R ]] || PR_REPO=(--repo "$value")
+              [[ $flag != R ]] || MERGE_REPO=(--repo "$value")
               cluster=''
               ;;
-            ["$bare_short"]) ;;
             *)
-              PR_UNREADABLE=$arg
+              MERGE_UNREADABLE=$arg
               return
               ;;
           esac
         done
         ;;
-      *) PR_SELECTOR+=("$arg") ;;
+      *) MERGE_SELECTOR+=("$arg") ;;
     esac
   done
-  ((${#PR_SELECTOR[@]} <= 1)) || PR_UNREADABLE=${PR_SELECTOR[1]}
+  ((${#MERGE_SELECTOR[@]} <= 1)) || MERGE_UNREADABLE=${MERGE_SELECTOR[1]}
 }
 
-refuse_call() {
+refuse_merge() {
   echo "Blocked: $1" >&2
   echo "$2" >&2
   exit 1
@@ -271,45 +250,18 @@ refuse_call() {
 # writes notices to stderr even when it succeeds. Anything but a base that names
 # neither main nor master is refused.
 if is_pr_merge "$@"; then
-  read_pr_args '--admin --auto --delete-branch --disable-auto --merge --rebase --squash' \
-    '--subject --body --body-file --author-email --match-head-commit' dmrs AbFt "${MERGE_ARGS[@]}"
+  read_merge_args
   ask_human="Ask the human to perform the merge; the PR body is used as the squash commit message."
-  [[ -z $PR_UNREADABLE ]] \
-    || refuse_call "cannot read '$PR_UNREADABLE' in this merge, so the guard cannot tell which pull request it names." "$ask_human"
-  if ! $PR_HELP; then
-    base_branch=$("$real_gh" pr view "${PR_REPO[@]}" --json baseRefName --jq '.baseRefName' -- "${PR_SELECTOR[@]}") \
+  [[ -z $MERGE_UNREADABLE ]] \
+    || refuse_merge "cannot read '$MERGE_UNREADABLE' in this merge, so the guard cannot tell which pull request it names." "$ask_human"
+  if ! $MERGE_HELP; then
+    base_branch=$("$real_gh" pr view "${MERGE_REPO[@]}" --json baseRefName --jq '.baseRefName' -- "${MERGE_SELECTOR[@]}") \
       && [[ -n $base_branch ]] \
-      || refuse_call "cannot determine this pull request's base branch, so it may be merging into main." \
+      || refuse_merge "cannot determine this pull request's base branch, so it may be merging into main." \
         "Name the PR and its repository (gh pr merge <number> -R <owner>/<repo>), or ask the human to perform the merge."
     if [[ $base_branch == main || $base_branch == master ]]; then
-      refuse_call "merging into $base_branch requires human approval." "$ask_human"
+      refuse_merge "merging into $base_branch requires human approval." "$ask_human"
     fi
-  fi
-fi
-
-# Inside an agent slot, Claude's project settings and git's hooks path are live, so
-# checking out a head another person owns would run what it tracks. `agent-slot launch
-# --pr` makes a slot that runs none of it. Outside a slot this is the operator's own
-# checkout, and it looks nothing up. Not knowing the owner refuses, as a wrong owner would.
-if is_pr_checkout "$@" && slot_git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null) \
-  && [[ -f $slot_git_dir/agent-slot.json ]]; then
-  read_pr_args '--detach --force --recurse-submodules' '--branch --worktree' f b "${CHECKOUT_ARGS[@]}"
-  slot_repo=${slot_git_dir%/.git}
-  slot_repo=${slot_repo%/*}
-  slot_repo=${slot_repo##*/}
-  make_a_slot="Start a slot that runs nothing from it: agent-slot launch $slot_repo --pr <the pull request>."
-  [[ -z $PR_UNREADABLE ]] \
-    || refuse_call "cannot read '$PR_UNREADABLE' in this checkout, so the guard cannot tell whose head it is." "$make_a_slot"
-  if ! $PR_HELP; then
-    make_a_slot="Start a slot that runs nothing from it: agent-slot launch $slot_repo --pr ${PR_SELECTOR[0]:-<the pull request>}."
-    # shellcheck source=/dev/null
-    source "$(dirname "$(readlink -f "$self")")/../../../../scripts/agent-slot/lib/owners.sh" 2>/dev/null \
-      || refuse_call "cannot read the trusted owner list, so the guard cannot tell whose head this is." "$make_a_slot"
-    head_owner=$("$real_gh" pr view "${PR_REPO[@]}" --json headRepositoryOwner --jq '.headRepositoryOwner.login' -- "${PR_SELECTOR[@]}") \
-      && [[ -n $head_owner ]] \
-      || refuse_call "cannot determine who owns this pull request's head, so checking it out here could run another person's code." "$make_a_slot"
-    owner_trusted "$head_owner" \
-      || refuse_call "this pull request's head belongs to $head_owner, outside the trusted owners, and checking it out here would run what it tracks." "$make_a_slot"
   fi
 fi
 

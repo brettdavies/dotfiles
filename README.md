@@ -521,8 +521,8 @@ A head a trusted owner holds keeps the normal setup, and so does a slot on the b
 prime chose that base. A same-repo PR on a third party's origin is that third party's code, so it is foreign. `resume`
 keeps a foreign head's flags. A reopen is foreign when the slot it reopens was, whatever branch that slot's agent left
 behind, and when the head it plans or the PR's head on GitHub is. The SessionStart context tells the agent all of this
-and tells it not to run the tree's code. Inside a slot, the `gh` wrapper refuses `gh pr checkout` of a head a trusted
-owner does not hold.
+and tells it not to run the tree's code. No gate covers an agent that runs the tree's code anyway, or a foreign head
+checked out by hand inside a normal slot, which every slot's context warns against.
 
 A merge that conflicts on a left-out file puts it back on disk, as do `git checkout <tree> -- .`,
 `git restore --source <tree> .`, `git apply --index`, and `git am`. Nothing runs it on its own: the slot's Claude still

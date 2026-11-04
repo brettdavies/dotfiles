@@ -1,7 +1,6 @@
 # shellcheck shell=bash
 # The GitHub owners whose repositories count as the operator's own: AGENT_SLOT_TRUSTED_OWNERS when it is set, even empty,
-# which trusts nobody; else config/agent-slot/trusted-owners. A file that cannot be read trusts nobody. agent-slot and the
-# gh wrapper both source this, and the wrapper can run under macOS's bash 3.2, so it holds to that bash's syntax.
+# which trusts nobody; else config/agent-slot/trusted-owners. A file that cannot be read trusts nobody.
 
 OWNERS_FILE=${BASH_SOURCE[0]%/*}/../../../config/agent-slot/trusted-owners
 
