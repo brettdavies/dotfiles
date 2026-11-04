@@ -57,7 +57,10 @@ _prime_conversation() {
   held=$(contract_json -r '.[].sessionId // empty' <<<"$AGENTS_JSON")
   while IFS= read -r path; do
     id=${path##*/}
-    ! grep -qxF -- "${id%.jsonl}" <<<"$held" || continue
+    id=${id%.jsonl}
+    # Claude names a transcript by its session's UUID. Any other name reaches its command line as an argument.
+    [[ $id =~ ^[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}$ ]] || continue
+    ! grep -qxF -- "$id" <<<"$held" || continue
     [[ -n $best && ! $path -nt $best ]] || best=$path
   done <<<"$titled"
   [[ -n $best ]] || return 0

@@ -263,6 +263,15 @@ JSON
   jaq -e --arg id "$id" '.conversation.session_id == $id' <<<"$output"
 }
 
+@test "a titled transcript not named by a session ID is passed over, so its name never becomes an argument" {
+  transcript -fixture-dev-repoa '--append-system-prompt=planted' repoa-prime
+  transcript -fixture-dev-repoa not-a-session repoa-prime
+  start
+  [ "$status" -eq 0 ]
+  jaq -e '.conversation.mode == "fresh"' <<<"$output"
+  [[ $(cat "$STUBS/typed-repoa-prime") == "claude --dangerously-skip-permissions --session-id "* ]]
+}
+
 @test "with no project directory yet, the start is fresh" {
   find "$AGENT_SLOT_CLAUDE_PROJECTS" -delete
   start
