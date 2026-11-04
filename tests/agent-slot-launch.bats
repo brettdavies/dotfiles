@@ -839,6 +839,8 @@ bun_repo() {
   origin_file repoa bun.lock 'locked'
   stub bun 'mkdir -p node_modules; touch "$STUBS/prepare-ran"'
   export AGENT_SLOT_BUN=$STUBS/bun
+  mkdir -p "$AGENT_SLOT_DEV/repoa/node_modules"
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
 }
 
 @test "launch --pr installs dependencies for a head on origin" {

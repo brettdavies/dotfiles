@@ -217,8 +217,10 @@ parity_claude_settings() {
     >"$slot/.claude/settings.local.json"
 }
 
-# Usage: parity_deps <slot>
+# Usage: parity_deps <prime> <slot>
 # Installs what the clone's root lockfile pins, because a repo's hooks fail every tool-backed gate in a clone without it.
+# An install runs the repo's lifecycle scripts with this account's credentials before anyone reads them, so it follows
+# the prime: a prime with no node_modules, or one Claude does not trust, shows no install has been chosen on this host.
 # Only a frozen install runs: it writes no lockfile, and a lockfile that disagrees with its package.json fails. It also
 # takes whatever the lockfile pins without consulting the supply-chain age gate, a release published that day included
 # (measured on npm 11.16 and bun 1.4.4), so the gate binds only whoever wrote the lock. That sets which heads get
@@ -230,10 +232,10 @@ parity_claude_settings() {
 # hooks pass on the root install, and some nested ones are fixtures. bun comes first because the repo that holds two
 # lockfiles installs with bun. An install that does not finish leaves a usable slot, so it is reported rather than fatal:
 # PARITY_DEPS is {manager, command, status, log}, with status one of installed, failed, timed-out, tool-missing,
-# not-ignored, untrusted-head, lockfile-changed, or null when the repo has nothing to install.
+# not-ignored, prime-not-set-up, untrusted-head, lockfile-changed, or null when the repo has nothing to install.
 PARITY_DEPS=null
 parity_deps() {
-  local slot=$1 manager lock tool out status=installed log=''
+  local prime=$1 slot=$2 manager lock tool out status=installed log=''
   local -a args run
   PARITY_DEPS=null
   [[ -f $slot/package.json ]] || return 0
@@ -247,7 +249,9 @@ parity_deps() {
     return 0
   fi
   tool=${AS_TOOL[$manager]}
-  if [[ -z $(git -C "$slot" for-each-ref --count=1 --contains HEAD refs/remotes/origin) ]]; then
+  if ! trust_known "$prime" || [[ ! -d $prime/node_modules ]]; then
+    status='prime-not-set-up'
+  elif [[ -z $(git -C "$slot" for-each-ref --count=1 --contains HEAD refs/remotes/origin) ]]; then
     status='untrusted-head'
   elif [[ $(git -C "$slot" rev-parse -q --verify "HEAD:$lock") != \
     "$(git -C "$slot" rev-parse -q --verify "refs/remotes/origin/$PARITY_BASE:$lock")" ]]; then

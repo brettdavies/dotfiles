@@ -21,8 +21,10 @@ setup() {
   # A launch from an SSH command or a Claude hook arrives without the shell's age gate, so the gate tests start there too.
   unset npm_config_min_release_age npm_config_minimum_release_age
   prime repoa
+  PRIME=$AGENT_SLOT_DEV/repoa
+  mkdir -p "$PRIME/node_modules"
   SLOT=$AGENT_SLOT_ROOT/repoa/1
-  trusted "$(realpath -m "$SLOT")"
+  trusted "$(realpath -m "$SLOT")" "$(realpath -m "$PRIME")"
   LEDGER=$AGENT_SLOT_STATE_DIR/ledger.jsonl
 }
 
@@ -181,6 +183,29 @@ real_bun() {
   never_called '^bun install'
   [ ! -e "$SLOT/node_modules" ]
   jaq -e '.deps.status == "not-ignored" and .deps.manager == "bun"' <<<"$output"
+}
+
+@test "a prime with no node_modules is reported and not installed, since nothing shows this repo's install has run here" {
+  js_repo bun.lock
+  stub_manager bun
+  rmdir "$PRIME/node_modules"
+  launch r-noinstall
+  [ "$status" -eq 0 ]
+  never_called '^bun install'
+  [ ! -e "$SLOT/node_modules" ]
+  jaq -e '.deps == {manager: "bun", command: "bun install --frozen-lockfile", status: "prime-not-set-up", log: null}
+    and .state == "active"' <<<"$output"
+}
+
+@test "an untrusted prime is reported and not installed, even with node_modules" {
+  js_repo bun.lock
+  stub_manager bun
+  jaq --arg p "$(realpath -m "$PRIME")" 'del(.projects[$p])' "$AGENT_SLOT_CLAUDE_STATE" >"$T/state.new"
+  cp "$T/state.new" "$AGENT_SLOT_CLAUDE_STATE"
+  launch r-untrusted
+  [ "$status" -eq 0 ]
+  never_called '^bun install'
+  jaq -e '.deps.status == "prime-not-set-up"' <<<"$output"
 }
 
 @test "a failed install keeps the slot, and its output in a log the launch names" {

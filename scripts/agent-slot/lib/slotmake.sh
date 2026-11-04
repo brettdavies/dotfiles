@@ -145,7 +145,7 @@ slot_make() {
     --arg file "$prompt_copy" '.base = $base | .prompt_file = (if $prompt then $file else null end)'
   t_setup=$(_slot_us)
 
-  parity_deps "$path"
+  parity_deps "$REPO_PRIME" "$path"
   record_update "$repo" "$n" --argjson deps "$PARITY_DEPS" '.deps = $deps'
   t_deps=$(_slot_us)
 
