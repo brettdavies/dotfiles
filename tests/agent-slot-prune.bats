@@ -118,6 +118,79 @@ there() { git -C "$ORIGIN" rev-parse -q --verify "refs/heads/$1" >/dev/null && e
   [ "$(here unreachable)" = yes ]
 }
 
+@test "a branch another PR targets is kept on both sides, even after its own PR merged" {
+  work lower
+  git -C "$SLOT" push -q origin lower
+  pr 11 MERGED lower
+  pr_listed 12 OPEN upper "$(git -C "$SLOT" rev-parse lower)" 2026-06-01T00:00:00Z
+  jaq '(.[] | select(.number == 12)).baseRefName = "lower"' "$STUBS/gh-prs.json" >"$STUBS/gh-prs.new"
+  mv "$STUBS/gh-prs.new" "$STUBS/gh-prs.json"
+  git -C "$SLOT" checkout -q main
+  resume
+  [ "$status" -eq 0 ]
+  jaq -e '.pruned_branches == []' <<<"$output"
+  [ "$(here lower)" = yes ]
+  [ "$(there lower)" = yes ]
+}
+
+@test "origin's default branch is kept on both sides when it is not the slot's base" {
+  pr 13 MERGED main
+  jq_record='.base = "release"'
+  jaq "$jq_record" "$SLOT/.git/agent-slot.json" >"$T/rec.json" && mv "$T/rec.json" "$SLOT/.git/agent-slot.json"
+  git -C "$SLOT" checkout -q -b elsewhere
+  resume
+  [ "$status" -eq 0 ]
+  jaq -e '.pruned_branches == []' <<<"$output"
+  [ "$(here main)" = yes ]
+  [ "$(there main)" = yes ]
+}
+
+@test "a branch git cannot delete here is reported in prune_failed, and resume still finishes" {
+  work held
+  git -C "$SLOT" push -q origin held
+  pr 14 MERGED held
+  git -C "$SLOT" checkout -q main
+  git -C "$SLOT" worktree add -q "$T/held-wt" held
+  resume
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e '.pruned_branches == [] and (.prune_failed | map(.branch)) == ["held"] and .prune_checked == true' <<<"$output"
+  [ "$(here held)" = yes ]
+}
+
+@test "a delete origin refuses keeps the branch here too, and is reported in prune_failed and the ledger" {
+  work guarded
+  git -C "$SLOT" push -q origin guarded
+  pr 15 MERGED guarded
+  git -C "$SLOT" checkout -q main
+  printf '#!/bin/sh\nwhile read -r old new ref; do [ "$ref" = refs/heads/guarded ] && exit 1; done\nexit 0\n' \
+    >"$ORIGIN/hooks/pre-receive"
+  chmod +x "$ORIGIN/hooks/pre-receive"
+  resume
+  [ "$status" -eq 0 ]
+  jaq -e '.pruned_branches == [] and (.prune_failed | map(.branch)) == ["guarded"]' <<<"$output"
+  [ "$(here guarded)" = yes ]
+  [ "$(there guarded)" = yes ]
+  jaq -e -s 'map(select(.event == "prune" and .branch == "guarded" and .result == "failed")) | length == 1' \
+    "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+}
+
+@test "a pruned branch gets a ledger line, and a resume with no PR list from GitHub says it checked nothing" {
+  work done-one
+  git -C "$SLOT" push -q origin done-one
+  pr 16 MERGED done-one
+  git -C "$SLOT" checkout -q main
+  resume
+  jaq -e '.pruned_branches == ["done-one"] and .prune_failed == [] and .prune_checked == true' <<<"$output"
+  jaq -e -s 'map(select(.event == "prune" and .branch == "done-one" and .result == "pruned")) | length == 1' \
+    "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+  stub gh 'exit 1'
+  resume
+  jaq -e '.prune_checked == false' <<<"$output"
+}
+
 @test "with no PR list from GitHub, resume prunes nothing" {
   work merged-two
   pr 7 MERGED merged-two
