@@ -96,8 +96,8 @@ before its work items were recorded is reopened by its Claude session ID, with -
     return 1
   fi
   [[ -n $REOPEN_SESSION ]] || return 0
-  contract_json -e --argjson i "$REOPEN_ITEM" "$ITEM_SAME_DEF"'(.items // []) | . == []
-    or any(.[]; same_item($i))' <<<"$REOPEN_SOURCE" >/dev/null \
+  contract_json -e --argjson i "$REOPEN_ITEM" "$ITEM_SAME_DEF$ITEM_NOT_PROBE_DEF"'. as $source | (.items // [])
+    | any(.[]; same_item($i)) or (map(select(not_probe($source))) == [])' <<<"$REOPEN_SOURCE" >/dev/null \
     && return 0
   _reopen_refuse item-not-found-in-ledger "the teardown of $repo/$(contract_json -r .slot <<<"$REOPEN_SOURCE") with \
 session $REOPEN_SESSION names $(contract_json -r '[.items[] | "\(.repo)#\(.number)"] | join(", ")' <<<"$REOPEN_SOURCE"), \

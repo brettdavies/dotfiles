@@ -22,7 +22,8 @@ _teardown_recheck() {
   _check_uncommitted "$path"
   _check_stash "$path"
   _check_commits "$path" "$(contract_json -r '.base // "main"' <<<"$RECORD")" \
-    "$(contract_json '.prs // [] | length' <<<"$RECORD")"
+    "$(contract_json --argjson v "$CHECK_VERDICT" '[(.prs // [])[] | . as $n
+      | select(any(($v.prs // [])[]; .number == $n and .state == "CLOSED" and .probe) | not)] | length' <<<"$RECORD")"
   _check_files "$path" "$(contract_json -r '.prime // ""' <<<"$RECORD")"
   _check_solutions
   ((${#CHECK_BLOCKERS[@]} == 0))
@@ -140,7 +141,8 @@ slot_teardown() {
   ledger_append teardown "$(contract_json -c --argjson branches "$branches" --arg head "$head" \
     --arg entry "${PURGE_ENTRY:+$AS_TRASH_DIR/files/$PURGE_ENTRY}" --arg transcript "$(sessions_record_transcript)" '
     def text: if . == "" then null else . end;
-    {repo, slot, task, session_id, transcript: ($transcript | text), prs, request_id, items: (.items // []), name,
+    {repo, slot, task, session_id, transcript: ($transcript | text), prs, probes: (.probes // []), request_id,
+      items: (.items // []), name,
       head: ($head | text), branches: $branches, trash_entry: ($entry | text)}' <<<"$RECORD")"
   record_unlock_slot "$repo" "$n"
   purge_run "$repo" "$n"

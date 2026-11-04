@@ -463,8 +463,9 @@ checked out, whose agent resumes the old slot's Claude conversation by its sessi
 those already merged or closed when it was reopened, neither finish it nor hold its slot back, so only a new outcome
 ends it. A *probe* is a draft PR the slot's agent has declared throwaway, opened to exercise CI or a workflow and never
 meant to merge. Nothing infers one, it never names its slot, and it stops being one if it leaves draft. Closed unmerged
-it counts like a settled PR, and the slot closes it itself, through a verb that acts only on a marked draft whose head
-that slot pushed.
+it counts like a settled PR, and the slot closes it itself, through a verb that acts only on a marked draft on a branch
+that slot created, whose head it pushed. An open one left behind draws a reminder to its agent, then a needs-you entry,
+since nothing else will end it.
 
 ### Prime tab
 

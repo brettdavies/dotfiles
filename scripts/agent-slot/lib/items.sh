@@ -36,7 +36,7 @@ item_parse_ref() {
 # head.
 ITEM='{}'
 item_resolve() {
-  local kind repo
+  local kind repo next action=rerun
   local -a answer
   _item_gh api "repos/$ITEM_REPO/issues/$ITEM_NUMBER"
   mapfile -t answer < <(contract_json -r 'if type == "object" and has("number") and (.repository_url | type) == "string"
@@ -46,9 +46,13 @@ item_resolve() {
   [[ -n $kind && $repo =~ ^$ITEM_REPO_PATTERN$ ]] || _item_unreadable "gh answered with something other than an issue"
   ITEM_REPO=$repo
   if [[ $kind != "$ITEM_KIND" ]]; then
+    next=$(_item_swapped_command)
+    if [[ $next == "$(contract_quote "$CONTRACT_PROGRAM" "${CONTRACT_ARGV[@]}")" ]]; then
+      next=$(contract_help_command) action=run
+    fi
     contract_fail item-kind-mismatch \
       "$ITEM_REPO#$ITEM_NUMBER is $(_item_kind_word "$kind"), not $(_item_kind_word "$ITEM_KIND")" \
-      --value "$ITEM_REF" --command "$(_item_swapped_command)"
+      --value "$ITEM_REF" --command "$next" --action "$action"
   fi
   if [[ $ITEM_KIND == issue ]]; then
     ITEM=$(contract_json -c --arg repo "$ITEM_REPO" --argjson number "$ITEM_NUMBER" \
@@ -94,6 +98,10 @@ item_name() {
 ITEM_SAME_DEF='def same_repo($a; $b): ($a | if type == "string" then ascii_downcase else . end)
     == ($b | if type == "string" then ascii_downcase else . end);
   def same_item($i): .kind == $i.kind and same_repo(.repo; $i.repo) and .number == $i.number;'
+
+# jq definition: not_probe($source), whether a work item is anything but a PR the teardown event or record $source marks a
+# probe.
+ITEM_NOT_PROBE_DEF='def not_probe($source): .kind != "pr" or (.number as $n | any(($source.probes // [])[]; . == $n) | not);'
 
 # The update item_add applies to a record, with $items, $origin (owner/name), and $name bound: each item joins .items
 # unless one with its kind, repo, and number is there, each PR of origin's repo joins .prs, which means origin's PRs

@@ -18,6 +18,10 @@
 # carries another: an idle agent is typed /rename <name>, which Claude Code applies without a model turn, and the
 # record's named_as says which name the session has. A pass that typed the agent anything else leaves the rename to
 # the next pass, since an agent typed to in this pass is not known to be idle.
+#
+# A probe is never meant to merge, so an open one left behind would hold its slot with nobody to end it. When probes are
+# the only PRs open and no --not-yet holds the slot, an idle agent is typed a reminder naming them, once, and the slot
+# joins the needs-you list as probe-left-open when its agent is gone or is idle after that reminder.
 
 RELEASE_AUTO=
 # The teardown blockers about files in the slot's tree, which its agent can clear itself.
@@ -127,6 +131,30 @@ with $RELEASE_NOT_YET. Otherwise: $text" || return 0
   RELEASE_AUTO=reminded
 }
 
+# Usage: release_open_probes <repo> <n>; after the caller has ruled out any other open PR, types an idle agent the reminder
+# naming the open probes once, setting RELEASE_AUTO to reminded, and otherwise lists a gone or reminded agent's slot as
+# probe-left-open. It does nothing when no PR is open.
+release_open_probes() {
+  local repo=$1 n=$2 numbers commands
+  numbers=$(contract_json -r '[.prs[] | select(.state == "OPEN") | .number | tostring] | join(" ")' <<<"$CHECK_VERDICT")
+  [[ -n $numbers && ($AGENT_STATE == idle || $AGENT_STATE == absent) ]] || return 0
+  if [[ $AGENT_STATE == idle && -z $(contract_json -r '.probe_reminded_at // ""' <<<"$RECORD") ]]; then
+    commands=${numbers// / --output json, then agent-slot close-probe }
+    release_send "$repo" "$n" "This slot still has an open probe PR, and nothing but you will close it, so the slot \
+stays until you do: PR #${numbers// /, PR #}. When you are done with it, run agent-slot close-probe $commands --output \
+json. If it has to stay open, say why with $RELEASE_NOT_YET." || return 0
+    record_update "$repo" "$n" --arg at "$(contract_now)" '.probe_reminded_at = $at' || true
+    RELEASE_AUTO=reminded
+    return 0
+  fi
+  CHECK_BLOCKERS=()
+  # shellcheck disable=SC2086 # numbers holds PR numbers, one value each
+  _check_block probe-left-open "PR #${numbers// /, PR #} is a probe still open, and only its agent or the operator ends \
+it" "" $numbers
+  CHECK_VERDICT=$(contract_json -c --argjson b "${CHECK_BLOCKERS[0]}" '.blockers += [$b] | .needs_you += [$b]' \
+    <<<"$CHECK_VERDICT")
+}
+
 # Usage: release_auto_gate <repo> <n>; after check_slot. Keeps a finished slot check would let go when neither its agent
 # released it nor the operator finished it, and reminds the agent of one kept only by files, setting RELEASE_AUTO to
 # closing-sent, cleanup-sent, reminded, not-yet, or not-released.
@@ -134,10 +162,12 @@ release_auto_gate() {
   local repo=$1 n=$2 sent why blocker reminded released=0
   RELEASE_AUTO=
   if [[ $(contract_json -r .finished <<<"$CHECK_VERDICT") != true ]]; then
-    # A task with no PR, or none but closed probes, has no merge to bring its agent back, so its --not-yet reminder
-    # cannot wait for one.
-    ! contract_json -e 'all(.prs[]; .state == "CLOSED" and .probe)' <<<"$CHECK_VERDICT" >/dev/null \
-      || release_hold "$repo" "$n" || true
+    # A task with no PR, or none still to merge beside its probes and settled PRs, has no merge to bring its agent back,
+    # so its --not-yet reminder cannot wait for one.
+    contract_json -e --argjson settled "$(contract_json -c '.settled_prs // []' <<<"$RECORD")" '
+      all(.prs[]; .probe or .state == "MERGED" or (.number as $n | any($settled[]; . == $n)))' <<<"$CHECK_VERDICT" \
+      >/dev/null || return 0
+    release_hold "$repo" "$n" || release_open_probes "$repo" "$n"
     return 0
   fi
   ! contract_json -e '.release != null or .finished_by_operator == true' <<<"$RECORD" >/dev/null || released=1

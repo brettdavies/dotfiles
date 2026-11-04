@@ -20,7 +20,8 @@
 
 CHECK_CODES='pr-state-unknown pr-closed-unmerged git-state-unknown agent-not-idle checked-by-own-agent
 agent-state-unknown uncommitted-changes stash-present unpushed-commits commits-without-pr untracked-files
-local-only-files solutions-unpublished home-symlink-into-slot home-scan-incomplete slot-busy not-released'
+local-only-files solutions-unpublished home-symlink-into-slot home-scan-incomplete slot-busy not-released
+probe-left-open'
 CHECK_DOCS=${CONTRACT_DOCS%#*}#teardown-blockers
 
 CHECK_SETUP_FILES='docs/solutions .claude/settings.local.json .context/repo-recon'
@@ -387,9 +388,9 @@ _check_fetch_push_remotes() {
 }
 
 # Usage: _check_commits <slot path> <base> <pr count>
-# A commit counts as pushed once an origin branch or tag, or a branch of a remote in CHECK_PUSH_REMOTES, holds it; local
-# tags count as heads, so a commit only a local tag still reaches is unpushed. Origin's tags are fetched into
-# refs/agent-slot/origin-tags.
+# A commit counts as pushed once an origin branch or tag, a PR's head, or a branch of a remote in CHECK_PUSH_REMOTES,
+# holds it; local tags count as heads, so a commit only a local tag still reaches is unpushed. Origin's tags are fetched
+# into refs/agent-slot/origin-tags. A closed probe is left out of the PR count, yet its head still counts as pushed.
 _check_commits() {
   local path=$1 base=$2 has_prs=$3 baseref heads uncontained unpushed_heads unpushed remote
   baseref=refs/remotes/origin/$base
@@ -399,7 +400,7 @@ _check_commits() {
     return
   fi
   local -a h contained=("$baseref" --glob='refs/agent-slot/pr/*')
-  local -a on_origin=(--remotes=origin --glob='refs/agent-slot/origin-tags/*')
+  local -a on_origin=(--remotes=origin --glob='refs/agent-slot/origin-tags/*' --glob='refs/agent-slot/pr/*')
   for remote in "${CHECK_PUSH_REMOTES[@]}"; do on_origin+=(--glob="refs/agent-slot/remotes/$remote/*"); done
   mapfile -t h <<<"$heads"
   # A clone keeps a local copy of origin's default branch, whose history need not be in the base (dev).
@@ -477,7 +478,7 @@ check_slot() {
 
     _check_uncommitted "$path"
     _check_stash "$path"
-    _check_commits "$path" "$base" "$(contract_json 'length' <<<"$prs")"
+    _check_commits "$path" "$base" "$(contract_json '[.[] | select((.state == "CLOSED" and .probe) | not)] | length' <<<"$prs")"
     _check_files "$path" "$(contract_json -r '.prime // ""' <<<"$RECORD")"
     _check_solutions
 
@@ -519,9 +520,10 @@ check_slot() {
 }
 
 # Records the PRs a verdict found, as the slot's items too, and the needs-you list it produced, when the slot's lock is
-# free; a slot with no name takes the earliest created PR's that is no probe. A check run inside the slot's own agent
-# records nothing: it sees that agent mid-turn, which says nothing about the slot once the turn ends, and its needs-you
-# list would stand on the slot's tab until a check from outside replaced it.
+# free; a slot with no name takes the earliest created PR's that is no probe. It also drops the mark of each PR the
+# verdict shows out of draft, so a return to draft does not make it a probe again. A check run inside the slot's own
+# agent records nothing: it sees that agent mid-turn, which says nothing about the slot once the turn ends, and its
+# needs-you list would stand on the slot's tab until a check from outside replaced it.
 check_record() {
   local repo=$1 n=$2 origin items
   [[ $(contract_json -r .state <<<"$CHECK_VERDICT") == active ]] || return 0
@@ -530,7 +532,8 @@ check_record() {
   items=$(contract_json -c --arg repo "$(pr_repo_slug "$origin")" \
     '.prs | sort_by(.created_at) | map({kind: "pr", repo: $repo, number, title, probe})' <<<"$CHECK_VERDICT")
   item_add "$repo" "$n" "$origin" "$items" --argjson v "$CHECK_VERDICT" --arg at "$(contract_now)" \
-    '.last_check = {at: $at, finished: $v.finished, blockers: $v.needs_you}' || true
+    '.last_check = {at: $at, finished: $v.finished, blockers: $v.needs_you}
+    | if .probes then .probes -= [$v.prs[] | select(.draft == false) | .number] else . end' || true
 }
 
 cmd_check() {
