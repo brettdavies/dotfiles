@@ -836,6 +836,20 @@ EOF
   [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume aaaaaaaa-1111-2222-3333-444444444444 -n repoa-pr7-fix-login' ]
 }
 
+@test "resume of a Sonnet slot starts Claude on Sonnet at xhigh with Opus as its advisor, turned on" {
+  local s=aaaaaaaa-1111-2222-3333-444444444444
+  slot repoa 1 "{\"session_id\": \"$s\", \"task\": \"fix-login\", \"name\": \"repoa-pr7-fix-login\",
+    \"model\": \"sonnet\"}"
+  mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1"
+  : >"$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1/$s.jsonl"
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
+  [ "$status" -eq 0 ]
+  local expected="CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions \
+--model claude-sonnet-5-5 --effort xhigh --advisor opus --resume $s -n repoa-pr7-fix-login"
+  [ "$(cat "$STUBS/typed-repoa-1")" = "$expected" ]
+  jaq -e '.model == "sonnet"' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
+}
+
 @test "resume of a slot whose conversation Claude never saved starts Claude with its session ID and task, as launch does" {
   slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444", "task": "fix-login"}'
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json

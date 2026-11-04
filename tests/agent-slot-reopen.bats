@@ -432,6 +432,24 @@ snapshot() {
   [ "$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")" = "$before" ]
 }
 
+@test "a Sonnet reopen resumes on Sonnet at xhigh with Opus as its advisor, turned on, and records the model" {
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
+    \"name\": \"repoa-issue12-fix-the-widget\"}"
+  local expected="CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions \
+--model claude-sonnet-5-5 --effort xhigh --advisor opus --resume $S1 -n repoa-issue12-fix-the-widget"
+  reopen repoa --issue 12 --model sonnet --dry-run
+  [ "$status" -eq 0 ]
+  [ "$(jaq -r .command <<<"$output")" = "$expected" ]
+  reopen repoa --issue 12 --model sonnet
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  [ "$(cat "$STUBS/typed-repoa-1")" = "$expected" ]
+  record_of '.model == "sonnet"' | grep -qx true
+}
+
 @test "the head comes from the ledger's head and branches: remote fork is added at the recorded URL and the branch tracks it" {
   fork_repo
   origin_branch "$T/forks/repoa.git" feat/x
