@@ -523,6 +523,12 @@ whatever branch that slot's agent left behind, and when the head it plans or the
 SessionStart context tells the agent all of this and tells it not to run the tree's code. No gate covers an agent that
 runs the tree's code anyway, or a fork head checked out inside a normal slot, which every slot's context warns against.
 
+A fork stays foreign until someone trusts its owner. To run one once someone has reviewed it, tear its slot down and
+launch again with the owner added for that one command:
+`AGENT_SLOT_TRUSTED_OWNERS='brettdavies meum-id <owner>' agent-slot launch <repo> --pr <ref>`. That checks out the branch
+as it is then, and its hooks run at once, so compare it with what was reviewed first. A reopen cannot do this, since a
+foreign slot's reopen stays foreign.
+
 Setup writes nothing through a link in the tree, on a slot of any head, since any branch can track one. A tracked
 `.claude/settings.local.json` link is replaced in the slot and marked skip-worktree, and a `.claude`, `docs`, or
 `.context` that setup would write under and that is a link out of the slot refuses the launch with

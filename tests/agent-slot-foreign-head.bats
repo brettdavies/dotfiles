@@ -944,3 +944,17 @@ encrypted_head() {
   git -C "$SLOT" commit -q -m work
   [ "$(git -C "$SLOT" cat-file blob HEAD:secret/y | head -c 8 | tail -c 7)" = GITCRYP ]
 }
+
+@test "a fork someone has reviewed gets the full setup by a launch with its owner added for that one command" {
+  foreign_pr
+  AGENT_SLOT_TRUSTED_OWNERS='me evil' run --separate-stderr "$AGENT_SLOT" launch repoa --pr 7 --output json
+  [ "$status" -eq 0 ]
+  assert_unchanged_setup "$output"
+  [ -f "$SLOT/.claude/settings.json" ]
+}
+
+@test "launch's help says how to run a fork someone has reviewed" {
+  run "$AGENT_SLOT" launch --help
+  [ "$status" -eq 0 ]
+  [[ $output == *'once someone has reviewed it'*AGENT_SLOT_TRUSTED_OWNERS* ]]
+}

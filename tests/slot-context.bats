@@ -358,3 +358,11 @@ issue oxipng/oxipng#886 (16-bit tRNS lost)."* ]]
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
   [[ $context == *'PR up/repo#7 (Fix the login)'* ]]
 }
+
+@test "a foreign head's context says what happens once a person has reviewed the diff" {
+  slot repo 1 '{"task": "review", "head_foreign": true, "head_owner": "evil"}'
+  run start s1 startup
+  [ "$status" -eq 0 ]
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *'`agent-slot launch --help` says how'* ]]
+}
