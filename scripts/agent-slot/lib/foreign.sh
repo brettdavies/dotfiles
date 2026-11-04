@@ -8,6 +8,9 @@
 # Origin's own heads are not foreign, whoever owns origin: the operator chose them by trusting the prime. An owner that
 # cannot be determined is foreign, so the decision fails closed.
 
+# A jq definition: foreign_fields, the verdict as an output or a ledger line reports it, on a slot's record.
+FOREIGN_FIELDS_DEF='def foreign_fields: {head_foreign: (.head_foreign // false), head_owner: (.head_owner // null)};'
+
 # Usage: foreign_url <url>; true unless the URL is origin's repo or a GitHub repo whose owner is in AS_TRUSTED_OWNERS. An
 # empty URL, which is how a head whose repository is gone reaches here, and a URL that is not GitHub's are foreign.
 foreign_url() {

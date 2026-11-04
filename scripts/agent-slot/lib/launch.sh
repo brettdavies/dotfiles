@@ -139,14 +139,13 @@ launch_output() {
     --argjson delivered "$delivered" --arg branch "$(slot_branch "$path")" --argjson pushable "$HEAD_PUSHABLE" \
     --argjson fields "$fields" \
     --argjson missing "$(printf '%s\n' "${PARITY_MISSING_SIBLINGS[@]}" | contract_json -R -s -c 'split("\n") | map(select(. != ""))')" \
-    "$SLOT_LABEL_DEF"'{created: $created, key: $key, repo: .repo, slot: .slot, path: $path, state: .state, task: .task,
+    "$SLOT_LABEL_DEF$FOREIGN_FIELDS_DEF"'{created: $created, key: $key, repo: .repo, slot: .slot, path: $path, state: .state, task: .task,
       name: .name, items: (.items // []), label_name: label_name($branch), request_id: .request_id,
       session_id: .session_id, base: .base, head_pushable: $pushable, trust_prompt_expected: $trust,
       prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases,
-      head_foreign: (.head_foreign // false), head_owner: (.head_owner // null),
       next_step: {action: "run", command: "agent-slot check \($key) --output json", docs: $docs,
                   note: ("each Rex client is asked to open this slot'"'"'s tab when the slot is made; a Mac that"
-                         + " is asleep or offline opens it once it is back")}} + $fields' <<<"$RECORD")" '
+                         + " is asleep or offline opens it once it is back")}} + foreign_fields + $fields' <<<"$RECORD")" '
     "\(.key) \(if .created then "is ready" else "already holds this request" end) at \(.path)" +
       (if .label_name then " (\(.label_name))" else "" end) +
       (if .trust_prompt_expected then "; Claude will ask to trust the folder" else "" end) +

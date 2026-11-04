@@ -178,10 +178,10 @@ slot_make() {
       tmux: (($e - $d) / 1000000), claude: (($f - $e) / 1000000)}')
   record_read "$repo" "$n"
   ledger_append "$event" "$(contract_json -c --argjson phases "$phases" --argjson trust "$trust" --arg path "$path" \
-    --argjson fields "$fields" --argjson started "$t_start" --argjson made "$t_claude" '{request_id, requested_at,
+    --argjson fields "$fields" --argjson started "$t_start" --argjson made "$t_claude" "$FOREIGN_FIELDS_DEF"'{request_id, requested_at,
       started_at: ($started / 1000000), made_at: ($made / 1000000), repo, slot, path: $path, task, session_id,
-      created: true, trust_prompt_expected: $trust, phases: $phases, items: (.items // []), name,
-      head_foreign: (.head_foreign // false), head_owner: (.head_owner // null)} + $fields' \
+      created: true, trust_prompt_expected: $trust, phases: $phases, items: (.items // []), name} + foreign_fields
+      + $fields' \
     <<<"$RECORD")"
   push_restore "$event" "$(slot_key "$repo" "$n")"
   SLOT_MADE=$n SLOT_MADE_TRUST=$trust SLOT_MADE_PHASES=$phases

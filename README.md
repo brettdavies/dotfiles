@@ -503,29 +503,30 @@ matched in any case) or cannot be determined, is a *foreign head*, and nothing f
 The launch reports `head_foreign: true` and `head_owner`, and each difference from a normal slot exists because the
 head's tracked files would otherwise act as this account:
 
-| Normal slot                                           | Foreign head                                                                       |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `claude --dangerously-skip-permissions`               | adds `--setting-sources user --strict-mcp-config`                                  |
-| The whole tree on disk                                | `.claude`, `.mcp.json`, `CLAUDE.md`, `CLAUDE.local.md`, `bunfig.toml`, `.env`, `.env.*`, and `node_modules` left out at any depth by a sparse checkout, so a `claude` or a Bun-run tool such as `qmd` started in the slot finds none of them; `git show` still reads them and pushes still carry them |
-| yazi in the files session                             | `ls -A`, since yazi's previewers parse what the cursor lands on with no key pressed |
-| Git finds a bare repository below the slot's root     | The sessions set `safe.bareRepository=explicit`, since a directory the head tracks in that shape runs what its config names when git runs below it |
-| The trust step starts Claude plainly                  | The trust step starts Claude with the same flags, since accepting runs what it loads |
-| `core.hooksPath` or copies of the prime's hooks       | No hooks                                                                           |
-| `.claude/settings.local.json` written from the prime  | Not written, since a tracked link would carry the write to the file it names       |
-| repo-recon and sibling links                          | Not made                                                                           |
-| LFS smudge on checkout                                | Skipped for the slot's life, since it calls the server the head's `.lfsconfig` names |
-| git-crypt unlock when the tree names the filter       | Unlock only when the base branch names it                                          |
-| `auto-format.sh` runs formatters after each edit      | Exits at once on the slot's record, since each formatter can load code from the tree |
+| Normal slot                                          | Foreign head                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude --dangerously-skip-permissions`              | adds `--setting-sources user --strict-mcp-config`                                                                                                                                                                                                                                                     |
+| The whole tree on disk                               | `.claude`, `.mcp.json`, `CLAUDE.md`, `CLAUDE.local.md`, `bunfig.toml`, `.env`, `.env.*`, and `node_modules` left out at any depth by a sparse checkout, so a `claude` or a Bun-run tool such as `qmd` started in the slot finds none of them; `git show` still reads them and pushes still carry them |
+| yazi in the files session                            | `ls -A`, since yazi's previewers parse what the cursor lands on with no key pressed                                                                                                                                                                                                                   |
+| Git finds a bare repository below the slot's root    | The sessions set `safe.bareRepository=explicit`, since a directory the head tracks in that shape runs what its config names when git runs below it                                                                                                                                                    |
+| The trust step starts Claude plainly                 | The trust step starts Claude with the same flags, since accepting runs what it loads                                                                                                                                                                                                                  |
+| `core.hooksPath` or copies of the prime's hooks      | No hooks                                                                                                                                                                                                                                                                                              |
+| `.claude/settings.local.json` written from the prime | Not written, since a tracked link would carry the write to the file it names                                                                                                                                                                                                                          |
+| repo-recon and sibling links                         | Not made                                                                                                                                                                                                                                                                                              |
+| LFS smudge on checkout                               | Skipped for the slot's life, since it calls the server the head's `.lfsconfig` names                                                                                                                                                                                                                  |
+| git-crypt unlock when the tree names the filter      | Unlock on the base's tree before the head arrives, so only the base can ask for it                                                                                                                                                                                                                    |
+| `auto-format.sh` runs formatters after each edit     | Exits at once on the slot's record, since each formatter can load code from the tree                                                                                                                                                                                                                  |
 
 Origin's own heads keep the normal setup whoever owns origin, because trusting the prime chose them, and so do the heads
 of a trusted owner's forks. `resume` keeps a foreign head's flags. A reopen is foreign when the slot it reopens was,
-whatever branch that slot's agent left behind, and when the head it plans or the PR's head on GitHub is. The SessionStart
-context tells the agent all of this and tells it not to run the tree's code. No gate covers an agent that runs the tree's
-code anyway, or a fork head checked out inside a normal slot, which every slot's context warns against.
+whatever branch that slot's agent left behind, and when the head it plans or the PR's head on GitHub is. The
+SessionStart context tells the agent all of this and tells it not to run the tree's code. No gate covers an agent that
+runs the tree's code anyway, or a fork head checked out inside a normal slot, which every slot's context warns against.
 
 Setup writes nothing through a link in the tree, on a slot of any head, since any branch can track one. A tracked
 `.claude/settings.local.json` link is replaced in the slot and marked skip-worktree, and a `.claude`, `docs`, or
-`.context` that is a link out of the slot refuses the launch with `tracked-link-leaves-slot`.
+`.context` that setup would write under and that is a link out of the slot refuses the launch with
+`tracked-link-leaves-slot`. A foreign head writes under `docs` alone, so only that link can refuse one.
 
 Each teardown appends a `teardown` event to `~/.local/state/agent-slot/ledger.jsonl` with the slot's `items`, `name`,
 `head` (the branch its clone had checked out), and `branches` (each branch's name and commit, with the remote and URL it
@@ -704,7 +705,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `slot-limit-reached`          | 78   | The repo holds the most live slots allowed; finish one, or raise `AGENT_SLOT_MAX_PER_REPO`     |
 | `clone-failed`                | 1    | Cloning from origin failed; retry with the same request ID                                     |
 | `solutions-symlink-missing`   | 78   | The solutions repo is missing or has no origin/main, so the slot gets no worktree of it        |
-| `tracked-link-leaves-slot`    | 78   | The head tracks `.claude`, `docs`, or `.context` as a link out of the slot, so setup refuses it |
+| `tracked-link-leaves-slot`    | 78   | The head tracks `.claude`, `docs`, or `.context` as a link that leaves the slot                |
 | `hooks-path-outside-checkout` | 78   | The repo's own `core.hooksPath` points outside its checkout                                    |
 | `git-crypt-locked`            | 78   | A git-crypt repo could not be unlocked: git-crypt or its key is missing                        |
 | `trust-dialog-unrecognized`   | 78   | Claude showed a screen other than its trust dialog for the path; accept it by hand             |
