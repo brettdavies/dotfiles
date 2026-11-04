@@ -94,6 +94,7 @@ check_pr_freeze() {
     esac
     case "$arg" in
       --repo=*) explicit=${arg#--repo=} ;;
+      -R=*) explicit=${arg#-R=} ;;
       -R?*) explicit=${arg#-R} ;;
       --method=*) method=${arg#--method=} ;;
       -X?*) method=${arg#-X} ;;
@@ -105,7 +106,10 @@ check_pr_freeze() {
     prev=$arg
   done
 
-  case "${1:-} ${2:-}" in
+  # Flags may come before either word of `pr create`, as strip_word reads them.
+  local route="${1:-} ${2:-}"
+  strip_word pr --version "$@" && strip_word create '' "${STRIPPED[@]}" && route="pr create"
+  case "$route" in
     "pr create" | "stack submit" | "stack link")
       # gh-stack takes its target from GH_REPO and the checkout, not from -R.
       [[ "$1" == stack ]] && explicit=""
@@ -141,8 +145,6 @@ check_pr_freeze() {
   esac
   return 0
 }
-
-((${#frozen[@]})) && check_pr_freeze "$@"
 
 # True when the word $1 is the next subcommand in the remaining arguments, with
 # STRIPPED holding them without it. It reads one level the way gh's cobra does: a
@@ -244,6 +246,8 @@ refuse_merge() {
   echo "$2" >&2
   exit 1
 }
+
+((${#frozen[@]})) && check_pr_freeze "$@"
 
 # The lookup asks real gh with the merge's own repository and selector, under the
 # same GH_REPO, so both resolve one PR. Its stdout alone is the base, because gh
