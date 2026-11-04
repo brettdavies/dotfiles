@@ -69,23 +69,28 @@ agent_status() {
 }
 
 # ran SKILL...: the slot's session transcript holds a Skill call for each, as the agent's own tool calls.
+# skill_json SKILL [AT] [ID]: prints the agent's Skill call of SKILL as a transcript line, stamped AT when given.
+# ce-compound:refresh is ce-compound run with mode:refresh, the closing refresh run.
+skill_json() {
+  local skill=$1 args=x
+  if [[ $skill == ce-compound:refresh ]]; then skill=ce-compound args='mode:refresh mode:non-interactive x'; fi
+  jaq -n -c --arg s "compound-engineering:$skill" --arg a "$args" --arg at "${2:-}" --arg id "${3:-}" \
+    '{type: "assistant", message: {content: [{type: "tool_use", name: "Skill", input: {skill: $s, args: $a}}
+      + (if $id == "" then {} else {id: $id} end)]}}
+     + (if $at == "" then {} else {timestamp: $at} end)'
+}
+
 ran() {
   local skill
   : >"$T/transcript.jsonl"
-  for skill in "$@"; do
-    jaq -n -c --arg s "compound-engineering:$skill" \
-      '{type: "assistant", message: {content: [{type: "tool_use", name: "Skill", input: {skill: $s, args: "x"}}]}}' \
-      >>"$T/transcript.jsonl"
-  done
+  for skill in "$@"; do skill_json "$skill" >>"$T/transcript.jsonl"; done
   record_set ".transcript = \"$T/transcript.jsonl\""
 }
 
 # skill_call SKILL ID RESULT [IS_ERROR]: appends a Skill call of the agent's to the transcript, then the tool result
 # Claude Code returned for it, marked is_error when IS_ERROR is true.
 skill_call() {
-  jaq -n -c --arg s "compound-engineering:$1" --arg id "$2" \
-    '{type: "assistant", message: {content: [{type: "tool_use", id: $id, name: "Skill", input: {skill: $s}}]}}' \
-    >>"$T/transcript.jsonl"
+  skill_json "$1" "" "$2" >>"$T/transcript.jsonl"
   jaq -n -c --arg id "$2" --arg r "$3" --argjson e "${4:-false}" \
     '{type: "user", message: {content: [{type: "tool_result", tool_use_id: $id, content: $r, is_error: $e}]}}' \
     >>"$T/transcript.jsonl"
@@ -159,16 +164,16 @@ renames_typed() { grep -c -- ' -l /rename ' "$CALLS" || true; }
 
 # --- the gate ----------------------------------------------------------------------------------------------------------
 
-@test "release refuses until the slot's session has run both ce-compound and ce-compound-refresh" {
+@test "release refuses until the slot's session has run both ce-compound and its mode:refresh run" {
   finished_task
   ran ce-compound
   release
   [ "$status" -eq 1 ]
   assert_error_shape "$stderr"
-  jaq -e '.reason == "compound-not-run" and .value == "ce-compound-refresh"
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound:refresh"
     and (.next_step.command | startswith("/compound-engineering:ce-compound mode:refresh "))' <<<"$stderr"
   [ "$(record '.release')" = null ]
-  logged 'any(.[]; .event == "release" and .result == "refused" and .missing == ["ce-compound-refresh"])'
+  logged 'any(.[]; .event == "release" and .result == "refused" and .missing == ["ce-compound:refresh"])'
   [ -d "$SLOT" ]
 }
 
@@ -204,12 +209,20 @@ refresh_call() {
   refresh_call 'depth:full mode:refreshing'
   release
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "compound-not-run" and .value == "ce-compound-refresh"' <<<"$stderr"
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound:refresh"' <<<"$stderr"
   jaq -n -c '{type: "user", message: {content: "<command-name>/compound-engineering:ce-compound</command-name>\n<command-args>mode:refresh mode:non-interactive</command-args>"}}' \
     >>"$T/transcript.jsonl"
   agent busy
   release
   [ "$status" -eq 0 ]
+}
+
+@test "the deprecated ce-compound-refresh skill is not the refresh run" {
+  finished_task
+  ran ce-compound ce-compound-refresh
+  release
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound:refresh"' <<<"$stderr"
 }
 
 @test "a skill named only in a tool's result, or typed as a slash command, is told apart" {
@@ -220,10 +233,10 @@ refresh_call() {
   record_set ".transcript = \"$T/transcript.jsonl\""
   release
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "compound-not-run" and .value == "ce-compound ce-compound-refresh"' <<<"$stderr"
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound ce-compound:refresh"' <<<"$stderr"
   jaq -n -c '{type: "user", message: {content: "<command-message>compound-engineering:ce-compound</command-message>\n<command-name>/compound-engineering:ce-compound</command-name>"}}' \
     >>"$T/transcript.jsonl"
-  jaq -n -c '{type: "user", message: {content: "<command-name>/compound-engineering:ce-compound-refresh</command-name>"}}' \
+  jaq -n -c '{type: "user", message: {content: "<command-name>/compound-engineering:ce-compound</command-name>\n<command-args>mode:refresh</command-args>"}}' \
     >>"$T/transcript.jsonl"
   agent busy
   release
@@ -234,14 +247,14 @@ refresh_call() {
   finished_task
   : >"$T/transcript.jsonl"
   skill_call ce-compound toolu_1 '<tool_use_error>Unknown skill: compound-engineering:ce-compound</tool_use_error>' true
-  skill_call ce-compound-refresh toolu_2 \
-    '<tool_use_error>Unknown skill: compound-engineering:ce-compound-refresh</tool_use_error>' true
+  skill_call ce-compound:refresh toolu_2 \
+    '<tool_use_error>Unknown skill: compound-engineering:ce-compound</tool_use_error>' true
   record_set ".transcript = \"$T/transcript.jsonl\""
   release
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "compound-not-run" and .value == "ce-compound ce-compound-refresh"' <<<"$stderr"
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound ce-compound:refresh"' <<<"$stderr"
   skill_call ce-compound toolu_3 'Launching skill: compound-engineering:ce-compound'
-  skill_call ce-compound-refresh toolu_4 'Launching skill: compound-engineering:ce-compound-refresh'
+  skill_call ce-compound:refresh toolu_4 'Launching skill: compound-engineering:ce-compound'
   agent busy
   release
   [ "$status" -eq 0 ]
@@ -253,7 +266,7 @@ refresh_call() {
     input: {skill: "compound-engineering:ce-compound"}}]}}' >"$T/first.jsonl"
   printf '{"event":"session","ts":"2026-01-02T00:00:00Z","repo":"repoa","slot":1,"transcript":"%s"}\n' \
     "$T/first.jsonl" >>"$AGENT_SLOT_STATE_DIR/ledger.jsonl"
-  ran ce-compound-refresh
+  ran ce-compound:refresh
   agent busy
   release
   [ "$status" -eq 0 ]
@@ -265,18 +278,16 @@ refresh_call() {
   : >"$T/transcript.jsonl"
   local skill at
   for at in 2026-10-30T16:20:00.000Z 2026-10-30T16:27:04.999Z; do
-    for skill in ce-compound ce-compound-refresh; do
-      jaq -n -c --arg s "compound-engineering:$skill" --arg at "$at" '{type: "assistant", timestamp: $at,
-        message: {content: [{type: "tool_use", name: "Skill", input: {skill: $s}}]}}' >>"$T/transcript.jsonl"
+    for skill in ce-compound ce-compound:refresh; do
+      skill_json "$skill" "$at" >>"$T/transcript.jsonl"
     done
   done
   record_set ".transcript = \"$T/transcript.jsonl\""
   release
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "compound-not-run" and .value == "ce-compound ce-compound-refresh"' <<<"$stderr"
-  for skill in ce-compound ce-compound-refresh; do
-    jaq -n -c --arg s "compound-engineering:$skill" '{type: "assistant", timestamp: "2026-10-30T16:27:05.123Z",
-      message: {content: [{type: "tool_use", name: "Skill", input: {skill: $s}}]}}' >>"$T/transcript.jsonl"
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound ce-compound:refresh"' <<<"$stderr"
+  for skill in ce-compound ce-compound:refresh; do
+    skill_json "$skill" 2026-10-30T16:27:05.123Z >>"$T/transcript.jsonl"
   done
   agent busy
   release
@@ -292,19 +303,17 @@ refresh_call() {
   real=$AGENT_SLOT_CLAUDE_PROJECTS/-slots-repoa-2/$sid.jsonl
   wrong=$AGENT_SLOT_CLAUDE_PROJECTS/-slots-repoa-1/$sid.jsonl
   mkdir -p "${real%/*}"
-  for skill in ce-compound ce-compound-refresh; do
-    jaq -n -c --arg s "compound-engineering:$skill" '{type: "assistant", timestamp: "2026-10-30T18:55:32.143Z",
-      message: {content: [{type: "tool_use", name: "Skill", input: {skill: $s}}]}}' >>"$real"
+  for skill in ce-compound ce-compound:refresh; do
+    skill_json "$skill" 2026-10-30T18:55:32.143Z >>"$real"
   done
   record_set ".created_at = \"2026-10-30T23:16:19Z\" | .session_id = \"$sid\" | .transcript = \"$wrong\""
   jaq -n -c --arg sid "$sid" --arg t "$wrong" '{event: "session", ts: "2026-10-30T23:16:22Z", repo: "repoa", slot: 1,
     session_id: $sid, transcript: $t, source: "resume"}' >>"$AGENT_SLOT_STATE_DIR/ledger.jsonl"
   release
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "compound-not-run" and .value == "ce-compound ce-compound-refresh"' <<<"$stderr"
-  for skill in ce-compound ce-compound-refresh; do
-    jaq -n -c --arg s "compound-engineering:$skill" '{type: "assistant", timestamp: "2026-10-30T23:34:58.601Z",
-      message: {content: [{type: "tool_use", name: "Skill", input: {skill: $s}}]}}' >>"$real"
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound ce-compound:refresh"' <<<"$stderr"
+  for skill in ce-compound ce-compound:refresh; do
+    skill_json "$skill" 2026-10-30T23:34:58.601Z >>"$real"
   done
   agent busy
   release
@@ -312,7 +321,7 @@ refresh_call() {
     echo "$stderr"
     false
   }
-  jaq -e '.skills == ["ce-compound", "ce-compound-refresh"]' <<<"$output"
+  jaq -e '.skills == ["ce-compound", "ce-compound:refresh"]' <<<"$output"
   jaq -e -s --arg t "$real" 'map(select(.event == "release"))[-1].transcript == $t' \
     "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
   [ ! -e "$wrong" ]
@@ -322,7 +331,7 @@ refresh_call() {
 
 @test "release refuses while the agent's Claude still runs a background Bash tool command, and names it" {
   finished_task
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent busy "until [ -e '$T/ci-done' ]; do sleep 0.1; done"
   eventually agent_job
   local pid command="until [ -e '$T/ci-done' ]; do sleep 0.1; done"
@@ -341,7 +350,7 @@ refresh_call() {
 
 @test "release goes through once the agent's background job has exited" {
   finished_task
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent busy "until [ -e '$T/ci-done' ]; do sleep 0.1; done"
   eventually agent_job
   release
@@ -355,7 +364,7 @@ refresh_call() {
 
 @test "release run as the agent's own Bash tool command names the agent's other jobs, never its own shell" {
   finished_task
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent busy "until [ -e '$T/ci-done' ]; do sleep 0.1; done"
   eventually agent_job
   local pid
@@ -373,7 +382,7 @@ refresh_call() {
 
 @test "a child of the agent's Claude that is not a Bash tool command, such as a hook, is no job" {
   finished_task
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent busy "" "touch '$T/hook-ran'; sleep 30; : ~/.claude/slot-status.sh"
   eventually test -e "$T/hook-ran"
   release
@@ -433,7 +442,7 @@ refresh_call() {
   jaq -e '.reason == "usage"' <<<"$stderr"
   run --separate-stderr bash -c 'cd "$1" && "$2" release --not-yet "waiting" --output json' _ "$SLOT" "$AGENT_SLOT"
   [ "$status" -eq 0 ]
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent busy
   release
   [ "$status" -eq 0 ]
@@ -447,7 +456,7 @@ refresh_call() {
 @test "a --not-yet after a release withdraws it, and the automatic sweep keeps the slot as not-yet" {
   finished_task
   echo scratch >"$SLOT/notes.txt"
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent idle
   release
   [ "$status" -eq 0 ]
@@ -471,7 +480,7 @@ refresh_call() {
   git -C "$SLOT" add a.md
   git -C "$SLOT" commit -q -m note
   git -C "$SLOT" push -q origin main
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent idle
   release
   [ "$status" -eq 0 ]
@@ -513,7 +522,7 @@ refresh_call() {
 @test "a task with no PR that its agent released, then said is not ready, is no longer finished and is kept" {
   mkdir -p "$SLOT/.context"
   echo next >"$SLOT/.context/next-move.md"
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent idle
   release
   [ "$status" -eq 0 ]
@@ -536,7 +545,7 @@ refresh_call() {
 
 @test "a teardown a release started stops waiting once the agent says it is not ready, and tears nothing down" {
   finished_task
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent busy
   release
   [ "$status" -eq 0 ]
@@ -553,7 +562,7 @@ refresh_call() {
 
 @test "a teardown an earlier release started stands down for the one a newer release starts" {
   finished_task
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent busy
   release
   [ "$status" -eq 0 ]
@@ -638,7 +647,7 @@ refresh_call() {
   finished_task
   mkdir -p "$SLOT/.context/handoffs"
   echo next >"$SLOT/.context/handoffs/x.md"
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent idle
   release
   [ "$status" -eq 0 ]
@@ -671,7 +680,7 @@ refresh_call() {
 
 @test "release records the request and starts the teardown in its own session, outside the slot" {
   finished_task
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent busy
   release
   [ "$status" -eq 0 ]
@@ -691,7 +700,7 @@ refresh_call() {
 
 @test "the teardown waits for the agent to go idle, then removes a finished slot" {
   finished_task
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent busy
   release
   [ "$status" -eq 0 ]
@@ -706,7 +715,7 @@ refresh_call() {
   work feat/x 2
   git -C "$SLOT" push -q origin feat/x
   pr 7 OPEN feat/x
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent idle
   release
   [ "$status" -eq 0 ]
@@ -727,7 +736,7 @@ refresh_call() {
 @test "a slot that needs the operator is never removed, by its release or by the automatic sweep" {
   finished_task
   git -C "$SLOT" commit -q --allow-empty -m 'not pushed'
-  ran ce-compound ce-compound-refresh
+  ran ce-compound ce-compound:refresh
   agent idle
   release
   [ "$status" -eq 0 ]
