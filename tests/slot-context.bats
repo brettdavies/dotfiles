@@ -90,7 +90,7 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"--output json"* ]]
   [[ $context == *"agent-slot whoami"* ]]
   [[ $context == *"agent-slot schema"* ]]
-  [[ $context == *"agent-slot launch"*"--request-id"* ]]
+  [[ $context == *"agent-slot launch <repo> --model <opus|sonnet> --request-id <id> --prompt-file <brief>"* ]]
   [[ $context == *"ask the operator"* ]]
   [[ $context == *"--dangerously-skip-permissions"* ]]
 }
