@@ -294,6 +294,43 @@ _expect_guard_reads_46_here() {
   _expect_guard_reads_46_here --squash 46 pr merge
 }
 
+@test "merge guard follows cobra past -h, which the walk reads as taking a value" {
+  _expect_guard_reads_46_here pr -st -h 46 merge
+  _expect_guard_reads_46_here pr -s -t -h 46 merge
+  _expect_guard_reads_46_here -st -h 46 pr merge
+}
+
+@test "merge guard reads --version as taking a value below the root" {
+  _expect_guard_reads_46_here pr -st --version 46 merge
+  _expect_guard_reads_46_here -st --version pr 46 merge
+}
+
+@test "merge guard reads -= as taking no value" {
+  _expect_guard_reads_46_here pr -st -= merge 46
+  _expect_guard_reads_46_here -st pr -= merge 46
+}
+
+@test "merge guard counts a flag's length in bytes, under any locale" {
+  export LC_ALL=C.UTF-8
+  _expect_guard_reads_46_here pr -st -é merge 46
+  _expect_guard_reads_46_here -st pr -é merge 46
+}
+
+@test "merge guard leaves --version before pr to gh, which reads merge as its value" {
+  _fake_gh_with_prs
+  _gh --version pr merge 46
+  _assert_forwarded_verbatim --version pr merge 46
+}
+
+@test "merge guard does not read an explicit --help=false as help" {
+  _fake_gh_with_prs
+  _pr_base local/here 46 main
+  _gh pr merge 46 --help=false
+  _assert_refused "--help=false"
+  _gh pr merge 46 --help --help=false
+  _assert_refused "--help=false"
+}
+
 @test "merge guard does not take a flag's value for the PR" {
   local value_flags=(-t --subject -b --body -F --body-file -A --author-email --match-head-commit)
   local flag
