@@ -322,25 +322,25 @@ a `purge` ledger event, and in `teardown.log`, with one of the [purge failures](
 `trash-rm` command that finishes it.
 
 Teardown needs no one to press a key. A slot's agent closes its task by running `/compound-engineering:ce-compound` once
-per finding from its session, then `/compound-engineering:ce-compound mode:refresh`, then deletes the scratch files it made
-and commits and PRs anything that is real work, then stops every background job it no longer needs, then runs
-`agent-slot release`, which refuses until both skills have run in that slot and while the slot's Claude still runs a
-Bash tool command other than the release's own: Claude Code lists a session with a live background shell as busy, so a
-leftover job would hold the teardown back for as long as it runs. An agent still waiting on something, such as CI or a
-release chain, keeps that job and runs `agent-slot release --not-yet '<why>'` instead, which records why and withdraws
-the agent's earlier release, if it made one: of a release and a `--not-yet`, the newer stands. The release starts
-`agent-slot finish <repo>/<N> --yes --when-idle` in a session of its own, outside the slot, which waits for the agent to
-go idle and then runs the same fail-closed finish the operator does, except that it marks the task finished on the
-release rather than as the operator's, so a `--not-yet` withdraws that mark with the release. Once a `--not-yet` or a
-newer release replaces the release that started it, that finish stops waiting and refuses with `release-withdrawn`,
-tearing nothing down. A slot whose PR is still open stays released, and `agent-slot-sweep.timer` tears it down once the
-PR merges: every ten minutes it runs `agent-slot sweep --yes --auto`, which tears down only a slot its agent released or
-the operator finished. A finished slot that is neither keeps its clone, so its learnings are not lost: its idle agent is
-typed the closing steps once, and a slot whose agent is gone, or that still has not released after those steps, joins
-the needs-you list as `not-released`. A slot whose agent recorded `--not-yet` stays off that list while the agent is
-there; once the agent is idle and the record is `AGENT_SLOT_RELEASE_REMIND` seconds old (1800), it is typed a reminder
-with its own reason, once, and a reminder it answers with neither a release nor a new `--not-yet` lists the slot as
-before. A finished slot kept only by files left in its tree (`untracked-files`, `local-only-files`,
+per finding from its session, then `/compound-engineering:ce-compound mode:refresh`, then deletes the scratch files it
+made and commits and PRs anything that is real work, then stops every background job it no longer needs, then runs
+`agent-slot release`, which refuses until both of those ce-compound runs are in that slot's sessions and while the
+slot's Claude still runs a Bash tool command other than the release's own: Claude Code lists a session with a live
+background shell as busy, so a leftover job would hold the teardown back for as long as it runs. An agent still waiting
+on something, such as CI or a release chain, keeps that job and runs `agent-slot release --not-yet '<why>'` instead,
+which records why and withdraws the agent's earlier release, if it made one: of a release and a `--not-yet`, the newer
+stands. The release starts `agent-slot finish <repo>/<N> --yes --when-idle` in a session of its own, outside the slot,
+which waits for the agent to go idle and then runs the same fail-closed finish the operator does, except that it marks
+the task finished on the release rather than as the operator's, so a `--not-yet` withdraws that mark with the release.
+Once a `--not-yet` or a newer release replaces the release that started it, that finish stops waiting and refuses with
+`release-withdrawn`, tearing nothing down. A slot whose PR is still open stays released, and `agent-slot-sweep.timer`
+tears it down once the PR merges: every ten minutes it runs `agent-slot sweep --yes --auto`, which tears down only a
+slot its agent released or the operator finished. A finished slot that is neither keeps its clone, so its learnings are
+not lost: its idle agent is typed the closing steps once, and a slot whose agent is gone, or that still has not released
+after those steps, joins the needs-you list as `not-released`. A slot whose agent recorded `--not-yet` stays off that
+list while the agent is there; once the agent is idle and the record is `AGENT_SLOT_RELEASE_REMIND` seconds old (1800),
+it is typed a reminder with its own reason, once, and a reminder it answers with neither a release nor a new `--not-yet`
+lists the slot as before. A finished slot kept only by files left in its tree (`untracked-files`, `local-only-files`,
 `uncommitted-changes`), released or not, gets its idle agent a reminder naming them, once: delete what is scratch,
 commit and PR what is work, then close out and release. It stays off the needs-you list while the agent is busy, and
 joins it when the agent is gone, or is idle after the reminder with the files still there and no `--not-yet` saying why.
