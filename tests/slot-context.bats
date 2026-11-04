@@ -50,6 +50,14 @@ record() { jaq -c "$1" "$SLOT/.git/agent-slot.json"; }
 
 ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
 
+# context_for_status MANAGER COMMAND STATUS LOG [SOURCE]: the context a slot gets whose install ended in STATUS. LOG is
+# JSON, a quoted path or null.
+context_for_status() {
+  slot repo 1 "$(jaq -n -c --arg m "$1" --arg c "$2" --arg s "$3" --argjson l "$4" \
+    '{task: "t", deps: {manager: $m, command: $c, status: $s, log: $l}}')"
+  start s1 "${5:-startup}" | jaq -r '.hookSpecificOutput.additionalContext'
+}
+
 @test "inside a slot the hook returns additionalContext naming the slot, task, base, and prime" {
   slot repo 1 '{"task": "fix-login"}'
   run start s1 startup
@@ -112,45 +120,65 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context != *"own worktree"* ]]
 }
 
-@test "a slot whose install did not finish is told so with the command and the log" {
-  slot repo 1 '{"task": "t", "deps": {"manager": "bun", "command": "bun install --frozen-lockfile", "status": "failed", "log": "/logs/deps.log"}}'
-  run start s1 startup
-  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"bun install --frozen-lockfile"*failed*"/logs/deps.log"* ]]
+@test "a failed install gives the agent the log and says what to do with it" {
+  context=$(context_for_status bun 'bun install --frozen-lockfile' failed '"/logs/deps.log"')
+  echo "context: $context"
+  [[ $context == *'`bun install --frozen-lockfile` failed'*"/logs/deps.log"* ]]
+  [[ $context == *"fix what it names"*"rerun"* ]]
   [[ $context == *"first push"* ]]
 }
 
-@test "a slot whose manager is missing is told what to install and is given no log" {
-  slot repo 1 '{"task": "t", "deps": {"manager": "pnpm", "command": "pnpm install --frozen-lockfile", "status": "tool-missing", "log": null}}'
-  run start s1 startup
-  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"pnpm install --frozen-lockfile"*tool-missing* ]]
+@test "a timed-out install names its limit and says a rerun has none" {
+  context=$(context_for_status bun 'bun install --frozen-lockfile' timed-out '"/logs/deps.log"')
+  echo "context: $context"
+  [[ $context == *AGENT_SLOT_DEPS_TIMEOUT*"/logs/deps.log"* ]]
+  [[ $context == *"Rerun it"*"limit does not apply"* ]]
+}
+
+@test "a missing manager is named, with no log, and left to whoever the agent reports to" {
+  context=$(context_for_status pnpm 'pnpm install --frozen-lockfile' tool-missing null)
+  echo "context: $context"
+  [[ $context == *"pnpm is not on this host's PATH"* ]]
+  [[ $context == *"report"* ]]
   [[ $context != *"null"* ]]
 }
 
-@test "a slot on an untrusted head is told to read what the head changes before it runs the install" {
-  slot repo 1 '{"task": "t", "deps": {"manager": "bun", "command": "bun install --frozen-lockfile", "status": "untrusted-head", "log": null}}'
-  run start s1 startup
-  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"bun install --frozen-lockfile"*untrusted-head* ]]
-  [[ $context == *"not on origin"*"lifecycle scripts"* ]]
+@test "a repo that does not ignore node_modules warns the agent off the install setup withheld" {
+  context=$(context_for_status bun 'bun install --frozen-lockfile' not-ignored null)
+  echo "context: $context"
+  [[ $context == *"was not run"*"does not ignore node_modules"* ]]
+  [[ $context == *"blocks teardown"* ]]
+  [[ $context == *".gitignore"* ]]
 }
 
-@test "a slot whose head changes the lockfile is told a frozen install takes what it pins past the age gate" {
-  slot repo 1 '{"task": "t", "deps": {"manager": "bun", "command": "bun install --frozen-lockfile", "status": "lockfile-changed", "log": null}}'
-  run start s1 startup
-  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"bun install --frozen-lockfile"*lockfile-changed* ]]
+@test "a prime not set up tells the agent everything an install reads, and the way to skip its scripts" {
+  context=$(context_for_status bun 'bun install --frozen-lockfile' prime-not-set-up null)
+  echo "context: $context"
+  [[ $context == *"was not run"*"prime"* ]]
+  [[ $context == *"package.json"*".npmrc"*"lockfile"*"--ignore-scripts"* ]]
+}
+
+@test "a head off the base tells the agent everything an install reads, and that the lock skips the age gate" {
+  context=$(context_for_status bun 'bun install --frozen-lockfile' head-not-on-base null)
+  echo "context: $context"
+  [[ $context == *"was not run"*"base branch does not hold this head"* ]]
+  [[ $context == *"package.json"*".npmrc"*"lockfile"*"--ignore-scripts"* ]]
   [[ $context == *"age gate"* ]]
-  [[ $context != *"not on origin"* ]]
 }
 
-@test "a slot whose install failed hears nothing about an untrusted head" {
-  slot repo 1 '{"task": "t", "deps": {"manager": "bun", "command": "bun install --frozen-lockfile", "status": "failed", "log": "/l"}}'
-  run start s1 startup
-  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context != *"not on origin"* ]]
+@test "a failed install hears nothing about reading a head" {
+  context=$(context_for_status bun 'bun install --frozen-lockfile' failed '"/l"')
+  echo "context: $context"
+  [[ $context != *"--ignore-scripts"* ]]
   [[ $context != *"age gate"* ]]
+}
+
+@test "a resumed session hears what happened and a condition, not a claim that nothing is installed" {
+  context=$(context_for_status bun 'bun install --frozen-lockfile' failed '"/l"' resume)
+  echo "context: $context"
+  [[ $context == *"When this slot was made"* ]]
+  [[ $context == *"If it has not succeeded since"* ]]
+  [[ $context != *"Dependencies are not installed"* ]]
 }
 
 @test "a slot with its dependencies installed, or none to install, hears nothing about them" {

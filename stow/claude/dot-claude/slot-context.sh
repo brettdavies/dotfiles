@@ -77,14 +77,27 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
     solutions='docs/solutions is the solutions repo shared with every other agent; commit to it only through `sd-commit-doc`.'
   fi
   deps=$(contract_json -r '.deps // {} | select((.status // "installed") != "installed")
-    | "Dependencies are not installed: `\(.command)` reported \(.status) when this slot was made"
-      + (if .log then "; its log is \(.log)" else "" end)
-      + ". The repo'"'"'s hooks fail their tool gates until they are, so fix that before your first push."
-      + (if .status == "untrusted-head" then " This head is not on origin and the install runs its lifecycle scripts, so"
-           + " read what it changes in package.json and the lockfile before you run it."
-         elif .status == "lockfile-changed" then " This head changes the lockfile from the base branch, and a frozen"
-           + " install takes what a lockfile pins without the supply-chain age gate, so read that change before you"
-           + " run it." else "" end)' <<<"$RECORD")
+    | "An install runs lifecycle scripts, so read every package.json, .npmrc, lockfile, and file those scripts call"
+      + " before you run it, or run it with --ignore-scripts." as $read
+    | "When this slot was made, `\(.command)` "
+      + ({failed: "failed; its log is \(.log).",
+          "timed-out": "hit the AGENT_SLOT_DEPS_TIMEOUT limit; its log is \(.log).",
+          "tool-missing": "could not run, because \(.manager) is not on this host'"'"'s PATH.",
+          "not-ignored": "was not run, because this repo does not ignore node_modules.",
+          "prime-not-set-up": ("was not run, because this repo'"'"'s prime is untrusted or has no node_modules, so"
+            + " nothing shows its install has been chosen on this host."),
+          "head-not-on-base": "was not run, because the base branch does not hold this head."}[.status]
+         // "reported \(.status).")
+      + " If it has not succeeded since, the repo'"'"'s hooks fail their tool gates, so deal with that before your first"
+      + " push. "
+      + ({failed: "Read the log, fix what it names, and rerun the command from the slot root.",
+          "timed-out": "Rerun it from the slot root, where that limit does not apply.",
+          "tool-missing": "Installing a package manager is a host change, so report this to whoever you report to.",
+          "not-ignored": ("Installing here leaves an untracked tree that blocks teardown and can land in a commit, so add"
+            + " node_modules/ to .gitignore first if your task allows that, and otherwise report it."),
+          "prime-not-set-up": $read,
+          "head-not-on-base": ($read + " A frozen install also takes what a lockfile pins without the supply-chain age"
+            + " gate.")}[.status] // "")' <<<"$RECORD")
   rules=$(
     cat <<'EOF'
 `agent-slot whoami` names this slot.
