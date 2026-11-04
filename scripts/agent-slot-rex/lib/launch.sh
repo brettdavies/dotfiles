@@ -263,9 +263,9 @@ launch_here() {
   [[ -z $LAUNCH_TASK ]] || args+=(--task "$LAUNCH_TASK")
   launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$LAUNCH_REPO · launching"
   printf 'agent-slot-rex: starting an agent in a fresh slot of %s (request %s)\n' "$LAUNCH_REPO" "${args[4]}"
-  # Outlasts the server's own bounds end to end: repo lock 60 s, clone 900 s, git-crypt 120 s, trust 45 s, and the
-  # three sessions' tmux calls 90 s.
-  launch_call 1260 launch "${args[@]}"
+  # Outlasts the server's own bounds end to end: repo lock 60 s, clone 900 s, git-crypt 120 s, trust 45 s, the three
+  # sessions' tmux calls 90 s, and the start of the prime 180 s.
+  launch_call 1440 launch "${args[@]}"
   launch_succeeded
 }
 

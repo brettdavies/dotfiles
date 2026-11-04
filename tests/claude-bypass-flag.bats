@@ -70,6 +70,7 @@ EOF
   local id=aaaaaaaa-0000-4000-8000-000000000001
   agent_slot_setup
   prime repoa
+  rm -f "$STUBS/tmux-panes-default"
   "$AGENT_SLOT" prime repoa
   [[ $(cat "$STUBS/typed-repoa-prime") == "claude $FLAG --session-id "* ]]
 

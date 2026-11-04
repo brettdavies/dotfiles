@@ -80,6 +80,8 @@ prime_start() {
   session=$(slot_session "$repo" "$SLOT_PRIME")
   started=$(_slot_us)
   SESSIONS_CREATED=()
+  [[ -d $path ]] || contract_fail repo-not-found "the checkout of $repo is not at $path" --value "$path" \
+    --command "agent-slot repos"
   _record_lock "$AS_STATE_DIR/primes/$repo.lock" "prime:$repo" --wait "$AS_LOCK_WAIT" \
     || contract_fail slot-busy "$key stayed locked for $AS_LOCK_WAIT s" --value "$key" --command "agent-slot prime $repo"
   _prime_old_session "$repo"
@@ -109,6 +111,38 @@ prime_start() {
     --argjson to "$(_slot_us)" '{repo, key, path, started, conversation: .conversation.mode,
       session_id: .conversation.session_id, started_at: ($from / 1000000), made_at: ($to / 1000000)}' <<<"$PRIME_JSON")"
   _record_unlock "prime:$repo"
+}
+
+# Usage: prime_for_slot <repo> <checkout>
+# Starts a slot's prime, and sets PRIME_FIELD to the prime field of the slot verb's output: what prime_start found, else
+# {error: {reason, message, next_step, log}}. A subshell keeps contract_fail, RECORD, and the exit traps away from the
+# slot, since bash resets traps in one, so a prime that fails to start never costs the slot. It runs in the background
+# because a subshell whose status is tested runs with errexit off.
+PRIME_FIELD=null
+prime_for_slot() {
+  local repo=$1 out err status=0 failure log
+  out=$(mktemp) err=$(mktemp)
+  (
+    CONTRACT_OUTPUT=json CONTRACT_NOISE=$err
+    trap 'printf "stopped at: %s\n" "${CONTRACT_LAST_FAILURE:-unknown}" >&2' EXIT
+    prime_start "$repo" "$2"
+    printf '%s\n' "$PRIME_JSON"
+  ) >"$out" 2>>"$err" </dev/null &
+  wait "$!" || status=$?
+  if ((status == 0)); then
+    PRIME_FIELD=$(<"$out")
+  else
+    failure=$(grep '^{' "$err" | tail -1 || true)
+    if [[ -z $failure ]]; then
+      mkdir -p "$AS_LOG_DIR"
+      log="$AS_LOG_DIR/$(date -u +%Y%m%dT%H%M%SZ)-$$-prime-start.log"
+      cp "$err" "$log"
+      failure=$(contract_error_json script-error "the start of the prime of $repo stopped unexpectedly (exit $status)" \
+        --value "$repo" --command "agent-slot prime $repo" --log "$log")
+    fi
+    PRIME_FIELD=$(contract_json -c '{error: {reason, message, next_step, log}}' <<<"$failure")
+  fi
+  rm -f "$out" "$err"
 }
 
 cmd_prime() {

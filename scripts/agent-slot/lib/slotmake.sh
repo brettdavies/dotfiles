@@ -188,6 +188,7 @@ slot_make() {
       created: true, trust_prompt_expected: $trust, phases: $phases, deps, items: (.items // []), name} + foreign_fields
       + $fields' \
     <<<"$RECORD")"
+  prime_for_slot "$repo" "$REPO_PRIME"
   push_restore "$event" "$(slot_key "$repo" "$n")"
   SLOT_MADE=$n SLOT_MADE_TRUST=$trust SLOT_MADE_PHASES=$phases
 }

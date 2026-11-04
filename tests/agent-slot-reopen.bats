@@ -577,6 +577,19 @@ snapshot() {
   [ "$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")" = "$before" ]
 }
 
+@test "a reopen starts the repo's prime and reports it" {
+  rm -f "$STUBS/tmux-panes-default"
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
+    \"name\": \"repoa-issue12-fix-the-widget\"}"
+  printf 'pick it back up\n' >"$T/brief.md"
+  reopen repoa --issue 12 --request-id r-1 --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  jaq -e '.created == true and .prime.key == "repoa/prime"
+    and .prime.started == ["repoa-prime", "repoa-prime-files", "repoa-prime-git"]' <<<"$output"
+  [ "$(grep -c 'new-session' "$CALLS")" -eq 6 ]
+}
+
 @test "a retry with the reopen's request ID returns its slot; a second reopen without it is refused with item-held-by-slot" {
   gh_item issue 12 "Fix the widget"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],

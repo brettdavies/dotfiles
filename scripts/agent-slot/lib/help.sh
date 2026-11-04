@@ -90,17 +90,19 @@ verb_help() {
       '         null when the repo has nothing to install or the head is foreign),' \
       '         next_step,' \
       '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
-      '         reopen resumes, else null)' \
+      '         reopen resumes, else null), prime (what agent-slot prime returns for the repo, or' \
+      '         {error: {reason, message, next_step, log}} when it did not start, which leaves the slot running;' \
+      '         null when the slot already held the request)' \
       'example: agent-slot launch dotfiles --model sonnet --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
     resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--output json]' \
       "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID" \
-      'with --dangerously-skip-permissions. Then it deletes each of the slot'"'"'s local branches whose PRs all merged or' \
-      "closed, with origin's branch of that name, keeping the base, origin's default branch, the branch checked out," \
-      'any branch a PR targets, and any branch either side of which holds work its PRs never had. Each delete is a' \
-      'prune line in the ledger.' \
+      "with --dangerously-skip-permissions, and starts the repo's prime if it is not running. Then it deletes each of" \
+      "the slot's local branches whose PRs all merged or closed, with origin's branch of that name, keeping the base," \
+      "origin's default branch, the branch checked out, any branch a PR targets, and any branch either side of which" \
+      'holds work its PRs never had. Each delete is a prune line in the ledger.' \
       'returns: key, started[] (the sessions it created), pruned_branches[], prune_failed[] of {branch, reason}' \
       '         (a delete that failed here or on origin; the next resume retries it), prune_checked (false when' \
-      '         GitHub gave no PR list, so nothing was pruned)' \
+      '         GitHub gave no PR list, so nothing was pruned), prime (as launch reports it)' \
       'example: agent-slot resume dotfiles/2' ;;
     prime) printf '%s\n' 'usage: agent-slot prime <repo> [--output json]' \
       "Starts the repo's prime if it is not running: <repo>-prime, <repo>-prime-files, and <repo>-prime-git on the slot" \

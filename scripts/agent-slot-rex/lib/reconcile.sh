@@ -69,7 +69,7 @@ reconcile_fetch() {
   RECONCILE_RESUMED=()
   while read -r key; do
     [[ -n $key ]] || continue
-    if server_call 60 resume "$key"; then
+    if server_call 240 resume "$key"; then
       RECONCILE_RESUMED+=("$key")
     elif server_timed_out; then
       ar_fail "$AR_ERROR"

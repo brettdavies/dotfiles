@@ -222,12 +222,12 @@ launch_output() {
   contract_ok "$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$path" \
     --argjson created "$created" --argjson trust "$trust" --argjson phases "$phases" --arg docs "$CONTRACT_DOCS" \
     --argjson delivered "$delivered" --arg branch "$(slot_branch "$path")" --argjson pushable "$HEAD_PUSHABLE" \
-    --argjson fields "$fields" \
+    --argjson fields "$fields" --argjson prime "$PRIME_FIELD" \
     --argjson missing "$(printf '%s\n' "${PARITY_MISSING_SIBLINGS[@]}" | contract_json -R -s -c 'split("\n") | map(select(. != ""))')" \
     "$SLOT_LABEL_DEF$FOREIGN_FIELDS_DEF"'{created: $created, key: $key, repo: .repo, slot: .slot, path: $path, state: .state, task: .task,
       name: .name, items: (.items // []), label_name: label_name($branch), request_id: .request_id,
       session_id: .session_id, base: .base, head_pushable: $pushable, trust_prompt_expected: $trust,
-      prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases, deps: .deps,
+      prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases, deps: .deps, prime: $prime,
       next_step: {action: "run", command: "agent-slot check \($key) --output json", docs: $docs,
                   note: ("each Rex client is asked to open this slot'"'"'s tab when the slot is made; a Mac that"
                          + " is asleep or offline opens it once it is back")}} + foreign_fields + $fields' <<<"$RECORD")" '
@@ -238,6 +238,7 @@ launch_output() {
        then "; its head " + (if .head_owner then "belongs to \(.head_owner)"
                               else "has an owner that could not be determined" end)
             + ", so nothing from the head runs" else "" end) +
+      (if .prime.error then "; its prime did not start: \(.prime.error.reason)" else "" end) +
       (if .prior then "\n\(.prior.note)" else "" end)'
 }
 
@@ -326,7 +327,7 @@ brief would not reach it; send the brief to that slot's Claude session, or launc
 }
 
 cmd_resume() {
-  local repo n state prune
+  local repo n state prune checkout
   slot_parse_key "$1"
   repo=$SLOT_REPO n=$SLOT_N
   require_tools tmux claude
@@ -344,15 +345,19 @@ cmd_resume() {
     | {prune_checked: (map(select(.[0] == "checked"))[0][1] == "true"),
        pruned_branches: map(select(.[0] == "pruned") | .[1]),
        prune_failed: map(select(.[0] == "failed") | {branch: .[1], reason: .[2]})}')
+  checkout=$(contract_json -r '.prime // ""' <<<"$RECORD")
   record_unlock_slot "$repo" "$n"
   contract_json -r -c '(.pruned_branches | map({branch: ., result: "pruned", reason: null}))
     + (.prune_failed | map(. + {result: "failed"})) | .[]' <<<"$prune" | while read -r line; do
     ledger_append prune "$(contract_json -c --arg repo "$repo" --argjson slot "$n" '{repo: $repo, slot: $slot} + .' \
       <<<"$line")"
   done
-  contract_ok "$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$1" --argjson prune "$prune" \
-    '{key: $key, started: split("\n") | map(select(. != ""))} + $prune')" \
+  local started=("${SESSIONS_CREATED[@]}")
+  [[ -z $checkout ]] || prime_for_slot "$repo" "$checkout"
+  contract_ok "$(printf '%s\n' "${started[@]}" | contract_json -R -s -c --arg key "$1" --argjson prune "$prune" \
+    --argjson prime "$PRIME_FIELD" '{key: $key, started: split("\n") | map(select(. != ""))} + $prune + {prime: $prime}')" \
     '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)
       + (if (.pruned_branches | length) == 0 then "" else "; pruned \(.pruned_branches | join(", ")), whose PRs merged or closed" end)
-      + (if (.prune_failed | length) == 0 then "" else "; could not prune \(.prune_failed | map(.branch) | join(", "))" end)'
+      + (if (.prune_failed | length) == 0 then "" else "; could not prune \(.prune_failed | map(.branch) | join(", "))" end)
+      + (if .prime.error then "; its prime did not start: \(.prime.error.reason)" else "" end)'
 }

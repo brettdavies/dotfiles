@@ -21,7 +21,7 @@ attach_pause() {
 # Returns 0 when the slot's sessions were started, 1 to retry later, and exits when the slot is gone.
 attach_resume() {
   printf 'agent-slot-rex: %s has no %s session; resuming the slot\n' "$ATTACH_KEY" "$ATTACH_KIND"
-  server_call 60 resume "$ATTACH_KEY" && return 0
+  server_call 240 resume "$ATTACH_KEY" && return 0
   if [[ $(contract_json -r '.reason' <<<"$AR_ERROR") == slot-not-found ]]; then
     printf 'agent-slot-rex: %s is gone (%s); this pane is done\n' "$ATTACH_KEY" \
       "$(contract_json -r '.message' <<<"$AR_ERROR")"

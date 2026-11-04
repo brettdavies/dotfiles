@@ -34,6 +34,8 @@ agent_slot_setup() {
   export AGENT_SLOT_ROOT=$T/slots
   export AGENT_SLOT_DEV=$T/dev
   export AGENT_SLOT_EXTRA_PRIMES=
+  export AGENT_SLOT_PRIMES=$T/primes.tsv
+  : >"$AGENT_SLOT_PRIMES"
   export AGENT_SLOT_STATE_DIR=$T/state
   export AGENT_SLOT_TMUX_SOCKET=agent-slot-test
   export AGENT_SLOT_TMUX_CONF=$T/slots.conf
@@ -205,20 +207,30 @@ seed_origin() {
   git -C "$T/seed-$1" push -q origin HEAD:main
 }
 
-# prime NAME [ORIGIN]: a clone under the dev root whose origin is a bare repo with one commit on main.
+# prime_runs_old_style NAME: a session of that name holding a Claude on the default tmux server, which is that repo's
+# prime, so a slot made of the repo starts no prime sessions and a suite's session counts stay its slot's own.
+prime_runs_old_style() {
+  printf '%s\tclaude\n' "$1" >>"$STUBS/tmux-panes-default"
+}
+
+# prime NAME [ORIGIN]: a clone under the dev root whose origin is a bare repo with one commit on main, and its prime
+# running as prime_runs_old_style gives it.
 prime() {
   local name=$1 origin=${2:-$T/origins/$1.git}
   seed_origin "$name" "$origin"
   git clone -q "$origin" "$AGENT_SLOT_DEV/$name"
+  prime_runs_old_style "$name"
 }
 
 # split_prime CHECKOUT GIT_DIR: a clone named for its checkout whose .git is a file naming GIT_DIR, the shape
-# `git clone --separate-git-dir` leaves, with a bare origin of one commit on main.
+# `git clone --separate-git-dir` leaves, with a bare origin of one commit on main, and its prime running as
+# prime_runs_old_style gives it.
 split_prime() {
   local name=${1##*/}
   seed_origin "$name" "$T/origins/$name.git"
   mkdir -p "${2%/*}"
   git clone -q --separate-git-dir "$2" "$T/origins/$name.git" "$1"
+  prime_runs_old_style "$name"
 }
 
 # slot REPO N [JSON-FIELDS]: a slot clone with a record; the record merges the given fields over its defaults.

@@ -22,6 +22,7 @@ setup() {
   NAMES=$BATS_TEST_DIRNAME/../scripts/agent-slot/lib/names.sh
   MAP=$BATS_TEST_DIRNAME/../config/agent-slot-rex/primes.tsv
   prime repoa
+  rm -f "$STUBS/tmux-panes-default"
 }
 
 teardown() {
@@ -144,6 +145,12 @@ old_style() {
 }
 
 prime_starts() { jaq -c 'select(.event == "prime-start")' "$AGENT_SLOT_STATE_DIR/ledger.jsonl" 2>/dev/null || true; }
+
+# rex_helper BODY: a Rex helper the verb pushes a restore to, and waits for before it exits.
+rex_helper() {
+  stub agent-slot-rex "$1"
+  export AGENT_SLOT_REX_HELPER=$STUBS/agent-slot-rex AGENT_SLOT_PUSH_WAIT=1
+}
 
 @test "with no sessions, three start on the slot socket at the checkout, typing what a slot's sessions type" {
   local checkout=$AGENT_SLOT_DEV/repoa json kind
@@ -349,8 +356,7 @@ JSON
 }
 
 @test "a start pushes a restore, a run that starts nothing does not, and neither does a helper's own call" {
-  stub agent-slot-rex 'exit 0'
-  export AGENT_SLOT_REX_HELPER=$STUBS/agent-slot-rex AGENT_SLOT_PUSH_WAIT=1
+  rex_helper 'exit 0'
   start
   [ "$status" -eq 0 ]
   [ "$(grep -c '^agent-slot-rex restore --by push' "$CALLS")" -eq 1 ]
@@ -462,6 +468,7 @@ JSON
 @test "a checkout whose .git is a file starts the same way" {
   local before
   split_prime "$AGENT_SLOT_DEV/splitrepo" "$T/gitdirs/splitrepo"
+  rm -f "$STUBS/tmux-panes-default"
   before=$(fingerprint "$AGENT_SLOT_DEV/splitrepo")
   start splitrepo
   [ "$status" -eq 0 ]
@@ -489,4 +496,129 @@ JSON
   [[ $output == *'usage: agent-slot prime <repo>'* ]]
   [[ $output == *'returns:'* ]]
   [[ $output == *'example: agent-slot prime '* ]]
+}
+
+# --- a slot starts its prime ------------------------------------------------------------------------------------------
+
+# launch_slot [REQUEST]: launches a slot of repoa, its path already trusted.
+launch_slot() {
+  local n
+  for n in 1 2 3; do trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/$n")"; done
+  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id "${1:-r1}" --output json
+}
+
+PRIME_SESSIONS='["repoa-prime", "repoa-prime-files", "repoa-prime-git"]'
+
+@test "a launch starts the slot's three sessions and the prime's three, and reports the prime" {
+  launch_slot
+  [ "$status" -eq 0 ]
+  jaq -e --argjson started "$PRIME_SESSIONS" '.key == "repoa/1" and .created == true
+    and .prime.key == "repoa/prime" and .prime.server == "slots" and .prime.started == $started' <<<"$output"
+  [ "$(grep -c ' new-session ' "$CALLS")" -eq 6 ]
+  grep -qF -- "new-session -d -s repoa-prime -c $AGENT_SLOT_DEV/repoa " "$CALLS"
+}
+
+@test "a launch with the old-style session running reports it and starts no prime session" {
+  old_style 'Repo A' claude
+  launch_slot
+  [ "$status" -eq 0 ]
+  jaq -e '.prime.server == "default" and .prime.session == "Repo A" and .prime.started == []' <<<"$output"
+  [ "$(grep -c ' new-session ' "$CALLS")" -eq 3 ]
+}
+
+@test "a second launch finds the prime running and starts no prime session" {
+  launch_slot r1
+  launch_slot r2
+  [ "$status" -eq 0 ]
+  jaq -e '.key == "repoa/2" and .prime.started == []' <<<"$output"
+  [ "$(grep -c ' new-session ' "$CALLS")" -eq 9 ]
+}
+
+@test "a launch that returns the slot already holding its request starts nothing and reports no prime" {
+  launch_slot r1
+  : >"$CALLS"
+  launch_slot r1
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false and .key == "repoa/1" and .prime == null' <<<"$output"
+  run ! grep -q ' new-session ' "$CALLS"
+}
+
+@test "resuming a dormant slot starts its prime from the checkout the record names" {
+  slot repoa 1
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
+  [ "$status" -eq 0 ]
+  jaq -e --argjson started "$PRIME_SESSIONS" '.started == ["repoa-1", "repoa-1-files", "repoa-1-git"]
+    and .prime.started == $started' <<<"$output"
+  grep -qF -- "new-session -d -s repoa-prime -c $AGENT_SLOT_DEV/repoa " "$CALLS"
+}
+
+@test "a resume finding the prime's checkout gone still succeeds, reporting why the prime did not start" {
+  slot repoa 1 "{\"prime\": \"$T/gone\"}"
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
+  [ "$status" -eq 0 ]
+  jaq -e '(.started | length) == 3 and .prime.error.reason == "repo-not-found"' <<<"$output"
+  [ "$(grep -c ' new-session ' "$CALLS")" -eq 3 ]
+}
+
+@test "a resume whose record names no checkout starts no prime" {
+  slot repoa 1 '{"prime": null}'
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.prime == null' <<<"$output"
+  [ "$(grep -c ' new-session ' "$CALLS")" -eq 3 ]
+}
+
+@test "a prime that fails to start leaves the launch a success, its slot active, and the retry in the output" {
+  wrap_tmux '[[ " $* " != *" new-session "*"-prime"* ]] || exit 1'
+  launch_slot
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <<<"$output")" -eq 1 ]
+  jaq -e '.ok == true and .key == "repoa/1" and .prime.error.reason == "tmux-failed"
+    and .prime.error.next_step.command == "agent-slot prime repoa"
+    and (.prime.error.log | type == "string") and (.prime.error.message | type == "string")' <<<"$output"
+  [ -z "$stderr" ]
+  [ "$(jaq -r '.state' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json")" = active ]
+  [ "$(sort -u "$STUBS/tmux-sessions")" = $'repoa-1\nrepoa-1-files\nrepoa-1-git' ]
+}
+
+@test "a launch's text line says its prime did not start" {
+  local n
+  for n in 1 2 3; do trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/$n")"; done
+  wrap_tmux '[[ " $* " != *" new-session "*"-prime"* ]] || exit 1'
+  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r1
+  [ "$status" -eq 0 ]
+  [[ $output == *'; its prime did not start: tmux-failed'* ]]
+}
+
+@test "a prime start that dies with no error object reports script-error and keeps what it printed" {
+  cat >"$STUBS/jq-dies" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *'session_id: $id, prompt_file: null'*) echo 'the words it died with' >&2; exit 5 ;;
+esac
+exec jaq "$@"
+EOF
+  chmod +x "$STUBS/jq-dies"
+  export AGENT_SLOT_JQ=$STUBS/jq-dies
+  launch_slot
+  [ "$status" -eq 0 ]
+  jaq -e '.key == "repoa/1" and .prime.error.reason == "script-error"
+    and .prime.error.next_step.command == "agent-slot prime repoa"' <<<"$output"
+  grep -q 'the words it died with' "$(jaq -r '.prime.error.log' <<<"$output")"
+}
+
+@test "the prime is up before the push, so the pass that opens the slot's tab opens the prime's too, and pushes once" {
+  rex_helper 'cp "$STUBS/tmux-sessions" "$STUBS/sessions-at-push"'
+  launch_slot
+  [ "$status" -eq 0 ]
+  grep -qx repoa-prime "$STUBS/sessions-at-push"
+  [ "$(grep -c '^agent-slot-rex restore --by push' "$CALLS")" -eq 1 ]
+}
+
+@test "a prime that fails to start still pushes the slot's tab, once" {
+  rex_helper 'exit 0'
+  wrap_tmux '[[ " $* " != *" new-session "*"-prime"* ]] || exit 1'
+  launch_slot
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^agent-slot-rex restore --by push' "$CALLS")" -eq 1 ]
 }
