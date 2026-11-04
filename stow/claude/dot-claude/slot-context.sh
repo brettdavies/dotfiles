@@ -59,11 +59,15 @@ context_record() {
   record_unlock_slot "$repo" "$n"
 }
 
+# The repo whose slots share main: the vault takes no branches or PRs, and holds the operator's private notes.
+VAULT_REPO=obsidian-vault
+
 # Usage: context_text <repo> <n>; prints the SessionStart output for the record in RECORD. The lines reach jaq as data
 # through --arg, never as part of its program, so an apostrophe or a backtick in one prints as written.
 # shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
 context_text() {
-  local task items base prime solutions rules plans closing rules_after reopen unattended
+  local task items base prime solutions rules plans closing rules_after reopen unattended vault_rules=''
+  local finished='Your task is finished when its PRs are open, or merged if the brief says so, and nothing is left unpushed.'
   task=$(contract_json -r '.task // ""' <<<"$RECORD")
   items=$(contract_json -r '.items // [] | map("\(if .kind == "pr" then "PR" else .kind end) \(.repo)#\(.number)"
     + (if (.title // "") == "" then "" else " (\(.title))" end)) | join(", ")' <<<"$RECORD")
@@ -101,9 +105,20 @@ your brief reports to as one \`SendMessage\`: the question, the options, your re
       "Keep working on what that decision does not block, then end your turn; the answer arrives as a message. If the \
 brief names no such session, leave the decision open in the plan and in your report."
   )
+  if [[ $1 == "$VAULT_REPO" ]]; then
+    finished='Your task is finished when its work is on origin/main and nothing is left unpushed.'
+    vault_rules=$(
+      cat <<'EOF'
+This is the Obsidian vault. Nothing automated commits in the vault, and the operator wants no autocommits there.
+Commit only your own task's work, on main, with no branch or PR, and stage each path by name.
+Run `git fetch` then `git rebase origin/main` before each push, so parallel slots never clobber each other; never force-push.
+The vault is sensitive: put no vault content in docs/solutions, another repo, a PR body, or any outside service.
+EOF
+    )
+  fi
   closing=$(
     printf '%s\n' \
-      "Your task is finished when its PRs are open, or merged if the brief says so, and nothing is left unpushed." \
+      "$finished" \
       "Then close it out, in this order:" \
       "1. Run \`$RELEASE_COMPOUND\` once per finding from this session, one full run each, and once even when \
 none qualifies." \
@@ -131,8 +146,9 @@ it: send a reopen to the session your brief reports to."
     if [[ -n $task ]]; then printf 'Task: %s.\n' "$task"; else printf '%s\n' 'This slot was given no task name.'; fi
     [[ -z $items ]] || printf 'Work items: %s.\n' "$items"
     printf '%s\n' "The base branch is $base." \
-      "The prime checkout $prime is read-only for you; make every change in this slot." "$solutions" "$rules" \
-      "$unattended" "$plans" "$closing" \
+      "The prime checkout $prime is read-only for you; make every change in this slot."
+    [[ -z $vault_rules ]] || printf '%s\n' "$vault_rules"
+    printf '%s\n' "$solutions" "$rules" "$unattended" "$plans" "$closing" \
       "$rules_after" "$reopen"
   )" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $text}}'
 }

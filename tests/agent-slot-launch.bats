@@ -109,6 +109,56 @@ partial_prime() {
   assert_prime_untouched
 }
 
+# split_prime_named: the prime ~/obsidian-vault's shape gives agent-slot, trusted so its slots start with no dialog. Sets
+# SPLIT_PRIME, its checkout, SPLIT_GIT_DIR, its git directory, and SPLIT_SLOT, where its first slot goes.
+split_prime_named() {
+  SPLIT_PRIME=$T/outside/vault SPLIT_GIT_DIR=$AGENT_SLOT_DEV/vault-git SPLIT_SLOT=$AGENT_SLOT_ROOT/vault/1
+  split_prime "$SPLIT_PRIME" "$SPLIT_GIT_DIR"
+  export AGENT_SLOT_EXTRA_PRIMES=$SPLIT_PRIME
+  trusted "$SPLIT_PRIME" "$(realpath -m "$SPLIT_SLOT")"
+}
+
+@test "a prime with a separate git dir gets an ordinary clone, set up like any slot, and stays untouched" {
+  split_prime_named
+  BEFORE=$(fingerprint "$SPLIT_PRIME")
+  GIT_BEFORE=$(fingerprint "$SPLIT_GIT_DIR")
+  launch vault --request-id r-split --task t1
+  [ "$status" -eq 0 ]
+  jaq -e '.created == true and .key == "vault/1" and .base == "main" and .trust_prompt_expected == false' <<<"$output"
+  [ -d "$SPLIT_SLOT/.git" ]
+  [ ! -s "$SPLIT_SLOT/.git/objects/info/alternates" ]
+  [ "$(git -C "$SPLIT_SLOT" config --get remote.origin.url)" = "$T/origins/vault.git" ]
+  [ "$(git -C "$SPLIT_SLOT" symbolic-ref --short HEAD)" = main ]
+  [ -L "$SPLIT_SLOT/docs/solutions" ]
+  [ -f "$SPLIT_SLOT/.claude/settings.local.json" ]
+  jaq -e --arg p "$SPLIT_PRIME" '.prime == $p' "$SPLIT_SLOT/.git/agent-slot.json"
+  [ "$(cat "$STUBS/typed-vault-1")" = "claude --dangerously-skip-permissions --session-id $(jaq -r .session_id \
+    "$SPLIT_SLOT/.git/agent-slot.json") -n t1" ]
+  [ "$(fingerprint "$SPLIT_PRIME")" = "$BEFORE" ]
+  [ "$(fingerprint "$SPLIT_GIT_DIR")" = "$GIT_BEFORE" ]
+}
+
+# A reference git cannot use costs no error, only a full transfer, so the clone has to be seen asking for nothing.
+@test "a slot's clone borrows from a prime with a separate git dir instead of transferring its objects" {
+  split_prime_named
+  git -C "$SPLIT_PRIME" remote set-url origin "file://$T/origins/vault.git"
+  export GIT_TRACE_PACKET=$T/packets
+  launch vault --request-id r-borrow
+  unset GIT_TRACE_PACKET
+  [ "$status" -eq 0 ]
+  [ -s "$T/packets" ]
+  run ! grep -qE 'clone> (want|fetch)|clone> command=fetch' "$T/packets"
+}
+
+@test "a hook installed in a prime's separate git dir is copied into the slot, as one in a .git directory is" {
+  split_prime_named
+  printf '#!/bin/sh\nexit 0\n' >"$SPLIT_GIT_DIR/hooks/pre-commit"
+  chmod +x "$SPLIT_GIT_DIR/hooks/pre-commit"
+  launch vault --request-id r-split-hook
+  [ "$status" -eq 0 ]
+  [ -x "$SPLIT_SLOT/.git/hooks/pre-commit" ]
+}
+
 @test "a prime that is a partial clone gets a slot cloned with the prime's filter, which needs no blob the prime lacks" {
   partial_prime pc
   local prime=$AGENT_SLOT_DEV/pc slot=$AGENT_SLOT_ROOT/pc/1

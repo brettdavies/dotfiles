@@ -91,6 +91,39 @@ last_event() { jaq -c -s --arg e "$2" 'map(select(.event == $e))[-1]' "$1"; }
   [ ! -e "$SLOT" ]
 }
 
+# The vault's whole shape: a separate git dir, a whitelist .gitignore that covers what setup places, and work pushed to
+# main with no PR.
+@test "a real slot of a prime with a separate git dir and a whitelist .gitignore pushes to main and tears down clean" {
+  local vault=$T/outside/vault key=vault/1
+  local clone=$AGENT_SLOT_ROOT/vault/1
+  split_prime "$vault" "$AGENT_SLOT_DEV/vault-git"
+  origin_file vault .gitignore "$(printf '/*\n!/.gitignore\n!/notes/\n!/docs/\n!/.claude/\n.claude/settings.local.json\ndocs/solutions')"
+  git -C "$vault" pull -q origin main
+  export AGENT_SLOT_EXTRA_PRIMES=$vault
+  trusted "$vault" "$(realpath -m "$clone")"
+  run --separate-stderr "$AGENT_SLOT" launch vault --request-id r-vault --task t1 --output json
+  [ "$status" -eq 0 ]
+  mkdir -p "$clone/notes"
+  echo note >"$clone/notes/a.md"
+  git -C "$clone" add notes/a.md
+  git -C "$clone" commit -q -m note
+  printf 'vault-1\nvault-1-files\nvault-1-git\n' >>"$STUBS/tmux-sessions"
+  run --separate-stderr "$AGENT_SLOT" finish "$key" --yes --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "teardown-blocked" and (.message | endswith(": 1 unpushed commit"))' <<<"$stderr"
+  [ -d "$clone/.git" ]
+  git -C "$clone" push -q origin main
+  [ "$(git -C "$T/origins/vault.git" log -1 --format=%s main)" = note ]
+  run --separate-stderr "$AGENT_SLOT" finish "$key" --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == true' <<<"$output"
+  [ ! -e "$clone" ]
+  [ -z "$(solutions_worktrees)" ]
+  [ -f "$vault/.git" ]
+  [ -z "$(git -C "$vault" status --porcelain)" ]
+  [ "$(git -C "$vault" rev-parse --git-dir)" = "$AGENT_SLOT_DEV/vault-git" ]
+}
+
 @test "finish --yes tears down a fork's slot linked to its upstream's repo-recon store, which keeps what was filed there" {
   recon_linked me up
   finished_task

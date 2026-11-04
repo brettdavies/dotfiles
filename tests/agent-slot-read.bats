@@ -38,6 +38,54 @@ setup() {
   [ "$(jaq -c '[.repos[].name]' <<<"$output")" = '["alpha","outside"]' ]
 }
 
+# The layout ~/obsidian-vault has: the checkout outside the dev root, and its git directory directly under it.
+@test "repos lists a clone whose .git file names a separate git directory, under its checkout's name" {
+  prime alpha
+  split_prime "$T/outside/vault" "$AGENT_SLOT_DEV/vault-git"
+  AGENT_SLOT_EXTRA_PRIMES=$T/outside/vault run --separate-stderr "$AGENT_SLOT" repos --output json
+  [ "$status" -eq 0 ]
+  [ "$(jaq -c '[.repos[].name]' <<<"$output")" = '["alpha","vault"]' ]
+  jaq -e --arg p "$T/outside/vault" --arg o "$T/origins/vault.git" \
+    '.repos[1].prime == $p and .repos[1].origin == $o' <<<"$output"
+}
+
+@test "repos lists a clone with a separate git directory that sits directly under the dev root" {
+  split_prime "$AGENT_SLOT_DEV/vault" "$T/elsewhere/vault-git"
+  run --separate-stderr "$AGENT_SLOT" repos --output json
+  [ "$(jaq -c '[.repos[].name]' <<<"$output")" = '["vault"]' ]
+}
+
+@test "repos never lists a linked worktree of a clone with a separate git directory, wherever it sits" {
+  split_prime "$T/outside/vault" "$AGENT_SLOT_DEV/vault-git"
+  git -C "$T/outside/vault" worktree add -q "$AGENT_SLOT_DEV/a-worktree"
+  git -C "$T/outside/vault" worktree add -q "$T/outside/b-worktree"
+  AGENT_SLOT_EXTRA_PRIMES=$T/outside/vault:$T/outside/b-worktree run --separate-stderr "$AGENT_SLOT" repos --output json
+  [ "$(jaq -c '[.repos[].name]' <<<"$output")" = '["vault"]' ]
+}
+
+@test "repos never lists a separate git directory itself, even when the extra list names it" {
+  split_prime "$T/outside/vault" "$AGENT_SLOT_DEV/vault-git"
+  AGENT_SLOT_EXTRA_PRIMES=$AGENT_SLOT_DEV/vault-git run --separate-stderr "$AGENT_SLOT" repos --output json
+  [ "$status" -eq 0 ]
+  [ "$(jaq -c '[.repos[].name]' <<<"$output")" = '[]' ]
+}
+
+@test "repos passes over a .git file that names no git directory and an extra prime that does not exist" {
+  mkdir -p "$AGENT_SLOT_DEV/broken"
+  printf 'gitdir: %s\n' "$T/gone" >"$AGENT_SLOT_DEV/broken/.git"
+  AGENT_SLOT_EXTRA_PRIMES=$T/no-such-checkout run --separate-stderr "$AGENT_SLOT" repos --output json
+  [ "$status" -eq 0 ]
+  [ "$(jaq -c '[.repos[].name]' <<<"$output")" = '[]' ]
+}
+
+@test "the extra primes default to the dotfiles checkout and the vault, whose name is the one its slots go by" {
+  lib=$BATS_TEST_DIRNAME/../scripts/agent-slot/lib
+  run bash -c 'unset AGENT_SLOT_EXTRA_PRIMES
+    source "$1/contract.sh"; source "$1/env.sh"; agent_slot_env "$1/.."; printf %s "$AS_EXTRA_PRIMES"' _ "$lib"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$HOME/dotfiles:$HOME/obsidian-vault" ]
+}
+
 @test "list with no slot root returns an empty list and exits 0" {
   run --separate-stderr "$AGENT_SLOT" list --output json
   [ "$status" -eq 0 ]
