@@ -100,9 +100,10 @@ verb_help() {
       'example: agent-slot adopt Pillow/1 --issue 10331 --output json' ;;
     probe) printf '%s\n' 'usage: agent-slot probe <pr> [--output json]' \
       'Marks a PR a probe: a draft this slot opened to exercise CI or a workflow and never means to merge. Run it from' \
-      "inside the slot. A ref is N, owner/name#N, or its GitHub URL, in the repo of the slot's origin. The PR must be" \
-      'an open draft whose current head this clone pushed; anything else is refused with pr-not-open, pr-not-draft, or' \
-      "pr-not-from-this-slot. It attaches the PR as a work item and changes only the slot's record, so it needs no ask." \
+      'inside the slot, right after gh pr create --draft. A ref is N, owner/name#N, or its GitHub URL, in the repo of' \
+      "the slot's origin. The PR must be an open draft on a branch this clone created, whose current head this clone" \
+      'pushed; anything else is refused with pr-not-open, pr-not-draft, or pr-not-from-this-slot. It attaches the PR' \
+      "as a work item and changes only the slot's record, so it needs no ask." \
       'A marked PR closed unmerged neither finishes the task nor blocks it (see check); one taken out of draft stops' \
       'being a probe, and a probe never names the slot. Marking one already marked changes nothing. Other errors:' \
       'not-in-slot, pr-state-unknown, item-not-found, item-kind-mismatch, and slot-busy, which is safe to retry.' \
@@ -110,11 +111,12 @@ verb_help() {
       'example: agent-slot probe 487 --output json' ;;
     close-probe) printf '%s\n' 'usage: agent-slot close-probe <pr> [--output json]' \
       'Closes a PR this slot marked with agent-slot probe, for a slot where gh pr close is denied. Run it from inside' \
-      'the slot. It closes only a marked PR (else pr-not-probe) that is still a draft (else pr-not-draft), and whose' \
-      'current head this clone pushed (else pr-not-from-this-slot). It leaves a comment saying why and deletes no' \
-      'branch, so gh pr reopen undoes it, and it needs no ask. A marked draft already closed succeeds without closing' \
-      'again; a merged one fails with pr-not-open. A close whose outcome is unknown fails with pr-close-failed, and' \
-      'rerunning it is safe. Other errors: not-in-slot, pr-state-unknown, item-not-found, item-kind-mismatch.' \
+      'the slot. It closes only a marked PR (else pr-not-probe) that is still a draft (else pr-not-draft),' \
+      'on a branch this clone created, whose current head this clone pushed (else pr-not-from-this-slot). It leaves a' \
+      'comment saying why and deletes no branch, so gh pr reopen undoes it, and it needs no ask. A marked draft already' \
+      'closed succeeds without closing again; a merged one fails with pr-not-open. A close whose outcome is unknown' \
+      'fails with pr-close-failed, and rerunning it is safe. Other errors: not-in-slot, pr-state-unknown,' \
+      'item-not-found, item-kind-mismatch.' \
       'returns: key, pr {repo, number, title, head, oid, url}, closed, already_closed' \
       'example: agent-slot close-probe 487 --output json' ;;
     reopen) printf '%s\n' \

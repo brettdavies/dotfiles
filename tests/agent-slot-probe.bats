@@ -439,16 +439,18 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
 }
 
 @test "probe refuses a PR already closed or merged, so a closed PR cannot be marked after the fact" {
-  local state
   pushed feat/p
   draft_pr 9 feat/p CLOSED
-  for state in CLOSED MERGED; do
-    pr_fields 9 ".state = \"$state\""
-    in_slot probe 9
-    refused pr-not-open
-    jaq -e '.next_step.action == "none" and .next_step.command == null' <<<"$stderr"
-    record_has '.probes == null'
-  done
+  in_slot probe 9
+  refused pr-not-open
+  jaq -e '.next_step.action == "ask-operator" and .next_step.command == "gh pr view 9 --repo origins/repoa"
+    and (.message | contains("pr-closed-unmerged"))' <<<"$stderr"
+  record_has '.probes == null'
+  pr_fields 9 '.state = "MERGED"'
+  in_slot probe 9
+  refused pr-not-open
+  jaq -e '.next_step.action == "none" and .next_step.command == null and (.message | contains("MERGED"))' <<<"$stderr"
+  record_has '.probes == null'
 }
 
 @test "a marked probe never lets a branch it did not create qualify: another slot's branch with this slot's fixup" {
@@ -641,7 +643,7 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   for verb in probe close-probe; do
     in_slot "$verb"
     [ "$status" -eq 2 ]
-    jaq -e '.reason == "usage"' <<<"$stderr"
+    jaq -e '.reason == "usage" and .value == null' <<<"$stderr"
     in_slot "$verb" 9 10
     [ "$status" -eq 2 ]
     in_slot "$verb" feat/p
@@ -781,6 +783,16 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   assert_error_shape "$stderr"
   jaq -e '.reason == "item-not-found" and .value == "999" and .next_step.command == "agent-slot close-probe --help"' \
     <<<"$stderr"
+}
+
+@test "both verbs' help states what qualifies a PR, and probe's says when to mark it" {
+  run "$AGENT_SLOT" probe --help
+  [ "$status" -eq 0 ]
+  [[ $output == *"on a branch this clone created"* ]]
+  [[ $output == *"gh pr create --draft"* ]]
+  run "$AGENT_SLOT" close-probe --help
+  [ "$status" -eq 0 ]
+  [[ $output == *"on a branch this clone created"* ]]
 }
 
 @test "text mode says what happened and what comes next" {

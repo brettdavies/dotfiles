@@ -44,9 +44,14 @@ _probe_state() { contract_json -r .state <<<"$ITEM"; }
 
 _probe_marked() { contract_json --argjson n "$ITEM_NUMBER" '(.probes // []) | index($n) != null' <<<"$RECORD"; }
 
+# Usage: _probe_refuse_not_open; a merged PR needs nothing more, while one closed before it was marked keeps its blocker,
+# which only the operator can clear.
 _probe_refuse_not_open() {
-  contract_fail pr-not-open "PR #$ITEM_NUMBER is $(_probe_state), and $CONTRACT_VERB acts only on an open draft" \
-    --value "$ITEM_REF"
+  [[ $(_probe_state) != MERGED ]] || contract_fail pr-not-open "PR #$ITEM_NUMBER is MERGED, so it needs no closing and \
+cannot be a probe" --value "$ITEM_REF"
+  contract_fail pr-not-open "PR #$ITEM_NUMBER is CLOSED, and a PR closed before it was marked stays the \
+pr-closed-unmerged blocker; clearing that is the operator's call" --value "$ITEM_REF" \
+    --command "$(_probe_view_command)" --action ask-operator
 }
 
 # Usage: _probe_require_draft; refuses a PR that is not a draft and drops its mark, so a return to draft does not make it

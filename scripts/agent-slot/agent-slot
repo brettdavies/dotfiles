@@ -200,7 +200,9 @@ main() {
       cmd_adopt
       ;;
     probe | close-probe)
-      ((${#args[@]} == 1)) || usage_fail "$verb takes one PR: N, owner/name#N, or its GitHub URL" "${args[*]}"
+      local takes_one="$verb takes one PR: N, owner/name#N, or its GitHub URL"
+      ((${#args[@]} > 0)) || usage_fail "$takes_one"
+      ((${#args[@]} == 1)) || usage_fail "$takes_one" "${args[*]}"
       exec </dev/null
       "cmd_${verb//-/_}" "${args[0]}"
       ;;
