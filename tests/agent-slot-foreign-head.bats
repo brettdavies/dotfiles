@@ -655,3 +655,23 @@ run_lazygit() {
   run_lazygit 8 lazygit-parent
   [ -e "$T/marks/lazygit-parent" ]
 }
+
+# lockfile: a package.json and bun.lock whose install scripts touch a marker, with an install tool that runs them.
+lockfile() {
+  jaq -n --arg m "$T/marks/lifecycle-script" '{name: "tree", version: "1.0.0", scripts: {postinstall: "touch \($m)"}}' \
+    >package.json
+  printf '{"lockfileVersion": 1, "workspaces": {"": {"name": "tree"}}, "packages": {}}\n' >bun.lock
+  printf 'node_modules/\n' >.gitignore
+}
+
+@test "a foreign head installs nothing from its lockfile, and its agent gets no advice to" {
+  mkdir -p "$AGENT_SLOT_DEV/repoa/node_modules"
+  stub bun 'for arg in "$@"; do [ "$arg" != install ] || touch "$T_MARKS/bun-install"; done'
+  export T_MARKS=$T/marks AGENT_SLOT_BUN=$STUBS/bun
+  foreign_pr lockfile
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -z "$(ls "$T/marks")" ]
+  jaq -e '(.deps // null) == null' <<<"$output"
+  jaq -e '(.deps // null) == null' "$SLOT/.git/agent-slot.json"
+}
