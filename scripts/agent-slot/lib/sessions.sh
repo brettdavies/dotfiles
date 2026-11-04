@@ -75,7 +75,8 @@ sessions_record_transcript() {
     "$(contract_json -r '.transcript // ""' <<<"$RECORD")"
 }
 
-_sessions_foreign() { [[ $(contract_json -r '.head_foreign // false' <<<"$RECORD") == true ]]; }
+# True when the record in RECORD has a foreign head (foreign.sh).
+sessions_foreign() { [[ $(contract_json -r '.head_foreign // false' <<<"$RECORD") == true ]]; }
 
 # Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume | reopen]
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
@@ -87,13 +88,13 @@ sessions_command() {
   local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude=$SESSIONS_CLAUDE
   case $kind in
     files)
-      if _sessions_foreign; then printf '%s' 'ls -A'; else printf '%s' 'command -v y >/dev/null && y || yazi'; fi
+      if sessions_foreign; then printf '%s' 'ls -A'; else printf '%s' 'command -v y >/dev/null && y || yazi'; fi
       ;;
     git) printf '%s' 'lazygit' ;;
     claude)
       name=$(contract_json -r '.name // .task // ""' <<<"$RECORD")
       prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
-      ! _sessions_foreign || claude="$SESSIONS_CLAUDE ${SESSIONS_FOREIGN_ARGS[*]}"
+      ! sessions_foreign || claude="$SESSIONS_CLAUDE ${SESSIONS_FOREIGN_ARGS[*]}"
       if [[ $mode != launch ]] && _sessions_conversation_saved; then
         printf -v cmd '%s --resume %q' "$claude" "$(contract_json -r '.session_id' <<<"$RECORD")"
         [[ $mode == reopen ]] || prompt=''
@@ -116,7 +117,7 @@ sessions_start() {
   local -a start env=()
   path=$(slot_path "$repo" "$n")
   shell=$(_sessions_shell)
-  if _sessions_foreign; then
+  if sessions_foreign; then
     for setting in "${SESSIONS_FOREIGN_ENV[@]}"; do env+=(-e "$setting"); done
   fi
   SESSIONS_CREATED=()
