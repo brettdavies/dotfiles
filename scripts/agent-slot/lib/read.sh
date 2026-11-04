@@ -12,6 +12,12 @@ repo_is_clone() {
   ((${#dirs[@]} == 2)) && [[ ${dirs[0]} == "${dirs[1]}" ]]
 }
 
+# Usage: repo_origin_of <dir>; prints the origin URL of the clone at <dir>, or returns 1 when <dir> is no clone with one.
+repo_origin_of() {
+  repo_is_clone "$1" || return 1
+  git -C "$1" config --get remote.origin.url 2>/dev/null
+}
+
 # Prime checkouts, as tab-separated name, path, and origin URL, sorted by name. A prime checkout is a clone with an
 # origin, directly under the dev root or named in the extra list, and a slot of it goes by its directory's name.
 repo_primes() {
@@ -23,8 +29,7 @@ repo_primes() {
   unset IFS
   for dir in "${dirs[@]}"; do
     dir=${dir%/}
-    repo_is_clone "$dir" || continue
-    origin=$(git -C "$dir" config --get remote.origin.url 2>/dev/null) || continue
+    origin=$(repo_origin_of "$dir") || continue
     printf '%s\t%s\t%s\n' "${dir##*/}" "$dir" "$origin"
   done | sort -t $'\t' -k1,1 -u
 }
@@ -43,8 +48,7 @@ repo_lookup() {
     [[ ${extra##*/} != "$name" ]] || dirs+=("$extra")
   done
   for dir in "${dirs[@]}"; do
-    repo_is_clone "$dir" || continue
-    origin=$(git -C "$dir" config --get remote.origin.url 2>/dev/null) || continue
+    origin=$(repo_origin_of "$dir") || continue
     REPO_PRIME=$dir REPO_ORIGIN=$origin
     return 0
   done
