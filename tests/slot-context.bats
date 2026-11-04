@@ -309,3 +309,33 @@ issue oxipng/oxipng#886 (16-bit tRNS lost)."* ]]
   [ "$(record '.ready_at | type')" = '"number"' ]
   [ -z "$(ledger ready)" ]
 }
+
+@test "a foreign head's context says why nothing from its tree ran and what the agent must keep off" {
+  slot repo 1 '{"task": "review", "head_foreign": true, "head_owner": "evil"}'
+  run start s1 startup
+  [ "$status" -eq 0 ]
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"fork owned by evil"* ]]
+  [[ $context == *'Claude started with user settings only'* ]]
+  [[ $context == *'git has no hooks'* ]]
+  [[ $context == *'Do not run its tests, builds, scripts, or package managers'* ]]
+  [[ $context == *'A tracked symlink can point at any file on this host'* ]]
+  [[ $context == *'git show HEAD:<path>'* ]]
+}
+
+@test "a foreign head whose owner is unknown says so" {
+  slot repo 1 '{"task": "review", "head_foreign": true, "head_owner": null}'
+  run start s1 startup
+  [ "$status" -eq 0 ]
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *'fork whose owner could not be determined'* ]]
+}
+
+@test "any other slot's context has no foreign-head notice, and warns against checking out another person's fork" {
+  slot repo 1 '{"task": "work"}'
+  run start s1 startup
+  [ "$status" -eq 0 ]
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context != *'Claude started with user settings only'* ]]
+  [[ $context == *'Never check out a head from another person'"'"'s fork in this slot'* ]]
+}

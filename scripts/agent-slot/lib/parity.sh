@@ -33,10 +33,12 @@ parity_base() {
   [[ -n $PARITY_BASE ]] || PARITY_BASE=$(git -C "$slot" symbolic-ref --short HEAD)
 }
 
-# Usage: parity_git_crypt <slot>
+# Usage: parity_git_crypt <slot> [<rev>]
+# Decides from <rev>'s .gitattributes when given, else the working tree's. The key decrypts any file under its filter,
+# so a head that names the filter on a blob lifted from another repo gets it decrypted in the clone.
 parity_git_crypt() {
-  local slot=$1 out file
-  git -C "$slot" grep -q -e 'filter=git-crypt' -- '.gitattributes' '**/.gitattributes' 2>/dev/null || return 0
+  local slot=$1 rev=${2:-} out file
+  git -C "$slot" grep -q -e 'filter=git-crypt' ${rev:+"$rev"} -- '.gitattributes' '**/.gitattributes' 2>/dev/null || return 0
   if [[ -z $AS_GIT_CRYPT ]]; then
     contract_fail git-crypt-locked "the repo uses git-crypt, and git-crypt is not installed on this server" \
       --value git-crypt --command "brew install git-crypt" --side-effects none

@@ -59,12 +59,16 @@ verb_help() {
       'checked out tracking the remote that holds it: origin, the remote the prime checkout has for that repo, or' \
       'fork. A head whose branch or repository is gone is checked out from refs/pull/N/head with no upstream, and' \
       'head_pushable is false. An issue leaves the base branch checked out.' \
+      "A head on a repo that is not origin's, from an owner outside AGENT_SLOT_TRUSTED_OWNERS or from an owner that" \
+      'cannot be determined, is a foreign head: head_foreign is true, Claude starts with user settings only, and git' \
+      'gets no hooks. See the README.' \
       '--requested-at, --opened-at, and --shown-at are seconds since the epoch: when the launch was asked for, and' \
       'for a launch from the new-agent key, when its tab opened and when Rex.app showed it; the launch'"'"'s ledger' \
       'line keeps them for doctor'"'"'s key to ready.' \
       'returns: created, key, repo, slot, path, state, task, name, items[] of {kind, repo, number, title}, label_name,' \
       '         request_id, session_id, base, head_pushable (null without a PR head), trust_prompt_expected,' \
-      '         prompt_delivered (false when the slot already held the task), missing_siblings, phases, next_step,' \
+      '         prompt_delivered (false when the slot already held the task), missing_siblings, phases,' \
+      '         head_foreign, head_owner (null when unknown or not foreign), next_step,' \
       '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
       '         reopen resumes, else null)' \
       'example: agent-slot launch oxipng --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
@@ -107,14 +111,15 @@ verb_help() {
       '--dry-run changes nothing and exits 0 with the plan, or with the refusal a reopen would hit; a ref GitHub' \
       'cannot read still fails. The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
       'the base, fetched from the remote the ledger recorded for it when that is on origin'"'"'s host, else from the' \
-      "PR's head repository. Agents ask the operator first." \
+      "PR's head repository. A reopen is a foreign head when the source slot was, or when that URL or a PR's head on" \
+      'GitHub is. Agents ask the operator first.' \
       'returns: launch'"'"'s fields (key, name, items, session_id, prompt_delivered, ...) plus reopened_from {slot,' \
       '         session_id, ts}, settled_prs (the PRs already merged or closed, which neither finish nor block the' \
       '         task), head, and head_moved; with --dry-run, dry_run, would_reopen, refusal (null, or {reason,' \
       '         exit_code, message, value, next_step, recovery}), item, source (the teardown event, or {key, state,' \
       '         name, items, session_id} of the slot that holds the item or request), name, items[] of {kind, repo,' \
       '         number, title}, task, session_id, transcript, transcript_exists, head {branch, remote, url, oid,' \
-      '         source {branch, remote}}, slot, command, prompt_delivered' \
+      '         source {branch, remote}}, slot, command, prompt_delivered, head_foreign, head_owner' \
       'example: agent-slot reopen oxipng --pr 887 --dry-run --output json' ;;
     sweep) printf '%s\n' 'usage: agent-slot sweep [--yes [--auto]] [--output json]' \
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \

@@ -4,7 +4,8 @@
 #   <repo>-<N>        claude in bypass permissions mode, started with the slot's session ID, the slot's name (else its
 #                     task) when it has one, and the first message read from a file by the shell itself, so the prompt
 #                     never passes through tmux or quoting
-#   <repo>-<N>-files  yazi, through the `y` shell function when it exists
+#   <repo>-<N>-files  yazi, through the `y` shell function when it exists; on a foreign head (foreign.sh) a listing, since
+#                     yazi's fetchers and previewers parse what the cursor lands on with no key pressed
 #   <repo>-<N>-git    lazygit
 #
 # A typed command leaves the shell behind when the program exits, so a pane outlives its program. Sessions start from
@@ -17,6 +18,11 @@
 # path. It starts without its own warning only when ~/.claude/settings.json accepts it (agent-slot doctor checks).
 
 SESSIONS_CLAUDE='claude --dangerously-skip-permissions'
+# What a foreign head's Claude adds: no project or local settings, so no hook, status line, helper, or environment from
+# the tree, and none of its CLAUDE.md, rules, skills, commands, or agents. Local stays out because a head can track
+# settings.local.json, and any git restore puts back the file setup would otherwise overwrite. --setting-sources alone
+# kept .mcp.json from starting when measured; --strict-mcp-config is the flag documented to do it.
+SESSIONS_FOREIGN_ARGS=(--setting-sources user --strict-mcp-config)
 SESSIONS_CREATED=()
 
 # The login shell a session runs: the account's own, from the password database.
@@ -64,24 +70,30 @@ sessions_record_transcript() {
     "$(contract_json -r '.transcript // ""' <<<"$RECORD")"
 }
 
+_sessions_foreign() { [[ $(contract_json -r '.head_foreign // false' <<<"$RECORD") == true ]]; }
+
 # Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume | reopen]
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
 # value from it is shell-quoted. A resume or reopen whose conversation was never saved starts Claude as a launch does.
-# In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name.
+# In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name,
+# and a record with head_foreign starts Claude without the tree's settings.
 # The first message goes with a launch and a reopen only: a resume brings back a slot that already had it.
 sessions_command() {
-  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt
+  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude=$SESSIONS_CLAUDE
   case $kind in
-    files) printf '%s' 'command -v y >/dev/null && y || yazi' ;;
+    files)
+      if _sessions_foreign; then printf '%s' 'ls -A'; else printf '%s' 'command -v y >/dev/null && y || yazi'; fi
+      ;;
     git) printf '%s' 'lazygit' ;;
     claude)
       name=$(contract_json -r '.name // .task // ""' <<<"$RECORD")
       prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
+      ! _sessions_foreign || claude="$SESSIONS_CLAUDE ${SESSIONS_FOREIGN_ARGS[*]}"
       if [[ $mode != launch ]] && _sessions_conversation_saved; then
-        printf -v cmd '%s --resume %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
+        printf -v cmd '%s --resume %q' "$claude" "$(contract_json -r '.session_id' <<<"$RECORD")"
         [[ $mode == reopen ]] || prompt=''
       else
-        printf -v cmd '%s --session-id %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
+        printf -v cmd '%s --session-id %q' "$claude" "$(contract_json -r '.session_id' <<<"$RECORD")"
       fi
       [[ -z $name ]] || printf -v cmd '%s -n %q' "$cmd" "$name"
       [[ -z $prompt ]] || printf -v cmd '%s "$(cat %q)"' "$cmd" "$prompt"

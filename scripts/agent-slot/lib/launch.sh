@@ -123,8 +123,9 @@ _launch_command() {
 # Usage: launch_output <repo> <n> <created> [<trust-prompt-expected> <phases-json> [<fields-json>]]
 # prompt_delivered says whether this call's --prompt-file is the slot's first message: true for a new slot or a retry
 # of the request that made it, false for a slot another request made, null without a --prompt-file. head_pushable says
-# whether this call checked out a PR's head that can be pushed to, null when it checked out none. <fields-json> is
-# merged over the output.
+# whether this call checked out a PR's head that can be pushed to, null when it checked out none. head_foreign says the
+# slot's head is a foreign head (foreign.sh), and head_owner its owner, null when unknown. <fields-json> is merged over
+# the output.
 launch_output() {
   local repo=$1 n=$2 created=$3 trust=${4:-false} phases=${5:-null} fields=${6:-'{}'} delivered=null path
   path=$(slot_path "$repo" "$n")
@@ -142,6 +143,7 @@ launch_output() {
       name: .name, items: (.items // []), label_name: label_name($branch), request_id: .request_id,
       session_id: .session_id, base: .base, head_pushable: $pushable, trust_prompt_expected: $trust,
       prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases,
+      head_foreign: (.head_foreign // false), head_owner: (.head_owner // null),
       next_step: {action: "run", command: "agent-slot check \($key) --output json", docs: $docs,
                   note: ("each Rex client is asked to open this slot'"'"'s tab when the slot is made; a Mac that"
                          + " is asleep or offline opens it once it is back")}} + $fields' <<<"$RECORD")" '
@@ -150,6 +152,10 @@ launch_output() {
       (if .trust_prompt_expected then "; Claude will ask to trust the folder" else "" end) +
       (if .prompt_delivered == false
        then "; this first message was not delivered, because the slot already holds the task" else "" end) +
+      (if .head_foreign
+       then "; its head is " + (if .head_owner then "a fork of \(.head_owner)'"'"'s"
+                                 else "a fork whose owner could not be determined" end)
+            + ", so nothing from the head runs" else "" end) +
       (if .prior then "\n\(.prior.note)" else "" end)'
 }
 
@@ -164,12 +170,15 @@ launch_prior() {
 }
 
 cmd_launch() {
-  local repo=$LAUNCH_REPO state seed head=''
+  local repo=$LAUNCH_REPO state seed head='' foreign='{}'
   require_tools tmux claude trash
   [[ -z $LAUNCH_ITEM_KIND ]] || require_tools gh
   repo_prime "$repo"
   [[ -z $LAUNCH_ITEM_KIND ]] || launch_item
-  [[ $LAUNCH_ITEM_KIND != pr ]] || head=_launch_head
+  if [[ $LAUNCH_ITEM_KIND == pr ]]; then
+    head=_launch_head
+    foreign=$(foreign_fields "$(contract_json -r '.head_url // ""' <<<"$ITEM")")
+  fi
 
   mkdir -p "$AS_ROOT/$repo"
   record_lock_repo "$repo" 60 \
@@ -191,8 +200,8 @@ cmd_launch() {
   # The session starts under the name, so named_as keeps the automatic sweep from typing a /rename to it.
   seed=$(contract_json -n -c --arg task "$LAUNCH_TASK" --arg request "$LAUNCH_REQUEST" \
     --argjson requested "$LAUNCH_REQUESTED_AT" --argjson item "${LAUNCH_ITEM:-null}" --arg name "$LAUNCH_NAME" \
-    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" "$ITEM_SAME_DEF"'
-    {task: (if $task == "" then null else $task end), request_id: (if $request == "" then null else $request end),
+    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" --argjson foreign "$foreign" "$ITEM_SAME_DEF"'
+    $foreign + {task: (if $task == "" then null else $task end), request_id: (if $request == "" then null else $request end),
      requested_at: $requested}
     + if $item == null then {} else
         {prs: (if $item.kind == "pr" and same_repo($item.repo; $origin) then [$item.number] else [] end),

@@ -141,7 +141,8 @@ slot_teardown() {
     --arg entry "${PURGE_ENTRY:+$AS_TRASH_DIR/files/$PURGE_ENTRY}" --arg transcript "$(sessions_record_transcript)" '
     def text: if . == "" then null else . end;
     {repo, slot, task, session_id, transcript: ($transcript | text), prs, request_id, items: (.items // []), name,
-      head: ($head | text), branches: $branches, trash_entry: ($entry | text)}' <<<"$RECORD")"
+      head: ($head | text), branches: $branches, trash_entry: ($entry | text),
+      head_foreign: (.head_foreign // false), head_owner: (.head_owner // null)}' <<<"$RECORD")"
   record_unlock_slot "$repo" "$n"
   purge_run "$repo" "$n"
 }

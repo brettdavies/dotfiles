@@ -93,7 +93,7 @@ _reopen_plan() {
 # Usage: reopen_make <repo>; has the slot maker make the slot, from under the repo lock, with the source's items, name,
 # task, session, and transcript, its PRs of origin's repo, and settled_prs: those of them already merged or closed,
 # which check neither finishes nor blocks the task on, so only an outcome after the reopen finishes it. Its head is the
-# one head_plan picks, and its Claude session resumes the source's conversation.
+# one head_plan picks, its Claude session resumes the source's conversation, and _reopen_foreign says what may run.
 reopen_make() {
   local repo=$1 origin prs seed fields
   origin=$(pr_repo_slug "$REPO_ORIGIN")
@@ -106,9 +106,9 @@ reopen_make() {
   seed=$(contract_json -c --arg request "$REOPEN_REQUEST" --argjson requested "$(date +%s.%N)" \
     --argjson items "$REOPEN_ITEMS" --arg name "$REOPEN_NAME" --arg task "$REOPEN_TASK" \
     --arg session "$REOPEN_SESSION_ID" --arg transcript "$REOPEN_TRANSCRIPT" --argjson prs "$prs" \
-    --argjson settled "$REOPEN_SETTLED" '
+    --argjson settled "$REOPEN_SETTLED" --argjson foreign "$(_reopen_foreign)" '
     def text: if . == "" then null else . end;
-    {request_id: ($request | text), requested_at: $requested, items: $items, name: $name, named_as: $name,
+    $foreign + {request_id: ($request | text), requested_at: $requested, items: $items, name: $name, named_as: $name,
      task: ($task | text), session_id: $session, transcript: ($transcript | text), prs: $prs, settled_prs: $settled,
      reopened_from: {slot, session_id, ts}}' <<<"$REOPEN_SOURCE")
   fields=$(contract_json -n -c --argjson item "$REOPEN_ITEM" --argjson seed "$seed" --argjson head "$HEAD_PLAN" \
@@ -139,6 +139,22 @@ the source's PRs have merged or closed is unknown" --value "$2" --command "$(_re
                  else $list[] | select(.number == $n and (.state | settled)) | .number end] | unique' <<<"$1")
 }
 
+# Usage: _reopen_foreign; prints foreign_fields for the head HEAD_PLAN names. A source slot that was foreign keeps its
+# reopen foreign whatever its branch is on by now, since that slot's agent can have pushed the head's commits anywhere.
+# Otherwise a PR's head on GitHub counts as well as the planned branch's URL: the ledger's URL was written by the slot's
+# own agent, and a branch gone from it falls back to the PR's head.
+_reopen_foreign() {
+  local -a urls=()
+  if [[ $(contract_json -r '.head_foreign // false' <<<"$REOPEN_SOURCE") == true ]]; then
+    contract_json -c '{head_foreign: true, head_owner: (.head_owner // null)}' <<<"$REOPEN_SOURCE"
+    return
+  fi
+  [[ $(contract_json -r .source.branch <<<"$HEAD_PLAN") == base ]] \
+    || urls+=("$(contract_json -r '.url // ""' <<<"$HEAD_PLAN")")
+  [[ $REOPEN_KIND != pr ]] || urls+=("$(contract_json -r '.head_url // ""' <<<"$ITEM")")
+  foreign_fields "${urls[@]}"
+}
+
 # The head step of a reopen: the branch HEAD_PLAN names, unless that is the base the clone already has. Sets
 # REOPEN_HEAD_MOVED to whether the head differs from the commit the ledger recorded, or null when it recorded none.
 REOPEN_HEAD_MOVED=null
@@ -167,7 +183,7 @@ _reopen_output() {
 # free slot, and the command sessions_command would type there.
 reopen_report() {
   local repo=$REOPEN_REPO n=1 would=false delivered=null items='[]' name='' task='' session='' slot='' command=''
-  local head=null
+  local head=null foreign='{}'
   if [[ -n $REOPEN_HOLDER ]]; then
     items=$(contract_json -c .items <<<"$REOPEN_SOURCE")
     name=$(contract_json -r '.name // ""' <<<"$REOPEN_SOURCE")
@@ -180,9 +196,10 @@ reopen_report() {
     slot=$(slot_key "$repo" "$n")
     head_plan "$REOPEN_SOURCE" "$ITEM"
     head=$HEAD_PLAN
+    foreign=$(_reopen_foreign)
     RECORD=$(contract_json -n -c --arg session "$session" --arg name "$name" --arg task "$task" \
-      --arg prompt "${REOPEN_PROMPT:+$(slot_prompt_file "$(slot_path "$repo" "$n")")}" '
-      {session_id: $session, name: $name, task: (if $task == "" then null else $task end),
+      --arg prompt "${REOPEN_PROMPT:+$(slot_prompt_file "$(slot_path "$repo" "$n")")}" --argjson foreign "$foreign" '
+      $foreign + {session_id: $session, name: $name, task: (if $task == "" then null else $task end),
        prompt_file: (if $prompt == "" then null else $prompt end)}')
     command=$(sessions_command "$repo" "$n" claude reopen)
   fi
@@ -192,9 +209,9 @@ reopen_report() {
     --argjson item "$REOPEN_ITEM" --argjson source "$REOPEN_SOURCE" --arg name "$name" --argjson items "$items" \
     --arg task "$task" --arg session "$session" --arg transcript "$REOPEN_TRANSCRIPT" \
     --argjson exists "$REOPEN_TRANSCRIPT_EXISTS" --argjson head "$head" --arg slot "$slot" \
-    --arg command "$command" --argjson delivered "$delivered" '
+    --arg command "$command" --argjson delivered "$delivered" --argjson foreign "$foreign" '
     def text: if . == "" then null else . end;
-    {dry_run: true, would_reopen: $would, refusal: $refusal, item: $item, source: $source, name: ($name | text),
+    {head_foreign: ($foreign.head_foreign // false), head_owner: ($foreign.head_owner // null), dry_run: true, would_reopen: $would, refusal: $refusal, item: $item, source: $source, name: ($name | text),
      items: $items, task: ($task | text), session_id: ($session | text), transcript: ($transcript | text),
      transcript_exists: $exists, head: $head, slot: ($slot | text), command: ($command | text),
      prompt_delivered: $delivered}')" '

@@ -43,6 +43,8 @@ agent_slot_setup() {
   export AGENT_SLOT_CLAUDE_STATE=$T/claude.json
   export AGENT_SLOT_CLAUDE_PROJECTS=$T/claude-projects
   export AGENT_SLOT_CLAUDE_SETTINGS=$T/claude-settings.json
+  # The owners the fixtures' own heads sit under, so only a suite that names another owner gets a foreign head.
+  export AGENT_SLOT_TRUSTED_OWNERS='me up x'
   mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS"
   : >"$AGENT_SLOT_TMUX_CONF"
   : >"$AGENT_SLOT_GIT_CRYPT_KEY"

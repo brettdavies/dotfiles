@@ -498,6 +498,30 @@ checkout has for that repository, or `fork`. A head whose branch or repository i
 base branch. When a torn-down slot worked on the same item, the launch reports it in `prior`, with the reopen that
 resumes its conversation.
 
+A head on a repository that is not origin's, whose owner is not in `AGENT_SLOT_TRUSTED_OWNERS` (`brettdavies meum-id`,
+matched in any case) or cannot be determined, is a *foreign head*, and nothing from it runs before someone has read it.
+The launch reports `head_foreign: true` and `head_owner`, and each difference from a normal slot exists because the
+head's tracked files would otherwise act as this account:
+
+| Normal slot                                           | Foreign head                                                                       |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `claude --dangerously-skip-permissions`               | adds `--setting-sources user --strict-mcp-config`                                  |
+| The whole tree on disk                                | `.claude/`, `.mcp.json`, `CLAUDE.md`, and `CLAUDE.local.md` left out at any depth by a sparse checkout, so a `claude` started by hand or by a tool finds none of them; `git show` still reads them and pushes still carry them |
+| yazi in the files session                             | `ls -A`, since yazi's previewers parse what the cursor lands on with no key pressed |
+| The trust step starts Claude plainly                  | The trust step starts Claude with the same flags, since accepting runs what it loads |
+| `core.hooksPath` or copies of the prime's hooks       | No hooks                                                                           |
+| `.claude/settings.local.json` written from the prime  | Not written, since a tracked link would carry the write to the file it names       |
+| repo-recon and sibling links                          | Not made                                                                           |
+| LFS smudge on checkout                                | Skipped for the slot's life, since it calls the server the head's `.lfsconfig` names |
+| git-crypt unlock when the tree names the filter       | Unlock only when the base branch names it                                          |
+| `auto-format.sh` runs formatters after each edit      | Exits at once on the slot's record, since each formatter can load code from the tree |
+
+Origin's own heads keep the normal setup whoever owns origin, because trusting the prime chose them, and so do the heads
+of a trusted owner's forks. `resume` keeps a foreign head's flags. A reopen is foreign when the slot it reopens was,
+whatever branch that slot's agent left behind, and when the head it plans or the PR's head on GitHub is. The SessionStart
+context tells the agent all of this and tells it not to run the tree's code. No gate covers an agent that runs the tree's
+code anyway, or a fork head checked out inside a normal slot, which every slot's context warns against.
+
 Setup writes nothing through a link in the tree, on a slot of any head, since any branch can track one. A tracked
 `.claude/settings.local.json` link is replaced in the slot and marked skip-worktree, and a `.claude`, `docs`, or
 `.context` that is a link out of the slot refuses the launch with `tracked-link-leaves-slot`.
