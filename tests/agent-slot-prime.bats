@@ -146,6 +146,12 @@ old_style() {
 
 prime_starts() { jaq -c 'select(.event == "prime-start")' "$AGENT_SLOT_STATE_DIR/ledger.jsonl" 2>/dev/null || true; }
 
+# dev_root DIR: the dev root moves to DIR.
+dev_root() {
+  export AGENT_SLOT_DEV=$1
+  mkdir -p "$1"
+}
+
 # rex_helper BODY: a Rex helper the verb pushes a restore to, and waits for before it exits.
 rex_helper() {
   stub agent-slot-rex "$1"
@@ -452,6 +458,30 @@ JSON
   assert_error_shape "$stderr"
   jaq -e '.reason == "repo-not-found" and .value == "nope"' <<<"$stderr"
   run ! grep -q ' new-session ' "$CALLS"
+}
+
+@test "a repo name that climbs out of the dev root is no repo" {
+  git -C "$T/dev" init -q
+  git -C "$T/dev" remote add origin "$T/origins/repoa.git"
+  dev_root "$T/dev/inner"
+  start ..
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "repo-not-found"' <<<"$stderr"
+  start ../repoa
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "repo-not-found"' <<<"$stderr"
+}
+
+@test "a repo named in the extra list is found by its directory's name, and the dev root wins a tie" {
+  mkdir -p "$T/extras"
+  git clone -q "$T/origins/repoa.git" "$T/extras/repoa"
+  git clone -q "$T/origins/repoa.git" "$T/extras/only-here"
+  export AGENT_SLOT_EXTRA_PRIMES=$T/extras/repoa:$T/extras/only-here
+  start only-here
+  [ "$status" -eq 0 ]
+  jaq -e --arg p "$T/extras/only-here" '.path == $p' <<<"$output"
+  start repoa
+  jaq -e --arg p "$AGENT_SLOT_DEV/repoa" '.path == $p' <<<"$output"
 }
 
 @test "a start writes one prime-start line with the stamps a launch line carries, and a later no-op writes none" {

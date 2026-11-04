@@ -1,5 +1,6 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
-# Reconcile: one Rex tab per live slot, in the session named after its repo, used by restore and sweep.
+# Reconcile: one Rex tab per live slot and per running prime, in the session named after its repo, used by restore and
+# sweep.
 #
 # A tab is keyed to a slot when its label, past its number, starts with <repo>/<N> in the session named <repo>, or when
 # one of its blocks
@@ -8,6 +9,13 @@
 # dormant slots, opens a tab for each live slot without a present one, relabels present tabs, and closes keyed tabs
 # whose slot is gone, whose loop has stopped, or that duplicate a present tab. Every server call returns before any tab
 # changes, and an unreachable server changes none.
+#
+# A prime's tab is only ever opened. SLOT_KEY_PATTERN never matches <repo>/prime, so no tab is keyed to a prime, and a
+# prime's tab that an operator renamed, duplicated, or left is theirs. A prime no tab in any Rex session holds gets one
+# first in its repo's session: three panes for a prime on the slot server, and one pane on an old-style session, which
+# the tab attaches to and nothing here changes. A tab holds a prime as prime_tab_open says, in any Rex session, or through
+# the prime command as its own process, which is all a tab this pass's predecessor just opened shows until its client
+# attaches.
 #
 # After a Rex restart, rexurrect brings slot tabs back under their labels but as plain shells, since it saves no command
 # for their panes, so the start-up step's reconcile finds them keyed and not running, opens fresh tabs, and closes
@@ -27,6 +35,7 @@
 # restarted, while this one waited.
 
 RECONCILE_SLOTS='[]'
+RECONCILE_PRIMES='[]'
 RECONCILE_RESUMED=()
 RECONCILE_RESULT='{}'
 RECONCILE_SKIP=''
@@ -66,6 +75,7 @@ reconcile_fetch() {
   RECONCILE_SLOTS=$(contract_json -c '.slots | arrays' <<<"$SERVER_OUT" || true)
   [[ -n $RECONCILE_SLOTS ]] || ar_fail "$(contract_error_json script-error "agent-slot list printed no slots array" \
     --value "${SERVER_OUT:0:200}" --command "agent-slot list --output json")"
+  RECONCILE_PRIMES=$(contract_json -c '.primes // []' <<<"$SERVER_OUT")
   RECONCILE_RESUMED=()
   while read -r key; do
     [[ -n $key ]] || continue
@@ -81,10 +91,32 @@ reconcile_fetch() {
     (split("\n") | map(select(. != ""))) as $gone | $slots | map(select(.key as $k | $gone | index($k) | not))')
 }
 
-# Usage: reconcile_plan <tabs-json> <slots-json>; prints {open, rename, close}.
+# Adds to each of RECONCILE_PRIMES the terminals of its tmux clients, which only an old-style prime is known by, from one
+# read per old-style prime. A read that fails counts as no clients: the pass then opens a tab, which costs a tab at worst.
+reconcile_prime_clients() {
+  local prime session clients rows=()
+  while IFS= read -r prime; do
+    [[ -n $prime ]] || continue
+    clients=
+    if [[ $(contract_json -r '.server' <<<"$prime") == "$TMUX_DEFAULT_SOCKET" ]]; then
+      session=$(contract_json -r '.session' <<<"$prime")
+      clients=$(timeout --kill-after=2 10 "$AR_TMUX" -L "$TMUX_DEFAULT_SOCKET" list-clients -t "=$session" \
+        -F '#{client_tty}' </dev/null 2>/dev/null) || clients=
+    fi
+    rows+=("$(contract_json -c --arg clients "$clients" '. + {clients: ($clients | split("\n") | map(select(. != "")))}' \
+      <<<"$prime")")
+  done < <(contract_json -c '.[]' <<<"$RECONCILE_PRIMES")
+  RECONCILE_PRIMES=$(printf '%s\n' "${rows[@]}" | contract_json -s -c 'map(select(. != null))')
+}
+
+# Usage: reconcile_plan <tabs-json> <slots-json> <primes-json>; prints {open, rename, close}.
 reconcile_plan() {
-  contract_json -n -c --argjson tabs "$1" --argjson slots "$2" --arg key "$SLOT_KEY_PATTERN" \
+  contract_json -n -c --argjson tabs "$1" --argjson slots "$2" --argjson primes "$3" --arg key "$SLOT_KEY_PATTERN" \
     "$RECONCILE_LABEL$RECONCILE_KEYED"'
+    def holds($p): . as $tab
+      | any(.commands[]; endswith("agent-slot-rex attach \($p.key) claude") or endswith("agent-slot-rex prime \($p.repo)"))
+        or ((.label // "") | rex_unnumbered) == $p.label and any($tab.commands[]; contains("agent-slot-rex launch"))
+        or any(.ttys[]; . as $tty | $p.clients | index("/dev/\($tty)") != null);
     ($slots | map({(.key): .}) | add // {}) as $by_key
     | ($slots | map(select(.state == "active" or .state == "dormant"))) as $live
     | [$tabs[] | keyed | select(.key != null)] as $keyed
@@ -95,8 +127,8 @@ reconcile_plan() {
              close: [.[] | select(. != $keep)
                      | . + {why: (if $keep == null then "attach loop is not running" else "duplicate tab" end)}]})
     | ([.[].keep | select(. != null)]) as $kept
-    | {open: [$live[] | select(.key as $k | $kept | map(.key) | index($k) | not)
-              | {key, repo, label: tab_label}],
+    | {open: ([$live[] | select(.key as $k | $kept | map(.key) | index($k) | not) | {key, repo, label: tab_label}]
+              + [$primes[] | . as $p | select(any($tabs[]; holds($p)) | not) | {key, repo, label, server}]),
        rename: [$kept[] | ((.label // "") | rex_number) as $n
                 | ($n + ($by_key[.key] | tab_rest | rex_label_within(128 - ($n | length)))) as $want
                 | select(.label != $want)
@@ -108,12 +140,12 @@ reconcile_plan() {
 # pinned instance once more after the last change. Sets RECONCILE_APPLIED to the part of the plan it carried out before
 # rex_pinned refused a change, the whole plan when none was refused.
 reconcile_apply() {
-  local plan=$1 key repo label sid wid opened=0 renamed=0 closed=0
-  while IFS=$'\t' read -r key repo label; do
+  local plan=$1 key repo label server sid wid opened=0 renamed=0 closed=0
+  while IFS=$'\x1f' read -r key repo label server; do
     [[ -n $key && -z $REX_PIN_LOST ]] || continue
-    reconcile_open_tab "$repo" "$key" "$label"
+    reconcile_open_tab "$repo" "$key" "$label" "$server"
     [[ -z $REX_NEW_WINDOW ]] || opened=$((opened + 1))
-  done < <(contract_json -r '.open[] | [.key, .repo, .label] | @tsv' <<<"$plan")
+  done < <(contract_json -r '.open[] | [.key, .repo, .label, .server // ""] | join("\u001f")' <<<"$plan")
   while IFS=$'\t' read -r sid wid label; do
     [[ -n $sid && -z $REX_PIN_LOST ]] || continue
     rex_rename "$sid" "$wid" "$label"
@@ -129,11 +161,17 @@ reconcile_apply() {
     '{open: .open[:$o], rename: .rename[:$r], close: .close[:$c]}' <<<"$plan")
 }
 
-# Usage: reconcile_open_tab <repo> <key> <label>
-# A slot's tab in the dev layout: Claude top right, files on the left, git below, each pane an attach loop.
+# Usage: reconcile_open_tab <repo> <key> <label> [slots | default]
+# A slot's tab, or with the server it runs on a prime's, in the dev layout: Claude top right, files on the left, git below,
+# each pane an attach loop. A prime's tab goes first in its session, and an old-style one is the one pane that holds it.
 reconcile_open_tab() {
-  rex_open_tab "$1" "$3" "$AR_SELF" attach "$2" claude
-  rex_layout "$REX_NEW_SESSION" "$REX_NEW_BLOCK" "$2"
+  if [[ ${4:-} == "$TMUX_DEFAULT_SOCKET" ]]; then
+    rex_open_tab "$1" "$3" "$AR_SELF" prime "$1"
+  else
+    rex_open_tab "$1" "$3" "$AR_SELF" attach "$2" claude
+    rex_layout "$REX_NEW_SESSION" "$REX_NEW_BLOCK" "$2"
+  fi
+  [[ -z ${4:-} ]] || rex_move_first "$REX_NEW_SESSION" "$REX_NEW_WINDOW"
 }
 
 # Usage: reconcile_gate <by>; true when the pass goes on. Otherwise sets RECONCILE_SKIP to the error object that says
@@ -211,8 +249,9 @@ reconcile() {
   fi
   REX_PIN=$REX_SERVER_INSTANCE REX_PIN_LOST=''
   reconcile_fetch
+  reconcile_prime_clients
   rex_snapshot
-  plan=$(reconcile_plan "$REX_TABS" "$RECONCILE_SLOTS")
+  plan=$(reconcile_plan "$REX_TABS" "$RECONCILE_SLOTS" "$RECONCILE_PRIMES")
   JOURNAL_PLAN=$plan
   reconcile_apply "$plan"
   REX_PIN=''

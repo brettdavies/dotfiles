@@ -256,7 +256,7 @@ launch_prime() {
   # Outlasts the server's own bounds end to end: its lock 30 s, the three sessions at up to 30 s each, the tmux reads,
   # and the title scan.
   launch_call 180 prime "$LAUNCH_REPO"
-  launch_try rex_or_fail window move -s "$REX_SESSION" "$LAUNCH_WINDOW" --index 1
+  launch_try rex_move_first "$REX_SESSION" "$LAUNCH_WINDOW"
   if [[ $(contract_json -r '.server' <<<"$SERVER_OUT") == slots ]]; then
     launch_try rex_layout "$REX_SESSION" "$REX_BLOCK" "$(slot_key "$LAUNCH_REPO" "$SLOT_PRIME")"
   fi

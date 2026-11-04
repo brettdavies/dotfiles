@@ -53,7 +53,8 @@ agent_slot_setup() {
   printf '{"projects":{}}\n' >"$AGENT_SLOT_CLAUDE_STATE"
   printf '{"skipDangerousModePermissionPrompt":true}\n' >"$AGENT_SLOT_CLAUDE_SETTINGS"
 
-  # tmux keeps each socket's sessions in a file: no file means no server. list-panes prints $STUBS/tmux-panes on the
+  # tmux keeps each socket's sessions in a file: no file means no server, and a list-sessions asking for session_path
+  # reads the directory new-session was given from a second file, which session_at writes too. list-panes prints $STUBS/tmux-panes on the
   # slot socket and $STUBS/tmux-panes-<socket> on any other, where no file means no server. capture-pane prints
   # $STUBS/screen. On any socket but the slot one (the trust step's), Down swaps in $STUBS/screen-down and Enter
   # $STUBS/screen-after when they exist; with $STUBS/drop-first-down present, the first Down is lost, as a key sent
@@ -71,11 +72,13 @@ cmd=$1
 shift
 sessions=$STUBS/tmux-sessions
 [ "$sock" = agent-slot-test ] || sessions=$STUBS/tmux-sessions-$sock
-target="" name="" last=""
+target="" name="" last="" fmt="" dir=""
 while (($#)); do
   case $1 in
     -t) target=${2#=}; target=${target%:}; shift ;;
     -s) name=$2; shift ;;
+    -F) fmt=$2; shift ;;
+    -c) dir=$2; shift ;;
   esac
   last=$1
   shift
@@ -83,8 +86,16 @@ done
 case $cmd in
   list-sessions)
     [ -f "$sessions" ] || { echo "no server running on /tmp/tmux-test/$sock" >&2; exit 1; }
-    cat "$sessions" ;;
-  new-session) echo "$name" >>"$sessions" ;;
+    case $fmt in
+      *session_path*)
+        while IFS= read -r s; do
+          printf "%s\t%s\n" "$s" "$(awk -F "\t" -v s="$s" "\$1 == s { print \$2; exit }" "$sessions.paths" 2>/dev/null)"
+        done <"$sessions" ;;
+      *) cat "$sessions" ;;
+    esac ;;
+  new-session)
+    echo "$name" >>"$sessions"
+    printf "%s\t%s\n" "$name" "$dir" >>"$sessions.paths" ;;
   kill-session)
     [ -f "$sessions" ] || exit 1
     grep -vxF "$target" "$sessions" >"$sessions.new" || true
@@ -205,6 +216,12 @@ seed_origin() {
   git clone -q "$2" "$T/seed-$1" 2>/dev/null
   git -C "$T/seed-$1" commit -q --allow-empty -m seed
   git -C "$T/seed-$1" push -q origin HEAD:main
+}
+
+# session_at NAME DIR: a session on the slot server rooted at DIR.
+session_at() {
+  echo "$1" >>"$STUBS/tmux-sessions"
+  printf '%s\t%s\n' "$1" "$2" >>"$STUBS/tmux-sessions.paths"
 }
 
 # prime_runs_old_style NAME: a session of that name holding a Claude on the default tmux server, which is that repo's

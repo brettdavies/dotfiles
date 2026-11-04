@@ -223,6 +223,10 @@ answer ssh "$verb"'
   stub ps '
 case " $* " in
   *" -o cgroup= "*) cat "$STUBS/cgroup.txt" 2>/dev/null ;;
+  *" -A "*" -o tty= "*)
+    for f in "$STUBS"/tty/*; do
+      [ -e "$f" ] && printf "%s %s\n" "${f##*/}" "$(cat "$f")"
+    done ;;
   *" -o tty= "*) cat "$STUBS/tty/${!#}" 2>/dev/null || echo "?" ;;
   *" -o args= "*) awk -v p="${!#}" '"'"'$1 == p { sub(/^[0-9]+ /, ""); print; exit }'"'"' "$STUBS/ps.txt" ;;
   *) cat "$STUBS/ps.txt" ;;
@@ -298,13 +302,16 @@ repos() {
     repos: split("\n") | map(select(. != "") | {name: ., prime: ("/srv/" + .), origin: "git@example.com:o/\(.).git"})}')"
 }
 
-# slots JSON-ARRAY: the server's list verb reports these slots, each merged over the defaults of an active slot, with a
-# label_name, unless one is given, as list gives it: the slot's name, else its task, else its branch.
+# slots JSON-ARRAY [PRIMES-JSON-ARRAY]: the server's list verb reports these slots, each merged over the defaults of an
+# active slot, with a label_name, unless one is given, as list gives it: the slot's name, else its task, else its branch.
+# Each prime merges over the defaults of one running on the slot server under its repo's name.
 slots() {
-  slot_answer list 0 "$(jaq -c '{schema: "dotfiles.agent-slot/1", ok: true, verb: "list",
+  slot_answer list 0 "$(jaq -c --argjson primes "${2:-[]}" '{schema: "dotfiles.agent-slot/1", ok: true, verb: "list",
     slots: map({state: "active", task: null, branch: null, agent: "idle", needs_you: [],
                 sessions: {claude: true, files: true, git: true}} + . + {key: "\(.repo)/\(.slot)"}
-               | {label_name: (.name // .task // .branch)} + .)}' <<<"$1")"
+               | {label_name: (.name // .task // .branch)} + .),
+    primes: ($primes | map({key: "\(.repo)/prime", server: "slots", session: "\(.repo)-prime", label: .repo} + .))}' \
+    <<<"$1")"
 }
 
 # server_error REASON MESSAGE EXIT RETRYABLE: an agent-slot error object.

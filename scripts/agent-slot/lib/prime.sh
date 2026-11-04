@@ -112,6 +112,41 @@ prime_start() {
   _record_unlock "prime:$repo"
 }
 
+# Usage: prime_list; sets PRIME_LIST to the running primes as [{key, repo, server, session, label}], one per repo, the
+# old-style one when both run, and only for a repo with a checkout here. An old-style session is named by the map, or by
+# its own repo when the map gives that repo no other name. A server that does not answer costs only its own rows, since
+# the list's callers only open tabs from it, and a slot's state must still reach them.
+PRIME_LIST='[]'
+prime_list() {
+  local out name path repo rows=''
+  local -A seen=()
+  if default_tmux_panes; then
+    while IFS= read -r name; do
+      [[ -n $name ]] || continue
+      repo=$(awk -F '\t' -v name="$name" '!/^#/ && NF == 2 && $2 == name { print $1; exit }' "$AS_PRIMES")
+      repo=${repo:-$name}
+      [[ $(prime_display_name "$repo" "$AS_PRIMES") == "$name" ]] || continue
+      repo_lookup "$repo" || continue
+      seen[$repo]=1
+      rows+=$repo$'\t'$TMUX_DEFAULT_SOCKET$'\t'$name$'\n'
+    done < <(prime_old_sessions <<<"$DEFAULT_PANES")
+  fi
+  if slot_tmux out 5 list-sessions -F $'#{session_name}\t#{session_path}'; then
+    while IFS=$'\t' read -r name path; do
+      repo=${path##*/}
+      [[ -n $repo && -z ${seen[$repo]:-} && $name == "$(slot_session "$repo" "$SLOT_PRIME")" ]] || continue
+      repo_lookup "$repo" || continue
+      rows+=$repo$'\tslots\t'$name$'\n'
+    done <<<"$out"
+  elif ((BOUNDED_STATUS != 124)); then
+    _tmux_no_server || true
+  fi
+  PRIME_LIST=$(while IFS=$'\t' read -r repo path name; do
+    [[ -z $repo ]] || printf '%s\t%s\t%s\t%s\n' "$repo" "$path" "$name" "$(prime_display_name "$repo" "$AS_PRIMES")"
+  done <<<"$rows" | contract_json -R -s -c --arg prime "$SLOT_PRIME" 'split("\n") | map(select(. != "") | split("\t")
+    | {key: "\(.[0])/\($prime)", repo: .[0], server: .[1], session: .[2], label: .[3]})')
+}
+
 # Usage: prime_for_slot <repo> <checkout>
 # Starts a slot's prime, and sets PRIME_FIELD to the prime field of the slot verb's output: what prime_start found, else
 # {error: {reason, message, next_step, log}}. A subshell keeps contract_fail, RECORD, and the exit traps away from the

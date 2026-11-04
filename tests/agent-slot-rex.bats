@@ -957,6 +957,182 @@ the slot's tmux panes use the…" ]
   not_called '^rex (new|window new|window close|window rename)'
 }
 
+# --- reconcile: a tab for every running prime ---------------------------------------------------------------------------
+
+# old_style_prime REPO SESSION: the JSON array of one old-style prime, as list reports it.
+old_style_prime() {
+  jaq -n -c --arg r "$1" --arg s "$2" '[{repo: $r, server: "default", session: $s, label: $s}]'
+}
+
+# assert_nothing_changed: the last pass planned nothing and changed no tab.
+assert_nothing_changed() {
+  not_called '^rex (window new|new |window rename|window move|window close)'
+  tail -1 "$AGENT_SLOT_REX_STATE_DIR/reconcile.log" | jaq -e '.plan == {open: [], rename: [], close: []}'
+}
+
+@test "a running prime no tab holds gets one in its repo's session: attach, the layout, then first in the session" {
+  slots '[]' '[{"repo": "X"}]'
+  session sess-x X '[]'
+  run --separate-stderr "$AGENT_SLOT_REX" restore --output json
+  [ "$status" -eq 0 ]
+  in_call_order "^rex window new -s sess-x X --focus=false --json -- $STUBS/agent-slot-rex attach X/prime claude\$" \
+    '^rex do agent_slot_layout -s sess-x -b blk-new-1 key=X/prime block=blk-new-1$' \
+    '^rex window move -s sess-x win-new-1 --index 1$'
+  jaq -e '.opened == ["X/prime"]' <<<"$output"
+  tail -1 "$AGENT_SLOT_REX_STATE_DIR/reconcile.log" | jaq -e '[.plan.open[].key] == ["X/prime"]'
+}
+
+@test "a prime's tab is labelled by the name list gives it" {
+  slots '[]' '[{"repo": "X", "label": "X Name"}]'
+  session sess-x X '[]'
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called "^rex window new -s sess-x X Name --focus=false --json -- $STUBS/agent-slot-rex attach X/prime claude\$"
+}
+
+@test "a prime gets its tab beside its repo's slots, and a slot's tab is not moved first" {
+  slots '[{"repo": "X", "slot": 1, "task": "t"}]' '[{"repo": "X"}]'
+  session sess-x X '[]'
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called "^rex window new -s sess-x X/1 · t --focus=false --json -- $STUBS/agent-slot-rex attach X/1 claude\$"
+  called "^rex window new -s sess-x X --focus=false --json -- $STUBS/agent-slot-rex attach X/prime claude\$"
+  [ "$(grep -c '^rex window move' "$CALLS")" -eq 1 ]
+  called '^rex window move -s sess-x win-new-2 --index 1$'
+}
+
+@test "a repo with no Rex session gets one for its prime" {
+  slots '[]' '[{"repo": "X"}]'
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called "^rex new X --window X --json -- $STUBS/agent-slot-rex attach X/prime claude\$"
+  called '^rex do agent_slot_layout -s sess-X -b blk-new-1 key=X/prime block=blk-new-1$'
+  called '^rex window move -s sess-X win-new-1 --index 1$'
+}
+
+@test "a prime's tab that is closed comes back on the next pass, and one that is open changes nothing" {
+  slots '[]' '[{"repo": "X"}]'
+  session sess-x X '[{"window_id": "w1", "label": "1: X", "blocks": ["b1"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach X/prime claude"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  assert_nothing_changed
+
+  : >"$STUBS/ps.txt"
+  rm -f "$STUBS/rexdata/process-b1.json"
+  : >"$CALLS"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called "^rex window new -s sess-x X --focus=false --json -- $STUBS/agent-slot-rex attach X/prime claude\$"
+}
+
+@test "an old-style prime no tab holds gets one pane holding it, no layout, and nothing touches its session" {
+  slots '[]' "$(old_style_prime X 'X Prime')"
+  session sess-x X '[]'
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  in_call_order "^rex window new -s sess-x X Prime --focus=false --json -- $STUBS/agent-slot-rex prime X\$" \
+    '^rex window move -s sess-x win-new-1 --index 1$'
+  not_called '^rex do agent_slot_layout'
+  [ "$(grep '^tmux -L default ' "$CALLS" | grep -vc ' list-clients ')" -eq 0 ]
+}
+
+@test "an old-style prime attached by hand, in a tab of any Rex session, gets no second tab" {
+  slots '[]' "$(old_style_prime X 'X Prime')"
+  session sess-x X '[]'
+  session sess-o other '[{"window_id": "w9", "label": "1: notes", "blocks": ["b9"]}]'
+  on_tty b9 901 pts/9
+  prime_clients pts/9
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called '^tmux -L default list-clients -t =X Prime -F #\{client_tty\}$'
+  assert_nothing_changed
+}
+
+@test "a client of an old-style prime whose terminal is no block's does not hold it" {
+  slots '[]' "$(old_style_prime X 'X Prime')"
+  session sess-x X '[{"window_id": "w9", "label": "1: X Prime", "blocks": ["b9"]}]'
+  on_tty b9 901 pts/9
+  prime_clients pts/3
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called "^rex window new -s sess-x X Prime --focus=false --json -- $STUBS/agent-slot-rex prime X\$"
+}
+
+@test "a tab running the prime command holds the prime before its client attaches" {
+  slots '[]' "$(old_style_prime X 'X Prime')"
+  session sess-x X '[{"window_id": "w9", "label": "1: X Prime", "blocks": ["b9"]}]'
+  runs b9 901 "bash $STUBS/agent-slot-rex prime X"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  assert_nothing_changed
+}
+
+@test "the prime command of a repo whose name starts another's holds only its own" {
+  slots '[]' '[{"repo": "Xy"}]'
+  session sess-x Xy '[{"window_id": "w9", "label": "1: other", "blocks": ["b9"]}]'
+  runs b9 901 "bash $STUBS/agent-slot-rex attach X/prime claude"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called "^rex window new -s sess-x Xy --focus=false --json -- $STUBS/agent-slot-rex attach Xy/prime claude\$"
+}
+
+@test "a prime's tab with its label changed gets no rename, and two tabs on one prime get no close" {
+  slots '[]' '[{"repo": "X"}]'
+  session sess-x X '[{"window_id": "w1", "label": "1: my notes", "blocks": ["b1"]},
+    {"window_id": "w2", "label": "2: again", "blocks": ["b2"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach X/prime claude"
+  runs b2 102 "bash $STUBS/agent-slot-rex attach X/prime claude"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  assert_nothing_changed
+}
+
+@test "a tab labelled for the prime while running the key's helper counts, so a pass during a key press opens no second tab" {
+  slots '[]' '[{"repo": "X"}]'
+  session sess-x X '[{"window_id": "w1", "label": "1: X", "blocks": ["b1"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex launch --here --wait-shown"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  assert_nothing_changed
+}
+
+@test "a tab only labelled as the prime, running a shell, does not hold it" {
+  slots '[]' '[{"repo": "X"}]'
+  session sess-x X '[{"window_id": "w1", "label": "1: X", "blocks": ["b1"]}]'
+  runs b1 101 "zsh -l"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  called "^rex window new -s sess-x X --focus=false --json -- $STUBS/agent-slot-rex attach X/prime claude\$"
+  not_called '^rex window close'
+}
+
+@test "a pass with every prime's tab present changes nothing and journals an empty plan" {
+  slots '[]' "$(jaq -n -c '[{repo: "X"}, {repo: "Y", server: "default", session: "Y Prime", label: "Y Prime"}]')"
+  session sess-x X '[{"window_id": "w1", "label": "1: X", "blocks": ["b1"]}]'
+  session sess-y Y '[{"window_id": "w2", "label": "1: Y Prime", "blocks": ["b2"]}]'
+  runs b1 101 "bash $STUBS/agent-slot-rex attach X/prime claude"
+  on_tty b2 102 pts/5
+  prime_clients pts/5
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  assert_nothing_changed
+  [ "$(grep '^tmux -L default ' "$CALLS" | grep -vc ' list-clients ')" -eq 0 ]
+}
+
+@test "a pass a restart interrupts stops opening prime tabs" {
+  slots '[]' "$(jaq -n -c '[{repo: "X"}, {repo: "Y"}]')"
+  session sess-x X '[]'
+  session sess-y Y '[]'
+  restarts_after 'window new'
+  run --separate-stderr "$AGENT_SLOT_REX" restore --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "rex-server-restarted"' <<<"$stderr"
+  [ "$(grep -c '^rex window new' "$CALLS")" -eq 1 ]
+  not_called '^rex do agent_slot_layout'
+  not_called '^rex window move'
+}
+
 # --- reconcile: passes that overlap -----------------------------------------------------------------------------------
 
 LOCK_LINK=reconcile.lock
