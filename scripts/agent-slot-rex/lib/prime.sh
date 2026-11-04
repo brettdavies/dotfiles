@@ -44,10 +44,11 @@ prime_tab_open() {
   fi
   rex_or_fail session inspect "$sid" --json
   rows=$(contract_json -r "$REX_LABEL_DEF"'(.windows // [])[] | .window_id as $w | ((.label // "") | rex_unnumbered) as $l
-    | .layers[]?.blocks[]?.block_id | [$w, $l, .] | @tsv' <<<"$REX_OUT")
+    | .layers[]?.blocks[]?.block_id | [$w, $l, .] | join("\u001f")' <<<"$REX_OUT")
   rex_helper_processes
   [[ -z $clients ]] || rex_block_terminals
-  while IFS=$'\t' read -r window title block; do
+  # Not a tab: `read` collapses tabs, so a window with no label would shift its block ID into the title.
+  while IFS=$'\x1f' read -r window title block; do
     [[ -n $block ]] || continue
     rex_block_pid "$sid" "$block" || continue
     pid=${REX_OUT:-0}

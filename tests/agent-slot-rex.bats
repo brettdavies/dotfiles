@@ -329,6 +329,22 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
   not_called '^agent-slot launch'
 }
 
+@test "a tab with no name still counts when it holds the prime" {
+  local label
+  for label in '1: ' ''; do
+    in_rex_session X "[{\"window_id\": \"win-p\", \"label\": \"$label\", \"blocks\": [\"blk-p\"]},
+      {\"window_id\": \"win-a\", \"label\": \"new agent\", \"blocks\": [\"blk-a\"]}]"
+    repos X
+    runs blk-p 501 'bash /x/agent-slot-rex attach X/prime claude'
+    slot_answer launch 0 "$LAUNCHED"
+    : >"$CALLS"
+    run "$AGENT_SLOT_REX" launch --here </dev/null
+    [ "$status" -eq 0 ]
+    called '^agent-slot launch X --request-id '
+    not_called '^agent-slot prime'
+  done
+}
+
 @test "a client on a session holding no Claude is no prime's tab" {
   in_rex_session X '[{"window_id": "win-p", "label": "1: X Prime", "blocks": ["blk-p"]},
     {"window_id": "win-a", "label": "new agent", "blocks": ["blk-a"]}]'
