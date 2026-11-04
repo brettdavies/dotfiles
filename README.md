@@ -322,7 +322,7 @@ a `purge` ledger event, and in `teardown.log`, with one of the [purge failures](
 `trash-rm` command that finishes it.
 
 Teardown needs no one to press a key. A slot's agent closes its task by running `/compound-engineering:ce-compound` once
-per finding from its session, then `/compound-engineering:ce-compound-refresh`, then deletes the scratch files it made
+per finding from its session, then `/compound-engineering:ce-compound mode:refresh`, then deletes the scratch files it made
 and commits and PRs anything that is real work, then stops every background job it no longer needs, then runs
 `agent-slot release`, which refuses until both skills have run in that slot and while the slot's Claude still runs a
 Bash tool command other than the release's own: Claude Code lists a session with a live background shell as busy, so a
@@ -707,7 +707,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `rex-action-unregistered`     | 78   | Rex has not loaded the agent-slot actions; deploy the `rex` package or run `rex config reload` |
 | `rex-failed`                  | 1    | A `rex` command failed; retry                                                                  |
 | `reconcile-busy`              | 1    | Another restore, sweep, or finish held the tab lock too long; retry                            |
-| `compound-not-run`            | 1    | `release` refused: the slot's session has not run `ce-compound` and `ce-compound-refresh` yet  |
+| `compound-not-run`            | 1    | `release` refused: the slot's session has not run `ce-compound` and its `mode:refresh` run yet |
 | `background-jobs-running`     | 1    | `release` refused: the slot's Claude still runs background jobs, named in `value`              |
 | `finished-by-operator`        | 1    | `release --not-yet` refused: the operator finished the slot, and `--not-yet` does not undo it  |
 | `release-withdrawn`           | 1    | A release's `finish` stood down: a `--not-yet` or a newer release replaced its release         |

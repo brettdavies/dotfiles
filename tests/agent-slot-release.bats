@@ -166,10 +166,50 @@ renames_typed() { grep -c -- ' -l /rename ' "$CALLS" || true; }
   [ "$status" -eq 1 ]
   assert_error_shape "$stderr"
   jaq -e '.reason == "compound-not-run" and .value == "ce-compound-refresh"
-    and (.next_step.command | startswith("/compound-engineering:ce-compound-refresh "))' <<<"$stderr"
+    and (.next_step.command | startswith("/compound-engineering:ce-compound mode:refresh "))' <<<"$stderr"
   [ "$(record '.release')" = null ]
   logged 'any(.[]; .event == "release" and .result == "refused" and .missing == ["ce-compound-refresh"])'
   [ -d "$SLOT" ]
+}
+
+# refresh_call ARGS: appends the agent's Skill call of ce-compound with ARGS, the refresh mode's form.
+refresh_call() {
+  jaq -n -c --arg a "$1" \
+    '{type: "assistant", message: {content: [{type: "tool_use", name: "Skill",
+      input: {skill: "compound-engineering:ce-compound", args: $a}}]}}' >>"$T/transcript.jsonl"
+}
+
+@test "a ce-compound run with mode:refresh in its arguments is the refresh run" {
+  finished_task
+  ran ce-compound
+  refresh_call 'mode:refresh mode:non-interactive agent-slot'
+  agent busy
+  release
+  [ "$status" -eq 0 ]
+}
+
+@test "a refresh-mode run alone is not the compound run" {
+  finished_task
+  : >"$T/transcript.jsonl"
+  refresh_call 'mode:refresh mode:non-interactive agent-slot'
+  record_set ".transcript = \"$T/transcript.jsonl\""
+  release
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound"' <<<"$stderr"
+}
+
+@test "mode:refresh counts only as a whole argument, and in a typed slash command's arguments too" {
+  finished_task
+  ran ce-compound
+  refresh_call 'depth:full mode:refreshing'
+  release
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound-refresh"' <<<"$stderr"
+  jaq -n -c '{type: "user", message: {content: "<command-name>/compound-engineering:ce-compound</command-name>\n<command-args>mode:refresh mode:non-interactive</command-args>"}}' \
+    >>"$T/transcript.jsonl"
+  agent busy
+  release
+  [ "$status" -eq 0 ]
 }
 
 @test "a skill named only in a tool's result, or typed as a slash command, is told apart" {
@@ -710,7 +750,7 @@ renames_typed() { grep -c -- ' -l /rename ' "$CALLS" || true; }
   jaq -e '.torn_down == [] and .closing_sent == ["repoa/1"]' <<<"$output"
   [ -d "$SLOT" ]
   grep -q '/compound-engineering:ce-compound mode:non-interactive depth:full' "$STUBS/typed-repoa-1"
-  grep -q '/compound-engineering:ce-compound-refresh .* mode:non-interactive' "$STUBS/typed-repoa-1"
+  grep -q '/compound-engineering:ce-compound mode:refresh mode:non-interactive' "$STUBS/typed-repoa-1"
   grep -q 'agent-slot release --output json' "$STUBS/typed-repoa-1"
   grep -qF "then delete the scratch files you made (local config, test output, tool logs), and commit and PR anything that \
 is real work; then stop every background job you no longer need; then run agent-slot release" "$STUBS/typed-repoa-1"
