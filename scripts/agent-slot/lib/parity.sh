@@ -222,7 +222,9 @@ parity_claude_settings() {
 # An install runs lifecycle scripts with this account's credentials before anyone reads them, so it runs only where that
 # is already chosen. A prime with no node_modules, or one Claude does not trust, shows no install has been chosen on this
 # host. A head the base branch does not hold could change what runs through any tracked file: a package.json, an
-# .npmrc's script-shell, an npm-shrinkwrap.json that outranks the lock, or a script they call. Only a frozen install runs:
+# .npmrc's script-shell, an npm-shrinkwrap.json that outranks the lock, or a script they call. parity_base takes a dev
+# branch by its name, and anyone who can push to origin can make one, so the base counts only if the prime holds a branch
+# of that name. Only a frozen install runs:
 # it writes no lockfile, and a lockfile that disagrees with its package.json fails. It also takes whatever the lockfile
 # pins without consulting the supply-chain age gate, a release published that day included (measured on npm 11.16 and
 # bun 1.4.4), so the gate binds only whoever wrote the lock. npm and pnpm still get the gate from its one definition,
@@ -250,7 +252,8 @@ parity_deps() {
   tool=${AS_TOOL[$manager]}
   if ! trust_known "$prime" || [[ ! -d $prime/node_modules ]]; then
     status='prime-not-set-up'
-  elif ! git -C "$slot" merge-base --is-ancestor HEAD "refs/remotes/origin/$PARITY_BASE"; then
+  elif ! git -C "$prime" show-ref --verify -q "refs/heads/$PARITY_BASE" \
+    || ! git -C "$slot" merge-base --is-ancestor HEAD "refs/remotes/origin/$PARITY_BASE"; then
     status='head-not-on-base'
   elif ! git -C "$slot" check-ignore -q node_modules/; then
     status='not-ignored'

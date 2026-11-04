@@ -920,6 +920,22 @@ bun_repo() {
   head_on_origin_changes scripts/build.js 'evil()'
 }
 
+@test "launch --pr leaves a PR from a branch named dev to its agent, on a repo the prime holds no dev for" {
+  github_origin
+  bun_repo
+  git -C "$T/seed-repoa" switch -q -c dev
+  printf '%s\n' '{"name": "repoa", "scripts": {"postinstall": "./evil"}}' >"$T/seed-repoa/package.json"
+  git -C "$T/seed-repoa" add package.json
+  git -C "$T/seed-repoa" commit -q -m 'the head'
+  git -C "$T/seed-repoa" push -q origin dev dev:refs/pull/7/head
+  git -C "$T/seed-repoa" switch -q main
+  gh_item pr 7 "Fix the login" OPEN '{"headRefName": "dev", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/prepare-ran" ]
+  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
+}
+
 @test "launch --pr leaves a head behind a base lockfile change to its agent, without claiming it changed the lockfile" {
   github_origin
   bun_repo

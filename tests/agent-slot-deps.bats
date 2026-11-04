@@ -208,6 +208,27 @@ real_bun() {
   jaq -e '.deps.status == "prime-not-set-up"' <<<"$output"
 }
 
+@test "a dev that reached origin but that the prime has never held is off the base, whoever pushed it" {
+  js_repo bun.lock
+  stub_manager bun
+  git -C "$T/seed-repoa" push -q origin main:refs/heads/dev
+  launch r-newdev
+  [ "$status" -eq 0 ]
+  never_called '^bun install'
+  jaq -e '.deps.status == "head-not-on-base" and .state == "active"' <<<"$output"
+}
+
+@test "a dev the prime holds is the base, and its tip installs" {
+  js_repo bun.lock
+  stub_manager bun
+  git -C "$T/seed-repoa" push -q origin main:refs/heads/dev
+  git -C "$PRIME" fetch -q origin dev:refs/heads/dev
+  launch r-owndev
+  [ "$status" -eq 0 ]
+  grep -qxF 'bun install --frozen-lockfile' "$CALLS"
+  jaq -e '.deps.status == "installed"' <<<"$output"
+}
+
 @test "a failed install keeps the slot, and its output in a log the launch names" {
   js_repo bun.lock
   stub_manager bun 'echo "lockfile had changes, but lockfile is frozen" >&2; exit 1'

@@ -264,25 +264,25 @@ partial-clone filter when it has one, and the dependencies its root lockfile pin
 repo's tool-backed hooks work on the first push. An install runs the repo's lifecycle scripts with this account's
 credentials before anyone reads them, so setup runs one only where that is already chosen: `prime-not-set-up` means the
 prime has no `node_modules` or Claude does not trust it, and `head-not-on-base` means the base branch does not hold the
-checked-out head, since any tracked file can change what an install runs. Both are left to the agent. A frozen install
-writes no lockfile, and it takes whatever the lockfile pins without consulting the supply-chain age gate, so the gate
-binds only whoever wrote the lock. An install that does not finish keeps the slot, and so does one setup declines to
-start: the launch's `deps.status` also reads `failed`, `timed-out` (past `AGENT_SLOT_DEPS_TIMEOUT` seconds, 60),
-`tool-missing`, or `not-ignored` (the repo does not ignore `node_modules`), and the agent's session context says what
-each means and what to do. A slot's `docs/solutions` links to its own detached worktree of the solutions repo at
-`~/slots/<repo>/.solutions/<N>-<suffix>`, made at origin/main during setup and recorded as `solutions_worktree`; its
-agent writes and publishes there with `sd-commit-doc`, the slot is kept while that worktree holds anything origin/main
-lacks (`solutions-unpublished`), and teardown removes it. The repo-recon link points at
-`~/dev/repo-recon/<owner>/<repo>`, named for the prime's `origin`, else for its `upstream`, the remote a fork names its
-parent by. Setup never makes a store, and a teardown deletes the link but not the store, so whatever an agent filed
-through it stays. `agent-slot` on the server owns every slot and every check before a slot is deleted; `agent-slot-rex`
-on the same server drives that server's Rex, where each repo is one session and each agent one tab, and Rex.app and the
-Rex iOS app are windows onto it through the Rex login server. Every slot runs three tmux sessions on the server's
-`agent-slots` socket (Claude, yazi, and lazygit), so agents keep working with no client connected and through a restart
-of the Rex server, and each pane of a slot's tab attaches again by itself when its tab is rebuilt. A slot launched or
-torn down on the server, by an agent or by hand, opens or closes its tab with no key press and no client connected. On
-the Mac, `agent-slot-rex` hands each slot verb to the server's helper over ssh, so the slot keys act on the server
-whichever session has focus.
+checked-out head, or the prime holds no branch of that name, since any tracked file can change what an install runs.
+Both are left to the agent. A frozen install writes no lockfile, and it takes whatever the lockfile pins without
+consulting the supply-chain age gate, so the gate binds only whoever wrote the lock. An install that does not finish
+keeps the slot, and so does one setup declines to start: the launch's `deps.status` also reads `failed`, `timed-out`
+(past `AGENT_SLOT_DEPS_TIMEOUT` seconds, 60), `tool-missing`, or `not-ignored` (the repo does not ignore
+`node_modules`), and the agent's session context says what each means and what to do. A slot's `docs/solutions` links to
+its own detached worktree of the solutions repo at `~/slots/<repo>/.solutions/<N>-<suffix>`, made at origin/main during
+setup and recorded as `solutions_worktree`; its agent writes and publishes there with `sd-commit-doc`, the slot is kept
+while that worktree holds anything origin/main lacks (`solutions-unpublished`), and teardown removes it. The repo-recon
+link points at `~/dev/repo-recon/<owner>/<repo>`, named for the prime's `origin`, else for its `upstream`, the remote a
+fork names its parent by. Setup never makes a store, and a teardown deletes the link but not the store, so whatever an
+agent filed through it stays. `agent-slot` on the server owns every slot and every check before a slot is deleted;
+`agent-slot-rex` on the same server drives that server's Rex, where each repo is one session and each agent one tab, and
+Rex.app and the Rex iOS app are windows onto it through the Rex login server. Every slot runs three tmux sessions on the
+server's `agent-slots` socket (Claude, yazi, and lazygit), so agents keep working with no client connected and through a
+restart of the Rex server, and each pane of a slot's tab attaches again by itself when its tab is rebuilt. A slot
+launched or torn down on the server, by an agent or by hand, opens or closes its tab with no key press and no client
+connected. On the Mac, `agent-slot-rex` hands each slot verb to the server's helper over ssh, so the slot keys act on
+the server whichever session has focus.
 
 Each slot's Claude starts and resumes with `--dangerously-skip-permissions`, so it skips its permission prompts except
 under an ask rule and for the few actions Claude never auto-approves. Deny rules and hooks still block in that mode, ask
