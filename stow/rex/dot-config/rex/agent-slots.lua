@@ -52,7 +52,7 @@ rex.action{
 rex.action{
   name = "agent_slot_restore",
   title = "Restore Agent Tabs",
-  description = "Open a tab for every live slot, resume dormant ones, and close tabs whose slot is gone.",
+  description = "Open a tab for every live slot and running prime, resume dormant slots, and close tabs whose slot is gone.",
   category = "Agents",
   run = function()
     rex.exec.start({ HELPER, "restore", "--tab" }, { detach = true })

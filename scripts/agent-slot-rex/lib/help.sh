@@ -8,7 +8,7 @@ Verbs:
   launch   start an agent in a fresh slot, in a background Rex tab that becomes its tab, or open the repo'"'"'s prime
   prime    keep a tab attached to a repo'"'"'s prime tmux session, dropping to a shell on detach
   attach   keep a pane attached to one of a slot'"'"'s tmux sessions
-  restore  give every live slot a tab, resume dormant slots, and close tabs whose slot is gone
+  restore  give every live slot and running prime a tab, resume dormant slots, and close tabs whose slot is gone
   sweep    tear down finished slots, restore, then list the slots that need you
   finish   finish a task with no open PR and tear its slot down, from the control session
   doctor   check the Rex server, the units, rexurrect, and the reconcile journal, then run agent-slot'"'"'s doctor
@@ -47,8 +47,9 @@ verb_help() {
       'example: agent-slot-rex attach dotfiles/2 claude' ;;
     restore) printf '%s\n' \
       'usage: agent-slot-rex restore [--tab | --at-start | --by push|poll] [--output json]' \
-      "Gives every live slot a tab in its repo's session, resumes dormant slots, relabels tabs, and closes tabs" \
-      'whose slot is gone or that duplicate another. With no Rex server answering, or before the start-up step has' \
+      "Gives every live slot and running prime a tab in its repo's session, resumes dormant slots, relabels a slot's" \
+      'tab, and closes one whose slot is gone or that duplicates another; a prime'"'"'s tab it only ever opens. With no' \
+      'Rex server answering, or before the start-up step has' \
       "run in it (until the server is $AR_STARTUP_LIMIT s old), it changes nothing and fails with rex-server-down or" \
       'startup-pending; when the server restarts or stops partway, it makes no further change and fails with' \
       'rex-server-restarted or rex-server-down. --tab runs it in a new tab of the agent-slots session. --at-start is' \

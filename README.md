@@ -465,11 +465,11 @@ server from either machine.
 
 #### Keys and tab labels
 
-| Key         | Action                                                                                          |
-| ----------- | ----------------------------------------------------------------------------------------------- |
-| `cmd+alt+n` | Open the session's repo prime as its first tab, or start an agent on the repo in a new tab      |
-| `cmd+alt+r` | Give every live slot its tab back, resume dormant slots, and close tabs whose slot is gone      |
-| `cmd+alt+f` | Finish the focused tab's task (no open PR) and delete its slot when nothing in it would be lost |
+| Key         | Action                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| `cmd+alt+n` | Open the session's repo prime as its first tab, or start an agent on the repo in a new tab                   |
+| `cmd+alt+r` | Give every live slot and running prime its tab back, resume dormant slots, and close tabs whose slot is gone |
+| `cmd+alt+f` | Finish the focused tab's task (no open PR) and delete its slot when nothing in it would be lost              |
 
 `cmd+alt+n` opens a tab that comes forward and decides what it becomes from the session's name:
 
