@@ -282,6 +282,17 @@ assert_own_worktree() {
   [ -z "$(solutions_worktrees)" ]
 }
 
+# An unlocked clone of a git-crypt repo is plaintext, so a failed launch cannot leave it in the trash.
+@test "a setup that fails after the clone purges the clone from the trash, and logs the purge" {
+  stub tmux 'exit 1'
+  launch repoa --request-id r-rollback-purge
+  [ "$status" -ne 0 ]
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+  [ -z "$(find "$TRASH/files" "$TRASH/info" -mindepth 1 -maxdepth 1 2>/dev/null)" ]
+  jaq -e -s 'any(.[]; .event == "purge" and .repo == "repoa" and .slot == 1 and .purged == true)' \
+    "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
+}
+
 @test "a slot links .context/repo-recon to its origin's repo-recon store before its upstream's, and writes no store" {
   github_origin
   git -C "$AGENT_SLOT_DEV/repoa" remote add upstream https://github.com/parent/repoa.git
