@@ -93,6 +93,8 @@ source "$AS_LIB/launch.sh"
 source "$AS_LIB/prstate.sh"
 # shellcheck source=lib/items.sh
 source "$AS_LIB/items.sh"
+# shellcheck source=lib/probe.sh
+source "$AS_LIB/probe.sh"
 # shellcheck source=lib/reopenlookup.sh
 source "$AS_LIB/reopenlookup.sh"
 # shellcheck source=lib/reopen.sh
@@ -205,6 +207,13 @@ main() {
       adopt_parse_args "${args[@]}"
       exec </dev/null
       cmd_adopt
+      ;;
+    probe | close-probe)
+      local takes_one="$verb takes one PR: N, owner/name#N, or its GitHub URL"
+      ((${#args[@]} > 0)) || usage_fail "$takes_one"
+      ((${#args[@]} == 1)) || usage_fail "$takes_one" "${args[*]}"
+      exec </dev/null
+      "cmd_${verb//-/_}" "${args[0]}"
       ;;
     reopen)
       reopen_parse_args "${args[@]}"

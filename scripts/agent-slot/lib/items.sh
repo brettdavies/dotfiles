@@ -2,7 +2,7 @@
 # Work items: the GitHub PR or issue a slot works on. A ref names one as N, owner/name#N, or its GitHub URL, a bare N
 # being in origin's repo; item_resolve reads it from GitHub, and item_name alone derives a slot's name from it. A slot's
 # record holds its items as {kind, repo, number, title} and its name, which the first item gives and which no later item
-# changes; item_add is the one writer of both, for check's adoption of a PR and for the adopt verb.
+# changes; item_add is the one writer of both, for check's adoption of a PR and for the adopt and probe verbs.
 
 ITEM_NUMBER_PATTERN='[1-9][0-9]{0,9}'
 ITEM_REPO_PATTERN='[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
@@ -27,15 +27,15 @@ item_parse_ref() {
 }
 
 # Usage: item_resolve; reads the item item_parse_ref named from GitHub into ITEM: {kind, repo, number, title, state}, and
-# for a PR also head_branch, head_repo (owner/name), head_url, and cross_repository, with head_repo and head_url null
-# once the head's repository is gone. state is gh's OPEN, CLOSED, or MERGED. The caller has required gh.
+# for a PR also head_branch, head_oid, head_repo (owner/name), head_url, cross_repository, draft, and url, with head_repo
+# and head_url null once the head's repository is gone. state is gh's OPEN, CLOSED, or MERGED. The caller has required gh.
 #
 # The issues API answers for both kinds and says which one the number is. It also names the repository as GitHub
 # does, which sets ITEM_REPO and the item's repo whatever case the ref was typed in. Only a PR's own view names its
 # head.
 ITEM='{}'
 item_resolve() {
-  local kind repo
+  local kind repo next action=rerun
   local -a answer
   _item_gh api "repos/$ITEM_REPO/issues/$ITEM_NUMBER"
   mapfile -t answer < <(contract_json -r 'if type == "object" and has("number") and (.repository_url | type) == "string"
@@ -45,9 +45,13 @@ item_resolve() {
   [[ -n $kind && $repo =~ ^$ITEM_REPO_PATTERN$ ]] || _item_unreadable "gh answered with something other than an issue"
   ITEM_REPO=$repo
   if [[ $kind != "$ITEM_KIND" ]]; then
+    next=$(_item_swapped_command)
+    if [[ $next == "$(contract_quote "$CONTRACT_PROGRAM" "${CONTRACT_ARGV[@]}")" ]]; then
+      next=$(contract_help_command) action=run
+    fi
     contract_fail item-kind-mismatch \
       "$ITEM_REPO#$ITEM_NUMBER is $(_item_kind_word "$kind"), not $(_item_kind_word "$ITEM_KIND")" \
-      --value "$ITEM_REF" --command "$(_item_swapped_command)"
+      --value "$ITEM_REF" --command "$next" --action "$action"
   fi
   if [[ $ITEM_KIND == issue ]]; then
     ITEM=$(contract_json -c --arg repo "$ITEM_REPO" --argjson number "$ITEM_NUMBER" \
@@ -56,14 +60,15 @@ item_resolve() {
     return 0
   fi
   _item_gh pr view "$ITEM_NUMBER" --repo "$ITEM_REPO" \
-    --json headRefName,headRepository,headRepositoryOwner,isCrossRepository,state,title,url
+    --json headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository,isDraft,state,title,url
   ITEM=$(contract_json -c --arg repo "$ITEM_REPO" --argjson number "$ITEM_NUMBER" '
     if type == "object" and has("headRefName") then . else error("not a PR") end
     | (if .headRepository and .headRepositoryOwner
        then "\(.headRepositoryOwner.login)/\(.headRepository.name)" else null end) as $head
     | {kind: "pr", repo: $repo, number: $number, title: (.title // ""), state, head_branch: .headRefName,
-       head_repo: $head, head_url: (if $head then "https://github.com/\($head).git" else null end),
-       cross_repository: (.isCrossRepository == true)}' <<<"$ITEM_GH_OUT") \
+       head_oid: (.headRefOid // null), head_repo: $head,
+       head_url: (if $head then "https://github.com/\($head).git" else null end),
+       cross_repository: (.isCrossRepository == true), draft: (.isDraft == true), url: (.url // null)}' <<<"$ITEM_GH_OUT") \
     || _item_unreadable "gh answered with something other than a PR"
 }
 
@@ -186,7 +191,7 @@ _item_gh() {
   fi
   if grep -q 'HTTP 404' "$BOUNDED_LOG"; then
     contract_fail item-not-found "GitHub has no PR or issue $ITEM_REPO#$ITEM_NUMBER that gh can see" \
-      --value "$ITEM_REF" --command "agent-slot launch --help" --log "$BOUNDED_LOG"
+      --value "$ITEM_REF" --command "$(contract_help_command)" --log "$BOUNDED_LOG"
   fi
   if ((BOUNDED_STATUS == 124)); then
     _item_unreadable "gh did not answer within 30 s"

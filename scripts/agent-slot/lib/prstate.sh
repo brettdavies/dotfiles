@@ -7,6 +7,9 @@
 # `gh pr merge --delete-branch` deleted before any check recorded its PR. An older PR counts only when the slot built
 # on its head, as a review round does: an old PR that reused a branch name has a head the slot never had, or one the
 # base already holds when it merged with a merge commit.
+#
+# A PR is a probe (probe.sh) while the record's probes name it and it is still a draft: one taken out of draft has
+# become a real PR, whatever its mark says.
 
 declare -gA PR_LISTS=() PR_OK=()
 
@@ -25,7 +28,7 @@ pr_load() {
   PR_OK[$repo]=0 PR_LISTS[$repo]='[]'
   [[ -n $AS_GH ]] || return 0
   bounded out gh 30 "$AS_GH" pr list --repo "$(pr_repo_slug "$2")" --state all --limit 200 \
-    --json number,state,headRefName,headRefOid,createdAt,title,url,isCrossRepository || return 0
+    --json number,state,headRefName,headRefOid,createdAt,title,url,isCrossRepository,isDraft || return 0
   out=$(contract_json -c 'if type == "array" then . else error("not an array") end' <<<"$out" 2>/dev/null) || return 0
   PR_LISTS[$repo]=$out PR_OK[$repo]=1
 }
@@ -75,7 +78,7 @@ _pr_head_held() {
 }
 
 # Usage: pr_for_slot <repo> <slot path> <record>; prints the task's PRs as a JSON array of
-# {number, state, head, oid, url, title, created_at}.
+# {number, state, head, oid, url, title, created_at, draft, probe}.
 pr_for_slot() {
   local branches oid held=()
   branches=$({
@@ -92,9 +95,11 @@ pr_for_slot() {
   contract_json -c --argjson branches "$branches" --argjson record "$3" \
     --argjson held "$(printf '%s\n' "${held[@]}" | contract_json -R -s -c 'split("\n") | map(select(. != ""))')" '
     ($record.created_at // "") as $since | ($record.prs // []) as $known | ($record.base // "") as $base
+    | ($record.probes // []) as $probes
     | [.[] | select((.number as $n | $known | index($n) != null)
         or ((.headRefName as $h | $branches | index($h) != null) and .headRefName != $base
             and (.createdAt >= $since or (.headRefOid as $o | $held | index($o) != null))))]
-    | map({number, state, head: .headRefName, oid: .headRefOid, url, title, created_at: .createdAt})' \
+    | map({number, state, head: .headRefName, oid: .headRefOid, url, title, created_at: .createdAt,
+           draft: (.isDraft == true), probe: (.isDraft == true and (.number as $n | $probes | index($n) != null))})' \
     <<<"${PR_LISTS[$1]}"
 }
