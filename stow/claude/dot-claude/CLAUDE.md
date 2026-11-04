@@ -258,10 +258,10 @@ without blocking".
 ## CI after push
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse
-hook lists active runs with the exact `gh run watch <id> --exit-status` to spawn — run one per active run in the
-background (or `gh pr checks <pr> --watch` for PR-scoped). **A completed watcher is NOT a green watcher**:
-`gh pr checks --watch` exits 1 on a failed check but 0 when checks end cancelled/skipped, and it can miss checks that
-register late; `gh run watch` needs `--exit-status` to exit non-zero at all. After every completion notification, verify
+hook lists active runs with the exact `gh run watch <id> --exit-status` to spawn — run one per active run your own
+action started, in the background. Never watch with `gh pr checks --watch` or a loop of `gh pr view`: both poll the
+GraphQL API until the checks end. **A completed watcher is NOT a green watcher**: `gh run watch` needs `--exit-status`
+to exit non-zero at all. After every completion notification, verify once
 explicitly: `gh pr view <num> --json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus, checks:
 [.statusCheckRollup[] | {name, conclusion}]}'` and assert every conclusion is `SUCCESS`. Same for run-scoped:
 `gh run view <id> --json conclusion --jq .conclusion` must be `success`. Then re-enumerate to catch chained runs — both
