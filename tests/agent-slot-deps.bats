@@ -515,6 +515,7 @@ sleep 30"
   done
   [ -e "$STUBS/install-started" ]
   kill -TERM "${SPAWNED[0]}"
+  wait "${SPAWNED[0]}" || true
   leftover_is_gone
 }
 

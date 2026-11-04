@@ -176,7 +176,7 @@ snapshot() {
     false
   }
   [ ! -e "$STUBS/install-ran" ]
-  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
+  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "base-lacks-head"' <<<"$output"
 }
 
 @test "a reopen on a fork head runs no install" {
@@ -191,7 +191,7 @@ snapshot() {
     false
   }
   [ ! -e "$STUBS/install-ran" ]
-  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
+  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "base-lacks-head"' <<<"$output"
 }
 
 @test "--issue on a PR's number fails the dry run with exit 2 and item-kind-mismatch, naming --pr" {

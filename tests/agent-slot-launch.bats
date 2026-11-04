@@ -873,7 +873,8 @@ bun_repo() {
   [ "$status" -eq 0 ]
   [ ! -e "$STUBS/prepare-ran" ]
   [ ! -e "$AGENT_SLOT_ROOT/repoa/1/node_modules" ]
-  jaq -e '.deps.status == "head-not-on-base" and .deps.command == "bun install --frozen-lockfile" and .state == "active"' <<<"$output"
+  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "base-lacks-head"
+    and .deps.command == "bun install --frozen-lockfile" and .state == "active"' <<<"$output"
 }
 
 @test "launch --pr never runs the install of a head that only refs/pull/N/head still holds" {
