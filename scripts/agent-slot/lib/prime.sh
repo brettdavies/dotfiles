@@ -65,22 +65,22 @@ _prime_conversation() {
   PRIME_MODE=resumed PRIME_SESSION_ID=${id%.jsonl}
 }
 
-# Usage: prime_start <repo> <checkout>
+# Usage: prime_start <repo>
 # The one way a prime starts. Creates whichever of its sessions are missing, unless a session on the default server
 # already holds it, and sets PRIME_JSON to what it found and SESSIONS_CREATED to what it made. Sessions are read under
 # the lock, so two callers never race. The lock stays out of the slot root because doctor reads every directory there as
-# a repo with slots.
+# a repo with slots. The checkout comes from the repo's name, never from a slot's record, which the slot's agent can write.
 PRIME_JSON=
 prime_start() {
-  local repo=$1 path=$2 key name session server=slots mode=running id='' trust=false started
+  local repo=$1 path key name session server=slots mode=running id='' trust=false started
   local -a bus=()
   key=$(slot_key "$repo" "$SLOT_PRIME")
   name=$(prime_claude_name "$repo")
   session=$(slot_session "$repo" "$SLOT_PRIME")
   started=$(_slot_us)
   SESSIONS_CREATED=()
-  [[ -d $path ]] || contract_fail repo-not-found "the checkout of $repo is not at $path" --value "$path" \
-    --command "agent-slot repos"
+  repo_prime "$repo"
+  path=$REPO_PRIME
   _record_lock "$AS_STATE_DIR/primes/$repo.lock" "prime:$repo" --wait "$AS_LOCK_WAIT" \
     || contract_fail slot-busy "$key stayed locked for $AS_LOCK_WAIT s" --value "$key" --command "agent-slot prime $repo"
   _prime_old_session "$repo"
@@ -145,7 +145,7 @@ prime_list() {
     | {key: "\(.[0])/\($prime)", repo: .[0], server: .[1], session: .[2], label: .[3]})' <<<"$rows")
 }
 
-# Usage: prime_for_slot <repo> <checkout>
+# Usage: prime_for_slot <repo>
 # Starts a slot's prime, and sets PRIME_FIELD to the prime field of the slot verb's output: what prime_start found, else
 # {error: {reason, message, next_step, log}}. A subshell keeps contract_fail, RECORD, and the exit traps away from the
 # slot, since bash resets traps in one, so a prime that fails to start never costs the slot. It runs in the background
@@ -157,7 +157,7 @@ prime_for_slot() {
   (
     CONTRACT_OUTPUT=json CONTRACT_NOISE=$err
     trap 'printf "stopped at: %s\n" "${CONTRACT_LAST_FAILURE:-unknown}" >&2' EXIT
-    prime_start "$repo" "$2"
+    prime_start "$repo"
     printf '%s\n' "$PRIME_JSON"
   ) >"$out" 2>>"$err" </dev/null &
   wait "$!" || status=$?
@@ -180,8 +180,7 @@ prime_for_slot() {
 cmd_prime() {
   local repo=$1
   require_tools tmux claude find
-  repo_prime "$repo"
-  prime_start "$repo" "$REPO_PRIME"
+  prime_start "$repo"
   ((${#SESSIONS_CREATED[@]} == 0)) || push_restore prime "$(slot_key "$repo" "$SLOT_PRIME")"
   contract_ok "$PRIME_JSON" '"\(.key): " + (
     if .server == "default" then

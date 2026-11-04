@@ -327,7 +327,7 @@ brief would not reach it; send the brief to that slot's Claude session, or launc
 }
 
 cmd_resume() {
-  local repo n state prune checkout
+  local repo n state prune
   slot_parse_key "$1"
   repo=$SLOT_REPO n=$SLOT_N
   require_tools tmux claude
@@ -345,14 +345,13 @@ cmd_resume() {
     | {prune_checked: (map(select(.[0] == "checked"))[0][1] == "true"),
        pruned_branches: map(select(.[0] == "pruned") | .[1]),
        prune_failed: map(select(.[0] == "failed") | {branch: .[1], reason: .[2]})}')
-  checkout=$(contract_json -r '.prime // ""' <<<"$RECORD")
   record_unlock_slot "$repo" "$n"
   contract_json -r -c '(.pruned_branches | map({branch: ., result: "pruned", reason: null}))
     + (.prune_failed | map(. + {result: "failed"})) | .[]' <<<"$prune" | while read -r line; do
     ledger_append prune "$(contract_json -c --arg repo "$repo" --argjson slot "$n" '{repo: $repo, slot: $slot} + .' \
       <<<"$line")"
   done
-  [[ -z $checkout ]] || prime_for_slot "$repo" "$checkout"
+  prime_for_slot "$repo"
   contract_ok "$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$1" --argjson prune "$prune" \
     --argjson prime "$PRIME_FIELD" '{key: $key, started: split("\n") | map(select(. != ""))} + $prune + {prime: $prime}')" \
     '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)

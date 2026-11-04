@@ -582,19 +582,28 @@ PRIME_SESSIONS='["repoa-prime", "repoa-prime-files", "repoa-prime-git"]'
   grep -qF -- "new-session -d -s repoa-prime -c $AGENT_SLOT_DEV/repoa " "$CALLS"
 }
 
-@test "a resume finding the prime's checkout gone still succeeds, reporting why the prime did not start" {
-  slot repoa 1 "{\"prime\": \"$T/gone\"}"
+@test "a record cannot choose where a resume's prime starts" {
+  mkdir -p "$T/planted"
+  slot repoa 1 "{\"prime\": \"$T/planted\"}"
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
-  jaq -e '(.started | length) == 3 and .prime.error.reason == "repo-not-found"' <<<"$output"
-  [ "$(grep -c ' new-session ' "$CALLS")" -eq 3 ]
+  jaq -e --arg path "$AGENT_SLOT_DEV/repoa" '.prime.path == $path' <<<"$output"
+  grep -qF -- "new-session -d -s repoa-prime -c $AGENT_SLOT_DEV/repoa " "$CALLS"
+  run ! grep -qF -- "-c $T/planted " "$CALLS"
 }
 
-@test "a resume whose record names no checkout starts no prime" {
+@test "a record naming no checkout still gets the repo's prime on a resume" {
   slot repoa 1 '{"prime": null}'
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
-  jaq -e '.prime == null' <<<"$output"
+  jaq -e '.prime.key == "repoa/prime" and (.prime.started | length) == 3' <<<"$output"
+}
+
+@test "a resume of a repo with no checkout here still succeeds, reporting why the prime did not start" {
+  slot repoz 1
+  run --separate-stderr "$AGENT_SLOT" resume repoz/1 --output json
+  [ "$status" -eq 0 ]
+  jaq -e '(.started | length) == 3 and .prime.error.reason == "repo-not-found"' <<<"$output"
   [ "$(grep -c ' new-session ' "$CALLS")" -eq 3 ]
 }
 
