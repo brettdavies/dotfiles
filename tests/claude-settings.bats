@@ -273,6 +273,16 @@ REPO="$BATS_TEST_DIRNAME/.."
   [ "${#blocking[@]}" -eq 0 ]
 }
 
+# Slots and primes run the reviews their briefs name: ce-code-review, gstack /devex-review and /cso. The skills below
+# overlap those or send code to another model, so no agent may run them.
+@test "the review skills that overlap the named reviews are denied" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  local skill
+  for skill in code-review codex review security-review; do
+    jaq -e --arg r "Skill($skill)" '.permissions.deny | index($r) != null' "$SETTINGS" >/dev/null
+  done
+}
+
 # Every model runs at xhigh effort, so a Sonnet or Haiku session or subagent never falls back to a lower default.
 @test "every model's settings set xhigh effort" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
