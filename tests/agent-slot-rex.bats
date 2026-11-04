@@ -754,14 +754,23 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
   called '^tmux -L agent-slots attach -t =X-prime$'
 }
 
-@test "attach waits out a prime still missing after agent-slot prime, as with the old-style session still running" {
+@test "attach waits out a prime still missing after agent-slot prime" {
   tmux_answer has-session 0 1
   tmux_answer has-session 1 1
   tmux_answer has-session 2 0
-  slot_answer prime 0 "$PRIME_OLD_STYLE"
+  slot_answer prime 0 '{"ok":true,"server":"slots"}'
   run "$AGENT_SLOT_REX" attach X/prime claude </dev/null
   [ "$status" -eq 0 ]
   [[ $output == *"X-prime is still missing after agent-slot prime; retrying in 0 s"* ]]
+}
+
+@test "attach hands over to the prime command when the start finds the prime in an old-style session" {
+  tmux_answer has-session 0 1
+  slot_answer prime 0 "$PRIME_OLD_STYLE"
+  run "$AGENT_SLOT_REX" attach X/prime claude </dev/null
+  [ "$status" -eq 0 ]
+  [ "$(tail -1 "$CALLS")" = "agent-slot-rex prime X" ]
+  not_called '^tmux -L agent-slots attach'
 }
 
 @test "attach to a prime with a bad pane name is a usage error" {

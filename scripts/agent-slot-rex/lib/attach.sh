@@ -23,7 +23,12 @@ attach_pause() {
 attach_resume() {
   if [[ $SLOT_N == "$SLOT_PRIME" ]]; then
     printf 'agent-slot-rex: %s has no %s session; starting the prime\n' "$ATTACH_KEY" "$ATTACH_KIND"
-    server_call "$AR_PRIME_BOUND" prime "$SLOT_REPO" && return 0
+    if server_call "$AR_PRIME_BOUND" prime "$SLOT_REPO"; then
+      # This pane began while the default server did not answer, so it took the old-style session for gone. Only the
+      # prime command attaches to one, and this loop would wait for a slot-server session that never comes.
+      [[ $(contract_json -r '.server' <<<"$SERVER_OUT") != default ]] || exec "$AR_SELF" prime "$SLOT_REPO"
+      return 0
+    fi
   else
     printf 'agent-slot-rex: %s has no %s session; resuming the slot\n' "$ATTACH_KEY" "$ATTACH_KIND"
     server_call "$AR_RESUME_BOUND" resume "$ATTACH_KEY" && return 0
