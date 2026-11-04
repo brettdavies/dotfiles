@@ -17,12 +17,13 @@ reopen_parse_args() {
         REOPEN_KIND=${1#--} REOPEN_REF=$2
         shift 2
         ;;
-      --session | --prompt-file | --request-id)
+      --session | --prompt-file | --request-id | --expect-head)
         (($# >= 2)) || usage_fail "$1 needs a value" "$1"
         case $1 in
           --session) REOPEN_SESSION=$2 ;;
           --prompt-file) REOPEN_PROMPT=$2 ;;
           --request-id) REOPEN_REQUEST=$2 ;;
+          --expect-head) HEAD_EXPECTED=$2 ;;
         esac
         shift 2
         ;;
@@ -40,6 +41,7 @@ reopen_parse_args() {
   done
   [[ -n $REOPEN_REPO ]] || usage_fail "reopen needs a repo; agent-slot repos lists them"
   [[ -n $REOPEN_KIND ]] || usage_fail "reopen needs --pr <ref> or --issue <ref>"
+  head_expect_arg reopen "$REOPEN_KIND"
   [[ -z $REOPEN_REQUEST || $REOPEN_REQUEST =~ $REQUEST_PATTERN ]] \
     || usage_fail "a request ID uses letters, digits, ., _, and -, up to 128 characters" "$REOPEN_REQUEST"
   if [[ -n $REOPEN_PROMPT ]]; then
@@ -70,6 +72,7 @@ cmd_reopen() {
   reopen_lookup "$repo"
   if [[ -n $REOPEN_EXISTING ]]; then
     record_unlock_repo "$repo"
+    head_expect_within "$(slot_path "$repo" "$REOPEN_EXISTING")"
     _reopen_output "$REOPEN_EXISTING" false
     return
   fi
@@ -160,7 +163,10 @@ _reopen_foreign() {
 REOPEN_HEAD_MOVED=null
 _reopen_head() {
   local oid remote
-  [[ $(contract_json -r .source.branch <<<"$HEAD_PLAN") != base ]] || return 0
+  if [[ $(contract_json -r .source.branch <<<"$HEAD_PLAN") == base ]]; then
+    head_expect "$1" HEAD
+    return 0
+  fi
   remote=$(contract_json -r '.remote // ""' <<<"$HEAD_PLAN")
   head_checkout "$1" "$(contract_json -r .branch <<<"$HEAD_PLAN")" "$remote" \
     "$(contract_json -r '.url // ""' <<<"$HEAD_PLAN")" "$REOPEN_KIND" "$ITEM_REPO" "$ITEM_NUMBER" "$(_reopen_command)"
@@ -209,12 +215,13 @@ reopen_report() {
     --argjson item "$REOPEN_ITEM" --argjson source "$REOPEN_SOURCE" --arg name "$name" --argjson items "$items" \
     --arg task "$task" --arg session "$session" --arg transcript "$REOPEN_TRANSCRIPT" \
     --argjson exists "$REOPEN_TRANSCRIPT_EXISTS" --argjson head "$head" --arg slot "$slot" \
-    --arg command "$command" --argjson delivered "$delivered" --argjson foreign "$foreign" '
+    --arg command "$command" --argjson delivered "$delivered" --argjson foreign "$foreign" \
+    --arg expect "$HEAD_EXPECTED" '
     def text: if . == "" then null else . end;
     {head_foreign: (if $foreign == null then null else $foreign.head_foreign // false end),
      head_owner: (if $foreign == null then null else $foreign.head_owner // null end), dry_run: true, would_reopen: $would, refusal: $refusal, item: $item, source: $source, name: ($name | text),
      items: $items, task: ($task | text), session_id: ($session | text), transcript: ($transcript | text),
-     transcript_exists: $exists, head: $head, slot: ($slot | text), command: ($command | text),
+     transcript_exists: $exists, head: $head, expect_head: ($expect | text), slot: ($slot | text), command: ($command | text),
      prompt_delivered: $delivered}')" '
     "\(.item.repo)#\(.item.number): " + (
       if .would_reopen then
@@ -235,6 +242,7 @@ _reopen_command() {
   local -a argv=(agent-slot reopen "$REOPEN_REPO" "--$REOPEN_KIND" "$REOPEN_REF")
   [[ -z $REOPEN_SESSION ]] || argv+=(--session "$REOPEN_SESSION")
   [[ -z $REOPEN_PROMPT ]] || argv+=(--prompt-file "$REOPEN_PROMPT")
+  [[ -z $HEAD_EXPECTED ]] || argv+=(--expect-head "$HEAD_EXPECTED")
   [[ ${1:-} == no-request || -z $REOPEN_REQUEST ]] || argv+=(--request-id "$REOPEN_REQUEST")
   contract_quote "${argv[@]}"
 }

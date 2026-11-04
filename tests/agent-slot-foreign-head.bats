@@ -972,16 +972,26 @@ real_solutions_dir() {
 
 @test "a fork someone has reviewed gets the full setup by a launch with its owner added for that one command" {
   foreign_pr
-  AGENT_SLOT_TRUSTED_OWNERS='me evil' run --separate-stderr "$AGENT_SLOT" launch repoa --pr 7 --output json
+  AGENT_SLOT_TRUSTED_OWNERS='me evil' run --separate-stderr "$AGENT_SLOT" launch repoa --pr 7 --expect-head "$HEAD_SHA" --output json
   [ "$status" -eq 0 ]
   assert_unchanged_setup "$output"
   [ -f "$SLOT/.claude/settings.json" ]
 }
 
+@test "a fork that moved after its review is refused by that same command, with nothing of it run" {
+  foreign_pr marked_checkout
+  mark_checkouts
+  AGENT_SLOT_TRUSTED_OWNERS='me evil' run --separate-stderr "$AGENT_SLOT" launch repoa --pr 7 --expect-head "$(main_sha)" --output json
+  [ "$status" -eq 78 ]
+  jaq -e '.reason == "head-not-expected"' <<<"$stderr"
+  [ -z "$(ls "$T/marks")" ]
+  [ ! -e "$SLOT" ]
+}
+
 @test "launch's help says how to run a fork someone has reviewed" {
   run "$AGENT_SLOT" launch --help
   [ "$status" -eq 0 ]
-  [[ $output == *'once someone has reviewed it'*AGENT_SLOT_TRUSTED_OWNERS* ]]
+  [[ $output == *'once someone has reviewed it'*AGENT_SLOT_TRUSTED_OWNERS*--expect-head* ]]
 }
 
 # every_git_hook: a marker hook at every event git can fire, a settings.local.json and a docs/solutions link the head
@@ -1108,4 +1118,145 @@ run_in_real_tmux() {
   while read -r setting; do settings+=(-e "$setting"); done < <(session_env '')
   run_in_real_tmux "${settings[@]}"
   [ ! -e "$T/marks/fsmonitor" ]
+}
+
+# marked_checkout: a head whose attributes name a filter, which git runs for each file as it checks the head out.
+marked_checkout() {
+  printf '* filter=mark\n' >.gitattributes
+}
+
+# mark_checkouts: defines that filter for this test's git, called once the head is committed, so a checkout of the head
+# leaves a marker and nothing before it does.
+mark_checkouts() {
+  git config --file "$GIT_CONFIG_GLOBAL" filter.mark.smudge "sh -c 'touch $T/marks/checked-out; cat'"
+}
+
+# main_sha: a commit that exists on origin and is not the PR's head.
+main_sha() { git -C "$T/seed-repoa" rev-parse main; }
+
+# assert_refused_at FOUND STATUS STDERR: the refusal of a head at FOUND, whose next step only reads the PR.
+assert_refused_at() {
+  [ "$2" -eq 78 ]
+  jaq -e --arg found "$1" '.reason == "head-not-expected" and .value == $found and .next_step.action == "ask-operator"
+    and .next_step.command == "gh pr diff 7 --repo up/repoa"' <<<"$3"
+}
+
+@test "--expect-head lets a launch through on that commit, and the checkout runs as usual" {
+  own_pr marked_checkout
+  mark_checkouts
+  launch repoa --pr 7 --expect-head "$HEAD_SHA"
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$SLOT" rev-parse HEAD)" = "$HEAD_SHA" ]
+  [ -e "$T/marks/checked-out" ]
+  assert_unchanged_setup "$output"
+}
+
+@test "--expect-head refuses a head that moved before its tree reaches disk, and leaves no slot" {
+  own_pr marked_checkout
+  mark_checkouts
+  launch repoa --pr 7 --expect-head "$(main_sha)"
+  assert_refused_at "$HEAD_SHA" "$status" "$stderr"
+  [ -z "$(ls "$T/marks")" ]
+  [ ! -e "$SLOT" ]
+  [ ! -e "$STUBS/typed-repoa-1" ]
+}
+
+@test "--expect-head holds for a head read from refs/pull, when its branch is gone" {
+  hostile_head "$T/forks/me/repoa.git" '' 7 marked_checkout
+  gh_item pr 7 "Fix the login" OPEN "$(head_fields me)"
+  mark_checkouts
+  launch repoa --pr 7 --expect-head "$(main_sha)"
+  assert_refused_at "$HEAD_SHA" "$status" "$stderr"
+  [ -z "$(ls "$T/marks")" ]
+  launch repoa --pr 7 --expect-head "$HEAD_SHA"
+  [ "$status" -eq 0 ]
+  jaq -e '.head_pushable == false' <<<"$output"
+  [ "$(git -C "$SLOT" rev-parse HEAD)" = "$HEAD_SHA" ]
+}
+
+@test "--expect-head takes only a full lowercase commit ID, and only on a PR, before anything is touched" {
+  own_pr
+  local bad
+  for bad in "${HEAD_SHA:0:12}" "${HEAD_SHA^^}" main "${HEAD_SHA}0"; do
+    launch repoa --pr 7 --expect-head "$bad"
+    [ "$status" -eq 2 ]
+    jaq -e --arg bad "$bad" '.reason == "usage" and .value == $bad' <<<"$stderr"
+  done
+  launch repoa --pr 7 --expect-head
+  [ "$status" -eq 2 ]
+  launch repoa --expect-head "$HEAD_SHA"
+  [ "$status" -eq 2 ]
+  gh_item issue 12 "Fix the widget"
+  launch repoa --issue 12 --expect-head "$HEAD_SHA"
+  [ "$status" -eq 2 ]
+  [ ! -e "$SLOT" ]
+}
+
+@test "a repeat of a launch with --expect-head returns its slot under the agent's commits, and refuses a commit it does not hold" {
+  foreign_pr
+  launch repoa --pr 7 --expect-head "$HEAD_SHA"
+  [ "$status" -eq 0 ]
+  git -C "$SLOT" commit -q --allow-empty -m work
+  local tip
+  tip=$(git -C "$SLOT" rev-parse HEAD)
+  launch repoa --pr 7 --expect-head "$HEAD_SHA"
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false' <<<"$output"
+  launch repoa --pr 7 --expect-head "$(printf 'f%.0s' {1..40})"
+  assert_refused_at "$tip" "$status" "$stderr"
+  [ -d "$SLOT" ]
+}
+
+@test "an error's next step keeps --expect-head, so following it cannot drop the check" {
+  foreign_pr
+  AGENT_SLOT_MAX_PER_REPO=0 run --separate-stderr "$AGENT_SLOT" launch repoa --pr 7 --expect-head "$HEAD_SHA" --output json
+  [ "$status" -ne 0 ]
+  jaq -e --arg sha "$HEAD_SHA" '.reason == "slot-limit-reached" and (.next_step.command | contains("--expect-head \($sha)"))' <<<"$stderr"
+}
+
+@test "a reopen with --expect-head refuses a head other than that commit, and goes ahead on it" {
+  foreign_pr marked_checkout
+  mark_checkouts
+  teardown_event "{\"items\": [$PR7], \"prs\": [7], \"head\": \"feat/x\", \"branches\": [$(branch_entry evil)]}"
+  reopen repoa --pr 7 --expect-head "$(main_sha)"
+  assert_refused_at "$HEAD_SHA" "$status" "$stderr"
+  [ -z "$(ls "$T/marks")" ]
+  [ ! -e "$SLOT" ]
+  reopen repoa --pr 7 --expect-head "$HEAD_SHA"
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$SLOT" rev-parse HEAD)" = "$HEAD_SHA" ]
+  assert_reopened_foreign evil "$output"
+}
+
+@test "a reopen with --expect-head whose plan stays on the base refuses a commit the base is not" {
+  gh_item pr 7 "Fix the login" OPEN '{"headRefName": ""}'
+  teardown_event "{\"items\": [$PR7], \"prs\": [7]}"
+  reopen repoa --pr 7 --expect-head "$(printf 'f%.0s' {1..40})"
+  assert_refused_at "$(main_sha)" "$status" "$stderr"
+  [ ! -e "$SLOT" ]
+}
+
+@test "a reopen's dry run reports the commit it would expect, and null with none given" {
+  foreign_pr
+  teardown_event "{\"items\": [$PR7], \"prs\": [7], \"head\": \"feat/x\", \"branches\": [$(branch_entry evil)]}"
+  reopen repoa --pr 7 --dry-run --expect-head "$HEAD_SHA"
+  [ "$status" -eq 0 ]
+  jaq -e --arg sha "$HEAD_SHA" '.expect_head == $sha' <<<"$output"
+  reopen repoa --pr 7 --dry-run
+  [ "$status" -eq 0 ]
+  jaq -e '.expect_head == null' <<<"$output"
+  [ ! -e "$SLOT" ]
+}
+
+@test "launch's and reopen's help name --expect-head and the reason it refuses with" {
+  local verb
+  for verb in launch reopen; do
+    run "$AGENT_SLOT" "$verb" --help
+    [ "$status" -eq 0 ]
+    [[ $output == *--expect-head* ]]
+    [[ $output == *head-not-expected* ]]
+  done
+  run "$AGENT_SLOT" schema --output json
+  [ "$status" -eq 0 ]
+  [[ $output == *head-not-expected* ]]
 }

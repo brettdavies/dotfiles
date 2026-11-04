@@ -46,7 +46,7 @@ verb_help() {
       '         when its head is a foreign head' \
       'example: agent-slot whoami --output json' ;;
     launch) printf '%s\n' \
-      'usage: agent-slot launch <repo> [--pr <ref> | --issue <ref>] [--request-id ID] [--task NAME]' \
+      'usage: agent-slot launch <repo> [--pr <ref> | --issue <ref>] [--expect-head COMMIT] [--request-id ID] [--task NAME]' \
       '                         [--prompt-file FILE] [--requested-at EPOCH] [--opened-at EPOCH] [--shown-at EPOCH]' \
       '                         [--output json]' \
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
@@ -64,7 +64,9 @@ verb_help() {
       "PR's own repo, is a foreign head: head_foreign is true, Claude starts with user settings only, and git" \
       'gets no hooks. To run a fork once someone has reviewed it, tear its slot down and launch again with its owner' \
       "added for that one command: AGENT_SLOT_TRUSTED_OWNERS='$(owners_list) <owner>' agent-slot launch <repo> --pr" \
-      '<ref>. That checks out the branch as it is then, so compare it with what was reviewed. See the README.' \
+      '<ref> --expect-head <the reviewed commit>. See the README.' \
+      '--expect-head COMMIT refuses with head-not-expected, ahead of the checkout, a head at any other commit; COMMIT' \
+      "is a full lowercase commit ID. A repeat that finds its slot passes when that slot's head contains the commit." \
       '--requested-at, --opened-at, and --shown-at are seconds since the epoch: when the launch was asked for, and' \
       'for a launch from the new-agent key, when its tab opened and when Rex.app showed it; the launch'"'"'s ledger' \
       'line keeps them for doctor'"'"'s key to ready.' \
@@ -103,7 +105,7 @@ verb_help() {
       'example: agent-slot adopt Pillow/1 --issue 10331 --output json' ;;
     reopen) printf '%s\n' \
       'usage: agent-slot reopen <repo> (--pr <ref> | --issue <ref>) [--session ID] [--prompt-file FILE]' \
-      '                         [--request-id ID] [--dry-run] [--output json]' \
+      '                         [--expect-head COMMIT] [--request-id ID] [--dry-run] [--output json]' \
       "Finds the slot of the repo that worked on a PR or issue in the ledger after its teardown: the newest whose" \
       "work items hold it, else, for a PR of origin's repo, the newest whose PRs hold its number. --session ID picks" \
       'the teardown of the slot whose Claude session that was, as for a slot torn down before work items were' \
@@ -115,7 +117,8 @@ verb_help() {
       'cannot read still fails. The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
       'the base, fetched from the remote the ledger recorded for it when that is on origin'"'"'s host, else from the' \
       "PR's head repository. A reopen is a foreign head when the source slot was, or when that URL or a PR's head on" \
-      'GitHub is. Agents ask the operator first.' \
+      'GitHub is. --expect-head COMMIT, with --pr, refuses with head-not-expected, ahead of the checkout, a head at' \
+      'any other commit; --dry-run reports it as expect_head and fetches nothing. Agents ask the operator first.' \
       'returns: launch'"'"'s fields (key, name, items, session_id, prompt_delivered, ...) plus reopened_from {slot,' \
       '         session_id, ts}, settled_prs (the PRs already merged or closed, which neither finish nor block the' \
       '         task), head, and head_moved; with --dry-run, dry_run, would_reopen, refusal (null, or {reason,' \

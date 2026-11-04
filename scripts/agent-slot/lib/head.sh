@@ -7,7 +7,40 @@
 # in. head_plan picks a reopen's head from the slot's teardown event in the ledger, keeping the branch and remote the
 # slot had over GitHub's.
 
-HEAD_REMOTE='' HEAD_URL='' HEAD_PUSHABLE=null
+HEAD_REMOTE='' HEAD_URL='' HEAD_PUSHABLE=null HEAD_EXPECTED=''
+
+# Usage: head_expect_arg <verb> <item kind>; refuses an --expect-head no head could be compared with. A prefix is no
+# pin, since someone who can push to the head can make a commit that shares it.
+head_expect_arg() {
+  [[ -n $HEAD_EXPECTED ]] || return 0
+  [[ $2 == pr ]] || usage_fail "$1 --expect-head needs --pr, since only a PR has a head to compare" "$HEAD_EXPECTED"
+  [[ $HEAD_EXPECTED =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] \
+    || usage_fail "--expect-head takes a full lowercase commit ID" "$HEAD_EXPECTED"
+}
+
+# shellcheck disable=SC2153 # items.sh sets ITEM_NUMBER and ITEM_REPO before any head is fetched
+_head_unexpected() {
+  contract_fail head-not-expected "the head is at $1, not the $HEAD_EXPECTED this call expected, so it is not the \
+commit that was reviewed" --value "$1" --side-effects none \
+    --command "$(contract_quote gh pr diff "$ITEM_NUMBER" --repo "$ITEM_REPO")"
+}
+
+# Usage: head_expect <slot> <rev>; refuses a fetched head other than the commit --expect-head names. It runs ahead of the
+# checkout, since a checkout alone runs a filter the head's attributes name.
+head_expect() {
+  [[ -n $HEAD_EXPECTED ]] || return 0
+  local found
+  found=$(git -C "$1" rev-parse --verify -q "$2^{commit}" || true)
+  [[ $found == "$HEAD_EXPECTED" ]] || _head_unexpected "$found"
+}
+
+# Usage: head_expect_within <slot>; the same check for the slot a repeated call finds, whose agent can have committed on
+# top of the head it checked out.
+head_expect_within() {
+  [[ -n $HEAD_EXPECTED ]] || return 0
+  git -C "$1" merge-base --is-ancestor "$HEAD_EXPECTED" HEAD 2>/dev/null \
+    || _head_unexpected "$(git -C "$1" rev-parse HEAD)"
+}
 
 # Usage: head_github_slug <url>; prints the lowercase owner/name of a GitHub URL in its https, ssh, or scp form, with or
 # without .git, and nothing for any other URL. GitHub matches its host and names in any case, so this does too.
@@ -46,6 +79,7 @@ head_remote_for() {
 head_checkout() {
   local slot=$1 branch=$2 remote=$3 url=$4 kind=$5 item_repo=$6 number=$7 retry=$8 from
   if [[ -n $url ]] && _head_fetch_branch "$slot" "$branch" "$remote" "$url" "$retry"; then
+    head_expect "$slot" "refs/remotes/$remote/$branch"
     _head_git checkout "$slot" "$retry" "$branch" checkout -q -B "$branch" --track "$remote/$branch"
     HEAD_PUSHABLE=true
     return 0
@@ -57,6 +91,7 @@ head_checkout() {
     from=https://github.com/$item_repo.git
   fi
   _head_git fetch "$slot" "$retry" "$from" fetch -q -- "$from" "refs/pull/$number/head"
+  head_expect "$slot" FETCH_HEAD
   _head_git checkout "$slot" "$retry" "$branch" checkout -q -B "$branch" FETCH_HEAD
 }
 

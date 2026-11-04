@@ -22,7 +22,7 @@ launch_parse_args() {
         LAUNCH_ITEM_KIND=${1#--} LAUNCH_ITEM_REF=$2
         shift 2
         ;;
-      --task | --request-id | --prompt-file | --requested-at | --opened-at | --shown-at)
+      --task | --request-id | --prompt-file | --requested-at | --opened-at | --shown-at | --expect-head)
         (($# >= 2)) || usage_fail "$1 needs a value" "$1"
         case $1 in
           --task) LAUNCH_TASK=$2 ;;
@@ -31,6 +31,7 @@ launch_parse_args() {
           --requested-at) LAUNCH_REQUESTED_AT=$2 ;;
           --opened-at) LAUNCH_OPENED_AT=$2 ;;
           --shown-at) LAUNCH_SHOWN_AT=$2 ;;
+          --expect-head) HEAD_EXPECTED=$2 ;;
         esac
         shift 2
         ;;
@@ -43,6 +44,7 @@ launch_parse_args() {
     esac
   done
   [[ -n $LAUNCH_REPO ]] || usage_fail "launch needs a repo; agent-slot repos lists them"
+  head_expect_arg launch "$LAUNCH_ITEM_KIND"
   [[ -z $LAUNCH_TASK || $LAUNCH_TASK =~ $TASK_PATTERN ]] \
     || contract_fail invalid-task-name "$TASK_RULE" --value "$LAUNCH_TASK" --command "agent-slot launch --help"
   [[ -z $LAUNCH_REQUEST || $LAUNCH_REQUEST =~ $REQUEST_PATTERN ]] \
@@ -118,6 +120,7 @@ _launch_head() {
 _launch_command() {
   printf 'agent-slot launch %s' "$LAUNCH_REPO"
   [[ -z $LAUNCH_ITEM_KIND ]] || printf ' --%s %s' "$LAUNCH_ITEM_KIND" "$(contract_quote "$LAUNCH_ITEM_REF")"
+  [[ -z $HEAD_EXPECTED ]] || printf ' --expect-head %s' "$HEAD_EXPECTED"
 }
 
 # Usage: launch_output <repo> <n> <created> [<trust-prompt-expected> <phases-json> [<fields-json>]]
@@ -193,6 +196,7 @@ cmd_launch() {
         --value "$(slot_key "$repo" "$LAUNCH_EXISTING")" \
         --command "$(_launch_command)${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
     fi
+    head_expect_within "$(slot_path "$repo" "$LAUNCH_EXISTING")"
     launch_output "$repo" "$LAUNCH_EXISTING" false false null '{"prior": null}'
     return
   fi
