@@ -488,11 +488,11 @@ conversation by that title rather than by a record, and is never torn down: noth
 
 A *prime's tab* is the tab of a repo's Rex session on the Linux server that holds its prime: a pane's own process is the
 attach loop of its Claude pane, or, while the prime still runs as one session on the server's default tmux server, a
-client of that session runs on a pane's terminal. What makes it the prime's tab is that hold, never its label or
-position, so a renamed tab still is one. A session on the default server counts only while it holds a Claude. The *slot
-reconcile* keeps a tab for every running prime, and the *new-agent key* opens one, first in the session, while the
-session has none. After a Rex restart, rexurrect brings a prime's tab back as plain shells, and the *start-up step*
-makes it the prime's again.
+pane's own process is the helper's `prime` verb or a client of that session runs on a pane's terminal. What makes it the
+prime's tab is that hold, never its label or position, so a renamed tab still is one. A session on the default server
+counts only while it holds a Claude. The *slot reconcile* keeps a tab for every running prime, and the *new-agent key*
+opens one, first in the session, while the session has none. After a Rex restart, rexurrect brings a prime's tab back as
+plain shells, and the *start-up step* makes it the prime's again.
 
 ### New-agent key
 

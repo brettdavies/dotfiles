@@ -448,9 +448,11 @@ it, and nothing is built beside it. One holding no Claude is no prime.
 
 Every running prime has a tab, in Rex.app at all times: a pass opens one for a prime no tab holds, so a closed prime's
 tab comes back within a minute. A tab holds a prime when a pane's own process is the attach loop of its Claude pane,
-which stays true while the loop waits after a detach, when a tmux client of its old session runs on a pane's terminal,
-or while the key's tab, already labelled for it, is starting it. A label alone plays no part, so a renamed tab still
-counts. A prime's sessions also carry the user bus, so `systemctl --user` works in them.
+which stays true while the loop waits after a detach, or while the key's tab, already labelled for it, is starting it.
+While its old session runs, a tab also holds it when a pane's own process is `agent-slot-rex prime <repo>`, which stays
+true in the login shell a detach leaves, or when a tmux client of that session runs on a pane's terminal. A label alone
+plays no part, so a renamed tab still counts. A prime's sessions also carry the user bus, so `systemctl --user` works in
+them.
 
 On the Mac, start local sessions with `tmux new -s` by hand. A key pressed in a Linux server session acts on the Linux
 server from either machine.
@@ -867,7 +869,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `not-in-slot`                 | 1    | The directory is not inside a slot                                                             |
 | `repo-not-found`              | 2    | No checkout with that name has an origin; `agent-slot repos` lists the names                   |
 | `slot-not-found`              | 1    | No slot holds that number                                                                      |
-| `slot-busy`                   | 1    | Another `agent-slot` process holds the slot, or it is still setting up; retry                  |
+| `slot-busy`                   | 1    | Another `agent-slot` process holds the slot or prime, or it is still setting up; retry         |
 | `invalid-task-name`           | 2    | A task name uses letters, digits, `-`, `_`, and `/`, and starts with a letter or digit         |
 | `prompt-file-unreadable`      | 2    | The first-message file cannot be read                                                          |
 | `brief-incomplete`            | 2    | A brief lacks a required line, or its `Touches:` line holds no glob or a glob git rejects      |
@@ -879,8 +881,8 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `git-crypt-locked`            | 78   | A git-crypt repo could not be unlocked: git-crypt or its key is missing                        |
 | `trust-dialog-unrecognized`   | 78   | Claude showed a screen other than its trust dialog for the path; accept it by hand             |
 | `prime-untrusted`             | 78   | `warm --all` found repos whose prime Claude does not trust; open Claude once in each prime     |
-| `tmux-unresponsive`           | 1    | The `agent-slots` tmux server did not answer in time                                           |
-| `tmux-failed`                 | 1    | A tmux session could not be started; `agent-slot resume` tries again                           |
+| `tmux-unresponsive`           | 1    | A tmux server did not answer in time: `agent-slots`, or `default` for a prime                  |
+| `tmux-failed`                 | 1    | A tmux session could not be started, or a server's read failed; see `next_step.command`        |
 | `pr-state-unknown`            | 1    | `gh` could not read the repo's PRs or a work item; check `gh auth status`, then retry          |
 | `item-not-found`              | 2    | GitHub has no such PR or issue that `gh` can see; `agent-slot launch --help` gives the forms   |
 | `item-kind-mismatch`          | 2    | The number is a PR given as `--issue`, or an issue given as `--pr`; swap the flag              |
