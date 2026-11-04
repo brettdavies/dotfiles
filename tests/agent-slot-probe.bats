@@ -247,6 +247,15 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
 }
 
+@test "beside a closed probe, a PR ref that names no PR of this task counts as nothing pushed" {
+  closed_probe 9 feat/p
+  work feat/s
+  git -C "$SLOT" update-ref refs/agent-slot/pr/7 feat/s
+  released
+  check
+  jaq -e '.teardown == false and ([.blockers[].code] == ["unpushed-commits"])' <<<"$VERDICT"
+}
+
 @test "beside a merged PR, a commit pushed to a probe's branch after its close blocks with commits-without-pr" {
   finished_task
   closed_probe 9 feat/p
@@ -311,6 +320,19 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   [ "$(jaq -s 'map(select(.event == "probe")) | length' "$AGENT_SLOT_STATE_DIR/ledger.jsonl")" = 1 ]
 }
 
+@test "probe on a marked draft already closed succeeds and changes nothing, as close-probe's rerun does" {
+  marked_probe 9 feat/p
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  in_slot probe 9
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e '.already_marked == true and .probes == [9]' <<<"$output"
+  [ "$(jaq -s 'map(select(.event == "probe")) | length' "$AGENT_SLOT_STATE_DIR/ledger.jsonl")" = 1 ]
+}
+
 @test "probe refuses a PR that is not a draft" {
   pushed feat/p
   draft_pr 9 feat/p OPEN false
@@ -343,6 +365,8 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   draft_pr 9 feat/o
   in_slot probe 9
   refused pr-not-from-this-slot
+  jaq -e '(.message | contains("push a new commit") | not) and .next_step.action == "ask-operator"
+    and .next_step.command == "gh pr view 9 --repo origins/repoa"' <<<"$stderr"
   record_set '.prs = [9] | .probes = [9]'
   in_slot close-probe 9
   refused pr-not-from-this-slot
@@ -460,7 +484,9 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   draft_pr 9 feat/p
   in_slot probe 9
   refused pr-not-from-this-slot
-  jaq -e '.message | contains("push a new commit")' <<<"$stderr"
+  jaq -e '(.message | contains("push a new commit")) and .next_step.action == "run"
+    and (.next_step.command | startswith("git log")) and (.next_step.command | contains("refs/remotes/origin/feat/p"))' \
+    <<<"$stderr"
 }
 
 @test "a branch present at clone does not qualify, even after this slot pushes a fixup to it" {
@@ -520,8 +546,8 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
     run --separate-stderr bash -c 'cd "$1" && shift && exec "$@" --output json' _ "$T" "$AGENT_SLOT" "$verb" 9
     [ "$status" -eq 1 ]
     assert_error_shape "$stderr"
-    jaq -e --arg t "$T" '.reason == "not-in-slot" and .value == $t and .next_step.command == "agent-slot whoami"' \
-      <<<"$stderr"
+    jaq -e --arg t "$T" '.reason == "not-in-slot" and .value == $t and .next_step.action == "none"
+      and .next_step.command == null' <<<"$stderr"
   done
   run ! grep -q '^gh ' "$CALLS"
 }

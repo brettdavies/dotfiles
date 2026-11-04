@@ -386,12 +386,19 @@ _check_fetch_push_remotes() {
   done < <(_check_push_remotes "$1")
 }
 
-# Usage: _check_commits <slot path> <base> <pr count>
+# Usage: _check_closed_probes <prs JSON>; prints the number of each closed probe among a slot's PRs.
+_check_closed_probes() {
+  contract_json -r '.[] | select(.state == "CLOSED" and .probe) | .number' <<<"$1"
+}
+
+# Usage: _check_commits <slot path> <base> <pr count> [closed probe number...]
 # A commit counts as pushed once an origin branch or tag, a PR's head, or a branch of a remote in CHECK_PUSH_REMOTES,
 # holds it; local tags count as heads, so a commit only a local tag still reaches is unpushed. Origin's tags are fetched
-# into refs/agent-slot/origin-tags. A closed probe is left out of the PR count, yet its head still counts as pushed.
+# into refs/agent-slot/origin-tags. A closed probe is left out of the PR count, yet its head still counts as pushed, which
+# is why the caller names them: only this task's refs count, never one left over from another PR.
 _check_commits() {
-  local path=$1 base=$2 has_prs=$3 baseref heads uncontained unpushed_heads unpushed remote
+  local path=$1 base=$2 has_prs=$3 baseref heads uncontained unpushed_heads unpushed remote probe
+  shift 3
   baseref=refs/remotes/origin/$base
   git -C "$path" rev-parse -q --verify "$baseref" >/dev/null || baseref=refs/remotes/origin/HEAD
   if ! git -C "$path" rev-parse -q --verify "$baseref" >/dev/null || ! heads=$(check_local_heads "$path"); then
@@ -399,7 +406,10 @@ _check_commits() {
     return
   fi
   local -a h contained=("$baseref" --glob='refs/agent-slot/pr/*')
-  local -a on_origin=(--remotes=origin --glob='refs/agent-slot/origin-tags/*' --glob='refs/agent-slot/pr/*')
+  local -a on_origin=(--remotes=origin --glob='refs/agent-slot/origin-tags/*')
+  for probe in "$@"; do
+    ! git -C "$path" rev-parse -q --verify "refs/agent-slot/pr/$probe" >/dev/null || on_origin+=("refs/agent-slot/pr/$probe")
+  done
   for remote in "${CHECK_PUSH_REMOTES[@]}"; do on_origin+=(--glob="refs/agent-slot/remotes/$remote/*"); done
   mapfile -t h <<<"$heads"
   # A clone keeps a local copy of origin's default branch, whose history need not be in the base (dev).
@@ -432,7 +442,7 @@ check_inputs_load() {
 check_slot() {
   local repo=$1 n=$2 path real state base origin prs='[]' prs_known=1 refspecs=() number out finished marked
   local judged='[]' released=false
-  local -a closed links
+  local -a closed links closed_probes
   CHECK_BLOCKERS=() CHECK_PUSH_REMOTES=()
   path=$(slot_path "$repo" "$n")
   real=$(realpath -m "$path")
@@ -477,7 +487,8 @@ check_slot() {
 
     _check_uncommitted "$path"
     _check_stash "$path"
-    _check_commits "$path" "$base" "$(contract_json '[.[] | select((.state == "CLOSED" and .probe) | not)] | length' <<<"$prs")"
+    mapfile -t closed_probes < <(_check_closed_probes "$prs")
+    _check_commits "$path" "$base" "$(($(contract_json 'length' <<<"$prs") - ${#closed_probes[@]}))" "${closed_probes[@]}"
     _check_files "$path" "$(contract_json -r '.prime // ""' <<<"$RECORD")"
     _check_solutions
 

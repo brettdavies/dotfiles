@@ -634,8 +634,9 @@ The guard stops an agent closing, by mistake, a PR it did not push. It does not 
 with a shell, which could forge a reflog entry, edit the record, or call the API with the gh token; that is the
 environment's trust boundary. Two limits follow from the proof. A push that moved nothing still writes `update by push`
 when the tracking ref was missing, so a branch only ever seen through a pull ref and re-pushed reads as this clone's. A
-fetch that lands just before a push's own update leaves a head with no push entry; on a branch this clone created, the
-refusal's advice to push a new commit restores the proof.
+fetch that lands just before a push's own update leaves a head with no push entry. On a later push, a new commit
+restores the proof, and the refusal says so; on a branch's first push, the branch reads as another writer's, and the
+operator closes it.
 
 ```bash
 gh pr create --draft --fill
