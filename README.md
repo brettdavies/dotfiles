@@ -817,8 +817,10 @@ The **browser binaries** are provisioned into the shared cache (`$PLAYWRIGHT_BRO
 `scripts/playwright-browsers-deploy.sh` (run directly, or via the script above) using `curl` + `unzip` rather than
 `playwright install` — node's extractor deadlocks on this host's io_uring/kernel combo. One canonical version serves
 every repo, so per-repo `playwright install` becomes a no-op; bumping it is a dotfiles edit (the revision map in that
-script). WebKit deps are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios`
-/ `tablet` projects). See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for
+script). The script registers the set in the cache's `.links`, so another tool's install of a different Playwright
+version does not delete it, and `scripts/playwright-browsers-deploy.sh --check` reports a missing or unregistered set.
+WebKit deps are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios` /
+`tablet` projects). See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for
 failure signatures, the io_uring root cause, and recovery.
 
 **AppArmor profiles** (`config/apparmor.d/`) are deployed by `scripts/apparmor-deploy.sh` (called by the script above,

@@ -29,12 +29,20 @@ set -euo pipefail
 # INSTALLATION_COMPLETE marker is skipped. A partial download never leaves a
 # marker behind, so an interrupted run is safe to re-run.
 #
-# Usage:
-#   scripts/playwright-browsers-deploy.sh            # provision default version (1.62.1)
-#   scripts/playwright-browsers-deploy.sh 1.61.1     # provision an explicit version
+# Every run also registers the set with Playwright's install-time cleanup (see
+# "Register with Playwright's browser cleanup" below), so another tool's
+# `playwright install` of a different version cannot delete it.
 #
-# On non-Linux it is a no-op (the io_uring deadlock is Linux-only, and the
-# CFT/dbazure zips this fetches are the linux64 builds).
+# Usage:
+#   scripts/playwright-browsers-deploy.sh                # provision default version (1.62.1)
+#   scripts/playwright-browsers-deploy.sh 1.61.1         # provision an explicit version
+#   scripts/playwright-browsers-deploy.sh --check [VER]  # report a missing, incomplete, or
+#                                                        # unregistered set; change nothing
+#
+# Exit 0 on success or a healthy --check, and on non-Linux, where it is a
+# no-op (the io_uring deadlock is Linux-only, and the CFT/dbazure zips this
+# fetches are the linux64 builds); 1 on a failed pre-flight or download, or a
+# --check finding; 2 on a usage error.
 
 # --- Canonical version → revision map ---
 #
@@ -50,6 +58,19 @@ set -euo pipefail
 #   5. Re-run the script (old browser dirs stay; new ones are fetched).
 
 DEFAULT_VERSION="1.62.1"
+
+usage() {
+  echo "usage: $0 [--check] [VERSION]" >&2
+  exit 2
+}
+
+MODE=deploy
+if [ "${1:-}" = "--check" ]; then
+  MODE=check
+  shift
+fi
+case "${1:-}" in -*) usage ;; esac
+[ "$#" -le 1 ] || usage
 VERSION="${1:-$DEFAULT_VERSION}"
 
 case "$VERSION" in
@@ -103,6 +124,11 @@ esac
 # set does not already provide:
 #   crawl4ai 0.8.9 / patchright → Playwright 1.60.0 → chromium 1223
 #   repos exact-pinning @playwright/test 1.61.1 → chromium 1228
+#
+# Only lagging consumers are aliased. A tool on a newer Playwright than the
+# canonical set (gstack's browse on 1.64.1 → chromium 1248) needs a newer
+# browser than the canonical one, and installs its own build; the registration
+# below keeps that install from deleting the canonical set.
 CONSUMER_CHROMIUM_REVS=(1223 1228)
 
 # --- CDN host ---
@@ -124,6 +150,131 @@ if [ "$(id -u)" -eq 0 ]; then
   exit 1
 fi
 
+BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/playwright}"
+CLIENT_ROOT="$BROWSERS_PATH/.dotfiles"
+LINKS_DIR="$BROWSERS_PATH/.links"
+
+# --- The browser set: browsers.json name | directory | executable | archive URL ---
+#
+# Chromium and chromium-headless-shell are Chrome-for-Testing builds, keyed on
+# the Chrome browserVersion (CFT_VERSION). WebKit and ffmpeg are Playwright's
+# own builds, keyed on the playwright revision under the dbazure path.
+# Directory names match Playwright's <name>_<revision> / <name>-<revision>
+# convention exactly (underscore for chromium-headless-shell, hyphen elsewhere).
+
+BROWSER_SET=(
+  "chromium|chromium-${CHROMIUM_REV}|chrome-linux64/chrome|$CDN/builds/cft/${CFT_VERSION}/linux64/chrome-linux64.zip"
+  "chromium-headless-shell|chromium_headless_shell-${HEADLESS_REV}|chrome-headless-shell-linux64/chrome-headless-shell|$CDN/builds/cft/${CFT_VERSION}/linux64/chrome-headless-shell-linux64.zip"
+  "webkit|webkit-${WEBKIT_REV}|pw_run.sh|$CDN/dbazure/download/playwright/builds/webkit/${WEBKIT_REV}/webkit-ubuntu-24.04.zip"
+  "ffmpeg|ffmpeg-${FFMPEG_REV}|ffmpeg-linux|$CDN/dbazure/download/playwright/builds/ffmpeg/${FFMPEG_REV}/ffmpeg-linux.zip"
+)
+
+# --- Register with Playwright's browser cleanup ---
+#
+# Every `playwright install` (and `uninstall`), of any version, records its
+# own package as a client in $BROWSERS_PATH/.links and then deletes every
+# browser directory no client names. A client is a .links file whose whole
+# content is a directory path; Playwright reads <path>/browsers.json and keeps
+# <name>-<revision> for the first entry of each browser name, when its
+# INSTALLATION_COMPLETE resolves (playwright-core 1.64.1:
+# Registry._validateInstallationCache). Directories this script provisions
+# belong to no package, so it registers clients of its own under
+# $BROWSERS_PATH/.dotfiles, which the cleanup never deletes because it counts
+# only <browser>-<rev> names as browser directories. Each alias needs a client
+# of its own: a browsers.json holds one revision per browser, and the cleanup
+# judges a directory by its name, never by a symlink's target.
+#
+# Clients for an older canonical version stay registered after a bump, like
+# its browser directories. To let Playwright collect them, delete
+# .links/dotfiles-playwright-<old> and .dotfiles/playwright-<old>.
+
+# Each client: its name, then the browsers.json name:revision pairs it holds.
+clients() {
+  local entry name dir rev
+  printf '%s' "playwright-$VERSION"
+  for entry in "${BROWSER_SET[@]}"; do
+    IFS='|' read -r name dir _ <<<"$entry"
+    printf ' %s:%s' "$name" "${dir##*-}"
+  done
+  printf '\n'
+  for rev in "${CONSUMER_CHROMIUM_REVS[@]}"; do
+    [ "$rev" = "$CHROMIUM_REV" ] && continue
+    printf 'chromium-alias-%s chromium:%s chromium-headless-shell:%s\n' "$rev" "$rev" "$rev"
+  done
+}
+
+client_json() {
+  local pair sep=""
+  printf '{"browsers": ['
+  for pair in "$@"; do
+    printf '%s{"name": "%s", "revision": "%s"}' "$sep" "${pair%%:*}" "${pair##*:}"
+    sep=", "
+  done
+  printf ']}\n'
+}
+
+register_clients() {
+  local client pairs
+  mkdir -p "$LINKS_DIR"
+  while read -r client pairs; do
+    mkdir -p "$CLIENT_ROOT/$client"
+    # shellcheck disable=SC2086 # pairs is a space-separated list
+    client_json $pairs >"$CLIENT_ROOT/$client/browsers.json"
+    # No trailing newline: Playwright joins the file's whole content with
+    # "browsers.json", so a newline breaks the path and the link is dropped.
+    printf '%s' "$CLIENT_ROOT/$client" >"$LINKS_DIR/dotfiles-$client"
+    echo "OK:   registered $client with Playwright's browser cleanup"
+  done < <(clients)
+}
+
+# --- Check: report a missing, incomplete, or unregistered set ---
+
+check_set() {
+  local failed=0 entry dir exe rev name path client pairs
+  for entry in "${BROWSER_SET[@]}"; do
+    IFS='|' read -r _ dir exe _ <<<"$entry"
+    if [ -f "$BROWSERS_PATH/$dir/INSTALLATION_COMPLETE" ] && [ -x "$BROWSERS_PATH/$dir/$exe" ]; then
+      echo "OK:   $dir"
+    else
+      echo "ERROR: $dir is missing or incomplete (needs INSTALLATION_COMPLETE and $exe)" >&2
+      failed=1
+    fi
+  done
+  for rev in "${CONSUMER_CHROMIUM_REVS[@]}"; do
+    [ "$rev" = "$CHROMIUM_REV" ] && continue
+    for name in chromium chromium_headless_shell; do
+      path="$BROWSERS_PATH/$name-$rev"
+      if [ -f "$path/INSTALLATION_COMPLETE" ]; then
+        echo "OK:   $name-$rev"
+      else
+        echo "ERROR: alias $name-$rev does not resolve to a finished install" >&2
+        failed=1
+      fi
+    done
+  done
+  while read -r client pairs; do
+    # The trailing x keeps a newline that $(...) would strip and Playwright would not.
+    # shellcheck disable=SC2086 # pairs is a space-separated list
+    if [ "$(cat "$LINKS_DIR/dotfiles-$client" 2>/dev/null && printf x)" = "$CLIENT_ROOT/${client}x" ] \
+      && [ "$(cat "$CLIENT_ROOT/$client/browsers.json" 2>/dev/null)" = "$(client_json $pairs)" ]; then
+      echo "OK:   $client registered in .links"
+    else
+      echo "ERROR: $client is not registered in $LINKS_DIR, so another Playwright's install deletes it" >&2
+      failed=1
+    fi
+  done < <(clients)
+  if [ "$failed" -ne 0 ]; then
+    echo "NOTE: restore with: $0 $VERSION" >&2
+    return 1
+  fi
+  echo "OK: Playwright $VERSION browser set provisioned and registered in $BROWSERS_PATH"
+}
+
+if [ "$MODE" = check ]; then
+  check_set
+  exit
+fi
+
 for tool in curl unzip; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "FATAL: $tool not found — required to fetch and extract browser archives" >&2
@@ -131,7 +282,6 @@ for tool in curl unzip; do
   fi
 done
 
-BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/playwright}"
 mkdir -p "$BROWSERS_PATH"
 
 # --- Temp workspace (cleaned on exit) ---
@@ -192,27 +342,19 @@ provision() {
   echo "OK:   $dirname provisioned"
 }
 
-# --- Provision the full default browser set ---
+# --- Provision the full browser set ---
 #
-# Chromium and chromium-headless-shell are Chrome-for-Testing builds, keyed on
-# the Chrome browserVersion (CFT_VERSION). WebKit and ffmpeg are Playwright's
-# own builds, keyed on the playwright revision under the dbazure path.
-# Directory names match Playwright's <name>_<revision> / <name>-<revision>
-# convention exactly (underscore for chromium-headless-shell, hyphen elsewhere).
+# Registered first, so a cleanup that runs while this provisions keeps
+# whatever is already finished.
 
 echo "NOTE: provisioning Playwright $VERSION browsers into $BROWSERS_PATH"
 
-provision "chromium-${CHROMIUM_REV}" \
-  "$CDN/builds/cft/${CFT_VERSION}/linux64/chrome-linux64.zip"
+register_clients
 
-provision "chromium_headless_shell-${HEADLESS_REV}" \
-  "$CDN/builds/cft/${CFT_VERSION}/linux64/chrome-headless-shell-linux64.zip"
-
-provision "webkit-${WEBKIT_REV}" \
-  "$CDN/dbazure/download/playwright/builds/webkit/${WEBKIT_REV}/webkit-ubuntu-24.04.zip"
-
-provision "ffmpeg-${FFMPEG_REV}" \
-  "$CDN/dbazure/download/playwright/builds/ffmpeg/${FFMPEG_REV}/ffmpeg-linux.zip"
+for entry in "${BROWSER_SET[@]}"; do
+  IFS='|' read -r _ dir _ url <<<"$entry"
+  provision "$dir" "$url"
+done
 
 # --- Alias lagging-consumer revisions to the canonical chromium ---
 #
@@ -244,5 +386,5 @@ for rev in "${CONSUMER_CHROMIUM_REVS[@]}"; do
   link_consumer_alias "$rev"
 done
 
-echo "OK: Playwright $VERSION browser set provisioned in $BROWSERS_PATH"
+echo "OK: Playwright $VERSION browser set provisioned and registered in $BROWSERS_PATH"
 echo "    'playwright install' in any repo pinning $VERSION is now a no-op."
