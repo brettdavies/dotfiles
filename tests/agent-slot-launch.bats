@@ -37,7 +37,9 @@ assert_prime_untouched() {
 }
 
 launch() {
-  run --separate-stderr "$AGENT_SLOT" launch "$@" --output json
+  local model=(--model opus)
+  [[ " $* " != *" --model "* ]] || model=()
+  run --separate-stderr "$AGENT_SLOT" launch "$@" "${model[@]}" --output json
 }
 
 # brief FILE [TEXT]: writes a brief with the four lines every brief carries, then TEXT, with no newline after it, since
@@ -139,7 +141,7 @@ split_prime_named() {
   [ -L "$SPLIT_SLOT/docs/solutions" ]
   [ -f "$SPLIT_SLOT/.claude/settings.local.json" ]
   jaq -e --arg p "$SPLIT_PRIME" '.prime == $p' "$SPLIT_SLOT/.git/agent-slot.json"
-  [ "$(cat "$STUBS/typed-vault-1")" = "claude --dangerously-skip-permissions --session-id $(jaq -r .session_id \
+  [ "$(cat "$STUBS/typed-vault-1")" = "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --session-id $(jaq -r .session_id \
     "$SPLIT_SLOT/.git/agent-slot.json") -n t1" ]
   [ "$(fingerprint "$SPLIT_PRIME")" = "$BEFORE" ]
   [ "$(fingerprint "$SPLIT_GIT_DIR")" = "$GIT_BEFORE" ]
@@ -196,7 +198,7 @@ split_prime_named() {
   launch pc --request-id r-partial-fail
   [ "$status" -eq 1 ]
   jaq -e '.reason == "clone-failed" and .value == "dev" and (.message | test("checking out dev"))
-    and .next_step.command == "agent-slot launch pc --request-id r-partial-fail"' <<<"$stderr"
+    and .next_step.command == "agent-slot launch pc --model opus --request-id r-partial-fail"' <<<"$stderr"
   grep -q 'could not fetch' "$(jaq -r .log <<<"$stderr")"
   [ ! -e "$slot" ]
   [ ! -e "$AGENT_SLOT_ROOT/pc/.1.claim.json" ]
@@ -462,6 +464,31 @@ assert_own_worktree() {
   [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
 }
 
+@test "a launch with no --model, or a model slots do not run on, is refused before any slot is made" {
+  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-nomodel --output json
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and (.message | test("needs --model opus or --model sonnet"))' <<<"$stderr"
+  launch repoa --request-id r-haiku --model haiku
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and .value == "haiku"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+}
+
+@test "an Opus slot's Claude starts at xhigh with no advisor; a Sonnet slot's adds Opus as its advisor, turned on" {
+  launch repoa --request-id r-opus --task t-opus
+  [ "$status" -eq 0 ]
+  local session
+  session=$(jaq -r .session_id <<<"$output")
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh \
+--session-id $session -n t-opus" ]
+  jaq -e '.model == "opus"' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
+  launch repoa --request-id r-sonnet --task t-sonnet --model sonnet
+  [ "$status" -eq 0 ]
+  session=$(jaq -r .session_id <<<"$output")
+  [ "$(cat "$STUBS/typed-repoa-2")" = "CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions \
+--model claude-sonnet-5-5 --effort xhigh --advisor opus --session-id $session -n t-sonnet" ]
+}
+
 @test "a brief with no Scope:, Limits:, Reviews:, or Reports to: line is refused before any slot is made" {
   printf '%s\n' 'Fix the login.' '- **Scope:** the login form only.' 'reviews: ce-code-review' >"$T/brief.md"
   launch repoa --request-id r-brief --prompt-file "$T/brief.md"
@@ -530,10 +557,10 @@ assert_own_worktree() {
 @test "the claude session skips permission prompts and gets its session ID, the task only when given, and the first message only when given" {
   launch repoa --request-id r-plain
   session=$(jaq -r .session_id <<<"$output")
-  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --session-id $session" ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --session-id $session" ]
   launch repoa --request-id r-task --task t1
   session=$(jaq -r .session_id <<<"$output")
-  [ "$(cat "$STUBS/typed-repoa-2")" = "claude --dangerously-skip-permissions --session-id $session -n t1" ]
+  [ "$(cat "$STUBS/typed-repoa-2")" = "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --session-id $session -n t1" ]
 }
 
 @test "the three sessions are rooted at the slot on the slot server, with the tmuxinator commands typed into shells" {
@@ -571,7 +598,7 @@ assert_own_worktree() {
 }
 
 @test "a launch from a shell with no XDG_RUNTIME_DIR hands systemd-run the user's runtime directory" {
-  run --separate-stderr env -u XDG_RUNTIME_DIR "$AGENT_SLOT" launch repoa --request-id r-xdg --output json
+  run --separate-stderr env -u XDG_RUNTIME_DIR "$AGENT_SLOT" launch repoa --model opus --request-id r-xdg --output json
   [ "$status" -eq 0 ]
   grep -q "^XDG_RUNTIME_DIR=/run/user/$(id -u) .* --scope " "$STUBS/systemd-run.log"
 }
@@ -694,9 +721,9 @@ EOF
 }
 
 @test "two concurrent launches of different tasks get different slot numbers" {
-  "$AGENT_SLOT" launch repoa --task alpha --output json >"$T/a.json" 2>"$T/a.err" &
+  "$AGENT_SLOT" launch repoa --model opus --task alpha --output json >"$T/a.json" 2>"$T/a.err" &
   local a=$!
-  "$AGENT_SLOT" launch repoa --task beta --output json >"$T/b.json" 2>"$T/b.err" &
+  "$AGENT_SLOT" launch repoa --model opus --task beta --output json >"$T/b.json" 2>"$T/b.err" &
   wait "$a"
   wait $!
   [ "$(cat "$T/a.json" "$T/b.json" | jaq -s -c '[.[].key] | sort')" = '["repoa/1","repoa/2"]' ]
@@ -778,14 +805,14 @@ EOF
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
   jaq -e '.started == ["repoa-1", "repoa-1-files", "repoa-1-git"]' <<<"$output"
-  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --resume aaaaaaaa-1111-2222-3333-444444444444 -n repoa-pr7-fix-login' ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume aaaaaaaa-1111-2222-3333-444444444444 -n repoa-pr7-fix-login' ]
 }
 
 @test "resume of a slot whose conversation Claude never saved starts Claude with its session ID and task, as launch does" {
   slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444", "task": "fix-login"}'
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
-  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --session-id aaaaaaaa-1111-2222-3333-444444444444 -n fix-login' ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --session-id aaaaaaaa-1111-2222-3333-444444444444 -n fix-login' ]
 }
 
 @test "a session ID in the record that holds shell syntax is typed as one argument" {
@@ -832,7 +859,7 @@ EOF
   [ "$(git -C "$slot" symbolic-ref --short HEAD)" = feat/x ]
   [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
   [ "$(git -C "$slot" rev-parse --abbrev-ref 'feat/x@{upstream}')" = origin/feat/x ]
-  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --session-id $session -n repoa-pr7-fix-the-login" ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --session-id $session -n repoa-pr7-fix-the-login" ]
   jaq -e --argjson items "$items" '.items == $items and .name == "repoa-pr7-fix-the-login"
     and .named_as == "repoa-pr7-fix-the-login" and .prs == [7] and .task == "repoa-pr7-fix-the-login"' \
     "$slot/.git/agent-slot.json"
@@ -904,7 +931,7 @@ EOF
   launch repoa --pr 7 --request-id r-fork
   [ "$status" -eq 1 ]
   jaq -e '.reason == "clone-failed" and .value == "fork" and .recovery.retryable == true
-    and .recovery.side_effects == "none" and .next_step.command == "agent-slot launch repoa --pr 7 --request-id r-fork"' \
+    and .recovery.side_effects == "none" and .next_step.command == "agent-slot launch repoa --model opus --pr 7 --request-id r-fork"' \
     <<<"$stderr"
   [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
   [ ! -e "$AGENT_SLOT_ROOT/repoa/.1.claim.json" ]
@@ -924,7 +951,7 @@ EOF
   session=$(jaq -r .session_id <<<"$output")
   [ "$(git -C "$slot" symbolic-ref --short HEAD)" = main ]
   jaq -e '.prs == [] and .named_as == "repoa-issue12-widget-breaks-on-resize"' "$slot/.git/agent-slot.json"
-  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --session-id $session -n repoa-issue12-widget-breaks-on-resize" ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --session-id $session -n repoa-issue12-widget-breaks-on-resize" ]
 }
 
 @test "launch --pr of an item a torn-down slot worked on reports that slot as prior and names reopen" {
@@ -938,7 +965,7 @@ EOF
   launch repoa --pr 7
   [ "$status" -eq 0 ]
   jaq -e '.created == true and .prior.session_id == "aaaaaaaa-1111-2222-3333-444444444444"
-    and .prior.ts == "2026-10-01T00:00:00Z" and (.prior.note | contains("agent-slot reopen repoa --pr 7"))' <<<"$output"
+    and .prior.ts == "2026-10-01T00:00:00Z" and (.prior.note | contains("agent-slot reopen repoa --model opus --pr 7"))' <<<"$output"
   launch repoa --issue 12
   [ "$status" -eq 0 ]
   jaq -e '.created == true and .prior == null' <<<"$output"
@@ -986,7 +1013,7 @@ EOF
 @test "launch's help documents --pr and --issue with the ref forms, and names name and items among its returns" {
   run "$AGENT_SLOT" launch --help
   [ "$status" -eq 0 ]
-  [[ ${lines[0]} == "usage: agent-slot launch <repo> [--pr <ref> | --issue <ref>]"* ]]
+  [[ ${lines[0]} == "usage: agent-slot launch <repo> --model (opus | sonnet) [--pr <ref> | --issue <ref>]"* ]]
   [[ $output == *"owner/name#N"*"https://github.com/owner/name/pull/N"* ]]
   [[ $output == *$'\nreturns: '*name*items*label_name*head_pushable* ]]
   [[ $output == *"example: agent-slot launch "*"--pr "* ]]

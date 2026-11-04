@@ -100,7 +100,7 @@ whitelist_slot() {
   git -C "$CHECKOUT" pull -q origin main
   export AGENT_SLOT_EXTRA_PRIMES=$CHECKOUT
   trusted "$CHECKOUT" "$(realpath -m "$CLONE")"
-  "$AGENT_SLOT" launch "$1" --request-id r-whitelist --task t1 --output json >/dev/null
+  "$AGENT_SLOT" launch "$1" --model opus --request-id r-whitelist --task t1 --output json >/dev/null
 }
 
 @test "a real slot of a prime with a separate git dir and a whitelist .gitignore pushes to main and tears down clean" {

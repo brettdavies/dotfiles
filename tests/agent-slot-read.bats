@@ -79,7 +79,7 @@ setup() {
 }
 
 @test "a launch on a name no prime goes by says where it looked and how a repo is named" {
-  run --separate-stderr "$AGENT_SLOT" launch vault --request-id r-wrong-name --output json
+  run --separate-stderr "$AGENT_SLOT" launch vault --model opus --request-id r-wrong-name --output json
   [ "$status" -eq 2 ]
   assert_error_shape "$stderr"
   jaq -e '.reason == "repo-not-found" and .value == "vault" and .next_step.command == "agent-slot repos"

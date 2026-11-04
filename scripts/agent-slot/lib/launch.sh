@@ -6,7 +6,7 @@ TASK_PATTERN='^[A-Za-z0-9][A-Za-z0-9_/-]{0,63}$'
 TASK_RULE='a task name uses letters, digits, -, _, and /, starts with a letter or digit, and is at most 64 characters'
 REQUEST_PATTERN='^[A-Za-z0-9._-]{1,128}$'
 
-LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_REQUEST='' LAUNCH_PROMPT='' LAUNCH_REQUESTED_AT=''
+LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_REQUEST='' LAUNCH_PROMPT='' LAUNCH_REQUESTED_AT='' LAUNCH_MODEL=''
 LAUNCH_OPENED_AT='' LAUNCH_SHOWN_AT=''
 EPOCH_PATTERN='^[0-9]+(\.[0-9]+)?$'
 LAUNCH_ITEM_KIND='' LAUNCH_ITEM_REF='' LAUNCH_ITEM='' LAUNCH_NAME=''
@@ -22,9 +22,10 @@ launch_parse_args() {
         LAUNCH_ITEM_KIND=${1#--} LAUNCH_ITEM_REF=$2
         shift 2
         ;;
-      --task | --request-id | --prompt-file | --requested-at | --opened-at | --shown-at)
+      --task | --request-id | --prompt-file | --requested-at | --opened-at | --shown-at | --model)
         (($# >= 2)) || usage_fail "$1 needs a value" "$1"
         case $1 in
+          --model) LAUNCH_MODEL=$2 ;;
           --task) LAUNCH_TASK=$2 ;;
           --request-id) LAUNCH_REQUEST=$2 ;;
           --prompt-file) LAUNCH_PROMPT=$2 ;;
@@ -43,6 +44,7 @@ launch_parse_args() {
     esac
   done
   [[ -n $LAUNCH_REPO ]] || usage_fail "launch needs a repo; agent-slot repos lists them"
+  model_check "$LAUNCH_MODEL" launch
   [[ -z $LAUNCH_TASK || $LAUNCH_TASK =~ $TASK_PATTERN ]] \
     || contract_fail invalid-task-name "$TASK_RULE" --value "$LAUNCH_TASK" --command "agent-slot launch --help"
   [[ -z $LAUNCH_REQUEST || $LAUNCH_REQUEST =~ $REQUEST_PATTERN ]] \
@@ -60,6 +62,12 @@ launch_parse_args() {
     value=${flag#* }
     [[ -z $value || $value =~ $EPOCH_PATTERN ]] || usage_fail "--${flag%% *} takes seconds since the epoch" "$value"
   done
+}
+
+# Usage: model_check <model> <verb>; refuses a launch or reopen with no --model, or one SESSIONS_MODELS lacks.
+model_check() {
+  [[ -n $1 ]] || usage_fail "$2 needs --model ${SESSIONS_MODELS// / or --model }: every slot is started with a model choice"
+  sessions_model_id "$1" >/dev/null || usage_fail "--model takes ${SESSIONS_MODELS// / or }" "$1"
 }
 
 # The lines every brief carries, each starting a line as `<label>:`, optionally after list or emphasis marks. The
@@ -134,7 +142,7 @@ _launch_head() {
 
 # The launch's command line without --request-id, for an error's next step.
 _launch_command() {
-  printf 'agent-slot launch %s' "$LAUNCH_REPO"
+  printf 'agent-slot launch %s --model %s' "$LAUNCH_REPO" "$LAUNCH_MODEL"
   [[ -z $LAUNCH_ITEM_KIND ]] || printf ' --%s %s' "$LAUNCH_ITEM_KIND" "$(contract_quote "$LAUNCH_ITEM_REF")"
 }
 
@@ -170,7 +178,7 @@ launch_output() {
 # Usage: launch_prior <repo>; prints {prior: {session_id, ts, note}} for the newest torn-down slot of the repo that
 # worked on the launch's item, whose conversation reopen resumes, else {prior: null}.
 launch_prior() {
-  contract_json -c --arg cmd "$(contract_quote agent-slot reopen "$1" "--$LAUNCH_ITEM_KIND" "$LAUNCH_ITEM_REF")" '
+  contract_json -c --arg cmd "$(contract_quote agent-slot reopen "$1" --model "$LAUNCH_MODEL" "--$LAUNCH_ITEM_KIND" "$LAUNCH_ITEM_REF")" '
     {prior: (if . == null then null else {session_id, ts,
       note: "a slot torn down \(.ts) worked on this item; \($cmd) resumes its conversation once no slot holds the item"}
       end)}' \
@@ -213,9 +221,9 @@ brief to that slot's Claude session, or launch again once that slot is torn down
   # The session starts under the name, so named_as keeps the automatic sweep from typing a /rename to it.
   seed=$(contract_json -n -c --arg task "$LAUNCH_TASK" --arg request "$LAUNCH_REQUEST" \
     --argjson requested "$LAUNCH_REQUESTED_AT" --argjson item "${LAUNCH_ITEM:-null}" --arg name "$LAUNCH_NAME" \
-    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" "$ITEM_SAME_DEF"'
+    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" --arg model "$LAUNCH_MODEL" "$ITEM_SAME_DEF"'
     {task: (if $task == "" then null else $task end), request_id: (if $request == "" then null else $request end),
-     requested_at: $requested}
+     requested_at: $requested, model: $model}
     + if $item == null then {} else
         {prs: (if $item.kind == "pr" and same_repo($item.repo; $origin) then [$item.number] else [] end),
          items: [$item], name: $name, named_as: $name}
