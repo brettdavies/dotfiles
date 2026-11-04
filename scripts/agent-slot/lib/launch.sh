@@ -352,9 +352,8 @@ cmd_resume() {
     ledger_append prune "$(contract_json -c --arg repo "$repo" --argjson slot "$n" '{repo: $repo, slot: $slot} + .' \
       <<<"$line")"
   done
-  local started=("${SESSIONS_CREATED[@]}")
   [[ -z $checkout ]] || prime_for_slot "$repo" "$checkout"
-  contract_ok "$(printf '%s\n' "${started[@]}" | contract_json -R -s -c --arg key "$1" --argjson prune "$prune" \
+  contract_ok "$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$1" --argjson prune "$prune" \
     --argjson prime "$PRIME_FIELD" '{key: $key, started: split("\n") | map(select(. != ""))} + $prune + {prime: $prime}')" \
     '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)
       + (if (.pruned_branches | length) == 0 then "" else "; pruned \(.pruned_branches | join(", ")), whose PRs merged or closed" end)

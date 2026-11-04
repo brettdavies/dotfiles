@@ -42,6 +42,11 @@ AR_STARTUP_RECORD=$AR_STATE/startup.json
 AR_VERIFIED=${AGENT_SLOT_REX_VERIFIED_VERSIONS:-$AR_HOME/../agent-slot/verified-versions}
 AR_PRIMES=${AGENT_SLOT_REX_PRIMES:-${AR_HOME%/*/*}/config/agent-slot-rex/primes.tsv}
 AR_LOGIN_SHELL=${AGENT_SLOT_REX_LOGIN_SHELL:-${SHELL:-zsh}}
+# How long a call to agent-slot may take, past the server's own bounds, so a timeout never cuts a start between creating a
+# session and typing into it. A prime's start waits on its lock 30 s, its three sessions at up to 30 s each, the tmux
+# reads, and the title scan; a resume adds its slot's own three sessions ahead of that.
+AR_PRIME_BOUND=180
+AR_RESUME_BOUND=240
 # How long a tab a key opened waits for the app to show it, and then how long it waits for Enter before it closes. A
 # shown tab returns at once, so the wait costs time only in a tab nobody sees; Rex.app has taken up to 2.9 s to show one.
 AR_SHOWN_WAIT=${AGENT_SLOT_REX_SHOWN_WAIT:-10}

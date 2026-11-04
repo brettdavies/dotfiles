@@ -48,19 +48,19 @@ reattach_shell_idle() {
   done
 }
 
-# Usage: reattach_reopen <repo> <prime> <window-id> <block...>
+# Usage: reattach_reopen <repo> <prime> <session-id> <window-id> <block...>
 # Sets REATTACH_OUTCOME and REATTACH_NOTE for a restored tab of several panes: replaced when every pane is a shell at its
 # prompt and the prime runs on the slot server, else left as it is. A new tab opens before the old one closes, the order
 # reconcile uses, so the session is never left empty.
 REATTACH_OUTCOME='' REATTACH_NOTE=''
 reattach_reopen() {
-  local repo=$1 prime=$2 wid=$3 sid=$REX_SID block
-  shift 3
+  local repo=$1 prime=$2 sid=$3 wid=$4 block
+  shift 4
   REATTACH_OUTCOME=not-idle
   for block in "$@"; do
     reattach_shell_idle "$sid" "$block" || return 0
   done
-  if ! server_call 180 prime "$repo"; then
+  if ! server_call "$AR_PRIME_BOUND" prime "$repo"; then
     REATTACH_OUTCOME=$(contract_json -r '.reason' <<<"$AR_ERROR")
     REATTACH_NOTE=$(contract_json -r '.message' <<<"$AR_ERROR")
     return 0
@@ -81,12 +81,12 @@ reattach_repo() {
   local -a panes=()
   rex_session_find "$repo"
   sid=$REX_SID
-  if [[ -z $REX_SID ]]; then
+  if [[ -z $sid ]]; then
     outcome=no-session
-  elif prime_tab_open "$REX_SID" "$repo" "$prime"; then
+  elif prime_tab_open "$sid" "$repo" "$prime"; then
     outcome=already-open
   else
-    rex_or_fail session inspect "$REX_SID" --json
+    rex_or_fail session inspect "$sid" --json
     IFS=$REATTACH_SEP read -r wid blocks label < <(contract_json -r --arg p "$prime" --arg sep "$REATTACH_SEP" \
       "$REX_LABEL_DEF"'first(.windows[] | select((.label // "") | rex_unnumbered == $p))
       | [.window_id, ([.layers[]?.blocks[]?.block_id] | join(" ")), .label] | join($sep)' <<<"$REX_OUT") \
@@ -95,7 +95,7 @@ reattach_repo() {
     if [[ -z $wid ]]; then
       outcome=no-tab
     elif ((${#panes[@]} == 3)); then
-      reattach_reopen "$repo" "$prime" "$wid" "${panes[@]}"
+      reattach_reopen "$repo" "$prime" "$sid" "$wid" "${panes[@]}"
       outcome=$REATTACH_OUTCOME
       label=${REATTACH_NOTE:-$label}
     elif ! prime_old_running "$prime"; then

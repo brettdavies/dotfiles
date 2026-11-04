@@ -128,7 +128,7 @@ prime_list() {
       [[ $(prime_display_name "$repo" "$AS_PRIMES") == "$name" ]] || continue
       repo_lookup "$repo" || continue
       seen[$repo]=1
-      rows+=$repo$'\t'$TMUX_DEFAULT_SOCKET$'\t'$name$'\n'
+      rows+=$repo$'\t'$TMUX_DEFAULT_SOCKET$'\t'$name$'\t'$name$'\n'
     done < <(prime_old_sessions <<<"$DEFAULT_PANES")
   fi
   if slot_tmux out 5 list-sessions -F $'#{session_name}\t#{session_path}'; then
@@ -136,15 +136,13 @@ prime_list() {
       repo=${path##*/}
       [[ -n $repo && -z ${seen[$repo]:-} && $name == "$(slot_session "$repo" "$SLOT_PRIME")" ]] || continue
       repo_lookup "$repo" || continue
-      rows+=$repo$'\tslots\t'$name$'\n'
+      rows+=$repo$'\tslots\t'$name$'\t'$(prime_display_name "$repo" "$AS_PRIMES")$'\n'
     done <<<"$out"
   elif ((BOUNDED_STATUS != 124)); then
-    _tmux_no_server || true
+    tmux_no_server || true
   fi
-  PRIME_LIST=$(while IFS=$'\t' read -r repo path name; do
-    [[ -z $repo ]] || printf '%s\t%s\t%s\t%s\n' "$repo" "$path" "$name" "$(prime_display_name "$repo" "$AS_PRIMES")"
-  done <<<"$rows" | contract_json -R -s -c --arg prime "$SLOT_PRIME" 'split("\n") | map(select(. != "") | split("\t")
-    | {key: "\(.[0])/\($prime)", repo: .[0], server: .[1], session: .[2], label: .[3]})')
+  PRIME_LIST=$(contract_json -R -s -c --arg prime "$SLOT_PRIME" 'split("\n") | map(select(. != "") | split("\t")
+    | {key: "\(.[0])/\($prime)", repo: .[0], server: .[1], session: .[2], label: .[3]})' <<<"$rows")
 }
 
 # Usage: prime_for_slot <repo> <checkout>

@@ -253,9 +253,7 @@ launch_prime() {
   LAUNCH_OF_PRIME=1
   launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$PRIME_LABEL"
   printf 'agent-slot-rex: opening the prime of %s\n' "$LAUNCH_REPO"
-  # Outlasts the server's own bounds end to end: its lock 30 s, the three sessions at up to 30 s each, the tmux reads,
-  # and the title scan.
-  launch_call 180 prime "$LAUNCH_REPO"
+  launch_call "$AR_PRIME_BOUND" prime "$LAUNCH_REPO"
   launch_try rex_move_first "$REX_SESSION" "$LAUNCH_WINDOW"
   if [[ $(contract_json -r '.server' <<<"$SERVER_OUT") == slots ]]; then
     launch_try rex_layout "$REX_SESSION" "$REX_BLOCK" "$(slot_key "$LAUNCH_REPO" "$SLOT_PRIME")"
@@ -274,8 +272,8 @@ launch_here() {
   launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$LAUNCH_REPO · launching"
   printf 'agent-slot-rex: starting an agent in a fresh slot of %s (request %s)\n' "$LAUNCH_REPO" "${args[4]}"
   # Outlasts the server's own bounds end to end: repo lock 60 s, clone 900 s, git-crypt 120 s, trust 45 s, the three
-  # sessions' tmux calls 90 s, and the start of the prime 180 s.
-  launch_call 1440 launch "${args[@]}"
+  # sessions' tmux calls 90 s, and the start of the prime.
+  launch_call "$((1260 + AR_PRIME_BOUND))" launch "${args[@]}"
   launch_succeeded
 }
 
@@ -300,7 +298,7 @@ cmd_launch() {
   fi
   if ((LAUNCH_NAMED == 1)); then
     prime_of "$LAUNCH_REPO"
-    prime_tab_open "$REX_SESSION" "$LAUNCH_REPO" "$PRIME_LABEL" || launch_prime
+    prime_tab_open "$REX_SESSION" "$LAUNCH_REPO" "$PRIME_LABEL" "$LAUNCH_WINDOW" || launch_prime
   fi
   launch_here
 }

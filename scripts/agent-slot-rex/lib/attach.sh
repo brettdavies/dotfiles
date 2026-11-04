@@ -6,7 +6,7 @@
 # on, since the start would wait on the same server. A pane ends only when agent-slot says its slot, or its prime's
 # checkout, is gone.
 
-ATTACH_KEY='' ATTACH_KIND='' ATTACH_NAME='' ATTACH_RESTART=''
+ATTACH_KEY='' ATTACH_KIND='' ATTACH_NAME='' ATTACH_RESTART='' ATTACH_GONE=''
 
 # True while the pane's session exists.
 attach_has_session() {
@@ -21,16 +21,14 @@ attach_pause() {
 
 # Returns 0 when the sessions were started, 1 to retry later, and exits when the slot or the prime's checkout is gone.
 attach_resume() {
-  local gone=slot-not-found
   if [[ $SLOT_N == "$SLOT_PRIME" ]]; then
-    gone=repo-not-found
     printf 'agent-slot-rex: %s has no %s session; starting the prime\n' "$ATTACH_KEY" "$ATTACH_KIND"
-    server_call 180 prime "$SLOT_REPO" && return 0
+    server_call "$AR_PRIME_BOUND" prime "$SLOT_REPO" && return 0
   else
     printf 'agent-slot-rex: %s has no %s session; resuming the slot\n' "$ATTACH_KEY" "$ATTACH_KIND"
-    server_call 240 resume "$ATTACH_KEY" && return 0
+    server_call "$AR_RESUME_BOUND" resume "$ATTACH_KEY" && return 0
   fi
-  if [[ $(contract_json -r '.reason' <<<"$AR_ERROR") == "$gone" ]]; then
+  if [[ $(contract_json -r '.reason' <<<"$AR_ERROR") == "$ATTACH_GONE" ]]; then
     printf 'agent-slot-rex: %s is gone (%s); this pane is done\n' "$ATTACH_KEY" \
       "$(contract_json -r '.message' <<<"$AR_ERROR")"
     CONTRACT_EMITTED=1
@@ -43,8 +41,10 @@ attach_resume() {
 cmd_attach() {
   local attached=0 resumed=0 status
   slot_parse_attach_key "$1"
-  ATTACH_RESTART='a resume'
-  [[ $SLOT_N != "$SLOT_PRIME" ]] || ATTACH_RESTART='agent-slot prime'
+  ATTACH_RESTART=resume ATTACH_GONE=slot-not-found
+  if [[ $SLOT_N == "$SLOT_PRIME" ]]; then
+    ATTACH_RESTART='agent-slot prime' ATTACH_GONE=repo-not-found
+  fi
   case $2 in
     claude | files | git) ;;
     *) usage_fail "the pane is claude, files, or git" "$2" ;;
@@ -76,7 +76,7 @@ cmd_attach() {
     elif attach_resume; then
       resumed=1
     else
-      attach_pause "${ATTACH_RESTART#a } failed: $(contract_json -r '.reason' <<<"$AR_ERROR")"
+      attach_pause "$ATTACH_RESTART failed: $(contract_json -r '.reason' <<<"$AR_ERROR")"
     fi
   done
 }

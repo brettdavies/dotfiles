@@ -25,10 +25,10 @@ TMUX_DEFAULT_SOCKET=default
 # Usage: tmux_name <name>; prints the name as tmux stores it, which holds no `.` or `:`.
 tmux_name() { printf '%s' "${1//[.:]/_}"; }
 
-# Usage: slot_session <repo> <n> [claude | files | git]; the Claude session has no kind suffix.
+# Usage: slot_session <repo> <n> [claude | files | git]; tmux session names cannot hold `.` or `:`, and the Claude
+# session has no kind suffix. It stays free of a subshell, since a list calls it three times for each slot.
 slot_session() {
-  local name
-  name=$(tmux_name "$1")-$2
+  local name="${1//[.:]/_}-$2"
   [[ ${3:-claude} == claude ]] || name+=-$3
   printf '%s' "$name"
 }

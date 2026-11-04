@@ -198,5 +198,4 @@ _sessions_fail() {
     --command "$retry" --log "$BOUNDED_LOG"
 }
 
-# Prints a new session ID for a Claude conversation.
 session_new_id() { cat /proc/sys/kernel/random/uuid; }

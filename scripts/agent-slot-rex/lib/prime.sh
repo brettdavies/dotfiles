@@ -23,21 +23,28 @@ prime_old_running() {
   grep -qxF -- "$(tmux_name "$1")" <<<"$held"
 }
 
-# Usage: prime_tab_open <rex-session-id> <repo> <label>
+# Usage: prime_old_clients <label>; prints the terminals of the tmux clients of that session on the default server. A read
+# that fails prints none: the caller then opens a tab, which costs a tab at worst.
+prime_old_clients() {
+  timeout --kill-after=2 10 "$AR_TMUX" -L "$TMUX_DEFAULT_SOCKET" list-clients -t "=$(tmux_name "$1")" -F '#{client_tty}' \
+    </dev/null 2>/dev/null || true
+}
+
+# Usage: prime_tab_open <rex-session-id> <repo> <label> [<window to leave out>]
 # True when a tab of the Rex session holds the repo's prime: a block's own process is the attach loop of its Claude pane,
 # which stays true while the loop waits after a detach; a tmux client of its old-style session runs on a block's terminal;
 # or another window carries its label while its own process is this helper's launch, as a key's tab does before it asks
 # the server to start anything. A tab's label alone plays no part, so neither a rename nor a number fools it.
 prime_tab_open() {
-  local sid=$1 repo=$2 label=$3 clients='' rows window title block pid command tty
+  local sid=$1 repo=$2 label=$3 own_window=${4:-} clients='' rows window title block pid command tty
   if prime_old_running "$label"; then
-    clients=$(timeout --kill-after=2 10 "$AR_TMUX" -L "$TMUX_DEFAULT_SOCKET" list-clients -t "=$(tmux_name "$label")" \
-      -F '#{client_tty}' </dev/null 2>/dev/null) || clients=''
+    clients=$(prime_old_clients "$label")
   fi
   rex_or_fail session inspect "$sid" --json
   rows=$(contract_json -r "$REX_LABEL_DEF"'(.windows // [])[] | .window_id as $w | ((.label // "") | rex_unnumbered) as $l
     | .layers[]?.blocks[]?.block_id | [$w, $l, .] | @tsv' <<<"$REX_OUT")
   rex_helper_processes
+  [[ -z $clients ]] || rex_block_terminals
   while IFS=$'\t' read -r window title block; do
     [[ -n $block ]] || continue
     rex_block_pid "$sid" "$block" || continue
@@ -45,12 +52,11 @@ prime_tab_open() {
     [[ $pid != 0 ]] || continue
     command=${REX_HELPER_CMD[$pid]:-}
     [[ $command != *"agent-slot-rex attach $repo/$SLOT_PRIME claude" ]] || return 0
-    if [[ $window != "${LAUNCH_WINDOW:-}" && $title == "$label" && $command == *"agent-slot-rex launch"* ]]; then
+    if [[ $window != "$own_window" && $title == "$label" && $command == *"agent-slot-rex launch"* ]]; then
       return 0
     fi
     [[ -n $clients ]] || continue
-    tty=$("$AR_PS" -o tty= -p "$pid" 2>/dev/null) || continue
-    tty=${tty//[[:space:]]/}
+    tty=${REX_BLOCK_TTY[$pid]:-}
     [[ -n $tty && $tty != '?' ]] || continue
     ! grep -qxF "/dev/$tty" <<<"$clients" || return 0
   done <<<"$rows"

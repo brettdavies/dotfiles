@@ -61,12 +61,12 @@ slot_tmux_sessions() {
   fi
   SLOT_SESSIONS=
   ((BOUNDED_STATUS != 124)) || return 124
-  _tmux_no_server && return 0
+  tmux_no_server && return 0
   return "$BOUNDED_STATUS"
 }
 
 # True when the failed tmux call's kept log says no server is running, and drops the log.
-_tmux_no_server() {
+tmux_no_server() {
   grep -qE 'no server running|error connecting|No such file' "$BOUNDED_LOG" || return 1
   rm -f "$BOUNDED_LOG"
   BOUNDED_LOG=
@@ -82,7 +82,7 @@ default_tmux_panes() {
   fi
   DEFAULT_PANES=
   ((BOUNDED_STATUS != 124)) || return 124
-  _tmux_no_server && return 0
+  tmux_no_server && return 0
   return "$BOUNDED_STATUS"
 }
 

@@ -79,7 +79,7 @@ reconcile_fetch() {
   RECONCILE_RESUMED=()
   while read -r key; do
     [[ -n $key ]] || continue
-    if server_call 240 resume "$key"; then
+    if server_call "$AR_RESUME_BOUND" resume "$key"; then
       RECONCILE_RESUMED+=("$key")
     elif server_timed_out; then
       ar_fail "$AR_ERROR"
@@ -92,7 +92,7 @@ reconcile_fetch() {
 }
 
 # Adds to each of RECONCILE_PRIMES the terminals of its tmux clients, which only an old-style prime is known by, from one
-# read per old-style prime. A read that fails counts as no clients: the pass then opens a tab, which costs a tab at worst.
+# read per old-style prime.
 reconcile_prime_clients() {
   local prime session clients rows=()
   while IFS= read -r prime; do
@@ -100,8 +100,7 @@ reconcile_prime_clients() {
     clients=
     if [[ $(contract_json -r '.server' <<<"$prime") == "$TMUX_DEFAULT_SOCKET" ]]; then
       session=$(contract_json -r '.session' <<<"$prime")
-      clients=$(timeout --kill-after=2 10 "$AR_TMUX" -L "$TMUX_DEFAULT_SOCKET" list-clients -t "=$session" \
-        -F '#{client_tty}' </dev/null 2>/dev/null) || clients=
+      clients=$(prime_old_clients "$session")
     fi
     rows+=("$(contract_json -c --arg clients "$clients" '. + {clients: ($clients | split("\n") | map(select(. != "")))}' \
       <<<"$prime")")
