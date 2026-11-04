@@ -182,7 +182,7 @@ doctor_launch_times() {
        target_s: $t}'
 }
 
-DOCTOR_KEY_PHASES='["app_shows_tab", "helper", "prep", "clone", "setup", "trust", "tmux", "claude", "claude_start"]'
+DOCTOR_KEY_PHASES='["app_shows_tab", "helper", "prep", "clone", "setup", "deps", "trust", "tmux", "claude", "claude_start"]'
 
 # Key to ready over the last 20 launches a key's tab asked for, the launch lines with an opened_at: from the tab's
 # process starting to the slot's Claude starting its session, and the median of each step between. The tab's helper and
@@ -210,7 +210,7 @@ doctor_key_to_ready() {
         app_shows_tab: (if .shown_at == null then null else .shown_at - .opened_at end),
         helper: (.requested_at - (.shown_at // .opened_at)),
         prep: (if .started_at == null then null else .started_at - .requested_at end),
-        clone: .phases.clone, setup: .phases.setup, trust: .phases.trust, tmux: .phases.tmux,
+        clone: .phases.clone, setup: .phases.setup, deps: .phases.deps, trust: .phases.trust, tmux: .phases.tmux,
         claude: .phases.claude,
         claude_start: (if .made_at == null then null else .ready_at - .made_at end)}] as $m
     | {launches: ($keys | length), measured: ($m | length),

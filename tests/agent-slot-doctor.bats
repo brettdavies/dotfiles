@@ -219,7 +219,7 @@ solutions_worktree() {
   for i in 1 2 3; do
     ledger_line "$(jaq -n -c --argjson i "$i" '{event: "launch", request_id: "k\($i)", opened_at: 1000, shown_at: 1002.5,
       requested_at: 1003, started_at: 1003.25, made_at: (1006 + $i),
-      phases: {clone: 1, setup: 1, trust: $i, tmux: 0.5, claude: 0}}')"
+      phases: {clone: 1, setup: 1, deps: 0.25, trust: $i, tmux: 0.5, claude: 0}}')"
     ledger_line "{\"event\":\"ready\",\"request_id\":\"k$i\",\"ready_at\":$((1007 + i))}"
   done
   ledger_line '{"event":"launch","request_id":"agent","requested_at":1000,"phases":{"clone":1}}'
@@ -229,11 +229,11 @@ solutions_worktree() {
   [ "$status" -eq 0 ]
   jaq -e '.key_to_ready | .launches == 4 and .measured == 3 and .not_ready == ["waiting"]
     and .median_s == 9 and .p90_s == 10
-    and .phases == {app_shows_tab: 2.5, helper: 0.5, prep: 0.25, clone: 1, setup: 1, trust: 2, tmux: 0.5,
+    and .phases == {app_shows_tab: 2.5, helper: 0.5, prep: 0.25, clone: 1, setup: 1, deps: 0.25, trust: 2, tmux: 0.5,
       claude: 0, claude_start: 1}' <<<"$output"
   jaq -e '.launch_times.measured == 4' <<<"$output"
   run "$AGENT_SLOT" doctor
-  [[ "$output" == *"key to ready: median 9 s, p90 10 s over 3 key presses; median phases (s): app shows tab 2.5, helper 0.5, prep 0.25, clone 1, setup 1, trust 2, tmux 0.5, claude 0, claude start 1"* ]]
+  [[ "$output" == *"key to ready: median 9 s, p90 10 s over 3 key presses; median phases (s): app shows tab 2.5, helper 0.5, prep 0.25, clone 1, setup 1, deps 0.25, trust 2, tmux 0.5, claude 0, claude start 1"* ]]
 }
 
 @test "a key's launch with no shown time counts the helper from the tab's opening" {

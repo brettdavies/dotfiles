@@ -63,7 +63,7 @@ context_record() {
 # through --arg, never as part of its program, so an apostrophe or a backtick in one prints as written.
 # shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
 context_text() {
-  local task items base prime solutions rules plans closing rules_after reopen unattended vault_rules=''
+  local task items base prime solutions rules plans closing rules_after reopen unattended vault_rules='' deps
   local finished='Your task is finished when its PRs are open, or merged if the brief says so, and nothing is left unpushed.'
   task=$(contract_json -r '.task // ""' <<<"$RECORD")
   items=$(contract_json -r '.items // [] | map("\(if .kind == "pr" then "PR" else .kind end) \(.repo)#\(.number)"
@@ -76,6 +76,12 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
   else
     solutions='docs/solutions is the solutions repo shared with every other agent; commit to it only through `sd-commit-doc`.'
   fi
+  deps=$(contract_json -r '.deps // {} | select((.status // "installed") != "installed")
+    | "Dependencies are not installed: `\(.command)` reported \(.status) when this slot was made"
+      + (if .log then "; its log is \(.log)" else "" end)
+      + ". The repo'"'"'s hooks fail their tool gates until they are, so fix that before your first push."
+      + (if .status == "untrusted-head" then " This head is not on origin and the install runs its lifecycle scripts, so"
+           + " read what it changes in package.json and the lockfile before you run it." else "" end)' <<<"$RECORD")
   rules=$(
     cat <<'EOF'
 `agent-slot whoami` names this slot.
@@ -147,6 +153,7 @@ it: send a reopen to the session your brief reports to."
     printf '%s\n' "The base branch is $base." \
       "The prime checkout $prime is read-only for you; make every change in this slot."
     [[ -z $vault_rules ]] || printf '%s\n' "$vault_rules"
+    [[ -z $deps ]] || printf '%s\n' "$deps"
     printf '%s\n' "$solutions" "$rules" "$unattended" "$plans" "$closing" \
       "$rules_after" "$reopen"
   )" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $text}}'

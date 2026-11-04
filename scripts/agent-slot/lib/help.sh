@@ -64,7 +64,11 @@ verb_help() {
       'line keeps them for doctor'"'"'s key to ready.' \
       'returns: created, key, repo, slot, path, state, task, name, items[] of {kind, repo, number, title}, label_name,' \
       '         request_id, session_id, base, head_pushable (null without a PR head), trust_prompt_expected,' \
-      '         prompt_delivered (false when the slot already held the task), missing_siblings, phases, next_step,' \
+      '         prompt_delivered (false when the slot already held the task), missing_siblings, phases,' \
+      '         deps ({manager, command, status, log} of the frozen install of the root lockfile, status one of' \
+      '         installed, failed, timed-out, tool-missing, not-ignored, untrusted-head; null when the repo has nothing' \
+      '         to install),' \
+      '         next_step,' \
       '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
       '         reopen resumes, else null)' \
       'example: agent-slot launch oxipng --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;

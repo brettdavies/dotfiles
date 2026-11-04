@@ -82,7 +82,7 @@ slot_prompt_file() { printf '%s/.git/agent-slot-prompt.md' "$1"; }
 slot_make() {
   local repo=$1 event=$2 command=$3 seed=$4 prompt=$5 mode=$6 head=${7:-} fields=${8:-'{}'} retry n live
   local max=$AS_MAX_PER_REPO initial
-  local path prompt_copy out trust=false filter t_start t_clone t_setup t_trust t_tmux t_claude phases request
+  local path prompt_copy out trust=false filter t_start t_clone t_setup t_deps t_trust t_tmux t_claude phases request
   request=$(contract_json -r '.request_id // ""' <<<"$seed")
   retry=$command${request:+ --request-id $request}
   live=$(slot_numbers "$repo" | grep -c . || true)
@@ -145,6 +145,10 @@ slot_make() {
     --arg file "$prompt_copy" '.base = $base | .prompt_file = (if $prompt then $file else null end)'
   t_setup=$(_slot_us)
 
+  parity_deps "$path"
+  record_update "$repo" "$n" --argjson deps "$PARITY_DEPS" '.deps = $deps'
+  t_deps=$(_slot_us)
+
   contract_use_tools tmux claude
   if ! trust_known "$path" && ! { trust_known "$REPO_PRIME" && trust_accept "$path"; }; then
     trust=true
@@ -161,14 +165,14 @@ slot_make() {
   t_claude=$(_slot_us)
 
   phases=$(contract_json -n -c --argjson a "$t_start" --argjson b "$t_clone" --argjson c "$t_setup" \
-    --argjson d "$t_trust" --argjson e "$t_tmux" --argjson f "$t_claude" \
-    '{clone: (($b - $a) / 1000000), setup: (($c - $b) / 1000000), trust: (($d - $c) / 1000000),
-      tmux: (($e - $d) / 1000000), claude: (($f - $e) / 1000000)}')
+    --argjson d "$t_deps" --argjson e "$t_trust" --argjson f "$t_tmux" --argjson g "$t_claude" \
+    '{clone: (($b - $a) / 1000000), setup: (($c - $b) / 1000000), deps: (($d - $c) / 1000000),
+      trust: (($e - $d) / 1000000), tmux: (($f - $e) / 1000000), claude: (($g - $f) / 1000000)}')
   record_read "$repo" "$n"
   ledger_append "$event" "$(contract_json -c --argjson phases "$phases" --argjson trust "$trust" --arg path "$path" \
     --argjson fields "$fields" --argjson started "$t_start" --argjson made "$t_claude" '{request_id, requested_at,
       started_at: ($started / 1000000), made_at: ($made / 1000000), repo, slot, path: $path, task, session_id,
-      created: true, trust_prompt_expected: $trust, phases: $phases, items: (.items // []), name} + $fields' \
+      created: true, trust_prompt_expected: $trust, phases: $phases, deps, items: (.items // []), name} + $fields' \
     <<<"$RECORD")"
   push_restore "$event" "$(slot_key "$repo" "$n")"
   SLOT_MADE=$n SLOT_MADE_TRUST=$trust SLOT_MADE_PHASES=$phases

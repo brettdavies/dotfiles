@@ -112,6 +112,49 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context != *"own worktree"* ]]
 }
 
+@test "a slot whose install did not finish is told so with the command and the log" {
+  slot repo 1 '{"task": "t", "deps": {"manager": "bun", "command": "bun install --frozen-lockfile", "status": "failed", "log": "/logs/deps.log"}}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"bun install --frozen-lockfile"*failed*"/logs/deps.log"* ]]
+  [[ $context == *"first push"* ]]
+}
+
+@test "a slot whose manager is missing is told what to install and is given no log" {
+  slot repo 1 '{"task": "t", "deps": {"manager": "pnpm", "command": "pnpm install --frozen-lockfile", "status": "tool-missing", "log": null}}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"pnpm install --frozen-lockfile"*tool-missing* ]]
+  [[ $context != *"null"* ]]
+}
+
+@test "a slot on an untrusted head is told to read what the head changes before it runs the install" {
+  slot repo 1 '{"task": "t", "deps": {"manager": "bun", "command": "bun install --frozen-lockfile", "status": "untrusted-head", "log": null}}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"bun install --frozen-lockfile"*untrusted-head* ]]
+  [[ $context == *"not on origin"*"lifecycle scripts"* ]]
+}
+
+@test "a slot whose install failed hears nothing about an untrusted head" {
+  slot repo 1 '{"task": "t", "deps": {"manager": "bun", "command": "bun install --frozen-lockfile", "status": "failed", "log": "/l"}}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context != *"not on origin"* ]]
+}
+
+@test "a slot with its dependencies installed, or none to install, hears nothing about them" {
+  local deps
+  for deps in '{"manager": "bun", "command": "bun install --frozen-lockfile", "status": "installed", "log": null}' null; do
+    rm -rf "$SLOT"
+    slot repo 1 "$(jaq -n -c --argjson d "$deps" '{task: "t", deps: $d}')"
+    run start s1 startup
+    context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+    [[ $context != *"--frozen-lockfile"* ]]
+    [[ $context != *"first push"* ]]
+  done
+}
+
 @test "the context closes the task in order: PRs, ce-compound, ce-compound-refresh, jobs, release, report and stop" {
   slot repo 1 '{"task": "t"}'
   run start s1 startup

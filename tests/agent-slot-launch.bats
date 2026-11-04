@@ -619,7 +619,7 @@ EOF
   launch repoa --request-id r-ledger --requested-at 1793000000.5
   [ "$status" -eq 0 ]
   jaq -e -s '.[-1] | .event == "launch" and .request_id == "r-ledger" and .requested_at == 1793000000.5
-    and .schema == "dotfiles.agent-slot/1" and (.phases | keys) == ["claude", "clone", "setup", "tmux", "trust"]
+    and .schema == "dotfiles.agent-slot/1" and (.phases | keys) == ["claude", "clone", "deps", "setup", "tmux", "trust"]
     and ([.phases[] | type] | unique) == ["number"]' "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
 }
 
@@ -829,6 +829,52 @@ EOF
   [ "$(git -C "$slot" symbolic-ref --short HEAD)" = feat/x ]
   [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
   [ "$(git -C "$slot" for-each-ref --format='%(upstream:short) %(push:remotename)' refs/heads/feat/x)" = 'fork/feat/x fork' ]
+}
+
+# bun_repo: makes repoa's origin a bun repo, with a bun stub whose prepare script leaves a mark, as a real install runs
+# the head's lifecycle scripts.
+bun_repo() {
+  origin_file repoa .gitignore 'node_modules/'
+  origin_file repoa package.json '{"name": "repoa"}'
+  origin_file repoa bun.lock 'locked'
+  stub bun 'mkdir -p node_modules; touch "$STUBS/prepare-ran"'
+  export AGENT_SLOT_BUN=$STUBS/bun
+}
+
+@test "launch --pr installs dependencies for a head on origin" {
+  github_origin
+  bun_repo
+  pr_head "$T/origins/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -e "$STUBS/prepare-ran" ]
+  jaq -e '.deps.status == "installed"' <<<"$output"
+}
+
+@test "launch --pr never runs a fork head's install, which would run a stranger's lifecycle scripts unread" {
+  github_origin
+  bun_repo
+  fork_repo
+  pr_head "$T/forks/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/prepare-ran" ]
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1/node_modules" ]
+  jaq -e '.deps.status == "untrusted-head" and .deps.command == "bun install --frozen-lockfile" and .state == "active"' <<<"$output"
+}
+
+@test "launch --pr never runs the install of a head that only refs/pull/N/head still holds" {
+  github_origin
+  bun_repo
+  pr_head "$T/origins/repoa.git" "" 7
+  gh_item pr 7 "Fix the login" CLOSED '{"headRefName": "feat/x", "headRepository": null, "headRepositoryOwner": null}'
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$AGENT_SLOT_ROOT/repoa/1" rev-parse HEAD)" = "$HEAD_SHA" ]
+  [ ! -e "$STUBS/prepare-ran" ]
+  jaq -e '.deps.status == "untrusted-head"' <<<"$output"
 }
 
 @test "a fork head whose URL a prime remote holds in the other form gets that remote's name in the slot" {
