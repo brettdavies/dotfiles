@@ -144,7 +144,7 @@ _run_sync_regen() {
   # The 2026.09.14 regression: dev added a config after the previous release and
   # the release branch deleted it. A CHANGELOG-only backport missed it entirely.
   git -C "$WORK" switch -q dev
-  echo "session config" >"$WORK/stow/tmuxinator/paxel.yml"
+  echo "session config" >"$WORK/stow/tmuxinator/session.yml"
   git -C "$WORK" add -A
   git -C "$WORK" commit -q -m "feat: add a session config"
   git -C "$WORK" push -q origin dev
@@ -153,7 +153,7 @@ _run_sync_regen() {
   # never had it, so the deletion shows up only as a dev-vs-main difference.
   git -C "$WORK" switch -q main
   git -C "$WORK" checkout -q dev -- .
-  rm -f "$WORK/stow/tmuxinator/paxel.yml"
+  rm -f "$WORK/stow/tmuxinator/session.yml"
   echo "new changelog" >"$WORK/CHANGELOG.md"
   git -C "$WORK" add -A
   git -C "$WORK" commit -q -m "release: 2026.02.02"
@@ -164,7 +164,7 @@ _run_sync_regen() {
 
   _run_sync 2026.02.02 --dry-run
   [ "$status" -eq 0 ]
-  [[ "$output" == *"paxel.yml"* ]]
+  [[ "$output" == *"session.yml"* ]]
 }
 
 @test "never proposes a guarded path" {
@@ -241,7 +241,7 @@ _run_sync_regen() {
   # one file and leaves the rest on main, which is how the 2026.09.14 release
   # stranded a stow payload and three session configs.
   git -C "$WORK" switch -q dev
-  echo "session config" >"$WORK/stow/tmuxinator/paxel.yml"
+  echo "session config" >"$WORK/stow/tmuxinator/session.yml"
   echo "accounts v1" >"$WORK/settings.json"
   git -C "$WORK" add -A
   git -C "$WORK" commit -q -m "feat: add a session config"
@@ -250,7 +250,7 @@ _run_sync_regen() {
   # The release branch: dev's tree, minus the config, with settings reverted.
   git -C "$WORK" switch -q main
   git -C "$WORK" checkout -q dev -- .
-  rm -f "$WORK/stow/tmuxinator/paxel.yml"
+  rm -f "$WORK/stow/tmuxinator/session.yml"
   echo "settings v1" >"$WORK/settings.json"
   echo "new changelog" >"$WORK/CHANGELOG.md"
   git -C "$WORK" add -A
@@ -266,7 +266,7 @@ _run_sync_regen() {
   run git -C "$WORK" show --stat --name-status "chore/sync-dev-after-2026.02.02"
   [ "$status" -eq 0 ]
   [[ "$output" == *"CHANGELOG.md"* ]]
-  [[ "$output" == *"D"*"paxel.yml"* ]]
+  [[ "$output" == *"D"*"session.yml"* ]]
   [[ "$output" == *"settings.json"* ]]
 }
 

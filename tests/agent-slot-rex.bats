@@ -63,7 +63,7 @@ in_rex_session() {
   slot_answer launch 0 "$LAUNCHED"
   run "$AGENT_SLOT_REX" launch --here
   [ "$status" -eq 0 ]
-  called '^agent-slot launch X --request-id [0-9a-f-]{36} --requested-at [0-9]+\.[0-9]+ --opened-at [0-9]+\.[0-9]+ --output json$'
+  called '^agent-slot launch X --model opus --request-id [0-9a-f-]{36} --requested-at [0-9]+\.[0-9]+ --opened-at [0-9]+\.[0-9]+ --output json$'
   called '^rex window rename -s sess-a win-a X/3$'
   called '^rex do agent_slot_layout -s sess-a -b blk-a key=X/3 block=blk-a$'
   called '^agent-slot-rex attach X/3 claude$'
@@ -181,7 +181,7 @@ in_rex_session() {
   run "$AGENT_SLOT_REX" launch --here </dev/null
   [ "$status" -eq 0 ]
   called '^tmux list-clients -t =X Prime -F #\{client_tty\}$'
-  called '^agent-slot launch X --request-id '
+  called '^agent-slot launch X --model opus --request-id '
   [ "$(tail -1 "$CALLS")" = "agent-slot-rex attach X/3 claude" ]
   not_called '^rex window move'
   not_called '^agent-slot-rex prime'

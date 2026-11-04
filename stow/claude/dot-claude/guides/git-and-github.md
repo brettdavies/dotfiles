@@ -419,12 +419,12 @@ reminder listing each run id with the exact `gh run watch <id> --exit-status` co
 spawn one Bash call per active run with `run_in_background: true` (in parallel), so the harness notifies you when each
 finishes — no polling needed.
 
-For PR-scoped checks (after `gh pr create`/`gh pr merge`), prefer `gh pr checks <pr> --watch` — it covers all checks
-across all triggered workflows on the PR head in a single watcher. Its exit code is not the verdict: it exits 1 only
-when a check failed, and 0 when the rest passed, were skipped, or were cancelled (gh 2.36.0 and later; see "Verify CI by
-rollup, not by watcher exit code"). Read the rollup query from `~/.claude/CLAUDE.md` § "CI after push" afterwards and
-assert every conclusion is `SUCCESS` (`SKIPPED` is acceptable only for a conditional job); see "Stacked PRs" for the
-duplicated-entry case after a branch rewrite.
+Watch only with `gh run watch <id> --exit-status`, one per run your own action started; a session that did not push
+starts no watcher. Never watch with `gh pr checks --watch` or a loop of `gh pr view`: both poll the GraphQL API every
+few seconds until the checks end, and many sessions doing it at once exhaust the account's GraphQL budget. When the
+watchers are done, read the rollup query from `~/.claude/CLAUDE.md` § "CI after push" once and assert every conclusion
+is `SUCCESS` (`SKIPPED` is acceptable only for a conditional job); see "Stacked PRs" for the duplicated-entry case
+after a branch rewrite.
 
 After every batch of watchers finishes, re-run `gh run list --branch <branch>` to catch dispatched chains (e.g.
 `release.yml` → homebrew dispatch → `finalize-release`). The hook only fires after the original action; chained runs

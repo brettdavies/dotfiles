@@ -258,10 +258,10 @@ without blocking".
 ## CI after push
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse
-hook lists active runs with the exact `gh run watch <id> --exit-status` to spawn — run one per active run in the
-background (or `gh pr checks <pr> --watch` for PR-scoped). **A completed watcher is NOT a green watcher**:
-`gh pr checks --watch` exits 1 on a failed check but 0 when checks end cancelled/skipped, and it can miss checks that
-register late; `gh run watch` needs `--exit-status` to exit non-zero at all. After every completion notification, verify
+hook lists active runs with the exact `gh run watch <id> --exit-status` to spawn — run one per active run your own
+action started, in the background. Never watch with `gh pr checks --watch` or a loop of `gh pr view`: both poll the
+GraphQL API until the checks end. **A completed watcher is NOT a green watcher**: `gh run watch` needs `--exit-status`
+to exit non-zero at all. After every completion notification, verify once
 explicitly: `gh pr view <num> --json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus, checks:
 [.statusCheckRollup[] | {name, conclusion}]}'` and assert every conclusion is `SUCCESS`. Same for run-scoped:
 `gh run view <id> --json conclusion --jq .conclusion` must be `success`. Then re-enumerate to catch chained runs — both
@@ -302,9 +302,17 @@ satisfy a stale pin. Bump steps and the `bun.lock` limits → `~/.claude/guides/
 ## Long artifacts → files
 
 When the user asks for a substantial artifact (detailed prompt, plan, spec, long code block, multi-section doc — roughly
-≥30 lines), write it to a file and summarize in chat in a sentence or two; don't paste the full content. Pick a sensible
-path (`~/.gstack/projects/<slug>/` for repo-scoped planning artifacts; repo root for artifacts that belong with the
-code) or ask. Show diffs if asked to see changes, never the whole file again.
+≥30 lines), write it to a file and summarize in chat in a sentence or two; don't paste the full content. Write it to the
+prime's `.context/` (below) when Brett is meant to read it, or to the repo root when it is committed with the code;
+`~/.gstack/projects/<slug>/` holds only what a gstack skill writes there itself. Show diffs if asked to see changes,
+never the whole file again.
+
+**Files Brett is meant to read go in the prime repo's `.context/` folder**, never in `/tmp` or a session scratchpad: he
+never looks there. The prime is the repo's own checkout (for an agent slot, the one `agent-slot whoami --output json`
+names as `.slot.prime`; a scratch clone or linked worktree is not a prime, and `agent-slot repos --output json` lists
+every one), and `.context/` there is gitignored and local-only. An agent slot writes such files to its prime's
+`.context/` directly; that folder is the only place in a prime checkout a slot may write. `/tmp` and the scratchpad stay
+for the agent's own temporary files.
 
 ## System configs → dotfiles
 

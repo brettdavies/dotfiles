@@ -6,7 +6,7 @@ TASK_PATTERN='^[A-Za-z0-9][A-Za-z0-9_/-]{0,63}$'
 TASK_RULE='a task name uses letters, digits, -, _, and /, starts with a letter or digit, and is at most 64 characters'
 REQUEST_PATTERN='^[A-Za-z0-9._-]{1,128}$'
 
-LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_REQUEST='' LAUNCH_PROMPT='' LAUNCH_REQUESTED_AT=''
+LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_REQUEST='' LAUNCH_PROMPT='' LAUNCH_REQUESTED_AT='' LAUNCH_MODEL=''
 LAUNCH_OPENED_AT='' LAUNCH_SHOWN_AT=''
 EPOCH_PATTERN='^[0-9]+(\.[0-9]+)?$'
 LAUNCH_ITEM_KIND='' LAUNCH_ITEM_REF='' LAUNCH_ITEM='' LAUNCH_NAME=''
@@ -22,9 +22,10 @@ launch_parse_args() {
         LAUNCH_ITEM_KIND=${1#--} LAUNCH_ITEM_REF=$2
         shift 2
         ;;
-      --task | --request-id | --prompt-file | --requested-at | --opened-at | --shown-at)
+      --task | --request-id | --prompt-file | --requested-at | --opened-at | --shown-at | --model)
         (($# >= 2)) || usage_fail "$1 needs a value" "$1"
         case $1 in
+          --model) LAUNCH_MODEL=$2 ;;
           --task) LAUNCH_TASK=$2 ;;
           --request-id) LAUNCH_REQUEST=$2 ;;
           --prompt-file) LAUNCH_PROMPT=$2 ;;
@@ -43,6 +44,7 @@ launch_parse_args() {
     esac
   done
   [[ -n $LAUNCH_REPO ]] || usage_fail "launch needs a repo; agent-slot repos lists them"
+  model_check "$LAUNCH_MODEL" launch
   [[ -z $LAUNCH_TASK || $LAUNCH_TASK =~ $TASK_PATTERN ]] \
     || contract_fail invalid-task-name "$TASK_RULE" --value "$LAUNCH_TASK" --command "agent-slot launch --help"
   [[ -z $LAUNCH_REQUEST || $LAUNCH_REQUEST =~ $REQUEST_PATTERN ]] \
@@ -52,6 +54,7 @@ launch_parse_args() {
       || contract_fail prompt-file-unreadable "the first-message file cannot be read" --value "$LAUNCH_PROMPT" \
         --command "agent-slot launch --help"
     LAUNCH_PROMPT=$(realpath "$LAUNCH_PROMPT")
+    launch_brief_check "$LAUNCH_PROMPT"
   fi
   [[ -n $LAUNCH_REQUESTED_AT ]] || LAUNCH_REQUESTED_AT=$(date +%s.%N)
   local flag value
@@ -59,6 +62,29 @@ launch_parse_args() {
     value=${flag#* }
     [[ -z $value || $value =~ $EPOCH_PATTERN ]] || usage_fail "--${flag%% *} takes seconds since the epoch" "$value"
   done
+}
+
+# Usage: model_check <model> <verb>; refuses a launch or reopen with no --model, or one SESSIONS_MODELS lacks.
+model_check() {
+  [[ -n $1 ]] || usage_fail "$2 needs --model ${SESSIONS_MODELS// / or --model }: every slot is started with a model choice"
+  sessions_model_id "$1" >/dev/null || usage_fail "--model takes ${SESSIONS_MODELS// / or }" "$1"
+}
+
+# The lines every brief carries, each starting a line as `<label>:`, optionally after list or emphasis marks. The
+# agent-slot skill's "Write a brief" checklist names the same four.
+LAUNCH_BRIEF_LABELS=('Scope' 'Limits' 'Reviews' 'Reports to')
+
+# Usage: launch_brief_check <file>; refuses with brief-incomplete, naming each missing label, unless the brief has a
+# line for every label in LAUNCH_BRIEF_LABELS.
+launch_brief_check() {
+  local label missing=()
+  for label in "${LAUNCH_BRIEF_LABELS[@]}"; do
+    grep -Eiq "^[[:space:]*_>-]*${label}:" "$1" || missing+=("$label:")
+  done
+  ((${#missing[@]} == 0)) && return 0
+  contract_fail brief-incomplete "the brief has no ${missing[*]} line. Every brief states its scope, which of its \
+limits are the operator's and which the coordinating session's, the reviews it runs (at most 2 rounds), and the \
+session it reports to, each on a line of its own" --value "${missing[*]}" --command "agent-slot launch --help"
 }
 
 # Sets LAUNCH_EXISTING to the slot holding this request ID, this task when one was given, or this work item when one
@@ -116,24 +142,22 @@ _launch_head() {
 
 # The launch's command line without --request-id, for an error's next step.
 _launch_command() {
-  printf 'agent-slot launch %s' "$LAUNCH_REPO"
+  printf 'agent-slot launch %s --model %s' "$LAUNCH_REPO" "$LAUNCH_MODEL"
   [[ -z $LAUNCH_ITEM_KIND ]] || printf ' --%s %s' "$LAUNCH_ITEM_KIND" "$(contract_quote "$LAUNCH_ITEM_REF")"
 }
 
 # Usage: launch_output <repo> <n> <created> [<trust-prompt-expected> <phases-json> [<fields-json>]]
 # prompt_delivered says whether this call's --prompt-file is the slot's first message: true for a new slot or a retry
-# of the request that made it, false for a slot another request made, null without a --prompt-file. head_pushable says
-# whether this call checked out a PR's head that can be pushed to, null when it checked out none. head_foreign says the
-# slot's head is a foreign head (foreign.sh), and head_owner its owner, null when unknown. <fields-json> is merged over
-# the output.
+# of the request that made it, null without a --prompt-file. A --prompt-file that finds another request's slot never
+# gets here: cmd_launch refuses it with item-held-by-slot, so a brief is never dropped without an error. head_pushable
+# says whether this call checked out a PR's head that can be pushed to, null when it checked out none. head_foreign says
+# the slot's head is a foreign head (foreign.sh), and head_owner its owner, null when unknown. <fields-json> is merged
+# over the output.
 launch_output() {
   local repo=$1 n=$2 created=$3 trust=${4:-false} phases=${5:-null} fields=${6:-'{}'} delivered=null path
   path=$(slot_path "$repo" "$n")
   record_read "$repo" "$n" || RECORD='{}'
-  if [[ -n $LAUNCH_PROMPT ]]; then
-    delivered=false
-    [[ $created != true && $LAUNCH_EXISTING_BY != request ]] || delivered=true
-  fi
+  [[ -z $LAUNCH_PROMPT ]] || delivered=true
   contract_ok "$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$path" \
     --argjson created "$created" --argjson trust "$trust" --argjson phases "$phases" --arg docs "$CONTRACT_DOCS" \
     --argjson delivered "$delivered" --arg branch "$(slot_branch "$path")" --argjson pushable "$HEAD_PUSHABLE" \
@@ -142,15 +166,13 @@ launch_output() {
     "$SLOT_LABEL_DEF$FOREIGN_FIELDS_DEF"'{created: $created, key: $key, repo: .repo, slot: .slot, path: $path, state: .state, task: .task,
       name: .name, items: (.items // []), label_name: label_name($branch), request_id: .request_id,
       session_id: .session_id, base: .base, head_pushable: $pushable, trust_prompt_expected: $trust,
-      prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases,
+      prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases, deps: .deps,
       next_step: {action: "run", command: "agent-slot check \($key) --output json", docs: $docs,
                   note: ("each Rex client is asked to open this slot'"'"'s tab when the slot is made; a Mac that"
                          + " is asleep or offline opens it once it is back")}} + foreign_fields + $fields' <<<"$RECORD")" '
     "\(.key) \(if .created then "is ready" else "already holds this request" end) at \(.path)" +
       (if .label_name then " (\(.label_name))" else "" end) +
       (if .trust_prompt_expected then "; Claude will ask to trust the folder" else "" end) +
-      (if .prompt_delivered == false
-       then "; this first message was not delivered, because the slot already holds the task" else "" end) +
       (if .head_foreign
        then "; its head " + (if .head_owner then "belongs to \(.head_owner)"
                               else "has an owner that could not be determined" end)
@@ -161,7 +183,7 @@ launch_output() {
 # Usage: launch_prior <repo>; prints {prior: {session_id, ts, note}} for the newest torn-down slot of the repo that
 # worked on the launch's item, whose conversation reopen resumes, else {prior: null}.
 launch_prior() {
-  contract_json -c --arg cmd "$(contract_quote agent-slot reopen "$1" "--$LAUNCH_ITEM_KIND" "$LAUNCH_ITEM_REF")" '
+  contract_json -c --arg cmd "$(contract_quote agent-slot reopen "$1" --model "$LAUNCH_MODEL" "--$LAUNCH_ITEM_KIND" "$LAUNCH_ITEM_REF")" '
     {prior: (if . == null then null else {session_id, ts,
       note: "a slot torn down \(.ts) worked on this item; \($cmd) resumes its conversation once no slot holds the item"}
       end)}' \
@@ -193,15 +215,23 @@ cmd_launch() {
         --value "$(slot_key "$repo" "$LAUNCH_EXISTING")" \
         --command "$(_launch_command)${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
     fi
+    if [[ -n $LAUNCH_PROMPT && $LAUNCH_EXISTING_BY != request ]]; then
+      contract_fail item-held-by-slot "$(slot_key "$repo" "$LAUNCH_EXISTING")$(contract_json -r \
+        '(.name // .task // "") | if . == "" then "" else " (\(.))" end' <<<"$RECORD") already holds this \
+$([[ $LAUNCH_EXISTING_BY == item ]] && printf 'work item' || printf 'task'), so this brief would not reach it; send the \
+brief to that slot's Claude session, or launch again once that slot is torn down" \
+        --value "$(slot_key "$repo" "$LAUNCH_EXISTING")" \
+        --command "agent-slot check $(slot_key "$repo" "$LAUNCH_EXISTING") --output json"
+    fi
     launch_output "$repo" "$LAUNCH_EXISTING" false false null '{"prior": null}'
     return
   fi
   # The session starts under the name, so named_as keeps the automatic sweep from typing a /rename to it.
   seed=$(contract_json -n -c --arg task "$LAUNCH_TASK" --arg request "$LAUNCH_REQUEST" \
     --argjson requested "$LAUNCH_REQUESTED_AT" --argjson item "${LAUNCH_ITEM:-null}" --arg name "$LAUNCH_NAME" \
-    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" --argjson foreign "$foreign" "$ITEM_SAME_DEF"'
+    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" --arg model "$LAUNCH_MODEL" --argjson foreign "$foreign" "$ITEM_SAME_DEF"'
     $foreign + {task: (if $task == "" then null else $task end), request_id: (if $request == "" then null else $request end),
-     requested_at: $requested}
+     requested_at: $requested, model: $model}
     + if $item == null then {} else
         {prs: (if $item.kind == "pr" and same_repo($item.repo; $origin) then [$item.number] else [] end),
          items: [$item], name: $name, named_as: $name}
@@ -214,7 +244,7 @@ cmd_launch() {
 }
 
 cmd_resume() {
-  local repo n state
+  local repo n state pruned
   slot_parse_key "$1"
   repo=$SLOT_REPO n=$SLOT_N
   require_tools tmux claude
@@ -226,9 +256,11 @@ cmd_resume() {
   record_read "$repo" "$n" || contract_fail slot-not-found "$1 has no record" --value "$1" --command "agent-slot list"
   state=$(contract_json -r '.state // ""' <<<"$RECORD")
   [[ $state == active ]] || contract_fail slot-busy "$1 is $state" --value "$1" --command "agent-slot resume $1"
+  pruned=$(pr_prune_branches "$repo" "$(slot_path "$repo" "$n")" | contract_json -R -s -c 'split("\n") | map(select(. != ""))')
   sessions_start "$repo" "$n" resume
   record_unlock_slot "$repo" "$n"
-  contract_ok "$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$1" \
-    '{key: $key, started: split("\n") | map(select(. != ""))}')" \
-    '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)'
+  contract_ok "$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$1" --argjson pruned "$pruned" \
+    '{key: $key, started: split("\n") | map(select(. != "")), pruned_branches: $pruned}')" \
+    '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)
+      + (if (.pruned_branches | length) == 0 then "" else "; pruned \(.pruned_branches | join(", ")), whose PRs merged or closed" end)'
 }

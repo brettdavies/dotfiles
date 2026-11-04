@@ -28,7 +28,38 @@ SESSIONS_FOREIGN_ARGS=(--setting-sources user --strict-mcp-config)
 # Git reads this setting only from protected config such as this, never from the clone's own, and it holds for a shape
 # that arrives in a later commit.
 SESSIONS_FOREIGN_ENV=(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.bareRepository GIT_CONFIG_VALUE_0=explicit)
+# Every slot's Claude runs at this effort, set on its command line so no settings file decides it.
+SESSIONS_EFFORT=xhigh
+# The models a slot can run on, by the name launch and reopen take. A Sonnet slot starts with Opus as its advisor.
+# The advisor stays off in a session whose telemetry opt-outs (DISABLE_TELEMETRY, DO_NOT_TRACK) stop Claude Code's
+# feature flags, and CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 turns it on for that one process with the opt-outs
+# still set.
+SESSIONS_MODELS='opus sonnet'
+SESSIONS_ADVISOR=opus
+SESSIONS_ADVISOR_ENV=CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1
 SESSIONS_CREATED=()
+
+# Usage: sessions_model_id <model>; prints the Claude model ID for one of SESSIONS_MODELS, or returns 1.
+sessions_model_id() {
+  case $1 in
+    opus) printf '%s' claude-opus-5-5 ;;
+    sonnet) printf '%s' claude-sonnet-5-5 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Usage: sessions_claude <model>; prints the start of a slot's claude command line for the model: the bypass flag,
+# the model ID, the effort, and for Sonnet the advisor, behind the variable that turns it on.
+sessions_claude() {
+  local id
+  id=$(sessions_model_id "$1") || id=$(sessions_model_id opus)
+  if [[ $1 == sonnet ]]; then
+    printf '%s %s --model %s --effort %s --advisor %s' "$SESSIONS_ADVISOR_ENV" "$SESSIONS_CLAUDE" "$id" \
+      "$SESSIONS_EFFORT" "$SESSIONS_ADVISOR"
+  else
+    printf '%s --model %s --effort %s' "$SESSIONS_CLAUDE" "$id" "$SESSIONS_EFFORT"
+  fi
+}
 
 # The login shell a session runs: the account's own, from the password database.
 _sessions_shell() {
@@ -82,10 +113,11 @@ sessions_foreign() { [[ $(contract_json -r '.head_foreign // false' <<<"$RECORD"
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
 # value from it is shell-quoted. A resume or reopen whose conversation was never saved starts Claude as a launch does.
 # In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name,
-# and a record with head_foreign starts Claude without the tree's settings.
+# and runs on the record's model through sessions_claude; a record from before slots took a model runs on Opus. A record
+# with head_foreign also starts Claude without the tree's settings.
 # The first message goes with a launch and a reopen only: a resume brings back a slot that already had it.
 sessions_command() {
-  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude=$SESSIONS_CLAUDE
+  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude
   case $kind in
     files)
       if sessions_foreign; then printf '%s' 'ls -A'; else printf '%s' 'command -v y >/dev/null && y || yazi'; fi
@@ -93,8 +125,9 @@ sessions_command() {
     git) printf '%s' 'lazygit' ;;
     claude)
       name=$(contract_json -r '.name // .task // ""' <<<"$RECORD")
+      claude=$(sessions_claude "$(contract_json -r '.model // "opus"' <<<"$RECORD")")
       prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
-      ! sessions_foreign || claude="$SESSIONS_CLAUDE ${SESSIONS_FOREIGN_ARGS[*]}"
+      ! sessions_foreign || claude+=" ${SESSIONS_FOREIGN_ARGS[*]}"
       if [[ $mode != launch ]] && _sessions_conversation_saved; then
         printf -v cmd '%s --resume %q' "$claude" "$(contract_json -r '.session_id' <<<"$RECORD")"
         [[ $mode == reopen ]] || prompt=''

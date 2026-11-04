@@ -41,7 +41,7 @@ setup() {
   git -C "$AGENT_SLOT_DEV/repoa" remote set-url origin https://github.com/up/repoa.git
   git -C "$AGENT_SLOT_DEV/repoa" config core.hooksPath .githooks
   stub_gh_items
-  printf 'say ok\n' >"$T/brief"
+  printf '%s\n' 'Scope: say ok.' 'Limits: none.' 'Reviews: none.' 'Reports to: none.' >"$T/brief"
   SLOT=$AGENT_SLOT_ROOT/repoa/1
   LEDGER=$AGENT_SLOT_STATE_DIR/ledger.jsonl
 }
@@ -51,12 +51,17 @@ teardown() {
   assert_no_leaks
 }
 
+# launch and reopen require a model, so these give Opus unless the test names one.
 launch() {
-  run --separate-stderr "$AGENT_SLOT" launch "$@" --output json
+  local model=(--model opus)
+  [[ " $* " != *" --model "* ]] || model=()
+  run --separate-stderr "$AGENT_SLOT" launch "$@" "${model[@]}" --output json
 }
 
 reopen() {
-  run --separate-stderr "$AGENT_SLOT" reopen "$@" --output json
+  local model=(--model opus)
+  [[ " $* " != *" --model "* ]] || model=()
+  run --separate-stderr "$AGENT_SLOT" reopen "$@" "${model[@]}" --output json
 }
 
 typed() { cat "$STUBS/typed-repoa-1"; }
@@ -118,7 +123,7 @@ assert_unchanged_setup() {
   [ -f "$SLOT/.claude/settings.local.json" ]
   jaq -e '.head_foreign == false and .head_owner == null' <<<"$1"
   jaq -e 'has("head_foreign") | not' "$SLOT/.git/agent-slot.json"
-  [[ $(typed) == "claude --dangerously-skip-permissions --session-id "* ]]
+  [[ $(typed) == "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --session-id "* ]]
 }
 
 # real_claude_env: the environment the real claude runs under here: a config directory of its own and an API port nothing
@@ -160,7 +165,7 @@ run_plain_claude() {
   local session
   session=$(jaq -r .session_id <<<"$output")
   jaq -e '.head_foreign == true and .head_owner == "evil"' <<<"$output"
-  [ "$(typed)" = "claude --dangerously-skip-permissions --setting-sources user --strict-mcp-config --session-id $session -n repoa-pr7-fix-the-login" ]
+  [ "$(typed)" = "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config --session-id $session -n repoa-pr7-fix-the-login" ]
   jaq -e '.head_foreign == true and .head_owner == "evil"' "$SLOT/.git/agent-slot.json"
   jaq -e -s '[.[] | select(.event == "launch")][-1] | .head_foreign == true and .head_owner == "evil"' "$LEDGER"
   [ "$(git -C "$SLOT" rev-parse HEAD)" = "$HEAD_SHA" ]
@@ -169,7 +174,7 @@ run_plain_claude() {
 
 @test "the text output tells the operator a foreign head runs nothing" {
   foreign_pr
-  run --separate-stderr "$AGENT_SLOT" launch repoa --pr 7
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --pr 7
   [ "$status" -eq 0 ]
   [[ $output == *"its head belongs to evil, so nothing from the head runs"* ]]
 }
@@ -291,7 +296,7 @@ trust_owners() { export AGENT_SLOT_TRUSTED_OWNERS=$1; }
   [ "$status" -eq 0 ]
   jaq -e '.head_foreign == true and .head_owner == null and .head_pushable == false' <<<"$output"
   [ "$(git -C "$SLOT" rev-parse HEAD)" = "$HEAD_SHA" ]
-  [[ $(typed) == "claude --dangerously-skip-permissions --setting-sources user --strict-mcp-config "* ]]
+  [[ $(typed) == "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config "* ]]
   [ -z "$(hooks_path)" ]
 }
 
@@ -426,7 +431,7 @@ crypt_attr() { printf 'lifted.bin filter=git-crypt diff=git-crypt\n' >.gitattrib
 @test "a foreign head on a base that uses git-crypt is never unlocked, and a missing key does not stop the launch" {
   origin_file repoa .gitattributes 'secret/** filter=git-crypt diff=git-crypt'
   foreign_pr
-  AGENT_SLOT_GIT_CRYPT_KEY=$T/no-such-key run --separate-stderr "$AGENT_SLOT" launch repoa --pr 7 --output json
+  AGENT_SLOT_GIT_CRYPT_KEY=$T/no-such-key run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --pr 7 --output json
   [ "$status" -eq 0 ] || {
     echo "$stderr"
     false
@@ -452,7 +457,7 @@ crypt_attr() { printf 'lifted.bin filter=git-crypt diff=git-crypt\n' >.gitattrib
   trash "$STUBS/typed-repoa-1"
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
-  [[ $(typed) == "claude --dangerously-skip-permissions --setting-sources user --strict-mcp-config "* ]]
+  [[ $(typed) == "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config "* ]]
 }
 
 S1=11111111-2222-4333-8444-555555555555
@@ -480,7 +485,7 @@ branch_entry() {
 # assert_reopened_foreign OWNER OUTPUT: a reopen's output, typed line, and git config for a foreign head of OWNER.
 assert_reopened_foreign() {
   jaq -e --arg owner "$1" '.head_foreign == true and .head_owner == $owner' <<<"$2"
-  [[ $(typed) == "claude --dangerously-skip-permissions --setting-sources user --strict-mcp-config --resume $S1"* ]]
+  [[ $(typed) == "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config --resume $S1"* ]]
   [ -z "$(hooks_path)" ]
 }
 
@@ -528,7 +533,7 @@ assert_reopened_foreign() {
   [ "$status" -eq 0 ]
   [ "$(hooks_path)" = .githooks ]
   jaq -e '.head_foreign == false' <<<"$output"
-  [[ $(typed) == "claude --dangerously-skip-permissions --resume $S1"* ]]
+  [[ $(typed) == "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume $S1"* ]]
 }
 
 @test "a reopen's dry run reports a foreign head and the command it would type" {
@@ -537,7 +542,7 @@ assert_reopened_foreign() {
   reopen repoa --pr 7 --dry-run
   [ "$status" -eq 0 ]
   jaq -e --arg s "$S1" '.would_reopen == true and .head_foreign == true and .head_owner == "evil"
-    and (.command | startswith("claude --dangerously-skip-permissions --setting-sources user --strict-mcp-config --resume \($s)"))' <<<"$output"
+    and (.command | startswith("claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config --resume \($s)"))' <<<"$output"
   [ ! -e "$SLOT" ]
 }
 
@@ -698,10 +703,16 @@ lockfile() {
   printf 'node_modules/\n' >.gitignore
 }
 
-@test "a foreign head installs nothing from its lockfile, and its agent gets no advice to" {
+# installing_prime: a prime set up for a slot to install from, and a bun that marks an install.
+installing_prime() {
   mkdir -p "$AGENT_SLOT_DEV/repoa/node_modules"
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
   stub bun 'for arg in "$@"; do [ "$arg" != install ] || touch "$T_MARKS/bun-install"; done'
   export T_MARKS=$T/marks AGENT_SLOT_BUN=$STUBS/bun
+}
+
+@test "a foreign head installs nothing from its lockfile, and its agent gets no advice to" {
+  installing_prime
   foreign_pr lockfile
   launch repoa --pr 7
   [ "$status" -eq 0 ]
@@ -999,7 +1010,7 @@ real_solutions_dir() {
 
 @test "a fork someone has reviewed gets the full setup by a launch with its owner added for that one command" {
   foreign_pr
-  AGENT_SLOT_TRUSTED_OWNERS='me evil' run --separate-stderr "$AGENT_SLOT" launch repoa --pr 7 --output json
+  AGENT_SLOT_TRUSTED_OWNERS='me evil' run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --pr 7 --output json
   [ "$status" -eq 0 ]
   assert_unchanged_setup "$output"
   [ -f "$SLOT/.claude/settings.json" ]
@@ -1196,4 +1207,73 @@ linked_solutions_tool_config() {
   git -C "$SLOT" sparse-checkout reapply
   [ -f "$SLOT/bunfig.toml" ]
   [ -z "$(git -C "$SLOT" status --porcelain -- bunfig.toml)" ]
+}
+
+# SONNET_LINE: the start of a Sonnet slot's line, with the variable the advisor needs and the advisor itself.
+SONNET_LINE='CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions --model claude-sonnet-5-5 --effort xhigh --advisor opus'
+
+@test "a foreign head on Sonnet keeps its model, effort, and advisor, with the restrictions on top" {
+  foreign_pr
+  launch repoa --pr 7 --model sonnet
+  [ "$status" -eq 0 ]
+  local session
+  session=$(jaq -r .session_id <<<"$output")
+  [ "$(typed)" = "$SONNET_LINE --setting-sources user --strict-mcp-config --session-id $session -n repoa-pr7-fix-the-login" ]
+  jaq -e '.model == "sonnet" and .head_foreign == true' "$SLOT/.git/agent-slot.json"
+}
+
+@test "a foreign head's reopen on Sonnet keeps all of that too" {
+  foreign_pr
+  teardown_event "{\"items\": [$PR7], \"prs\": [7], \"head\": \"feat/x\", \"branches\": [$(branch_entry evil)]}"
+  reopen repoa --pr 7 --model sonnet
+  [ "$status" -eq 0 ]
+  [[ $(typed) == "$SONNET_LINE --setting-sources user --strict-mcp-config --resume $S1"* ]]
+  jaq -e '.head_foreign == true' <<<"$output"
+}
+
+@test "a foreign head's settings hook, key helper, and MCP server do not run on Sonnet in the real Claude either" {
+  [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
+  foreign_pr
+  launch repoa --pr 7 --model sonnet
+  [ "$status" -eq 0 ]
+  run_typed_line
+  [ -z "$(ls "$T/marks")" ]
+}
+
+@test "an own fork's hooks do run from the same Sonnet line, so the real Claude accepts it and the test above is not vacuous" {
+  [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
+  own_pr
+  launch repoa --pr 7 --model sonnet
+  [ "$status" -eq 0 ]
+  run_typed_line
+  [ -e "$T/marks/settings-hook" ]
+}
+
+# head_the_base_holds OWNER: origin's main holds a lockfile, and PR 7's head is that same commit on OWNER's fork.
+head_the_base_holds() {
+  origin_file repoa .gitignore 'node_modules/'
+  origin_file repoa package.json '{"name": "repoa"}'
+  origin_file repoa bun.lock 'locked'
+  git -C "$T/seed-repoa" push -q "$T/forks/$1/repoa.git" main:refs/heads/feat/x
+  git -C "$T/seed-repoa" push -q origin main:refs/pull/7/head
+  gh_item pr 7 "Fix the login" OPEN "$(head_fields "$1")"
+}
+
+@test "a foreign head installs nothing even when the base holds its commit, which is where a trusted head would install" {
+  installing_prime
+  head_the_base_holds evil
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  jaq -e '.head_foreign == true' <<<"$output"
+  [ ! -e "$T/marks/bun-install" ]
+  jaq -e '(.deps // null) == null' <<<"$output"
+}
+
+@test "the same head on a trusted owner's fork does install, so the test above is not vacuous" {
+  installing_prime
+  head_the_base_holds me
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -e "$T/marks/bun-install" ]
+  jaq -e '.deps.status == "installed"' <<<"$output"
 }
