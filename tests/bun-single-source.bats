@@ -32,9 +32,10 @@ BREWFILE="$BATS_TEST_DIRNAME/../stow/brew/Brewfile"
 }
 
 @test "no curl-installed bun executable shadows the Homebrew one" {
-  # By its prefixes as well as PATH, since a hook's non-login shell can lack brew on a host that has it.
-  command -v brew >/dev/null 2>&1 || [ -x /opt/homebrew/bin/brew ] || [ -x /usr/local/bin/brew ] \
-    || [ -x /home/linuxbrew/.linuxbrew/bin/brew ] || skip "Homebrew not installed on this host, so ~/.bun/bin shadows nothing"
+  # A prefix counts only when it holds a bun: a hook's non-login shell can lack brew on a host that has it, and a GitHub
+  # runner ships Homebrew unused, off PATH, with its bun from setup-bun.
+  command -v brew >/dev/null 2>&1 || [ -x /opt/homebrew/bin/bun ] || [ -x /usr/local/bin/bun ] \
+    || [ -x /home/linuxbrew/.linuxbrew/bin/bun ] || skip "no brew on PATH and no Homebrew bun, so ~/.bun/bin shadows nothing"
   local found=""
   for exe in bun bunx; do
     [ -e "$HOME/.bun/bin/$exe" ] && found="$found $exe"
