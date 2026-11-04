@@ -151,18 +151,23 @@ context_for_status() {
   [[ $context == *".gitignore"* ]]
 }
 
-@test "a prime not set up tells the agent everything an install reads, and the way to skip its scripts" {
+@test "a prime not set up tells the agent everything an install reads, and offers no way around reading it" {
   context=$(context_for_status bun 'bun install --frozen-lockfile' prime-not-set-up null)
   echo "context: $context"
   [[ $context == *"was not run"*"prime"* ]]
-  [[ $context == *"package.json"*".npmrc"*"lockfile"*"--ignore-scripts"* ]]
+  [[ $context == *"--ignore-scripts stops only the scripts"* ]]
+  [[ $context == *"package.json"*".npmrc"*".pnpmfile.cjs"*"lockfile"* ]]
+  [[ $context == *"leave it uninstalled"* ]]
+  [[ $context != *"or run it with --ignore-scripts"* ]]
+  [[ $context == *"age gate"* ]]
 }
 
 @test "a head off the base tells the agent everything an install reads, and that the lock skips the age gate" {
   context=$(context_for_status bun 'bun install --frozen-lockfile' head-not-on-base null)
   echo "context: $context"
   [[ $context == *"was not run"*"base branch does not hold this head"* ]]
-  [[ $context == *"package.json"*".npmrc"*"lockfile"*"--ignore-scripts"* ]]
+  [[ $context == *"package.json"*".npmrc"*".pnpmfile.cjs"*"lockfile"* ]]
+  [[ $context != *"or run it with --ignore-scripts"* ]]
   [[ $context == *"age gate"* ]]
 }
 

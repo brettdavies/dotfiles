@@ -77,8 +77,10 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
     solutions='docs/solutions is the solutions repo shared with every other agent; commit to it only through `sd-commit-doc`.'
   fi
   deps=$(contract_json -r '.deps // {} | select((.status // "installed") != "installed")
-    | "An install runs lifecycle scripts, so read every package.json, .npmrc, lockfile, and file those scripts call"
-      + " before you run it, or run it with --ignore-scripts." as $read
+    | "An install runs code the tree names, and --ignore-scripts stops only the scripts: an .npmrc can still run what it"
+      + " names. Read every package.json, .npmrc, .pnpmfile.cjs, lockfile, and file those call before you run it, and if"
+      + " you cannot, leave it uninstalled and say so in your report. A frozen install also takes what a lockfile pins"
+      + " without the supply-chain age gate." as $read
     | "When this slot was made, `\(.command)` "
       + ({failed: "failed; its log is \(.log).",
           "timed-out": "hit the AGENT_SLOT_DEPS_TIMEOUT limit; its log is \(.log).",
@@ -96,8 +98,7 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
           "not-ignored": ("Installing here leaves an untracked tree that blocks teardown and can land in a commit, so add"
             + " node_modules/ to .gitignore first if your task allows that, and otherwise report it."),
           "prime-not-set-up": $read,
-          "head-not-on-base": ($read + " A frozen install also takes what a lockfile pins without the supply-chain age"
-            + " gate.")}[.status] // "")' <<<"$RECORD")
+          "head-not-on-base": $read}[.status] // "")' <<<"$RECORD")
   rules=$(
     cat <<'EOF'
 `agent-slot whoami` names this slot.
