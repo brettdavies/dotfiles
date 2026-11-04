@@ -73,6 +73,8 @@ source "$AS_LIB/read.sh"
 source "$AS_LIB/doctor.sh"
 # shellcheck source=lib/parity.sh
 source "$AS_LIB/parity.sh"
+# shellcheck source=lib/deps.sh
+source "$AS_LIB/deps.sh"
 # shellcheck source=lib/sessions.sh
 source "$AS_LIB/sessions.sh"
 # shellcheck source=lib/head.sh

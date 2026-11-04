@@ -69,6 +69,11 @@ ran() { grep -qxF "$2" "$STUBS/$1-ran"; }
 LEFTOVER='(trap "" TERM HUP; exec sleep 120) </dev/null >/dev/null 2>&1 &
 echo "$!" >"$STUBS/leftover-pid"'
 
+# A body for stub_manager: starts a process that leaves the install's session, and records its pid.
+# shellcheck disable=SC2016 # expanded by the stub that runs it
+DAEMON='setsid sleep 120 </dev/null >/dev/null 2>&1 &
+echo "$!" >"$STUBS/leftover-pid"'
+
 # leftover_is_gone: the recorded process is dead, by its pid, since this suite's tests run side by side and a search by
 # name would find a sibling's. A killed orphan is reaped by init a moment later, and until then it still answers kill -0.
 leftover_is_gone() {
@@ -136,7 +141,7 @@ real_bun() {
   launch r-report
   [ "$status" -eq 0 ]
   jaq -e '.deps == {manager: "bun", command: "bun install --frozen-lockfile", status: "installed", log: null,
-    dirty: [], stopped: []}' <<<"$output"
+    off_base: null, dirty: [], dirty_total: 0, stopped: [], stopped_total: 0}' <<<"$output"
   jaq -e '.phases.deps | type == "number"' <<<"$output"
   jaq -e '.deps.status == "installed"' "$SLOT/.git/agent-slot.json"
   last_launch '.deps.status == "installed" and (.phases.deps | type == "number")'
@@ -150,7 +155,7 @@ real_bun() {
   grep -qxF 'npm ci' "$CALLS"
   ran npm 'npm_age=7'
   ran npm 'playwright=1'
-  jaq -e '.deps == {manager: "npm", command: "npm ci", status: "installed", log: null, dirty: [], stopped: []}' <<<"$output"
+  jaq -e '.deps == {manager: "npm", command: "npm ci", status: "installed", log: null, off_base: null, dirty: [], dirty_total: 0, stopped: [], stopped_total: 0}' <<<"$output"
 }
 
 @test "a pnpm repo's slot gets a frozen install under the supply-chain age gate" {
@@ -213,7 +218,7 @@ real_bun() {
   never_called '^bun install'
   [ ! -e "$SLOT/node_modules" ]
   jaq -e '.deps == {manager: "bun", command: "bun install --frozen-lockfile", status: "prime-not-set-up", log: null,
-    dirty: [], stopped: []} and .state == "active"' <<<"$output"
+    off_base: null, dirty: [], dirty_total: 0, stopped: [], stopped_total: 0} and .state == "active"' <<<"$output"
 }
 
 @test "a prime whose node_modules is empty is not set up" {
@@ -233,6 +238,17 @@ real_bun() {
   rm -rf "$PRIME/node_modules"
   mkdir -p "$PRIME/node_modules/.cache/prettier"
   launch r-cache
+  [ "$status" -eq 0 ]
+  never_called '^bun install'
+  jaq -e '.deps.status == "prime-not-set-up"' <<<"$output"
+}
+
+@test "a prime whose node_modules holds only a tool's dot directory is not set up" {
+  js_repo bun.lock
+  stub_manager bun
+  rm -rf "$PRIME/node_modules"
+  mkdir -p "$PRIME/node_modules/.vite/deps" "$PRIME/node_modules/.cache"
+  launch r-dotdirs
   [ "$status" -eq 0 ]
   never_called '^bun install'
   jaq -e '.deps.status == "prime-not-set-up"' <<<"$output"
@@ -278,7 +294,35 @@ real_bun() {
   launch r-newdev
   [ "$status" -eq 0 ]
   never_called '^bun install'
-  jaq -e '.deps.status == "head-not-on-base" and .state == "active"' <<<"$output"
+  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "prime-lacks-base" and .state == "active"' <<<"$output"
+}
+
+@test "a base whose history was replaced since the prime last saw it is off the base, until the prime fetches it" {
+  js_repo bun.lock
+  stub_manager bun
+  git -C "$PRIME" fetch -q origin
+  git -C "$T/seed-repoa" switch -q --orphan replaced
+  git -C "$T/seed-repoa" checkout -q main -- .
+  git -C "$T/seed-repoa" add -A
+  git -C "$T/seed-repoa" commit -q -m 'nothing in common'
+  git -C "$T/seed-repoa" push -q -f origin replaced:main
+  launch r-replaced
+  [ "$status" -eq 0 ]
+  never_called '^bun install'
+  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "base-rewritten"' <<<"$output"
+  git -C "$PRIME" fetch -q origin
+  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-refetched --output json
+  [ "$status" -eq 0 ]
+  grep -qxF 'bun install --frozen-lockfile' "$CALLS"
+  jaq -e '.deps.status == "installed" and .deps.off_base == null' <<<"$output"
+}
+
+@test "a clean install on the base reports nothing off the base" {
+  js_repo bun.lock
+  stub_manager bun
+  launch r-onbase
+  [ "$status" -eq 0 ]
+  jaq -e '.deps.status == "installed" and .deps.off_base == null and .deps.dirty_total == 0 and .deps.stopped_total == 0' <<<"$output"
 }
 
 @test "a dev the prime holds is the base, and its tip installs" {
@@ -346,7 +390,52 @@ real_bun() {
   stub_manager bun 'mkdir -p packages/a/node_modules/tool; touch packages/a/node_modules/tool/index.js'
   launch r-workspace
   [ "$status" -eq 0 ]
-  jaq -e '.deps.status == "installed" and .deps.dirty == ["packages/"]' <<<"$output"
+  jaq -e '.deps.status == "installed" and .deps.dirty == ["packages/a/node_modules/tool/index.js"]' <<<"$output"
+}
+
+@test "an install that dirties thousands of paths keeps the slot, and the list is cut with its total" {
+  js_repo bun.lock
+  stub_manager bun 'for ((i = 0; i < 4000; i++)); do : >"generated-$i.txt"; done'
+  launch r-many
+  [ "$status" -eq 0 ]
+  jaq -e '.state == "active" and .deps.status == "installed"' <<<"$output"
+  jaq -e '(.deps.dirty | length) == 50 and .deps.dirty_total == 4000' <<<"$output"
+  last_launch '.deps.dirty_total == 4000'
+}
+
+@test "a very long path an install leaves is cut, so the list stays short enough to pass as an argument" {
+  js_repo bun.lock
+  stub_manager bun 'for ((i = 0; i < 60; i++)); do
+  d=$(printf "d$i%.0s" {1..80})/$(printf "e%.0s" {1..200})/$(printf "f%.0s" {1..200})/$(printf "g%.0s" {1..200})
+  mkdir -p "$d"
+  : >"$d/file"
+done'
+  launch r-long
+  [ "$status" -eq 0 ]
+  jaq -e '.state == "active" and .deps.dirty_total == 60 and (.deps.dirty | map(length) | max) <= 256' <<<"$output"
+}
+
+@test "the paths an install leaves are named as they are on disk" {
+  js_repo bun.lock
+  origin_file repoa README.md 'hello'
+  stub_manager bun ': >"a b.txt"; : >"né.txt"; git mv README.md README2.md'
+  launch r-names
+  [ "$status" -eq 0 ]
+  jaq -e '(.deps.dirty | sort) == ["README.md", "README2.md", "a b.txt", "né.txt"]' <<<"$output"
+}
+
+@test "a write inside a directory setup filled, or that the ignore rules hide, is named, while tool and build output is not" {
+  origin_file repoa .gitignore $'node_modules/\n.claude/\ndist/\nlogs/'
+  origin_file repoa package.json '{"name": "repoa"}'
+  origin_file repoa bun.lock 'locked'
+  stub_manager bun 'mkdir -p .claude docs dist logs
+echo x >.claude/settings.json
+echo x >docs/generated.md
+echo x >dist/app.js
+echo x >logs/run.log'
+  launch r-hidden
+  [ "$status" -eq 0 ]
+  jaq -e '(.deps.dirty | sort) == [".claude/settings.json", "docs/generated.md", "logs/"]' <<<"$output"
 }
 
 @test "what a failed install leaves dirty is named too" {
@@ -384,6 +473,51 @@ sleep 30"
   leftover_is_gone
 }
 
+@test "a process that left the install's session is stopped and named too" {
+  js_repo bun.lock
+  stub_manager bun "$DAEMON"
+  launch r-daemon
+  [ "$status" -eq 0 ]
+  jaq -e '.deps.status == "installed" and .deps.stopped == ["sleep"]' <<<"$output"
+  leftover_is_gone
+}
+
+@test "a process that cleared its environment but stayed in the install's session is stopped too" {
+  js_repo bun.lock
+  stub_manager bun '/usr/bin/env -i sleep 120 </dev/null >/dev/null 2>&1 &
+echo "$!" >"$STUBS/leftover-pid"'
+  launch r-cleared
+  [ "$status" -eq 0 ]
+  jaq -e '.deps.status == "installed" and .deps.stopped == ["sleep"]' <<<"$output"
+  leftover_is_gone
+}
+
+@test "a process that keeps forking and ignores its stop signal is gone once setup is done" {
+  js_repo bun.lock
+  stub_manager bun '(trap "" TERM HUP; while :; do sleep 0.05 & wait; done) </dev/null >/dev/null 2>&1 &
+echo "$!" >"$STUBS/leftover-pid"'
+  launch r-forker
+  [ "$status" -eq 0 ]
+  jaq -e '.deps.status == "installed" and (.deps.stopped | length) >= 1' <<<"$output"
+  leftover_is_gone
+}
+
+@test "a launch stopped during an install leaves nothing of the install running" {
+  js_repo bun.lock
+  stub_manager bun "$DAEMON
+touch \"\$STUBS/install-started\"
+sleep 30"
+  spawn "$AGENT_SLOT" launch repoa --request-id r-term --output json
+  local i
+  for ((i = 0; i < 300; i++)); do
+    [ ! -e "$STUBS/install-started" ] || break
+    sleep 0.1
+  done
+  [ -e "$STUBS/install-started" ]
+  kill -TERM "${SPAWNED[0]}"
+  leftover_is_gone
+}
+
 @test "an install's own session is what gets stopped, not a process setup already had" {
   js_repo bun.lock
   stub_manager bun
@@ -400,7 +534,7 @@ sleep 30"
   launch r-absent
   [ "$status" -eq 0 ]
   jaq -e '.deps == {manager: "pnpm", command: "pnpm install --frozen-lockfile", status: "tool-missing", log: null,
-    dirty: [], stopped: []} and .state == "active"' <<<"$output"
+    off_base: null, dirty: [], dirty_total: 0, stopped: [], stopped_total: 0} and .state == "active"' <<<"$output"
 }
 
 @test "a launch in text mode says when dependencies did not install, and names the log" {

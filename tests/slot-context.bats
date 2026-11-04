@@ -56,6 +56,13 @@ context_for_deps() {
   start s1 startup | jaq -r '.hookSpecificOutput.additionalContext'
 }
 
+# context_for_off_base STATUS OFF_BASE: the context a slot on base main gets whose install ended in STATUS for that cause.
+context_for_off_base() {
+  slot repo 1 "$(jaq -n -c --arg s "$1" --arg o "$2" '{task: "t", prime: "/dev/the-prime", base: "main",
+    deps: {manager: "bun", command: "bun install --frozen-lockfile", status: $s, log: null, off_base: $o}}')"
+  start s1 startup | jaq -r '.hookSpecificOutput.additionalContext'
+}
+
 # context_for_status MANAGER COMMAND STATUS LOG [SOURCE]: the context a slot gets whose install ended in STATUS. LOG is
 # JSON, a quoted path or null.
 context_for_status() {
@@ -162,7 +169,8 @@ context_for_status() {
   echo "context: $context"
   [[ $context == *"was not run"*"prime"* ]]
   [[ $context == *"--ignore-scripts stops only the scripts"* ]]
-  [[ $context == *"package.json"*".npmrc"*".pnpmfile.cjs"*"lockfile"* ]]
+  [[ $context == *"any tracked file can change what it runs"*"pnpm-workspace.yaml"*"binding.gyp"*".env"* ]]
+  [[ $context == *"the whole tree"* ]]
   [[ $context == *"leave it uninstalled"* ]]
   [[ $context != *"or run it with --ignore-scripts"* ]]
   [[ $context == *"age gate"* ]]
@@ -172,7 +180,7 @@ context_for_status() {
   context=$(context_for_status bun 'bun install --frozen-lockfile' head-not-on-base null)
   echo "context: $context"
   [[ $context == *"was not run"*"base branch does not hold this head"* ]]
-  [[ $context == *"package.json"*".npmrc"*".pnpmfile.cjs"*"lockfile"* ]]
+  [[ $context == *"any tracked file can change what it runs"* ]]
   [[ $context != *"or run it with --ignore-scripts"* ]]
   [[ $context == *"age gate"* ]]
 }
@@ -182,6 +190,54 @@ context_for_status() {
   echo "context: $context"
   [[ $context == *"Later slots of this repo install on their own once"*"/dev/the-prime"* ]]
   [[ $context == *"the operator"* ]]
+}
+
+@test "a head off the base hears the whole diff to read, against its own base" {
+  context=$(context_for_off_base head-not-on-base base-lacks-head)
+  echo "context: $context"
+  [[ $context == *'`git diff origin/main...HEAD`'* ]]
+}
+
+@test "each reason a head is off the base says what is true of it" {
+  local cause phrase
+  while IFS='|' read -r cause phrase; do
+    context=$(context_for_off_base head-not-on-base "$cause")
+    echo "$cause: $context"
+    [[ $context == *"was not run, because $phrase"* ]]
+    rm -rf "$SLOT"
+  done <<'EOF'
+prime-lacks-base|the prime holds no branch named main
+base-rewritten|origin's main no longer holds what the prime last knew of it
+base-lacks-head|main does not hold this head
+pr-base-lacks-head|the branch this PR targets does not hold this head
+pr-head-behind-base|this PR's head is behind main
+EOF
+}
+
+@test "a prime with no branch of the base's name names the step that lets later slots install" {
+  context=$(context_for_off_base head-not-on-base prime-lacks-base)
+  echo "context: $context"
+  [[ $context == *'`git -C /dev/the-prime fetch origin main:main`'* ]]
+  rm -rf "$SLOT"
+  context=$(context_for_off_base prime-not-set-up prime-lacks-base)
+  echo "context: $context"
+  [[ $context == *'`git -C /dev/the-prime fetch origin main:main`'*"opened Claude there"* ]]
+  rm -rf "$SLOT"
+  context=$(context_for_off_base head-not-on-base base-lacks-head)
+  [[ $context != *"fetch origin main:main"* ]]
+}
+
+@test "a head off the base on a prime not set up hears that its hooks and instructions are unread too" {
+  context=$(context_for_off_base prime-not-set-up base-lacks-head)
+  echo "context: $context"
+  [[ $context == *"was not run"*"prime"* ]]
+  [[ $context == *"git hooks"*".claude"*"CLAUDE.md"*"unread"* ]]
+}
+
+@test "a head on the base on a prime not set up hears nothing about unread hooks" {
+  context=$(context_for_status bun 'bun install --frozen-lockfile' prime-not-set-up null)
+  echo "context: $context"
+  [[ $context != *"git hooks"* ]]
 }
 
 @test "a head off the base hears that its hooks and instructions are unread too" {
@@ -207,6 +263,15 @@ context_for_status() {
   [[ $context == *"package.json, stamp.txt"* ]]
   [[ $context == *"block teardown"*"commit"* ]]
   [[ $context != *"did not"* ]]
+  [[ $context != *"more"* ]]
+}
+
+@test "an install that left more than the list holds says how many more" {
+  context=$(context_for_deps '{"manager": "bun", "command": "bun install --frozen-lockfile", "status": "installed", "log": null,
+    "dirty": ["a.txt", "b.txt"], "dirty_total": 4000, "stopped": ["sleep"], "stopped_total": 7}')
+  echo "context: $context"
+  [[ $context == *"a.txt, b.txt and 3998 more"* ]]
+  [[ $context == *"sleep and 6 more"* ]]
 }
 
 @test "an install that left a process running names what setup stopped" {

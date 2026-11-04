@@ -863,18 +863,6 @@ bun_repo() {
   trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
 }
 
-@test "launch --pr installs a head the base branch already holds" {
-  github_origin
-  bun_repo
-  origin_file repoa notes.txt 'later'
-  git -C "$T/seed-repoa" push -q origin main~1:refs/heads/feat/x main~1:refs/pull/7/head
-  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
-  launch repoa --pr 7
-  [ "$status" -eq 0 ]
-  [ -e "$STUBS/prepare-ran" ]
-  jaq -e '.deps.status == "installed"' <<<"$output"
-}
-
 @test "launch --pr never runs a fork head's install, which would run a stranger's lifecycle scripts unread" {
   github_origin
   bun_repo
@@ -948,14 +936,36 @@ bun_repo() {
   launch repoa --pr 7
   [ "$status" -eq 0 ]
   [ ! -e "$STUBS/prepare-ran" ]
-  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
+  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "pr-base-lacks-head"' <<<"$output"
 }
 
-@test "launch --pr installs a head its PR's base holds" {
+@test "launch --pr with no base from gh is off the base rather than unchecked" {
+  github_origin
+  bun_repo
+  git -C "$T/seed-repoa" push -q origin main:refs/heads/feat/x main:refs/pull/7/head
+  gh_item pr 7 "Fix the login" OPEN '{"headRefName": "feat/x", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/prepare-ran" ]
+  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "pr-base-lacks-head"' <<<"$output"
+}
+
+@test "launch --pr on a head set back to an older commit of the base does not install" {
   github_origin
   bun_repo
   origin_file repoa notes.txt 'later'
   git -C "$T/seed-repoa" push -q origin main~1:refs/heads/feat/x main~1:refs/pull/7/head
+  gh_item pr 7 "Fix the login" OPEN '{"headRefName": "feat/x", "baseRefName": "main", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/prepare-ran" ]
+  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "pr-head-behind-base"' <<<"$output"
+}
+
+@test "launch --pr installs a head that is the tip of its PR's base" {
+  github_origin
+  bun_repo
+  git -C "$T/seed-repoa" push -q origin main:refs/heads/feat/x main:refs/pull/7/head
   gh_item pr 7 "Fix the login" OPEN '{"headRefName": "feat/x", "baseRefName": "main", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
   launch repoa --pr 7
   [ "$status" -eq 0 ]
@@ -973,6 +983,7 @@ bun_repo() {
   launch repoa --pr 7
   [ "$status" -eq 0 ]
   [ ! -e "$STUBS/prepare-ran" ]
+  jaq -e '.deps.off_base == "base-lacks-head"' <<<"$output"
   jaq -e '.deps.status == "prime-not-set-up"' <<<"$output"
 }
 

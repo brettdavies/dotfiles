@@ -88,7 +88,7 @@ oxipng_887() {
       and .head_branch == "fix/trns-16-to-8" and .head_repo == "andrews05/oxipng"
       and .head_url == "https://github.com/andrews05/oxipng.git" and .cross_repository == true' <<<"$output"
     grep -qx 'gh api repos/oxipng/oxipng/issues/887' "$CALLS"
-    grep -q '^gh pr view 887 --repo oxipng/oxipng --json ' "$CALLS"
+    grep -q '^gh pr view 887 --repo oxipng/oxipng --json .*baseRefName' "$CALLS"
   done
 }
 
