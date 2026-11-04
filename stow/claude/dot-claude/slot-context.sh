@@ -76,11 +76,13 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
   else
     solutions='docs/solutions is the solutions repo shared with every other agent; commit to it only through `sd-commit-doc`.'
   fi
-  deps=$(contract_json -r '.deps // {} | select((.status // "installed") != "installed")
+  deps=$(contract_json -r '(.prime // "its prime checkout") as $prime
+    | .deps // {} | select((.status // "installed") != "installed")
     | "An install runs code the tree names, and --ignore-scripts stops only the scripts: an .npmrc can still run what it"
       + " names. Read every package.json, .npmrc, .pnpmfile.cjs, lockfile, and file those call before you run it, and if"
       + " you cannot, leave it uninstalled and say so in your report. A frozen install also takes what a lockfile pins"
       + " without the supply-chain age gate." as $read
+    | " If your head has since left the base branch, read what it changes first." as $moved
     | "When this slot was made, `\(.command)` "
       + ({failed: "failed; its log is \(.log).",
           "timed-out": "hit the AGENT_SLOT_DEPS_TIMEOUT limit; its log is \(.log).",
@@ -92,13 +94,15 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
          // "reported \(.status).")
       + " If it has not succeeded since, the repo'"'"'s hooks fail their tool gates, so deal with that before your first"
       + " push. "
-      + ({failed: "Read the log, fix what it names, and rerun the command from the slot root.",
-          "timed-out": "Rerun it from the slot root, where that limit does not apply.",
+      + ({failed: ("Read the log, fix what it names, and rerun the command from the slot root." + $moved),
+          "timed-out": ("Rerun it from the slot root, where that limit does not apply." + $moved),
           "tool-missing": "Installing a package manager is a host change, so report this to whoever you report to.",
           "not-ignored": ("Installing here leaves an untracked tree that blocks teardown and can land in a commit, so add"
             + " node_modules/ to .gitignore first if your task allows that, and otherwise report it."),
-          "prime-not-set-up": $read,
-          "head-not-on-base": $read}[.status] // "")' <<<"$RECORD")
+          "prime-not-set-up": ($read + " Later slots of this repo install on their own once the operator has run this"
+            + " install in the prime at \($prime) and opened Claude there."),
+          "head-not-on-base": ($read + " This head'"'"'s git hooks, .claude settings, and CLAUDE.md are unread too, and"
+            + " they run or load whether or not you install.")}[.status] // "")' <<<"$RECORD")
   rules=$(
     cat <<'EOF'
 `agent-slot whoami` names this slot.

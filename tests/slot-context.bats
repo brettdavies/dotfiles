@@ -54,7 +54,7 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
 # JSON, a quoted path or null.
 context_for_status() {
   slot repo 1 "$(jaq -n -c --arg m "$1" --arg c "$2" --arg s "$3" --argjson l "$4" \
-    '{task: "t", deps: {manager: $m, command: $c, status: $s, log: $l}}')"
+    '{task: "t", prime: "/dev/the-prime", deps: {manager: $m, command: $c, status: $s, log: $l}}')"
   start s1 "${5:-startup}" | jaq -r '.hookSpecificOutput.additionalContext'
 }
 
@@ -171,10 +171,34 @@ context_for_status() {
   [[ $context == *"age gate"* ]]
 }
 
+@test "a prime not set up names the one step that lets later slots install" {
+  context=$(context_for_status bun 'bun install --frozen-lockfile' prime-not-set-up null)
+  echo "context: $context"
+  [[ $context == *"Later slots of this repo install on their own once"*"/dev/the-prime"* ]]
+  [[ $context == *"the operator"* ]]
+}
+
+@test "a head off the base hears that its hooks and instructions are unread too" {
+  context=$(context_for_status bun 'bun install --frozen-lockfile' head-not-on-base null)
+  echo "context: $context"
+  [[ $context == *"git hooks"*".claude"*"CLAUDE.md"*"unread"* ]]
+}
+
+@test "an install that failed or timed out warns the agent to read a head it has since moved to" {
+  local status_name
+  for status_name in failed timed-out; do
+    context=$(context_for_status bun 'bun install --frozen-lockfile' "$status_name" '"/l"' resume)
+    echo "context: $context"
+    [[ $context == *"If your head has since left the base branch, read what it changes first"* ]]
+    rm -rf "$SLOT"
+  done
+}
+
 @test "a failed install hears nothing about reading a head" {
   context=$(context_for_status bun 'bun install --frozen-lockfile' failed '"/l"')
   echo "context: $context"
   [[ $context != *"--ignore-scripts"* ]]
+  [[ $context != *"leave it uninstalled"* ]]
   [[ $context != *"age gate"* ]]
 }
 
