@@ -1236,34 +1236,43 @@ Entries are review items left for the author; they do not block implementation.
 
 - **The launcher's strip list names exact switches** — R9, the launcher (P3, security-lens, confidence 50)
 
-  An agent that hits `No usable sandbox!` and sees `--no-sandbox` have no effect may try a sibling switch. Chromium also honors `--disable-seccomp-filter-sandbox`, `--disable-namespace-sandbox`, `--single-process`, `--disable-web-security`, and `--disable-site-isolation-trials`, and reads `-no-sandbox` and `--no-sandbox=1` as the same switch. Not measured here.
+  An agent that hits `No usable sandbox!` and sees `--no-sandbox` have no effect may try a sibling switch. Chromium also
+  honors `--disable-seccomp-filter-sandbox`, `--disable-namespace-sandbox`, `--single-process`,
+  `--disable-web-security`, and `--disable-site-isolation-trials`, and reads `-no-sandbox` and `--no-sandbox=1` as the
+  same switch. Not measured here.
 
   Change: match on the normalized switch name and add those five, with a bats case for each form.
 
 - **The launcher can reach the owner's signed-in Chrome on the Mac** — R9, the launcher, with R14, the Mac keeps its
   Chrome (P2, security-lens, confidence 50)
 
-  A direct run with no `--user-data-dir` opens the everyday profile. Playwright and the shim always pass a temporary directory, so this needs an agent to run the launcher by hand. Inference from Chrome's default behavior; nothing was measured on the Mac.
+  A direct run with no `--user-data-dir` opens the everyday profile. Playwright and the shim always pass a temporary
+  directory, so this needs an agent to run the launcher by hand. Inference from Chrome's default behavior; nothing was
+  measured on the Mac.
 
   Change: the launcher refuses to start unless `--user-data-dir` is present and outside the default profile directory.
 
 - **Chrome's upgrade cadence could match CfT's poll** — R13, Chrome updates (P3, adversarial, confidence 50)
 
-  An hourly system timer for Google's list refresh and upgrade fits the same one-time deploy, and it would remove Option B's typical-case lag advantage. The daily run is simpler and already reviewed.
+  An hourly system timer for Google's list refresh and upgrade fits the same one-time deploy, and it would remove Option
+  B's typical-case lag advantage. The daily run is simpler and already reviewed.
 
   Change: replace the daily drop-in with an hourly timer if that lag matters more than the extra moving part.
 
 - **Stale builds stay in use until the set rewrite lands** — Dependencies, #431 merges first (P3, product-lens,
   confidence 50)
 
-  gstack keeps browsing on a build that trusts the compromised CA until the rewrite ships. Moving the existing script's `CFT_VERSION` to a current build and aliasing revision 1248 is a few lines ahead of it.
+  gstack keeps browsing on a build that trusts the compromised CA until the rewrite ships. Moving the existing script's
+  `CFT_VERSION` to a current build and aliasing revision 1248 is a few lines ahead of it.
 
   Change: make that the first commit after #431 merges, if the rewrite will take more than a few days.
 
 - **The replaced-executable report asks for a shared-library split** — R16, the Chrome check (P2, scope-guardian,
   confidence 50)
 
-  The report restarts nothing and needs a report-only split of `scripts/upgrade/lib/stale-procs.sh`, which `brew.sh` also uses. A running browser survived its directory being removed (measured on CfT), though replacing Chrome's files under a live daemon through dpkg was not run.
+  The report restarts nothing and needs a report-only split of `scripts/upgrade/lib/stale-procs.sh`, which `brew.sh`
+  also uses. A running browser survived its directory being removed (measured on CfT), though replacing Chrome's files
+  under a live daemon through dpkg was not run.
 
   Change: drop the report and AE12 if the first Chrome upgrade under a live daemon shows no breakage.
 
