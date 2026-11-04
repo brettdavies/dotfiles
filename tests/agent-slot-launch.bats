@@ -40,6 +40,13 @@ launch() {
   run --separate-stderr "$AGENT_SLOT" launch "$@" --output json
 }
 
+# brief FILE [TEXT]: writes a brief with the four lines every brief carries, then TEXT, with no newline after it, since
+# the shell's $(cat ...) that hands Claude the brief drops trailing newlines.
+brief() {
+  printf 'Scope: fix the login.\nLimits: the operator set the scope; the coordinating session set the time box.\n%s\n%s\n%s' \
+    'Reviews: ce-code-review, at most 2 rounds.' 'Reports to: skills-prime.' "${2:-}" >"$1"
+}
+
 # github_origin: repoa's prime with its origin at GitHub's https URL for up/repoa, which the test's git config rewrites
 # to the local bare origin, and gh answering from gh_item's fixtures.
 github_origin() {
@@ -455,16 +462,34 @@ assert_own_worktree() {
   [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
 }
 
-@test "a repeat launch by task says its first message was not delivered; a retry of the same request says it was" {
-  echo 'first brief' >"$T/brief.md"
+@test "a brief with no Scope:, Limits:, Reviews:, or Reports to: line is refused before any slot is made" {
+  printf '%s\n' 'Fix the login.' '- **Scope:** the login form only.' 'reviews: ce-code-review' >"$T/brief.md"
+  launch repoa --request-id r-brief --prompt-file "$T/brief.md"
+  [ "$status" -eq 2 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "brief-incomplete" and .value == "Limits: Reports to:"
+    and .next_step.command == "agent-slot launch --help"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+  brief "$T/brief.md"
+  launch repoa --request-id r-brief --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  jaq -e '.created == true and .prompt_delivered == true' <<<"$output"
+}
+
+@test "a brief that finds another request's slot for the task is refused, never dropped; a retry of its request is not" {
+  brief "$T/brief.md" 'first brief'
   launch repoa --task t1 --request-id r-a --prompt-file "$T/brief.md"
   jaq -e '.created == true and .prompt_delivered == true' <<<"$output"
   launch repoa --task t1 --request-id r-b --prompt-file "$T/brief.md"
-  jaq -e '.created == false and .prompt_delivered == false' <<<"$output"
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "item-held-by-slot" and .value == "repoa/1"
+    and (.message | test("already holds this task, so this brief would not reach it"))
+    and .next_step.command == "agent-slot check repoa/1 --output json"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
+  launch repoa --task t1 --request-id r-b
+  jaq -e '.created == false and .key == "repoa/1" and .prompt_delivered == null' <<<"$output"
   launch repoa --task t1 --request-id r-a --prompt-file "$T/brief.md"
   jaq -e '.created == false and .prompt_delivered == true' <<<"$output"
-  launch repoa --task t2
-  jaq -e '.prompt_delivered == null' <<<"$output"
 }
 
 @test "a launch's next step is a command the caller on the server can run" {
@@ -492,7 +517,7 @@ assert_own_worktree() {
 }
 
 @test "a first message with quotes, \$, and newlines reaches Claude unchanged" {
-  printf '%s' $'Fix the "login" bug: it'"'"'s $HOME and `date`\nsecond line\n\nfourth' >"$T/brief.md"
+  brief "$T/brief.md" $'Fix the "login" bug: it\'s $HOME and `date`\nsecond line\n\nfourth'
   launch repoa --request-id r-prompt --prompt-file "$T/brief.md" --task brief-task
   [ "$status" -eq 0 ]
   mkdir -p "$T/fakebin"
@@ -694,7 +719,7 @@ EOF
     >"$AGENT_SLOT_ROOT/repoa/.1.claim.json"
   spawn flock "$AGENT_SLOT_ROOT/repoa/.1.lock" sleep 60 3>&-
   until [ -n "$(find /proc/$!/fd -lname "$AGENT_SLOT_ROOT/repoa/.1.lock" 2>/dev/null)" ]; do sleep 0.1; done
-  echo 'brief' >"$T/brief.md"
+  brief "$T/brief.md"
   launch repoa --request-id r-live --prompt-file "$T/brief.md"
   [ "$status" -eq 1 ]
   [ -z "$output" ]

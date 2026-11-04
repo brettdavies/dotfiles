@@ -50,7 +50,9 @@ verb_help() {
       '                         [--output json]' \
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
       '--dangerously-skip-permissions. A repeat with the same --request-id, --task, or work item returns the same' \
-      'slot. Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
+      'slot, except that a --prompt-file from another request is refused with item-held-by-slot rather than' \
+      'dropped. A --prompt-file needs a line for each of Scope:, Limits:, Reviews:, and Reports to:, or the launch' \
+      'is refused with brief-incomplete. Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
       '-, and /, starting with a letter or digit, up to 64. A new slot pushes a restore to the Rex helper on this' \
       "host, so its tab opens in Rex; the push runs in the background and is logged to $AS_STATE_DIR/push.log." \
       '--pr or --issue gives the slot a work item and a name from it, <repo>-pr<N>-<slug> or <repo>-issue<N>-<slug>,' \
@@ -64,7 +66,7 @@ verb_help() {
       'line keeps them for doctor'"'"'s key to ready.' \
       'returns: created, key, repo, slot, path, state, task, name, items[] of {kind, repo, number, title}, label_name,' \
       '         request_id, session_id, base, head_pushable (null without a PR head), trust_prompt_expected,' \
-      '         prompt_delivered (false when the slot already held the task), missing_siblings, phases, next_step,' \
+      '         prompt_delivered (null without --prompt-file), missing_siblings, phases, next_step,' \
       '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
       '         reopen resumes, else null)' \
       'example: agent-slot launch dotfiles --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
