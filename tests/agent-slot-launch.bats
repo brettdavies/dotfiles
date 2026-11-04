@@ -966,3 +966,75 @@ EOF
   [[ $output == *$'\nreturns: '*name*items*label_name*head_pushable* ]]
   [[ $output == *"example: agent-slot launch "*"--pr "* ]]
 }
+
+# A branch of the repo's own can track any of these links, so the rule holds for every slot, not only a foreign head's.
+@test "setup replaces a tracked settings.local.json link instead of writing through it, and the file it names is untouched" {
+  printf 'the guard hooks\n' >"$T/outside-settings.json"
+  origin_symlink repoa .claude/settings.local.json "$T/outside-settings.json"
+  launch repoa --request-id r-link
+  [ "$status" -eq 0 ]
+  local slot=$AGENT_SLOT_ROOT/repoa/1
+  [ "$(cat "$T/outside-settings.json")" = 'the guard hooks' ]
+  [ ! -L "$slot/.claude/settings.local.json" ]
+  jaq -e 'has("autoMemoryDirectory")' "$slot/.claude/settings.local.json"
+  [ -z "$(git -C "$slot" status --porcelain -- .claude)" ]
+}
+
+@test "a tracked settings.local.json link to a directory outside the slot gets nothing written there" {
+  mkdir -p "$T/outside-dir"
+  origin_symlink repoa .claude/settings.local.json "$T/outside-dir"
+  launch repoa --request-id r-link
+  [ "$status" -eq 0 ]
+  [ -z "$(ls -A "$T/outside-dir")" ]
+  jaq -e 'has("autoMemoryDirectory")' "$AGENT_SLOT_ROOT/repoa/1/.claude/settings.local.json"
+}
+
+# assert_refused_link DIR STDERR: the launch's error names DIR as a tracked link out of the slot, nothing was written at
+# the link's target, and no slot is left behind.
+assert_refused_link() {
+  assert_error_shape "$2"
+  jaq -e --arg v "$AGENT_SLOT_ROOT/repoa/1/$1" '.reason == "tracked-link-leaves-slot" and .value == $v' <<<"$2"
+  [ -z "$(ls -A "$T/outside-dir")" ]
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+}
+
+@test "a head whose .claude is a link out of the slot is refused, with nothing written there" {
+  mkdir -p "$T/outside-dir"
+  origin_symlink repoa .claude "$T/outside-dir"
+  launch repoa --request-id r-link
+  [ "$status" -ne 0 ]
+  assert_refused_link .claude "$stderr"
+}
+
+@test "a head whose docs is a link out of the slot is refused, with nothing written there" {
+  mkdir -p "$T/outside-dir"
+  origin_symlink repoa docs "$T/outside-dir"
+  launch repoa --request-id r-link
+  [ "$status" -ne 0 ]
+  assert_refused_link docs "$stderr"
+}
+
+@test "a head whose .context is a link out of the slot is refused when a repo-recon store would be linked there" {
+  github_origin
+  mkdir -p "$T/outside-dir" "$AGENT_SLOT_REPO_RECON/up/repoa"
+  origin_symlink repoa .context "$T/outside-dir"
+  launch repoa --request-id r-link
+  [ "$status" -ne 0 ]
+  assert_refused_link .context "$stderr"
+}
+
+@test "a dangling link out of the slot is refused too" {
+  mkdir -p "$T/outside-dir"
+  origin_symlink repoa .claude "$T/outside-dir/not-there"
+  launch repoa --request-id r-link
+  [ "$status" -ne 0 ]
+  assert_refused_link .claude "$stderr"
+}
+
+@test "a link that stays inside the slot still takes setup's writes" {
+  origin_file repoa conf/keep x
+  origin_symlink repoa .claude conf
+  launch repoa --request-id r-link
+  [ "$status" -eq 0 ]
+  jaq -e 'has("autoMemoryDirectory")' "$AGENT_SLOT_ROOT/repoa/1/conf/settings.local.json"
+}

@@ -498,6 +498,10 @@ checkout has for that repository, or `fork`. A head whose branch or repository i
 base branch. When a torn-down slot worked on the same item, the launch reports it in `prior`, with the reopen that
 resumes its conversation.
 
+Setup writes nothing through a link in the tree, on a slot of any head, since any branch can track one. A tracked
+`.claude/settings.local.json` link is replaced in the slot and marked skip-worktree, and a `.claude`, `docs`, or
+`.context` that is a link out of the slot refuses the launch with `tracked-link-leaves-slot`.
+
 Each teardown appends a `teardown` event to `~/.local/state/agent-slot/ledger.jsonl` with the slot's `items`, `name`,
 `head` (the branch its clone had checked out), and `branches` (each branch's name and commit, with the remote and URL it
 pushes to), beside its task, PRs, Claude session ID, and transcript path; `launch`, `adopt`, and `reopen` events carry
@@ -675,6 +679,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `slot-limit-reached`          | 78   | The repo holds the most live slots allowed; finish one, or raise `AGENT_SLOT_MAX_PER_REPO`     |
 | `clone-failed`                | 1    | Cloning from origin failed; retry with the same request ID                                     |
 | `solutions-symlink-missing`   | 78   | The solutions repo is missing or has no origin/main, so the slot gets no worktree of it        |
+| `tracked-link-leaves-slot`    | 78   | The head tracks `.claude`, `docs`, or `.context` as a link out of the slot, so setup refuses it |
 | `hooks-path-outside-checkout` | 78   | The repo's own `core.hooksPath` points outside its checkout                                    |
 | `git-crypt-locked`            | 78   | A git-crypt repo could not be unlocked: git-crypt or its key is missing                        |
 | `trust-dialog-unrecognized`   | 78   | Claude showed a screen other than its trust dialog for the path; accept it by hand             |
