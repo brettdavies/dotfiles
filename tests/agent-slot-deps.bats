@@ -255,6 +255,25 @@ real_bun() {
     and .state == "active"' <<<"$output"
 }
 
+@test "a launch in text mode says when dependencies did not install, and names the log" {
+  js_repo bun.lock
+  stub_manager bun 'exit 1'
+  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-text
+  [ "$status" -eq 0 ]
+  echo "output: $output"
+  [[ $output == *"is ready"*"dependencies not installed (failed)"*"log: "*deps.log* ]]
+}
+
+@test "a launch in text mode says nothing about dependencies that installed" {
+  js_repo bun.lock
+  stub_manager bun
+  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-text-ok
+  [ "$status" -eq 0 ]
+  echo "output: $output"
+  [[ $output == *"is ready"* ]]
+  [[ $output != *"dependencies"* ]]
+}
+
 @test "a real frozen install populates node_modules, leaves the tree clean, and blocks no teardown" {
   real_bun
   launch r-real
