@@ -144,26 +144,125 @@ check_pr_freeze() {
 
 ((${#frozen[@]})) && check_pr_freeze "$@"
 
-# Intercept 'gh pr merge' commands
-if [[ "$*" == *"pr merge"* ]]; then
-  # Extract PR ref: first non-flag arg after "merge"
-  pr_ref=""
-  found_merge=false
-  for arg in "$@"; do
-    if $found_merge && [[ "$arg" != -* ]]; then
-      pr_ref="$arg"
-      break
-    fi
-    [[ "$arg" == "merge" ]] && found_merge=true
+# True for a `pr merge` command line, with MERGE_ARGS holding its other arguments
+# in order. It finds the two words the way gh's cobra does: flags may come before
+# either word, and on the way to a subcommand a bare flag other than help or
+# version takes the next token as its value, whichever level the flag belongs to.
+# So `gh -R o/r pr merge 46`, `gh pr -R o/r merge 46`, and `gh pr --squash 46 merge`
+# all merge 46, and `gh pr --body merge comment 46` is no merge.
+is_pr_merge() {
+  local word=pr arg
+  MERGE_ARGS=()
+  while (($#)); do
+    arg=$1
+    shift
+    case $arg in
+      --) return 1 ;;
+      --help | --version | -h | --*=* | '') MERGE_ARGS+=("$arg") ;;
+      --* | -?)
+        MERGE_ARGS+=("$arg")
+        if (($#)); then
+          MERGE_ARGS+=("$1")
+          shift
+        fi
+        ;;
+      -*) MERGE_ARGS+=("$arg") ;;
+      "$word")
+        if [[ $word == merge ]]; then
+          MERGE_ARGS+=("$@")
+          return 0
+        fi
+        word=merge
+        ;;
+      *) return 1 ;;
+    esac
   done
+  return 1
+}
 
-  # Query the PR's target branch (omitting pr_ref uses current branch's PR)
-  base_branch=$("$real_gh" pr view ${pr_ref:+"$pr_ref"} --json baseRefName --jq '.baseRefName' 2>/dev/null)
+# Reads MERGE_ARGS against `gh pr merge`'s own flags, so a flag's value is never
+# taken for the pull request. Sets MERGE_SELECTOR and MERGE_REPO to what the lookup
+# must carry to resolve the PR the merge will resolve, and MERGE_HELP. A token it
+# cannot place, a flag from a later gh or a second PR, lands in MERGE_UNREADABLE.
+read_merge_args() {
+  local arg cluster flag value
+  MERGE_SELECTOR=() MERGE_REPO=() MERGE_HELP=false MERGE_UNREADABLE=''
+  set -- "${MERGE_ARGS[@]}"
+  while (($#)); do
+    arg=$1
+    shift
+    case $arg in
+      --)
+        MERGE_SELECTOR+=("$@")
+        break
+        ;;
+      --help) MERGE_HELP=true ;;
+      --admin | --auto | --delete-branch | --disable-auto | --merge | --rebase | --squash) ;;
+      --repo | --subject | --body | --body-file | --author-email | --match-head-commit)
+        value=${1-}
+        shift
+        [[ $arg != --repo ]] || MERGE_REPO=(--repo "$value")
+        ;;
+      --repo=*) MERGE_REPO=(--repo "${arg#--repo=}") ;;
+      --subject=* | --body=* | --body-file=* | --author-email=* | --match-head-commit=*) ;;
+      --*)
+        MERGE_UNREADABLE=$arg
+        return
+        ;;
+      -?*)
+        cluster=${arg#-}
+        while [[ -n $cluster ]]; do
+          flag=${cluster:0:1}
+          cluster=${cluster:1}
+          case $flag in
+            h) MERGE_HELP=true ;;
+            d | m | r | s) ;;
+            A | b | F | R | t)
+              if [[ -n $cluster ]]; then
+                value=${cluster#=}
+              else
+                value=${1-}
+                shift
+              fi
+              [[ $flag != R ]] || MERGE_REPO=(--repo "$value")
+              cluster=''
+              ;;
+            *)
+              MERGE_UNREADABLE=$arg
+              return
+              ;;
+          esac
+        done
+        ;;
+      *) MERGE_SELECTOR+=("$arg") ;;
+    esac
+  done
+  ((${#MERGE_SELECTOR[@]} <= 1)) || MERGE_UNREADABLE=${MERGE_SELECTOR[1]}
+}
 
-  if [[ "$base_branch" == "main" || "$base_branch" == "master" ]]; then
-    echo "Blocked: merging into $base_branch requires human approval." >&2
-    echo "Ask the human to perform the merge; the PR body is used as the squash commit message." >&2
-    exit 1
+refuse_merge() {
+  echo "Blocked: $1" >&2
+  echo "$2" >&2
+  exit 1
+}
+
+# The lookup asks real gh with the merge's own repository and selector, under the
+# same GH_REPO, so both resolve one PR. Its stdout alone is the base, because gh
+# writes notices to stderr even when it succeeds. Anything but a base that names
+# neither main nor master is refused.
+if is_pr_merge "$@"; then
+  read_merge_args
+  ask_human="Ask the human to perform the merge; the PR body is used as the squash commit message."
+  [[ -z $MERGE_UNREADABLE ]] \
+    || refuse_merge "cannot read '$MERGE_UNREADABLE' in this merge, so the guard cannot tell which pull request it names." "$ask_human"
+  if ! $MERGE_HELP; then
+    base_branch=$("$real_gh" pr view "${MERGE_REPO[@]}" --json baseRefName --jq '.baseRefName' -- "${MERGE_SELECTOR[@]}") \
+      && [[ -n $base_branch ]] \
+      || refuse_merge "cannot determine this pull request's base branch, so it may be merging into main." \
+        "Name the PR and its repository (gh pr merge <number> -R <owner>/<repo>), or ask the human to perform the merge."
+    if [[ $base_branch == main || $base_branch == master ]]; then
+      refuse_merge "merging into $base_branch requires human approval." "$ask_human"
+    fi
   fi
 fi
 
