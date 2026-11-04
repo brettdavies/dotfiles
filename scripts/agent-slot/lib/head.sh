@@ -111,7 +111,8 @@ _head_fetch_branch() {
   if [[ -z $(git -C "$slot" config --get "remote.$remote.url" || true) ]]; then
     git -C "$slot" remote add -- "$remote" "$url"
   fi
-  _head_bounded out fetch 900 "$slot" fetch -q -- "$remote" "+refs/heads/$branch:refs/remotes/$remote/$branch" \
+  # A tag from a fork could shadow a ref the slot's agent is told to read, such as one named origin/main.
+  _head_bounded out fetch 900 "$slot" fetch -q --no-tags -- "$remote" "+refs/heads/$branch:refs/remotes/$remote/$branch" \
     && return 0
   log=$BOUNDED_LOG
   _head_bounded out ls-remote 60 "$slot" ls-remote --exit-code -- "$remote" "refs/heads/$branch" || true

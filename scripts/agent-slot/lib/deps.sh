@@ -20,7 +20,7 @@
 # nothing to install, and off_base what _parity_off_base prints, or null. A script can leave what blocks teardown under
 # any status: dirty names the paths it left, and stopped the processes setup stopped, by name only, since an argument can
 # hold a secret and the ledger keeps this. dirty misses a file that was already dirty before the install changed it
-# further, which only a reopen can meet.
+# further, which only a reopen can meet, and dirty_total past the list's cap can count build output.
 PARITY_DEPS=null
 PARITY_INSTALL_RUN=''
 parity_deps() {
@@ -87,9 +87,11 @@ parity_deps() {
 PARITY_LIST_MAX=50
 PARITY_ENTRY_MAX=256
 
-# Usage: _parity_json_lines <text>; prints its first non-empty lines as a JSON array.
+# Usage: _parity_json_lines <text>; prints its first non-empty lines as a JSON array. jaq refuses a byte that is not UTF-8,
+# which a path can hold and the cut can leave, so those go; this list is a report. iconv exits non-zero when it drops one.
 _parity_json_lines() {
-  awk -v max="$PARITY_LIST_MAX" -v width="$PARITY_ENTRY_MAX" 'length($0) && ++n <= max { print substr($0, 1, width) }' <<<"$1" \
+  LC_ALL=C awk -v max="$PARITY_LIST_MAX" -v width="$PARITY_ENTRY_MAX" 'length($0) && ++n <= max { print substr($0, 1, width) }' <<<"$1" \
+    | { iconv -c -f UTF-8 -t UTF-8 || true; } \
     | contract_json -R -s -c 'split("\n") | map(select(. != ""))'
 }
 
@@ -105,30 +107,42 @@ _parity_status() {
   {
     git -C "$1" status --porcelain=v1 -z --no-renames --untracked-files=all --ignored=matching
     git -C "$1" ls-files -z --others --ignored --exclude-standard -- .claude .context docs | sed -z 's/^/!! /'
-  } | LC_ALL=C sort -z
+  } | LC_ALL=C sort -zu
 }
 
 # Usage: _parity_new_paths <slot> <snapshot from _parity_status>; prints each path new since the snapshot, one per line,
-# leaving out the tool and build output `agent-slot check` leaves out. A newline in a name prints as ?.
+# leaving out the tool and build output `agent-slot check` leaves out, and what is under it: the C sort puts a directory
+# before its files. A newline in a name prints as ?. A path past what the list can name only adds to a count, so the rest
+# go unclassified, since this loop costs seconds per 10,000 paths after the install's time limit has ended.
 _parity_new_paths() {
-  local entry path
+  local entry path skipped='' named=0
   while IFS= read -r -d '' entry; do
     path=${entry:3}
-    if ! _check_build_output "${entry:0:2}" "$path"; then
-      printf '%s\n' "${path//$'\n'/?}"
+    if [[ ${entry:0:2} == '!!' ]]; then
+      [[ -z $skipped || $path != "$skipped"* ]] || continue
+      if _check_build_output '!!' "$path"; then
+        skipped=$path
+        continue
+      fi
     fi
+    printf '%s\n' "${path//$'\n'/?}"
+    ((++named < PARITY_LIST_MAX)) || {
+      cut -z -c4- | tr '\n\0' '?\n'
+      break
+    }
   done < <(LC_ALL=C comm -z -13 "$2" <(_parity_status "$1"))
 }
 
 # Stops what the install left running, and sets PARITY_STOPPED to its names: whatever is still in the install's session,
 # and whatever left that session but carries the environment entry the install started with. A process that did both
 # stays running, and `agent-slot check` names it if it holds the slot. The passes after the first are for a process that
-# ignores TERM and keeps forking. Runs at exit too, for a launch stopped during its install.
+# ignores TERM and keeps forking. Runs at exit too, for a launch stopped during its install, and before a rollback, so
+# nothing still writing can bring back the path the rollback removed. It stays armed until it is done, so a stop that lands
+# during these passes runs them again. SIGKILL runs no cleanup, so a launch killed that way leaves these running.
 _parity_stop_install() {
   local run_file=$PARITY_INSTALL_RUN session pid pids signal=TERM pass
   local -A names=()
   [[ -n $run_file ]] || return 0
-  PARITY_INSTALL_RUN=''
   session=$(<"$run_file") || session=''
   for pass in 1 2 3 4; do
     pids=$(_parity_install_pids "$session" "$run_file")
@@ -140,6 +154,7 @@ _parity_stop_install() {
     sleep 0.2
     signal=KILL
   done
+  PARITY_INSTALL_RUN=''
   rm -f "$run_file"
   PARITY_STOPPED=("${names[@]}")
 }
@@ -166,20 +181,21 @@ _parity_prime_has_deps() {
 
 # Usage: _parity_off_base <prime> <slot>; prints why the slot's head is not one this host has chosen, or nothing when it is.
 # parity_base takes a dev branch by its name, and anyone who can push to origin can make one, so the base counts only if
-# the prime holds a branch of that name (prime-lacks-base) and origin's still holds what the prime last knew of it
-# (base-rewritten). A fast-forward of the base installs: the base's own scripts are what the prime tracks. Then the base
-# must hold the head (base-lacks-head). A PR's own base must hold it too (pr-base-lacks-head), since a release PR's head is
-# on dev and not yet on main, and a PR's head must be the base's tip (pr-head-behind-base), since a contributor can set it
-# back to an older commit whose scripts the base has since removed.
+# the prime holds a branch of that name and has seen it on origin (prime-lacks-base), and origin's still holds what the prime
+# last saw (base-rewritten). A fast-forward of the base installs: the base's own scripts are what the prime tracks. Then the
+# base must hold the head (base-lacks-head), and a PR's own base must too (pr-base-lacks-head), since a release PR's head is
+# on dev and not yet on main. The head must be the base's tip (head-behind-base), since a head set back to an older commit
+# can bring back a script the base has since removed. A prime that fetches between the clone and this check reads as
+# base-rewritten for that one slot, which declines rather than installs.
 _parity_off_base() {
   local prime=$1 slot=$2 base_ref="refs/remotes/origin/$PARITY_BASE" known pr_base
-  if ! git -C "$prime" show-ref --verify -q "refs/heads/$PARITY_BASE"; then
+  if ! git -C "$prime" show-ref --verify -q "refs/heads/$PARITY_BASE" \
+    || ! known=$(git -C "$prime" rev-parse -q --verify "$base_ref^{commit}"); then
     echo prime-lacks-base
     return 0
   fi
-  known=$(git -C "$prime" rev-parse -q --verify "$base_ref^{commit}" \
-    || git -C "$prime" rev-parse -q --verify "refs/heads/$PARITY_BASE^{commit}") || known=''
-  if ! git -C "$slot" merge-base --is-ancestor "$known" "$base_ref" 2>/dev/null; then
+  # A commit a partial clone lacks fails here at once, rather than fetching for as long as the network allows.
+  if ! GIT_NO_LAZY_FETCH=1 git -C "$slot" merge-base --is-ancestor "$known" "$base_ref" 2>/dev/null; then
     echo base-rewritten
     return 0
   fi
@@ -187,11 +203,12 @@ _parity_off_base() {
     echo base-lacks-head
     return 0
   fi
-  [[ $(contract_json -r '.kind // ""' <<<"${ITEM:-null}") == pr ]] || return 0
-  pr_base=$(contract_json -r '.base_branch // ""' <<<"${ITEM:-null}")
-  if [[ -z $pr_base ]] || ! git -C "$slot" merge-base --is-ancestor HEAD "refs/remotes/origin/$pr_base" 2>/dev/null; then
-    echo pr-base-lacks-head
-    return 0
+  if [[ $(contract_json -r '.kind // ""' <<<"${ITEM:-null}") == pr ]]; then
+    pr_base=$(contract_json -r '.base_branch // ""' <<<"${ITEM:-null}")
+    if [[ -z $pr_base ]] || ! git -C "$slot" merge-base --is-ancestor HEAD "refs/remotes/origin/$pr_base" 2>/dev/null; then
+      echo pr-base-lacks-head
+      return 0
+    fi
   fi
-  [[ $(git -C "$slot" rev-parse HEAD) == "$(git -C "$slot" rev-parse "$base_ref")" ]] || echo pr-head-behind-base
+  [[ $(git -C "$slot" rev-parse HEAD) == "$(git -C "$slot" rev-parse "$base_ref")" ]] || echo head-behind-base
 }

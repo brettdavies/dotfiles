@@ -79,7 +79,7 @@ echo "$!" >"$STUBS/leftover-pid"'
 leftover_is_gone() {
   local pid i
   pid=$(<"$STUBS/leftover-pid")
-  for ((i = 0; i < 20; i++)); do
+  for ((i = 0; i < 100; i++)); do
     kill -0 "$pid" 2>/dev/null || return 0
     sleep 0.1
   done
@@ -297,6 +297,19 @@ real_bun() {
   jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "prime-lacks-base" and .state == "active"' <<<"$output"
 }
 
+@test "a local branch that was never on origin is not a chosen base, whatever origin later calls that name" {
+  js_repo bun.lock
+  stub_manager bun
+  git -C "$PRIME" fetch -q origin
+  git -C "$PRIME" branch dev origin/main
+  git -C "$PRIME" config remote.origin.fetch '+refs/heads/main:refs/remotes/origin/main'
+  git -C "$T/seed-repoa" push -q origin main:refs/heads/dev
+  launch r-localdev
+  [ "$status" -eq 0 ]
+  never_called '^bun install'
+  jaq -e '.deps.off_base == "prime-lacks-base"' <<<"$output"
+}
+
 @test "a base whose history was replaced since the prime last saw it is off the base, until the prime fetches it" {
   js_repo bun.lock
   stub_manager bun
@@ -315,6 +328,29 @@ real_bun() {
   [ "$status" -eq 0 ]
   grep -qxF 'bun install --frozen-lockfile' "$CALLS"
   jaq -e '.deps.status == "installed" and .deps.off_base == null' <<<"$output"
+}
+
+@test "a rewritten base reads as rewritten without fetching the commit a partial slot lacks" {
+  js_repo bun.lock
+  local origin=$T/origins/repoa.git known partial=$T/partial
+  git -C "$origin" config uploadpack.allowFilter true
+  git -C "$origin" config uploadpack.allowAnySHA1InWant true
+  git -C "$PRIME" fetch -q origin
+  known=$(git -C "$PRIME" rev-parse origin/main)
+  git -C "$T/seed-repoa" switch -q --orphan replaced
+  git -C "$T/seed-repoa" checkout -q main -- .
+  git -C "$T/seed-repoa" add -A
+  git -C "$T/seed-repoa" commit -q -m 'nothing in common'
+  git -C "$T/seed-repoa" push -q -f origin replaced:main
+  git clone -q --filter=blob:none "file://$origin" "$partial"
+  # shellcheck disable=SC2016 # expanded by the bash that runs it
+  run bash -c 'source "$1"; PARITY_BASE=main; _parity_off_base "$2" "$3"' _ \
+    "$BATS_TEST_DIRNAME/../scripts/agent-slot/lib/deps.sh" "$PRIME" "$partial"
+  [ "$output" = base-rewritten ]
+  if GIT_NO_LAZY_FETCH=1 git -C "$partial" cat-file -e "$known" 2>/dev/null; then
+    echo "the check fetched $known"
+    false
+  fi
 }
 
 @test "a clean install on the base reports nothing off the base" {
@@ -424,6 +460,61 @@ done'
   jaq -e '(.deps.dirty | sort) == ["README.md", "README2.md", "a b.txt", "né.txt"]' <<<"$output"
 }
 
+@test "a name that is not UTF-8 keeps the slot, and is reported without the bad bytes" {
+  js_repo bun.lock
+  stub_manager bun ': >"$(printf "caf\\351.txt")"; : >"$(printf "ok.txt")"'
+  launch r-latin1
+  [ "$status" -eq 0 ]
+  jaq -e '.state == "active" and (.deps.dirty | sort) == ["caf.txt", "ok.txt"] and .deps.dirty_total == 2' <<<"$output"
+}
+
+@test "a multibyte character the cut lands in keeps the slot" {
+  js_repo bun.lock
+  stub_manager bun 'mkdir -p "$(printf "d%.0s" {1..200})"
+: >"$(printf "d%.0s" {1..200})/$(printf "e%.0s" {1..54})$(printf "\\303\\251")f.txt"'
+  LC_ALL=C launch r-cut
+  [ "$status" -eq 0 ]
+  jaq -e '.state == "active" and .deps.dirty_total == 1' <<<"$output"
+}
+
+@test "an ignored file under a directory setup fills is named once" {
+  origin_file repoa .gitignore $'node_modules/\ndocs/*.log'
+  origin_file repoa package.json '{"name": "repoa"}'
+  origin_file repoa bun.lock 'locked'
+  stub_manager bun 'mkdir -p docs; echo x >docs/new.log'
+  launch r-once
+  [ "$status" -eq 0 ]
+  jaq -e '.deps.dirty == ["docs/new.log"] and .deps.dirty_total == 1' <<<"$output"
+}
+
+@test "build output under a directory setup fills is left out, as check leaves it out" {
+  origin_file repoa .gitignore $'node_modules/\ndist/'
+  origin_file repoa package.json '{"name": "repoa"}'
+  origin_file repoa bun.lock 'locked'
+  stub_manager bun 'mkdir -p docs/dist; echo x >docs/dist/app.js'
+  launch r-docs-dist
+  [ "$status" -eq 0 ]
+  jaq -e '.deps.dirty == [] and .deps.dirty_total == 0' <<<"$output"
+}
+
+@test "classifying what an install left stops once the list is full, and every path still counts" {
+  local repo=$T/classify
+  mkdir -p "$repo/docs"
+  git -C "$repo" init -q
+  echo '*.log' >"$repo/.gitignore"
+  # shellcheck disable=SC2016 # expanded by the bash that runs it
+  run bash -c 'source "$1"
+    calls=$4
+    _check_build_output() { echo classified >>"$calls"; return 1; }
+    _parity_status "$2" >"$3"
+    touch "$2"/docs/{1..60}.log
+    _parity_new_paths "$2" "$3"' _ "$BATS_TEST_DIRNAME/../scripts/agent-slot/lib/deps.sh" "$repo" "$T/before" "$T/calls"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 60 ]
+  [[ ${lines[59]} == docs/*.log ]]
+  [ "$(wc -l <"$T/calls")" -eq 50 ]
+}
+
 @test "a write inside a directory setup filled, or that the ignore rules hide, is named, while tool and build output is not" {
   origin_file repoa .gitignore $'node_modules/\n.claude/\ndist/\nlogs/'
   origin_file repoa package.json '{"name": "repoa"}'
@@ -514,9 +605,30 @@ sleep 30"
     sleep 0.1
   done
   [ -e "$STUBS/install-started" ]
+  kill -0 "$(<"$STUBS/leftover-pid")"
   kill -TERM "${SPAWNED[0]}"
   wait "${SPAWNED[0]}" || true
   leftover_is_gone
+}
+
+@test "a launch stopped during an install stops it before the rollback, so it leaves no path behind" {
+  js_repo bun.lock
+  # shellcheck disable=SC2016 # expanded by the stub that runs it
+  stub_manager bun 'here=$PWD
+touch "$STUBS/install-started"
+trap '"'"'mkdir -p "$here/written-after-stop"'"'"' TERM
+sleep 30 &
+wait'
+  spawn "$AGENT_SLOT" launch repoa --request-id r-order --output json
+  local i
+  for ((i = 0; i < 300; i++)); do
+    [ ! -e "$STUBS/install-started" ] || break
+    sleep 0.1
+  done
+  [ -e "$STUBS/install-started" ]
+  kill -TERM "${SPAWNED[0]}"
+  wait "${SPAWNED[0]}" || true
+  [ ! -e "$SLOT" ]
 }
 
 @test "an install's own session is what gets stopped, not a process setup already had" {

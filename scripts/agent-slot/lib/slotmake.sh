@@ -49,6 +49,7 @@ _slot_rollback_solutions() {
 
 _slot_rollback_on_exit() {
   [[ -n $SLOT_ARMED ]] || return 0
+  _parity_stop_install
   slot_rollback "${SLOT_ARMED%/*}" "${SLOT_ARMED##*/}"
 }
 

@@ -218,7 +218,6 @@ parity_claude_settings() {
     >"$slot/.claude/settings.local.json"
 }
 
-# Usage: parity_deps <prime> <slot>
 # Tracked symlinks, NUL-separated.
 _parity_tracked_symlinks() {
   local entry

@@ -179,6 +179,23 @@ snapshot() {
   jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "base-lacks-head"' <<<"$output"
 }
 
+@test "a reopen for an issue on an older commit of the base leaves its install to the agent" {
+  js_prime
+  gh_item issue 8 "The login" CLOSED
+  origin_file repoa later.txt 'moved on'
+  git -C "$T/seed-repoa" push -q origin main~1:refs/heads/feat/old
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\",
+    \"items\": [{\"kind\": \"issue\", \"repo\": \"up/repoa\", \"number\": 8, \"title\": \"The login\"}], \"head\": \"feat/old\",
+    \"branches\": [{\"name\": \"feat/old\", \"remote\": \"origin\", \"url\": \"git@github.com:up/repoa.git\"}]}"
+  reopen repoa --issue 8
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  [ ! -e "$STUBS/install-ran" ]
+  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "head-behind-base"' <<<"$output"
+}
+
 @test "a reopen on a fork head runs no install" {
   js_prime
   fork_repo

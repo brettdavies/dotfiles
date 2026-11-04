@@ -960,7 +960,19 @@ bun_repo() {
   launch repoa --pr 7
   [ "$status" -eq 0 ]
   [ ! -e "$STUBS/prepare-ran" ]
-  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "pr-head-behind-base"' <<<"$output"
+  jaq -e '.deps.status == "head-not-on-base" and .deps.off_base == "head-behind-base"' <<<"$output"
+}
+
+@test "launch --pr brings none of a fork's tags, which could shadow the base its agent is told to diff against" {
+  github_origin
+  bun_repo
+  fork_repo
+  pr_head "$T/forks/repoa.git" feat/x 7
+  git -C "$T/forks/repoa.git" tag origin/main refs/heads/feat/x
+  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -z "$(git -C "$AGENT_SLOT_ROOT/repoa/1" tag -l 'origin/*')" ]
 }
 
 @test "launch --pr installs a head that is the tip of its PR's base" {
