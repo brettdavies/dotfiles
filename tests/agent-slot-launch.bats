@@ -859,7 +859,7 @@ bun_repo() {
   origin_file repoa bun.lock 'locked'
   stub bun 'mkdir -p node_modules; touch "$STUBS/prepare-ran"'
   export AGENT_SLOT_BUN=$STUBS/bun
-  mkdir -p "$AGENT_SLOT_DEV/repoa/node_modules"
+  mkdir -p "$AGENT_SLOT_DEV/repoa/node_modules/some-tool"
   trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
 }
 
@@ -934,6 +934,46 @@ bun_repo() {
   [ "$status" -eq 0 ]
   [ ! -e "$STUBS/prepare-ran" ]
   jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
+}
+
+@test "launch --pr holds a PR's head to the PR's own base, even where the prime holds the head's branch" {
+  github_origin
+  bun_repo
+  git -C "$T/seed-repoa" switch -q -c dev
+  git -C "$T/seed-repoa" commit -q --allow-empty -m 'the head'
+  git -C "$T/seed-repoa" push -q origin dev dev:refs/pull/7/head
+  git -C "$T/seed-repoa" switch -q main
+  git -C "$AGENT_SLOT_DEV/repoa" fetch -q origin dev:refs/heads/dev
+  gh_item pr 7 "Release" OPEN '{"headRefName": "dev", "baseRefName": "main", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/prepare-ran" ]
+  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
+}
+
+@test "launch --pr installs a head its PR's base holds" {
+  github_origin
+  bun_repo
+  origin_file repoa notes.txt 'later'
+  git -C "$T/seed-repoa" push -q origin main~1:refs/heads/feat/x main~1:refs/pull/7/head
+  gh_item pr 7 "Fix the login" OPEN '{"headRefName": "feat/x", "baseRefName": "main", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -e "$STUBS/prepare-ran" ]
+  jaq -e '.deps.status == "installed"' <<<"$output"
+}
+
+@test "launch --pr on a fork head with a prime never installed reads prime-not-set-up, and runs nothing" {
+  github_origin
+  bun_repo
+  rm -rf "$AGENT_SLOT_DEV/repoa/node_modules"
+  fork_repo
+  pr_head "$T/forks/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/prepare-ran" ]
+  jaq -e '.deps.status == "prime-not-set-up"' <<<"$output"
 }
 
 @test "launch --pr leaves a head behind a base lockfile change to its agent, without claiming it changed the lockfile" {

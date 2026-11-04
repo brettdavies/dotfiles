@@ -76,6 +76,7 @@ parity_hooks() {
       "the prime checkout's core.hooksPath points outside it, so a slot cannot run its own copy of the hooks" \
       --value "$path" --command "git -C $prime config core.hooksPath" --side-effects none
   fi
+  # Relative to the slot, so the hooks that run are the checked-out head's own, read or not.
   git -C "$slot" config core.hooksPath "${real#"$prime_real"/}"
 }
 
@@ -250,10 +251,9 @@ parity_deps() {
     return 0
   fi
   tool=${AS_TOOL[$manager]}
-  if ! trust_known "$prime" || [[ ! -d $prime/node_modules ]]; then
+  if ! trust_known "$prime" || ! _parity_prime_has_deps "$prime"; then
     status='prime-not-set-up'
-  elif ! git -C "$prime" show-ref --verify -q "refs/heads/$PARITY_BASE" \
-    || ! git -C "$slot" merge-base --is-ancestor HEAD "refs/remotes/origin/$PARITY_BASE"; then
+  elif ! _parity_head_on_base "$prime" "$slot"; then
     status='head-not-on-base'
   elif ! git -C "$slot" check-ignore -q node_modules/; then
     status='not-ignored'
@@ -277,6 +277,26 @@ parity_deps() {
   fi
   PARITY_DEPS=$(contract_json -n -c --arg manager "$manager" --arg command "$manager ${args[*]}" --arg status "$status" \
     --arg log "$log" '{manager: $manager, command: $command, status: $status, log: (if $log == "" then null else $log end)}')
+}
+
+# True when a prime's node_modules holds a package. A tool's cache there shows no install: prettier and others make one
+# in a repo nobody installed.
+_parity_prime_has_deps() {
+  local entry
+  for entry in "$1"/node_modules/* "$1"/node_modules/.[!.]*; do
+    [[ ${entry##*/} == .cache || ! -e $entry ]] || return 0
+  done
+  return 1
+}
+
+# True when the base holds the slot's head, and, for a PR, when the base that PR targets holds it too: a release PR's
+# head is on dev and not yet on main.
+_parity_head_on_base() {
+  local prime=$1 slot=$2 pr_base
+  git -C "$prime" show-ref --verify -q "refs/heads/$PARITY_BASE" || return 1
+  git -C "$slot" merge-base --is-ancestor HEAD "refs/remotes/origin/$PARITY_BASE" 2>/dev/null || return 1
+  pr_base=$(contract_json -r '.base_branch // ""' <<<"${ITEM:-null}")
+  [[ -z $pr_base ]] || git -C "$slot" merge-base --is-ancestor HEAD "refs/remotes/origin/$pr_base" 2>/dev/null
 }
 
 # Tracked symlinks, NUL-separated.

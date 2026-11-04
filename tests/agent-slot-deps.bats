@@ -22,7 +22,7 @@ setup() {
   unset npm_config_min_release_age npm_config_minimum_release_age
   prime repoa
   PRIME=$AGENT_SLOT_DEV/repoa
-  mkdir -p "$PRIME/node_modules"
+  mkdir -p "$PRIME/node_modules/some-tool"
   SLOT=$AGENT_SLOT_ROOT/repoa/1
   trusted "$(realpath -m "$SLOT")" "$(realpath -m "$PRIME")"
   LEDGER=$AGENT_SLOT_STATE_DIR/ledger.jsonl
@@ -188,13 +188,57 @@ real_bun() {
 @test "a prime with no node_modules is reported and not installed, since nothing shows this repo's install has run here" {
   js_repo bun.lock
   stub_manager bun
-  rmdir "$PRIME/node_modules"
+  rm -rf "$PRIME/node_modules"
   launch r-noinstall
   [ "$status" -eq 0 ]
   never_called '^bun install'
   [ ! -e "$SLOT/node_modules" ]
   jaq -e '.deps == {manager: "bun", command: "bun install --frozen-lockfile", status: "prime-not-set-up", log: null}
     and .state == "active"' <<<"$output"
+}
+
+@test "a prime whose node_modules is empty is not set up" {
+  js_repo bun.lock
+  stub_manager bun
+  rm -rf "$PRIME/node_modules"
+  mkdir "$PRIME/node_modules"
+  launch r-empty
+  [ "$status" -eq 0 ]
+  never_called '^bun install'
+  jaq -e '.deps.status == "prime-not-set-up"' <<<"$output"
+}
+
+@test "a prime whose node_modules holds only .cache is not set up" {
+  js_repo bun.lock
+  stub_manager bun
+  rm -rf "$PRIME/node_modules"
+  mkdir -p "$PRIME/node_modules/.cache/prettier"
+  launch r-cache
+  [ "$status" -eq 0 ]
+  never_called '^bun install'
+  jaq -e '.deps.status == "prime-not-set-up"' <<<"$output"
+}
+
+@test "a prime whose node_modules is a file or a dangling link is not set up" {
+  js_repo bun.lock
+  stub_manager bun
+  rm -rf "$PRIME/node_modules"
+  : >"$PRIME/node_modules"
+  launch r-file
+  [ "$status" -eq 0 ]
+  never_called '^bun install'
+  jaq -e '.deps.status == "prime-not-set-up"' <<<"$output"
+}
+
+@test "a prime whose node_modules is a link to an installed tree is set up" {
+  js_repo bun.lock
+  stub_manager bun
+  rm -rf "$PRIME/node_modules"
+  mkdir -p "$T/elsewhere/tool"
+  ln -s "$T/elsewhere" "$PRIME/node_modules"
+  launch r-link
+  [ "$status" -eq 0 ]
+  grep -qxF 'bun install --frozen-lockfile' "$CALLS"
 }
 
 @test "an untrusted prime is reported and not installed, even with node_modules" {
@@ -226,7 +270,7 @@ real_bun() {
   launch r-owndev
   [ "$status" -eq 0 ]
   grep -qxF 'bun install --frozen-lockfile' "$CALLS"
-  jaq -e '.deps.status == "installed"' <<<"$output"
+  jaq -e '.deps.status == "installed" and .base == "dev"' <<<"$output"
 }
 
 @test "a failed install keeps the slot, and its output in a log the launch names" {
