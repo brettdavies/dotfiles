@@ -191,10 +191,11 @@ short crawl never gets more. Safe Browsing was confirmed at a 230 s wait and not
    environment it showed 5 and no token.
 
 **One launcher enforces this for every tool that accepts an executable path.** A trial script that drops those flags and
-`exec`s the real binary was measured under a default `chromium.launch()`: no `--no-sandbox` on the process, renderers
-sandboxed, label `playwright-chromium`, pipes intact, `revoked.badssl.com` loading at launch and failing with
-`ERR_CERT_REVOKED` after 100 s. Under agent-browser, the launcher kept `--args "--no-sandbox"` from reaching the
-browser, and the revoked host failed by 140 s. The launcher was not measured over Chrome stable or on the Mac.
+`exec`s the real binary was measured under a `chromium.launch()` naming it with no sandbox option: no `--no-sandbox` on
+the process, renderers sandboxed, label `playwright-chromium`, pipes intact, `revoked.badssl.com` loading at launch and
+failing with `ERR_CERT_REVOKED` after 100 s. Under agent-browser, the launcher kept `--args "--no-sandbox"` from
+reaching the browser, and the revoked host failed by 140 s. The launcher was not measured over Chrome stable or on the
+Mac.
 
 **A sandbox-only wrapper at the alias reaches bare launches too.** Playwright has no environment setting for its
 `--no-sandbox` default, so the alias path is the only layer a bare `chromium.launch()` passes through. A trial wrapper
@@ -653,7 +654,8 @@ Who opens pages Brett does not control, what they run today, and where each goes
 
 - **The first execution gate.** After the first deploy and before any consumer moves or the bump job starts: does CfT at
   its real path start with its sandbox on (R12), through R20's wrapper when that is chosen, and under Option A does
-  Chrome at `/opt/google/chrome/chrome`, on both machines? A failure takes the Goal Capsule's stop condition.
+  Chrome at `/opt/google/chrome/chrome`, on both machines? Does a sandboxed browser keep working with its directory
+  removed, which A2 measured only unsandboxed? A failure takes the Goal Capsule's stop condition.
 - Who merges the weekly bump. The auto-bump plan this follows squash-merges without a person; a browser pin behind a
   suite run can too, and the agent CLI's pin, which has no suite behind it, likely should not.
 - Whether crawl4ai's managed-browser mode, with `~/.crawl4ai/chromium.path` at the launcher, closes its limit in R7 for
@@ -804,10 +806,11 @@ REALITY: pr-count finding no ship policy on file, so the default is one PR per w
   drops it.
 - A2. [INFORMATIONAL] (confidence: 9/10) R4 moves the set on a schedule while a long-lived gstack daemon or a running
   suite may hold the old build. Measured on CfT 157, full binary and headless shell: with the browser's directory
-  removed mid-session, reload, new page, new context, cross-site navigation, screenshot, and PDF all still worked. So a
-  flip does not break a running browser, and no `/proc` gate is needed before removal. A browser starting at the moment
-  of a flip could still read files from the old path. Disposition: accepted (D4): R4 flips aliases atomically and keeps
-  the previous build until the next deploy, with no process scan.
+  removed mid-session, reload, new page, new context, cross-site navigation, screenshot, and PDF all still worked. That
+  run was an unwrapped launch with Playwright's default `--no-sandbox`, and it was not repeated with the sandbox on. So
+  a flip does not break a running browser in what was measured, and no `/proc` gate is needed before removal. A browser
+  starting at the moment of a flip could still read files from the old path. Disposition: accepted (D4): R4 flips
+  aliases atomically and keeps the previous build until the next deploy, with no process scan.
 - A3. [INFORMATIONAL] (confidence: 8/10) The plan's "reads the browser's path from one place" left the owner unnamed. A
   path table inside a stowed launcher and a second `[ -x ]` in shell config would be a hand-synced list (red flag 8).
   Stowed scripts cannot source repo-relative files. Disposition: accepted (D5): shell config owns the path and exports
@@ -1164,13 +1167,14 @@ guidance. No verbose mode is proposed; the browser's own `--enable-logging` stil
   extractor. Corrected: the shim always points the CLI at the launcher, which is always on PATH and fails closed. Only
   gstack's pointer stays conditional, because gstack throws on a failed launch and would lose its working fallback (the
   set). Disposition: accepted (DX-D1): R10, R15.
-- DX2. [HIGH] `CAP6:launcher:fix error must survive every caller's framing`. Captured from the trial: agent-browser
-  prints `Chrome stderr (last 1 lines)`; Playwright CLI prints the line beneath a stack trace and repeats it in a call
-  log; gstack prints the launch error and then its own "Fix: point GSTACK_CHROMIUM_PATH at a working Chromium". A
-  multi-line error loses its fix under agent-browser. Corrected line, Option A's form: `ERROR: no browsing build on this
-  host (DOTFILES_BROWSING_BIN unset); reason: no-browsing-build; next: ask the operator to run sudo
-  scripts/chrome-deploy.sh; never run playwright install`. Disposition: accepted (DX-D2): R9 requires one self-contained
-  line, last on stderr, with a stable reason.
+- DX2. [HIGH] `CAP6:launcher:fix error must survive every caller's framing`. Captured from the trial and agent-browser's
+  source: agent-browser prints only stderr lines holding a keyword such as `error` or `sandbox`, or the last five when
+  none does; Playwright CLI prints the line beneath a stack trace and repeats it in a call log; gstack prints the launch
+  error and then its own "Fix: point GSTACK_CHROMIUM_PATH at a working Chromium". A fix on a line of its own without a
+  keyword disappears under agent-browser whenever another line matches. Corrected line, Option A's form: `ERROR: no
+  browsing build on this host (DOTFILES_BROWSING_BIN unset); reason: no-browsing-build; next: ask the operator to run
+  sudo scripts/chrome-deploy.sh; never run playwright install`. Disposition: accepted (DX-D2): R9 requires one
+  self-contained line, last on stderr, with a stable reason.
 - DX3. [HIGH] `CAP6:alias-floor:fix Playwright's message for a missing executable`. `coreBundle.js:28665` throws
   `Executable doesn't exist at ...` and prints `npx playwright install`, which hangs on this kernel. This plan narrows
   when it fires (the forward range) but cannot rewrite it. The remaining reach is a consumer at Playwright 1.56 or
