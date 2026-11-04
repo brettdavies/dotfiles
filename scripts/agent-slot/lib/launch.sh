@@ -236,7 +236,7 @@ brief to that slot's Claude session, or launch again once that slot is torn down
 }
 
 cmd_resume() {
-  local repo n state
+  local repo n state pruned
   slot_parse_key "$1"
   repo=$SLOT_REPO n=$SLOT_N
   require_tools tmux claude
@@ -248,9 +248,11 @@ cmd_resume() {
   record_read "$repo" "$n" || contract_fail slot-not-found "$1 has no record" --value "$1" --command "agent-slot list"
   state=$(contract_json -r '.state // ""' <<<"$RECORD")
   [[ $state == active ]] || contract_fail slot-busy "$1 is $state" --value "$1" --command "agent-slot resume $1"
+  pruned=$(pr_prune_branches "$repo" "$(slot_path "$repo" "$n")" | contract_json -R -s -c 'split("\n") | map(select(. != ""))')
   sessions_start "$repo" "$n" resume
   record_unlock_slot "$repo" "$n"
-  contract_ok "$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$1" \
-    '{key: $key, started: split("\n") | map(select(. != ""))}')" \
-    '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)'
+  contract_ok "$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$1" --argjson pruned "$pruned" \
+    '{key: $key, started: split("\n") | map(select(. != "")), pruned_branches: $pruned}')" \
+    '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)
+      + (if (.pruned_branches | length) == 0 then "" else "; pruned \(.pruned_branches | join(", ")), whose PRs merged or closed" end)'
 }
