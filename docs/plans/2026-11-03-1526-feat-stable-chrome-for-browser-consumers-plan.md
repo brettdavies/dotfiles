@@ -20,16 +20,16 @@ execution: code
 - **Means:** One CfT build (full and headless shell), one ffmpeg, and the one WebKit build agentnative-site's suite
   uses, aliased for the Playwright revisions consumers ask for, behind a wrapper at the alias path that drops the
   sandbox-off flags and clears the environment. A hardened launcher over Chrome, driven by a pinned agent-browser
-  without its skill. One Playwright library version across our repos, a check for drift from it, and a check for
-  browsers outside the set.
+  without its skill, and the same launcher over CfT for gstack. One Playwright library version across our repos, a check
+  for drift from it, and a check for browsers outside the set.
 - **Brett's direction (verbatim):** "let's harden a single system playwright and tests. We update it separately from any
   repo. repo's use what's available on the system, not their own preferences. gstack, etc incl"; "also need to ensure
   that our two browsers chrome and cft are updated often."; "to limit the number of browsers we have and also highly
   control which browsers different tools use through direct config and ENV VARs". His answers are in Settled Decisions.
 - **Product authority:** Requirements govern behavior and Key Decisions record why. The measurements in this plan are
   the evidence. Where a solutions doc or runbook disagrees with a measurement here, the doc is what gets rewritten.
-- **Open blockers:** None. PR #431 is merged and deployed, and `--check` exits 0, so phase 1 can start. One question for
-  Brett remains, and no phase waits on it (Settled Decisions).
+- **Open blockers:** None. PR #431 is merged and deployed, and `--check` exits 0, so phase 1 can start. Brett has
+  answered every question (Settled Decisions).
 - **Execution profile:** User-space provisioning, shell config, a launcher, an alias wrapper, a stowed shim, doc
   updates, and hourly update jobs. Chrome adds a system package and an apt timer that the operator applies, because the
   agent's settings deny `sudo`. Proof is runtime measurement on both machines. bats covers the script seams.
@@ -291,15 +291,15 @@ took 4 to 18 s.
 
 ### The Split
 
-| Consumer                               | Browser                        | How it is pointed                                                            | Who updates the browser                                |
-| -------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------- | ------------------------------------------------------ |
-| e2e suites, locally                    | System CfT through the wrapper | `PLAYWRIGHT_BROWSERS_PATH`                                                   | Hourly job, gated on the suites (R4)                   |
-| e2e suites, CI                         | Each repo's own pinned build   | The repo's workflow                                                          | Unchanged                                              |
-| gstack, headless and headed            | System CfT through the wrapper | `GSTACK_CHROMIUM_PATH`; `PLAYWRIGHT_BROWSERS_PATH` for its probes            | Same hourly job                                        |
-| crawl4ai                               | System CfT through the wrapper | `PLAYWRIGHT_BROWSERS_PATH`; `~/.crawl4ai/chromium.path` for its managed mode | Same hourly job                                        |
-| Bare Playwright scripts                | System CfT through the wrapper | `PLAYWRIGHT_BROWSERS_PATH`                                                   | Same hourly job                                        |
-| Puppeteer, Lighthouse, chrome-launcher | System CfT through the wrapper | `PUPPETEER_EXECUTABLE_PATH`, `CHROME_PATH`                                   | Same hourly job                                        |
-| agent-browser, on pages nobody vetted  | Chrome through the launcher    | The shim sets `AGENT_BROWSER_EXECUTABLE_PATH`                                | Hourly apt timer on Linux; Google's updater on the Mac |
+| Consumer                               | Browser                         | How it is pointed                                                            | Who updates the browser                                |
+| -------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------ |
+| e2e suites, locally                    | System CfT through the wrapper  | `PLAYWRIGHT_BROWSERS_PATH`                                                   | Hourly job, gated on the suites (R4)                   |
+| e2e suites, CI                         | Each repo's own pinned build    | The repo's workflow                                                          | Unchanged                                              |
+| gstack, headless and headed            | System CfT through the launcher | `GSTACK_CHROMIUM_PATH`; `PLAYWRIGHT_BROWSERS_PATH` for its probes            | Same hourly job                                        |
+| crawl4ai                               | System CfT through the wrapper  | `PLAYWRIGHT_BROWSERS_PATH`; `~/.crawl4ai/chromium.path` for its managed mode | Same hourly job                                        |
+| Bare Playwright scripts                | System CfT through the wrapper  | `PLAYWRIGHT_BROWSERS_PATH`                                                   | Same hourly job                                        |
+| Puppeteer, Lighthouse, chrome-launcher | System CfT through the wrapper  | `PUPPETEER_EXECUTABLE_PATH`, `CHROME_PATH`                                   | Same hourly job                                        |
+| agent-browser, on pages nobody vetted  | Chrome through the launcher     | The shim sets `AGENT_BROWSER_EXECUTABLE_PATH`                                | Hourly apt timer on Linux; Google's updater on the Mac |
 
 **How far each runs behind Linux stable, over the last 20 releases.** Chrome: at most about an hour on all 20 [estimated
 from the timer]. CfT: at most about 4 hours on 18 [estimated: 0.3 to 1.5 h for CfT to publish (measured), up to 1 h for
@@ -364,18 +364,18 @@ read here; Chromium's FAQ states the same thing.
 
 Who opens pages Brett does not control, what they run today, and where each goes.
 
-| Consumer                                                            | Machine                         | Pages it opens                                                      | Browser today                            | Sandbox today                               | Under this plan                                                                                                                                                         |
-| ------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| gstack browse (`/browse`, `/qa`, `/scrape`, handoff, cookie import) | Linux, 1.94.33.0                | Arbitrary URLs, credentialed sessions too                           | CfT 156.0.8078.4                         | On, through the dotfiles AppArmor profile   | System CfT through the wrapper, sandbox on, clean environment (R6, R20); no CRLSet or Safe Browsing on its headless path unless Brett's open question moves its pointer |
-| gstack browse, headed                                               | Mac, 1.93.42.0                  | Same; its skill prefers Aside there                                 | CfT 151.0.7922.34                        | On                                          | System CfT through the wrapper, side panel works (R6), moving within hours of a stable release (R4)                                                                     |
-| crawl4ai CLI and skill scripts                                      | Linux, 0.9.5                    | Arbitrary sites                                                     | CfT 156.0.8078.4                         | Off unless `CRAWL4AI_CHROMIUM_SANDBOX=true` | System CfT through the wrapper, sandbox on, clean environment, certificate checks on for covered callers; no CRLSet or Safe Browsing (R7)                               |
-| crawl4ai CLI                                                        | Mac, 0.7.7 on Playwright 1.56.0 | Arbitrary sites                                                     | None found in the cache for 1.56.0       | Off                                         | Moves to a release at or above 0.9.5, then as Linux, with the same limit (R7)                                                                                           |
-| Agent CLI, new                                                      | Both                            | Arbitrary sites                                                     | Not installed                            | n/a                                         | agent-browser at a pinned version, through the launcher over Chrome (R9, R10)                                                                                           |
-| Ad hoc agent scripts                                                | Both                            | Arbitrary sites                                                     | Default pinned build with `--no-sandbox` | Off                                         | System CfT through the wrapper, sandboxed with a clean environment (R20); the guidance routes untrusted pages to agent-browser (R11)                                    |
-| Puppeteer downloads in `~/.cache/puppeteer`                         | Linux                           | No consumer identified; agent-browser's auto-detect would find them | CfT 133.0.6943.141, 150.0.7871.24        | Unknown                                     | Removed; `PUPPETEER_EXECUTABLE_PATH` names the set and downloads are off (R22, R23)                                                                                     |
-| Codex browser plugin, Cursor `browser-tools-mcp@1.2.0`              | Mac                             | Arbitrary sites                                                     | Mac's Chrome                             | On                                          | Unchanged                                                                                                                                                               |
-| e2e suites: lmgroktfy, agentnative-site, meum-sites, streamsgrp     | Linux                           | Own builds and own staging                                          | CfT 151 locally; CfT 149 in CI           | Off                                         | System CfT through the wrapper (R5, R20); CI unchanged                                                                                                                  |
-| Lighthouse CI (agentnative-site, meum-sites)                        | Linux                           | Own site                                                            | Cannot launch locally                    | Off by config                               | `CHROME_PATH` names the set (R22)                                                                                                                                       |
+| Consumer                                                            | Machine                         | Pages it opens                                                      | Browser today                            | Sandbox today                               | Under this plan                                                                                                                           |
+| ------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| gstack browse (`/browse`, `/qa`, `/scrape`, handoff, cookie import) | Linux, 1.94.33.0                | Arbitrary URLs, credentialed sessions too                           | CfT 156.0.8078.4                         | On, through the dotfiles AppArmor profile   | System CfT through the launcher's CfT entry, sandbox on, clean environment, CRLSet and Safe Browsing (R6, R9)                             |
+| gstack browse, headed                                               | Mac, 1.93.42.0                  | Same; its skill prefers Aside there                                 | CfT 151.0.7922.34                        | On                                          | System CfT through the launcher's CfT entry, side panel works (R6), moving within hours of a stable release (R4)                          |
+| crawl4ai CLI and skill scripts                                      | Linux, 0.9.5                    | Arbitrary sites                                                     | CfT 156.0.8078.4                         | Off unless `CRAWL4AI_CHROMIUM_SANDBOX=true` | System CfT through the wrapper, sandbox on, clean environment, certificate checks on for covered callers; no CRLSet or Safe Browsing (R7) |
+| crawl4ai CLI                                                        | Mac, 0.7.7 on Playwright 1.56.0 | Arbitrary sites                                                     | None found in the cache for 1.56.0       | Off                                         | Moves to a release at or above 0.9.5, then as Linux, with the same limit (R7)                                                             |
+| Agent CLI, new                                                      | Both                            | Arbitrary sites                                                     | Not installed                            | n/a                                         | agent-browser at a pinned version, through the launcher over Chrome (R9, R10)                                                             |
+| Ad hoc agent scripts                                                | Both                            | Arbitrary sites                                                     | Default pinned build with `--no-sandbox` | Off                                         | System CfT through the wrapper, sandboxed with a clean environment (R20); the guidance routes untrusted pages to agent-browser (R11)      |
+| Puppeteer downloads in `~/.cache/puppeteer`                         | Linux                           | No consumer identified; agent-browser's auto-detect would find them | CfT 133.0.6943.141, 150.0.7871.24        | Unknown                                     | Removed; `PUPPETEER_EXECUTABLE_PATH` names the set and downloads are off (R22, R23)                                                       |
+| Codex browser plugin, Cursor `browser-tools-mcp@1.2.0`              | Mac                             | Arbitrary sites                                                     | Mac's Chrome                             | On                                          | Unchanged                                                                                                                                 |
+| e2e suites: lmgroktfy, agentnative-site, meum-sites, streamsgrp     | Linux                           | Own builds and own staging                                          | CfT 151 locally; CfT 149 in CI           | Off                                         | System CfT through the wrapper (R5, R20); CI unchanged                                                                                    |
+| Lighthouse CI (agentnative-site, meum-sites)                        | Linux                           | Own site                                                            | Cannot launch locally                    | Off by config                               | `CHROME_PATH` names the set (R22)                                                                                                         |
 
 ### Key Decisions
 
@@ -399,19 +399,22 @@ Who opens pages Brett does not control, what they run today, and where each goes
 - **Every browser build is exempt from the seven-day gate.** The gate's threat, a malicious upload to an open registry,
   does not match a vendor-signed repository or Google's own bucket, and the regressions a week of bake time would
   surface are what the suite run catches. Google's apt index serves only the newest build, so holding Chrome back would
-  mean mirroring old debs. WebKit and ffmpeg come from `cdn.playwright.dev`, which signs nothing: their archives are
-  trusted on first download and held to the recorded sha256 afterward, and the revision numbers are read from an npm
-  tarball as integers, with no install and no script run. agent-browser and the Playwright library are npm packages and
-  stay under the gate. Governs R3, R4, R10, R13, R21.
+  mean mirroring old debs. The exemption covers WebKit too, so its revision comes from the newest Playwright release.
+  WebKit and ffmpeg come from `cdn.playwright.dev`, which signs nothing: their archives are trusted on first download
+  and held to the recorded sha256 afterward, and the revision numbers are read from an npm tarball as integers, with no
+  install and no script run. agent-browser and the Playwright library are npm packages and stay under the gate. Governs
+  R3, R4, R10, R13, R21.
 - **Tests and untrusted browsing get separate browsers.** Reproducibility and security pull a browser's update cadence
   in opposite directions. Governs R4, R9, R13.
-- **gstack runs on CfT in every session.** The side panel needs `--load-extension`, which CfT honors and Chrome blocks
-  (measured), and one browser for gstack keeps one pointer. gstack browse also opens arbitrary URLs and credentialed
-  sessions, so it inherits Google's statement about CfT, and on its headless path it gets no CRLSet or Safe Browsing
-  unless the open question below moves its pointer. Governs R6.
+- **gstack runs on CfT in every session, through the launcher.** The side panel needs `--load-extension`, which CfT
+  honors and Chrome blocks (measured), and one browser for gstack keeps one pointer. gstack browse also opens arbitrary
+  URLs and credentialed sessions, so it inherits Google's statement about CfT, and the launcher gives it CRLSet and Safe
+  Browsing on its headless path, where gstack's own flags would otherwise withhold them. gstack passes nothing else on
+  the launcher's list except `--no-sandbox` for root, CI, and containers (read from its source). Governs R6, R9.
 - **Two layers of hardening.** The alias wrapper (R20) gives every launch through the set the sandbox and a clean
-  environment. The launcher (R9) adds what only untrusted pages want: CRLSet, Safe Browsing, and certificate checks that
-  no flag can turn off. Condition 2 stays with the AppArmor deploy. Governs R9, R20.
+  environment. The launcher (R9) adds what browsing untrusted pages wants: CRLSet, Safe Browsing, and certificate checks
+  that no flag can turn off, over Chrome for agents and over CfT for gstack. Condition 2 stays with the AppArmor deploy.
+  Governs R9, R20.
 - **Tests stay outside the launcher.** Suites use the alias path: their pages are trusted, and background network
   traffic and component downloads would make runs less hermetic. Governs R5.
 - **CLI, not MCP, for agents.** Benchmarked at 1.5 to 5 times less input than MCP for the same job, and an MCP schema
@@ -498,8 +501,10 @@ Who opens pages Brett does not control, what they run today, and where each goes
 - R5. Each e2e suite runs locally on the set with no change to its Playwright config. CI is unchanged: each repo's
   workflow runs `playwright install` for its own pinned build.
 - R6. gstack, headless and headed, runs on CfT. Its install probes resolve through the alias. `GSTACK_CHROMIUM_PATH`
-  points its launches at the set's stable path (R20), exported only when that path is executable, because gstack throws
-  on a failed launch. Its headed sessions load the side panel. gstack keeps the Playwright version it ships.
+  points its launches at the launcher's CfT entry (R9), exported only when that entry and the set's stable path (R20)
+  are executable and the user is not root, because gstack throws on a failed launch and the launcher refuses root. Its
+  headless path gets CRLSet and Safe Browsing this way, and its headed sessions load the side panel. gstack keeps the
+  Playwright version it ships.
 - R7. crawl4ai runs on CfT and keeps the Playwright version it ships. Its Playwright mode resolves through the alias,
   and the deploy writes `~/.crawl4ai/chromium.path` to the stable path for its managed mode.
   `CRAWL4AI_CHROMIUM_SANDBOX=true` is exported wherever the sandbox can work. Covered callers set `ignore_https_errors`
@@ -520,12 +525,14 @@ Who opens pages Brett does not control, what they run today, and where each goes
   `--browser-subprocess-path`. It matches on the normalized switch name, so `-no-sandbox` and `--no-sandbox=1` count. It
   adds `--component-updater=fast-update`, clears the environment down to what a browser needs (`HOME`, `PATH`, `TMPDIR`,
   `LANG`, `LC_*`, `TZ`, `DISPLAY`, `XAUTHORITY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, and proxy variables),
-  then `exec`s Chrome, so the browser keeps the caller's pipes and AppArmor's path match. It refuses to run as root,
-  naming why, because the browser's sandbox cannot start there. It reads the browser's path from one variable that shell
-  config exports only when the binary exists, and it holds no path of its own. agent-browser's shim and the guidance
-  name the launcher. When the browser is absent it exits before opening a page with one self-contained line, last on
-  stderr, that says the host has no browsing build, carries a stable reason, and names `sudo scripts/chrome-deploy.sh`,
-  because some callers keep only the last line.
+  then `exec`s its target, so the browser keeps the caller's pipes and AppArmor's path match. It refuses to run as root,
+  naming why, because the browser's sandbox cannot start there. It has two entries, because a caller's path setting can
+  name only an executable: the default targets Chrome, for agent-browser and the guidance, and a CfT entry targets the
+  set's stable path (R20), for gstack. It reads each target's path from a variable that shell config exports only when
+  the binary exists, and it holds no path of its own. When its target is absent it exits before opening a page with one
+  self-contained line, last on stderr, that says what is missing, carries a stable reason, and names the deploy command
+  (`sudo scripts/chrome-deploy.sh` for Chrome, `scripts/playwright-browsers-deploy.sh` for CfT), because some callers
+  keep only the last line.
 - R10. A stowed shim named `agent-browser` runs agent-browser at one exact version the seven-day gate allows (0.40.0 on
   2026-11-03), named once in dotfiles, with no skill. It unsets every inherited `AGENT_BROWSER_*` variable it does not
   set itself. It always sets `AGENT_BROWSER_EXECUTABLE_PATH` to the launcher, so the tool's auto-detect never runs and a
@@ -554,7 +561,7 @@ Who opens pages Brett does not control, what they run today, and where each goes
 - R12. Through the launcher, Chrome on the Linux server runs renderers with their own user and PID namespaces and
   seccomp filter mode, and on the Mac runs renderers with Chrome's seatbelt switch and no `--no-sandbox`. On both, it
   rejects the compromised-CA host from launch and rejects a revoked certificate within 30 seconds of launch with a
-  context open.
+  context open. CfT through the launcher's CfT entry, under gstack, meets the same bar.
 
 **Chrome**
 
@@ -588,7 +595,7 @@ Who opens pages Brett does not control, what they run today, and where each goes
   `PUPPETEER_SKIP_DOWNLOAD=1`, `PUPPETEER_EXECUTABLE_PATH`, `CHROME_PATH`, `GSTACK_CHROMIUM_PATH`, and
   `CRAWL4AI_CHROMIUM_SANDBOX=true`. The deploy writes `~/.crawl4ai/chromium.path`. The shim sets
   `AGENT_BROWSER_EXECUTABLE_PATH`. The pointers name the set's stable path (R20), except agent-browser's, which names
-  the launcher.
+  the launcher, and gstack's, which names the launcher's CfT entry.
 - R23. A check lists every browser binary on a host outside Chrome and the set, with its path, version, and size, under
   a stable reason, and exits non-zero when it finds one: real directories in `$PLAYWRIGHT_BROWSERS_PATH` the pin does
   not name, `~/.cache/puppeteer`, `~/.cache/ms-playwright`, agent-browser's own download directory, distribution
@@ -669,6 +676,10 @@ Who opens pages Brett does not control, what they run today, and where each goes
   anything but the accepted shapes, **when** the host's timer runs, **then** the aliases stay, nothing downloads, and
   the check names a stable reason and both values. **Given** `--allow-downgrade`, **then** the deploy moves the host
   back.
+- AE19. **Covers R6, R9, R12.** **Given** `GSTACK_CHROMIUM_PATH` names the launcher's CfT entry, **when** gstack browse
+  opens `revoked.badssl.com` with its session open for 30 seconds, on either machine, **then** the navigation fails with
+  `ERR_CERT_REVOKED`, renderers are sandboxed as R12 states, and a token planted in gstack's environment is absent from
+  the browser's main process on Linux. **Given** a headed session on the Mac, **then** the side panel loads.
 
 ### What Happens to the Pinned-Browser Machinery
 
@@ -723,38 +734,32 @@ Who opens pages Brett does not control, what they run today, and where each goes
   Playwright on the pinned WebKit passed there. A failure drops back to one real WebKit directory per revision for that
   release, the one place the set might grow.
 - **Ubuntu keeps shipping its `chrome` AppArmor profile.** If a later release drops it, Google's deb installs its own.
-- **Removing `--disable-background-networking` lets Chrome reach Google's services in the background.** That is the
-  price of Safe Browsing, and it applies only behind the launcher.
+- **Removing `--disable-background-networking` lets a browser reach Google's services in the background.** That is the
+  price of Safe Browsing, and it applies only behind the launcher: Chrome for agent-browser, CfT for gstack.
 
 ### Settled Decisions
 
 Brett answered these on 2026-11-03, relayed by the coordinating session `dotfiles-prime`. Quoted words are Brett's as
 relayed; the rest is the relay's wording.
 
-| # | Question                            | Answer                                                                                                                                                                                                                                                                                                   | Sets            |
-| - | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| 1 | What agents browse with             | Regular Chrome stable from Google's apt repository, behind the hardened launcher. CfT serves tests, gstack with its headed sessions, crawl4ai, and scripts.                                                                                                                                              | R6, R7, R9, R13 |
-| 2 | Which tool drives it                | agent-browser without its skill. Brett asked "Why not vercel agent-browser?". Pinned under the seven-day gate, its path set to the Chrome install, with any download or auto-detect off.                                                                                                                 | R10, R11        |
-| 3 | The seven-day gate                  | Every browser build is exempt, and "also need to ensure that our two browsers chrome and cft are updated often." CfT follows each Chrome stable release once the suites pass. Chrome updates at least daily. The agent CLI stays under the gate.                                                         | R4, R13         |
-| 4 | Whether CI joins the set            | CI is unchanged.                                                                                                                                                                                                                                                                                         | R5              |
-| 5 | Whether bare launches run sandboxed | Yes: every alias executable becomes the wrapper that drops the sandbox-off flags and clears the environment.                                                                                                                                                                                             | R8, R20         |
-| 6 | How many browsers                   | Two, Chrome and CfT. WebKit stays only if a repo's suite uses it, and ffmpeg stays as it is. agentnative-site's `mobile-ios` and `tablet` projects and `web-audit-webkit`, which its release preflight runs locally, use WebKit; no other repo in scope does.                                            | R1              |
-| 7 | The Playwright library              | One pinned version across our repos, set in one place in dotfiles, with a check that flags drift and bumps them together. gstack and crawl4ai keep what they ship. Brett: "I'm not sure how that affects a pin. it is ok if the pin becomes dirty or is otherwise ignored after an initial commit, etc." | R21             |
-| 8 | Control                             | Brett wants "to limit the number of browsers we have and also highly control which browsers different tools use through direct config and ENV VARs". Every consumer is pointed explicitly, every download is off, and a check lists any browser outside the two.                                         | R22, R23        |
+| #  | Question                            | Answer                                                                                                                                                                                                                                                                                                   | Sets              |
+| -- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| 1  | What agents browse with             | Regular Chrome stable from Google's apt repository, behind the hardened launcher. CfT serves tests, gstack with its headed sessions, crawl4ai, and scripts.                                                                                                                                              | R6, R7, R9, R13   |
+| 2  | Which tool drives it                | agent-browser without its skill. Brett asked "Why not vercel agent-browser?". Pinned under the seven-day gate, its path set to the Chrome install, with any download or auto-detect off.                                                                                                                 | R10, R11          |
+| 3  | The seven-day gate                  | Every browser build is exempt, and "also need to ensure that our two browsers chrome and cft are updated often." CfT follows each Chrome stable release once the suites pass. Chrome updates at least daily. The agent CLI stays under the gate.                                                         | R4, R13           |
+| 4  | Whether CI joins the set            | CI is unchanged.                                                                                                                                                                                                                                                                                         | R5                |
+| 5  | Whether bare launches run sandboxed | Yes: every alias executable becomes the wrapper that drops the sandbox-off flags and clears the environment.                                                                                                                                                                                             | R8, R20           |
+| 6  | How many browsers                   | Two, Chrome and CfT. WebKit stays only if a repo's suite uses it, and ffmpeg stays as it is. agentnative-site's `mobile-ios` and `tablet` projects and `web-audit-webkit`, which its release preflight runs locally, use WebKit; no other repo in scope does.                                            | R1                |
+| 7  | The Playwright library              | One pinned version across our repos, set in one place in dotfiles, with a check that flags drift and bumps them together. gstack and crawl4ai keep what they ship. Brett: "I'm not sure how that affects a pin. it is ok if the pin becomes dirty or is otherwise ignored after an initial commit, etc." | R21               |
+| 8  | Control                             | Brett wants "to limit the number of browsers we have and also highly control which browsers different tools use through direct config and ENV VARs". Every consumer is pointed explicitly, every download is off, and a check lists any browser outside the two.                                         | R22, R23          |
+| 9  | Where `GSTACK_CHROMIUM_PATH` points | The hardened launcher with CfT as its target, adding CRLSet and Safe Browsing on gstack's headless path, with a gate check that the launcher under gstack rejects a revoked host.                                                                                                                        | R6, R9, R12, AE19 |
+| 10 | WebKit's revision                   | Read from the newest Playwright release. The exemption covers every browser build, WebKit included.                                                                                                                                                                                                      | R4                |
 
 On decision 7, the relay reads Brett's sentence as: browser updates never wait on the library pin, and the aliases carry
 any revision a pinned library asks for. R21 follows that reading.
 
 **Interval, set here:** hourly for both browsers, which meets "at least daily" for Chrome. The reasoning is in The
 Split.
-
-**Open for Brett, blocking nothing:**
-
-- **Where does `GSTACK_CHROMIUM_PATH` point?** (a) The alias wrapper, which gives gstack the sandbox and a clean
-  environment. (b) The launcher, with CfT as its target, which adds CRLSet and Safe Browsing on gstack's headless path.
-  Recommendation: (b). gstack browse opens arbitrary URLs and credentialed sessions, the launcher over CfT was measured
-  rejecting a revoked host (not yet under gstack), and it costs a second launcher target. R6 specifies (a) until he
-  answers, because it follows decisions 1 and 5 as given.
 
 ### Build Phases
 
@@ -770,18 +775,20 @@ phase 4.
    sandbox on? Does gstack's side panel load through the wrapper on the Mac, with `GSTACK_CHROMIUM_PATH` set by hand?
    Does a sandboxed browser keep working with its directory removed, which A2 measured only unsandboxed? A failure takes
    the Goal Capsule's stop condition.
-3. **Control.** Every pointer and download switch (R22), the consumer moves (R5, R6, R7, R8), and the inventory check
-   (R23), then removal of what it lists.
-4. **Chrome and agent browsing.** `scripts/chrome-deploy.sh` and its timer (R13, R14, R15, R16), the launcher (R9, R12),
-   and the agent-browser shim (R10). The operator runs the deploy.
+3. **Control and the launcher.** The launcher with its CfT entry (R9, R12), every pointer and download switch (R22), the
+   consumer moves (R5, R6, R7, R8), and the inventory check (R23), then removal of what it lists. It closes with a
+   second gate on both machines: under gstack, the launcher rejects a revoked host, with the sandbox on and the side
+   panel loading on the Mac (AE19). A failure takes the Goal Capsule's stop condition.
+4. **Chrome and agent browsing.** `scripts/chrome-deploy.sh` and its timer (R13, R14, R15, R16), the launcher's Chrome
+   entry, and the agent-browser shim (R10). The operator runs the deploy.
 5. **Keeping current.** The hourly CfT job and each host's hourly pickup (R4, R24), with the weekly agent-browser pin
    proposal (R10).
 6. **Library.** The dotfiles version, its check, and the bump (R21). Start at 1.61.1, which all five repos hold, then
    take the first bump through it.
 7. **Docs.** Guidance and runbooks (R11, R19), once the behavior they describe exists.
 
-Phases 1, 2, 3, and 5 run in that order. Phase 4 can run alongside phase 3 once phase 2 passes. Phase 6 needs only the
-system set. `config/shell/` is shared, so phase 3's shell change merges first.
+Phases 1, 2, and 3 run in that order. Phases 4 and 5 can then run side by side. Phase 6 needs only the system set.
+`config/shell/` is shared, so phase 3's shell change merges first.
 
 ### Deferred to Planning
 
@@ -1100,19 +1107,19 @@ Approval readiness: PASS (D1 to D9, auto-decided under the slot's standing autho
 
 #### Parallelization
 
-| Phase                    | Modules touched                                                                | Depends on         |
-| ------------------------ | ------------------------------------------------------------------------------ | ------------------ |
-| 1 System set and wrapper | `scripts/`, `config/playwright/`, `tests/`                                     | #431, merged       |
-| 2 First execution gate   | none                                                                           | phase 1            |
-| 3 Control                | `scripts/`, `config/shell/`, `tests/`                                          | phase 2            |
-| 4 Chrome and agents      | `scripts/`, `config/systemd/system/`, `stow/local/`, `config/shell/`, `tests/` | phase 2            |
-| 5 Keeping current        | `scripts/`, `stow/local/`, `stow/launchagent/`, `tests/`                       | phases 2 and 3     |
-| 6 Library                | `scripts/`, `config/playwright/`, `tests/`                                     | phase 1            |
-| 7 Docs                   | `stow/claude/dot-claude/`, `docs/runbooks/`                                    | phases 3, 4, and 5 |
+| Phase                      | Modules touched                                                                | Depends on         |
+| -------------------------- | ------------------------------------------------------------------------------ | ------------------ |
+| 1 System set and wrapper   | `scripts/`, `config/playwright/`, `tests/`                                     | #431, merged       |
+| 2 First execution gate     | none                                                                           | phase 1            |
+| 3 Control and the launcher | `scripts/`, `stow/local/`, `config/shell/`, `tests/`                           | phase 2            |
+| 4 Chrome and agents        | `scripts/`, `config/systemd/system/`, `stow/local/`, `config/shell/`, `tests/` | phase 3            |
+| 5 Keeping current          | `scripts/`, `stow/local/`, `stow/launchagent/`, `tests/`                       | phase 3            |
+| 6 Library                  | `scripts/`, `config/playwright/`, `tests/`                                     | phase 1            |
+| 7 Docs                     | `stow/claude/dot-claude/`, `docs/runbooks/`                                    | phases 3, 4, and 5 |
 
-Lane A: phases 1, 2, 3, and 5, in order. Lane B: phase 4, alongside phase 3 once phase 2 passes; `config/shell/` is
-shared, so merge phase 3's shell change first, and `scripts/upgrade/lib/stale-procs.sh` belongs to this lane alone. Lane
-C: phase 6, any time after phase 1. Phase 7 closes.
+Lane A: phases 1, 2, and 3, in order. Lanes B and C then run side by side: phase 4, to which
+`scripts/upgrade/lib/stale-procs.sh` belongs alone, and phase 5. Lane D: phase 6, any time after phase 1. Phase 7
+closes.
 
 #### Implementation Tasks
 
@@ -1138,22 +1145,27 @@ C: phase 6, any time after phase 1. Phase 7 closes.
   - Surfaced by: premise table, unverified rows; feasibility review
   - Files: none
   - Verify: AE14 live
+- [ ] **T3 (P1, human: ~3h / CC: ~25min)** — phase 3, launcher — strip flags by normalized name, add the fast-update
+  flag, clear the environment, refuse root, two entries each reading the shell's variable, `exec`
+  - Surfaced by: Architecture — A3, A4; Code quality — Q1; security review; decision 9
+  - Files: `stow/local/dot-local/bin/`, `config/shell/`, `tests/browsing-launcher.bats`, `tests/shell-config.bats`
+  - Verify: `scripts/run-tests tests/browsing-launcher.bats`; AE9's error for each entry
 - [ ] **T7 (P1, human: ~3h / CC: ~20min)** — phase 3, control — every pointer and download switch,
   `~/.crawl4ai/chromium.path`, the deps script's flags, the inventory check, and removal of what it lists
   - Surfaced by: decision 8
   - Files: `config/shell/caches.sh`, the deploy script, `scripts/playwright-deps-deploy.sh`, a new check,
     `tests/shell-config.bats`
   - Verify: AE2, AE6, AE7, AE17
+- [ ] **T11 (P1, human: ~30min / CC: ~10min)** — phase 3, live gate — on both machines, the launcher under gstack
+  rejects a revoked host with the sandbox on, and the side panel loads on the Mac
+  - Surfaced by: decision 9
+  - Files: none
+  - Verify: AE19
 - [ ] **T8 (P1, human: ~3h / CC: ~20min)** — phase 4, Chrome — `scripts/chrome-deploy.sh`, its hourly timer, and the
   Chrome check
   - Surfaced by: decisions 1 and 3
   - Files: `scripts/`, `config/systemd/system/`, `tests/chrome-deploy.bats`
-  - Verify: AE11, AE12 live, after the operator's deploy
-- [ ] **T3 (P1, human: ~3h / CC: ~20min)** — phase 4, launcher — strip flags by normalized name, add the fast-update
-  flag, clear the environment, refuse root, read the shell's variable, `exec`
-  - Surfaced by: Architecture — A3, A4; Code quality — Q1; security review
-  - Files: `stow/local/dot-local/bin/`, `config/shell/`, `tests/browsing-launcher.bats`, `tests/shell-config.bats`
-  - Verify: `scripts/run-tests tests/browsing-launcher.bats`; AE8, AE9
+  - Verify: AE8, AE11, AE12 live, after the operator's deploy
 - [ ] **T9 (P1, human: ~4h / CC: ~30min)** — phase 4, agent-browser — the stowed shim, its own config, refused flags and
   verbs, session from the working tree, idle timeout, and the three facts Deferred to Planning names
   - Surfaced by: decision 2; security review
@@ -1188,8 +1200,7 @@ The task store also carries eight tasks from the 2026-11-03 eng review of
 - What already exists: written
 - TODOS.md updates: 0 items proposed (no tracked TODOS file)
 - Failure modes: 0 critical gaps flagged
-- Unresolved decisions: Brett's are in Settled Decisions, with one open question that blocks nothing; none of this
-  review's own choices is open
+- Unresolved decisions: none; Brett's answers are in Settled Decisions
 - Outside voice: codex, disabled (`codex_reviews`)
 - Parallelization: 3 lanes, 2 parallel / 1 sequential
 - Lake Score: N/A (no answers scored for Completeness)
@@ -1424,16 +1435,6 @@ Entries are review items left for the author; they do not block implementation.
   Change: `scripts/chrome-deploy.sh` compares the key's fingerprint with one committed in dotfiles before writing the
   keyring, and stops on a mismatch with a stable reason and both values.
 
-- **WebKit's revision comes from a release younger than the gate** — R4, other revisions (P2, security-lens,
-  confidence 75)
-
-  Decision 3 exempts every browser build, so R4 reads the newest release, as integers from its tarball with no install.
-  The reviewer would read the newest release the gate allows: no repo can be ahead of that, and "updated often" names
-  Chrome and CfT.
-
-  Change: take WebKit and ffmpeg revisions from the newest gate-cleared release, if Brett reads the exemption as covering
-  the two browsers only.
-
 - **The weekly agent-browser proposal could be a report** — R10 (P3, scope-guardian, confidence 50)
 
   A person merges each proposal anyway, and the tool released 6 times in 9 days, so the job can produce a steady stream
@@ -1505,4 +1506,4 @@ Unresolved decisions from this review: none.
 
 **UNRESOLVED DECISIONS:**
 
-- 1 open for Brett, blocking nothing (plan Settled Decisions): where `GSTACK_CHROMIUM_PATH` points
+- None for Brett; his answers are in plan Settled Decisions
