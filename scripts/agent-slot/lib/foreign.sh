@@ -1,25 +1,23 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
-# Foreign heads: a slot's head from a repository that is neither origin's nor owned by a trusted owner. Slot paths are
-# trusted in Claude ahead of time and Claude runs in bypass permissions mode, so what a checkout tracks would otherwise
-# run as this account before anyone reads it. A slot on a foreign head loads no Claude settings from the tree
-# (SESSIONS_FOREIGN_ARGS), keeps the tree's Claude config off disk, runs no git hooks, and skips each setup step that
-# acts on what the head tracks.
+# Foreign heads: a slot's head in a repository whose owner is not trusted. Slot paths are trusted in Claude ahead of time
+# and Claude runs in bypass permissions mode, so what a checkout tracks would otherwise run as this account before anyone
+# reads it. A slot on a foreign head loads no Claude settings from the tree (SESSIONS_FOREIGN_ARGS), keeps the tree's Claude
+# config off disk, runs no git hooks, and skips each setup step that acts on what the head tracks.
 #
-# Origin's own heads are not foreign, whoever owns origin: the operator chose them by trusting the prime. An owner that
-# cannot be determined is foreign, so the decision fails closed.
+# The owner decides, on a fork or on the PR's own repo: a same-repo PR on a third party's origin is that third party's
+# code. A slot on the base with no PR is not foreign, since trusting the prime chose its base. An owner that cannot be
+# determined is foreign, so the decision fails closed.
 
 # A jq definition: foreign_fields, the verdict as an output or a ledger line reports it, on a slot's record.
 FOREIGN_FIELDS_DEF='def foreign_fields: {head_foreign: (.head_foreign // false), head_owner: (.head_owner // null)};'
 
-# Usage: foreign_url <url>; true unless the URL is origin's repo or a GitHub repo whose owner is in AS_TRUSTED_OWNERS. An
-# empty URL, which is how a head whose repository is gone reaches here, and a URL that is not GitHub's are foreign.
+# Usage: foreign_url <url>; true unless the URL is a GitHub repo whose owner is in AS_TRUSTED_OWNERS. An empty URL, which
+# is how a head whose repository is gone reaches here, and a URL that is not GitHub's are foreign.
 foreign_url() {
   local slug trusted
   local -a owners
-  [[ -z $1 || $1 != "$REPO_ORIGIN" ]] || return 1
   slug=$(head_github_slug "$1")
   [[ -n $slug ]] || return 0
-  [[ $slug != "$(head_github_slug "$REPO_ORIGIN")" ]] || return 1
   read -ra owners <<<"${AS_TRUSTED_OWNERS,,}"
   for trusted in "${owners[@]}"; do
     [[ ${slug%%/*} != "$trusted" ]] || return 1

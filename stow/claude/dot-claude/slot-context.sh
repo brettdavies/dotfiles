@@ -80,8 +80,8 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
   fi
   if sessions_foreign; then
     foreign=$(contract_json -r '"This slot'"'"'s head comes from a "
-      + (if .head_owner then "fork owned by \(.head_owner), which is not on the trusted owner list,"
-         else "fork whose owner could not be determined," end)
+      + (if .head_owner then "repository owned by \(.head_owner), which is not on the trusted owner list,"
+         else "repository whose owner could not be determined," end)
       + " and no person has reviewed it, so nothing from its tree ran when this slot was made.\n"
       + "Claude started with user settings only, so the tree'"'"'s Claude settings, hooks, MCP servers, CLAUDE.md, skills,"
       + " commands, and agents did not load. Git has no hooks here and refuses to treat a directory in the tree as a"

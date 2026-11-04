@@ -428,12 +428,12 @@ unreachable or the hand-off fails, the file goes to the host's local opener wher
 
 ### Foreign head
 
-An *agent slot*'s head from a repository that is not origin's and whose owner is not on the trusted owner list, or whose
-owner cannot be determined. Nothing from it runs on its own: Claude starts with user settings only, the tree's Claude
-and tool config stays off disk, git has no hooks and treats no directory in the tree as a repository, and setup leaves
-out each step that acts on what the head tracks. A head on origin is never foreign, whoever owns origin, since trusting
-the *prime checkout* already chose it. A reopen of a foreign slot is foreign whatever branch it comes back on, since its
-agent can have pushed the head's commits anywhere.
+An *agent slot*'s head in a repository whose owner is not on the trusted owner list or cannot be determined, on a fork
+or on the PR's own repo. Nothing from it runs on its own: Claude starts with user settings only, the tree's Claude and
+tool config stays off disk, git has no hooks and treats no directory in the tree as a repository, and setup leaves out
+each step that acts on what the head tracks. A slot on the base with no PR is not foreign, since trusting the *prime
+checkout* chose that base. A reopen of a foreign slot is foreign whatever branch it comes back on, since its agent can
+have pushed the head's commits anywhere.
 
 ### Agent slot
 

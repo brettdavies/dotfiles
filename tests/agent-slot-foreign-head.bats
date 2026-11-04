@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
-# A slot whose head comes from another person's fork runs nothing from that head: no Claude project or local settings,
-# no git hooks, and no setup step that follows or acts on what the head tracks. Origin's own heads and the heads of a
-# trusted owner's forks keep the full setup.
+# A slot whose head is in a repository another person owns runs nothing from that head: no Claude project or local
+# settings, no git hooks, and no setup step that follows or acts on what the head tracks. The head repository's owner
+# decides, on a fork or on the PR's own repo. Only a head a trusted owner holds keeps the full setup.
 #
 # Run: bats tests/agent-slot-foreign-head.bats
 #
@@ -91,8 +91,8 @@ hostile_head() {
   git -C "$seed" checkout -q main
 }
 
-# foreign_pr / own_pr / same_repo_pr: PR 7 with the hostile head on evil's fork, on me's fork, or on origin. Owner up is
-# on no list, as a third party's repo a prime's origin names is not: only the head being on origin keeps it unchanged.
+# foreign_pr / own_pr / same_repo_pr: PR 7 with the hostile head on evil's fork, on me's fork, or on origin, which is
+# owned by up. Up is on no list by default, as a third party's repo a prime's origin names is not.
 foreign_pr() {
   hostile_head "$T/forks/evil/repoa.git" feat/x 7 "${1:-}"
   gh_item pr 7 "Fix the login" OPEN "$(head_fields evil)"
@@ -169,7 +169,7 @@ run_plain_claude() {
   foreign_pr
   run --separate-stderr "$AGENT_SLOT" launch repoa --pr 7
   [ "$status" -eq 0 ]
-  [[ $output == *"its head is a fork of evil's, so nothing from the head runs"* ]]
+  [[ $output == *"its head belongs to evil, so nothing from the head runs"* ]]
 }
 
 @test "a foreign head's settings hook, key helper, and MCP server do not run in the real Claude" {
@@ -226,13 +226,30 @@ run_plain_claude() {
   [ -z "$(ls "$T/marks")" ]
 }
 
-@test "a same-repo PR on a third party's origin keeps today's setup, and its git hook runs" {
+@test "a same-repo PR on a third party's origin is that third party's code, so it is foreign" {
+  same_repo_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  jaq -e '.head_foreign == true and .head_owner == "up"' <<<"$output"
+  [ -z "$(hooks_path)" ]
+  git -C "$SLOT" commit -q --allow-empty -m work
+  [ -z "$(ls "$T/marks")" ]
+}
+
+@test "a same-repo PR on a trusted owner's origin keeps today's setup, and its git hook runs" {
+  trust_owners 'me up'
   same_repo_pr
   launch repoa --pr 7
   [ "$status" -eq 0 ]
   assert_unchanged_setup "$output"
   git -C "$SLOT" commit -q --allow-empty -m work
   [ -e "$T/marks/git-pre-commit" ]
+}
+
+@test "a launch with no item on a third party's origin keeps today's setup, since the prime chose that base" {
+  launch repoa --task plain
+  [ "$status" -eq 0 ]
+  assert_unchanged_setup "$output"
 }
 
 @test "a PR from a trusted owner's fork keeps today's setup, and its git hook runs" {

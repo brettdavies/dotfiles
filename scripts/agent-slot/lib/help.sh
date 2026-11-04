@@ -60,8 +60,8 @@ verb_help() {
       'checked out tracking the remote that holds it: origin, the remote the prime checkout has for that repo, or' \
       'fork. A head whose branch or repository is gone is checked out from refs/pull/N/head with no upstream, and' \
       'head_pushable is false. An issue leaves the base branch checked out.' \
-      "A head on a repo that is not origin's, from an owner outside AGENT_SLOT_TRUSTED_OWNERS or from an owner that" \
-      'cannot be determined, is a foreign head: head_foreign is true, Claude starts with user settings only, and git' \
+      "A head in a repo whose owner is outside AGENT_SLOT_TRUSTED_OWNERS or cannot be determined, on a fork or on the" \
+      "PR's own repo, is a foreign head: head_foreign is true, Claude starts with user settings only, and git" \
       'gets no hooks. To run a fork once someone has reviewed it, tear its slot down and launch again with its owner' \
       "added for that one command: AGENT_SLOT_TRUSTED_OWNERS='brettdavies meum-id <owner>' agent-slot launch <repo> --pr" \
       '<ref>. That checks out the branch as it is then, so compare it with what was reviewed. See the README.' \

@@ -315,7 +315,7 @@ issue oxipng/oxipng#886 (16-bit tRNS lost)."* ]]
   run start s1 startup
   [ "$status" -eq 0 ]
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"fork owned by evil"* ]]
+  [[ $context == *"repository owned by evil"* ]]
   [[ $context == *'Claude started with user settings only'* ]]
   [[ $context == *'Git has no hooks'* ]]
   [[ $context == *'Do not run its tests, builds, scripts, or package managers'* ]]
@@ -328,7 +328,7 @@ issue oxipng/oxipng#886 (16-bit tRNS lost)."* ]]
   run start s1 startup
   [ "$status" -eq 0 ]
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *'fork whose owner could not be determined'* ]]
+  [[ $context == *'repository whose owner could not be determined'* ]]
 }
 
 @test "any other slot's context has no foreign-head notice, and warns against checking out another person's fork" {

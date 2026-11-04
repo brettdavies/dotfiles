@@ -152,8 +152,8 @@ launch_output() {
       (if .prompt_delivered == false
        then "; this first message was not delivered, because the slot already holds the task" else "" end) +
       (if .head_foreign
-       then "; its head is " + (if .head_owner then "a fork of \(.head_owner)'"'"'s"
-                                 else "a fork whose owner could not be determined" end)
+       then "; its head " + (if .head_owner then "belongs to \(.head_owner)"
+                              else "has an owner that could not be determined" end)
             + ", so nothing from the head runs" else "" end) +
       (if .prior then "\n\(.prior.note)" else "" end)'
 }
