@@ -9,6 +9,17 @@ file=$(jq -r '.tool_input.file_path // .tool_input.notebook_path // empty')
 [[ -z "$file" ]] && exit 0
 [[ ! -f "$file" ]] && exit 0
 
+# Every formatter below can load code from the tree it runs in, and a foreign head's tree has not been reviewed
+# (scripts/agent-slot/lib/foreign.sh). The slot's record decides, so this holds whatever started this Claude.
+in_foreign_head() {
+  local git_dir
+  git_dir=$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null) || return 1
+  jq -e '.head_foreign == true' "$git_dir/agent-slot.json" >/dev/null 2>&1
+}
+if in_foreign_head "$(dirname "$file")" || in_foreign_head "${CLAUDE_PROJECT_DIR:-$PWD}"; then
+  exit 0
+fi
+
 # A loose file under a scratch path is a transient draft, such as a PR body
 # written for `gh pr edit --body-file`, and keeps its authored shape so it
 # pastes cleanly into GitHub forms. A file inside a git work tree is repo
