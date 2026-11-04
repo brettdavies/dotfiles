@@ -17,7 +17,7 @@ prime_of() {
 # server that does not answer counts as none, since agent-slot prime, which every start goes through, refuses then.
 prime_old_running() {
   local panes held
-  panes=$(timeout --kill-after=2 10 "$AR_TMUX" -L "$TMUX_DEFAULT_SOCKET" list-panes -a -F "$PRIME_OLD_PANES_FORMAT" \
+  panes=$(timeout --kill-after=2 10 "$AR_TMUX" -u -L "$TMUX_DEFAULT_SOCKET" list-panes -a -F "$PRIME_OLD_PANES_FORMAT" \
     </dev/null 2>/dev/null) || return 1
   held=$(prime_old_sessions <<<"$panes")
   grep -qxF -- "$(tmux_name "$1")" <<<"$held"

@@ -182,6 +182,7 @@ printf "agent-slot-client %s\n" "${AGENT_SLOT_REX_CLIENT:-}" >>"$CALLS"
 printf "agent-slot-runtime %s\n" "${XDG_RUNTIME_DIR:-unset}" >>"$CALLS"
 answer slot "$1"'
   stub tmux '
+[ "$1" != -u ] || shift
 if [ "$1 $2" = "-L default" ]; then
   [ "$3" = attach ] && printf "tmux-cwd %s\n" "$PWD" >>"$CALLS"
   answer tmux-default "$3"

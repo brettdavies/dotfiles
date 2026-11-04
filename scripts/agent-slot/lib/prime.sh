@@ -131,7 +131,7 @@ prime_list() {
       rows+=$repo$'\t'$TMUX_DEFAULT_SOCKET$'\t'$name$'\t'$name$'\n'
     done < <(prime_old_sessions <<<"$DEFAULT_PANES")
   fi
-  if slot_tmux out 5 list-sessions -F $'#{session_name}\t#{session_path}'; then
+  if slot_tmux out 5 -u list-sessions -F $'#{session_name}\t#{session_path}'; then
     while IFS=$'\t' read -r name path; do
       repo=${path##*/}
       [[ -n $repo && -z ${seen[$repo]:-} && $name == "$(slot_session "$repo" "$SLOT_PRIME")" ]] || continue

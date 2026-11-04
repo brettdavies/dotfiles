@@ -65,6 +65,7 @@ while (($#)); do
   case $1 in
     -L | -S) sock=${2##*/}; shift 2 ;;
     -f) shift 2 ;;
+    -u) shift ;;
     *) break ;;
   esac
 done

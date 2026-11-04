@@ -50,7 +50,8 @@ prime_display_name() {
   printf '%s' "${name:-$1}"
 }
 
-# The format prime_old_sessions reads, from `tmux -L default list-panes -a`.
+# The format prime_old_sessions reads, from `tmux -L default list-panes -a`. A read of it passes -u, since tmux prints the
+# tab as `_` to a client it does not take for UTF-8, and the two fields then read as one.
 PRIME_OLD_PANES_FORMAT=$'#{session_name}\t#{pane_current_command}'
 
 # Reads panes in PRIME_OLD_PANES_FORMAT and prints each session holding a Claude, which can run under a bare version

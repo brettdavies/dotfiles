@@ -77,7 +77,7 @@ tmux_no_server() {
 DEFAULT_PANES=
 default_tmux_panes() {
   DEFAULT_PANES=
-  if bounded DEFAULT_PANES tmux 5 "$AS_TMUX" -L "$TMUX_DEFAULT_SOCKET" list-panes -a -F "$PRIME_OLD_PANES_FORMAT"; then
+  if bounded DEFAULT_PANES tmux 5 "$AS_TMUX" -u -L "$TMUX_DEFAULT_SOCKET" list-panes -a -F "$PRIME_OLD_PANES_FORMAT"; then
     return 0
   fi
   DEFAULT_PANES=

@@ -485,7 +485,7 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
   primes X 'X Prime'
   run "$AGENT_SLOT_REX" prime X
   [ "$status" -eq 0 ]
-  called '^tmux -L default list-panes -a '
+  called '^tmux -u -L default list-panes -a '
   called '^tmux -L default attach -t =X Prime$'
   called "^tmux-cwd $HOME\$"
   [ "$(tail -1 "$CALLS")" = "login-shell -l" ]
