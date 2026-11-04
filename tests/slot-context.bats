@@ -331,13 +331,13 @@ issue oxipng/oxipng#886 (16-bit tRNS lost)."* ]]
   [[ $context == *'repository whose owner could not be determined'* ]]
 }
 
-@test "any other slot's context has no foreign-head notice, and warns against checking out another person's fork" {
+@test "any other slot's context has no foreign-head notice, and warns against checking out a head no trusted owner holds" {
   slot repo 1 '{"task": "work"}'
   run start s1 startup
   [ "$status" -eq 0 ]
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
   [[ $context != *'Claude started with user settings only'* ]]
-  [[ $context == *'Never check out a head from another person'"'"'s fork in this slot'* ]]
+  [[ $context == *'Never check out a head a trusted owner does not hold in this slot'* ]]
 }
 
 @test "a foreign head's context leaves out the PR's title, which the fork's author wrote, and says not to trust it" {
@@ -401,4 +401,20 @@ issue oxipng/oxipng#886 (16-bit tRNS lost)."* ]]
   [[ $context == *'git sparse-checkout reapply'* ]]
   [[ $context == *'git apply'*'git am'* ]]
   [[ $context == *'qmd'*'from outside this tree'* ]]
+}
+
+@test "a foreign head's context says what reapply leaves, and every slot's rule goes by the owner, not by fork" {
+  slot repo 1 '{"task": "review", "head_foreign": true, "head_owner": "evil"}'
+  run start s1 startup
+  [ "$status" -eq 0 ]
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *'sparse.expectFilesOutsideOfPatterns'*'trash it by hand'* ]]
+  slot repo 2 '{"task": "work"}'
+  SLOT=$AGENT_SLOT_ROOT/repo/2
+  printf '%s' repo-2 >"$STUBS/pane-session"
+  run start s2 startup
+  [ "$status" -eq 0 ]
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *'Never check out a head a trusted owner does not hold'* ]]
+  [[ $context != *"another person's fork"* ]]
 }

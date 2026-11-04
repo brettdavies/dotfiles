@@ -8,6 +8,8 @@ description: Install a pinned lazygit, so the test of what it loads from a tree 
 #
 # The checksum is the release's checksums.txt entry for the linux_x86_64 tarball.
 #
+# Not cached: fetching, verifying, and unpacking the release took about 0.5 s per shard, less than a cache restore costs.
+#
 # Keep VERSION on one the test has passed on, in step with the Homebrew formula; bumping is a reviewed change.
 
 inputs:

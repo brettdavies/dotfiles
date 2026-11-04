@@ -99,7 +99,9 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
       + " `git show HEAD:<path>`, and do not turn the sparse checkout off. A merge that conflicts on one of them puts it"
       + " back on disk, as do `git checkout <tree> -- .`, `git restore --source <tree> .`, `git apply --index`, and"
       + " `git am`. Resolve a conflict with `git add --sparse`; once the file matches what is committed,"
-      + " `git sparse-checkout reapply` takes it off disk again.\n"
+      + " `git sparse-checkout reapply` takes it off disk again. Where `git config sparse.expectFilesOutsideOfPatterns`"
+      + " is true, `git status` does not show a file `git restore --source` put back and reapply leaves it, so trash it"
+      + " by hand.\n"
       + "Other tools read config and code from their working directory too, so start every tool, python, uv, cargo, bunx,"
       + " and qmd included, from outside this tree. A tracked symlink can point at any file on this host, so check"
       + " `git ls-files -s | rg ^120000` before reading through one.\n"
@@ -165,7 +167,7 @@ You need not run `agent-slot check` on this slot; you are busy running it, so it
 In a review round, re-check the state of the PR before stacking new commits on it.
 Stage with `git add`, then run a plain `git commit`; never `git commit -a` or `git commit <path>`.
 Create no git worktrees inside this slot.
-Never check out a head from another person's fork in this slot, with `gh pr checkout` or otherwise: Claude would load its settings and git would run its hooks. `agent-slot launch <repo> --pr <ref>` makes a slot that runs nothing from it.
+Never check out a head a trusted owner does not hold in this slot, with `gh pr checkout` or otherwise: Claude would load its settings and git would run its hooks. `agent-slot launch <repo> --pr <ref>` makes a slot that runs nothing from it.
 EOF
   )
   reopen="\`agent-slot reopen\` asks for permission, \`--help\` and \`--dry-run\` included, and nobody here can grant \

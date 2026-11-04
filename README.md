@@ -526,8 +526,10 @@ checked out by hand inside a normal slot, which every slot's context warns again
 
 A merge that conflicts on a left-out file puts it back on disk, as do `git checkout <tree> -- .`,
 `git restore --source <tree> .`, `git apply --index`, and `git am`. Nothing runs it on its own: the slot's Claude still
-skips it through its flags, and the session-start hooks start their tools outside the tree. Once it matches what is
-committed, `git sparse-checkout reapply` takes it off disk again.
+skips it through its flags, and the session-context hook starts its tools outside the tree. Once it matches what is
+committed, `git sparse-checkout reapply` takes it off disk again. Where the head tracks `docs/solutions` as a link,
+`sparse.expectFilesOutsideOfPatterns` is on, so `git status` does not show a file `git restore --source` put back and
+reapply leaves it, and it has to be trashed by hand.
 
 A fork stays foreign until someone trusts its owner. To run one once someone has reviewed it, tear its slot down and
 launch again with the owner added for that one command:

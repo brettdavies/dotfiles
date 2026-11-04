@@ -1136,3 +1136,64 @@ run_in_real_tmux() {
   run_in_real_tmux "${settings[@]}"
   [ ! -e "$T/marks/fsmonitor" ]
 }
+
+# left_out_change: a commit on the head's own branch in the seed changing bunfig.toml, a file a foreign head leaves out,
+# saved as a diff and as a mailbox patch.
+left_out_change() {
+  local seed=$T/seed-repoa
+  git -C "$seed" checkout -q "head-7"
+  printf 'preload = ["./changed.js"]\n' >"$seed/bunfig.toml"
+  git -C "$seed" commit -q -am 'change the left-out file'
+  git -C "$seed" diff HEAD~1 HEAD >"$T/change.diff"
+  git -C "$seed" format-patch -q -1 --stdout >"$T/change.patch"
+  git -C "$seed" checkout -q main
+}
+
+# assert_back_then_off COMMIT: the left-out file is on disk, and once the slot matches COMMIT again, reapply takes it off.
+assert_back_then_off() {
+  [ -f "$SLOT/bunfig.toml" ]
+  git -C "$SLOT" reset -q --hard "$1"
+  git -C "$SLOT" sparse-checkout reapply
+  [ ! -e "$SLOT/bunfig.toml" ]
+}
+
+@test "each command the context names does put a left-out file back, and reapply takes it off once it matches" {
+  foreign_pr tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local head
+  head=$(git -C "$SLOT" rev-parse HEAD)
+  left_out_change
+  origin_file repoa bunfig.toml 'preload = ["./base-preload.js"]'
+  git -C "$SLOT" fetch -q origin
+  [ ! -e "$SLOT/bunfig.toml" ]
+  git -C "$SLOT" checkout -q origin/main -- .
+  assert_back_then_off "$head"
+  git -C "$SLOT" restore --source origin/main .
+  assert_back_then_off "$head"
+  git -C "$SLOT" apply --index "$T/change.diff"
+  assert_back_then_off "$head"
+  git -C "$SLOT" am -q "$T/change.patch"
+  assert_back_then_off "$head"
+}
+
+# linked_solutions_tool_config: tool config, and docs/solutions as a tracked link, which turns on the sparse setting the
+# next test reads.
+linked_solutions_tool_config() {
+  tool_config
+  tracked_solutions_link
+}
+
+@test "where the head tracks a solutions link, reapply leaves a restored file and status hides it, as the context says" {
+  foreign_pr linked_solutions_tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$SLOT" config --get sparse.expectFilesOutsideOfPatterns)" = true ]
+  origin_file repoa bunfig.toml 'preload = ["./base-preload.js"]'
+  git -C "$SLOT" fetch -q origin
+  git -C "$SLOT" restore --source origin/main .
+  [ -f "$SLOT/bunfig.toml" ]
+  git -C "$SLOT" sparse-checkout reapply
+  [ -f "$SLOT/bunfig.toml" ]
+  [ -z "$(git -C "$SLOT" status --porcelain -- bunfig.toml)" ]
+}
