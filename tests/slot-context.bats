@@ -189,13 +189,13 @@ decision only a person can make to the session your brief reports to."* ]]
 }
 
 @test "a slot with work items has its context name each one by kind, repo, number, and title" {
-  slot repo 1 '{"task": "t", "name": "oxipng-pr887-fix-trns", "items": [
-    {"kind": "pr", "repo": "oxipng/oxipng", "number": 887, "title": "Fix 16-bit to 8-bit reduction with tRNS"},
-    {"kind": "issue", "repo": "oxipng/oxipng", "number": 886, "title": "16-bit tRNS lost"}]}'
+  slot repo 1 '{"task": "t", "name": "repo-pr887-fix-trns", "items": [
+    {"kind": "pr", "repo": "up/repo", "number": 887, "title": "Fix 16-bit to 8-bit reduction with tRNS"},
+    {"kind": "issue", "repo": "up/repo", "number": 886, "title": "16-bit tRNS lost"}]}'
   run start s1 startup
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"Task: t."*"Work items: PR oxipng/oxipng#887 (Fix 16-bit to 8-bit reduction with tRNS), \
-issue oxipng/oxipng#886 (16-bit tRNS lost)."* ]]
+  [[ $context == *"Task: t."*"Work items: PR up/repo#887 (Fix 16-bit to 8-bit reduction with tRNS), \
+issue up/repo#886 (16-bit tRNS lost)."* ]]
 }
 
 @test "a context line holding an apostrophe prints as written" {
