@@ -109,6 +109,10 @@ source "$AS_LIB/push.sh"
 source "$AS_LIB/reviewcount.sh"
 # shellcheck source=lib/reviewgrant.sh
 source "$AS_LIB/reviewgrant.sh"
+# shellcheck source=lib/scopegrants.sh
+source "$AS_LIB/scopegrants.sh"
+# shellcheck source=lib/scopegrant.sh
+source "$AS_LIB/scopegrant.sh"
 # shellcheck source=lib/release.sh
 source "$AS_LIB/release.sh"
 # shellcheck source=lib/autosweep.sh
@@ -277,6 +281,15 @@ main() {
       ((${#args[@]} == 1)) || usage_fail "grant-review takes one slot, <repo>/<N>" "${args[*]}"
       exec </dev/null
       cmd_grant_review "${args[0]}"
+      ;;
+    grant-scope)
+      ((${#args[@]} > 0)) || usage_fail "grant-scope needs a slot, <repo>/<N>, and a pathspec"
+      ((${#args[@]} > 1)) || usage_fail "grant-scope needs a pathspec after the slot" "${args[0]}"
+      ((${#args[@]} == 2)) || usage_fail "grant-scope takes one slot and one pathspec; quote the pathspec so the shell passes it as one \
+argument" "${args[*]}"
+      [[ -n ${args[1]} ]] || usage_fail "grant-scope needs a pathspec, and this one is empty"
+      exec </dev/null
+      cmd_grant_scope "${args[0]}" "${args[1]}"
       ;;
     warm)
       warm_parse_args "${args[@]}"

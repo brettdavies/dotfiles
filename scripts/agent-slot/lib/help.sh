@@ -19,6 +19,7 @@ Verbs:
   sweep    tear down every slot whose task has finished and that check passes (reports only, without --yes)
   finish   mark a task finished and tear its slot down if check passes (reports only, without --yes)
   grant-review  allow a slot one more review round for the PR on its current branch (operator only)
+  grant-scope  let a slot'"'"'s PR change one more path, confirmed at a terminal (operator only)
   release  hand this slot'"'"'s teardown upstream once its agent has run the closing skills; run from inside the slot
   doctor   check every launch prerequisite and summarize launch times
   schema   print the JSON Schema of the objects agent-slot prints, and every error reason
@@ -27,7 +28,7 @@ Every verb takes --output json (one JSON object on stdout, or an error object on
 Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.
 Reasons and their fixes: https://github.com/brettdavies/dotfiles/blob/main/README.md#agent-slot-reasons'
 
-VERBS=' repos list whoami launch resume warm check adopt probe close-probe reopen sweep finish grant-review release doctor schema '
+VERBS=' repos list whoami launch resume warm check adopt probe close-probe reopen sweep finish grant-review grant-scope release doctor schema '
 
 verb_help() {
   case $1 in
@@ -214,6 +215,21 @@ verb_help() {
       "head the branch is the commit, and a new commit starts a new count. Other errors: slot-not-found and slot-head-missing." \
       'returns: key, branch, granted_at, rounds (used), allowed (the 2 plus each grant)' \
       'example: agent-slot grant-review dotfiles/2 --output json' ;;
+    grant-scope) printf '%s\n' 'usage: agent-slot grant-scope <repo>/<N> <pathspec> [--output json]' \
+      "Lets the slot's PR change the paths a git pathspec matches, past the Touches: globs of its brief, so" \
+      "slot-scope-guard.sh stops denying a git push of them. It lists to the terminal (/dev/tty) the paths the" \
+      "slot's branch changes that the pathspec covers and how many stay outside the brief and the grants, and reads" \
+      "the slot's key back within $SCOPE_GRANT_WAIT s. With no terminal it is refused with grant-needs-terminal," \
+      "with no answer or a wrong one with grant-not-confirmed, and from a slot's directory or its tmux server with" \
+      "scope-grant-from-slot. A pathspec git rejects, an exclude pathspec (:!, :^, :/!, :/^, or :(exclude)), a" \
+      "control character, and one that covers none of the paths the branch changes are refused with usage before" \
+      "the terminal is asked; a shell under Claude Code (CLAUDECODE set) is refused with grant-needs-terminal even" \
+      "when it holds a pseudo-terminal. A slot still being set up is refused with slot-busy. A grant appends a" \
+      "scope-grant line to the ledger and changes nothing else; each run grants one pathspec, quoted so the shell" \
+      "does not expand it, and there is no revoke. It is a guard, not a trust boundary. Other error:" \
+      "slot-not-found." \
+      'returns: key, pathspec, granted_at, grants (the slot'"'"'s scope grants in all)' \
+      'example: agent-slot grant-scope dotfiles/2 '"'"'docs/*.md'"'"' --output json' ;;
     release) printf '%s\n' 'usage: agent-slot release [--not-yet WHY] [--output json]' \
       "A slot's agent runs it as its last step, from inside the slot. It refuses with compound-not-run until this" \
       "slot's Claude session has run both /compound-engineering:ce-compound and its refresh mode (mode:refresh)," \

@@ -365,6 +365,23 @@ so a slot stacked on another PR's branch sees that PR's paths as its own changes
 operator grants them. The hook is a guard, not a trust boundary: it recognises a `git push` by its text, so a wrapper it
 does not list, or a script that pushes, runs unjudged.
 
+The operator lets a slot's PR change one more path with `agent-slot grant-scope <repo>/<N> <pathspec>`, which appends a
+`scope-grant` event for the slot, and the hook then lets the paths that pathspec matches through. The verb lists to
+`/dev/tty` the paths the slot's branch changes that the pathspec covers, and how many it leaves out, and reads the
+slot's key back from it within 120 s, so it asks for a person at a terminal: with none, as in an agent's Bash tool, or
+under Claude Code (`CLAUDECODE` set) even with a pseudo-terminal, it refuses with `grant-needs-terminal`, and with no
+answer or any other, `grant-not-confirmed`. It refuses with `scope-grant-from-slot` when run from a slot's directory or
+its tmux server, with `slot-busy` while the slot is still being set up, and an ask rule makes a slot's own request for
+it a denial through `slot-unattended.sh`. A pathspec git rejects, an exclude pathspec, one with a control character, and
+one that covers none of the paths the branch changes are refused with `usage` before the terminal is asked. One run
+grants one pathspec; the grant list is the `scope-grant` events in the ledger, and there is no revoke. This is a guard,
+not a trust boundary: a shell that unsets `CLAUDECODE` and gives a command a pseudo-terminal, or writes the ledger, can
+still grant, as with `grant-review`. The coordinating session relays a slot's request to the operator.
+
+```bash
+agent-slot grant-scope dotfiles/2 'docs/*.md'
+```
+
 A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
 merged with none open, the operator finished it, whatever state its PRs are in, or its agent released it with no PR
 open) and nothing in it is missing from GitHub. A commit is safe there once a PR's final head holds it, an origin branch
@@ -897,6 +914,9 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `own-tabs-unrestored`         | 0    | Doctor warning: the start-up step did not restore the operator's own tabs into this Rex server |
 | `review-grant-from-slot`      | 1    | `grant-review` refused: run from a slot or its tmux server; only the operator grants           |
 | `slot-head-missing`           | 1    | `grant-review` refused: the slot has no branch or commit to count rounds under                 |
+| `scope-grant-from-slot`       | 1    | `grant-scope` refused: run from a slot or its tmux server; only the operator grants scope      |
+| `grant-needs-terminal`        | 1    | `grant-scope` refused: no terminal, or a shell under Claude Code, so no person types the key   |
+| `grant-not-confirmed`         | 1    | `grant-scope` refused: the answer typed at the terminal was not the slot's key                 |
 | `tmux-outside-scope`          | 0    | Doctor warning: the slot tmux server runs in a service's cgroup and would end with that unit   |
 
 #### Teardown blockers
