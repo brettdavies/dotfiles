@@ -114,8 +114,21 @@ there() { git -C "$ORIGIN" rev-parse -q --verify "refs/heads/$1" >/dev/null && e
   git -C "$SLOT" remote set-url origin "$T/no-such-origin.git"
   resume
   [ "$status" -eq 0 ]
-  jaq -e '.pruned_branches == []' <<<"$output"
+  jaq -e '.pruned_branches == [] and (.prune_failed | map(.branch)) == ["unreachable"]' <<<"$output"
   [ "$(here unreachable)" = yes ]
+}
+
+@test "a PR whose list entry lacks isCrossRepository counts as a fork's, so its branch is kept" {
+  work unflagged
+  git -C "$SLOT" push -q origin unflagged
+  pr 17 MERGED unflagged
+  jaq '(.[] | select(.number == 17)) |= del(.isCrossRepository)' "$STUBS/gh-prs.json" >"$STUBS/gh-prs.new"
+  mv "$STUBS/gh-prs.new" "$STUBS/gh-prs.json"
+  git -C "$SLOT" checkout -q main
+  resume
+  [ "$status" -eq 0 ]
+  jaq -e '.pruned_branches == []' <<<"$output"
+  [ "$(here unflagged)" = yes ]
 }
 
 @test "a branch another PR targets is kept on both sides, even after its own PR merged" {

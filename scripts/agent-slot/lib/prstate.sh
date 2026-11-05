@@ -53,7 +53,7 @@ pr_prune_branches() {
   while read -r branch; do
     [[ -n $branch && $branch != "$base" && $branch != "$current" && $branch != "$default" ]] || continue
     heads=$(contract_json -r --arg b "$branch" 'if any(.[]; .baseRefName == $b) then empty else
-      [.[] | select(.headRefName == $b and (.isCrossRepository | not))]
+      [.[] | select(.headRefName == $b and .isCrossRepository == false)]
       | if length > 0 and all(.[]; .state == "MERGED" or .state == "CLOSED") then .[].headRefOid else empty end end' \
       <<<"${PR_LISTS[$repo]}")
     [[ -n $heads ]] || continue
@@ -61,15 +61,17 @@ pr_prune_branches() {
     _pr_in_heads "$path" "$tip" "$heads" || continue
     remote=
     # ls-remote --exit-code exits 2 when origin has no such branch; any other failure leaves origin's tip unknown.
-    if bounded remote prune 60 "${AS_GIT_REMOTE[@]}" \
+    if bounded remote prune 15 "${AS_GIT_REMOTE[@]}" \
       git -C "$path" ls-remote --exit-code origin "refs/heads/$branch"; then
       remote=${remote%%[[:space:]]*}
       _pr_in_heads "$path" "$remote" "$heads" || continue
     elif ((BOUNDED_STATUS != 2)); then
-      continue
+      # Origin out of reach: stop here rather than spend the timeout again on every branch left.
+      printf 'failed\t%s\torigin could not be reached; log: %s\n' "$branch" "${BOUNDED_LOG:-none}"
+      break
     fi
     if [[ -n $remote ]] \
-      && ! bounded out prune 120 "${AS_GIT_REMOTE[@]}" git -C "$path" push -q origin --delete "$branch"; then
+      && ! bounded out prune 30 "${AS_GIT_REMOTE[@]}" git -C "$path" push -q origin --delete "$branch"; then
       printf 'failed\t%s\torigin refused the delete; log: %s\n' "$branch" "${BOUNDED_LOG:-none}"
       continue
     fi
