@@ -49,7 +49,8 @@ scope_grants() {
 # one per line.
 scope_deny_reason() {
   printf '%s' "Slot $1/$2 may change only: $3 (\`agent-slot whoami --output json\` shows the recorded scope). The \
-commits on $5 against origin/$6 change paths outside that, and no scope grant covers them:
+commits on $5 against origin/$6 change paths outside that, and no scope grant covers them. The hook judges this \
+slot's branch whatever the command pushes:
   ${4//$'\n'/$'\n'  }
 Revert that change (\`git checkout origin/$6 -- <path>\` for a changed or deleted file, \`git rm\` for an added one, \
 then commit), or record it under \"Not in scope\" in the PR body and send the coordinating session a request for a \
@@ -65,10 +66,35 @@ checked against it. Send the coordinating session the glob as one \`SendMessage\
 your brief names no such session, leave the decision open in your plan and your report."
 }
 
-# Usage: scope_chain_reason <repo> <n>
+# Usage: scope_chain_reason <repo> <n> <git subcommand>
 scope_chain_reason() {
-  printf '%s' "Slot $1/$2 limits its PR to the paths its brief declares, and this command changes HEAD before it \
-pushes, so the hook cannot judge the commits it would push. Commit first, then run \`git push\` as its own command."
+  printf '%s' "Slot $1/$2 limits its PR to the paths its brief declares, and this command runs \`git $3\` before it \
+pushes, so the hook cannot judge the commits it would push. Run \`git $3\` as its own command first, then run \
+\`git push\` as its own command."
+}
+
+# Usage: scope_command_facts <command>; sets SCOPE_REAL_PUSH to 1 when any git push in the command sends commits (a dry
+# run or a branch deletion sends none, judged within its own segment of the line), and SCOPE_MOVER to the git
+# subcommand before the first push that changes HEAD, else nothing.
+SCOPE_REAL_PUSH=0 SCOPE_MOVER=
+scope_command_facts() {
+  local rest=$1 m seg before first=1 t
+  SCOPE_REAL_PUSH=0 SCOPE_MOVER=
+  while [[ $rest =~ $PUSH_RE ]]; do
+    m=${BASH_REMATCH[0]}
+    if ((first)); then
+      first=0
+      before=${rest%%"$m"*}
+      if [[ $before =~ $MOVE_RE ]]; then
+        t=${BASH_REMATCH[0]}
+        t=${t%"${t##*[a-z]}"}
+        SCOPE_MOVER=${t##*[[:space:]]}
+      fi
+    fi
+    rest=${rest#*"$m"}
+    seg=${rest%%[;&|$'\n']*}
+    [[ " $seg" =~ $PUSH_NOOP_RE ]] || SCOPE_REAL_PUSH=1
+  done
 }
 
 # Usage: scope_deny <reason>; prints the PreToolUse denial.
@@ -78,14 +104,14 @@ scope_deny() {
     '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $m}}'
 }
 
-# Usage: scope_decide <repo> <n> <chained>; RECORD holds the slot's record. Prints the denial, or nothing. <chained> is
-# non-empty when the command changes HEAD before it pushes.
+# Usage: scope_decide <repo> <n> <mover>; RECORD holds the slot's record. Prints the denial, or nothing. <mover> is the
+# git subcommand that changes HEAD before the push, if any.
 scope_decide() {
-  local repo=$1 n=$2 chained=$3 path base since touches changed matched outside spec
-  local -a specs=()
+  local repo=$1 n=$2 mover=$3 path base since touches changed matched outside spec
+  local -a specs=() grants=()
   contract_json -e '.scope.touches | type == "array"' <<<"$RECORD" >/dev/null || return 0
-  [[ -z $chained ]] || {
-    scope_deny "$(scope_chain_reason "$repo" "$n")"
+  [[ -z $mover ]] || {
+    scope_deny "$(scope_chain_reason "$repo" "$n" "$mover")"
     return 0
   }
   path=$(slot_path "$repo" "$n")
@@ -96,9 +122,10 @@ scope_decide() {
     return 0
   }
   mapfile -t specs < <(contract_json -r '.scope.touches[]' <<<"$RECORD")
-  touches=$(contract_json -r '.scope.touches | join(", ")' <<<"$RECORD")
+  # shellcheck disable=SC2016 # a jaq program
+  touches=$(contract_json -r '.scope.touches | map("`\(.)`") | join(", ")' <<<"$RECORD")
   while IFS= read -r spec; do
-    [[ -z $spec ]] || specs+=("$spec")
+    [[ -z $spec ]] || grants+=("$spec")
   done < <(scope_grants "$repo" "$n" "$since" || true)
   changed=$(git -C "$path" -c core.quotePath=false diff --name-only --no-renames "origin/$base...HEAD" 2>/dev/null \
     | sort -u) || {
@@ -110,6 +137,13 @@ scope_decide() {
       scope_deny "$(scope_bad_glob_reason "$repo" "$n" "$spec")"
       return 0
     }
+  done
+  for spec in "${grants[@]}"; do
+    if git -C "$path" ls-files -- "$spec" >/dev/null 2>&1; then
+      specs+=("$spec")
+    else
+      hook_log "slot $repo/$n: scope-grant pathspec $spec is not a git pathspec; skipped"
+    fi
   done
   matched=
   if ((${#specs[@]} > 0)); then
@@ -130,14 +164,15 @@ scope_main() {
   fields='"\(.hook_event_name // "")\u001f\(.tool_name // "")\u001f\(.tool_input.command // "" | gsub("\u001f"; " "))"'
   IFS=$'\x1f' read -r -d '' event tool command <<<"$(hook_field "$fields")" || true
   [[ $event == PreToolUse && $tool == Bash ]] || return 0
-  [[ $command =~ $PUSH_RE && ! $command =~ $PUSH_NOOP_RE ]] || return 0
+  scope_command_facts "$command"
+  ((SCOPE_REAL_PUSH)) || return 0
   hook_pane && hook_claude_session && hook_top_level_claude || return 0
   read -r repo n <<<"$(hook_slot)"
   record_read "$repo" "$n" || {
     hook_log "slot $repo/$n has no readable record; push allowed"
     return 0
   }
-  scope_decide "$repo" "$n" "$([[ $command =~ $MOVE_RE ]] && echo chained)"
+  scope_decide "$repo" "$n" "$SCOPE_MOVER"
 }
 
 HOOK_PAYLOAD_IN=$(cat)
