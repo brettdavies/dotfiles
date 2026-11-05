@@ -14,21 +14,24 @@
 #   - gh workflow run / gh api ... dispatches
 #
 # When matched, the hook:
-#   1. Enumerates currently-active runs on the relevant branch via gh run list
+#   1. Enumerates the unfinished runs via gh run list: those on HEAD after a
+#      push or `gh pr create`, those on the current branch after any other
+#      action
 #   2. Emits a system reminder listing the active runs + the exact commands
 #      the agent should spawn in background to watch them
 #
 # The agent must:
-#   - Spawn `gh run watch <id> --exit-status` per active run with
-#     run_in_background: true (one Bash call per run, in parallel), and only
-#     for runs its own push or PR action started. `gh pr checks --watch` and a
-#     loop of `gh pr view` poll GitHub's GraphQL API until the checks end, so
-#     neither is used to watch.
+#   - Spawn `gh run watch <id> --exit-status --interval 30` per active run
+#     with run_in_background: true (one Bash call per run, in parallel), and
+#     only for runs its own action started. Without --interval, gh polls
+#     the REST API every 3 s. `gh pr checks --watch` and a loop of
+#     `gh pr view` poll GitHub's GraphQL API until the checks end, so neither
+#     is used to watch.
 #   - VERIFY STATUS AFTER COMPLETION, NOT JUST EXIT CODE.
 #     `gh run watch` exits 0 on failure unless `--exit-status` is passed. So
 #     treat a non-zero exit as red, but a zero exit as "not proven green".
-#     After every completion notification, re-query and read per-check
-#     conclusions explicitly:
+#     When the last watcher completes, verify once: re-query and read
+#     per-check conclusions explicitly:
 #       gh pr view <num> --json statusCheckRollup,mergeStateStatus \
 #         --jq '{merge: .mergeStateStatus, checks: [.statusCheckRollup[] | {name, conclusion}]}'
 #     A check is green only when conclusion == "SUCCESS". A PR is green only
@@ -51,8 +54,9 @@
 #                `repository_dispatch` / `repository-dispatch` action /
 #                `gh api repos/<owner>/<repo>/dispatches`).
 #             2. Watch the target repo: `gh run list -R <target>` filtered to
-#                recent runs, then `gh run watch <id> -R <target>
-#                --exit-status` for each.
+#                recent runs, then
+#                `gh run watch <id> -R <target> --exit-status --interval 30`
+#                for each.
 #             3. After the target's runs complete, re-query the ORIGINATING
 #                repo for callback dispatches. The chain can bounce multiple
 #                times. Repeat until both repos quiesce.
@@ -119,6 +123,17 @@ branch=$(git branch --show-current 2>/dev/null)
 # Need gh
 command -v gh >/dev/null 2>&1 || exit 0
 
+# A push or PR create starts runs on the commit it sends, so list by HEAD: a
+# branch listing also holds the runs of the head that commit replaced. A new
+# head's run waits as `pending` while cancel-in-progress stops the old one, so
+# every status short of completed counts.
+if grep -qE '\bgit push\b|\bgh pr create\b' <<<"$command"; then
+  head_sha=$(git rev-parse HEAD 2>/dev/null) || exit 0
+  scope=(--commit "$head_sha")
+else
+  scope=(--branch "$branch")
+fi
+
 # Give GitHub a moment to register the new runs (push → API visibility lag),
 # then retry up to 5 times with a 2 s delay between attempts. The API can be
 # slow to surface newly-triggered runs — especially after `gh pr create`,
@@ -128,9 +143,9 @@ command -v gh >/dev/null 2>&1 || exit 0
 sleep 2
 runs=""
 for attempt in 1 2 3 4 5; do
-  runs=$(gh run list --branch "$branch" --limit 10 \
+  runs=$(gh run list "${scope[@]}" --limit 10 \
     --json databaseId,name,status,workflowName,event,createdAt \
-    --jq '[.[] | select(.status == "in_progress" or .status == "queued")]' 2>/dev/null)
+    --jq '[.[] | select(.status != "completed")]' 2>/dev/null)
   [[ -n "$runs" && "$runs" != "[]" ]] && break
   [[ "$attempt" -lt 5 ]] && sleep 2
 done
@@ -151,11 +166,11 @@ reminder=$({
   echo "REQUIRED ACTION — spawn one Bash call per run in parallel,"
   echo "all with run_in_background: true:"
   echo ""
-  printf '%s' "$runs" | "$JQ" -r '.[] | "  gh run watch \(.databaseId) --exit-status"'
+  printf '%s' "$runs" | "$JQ" -r '.[] | "  gh run watch \(.databaseId) --exit-status --interval 30"'
   echo ""
-  echo "Watch only these runs, the ones your own action started. Never watch with"
-  echo "gh pr checks --watch or a loop of gh pr view: read the rollup once, when"
-  echo "the watchers are done."
+  echo "Watch only the runs your own action started. Never watch with"
+  echo "gh pr checks --watch or a loop of gh pr view. When the last watcher"
+  echo "completes, verify once by reading the rollup."
   echo ""
   echo "After all watchers complete, re-run gh run list to catch any"
   echo "dispatched chains (release.yml → homebrew dispatch → finalize-release etc.)."

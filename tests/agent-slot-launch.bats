@@ -489,6 +489,34 @@ assert_own_worktree() {
 --model claude-sonnet-5-5 --effort xhigh --advisor opus --session-id $session -n t-sonnet" ]
 }
 
+@test "a repeat that names another model than its slot runs on is refused, never answered with that slot" {
+  launch repoa --request-id r-1 --task t1
+  [ "$status" -eq 0 ]
+  launch repoa --request-id r-1 --task t1 --model sonnet
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "model-differs" and .exit_code == 1 and .value == "sonnet"
+    and (.message | contains("repoa/1 already holds this work and runs on opus"))
+    and .recovery.side_effects == "none"
+    and .next_step.command == "agent-slot check repoa/1 --output json"' <<<"$stderr"
+  launch repoa --task t1 --model sonnet
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "model-differs" and .value == "sonnet"' <<<"$stderr"
+  jaq -e '.model == "opus"' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
+  launch repoa --request-id r-1 --task t1
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false and .key == "repoa/1"' <<<"$output"
+  slot repoa 3 '{"request_id": "r-nomodel"}'
+  launch repoa --request-id r-nomodel --model sonnet
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "model-differs" and (.message | contains("repoa/3 already holds this work and runs on opus"))' \
+    <<<"$stderr"
+  launch repoa --request-id r-nomodel
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false and .key == "repoa/3"' <<<"$output"
+}
+
 @test "a brief with no Scope:, Limits:, Reviews:, or Reports to: line is refused before any slot is made" {
   printf '%s\n' 'Fix the login.' '- **Scope:** the login form only.' 'reviews: ce-code-review' >"$T/brief.md"
   launch repoa --request-id r-brief --prompt-file "$T/brief.md"
@@ -517,6 +545,101 @@ assert_own_worktree() {
   jaq -e '.created == false and .key == "repoa/1" and .prompt_delivered == null' <<<"$output"
   launch repoa --task t1 --request-id r-a --prompt-file "$T/brief.md"
   jaq -e '.created == false and .prompt_delivered == true' <<<"$output"
+}
+
+@test "a brief missing any one of its four lines is refused naming that line, and a label only mid-line does not count" {
+  local label
+  for label in 'Scope' 'Limits' 'Reviews' 'Reports to'; do
+    brief "$T/full.md"
+    grep -v "^$label:" "$T/full.md" >"$T/brief.md"
+    launch repoa --request-id "r-$RANDOM" --prompt-file "$T/brief.md"
+    echo "$label: $status $stderr"
+    [ "$status" -eq 2 ]
+    jaq -e --arg v "$label:" '.reason == "brief-incomplete" and .value == $v' <<<"$stderr"
+  done
+  brief "$T/full.md"
+  { grep -v '^Scope:' "$T/full.md"; printf '\nOut of scope: the logout.'; } >"$T/brief.md"
+  launch repoa --request-id r-mid --prompt-file "$T/brief.md"
+  [ "$status" -eq 2 ]
+  jaq -e '.value == "Scope:"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+}
+
+@test "a brief's labels may be bold, italic, a heading, or numbered" {
+  printf '%s\n' '**Scope**: the login form.' '_Limits_: the operator set every limit.' '## Reviews: ce-code-review.' \
+    '1. Reports to: skills-prime.' >"$T/brief.md"
+  launch repoa --request-id r-shapes --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+}
+
+@test "a brief whose line holds only its label is refused for that line" {
+  printf '%s\n' 'Scope:' 'Limits: the operator set every limit.' 'Reviews: ce-code-review, at most 2 rounds.' \
+    'Reports to:   ' >"$T/brief.md"
+  launch repoa --request-id r-bare --prompt-file "$T/brief.md"
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "brief-incomplete" and .value == "Scope: Reports to:"' <<<"$stderr"
+}
+
+@test "an empty --prompt-file is refused before any slot is made" {
+  launch repoa --task t1 --request-id r-empty --prompt-file ''
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "prompt-file-unreadable"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+}
+
+@test "a retry of a request under a different brief, or one whose slot has none, is refused, never reported delivered" {
+  launch repoa --task t1 --request-id r-a
+  jaq -e '.created == true and .prompt_delivered == null' <<<"$output"
+  brief "$T/brief.md" 'first brief'
+  launch repoa --task t1 --request-id r-a --prompt-file "$T/brief.md"
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "item-held-by-slot" and .value == "repoa/1"' <<<"$stderr"
+  launch repoa --task t2 --request-id r-b --prompt-file "$T/brief.md"
+  jaq -e '.created == true and .key == "repoa/2" and .prompt_delivered == true' <<<"$output"
+  brief "$T/edited.md" 'edited brief'
+  launch repoa --task t2 --request-id r-b --prompt-file "$T/edited.md"
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "item-held-by-slot" and .value == "repoa/2"' <<<"$stderr"
+  launch repoa --task t2 --request-id r-b --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false and .prompt_delivered == true' <<<"$output"
+}
+
+@test "a brief that finds another request's slot for the work item is refused naming that slot" {
+  github_origin
+  pr_head "$T/origins/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
+  brief "$T/brief.md"
+  launch repoa --pr 7 --request-id r1 --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  launch repoa --pr 7 --task b --request-id r2 --prompt-file "$T/brief.md"
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "item-held-by-slot" and .value == "repoa/1"
+    and (.message | test("already holds this work item"))' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
+}
+
+@test "a retryable launch's next step keeps its task and brief, so running it delivers the brief" {
+  github_origin
+  fork_urls
+  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
+  brief "$T/brief.md"
+  launch repoa --pr 7 --task t9 --request-id r-fork --prompt-file "$T/brief.md"
+  [ "$status" -eq 1 ]
+  jaq -e --arg p "$(realpath "$T/brief.md")" '.reason == "clone-failed"
+    and .next_step.command == "agent-slot launch repoa --model opus --pr 7 --task t9 --prompt-file \($p) --request-id r-fork"' \
+    <<<"$stderr"
+}
+
+@test "a brief whose first character is a dash reaches Claude as its message, not as an option" {
+  brief "$T/full.md"
+  { printf -- '- '; cat "$T/full.md"; } >"$T/brief.md"
+  launch repoa --request-id r-dash --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  [[ $(cat "$STUBS/typed-repoa-1") == *' -- "$(cat '* ]]
 }
 
 @test "a launch's next step is a command the caller on the server can run" {
@@ -806,6 +929,20 @@ EOF
   [ "$status" -eq 0 ]
   jaq -e '.started == ["repoa-1", "repoa-1-files", "repoa-1-git"]' <<<"$output"
   [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume aaaaaaaa-1111-2222-3333-444444444444 -n repoa-pr7-fix-login' ]
+}
+
+@test "resume of a Sonnet slot starts Claude on Sonnet at xhigh with Opus as its advisor, turned on" {
+  local s=aaaaaaaa-1111-2222-3333-444444444444
+  slot repoa 1 "{\"session_id\": \"$s\", \"task\": \"fix-login\", \"name\": \"repoa-pr7-fix-login\",
+    \"model\": \"sonnet\"}"
+  mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1"
+  : >"$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1/$s.jsonl"
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
+  [ "$status" -eq 0 ]
+  local expected="CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions \
+--model claude-sonnet-5-5 --effort xhigh --advisor opus --resume $s -n repoa-pr7-fix-login"
+  [ "$(cat "$STUBS/typed-repoa-1")" = "$expected" ]
+  jaq -e '.model == "sonnet"' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
 }
 
 @test "resume of a slot whose conversation Claude never saved starts Claude with its session ID and task, as launch does" {

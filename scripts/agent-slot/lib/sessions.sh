@@ -99,7 +99,7 @@ sessions_record_transcript() {
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
 # value from it is shell-quoted. A resume or reopen whose conversation was never saved starts Claude as a launch does.
 # In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name,
-# and runs on the record's model through sessions_claude; a record from before slots took a model runs on Opus.
+# and runs on the record's model through sessions_claude; a record with no model runs on Opus.
 # The first message goes with a launch and a reopen only: a resume brings back a slot that already had it.
 sessions_command() {
   local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude
@@ -117,7 +117,8 @@ sessions_command() {
         printf -v cmd '%s --session-id %q' "$claude" "$(contract_json -r '.session_id' <<<"$RECORD")"
       fi
       [[ -z $name ]] || printf -v cmd '%s -n %q' "$cmd" "$name"
-      [[ -z $prompt ]] || printf -v cmd '%s "$(cat %q)"' "$cmd" "$prompt"
+      # After --, so a brief whose first character is a dash is the message, not an option.
+      [[ -z $prompt ]] || printf -v cmd '%s -- "$(cat %q)"' "$cmd" "$prompt"
       printf '%s' "$cmd"
       ;;
   esac
