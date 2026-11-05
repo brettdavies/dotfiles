@@ -250,6 +250,29 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   released
   check
   jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  [ ! -e "$SLOT" ]
+}
+
+@test "an unmarked PR closed unmerged stays a PR to the commit checks, so a pushed branch beside it has no PR" {
+  pushed feat/p
+  draft_pr 9 feat/p CLOSED
+  pushed feat/r
+  operator_finished
+  check
+  has_blocker commits-without-pr
+}
+
+@test "an open probe stays a PR to the commit checks, so a pushed branch beside it has no PR" {
+  pushed feat/p
+  draft_pr 9 feat/p
+  record_set '.prs = [9] | .probes = [9]'
+  pushed feat/r
+  operator_finished
+  check
+  has_blocker commits-without-pr
 }
 
 @test "unpushed work beneath a closed probe's head still blocks, whether or not origin keeps the probe's branch" {
