@@ -19,11 +19,12 @@
 #      the agent should spawn in background to watch them
 #
 # The agent must:
-#   - Spawn `gh run watch <id> --exit-status` per active run with
-#     run_in_background: true (one Bash call per run, in parallel), and only
-#     for runs its own push or PR action started. `gh pr checks --watch` and a
-#     loop of `gh pr view` poll GitHub's GraphQL API until the checks end, so
-#     neither is used to watch.
+#   - Spawn `gh run watch <id> --exit-status --interval 30` per active run
+#     with run_in_background: true (one Bash call per run, in parallel), and
+#     only for runs its own push or PR action started. Without --interval, gh
+#     polls the REST API every 3 s. `gh pr checks --watch` and a loop of
+#     `gh pr view` poll GitHub's GraphQL API until the checks end, so neither
+#     is used to watch.
 #   - VERIFY STATUS AFTER COMPLETION, NOT JUST EXIT CODE.
 #     `gh run watch` exits 0 on failure unless `--exit-status` is passed. So
 #     treat a non-zero exit as red, but a zero exit as "not proven green".
@@ -51,8 +52,9 @@
 #                `repository_dispatch` / `repository-dispatch` action /
 #                `gh api repos/<owner>/<repo>/dispatches`).
 #             2. Watch the target repo: `gh run list -R <target>` filtered to
-#                recent runs, then `gh run watch <id> -R <target>
-#                --exit-status` for each.
+#                recent runs, then
+#                `gh run watch <id> -R <target> --exit-status --interval 30`
+#                for each.
 #             3. After the target's runs complete, re-query the ORIGINATING
 #                repo for callback dispatches. The chain can bounce multiple
 #                times. Repeat until both repos quiesce.
@@ -151,7 +153,7 @@ reminder=$({
   echo "REQUIRED ACTION — spawn one Bash call per run in parallel,"
   echo "all with run_in_background: true:"
   echo ""
-  printf '%s' "$runs" | "$JQ" -r '.[] | "  gh run watch \(.databaseId) --exit-status"'
+  printf '%s' "$runs" | "$JQ" -r '.[] | "  gh run watch \(.databaseId) --exit-status --interval 30"'
   echo ""
   echo "Watch only these runs, the ones your own action started. Never watch with"
   echo "gh pr checks --watch or a loop of gh pr view: read the rollup once, when"
