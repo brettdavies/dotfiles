@@ -364,6 +364,15 @@ snapshot() {
   jaq -e '.reason == "prompt-file-unreadable"' <<<"$stderr"
 }
 
+@test "a reopen brief whose Touches: glob git rejects is refused before anything is reopened" {
+  gh_item pr 7 "Fix the login"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7]}"
+  printf 'Scope: s.\nLimits: l.\nReviews: none.\nReports to: skills-prime.\nTouches: /abs/path\nAdds: none.\n' >"$T/brief.md"
+  reopen repoa --pr 7 --prompt-file "$T/brief.md" --dry-run
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "brief-incomplete" and .value == "/abs/path"' <<<"$stderr"
+}
+
 @test "a prompt file a reopen would deliver is reported as delivered" {
   gh_item pr 7 "Fix the login"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7]}"

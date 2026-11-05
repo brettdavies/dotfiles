@@ -89,14 +89,14 @@ LAUNCH_BRIEF_LABEL_PREFIX='^[[:space:]*_>#-]*([0-9]+[.)][[:space:]]*)?[*_]*'
 launch_brief_check() {
   local label missing=()
   for label in "${LAUNCH_BRIEF_LABELS[@]}"; do
-    grep -Eiq "${LAUNCH_BRIEF_LABEL_PREFIX}${label}[*_]*:[[:space:]*_]*[^[:space:]*_]" "$1" \
-      || missing+=("$label:")
+    [[ -n $(launch_brief_value "$label" "$1") ]] || missing+=("$label:")
   done
   ((${#missing[@]} == 0)) && return 0
   contract_fail brief-incomplete "the brief has no ${missing[*]} line with a value. Every brief states its scope, \
 which of its limits are the operator's and which the coordinating session's, the reviews it runs (at most 2 rounds), \
 the session it reports to, the paths it touches, and the public surface it adds, each on a line of its own; launch \
-checks only that each line is there with a value" \
+checks only that each line is there with a value. Touches: takes comma-separated git pathspec globs on one line, and \
+Adds: the public surface it may add, or none" \
     --value "${missing[*]}" --command "agent-slot launch --help"
 }
 
@@ -114,12 +114,29 @@ launch_brief_value() {
   printf '%s' "$value"
 }
 
+# Usage: launch_scope_check; with REPO_PRIME set, refuses with brief-incomplete, naming the glob, unless git takes every
+# Touches: glob in LAUNCH_SCOPE as a pathspec inside the repo.
+launch_scope_check() {
+  local glob
+  [[ $LAUNCH_SCOPE != null ]] || return 0
+  contract_json -e '.touches | length > 0' <<<"$LAUNCH_SCOPE" >/dev/null \
+    || contract_fail brief-incomplete "the brief's Touches: line holds no glob. Touches: takes comma-separated git \
+pathspec globs on one line, such as src/login/** or tests/*.bats" --value "Touches:" --command "agent-slot launch --help"
+  while IFS= read -r glob; do
+    git -C "$REPO_PRIME" ls-files -- "$glob" >/dev/null 2>&1 \
+      || contract_fail brief-incomplete "the brief's Touches: glob $glob is not a git pathspec inside the repo. Touches: \
+takes comma-separated git pathspec globs relative to the repo root, such as src/login/** or tests/*.bats; a comma \
+always separates two globs, so a brace list does not work" --value "$glob" --command "agent-slot launch --help"
+  done < <(contract_json -r '.touches[]' <<<"$LAUNCH_SCOPE")
+}
+
 # Usage: launch_brief_scope <file>; prints {touches, adds} for the record: the Touches: line as a list of git pathspec
 # globs split on commas, trimmed of space, backticks, and a closing period, and the Adds: text as written.
 # shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
 launch_brief_scope() {
   contract_json -n -c --arg touches "$(launch_brief_value Touches "$1")" --arg adds "$(launch_brief_value Adds "$1")" '
-    {touches: ($touches | split(",") | map(gsub("^[\\s`]+|[\\s`]+$"; "") | sub("\\.+$"; "")) | map(select(. != ""))),
+    {touches: ($touches | split(",") | map(gsub("^\\s+|\\s+$"; "") | (if . == "." then . else sub("\\.+$"; "") end) | gsub("^[\\s`]+|[\\s`]+$"; ""))
+      | map(select(. != ""))),
      adds: $adds}'
 }
 
@@ -246,6 +263,7 @@ cmd_launch() {
   require_tools tmux claude trash
   [[ -z $LAUNCH_ITEM_KIND ]] || require_tools gh
   repo_prime "$repo"
+  launch_scope_check
   [[ -z $LAUNCH_ITEM_KIND ]] || launch_item
   if [[ $LAUNCH_ITEM_KIND == pr ]]; then
     head=_launch_head

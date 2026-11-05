@@ -63,6 +63,7 @@ cmd_reopen() {
   local repo=$REOPEN_REPO
   if ((REOPEN_DRY_RUN == 1)); then require_tools claude gh; else require_tools tmux claude gh trash; fi
   repo_prime "$repo"
+  launch_scope_check
   item_parse_ref "$REOPEN_KIND" "$REOPEN_REF" "$REPO_ORIGIN"
   item_resolve
   REOPEN_ITEM=$(contract_json -c '{kind, repo, number, title}' <<<"$ITEM")
