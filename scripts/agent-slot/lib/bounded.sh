@@ -97,11 +97,12 @@ slot_sessions_or_fail() {
     --command "$AS_TMUX -L $AS_TMUX_SOCKET list-sessions" --log "$BOUNDED_LOG"
 }
 
-# Usage: tmux_unresponsive [<side effects>] [<socket>]; the socket defaults to the slot server's.
+# Usage: tmux_unresponsive [<side effects>] [<socket>]; the socket defaults to the slot server's. The next step reads
+# through bounded, since a bare tmux client on a wedged server would hang a caller capturing its output.
 tmux_unresponsive() {
   local socket=${2:-$AS_TMUX_SOCKET}
   contract_use_tools tmux
   contract_fail tmux-unresponsive "the $socket tmux server did not answer within its bound" \
-    --value "$socket" --command "timeout 5 $AS_TMUX -L $socket list-sessions" --side-effects "${1:-none}" \
+    --value "$socket" --command "agent-slot list --output json" --side-effects "${1:-none}" \
     --log "$BOUNDED_LOG"
 }
