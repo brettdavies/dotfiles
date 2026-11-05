@@ -266,7 +266,7 @@ brief would not reach it; send the brief to that slot's Claude session, or launc
 }
 
 cmd_resume() {
-  local repo n state
+  local repo n state prune
   slot_parse_key "$1"
   repo=$SLOT_REPO n=$SLOT_N
   require_tools tmux claude
@@ -279,8 +279,20 @@ cmd_resume() {
   state=$(contract_json -r '.state // ""' <<<"$RECORD")
   [[ $state == active ]] || contract_fail slot-busy "$1 is $state" --value "$1" --command "agent-slot resume $1"
   sessions_start "$repo" "$n" resume
+  prune=$(pr_prune_branches "$repo" "$(slot_path "$repo" "$n")" | contract_json -R -s -c '
+    split("\n") | map(select(. != "") | split("\t"))
+    | {prune_checked: (map(select(.[0] == "checked"))[0][1] == "true"),
+       pruned_branches: map(select(.[0] == "pruned") | .[1]),
+       prune_failed: map(select(.[0] == "failed") | {branch: .[1], reason: .[2]})}')
   record_unlock_slot "$repo" "$n"
-  contract_ok "$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$1" \
-    '{key: $key, started: split("\n") | map(select(. != ""))}')" \
-    '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)'
+  contract_json -r -c '(.pruned_branches | map({branch: ., result: "pruned", reason: null}))
+    + (.prune_failed | map(. + {result: "failed"})) | .[]' <<<"$prune" | while read -r line; do
+    ledger_append prune "$(contract_json -c --arg repo "$repo" --argjson slot "$n" '{repo: $repo, slot: $slot} + .' \
+      <<<"$line")"
+  done
+  contract_ok "$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$1" --argjson prune "$prune" \
+    '{key: $key, started: split("\n") | map(select(. != ""))} + $prune')" \
+    '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)
+      + (if (.pruned_branches | length) == 0 then "" else "; pruned \(.pruned_branches | join(", ")), whose PRs merged or closed" end)
+      + (if (.prune_failed | length) == 0 then "" else "; could not prune \(.prune_failed | map(.branch) | join(", "))" end)'
 }

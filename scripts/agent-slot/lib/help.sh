@@ -75,8 +75,13 @@ verb_help() {
       'example: agent-slot launch dotfiles --model sonnet --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
     resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--output json]' \
       "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID" \
-      'with --dangerously-skip-permissions.' \
-      'returns: key, started[] (the sessions it created)' \
+      'with --dangerously-skip-permissions. Then it deletes each of the slot'"'"'s local branches whose PRs all merged or' \
+      "closed, with origin's branch of that name, keeping the base, origin's default branch, the branch checked out," \
+      'any branch a PR targets, and any branch either side of which holds work its PRs never had. Each delete is a' \
+      'prune line in the ledger.' \
+      'returns: key, started[] (the sessions it created), pruned_branches[], prune_failed[] of {branch, reason}' \
+      '         (a delete that failed here or on origin; the next resume retries it), prune_checked (false when' \
+      '         GitHub gave no PR list, so nothing was pruned)' \
       'example: agent-slot resume dotfiles/2' ;;
     warm) printf '%s\n' 'usage: agent-slot warm <repo> | --all [--count N] [--output json]' \
       "Trusts slot paths 1 through N (default: the per-repo slot limit, $AS_MAX_PER_REPO) in Claude, so no launch there" \
