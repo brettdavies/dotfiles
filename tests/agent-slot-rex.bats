@@ -180,7 +180,7 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
   [ "$status" -eq 0 ]
   in_call_order '^rex window rename -s sess-a win-a X Prime$' '^agent-slot prime X --output json$' \
     '^rex window move -s sess-a win-a --index 1$' '^rex do agent_slot_layout -s sess-a -b blk-a key=X/prime block=blk-a$'
-  [ "$(tail -1 "$CALLS")" = "agent-slot-rex prime X" ]
+  [ "$(tail -1 "$CALLS")" = "agent-slot-rex attach X/prime claude" ]
   not_called '^agent-slot launch'
 }
 
@@ -206,7 +206,7 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
   [ "$status" -eq 0 ]
   called '^rex window rename -s sess-a win-a X$'
   called '^agent-slot prime X --output json$'
-  [ "$(tail -1 "$CALLS")" = "agent-slot-rex prime X" ]
+  [ "$(tail -1 "$CALLS")" = "agent-slot-rex attach X/prime claude" ]
   not_called '^agent-slot launch'
 }
 
@@ -376,7 +376,7 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
     '^rex window rename -s sess-a win-a X · prime failed$' '^rex window rename -s sess-a win-a X Prime$' \
     '^agent-slot prime X ' '^rex window move -s sess-a win-a --index 1$'
   not_called '^agent-slot launch'
-  [ "$(tail -1 "$CALLS")" = "agent-slot-rex prime X" ]
+  [ "$(tail -1 "$CALLS")" = "agent-slot-rex attach X/prime claude" ]
 }
 
 @test "an agent-slot prime that cannot be retried holds the tab until q and starts nothing" {

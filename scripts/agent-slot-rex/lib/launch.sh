@@ -250,16 +250,19 @@ launch_repos() {
 # Makes this tab the repo's prime tab: labelled first, so a second press knows a prime is on its way, then started, first
 # in its session, and laid out as a slot's tab is unless the prime runs old-style, whose one session fills the pane.
 launch_prime() {
+  local server
   LAUNCH_OF_PRIME=1
   launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$PRIME_LABEL"
   printf 'agent-slot-rex: opening the prime of %s\n' "$LAUNCH_REPO"
   launch_call "$AR_PRIME_BOUND" prime "$LAUNCH_REPO"
   launch_try rex_move_first "$REX_SESSION" "$LAUNCH_WINDOW"
-  if [[ $(contract_json -r '.server' <<<"$SERVER_OUT") == slots ]]; then
-    launch_try rex_layout "$REX_SESSION" "$REX_BLOCK" "$(slot_key "$LAUNCH_REPO" "$SLOT_PRIME")"
-  fi
+  server=$(contract_json -r '.server' <<<"$SERVER_OUT")
+  [[ $server != slots ]] || launch_try rex_layout "$REX_SESSION" "$REX_BLOCK" "$(slot_key "$LAUNCH_REPO" "$SLOT_PRIME")"
   contract_ok "$SERVER_OUT" '"opening the prime of \(.repo), in \(.session)"'
   rm -f "$CONTRACT_NOISE"
+  # A pass counts the prime command as holding only an old-style session, so a tab passing through it for a prime on the
+  # slot server would read as unheld and get a second tab.
+  [[ $server != slots ]] || exec "$AR_SELF" attach "$(slot_key "$LAUNCH_REPO" "$SLOT_PRIME")" claude
   exec "$AR_SELF" prime "$LAUNCH_REPO"
 }
 
