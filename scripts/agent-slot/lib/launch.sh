@@ -75,8 +75,9 @@ model_check() {
   sessions_model_id "$1" >/dev/null || usage_fail "--model takes ${SESSIONS_MODELS// / or }" "$1"
 }
 
-# The lines every brief carries, each starting a line as `<label>:`, optionally after list or emphasis marks. The
-# agent-slot skill's "Write a brief" checklist names the same four.
+# The lines every brief carries, each starting a line as `<label>:`, optionally after list, heading, number, or emphasis
+# marks, and the emphasis may wrap the label alone (`**Scope**:`). The agent-slot skill's "Write a brief" checklist
+# names the same four.
 LAUNCH_BRIEF_LABELS=('Scope' 'Limits' 'Reviews' 'Reports to')
 
 # Usage: launch_brief_check <file>; refuses with brief-incomplete, naming each missing label, unless the brief has a
@@ -84,7 +85,8 @@ LAUNCH_BRIEF_LABELS=('Scope' 'Limits' 'Reviews' 'Reports to')
 launch_brief_check() {
   local label missing=()
   for label in "${LAUNCH_BRIEF_LABELS[@]}"; do
-    grep -Eiq "^[[:space:]*_>-]*${label}:[[:space:]*_]*[^[:space:]*_]" "$1" || missing+=("$label:")
+    grep -Eiq "^[[:space:]*_>#-]*([0-9]+[.)][[:space:]]*)?[*_]*${label}[*_]*:[[:space:]*_]*[^[:space:]*_]" "$1" \
+      || missing+=("$label:")
   done
   ((${#missing[@]} == 0)) && return 0
   contract_fail brief-incomplete "the brief has no ${missing[*]} line with a value. Every brief states its scope, \

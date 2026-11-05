@@ -676,7 +676,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `slot-busy`                   | 1    | Another `agent-slot` process holds the slot, or it is still setting up; retry                  |
 | `invalid-task-name`           | 2    | A task name uses letters, digits, `-`, `_`, and `/`, and starts with a letter or digit         |
 | `prompt-file-unreadable`      | 2    | The first-message file cannot be read                                                          |
-| `brief-incomplete`            | 2    | The launch brief lacks a `Scope:`, `Limits:`, `Reviews:`, or `Reports to:` line; `value` names them |
+| `brief-incomplete`            | 2    | A brief lacks a `Scope:`, `Limits:`, `Reviews:`, or `Reports to:` line with a value            |
 | `slot-limit-reached`          | 78   | The repo holds the most live slots allowed; finish one, or raise `AGENT_SLOT_MAX_PER_REPO`     |
 | `clone-failed`                | 1    | Cloning from origin failed; retry with the same request ID                                     |
 | `solutions-symlink-missing`   | 78   | The solutions repo is missing or has no origin/main, so the slot gets no worktree of it        |
