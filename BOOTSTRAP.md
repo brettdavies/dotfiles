@@ -340,7 +340,9 @@ Each run appends JSON Lines to `~/Library/Logs/brew-upgrade.jsonl` or `~/Library
 `reason`, what changed, and a `next_step`. `scripts/upgrade/lib/run-log.sh` documents the schema. Anything the script
 itself writes to stderr lands in the matching `.error.log`, which stays empty on a healthy run. Both agents start their
 job through `scripts/launchd-run.sh`, which cuts a log past 1 MiB down to its last 1 MiB before the run, starting at the
-first whole line so the JSON Lines log still parses, and keeps no older copy.
+first whole line so the JSON Lines log still parses, and keeps no older copy. A stop of the job ends the run with a
+`run.end` whose reason is `script-error` and whose counts hold what it had logged, and the next fire runs it again,
+since the daily gate records only a run that exits 0.
 
 ```bash
 jaq -c 'select(.event == "run.end")' ~/Library/Logs/brew-upgrade.jsonl | tail -n 5
@@ -667,10 +669,11 @@ systemctl --user start brew-upgrade.service
 
 An upgrade deletes the kegs it replaces while processes still run their binaries. After `bu`, the brew job restarts each
 long-running user service still running a removed binary (`caddy.service`, `qmd-serve.service`) with
-`systemctl --user try-restart`. Everything else on a removed binary is left running and reported as a warning: a
-oneshot, whose restart would rerun its job, and session processes such as tmux. The scan runs as you, so another user's
-processes, system services among them, are never seen. `run.end` lists each one under `stale_processes` with what was
-done:
+`systemctl --user try-restart`, and counts the restart only if the unit is still active three seconds later and systemd
+has not restarted it on its own meanwhile. A restart that fails or does not stay up is a warning. Everything else on a
+removed binary is left running and reported as a warning: a oneshot or a transient `systemd-run` unit, whose restart
+would rerun its command, and session processes such as tmux. The scan runs as you, so another user's processes, system
+services among them, are never seen. `run.end` lists each one under `stale_processes` with what was done:
 
 ```bash
 journalctl --user -t brew-upgrade -o cat | jaq -Rc 'fromjson? | select(.event == "run.end") | .stale_processes' | tail -n 1

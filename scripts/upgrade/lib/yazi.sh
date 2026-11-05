@@ -2,13 +2,6 @@
 # The brew job's yazi steps: installing the packages package.toml pins, and on Linux bumping the pins when yazi
 # changes. Sourced after run-log.sh.
 
-_yazi_info_lines() {
-  local line
-  while IFS= read -r line || [ -n "$line" ]; do
-    _run_log_output info 6 "$line"
-  done
-}
-
 # Usage: yazi_pkg_install
 # Runs `ya pkg install --discard` when ya is on PATH. Without --discard, ya refuses to replace an installed package whose
 # files differ from the hash package.toml records, and an older pin's files always differ from a newer pin's hash;
@@ -18,7 +11,7 @@ _yazi_info_lines() {
 yazi_pkg_install() {
   local status
   command -v ya >/dev/null 2>&1 || return 0
-  if ya pkg install --discard 2>&1 | _yazi_info_lines; then
+  if ya pkg install --discard 2>&1 | _run_log_info_lines; then
     status=0
   else
     status=${PIPESTATUS[0]}
@@ -35,7 +28,7 @@ YAZI_PINS_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/yazi-pins.sh"
 # stamp the bump writes on bumped or not-needed), and records its outcome object as RUN_YAZI_PINS. The bump's stderr
 # becomes info events. A job that dies during the bump still ends with a failed/script-error object.
 yazi_pins_after_upgrade() {
-  local version stamp out last log next
+  local version stamp out last next
   [ "$RUN_OS" = Linux ] || return 0
   version=$(yazi --version 2>/dev/null | awk '/Version:/ { print $2; exit }' || true)
   [ -n "$version" ] || return 0
@@ -43,10 +36,11 @@ yazi_pins_after_upgrade() {
   [ "$version" != "$stamp" ] || return 0
   next="\"next_step\":{\"action\":\"rerun\",\"command\":$(_run_log_str "$YAZI_PINS_SCRIPT"),\"docs\":\"$RUN_LOG_DOCS#yazi-plugin-pins\"}"
   RUN_YAZI_PINS="{\"outcome\":\"failed\",\"reason\":\"script-error\",\"exit_code\":null,\"message\":\"the brew job ended during the pin bump\",\"value\":null,\"yazi_version\":$(_run_log_str "$version"),\"pr\":null,\"host_update\":null,$next}"
-  log=$(mktemp "${TMPDIR:-/tmp}/yazi-pins-log.XXXXXX")
-  out=$(timeout "${YAZI_PINS_TIMEOUT:-3600}" "${YAZI_PINS_CMD:-$YAZI_PINS_SCRIPT}" 2>"$log") || true
-  _yazi_info_lines <"$log"
-  rm -f "$log"
+  RUN_STEP_LOG=$(mktemp "${TMPDIR:-/tmp}/yazi-pins-log.XXXXXX")
+  out=$(timeout "${YAZI_PINS_TIMEOUT:-3600}" "${YAZI_PINS_CMD:-$YAZI_PINS_SCRIPT}" 2>"$RUN_STEP_LOG") || true
+  _run_log_info_lines <"$RUN_STEP_LOG"
+  rm -f "$RUN_STEP_LOG"
+  RUN_STEP_LOG=''
   last=$(tail -n 1 <<<"$out")
   case $last in
     '{"outcome":"bumped"'* | '{"outcome":"not-needed"'* | '{"outcome":"waiting"'* | '{"outcome":"failed"'*)

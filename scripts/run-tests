@@ -29,7 +29,8 @@
 # behind a `# <file> (<seconds> s)` marker: nothing interleaves, every file
 # carries its own TAP plan and its own test numbering rather than one run-wide
 # sequence, and the log shows which files the run's time went to.
-# RUN_TESTS_JOBS=1 restores the single combined stream.
+# RUN_TESTS_JOBS=1 restores the single combined stream. RUN_TESTS_PERL names the
+# perl that resets the signals (default: perl on PATH).
 #
 # A file whose tests share no state, each keeping its own under its own
 # BATS_TEST_TMPDIR, can declare `# run-tests: parallel` on a line of its own.
@@ -97,7 +98,8 @@ if ! command -v bats >/dev/null 2>&1; then
   exit "$EXIT_DEPENDENCY"
 fi
 
-if ! command -v perl >/dev/null 2>&1; then
+PERL="${RUN_TESTS_PERL:-perl}"
+if ! command -v "$PERL" >/dev/null 2>&1; then
   echo "run-tests: perl not installed; it resets SIGINT and SIGQUIT before bats starts" >&2
   echo "           install with: brew install perl" >&2
   exit "$EXIT_DEPENDENCY"
@@ -134,7 +136,7 @@ _bats() {
   env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
     -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_NAMESPACE \
     RUN_TESTS_RUN="$run" BATS_TEST_TIMEOUT="$TEST_TIMEOUT" BATS_killer_pid="$BATS_WATCHDOG_JOB" \
-    perl -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "run-tests: exec $ARGV[0]: $!\n"' \
+    "$PERL" -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "run-tests: exec $ARGV[0]: $!\n"' \
     bats "${BATS_FLAGS[@]}" "$@" || rc="$EXIT_FAILURE"
   stop_leaks "RUN_TESTS_RUN=$run" "$*" "bats exited" || rc="$EXIT_FAILURE"
   return "$rc"

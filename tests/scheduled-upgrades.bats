@@ -14,6 +14,13 @@ BREW_JOB="$REPO_ROOT/scripts/upgrade/brew.sh"
 UNITS="$REPO_ROOT/stow/local/dot-config/systemd/user"
 AGENTS="$REPO_ROOT/stow/launchagent/Library/LaunchAgents"
 
+load lib/processes
+
+teardown() {
+  stop_spawned
+  assert_no_leaks
+}
+
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$STUBS"
@@ -59,15 +66,21 @@ case "$*" in
 esac
 EOF
   # Never reaches the live user manager: Type is oneshot for box-bisync, unanswered for gone.service and simple
-  # otherwise, and a restart of the unit named in STUB_RESTART_FAIL fails.
+  # otherwise, transient.service is transient, and a restart of the unit named in STUB_RESTART_FAIL fails. The unit in
+  # STUB_RESTART_DIES is not active after its restart, the one in STUB_RESTART_LOOPS answers each InvocationID lookup
+  # with a new value, and the one in STUB_LOOKUP_FAIL fails that lookup.
   cat >"$STUBS/systemctl" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
 case "$*" in
+  "--user show -p Transient --value transient.service") echo yes ;;
   "--user show -p Type --value box-bisync.service") echo oneshot ;;
   "--user show -p Type --value gone.service") ;;
   "--user show -p Type --value "*) echo simple ;;
   "--user try-restart ${STUB_RESTART_FAIL-}") exit 1 ;;
+  "--user is-active --quiet ${STUB_RESTART_DIES-}") exit 3 ;;
+  "--user show -p InvocationID --value ${STUB_RESTART_LOOPS-}") wc -l <"$SYSTEMCTL_LOG" ;;
+  "--user show -p InvocationID --value ${STUB_LOOKUP_FAIL-}") exit 1 ;;
 esac
 EOF
   # The daily gate's connectivity probe always answers, so no test reaches the network.
@@ -384,6 +397,7 @@ _fake_status() {
 @test "processes on a removed Homebrew binary: long-running user services restart, the rest are reported" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   find / -maxdepth 0 -printf '' 2>/dev/null || skip "the scan lists /proc with GNU find's -printf"
+  _stub_settle_sleep
   PROC="$BATS_TEST_TMPDIR/proc" P=/opt/brew US=/user.slice/user-1000.slice/user@1000.service/app.slice
   mkdir -p "$PROC/self"
   printf '0::%s\n' "$US/brew-upgrade.service" >"$PROC/self/cgroup"
@@ -414,7 +428,7 @@ _fake_status() {
     "/opt/brew/Cellar/gone/1/bin/gone /opt/brew/Cellar/root/1/bin/root" ]
   [ "$(printf '%s\n' "$output" | tail -n 2 | head -n 1)" = 8 ]
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning" and .line ==
-    "Warning: restarting qmd-serve.service onto the upgrade failed; check systemctl --user status qmd-serve.service")' | grep -q .
+    "Warning: restarting qmd-serve.service onto the upgrade failed or did not stay up; check systemctl --user status qmd-serve.service")' | grep -q .
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "info"
     and .line == "restarted caddy.service, which was running the removed /opt/brew/Cellar/caddy/2/bin/caddy")' | grep -q .
 }
@@ -468,6 +482,224 @@ _fake_status() {
   printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning"
     and (.line | startswith("Warning: the job runs in a user namespace")))' | grep -q .
   [ ! -e "$SYSTEMCTL_LOG" ]
+}
+
+# Logs the settle wait beside the systemctl calls, so a test can check their order and does not wait it out.
+_stub_settle_sleep() {
+  printf '#!/bin/sh\nprintf "sleep %%s\\n" "$*" >>"$SYSTEMCTL_LOG"\n' >"$STUBS/sleep"
+  chmod +x "$STUBS/sleep"
+}
+
+# Under set -e as in brew.sh, so a failed lookup that stopped the scan would lose the units sorted after it.
+@test "a restart counts only if the unit is still up on the same invocation 3 s later" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  find / -maxdepth 0 -printf '' 2>/dev/null || skip "the scan lists /proc with GNU find's -printf"
+  _stub_settle_sleep
+  PROC="$BATS_TEST_TMPDIR/proc" US=/user.slice/user-1000.slice/user@1000.service/app.slice
+  mkdir -p "$PROC/self"
+  printf '0::%s\n' "$US/brew-upgrade.service" >"$PROC/self/cgroup"
+  _fake_proc 101 "/opt/brew/Cellar/a/1/bin/a (deleted)" "$US/caddy.service"
+  _fake_proc 102 "/opt/brew/Cellar/b/1/bin/b (deleted)" "$US/dies.service"
+  _fake_proc 103 "/opt/brew/Cellar/c/1/bin/c (deleted)" "$US/loops.service"
+  _fake_proc 104 "/opt/brew/Cellar/d/1/bin/d (deleted)" "$US/noid.service"
+  _fake_proc 105 "/opt/brew/Cellar/e/1/bin/e (deleted)" "$US/zed.service"
+  run env STUB_RESTART_DIES=dies.service STUB_RESTART_LOOPS=loops.service STUB_LOOKUP_FAIL=noid.service \
+    PATH="$STUBS:$PATH" bash -c '
+    set -euo pipefail
+    . "$1/run-log.sh"; . "$1/stale-procs.sh"
+    RUN_JOB=brew-upgrade RUN_ID=x RUN_HOST="\"h\"" RUN_LOG_JOURNALD=0 RUN_WARNINGS=0
+    stale_procs_restart "$2" /opt/brew
+    printf "%s\n%s\n" "$RUN_WARNINGS" "$RUN_STALE"' _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c 'map([.unit, .action])')" = \
+    '[["caddy.service","restarted"],["dies.service","restart-failed"],["loops.service","restart-failed"],["noid.service","restarted"],["zed.service","restarted"]]' ]
+  [ "$(printf '%s\n' "$output" | tail -n 2 | head -n 1)" = 2 ]
+  printf '%s\n' "$output" | jaq -c 'select(.event == "output" and .level == "warning" and .line ==
+    "Warning: restarting dies.service onto the upgrade failed or did not stay up; check systemctl --user status dies.service")' | grep -q .
+  [ "$(sed -n '/try-restart caddy.service/,$p' "$SYSTEMCTL_LOG" | head -n 5)" = "$(printf '%s\n' \
+    '--user try-restart caddy.service' '--user show -p InvocationID --value caddy.service' 'sleep 3' \
+    '--user is-active --quiet caddy.service' '--user show -p InvocationID --value caddy.service')" ]
+}
+
+@test "a transient service stays running, since a restart would rerun its command" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  find / -maxdepth 0 -printf '' 2>/dev/null || skip "the scan lists /proc with GNU find's -printf"
+  PROC="$BATS_TEST_TMPDIR/proc" US=/user.slice/user-1000.slice/user@1000.service/app.slice
+  mkdir -p "$PROC/self"
+  printf '0::%s\n' "$US/brew-upgrade.service" >"$PROC/self/cgroup"
+  _fake_proc 101 "/opt/brew/Cellar/a/1/bin/a (deleted)" "$US/transient.service"
+  run env PATH="$STUBS:$PATH" bash -c '
+    . "$1/run-log.sh"; . "$1/stale-procs.sh"
+    RUN_JOB=brew-upgrade RUN_ID=x RUN_HOST="\"h\"" RUN_LOG_JOURNALD=0 RUN_WARNINGS=0
+    stale_procs_restart "$2" /opt/brew
+    printf "%s\n%s\n" "$RUN_WARNINGS" "$RUN_STALE"' _ "$REPO_ROOT/scripts/upgrade/lib" "$PROC"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | tail -n 1 | jaq -c 'map([.unit, .action])')" = '[["transient.service","left-running"]]' ]
+  [ -z "$(grep try-restart "$SYSTEMCTL_LOG" || true)" ]
+}
+
+# A tool that logs an error and a warning and then outlives a SIGTERM, standing in for one that is slow to exit, as what
+# both jobs' upgrade commands run. It logs one more warning once TOOL_RESUME exists. The job's temp files land in
+# SUMMARY_DIR. The uv job runs its tool directly in the capture's pipeline, so a TERM trap would wait on the tool there,
+# and run.end would arrive too late to pass. The brew job runs it below a function's subshell, which dies on the signal.
+_stalled_tool_fixture() {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  export LAUNCHD_LOG_DIR="$BATS_TEST_TMPDIR/Logs" UPGRADE_STATE_DIR="$BATS_TEST_TMPDIR/state"
+  export SUMMARY_DIR="$BATS_TEST_TMPDIR/summaries" DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only"
+  export TOOL_RESUME="$BATS_TEST_TMPDIR/tool-resume" UV_EXCLUDE_NEWER=2026-01-01
+  mkdir -p "$LAUNCHD_LOG_DIR" "$SUMMARY_DIR" "$DOTFILES_SHELL_DIR"
+  ln -s "$REPO_ROOT/config/shell/shell-functions" "$DOTFILES_SHELL_DIR/"
+  cat >"$STUBS/stalled-tool" <<'EOF'
+#!/bin/sh
+trap '' TERM
+echo "Error: a mirror failed"
+echo "Warning: a slow mirror"
+until [ -e "$TOOL_RESUME" ]; do sleep 0.1; done
+echo "Warning: after the stop"
+exec sleep 30
+EOF
+  cat >"$STUBS/brew" <<'EOF'
+#!/bin/sh
+case "$1" in
+  --version) echo "Homebrew 5.0.0" ;;
+  list) echo "uv 0.11.19" ;;
+  upgrade) exec stalled-tool ;;
+  *) echo "==> $1" ;;
+esac
+EOF
+  cat >"$STUBS/uv" <<'EOF'
+#!/bin/sh
+case "$*" in
+  --version) echo "uv 0.11.20" ;;
+  "tool list") echo "claude-swap v0.26.0" ;;
+  *) exec stalled-tool ;;
+esac
+EOF
+  printf '#!/bin/sh\nf="$SUMMARY_DIR/summary.$$"\n: >"$f"\necho "$f"\n' >"$STUBS/mktemp"
+  chmod +x "$STUBS"/*
+}
+
+# Usage: _wait_for_log <pattern>; fails when the run log does not show the pattern within 30 s.
+_wait_for_log() {
+  local deadline=$((SECONDS + 30))
+  until grep -qs "$1" "$log" || ((SECONDS > deadline)); do sleep 0.1; done
+  grep -q "$1" "$log"
+}
+
+# What a stop has to leave, however the signals arrived: run.end while the tool still runs, and the counts the job had
+# logged. exit_code reads 1, as run-log.sh documents. The tool then logs one more line, which only a reader that outlived
+# the stop would write after run.end.
+_assert_stop_ended_log() {
+  local deadline=$((SECONDS + 10))
+  until grep -qs '"event":"run.end"' "$log" || ((SECONDS > deadline)); do sleep 0.1; done
+  [ "$(jaq -c 'select(.event == "run.end") | [.outcome, .exit_code, .reason, .errors, .warnings, .first_error]' "$log")" = \
+    '["failure",1,"script-error",1,1,"Error: a mirror failed"]' ]
+  kill -0 -- "-$job"
+  [ -z "$(ls -A "$SUMMARY_DIR")" ]
+  : >"$TOOL_RESUME"
+  sleep 1
+  [ "$(tail -n 1 "$log" | jaq -r .event)" = run.end ]
+}
+
+# launchd's stop of a job, through the agent's real chain: a SIGTERM to its main process alone, which is the daily gate
+# because the wrapper execs it, then once that has exited a SIGTERM to the rest of its process group. launchd.plist(5)
+# documents that sweep under AbandonProcessGroup without naming its signal; launchd's public source names it (job_reap,
+# core.c:3623, `killpg2(j->p, SIGTERM)`). Measured with a scratch agent through this chain and the uv job on macOS 27.0:
+# `launchctl bootout` gave the tool one SIGTERM within 10 ms and no SIGKILL in the next 8 s, the gate and the job were gone
+# within 0.2 s, and the log ended in one run.end with these counts.
+_assert_launchd_stop_ends_log() { # <job> <script>
+  log=$LAUNCHD_LOG_DIR/$1.jsonl
+  spawn env PATH="$STUBS:$PATH" "$REPO_ROOT/scripts/launchd-run.sh" "$1.jsonl" \
+    "$REPO_ROOT/scripts/upgrade/daily-gate.sh" "$1" "$2" >/dev/null 2>&1 3>&-
+  job=$!
+  _wait_for_log 'a slow mirror'
+
+  kill -TERM "$job"
+  wait "$job" || true
+  kill -TERM -- "-$job"
+  _assert_stop_ended_log
+  [ ! -e "$UPGRADE_STATE_DIR/$1.last-success" ]
+}
+
+# systemd's stop of a unit, which its start timeout also uses: one SIGTERM to every process in the unit at once, with no
+# wrapper and no gate. Measured with a transient user unit stopped during the brew job's pin bump: the stop took 0.09 s and
+# reached the real timeout in its own process group, the journal held one run.end at priority 3 with these counts, and the
+# manager read code=killed, status=15/TERM.
+_assert_systemd_stop_ends_log() { # <script>
+  log=$BATS_TEST_TMPDIR/journal.jsonl
+  spawn env PATH="$STUBS:$PATH" "$1" >"$log" 2>/dev/null 3>&-
+  job=$!
+  _wait_for_log 'a slow mirror'
+
+  kill -TERM -- "-$job"
+  _assert_stop_ended_log
+}
+
+@test "a launchd stop ends the brew job's log at once with the counts so far, even while a tool ignores SIGTERM" {
+  _stalled_tool_fixture
+  _assert_launchd_stop_ends_log brew-upgrade "$BREW_JOB"
+}
+
+@test "a launchd stop ends the uv job's log at once with the counts so far, even while a tool ignores SIGTERM" {
+  _stalled_tool_fixture
+  _assert_launchd_stop_ends_log uv-tools-upgrade "$UV_JOB"
+}
+
+@test "a systemd stop ends the brew job's log at once with the counts so far, even while a tool ignores SIGTERM" {
+  _stalled_tool_fixture
+  _assert_systemd_stop_ends_log "$BREW_JOB"
+}
+
+@test "a systemd stop ends the uv job's log at once with the counts so far, even while a tool ignores SIGTERM" {
+  _stalled_tool_fixture
+  _assert_systemd_stop_ends_log "$UV_JOB"
+}
+
+@test "a line logged after a kill does not bring the removed summary file back" {
+  _stalled_tool_fixture
+  log=$LAUNCHD_LOG_DIR/brew-upgrade.jsonl
+  spawn env PATH="$STUBS:$PATH" "$REPO_ROOT/scripts/launchd-run.sh" brew-upgrade.jsonl "$BREW_JOB" >/dev/null 2>&1 3>&-
+  job=$!
+  _wait_for_log 'a slow mirror'
+
+  kill -TERM "$job"
+  wait "$job" || true
+  _wait_for_log '"event":"run.end"'
+  [ -z "$(ls -A "$SUMMARY_DIR")" ]
+
+  : >"$TOOL_RESUME"
+  _wait_for_log 'after the stop'
+  [ -z "$(ls -A "$SUMMARY_DIR")" ]
+}
+
+# The upgrade finishes here and the bump is what stalls. The timeout stub keeps the bump in the job's process group,
+# which the real timeout leaves, so the test can stop all of it.
+@test "a kill during the pin bump logs the bump's stderr and leaves no temp file" {
+  _stalled_tool_fixture
+  export BUMP_STARTED="$BATS_TEST_TMPDIR/bump-started" YAZI_PINS_CMD="$STUBS/stalled-bump"
+  log=$BATS_TEST_TMPDIR/journal.jsonl
+  linux="$BATS_TEST_TMPDIR/linux"
+  mkdir -p "$linux"
+  printf '#!/bin/sh\n[ "$1" = -s ] && echo Linux || exec %s "$@"\n' "$(command -v uname)" >"$linux/uname"
+  printf '#!/bin/sh\necho "==> upgraded"\n' >"$STUBS/stalled-tool"
+  printf '#!/bin/sh\nshift\nexec "$@"\n' >"$STUBS/timeout"
+  printf '#!/bin/sh\necho "yazi-pins: checking" >&2\n: >"$BUMP_STARTED"\nexec sleep 30\n' >"$STUBS/stalled-bump"
+  chmod +x "$STUBS"/* "$linux/uname"
+  echo 26.9.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
+
+  spawn env PATH="$linux:$STUBS:$PATH" "$BREW_JOB" >"$log" 2>/dev/null 3>&-
+  job=$!
+  deadline=$((SECONDS + 30))
+  until [ -e "$BUMP_STARTED" ] || ((SECONDS > deadline)); do sleep 0.1; done
+  [ -e "$BUMP_STARTED" ]
+
+  kill -TERM -- "-$job"
+  wait "$job" || true
+  _wait_for_log '"event":"run.end"'
+  [ "$(jaq -c 'select(.event == "run.end") | [.reason, .yazi_pins.reason]' "$log")" = '["script-error","script-error"]' ]
+  [ "$(tail -n 1 "$log" | jaq -r .event)" = run.end ]
+  jaq -c 'select(.event == "output" and .level == "info" and .line == "yazi-pins: checking")' "$log" | grep -q .
+  [ -z "$(ls -A "$SUMMARY_DIR")" ]
 }
 
 @test "brew job reports a process still running a binary the upgrade removed" {
