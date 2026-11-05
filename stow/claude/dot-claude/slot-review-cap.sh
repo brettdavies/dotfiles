@@ -58,19 +58,8 @@ review_decide() {
   exec {fd}>&-
 }
 
-# Prints "<repo> <n>" for this hook's slot: the one the payload's cwd is in, else the one the pane's session names, so a
-# review called from a scratch directory still counts.
-review_slot() {
-  local at
-  if at=$(slot_at "$(hook_field .cwd)"); then
-    printf '%s' "$at"
-  else
-    printf '%s %s' "${HOOK_PANE_SESSION%-*}" "${HOOK_PANE_SESSION##*-}"
-  fi
-}
-
 review_main() {
-  local fields event tool skill at repo n branch since
+  local fields event tool skill repo n branch since
   hook_use_socket "${TMUX%%,*}" || return 0
   fields='"\(.hook_event_name // "")\u001f\(.tool_name // "")\u001f\(.tool_input.skill // "")"'
   IFS=$'\x1f' read -r event tool skill <<<"$(hook_field "$fields")"
@@ -82,7 +71,7 @@ review_main() {
   skill=${skill#"${skill%%[![:space:]]*}"}
   [[ $event == PreToolUse && $tool == Skill && ($skill == "$REVIEW_SKILL" || $skill == "${REVIEW_SKILL#*:}") ]] || return 0
   hook_pane && hook_claude_session && hook_top_level_claude || return 0
-  read -r repo n <<<"$(review_slot)"
+  read -r repo n <<<"$(hook_slot)"
   branch=$(slot_review_key "$(slot_path "$repo" "$n")")
   [[ -n $branch ]] || {
     hook_log "slot $repo/$n has no readable HEAD; review call allowed"

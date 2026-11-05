@@ -139,6 +139,18 @@ REPO="$BATS_TEST_DIRNAME/.."
   [ "$output" = '[{"event":"PreToolUse","matcher":"Skill","async":false,"onFailure":"unset"}]' ]
 }
 
+# slot-scope-guard.sh judges a slot's `git push`, so it sits on the Bash tool alone. It is synchronous, since its answer
+# is its output, and sets no onFailure: a hook that fails leaves the push allowed rather than denying every Bash call on
+# the host.
+@test "slot-scope-guard.sh runs on the Bash tool only and lets the call through when it fails" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -c '[.hooks | to_entries[] | .key as $event | .value[]
+    | {event: $event, matcher: (.matcher // ""), hook: (.hooks[] | select(.command == "~/.claude/slot-scope-guard.sh"))}
+    | {event, matcher, async: (.hook.async // false), onFailure: (.hook.onFailure // "unset")}]' "$SETTINGS"
+  echo "slot-scope-guard.sh registrations: $output"
+  [ "$output" = '[{"event":"PreToolUse","matcher":"Bash","async":false,"onFailure":"unset"}]' ]
+}
+
 # With no matcher the guard sees every tool, MCP tools and subagents' calls included.
 # Without onFailure a guard that crashes, times out, or is missing lets the call through.
 @test "never-send-guard.sh runs on every tool call and blocks when it fails" {
@@ -252,9 +264,9 @@ REPO="$BATS_TEST_DIRNAME/.."
   [ "$status" -eq 0 ]
   # shellcheck disable=SC2088 # settings.json names hooks by the literal ~ path
   # slot-unattended.sh denies only in a slot, and a failed run there leaves the dialog to show; slot-review-cap.sh denies
-  # only in a slot, and a failed run there leaves the call allowed.
+  # only in a slot, and a failed run there leaves the call allowed; slot-scope-guard.sh likewise.
   local exempt=('~/.claude/slot-status.sh' '~/.claude/skills/1password/hooks/op-skill-nudge.sh'
-    '~/.claude/slot-unattended.sh' '~/.claude/slot-review-cap.sh')
+    '~/.claude/slot-unattended.sh' '~/.claude/slot-review-cap.sh' '~/.claude/slot-scope-guard.sh')
   local cmd missing=()
   while IFS= read -r cmd; do
     [ -n "$cmd" ] || continue
@@ -266,7 +278,8 @@ REPO="$BATS_TEST_DIRNAME/.."
   [ "${#missing[@]}" -eq 0 ]
   run jaq -r '.hooks.PreToolUse[].hooks[] | select(.command == "~/.claude/slot-status.sh"
     or .command == "~/.claude/skills/1password/hooks/op-skill-nudge.sh" or .command == "~/.claude/slot-unattended.sh"
-    or .command == "~/.claude/slot-review-cap.sh") | .onFailure // "unset"' "$SETTINGS"
+    or .command == "~/.claude/slot-review-cap.sh" or .command == "~/.claude/slot-scope-guard.sh")
+    | .onFailure // "unset"' "$SETTINGS"
   [ "$(sort -u <<<"$output")" = unset ]
 }
 

@@ -101,3 +101,14 @@ hook_top_level_claude() {
   done
   return 1
 }
+
+# Prints "<repo> <n>" for the slot a hook acts for: the one the payload's cwd is in, else the one the pane's session
+# names, so a call from a scratch directory still counts for its slot.
+hook_slot() {
+  local at
+  if at=$(slot_at "$(hook_field .cwd)"); then
+    printf '%s' "$at"
+  else
+    printf '%s %s' "${HOOK_PANE_SESSION%-*}" "${HOOK_PANE_SESSION##*-}"
+  fi
+}
