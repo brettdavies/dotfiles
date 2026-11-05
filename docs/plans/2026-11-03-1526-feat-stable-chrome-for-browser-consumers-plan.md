@@ -547,7 +547,11 @@ Who opens pages Brett does not control, what they run today, and where each goes
   loaded or when `$PLAYWRIGHT_BROWSERS_PATH` lies outside the paths it covers (`/home/*/.cache/playwright/`), because
   every launch through the wrapper then fails with `No usable sandbox!`. It also fails when a wrapper differs from its
   template or names a build other than the pin's. WebKit and ffmpeg aliases point at their real directories, and the
-  docs say the wrapper covers Chromium only.
+  docs say the wrapper covers Chromium only. On Linux with `kernel.apparmor_restrict_unprivileged_userns = 1`, the
+  wrapper checks that a `playwright-chromium` profile is listed under `/sys/kernel/security/apparmor/policy/profiles/`,
+  which any user can read (measured), before it `exec`s. Without one it exits with its own line naming
+  `sudo ~/dotfiles/scripts/apparmor-deploy.sh`, because the browser's own failure text suggests `--no-sandbox`. The
+  check is a glob in the shell, with no subprocess.
 - R25. The pin is one file, `config/playwright/browsers.pin`, holding the CfT version, the WebKit and ffmpeg revisions,
   the three alias lists, the Playwright library version with the sha256 of its npm tarball, and a sha256 for each
   archive on each platform. One parser reads it for every reader: the deploy, the deps script, the bump job, each host's
@@ -592,6 +596,15 @@ Who opens pages Brett does not control, what they run today, and where each goes
   that runs verbatim from a headless shell: paths quoted with `printf %q`, and any condition in the message rather than
   the command. A next step never discards work: the error for a missing `--pin` path names that path, not a checkout of
   the committed pin. `--help` text is taken from the script's header by pattern, not by line numbers.
+  - **Exit codes and side effects.** A usage error exits 2 before any work; every other failure exits 1. Each failure
+    says what it changed, such as "nothing moved; the set stays on 157.0.8103.38", so a caller knows whether a rerun is
+    safe.
+  - **Where reasons are documented.** Each reason has a row in the runbook's reason table, which is its doc anchor.
+  - **Unexpected failures.** When `curl`, `unzip`, or `node` fails in a way the script did not anticipate, the tool's
+    own stderr passes through above the reason line, which names the rerun.
+  - **Commands outside the repo.** A `next:` that a consumer reads from another repository, the wrapper's or the
+    launcher's, names the script as `~/dotfiles/scripts/...`, the checkout's path on both machines (AGENTS.md). A step
+    that needs `sudo` says to ask the operator to run it.
 
 **Consumers**
 
@@ -1007,9 +1020,10 @@ server and the Mac. The stale builds and the per-version map end here.
 - Tests per R29 (a) and (b): the pin's shapes, each rule above, and a real `playwright-core` at the pin's library
   version running `install` and `uninstall` against a deployed set, on pre-push and in CI, with the bats setup action
   caching that library.
-- The runbook's provisioning, pin, and `--check` sections; the README's script and config lines; and the lines in
-  `stow/claude/dot-claude/CLAUDE.md` and the CLI tools guide that tell agents never to bump a repo's Playwright on its
-  own, which aliasing makes false.
+- The runbook's provisioning, pin, `--check`, and reason-table sections, including how a person moves the pin before
+  phase 9 exists: each archive's URL, `sha256sum` of each download, and the revisions from the newest release's
+  `browsers.json`. The README's script and config lines; and the lines in `stow/claude/dot-claude/CLAUDE.md` and the CLI
+  tools guide that tell agents never to bump a repo's Playwright on its own, which aliasing makes false.
 
 **A move in this phase** is a person editing the pin and rerunning the deploy. Everything new is provisioned and
 verified before any alias moves, and each alias moves by an atomic rename. The deploy removes no CfT build that carries
@@ -1037,7 +1051,8 @@ Adds: `config/playwright/browsers.pin`; the deploy's `--pin PATH` and `--help`; 
 provenance, aliases, clients, and stray directories.
 
 Verify: bats for AE4's bats half, AE20's provenance half, AE22, AE25, AE26, AE27, AE29, and AE32. Live on both machines:
-the deploy, `--check` exiting 0, AE1, AE3's Chromium half, AE4, and AE6.
+the first deploy timed with `gtime -f '%e s %M KB'`, recorded in Other Measured Findings, `--check` exiting 0, AE1,
+AE3's Chromium half, AE4, and AE6.
 
 ### Phase 2. The sandbox wrapper and the move
 
@@ -1054,8 +1069,9 @@ launches the new build on that same path before anything points at it.
   fixture extension, the record of an owed launch, the flip by wrapper rename, the previous build read from the wrapper
   and kept, and removal of recorded builds that are neither current nor previous.
 - `scripts/playwright-deps-deploy.sh` in R28's order, with `--help` selected by pattern (R30).
-- Tests per R29 (c) and (d): the wrapper's flag and environment rules, each move rule, `preflight.mjs` under real node
-  against a fake `playwright-core`, and the deps script's order and its refusal of a bad library value.
+- Tests per R29 (c) and (d): the wrapper's flag and environment rules, its AppArmor check against a sandbox profile
+  directory, each move rule, `preflight.mjs` under real node against a fake `playwright-core`, and the deps script's
+  order and its refusal of a bad library value.
 - The runbook's wrapper, move, deps, and reason sections, and the README line.
 
 **Not in this phase.** The launcher, and any flag beyond the two sandbox switches (phase 4). The version floor,
@@ -1537,17 +1553,251 @@ _No new tasks from Performance._
 - Parallelization: 5 lanes, 3 parallel / 2 sequential
 - Lake Score: N/A (no answers scored for Completeness)
 
+## Appendix: DX Review (plan-devex-review, 2026-11-05)
+
+Target: this plan at `751eacf`. Run in the same unattended slot under the same rule: each choice is decided from
+evidence and recorded here. Product type: Platform (host provisioning) with a CLI surface (the deploy and its `--check`,
+the deps script, the wrapper's and the launcher's error lines, the shim) and a guidance surface agents read. Mode: DX
+POLISH, because this enhances provisioning that exists. No design doc exists; the `/office-hours` offer was skipped as
+unattended.
+
+### Developer Persona Card
+
+```text
+TARGET DEVELOPER PERSONA
+========================
+Who:       an AI coding agent in an agent slot on the Linux server or the Mac, unattended
+Context:   running a repo's e2e suite, gstack, crawl4ai, or a script that launches a browser
+Tolerance: one launch attempt; it follows the first fix line an error prints, literally
+Expects:   browsers already on the host, and an error that names the command that fixes it
+Secondary: the operator at a terminal, deploying a host, moving the pin, reading --check
+```
+
+### Developer Empathy Narrative
+
+I am an agent in a slot running lmgroktfy's suite. `bun x playwright test` passes in about 22 seconds. Nothing tells me
+the browser under it is CfT 151.0.7922.34, which loads a host whose CA key was compromised with status 200 (measured),
+or that it runs with `--no-sandbox`. `~/.claude/CLAUDE.md:293` tells me Playwright browsers are system-provided and
+never to run `playwright install`, so I don't. Its next lines tell me repos exact-pin one version and bumping is a
+dotfiles job, so I leave a Dependabot bump of `@playwright/test` alone. If I run
+`scripts/playwright-browsers-deploy.sh --check` in the dotfiles repo, it prints OK lines, because it checks that the
+directories exist, not which version they hold (`scripts/playwright-browsers-deploy.sh:232-270`). After phase 2, if the
+AppArmor profile is not loaded at boot, my next launch dies with Chromium's own `No usable sandbox!` text, which closes
+by suggesting `--no-sandbox`. Predicted, not observed: I would pass it, the wrapper would strip it, and I would be stuck
+with no dotfiles line telling me what to ask for.
+
+### Competitive DX Benchmark
+
+The clock runs from a consumer's first command to a loaded page, on the covered CfT path with the browser on disk, one
+run each [measured: GNU time, 2026-11-03].
+
+| Tool                        | Start → result                                                         | Time + evidence type                                                                                               | DX choice                                       | Source                 |
+| --------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------- | ---------------------- |
+| Playwright library, default | `chromium.launch()` → page                                             | about 1 s [observed: probes]                                                                                       | pinned build, sandbox off                       | `chromiumSandbox` docs |
+| agent-browser               | `open <url>` → page                                                    | 0.32 s, then under 0.01 s per command [measured]                                                                   | native daemon; hunts for a browser              | Agent Browsers table   |
+| Playwright CLI              | `open <url>` → page                                                    | 0.68 s, then 0.24 s per command [measured]                                                                         | snapshot to a file                              | Agent Browsers table   |
+| This plan, consumer         | the same `chromium.launch()` → page, sandboxed, cleared env            | about 1 s plus one `exec` [estimated]; suites matched their controls' wall time through a trial wrapper [measured] | no step for the agent; the set is already there | Real suites table      |
+| This plan, operator         | `scripts/playwright-browsers-deploy.sh` → `--check` OK on a fresh host | unknown; bounded by about 1.2 GB of unpacked builds [estimated], timed at phase 1 (DX-D4)                          | one command, then one check                     | Phase 1                |
+
+Target, decided: Champion for the consumer, whose clock gains no step. The operator's first deploy is bounded by the
+download and measured, not targeted.
+
+### Magical Moment Specification
+
+For the agent: a repo's Dependabot bump of `@playwright/test` runs its Chromium projects the same day, sandboxed, with
+no dotfiles change and no download (AE3). For the operator: `--check` prints the set's version and that every alias
+resolves, and any failure names one command. Both use capabilities in this plan; the vehicle is `--check` and the
+aliases.
+
+### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                                   | FRICTION POINTS                                       | STATUS
+----------------|--------------------------------------------------|-------------------------------------------------------|--------
+1. Discover     | reads CLAUDE.md:293 and the runbook              | "repos exact-pin, bumping is a dotfiles job" goes false at phase 1 | fixed (phase 1 docs)
+2. Install      | operator runs playwright-deps-deploy.sh           | none new; one entrypoint stays                        | ok
+3. Hello World  | a suite or a bare launch                         | none; aliases carry every released revision           | ok
+4. Real Usage   | suites, gstack, crawl4ai                         | none new                                              | ok
+5. Debug        | reads an error, runs --check                     | fix commands not runnable from another repo; unloaded profile shows Chromium's text | fixed (DX-D2, DX-D3)
+6. Upgrade      | operator moves the pin by hand until phase 9      | no written steps for the hashes and revisions          | fixed (phase 1 runbook)
+```
+
+### First-Time Developer Confusion Report
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: agent in a slot, task "run this repo's e2e suite", after phase 2 deploys
+T+0:00  Runs the suite. Passes; renderers sandboxed, environment cleared. Nothing to read.
+T+0:30  Runs a stray `bunx playwright install chromium` by habit. No-op: aliases carry the markers. (AE4)
+T+1:00  (host where AppArmor did not load at boot) The launch fails.
+        Before: Chromium's "No usable sandbox!" text, ending in a --no-sandbox suggestion.  → addressed by DX-D3
+        After: one line naming the missing profile and `sudo ~/dotfiles/scripts/apparmor-deploy.sh` to ask for.
+T+1:30  (build directory removed by hand) The wrapper's line names a deploy command.
+        Before: "run scripts/playwright-browsers-deploy.sh from the dotfiles repo", not runnable from here.  → addressed by DX-D2
+        After: "~/dotfiles/scripts/playwright-browsers-deploy.sh".
+```
+
+### Passes
+
+- Pass 1, Getting Started: 8 → 8. The consumer's path gains no step, and the operator's is one command and one check.
+  Residual: the first deploy's wall time is unmeasured until phase 1 (DX-D4).
+- Pass 2, API/CLI: 8 → 8. `--check`, `--pin PATH`, and `--allow-downgrade` follow `scripts/sysctl-deploy.sh`'s shape;
+  the shim keeps upstream's command name. The launcher's names are working names (Open Question 10).
+- Pass 3, Error Messages: 4 → 8. The unloaded-profile path was a CAP4; DX-D1 to DX-D3 close the gaps below. Residual:
+  Playwright's own `Executable doesn't exist` text for a consumer below the alias floor prints `npx playwright install`,
+  which this plan cannot rewrite; R11 forbids it and the Mac's crawl4ai upgrade is Open Question 7.
+- Pass 4, Documentation: 7 → 8. Docs ride with each phase, the reason table anchors every reason, and phase 1's runbook
+  gives the by-hand pin move.
+- Pass 5, Upgrade: 8 → 8. Consumers move their Playwright with no dotfiles change; the set moves with the previous build
+  kept; the floor stops a move back.
+- Pass 6, Dev Environment: 8 → 8. Linux and Mac share the pin; Mac branches are tested through `uname` stubs, as
+  AGENTS.md requires; CI runs the real-Playwright cleanup cases (R29).
+- Pass 7, Community: 3 → 3. Personal dotfiles; no community surface is in scope.
+- Pass 8, DX Measurement: 6 → 7. `--check` is the standing measure; each phase's live checks are recorded in this plan;
+  phase 1 times the first deploy (DX-D4).
+
+```text
+ERROR PATH MATRIX (agent-ready-v1)
+Path                                   | Class      | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+wrapper, AppArmor profile not loaded   | dependency | fail | fail | fail     | fail | fail    | N/A   | pass      | pass    | CAP4:wrapper-apparmor:fix (Chromium suggests --no-sandbox) → DX-D3
+wrapper, build missing                 | dependency | pass | fail | pass     | pass | pass    | N/A   | pass      | pass    | CAP6:wrapper:fix (not runnable outside the repo) → DX-D2
+deploy, sha256 mismatch                | dependency | pass | pass | gap      | pass | pass    | N/A   | pass      | gap     | CAP6:deploy:recovery (side effects unstated) → DX-D1
+unexpected: curl or unzip fails        | dependency | gap  | pass | gap      | gap  | gap     | gap   | pass      | gap     | CAP6:deploy:trace → DX-D1
+pickup, lower pin on dev (phase 8)     | usage      | pass | pass | N/A      | pass | pass    | N/A   | pass      | pass    | none
+```
+
+Corrected lines, as R30 and R20 now require:
+
+```text
+ERROR: no playwright-chromium AppArmor profile is loaded, so every sandboxed launch fails; reason: apparmor-profile-not-loaded; nothing changed; next: ask the operator to run sudo ~/dotfiles/scripts/apparmor-deploy.sh
+ERROR: no browser build at <path>; reason: browser-build-missing; nothing changed; next: ~/dotfiles/scripts/playwright-browsers-deploy.sh; never run playwright install
+```
+
+Permission and safety model: the deploy refuses root and touches only `$PLAYWRIGHT_BROWSERS_PATH`; `sudo` steps are
+named for the operator, never run by the user-space scripts. The wrapper and the launcher strip flags rather than ask.
+No verbose mode is proposed; the browser's own `--enable-logging` still passes through.
+
+### Decision ledger
+
+| ID | Finding | Options | Chosen | Evidence | Accepted scope |
+| -- | ------- | ------- | ------ | -------- | -------------- |
+| DX-D1 | Pass 3: R30 stops short of the error contract | Add exit codes, side effects, a reason table, and pass-through stderr; leave R30 as written | Add | The user's global error contract asks for a stable reason, exit code, offending value, and next step; `sd-commit-doc` states its `state:` the same way | R30's four sub-bullets; phase 1's reason table |
+| DX-D2 | Pass 3: fix commands not runnable from another repo | Name `~/dotfiles/scripts/...`; keep repo-relative paths | `~/dotfiles/` | AGENTS.md: "the dotfiles repo lives at ~/dotfiles on both" machines | R30's last sub-bullet |
+| DX-D3 | Pass 3: CAP4 on an unloaded profile | The wrapper checks the profile list before `exec`; leave it to `--check` | Wrapper check | `/sys/kernel/security/apparmor/policy/profiles/` lists `playwright-chromium.47` to a plain user (measured 2026-11-05); a glob costs no subprocess | R20's last sentences; phase 2's test |
+| DX-D4 | Pass 8: the operator's clock is unmeasured | Time the first deploy at phase 1's live run; no measurement | Time it | The `gtime` rule in the user's CLI tools guidance | Phase 1's Verify line |
+
+Routine review work, no decision: phase 1's runbook gives the by-hand pin move (docs for a declared phase 1 behavior).
+Outside voice: disabled (`codex_reviews`), recorded as skipped.
+
+### NOT in scope
+
+- A `--json` form of `--check`: no consumer reads one; the session-start host check reads unit states.
+- A helper that writes a pin for a given CfT version: phase 9's job does that, and the runbook covers the by-hand move
+  until then.
+- Rewriting Playwright's or Chromium's own error text.
+- Telemetry on agent launches, and a community surface.
+
+### What already exists
+
+`sd-commit-doc`'s `reason:`/`state:`/`next:` lines, `scripts/sysctl-deploy.sh --check`, the stowed scripts in
+`stow/local/dot-local/bin/`, the runbook `docs/runbooks/playwright-browser-launch.md`, gstack's launch error, and
+Playwright's `Executable doesn't exist` text.
+
+### DX Implementation Checklist
+
+```text
+DX IMPLEMENTATION CHECKLIST
+============================
+[ ] A consumer's suite gains no step (Champion, AE1)
+[ ] One command deploys a host; --check confirms it
+[ ] Magical moment: a Playwright bump runs with no dotfiles change (AE3)
+[ ] Every error meets R30: reason, exit code, side effects, next command runnable from anywhere
+[ ] The wrapper names the missing AppArmor profile before the browser starts
+[ ] The runbook's reason table lists every reason
+[ ] The runbook gives the by-hand pin move
+[ ] The first deploy's wall time is recorded on both machines
+```
+
+### Implementation Tasks
+
+Carried from the earlier DX run, all still needed: DX-T1 (the shim, phase 7), DX-T2 (the launcher's last line, phase 4),
+DX-T3 (the exact-pin rule in phase 1 and routing in phase 11), DX-T4 (the weekly pin proposal, phase 9, unless Open
+Question 5 makes it a report).
+
+- [ ] **DX-T5 (P1, human: ~1h / CC: ~10min)** — deploy — exit codes, side-effect wording, the runbook's reason table,
+  and pass-through stderr per R30
+  - Surfaced by: Pass 3 — DX-D1
+  - Files: `scripts/playwright-browsers/**`, `docs/runbooks/playwright-browser-launch.md`
+  - Verify: bats asserts exit 2 on usage, exit 1 with "nothing moved" on a hash mismatch, and a reason-table row per
+    reason
+- [ ] **DX-T6 (P1, human: ~15min / CC: ~5min)** — wrapper and launcher — `~/dotfiles/scripts/...` in every next step a
+  consumer reads
+  - Surfaced by: Pass 3 — DX-D2
+  - Files: `scripts/playwright-browsers/**`, `stow/local/dot-local/bin/browser-launch*`
+  - Verify: bats asserts the path in each line
+- [ ] **DX-T7 (P1, human: ~1h / CC: ~10min)** — wrapper — the AppArmor profile check before `exec`
+  - Surfaced by: Pass 3 — DX-D3
+  - Files: `scripts/playwright-browsers/**`, `tests/playwright-browsers-*.bats`
+  - Verify: bats against a sandbox profile directory, with and without the profile
+- [ ] **DX-T8 (P2, human: ~15min / CC: ~5min)** — live — time the first deploy on both machines
+  - Surfaced by: Pass 8 — DX-D4
+  - Files: this plan's Other Measured Findings
+  - Verify: the recorded `gtime` line
+
+## DX Review Scorecard
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      | 8/10   | 8/10   | =      |
+| API/CLI/SDK          | 8/10   | 8/10   | =      |
+| Error Messages       | 8/10   | 4/10   | ↑      |
+| Documentation        | 8/10   | 7/10   | ↑      |
+| Upgrade Path         | 8/10   | 8/10   | =      |
+| Dev Environment      | 8/10   | 8/10   | =      |
+| Community            | 3/10   | 3/10   | =      |
+| DX Measurement       | 7/10   | 6/10   | ↑      |
++--------------------------------------------------------------------+
+| TTHW                 | consumer: no added step; operator: timed at phase 1 |
+| Competitive Rank     | Champion (consumer)                          |
+| Magical Moment       | designed via the aliases and --check         |
+| Product Type         | Platform with a CLI and guidance surface     |
+| Mode                 | POLISH                                       |
+| Overall DX           | 7/10   | 6/10   | ↑      |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered                                        |
+| Learn by Doing     | covered                                        |
+| Fight Uncertainty  | covered (R30, DX-D1 to DX-D3)                  |
+| Opinionated + Escape Hatches | covered (--pin, --allow-downgrade)   |
+| Code in Context    | covered                                        |
+| Magical Moments    | covered                                        |
+| Agents Are Users   | covered (no interactive step; fix lines run anywhere) |
++====================================================================+
+```
+
+Prior column: this review's scores for the plan as it stood at `751eacf`. Error Messages started capped at 4 by the
+unloaded-profile path. Community stays at 3: no community surface is in scope. Overall stays at 7 because Playwright's
+own error text for consumers below the alias floor is not this plan's to change.
+
+Unresolved decisions from this DX review: none.
+
 ## GSTACK REVIEW REPORT
 
-| Review         | Trigger                              | Why                             | Runs | Status                                   | Findings                   |
-| -------------- | ------------------------------------ | ------------------------------- | ---- | ---------------------------------------- | -------------------------- |
-| CEO Review     | `/plan-ceo-review`                   | Scope & strategy                | 0    | —                                        | —                          |
-| Outside Review | codex, plan-eng-review outside voice | Independent 2nd opinion         | 20   | disabled                                 | —                          |
-| Eng Review     | `/plan-eng-review`                   | Architecture & tests (required) | 13   | ISSUES OPEN (PLAN)                       | 43 issues, 0 critical gaps |
-| Design Review  | `/plan-design-review`                | UI/UX gaps                      | 0    | —                                        | —                          |
-| DX Review      | `/plan-devex-review`                 | Developer experience gaps       | 12   | ISSUES OPEN (latest logged run on `dev`) | score: 6/10 → 7/10         |
+| Review         | Trigger                                                    | Why                             | Runs | Status             | Findings                                                                   |
+| -------------- | ---------------------------------------------------------- | ------------------------------- | ---- | ------------------ | -------------------------------------------------------------------------- |
+| CEO Review     | `/plan-ceo-review`                                         | Scope & strategy                | 0    | —                  | —                                                                          |
+| Outside Review | codex, plan-eng-review and plan-devex-review outside voice | Independent 2nd opinion         | 21   | disabled           | —                                                                          |
+| Eng Review     | `/plan-eng-review`                                         | Architecture & tests (required) | 13   | ISSUES OPEN (PLAN) | 43 issues, 0 critical gaps                                                 |
+| Design Review  | `/plan-design-review`                                      | UI/UX gaps                      | 0    | —                  | —                                                                          |
+| DX Review      | `/plan-devex-review`                                       | Developer experience gaps       | 13   | ISSUES OPEN        | score: 6/10 → 7/10, TTHW: consumer adds no step; operator timed at phase 1 |
 
-- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no findings.
-- **VERDICT:** no review CLEAR yet; eng review required. This run's findings are accepted into the plan as mapped work.
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews` for both reviews; no findings.
+- **VERDICT:** no review CLEAR yet; eng review required. Both reviews' findings are accepted into the plan as mapped
+  work.
 
 NO UNRESOLVED DECISIONS
