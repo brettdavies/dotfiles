@@ -94,6 +94,7 @@ check_pr_freeze() {
     esac
     case "$arg" in
       --repo=*) explicit=${arg#--repo=} ;;
+      -R=*) explicit=${arg#-R=} ;;
       -R?*) explicit=${arg#-R} ;;
       --method=*) method=${arg#--method=} ;;
       -X?*) method=${arg#-X} ;;
@@ -105,7 +106,11 @@ check_pr_freeze() {
     prev=$arg
   done
 
-  case "${1:-} ${2:-}" in
+  # Flags may come before either word of `pr create`, as strip_word reads them, and
+  # gh answers a --help among them with help alone.
+  local route="${1:-} ${2:-}"
+  strip_word pr --version "$@" && strip_word create '' "${STRIPPED[@]}" && ! $HELP_FLAG && route="pr create"
+  case "$route" in
     "pr create" | "stack submit" | "stack link")
       # gh-stack takes its target from GH_REPO and the checkout, not from -R.
       [[ "$1" == stack ]] && explicit=""
@@ -142,21 +147,27 @@ check_pr_freeze() {
   return 0
 }
 
-((${#frozen[@]})) && check_pr_freeze "$@"
-
 # True when the word $1 is the next subcommand in the remaining arguments, with
 # STRIPPED holding them without it. It reads one level the way gh's cobra does: a
 # bare flag takes the next token as its value unless this level defines it with
 # none, which is --help everywhere and $2 here, and an undefined -h counts as
 # taking a value. A two-character flag is two bytes, as cobra's len(s) == 2 is.
+# HELP_FLAG is true when a --help before the word follows a token that is no flag:
+# pflag lets a flag take the token right after it as its value, and a bundle such
+# as -dt, which this walk reads as taking none, makes `-dt --help` a title.
 strip_word() {
-  local word=$1 bare=$2 LC_ALL=C arg i
+  local word=$1 bare=$2 LC_ALL=C arg i j
   shift 2
+  HELP_FLAG=false
   for ((i = 1; i <= $#; i++)); do
     arg=${!i}
     case $arg in
       --) return 1 ;;
-      -*=* | '' | --help | "$bare") ;;
+      --help)
+        j=$((i - 1))
+        if ((j == 0)) || [[ ${!j} != -* ]]; then HELP_FLAG=true; fi
+        ;;
+      -*=* | '' | "$bare") ;;
       --* | -?) ((i += 1)) ;;
       -*) ;;
       "$word")
@@ -244,6 +255,8 @@ refuse_merge() {
   echo "$2" >&2
   exit 1
 }
+
+((${#frozen[@]})) && check_pr_freeze "$@"
 
 # The lookup asks real gh with the merge's own repository and selector, under the
 # same GH_REPO, so both resolve one PR. Its stdout alone is the base, because gh

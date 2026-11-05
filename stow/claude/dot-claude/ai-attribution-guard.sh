@@ -38,7 +38,7 @@ INPUT=$(cat)
 
 # Fast path: only `git commit` and `gh` submit text anywhere durable.
 case "$INPUT" in
-  *"git commit"* | *"gh pr "* | *"gh issue "* | *"gh release "*) ;;
+  *"git commit"* | *"gh pr "* | *"gh issue "* | *"gh release "* | *"gh -R"* | *"gh --repo"*) ;;
   *) exit 0 ;;
 esac
 JQ=$(command -v jaq || command -v jq) \
@@ -50,7 +50,7 @@ CMD=$(printf '%s' "$INPUT" | "$JQ" -r '.tool_input.command // ""')
 
 # The words may sit in another field, such as the description.
 case "$CMD" in
-  *"git commit"* | *"gh pr "* | *"gh issue "* | *"gh release "*) ;;
+  *"git commit"* | *"gh pr "* | *"gh issue "* | *"gh release "* | *"gh -R"* | *"gh --repo"*) ;;
   *) exit 0 ;;
 esac
 

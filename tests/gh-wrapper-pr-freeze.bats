@@ -88,6 +88,36 @@ passed() {
   blocked
 }
 
+@test "pr create -R=frozen is blocked" {
+  run gh_in "$OTHER" pr create -R=tobi/qmd --title t
+  blocked
+}
+
+@test "pr -R frozen create is blocked" {
+  run gh_in "$OTHER" pr -R tobi/qmd create --title t
+  blocked
+}
+
+@test "pr --repo=frozen create is blocked" {
+  run gh_in "$OTHER" pr --repo=tobi/qmd create --title t
+  blocked
+}
+
+@test "-R frozen pr create is blocked" {
+  run gh_in "$OTHER" -R tobi/qmd pr create --title t
+  blocked
+}
+
+@test "--help before pr create on a frozen repo passes, since gh only prints help" {
+  run gh_in "$OTHER" --help pr create -R tobi/qmd
+  passed
+}
+
+@test "pr -dt --help create on a frozen repo is blocked, since -t takes --help as the title" {
+  run gh_in "$OTHER" pr -dt --help create -R tobi/qmd
+  blocked
+}
+
 @test "unqualified stack submit in a checkout with a frozen remote is blocked" {
   run gh_in "$FORK" stack submit --auto
   blocked
