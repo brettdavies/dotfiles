@@ -139,6 +139,7 @@ bs_core_fetch() {
   tar -xzf "$tmp/core.tgz" -C "$tmp"
   mkdir -p "$dir"
   mv "$tmp/package" "$dir/package" 2>/dev/null || true
+  rm -rf "${tmp:?}"
   echo "$dir/package"
 }
 
