@@ -411,6 +411,32 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   done
 }
 
+@test "the title gate guards only an open PR, so a closed or merged one keeps its own refusal and next step" {
+  pushed feat/p
+  draft_pr 9 feat/p CLOSED
+  pr_fields 9 '.title = "fix: real work"'
+  in_slot probe 9
+  refused pr-not-open
+  jaq -e '.next_step.action == "ask-operator" and .next_step.command == "gh pr view 9 --repo origins/repoa"
+    and (.message | contains("pr-closed-unmerged"))' <<<"$stderr"
+  in_slot close-probe 9
+  refused pr-not-probe
+  record_has '.probes == null'
+  record_set '.prs = [9] | .probes = [9]'
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  jaq -e '.closed == true and .already_closed == true' <<<"$output"
+  in_slot probe 9
+  [ "$status" -eq 0 ]
+  jaq -e '.already_marked == true' <<<"$output"
+  record_set 'del(.probes) | .prs = []'
+  pr_fields 9 '.state = "MERGED"'
+  in_slot probe 9
+  refused pr-not-open
+  jaq -e '.next_step.action == "none" and .next_step.command == null and (.message | contains("MERGED"))' <<<"$stderr"
+  run ! grep -q '^gh pr close' "$CALLS"
+}
+
 @test "probe marks an open draft this slot pushed, attaches it as a work item, and logs it" {
   pushed feat/p
   draft_pr 9 feat/p

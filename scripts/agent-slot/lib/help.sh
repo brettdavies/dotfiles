@@ -116,7 +116,8 @@ verb_help() {
       'Marks a PR a probe: a draft this slot opened to exercise CI or a workflow and never means to merge. Run it from' \
       'inside the slot, right after pushing a new branch with git push -u origin HEAD and opening the PR with' \
       "gh pr create --draft --base <the slot's base> and the title test(probe): <what it probes>; the base is" \
-      '.slot.base in agent-slot whoami --output json. Any other title is refused with pr-title-not-probe.' \
+      '.slot.base in agent-slot whoami --output json. On an open PR, any other title is refused with' \
+      'pr-title-not-probe.' \
       'A ref is N, owner/name#N, or' \
       "its GitHub URL, in the repo of the slot's origin. The PR must be an open draft on a branch this clone created," \
       'whose current head this clone pushed; anything else is refused with pr-not-open, pr-not-draft, or' \
@@ -128,7 +129,7 @@ verb_help() {
       'example: agent-slot probe 487 --output json' ;;
     close-probe) printf '%s\n' 'usage: agent-slot close-probe <pr> [--output json]' \
       'Closes a PR this slot marked with agent-slot probe, for a slot where gh pr close is denied. Run it from inside' \
-      'the slot. It closes only a PR titled test(probe): <what it probes> (else pr-title-not-probe) that is marked' \
+      'the slot. It closes only an open PR titled test(probe): <what it probes> (else pr-title-not-probe) that is marked' \
       '(else pr-not-probe) and still a draft (else pr-not-draft),' \
       'on a branch this clone created, whose current head this clone pushed (else pr-not-from-this-slot). It leaves a' \
       'comment saying why and deletes no branch, so gh pr reopen undoes it, and it needs no ask. A marked draft already' \

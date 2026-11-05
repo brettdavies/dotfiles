@@ -5,7 +5,7 @@
 # probe toward neither finishing the task nor blocking it, as it does a settled PR, and every other check still holds.
 #
 # Both verbs run from inside the slot, on a PR of origin's repo titled "test(probe): <what it probes>", which keeps the
-# verbs off every other PR and stays a Conventional Commits title. They qualify a PR the same way: an open draft on a
+# verbs off every other open PR and stays a Conventional Commits title. They qualify a PR the same way: an open draft on a
 # branch this clone created, whose current head this clone pushed. A remote-tracking ref's reflog is the proof. git writes
 # "update by push" there only for a push from this clone and a fetch message for what it merely received, and a clone
 # writes no entry at all for the branches it brings. So a log that starts from an all-zero old oid with a push reads as
@@ -21,8 +21,9 @@ PROBE_TITLE_PREFIX='test(probe): '
 PROBE_REPO='' PROBE_N='' PROBE_KEY='' PROBE_PATH='' PROBE_ORIGIN='' PROBE_PR='{}' PROBE_PROOF=''
 
 # Usage: _probe_resolve <ref>; sets PROBE_* for the slot holding the current directory, reads the record, and reads the
-# PR into ITEM and PROBE_PR. A ref naming another repo than origin's is refused unread, and a PR without a probe's title
-# is refused once read.
+# PR into ITEM and PROBE_PR. A ref naming another repo than origin's is refused unread, and an open PR without a probe's
+# title is refused once read. Marking and closing an open PR are the only acts the title guards, so a closed or merged PR
+# goes on to the refusal that says what can still be done about it.
 _probe_resolve() {
   local at slug
   at=$(slot_at "$PWD") || at=''
@@ -42,7 +43,7 @@ this slot's origin, whose PRs are the only ones check judges" --value "$ITEM_REF
   require_tools gh
   item_resolve
   PROBE_PR=$(contract_json -c '{repo, number, title, head: .head_branch, oid: .head_oid, url}' <<<"$ITEM")
-  _probe_require_title
+  [[ $(_probe_state) != OPEN ]] || _probe_require_title
 }
 
 _probe_require_title() {

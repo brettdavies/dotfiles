@@ -619,12 +619,12 @@ agent-slot adopt widget/3 --issue 10331 --output json
 
 A *probe* is a draft a slot opens to exercise CI or a reusable workflow and never means to merge. It is opened as a
 draft titled `test(probe): <what it probes>`, which stays a Conventional Commits title, and only such a PR can be marked
-or closed by these verbs: any other title is refused with `pr-title-not-probe`. Nothing infers one: the slot's agent
-declares it with `agent-slot probe <pr>`, run from inside the slot, which adds the PR's number to the record's `probes`
-and attaches it as a work item. The mark counts only while the PR stays a draft: the first check or verb that sees the
-PR out of draft drops the mark, and a return to draft does not bring it back by itself. Marking the PR again with
-`agent-slot probe` is a new declaration by the agent, and the same qualifications apply. `agent-slot check` reports
-`draft` and `probe` on each of a slot's `prs`.
+or closed by these verbs: on an open PR, any other title is refused with `pr-title-not-probe`. Nothing infers one: the
+slot's agent declares it with `agent-slot probe <pr>`, run from inside the slot, which adds the PR's number to the
+record's `probes` and attaches it as a work item. The mark counts only while the PR stays a draft: the first check or
+verb that sees the PR out of draft drops the mark, and a return to draft does not bring it back by itself. Marking the
+PR again with `agent-slot probe` is a new declaration by the agent, and the same qualifications apply.
+`agent-slot check` reports `draft` and `probe` on each of a slot's `prs`.
 
 A probe closed unmerged neither finishes its task nor blocks its teardown, as with a reopened slot's settled PRs, and
 the commit checks count it as no PR. Its head counts as pushed for its own branch and nothing else, so unpushed work on
@@ -752,7 +752,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `item-not-found`              | 2    | GitHub has no such PR or issue that `gh` can see; `agent-slot launch --help` gives the forms   |
 | `item-kind-mismatch`          | 2    | The number is a PR given as `--issue`, or an issue given as `--pr`; swap the flag              |
 | `item-held-by-slot`           | 1    | A live slot holds the item or its session; brief that slot, or `agent-slot resume` it          |
-| `pr-title-not-probe`          | 1    | `probe` or `close-probe` refused: the PR's title is not `test(probe): <what it probes>`        |
+| `pr-title-not-probe`          | 1    | `probe` or `close-probe` refused: an open PR's title is not `test(probe): <what it probes>`    |
 | `pr-not-probe`                | 1    | `close-probe` refused: the PR is not marked a probe; `agent-slot probe` it first               |
 | `pr-not-draft`                | 1    | `probe` or `close-probe` refused: the PR is not a draft, so closing it is the operator's call  |
 | `pr-not-open`                 | 1    | A closed or merged PR cannot be marked, and a merged one cannot be closed                      |
