@@ -157,9 +157,9 @@ prime_list() {
 
 # Usage: prime_for_slot <repo>
 # Starts a slot's prime, and sets PRIME_FIELD to the prime field of the slot verb's output: what prime_start found, else
-# {error: {reason, exit_code, message, value, next_step, recovery, log}}. A subshell keeps contract_fail, RECORD, and the exit traps away from the
-# slot, since bash resets traps in one, so a prime that fails to start never costs the slot. It runs in the background
-# because a subshell whose status is tested runs with errexit off.
+# {error: {reason, exit_code, message, value, next_step, recovery, log}}. A subshell keeps contract_fail, RECORD, and
+# the exit traps away from the slot, since bash resets traps in one, so a prime that fails to start never costs the
+# slot. It runs in the background because a subshell whose status is tested runs with errexit off.
 PRIME_FIELD=null
 prime_for_slot() {
   local repo=$1 out err status=0 failure log

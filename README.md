@@ -550,14 +550,14 @@ Every trigger is logged, so the interval can be tuned from data. Each pass's lin
 `~/.local/state/agent-slot-rex/reconcile.log` names its trigger in `by`, with `ms` (how long the pass took), `changed`
 (whether it opened, relabelled, or closed a tab), `skipped`, `rexurrect` (the outcome the pass recorded: `done`,
 `failed`, `stopped`, or `skipped`), and `primes`, null except in a start-up step on a new instance, where it holds each
-repo's prime outcome: `reattached`, `unconfirmed` (typed, but no client showed within `AGENT_SLOT_REX_PRIME_WAIT`
-seconds, 5), `reopened` (a restored three-pane tab replaced by a fresh one), `already-open`, `no-session`, `no-tab`,
-`not-idle`, `prime-not-running`, `rex-server-restarted`, `rex-server-down`, or the reason of the error that stopped that
-repo's check. A timer pass with `changed` true found work no push had brought. `~/.local/state/agent-slot/push.log`
-holds one line per push: when it began, the verb and its slots, the result (`restored`, `deferred` with the reason in
-`detail`, `restore-failed`, `timed-out`, or `skipped`), the helper's exit code, the time taken, and the helper's last
-line on a failure. Each of these logs moves to `<log>.1` past 1 MiB. A timer pass that changes nothing writes about 180
-bytes, so the reconcile log holds about four days of passes before it moves.
+repo's prime outcome: `reattached`, `unconfirmed` (typed, but no tab of its session held the prime within
+`AGENT_SLOT_REX_PRIME_WAIT` seconds, 5), `reopened` (a restored three-pane tab replaced by a fresh one), `already-open`,
+`no-session`, `no-tab`, `not-idle`, `prime-not-running`, `rex-server-restarted`, `rex-server-down`, or the reason of the
+error that stopped that repo's check. A timer pass with `changed` true found work no push had brought.
+`~/.local/state/agent-slot/push.log` holds one line per push: when it began, the verb and its slots, the result
+(`restored`, `deferred` with the reason in `detail`, `restore-failed`, `timed-out`, or `skipped`), the helper's exit
+code, the time taken, and the helper's last line on a failure. Each of these logs moves to `<log>.1` past 1 MiB. A timer
+pass that changes nothing writes about 180 bytes, so the reconcile log holds about four days of passes before it moves.
 
 #### A slot's tab is missing
 

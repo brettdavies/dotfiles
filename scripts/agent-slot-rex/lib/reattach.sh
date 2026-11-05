@@ -13,8 +13,8 @@
 # still reaches its reconcile. A restart seen partway ends the walk and leaves REX_PIN_LOST set.
 #
 # PRIME_REATTACHED holds each repo's outcome as {repo, prime, outcome, session_id, window_id}, the outcome being
-# reattached, unconfirmed (typed, but no client of the prime showed within AR_PRIME_WAIT), reopened (replaced by a new
-# tab, whose ID is not the one kept here), already-open, no-session, no-tab, not-idle, prime-not-running,
+# reattached, unconfirmed (typed, but no tab of its session held the prime within AR_PRIME_WAIT), reopened (replaced by
+# a new tab, whose ID is not the one kept here), already-open, no-session, no-tab, not-idle, prime-not-running,
 # rex-server-restarted, rex-server-down, or the reason of the error that stopped the repo's check. It stays null in every
 # pass that does not re-attach.
 
@@ -145,8 +145,8 @@ $(contract_quote "$AR_SELF" prime "$1") in that tab starts the prime" ;;
 }
 
 # Usage: reattach_wait <outcomes-array-name> <sessions-array-name> <repos-array-name> <primes-array-name>
-# Turns each `sent` outcome into reattached once a tab of its session holds a client of the prime, polling until none
-# is left or AR_PRIME_WAIT seconds pass, and the rest into unconfirmed.
+# Turns each `sent` outcome into reattached once a tab of its session holds the prime as prime_tab_open says, polling
+# until none is left or AR_PRIME_WAIT seconds pass, and the rest into unconfirmed.
 reattach_wait() {
   local -n outcomes_=$1 sessions_=$2 repos_=$3 primes_=$4
   local deadline=$((SECONDS + AR_PRIME_WAIT)) i waiting
