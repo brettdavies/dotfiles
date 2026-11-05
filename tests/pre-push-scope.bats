@@ -225,9 +225,10 @@ startup_paths() {
   [ "$status" -eq 1 ]
 }
 
-@test "one startup path among others is enough" {
-  startup_paths README.md scripts/run-tests config/shell/telemetry.sh
+@test "one startup path among others is enough, and the first one is printed" {
+  startup_paths README.md scripts/run-tests config/shell/telemetry.sh stow/zsh/dot-zshrc
   [ "$status" -eq 0 ]
+  [ "$output" = "config/shell/telemetry.sh" ]
 }
 
 @test "no paths are not startup-relevant" {
@@ -282,7 +283,16 @@ startup_reads() {
 @test "the list covers every file the perf suite's shells source from the checkout" {
   command -v zsh >/dev/null 2>&1 || skip "zsh is not installed"
   load lib/startup-home
-  startup_home "$REPO" "$BATS_TEST_TMPDIR/home"
+  # An installed home that holds every top-level startup file of the checkout, so
+  # a file the list leaves out is linked through and read from the checkout on any
+  # host, deployed or not.
+  local installed="$BATS_TEST_TMPDIR/installed" f
+  mkdir -p "$installed"
+  for f in "$REPO"/stow/*/dot-*; do
+    [ -f "$f" ] || continue
+    [ -e "$installed/.${f##*/dot-}" ] || ln -s "$f" "$installed/.${f##*/dot-}"
+  done
+  startup_home "$REPO" "$BATS_TEST_TMPDIR/home" "$installed"
   # shellcheck source=/dev/null
   . "$LIB"
   local shape reads file missing=''
@@ -313,6 +323,30 @@ startup_reads() {
   }
 }
 
+@test "no startup package holds a directory, which the test HOME would not link" {
+  # startup_home links files only, so a shell started from a slot would read the
+  # installed copy of anything under such a directory while the list ran the suite.
+  local dir entry found=''
+  # shellcheck source=/dev/null
+  . "$LIB"
+  for entry in "${SHELL_STARTUP_PATHS[@]}"; do
+    case $entry in stow/*/) ;; *) continue ;; esac
+    for dir in "$REPO/$entry"dot-*; do
+      [ ! -d "$dir" ] || found+="${dir#"$REPO"/}"$'\n'
+    done
+  done
+  [ -z "$found" ] || {
+    printf 'directories startup_home does not link:\n%s' "$found"
+    false
+  }
+}
+
+@test "no startup file turns shell tracing off, which the list test reads through" {
+  run grep -rEn 'set \+x|set \+o xtrace|unsetopt +(xtrace|XTRACE)|setopt +no_?xtrace' \
+    "$REPO/stow/shell" "$REPO/stow/zsh" "$REPO/stow/bash" "$REPO/config/shell"
+  [ "$status" -eq 1 ]
+}
+
 # ---------------------------------------------------------------------------
 # pre-push end to end: does the gate run
 # ---------------------------------------------------------------------------
@@ -325,6 +359,8 @@ install_hook_with_stubs() {
   cp "$REPO"/.githooks/lib/*.sh "$WORK/.githooks/lib/"
   for s in lint-shell lint-workflows run-tests core-env-guard.sh; do
     printf '#!/bin/sh\ntouch "%s/ran-%s"\nprintf "%%s %%s\\n" "%s" "$*" >>"%s/calls"\n' "$FIX" "$s" "$s" "$FIX" >"$WORK/scripts/$s"
+    # The perf suite prints a TAP stream; a marker file makes every test skip.
+    printf 'case "$*" in --perf-only) if [ -e "%s/perf-skip" ]; then echo "ok 1 probe # skip not deployed"; else echo "ok 1 probe"; fi ;; esac\n' "$FIX" >>"$WORK/scripts/$s"
     chmod +x "$WORK/scripts/$s"
   done
   for t in shellcheck actionlint bats git-lfs; do
@@ -434,6 +470,24 @@ perf_ran() { grep -qx 'run-tests --perf-only' "$FIX/calls"; }
   [ "$status" -eq 0 ]
   gate_ran
   run ! perf_ran
+}
+
+@test "hook: a run names the pushed path that is on the list" {
+  install_hook_with_stubs
+  new=$(commit_file config/shell/fragment.sh 'echo f')
+  hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"config/shell/fragment.sh is on SHELL_STARTUP_PATHS"* ]]
+}
+
+@test "hook: a perf suite whose every test skipped is reported as skipped, not passed" {
+  install_hook_with_stubs
+  : >"$FIX/perf-skip"
+  new=$(commit_file config/shell/fragment.sh 'echo f')
+  hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"every test skipped"* ]]
+  [[ "$output" != *"✓ shell-startup timing"* ]]
 }
 
 @test "hook: a push that deletes a startup file runs the perf suite" {

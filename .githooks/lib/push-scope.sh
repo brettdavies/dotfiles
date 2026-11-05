@@ -77,16 +77,16 @@ SHELL_STARTUP_PATHS=(
   config/shell/
 )
 
-# paths_read_by_shell_startup: exit 0 when at least one path on stdin is on
+# paths_read_by_shell_startup: exit 0, printing the first path on stdin that is on
 # SHELL_STARTUP_PATHS, so a change to it can move what the shell-startup perf
-# suite measures.
+# suite measures. Exit 1 and print nothing when none is.
 paths_read_by_shell_startup() {
   local path entry
   while IFS= read -r path; do
     for entry in "${SHELL_STARTUP_PATHS[@]}"; do
       case $entry in
-        */) [[ $path == "$entry"* ]] && return 0 ;;
-        *) [ "$path" = "$entry" ] && return 0 ;;
+        */) [[ $path == "$entry"* ]] && { printf '%s\n' "$path"; return 0; } ;;
+        *) [ "$path" = "$entry" ] && { printf '%s\n' "$path"; return 0; } ;;
       esac
     done
   done

@@ -16,7 +16,8 @@
 # latency has a hard floor and a long right tail: the minimum estimates the floor
 # and is stable, while the mean tracks whatever else the machine was doing.
 #
-# Run: bats tests/perf/
+# Run: scripts/run-tests --perf-only. A run by hand ignores SHELL_STARTUP_PATHS and
+# times the checkout whatever it changed.
 
 # Budgets sit well clear of the measured floor so ordinary machine noise does
 # not block a push, while still catching a real regression. Floors on the

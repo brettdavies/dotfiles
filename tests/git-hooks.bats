@@ -107,7 +107,7 @@ HOOKS_DIR="$BATS_TEST_DIRNAME/../.githooks"
 @test "the shared library defines every gate helper the hooks call" {
   local lib="$HOOKS_DIR/lib/report.sh"
   for fn in gate_header gate_pass gate_skip gate_fail gate_done \
-    gate_begin gate_end gate_spawn gate_collect; do
+    gate_begin gate_end gate_spawn gate_collect gate_note gate_perf; do
     grep -qE "^$fn\(\)" "$lib"
   done
 }
@@ -223,6 +223,8 @@ _commit_fixture() {
   local s t
   for s in lint-shell lint-workflows run-tests core-env-guard.sh; do
     printf '#!/bin/sh\nprintf "%%s %%s\\n" "%s" "$*" >>"%s/calls"\n' "$s" "$FIX" >"$WORK/scripts/$s"
+    # The perf suite prints a TAP stream; a marker file makes every test skip.
+    printf 'case "$*" in --perf-only) if [ -e "%s/perf-skip" ]; then echo "ok 1 probe # skip not deployed"; else echo "ok 1 probe"; fi ;; esac\n' "$FIX" >>"$WORK/scripts/$s"
     chmod +x "$WORK/scripts/$s"
   done
   for t in shellcheck actionlint bats; do
@@ -338,4 +340,30 @@ _called() { grep -qx -- "$1" "$FIX/calls"; }
   _precommit
   [ "$status" -eq 0 ]
   [[ "$output" == *"✓ shell-startup timing"* ]]
+}
+
+@test "pre-commit: a run names the staged path that is on the list" {
+  _commit_fixture
+  _touch tests/perf/shell-startup-perf.bats config/shell/fragment.sh
+  _precommit
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"config/shell/fragment.sh is on SHELL_STARTUP_PATHS"* ]]
+}
+
+@test "pre-commit: a perf suite whose every test skipped is reported as skipped, not passed" {
+  _commit_fixture
+  : >"$FIX/perf-skip"
+  _touch tests/perf/shell-startup-perf.bats config/shell/fragment.sh
+  _precommit
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"every test skipped"* ]]
+  [[ "$output" != *"✓ shell-startup timing"* ]]
+}
+
+@test "pre-commit: a commit that only deletes a startup file says the timing runs at pre-push" {
+  _commit_fixture
+  git -C "$WORK" rm -q config/shell/fragment.sh
+  _precommit
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"shell-startup timing (runs at pre-push)"* ]]
 }

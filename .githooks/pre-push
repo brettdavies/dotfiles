@@ -82,13 +82,22 @@ gate_header "Running local CI checks..."
 # it with nothing about the shell config having changed. It times the files the
 # shells read from this checkout, so a push that changes none of them leaves it
 # nothing to measure; an unknown scope runs it.
-if command -v bats >/dev/null 2>&1; then
-  if [ "$scope_known" -eq 1 ] && ! paths_read_by_shell_startup <<<"$delivered"; then
-    gate_skip "shell-startup timing (no pushed path is on SHELL_STARTUP_PATHS, .githooks/lib/push-scope.sh)"
+run_perf=1
+if [ "$scope_known" -eq 1 ]; then
+  if startup_hit=$(paths_read_by_shell_startup <<<"$delivered"); then
+    gate_note "shell-startup timing: $startup_hit is on SHELL_STARTUP_PATHS"
   else
-    [ "$scope_known" -eq 1 ] || gate_skip "shell-startup timing (push scope unknown, running it)"
-    ./scripts/run-tests --perf-only || gate_fail "run-tests --perf-only"
-    gate_pass "shell-startup timing"
+    run_perf=0
+    gate_skip "shell-startup timing (no pushed path is on SHELL_STARTUP_PATHS, .githooks/lib/push-scope.sh)"
+  fi
+else
+  gate_note "shell-startup timing: push scope unknown, running it"
+fi
+if [ "$run_perf" -eq 1 ]; then
+  if command -v bats >/dev/null 2>&1; then
+    gate_perf ./scripts/run-tests --perf-only
+  else
+    gate_skip "shell-startup timing (install bats via \`brew install bats-core\`)"
   fi
 fi
 

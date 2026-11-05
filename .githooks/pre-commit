@@ -15,8 +15,9 @@
 # how a commit is made rather than what is in it: protected-branch and signing.
 #
 # The shell-startup perf suite (tests/perf) is skipped in CI, which has no deployed
-# dotfiles. A staged copy of it runs only when the commit also stages a file that
-# shell startup reads, and pre-push runs it for a startup file alone.
+# dotfiles. It is not part of the staged .bats batch in step 3. A staged copy
+# runs only when the commit also stages a file that shell startup reads, and
+# pre-push runs it for a startup file alone.
 #
 # A missing tool skips its step with an install hint rather than failing, so a
 # machine without the full toolchain can still commit; pre-push and CI remain
@@ -61,16 +62,19 @@ if [ "$gpgsign" != "true" ]; then
 fi
 
 mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACM)
+# A deleted or moved startup file changes startup as much as an edited one, and
+# neither is in $staged, which lists only added, copied, and modified paths.
+changed=$(git diff --cached --name-only --no-renames)
 if [ "${#staged[@]}" -eq 0 ]; then
+  if paths_read_by_shell_startup <<<"$changed" >/dev/null; then
+    gate_skip "shell-startup timing (runs at pre-push)"
+  fi
   exit 0
 fi
 
 mapfile -t staged_wf < <(printf '%s\n' "${staged[@]}" | grep '^\.github/workflows/.*\.ya\?ml$' || true)
 mapfile -t staged_bats < <(printf '%s\n' "${staged[@]}" | grep '\.bats$' | grep -v '^tests/perf/' || true)
 mapfile -t staged_perf < <(printf '%s\n' "${staged[@]}" | grep '^tests/perf/.*\.bats$' || true)
-# A deleted or moved startup file changes startup as much as an edited one, and
-# neither is in $staged, which lists only added, copied, and modified paths.
-changed=$(git diff --cached --name-only --no-renames)
 mapfile -t staged_tests < <(printf '%s\n' "${staged[@]}" | grep -E '\.(bats|bash)$|(^|/)tests?/.*\.sh$' || true)
 
 gate_header "Running pre-commit checks..."
@@ -83,15 +87,15 @@ gate_header "Running pre-commit checks..."
 # The perf suite asserts on shell-startup wall-clock, so a staged copy of it runs
 # alone, before the gates start, and never in the batch below.
 if [ "${#staged_perf[@]}" -gt 0 ]; then
-  if ! paths_read_by_shell_startup <<<"$changed"; then
+  if ! startup_hit=$(paths_read_by_shell_startup <<<"$changed"); then
     gate_skip "shell-startup timing (no staged path is on SHELL_STARTUP_PATHS, .githooks/lib/push-scope.sh)"
   elif command -v bats >/dev/null 2>&1; then
-    git_env_isolated ./scripts/run-tests --perf-only || gate_fail "run-tests --perf-only"
-    gate_pass "shell-startup timing"
+    gate_note "shell-startup timing: $startup_hit is on SHELL_STARTUP_PATHS"
+    git_env_isolated gate_perf ./scripts/run-tests --perf-only
   else
     gate_skip "shell-startup timing (install bats via \`brew install bats-core\`)"
   fi
-elif paths_read_by_shell_startup <<<"$changed"; then
+elif paths_read_by_shell_startup <<<"$changed" >/dev/null; then
   gate_skip "shell-startup timing (runs at pre-push)"
 fi
 
