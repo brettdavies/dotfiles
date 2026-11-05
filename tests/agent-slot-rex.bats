@@ -1124,6 +1124,15 @@ assert_nothing_changed() {
   assert_nothing_changed
 }
 
+@test "a pass counts a prime held in a tab with an empty label, and opens no second tab" {
+  slots '[]' '[{"repo": "X", "label": "X"}]'
+  session sess-x X '[{"window_id": "w9", "label": "", "blocks": ["b9"]}]'
+  runs b9 901 "bash $STUBS/agent-slot-rex attach X/prime claude"
+  run "$AGENT_SLOT_REX" restore
+  [ "$status" -eq 0 ]
+  assert_nothing_changed
+}
+
 @test "a tab left running the prime command holds no prime rebuilt on the slot server" {
   slots '[]' '[{"repo": "X", "label": "X"}]'
   session sess-x X '[{"window_id": "w9", "label": "1: X", "blocks": ["b9"]}]'

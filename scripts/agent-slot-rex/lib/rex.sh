@@ -283,15 +283,16 @@ rex_snapshot() {
     [[ -n $sid ]] || continue
     rex_run session inspect "$sid" --json || continue
     info=$REX_OUT
-    while IFS=$'\t' read -r wid label block; do
+    # Not a tab: `read` collapses tabs, so a window with no label would shift its block ID into the label.
+    while IFS=$'\x1f' read -r wid label block; do
       pid=
       if [[ -n $block ]] && rex_block_pid "$sid" "$block"; then
         pid=$REX_OUT
       fi
       row_heads+=("$(printf '%s\t%s\t%s' "$sid" "$wid" "$label")")
       row_pids+=("$pid")
-    done < <(contract_json -r '.windows[] | .window_id as $w | .label as $l
-      | ([.layers[]?.blocks[]?.block_id] | if length == 0 then [""] else . end)[] | [$w, $l, .] | @tsv' <<<"$info")
+    done < <(contract_json -r '.windows[] | .window_id as $w | ([.label] | @tsv) as $l
+      | ([.layers[]?.blocks[]?.block_id] | if length == 0 then [""] else . end)[] | [$w, $l, .] | join("\u001f")' <<<"$info")
   done < <(contract_json -r '.sessions[].session_id' <<<"$sessions")
   rex_helper_processes
   rex_block_terminals
