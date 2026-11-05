@@ -99,6 +99,8 @@ grant_line() {
   [[ $reason != *"scripts/agent-slot/lib/new.sh"* ]]
   [[ $reason == *'`scripts/agent-slot/**`, `tests/*.bats`, `docs/guide.md`'* ]]
   [[ $reason == *"Revert that change"* ]]
+  [[ $reason == *"git restore --source=origin/main --staged --worktree -- <path>"* ]]
+  [[ $reason != *"git rm"* ]]
   [[ $reason == *'record it under "Not in scope" in the PR body'* ]]
   [[ $reason == *"send the coordinating session a request for a scope grant"* ]]
 }
@@ -134,7 +136,8 @@ grant_line() {
   commit scripts/agent-slot/ok.sh
   local c
   for c in "git add -A && git commit --file m && git push" "git commit -m x; git push" "git pull --rebase && git push" \
-    "git -C . merge main && git push"; do
+    "git -C . merge main && git push" "git checkout feat/other && git push origin HEAD" "git switch feat/other && git push" \
+    "git commit -m 'handle the -d flag' && git push"; do
     run bash_call "$c"
     [[ $output == *'"deny"'* ]] || {
       echo "not denied: $c"
@@ -308,7 +311,8 @@ grant_line() {
 @test "a command that is not a git push prints nothing, whatever the commits hold" {
   commit README.md
   local c
-  for c in "git status" "git log --oneline" "echo git push" "git pull" "git commit -m 'no push'" "ls" "git pushed"; do
+  for c in "git status" "git log --oneline" "echo git push" "git pull" "git commit -m 'no push'" "ls" "git pushed" \
+    'echo "git push"' 'rg -n "git push" README.md' 'git commit -m "git push guard docs"' "git commit -m 'run git push later'"; do
     run bash_call "$c"
     [ -z "$output" ] || {
       echo "denied: $c"

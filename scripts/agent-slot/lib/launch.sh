@@ -103,11 +103,11 @@ Adds: the public surface it may add, or none" \
 # Usage: launch_brief_value <label> <file>; prints the text after each line `<label>:` that has any, joined with ", ",
 # with the emphasis marks that close the label dropped and surrounding space trimmed.
 launch_brief_value() {
-  local line value all='' re="${LAUNCH_BRIEF_LABEL_PREFIX}$1[*_]*:([*_]{1,2}[[:space:]]+)?[[:space:]]*(.*)\$"
+  local line value all='' re="${LAUNCH_BRIEF_LABEL_PREFIX}$1[*_]*:([*_]{1,2}([[:space:]]+|\$))?[[:space:]]*(.*)\$"
   while IFS= read -r line; do
     value=
     shopt -s nocasematch
-    [[ $line =~ $re ]] && value=${BASH_REMATCH[3]}
+    [[ $line =~ $re ]] && value=${BASH_REMATCH[4]}
     shopt -u nocasematch
     value=${value%"${value##*[![:space:]]}"}
     [[ -z $value ]] || all+="${all:+, }$value"
@@ -118,7 +118,7 @@ launch_brief_value() {
 # Usage: launch_scope_check; with REPO_PRIME set, refuses with brief-incomplete, naming the glob, unless git takes every
 # Touches: glob in LAUNCH_SCOPE as a pathspec inside the repo.
 launch_scope_check() {
-  local glob parsed unsafe='[[:space:];{}"'"'"']'
+  local glob parsed unsafe='^[/~]|[[:space:];{}"'"'"']'
   [[ $LAUNCH_SCOPE != null ]] || return 0
   contract_json -e '.touches | length > 0' <<<"$LAUNCH_SCOPE" >/dev/null \
     || contract_fail brief-incomplete "the brief's Touches: line holds no glob. Touches: takes comma-separated git \

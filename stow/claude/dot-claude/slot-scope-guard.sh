@@ -20,18 +20,18 @@ fi
 
 AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
 
-# A git command that starts a command: after a separator, a newline, an opening brace or parenthesis, a backtick, or a
-# quote (a `bash -c` script), past any assignments, wrappers (`time`, `timeout 600`, `env`, `sudo -u me`, `!`, and the
+# A git command that starts a command: after a separator, a newline, an opening brace or parenthesis, a backtick, or the
+# quote that opens a `bash -c` script, past any assignments, wrappers (`time`, `timeout 600`, `env`, `sudo -u me`, `!`, and the
 # like), and git's own options. It is a guard, not a trust boundary: a wrapper this does not list runs the command
 # unjudged.
-GIT_START=$'(^|[;&|({\n`"\'])[[:space:]]*((!|if|elif|then|do|else|while|until|time|command|exec|nohup|env|nice|sudo)[[:space:]]+'
+GIT_START=$'(^|[;&|({\n`]|(bash|sh|zsh|dash)[[:space:]]+-[a-z]*c[[:space:]]+["\'])[[:space:]]*((!|if|elif|then|do|else|while|until|time|command|exec|nohup|env|nice|sudo)[[:space:]]+'
 GIT_START+=$'(-[A-Za-z]+[[:space:]]+[^-[:space:]][^[:space:]]*[[:space:]]+)?|timeout[[:space:]]+[0-9.]+[smhd]?[[:space:]]+'
 GIT_START+=$'|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(/[^[:space:]]*/)?git'
 GIT_START+=$'([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace)[[:space:]]+[^[:space:]]+|--[^[:space:]]+|-[A-Za-z]+))*'
 GIT_START+=$'[[:space:]]+'
 PUSH_RE=$GIT_START$'push([[:space:]]|$|[;&|)}`"\'])'
 # A git command that moves HEAD, so a push after it in the same command carries commits the hook has not seen.
-MOVE_RE=$GIT_START$'(commit|merge|rebase|cherry-pick|revert|am|pull|reset)([[:space:]]|$|[;&|)}`"\'])'
+MOVE_RE=$GIT_START$'(commit|merge|rebase|cherry-pick|revert|am|pull|reset|checkout|switch)([[:space:]]|$|[;&|)}`"\'])'
 # A push that sends no commits.
 PUSH_NOOP_RE='[[:space:]](--dry-run|--delete|-d)([[:space:]=]|$)'
 
@@ -52,8 +52,7 @@ scope_deny_reason() {
 commits on $5 against origin/$6 change paths outside that, and no scope grant covers them. The hook judges this \
 slot's branch whatever the command pushes:
   ${4//$'\n'/$'\n'  }
-Revert that change (\`git checkout origin/$6 -- <path>\` for a changed or deleted file, \`git rm\` for an added one, \
-then commit), or record it under \"Not in scope\" in the PR body and send the coordinating session a request for a \
+Revert that change (\`git restore --source=origin/$6 --staged --worktree -- <path>\`, then commit), or record it under \"Not in scope\" in the PR body and send the coordinating session a request for a \
 scope grant, naming the paths, as one \`SendMessage\`. If your brief names no such session, leave the decision open in \
 your plan and your report. If these paths come from a branch you built on, do not revert them; say so in that message. \
 Keep working on what the push does not need."
