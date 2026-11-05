@@ -217,6 +217,42 @@ refresh_call() {
   [ "$status" -eq 0 ]
 }
 
+@test "compound-not-run names the refresh run as ce-compound mode:refresh and asks only for the runs missing" {
+  finished_task
+  ran ce-compound
+  release
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound:refresh"
+    and (.message | test("has not run ce-compound mode:refresh;"))
+    and (.message | test("once per finding") | not)' <<<"$stderr"
+  : >"$T/transcript.jsonl"
+  refresh_call 'mode:refresh mode:non-interactive'
+  release
+  jaq -e '.value == "ce-compound" and (.message | test("has not run ce-compound to capture;"))
+    and (.message | test("mode:refresh mode:non-interactive <scope>") | not)' <<<"$stderr"
+}
+
+@test "a typed refresh whose arguments hold a < is the refresh run, not the capture run" {
+  finished_task
+  : >"$T/transcript.jsonl"
+  record_set ".transcript = \"$T/transcript.jsonl\""
+  refresh_call 'mode:refresh mode:non-interactive'
+  jaq -n -c '{type: "user", message: {content: "<command-name>/compound-engineering:ce-compound</command-name>\n<command-args>mode:refresh mode:non-interactive <scope></command-args>"}}' \
+    >>"$T/transcript.jsonl"
+  release
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound"' <<<"$stderr"
+}
+
+@test "the deprecated ce-compound-refresh skill passes through the ce-compound mode:refresh call it makes" {
+  finished_task
+  ran ce-compound ce-compound-refresh
+  refresh_call 'mode:refresh mode:non-interactive'
+  agent busy
+  release
+  [ "$status" -eq 0 ]
+}
+
 @test "the deprecated ce-compound-refresh skill is not the refresh run" {
   finished_task
   ran ce-compound ce-compound-refresh

@@ -20,6 +20,8 @@ if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); 
 fi
 
 AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
+# The longest context sent whole: under Claude Code's 10,000-character hook limit, with room for JSON escapes.
+CONTEXT_MAX=9500
 
 # Usage: context_record <repo> <n>
 # Under the slot lock, so the first-start check and the ready line happen once.
@@ -65,7 +67,8 @@ context_record() {
 # through --arg, never as part of its program, so an apostrophe or a backtick in one prints as written.
 # shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
 context_text() {
-  local task items base prime solutions rules plans skill skill_rules rules_after reopen unattended vault_rules='' deps
+  local task items base prime solutions rules plans skill skill_rules load_skill rules_after reopen unattended text
+  local vault_rules='' deps
   task=$(contract_json -r '.task // ""' <<<"$RECORD")
   items=$(contract_json -r '.items // [] | map("\(if .kind == "pr" then "PR" else .kind end) \(.repo)#\(.number)"
     + (if (.title // "") == "" then "" else " (\(.title))" end)) | join(", ")' <<<"$RECORD")
@@ -91,7 +94,7 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
 `agent-slot whoami` names this slot.
 Run agent-slot verbs with `--output json` after the verb; `--help` on any verb lists its flags and fields.
 `agent-slot schema --output json` prints the whole contract: the success and error objects and every reason.
-To hand a task to another agent, run `agent-slot launch <repo> --request-id <id> --prompt-file <brief>`.
+To hand off a task, run `agent-slot launch <repo> --model <opus|sonnet> --request-id <id> --prompt-file <brief>`.
 Launching a slot is not a delegated wait: set no watchdog or watcher on it; watch your own PRs and CI to the end.
 Claude runs here with `--dangerously-skip-permissions`; ask rules, deny rules, and hooks still stop tool calls.
 EOF
@@ -125,12 +128,14 @@ EOF
   fi
   skill=${AGENT_SLOT_SKILL:-$HOME/.claude/skills/agent-slot/SKILL.md}
   skill_rules=$(awk '/^## Inside a slot$/ {on = 1; next} on && /^## / {exit} on' "$skill" 2>/dev/null || true)
+  load_skill="Before anything else, load the \`/agent-slot\` skill and follow its \"Inside a slot\" section: it \
+holds the rules for working in a slot and the steps that close your task."
   if [[ -n ${skill_rules//[[:space:]]/} ]]; then
     skill_rules=$(printf '%s\n' "These rules for working in a slot come from the agent-slot skill's \"Inside a slot\" \
 section ($skill), and they bind you; load \`/agent-slot\` for the rest of the skill." "$skill_rules")
   else
-    skill_rules="Before anything else, load the \`/agent-slot\` skill and follow its \"Inside a slot\" section: it \
-holds the rules for working in a slot and the steps that close your task."
+    hook_log "slot $1/$2: no \"Inside a slot\" section in $skill; the context names /agent-slot instead"
+    skill_rules=$load_skill
   fi
   rules_after=$(
     cat <<'EOF'
@@ -140,7 +145,7 @@ EOF
   )
   reopen="\`agent-slot reopen\` asks for permission, \`--help\` and \`--dry-run\` included, and nobody here can grant \
 it: send a reopen to the session your brief reports to."
-  contract_json -n -c --arg text "$(
+  text=$(
     printf '%s\n' "You are working in agent slot $(slot_key "$1" "$2"), a clone at $(slot_path "$1" "$2")."
     if [[ -n $task ]]; then printf 'Task: %s.\n' "$task"; else printf '%s\n' 'This slot was given no task name.'; fi
     [[ -z $items ]] || printf 'Work items: %s.\n' "$items"
@@ -151,7 +156,14 @@ to read in $prime/.context/, never in /tmp or a scratchpad. Make every other cha
     [[ -z $deps ]] || printf '%s\n' "$deps"
     printf '%s\n' "$solutions" "$rules" "$unattended" "$plans" "$skill_rules" \
       "$rules_after" "$reopen"
-  )" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $text}}'
+  )
+  # Claude Code shows a hook's context in full only up to 10,000 characters; past that the agent gets a file path and a
+  # 2,000-character preview, which would hold none of the skill's rules.
+  if ((${#text} > CONTEXT_MAX)); then
+    hook_log "slot $1/$2: context is ${#text} characters, over $CONTEXT_MAX; it names /agent-slot instead of its rules"
+    text=${text/"$skill_rules"/"$load_skill"}
+  fi
+  contract_json -n -c --arg text "$text" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $text}}'
 }
 
 context_main() {

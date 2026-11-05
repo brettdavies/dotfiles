@@ -393,6 +393,7 @@ pr() {
 pr_listed() {
   jaq -c --argjson n "$1" --arg state "$2" --arg head "$3" --arg oid "$4" --arg created "$5" --arg title "${6:-PR $1}" \
     '. + [{number: $n, state: $state, headRefName: $head, headRefOid: $oid, createdAt: $created, title: $title,
+      isCrossRepository: false,
       url: "https://github.com/x/repoa/pull/\($n)"}]' "$STUBS/gh-prs.json" >"$STUBS/gh-prs.new"
   mv "$STUBS/gh-prs.new" "$STUBS/gh-prs.json"
 }

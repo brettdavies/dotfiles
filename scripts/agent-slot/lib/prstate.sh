@@ -28,37 +28,75 @@ pr_load() {
   PR_OK[$repo]=0 PR_LISTS[$repo]='[]'
   [[ -n $AS_GH ]] || return 0
   bounded out gh 30 "$AS_GH" pr list --repo "$(pr_repo_slug "$2")" --state all --limit 200 \
-    --json number,state,headRefName,headRefOid,createdAt,title,url,isCrossRepository,isDraft || return 0
+    --json number,state,headRefName,headRefOid,baseRefName,createdAt,title,url,isCrossRepository,isDraft \
+      || return 0
   out=$(contract_json -c 'if type == "array" then . else error("not an array") end' <<<"$out" 2>/dev/null) || return 0
   PR_LISTS[$repo]=$out PR_OK[$repo]=1
 }
 
-# Usage: pr_prune_branches <repo> <slot path>; deletes each local branch of the slot, other than its base and the one
-# checked out, whose PRs from origin's own branches are all merged or closed, and deletes origin's branch of that name
-# with it. Only branches the slot holds are touched, never the rest of origin's. A branch whose tip is neither one of
-# its PRs' heads nor held by origin's branch has work nowhere else and stays. Prints each branch it deleted, one per
-# line; with no PR list from GitHub it deletes nothing.
+# Usage: pr_prune_branches <repo> <slot path>; deletes each local branch of the slot whose PRs from origin's own
+# branches are all merged or closed, and origin's branch of that name with it. Only branches the slot holds are touched,
+# never the rest of origin's. It keeps the slot's base, origin's default branch, the branch checked out, and any branch
+# a PR targets, since deleting a PR's base closes that PR. A branch goes only when its tip, and origin's tip of that name
+# if origin has one, are each a PR's head or an ancestor of one, so a commit pushed after the PR keeps it on both sides.
+# Origin's branch goes first, and a branch whose delete fails on either side is reported, so a later resume retries it.
+# Prints `checked <true|false>` first (false with no PR list from GitHub, when it deletes nothing), then one
+# `pruned <branch>` or `failed <branch> <reason>` line per branch, tab-separated.
 pr_prune_branches() {
-  local repo=$1 path=$2 base current branch tip heads
+  local repo=$1 path=$2 base current default branch tip heads remote out
   pr_load "$repo" "$(git -C "$path" remote get-url origin 2>/dev/null || true)"
-  [[ ${PR_OK[$repo]} == 1 ]] || return 0
+  if [[ ${PR_OK[$repo]} != 1 ]]; then
+    printf 'checked\tfalse\n'
+    return 0
+  fi
+  printf 'checked\ttrue\n'
   base=$(contract_json -r '.base // ""' <<<"$RECORD")
   current=$(git -C "$path" symbolic-ref -q --short HEAD || true)
+  default=$(git -C "$path" symbolic-ref -q --short refs/remotes/origin/HEAD || true)
+  default=${default#origin/}
   while read -r branch; do
-    [[ -n $branch && $branch != "$base" && $branch != "$current" ]] || continue
-    heads=$(contract_json -r --arg b "$branch" '[.[] | select(.headRefName == $b and (.isCrossRepository | not))]
-      | if length > 0 and all(.[]; .state == "MERGED" or .state == "CLOSED") then .[].headRefOid else empty end' \
+    [[ -n $branch && $branch != "$base" && $branch != "$current" && $branch != "$default" ]] || continue
+    heads=$(contract_json -r --arg b "$branch" 'if any(.[]; .baseRefName == $b) then empty else
+      [.[] | select(.headRefName == $b and .isCrossRepository == false)]
+      | if length > 0 and all(.[]; .state == "MERGED" or .state == "CLOSED") then .[].headRefOid else empty end end' \
       <<<"${PR_LISTS[$repo]}")
     [[ -n $heads ]] || continue
     tip=$(git -C "$path" rev-parse "refs/heads/$branch")
-    grep -qxF "$tip" <<<"$heads" \
-      || git -C "$path" merge-base --is-ancestor "$tip" "refs/remotes/origin/$branch" 2>/dev/null || continue
-    git -C "$path" branch -q -D "$branch"
-    if bounded out prune 60 "${AS_GIT_REMOTE[@]}" git -C "$path" ls-remote --exit-code --heads origin "$branch"; then
-      bounded out prune 120 "${AS_GIT_REMOTE[@]}" git -C "$path" push -q origin --delete "$branch" || true
+    _pr_in_heads "$path" "$tip" "$heads" || continue
+    remote=
+    # ls-remote --exit-code exits 2 when origin has no such branch; any other failure leaves origin's tip unknown.
+    if bounded remote prune 15 "${AS_GIT_REMOTE[@]}" \
+      git -C "$path" ls-remote --exit-code origin "refs/heads/$branch"; then
+      remote=${remote%%[[:space:]]*}
+      _pr_in_heads "$path" "$remote" "$heads" || continue
+    elif ((BOUNDED_STATUS != 2)); then
+      # Origin out of reach: stop here rather than spend the timeout again on every branch left.
+      printf 'failed\t%s\torigin could not be reached; log: %s\n' "$branch" "${BOUNDED_LOG:-none}"
+      break
     fi
-    printf '%s\n' "$branch"
+    if [[ -n $remote ]] \
+      && ! bounded out prune 30 "${AS_GIT_REMOTE[@]}" git -C "$path" push -q origin --delete "$branch"; then
+      printf 'failed\t%s\torigin refused the delete; log: %s\n' "$branch" "${BOUNDED_LOG:-none}"
+      continue
+    fi
+    if ! git -C "$path" branch -q -D "$branch" >/dev/null 2>&1; then
+      printf 'failed\t%s\tgit could not delete the branch here, such as one a linked worktree has checked out\n' \
+        "$branch"
+      continue
+    fi
+    printf 'pruned\t%s\n' "$branch"
   done < <(git -C "$path" for-each-ref --format='%(refname:short)' refs/heads)
+}
+
+# Usage: _pr_in_heads <slot path> <oid> <heads, one per line>; true when the commit is one of the heads, or an ancestor
+# of one the slot has.
+_pr_in_heads() {
+  local head
+  while read -r head; do
+    [[ $2 != "$head" ]] || return 0
+    ! git -C "$1" merge-base --is-ancestor "$2" "$head" 2>/dev/null || return 0
+  done <<<"$3"
+  return 1
 }
 
 # Usage: _pr_head_held <slot path> <base> <oid>; true when a local head holds the commit and neither origin's base nor
