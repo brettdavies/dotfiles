@@ -72,11 +72,11 @@ runs:
     - name: Install bun
       # agent-slot-deps.bats drives two real frozen installs and skips them without bun, and only those two show a
       # frozen install leaves its lockfile alone. agent-slot-foreign-head.bats proves Bun reads a tree's preload and .env
-      # from its working directory, which is why a foreign head keeps them off disk, and skips without it. Keep the version
-      # in step with the Homebrew formula the local gates run.
+      # from its working directory, which is why a foreign head keeps them off disk, and skips without it. The version is
+      # .bun-version's, which tests/bun-version-pin.bats holds to the local Bun.
       uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       with:
-        bun-version: 1.4.4
+        bun-version-file: .bun-version
         # A download took 1.2-1.5 s and a cache restore 0.9-2.3 s across the shards, so a cache saves nothing.
         no-cache: true
 
