@@ -16,6 +16,7 @@
 #   AGENT_SLOT_LOCK_WAIT       seconds resume waits for a busy slot (30)
 #   AGENT_SLOT_TRUST_SOCKET    the trust step's scratch tmux socket (agent-slot-trust)
 #   AGENT_SLOT_TRUST_TIMEOUT   seconds the trust step watches Claude's screen (45)
+#   AGENT_SLOT_DEPS_TIMEOUT    seconds a new slot's dependency install may take (60)
 #   AGENT_SLOT_TMUX_SOCKET     slot tmux socket name (agent-slots)
 #   AGENT_SLOT_TMUX_CONF       slot tmux config (~/.config/tmux/slots.conf)
 #   AGENT_SLOT_SOLUTIONS       shared solutions repo; each slot gets a worktree of it under <slot root>/<repo>/.solutions
@@ -32,7 +33,7 @@
 #   AGENT_SLOT_RELEASE_POLL    seconds between that teardown's looks at the agent (5)
 #   AGENT_SLOT_RELEASE_REMIND  seconds after an agent says it is not ready to release before the sweep reminds it (1800)
 #   AGENT_SLOT_RELEASE_ID      in the finish a release starts, the id of that release; release sets it
-#   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL, _SYSTEMD_RUN, _SYSTEMD_NOTIFY, _FIND, _SSH
+#   AGENT_SLOT_TMUX, _CLAUDE, _GH, _GIT_CRYPT, _TRASH, _JQ, _SYSTEMCTL, _SYSTEMD_RUN, _SYSTEMD_NOTIFY, _FIND, _SSH, _BUN, _NPM, _PNPM
 #                              absolute paths that replace the binaries found on the pinned PATH
 #   XDG_DATA_HOME              holds the trash a torn-down clone is purged from, trash-cli's home trash
 #                              (~/.local/share/Trash)
@@ -72,6 +73,8 @@ source "$AS_LIB/read.sh"
 source "$AS_LIB/doctor.sh"
 # shellcheck source=lib/parity.sh
 source "$AS_LIB/parity.sh"
+# shellcheck source=lib/deps.sh
+source "$AS_LIB/deps.sh"
 # shellcheck source=lib/sessions.sh
 source "$AS_LIB/sessions.sh"
 # shellcheck source=lib/head.sh

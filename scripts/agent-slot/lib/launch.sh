@@ -177,7 +177,7 @@ launch_output() {
     "$SLOT_LABEL_DEF"'{created: $created, key: $key, repo: .repo, slot: .slot, path: $path, state: .state, task: .task,
       name: .name, items: (.items // []), label_name: label_name($branch), request_id: .request_id,
       session_id: .session_id, base: .base, head_pushable: $pushable, trust_prompt_expected: $trust,
-      prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases,
+      prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases, deps: .deps,
       next_step: {action: "run", command: "agent-slot check \($key) --output json", docs: $docs,
                   note: ("each Rex client is asked to open this slot'"'"'s tab when the slot is made; a Mac that"
                          + " is asleep or offline opens it once it is back")}} + $fields' <<<"$RECORD")" '

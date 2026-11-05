@@ -646,3 +646,23 @@ snapshot() {
   [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
   [ "$(grep -c 'new-session' "$CALLS")" -eq 0 ]
 }
+
+@test "a reopen on a head the base does not hold runs no install" {
+  origin_file repoa .gitignore 'node_modules/'
+  origin_file repoa package.json '{"name": "repoa"}'
+  origin_file repoa bun.lock 'locked'
+  stub bun 'touch "$STUBS/install-ran"'
+  export AGENT_SLOT_BUN=$STUBS/bun
+  mkdir -p "$AGENT_SLOT_DEV/repoa/node_modules/some-tool"
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
+  gh_item pr 7 "Fix the login" MERGED '{"headRefName": "feat/x", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
+  origin_branch "$T/origins/repoa.git" feat/x
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"prs\": [7]}"
+  reopen repoa --pr 7
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  [ ! -e "$STUBS/install-ran" ]
+  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
+}

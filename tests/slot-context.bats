@@ -132,6 +132,36 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context != *"own worktree"* ]]
 }
 
+@test "each install status gives the agent one line saying what happened" {
+  local status phrase deps
+  while IFS='|' read -r status phrase; do
+    deps=$(jaq -n -c --arg s "$status" '{manager: "bun", command: "bun install --frozen-lockfile", status: $s, log: "/logs/deps.log"}')
+    slot repo 1 "$(jaq -n -c --argjson d "$deps" '{task: "t", prime: "/dev/the-prime", base: "main", deps: $d}')"
+    context=$(start s1 startup | jaq -r '.hookSpecificOutput.additionalContext')
+    echo "$status: $context"
+    [ "$(grep -c -e '--frozen-lockfile' <<<"$context")" -eq 1 ]
+    [[ $context == *"$phrase"* ]]
+    rm -rf "$SLOT"
+  done <<'EOF'
+installed|Setup ran `bun install --frozen-lockfile` before you started.
+failed|and it failed, log: /logs/deps.log.
+timed-out|at its time limit, so dependencies may be missing, log: /logs/deps.log.
+tool-missing|because bun is not installed here.
+prime-not-set-up|because /dev/the-prime has no node_modules or Claude does not trust it, which runs code from this tree
+head-not-on-base|because main does not hold this head, which runs code from this tree, so read the tree before you run it.
+EOF
+}
+
+@test "a slot with nothing to install, or a record from before installs, hears nothing about them" {
+  local record
+  for record in '{"task": "t", "deps": null}' '{"task": "t"}'; do
+    slot repo 1 "$record"
+    run start s1 startup
+    [[ $output != *"Setup ran"* && $output != *"Setup did not"* && $output != *"Setup stopped"* ]]
+    rm -rf "$SLOT"
+  done
+}
+
 @test "the context carries the agent-slot skill's Inside a slot section, from its heading to the next" {
   slot repo 1 '{"task": "t"}'
   run start s1 startup

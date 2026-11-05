@@ -794,7 +794,7 @@ EOF
   launch repoa --request-id r-ledger --requested-at 1793000000.5
   [ "$status" -eq 0 ]
   jaq -e -s '.[-1] | .event == "launch" and .request_id == "r-ledger" and .requested_at == 1793000000.5
-    and .schema == "dotfiles.agent-slot/1" and (.phases | keys) == ["claude", "clone", "setup", "tmux", "trust"]
+    and .schema == "dotfiles.agent-slot/1" and (.phases | keys) == ["claude", "clone", "deps", "setup", "tmux", "trust"]
     and ([.phases[] | type] | unique) == ["number"]' "$AGENT_SLOT_STATE_DIR/ledger.jsonl"
 }
 
@@ -1154,4 +1154,50 @@ EOF
   [[ $output == *"owner/name#N"*"https://github.com/owner/name/pull/N"* ]]
   [[ $output == *$'\nreturns: '*name*items*label_name*head_pushable* ]]
   [[ $output == *"example: agent-slot launch "*"--pr "* ]]
+}
+
+# bun_repo: repoa with a lockfile on origin, a stub bun that marks its run, and a prime set up to install.
+bun_repo() {
+  origin_file repoa .gitignore 'node_modules/'
+  origin_file repoa package.json '{"name": "repoa"}'
+  origin_file repoa bun.lock 'locked'
+  stub bun 'mkdir -p node_modules; touch "$STUBS/install-ran"'
+  export AGENT_SLOT_BUN=$STUBS/bun
+  mkdir -p "$AGENT_SLOT_DEV/repoa/node_modules/some-tool"
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
+}
+
+@test "launch --pr of a fork's head runs no install, which would run its code unread" {
+  github_origin
+  bun_repo
+  fork_repo
+  pr_head "$T/forks/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/install-ran" ]
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1/node_modules" ]
+  jaq -e '.deps.status == "head-not-on-base" and .state == "active"' <<<"$output"
+}
+
+@test "launch --pr of a same-repo head the base does not hold runs no install" {
+  github_origin
+  bun_repo
+  pr_head "$T/origins/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUBS/install-ran" ]
+  jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
+}
+
+@test "launch --pr of a head the base holds installs" {
+  github_origin
+  bun_repo
+  git -C "$T/seed-repoa" push -q origin main:refs/heads/feat/x main:refs/pull/7/head
+  gh_item pr 7 "Fix the login" OPEN "$SAME_REPO_HEAD"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -e "$STUBS/install-ran" ]
+  jaq -e '.deps.status == "installed"' <<<"$output"
 }

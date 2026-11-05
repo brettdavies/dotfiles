@@ -44,9 +44,10 @@ agent_slot_env() {
   AS_RELEASE_WAIT=${AGENT_SLOT_RELEASE_WAIT:-3600}
   AS_RELEASE_POLL=${AGENT_SLOT_RELEASE_POLL:-5}
   AS_RELEASE_REMIND=${AGENT_SLOT_RELEASE_REMIND:-1800}
+  AS_DEPS_TIMEOUT=${AGENT_SLOT_DEPS_TIMEOUT:-60}
 
   declare -gA AS_TOOL=() CONTRACT_TOOL_PATHS
-  for tool in tmux claude gh git-crypt git flock timeout trash systemctl systemd-run systemd-notify find ssh; do
+  for tool in tmux claude gh git-crypt git flock timeout trash systemctl systemd-run systemd-notify find ssh bun npm pnpm; do
     override=AGENT_SLOT_${tool^^}
     override=${override//-/_}
     AS_TOOL[$tool]=${!override:-$(command -v "$tool" || true)}

@@ -68,7 +68,7 @@ context_record() {
 # shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
 context_text() {
   local task items base prime solutions rules plans skill skill_rules load_skill rules_after reopen unattended text
-  local vault_rules=''
+  local vault_rules='' deps
   task=$(contract_json -r '.task // ""' <<<"$RECORD")
   items=$(contract_json -r '.items // [] | map("\(if .kind == "pr" then "PR" else .kind end) \(.repo)#\(.number)"
     + (if (.title // "") == "" then "" else " (\(.title))" end)) | join(", ")' <<<"$RECORD")
@@ -80,6 +80,15 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
   else
     solutions='docs/solutions is the solutions repo shared with every other agent; commit to it only through `sd-commit-doc`.'
   fi
+  deps=$(contract_json -r '(.prime // "the prime") as $prime | (.base // "the base branch") as $base | .deps // {}
+    | "Setup did not run `\(.command)`" as $skipped
+    | ", which runs code from this tree, so read the tree before you run it." as $read
+    | {installed: "Setup ran `\(.command)` before you started.",
+       failed: "Setup ran `\(.command)` and it failed, log: \(.log).",
+       "timed-out": "Setup stopped `\(.command)` at its time limit, so dependencies may be missing, log: \(.log).",
+       "tool-missing": "\($skipped), because \(.manager) is not installed here.",
+       "prime-not-set-up": "\($skipped), because \($prime) has no node_modules or Claude does not trust it\($read)",
+       "head-not-on-base": "\($skipped), because \($base) does not hold this head\($read)"}[.status // ""] // ""' <<<"$RECORD")
   rules=$(
     cat <<'EOF'
 `agent-slot whoami` names this slot.
@@ -144,6 +153,7 @@ it: send a reopen to the session your brief reports to."
       "The prime checkout $prime is read-only for you, except its .context/ folder: put any file meant for Brett \
 to read in $prime/.context/, never in /tmp or a scratchpad. Make every other change in this slot."
     [[ -z $vault_rules ]] || printf '%s\n' "$vault_rules"
+    [[ -z $deps ]] || printf '%s\n' "$deps"
     printf '%s\n' "$solutions" "$rules" "$unattended" "$plans" "$skill_rules" \
       "$rules_after" "$reopen"
   )
