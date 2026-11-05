@@ -746,9 +746,9 @@ Who opens pages Brett does not control, what they run today, and where each goes
 - R23. A check lists every browser binary on a host outside Chrome and the set, with its path, version, and size, under
   a stable reason, and exits non-zero when it finds one: `~/.cache/puppeteer`, `~/.cache/ms-playwright`, agent-browser's
   own download directory, distribution Chromium packages, and their Mac equivalents. Directories inside
-  `$PLAYWRIGHT_BROWSERS_PATH` are `--check`'s (R3), so this check never reads the pin. It removes nothing unless asked
-  with `--remove` (Open Question 12). A list in dotfiles exempts what is not a browser consumer, such as Electron apps
-  and the GStack Browser app, each with a reason.
+  `$PLAYWRIGHT_BROWSERS_PATH` are `--check`'s (R3), so this check never reads the pin. It removes nothing (decision 14).
+  A list in dotfiles exempts what is not a browser consumer, such as Electron apps and the GStack Browser app, each with
+  a reason.
 
 **Docs**
 
@@ -819,9 +819,8 @@ Who opens pages Brett does not control, what they run today, and where each goes
 - AE16. **Covers R21.** **Given** one repo's `package.json` differs from the dotfiles version, **when** the check runs,
   **then** it exits non-zero naming that repo and both versions, and no browser update is held back.
 - AE17. **Covers R22, R23.** **Given** a tool downloaded a browser into `~/.cache/puppeteer`, **when** the check runs,
-  **then** it exits non-zero listing the path, version, and size, and removes nothing. **Given** `--remove`, **then** it
-  deletes what it listed and nothing exempted or recorded. **Given** a healthy set the day after a move, **then** the
-  previous build fails neither `--check` nor this check.
+  **then** it exits non-zero listing the path, version, and size, and removes nothing. **Given** a healthy set the day
+  after a move, **then** the previous build fails neither `--check` nor this check.
 - AE18. **Covers R24, R25.** **Given** the pin file on `dev` names a version lower than the build a host's wrappers run,
   or holds anything but the accepted shapes, **when** the host's timer runs, **then** the wrappers stay, nothing
   downloads, and the check names a stable reason and both values. **Given** `--allow-downgrade`, **then** the deploy
@@ -961,8 +960,9 @@ relayed; the rest is the relay's wording.
 | 11  | A fix for the stale builds ahead of phase 1 | None. The stale builds wait for phase 1, with no interim PR against the current script and no build swapped by hand.                                                                                                                                                                                     | Build Phases                |
 | 12  | Where phase 1 ends                          | Phase 1 is the pinned set with aliases on Linux and the Mac. Phase 2 is the sandbox wrapper, the pre-flip launch, safe moves, and `playwright install-deps`. The version floor, the lock, and stall limits go to the hourly pickup.                                                                      | Build Phases, R24, R27, R28 |
 | 13  | WebKit under decision 5                     | R20 stays Chromium-only, and the docs say so.                                                                                                                                                                                                                                                            | R20                         |
+| 14  | Whether the inventory deletes               | It lists only. The check removes nothing, and the runbook names the one-time `trash ~/.cache/puppeteer` the operator runs on each host.                                                                                                                                                                  | R23                         |
 
-Brett answered 11 to 13 on 2026-11-05, relayed by `dotfiles-prime` in the relay's wording.
+Brett answered 11 to 14 on 2026-11-05, relayed by `dotfiles-prime` in the relay's wording.
 
 On decision 7, the relay reads Brett's sentence as: browser updates never wait on the library pin, and the aliases carry
 any revision a pinned library asks for. R21 follows that reading.
@@ -1195,17 +1195,17 @@ gate above, AE6, AE7, and AE14.
 
 ### Phase 5. Inventory
 
-**Delivers.** A check lists every browser on a host outside Chrome and the set, and removes them when asked.
+**Delivers.** A check lists every browser on a host outside Chrome and the set.
 
-**Includes.** R23's check, its exemption list, `--remove`, and the Mac's paths; the runbook section. Once phase 4's
-pointers are live, the operator runs `--remove` on each host for `~/.cache/puppeteer` and anything else it lists.
+**Includes.** R23's check, its exemption list, and the Mac's paths; the runbook section, which names the one-time
+`trash ~/.cache/puppeteer` the operator runs on each host once phase 4's pointers are live.
 
-**Not in this phase.** Removal without `--remove`; anything inside the set, which `--check` owns.
+**Not in this phase.** Any removal by the check (decision 14); anything inside the set, which `--check` owns.
 
 Touches: `scripts/browser-inventory.sh`, `config/browser-inventory/**`, `tests/browser-inventory.bats`,
 `docs/runbooks/playwright-browser-launch.md`, `README.md`
 
-Adds: `scripts/browser-inventory.sh` with `--remove`; its exemption list.
+Adds: `scripts/browser-inventory.sh`; its exemption list.
 
 Verify: bats for AE17.
 
@@ -1394,13 +1394,6 @@ Each is settled in the phase named, from measurement or the code then on `dev`.
 11. **The Mac's lock tool** (phase 8). macOS ships no `flock(1)`. Candidates are Homebrew's `flock` and the system
     perl's `flock`; phase 8 checks which the Mac has before choosing, and the deploy names the missing tool with a
     stable reason.
-12. **The inventory's `--remove`** (phase 5, a scope decision for Brett). Decision 8 asks for a check that lists
-    browsers outside the two; R23 adds a deletion mode. Its one planned use is `~/.cache/puppeteer` on each host, which
-    `trash` covers by hand, while distribution Chromium packages and Mac app bundles would need `sudo` or bundle
-    handling the plan does not specify, and an exemption list that misses one deletes something real. Candidate: drop
-    `--remove` and have phase 5's runbook name the one-time `trash ~/.cache/puppeteer`.
-
----
 
 ## Appendix: Engineering Review (plan-eng-review, 2026-11-05)
 
@@ -1877,9 +1870,7 @@ Unresolved decisions from this DX review: none.
 
 - **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews` for both reviews; no findings.
 - **VERDICT:** no review CLEAR yet; eng review required. Both reviews' findings are accepted into the plan as mapped
-  work. A document review (`ce-doc-review`, 2026-11-05) followed them; its corrections are in the plan body and its one
-  open item is Open Question 12.
+  work. A document review (`ce-doc-review`, 2026-11-05) followed them; its corrections are in the plan body, and Brett
+  settled its one open item as decision 14.
 
-**UNRESOLVED DECISIONS:**
-
-- Open Question 12: whether the inventory keeps `--remove`, a scope decision for Brett (document review).
+NO UNRESOLVED DECISIONS
