@@ -314,6 +314,26 @@ still waiting after about 6 s got past the hook, for example because the hook fa
 That wait appends a `prompt-waiting` event, and `slot-status.sh` marks the tab blocked. Outside a slot the hook does
 nothing, so an ask rule prompts there as it always has.
 
+A slot's agent gets at most 2 review rounds per PR. `slot-review-cap.sh` (also in `stow/claude/dot-claude/`, on
+`PreToolUse` for the `Skill` tool) counts each call of `compound-engineering:ce-code-review`, by the slot's own Claude
+or its subagents and under its bare name too, as one round for the PR on the slot's current branch. It appends a
+`review-round` event to the ledger with the slot and the branch, and denies the third, naming the rule, the count, the
+PR and head commit to send the coordinating session, and the grant command for the operator. Rounds are counted per
+branch, so several PRs reviewed from one branch share one cap; on a detached head the commit stands in for the branch,
+and each new commit starts a new count. They count from the slot's `created_at`, so a reused slot number starts at none,
+and a call counts when it starts, so a review that fails at once still uses its round. Outside a slot the hook prints
+nothing, and `/devex-review` and `/cso` are not counted.
+
+The operator allows one more round with `agent-slot grant-review <repo>/<N>`, which appends a `review-grant` event
+for the slot's current branch and reports the rounds used and allowed. Each run is one round. It refuses with
+`review-grant-from-slot` when run from a slot's directory or its tmux server, and an ask rule makes a slot's own request
+for it a denial through `slot-unattended.sh`. The cap is a guard, not a trust boundary: an agent with a shell could
+still write a ledger line.
+
+```bash
+agent-slot grant-review dotfiles/2
+```
+
 A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
 merged with none open, the operator finished it, whatever state its PRs are in, or its agent released it with no PR
 open) and nothing in it is missing from GitHub. A commit is safe there once a PR's final head holds it, an origin branch
@@ -844,6 +864,8 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `rexurrect-missing`           | 78   | Doctor warning: rexurrect is not installed, so own tabs are not restored after a Rex restart   |
 | `reconcile-stale`             | 1    | The reconcile timer runs but its journal shows no recent good pass; `agent-slot-rex restore`   |
 | `own-tabs-unrestored`         | 0    | Doctor warning: the start-up step did not restore the operator's own tabs into this Rex server |
+| `review-grant-from-slot`      | 1    | `grant-review` refused: run from a slot or its tmux server; only the operator grants           |
+| `slot-head-missing`           | 1    | `grant-review` refused: the slot has no branch or commit to count rounds under                 |
 | `tmux-outside-scope`          | 0    | Doctor warning: the slot tmux server runs in a service's cgroup and would end with that unit   |
 
 #### Teardown blockers

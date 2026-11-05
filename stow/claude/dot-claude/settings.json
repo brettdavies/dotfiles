@@ -349,6 +349,7 @@
     ],
     "ask": [
       "Bash(agent-slot finish *)",
+      "Bash(agent-slot grant-review *)",
       "Bash(agent-slot reopen *)",
       "Bash(agent-slot sweep *)",
       "Bash(agent-slot-rex finish *)",
@@ -554,6 +555,16 @@
           {
             "type": "command",
             "command": "~/.claude/slot-unattended.sh",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-review-cap.sh",
             "timeout": 15
           }
         ]
