@@ -90,7 +90,7 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"--output json"* ]]
   [[ $context == *"agent-slot whoami"* ]]
   [[ $context == *"agent-slot schema"* ]]
-  [[ $context == *"agent-slot launch"*"--request-id"* ]]
+  [[ $context == *"agent-slot launch <repo> --model <opus|sonnet> --request-id <id> --prompt-file <brief>"* ]]
   [[ $context == *"ask the operator"* ]]
   [[ $context == *"--dangerously-skip-permissions"* ]]
 }
@@ -152,6 +152,32 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [ "$status" -eq 0 ]
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
   [[ $context == *"Before anything else, load the \`/agent-slot\` skill and follow its \"Inside a slot\" section"* ]]
+  grep -q "slot repo/1: no \"Inside a slot\" section in $AGENT_SLOT_SKILL" "$AGENT_SLOT_STATE_DIR/logs/hooks.log"
+}
+
+@test "a skill whose Inside a slot heading is gone is logged, and the agent is told to load /agent-slot" {
+  slot repo 1 '{"task": "t"}'
+  sed -i 's/^## Inside a slot$/## Working in a slot/' "$T/SKILL.md"
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"Before anything else, load the \`/agent-slot\` skill"* ]]
+  [[ $context != *"Stage with \`git add\`"* ]]
+  grep -q "slot repo/1: no \"Inside a slot\" section in $T/SKILL.md" "$AGENT_SLOT_STATE_DIR/logs/hooks.log"
+}
+
+@test "a context too long for Claude Code to show in full carries the load-the-skill line instead of the rules" {
+  slot repo 1 '{"task": "t"}'
+  local filler
+  filler=$(printf 'Long rule text. %.0s' {1..700})
+  sed -i "s/^Work only in the slot\./$filler &/" "$T/SKILL.md"
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  echo "context length ${#context}"
+  [ "${#context}" -le 9500 ]
+  [[ $context == *"Before anything else, load the \`/agent-slot\` skill"* ]]
+  [[ $context != *"Long rule text."* ]]
+  [[ $context == *"need not run \`agent-slot check\` on this slot"* ]]
+  grep -Eq 'slot repo/1: context is [0-9]+ characters, over 9500' "$AGENT_SLOT_STATE_DIR/logs/hooks.log"
 }
 
 @test "the context makes a slot the agent launches fire-and-forget, and keeps it watching its own PRs and CI" {
