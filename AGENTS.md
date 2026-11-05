@@ -445,13 +445,14 @@ kills it in `teardown` before the guard, as `tests/mac-open-here.bats` does for 
 `scripts/run-tests` covers every suite, guard or not: each bats process it starts carries a `RUN_TESTS_RUN` value of its
 own, and once bats exits, any process still carrying it fails the run, named and killed after 3 s. A leak that exits
 before its suite ends gets past this scan, which is what the per-test guard is for. `tests/leak-guard.bats` covers both
-guards, and runs the release suite from a scratch directory to check that it leaves nothing behind there.
+guards, and runs the release suite's tests that start a process of each shape from a scratch directory to check that
+they leave nothing behind there. A whole nested run of the suite outlasts the time limit on a loaded CI shard, so the
+case names those tests in `RELEASE_PROCESS_TESTS` and fails when a name no longer matches a passing test.
 
 Every test runs under a time limit: `scripts/run-tests` hands bats `BATS_TEST_TIMEOUT`, 60 s unless the environment sets
-it, about 1.3 times the slowest test on a CI runner. A test that outlives it fails as
-`not ok N <name> # timeout after 60s`: bats sends SIGTERM to it and to every process below it, then runs its `teardown`,
-so both guards still stop whatever it left. A suite with a deliberately longer test sets `BATS_TEST_TIMEOUT` at its top
-level. bats 1.14 leaves a failed test's watchdog running out the limit
+it. A test that outlives it fails as `not ok N <name> # timeout after 60s`: bats sends SIGTERM to it and to every
+process below it, then runs its `teardown`, so both guards still stop whatever it left. A suite with a deliberately
+longer test sets `BATS_TEST_TIMEOUT` at its top level. bats 1.14 leaves a failed test's watchdog running out the limit
 ([bats-core/bats-core#1206](https://github.com/bats-core/bats-core/issues/1206)), which `run-tests` avoids through
 `BATS_killer_pid`; a test that starts bats itself passes the same value, `BATS_WATCHDOG_JOB` from
 `tests/lib/processes.bash`. bats 1.14 can also leave a passing test's watchdog running: its shell forks the `sleep` and
