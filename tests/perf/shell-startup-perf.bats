@@ -5,7 +5,8 @@
 # both glob one level deep, so these do not run in the middle of the ~330-test
 # suite, where several hundred spawned shells make the machine slow enough to
 # push interactive zsh past its budget while nothing about the config changed.
-# The hook runs this directory first, on a quiet machine.
+# The hooks run this directory first, on a quiet machine, when a change touches a
+# file the shells read.
 #
 # The shells run under a HOME whose startup files are this checkout's
 # (tests/lib/startup-home.bash), so a commit or push is timed on the files it
@@ -26,8 +27,9 @@
 #   login zsh             139ms      login bash            140ms
 #
 # The hooks run this suite only when the commit or push changes a file the shells
-# read (SHELL_STARTUP_PATHS in .githooks/lib/push-scope.sh), and CI never runs it,
-# so a budget is a local ergonomics dial rather than a merge gate.
+# read (SHELL_STARTUP_PATHS in .githooks/lib/push-scope.sh). CI reaches this file
+# through run-tests but has no deployed dotfiles, so every test skips there and a
+# budget is a local ergonomics dial rather than a merge gate.
 SAMPLES="${SHELL_PERF_SAMPLES:-9}"
 
 load ../lib/startup-home
@@ -79,6 +81,8 @@ _assert_under() {
   [ "$ms" -lt "$budget" ] || {
     echo "$label took ${ms}ms at its floor, over the ${budget}ms budget"
     echo "this is the fastest of $SAMPLES runs, so it is not contention"
+    echo "timed from the startup files of $ROOT; a bare '$cmd' in a shell reads the installed config and can differ"
+    echo "rerun from $ROOT: scripts/run-tests --perf-only"
     false
   }
 }

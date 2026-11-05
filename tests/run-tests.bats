@@ -536,7 +536,8 @@ _perf_markers() {
 @test "the perf suite times the checkout's startup files, not the installed ones" {
   _perf_markers
   run env HOME="$FAKE_HOME" SHELL_PERF_SAMPLES=1 "$SANDBOX/scripts/run-tests" --perf-only
-  [ "$status" -eq 0 ]
+  # The markers are the assertion; the budgets belong to the hooks, so a slow host
+  # cannot fail this file.
   [ -e "$MARK/checkout" ]
   [ ! -e "$MARK/installed" ]
 }
@@ -548,4 +549,43 @@ _perf_markers() {
   [ "$status" -eq 0 ]
   [ "$(printf '%s\n' "$output" | grep -c '# skip dotfiles not deployed')" -eq 6 ]
   [ ! -e "$MARK/checkout" ] && [ ! -e "$MARK/installed" ]
+}
+
+@test "startup_home gives the HOME its own completion cache, leaving the installed one alone" {
+  _startup_fixture
+  mkdir -p "$FAKE_HOME/.zsh/cache"
+  printf 'installed dump\n' >"$FAKE_HOME/.zsh/cache/zcompdump"
+  _startup_home
+  [ -d "$SHADOW/.zsh/cache" ] && [ ! -L "$SHADOW/.zsh" ]
+  [ ! -e "$SHADOW/.zsh/cache/zcompdump" ]
+  [ "$(cat "$FAKE_HOME/.zsh/cache/zcompdump")" = "installed dump" ]
+}
+
+@test "startup_home drops an installed startup file the checkout no longer holds" {
+  _startup_fixture
+  ln -s "../dotfiles/stow/zsh/dot-zprofile" "$FAKE_HOME/.zprofile"
+  _startup_home
+  [ ! -e "$SHADOW/.zprofile" ] && [ ! -L "$SHADOW/.zprofile" ]
+}
+
+@test "startup_home keeps an installed link into a package the list does not name" {
+  _startup_fixture
+  ln -s "../dotfiles/stow/git/dot-gitconfig" "$FAKE_HOME/.gitconfig"
+  _startup_home
+  [ "$(readlink "$SHADOW/.gitconfig")" = "$FAKE_HOME/.gitconfig" ]
+}
+
+@test "startup_home links files only, so a directory in a startup package hides nothing" {
+  _startup_fixture
+  mkdir -p "$CHECKOUT/stow/zsh/dot-config" "$FAKE_HOME/.config"
+  _startup_home
+  [ "$(readlink "$SHADOW/.config")" = "$FAKE_HOME/.config" ]
+}
+
+@test "startup_home links the installed startup file in place of one still encrypted" {
+  _startup_fixture
+  printf '\0GITCRYPT\0ciphertext\n' >"$CHECKOUT/stow/secrets/dot-secrets"
+  ln -s "../dotfiles/stow/secrets/dot-secrets" "$FAKE_HOME/.secrets"
+  _startup_home
+  [ "$(readlink "$SHADOW/.secrets")" = "$FAKE_HOME/.secrets" ]
 }

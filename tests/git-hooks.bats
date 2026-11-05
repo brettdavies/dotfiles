@@ -256,7 +256,8 @@ _called() { grep -qx -- "$1" "$FIX/calls"; }
   _touch tests/perf/shell-startup-perf.bats
   _precommit
   [ "$status" -eq 0 ]
-  [[ "$output" == *"no staged file shell startup reads"* ]]
+  [[ "$output" == *"no staged path is on SHELL_STARTUP_PATHS"* ]]
+  [[ "$output" == *"no staged test files besides the perf suite"* ]]
   [ ! -e "$FIX/calls" ] || ! grep -q 'run-tests' "$FIX/calls"
 }
 
@@ -312,4 +313,29 @@ _called() { grep -qx -- "$1" "$FIX/calls"; }
   _touch tests/perf/shell-startup-perf.bats config/shell/fragment.sh
   _precommit
   [ "$status" -eq 1 ]
+}
+
+@test "pre-commit: a staged startup file alone says the timing runs at pre-push" {
+  _commit_fixture
+  _touch config/shell/fragment.sh
+  _precommit
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"shell-startup timing (runs at pre-push)"* ]]
+  [ ! -e "$FIX/calls" ] || ! grep -q 'run-tests' "$FIX/calls"
+}
+
+@test "pre-commit: a commit that stages no startup file and no perf suite says nothing of the timing" {
+  _commit_fixture
+  _touch tests/other.bats
+  _precommit
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"shell-startup timing"* ]]
+}
+
+@test "pre-commit: a perf suite that ran is reported as passed" {
+  _commit_fixture
+  _touch tests/perf/shell-startup-perf.bats config/shell/fragment.sh
+  _precommit
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"✓ shell-startup timing"* ]]
 }

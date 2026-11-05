@@ -297,6 +297,16 @@ startup_reads() {
       paths_read_by_shell_startup <<<"$file" || missing+="$shape reads $file"$'\n'
     done <<<"$reads"
   done
+  # A file the shells look for by name, held by a package the list leaves out, is
+  # read once it is deployed, though no shell started above reads it from here.
+  local looked_for
+  for looked_for in zshenv zprofile zshrc zlogin zlogout bash_profile bash_login profile bashrc bash_logout; do
+    for file in "$REPO"/stow/*/dot-"$looked_for"; do
+      [ -e "$file" ] || continue
+      paths_read_by_shell_startup <<<"${file#"$REPO"/}" ||
+        missing+="the shells look for .$looked_for, held at ${file#"$REPO"/}"$'\n'
+    done
+  done
   [ -z "$missing" ] || {
     printf 'not on SHELL_STARTUP_PATHS:\n%s' "$missing"
     false
@@ -412,6 +422,7 @@ perf_ran() { grep -qx 'run-tests --perf-only' "$FIX/calls"; }
   new=$(commit_file config/shell/fragment.sh 'echo f')
   hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
   [ "$status" -eq 0 ]
+  [[ "$output" == *"✓ shell-startup timing"* ]]
   [ "$(head -n 1 "$FIX/calls")" = "run-tests --perf-only" ]
   [ "$(grep -c -- '--perf-only' "$FIX/calls")" -eq 1 ]
 }
@@ -476,6 +487,7 @@ perf_ran() { grep -qx 'run-tests --perf-only' "$FIX/calls"; }
   new=$(commit_file b.sh 'echo b')
   hook "refs/heads/dev $new refs/heads/dev deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
   [ "$status" -eq 0 ]
+  [[ "$output" == *"push scope unknown, running it"* ]]
   perf_ran
 }
 
@@ -488,7 +500,8 @@ perf_ran() { grep -qx 'run-tests --perf-only' "$FIX/calls"; }
 
 @test "hook: a failing perf suite fails the push" {
   install_hook_with_stubs
-  printf '#!/bin/sh\nexit 1\n' >"$WORK/scripts/run-tests"
+  # Only the perf call fails, so the push fails on it or on nothing.
+  printf '#!/bin/sh\ncase "$*" in --perf-only) exit 1 ;; esac\n' >"$WORK/scripts/run-tests"
   new=$(commit_file stow/zsh/dot-zshrc 'echo z')
   hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
   [ "$status" -eq 1 ]
