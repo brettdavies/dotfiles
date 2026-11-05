@@ -366,12 +366,12 @@ target.
 The hooks exist so a red pipeline is a surprise rather than a routine. Every check is defined once, in a script that all
 three gates call:
 
-| Check      | Definition                  | CI job                             | pre-push | pre-commit            |
-| ---------- | --------------------------- | ---------------------------------- | -------- | --------------------- |
-| ShellCheck | `scripts/lint-shell`        | `.github/workflows/shellcheck.yml` | `--all`  | staged paths          |
-| actionlint | `scripts/lint-workflows`    | `.github/workflows/shellcheck.yml` | `--all`  | staged workflow files |
-| Bats       | `scripts/run-tests`         | `.github/workflows/bats.yml`       | `--all`  | staged `.bats` files  |
-| Core env   | `scripts/core-env-guard.sh` | `.github/workflows/shellcheck.yml` | sweep    | staged test files     |
+| Check      | Definition                  | CI job                             | pre-push    | pre-commit            |
+| ---------- | --------------------------- | ---------------------------------- | ----------- | --------------------- |
+| ShellCheck | `scripts/lint-shell`        | `.github/workflows/shellcheck.yml` | `--all`     | staged paths          |
+| actionlint | `scripts/lint-workflows`    | `.github/workflows/shellcheck.yml` | `--all`     | staged workflow files |
+| Bats       | `scripts/run-tests`         | `.github/workflows/bats.yml`       | `--no-perf` | staged non-perf tests |
+| Core env   | `scripts/core-env-guard.sh` | `.github/workflows/shellcheck.yml` | sweep       | staged test files     |
 
 actionlint and the core-env guard share the ShellCheck job rather than getting their own. The job id `shellcheck` is a
 required status check in both rulesets under `.github/rulesets/`, so a separate job would need a new required context
@@ -394,6 +394,25 @@ concurrently as well, so no single long file paces a shard. The shard jobs insta
 `.github/actions/setup-bats-suite`, and `.github/workflows/cache-seed.yml` runs that same action on every push to `dev`:
 a pull request's run can restore caches saved on its base branch but not those of another pull request, so without the
 seed every pull request's first run would start cold. The seed checks nothing, so it has no `pre-push` counterpart.
+
+The shell-startup perf suite in `tests/perf/` is the one local gate that CI does not exercise: a CI runner has no
+deployed dotfiles, so each of its tests skips there. Locally it times the startup files of the checkout it runs from,
+never the config installed under `$HOME`. Run it by hand from the checkout with `scripts/run-tests --perf-only`; a hand
+run ignores the list below and times the checkout whatever it changed.`tests/lib/startup-home.bash` builds a HOME whose startup files link to the checkout's and whose other entries link to
+the installed home, so oh-my-zsh, the plugins, and the caches are the ones a real shell finds. It leaves out `dotfiles`,
+because `config/shell/gogcli.sh` runs `stow --adopt` on `$HOME/dotfiles/stow`, and gives the HOME its own `.zsh/cache`,
+because oh-my-zsh rebuilds a completion dump built for other paths. A startup file the checkout deleted is absent from
+that HOME, and one still encrypted by git-crypt stays the installed copy.
+
+A run needs a changed path on `SHELL_STARTUP_PATHS` in `.githooks/lib/push-scope.sh`, the one list of what the six timed
+shells read from the checkout; when none changes, the suite neither runs nor times anything. `pre-push` judges the paths
+the push delivers, renames and deletions included, and runs the suite first and alone when one is on the list or the
+scope cannot be resolved. `pre-commit` runs it only when a `tests/perf/*.bats` file and a path on the list are both
+staged, alone before its other gates, and prints that the timing runs at `pre-push` when only a startup file is staged,
+or when a commit only deletes or moves one. Each hook prints the first path on the list that made the suite run, and a
+run in which every test skipped is reported as skipped, not passed.The list also names the files the HOME links from the checkout, so it cannot drift from what is timed;
+`tests/pre-push-scope.bats` starts the six shells under -x and fails when one reads a file of the checkout that the list
+omits, or when the checkout holds a file the shells look for under a package the list leaves out.
 
 `pre-push` is the repo-wide mirror: its steps map one-to-one onto CI jobs, and passing it should mean passing the
 pipeline. `pre-commit` runs the same scripts over staged paths only, so it stays fast enough for every commit while

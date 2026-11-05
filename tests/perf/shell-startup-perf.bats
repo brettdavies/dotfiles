@@ -5,13 +5,19 @@
 # both glob one level deep, so these do not run in the middle of the ~330-test
 # suite, where several hundred spawned shells make the machine slow enough to
 # push interactive zsh past its budget while nothing about the config changed.
-# The hook runs this directory first, on a quiet machine.
+# The hooks run this directory first, on a quiet machine, when a change touches a
+# file the shells read.
+#
+# The shells run under a HOME whose startup files are this checkout's
+# (tests/lib/startup-home.bash), so a commit or push is timed on the files it
+# changes rather than on what is installed.
 #
 # Every measurement is a best-of-N minimum rather than a single sample. Startup
 # latency has a hard floor and a long right tail: the minimum estimates the floor
 # and is stable, while the mean tracks whatever else the machine was doing.
 #
-# Run: bats tests/perf/
+# Run: scripts/run-tests --perf-only. A run by hand ignores SHELL_STARTUP_PATHS and
+# times the checkout whatever it changed.
 
 # Budgets sit well clear of the measured floor so ordinary machine noise does
 # not block a push, while still catching a real regression. Floors on the
@@ -21,21 +27,34 @@
 #   interactive zsh       327ms      interactive bash      144ms
 #   login zsh             139ms      login bash            140ms
 #
-# These run only in .githooks/pre-push, never in CI, so a budget is a local
-# ergonomics dial rather than a merge gate.
+# The hooks run this suite only when the commit or push changes a file the shells
+# read (SHELL_STARTUP_PATHS in .githooks/lib/push-scope.sh). CI reaches this file
+# through run-tests but has no deployed dotfiles, so every test skips there and a
+# budget is a local ergonomics dial rather than a merge gate.
 SAMPLES="${SHELL_PERF_SAMPLES:-9}"
 
-# On a host without the dotfiles deployed these would time a stock shell reading
-# no startup files, pass trivially, and report a green that means nothing.
+load ../lib/startup-home
+
+ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+
+# A host that never deployed the dotfiles also lacks what the startup files
+# load (oh-my-zsh, the zsh plugins, the caches), so the shells would time a chain
+# that stops early, pass trivially, and report a green that means nothing.
 _skip_unless_deployed() {
   [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
+}
+
+# The HOME the shells run under, built once per run.
+_shadow_home() {
+  SHADOW="$BATS_FILE_TMPDIR/home"
+  [ -d "$SHADOW" ] || startup_home "$ROOT" "$SHADOW"
 }
 
 # Wall-clock milliseconds for one invocation.
 _measure_once() {
   local start end
   start=$(/usr/bin/perl -MTime::HiRes=time -e 'printf "%.6f", time()')
-  eval "$1" >/dev/null 2>&1
+  HOME="$SHADOW" ZDOTDIR="$SHADOW" eval "$1" >/dev/null 2>&1
   end=$(/usr/bin/perl -MTime::HiRes=time -e 'printf "%.6f", time()')
   /usr/bin/perl -e "printf '%.0f', ($end - $start) * 1000"
 }
@@ -54,14 +73,35 @@ _measure_best_ms() {
   printf '%s' "$best"
 }
 
+# The host's core count and 1-minute load, as a phrase, or nothing when either
+# cannot be read. /proc/loadavg and nproc on Linux; sysctl on macOS, where the
+# load is `{ 1.23 4.56 7.89 }`.
+_host_load() {
+  local load cores
+  if [ -r /proc/loadavg ]; then
+    read -r load _ </proc/loadavg
+  else
+    load=$(sysctl -n vm.loadavg 2>/dev/null | awk '{ print $2 }')
+  fi
+  cores=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null) || cores=''
+  case $load in '' | *[!0-9.]*) return 0 ;; esac
+  case $cores in '' | *[!0-9]*) return 0 ;; esac
+  printf '%s-core host, 1-minute load %s' "$cores" "$load"
+}
+
 _assert_under() {
-  local label="$1" cmd="$2" budget="$3" ms
+  local label="$1" cmd="$2" budget="$3" ms host
   _skip_unless_deployed
+  _shadow_home
   ms=$(_measure_best_ms "$cmd")
   echo "# $label: ${ms}ms (best of $SAMPLES, budget ${budget}ms)" >&3
   [ "$ms" -lt "$budget" ] || {
     echo "$label took ${ms}ms at its floor, over the ${budget}ms budget"
-    echo "this is the fastest of $SAMPLES runs, so it is not contention"
+    echo "this is the fastest of $SAMPLES runs"
+    host=$(_host_load)
+    [ -z "$host" ] || echo "$host; a load above the core count lifts that floor"
+    echo "timed from the startup files of $ROOT; a bare '$cmd' in a shell reads the installed config and can differ"
+    echo "rerun from $ROOT: scripts/run-tests --perf-only"
     false
   }
 }

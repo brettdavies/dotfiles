@@ -7,6 +7,9 @@
 # Nothing here invokes `--all`: this file is part of what `--all` runs, so doing
 # so would recurse. The `--all` path is exercised by the gates themselves.
 #
+# The last section covers what the perf suite times. It runs here from a sandbox
+# checkout, through the dispatcher that runs it everywhere.
+#
 # Run: bats tests/run-tests.bats
 
 SCRIPT="$BATS_TEST_DIRNAME/../scripts/run-tests"
@@ -445,4 +448,166 @@ _rendezvous() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"1..2"* ]]
   [[ "$output" != *"# tests/perf/"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# The perf suite times the startup files of the checkout it runs from
+#
+# The shells it starts read their startup files through $HOME, so a timing
+# taken under the real $HOME measures whatever is installed there, never the
+# change being made. tests/lib/startup-home.bash builds a HOME whose startup
+# files are the checkout's; everything else in the real HOME is linked in, so
+# the shells still find oh-my-zsh, the plugins, and the caches they time.
+# ---------------------------------------------------------------------------
+
+# A stow tree standing in for a checkout, and a home standing in for the
+# installed one.
+_startup_fixture() {
+  CHECKOUT="$BATS_TEST_TMPDIR/checkout"
+  FAKE_HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$CHECKOUT/stow/shell" "$CHECKOUT/stow/zsh" "$CHECKOUT/stow/bash" "$CHECKOUT/stow/secrets" \
+    "$CHECKOUT/config/shell" "$CHECKOUT/.githooks/lib" "$FAKE_HOME/.oh-my-zsh" "$FAKE_HOME/.cargo"
+  cp "$BATS_TEST_DIRNAME/../.githooks/lib/push-scope.sh" "$CHECKOUT/.githooks/lib/"
+  printf 'checkout\n' | tee "$CHECKOUT/stow/shell/dot-profile" "$CHECKOUT/stow/zsh/dot-zshrc" \
+    "$CHECKOUT/stow/bash/dot-bashrc" "$CHECKOUT/stow/secrets/dot-secrets" >/dev/null
+  printf 'installed\n' | tee "$FAKE_HOME/.profile" "$FAKE_HOME/.zshrc" "$FAKE_HOME/.zlogin" >/dev/null
+}
+
+# _startup_home [<home>]: the shadow HOME for the fixture checkout, in $SHADOW.
+_startup_home() {
+  load lib/startup-home
+  SHADOW="$BATS_TEST_TMPDIR/shadow"
+  startup_home "$CHECKOUT" "$SHADOW" "${1:-$FAKE_HOME}"
+}
+
+@test "startup_home links each startup file from the checkout" {
+  _startup_fixture
+  _startup_home
+  [ "$(readlink "$SHADOW/.profile")" = "$CHECKOUT/stow/shell/dot-profile" ]
+  [ "$(readlink "$SHADOW/.zshrc")" = "$CHECKOUT/stow/zsh/dot-zshrc" ]
+  [ "$(readlink "$SHADOW/.bashrc")" = "$CHECKOUT/stow/bash/dot-bashrc" ]
+  [ "$(readlink "$SHADOW/.secrets")" = "$CHECKOUT/stow/secrets/dot-secrets" ]
+}
+
+@test "startup_home links the installed home's other entries through" {
+  _startup_fixture
+  _startup_home
+  [ "$(readlink "$SHADOW/.oh-my-zsh")" = "$FAKE_HOME/.oh-my-zsh" ]
+  [ "$(readlink "$SHADOW/.cargo")" = "$FAKE_HOME/.cargo" ]
+  [ "$(readlink "$SHADOW/.zlogin")" = "$FAKE_HOME/.zlogin" ]
+}
+
+@test "startup_home takes a startup file the checkout adds over the installed one" {
+  _startup_fixture
+  printf 'checkout\n' >"$CHECKOUT/stow/zsh/dot-zlogin"
+  _startup_home
+  [ "$(readlink "$SHADOW/.zlogin")" = "$CHECKOUT/stow/zsh/dot-zlogin" ]
+}
+
+@test "startup_home leaves dotfiles out, so no startup file can stow into a checkout" {
+  _startup_fixture
+  mkdir "$FAKE_HOME/dotfiles"
+  _startup_home
+  [ ! -e "$SHADOW/dotfiles" ] && [ ! -L "$SHADOW/dotfiles" ]
+}
+
+@test "startup_home keeps the installed secrets when the checkout's are still encrypted" {
+  _startup_fixture
+  printf '\0GITCRYPT\0ciphertext\n' >"$CHECKOUT/stow/secrets/dot-secrets"
+  printf 'installed\n' >"$FAKE_HOME/.secrets"
+  _startup_home
+  [ "$(readlink "$SHADOW/.secrets")" = "$FAKE_HOME/.secrets" ]
+}
+
+# The six perf tests run under one fixture checkout whose profile leaves a
+# marker file and an installed home whose profile leaves another. Which marker
+# exists after the run says which profile the shells read, whatever the
+# machine's load did to the timings.
+_perf_markers() {
+  _sandbox
+  MARK="$BATS_TEST_TMPDIR/marks"
+  FAKE_HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$MARK" "$FAKE_HOME" "$SANDBOX/.githooks/lib" "$SANDBOX/stow/shell" "$SANDBOX/stow/zsh" \
+    "$SANDBOX/stow/bash" "$SANDBOX/stow/secrets" "$SANDBOX/config/shell"
+  cp "$BATS_TEST_DIRNAME/perf/shell-startup-perf.bats" "$SANDBOX/tests/perf/"
+  cp "$BATS_TEST_DIRNAME"/lib/*.bash "$SANDBOX/tests/lib/"
+  cp "$BATS_TEST_DIRNAME/../.githooks/lib/push-scope.sh" "$SANDBOX/.githooks/lib/"
+  printf ': >"%s/checkout"\n' "$MARK" >"$SANDBOX/stow/shell/dot-profile"
+  printf '. "$HOME/.profile"\n' >"$SANDBOX/stow/bash/dot-bash_profile"
+  : >"$SANDBOX/stow/zsh/dot-zshenv"
+  : >"$SANDBOX/stow/zsh/dot-zshrc"
+  printf ': >"%s/installed"\n' "$MARK" >"$BATS_TEST_TMPDIR/installed-profile"
+  ln -s "$BATS_TEST_TMPDIR/installed-profile" "$FAKE_HOME/.profile"
+  : >"$FAKE_HOME/.zshenv"
+  : >"$FAKE_HOME/.zshrc"
+}
+
+@test "the perf suite times the checkout's startup files, not the installed ones" {
+  _perf_markers
+  run env HOME="$FAKE_HOME" SHELL_PERF_SAMPLES=1 "$SANDBOX/scripts/run-tests" --perf-only
+  # The markers are the assertion; the budgets belong to the hooks, so a slow host
+  # cannot fail this file.
+  [ -e "$MARK/checkout" ]
+  [ ! -e "$MARK/installed" ]
+}
+
+@test "the perf suite still skips on a host with no deployed dotfiles" {
+  _perf_markers
+  rm -f "$FAKE_HOME/.profile"
+  run env HOME="$FAKE_HOME" SHELL_PERF_SAMPLES=1 "$SANDBOX/scripts/run-tests" --perf-only
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | grep -c '# skip dotfiles not deployed')" -eq 6 ]
+  [ ! -e "$MARK/checkout" ] && [ ! -e "$MARK/installed" ]
+}
+
+@test "startup_home gives the HOME its own completion cache, leaving the installed one alone" {
+  _startup_fixture
+  mkdir -p "$FAKE_HOME/.zsh/cache"
+  printf 'installed dump\n' >"$FAKE_HOME/.zsh/cache/zcompdump"
+  _startup_home
+  [ -d "$SHADOW/.zsh/cache" ] && [ ! -L "$SHADOW/.zsh" ]
+  [ ! -e "$SHADOW/.zsh/cache/zcompdump" ]
+  [ "$(cat "$FAKE_HOME/.zsh/cache/zcompdump")" = "installed dump" ]
+}
+
+@test "startup_home drops an installed startup file the checkout no longer holds" {
+  _startup_fixture
+  ln -s "../dotfiles/stow/zsh/dot-zprofile" "$FAKE_HOME/.zprofile"
+  _startup_home
+  [ ! -e "$SHADOW/.zprofile" ] && [ ! -L "$SHADOW/.zprofile" ]
+}
+
+@test "startup_home keeps an installed link into a package the list does not name" {
+  _startup_fixture
+  ln -s "../dotfiles/stow/git/dot-gitconfig" "$FAKE_HOME/.gitconfig"
+  _startup_home
+  [ "$(readlink "$SHADOW/.gitconfig")" = "$FAKE_HOME/.gitconfig" ]
+}
+
+@test "startup_home links files only, so a directory in a startup package hides nothing" {
+  _startup_fixture
+  mkdir -p "$CHECKOUT/stow/zsh/dot-config" "$FAKE_HOME/.config"
+  _startup_home
+  [ "$(readlink "$SHADOW/.config")" = "$FAKE_HOME/.config" ]
+}
+
+@test "startup_home links the installed startup file in place of one still encrypted" {
+  _startup_fixture
+  printf '\0GITCRYPT\0ciphertext\n' >"$CHECKOUT/stow/secrets/dot-secrets"
+  ln -s "../dotfiles/stow/secrets/dot-secrets" "$FAKE_HOME/.secrets"
+  _startup_home
+  [ "$(readlink "$SHADOW/.secrets")" = "$FAKE_HOME/.secrets" ]
+}
+
+@test "a perf failure prints the host's load and core count, and never rules contention out" {
+  _perf_markers
+  # Only bash reads the fixture profile, so one budget fails: login bash, over 500ms.
+  printf 'sleep 0.7\n' >>"$SANDBOX/stow/shell/dot-profile"
+  run env HOME="$FAKE_HOME" SHELL_PERF_SAMPLES=1 "$SANDBOX/scripts/run-tests" --perf-only
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"login bash took"* ]]
+  [[ "$output" != *"not contention"* ]]
+  if [ -r /proc/loadavg ] || command -v sysctl >/dev/null 2>&1; then
+    [[ "$output" =~ [0-9]+-core\ host,\ 1-minute\ load\ [0-9]+\.[0-9]+ ]]
+  fi
 }

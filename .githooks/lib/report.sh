@@ -44,6 +44,8 @@ gate_header() { printf '%s%s%s\n' "$GATE_BOLD" "$1" "$GATE_RESET"; }
 gate_pass() { printf '  %s✓%s %s\n' "$GATE_GREEN" "$GATE_RESET" "$1"; }
 gate_skip() { printf '  %s- %s%s\n' "$GATE_DIM" "$1" "$GATE_RESET"; }
 gate_done() { printf '%s%s%s%s\n' "$GATE_BOLD" "$GATE_GREEN" "$1" "$GATE_RESET"; }
+# A line that is neither a verdict nor a skip, such as why a gate runs.
+gate_note() { printf '  %s%s%s\n' "$GATE_DIM" "$1" "$GATE_RESET"; }
 
 gate_fail() {
   printf '  %s✗%s %s\n' "$GATE_RED" "$GATE_RESET" "$1" >&2
@@ -91,4 +93,26 @@ gate_collect() {
   fi
   [ "$rc" = "0" ] || gate_fail "$failure"
   gate_pass "$label"
+}
+
+# gate_perf <command>...: run the shell-startup perf suite through <command>,
+# passing its TAP stream through, then report it. A suite whose every test
+# skipped measured nothing, so it is reported as skipped, never as passed.
+# Needs pipefail, which both hooks set.
+gate_perf() {
+  local tap rc=0 measured
+  tap="$(mktemp)"
+  "$@" | tee "$tap" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    rm -f "$tap"
+    gate_fail "shell-startup timing failed; rerun from the checkout with scripts/run-tests --perf-only"
+  fi
+  # grep -c reads the whole stream, so no writer takes SIGPIPE under pipefail.
+  measured=$(grep -E '^ok ' "$tap" | grep -vc '# skip' || true)
+  rm -f "$tap"
+  if [ "${measured:-0}" -gt 0 ]; then
+    gate_pass "shell-startup timing"
+  else
+    gate_skip "shell-startup timing (every test skipped: dotfiles are not deployed on this host)"
+  fi
 }

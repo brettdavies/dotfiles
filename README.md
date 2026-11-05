@@ -1040,9 +1040,10 @@ shell and again in its child, and fails when the child's exported environment di
 the fragments.
 
 Shell startup latency budgets live in `tests/perf/`, outside the `tests/*.bats` glob that the pre-push hook and CI use.
-The hook runs that directory first, on a quiet machine, and each measurement is a best-of-N minimum: run at the tail of
-the full suite, the several hundred shells it spawns push interactive zsh past its budget with nothing about the config
-having changed.
+The hook runs that directory first, on a quiet machine, only when the push changes a file the shells read (see
+`SHELL_STARTUP_PATHS` in `.githooks/lib/push-scope.sh`), and it times the checkout's startup files rather than the
+installed ones. Each measurement is a best-of-N minimum: run at the tail of the full suite, the several hundred shells
+it spawns push interactive zsh past its budget with nothing about the config having changed.
 
 | File                | Purpose                                                        |
 | ------------------- | -------------------------------------------------------------- |

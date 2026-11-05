@@ -4,7 +4,7 @@
 # Consumed by three callers that must not drift apart:
 #   .github/workflows/bats.yml  --all --shard I/N        (CI, one shard per runner)
 #   .githooks/pre-push          --perf-only, --no-perf   (mirrors CI)
-#   .githooks/pre-commit        <file>...                (staged test files)
+#   .githooks/pre-commit        <file>..., --perf-only   (staged tests; tests/perf only via --perf-only)
 #
 # Usage:
 #   scripts/run-tests --all        the perf suite, then the main suite
