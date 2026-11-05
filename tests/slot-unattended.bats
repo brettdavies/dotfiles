@@ -63,6 +63,7 @@ pretool() {
 ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
 
 @test "in a slot a permission request is denied with a message that says how to go on" {
+  slot repo 1
   run permission
   [ "$status" -eq 0 ]
   jaq -e '.hookSpecificOutput.hookEventName == "PermissionRequest"
@@ -204,4 +205,21 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [ "$status" -eq 0 ]
   [ -z "$output" ]
   [ $((SECONDS - start)) -le 6 ]
+}
+
+@test "on a foreign head a denied permission steers the agent away from running Python in the tree" {
+  slot repo 1 '{"task": "review", "head_foreign": true, "head_owner": "evil"}'
+  run permission
+  [ "$status" -eq 0 ]
+  message=$(jaq -r '.hookSpecificOutput.decision.message' <<<"$output")
+  [[ $message != *'`uv run` in place of `python`'* ]]
+  [[ $message == *'from outside this tree'* ]]
+  [[ $message == *"the session your brief reports to"* ]]
+}
+
+@test "a denied permission gives a slot whose record cannot be read the foreign head's advice, since it may be one" {
+  run permission
+  [ "$status" -eq 0 ]
+  message=$(jaq -r '.hookSpecificOutput.decision.message' <<<"$output")
+  [[ $message == *'from outside this tree'* ]]
 }

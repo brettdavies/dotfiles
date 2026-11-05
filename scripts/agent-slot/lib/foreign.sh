@@ -1,0 +1,70 @@
+# shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
+# Foreign heads: a slot's head in a repository whose owner is not trusted. Slot paths are trusted in Claude ahead of time
+# and Claude runs in bypass permissions mode, so what a checkout tracks would otherwise run as this account before anyone
+# reads it. A slot on a foreign head loads no Claude settings from the tree (SESSIONS_FOREIGN_ARGS), keeps the tree's Claude
+# config off disk, runs no git hooks, and skips each setup step that acts on what the head tracks.
+#
+# The owner decides, on a fork or on the PR's own repo: a same-repo PR on a third party's origin is that third party's
+# code. A slot on the base with no PR is not foreign, since trusting the prime chose its base. An owner that cannot be
+# determined is foreign, so the decision fails closed.
+
+# A jq definition: foreign_fields, the verdict as an output or a ledger line reports it, on a slot's record.
+FOREIGN_FIELDS_DEF='def foreign_fields: {head_foreign: (.head_foreign // false), head_owner: (.head_owner // null)};'
+
+# Usage: foreign_url <url>; true unless the URL is a GitHub repo with a trusted owner (owners.sh). An empty URL, which is
+# how a head whose repository is gone reaches here, and a URL that is not GitHub's are foreign.
+foreign_url() {
+  local slug
+  slug=$(head_github_slug "$1")
+  [[ -n $slug ]] || return 0
+  ! owner_trusted "${slug%%/*}"
+}
+
+# Usage: foreign_fields <url>...; prints the JSON object a slot's seed merges: {head_foreign: true, head_owner} for the
+# first foreign URL, with a null owner when it names none, else {}.
+foreign_fields() {
+  local url slug
+  for url in "$@"; do
+    foreign_url "$url" || continue
+    slug=$(head_github_slug "$url")
+    contract_json -n -c --arg owner "${slug%%/*}" \
+      '{head_foreign: true, head_owner: (if $owner == "" then null else $owner end)}'
+    return
+  done
+  printf '{}'
+}
+
+# The sparse patterns that leave out of a foreign head's tree, at any depth, what a tool started there would load. Claude's
+# flags cover only the Claude the slot starts: skills shell out to `claude -p`, and a person can type `claude` in any of
+# the slot's panes. Every Bun-run CLI, qmd among them, runs the preload bunfig.toml names and takes .env's variables into
+# its children, and bunx prefers node_modules/.bin over the tool it was asked for. The patterns have no trailing slash so
+# that a tracked link goes too. A sparse checkout survives git checkout, reset, and stash, and leaves the files readable
+# with git show and intact in what the agent pushes.
+FOREIGN_SPARSE=('/*' '!.claude' '!.mcp.json' '!AGENTS.md' '!CLAUDE.md' '!CLAUDE.local.md' '!bunfig.toml' '!.env' '!.env.*' '!node_modules')
+
+# Usage: foreign_prepare <slot>; runs before the head is checked out. Checking out an LFS pointer calls the server the
+# head's own .lfsconfig names, and a server that never answers holds the slot's setup for as long as the checkout's bound,
+# so pointers stay pointers for the slot's whole life.
+foreign_prepare() {
+  git -C "$1" config filter.lfs.smudge 'git-lfs smudge --skip -- %f'
+  git -C "$1" config filter.lfs.process 'git-lfs filter-process --skip'
+  git -C "$1" sparse-checkout set --no-cone "${FOREIGN_SPARSE[@]}"
+}
+
+# Usage: foreign_parity <repo> <n> <slot>; the setup a foreign head gets in place of the full parity steps. It leaves out
+# git-crypt, since the key decrypts any file under its filter, a blob lifted from another repo included, so encrypted files
+# stay ciphertext here; core.hooksPath and hook copies, which would run the head's hooks or hooks that call into its tree;
+# the prime's Claude settings, which Claude would not load here, and whose auto memory a slot on an unreviewed head should
+# not share; and the repo-recon and sibling links, whose paths and targets the head's tree decides.
+#
+# A sparse checkout clears the skip-worktree bit from a file on disk, and that bit is what keeps the solutions link's
+# re-point out of a commit, so a tracked link goes outside the patterns, with git told to expect it there. A real directory
+# stays inside them, for parity_solutions to refuse.
+foreign_parity() {
+  local repo=$1 n=$2 slot=$3
+  if [[ $(git -C "$slot" ls-tree HEAD -- docs/solutions | cut -d' ' -f1) == 120000 ]]; then
+    git -C "$slot" config sparse.expectFilesOutsideOfPatterns true
+    git -C "$slot" sparse-checkout set --no-cone "${FOREIGN_SPARSE[@]}" '!/docs/solutions'
+  fi
+  parity_solutions "$repo" "$n" "$slot"
+}

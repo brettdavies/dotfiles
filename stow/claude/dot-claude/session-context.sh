@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# Everything below reports the host, and a tool started in a tree nobody has reviewed loads config from it: qmd runs under
+# Bun, which runs the preload a bunfig.toml in its working directory names.
+cd / || exit 0
+
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/claude"
 CACHE_TTL=3600 # 1 hour
 

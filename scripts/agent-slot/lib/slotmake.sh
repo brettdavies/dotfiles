@@ -76,13 +76,17 @@ slot_prompt_file() { printf '%s/.git/agent-slot-prompt.md' "$1"; }
 # record is a setting-up record with a fresh session ID and the JSON object <seed> merged over it; <prompt file>, when
 # not empty, is copied into the slot as Claude's first message; and the sessions start in the given mode. The head
 # step, a function given the slot's path, runs right after the base checkout, so the tree it leaves is the one parity
-# unlocks and scans. The <event> ledger line, with the JSON object <event fields> merged over it, the Rex push, and
+# unlocks and scans. A seed with head_foreign gets foreign_prepare before that step and foreign_parity in place of the
+# parity steps after it. The <event> ledger line, with the JSON object <event fields> merged over it, the Rex push, and
 # SLOT_MADE (the slot number), SLOT_MADE_TRUST, and SLOT_MADE_PHASES follow. <command> is the verb's command line
 # without --request-id, which an error's next step retries with the seed's request ID.
 slot_make() {
   local repo=$1 event=$2 command=$3 seed=$4 prompt=$5 mode=$6 head=${7:-} fields=${8:-'{}'} retry n live
   local max=$AS_MAX_PER_REPO initial
   local path prompt_copy out trust=false filter t_start t_clone t_setup t_deps t_trust t_tmux t_claude phases request
+  local foreign
+  local -a trust_args=()
+  foreign=$(contract_json -r '.head_foreign // false' <<<"$seed")
   request=$(contract_json -r '.request_id // ""' <<<"$seed")
   retry=$command${request:+ --request-id $request}
   live=$(slot_numbers "$repo" | grep -c . || true)
@@ -130,13 +134,21 @@ slot_make() {
     contract_fail clone-failed "checking out $PARITY_BASE in the new clone failed" --value "$PARITY_BASE" \
       --side-effects none --command "$retry" --log "$BOUNDED_LOG"
   fi
+  if [[ $foreign == true ]]; then
+    foreign_prepare "$path"
+    trust_args=("${SESSIONS_FOREIGN_ARGS[@]}")
+  fi
   [[ -z $head ]] || "$head" "$path"
-  parity_git_crypt "$path"
-  parity_hooks "$REPO_PRIME" "$path"
-  parity_solutions "$repo" "$n" "$path"
-  parity_repo_recon "$REPO_PRIME" "$path"
-  parity_claude_settings "$REPO_PRIME" "$path"
-  parity_siblings "$repo" "$path"
+  if [[ $foreign == true ]]; then
+    foreign_parity "$repo" "$n" "$path"
+  else
+    parity_git_crypt "$path"
+    parity_solutions "$repo" "$n" "$path"
+    parity_repo_recon "$REPO_PRIME" "$path"
+    parity_claude_settings "$REPO_PRIME" "$path"
+    parity_siblings "$repo" "$path"
+    parity_hooks "$REPO_PRIME" "$path"
+  fi
   prompt_copy=$(slot_prompt_file "$path")
   if [[ -n $prompt ]]; then
     cp "$prompt" "$prompt_copy"
@@ -145,12 +157,13 @@ slot_make() {
     --arg file "$prompt_copy" '.base = $base | .prompt_file = (if $prompt then $file else null end)'
   t_setup=$(_slot_us)
 
-  parity_deps "$REPO_PRIME" "$path"
+  # A foreign head's install is its own code, on any base: its lifecycle scripts run as this account.
+  [[ $foreign == true ]] || parity_deps "$REPO_PRIME" "$path"
   record_update "$repo" "$n" --argjson deps "$PARITY_DEPS" '.deps = $deps'
   t_deps=$(_slot_us)
 
   contract_use_tools tmux claude
-  if ! trust_known "$path" && ! { trust_known "$REPO_PRIME" && trust_accept "$path"; }; then
+  if ! trust_known "$path" && ! { trust_known "$REPO_PRIME" && trust_accept "$path" "${trust_args[@]}"; }; then
     trust=true
     record_update "$repo" "$n" '.trust_prompt_expected = true'
   fi
@@ -170,9 +183,10 @@ slot_make() {
       trust: (($e - $d) / 1000000), tmux: (($f - $e) / 1000000), claude: (($g - $f) / 1000000)}')
   record_read "$repo" "$n"
   ledger_append "$event" "$(contract_json -c --argjson phases "$phases" --argjson trust "$trust" --arg path "$path" \
-    --argjson fields "$fields" --argjson started "$t_start" --argjson made "$t_claude" '{request_id, requested_at,
+    --argjson fields "$fields" --argjson started "$t_start" --argjson made "$t_claude" "$FOREIGN_FIELDS_DEF"'{request_id, requested_at,
       started_at: ($started / 1000000), made_at: ($made / 1000000), repo, slot, path: $path, task, session_id,
-      created: true, trust_prompt_expected: $trust, phases: $phases, deps, items: (.items // []), name} + $fields' \
+      created: true, trust_prompt_expected: $trust, phases: $phases, deps, items: (.items // []), name} + foreign_fields
+      + $fields' \
     <<<"$RECORD")"
   push_restore "$event" "$(slot_key "$repo" "$n")"
   SLOT_MADE=$n SLOT_MADE_TRUST=$trust SLOT_MADE_PHASES=$phases

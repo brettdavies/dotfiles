@@ -8,7 +8,8 @@
 # offers a supported way to trust a path.
 #
 # Trusting a path lets Claude load the repo's own .claude settings and hooks, so a slot path is trusted only for a repo
-# whose prime checkout the operator has already trusted in Claude. Any other repo's launch shows trust needed.
+# whose prime checkout the operator has already trusted in Claude. Any other repo's launch shows trust needed. Accepting
+# the dialog runs what Claude then loads, so the scratch Claude of a foreign head takes the flags its slot's Claude does.
 
 TRUST_LOG=
 
@@ -49,18 +50,19 @@ _trust_kill() {
   bounded out trust-kill 5 "$AS_TMUX" -L "$AS_TRUST_SOCKET" kill-session -t "=$1" || true
 }
 
-# Usage: trust_accept <path>
+# Usage: trust_accept <path> [<claude args...>]
 # Returns 0 once the path is trusted (accepted here, or already), 1 when the screen was not one it recognizes; then
 # TRUST_LOG holds the last screen.
 trust_accept() {
   local path=$1 real session screen='' out kind='' accepted=0 last_key=0 deadline
+  shift
   real=$(realpath -m "$path")
   session=trust-$$-${path//[^A-Za-z0-9]/_}
   TRUST_LOG=
   contract_on_exit _trust_kill "$session"
   if ! bounded out trust-start 10 /usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" \
     TERM=xterm-256color LANG="${LANG:-C.UTF-8}" PATH="$PATH" \
-    "$AS_TMUX" -L "$AS_TRUST_SOCKET" -f /dev/null new-session -d -s "$session" -x 240 -y 50 -c "$path" "$AS_CLAUDE"; then
+    "$AS_TMUX" -L "$AS_TRUST_SOCKET" -f /dev/null new-session -d -s "$session" -x 240 -y 50 -c "$path" "$AS_CLAUDE" "$@"; then
     TRUST_LOG=$BOUNDED_LOG
     return 1
   fi

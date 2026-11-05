@@ -1,10 +1,25 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
-# Setting a fresh clone up like the repo's prime checkout. The order matters: git-crypt unlocks the tree before any
-# hook path is set, so no hook runs against ciphertext, and a clone that stays locked is refused rather than handed
-# out, because it would commit plaintext into encrypted paths.
+# Setting a fresh clone up like the repo's prime checkout. The order matters: the hook path is set last, so no git command
+# setup runs fires a hook the tree tracks and none runs against ciphertext, and a clone that stays locked is refused rather
+# than handed out, because it would commit plaintext into encrypted paths. A foreign head gets foreign_parity instead.
 
 PARITY_BASE=
 PARITY_MISSING_SIBLINGS=()
+
+# Usage: parity_dir_in_slot <slot> <dir>; fails the launch when <dir>, relative to the slot, is a link that leads out of
+# the slot, since the write setup is about to make under it would land there. The branch's tree decides what that path
+# is, on a slot of any head.
+parity_dir_in_slot() {
+  local slot=$1 dir=$2 inspect
+  path_under "$slot/$dir" "$slot" && return 0
+  if [[ -n ${ITEM_NUMBER:-} ]]; then
+    inspect=$(contract_quote gh "$ITEM_KIND" view "$ITEM_NUMBER" --repo "$ITEM_REPO")
+  else
+    inspect=$(contract_quote git -C "$REPO_PRIME" ls-tree "origin/$PARITY_BASE" -- "$dir")
+  fi
+  contract_fail tracked-link-leaves-slot "$dir in this head is a link out of the slot, so setup cannot write under it" \
+    --value "$slot/$dir" --command "$inspect" --side-effects none
+}
 
 # Usage: parity_base <slot>; sets PARITY_BASE to dev when origin has it, else to origin's default branch.
 parity_base() {
@@ -108,6 +123,7 @@ parity_solutions_fetch_wait() {
 # link never reaches a commit. The fetch is best effort; offline, the worktree starts at the local origin/main.
 parity_solutions() {
   local repo=$1 n=$2 slot=$3 link=$3/docs/solutions root wt out
+  parity_dir_in_slot "$slot" docs
   if [[ ! -d $AS_SOLUTIONS ]]; then
     contract_fail solutions-symlink-missing \
       "the docs/solutions symlink could not be created: the shared solutions repo is missing at $AS_SOLUTIONS" \
@@ -172,6 +188,7 @@ parity_repo_recon() {
   local store link=$2/.context/repo-recon
   store=$(parity_repo_recon_store "$1")
   [[ -n $store && ! -e $link && ! -L $link ]] || return 0
+  parity_dir_in_slot "$2" .context
   mkdir -p "$2/.context"
   ln -s "$store" "$link"
 }
@@ -199,9 +216,10 @@ parity_memory_dir() {
 # Usage: parity_claude_settings <prime> <slot>
 # Writes the slot's .claude/settings.local.json with two keys: the prime's auto memory directory, and the prime's
 # permission rules with the prime's path rewritten to the slot's wherever it is not the start of a longer name. Copied, never linked: Claude rewrites the file in
-# place.
+# place. A branch can track the file, even as a link to a file outside the slot, so a link is replaced rather than
+# written through, and a tracked file is marked skip-worktree, so the slot's copy never reaches a commit.
 parity_claude_settings() {
-  local prime=$1 slot=$2 perms='null' file=$1/.claude/settings.local.json
+  local prime=$1 slot=$2 perms='null' file=$1/.claude/settings.local.json target=$2/.claude/settings.local.json
   if [[ -r $file ]]; then
     perms=$(contract_json -c --arg p "$prime" --arg s "$slot" '
       def swap_string: split($p) as $parts
@@ -211,10 +229,14 @@ parity_claude_settings() {
         elif type == "string" then swap_string else . end;
       .permissions // null | swap' "$file")
   fi
+  parity_dir_in_slot "$slot" .claude
   mkdir -p "$slot/.claude"
+  [[ ! -L $target ]] || rm -f "$target"
   contract_json -n --arg mem "$(parity_memory_dir "$prime")" --argjson perms "$perms" \
-    '{autoMemoryDirectory: $mem} + (if $perms == null then {} else {permissions: $perms} end)' \
-    >"$slot/.claude/settings.local.json"
+    '{autoMemoryDirectory: $mem} + (if $perms == null then {} else {permissions: $perms} end)' >"$target"
+  if git -C "$slot" ls-files --error-unmatch -- .claude/settings.local.json >/dev/null 2>&1; then
+    git -C "$slot" update-index --skip-worktree -- .claude/settings.local.json
+  fi
 }
 
 # Tracked symlinks, NUL-separated.

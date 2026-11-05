@@ -4,7 +4,8 @@
 #   <repo>-<N>        claude in bypass permissions mode, started with the slot's session ID, the slot's name (else its
 #                     task) when it has one, and the first message read from a file by the shell itself, so the prompt
 #                     never passes through tmux or quoting
-#   <repo>-<N>-files  yazi, through the `y` shell function when it exists
+#   <repo>-<N>-files  yazi, through the `y` shell function when it exists; on a foreign head (foreign.sh) a listing, since
+#                     yazi's fetchers and previewers parse what the cursor lands on with no key pressed
 #   <repo>-<N>-git    lazygit
 #
 # A typed command leaves the shell behind when the program exits, so a pane outlives its program. Sessions start from
@@ -17,6 +18,16 @@
 # path. It starts without its own warning only when ~/.claude/settings.json accepts it (agent-slot doctor checks).
 
 SESSIONS_CLAUDE='claude --dangerously-skip-permissions'
+# What a foreign head's Claude adds: no project or local settings, so no hook, status line, helper, or environment from
+# the tree, and none of its CLAUDE.md, rules, skills, commands, or agents. Local stays out because a head can track
+# settings.local.json, and any git restore puts back the file setup would otherwise overwrite. --setting-sources alone
+# kept .mcp.json from starting when measured; --strict-mcp-config is the flag documented to do it.
+SESSIONS_FOREIGN_ARGS=(--setting-sources user --strict-mcp-config)
+# The environment of a foreign head's sessions. A head can track a directory shaped like a repository, whose config names
+# a command in core.fsmonitor, and git run below it, as by a status line, discovers that repository and runs the command.
+# Git reads this setting only from protected config such as this, never from the clone's own, and it holds for a shape
+# that arrives in a later commit.
+SESSIONS_FOREIGN_ENV=(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.bareRepository GIT_CONFIG_VALUE_0=explicit)
 # Every slot's Claude runs at this effort, set on its command line so no settings file decides it.
 SESSIONS_EFFORT=xhigh
 # The models a slot can run on, by the name launch and reopen take. A Sonnet slot starts with Opus as its advisor.
@@ -95,21 +106,28 @@ sessions_record_transcript() {
     "$(contract_json -r '.transcript // ""' <<<"$RECORD")"
 }
 
+# True when the record in RECORD has a foreign head (foreign.sh).
+sessions_foreign() { [[ $(contract_json -r '.head_foreign // false' <<<"$RECORD") == true ]]; }
+
 # Usage: sessions_command <repo> <n> <claude | files | git> [launch | resume | reopen]
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
 # value from it is shell-quoted. A resume or reopen whose conversation was never saved starts Claude as a launch does.
 # In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name,
-# and runs on the record's model through sessions_claude; a record with no model runs on Opus.
+# and runs on the record's model through sessions_claude; a record with no model runs on Opus. A record with head_foreign
+# also starts Claude without the tree's settings.
 # The first message goes with a launch and a reopen only: a resume brings back a slot that already had it.
 sessions_command() {
   local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude
   case $kind in
-    files) printf '%s' 'command -v y >/dev/null && y || yazi' ;;
+    files)
+      if sessions_foreign; then printf '%s' 'ls -A'; else printf '%s' 'command -v y >/dev/null && y || yazi'; fi
+      ;;
     git) printf '%s' 'lazygit' ;;
     claude)
       name=$(contract_json -r '.name // .task // ""' <<<"$RECORD")
       claude=$(sessions_claude "$(contract_json -r '.model // "opus"' <<<"$RECORD")")
       prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
+      ! sessions_foreign || claude+=" ${SESSIONS_FOREIGN_ARGS[*]}"
       if [[ $mode != launch ]] && _sessions_conversation_saved; then
         printf -v cmd '%s --resume %q' "$claude" "$(contract_json -r '.session_id' <<<"$RECORD")"
         [[ $mode == reopen ]] || prompt=''
@@ -129,10 +147,13 @@ sessions_command() {
 # RECORD. Sets SESSIONS_CREATED to the sessions it made. The caller holds the slot lock, so two calls never race to
 # create the same session.
 sessions_start() {
-  local repo=$1 n=$2 mode=$3 path kind name shell out
-  local -a start
+  local repo=$1 n=$2 mode=$3 path kind name shell out setting
+  local -a start env=()
   path=$(slot_path "$repo" "$n")
   shell=$(_sessions_shell)
+  if sessions_foreign; then
+    for setting in "${SESSIONS_FOREIGN_ENV[@]}"; do env+=(-e "$setting"); done
+  fi
   SESSIONS_CREATED=()
   slot_sessions_or_fail
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
@@ -140,7 +161,7 @@ sessions_start() {
     grep -qxF "$name" <<<"$SLOT_SESSIONS" && continue
     start=(/usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$shell" TERM=xterm-256color
       LANG="${LANG:-C.UTF-8}" PATH="$PATH"
-      "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$name" -c "$path" "$shell" -l)
+      "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$name" "${env[@]}" -c "$path" "$shell" -l)
     if [[ -n $SLOT_SESSIONS || ${#SESSIONS_CREATED[@]} -gt 0 ]] || ! _sessions_scoped "${start[@]}"; then
       bounded out tmux 10 "${start[@]}" || _sessions_fail "$repo" "$n" "$name"
     fi

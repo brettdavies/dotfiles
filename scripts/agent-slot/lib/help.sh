@@ -44,7 +44,8 @@ verb_help() {
     whoami) printf '%s\n' 'usage: agent-slot whoami [--path DIR] [--output json]' \
       'Prints the slot that DIR (default: the current directory) is inside. Outside a slot it fails with the error' \
       'reason not-in-slot (exit 1).' \
-      'returns: slot, the slot record plus {key, path, label_name}' \
+      'returns: slot, the slot record plus {key, path, label_name}; the record has head_foreign and head_owner only' \
+      '         when its head is a foreign head' \
       'example: agent-slot whoami --output json' ;;
     launch) printf '%s\n' \
       'usage: agent-slot launch <repo> --model (opus | sonnet) [--pr <ref> | --issue <ref>] [--request-id ID]' \
@@ -66,15 +67,21 @@ verb_help() {
       'checked out tracking the remote that holds it: origin, the remote the prime checkout has for that repo, or' \
       'fork. A head whose branch or repository is gone is checked out from refs/pull/N/head with no upstream, and' \
       'head_pushable is false. An issue leaves the base branch checked out.' \
+      "A head in a repo whose owner is outside AGENT_SLOT_TRUSTED_OWNERS or cannot be determined, on a fork or on the" \
+      "PR's own repo, is a foreign head: head_foreign is true, Claude starts with user settings only, and git" \
+      'gets no hooks. To run a fork once someone has reviewed it, tear its slot down and launch again with its owner' \
+      "added for that one command: AGENT_SLOT_TRUSTED_OWNERS='$(owners_list) <owner>' agent-slot launch <repo> --model opus --pr" \
+      '<ref>. That checks out the branch as it is then, so compare it with what was reviewed. See the README.' \
       '--requested-at, --opened-at, and --shown-at are seconds since the epoch: when the launch was asked for, and' \
       'for a launch from the new-agent key, when its tab opened and when Rex.app showed it; the launch'"'"'s ledger' \
       'line keeps them for doctor'"'"'s key to ready.' \
       'returns: created, key, repo, slot, path, state, task, name, items[] of {kind, repo, number, title}, label_name,' \
       '         request_id, session_id, base, head_pushable (null without a PR head), trust_prompt_expected,' \
       '         prompt_delivered (null without --prompt-file), missing_siblings, phases,' \
+      '         head_foreign, head_owner (null when unknown or not foreign),' \
       '         deps ({manager, command, status, log} of the frozen install of the root lockfile, status one of' \
       '         installed, failed, timed-out, tool-missing, prime-not-set-up, head-not-on-base;' \
-      '         null when the repo has nothing to install),' \
+      '         null when the repo has nothing to install or the head is foreign),' \
       '         next_step,' \
       '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
       '         reopen resumes, else null)' \
@@ -152,15 +159,17 @@ verb_help() {
       '--dry-run changes nothing and exits 0 with the plan, or with the refusal a reopen would hit; a ref GitHub' \
       'cannot read still fails. The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
       'the base, fetched from the remote the ledger recorded for it when that is on origin'"'"'s host, else from the' \
-      "PR's head repository. A --prompt-file needs a line for each of Scope:, Limits:, Reviews:, and Reports to:," \
-      'each with a value, or the reopen is refused with brief-incomplete. Agents ask the operator first.' \
+      "PR's head repository. A reopen is a foreign head when the source slot was, or when that URL or a PR's head on" \
+      'GitHub is. A --prompt-file needs a line for each of Scope:, Limits:, Reviews:, and Reports to:, each with a value,' \
+      'or the reopen is refused with brief-incomplete. Agents ask the operator first.' \
       'returns: launch'"'"'s fields (key, name, items, session_id, prompt_delivered, ...) plus reopened_from {slot,' \
       '         session_id, ts}, settled_prs (the PRs already merged or closed, which neither finish nor block the' \
       '         task), head, and head_moved; with --dry-run, dry_run, would_reopen, refusal (null, or {reason,' \
       '         exit_code, message, value, next_step, recovery}), item, source (the teardown event, or {key, state,' \
       '         name, items, session_id} of the slot that holds the item or request), name, items[] of {kind, repo,' \
       '         number, title}, task, session_id, transcript, transcript_exists, head {branch, remote, url, oid,' \
-      '         source {branch, remote}}, slot, command, prompt_delivered' \
+      '         source {branch, remote}}, slot, command, prompt_delivered. Both forms return head_foreign and' \
+      '         head_owner, null when a dry run plans no head' \
       'example: agent-slot reopen dotfiles --model opus --pr 887 --dry-run --output json' ;;
     sweep) printf '%s\n' 'usage: agent-slot sweep [--yes [--auto]] [--output json]' \
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \
