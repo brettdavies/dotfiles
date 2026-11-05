@@ -64,9 +64,10 @@ head_checkout() {
 # checks out, {branch, remote, url, oid, source: {branch, remote}}, for an item as item_resolve reads it. The caller
 # has run repo_prime. The branch is the event's head when the event kept that branch, else a PR's head branch on
 # GitHub, else the base. Its remote and URL are the event's for that branch only when the URL is on origin's host,
-# since the slot's own agent wrote them, and are origin when they name origin's repo; else they are a PR's head
-# repository on GitHub, under the prime's name for it or fork, with a null remote when that repository is gone, so the
-# head comes from refs/pull/<N>/head.
+# since the slot's own agent wrote them, and are origin when they name origin's repo. A URL recorded under the name
+# origin that names another repo goes under fork: the clone's origin would otherwise answer for it, and that URL is what
+# the verdict judged. Else they are a PR's head repository on GitHub, under the prime's name for it or fork, with a null
+# remote when that repository is gone, so the head comes from refs/pull/<N>/head.
 HEAD_PLAN=null
 head_plan() {
   local event=$1 item=$2 kind branch from=ledger entry url remote host origin_slug
@@ -85,6 +86,8 @@ head_plan() {
     origin_slug=$(head_github_slug "$REPO_ORIGIN")
     if [[ -n $origin_slug && $(head_github_slug "$url") == "$origin_slug" ]]; then
       remote=origin url=$REPO_ORIGIN
+    elif [[ $remote == origin && $url != "$REPO_ORIGIN" ]]; then
+      remote=fork
     fi
     _head_plan_json "$branch" "$remote" "$url" "$entry" "$from" ledger
   elif [[ -n $branch && $kind == pr ]]; then

@@ -1277,3 +1277,20 @@ head_the_base_holds() {
   [ -e "$T/marks/bun-install" ]
   jaq -e '.deps.status == "installed"' <<<"$output"
 }
+
+@test "a reopen fetches a branch from the URL it judged, not from an origin that names a third party's repo" {
+  hostile_head "$T/origins/repoa.git" feat/x 7
+  local own_commit
+  own_commit=$(git -C "$T/seed-repoa" rev-parse main)
+  git -C "$T/seed-repoa" push -q "$T/forks/me/repoa.git" main:refs/heads/feat/x
+  gh_item issue 12 "Fix the widget"
+  local entry
+  entry=$(jaq -n -c --arg sha "$own_commit" '{name: "feat/x", oid: $sha, remote: "origin", url: "https://github.com/me/repoa.git"}')
+  teardown_event "{\"items\": [$ISSUE12], \"head\": \"feat/x\", \"branches\": [$entry]}"
+  reopen repoa --issue 12
+  [ "$status" -eq 0 ]
+  jaq -e '.head_foreign == false and .head.remote == "fork"' <<<"$output"
+  [ "$(git -C "$SLOT" rev-parse HEAD)" = "$own_commit" ]
+  [ "$(git -C "$SLOT" config --get remote.fork.url)" = https://github.com/me/repoa.git ]
+  [ -z "$(ls "$T/marks")" ]
+}
