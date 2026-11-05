@@ -165,7 +165,8 @@ rex_helper() {
   json=$output
   [ "$(grep -c ' new-session ' "$CALLS")" -eq 3 ]
   for kind in repoa-prime repoa-prime-files repoa-prime-git; do
-    grep -qF -- "-L agent-slot-test -f $AGENT_SLOT_TMUX_CONF new-session -d -s $kind -c $checkout " "$CALLS"
+    grep -qF -- "-L agent-slot-test -f $AGENT_SLOT_TMUX_CONF new-session -d -s $kind-starting -c $checkout " "$CALLS"
+    grep -qxF -- "tmux -L agent-slot-test -f $AGENT_SLOT_TMUX_CONF rename-session -t =$kind-starting $kind" "$CALLS"
   done
   [ "$(cat "$STUBS/typed-repoa-prime-files")" = 'command -v y >/dev/null && y || yazi' ]
   [ "$(cat "$STUBS/typed-repoa-prime-git")" = lazygit ]
@@ -469,6 +470,51 @@ JSON
   [ "$(cat "$T/one" "$T/two" | jaq -s -c '[.[].started | length] | sort')" = '[0,3]' ]
 }
 
+# cut_start COMMAND: a start killed, its whole process group at once, while its tmux COMMAND runs, as a timeout around
+# the start kills it; then that tmux call, which bounded's own timeout keeps in a process group of its own. Fails when
+# the start never reaches COMMAND.
+cut_start() {
+  local pid _
+  wrap_tmux "[[ \" \$* \" != *\" $1 \"* || ! -e \$STUBS/cut ]] \
+    || { echo \$\$ >\"\$STUBS/cut-pid\"; : >\"\$STUBS/cut-reached\"; exec sleep 60; }"
+  : >"$STUBS/cut"
+  spawn "$AGENT_SLOT" prime repoa --output json
+  pid=$!
+  for _ in {1..300}; do
+    [[ ! -e $STUBS/cut-reached && $(ps -o stat= -p "$pid" 2>/dev/null) == [^Z]* ]] || break
+    sleep 0.1
+  done
+  [ -e "$STUBS/cut-reached" ]
+  stop_spawned
+  kill "$(<"$STUBS/cut-pid")"
+  rm "$STUBS/cut" "$STUBS/cut-reached" "$STUBS/cut-pid"
+}
+
+@test "a start cut off between creating a session and typing into it leaves no prime to report, and the next start builds it" {
+  cut_start send-keys
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.primes == []' <<<"$output"
+  start
+  [ "$status" -eq 0 ]
+  jaq -e --argjson started "$PRIME_SESSIONS" '.started == $started' <<<"$output"
+  [[ $(cat "$STUBS/typed-repoa-prime") == 'claude --dangerously-skip-permissions --session-id '* ]]
+  [ "$(sort "$STUBS/tmux-sessions")" = $'repoa-prime\nrepoa-prime-files\nrepoa-prime-git' ]
+}
+
+@test "a start cut off after typing Claude in, before the session takes its name, leaves no prime, and the next start replaces it" {
+  cut_start rename-session
+  [ -e "$STUBS/typed-repoa-prime-starting" ]
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.primes == []' <<<"$output"
+  start
+  [ "$status" -eq 0 ]
+  jaq -e --argjson started "$PRIME_SESSIONS" '.started == $started' <<<"$output"
+  grep -qF -- ' kill-session -t =repoa-prime-starting' "$CALLS"
+  [ "$(sort "$STUBS/tmux-sessions")" = $'repoa-prime\nrepoa-prime-files\nrepoa-prime-git' ]
+}
+
 @test "a run that waits past the bound on another's lock exits slot-busy, and retrying names the verb" {
   export AGENT_SLOT_LOCK_WAIT=1
   mkdir -p "$AGENT_SLOT_STATE_DIR/primes"
@@ -615,7 +661,7 @@ PRIME_SESSIONS='["repoa-prime", "repoa-prime-files", "repoa-prime-git"]'
   jaq -e --argjson started "$PRIME_SESSIONS" '.key == "repoa/1" and .created == true
     and .prime.key == "repoa/prime" and .prime.server == "slots" and .prime.started == $started' <<<"$output"
   [ "$(grep -c ' new-session ' "$CALLS")" -eq 6 ]
-  grep -qF -- "new-session -d -s repoa-prime -c $AGENT_SLOT_DEV/repoa " "$CALLS"
+  grep -qF -- "new-session -d -s repoa-prime-starting -c $AGENT_SLOT_DEV/repoa " "$CALLS"
 }
 
 @test "a launch with the old-style session running reports it and starts no prime session" {
@@ -649,7 +695,7 @@ PRIME_SESSIONS='["repoa-prime", "repoa-prime-files", "repoa-prime-git"]'
   [ "$status" -eq 0 ]
   jaq -e --argjson started "$PRIME_SESSIONS" '.started == ["repoa-1", "repoa-1-files", "repoa-1-git"]
     and .prime.started == $started' <<<"$output"
-  grep -qF -- "new-session -d -s repoa-prime -c $AGENT_SLOT_DEV/repoa " "$CALLS"
+  grep -qF -- "new-session -d -s repoa-prime-starting -c $AGENT_SLOT_DEV/repoa " "$CALLS"
 }
 
 @test "a record cannot choose where a resume's prime starts" {
@@ -658,7 +704,7 @@ PRIME_SESSIONS='["repoa-prime", "repoa-prime-files", "repoa-prime-git"]'
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
   jaq -e --arg path "$AGENT_SLOT_DEV/repoa" '.prime.path == $path' <<<"$output"
-  grep -qF -- "new-session -d -s repoa-prime -c $AGENT_SLOT_DEV/repoa " "$CALLS"
+  grep -qF -- "new-session -d -s repoa-prime-starting -c $AGENT_SLOT_DEV/repoa " "$CALLS"
   run ! grep -qF -- "-c $T/planted " "$CALLS"
 }
 

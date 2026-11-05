@@ -70,6 +70,18 @@ _prime_conversation() {
   PRIME_MODE=resumed PRIME_SESSION_ID=${id%.jsonl}
 }
 
+# Usage: _prime_clear_staged <repo>; kills each of the prime's sessions still under its staging name (SESSIONS_STAGING).
+# The caller holds the prime's lock, so one is what a start cut off before it finished left behind. It goes before the
+# conversation is chosen, since a Claude in one can hold that conversation. A kill that fails leaves the session, and
+# the start's own new-session under that name then fails.
+_prime_clear_staged() {
+  local kind staged
+  for kind in "${SLOT_SESSION_KINDS[@]}"; do
+    staged=$(slot_session "$1" "$SLOT_PRIME" "$kind")$SESSIONS_STAGING
+    ! grep -qxF -- "$staged" <<<"$SLOT_SESSIONS" || slot_tmux out 10 kill-session -t "=$staged" || true
+  done
+}
+
 # Usage: prime_start <repo>
 # The one way a prime starts. Creates whichever of its sessions are missing, unless a session on the default server
 # already holds it, and sets PRIME_JSON to what it found and SESSIONS_CREATED to what it made. Sessions are read under
@@ -93,6 +105,7 @@ prime_start() {
     server=default session=$PRIME_OLD
   else
     slot_sessions_or_fail
+    _prime_clear_staged "$repo"
     if ! grep -qxF -- "$session" <<<"$SLOT_SESSIONS"; then
       _prime_conversation "$repo"
       mode=$PRIME_MODE id=$PRIME_SESSION_ID

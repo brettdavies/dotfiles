@@ -38,6 +38,10 @@ SESSIONS_EFFORT=xhigh
 SESSIONS_MODELS='opus sonnet'
 SESSIONS_ADVISOR=opus
 SESSIONS_ADVISOR_ENV=CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1
+# What a prime's session is named until its program is typed in, after its own name. A start cut off in between, as by
+# a timeout around it, then leaves a session nothing reads as the running prime, and the next start kills it. Only a
+# prime's sessions start this way: nothing but their names says a prime runs. No name slot_session gives ends in it.
+SESSIONS_STAGING=-starting
 SESSIONS_CREATED=()
 
 # Usage: sessions_model_id <model>; prints the Claude model ID for one of SESSIONS_MODELS, or returns 1.
@@ -150,10 +154,11 @@ sessions_command() {
 
 # Usage: sessions_start <repo> <n> <launch | resume | reopen> [<root> [<new-session argument>...]]
 # Creates each of the slot's sessions that does not exist yet and types its program in, reading the record from
-# RECORD. Each session is rooted at <root>, by default the slot's own path. Sets SESSIONS_CREATED to the sessions it
-# made. The caller holds the slot's or the prime's lock, so two calls never race to create the same session.
+# RECORD. Each session is rooted at <root>, by default the slot's own path, and a prime's takes its name only after the
+# typing (SESSIONS_STAGING). Sets SESSIONS_CREATED to the sessions it made. The caller holds the slot's or the prime's
+# lock, so two calls never race to create the same session.
 sessions_start() {
-  local repo=$1 n=$2 mode=$3 path=${4:-} kind name shell out setting
+  local repo=$1 n=$2 mode=$3 path=${4:-} kind name made shell out setting
   local -a start env=() extra=("${@:5}")
   [[ -n $path ]] || path=$(slot_path "$repo" "$n")
   shell=$(_sessions_shell)
@@ -165,15 +170,18 @@ sessions_start() {
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
     name=$(slot_session "$repo" "$n" "$kind")
     grep -qxF "$name" <<<"$SLOT_SESSIONS" && continue
+    made=$name
+    [[ $n != "$SLOT_PRIME" ]] || made=$name$SESSIONS_STAGING
     start=(/usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$shell" TERM=xterm-256color
       LANG="${LANG:-C.UTF-8}" PATH="$PATH"
-      "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$name" "${env[@]}" -c "$path" "${extra[@]}" "$shell" -l)
+      "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$made" "${env[@]}" -c "$path" "${extra[@]}" "$shell" -l)
     if [[ -n $SLOT_SESSIONS || ${#SESSIONS_CREATED[@]} -gt 0 ]] || ! _sessions_scoped "${start[@]}"; then
       bounded out tmux 10 "${start[@]}" || _sessions_fail "$repo" "$n" "$name"
     fi
-    slot_tmux out 10 send-keys -t "=$name:" -l "$(sessions_command "$repo" "$n" "$kind" "$mode")" \
+    slot_tmux out 10 send-keys -t "=$made:" -l "$(sessions_command "$repo" "$n" "$kind" "$mode")" \
       || _sessions_fail "$repo" "$n" "$name"
-    slot_tmux out 10 send-keys -t "=$name:" Enter || _sessions_fail "$repo" "$n" "$name"
+    slot_tmux out 10 send-keys -t "=$made:" Enter || _sessions_fail "$repo" "$n" "$name"
+    [[ $made == "$name" ]] || slot_tmux out 10 rename-session -t "=$made" "$name" || _sessions_fail "$repo" "$n" "$name"
     SESSIONS_CREATED+=("$name")
   done
 }

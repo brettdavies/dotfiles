@@ -442,6 +442,10 @@ A prime differs from a slot in these ways:
 `/clear` keeps a session's title, so a prime follows it to its new transcript. A title scan that fails stops the start
 with `script-error` rather than choosing a fresh conversation blind.
 
+Each of a prime's sessions takes its name only once its program is typed in. A start cut off before then, as by a
+timeout around it, leaves a session named `<name>-starting`, which nothing reads as the running prime, and the next
+start kills it.
+
 A repo's name in a tab comes from `config/agent-slot-rex/primes.tsv`, such as `XR CLI` for `xurl-rs`, else it is the
 repo's own. A session of that name on the default tmux server that holds a Claude is the repo's prime until you close
 it, and nothing is built beside it. One holding no Claude is no prime.

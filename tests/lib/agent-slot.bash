@@ -54,7 +54,8 @@ agent_slot_setup() {
   printf '{"skipDangerousModePermissionPrompt":true}\n' >"$AGENT_SLOT_CLAUDE_SETTINGS"
 
   # tmux keeps each socket's sessions in a file: no file means no server, and a list-sessions asking for session_path
-  # reads the directory new-session was given from a second file, which session_at writes too. list-panes prints $STUBS/tmux-panes on the
+  # reads the directory new-session was given from a second file, which session_at writes too. rename-session renames a
+  # session in both, and moves what was typed into it with it. list-panes prints $STUBS/tmux-panes on the
   # slot socket and $STUBS/tmux-panes-<socket> on any other, where no file means no server. capture-pane prints
   # $STUBS/screen. On any socket but the slot one (the trust step's), Down swaps in $STUBS/screen-down and Enter
   # $STUBS/screen-after when they exist; with $STUBS/drop-first-down present, the first Down is lost, as a key sent
@@ -101,6 +102,16 @@ case $cmd in
     [ -f "$sessions" ] || exit 1
     grep -vxF "$target" "$sessions" >"$sessions.new" || true
     cat "$sessions.new" >"$sessions" ;;
+  rename-session)
+    [ -f "$sessions" ] && grep -qxF "$target" "$sessions" || { echo "can not find session: $target" >&2; exit 1; }
+    awk -v old="$target" -v new="$last" "{ print (\$0 == old ? new : \$0) }" "$sessions" >"$sessions.new"
+    cat "$sessions.new" >"$sessions"
+    if [ -f "$sessions.paths" ]; then
+      awk -F "\t" -v old="$target" -v new="$last" "BEGIN { OFS = FS } \$1 == old { \$1 = new } { print }" \
+        "$sessions.paths" >"$sessions.new"
+      cat "$sessions.new" >"$sessions.paths"
+    fi
+    [ ! -f "$STUBS/typed-$target" ] || mv "$STUBS/typed-$target" "$STUBS/typed-$last" ;;
   list-panes)
     if [ "$sock" = agent-slot-test ]; then
       cat "$STUBS/tmux-panes" 2>/dev/null || true
