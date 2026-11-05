@@ -41,7 +41,7 @@ setup() {
   git -C "$AGENT_SLOT_DEV/repoa" remote set-url origin https://github.com/up/repoa.git
   git -C "$AGENT_SLOT_DEV/repoa" config core.hooksPath .githooks
   stub_gh_items
-  printf '%s\n' 'Scope: say ok.' 'Limits: none.' 'Reviews: none.' 'Reports to: none.' >"$T/brief"
+  printf '%s\n' 'Scope: say ok.' 'Limits: none.' 'Reviews: none.' 'Reports to: none.' 'Touches: none.' 'Adds: none.' >"$T/brief"
   SLOT=$AGENT_SLOT_ROOT/repoa/1
   LEDGER=$AGENT_SLOT_STATE_DIR/ledger.jsonl
 }
