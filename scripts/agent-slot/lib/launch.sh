@@ -95,38 +95,42 @@ launch_brief_check() {
   contract_fail brief-incomplete "the brief has no ${missing[*]} line with a value. Every brief states its scope, \
 which of its limits are the operator's and which the coordinating session's, the reviews it runs (at most 2 rounds), \
 the session it reports to, the paths it touches, and the public surface it adds, each on a line of its own; launch \
-checks only that each line is there with a value. Touches: takes comma-separated git pathspec globs on one line, and \
+checks that each line is there with a value and that each Touches: glob is a git pathspec. Touches: takes comma-separated git pathspec globs on one line, and \
 Adds: the public surface it may add, or none" \
     --value "${missing[*]}" --command "agent-slot launch --help"
 }
 
-# Usage: launch_brief_value <label> <file>; prints the text after the first line `<label>:` that has any, with the
-# emphasis marks that close the label dropped and surrounding space trimmed.
+# Usage: launch_brief_value <label> <file>; prints the text after each line `<label>:` that has any, joined with ", ",
+# with the emphasis marks that close the label dropped and surrounding space trimmed.
 launch_brief_value() {
-  local line value='' re="${LAUNCH_BRIEF_LABEL_PREFIX}$1[*_]*:([*_]{1,2}[[:space:]]+)?[[:space:]]*(.*)\$"
+  local line value all='' re="${LAUNCH_BRIEF_LABEL_PREFIX}$1[*_]*:([*_]{1,2}[[:space:]]+)?[[:space:]]*(.*)\$"
   while IFS= read -r line; do
+    value=
     shopt -s nocasematch
     [[ $line =~ $re ]] && value=${BASH_REMATCH[3]}
     shopt -u nocasematch
     value=${value%"${value##*[![:space:]]}"}
-    [[ -z $value ]] || break
+    [[ -z $value ]] || all+="${all:+, }$value"
   done < <(grep -Ei "${LAUNCH_BRIEF_LABEL_PREFIX}$1[*_]*:" "$2" || true)
-  printf '%s' "$value"
+  printf '%s' "$all"
 }
 
 # Usage: launch_scope_check; with REPO_PRIME set, refuses with brief-incomplete, naming the glob, unless git takes every
 # Touches: glob in LAUNCH_SCOPE as a pathspec inside the repo.
 launch_scope_check() {
-  local glob
+  local glob parsed unsafe='[[:space:];{}"'"'"']'
   [[ $LAUNCH_SCOPE != null ]] || return 0
   contract_json -e '.touches | length > 0' <<<"$LAUNCH_SCOPE" >/dev/null \
     || contract_fail brief-incomplete "the brief's Touches: line holds no glob. Touches: takes comma-separated git \
 pathspec globs on one line, such as src/login/** or tests/*.bats" --value "Touches:" --command "agent-slot launch --help"
+  parsed=$(contract_json -r '.touches | join(" | ")' <<<"$LAUNCH_SCOPE")
   while IFS= read -r glob; do
-    git -C "$REPO_PRIME" ls-files -- "$glob" >/dev/null 2>&1 \
-      || contract_fail brief-incomplete "the brief's Touches: glob $glob is not a git pathspec inside the repo. Touches: \
-takes comma-separated git pathspec globs relative to the repo root, such as src/login/** or tests/*.bats; a comma \
-always separates two globs, so a brace list does not work" --value "$glob" --command "agent-slot launch --help"
+    if [[ $glob =~ $unsafe ]] || ! git -C "$REPO_PRIME" ls-files -- "$glob" >/dev/null 2>&1; then
+      contract_fail brief-incomplete "the brief's Touches: glob $glob is not a git pathspec inside the repo, or holds a \
+space, semicolon, brace, or quote. Touches: takes git pathspec globs relative to the repo root separated by commas, \
+such as src/login/** or tests/*.bats; a comma always separates two globs, so a brace list does not work, and ? matches \
+a space in a path. The line parsed as: $parsed" --value "$glob" --command "agent-slot launch --help"
+    fi
   done < <(contract_json -r '.touches[]' <<<"$LAUNCH_SCOPE")
 }
 

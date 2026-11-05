@@ -97,7 +97,7 @@ grant_line() {
   reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
   [[ $reason == *"README.md"* ]]
   [[ $reason != *"scripts/agent-slot/lib/new.sh"* ]]
-  [[ $reason == *"scripts/agent-slot/**, tests/*.bats, docs/guide.md"* ]]
+  [[ $reason == *'`scripts/agent-slot/**`, `tests/*.bats`, `docs/guide.md`'* ]]
   [[ $reason == *"Revert that change"* ]]
   [[ $reason == *'record it under "Not in scope" in the PR body'* ]]
   [[ $reason == *"send the coordinating session a request for a scope grant"* ]]
@@ -253,6 +253,48 @@ grant_line() {
       false
     }
   done
+}
+
+@test "a no-op flag on another command in the line does not excuse the push, and a no-op push does not excuse a later one" {
+  commit README.md
+  local c
+  for c in "git push -u origin feat/one && git branch -d feat/old" "git push && gh pr create -d --title x" \
+    "git push && git push origin --delete feat/stale" "git push origin --delete feat/stale && git push"; do
+    run bash_call "$c"
+    [[ $output == *'"deny"'* ]] || {
+      echo "not denied: $c"
+      false
+    }
+  done
+}
+
+@test "the chained-command denial names the command that moves HEAD, and only one before the push counts" {
+  commit scripts/agent-slot/ok.sh
+  run bash_call "git pull --rebase && git push"
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *"runs \`git pull\` before it pushes"* ]]
+  [[ $reason == *"run \`git push\` as its own command"* ]]
+  push "git push; git reset --soft HEAD"
+}
+
+@test "a grant whose pathspec git rejects is skipped and logged, and the record's own globs still decide" {
+  commit scripts/agent-slot/ok.sh
+  grant_line repo 1 ':(bogus)README.md'
+  push
+  grep -q 'scope-grant pathspec :(bogus)README.md' "$HOOKS_LOG"
+  commit README.md
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *"README.md"* ]]
+  [[ $reason != *"is not a git pathspec"* ]]
+}
+
+@test "the denial says the hook judges the slot's own branch whatever the command pushes" {
+  commit README.md
+  run bash_call "git -C elsewhere push"
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *"The hook judges this slot's branch whatever the command pushes"* ]]
 }
 
 @test "a Touches: glob git rejects in the record denies the push naming it, rather than leaving it unguarded" {

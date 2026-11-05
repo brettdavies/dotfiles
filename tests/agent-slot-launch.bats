@@ -642,6 +642,29 @@ assert_own_worktree() {
   [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
 }
 
+@test "a Touches: glob with a space, a semicolon, a brace, or a quote is refused naming the glob and the list as parsed" {
+  local line
+  for line in 'src/** tests/**' 'src/**; tests/**' 'src/{a,b}.sh' '"src/**"' "'tests/**'" 'everything under src'; do
+    printf '%s\n' 'Scope: x.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' "Touches: $line" 'Adds: none.' \
+      >"$T/brief.md"
+    launch repoa --request-id "r-$RANDOM" --prompt-file "$T/brief.md"
+    [ "$status" -eq 2 ] || {
+      echo "accepted: $line"
+      false
+    }
+    jaq -e '.reason == "brief-incomplete" and (.message | contains("parsed as"))' <<<"$stderr"
+  done
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+}
+
+@test "a second Touches: line adds to the first rather than being dropped" {
+  printf '%s\n' 'Scope: x.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' 'Touches: src/**' \
+    '- Touches: tests/*.bats' 'Adds: none.' >"$T/brief.md"
+  launch repoa --request-id r-two --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  jaq -e '.scope.touches == ["src/**", "tests/*.bats"]' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
+}
+
 @test "a launch with no brief records no scope" {
   launch repoa --request-id r-noscope
   [ "$status" -eq 0 ]

@@ -346,23 +346,24 @@ of the slot's `scope-grant` ledger lines (counted from the slot's `created_at`).
 scope and the next step: revert that change, or record it under "Not in scope" in the PR body and send the coordinating
 session a request for a scope grant. A slot whose record has no `scope.touches` passes, and outside a slot the hook
 prints nothing. `Adds:` is recorded and shown, and is not checked against the diff. The hook judges the commits as they
-stand at the push: a push of another branch than the checked-out one is judged by `HEAD`, and a dry run or a branch
-deletion is not judged. A command that changes `HEAD` before it pushes, such as `git commit && git push`, is denied for
-a slot with a scope, because the hook runs before the commit exists: the agent commits first and pushes as its own
-command.
+stand at the push: a push of another branch or another repository than the slot's checked-out one is judged by the
+slot's `HEAD`, and a dry run or a branch deletion is not judged. A command that changes `HEAD` before it pushes, such as
+`git commit && git push`, is denied for a slot with a scope, because the hook runs before the commit exists: the agent
+commits first and pushes as its own command.
 
 ```text
 Touches: scripts/agent-slot/**, tests/*.bats, README.md
 Adds: one flag, --dry-run; the reason code scope-grant-from-slot
 ```
 
-A glob is a git pathspec relative to the repo root: `*` crosses `/`, so `tests/*.bats` also matches
-`tests/lib/x.bats`; a directory name matches everything under it; a comma always separates two globs, so a brace list
-does not work. `launch` and `reopen` refuse a glob git rejects, such as an absolute path, with `brief-incomplete` naming
-it, and the hook denies a push whose recorded glob git rejects instead of leaving it unguarded. A slot's base is the
-repo's base branch, so a slot stacked on another PR's branch sees that PR's paths as its own changes: its `Touches:`
-lists them, or the operator grants them. The hook is a guard, not a trust boundary: it recognises a `git push` by its
-text, so a wrapper it does not list, or a script that pushes, runs unjudged.
+A glob is a git pathspec relative to the repo root: `*` crosses `/`, so `tests/*.bats` also matches `tests/lib/x.bats`;
+a directory name matches everything under it; a comma always separates two globs, so a brace list does not work. A
+second `Touches:` line adds to the first. `launch` and `reopen` refuse a glob git rejects, such as an absolute path, or
+one with a space, semicolon, brace, or quote, with `brief-incomplete` naming it and the line as parsed, and the hook
+denies a push whose recorded glob git rejects instead of leaving it unguarded. A slot's base is the repo's base branch,
+so a slot stacked on another PR's branch sees that PR's paths as its own changes: its `Touches:` lists them, or the
+operator grants them. The hook is a guard, not a trust boundary: it recognises a `git push` by its text, so a wrapper it
+does not list, or a script that pushes, runs unjudged.
 
 The operator lets a slot's PR change one more path with `agent-slot grant-scope <repo>/<N> <pathspec>`, which appends a
 `scope-grant` event for the slot, and the hook then lets the paths that pathspec matches through. The verb prints the
@@ -844,7 +845,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `slot-busy`                   | 1    | Another `agent-slot` process holds the slot, or it is still setting up; retry                  |
 | `invalid-task-name`           | 2    | A task name uses letters, digits, `-`, `_`, and `/`, and starts with a letter or digit         |
 | `prompt-file-unreadable`      | 2    | The first-message file cannot be read                                                          |
-| `brief-incomplete`            | 2    | A brief lacks a `Scope:`, `Limits:`, `Reviews:`, `Reports to:`, `Touches:`, or `Adds:` line    |
+| `brief-incomplete`            | 2    | A brief lacks a required line, or its `Touches:` line holds no glob or a glob git rejects      |
 | `slot-limit-reached`          | 78   | The repo holds the most live slots allowed; finish one, or raise `AGENT_SLOT_MAX_PER_REPO`     |
 | `clone-failed`                | 1    | Cloning from origin failed; retry with the same request ID                                     |
 | `solutions-symlink-missing`   | 78   | The solutions repo is missing or has no origin/main, so the slot gets no worktree of it        |
