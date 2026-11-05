@@ -345,22 +345,34 @@ snapshot() {
 @test "a slot that holds the reopen's request ID is the one the reopen returns" {
   gh_item pr 7 "Fix the login"
   slot repoa 1 "{\"request_id\": \"r-1\", \"items\": [$PR7], \"name\": \"repoa-pr7-fix-the-login\"}"
-  printf 'reply to the review\n' >"$T/brief.md"
+  printf 'Scope: reply to the review.\nLimits: the operator set every limit.\nReviews: none.\nReports to: skills-prime.\n' >"$T/brief.md"
   reopen repoa --pr 7 --request-id r-1 --prompt-file "$T/brief.md" --dry-run
   [ "$status" -eq 0 ]
   jaq -e '.would_reopen == false and .refusal == null and .slot == "repoa/1" and .source.key == "repoa/1"
     and .name == "repoa-pr7-fix-the-login" and .prompt_delivered == false' <<<"$output"
 }
 
-@test "a prompt file a reopen would deliver is reported as delivered" {
+@test "a reopen brief without its four lines, or an empty --prompt-file, is refused before anything is reopened" {
   gh_item pr 7 "Fix the login"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7]}"
   printf 'reply to the review\n' >"$T/brief.md"
   reopen repoa --pr 7 --prompt-file "$T/brief.md" --dry-run
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "brief-incomplete" and .value == "Scope: Limits: Reviews: Reports to:"' <<<"$stderr"
+  reopen repoa --pr 7 --prompt-file '' --dry-run
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "prompt-file-unreadable"' <<<"$stderr"
+}
+
+@test "a prompt file a reopen would deliver is reported as delivered" {
+  gh_item pr 7 "Fix the login"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7]}"
+  printf 'Scope: reply to the review.\nLimits: the operator set every limit.\nReviews: none.\nReports to: skills-prime.\n' >"$T/brief.md"
+  reopen repoa --pr 7 --prompt-file "$T/brief.md" --dry-run
   [ "$status" -eq 0 ]
   jaq -e '.would_reopen == true and .prompt_delivered == true and .slot == "repoa/1"' <<<"$output"
   local expected
-  printf -v expected 'claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume %s -n repoa-pr7-fix-the-login "$(cat %q)"' "$S1" \
+  printf -v expected 'claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume %s -n repoa-pr7-fix-the-login -- "$(cat %q)"' "$S1" \
     "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot-prompt.md"
   [ "$(jaq -r .command <<<"$output")" = "$expected" ]
 }
@@ -397,7 +409,7 @@ snapshot() {
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$path\", \"items\": [$PR7],
     \"name\": \"repoa-pr7-fix-the-login\", \"prs\": [7], \"head\": \"feat/x\", \"branches\": [{\"name\": \"feat/x\",
     \"oid\": \"$HEAD_SHA\", \"remote\": \"origin\", \"url\": \"https://github.com/up/repoa.git\"}]}"
-  printf '%s' $'Answer the "review": it'"'"'s $HOME, $(touch '"$T"'/pwned), and `date`\nsecond line' >"$brief"
+  printf '%s' $'Scope: the review.\nLimits: the operator set every limit.\nReviews: none.\nReports to: skills-prime.\nAnswer the "review": it'"'"'s $HOME, $(touch '"$T"'/pwned), and `date`\nsecond line' >"$brief"
   before=$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")
   reopen repoa --pr 7 --prompt-file "$brief" --request-id r-1
   [ "$status" -eq 0 ] || {
@@ -413,7 +425,7 @@ snapshot() {
     and .reopened_from == {slot: 1, session_id: $s, ts: "2026-10-01T00:00:00Z"} and .finished_by_operator == false
     and ([has("release", "not_yet", "closing_sent_at", "last_check")] | any | not)
     and .created_at != "2026-10-01T00:00:00Z"' "$slot/.git/agent-slot.json"
-  printf -v expected 'claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume %s -n repoa-pr7-fix-the-login "$(cat %q)"' "$S1" \
+  printf -v expected 'claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume %s -n repoa-pr7-fix-the-login -- "$(cat %q)"' "$S1" \
     "$slot/.git/agent-slot-prompt.md"
   [ "$(cat "$STUBS/typed-repoa-1")" = "$expected" ]
   mkdir -p "$T/fakebin"
@@ -430,6 +442,24 @@ snapshot() {
     and .reopened_from == {slot: 1, session_id: $s, ts: "2026-10-01T00:00:00Z"}
     and .head.source == {branch: "ledger", remote: "ledger"}' "$LEDGER"
   [ "$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")" = "$before" ]
+}
+
+@test "a Sonnet reopen resumes on Sonnet at xhigh with Opus as its advisor, turned on, and records the model" {
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
+    \"name\": \"repoa-issue12-fix-the-widget\"}"
+  local expected="CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions \
+--model claude-sonnet-5-5 --effort xhigh --advisor opus --resume $S1 -n repoa-issue12-fix-the-widget"
+  reopen repoa --issue 12 --model sonnet --dry-run
+  [ "$status" -eq 0 ]
+  [ "$(jaq -r .command <<<"$output")" = "$expected" ]
+  reopen repoa --issue 12 --model sonnet
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  [ "$(cat "$STUBS/typed-repoa-1")" = "$expected" ]
+  record_of '.model == "sonnet"' | grep -qx true
 }
 
 @test "the head comes from the ledger's head and branches: remote fork is added at the recorded URL and the branch tracks it" {
@@ -542,7 +572,7 @@ snapshot() {
   gh_item issue 12 "Fix the widget"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
     \"name\": \"repoa-issue12-fix-the-widget\"}"
-  printf 'pick it back up\n' >"$T/brief.md"
+  printf 'Scope: pick it back up.\nLimits: the operator set every limit.\nReviews: none.\nReports to: skills-prime.\n' >"$T/brief.md"
   reopen repoa --issue 12 --request-id r-1 --prompt-file "$T/brief.md"
   [ "$status" -eq 0 ] || {
     echo "$stderr"
@@ -561,6 +591,32 @@ snapshot() {
   [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
   [ "$(grep -c 'new-session' "$CALLS")" -eq 3 ]
   [ "$(jaq -s '[.[] | select(.event == "reopen")] | length' "$LEDGER")" -eq 1 ]
+}
+
+@test "a retry of a reopen's request ID that names another model is refused, and the dry run reports the refusal" {
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12]}"
+  reopen repoa --issue 12 --request-id r-1
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e '.created == true and .key == "repoa/1"' <<<"$output"
+  reopen repoa --issue 12 --request-id r-1 --model sonnet --dry-run
+  [ "$status" -eq 0 ]
+  jaq -e '.would_reopen == false and .refusal.reason == "model-differs" and .refusal.value == "sonnet"
+    and .refusal.next_step.command == "agent-slot check repoa/1 --output json"' <<<"$output"
+  reopen repoa --issue 12 --request-id r-1 --model sonnet
+  [ "$status" -eq 1 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "model-differs" and .value == "sonnet"
+    and (.message | contains("repoa/1 already holds this work and runs on opus"))
+    and .next_step.command == "agent-slot check repoa/1 --output json"' <<<"$stderr"
+  record_of '.model == "opus"' | grep -qx true
+  reopen repoa --issue 12 --request-id r-1
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false and .key == "repoa/1"' <<<"$output"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/2" ]
 }
 
 @test "the settled PRs are the source's PRs that are merged or closed when the slot is reopened" {

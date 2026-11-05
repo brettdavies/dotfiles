@@ -51,9 +51,11 @@ verb_help() {
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
       '--dangerously-skip-permissions on the --model given, at --effort xhigh; a sonnet slot also gets opus as its' \
       'advisor. Every launch names a model. A repeat with the same --request-id, --task, or work item returns the same' \
-      'slot, except that a --prompt-file from another request is refused with item-held-by-slot rather than' \
-      'dropped. A --prompt-file needs a line for each of Scope:, Limits:, Reviews:, and Reports to:, or the launch' \
-      'is refused with brief-incomplete. Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
+      'slot, except that a --prompt-file the slot would not receive (another request, or this request under a' \
+      'different brief) is refused with item-held-by-slot rather than dropped, and a --model other than the one that' \
+      'slot runs on is refused with model-differs. A --prompt-file needs a line for each of Scope:, Limits:,' \
+      'Reviews:, and Reports to:, each with a value, or the launch is refused with brief-incomplete.' \
+      'Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
       '-, and /, starting with a letter or digit, up to 64. A new slot pushes a restore to the Rex helper on this' \
       "host, so its tab opens in Rex; the push runs in the background and is logged to $AS_STATE_DIR/push.log." \
       '--pr or --issue gives the slot a work item and a name from it, <repo>-pr<N>-<slug> or <repo>-issue<N>-<slug>,' \
@@ -112,10 +114,12 @@ verb_help() {
       'owner/name#N, or its GitHub URL. It refuses while a slot holds the item or the Claude session' \
       '(item-held-by-slot), while a Claude agent has the session open (session-in-use), when no teardown names the' \
       'item (item-not-found-in-ledger), and when Claude Code no longer has the transcript (transcript-missing).' \
+      'A retry with the request ID of a slot on another model than --model is refused with model-differs.' \
       '--dry-run changes nothing and exits 0 with the plan, or with the refusal a reopen would hit; a ref GitHub' \
       'cannot read still fails. The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
       'the base, fetched from the remote the ledger recorded for it when that is on origin'"'"'s host, else from the' \
-      "PR's head repository. Agents ask the operator first." \
+      "PR's head repository. A --prompt-file needs a line for each of Scope:, Limits:, Reviews:, and Reports to:," \
+      'each with a value, or the reopen is refused with brief-incomplete. Agents ask the operator first.' \
       'returns: launch'"'"'s fields (key, name, items, session_id, prompt_delivered, ...) plus reopened_from {slot,' \
       '         session_id, ts}, settled_prs (the PRs already merged or closed, which neither finish nor block the' \
       '         task), head, and head_moved; with --dry-run, dry_run, would_reopen, refusal (null, or {reason,' \
