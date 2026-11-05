@@ -35,7 +35,7 @@ set -euo pipefail
 # Run as your NORMAL user (not via sudo): apparmor-deploy.sh is invoked with
 # sudo explicitly, and the apt-deps step escalates to sudo on its own. The
 # browser-binary provisioning is user-space. Idempotent — re-run any time
-# (e.g. after a browser version bump). On non-Linux it is a no-op.
+# (e.g. after a pin change). On a Mac it deploys the set and skips the rest.
 #
 # Usage:
 #   scripts/playwright-deps-deploy.sh                 # AppArmor profile + boot wiring
@@ -68,11 +68,6 @@ done
 
 # --- Pre-flight ---
 
-if [ "$(uname -s)" != "Linux" ]; then
-  echo "NOTE: not Linux — Playwright browser deps + AppArmor are only needed on Linux. Nothing to do."
-  exit 0
-fi
-
 if [ "$(id -u)" -eq 0 ]; then
   echo "FATAL: run as your normal user, not root — sudo is escalated where needed" >&2
   echo "       (running the whole script as root puts bun outside PATH and mis-owns the browser cache)" >&2
@@ -83,6 +78,11 @@ fi
 
 echo "NOTE: provisioning the canonical Playwright browser binaries (curl + unzip)…"
 "$REPO_ROOT/scripts/playwright-browsers-deploy.sh"
+
+if [ "$(uname -s)" != "Linux" ]; then
+  echo "NOTE: not Linux — the AppArmor profile and browser system libraries are Linux-only; the browser set is deployed."
+  exit 0
+fi
 
 # --- 1. AppArmor profile + boot wiring (always; this is what the browse tool needs) ---
 
