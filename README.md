@@ -334,6 +334,37 @@ still write a ledger line.
 agent-slot grant-review dotfiles/2
 ```
 
+A slot's agent changes only the paths its brief declares. A brief carries `Touches:`, the paths its PR may change as
+comma-separated git pathspec globs, and `Adds:`, the public surface it may add (verbs, flags, reason codes, environment
+variables, settings keys) or `none`, beside `Scope:`, `Limits:`, `Reviews:`, and `Reports to:`; `launch` and `reopen`
+refuse a brief that lacks any of the six with `brief-incomplete`. They record the globs as `scope.touches` and the
+`Adds:` text as `scope.adds` in the slot's record, and the slot's context names both. `slot-scope-guard.sh` (also in
+`stow/claude/dot-claude/`, on `PreToolUse` for the `Bash` tool) runs when the slot's own Claude or one of its subagents
+runs a `git push`. It lists the paths `git diff --name-only --no-renames origin/<base>...HEAD` reports, with a rename as
+its old and new path, and denies the push when any of them matches none of the record's `scope.touches` globs and none
+of the slot's `scope-grant` ledger lines (counted from the slot's `created_at`). The denial names each path outside the
+scope and the next step: revert that change, or record it under "Not in scope" in the PR body and send the coordinating
+session a request for a scope grant. A slot whose record has no `scope.touches` passes, and outside a slot the hook
+prints nothing. `Adds:` is recorded and shown, and is not checked against the diff. The hook judges the commits as they
+stand at the push: a push of another branch or another repository than the slot's checked-out one is judged by the
+slot's `HEAD`, and a dry run or a branch deletion is not judged. A command that changes `HEAD` before it pushes, such as
+`git commit && git push`, is denied for a slot with a scope, because the hook runs before the commit exists: the agent
+commits first and pushes as its own command.
+
+```text
+Touches: scripts/agent-slot/**, tests/*.bats, README.md
+Adds: one flag, --dry-run; the reason code scope-grant-from-slot
+```
+
+A glob is a git pathspec relative to the repo root: `*` crosses `/`, so `tests/*.bats` also matches `tests/lib/x.bats`;
+a directory name matches everything under it; a comma always separates two globs, so a brace list does not work. A
+second `Touches:` line adds to the first. `launch` and `reopen` refuse a glob git rejects, such as an absolute path, or
+one with a space, semicolon, brace, or quote, with `brief-incomplete` naming it and the line as parsed, and the hook
+denies a push whose recorded glob git rejects instead of leaving it unguarded. A slot's base is the repo's base branch,
+so a slot stacked on another PR's branch sees that PR's paths as its own changes: its `Touches:` lists them, or the
+operator grants them. The hook is a guard, not a trust boundary: it recognises a `git push` by its text, so a wrapper it
+does not list, or a script that pushes, runs unjudged.
+
 A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
 merged with none open, the operator finished it, whatever state its PRs are in, or its agent released it with no PR
 open) and nothing in it is missing from GitHub. A commit is safe there once a PR's final head holds it, an origin branch
@@ -802,7 +833,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `slot-busy`                   | 1    | Another `agent-slot` process holds the slot, or it is still setting up; retry                  |
 | `invalid-task-name`           | 2    | A task name uses letters, digits, `-`, `_`, and `/`, and starts with a letter or digit         |
 | `prompt-file-unreadable`      | 2    | The first-message file cannot be read                                                          |
-| `brief-incomplete`            | 2    | A brief lacks a `Scope:`, `Limits:`, `Reviews:`, or `Reports to:` line with a value            |
+| `brief-incomplete`            | 2    | A brief lacks a required line, or its `Touches:` line holds no glob or a glob git rejects      |
 | `slot-limit-reached`          | 78   | The repo holds the most live slots allowed; finish one, or raise `AGENT_SLOT_MAX_PER_REPO`     |
 | `clone-failed`                | 1    | Cloning from origin failed; retry with the same request ID                                     |
 | `solutions-symlink-missing`   | 78   | The solutions repo is missing or has no origin/main, so the slot gets no worktree of it        |

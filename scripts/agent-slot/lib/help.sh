@@ -58,7 +58,10 @@ verb_help() {
       'slot, except that a --prompt-file the slot would not receive (another request, or this request under a' \
       'different brief) is refused with item-held-by-slot rather than dropped, and a --model other than the one that' \
       'slot runs on is refused with model-differs. A --prompt-file needs a line for each of Scope:, Limits:,' \
-      'Reviews:, and Reports to:, each with a value, or the launch is refused with brief-incomplete.' \
+      'Reviews:, Reports to:, Touches:, and Adds:, each with a value, or the launch is refused with brief-incomplete.' \
+      'Touches: lists the paths the PR may change as comma-separated git pathspec globs, and Adds: the public surface' \
+      'it may add or none; both go into the slot record as scope, and slot-scope-guard.sh denies a git push of a path' \
+      'no Touches: glob covers.' \
       'Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
       '-, and /, starting with a letter or digit, up to 64. A new slot pushes a restore to the Rex helper on this' \
       "host, so its tab opens in Rex; the push runs in the background and is logged to $AS_STATE_DIR/push.log." \
@@ -161,8 +164,8 @@ verb_help() {
       'cannot read still fails. The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
       'the base, fetched from the remote the ledger recorded for it when that is on origin'"'"'s host, else from the' \
       "PR's head repository. A reopen is a foreign head when the source slot was, or when that URL or a PR's head on" \
-      'GitHub is. A --prompt-file needs a line for each of Scope:, Limits:, Reviews:, and Reports to:, each with a value,' \
-      'or the reopen is refused with brief-incomplete. Agents ask the operator first.' \
+      'GitHub is. A --prompt-file needs a line for each of Scope:, Limits:, Reviews:, Reports to:, Touches:, and Adds:,' \
+      'each with a value, or the reopen is refused with brief-incomplete. Agents ask the operator first.' \
       'returns: launch'"'"'s fields (key, name, items, session_id, prompt_delivered, ...) plus reopened_from {slot,' \
       '         session_id, ts}, settled_prs (the PRs already merged or closed, which neither finish nor block the' \
       '         task), head, and head_moved; with --dry-run, dry_run, would_reopen, refusal (null, or {reason,' \

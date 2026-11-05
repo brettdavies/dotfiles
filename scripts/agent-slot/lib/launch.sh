@@ -11,6 +11,7 @@ LAUNCH_MODEL=''
 LAUNCH_OPENED_AT='' LAUNCH_SHOWN_AT=''
 EPOCH_PATTERN='^[0-9]+(\.[0-9]+)?$'
 LAUNCH_ITEM_KIND='' LAUNCH_ITEM_REF='' LAUNCH_ITEM='' LAUNCH_NAME=''
+LAUNCH_SCOPE=null
 
 # Usage: launch_parse_args <args...>; sets the LAUNCH_* inputs, refusing bad ones before anything is touched.
 launch_parse_args() {
@@ -60,6 +61,7 @@ launch_parse_args() {
         --command "agent-slot launch --help"
     LAUNCH_PROMPT=$(realpath "$LAUNCH_PROMPT")
     launch_brief_check "$LAUNCH_PROMPT"
+    LAUNCH_SCOPE=$(launch_brief_scope "$LAUNCH_PROMPT")
   fi
   [[ -n $LAUNCH_REQUESTED_AT ]] || LAUNCH_REQUESTED_AT=$(date +%s.%N)
   local flag value
@@ -77,22 +79,69 @@ model_check() {
 
 # The lines every brief carries, each starting a line as `<label>:`, optionally after list, heading, number, or emphasis
 # marks, and the emphasis may wrap the label alone (`**Scope**:`). The agent-slot skill's "Write a brief" checklist
-# names the same four.
-LAUNCH_BRIEF_LABELS=('Scope' 'Limits' 'Reviews' 'Reports to')
+# names the same six.
+LAUNCH_BRIEF_LABELS=('Scope' 'Limits' 'Reviews' 'Reports to' 'Touches' 'Adds')
+
+LAUNCH_BRIEF_LABEL_PREFIX='^[[:space:]*_>#-]*([0-9]+[.)][[:space:]]*)?[*_]*'
 
 # Usage: launch_brief_check <file>; refuses with brief-incomplete, naming each missing label, unless the brief has a
 # line for every label in LAUNCH_BRIEF_LABELS.
 launch_brief_check() {
   local label missing=()
   for label in "${LAUNCH_BRIEF_LABELS[@]}"; do
-    grep -Eiq "^[[:space:]*_>#-]*([0-9]+[.)][[:space:]]*)?[*_]*${label}[*_]*:[[:space:]*_]*[^[:space:]*_]" "$1" \
-      || missing+=("$label:")
+    [[ -n $(launch_brief_value "$label" "$1") ]] || missing+=("$label:")
   done
   ((${#missing[@]} == 0)) && return 0
   contract_fail brief-incomplete "the brief has no ${missing[*]} line with a value. Every brief states its scope, \
 which of its limits are the operator's and which the coordinating session's, the reviews it runs (at most 2 rounds), \
-and the session it reports to, each on a line of its own; launch checks only that each line is there with a value" \
+the session it reports to, the paths it touches, and the public surface it adds, each on a line of its own; launch \
+checks that each line is there with a value and that each Touches: glob is a git pathspec. Touches: takes comma-separated git pathspec globs on one line, and \
+Adds: the public surface it may add, or none" \
     --value "${missing[*]}" --command "agent-slot launch --help"
+}
+
+# Usage: launch_brief_value <label> <file>; prints the text after each line `<label>:` that has any, joined with ", ",
+# with the emphasis marks that close the label dropped and surrounding space trimmed.
+launch_brief_value() {
+  local line value all='' re="${LAUNCH_BRIEF_LABEL_PREFIX}$1[*_]*:([*_]{1,2}([[:space:]]+|\$))?[[:space:]]*(.*)\$"
+  while IFS= read -r line; do
+    value=
+    shopt -s nocasematch
+    [[ $line =~ $re ]] && value=${BASH_REMATCH[4]}
+    shopt -u nocasematch
+    value=${value%"${value##*[![:space:]]}"}
+    [[ -z $value ]] || all+="${all:+, }$value"
+  done < <(grep -Ei "${LAUNCH_BRIEF_LABEL_PREFIX}$1[*_]*:" "$2" || true)
+  printf '%s' "$all"
+}
+
+# Usage: launch_scope_check; with REPO_PRIME set, refuses with brief-incomplete, naming the glob, unless git takes every
+# Touches: glob in LAUNCH_SCOPE as a pathspec inside the repo.
+launch_scope_check() {
+  local glob parsed unsafe='^[/~]|[[:space:];{}"'"'"']'
+  [[ $LAUNCH_SCOPE != null ]] || return 0
+  contract_json -e '.touches | length > 0' <<<"$LAUNCH_SCOPE" >/dev/null \
+    || contract_fail brief-incomplete "the brief's Touches: line holds no glob. Touches: takes comma-separated git \
+pathspec globs on one line, such as src/login/** or tests/*.bats" --value "Touches:" --command "agent-slot launch --help"
+  parsed=$(contract_json -r '.touches | join(" | ")' <<<"$LAUNCH_SCOPE")
+  while IFS= read -r glob; do
+    if [[ $glob =~ $unsafe ]] || ! git -C "$REPO_PRIME" ls-files -- "$glob" >/dev/null 2>&1; then
+      contract_fail brief-incomplete "the brief's Touches: glob $glob is not a git pathspec inside the repo, or holds a \
+space, semicolon, brace, or quote. Touches: takes git pathspec globs relative to the repo root separated by commas, \
+such as src/login/** or tests/*.bats; a comma always separates two globs, so a brace list does not work, and ? matches \
+a space in a path. The line parsed as: $parsed" --value "$glob" --command "agent-slot launch --help"
+    fi
+  done < <(contract_json -r '.touches[]' <<<"$LAUNCH_SCOPE")
+}
+
+# Usage: launch_brief_scope <file>; prints {touches, adds} for the record: the Touches: line as a list of git pathspec
+# globs split on commas, trimmed of space, backticks, and a closing period, and the Adds: text as written.
+# shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
+launch_brief_scope() {
+  contract_json -n -c --arg touches "$(launch_brief_value Touches "$1")" --arg adds "$(launch_brief_value Adds "$1")" '
+    {touches: ($touches | split(",") | map(gsub("^\\s+|\\s+$"; "") | (if . == "." then . else sub("\\.+$"; "") end) | gsub("^[\\s`]+|[\\s`]+$"; ""))
+      | map(select(. != ""))),
+     adds: $adds}'
 }
 
 # Sets LAUNCH_EXISTING to the slot holding this request ID, this task when one was given, or this work item when one
@@ -218,6 +267,7 @@ cmd_launch() {
   require_tools tmux claude trash
   [[ -z $LAUNCH_ITEM_KIND ]] || require_tools gh
   repo_prime "$repo"
+  launch_scope_check
   [[ -z $LAUNCH_ITEM_KIND ]] || launch_item
   if [[ $LAUNCH_ITEM_KIND == pr ]]; then
     head=_launch_head
@@ -259,9 +309,11 @@ brief would not reach it; send the brief to that slot's Claude session, or launc
   # The session starts under the name, so named_as keeps the automatic sweep from typing a /rename to it.
   seed=$(contract_json -n -c --arg task "$LAUNCH_TASK" --arg request "$LAUNCH_REQUEST" \
     --argjson requested "$LAUNCH_REQUESTED_AT" --argjson item "${LAUNCH_ITEM:-null}" --arg name "$LAUNCH_NAME" \
-    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" --arg model "$LAUNCH_MODEL" --argjson foreign "$foreign" "$ITEM_SAME_DEF"'
+    --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" --arg model "$LAUNCH_MODEL" --argjson foreign "$foreign" \
+    --argjson scope "$LAUNCH_SCOPE" "$ITEM_SAME_DEF"'
     $foreign + {task: (if $task == "" then null else $task end), request_id: (if $request == "" then null else $request end),
      requested_at: $requested, model: $model}
+    + (if $scope == null then {} else {scope: $scope} end)
     + if $item == null then {} else
         {prs: (if $item.kind == "pr" and same_repo($item.repo; $origin) then [$item.number] else [] end),
          items: [$item], name: $name, named_as: $name}

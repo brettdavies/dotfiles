@@ -55,6 +55,7 @@ reopen_parse_args() {
         --command "agent-slot launch --help"
     REOPEN_PROMPT=$(realpath "$REOPEN_PROMPT")
     launch_brief_check "$REOPEN_PROMPT"
+    LAUNCH_SCOPE=$(launch_brief_scope "$REOPEN_PROMPT")
   fi
 }
 
@@ -62,6 +63,7 @@ cmd_reopen() {
   local repo=$REOPEN_REPO
   if ((REOPEN_DRY_RUN == 1)); then require_tools claude gh; else require_tools tmux claude gh trash; fi
   repo_prime "$repo"
+  launch_scope_check
   item_parse_ref "$REOPEN_KIND" "$REOPEN_REF" "$REPO_ORIGIN"
   item_resolve
   REOPEN_ITEM=$(contract_json -c '{kind, repo, number, title}' <<<"$ITEM")
@@ -114,11 +116,12 @@ reopen_make() {
   seed=$(contract_json -c --arg request "$REOPEN_REQUEST" --argjson requested "$(date +%s.%N)" \
     --argjson items "$REOPEN_ITEMS" --arg name "$REOPEN_NAME" --arg task "$REOPEN_TASK" \
     --arg session "$REOPEN_SESSION_ID" --arg transcript "$REOPEN_TRANSCRIPT" --argjson prs "$prs" \
-    --argjson settled "$REOPEN_SETTLED" --arg model "$REOPEN_MODEL" --argjson foreign "$(_reopen_foreign)" '
+    --argjson settled "$REOPEN_SETTLED" --arg model "$REOPEN_MODEL" --argjson foreign "$(_reopen_foreign)" \
+    --argjson scope "$LAUNCH_SCOPE" '
     def text: if . == "" then null else . end;
     $foreign + {request_id: ($request | text), requested_at: $requested, model: $model, items: $items, name: $name, named_as: $name,
      task: ($task | text), session_id: $session, transcript: ($transcript | text), prs: $prs, settled_prs: $settled,
-     reopened_from: {slot, session_id, ts}}' <<<"$REOPEN_SOURCE")
+     reopened_from: {slot, session_id, ts}} + (if $scope == null then {} else {scope: $scope} end)' <<<"$REOPEN_SOURCE")
   fields=$(contract_json -n -c --argjson item "$REOPEN_ITEM" --argjson seed "$seed" --argjson head "$HEAD_PLAN" \
     '{item: $item, reopened_from: $seed.reopened_from, head: $head}')
   slot_make "$repo" reopen "$(_reopen_command no-request)" "$seed" "$REOPEN_PROMPT" reopen _reopen_head "$fields"

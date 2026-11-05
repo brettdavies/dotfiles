@@ -42,11 +42,12 @@ launch() {
   run --separate-stderr "$AGENT_SLOT" launch "$@" "${model[@]}" --output json
 }
 
-# brief FILE [TEXT]: writes a brief with the four lines every brief carries, then TEXT, with no newline after it, since
+# brief FILE [TEXT]: writes a brief with the six lines every brief carries, then TEXT, with no newline after it, since
 # the shell's $(cat ...) that hands Claude the brief drops trailing newlines.
 brief() {
-  printf 'Scope: fix the login.\nLimits: the operator set the scope; the coordinating session set the time box.\n%s\n%s\n%s' \
-    'Reviews: ce-code-review, at most 2 rounds.' 'Reports to: skills-prime.' "${2:-}" >"$1"
+  printf 'Scope: fix the login.\nLimits: the operator set the scope; the coordinating session set the time box.\n%s\n%s\n%s\n%s\n%s' \
+    'Reviews: ce-code-review, at most 2 rounds.' 'Reports to: skills-prime.' 'Touches: src/login/**, tests/login.bats' \
+    'Adds: none.' "${2:-}" >"$1"
 }
 
 # github_origin: repoa's prime with its origin at GitHub's https URL for up/repoa, which the test's git config rewrites
@@ -517,12 +518,12 @@ assert_own_worktree() {
   jaq -e '.created == false and .key == "repoa/3"' <<<"$output"
 }
 
-@test "a brief with no Scope:, Limits:, Reviews:, or Reports to: line is refused before any slot is made" {
+@test "a brief with no Scope:, Limits:, Reviews:, Reports to:, Touches:, or Adds: line is refused before any slot is made" {
   printf '%s\n' 'Fix the login.' '- **Scope:** the login form only.' 'reviews: ce-code-review' >"$T/brief.md"
   launch repoa --request-id r-brief --prompt-file "$T/brief.md"
   [ "$status" -eq 2 ]
   assert_error_shape "$stderr"
-  jaq -e '.reason == "brief-incomplete" and .value == "Limits: Reports to:"
+  jaq -e '.reason == "brief-incomplete" and .value == "Limits: Reports to: Touches: Adds:"
     and .next_step.command == "agent-slot launch --help"' <<<"$stderr"
   [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
   brief "$T/brief.md"
@@ -547,9 +548,9 @@ assert_own_worktree() {
   jaq -e '.created == false and .prompt_delivered == true' <<<"$output"
 }
 
-@test "a brief missing any one of its four lines is refused naming that line, and a label only mid-line does not count" {
+@test "a brief missing any one of its six lines is refused naming that line, and a label only mid-line does not count" {
   local label
-  for label in 'Scope' 'Limits' 'Reviews' 'Reports to'; do
+  for label in 'Scope' 'Limits' 'Reviews' 'Reports to' 'Touches' 'Adds'; do
     brief "$T/full.md"
     grep -v "^$label:" "$T/full.md" >"$T/brief.md"
     launch repoa --request-id "r-$RANDOM" --prompt-file "$T/brief.md"
@@ -567,7 +568,7 @@ assert_own_worktree() {
 
 @test "a brief's labels may be bold, italic, a heading, or numbered" {
   printf '%s\n' '**Scope**: the login form.' '_Limits_: the operator set every limit.' '## Reviews: ce-code-review.' \
-    '1. Reports to: skills-prime.' >"$T/brief.md"
+    '1. Reports to: skills-prime.' '- **Touches:** src/login/**' '> Adds: none' >"$T/brief.md"
   launch repoa --request-id r-shapes --prompt-file "$T/brief.md"
   [ "$status" -eq 0 ] || {
     echo "$stderr"
@@ -575,9 +576,120 @@ assert_own_worktree() {
   }
 }
 
+@test "a launch records the brief's Touches: globs and Adds: text in the slot record" {
+  printf '%s\n' 'Scope: the login form.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' \
+    '- **Touches:** `src/login/**`, *.md ,  tests/login.bats' 'Adds: one flag, --dry-run; a reason code.' >"$T/brief.md"
+  launch repoa --request-id r-scope --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  jaq -e '.scope == {touches: ["src/login/**", "*.md", "tests/login.bats"], adds: "one flag, --dry-run; a reason code."}' \
+    "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
+}
+
+@test "a Touches: line that is a bare glob, with or without emphasis, counts as having a value" {
+  local line
+  for line in 'Touches: *' 'Touches: **' '**Touches:** *' '- Touches: _x*'; do
+    printf '%s\n' 'Scope: all.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' "$line" 'Adds: none.' >"$T/brief.md"
+    launch repoa --request-id "r-$RANDOM" --prompt-file "$T/brief.md"
+    [ "$status" -eq 0 ] || {
+      echo "$line: $stderr"
+      false
+    }
+  done
+}
+
+@test "a Touches: glob git rejects, or one that names an absolute path, is refused before any slot is made" {
+  local glob
+  # shellcheck disable=SC2088 # a literal ~ is the glob under test
+  for glob in ':(nonsense)src/**' '/home/x/src/a.sh' '../up.txt' "$AGENT_SLOT_DEV/repoa/src/a.sh" '~/a.sh'; do
+    printf '%s\n' 'Scope: all.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' "Touches: src/**, $glob" \
+      'Adds: none.' >"$T/brief.md"
+    launch repoa --request-id "r-$RANDOM" --prompt-file "$T/brief.md"
+    [ "$status" -eq 2 ] || {
+      echo "$glob: accepted"
+      false
+    }
+    jaq -e --arg g "$glob" '.reason == "brief-incomplete" and .value == $g
+      and (.message | contains("is not a git pathspec inside the repo"))' <<<"$stderr"
+  done
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+}
+
+@test "a brief with no Touches: line says the line holds comma-separated git pathspec globs" {
+  brief "$T/full.md"
+  grep -v '^Touches:' "$T/full.md" >"$T/brief.md"
+  launch repoa --request-id r-hint --prompt-file "$T/brief.md"
+  jaq -e '.message | contains("Touches: takes comma-separated git pathspec globs on one line")' <<<"$stderr"
+}
+
+@test "a Touches: line written as a sentence records clean globs, and a lone dot records the whole repo" {
+  printf '%s\n' 'Scope: x.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' \
+    'Touches: `a.sh`, `tests/b.bats`.' 'Adds: none.' >"$T/brief.md"
+  launch repoa --request-id r-sentence --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  jaq -e '.scope.touches == ["a.sh", "tests/b.bats"]' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
+  printf '%s\n' 'Scope: x.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' 'Touches: .' 'Adds: none.' \
+    >"$T/brief.md"
+  launch repoa --request-id r-dot --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  jaq -e '.scope.touches == ["."]' "$AGENT_SLOT_ROOT/repoa/2/.git/agent-slot.json"
+}
+
+@test "a bold or italic label alone on its line has no value, so the line is refused rather than recording its emphasis marks" {
+  local label
+  for label in '**Touches:**' '*Touches:*' '__Touches:__' '**Touches**:'; do
+    printf '%s\n' 'Scope: x.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' "$label" '- src/**' 'Adds: none.' \
+      >"$T/brief.md"
+    launch repoa --request-id "r-$RANDOM" --prompt-file "$T/brief.md"
+    [ "$status" -eq 2 ] || {
+      echo "accepted: $label"
+      false
+    }
+    jaq -e '.reason == "brief-incomplete" and .value == "Touches:"' <<<"$stderr"
+  done
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+}
+
+@test "a Touches: line that holds no glob once trimmed is refused" {
+  printf '%s\n' 'Scope: x.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' 'Touches: ` `, ,' 'Adds: none.' \
+    >"$T/brief.md"
+  launch repoa --request-id r-empty-glob --prompt-file "$T/brief.md"
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "brief-incomplete" and .value == "Touches:"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+}
+
+@test "a Touches: glob with a space, a semicolon, a brace, or a quote is refused naming the glob and the list as parsed" {
+  local line
+  for line in 'src/** tests/**' 'src/**; tests/**' 'src/{a,b}.sh' '"src/**"' "'tests/**'" 'everything under src'; do
+    printf '%s\n' 'Scope: x.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' "Touches: $line" 'Adds: none.' \
+      >"$T/brief.md"
+    launch repoa --request-id "r-$RANDOM" --prompt-file "$T/brief.md"
+    [ "$status" -eq 2 ] || {
+      echo "accepted: $line"
+      false
+    }
+    jaq -e '.reason == "brief-incomplete" and (.message | contains("parsed as"))' <<<"$stderr"
+  done
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+}
+
+@test "a second Touches: line adds to the first rather than being dropped" {
+  printf '%s\n' 'Scope: x.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' 'Touches: src/**' \
+    '- Touches: tests/*.bats' 'Adds: none.' >"$T/brief.md"
+  launch repoa --request-id r-two --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  jaq -e '.scope.touches == ["src/**", "tests/*.bats"]' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
+}
+
+@test "a launch with no brief records no scope" {
+  launch repoa --request-id r-noscope
+  [ "$status" -eq 0 ]
+  jaq -e 'has("scope") | not' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
+}
+
 @test "a brief whose line holds only its label is refused for that line" {
   printf '%s\n' 'Scope:' 'Limits: the operator set every limit.' 'Reviews: ce-code-review, at most 2 rounds.' \
-    'Reports to:   ' >"$T/brief.md"
+    'Reports to:   ' 'Touches: src/**' 'Adds: none' >"$T/brief.md"
   launch repoa --request-id r-bare --prompt-file "$T/brief.md"
   [ "$status" -eq 2 ]
   jaq -e '.reason == "brief-incomplete" and .value == "Scope: Reports to:"' <<<"$stderr"

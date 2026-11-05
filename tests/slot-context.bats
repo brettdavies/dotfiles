@@ -95,6 +95,21 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *"--dangerously-skip-permissions"* ]]
 }
 
+@test "the context names the paths the brief let the PR change and the public surface it may add" {
+  slot repo 1 '{"task": "t", "scope": {"touches": ["src/login/**", "tests/*.bats"], "adds": "one flag, --dry-run."}}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context == *"Your brief's scope: the PR may change only src/login/**, tests/*.bats, and may add only: one flag, --dry-run."* ]]
+  [[ $context == *"A \`git push\` whose commits change any other path is denied"* ]]
+}
+
+@test "a slot whose record holds no scope gets no scope line" {
+  slot repo 1 '{"task": "t"}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  [[ $context != *"Your brief's scope"* ]]
+}
+
 @test "a slot of the vault is told to work on main, rebase before each push, and keep the vault's content in the vault" {
   printf '%s' obsidian-vault-1 >"$STUBS/pane-session"
   slot obsidian-vault 1 '{"task": "tidy-notes"}'
