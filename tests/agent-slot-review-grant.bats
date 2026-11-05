@@ -33,9 +33,18 @@ operator() {
 @test "grant-review appends one review-grant line for the slot's current branch" {
   operator grant-review repo/1
   [ "$status" -eq 0 ]
-  jaq -e '.ok == true and .verb == "grant-review" and .key == "repo/1" and .branch == "feat/one"' <<<"$output"
+  jaq -e '.ok == true and .verb == "grant-review" and .key == "repo/1" and .branch == "feat/one"
+    and .rounds == 0 and .allowed == 3' <<<"$output"
+
   [ "$(jaq -s -c 'map(select(.event == "review-grant")) | length' "$LEDGER")" -eq 1 ]
   jaq -e 'select(.event == "review-grant") | .repo == "repo" and .slot == 1 and .branch == "feat/one"' "$LEDGER"
+}
+
+@test "the text output says how many rounds are used and tells the operator to tell the agent" {
+  operator grant-review repo/1
+  run env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && exec "$2" grant-review repo/1' _ "$T" "$AGENT_SLOT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "repo/1: one more review round granted on feat/one, 0 of 4 used; tell the slot agent it can run ce-code-review again" ]
 }
 
 @test "each grant adds a round: two grants are two lines" {
@@ -64,7 +73,8 @@ operator() {
   printf '{}\n' >"$AGENT_SLOT_ROOT/repo/.1.claim.json"
   operator grant-review repo/1
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "slot-head-missing"' <<<"$stderr"
+  jaq -e '.reason == "slot-head-missing" and .next_step.command == "agent-slot list"
+    and (.message | contains("no clone yet"))' <<<"$stderr"
 }
 
 @test "grant-review of a slot that does not exist is refused with slot-not-found" {
@@ -76,7 +86,7 @@ operator() {
 @test "grant-review needs one slot named <repo>/<N>" {
   operator grant-review
   [ "$status" -eq 2 ]
-  jaq -e '.reason == "usage"' <<<"$stderr"
+  jaq -e '.reason == "usage" and .value == null' <<<"$stderr"
   operator grant-review repo
   [ "$status" -eq 2 ]
 }

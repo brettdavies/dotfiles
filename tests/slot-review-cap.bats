@@ -39,6 +39,9 @@ esac'
   LEDGER=$AGENT_SLOT_STATE_DIR/ledger.jsonl
   slot repo 1 '{"created_at": "2020-01-01T00:00:00Z"}'
   git -C "$SLOT" symbolic-ref HEAD refs/heads/feat/one
+  git -C "$SLOT" commit -q --allow-empty -m seed
+  SHA=$(git -C "$SLOT" rev-parse --short HEAD)
+  HOOKS_LOG=$AGENT_SLOT_STATE_DIR/logs/hooks.log
 }
 
 fire() { "$T/pane-shell" "$FAKE/claude" -c "$RUNS" claude "$HOOK"; }
@@ -80,11 +83,22 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
   reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
   [[ $reason == *"at most 2 review rounds per PR"* ]]
   [[ $reason == *"feat/one has had 2"* ]]
-  [[ $reason == *"coordinating session the PR and its head SHA"* ]]
-  [[ $reason == *"head $(git -C "$SLOT" rev-parse --short HEAD)"* ]]
+  [[ $reason == *"coordinating session the PR and its head SHA ($SHA) as one"* ]]
   [[ $reason == *"If your brief names no such session"* ]]
-  [[ $reason == *"agent-slot grant-review repo/1"* ]]
+  [[ $reason == *"the operator can allow one more round by running \`agent-slot grant-review repo/1\`"* ]]
+  [[ $reason == *"you cannot run yourself"* ]]
+  [[ $reason == *"branch feat/one"* ]]
   [ "$(ledger review-round | wc -l)" -eq 2 ]
+}
+
+@test "the denial names the PR the slot's record holds" {
+  jaq -c '.prs = [12, 463]' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  review
+  review
+  run skill "$REVIEW"
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *"coordinating session PR #463 and its head SHA ($SHA) as one"* ]]
 }
 
 @test "a grant allows exactly one more round on that branch" {
@@ -92,7 +106,8 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
   review
   run grant
   [ "$status" -eq 0 ]
-  jaq -e '.ok == true and .verb == "grant-review" and .branch == "feat/one"' <<<"$output"
+  jaq -e '.ok == true and .verb == "grant-review" and .branch == "feat/one" and .rounds == 2 and .allowed == 3' \
+    <<<"$output"
   jaq -e '.repo == "repo" and .slot == 1 and .branch == "feat/one"' <<<"$(ledger review-grant)"
   review
   run skill "$REVIEW"
@@ -103,13 +118,41 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
 }
 
 @test "a skill name with a leading slash or surrounding space is counted as the same skill" {
+  local name
   for name in "/$REVIEW" " $REVIEW " "/ $REVIEW"; do
+    : >"$LEDGER"
     run skill "$name"
     [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    [ "$(ledger review-round | wc -l)" -eq 1 ]
   done
+}
+
+@test "the bare skill name ce-code-review is counted too, since Claude Code runs it as an alias" {
+  run skill ce-code-review
+  [ -z "$output" ]
+  run skill "/ce-code-review"
+  [ -z "$output" ]
+  [ "$(ledger review-round | wc -l)" -eq 2 ]
+  run skill ce-code-review
+  [[ $output == *'"deny"'* ]]
+}
+
+@test "a detached head counts its rounds under the commit" {
+  git -C "$SLOT" checkout -q --detach
+  review
+  review
+  jaq -e --arg sha "$(git -C "$SLOT" rev-parse HEAD)" '.branch == $sha' <<<"$(ledger review-round | head -n 1)"
   run skill "$REVIEW"
   [[ $output == *'"deny"'* ]]
-  [ "$(ledger review-round | wc -l)" -eq 2 ]
+}
+
+@test "a round that cannot be written is logged and the call is allowed" {
+  review
+  chmod 444 "$LEDGER"
+  run skill "$REVIEW"
+  [ -z "$output" ]
+  grep -q 'review-round line not written' "$HOOKS_LOG"
 }
 
 @test "a review called from a directory outside the slot counts for the slot the pane belongs to" {

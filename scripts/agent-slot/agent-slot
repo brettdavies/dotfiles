@@ -105,6 +105,8 @@ source "$AS_LIB/homescan.sh"
 source "$AS_LIB/check.sh"
 # shellcheck source=lib/push.sh
 source "$AS_LIB/push.sh"
+# shellcheck source=lib/reviewcount.sh
+source "$AS_LIB/reviewcount.sh"
 # shellcheck source=lib/reviewgrant.sh
 source "$AS_LIB/reviewgrant.sh"
 # shellcheck source=lib/release.sh
@@ -271,6 +273,7 @@ main() {
       cmd_finish "$key"
       ;;
     grant-review)
+      ((${#args[@]} > 0)) || usage_fail "grant-review needs a slot, <repo>/<N>"
       ((${#args[@]} == 1)) || usage_fail "grant-review takes one slot, <repo>/<N>" "${args[*]}"
       exec </dev/null
       cmd_grant_review "${args[0]}"

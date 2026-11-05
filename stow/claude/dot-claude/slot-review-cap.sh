@@ -19,30 +19,19 @@ fi
 AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
 
 REVIEW_SKILL=compound-engineering:ce-code-review
-REVIEW_CAP=2
 
-# Prints the count of ledger lines of one event for a slot's branch since the slot was made.
-# Usage: review_count <event> <repo> <n> <branch> <since>
-# shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
-review_count() {
-  [[ -r $AS_LEDGER ]] || {
-    printf 0
-    return 0
-  }
-  contract_json -R -s -r --arg e "$1" --arg repo "$2" --argjson n "$3" --arg b "$4" --arg since "$5" \
-    '[split("\n")[] | fromjson? | select(.event == $e and .repo == $repo and .slot == $n and .branch == $b
-      and .ts >= $since)] | length' "$AS_LEDGER"
-}
-
-# Usage: review_deny_reason <repo> <n> <rounds> <grants> <branch>
+# Usage: review_deny_reason <repo> <n> <rounds> <grants> <branch>; RECORD holds the slot's record.
+# shellcheck disable=SC2016 # a jaq program
 review_deny_reason() {
-  local allowed="at most $REVIEW_CAP review rounds per PR" head
+  local allowed="at most $REVIEW_CAP review rounds per PR" head pr which="the PR"
   head=$(git -C "$(slot_path "$1" "$2")" rev-parse --short HEAD 2>/dev/null) || head=
+  pr=$(contract_json -r '(.prs // []) | map(select(type == "number")) | last // empty' <<<"$RECORD") || pr=
+  [[ -z $pr ]] || which="PR #$pr"
   (($4 == 0)) || allowed="$REVIEW_CAP review rounds per PR plus $4 the operator granted"
-  printf '%s' "This slot allows $allowed, and $5 has had $3. Send the coordinating session the PR and its head \
-SHA${head:+ ($head)} as one \`SendMessage\`, with \`agent-slot grant-review $1/$2\` as the step that allows one more round, \
-and keep working on what the review does not block. If your brief names no such session, leave the decision open in \
-your plan and your report."
+  printf '%s' "This slot allows $allowed, and branch $5 has had $3. Send the coordinating session $which and its \
+head SHA${head:+ ($head)} as one \`SendMessage\`, and tell it the operator can allow one more round by running \
+\`agent-slot grant-review $1/$2\`, which you cannot run yourself. Keep working on what the review does not block. If \
+your brief names no such session, leave the decision open in your plan and your report."
 }
 
 # Usage: review_decide <repo> <n> <branch> <since>; under the ledger lock, prints the denial or appends the round.
@@ -85,12 +74,13 @@ review_main() {
   hook_use_socket "${TMUX%%,*}" || return 0
   fields='"\(.hook_event_name // "")\u001f\(.tool_name // "")\u001f\(.tool_input.skill // "")"'
   IFS=$'\x1f' read -r event tool skill <<<"$(hook_field "$fields")"
-  # Claude Code runs the skill under its trimmed name, without one leading slash.
+  # Claude Code runs the skill under its trimmed name, without one leading slash, and accepts the name without its
+  # plugin prefix.
   skill=${skill#"${skill%%[![:space:]]*}"}
   skill=${skill%"${skill##*[![:space:]]}"}
   skill=${skill#/}
   skill=${skill#"${skill%%[![:space:]]*}"}
-  [[ $event == PreToolUse && $tool == Skill && $skill == "$REVIEW_SKILL" ]] || return 0
+  [[ $event == PreToolUse && $tool == Skill && ($skill == "$REVIEW_SKILL" || $skill == "${REVIEW_SKILL#*:}") ]] || return 0
   hook_pane && hook_claude_session && hook_top_level_claude || return 0
   read -r repo n <<<"$(review_slot)"
   branch=$(slot_review_key "$(slot_path "$repo" "$n")")

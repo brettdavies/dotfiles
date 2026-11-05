@@ -168,16 +168,17 @@ REPO="$BATS_TEST_DIRNAME/.."
   grep -qxF 'Bash(agent-slot reopen *)' <<<"$output"
 }
 
-# agent-slot-rex runs on the same host as the slots, so its finish and sweep run
-# agent-slot finish --yes and sweep --yes here. They ask first for the same
-# reason agent-slot's own verbs do.
-@test "agent-slot grant-review asks first, so a slot's agent cannot grant itself a review round" {
+# grant-review asks first for the same reason, so a slot's agent cannot grant itself a review round.
+@test "agent-slot grant-review asks first" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
   [ "$status" -eq 0 ]
   grep -qxF 'Bash(agent-slot grant-review *)' <<<"$output"
 }
 
+# agent-slot-rex runs on the same host as the slots, so its finish and sweep run
+# agent-slot finish --yes and sweep --yes here. They ask first for the same
+# reason agent-slot's own verbs do.
 @test "agent-slot-rex finish and sweep ask first" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"

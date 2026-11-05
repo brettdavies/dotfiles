@@ -187,6 +187,9 @@ ledger_append() {
     '{schema: $schema, ts: $ts, event: $event} + .' <<<"$2")
   exec {fd}>>"$AS_LEDGER.lock" || return 1
   flock -w 5 "$fd" || true
-  printf '%s\n' "$line" >>"$AS_LEDGER"
+  if ! printf '%s\n' "$line" >>"$AS_LEDGER"; then
+    exec {fd}>&-
+    return 1
+  fi
   exec {fd}>&-
 }
