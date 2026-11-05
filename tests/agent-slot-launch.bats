@@ -510,6 +510,16 @@ assert_own_worktree() {
   [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
 }
 
+@test "a brief's labels may be bold, italic, a heading, or numbered" {
+  printf '%s\n' '**Scope**: the login form.' '_Limits_: the operator set every limit.' '## Reviews: ce-code-review.' \
+    '1. Reports to: skills-prime.' >"$T/brief.md"
+  launch repoa --request-id r-shapes --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+}
+
 @test "a brief whose line holds only its label is refused for that line" {
   printf '%s\n' 'Scope:' 'Limits: the operator set every limit.' 'Reviews: ce-code-review, at most 2 rounds.' \
     'Reports to:   ' >"$T/brief.md"
