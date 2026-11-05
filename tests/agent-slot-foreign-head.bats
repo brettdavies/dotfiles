@@ -158,6 +158,15 @@ run_plain_claude() {
   )
 }
 
+# assert_reached_api: the real Claude's last run got as far as its first request, at the refused port. Without this, empty
+# markers can mean Claude never started: a bad flag or a missing prompt stops it before it loads anything.
+assert_reached_api() {
+  grep -q 'ECONNREFUSED\|Connection refused' "$T/real-claude.out" || {
+    cat "$T/real-claude.out"
+    false
+  }
+}
+
 @test "a foreign head's Claude starts with user settings only, and the output, record, and ledger say so" {
   foreign_pr
   launch repoa --pr 7 --request-id r-foreign
@@ -193,7 +202,7 @@ run_plain_claude() {
     cat "$T/real-claude.out"
     false
   }
-  grep -q 'ECONNREFUSED\|Connection refused' "$T/real-claude.out"
+  assert_reached_api
 }
 
 @test "an own fork's settings hook, key helper, and MCP server do run in the real Claude, so the test above is not vacuous" {
@@ -576,10 +585,15 @@ tracked_local_settings() {
   git -C "$SLOT" sparse-checkout disable
   [ -f "$SLOT/.claude/settings.local.json" ]
   run_typed_line
+  assert_reached_api
   [ ! -e "$T/marks/local-hook" ]
   git -C "$SLOT" checkout -q -- .
   git -C "$SLOT" stash -q || true
+  [ -f "$SLOT/.claude/settings.local.json" ]
+  # Claude refuses a session ID it has already saved, and would stop before loading anything.
+  rm -rf "$T/claude-config/projects"
   run_typed_line
+  assert_reached_api
   [ ! -e "$T/marks/local-hook" ]
 }
 
@@ -637,7 +651,7 @@ nested_config() {
     ls "$T/marks"
     false
   }
-  grep -q 'ECONNREFUSED\|Connection refused' "$T/real-claude.out"
+  assert_reached_api
 }
 
 @test "a foreign head's files session starts no file browser, whose previewers would parse the tree unattended" {
@@ -1063,7 +1077,7 @@ every_git_hook() {
 # them back on disk with conflict markers. Sets nothing; the slot is SLOT.
 conflicted_slot() {
   foreign_pr tool_config
-  launch repoa --pr 7
+  launch repoa --pr 7 --prompt-file "$T/brief"
   origin_file repoa bunfig.toml 'preload = ["./base-preload.js"]'
   origin_file repoa .claude/settings.json '{"from": "main"}'
   git -C "$SLOT" fetch -q origin
@@ -1077,8 +1091,10 @@ conflicted_slot() {
   [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
   conflicted_slot
   run_typed_line
+  assert_reached_api
   [ -z "$(ls "$T/marks")" ]
   run_plain_claude
+  assert_reached_api
   [ -z "$(ls "$T/marks")" ]
   "$BATS_TEST_DIRNAME/../stow/claude/dot-claude/statusline.sh" >/dev/null 2>&1 \
     <<<"{\"workspace\": {\"current_dir\": \"$SLOT\"}, \"model\": {}, \"cost\": {}, \"context_window\": {}}" || true
@@ -1092,6 +1108,7 @@ conflicted_slot() {
   git -C "$SLOT" checkout -q --ours -- .claude/settings.json
   jaq -e .hooks "$SLOT/.claude/settings.json" >/dev/null
   run_typed_line
+  assert_reached_api
   [ -z "$(ls "$T/marks")" ]
   run_plain_claude
   [ -e "$T/marks/settings-hook" ]
@@ -1242,7 +1259,7 @@ SONNET_LINE='CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously
     cat "$T/real-claude.out"
     false
   }
-  grep -q 'ECONNREFUSED\|Connection refused' "$T/real-claude.out"
+  assert_reached_api
 }
 
 @test "an own fork's hooks do run from the same Sonnet line, so the real Claude accepts it and the test above is not vacuous" {
