@@ -191,6 +191,22 @@ rex_helper() {
   [ "$(git -C "$checkout" worktree list | wc -l)" -eq 1 ]
 }
 
+@test "a prime's Claude takes no model, effort, or advisor from a slot's defaults, fresh or resumed" {
+  local id=aaaaaaaa-0000-4000-8000-000000000001 typed
+  start
+  [ "$status" -eq 0 ]
+  typed=$(cat "$STUBS/typed-repoa-prime")
+  [[ $typed == "claude --dangerously-skip-permissions --session-id "* && $typed != *--model* && $typed != *--effort* ]]
+  [[ $typed != *--advisor* && $typed != *ADVISOR* ]]
+  printf 'repoa-prime-files
+repoa-prime-git
+' >"$STUBS/tmux-sessions"
+  transcript -fixture-dev-repoa "$id" repoa-prime
+  start
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUBS/typed-repoa-prime")" = "claude --dangerously-skip-permissions --resume $id -n repoa-prime" ]
+}
+
 @test "a transcript titled for the prime is resumed under that name" {
   local id=aaaaaaaa-0000-4000-8000-000000000001
   transcript -fixture-dev-repoa "$id" repoa-prime
@@ -478,7 +494,7 @@ JSON
   start
   [ "$status" -eq 0 ]
   jaq -e '(.started | length) == 3' <<<"$output"
-  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r-nine --output json
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r-nine --output json
   [ "$status" -eq 78 ]
   jaq -e '.reason == "slot-limit-reached"' <<<"$stderr"
 }
@@ -588,7 +604,7 @@ JSON
 launch_slot() {
   local n
   for n in 1 2 3; do trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/$n")"; done
-  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id "${1:-r1}" --output json
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id "${1:-r1}" --output json
 }
 
 PRIME_SESSIONS='["repoa-prime", "repoa-prime-files", "repoa-prime-git"]'
@@ -680,7 +696,7 @@ PRIME_SESSIONS='["repoa-prime", "repoa-prime-files", "repoa-prime-git"]'
   local n
   for n in 1 2 3; do trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/$n")"; done
   wrap_tmux '[[ " $* " != *" new-session "*"-prime"* ]] || exit 1'
-  run --separate-stderr "$AGENT_SLOT" launch repoa --request-id r1
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r1
   [ "$status" -eq 0 ]
   [[ $output == *'; its prime did not start: tmux-failed'* ]]
 }

@@ -114,8 +114,9 @@ sessions_foreign() { [[ $(contract_json -r '.head_foreign // false' <<<"$RECORD"
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
 # value from it is shell-quoted. A resume or reopen whose conversation was never saved starts Claude as a launch does.
 # In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name,
-# and runs on the record's model through sessions_claude; a record with no model runs on Opus. A record with head_foreign
-# also starts Claude without the tree's settings.
+# and runs on the record's model through sessions_claude; a record with no model runs on Opus. A prime's Claude runs on
+# the account's own default model and effort instead, since a person attends it and picks them. A record with
+# head_foreign also starts Claude without the tree's settings.
 # The first message goes with a launch and a reopen only: a resume brings back a slot that already had it.
 sessions_command() {
   local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude
@@ -126,7 +127,11 @@ sessions_command() {
     git) printf '%s' 'lazygit' ;;
     claude)
       name=$(contract_json -r '.name // .task // ""' <<<"$RECORD")
-      claude=$(sessions_claude "$(contract_json -r '.model // "opus"' <<<"$RECORD")")
+      if [[ $n == "$SLOT_PRIME" ]]; then
+        claude=$SESSIONS_CLAUDE
+      else
+        claude=$(sessions_claude "$(contract_json -r '.model // "opus"' <<<"$RECORD")")
+      fi
       prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
       ! sessions_foreign || claude+=" ${SESSIONS_FOREIGN_ARGS[*]}"
       if [[ $mode != launch ]] && _sessions_conversation_saved; then
