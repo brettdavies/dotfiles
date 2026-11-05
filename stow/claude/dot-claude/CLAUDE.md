@@ -259,11 +259,13 @@ without blocking".
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse
 hook lists active runs with the exact `gh run watch <id> --exit-status --interval 30` to spawn: run one per active run
-your own action started, in the background. Never watch with `gh pr checks --watch` or a loop of `gh pr view`: both poll
-the GraphQL API until the checks end. **A completed watcher is NOT a green watcher**: `gh run watch` needs
-`--exit-status` to exit non-zero at all. When the last watcher completes, verify once explicitly: `gh pr view <num>
---json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus, checks: [.statusCheckRollup[] | {name,
-conclusion}]}'` and assert every conclusion is `SUCCESS`. Same for run-scoped:
+your own action started, in the background. When the hook prints nothing (no run was visible within its wait, or `gh`
+failed), list the runs once yourself, with `gh run list --commit "$(git rev-parse HEAD)"` after a push or `gh pr create`
+and `gh run list --branch <branch> --limit 5` after anything else, and watch the unfinished ones. Never watch with
+`gh pr checks --watch` or a loop of `gh pr view`: both poll the GraphQL API until the checks end. **A completed watcher
+is NOT a green watcher**: `gh run watch` needs `--exit-status` to exit non-zero at all. When the last watcher completes,
+verify once explicitly: `gh pr view <num> --json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus,
+checks: [.statusCheckRollup[] | {name, conclusion}]}'` and assert every conclusion is `SUCCESS`. Same for run-scoped:
 `gh run view <id> --json conclusion --jq .conclusion` must be `success`. Then re-enumerate to catch chained runs, both
 same-repo (`workflow_run` triggers, visible to `gh run list --branch`) AND cross-repo dispatches (`repository_dispatch`
 into another repo, e.g. agentnative-cli release → brettdavies/homebrew-tap → callback to cli's finalize-release; these

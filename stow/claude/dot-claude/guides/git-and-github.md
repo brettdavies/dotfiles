@@ -431,8 +431,11 @@ After every batch of watchers finishes, re-run `gh run list --branch <branch>` t
 `release.yml` → homebrew dispatch → `finalize-release`). The hook only fires after the original action; chained runs
 need a manual re-check.
 
-If you push CI-triggering changes via a path the hook doesn't cover (or `gh` is unavailable in the hook's environment),
-run the same flow manually. Never proceed past a red run.
+If you push CI-triggering changes via a path the hook doesn't cover, `gh` is unavailable in the hook's environment, or
+the hook prints nothing (no run was visible within its wait, or `gh` failed), run the same flow manually: list the runs
+once with `gh run list --commit "$(git rev-parse HEAD)"` after a push or `gh pr create`, or
+`gh run list --branch <branch> --limit 5` after anything else, and watch the unfinished ones. Never proceed past a red
+run.
 
 The full policy and matcher list lives in the script header at `~/.claude/ci-watch-prompt.sh` — that's the source of
 truth.
