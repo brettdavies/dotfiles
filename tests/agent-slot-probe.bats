@@ -847,6 +847,22 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   grep -qF 'test(probe): <what it probes>' "$BATS_TEST_DIRNAME/../README.md"
 }
 
+@test "the probe docs start from a push and name the slot's base, which whoami reports" {
+  local readme=$BATS_TEST_DIRNAME/../README.md
+  in_slot whoami
+  [ "$status" -eq 0 ]
+  jaq -e '.slot.base == "main"' <<<"$output"
+  run "$AGENT_SLOT" probe --help
+  [ "$status" -eq 0 ]
+  [[ $output == *"git push -u origin HEAD"* ]]
+  [[ $output == *"--base"* ]]
+  [[ $output == *".slot.base"* ]]
+  grep -qF 'git switch -c test/probe-<what>' "$readme"
+  grep -qF 'git push -u origin HEAD' "$readme"
+  grep -qF "gh pr create --draft --base <the slot's base> --title 'test(probe): <what it probes>' --fill" "$readme"
+  grep -qF '.slot.base' "$readme"
+}
+
 @test "text mode says what happened and what comes next" {
   pushed feat/p
   draft_pr 9 feat/p

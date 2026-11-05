@@ -653,8 +653,14 @@ write. A fetch that lands just before a push's own update leaves a head with no 
 commit restores the proof, and the refusal says so; on a branch's first push, the branch reads as another writer's, and
 the operator closes it.
 
+A probe starts from a new branch, pushed before the PR opens, and targets the slot's base, so it exercises that base's
+CI. `agent-slot whoami --output json` returns the slot's record, and `.slot.base` in it names the base.
+
 ```bash
-gh pr create --draft --title 'test(probe): <what it probes>' --fill
+git switch -c test/probe-<what>
+git commit --allow-empty -m 'test(probe): <what it probes>'
+git push -u origin HEAD
+gh pr create --draft --base <the slot's base> --title 'test(probe): <what it probes>' --fill
 agent-slot probe 487 --output json
 agent-slot close-probe 487 --output json
 ```
