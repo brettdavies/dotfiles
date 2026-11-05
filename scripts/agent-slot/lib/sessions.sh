@@ -84,7 +84,8 @@ sessions_command() {
         printf -v cmd '%s --session-id %q' "$SESSIONS_CLAUDE" "$(contract_json -r '.session_id' <<<"$RECORD")"
       fi
       [[ -z $name ]] || printf -v cmd '%s -n %q' "$cmd" "$name"
-      [[ -z $prompt ]] || printf -v cmd '%s "$(cat %q)"' "$cmd" "$prompt"
+      # After --, so a brief whose first character is a dash is the message, not an option.
+      [[ -z $prompt ]] || printf -v cmd '%s -- "$(cat %q)"' "$cmd" "$prompt"
       printf '%s' "$cmd"
       ;;
   esac

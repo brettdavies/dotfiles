@@ -6,7 +6,7 @@ TASK_PATTERN='^[A-Za-z0-9][A-Za-z0-9_/-]{0,63}$'
 TASK_RULE='a task name uses letters, digits, -, _, and /, starts with a letter or digit, and is at most 64 characters'
 REQUEST_PATTERN='^[A-Za-z0-9._-]{1,128}$'
 
-LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_REQUEST='' LAUNCH_PROMPT='' LAUNCH_REQUESTED_AT=''
+LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_TASK_GIVEN='' LAUNCH_REQUEST='' LAUNCH_PROMPT='' LAUNCH_REQUESTED_AT=''
 LAUNCH_OPENED_AT='' LAUNCH_SHOWN_AT=''
 EPOCH_PATTERN='^[0-9]+(\.[0-9]+)?$'
 LAUNCH_ITEM_KIND='' LAUNCH_ITEM_REF='' LAUNCH_ITEM='' LAUNCH_NAME=''
@@ -25,9 +25,13 @@ launch_parse_args() {
       --task | --request-id | --prompt-file | --requested-at | --opened-at | --shown-at)
         (($# >= 2)) || usage_fail "$1 needs a value" "$1"
         case $1 in
-          --task) LAUNCH_TASK=$2 ;;
+          --task) LAUNCH_TASK=$2 LAUNCH_TASK_GIVEN=$2 ;;
           --request-id) LAUNCH_REQUEST=$2 ;;
-          --prompt-file) LAUNCH_PROMPT=$2 ;;
+          --prompt-file)
+            [[ -n $2 ]] || contract_fail prompt-file-unreadable "--prompt-file names no file" --value "" \
+              --command "agent-slot launch --help"
+            LAUNCH_PROMPT=$2
+            ;;
           --requested-at) LAUNCH_REQUESTED_AT=$2 ;;
           --opened-at) LAUNCH_OPENED_AT=$2 ;;
           --shown-at) LAUNCH_SHOWN_AT=$2 ;;
@@ -52,6 +56,7 @@ launch_parse_args() {
       || contract_fail prompt-file-unreadable "the first-message file cannot be read" --value "$LAUNCH_PROMPT" \
         --command "agent-slot launch --help"
     LAUNCH_PROMPT=$(realpath "$LAUNCH_PROMPT")
+    launch_brief_check "$LAUNCH_PROMPT"
   fi
   [[ -n $LAUNCH_REQUESTED_AT ]] || LAUNCH_REQUESTED_AT=$(date +%s.%N)
   local flag value
@@ -59,6 +64,26 @@ launch_parse_args() {
     value=${flag#* }
     [[ -z $value || $value =~ $EPOCH_PATTERN ]] || usage_fail "--${flag%% *} takes seconds since the epoch" "$value"
   done
+}
+
+# The lines every brief carries, each starting a line as `<label>:`, optionally after list, heading, number, or emphasis
+# marks, and the emphasis may wrap the label alone (`**Scope**:`). The agent-slot skill's "Write a brief" checklist
+# names the same four.
+LAUNCH_BRIEF_LABELS=('Scope' 'Limits' 'Reviews' 'Reports to')
+
+# Usage: launch_brief_check <file>; refuses with brief-incomplete, naming each missing label, unless the brief has a
+# line for every label in LAUNCH_BRIEF_LABELS.
+launch_brief_check() {
+  local label missing=()
+  for label in "${LAUNCH_BRIEF_LABELS[@]}"; do
+    grep -Eiq "^[[:space:]*_>#-]*([0-9]+[.)][[:space:]]*)?[*_]*${label}[*_]*:[[:space:]*_]*[^[:space:]*_]" "$1" \
+      || missing+=("$label:")
+  done
+  ((${#missing[@]} == 0)) && return 0
+  contract_fail brief-incomplete "the brief has no ${missing[*]} line with a value. Every brief states its scope, \
+which of its limits are the operator's and which the coordinating session's, the reviews it runs (at most 2 rounds), \
+and the session it reports to, each on a line of its own; launch checks only that each line is there with a value" \
+    --value "${missing[*]}" --command "agent-slot launch --help"
 }
 
 # Sets LAUNCH_EXISTING to the slot holding this request ID, this task when one was given, or this work item when one
@@ -114,25 +139,27 @@ _launch_head() {
     "$ITEM_NUMBER" "$(_launch_command)${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
 }
 
-# The launch's command line without --request-id, for an error's next step.
+# The launch's command line without --request-id, for an error's next step: it keeps the caller's task and brief, so
+# running it delivers the brief this launch was given.
 _launch_command() {
-  printf 'agent-slot launch %s' "$LAUNCH_REPO"
-  [[ -z $LAUNCH_ITEM_KIND ]] || printf ' --%s %s' "$LAUNCH_ITEM_KIND" "$(contract_quote "$LAUNCH_ITEM_REF")"
+  local -a cmd=(agent-slot launch "$LAUNCH_REPO")
+  [[ -z $LAUNCH_ITEM_KIND ]] || cmd+=("--$LAUNCH_ITEM_KIND" "$LAUNCH_ITEM_REF")
+  [[ -z $LAUNCH_TASK_GIVEN ]] || cmd+=(--task "$LAUNCH_TASK_GIVEN")
+  [[ -z $LAUNCH_PROMPT ]] || cmd+=(--prompt-file "$LAUNCH_PROMPT")
+  contract_quote "${cmd[@]}"
 }
 
 # Usage: launch_output <repo> <n> <created> [<trust-prompt-expected> <phases-json> [<fields-json>]]
 # prompt_delivered says whether this call's --prompt-file is the slot's first message: true for a new slot or a retry
-# of the request that made it, false for a slot another request made, null without a --prompt-file. head_pushable says
-# whether this call checked out a PR's head that can be pushed to, null when it checked out none. <fields-json> is
+# of the request that made it with the same brief, null without a --prompt-file. Any other --prompt-file never gets
+# here: cmd_launch refuses it with item-held-by-slot, so a brief is never dropped without an error. head_pushable
+# says whether this call checked out a PR's head that can be pushed to, null when it checked out none. <fields-json> is
 # merged over the output.
 launch_output() {
   local repo=$1 n=$2 created=$3 trust=${4:-false} phases=${5:-null} fields=${6:-'{}'} delivered=null path
   path=$(slot_path "$repo" "$n")
   record_read "$repo" "$n" || RECORD='{}'
-  if [[ -n $LAUNCH_PROMPT ]]; then
-    delivered=false
-    [[ $created != true && $LAUNCH_EXISTING_BY != request ]] || delivered=true
-  fi
+  [[ -z $LAUNCH_PROMPT ]] || delivered=true
   contract_ok "$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$path" \
     --argjson created "$created" --argjson trust "$trust" --argjson phases "$phases" --arg docs "$CONTRACT_DOCS" \
     --argjson delivered "$delivered" --arg branch "$(slot_branch "$path")" --argjson pushable "$HEAD_PUSHABLE" \
@@ -148,8 +175,6 @@ launch_output() {
     "\(.key) \(if .created then "is ready" else "already holds this request" end) at \(.path)" +
       (if .label_name then " (\(.label_name))" else "" end) +
       (if .trust_prompt_expected then "; Claude will ask to trust the folder" else "" end) +
-      (if .prompt_delivered == false
-       then "; this first message was not delivered, because the slot already holds the task" else "" end) +
       (if .prior then "\n\(.prior.note)" else "" end)'
 }
 
@@ -184,6 +209,20 @@ cmd_launch() {
       contract_fail slot-busy "$(slot_key "$repo" "$LAUNCH_EXISTING") is $state, so this launch cannot report it yet" \
         --value "$(slot_key "$repo" "$LAUNCH_EXISTING")" \
         --command "$(_launch_command)${LAUNCH_REQUEST:+ --request-id $LAUNCH_REQUEST}"
+    fi
+    if [[ -n $LAUNCH_PROMPT ]] && { [[ $LAUNCH_EXISTING_BY != request ]] \
+      || ! cmp -s "$LAUNCH_PROMPT" "$(slot_prompt_file "$(slot_path "$repo" "$LAUNCH_EXISTING")")"; }; then
+      local held
+      case $LAUNCH_EXISTING_BY in
+        item) held='this work item' ;;
+        task) held='this task' ;;
+        *) held='this request under a different brief, or none' ;;
+      esac
+      contract_fail item-held-by-slot "$(slot_key "$repo" "$LAUNCH_EXISTING")$(contract_json -r \
+        '(.name // .task // "") | if . == "" then "" else " (\(.))" end' <<<"$RECORD") already holds $held, so this \
+brief would not reach it; send the brief to that slot's Claude session, or launch again once that slot is torn down" \
+        --value "$(slot_key "$repo" "$LAUNCH_EXISTING")" \
+        --command "agent-slot check $(slot_key "$repo" "$LAUNCH_EXISTING") --output json"
     fi
     launch_output "$repo" "$LAUNCH_EXISTING" false false null '{"prior": null}'
     return

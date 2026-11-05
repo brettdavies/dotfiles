@@ -343,22 +343,34 @@ snapshot() {
 @test "a slot that holds the reopen's request ID is the one the reopen returns" {
   gh_item pr 7 "Fix the login"
   slot repoa 1 "{\"request_id\": \"r-1\", \"items\": [$PR7], \"name\": \"repoa-pr7-fix-the-login\"}"
-  printf 'reply to the review\n' >"$T/brief.md"
+  printf 'Scope: reply to the review.\nLimits: the operator set every limit.\nReviews: none.\nReports to: skills-prime.\n' >"$T/brief.md"
   reopen repoa --pr 7 --request-id r-1 --prompt-file "$T/brief.md" --dry-run
   [ "$status" -eq 0 ]
   jaq -e '.would_reopen == false and .refusal == null and .slot == "repoa/1" and .source.key == "repoa/1"
     and .name == "repoa-pr7-fix-the-login" and .prompt_delivered == false' <<<"$output"
 }
 
-@test "a prompt file a reopen would deliver is reported as delivered" {
+@test "a reopen brief without its four lines, or an empty --prompt-file, is refused before anything is reopened" {
   gh_item pr 7 "Fix the login"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7]}"
   printf 'reply to the review\n' >"$T/brief.md"
   reopen repoa --pr 7 --prompt-file "$T/brief.md" --dry-run
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "brief-incomplete" and .value == "Scope: Limits: Reviews: Reports to:"' <<<"$stderr"
+  reopen repoa --pr 7 --prompt-file '' --dry-run
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "prompt-file-unreadable"' <<<"$stderr"
+}
+
+@test "a prompt file a reopen would deliver is reported as delivered" {
+  gh_item pr 7 "Fix the login"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7]}"
+  printf 'Scope: reply to the review.\nLimits: the operator set every limit.\nReviews: none.\nReports to: skills-prime.\n' >"$T/brief.md"
+  reopen repoa --pr 7 --prompt-file "$T/brief.md" --dry-run
   [ "$status" -eq 0 ]
   jaq -e '.would_reopen == true and .prompt_delivered == true and .slot == "repoa/1"' <<<"$output"
   local expected
-  printf -v expected 'claude --dangerously-skip-permissions --resume %s -n repoa-pr7-fix-the-login "$(cat %q)"' "$S1" \
+  printf -v expected 'claude --dangerously-skip-permissions --resume %s -n repoa-pr7-fix-the-login -- "$(cat %q)"' "$S1" \
     "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot-prompt.md"
   [ "$(jaq -r .command <<<"$output")" = "$expected" ]
 }
@@ -395,7 +407,7 @@ snapshot() {
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$path\", \"items\": [$PR7],
     \"name\": \"repoa-pr7-fix-the-login\", \"prs\": [7], \"head\": \"feat/x\", \"branches\": [{\"name\": \"feat/x\",
     \"oid\": \"$HEAD_SHA\", \"remote\": \"origin\", \"url\": \"https://github.com/up/repoa.git\"}]}"
-  printf '%s' $'Answer the "review": it'"'"'s $HOME, $(touch '"$T"'/pwned), and `date`\nsecond line' >"$brief"
+  printf '%s' $'Scope: the review.\nLimits: the operator set every limit.\nReviews: none.\nReports to: skills-prime.\nAnswer the "review": it'"'"'s $HOME, $(touch '"$T"'/pwned), and `date`\nsecond line' >"$brief"
   before=$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")
   reopen repoa --pr 7 --prompt-file "$brief" --request-id r-1
   [ "$status" -eq 0 ] || {
@@ -411,7 +423,7 @@ snapshot() {
     and .reopened_from == {slot: 1, session_id: $s, ts: "2026-10-01T00:00:00Z"} and .finished_by_operator == false
     and ([has("release", "not_yet", "closing_sent_at", "last_check")] | any | not)
     and .created_at != "2026-10-01T00:00:00Z"' "$slot/.git/agent-slot.json"
-  printf -v expected 'claude --dangerously-skip-permissions --resume %s -n repoa-pr7-fix-the-login "$(cat %q)"' "$S1" \
+  printf -v expected 'claude --dangerously-skip-permissions --resume %s -n repoa-pr7-fix-the-login -- "$(cat %q)"' "$S1" \
     "$slot/.git/agent-slot-prompt.md"
   [ "$(cat "$STUBS/typed-repoa-1")" = "$expected" ]
   mkdir -p "$T/fakebin"
@@ -540,7 +552,7 @@ snapshot() {
   gh_item issue 12 "Fix the widget"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
     \"name\": \"repoa-issue12-fix-the-widget\"}"
-  printf 'pick it back up\n' >"$T/brief.md"
+  printf 'Scope: pick it back up.\nLimits: the operator set every limit.\nReviews: none.\nReports to: skills-prime.\n' >"$T/brief.md"
   reopen repoa --issue 12 --request-id r-1 --prompt-file "$T/brief.md"
   [ "$status" -eq 0 ] || {
     echo "$stderr"
