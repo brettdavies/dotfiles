@@ -34,7 +34,10 @@ pw_register() {
 pw_alias() {
   local l="$BP/$1"
   [ -L "$l" ] && [ "$(readlink "$l")" = "$2" ] && return 0
-  if [ -e "$l" ] && [ ! -L "$l" ]; then rm -rf "${l:?}"; fi
+  if [ -e "$l" ] && [ ! -L "$l" ]; then
+    pw_note "replacing the real directory $1 with an alias to $2"
+    rm -rf "${l:?}"
+  fi
   ln -s "$2" "$STAGE/alias"
   pw_rename_over "$STAGE/alias" "$l"
 }

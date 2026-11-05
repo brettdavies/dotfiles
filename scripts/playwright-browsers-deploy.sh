@@ -23,7 +23,10 @@ set -E
 #   scripts/playwright-browsers-deploy.sh --check [--pin PATH]  report any difference, change nothing
 #   scripts/playwright-browsers-deploy.sh --help
 #
-#   --pin PATH   read this pin instead of the checkout's
+#   --pin PATH   read this pin instead of the checkout's (--pin=PATH works too)
+#
+# The set goes to $PLAYWRIGHT_BROWSERS_PATH (default ~/.cache/playwright): about
+# 440 MB to download and 970 MB on disk on Linux.
 #
 # Exit 0 on success or a healthy --check; 1 on any failure or finding; 2 on a
 # usage error. Every failure line carries a stable reason, what changed, and a
@@ -38,16 +41,22 @@ for f in pin provision clients check; do
   # shellcheck disable=SC1090 # the four files are linted as targets of their own
   source "$LIB/$f.sh"
 done
-trap pw_unexpected ERR
+trap 'pw_unexpected "$LINENO" "$BASH_COMMAND"' ERR
 
 MODE=deploy
 PIN="$REPO_ROOT/config/playwright/browsers.pin"
+PIN_GIVEN=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --check) MODE=check ;;
+    --pin=*)
+      PIN=${1#--pin=}
+      PIN_GIVEN=1
+      ;;
     --pin)
-      [ "$#" -ge 2 ] || pw_usage "--pin needs a path" usage "nothing changed" "$PW_DEPLOY --help"
+      { [ "$#" -ge 2 ] && [[ $2 != -* ]]; } || pw_usage "--pin needs a path" usage "nothing changed" "$PW_DEPLOY --help"
       PIN=$2
+      PIN_GIVEN=1
       shift
       ;;
     -h | --help)
@@ -60,6 +69,8 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+# A next step that reruns the deploy keeps the pin it was given, so it never reads another.
+[ -z "$PIN_GIVEN" ] || PW_DEPLOY="$PW_DEPLOY --pin $(printf %q "$PIN")"
 
 [ "$(id -u)" -ne 0 ] \
   || pw_fail "run as your normal user, not root; the browser cache must be owned by you" running-as-root "nothing changed" "$PW_DEPLOY"
@@ -77,10 +88,10 @@ fi
 
 for tool in curl unzip; do
   command -v "$tool" >/dev/null 2>&1 \
-    || pw_fail "$tool is required to fetch and unpack the archives" tool-missing "nothing changed" "$PW_DEPLOY" "$tool"
+    || pw_fail "$tool is required to fetch and unpack the archives" tool-missing "nothing changed" "$(pw_install_hint "$tool")" "$tool"
 done
 command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 \
-  || pw_fail "sha256sum or shasum is required to verify the archives" tool-missing "nothing changed" "$PW_DEPLOY" sha256sum
+  || pw_fail "sha256sum or shasum is required to verify the archives" tool-missing "nothing changed" "$(pw_install_hint coreutils)" sha256sum
 
 mkdir -p "$BP/.dotfiles" "$PW_LINKS" "$PW_CLIENTS"
 STAGE="$(mktemp -d "$BP/.dotfiles/stage.XXXXXX")"

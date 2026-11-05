@@ -52,7 +52,7 @@ pin_with() {
       echo "accepted: $c" >&2
       return 1
     }
-    [[ "$stderr" == "ERROR: the pin has an invalid value for "*"reason: pin-invalid-value; value: "*"; nothing changed; next: ~/dotfiles/scripts/playwright-browsers-deploy.sh --help" ]] || {
+    [[ "$stderr" == "ERROR: "*"reason: pin-invalid-value; value: "*"; nothing changed; next: ~/dotfiles/scripts/playwright-browsers-deploy.sh --pin "*" --help" ]] || {
       echo "wrong error for $c: $stderr" >&2
       return 1
     }
@@ -60,11 +60,18 @@ pin_with() {
   [ ! -e "$BP" ]
 }
 
+@test "a bad value is located by its line, and a WebKit alias above the set's says so" {
+  pin_with 's/^library-version .*/library-version 1.x/'
+  [[ "$stderr" == *"the pin has an invalid value for library-version at line "[0-9]*"; reason: pin-invalid-value; value: 1.x;"* ]]
+  pin_with 's/^webkit-aliases .*/webkit-aliases 2227 2400/'
+  [[ "$stderr" == *"a WebKit alias is above the set's WebKit 2388; reason: pin-invalid-value; value: 2400;"* ]]
+}
+
 @test "an unknown key, a repeated key, and a repeated archive are malformed" {
   pin_with '$a mystery-key 1'
   [[ "$stderr" == *"reason: pin-malformed; value: mystery-key;"* ]]
   pin_with '$a ffmpeg-revision 1013'
-  [[ "$stderr" == *"the pin repeats a key; reason: pin-malformed; value: ffmpeg-revision;"* ]]
+  [[ "$stderr" == *"the pin repeats a key, at line "*"; reason: pin-malformed; value: ffmpeg-revision;"* ]]
   pin_with '$a sha256 ffmpeg-linux.zip ee986434d158f74fb5d9c5ff1092026ceedb63f324fe90b5be89460926b7b679'
   [[ "$stderr" == *"reason: pin-invalid-value; value: sha256;"* ]] || [[ "$stderr" == *"reason: pin-invalid-value; value: ffmpeg-linux.zip"* ]]
 }
@@ -81,7 +88,7 @@ pin_with() {
   [ "$status" -eq 1 ]
   [ ! -e "$BATS_TEST_TMPDIR/ran" ]
   [ "$(wc -l <<<"$stderr")" -eq 1 ]
-  [[ "$stderr" == *"reason: pin-invalid-value; value: "?(*)"; nothing changed; next: ~/dotfiles/scripts/playwright-browsers-deploy.sh --help" ]]
+  [[ "$stderr" == *"reason: pin-invalid-value; value: "?(*)"; nothing changed; next: ~/dotfiles/scripts/playwright-browsers-deploy.sh --pin "*" --help" ]]
   [[ "$stderr" != *'$('* && "$stderr" != *"reason: forged"* ]]
   [[ "$stderr" == *"value: ?touch ?"* ]] || [[ "$stderr" == *"value: ??touch"* ]]
 }

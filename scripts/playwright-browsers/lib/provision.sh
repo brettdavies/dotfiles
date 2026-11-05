@@ -2,6 +2,17 @@
 # and URL it came from. A directory counts as provisioned only while its
 # executable is present and that record matches what the pin now asks for.
 
+# Directories this run put in place, for the failure line that says what it changed.
+PW_ARRIVED=()
+
+pw_moved() {
+  if [ "${#PW_ARRIVED[@]}" -eq 0 ]; then
+    echo "nothing moved; the existing set stays in place"
+  else
+    echo "no alias moved; ${PW_ARRIVED[*]} arrived and a rerun fetches the rest"
+  fi
+}
+
 pw_sha256() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
 }
@@ -38,22 +49,22 @@ pw_provision() {
   pw_note "fetching $archive for $dir"
   curl --fail --silent --show-error --proto '=https' --retry 3 --retry-delay 2 \
     -o "$STAGE/$archive" "${PW_URL[$i]}" \
-    || pw_fail "$archive could not be fetched" archive-fetch-failed \
-      "nothing moved; the existing set stays in place" "$PW_DEPLOY" "${PW_URL[$i]}"
+    || pw_fail "$archive could not be fetched from ${PW_URL[$i]}" archive-fetch-failed "$(pw_moved)" "$PW_DEPLOY"
   got=$(pw_sha256 "$STAGE/$archive")
   [ "$got" = "$want" ] \
     || pw_fail "$archive hashes to $got and the pin names $want" archive-hash-mismatch \
-      "nothing moved; the existing set stays in place" "$PW_DEPLOY --check"
+      "$(pw_moved)" "curl -fsS $(printf %q "${PW_URL[$i]}") | sha256sum"
   unzip -q "$STAGE/$archive" -d "$STAGE/$dir" \
-    || pw_fail "$archive could not be unpacked" archive-extract-failed \
-      "nothing moved; the existing set stays in place" "$PW_DEPLOY"
+    || pw_fail "$archive could not be unpacked" archive-extract-failed "$(pw_moved)" "$PW_DEPLOY"
   [ -x "$STAGE/$dir/${PW_EXE[$i]}" ] \
     || pw_fail "$archive does not hold the executable Playwright launches" archive-incomplete \
-      "nothing moved; the existing set stays in place" "$PW_DEPLOY --check"
+      "$(pw_moved)" "grep -n archive-incomplete $PW_RUNBOOK"
   : >"$STAGE/$dir/INSTALLATION_COMPLETE"
   : >"$STAGE/$dir/DEPENDENCIES_VALIDATED"
   pw_record "$i" >"$STAGE/$dir/.dotfiles-record"
+  if [ -e "$BP/$dir" ] || [ -L "$BP/$dir" ]; then pw_note "replacing $dir, which is not from this pin"; fi
   rm -rf "${BP:?}/$dir" "${STAGE:?}/$archive"
   mv "$STAGE/$dir" "$BP/$dir"
+  PW_ARRIVED+=("$dir")
   pw_note "provisioned $dir"
 }

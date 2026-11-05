@@ -94,7 +94,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
   BS_CURL_SERVE="$BS_ARCHIVES/ffmpeg-linux.zip" run --separate-stderr "$BS_SCRIPT" --pin "$BATS_TEST_TMPDIR/next.pin"
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"chrome-linux64.zip hashes to $(bs_sha256 "$BS_ARCHIVES/ffmpeg-linux.zip") and the pin names $(bs_sha256 "$BS_ARCHIVES/chrome-linux64.zip")"* ]]
-  [[ "$stderr" == *"reason: archive-hash-mismatch; nothing moved; the existing set stays in place; next: ~/dotfiles/"* ]]
+  [[ "$stderr" == *"reason: archive-hash-mismatch; nothing moved; the existing set stays in place; next: curl -fsS https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.99/linux64/chrome-linux64.zip | sha256sum" ]]
   [ ! -e "$BP/chromium-8103099" ]
   [ "$(links)" = "$before" ]
   deploy --check
@@ -104,8 +104,20 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 @test "a failed fetch reports curl's own message above the reason and moves nothing" {
   BS_CURL_404=ffmpeg-linux deploy
   [ "$status" -eq 1 ]
-  [[ "$stderr" == *"curl: (22) The requested URL returned error: 404"*"reason: archive-fetch-failed; value: https???cdn.playwright.dev?builds?ffmpeg?1013?ffmpeg-linux.zip"* ]]
+  [[ "$stderr" == *"curl: (22) The requested URL returned error: 404"*"ffmpeg-linux.zip could not be fetched from https://cdn.playwright.dev/builds/ffmpeg/1013/ffmpeg-linux.zip; reason: archive-fetch-failed; "* ]]
   [ -z "$(links)" ]
+}
+
+@test "a failure after some directories arrived names them and says no alias moved" {
+  BS_CURL_404=webkit deploy
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"reason: archive-fetch-failed; no alias moved; chromium-8103038 chromium_headless_shell-8103038 arrived and a rerun fetches the rest; next: ~/dotfiles/"* ]]
+  [ -f "$BP/chromium-8103038/INSTALLATION_COMPLETE" ]
+  [ ! -e "$BP/webkit-2388" ]
+  [ -z "$(links)" ]
+  deploy
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$BS_CURL_LOG")" -eq 5 ]
 }
 
 @test "a version relabelled onto an older build's number fetches from its own URL and moves nothing" {
@@ -145,7 +157,14 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
   touch "$BP"
   deploy
   [ "$status" -eq 1 ]
-  [[ "$stderr" == *"mkdir: "*"reason: unexpected-failure; the set may be partly updated and a rerun finishes it; next: ~/dotfiles/"* ]]
+  [[ "$stderr" == *"mkdir: "*"a step failed unexpectedly at line "*"; reason: unexpected-failure; value: mkdir; the set may be partly updated; rerun once the cause above is fixed; next: ~/dotfiles/"* ]]
+}
+
+@test "an unrecorded directory at a set name is announced before the deploy replaces it" {
+  bs_seed webkit-2388
+  deploy
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"NOTE: replacing webkit-2388, which is not from this pin"* ]]
 }
 
 @test "the deploy's own scratch directory never survives it" {

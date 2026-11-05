@@ -59,14 +59,14 @@ state() {
   deploy --check
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"alias ffmpeg-1011 to ffmpeg-1013 is missing; reason: alias-missing"* ]]
-  [[ "$stderr" == *"alias webkit-2227 does not resolve to webkit-2388; reason: alias-wrong-target"* ]]
+  [[ "$stderr" == *"alias webkit-2227 does not resolve to a finished install of webkit-2388; reason: alias-wrong-target"* ]]
 }
 
 @test "an alias pointing at the wrong build is a finding even when it resolves" {
   ln -sfn webkit-2388 "$BP/ffmpeg-1011"
   deploy --check
   [ "$status" -eq 1 ]
-  [[ "$stderr" == *"alias ffmpeg-1011 does not resolve to ffmpeg-1013; reason: alias-wrong-target"* ]]
+  [[ "$stderr" == *"alias ffmpeg-1011 does not resolve to a finished install of ffmpeg-1013; reason: alias-wrong-target"* ]]
 }
 
 @test "a directory with no client is a finding with the deploy as its next step" {

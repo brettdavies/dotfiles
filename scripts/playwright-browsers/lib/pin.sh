@@ -14,7 +14,7 @@ PIN_SHA_RE='^[0-9a-f]{64}$'
 declare -A PIN_SHA=()
 
 pin_bad() {
-  pw_fail "the pin has an invalid value for $1" pin-invalid-value "nothing changed" "$PW_DEPLOY --help" "$2"
+  pw_fail "the pin has an invalid value for $1${PIN_LINE:+ at line $PIN_LINE}" pin-invalid-value "nothing changed" "$PW_DEPLOY --help" "$2"
 }
 
 # pin_load PATH sets PIN_CFT_VERSION, PIN_WEBKIT_REVISION, PIN_FFMPEG_REVISION,
@@ -23,12 +23,15 @@ pin_bad() {
 # number Playwright's cleanup can claim for the CfT directories: the build and
 # patch, since the major and minor never reach it.
 pin_load() {
-  local path="$1" line key rest val extra name re seen=" " build patch
+  local path="$1" line key rest val extra name re seen=" " build patch n=0
   local -a vals
   PIN_SHA=()
   [ -f "$path" ] && [ -r "$path" ] \
     || pw_fail "no readable pin at $(printf %q "$path")" pin-not-found "nothing changed" "$PW_DEPLOY --help"
+  PIN_LINE=
   while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    PIN_LINE=$n
     case "$line" in '' | '#'*) continue ;; esac
     read -r key rest <<<"$line"
     re=
@@ -50,10 +53,10 @@ pin_load() {
         PIN_SHA[$val]=$rest
         continue
         ;;
-      *) pw_fail "the pin has a line this parser does not know" pin-malformed "nothing changed" "$PW_DEPLOY --help" "$key" ;;
+      *) pw_fail "the pin has a line this parser does not know, at line $n" pin-malformed "nothing changed" "$PW_DEPLOY --help" "$key" ;;
     esac
     [ -z "$re" ] || [[ $rest =~ $re ]] || pin_bad "$key" "$rest"
-    [[ $seen != *" $key "* ]] || pw_fail "the pin repeats a key" pin-malformed "nothing changed" "$PW_DEPLOY --help" "$key"
+    [[ $seen != *" $key "* ]] || pw_fail "the pin repeats a key, at line $n" pin-malformed "nothing changed" "$PW_DEPLOY --help" "$key"
     seen+="$key "
     name=${key^^}
     printf -v "PIN_${name//-/_}" '%s' "$rest"
@@ -66,8 +69,10 @@ pin_load() {
     [ -n "${PIN_SHA[$val]:-}" ] \
       || pw_fail "the pin lacks the sha256 of a required archive" pin-incomplete "nothing changed" "$PW_DEPLOY --help" "$val"
   done
+  PIN_LINE=
   for val in $PIN_WEBKIT_ALIASES; do
-    [ "$val" -le "$PIN_WEBKIT_REVISION" ] || pin_bad webkit-aliases "$val"
+    [ "$val" -le "$PIN_WEBKIT_REVISION" ] \
+      || pw_fail "a WebKit alias is above the set's WebKit $PIN_WEBKIT_REVISION" pin-invalid-value "nothing changed" "$PW_DEPLOY --help" "$val"
   done
   IFS=. read -r _ _ build patch <<<"$PIN_CFT_VERSION"
   PW_CFT_NUMBER=$((10#$build * 1000 + 10#$patch))

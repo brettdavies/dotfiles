@@ -6,6 +6,8 @@
 # same checkout path on every host.
 # shellcheck disable=SC2088
 PW_DEPLOY='~/dotfiles/scripts/playwright-browsers-deploy.sh'
+# shellcheck disable=SC2088
+PW_RUNBOOK='~/dotfiles/docs/runbooks/playwright-browser-launch.md'
 PW_FAILED=0
 
 # Every character outside letters, digits, ".", "_", "-" and space becomes "?",
@@ -52,12 +54,18 @@ pw_finding_tail() {
   done
 }
 
+# The next step for a missing tool: a package manager command, and sudo is the operator's.
+pw_install_hint() {
+  if [ "$(uname -s)" = Darwin ]; then echo "brew install $1"; else echo "ask the operator to run sudo apt-get install -y $1"; fi
+}
+
 pw_note() {
   printf 'NOTE: %s\n' "$*" >&2
 }
 
+# pw_unexpected LINE COMMAND: the trap for a step no check anticipated.
 pw_unexpected() {
-  pw_report ERROR "a step failed unexpectedly; the failing tool's own message is above" \
-    unexpected-failure "the set may be partly updated and a rerun finishes it" "$PW_DEPLOY"
+  pw_report ERROR "a step failed unexpectedly at line $1; the failing tool's own message is above" \
+    unexpected-failure "the set may be partly updated; rerun once the cause above is fixed" "$PW_DEPLOY" "${2%% *}"
   exit 1
 }

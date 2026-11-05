@@ -72,6 +72,7 @@ inode() {
   [ "$status" -eq 1 ]
   deploy
   [ "$status" -eq 0 ]
+  [[ "$stderr" == *"NOTE: replacing the real directory chromium-1234 with an alias to chromium-8103038"* ]]
   deploy --check
   [ "$status" -eq 0 ]
   [ "$(readlink "$BP/chromium-1234")" = chromium-8103038 ]

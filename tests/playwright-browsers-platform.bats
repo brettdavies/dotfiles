@@ -84,3 +84,35 @@ setup() { bs_sandbox; }
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"reason: running-as-root"* ]]
 }
+
+@test "a next step that reruns the deploy keeps the pin it was given" {
+  local pin="$BATS_TEST_TMPDIR/my edited.pin"
+  cp "$BS_TEST_PIN" "$pin"
+  run --separate-stderr "$BS_SCRIPT" --pin "$pin" --check
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"next: ~/dotfiles/scripts/playwright-browsers-deploy.sh --pin "*"my\\ edited.pin" ]] || [[ "$stderr" == *"playwright-browsers-deploy.sh --pin "*"my\\ edited.pin"* ]]
+}
+
+@test "--pin=PATH names the pin too, and a flag is never taken for its path" {
+  run --separate-stderr "$BS_SCRIPT" --pin="$BS_TEST_PIN" --check
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"reason: directory-incomplete"* ]]
+  run --separate-stderr "$BS_SCRIPT" --pin --help
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == "ERROR: --pin needs a path; reason: usage;"* ]]
+}
+
+@test "a missing curl is named with the command that installs it, and nothing is changed" {
+  # An exported `command` that does not find curl, in a subshell, rather than a PATH without it.
+  status=0
+  (
+    # shellcheck disable=SC2329 # the child bash calls it, through the exported function
+    command() { if [ "$1 $2" = "-v curl" ]; then return 1; fi; builtin command "$@"; }
+    export -f command
+    "$BASH" "$BS_SCRIPT" --pin "$BS_TEST_PIN" 2>"$BATS_TEST_TMPDIR/err"
+  ) || status=$?
+  stderr="$(cat "$BATS_TEST_TMPDIR/err")"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"curl is required to fetch and unpack the archives; reason: tool-missing; value: curl; nothing changed; next: ask the operator to run sudo apt-get install -y curl" ]]
+  [ ! -e "$BP" ]
+}

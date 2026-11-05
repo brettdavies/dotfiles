@@ -44,6 +44,10 @@ upgrade.
    browser-directory name that points into the cache. An unrecorded real directory at a set or alias name is replaced;
    any other directory, or a symlink pointing outside the cache, stays for `--check` to name.
 
+A deploy prints a `NOTE:` before it replaces an unrecorded directory at a set or alias name, and a failure partway says
+which directories arrived and that no alias moved, so a rerun fetches only the rest. A `next:` that reruns the deploy
+keeps the `--pin` it was given.
+
 A directory counts as provisioned only while its executable is present and its record matches the hash the pin names and
 the URL its version gives, so a changed version fetches from its own URL and a directory whose executable is gone is
 fetched again. A CfT build outside the pin stays on disk and registered, and `--check` reports it as retained.
@@ -83,7 +87,7 @@ installs.
 ERROR: chromium-8103038 is missing or incomplete; reason: directory-incomplete; changed nothing; a deploy restores it; next: ~/dotfiles/scripts/playwright-browsers-deploy.sh
 ```
 
-`--pin PATH` reads another pin, for checking an edit before it is committed.
+`--pin PATH` (or `--pin=PATH`) reads another pin, for checking an edit before it is committed.
 
 ### Reasons
 
@@ -93,32 +97,32 @@ command line is shown with every character outside letters, digits, `.`, `_`, `-
 characters. A usage error exits 2 before any work; every other failure exits 1. When `curl`, `unzip`, or another tool
 fails in a way the script did not anticipate, the tool's own message comes first and `unexpected-failure` follows.
 
-| Reason                     | Exit | Meaning                                                                                | Fix                                                                               |
-| -------------------------- | ---- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `usage`                    | 2    | An unknown option, or `--pin` with no path. Nothing changed.                           | `scripts/playwright-browsers-deploy.sh --help`                                    |
-| `version-argument-removed` | 2    | A Playwright version was passed. The pin names the set. Nothing changed.               | Run with no version; to change the set, move the pin.                             |
-| `pin-not-found`            | 1    | The pin file does not exist or cannot be read. Nothing changed.                        | Pass a readable file with `--pin`, or leave `--pin` off for the checkout's.       |
-| `pin-malformed`            | 1    | A line the parser does not know, or a key that appears twice.                          | Edit the pin: one `key value...` line per field.                                  |
-| `pin-invalid-value`        | 1    | A value outside its shape, or a WebKit alias above the set's WebKit.                   | Edit the value named; the shapes are in `scripts/playwright-browsers/lib/pin.sh`. |
-| `pin-incomplete`           | 1    | A required key, or a required archive's `sha256` line, is missing.                     | Add the line named.                                                               |
-| `running-as-root`          | 1    | The cache must be owned by you. Nothing changed.                                       | Run as your normal user.                                                          |
-| `unsupported-platform`     | 1    | The set is built for Linux x86_64 and Apple silicon. Nothing changed.                  | Run on a supported host.                                                          |
-| `mac-release-unsupported`  | 1    | The pin has no WebKit archive for this macOS release. Nothing was downloaded.          | Update macOS to the release the message names, or move the pin.                   |
-| `tool-missing`             | 1    | `curl`, `unzip`, or a sha256 tool is missing. Nothing changed.                         | Install the tool named.                                                           |
-| `archive-fetch-failed`     | 1    | `curl` could not fetch an archive. Nothing moved; the existing set stays.              | Rerun the deploy; if the URL answers 404, the pin names a build that is gone.     |
-| `archive-hash-mismatch`    | 1    | A download hashes to something other than the pin's sha256. Nothing moved.             | Do not rerun; recompute the hash from the URL, or the pin is wrong.               |
-| `archive-extract-failed`   | 1    | `unzip` could not unpack an archive. Nothing moved.                                    | Rerun the deploy; check the disk.                                                 |
-| `archive-incomplete`       | 1    | An archive does not hold the executable Playwright launches. Nothing moved.            | The pin names the wrong archive; compare it with Playwright's registry.           |
-| `unexpected-failure`       | 1    | A step failed in a way the script did not expect. The set may be partly updated.       | Rerun the deploy; it finishes the work. Read the tool's message above.            |
-| `directory-incomplete`     | 1    | A set directory is missing, a symlink, or lacks its markers or executable.             | Run the deploy.                                                                   |
-| `provenance-mismatch`      | 1    | A set directory's record is absent or names another archive or URL.                    | Run the deploy; it fetches that directory again.                                  |
-| `alias-missing`            | 1    | An alias the pin asks for does not exist.                                              | Run the deploy.                                                                   |
-| `alias-wrong-target`       | 1    | An alias points at another build or at nothing.                                        | Run the deploy.                                                                   |
-| `alias-real-directory`     | 1    | A real directory sits at an alias name, as a `--force` install leaves it.              | Run the deploy; it replaces the directory with the alias.                         |
-| `client-missing`           | 1    | No correct client registers a directory or alias, so another install deletes it.       | Run the deploy.                                                                   |
-| `client-unrecognised`      | 1    | A `.links/dotfiles-*` entry names nothing in the set, and the deploy did not write it. | Inspect it; remove it if nothing needs it.                                        |
-| `stray-directory`          | 1    | A browser directory outside the pin that no deploy recorded.                           | Remove it once nothing uses it, with `trash`.                                     |
-| `stray-symlink`            | 1    | A symlink at a browser-directory name that is not an alias of the pin.                 | A deploy removes one pointing into the cache; remove others by hand.              |
+| Reason                     | Exit | Meaning                                                                                                                 | Fix                                                                                                                            |
+| -------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `usage`                    | 2    | An unknown option, or `--pin` with no path. Nothing changed.                                                            | `scripts/playwright-browsers-deploy.sh --help`                                                                                 |
+| `version-argument-removed` | 2    | A Playwright version was passed. The pin names the set. Nothing changed.                                                | `scripts/playwright-browsers-deploy.sh --help`; to change the set, move the pin.                                               |
+| `pin-not-found`            | 1    | The pin file does not exist or cannot be read. Nothing changed.                                                         | Pass a readable file with `--pin`, or leave `--pin` off for the checkout's.                                                    |
+| `pin-malformed`            | 1    | A line the parser does not know, or a key that appears twice.                                                           | Edit the pin: one `key value...` line per field.                                                                               |
+| `pin-invalid-value`        | 1    | A value outside its shape, or a WebKit alias above the set's WebKit.                                                    | Edit the value named; the shapes are in `scripts/playwright-browsers/lib/pin.sh`.                                              |
+| `pin-incomplete`           | 1    | A required key, or a required archive's `sha256` line, is missing.                                                      | Add the line named.                                                                                                            |
+| `running-as-root`          | 1    | The cache must be owned by you. Nothing changed.                                                                        | Run as your normal user.                                                                                                       |
+| `unsupported-platform`     | 1    | The set is built for Linux x86_64 and Apple silicon. Nothing changed.                                                   | Run on a supported host.                                                                                                       |
+| `mac-release-unsupported`  | 1    | The pin has no WebKit archive for this macOS release. Nothing was downloaded.                                           | Update macOS to the release the message names, or move the pin.                                                                |
+| `tool-missing`             | 1    | `curl`, `unzip`, or a sha256 tool is missing. Nothing changed.                                                          | Ask the operator to install the tool named: `sudo apt-get install -y <tool>` on Linux, `brew install <tool>` on a Mac.         |
+| `archive-fetch-failed`     | 1    | `curl` could not fetch an archive; the line names the URL. It says which directories arrived and that no alias moved.   | Rerun the deploy; it fetches only what is missing. A 404 means the pin names a build that is gone.                             |
+| `archive-hash-mismatch`    | 1    | A download hashes to something other than the pin's sha256. It says which directories arrived and that no alias moved.  | `next:` hashes the URL. If that prints the pin's hash the download was corrupt, so rerun the deploy; if not, the pin is wrong. |
+| `archive-extract-failed`   | 1    | `unzip` could not unpack an archive. It says which directories arrived and that no alias moved.                         | Rerun the deploy; check the disk.                                                                                              |
+| `archive-incomplete`       | 1    | An archive does not hold the executable Playwright launches. It says which directories arrived and that no alias moved. | The pin names the wrong archive; compare it with Playwright's registry. `next:` shows this row.                                |
+| `unexpected-failure`       | 1    | A step failed in a way the script did not expect; the line names the command and line. The set may be partly updated.   | Read the tool's message above it, fix that cause, and rerun the deploy; it finishes the work.                                  |
+| `directory-incomplete`     | 1    | A set directory is missing, is a symlink, or lacks `INSTALLATION_COMPLETE` or its executable.                           | Run the deploy; it replaces what is there, so close browsers using it first.                                                   |
+| `provenance-mismatch`      | 1    | A set directory's record is absent or names another archive or URL.                                                     | Run the deploy; it fetches that directory again.                                                                               |
+| `alias-missing`            | 1    | An alias the pin asks for does not exist.                                                                               | Run the deploy.                                                                                                                |
+| `alias-wrong-target`       | 1    | An alias points at another build, or at a directory that is not a finished install.                                     | Run the deploy.                                                                                                                |
+| `alias-real-directory`     | 1    | A real directory sits at an alias name, as a `--force` install leaves it.                                               | Run the deploy; it replaces the directory with the alias, so close browsers using it first.                                    |
+| `client-missing`           | 1    | No correct client registers a directory or alias, so another install deletes it.                                        | Run the deploy.                                                                                                                |
+| `client-unrecognised`      | 1    | A `.links/dotfiles-*` entry names nothing in the set, and the deploy did not write it.                                  | Inspect it; remove it if nothing needs it.                                                                                     |
+| `stray-directory`          | 1    | A browser directory outside the pin that no deploy recorded.                                                            | `next:` shows it. Once nothing uses it, remove it with `trash`.                                                                |
+| `stray-symlink`            | 1    | A symlink at a browser-directory name that is not an alias of the pin.                                                  | A deploy removes one pointing into the cache; remove others by hand.                                                           |
 
 ### Moving the pin
 
@@ -137,34 +141,49 @@ verified before any alias moves.
    installing it, and record the tarball's sha256 as `source-sha256`:
 
    ```bash
-   npm view playwright-core version
-   curl -fsS -o /tmp/pw.tgz https://registry.npmjs.org/playwright-core/-/playwright-core-<version>.tgz
-   sha256sum /tmp/pw.tgz
-   tar -xzOf /tmp/pw.tgz package/browsers.json | jq -r '.browsers[] | select(.name == "webkit" or .name == "ffmpeg") | "\(.name) \(.revision)"'
+   V=$(npm view playwright-core version)
+   T=$(mktemp)
+   curl -fsS -o "$T" "https://registry.npmjs.org/playwright-core/-/playwright-core-$V.tgz"
+   sha256sum "$T"
+   tar -xzOf "$T" package/browsers.json | jq -r '.browsers[] | select(.name == "webkit" or .name == "ffmpeg") | "\(.name) \(.revision)"'
    ```
 
-   Set `source-release`, `source-sha256`, `webkit-revision`, and `ffmpeg-revision`.
-3. **Alias lists.** Repeat the `browsers.json` read for every release from 1.57.0 to the newest. `chromium-aliases` and
-   `ffmpeg-aliases` list every Chromium and ffmpeg revision those files name; `webkit-aliases` lists every WebKit
-   revision below the set's.
-4. **Archive hashes.** Hash each archive from its URL, one `sha256` line each:
+   Set `source-release` to `$V`, `source-sha256`, `webkit-revision`, and `ffmpeg-revision`.
+3. **Alias lists.** Read the same file for every stable release from 1.57.0 to the newest; the `grep` drops prereleases
+   such as `1.66.0-alpha-…`:
 
    ```bash
-   curl -fsS https://storage.googleapis.com/chrome-for-testing-public/<version>/linux64/chrome-linux64.zip | sha256sum
-   curl -fsS https://cdn.playwright.dev/builds/webkit/<revision>/webkit-ubuntu-24.04.zip | sha256sum
+   for v in $(npm view playwright-core versions --json | jq -r '.[]' | grep -E '^1\.(5[7-9]|[6-9][0-9])\.[0-9]+$'); do
+     curl -fsS "https://registry.npmjs.org/playwright-core/-/playwright-core-$v.tgz" | tar -xzOf - package/browsers.json |
+       jq -r '.browsers[] | select(.name == "chromium" or .name == "webkit" or .name == "ffmpeg") | "\(.name) \(.revision)"'
+   done | sort -u
    ```
 
-   The archives are `chrome-linux64.zip`, `chrome-headless-shell-linux64.zip`, `webkit-ubuntu-24.04.zip`,
-   `ffmpeg-linux.zip`, their `mac-arm64` counterparts `chrome-mac-arm64.zip`, `chrome-headless-shell-mac-arm64.zip`,
-   `ffmpeg-mac-arm64.zip`, and one `webkit-mac-<14|15|26>-arm64.zip` per macOS release the WebKit build supports. A 404
-   for a macOS release's WebKit means that release is unsupported: leave its line out, and a Mac on it is refused.
-   `https://cdn.playwright.dev/builds/` serves WebKit and ffmpeg directly; Playwright's `/dbazure/` path redirects to
-   another host, which the deploy does not follow.
+   `chromium-aliases` lists every `chromium` revision, `ffmpeg-aliases` every `ffmpeg` revision, and `webkit-aliases`
+   every `webkit` revision below `webkit-revision`.
+4. **Archive hashes.** Hash all nine archives from their URLs, one `sha256` line each. A hash starting `e3b0c442` is the
+   empty download a 404 gives:
+
+   ```bash
+   V=<cft-version> W=<webkit-revision> F=<ffmpeg-revision>
+   G=https://storage.googleapis.com/chrome-for-testing-public/$V P=https://cdn.playwright.dev/builds
+   for u in $G/linux64/chrome-linux64.zip $G/linux64/chrome-headless-shell-linux64.zip \
+     $P/webkit/$W/webkit-ubuntu-24.04.zip $P/ffmpeg/$F/ffmpeg-linux.zip \
+     $G/mac-arm64/chrome-mac-arm64.zip $G/mac-arm64/chrome-headless-shell-mac-arm64.zip \
+     $P/webkit/$W/webkit-mac-15-arm64.zip $P/webkit/$W/webkit-mac-26-arm64.zip $P/ffmpeg/$F/ffmpeg-mac-arm64.zip; do
+     echo "sha256 ${u##*/} $(curl -fsS "$u" | sha256sum | cut -d' ' -f1)"
+   done
+   ```
+
+   Also try `$P/webkit/$W/webkit-mac-14-arm64.zip`. A 404 for a macOS release's WebKit means that release is
+   unsupported: leave its line out, and a Mac on it is refused. `https://cdn.playwright.dev/builds/` serves WebKit
+   and ffmpeg directly; Playwright's `/dbazure/` path redirects to another host, which the deploy does not follow.
 5. **Library.** `library-version` is the Playwright the repos' tests run, and `library-sha256` is its `playwright-core`
-   tarball's sha256. The test suite fetches that tarball by the hash, so a wrong value fails CI.
-6. **Check, then deploy.** `scripts/playwright-browsers-deploy.sh --pin config/playwright/browsers.pin --check` shows
-   the differences, `scripts/playwright-browsers-deploy.sh` applies them, and a second `--check` exits 0. Time the first
-   deploy on a host with `gtime -f '%e s %M KB'`.
+   tarball's sha256 (step 2's command with that version). The test suite fetches that tarball by the hash, so a wrong
+   value fails CI.
+6. **Check, then deploy.** `scripts/playwright-browsers-deploy.sh --check` shows the differences,
+   `scripts/playwright-browsers-deploy.sh` applies them, and a second `--check` exits 0 once no stray directory remains;
+   it names each one. Time the first deploy on a host with `gtime -f '%e s %M KB'`.
 
 ## Indicators
 

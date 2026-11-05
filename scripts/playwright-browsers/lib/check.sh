@@ -7,7 +7,8 @@ pw_check() {
   for i in "${!PW_DIR[@]}"; do
     n=${PW_DIR[$i]}
     if ! pw_dir_complete "$i"; then
-      pw_finding "$n is missing or incomplete" directory-incomplete "changed nothing; a deploy restores it" "$PW_DEPLOY"
+      pw_finding "$n is missing or incomplete" directory-incomplete \
+        "changed nothing; a deploy fetches it again and replaces what is there, so close browsers using it first" "$PW_DEPLOY"
     elif ! pw_provisioned "$i"; then
       pw_finding "$n was not provisioned from the archive and URL the pin names" provenance-mismatch \
         "changed nothing; a deploy fetches it again" "$PW_DEPLOY"
@@ -18,10 +19,10 @@ pw_check() {
     t=${e##* }
     if [ -L "$BP/$n" ]; then
       { [ "$(readlink "$BP/$n")" = "$t" ] && [ -f "$BP/$n/INSTALLATION_COMPLETE" ]; } \
-        || pw_finding "alias $n does not resolve to $t" alias-wrong-target "changed nothing; a deploy repoints it" "$PW_DEPLOY"
+        || pw_finding "alias $n does not resolve to a finished install of $t" alias-wrong-target "changed nothing; a deploy repoints it" "$PW_DEPLOY"
     elif [ -e "$BP/$n" ]; then
       pw_finding "$n is a real directory where the pin puts an alias to $t" alias-real-directory \
-        "changed nothing; a deploy replaces it with the alias" "$PW_DEPLOY"
+        "changed nothing; a deploy replaces it with the alias, so close browsers using it first" "$PW_DEPLOY"
     else
       pw_finding "alias $n to $t is missing" alias-missing "changed nothing; a deploy creates it" "$PW_DEPLOY"
     fi
