@@ -1234,19 +1234,28 @@ SONNET_LINE='CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously
 @test "a foreign head's settings hook, key helper, and MCP server do not run on Sonnet in the real Claude either" {
   [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
   foreign_pr
-  launch repoa --pr 7 --model sonnet
+  launch repoa --pr 7 --model sonnet --prompt-file "$T/brief"
   [ "$status" -eq 0 ]
   run_typed_line
-  [ -z "$(ls "$T/marks")" ]
+  [ -z "$(ls "$T/marks")" ] || {
+    ls "$T/marks"
+    cat "$T/real-claude.out"
+    false
+  }
+  grep -q 'ECONNREFUSED\|Connection refused' "$T/real-claude.out"
 }
 
 @test "an own fork's hooks do run from the same Sonnet line, so the real Claude accepts it and the test above is not vacuous" {
   [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
   own_pr
-  launch repoa --pr 7 --model sonnet
+  launch repoa --pr 7 --model sonnet --prompt-file "$T/brief"
   [ "$status" -eq 0 ]
   run_typed_line
-  [ -e "$T/marks/settings-hook" ]
+  [ -e "$T/marks/settings-hook" ] && [ -e "$T/marks/api-key-helper" ] && [ -e "$T/marks/mcp-server" ] || {
+    ls "$T/marks"
+    cat "$T/real-claude.out"
+    false
+  }
 }
 
 # head_the_base_holds OWNER: origin's main holds a lockfile, and PR 7's head is that same commit on OWNER's fork.
