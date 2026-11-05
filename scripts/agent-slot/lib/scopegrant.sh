@@ -37,6 +37,9 @@ scope_grant_survey() {
 scope_grant_confirm() {
   local answer='' command
   command=$(scope_grant_command "$1" "$2")
+  [[ -z ${CLAUDECODE:-} ]] || contract_fail grant-needs-terminal "grant-scope needs a person at a terminal, and this \
+shell runs under Claude Code (CLAUDECODE is set), where a terminal can be faked. Run it from a terminal window on this \
+host, outside any Claude session" --value "$1" --command "$command"
   { exec 3<>/dev/tty; } 2>/dev/null || contract_fail grant-needs-terminal "grant-scope needs a person at a terminal to \
 type the confirmation, and this shell has none. Run it from a terminal window on this host, outside any Claude session \
 (ssh -t from another machine)" --value "$1" --command "$command"
@@ -48,6 +51,7 @@ type the confirmation, and this shell has none. Run it from a terminal window on
     elif ((SCOPE_OTHER > 1)); then
       printf '%s other changed paths stay outside it.\n' "$SCOPE_OTHER" >&3
     fi
+    printf 'Later changes it matches are covered too.\n' >&3
   fi
   printf 'Type the slot key, %s, to grant it: ' "$1" >&3
   if ! IFS= read -r -t "$SCOPE_GRANT_WAIT" -u 3 answer; then
@@ -76,6 +80,11 @@ server. Run it from a shell outside the slot directory and off the slot tmux ser
       --command "$command"
   fi
   slot_taken "$repo" "$n" || contract_fail slot-not-found "$key holds no slot" --value "$key" --command "agent-slot list"
+  [[ -d $(slot_path "$repo" "$n")/.git ]] || contract_fail slot-busy "$key is still being set up, so it has no clone to \
+check the pathspec in" --value "$key" --command "$command"
+  if [[ $spec == *[[:cntrl:]]* ]]; then
+    usage_fail "a pathspec cannot hold a control character, such as a newline" "$(printf '%q' "$spec")"
+  fi
   if [[ $spec == :!* || $spec == :^* || $spec == :\(*exclude* ]]; then
     usage_fail "an exclude pathspec takes coverage away, so it cannot be granted" "$spec"
   fi

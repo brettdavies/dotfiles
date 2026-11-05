@@ -368,14 +368,15 @@ does not list, or a script that pushes, runs unjudged.
 The operator lets a slot's PR change one more path with `agent-slot grant-scope <repo>/<N> <pathspec>`, which appends a
 `scope-grant` event for the slot, and the hook then lets the paths that pathspec matches through. The verb lists to
 `/dev/tty` the paths the slot's branch changes that the pathspec covers, and how many it leaves out, and reads the
-slot's key back from it within 120 s, so it asks for a person at a terminal: with none, as in an agent's Bash tool, it
-refuses with `grant-needs-terminal`, and with no answer or any other, `grant-not-confirmed`. It refuses with
-`scope-grant-from-slot` when run from a slot's directory or its tmux server, and an ask rule makes a slot's own request
-for it a denial through `slot-unattended.sh`. A pathspec git rejects, an exclude pathspec, and one that covers none of
-the paths the branch changes are refused with `usage` before the terminal is asked. One run grants one pathspec; the
-grant list is the `scope-grant` events in the ledger, and there is no revoke. This is a guard, not a trust boundary: a
-shell that can give a command a pseudo-terminal, or write the ledger, can still grant, as with `grant-review`. The
-coordinating session relays a slot's request to the operator.
+slot's key back from it within 120 s, so it asks for a person at a terminal: with none, as in an agent's Bash tool, or
+under Claude Code (`CLAUDECODE` set) even with a pseudo-terminal, it refuses with `grant-needs-terminal`, and with no
+answer or any other, `grant-not-confirmed`. It refuses with `scope-grant-from-slot` when run from a slot's directory or
+its tmux server, with `slot-busy` while the slot is still being set up, and an ask rule makes a slot's own request for
+it a denial through `slot-unattended.sh`. A pathspec git rejects, an exclude pathspec, one with a control character, and
+one that covers none of the paths the branch changes are refused with `usage` before the terminal is asked. One run
+grants one pathspec; the grant list is the `scope-grant` events in the ledger, and there is no revoke. This is a guard,
+not a trust boundary: a shell that unsets `CLAUDECODE` and gives a command a pseudo-terminal, or writes the ledger, can
+still grant, as with `grant-review`. The coordinating session relays a slot's request to the operator.
 
 ```bash
 agent-slot grant-scope dotfiles/2 'docs/*.md'

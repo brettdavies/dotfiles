@@ -221,8 +221,9 @@ verb_help() {
       "branch changes that the pathspec covers, and reads the slot's key back within $SCOPE_GRANT_WAIT s. With no terminal" \
       "it is refused with grant-needs-terminal, with no answer or a wrong one with grant-not-confirmed, and from a" \
       "slot's directory or its tmux server with scope-grant-from-slot. A pathspec git rejects, an exclude pathspec" \
-      "(:! or :^), and one that covers none of the paths the branch changes are refused with usage before the terminal" \
-      "is asked. A grant appends a scope-grant line to the ledger and changes nothing else; each run grants one pathspec" \
+      "(:! or :^), a control character, and one that covers none of the paths the branch changes are refused with usage" \
+      "before the terminal is asked; a shell under Claude Code (CLAUDECODE set) is refused with grant-needs-terminal" \
+      "even when it holds a pseudo-terminal. A slot still being set up is refused with slot-busy. A grant appends a scope-grant line to the ledger and changes nothing else; each run grants one pathspec" \
       "and there is no revoke. It is a guard, not a trust boundary. Other error: slot-not-found." \
       'returns: key, pathspec, granted_at, grants (the slot'"'"'s scope grants in all)' \
       'example: agent-slot grant-scope dotfiles/2 '"'"'docs/*.md'"'"' --output json' ;;

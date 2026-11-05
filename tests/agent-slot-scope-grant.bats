@@ -43,7 +43,7 @@ setup() {
 at_terminal() {
   local line=$1
   shift
-  tty=$(python3 -I "$WITH_TTY" "$line" env -u TMUX -u TMUX_PANE bash -c \
+  tty=$(python3 -I "$WITH_TTY" "$line" env -u TMUX -u TMUX_PANE -u CLAUDECODE bash -c \
     'cd "$1" && shift && exec "$@" --output json >"$BATS_TEST_TMPDIR/out" 2>"$BATS_TEST_TMPDIR/err"' _ "$T" \
     "$AGENT_SLOT" "$@") && status=0 || status=$?
   output=$(cat "$T/out")
@@ -52,7 +52,7 @@ at_terminal() {
 
 # without_terminal ARG...: the same, from a session that has no terminal.
 without_terminal() {
-  run --separate-stderr env -u TMUX -u TMUX_PANE setsid -w bash -c 'cd "$1" && shift && exec "$@" --output json' _ "$T" \
+  run --separate-stderr env -u TMUX -u TMUX_PANE -u CLAUDECODE setsid -w bash -c 'cd "$1" && shift && exec "$@" --output json' _ "$T" \
     "$AGENT_SLOT" "$@"
 }
 
@@ -115,6 +115,57 @@ grant_lines() { jaq -c 'select(.event == "scope-grant")' "$LEDGER" 2>/dev/null |
   python3 -I "$WITH_TTY" repo/1 bash -c 'cd "$1" && shift && exec "$@" --output json >"$BATS_TEST_TMPDIR/out" 2>"$BATS_TEST_TMPDIR/err"' \
     _ "$SLOT" "$AGENT_SLOT" grant-scope repo/1 'docs/*' >/dev/null || true
   jaq -e '.message | contains("from a shell outside the slot directory and off the slot tmux server")' <"$T/err"
+}
+
+@test "under Claude Code a pseudo-terminal is not a person, so the grant is refused even with the right key" {
+  python3 -I "$WITH_TTY" repo/1 env -u TMUX -u TMUX_PANE CLAUDECODE=1 bash -c \
+    'cd "$1" && shift && exec "$@" --output json >"$BATS_TEST_TMPDIR/out" 2>"$BATS_TEST_TMPDIR/err"' _ "$T" \
+    "$AGENT_SLOT" grant-scope repo/1 'docs/*' >/dev/null && status=0 || status=$?
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "grant-needs-terminal" and (.message | contains("Claude Code"))' <"$T/err"
+  [ ! -e "$LEDGER" ]
+}
+
+@test "a pathspec with a control character, such as a newline that would split it into two grants, is refused" {
+  local spec
+  for spec in $'docs/a.md\n*' $'docs/a.md\r' $'docs/\e[2Ja.md'; do
+    without_terminal grant-scope repo/1 "$spec"
+    [ "$status" -eq 2 ] || {
+      echo "accepted: $spec"
+      false
+    }
+    jaq -e '.reason == "usage" and (.message | contains("control character"))' <<<"$stderr"
+  done
+  [ ! -e "$LEDGER" ]
+}
+
+@test "a slot still being set up, with a claim and no clone, is refused with slot-busy" {
+  printf '{}\n' >"$AGENT_SLOT_ROOT/repo/.3.claim.json"
+  without_terminal grant-scope repo/3 'docs/*'
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "slot-busy" and .value == "repo/3"' <<<"$stderr"
+  [ ! -e "$LEDGER" ]
+}
+
+@test "the text output says which paths were granted" {
+  python3 -I "$WITH_TTY" repo/1 env -u TMUX -u TMUX_PANE -u CLAUDECODE bash -c \
+    'cd "$1" && shift && exec "$@" >"$BATS_TEST_TMPDIR/out" 2>"$BATS_TEST_TMPDIR/err"' _ "$T" \
+    "$AGENT_SLOT" grant-scope repo/1 'docs/*' >/dev/null
+  [ "$(cat "$T/out")" = "repo/1: paths matching docs/* granted, 1 grant(s) in all; tell the slot agent it can push them" ]
+}
+
+@test "only the grants made since the slot was made count" {
+  jaq -c '.created_at = "2021-01-01T00:00:00Z"' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  jaq -n -c '{schema: "dotfiles.agent-slot/1", ts: "2020-01-01T00:00:00Z", event: "scope-grant", repo: "repo", slot: 1,
+    pathspec: "old"}' >"$LEDGER"
+  at_terminal repo/1 grant-scope repo/1 'docs/*'
+  jaq -e '.grants == 1' <<<"$output"
+}
+
+@test "the prompt says later changes the pathspec matches are covered too" {
+  at_terminal repo/1 grant-scope repo/1 'docs/*.md'
+  [[ $tty == *"Later changes it matches are covered too."* ]]
 }
 
 @test "each grant is its own line, counted for its own slot" {
