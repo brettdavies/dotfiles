@@ -293,9 +293,11 @@ the edited file's own repo declares; a repo setting `MD013.line_length` to 9999 
 skips it entirely, so leave that repo's line shapes alone. **Playwright browsers are system-provided** by `~/dotfiles`
 into the shared `$PLAYWRIGHT_BROWSERS_PATH`; never run `playwright install` to download them (the node/libuv io_uring
 extractor deadlocks on this kernel) — `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` stops `bun install` from auto-fetching them
-(an explicit install still fetches missing browsers; the provisioned set is what makes it skip), repos exact-pin the one
-canonical version, and bumping is a dotfiles job. Full preference list (Python cache/venv hygiene, gh auth, Playwright
-browsers, Rust pre-push) → `~/.claude/guides/cli-tools.md`.
+(an explicit install still fetches missing browsers; the provisioned set is what makes it skip). Repos exact-pin their
+Playwright version instead of a caret range; the set carries an alias for every revision a released Playwright at 1.57
+or later asks for, so a repo's bump runs on it with no change to the set, WebKit aside (its alias stops at the pin's
+`webkit-revision`). The set moves by editing `config/playwright/browsers.pin` in `~/dotfiles`. Full preference list
+(Python cache/venv hygiene, gh auth, Playwright browsers, Rust pre-push) → `~/.claude/guides/cli-tools.md`.
 
 **Bun follows the machine.** A repo's Bun pin (`.bun-version` and every declaration its pin test holds to it) tracks the
 local `bun --version`: when the pin trails, bump the repo in its own PR. Never download or install an older Bun to

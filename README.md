@@ -46,6 +46,7 @@ dotfiles/
 │   ├── qmd/               Per-platform qmd collections templates
 │   ├── apparmor.d/        System-level AppArmor profiles (deployed via apparmor-deploy.sh)
 │   ├── launchd/           macOS launchd user PATH for GUI apps and LaunchAgents (via launchd-user-path.sh)
+│   ├── playwright/        The system browser set's pin: versions, revisions, aliases, archive hashes (via playwright-browsers-deploy.sh)
 │   ├── rex/               Rex login server accounts template (via rex-login-server-deploy.sh)
 │   ├── sysctl.d/          Kernel settings copied to /etc/sysctl.d (via sysctl-deploy.sh)
 │   └── systemd/system/    System-level units (NAS mounts via nas-deploy.sh, apparmor-playwright via apparmor-deploy.sh)
@@ -55,8 +56,8 @@ dotfiles/
 │   ├── apparmor-deploy.sh System-level AppArmor profile deploy + boot unit (Playwright/Chromium)
 │   ├── sshd-locale-deploy.sh  Strip LANG/LC_* from sshd AcceptEnv so sessions use the server locale
 │   ├── sysctl-deploy.sh   Copy config/sysctl.d into /etc/sysctl.d, apply, and read each key back (--check: read only)
-│   ├── playwright-browsers-deploy.sh  Playwright browser binaries into the shared cache (curl + unzip)
-│   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (binaries + apparmor + opt-in browser deps)
+│   ├── playwright-browsers-deploy.sh  The system browser set into the shared cache, from config/playwright/browsers.pin (curl + unzip; --check: read only)
+│   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (the set, plus apparmor and opt-in browser deps on Linux)
 │   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, host-jobs)
 │   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama, svc:codex-proxy)
 │   ├── tailscale-serve-deploy.sh  System unit that re-runs the serve setup on every tailscaled start
@@ -997,23 +998,27 @@ the next reboot, and the check notes when the configured value is newer than the
 
 On Linux the `browse` tool and Playwright e2e need three things to launch browsers: the browser binaries in the shared
 cache, an AppArmor profile (for Chromium's sandbox), and, for Safari/iOS testing, WebKit system libraries. One script
-provisions all three, run as your normal user (it escalates to sudo only where needed):
+provisions all three, run as your normal user (it escalates to sudo only where needed). On a Mac it deploys the browser
+set and skips the other two:
 
 ```bash
-scripts/playwright-deps-deploy.sh            # browser binaries + AppArmor profile + boot persistence (Chromium / browse)
+scripts/playwright-deps-deploy.sh            # browser set + AppArmor profile + boot persistence (Chromium / browse)
 scripts/playwright-deps-deploy.sh --webkit   # + Safari/iOS system libs (WebKit, heavy ~380 MB)
 scripts/playwright-deps-deploy.sh --all       # + Chromium and WebKit system libs
 ```
 
-The **browser binaries** are provisioned into the shared cache (`$PLAYWRIGHT_BROWSERS_PATH`) by
-`scripts/playwright-browsers-deploy.sh` (run directly, or via the script above) using `curl` + `unzip` rather than
-`playwright install` — node's extractor deadlocks on this host's io_uring/kernel combo. One canonical version serves
-every repo, so per-repo `playwright install` becomes a no-op; bumping it is a dotfiles edit (the revision map in that
-script). The script registers the set in the cache's `.links`, so another tool's install of a different Playwright
-version does not delete it, and `scripts/playwright-browsers-deploy.sh --check` reports a missing or unregistered set.
-WebKit deps are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios` /
-`tablet` projects). See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for
-failure signatures, the io_uring root cause, and recovery.
+The **system browser set** is one Chrome for Testing build with its headless shell, one WebKit, and one ffmpeg in the
+shared cache (`$PLAYWRIGHT_BROWSERS_PATH`), provisioned by `scripts/playwright-browsers-deploy.sh` (run directly, or via
+the script above) on the Linux server and on Apple silicon Macs. Every version, revision, alias list, and archive sha256
+comes from `config/playwright/browsers.pin`, read through one parser. Archives come over `curl` and `unzip` rather than
+`playwright install`, because node's extractor deadlocks on this host's io_uring/kernel combo, each held to the pin's
+sha256. Every revision a released Playwright at 1.57 or later asks for is an alias to the set, so a repo's
+`playwright install` is a no-op whichever Playwright it pins; moving the set is a pin edit, steps in the runbook. The
+script registers the set in the cache's `.links`, so another tool's install does not delete it, and
+`scripts/playwright-browsers-deploy.sh --check` reports any difference from the pin with a stable reason. WebKit deps are
+opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios` / `tablet` projects).
+See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for the reason table, failure
+signatures, the io_uring root cause, and recovery.
 
 **AppArmor profiles** (`config/apparmor.d/`) are deployed by `scripts/apparmor-deploy.sh` (called by the script above,
 or run standalone as `sudo scripts/apparmor-deploy.sh`), which copies each file to `/etc/apparmor.d/`, loads it with
