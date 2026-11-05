@@ -1,13 +1,14 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
 # The release: a slot's agent hands its own teardown upstream as its last step. A slot cannot delete itself from inside,
 # since its agent is mid-turn and the slot is that agent's working directory, so release deletes nothing. It refuses
-# until this slot's Claude sessions have run both closing skills, and while the slot's Claude still runs a Bash tool
-# command other than release's own: Claude Code lists a session with a live background shell as busy, so a job left
-# running holds the teardown back for as long as it runs. Then it records the request in the slot's record and the
-# ledger, and starts `agent-slot finish <key> --yes --when-idle` in a session of its own. That finish runs from /, with
-# the slot pane's tmux variables and every inherited descriptor dropped, so it sits outside the slot's process tree and
-# holds nothing under the slot. It waits for the agent to go idle, then runs the same fail-closed finish the operator
-# does. A slot whose task has not finished stays requested, and the automatic sweep tears it down once it has.
+# until this slot's Claude sessions have run ce-compound twice, to capture and with mode:refresh, and while the slot's
+# Claude still runs a Bash tool command other than release's own: Claude Code lists a session with a live background
+# shell as busy, so a job left running holds the teardown back for as long as it runs. Then it records the request in
+# the slot's record and the ledger, and starts `agent-slot finish <key> --yes --when-idle` in a session of its own. That
+# finish runs from /, with the slot pane's tmux variables and every inherited descriptor dropped, so it sits outside the
+# slot's process tree and holds nothing under the slot. It waits for the agent to go idle, then runs the same
+# fail-closed finish the operator does. A slot whose task has not finished stays requested, and the automatic sweep
+# tears it down once it has.
 #
 # An agent still waiting on something, such as CI or a release chain, does not stop it to pass release's check: it runs
 # `release --not-yet WHY` instead, which records why for the automatic sweep (autosweep.sh). Of the agent's release and
@@ -92,7 +93,7 @@ release_skills_in() {
       elif $line.type == "user" and ($line.message.content | type) == "string" then
         .calls += [$line.message.content | capture("<command-name>/?(?<s>[^<]+)</command-name>") as $m
           | {id: "", skill: $m.s,
-             args: (($line.message.content | capture("<command-args>(?<a>[^<]*)</command-args>") | .a) // "")}]
+             args: (($line.message.content | capture("<command-args>(?<a>[\\s\\S]*?)</command-args>") | .a) // "")}]
       elif $line.type == "user" then
         .failed += [$line.message.content[]? | select(type == "object" and .type == "tool_result" and .is_error == true)
           | .tool_use_id | strings]
