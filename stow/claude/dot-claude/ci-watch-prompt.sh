@@ -23,8 +23,8 @@
 # The agent must:
 #   - Spawn `gh run watch <id> --exit-status --interval 30` per active run
 #     with run_in_background: true (one Bash call per run, in parallel), and
-#     only for runs its own push or PR action started. Without --interval, gh
-#     polls the REST API every 3 s. `gh pr checks --watch` and a loop of
+#     only for runs its own action started. Without --interval, gh polls
+#     the REST API every 3 s. `gh pr checks --watch` and a loop of
 #     `gh pr view` poll GitHub's GraphQL API until the checks end, so neither
 #     is used to watch.
 #   - VERIFY STATUS AFTER COMPLETION, NOT JUST EXIT CODE.
