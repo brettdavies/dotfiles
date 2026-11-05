@@ -341,7 +341,11 @@
       "Bash(python3 -m pip:*)",
       "Bash(rm:*)",
       "Bash(rustup self:*)",
-      "Bash(sudo:*)"
+      "Bash(sudo:*)",
+      "Skill(code-review)",
+      "Skill(codex)",
+      "Skill(review)",
+      "Skill(security-review)"
     ],
     "ask": [
       "Bash(agent-slot finish *)",
