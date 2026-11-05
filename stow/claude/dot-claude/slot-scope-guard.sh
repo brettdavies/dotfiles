@@ -35,16 +35,6 @@ MOVE_RE=$GIT_START$'(commit|merge|rebase|cherry-pick|revert|am|pull|reset|checko
 # A push that sends no commits.
 PUSH_NOOP_RE='[[:space:]](--dry-run|--delete|-d)([[:space:]=]|$)'
 
-# Usage: scope_grants <repo> <n> <since>; prints the pathspec of each scope-grant ledger line for the slot, one per
-# line. The ledger is read line by line, so a line that is not JSON grants nothing.
-# shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
-scope_grants() {
-  [[ -r $AS_LEDGER ]] || return 0
-  contract_json -R -s -r --arg repo "$1" --argjson n "$2" --arg since "$3" \
-    '[split("\n")[] | fromjson? | select(type == "object" and .event == "scope-grant" and .repo == $repo
-      and .slot == $n and .ts >= $since and (.pathspec | type == "string")) | .pathspec] | .[]' "$AS_LEDGER"
-}
-
 # Usage: scope_deny_reason <repo> <n> <touches> <paths> <branch> <base>; <touches> is the comma-separated globs, <paths>
 # one per line.
 scope_deny_reason() {

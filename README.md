@@ -915,7 +915,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `review-grant-from-slot`      | 1    | `grant-review` refused: run from a slot or its tmux server; only the operator grants           |
 | `slot-head-missing`           | 1    | `grant-review` refused: the slot has no branch or commit to count rounds under                 |
 | `scope-grant-from-slot`       | 1    | `grant-scope` refused: run from a slot or its tmux server; only the operator grants scope      |
-| `grant-needs-terminal`        | 1    | `grant-scope` refused: no terminal to type the confirmation at, as in an agent's shell         |
+| `grant-needs-terminal`        | 1    | `grant-scope` refused: no terminal, or a shell under Claude Code, so no person types the key   |
 | `grant-not-confirmed`         | 1    | `grant-scope` refused: the answer typed at the terminal was not the slot's key                 |
 | `tmux-outside-scope`          | 0    | Doctor warning: the slot tmux server runs in a service's cgroup and would end with that unit   |
 

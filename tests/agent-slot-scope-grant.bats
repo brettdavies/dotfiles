@@ -74,20 +74,42 @@ grant_lines() { jaq -c 'select(.event == "scope-grant")' "$LEDGER" 2>/dev/null |
   at_terminal repo/1 grant-scope repo/1 'docs/*.md'
   [[ $tty == *"docs/a.md"* && $tty == *"docs/b.md"* ]]
   [[ $tty != *"README.md"* ]]
-  [[ $tty == *"1 other changed path stays outside it"* ]]
+  [[ $tty == *"1 changed path stays outside the brief and the grants"* ]]
+  [[ $tty == *"Let repo/1 push paths matching 'docs/*.md'."* ]]
   [[ $tty == *"Type the slot key, repo/1, to grant it:"* ]]
+}
+
+@test "the prompt counts only what neither the brief nor an earlier grant already covers" {
+  jaq -c '.scope = {touches: ["README.md"], adds: "none"}' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  at_terminal repo/1 grant-scope repo/1 docs/a.md
+  [[ $tty == *"1 changed path stays outside the brief and the grants"* ]]
+  at_terminal repo/1 grant-scope repo/1 docs/b.md
+  [[ $tty == *"every changed path is covered, so the next push goes through"* ]]
+}
+
+@test "the prompt says when there is nothing to compare, and when the branch changes nothing" {
+  git -C "$SLOT" update-ref -d refs/remotes/origin/main
+  at_terminal repo/1 grant-scope repo/1 'dcos/typo'
+  [[ $tty == *"has no origin/main to compare with"* ]]
+  slot repo 2
+  git -C "$AGENT_SLOT_ROOT/repo/2" commit -q --allow-empty -m seed
+  git -C "$AGENT_SLOT_ROOT/repo/2" update-ref refs/remotes/origin/main HEAD
+  at_terminal repo/2 grant-scope repo/2 'docs/*'
+  [[ $tty == *"branch changes no paths against origin/main yet"* ]]
 }
 
 @test "a pathspec that covers none of the paths the branch changed is refused before the terminal is asked" {
   without_terminal grant-scope repo/1 'dcos/*.md'
   [ "$status" -eq 2 ]
-  jaq -e '.reason == "usage" and .value == "dcos/*.md" and (.message | contains("covers none of the 3 paths"))' <<<"$stderr"
+  jaq -e '.reason == "usage" and .value == "dcos/*.md" and (.message | contains("covers none of the 3 paths"))
+    and (.message | contains("docs/a.md")) and (.message | contains("origin/main"))' <<<"$stderr"
   [ ! -e "$LEDGER" ]
 }
 
 @test "an exclude pathspec is refused, since it takes coverage away" {
   local spec
-  for spec in ':!docs/a.md' ':^docs/a.md' ':(exclude)docs/a.md'; do
+  for spec in ':!docs/a.md' ':^docs/a.md' ':(exclude)docs/a.md' ':/!docs/a.md' ':/^docs/a.md'; do
     without_terminal grant-scope repo/1 "$spec"
     [ "$status" -eq 2 ] || {
       echo "accepted: $spec"
@@ -105,7 +127,7 @@ grant_lines() { jaq -c 'select(.event == "scope-grant")' "$LEDGER" 2>/dev/null |
 @test "an end of input at the terminal is reported as no answer, not as a wrong one" {
   at_terminal $'\x04' grant-scope repo/1 'docs/*'
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "grant-not-confirmed" and (.message | contains("no answer was typed within 120 s"))' <<<"$stderr"
+  jaq -e '.reason == "grant-not-confirmed" and (.message | contains("the input ended with no answer"))' <<<"$stderr"
   [ ! -e "$LEDGER" ]
 }
 
@@ -236,6 +258,7 @@ grant_lines() { jaq -c 'select(.event == "scope-grant")' "$LEDGER" 2>/dev/null |
   jaq -e '.reason == "usage"' <<<"$stderr"
   without_terminal grant-scope repo/1 a b
   [ "$status" -eq 2 ]
+  jaq -e '.message | contains("quote the pathspec")' <<<"$stderr"
 }
 
 @test "grant-scope has help with its returns line and an example" {

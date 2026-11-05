@@ -217,14 +217,17 @@ verb_help() {
       'example: agent-slot grant-review dotfiles/2 --output json' ;;
     grant-scope) printf '%s\n' 'usage: agent-slot grant-scope <repo>/<N> <pathspec> [--output json]' \
       "Lets the slot's PR change the paths a git pathspec matches, past the Touches: globs of its brief, so" \
-      "slot-scope-guard.sh stops denying a git push of them. It lists to the terminal (/dev/tty) the paths the slot's" \
-      "branch changes that the pathspec covers, and reads the slot's key back within $SCOPE_GRANT_WAIT s. With no terminal" \
-      "it is refused with grant-needs-terminal, with no answer or a wrong one with grant-not-confirmed, and from a" \
-      "slot's directory or its tmux server with scope-grant-from-slot. A pathspec git rejects, an exclude pathspec" \
-      "(:! or :^), a control character, and one that covers none of the paths the branch changes are refused with usage" \
-      "before the terminal is asked; a shell under Claude Code (CLAUDECODE set) is refused with grant-needs-terminal" \
-      "even when it holds a pseudo-terminal. A slot still being set up is refused with slot-busy. A grant appends a scope-grant line to the ledger and changes nothing else; each run grants one pathspec" \
-      "and there is no revoke. It is a guard, not a trust boundary. Other error: slot-not-found." \
+      "slot-scope-guard.sh stops denying a git push of them. It lists to the terminal (/dev/tty) the paths the" \
+      "slot's branch changes that the pathspec covers and how many stay outside the brief and the grants, and reads" \
+      "the slot's key back within $SCOPE_GRANT_WAIT s. With no terminal it is refused with grant-needs-terminal," \
+      "with no answer or a wrong one with grant-not-confirmed, and from a slot's directory or its tmux server with" \
+      "scope-grant-from-slot. A pathspec git rejects, an exclude pathspec (:!, :^, :/!, :/^, or :(exclude)), a" \
+      "control character, and one that covers none of the paths the branch changes are refused with usage before" \
+      "the terminal is asked; a shell under Claude Code (CLAUDECODE set) is refused with grant-needs-terminal even" \
+      "when it holds a pseudo-terminal. A slot still being set up is refused with slot-busy. A grant appends a" \
+      "scope-grant line to the ledger and changes nothing else; each run grants one pathspec, quoted so the shell" \
+      "does not expand it, and there is no revoke. It is a guard, not a trust boundary. Other error:" \
+      "slot-not-found." \
       'returns: key, pathspec, granted_at, grants (the slot'"'"'s scope grants in all)' \
       'example: agent-slot grant-scope dotfiles/2 '"'"'docs/*.md'"'"' --output json' ;;
     release) printf '%s\n' 'usage: agent-slot release [--not-yet WHY] [--output json]' \
