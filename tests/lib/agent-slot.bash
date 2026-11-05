@@ -304,7 +304,8 @@ trusted() {
 # stub_gh_items: gh answering `pr list` from $STUBS/gh-prs.json, and `api repos/<repo>/issues/<N>` and `pr view <N>`
 # from the fixtures gh_item writes. A number with no fixture gets GitHub's not-found answer. The issues API names the
 # item's repository as gh_item gave it, else as the request did. `pr close <N>` sets the PR's state in both, and fails
-# as an outage does while $STUBS/gh-close-fails exists.
+# as an outage does while $STUBS/gh-close-fails exists. While $STUBS/gh-close-lands-then-fails exists it sets the state
+# and then fails, as a close does when GitHub applies it and the answer is lost.
 stub_gh_items() {
   stub gh '
 case "$1 ${2:-}" in
@@ -332,7 +333,11 @@ case "$1 ${2:-}" in
       >"$STUBS/gh-prs.new"
     mv "$STUBS/gh-prs.new" "$STUBS/gh-prs.json"
     jaq -c ".state = \"CLOSED\"" "$STUBS/gh-pr-$3.json" >"$STUBS/gh-pr.new"
-    mv "$STUBS/gh-pr.new" "$STUBS/gh-pr-$3.json" ;;
+    mv "$STUBS/gh-pr.new" "$STUBS/gh-pr-$3.json"
+    [ ! -e "$STUBS/gh-close-lands-then-fails" ] || {
+      echo "HTTP 502: Bad Gateway" >&2
+      exit 1
+    } ;;
   *) cat "$STUBS/gh-prs.json" ;;
 esac'
 }

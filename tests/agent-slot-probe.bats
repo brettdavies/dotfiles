@@ -104,9 +104,8 @@ marked_probe() {
   }
 }
 
-# other_slot_pushes BRANCH: another clone commits to BRANCH and pushes it, and this slot fetches it. Prints nothing; the
-# slot's origin/BRANCH then holds what the other clone pushed.
-other_slot_pushes() {
+# other_clone_pushes BRANCH: another clone commits to BRANCH and pushes it, and the slot's origin/BRANCH stays as it was.
+other_clone_pushes() {
   [ -d "$T/other" ] || git clone -q "$ORIGIN" "$T/other"
   git -C "$T/other" fetch -q origin
   if git -C "$T/other" rev-parse -q --verify "origin/$1" >/dev/null; then
@@ -116,6 +115,12 @@ other_slot_pushes() {
   fi
   git -C "$T/other" commit -q --allow-empty -m "other slot's work on $1"
   git -C "$T/other" push -q origin "$1"
+}
+
+# other_slot_pushes BRANCH: other_clone_pushes, and this slot fetches it. Prints nothing; the slot's origin/BRANCH then
+# holds what the other clone pushed.
+other_slot_pushes() {
+  other_clone_pushes "$1"
   git -C "$SLOT" fetch -q origin "+refs/heads/*:refs/remotes/origin/*"
 }
 
@@ -245,6 +250,79 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   released
   check
   jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  [ ! -e "$SLOT" ]
+}
+
+@test "an unmarked PR closed unmerged stays a PR to the commit checks, so a pushed branch beside it has no PR" {
+  pushed feat/p
+  draft_pr 9 feat/p CLOSED
+  pushed feat/r
+  operator_finished
+  check
+  has_blocker commits-without-pr
+}
+
+@test "an open probe stays a PR to the commit checks, so a pushed branch beside it has no PR" {
+  pushed feat/p
+  draft_pr 9 feat/p
+  record_set '.prs = [9] | .probes = [9]'
+  pushed feat/r
+  operator_finished
+  check
+  has_blocker commits-without-pr
+}
+
+@test "unpushed work beneath a closed probe's head still blocks, whether or not origin keeps the probe's branch" {
+  finished_task
+  work feat/real 3
+  marked_probe 9 feat/p
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  check
+  jaq -e '.finished == true and .teardown == false and ([.blockers[].code] == ["unpushed-commits"])
+    and .blockers[0].count == 3' <<<"$VERDICT"
+  git -C "$SLOT" push -q origin --delete feat/p
+  check
+  jaq -e '.teardown == false and ([.blockers[].code] == ["unpushed-commits"]) and .blockers[0].count == 3' <<<"$VERDICT"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == []' <<<"$output"
+  [ -d "$SLOT/.git" ]
+}
+
+@test "unpushed work beneath a closed probe's head blocks a released task with no merged PR" {
+  work feat/real 3
+  marked_probe 9 feat/p
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  git -C "$SLOT" push -q origin --delete feat/p
+  released
+  check
+  jaq -e '.finished == true and .teardown == false and ([.blockers[].code] == ["unpushed-commits"])
+    and .blockers[0].count == 3' <<<"$VERDICT"
+}
+
+@test "a work branch that shares a closed probe's tip is not the probe's, so its commit still blocks" {
+  finished_task
+  marked_probe 9 feat/p
+  git -C "$SLOT" branch feat/shared feat/p
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  check
+  jaq -e '.teardown == false and ([.blockers[].code] == ["unpushed-commits"]) and .blockers[0].count == 1' <<<"$VERDICT"
+}
+
+@test "a slot whose only branch is a closed probe's passes once released" {
+  marked_probe 9 feat/p
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  git -C "$SLOT" branch -q -D main
+  released
+  check
+  jaq -e '.finished == true and .blockers == [] and .teardown == true' <<<"$VERDICT"
 }
 
 @test "beside a closed probe, a PR ref that names no PR of this task counts as nothing pushed" {
@@ -281,6 +359,25 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   jaq -e '.teardown == false and (.needs_you[] | select(.code == "pr-closed-unmerged") | .values == ["9"])' <<<"$VERDICT"
 }
 
+@test "a dropped mark comes back only through a new probe, the step close-probe's refusal names" {
+  marked_probe 9 feat/p
+  pr_fields 9 '.isDraft = false'
+  check
+  record_has '.probes == []'
+  pr_fields 9 '.isDraft = true'
+  in_slot close-probe 9
+  refused pr-not-probe
+  jaq -e '.next_step.action == "run" and .next_step.command == "agent-slot probe 9"' <<<"$stderr"
+  record_has '.probes == []'
+  in_slot probe 9
+  [ "$status" -eq 0 ]
+  jaq -e '.already_marked == false' <<<"$output"
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  jaq -e '.closed == true and .already_closed == false' <<<"$output"
+  [ "$(grep -c '^gh pr close' "$CALLS")" = 1 ]
+}
+
 @test "probe and close-probe drop the mark of a PR they read out of draft" {
   marked_probe 9 feat/p
   pr_fields 9 '.isDraft = false'
@@ -312,6 +409,32 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
     refused pr-title-not-probe
     jaq -e '.next_step.action == "run" and .next_step.command == "agent-slot close-probe --help"' <<<"$stderr"
   done
+}
+
+@test "the title gate guards only an open PR, so a closed or merged one keeps its own refusal and next step" {
+  pushed feat/p
+  draft_pr 9 feat/p CLOSED
+  pr_fields 9 '.title = "fix: real work"'
+  in_slot probe 9
+  refused pr-not-open
+  jaq -e '.next_step.action == "ask-operator" and .next_step.command == "gh pr view 9 --repo origins/repoa"
+    and (.message | contains("pr-closed-unmerged"))' <<<"$stderr"
+  in_slot close-probe 9
+  refused pr-not-probe
+  record_has '.probes == null'
+  record_set '.prs = [9] | .probes = [9]'
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  jaq -e '.closed == true and .already_closed == true' <<<"$output"
+  in_slot probe 9
+  [ "$status" -eq 0 ]
+  jaq -e '.already_marked == true' <<<"$output"
+  record_set 'del(.probes) | .prs = []'
+  pr_fields 9 '.state = "MERGED"'
+  in_slot probe 9
+  refused pr-not-open
+  jaq -e '.next_step.action == "none" and .next_step.command == null and (.message | contains("MERGED"))' <<<"$stderr"
+  run ! grep -q '^gh pr close' "$CALLS"
 }
 
 @test "probe marks an open draft this slot pushed, attaches it as a work item, and logs it" {
@@ -406,7 +529,7 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   }
 }
 
-@test "a no-op push from a missing tracking ref reads as this clone's push, and from a stale one does not" {
+@test "the proof's limit: any push from a missing tracking ref reads as this clone creating the branch" {
   git clone -q "$ORIGIN" "$T/other"
   git -C "$T/other" checkout -q -b feat/o
   git -C "$T/other" commit -q --allow-empty -m "other slot's work"
@@ -420,6 +543,43 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
     echo "$stderr"
     false
   }
+  git -C "$T/other" checkout -q -b feat/f
+  git -C "$T/other" commit -q --allow-empty -m "other slot's work on feat/f"
+  git -C "$T/other" push -q origin feat/f HEAD:refs/pull/10/head
+  git -C "$SLOT" fetch -q origin refs/pull/10/head
+  git -C "$SLOT" checkout -q -b feat/f FETCH_HEAD
+  git -C "$SLOT" commit -q --allow-empty -m 'a fixup on what the pull ref held'
+  git -C "$SLOT" push -q origin feat/f
+  draft_pr 10 feat/f
+  in_slot probe 10
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  in_slot close-probe 10
+  [ "$status" -eq 0 ]
+  jaq -e '.closed == true and .already_closed == false' <<<"$output"
+}
+
+@test "the proof's limit: a no-op push over a stale tracking ref records a head this clone did not write" {
+  pushed feat/s
+  other_clone_pushes feat/s
+  git -C "$T/other" push -q origin feat/s:refs/pull/10/head
+  git -C "$SLOT" fetch -q origin refs/pull/10/head
+  git -C "$SLOT" checkout -q -B feat/s FETCH_HEAD
+  git -C "$SLOT" push -q origin feat/s
+  draft_pr 10 feat/s
+  in_slot probe 10
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  in_slot close-probe 10
+  [ "$status" -eq 0 ]
+  jaq -e '.closed == true and .already_closed == false' <<<"$output"
+}
+
+@test "a no-op push over a stale tracking ref is refused on a branch this clone did not create" {
   other_slot_pushes feat/s
   git -C "$T/other" commit -q --allow-empty -m 'moved past the fetch'
   git -C "$T/other" push -q origin feat/s HEAD:refs/pull/10/head
@@ -504,9 +664,23 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   draft_pr 9 feat/p
   in_slot probe 9
   refused pr-not-from-this-slot
-  jaq -e '(.message | contains("push a new commit")) and .next_step.action == "run"
-    and (.next_step.command | startswith("git log")) and (.next_step.command | contains("refs/remotes/origin/feat/p"))' \
+  jaq -e '(.message | contains("push a new commit")) and (.message | contains("do not force-push"))
+    and .next_step.action == "run" and .next_step.command == "gh pr view 9 --repo origins/repoa --json commits"' \
     <<<"$stderr"
+}
+
+@test "a head moved with no fetch into the slot is refused, and the next step reads what the clone does not hold" {
+  local oid
+  pushed feat/p
+  draft_pr 9 feat/p
+  other_clone_pushes feat/p
+  oid=$(git -C "$T/other" rev-parse feat/p)
+  pr_fields 9 ".headRefOid = \"$oid\""
+  run ! git -C "$SLOT" cat-file -e "$oid"
+  in_slot probe 9
+  refused pr-not-from-this-slot
+  jaq -e --arg oid "$oid" '(.message | contains($oid)) and .next_step.action == "run"
+    and .next_step.command == "gh pr view 9 --repo origins/repoa --json commits"' <<<"$stderr"
 }
 
 @test "a branch present at clone does not qualify, even after this slot pushes a fixup to it" {
@@ -599,7 +773,8 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   grep -q '^gh pr close 9 --repo origins/repoa --comment .*probe.*repoa/1' "$CALLS"
   run ! grep -q 'delete-branch' "$CALLS"
   git -C "$ORIGIN" rev-parse -q --verify refs/heads/feat/p
-  ledger close-probe | jaq -e '.repo == "repoa" and .slot == 1 and .number == 9 and .head == "feat/p"'
+  ledger close-probe | jaq -e '.repo == "repoa" and .slot == 1 and .number == 9 and .head == "feat/p"
+    and .already_closed == false'
 }
 
 @test "the whole flow: mark, close, and check passes beside a merged PR, and the teardown goes through" {
@@ -711,6 +886,22 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   [ "$(jaq -s 'map(select(.event == "close-probe")) | length' "$AGENT_SLOT_STATE_DIR/ledger.jsonl")" = 0 ]
 }
 
+@test "a close that lands while gh reports failure gets its ledger event from the rerun that confirms it" {
+  marked_probe 9 feat/p
+  touch "$STUBS/gh-close-lands-then-fails"
+  in_slot close-probe 9
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "pr-close-failed" and .recovery.side_effects == "unknown"' <<<"$stderr"
+  grep -q '"state":"CLOSED"' "$STUBS/gh-pr-9.json"
+  [ "$(jaq -s 'map(select(.event == "close-probe")) | length' "$AGENT_SLOT_STATE_DIR/ledger.jsonl")" = 0 ]
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  jaq -e '.closed == true and .already_closed == true' <<<"$output"
+  [ "$(jaq -s 'map(select(.event == "close-probe")) | length' "$AGENT_SLOT_STATE_DIR/ledger.jsonl")" = 1 ]
+  ledger close-probe | jaq -e '.number == 9 and .already_closed == true'
+  [ "$(grep -c '^gh pr close' "$CALLS")" = 1 ]
+}
+
 @test "a PR gh cannot find fails with item-not-found, and its next step is this verb's help" {
   in_slot close-probe 999
   [ "$status" -eq 2 ]
@@ -730,6 +921,22 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   [[ $output == *"on a branch this clone created"* ]]
   [[ $output == *"test(probe): <what it probes>"* ]]
   grep -qF 'test(probe): <what it probes>' "$BATS_TEST_DIRNAME/../README.md"
+}
+
+@test "the probe docs start from a push and name the slot's base, which whoami reports" {
+  local readme=$BATS_TEST_DIRNAME/../README.md
+  in_slot whoami
+  [ "$status" -eq 0 ]
+  jaq -e '.slot.base == "main"' <<<"$output"
+  run "$AGENT_SLOT" probe --help
+  [ "$status" -eq 0 ]
+  [[ $output == *"git push -u origin HEAD"* ]]
+  [[ $output == *"--base"* ]]
+  [[ $output == *".slot.base"* ]]
+  grep -qF 'git switch -c test/probe-<what>' "$readme"
+  grep -qF 'git push -u origin HEAD' "$readme"
+  grep -qF "gh pr create --draft --base <the slot's base> --title 'test(probe): <what it probes>' --fill" "$readme"
+  grep -qF '.slot.base' "$readme"
 }
 
 @test "text mode says what happened and what comes next" {

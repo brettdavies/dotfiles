@@ -232,8 +232,8 @@ _check_uncommitted() {
     return
   fi
   target=$(readlink "$1/docs/solutions" || true)
-  if [[ -n $target && ($target == "$AS_SOLUTIONS" \
-    || $target == "$(record_solutions_worktree)") ]]; then
+  if [[ -n $target && ($target == "$AS_SOLUTIONS" ||
+    $target == "$(record_solutions_worktree)") ]]; then
     out=$(grep -vxF ' M docs/solutions' <<<"$out" || true)
   fi
   [[ -z $out ]] || _check_block uncommitted-changes \
@@ -271,7 +271,8 @@ _check_solutions() {
   ((SOLUTIONS_REBASE == 0)) || values+=("rebase in progress")
   ((${#values[@]} > 0)) || return 0
   _check_block solutions-unpublished "the slot's solutions worktree holds what origin/main lacks: ${values[*]:0:3}$(
-    ((${#values[@]} <= 3)) || echo ' and more'); publish it with sd-commit-doc or discard it" "${#values[@]}" \
+    ((${#values[@]} <= 3)) || echo ' and more'
+  ); publish it with sd-commit-doc or discard it" "${#values[@]}" \
     "${values[@]}"
   if ((${#SOLUTIONS_PATHS[@]} > 0)); then
     _check_solutions_next git -C "$wt" status --short
@@ -329,14 +330,19 @@ ends; run agent-slot release as your last step, and the slot is torn down once y
   esac
 }
 
-# Usage: check_local_heads <slot path>; prints the commit of HEAD, of each local branch, and of each linked worktree's
-# HEAD, once each.
+# Usage: check_local_heads <slot path> [branch to leave out...]; prints the commit of HEAD, of each local branch, and of
+# each linked worktree's HEAD, once each. A branch is left out by name, along with any HEAD on it, because another
+# branch can share its commit and has to stay in the list.
 check_local_heads() {
+  local path=$1
+  shift
   {
-    git -C "$1" rev-parse HEAD
-    git -C "$1" for-each-ref --format='%(objectname)' refs/heads
-    git -C "$1" worktree list --porcelain | sed -n 's/^HEAD //p'
-  } | sort -u
+    printf '%s %s\n' "$(git -C "$path" rev-parse HEAD)" "$(git -C "$path" symbolic-ref -q HEAD)"
+    git -C "$path" for-each-ref --format='%(objectname) %(refname)' refs/heads
+    git -C "$path" worktree list --porcelain | awk '/^HEAD /{oid=$2; ref=""} /^branch /{ref=$2} /^$/{print oid, ref}'
+  } | awk -v branches="$*" '
+    BEGIN { n = split(branches, b, " "); for (i = 1; i <= n; i++) skip["refs/heads/" b[i]] }
+    !($2 in skip) { print $1 }' | sort -u
 }
 
 # Usage: _check_url_host <url>; prints the host of a remote URL git reaches over a network, and nothing for a local
@@ -386,32 +392,40 @@ _check_fetch_push_remotes() {
   done < <(_check_push_remotes "$1")
 }
 
-# Usage: _check_closed_probes <prs JSON>; prints the number of each closed probe among a slot's PRs.
+# Usage: _check_closed_probes <prs JSON>; prints each closed probe among a slot's PRs as "<number> <head branch>".
 _check_closed_probes() {
-  contract_json -r '.[] | select(.state == "CLOSED" and .probe) | .number' <<<"$1"
+  contract_json -r '.[] | select(.state == "CLOSED" and .probe) | "\(.number) \(.head)"' <<<"$1"
 }
 
-# Usage: _check_commits <slot path> <base> <pr count> [closed probe number...]
+# Usage: _check_commits <slot path> <base> <pr count> [closed probe, as _check_closed_probes prints it...]
 # A commit counts as pushed once an origin branch or tag, a PR's head, or a branch of a remote in CHECK_PUSH_REMOTES,
 # holds it; local tags count as heads, so a commit only a local tag still reaches is unpushed. Origin's tags are fetched
-# into refs/agent-slot/origin-tags. A closed probe is left out of the PR count, yet its head still counts as pushed, which
-# is why the caller names them: only this task's refs count, never one left over from another PR.
+# into refs/agent-slot/origin-tags. A closed probe is left out of the PR count, and its ref answers for its own branch
+# and nothing else: a probe cut from unpushed work holds that work too, and teardown would delete the only branch naming
+# it. Origin's copy of the branch stops counting the same way, unless it is ahead of the ref, which means a push since
+# the close.
 _check_commits() {
-  local path=$1 base=$2 has_prs=$3 baseref heads uncontained unpushed_heads unpushed remote probe
+  local path=$1 base=$2 has_prs=$3 baseref heads uncontained unpushed_heads unpushed remote probe number branch ref
   shift 3
+  local -a h probe_branches=() contained=() on_origin=()
+  for probe in "$@"; do
+    number=${probe%% *} branch=${probe#* } ref=refs/agent-slot/pr/$number
+    contained+=(--exclude="$ref")
+    ! git -C "$path" merge-base --is-ancestor "refs/heads/$branch" "$ref" 2>/dev/null || probe_branches+=("$branch")
+    ! git -C "$path" merge-base --is-ancestor "refs/remotes/origin/$branch" "$ref" 2>/dev/null \
+      || on_origin+=(--exclude="origin/$branch")
+  done
   baseref=refs/remotes/origin/$base
   git -C "$path" rev-parse -q --verify "$baseref" >/dev/null || baseref=refs/remotes/origin/HEAD
-  if ! git -C "$path" rev-parse -q --verify "$baseref" >/dev/null || ! heads=$(check_local_heads "$path"); then
+  if ! git -C "$path" rev-parse -q --verify "$baseref" >/dev/null \
+    || ! heads=$(check_local_heads "$path" "${probe_branches[@]}"); then
     _check_block git-state-unknown "the slot's local heads or origin's $base could not be read"
     return
   fi
-  local -a h contained=("$baseref" --glob='refs/agent-slot/pr/*')
-  local -a on_origin=(--remotes=origin --glob='refs/agent-slot/origin-tags/*')
-  for probe in "$@"; do
-    ! git -C "$path" rev-parse -q --verify "refs/agent-slot/pr/$probe" >/dev/null || on_origin+=("refs/agent-slot/pr/$probe")
-  done
+  contained+=(--glob='refs/agent-slot/pr/*' "$baseref")
+  on_origin+=(--remotes=origin --glob='refs/agent-slot/origin-tags/*')
   for remote in "${CHECK_PUSH_REMOTES[@]}"; do on_origin+=(--glob="refs/agent-slot/remotes/$remote/*"); done
-  mapfile -t h <<<"$heads"
+  mapfile -t h < <(printf '%s' "$heads")
   # A clone keeps a local copy of origin's default branch, whose history need not be in the base (dev).
   ! git -C "$path" rev-parse -q --verify refs/remotes/origin/HEAD >/dev/null || contained+=(refs/remotes/origin/HEAD)
   if ((has_prs > 0)); then

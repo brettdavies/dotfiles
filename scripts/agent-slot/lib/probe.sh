@@ -5,23 +5,25 @@
 # probe toward neither finishing the task nor blocking it, as it does a settled PR, and every other check still holds.
 #
 # Both verbs run from inside the slot, on a PR of origin's repo titled "test(probe): <what it probes>", which keeps the
-# verbs off every other PR and stays a Conventional Commits title. They qualify a PR the same way: an open draft on a
+# verbs off every other open PR and stays a Conventional Commits title. They qualify a PR the same way: an open draft on a
 # branch this clone created, whose current head this clone pushed. A remote-tracking ref's reflog is the proof. git writes
 # "update by push" there only for a push from this clone and a fetch message for what it merely received, and a clone
-# writes no entry at all for the branches it brings. So a log that starts from an all-zero old oid with a push says this
-# clone created the branch, while a fixup on another writer's branch starts its log from that branch's old head. A head
-# another writer moved has no push entry either. A push that moved nothing still writes that line when the tracking ref
-# was missing: a branch only ever seen through a pull ref and re-pushed reads as this clone's, which the reflog cannot
-# tell apart. A fetch that stores the new head before the push's own update leaves no push entry for a head this clone
-# did push. On a later push a new commit restores the proof, and the refusal says so; on a branch's first push the branch
-# reads as another writer's, and the operator closes it.
+# writes no entry at all for the branches it brings. So a log that starts from an all-zero old oid with a push reads as
+# a branch this clone created, while a log that starts from a fetch reads as another writer's. A head another writer
+# moved, once it is fetched, has no push entry. That old oid is the tracking ref's prior value and not origin's, so the
+# reflog cannot tell these apart: any push made while the tracking ref is missing, a fixup or one that moved nothing,
+# reads as this clone creating the branch, and a push that moved nothing over a stale tracking ref, on a branch this
+# clone created, records a head this clone did not write. A fetch that stores the new head before the push's own update
+# leaves no push entry for a head this clone did push. On a later push a new commit restores the proof, and the refusal
+# says so; on a branch's first push the branch reads as another writer's, and the operator closes it.
 
 PROBE_TITLE_PREFIX='test(probe): '
-PROBE_REPO='' PROBE_N='' PROBE_KEY='' PROBE_PATH='' PROBE_ORIGIN='' PROBE_PR='{}' PROBE_PROOF='' PROBE_TRACKING=''
+PROBE_REPO='' PROBE_N='' PROBE_KEY='' PROBE_PATH='' PROBE_ORIGIN='' PROBE_PR='{}' PROBE_PROOF=''
 
 # Usage: _probe_resolve <ref>; sets PROBE_* for the slot holding the current directory, reads the record, and reads the
-# PR into ITEM and PROBE_PR. A ref naming another repo than origin's is refused unread, and a PR without a probe's title
-# is refused once read.
+# PR into ITEM and PROBE_PR. A ref naming another repo than origin's is refused unread, and an open PR without a probe's
+# title is refused once read. Marking and closing an open PR are the only acts the title guards, so a closed or merged PR
+# goes on to the refusal that says what can still be done about it.
 _probe_resolve() {
   local at slug
   at=$(slot_at "$PWD") || at=''
@@ -41,7 +43,7 @@ this slot's origin, whose PRs are the only ones check judges" --value "$ITEM_REF
   require_tools gh
   item_resolve
   PROBE_PR=$(contract_json -c '{repo, number, title, head: .head_branch, oid: .head_oid, url}' <<<"$ITEM")
-  _probe_require_title
+  [[ $(_probe_state) != OPEN ]] || _probe_require_title
 }
 
 _probe_require_title() {
@@ -68,8 +70,9 @@ pr-closed-unmerged blocker; clearing that is the operator's call" --value "$ITEM
     --command "$(_probe_view_command)" --action ask-operator
 }
 
-# Usage: _probe_require_draft; refuses a PR that is not a draft and drops its mark, so a return to draft does not make it
-# a probe again. Marking one needs nobody, since it simply is no probe; closing a marked one is the operator's call.
+# Usage: _probe_require_draft; refuses a PR that is not a draft and drops its mark, which does not come back by itself on
+# a return to draft; marking it again is a new declaration by the agent. Marking one out of draft needs nobody, since it
+# simply is no probe; closing a marked one is the operator's call.
 _probe_require_draft() {
   [[ $(contract_json -r .draft <<<"$ITEM") != true ]] || return 0
   [[ $(_probe_marked) != true ]] \
@@ -83,13 +86,13 @@ dropped; closing it is the operator's call" --value "$ITEM_REF" --command "$(_pr
 # Usage: _probe_read_proof; sets PROBE_PROOF from the reflog of the remote-tracking ref for the head branch, on a remote
 # of this clone at the head's repository: pushed when the log starts with the push that created the ref and records the
 # PR's current head commit as pushed, moved when it starts that way but has no push entry for that commit, and foreign
-# otherwise, with PROBE_TRACKING the ref for the first two. It reads the log file because only that holds an entry's old
-# oid, which no `git log` format prints. Its lines are "<old> <new> <who> <when>\t<message>", oldest first. A reftable
-# repository has no such file, so the proof fails closed.
+# otherwise. It reads the log file because only that holds an entry's old oid, which no `git log` format prints. Its
+# lines are "<old> <new> <who> <when>\t<message>", oldest first. A reftable repository has no such file, so the proof
+# fails closed.
 _probe_read_proof() {
   local head_repo branch oid remote slug log entries
   local created='^0+ .*'$'\t''update by push$'
-  PROBE_PROOF=foreign PROBE_TRACKING=
+  PROBE_PROOF=foreign
   head_repo=$(contract_json -r '.head_repo // ""' <<<"$ITEM")
   branch=$(contract_json -r '.head_branch // ""' <<<"$ITEM")
   oid=$(contract_json -r '.head_oid // ""' <<<"$ITEM")
@@ -101,7 +104,7 @@ _probe_read_proof() {
     [[ -r $log ]] || continue
     entries=$(<"$log")
     [[ ${entries%%$'\n'*} =~ $created ]] || continue
-    PROBE_PROOF=moved PROBE_TRACKING=refs/remotes/$remote/$branch
+    PROBE_PROOF=moved
     if grep -qE "^[0-9a-f]+ $oid .*"$'\t'"update by push\$" <<<"$entries"; then
       PROBE_PROOF=pushed
       return 0
@@ -110,7 +113,8 @@ _probe_read_proof() {
 }
 
 # Usage: _probe_require_pushed_here; refuses unless PROBE_PROOF is pushed. On a branch this clone created, the agent can
-# see who moved the head and restore the proof itself; on any other branch only the operator can act.
+# read the head's commits and restore the proof itself; on any other branch only the operator can act. The commits come
+# from GitHub because a head this clone never fetched is in no local ref, and the slots commit under one user.name.
 _probe_require_pushed_here() {
   local head
   _probe_read_proof
@@ -118,18 +122,19 @@ _probe_require_pushed_here() {
   head=$(contract_json -r '"\(.head_repo // "(repository gone)"):\(.head_branch) at \(.head_oid // "(unknown)")"' <<<"$ITEM")
   if [[ $PROBE_PROOF == moved ]]; then
     contract_fail pr-not-from-this-slot "PR #$ITEM_NUMBER's head $head, on a branch this slot created, is not a commit \
-this slot pushed: another writer moved it, or a fetch landed before the push's own update. Read the branch's log; if none \
-of its work is another writer's, push a new commit to it and rerun" --value "$ITEM_REF" \
-      --command "$(contract_quote git log -n 5 '--format=%h %an %s' "$PROBE_TRACKING")" --action run
+this slot pushed: another writer moved it, or a fetch landed before the push's own update. Read the PR's commits; if none \
+of its work is another writer's, push a new commit to it and rerun, and do not force-push" --value "$ITEM_REF" \
+      --command "$(contract_quote gh pr view "$ITEM_NUMBER" --repo "$ITEM_REPO" --json commits)" --action run
   fi
   contract_fail pr-not-from-this-slot "PR #$ITEM_NUMBER's head $head is not on a branch this slot created, so it is \
 another writer's to close" --value "$ITEM_REF" --command "$(_probe_view_command)"
 }
 
-# Usage: _probe_ledger <event>; one ledger line naming the PR, from RECORD and PROBE_PR.
+# Usage: _probe_ledger <event> [extra fields, a JSON object]; one ledger line naming the PR, from RECORD and PROBE_PR.
 _probe_ledger() {
-  ledger_append "$1" "$(contract_json -c --argjson pr "$PROBE_PR" \
-    '{repo, slot, task, session_id, number: $pr.number, head: $pr.head, oid: $pr.oid}' <<<"$RECORD")"
+  local extra=${2:-'{}'}
+  ledger_append "$1" "$(contract_json -c --argjson pr "$PROBE_PR" --argjson extra "$extra" \
+    '{repo, slot, task, session_id, number: $pr.number, head: $pr.head, oid: $pr.oid} + $extra' <<<"$RECORD")"
 }
 
 # Usage: cmd_probe <ref>; marks an open draft this slot pushed as a probe, in the same record update that attaches it as
@@ -157,7 +162,8 @@ cmd_probe() {
 
 # Usage: cmd_close_probe <ref>; closes a marked open draft whose head this slot pushed. It deletes no branch, so
 # `gh pr reopen` undoes it. A marked draft already closed succeeds without a second close, which makes a rerun safe after
-# a close whose outcome is unknown.
+# a close whose outcome is unknown. Every success logs, because a close that landed while gh reported failure gets its
+# only event from the rerun; already_closed tells that rerun from the run that made the close.
 cmd_close_probe() {
   local already=false state marked rerun out
   _probe_resolve "$1"
@@ -180,8 +186,8 @@ close it; mark an open draft this slot pushed with agent-slot probe first" --val
 not be closed; rerunning is safe" --value "$ITEM_REF" --command "$rerun" --side-effects unknown --reconcile "$rerun" \
         --log "$BOUNDED_LOG"
     fi
-    _probe_ledger close-probe
   fi
+  _probe_ledger close-probe "{\"already_closed\": $already}"
   contract_ok "$(contract_json -n -c --arg key "$PROBE_KEY" --argjson pr "$PROBE_PR" --argjson already "$already" \
     '{key: $key, pr: $pr, closed: true, already_closed: $already}')" \
     '"\(.key): PR #\(.pr.number) \(if .already_closed then "was already closed" else "closed" end) as a probe"'
