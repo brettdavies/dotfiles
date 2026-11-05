@@ -29,7 +29,7 @@ execution: code
 - **Product authority:** Requirements govern behavior and Key Decisions record why. The measurements in this plan are
   the evidence. Where a solutions doc or runbook disagrees with a measurement here, the doc is what gets rewritten.
 - **Status:** No phase is built on `dev`; PR #431's `.links` registration and `--check` are. Phase 1 starts from `dev`
-  once Brett settles Open Decision 2, which sets its boundary. Open Decisions 1 and 3 do not block it.
+  once this plan's three reviews are done. The stale builds stay until phase 1 deploys (decision 11).
 - **Execution profile:** User-space provisioning, shell config, a launcher, an alias wrapper, a stowed shim, doc
   updates, and hourly update jobs. Chrome adds a system package and an apt timer that the operator applies, because the
   agent's settings deny `sudo`. Proof is runtime measurement on both machines. bats covers the script seams.
@@ -528,8 +528,13 @@ Who opens pages Brett does not control, what they run today, and where each goes
     deployed version neither lowers it nor stops the host, and a version relabelled onto an older build fetches from its
     own URL and fails before anything moves.
   - **One deploy at a time.** Deploys never overlap, through a lock the kernel releases when its holder exits, never a
-    pid file, which two contenders can both take. A cache the deploy cannot write fails with its own reason, not as a
-    held lock, so a caller branching on the reason does not retry forever.
+    pid file, which two contenders can both take: `flock(1)` from util-linux on Linux. macOS ships no `flock(1)`, so
+    phase 8 names the Mac's lock tool after checking it on the Mac (Open Question 11), and the deploy stops with a
+    stable reason when the tool is missing. A cache the deploy cannot write fails with its own reason, not as a held
+    lock, so a caller branching on the reason does not retry forever.
+  - **Where it runs.** The units ship in shared packages that reach hosts with no browser set, so the timer and the
+    LaunchAgent do nothing on a host whose set the deploy has not recorded, and the deploy enables them on its first
+    successful run, which is what opts a host in.
   - **Bounded downloads.** Every download has a connect timeout and a stall limit, so an unattended run ends.
   - **The staleness check.** A check that changes nothing fails when a host's set differs from the pin for more than two
     cycles, or when the pin trails CfT Stable by more than a day with no recorded suite failure, names the fix command,
@@ -624,7 +629,9 @@ Who opens pages Brett does not control, what they run today, and where each goes
   the binary exists, and it holds no path of its own. When its target is absent it exits before opening a page with one
   self-contained line, last on stderr, that says what is missing, carries a stable reason, and names the deploy command
   (`sudo scripts/chrome-deploy.sh` for Chrome, `scripts/playwright-browsers-deploy.sh` for CfT), because some callers
-  keep only the last line.
+  keep only the last line. The launcher's environment allowlist and the wrapper's (R20) are the same list, and the
+  wrapper's two switches are on the launcher's list; one bats case fails when the two scripts disagree, because each
+  file is edited without the other in view.
 - R10. A stowed shim named `agent-browser` runs agent-browser at one exact version the seven-day gate allows (0.40.0 on
   2026-11-03), named once in dotfiles, with no skill. It unsets every inherited `AGENT_BROWSER_*` variable it does not
   set itself. It always sets `AGENT_BROWSER_EXECUTABLE_PATH` to the launcher, so the tool's auto-detect never runs and a
@@ -666,9 +673,9 @@ Who opens pages Brett does not control, what they run today, and where each goes
   Homebrew.
 - R15. A host without Chrome keeps every other consumer on the set. Shell config exports no pointer to an absent binary,
   and the absence is noted without failing.
-- R16. The check in R24 also fails when an installed Chrome is older than Google's index for more than two timer cycles,
-  or when the timer is not enabled. It reports any running browser on a replaced executable and names the restart,
-  without restarting anything.
+- R16. `scripts/chrome-deploy.sh --check` fails when an installed Chrome is older than Google's index for more than two
+  timer cycles, or when the timer is not enabled. It reports any running browser on a replaced executable and names the
+  restart, without restarting anything.
 
 **Playwright library**
 
@@ -848,8 +855,7 @@ Who opens pages Brett does not control, what they run today, and where each goes
 - Running each agent tool on Claude Code end to end was not done, so token cost rests on the benchmark plus the sizes
   measured here.
 - No probe or helper script ships without a caller and a test. A gate's probes run from a scratch directory.
-- The interim fix in Open Decision 1, if Brett takes it, is its own small PR against the current script, not a phase of
-  this plan; phase 1 replaces that script whole.
+- No interim change to the current deploy script runs ahead of phase 1, and no build is swapped by hand (decision 11).
 
 ### Dependencies / Assumptions
 
@@ -877,18 +883,23 @@ Who opens pages Brett does not control, what they run today, and where each goes
 Brett answered these on 2026-11-03, relayed by the coordinating session `dotfiles-prime`. Quoted words are Brett's as
 relayed; the rest is the relay's wording.
 
-| #  | Question                            | Answer                                                                                                                                                                                                                                                                                                   | Sets              |
-| -- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| 1  | What agents browse with             | Regular Chrome stable from Google's apt repository, behind the hardened launcher. CfT serves tests, gstack with its headed sessions, crawl4ai, and scripts.                                                                                                                                              | R6, R7, R9, R13   |
-| 2  | Which tool drives it                | agent-browser without its skill. Brett asked "Why not vercel agent-browser?". Pinned under the seven-day gate, its path set to the Chrome install, with any download or auto-detect off.                                                                                                                 | R10, R11          |
-| 3  | The seven-day gate                  | Every browser build is exempt, and "also need to ensure that our two browsers chrome and cft are updated often." CfT follows each Chrome stable release once the suites pass. Chrome updates at least daily. The agent CLI stays under the gate.                                                         | R4, R13           |
-| 4  | Whether CI joins the set            | CI is unchanged.                                                                                                                                                                                                                                                                                         | R5                |
-| 5  | Whether bare launches run sandboxed | Yes: every alias executable becomes the wrapper that drops the sandbox-off flags and clears the environment.                                                                                                                                                                                             | R8, R20           |
-| 6  | How many browsers                   | Two, Chrome and CfT. WebKit stays only if a repo's suite uses it, and ffmpeg stays as it is. agentnative-site's `mobile-ios` and `tablet` projects and `web-audit-webkit`, which its release preflight runs locally, use WebKit; no other repo in scope does.                                            | R1                |
-| 7  | The Playwright library              | One pinned version across our repos, set in one place in dotfiles, with a check that flags drift and bumps them together. gstack and crawl4ai keep what they ship. Brett: "I'm not sure how that affects a pin. it is ok if the pin becomes dirty or is otherwise ignored after an initial commit, etc." | R21               |
-| 8  | Control                             | Brett wants "to limit the number of browsers we have and also highly control which browsers different tools use through direct config and ENV VARs". Every consumer is pointed explicitly, every download is off, and a check lists any browser outside the two.                                         | R22, R23          |
-| 9  | Where `GSTACK_CHROMIUM_PATH` points | The hardened launcher with CfT as its target, adding CRLSet and Safe Browsing on gstack's headless path, with a gate check that the launcher under gstack rejects a revoked host.                                                                                                                        | R6, R9, R12, AE19 |
-| 10 | WebKit's revision                   | Read from the newest Playwright release. The exemption covers every browser build, WebKit included.                                                                                                                                                                                                      | R4                |
+| #   | Question                                    | Answer                                                                                                                                                                                                                                                                                                   | Sets                        |
+| --- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| 1   | What agents browse with                     | Regular Chrome stable from Google's apt repository, behind the hardened launcher. CfT serves tests, gstack with its headed sessions, crawl4ai, and scripts.                                                                                                                                              | R6, R7, R9, R13             |
+| 2   | Which tool drives it                        | agent-browser without its skill. Brett asked "Why not vercel agent-browser?". Pinned under the seven-day gate, its path set to the Chrome install, with any download or auto-detect off.                                                                                                                 | R10, R11                    |
+| 3   | The seven-day gate                          | Every browser build is exempt, and "also need to ensure that our two browsers chrome and cft are updated often." CfT follows each Chrome stable release once the suites pass. Chrome updates at least daily. The agent CLI stays under the gate.                                                         | R4, R13                     |
+| 4   | Whether CI joins the set                    | CI is unchanged.                                                                                                                                                                                                                                                                                         | R5                          |
+| 5   | Whether bare launches run sandboxed         | Yes: every alias executable becomes the wrapper that drops the sandbox-off flags and clears the environment.                                                                                                                                                                                             | R8, R20                     |
+| 6   | How many browsers                           | Two, Chrome and CfT. WebKit stays only if a repo's suite uses it, and ffmpeg stays as it is. agentnative-site's `mobile-ios` and `tablet` projects and `web-audit-webkit`, which its release preflight runs locally, use WebKit; no other repo in scope does.                                            | R1                          |
+| 7   | The Playwright library                      | One pinned version across our repos, set in one place in dotfiles, with a check that flags drift and bumps them together. gstack and crawl4ai keep what they ship. Brett: "I'm not sure how that affects a pin. it is ok if the pin becomes dirty or is otherwise ignored after an initial commit, etc." | R21                         |
+| 8   | Control                                     | Brett wants "to limit the number of browsers we have and also highly control which browsers different tools use through direct config and ENV VARs". Every consumer is pointed explicitly, every download is off, and a check lists any browser outside the two.                                         | R22, R23                    |
+| 9   | Where `GSTACK_CHROMIUM_PATH` points         | The hardened launcher with CfT as its target, adding CRLSet and Safe Browsing on gstack's headless path, with a gate check that the launcher under gstack rejects a revoked host.                                                                                                                        | R6, R9, R12, AE19           |
+| 10  | WebKit's revision                           | Read from the newest Playwright release. The exemption covers every browser build, WebKit included.                                                                                                                                                                                                      | R4                          |
+| 11  | A fix for the stale builds ahead of phase 1 | None. The stale builds wait for phase 1, with no interim PR against the current script and no build swapped by hand.                                                                                                                                                                                     | Build Phases                |
+| 12  | Where phase 1 ends                          | Phase 1 is the pinned set with aliases on Linux and the Mac. Phase 2 is the sandbox wrapper, the pre-flip launch, safe moves, and `playwright install-deps`. The version floor, the lock, and stall limits go to the hourly pickup.                                                                      | Build Phases, R24, R27, R28 |
+| 13  | WebKit under decision 5                     | R20 stays Chromium-only, and the docs say so.                                                                                                                                                                                                                                                            | R20                         |
+
+Brett answered 11 to 13 on 2026-11-05, relayed by `dotfiles-prime` in the relay's wording.
 
 On decision 7, the relay reads Brett's sentence as: browser updates never wait on the library pin, and the aliases carry
 any revision a pinned library asks for. R21 follows that reading.
@@ -940,9 +951,10 @@ slot's brief copies its phase's `Touches:` and `Adds:` lines, so the slot's push
 **Rules for every phase.**
 
 - **Sized for two review rounds.** Each phase carries a size budget in lines of script and of tests, docs excluded
-  [estimated from one build of phases 1 and 2's scope as a single PR: about 1,100 lines of script and 1,800 of tests,
-  which two review rounds did not clear, leaving one P1, four P2s, and five P3s open]. A diff more than 1.5 times its
-  budget stops before review, and the slot reports what grew instead of growing further.
+  [estimated]. The budgets scale from one build of phases 1 and 2's scope as a single PR, which came to +1,110/-394
+  lines of script and +1,813/-153 of tests [measured: `git diff --stat` of that build] and left one P1, four P2s, and
+  five P3s open after two review rounds. A diff more than 1.5 times its budget stops before review, and the slot reports
+  what grew instead of growing further.
 - **Nothing from a later phase.** Each phase lists what it leaves out. A reviewer treats a missing later-phase item as
   out of scope, and a slot that finds one needed stops and reports rather than building it.
 - **Docs ride with behavior.** A phase updates the runbook, README, and guidance lines that describe what it changes, in
@@ -1006,6 +1018,11 @@ first deploy on a host runs with no browser session open there, because it repla
 or alias name, gstack's own `chromium-1248` included, and phase 3 is the first to measure a sandboxed browser losing its
 build.
 
+**Regression contract.** The rewrite keeps what callers rely on today: a run with no arguments deploys the set;
+`--check` exits 0 on a healthy set and non-zero otherwise; PR #431's `.links` registration survives a consumer's
+cleanup; and `scripts/playwright-deps-deploy.sh` with no flag deploys AppArmor and the set on Linux. One change is
+intended: the positional Playwright version goes, and a run that passes one stops with a usage reason naming the pin.
+
 **Not in this phase.** The wrapper and its stable path, the pre-flip launch, flips by wrapper, retention of exactly one
 previous build, removal of failed candidates, and `playwright install-deps` (phase 2). The version floor,
 `--allow-downgrade`, the deploy lock, and download stall limits (phase 8). `PLAYWRIGHT_SKIP_BROWSER_GC` and every other
@@ -1042,8 +1059,8 @@ launches the new build on that same path before anything points at it.
 - The runbook's wrapper, move, deps, and reason sections, and the README line.
 
 **Not in this phase.** The launcher, and any flag beyond the two sandbox switches (phase 4). The version floor,
-`--allow-downgrade`, the lock, and stall limits (phase 8). A wrapper for WebKit (Open Decision 3). The gate's probe
-(phase 3).
+`--allow-downgrade`, the lock, and stall limits (phase 8). A wrapper for WebKit (decision 13). The gate's probe (phase
+3).
 
 Touches: `config/playwright/**`, `scripts/playwright-browsers-deploy.sh`, `scripts/playwright-browsers/**`,
 `scripts/playwright-deps-deploy.sh`, `tests/playwright-*.bats`, `tests/lib/browser-set.bash`,
@@ -1084,7 +1101,8 @@ at the set by config, and no consumer downloads a browser.
   variable wherever Chrome is installed.
 - The deploy writes `~/.crawl4ai/chromium.path` (R7).
 - Tests: the launcher's list matched on normalized switch names, the environment allowlist, the root refusal, the last
-  stderr line, and `exec` keeping descriptors 3 and 4; the shell block with each target present and absent.
+  stderr line, and `exec` keeping descriptors 3 and 4; one case holding the wrapper template's allowlist and switches to
+  the launcher's (R9); the shell block with each target present and absent.
 - The runbook's launcher and pointer sections, and the README lines.
 - A live gate at its end, on both machines (AE19, and AE8 for the CfT entry): gstack through the CfT entry rejects
   `revoked.badssl.com` within 30 seconds of a context opening, with renderers sandboxed and a planted token absent, and
@@ -1159,7 +1177,8 @@ Verify: bats for AE9 and AE15. Live: AE8, AE10, and AE13.
 
 **Includes.** R24: the hourly user timer on the Linux server and LaunchAgent on the Mac, the fetch over HTTPS, the
 version floor read from the running build's record, `--allow-downgrade`, the lock, the connect and stall limits, and the
-staleness check.
+staleness check. The units do nothing on a host whose set the deploy has not recorded, and the deploy enables them on
+its first successful run (R24).
 
 **Not in this phase.** Moving the pin (phase 9).
 
@@ -1176,9 +1195,11 @@ Verify: bats for AE18, AE20's floor half, and AE30. Live: a pin change on `dev` 
 
 **Delivers.** Each new Chrome stable release's CfT build moves the pin once the real suites pass on it.
 
-**Includes.** R4 in full, and the weekly agent-browser pin proposal in R10 unless Open Question 5 makes it a report.
+**Includes.** R4 in full, and the weekly agent-browser pin proposal in R10 unless Open Question 5 makes it a report. The
+job's units carry `ConditionHost=` for the Linux server and are enabled by `scripts/host-jobs-enable.sh`, the pattern
+the repo's other server jobs follow.
 
-Touches: `scripts/browser-set-bump.sh`, `scripts/browser-set-bump/**`,
+Touches: `scripts/browser-set-bump.sh`, `scripts/browser-set-bump/**`, `scripts/host-jobs-enable.sh`,
 `stow/local/dot-config/systemd/user/browser-set-bump.*`, `tests/browser-set-bump.bats`, `docs/runbooks/**`, `README.md`
 
 Adds: the job and its timer.
@@ -1246,53 +1267,6 @@ What can go wrong, which requirement closes it, and the phase that builds the cl
 
 The last two are silent. They are limits of both browsers, stated where the hardened conditions are listed.
 
-## Open Decisions
-
-Decisions only Brett makes. None blocks the reviews of this plan; decision 2 sets phase 1's brief.
-
-**1. A fix for the stale builds ahead of phase 1.** The Linux server's set runs CfT 151.0.7922.34 for chromium 1223,
-1228, and 1234, gstack there runs its own 156.0.8078.4 at 1248, and the Mac's gstack runs CfT 151. Both builds load the
-compromised-CA host with status 200. CfT Stable is 157.0.8103.38 (checked 2026-11-05).
-
-- **A (recommended).** A `fix/` PR from its own slot changes two values in the current
-  `scripts/playwright-browsers-deploy.sh`: the 1.62.1 case's `CFT_VERSION` becomes 157.0.8103.38, and 1248 joins
-  `CONSUMER_CHROMIUM_REVS`. The operator then stops gstack browse, trashes `chromium-1234`,
-  `chromium_headless_shell-1234`, `chromium-1248`, and `chromium_headless_shell-1248` on the Linux server, and reruns
-  the script, because the script skips any directory holding `INSTALLATION_COMPLETE` and never replaces a real directory
-  at an alias name. The script's URL for 157 redirects to Google's bucket and answers 200 (checked 2026-11-05). It
-  checks no hash, as today. The Mac is not covered: the script is a no-op there, so the Mac's gstack stays on CfT 151
-  until phase 1.
-- **B.** Wait for phase 1, which is a rebuild plus up to two review rounds.
-- **C.** Replace the directories by hand with no change in dotfiles. Nothing would record it, and the current `--check`
-  cannot tell 151 from 157.
-
-Evidence for A: on CfT 157 aliased to the revisions they ask for, lmgroktfy passed 16 of 16, meum-sites 65 of 65,
-agentnative-site the same 260 with the same 10 failures, and gstack browse 404 of 406 with the same 2 failures, and
-gstack's probe printed `BROWSER_OK node 157.0.8103.38` (Real suites table).
-
-**2. Where phase 1 ends.** One build of phases 1 and 2's scope as a single PR came to about 1,100 lines of script and
-1,800 of tests, and two review rounds left one P1, four P2s, and five P3s open.
-
-- **A (recommended, as written).** Phase 1 is the pinned set with aliases pointing straight at the real directories (700
-  / 1,000). Phase 2 adds the wrapper, the move, and system libraries (350 / 900). The version floor,
-  `--allow-downgrade`, the lock, and stall limits go to phase 8, where moves first run with nobody watching.
-- **B.** Phases 1 and 2 as one phase, with the lock and stall limits still in phase 8: about 1,050 / 1,900, past what
-  two rounds cleared.
-- **C.** A, with the Mac split into a phase of its own: about 60 fewer script lines in phase 1, and the Mac's gstack
-  stays on CfT 151 longer.
-
-Evidence for A: each of the open findings falls on one side of the split, and none needs both phases at once (Failure
-Modes). The version floor, the lock, and stall limits guard moves nobody watches, and phases 1 and 2 deploy only by
-hand.
-
-**3. WebKit and decision 5.** Decision 5 reads "every alias executable becomes the wrapper". R20 and every measurement
-cover Chromium. WebKit's aliases point at its real directory, so a WebKit launch inherits its caller's environment.
-WebKit's only consumer is agentnative-site's suites, on that repo's own pages.
-
-- **A (recommended).** R20 stays Chromium-only, and the docs say so.
-- **B.** Phase 2 adds the wrapper's environment half to WebKit's launcher script, unmeasured until phase 3 runs
-  agentnative-site's WebKit projects through it.
-
 ## Open Questions
 
 Each is settled in the phase named, from measurement or the code then on `dev`.
@@ -1327,3 +1301,253 @@ Each is settled in the phase named, from measurement or the code then on `dev`.
    download, and whether R22 needs more than `PUPPETEER_SKIP_DOWNLOAD`.
 10. **The launcher's command names** (phase 4). `browser-launch` and `browser-launch-cft` are working names; phase 4's
     brief fixes them.
+11. **The Mac's lock tool** (phase 8). macOS ships no `flock(1)`. Candidates are Homebrew's `flock` and the system
+    perl's `flock`; phase 8 checks which the Mac has before choosing, and the deploy names the missing tool with a
+    stable reason.
+
+---
+
+## Appendix: Engineering Review (plan-eng-review, 2026-11-05)
+
+Target: this plan at `addd17d`. The review ran in an unattended agent slot, where the question tool is denied, so each
+choice below is decided from the code on `dev`, the plan's measurements, and repo precedent, and recorded with its
+evidence. Brett's decisions are in Settled Decisions; none was reopened. Evidence kinds: static reads of `dev` and of
+`--help` output; no proposed code ran.
+
+### Scope Challenge
+
+- **What already exists.** #431's `.links` registration and `--check` (`scripts/playwright-browsers-deploy.sh:191-270`);
+  the alias mechanism (`link_consumer_alias`, same file); the copy-deploy shape with `--check`
+  (`scripts/sysctl-deploy.sh`); the stale-executable scan, which reports transient units as `left-running`
+  (`scripts/upgrade/lib/stale-procs.sh:69`); per-host user timers gated by `ConditionHost=` and enabled by
+  `scripts/host-jobs-enable.sh`; the AppArmor glob (`config/apparmor.d/playwright`); Playwright's own `install-deps`
+  (`playwright install-deps --help`, 1.61.1).
+- **Minimum change.** Phase 1 alone ends the stale builds and the per-version map. Every later phase is separable and
+  listed with what it leaves out.
+- **Complexity.** About 45 repo paths across the eleven phases' `Touches:` lists, 3 to 13 per phase [estimated], and six
+  new modules: the deploy's libraries, the wrapper, the launcher, the shim, the pickup, and the bump job. The gate
+  trips; E-D1 settles the structure.
+- **Search.** The new patterns are standard: `rename(2)` for atomic replacement, `flock(1)` for a lock the kernel
+  releases, and one template rendered for both the live wrapper and the move's stage copy [Layer 1]. No web search ran;
+  in-distribution knowledge only.
+- **TODOS.** The repo tracks no TODOS file; local TODO files are gitignored by policy.
+- **Distribution.** Nothing is published. Archives come from Google's bucket and `cdn.playwright.dev` for linux64 and
+  mac-arm64, both measured to answer.
+- **Prior learning applied:** `dotfiles-same-version-all-hosts` (10/10, 2026-09-22). The version floor guards a branch
+  any commit can change, not skew between hosts.
+- **Retrospective.** `git log` of the named paths shows #431, #450 (`stale-procs.sh` reports what it cannot restart),
+  and #422; no reverts.
+
+```text
+REALITY: premise-table pass 70+ factual claims carry measured or file receipts; unverified=4 (sandboxed browser surviving its directory's removal, the wrapper at the real alias path, the launcher over Chrome, the Mac's lock tool) docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:946
+REALITY: already-done pass origin/dev since 2026-11-03 touches the named paths only through #450 (stale-procs.sh), which narrows Open Question 3 and builds nothing this plan schedules scripts/upgrade/lib/stale-procs.sh:69
+REALITY: surface-check pass playwright install-deps exists with --dry-run (Playwright 1.61.1 --help); flock(1) is util-linux on Linux and absent from stock macOS, now a finding (A4) docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:530
+REALITY: binding-decisions pass decisions 1 to 13 hold; the 2026-11-04 eng decision D9 (shared report-only scan) stays open as Open Question 3, as the doc review left it docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:881
+REALITY: numbers finding the size budgets were tagged with the measured diffstat as an estimate; corrected to [measured: git diff --stat] for +1,110/-394 and +1,813/-153 and [estimated] for the budgets docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:953
+REALITY: deferred-asks pass no linked issue; the brief's five lessons each map to a requirement, an acceptance example, or a phase list docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:946
+REALITY: pr-count pass no ship policy on file; nine PRs and two gates, each sized for two review rounds by decision 12 docs/plans/2026-11-03-1526-feat-stable-chrome-for-browser-consumers-plan.md:971
+```
+
+Scope result: scope accepted as-is. MODE: FULL_REVIEW.
+
+### Decision ledger
+
+Each choice was decided on its recommendation from the evidence named, because no person answers in the slot.
+
+| ID | Finding | Options | Chosen | Evidence | Accepted scope |
+| -- | ------- | ------- | ------ | -------- | -------------- |
+| E-D1 | Complexity gate | Original arrangement; smaller arrangement | Original | Each phase already holds one script family; merging the deploy's libraries back into one file passes the 200-line refactor trigger | No change |
+| E-D2 | A1 | Gate the pickup units on the set's record and let the deploy enable them, with the bump job on `ConditionHost=` through `scripts/host-jobs-enable.sh`; a new stow package for browser hosts | Gate and enable | `stow/local` is in `SHARED_PACKAGES` (`scripts/stow-deploy:28`); server jobs follow `ConditionHost=` plus `host-jobs-enable.sh` (`scripts/host-jobs-enable.sh:7`) | R24's "Where it runs"; phase 8 and 9 text and Touches |
+| E-D3 | A2 | One bats case holds the two lists equal; a shared file both read; leave two copies | Bats case | The launcher is stowed and runs outside the repo, so it cannot source a repo file; a failing build is the red flag's fix | R9's last sentence; phase 4's tests |
+| E-D4 | A4 | Name `flock(1)` on Linux and check the Mac's tool in phase 8; name a Mac tool now | Check in phase 8 | Stock macOS has no `flock(1)`, and this review cannot read the Mac | R24's lock sentence; Open Question 11 |
+| E-D5 | Q1 | State a regression contract with the positional version refused; leave the argument unspecified | Contract | The positional `VERSION` (`scripts/playwright-browsers-deploy.sh:74`) has no caller that passes one (`scripts/playwright-deps-deploy.sh:85`) | Phase 1's Regression contract |
+
+Factual corrections, no question needed: F1, R16's check is `scripts/chrome-deploy.sh --check`, which phase 6 builds,
+not R24's, which phase 8 builds. F2, the budget line's measured and estimated figures are tagged apart.
+
+Approval readiness: PASS (E-D1 to E-D5, decided from evidence in an unattended slot; F1 and F2 change no behavior).
+
+### 1. Architecture
+
+```text
+ config/playwright/browsers.pin ◀── phase 9 bump job (Linux server, hourly): CfT Stable, real suites, pin-only PR
+          │ one parser (R25)
+          ▼
+ phase 8 pickup (hourly, every host with the set) ──▶ scripts/playwright-browsers-deploy.sh (one deploy at a time)
+          │ curl, sha256, unzip, provenance record (R26)
+          ▼
+ $PLAYWRIGHT_BROWSERS_PATH
+   chromium-<build*1000+patch>/   real build, record = sha256 + URL
+   chromium-999999/ chrome  ───────▶ wrapper: drop 2 switches, clear env, exec real build (R20)
+   chromium-<rev> ─▶ chromium-999999 (every released revision, one client each)
+   webkit-<rev>, ffmpeg-<rev>       real directories and aliases
+   .dotfiles/chrome ─▶ wrapper      stable path for tools that take one
+          │
+ move (R27): stage wrapper ─▶ sandboxed launch + fixture extension ─▶ rename wrappers ─▶ keep previous, drop failed
+          │
+ launcher (R9): CfT entry for gstack, Chrome entry for agent-browser; flags stripped, env cleared, exec
+```
+
+- A1. [INFORMATIONAL] (confidence: 8/10) `scripts/stow-deploy:28` reads
+  `SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local ...)`, and R24 placed the pickup timer in
+  `stow/local`, so it would reach every server, browser set or not, with no named path to enable it.
+  `scripts/host-jobs-enable.sh:7` shows the repo's pattern: "The units ship in the shared `obsidian` and `local`
+  packages and carry ConditionHost=bigdaddy". Disposition: accepted (E-D2).
+- A2. [INFORMATIONAL] (confidence: 8/10) R9 lists the environment allowlist (`HOME`, `PATH`, `TMPDIR`, ...), and R20
+  says the wrapper "clears the environment as R9 does": two copies in two files, red flag 8. Disposition: accepted
+  (E-D3).
+- A3. [INFORMATIONAL] (confidence: 9/10) R16 read "The check in R24 also fails when an installed Chrome is older", while
+  phase 6 builds R16 and lists "`scripts/chrome-deploy.sh` and its `--check`" under Adds, and phase 8 builds R24.
+  Disposition: corrected (F1).
+- A4. [INFORMATIONAL] (confidence: 6/10) Medium confidence, verify on the Mac: R24 asks for a lock the kernel releases,
+  and stock macOS ships no `flock(1)`. Disposition: accepted (E-D4).
+
+Design twice. Shape A (chosen) is aliases plus wrappers: consumers change nothing, and one executable at the path every
+tool launches holds the policy. Shape B is per-consumer `executablePath` and tool settings, which leaks the path into
+four repos and three tools and cannot reach a bare `chromium.launch()` (Key Decisions). A hides more behind less. Red
+flags: 8 is A2, closed by a test. 6 (two ways to deploy the set): `scripts/playwright-deps-deploy.sh` calls the deploy
+script, so there is one path. 5 (split ownership): the floor and retention both read the wrapper, one owner. No others
+apply.
+
+Each new path's realistic failure and its handling is in Failure Modes; critical gaps: 0, because the two silent rows
+are limits of both browsers, stated where the hardened conditions are.
+
+### 2. Code quality
+
+- Q1. [INFORMATIONAL] (confidence: 7/10) `scripts/playwright-browsers-deploy.sh:74` reads
+  `VERSION="${1:-$DEFAULT_VERSION}"`; the pin replaces it, and the plan did not say what a run passing a version gets.
+  Disposition: accepted (E-D5).
+
+Shared code: the environment allowlist is A2. R16's report reuses `scripts/upgrade/lib/stale-procs.sh`, where #450 added
+a `left-running` report for units it does not restart (line 69), so the report-only half exists; whether R16 keeps the
+report at all stays Open Question 3 for phase 6. No other extraction is proposed. Scripts follow AGENTS.md:
+`#!/usr/bin/env bash`, severity prefixes on stderr (R30), the bash 4.4 guard wherever a bash 4 construct appears.
+
+### 3. Tests
+
+Framework: bats through `scripts/run-tests` (AGENTS.md, Local gates mirror CI).
+
+```text
+CODE PATHS (all proposed)                               USER FLOWS
+[+] pin parser (ph 1)                                   [+] Repo runs its suite
+  ├── [GAP] each accepted shape; each refusal, masked     ├── [GAP] [→E2E] set deployed, suites pass (AE1, live)
+  └── [GAP] wrong library hash or version fails (AE22)    └── [GAP] [→E2E] newer Playwright, no change (AE3, live)
+[+] provisioning (ph 1)                                 [+] Another tool installs
+  ├── [GAP] sha256 mismatch stops, set intact (AE4)       └── [GAP] [→E2E] real install and uninstall (AE4, CI)
+  ├── [GAP] relabelled version fetches its URL (AE20)   [+] A bare script
+  ├── [GAP] executable gone, fetched again (AE27)         └── [GAP] [→E2E] sandboxed through the alias (AE14, ph 3)
+  ├── [GAP] Mac WebKit archive, release refused (AE32)  [+] gstack
+  └── [GAP] positional version refused (contract)         ├── [GAP] [→E2E] probe prints BROWSER_OK (AE6, live)
+[+] clients and deletion (ph 1)                           └── [GAP] [→E2E] launcher rejects revoked host (AE19, ph 4)
+  ├── [GAP] correct client left alone, rename (AE25)    [+] Agent on an untrusted page
+  ├── [GAP] foreign .links target survives (AE26)         ├── [GAP] [→E2E] sandboxed, CA refused (AE8, ph 7)
+  └── [GAP] emptied .links whole again (AE29)             └── [GAP] [→E2E] two agents kept apart (AE10, ph 7)
+[+] wrapper and move (ph 2)                             [+] Host pickup
+  ├── [GAP] drops two switches, keeps them as root        ├── [GAP] lower pin refused, record lost (AE18)
+  ├── [GAP] owed launch survives failure (AE21)           └── [GAP] two deploys, unwritable cache (AE30)
+  ├── [GAP] running build kept, record lost (AE24)      [+] Chrome upgrade
+  ├── [GAP] failed candidate removed (AE28)               └── [GAP] [→E2E] timer installs, check fails (AE11)
+  └── [GAP] preflight.mjs under real node (R29 c)
+[+] deps script (ph 2)
+  └── [GAP] libraries before launch; bad value (AE23, AE31)
+[+] launcher (ph 4)
+  └── [GAP] list, allowlist parity, root, last line, fds
+[+] shim (ph 7), bump job (ph 9), library check (ph 10)
+  └── [GAP] AE15, AE5, AE16
+
+COVERAGE: 0/38 paths tested (all proposed)  |  Code paths: 24/38  |  User flows: 14/38
+QUALITY: none yet  |  GAPS: 38 (14 E2E or live, 0 eval)
+```
+
+Regression contract: E-D5. Tests made obsolete: the cases in `tests/playwright-browsers-deploy.bats` that pass a
+Playwright version (`--check "$VERSION"`, and the next-step text at line 152). Test Plan:
+`~/.gstack/projects/brettdavies-dotfiles/brett-dev-eng-review-test-plan-20261105-142039.md`.
+
+### 4. Performance
+
+No issues found. The pickup costs one small HTTPS fetch per host per hour. A deploy that changes nothing reads about
+thirty client files and writes none (R3). R29 (b)'s library download is cached by the bats setup action. The move's
+launch adds seconds per move, and moves come about every 4.4 days (The Split).
+
+### Outside voice
+
+Disabled (`codex_reviews` is `disabled`, and the brief turns cross-model review off); recorded as skipped.
+
+### NOT in scope
+
+- Anything Brett settled in decisions 1 to 13, including the interim fix (decision 11).
+- Changes to the crawl4ai skill and the browser-related skills, which live in the agent-skills repository.
+- Restarting a running browser on a replaced build: the checks report.
+
+### What already exists
+
+Reused, not rebuilt: #431's registration and `--check`, the AppArmor profile and its boot unit,
+`scripts/host-jobs-enable.sh`'s enable pattern, `scripts/upgrade/lib/stale-procs.sh`, `playwright install-deps`, and
+`scripts/sysctl-deploy.sh`'s `--check` shape. Rebuilt: the deploy script around the pin, because its per-version map is
+what goes.
+
+### Parallelization
+
+Lane A: phases 1, 2, 3 in order. Then lane B: phase 4, then 5; lane C: phase 8, then 9; both B and C change the deploy
+script, so the later rebases onto the earlier. Lane D: phase 6 any time, then 7 after phases 4 and 6. Lane E: phase 10
+after phase 1. Phase 11 closes.
+
+### Implementation Tasks
+
+The phases in Build Phases are the build list. These tasks come from this review's findings and land inside the phase
+named.
+
+- [ ] **ET1 (P1, human: ~1h / CC: ~10min)** — pickup — gate the pickup units on the set's record and enable them from
+  the deploy; put the bump job on `ConditionHost=` through `scripts/host-jobs-enable.sh`
+  - Surfaced by: Architecture — A1
+  - Files: phase 8 and 9 Touches
+  - Verify: a bats case that a host with no recorded set runs nothing; `systemctl --user list-timers` after a first
+    deploy
+- [ ] **ET2 (P1, human: ~30min / CC: ~5min)** — launcher — one bats case holding the wrapper template's allowlist and
+  switches to the launcher's
+  - Surfaced by: Architecture — A2
+  - Files: `tests/browser-launch.bats`
+  - Verify: the case fails when either list changes alone
+- [ ] **ET3 (P2, human: ~30min / CC: ~10min)** — pickup — check the Mac's lock tool on the Mac and name it in R24
+  - Surfaced by: Architecture — A4
+  - Files: `scripts/playwright-browsers/**`
+  - Verify: AE30 on both machines
+- [ ] **ET4 (P1, human: ~30min / CC: ~5min)** — deploy — keep the regression contract and retire the version-argument
+  cases
+  - Surfaced by: Code quality — Q1
+  - Files: `tests/playwright-browsers-deploy.bats`
+  - Verify: a run with a positional version exits with the usage reason naming the pin
+
+_No new tasks from Performance._
+
+### Completion summary
+
+- Step 0: Scope Challenge — scope accepted as-is
+- Reality rows: 7/7 applicable rows emitted, 4 unverified premises
+- Architecture Review: 4 issues found
+- Code Quality Review: 1 issue found
+- Test Review: diagram produced, 38 gaps identified
+- Performance Review: 0 issues found
+- NOT in scope: written
+- What already exists: written
+- TODOS.md updates: 0 items proposed (no tracked TODOS file)
+- Failure modes: 0 critical gaps flagged
+- Unresolved decisions: 0 in this review
+- Outside voice: codex, disabled (`codex_reviews`)
+- Parallelization: 5 lanes, 3 parallel / 2 sequential
+- Lake Score: N/A (no answers scored for Completeness)
+
+## GSTACK REVIEW REPORT
+
+| Review         | Trigger                              | Why                             | Runs | Status                                   | Findings                   |
+| -------------- | ------------------------------------ | ------------------------------- | ---- | ---------------------------------------- | -------------------------- |
+| CEO Review     | `/plan-ceo-review`                   | Scope & strategy                | 0    | —                                        | —                          |
+| Outside Review | codex, plan-eng-review outside voice | Independent 2nd opinion         | 20   | disabled                                 | —                          |
+| Eng Review     | `/plan-eng-review`                   | Architecture & tests (required) | 13   | ISSUES OPEN (PLAN)                       | 43 issues, 0 critical gaps |
+| Design Review  | `/plan-design-review`                | UI/UX gaps                      | 0    | —                                        | —                          |
+| DX Review      | `/plan-devex-review`                 | Developer experience gaps       | 12   | ISSUES OPEN (latest logged run on `dev`) | score: 6/10 → 7/10         |
+
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no findings.
+- **VERDICT:** no review CLEAR yet; eng review required. This run's findings are accepted into the plan as mapped work.
+
+NO UNRESOLVED DECISIONS
