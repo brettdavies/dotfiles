@@ -149,8 +149,8 @@ verb_help() {
       'example: agent-slot finish dotfiles/2 --yes' ;;
     release) printf '%s\n' 'usage: agent-slot release [--not-yet WHY] [--output json]' \
       "A slot's agent runs it as its last step, from inside the slot. It refuses with compound-not-run until this" \
-      "slot's Claude session has run both /compound-engineering:ce-compound and" \
-      '/compound-engineering:ce-compound-refresh, and with background-jobs-running while that Claude still runs a' \
+      "slot's Claude session has run both /compound-engineering:ce-compound and its refresh mode (mode:refresh)," \
+      'and with background-jobs-running while that Claude still runs a' \
       'Bash tool command other than this one, naming each. Then it records the request and starts finish --yes' \
       '--when-idle in a session of its own, outside the slot, which tears the slot down once the agent is idle and' \
       'check passes. A slot whose task has not finished stays requested until the automatic sweep tears it down. It' \

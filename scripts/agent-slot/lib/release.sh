@@ -1,13 +1,14 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
 # The release: a slot's agent hands its own teardown upstream as its last step. A slot cannot delete itself from inside,
 # since its agent is mid-turn and the slot is that agent's working directory, so release deletes nothing. It refuses
-# until this slot's Claude sessions have run both closing skills, and while the slot's Claude still runs a Bash tool
-# command other than release's own: Claude Code lists a session with a live background shell as busy, so a job left
-# running holds the teardown back for as long as it runs. Then it records the request in the slot's record and the
-# ledger, and starts `agent-slot finish <key> --yes --when-idle` in a session of its own. That finish runs from /, with
-# the slot pane's tmux variables and every inherited descriptor dropped, so it sits outside the slot's process tree and
-# holds nothing under the slot. It waits for the agent to go idle, then runs the same fail-closed finish the operator
-# does. A slot whose task has not finished stays requested, and the automatic sweep tears it down once it has.
+# until this slot's Claude sessions have run ce-compound twice, to capture and with mode:refresh, and while the slot's
+# Claude still runs a Bash tool command other than release's own: Claude Code lists a session with a live background
+# shell as busy, so a job left running holds the teardown back for as long as it runs. Then it records the request in
+# the slot's record and the ledger, and starts `agent-slot finish <key> --yes --when-idle` in a session of its own. That
+# finish runs from /, with the slot pane's tmux variables and every inherited descriptor dropped, so it sits outside the
+# slot's process tree and holds nothing under the slot. It waits for the agent to go idle, then runs the same
+# fail-closed finish the operator does. A slot whose task has not finished stays requested, and the automatic sweep
+# tears it down once it has.
 #
 # An agent still waiting on something, such as CI or a release chain, does not stop it to pass release's check: it runs
 # `release --not-yet WHY` instead, which records why for the automatic sweep (autosweep.sh). Of the agent's release and
@@ -18,9 +19,9 @@
 # teardown.log in the state directory gets one JSON line per release request, refusal, and --not-yet, per finish --yes,
 # and per sweep --yes pass: what ran it, the slots it tore down, and why it kept or refused the rest.
 
-RELEASE_SKILLS='ce-compound ce-compound-refresh'
+RELEASE_SKILLS='ce-compound ce-compound:refresh'
 RELEASE_COMPOUND='/compound-engineering:ce-compound mode:non-interactive depth:full <the finding, from this session only>'
-RELEASE_REFRESH='/compound-engineering:ce-compound-refresh <scope> mode:non-interactive'
+RELEASE_REFRESH='/compound-engineering:ce-compound mode:refresh mode:non-interactive <scope>'
 RELEASE_COMMAND='agent-slot release --output json'
 RELEASE_NOT_YET="agent-slot release --not-yet '<why>' --output json"
 RELEASE_CLEANUP="delete the scratch files you made (local config, test output, tool logs), and commit and PR anything \
@@ -66,7 +67,9 @@ release_transcripts() {
 }
 
 # Usage: release_skills_in <transcript> [<since>]; prints the name of each skill the session ran, without its plugin
-# prefix: a Skill tool call of the agent's, or a slash command typed as a prompt. Text inside a tool's result never
+# prefix: a Skill tool call of the agent's, or a slash command typed as a prompt. A ce-compound run whose arguments
+# carry mode:refresh as a whole word prints as ce-compound:refresh, so the refresh run never counts as the compound run
+# too. The deprecated ce-compound-refresh skill prints under its own name and counts as neither. Text inside a tool's result never
 # counts, so a session that read a file quoting a skill's name is not taken for one that ran it. A Skill call whose
 # result is marked is_error never ran: Claude Code answers a skill missing from its registry with "Unknown skill" that
 # way. The result's text is not read, since a skill that runs in a subagent returns its own output there. The failed
@@ -86,15 +89,19 @@ release_skills_in() {
       ({calls: [], failed: []};
       if $line.type == "assistant" then
         .calls += [$line.message.content[]? | select(type == "object" and .type == "tool_use" and .name == "Skill")
-          | {id: (.id // ""), skill: (.input.skill // empty)}]
+          | {id: (.id // ""), skill: (.input.skill // empty), args: (.input.args // "" | tostring)}]
       elif $line.type == "user" and ($line.message.content | type) == "string" then
-        .calls += [$line.message.content | capture("<command-name>/?(?<s>[^<]+)</command-name>") | {id: "", skill: .s}]
+        .calls += [$line.message.content | capture("<command-name>/?(?<s>[^<]+)</command-name>") as $m
+          | {id: "", skill: $m.s,
+             args: (($line.message.content | capture("<command-args>(?<a>[\\s\\S]*?)</command-args>") | .a) // "")}]
       elif $line.type == "user" then
         .failed += [$line.message.content[]? | select(type == "object" and .type == "tool_result" and .is_error == true)
           | .tool_use_id | strings]
       else . end)
     | (.failed | map({key: ., value: true}) | from_entries) as $failed
-    | .calls[] | select($failed[.id] | not) | .skill | sub("^.*:"; "")' "$1" || true
+    | .calls[] | select($failed[.id] | not) | (.skill | sub("^.*:"; "")) as $s
+    | if $s == "ce-compound" and (.args | test("(^|\\s)mode:refresh(\\s|$)")) then "ce-compound:refresh" else $s end
+  ' "$1" || true
 }
 
 # Usage: release_gate <repo> <n>; sets RELEASE_FOUND and RELEASE_MISSING from RELEASE_SKILLS, counting only the calls
@@ -206,8 +213,21 @@ cmd_release() {
   if ((${#RELEASE_MISSING[@]} > 0)); then
     teardown_log release "$(printf '%s\n' "${RELEASE_MISSING[@]}" | contract_json -R -s -c --arg key "$key" \
       '{key: $key, result: "refused", reason: "compound-not-run", missing: split("\n") | map(select(. != ""))}')"
-    contract_fail compound-not-run "this slot's Claude session has not run ${RELEASE_MISSING[*]}; close out by running \
-$RELEASE_COMPOUND once per finding, then $RELEASE_REFRESH, then $RELEASE_COMMAND" --value "${RELEASE_MISSING[*]}" \
+    local named='' steps='' skill
+    for skill in "${RELEASE_MISSING[@]}"; do
+      case $skill in
+        ce-compound)
+          named+="${named:+ or }ce-compound to capture"
+          steps+="${steps:+, then }$RELEASE_COMPOUND once per finding"
+          ;;
+        ce-compound:refresh)
+          named+="${named:+ or }ce-compound mode:refresh"
+          steps+="${steps:+, then }$RELEASE_REFRESH"
+          ;;
+      esac
+    done
+    contract_fail compound-not-run "this slot's Claude session has not run $named; close out by running $steps, then \
+$RELEASE_COMMAND" --value "${RELEASE_MISSING[*]}" \
       --command "$([[ ${RELEASE_MISSING[0]} == ce-compound ]] && printf '%s' "$RELEASE_COMPOUND" \
         || printf '%s' "$RELEASE_REFRESH")"
   fi

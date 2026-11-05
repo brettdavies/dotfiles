@@ -6,7 +6,9 @@
 #     `session` ledger line when either changed (a /clear starts a new session);
 #   - on the slot's first start sets the record's ready_at and, when the launch carried a request ID, appends the
 #     `ready` ledger line that agent-slot doctor joins to the launch line;
-#   - prints SessionStart additionalContext naming the slot, its task and work items, and its working rules.
+#   - prints SessionStart additionalContext naming the slot, its task and work items, and its working rules, with the
+#     agent-slot skill's "Inside a slot" section ($AGENT_SLOT_SKILL, default ~/.claude/skills/agent-slot/SKILL.md)
+#     as the rules and closing steps every slot follows.
 # Anywhere else it prints nothing. Always exits 0; failures go to the agent-slot hooks.log.
 
 if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
@@ -18,6 +20,8 @@ if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); 
 fi
 
 AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
+# The longest context sent whole: under Claude Code's 10,000-character hook limit, with room for JSON escapes.
+CONTEXT_MAX=9500
 
 # Usage: context_record <repo> <n>
 # Under the slot lock, so the first-start check and the ready line happen once.
@@ -63,8 +67,8 @@ context_record() {
 # through --arg, never as part of its program, so an apostrophe or a backtick in one prints as written.
 # shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
 context_text() {
-  local task items base prime solutions rules plans closing rules_after reopen unattended vault_rules=''
-  local finished='Your task is finished when its PRs are open, or merged if the brief says so, and nothing is left unpushed.'
+  local task items base prime solutions rules plans skill skill_rules load_skill rules_after reopen unattended text
+  local vault_rules=''
   task=$(contract_json -r '.task // ""' <<<"$RECORD")
   items=$(contract_json -r '.items // [] | map("\(if .kind == "pr" then "PR" else .kind end) \(.repo)#\(.number)"
     + (if (.title // "") == "" then "" else " (\(.title))" end)) | join(", ")' <<<"$RECORD")
@@ -82,7 +86,6 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
 Run agent-slot verbs with `--output json` after the verb; `--help` on any verb lists its flags and fields.
 `agent-slot schema --output json` prints the whole contract: the success and error objects and every reason.
 To hand a task to another agent, run `agent-slot launch <repo> --request-id <id> --prompt-file <brief>`.
-A slot you launch is independent: hand off the brief, report its key, and don't wait on it or watch it.
 Launching a slot is not a delegated wait: set no watchdog or watcher on it; watch your own PRs and CI to the end.
 Claude runs here with `--dangerously-skip-permissions`; ask rules, deny rules, and hooks still stop tool calls.
 EOF
@@ -103,10 +106,9 @@ your brief reports to as one \`SendMessage\`: the question, the options, your re
 brief names no such session, leave the decision open in the plan and in your report."
   )
   if [[ $1 == "$VAULT_REPO" ]]; then
-    finished='Your task is finished when its work is on origin/main and nothing is left unpushed.'
     vault_rules=$(
       cat <<'EOF'
-This is the Obsidian vault. Nothing automated commits in the vault, and the operator wants no autocommits there.
+This is the Obsidian vault. Your task is finished when its work is on origin/main and nothing is left unpushed. Nothing automated commits in the vault, and the operator wants no autocommits there.
 Commit only your own task's work, on main, with no branch or PR, and stage each path by name.
 Run `git fetch` then `git rebase origin/main` before each push, so parallel slots never clobber each other; never force-push.
 The vault is sensitive: put no vault content in docs/solutions, another repo, a PR body, or any outside service.
@@ -115,32 +117,26 @@ A slot clones from origin, so it holds only what is pushed; ~/obsidian-vault get
 EOF
     )
   fi
-  closing=$(
-    printf '%s\n' \
-      "$finished" \
-      "Then close it out, in this order:" \
-      "1. Run \`$RELEASE_COMPOUND\` once per finding from this session, one full run each, and once even when \
-none qualifies." \
-      "2. Run \`$RELEASE_REFRESH\` across every refresh opportunity those runs surfaced, or scoped to the area you \
-touched." \
-      "3. Before you release, ${RELEASE_CLEANUP/commit and PR/$(release_deliver "$1")}." \
-      "4. Stop every background job you no longer need. $RELEASE_WAITING" \
-      "5. Run \`$RELEASE_COMMAND\`; it refuses until both skills have run and while a background job of yours still \
-runs, and tears the slot down once you are idle and its task has finished." \
-      "6. Then report what you did and stop."
-  )
+  skill=${AGENT_SLOT_SKILL:-$HOME/.claude/skills/agent-slot/SKILL.md}
+  skill_rules=$(awk '/^## Inside a slot$/ {on = 1; next} on && /^## / {exit} on' "$skill" 2>/dev/null || true)
+  load_skill="Before anything else, load the \`/agent-slot\` skill and follow its \"Inside a slot\" section: it \
+holds the rules for working in a slot and the steps that close your task."
+  if [[ -n ${skill_rules//[[:space:]]/} ]]; then
+    skill_rules=$(printf '%s\n' "These rules for working in a slot come from the agent-slot skill's \"Inside a slot\" \
+section ($skill), and they bind you; load \`/agent-slot\` for the rest of the skill." "$skill_rules")
+  else
+    hook_log "slot $1/$2: no \"Inside a slot\" section in $skill; the context names /agent-slot instead"
+    skill_rules=$load_skill
+  fi
   rules_after=$(
     cat <<'EOF'
 You need not run `agent-slot check` on this slot; you are busy running it, so it reports `checked-by-own-agent`.
 `agent-slot sweep` and `agent-slot finish` delete slots: ask the operator before running either with `--yes`.
-In a review round, re-check the state of the PR before stacking new commits on it.
-Stage with `git add`, then run a plain `git commit`; never `git commit -a` or `git commit <path>`.
-Create no git worktrees inside this slot.
 EOF
   )
   reopen="\`agent-slot reopen\` asks for permission, \`--help\` and \`--dry-run\` included, and nobody here can grant \
 it: send a reopen to the session your brief reports to."
-  contract_json -n -c --arg text "$(
+  text=$(
     printf '%s\n' "You are working in agent slot $(slot_key "$1" "$2"), a clone at $(slot_path "$1" "$2")."
     if [[ -n $task ]]; then printf 'Task: %s.\n' "$task"; else printf '%s\n' 'This slot was given no task name.'; fi
     [[ -z $items ]] || printf 'Work items: %s.\n' "$items"
@@ -148,9 +144,16 @@ it: send a reopen to the session your brief reports to."
       "The prime checkout $prime is read-only for you, except its .context/ folder: put any file meant for Brett \
 to read in $prime/.context/, never in /tmp or a scratchpad. Make every other change in this slot."
     [[ -z $vault_rules ]] || printf '%s\n' "$vault_rules"
-    printf '%s\n' "$solutions" "$rules" "$unattended" "$plans" "$closing" \
+    printf '%s\n' "$solutions" "$rules" "$unattended" "$plans" "$skill_rules" \
       "$rules_after" "$reopen"
-  )" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $text}}'
+  )
+  # Claude Code shows a hook's context in full only up to 10,000 characters; past that the agent gets a file path and a
+  # 2,000-character preview, which would hold none of the skill's rules.
+  if ((${#text} > CONTEXT_MAX)); then
+    hook_log "slot $1/$2: context is ${#text} characters, over $CONTEXT_MAX; it names /agent-slot instead of its rules"
+    text=${text/"$skill_rules"/"$load_skill"}
+  fi
+  contract_json -n -c --arg text "$text" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $text}}'
 }
 
 context_main() {
