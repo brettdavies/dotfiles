@@ -80,7 +80,7 @@ echo "NOTE: provisioning the canonical Playwright browser binaries (curl + unzip
 "$REPO_ROOT/scripts/playwright-browsers-deploy.sh"
 
 if [ "$(uname -s)" != "Linux" ]; then
-  echo "NOTE: not Linux — the AppArmor profile and browser system libraries are Linux-only; the browser set is deployed."
+  echo "NOTE: not Linux — the AppArmor profile and browser system libraries are Linux-only; the browser set is deployed." >&2
   exit 0
 fi
 

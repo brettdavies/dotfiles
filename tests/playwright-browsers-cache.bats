@@ -68,10 +68,17 @@ inode() {
   echo '{"browsers": []}' >"$BP/other-package/browsers.json"
   printf '%s' "$BP/other-package" >"$BP/.links/0123456789abcdef"
   touch "$BP/.DS_Store"
+  ln -s chromium-1234 "$BP/chromium-1179"
+  mkdir -p "$BP/.dotfiles/clients/chromium-1179"
+  echo '{"browsers": [{"name": "chromium", "revision": "1179"}]}' >"$BP/.dotfiles/clients/chromium-1179/browsers.json"
+  printf '%s' "$BP/.dotfiles/clients/chromium-1179" >"$BP/.links/dotfiles-chromium-1179"
   deploy --check
   [ "$status" -eq 1 ]
   deploy
   [ "$status" -eq 0 ]
+  [ ! -L "$BP/chromium-1179" ]
+  [ ! -e "$BP/.links/dotfiles-chromium-1179" ]
+  [ ! -e "$BP/.dotfiles/clients/chromium-1179" ]
   [[ "$stderr" == *"NOTE: replacing the real directory chromium-1234 with an alias to chromium-8103038"* ]]
   deploy --check
   [ "$status" -eq 0 ]
@@ -141,4 +148,45 @@ inode() {
   [ "$(cat "$link"; printf x)" = "$BP/.dotfiles/clients/webkit-2388x" ]
   [ "$(inode "$json")" != "$i" ]
   [ "$(inode "$link")" != "$j" ]
+}
+
+@test "a symlink to a directory outside the set survives a deploy, and --check names it" {
+  deploy
+  [ "$status" -eq 0 ]
+  bs_seed chromium-1179 chrome-linux/chrome
+  ln -s chromium-1179 "$BP/chromium-1187"
+  deploy
+  [ "$status" -eq 0 ]
+  [ -L "$BP/chromium-1187" ]
+  deploy --check
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"reason: stray-symlink; value: chromium-1187"* ]]
+}
+
+@test "a .links entry that is not a readable file is left alone and named, and does not stop the deploy" {
+  deploy
+  [ "$status" -eq 0 ]
+  mkdir "$BP/.links/dotfiles-chromium-7777"
+  deploy
+  [ "$status" -eq 0 ]
+  [ -d "$BP/.links/dotfiles-chromium-7777" ]
+  deploy --check
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"reason: client-unrecognised; value: dotfiles-chromium-7777"* ]]
+}
+
+@test "a new set directory has its client before it is renamed into the cache" {
+  local real
+  real="$(command -v mv)"
+  cat >"$BATS_TEST_TMPDIR/stubs/mv" <<EOF
+#!/usr/bin/env bash
+case "\$2" in "$BP"/chromium-8103038)
+  if [ -f "$BP/.links/dotfiles-chromium-8103038" ]; then echo registered; else echo unregistered; fi >>"$BATS_TEST_TMPDIR/mv.log" ;;
+esac
+exec "$real" "\$@"
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/stubs/mv"
+  deploy
+  [ "$status" -eq 0 ]
+  [ "$(cat "$BATS_TEST_TMPDIR/mv.log")" = registered ]
 }

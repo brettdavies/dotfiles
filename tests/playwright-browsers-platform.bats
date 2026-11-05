@@ -45,6 +45,15 @@ setup() { bs_sandbox; }
   [ ! -e "$BP" ]
 }
 
+@test "a Mac the pin hashes no WebKit for, newer than the ones it does, is told so rather than to upgrade" {
+  bs_as_mac 25.1.0
+  sed '/^sha256 webkit-mac-26-arm64.zip /d' "$BS_TEST_PIN" >"$BATS_TEST_TMPDIR/no26.pin"
+  run --separate-stderr "$BS_SCRIPT" --pin "$BATS_TEST_TMPDIR/no26.pin"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"this pin hashes no WebKit build for macOS 26; reason: mac-release-unsupported; value: Darwin 25.1.0; nothing downloaded"* ]]
+  [ ! -s "$BS_CURL_LOG" ]
+}
+
 @test "a platform with no build is refused before anything downloads" {
   BS_ARCH=aarch64 deploy
   [ "$status" -eq 1 ]
@@ -85,12 +94,12 @@ setup() { bs_sandbox; }
   [[ "$stderr" == *"reason: running-as-root"* ]]
 }
 
-@test "a next step that reruns the deploy keeps the pin it was given" {
-  local pin="$BATS_TEST_TMPDIR/my edited.pin"
-  cp "$BS_TEST_PIN" "$pin"
-  run --separate-stderr "$BS_SCRIPT" --pin "$pin" --check
+@test "a next step that reruns the deploy keeps the pin it was given, as an absolute path" {
+  cp "$BS_TEST_PIN" "$BATS_TEST_TMPDIR/my edited.pin"
+  cd "$BATS_TEST_TMPDIR"
+  run --separate-stderr "$BS_SCRIPT" --pin "my edited.pin" --check
   [ "$status" -eq 1 ]
-  [[ "$stderr" == *"next: ~/dotfiles/scripts/playwright-browsers-deploy.sh --pin "*"my\\ edited.pin" ]] || [[ "$stderr" == *"playwright-browsers-deploy.sh --pin "*"my\\ edited.pin"* ]]
+  [[ "$stderr" == *"next: ~/dotfiles/scripts/playwright-browsers-deploy.sh --pin $(printf %q "$BATS_TEST_TMPDIR/my edited.pin")"* ]]
 }
 
 @test "--pin=PATH names the pin too, and a flag is never taken for its path" {

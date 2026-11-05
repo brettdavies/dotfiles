@@ -46,7 +46,7 @@ pw_check() {
     q=$(printf %q "$e")
     if [ -L "$e" ]; then
       pw_finding "a symlink at a browser-directory name is not an alias of the pin" stray-symlink \
-        "changed nothing; a deploy removes the ones that point into this cache" "ls -l $q" "$n"
+        "changed nothing; a deploy removes the ones that point at a directory of the set" "ls -l $q" "$n"
     else
       pw_finding "a browser directory is outside the pin and no deploy recorded it" stray-directory \
         "changed nothing; remove it once nothing uses it" "ls -ld $q" "$n"

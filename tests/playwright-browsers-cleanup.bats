@@ -38,6 +38,37 @@ fake_fetch() {
   [[ "$stderr" == *"does not hash to the pin's"* ]]
 }
 
+@test "a cached library is reused only for the exact version and hash the pin names" {
+  fake_fetch 'exit 22'
+  local ver sha
+  ver="$(sed -n 's/^library-version //p' "$BS_PIN")"
+  sha="$(sed -n 's/^library-sha256 //p' "$BS_PIN")"
+  mkdir -p "$BS_CORE_CACHE/$sha/package" "$BS_CORE_CACHE/$ver-$sha/package"
+  : >"$BS_CORE_CACHE/$sha/package/cli.js"
+  : >"$BS_CORE_CACHE/$ver-$sha/package/cli.js"
+  run bs_core_fetch
+  [ "$status" -eq 0 ]
+  [ "$output" = "$BS_CORE_CACHE/$ver-$sha/package" ]
+  # The same hash under another version is a miss, and the failing fetch is what answers.
+  sed "s/^library-version .*/library-version 1.99.0/" "$BS_PIN" >"$BATS_TEST_TMPDIR/other.pin"
+  BS_PIN="$BATS_TEST_TMPDIR/other.pin" run --separate-stderr bs_core_fetch
+  [ "$status" -eq 1 ]
+}
+
+@test "a fetch that fails or hashes wrong fails the case, and only an unreachable registry skips it" {
+  command -v node >/dev/null || skip "node is not on PATH"
+  fake_fetch 'exit 22'
+  run bs_need_core
+  [ "$status" -eq 1 ]
+  fake_fetch 'echo wrong >"$6"'
+  run bs_need_core
+  [ "$status" -eq 1 ]
+  fake_fetch 'exit 7'
+  run bs_need_core
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no route to the npm registry"* ]]
+}
+
 @test "the library version and hash in the pin fetch from the registry and unpack to playwright-core" {
   bs_need_core
   [ -f "$CORE/cli.js" ]

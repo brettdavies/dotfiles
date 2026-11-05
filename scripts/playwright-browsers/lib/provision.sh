@@ -20,7 +20,7 @@ pw_sha256() {
 # Atomic rename that replaces a file or a symlink and never moves into a
 # directory: -T on GNU mv, -h on the BSD one.
 pw_rename_over() {
-  mv -fT "$1" "$2" 2>/dev/null || mv -fh "$1" "$2"
+  if mv --version >/dev/null 2>&1; then mv -fT "$1" "$2"; else mv -fh "$1" "$2"; fi
 }
 
 pw_record() {
@@ -63,6 +63,7 @@ pw_provision() {
   : >"$STAGE/$dir/DEPENDENCIES_VALIDATED"
   pw_record "$i" >"$STAGE/$dir/.dotfiles-record"
   if [ -e "$BP/$dir" ] || [ -L "$BP/$dir" ]; then pw_note "replacing $dir, which is not from this pin"; fi
+  pw_register "$dir"
   rm -rf "${BP:?}/$dir" "${STAGE:?}/$archive"
   mv "$STAGE/$dir" "$BP/$dir"
   PW_ARRIVED+=("$dir")

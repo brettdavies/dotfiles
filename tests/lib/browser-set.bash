@@ -113,13 +113,14 @@ bs_seed() {
 }
 
 # Prints the unpacked pinned playwright-core, fetching it into BS_CORE_CACHE by
-# the hash in the pin, read through the pin's own parser. Exit 77 when the
+# the version and hash in the pin, read through the pin's own parser; a cached
+# copy counts only for that exact pair. Exit 77 when the
 # registry cannot be reached at all; any HTTP error or a differing hash is a
 # failure. BS_FETCH_CURL replaces curl, for the cases that exercise this.
 bs_core_fetch() {
   local ver sha dir tmp rc=0
   read -r ver sha < <("$BASH" -c 'source "$1/scripts/playwright-browsers/lib/pin.sh"; pin_load "$2"; echo "$PIN_LIBRARY_VERSION $PIN_LIBRARY_SHA256"' _ "$BS_ROOT" "$BS_PIN")
-  dir="$BS_CORE_CACHE/$sha"
+  dir="$BS_CORE_CACHE/$ver-$sha"
   if [ -f "$dir/package/cli.js" ]; then
     echo "$dir/package"
     return 0

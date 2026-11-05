@@ -42,13 +42,14 @@ pw_alias() {
   pw_rename_over "$STAGE/alias" "$l"
 }
 
-# Removes only what this deploy can show it wrote: a stale dotfiles-<name> link
-# whose content is the client directory of that name, in a shape the deploy
-# writes or wrote before (playwright-<version> and chromium-alias-<revision>).
+# Removes only what this deploy can show it owns: a stale dotfiles-<name> link,
+# a regular file, whose content is the client directory of that name: under
+# .dotfiles/clients for a browser directory, or under .dotfiles for a
+# playwright-<version> or chromium-alias-<revision> client.
 pw_prune_clients() {
   local link n body base
   for link in "$PW_LINKS"/dotfiles-*; do
-    [ -L "$link" ] || [ -e "$link" ] || continue
+    { [ -f "$link" ] && [ -r "$link" ]; } || continue
     n=${link##*/dotfiles-}
     ! pw_in "$n" "${PW_WANTED[@]}" || continue
     body=$(
@@ -70,7 +71,8 @@ pw_prune_clients() {
 }
 
 # A symlink at a browser-directory name that the pin no longer asks for is a
-# stale alias when it points into the cache; one pointing elsewhere stays.
+# stale alias when it points at a directory of the set; one pointing anywhere
+# else stays for --check to name.
 pw_prune_symlinks() {
   local l n t
   for l in "$BP"/*; do
@@ -79,6 +81,7 @@ pw_prune_symlinks() {
     [[ $n =~ $PW_BROWSER_RE ]] || continue
     ! pw_in "$n" "${PW_WANTED[@]}" || continue
     t=$(readlink "$l")
-    if [[ $t != */* || $t == "$BP"/* ]]; then rm -f "$l"; fi
+    t=${t#"$BP"/}
+    if [[ $t != */* ]] && pw_in "$t" "${PW_WANTED[@]}"; then rm -f "$l"; fi
   done
 }

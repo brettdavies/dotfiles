@@ -48,8 +48,8 @@ pw_detect_platform() {
 
 # Playwright's registry maps the Darwin major to a macOS release (23 is 14, 24
 # is 15, 25 and later 26) and downloads that release's WebKit archive. A Mac is
-# refused unless the pin hashes that archive, and the lowest it does hash names
-# the release required.
+# refused unless the pin hashes that archive; one older than the lowest the pin
+# hashes is told the release required, and one the pin has no archive for is told so.
 pw_mac_webkit() {
   local darwin mac=0 lowest="" a
   darwin=$(uname -r)
@@ -59,12 +59,17 @@ pw_mac_webkit() {
   fi
   PW_WEBKIT_ARCHIVE="webkit-mac-$mac-arm64.zip"
   [ -z "${PIN_SHA[$PW_WEBKIT_ARCHIVE]:-}" ] || return 0
-  for a in webkit-mac-14-arm64.zip webkit-mac-15-arm64.zip webkit-mac-26-arm64.zip; do
-    [ -n "${PIN_SHA[$a]:-}" ] || continue
+  for a in $PW_ARCHIVES; do
+    [[ $a == webkit-mac-* && -n "${PIN_SHA[$a]:-}" ]] || continue
     lowest=${a#webkit-mac-}
+    lowest=${lowest%%-*}
     break
   done
-  pw_fail "this pin's WebKit needs macOS ${lowest%%-*} or later" mac-release-unsupported \
+  if [ -n "$lowest" ] && [ "$mac" -lt "$lowest" ]; then
+    pw_fail "this pin's WebKit needs macOS $lowest or later" mac-release-unsupported \
+      "nothing downloaded" "$PW_DEPLOY --help" "Darwin $(uname -r)"
+  fi
+  pw_fail "this pin hashes no WebKit build for macOS $mac" mac-release-unsupported \
     "nothing downloaded" "$PW_DEPLOY --help" "Darwin $(uname -r)"
 }
 

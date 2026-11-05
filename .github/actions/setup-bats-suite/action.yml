@@ -98,29 +98,11 @@ runs:
       shell: bash
       run: sudo ln -sf "$(command -v jq)" /usr/local/bin/jaq
 
-    - name: Read the pinned playwright-core
-      id: playwright-core
-      # tests/playwright-browsers-cleanup.bats runs Playwright's own install and uninstall from the library version
-      # config/playwright/browsers.pin names, fetched by the sha256 the pin records. The pin parser is the only reader of
-      # that file, so the cache key comes through it.
-      shell: bash
-      run: |
-        set -euo pipefail
-        source scripts/playwright-browsers/lib/pin.sh
-        pin_load config/playwright/browsers.pin
-        echo "sha256=$PIN_LIBRARY_SHA256" >>"$GITHUB_OUTPUT"
-
-    - name: Cache the pinned playwright-core
-      id: playwright-core-cache
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ~/.cache/dotfiles-bats/playwright-core
-        key: playwright-core-${{ steps.playwright-core.outputs.sha256 }}
-
     - name: Fetch the pinned playwright-core
-      if: steps.playwright-core-cache.outputs.cache-hit != 'true'
-      # Fills the cache on a miss, so the seed run on dev saves it and a pull request's first run restores it. The helper
-      # fails on an HTTP error or a hash that differs from the pin, the same as the suite.
+      # tests/playwright-browsers-cleanup.bats runs Playwright's own install and uninstall from the library version
+      # config/playwright/browsers.pin names. The helper reads the pin through its parser, fetches the tarball, and fails
+      # on an HTTP error or a sha256 that differs from the pin, the same as the suite. Not cached: on a runner the fetch,
+      # hash, and unpack took 133-227 ms, and restoring a cache took 893-1812 ms.
       shell: bash
       run: |
         set -euo pipefail

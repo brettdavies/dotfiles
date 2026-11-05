@@ -42,6 +42,7 @@ pin_with() {
     's/^chromium-aliases .*/chromium-aliases 1200 12x0/'
     's/^chromium-aliases .*/chromium-aliases/'
     's/^webkit-aliases .*/webkit-aliases 2227 2400/'
+    's/^chromium-aliases .*/chromium-aliases 1200 8103038/'
     's/^sha256 ffmpeg-linux.zip .*/sha256 ffmpeg-linux.zip nothex/'
     's/^sha256 ffmpeg-linux.zip /sha256 ffmpeg-solaris.zip /'
   )
@@ -73,7 +74,7 @@ pin_with() {
   pin_with '$a ffmpeg-revision 1013'
   [[ "$stderr" == *"the pin repeats a key, at line "*"; reason: pin-malformed; value: ffmpeg-revision;"* ]]
   pin_with '$a sha256 ffmpeg-linux.zip ee986434d158f74fb5d9c5ff1092026ceedb63f324fe90b5be89460926b7b679'
-  [[ "$stderr" == *"reason: pin-invalid-value; value: sha256;"* ]] || [[ "$stderr" == *"reason: pin-invalid-value; value: ffmpeg-linux.zip"* ]]
+  [[ "$stderr" == *"the pin repeats an archive's sha256, at line "*"; reason: pin-malformed; value: ffmpeg-linux.zip;"* ]]
 }
 
 @test "a key or a required archive that is missing is incomplete, naming it" {

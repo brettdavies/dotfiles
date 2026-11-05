@@ -260,10 +260,10 @@ bundle by default) on the Mac. `tests/mac-open.bats` and `tests/mac-open-here.ba
 Many Claude Code agents can work on the same repo at once, each in an *agent slot*: a clone of the repo at
 `~/slots/<repo>/<N>` on the Linux server, set up like the repo's own checkout (its hooks, the `docs/solutions` link, the
 `.context/repo-recon` link when the repo has a repo-recon store, its Claude memory and permission grants, and its
-partial-clone filter when it has one), with one task per slot. Setup also runs `bun install --frozen-lockfile`, `pnpm
-install --frozen-lockfile`, or `npm ci` before the slot's agent starts, so the repo's tool-backed hooks work on the
-first push. An install runs the head's code with this account's credentials before anyone reads it, so it runs only when
-the prime has `node_modules`, Claude trusts the prime, and the base branch holds the head; `deps.status` reads
+partial-clone filter when it has one), with one task per slot. Setup also runs `bun install --frozen-lockfile`,
+`pnpm install --frozen-lockfile`, or `npm ci` before the slot's agent starts, so the repo's tool-backed hooks work on
+the first push. An install runs the head's code with this account's credentials before anyone reads it, so it runs only
+when the prime has `node_modules`, Claude trusts the prime, and the base branch holds the head; `deps.status` reads
 `prime-not-set-up` or `head-not-on-base` otherwise, `failed`, `timed-out` (past `AGENT_SLOT_DEPS_TIMEOUT` seconds, 60),
 or `tool-missing` when an install does not finish, and `installed` when it does. A frozen install writes no lockfile,
 and it takes whatever the lockfile pins without consulting the supply-chain age gate, so the gate binds only whoever
@@ -325,8 +325,8 @@ and each new commit starts a new count. They count from the slot's `created_at`,
 and a call counts when it starts, so a review that fails at once still uses its round. Outside a slot the hook prints
 nothing, and `/devex-review` and `/cso` are not counted.
 
-The operator allows one more round with `agent-slot grant-review <repo>/<N>`, which appends a `review-grant` event
-for the slot's current branch and reports the rounds used and allowed. Each run is one round. It refuses with
+The operator allows one more round with `agent-slot grant-review <repo>/<N>`, which appends a `review-grant` event for
+the slot's current branch and reports the rounds used and allowed. Each run is one round. It refuses with
 `review-grant-from-slot` when run from a slot's directory or its tmux server, and an ask rule makes a slot's own request
 for it a denial through `slot-unattended.sh`. The cap is a guard, not a trust boundary: an agent with a shell could
 still write a ledger line.
@@ -556,18 +556,18 @@ takes a first message only as `--prompt-file`, so type the first message into th
 
 #### Work items and reopen
 
-A slot's *work items* are the GitHub PRs and issues it works on, each kept in its record as `{kind, repo, number,
-title}`. A slot gets them from `agent-slot launch <repo> --model (opus | sonnet) --pr <ref>` or `--issue <ref>`, from
-`agent-slot adopt` and `agent-slot probe`, and from `agent-slot check`, which adds each PR it finds for the task. A ref
-is `N` in origin's repo, `owner/name#N`, or the item's GitHub URL. The first item names the slot `<repo>-pr<N>-<slug>`
-or `<repo>-issue<N>-<slug>`, from the item repo's name and the item's title, cut at a dash to fit 64 characters. The
-name never changes after that, so an issue's slot keeps the issue's name once its PR opens; when check adopts several
-PRs at once, the earliest created names the slot. `agent-slot list`, `agent-slot whoami`, and the slot's tab show its
-`label_name`: the name, else the task, else the branch its clone has checked out. The slot's Claude session carries the
-name as well: launch, resume, and reopen start Claude with `-n <name>` (the task for a slot with no name), and a slot
-named while its agent runs has `/rename <name>` typed into its session, by `adopt` when the agent is idle, else by the
-first automatic sweep that finds it idle, which records the session's name in `named_as`. The agent's SessionStart
-context lists the slot's work items.
+A slot's *work items* are the GitHub PRs and issues it works on, each kept in its record as
+`{kind, repo, number, title}`. A slot gets them from `agent-slot launch <repo> --model (opus | sonnet) --pr <ref>` or
+`--issue <ref>`, from `agent-slot adopt` and `agent-slot probe`, and from `agent-slot check`, which adds each PR it
+finds for the task. A ref is `N` in origin's repo, `owner/name#N`, or the item's GitHub URL. The first item names the
+slot `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>`, from the item repo's name and the item's title, cut at a dash to
+fit 64 characters. The name never changes after that, so an issue's slot keeps the issue's name once its PR opens; when
+check adopts several PRs at once, the earliest created names the slot. `agent-slot list`, `agent-slot whoami`, and the
+slot's tab show its `label_name`: the name, else the task, else the branch its clone has checked out. The slot's Claude
+session carries the name as well: launch, resume, and reopen start Claude with `-n <name>` (the task for a slot with no
+name), and a slot named while its agent runs has `/rename <name>` typed into its session, by `adopt` when the agent is
+idle, else by the first automatic sweep that finds it idle, which records the session's name in `named_as`. The agent's
+SessionStart context lists the slot's work items.
 
 A launch on a PR checks out the PR's head branch tracking the remote that holds it: origin, the remote the prime
 checkout has for that repository, or `fork`. A head whose branch or repository is gone is checked out from
@@ -610,9 +610,9 @@ reapply leaves it, and it has to be trashed by hand.
 
 A fork stays foreign until someone trusts its owner. To run one once someone has reviewed it, tear its slot down and
 launch again with the owner added for that one command:
-`AGENT_SLOT_TRUSTED_OWNERS='<the trusted owners> <owner>' agent-slot launch <repo> --model opus --pr <ref>`. That checks out the
-branch as it is then, and its hooks run at once, so compare it with what was reviewed first. A reopen cannot do this,
-since a foreign slot's reopen stays foreign.
+`AGENT_SLOT_TRUSTED_OWNERS='<the trusted owners> <owner>' agent-slot launch <repo> --model opus --pr <ref>`. That checks
+out the branch as it is then, and its hooks run at once, so compare it with what was reviewed first. A reopen cannot do
+this, since a foreign slot's reopen stays foreign.
 
 Setup writes nothing through a link in the tree, on a slot of any head, since any branch can track one. A tracked
 `.claude/settings.local.json` link is replaced in the slot and marked skip-worktree, and a `.claude`, `docs`, or
@@ -800,11 +800,11 @@ from inside a slot, mark and close a throwaway draft that slot pushed (see [prob
 PR or issue back in a fresh slot, with its Claude conversation resumed, and `--dry-run` reports what it would do or the
 refusal it would hit; agents ask before running it, `--dry-run` included. `agent-slot sweep` and `agent-slot finish
 <repo>/<N>` delete slots, so both only report unless given `--yes`, and agents ask before running them. `finish` refuses
-a task with an open PR (`task-has-open-pr`) unless the operator adds `--allow-open-pr` to `--yes`, as in `agent-slot
-finish dotfiles/2 --yes --allow-open-pr`, which ends the task whatever state its PRs are in; a release and the finish
-key never pass it, and the report-only run names it in `would_need`. `agent-slot release`, run from inside a slot, hands
-that slot's teardown upstream; it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks every
-prerequisite and the time from key press to Claude idle. Its `key_to_ready` covers the last 20 launches from the
+a task with an open PR (`task-has-open-pr`) unless the operator adds `--allow-open-pr` to `--yes`, as in
+`agent-slot finish dotfiles/2 --yes --allow-open-pr`, which ends the task whatever state its PRs are in; a release and
+the finish key never pass it, and the report-only run names it in `would_need`. `agent-slot release`, run from inside a
+slot, hands that slot's teardown upstream; it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks
+every prerequisite and the time from key press to Claude idle. Its `key_to_ready` covers the last 20 launches from the
 new-agent key, from the moment the key's tab opened to the slot's Claude starting its session, with the median of each
 step between: Rex.app showing the tab, the helper's own calls, agent-slot's checks before the clone, the clone, setup,
 trust, and tmux phases, and Claude's start.
@@ -1012,13 +1012,13 @@ shared cache (`$PLAYWRIGHT_BROWSERS_PATH`), provisioned by `scripts/playwright-b
 the script above) on the Linux server and on Apple silicon Macs. Every version, revision, alias list, and archive sha256
 comes from `config/playwright/browsers.pin`, read through one parser. Archives come over `curl` and `unzip` rather than
 `playwright install`, because node's extractor deadlocks on this host's io_uring/kernel combo, each held to the pin's
-sha256. Every revision a released Playwright at 1.57 or later asks for is an alias to the set, so a repo's
-`playwright install` is a no-op whichever Playwright it pins; moving the set is a pin edit, steps in the runbook. The
-script registers the set in the cache's `.links`, so another tool's install does not delete it, and
-`scripts/playwright-browsers-deploy.sh --check` reports any difference from the pin with a stable reason. WebKit deps are
-opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios` / `tablet` projects).
-See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for the reason table, failure
-signatures, the io_uring root cause, and recovery.
+sha256. Every revision a Playwright release from 1.57 to the pin's `source-release` asks for is an alias to the set, so
+a repo's `playwright install` is a no-op whichever Playwright in that range it pins; moving the set is a pin edit, steps
+in the runbook. The script registers the set in the cache's `.links`, so another tool's install does not delete it, and
+`scripts/playwright-browsers-deploy.sh --check` reports any difference from the pin with a stable reason. WebKit deps
+are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios` / `tablet`
+projects). See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for the reason
+table, failure signatures, the io_uring root cause, and recovery.
 
 **AppArmor profiles** (`config/apparmor.d/`) are deployed by `scripts/apparmor-deploy.sh` (called by the script above,
 or run standalone as `sudo scripts/apparmor-deploy.sh`), which copies each file to `/etc/apparmor.d/`, loads it with

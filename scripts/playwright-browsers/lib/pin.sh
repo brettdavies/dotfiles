@@ -48,8 +48,9 @@ pin_load() {
       sha256)
         read -r val rest extra <<<"$rest"
         # shellcheck disable=SC2086 # PW_ARCHIVES is a list of names
-        pw_in "$val" $PW_ARCHIVES && [[ $rest =~ $PIN_SHA_RE ]] && [ -z "$extra" ] && [ -z "${PIN_SHA[$val]:-}" ] \
-          || pin_bad sha256 "$val $rest"
+        pw_in "$val" $PW_ARCHIVES && [[ $rest =~ $PIN_SHA_RE ]] && [ -z "$extra" ] || pin_bad sha256 "$val $rest"
+        [ -z "${PIN_SHA[$val]:-}" ] \
+          || pw_fail "the pin repeats an archive's sha256, at line $n" pin-malformed "nothing changed" "$PW_DEPLOY --help" "$val"
         PIN_SHA[$val]=$rest
         continue
         ;;
@@ -76,4 +77,8 @@ pin_load() {
   done
   IFS=. read -r _ _ build patch <<<"$PIN_CFT_VERSION"
   PW_CFT_NUMBER=$((10#$build * 1000 + 10#$patch))
+  for val in $PIN_CHROMIUM_ALIASES; do
+    [ "$val" -ne "$PW_CFT_NUMBER" ] \
+      || pw_fail "a Chromium alias equals the CfT build's own directory number $PW_CFT_NUMBER" pin-invalid-value "nothing changed" "$PW_DEPLOY --help" "$val"
+  done
 }

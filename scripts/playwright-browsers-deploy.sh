@@ -70,7 +70,10 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 # A next step that reruns the deploy keeps the pin it was given, so it never reads another.
-[ -z "$PIN_GIVEN" ] || PW_DEPLOY="$PW_DEPLOY --pin $(printf %q "$PIN")"
+if [ -n "$PIN_GIVEN" ]; then
+  if [ -d "$(dirname "$PIN")" ]; then PIN="$(cd "$(dirname "$PIN")" && pwd)/${PIN##*/}"; fi
+  PW_DEPLOY="$PW_DEPLOY --pin $(printf %q "$PIN")"
+fi
 
 [ "$(id -u)" -ne 0 ] \
   || pw_fail "run as your normal user, not root; the browser cache must be owned by you" running-as-root "nothing changed" "$PW_DEPLOY"
@@ -98,16 +101,13 @@ STAGE="$(mktemp -d "$BP/.dotfiles/stage.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 
 # What exists is registered first, so a cleanup that runs while this provisions
-# keeps it. A directory is registered once it has arrived, so a failed fetch
-# leaves no client for nothing, and aliases move last, once every directory they
-# point at is verified.
+# keeps it. A fetched directory is registered just before it is renamed into the
+# cache, so no cleanup can see it unclaimed and a failed fetch leaves no client
+# for nothing. Aliases move last, once every directory they point at is verified.
 for n in "${PW_WANTED[@]}"; do
   if [ -e "$BP/$n" ] || [ -L "$BP/$n" ]; then pw_register "$n"; fi
 done
-for i in "${!PW_DIR[@]}"; do
-  pw_provision "$i"
-  pw_register "${PW_DIR[$i]}"
-done
+for i in "${!PW_DIR[@]}"; do pw_provision "$i"; done
 for e in "${PW_ALIAS[@]}"; do
   pw_register "${e%% *}"
   pw_alias "${e%% *}" "${e##* }"

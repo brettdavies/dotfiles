@@ -41,7 +41,7 @@ setup() {
   [ "$status" -eq 0 ]
   [ -x "$BP/chromium-8103038/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing" ]
   [ ! -e "$BATS_TEST_TMPDIR/sudo.log" ]
-  [[ "$output" == *"not Linux"* ]]
+  [[ "$stderr" == *"not Linux"* ]]
 }
 
 @test "on a Mac the system-library flags are accepted and do nothing" {
