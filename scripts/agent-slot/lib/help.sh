@@ -207,7 +207,7 @@ verb_help() {
       "Grants the slot's agent one more ce-code-review round for the PR on the slot's current branch, past the 2 per PR" \
       "that slot-review-cap.sh allows; each grant is one round. Only the operator runs it, from outside the slot: run from" \
       "a slot's directory or its tmux server it is refused with review-grant-from-slot. A grant appends a review-grant" \
-      "line to the ledger and changes nothing else. Other errors: slot-not-found." \
+      "line to the ledger and changes nothing else. Other errors: slot-not-found and slot-head-missing." \
       'returns: key, branch, granted_at' \
       'example: agent-slot grant-review dotfiles/2 --output json' ;;
     release) printf '%s\n' 'usage: agent-slot release [--not-yet WHY] [--output json]' \

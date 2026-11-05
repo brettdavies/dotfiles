@@ -4,9 +4,16 @@
 #
 # Run: bats tests/agent-slot-review-grant.bats
 
+# run-tests: parallel
+
 bats_require_minimum_version 1.5.0
 
 load lib/agent-slot
+
+setup_file() {
+  load lib/platform
+  require_linux "agent-slot reads /proc for agent state"
+}
 
 setup() {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
@@ -48,8 +55,16 @@ operator() {
   TMUX="$T/$AGENT_SLOT_TMUX_SOCKET,4242,0" run --separate-stderr bash -c 'cd "$1" && shift && exec "$@" --output json' _ \
     "$T" "$AGENT_SLOT" grant-review repo/1
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "review-grant-from-slot"' <<<"$stderr"
+  jaq -e '.reason == "review-grant-from-slot" and (.value | endswith("'"$AGENT_SLOT_TMUX_SOCKET"'"))' <<<"$stderr"
   [ ! -e "$LEDGER" ]
+}
+
+@test "grant-review of a slot with no commit and no branch is refused with slot-head-missing" {
+  trash "$SLOT/.git"
+  printf '{}\n' >"$AGENT_SLOT_ROOT/repo/.1.claim.json"
+  operator grant-review repo/1
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "slot-head-missing"' <<<"$stderr"
 }
 
 @test "grant-review of a slot that does not exist is refused with slot-not-found" {

@@ -321,7 +321,10 @@ with the slot and the branch. It denies the third, naming the rule, the count, a
 session the PR and its head SHA. Rounds count from the slot's `created_at`, so a reused slot number starts at none.
 `agent-slot grant-review <repo>/<N>` is the operator's way to allow one more round on the slot's current branch; it
 appends a `review-grant` event, one per extra round, and refuses with `review-grant-from-slot` when run from a slot's
-directory or its tmux server. Outside a slot the hook prints nothing, and `/devex-review` and `/cso` are not counted.
+directory or its tmux server, and an ask rule makes a slot's own agent unable to run it, since `slot-unattended.sh`
+denies the request. The cap is a guard, not a trust boundary: an agent with a shell could still write a ledger line. A
+call counts when it starts, so a review that fails at once still uses its round. Outside a slot the hook prints nothing,
+and `/devex-review` and `/cso` are not counted.
 
 A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
 merged with none open, the operator finished it, whatever state its PRs are in, or its agent released it with no PR
@@ -853,7 +856,8 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `rexurrect-missing`           | 78   | Doctor warning: rexurrect is not installed, so own tabs are not restored after a Rex restart   |
 | `reconcile-stale`             | 1    | The reconcile timer runs but its journal shows no recent good pass; `agent-slot-rex restore`   |
 | `own-tabs-unrestored`         | 0    | Doctor warning: the start-up step did not restore the operator's own tabs into this Rex server |
-| `review-grant-from-slot`      | 1    | `grant-review` refused: it runs from a slot or the slot tmux server; only the operator grants    |
+| `review-grant-from-slot`      | 1    | `grant-review` refused: run from a slot or its tmux server; only the operator grants           |
+| `slot-head-missing`           | 1    | `grant-review` refused: the slot has no branch or commit to count rounds under                 |
 | `tmux-outside-scope`          | 0    | Doctor warning: the slot tmux server runs in a service's cgroup and would end with that unit   |
 
 #### Teardown blockers

@@ -37,7 +37,7 @@ case " $* " in
 esac'
   SLOT=$AGENT_SLOT_ROOT/repo/1
   LEDGER=$AGENT_SLOT_STATE_DIR/ledger.jsonl
-  slot repo 1
+  slot repo 1 '{"created_at": "2020-01-01T00:00:00Z"}'
   git -C "$SLOT" symbolic-ref HEAD refs/heads/feat/one
 }
 
@@ -81,6 +81,8 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
   [[ $reason == *"at most 2 review rounds per PR"* ]]
   [[ $reason == *"feat/one has had 2"* ]]
   [[ $reason == *"coordinating session the PR and its head SHA"* ]]
+  [[ $reason == *"head $(git -C "$SLOT" rev-parse --short HEAD)"* ]]
+  [[ $reason == *"If your brief names no such session"* ]]
   [[ $reason == *"agent-slot grant-review repo/1"* ]]
   [ "$(ledger review-round | wc -l)" -eq 2 ]
 }
@@ -96,7 +98,45 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
   run skill "$REVIEW"
   jaq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$output"
   reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *"allows 2 review rounds per PR plus 1 the operator granted"* ]]
   [[ $reason == *"feat/one has had 3"* ]]
+}
+
+@test "a skill name with a leading slash or surrounding space is counted as the same skill" {
+  for name in "/$REVIEW" " $REVIEW " "/ $REVIEW"; do
+    run skill "$name"
+    [ "$status" -eq 0 ]
+  done
+  run skill "$REVIEW"
+  [[ $output == *'"deny"'* ]]
+  [ "$(ledger review-round | wc -l)" -eq 2 ]
+}
+
+@test "a review called from a directory outside the slot counts for the slot the pane belongs to" {
+  mkdir -p "$T/scratch"
+  run skill "$REVIEW" "$T/scratch"
+  [ -z "$output" ]
+  review
+  run skill "$REVIEW" "$T/scratch"
+  [[ $output == *'"deny"'* ]]
+  jaq -e '.repo == "repo" and .slot == 1 and .branch == "feat/one"' <<<"$(ledger review-round | head -n 1)"
+}
+
+@test "a line in the ledger that is not JSON does not stop the count" {
+  review
+  printf '%s\n' 'not json {' >>"$LEDGER"
+  review
+  run skill "$REVIEW"
+  [[ $output == *'"deny"'* ]]
+}
+
+@test "a slot whose record cannot be read has its call allowed and uncounted" {
+  review
+  review
+  rm "$SLOT/.git/agent-slot.json"
+  run skill "$REVIEW"
+  [ -z "$output" ]
+  [ "$(ledger review-round | wc -l)" -eq 2 ]
 }
 
 @test "a different branch counts its rounds separately" {
