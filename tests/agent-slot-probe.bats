@@ -747,7 +747,8 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   grep -q '^gh pr close 9 --repo origins/repoa --comment .*probe.*repoa/1' "$CALLS"
   run ! grep -q 'delete-branch' "$CALLS"
   git -C "$ORIGIN" rev-parse -q --verify refs/heads/feat/p
-  ledger close-probe | jaq -e '.repo == "repoa" and .slot == 1 and .number == 9 and .head == "feat/p"'
+  ledger close-probe | jaq -e '.repo == "repoa" and .slot == 1 and .number == 9 and .head == "feat/p"
+    and .already_closed == false'
 }
 
 @test "the whole flow: mark, close, and check passes beside a merged PR, and the teardown goes through" {
@@ -857,6 +858,22 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
     and .next_step.action == "retry" and .next_step.command == "agent-slot close-probe 9 --output json"
     and .log != null' <<<"$stderr"
   [ "$(jaq -s 'map(select(.event == "close-probe")) | length' "$AGENT_SLOT_STATE_DIR/ledger.jsonl")" = 0 ]
+}
+
+@test "a close that lands while gh reports failure gets its ledger event from the rerun that confirms it" {
+  marked_probe 9 feat/p
+  touch "$STUBS/gh-close-lands-then-fails"
+  in_slot close-probe 9
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "pr-close-failed" and .recovery.side_effects == "unknown"' <<<"$stderr"
+  grep -q '"state":"CLOSED"' "$STUBS/gh-pr-9.json"
+  [ "$(jaq -s 'map(select(.event == "close-probe")) | length' "$AGENT_SLOT_STATE_DIR/ledger.jsonl")" = 0 ]
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  jaq -e '.closed == true and .already_closed == true' <<<"$output"
+  [ "$(jaq -s 'map(select(.event == "close-probe")) | length' "$AGENT_SLOT_STATE_DIR/ledger.jsonl")" = 1 ]
+  ledger close-probe | jaq -e '.number == 9 and .already_closed == true'
+  [ "$(grep -c '^gh pr close' "$CALLS")" = 1 ]
 }
 
 @test "a PR gh cannot find fails with item-not-found, and its next step is this verb's help" {

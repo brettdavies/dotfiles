@@ -129,10 +129,11 @@ of its work is another writer's, push a new commit to it and rerun, and do not f
 another writer's to close" --value "$ITEM_REF" --command "$(_probe_view_command)"
 }
 
-# Usage: _probe_ledger <event>; one ledger line naming the PR, from RECORD and PROBE_PR.
+# Usage: _probe_ledger <event> [extra fields, a JSON object]; one ledger line naming the PR, from RECORD and PROBE_PR.
 _probe_ledger() {
-  ledger_append "$1" "$(contract_json -c --argjson pr "$PROBE_PR" \
-    '{repo, slot, task, session_id, number: $pr.number, head: $pr.head, oid: $pr.oid}' <<<"$RECORD")"
+  local extra=${2:-'{}'}
+  ledger_append "$1" "$(contract_json -c --argjson pr "$PROBE_PR" --argjson extra "$extra" \
+    '{repo, slot, task, session_id, number: $pr.number, head: $pr.head, oid: $pr.oid} + $extra' <<<"$RECORD")"
 }
 
 # Usage: cmd_probe <ref>; marks an open draft this slot pushed as a probe, in the same record update that attaches it as
@@ -160,7 +161,8 @@ cmd_probe() {
 
 # Usage: cmd_close_probe <ref>; closes a marked open draft whose head this slot pushed. It deletes no branch, so
 # `gh pr reopen` undoes it. A marked draft already closed succeeds without a second close, which makes a rerun safe after
-# a close whose outcome is unknown.
+# a close whose outcome is unknown. Every success logs, because a close that landed while gh reported failure gets its
+# only event from the rerun; already_closed tells that rerun from the run that made the close.
 cmd_close_probe() {
   local already=false state marked rerun out
   _probe_resolve "$1"
@@ -183,8 +185,8 @@ close it; mark an open draft this slot pushed with agent-slot probe first" --val
 not be closed; rerunning is safe" --value "$ITEM_REF" --command "$rerun" --side-effects unknown --reconcile "$rerun" \
         --log "$BOUNDED_LOG"
     fi
-    _probe_ledger close-probe
   fi
+  _probe_ledger close-probe "{\"already_closed\": $already}"
   contract_ok "$(contract_json -n -c --arg key "$PROBE_KEY" --argjson pr "$PROBE_PR" --argjson already "$already" \
     '{key: $key, pr: $pr, closed: true, already_closed: $already}')" \
     '"\(.key): PR #\(.pr.number) \(if .already_closed then "was already closed" else "closed" end) as a probe"'

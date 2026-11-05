@@ -642,7 +642,7 @@ is fetched, has no push entry and does not qualify either. A PR already closed c
 `close-probe` also needs the mark. It leaves a comment on the PR saying why and deletes no branch, so `gh pr reopen`
 undoes it, and rerunning it on a closed probe succeeds without closing again. Neither verb has an ask rule, since a
 close is undoable and reaches only work this clone pushed. Each appends a line to the ledger, as a `probe` or
-`close-probe` event.
+`close-probe` event, whose `already_closed` tells a rerun that confirmed a close from the run that made it.
 
 The guard stops an agent closing, by mistake, a PR it did not push. It does not stop a deliberately adversarial agent
 with a shell, which could forge a reflog entry, edit the record, or call the API with the gh token; that is the
