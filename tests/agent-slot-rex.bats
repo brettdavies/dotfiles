@@ -218,7 +218,7 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
   slot_answer launch 0 "$LAUNCHED"
   run "$AGENT_SLOT_REX" launch --here </dev/null
   [ "$status" -eq 0 ]
-  called '^agent-slot launch X --request-id '
+  called '^agent-slot launch X --model opus --request-id '
   [ "$(tail -1 "$CALLS")" = "agent-slot-rex attach X/3 claude" ]
   not_called '^agent-slot prime'
   not_called '^rex window move'
@@ -245,7 +245,7 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
   slot_answer launch 0 "$LAUNCHED"
   run "$AGENT_SLOT_REX" launch --here </dev/null
   [ "$status" -eq 0 ]
-  called '^agent-slot launch X --request-id '
+  called '^agent-slot launch X --model opus --request-id '
   not_called '^agent-slot prime'
 }
 
@@ -311,7 +311,7 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
   slot_answer launch 0 "$LAUNCHED"
   run "$AGENT_SLOT_REX" launch --here </dev/null
   [ "$status" -eq 0 ]
-  called '^agent-slot launch X --request-id '
+  called '^agent-slot launch X --model opus --request-id '
   not_called '^agent-slot prime'
 }
 
@@ -340,7 +340,7 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
     : >"$CALLS"
     run "$AGENT_SLOT_REX" launch --here </dev/null
     [ "$status" -eq 0 ]
-    called '^agent-slot launch X --request-id '
+    called '^agent-slot launch X --model opus --request-id '
     not_called '^agent-slot prime'
   done
 }
