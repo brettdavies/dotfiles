@@ -64,3 +64,11 @@ edit() {
   edit a.md
   grep -q '^markdownlint-cli2 ' "$CALLS"
 }
+
+@test "a file outside a foreign slot's git directory reaches no formatter when that slot's Claude edits it" {
+  printf '{"head_foreign": true}\n' >"$CLAUDE_PROJECT_DIR/.git/agent-slot.json"
+  git init -q "$T/elsewhere"
+  : >"$T/elsewhere/a.json"
+  jq -n --arg f "$T/elsewhere/a.json" '{tool_input: {file_path: $f}}' | "$HOOK" >/dev/null
+  [ ! -s "$CALLS" ]
+}
