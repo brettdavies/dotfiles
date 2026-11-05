@@ -8,13 +8,14 @@
 # verbs off every other PR and stays a Conventional Commits title. They qualify a PR the same way: an open draft on a
 # branch this clone created, whose current head this clone pushed. A remote-tracking ref's reflog is the proof. git writes
 # "update by push" there only for a push from this clone and a fetch message for what it merely received, and a clone
-# writes no entry at all for the branches it brings. So a log that starts from an all-zero old oid with a push says this
-# clone created the branch, while a fixup on another writer's branch starts its log from that branch's old head. A head
-# another writer moved has no push entry either. A push that moved nothing still writes that line when the tracking ref
-# was missing: a branch only ever seen through a pull ref and re-pushed reads as this clone's, which the reflog cannot
-# tell apart. A fetch that stores the new head before the push's own update leaves no push entry for a head this clone
-# did push. On a later push a new commit restores the proof, and the refusal says so; on a branch's first push the branch
-# reads as another writer's, and the operator closes it.
+# writes no entry at all for the branches it brings. So a log that starts from an all-zero old oid with a push reads as
+# a branch this clone created, while a log that starts from a fetch reads as another writer's. A head another writer
+# moved, once it is fetched, has no push entry. That old oid is the tracking ref's prior value and not origin's, so the
+# reflog cannot tell these apart: any push made while the tracking ref is missing, a fixup or one that moved nothing,
+# reads as this clone creating the branch, and a push that moved nothing over a stale tracking ref, on a branch this
+# clone created, records a head this clone did not write. A fetch that stores the new head before the push's own update
+# leaves no push entry for a head this clone did push. On a later push a new commit restores the proof, and the refusal
+# says so; on a branch's first push the branch reads as another writer's, and the operator closes it.
 
 PROBE_TITLE_PREFIX='test(probe): '
 PROBE_REPO='' PROBE_N='' PROBE_KEY='' PROBE_PATH='' PROBE_ORIGIN='' PROBE_PR='{}' PROBE_PROOF='' PROBE_TRACKING=''

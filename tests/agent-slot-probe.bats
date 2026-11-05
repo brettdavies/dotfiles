@@ -104,9 +104,8 @@ marked_probe() {
   }
 }
 
-# other_slot_pushes BRANCH: another clone commits to BRANCH and pushes it, and this slot fetches it. Prints nothing; the
-# slot's origin/BRANCH then holds what the other clone pushed.
-other_slot_pushes() {
+# other_clone_pushes BRANCH: another clone commits to BRANCH and pushes it, and the slot's origin/BRANCH stays as it was.
+other_clone_pushes() {
   [ -d "$T/other" ] || git clone -q "$ORIGIN" "$T/other"
   git -C "$T/other" fetch -q origin
   if git -C "$T/other" rev-parse -q --verify "origin/$1" >/dev/null; then
@@ -116,6 +115,12 @@ other_slot_pushes() {
   fi
   git -C "$T/other" commit -q --allow-empty -m "other slot's work on $1"
   git -C "$T/other" push -q origin "$1"
+}
+
+# other_slot_pushes BRANCH: other_clone_pushes, and this slot fetches it. Prints nothing; the slot's origin/BRANCH then
+# holds what the other clone pushed.
+other_slot_pushes() {
+  other_clone_pushes "$1"
   git -C "$SLOT" fetch -q origin "+refs/heads/*:refs/remotes/origin/*"
 }
 
@@ -456,7 +461,7 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   }
 }
 
-@test "a no-op push from a missing tracking ref reads as this clone's push, and from a stale one does not" {
+@test "the proof's limit: any push from a missing tracking ref reads as this clone creating the branch" {
   git clone -q "$ORIGIN" "$T/other"
   git -C "$T/other" checkout -q -b feat/o
   git -C "$T/other" commit -q --allow-empty -m "other slot's work"
@@ -470,6 +475,43 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
     echo "$stderr"
     false
   }
+  git -C "$T/other" checkout -q -b feat/f
+  git -C "$T/other" commit -q --allow-empty -m "other slot's work on feat/f"
+  git -C "$T/other" push -q origin feat/f HEAD:refs/pull/10/head
+  git -C "$SLOT" fetch -q origin refs/pull/10/head
+  git -C "$SLOT" checkout -q -b feat/f FETCH_HEAD
+  git -C "$SLOT" commit -q --allow-empty -m 'a fixup on what the pull ref held'
+  git -C "$SLOT" push -q origin feat/f
+  draft_pr 10 feat/f
+  in_slot probe 10
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  in_slot close-probe 10
+  [ "$status" -eq 0 ]
+  jaq -e '.closed == true and .already_closed == false' <<<"$output"
+}
+
+@test "the proof's limit: a no-op push over a stale tracking ref records a head this clone did not write" {
+  pushed feat/s
+  other_clone_pushes feat/s
+  git -C "$T/other" push -q origin feat/s:refs/pull/10/head
+  git -C "$SLOT" fetch -q origin refs/pull/10/head
+  git -C "$SLOT" checkout -q -B feat/s FETCH_HEAD
+  git -C "$SLOT" push -q origin feat/s
+  draft_pr 10 feat/s
+  in_slot probe 10
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  in_slot close-probe 10
+  [ "$status" -eq 0 ]
+  jaq -e '.closed == true and .already_closed == false' <<<"$output"
+}
+
+@test "a no-op push over a stale tracking ref is refused on a branch this clone did not create" {
   other_slot_pushes feat/s
   git -C "$T/other" commit -q --allow-empty -m 'moved past the fetch'
   git -C "$T/other" push -q origin feat/s HEAD:refs/pull/10/head

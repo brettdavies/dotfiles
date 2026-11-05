@@ -635,20 +635,23 @@ A slot closes its probe with `agent-slot close-probe <pr>`, also from inside the
 an ask rule nobody can answer there. Both verbs act only on an open draft in the repo of the slot's origin, on a branch
 this clone created, whose current head this clone pushed. They read that from the reflog of the remote-tracking ref: git
 writes `update by push` there for a push from this clone and a fetch message for what it merely received, and a clone
-writes no entry for the branches it brings. So a log that starts from an all-zero old oid with a push says this clone
-created the branch, while a fixup on another writer's branch starts its log from that branch's old head. A head another
-writer moved does not qualify either. A PR already closed cannot be marked afterwards. `close-probe` also needs the
-mark. It leaves a comment on the PR saying why and deletes no branch, so `gh pr reopen` undoes it, and rerunning it on a
-closed probe succeeds without closing again. Neither verb has an ask rule, since a close is undoable and reaches only
-work this clone pushed. Each appends a line to the ledger, as a `probe` or `close-probe` event.
+writes no entry for the branches it brings. So a log that starts from an all-zero old oid with a push reads as a branch
+this clone created, while a log that starts from a fetch reads as another writer's. A head another writer moved, once it
+is fetched, has no push entry and does not qualify either. A PR already closed cannot be marked afterwards.
+`close-probe` also needs the mark. It leaves a comment on the PR saying why and deletes no branch, so `gh pr reopen`
+undoes it, and rerunning it on a closed probe succeeds without closing again. Neither verb has an ask rule, since a
+close is undoable and reaches only work this clone pushed. Each appends a line to the ledger, as a `probe` or
+`close-probe` event.
 
 The guard stops an agent closing, by mistake, a PR it did not push. It does not stop a deliberately adversarial agent
 with a shell, which could forge a reflog entry, edit the record, or call the API with the gh token; that is the
-environment's trust boundary. Two limits follow from the proof. A push that moved nothing still writes `update by push`
-when the tracking ref was missing, so a branch only ever seen through a pull ref and re-pushed reads as this clone's. A
-fetch that lands just before a push's own update leaves a head with no push entry. On a later push, a new commit
-restores the proof, and the refusal says so; on a branch's first push, the branch reads as another writer's, and the
-operator closes it.
+environment's trust boundary. Three limits follow from the proof, because the all-zero old oid is the tracking ref's
+prior value and not origin's. Any push made while the tracking ref is missing, a fixup or one that moved nothing, reads
+as this clone creating the branch, so a branch only ever seen through a pull ref and then pushed reads as this clone's.
+A push that moved nothing over a stale tracking ref, on a branch this clone created, records a head this clone did not
+write. A fetch that lands just before a push's own update leaves a head with no push entry: on a later push, a new
+commit restores the proof, and the refusal says so; on a branch's first push, the branch reads as another writer's, and
+the operator closes it.
 
 ```bash
 gh pr create --draft --title 'test(probe): <what it probes>' --fill
