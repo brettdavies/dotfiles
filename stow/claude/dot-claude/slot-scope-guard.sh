@@ -54,8 +54,9 @@ slot's branch whatever the command pushes:
   ${4//$'\n'/$'\n'  }
 Revert that change (\`git checkout origin/$6 -- <path>\` for a changed or deleted file, \`git rm\` for an added one, \
 then commit), or record it under \"Not in scope\" in the PR body and send the coordinating session a request for a \
-scope grant, naming the paths, as one \`SendMessage\`; the operator grants one by running \`agent-slot grant-scope \
-$1/$2 <pathspec>\` at a terminal, which you cannot run yourself. If your brief names no such session, leave the \
+scope grant, naming the paths, as one \`SendMessage\`; the operator grants paths by running \
+\`agent-slot grant-scope $1/$2 <pathspec>\` at a terminal, once per pathspec (a glob can cover several of the paths \
+above), which you cannot run yourself. If your brief names no such session, leave the \
 decision open in your plan and your report. If these paths come from a branch you built on, do not revert them; say so in that message. \
 Keep working on what the push does not need."
 }

@@ -26,16 +26,26 @@ setup() {
   SLOT=$AGENT_SLOT_ROOT/repo/1
   LEDGER=$AGENT_SLOT_STATE_DIR/ledger.jsonl
   slot repo 1
+  git -C "$SLOT" commit -q --allow-empty -m seed
+  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  git -C "$SLOT" checkout -q -b feat/one
+  mkdir -p "$SLOT/docs"
+  printf 'a\n' >"$SLOT/docs/a.md"
+  printf 'b\n' >"$SLOT/docs/b.md"
+  printf 'r\n' >"$SLOT/README.md"
+  git -C "$SLOT" add docs README.md
+  git -C "$SLOT" commit -q -m change
 }
 
 # at_terminal LINE ARG...: agent-slot ARG... --output json from the operator's shell, outside any slot and slot tmux,
-# with a terminal that holds LINE as the typed answer. Sets status, output, and stderr.
+# with a terminal that holds LINE as the typed answer. Sets status, output, stderr, and tty, what the verb wrote to the
+# terminal.
 at_terminal() {
   local line=$1
   shift
-  python3 -I "$WITH_TTY" "$line" env -u TMUX -u TMUX_PANE bash -c \
+  tty=$(python3 -I "$WITH_TTY" "$line" env -u TMUX -u TMUX_PANE bash -c \
     'cd "$1" && shift && exec "$@" --output json >"$BATS_TEST_TMPDIR/out" 2>"$BATS_TEST_TMPDIR/err"' _ "$T" \
-    "$AGENT_SLOT" "$@" && status=0 || status=$?
+    "$AGENT_SLOT" "$@") && status=0 || status=$?
   output=$(cat "$T/out")
   stderr=$(cat "$T/err")
 }
@@ -60,10 +70,57 @@ grant_lines() { jaq -c 'select(.event == "scope-grant")' "$LEDGER" 2>/dev/null |
   jaq -e '.repo == "repo" and .slot == 1 and .pathspec == "docs/*.md"' <<<"$(grant_lines)"
 }
 
+@test "the prompt lists the changed paths the pathspec covers and counts the ones it leaves out" {
+  at_terminal repo/1 grant-scope repo/1 'docs/*.md'
+  [[ $tty == *"docs/a.md"* && $tty == *"docs/b.md"* ]]
+  [[ $tty != *"README.md"* ]]
+  [[ $tty == *"1 other changed path stays outside it"* ]]
+  [[ $tty == *"Type the slot key, repo/1, to grant it:"* ]]
+}
+
+@test "a pathspec that covers none of the paths the branch changed is refused before the terminal is asked" {
+  without_terminal grant-scope repo/1 'dcos/*.md'
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and .value == "dcos/*.md" and (.message | contains("covers none of the 3 paths"))' <<<"$stderr"
+  [ ! -e "$LEDGER" ]
+}
+
+@test "an exclude pathspec is refused, since it takes coverage away" {
+  local spec
+  for spec in ':!docs/a.md' ':^docs/a.md' ':(exclude)docs/a.md'; do
+    without_terminal grant-scope repo/1 "$spec"
+    [ "$status" -eq 2 ] || {
+      echo "accepted: $spec"
+      false
+    }
+    jaq -e '.reason == "usage" and (.message | contains("exclude"))' <<<"$stderr"
+  done
+}
+
+@test "git's own reason for rejecting a pathspec is in the message" {
+  without_terminal grant-scope repo/1 ':(nonsense)x'
+  jaq -e '.message | contains("nonsense")' <<<"$stderr"
+}
+
+@test "an end of input at the terminal is reported as no answer, not as a wrong one" {
+  at_terminal $'\x04' grant-scope repo/1 'docs/*'
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "grant-not-confirmed" and (.message | contains("no answer was typed within 120 s"))' <<<"$stderr"
+  [ ! -e "$LEDGER" ]
+}
+
+@test "the refusals tell the operator where to run the verb" {
+  without_terminal grant-scope repo/1 'docs/*'
+  jaq -e '.message | contains("from a terminal window on this host, outside any Claude session")' <<<"$stderr"
+  python3 -I "$WITH_TTY" repo/1 bash -c 'cd "$1" && shift && exec "$@" --output json >"$BATS_TEST_TMPDIR/out" 2>"$BATS_TEST_TMPDIR/err"' \
+    _ "$SLOT" "$AGENT_SLOT" grant-scope repo/1 'docs/*' >/dev/null || true
+  jaq -e '.message | contains("from a shell outside the slot directory and off the slot tmux server")' <"$T/err"
+}
+
 @test "each grant is its own line, counted for its own slot" {
   slot repo 2
-  at_terminal repo/1 grant-scope repo/1 'a/*'
-  at_terminal repo/1 grant-scope repo/1 'b/*'
+  at_terminal repo/1 grant-scope repo/1 docs/a.md
+  at_terminal repo/1 grant-scope repo/1 docs/b.md
   jaq -e '.grants == 2' <<<"$output"
   at_terminal repo/2 grant-scope repo/2 'c/*'
   jaq -e '.key == "repo/2" and .grants == 1' <<<"$output"

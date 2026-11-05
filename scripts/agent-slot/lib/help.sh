@@ -217,11 +217,13 @@ verb_help() {
       'example: agent-slot grant-review dotfiles/2 --output json' ;;
     grant-scope) printf '%s\n' 'usage: agent-slot grant-scope <repo>/<N> <pathspec> [--output json]' \
       "Lets the slot's PR change the paths a git pathspec matches, past the Touches: globs of its brief, so" \
-      "slot-scope-guard.sh stops denying a git push of them. Only a person runs it: it asks for the slot's key, typed at" \
-      "the terminal (/dev/tty), and refuses with grant-needs-terminal when there is none, with grant-not-confirmed when" \
-      "the answer is not the key, and with scope-grant-from-slot when run from a slot's directory or its tmux server." \
-      "A grant appends a scope-grant line to the ledger and changes nothing else; the slot's agent can push the paths" \
-      "at once. Other errors: slot-not-found, and usage for a pathspec git rejects." \
+      "slot-scope-guard.sh stops denying a git push of them. It lists to the terminal (/dev/tty) the paths the slot's" \
+      "branch changes that the pathspec covers, and reads the slot's key back within $SCOPE_GRANT_WAIT s. With no terminal" \
+      "it is refused with grant-needs-terminal, with no answer or a wrong one with grant-not-confirmed, and from a" \
+      "slot's directory or its tmux server with scope-grant-from-slot. A pathspec git rejects, an exclude pathspec" \
+      "(:! or :^), and one that covers none of the paths the branch changes are refused with usage before the terminal" \
+      "is asked. A grant appends a scope-grant line to the ledger and changes nothing else; each run grants one pathspec" \
+      "and there is no revoke. It is a guard, not a trust boundary. Other error: slot-not-found." \
       'returns: key, pathspec, granted_at, grants (the slot'"'"'s scope grants in all)' \
       'example: agent-slot grant-scope dotfiles/2 '"'"'docs/*.md'"'"' --output json' ;;
     release) printf '%s\n' 'usage: agent-slot release [--not-yet WHY] [--output json]' \

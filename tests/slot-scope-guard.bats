@@ -101,7 +101,7 @@ grant_line() {
   [[ $reason == *"Revert that change"* ]]
   [[ $reason == *'record it under "Not in scope" in the PR body'* ]]
   [[ $reason == *"send the coordinating session a request for a scope grant"* ]]
-  [[ $reason == *"the operator grants one by running \`agent-slot grant-scope repo/1 <pathspec>\` at a terminal"* ]]
+  [[ $reason == *"the operator grants paths by running \`agent-slot grant-scope repo/1 <pathspec>\` at a terminal, once per pathspec"* ]]
   [[ $reason == *"which you cannot run yourself"* ]]
 }
 
