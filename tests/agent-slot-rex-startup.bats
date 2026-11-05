@@ -584,7 +584,7 @@ primes_journaled() {
   : >"$CALLS"
   REX_SESSION=sess-a REX_BLOCK=blk-a run "$AGENT_SLOT_REX" launch --here </dev/null
   [ "$status" -eq 0 ]
-  called '^agent-slot launch A --request-id '
+  called '^agent-slot launch A --model opus --request-id '
   not_called '^agent-slot-rex prime'
   not_called '^rex window move'
 }

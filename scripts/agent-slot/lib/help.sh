@@ -45,15 +45,17 @@ verb_help() {
       'returns: slot, the slot record plus {key, path, label_name}' \
       'example: agent-slot whoami --output json' ;;
     launch) printf '%s\n' \
-      'usage: agent-slot launch <repo> [--pr <ref> | --issue <ref>] [--request-id ID] [--task NAME]' \
-      '                         [--prompt-file FILE] [--requested-at EPOCH] [--opened-at EPOCH] [--shown-at EPOCH]' \
-      '                         [--output json]' \
+      'usage: agent-slot launch <repo> --model (opus | sonnet) [--pr <ref> | --issue <ref>] [--request-id ID]' \
+      '                         [--task NAME] [--prompt-file FILE] [--requested-at EPOCH] [--opened-at EPOCH]' \
+      '                         [--shown-at EPOCH] [--output json]' \
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
-      '--dangerously-skip-permissions. A repeat with the same --request-id, --task, or work item returns the same' \
+      '--dangerously-skip-permissions on the --model given, at --effort xhigh; a sonnet slot also gets opus as its' \
+      'advisor. Every launch names a model. A repeat with the same --request-id, --task, or work item returns the same' \
       'slot, except that a --prompt-file the slot would not receive (another request, or this request under a' \
-      'different brief) is refused with item-held-by-slot rather than dropped. A --prompt-file needs a line for' \
-      'each of Scope:, Limits:, Reviews:, and Reports to:, each with a value, or the launch is refused with' \
-      'brief-incomplete. Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
+      'different brief) is refused with item-held-by-slot rather than dropped, and a --model other than the one that' \
+      'slot runs on is refused with model-differs. A --prompt-file needs a line for each of Scope:, Limits:,' \
+      'Reviews:, and Reports to:, each with a value, or the launch is refused with brief-incomplete.' \
+      'Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
       '-, and /, starting with a letter or digit, up to 64. A new slot pushes a restore to the Rex helper on this' \
       "host, so its tab opens in Rex; the push runs in the background and is logged to $AS_STATE_DIR/push.log." \
       '--pr or --issue gives the slot a work item and a name from it, <repo>-pr<N>-<slug> or <repo>-issue<N>-<slug>,' \
@@ -70,7 +72,7 @@ verb_help() {
       '         prompt_delivered (null without --prompt-file), missing_siblings, phases, next_step,' \
       '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
       '         reopen resumes, else null)' \
-      'example: agent-slot launch dotfiles --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
+      'example: agent-slot launch dotfiles --model sonnet --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
     resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--output json]' \
       "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID" \
       'with --dangerously-skip-permissions.' \
@@ -98,7 +100,7 @@ verb_help() {
       'returns: key, name, items[] of {kind, repo, number, title}, item (the one attached), renamed' \
       'example: agent-slot adopt dotfiles/2 --issue 10331 --output json' ;;
     reopen) printf '%s\n' \
-      'usage: agent-slot reopen <repo> (--pr <ref> | --issue <ref>) [--session ID] [--prompt-file FILE]' \
+      'usage: agent-slot reopen <repo> --model (opus | sonnet) (--pr <ref> | --issue <ref>) [--session ID] [--prompt-file FILE]' \
       '                         [--request-id ID] [--dry-run] [--output json]' \
       "Finds the slot of the repo that worked on a PR or issue in the ledger after its teardown: the newest whose" \
       "work items hold it, else, for a PR of origin's repo, the newest whose PRs hold its number. --session ID picks" \
@@ -107,6 +109,7 @@ verb_help() {
       'owner/name#N, or its GitHub URL. It refuses while a slot holds the item or the Claude session' \
       '(item-held-by-slot), while a Claude agent has the session open (session-in-use), when no teardown names the' \
       'item (item-not-found-in-ledger), and when Claude Code no longer has the transcript (transcript-missing).' \
+      'A retry with the request ID of a slot on another model than --model is refused with model-differs.' \
       '--dry-run changes nothing and exits 0 with the plan, or with the refusal a reopen would hit; a ref GitHub' \
       'cannot read still fails. The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
       'the base, fetched from the remote the ledger recorded for it when that is on origin'"'"'s host, else from the' \
@@ -119,7 +122,7 @@ verb_help() {
       '         name, items, session_id} of the slot that holds the item or request), name, items[] of {kind, repo,' \
       '         number, title}, task, session_id, transcript, transcript_exists, head {branch, remote, url, oid,' \
       '         source {branch, remote}}, slot, command, prompt_delivered' \
-      'example: agent-slot reopen dotfiles --pr 887 --dry-run --output json' ;;
+      'example: agent-slot reopen dotfiles --model opus --pr 887 --dry-run --output json' ;;
     sweep) printf '%s\n' 'usage: agent-slot sweep [--yes [--auto]] [--output json]' \
       'Tears down every slot whose task has finished and whose check passes; lists the rest. Without --yes it only' \
       "reports what it would delete. Agents ask the operator first. A teardown deletes the slot's clone, moving it to" \

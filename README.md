@@ -285,16 +285,17 @@ with `rex send` and `rex send-key`, a `sudo` session or a root shell on another 
 account already gives them the operator's files and keys, so this adds reach rather than a privilege.
 
 The Obsidian vault takes slots too, several at once, under the name `agent-slot repos` lists it by:
-`agent-slot launch obsidian-vault --request-id <id> --prompt-file <brief>`. `~/obsidian-vault` keeps its git directory
-in `~/dev/vault-git`, so its `.git` is a file. A prime's `.git` may be a file when its git directory is also its common
-directory, which rules out a linked worktree; the git directory itself has no `.git` and is never listed. The prime map
-names no prime session for the vault, so the new-agent key always starts a slot of it. Nothing automated commits in the
-vault. A vault slot commits only its own task's work, on main, and runs `git fetch` then `git rebase origin/main` before
-each push, so parallel slots never clobber each other. Its SessionStart context carries those rules, and tells it to
-keep vault content out of `docs/solutions`, other repos, PR bodies, and every outside service. With no PR, its task
-finishes when its agent runs `agent-slot release`. A slot clones from origin, so it holds only what is pushed, and its
-work reaches `~/obsidian-vault`, which Obsidian and qmd read, when the operator pulls there. A slot's teardown treats no
-ignored directory as tool output, since the vault's whitelist `.gitignore` ignores every new top-level directory.
+`agent-slot launch obsidian-vault --model (opus | sonnet) --request-id <id> --prompt-file <brief>`. `~/obsidian-vault`
+keeps its git directory in `~/dev/vault-git`, so its `.git` is a file. A prime's `.git` may be a file when its git
+directory is also its common directory, which rules out a linked worktree; the git directory itself has no `.git` and is
+never listed. The prime map names no prime session for the vault, so the new-agent key always starts a slot of it.
+Nothing automated commits in the vault. A vault slot commits only its own task's work, on main, and runs `git fetch`
+then `git rebase origin/main` before each push, so parallel slots never clobber each other. Its SessionStart context
+carries those rules, and tells it to keep vault content out of `docs/solutions`, other repos, PR bodies, and every
+outside service. With no PR, its task finishes when its agent runs `agent-slot release`. A slot clones from origin, so
+it holds only what is pushed, and its work reaches `~/obsidian-vault`, which Obsidian and qmd read, when the operator
+pulls there. A slot's teardown treats no ignored directory as tool output, since the vault's whitelist `.gitignore`
+ignores every new top-level directory.
 
 Nobody watches a slot's tab, so no agent there waits on a dialog. `slot-unattended.sh` (in `stow/claude/dot-claude/`)
 answers every dialog Claude Code raises in a slot, for the slot's own Claude and for its subagents. It denies a
@@ -474,18 +475,18 @@ before it moves.
 3. `agent-slot-rex restore` reconciles at once, and reports as an error any outcome a timer pass only logs.
 
 The Rex iOS app runs no slot actions, so from the phone open a shell tab on the Linux server and run
-`agent-slot launch <repo>`: the slot's tab opens in that repo's session within seconds. `launch` takes a first message
-only as `--prompt-file`, so type the first message into the new tab's Claude.
+`agent-slot launch <repo> --model (opus | sonnet)`: the slot's tab opens in that repo's session within seconds. `launch`
+takes a first message only as `--prompt-file`, so type the first message into the new tab's Claude.
 
 #### Work items and reopen
 
 A slot's *work items* are the GitHub PRs and issues it works on, each kept in its record as
-`{kind, repo, number, title}`. A slot gets them from `agent-slot launch <repo> --pr <ref>` or `--issue <ref>`, from
-`agent-slot adopt`, and from `agent-slot check`, which adds each PR it finds for the task. A ref is `N` in origin's
-repo, `owner/name#N`, or the item's GitHub URL. The first item names the slot `<repo>-pr<N>-<slug>` or
-`<repo>-issue<N>-<slug>`, from the item repo's name and the item's title, cut at a dash to fit 64 characters. The name
-never changes after that, so an issue's slot keeps the issue's name once its PR opens; when check adopts several PRs at
-once, the earliest created names the slot. `agent-slot list`, `agent-slot whoami`, and the slot's tab show its
+`{kind, repo, number, title}`. A slot gets them from `agent-slot launch <repo> --model (opus | sonnet) --pr <ref>` or
+`--issue <ref>`, from `agent-slot adopt`, and from `agent-slot check`, which adds each PR it finds for the task. A ref
+is `N` in origin's repo, `owner/name#N`, or the item's GitHub URL. The first item names the slot `<repo>-pr<N>-<slug>`
+or `<repo>-issue<N>-<slug>`, from the item repo's name and the item's title, cut at a dash to fit 64 characters. The
+name never changes after that, so an issue's slot keeps the issue's name once its PR opens; when check adopts several
+PRs at once, the earliest created names the slot. `agent-slot list`, `agent-slot whoami`, and the slot's tab show its
 `label_name`: the name, else the task, else the branch its clone has checked out. The slot's Claude session carries the
 name as well: launch, resume, and reopen start Claude with `-n <name>` (the task for a slot with no name), and a slot
 named while its agent runs has `/rename <name>` typed into its session, by `adopt` when the agent is idle, else by the
@@ -501,19 +502,19 @@ resumes its conversation.
 Each teardown appends a `teardown` event to `~/.local/state/agent-slot/ledger.jsonl` with the slot's `items`, `name`,
 `head` (the branch its clone had checked out), and `branches` (each branch's name and commit, with the remote and URL it
 pushes to), beside its task, PRs, Claude session ID, and transcript path; `launch`, `adopt`, and `reopen` events carry
-the items and name too. `agent-slot reopen <repo> --pr <ref>` (or `--issue <ref>`) brings the work back. It finds the
-newest teardown whose items hold the item, or, for a PR of origin's repo, the newest whose PRs hold its number;
-`--session <id>` instead picks the teardown of the slot whose Claude session that was, for a teardown that names no
-items. It makes a fresh slot as launch does and checks out the head: the branch the old slot had checked out, else the
-PR's head branch, else the base, fetched from the remote the ledger recorded for it when that remote is on origin's
-host, else from the PR's head repository. A branch that remote no longer has comes from a PR's `refs/pull/<N>/head`, and
-for an issue the slot keeps the base; either way the reopen reports `head_pushable: false`. It then starts Claude with
-`--resume <session ID>`, so the agent has the first round's conversation; nothing under `~/.claude/projects` moves,
-since Claude Code resumes a session by its ID from any directory. The `--prompt-file` text is the reopened agent's first
-prompt, its brief for the new round. Reopen refuses while a slot holds the item or the session, while a Claude agent has
-the session open, when no teardown names the item, and when Claude Code no longer has the transcript, each before it
-claims a slot. `--dry-run` changes nothing and exits 0 with either the plan or, under `would_reopen: false`, the refusal
-a reopen would hit; a ref GitHub cannot read still fails.
+the items and name too. `agent-slot reopen <repo> --model (opus | sonnet) --pr <ref>` (or `--issue <ref>`) brings the
+work back. It finds the newest teardown whose items hold the item, or, for a PR of origin's repo, the newest whose PRs
+hold its number; `--session <id>` instead picks the teardown of the slot whose Claude session that was, for a teardown
+that names no items. It makes a fresh slot as launch does and checks out the head: the branch the old slot had checked
+out, else the PR's head branch, else the base, fetched from the remote the ledger recorded for it when that remote is on
+origin's host, else from the PR's head repository. A branch that remote no longer has comes from a PR's
+`refs/pull/<N>/head`, and for an issue the slot keeps the base; either way the reopen reports `head_pushable: false`. It
+then starts Claude with `--resume <session ID>`, so the agent has the first round's conversation; nothing under
+`~/.claude/projects` moves, since Claude Code resumes a session by its ID from any directory. The `--prompt-file` text
+is the reopened agent's first prompt, its brief for the new round. Reopen refuses while a slot holds the item or the
+session, while a Claude agent has the session open, when no teardown names the item, and when Claude Code no longer has
+the transcript, each before it claims a slot. `--dry-run` changes nothing and exits 0 with either the plan or, under
+`would_reopen: false`, the refusal a reopen would hit; a ref GitHub cannot read still fails.
 
 The reopened slot keeps the old one's items, name, task, and session, records its source in `reopened_from`, and lists
 in `settled_prs` the PRs already merged or closed when it was reopened. Those PRs neither finish the task nor keep it
@@ -534,14 +535,14 @@ The sequence below follows PR #887 of `acme/widget`, an illustrative upstream re
 branch lives on a fork. A dispatcher hands the PR to a slot:
 
 ```bash
-agent-slot launch widget --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json
+agent-slot launch widget --model opus --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json
 ```
 
 Once that slot is torn down and a reviewer replies, a dry run shows what a reopen would do. An excerpt of its output,
 with home paths shortened:
 
 ```bash
-agent-slot reopen widget --pr 887 --dry-run --output json
+agent-slot reopen widget --model opus --pr 887 --dry-run --output json
 ```
 
 ```json
@@ -570,7 +571,7 @@ GitHub (`gh`), and its remote and URL are the ones the teardown's `branches` rec
 itself takes the reply as the agent's brief:
 
 ```bash
-agent-slot reopen widget --pr 887 --prompt-file reply.md --output json
+agent-slot reopen widget --model opus --pr 887 --prompt-file reply.md --output json
 ```
 
 It returns launch's fields plus `reopened_from`, `settled_prs`, `head`, and `head_moved`, which is true when the remote
@@ -580,8 +581,8 @@ widget/2 worked on issue acme/widget#10330, and its teardown event carries no it
 finds it. `--session` names it by its Claude session (an excerpt of the output):
 
 ```bash
-agent-slot reopen widget --issue acme/widget#10330 --session e999f4ab-8387-4992-bb05-f4e6041b9b68 \
-  --dry-run --output json
+agent-slot reopen widget --model opus --issue acme/widget#10330 \
+  --session e999f4ab-8387-4992-bb05-f4e6041b9b68 --dry-run --output json
 ```
 
 ```json
@@ -610,27 +611,28 @@ agent-slot adopt widget/3 --issue 10331 --output json
 #### Commands
 
 On the Linux server, `agent-slot repos` lists the repos a slot can be made from, `agent-slot list` every slot with its
-state, agent, and blockers, and `agent-slot whoami` the slot a directory is in. `agent-slot launch <repo> --request-id
-<id> [--prompt-file <file>]` starts an agent, and agents use it to hand a task to a slot; a repeat with the same request
-ID returns the same slot, and a `--prompt-file` that finds a slot another request made for the task or item is refused
-with `item-held-by-slot`, so no brief is dropped; `--pr <ref>` or `--issue <ref>` gives the slot that work item, its
-name, and, for a PR, its head branch (see [work items and reopen](#work-items-and-reopen)). `agent-slot resume
-<repo>/<N>` restarts a dormant slot's sessions and conversation, `agent-slot warm <repo>` (or `--all`) trusts slot paths
-ahead of time, and `agent-slot check [<repo>/<N>]` gives the teardown verdict. `agent-slot adopt <repo>/<N> --pr <ref>`
-(or `--issue <ref>`) attaches a PR or issue to a live slot and names the slot `<repo>-pr<N>-<slug>` or
-`<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's record and its Claude session's name, so it
-needs no ask. `agent-slot reopen <repo> --pr <ref> --prompt-file <file>` (or `--issue <ref>`) brings a torn-down slot's
-work on a PR or issue back in a fresh slot, with its Claude conversation resumed, and `--dry-run` reports what it would
-do or the refusal it would hit; agents ask before running it, `--dry-run` included. `agent-slot sweep` and `agent-slot
-finish <repo>/<N>` delete slots, so both only report unless given `--yes`, and agents ask before running them. `finish`
-refuses a task with an open PR (`task-has-open-pr`) unless the operator adds `--allow-open-pr` to `--yes`, as in
-`agent-slot finish dotfiles/2 --yes --allow-open-pr`, which ends the task whatever state its PRs are in; a release and
-the finish key never pass it, and the report-only run names it in `would_need`. `agent-slot release`, run from inside a
-slot, hands that slot's teardown upstream; it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks
-every prerequisite and the time from key press to Claude idle. Its `key_to_ready` covers the last 20 launches from the
-new-agent key, from the moment the key's tab opened to the slot's Claude starting its session, with the median of each
-step between: Rex.app showing the tab, the helper's own calls, agent-slot's checks before the clone, the clone, setup,
-trust, and tmux phases, and Claude's start.
+state, agent, and blockers, and `agent-slot whoami` the slot a directory is in.
+`agent-slot launch <repo> --model (opus | sonnet) --request-id <id> [--prompt-file <file>]` starts an agent on that
+model at `--effort xhigh`, a Sonnet one with Opus as its advisor, and agents use it to hand a task to a slot; a repeat
+with the same request ID returns the same slot, and a `--prompt-file` that finds a slot another request made for the
+task or item is refused with `item-held-by-slot`, so no brief is dropped; `--pr <ref>` or `--issue <ref>` gives the slot
+that work item, its name, and, for a PR, its head branch (see [work items and reopen](#work-items-and-reopen)).
+`agent-slot resume <repo>/<N>` restarts a dormant slot's sessions and conversation, `agent-slot warm <repo>` (or
+`--all`) trusts slot paths ahead of time, and `agent-slot check [<repo>/<N>]` gives the teardown verdict.
+`agent-slot adopt <repo>/<N> --pr <ref>` (or `--issue <ref>`) attaches a PR or issue to a live slot and names the slot
+`<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's record and its Claude
+session's name, so it needs no ask. `agent-slot reopen <repo> --model (opus | sonnet) --pr <ref> --prompt-file <file>`
+(or `--issue <ref>`) brings a torn-down slot's work on a PR or issue back in a fresh slot, with its Claude conversation
+resumed, and `--dry-run` reports what it would do or the refusal it would hit; agents ask before running it, `--dry-run`
+included. `agent-slot sweep` and `agent-slot finish <repo>/<N>` delete slots, so both only report unless given `--yes`,
+and agents ask before running them. `finish` refuses a task with an open PR (`task-has-open-pr`) unless the operator
+adds `--allow-open-pr` to `--yes`, as in `agent-slot finish dotfiles/2 --yes --allow-open-pr`, which ends the task
+whatever state its PRs are in; a release and the finish key never pass it, and the report-only run names it in
+`would_need`. `agent-slot release`, run from inside a slot, hands that slot's teardown upstream; it deletes nothing
+itself, so it needs no ask. `agent-slot doctor` checks every prerequisite and the time from key press to Claude idle.
+Its `key_to_ready` covers the last 20 launches from the new-agent key, from the moment the key's tab opened to the
+slot's Claude starting its session, with the median of each step between: Rex.app showing the tab, the helper's own
+calls, agent-slot's checks before the clone, the clone, setup, trust, and tmux phases, and Claude's start.
 
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore
@@ -688,6 +690,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `item-not-found`              | 2    | GitHub has no such PR or issue that `gh` can see; `agent-slot launch --help` gives the forms   |
 | `item-kind-mismatch`          | 2    | The number is a PR given as `--issue`, or an issue given as `--pr`; swap the flag              |
 | `item-held-by-slot`           | 1    | A live slot holds the item or its session; brief that slot, or `agent-slot resume` it          |
+| `model-differs`               | 1    | A repeat found its slot on another model than `--model`; `message` names the slot's model      |
 | `session-in-use`              | 1    | A Claude agent has the session open; the operator closes it, then the reopen runs again        |
 | `item-not-found-in-ledger`    | 1    | No teardown names the item; `--session <id>` finds an older slot, or launch a fresh one        |
 | `transcript-missing`          | 1    | Claude Code no longer has the conversation to resume; launch a fresh slot for the item         |

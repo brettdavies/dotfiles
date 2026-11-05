@@ -85,7 +85,7 @@ publish from it only through \`sd-commit-doc\`, and the slot is not torn down wh
 `agent-slot whoami` names this slot.
 Run agent-slot verbs with `--output json` after the verb; `--help` on any verb lists its flags and fields.
 `agent-slot schema --output json` prints the whole contract: the success and error objects and every reason.
-To hand a task to another agent, run `agent-slot launch <repo> --request-id <id> --prompt-file <brief>`.
+To hand off a task, run `agent-slot launch <repo> --model <opus|sonnet> --request-id <id> --prompt-file <brief>`.
 Launching a slot is not a delegated wait: set no watchdog or watcher on it; watch your own PRs and CI to the end.
 Claude runs here with `--dangerously-skip-permissions`; ask rules, deny rules, and hooks still stop tool calls.
 EOF

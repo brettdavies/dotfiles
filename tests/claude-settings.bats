@@ -272,3 +272,10 @@ REPO="$BATS_TEST_DIRNAME/.."
   [ "${#missing[@]}" -eq 0 ]
   [ "${#blocking[@]}" -eq 0 ]
 }
+
+# Every model runs at xhigh effort, so a Sonnet or Haiku session or subagent never falls back to a lower default.
+@test "every model's settings set xhigh effort" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  jaq -e '.effortLevel == "xhigh" and ([.modelSettings[] | .effortLevel] | all(. == "xhigh"))
+    and (.modelSettings | has("claude-opus-5-5") and has("claude-sonnet-5-5") and has("claude-haiku-5-5"))' "$SETTINGS"
+}

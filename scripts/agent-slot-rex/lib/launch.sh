@@ -257,12 +257,12 @@ running on the default tmux server; start it, then press the key again" --value 
 
 launch_here() {
   local args
-  args=("$LAUNCH_REPO" --request-id "$(launch_request_id)" --requested-at "$(launch_now)")
+  args=("$LAUNCH_REPO" --model opus --request-id "$(launch_request_id)" --requested-at "$(launch_now)")
   [[ -z $LAUNCH_OPENED_AT ]] || args+=(--opened-at "$LAUNCH_OPENED_AT")
   [[ -z $LAUNCH_SHOWN_AT ]] || args+=(--shown-at "$LAUNCH_SHOWN_AT")
   [[ -z $LAUNCH_TASK ]] || args+=(--task "$LAUNCH_TASK")
   launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$LAUNCH_REPO · launching"
-  printf 'agent-slot-rex: starting an agent in a fresh slot of %s (request %s)\n' "$LAUNCH_REPO" "${args[2]}"
+  printf 'agent-slot-rex: starting an agent in a fresh slot of %s (request %s)\n' "$LAUNCH_REPO" "${args[4]}"
   # Outlasts the server's own bounds end to end: repo lock 60 s, clone 900 s, git-crypt 120 s, trust 45 s, and the
   # three sessions' tmux calls 90 s.
   launch_call 1260 launch "${args[@]}"

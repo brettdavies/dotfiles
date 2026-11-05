@@ -51,6 +51,7 @@ pr-state-unknown              1     true       3            retry
 item-not-found                2     false      0            run
 item-kind-mismatch            2     false      0            rerun
 item-held-by-slot             1     false      0            run
+model-differs                 1     false      0            run
 session-in-use                1     false      0            ask-operator
 item-not-found-in-ledger      1     false      0            run
 transcript-missing            1     false      0            run

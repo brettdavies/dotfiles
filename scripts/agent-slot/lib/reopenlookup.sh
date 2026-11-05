@@ -8,8 +8,9 @@
 # Usage: reopen_lookup <repo>; finds what the reopen of REOPEN_ITEM starts from, stopping at the first
 # refusal: contract_fail for a reopen, REOPEN_REFUSAL for a dry run. Sets REOPEN_HOLDER to a slot that holds the
 # request ID or the item, with REOPEN_SOURCE its {key, state, name, items, session_id} and REOPEN_EXISTING its number
-# when the request ID matched an active slot; else REOPEN_SOURCE to the source teardown event, or null, and
-# REOPEN_TRANSCRIPT and REOPEN_TRANSCRIPT_EXISTS to where its transcript is.
+# when the request ID matched an active slot, refusing with model-differs when that slot runs on another model; else
+# REOPEN_SOURCE to the source teardown event, or null, and REOPEN_TRANSCRIPT and REOPEN_TRANSCRIPT_EXISTS to where its
+# transcript is.
 REOPEN_ITEM='' REOPEN_HOLDER='' REOPEN_EXISTING='' REOPEN_SOURCE=null REOPEN_REFUSAL=null
 REOPEN_TRANSCRIPT='' REOPEN_TRANSCRIPT_EXISTS=null
 reopen_lookup() {
@@ -22,6 +23,7 @@ reopen_lookup() {
       name: (.name // .task), items: (.items // []), session_id}' <<<"$RECORD")
     if [[ $LAUNCH_EXISTING_BY == request && $(contract_json -r .state <<<"$REOPEN_SOURCE") == active ]]; then
       REOPEN_EXISTING=$LAUNCH_EXISTING
+      launch_model_same _reopen_refuse "$REOPEN_HOLDER" "$REOPEN_MODEL"
       return 0
     fi
     _reopen_held "$repo" "$LAUNCH_EXISTING" "$(_reopen_item_key)"
