@@ -423,9 +423,9 @@ Watch only with `gh run watch <id> --exit-status --interval 30`, one per run you
 own action started no run starts no watcher. Without `--interval`, gh polls the REST API every 3 s, and REST is what CI
 checks fall back on when the GraphQL budget runs out. Never watch with `gh pr checks --watch` or a loop of `gh pr view`:
 both poll the GraphQL API every few seconds until the checks end, and many sessions doing it at once exhaust the
-account's GraphQL budget. When the watchers are done, read the rollup query from `~/.claude/CLAUDE.md` § "CI after push"
-once and assert every conclusion is `SUCCESS` (`SKIPPED` is acceptable only for a conditional job); see "Stacked PRs"
-for the duplicated-entry case after a branch rewrite.
+account's GraphQL budget. When the last watcher completes, verify once: read the rollup query from `~/.claude/CLAUDE.md`
+§ "CI after push" and assert every conclusion is `SUCCESS` (`SKIPPED` is acceptable only for a conditional job); see
+"Stacked PRs" for the duplicated-entry case after a branch rewrite.
 
 After every batch of watchers finishes, re-run `gh run list --branch <branch>` to catch dispatched chains (e.g.
 `release.yml` → homebrew dispatch → `finalize-release`). The hook only fires after the original action; chained runs

@@ -30,8 +30,8 @@
 #   - VERIFY STATUS AFTER COMPLETION, NOT JUST EXIT CODE.
 #     `gh run watch` exits 0 on failure unless `--exit-status` is passed. So
 #     treat a non-zero exit as red, but a zero exit as "not proven green".
-#     After every completion notification, re-query and read per-check
-#     conclusions explicitly:
+#     When the last watcher completes, verify once: re-query and read
+#     per-check conclusions explicitly:
 #       gh pr view <num> --json statusCheckRollup,mergeStateStatus \
 #         --jq '{merge: .mergeStateStatus, checks: [.statusCheckRollup[] | {name, conclusion}]}'
 #     A check is green only when conclusion == "SUCCESS". A PR is green only
@@ -169,8 +169,8 @@ reminder=$({
   printf '%s' "$runs" | "$JQ" -r '.[] | "  gh run watch \(.databaseId) --exit-status --interval 30"'
   echo ""
   echo "Watch only the runs your own action started. Never watch with"
-  echo "gh pr checks --watch or a loop of gh pr view: read the rollup once, when"
-  echo "the watchers are done."
+  echo "gh pr checks --watch or a loop of gh pr view. When the last watcher"
+  echo "completes, verify once by reading the rollup."
   echo ""
   echo "After all watchers complete, re-run gh run list to catch any"
   echo "dispatched chains (release.yml → homebrew dispatch → finalize-release etc.)."
