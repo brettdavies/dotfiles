@@ -17,12 +17,14 @@ TEARDOWN_ARMED=
 # Usage: _teardown_recheck <repo> <n>; the tree checks again, now that the agent has stopped.
 _teardown_recheck() {
   local repo=$1 n=$2 path
+  local -a closed_probes
   path=$(slot_path "$repo" "$n")
   CHECK_BLOCKERS=()
+  mapfile -t closed_probes < <(_check_closed_probes "$(contract_json -c '.prs // []' <<<"$CHECK_VERDICT")")
   _check_uncommitted "$path"
   _check_stash "$path"
   _check_commits "$path" "$(contract_json -r '.base // "main"' <<<"$RECORD")" \
-    "$(contract_json '.prs // [] | length' <<<"$RECORD")"
+    "$(($(contract_json '.prs // [] | length' <<<"$RECORD") - ${#closed_probes[@]}))" "${closed_probes[@]}"
   _check_files "$path" "$(contract_json -r '.prime // ""' <<<"$RECORD")"
   _check_solutions
   ((${#CHECK_BLOCKERS[@]} == 0))

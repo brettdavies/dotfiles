@@ -487,9 +487,9 @@ takes a first message only as `--prompt-file`, so type the first message into th
 
 #### Work items and reopen
 
-A slot's *work items* are the GitHub PRs and issues it works on, each kept in its record as
-`{kind, repo, number, title}`. A slot gets them from `agent-slot launch <repo> --model (opus | sonnet) --pr <ref>` or
-`--issue <ref>`, from `agent-slot adopt`, and from `agent-slot check`, which adds each PR it finds for the task. A ref
+A slot's *work items* are the GitHub PRs and issues it works on, each kept in its record as `{kind, repo, number,
+title}`. A slot gets them from `agent-slot launch <repo> --model (opus | sonnet) --pr <ref>` or `--issue <ref>`, from
+`agent-slot adopt` and `agent-slot probe`, and from `agent-slot check`, which adds each PR it finds for the task. A ref
 is `N` in origin's repo, `owner/name#N`, or the item's GitHub URL. The first item names the slot `<repo>-pr<N>-<slug>`
 or `<repo>-issue<N>-<slug>`, from the item repo's name and the item's title, cut at a dash to fit 64 characters. The
 name never changes after that, so an issue's slot keeps the issue's name once its PR opens; when check adopts several
@@ -615,6 +615,57 @@ and returns `key`, `name`, `items`, `item`, and `renamed`:
 agent-slot adopt widget/3 --issue 10331 --output json
 ```
 
+#### Probe PRs
+
+A *probe* is a draft a slot opens to exercise CI or a reusable workflow and never means to merge. It is opened as a
+draft titled `test(probe): <what it probes>`, which stays a Conventional Commits title, and only such a PR can be marked
+or closed by these verbs: on an open PR, any other title is refused with `pr-title-not-probe`. Nothing infers one: the
+slot's agent declares it with `agent-slot probe <pr>`, run from inside the slot, which adds the PR's number to the
+record's `probes` and attaches it as a work item. The mark counts only while the PR stays a draft: the first check or
+verb that sees the PR out of draft drops the mark, and a return to draft does not bring it back by itself. Marking the
+PR again with `agent-slot probe` is a new declaration by the agent, and the same qualifications apply.
+`agent-slot check` reports `draft` and `probe` on each of a slot's `prs`.
+
+A probe closed unmerged neither finishes its task nor blocks its teardown, as with a reopened slot's settled PRs, and
+the commit checks count it as no PR. Its head counts as pushed for its own branch and nothing else, so unpushed work on
+a branch the probe was cut from still blocks. A slot whose only PR is a closed probe finishes through
+`agent-slot release`. An open probe keeps the task open like any open PR, every other check still holds, and any other
+PR closed unmerged stays the `pr-closed-unmerged` blocker.
+
+A slot closes its probe with `agent-slot close-probe <pr>`, also from inside the slot, because `gh pr close` sits behind
+an ask rule nobody can answer there. Both verbs act only on an open draft in the repo of the slot's origin, on a branch
+this clone created, whose current head this clone pushed. They read that from the reflog of the remote-tracking ref: git
+writes `update by push` there for a push from this clone and a fetch message for what it merely received, and a clone
+writes no entry for the branches it brings. So a log that starts from an all-zero old oid with a push reads as a branch
+this clone created, while a log that starts from a fetch reads as another writer's. A head another writer moved, once it
+is fetched, has no push entry and does not qualify either. A PR already closed cannot be marked afterwards.
+`close-probe` also needs the mark. It leaves a comment on the PR saying why and deletes no branch, so `gh pr reopen`
+undoes it, and rerunning it on a closed probe succeeds without closing again. Neither verb has an ask rule, since a
+close is undoable and reaches only work this clone pushed. Each appends a line to the ledger, as a `probe` or
+`close-probe` event, whose `already_closed` tells a rerun that confirmed a close from the run that made it.
+
+The guard stops an agent closing, by mistake, a PR it did not push. It does not stop a deliberately adversarial agent
+with a shell, which could forge a reflog entry, edit the record, or call the API with the gh token; that is the
+environment's trust boundary. Three limits follow from the proof, because the all-zero old oid is the tracking ref's
+prior value and not origin's. Any push made while the tracking ref is missing, a fixup or one that moved nothing, reads
+as this clone creating the branch, so a branch only ever seen through a pull ref and then pushed reads as this clone's.
+A push that moved nothing over a stale tracking ref, on a branch this clone created, records a head this clone did not
+write. A fetch that lands just before a push's own update leaves a head with no push entry: on a later push, a new
+commit restores the proof, and the refusal says so; on a branch's first push, the branch reads as another writer's, and
+the operator closes it.
+
+A probe starts from a new branch, pushed before the PR opens, and targets the slot's base, so it exercises that base's
+CI. `agent-slot whoami --output json` returns the slot's record, and `.slot.base` in it names the base.
+
+```bash
+git switch -c test/probe-<what>
+git commit --allow-empty -m 'test(probe): <what it probes>'
+git push -u origin HEAD
+gh pr create --draft --base <the slot's base> --title 'test(probe): <what it probes>' --fill
+agent-slot probe 487 --output json
+agent-slot close-probe 487 --output json
+```
+
 #### Commands
 
 On the Linux server, `agent-slot repos` lists the repos a slot can be made from, `agent-slot list` every slot with its
@@ -630,19 +681,20 @@ targets, and any branch holding work its PRs never had, and reports each delete 
 `agent-slot warm <repo>` (or `--all`) trusts slot paths ahead of time, and `agent-slot check [<repo>/<N>]` gives the
 teardown verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or `--issue <ref>`) attaches a PR or issue to a live slot
 and names the slot `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's
-record and its Claude session's name, so it needs no ask. `agent-slot reopen <repo> --model (opus | sonnet) --pr <ref>
---prompt-file <file>` (or `--issue <ref>`) brings a torn-down slot's work on a PR or issue back in a fresh slot, with
-its Claude conversation resumed, and `--dry-run` reports what it would do or the refusal it would hit; agents ask before
-running it, `--dry-run` included. `agent-slot sweep` and `agent-slot finish <repo>/<N>` delete slots, so both only
-report unless given `--yes`, and agents ask before running them. `finish` refuses a task with an open PR
-(`task-has-open-pr`) unless the operator adds `--allow-open-pr` to `--yes`, as in `agent-slot finish dotfiles/2 --yes
---allow-open-pr`, which ends the task whatever state its PRs are in; a release and the finish key never pass it, and the
-report-only run names it in `would_need`. `agent-slot release`, run from inside a slot, hands that slot's teardown
-upstream; it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks every prerequisite and the time from
-key press to Claude idle. Its `key_to_ready` covers the last 20 launches from the new-agent key, from the moment the
-key's tab opened to the slot's Claude starting its session, with the median of each step between: Rex.app showing the
-tab, the helper's own calls, agent-slot's checks before the clone, the clone, setup, trust, and tmux phases, and
-Claude's start.
+record and its Claude session's name, so it needs no ask. `agent-slot probe <pr>` and `agent-slot close-probe <pr>`, run
+from inside a slot, mark and close a throwaway draft that slot pushed (see [probe PRs](#probe-prs)). `agent-slot reopen
+<repo> --model (opus | sonnet) --pr <ref> --prompt-file <file>` (or `--issue <ref>`) brings a torn-down slot's work on a
+PR or issue back in a fresh slot, with its Claude conversation resumed, and `--dry-run` reports what it would do or the
+refusal it would hit; agents ask before running it, `--dry-run` included. `agent-slot sweep` and `agent-slot finish
+<repo>/<N>` delete slots, so both only report unless given `--yes`, and agents ask before running them. `finish` refuses
+a task with an open PR (`task-has-open-pr`) unless the operator adds `--allow-open-pr` to `--yes`, as in `agent-slot
+finish dotfiles/2 --yes --allow-open-pr`, which ends the task whatever state its PRs are in; a release and the finish
+key never pass it, and the report-only run names it in `would_need`. `agent-slot release`, run from inside a slot, hands
+that slot's teardown upstream; it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks every
+prerequisite and the time from key press to Claude idle. Its `key_to_ready` covers the last 20 launches from the
+new-agent key, from the moment the key's tab opened to the slot's Claude starting its session, with the median of each
+step between: Rex.app showing the tab, the helper's own calls, agent-slot's checks before the clone, the clone, setup,
+trust, and tmux phases, and Claude's start.
 
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore
@@ -700,6 +752,12 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `item-not-found`              | 2    | GitHub has no such PR or issue that `gh` can see; `agent-slot launch --help` gives the forms   |
 | `item-kind-mismatch`          | 2    | The number is a PR given as `--issue`, or an issue given as `--pr`; swap the flag              |
 | `item-held-by-slot`           | 1    | A live slot holds the item or its session; brief that slot, or `agent-slot resume` it          |
+| `pr-title-not-probe`          | 1    | `probe` or `close-probe` refused: an open PR's title is not `test(probe): <what it probes>`    |
+| `pr-not-probe`                | 1    | `close-probe` refused: the PR is not marked a probe; `agent-slot probe` it first               |
+| `pr-not-draft`                | 1    | `probe` or `close-probe` refused: the PR is not a draft, so closing it is the operator's call  |
+| `pr-not-open`                 | 1    | A closed or merged PR cannot be marked, and a merged one cannot be closed                      |
+| `pr-not-from-this-slot`       | 1    | The PR is in another repo, on a branch this slot did not create, or has a head it did not push |
+| `pr-close-failed`             | 1    | `gh pr close` failed, so the PR may or may not be closed; rerunning `close-probe` is safe      |
 | `model-differs`               | 1    | A repeat found its slot on another model than `--model`; `message` names the slot's model      |
 | `session-in-use`              | 1    | A Claude agent has the session open; the operator closes it, then the reopen runs again        |
 | `item-not-found-in-ledger`    | 1    | No teardown names the item; `--session <id>` finds an older slot, or launch a fresh one        |
@@ -755,7 +813,7 @@ each file as `docs/solutions/<path>`, the path the slot's agent reaches it by.
 | Code                     | What keeps the slot                                                                                  |
 | ------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `pr-state-unknown`       | `gh` could not read the PRs, so whether the task has finished is unknown                             |
-| `pr-closed-unmerged`     | A PR closed without merging; reopen and merge it, or press the finish key                            |
+| `pr-closed-unmerged`     | A PR other than a probe closed without merging; reopen and merge it, or press the finish key         |
 | `git-state-unknown`      | `git` could not fetch, or read the slot's state                                                      |
 | `agent-not-idle`         | The agent is mid-turn or waiting on the operator                                                     |
 | `checked-by-own-agent`   | The check runs inside the slot's own agent, which keeps it busy until the check ends                 |
