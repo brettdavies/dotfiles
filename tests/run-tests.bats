@@ -589,3 +589,16 @@ _perf_markers() {
   _startup_home
   [ "$(readlink "$SHADOW/.secrets")" = "$FAKE_HOME/.secrets" ]
 }
+
+@test "a perf failure prints the host's load and core count, and never rules contention out" {
+  _perf_markers
+  # Only bash reads the fixture profile, so one budget fails: login bash, over 500ms.
+  printf 'sleep 0.7\n' >>"$SANDBOX/stow/shell/dot-profile"
+  run env HOME="$FAKE_HOME" SHELL_PERF_SAMPLES=1 "$SANDBOX/scripts/run-tests" --perf-only
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"login bash took"* ]]
+  [[ "$output" != *"not contention"* ]]
+  if [ -r /proc/loadavg ] || command -v sysctl >/dev/null 2>&1; then
+    [[ "$output" =~ [0-9]+-core\ host,\ 1-minute\ load\ [0-9]+\.[0-9]+ ]]
+  fi
+}

@@ -73,15 +73,33 @@ _measure_best_ms() {
   printf '%s' "$best"
 }
 
+# The host's core count and 1-minute load, as a phrase, or nothing when either
+# cannot be read. /proc/loadavg and nproc on Linux; sysctl on macOS, where the
+# load is `{ 1.23 4.56 7.89 }`.
+_host_load() {
+  local load cores
+  if [ -r /proc/loadavg ]; then
+    read -r load _ </proc/loadavg
+  else
+    load=$(sysctl -n vm.loadavg 2>/dev/null | awk '{ print $2 }')
+  fi
+  cores=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null) || cores=''
+  case $load in '' | *[!0-9.]*) return 0 ;; esac
+  case $cores in '' | *[!0-9]*) return 0 ;; esac
+  printf '%s-core host, 1-minute load %s' "$cores" "$load"
+}
+
 _assert_under() {
-  local label="$1" cmd="$2" budget="$3" ms
+  local label="$1" cmd="$2" budget="$3" ms host
   _skip_unless_deployed
   _shadow_home
   ms=$(_measure_best_ms "$cmd")
   echo "# $label: ${ms}ms (best of $SAMPLES, budget ${budget}ms)" >&3
   [ "$ms" -lt "$budget" ] || {
     echo "$label took ${ms}ms at its floor, over the ${budget}ms budget"
-    echo "this is the fastest of $SAMPLES runs, so it is not contention"
+    echo "this is the fastest of $SAMPLES runs"
+    host=$(_host_load)
+    [ -z "$host" ] || echo "$host; a load above the core count lifts that floor"
     echo "timed from the startup files of $ROOT; a bare '$cmd' in a shell reads the installed config and can differ"
     echo "rerun from $ROOT: scripts/run-tests --perf-only"
     false
