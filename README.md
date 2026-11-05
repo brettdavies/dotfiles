@@ -259,19 +259,19 @@ bundle by default) on the Mac. `tests/mac-open.bats` and `tests/mac-open-here.ba
 Many Claude Code agents can work on the same repo at once, each in an *agent slot*: a clone of the repo at
 `~/slots/<repo>/<N>` on the Linux server, set up like the repo's own checkout (its hooks, the `docs/solutions` link, the
 `.context/repo-recon` link when the repo has a repo-recon store, its Claude memory and permission grants, and its
-partial-clone filter when it has one), with one task per slot. Setup also runs `bun install --frozen-lockfile`,
-`pnpm install --frozen-lockfile`, or `npm ci` before the slot's agent starts, so the repo's tool-backed hooks work on the
+partial-clone filter when it has one), with one task per slot. Setup also runs `bun install --frozen-lockfile`, `pnpm
+install --frozen-lockfile`, or `npm ci` before the slot's agent starts, so the repo's tool-backed hooks work on the
 first push. An install runs the head's code with this account's credentials before anyone reads it, so it runs only when
 the prime has `node_modules`, Claude trusts the prime, and the base branch holds the head; `deps.status` reads
-`prime-not-set-up` or `head-not-on-base` otherwise, `failed`, `timed-out` (past `AGENT_SLOT_DEPS_TIMEOUT` seconds, 60), or
-`tool-missing` when an install does not finish, and `installed` when it does. A frozen install writes no lockfile, and it
-takes whatever the lockfile pins without consulting the supply-chain age gate, so the gate binds only whoever wrote the
-lock. A slot's `docs/solutions` links to its own detached
-worktree of the solutions repo at `~/slots/<repo>/.solutions/<N>-<suffix>`, made at origin/main during setup and
-recorded as `solutions_worktree`; its agent writes and publishes there with `sd-commit-doc`, the slot is kept while that
-worktree holds anything origin/main lacks (`solutions-unpublished`), and teardown removes it. The repo-recon link points
-at `~/dev/repo-recon/<owner>/<repo>`, named for the prime's `origin`, else for its `upstream`, the remote a fork names
-its parent by. Setup never makes a store, and a teardown deletes the link but not the store, so whatever an agent filed
+`prime-not-set-up` or `head-not-on-base` otherwise, `failed`, `timed-out` (past `AGENT_SLOT_DEPS_TIMEOUT` seconds, 60),
+or `tool-missing` when an install does not finish, and `installed` when it does. A frozen install writes no lockfile,
+and it takes whatever the lockfile pins without consulting the supply-chain age gate, so the gate binds only whoever
+wrote the lock. A slot's `docs/solutions` links to its own detached worktree of the solutions repo at
+`~/slots/<repo>/.solutions/<N>-<suffix>`, made at origin/main during setup and recorded as `solutions_worktree`; its
+agent writes and publishes there with `sd-commit-doc`, the slot is kept while that worktree holds anything origin/main
+lacks (`solutions-unpublished`), and teardown removes it. The repo-recon link points at
+`~/dev/repo-recon/<owner>/<repo>`, named for the prime's `origin`, else for its `upstream`, the remote a fork names its
+parent by. Setup never makes a store, and a teardown deletes the link but not the store, so whatever an agent filed
 through it stays. `agent-slot` on the server owns every slot and every check before a slot is deleted; `agent-slot-rex`
 on the same server drives that server's Rex, where each repo is one session and each agent one tab, and Rex.app and the
 Rex iOS app are windows onto it through the Rex login server. Every slot runs three tmux sessions on the server's
