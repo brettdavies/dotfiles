@@ -60,6 +60,15 @@ slot_branch() {
   [[ ! -d $1/.git ]] || git -C "$1" symbolic-ref --short -q HEAD || true
 }
 
+# Usage: slot_review_key <slot path>; prints what review rounds are counted under: the branch, else, on a detached
+# head, its commit; nothing when the clone has neither.
+slot_review_key() {
+  local key
+  key=$(slot_branch "$1")
+  [[ -n $key || ! -d $1/.git ]] || key=$(git -C "$1" rev-parse --verify -q HEAD || true)
+  printf '%s' "$key"
+}
+
 # Usage: slot_view <repo> <n> <session-list>
 # Sets SLOT_VIEW to the slot as list reports it: the record's fields plus agent state, tmux sessions, branch, the
 # needs-you list, and label_name.

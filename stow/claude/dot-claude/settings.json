@@ -557,6 +557,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-review-cap.sh",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PermissionRequest": [

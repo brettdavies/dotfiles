@@ -314,6 +314,15 @@ still waiting after about 6 s got past the hook, for example because the hook fa
 That wait appends a `prompt-waiting` event, and `slot-status.sh` marks the tab blocked. Outside a slot the hook does
 nothing, so an ask rule prompts there as it always has.
 
+A slot's agent gets at most 2 review rounds per PR. `slot-review-cap.sh` (also in `stow/claude/dot-claude/`, on
+`PreToolUse` for the `Skill` tool) counts each call of `compound-engineering:ce-code-review` by the slot's own Claude
+or its subagents as one round for the PR on the slot's current branch, appending a `review-round` event to the ledger
+with the slot and the branch. It denies the third, naming the rule, the count, and the next step: send the coordinating
+session the PR and its head SHA. Rounds count from the slot's `created_at`, so a reused slot number starts at none.
+`agent-slot grant-review <repo>/<N>` is the operator's way to allow one more round on the slot's current branch; it
+appends a `review-grant` event, one per extra round, and refuses with `review-grant-from-slot` when run from a slot's
+directory or its tmux server. Outside a slot the hook prints nothing, and `/devex-review` and `/cso` are not counted.
+
 A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
 merged with none open, the operator finished it, whatever state its PRs are in, or its agent released it with no PR
 open) and nothing in it is missing from GitHub. A commit is safe there once a PR's final head holds it, an origin branch
@@ -844,6 +853,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `rexurrect-missing`           | 78   | Doctor warning: rexurrect is not installed, so own tabs are not restored after a Rex restart   |
 | `reconcile-stale`             | 1    | The reconcile timer runs but its journal shows no recent good pass; `agent-slot-rex restore`   |
 | `own-tabs-unrestored`         | 0    | Doctor warning: the start-up step did not restore the operator's own tabs into this Rex server |
+| `review-grant-from-slot`      | 1    | `grant-review` refused: it runs from a slot or the slot tmux server; only the operator grants    |
 | `tmux-outside-scope`          | 0    | Doctor warning: the slot tmux server runs in a service's cgroup and would end with that unit   |
 
 #### Teardown blockers
