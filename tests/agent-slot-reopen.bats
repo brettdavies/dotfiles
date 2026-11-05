@@ -582,7 +582,7 @@ snapshot() {
   gh_item issue 12 "Fix the widget"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
     \"name\": \"repoa-issue12-fix-the-widget\"}"
-  printf 'Scope: pick it back up.\nLimits: the operator set every limit.\nReviews: none.\nReports to: skills-prime.\n' \
+  printf 'Scope: pick it back up.\nLimits: the operator set every limit.\nReviews: none.\nReports to: skills-prime.\nTouches: src/**\nAdds: none.\n' \
     >"$T/brief.md"
   reopen repoa --issue 12 --request-id r-1 --prompt-file "$T/brief.md"
   [ "$status" -eq 0 ]
