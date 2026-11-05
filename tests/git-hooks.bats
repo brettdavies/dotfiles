@@ -3,6 +3,8 @@
 #
 # Run: bats tests/git-hooks.bats
 
+bats_require_minimum_version 1.5.0
+
 HOOKS_DIR="$BATS_TEST_DIRNAME/../.githooks"
 
 # ---------------------------------------------------------------------------
@@ -197,4 +199,117 @@ EOF
   hookspath=$(git -C "$BATS_TEST_DIRNAME/.." config --get core.hooksPath 2>/dev/null || true)
   [ -n "$hookspath" ] || skip "core.hooksPath not set (CI checkout without stow-deploy)"
   [ "$hookspath" = ".githooks" ]
+}
+
+# ---------------------------------------------------------------------------
+# pre-commit: the shell-startup perf suite
+#
+# The suite times the shells' startup files, so a commit that changes none of
+# them has nothing for it to measure. The stubs record each gate script call,
+# in start order, in $FIX/calls.
+# ---------------------------------------------------------------------------
+
+_commit_fixture() {
+  FIX="$BATS_TEST_TMPDIR/fix"
+  WORK="$FIX/work"
+  mkdir -p "$WORK/.githooks/lib" "$WORK/scripts" "$FIX/bin"
+  git init -q -b dev "$WORK"
+  git -C "$WORK" config user.email test@example.com
+  git -C "$WORK" config user.name test
+  git -C "$WORK" config commit.gpgsign true
+  git -C "$WORK" config core.hooksPath /dev/null
+  cp "$HOOKS_DIR/pre-commit" "$WORK/.githooks/pre-commit"
+  cp "$HOOKS_DIR"/lib/*.sh "$WORK/.githooks/lib/"
+  local s t
+  for s in lint-shell lint-workflows run-tests core-env-guard.sh; do
+    printf '#!/bin/sh\nprintf "%%s %%s\\n" "%s" "$*" >>"%s/calls"\n' "$s" "$FIX" >"$WORK/scripts/$s"
+    chmod +x "$WORK/scripts/$s"
+  done
+  for t in shellcheck actionlint bats; do
+    printf '#!/bin/sh\nexit 0\n' >"$FIX/bin/$t"
+    chmod +x "$FIX/bin/$t"
+  done
+  mkdir -p "$WORK/tests/perf" "$WORK/config/shell"
+  : >"$WORK/tests/perf/shell-startup-perf.bats"
+  : >"$WORK/tests/other.bats"
+  : >"$WORK/config/shell/fragment.sh"
+  git -C "$WORK" add -A
+  git -C "$WORK" -c commit.gpgsign=false commit -qm seed
+}
+
+_precommit() {
+  run bash -c 'cd "$1" && PATH="$2:$PATH" .githooks/pre-commit' _ "$WORK" "$FIX/bin"
+}
+
+_touch() {
+  local f
+  for f in "$@"; do
+    printf '# %s\n' "$RANDOM" >>"$WORK/$f"
+    git -C "$WORK" add "$f"
+  done
+}
+
+_called() { grep -qx -- "$1" "$FIX/calls"; }
+
+@test "pre-commit: a staged perf suite with no startup file staged is not run" {
+  _commit_fixture
+  _touch tests/perf/shell-startup-perf.bats
+  _precommit
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no staged file shell startup reads"* ]]
+  [ ! -e "$FIX/calls" ] || ! grep -q 'run-tests' "$FIX/calls"
+}
+
+@test "pre-commit: a staged perf suite with a startup file staged runs alone through --perf-only" {
+  _commit_fixture
+  _touch tests/perf/shell-startup-perf.bats config/shell/fragment.sh
+  _precommit
+  [ "$status" -eq 0 ]
+  [ "$(head -n 1 "$FIX/calls")" = "run-tests --perf-only" ]
+  run ! grep -E '^run-tests .*tests/perf' "$FIX/calls"
+}
+
+@test "pre-commit: a staged perf suite never rides the parallel batch" {
+  _commit_fixture
+  _touch tests/perf/shell-startup-perf.bats tests/other.bats
+  _precommit
+  [ "$status" -eq 0 ]
+  _called 'run-tests tests/other.bats'
+  run ! grep -E '^run-tests .*tests/perf' "$FIX/calls"
+}
+
+@test "pre-commit: a staged startup file alone leaves the other gates as they were" {
+  _commit_fixture
+  _touch config/shell/fragment.sh tests/other.bats
+  _precommit
+  [ "$status" -eq 0 ]
+  _called 'run-tests tests/other.bats'
+  run ! _called 'run-tests --perf-only'
+}
+
+@test "pre-commit: a deleted startup file counts as staged for the perf suite" {
+  _commit_fixture
+  git -C "$WORK" rm -q config/shell/fragment.sh
+  _touch tests/perf/shell-startup-perf.bats
+  _precommit
+  [ "$status" -eq 0 ]
+  _called 'run-tests --perf-only'
+}
+
+@test "pre-commit: a startup file moved away counts as staged for the perf suite" {
+  _commit_fixture
+  mkdir -p "$WORK/scripts/lib"
+  git -C "$WORK" mv config/shell/fragment.sh scripts/lib/fragment.sh
+  _touch tests/perf/shell-startup-perf.bats
+  _precommit
+  [ "$status" -eq 0 ]
+  _called 'run-tests --perf-only'
+}
+
+@test "pre-commit: a failing perf suite fails the commit" {
+  _commit_fixture
+  printf '#!/bin/sh\nexit 1\n' >"$WORK/scripts/run-tests"
+  _touch tests/perf/shell-startup-perf.bats config/shell/fragment.sh
+  _precommit
+  [ "$status" -eq 1 ]
 }

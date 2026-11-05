@@ -395,6 +395,19 @@ concurrently as well, so no single long file paces a shard. The shard jobs insta
 a pull request's run can restore caches saved on its base branch but not those of another pull request, so without the
 seed every pull request's first run would start cold. The seed checks nothing, so it has no `pre-push` counterpart.
 
+The shell-startup perf suite in `tests/perf/` is the one local gate with no CI job: a CI runner has no deployed
+dotfiles, so each of its tests skips there. Locally it times the startup files of the checkout it runs from, never the
+config installed under `$HOME`. `tests/lib/startup-home.bash` builds a HOME whose startup files link to the checkout's
+and whose other entries link to the installed home, so oh-my-zsh, the plugins, and the caches are the ones a real shell
+finds; it leaves `dotfiles` out, because `config/shell/gogcli.sh` runs `stow --adopt` on `$HOME/dotfiles/stow`. A commit
+or push runs the suite only when it changes a path on `SHELL_STARTUP_PATHS` in `.githooks/lib/push-scope.sh`, the one
+list of what the six timed shells read from the checkout, and when none changes it neither runs nor times anything.
+`pre-push` judges the paths the push delivers, renames and deletions included, and an unresolvable scope runs the suite.
+`pre-commit` runs a staged perf suite only when a staged path is on the list, alone before its other gates and never in
+their batch. The list also names the files the HOME links from the checkout, so it cannot drift from what is timed;
+`tests/pre-push-scope.bats` starts the six shells under -x and fails when one reads a file of the checkout that the list
+omits.
+
 `pre-push` is the repo-wide mirror: its steps map one-to-one onto CI jobs, and passing it should mean passing the
 pipeline. `pre-commit` runs the same scripts over staged paths only, so it stays fast enough for every commit while
 catching the same class of failure. The two policy checks in `pre-commit` (protected branch, signing) have no CI
