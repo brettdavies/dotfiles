@@ -415,23 +415,27 @@ categorized bullets verbatim into CHANGELOG.md during release prep. Write for us
 
 After `git push`, `gh pr create`, `gh pr merge`, `gh release create`, `gh workflow run`, or any `gh api .../dispatches`
 call, a PostToolUse hook (`~/.claude/ci-watch-prompt.sh`) enumerates currently-active workflow runs and injects a system
-reminder listing each run id with the exact `gh run watch <id> --exit-status` command to spawn. Comply with the prompt:
-spawn one Bash call per active run with `run_in_background: true` (in parallel), so the harness notifies you when each
-finishes — no polling needed.
+reminder listing each run id with the exact `gh run watch <id> --exit-status --interval 30` command to spawn. Comply
+with the prompt: spawn one Bash call per active run with `run_in_background: true` (in parallel), so the harness
+notifies you when each finishes, with no polling.
 
-Watch only with `gh run watch <id> --exit-status`, one per run your own action started; a session that did not push
-starts no watcher. Never watch with `gh pr checks --watch` or a loop of `gh pr view`: both poll the GraphQL API every
-few seconds until the checks end, and many sessions doing it at once exhaust the account's GraphQL budget. When the
-watchers are done, read the rollup query from `~/.claude/CLAUDE.md` § "CI after push" once and assert every conclusion
-is `SUCCESS` (`SKIPPED` is acceptable only for a conditional job); see "Stacked PRs" for the duplicated-entry case
-after a branch rewrite.
+Watch only with `gh run watch <id> --exit-status --interval 30`, one per run your own action started; a session whose
+own action started no run starts no watcher. Without `--interval`, gh polls the REST API every 3 s, and REST is what CI
+checks fall back on when the GraphQL budget runs out. Never watch with `gh pr checks --watch` or a loop of `gh pr view`:
+both poll the GraphQL API every few seconds until the checks end, and many sessions doing it at once exhaust the
+account's GraphQL budget. When the last watcher completes, verify once: read the rollup query from `~/.claude/CLAUDE.md`
+§ "CI after push" and assert every conclusion is `SUCCESS` (`SKIPPED` is acceptable only for a conditional job); see
+"Stacked PRs" for the duplicated-entry case after a branch rewrite.
 
 After every batch of watchers finishes, re-run `gh run list --branch <branch>` to catch dispatched chains (e.g.
 `release.yml` → homebrew dispatch → `finalize-release`). The hook only fires after the original action; chained runs
 need a manual re-check.
 
-If you push CI-triggering changes via a path the hook doesn't cover (or `gh` is unavailable in the hook's environment),
-run the same flow manually. Never proceed past a red run.
+If you push CI-triggering changes via a path the hook doesn't cover, `gh` is unavailable in the hook's environment, or
+the hook prints nothing (no run was visible within its wait, or `gh` failed), run the same flow manually: list the runs
+once with `gh run list --commit "$(git rev-parse HEAD)"` after a push or `gh pr create`, or
+`gh run list --branch <branch> --limit 5` after anything else, and watch the unfinished ones. Never proceed past a red
+run.
 
 The full policy and matcher list lives in the script header at `~/.claude/ci-watch-prompt.sh` — that's the source of
 truth.
