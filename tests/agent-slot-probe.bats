@@ -619,9 +619,23 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   draft_pr 9 feat/p
   in_slot probe 9
   refused pr-not-from-this-slot
-  jaq -e '(.message | contains("push a new commit")) and .next_step.action == "run"
-    and (.next_step.command | startswith("git log")) and (.next_step.command | contains("refs/remotes/origin/feat/p"))' \
+  jaq -e '(.message | contains("push a new commit")) and (.message | contains("do not force-push"))
+    and .next_step.action == "run" and .next_step.command == "gh pr view 9 --repo origins/repoa --json commits"' \
     <<<"$stderr"
+}
+
+@test "a head moved with no fetch into the slot is refused, and the next step reads what the clone does not hold" {
+  local oid
+  pushed feat/p
+  draft_pr 9 feat/p
+  other_clone_pushes feat/p
+  oid=$(git -C "$T/other" rev-parse feat/p)
+  pr_fields 9 ".headRefOid = \"$oid\""
+  run ! git -C "$SLOT" cat-file -e "$oid"
+  in_slot probe 9
+  refused pr-not-from-this-slot
+  jaq -e --arg oid "$oid" '(.message | contains($oid)) and .next_step.action == "run"
+    and .next_step.command == "gh pr view 9 --repo origins/repoa --json commits"' <<<"$stderr"
 }
 
 @test "a branch present at clone does not qualify, even after this slot pushes a fixup to it" {

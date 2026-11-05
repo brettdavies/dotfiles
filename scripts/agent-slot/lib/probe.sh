@@ -18,7 +18,7 @@
 # says so; on a branch's first push the branch reads as another writer's, and the operator closes it.
 
 PROBE_TITLE_PREFIX='test(probe): '
-PROBE_REPO='' PROBE_N='' PROBE_KEY='' PROBE_PATH='' PROBE_ORIGIN='' PROBE_PR='{}' PROBE_PROOF='' PROBE_TRACKING=''
+PROBE_REPO='' PROBE_N='' PROBE_KEY='' PROBE_PATH='' PROBE_ORIGIN='' PROBE_PR='{}' PROBE_PROOF=''
 
 # Usage: _probe_resolve <ref>; sets PROBE_* for the slot holding the current directory, reads the record, and reads the
 # PR into ITEM and PROBE_PR. A ref naming another repo than origin's is refused unread, and a PR without a probe's title
@@ -84,13 +84,13 @@ dropped; closing it is the operator's call" --value "$ITEM_REF" --command "$(_pr
 # Usage: _probe_read_proof; sets PROBE_PROOF from the reflog of the remote-tracking ref for the head branch, on a remote
 # of this clone at the head's repository: pushed when the log starts with the push that created the ref and records the
 # PR's current head commit as pushed, moved when it starts that way but has no push entry for that commit, and foreign
-# otherwise, with PROBE_TRACKING the ref for the first two. It reads the log file because only that holds an entry's old
-# oid, which no `git log` format prints. Its lines are "<old> <new> <who> <when>\t<message>", oldest first. A reftable
-# repository has no such file, so the proof fails closed.
+# otherwise. It reads the log file because only that holds an entry's old oid, which no `git log` format prints. Its
+# lines are "<old> <new> <who> <when>\t<message>", oldest first. A reftable repository has no such file, so the proof
+# fails closed.
 _probe_read_proof() {
   local head_repo branch oid remote slug log entries
   local created='^0+ .*'$'\t''update by push$'
-  PROBE_PROOF=foreign PROBE_TRACKING=
+  PROBE_PROOF=foreign
   head_repo=$(contract_json -r '.head_repo // ""' <<<"$ITEM")
   branch=$(contract_json -r '.head_branch // ""' <<<"$ITEM")
   oid=$(contract_json -r '.head_oid // ""' <<<"$ITEM")
@@ -102,7 +102,7 @@ _probe_read_proof() {
     [[ -r $log ]] || continue
     entries=$(<"$log")
     [[ ${entries%%$'\n'*} =~ $created ]] || continue
-    PROBE_PROOF=moved PROBE_TRACKING=refs/remotes/$remote/$branch
+    PROBE_PROOF=moved
     if grep -qE "^[0-9a-f]+ $oid .*"$'\t'"update by push\$" <<<"$entries"; then
       PROBE_PROOF=pushed
       return 0
@@ -111,7 +111,8 @@ _probe_read_proof() {
 }
 
 # Usage: _probe_require_pushed_here; refuses unless PROBE_PROOF is pushed. On a branch this clone created, the agent can
-# see who moved the head and restore the proof itself; on any other branch only the operator can act.
+# read the head's commits and restore the proof itself; on any other branch only the operator can act. The commits come
+# from GitHub because a head this clone never fetched is in no local ref, and the slots commit under one user.name.
 _probe_require_pushed_here() {
   local head
   _probe_read_proof
@@ -119,9 +120,9 @@ _probe_require_pushed_here() {
   head=$(contract_json -r '"\(.head_repo // "(repository gone)"):\(.head_branch) at \(.head_oid // "(unknown)")"' <<<"$ITEM")
   if [[ $PROBE_PROOF == moved ]]; then
     contract_fail pr-not-from-this-slot "PR #$ITEM_NUMBER's head $head, on a branch this slot created, is not a commit \
-this slot pushed: another writer moved it, or a fetch landed before the push's own update. Read the branch's log; if none \
-of its work is another writer's, push a new commit to it and rerun" --value "$ITEM_REF" \
-      --command "$(contract_quote git log -n 5 '--format=%h %an %s' "$PROBE_TRACKING")" --action run
+this slot pushed: another writer moved it, or a fetch landed before the push's own update. Read the PR's commits; if none \
+of its work is another writer's, push a new commit to it and rerun, and do not force-push" --value "$ITEM_REF" \
+      --command "$(contract_quote gh pr view "$ITEM_NUMBER" --repo "$ITEM_REPO" --json commits)" --action run
   fi
   contract_fail pr-not-from-this-slot "PR #$ITEM_NUMBER's head $head is not on a branch this slot created, so it is \
 another writer's to close" --value "$ITEM_REF" --command "$(_probe_view_command)"
