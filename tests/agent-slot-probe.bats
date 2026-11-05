@@ -247,6 +247,56 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
 }
 
+@test "unpushed work beneath a closed probe's head still blocks, whether or not origin keeps the probe's branch" {
+  finished_task
+  work feat/real 3
+  marked_probe 9 feat/p
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  check
+  jaq -e '.finished == true and .teardown == false and ([.blockers[].code] == ["unpushed-commits"])
+    and .blockers[0].count == 3' <<<"$VERDICT"
+  git -C "$SLOT" push -q origin --delete feat/p
+  check
+  jaq -e '.teardown == false and ([.blockers[].code] == ["unpushed-commits"]) and .blockers[0].count == 3' <<<"$VERDICT"
+  run --separate-stderr "$AGENT_SLOT" sweep --yes --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == []' <<<"$output"
+  [ -d "$SLOT/.git" ]
+}
+
+@test "unpushed work beneath a closed probe's head blocks a released task with no merged PR" {
+  work feat/real 3
+  marked_probe 9 feat/p
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  git -C "$SLOT" push -q origin --delete feat/p
+  released
+  check
+  jaq -e '.finished == true and .teardown == false and ([.blockers[].code] == ["unpushed-commits"])
+    and .blockers[0].count == 3' <<<"$VERDICT"
+}
+
+@test "a work branch that shares a closed probe's tip is not the probe's, so its commit still blocks" {
+  finished_task
+  marked_probe 9 feat/p
+  git -C "$SLOT" branch feat/shared feat/p
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  check
+  jaq -e '.teardown == false and ([.blockers[].code] == ["unpushed-commits"]) and .blockers[0].count == 1' <<<"$VERDICT"
+}
+
+@test "a slot whose only branch is a closed probe's passes once released" {
+  marked_probe 9 feat/p
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  git -C "$SLOT" branch -q -D main
+  released
+  check
+  jaq -e '.finished == true and .blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
 @test "beside a closed probe, a PR ref that names no PR of this task counts as nothing pushed" {
   closed_probe 9 feat/p
   work feat/s

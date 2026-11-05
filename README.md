@@ -626,9 +626,10 @@ PR out of draft drops the mark, so a return to draft does not make it a probe ag
 and `probe` on each of a slot's `prs`.
 
 A probe closed unmerged neither finishes its task nor blocks its teardown, as with a reopened slot's settled PRs, and
-the commit checks count it as no PR while its head still counts as pushed. A slot whose only PR is a closed probe
-finishes through `agent-slot release`. An open probe keeps the task open like any open PR, every other check still
-holds, and any other PR closed unmerged stays the `pr-closed-unmerged` blocker.
+the commit checks count it as no PR. Its head counts as pushed for its own branch and nothing else, so unpushed work on
+a branch the probe was cut from still blocks. A slot whose only PR is a closed probe finishes through
+`agent-slot release`. An open probe keeps the task open like any open PR, every other check still holds, and any other
+PR closed unmerged stays the `pr-closed-unmerged` blocker.
 
 A slot closes its probe with `agent-slot close-probe <pr>`, also from inside the slot, because `gh pr close` sits behind
 an ask rule nobody can answer there. Both verbs act only on an open draft in the repo of the slot's origin, on a branch
