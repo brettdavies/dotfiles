@@ -106,9 +106,10 @@ check_pr_freeze() {
     prev=$arg
   done
 
-  # Flags may come before either word of `pr create`, as strip_word reads them.
+  # Flags may come before either word of `pr create`, as strip_word reads them, and
+  # gh answers a --help among them with help alone.
   local route="${1:-} ${2:-}"
-  strip_word pr --version "$@" && strip_word create '' "${STRIPPED[@]}" && route="pr create"
+  strip_word pr --version "$@" && strip_word create '' "${STRIPPED[@]}" && ! $HELP_FLAG && route="pr create"
   case "$route" in
     "pr create" | "stack submit" | "stack link")
       # gh-stack takes its target from GH_REPO and the checkout, not from -R.
@@ -151,14 +152,22 @@ check_pr_freeze() {
 # bare flag takes the next token as its value unless this level defines it with
 # none, which is --help everywhere and $2 here, and an undefined -h counts as
 # taking a value. A two-character flag is two bytes, as cobra's len(s) == 2 is.
+# HELP_FLAG is true when a --help before the word follows a token that is no flag:
+# pflag lets a flag take the token right after it as its value, and a bundle such
+# as -dt, which this walk reads as taking none, makes `-dt --help` a title.
 strip_word() {
-  local word=$1 bare=$2 LC_ALL=C arg i
+  local word=$1 bare=$2 LC_ALL=C arg i j
   shift 2
+  HELP_FLAG=false
   for ((i = 1; i <= $#; i++)); do
     arg=${!i}
     case $arg in
       --) return 1 ;;
-      -*=* | '' | --help | "$bare") ;;
+      --help)
+        j=$((i - 1))
+        if ((j == 0)) || [[ ${!j} != -* ]]; then HELP_FLAG=true; fi
+        ;;
+      -*=* | '' | "$bare") ;;
       --* | -?) ((i += 1)) ;;
       -*) ;;
       "$word")
