@@ -622,8 +622,9 @@ draft titled `test(probe): <what it probes>`, which stays a Conventional Commits
 or closed by these verbs: any other title is refused with `pr-title-not-probe`. Nothing infers one: the slot's agent
 declares it with `agent-slot probe <pr>`, run from inside the slot, which adds the PR's number to the record's `probes`
 and attaches it as a work item. The mark counts only while the PR stays a draft: the first check or verb that sees the
-PR out of draft drops the mark, so a return to draft does not make it a probe again. `agent-slot check` reports `draft`
-and `probe` on each of a slot's `prs`.
+PR out of draft drops the mark, and a return to draft does not bring it back by itself. Marking the PR again with
+`agent-slot probe` is a new declaration by the agent, and the same qualifications apply. `agent-slot check` reports
+`draft` and `probe` on each of a slot's `prs`.
 
 A probe closed unmerged neither finishes its task nor blocks its teardown, as with a reopened slot's settled PRs, and
 the commit checks count it as no PR. Its head counts as pushed for its own branch and nothing else, so unpushed work on

@@ -359,6 +359,25 @@ ledger() { jaq -c -s --arg e "$1" 'map(select(.event == $e))[-1]' "$AGENT_SLOT_S
   jaq -e '.teardown == false and (.needs_you[] | select(.code == "pr-closed-unmerged") | .values == ["9"])' <<<"$VERDICT"
 }
 
+@test "a dropped mark comes back only through a new probe, the step close-probe's refusal names" {
+  marked_probe 9 feat/p
+  pr_fields 9 '.isDraft = false'
+  check
+  record_has '.probes == []'
+  pr_fields 9 '.isDraft = true'
+  in_slot close-probe 9
+  refused pr-not-probe
+  jaq -e '.next_step.action == "run" and .next_step.command == "agent-slot probe 9"' <<<"$stderr"
+  record_has '.probes == []'
+  in_slot probe 9
+  [ "$status" -eq 0 ]
+  jaq -e '.already_marked == false' <<<"$output"
+  in_slot close-probe 9
+  [ "$status" -eq 0 ]
+  jaq -e '.closed == true and .already_closed == false' <<<"$output"
+  [ "$(grep -c '^gh pr close' "$CALLS")" = 1 ]
+}
+
 @test "probe and close-probe drop the mark of a PR they read out of draft" {
   marked_probe 9 feat/p
   pr_fields 9 '.isDraft = false'

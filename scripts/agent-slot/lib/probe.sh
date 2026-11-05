@@ -69,8 +69,9 @@ pr-closed-unmerged blocker; clearing that is the operator's call" --value "$ITEM
     --command "$(_probe_view_command)" --action ask-operator
 }
 
-# Usage: _probe_require_draft; refuses a PR that is not a draft and drops its mark, so a return to draft does not make it
-# a probe again. Marking one needs nobody, since it simply is no probe; closing a marked one is the operator's call.
+# Usage: _probe_require_draft; refuses a PR that is not a draft and drops its mark, which does not come back by itself on
+# a return to draft; marking it again is a new declaration by the agent. Marking one out of draft needs nobody, since it
+# simply is no probe; closing a marked one is the operator's call.
 _probe_require_draft() {
   [[ $(contract_json -r .draft <<<"$ITEM") != true ]] || return 0
   [[ $(_probe_marked) != true ]] \
