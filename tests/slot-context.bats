@@ -61,6 +61,7 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [[ $context == *fix-login* ]]
   [[ $context == *"base branch is main"* ]]
   [[ $context == *"$AGENT_SLOT_DEV/repo"*read-only* ]]
+  [[ $context == *"meant for Brett"*"$AGENT_SLOT_DEV/repo/.context/"* ]]
   [[ $context == *sd-commit-doc* ]]
   [[ $context == *"git add"*"git commit"* ]]
   [[ $context == *worktree* ]]

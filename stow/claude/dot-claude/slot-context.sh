@@ -145,7 +145,8 @@ it: send a reopen to the session your brief reports to."
     if [[ -n $task ]]; then printf 'Task: %s.\n' "$task"; else printf '%s\n' 'This slot was given no task name.'; fi
     [[ -z $items ]] || printf 'Work items: %s.\n' "$items"
     printf '%s\n' "The base branch is $base." \
-      "The prime checkout $prime is read-only for you; make every change in this slot."
+      "The prime checkout $prime is read-only for you, except its .context/ folder: put any file meant for Brett \
+to read in $prime/.context/, never in /tmp or a scratchpad. Make every other change in this slot."
     [[ -z $vault_rules ]] || printf '%s\n' "$vault_rules"
     printf '%s\n' "$solutions" "$rules" "$unattended" "$plans" "$closing" \
       "$rules_after" "$reopen"
