@@ -599,7 +599,8 @@ assert_own_worktree() {
 
 @test "a Touches: glob git rejects, or one that names an absolute path, is refused before any slot is made" {
   local glob
-  for glob in ':(nonsense)src/**' '/home/x/src/a.sh' '../up.txt'; do
+  # shellcheck disable=SC2088 # a literal ~ is the glob under test
+  for glob in ':(nonsense)src/**' '/home/x/src/a.sh' '../up.txt' "$AGENT_SLOT_DEV/repoa/src/a.sh" '~/a.sh'; do
     printf '%s\n' 'Scope: all.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' "Touches: src/**, $glob" \
       'Adds: none.' >"$T/brief.md"
     launch repoa --request-id "r-$RANDOM" --prompt-file "$T/brief.md"
@@ -631,6 +632,21 @@ assert_own_worktree() {
   launch repoa --request-id r-dot --prompt-file "$T/brief.md"
   [ "$status" -eq 0 ]
   jaq -e '.scope.touches == ["."]' "$AGENT_SLOT_ROOT/repoa/2/.git/agent-slot.json"
+}
+
+@test "a bold or italic label alone on its line has no value, so the line is refused rather than recording its emphasis marks" {
+  local label
+  for label in '**Touches:**' '*Touches:*' '__Touches:__' '**Touches**:'; do
+    printf '%s\n' 'Scope: x.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' "$label" '- src/**' 'Adds: none.' \
+      >"$T/brief.md"
+    launch repoa --request-id "r-$RANDOM" --prompt-file "$T/brief.md"
+    [ "$status" -eq 2 ] || {
+      echo "accepted: $label"
+      false
+    }
+    jaq -e '.reason == "brief-incomplete" and .value == "Touches:"' <<<"$stderr"
+  done
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
 }
 
 @test "a Touches: line that holds no glob once trimmed is refused" {
