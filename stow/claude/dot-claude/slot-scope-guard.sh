@@ -39,7 +39,8 @@ scope_deny_reason() {
 covers them:
   ${4//$'\n'/$'\n'  }
 Revert that change, or record it under \"Not in scope\" in the PR body and send the coordinating session a request for \
-a scope grant, naming the paths. Keep working on what the push does not need."
+a scope grant, naming the paths; the operator grants one by running \`agent-slot grant-scope $1/$2 <pathspec>\` at a \
+terminal, which you cannot run yourself. Keep working on what the push does not need."
 }
 
 # Usage: scope_decide <repo> <n>; RECORD holds the slot's record. Prints the denial, or nothing.

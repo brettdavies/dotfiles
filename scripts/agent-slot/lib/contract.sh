@@ -102,6 +102,9 @@ own-tabs-unrestored           0     false      0            ask-operator
 tmux-outside-scope            0     false      0            ask-operator
 review-grant-from-slot        1     false      0            ask-operator
 slot-head-missing             1     false      0            run
+scope-grant-from-slot         1     false      0            ask-operator
+grant-needs-terminal          1     false      0            ask-operator
+grant-not-confirmed           1     false      0            rerun
 '
 
 CONTRACT_VERB=agent-slot

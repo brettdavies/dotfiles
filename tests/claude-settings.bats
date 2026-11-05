@@ -188,6 +188,15 @@ REPO="$BATS_TEST_DIRNAME/.."
   grep -qxF 'Bash(agent-slot grant-review *)' <<<"$output"
 }
 
+# grant-scope asks first too, so a slot's agent cannot grant its own PR a path outside its brief; the verb also needs a
+# person at a terminal, which no agent's Bash tool has.
+@test "agent-slot grant-scope asks first" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  grep -qxF 'Bash(agent-slot grant-scope *)' <<<"$output"
+}
+
 # agent-slot-rex runs on the same host as the slots, so its finish and sweep run
 # agent-slot finish --yes and sweep --yes here. They ask first for the same
 # reason agent-slot's own verbs do.

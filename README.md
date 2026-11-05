@@ -348,6 +348,18 @@ session a request for a scope grant. A slot whose record has no `scope.touches` 
 prints nothing. `Adds:` is recorded and shown, and is not checked against the diff. The hook judges the commits as they
 stand at the push: a push of another branch than the checked-out one is judged by `HEAD`.
 
+The operator lets a slot's PR change one more path with `agent-slot grant-scope <repo>/<N> <pathspec>`, which appends a
+`scope-grant` event for the slot, and the hook then lets the paths that pathspec matches through. The verb prints the
+paths it will grant to `/dev/tty` and reads the slot's key back from it, so it needs a person at a terminal: with none,
+as in an agent's shell, it refuses with `grant-needs-terminal`, and with any other answer, `grant-not-confirmed`. It
+refuses with `scope-grant-from-slot` when run from a slot's directory or its tmux server, and an ask rule makes a slot's
+own request for it a denial through `slot-unattended.sh`. A pathspec git rejects is refused with `usage` before the
+terminal is asked. The coordinating session cannot run it either; it relays the request to the operator.
+
+```bash
+agent-slot grant-scope dotfiles/2 'docs/*.md'
+```
+
 A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
 merged with none open, the operator finished it, whatever state its PRs are in, or its agent released it with no PR
 open) and nothing in it is missing from GitHub. A commit is safe there once a PR's final head holds it, an origin branch
@@ -880,6 +892,9 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `own-tabs-unrestored`         | 0    | Doctor warning: the start-up step did not restore the operator's own tabs into this Rex server |
 | `review-grant-from-slot`      | 1    | `grant-review` refused: run from a slot or its tmux server; only the operator grants           |
 | `slot-head-missing`           | 1    | `grant-review` refused: the slot has no branch or commit to count rounds under                 |
+| `scope-grant-from-slot`       | 1    | `grant-scope` refused: run from a slot or its tmux server; only the operator grants scope      |
+| `grant-needs-terminal`        | 1    | `grant-scope` refused: no terminal to type the confirmation at, as in an agent's shell         |
+| `grant-not-confirmed`         | 1    | `grant-scope` refused: the answer typed at the terminal was not the slot's key                 |
 | `tmux-outside-scope`          | 0    | Doctor warning: the slot tmux server runs in a service's cgroup and would end with that unit   |
 
 #### Teardown blockers

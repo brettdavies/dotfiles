@@ -350,6 +350,7 @@
     "ask": [
       "Bash(agent-slot finish *)",
       "Bash(agent-slot grant-review *)",
+      "Bash(agent-slot grant-scope *)",
       "Bash(agent-slot reopen *)",
       "Bash(agent-slot sweep *)",
       "Bash(agent-slot-rex finish *)",

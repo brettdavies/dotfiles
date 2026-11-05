@@ -101,6 +101,8 @@ grant_line() {
   [[ $reason == *"Revert that change"* ]]
   [[ $reason == *'record it under "Not in scope" in the PR body'* ]]
   [[ $reason == *"send the coordinating session a request for a scope grant"* ]]
+  [[ $reason == *"the operator grants one by running \`agent-slot grant-scope repo/1 <pathspec>\` at a terminal"* ]]
+  [[ $reason == *"which you cannot run yourself"* ]]
 }
 
 @test "every undeclared path is named, a deleted one and both sides of a rename included" {
@@ -151,6 +153,19 @@ grant_line() {
   grant_line other 1 '*'
   run bash_call "git push"
   [[ $output == *'"deny"'* ]]
+}
+
+@test "a grant the operator's verb wrote covers its paths, and the verb's grant for another slot does not" {
+  slot repo 2
+  commit README.md
+  python3 -I "$BATS_TEST_DIRNAME/lib/with-tty.py" repo/2 env -u TMUX -u TMUX_PANE "$AGENT_SLOT" grant-scope repo/2 README.md \
+    >/dev/null
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+  python3 -I "$BATS_TEST_DIRNAME/lib/with-tty.py" repo/1 env -u TMUX -u TMUX_PANE "$AGENT_SLOT" grant-scope repo/1 README.md \
+    >/dev/null
+  jaq -e 'select(.event == "scope-grant") | .repo == "repo" and .slot == 1 and .pathspec == "README.md"' "$LEDGER"
+  push
 }
 
 @test "a grant from before the slot was made does not cover a reused slot" {
