@@ -956,10 +956,14 @@ EOF
   [ ! -e "$AGENT_SLOT_ROOT/repoa" ]
 }
 
-@test "a task named after the repo's prime is refused, since the prime would resume its conversation" {
-  launch repoa --task repoa-prime
-  [ "$status" -eq 2 ]
-  jaq -e '.reason == "invalid-task-name" and .value == "repoa-prime" and (.message | contains("prime"))' <<<"$stderr"
+@test "a task named after any repo's prime is refused, since that prime would resume its conversation" {
+  local name
+  for name in repoa-prime other-prime; do
+    launch repoa --task "$name"
+    [ "$status" -eq 2 ]
+    jaq -e --arg name "$name" '.reason == "invalid-task-name" and .value == $name and (.message | contains("-prime"))' \
+      <<<"$stderr"
+  done
   [ ! -e "$AGENT_SLOT_ROOT/repoa" ]
 }
 
