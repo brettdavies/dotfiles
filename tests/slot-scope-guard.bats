@@ -119,6 +119,46 @@ grant_line() {
   [[ $reason != *"scripts/agent-slot/verb.sh"* ]]
 }
 
+@test "a file moved from an undeclared path into a declared one names the old path" {
+  printf 'distinct legacy content\n' >"$SLOT/old/legacy.txt"
+  git -C "$SLOT" commit -q -am "legacy content"
+  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  git -C "$SLOT" mv old/legacy.txt scripts/agent-slot/moved.sh
+  git -C "$SLOT" commit -q -m move
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+  [[ $output == *"old/legacy.txt"* ]]
+}
+
+@test "a commit chained before the push is refused, since the hook cannot judge a commit it has not seen" {
+  commit scripts/agent-slot/ok.sh
+  local c
+  for c in "git add -A && git commit --file m && git push" "git commit -m x; git push" "git pull --rebase && git push" \
+    "git -C . merge main && git push"; do
+    run bash_call "$c"
+    [[ $output == *'"deny"'* ]] || {
+      echo "not denied: $c"
+      false
+    }
+    reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+    [[ $reason == *"run \`git push\` as its own command"* ]]
+  done
+  push "git push"
+}
+
+@test "the push is recognised after timeout, nice, and git options that take a value" {
+  commit README.md
+  local c
+  for c in "timeout 600 git push" "nice -n 5 git push" "git --git-dir .git push" "if ! git push; then :; fi" \
+    "while ! git push; do :; done" 'x=`git push`'; do
+    run bash_call "$c"
+    [[ $output == *'"deny"'* ]] || {
+      echo "not denied: $c"
+      false
+    }
+  done
+}
+
 @test "a pathspec directory and a glob without a slash both cover what git says they cover" {
   jaq -c '.scope.touches = ["old", "*.md"]' "$SLOT/.git/agent-slot.json" >"$T/record.new"
   mv "$T/record.new" "$SLOT/.git/agent-slot.json"
@@ -173,6 +213,54 @@ grant_line() {
       false
     }
   done
+}
+
+@test "the push is recognised behind a wrapper, a path, a keyword, or a shell -c" {
+  commit README.md
+  local c
+  for c in "time git push" "/usr/bin/git push" 'bash -c "git push"' "bash -c 'git push origin x'" "if git push; then :; fi" \
+    "{ git push; }" "command git push" "env X=1 git push" "! git push" "nohup git push" "sudo -u me git push"; do
+    run bash_call "$c"
+    [[ $output == *'"deny"'* ]] || {
+      echo "not denied: $c"
+      false
+    }
+  done
+}
+
+@test "a push that sends nothing, a dry run or a branch deletion, is not judged" {
+  commit README.md
+  local c
+  for c in "git push --dry-run" "git push origin --delete feat/stale" "git push -d origin feat/stale"; do
+    run bash_call "$c"
+    [ -z "$output" ] || {
+      echo "denied: $c"
+      false
+    }
+  done
+}
+
+@test "a Touches: glob git rejects in the record denies the push naming it, rather than leaving it unguarded" {
+  jaq -c '.scope.touches = ["src/**", ":(nonsense)x"]' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  commit scripts/agent-slot/ok.sh
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *':(nonsense)x'* ]]
+  [[ $reason == *"is not a git pathspec"* ]]
+}
+
+@test "the denial names the slot, the base it diffed against, and how to ask, and warns about a branch built on another" {
+  commit README.md
+  run bash_call "git push"
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *"Slot repo/1"* ]]
+  [[ $reason == *"commits on feat/one against origin/main"* ]]
+  [[ $reason == *"as one \`SendMessage\`"* ]]
+  [[ $reason == *"If your brief names no such session, leave the decision open in your plan and your report"* ]]
+  [[ $reason == *"If these paths come from a branch you built on, do not revert them"* ]]
+  [[ $reason == *"\`agent-slot whoami --output json\`"* ]]
 }
 
 @test "a command that is not a git push prints nothing, whatever the commits hold" {

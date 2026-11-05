@@ -2,7 +2,8 @@
 # Claude hook that holds a slot's `git push` to the paths its brief declared. For the pane's top-level Claude in a slot's
 # Claude session (see scripts/agent-slot/lib/hook.sh), which includes the calls of that Claude's subagents:
 #   PreToolUse on Bash   when the command is a `git push`, lists the paths the slot's commits change against
-#                        origin/<base> (`git diff --name-only origin/<base>...HEAD`) and denies the push when any path
+#                        origin/<base> (`git diff --name-only --no-renames origin/<base>...HEAD`) and denies the push
+#                        when any path
 #                        matches none of the record's scope.touches git pathspec globs and no `scope-grant` ledger line
 #                        for the slot covers it
 # A record with no scope.touches passes. Grants count from the slot's created_at, so a reused slot number starts at none.
@@ -19,9 +20,20 @@ fi
 
 AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
 
-# A `git push` that starts a command: after a separator, a newline, or an opening parenthesis, past any assignments and
-# git's own options.
-PUSH_RE=$'(^|[;&|(\n])[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--[^[:space:]]+|-[A-Za-z]+))*[[:space:]]+push([[:space:]]|$|[;&|)])'
+# A git command that starts a command: after a separator, a newline, an opening brace or parenthesis, a backtick, or a
+# quote (a `bash -c` script), past any assignments, wrappers (`time`, `timeout 600`, `env`, `sudo -u me`, `!`, and the
+# like), and git's own options. It is a guard, not a trust boundary: a wrapper this does not list runs the command
+# unjudged.
+GIT_START=$'(^|[;&|({\n`"\'])[[:space:]]*((!|if|elif|then|do|else|while|until|time|command|exec|nohup|env|nice|sudo)[[:space:]]+'
+GIT_START+=$'(-[A-Za-z]+[[:space:]]+[^-[:space:]][^[:space:]]*[[:space:]]+)?|timeout[[:space:]]+[0-9.]+[smhd]?[[:space:]]+'
+GIT_START+=$'|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(/[^[:space:]]*/)?git'
+GIT_START+=$'([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace)[[:space:]]+[^[:space:]]+|--[^[:space:]]+|-[A-Za-z]+))*'
+GIT_START+=$'[[:space:]]+'
+PUSH_RE=$GIT_START$'push([[:space:]]|$|[;&|)}`"\'])'
+# A git command that moves HEAD, so a push after it in the same command carries commits the hook has not seen.
+MOVE_RE=$GIT_START$'(commit|merge|rebase|cherry-pick|revert|am|pull|reset)([[:space:]]|$|[;&|)}`"\'])'
+# A push that sends no commits.
+PUSH_NOOP_RE='[[:space:]](--dry-run|--delete|-d)([[:space:]=]|$)'
 
 # Usage: scope_grants <repo> <n> <since>; prints the pathspec of each scope-grant ledger line for the slot, one per
 # line. The ledger is read line by line, so a line that is not JSON grants nothing.
@@ -33,21 +45,49 @@ scope_grants() {
       and .slot == $n and .ts >= $since and (.pathspec | type == "string")) | .pathspec] | .[]' "$AS_LEDGER"
 }
 
-# Usage: scope_deny_reason <repo> <n> <touches> <paths>; <touches> is the comma-separated globs, <paths> one per line.
+# Usage: scope_deny_reason <repo> <n> <touches> <paths> <branch> <base>; <touches> is the comma-separated globs, <paths>
+# one per line.
 scope_deny_reason() {
-  printf '%s' "This slot's brief lets its PR change only: $3. The push changes paths outside that, and no scope grant \
-covers them:
+  printf '%s' "Slot $1/$2 may change only: $3 (\`agent-slot whoami --output json\` shows the recorded scope). The \
+commits on $5 against origin/$6 change paths outside that, and no scope grant covers them:
   ${4//$'\n'/$'\n'  }
-Revert that change, or record it under \"Not in scope\" in the PR body and send the coordinating session a request for \
-a scope grant, naming the paths. Keep working on what the push does not need."
+Revert that change (\`git checkout origin/$6 -- <path>\` for a changed or deleted file, \`git rm\` for an added one, \
+then commit), or record it under \"Not in scope\" in the PR body and send the coordinating session a request for a \
+scope grant, naming the paths, as one \`SendMessage\`. If your brief names no such session, leave the decision open in \
+your plan and your report. If these paths come from a branch you built on, do not revert them; say so in that message. \
+Keep working on what the push does not need."
 }
 
-# Usage: scope_decide <repo> <n>; RECORD holds the slot's record. Prints the denial, or nothing.
+# Usage: scope_bad_glob_reason <repo> <n> <glob>
+scope_bad_glob_reason() {
+  printf '%s' "Slot $1/$2 records the Touches: glob $3, which is not a git pathspec inside the repo, so the push cannot be \
+checked against it. Send the coordinating session the glob as one \`SendMessage\` and ask for a corrected scope. If \
+your brief names no such session, leave the decision open in your plan and your report."
+}
+
+# Usage: scope_chain_reason <repo> <n>
+scope_chain_reason() {
+  printf '%s' "Slot $1/$2 limits its PR to the paths its brief declares, and this command changes HEAD before it \
+pushes, so the hook cannot judge the commits it would push. Commit first, then run \`git push\` as its own command."
+}
+
+# Usage: scope_deny <reason>; prints the PreToolUse denial.
 # shellcheck disable=SC2016 # a jaq program
+scope_deny() {
+  contract_json -n -c --arg m "$1" \
+    '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $m}}'
+}
+
+# Usage: scope_decide <repo> <n> <chained>; RECORD holds the slot's record. Prints the denial, or nothing. <chained> is
+# non-empty when the command changes HEAD before it pushes.
 scope_decide() {
-  local repo=$1 n=$2 path base since touches changed matched outside spec
+  local repo=$1 n=$2 chained=$3 path base since touches changed matched outside spec
   local -a specs=()
   contract_json -e '.scope.touches | type == "array"' <<<"$RECORD" >/dev/null || return 0
+  [[ -z $chained ]] || {
+    scope_deny "$(scope_chain_reason "$repo" "$n")"
+    return 0
+  }
   path=$(slot_path "$repo" "$n")
   base=$(contract_json -r '.base // empty' <<<"$RECORD")
   since=$(contract_json -r '.created_at // ""' <<<"$RECORD")
@@ -65,18 +105,23 @@ scope_decide() {
     hook_log "slot $repo/$n: git diff origin/$base...HEAD failed; push allowed"
     return 0
   }
+  for spec in "${specs[@]}"; do
+    git -C "$path" ls-files -- "$spec" >/dev/null 2>&1 || {
+      scope_deny "$(scope_bad_glob_reason "$repo" "$n" "$spec")"
+      return 0
+    }
+  done
   matched=
   if ((${#specs[@]} > 0)); then
     matched=$(git -C "$path" -c core.quotePath=false diff --name-only --no-renames "origin/$base...HEAD" -- \
       "${specs[@]}" 2>/dev/null | sort -u) || {
-      hook_log "slot $repo/$n: a Touches: glob is not a valid pathspec; push allowed"
+      hook_log "slot $repo/$n: git diff against the scope globs failed; push allowed"
       return 0
     }
   fi
   outside=$(comm -23 <(printf '%s\n' "$changed") <(printf '%s\n' "$matched") | sed '/^$/d')
   [[ -n $outside ]] || return 0
-  contract_json -n -c --arg m "$(scope_deny_reason "$repo" "$n" "$touches" "$outside")" \
-    '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $m}}'
+  scope_deny "$(scope_deny_reason "$repo" "$n" "$touches" "$outside" "$(slot_review_key "$path")" "$base")"
 }
 
 scope_main() {
@@ -85,14 +130,14 @@ scope_main() {
   fields='"\(.hook_event_name // "")\u001f\(.tool_name // "")\u001f\(.tool_input.command // "" | gsub("\u001f"; " "))"'
   IFS=$'\x1f' read -r -d '' event tool command <<<"$(hook_field "$fields")" || true
   [[ $event == PreToolUse && $tool == Bash ]] || return 0
-  [[ $command =~ $PUSH_RE ]] || return 0
+  [[ $command =~ $PUSH_RE && ! $command =~ $PUSH_NOOP_RE ]] || return 0
   hook_pane && hook_claude_session && hook_top_level_claude || return 0
   read -r repo n <<<"$(hook_slot)"
   record_read "$repo" "$n" || {
     hook_log "slot $repo/$n has no readable record; push allowed"
     return 0
   }
-  scope_decide "$repo" "$n"
+  scope_decide "$repo" "$n" "$([[ $command =~ $MOVE_RE ]] && echo chained)"
 }
 
 HOOK_PAYLOAD_IN=$(cat)

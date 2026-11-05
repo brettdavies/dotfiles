@@ -346,7 +346,23 @@ of the slot's `scope-grant` ledger lines (counted from the slot's `created_at`).
 scope and the next step: revert that change, or record it under "Not in scope" in the PR body and send the coordinating
 session a request for a scope grant. A slot whose record has no `scope.touches` passes, and outside a slot the hook
 prints nothing. `Adds:` is recorded and shown, and is not checked against the diff. The hook judges the commits as they
-stand at the push: a push of another branch than the checked-out one is judged by `HEAD`.
+stand at the push: a push of another branch than the checked-out one is judged by `HEAD`, and a dry run or a branch
+deletion is not judged. A command that changes `HEAD` before it pushes, such as `git commit && git push`, is denied for
+a slot with a scope, because the hook runs before the commit exists: the agent commits first and pushes as its own
+command.
+
+```text
+Touches: scripts/agent-slot/**, tests/*.bats, README.md
+Adds: one flag, --dry-run; the reason code scope-grant-from-slot
+```
+
+A glob is a git pathspec relative to the repo root: `*` crosses `/`, so `tests/*.bats` also matches
+`tests/lib/x.bats`; a directory name matches everything under it; a comma always separates two globs, so a brace list
+does not work. `launch` and `reopen` refuse a glob git rejects, such as an absolute path, with `brief-incomplete` naming
+it, and the hook denies a push whose recorded glob git rejects instead of leaving it unguarded. A slot's base is the
+repo's base branch, so a slot stacked on another PR's branch sees that PR's paths as its own changes: its `Touches:`
+lists them, or the operator grants them. The hook is a guard, not a trust boundary: it recognises a `git push` by its
+text, so a wrapper it does not list, or a script that pushes, runs unjudged.
 
 A slot stays while its task is open, review rounds included, and is deleted only once the task has finished (its PRs
 merged with none open, the operator finished it, whatever state its PRs are in, or its agent released it with no PR
