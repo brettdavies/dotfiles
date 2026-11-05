@@ -773,6 +773,17 @@ PRIME_OLD_STYLE='{"schema":"dotfiles.agent-slot/1","ok":true,"verb":"prime","key
   not_called '^tmux -L agent-slots attach'
 }
 
+@test "attach of another pane waits on an old-style session rather than hand over to the prime command" {
+  tmux_answer has-session 0 1
+  tmux_answer has-session 1 1
+  tmux_answer has-session 2 0
+  slot_answer prime 0 "$PRIME_OLD_STYLE"
+  run "$AGENT_SLOT_REX" attach X/prime files </dev/null
+  [ "$status" -eq 0 ]
+  [[ $output == *"X-prime-files is still missing after agent-slot prime; retrying in 0 s"* ]]
+  not_called '^agent-slot-rex prime'
+}
+
 @test "attach to a prime with a bad pane name is a usage error" {
   run --separate-stderr "$AGENT_SLOT_REX" attach X/prime nope --output json
   [ "$status" -eq 2 ]
