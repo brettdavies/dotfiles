@@ -217,6 +217,21 @@ refresh_call() {
   [ "$status" -eq 0 ]
 }
 
+@test "compound-not-run names the refresh run as ce-compound mode:refresh and asks only for the runs missing" {
+  finished_task
+  ran ce-compound
+  release
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "compound-not-run" and .value == "ce-compound:refresh"
+    and (.message | test("has not run ce-compound mode:refresh;"))
+    and (.message | test("once per finding") | not)' <<<"$stderr"
+  : >"$T/transcript.jsonl"
+  refresh_call 'mode:refresh mode:non-interactive'
+  release
+  jaq -e '.value == "ce-compound" and (.message | test("has not run ce-compound to capture;"))
+    and (.message | test("mode:refresh mode:non-interactive <scope>") | not)' <<<"$stderr"
+}
+
 @test "a typed refresh whose arguments hold a < is the refresh run, not the capture run" {
   finished_task
   : >"$T/transcript.jsonl"

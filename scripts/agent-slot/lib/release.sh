@@ -213,8 +213,21 @@ cmd_release() {
   if ((${#RELEASE_MISSING[@]} > 0)); then
     teardown_log release "$(printf '%s\n' "${RELEASE_MISSING[@]}" | contract_json -R -s -c --arg key "$key" \
       '{key: $key, result: "refused", reason: "compound-not-run", missing: split("\n") | map(select(. != ""))}')"
-    contract_fail compound-not-run "this slot's Claude session has not run ${RELEASE_MISSING[*]}; close out by running \
-$RELEASE_COMPOUND once per finding, then $RELEASE_REFRESH, then $RELEASE_COMMAND" --value "${RELEASE_MISSING[*]}" \
+    local named='' steps='' skill
+    for skill in "${RELEASE_MISSING[@]}"; do
+      case $skill in
+        ce-compound)
+          named+="${named:+ or }ce-compound to capture"
+          steps+="${steps:+, then }$RELEASE_COMPOUND once per finding"
+          ;;
+        ce-compound:refresh)
+          named+="${named:+ or }ce-compound mode:refresh"
+          steps+="${steps:+, then }$RELEASE_REFRESH"
+          ;;
+      esac
+    done
+    contract_fail compound-not-run "this slot's Claude session has not run $named; close out by running $steps, then \
+$RELEASE_COMMAND" --value "${RELEASE_MISSING[*]}" \
       --command "$([[ ${RELEASE_MISSING[0]} == ce-compound ]] && printf '%s' "$RELEASE_COMPOUND" \
         || printf '%s' "$RELEASE_REFRESH")"
   fi
