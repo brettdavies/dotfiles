@@ -67,7 +67,26 @@ remind() {
   CTX=$(printf '%s' "$out" | jaq -r '.hookSpecificOutput.additionalContext // ""')
 }
 
+@test "a push lists the pushed commit's unfinished runs and no other head's" {
+  remind 'git push origin HEAD:feat/x'
+  [[ "$CTX" != *101* ]]
+  [[ "$CTX" == *"  - 202  CI / CI  [pending, event=push]"* ]]
+  [[ "$CTX" != *303* ]]
+}
+
+@test "a workflow dispatch lists every unfinished run on the branch, pending included" {
+  remind 'gh workflow run ci.yml'
+  [[ "$CTX" == *"  - 101  CI / CI  [in_progress, event=push]"* ]]
+  [[ "$CTX" == *"  - 202  CI / CI  [pending, event=push]"* ]]
+  [[ "$CTX" != *303* ]]
+}
+
 @test "the printed watcher polls every 30 s" {
   remind 'gh workflow run ci.yml'
   [[ "$CTX" == *"  gh run watch 101 --exit-status --interval 30"* ]]
+}
+
+@test "the reminder tells the agent to watch only the runs its own action started" {
+  remind 'gh workflow run ci.yml'
+  [[ "$CTX" == *"Watch only the runs your own action started."* ]]
 }

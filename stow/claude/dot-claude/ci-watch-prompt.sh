@@ -14,7 +14,9 @@
 #   - gh workflow run / gh api ... dispatches
 #
 # When matched, the hook:
-#   1. Enumerates currently-active runs on the relevant branch via gh run list
+#   1. Enumerates the unfinished runs via gh run list: those on HEAD after a
+#      push or `gh pr create`, those on the current branch after any other
+#      action
 #   2. Emits a system reminder listing the active runs + the exact commands
 #      the agent should spawn in background to watch them
 #
@@ -121,6 +123,17 @@ branch=$(git branch --show-current 2>/dev/null)
 # Need gh
 command -v gh >/dev/null 2>&1 || exit 0
 
+# A push or PR create starts runs on the commit it sends, so list by HEAD: a
+# branch listing also holds the runs of the head that commit replaced. A new
+# head's run waits as `pending` while cancel-in-progress stops the old one, so
+# every status short of completed counts.
+if grep -qE '\bgit push\b|\bgh pr create\b' <<<"$command"; then
+  head_sha=$(git rev-parse HEAD 2>/dev/null) || exit 0
+  scope=(--commit "$head_sha")
+else
+  scope=(--branch "$branch")
+fi
+
 # Give GitHub a moment to register the new runs (push → API visibility lag),
 # then retry up to 5 times with a 2 s delay between attempts. The API can be
 # slow to surface newly-triggered runs — especially after `gh pr create`,
@@ -130,9 +143,9 @@ command -v gh >/dev/null 2>&1 || exit 0
 sleep 2
 runs=""
 for attempt in 1 2 3 4 5; do
-  runs=$(gh run list --branch "$branch" --limit 10 \
+  runs=$(gh run list "${scope[@]}" --limit 10 \
     --json databaseId,name,status,workflowName,event,createdAt \
-    --jq '[.[] | select(.status == "in_progress" or .status == "queued")]' 2>/dev/null)
+    --jq '[.[] | select(.status != "completed")]' 2>/dev/null)
   [[ -n "$runs" && "$runs" != "[]" ]] && break
   [[ "$attempt" -lt 5 ]] && sleep 2
 done
@@ -155,7 +168,7 @@ reminder=$({
   echo ""
   printf '%s' "$runs" | "$JQ" -r '.[] | "  gh run watch \(.databaseId) --exit-status --interval 30"'
   echo ""
-  echo "Watch only these runs, the ones your own action started. Never watch with"
+  echo "Watch only the runs your own action started. Never watch with"
   echo "gh pr checks --watch or a loop of gh pr view: read the rollup once, when"
   echo "the watchers are done."
   echo ""
