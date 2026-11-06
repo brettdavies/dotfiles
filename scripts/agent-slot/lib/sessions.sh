@@ -2,8 +2,8 @@
 # A slot's three tmux sessions on the slot server, each a login shell rooted at the slot with its program typed in:
 #
 #   <repo>-<N>        claude in bypass permissions mode, started with the slot's session ID, the slot's name (else its
-#                     task) when it has one, and the first message read from a file by the shell itself, so the prompt
-#                     never passes through tmux or quoting
+#                     task, else this session's own name), and the first message read from a file by the shell itself,
+#                     so the prompt never passes through tmux or quoting
 #   <repo>-<N>-files  yazi, through the `y` shell function when it exists; on a foreign head (foreign.sh) a listing, since
 #                     yazi's fetchers and previewers parse what the cursor lands on with no key pressed
 #   <repo>-<N>-git    lazygit
@@ -118,6 +118,8 @@ sessions_foreign() { [[ $(contract_json -r '.head_foreign // false' <<<"$RECORD"
 # In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name,
 # and runs on the record's model through sessions_claude; a record with no model runs on Opus. A record with head_foreign
 # also starts Claude without the tree's settings.
+# A conversation started fresh for a slot with neither name nor task is named after the slot's session, so no slot's
+# Claude is untitled. A resume that finds the conversation passes no name instead: -n would replace a /rename.
 # The first message goes with a launch and a reopen only: a resume brings back a slot that already had it.
 sessions_command() {
   local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude
@@ -136,6 +138,7 @@ sessions_command() {
         [[ $mode == reopen ]] || prompt=''
       else
         printf -v cmd '%s --session-id %q' "$claude" "$(contract_json -r '.session_id' <<<"$RECORD")"
+        [[ -n $name ]] || name=$(slot_session "$repo" "$n")
       fi
       [[ -z $name ]] || printf -v cmd '%s -n %q' "$cmd" "$name"
       # After --, so a brief whose first character is a dash is the message, not an option.
