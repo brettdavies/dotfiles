@@ -2,6 +2,7 @@
 # per line: path, enclosing @test or function name ("-" for top level), and
 # the reason. Read by scripts/core-env-guard.sh; a sweep fails on an entry
 # that matches no finding.
+tests/agent-slot-foreign-head.bats	the session-start hook runs nothing from that conflict, even resolved to the head's side	a scratch XDG_CACHE_HOME keeps the tool list this run builds under the fixture's environment out of the host's cache, where the next real session would print it
 tests/auto-format-ignores.bats	setup	the hook skips a scratch-path file outside a git work tree, so the sandbox sits under ~/.cache with TMPDIR cleared, and the hook finds its helpers and global markdownlint config under HOME with no override
 tests/auto-format-scratch-paths.bats	setup	the hook finds its helpers and global markdownlint config under HOME with no override, so a scratch HOME supplies them on a host that never deployed them
 tests/auto-format-config-resolution.bats	setup	the hook skips a scratch-path file outside a git work tree, so the sandbox sits under ~/.cache with TMPDIR cleared, and the hook finds its helpers and global markdownlint config under HOME with no override
@@ -54,7 +55,7 @@ tests/host-scheduled-jobs.bats	systemd accepts the tab-number watcher unit	syste
 tests/failed-user-units.bats	failed user units reach the user and Claude as one SessionStart JSON object	unsets XDG_RUNTIME_DIR, as Claude Code's environment can lack it, to prove the hook hands systemctl /run/user/<uid>; only the stub systemctl reads it
 tests/failed-user-units.bats	a host without systemctl, macOS among them, prints nothing and exits 0	an empty PATH is the only way to make systemctl absent on a host that has it, the case under test; the hook runs under $BASH by absolute path
 tests/agent-slot-doctor.bats	from a shell with no XDG_RUNTIME_DIR, as in a slot, the timers are read from the user's own manager	a shell in a slot's tmux session has no XDG_RUNTIME_DIR, which is the case under test; the stubbed systemctl only checks the value it receives
-tests/session-context.bats	setup	an empty HOME keeps the hook's listings of ~/.cargo, ~/.bun, and the npm cache from walking the host, so the test checks only where the hook starts its tools
+tests/session-context.bats	setup	an empty HOME keeps the hook's listing of ~/.cargo from walking the host and a scratch XDG_CACHE_HOME keeps its tool list out of the host's cache, so the test checks only where the hook starts its tools
 tests/perf/shell-startup-perf.bats	_measure_once	zsh and bash find their startup files through HOME and ZDOTDIR with no other override, so the shells run under a HOME whose startup files are this checkout's, which is what the suite times
 tests/pre-push-scope.bats	startup_reads	zsh and bash find their startup files through HOME and ZDOTDIR with no other override, so the shell starts under a HOME whose startup files are this checkout's, to list which of them it reads
 tests/run-tests.bats	the perf suite times the checkout's startup files, not the installed ones	the perf suite reads the installed home from HOME with no override, so a scratch HOME whose profile leaves a marker shows which profile the shells read

@@ -1118,8 +1118,9 @@ conflicted_slot() {
   command -v qmd >/dev/null || skip "qmd is not installed"
   conflicted_slot
   git -C "$SLOT" checkout -q --ours -- bunfig.toml
-  (cd "$SLOT" && timeout 45 "$BATS_TEST_DIRNAME/../stow/claude/dot-claude/session-context.sh" >/dev/null 2>&1 </dev/null) || true
+  (cd "$SLOT" && XDG_CACHE_HOME=$T/cache timeout 45 "$BATS_TEST_DIRNAME/../stow/claude/dot-claude/session-context.sh" >/dev/null 2>&1 </dev/null) || true
   [ -z "$(ls "$T/marks")" ]
+  [ -s "$T/cache/claude/tool-inventory.cache" ]
 }
 
 @test "resolving a conflict with git add --sparse and committing leaves the file on disk until sparse-checkout reapply" {

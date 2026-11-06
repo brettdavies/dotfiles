@@ -1,9 +1,8 @@
 # Global User Instructions
 
 These are always-on rules. Detailed procedures, examples, and reference tables live in `~/.claude/guides/*.md` and are
-**not** auto-loaded — open the linked guide with Read when you actually perform that task. **Exception:**
-`git-and-github.md` is `@`-imported at the bottom of this file and is always in context. Every hard prohibition below is
-stated in full here; the guides hold only the elaboration.
+**not** auto-loaded — open the linked guide with Read when you actually perform that task. Every hard prohibition below
+is stated in full here; the guides hold only the elaboration.
 
 ## Core coding principles
 
@@ -325,9 +324,21 @@ Machine-level config (AppArmor profiles, sysctl, udev rules, systemd units) live
 — never one-off `sudo bash -c` writes into `/etc/`. When a fix needs a system config file, add it to the dotfiles repo
 with a stow target and document it in `docs/solutions/`.
 
-## Auto-loaded guides
+## Git and GitHub rules
 
-Imported with `@` because the git/GitHub workflow rules are referenced on every commit and PR. Cheaper to keep in
-context than to re-Read each time.
+**Branches**, **Commits & PRs**, **Worktree commits and pushes**, and **CI after push** above cover a routine commit or
+PR, together with these rules. For stacked PRs, rewriting history, or linked-worktree hooks, read that section of
+`~/.claude/guides/git-and-github.md`, not the whole file.
 
-@~/.claude/guides/git-and-github.md
+- **Body files.** A PR-scoped body goes in `/tmp/pr-body-<repo>.<branch>.md`; every other body in
+  `/tmp/<kind>-$(uuidv7).md`, with a fresh UUID per file. Re-paste the literal path in each call; never save it to a
+  sidecar file.
+- **PR template.** Read it before `gh pr create` or `gh pr edit --body-file` and fill it in. Keep all four
+  `Files Modified` sub-headers and all four `Related Issues/Stories` labels, writing `- None.` or `n/a` when empty; only
+  the `## Changelog` subsections may be deleted.
+- **Changelog.** A PR's `## Changelog` section feeds `CHANGELOG.md`, so it lists user-facing changes only. Never edit
+  `CHANGELOG.md` by hand.
+- **Pushed history.** Don't rewrite it; a wrong commit message is almost never worth it. `git history reword` strips
+  signatures, so never use it on a signed repo.
+- **Stacks.** Land with `gh stack merge <top-pr> --squash --yes`. Never force-push over GitHub's restack, delete a
+  stack's branch by hand, or detach a PR any way but `gh stack unstack`.
