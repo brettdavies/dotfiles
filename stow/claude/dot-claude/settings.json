@@ -1,5 +1,6 @@
 {
   "cleanupPeriodDays": 365,
+  "autoCompactWindow": 400000,
   "skillListingBudgetFraction": 0.03,
   "env": {
     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
