@@ -784,7 +784,8 @@ agent-slot close-probe 487 --output json
 
 On the Linux server, `agent-slot repos` lists the repos a slot can be made from, `agent-slot list` every slot with its
 state, agent, and blockers, and `agent-slot whoami` the slot a directory is in. `agent-slot launch <repo> --model (opus
-| sonnet) --request-id <id> [--prompt-file <file>]` starts an agent on that model at `--effort xhigh`, a Sonnet one with
+| sonnet) --request-id <id> [--prompt-file <file>]` starts an agent on that model at `--effort xhigh` with idle
+compaction off, a Sonnet one with
 Opus as its advisor, and agents use it to hand a task to a slot; a repeat with the same request ID returns the same
 slot, and a `--prompt-file` that finds a slot another request made for the task or item is refused with
 `item-held-by-slot`, so no brief is dropped; `--pr <ref>` or `--issue <ref>` gives the slot that work item, its name,

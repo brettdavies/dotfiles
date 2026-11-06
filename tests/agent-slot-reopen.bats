@@ -107,7 +107,7 @@ snapshot() {
     and .head == {branch: "feat/x", remote: "fork", url: "git@github.com:me/repoa.git", oid: "abc123",
                   source: {branch: "gh", remote: "ledger"}}
     and .slot == "repoa/2" and .name == "repoa-pr7-fix-the-login" and .items == [$item] and .task == "t1"
-    and .command == "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume \($s) -n repoa-pr7-fix-the-login"
+    and .command == "claude --dangerously-skip-permissions --settings '\''{\"idleCompaction\":false}'\'' --model claude-opus-5-5 --effort xhigh --resume \($s) -n repoa-pr7-fix-the-login"
     and .prompt_delivered == null' <<<"$output"
   [ "$(snapshot)" = "$before" ]
   [ "$(grep -c 'new-session' "$CALLS")" -eq 0 ]
@@ -249,7 +249,7 @@ snapshot() {
   run "$AGENT_SLOT" reopen repoa --model opus --pr 7 --dry-run
   [ "$status" -eq 0 ]
   [[ ${lines[0]} == "up/repoa#7: would reopen repoa/2, torn down 2026-10-01T00:00:00Z, in repoa/1 as repoa-pr7-fix-the-login" ]]
-  [[ $output == *"command: claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume $S2 -n repoa-pr7-fix-the-login"* ]]
+  [[ $output == *"command: claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --resume $S2 -n repoa-pr7-fix-the-login"* ]]
 }
 
 @test "AE4: a transcript gone from every project directory refuses with transcript-missing and creates no slot" {
@@ -381,7 +381,7 @@ snapshot() {
   [ "$status" -eq 0 ]
   jaq -e '.would_reopen == true and .prompt_delivered == true and .slot == "repoa/1"' <<<"$output"
   local expected
-  printf -v expected 'claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume %s -n repoa-pr7-fix-the-login -- "$(cat %q)"' "$S1" \
+  printf -v expected 'claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-opus-5-5 --effort xhigh --resume %s -n repoa-pr7-fix-the-login -- "$(cat %q)"' "$S1" \
     "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot-prompt.md"
   [ "$(jaq -r .command <<<"$output")" = "$expected" ]
 }
@@ -434,7 +434,7 @@ snapshot() {
     and .reopened_from == {slot: 1, session_id: $s, ts: "2026-10-01T00:00:00Z"} and .finished_by_operator == false
     and ([has("release", "not_yet", "closing_sent_at", "last_check")] | any | not)
     and .created_at != "2026-10-01T00:00:00Z" and .scope == {touches: ["src/**"], adds: "none."}' "$slot/.git/agent-slot.json"
-  printf -v expected 'claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume %s -n repoa-pr7-fix-the-login -- "$(cat %q)"' "$S1" \
+  printf -v expected 'claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-opus-5-5 --effort xhigh --resume %s -n repoa-pr7-fix-the-login -- "$(cat %q)"' "$S1" \
     "$slot/.git/agent-slot-prompt.md"
   [ "$(cat "$STUBS/typed-repoa-1")" = "$expected" ]
   mkdir -p "$T/fakebin"
@@ -457,7 +457,7 @@ snapshot() {
   gh_item issue 12 "Fix the widget"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
     \"name\": \"repoa-issue12-fix-the-widget\"}"
-  local expected="CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions \
+  local expected="CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' \
 --model claude-sonnet-5-5 --effort xhigh --advisor opus --resume $S1 -n repoa-issue12-fix-the-widget"
   reopen repoa --issue 12 --model sonnet --dry-run
   [ "$status" -eq 0 ]
@@ -510,7 +510,7 @@ snapshot() {
   [ "$(git -C "$slot" symbolic-ref --short HEAD)" = feat/x ]
   [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
   [ "$(git -C "$slot" rev-parse --abbrev-ref 'feat/x@{upstream}')" = origin/feat/x ]
-  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume $S1 -n repoa-pr7-fix-the-login" ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --resume $S1 -n repoa-pr7-fix-the-login" ]
   jaq -e -s '.[-1] | .event == "reopen" and .head.source == {branch: "gh", remote: "gh"}' "$LEDGER"
   [ "$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")" = "$before" ]
 }
