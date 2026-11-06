@@ -811,6 +811,33 @@ new-agent key, from the moment the key's tab opened to the slot's Claude startin
 step between: Rex.app showing the tab, the helper's own calls, agent-slot's checks before the clone, the clone, setup,
 trust, and tmux phases, and Claude's start.
 
+`agent-slot resume <repo>/<N> --model (opus | sonnet)` switches a live slot's model. The slot's record takes the model,
+and a Claude that is idle is ended and started again in its own pane through the command line a launch builds, resuming
+its conversation by session ID, so a Sonnet slot gets its Opus advisor and the SessionStart hook gives the new session
+the current slot rules. Anything held only in that Claude process, such as a scheduled wakeup or a background subagent,
+ends with it. Claude's `/model` command is never used, because it also writes the model into `~/.claude/settings.json`,
+the default of every new session; the restarted command line is the only thing that sets it. The JSON adds `model`,
+`previous_model`, and `restarted`, and a `launch` or `reopen` repeat compares its `--model` with the slot's new model
+(`model-differs`). No ask rule covers `resume`.
+
+A Claude that is busy, waiting at a prompt, or whose state cannot be read is never ended, and neither is one listed idle
+that still has a Bash command running below it: the resume checks the process tree as well as the status. Claude Code
+lists a session with an unfinished background shell, such as a watcher on a CI run, as busy, so that case is refused as
+`busy`. The resume fails with `agent-busy` and changes nothing. `value` is the state (`busy`, `waiting`, `unknown`),
+`own-agent` for a resume run by the slot's own agent, or one `<pid> <command>` line for each running command. The
+`next_step.action` is `retry` for a busy agent and for running commands, which the slot's agent or the operator can end,
+and `ask-operator` otherwise: a waiting or unreadable agent needs a person, and a resume run by the slot's own agent, in
+the foreground or the background, needs another session, since ending that Claude would end the resume. Rerunning while
+commands run changes nothing, so it is the check for them; `agent-slot list --output json` shows each slot's `.agent`
+for the other states. With no Claude running, only the record changes: `agent-slot` starts no Claude in a session that
+exists, so the model applies when the session is created again. Naming the model the slot already runs is a plain
+resume, so a call whose answer was lost can be repeated. A pane the operator has scrolled back in is taken out of copy
+mode first, before anything changes; if tmux cannot, the resume fails with `tmux-failed` and changes nothing. If the
+line cannot be typed after the old Claude is gone, the Claude session is dropped and the error is `tmux-failed`, or
+`tmux-unresponsive` when tmux did not answer, with partial side effects; `agent-slot resume <repo>/<N>` then creates the
+session on the new model. If the session cannot be dropped either, `next_step.command` is the tmux command that drops
+it.
+
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore
 down with each clone's purge (whether it was purged, its trash entry, the milliseconds it took, and a failure's code and
@@ -875,6 +902,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `pr-not-from-this-slot`       | 1    | The PR is in another repo, on a branch this slot did not create, or has a head it did not push |
 | `pr-close-failed`             | 1    | `gh pr close` failed, so the PR may or may not be closed; rerunning `close-probe` is safe      |
 | `model-differs`               | 1    | A repeat found its slot on another model than `--model`; `message` names the slot's model      |
+| `agent-busy`                  | 1    | `resume --model` found the agent busy, waiting, unreadable, or running jobs; nothing changed   |
 | `session-in-use`              | 1    | A Claude agent has the session open; the operator closes it, then the reopen runs again        |
 | `item-not-found-in-ledger`    | 1    | No teardown names the item; `--session <id>` finds an older slot, or launch a fresh one        |
 | `transcript-missing`          | 1    | Claude Code no longer has the conversation to resume; launch a fresh slot for the item         |
