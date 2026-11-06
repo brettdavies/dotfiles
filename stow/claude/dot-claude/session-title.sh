@@ -24,14 +24,15 @@ PR_LOOKUP_SECS=3
 
 # Usage: title_is_prime <checkout top> <origin url>
 title_is_prime() {
-  local real extra
+  local real dev extra
   local IFS=:
   [[ -n $2 ]] && repo_is_clone "$1" || return 1
-  real=$(realpath -m "$1")
-  [[ ${real%/*} != "$(realpath -m "$AS_DEV")" ]] || return 0
+  real=$(readlink -f "$1") || return 1
+  dev=$(readlink -f "$AS_DEV" 2>/dev/null) || dev=''
+  [[ -z $dev || ${real%/*} != "$dev" ]] || return 0
   # shellcheck disable=SC2086 # AS_EXTRA_PRIMES is a colon-separated list
   for extra in $AS_EXTRA_PRIMES; do
-    [[ -z $extra || $real != "$(realpath -m "$extra")" ]] || return 0
+    [[ -z $extra || $real != "$(readlink -f "$extra" 2>/dev/null)" ]] || return 0
   done
   return 1
 }
