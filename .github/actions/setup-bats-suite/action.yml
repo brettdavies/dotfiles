@@ -90,7 +90,7 @@ runs:
       # git-crypt: agent-slot-foreign-head.bats proves on a real encrypted base that a foreign head stays ciphertext.
       uses: ./.github/actions/setup-apt-packages
       with:
-        packages: zsh stow jq trash-cli git-crypt
+        packages: zsh stow jq ripgrep trash-cli git-crypt
 
     - name: Name jq as jaq
       # jaq is a jq-compatible Rust reimplementation; tests use only the

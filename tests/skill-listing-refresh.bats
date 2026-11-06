@@ -10,7 +10,7 @@ setup() {
   export CLAUDE_CONFIG_DIR=$T/claude
   SETTINGS=$CLAUDE_CONFIG_DIR/settings.json
   local skill
-  for skill in called typed aged idle retired 1password named back; do
+  for skill in called typed aged idle retired pinned 1password named back; do
     mkdir -p "$CLAUDE_CONFIG_DIR/skills/$skill"
     echo "name: $skill" >"$CLAUDE_CONFIG_DIR/skills/$skill/SKILL.md"
   done
@@ -21,7 +21,7 @@ setup() {
   printf '{"name":"Skill","input":{"skill":"aged"}}\n' >"$CLAUDE_CONFIG_DIR/projects/p/old.jsonl"
   touch -t 202001010000 "$CLAUDE_CONFIG_DIR/projects/p/old.jsonl"
   echo 'Run `/named` first.' >"$CLAUDE_CONFIG_DIR/CLAUDE.md"
-  printf '{\n  "model": "x",\n  "skillOverrides": {\n    "retired": "off",\n    "back": "name-only"\n  }\n}\n' >"$SETTINGS"
+  printf '{\n  "model": "x",\n  "skillOverrides": {\n    "retired": "off",\n    "pinned": "on",\n    "back": "name-only"\n  }\n}\n' >"$SETTINGS"
 }
 
 override() { jaq -r --arg k "$1" '.skillOverrides[$k] // "none"' "$SETTINGS"; }
@@ -42,9 +42,10 @@ override() { jaq -r --arg k "$1" '.skillOverrides[$k] // "none"' "$SETTINGS"; }
   [ "$(override aged)" = none ]
 }
 
-@test "an off entry, the always-described skill, and a skill CLAUDE.md names stay as they are" {
+@test "off and on entries, the always-described skill, and a skill CLAUDE.md names stay as they are" {
   "$SCRIPT"
   [ "$(override retired)" = off ]
+  [ "$(override pinned)" = on ]
   [ "$(override 1password)" = none ]
   [ "$(override named)" = none ]
 }
@@ -62,6 +63,13 @@ override() { jaq -r --arg k "$1" '.skillOverrides[$k] // "none"' "$SETTINGS"; }
   run "$SCRIPT"
   [ "$status" -eq 1 ]
   [[ $output == *'no skill use found'* ]]
+  [ "$(cat "$SETTINGS")" = "$before" ]
+}
+
+@test "a window that isn't a whole number of days is a usage error, and settings stay as they were" {
+  before=$(cat "$SETTINGS")
+  run "$SCRIPT" --window-days soon
+  [ "$status" -eq 2 ]
   [ "$(cat "$SETTINGS")" = "$before" ]
 }
 
