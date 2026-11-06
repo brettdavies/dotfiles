@@ -8,48 +8,21 @@ CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/claude"
 INVENTORY="$CACHE_DIR/tool-inventory.cache"
 CACHE_TTL=3600 # 1 hour
 
-# One-per-line output wastes context window tokens; CSV is compact
-to_csv() {
-  local out
-  out=$(paste -sd, - | sed 's/,/, /g')
-  if [ -n "$out" ]; then
-    echo "$out"
-  else
-    echo '(none)'
-  fi
-}
-
+# Bare names on one line, because hook output rides on every API call of the session. Dependency formulas and the bunx
+# cache stay out: neither says what an agent can reach for, and `bunx` runs any package anyway.
 tool_inventory() {
-  echo '--- Homebrew CLI tools ---'
-  brew list --formula 2>/dev/null | to_csv
-
-  echo ''
-  echo '--- Python CLI tools (pipx) ---'
-  pipx list --short 2>/dev/null | to_csv
-
-  echo ''
-  echo '--- Python CLI tools (uv) ---'
-  uv tool list 2>/dev/null | to_csv
-
-  echo ''
-  echo '--- Rust CLI tools (cargo) ---'
   {
-    [ -d ~/.cargo/bin ] && ls ~/.cargo/bin 2>/dev/null
-    # Exclude Rust toolchain binaries — they're not user-installed CLI tools
-  } | rg -v '^(cargo|rustc|rustup|rustdoc|rustfmt|rust-gdb|rust-lldb|rust-analyzer|clippy-driver|cargo-clippy|cargo-fmt|cargo-miri|rls|rust-gdbgui)$' | sort -u | to_csv
-
-  echo ''
-  echo '--- Bun cached CLI tools (bunx) ---'
-  {
-    [ -d ~/.bun/install/cache ] && find ~/.bun/install/cache -path "*/bin/*" -type f 2>/dev/null | sed 's|.*/cache/||' | sed 's|@[0-9].*||'
-    npm_cache="${XDG_CACHE_HOME:-$HOME/.cache}/npm"
-    for pkg in "$npm_cache"/*@*@@@1; do
-      [ -f "$pkg/package.json" ] && jq -e '.bin' "$pkg/package.json" >/dev/null 2>&1 && basename "$pkg" | sed 's/@[0-9].*$//'
-    done
-  } | sort -u | to_csv
+    brew leaves --installed-on-request 2>/dev/null | sed 's|.*/||'
+    pipx list --short 2>/dev/null | cut -d' ' -f1
+    uv tool list 2>/dev/null | sed -n 's/^- //p'
+    # Rust toolchain binaries are not user-installed CLI tools
+    {
+      [ -d ~/.cargo/bin ] && ls ~/.cargo/bin 2>/dev/null
+    } | rg -v '^(cargo|rustc|rustup|rustdoc|rustfmt|rust-gdb|rust-lldb|rust-analyzer|clippy-driver|cargo-clippy|cargo-fmt|cargo-miri|rls|rust-gdbgui)$'
+  } | sort -u | paste -sd' ' -
 }
 
-# `brew list --formula` takes 1-3s
+# `brew leaves` takes about 0.8s
 refresh_inventory() {
   if [ -f "$INVENTORY" ]; then
     local now mtime
@@ -70,9 +43,8 @@ echo '=== Session Context ==='
 echo "Current datetime: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo ''
 
-# Hook output rides on every API call of the session, and the listing is about 2k tokens, so only its path goes out
 refresh_inventory
-echo "Installed CLI tools (brew, pipx, uv, cargo, bunx): $INVENTORY"
+echo "Installed CLI tools: $(cat "$INVENTORY" 2>/dev/null)"
 echo ''
 
 echo '--- qmd collections ---'

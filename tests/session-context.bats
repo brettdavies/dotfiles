@@ -8,17 +8,19 @@
 setup() {
   T=$BATS_TEST_TMPDIR
   HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/session-context.sh"
-  # An empty HOME, so the hook's listings of ~/.cargo, ~/.bun, and the npm cache have nothing to walk.
+  # An empty HOME, so the hook's listing of ~/.cargo has nothing to walk.
   export HOME=$T/home
   export XDG_CACHE_HOME=$T/cache
   INVENTORY=$XDG_CACHE_HOME/claude/tool-inventory.cache
   mkdir -p "$HOME" "$T/bin" "$T/tree"
   local tool
-  for tool in brew qmd uv; do
+  for tool in brew pipx qmd uv; do
     printf '#!/bin/sh\necho "%s $PWD" >>"%s/calls"\n' "$tool" "$T" >"$T/bin/$tool"
     chmod +x "$T/bin/$tool"
   done
-  echo 'echo a-formula' >>"$T/bin/brew"
+  echo 'echo a-tap/tap/formula-one' >>"$T/bin/brew"
+  echo 'echo "app-one 1.2.3"' >>"$T/bin/pipx"
+  printf 'echo "uv-package v1.2.3"\necho "- uv-command"\n' >>"$T/bin/uv"
   PATH=$T/bin:$PATH
 }
 
@@ -35,12 +37,10 @@ setup() {
   [[ $output == *'--- qmd collections ---'*'the collections'* ]]
 }
 
-@test "the hook names the inventory's path and leaves the listing out of the session" {
+@test "the hook prints the tools as one line of bare names" {
   run "$HOOK"
   [ "$status" -eq 0 ]
-  [[ $output == *"$INVENTORY"* ]]
-  [[ $output != *a-formula* ]]
-  grep -qF a-formula "$INVENTORY"
+  [[ $output == *$'\nInstalled CLI tools: app-one formula-one uv-command\n'* ]]
 }
 
 @test "a fresh inventory is reused and a stale one is rebuilt" {
