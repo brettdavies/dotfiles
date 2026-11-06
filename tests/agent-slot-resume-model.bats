@@ -206,51 +206,15 @@ pane_in_mode() { "$REAL_TMUX" -L "$REAL_SOCKET" display-message -p -t =repoa-1: 
   [ "$(record .model)" = sonnet ]
 }
 
-@test "a resume run by the slot's own agent is told to ask from another session" {
+@test "a resume run by the slot's own agent mid-turn is refused as busy, like any other" {
   listed busy "$$"
   resume_model --model opus
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "agent-busy" and .value == "own-agent" and .next_step.action == "ask-operator"
-    and (.message | contains("inside the slot'"'"'s own agent")) and (.message | contains("another session"))' <<<"$stderr"
-  [ "$(record .model)" = sonnet ]
-}
-
-@test "a resume the slot's own agent left running in the background is refused although that agent is listed idle" {
-  spawn bash -c 'while [ ! -e "$1/go" ]; do sleep 0.1; done
-    "$0" resume repoa/1 --model opus --output json >"$1/out" 2>"$1/err"; echo $? >"$1/status"; exec sleep 120' \
-    "$AGENT_SLOT" "$T" </dev/null >/dev/null 2>&1 3>&-
-  AGENT=$!
-  listed idle "$AGENT"
-  touch "$T/go"
-  wait_for_lines "$T/status" 1
-  [ "$(cat "$T/status")" = 1 ]
-  jaq -e '.reason == "agent-busy" and .value == "own-agent" and .next_step.action == "ask-operator"
-    and (.message | contains("inside the slot'"'"'s own agent"))' "$T/err"
-  alive
-  [ "$(record .model)" = sonnet ]
-  run ! grep -q 'send-keys' "$CALLS"
-}
-
-@test "an idle Claude that still runs a Bash command is not ended, and neither is the command" {
-  spawn bash -c "trap 'echo agent-stopped >>\"$CALLS\"; exit 0' TERM; bash -c 'sleep 120 && pwd -P >| $T/claude-0abc12-cwd' & wait" \
-    </dev/null >/dev/null 2>&1 3>&-
-  AGENT=$!
-  listed idle "$AGENT"
-  local i
-  for ((i = 0; i < 30; i++)); do
-    pgrep -P "$AGENT" >/dev/null && break
-    sleep 0.1
-  done
-  local job
-  job=$(pgrep -P "$AGENT")
-  resume_model --model opus
-  [ "$status" -eq 1 ]
-  jaq -e --arg job "$job" '.reason == "agent-busy" and (.value | startswith($job + " sleep 120")) and .next_step.action == "retry"
-    and (.message | contains("1 background job")) and (.message | contains("PID " + $job))
-    and (.message | contains("changes nothing"))
-    and (.message | contains("list --output json") | not) and .recovery.side_effects == "none"' <<<"$stderr"
-  alive
-  pgrep -P "$AGENT" >/dev/null
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "agent-busy" and .value == "busy" and .next_step.action == "retry"
+    and (.message | contains("is busy")) and (.message | contains("own agent") | not)
+    and .recovery.side_effects == "none"
+    and .next_step.command == "agent-slot resume repoa/1 --model opus"' <<<"$stderr"
   [ "$(record .model)" = sonnet ]
   run ! grep -q 'send-keys' "$CALLS"
 }

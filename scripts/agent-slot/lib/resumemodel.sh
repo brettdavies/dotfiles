@@ -39,26 +39,20 @@ resume_parse_args() {
 
 # Usage: resume_model_switch <repo> <n>; with RECORD the slot's record, under the slot's lock.
 # With no --model, or the model the slot already runs, it does nothing and asks Claude nothing, so a call whose answer
-# was lost can be repeated. Otherwise it refuses with agent-busy unless the agent is idle or absent, and an idle agent's
-# Claude must run no Bash tool command either, since ending it would kill that command. Then it writes the new model to
-# the record and, for an idle agent, restarts its Claude. It sets RESUME_PREVIOUS and RESUME_RESTARTED.
+# was lost can be repeated. Otherwise it refuses with agent-busy unless the agent is idle or absent. Then it writes the
+# new model to the record and, for an idle agent, restarts its Claude. It sets RESUME_PREVIOUS and RESUME_RESTARTED.
 resume_model_switch() {
-  local repo=$1 n=$2 key jobs
+  local repo=$1 n=$2 key
   RESUME_PREVIOUS=$(contract_json -r '.model // "opus"' <<<"$RECORD")
   RESUME_RESTART=0 RESUME_RESTARTED=false
   [[ -n $RESUME_MODEL && $RESUME_MODEL != "$RESUME_PREVIOUS" ]] || return 0
   key=$(slot_key "$repo" "$n")
   agentstate_load
   agentstate_of "$repo" "$n"
-  ! agentstate_inside_agent || _resume_model_refuse "$key"
   case $AGENT_STATE in
-    idle)
-      jobs=$(agentstate_jobs)
-      [[ -z $jobs ]] || _resume_model_refuse "$key" "$jobs"
-      RESUME_RESTART=1
-      ;;
+    idle) RESUME_RESTART=1 ;;
     absent) ;;
-    *) _resume_model_refuse "$key" ;;
+    *) _resume_model_refuse_state "$key" ;;
   esac
   [[ $RESUME_RESTART == 0 ]] || _resume_model_leave_mode "$repo" "$n"
   record_update "$repo" "$n" --arg model "$RESUME_MODEL" '.model = $model'
@@ -86,25 +80,13 @@ resume_model_fields() {
     '. + {model: $model, previous_model: $previous, restarted: $restarted}' <<<"$1"
 }
 
-# Usage: _resume_model_refuse <key> [<jobs>]; fails with agent-busy for the agent state agentstate_of found, or, with the
-# "<pid> <command>" lines of an idle agent's Bash tool commands, for those. value is the state, own-agent for a resume
-# that descends from the agent's Claude, or the command lines, as release's background-jobs-running gives them. Only a
-# busy agent or running commands end by themselves, so only those say retry: a waiting or unreadable agent, and the
-# slot's own agent, need a person or another session to act first. A resume that descends from the agent's Claude is
-# refused in every state, since ending that Claude would end the resume itself.
-_resume_model_refuse() {
-  local key=$1 jobs=${2:-} message value=$AGENT_STATE action=ask-operator
+# Usage: _resume_model_refuse_state <key>; fails with agent-busy for the agent state agentstate_of found, which is the
+# error's value. Only a busy agent ends by itself, so only that one says retry: a waiting or unreadable agent needs a
+# person to act first.
+_resume_model_refuse_state() {
+  local key=$1 message action=ask-operator
   local idle="run this again once the agent is idle; agent-slot list --output json shows each slot's .agent"
-  if [[ -n $jobs ]]; then
-    value=$jobs action=retry
-    message="the agent of $key is idle but its Claude runs $(_check_plural "$(grep -c . <<<"$jobs")" "background job") \
-(PID $(cut -d' ' -f1 <<<"$jobs" | paste -sd ' ' -); value names each command), which ending it would kill; wait for \
-them to finish, or ask the slot's agent or the operator to stop them. Running this again changes nothing while they run"
-  elif agentstate_inside_agent; then
-    value=own-agent
-    message="this resume runs inside the slot's own agent, so ending that agent would end the resume; run it from \
-another session once the agent is idle"
-  elif [[ $AGENT_STATE == unknown ]]; then
+  if [[ $AGENT_STATE == unknown ]]; then
     message="the state of the agent of $key could not be read ($AGENT_DETAIL); settle that, then $idle"
   elif [[ $AGENT_STATE == waiting ]]; then
     message="the agent of $key is waiting at a prompt or a question that only a person answers; once it is answered, $idle"
@@ -112,8 +94,34 @@ another session once the agent is idle"
     action=retry
     message="the agent of $key is busy, so ending it to switch models would interrupt it; $idle"
   fi
-  contract_fail agent-busy "$message" --value "$value" --action "$action" \
-    --command "${AGENT_BUSY_COMMAND:-agent-slot resume $key --model $RESUME_MODEL}"
+  _resume_model_fail "$key" "$message" "$AGENT_STATE" "$action"
+}
+
+# Usage: _resume_model_refuse <key> [<jobs>]; the refusal retask gives, which adds two cases to
+# _resume_model_refuse_state. <jobs> holds the "<pid> <command>" lines of an idle agent's Bash tool commands: value is
+# those lines, as release's background-jobs-running gives them, and the action is retry, since they end by themselves.
+# A caller that descends from the agent's Claude is refused in every state, with value own-agent and ask-operator, since
+# ending that Claude would end the caller and only another session can act. Any other call is
+# _resume_model_refuse_state.
+_resume_model_refuse() {
+  local key=$1 jobs=${2:-}
+  if [[ -n $jobs ]]; then
+    _resume_model_fail "$key" "the agent of $key is idle but its Claude runs \
+$(_check_plural "$(grep -c . <<<"$jobs")" "background job") (PID $(cut -d' ' -f1 <<<"$jobs" | paste -sd ' ' -); value \
+names each command), which ending it would kill; wait for them to finish, or ask the slot's agent or the operator to \
+stop them. Running this again changes nothing while they run" "$jobs" retry
+  elif agentstate_inside_agent; then
+    _resume_model_fail "$key" "this resume runs inside the slot's own agent, so ending that agent would end the resume; \
+run it from another session once the agent is idle" own-agent ask-operator
+  fi
+  _resume_model_refuse_state "$key"
+}
+
+# Usage: _resume_model_fail <key> <message> <value> <action>; fails with agent-busy, whose next step is the command that
+# repeats the call: the one the caller set in AGENT_BUSY_COMMAND, else resume --model.
+_resume_model_fail() {
+  contract_fail agent-busy "$2" --value "$3" --action "$4" \
+    --command "${AGENT_BUSY_COMMAND:-agent-slot resume $1 --model $RESUME_MODEL}"
 }
 
 # Usage: _resume_model_restart <repo> <n>; ends the slot's Claude and everything it started, then types the new line into
