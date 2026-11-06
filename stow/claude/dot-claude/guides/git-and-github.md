@@ -1,8 +1,8 @@
 # Git, Commits, Pull Requests & CI
 
 Detail behind the **Branches**, **Commits & PRs**, **Worktree commits and pushes**, and **CI after push** rules in
-`~/.claude/CLAUDE.md`. Open this before authoring any commit message, PR/issue/release body, committing or pushing from
-a linked worktree, or when watching CI after a push.
+`~/.claude/CLAUDE.md`. Read the section a task needs, not the whole file: stacked PRs, rewriting pushed history, or
+committing and pushing from a linked worktree.
 
 ## Branch discipline
 

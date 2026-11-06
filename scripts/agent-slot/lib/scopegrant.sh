@@ -26,7 +26,7 @@ scope_grant_survey() {
   path=$(slot_path "$1" "$2")
   record_read "$1" "$2" || return 0
   SCOPE_BASE=$(contract_json -r '.base // empty' <<<"$RECORD")
-  since=$(contract_json -r '.created_at // ""' <<<"$RECORD")
+  since=$(contract_json -r '.task_started_at // .created_at // ""' <<<"$RECORD")
   [[ -n $SCOPE_BASE ]] && git -C "$path" rev-parse -q --verify "origin/$SCOPE_BASE" >/dev/null 2>&1 || return 0
   against="origin/$SCOPE_BASE...HEAD"
   SCOPE_CHANGED=$(git -C "$path" -c core.quotePath=false diff --name-only --no-renames "$against" 2>/dev/null) || return 0
@@ -117,7 +117,7 @@ against origin/$SCOPE_BASE: ${SCOPE_CHANGED//$'\n'/, }" "$spec"
     || contract_fail script-error "the scope-grant line for $key was not written to the ledger" --value "$key" \
       --command "$command"
   if record_read "$repo" "$n"; then
-    since=$(contract_json -r '.created_at // ""' <<<"$RECORD")
+    since=$(contract_json -r '.task_started_at // .created_at // ""' <<<"$RECORD")
   fi
   grants=$(scope_grants "$repo" "$n" "$since" | grep -c . || true)
   contract_ok "$(contract_json -n -c --arg key "$key" --arg spec "$spec" --arg at "$granted" --argjson grants "$grants" \

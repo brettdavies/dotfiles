@@ -19,6 +19,9 @@
 # path. It starts without its own warning only when ~/.claude/settings.json accepts it (agent-slot doctor checks).
 
 SESSIONS_CLAUDE='claude --dangerously-skip-permissions'
+# A slot waits on review for hours, then takes a short fix or ends. A 7-day replay at a 400k window put idle compaction at
+# 1.6% more cost for slots and 54% more compactions, where it saved primes and generic sessions 8%.
+SESSIONS_SETTINGS="--settings '{\"idleCompaction\":false}'"
 # What a foreign head's Claude adds: no project or local settings, so no hook, status line, helper, or environment from
 # the tree, and none of its CLAUDE.md, rules, skills, commands, or agents. Local stays out because a head can track
 # settings.local.json, and any git restore puts back the file setup would otherwise overwrite. --setting-sources alone
@@ -56,15 +59,15 @@ sessions_model_id() {
 }
 
 # Usage: sessions_claude <model>; prints the start of a slot's claude command line for the model: the bypass flag,
-# the model ID, the effort, and for Sonnet the advisor, behind the variable that turns it on.
+# the slot's settings, the model ID, the effort, and for Sonnet the advisor, behind the variable that turns it on.
 sessions_claude() {
   local id
   id=$(sessions_model_id "$1") || id=$(sessions_model_id opus)
   if [[ $1 == sonnet ]]; then
-    printf '%s %s --model %s --effort %s --advisor %s' "$SESSIONS_ADVISOR_ENV" "$SESSIONS_CLAUDE" "$id" \
-      "$SESSIONS_EFFORT" "$SESSIONS_ADVISOR"
+    printf '%s %s %s --model %s --effort %s --advisor %s' "$SESSIONS_ADVISOR_ENV" "$SESSIONS_CLAUDE" \
+      "$SESSIONS_SETTINGS" "$id" "$SESSIONS_EFFORT" "$SESSIONS_ADVISOR"
   else
-    printf '%s --model %s --effort %s' "$SESSIONS_CLAUDE" "$id" "$SESSIONS_EFFORT"
+    printf '%s %s --model %s --effort %s' "$SESSIONS_CLAUDE" "$SESSIONS_SETTINGS" "$id" "$SESSIONS_EFFORT"
   fi
 }
 

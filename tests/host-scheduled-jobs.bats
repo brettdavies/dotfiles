@@ -25,6 +25,7 @@ HOST_JOBS=(
   "$LOCAL_UNITS/uv-tools-upgrade"
   "$LOCAL_UNITS/agent-slot-sweep"
   "$LOCAL_UNITS/agent-slot-reconcile"
+  "$LOCAL_UNITS/skill-listing-refresh"
 )
 RECONCILE="$LOCAL_UNITS/agent-slot-reconcile"
 

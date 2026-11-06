@@ -94,6 +94,10 @@ source "$AS_LIB/foreign.sh"
 source "$AS_LIB/slotmake.sh"
 # shellcheck source=lib/launch.sh
 source "$AS_LIB/launch.sh"
+# shellcheck source=lib/resumemodel.sh
+source "$AS_LIB/resumemodel.sh"
+# shellcheck source=lib/retask.sh
+source "$AS_LIB/retask.sh"
 # shellcheck source=lib/prstate.sh
 source "$AS_LIB/prstate.sh"
 # shellcheck source=lib/items.sh
@@ -211,10 +215,15 @@ main() {
       exec </dev/null
       cmd_launch
       ;;
-    resume)
-      ((${#args[@]} == 1)) || usage_fail "resume takes one slot, <repo>/<N>" "${args[*]}"
+    retask)
+      retask_parse_args "${args[@]}"
       exec </dev/null
-      cmd_resume "${args[0]}"
+      cmd_retask
+      ;;
+    resume)
+      resume_parse_args "${args[@]}"
+      exec </dev/null
+      cmd_resume "$RESUME_KEY"
       ;;
     prime)
       ((${#args[@]} == 1)) || usage_fail "prime takes one repo" "${args[*]}"

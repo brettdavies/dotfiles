@@ -16,6 +16,11 @@ REPO="$BATS_TEST_DIRNAME/.."
 # event that fires the hook. gstack's ./setup registers its hooks with exactly
 # such a path by design, so its entries must never be synced into this file;
 # a $HOME-relative form expands under sh and travels.
+@test "every session auto-compacts at a 400k window, and no per-model entry overrides it" {
+  [ "$(jaq -r .autoCompactWindow "$SETTINGS")" = 400000 ]
+  [ "$(jaq -r '[.modelSettings // {} | .[] | select(has("autoCompactWindow"))] | length' "$SETTINGS")" = 0 ]
+}
+
 @test "hook commands carry no machine-absolute home paths" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   run jaq -r '.hooks // {} | .[][] | .hooks[]? | .command // empty' "$SETTINGS"
