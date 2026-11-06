@@ -79,6 +79,51 @@ wait_for_lines() {
   return 1
 }
 
+# tmux_wrapper: puts a tmux in front of the stub that fails send-keys while $STUBS/send-keys-fails exists, hangs it while
+# $STUBS/send-keys-hangs exists, and fails kill-session while $STUBS/kill-fails exists.
+tmux_wrapper() {
+  mv "$STUBS/tmux" "$STUBS/tmux-base"
+  cat >"$STUBS/tmux" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *send-keys*)
+    [ ! -e '$STUBS/send-keys-fails' ] || { echo 'tmux: server exited unexpectedly' >&2; exit 1; }
+    [ ! -e '$STUBS/send-keys-hangs' ] || exec sleep 60 ;;
+  *kill-session*) [ ! -e '$STUBS/kill-fails' ] || { echo 'tmux: server exited unexpectedly' >&2; exit 1; } ;;
+esac
+exec '$STUBS/tmux-base' "\$@"
+EOF
+  chmod +x "$STUBS/tmux"
+}
+
+# real_pane: with REAL_TMUX set, the three sessions of repoa/1 on a scratch tmux server, each a bash with a fake claude
+# first on its PATH. It types `claude first` into the Claude session, waits for it to run, and lists it idle. The fake
+# logs its arguments to $T/pane-claude.log and its pid to $T/pane-claude.pid. Sets OLD to that pid.
+real_pane() {
+  REAL_SOCKET=agent-slot-test-model-$$-$RANDOM
+  mkdir -p "$T/bin"
+  cat >"$T/bin/claude" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>'$T/pane-claude.log'
+echo \$\$ >'$T/pane-claude.pid'
+exec sleep 120
+EOF
+  chmod +x "$T/bin/claude"
+  local name
+  for name in repoa-1 repoa-1-files repoa-1-git; do
+    "$REAL_TMUX" -L "$REAL_SOCKET" -f "$AGENT_SLOT_TMUX_CONF" new-session -d -s "$name" -c "$SLOT" \
+      "env PATH=$T/bin:$PATH bash --norc --noprofile"
+  done
+  export AGENT_SLOT_TMUX=$REAL_TMUX AGENT_SLOT_TMUX_SOCKET=$REAL_SOCKET
+  "$REAL_TMUX" -L "$REAL_SOCKET" send-keys -t =repoa-1: -l 'claude first'
+  "$REAL_TMUX" -L "$REAL_SOCKET" send-keys -t =repoa-1: Enter
+  wait_for_lines "$T/pane-claude.log" 1
+  OLD=$(cat "$T/pane-claude.pid")
+  listed idle "$OLD"
+}
+
+pane_in_mode() { "$REAL_TMUX" -L "$REAL_SOCKET" display-message -p -t =repoa-1: '#{pane_in_mode}'; }
+
 @test "an idle Claude is ended, then started again in its own pane on the new model, resuming its conversation" {
   agent idle
   resume_model --model opus
@@ -155,7 +200,7 @@ wait_for_lines() {
   listed busy "$$"
   resume_model --model opus
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "agent-busy" and .value == "busy" and .next_step.action == "ask-operator"
+  jaq -e '.reason == "agent-busy" and .value == "own-agent" and .next_step.action == "ask-operator"
     and (.message | contains("inside the slot'"'"'s own agent")) and (.message | contains("another session"))' <<<"$stderr"
   [ "$(record .model)" = sonnet ]
 }
@@ -169,7 +214,7 @@ wait_for_lines() {
   touch "$T/go"
   wait_for_lines "$T/status" 1
   [ "$(cat "$T/status")" = 1 ]
-  jaq -e '.reason == "agent-busy" and .value == "idle" and (.message | contains("inside the slot'"'"'s own agent"))' "$T/err"
+  jaq -e '.reason == "agent-busy" and .value == "own-agent" and (.message | contains("inside the slot'"'"'s own agent"))' "$T/err"
   alive
   [ "$(record .model)" = sonnet ]
   run ! grep -q 'send-keys' "$CALLS"
@@ -187,9 +232,9 @@ wait_for_lines() {
   done
   resume_model --model opus
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "agent-busy" and .value == "jobs" and .next_step.action == "retry"
-    and (.message | contains("1 background job")) and (.message | contains("PID"))
-    and .recovery.side_effects == "none"' <<<"$stderr"
+  jaq -e '.reason == "agent-busy" and (.value | test("^[0-9]+ sleep 120")) and .next_step.action == "retry"
+    and (.message | contains("1 background job")) and (.message | contains("changes nothing"))
+    and (.message | contains("list --output json") | not) and .recovery.side_effects == "none"' <<<"$stderr"
   alive
   pgrep -P "$AGENT" >/dev/null
   [ "$(record .model)" = sonnet ]
@@ -245,10 +290,13 @@ wait_for_lines() {
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --model opus
   [[ $output == *"repoa/1: every session was already running; model opus unchanged"* ]]
   set_model sonnet
-  printf 'repoa-1-files\nrepoa-1-git\n' >"$STUBS/tmux-sessions"
   echo '[]' >"$STUBS/claude-agents.json"
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --model opus
-  [[ $output == *"model sonnet to opus, no running Claude to restart"* ]]
+  [[ $output == *"repoa/1: every session was already running; model sonnet to opus, no running Claude to restart"* ]]
+  set_model sonnet
+  printf 'repoa-1-files\nrepoa-1-git\n' >"$STUBS/tmux-sessions"
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --model opus
+  [[ $output == *"started repoa-1; model sonnet to opus, its Claude started on it"* ]]
 }
 
 @test "a model outside opus and sonnet, a missing value, and a repeated flag are usage errors before anything changes" {
@@ -303,20 +351,15 @@ wait_for_lines() {
 }
 
 @test "when the new Claude cannot be typed in, the Claude session is dropped so the next resume starts it on the new model" {
-  mv "$STUBS/tmux" "$STUBS/tmux-base"
-  cat >"$STUBS/tmux" <<EOF
-#!/usr/bin/env bash
-case "\$*" in *send-keys*) [ ! -e '$STUBS/send-keys-fails' ] || { echo 'tmux: server exited unexpectedly' >&2; exit 1; } ;; esac
-exec '$STUBS/tmux-base' "\$@"
-EOF
-  chmod +x "$STUBS/tmux"
+  tmux_wrapper
   agent idle
   touch "$STUBS/send-keys-fails"
   resume_model --model opus
   [ "$status" -eq 1 ]
   jaq -e '.reason == "tmux-failed" and .recovery.side_effects == "partial" and .recovery.retryable == true
     and .value == "repoa-1" and (.message | startswith("ended the Claude in repoa-1, but could not type the new line"))
-    and (.message | contains("the record names opus")) and .next_step.command == "agent-slot resume repoa/1"' <<<"$stderr"
+    and (.message | contains("the record names opus")) and (.message | contains("was dropped"))
+    and .next_step.command == "agent-slot resume repoa/1"' <<<"$stderr"
   run ! alive
   [ "$(record .model)" = opus ]
   run ! grep -qxF repoa-1 "$STUBS/tmux-sessions"
@@ -327,28 +370,33 @@ EOF
   [ "$(typed)" = "$OPUS_LINE" ]
 }
 
+@test "when tmux does not answer while the new line is typed, the error says the Claude was ended and how to bring it back" {
+  tmux_wrapper
+  agent idle
+  touch "$STUBS/send-keys-hangs"
+  resume_model --model opus
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "tmux-unresponsive" and .recovery.side_effects == "partial"
+    and (.message | startswith("ended the Claude in repoa-1, but tmux did not answer"))
+    and (.message | contains("the record names opus")) and .next_step.command == "agent-slot resume repoa/1"' <<<"$stderr"
+  run ! alive
+}
+
+@test "when the Claude session cannot be dropped either, the error gives the command that drops it" {
+  tmux_wrapper
+  agent idle
+  touch "$STUBS/send-keys-fails" "$STUBS/kill-fails"
+  resume_model --model opus
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "tmux-failed" and .recovery.side_effects == "partial"
+    and (.message | contains("could not be dropped")) and (.message | contains("kill-session -t =repoa-1"))
+    and (.next_step.command | contains("kill-session -t =repoa-1"))' <<<"$stderr"
+  grep -qxF repoa-1 "$STUBS/tmux-sessions"
+}
+
 @test "on a real tmux server, the new Claude is typed into the pane once the old one has exited" {
   REAL_TMUX=$(command -v tmux) || skip "tmux is not installed"
-  REAL_SOCKET=agent-slot-test-model-$$-$RANDOM
-  mkdir -p "$T/bin"
-  cat >"$T/bin/claude" <<EOF
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >>'$T/pane-claude.log'
-echo \$\$ >'$T/pane-claude.pid'
-exec sleep 120
-EOF
-  chmod +x "$T/bin/claude"
-  local name
-  for name in repoa-1 repoa-1-files repoa-1-git; do
-    "$REAL_TMUX" -L "$REAL_SOCKET" -f "$AGENT_SLOT_TMUX_CONF" new-session -d -s "$name" -c "$SLOT" \
-      "env PATH=$T/bin:$PATH bash --norc --noprofile"
-  done
-  export AGENT_SLOT_TMUX=$REAL_TMUX AGENT_SLOT_TMUX_SOCKET=$REAL_SOCKET
-  "$REAL_TMUX" -L "$REAL_SOCKET" send-keys -t =repoa-1: -l 'claude first'
-  "$REAL_TMUX" -L "$REAL_SOCKET" send-keys -t =repoa-1: Enter
-  wait_for_lines "$T/pane-claude.log" 1
-  old=$(cat "$T/pane-claude.pid")
-  listed idle "$old"
+  real_pane
   resume_model --model opus
   [ "$status" -eq 0 ] || {
     echo "$stderr"
@@ -358,8 +406,24 @@ EOF
   wait_for_lines "$T/pane-claude.log" 2
   [ "$(sed -n 1p "$T/pane-claude.log")" = first ]
   [ "$(sed -n 2p "$T/pane-claude.log")" = "${OPUS_LINE#claude }" ]
-  run ! kill -0 "$old"
-  [ "$(cat "$T/pane-claude.pid")" != "$old" ]
+  run ! kill -0 "$OLD"
+  [ "$(cat "$T/pane-claude.pid")" != "$OLD" ]
+}
+
+@test "with the pane in copy mode, as when the operator is scrolled back, the new line still reaches the shell" {
+  REAL_TMUX=$(command -v tmux) || skip "tmux is not installed"
+  real_pane
+  "$REAL_TMUX" -L "$REAL_SOCKET" copy-mode -t =repoa-1:
+  [ "$(pane_in_mode)" = 1 ]
+  resume_model --model opus
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  jaq -e '.restarted == true' <<<"$output"
+  wait_for_lines "$T/pane-claude.log" 2
+  [ "$(sed -n 2p "$T/pane-claude.log")" = "${OPUS_LINE#claude }" ]
+  [ "$(pane_in_mode)" = 0 ]
 }
 
 @test "resume --help documents --model, the refusal, and the fields the flag adds" {

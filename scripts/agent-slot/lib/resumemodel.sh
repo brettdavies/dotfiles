@@ -73,18 +73,21 @@ resume_model_fields() {
 }
 
 # Usage: _resume_model_refuse <key> [<jobs>]; fails with agent-busy for the agent state agentstate_of found, or, with the
-# "<pid> <command>" lines of an idle agent's Bash tool commands, for those. value is the state, or jobs for the latter.
-# Only a busy agent or running jobs end by themselves, so only those say retry: a waiting or unreadable agent, and the
+# "<pid> <command>" lines of an idle agent's Bash tool commands, for those. value is the state, own-agent for a resume
+# that descends from the agent's Claude, or the command lines, as release's background-jobs-running gives them. Only a
+# busy agent or running commands end by themselves, so only those say retry: a waiting or unreadable agent, and the
 # slot's own agent, need a person or another session to act first. A resume that descends from the agent's Claude is
 # refused in every state, since ending that Claude would end the resume itself.
 _resume_model_refuse() {
   local key=$1 jobs=${2:-} message value=$AGENT_STATE action=ask-operator
   local idle="run this again once the agent is idle; agent-slot list --output json shows each slot's .agent"
   if [[ -n $jobs ]]; then
-    value=jobs action=retry
+    value=$jobs action=retry
     message="the agent of $key is idle but its Claude runs $(_check_plural "$(grep -c . <<<"$jobs")" "background job") \
-(PID $(cut -d' ' -f1 <<<"$jobs" | paste -sd ' ' -)), which ending it would kill; stop them or wait for them, then $idle"
+(PID $(cut -d' ' -f1 <<<"$jobs" | paste -sd ' ' -); value names each command), which ending it would kill; wait for \
+them to finish, or ask the slot's agent or the operator to stop them. Running this again changes nothing while they run"
   elif agentstate_inside_agent; then
+    value=own-agent
     message="this resume runs inside the slot's own agent, so ending that agent would end the resume; run it from \
 another session once the agent is idle"
   elif [[ $AGENT_STATE == unknown ]]; then
@@ -100,24 +103,33 @@ another session once the agent is idle"
 }
 
 # Usage: _resume_model_restart <repo> <n>; ends the slot's Claude and everything it started, then types the new line into
-# its pane, which is back at the shell once the processes are gone. A type that fails leaves a pane with no Claude in it,
-# which a resume never starts again, since it skips a session that exists. So the session is dropped, and the next
-# resume, with or without --model, creates it on the new model.
+# its pane, which is back at the shell once the processes are gone. A pane the operator has scrolled back in is in copy
+# mode, which takes the keys instead of the shell, so that mode is cancelled first. A type that fails leaves a pane with
+# no Claude in it, which a resume never starts again, since it skips a session that exists. So the session is dropped,
+# and the next resume, with or without --model, creates it on the new model.
 _resume_model_restart() {
-  local repo=$1 n=$2 name line out status log
+  local repo=$1 n=$2 name key line out mode status log reason why next command
   name=$(slot_session "$repo" "$n")
+  key=$(slot_key "$repo" "$n")
   line=$(sessions_command "$repo" "$n" claude resume)
   _teardown_stop_agent
+  slot_tmux mode 5 display-message -p -t "=$name:" '#{pane_in_mode}' || mode=
+  [[ $mode != 1 ]] || slot_tmux out 5 send-keys -t "=$name:" -X cancel || true
   if slot_tmux out 10 send-keys -t "=$name:" -l "$line" && slot_tmux out 10 send-keys -t "=$name:" Enter; then
     RESUME_RESTARTED=true
     return 0
   fi
   status=$BOUNDED_STATUS log=$BOUNDED_LOG
-  slot_tmux out 10 kill-session -t "=$name" || true
-  BOUNDED_STATUS=$status BOUNDED_LOG=$log
-  ((BOUNDED_STATUS != 124)) || tmux_unresponsive partial
+  reason=tmux-failed why="could not type the new line into it"
+  if ((status == 124)); then
+    reason=tmux-unresponsive why="tmux did not answer while the new line was typed into it"
+  fi
+  command="agent-slot resume $key" next="the session was dropped, so $command creates it again"
+  if ! slot_tmux out 10 kill-session -t "=$name"; then
+    command=$(contract_quote "$AS_TMUX" -L "$AS_TMUX_SOCKET" kill-session -t "=$name")
+    next="the session could not be dropped either: run $command, then agent-slot resume $key"
+  fi
   contract_use_tools tmux
-  contract_fail tmux-failed "ended the Claude in $name, but could not type the new line into it; the record names \
-$RESUME_MODEL, and the session was dropped, so agent-slot resume $(slot_key "$repo" "$n") creates it again" \
-    --value "$name" --side-effects partial --command "agent-slot resume $(slot_key "$repo" "$n")" --log "$BOUNDED_LOG"
+  contract_fail "$reason" "ended the Claude in $name, but $why; the record names $RESUME_MODEL, and $next" \
+    --value "$name" --side-effects partial --command "$command" --log "$log"
 }
