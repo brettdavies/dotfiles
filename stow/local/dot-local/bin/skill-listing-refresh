@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""List skills no session used within a rolling window by name only, in Claude Code's settings.json.
+
+A use is a Skill tool call or a typed /command in a transcript changed within the window. Claude Code reads
+skillOverrides at session start, so a change reaches new sessions only. Entries that aren't name-only are left alone.
+
+Usage: skill-listing-refresh [--dry-run] [--window-days N]
+"""
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+WINDOW_DAYS = 30
+NAME_ONLY = "name-only"
+# Its description is a guard: it tells an agent to load the skill before any `op` call
+ALWAYS_DESCRIBED = {"1password"}
+# Such a skill is already out of the listing, so an override on it would change nothing
+HIDDEN = re.compile(r"^disable-model-invocation:\s*true", re.MULTILINE | re.IGNORECASE)
+USE = re.compile(rb'"name":"Skill","input":\{"skill":"([^"]+)"|<command-name>/?([\w:-]+)</command-name>')
+
+
+def used_skills(projects, cutoff):
+    used = set()
+    for transcript in projects.rglob("*.jsonl"):
+        if transcript.stat().st_mtime >= cutoff:
+            used.update((a or b).decode() for a, b in USE.findall(transcript.read_bytes()))
+    return used
+
+
+def listed_skills(skills_dir):
+    return {
+        skill.parent.name for skill in skills_dir.glob("*/SKILL.md") if not HIDDEN.search(skill.read_text(errors="ignore"))
+    }
+
+
+def named_in(claude_md, skills):
+    text = claude_md.read_text() if claude_md.exists() else ""
+    return {skill for skill in skills if re.search(rf"[/`]{re.escape(skill)}\b", text)}
+
+
+def next_overrides(current, unused):
+    kept = {skill: value for skill, value in current.items() if value != NAME_ONLY or skill in unused}
+    return kept | {skill: NAME_ONLY for skill in sorted(unused) if skill not in kept}
+
+
+def write_settings(path, settings):
+    real = path.resolve()
+    tmp = real.with_name(f"{real.name}.refresh")
+    tmp.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+    shutil.copymode(real, tmp)
+    os.replace(tmp, real)
+    # A deployed settings.json is tracked, and upstream changes it often enough that a plain pull would keep refusing
+    subprocess.run(["git", "-C", str(real.parent), "config", "merge.autoStash", "true"], capture_output=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--dry-run", action="store_true", help="print the change without writing it")
+    parser.add_argument("--window-days", type=int, default=WINDOW_DAYS)
+    args = parser.parse_args()
+
+    config = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
+    used = used_skills(config / "projects", time.time() - args.window_days * 86400)
+    if not used:
+        sys.exit(f"skill-listing-refresh: no skill use found under {config / 'projects'}; leaving settings alone")
+
+    listed = listed_skills(config / "skills")
+    unused = listed - used - ALWAYS_DESCRIBED - named_in(config / "CLAUDE.md", listed)
+
+    path = config / "settings.json"
+    settings = json.loads(path.read_text())
+    current = settings.get("skillOverrides", {})
+    updated = next_overrides(current, unused)
+    if updated == current:
+        return
+
+    added = sorted(updated.keys() - current.keys())
+    restored = sorted(current.keys() - updated.keys())
+    print(f"name-only added: {' '.join(added) or '-'}\nname-only removed: {' '.join(restored) or '-'}")
+    if not args.dry_run:
+        write_settings(path, settings | {"skillOverrides": updated})
+
+
+if __name__ == "__main__":
+    main()
