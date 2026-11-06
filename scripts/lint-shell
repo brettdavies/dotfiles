@@ -78,6 +78,10 @@ _flags_for() {
       ;;
     # The one hook library run as a script of its own; it sources git-env.sh.
     .githooks/lib/restow.sh) echo "-x" ;;
+    # The browser-set test helper hands single-quoted scripts to child shells, which do the expanding.
+    tests/lib/browser-set.bash) echo "--shell=bash --exclude=SC2016" ;;
+    # The browser-set libraries share globals through the script that sources them, and pin.sh sources its two siblings.
+    scripts/playwright-browsers/lib/*.sh) echo "--shell=bash -x --source-path=SCRIPTDIR --exclude=SC2034" ;;
     config/shell/*.sh | .githooks/lib/*.sh | scripts/*/lib/*.sh | tests/lib/*.bash) echo "--shell=bash" ;;
     config/shell/shell-functions) echo "--shell=bash --exclude=SC1003" ;;
     # -x follows the `# shellcheck source=` directives, such as the hooks' to

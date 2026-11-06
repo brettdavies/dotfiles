@@ -1,0 +1,33 @@
+# The system browser set: one line per field, "key value...". Read only through
+# scripts/playwright-browsers/lib/pin.sh, which accepts nothing but the shapes
+# it lists. Download hosts live in the scripts, never here.
+#
+# Moving the pin by hand is in docs/runbooks/playwright-browser-launch.md.
+
+cft-version 157.0.8103.38
+webkit-revision 2388
+ffmpeg-revision 1013
+
+# The Playwright library this repo's tests run, and the newest release whose
+# browsers.json supplied the WebKit and ffmpeg revisions above; each with the
+# sha256 of its playwright-core npm tarball.
+library-version 1.61.1
+library-sha256 3740bba3a3e93b4c7bd7c0f6e3c0e5f8cdce498bef13511e4d534cc99a8ce198
+source-release 1.65.0
+source-sha256 315247c55a793ca760b2f05bdcee0e6a53fd65b1f22d1d3de8323c8c9395add3
+
+# Revisions each released Playwright from 1.57.0 to source-release asks for.
+# WebKit stops at the set's own: a newer Playwright cannot drive an older WebKit.
+chromium-aliases 1200 1208 1217 1223 1228 1234 1243 1248 1254
+webkit-aliases 2227 2248 2272 2287 2311 2336 2359 2370
+ffmpeg-aliases 1011
+
+sha256 chrome-linux64.zip 8cdeb344e9b2cefe59f4aea8d1d93d5d93054c03cde217665c16fc1f62e72a66
+sha256 chrome-headless-shell-linux64.zip deafffa74660b34853a4119c361fd427ac8c9fcb62db51ddb8a797cd83a4ba2d
+sha256 webkit-ubuntu-24.04.zip 4375ca56620d92f4bc8710b6f0cddc8afd2f50c4cca616a50355d63d715c7803
+sha256 ffmpeg-linux.zip ee986434d158f74fb5d9c5ff1092026ceedb63f324fe90b5be89460926b7b679
+sha256 chrome-mac-arm64.zip 3406b38b52b7d341d74450eb7b369be038c9fec9894c8b8a9e9e9f97333caf2f
+sha256 chrome-headless-shell-mac-arm64.zip e6a6b13551aa12f951d0891d79282606b13742837c8fa0505e1272bae116ce82
+sha256 webkit-mac-15-arm64.zip 50b4238e145b8018e48aacefc15e9b3a43fafd18eee42ed4cb29a2e5c5a2e385
+sha256 webkit-mac-26-arm64.zip d3cc730027105a014d0cbf53925bd7eababbdf8dbccbb4a3a1713c5f631dbcaf
+sha256 ffmpeg-mac-arm64.zip 63e48ce8d4a6d9d496383e5ac557b26466e719fa29126bbbd5f5f7016ac9229c

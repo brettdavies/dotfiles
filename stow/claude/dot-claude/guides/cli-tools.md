@@ -78,14 +78,19 @@ hook, or unsure what's installed.
   `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` stops `bun install`'s postinstall from auto-fetching browsers, so a dependency
   install never triggers the wedge; it does NOT no-op an explicit `playwright install`, which still fetches any browser
   missing from the cache. The provisioned markers are what make an explicit install skip the browsers a repo uses, so
-  the dotfiles set must cover every browser the repos launch (chromium + webkit today, no firefox). Repos **exact-pin
-  the one canonical version** (`DEFAULT_VERSION` in the deploy script) instead of a caret range, so the resolved version
-  always matches the provisioned browser revisions. **Check what's provisioned** with `ls $PLAYWRIGHT_BROWSERS_PATH` and
-  the script's version map. **To change the version:** bump the map + re-run the dotfiles script, then realign the repo
-  pins — never bump a repo's Playwright independently, and never re-provision from an arbitrary repo or e2e run. **Watch
-  out for `bun x playwright install`:** `bunx` uses a repo's local install only when `node_modules` is present; run
-  standalone (a fresh worktree, before `bun install`, or outside a repo) it floats to the LATEST published Playwright,
-  ignores the repo pin, and tries to fetch whatever browsers that release wants — this is why older setups kept pulling
+  the dotfiles set must cover every browser the repos launch (chromium + webkit today, no firefox). The set is one CfT
+  build, one WebKit, and one ffmpeg, named in `~/dotfiles/config/playwright/browsers.pin`, with an alias for every
+  revision a Playwright release from 1.57 to the pin's `source-release` asks for, so a repo's Playwright version within
+  that range need not match the set's: its Chromium and ffmpeg revisions resolve through the aliases, and its WebKit
+  does too while the pin's `webkit-revision` is at or above the one it asks for. A Playwright newer than
+  `source-release` finds no alias and needs the pin moved first. Repos **exact-pin** their Playwright version instead of
+  a caret range. **Check what's provisioned** with `~/dotfiles/scripts/playwright-browsers-deploy.sh --check`, which
+  names every difference from the pin with a reason and the command to run next. **To change the set:** edit the pin and
+  re-run the dotfiles script (the runbook `docs/runbooks/playwright-browser-launch.md` gives the steps); never
+  re-provision from an arbitrary repo or e2e run, and never run `playwright install` yourself. **Watch out for
+  `bun x playwright install`:** `bunx` uses a repo's local install only when `node_modules` is present; run standalone
+  (a fresh worktree, before `bun install`, or outside a repo) it floats to the LATEST published Playwright, ignores the
+  repo pin, and tries to fetch whatever browsers that release wants — this is why older setups kept pulling
   newer-and-newer revisions. Run the repo's local Playwright instead (`bun run test:e2e` → `playwright test` from
   `node_modules`); `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` neutralizes any stray install call either way.
 - **Bun pins follow the machine's Bun.** The machine's Bun is the Homebrew `oven-sh/bun/bun` formula from

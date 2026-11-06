@@ -97,3 +97,14 @@ runs:
       # -n / -r / --arg / -e flags and standard filter syntax.
       shell: bash
       run: sudo ln -sf "$(command -v jq)" /usr/local/bin/jaq
+
+    - name: Fetch the pinned playwright-core
+      # tests/playwright-browsers-cleanup.bats runs Playwright's own install and uninstall from the library version
+      # config/playwright/browsers.pin names. The helper reads the pin through its parser, fetches the tarball, and fails
+      # on an HTTP error or a sha256 that differs from the pin, the same as the suite. Not cached: on a runner the fetch,
+      # hash, and unpack took 133-227 ms, and restoring a cache took 893-1812 ms.
+      shell: bash
+      run: |
+        set -euo pipefail
+        source tests/lib/browser-set.bash
+        bs_core_fetch
