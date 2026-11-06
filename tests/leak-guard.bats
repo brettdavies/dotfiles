@@ -170,11 +170,28 @@ orphan_probe() {
   [ -z "$(processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]
 }
 
-@test "the release suite, run from a scratch directory, leaves no process behind with that directory as its cwd" {
+# The release suite starts a process in two places: the stand-in agent that `agent` spawns, with its hook child, its
+# background job, and the release it runs as its own Bash tool command; and the teardown that `agent-slot release`
+# detaches into a session of its own. These tests cover each, so nesting the whole suite adds time and no other way a
+# process starts. The teardown's cwd is /, so only the nested suite's own guard, through the exit status, sees it leak.
+RELEASE_PROCESS_TESTS=(
+  "such as a hook, is no job"
+  "never its own shell"
+  "starts the teardown in its own session"
+  "waits for the agent to go idle, then removes a finished slot"
+)
+
+@test "the release suite's process-starting tests, run from a scratch directory, leave no process behind with that directory as its cwd" {
+  local name flags=(--filter "$(IFS='|' && echo "${RELEASE_PROCESS_TESTS[*]}")")
   # Its tests run concurrently, as scripts/run-tests runs a suite that declares `# run-tests: parallel`.
-  local flags=()
-  if command -v flock >/dev/null 2>&1; then flags=(--jobs "$(nproc)" --no-parallelize-across-files); fi
+  if command -v flock >/dev/null 2>&1; then flags+=(--jobs "${#RELEASE_PROCESS_TESTS[@]}" --no-parallelize-across-files); fi
   nested "$BATS_TEST_DIRNAME/agent-slot-release.bats" "${flags[@]}"
   [ "$status" -eq 0 ]
+  for name in "${RELEASE_PROCESS_TESTS[@]}"; do
+    grep -qE "^ok [0-9]+ .*$name" <<<"$output" || {
+      echo "no passing release test matches '$name'" >&2
+      return 1
+    }
+  done
   none_in_cwd
 }
