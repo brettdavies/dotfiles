@@ -62,7 +62,13 @@ pw_provision() {
   : >"$STAGE/$dir/INSTALLATION_COMPLETE"
   : >"$STAGE/$dir/DEPENDENCIES_VALIDATED"
   pw_record "$i" >"$STAGE/$dir/.dotfiles-record"
-  if [ -e "$BP/$dir" ] || [ -L "$BP/$dir" ]; then pw_note "replacing $dir, which is not from this pin"; fi
+  if [ -e "$BP/$dir" ] || [ -L "$BP/$dir" ]; then
+    if [ "$(cat "$BP/$dir/.dotfiles-record" 2>/dev/null)" = "$(pw_record "$i")" ]; then
+      pw_note "replacing $dir, whose executable or install marker is gone"
+    else
+      pw_note "replacing $dir, which is not from this pin"
+    fi
+  fi
   pw_register "$dir"
   rm -rf "${BP:?}/$dir" "${STAGE:?}/$archive"
   mv "$STAGE/$dir" "$BP/$dir"

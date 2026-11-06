@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 # Tests for scripts/playwright-browsers-deploy.sh on a Mac, on a platform with no build, and at the command line: the
-# archives each platform fetches, the usage errors, and the refusals that come before any work.
+# archives each platform fetches, the usage errors, the refusals that come before any work, and the one line a failure
+# nothing anticipated prints.
 #
 # Run: bats tests/playwright-browsers-platform.bats
 #
@@ -105,10 +106,28 @@ setup() { bs_sandbox; }
 @test "--pin=PATH names the pin too, and a flag is never taken for its path" {
   run --separate-stderr "$BS_SCRIPT" --pin="$BS_TEST_PIN" --check
   [ "$status" -eq 1 ]
-  [[ "$stderr" == *"reason: directory-incomplete"* ]]
+  [[ "$stderr" == *"next: ~/dotfiles/scripts/playwright-browsers-deploy.sh --pin $(printf %q "$BS_TEST_PIN")"* ]]
   run --separate-stderr "$BS_SCRIPT" --pin --help
   [ "$status" -eq 2 ]
   [[ "$stderr" == "ERROR: --pin needs a path; reason: usage;"* ]]
+}
+
+@test "an empty --pin is a usage error, and a path ending in a slash is reported as given" {
+  run --separate-stderr "$BS_SCRIPT" --pin=
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == "ERROR: --pin needs a path; reason: usage;"* ]]
+  run --separate-stderr "$BS_SCRIPT" --pin ""
+  [ "$status" -eq 2 ]
+  run --separate-stderr "$BS_SCRIPT" --pin ./missing-dir/
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == "ERROR: no readable pin at ./missing-dir/; reason: pin-not-found;"* ]]
+  [[ "$stderr" == *"next: ~/dotfiles/scripts/playwright-browsers-deploy.sh --pin ./missing-dir/ --help" ]]
+}
+
+@test "a run from a checkout other than ~/dotfiles names its own pin in every next step" {
+  run --separate-stderr "$BS_SCRIPT" --check
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"next: ~/dotfiles/scripts/playwright-browsers-deploy.sh --pin $(printf %q "$BS_PIN")"* ]]
 }
 
 @test "a missing curl is named with the command that installs it, and nothing is changed" {
@@ -124,4 +143,26 @@ setup() { bs_sandbox; }
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"curl is required to fetch and unpack the archives; reason: tool-missing; value: curl; nothing changed; next: ask the operator to run sudo apt-get install -y curl" ]]
   [ ! -e "$BP" ]
+}
+
+@test "a step the script did not anticipate ends with the tool's own message, then unexpected-failure and exit 1" {
+  touch "$BP"
+  deploy
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"mkdir: "*"a step failed unexpectedly at playwright-browsers-deploy.sh:"[0-9]*"; the failing tool's own message is above; reason: unexpected-failure; value: mkdir; the set may be partly updated; rerun once the cause above is fixed; next: ~/dotfiles/"* ]]
+}
+
+@test "a library step that fails names its file, and a failure inside \$(...) prints one line" {
+  mkdir -p "$BP/.dotfiles/clients"
+  touch "$BP/.dotfiles/clients/chromium-8103038"
+  deploy
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"a step failed unexpectedly at clients.sh:"[0-9]*"; "*"reason: unexpected-failure; value: mkdir;"* ]]
+  printf '#!/usr/bin/env bash\necho "sha256sum: I/O error" >&2\nexit 1\n' >"$BATS_TEST_TMPDIR/stubs/sha256sum"
+  chmod +x "$BATS_TEST_TMPDIR/stubs/sha256sum"
+  rm -rf "${BP:?}"
+  deploy
+  [ "$status" -eq 1 ]
+  [ "$(grep -c 'reason: unexpected-failure' <<<"$stderr")" -eq 1 ]
+  [[ "$stderr" == *"sha256sum: I/O error"* ]]
 }

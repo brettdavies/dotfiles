@@ -51,6 +51,20 @@ state() {
   rm "$BP/webkit-2388/.dotfiles-record"
   deploy --check
   [[ "$stderr" == *"webkit-2388 was not provisioned"* ]]
+  sed -i.bak 's|^sha256 .*|sha256 0000000000000000000000000000000000000000000000000000000000000000|' "$BP/ffmpeg-1013/.dotfiles-record"
+  deploy --check
+  [[ "$stderr" == *"ffmpeg-1013 was not provisioned"* ]]
+}
+
+@test "a record naming another hash makes the deploy fetch that archive again and record the pin's" {
+  local want
+  want="$(sed -n 's/^sha256 ffmpeg-linux.zip //p' "$BS_TEST_PIN")"
+  sed -i.bak 's|^sha256 .*|sha256 0000000000000000000000000000000000000000000000000000000000000000|' "$BP/ffmpeg-1013/.dotfiles-record"
+  : >"$BS_CURL_LOG"
+  deploy
+  [ "$status" -eq 0 ]
+  [ "$(wc -l <"$BS_CURL_LOG")" -eq 1 ]
+  [ "$(sed -n 1p "$BP/ffmpeg-1013/.dotfiles-record")" = "sha256 $want" ]
 }
 
 @test "an alias that is missing or dangling is named with its target" {

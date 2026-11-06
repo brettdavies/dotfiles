@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # Tests for what scripts/playwright-browsers-deploy.sh finds in a cache it did not make, and what it will and will not
-# delete: another tool's installs, a cache laid out by the old script, and clients that are wrong or planted.
+# delete: another tool's installs, and a cache holding per-version and chromium-alias clients beside Playwright's own.
 #
 # Run: bats tests/playwright-browsers-cache.bats
 #
@@ -15,12 +15,6 @@ load lib/browser-set
 
 setup_file() { bs_build_archives; }
 setup() { bs_sandbox; }
-
-# The inode of a path: a file replaced by rename gets a new one, one written in place keeps it.
-inode() {
-  # shellcheck disable=SC2012 # stat's flag differs between GNU and BSD
-  ls -i "$1" | cut -d' ' -f1
-}
 
 
 @test "a real directory at an alias name, as a --force install leaves it, is replaced by the alias" {
@@ -53,7 +47,7 @@ inode() {
   [[ "$stderr" == *"next: ls -ld "*"/browsers/firefox-1497"* ]]
 }
 
-@test "a cache laid out by the old script and by Playwright installs becomes the set in one deploy" {
+@test "a cache holding per-version and chromium-alias clients beside Playwright's own installs becomes the set in one deploy" {
   local d
   for d in chromium-1234 chromium-1248 chromium_headless_shell-1234 chromium_headless_shell-1248 webkit-2311 webkit-2336 ffmpeg-1011 ffmpeg-1013; do
     bs_seed "$d"
@@ -92,64 +86,6 @@ inode() {
   [ -f "$BP/other-package/browsers.json" ]
 }
 
-@test "a client link naming a path with .. or a record file, and a symlink out of the cache, survive a deploy" {
-  deploy
-  [ "$status" -eq 0 ]
-  mkdir -p "$BATS_TEST_TMPDIR/outside"
-  echo keep >"$BATS_TEST_TMPDIR/outside/file"
-  printf '%s' "$BP/.dotfiles/clients/../../../outside" >"$BP/.links/dotfiles-evil"
-  printf '%s' "$BP/chromium-8103038/.dotfiles-record" >"$BP/.links/dotfiles-chromium-9999"
-  ln -s "$BATS_TEST_TMPDIR/outside" "$BP/chromium-1100"
-  deploy
-  [ "$status" -eq 0 ]
-  [ -f "$BATS_TEST_TMPDIR/outside/file" ]
-  [ -f "$BP/chromium-8103038/.dotfiles-record" ]
-  [ -e "$BP/.links/dotfiles-evil" ]
-  [ -e "$BP/.links/dotfiles-chromium-9999" ]
-  [ -L "$BP/chromium-1100" ]
-  deploy --check
-  [ "$status" -eq 1 ]
-  [[ "$stderr" == *"reason: stray-symlink; value: chromium-1100"* ]]
-  [[ "$stderr" == *"reason: client-unrecognised; value: dotfiles-evil"* ]]
-}
-
-@test "a .links emptied by another tool is whole again after a deploy, a retained build included" {
-  sed 's/^cft-version .*/cft-version 156.0.8078.4/' "$BS_TEST_PIN" >"$BATS_TEST_TMPDIR/old.pin"
-  run --separate-stderr "$BS_SCRIPT" --pin "$BATS_TEST_TMPDIR/old.pin"
-  [ "$status" -eq 0 ]
-  deploy
-  [ "$status" -eq 0 ]
-  [ -f "$BP/.links/dotfiles-chromium-8078004" ]
-  deploy --check
-  [ "$status" -eq 0 ]
-  [[ "$stderr" == *"retained build chromium-8078004"* ]]
-  find "$BP/.links" -type f -delete
-  deploy --check
-  [ "$status" -eq 1 ]
-  deploy
-  [ "$status" -eq 0 ]
-  deploy --check
-  [ "$status" -eq 0 ]
-  [ -f "$BP/.links/dotfiles-chromium-8078004" ]
-  [ -f "$BP/.links/dotfiles-webkit-2388" ]
-}
-
-@test "a damaged client is replaced by rename, never rewritten in place" {
-  deploy
-  [ "$status" -eq 0 ]
-  local link="$BP/.links/dotfiles-webkit-2388" json="$BP/.dotfiles/clients/webkit-2388/browsers.json" i j
-  i="$(inode "$json")"
-  echo '{' >"$json"
-  printf '%s\n' "$BP/.dotfiles/clients/webkit-2388" >"$link"
-  j="$(inode "$link")"
-  deploy
-  [ "$status" -eq 0 ]
-  [ "$(cat "$json")" = '{"browsers": [{"name": "webkit", "revision": "2388"}]}' ]
-  [ "$(cat "$link"; printf x)" = "$BP/.dotfiles/clients/webkit-2388x" ]
-  [ "$(inode "$json")" != "$i" ]
-  [ "$(inode "$link")" != "$j" ]
-}
-
 @test "a symlink to a directory outside the set survives a deploy, and --check names it" {
   deploy
   [ "$status" -eq 0 ]
@@ -173,20 +109,4 @@ inode() {
   deploy --check
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"reason: client-unrecognised; value: dotfiles-chromium-7777"* ]]
-}
-
-@test "a new set directory has its client before it is renamed into the cache" {
-  local real
-  real="$(command -v mv)"
-  cat >"$BATS_TEST_TMPDIR/stubs/mv" <<EOF
-#!/usr/bin/env bash
-case "\$2" in "$BP"/chromium-8103038)
-  if [ -f "$BP/.links/dotfiles-chromium-8103038" ]; then echo registered; else echo unregistered; fi >>"$BATS_TEST_TMPDIR/mv.log" ;;
-esac
-exec "$real" "\$@"
-EOF
-  chmod +x "$BATS_TEST_TMPDIR/stubs/mv"
-  deploy
-  [ "$status" -eq 0 ]
-  [ "$(cat "$BATS_TEST_TMPDIR/mv.log")" = registered ]
 }

@@ -10,7 +10,7 @@ set -euo pipefail
 #   0. The canonical browser BINARIES in the shared cache
 #      ($PLAYWRIGHT_BROWSERS_PATH). ALWAYS provisioned by this script via
 #      scripts/playwright-browsers-deploy.sh (curl + unzip, user-space, no
-#      sudo), so `playwright install` in any repo is a no-op. That helper
+#      sudo), so a `playwright install` naming its browsers is a no-op. That helper
 #      bypasses node's extractor, which deadlocks on this kernel's io_uring
 #      filesystem backend; see its header and docs/runbooks for the details.
 #      Without the binaries: browserType.launch "Executable doesn't exist".

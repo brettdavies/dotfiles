@@ -11,12 +11,13 @@ set -E
 
 # Provision the system browser set into the shared Playwright cache
 # ($PLAYWRIGHT_BROWSERS_PATH): one Chrome for Testing build with its headless
-# shell, one WebKit, one ffmpeg, and an alias for every revision a released
-# Playwright (1.57 and later) asks for, so `playwright install` in any repo is a
-# no-op. Every version, revision, alias and archive hash comes from the pin,
-# config/playwright/browsers.pin; archives come from hosts fixed in
-# scripts/playwright-browsers/lib/plan.sh, through curl and unzip because node's
-# extractor deadlocks on this kernel's io_uring. User-space only: no sudo.
+# shell, one WebKit, one ffmpeg, and an alias for every revision a Playwright
+# release from 1.57 to the pin's source-release asks for, so a `playwright
+# install` naming browsers in the set is a no-op. Every version, revision,
+# alias and archive hash comes from the pin, config/playwright/browsers.pin;
+# archives come from hosts fixed in scripts/playwright-browsers/lib/plan.sh,
+# through curl and unzip because node's extractor deadlocks on this kernel's
+# io_uring. User-space only: no sudo.
 #
 # Usage:
 #   scripts/playwright-browsers-deploy.sh [--pin PATH]          deploy the set the pin names
@@ -41,7 +42,7 @@ for f in pin provision clients check; do
   # shellcheck disable=SC1090 # the four files are linted as targets of their own
   source "$LIB/$f.sh"
 done
-trap 'pw_unexpected "$LINENO" "$BASH_COMMAND"' ERR
+trap 'pw_unexpected "$?" "${BASH_SOURCE[0]##*/}:$LINENO" "$BASH_COMMAND"' ERR
 
 MODE=deploy
 PIN="$REPO_ROOT/config/playwright/browsers.pin"
@@ -51,10 +52,11 @@ while [ "$#" -gt 0 ]; do
     --check) MODE=check ;;
     --pin=*)
       PIN=${1#--pin=}
+      [ -n "$PIN" ] || pw_usage "--pin needs a path" usage "nothing changed" "$PW_DEPLOY --help"
       PIN_GIVEN=1
       ;;
     --pin)
-      { [ "$#" -ge 2 ] && [[ $2 != -* ]]; } || pw_usage "--pin needs a path" usage "nothing changed" "$PW_DEPLOY --help"
+      { [ "$#" -ge 2 ] && [ -n "$2" ] && [[ $2 != -* ]]; } || pw_usage "--pin needs a path" usage "nothing changed" "$PW_DEPLOY --help"
       PIN=$2
       PIN_GIVEN=1
       shift
@@ -69,9 +71,9 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
-# A next step that reruns the deploy keeps the pin it was given, so it never reads another.
-if [ -n "$PIN_GIVEN" ]; then
-  if [ -d "$(dirname "$PIN")" ]; then PIN="$(cd "$(dirname "$PIN")" && pwd)/${PIN##*/}"; fi
+# A next step that reruns the deploy names the pin this run read, unless that is the prime checkout's own.
+if [ -n "$PIN_GIVEN" ] || [ "$(cd "$REPO_ROOT" && pwd -P)" != "$(cd "$HOME/dotfiles" 2>/dev/null && pwd -P)" ]; then
+  if [ -n "${PIN##*/}" ] && [ -d "$(dirname "$PIN")" ]; then PIN="$(cd "$(dirname "$PIN")" && pwd)/${PIN##*/}"; fi
   PW_DEPLOY="$PW_DEPLOY --pin $(printf %q "$PIN")"
 fi
 

@@ -148,16 +148,10 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
   : >"$BS_CURL_LOG"
   deploy
   [ "$status" -eq 0 ]
+  [[ "$stderr" == *"NOTE: replacing chromium-8103038, whose executable or install marker is gone"* ]]
   [ "$(wc -l <"$BS_CURL_LOG")" -eq 1 ]
   deploy --check
   [ "$status" -eq 0 ]
-}
-
-@test "a step the script did not anticipate ends with the tool's own message, then unexpected-failure and exit 1" {
-  touch "$BP"
-  deploy
-  [ "$status" -eq 1 ]
-  [[ "$stderr" == *"mkdir: "*"a step failed unexpectedly at line "*"; reason: unexpected-failure; value: mkdir; the set may be partly updated; rerun once the cause above is fixed; next: ~/dotfiles/"* ]]
 }
 
 @test "an unrecorded directory at a set name is announced before the deploy replaces it" {

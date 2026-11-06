@@ -10,9 +10,9 @@ Playwright on a host. `scripts/playwright-browsers-deploy.sh` provisions them in
 (`$PLAYWRIGHT_BROWSERS_PATH`, exported by `config/shell/caches.sh` as `~/.cache/playwright`), on the Linux server and on
 Apple silicon Macs, from the pin `config/playwright/browsers.pin`. **Repos never run `playwright install` themselves.**
 A repo's Playwright, from 1.57 to the pin's `source-release`, finds the browsers it asks for through aliases, so its
-`playwright install` is an instant no-op. Which Playwright a repo pins in that range does not change which browsers a
-host holds; a Playwright newer than `source-release` finds no alias until the pin moves, and the set moves by editing
-the pin.
+`playwright install` naming those browsers is an instant no-op; a bare `playwright install` also pulls Firefox, which no
+alias covers. Which Playwright a repo pins in that range does not change which browsers a host holds; a Playwright newer
+than `source-release` finds no alias until the pin moves, and the set moves by editing the pin.
 
 The cache holds:
 
@@ -42,8 +42,9 @@ upgrade.
    the existing directory alone.
 3. Points every alias at its real directory by atomic rename, once every directory is verified.
 4. Removes only what it can show it made: a stale `dotfiles-*` client in a shape it writes, and a symlink at a
-   browser-directory name that points into the cache. An unrecorded real directory at a set or alias name is replaced;
-   any other directory, or a symlink pointing outside the cache, stays for `--check` to name.
+   browser-directory name the pin no longer asks for that points at a directory of the set. A real directory or symlink
+   at a set or alias name is replaced; any other directory or symlink stays for `--check` to name, and a client
+   directory that is a symlink is never written through or deleted through.
 
 A deploy prints a `NOTE:` before it replaces an unrecorded directory at a set or alias name, and a failure partway says
 which directories arrived and that no alias moved, so a rerun fetches only the rest. A `next:` that reruns the deploy
@@ -104,7 +105,7 @@ fails in a way the script did not anticipate, the tool's own message comes first
 | `version-argument-removed` | 2    | A Playwright version was passed. The pin names the set. Nothing changed.                                                                                                                                                                                                       | `scripts/playwright-browsers-deploy.sh --help`; to change the set, move the pin.                                               |
 | `pin-not-found`            | 1    | The pin file does not exist or cannot be read. Nothing changed.                                                                                                                                                                                                                | Pass a readable file with `--pin`, or leave `--pin` off for the checkout's.                                                    |
 | `pin-malformed`            | 1    | A line the parser does not know, or a key that appears twice.                                                                                                                                                                                                                  | Edit the pin: one `key value...` line per field.                                                                               |
-| `pin-invalid-value`        | 1    | A value outside its shape, or a WebKit alias above the set's WebKit.                                                                                                                                                                                                           | Edit the value named; the shapes are in `scripts/playwright-browsers/lib/pin.sh`.                                              |
+| `pin-invalid-value`        | 1    | A value outside its shape, a WebKit alias above the set's WebKit, or a Chromium alias equal to the CfT build's directory number.                                                                                                                                               | Edit the value named; the shapes are in `scripts/playwright-browsers/lib/pin.sh`.                                              |
 | `pin-incomplete`           | 1    | A required key, or a required archive's `sha256` line, is missing.                                                                                                                                                                                                             | Add the line named.                                                                                                            |
 | `running-as-root`          | 1    | The cache must be owned by you. Nothing changed.                                                                                                                                                                                                                               | Run as your normal user.                                                                                                       |
 | `unsupported-platform`     | 1    | The set is built for Linux x86_64 and Apple silicon. Nothing changed.                                                                                                                                                                                                          | Run on a supported host.                                                                                                       |

@@ -63,9 +63,14 @@ pw_note() {
   printf 'NOTE: %s\n' "$*" >&2
 }
 
-# pw_unexpected LINE COMMAND: the trap for a step no check anticipated.
+# pw_unexpected STATUS WHERE COMMAND: the trap for a step no check anticipated.
+# The innermost shell reports and exits 97, so the shells around a failed $(...)
+# exit quietly and the reader gets one line.
 pw_unexpected() {
-  pw_report ERROR "a step failed unexpectedly at line $1; the failing tool's own message is above" \
-    unexpected-failure "the set may be partly updated; rerun once the cause above is fixed" "$PW_DEPLOY" "${2%% *}"
+  if [ "$1" -ne 97 ]; then
+    pw_report ERROR "a step failed unexpectedly at $2; the failing tool's own message is above" \
+      unexpected-failure "the set may be partly updated; rerun once the cause above is fixed" "$PW_DEPLOY" "${3%% *}"
+  fi
+  if [ "$BASH_SUBSHELL" -gt 0 ]; then exit 97; fi
   exit 1
 }

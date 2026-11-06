@@ -22,6 +22,7 @@ pw_client_ok() {
 # never reads an empty or half-written client and deletes every directory.
 pw_register() {
   pw_client_ok "$1" && return 0
+  if [ -L "$PW_CLIENTS/$1" ]; then rm -f "$PW_CLIENTS/$1"; fi
   mkdir -p "$PW_CLIENTS/$1"
   pw_client_json "$1" >"$STAGE/json"
   pw_rename_over "$STAGE/json" "$PW_CLIENTS/$1/browsers.json"
@@ -65,6 +66,7 @@ pw_prune_clients() {
       continue
     fi
     [ "$body" = "$base/$n" ] || continue
+    [ ! -L "$base/$n" ] || continue
     rm -f "$base/$n/browsers.json" "$link"
     rmdir "$base/$n" 2>/dev/null || true
   done

@@ -1013,7 +1013,8 @@ the script above) on the Linux server and on Apple silicon Macs. Every version, 
 comes from `config/playwright/browsers.pin`, read through one parser. Archives come over `curl` and `unzip` rather than
 `playwright install`, because node's extractor deadlocks on this host's io_uring/kernel combo, each held to the pin's
 sha256. Every revision a Playwright release from 1.57 to the pin's `source-release` asks for is an alias to the set, so
-a repo's `playwright install` is a no-op whichever Playwright in that range it pins; moving the set is a pin edit, steps
+a repo's `playwright install` naming the set's browsers is a no-op whichever Playwright in that range it pins (a bare
+install also pulls Firefox, which no alias covers); moving the set is a pin edit, steps
 in the runbook. The script registers the set in the cache's `.links`, so another tool's install does not delete it, and
 `scripts/playwright-browsers-deploy.sh --check` reports any difference from the pin with a stable reason. WebKit deps
 are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios` / `tablet`
