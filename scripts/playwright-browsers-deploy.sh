@@ -11,13 +11,14 @@ set -E
 
 # Provision the system browser set into the shared Playwright cache
 # ($PLAYWRIGHT_BROWSERS_PATH): one Chrome for Testing build with its headless
-# shell, one WebKit, one ffmpeg, and an alias for every revision a Playwright
-# release from 1.57 to the pin's source-release asks for, so a `playwright
-# install` naming browsers in the set is a no-op. Every version, revision,
-# alias and archive hash comes from the pin, config/playwright/browsers.pin;
-# archives come from hosts fixed in scripts/playwright-browsers/lib/plan.sh,
-# through curl and unzip because node's extractor deadlocks on this kernel's
-# io_uring. User-space only: no sudo.
+# shell, one WebKit, one ffmpeg, and an alias for every Chromium and ffmpeg
+# revision a Playwright release from 1.57 to the pin's source-release asks for,
+# so a `playwright install` naming browsers in the set is a no-op; WebKit is
+# the one revision the pin's library-version names, with no alias. Every
+# version, revision, alias and archive hash comes from the pin,
+# config/playwright/browsers.pin; archives come from hosts fixed in
+# scripts/playwright-browsers/lib/plan.sh, through curl and unzip because
+# node's extractor deadlocks on this kernel's io_uring. User-space only: no sudo.
 #
 # Usage:
 #   scripts/playwright-browsers-deploy.sh [--pin PATH]          deploy the set the pin names

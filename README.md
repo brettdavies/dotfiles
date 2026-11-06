@@ -1053,14 +1053,16 @@ shared cache (`$PLAYWRIGHT_BROWSERS_PATH`), provisioned by `scripts/playwright-b
 the script above) on the Linux server and on Apple silicon Macs. Every version, revision, alias list, and archive sha256
 comes from `config/playwright/browsers.pin`, read through one parser. Archives come over `curl` and `unzip` rather than
 `playwright install`, because node's extractor deadlocks on this host's io_uring/kernel combo, each held to the pin's
-sha256. Every revision a Playwright release from 1.57 to the pin's `source-release` asks for is an alias to the set, so
-a repo's `playwright install` naming the set's browsers is a no-op whichever Playwright in that range it pins (a bare
-install also pulls Firefox, which no alias covers); moving the set is a pin edit, steps
-in the runbook. The script registers the set in the cache's `.links`, so another tool's install does not delete it, and
-`scripts/playwright-browsers-deploy.sh --check` reports any difference from the pin with a stable reason. WebKit deps
-are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the `mobile-ios` / `tablet`
-projects). See [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for the reason
-table, failure signatures, the io_uring root cause, and recovery.
+sha256. Every Chromium and ffmpeg revision a Playwright release from 1.57 to the pin's `source-release` asks for is an
+alias to the set, and WebKit is the one revision the pin's `library-version` (the Playwright the repos run) names, with
+no alias. A repo's `playwright install` naming the set's browsers is a no-op whichever Playwright in that range it pins,
+WebKit aside, which only a Playwright naming the pin's `webkit-revision` finds (a bare install also pulls Firefox, which
+no alias covers); moving the set is a pin edit, steps in the runbook. The script registers the set in the cache's
+`.links`, so another tool's install does not delete it, and `scripts/playwright-browsers-deploy.sh --check` reports any
+difference from the pin with a stable reason. WebKit deps are opt-in because they pull ~180 packages and are only needed
+for Safari/iOS e2e (the `mobile-ios` / `tablet` projects). See
+[docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for the reason table, failure
+signatures, the io_uring root cause, and recovery.
 
 **AppArmor profiles** (`config/apparmor.d/`) are deployed by `scripts/apparmor-deploy.sh` (called by the script above,
 or run standalone as `sudo scripts/apparmor-deploy.sh`), which copies each file to `/etc/apparmor.d/`, loads it with

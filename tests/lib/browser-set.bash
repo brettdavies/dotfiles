@@ -19,7 +19,6 @@ BS_ARCHIVE_SPECS=(
   'chrome-mac-arm64.zip=chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'
   chrome-headless-shell-mac-arm64.zip=chrome-headless-shell-mac-arm64/chrome-headless-shell
   webkit-mac-15-arm64.zip=pw_run.sh
-  webkit-mac-26-arm64.zip=pw_run.sh
   ffmpeg-mac-arm64.zip=ffmpeg-mac
 )
 
