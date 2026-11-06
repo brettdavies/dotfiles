@@ -120,17 +120,19 @@ wait_for_lines() {
   [ "$(jaq -c . "$AGENT_SLOT_CLAUDE_STATE")" = '{"projects":{}}' ]
 }
 
-@test "a busy or waiting agent is never interrupted: resume refuses, retryable, and changes nothing" {
-  local st
+@test "a busy or waiting agent is never interrupted: resume refuses, says who acts, and changes nothing" {
+  local st action
   for st in busy waiting; do
+    action=retry
+    [ "$st" = busy ] || action=ask-operator
     agent "$st"
     resume_model --model opus
     [ "$status" -eq 1 ]
     assert_error_shape "$stderr"
-    jaq -e --arg st "$st" '.reason == "agent-busy" and .exit_code == 1 and .value == $st
-      and (.message | contains("once the agent is idle"))
+    jaq -e --arg st "$st" --arg action "$action" '.reason == "agent-busy" and .exit_code == 1 and .value == $st
+      and (.message | contains("once the agent is idle")) and (.message | contains("agent-slot list --output json"))
       and .recovery.side_effects == "none" and .recovery.retryable == true
-      and .next_step.action == "retry" and .next_step.command == "agent-slot resume repoa/1 --model opus"' <<<"$stderr"
+      and .next_step.action == $action and .next_step.command == "agent-slot resume repoa/1 --model opus"' <<<"$stderr"
     alive
   done
   [ "$(record .model)" = sonnet ]
@@ -144,18 +146,54 @@ wait_for_lines() {
   resume_model --model opus
   [ "$status" -eq 1 ]
   jaq -e '.reason == "agent-busy" and .value == "unknown" and (.message | contains("claude agents --json failed"))
-    and .recovery.side_effects == "none"' <<<"$stderr"
+    and .recovery.side_effects == "none" and .next_step.action == "ask-operator"' <<<"$stderr"
   alive
   [ "$(record .model)" = sonnet ]
 }
 
-@test "a slot's own agent asking to restart itself is told to ask from another session" {
+@test "a resume run by the slot's own agent is told to ask from another session" {
   listed busy "$$"
   resume_model --model opus
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "agent-busy" and .value == "busy" and (.message | contains("inside the slot'"'"'s own agent"))
-    and (.message | contains("another session"))' <<<"$stderr"
+  jaq -e '.reason == "agent-busy" and .value == "busy" and .next_step.action == "ask-operator"
+    and (.message | contains("inside the slot'"'"'s own agent")) and (.message | contains("another session"))' <<<"$stderr"
   [ "$(record .model)" = sonnet ]
+}
+
+@test "a resume the slot's own agent left running in the background is refused although that agent is listed idle" {
+  spawn bash -c 'while [ ! -e "$1/go" ]; do sleep 0.1; done
+    "$0" resume repoa/1 --model opus --output json >"$1/out" 2>"$1/err"; echo $? >"$1/status"; exec sleep 120' \
+    "$AGENT_SLOT" "$T" </dev/null >/dev/null 2>&1 3>&-
+  AGENT=$!
+  listed idle "$AGENT"
+  touch "$T/go"
+  wait_for_lines "$T/status" 1
+  [ "$(cat "$T/status")" = 1 ]
+  jaq -e '.reason == "agent-busy" and .value == "idle" and (.message | contains("inside the slot'"'"'s own agent"))' "$T/err"
+  alive
+  [ "$(record .model)" = sonnet ]
+  run ! grep -q 'send-keys' "$CALLS"
+}
+
+@test "an idle Claude that still runs a Bash command is not ended, and neither is the command" {
+  spawn bash -c "trap 'echo agent-stopped >>\"$CALLS\"; exit 0' TERM; bash -c 'sleep 120 && pwd -P >| $T/claude-0abc12-cwd' & wait" \
+    </dev/null >/dev/null 2>&1 3>&-
+  AGENT=$!
+  listed idle "$AGENT"
+  local i
+  for ((i = 0; i < 30; i++)); do
+    pgrep -P "$AGENT" >/dev/null && break
+    sleep 0.1
+  done
+  resume_model --model opus
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "agent-busy" and .value == "jobs" and .next_step.action == "retry"
+    and (.message | contains("1 background job")) and (.message | contains("PID"))
+    and .recovery.side_effects == "none"' <<<"$stderr"
+  alive
+  pgrep -P "$AGENT" >/dev/null
+  [ "$(record .model)" = sonnet ]
+  run ! grep -q 'send-keys' "$CALLS"
 }
 
 @test "with no Claude running, the model is recorded and nothing is typed" {
@@ -204,6 +242,13 @@ wait_for_lines() {
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --model opus
   [ "$status" -eq 0 ]
   [[ $output == *"repoa/1: every session was already running; model sonnet to opus, restarted its Claude"* ]]
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --model opus
+  [[ $output == *"repoa/1: every session was already running; model opus unchanged"* ]]
+  set_model sonnet
+  printf 'repoa-1-files\nrepoa-1-git\n' >"$STUBS/tmux-sessions"
+  echo '[]' >"$STUBS/claude-agents.json"
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --model opus
+  [[ $output == *"model sonnet to opus, no running Claude to restart"* ]]
 }
 
 @test "a model outside opus and sonnet, a missing value, and a repeated flag are usage errors before anything changes" {
@@ -213,13 +258,24 @@ wait_for_lines() {
   jaq -e '.reason == "usage" and .value == "haiku" and .message == "--model takes opus or sonnet"' <<<"$stderr"
   resume_model --model
   [ "$status" -eq 2 ]
-  jaq -e '.reason == "usage" and .message == "--model needs a value"' <<<"$stderr"
+  jaq -e '.reason == "usage" and .value == "--model" and .message == "--model needs a value: opus or sonnet"' <<<"$stderr"
+  resume_model --model ''
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and .value == "--model" and .message == "--model needs a value: opus or sonnet"' <<<"$stderr"
   resume_model --model opus --model sonnet
   [ "$status" -eq 2 ]
   jaq -e '.reason == "usage" and .message == "resume takes one --model"' <<<"$stderr"
-  resume_model --model ''
-  [ "$status" -eq 2 ]
   alive
+  [ "$(record .model)" = sonnet ]
+}
+
+@test "a flag resume does not know, such as --model=opus, is named as unknown, not blamed on the slot" {
+  resume_model --model=opus
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and .value == "--model=opus" and .message == "unknown option --model=opus"' <<<"$stderr"
+  resume_model --mdoel opus
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and .message == "unknown option --mdoel"' <<<"$stderr"
   [ "$(record .model)" = sonnet ]
 }
 
@@ -259,7 +315,8 @@ EOF
   resume_model --model opus
   [ "$status" -eq 1 ]
   jaq -e '.reason == "tmux-failed" and .recovery.side_effects == "partial" and .recovery.retryable == true
-    and .next_step.command == "agent-slot resume repoa/1"' <<<"$stderr"
+    and .value == "repoa-1" and (.message | startswith("ended the Claude in repoa-1, but could not type the new line"))
+    and (.message | contains("the record names opus")) and .next_step.command == "agent-slot resume repoa/1"' <<<"$stderr"
   run ! alive
   [ "$(record .model)" = opus ]
   run ! grep -qxF repoa-1 "$STUBS/tmux-sessions"

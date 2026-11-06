@@ -355,7 +355,7 @@ cmd_resume() {
   contract_ok "$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$1" --argjson prune "$prune" \
     '{key: $key, started: split("\n") | map(select(. != ""))} + $prune')" \
     '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)
-      + (if (.previous_model // .model) == .model then "" else "; model \(.previous_model) to \(.model), " + (if .restarted then "restarted its Claude" else "no running Claude to restart" end) end)
+      + (if .model == null then "" elif .previous_model == .model then "; model \(.model) unchanged" else "; model \(.previous_model) to \(.model), " + (if .restarted then "restarted its Claude" else "no running Claude to restart" end) end)
       + (if (.pruned_branches | length) == 0 then "" else "; pruned \(.pruned_branches | join(", ")), whose PRs merged or closed" end)
       + (if (.prune_failed | length) == 0 then "" else "; could not prune \(.prune_failed | map(.branch) | join(", "))" end)'
 }
