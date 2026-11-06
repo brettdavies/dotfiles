@@ -528,6 +528,38 @@ cut_start() {
   [ "$(cat "$STUBS/typed-repoa-prime")" = "claude --dangerously-skip-permissions --resume $id -n repoa-prime" ]
 }
 
+@test "a start waits, within a bound, for a cleared session's Claude to exit before it chooses the conversation" {
+  local id=aaaaaaaa-0000-4000-8000-0000000000c2 held
+  transcript -fixture-dev-repoa "$id" repoa-prime
+  stub claude '
+case "$*" in
+  "agents --json")
+    if kill -0 "$(cat "$STUBS/held-pid")" 2>/dev/null && [ "$(cut -d" " -f3 "/proc/$(cat "$STUBS/held-pid")/stat")" != Z ]; then
+      printf "[{\"sessionId\": \"%s\"}]\n" "'"$id"'"
+    else echo "[]"; fi ;;
+  --version) echo "2.1.310 (Claude Code)" ;;
+esac'
+  spawn sleep 60
+  held=$!
+  echo "$held" >"$STUBS/held-pid"
+  echo "$held" >"$STUBS/tmux-panes"
+  session_at repoa-prime-starting-p4242 "$AGENT_SLOT_DEV/repoa"
+
+  export AGENT_SLOT_PRIME_EXIT_WAIT=1
+  start
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "slot-busy" and .value == "repoa-prime-starting-p4242"
+    and .next_step.command == "agent-slot prime repoa"' <<<"$stderr"
+
+  session_at repoa-prime-starting-p4243 "$AGENT_SLOT_DEV/repoa"
+  wrap_tmux '[[ " $* " != *" kill-session -t =repoa-prime-starting-p4243"* ]] \
+    || { (sleep 1; kill "$(cat "$STUBS/held-pid")") </dev/null >/dev/null 2>&1 & }'
+  export AGENT_SLOT_PRIME_EXIT_WAIT=10
+  start
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUBS/typed-repoa-prime")" = "claude --dangerously-skip-permissions --resume $id -n repoa-prime" ]
+}
+
 @test "each start stages its sessions under names of its own, so a call a cut start left running reaches none of them" {
   local first second
   start

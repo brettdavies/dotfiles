@@ -73,18 +73,57 @@ _prime_conversation() {
 # Usage: _prime_clear_staged <repo>; kills each session still under one of the prime's staging names (SESSIONS_STAGING),
 # matched in full so no other repo's session can match, and sets PRIME_CLEARED to them. The caller holds the prime's
 # lock, so one is what a start cut off before it finished left behind, and it can hold a Claude that start had already
-# started. It goes before the conversation is chosen, since that Claude can hold the conversation.
+# started. It goes before the conversation is chosen, since that Claude can hold the conversation, and it waits for the
+# processes in each killed session to exit, since kill-session returns before they do and until then claude agents
+# still lists the conversation as held.
 PRIME_CLEARED=()
 _prime_clear_staged() {
-  local kind prefix name
+  local kind prefix name out pid
+  local -a pids
   PRIME_CLEARED=()
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
     prefix=$(slot_session "$1" "$SLOT_PRIME" "$kind")$SESSIONS_STAGING
     while IFS= read -r name; do
       [[ $name == "$prefix"* && ${name#"$prefix"} =~ ^[0-9]+$ ]] || continue
+      pids=()
+      if slot_tmux out 5 list-panes -s -t "=$name" -F '#{pane_pid}'; then
+        for pid in $out; do [[ ! $pid =~ ^[0-9]+$ ]] || pids+=("$pid"); done
+        ((${#pids[@]} == 0)) || mapfile -t pids < <(_prime_tree "${pids[@]}")
+      fi
       slot_tmux out 10 kill-session -t "=$name" || true
       PRIME_CLEARED+=("$name")
+      ((${#pids[@]} == 0)) || _prime_wait_gone "$1" "$name" "${pids[@]}"
     done <<<"$SLOT_SESSIONS"
+  done
+}
+
+# Usage: _prime_tree <pid>...; prints each pid and every process below it.
+_prime_tree() {
+  ps -A -o pid=,ppid= | awk -v roots="$*" '
+    BEGIN { n = split(roots, r, " "); for (i = 1; i <= n; i++) keep[r[i]] = 1 }
+    { parent[$1] = $2 }
+    END {
+      do { grew = 0; for (p in parent) if (!(p in keep) && (parent[p] in keep)) { keep[p] = 1; grew = 1 } } while (grew)
+      for (p in keep) print p
+    }'
+}
+
+# Usage: _prime_wait_gone <repo> <session> <pid>...; returns once none of the pids runs, a zombie counting as gone, or
+# fails slot-busy after AS_PRIME_EXIT_WAIT seconds.
+_prime_wait_gone() {
+  local repo=$1 session=$2 pid stat deadline=$((SECONDS + AS_PRIME_EXIT_WAIT))
+  local -a alive
+  shift 2
+  while :; do
+    alive=()
+    for pid in "$@"; do
+      { read -r stat <"/proc/$pid/stat"; } 2>/dev/null || continue
+      [[ ${stat##*) } == Z* ]] || alive+=("$pid")
+    done
+    ((${#alive[@]} > 0)) || return 0
+    ((SECONDS < deadline)) || contract_fail slot-busy "the processes of $session, left by a start that was cut off, were still running ${AS_PRIME_EXIT_WAIT}s after it was killed (pids ${alive[*]}), so no conversation could be chosen" \
+      --value "$session" --command "agent-slot prime $repo"
+    sleep 0.1
   done
 }
 
