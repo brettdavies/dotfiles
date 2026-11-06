@@ -6,7 +6,11 @@
 #                        when any path
 #                        matches none of the record's scope.touches git pathspec globs and no `scope-grant` ledger line
 #                        for the slot covers it
-# A record with no scope.touches passes. Grants count from the slot's created_at, so a reused slot number starts at none.
+#                      It also denies a push from a branch that shares no line of work with another of the slot's local
+#                      branches: one session holds one task, and a new task starts a new session through agent-slot
+#                      retask. A stacked branch shares that line, and a probe/ branch stands apart from it.
+# A record with no scope.touches passes the path check. Grants count from the task's start, so a new task, or a reused
+# slot number, starts at none.
 # Anywhere else, and on a payload, record, or base it cannot read, it prints nothing, so the call goes ahead. Always
 # exits 0; failures go to the agent-slot hooks.log.
 
@@ -96,6 +100,26 @@ scope_deny() {
     '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $m}}'
 }
 
+# Usage: branch_decide <repo> <n>; RECORD holds the slot's record. Prints the denial, or nothing.
+branch_decide() {
+  local path base head other
+  path=$(slot_path "$1" "$2")
+  base=$(contract_json -r '.base // empty' <<<"$RECORD")
+  head=$(git -C "$path" symbolic-ref --short -q HEAD) || return 0
+  [[ -n $base && $head != "$base" && $head != probe/* ]] || return 0
+  while IFS= read -r other; do
+    [[ $other != "$head" && $other != "$base" && $other != probe/* ]] || continue
+    git -C "$path" merge-base --is-ancestor "$other" HEAD 2>/dev/null && continue
+    git -C "$path" merge-base --is-ancestor HEAD "$other" 2>/dev/null && continue
+    git -C "$path" merge-base --is-ancestor "$other" "origin/$base" 2>/dev/null && continue
+    scope_deny "This push is from $head, but this slot's task is on $other, and they share no line of work. One session \
+holds one task, so stop here and ask the session you report to to run \`agent-slot retask $1/$2 --task <name> \
+--prompt-file <brief>\`, which starts the new task in a new session. If this is the same task, stack it on $other. A \
+probe's branch goes under probe/."
+    return 0
+  done < <(git -C "$path" for-each-ref --format='%(refname:short)' refs/heads)
+}
+
 # Usage: scope_decide <repo> <n> <mover>; RECORD holds the slot's record. Prints the denial, or nothing. <mover> is the
 # git subcommand that changes HEAD before the push, if any.
 scope_decide() {
@@ -108,7 +132,7 @@ scope_decide() {
   }
   path=$(slot_path "$repo" "$n")
   base=$(contract_json -r '.base // empty' <<<"$RECORD")
-  since=$(contract_json -r '.created_at // ""' <<<"$RECORD")
+  since=$(contract_json -r '.task_started_at // .created_at // ""' <<<"$RECORD")
   [[ -n $base ]] || {
     hook_log "slot $repo/$n has no base in its record; push allowed"
     return 0
@@ -164,6 +188,13 @@ scope_main() {
     hook_log "slot $repo/$n has no readable record; push allowed"
     return 0
   }
+  # A command that moves HEAD before it pushes pushes from a branch the hook cannot see yet; scope_decide refuses the chain.
+  local denied=
+  [[ -n $SCOPE_MOVER ]] || denied=$(branch_decide "$repo" "$n")
+  if [[ -n $denied ]]; then
+    printf '%s\n' "$denied"
+    return 0
+  fi
   scope_decide "$repo" "$n" "$SCOPE_MOVER"
 }
 

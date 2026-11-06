@@ -123,7 +123,7 @@ assert_unchanged_setup() {
   [ -f "$SLOT/.claude/settings.local.json" ]
   jaq -e '.head_foreign == false and .head_owner == null' <<<"$1"
   jaq -e 'has("head_foreign") | not' "$SLOT/.git/agent-slot.json"
-  [[ $(typed) == "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --session-id "* ]]
+  [[ $(typed) == "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --session-id "* ]]
 }
 
 # real_claude_env: the environment the real claude runs under here: a config directory of its own and an API port nothing
@@ -174,7 +174,7 @@ assert_reached_api() {
   local session
   session=$(jaq -r .session_id <<<"$output")
   jaq -e '.head_foreign == true and .head_owner == "evil"' <<<"$output"
-  [ "$(typed)" = "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config --session-id $session -n repoa-pr7-fix-the-login" ]
+  [ "$(typed)" = "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config --session-id $session -n repoa-pr7-fix-the-login" ]
   jaq -e '.head_foreign == true and .head_owner == "evil"' "$SLOT/.git/agent-slot.json"
   jaq -e -s '[.[] | select(.event == "launch")][-1] | .head_foreign == true and .head_owner == "evil"' "$LEDGER"
   [ "$(git -C "$SLOT" rev-parse HEAD)" = "$HEAD_SHA" ]
@@ -305,7 +305,7 @@ trust_owners() { export AGENT_SLOT_TRUSTED_OWNERS=$1; }
   [ "$status" -eq 0 ]
   jaq -e '.head_foreign == true and .head_owner == null and .head_pushable == false' <<<"$output"
   [ "$(git -C "$SLOT" rev-parse HEAD)" = "$HEAD_SHA" ]
-  [[ $(typed) == "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config "* ]]
+  [[ $(typed) == "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config "* ]]
   [ -z "$(hooks_path)" ]
 }
 
@@ -466,7 +466,7 @@ crypt_attr() { printf 'lifted.bin filter=git-crypt diff=git-crypt\n' >.gitattrib
   trash "$STUBS/typed-repoa-1"
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
-  [[ $(typed) == "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config "* ]]
+  [[ $(typed) == "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config "* ]]
 }
 
 S1=11111111-2222-4333-8444-555555555555
@@ -494,7 +494,7 @@ branch_entry() {
 # assert_reopened_foreign OWNER OUTPUT: a reopen's output, typed line, and git config for a foreign head of OWNER.
 assert_reopened_foreign() {
   jaq -e --arg owner "$1" '.head_foreign == true and .head_owner == $owner' <<<"$2"
-  [[ $(typed) == "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config --resume $S1"* ]]
+  [[ $(typed) == "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config --resume $S1"* ]]
   [ -z "$(hooks_path)" ]
 }
 
@@ -542,7 +542,7 @@ assert_reopened_foreign() {
   [ "$status" -eq 0 ]
   [ "$(hooks_path)" = .githooks ]
   jaq -e '.head_foreign == false' <<<"$output"
-  [[ $(typed) == "claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume $S1"* ]]
+  [[ $(typed) == "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --resume $S1"* ]]
 }
 
 @test "a reopen's dry run reports a foreign head and the command it would type" {
@@ -551,7 +551,7 @@ assert_reopened_foreign() {
   reopen repoa --pr 7 --dry-run
   [ "$status" -eq 0 ]
   jaq -e --arg s "$S1" '.would_reopen == true and .head_foreign == true and .head_owner == "evil"
-    and (.command | startswith("claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config --resume \($s)"))' <<<"$output"
+    and (.command | startswith("claude --dangerously-skip-permissions --settings '\''{\"idleCompaction\":false}'\'' --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config --resume \($s)"))' <<<"$output"
   [ ! -e "$SLOT" ]
 }
 
@@ -1118,8 +1118,9 @@ conflicted_slot() {
   command -v qmd >/dev/null || skip "qmd is not installed"
   conflicted_slot
   git -C "$SLOT" checkout -q --ours -- bunfig.toml
-  (cd "$SLOT" && timeout 45 "$BATS_TEST_DIRNAME/../stow/claude/dot-claude/session-context.sh" >/dev/null 2>&1 </dev/null) || true
+  (cd "$SLOT" && XDG_CACHE_HOME=$T/cache timeout 45 "$BATS_TEST_DIRNAME/../stow/claude/dot-claude/session-context.sh" >/dev/null 2>&1 </dev/null) || true
   [ -z "$(ls "$T/marks")" ]
+  [ -s "$T/cache/claude/tool-inventory.cache" ]
 }
 
 @test "resolving a conflict with git add --sparse and committing leaves the file on disk until sparse-checkout reapply" {
@@ -1227,7 +1228,7 @@ linked_solutions_tool_config() {
 }
 
 # SONNET_LINE: the start of a Sonnet slot's line, with the variable the advisor needs and the advisor itself.
-SONNET_LINE='CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions --model claude-sonnet-5-5 --effort xhigh --advisor opus'
+SONNET_LINE='CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-sonnet-5-5 --effort xhigh --advisor opus'
 
 @test "a foreign head on Sonnet keeps its model, effort, and advisor, with the restrictions on top" {
   foreign_pr

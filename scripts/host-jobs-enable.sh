@@ -38,6 +38,7 @@ TIMERS=(
   agent-slot-sweep.timer
   agent-slot-warm.timer
   agent-slot-reconcile.timer
+  skill-listing-refresh.timer
 )
 SERVICES=(
   rex-server.service

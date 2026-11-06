@@ -10,6 +10,7 @@ Verbs:
   whoami   print the slot the current directory is inside
   launch   start an agent in a fresh slot of a repo, optionally with its first message
   resume   bring back the tmux sessions and Claude conversation of a slot
+  retask   give a live slot a new task, in a new Claude session
   warm     trust the slot paths of one repo, or of every repo, in Claude ahead of time
   check    judge whether each slot can be torn down, and list what blocks it
   adopt    attach a PR or issue to a live slot, naming the slot if it has no name
@@ -28,7 +29,7 @@ Every verb takes --output json (one JSON object on stdout, or an error object on
 Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.
 Reasons and their fixes: https://github.com/brettdavies/dotfiles/blob/main/README.md#agent-slot-reasons'
 
-VERBS=' repos list whoami launch resume warm check adopt probe close-probe reopen sweep finish grant-review grant-scope release doctor schema '
+VERBS=' repos list whoami launch resume retask warm check adopt probe close-probe reopen sweep finish grant-review grant-scope release doctor schema '
 
 verb_help() {
   case $1 in
@@ -91,7 +92,21 @@ verb_help() {
       '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
       '         reopen resumes, else null)' \
       'example: agent-slot launch dotfiles --model sonnet --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
-    resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--output json]' \
+    retask) printf '%s\n' 'usage: agent-slot retask <repo>/<N> (--task <name> | --issue <ref>) --prompt-file <file> [--output json]' \
+      "A new task in a live slot starts a new Claude session, under the task's name, with the brief as its first message." \
+      'Follow-up work on the same task goes to the existing session; work on a PR starts with launch --pr. The agent must' \
+      'be idle or absent (else agent-busy) and the old work pushed (else slot-work-unfinished, value naming what is left).' \
+      'The clone returns to the base with its other local branches removed. The old session stays in prior_sessions and' \
+      'in a retask ledger line, and a reopen finds it. returns: key, task, name, session_id, previous_session_id, items.' \
+      'Example: agent-slot retask dotfiles/2 --task fix-login --prompt-file brief.md --output json' \
+      ;;
+    resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--model (opus | sonnet)] [--output json]' \
+      '--model switches the slot to that model: the record takes it, and an idle Claude is ended and typed again into its' \
+      'pane on that model, resuming the same conversation by session ID. A Claude that is busy, waiting, unreadable, or' \
+      'running background jobs is never ended: resume fails with agent-busy and changes nothing, as it does when the' \
+      "slot's own agent runs it. Naming the model the slot already runs is a plain resume. With --model it also returns" \
+      "model, previous_model, and restarted. Example: agent-slot resume dotfiles/2 --model opus. The README's Commands" \
+      'section has the rest.' \
       "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID" \
       'with --dangerously-skip-permissions. Then it deletes each of the slot'"'"'s local branches whose PRs all merged or' \
       "closed, with origin's branch of that name, keeping the base, origin's default branch, the branch checked out," \

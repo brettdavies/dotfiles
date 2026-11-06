@@ -298,7 +298,8 @@ cmd_launch() {
       esac
       contract_fail item-held-by-slot "$(slot_key "$repo" "$LAUNCH_EXISTING")$(contract_json -r \
         '(.name // .task // "") | if . == "" then "" else " (\(.))" end' <<<"$RECORD") already holds $held, so this \
-brief would not reach it; send the brief to that slot's Claude session, or launch again once that slot is torn down" \
+brief would not reach it; send follow-up work on the same task to that slot's Claude session, or start a new task \
+there with agent-slot retask, or launch again once that slot is torn down" \
         --value "$(slot_key "$repo" "$LAUNCH_EXISTING")" \
         --command "agent-slot check $(slot_key "$repo" "$LAUNCH_EXISTING") --output json"
     fi
@@ -338,12 +339,14 @@ cmd_resume() {
   record_read "$repo" "$n" || contract_fail slot-not-found "$1 has no record" --value "$1" --command "agent-slot list"
   state=$(contract_json -r '.state // ""' <<<"$RECORD")
   [[ $state == active ]] || contract_fail slot-busy "$1 is $state" --value "$1" --command "agent-slot resume $1"
+  resume_model_switch "$repo" "$n"
   sessions_start "$repo" "$n" resume
   prune=$(pr_prune_branches "$repo" "$(slot_path "$repo" "$n")" | contract_json -R -s -c '
     split("\n") | map(select(. != "") | split("\t"))
     | {prune_checked: (map(select(.[0] == "checked"))[0][1] == "true"),
        pruned_branches: map(select(.[0] == "pruned") | .[1]),
        prune_failed: map(select(.[0] == "failed") | {branch: .[1], reason: .[2]})}')
+  [[ -z $RESUME_MODEL ]] || prune=$(resume_model_fields "$prune")
   record_unlock_slot "$repo" "$n"
   contract_json -r -c '(.pruned_branches | map({branch: ., result: "pruned", reason: null}))
     + (.prune_failed | map(. + {result: "failed"})) | .[]' <<<"$prune" | while read -r line; do
@@ -353,6 +356,7 @@ cmd_resume() {
   contract_ok "$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$1" --argjson prune "$prune" \
     '{key: $key, started: split("\n") | map(select(. != ""))} + $prune')" \
     '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)
+      + (if .model == null then "" elif .previous_model == .model then "; model \(.model) unchanged" else "; model \(.previous_model) to \(.model), " + (if .restarted then "restarted its Claude" elif any(.started[]; test("-[0-9]+$")) then "its Claude started on it" else "no running Claude to restart" end) end)
       + (if (.pruned_branches | length) == 0 then "" else "; pruned \(.pruned_branches | join(", ")), whose PRs merged or closed" end)
       + (if (.prune_failed | length) == 0 then "" else "; could not prune \(.prune_failed | map(.branch) | join(", "))" end)'
 }
