@@ -91,6 +91,8 @@ source "$AS_LIB/slotmake.sh"
 source "$AS_LIB/launch.sh"
 # shellcheck source=lib/resumemodel.sh
 source "$AS_LIB/resumemodel.sh"
+# shellcheck source=lib/retask.sh
+source "$AS_LIB/retask.sh"
 # shellcheck source=lib/prstate.sh
 source "$AS_LIB/prstate.sh"
 # shellcheck source=lib/items.sh
@@ -207,6 +209,11 @@ main() {
       launch_parse_args "${args[@]}"
       exec </dev/null
       cmd_launch
+      ;;
+    retask)
+      retask_parse_args "${args[@]}"
+      exec </dev/null
+      cmd_retask
       ;;
     resume)
       resume_parse_args "${args[@]}"

@@ -72,7 +72,7 @@ or bring back its sessions with agent-slot resume" --value "$key" --command "age
 reopen_source_event() {
   { [[ ! -r $AS_LEDGER ]] || contract_json -c -R --arg repo "$1" --argjson i "$2" --arg session "${3:-}" \
     --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" "$ITEM_SAME_DEF"'
-    fromjson? | select(type == "object" and .event == "teardown" and .repo == $repo)
+    fromjson? | select(type == "object" and (.event == "teardown" or .event == "retask") and .repo == $repo)
     | if $session != "" then select(.session_id == $session) | [0, .]
       elif any(.items[]?; same_item($i)) then [2, .]
       elif $i.kind == "pr" and same_repo($i.repo; $origin) and any(.prs[]?; . == $i.number) then [1, .]

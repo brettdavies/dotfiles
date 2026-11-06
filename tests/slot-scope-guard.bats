@@ -83,6 +83,53 @@ grant_line() {
       pathspec: $spec}' >>"$LEDGER"
 }
 
+# reason: the denial the last `run` printed.
+reason() { jaq -r .hookSpecificOutput.permissionDecisionReason <<<"$output"; }
+
+@test "a push from a branch unrelated to the task's branch is denied, naming retask" {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+  [[ $(reason) == *feat/one* ]]
+}
+
+@test "the guard holds in a slot whose brief declared no scope" {
+  jaq 'del(.scope)' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  run bash_call 'git push origin feat/two'
+  [[ $(reason) == *'agent-slot retask'* ]]
+}
+
+@test "a branch stacked on the task's branch is the same task, and is allowed" {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  push 'git push origin feat/two'
+}
+
+@test "a probe's branch beside the task's is allowed, whichever one is checked out" {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b probe/ci origin/main
+  commit scripts/agent-slot/two.sh
+  push 'git push origin probe/ci'
+  git -C "$SLOT" checkout -q feat/one
+  push
+}
+
+@test "a branch whose work the base already holds is no second task" {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" update-ref refs/remotes/origin/main feat/one
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  push 'git push origin feat/two'
+}
+
 @test "a push whose commits change only declared paths is allowed" {
   commit scripts/agent-slot/lib/new.sh tests/a.bats docs/guide.md
   push

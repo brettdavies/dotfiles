@@ -113,7 +113,7 @@ another session once the agent is idle"
     message="the agent of $key is busy, so ending it to switch models would interrupt it; $idle"
   fi
   contract_fail agent-busy "$message" --value "$value" --action "$action" \
-    --command "agent-slot resume $key --model $RESUME_MODEL"
+    --command "${AGENT_BUSY_COMMAND:-agent-slot resume $key --model $RESUME_MODEL}"
 }
 
 # Usage: _resume_model_restart <repo> <n>; ends the slot's Claude and everything it started, then types the new line into
