@@ -811,6 +811,18 @@ new-agent key, from the moment the key's tab opened to the slot's Claude startin
 step between: Rex.app showing the tab, the helper's own calls, agent-slot's checks before the clone, the clone, setup,
 trust, and tmux phases, and Claude's start.
 
+`agent-slot resume <repo>/<N> --model (opus | sonnet)` switches a live slot's model. The slot's record takes the model,
+and a Claude that is idle is ended and started again in its own pane through the command line a launch builds, resuming
+its conversation by session ID, so a Sonnet slot gets its Opus advisor and the SessionStart hook gives the new session
+the current slot rules. A Claude that is busy, waiting at a prompt, or whose state cannot be read is never ended: the
+resume fails with `agent-busy`, which changes nothing and is safe to run again once the agent is idle. It fails the same
+way when the slot's own agent runs it, so that agent asks another session. With no Claude running, only the record
+changes and the next start takes the model; naming the model the slot already runs is a plain resume, so a call whose
+answer was lost can be repeated. Claude's `/model` command is never used, because it also writes the model into
+`~/.claude/settings.json`, the default of every new session; the restarted command line is the only thing that sets it.
+The JSON adds `model`, `previous_model`, and `restarted`. A `launch` or `reopen` repeat compares its `--model` with the
+slot's new model (`model-differs`).
+
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore
 down with each clone's purge (whether it was purged, its trash entry, the milliseconds it took, and a failure's code and
@@ -875,6 +887,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `pr-not-from-this-slot`       | 1    | The PR is in another repo, on a branch this slot did not create, or has a head it did not push |
 | `pr-close-failed`             | 1    | `gh pr close` failed, so the PR may or may not be closed; rerunning `close-probe` is safe      |
 | `model-differs`               | 1    | A repeat found its slot on another model than `--model`; `message` names the slot's model      |
+| `agent-busy`                  | 1    | `resume --model` found the agent busy, waiting, or unreadable; retry once the agent is idle    |
 | `session-in-use`              | 1    | A Claude agent has the session open; the operator closes it, then the reopen runs again        |
 | `item-not-found-in-ledger`    | 1    | No teardown names the item; `--session <id>` finds an older slot, or launch a fresh one        |
 | `transcript-missing`          | 1    | Claude Code no longer has the conversation to resume; launch a fresh slot for the item         |

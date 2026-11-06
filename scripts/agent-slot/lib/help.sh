@@ -91,7 +91,17 @@ verb_help() {
       '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
       '         reopen resumes, else null)' \
       'example: agent-slot launch dotfiles --model sonnet --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
-    resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--output json]' \
+    resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--model (opus | sonnet)] [--output json]' \
+      '--model switches the slot to that model. The record takes it, and a Claude that is idle is ended and typed again' \
+      'into its pane on that model, resuming the same conversation by session ID, so a sonnet slot gets its opus advisor' \
+      'and the SessionStart hook gives it the current slot rules. A Claude that is busy, waiting at a prompt, or unreadable' \
+      'is never ended: resume refuses with agent-busy, having changed nothing, and is run again once the agent is idle. A' \
+      "resume run from the slot's own agent is refused the same way, since that agent is never idle while it runs. With" \
+      'no Claude running, only the record changes. The model the slot already runs is a plain resume. If the new line' \
+      'cannot be typed, resume fails with tmux-failed and drops the Claude session, so the next resume starts it on the' \
+      'new model. Only the restarted command line sets the model: /model is never typed and no Claude settings file is' \
+      'written. With --model it also returns model, previous_model, and restarted (true when a running Claude was ended' \
+      'and started again).' \
       "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID" \
       'with --dangerously-skip-permissions. Then it deletes each of the slot'"'"'s local branches whose PRs all merged or' \
       "closed, with origin's branch of that name, keeping the base, origin's default branch, the branch checked out," \
