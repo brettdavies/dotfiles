@@ -265,8 +265,8 @@ These need Brett. dotfiles-prime carries them to him.
     (KTD12) stops the re-bind without editing the script, and a re-render brings it back for rollback. With `local.env`
     present and the stack unhealthy, the block fails, so the unit's retries cover boot order; with `firstAccount: true`
     it prints a `NOTE:` and skips, since retries cannot fix that.
-  - The `serve` verb applies the same gate on either host, and `up` calls it last, so a unit that gave up its retries is
-    repaired by the next `up`.
+  - The `serve` verb applies the same gate on either host, and `up` and `create-admin` call it last, so a first deploy
+    binds without a separate step and a unit that gave up its retries is repaired by the next `up`.
   - Instantiates R2, R3, R9.
 - KTD7. **Port 8946, not upstream's 3001.** Dev servers on the Linux server fall back to 3001 when 3000 is taken, and
   its SSH tunnel config forwards dev ports. 8946 is free on both hosts. Instantiates R2.
@@ -325,6 +325,20 @@ These need Brett. dotfiles-prime carries them to him.
   nobody answers prompts in a slot. Wrapping docker in a script to avoid that prompt would sidestep the rule, so slots
   test the script with docker stubbed, and every check an agent runs goes through `status`, which needs no docker.
   Instantiates R12, R13.
+- KTD15. **Errors follow the global error contract, and the agent-facing commands speak JSON.** Every `ERROR:` line from
+  the deploy script and the bump script starts with a stable kebab-case reason from one closed set in
+  `scripts/openseo/lib/errors.sh`, names the values involved, says whether a rerun is safe or what to run first, and
+  ends with a `fix:` line holding the exact command or the precise thing a person must supply. The runbook's
+  troubleshooting section has one anchor per reason. `status` and `scripts/upgrade/openseo-pin.sh`, the two commands
+  agents run, take `--output json` and print the global envelope: `reason`, `exit_code`, `message`, the offending value,
+  and `next_step` `{action, command, docs}`, with `action` from a closed set; `status` adds its per-check results.
+  Operator verbs stay text, since a person runs them. `--help` lists every verb, marks the ones that need docker as
+  operator steps, and lists the exit codes. Every ssh call an agent can trigger passes
+  `-o BatchMode=yes -o ConnectTimeout=10`, so a missing key fails at once instead of waiting for a terminal. When a
+  command the script runs (compose, node, ssh, tailscale) fails in a way the script does not expect, the error carries
+  that command's last stderr lines under `cause:`. While `up` waits for `init`, which upstream gives up to two minutes,
+  it prints what it is waiting for and the log command, so a person never watches a silent terminal. Instantiates R12,
+  R13.
 
 ### High-Level Technical Design
 
@@ -351,7 +365,7 @@ Where OpenSEO lives across the gates:
 
 ```mermaid
 stateDiagram-v2
-  [*] --> LinuxServer: Gate A, operator runs up, create-admin, serve
+  [*] --> LinuxServer: Gate A, operator runs up, then create-admin
   LinuxServer --> LinuxServer: update to a newer pin
   LinuxServer --> StaysOnLinuxServer: Gate B fails
   LinuxServer --> Cutover: Gate B passes and PR3 merged
@@ -445,9 +459,9 @@ These are bets this plan has not verified. Gate A checks each one.
 
 | Phase  | Kind     | Delivers                                                                                                              | Requirements                       | After                                    | Budget, script / tests [estimated] |
 | ------ | -------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------- | ---------------------------------- |
-| PR1    | PR       | Pinned stack, env render, `up`, `down`, `serve`, `status`, `create-admin`, `svc:openseo` on the Linux server, runbook | R1, R2, R5, R7, R9, R12, R13       | none                                     | 340 / 450                          |
+| PR1    | PR       | Pinned stack, env render, `up`, `down`, `serve`, `status`, `create-admin`, `svc:openseo` on the Linux server, runbook | R1, R2, R5, R7, R9, R12, R13       | none                                     | 380 / 500                          |
 | Gate A | Operator | Tailnet policy, first deploy, admin, first read-only run                                                              | R10, R11, success criteria 1 and 2 | PR1 merged; on or after 2026-11-13 (OQ3) | none                               |
-| PR2    | PR       | `backup`, `restore`, `update`, `rollback`, the bump script                                                            | R6, R8                             | PR1                                      | 300 / 400                          |
+| PR2    | PR       | `backup`, `restore`, `update`, `rollback`, the bump script                                                            | R6, R8                             | PR1                                      | 320 / 430                          |
 | Gate B | Operator | Soak, a reboot, the memory and disk readings                                                                          | R4                                 | Gate A plus 7 days                       | none                               |
 | PR3    | PR       | `--host nas` for every verb, `retire`, the cutover runbook                                                            | R3, R4, R8                         | PR2; started only if Gate B passes       | 200 / 300                          |
 | Gate C | Operator | Cutover; day-14 cleanup                                                                                               | R3, success criterion 3            | PR3 merged                               | none                               |
@@ -571,12 +585,12 @@ requires.
 **Goal:** the operator brings the stack up and down, creates the administrator, and binds the address with one command
 each, and any agent can check it.
 
-**Requirements:** R9, R12, R13; KTD4, KTD6, KTD8, KTD14.
+**Requirements:** R9, R12, R13; KTD4, KTD6, KTD8, KTD14, KTD15.
 
 **Dependencies:** U2.
 
 **Files:** `scripts/openseo-deploy.sh`, `scripts/openseo/lib/compose.sh`, `scripts/openseo/lib/gate.sh`,
-`tests/openseo-deploy.bats`.
+`scripts/openseo/lib/errors.sh`, `tests/openseo-deploy.bats`.
 
 **Approach:**
 
@@ -588,14 +602,17 @@ each, and any agent can check it.
 - `down`: `docker compose stop`. No verb ever passes `-v` or `--volumes`, which delete the data and the generated
   secrets.
 - `create-admin`: pipe the admin item's password on stdin to
-  `docker compose exec -T runtime node /opt/standalone/admin.mjs create-user <email> OpenSEO`, then print `serve` as the
-  next step.
+  `docker compose exec -T runtime node /opt/standalone/admin.mjs create-user <email> OpenSEO`, then run `serve`. On
+  success it prints the address, the 1Password item to sign in with, and the next step: create the project `anc.dev`
+  (KTD9).
 - `serve`: apply KTD6's gate on loopback (`gate.sh`, parsing the JSON bodies), then
   `tailscale serve --service=svc:openseo --https=443 --yes http://127.0.0.1:8946`, then check `CapMap."service-host"`.
 - `status` needs no docker. On a host holding `local.env` it runs the gate on loopback and checks
   `CapMap."service-host"`; from anywhere it fetches `/api/health` at the tailnet address with `curl --max-time 5`. It
   exits 0 when healthy, 1 with an `ERROR:` naming the failing check and its fix command, and 2 on usage errors. On the
-  OpenSEO host it also prints a `NOTE:` naming `update` when the tracked pin is newer than the env file's image.
+  OpenSEO host it also prints a `NOTE:` naming `update` when the tracked pin is newer than the env file's image. With
+  `--output json` it prints KTD15's envelope.
+- Errors and `--help` follow KTD15.
 
 **Patterns to follow:** exit codes and `ERROR:`/`NOTE:` prefixes from AGENTS.md "Shell Script Conventions"; `--check`
 modes in `scripts/sysctl-deploy.sh`.
@@ -613,6 +630,13 @@ modes in `scripts/sysctl-deploy.sh`.
 - `create-admin` sends the stubbed password on stdin; the docker stub's argv log never contains it.
 - `create-admin` when an account already exists (the stub exits non-zero with upstream's message) exits 1 and names
   `serve`.
+- After a successful account creation, `create-admin` runs the gate and `tailscale serve`, then prints the address, the
+  admin item's title, and the project step.
+- Every `ERROR:` the suite triggers starts with a reason from `errors.sh` and ends with a `fix:` line; a reason outside
+  the closed set fails the test.
+- `status --output json` parses with `jq`, carries `reason`, `exit_code`, `message`, and `next_step`, and its
+  `exit_code` matches the process's.
+- `--help` exits 0, names every verb, and marks the docker verbs; an unknown verb exits 2 and points at `--help`.
 - `status` on the OpenSEO host with a tracked pin newer than the env file's image exits 0 and prints the `update`
   `NOTE:`.
 - No verb passes `-v` or `--volumes` to compose.
@@ -671,9 +695,13 @@ block goes after the existing binds.
 
 **Approach:**
 
-- One-time setup: create the two 1Password items with the skill's `create_item.sh`; define `svc:openseo`, its grant, and
-  the autoApprover, and confirm the Linux server's tag.
-- First deploy, in order: `render`, `up`, `create-admin`, `serve`, `status`.
+- One-time setup, as exact commands: create the two 1Password items with the skill's `create_item.sh`; define
+  `svc:openseo` with the `tailscale` skill's `ts-api.sh service-set`; add the grant and the autoApprover with
+  `ts-api.sh acl`, `acl-validate`, and `acl-apply`; confirm the Linux server's tag and, after the first bind,
+  `ts-api.sh service-hosts svc:openseo`.
+- First deploy, in order: `up`, then `create-admin`, which binds the address; `status` confirms it.
+- Troubleshooting, one anchor per KTD15 reason, and where upstream takes bug reports (its GitHub issues, and
+  `SECURITY.md` for security problems).
 - The first read-only run per KTD9: what to open, what never to click (the IndexNow tool, rank trackers, Search Console
   connect, AI visibility), and the note for Brett in the prime's `.context/`.
 - Which steps are the operator's (KTD14) and which any agent can run.
@@ -750,6 +778,8 @@ docker.
    file only after every fetch succeeded.
 5. Print upstream's compare of `deploy/standalone/` and `docs/SELF_HOSTING_DOCKER.md`, with a `WARNING:` when the
    compose file's set of services or volumes changed, which is a stop condition for the reviewer.
+6. With `--output json`, print one outcome object (`bumped`, `up-to-date`, or a KTD15 error envelope) naming the old and
+   new tags and the warning, so the slot that runs it can write its PR body from it.
 
 **Patterns to follow:** `scripts/upgrade/yazi-pins.sh` and `scripts/upgrade/lib/yazi-pins-lib.sh` (age gate by the
 host's record, never backwards).
@@ -764,6 +794,8 @@ host's record, never backwards).
 - On success, the new pin parses, its checksums match the newly written files, and the output names the old and new
   tags.
 - A fixture compose file with an added service prints the `WARNING:`.
+- `--output json` on each outcome above parses with `jq` and carries the outcome, both tags, and, on failure, KTD15's
+  `reason` and `next_step`.
 
 **Verification:** the suite passes with `gh` and `curl` stubbed, and the script never calls `docker`.
 
@@ -822,7 +854,7 @@ Adds: `--host nas` for every verb; verb `retire`.
 1. `--host nas` sets `DOCKER_HOST=ssh://pool` (alias overridable by `OPENSEO_NAS_SSH`) and uses `nas.env` in place of
    `local.env`.
 2. `serve --host nas` and `status --host nas` run their loopback checks and `tailscale serve` on the NAS through
-   `ssh pool`.
+   `ssh pool`, with KTD15's non-interactive options.
 3. `up --host nas` refuses to start against fresh volumes when `--expect-restored` is given and `docker volume ls` on
    the NAS lacks the `openseo-standalone_storage` and `_config` volumes.
 4. `retire` (Linux server only) runs `tailscale serve --service=svc:openseo --https=443 off`, `down`, and deletes
@@ -836,6 +868,7 @@ Adds: `--host nas` for every verb; verb `retire`.
   commands.
 - Secret values never appear in any stub's argv log.
 - When the ssh stub fails to connect, every `--host nas` verb exits 1 naming `ssh pool` and makes no further call.
+- Every ssh call the stub sees carries `BatchMode=yes` and `ConnectTimeout=10`.
 - `serve --host nas` refuses when the NAS's gate fails and never calls `tailscale serve`.
 - `up --host nas --expect-restored` with the restored volumes missing exits 1 before any `up`.
 - `retire` turns the advertisement off before stopping the stack, and leaves `local.env` in place if either step fails.
@@ -869,7 +902,7 @@ rollback, and day-14 cleanup (volume removal on the Linux server). README names 
 | ShellCheck        | `scripts/lint-shell` over the changed scripts                                                                                                                                     | each PR                                  | clean                                                                                                                                    |
 | Pre-push mirror   | `.githooks/pre-push` (runs on `git push`)                                                                                                                                         | each PR                                  | passes                                                                                                                                   |
 | Pin resolves      | GHCR manifest request for the pinned digest                                                                                                                                       | PR1, each bump                           | 200                                                                                                                                      |
-| Gate A, operator  | runbook "First deploy": `render`, `up`, `create-admin`, `serve`                                                                                                                   | after PR1 merges, on or after 2026-11-13 | `init` prints its ready line; `serve` sees the service in `CapMap`                                                                       |
+| Gate A, operator  | runbook "First deploy": `up`, `create-admin`, each timed with `gtime -f '%e s'` for the Gate A note                                                                               | after PR1 merges, on or after 2026-11-13 | `init` prints its ready line; `serve` sees the service in `CapMap`                                                                       |
 | Gate A, any agent | `scripts/openseo-deploy.sh status` on the Linux server                                                                                                                            | after the operator steps                 | exit 0                                                                                                                                   |
 | Gate A, reach     | from the Mac the address loads and sign-in works; from a LAN host port 8946 is refused                                                                                            | after the operator steps                 | as stated                                                                                                                                |
 | Gate A, restart   | operator restarts dockerd, then `status`                                                                                                                                          | after the first run                      | exit 0 with no `up`                                                                                                                      |
@@ -895,33 +928,33 @@ rollback, and day-14 cleanup (volume removal on the Linux server). README names 
 ## Appendix: Engineering Review (plan-eng-review, 2026-11-06)
 
 Target: this plan at `da918cf`. The review ran in an unattended agent slot, where the question tool is denied, so each
-choice below is decided from upstream's v0.1.25 source, the repo on `dev`, read-only probes of the NAS and GHCR, and repo
-precedent, and is recorded with its evidence. Brett's open questions (OQ1 to OQ5) are left to him; none was decided
-here. Evidence kinds: static reads and live read-only probes; no proposed code ran, and `docker` is denied in this
-slot, so no compose command was run against a live CLI.
+choice below is decided from upstream's v0.1.25 source, the repo on `dev`, read-only probes of the NAS and GHCR, and
+repo precedent, and is recorded with its evidence. Brett's open questions (OQ1 to OQ5) are left to him; none was decided
+here. Evidence kinds: static reads and live read-only probes; no proposed code ran, and `docker` is denied in this slot,
+so no compose command was run against a live CLI.
 
 ### Scope Challenge
 
 - **What already exists.** The Serve setup script and its unit (`scripts/tailscale-serve-setup.sh`,
   `config/systemd/system/tailscale-serve-setup.service`); the 1Password-to-env-file pattern
   (`scripts/host-jobs-enable.sh:47-63`) and its stubs (`tests/host-scheduled-jobs.bats:31-70`); the age-gated pin move
-  (`scripts/upgrade/yazi-pins.sh`); upstream's compose file, backup script, and operator command, which the plan
-  vendors or calls rather than rebuilding.
-- **Minimum change.** PR1 alone puts OpenSEO on the tailnet and makes the first run possible. PR2 and PR3 are
-  separable, and PR3 is built only if Gate B passes.
+  (`scripts/upgrade/yazi-pins.sh`); upstream's compose file, backup script, and operator command, which the plan vendors
+  or calls rather than rebuilding.
+- **Minimum change.** PR1 alone puts OpenSEO on the tailnet and makes the first run possible. PR2 and PR3 are separable,
+  and PR3 is built only if Gate B passes.
 - **Complexity.** About 19 repo paths across the three PRs' `Touches:` lines [estimated] and two new script families:
-  the deploy script with its libraries, and the bump script. The gate trips; E-D1 settles the structure. No feature
-  cut is proposed: every verb traces to a requirement in the brief.
+  the deploy script with its libraries, and the bump script. The gate trips; E-D1 settles the structure. No feature cut
+  is proposed: every verb traces to a requirement in the brief.
 - **Search.** The patterns are standard: Compose's `COMPOSE_FILE` and `COMPOSE_ENV_FILES` variables (the Linux server
   has the `docker-compose-plugin` 5.6.0 package [measured: dpkg], the NAS Compose v5.5.0 [measured: probe]), Docker's
-  `ssh://` transport for `DOCKER_HOST`, and Tailscale Services [Layer 1]. No web search ran; in-distribution
-  knowledge only.
+  `ssh://` transport for `DOCKER_HOST`, and Tailscale Services [Layer 1]. No web search ran; in-distribution knowledge
+  only.
 - **TODOS.** The repo tracks no TODOS file; local TODO files are gitignored by policy.
 - **Distribution.** Nothing is published. Images come from GHCR and Docker Hub by digest.
 - **Prior learning applied:** `dotfiles-same-version-all-hosts` (10/10, 2026-09-22). The NAS phase runs from the Linux
   server's checkout, so no host can run a different version of the script.
-- **Retrospective.** `git log` of `scripts/tailscale-serve-setup.sh` shows #245 (re-run on every tailscaled start),
-  #149, and #146; no reverts.
+- **Retrospective.** `git log` of `scripts/tailscale-serve-setup.sh` shows #245 (re-run on every tailscaled
+  start), #149, and #146; no reverts.
 
 ```text
 REALITY: premise-table pass about 40 factual claims carry source, probe, or registry receipts; unverified=5 (password-mode links from BETTER_AUTH_URL, dockerd restart without init, the Linux server reaching its own service address, COMPOSE_ENV_FILES inside the backup script, compose over ssh as root) docs/plans/2026-11-06-0100-feat-openseo-tailnet-service-plan.md:415
@@ -939,21 +972,21 @@ Scope result: scope accepted as-is. MODE: FULL_REVIEW.
 
 Each choice was decided on its recommendation from the evidence named, because no person answers in the slot.
 
-| ID | Finding | Options | Chosen | Evidence | Accepted scope |
-| --- | --- | --- | --- | --- | --- |
-| E-D1 | Complexity gate | Original arrangement; smaller arrangement | Original | Folding the libraries into the deploy script would put about 700 lines in one file [estimated from the budgets], past the 200-line refactor trigger | No change |
-| E-D2 | A1 | Only `update` and `rollback` change a host's image; keep render writing the tracked pin | Only update and rollback | R6; U2 step 2 wrote the tracked pin on every render, and U3's `up` renders; upstream: "Going back to an older image does not undo them" (`docs/SELF_HOSTING_DOCKER.md`) | KTD13's last sentences; U2 step 2; U3 `status`; U6 step 3; U8 `update`; two tests |
-| E-D3 | A2 | Add a disk threshold to Gate B; keep the gate on memory alone | Disk threshold | The NAS's `docker.img` is 20 GiB with 12 GiB free and holds every container's images and volumes [measured: `/boot/config/docker.cfg`, `df`] | KTD10; OQ5; Risks; Gate B rows; U8's runbook |
-| E-D4 | A3 | Define port, service name, paths, and the bind once in `gate.sh`; keep copies in each script | One definition | Port 8946, `svc:openseo`, and `local.env` appeared in both U3 and U4 (red flags 6 and 8) | KTD6's gate bullet |
-| E-D5 | A4 | `up` force-recreates `init`, `web`, `crawl-gateway`; plain `up -d` | Force-recreate | Upstream applies changed settings that way ("Enable features", `docs/SELF_HOSTING_DOCKER.md`) | U3 `up`; one test |
+| ID   | Finding         | Options                                                                                      | Chosen                   | Evidence                                                                                                                                                                | Accepted scope                                                                    |
+| ---- | --------------- | -------------------------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| E-D1 | Complexity gate | Original arrangement; smaller arrangement                                                    | Original                 | Folding the libraries into the deploy script would put about 700 lines in one file [estimated from the budgets], past the 200-line refactor trigger                     | No change                                                                         |
+| E-D2 | A1              | Only `update` and `rollback` change a host's image; keep render writing the tracked pin      | Only update and rollback | R6; U2 step 2 wrote the tracked pin on every render, and U3's `up` renders; upstream: "Going back to an older image does not undo them" (`docs/SELF_HOSTING_DOCKER.md`) | KTD13's last sentences; U2 step 2; U3 `status`; U6 step 3; U8 `update`; two tests |
+| E-D3 | A2              | Add a disk threshold to Gate B; keep the gate on memory alone                                | Disk threshold           | The NAS's `docker.img` is 20 GiB with 12 GiB free and holds every container's images and volumes [measured: `/boot/config/docker.cfg`, `df`]                            | KTD10; OQ5; Risks; Gate B rows; U8's runbook                                      |
+| E-D4 | A3              | Define port, service name, paths, and the bind once in `gate.sh`; keep copies in each script | One definition           | Port 8946, `svc:openseo`, and `local.env` appeared in both U3 and U4 (red flags 6 and 8)                                                                                | KTD6's gate bullet                                                                |
+| E-D5 | A4              | `up` force-recreates `init`, `web`, `crawl-gateway`; plain `up -d`                           | Force-recreate           | Upstream applies changed settings that way ("Enable features", `docs/SELF_HOSTING_DOCKER.md`)                                                                           | U3 `up`; one test                                                                 |
 
 Factual corrections, no question needed: F1, KTD5's reason for refusing a storage-key change now cites upstream's
 restore requirement instead of an unverified RustFS behavior. F2, the build-phase budgets are tagged [estimated]. F3,
 Gate B's readings move from U10 (PR3) to U8's runbook (PR2), because Gate B happens before PR3 exists.
 
 Regression contract, carried as required proof: the Serve setup script's host gate and its `svc:ollama` then
-`svc:codex-proxy` order and failure behavior stay as they are; U4's first four scenarios hold them, in a suite that
-does not exist today.
+`svc:codex-proxy` order and failure behavior stay as they are; U4's first four scenarios hold them, in a suite that does
+not exist today.
 
 Approval readiness: PASS (E-D1 to E-D5, decided from evidence in an unattended slot; F1 to F3 change no behavior).
 
@@ -1049,8 +1082,8 @@ GAPS ADDED BY THIS REVIEW: 6 (render keeps image, force-recreate, pull failure, 
 
 Legend: ★★★ behavior plus edge plus error | ★★ happy path | →E2E live = an operator gate, not a bats case.
 
-The test plan artifact is at `~/.gstack/projects/brettdavies-dotfiles/brett-dev-eng-review-test-plan-20261106-011342.md`.
-Tests made obsolete: none.
+The test plan artifact is at
+`~/.gstack/projects/brettdavies-dotfiles/brett-dev-eng-review-test-plan-20261106-011342.md`. Tests made obsolete: none.
 
 ### 4. Performance
 
@@ -1070,21 +1103,21 @@ tailscaled restart, and SAM through the Linux server's Ollama.
 
 ### What already exists
 
-Reused, not rebuilt: the Serve setup script and unit, the `read_field.sh` env-file pattern and its test stubs, the
-yazi pin mover's age-gate shape, upstream's compose file, backup script, operator command, health route, and
-`sign-up-status` route. Rebuilt: nothing.
+Reused, not rebuilt: the Serve setup script and unit, the `read_field.sh` env-file pattern and its test stubs, the yazi
+pin mover's age-gate shape, upstream's compose file, backup script, operator command, health route, and `sign-up-status`
+route. Rebuilt: nothing.
 
 ### Failure modes
 
-| Path | Realistic failure | Handled | Test | What the operator sees |
-| --- | --- | --- | --- | --- |
-| render | 1Password unreachable | exit 1, file untouched | yes | `ERROR:` naming the item |
-| up | GHCR unreachable | exit 1 before `up -d` | yes | `ERROR:` naming the image |
-| up | `init` fails | exit 1 | yes | the `docker compose logs init` command |
-| setup block | stack not up at boot | unit retries | yes | unit retrying, then bound |
-| update | backup fails | stops before `pull` | yes | `ERROR:` and no change |
-| `--host nas` | ssh down | exit 1 | yes | `ERROR:` naming `ssh pool` |
-| NAS binding | dropped by a tailscaled upgrade | `status` | live | `ERROR:` naming `--host nas serve` |
+| Path         | Realistic failure               | Handled                | Test | What the operator sees                 |
+| ------------ | ------------------------------- | ---------------------- | ---- | -------------------------------------- |
+| render       | 1Password unreachable           | exit 1, file untouched | yes  | `ERROR:` naming the item               |
+| up           | GHCR unreachable                | exit 1 before `up -d`  | yes  | `ERROR:` naming the image              |
+| up           | `init` fails                    | exit 1                 | yes  | the `docker compose logs init` command |
+| setup block  | stack not up at boot            | unit retries           | yes  | unit retrying, then bound              |
+| update       | backup fails                    | stops before `pull`    | yes  | `ERROR:` and no change                 |
+| `--host nas` | ssh down                        | exit 1                 | yes  | `ERROR:` naming `ssh pool`             |
+| NAS binding  | dropped by a tailscaled upgrade | `status`               | live | `ERROR:` naming `--host nas serve`     |
 
 Critical gaps: 0. Every failure is either tested or visible through `status`.
 
@@ -1138,18 +1171,259 @@ _No new tasks from Performance._
 - Parallelization: 1 lane, 0 parallel / 3 sequential
 - Lake Score: N/A (no answers scored for Completeness)
 
+## Appendix: DX Review (plan-devex-review, 2026-11-06)
+
+Target: this plan at `47d767e`. Run in the same unattended slot under the same rule: each choice is decided from the
+evidence named and recorded here, because no person answers questions in the slot. Base `dev`. No design doc exists;
+the `/office-hours` offer is answered as skip, since the plan already holds the problem frame and alternatives. Mode:
+DX POLISH, because the plan's scope is right and this is an internal service, not a product for outside developers.
+Product type: a CLI (`scripts/openseo-deploy.sh` and the bump script) delivering a platform (the tailnet service).
+Web research: none ran; the benchmark uses upstream's own documentation.
+
+### Developer Persona Card
+
+```text
+TARGET DEVELOPER PERSONA
+========================
+Who:       Brett as the operator, at a terminal on the Linux server, running each gate's commands from ~/dotfiles;
+           AI coding agents are the second reader of every error and the only users of status and the bump script
+Context:   once at Gate A, again at each update, once at the move; agents check status any time
+Tolerance: a few commands per gate; zero tolerance for a prompt that blocks an agent or a secret on screen
+Expects:   the repo's conventions (ERROR:/NOTE: prefixes, --help, exit 2 on usage), 1Password items by UUID, a runbook
+```
+
+### Developer Empathy Narrative
+
+I open `docs/runbooks/openseo.md` on the Linux server. The one-time part asks me to make two 1Password items with
+`create_item.sh` and to define `svc:openseo` with `ts-api.sh`, then paste a grant and an autoApprover into the ACL and
+validate it before applying. That is about fifteen minutes the first time [estimated]; I do it once. Then I run
+`scripts/openseo-deploy.sh up`. It pulls about 115 MiB and tells me it is waiting for `init`, which upstream allows two
+minutes, and prints the log command in case it stalls. It finishes by telling me no administrator exists yet and to
+run `create-admin`. I run it; it reads the password from 1Password, creates the account, binds the tailnet address,
+and prints `https://openseo.<tailnet>.ts.net` with the item to sign in with. On the Mac I sign in, create the project
+`anc.dev`, and a 50-page audit starts on its own. What I could not confirm from the plan alone: whether sign-in works
+first time through Serve (Gate A checks it), and how long `up` really takes (Gate A times it).
+
+### Competitive DX Benchmark
+
+Clock: from "PR1 merged and the one-time setup done" to "OpenSEO's sign-in page at the tailnet address". Times are not
+comparable across rows, because each starts from a different state; the table compares DX choices.
+
+| Tool | Start → result | Time + evidence type | DX choice | Source |
+| --- | --- | --- | --- | --- |
+| Upstream Docker edition | clone → sign-in on localhost | "ready a few seconds after it starts" (reported); six manual steps | prebuilt image, first visitor becomes admin | `docs/SELF_HOSTING_DOCKER.md` |
+| Upstream hosted | sign-up → app | not measured; $10 a month | nothing to run | `README.md` |
+| Upstream Cloudflare self-host | one deploy command → public URL | not measured (reported "one deploy command") | public internet | `README.md` |
+| pinchflat on the NAS | hand-written compose, env file, serve command → app | not measured; every step by hand | compose.manager, manual serve | pinchflat plan |
+| This plan | `up`, `create-admin` → sign-in at the tailnet address | 2 to 4 minutes [estimated: 115 MiB pull, `init` up to 120 s]; one-time setup about 15 minutes [estimated] | pinned, 1Password-rendered, admin before bind, tailnet only | U3 |
+
+Target: Competitive (2 to 5 minutes) for the repeatable path after the one-time setup, measured at Gate A. Champion
+(under 2 minutes) would need the image pre-pulled, which buys nothing for a service deployed a handful of times.
+
+### Magical Moment Specification
+
+`create-admin` ends by binding the address and printing `https://openseo.<tailnet>.ts.net`, the 1Password item to sign
+in with, and "create the project anc.dev". Brett signs in from the Mac, creates the project, and minutes later reads a
+50-page audit of the live site, with nothing changed on it and nothing spent. Vehicle: existing capabilities only
+(upstream's auto-started first audit, KTD9; `create-admin` running `serve`, U3).
+
+### Developer Journey Map
+
+```text
+STAGE           | DEVELOPER DOES                                   | FRICTION POINTS                     | STATUS
+----------------|--------------------------------------------------|-------------------------------------|--------
+1. Discover     | finds AGENTS.md's OpenSEO entry and the runbook  | none                                | ok
+2. Install      | 1Password items, svc:openseo, grant, approver    | console clicks with no commands     | fixed (DX-D6)
+3. Hello World  | up, create-admin, sign in, create anc.dev        | separate serve step; silent init    | fixed (DX-D7, DX-D10)
+4. Real Usage   | reads audits; agents run status                  | status text-only for agents         | fixed (DX-D9)
+5. Debug        | reads an ERROR, runs its fix                     | no stable codes, no recovery class  | fixed (DX-D8)
+6. Upgrade      | bump PR reviewed, then update; rollback if bad   | none beyond the eng review's        | ok
+```
+
+### First-Time Developer Confusion Report
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: the operator (an agent reads every error as a second reader)
+Attempting: Gate A from docs/runbooks/openseo.md
+
+CONFUSION LOG:
+T+0:00  Reads one-time setup. Before review: "define svc:openseo, its grant, and the autoApprover" with no commands.
+        Addressed: exact ts-api.sh service-set, acl, acl-validate, acl-apply, service-hosts commands (DX-D6).
+T+15:00 Runs up. Before review: init can sit two minutes with no output. Addressed: progress line (DX-D10).
+T+18:00 up says to run create-admin. Before review: then a separate serve. Addressed: create-admin binds (DX-D7).
+T+19:00 An agent runs status from a slot. Before review: text only. Addressed: --output json (DX-D9).
+T+20:00 Signs in from the Mac, creates anc.dev; the audit starts on its own. Success, pending Gate A's live check.
+```
+
+### Passes
+
+**Pass 1, Getting Started: 6 → 8.** The repeatable path is now two commands, and the one-time setup is exact commands.
+A 10 would pre-pull the image and script the ACL edit end to end; neither pays for itself at this deploy count.
+
+**Pass 2, CLI design: 7 → 8.** Verbs are guessable (`up`, `down`, `serve`, `status`, `update`, `rollback`, `retire`),
+`--host nas` is the one switch, and the destructive verb needs `--yes`. `--help` now lists verbs, marks the operator
+ones, and lists exit codes (KTD15). A 10 would also print each verb's own help.
+
+**Pass 3, Error messages: 5 → 8.** The agent reader is the second lens on every path.
+
+```text
+ERROR PATH MATRIX (agent-ready-v1)
+Path                         | Class       | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+render: 1Password item read  | dependency  | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | none
+status: address unreachable  | dependency  | pass | pass | pass     | pass | pass    | N/A   | pass      | pass    | none
+up: init fails               | partial     | pass | pass | pass     | pass | pass    | pass  | pass      | pass    | none
+backup: node throws          | unexpected  | pass | pass | pass     | pass | pass    | pass  | pass      | pass    | none
+```
+
+Before the review two paths were capped. CAP6:status:recovery: the plan named a fix but no recovery class. Corrected
+line: `ERROR: address-unreachable: https://openseo.<tailnet>.ts.net/api/health refused (loopback healthy; nothing
+changed; safe to rerun)` then `fix: scripts/openseo-deploy.sh serve`. CAP6:backup:trace: an unexpected failure had no
+trace. Corrected: the error carries the child command's last stderr lines under `cause:` (KTD15). No CAP4 path: render
+never prints a value, every docker call is non-interactive (`exec -T`), `rollback` without `--yes` exits 2 and names
+`--yes`, and ssh runs with `BatchMode=yes`.
+
+**Pass 4, Documentation: 6 → 8.** The runbook carries the golden path, the read-only run's do and do-not list,
+troubleshooting by reason, and where upstream takes reports. A 10 would add a transcript of a real Gate A run, which
+Gate A's note supplies.
+
+**Pass 5, Upgrade path: 7 → 8.** Bump PRs carry upstream's diff; `update` backs up first; `rollback` restores with the
+backup's own pin; `status` says when an update is waiting. A 10 would warn before a migration-bearing release.
+
+**Pass 6, Dev environment: 8 → 8.** Bats with stubs for docker, ssh, curl, tailscale, and `read_field.sh`; the Mac
+refuses cleanly; CI runs the suites. No issues found.
+
+**Pass 7, Community: 5 → 6.** Upstream is MIT with GitHub issues and a Discord; the runbook now names where to report.
+This plan has no community of its own to grow.
+
+**Pass 8, DX measurement: 5 → 7.** Gate A times `up` and `create-admin` with `gtime` and records them against the
+2-to-5-minute target. No telemetry is added; upstream's is forced off and stays off.
+
+### Decision ledger
+
+Each choice was decided on its recommendation from the evidence named, because no person answers in the slot.
+
+| ID | Finding | Options | Chosen | Evidence | Accepted scope |
+| --- | --- | --- | --- | --- | --- |
+| DX-D1 | Product type | CLI; platform; both | CLI delivering a platform | The plan's surface is two scripts and a tailnet service | Review lens |
+| DX-D2 | Persona | Operator; agent; both | Operator, with agents as second reader | Docker steps are the operator's (KTD14); agents run only `status` and the bump script | Review lens |
+| DX-D3 | Target | Champion; Competitive; current | Competitive | 115 MiB pull and `init` up to 120 s [measured: GHCR, upstream compose] | Gate A timing |
+| DX-D4 | Magical moment | `create-admin` prints the address and next step; a scripted project via the API | Print and let upstream's first audit run | POLISH uses existing capabilities; `DashboardFirstAuditService` already crawls | U3 `create-admin` |
+| DX-D5 | Mode | Expansion; Polish; Triage | Polish | Internal service with its scope settled | Review mode |
+| DX-D6 | Install friction | Exact `ts-api.sh` commands; console clicks | Exact commands | The `tailscale` skill's `ts-api.sh` has `service-set`, `acl-validate`, `acl-apply`, `service-hosts` | U5 one-time setup |
+| DX-D7 | Hello-world friction | `create-admin` runs `serve`; keep a separate step | Runs `serve` | The bind gate passes the moment the account exists (`sign-up.ts`) | KTD6; U3; U5 |
+| DX-D8 | Pass 3 | Stable reasons, recovery class, `fix:` line, runbook anchors; prose errors | Stable reasons | Global error contract (`~/.claude/CLAUDE.md`, "Error contract and output modes") | KTD15; U3; U5 |
+| DX-D9 | Eng handoff Q2 | `--output json` on `status` and the bump script; text only | JSON on the two agent commands | Agents are their only regular users; `agent-slot` sets the precedent with `--output json` and `next_step` (`scripts/agent-slot/lib/help.sh:90`) | KTD15; U3; U7 |
+| DX-D10 | Silent `init` wait | Progress line with the log command; silence | Progress line | Upstream's `init` loops quietly for up to 90 s per stage (`deploy/standalone/init.sh`) | KTD15 |
+
+Required work recorded without a question: ssh `BatchMode=yes` and `ConnectTimeout=10` on every agent-triggered ssh call
+(prevents a CAP4 terminal block), `--help` content, Gate A's `gtime` timing, and the runbook's upstream-report line.
+
+Outside voice: codex, disabled by `codex_reviews`; no fallback reviewer ran.
+
+### NOT in scope
+
+- A pre-pulled image for a Champion time: no payoff at this deploy count.
+- Scripting the ACL edit end to end: the snippet plus `acl-validate` keeps a person's eyes on a tailnet-wide policy.
+- Per-verb `--help` pages: one `--help` covers a dozen verbs.
+- A warning before migration-bearing releases: upstream does not mark them; the bump PR's diff is the review point.
+
+### What already exists
+
+The repo's `ERROR:`/`NOTE:` conventions and exit codes (AGENTS.md); `agent-slot`'s `--output json` envelope with
+`next_step`; the `tailscale` skill's `ts-api.sh`; the 1password skill's `create_item.sh` and `read_field.sh`; `gtime`
+for timing (`~/.claude/CLAUDE.md`, "CLI tools"); upstream's first-audit service and health routes.
+
+### DX Implementation Checklist
+
+```text
+DX IMPLEMENTATION CHECKLIST
+============================
+[ ] up plus create-admin reach the sign-in page in 2 to 5 minutes, timed at Gate A
+[ ] One-time setup is exact commands in the runbook
+[ ] create-admin prints the address, the 1Password item, and the next step
+[ ] Every ERROR carries a reason from errors.sh, a recovery class, and a fix: line
+[ ] status and openseo-pin.sh take --output json with the global envelope
+[ ] --help lists verbs, marks operator verbs, lists exit codes
+[ ] Every agent-triggered ssh call is non-interactive
+[ ] Runbook troubleshooting has one anchor per reason
+```
+
+### Implementation Tasks
+
+The JSONL artifact is not persisted: the `dev` branch's DX task list belongs to the browser plan, and adding this list
+would retire it.
+
+- [ ] **DX-T1 (P1, human: ~2h / CC: ~20min)** — errors — the closed reason set, recovery class, `fix:` line, `cause:`
+  - Surfaced by: Pass 3 — CAP6:status:recovery, CAP6:backup:trace
+  - Files: `scripts/openseo/lib/errors.sh`, `scripts/openseo-deploy.sh`, `tests/openseo-deploy.bats`
+  - Verify: every triggered `ERROR:` carries a known reason and a `fix:` line
+- [ ] **DX-T2 (P1, human: ~1h / CC: ~15min)** — status and bump — `--output json`
+  - Surfaced by: eng handoff Q2 — DX-D9
+  - Files: `scripts/openseo-deploy.sh`, `scripts/upgrade/openseo-pin.sh`, both suites
+  - Verify: the JSON cases parse with `jq` and match the exit code
+- [ ] **DX-T3 (P2, human: ~30min / CC: ~5min)** — create-admin — run `serve` and print the next step
+  - Surfaced by: Journey stage 3 — DX-D7
+  - Files: `scripts/openseo-deploy.sh`, `tests/openseo-deploy.bats`
+  - Verify: the create-admin success case passes
+- [ ] **DX-T4 (P2, human: ~1h / CC: ~10min)** — runbook — exact tailnet commands and troubleshooting anchors
+  - Surfaced by: Journey stage 2 — DX-D6; Pass 4
+  - Files: `docs/runbooks/openseo.md`
+  - Verify: every command in the runbook exists with the same flags
+
+## DX Review Scorecard
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      |  8/10  |  8/10* |   =    |
+| API/CLI/SDK          |  8/10  |  8/10* |   =    |
+| Error Messages       |  8/10  |  8/10* |   =    |
+| Documentation        |  8/10  |  8/10* |   =    |
+| Upgrade Path         |  8/10  |  8/10* |   =    |
+| Dev Environment      |  8/10  |  8/10* |   =    |
+| Community            |  6/10  |  3/10* |   ↑    |
+| DX Measurement       |  7/10  |  7/10* |   =    |
++--------------------------------------------------------------------+
+| TTHW                 | 2-4 min [estimated] | Gate A measures        |
+| Competitive Rank     | Competitive                                 |
+| Magical Moment       | designed via create-admin's printed address |
+| Product Type         | CLI delivering a platform                   |
+| Mode                 | POLISH                                      |
+| Overall DX           |  7/10  |  7/10* |   =    |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered (two commands after one-time setup)    |
+| Learn by Doing     | covered (golden path in the runbook)           |
+| Fight Uncertainty  | covered (progress, reasons, fix lines)         |
+| Opinionated + Escape Hatches | covered (defaults; --host, --yes)    |
+| Code in Context    | covered (real commands, real items)            |
+| Magical Moments    | covered (first audit of anc.dev)               |
+| Agents Are Users   | covered (--output json, non-interactive ssh)   |
++====================================================================+
+```
+
+`*` Prior is the latest DX review on `dev` (2026-11-05, the browser plan), same rubric (`agent-ready-v1`), a different
+plan; read it as context, not as this plan's history. This plan's own start was 6/10 overall before the review.
+
+No pass is below 6; TTHW is under 10 minutes [estimated]. Unresolved Decisions: none.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 | --- | --- | --- | --- | --- | --- |
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
-| Outside Review | codex, plan-eng-review outside voice | Independent 2nd opinion | 22 | disabled | — |
+| Outside Review | codex, plan-eng-review and plan-devex-review outside voice | Independent 2nd opinion | 23 | disabled | — |
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 14 | ISSUES OPEN (PLAN) | 12 issues, 0 critical gaps |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
-| DX Review | `/plan-devex-review` | Developer experience gaps | 13 | — | not yet run on this plan |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 14 | ISSUES OPEN | score: 6/10 → 7/10, TTHW: 3-6 min, 5 commands [estimated] → 2-4 min, 2 commands [estimated, timed at Gate A] |
 
-- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no findings.
-- **VERDICT:** no review CLEAR yet; eng review required. The eng findings are accepted into the plan as mapped work;
-  the DX review and `ce-doc-review` follow.
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews` for both reviews; no findings.
+- **VERDICT:** no review CLEAR yet; eng review required. Both reviews' findings are accepted into the plan as mapped
+  work; `ce-doc-review` follows.
 
 NO UNRESOLVED DECISIONS
