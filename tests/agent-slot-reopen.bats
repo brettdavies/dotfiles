@@ -113,6 +113,17 @@ snapshot() {
   [ "$(grep -c 'new-session' "$CALLS")" -eq 0 ]
 }
 
+@test "a retask line is a source as a teardown line is, so a session a new task replaced can be reopened" {
+  gh_item pr 7 "Fix the login" MERGED "$FORK_HEAD"
+  slot repoa 1 '{"task": "other"}'
+  local path
+  path=$(transcript "$S1")
+  teardown_event "{\"event\": \"retask\", \"session_id\": \"$S1\", \"transcript\": \"$path\", \"prs\": [7], \"branches\": [$FORK_BRANCH]}"
+  reopen repoa --pr 7 --dry-run
+  [ "$status" -eq 0 ]
+  jaq -e --arg s "$S1" '.would_reopen == true and (.command | contains($s))' <<<"$output"
+}
+
 @test "AE2: a live slot that holds the item is named as its holder, and the dry run reports the refusal with exit 0" {
   gh_item issue 12 "Fix the widget"
   slot repoa 1 "{\"items\": [$ISSUE12], \"name\": \"repoa-issue12-fix-the-widget\"}"

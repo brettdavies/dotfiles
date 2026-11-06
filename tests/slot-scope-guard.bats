@@ -106,6 +106,16 @@ reason() { jaq -r .hookSpecificOutput.permissionDecisionReason <<<"$output"; }
   [[ $(reason) == *'agent-slot retask'* ]]
 }
 
+@test "a branch change chained before the push gets the chain rule, not a verdict on the branch it leaves" {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  run bash_call 'git switch feat/one && git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'as its own command'* ]]
+  [[ $(reason) != *'share no line of work'* ]]
+}
+
 @test "a branch stacked on the task's branch is the same task, and is allowed" {
   commit scripts/agent-slot/one.sh
   git -C "$SLOT" checkout -q -b feat/two

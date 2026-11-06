@@ -188,8 +188,9 @@ scope_main() {
     hook_log "slot $repo/$n has no readable record; push allowed"
     return 0
   }
-  local denied
-  denied=$(branch_decide "$repo" "$n")
+  # A command that moves HEAD before it pushes pushes from a branch the hook cannot see yet; scope_decide refuses the chain.
+  local denied=
+  [[ -n $SCOPE_MOVER ]] || denied=$(branch_decide "$repo" "$n")
   if [[ -n $denied ]]; then
     printf '%s\n' "$denied"
     return 0
