@@ -136,6 +136,7 @@ Run agent-slot verbs with `--output json` after the verb; `--help` on any verb l
 To hand off a task, run `agent-slot launch <repo> --model <opus|sonnet> --request-id <id> --prompt-file <brief>`.
 Launching a slot is not a delegated wait: set no watchdog or watcher on it; watch your own PRs and CI to the end.
 Claude runs here with `--dangerously-skip-permissions`; ask rules, deny rules, and hooks still stop tool calls.
+Search before you read, read a line range rather than a whole file, and do not re-read a file you have not changed.
 EOF
   )
   unattended="You run unattended: nobody answers a prompt or a question in this tab, so a hook denies every \
