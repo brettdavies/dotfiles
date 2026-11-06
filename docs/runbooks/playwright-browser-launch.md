@@ -10,10 +10,10 @@ on a host. `scripts/playwright-browsers-deploy.sh` provisions them into the shar
 exported by `config/shell/caches.sh` as `~/.cache/playwright`), on the Linux server and on Apple silicon Macs, from the
 pin `config/playwright/browsers.pin`. **Repos never run `playwright install` themselves.** A repo's Playwright, from
 1.57 to the pin's `source-release`, finds its Chromium and ffmpeg through aliases. WebKit has no alias: it is the one
-revision that `library-version`'s `browsers.json` names, so only a repo on that Playwright finds it. Its
-`playwright install` naming those browsers is an instant no-op; a bare `playwright install` also pulls Firefox, which no
-alias covers. A Playwright newer than `source-release` finds no Chromium or ffmpeg alias, and one other than
-`library-version` finds no WebKit, until the pin moves. The set moves by editing the pin.
+revision that `library-version`'s `browsers.json` names, so only a repo on a Playwright that names that revision finds
+it. Its `playwright install` naming those browsers is an instant no-op; a bare `playwright install` also pulls Firefox,
+which no alias covers. A Playwright newer than `source-release` finds no Chromium or ffmpeg alias, and one whose
+`browsers.json` names another WebKit revision finds no WebKit, until the pin moves. The set moves by editing the pin.
 
 The cache holds:
 
@@ -30,7 +30,7 @@ both directions. WebKit does not alias, because a Playwright drives only a WebKi
 names: library 1.61.1 on WebKit 2388 fails 98 of agentnative-site's 100 WebKit tests at `newPage` with
 `Emulation.setAuthCredentials` ("Some arguments of method 'Emulation.setAuthCredentials' can't be processed"), and
 1.64.1 on 2311 fails with `Page.overrideSetting`. The set holds the one WebKit `library-version` names, so a Playwright
-other than `library-version` fails at once with `Executable doesn't exist`, not with a protocol error midway through a
+that names another revision fails at once with `Executable doesn't exist`, not with a protocol error midway through a
 run. On a Mac, `library-version`'s registry maps macOS 15 and every later release to the macOS 15 archive,
 `webkit-mac-15-arm64.zip`, and macOS 14 to a WebKit revision of its own, so macOS 14 is unsupported. Playwright 1.56 and
 earlier look for `chrome-linux`, so they need `executablePath` or an upgrade.
@@ -202,8 +202,10 @@ verified before any alias moves.
    done
    ```
 
-   Also try `$P/webkit/$W/webkit-mac-14-arm64.zip`. A 404 for a macOS release's WebKit means that release is
-   unsupported: leave its line out, and a Mac on it is refused. `https://cdn.playwright.dev/builds/` serves WebKit
+   Also try `$P/webkit/$W/webkit-mac-14-arm64.zip`, and hash it only when step 4's `revisionOverrides` has no
+   `mac14-arm64` entry (at 1.61.1 it names 2251, so the archive at `$W` is not the macOS 14 build Playwright looks for).
+   A 404 for a macOS release's WebKit means that release is unsupported: leave its line out, and a Mac on it is
+   refused. `https://cdn.playwright.dev/builds/` serves WebKit
    and ffmpeg directly; Playwright's `/dbazure/` path redirects to another host, which the deploy does not follow.
 6. **Check, then deploy.** `scripts/playwright-browsers-deploy.sh --check` shows the differences,
    `scripts/playwright-browsers-deploy.sh` applies them, and a second `--check` exits 0 once no stray directory remains;
@@ -211,12 +213,12 @@ verified before any alias moves.
 
 ## Indicators
 
-| Symptom                                                                                         | Cause                                                                                                                                      |
-| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Playwright `browserType.launch: Executable doesn't exist at …/<browser>_<revision>/…`           | Set not deployed, a Playwright below 1.57 or newer than the pin's `source-release`, or WebKit on a Playwright other than `library-version` |
-| `Removing unused browser at …/chromium-<N>` in another tool's install output                    | Set not registered in `.links`                                                                                                             |
-| `browse` / Chromium dies with `FATAL:sandbox/linux/services/credentials.cc … Permission denied` | AppArmor userns profile not loaded                                                                                                         |
-| Playwright `browserType.launch: Host system is missing dependencies to run browsers` (WebKit)   | WebKit system libraries not installed                                                                                                      |
+| Symptom                                                                                         | Cause                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Playwright `browserType.launch: Executable doesn't exist at …/<browser>_<revision>/…`           | Set not deployed, a Playwright below 1.57 or newer than the pin's `source-release`, or WebKit on a Playwright whose `browsers.json` names another revision than `webkit-revision` |
+| `Removing unused browser at …/chromium-<N>` in another tool's install output                    | Set not registered in `.links`                                                                                                                                                    |
+| `browse` / Chromium dies with `FATAL:sandbox/linux/services/credentials.cc … Permission denied` | AppArmor userns profile not loaded                                                                                                                                                |
+| Playwright `browserType.launch: Host system is missing dependencies to run browsers` (WebKit)   | WebKit system libraries not installed                                                                                                                                             |
 
 Chromium e2e projects can still pass while `browse` fails, because Playwright launches its test Chromium
 sandbox-disabled while `browse` keeps the sandbox on.
@@ -256,7 +258,9 @@ scripts/playwright-deps-deploy.sh --webkit
 `playwright-deps-deploy.sh` always deploys the browser set (via `scripts/playwright-browsers-deploy.sh`); on Linux it
 also deploys the AppArmor profile and enables `apparmor-playwright.service` so it persists across reboots. The
 `--webkit` (and `--chromium`, `--all`) flags additionally install the browser system libraries, on Linux only. WebKit
-deps are opt-in because they are heavy and only needed for Safari/iOS testing. To deploy only the browser set, run
+deps are opt-in because they are heavy and only needed for Safari/iOS testing. Those flags run
+`bun x playwright install --with-deps` for the browsers they name, unpinned, so it asks for the newest Playwright's
+WebKit and downloads it when the cache lacks that revision. To deploy only the browser set, run
 `scripts/playwright-browsers-deploy.sh` directly.
 
 ## Verify

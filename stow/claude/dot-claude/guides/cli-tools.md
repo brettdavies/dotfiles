@@ -82,9 +82,9 @@ hook, or unsure what's installed.
   build, one WebKit, and one ffmpeg, named in `~/dotfiles/config/playwright/browsers.pin`, with an alias for every
   Chromium and ffmpeg revision a Playwright release from 1.57 to the pin's `source-release` asks for, so a repo's
   Playwright version within that range need not match the set's for those two. WebKit has no alias: it is the one
-  revision the pin's `library-version` names, so a repo on any other Playwright finds no WebKit and needs the pin moved
-  first, as does a Playwright newer than `source-release` for Chromium and ffmpeg. Repos **exact-pin** their Playwright
-  version instead of a caret range. **Check what's provisioned** with
+  revision the pin's `library-version` names, so a repo on a Playwright that names another WebKit revision finds no
+  WebKit and needs the pin moved first, as does a Playwright newer than `source-release` for Chromium and ffmpeg. Repos
+  **exact-pin** their Playwright version instead of a caret range. **Check what's provisioned** with
   `~/dotfiles/scripts/playwright-browsers-deploy.sh --check`, which names every difference from the pin with a reason
   and the command to run next. **To change the set:** edit the pin and re-run the dotfiles script (the runbook
   `docs/runbooks/playwright-browser-launch.md` gives the steps); never re-provision from an arbitrary repo or e2e run,

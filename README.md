@@ -1015,11 +1015,11 @@ comes from `config/playwright/browsers.pin`, read through one parser. Archives c
 sha256. Every Chromium and ffmpeg revision a Playwright release from 1.57 to the pin's `source-release` asks for is an
 alias to the set, and WebKit is the one revision the pin's `library-version` (the Playwright the repos run) names, with
 no alias. A repo's `playwright install` naming the set's browsers is a no-op whichever Playwright in that range it pins,
-WebKit aside, which only `library-version` finds (a bare install also pulls Firefox, which no alias covers); moving the
-set is a pin edit, steps in the runbook. The script registers the set in the cache's `.links`, so another tool's install
-does not delete it, and `scripts/playwright-browsers-deploy.sh --check` reports any difference from the pin with a
-stable reason. WebKit deps are opt-in because they pull ~180 packages and are only needed for Safari/iOS e2e (the
-`mobile-ios` / `tablet` projects). See
+WebKit aside, which only a Playwright naming the pin's `webkit-revision` finds (a bare install also pulls Firefox, which
+no alias covers); moving the set is a pin edit, steps in the runbook. The script registers the set in the cache's
+`.links`, so another tool's install does not delete it, and `scripts/playwright-browsers-deploy.sh --check` reports any
+difference from the pin with a stable reason. WebKit deps are opt-in because they pull ~180 packages and are only needed
+for Safari/iOS e2e (the `mobile-ios` / `tablet` projects). See
 [docs/runbooks/playwright-browser-launch.md](docs/runbooks/playwright-browser-launch.md) for the reason table, failure
 signatures, the io_uring root cause, and recovery.
 

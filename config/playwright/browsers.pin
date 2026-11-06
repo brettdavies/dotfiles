@@ -11,8 +11,8 @@ ffmpeg-revision 1013
 # The Playwright library the repos' tests run, whose browsers.json names the
 # WebKit revision above, and the newest release, whose browsers.json names the
 # ffmpeg revision and bounds the alias lists below; each with the sha256 of its
-# playwright-core npm tarball. WebKit has no aliases: a Playwright other than
-# library-version finds no WebKit directory.
+# playwright-core npm tarball. WebKit has no aliases: a Playwright whose
+# browsers.json names another WebKit revision finds no WebKit directory.
 library-version 1.61.1
 library-sha256 3740bba3a3e93b4c7bd7c0f6e3c0e5f8cdce498bef13511e4d534cc99a8ce198
 source-release 1.65.0

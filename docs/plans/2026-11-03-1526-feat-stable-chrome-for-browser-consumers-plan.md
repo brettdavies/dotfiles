@@ -394,7 +394,8 @@ Who opens pages Brett does not control, what they run today, and where each goes
   repo the seven-day gate holds back. gstack and crawl4ai, which the gate does not hold, can still meet a release in
   that hour. A repo can only ask for a released revision, so no range of guessed revisions is needed. A WebKit alias in
   either direction fails on `newPage` (measured: 2388 under 1.61.1, 2311 under 1.64.1), so WebKit's pin is the revision
-  the pinned library's `browsers.json` names, and a Playwright other than that library finds no WebKit. Governs R2, R4.
+  the pinned library's `browsers.json` names, and a Playwright that names another revision finds no WebKit. Governs R2,
+  R4.
 - **The version is pinned in the repo, and a job moves it forward only.** Machines run the same dotfiles version, so the
   pin belongs in dotfiles. The job follows the bump pattern in
   `docs/plans/2026-11-02-2155-feat-yazi-plugin-auto-bump-plan.md`, including its squash-merge without a person, because
@@ -771,8 +772,8 @@ Who opens pages Brett does not control, what they run today, and where each goes
 - AE3. **Covers R2, R21.** **Given** a repo moves `@playwright/test` to a release the hourly job has read, newer than
   the set's last deploy, **when** its Chromium projects run, **then** they run on the set, ffmpeg included, with no
   change by a person and no download, and the check in R21 names that repo. **When** its WebKit projects run on a
-  Playwright other than the pin's `library-version`, **then** they fail with `Executable doesn't exist`, and not with a
-  protocol error midway through a run.
+  Playwright whose `browsers.json` names a WebKit revision other than the pin's, **then** they fail with
+  `Executable doesn't exist`, and not with a protocol error midway through a run.
 - AE4. **Covers R3.** **Given** another tool at Playwright 1.57 or later runs `playwright install chromium`, **when** it
   finishes, **then** the set is intact and nothing downloaded, no `ffmpeg-*` included. **Given** a tool below that floor
   installs, **then** the set is intact and `--check` names the directory it downloaded. **Given** a `--force` install
