@@ -516,6 +516,18 @@ cut_start() {
   [ "$(sort "$STUBS/tmux-sessions")" = $'repoa-prime\nrepoa-prime-files\nrepoa-prime-git' ]
 }
 
+@test "a cut start's Claude that holds the prime's conversation is cleared before the next start chooses it" {
+  local id=aaaaaaaa-0000-4000-8000-0000000000c1
+  transcript -fixture-dev-repoa "$id" repoa-prime
+  cut_start rename-session
+  jaq -n --arg id "$id" '[{sessionId: $id}]' >"$STUBS/claude-agents.json"
+  cp "$STUBS/tmux.inner" "$STUBS/tmux"
+  wrap_tmux '[[ " $* " != *" kill-session -t =repoa-prime-starting-p"* ]] || echo "[]" >"$STUBS/claude-agents.json"'
+  start
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUBS/typed-repoa-prime")" = "claude --dangerously-skip-permissions --resume $id -n repoa-prime" ]
+}
+
 @test "each start stages its sessions under names of its own, so a call a cut start left running reaches none of them" {
   local first second
   start

@@ -875,7 +875,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `repo-not-found`              | 2    | No checkout with that name has an origin; `agent-slot repos` lists the names                   |
 | `slot-not-found`              | 1    | No slot holds that number                                                                      |
 | `slot-busy`                   | 1    | Another `agent-slot` process holds the slot or prime, or it is still setting up; retry         |
-| `invalid-task-name`           | 2    | A task name uses letters, digits, `-`, `_`, and `/`, and starts with a letter or digit         |
+| `invalid-task-name`           | 2    | A task uses letters, digits, `-`, `_`, `/`, starts alphanumeric, and does not end in `-prime`  |
 | `prompt-file-unreadable`      | 2    | The first-message file cannot be read                                                          |
 | `brief-incomplete`            | 2    | A brief lacks a required line, or its `Touches:` line holds no glob or a glob git rejects      |
 | `slot-limit-reached`          | 78   | The repo holds the most live slots allowed; finish one, or raise `AGENT_SLOT_MAX_PER_REPO`     |
