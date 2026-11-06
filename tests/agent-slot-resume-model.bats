@@ -35,8 +35,8 @@ teardown() {
   assert_no_leaks
 }
 
-OPUS_LINE='claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-opus-5-5 --effort xhigh --resume s1 -n t1'
-SONNET_LINE='CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-sonnet-5-5 --effort xhigh --advisor opus --resume s1 -n t1'
+OPUS_LINE="claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --resume s1 -n t1"
+SONNET_LINE="CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions $(slot_profile_args) --model claude-sonnet-5-5 --effort xhigh --advisor opus --resume s1 -n t1"
 # What the stand-in Claude logs: the words the shell passes it, with the line's quoting gone.
 OPUS_ARGS=${OPUS_LINE#claude }
 OPUS_ARGS=${OPUS_ARGS//\'/}

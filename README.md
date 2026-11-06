@@ -293,6 +293,16 @@ Slot agents run as the operator on the Linux server, so they can reach its Rex s
 with `rex send` and `rex send-key`, a `sudo` session or a root shell on another host kept in that server included. The
 account already gives them the operator's files and keys, so this adds reach rather than a privilege.
 
+A slot's Claude also starts on a lean profile, which `scripts/agent-slot/lib/profile.sh` defines and the command line
+carries as one inline `--settings` object plus `--disallowedTools`, so a pull needs no restow before it applies. It
+drops the `Artifact`, `AskUserQuestion`, `ScheduleWakeup`, and `ReportFindings` tools, which no slot can use, and turns
+off the skills no slot has called and the obsidian and cloudflare plugins. A repo with a `wrangler.toml`,
+`wrangler.json`, or `wrangler.jsonc` within three levels of its root keeps the cloudflare plugin. The object sets skills
+to `off` only and merges over `~/.claude/settings.json`, so the name-only skill entries `skill-listing-refresh` keeps
+there still apply; idle compaction stays off in the same object. The profile reaches launch, resume, reopen, and a model
+switch, and the subagents of those sessions. It does not reach primes, generic sessions, or a `claude -p` a slot's agent
+starts, a review run included.
+
 The Obsidian vault takes slots too, several at once, under the name `agent-slot repos` lists it by:
 `agent-slot launch obsidian-vault --model (opus | sonnet) --request-id <id> --prompt-file <brief>`. `~/obsidian-vault`
 keeps its git directory in `~/dev/vault-git`, so its `.git` is a file. A prime's `.git` may be a file when its git
@@ -784,20 +794,20 @@ agent-slot close-probe 487 --output json
 
 On the Linux server, `agent-slot repos` lists the repos a slot can be made from, `agent-slot list` every slot with its
 state, agent, and blockers, and `agent-slot whoami` the slot a directory is in. `agent-slot launch <repo> --model (opus
-| sonnet) --request-id <id> [--prompt-file <file>]` starts an agent on that model at `--effort xhigh` with idle
-compaction off, a Sonnet one with
-Opus as its advisor, and agents use it to hand a task to a slot; a repeat with the same request ID returns the same
-slot, and a `--prompt-file` that finds a slot another request made for the task or item is refused with
-`item-held-by-slot`, so no brief is dropped; `--pr <ref>` or `--issue <ref>` gives the slot that work item, its name,
-and, for a PR, its head branch (see [work items and reopen](#work-items-and-reopen)). `agent-slot resume <repo>/<N>`
-restarts a dormant slot's sessions and conversation, then deletes its local branches whose PRs all merged or closed,
-with origin's branch of each, keeping the base, origin's default branch, the branch checked out, any branch a PR
-targets, and any branch holding work its PRs never had, and reports each delete that failed in `prune_failed`;
-`agent-slot warm <repo>` (or `--all`) trusts slot paths ahead of time, and `agent-slot check [<repo>/<N>]` gives the
-teardown verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or `--issue <ref>`) attaches a PR or issue to a live slot
-and names the slot `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's
-record and its Claude session's name, so it needs no ask. `agent-slot probe <pr>` and `agent-slot close-probe <pr>`, run
-from inside a slot, mark and close a throwaway draft that slot pushed (see [probe PRs](#probe-prs)). `agent-slot reopen
+| sonnet) --request-id <id> [--prompt-file <file>]` starts an agent on that model at `--effort xhigh` on the
+slot profile described above, a Sonnet one with Opus as its advisor, and agents use it to hand a task to a slot; a
+repeat with the same request ID returns the same slot, and a `--prompt-file` that finds a slot another request made for
+the task or item is refused with `item-held-by-slot`, so no brief is dropped; `--pr <ref>` or `--issue <ref>` gives the
+slot that work item, its name, and, for a PR, its head branch (see [work items and reopen](#work-items-and-reopen)).
+`agent-slot resume <repo>/<N>` restarts a dormant slot's sessions and conversation, then deletes its local branches
+whose PRs all merged or closed, with origin's branch of each, keeping the base, origin's default branch, the branch
+checked out, any branch a PR targets, and any branch holding work its PRs never had, and reports each delete that failed
+in `prune_failed`; `agent-slot warm <repo>` (or `--all`) trusts slot paths ahead of time, and
+`agent-slot check [<repo>/<N>]` gives the teardown verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or
+`--issue <ref>`) attaches a PR or issue to a live slot and names the slot `<repo>-pr<N>-<slug>` or
+`<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's record and its Claude session's name, so it
+needs no ask. `agent-slot probe <pr>` and `agent-slot close-probe <pr>`, run from inside a slot, mark and close a
+throwaway draft that slot pushed (see [probe PRs](#probe-prs)). `agent-slot reopen
 <repo> --model (opus | sonnet) --pr <ref> --prompt-file <file>` (or `--issue <ref>`) brings a torn-down slot's work on a
 PR or issue back in a fresh slot, with its Claude conversation resumed, and `--dry-run` reports what it would do or the
 refusal it would hit; agents ask before running it, `--dry-run` included. `agent-slot sweep` and `agent-slot finish
