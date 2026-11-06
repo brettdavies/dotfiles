@@ -564,8 +564,10 @@ bash ~/dotfiles/scripts/tailscale-serve-setup.sh
 ```
 
 The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, then Caddy, then Ollama) and
-`https://codex-proxy.<tailnet>/` to `127.0.0.1:8080`, then prints `tailscale serve status`. It is gated to that one host
-and safe to re-run.
+`https://codex-proxy.<tailnet>/` to `127.0.0.1:8080`, then `https://openseo.<tailnet>/` to `127.0.0.1:8946`
+(svc:openseo) where `~/.config/openseo/local.env` exists, and prints `tailscale serve status`. svc:openseo binds only
+once OpenSEO is healthy and has an account, and the unit fails while OpenSEO is down (`docs/runbooks/openseo.md`). It is
+gated to that one host and safe to re-run.
 
 To re-apply it automatically, install the unit that runs it every time tailscaled starts, at boot and after every
 tailscaled restart or upgrade. It runs as the Tailscale operator and retries every 30 seconds until the upstreams
@@ -577,7 +579,8 @@ sudo ~/dotfiles/scripts/tailscale-serve-deploy.sh
 
 > **One-time admin step:** the service host must be approved once in the
 > [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP
-> and the script's binding routes nowhere.
+> and the script's binding routes nowhere. The same step applies to
+> [svc:openseo](https://login.tailscale.com/admin/services/svc:openseo).
 
 ### Rex login server
 
@@ -689,9 +692,9 @@ flavor match what `stow/yazi/dot-config/yazi/package.toml` pins; `scripts/stow-d
 
 `--discard` is what moves an installed package to a new pin. Without it, ya refuses to replace a package whose files
 differ from the hash `package.toml` records, and after a pin moves, the old revision's files always do: the install
-stops at the first such package with `You have modified the contents of the ...` and leaves every package where
-it was. `package.toml` owns the installed plugins and flavor, so nothing under them is a local edit to keep. To install
-by hand, run `ya pkg install --discard`.
+stops at the first such package with `You have modified the contents of the ...` and leaves every package where it was.
+`package.toml` owns the installed plugins and flavor, so nothing under them is a local edit to keep. To install by hand,
+run `ya pkg install --discard`.
 
 On the server, the job also keeps the pins working with the yazi Homebrew installs. When `yazi --version` differs from
 the version the pins were last proven on (`~/.local/state/dotfiles/yazi-pins-proven`), it runs
