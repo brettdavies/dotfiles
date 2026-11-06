@@ -827,14 +827,14 @@ that still runs a Bash command, such as a watcher on a CI run. The resume fails 
 commands, which the slot's agent or the operator can end, and `ask-operator` otherwise: a waiting or unreadable agent
 needs a person, and a resume run by the slot's own agent, in the foreground or the background, needs another session,
 since ending that Claude would end the resume. Rerunning while commands run changes nothing, so it is the check for
-them; `agent-slot list --output json` shows each slot's `.agent` for the other states. With no Claude running, only the
-record changes: `agent-slot` starts no Claude in a session that exists, so the model applies when the session is
-created again. Naming the model the slot already runs is a plain resume, so a call whose answer was lost can be
-repeated. A pane the operator has scrolled back in is taken out of copy mode before the new line is typed. If the line
-cannot be typed after the old Claude is gone, the Claude session is dropped and the error is `tmux-failed`, or
-`tmux-unresponsive` when tmux did not answer, with partial side effects; `agent-slot resume <repo>/<N>` then creates the
-session on the new model. If the session cannot be dropped either, `next_step.command` is the tmux command that drops
-it.
+them; `agent-slot list --output json` shows each slot's `.agent` for the other states. With no Claude running, only
+the record changes: `agent-slot` starts no Claude in a session that exists, so the model applies when the session
+is created again. Naming the model the slot already runs is a plain resume, so a call whose answer was lost can be
+repeated. A pane the operator has scrolled back in is taken out of copy mode first, before anything changes; if tmux
+cannot, the resume fails with `tmux-failed` and changes nothing. If the line cannot be typed after the old Claude is
+gone, the Claude session is dropped and the error is `tmux-failed`, or `tmux-unresponsive` when tmux did not answer,
+with partial side effects; `agent-slot resume <repo>/<N>` then creates the session on the new model. If the session
+cannot be dropped either, `next_step.command` is the tmux command that drops it.
 
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore

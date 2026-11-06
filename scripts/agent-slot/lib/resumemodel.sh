@@ -19,7 +19,7 @@ resume_parse_args() {
   while (($#)); do
     case $1 in
       --model)
-        (($# >= 2)) && [[ -n $2 ]] || usage_fail "--model needs a value: opus or sonnet" "$1"
+        (($# >= 2)) && [[ -n $2 ]] || usage_fail "--model needs a value: ${SESSIONS_MODELS// / or }" "$1"
         ((given == 0)) || usage_fail "resume takes one --model" "$1"
         given=1
         RESUME_MODEL=$2
@@ -60,10 +60,24 @@ resume_model_switch() {
     absent) ;;
     *) _resume_model_refuse "$key" ;;
   esac
+  [[ $RESUME_RESTART == 0 ]] || _resume_model_leave_mode "$repo" "$n"
   record_update "$repo" "$n" --arg model "$RESUME_MODEL" '.model = $model'
   record_read "$repo" "$n"
   [[ $RESUME_RESTART == 1 ]] || return 0
   _resume_model_restart "$repo" "$n"
+}
+
+# Usage: _resume_model_leave_mode <repo> <n>; takes the slot's Claude pane out of any tmux mode. A pane the operator has
+# scrolled back in is in copy mode, which takes the keys meant for the shell. It runs while the old Claude is still alive
+# and before the record changes, so a tmux that fails here has changed nothing and the same command can run again.
+_resume_model_leave_mode() {
+  local name out
+  name=$(slot_session "$1" "$2")
+  slot_tmux out 5 copy-mode -q -t "=$name:" && return 0
+  ((BOUNDED_STATUS != 124)) || tmux_unresponsive
+  contract_use_tools tmux
+  contract_fail tmux-failed "could not take the pane of $name out of copy mode, so its Claude was not ended and nothing \
+changed" --value "$name" --command "agent-slot resume $(slot_key "$1" "$2") --model $RESUME_MODEL" --log "$BOUNDED_LOG"
 }
 
 # Usage: resume_model_fields <prune-json>; prints the JSON with the fields a --model resume adds.
@@ -103,18 +117,15 @@ another session once the agent is idle"
 }
 
 # Usage: _resume_model_restart <repo> <n>; ends the slot's Claude and everything it started, then types the new line into
-# its pane, which is back at the shell once the processes are gone. A pane the operator has scrolled back in is in copy
-# mode, which takes the keys instead of the shell, so that mode is cancelled first. A type that fails leaves a pane with
-# no Claude in it, which a resume never starts again, since it skips a session that exists. So the session is dropped,
-# and the next resume, with or without --model, creates it on the new model.
+# its pane, which is back at the shell once the processes are gone. A type that fails leaves a pane with no Claude in
+# it, which a resume never starts again, since it skips a session that exists. So the session is dropped, and the next
+# resume, with or without --model, creates it on the new model.
 _resume_model_restart() {
-  local repo=$1 n=$2 name key line out mode status log reason why next command
+  local repo=$1 n=$2 name key line out status log reason why next command
   name=$(slot_session "$repo" "$n")
   key=$(slot_key "$repo" "$n")
   line=$(sessions_command "$repo" "$n" claude resume)
   _teardown_stop_agent
-  slot_tmux mode 5 display-message -p -t "=$name:" '#{pane_in_mode}' || mode=
-  [[ $mode != 1 ]] || slot_tmux out 5 send-keys -t "=$name:" -X cancel || true
   if slot_tmux out 10 send-keys -t "=$name:" -l "$line" && slot_tmux out 10 send-keys -t "=$name:" Enter; then
     RESUME_RESTARTED=true
     return 0

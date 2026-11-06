@@ -80,7 +80,8 @@ wait_for_lines() {
 }
 
 # tmux_wrapper: puts a tmux in front of the stub that fails send-keys while $STUBS/send-keys-fails exists, hangs it while
-# $STUBS/send-keys-hangs exists, and fails kill-session while $STUBS/kill-fails exists.
+# $STUBS/send-keys-hangs exists, fails kill-session while $STUBS/kill-fails exists, and fails copy-mode while
+# $STUBS/copy-mode-fails exists.
 tmux_wrapper() {
   mv "$STUBS/tmux" "$STUBS/tmux-base"
   cat >"$STUBS/tmux" <<EOF
@@ -90,29 +91,35 @@ case "\$*" in
     [ ! -e '$STUBS/send-keys-fails' ] || { echo 'tmux: server exited unexpectedly' >&2; exit 1; }
     [ ! -e '$STUBS/send-keys-hangs' ] || exec sleep 60 ;;
   *kill-session*) [ ! -e '$STUBS/kill-fails' ] || { echo 'tmux: server exited unexpectedly' >&2; exit 1; } ;;
+  *copy-mode*) [ ! -e '$STUBS/copy-mode-fails' ] || { echo 'tmux: server exited unexpectedly' >&2; exit 1; } ;;
 esac
 exec '$STUBS/tmux-base' "\$@"
 EOF
   chmod +x "$STUBS/tmux"
 }
 
-# real_pane: with REAL_TMUX set, the three sessions of repoa/1 on a scratch tmux server, each a bash with a fake claude
-# first on its PATH. It types `claude first` into the Claude session, waits for it to run, and lists it idle. The fake
-# logs its arguments to $T/pane-claude.log and its pid to $T/pane-claude.pid. Sets OLD to that pid.
+# real_pane [SHELL...]: with REAL_TMUX set, the three sessions of repoa/1 on a scratch tmux server under $T, each a shell
+# (bash --norc --noprofile by default) with a fake claude first on its PATH. It types `claude first` into the Claude
+# session, waits for it to run, and lists it idle. The fake logs its arguments to $T/pane-claude.log and its pid to
+# $T/pane-claude.pid, and copies what it reads from its terminal to $T/claude-input, which stays empty while nothing is
+# typed into it. Sets OLD to that pid.
 real_pane() {
-  REAL_SOCKET=agent-slot-test-model-$$-$RANDOM
+  REAL_SOCKET=agent-slot-test-model
+  export TMUX_TMPDIR=$T
   mkdir -p "$T/bin"
   cat >"$T/bin/claude" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >>'$T/pane-claude.log'
 echo \$\$ >'$T/pane-claude.pid'
-exec sleep 120
+exec cat >>'$T/claude-input'
 EOF
   chmod +x "$T/bin/claude"
   local name
+  local -a shell=("$@")
+  ((${#shell[@]} > 0)) || shell=(bash --norc --noprofile)
   for name in repoa-1 repoa-1-files repoa-1-git; do
     "$REAL_TMUX" -L "$REAL_SOCKET" -f "$AGENT_SLOT_TMUX_CONF" new-session -d -s "$name" -c "$SLOT" \
-      "env PATH=$T/bin:$PATH bash --norc --noprofile"
+      "env PATH=$T/bin:$PATH ${shell[*]}"
   done
   export AGENT_SLOT_TMUX=$REAL_TMUX AGENT_SLOT_TMUX_SOCKET=$REAL_SOCKET
   "$REAL_TMUX" -L "$REAL_SOCKET" send-keys -t =repoa-1: -l 'claude first'
@@ -214,7 +221,8 @@ pane_in_mode() { "$REAL_TMUX" -L "$REAL_SOCKET" display-message -p -t =repoa-1: 
   touch "$T/go"
   wait_for_lines "$T/status" 1
   [ "$(cat "$T/status")" = 1 ]
-  jaq -e '.reason == "agent-busy" and .value == "own-agent" and (.message | contains("inside the slot'"'"'s own agent"))' "$T/err"
+  jaq -e '.reason == "agent-busy" and .value == "own-agent" and .next_step.action == "ask-operator"
+    and (.message | contains("inside the slot'"'"'s own agent"))' "$T/err"
   alive
   [ "$(record .model)" = sonnet ]
   run ! grep -q 'send-keys' "$CALLS"
@@ -230,10 +238,13 @@ pane_in_mode() { "$REAL_TMUX" -L "$REAL_SOCKET" display-message -p -t =repoa-1: 
     pgrep -P "$AGENT" >/dev/null && break
     sleep 0.1
   done
+  local job
+  job=$(pgrep -P "$AGENT")
   resume_model --model opus
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "agent-busy" and (.value | test("^[0-9]+ sleep 120")) and .next_step.action == "retry"
-    and (.message | contains("1 background job")) and (.message | contains("changes nothing"))
+  jaq -e --arg job "$job" '.reason == "agent-busy" and (.value | startswith($job + " sleep 120")) and .next_step.action == "retry"
+    and (.message | contains("1 background job")) and (.message | contains("PID " + $job))
+    and (.message | contains("changes nothing"))
     and (.message | contains("list --output json") | not) and .recovery.side_effects == "none"' <<<"$stderr"
   alive
   pgrep -P "$AGENT" >/dev/null
@@ -360,6 +371,9 @@ pane_in_mode() { "$REAL_TMUX" -L "$REAL_SOCKET" display-message -p -t =repoa-1: 
     and .value == "repoa-1" and (.message | startswith("ended the Claude in repoa-1, but could not type the new line"))
     and (.message | contains("the record names opus")) and (.message | contains("was dropped"))
     and .next_step.command == "agent-slot resume repoa/1"' <<<"$stderr"
+  log=$(jaq -r .log <<<"$stderr")
+  [ -f "$log" ]
+  grep -q 'server exited unexpectedly' "$log"
   run ! alive
   [ "$(record .model)" = opus ]
   run ! grep -qxF repoa-1 "$STUBS/tmux-sessions"
@@ -408,6 +422,7 @@ pane_in_mode() { "$REAL_TMUX" -L "$REAL_SOCKET" display-message -p -t =repoa-1: 
   [ "$(sed -n 2p "$T/pane-claude.log")" = "${OPUS_LINE#claude }" ]
   run ! kill -0 "$OLD"
   [ "$(cat "$T/pane-claude.pid")" != "$OLD" ]
+  [ ! -s "$T/claude-input" ]
 }
 
 @test "with the pane in copy mode, as when the operator is scrolled back, the new line still reaches the shell" {
@@ -424,6 +439,35 @@ pane_in_mode() { "$REAL_TMUX" -L "$REAL_SOCKET" display-message -p -t =repoa-1: 
   wait_for_lines "$T/pane-claude.log" 2
   [ "$(sed -n 2p "$T/pane-claude.log")" = "${OPUS_LINE#claude }" ]
   [ "$(pane_in_mode)" = 0 ]
+  [ ! -s "$T/claude-input" ]
+}
+
+@test "the new line reaches a zsh at its prompt as well as a bash" {
+  REAL_TMUX=$(command -v tmux) || skip "tmux is not installed"
+  command -v zsh >/dev/null || skip "zsh is not installed"
+  real_pane zsh -f
+  resume_model --model opus
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  wait_for_lines "$T/pane-claude.log" 2
+  [ "$(sed -n 2p "$T/pane-claude.log")" = "${OPUS_LINE#claude }" ]
+  [ ! -s "$T/claude-input" ]
+}
+
+@test "a tmux that cannot leave copy mode stops the resume before the Claude is ended or the record changes" {
+  tmux_wrapper
+  agent idle
+  touch "$STUBS/copy-mode-fails"
+  resume_model --model opus
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "tmux-failed" and .recovery.side_effects == "none" and .recovery.retryable == true
+    and .value == "repoa-1" and (.message | contains("its Claude was not ended"))
+    and .next_step.command == "agent-slot resume repoa/1 --model opus"' <<<"$stderr"
+  alive
+  [ "$(record .model)" = sonnet ]
+  run ! grep -q 'send-keys' "$CALLS"
 }
 
 @test "resume --help documents --model, the refusal, and the fields the flag adds" {
