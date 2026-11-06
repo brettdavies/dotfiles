@@ -35,8 +35,11 @@ teardown() {
   assert_no_leaks
 }
 
-OPUS_LINE='claude --dangerously-skip-permissions --model claude-opus-5-5 --effort xhigh --resume s1 -n t1'
-SONNET_LINE='CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions --model claude-sonnet-5-5 --effort xhigh --advisor opus --resume s1 -n t1'
+OPUS_LINE='claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-opus-5-5 --effort xhigh --resume s1 -n t1'
+SONNET_LINE='CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-sonnet-5-5 --effort xhigh --advisor opus --resume s1 -n t1'
+# What the stand-in Claude logs: the words the shell passes it, with the line's quoting gone.
+OPUS_ARGS=${OPUS_LINE#claude }
+OPUS_ARGS=${OPUS_ARGS//\'/}
 
 record() { jaq -r "$1" "$SLOT/.git/agent-slot.json"; }
 
@@ -419,7 +422,7 @@ pane_in_mode() { "$REAL_TMUX" -L "$REAL_SOCKET" display-message -p -t =repoa-1: 
   jaq -e '.restarted == true and .started == []' <<<"$output"
   wait_for_lines "$T/pane-claude.log" 2
   [ "$(sed -n 1p "$T/pane-claude.log")" = first ]
-  [ "$(sed -n 2p "$T/pane-claude.log")" = "${OPUS_LINE#claude }" ]
+  [ "$(sed -n 2p "$T/pane-claude.log")" = "$OPUS_ARGS" ]
   run ! kill -0 "$OLD"
   [ "$(cat "$T/pane-claude.pid")" != "$OLD" ]
   [ ! -s "$T/claude-input" ]
@@ -437,7 +440,7 @@ pane_in_mode() { "$REAL_TMUX" -L "$REAL_SOCKET" display-message -p -t =repoa-1: 
   }
   jaq -e '.restarted == true' <<<"$output"
   wait_for_lines "$T/pane-claude.log" 2
-  [ "$(sed -n 2p "$T/pane-claude.log")" = "${OPUS_LINE#claude }" ]
+  [ "$(sed -n 2p "$T/pane-claude.log")" = "$OPUS_ARGS" ]
   [ "$(pane_in_mode)" = 0 ]
   [ ! -s "$T/claude-input" ]
 }
@@ -452,7 +455,7 @@ pane_in_mode() { "$REAL_TMUX" -L "$REAL_SOCKET" display-message -p -t =repoa-1: 
     false
   }
   wait_for_lines "$T/pane-claude.log" 2
-  [ "$(sed -n 2p "$T/pane-claude.log")" = "${OPUS_LINE#claude }" ]
+  [ "$(sed -n 2p "$T/pane-claude.log")" = "$OPUS_ARGS" ]
   [ ! -s "$T/claude-input" ]
 }
 
