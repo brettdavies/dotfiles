@@ -155,8 +155,9 @@ These need Brett. dotfiles-prime carries them to him.
   Recommendation: wait. PR1 can be built and merged before then, because nothing runs until the operator deploys.
 - OQ4. **Who runs the docker steps.** Agent slots cannot run `docker` (KTD14). Recommendation: Brett runs each gate's
   commands from `~/dotfiles`, a handful per gate, as the runbook lists them.
-- OQ5. **The NAS gate.** KTD10 moves OpenSEO only when the NAS keeps 1.5 GiB free with the stack at its measured peak.
-  Options: accept that gate, or keep OpenSEO on the Linux server for good. Recommendation: accept the gate.
+- OQ5. **The NAS gate.** KTD10 moves OpenSEO only when the NAS keeps 1.5 GiB of memory free with the stack at its
+  measured peak, and its 20 GiB Docker storage file keeps 5 GiB free with room for three times the stack's measured
+  data. Options: accept that gate, or keep OpenSEO on the Linux server for good. Recommendation: accept the gate.
 
 ### Sources
 
@@ -239,8 +240,9 @@ These need Brett. dotfiles-prime carries them to him.
   - New items, inside the vault only: `OpenSEO Storage (openseo)` with a generated secret, which a restore needs
     unchanged; and `OpenSEO Admin (openseo)`, a Login with a generated password and a non-personal email such as
     `admin@openseo.internal`. The never-send guard would block Brett's address in a command anyway.
-  - Render refuses to change `STORAGE_ACCESS_KEY` or `STORAGE_SECRET_KEY` in an existing env file, because RustFS keeps
-    the keys it first started with and a silent change would lock the stack out of its own data.
+  - Render refuses to change `STORAGE_ACCESS_KEY` or `STORAGE_SECRET_KEY` in an existing env file. Upstream restores
+    only "into a stopped, empty installation with the same storage credentials" and documents no way to rotate them
+    (`docs/SELF_HOSTING_DOCKER.md`, "Backup and restore"), so a silent change would strand the stack's backups.
   - DataForSEO and Google OAuth items exist only after OQ1 and OQ2. Until then their keys render empty with a `NOTE:`.
   - `BETTER_AUTH_URL` is built at render time from `tailscale status --json` `.MagicDNSSuffix`, so the tailnet name is
     never tracked.
@@ -255,7 +257,9 @@ These need Brett. dotfiles-prime carries them to him.
     devices and the Linux server's tag, and adds an autoApprover for the tag of each host that will advertise it. Proof
     is `CapMap."service-host"` listing the service, not the `serve` exit code.
   - The bind gate, shared by every path that binds: `/api/health` returns `status: ok` and `/api/sign-up-status` returns
-    `firstAccount: false`.
+    `firstAccount: false`. The gate, the bind itself, the port, the service name, and the env file paths are defined
+    once in `scripts/openseo/lib/gate.sh`, which the deploy script and the setup block both source, so no second copy of
+    any of them can drift.
   - On the Linux server, a block appended last in `scripts/tailscale-serve-setup.sh` binds only when
     `~/.config/openseo/local.env` exists. Without it the block prints a `NOTE:` and skips, so retiring the Linux server
     (KTD12) stops the re-bind without editing the script, and a re-render brings it back for rollback. With `local.env`
@@ -282,7 +286,12 @@ These need Brett. dotfiles-prime carries them to him.
 - KTD10. **The NAS gate.** After at least 7 days of use on the Linux server, including one reboot, the operator sums
   each OpenSEO container's cgroup `memory.peak` and reads the NAS's `MemAvailable` while Plex is idle. OpenSEO moves
   only if `MemAvailable` minus that peak leaves at least 1.5 GiB. The NAS has 7.5 GiB and no swap, so an overrun means
-  the kernel's OOM killer, not slowness. Instantiates R4.
+  the kernel's OOM killer, not slowness. The operator also records the stack's image and volume sizes. The NAS keeps
+  every image and named volume in one 20 GiB `docker.img` file with 12 GiB free, shared by Plex, pinchflat,
+  LanguageTool, and Postgres [measured 2026-11-06: `/boot/config/docker.cfg`, `df /var/lib/docker`], and a full file
+  stops all of them. OpenSEO also moves only if that file keeps at least 5 GiB free with OpenSEO's images plus three
+  times its measured volume size. The image is 115 MiB compressed for amd64 [measured: GHCR manifest]; volume growth is
+  unknown until the soak. Instantiates R4.
 - KTD11. **The NAS is driven from the Linux server through `DOCKER_HOST=ssh://pool`.** Compose reads the vendored file
   and `nas.env` on the Linux server and creates the containers and named volumes on the NAS's daemon, and the backup
   script streams archives over the same connection. Nothing is written to the NAS's disk outside Docker. That keeps the
@@ -307,7 +316,11 @@ These need Brett. dotfiles-prime carries them to him.
   prints upstream's diff of `deploy/standalone/` and `docs/SELF_HOSTING_DOCKER.md` for the reviewer. Applying a pin is
   `update` (U8): back up, pull, stop `web`, `crawl-gateway`, and `runtime`, start, wait for `init`, check health.
   Migrations only go forward, so a failed update rolls back by restoring the backup with the pin it recorded, the one
-  sanctioned move to an older version; a PR then reverts the tracked pin. Instantiates R5, R6.
+  sanctioned move to an older version; a PR then reverts the tracked pin. On a host, `OPENSEO_IMAGE` changes only
+  through `update` (forward to the tracked pin, after its backup) and `rollback` or `restore` (to the backup's pin).
+  `render` and `up` keep the value already in the host's env file and write the tracked pin only into a new file, so an
+  `up` after a bump merges cannot apply the new image, and its one-way migrations, without a backup. `status` notes when
+  the tracked pin is newer than the host's. Instantiates R5, R6.
 - KTD14. **Live docker steps belong to the operator.** `docker` and `sg docker` are ask rules for agent tool calls, and
   nobody answers prompts in a slot. Wrapping docker in a script to avoid that prompt would sidestep the rule, so slots
   test the script with docker stubbed, and every check an agent runs goes through `status`, which needs no docker.
@@ -421,6 +434,8 @@ These are bets this plan has not verified. Gate A checks each one.
 | Upstream churns fast, and its Docker edition is three weeks old                                | 7-day gate, backup before every update, reviewer reads upstream's diff in each bump PR (KTD13)                      |
 | The 7-day gate leaves only defective Docker releases eligible before 2026-11-13                | First deploy waits for OQ3                                                                                          |
 | The NAS runs out of memory with no swap                                                        | Gate B (KTD10); the stack stays on the Linux server if it fails                                                     |
+| OpenSEO's volumes fill the NAS's shared 20 GiB `docker.img`, stopping every container there    | Gate B's disk threshold (KTD10); the stack stays on the Linux server if it fails                                    |
+| An `up` after a bump merges applies the new image without a backup                             | Only `update` and `rollback` change a host's image (KTD13)                                                          |
 | The NAS drops `svc:openseo` after a tailscaled upgrade, as it can for its other services today | `status` reports the dead address and names `scripts/openseo-deploy.sh --host nas serve`; a general fix is deferred |
 | A tailscaled restart on the Linux server re-binds mid-move                                     | `retire` deletes `local.env` before the NAS advertises (KTD12), so the block skips                                  |
 | DataForSEO spend runs past intent                                                              | Prepaid balance with no automatic top-up (OQ1), recurring jobs off (KTD9)                                           |
@@ -428,14 +443,14 @@ These are bets this plan has not verified. Gate A checks each one.
 
 ### Build phases and gates
 
-| Phase  | Kind     | Delivers                                                                                                              | Requirements                       | After                                    | Budget, script / tests |
-| ------ | -------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------- | ---------------------- |
-| PR1    | PR       | Pinned stack, env render, `up`, `down`, `serve`, `status`, `create-admin`, `svc:openseo` on the Linux server, runbook | R1, R2, R5, R7, R9, R12, R13       | none                                     | 340 / 450              |
-| Gate A | Operator | Tailnet policy, first deploy, admin, first read-only run                                                              | R10, R11, success criteria 1 and 2 | PR1 merged; on or after 2026-11-13 (OQ3) | none                   |
-| PR2    | PR       | `backup`, `restore`, `update`, `rollback`, the bump script                                                            | R6, R8                             | PR1                                      | 300 / 400              |
-| Gate B | Operator | Soak, a reboot, the memory reading                                                                                    | R4                                 | Gate A plus 7 days                       | none                   |
-| PR3    | PR       | `--host nas` for every verb, `retire`, the cutover runbook                                                            | R3, R4, R8                         | PR2; started only if Gate B passes       | 200 / 300              |
-| Gate C | Operator | Cutover; day-14 cleanup                                                                                               | R3, success criterion 3            | PR3 merged                               | none                   |
+| Phase  | Kind     | Delivers                                                                                                              | Requirements                       | After                                    | Budget, script / tests [estimated] |
+| ------ | -------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------- | ---------------------------------- |
+| PR1    | PR       | Pinned stack, env render, `up`, `down`, `serve`, `status`, `create-admin`, `svc:openseo` on the Linux server, runbook | R1, R2, R5, R7, R9, R12, R13       | none                                     | 340 / 450                          |
+| Gate A | Operator | Tailnet policy, first deploy, admin, first read-only run                                                              | R10, R11, success criteria 1 and 2 | PR1 merged; on or after 2026-11-13 (OQ3) | none                               |
+| PR2    | PR       | `backup`, `restore`, `update`, `rollback`, the bump script                                                            | R6, R8                             | PR1                                      | 300 / 400                          |
+| Gate B | Operator | Soak, a reboot, the memory and disk readings                                                                          | R4                                 | Gate A plus 7 days                       | none                               |
+| PR3    | PR       | `--host nas` for every verb, `retire`, the cutover runbook                                                            | R3, R4, R8                         | PR2; started only if Gate B passes       | 200 / 300                          |
+| Gate C | Operator | Cutover; day-14 cleanup                                                                                               | R3, success criterion 3            | PR3 merged                               | none                               |
 
 Rules for every PR, taken from the browser plan's build phases: each slot's brief copies its phase's `Touches:` and
 `Adds:` lines; a diff more than 1.5 times its budget stops before review and reports what grew; nothing from a later
@@ -521,8 +536,9 @@ printed.
 
 1. Read `STORAGE_SECRET_KEY` from the storage item. Read `DATAFORSEO_API_KEY` and `GOOGLE_CLIENT_*` only when their UUID
    variables are set; otherwise leave them empty with a `NOTE:`.
-2. Write `AUTH_MODE=password`, `PORT=8946`, `STORAGE_ACCESS_KEY=openseo`, `OPENSEO_IMAGE` from the pin, and
-   `BETTER_AUTH_URL=https://openseo.<MagicDNSSuffix>` from `tailscale status --json`.
+2. Write `AUTH_MODE=password`, `PORT=8946`, `STORAGE_ACCESS_KEY=openseo`, `OPENSEO_IMAGE`, and
+   `BETTER_AUTH_URL=https://openseo.<MagicDNSSuffix>` from `tailscale status --json`. `OPENSEO_IMAGE` comes from the
+   tracked pin only for a new file; an existing file keeps its value (KTD13).
 3. Refuse when an existing file's `STORAGE_*` values differ from the new ones (KTD5).
 4. Write under `umask 077` to a temporary file in the same directory, then rename it, so a failed read leaves the
    previous file intact.
@@ -538,6 +554,7 @@ log.
 - With `read_field.sh` and `tailscale` stubbed, render writes `local.env` with mode 600 in a mode-700 directory, holding
   every key in step 2 with the stubbed suffix in `BETTER_AUTH_URL`.
 - The stub secret values appear in neither stdout, stderr, nor any stub's argv log.
+- With an existing env file and a pin file whose image has since changed, render keeps the file's `OPENSEO_IMAGE`.
 - A failing read of the storage item exits 1 with an `ERROR:` naming the item title and the 1password skill command to
   inspect it, and leaves an existing env file byte-identical.
 - An existing env file whose `STORAGE_SECRET_KEY` differs from the item's exits 1, names both the item and the restore
@@ -563,9 +580,11 @@ each, and any agent can check it.
 
 **Approach:**
 
-- `up`: render, `docker compose pull`, `docker compose up -d`, wait for `init` to exit 0 with upstream's
-  `OpenSEO initialized and ready.`, then `serve`. When `firstAccount` is still true, it stops before binding and prints
-  `create-admin` as the next step.
+- `up`: render, `docker compose pull`, `docker compose up -d`, then
+  `docker compose up -d --force-recreate init web crawl-gateway`, upstream's documented way to apply a changed setting
+  such as a newly added DataForSEO key (`docs/SELF_HOSTING_DOCKER.md`, "Enable features"). It waits for `init` to exit 0
+  with upstream's `OpenSEO initialized and ready.`, then runs `serve`. When `firstAccount` is still true, it stops
+  before binding and prints `create-admin` as the next step.
 - `down`: `docker compose stop`. No verb ever passes `-v` or `--volumes`, which delete the data and the generated
   secrets.
 - `create-admin`: pipe the admin item's password on stdin to
@@ -575,7 +594,8 @@ each, and any agent can check it.
   `tailscale serve --service=svc:openseo --https=443 --yes http://127.0.0.1:8946`, then check `CapMap."service-host"`.
 - `status` needs no docker. On a host holding `local.env` it runs the gate on loopback and checks
   `CapMap."service-host"`; from anywhere it fetches `/api/health` at the tailnet address with `curl --max-time 5`. It
-  exits 0 when healthy, 1 with an `ERROR:` naming the failing check and its fix command, and 2 on usage errors.
+  exits 0 when healthy, 1 with an `ERROR:` naming the failing check and its fix command, and 2 on usage errors. On the
+  OpenSEO host it also prints a `NOTE:` naming `update` when the tracked pin is newer than the env file's image.
 
 **Patterns to follow:** exit codes and `ERROR:`/`NOTE:` prefixes from AGENTS.md "Shell Script Conventions"; `--check`
 modes in `scripts/sysctl-deploy.sh`.
@@ -585,10 +605,16 @@ modes in `scripts/sysctl-deploy.sh`.
 - With `docker` stubbed, `up` calls `compose pull` then `compose up -d` with `COMPOSE_FILE` and `COMPOSE_ENV_FILES` set
   to the vendored file and `local.env`.
 - `up` stops before any docker call when render fails.
+- After `up -d`, `up` force-recreates exactly `init`, `web`, and `crawl-gateway`.
+- When the stubbed `compose pull` fails, `up` exits 1 naming the image and never calls `up -d`.
 - When the stubbed `init` exits non-zero, `up` exits 1 and prints the `docker compose logs init` command.
 - With `firstAccount: true`, `up` and `serve` never call `tailscale serve` and print `create-admin`.
 - With health `status: issues`, `serve` exits 1 and never calls `tailscale serve`.
 - `create-admin` sends the stubbed password on stdin; the docker stub's argv log never contains it.
+- `create-admin` when an account already exists (the stub exits non-zero with upstream's message) exits 1 and names
+  `serve`.
+- `status` on the OpenSEO host with a tracked pin newer than the env file's image exits 0 and prints the `update`
+  `NOTE:`.
 - No verb passes `-v` or `--volumes` to compose.
 - `status` with both checks passing exits 0; with the address refusing it exits 1 and names `serve`; with loopback down
   it names `up`.
@@ -687,8 +713,9 @@ backup.
 2. `backup [dir]` defaults to `~/.local/share/openseo/backups/<UTC timestamp>` (mode 700, since a backup holds
    credentials), copies the active pin file into it, and runs `node config/openseo/backup.mjs backup <dir>` with the
    compose variables from KTD4.
-3. `restore <dir>` renders `OPENSEO_IMAGE` from the backup's own pin, warns when that differs from the tracked pin, and
-   surfaces upstream's refusal of a non-empty install as an `ERROR:` naming `rollback`.
+3. `restore <dir>` writes `OPENSEO_IMAGE` from the backup's own pin into the host's env file (KTD13), warns when that
+   differs from the tracked pin, and surfaces upstream's refusal of a non-empty install as an `ERROR:` naming
+   `rollback`.
 
 **Test scenarios:**
 
@@ -744,7 +771,7 @@ host's record, never backwards).
 
 **Goal:** the operator applies a merged pin with one command, backed up first, and can return to the backup if it fails.
 
-**Requirements:** R6, R8; KTD13.
+**Requirements:** R4 (Gate B's runbook steps), R6, R8; KTD10, KTD13.
 
 **Dependencies:** U6.
 
@@ -752,11 +779,13 @@ host's record, never backwards).
 
 **Approach:**
 
-- `update`: `backup`, render, `pull`, `stop web crawl-gateway runtime`, `up -d`, wait for `init`, then `serve`,
-  following upstream's "Updates" section. On failure it prints the `rollback` command with the backup path it just took.
+- `update`: `backup`, write the tracked pin's `OPENSEO_IMAGE` into the env file, `pull`,
+  `stop web crawl-gateway runtime`, `up -d`, wait for `init`, then `serve`, following upstream's "Updates" section. On
+  failure it prints the `rollback` command with the backup path it just took.
 - `rollback <dir> --yes`: back up the current state to a new directory, remove the stack's volumes by their
   `openseo-standalone_` names, `restore <dir>`, `up`. Without `--yes` it prints the volumes it would remove and exits 2.
-- The runbook gains update and rollback, including the follow-up PR that reverts the tracked pin.
+- The runbook gains update and rollback, including the follow-up PR that reverts the tracked pin, and Gate B's memory
+  and disk readings (KTD10), which happen before PR3 exists.
 
 **Test scenarios:**
 
@@ -806,6 +835,7 @@ Adds: `--host nas` for every verb; verb `retire`.
 - No verb under `--host nas` writes a file on the NAS; the ssh stub sees only `tailscale`, `curl`, and `docker`
   commands.
 - Secret values never appear in any stub's argv log.
+- When the ssh stub fails to connect, every `--host nas` verb exits 1 naming `ssh pool` and makes no further call.
 - `serve --host nas` refuses when the NAS's gate fails and never calls `tailscale serve`.
 - `up --host nas --expect-restored` with the restored volumes missing exits 1 before any `up`.
 - `retire` turns the advertisement off before stopping the stack, and leaves `local.env` in place if either step fails.
@@ -822,8 +852,8 @@ Adds: `--host nas` for every verb; verb `retire`.
 
 **Files:** `docs/runbooks/openseo.md`, `README.md`.
 
-**Approach:** the runbook adds Gate B's memory reading, the NAS's tag and autoApprover check, the KTD12 sequence with
-each step's check, rollback, and day-14 cleanup (volume removal on the Linux server). README names the NAS target.
+**Approach:** the runbook adds the NAS's tag and autoApprover check, the KTD12 sequence with each step's check,
+rollback, and day-14 cleanup (volume removal on the Linux server). README names the NAS target.
 
 **Test expectation:** none -- documentation; U9 covers the commands.
 
@@ -833,19 +863,19 @@ each step's check, rollback, and day-14 cleanup (volume removal on the Linux ser
 
 ## Verification Contract
 
-| Check             | Command                                                                                                                                 | When                                     | Pass signal                                                                                                                              |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Bats              | `scripts/run-tests tests/openseo-deploy.bats tests/openseo-pin.bats tests/tailscale-serve-setup.bats tests/tailscale-serve-deploy.bats` | each PR, for the suites it has           | all pass                                                                                                                                 |
-| ShellCheck        | `scripts/lint-shell` over the changed scripts                                                                                           | each PR                                  | clean                                                                                                                                    |
-| Pre-push mirror   | `.githooks/pre-push` (runs on `git push`)                                                                                               | each PR                                  | passes                                                                                                                                   |
-| Pin resolves      | GHCR manifest request for the pinned digest                                                                                             | PR1, each bump                           | 200                                                                                                                                      |
-| Gate A, operator  | runbook "First deploy": `render`, `up`, `create-admin`, `serve`                                                                         | after PR1 merges, on or after 2026-11-13 | `init` prints its ready line; `serve` sees the service in `CapMap`                                                                       |
-| Gate A, any agent | `scripts/openseo-deploy.sh status` on the Linux server                                                                                  | after the operator steps                 | exit 0                                                                                                                                   |
-| Gate A, reach     | from the Mac the address loads and sign-in works; from a LAN host port 8946 is refused                                                  | after the operator steps                 | as stated                                                                                                                                |
-| Gate A, restart   | operator restarts dockerd, then `status`                                                                                                | after the first run                      | exit 0 with no `up`                                                                                                                      |
-| Gate A, first run | the audit OpenSEO starts on project creation, per KTD9                                                                                  | after the reach checks                   | audit completes; no DataForSEO call; nothing listed in R10 changed                                                                       |
-| Gate B            | sum of `memory.peak` for the stack's containers after a reboot and 7 days of use; the NAS's `MemAvailable`                              | 7 days after Gate A                      | KTD10's threshold holds                                                                                                                  |
-| Gate C            | runbook "Move to the NAS"                                                                                                               | after PR3 merges                         | the NAS passes the gate on its loopback before it advertises; `status` exits 0 from the Linux server; projects and audit history present |
+| Check             | Command                                                                                                                                                                           | When                                     | Pass signal                                                                                                                              |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Bats              | `scripts/run-tests tests/openseo-deploy.bats tests/openseo-pin.bats tests/tailscale-serve-setup.bats tests/tailscale-serve-deploy.bats`                                           | each PR, for the suites it has           | all pass                                                                                                                                 |
+| ShellCheck        | `scripts/lint-shell` over the changed scripts                                                                                                                                     | each PR                                  | clean                                                                                                                                    |
+| Pre-push mirror   | `.githooks/pre-push` (runs on `git push`)                                                                                                                                         | each PR                                  | passes                                                                                                                                   |
+| Pin resolves      | GHCR manifest request for the pinned digest                                                                                                                                       | PR1, each bump                           | 200                                                                                                                                      |
+| Gate A, operator  | runbook "First deploy": `render`, `up`, `create-admin`, `serve`                                                                                                                   | after PR1 merges, on or after 2026-11-13 | `init` prints its ready line; `serve` sees the service in `CapMap`                                                                       |
+| Gate A, any agent | `scripts/openseo-deploy.sh status` on the Linux server                                                                                                                            | after the operator steps                 | exit 0                                                                                                                                   |
+| Gate A, reach     | from the Mac the address loads and sign-in works; from a LAN host port 8946 is refused                                                                                            | after the operator steps                 | as stated                                                                                                                                |
+| Gate A, restart   | operator restarts dockerd, then `status`                                                                                                                                          | after the first run                      | exit 0 with no `up`                                                                                                                      |
+| Gate A, first run | the audit OpenSEO starts on project creation, per KTD9                                                                                                                            | after the reach checks                   | audit completes; no DataForSEO call; nothing listed in R10 changed                                                                       |
+| Gate B            | sum of `memory.peak` for the stack's containers after a reboot and 7 days of use; the stack's image and volume sizes; the NAS's `MemAvailable` and free space in its `docker.img` | 7 days after Gate A                      | KTD10's threshold holds                                                                                                                  |
+| Gate C            | runbook "Move to the NAS"                                                                                                                                                         | after PR3 merges                         | the NAS passes the gate on its loopback before it advertises; `status` exits 0 from the Linux server; projects and audit history present |
 
 ---
 
@@ -859,3 +889,267 @@ each step's check, rollback, and day-14 cleanup (volume removal on the Linux ser
 - Abandoned attempts are removed from each diff before review.
 - Done overall when the address serves OpenSEO from its final host, nothing listed in R10 shows a change from this work,
   and no spend happened without Brett's yes.
+
+---
+
+## Appendix: Engineering Review (plan-eng-review, 2026-11-06)
+
+Target: this plan at `da918cf`. The review ran in an unattended agent slot, where the question tool is denied, so each
+choice below is decided from upstream's v0.1.25 source, the repo on `dev`, read-only probes of the NAS and GHCR, and repo
+precedent, and is recorded with its evidence. Brett's open questions (OQ1 to OQ5) are left to him; none was decided
+here. Evidence kinds: static reads and live read-only probes; no proposed code ran, and `docker` is denied in this
+slot, so no compose command was run against a live CLI.
+
+### Scope Challenge
+
+- **What already exists.** The Serve setup script and its unit (`scripts/tailscale-serve-setup.sh`,
+  `config/systemd/system/tailscale-serve-setup.service`); the 1Password-to-env-file pattern
+  (`scripts/host-jobs-enable.sh:47-63`) and its stubs (`tests/host-scheduled-jobs.bats:31-70`); the age-gated pin move
+  (`scripts/upgrade/yazi-pins.sh`); upstream's compose file, backup script, and operator command, which the plan
+  vendors or calls rather than rebuilding.
+- **Minimum change.** PR1 alone puts OpenSEO on the tailnet and makes the first run possible. PR2 and PR3 are
+  separable, and PR3 is built only if Gate B passes.
+- **Complexity.** About 19 repo paths across the three PRs' `Touches:` lines [estimated] and two new script families:
+  the deploy script with its libraries, and the bump script. The gate trips; E-D1 settles the structure. No feature
+  cut is proposed: every verb traces to a requirement in the brief.
+- **Search.** The patterns are standard: Compose's `COMPOSE_FILE` and `COMPOSE_ENV_FILES` variables (the Linux server
+  has the `docker-compose-plugin` 5.6.0 package [measured: dpkg], the NAS Compose v5.5.0 [measured: probe]), Docker's
+  `ssh://` transport for `DOCKER_HOST`, and Tailscale Services [Layer 1]. No web search ran; in-distribution
+  knowledge only.
+- **TODOS.** The repo tracks no TODOS file; local TODO files are gitignored by policy.
+- **Distribution.** Nothing is published. Images come from GHCR and Docker Hub by digest.
+- **Prior learning applied:** `dotfiles-same-version-all-hosts` (10/10, 2026-09-22). The NAS phase runs from the Linux
+  server's checkout, so no host can run a different version of the script.
+- **Retrospective.** `git log` of `scripts/tailscale-serve-setup.sh` shows #245 (re-run on every tailscaled start),
+  #149, and #146; no reverts.
+
+```text
+REALITY: premise-table pass about 40 factual claims carry source, probe, or registry receipts; unverified=5 (password-mode links from BETTER_AUTH_URL, dockerd restart without init, the Linux server reaching its own service address, COMPOSE_ENV_FILES inside the backup script, compose over ssh as root) docs/plans/2026-11-06-0100-feat-openseo-tailnet-service-plan.md:415
+REALITY: already-done pass origin/dev since 2026-11-05 touches none of the named paths except this plan's own commit da918cf, and no commit mentions openseo docs/plans/2026-11-06-0100-feat-openseo-tailnet-service-plan.md:1
+REALITY: surface-check pass tailscale serve 1.104.2 --help lists --service, --https, --http, --yes; GHCR answers the pinned digest; docker compose flags could not be checked in this slot and rest on the 5.6.0 plugin and Compose's documentation, recorded as an assumption docs/plans/2026-11-06-0100-feat-openseo-tailnet-service-plan.md:415
+REALITY: binding-decisions pass no recorded decision touches OpenSEO, compose, or Tailscale Services; Brett's limits (R10, R11) hold throughout docs/plans/2026-11-06-0100-feat-openseo-tailnet-service-plan.md:94
+REALITY: numbers finding the size budgets were untagged; now [estimated]; memory, disk, and image size carry [measured] receipts in KTD10 docs/plans/2026-11-06-0100-feat-openseo-tailnet-service-plan.md:286
+REALITY: deferred-asks pass no linked issue; the brief's asks (where it runs, the move, tailnet reach, pinning and updates, config and data, secrets, the first read-only run) each map to KTDs and units docs/plans/2026-11-06-0100-feat-openseo-tailnet-service-plan.md:14
+REALITY: pr-count pass no ship policy on file; three PRs, PR2 split by the brief's two-round cap and PR3 by Gate B; each extra PR costs one CI run and up to two review rounds docs/plans/2026-11-06-0100-feat-openseo-tailnet-service-plan.md:444
+```
+
+Scope result: scope accepted as-is. MODE: FULL_REVIEW.
+
+### Decision ledger
+
+Each choice was decided on its recommendation from the evidence named, because no person answers in the slot.
+
+| ID | Finding | Options | Chosen | Evidence | Accepted scope |
+| --- | --- | --- | --- | --- | --- |
+| E-D1 | Complexity gate | Original arrangement; smaller arrangement | Original | Folding the libraries into the deploy script would put about 700 lines in one file [estimated from the budgets], past the 200-line refactor trigger | No change |
+| E-D2 | A1 | Only `update` and `rollback` change a host's image; keep render writing the tracked pin | Only update and rollback | R6; U2 step 2 wrote the tracked pin on every render, and U3's `up` renders; upstream: "Going back to an older image does not undo them" (`docs/SELF_HOSTING_DOCKER.md`) | KTD13's last sentences; U2 step 2; U3 `status`; U6 step 3; U8 `update`; two tests |
+| E-D3 | A2 | Add a disk threshold to Gate B; keep the gate on memory alone | Disk threshold | The NAS's `docker.img` is 20 GiB with 12 GiB free and holds every container's images and volumes [measured: `/boot/config/docker.cfg`, `df`] | KTD10; OQ5; Risks; Gate B rows; U8's runbook |
+| E-D4 | A3 | Define port, service name, paths, and the bind once in `gate.sh`; keep copies in each script | One definition | Port 8946, `svc:openseo`, and `local.env` appeared in both U3 and U4 (red flags 6 and 8) | KTD6's gate bullet |
+| E-D5 | A4 | `up` force-recreates `init`, `web`, `crawl-gateway`; plain `up -d` | Force-recreate | Upstream applies changed settings that way ("Enable features", `docs/SELF_HOSTING_DOCKER.md`) | U3 `up`; one test |
+
+Factual corrections, no question needed: F1, KTD5's reason for refusing a storage-key change now cites upstream's
+restore requirement instead of an unverified RustFS behavior. F2, the build-phase budgets are tagged [estimated]. F3,
+Gate B's readings move from U10 (PR3) to U8's runbook (PR2), because Gate B happens before PR3 exists.
+
+Regression contract, carried as required proof: the Serve setup script's host gate and its `svc:ollama` then
+`svc:codex-proxy` order and failure behavior stay as they are; U4's first four scenarios hold them, in a suite that
+does not exist today.
+
+Approval readiness: PASS (E-D1 to E-D5, decided from evidence in an unattended slot; F1 to F3 change no behavior).
+
+### 1. Architecture
+
+```text
+ 1Password secrets-dev ──read_field.sh──▶ scripts/openseo-deploy.sh ◀── config/openseo/openseo.pin
+                                                │   (render: local.env | nas.env, mode 600, on the Linux server)
+                       ┌────────────────────────┴───────────────────────┐
+                       ▼                                                ▼
+     docker (local daemon)                               docker over DOCKER_HOST=ssh://pool
+     storage, runtime, init, crawl-gateway, web          same five services on the NAS daemon
+     web on 127.0.0.1:8946                               web on 127.0.0.1:8946
+                       │                                                │
+     tailscale-serve-setup.sh block ──gate.sh──┐         serve --host nas ──gate.sh (over ssh)
+                       ▼                       │                        ▼
+                svc:openseo  ◀── exactly one host advertises at a time (KTD12)
+```
+
+- [CRITICAL] (confidence: 8/10) plan U2 step 2 and U3 `up`, "Write ... `OPENSEO_IMAGE` from the pin" and "`up`: render,
+  `docker compose pull`, `docker compose up -d`". After a bump PR merges and the operator pulls `~/dotfiles`, any `up`
+  would start the new image and run its one-way migrations without the backup `update` takes, against R6. Accepted as
+  E-D2.
+- [CRITICAL] (confidence: 8/10) plan KTD10, "OpenSEO moves only if `MemAvailable` minus that peak leaves at least 1.5
+  GiB". The gate read memory only, while the NAS keeps every container's images and volumes in one 20 GiB `docker.img`
+  with 12 GiB free; OpenSEO's volumes growing there could stop Plex, pinchflat, LanguageTool, and Postgres. Accepted as
+  E-D3.
+- [INFORMATIONAL] (confidence: 8/10) plan U3 and U4, the port, the service name, and `~/.config/openseo/local.env` named
+  in two scripts. Accepted as E-D4.
+- [INFORMATIONAL] (confidence: 7/10) plan U3 `up`. A key added after OQ1 reaches `init` through its changed environment,
+  but upstream's documented way to apply changed settings recreates `init`, `web`, and `crawl-gateway` together.
+  Accepted as E-D5.
+
+**Two shapes.** Shape A, chosen: one deploy script with libraries, run from the canonical checkout, driving either
+host's Docker daemon behind about a dozen verbs. Shape B: native packaging per host, a stow package with a user unit on
+the Linux server (`stow/codex-proxy/`) and a compose.manager project on the NAS (the pinchflat plan). A hides the
+1Password reads, the pin, the env file, compose, the bind gate, and host targeting behind one interface; B splits the
+same knowledge across two packagings and puts the env file on the NAS's vfat flash. Red flags: (1) `render` exposes a
+stage of `up`, kept because it is the only docker-free way to prepare and inspect a host's env file; (6) and (8) were
+the shared constants, fixed by E-D4; no others found.
+
+**One realistic failure per new path.** Render with 1Password unreachable: `ERROR:`, file untouched, tested. `up` with
+GHCR unreachable: exit 1, tested. The setup block at boot before the stack is up: the unit retries, tested. A backup
+that fails: `update` stops before `pull`, tested. Any `--host nas` verb with ssh down: exit 1, tested. The NAS losing
+its binding after a tailscaled upgrade: `status` names the fix, live only. The Linux server unable to reach its own
+service address: `status` relies on loopback there, an assumption Gate A checks.
+
+Security: no new finding. The grant reaches the Linux server's agent slots, which is why sign-in stays on (KTD8).
+
+Dispositions: A1 accepted (E-D2), A2 accepted (E-D3), A3 accepted (E-D4), A4 accepted (E-D5).
+
+### 2. Code quality
+
+- [INFORMATIONAL] (confidence: 7/10) plan U3 `create-admin` had no planned behavior when an account already exists;
+  upstream's operator command fails then. A test now pins the exit and the `serve` hint; required proof of planned
+  behavior, no question.
+- [INFORMATIONAL] (confidence: 5/10, medium; verify) plan U3 `status` is text-only while agents are its main users, and
+  the global error contract asks agent-facing modes for structured output. Output modes are the DX review's call, so it
+  is handed to `/plan-devex-review`.
+
+Shared code: `scripts/openseo/lib/gate.sh` has two proposed callers, the deploy script and the setup block, with the
+same contract, so it passes the rubric. Dispositions: Q1 accepted as required proof; Q2 handed to the DX review.
+
+### 3. Tests
+
+Framework: bats through `scripts/run-tests` (AGENTS.md "Local gates mirror CI").
+
+```text
+CODE PATHS (proposed)                                   USER FLOWS
+[+] scripts/openseo/lib/pin.sh                          [+] Gate A, operator deploy
+  ├── [★★★ PLANNED] parse, reject tag-only/short/unknown    ├── [→E2E live] render → up → create-admin → serve
+  └── [★★  PLANNED] compose checksum + digest lines         └── [→E2E live] sign-in over the tailnet address
+[+] render (env.sh)                                     [+] Gate A, first run
+  ├── [★★★ PLANNED] happy, 1P failure, storage-key change   └── [→E2E live] project creation starts the crawl
+  ├── [★★★ PLANNED] keeps OPENSEO_IMAGE (E-D2)          [+] Gate C, cutover
+  └── [★★  PLANNED] no secret in output or argv             ├── [→E2E live] retire → backup → restore → serve
+[+] up / down / create-admin / serve / status               └── [→E2E live] rollback within 14 days
+  ├── [★★★ PLANNED] order, force-recreate (E-D5), pull and init failures
+  ├── [★★★ PLANNED] firstAccount gate, no -v, stdin password, existing account
+  └── [★★★ PLANNED] status: healthy, refused, no local.env, pin note, never docker
+[+] tailscale-serve-setup.sh block
+  └── [★★★ PLANNED] host gate, order, absent env, unhealthy, firstAccount (regression contract)
+[+] backup / restore / update / rollback
+  └── [★★★ PLANNED] env vars, mode 700, backup pin, order, --yes, volume names
+[+] openseo-pin.sh
+  └── [★★★ PLANNED] 7-day edge, missing image tag, never backwards, failed fetch, warning
+[+] --host nas
+  └── [★★★ PLANNED] DOCKER_HOST, no NAS writes, stdin only, ssh failure, gate, restored volumes
+
+COVERAGE: every proposed code path has a planned bats case; user flows are live gates
+GAPS ADDED BY THIS REVIEW: 6 (render keeps image, force-recreate, pull failure, existing account, status pin note, ssh failure)
+```
+
+Legend: ★★★ behavior plus edge plus error | ★★ happy path | →E2E live = an operator gate, not a bats case.
+
+The test plan artifact is at `~/.gstack/projects/brettdavies-dotfiles/brett-dev-eng-review-test-plan-20261106-011342.md`.
+Tests made obsolete: none.
+
+### 4. Performance
+
+No issues found beyond A2's disk threshold. The first run crawls 50 pages, and a full audit up to 250, against a site
+whose sitemap lists 174 URLs [measured]; upstream allows 10,000. Memory is capped by upstream's 2 GiB runtime limit.
+Every probe the plan adds is bounded: `status` uses `--max-time 5` and the setup block `--max-time 3`.
+
+### Outside voice
+
+codex, disabled by `codex_reviews`; disabled is a terminal branch, so no fallback reviewer ran.
+
+### NOT in scope
+
+The plan's "Deferred to Follow-Up Work" list stands unchanged: OpenSEO's MCP connection for agents, Search Console
+inside OpenSEO, DataForSEO-backed recurring work, scheduled bump PRs, re-binding the NAS's Serve bindings after a
+tailscaled restart, and SAM through the Linux server's Ollama.
+
+### What already exists
+
+Reused, not rebuilt: the Serve setup script and unit, the `read_field.sh` env-file pattern and its test stubs, the
+yazi pin mover's age-gate shape, upstream's compose file, backup script, operator command, health route, and
+`sign-up-status` route. Rebuilt: nothing.
+
+### Failure modes
+
+| Path | Realistic failure | Handled | Test | What the operator sees |
+| --- | --- | --- | --- | --- |
+| render | 1Password unreachable | exit 1, file untouched | yes | `ERROR:` naming the item |
+| up | GHCR unreachable | exit 1 before `up -d` | yes | `ERROR:` naming the image |
+| up | `init` fails | exit 1 | yes | the `docker compose logs init` command |
+| setup block | stack not up at boot | unit retries | yes | unit retrying, then bound |
+| update | backup fails | stops before `pull` | yes | `ERROR:` and no change |
+| `--host nas` | ssh down | exit 1 | yes | `ERROR:` naming `ssh pool` |
+| NAS binding | dropped by a tailscaled upgrade | `status` | live | `ERROR:` naming `--host nas serve` |
+
+Critical gaps: 0. Every failure is either tested or visible through `status`.
+
+### Parallelization
+
+Sequential implementation, no parallelization opportunity: the three PRs share `scripts/openseo-deploy.sh`, and within
+PR1 each unit builds on the one before.
+
+### Implementation Tasks
+
+Synthesized from this review's findings; each is already written into the units above. The JSONL artifact is not
+persisted: the `dev` branch's task list belongs to other plans, and adding this list would retire theirs.
+
+- [ ] **T1 (P1, human: ~1h / CC: ~10min)** — env and update — only `update` and `rollback` change a host's image
+  - Surfaced by: Architecture — A1
+  - Files: `scripts/openseo/lib/env.sh`, `scripts/openseo-deploy.sh`, `tests/openseo-deploy.bats`
+  - Verify: the render-keeps-image and status pin-note cases pass
+- [ ] **T2 (P1, human: ~30min / CC: ~5min)** — runbook — Gate B's memory and disk readings in PR2's runbook
+  - Surfaced by: Architecture — A2, and correction F3
+  - Files: `docs/runbooks/openseo.md`
+  - Verify: the runbook names both thresholds and the commands that read them
+- [ ] **T3 (P2, human: ~30min / CC: ~5min)** — gate — one definition of port, service, paths, and bind
+  - Surfaced by: Architecture — A3
+  - Files: `scripts/openseo/lib/gate.sh`, `scripts/tailscale-serve-setup.sh`
+  - Verify: `rg 8946 scripts/` finds the port only in `gate.sh`
+- [ ] **T4 (P2, human: ~15min / CC: ~5min)** — up — force-recreate `init`, `web`, `crawl-gateway`
+  - Surfaced by: Architecture — A4
+  - Files: `scripts/openseo-deploy.sh`, `tests/openseo-deploy.bats`
+  - Verify: the force-recreate case passes
+- [ ] **T5 (P2, human: ~30min / CC: ~10min)** — tests — existing account, pull failure, ssh failure
+  - Surfaced by: Code quality — Q1; Tests
+  - Files: `tests/openseo-deploy.bats`
+  - Verify: the three cases pass
+
+_No new tasks from Performance._
+
+### Completion summary
+
+- Step 0: Scope Challenge — scope accepted as-is
+- Reality rows: 7/7 applicable rows emitted, 5 unverified premises
+- Architecture Review: 4 issues found
+- Code Quality Review: 2 issues found
+- Test Review: diagram produced, 6 gaps identified
+- Performance Review: 0 issues found
+- NOT in scope: written
+- What already exists: written
+- TODOS.md updates: 0 items proposed (no tracked TODOS file)
+- Failure modes: 0 critical gaps flagged
+- Unresolved decisions: 0 in this review (Q2 is handed to the DX review; Brett's OQ1 to OQ5 stay open in the plan)
+- Outside voice: codex, disabled (`codex_reviews`)
+- Parallelization: 1 lane, 0 parallel / 3 sequential
+- Lake Score: N/A (no answers scored for Completeness)
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+| --- | --- | --- | --- | --- | --- |
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Outside Review | codex, plan-eng-review outside voice | Independent 2nd opinion | 22 | disabled | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 14 | ISSUES OPEN (PLAN) | 12 issues, 0 critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 13 | — | not yet run on this plan |
+
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no findings.
+- **VERDICT:** no review CLEAR yet; eng review required. The eng findings are accepted into the plan as mapped work;
+  the DX review and `ce-doc-review` follow.
+
+NO UNRESOLVED DECISIONS
