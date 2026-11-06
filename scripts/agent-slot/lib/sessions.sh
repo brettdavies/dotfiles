@@ -38,10 +38,12 @@ SESSIONS_EFFORT=xhigh
 SESSIONS_MODELS='opus sonnet'
 SESSIONS_ADVISOR=opus
 SESSIONS_ADVISOR_ENV=CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1
-# What a prime's session is named until its program is typed in, after its own name. A start cut off in between, as by
-# a timeout around it, then leaves a session nothing reads as the running prime, and the next start kills it. Only a
-# prime's sessions start this way: nothing but their names says a prime runs. No name slot_session gives ends in it.
-SESSIONS_STAGING=-starting
+# What a prime's session is named until its program is typed in: its own name, this, and the starting process's ID. A
+# start cut off in between, as by a timeout around it, then leaves a session nothing reads as the running prime, and the
+# next start kills it. The ID keeps a tmux call the cut start left running, which bounded's timeout holds in a process
+# group of its own, from typing into a later start's session. Only a prime's sessions start this way: nothing but their
+# names says a prime runs. The letter keeps a staging name from reading as a slot's, whose names end in its number.
+SESSIONS_STAGING=-starting-p
 SESSIONS_CREATED=()
 
 # Usage: sessions_model_id <model>; prints the Claude model ID for one of SESSIONS_MODELS, or returns 1.
@@ -171,7 +173,7 @@ sessions_start() {
     name=$(slot_session "$repo" "$n" "$kind")
     grep -qxF "$name" <<<"$SLOT_SESSIONS" && continue
     made=$name
-    [[ $n != "$SLOT_PRIME" ]] || made=$name$SESSIONS_STAGING
+    [[ $n != "$SLOT_PRIME" ]] || made=$name$SESSIONS_STAGING$BASHPID
     start=(/usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$shell" TERM=xterm-256color
       LANG="${LANG:-C.UTF-8}" PATH="$PATH"
       "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$made" "${env[@]}" -c "$path" "${extra[@]}" "$shell" -l)
@@ -205,7 +207,7 @@ _sessions_scoped() {
 _sessions_fail() {
   local retry="agent-slot prime $1"
   [[ $2 == "$SLOT_PRIME" ]] || retry=$(printf 'agent-slot resume %s' "$(slot_key "$1" "$2")")
-  ((BOUNDED_STATUS != 124)) || tmux_unresponsive partial
+  ((BOUNDED_STATUS != 124)) || tmux_unresponsive partial "$AS_TMUX_SOCKET" "$retry"
   contract_use_tools tmux
   contract_fail tmux-failed "could not start the tmux session $3" --value "$3" --side-effects partial \
     --command "$retry" --log "$BOUNDED_LOG"

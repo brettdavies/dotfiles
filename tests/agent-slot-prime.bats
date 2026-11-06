@@ -165,8 +165,8 @@ rex_helper() {
   json=$output
   [ "$(grep -c ' new-session ' "$CALLS")" -eq 3 ]
   for kind in repoa-prime repoa-prime-files repoa-prime-git; do
-    grep -qF -- "-L agent-slot-test -f $AGENT_SLOT_TMUX_CONF new-session -d -s $kind-starting -c $checkout " "$CALLS"
-    grep -qxF -- "tmux -L agent-slot-test -f $AGENT_SLOT_TMUX_CONF rename-session -t =$kind-starting $kind" "$CALLS"
+    grep -qE -- "-L agent-slot-test -f $AGENT_SLOT_TMUX_CONF new-session -d -s $kind-starting-p[0-9]+ -c $checkout " "$CALLS"
+    grep -qxE -- "tmux -L agent-slot-test -f $AGENT_SLOT_TMUX_CONF rename-session -t =$kind-starting-p[0-9]+ $kind" "$CALLS"
   done
   [ "$(cat "$STUBS/typed-repoa-prime-files")" = 'command -v y >/dev/null && y || yazi' ]
   [ "$(cat "$STUBS/typed-repoa-prime-git")" = lazygit ]
@@ -380,7 +380,7 @@ JSON
   [ "$status" -eq 1 ]
   assert_error_shape "$stderr"
   jaq -e '.reason == "tmux-unresponsive" and .value == "default"
-    and .next_step.command == "agent-slot list --output json"' <<<"$stderr"
+    and .next_step.command == "agent-slot prime repoa" and (.message | contains("agent-slot list --output json"))' <<<"$stderr"
   run ! grep -q ' new-session ' "$CALLS"
 }
 
@@ -504,15 +504,48 @@ cut_start() {
 
 @test "a start cut off after typing Claude in, before the session takes its name, leaves no prime, and the next start replaces it" {
   cut_start rename-session
-  [ -e "$STUBS/typed-repoa-prime-starting" ]
+  compgen -G "$STUBS/typed-repoa-prime-starting-p*" >/dev/null
   run --separate-stderr "$AGENT_SLOT" list --output json
   [ "$status" -eq 0 ]
   jaq -e '.primes == []' <<<"$output"
   start
   [ "$status" -eq 0 ]
   jaq -e --argjson started "$PRIME_SESSIONS" '.started == $started' <<<"$output"
-  grep -qF -- ' kill-session -t =repoa-prime-starting' "$CALLS"
+  grep -qE -- ' kill-session -t =repoa-prime-starting-p[0-9]+$' "$CALLS"
+  jaq -e '.cleared | length == 1 and (.[0] | test("^repoa-prime-starting-p[0-9]+$"))' <<<"$output"
   [ "$(sort "$STUBS/tmux-sessions")" = $'repoa-prime\nrepoa-prime-files\nrepoa-prime-git' ]
+}
+
+@test "each start stages its sessions under names of its own, so a call a cut start left running reaches none of them" {
+  local first second
+  start
+  first=$(grep -oE ' new-session -d -s repoa-prime-starting[^ ]*' "$CALLS" | sort -u)
+  : >"$STUBS/tmux-sessions"
+  : >"$CALLS"
+  start
+  second=$(grep -oE ' new-session -d -s repoa-prime-starting[^ ]*' "$CALLS" | sort -u)
+  [ -n "$first" ] && [ -n "$second" ]
+  [ "$first" != "$second" ]
+}
+
+@test "a start clears only sessions in a staging name's exact shape, and reports them in cleared" {
+  session_at repoa-prime-starting-p4242 "$AGENT_SLOT_DEV/repoa"
+  session_at repoa-prime-files-starting-p4243 "$AGENT_SLOT_DEV/repoa"
+  session_at repoa-prime-starting-p4242-1 "$AGENT_SLOT_DEV/repoa"
+  start
+  [ "$status" -eq 0 ]
+  jaq -e '.cleared == ["repoa-prime-starting-p4242", "repoa-prime-files-starting-p4243"]' <<<"$output"
+  grep -qxF repoa-prime-starting-p4242-1 "$STUBS/tmux-sessions"
+  run ! grep -qxE 'repoa-prime(-files)?-starting-p424[23]' "$STUBS/tmux-sessions"
+  [ "$(jaq -c 'select(.event == "prime-start") | .cleared' "$AGENT_SLOT_STATE_DIR/ledger.jsonl")" = '["repoa-prime-starting-p4242","repoa-prime-files-starting-p4243"]' ]
+  run --separate-stderr "$AGENT_SLOT" prime repoa
+  [ "$output" = 'repoa/prime: already running' ]
+}
+
+@test "the text line names what a start cleared" {
+  session_at repoa-prime-starting-p4242 "$AGENT_SLOT_DEV/repoa"
+  run --separate-stderr "$AGENT_SLOT" prime repoa
+  [[ $output == *'; removed repoa-prime-starting-p4242, left by a start that was cut off'* ]]
 }
 
 @test "a run that waits past the bound on another's lock exits slot-busy, and retrying names the verb" {
@@ -661,7 +694,7 @@ PRIME_SESSIONS='["repoa-prime", "repoa-prime-files", "repoa-prime-git"]'
   jaq -e --argjson started "$PRIME_SESSIONS" '.key == "repoa/1" and .created == true
     and .prime.key == "repoa/prime" and .prime.server == "slots" and .prime.started == $started' <<<"$output"
   [ "$(grep -c ' new-session ' "$CALLS")" -eq 6 ]
-  grep -qF -- "new-session -d -s repoa-prime-starting -c $AGENT_SLOT_DEV/repoa " "$CALLS"
+  grep -qE -- "new-session -d -s repoa-prime-starting-p[0-9]+ -c $AGENT_SLOT_DEV/repoa " "$CALLS"
 }
 
 @test "a launch with the old-style session running reports it and starts no prime session" {
@@ -695,7 +728,7 @@ PRIME_SESSIONS='["repoa-prime", "repoa-prime-files", "repoa-prime-git"]'
   [ "$status" -eq 0 ]
   jaq -e --argjson started "$PRIME_SESSIONS" '.started == ["repoa-1", "repoa-1-files", "repoa-1-git"]
     and .prime.started == $started' <<<"$output"
-  grep -qF -- "new-session -d -s repoa-prime-starting -c $AGENT_SLOT_DEV/repoa " "$CALLS"
+  grep -qE -- "new-session -d -s repoa-prime-starting-p[0-9]+ -c $AGENT_SLOT_DEV/repoa " "$CALLS"
 }
 
 @test "a record cannot choose where a resume's prime starts" {
@@ -704,7 +737,7 @@ PRIME_SESSIONS='["repoa-prime", "repoa-prime-files", "repoa-prime-git"]'
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
   jaq -e --arg path "$AGENT_SLOT_DEV/repoa" '.prime.path == $path' <<<"$output"
-  grep -qF -- "new-session -d -s repoa-prime-starting -c $AGENT_SLOT_DEV/repoa " "$CALLS"
+  grep -qE -- "new-session -d -s repoa-prime-starting-p[0-9]+ -c $AGENT_SLOT_DEV/repoa " "$CALLS"
   run ! grep -qF -- "-c $T/planted " "$CALLS"
 }
 
@@ -744,7 +777,15 @@ PRIME_SESSIONS='["repoa-prime", "repoa-prime-files", "repoa-prime-git"]'
   wrap_tmux '[[ " $* " != *" new-session "*"-prime"* ]] || exit 1'
   run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r1
   [ "$status" -eq 0 ]
-  [[ $output == *'; its prime did not start: tmux-failed'* ]]
+  [[ $output == *'; its prime did not start (tmux-failed: could not start the tmux session repoa-prime); run agent-slot prime repoa'* ]]
+}
+
+@test "a launch's text line says it started the prime, and that its Claude will ask for trust" {
+  local n
+  for n in 1 2 3; do trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/$n")"; done
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r1
+  [ "$status" -eq 0 ]
+  [[ $output == *'; started its prime, whose Claude will ask to trust the folder'* ]]
 }
 
 @test "a prime start that dies with no error object reports script-error and keeps what it printed" {

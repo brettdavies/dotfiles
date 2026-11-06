@@ -241,7 +241,7 @@ launch_output() {
        then "; its head " + (if .head_owner then "belongs to \(.head_owner)"
                               else "has an owner that could not be determined" end)
             + ", so nothing from the head runs" else "" end) +
-      (if .prime.error then "; its prime did not start: \(.prime.error.reason)" else "" end) +
+      (if .prime.error then "; its prime did not start (\(.prime.error.reason): \(.prime.error.message)); run \(.prime.error.next_step.command)" elif (.prime.started // []) != [] then "; started its prime" + (if .prime.trust_prompt_expected then ", whose Claude will ask to trust the folder" else "" end) else "" end) +
       (if .prior then "\n\(.prior.note)" else "" end)'
 }
 
@@ -360,5 +360,5 @@ cmd_resume() {
     '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)
       + (if (.pruned_branches | length) == 0 then "" else "; pruned \(.pruned_branches | join(", ")), whose PRs merged or closed" end)
       + (if (.prune_failed | length) == 0 then "" else "; could not prune \(.prune_failed | map(.branch) | join(", "))" end)
-      + (if .prime.error then "; its prime did not start: \(.prime.error.reason)" else "" end)'
+      + (if .prime.error then "; its prime did not start (\(.prime.error.reason): \(.prime.error.message)); run \(.prime.error.next_step.command)" elif (.prime.started // []) != [] then "; started its prime" + (if .prime.trust_prompt_expected then ", whose Claude will ask to trust the folder" else "" end) else "" end)'
 }

@@ -59,7 +59,8 @@ verb_help() {
       '                         [--shown-at EPOCH] [--output json]' \
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
       '--dangerously-skip-permissions on the --model given, at --effort xhigh; a sonnet slot also gets opus as its' \
-      'advisor. Every launch names a model. A repeat with the same --request-id, --task, or work item returns the same' \
+      'advisor. It also starts the repo'"'"'s prime, whose Claude runs on the account'"'"'s own model and effort. Every' \
+      'launch names a model. A repeat with the same --request-id, --task, or work item returns the same' \
       'slot, except that a --prompt-file the slot would not receive (another request, or this request under a' \
       'different brief) is refused with item-held-by-slot rather than dropped, and a --model other than the one that' \
       'slot runs on is refused with model-differs. A --prompt-file needs a line for each of Scope:, Limits:,' \
@@ -115,8 +116,10 @@ verb_help() {
       'the name <repo>-prime. It creates only what is missing and never touches git or trust, so the checkout keeps its' \
       'branch and local changes and Claude asks to trust an untrusted one. A session the prime map names for the repo' \
       'that holds a Claude on the default tmux server is the prime until it is closed, and nothing starts. Nothing that' \
-      'ends a slot ends a prime.' \
-      'returns: key, repo, path, name, server (slots or default), session, started[],' \
+      'ends a slot ends a prime. Its Claude runs on the account'"'"'s own default model and effort. Each session takes' \
+      'its name only once its program is typed in: a start cut off before then leaves <name>-starting-p<pid>, which' \
+      'the next run kills and lists in cleared[].' \
+      'returns: key, repo, path, name, server (slots or default), session, started[], cleared[],' \
       '         conversation {mode: running, resumed, or fresh; session_id}, trust_prompt_expected, next_step' \
       'example: agent-slot prime bird --output json' ;;
     warm) printf '%s\n' 'usage: agent-slot warm <repo> | --all [--count N] [--output json]' \

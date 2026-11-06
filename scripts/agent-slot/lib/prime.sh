@@ -14,7 +14,7 @@ _prime_old_session() {
   local repo=$1 status=0 session held
   PRIME_OLD=
   default_tmux_panes || status=$?
-  ((status != 124)) || tmux_unresponsive none "$TMUX_DEFAULT_SOCKET"
+  ((status != 124)) || tmux_unresponsive none "$TMUX_DEFAULT_SOCKET" "agent-slot prime $repo"
   if ((status != 0)); then
     contract_use_tools tmux
     contract_fail tmux-failed "tmux list-panes on the $TMUX_DEFAULT_SOCKET server exited $status" \
@@ -70,15 +70,21 @@ _prime_conversation() {
   PRIME_MODE=resumed PRIME_SESSION_ID=${id%.jsonl}
 }
 
-# Usage: _prime_clear_staged <repo>; kills each of the prime's sessions still under its staging name (SESSIONS_STAGING).
-# The caller holds the prime's lock, so one is what a start cut off before it finished left behind. It goes before the
-# conversation is chosen, since a Claude in one can hold that conversation. A kill that fails leaves the session, and
-# the start's own new-session under that name then fails.
+# Usage: _prime_clear_staged <repo>; kills each session still under one of the prime's staging names (SESSIONS_STAGING),
+# matched in full so no other repo's session can match, and sets PRIME_CLEARED to them. The caller holds the prime's
+# lock, so one is what a start cut off before it finished left behind, and it can hold a Claude that start had already
+# started. It goes before the conversation is chosen, since that Claude can hold the conversation.
+PRIME_CLEARED=()
 _prime_clear_staged() {
-  local kind staged
+  local kind prefix name
+  PRIME_CLEARED=()
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
-    staged=$(slot_session "$1" "$SLOT_PRIME" "$kind")$SESSIONS_STAGING
-    ! grep -qxF -- "$staged" <<<"$SLOT_SESSIONS" || slot_tmux out 10 kill-session -t "=$staged" || true
+    prefix=$(slot_session "$1" "$SLOT_PRIME" "$kind")$SESSIONS_STAGING
+    while IFS= read -r name; do
+      [[ $name == "$prefix"* && ${name#"$prefix"} =~ ^[0-9]+$ ]] || continue
+      slot_tmux out 10 kill-session -t "=$name" || true
+      PRIME_CLEARED+=("$name")
+    done <<<"$SLOT_SESSIONS"
   done
 }
 
@@ -95,7 +101,7 @@ prime_start() {
   name=$(prime_claude_name "$repo")
   session=$(slot_session "$repo" "$SLOT_PRIME")
   started=$(_slot_us)
-  SESSIONS_CREATED=()
+  SESSIONS_CREATED=() PRIME_CLEARED=()
   repo_prime "$repo"
   path=$REPO_PRIME
   _record_lock "$AS_STATE_DIR/primes/$repo.lock" "prime:$repo" --wait "$AS_LOCK_WAIT" \
@@ -117,16 +123,17 @@ prime_start() {
   fi
   # An agent runs next_step.command, so it is never the pane's attach, which waits on a terminal.
   PRIME_JSON=$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$key" --arg repo "$repo" \
+    --argjson cleared "$(printf '%s\n' "${PRIME_CLEARED[@]}" | contract_json -R -s -c 'split("\n") | map(select(. != ""))')" \
     --arg path "$path" --arg name "$name" --arg server "$server" --arg session "$session" --arg mode "$mode" \
     --arg id "$id" --argjson trust "$trust" --arg docs "$CONTRACT_DOCS" '
     {key: $key, repo: $repo, path: $path, name: $name, server: $server, session: $session,
-     started: (split("\n") | map(select(. != ""))),
+     started: (split("\n") | map(select(. != ""))), cleared: $cleared,
      conversation: {mode: $mode, session_id: (if $id == "" then null else $id end)},
      trust_prompt_expected: $trust,
      next_step: {action: "run", command: "agent-slot list --output json", docs: $docs,
                  note: "other sessions reach it by the name \($name); a terminal holds it with agent-slot-rex prime \($repo)"}}')
   ((${#SESSIONS_CREATED[@]} == 0)) || ledger_append prime-start "$(contract_json -c --argjson from "$started" \
-    --argjson to "$(_slot_us)" '{repo, key, path, started, conversation: .conversation.mode,
+    --argjson to "$(_slot_us)" '{repo, key, path, started, cleared, conversation: .conversation.mode,
       session_id: .conversation.session_id, started_at: ($from / 1000000), made_at: ($to / 1000000)}' <<<"$PRIME_JSON")"
   _record_unlock "prime:$repo"
 }
@@ -213,5 +220,6 @@ cmd_prime() {
       if .conversation.mode == "resumed" then ", resuming \(.conversation.session_id)"
       elif .conversation.mode == "fresh" then ", as new conversation \(.conversation.session_id)"
       else "" end)
-    end) + (if .trust_prompt_expected then "; Claude will ask to trust the folder" else "" end)'
+    end) + (if (.cleared | length) > 0 then "; removed \(.cleared | join(", ")), left by a start that was cut off" else "" end)
+    + (if .trust_prompt_expected then "; Claude will ask to trust the folder" else "" end)'
 }

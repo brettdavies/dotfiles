@@ -438,13 +438,14 @@ A prime differs from a slot in these ways:
 | `docs/solutions` | Its own worktree of the solutions repo          | The shared clone                                                                                                                                                                              |
 | Tab              | Reconcile opens, relabels, and closes it        | Reconcile only opens it, first in the session                                                                                                                                                 |
 | Ends             | `release`, `finish`, or `sweep`                 | Only by hand                                                                                                                                                                                  |
+| Model            | The `--model` given, at `--effort xhigh`        | The account's own default model and effort, since you attend it and pick them                                                                                                                 |
 
 `/clear` keeps a session's title, so a prime follows it to its new transcript. A title scan that fails stops the start
 with `script-error` rather than choosing a fresh conversation blind.
 
 Each of a prime's sessions takes its name only once its program is typed in. A start cut off before then, as by a
-timeout around it, leaves a session named `<name>-starting`, which nothing reads as the running prime, and the next
-start kills it.
+timeout around it, leaves a session named `<name>-starting-p<pid>`, which nothing reads as the running prime. It can
+hold a Claude the cut start had already started. The next start kills it and names it in `cleared`.
 
 A repo's name in a tab comes from `config/agent-slot-rex/primes.tsv`, such as `XR CLI` for `xurl-rs`, else it is the
 repo's own. A session of that name on the default tmux server that holds a Claude is the repo's prime until you close
