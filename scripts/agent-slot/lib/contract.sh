@@ -60,6 +60,8 @@ pr-not-from-this-slot         1     false      0            ask-operator
 pr-close-failed               1     true       2            retry
 model-differs                 1     false      0            run
 agent-busy                    1     true       3            retry
+slot-work-unfinished          1     false      0            run
+slot-checkout-failed          1     true       1            retry
 session-in-use                1     false      0            ask-operator
 item-not-found-in-ledger      1     false      0            run
 transcript-missing            1     false      0            run

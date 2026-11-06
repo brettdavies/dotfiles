@@ -298,7 +298,8 @@ cmd_launch() {
       esac
       contract_fail item-held-by-slot "$(slot_key "$repo" "$LAUNCH_EXISTING")$(contract_json -r \
         '(.name // .task // "") | if . == "" then "" else " (\(.))" end' <<<"$RECORD") already holds $held, so this \
-brief would not reach it; send the brief to that slot's Claude session, or launch again once that slot is torn down" \
+brief would not reach it; send follow-up work on the same task to that slot's Claude session, or start a new task \
+there with agent-slot retask, or launch again once that slot is torn down" \
         --value "$(slot_key "$repo" "$LAUNCH_EXISTING")" \
         --command "agent-slot check $(slot_key "$repo" "$LAUNCH_EXISTING") --output json"
     fi

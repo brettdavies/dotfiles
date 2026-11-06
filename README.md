@@ -811,6 +811,15 @@ new-agent key, from the moment the key's tab opened to the slot's Claude startin
 step between: Rex.app showing the tab, the helper's own calls, agent-slot's checks before the clone, the clone, setup,
 trust, and tmux phases, and Claude's start.
 
+`agent-slot retask <repo>/<N> (--task <name> | --issue <ref>) --prompt-file <file>` gives a live slot a new task in a
+new Claude session, so one conversation never carries two tasks. Follow-up work on the same task goes to the existing
+session, and work on a PR starts with `launch --pr`. The agent must be idle or absent, else `agent-busy`, and the old
+work pushed, else `slot-work-unfinished`. The clone returns to the base without its other local branches. The record
+takes a new session ID, name, brief, and scope, and a reopen finds the old session in `prior_sessions` and the `retask`
+ledger line. A slot that starts a new task without it is stopped at its push: `slot-scope-guard.sh` denies a branch that
+shares no line of work with the slot's other branches. A stacked branch shares one, and a probe's branch goes under
+`probe/`.
+
 `agent-slot resume <repo>/<N> --model (opus | sonnet)` switches a live slot's model. The slot's record takes the model,
 and a Claude that is idle is ended and started again in its own pane through the command line a launch builds, resuming
 its conversation by session ID, so a Sonnet slot gets its Opus advisor and the SessionStart hook gives the new session
@@ -903,6 +912,8 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `pr-close-failed`             | 1    | `gh pr close` failed, so the PR may or may not be closed; rerunning `close-probe` is safe      |
 | `model-differs`               | 1    | A repeat found its slot on another model than `--model`; `message` names the slot's model      |
 | `agent-busy`                  | 1    | `resume --model` found the agent busy, waiting, unreadable, or running jobs; nothing changed   |
+| `slot-work-unfinished`        | 1    | A new task would strand the old one; `value` names what is left                                |
+| `slot-checkout-failed`        | 1    | `retask` could not reach the base, and changed nothing                                         |
 | `session-in-use`              | 1    | A Claude agent has the session open; the operator closes it, then the reopen runs again        |
 | `item-not-found-in-ledger`    | 1    | No teardown names the item; `--session <id>` finds an older slot, or launch a fresh one        |
 | `transcript-missing`          | 1    | Claude Code no longer has the conversation to resume; launch a fresh slot for the item         |
