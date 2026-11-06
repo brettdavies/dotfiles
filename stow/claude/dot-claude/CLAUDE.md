@@ -294,11 +294,12 @@ skips it entirely, so leave that repo's line shapes alone. **Playwright browsers
 into the shared `$PLAYWRIGHT_BROWSERS_PATH`; never run `playwright install` to download them (the node/libuv io_uring
 extractor deadlocks on this kernel) — `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` stops `bun install` from auto-fetching them
 (an explicit install still fetches missing browsers; the provisioned set is what makes it skip). Repos exact-pin their
-Playwright version instead of a caret range; the set carries an alias for every revision a Playwright release from 1.57
-to the pin's `source-release` asks for, so a repo's bump within that range runs on it with no change to the set, WebKit
-aside (its alias stops at the pin's `webkit-revision`); a bump past `source-release` needs the pin moved first. The set
-moves by editing `config/playwright/browsers.pin` in `~/dotfiles`. Full preference list (Python cache/venv hygiene, gh
-auth, Playwright browsers, Rust pre-push) → `~/.claude/guides/cli-tools.md`.
+Playwright version instead of a caret range; the set carries an alias for every Chromium and ffmpeg revision a
+Playwright release from 1.57 to the pin's `source-release` asks for, so a repo's bump within that range runs on it with
+no change to the set, WebKit aside (it is the one revision the pin's `library-version` names, with no alias, so a bump
+off `library-version` needs the pin moved first); a bump past `source-release` needs the pin moved first. The set moves
+by editing `config/playwright/browsers.pin` in `~/dotfiles`. Full preference list (Python cache/venv hygiene, gh auth,
+Playwright browsers, Rust pre-push) → `~/.claude/guides/cli-tools.md`.
 
 **Bun follows the machine.** A repo's Bun pin (`.bun-version` and every declaration its pin test holds to it) tracks the
 local `bun --version`: when the pin trails, bump the repo in its own PR. Never download or install an older Bun to

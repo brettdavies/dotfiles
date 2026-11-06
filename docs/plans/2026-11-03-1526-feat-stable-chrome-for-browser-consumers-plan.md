@@ -17,11 +17,12 @@ execution: code
   vetted, with the sandbox on, certificate checks enforced, and revocation data live once a session has run for about 15
   seconds. dotfiles owns both, keeps both current, and points every consumer at them through config and environment
   variables. No consumer downloads a browser.
-- **Means:** One CfT build (full and headless shell), one ffmpeg, and the one WebKit build agentnative-site's suite
-  uses, aliased for the Playwright revisions consumers ask for, behind a wrapper at the alias path that drops the
-  sandbox-off flags and clears the environment. A hardened launcher over Chrome, driven by a pinned agent-browser
-  without its skill, and the same launcher over CfT for gstack. One Playwright library version across our repos, a check
-  for drift from it, and a check for browsers outside the set.
+- **Means:** One CfT build (full and headless shell) and one ffmpeg, aliased for the Playwright revisions consumers ask
+  for, behind a wrapper at the alias path that drops the sandbox-off flags and clears the environment, and the one
+  WebKit build agentnative-site's suite uses, which matches the Playwright library the repos pin and has no alias. A
+  hardened launcher over Chrome, driven by a pinned agent-browser without its skill, and the same launcher over CfT for
+  gstack. One Playwright library version across our repos, a check for drift from it, and a check for browsers outside
+  the set.
 - **Brett's direction (verbatim):** "let's harden a single system playwright and tests. We update it separately from any
   repo. repo's use what's available on the system, not their own preferences. gstack, etc incl"; "also need to ensure
   that our two browsers chrome and cft are updated often."; "to limit the number of browsers we have and also highly
@@ -53,12 +54,13 @@ beside them because agentnative-site's `mobile-ios`, `tablet`, and `web-audit-we
 in scope does. dotfiles names every version once, points every consumer at them, turns every download off, and reports
 anything else it finds on a host.
 
-The per-Playwright-version browser map goes. One CfT build, one WebKit build, and one ffmpeg are aliased for what a
-consumer at Playwright 1.57 or later can ask for. Chromium and ffmpeg alias in both directions. WebKit aliases only at
-or below the set's build, because a newer Playwright fails on an older WebKit (measured). Consumers at 1.56 or earlier
-need `executablePath` or an upgrade. Every Chromium alias's executable is a wrapper that drops the sandbox-off flags and
-clears the environment, so a bare `chromium.launch()` runs sandboxed with no secrets in the browser. A new build reaches
-the wrappers only after it launches through one, and the build they ran before stays on disk until the next move.
+The per-Playwright-version browser map goes. One CfT build and one ffmpeg are aliased for what a consumer at Playwright
+1.57 or later can ask for, and one WebKit build serves the pinned library. Chromium and ffmpeg alias in both directions.
+WebKit does not alias: it is the revision the Playwright library the repos pin names, because a library fails on a
+WebKit far from its own (measured). Consumers at 1.56 or earlier need `executablePath` or an upgrade. Every Chromium
+alias's executable is a wrapper that drops the sandbox-off flags and clears the environment, so a bare
+`chromium.launch()` runs sandboxed with no secrets in the browser. A new build reaches the wrappers only after it
+launches through one, and the build they ran before stays on disk until the next move.
 
 Both browsers stay current without a person. An hourly job takes each new Chrome stable release's CfT build through the
 real suites and moves the pin, and hosts pick it up within the hour. Chrome updates from Google's apt repository on an
@@ -133,8 +135,9 @@ the same suite with `channel: 'chromium'`.
 - WebKit tolerates drift in one direction only. agentnative-site's `mobile-ios` and `tablet` projects gave 88 pass, 4
   fail, 8 skip on Playwright 1.61.1 with WebKit 2311 (its own), 2336, and 2370 (1.64.1's) aliased as 2311, and on
   Playwright 1.64.1 with its own 2370; the 4 fails match. Playwright 1.64.1 on the older WebKit 2311 fails on `newPage`
-  with `Protocol error (Page.overrideSetting): Unknown setting: PushAPIEnabled` and hit the run's 280 s limit. So the
-  set's WebKit must be at least as new as the newest Playwright that uses it.
+  with `Protocol error (Page.overrideSetting): Unknown setting: PushAPIEnabled` and hit the run's 280 s limit, and
+  Playwright 1.61.1 on the newer WebKit 2388 fails 98 of 100 on `newPage` with
+  `Protocol error (Emulation.setAuthCredentials)`. So the set's WebKit is the revision the pinned library names.
 - One ffmpeg serves both revisions in use. Playwright 1.61.1 and 1.64.1 each passed the video step with the ffmpeg 1011
   build and with the 1013 build under either revision name.
 - Nothing here ran on the Mac; its first run is the deploy gate (AE2).
@@ -383,15 +386,15 @@ Who opens pages Brett does not control, what they run today, and where each goes
 ### Key Decisions
 
 - **One physical build, aliased per revision.** The set holds one CfT build, its headless shell, one WebKit, and one
-  ffmpeg. Revisions a consumer asks for resolve to them. Real suites at 1.61.1 and 1.64.1 passed as they do on their
-  pins, and the alias mechanism is already live for 1228. Governs R1, R2, R5, R6, R7.
-- **Aliases come from released `browsers.json` files, and WebKit's stop at the pin.** Every revision a released
-  Playwright at 1.57 or later names gets an alias, and the hourly job reads the newest release's file every run and adds
-  its Chromium and ffmpeg revisions by a pin-only PR, so a new release is covered within about an hour of publication,
-  ahead of a repo the seven-day gate holds back. gstack and crawl4ai, which the gate does not hold, can still meet a
-  release in that hour. A repo can only ask for a released revision, so no range of guessed revisions is needed. A
-  forward WebKit alias would fail on every `newPage` (measured), so WebKit's pin follows the newest Playwright release,
-  and older libraries run on it (measured). Governs R2, R4.
+  ffmpeg. The Chromium and ffmpeg revisions a consumer asks for resolve to them. Real suites at 1.61.1 and 1.64.1 passed
+  as they do on their pins, and the alias mechanism is already live for 1228. Governs R1, R2, R5, R6, R7.
+- **Aliases come from released `browsers.json` files, and WebKit has none.** Every Chromium and ffmpeg revision a
+  released Playwright at 1.57 or later names gets an alias, and the hourly job reads the newest release's file every run
+  and adds those revisions by a pin-only PR, so a new release is covered within about an hour of publication, ahead of a
+  repo the seven-day gate holds back. gstack and crawl4ai, which the gate does not hold, can still meet a release in
+  that hour. A repo can only ask for a released revision, so no range of guessed revisions is needed. A WebKit alias in
+  either direction fails on `newPage` (measured: 2388 under 1.61.1, 2311 under 1.64.1), so WebKit's pin is the revision
+  the pinned library's `browsers.json` names, and a Playwright other than that library finds no WebKit. Governs R2, R4.
 - **The version is pinned in the repo, and a job moves it forward only.** Machines run the same dotfiles version, so the
   pin belongs in dotfiles. The job follows the bump pattern in
   `docs/plans/2026-11-02-2155-feat-yazi-plugin-auto-bump-plan.md`, including its squash-merge without a person, because
@@ -404,11 +407,11 @@ Who opens pages Brett does not control, what they run today, and where each goes
 - **Every browser build is exempt from the seven-day gate.** The gate's threat, a malicious upload to an open registry,
   does not match a vendor-signed repository or Google's own bucket, and the regressions a week of bake time would
   surface are what the suite run catches. Google's apt index serves only the newest build, so holding Chrome back would
-  mean mirroring old debs. The exemption covers WebKit too, so its revision comes from the newest Playwright release.
-  WebKit and ffmpeg come from `cdn.playwright.dev`, which signs nothing: their archives are trusted on first download
-  and held to the recorded sha256 afterward, and the revision numbers are read from an npm tarball as integers, with no
-  install and no script run. agent-browser and the Playwright library are npm packages and stay under the gate. Governs
-  R3, R4, R10, R13, R21.
+  mean mirroring old debs. The exemption covers WebKit too; its revision comes from the pinned library's
+  `browsers.json`. WebKit and ffmpeg come from `cdn.playwright.dev`, which signs nothing: their archives are trusted on
+  first download and held to the recorded sha256 afterward, and the revision numbers are read from an npm tarball as
+  integers, with no install and no script run. agent-browser and the Playwright library are npm packages and stay under
+  the gate. Governs R3, R4, R10, R13, R21.
 - **Tests and untrusted browsing get separate browsers.** Reproducibility and security pull a browser's update cadence
   in opposite directions. Governs R4, R9, R13.
 - **gstack runs on CfT in every session, through the launcher.** The side panel needs `--load-extension`, which CfT
@@ -476,13 +479,13 @@ Who opens pages Brett does not control, what they run today, and where each goes
   shell) plus the previous one until the next move (R27), one WebKit build, and ffmpeg in `$PLAYWRIGHT_BROWSERS_PATH`,
   at versions named once in the pin (R25). WebKit is there for agentnative-site's `mobile-ios`, `tablet`, and
   `web-audit-webkit` projects, and leaves the pin when no repo's suite uses it. On the Mac the WebKit archive is the one
-  Playwright's registry at the newest release the pin names (R25) selects for that macOS release, and a Mac older than
-  the pin's WebKit supports is refused before anything downloads. `scripts/playwright-deps-deploy.sh` deploys the set on
-  the Mac as on Linux and skips only the Linux-only steps.
+  the registry of the library the pin names (R25) selects for that macOS release, and a Mac older than the pin's WebKit
+  supports is refused before anything downloads. `scripts/playwright-deps-deploy.sh` deploys the set on the Mac as on
+  Linux and skips only the Linux-only steps.
 - R2. Every Chromium and ffmpeg revision named by `browsers.json` of a Playwright release at 1.57 or later resolves to
-  the set through an alias, whether that release's pin is older or newer than the set's build. WebKit revisions alias
-  only at or below the set's WebKit. The list of revisions lives in the pin, and R4's job adds a new release's. Each
-  alias directory carries the install markers.
+  the set through an alias, whether that release's pin is older or newer than the set's build. WebKit has no alias: its
+  one revision is the one the pinned library names. The list of revisions lives in the pin, and R4's job adds a new
+  release's. Each alias directory carries the install markers.
 - R3. `playwright install` naming browsers in the set, from any consumer at Playwright 1.57 or later, is a no-op and
   deletes nothing. A deploy replaces a real directory found at an alias name, which `--force` installs create, with the
   alias. `--check` fails with a stable reason on such a directory and on any browser directory the pin does not name and
@@ -507,13 +510,13 @@ Who opens pages Brett does not control, what they run today, and where each goes
 - R4. dotfiles moves the set forward on its own schedule with no repo involved, exempt from the seven-day gate. An
   hourly user timer on the Linux server reads CfT's Stable channel and the newest Playwright release's `browsers.json`,
   and exits after those two small fetches when neither names anything the pin lacks. On a higher CfT version it
-  provisions the candidate pin's builds, the CfT full and headless builds with the WebKit and ffmpeg revisions the
-  newest release names, as numeric directories under `$PLAYWRIGHT_BROWSERS_PATH`, the only paths the AppArmor profile
-  covers, each with a `.links` client and recorded as the job's candidate, and removes them if the candidate fails. It
-  holds R24's deploy lock while its candidate is on disk, so no host move removes the candidate mid-run. It runs both
-  arms through lmgroktfy, meum-sites, agentnative-site, and gstack's browse tests, about 11 minutes in all (measured per
-  suite), launching through R20's wrapper from a scratch browsers path, so agentnative-site's WebKit projects gate a
-  WebKit move as the Chromium projects gate a CfT move.
+  provisions the candidate pin's builds, the CfT full and headless builds with the ffmpeg revision the newest release
+  names and the WebKit revision the pinned library names, as numeric directories under `$PLAYWRIGHT_BROWSERS_PATH`, the
+  only paths the AppArmor profile covers, each with a `.links` client and recorded as the job's candidate, and removes
+  them if the candidate fails. It holds R24's deploy lock while its candidate is on disk, so no host move removes the
+  candidate mid-run. It runs both arms through lmgroktfy, meum-sites, agentnative-site, and gstack's browse tests, about
+  11 minutes in all (measured per suite), launching through R20's wrapper from a scratch browsers path, so
+  agentnative-site's WebKit projects gate a WebKit move as the Chromium projects gate a CfT move.
   - **Each arm** runs in a child with its environment cleared to R9's allowlist plus what the suite names, with no
     `GH_TOKEN`, `SSH_AUTH_SOCK`, or values from `~/.secrets`, and installs from the frozen lockfile. It runs under
     `timeout -s INT -k 30`, because a default `timeout` leaves a suite's `webServer` running (measured). A suite's port
@@ -524,11 +527,11 @@ Who opens pages Brett does not control, what they run today, and where each goes
     suite, and the job then moves only to a newer release. An arm that ends without its reports (a held port, an install
     or fetch failure, the time limit) holds nothing: the next hourly run tries the same version again. The job also
     loads an extension on the candidate, so a dropped `--load-extension` stops the move.
-  - **New revisions:** WebKit and ffmpeg revisions, and new alias revisions, come from `browsers.json` of the newest
-    Playwright release, read from its npm tarball with no install and no script run, and accepted only as integers. When
-    that file names Chromium or ffmpeg revisions the pin lacks and CfT has not moved, the job opens the same pin-only PR
-    adding those aliases alone, with no suite run, because an alias adds no bytes. WebKit revisions move only with the
-    suite-gated bump.
+  - **New revisions:** The ffmpeg revision and new alias revisions come from `browsers.json` of the newest Playwright
+    release, read from its npm tarball with no install and no script run, and accepted only as integers. When that file
+    names Chromium or ffmpeg revisions the pin lacks and CfT has not moved, the job opens the same pin-only PR adding
+    those aliases alone, with no suite run, because an alias adds no bytes. The WebKit revision comes from the pinned
+    library's `browsers.json` and moves only when the library version does.
   - **A rollback holds.** When a person lowers the pin on `dev` below a version the job merged, the job records each
     version above the new pin as held, as it records a gate failure, and moves only to a release newer than all of them.
   - **The job's alarm.** On the Linux server, a check fails when the pin trails CfT Stable by more than a day. A held
@@ -569,21 +572,22 @@ Who opens pages Brett does not control, what they run today, and where each goes
   consumers that take an explicit path. `--check` fails, naming which, when the AppArmor profile is not loaded or when
   `$PLAYWRIGHT_BROWSERS_PATH` lies outside the paths it covers (`/home/*/.cache/playwright/`), because every launch
   through the wrapper then fails with `No usable sandbox!`. It also fails when a wrapper differs from its template or
-  names a build other than the pin's. WebKit and ffmpeg aliases point at their real directories, and the docs say the
-  wrapper covers Chromium only. On Linux with `kernel.apparmor_restrict_unprivileged_userns = 1`, the wrapper checks
-  that a `playwright-chromium` profile is listed under `/sys/kernel/security/apparmor/policy/profiles/`, which any user
-  can read (measured), before it `exec`s. Without one it exits with its own line naming
+  names a build other than the pin's. ffmpeg aliases point at their real directory, WebKit is a real directory, and the
+  docs say the wrapper covers Chromium only. On Linux with `kernel.apparmor_restrict_unprivileged_userns = 1`, the
+  wrapper checks that a `playwright-chromium` profile is listed under `/sys/kernel/security/apparmor/policy/profiles/`,
+  which any user can read (measured), before it `exec`s. Without one it exits with its own line naming
   `sudo ~/dotfiles/scripts/apparmor-deploy.sh`, because the browser's own failure text suggests `--no-sandbox`. The
   check is a glob in the shell, with no subprocess.
 - R25. The pin is one file, `config/playwright/browsers.pin`, holding the CfT version, the WebKit and ffmpeg revisions,
-  the three alias lists, the Playwright library version with the sha256 of its npm tarball, the newest Playwright
-  release whose `browsers.json` supplied the WebKit and ffmpeg revisions with the sha256 of its tarball, and a sha256
-  for each archive on each platform. One parser reads it for every reader: the deploy, the deps script, the bump job,
-  each host's pickup, and the library check. It never runs the file through `source` or `eval` and never picks a field
-  with `sed`. It accepts only dotted-numeric versions, integer revisions, 64-hex hashes, and archive names the script
-  knows, and stops with a stable reason on anything else, showing the offending value with every character outside
-  letters, digits, `.`, `_`, `-`, and space masked, so a value cannot forge the reason or the next step on the line that
-  reports it. Download hosts come from the script, never from the pin.
+  the Chromium and ffmpeg alias lists, the Playwright library version, whose `browsers.json` names the WebKit revision,
+  with the sha256 of its npm tarball, the newest Playwright release, whose `browsers.json` names the ffmpeg revision and
+  bounds the alias lists, with the sha256 of its tarball, and a sha256 for each archive on each platform. One parser
+  reads it for every reader: the deploy, the deps script, the bump job, each host's pickup, and the library check. It
+  never runs the file through `source` or `eval` and never picks a field with `sed`. It accepts only dotted-numeric
+  versions, integer revisions, 64-hex hashes, and archive names the script knows, and stops with a stable reason on
+  anything else, showing the offending value with every character outside letters, digits, `.`, `_`, `-`, and space
+  masked, so a value cannot forge the reason or the next step on the line that reports it. Download hosts come from the
+  script, never from the pin.
 - R26. Each real directory the deploy provisions carries a record of the archive's sha256 and the URL it came from. A
   directory counts as provisioned only when its executable is present and its record matches the hash the pin names and
   the URL the pin's version gives. A changed version always fetches from its own URL, and a directory whose executable
@@ -604,7 +608,7 @@ Who opens pages Brett does not control, what they run today, and where each goes
     removes each CfT build that carries its provenance record and is neither the current nor the previous build, such as
     a failed candidate.
 - R28. On Linux, `scripts/playwright-deps-deploy.sh` deploys the AppArmor profile, then for `--chromium`, `--webkit`, or
-  `--all` installs the system libraries through `install-deps` from the `playwright-core` tarball of the newest release
+  `--all` installs the system libraries through `install-deps` from the `playwright-core` tarball of the library version
   the pin names (R25), held to its sha256 and run as the invoking user, so only Playwright's own `sudo apt-get` step
   runs as root and no `bun x` runs at all. That is the release whose WebKit the set carries, so its library list matches
   the WebKit build. Only then does it deploy the set, so the move's launch on a new host has what it needs. It never
@@ -766,9 +770,9 @@ Who opens pages Brett does not control, what they run today, and where each goes
   gstack's headed session opens, **then** the side panel loads, and a suite passes there.
 - AE3. **Covers R2, R21.** **Given** a repo moves `@playwright/test` to a release the hourly job has read, newer than
   the set's last deploy, **when** its Chromium projects run, **then** they run on the set, ffmpeg included, with no
-  change by a person and no download, and the check in R21 names that repo. **When** its WebKit projects run before the
-  set's WebKit has moved, **then** they fail with `Executable doesn't exist`, and not with a protocol error midway
-  through a run.
+  change by a person and no download, and the check in R21 names that repo. **When** its WebKit projects run on a
+  Playwright other than the pin's `library-version`, **then** they fail with `Executable doesn't exist`, and not with a
+  protocol error midway through a run.
 - AE4. **Covers R3.** **Given** another tool at Playwright 1.57 or later runs `playwright install chromium`, **when** it
   finishes, **then** the set is intact and nothing downloaded, no `ffmpeg-*` included. **Given** a tool below that floor
   installs, **then** the set is intact and `--check` names the directory it downloaded. **Given** a `--force` install
@@ -863,8 +867,8 @@ Who opens pages Brett does not control, what they run today, and where each goes
   `scripts/playwright-deps-deploy.sh --chromium` runs, **then** the libraries are installed before the move's launch,
   and the run ends with the set deployed and no browser downloaded by Playwright.
 - AE32. **Covers R1.** **Given** an Apple silicon Mac, **when** the deploy runs, **then** it fetches the WebKit archive
-  Playwright's registry selects for that macOS release, and **given** a release the pin's WebKit does not support, it
-  stops naming the release required, before anything downloads.
+  the pinned library's registry selects for that macOS release (the macOS 15 build on macOS 15 and later), and **given**
+  a release the pin's WebKit does not support, it stops naming the release required, before anything downloads.
 - AE33. **Covers R4.** **Given** a candidate held by a test that passes on the current build, **when** a day passes with
   CfT Stable above the pin, **then** the job's check exits non-zero naming the suite and the held version.
 - AE34. **Covers R4.** **Given** a person lowered the pin on `dev` below a version the job merged, **when** the next
@@ -933,9 +937,9 @@ Who opens pages Brett does not control, what they run today, and where each goes
   consumers at that release. Nothing in this plan detects it ahead of them: the job's suites run each repo's own
   library, and `--check` checks the set's layout. It shows up as that consumer's `Executable doesn't exist`.
 - **CfT keeps publishing a headless shell and Stable channel data.** Both come from Google's public JSON API.
-- **WebKit evidence comes from one project set.** agentnative-site's flows are the only WebKit consumer, and older
-  Playwright on the pinned WebKit passed there. A failure drops back to one real WebKit directory per revision for that
-  release, the one place the set might grow.
+- **WebKit evidence comes from one project set.** agentnative-site's flows are the only WebKit consumer, and the pinned
+  library passes there on its own WebKit. The set holds that one real WebKit directory; a second library in use at once
+  would add a second, the one place the set might grow.
 - **Ubuntu keeps shipping its `chrome` AppArmor profile.** If a later release drops it, Google's deb installs its own.
 - **Removing `--disable-background-networking` lets a browser reach Google's services in the background.** That is the
   price of Safe Browsing, and it applies only behind the launcher: Chrome for agent-browser, CfT for gstack.
@@ -956,7 +960,7 @@ relayed; the rest is the relay's wording.
 | 7   | The Playwright library                      | One pinned version across our repos, set in one place in dotfiles, with a check that flags drift and bumps them together. gstack and crawl4ai keep what they ship. Brett: "I'm not sure how that affects a pin. it is ok if the pin becomes dirty or is otherwise ignored after an initial commit, etc." | R21                         |
 | 8   | Control                                     | Brett wants "to limit the number of browsers we have and also highly control which browsers different tools use through direct config and ENV VARs". Every consumer is pointed explicitly, every download is off, and a check lists any browser outside the two.                                         | R22, R23                    |
 | 9   | Where `GSTACK_CHROMIUM_PATH` points         | The hardened launcher with CfT as its target, adding CRLSet and Safe Browsing on gstack's headless path, with a gate check that the launcher under gstack rejects a revoked host.                                                                                                                        | R6, R9, R12, AE19           |
-| 10  | WebKit's revision                           | Read from the newest Playwright release. The exemption covers every browser build, WebKit included.                                                                                                                                                                                                      | R4                          |
+| 10  | WebKit's revision                           | The revision `library-version`'s `browsers.json` names: WebKit matches the Playwright library the repos pin, and has no alias. The exemption covers every browser build, WebKit included.                                                                                                                | R1, R2, R4, R25             |
 | 11  | A fix for the stale builds ahead of phase 1 | None. The stale builds wait for phase 1, with no interim PR against the current script and no build swapped by hand.                                                                                                                                                                                     | Build Phases                |
 | 12  | Where phase 1 ends                          | Phase 1 is the pinned set with aliases on Linux and the Mac. Phase 2 is the sandbox wrapper, the pre-flip launch, safe moves, and `playwright install-deps`. The version floor, the lock, and stall limits go to the hourly pickup.                                                                      | Build Phases, R24, R27, R28 |
 | 13  | WebKit under decision 5                     | R20 stays Chromium-only, and the docs say so.                                                                                                                                                                                                                                                            | R20                         |
@@ -1050,30 +1054,32 @@ so the later one rebases onto the earlier. Phase 6 depends on nothing here, and 
 ### Phase 1. One pinned set
 
 **Delivers.** Every host that deploys the set holds one CfT build at current Stable (157.0.8103.38 on 2026-11-05), one
-WebKit, and one ffmpeg, with an alias for every revision a released Playwright at 1.57 or later names, on the Linux
-server and the Mac. The stale builds and the per-version map end here.
+WebKit, and one ffmpeg, with an alias for every Chromium and ffmpeg revision a released Playwright at 1.57 or later
+names and WebKit at the pinned library's revision with no alias, on the Linux server and the Mac. The stale builds and
+the per-version map end here.
 
 **Includes.**
 
-- `config/playwright/browsers.pin` (R25): the CfT version; the WebKit and ffmpeg revisions; the Chromium, WebKit, and
-  ffmpeg alias lists; the Playwright library version with the sha256 of its npm tarball, which R21 names and this
-  phase's tests use; and a sha256 for each archive on each platform.
+- `config/playwright/browsers.pin` (R25): the CfT version; the WebKit and ffmpeg revisions; the Chromium and ffmpeg
+  alias lists; the Playwright library version with the sha256 of its npm tarball, which R21 names, whose `browsers.json`
+  names the WebKit revision, and which this phase's tests use; and a sha256 for each archive on each platform.
 - One parser for the pin (R25), which every later reader uses.
 - `scripts/playwright-browsers-deploy.sh` rewritten around the pin, with its libraries under
   `scripts/playwright-browsers/`: archives from the two fixed hosts, each held to its sha256, through `curl` and `unzip`
   (R3); numeric real directories with their provenance record (R26); aliases pointing straight at the real directories;
   one `.links` client per alias and per real directory, left alone when correct and otherwise replaced by rename (R3);
   replacement of an unrecorded directory at a set or alias name; Linux x86_64 and Apple silicon, with the Mac's WebKit
-  archive chosen as Playwright's registry chooses it (R1); `--check` with stable reasons; `--help`; `--pin PATH`; output
-  per R30.
+  archive chosen as the pinned library's registry chooses it (R1); `--check` with stable reasons; `--help`;
+  `--pin PATH`; output per R30.
 - `scripts/playwright-deps-deploy.sh` deploys the set on the Mac instead of exiting (R1).
 - Tests per R29 (a) and (b): the pin's shapes, each rule above, and a real `playwright-core` at the pin's library
   version running `install` and `uninstall` against a deployed set, on pre-push and in CI, with the bats setup action
   caching that library.
 - The runbook's provisioning, pin, `--check`, and reason-table sections, including how a person moves the pin before
-  phase 9 exists: each archive's URL, `sha256sum` of each download, and the revisions from the newest release's
-  `browsers.json`. The README's script and config lines; and the lines in `stow/claude/dot-claude/CLAUDE.md` and the CLI
-  tools guide that tell agents never to bump a repo's Playwright on its own, which aliasing makes false.
+  phase 9 exists: each archive's URL, `sha256sum` of each download, the ffmpeg revision from the newest release's
+  `browsers.json`, and the WebKit revision from `library-version`'s. The README's script and config lines; and the lines
+  in `stow/claude/dot-claude/CLAUDE.md` and the CLI tools guide that tell agents never to bump a repo's Playwright on
+  its own, which aliasing makes false.
 
 **A move in this phase** is a person editing the pin and rerunning the deploy. Everything new is provisioned and
 verified before any alias moves, and each alias moves by an atomic rename. The deploy removes no CfT build that carries
@@ -1468,7 +1474,7 @@ Approval readiness: PASS (E-D1 to E-D5, decided from evidence in an unattended s
    chromium-<build*1000+patch>/   real build, record = sha256 + URL
    chromium-999999/ chrome  ───────▶ wrapper: drop 2 switches, clear env, exec real build (R20)
    chromium-<rev> ─▶ chromium-999999 (every released revision, one client each)
-   webkit-<rev>, ffmpeg-<rev>       real directories and aliases
+   webkit-<rev> real; ffmpeg-<rev>  real directory and aliases
    .dotfiles/chrome ─▶ wrapper      stable path for tools that take one
           │
  move (R27): stage wrapper ─▶ sandboxed launch + fixture extension ─▶ rename wrappers ─▶ keep previous, drop failed
