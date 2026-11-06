@@ -159,6 +159,7 @@ knowing where the underlying implementation lives.
 | `qmd-gpu-verify`        | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU                |
 | `qmd-ollama-unload-all` | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely     |
 | `sd-commit-doc`         | Publish `docs/solutions/` files from a slot's worktree or the shared clone without races       |
+| `skill-listing-refresh` | List skills no session used in 30 days by name only in Claude Code's `settings.json`, daily    |
 | `tmux-new-session`      | Write a tmuxinator config for a repo and start its 3-pane session                              |
 | `transcribe-diarize`    | Local GPU speaker-diarized transcription (ffmpeg → whisperx → pyannote)                        |
 | `unslop`                | Machine-level entry point for the prose scorer, resolved through `~/.claude/skills`            |
