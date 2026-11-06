@@ -36,8 +36,8 @@ state() {
   [ ! -e "$empty" ]
   [ "$(grep -c 'reason: directory-incomplete' <<<"$stderr")" -eq 4 ]
   [ "$(grep -c 'reason: alias-missing' <<<"$stderr")" -eq 5 ]
-  [[ "$stderr" == *"NOTE: 22 more findings with reason alias-missing"* ]]
-  [[ "$stderr" == *"NOTE: 26 more findings with reason client-missing"* ]]
+  [[ "$stderr" == *"NOTE: 14 more findings with reason alias-missing"* ]]
+  [[ "$stderr" == *"NOTE: 18 more findings with reason client-missing"* ]]
 }
 
 @test "a record that differs from the pin's archive or URL is a provenance finding" {
@@ -48,9 +48,9 @@ state() {
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"chromium-8103038 was not provisioned from the archive and URL the pin names; reason: provenance-mismatch; changed nothing; a deploy fetches it again; next: ~/dotfiles/scripts/playwright-browsers-deploy.sh"* ]]
   [ "$(state)" = "$before" ]
-  rm "$BP/webkit-2388/.dotfiles-record"
+  rm "$BP/webkit-2311/.dotfiles-record"
   deploy --check
-  [[ "$stderr" == *"webkit-2388 was not provisioned"* ]]
+  [[ "$stderr" == *"webkit-2311 was not provisioned"* ]]
   sed -i.bak 's|^sha256 .*|sha256 0000000000000000000000000000000000000000000000000000000000000000|' "$BP/ffmpeg-1013/.dotfiles-record"
   deploy --check
   [[ "$stderr" == *"ffmpeg-1013 was not provisioned"* ]]
@@ -69,15 +69,15 @@ state() {
 
 @test "an alias that is missing or dangling is named with its target" {
   rm "$BP/ffmpeg-1011"
-  rm -rf "${BP:?}/webkit-2388"
+  rm -rf "${BP:?}/chromium_headless_shell-8103038"
   deploy --check
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"alias ffmpeg-1011 to ffmpeg-1013 is missing; reason: alias-missing"* ]]
-  [[ "$stderr" == *"alias webkit-2227 does not resolve to a finished install of webkit-2388; reason: alias-wrong-target"* ]]
+  [[ "$stderr" == *"alias chromium_headless_shell-1200 does not resolve to a finished install of chromium_headless_shell-8103038; reason: alias-wrong-target"* ]]
 }
 
 @test "an alias pointing at the wrong build is a finding even when it resolves" {
-  ln -sfn webkit-2388 "$BP/ffmpeg-1011"
+  ln -sfn webkit-2311 "$BP/ffmpeg-1011"
   deploy --check
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"alias ffmpeg-1011 does not resolve to a finished install of ffmpeg-1013; reason: alias-wrong-target"* ]]
@@ -85,11 +85,11 @@ state() {
 
 @test "a directory with no client is a finding with the deploy as its next step" {
   rm "$BP/.links/dotfiles-chromium-1228"
-  rm "$BP/.links/dotfiles-webkit-2388"
+  rm "$BP/.links/dotfiles-webkit-2311"
   deploy --check
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"no client registers chromium-1228, so another Playwright's install deletes it; reason: client-missing; changed nothing; a deploy registers it; next: ~/dotfiles/scripts/playwright-browsers-deploy.sh"* ]]
-  [[ "$stderr" == *"no client registers webkit-2388"* ]]
+  [[ "$stderr" == *"no client registers webkit-2311"* ]]
 }
 
 @test "a build the pin no longer names is retained, not stray, and a bare directory beside it is stray" {
@@ -108,7 +108,7 @@ state() {
 }
 
 @test "the check never writes: a broken cache is the same before and after" {
-  rm "$BP/.links/dotfiles-webkit-2388"
+  rm "$BP/.links/dotfiles-webkit-2311"
   rm -rf "${BP:?}/ffmpeg-1013"
   bs_seed chromium-1155
   local before
@@ -119,7 +119,7 @@ state() {
 }
 
 @test "every finding names a reason and a next command that runs from a headless shell" {
-  rm "$BP/.links/dotfiles-webkit-2388"
+  rm "$BP/.links/dotfiles-webkit-2311"
   bs_seed chromium-1155
   deploy --check
   local line

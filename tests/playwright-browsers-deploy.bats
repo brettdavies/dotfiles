@@ -36,7 +36,7 @@ links() {
   [ "$status" -eq 0 ]
   [ "$(wc -l <"$BS_CURL_LOG")" -eq 4 ]
   [ "$(grep -c -- "--proto =https" "$BS_CURL_LOG")" -eq 4 ]
-  [ "$(grep -cE ' https://(storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux64|cdn.playwright.dev/builds/(webkit/2388|ffmpeg/1013))/[^/]+$' "$BS_CURL_LOG")" -eq 4 ]
+  [ "$(grep -cE ' https://(storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux64|cdn.playwright.dev/builds/(webkit/2311|ffmpeg/1013))/[^/]+$' "$BS_CURL_LOG")" -eq 4 ]
   [[ "$output" == *"OK: browser set deployed"* ]]
   run ! grep -qE '(^| )(-L|--location)( |$)' "$BS_CURL_LOG"
 }
@@ -44,7 +44,7 @@ links() {
 @test "real directories are numbered from the CfT build and patch, with markers and a record of archive and URL" {
   deploy
   [ "$status" -eq 0 ]
-  for d in chromium-8103038 chromium_headless_shell-8103038 webkit-2388 ffmpeg-1013; do
+  for d in chromium-8103038 chromium_headless_shell-8103038 webkit-2311 ffmpeg-1013; do
     [ -d "$BP/$d" ]
     [ ! -L "$BP/$d" ]
     [ -f "$BP/$d/INSTALLATION_COMPLETE" ]
@@ -54,20 +54,17 @@ links() {
 url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux64/chrome-linux64.zip" ]
 }
 
-@test "every released revision is an alias to the real directory, and no WebKit alias reaches above the set's" {
+@test "every released Chromium and ffmpeg revision is an alias to the real directory, and WebKit has no alias" {
   deploy
   [ "$status" -eq 0 ]
   run links
   [[ "$output" == *"chromium-1228 -> chromium-8103038"* ]]
   [[ "$output" == *"chromium_headless_shell-1254 -> chromium_headless_shell-8103038"* ]]
-  [[ "$output" == *"webkit-2311 -> webkit-2388"* ]]
   [[ "$output" == *"ffmpeg-1011 -> ffmpeg-1013"* ]]
-  [ "$(links | wc -l)" -eq 27 ]
-  # A Playwright newer than the set's WebKit finds no directory, so it fails with
-  # "Executable doesn't exist" and not with a protocol error midway through a run.
-  [ ! -e "$BP/webkit-2400" ]
-  [ ! -e "$BP/webkit-2389" ]
-  for d in "$BP"/webkit-*; do [ "${d##*-}" -le 2388 ]; done
+  [ "$(links | wc -l)" -eq 19 ]
+  # A Playwright whose WebKit differs from the set's finds no directory, so it fails
+  # with "Executable doesn't exist" and not with a protocol error midway through a run.
+  [ "$(printf '%s\n' "$BP"/webkit-*)" = "$BP/webkit-2311" ]
 }
 
 @test "a second deploy fetches nothing and writes no client" {
@@ -90,7 +87,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
   [ "$status" -eq 0 ]
   deploy --check
   [ "$status" -eq 0 ]
-  [[ "$output" == "OK: browser set "*"CfT 157.0.8103.38, WebKit 2388, ffmpeg 1013: 27 aliases, 31 clients" ]]
+  [[ "$output" == "OK: browser set "*"CfT 157.0.8103.38, WebKit 2311, ffmpeg 1013: 19 aliases, 23 clients" ]]
 }
 
 @test "a hash that differs from the pin stops the deploy, names both hashes, and leaves the set in place" {
@@ -121,7 +118,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"reason: archive-fetch-failed; no alias moved; chromium-8103038 chromium_headless_shell-8103038 arrived and a rerun fetches the rest; next: ~/dotfiles/"* ]]
   [ -f "$BP/chromium-8103038/INSTALLATION_COMPLETE" ]
-  [ ! -e "$BP/webkit-2388" ]
+  [ ! -e "$BP/webkit-2311" ]
   [ -z "$(links)" ]
   deploy
   [ "$status" -eq 0 ]
@@ -163,10 +160,10 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 }
 
 @test "an unrecorded directory at a set name is announced before the deploy replaces it" {
-  bs_seed webkit-2388
+  bs_seed webkit-2311
   deploy
   [ "$status" -eq 0 ]
-  [[ "$stderr" == *"NOTE: replacing webkit-2388, which is not from this pin"* ]]
+  [[ "$stderr" == *"NOTE: replacing webkit-2311, which is not from this pin"* ]]
 }
 
 @test "the deploy's own scratch directory never survives it" {
@@ -211,7 +208,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 
 @test "a cache holding per-version and chromium-alias clients beside Playwright's own installs becomes the set in one deploy" {
   local d
-  for d in chromium-1234 chromium-1248 chromium_headless_shell-1234 chromium_headless_shell-1248 webkit-2311 webkit-2336 ffmpeg-1011 ffmpeg-1013; do
+  for d in chromium-1234 chromium-1248 chromium_headless_shell-1234 chromium_headless_shell-1248 webkit-2311 ffmpeg-1011 ffmpeg-1013; do
     bs_seed "$d"
   done
   ln -s chromium-1234 "$BP/chromium-1228"
@@ -239,7 +236,6 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
   deploy --check
   [ "$status" -eq 0 ]
   [ "$(readlink "$BP/chromium-1234")" = chromium-8103038 ]
-  [ "$(readlink "$BP/webkit-2336")" = webkit-2388 ]
   [ ! -e "$BP/.links/dotfiles-playwright-1.62.1" ]
   [ ! -e "$BP/.dotfiles/playwright-1.62.1" ]
   [ ! -e "$BP/.links/dotfiles-chromium-alias-1228" ]
@@ -302,15 +298,15 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
   echo keep-wanted >"$BATS_TEST_TMPDIR/outside/other.json"
   ln -s "$BATS_TEST_TMPDIR/outside" "$BP/.dotfiles/clients/chromium-9997"
   printf '%s' "$BP/.dotfiles/clients/chromium-9997" >"$BP/.links/dotfiles-chromium-9997"
-  rm -rf "${BP:?}/.dotfiles/clients/webkit-2388"
-  ln -s "$BATS_TEST_TMPDIR/outside" "$BP/.dotfiles/clients/webkit-2388"
+  rm -rf "${BP:?}/.dotfiles/clients/webkit-2311"
+  ln -s "$BATS_TEST_TMPDIR/outside" "$BP/.dotfiles/clients/webkit-2311"
   deploy
   [ "$status" -eq 0 ]
   [ "$(cat "$BATS_TEST_TMPDIR/outside/browsers.json")" = keep-stale ]
   [ -f "$BATS_TEST_TMPDIR/outside/other.json" ]
   [ -e "$BP/.links/dotfiles-chromium-9997" ]
-  [ ! -L "$BP/.dotfiles/clients/webkit-2388" ]
-  [ -f "$BP/.dotfiles/clients/webkit-2388/browsers.json" ]
+  [ ! -L "$BP/.dotfiles/clients/webkit-2311" ]
+  [ -f "$BP/.dotfiles/clients/webkit-2311/browsers.json" ]
   deploy --check
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"reason: client-unrecognised; value: dotfiles-chromium-9997"* ]]
@@ -334,21 +330,21 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
   deploy --check
   [ "$status" -eq 0 ]
   [ -f "$BP/.links/dotfiles-chromium-8078004" ]
-  [ -f "$BP/.links/dotfiles-webkit-2388" ]
+  [ -f "$BP/.links/dotfiles-webkit-2311" ]
 }
 
 @test "a damaged client is replaced by rename, never rewritten in place" {
   deploy
   [ "$status" -eq 0 ]
-  local link="$BP/.links/dotfiles-webkit-2388" json="$BP/.dotfiles/clients/webkit-2388/browsers.json" i j
+  local link="$BP/.links/dotfiles-webkit-2311" json="$BP/.dotfiles/clients/webkit-2311/browsers.json" i j
   i="$(inode "$json")"
   echo '{' >"$json"
-  printf '%s\n' "$BP/.dotfiles/clients/webkit-2388" >"$link"
+  printf '%s\n' "$BP/.dotfiles/clients/webkit-2311" >"$link"
   j="$(inode "$link")"
   deploy
   [ "$status" -eq 0 ]
-  [ "$(cat "$json")" = '{"browsers": [{"name": "webkit", "revision": "2388"}]}' ]
-  [ "$(cat "$link"; printf x)" = "$BP/.dotfiles/clients/webkit-2388x" ]
+  [ "$(cat "$json")" = '{"browsers": [{"name": "webkit", "revision": "2311"}]}' ]
+  [ "$(cat "$link"; printf x)" = "$BP/.dotfiles/clients/webkit-2311x" ]
   [ "$(inode "$json")" != "$i" ]
   [ "$(inode "$link")" != "$j" ]
 }
@@ -374,18 +370,24 @@ EOF
   deploy
   [ "$status" -eq 0 ]
   grep -q 'chrome-for-testing-public/157.0.8103.38/mac-arm64/chrome-mac-arm64.zip$' "$BS_CURL_LOG"
-  grep -q 'builds/webkit/2388/webkit-mac-26-arm64.zip$' "$BS_CURL_LOG"
+  grep -q 'builds/webkit/2311/webkit-mac-15-arm64.zip$' "$BS_CURL_LOG"
   grep -q 'builds/ffmpeg/1013/ffmpeg-mac-arm64.zip$' "$BS_CURL_LOG"
   [ -x "$BP/chromium-8103038/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing" ]
   deploy --check
   [ "$status" -eq 0 ]
 }
 
-@test "a Mac picks WebKit the way Playwright's registry does: Darwin 24 is macOS 15, 25 and later 26" {
-  bs_as_mac 24.6.0
-  deploy
-  [ "$status" -eq 0 ]
-  grep -q 'webkit-mac-15-arm64.zip$' "$BS_CURL_LOG"
+@test "a Mac picks WebKit the way the pinned library's registry does: the macOS 15 build for macOS 15 and every later release" {
+  local darwin
+  for darwin in 24.6.0 25.1.0 27.0.0; do
+    bs_as_mac "$darwin"
+    export PLAYWRIGHT_BROWSERS_PATH="$BATS_TEST_TMPDIR/browsers-$darwin"
+    : >"$BS_CURL_LOG"
+    deploy
+    [ "$status" -eq 0 ]
+    grep -q 'builds/webkit/2311/webkit-mac-15-arm64.zip$' "$BS_CURL_LOG"
+    run ! grep -q 'webkit-mac-26' "$BS_CURL_LOG"
+  done
 }
 
 @test "a Mac the pin's WebKit does not support is refused naming the release, before anything downloads" {
@@ -397,10 +399,10 @@ EOF
   [ ! -e "$BP" ]
 }
 
-@test "a Mac the pin hashes no WebKit for, newer than the ones it does, is told so rather than to upgrade" {
+@test "a Mac the pin hashes no WebKit for is told so rather than to upgrade" {
   bs_as_mac 25.1.0
-  sed '/^sha256 webkit-mac-26-arm64.zip /d' "$BS_TEST_PIN" >"$BATS_TEST_TMPDIR/no26.pin"
-  run --separate-stderr "$BS_SCRIPT" --pin "$BATS_TEST_TMPDIR/no26.pin"
+  sed '/^sha256 webkit-mac-/d' "$BS_TEST_PIN" >"$BATS_TEST_TMPDIR/no-mac-webkit.pin"
+  run --separate-stderr "$BS_SCRIPT" --pin "$BATS_TEST_TMPDIR/no-mac-webkit.pin"
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"this pin hashes no WebKit build for macOS 26; reason: mac-release-unsupported; value: Darwin 25.1.0; nothing downloaded"* ]]
   [ ! -s "$BS_CURL_LOG" ]

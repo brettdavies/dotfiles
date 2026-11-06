@@ -17,7 +17,6 @@ PW_TABLE=(
   'chrome-headless-shell-mac-arm64.zip|mac-arm64|cft|chromium_headless_shell|chrome-headless-shell-mac-arm64/chrome-headless-shell'
   'webkit-mac-14-arm64.zip|mac-arm64|webkit|webkit|pw_run.sh'
   'webkit-mac-15-arm64.zip|mac-arm64|webkit|webkit|pw_run.sh'
-  'webkit-mac-26-arm64.zip|mac-arm64|webkit|webkit|pw_run.sh'
   'ffmpeg-mac-arm64.zip|mac-arm64|ffmpeg|ffmpeg|ffmpeg-mac'
 )
 
@@ -47,7 +46,8 @@ pw_detect_platform() {
 }
 
 # Playwright's registry maps the Darwin major to a macOS release (23 is 14, 24
-# is 15, 25 and later 26) and downloads that release's WebKit archive. A Mac is
+# is 15, 25 and later 26) and, in the library the pin names, downloads the macOS
+# 15 archive for every release from 15 up and the macOS 14 one for 14. A Mac is
 # refused unless the pin hashes that archive; one older than the lowest the pin
 # hashes is told the release required, and one the pin has no archive for is told so.
 pw_mac_webkit() {
@@ -57,7 +57,7 @@ pw_mac_webkit() {
   if [[ $darwin =~ ^[0-9]+$ ]]; then
     if [ "$darwin" -ge 25 ]; then mac=26; elif [ "$darwin" -ge 23 ]; then mac=$((darwin - 9)); fi
   fi
-  PW_WEBKIT_ARCHIVE="webkit-mac-$mac-arm64.zip"
+  PW_WEBKIT_ARCHIVE="webkit-mac-$((mac > 15 ? 15 : mac))-arm64.zip"
   [ -z "${PIN_SHA[$PW_WEBKIT_ARCHIVE]:-}" ] || return 0
   for a in $PW_ARCHIVES; do
     [[ $a == webkit-mac-* && -n "${PIN_SHA[$a]:-}" ]] || continue
@@ -93,9 +93,6 @@ pw_plan() {
   done
   for r in $PIN_CHROMIUM_ALIASES; do
     PW_ALIAS+=("chromium-$r chromium-$PW_CFT_NUMBER" "chromium_headless_shell-$r chromium_headless_shell-$PW_CFT_NUMBER")
-  done
-  for r in $PIN_WEBKIT_ALIASES; do
-    [ "$r" = "$PIN_WEBKIT_REVISION" ] || PW_ALIAS+=("webkit-$r webkit-$PIN_WEBKIT_REVISION")
   done
   for r in $PIN_FFMPEG_ALIASES; do
     [ "$r" = "$PIN_FFMPEG_REVISION" ] || PW_ALIAS+=("ffmpeg-$r ffmpeg-$PIN_FFMPEG_REVISION")

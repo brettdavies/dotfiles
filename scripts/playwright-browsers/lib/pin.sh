@@ -19,7 +19,7 @@ pin_bad() {
 
 # pin_load PATH sets PIN_CFT_VERSION, PIN_WEBKIT_REVISION, PIN_FFMPEG_REVISION,
 # PIN_LIBRARY_VERSION, PIN_LIBRARY_SHA256, PIN_SOURCE_RELEASE, PIN_SOURCE_SHA256,
-# PIN_{CHROMIUM,WEBKIT,FFMPEG}_ALIASES, PIN_SHA[archive] and PW_CFT_NUMBER, the
+# PIN_{CHROMIUM,FFMPEG}_ALIASES, PIN_SHA[archive] and PW_CFT_NUMBER, the
 # number Playwright's cleanup can claim for the CfT directories: the build and
 # patch, since the major and minor never reach it.
 pin_load() {
@@ -40,7 +40,7 @@ pin_load() {
       webkit-revision | ffmpeg-revision) re=$PIN_REVISION_RE ;;
       library-version | source-release) re=$PIN_SEMVER_RE ;;
       library-sha256 | source-sha256) re=$PIN_SHA_RE ;;
-      chromium-aliases | webkit-aliases | ffmpeg-aliases)
+      chromium-aliases | ffmpeg-aliases)
         read -r -a vals <<<"$rest"
         [ "${#vals[@]}" -gt 0 ] || pin_bad "$key" "$rest"
         for val in "${vals[@]}"; do [[ $val =~ $PIN_REVISION_RE ]] || pin_bad "$key" "$val"; done
@@ -63,7 +63,7 @@ pin_load() {
     printf -v "PIN_${name//-/_}" '%s' "$rest"
   done <"$path"
   for key in cft-version webkit-revision ffmpeg-revision library-version library-sha256 source-release source-sha256 \
-    chromium-aliases webkit-aliases ffmpeg-aliases; do
+    chromium-aliases ffmpeg-aliases; do
     [[ $seen == *" $key "* ]] || pw_fail "the pin lacks a required key" pin-incomplete "nothing changed" "$PW_DEPLOY --help" "$key"
   done
   for val in $PW_REQUIRED; do
@@ -71,10 +71,6 @@ pin_load() {
       || pw_fail "the pin lacks the sha256 of a required archive" pin-incomplete "nothing changed" "$PW_DEPLOY --help" "$val"
   done
   PIN_LINE=
-  for val in $PIN_WEBKIT_ALIASES; do
-    [ "$val" -le "$PIN_WEBKIT_REVISION" ] \
-      || pw_fail "a WebKit alias is above the set's WebKit $PIN_WEBKIT_REVISION" pin-invalid-value "nothing changed" "$PW_DEPLOY --help" "$val"
-  done
   IFS=. read -r _ _ build patch <<<"$PIN_CFT_VERSION"
   PW_CFT_NUMBER=$((10#$build * 1000 + 10#$patch))
   for val in $PIN_CHROMIUM_ALIASES; do
