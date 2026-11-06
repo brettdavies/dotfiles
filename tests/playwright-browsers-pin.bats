@@ -26,7 +26,20 @@ pin_with() {
   run "$BASH" -c 'source "$1/scripts/playwright-browsers/lib/pin.sh"; pin_load "$2"
     echo "$PIN_CFT_VERSION $PW_CFT_NUMBER $PIN_WEBKIT_REVISION $PIN_FFMPEG_REVISION $PIN_LIBRARY_VERSION $PIN_SOURCE_RELEASE ${#PIN_SHA[@]}"' _ "$BS_ROOT" "$BS_PIN"
   [ "$status" -eq 0 ]
-  [[ "$output" =~ ^157\.0\.8103\.38\ 8103038\ 2388\ 1013\ 1\.61\.1\ 1\.65\.0\ 9$ ]]
+  [[ "$output" =~ ^157\.0\.8103\.38\ 8103038\ 2311\ 1013\ 1\.61\.1\ 1\.65\.0\ 8$ ]]
+}
+
+@test "the pin's WebKit is the revision the pinned Playwright library names for every platform the set serves" {
+  bs_need_core
+  local want key got
+  want=$("$BASH" -c 'source "$1/scripts/playwright-browsers/lib/pin.sh"; pin_load "$2"; echo "$PIN_WEBKIT_REVISION"' _ "$BS_ROOT" "$BS_PIN")
+  for key in ubuntu24.04-x64 mac15-arm64 mac26-arm64; do
+    got=$(jq -r --arg k "$key" '.browsers[] | select(.name == "webkit") | .revisionOverrides[$k] // .revision' "$CORE/browsers.json")
+    [ "$got" = "$want" ] || {
+      echo "library names WebKit $got for $key; the pin has $want" >&2
+      return 1
+    }
+  done
 }
 
 @test "a value outside its shape stops with pin-invalid-value, showing it masked, and changes nothing" {
@@ -34,14 +47,13 @@ pin_with() {
     's/^cft-version .*/cft-version 157.0.8103/'
     's/^cft-version .*/cft-version 157.0.8103.1234/'
     's/^cft-version .*/cft-version 157.0.8103.38 /; s/38 $/38x/'
-    's/^webkit-revision .*/webkit-revision 02388/'
+    's/^webkit-revision .*/webkit-revision 02311/'
     's/^ffmpeg-revision .*/ffmpeg-revision 10 13/'
     's/^library-version .*/library-version npm:other@1/'
     's/^library-sha256 .*/library-sha256 3740BBA3A3E93B4C7BD7C0F6E3C0E5F8CDCE498BEF13511E4D534CC99A8CE198/'
     's/^source-sha256 .*/source-sha256 abc/'
     's/^chromium-aliases .*/chromium-aliases 1200 12x0/'
     's/^chromium-aliases .*/chromium-aliases/'
-    's/^webkit-aliases .*/webkit-aliases 2227 2400/'
     's/^chromium-aliases .*/chromium-aliases 1200 8103038/'
     's/^sha256 ffmpeg-linux.zip .*/sha256 ffmpeg-linux.zip nothex/'
     's/^sha256 ffmpeg-linux.zip /sha256 ffmpeg-solaris.zip /'
@@ -61,11 +73,11 @@ pin_with() {
   [ ! -e "$BP" ]
 }
 
-@test "a bad value is located by its line, and a WebKit alias above the set's says so" {
+@test "a bad value is located by its line, and WebKit aliases are a line the parser does not know" {
   pin_with 's/^library-version .*/library-version 1.x/'
   [[ "$stderr" == *"the pin has an invalid value for library-version at line "[0-9]*"; reason: pin-invalid-value; value: 1.x;"* ]]
-  pin_with 's/^webkit-aliases .*/webkit-aliases 2227 2400/'
-  [[ "$stderr" == *"a WebKit alias is above the set's WebKit 2388; reason: pin-invalid-value; value: 2400;"* ]]
+  pin_with '$a webkit-aliases 2227 2311'
+  [[ "$stderr" == *"the pin has a line this parser does not know, at line "*"; reason: pin-malformed; value: webkit-aliases;"* ]]
 }
 
 @test "an unknown key, a repeated key, and a repeated archive are malformed" {
