@@ -151,7 +151,7 @@ main() {
       cmd_prime "${args[0]}"
       ;;
     attach)
-      ((${#args[@]} == 2)) || usage_fail "attach takes a slot and a pane: <repo>/<N> claude|files|git" "${args[*]}"
+      ((${#args[@]} == 2)) || usage_fail "attach takes a slot or a prime and a pane: <repo>/<N> or <repo>/prime, claude|files|git" "${args[*]}"
       cmd_attach "${args[0]}" "${args[1]}"
       ;;
     restore)

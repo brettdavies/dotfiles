@@ -115,7 +115,7 @@ mount_attempts() {
 # ---------------------------------------------------------------------------
 # Share-name filter
 #
-# `mux vault` mounts only the vault share; the other shares' hosts may be
+# `taildrive-mount vault` mounts only the vault share; the other shares' hosts may be
 # offline, and each unreachable WebDAV mount stalls before failing.
 # ---------------------------------------------------------------------------
 

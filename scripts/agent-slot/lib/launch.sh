@@ -53,6 +53,9 @@ launch_parse_args() {
   model_check "$LAUNCH_MODEL" launch
   [[ -z $LAUNCH_TASK || $LAUNCH_TASK =~ $TASK_PATTERN ]] \
     || contract_fail invalid-task-name "$TASK_RULE" --value "$LAUNCH_TASK" --command "agent-slot launch --help"
+  ! slot_session_is_prime "$LAUNCH_TASK" \
+    || contract_fail invalid-task-name "a task may not end in -$SLOT_PRIME, which names a repo's prime: its next start would resume this slot's conversation" \
+      --value "$LAUNCH_TASK" --command "agent-slot launch --help"
   [[ -z $LAUNCH_REQUEST || $LAUNCH_REQUEST =~ $REQUEST_PATTERN ]] \
     || usage_fail "a request ID uses letters, digits, ., _, and -, up to 128 characters" "$LAUNCH_REQUEST"
   if [[ -n $LAUNCH_PROMPT ]]; then
@@ -222,12 +225,12 @@ launch_output() {
   contract_ok "$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$path" \
     --argjson created "$created" --argjson trust "$trust" --argjson phases "$phases" --arg docs "$CONTRACT_DOCS" \
     --argjson delivered "$delivered" --arg branch "$(slot_branch "$path")" --argjson pushable "$HEAD_PUSHABLE" \
-    --argjson fields "$fields" \
+    --argjson fields "$fields" --argjson prime "$PRIME_FIELD" \
     --argjson missing "$(printf '%s\n' "${PARITY_MISSING_SIBLINGS[@]}" | contract_json -R -s -c 'split("\n") | map(select(. != ""))')" \
     "$SLOT_LABEL_DEF$FOREIGN_FIELDS_DEF"'{created: $created, key: $key, repo: .repo, slot: .slot, path: $path, state: .state, task: .task,
       name: .name, items: (.items // []), label_name: label_name($branch), request_id: .request_id,
       session_id: .session_id, base: .base, head_pushable: $pushable, trust_prompt_expected: $trust,
-      prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases, deps: .deps,
+      prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases, deps: .deps, prime: $prime,
       next_step: {action: "run", command: "agent-slot check \($key) --output json", docs: $docs,
                   note: ("each Rex client is asked to open this slot'"'"'s tab when the slot is made; a Mac that"
                          + " is asleep or offline opens it once it is back")}} + foreign_fields + $fields' <<<"$RECORD")" '
@@ -238,6 +241,7 @@ launch_output() {
        then "; its head " + (if .head_owner then "belongs to \(.head_owner)"
                               else "has an owner that could not be determined" end)
             + ", so nothing from the head runs" else "" end) +
+      (if .prime.error then "; its prime did not start (\(.prime.error.reason): \(.prime.error.message)); run \(.prime.error.next_step.command)" elif (.prime.started // []) != [] then "; started its prime" + (if .prime.trust_prompt_expected then ", whose Claude will ask to trust the folder" else "" end) else "" end) +
       (if .prior then "\n\(.prior.note)" else "" end)'
 }
 
@@ -353,10 +357,12 @@ cmd_resume() {
     ledger_append prune "$(contract_json -c --arg repo "$repo" --argjson slot "$n" '{repo: $repo, slot: $slot} + .' \
       <<<"$line")"
   done
+  prime_for_slot "$repo"
   contract_ok "$(printf '%s\n' "${SESSIONS_CREATED[@]}" | contract_json -R -s -c --arg key "$1" --argjson prune "$prune" \
-    '{key: $key, started: split("\n") | map(select(. != ""))} + $prune')" \
+    --argjson prime "$PRIME_FIELD" '{key: $key, started: split("\n") | map(select(. != ""))} + $prune + {prime: $prime}')" \
     '"\(.key): " + (if (.started | length) == 0 then "every session was already running" else "started \(.started | join(", "))" end)
       + (if .model == null then "" elif .previous_model == .model then "; model \(.model) unchanged" else "; model \(.previous_model) to \(.model), " + (if .restarted then "restarted its Claude" elif any(.started[]; test("-[0-9]+$")) then "its Claude started on it" else "no running Claude to restart" end) end)
       + (if (.pruned_branches | length) == 0 then "" else "; pruned \(.pruned_branches | join(", ")), whose PRs merged or closed" end)
-      + (if (.prune_failed | length) == 0 then "" else "; could not prune \(.prune_failed | map(.branch) | join(", "))" end)'
+      + (if (.prune_failed | length) == 0 then "" else "; could not prune \(.prune_failed | map(.branch) | join(", "))" end)
+      + (if .prime.error then "; its prime did not start (\(.prime.error.reason): \(.prime.error.message)); run \(.prime.error.next_step.command)" elif (.prime.started // []) != [] then "; started its prime" + (if .prime.trust_prompt_expected then ", whose Claude will ask to trust the folder" else "" end) else "" end)'
 }

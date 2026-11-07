@@ -61,11 +61,28 @@ slot_tmux_sessions() {
   fi
   SLOT_SESSIONS=
   ((BOUNDED_STATUS != 124)) || return 124
-  if grep -qE 'no server running|error connecting|No such file' "$BOUNDED_LOG"; then
-    rm -f "$BOUNDED_LOG"
-    BOUNDED_LOG=
+  tmux_no_server && return 0
+  return "$BOUNDED_STATUS"
+}
+
+# True when the failed tmux call's kept log says no server is running, and drops the log.
+tmux_no_server() {
+  grep -qE 'no server running|error connecting|No such file' "$BOUNDED_LOG" || return 1
+  rm -f "$BOUNDED_LOG"
+  BOUNDED_LOG=
+}
+
+# Sets DEFAULT_PANES to the default server's panes in PRIME_OLD_PANES_FORMAT; empty when no server is running, and this
+# read never starts one. Returns 124 when the server did not answer.
+DEFAULT_PANES=
+default_tmux_panes() {
+  DEFAULT_PANES=
+  if bounded DEFAULT_PANES tmux 5 "$AS_TMUX" -u -L "$TMUX_DEFAULT_SOCKET" list-panes -a -F "$PRIME_OLD_PANES_FORMAT"; then
     return 0
   fi
+  DEFAULT_PANES=
+  ((BOUNDED_STATUS != 124)) || return 124
+  tmux_no_server && return 0
   return "$BOUNDED_STATUS"
 }
 
@@ -80,9 +97,13 @@ slot_sessions_or_fail() {
     --command "$AS_TMUX -L $AS_TMUX_SOCKET list-sessions" --log "$BOUNDED_LOG"
 }
 
+# Usage: tmux_unresponsive [<side effects>] [<socket>] [<retry command>]; the socket defaults to the slot server's and
+# the retry to the command as it was run, whose tmux calls are bounded. The message names a read that is bounded too,
+# since a bare tmux client on a wedged server would hang a caller capturing its output.
 tmux_unresponsive() {
+  local socket=${2:-$AS_TMUX_SOCKET} retry=${3:-}
+  [[ -n $retry ]] || retry=$(contract_quote "$CONTRACT_PROGRAM" "${CONTRACT_ARGV[@]}")
   contract_use_tools tmux
-  contract_fail tmux-unresponsive "the $AS_TMUX_SOCKET tmux server did not answer within its bound" \
-    --value "$AS_TMUX_SOCKET" --command "$AS_TMUX -L $AS_TMUX_SOCKET list-sessions" --side-effects "${1:-none}" \
-    --log "$BOUNDED_LOG"
+  contract_fail tmux-unresponsive "the $socket tmux server did not answer within its bound; agent-slot list --output json names each server that does not answer" \
+    --value "$socket" --command "$retry" --side-effects "${1:-none}" --log "$BOUNDED_LOG"
 }

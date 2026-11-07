@@ -164,6 +164,15 @@ renames_typed() { grep -c -- ' -l /rename ' "$CALLS" || true; }
 
 # --- the gate ----------------------------------------------------------------------------------------------------------
 
+@test "release from a prime's checkout is not-in-slot, and leaves the prime's sessions" {
+  printf 'repoa-prime\nrepoa-prime-files\nrepoa-prime-git\n' >>"$STUBS/tmux-sessions"
+  cd "$AGENT_SLOT_DEV/repoa"
+  run --separate-stderr "$AGENT_SLOT" release --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "not-in-slot"' <<<"$stderr"
+  run ! grep -q 'kill-session' "$CALLS"
+}
+
 @test "release refuses until the slot's session has run both ce-compound and its mode:refresh run" {
   finished_task
   ran ce-compound
