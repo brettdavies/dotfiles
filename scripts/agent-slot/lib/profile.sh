@@ -1,4 +1,4 @@
-# shellcheck shell=bash disable=SC2034 # its globals are read by profile_args, and the tests read them by name
+# shellcheck shell=bash
 # What a slot's Claude loads, cut to what slots use. Every tool definition and every skill listing row is read again on
 # each call, and each subagent starts by writing its own copy, so what never loads costs nothing.
 #
@@ -7,19 +7,23 @@
 # Claude merges it over ~/.claude/settings.json key by key, which leaves alone the name-only skill entries that file's
 # refresh keeps: an entry set here, even to name-only, would freeze that refresh for slots. Skills are set to off only.
 
-# The tools a slot cannot use: its hook denies every question, a wakeup serves only /loop (off below), /code-review is
-# the one user of ReportFindings and a slot's permissions deny it, and no slot publishes an artifact. Artifact alone
-# is 35.9k characters of definition.
+# The tools a slot cannot use or rarely does: its hook denies every question, /code-review is the one user of
+# ReportFindings and a slot's permissions deny it, ScheduleWakeup is documented for /loop (off below) and slots have
+# used it only as a fallback timer that never recovered a lost completion notice, and a slot seldom publishes an
+# artifact. Artifact alone is 35.9k characters of definition.
 PROFILE_TOOLS_OFF=(Artifact AskUserQuestion ScheduleWakeup ReportFindings)
 
-# Skills no slot has called: the claude.ai-synced set, the built-ins slots do not use, and the skills that only serve
-# the Artifact tool. Off removes a skill from the listing and from the Skill tool.
+# Skills slots rarely or never call: the claude.ai-synced set, the built-ins slots seldom use, and the skills that only
+# serve the Artifact tool. Off removes a skill from the listing and from the Skill tool. tests/lib/agent-slot.bash holds
+# its own copy of this list, so a change here fails the launch-line tests until that copy moves with it.
 PROFILE_SKILLS_OFF=(artifact-capabilities artifact-design artifact-diagramming artifact-emulator built-in-browser
   chrome-browser claude-api code-review computer-use dataviz deep-research docs docx fewer-permission-prompts
   google-workspace import-memory init keybindings-help loop morning pdf plugin-authoring pptx run schedule
   security-review simplify skill-creator update-config xlsx)
 
-# The plugins whose skills and MCP tools no slot has called. A repo with a Cloudflare config keeps the cloudflare one.
+# The plugins to turn off. No slot has called an obsidian skill or tool. Slots call the cloudflare plugin's tools mostly
+# in repos with a Cloudflare config, which keep it; in any other repo those tools and skills are absent, with no
+# message that says why.
 PROFILE_PLUGINS_OFF=(obsidian@obsidian-skills cloudflare@claude-plugins-official)
 PROFILE_CLOUDFLARE_PLUGIN=cloudflare@claude-plugins-official
 # Where the account's Cloudflare repos keep a config: at the root, or one or two directories down.

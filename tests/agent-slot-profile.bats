@@ -101,7 +101,7 @@ OBSIDIAN='obsidian@obsidian-skills'
     and has("update-config") and has("claude-api") and has("artifact-design")'
 }
 
-@test "no skill a slot has called is off" {
+@test "the skills slots rely on stay on" {
   launch --request-id r1
   words 1
   local skill
@@ -120,7 +120,17 @@ OBSIDIAN='obsidian@obsidian-skills'
   [ "$(plugins)" = "{\"$OBSIDIAN\":false,\"$CLOUDFLARE\":false}" ]
 }
 
-@test "the four tools no slot uses are dropped by name, and nothing else" {
+@test "every plugin the profile turns off is one the user's settings enable, under the same id" {
+  local id
+  for id in "$OBSIDIAN" "$CLOUDFLARE"; do
+    jaq -e --arg id "$id" '.enabledPlugins | has($id)' "$BATS_TEST_DIRNAME/../stow/claude/dot-claude/settings.json" >/dev/null || {
+      echo "settings.json enables no plugin $id"
+      false
+    }
+  done
+}
+
+@test "the four tools the profile drops are dropped by name, and nothing else" {
   launch --request-id r1
   words 1
   local i start=-1 dropped=()

@@ -465,7 +465,8 @@ finished_task() {
 }
 
 # slot_profile_args [cloudflare]: the flags a slot's Claude takes between the bypass flag and --model, with the skills
-# and plugins it turns off and the tools it drops. A Cloudflare repo keeps the cloudflare plugin.
+# and plugins it turns off and the tools it drops. A Cloudflare repo keeps the cloudflare plugin. The lists are a copy
+# kept apart from scripts/agent-slot/lib/profile.sh, so a change there fails the tests until this one moves too.
 slot_profile_args() {
   local -a skills=(artifact-capabilities artifact-design artifact-diagramming artifact-emulator built-in-browser
     chrome-browser claude-api code-review computer-use dataviz deep-research docs docx fewer-permission-prompts
