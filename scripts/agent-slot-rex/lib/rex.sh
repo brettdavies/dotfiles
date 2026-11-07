@@ -151,6 +151,12 @@ rex_open_tab() {
   fi
 }
 
+# Usage: rex_move_first <session-id> <window-id>
+rex_move_first() {
+  rex_pinned || return 0
+  rex_or_fail window move -s "$1" "$2" --index 1
+}
+
 # Usage: rex_rename <session-id> <window-id> <label>
 rex_rename() {
   local label
@@ -251,11 +257,22 @@ rex_helper_block() {
   REX_OUT=''
 }
 
+# Sets REX_BLOCK_TTY to the terminal of every process, by PID.
+declare -gA REX_BLOCK_TTY=()
+rex_block_terminals() {
+  local pid tty
+  REX_BLOCK_TTY=()
+  while read -r pid tty; do
+    [[ -n $pid ]] || continue
+    REX_BLOCK_TTY[$pid]=$tty
+  done < <("$AR_PS" -A -o pid= -o tty= 2>/dev/null || true)
+}
+
 # Usage: rex_snapshot
-# Sets REX_TABS to every window of every session, as [{session_id, session, window_id, label, commands}], where
-# commands holds the command line of each block's own process that is this helper. A block's own process is the one
-# Rex started in it, so a helper typed into a shell there does not count. ps is read after the last block's PID, so a
-# pane whose process starts while the snapshot runs counts as running.
+# Sets REX_TABS to every window of every session, as [{session_id, session, window_id, label, commands, ttys}], where
+# commands holds the command line of each block's own process that is this helper, and ttys the terminal of each block's
+# own process. A block's own process is the one Rex started in it, so a helper typed into a shell there does not count.
+# ps is read after the last block's PID, so a pane whose process starts while the snapshot runs counts as running.
 REX_TABS='[]'
 rex_snapshot() {
   local sid info rows='' wid label block pid i
@@ -266,24 +283,27 @@ rex_snapshot() {
     [[ -n $sid ]] || continue
     rex_run session inspect "$sid" --json || continue
     info=$REX_OUT
-    while IFS=$'\t' read -r wid label block; do
+    # Not a tab: `read` collapses tabs, so a window with no label would shift its block ID into the label.
+    while IFS=$'\x1f' read -r wid label block; do
       pid=
       if [[ -n $block ]] && rex_block_pid "$sid" "$block"; then
         pid=$REX_OUT
       fi
       row_heads+=("$(printf '%s\t%s\t%s' "$sid" "$wid" "$label")")
       row_pids+=("$pid")
-    done < <(contract_json -r '.windows[] | .window_id as $w | .label as $l
-      | ([.layers[]?.blocks[]?.block_id] | if length == 0 then [""] else . end)[] | [$w, $l, .] | @tsv' <<<"$info")
+    done < <(contract_json -r '.windows[] | .window_id as $w | ([.label] | @tsv) as $l
+      | ([.layers[]?.blocks[]?.block_id] | if length == 0 then [""] else . end)[] | [$w, $l, .] | join("\u001f")' <<<"$info")
   done < <(contract_json -r '.sessions[].session_id' <<<"$sessions")
   rex_helper_processes
+  rex_block_terminals
   for i in "${!row_heads[@]}"; do
-    rows+=${row_heads[i]}$'\t'${REX_HELPER_CMD[${row_pids[i]:-none}]:-}$'\n'
+    rows+=${row_heads[i]}$'\t'${REX_HELPER_CMD[${row_pids[i]:-none}]:-}$'\t'${REX_BLOCK_TTY[${row_pids[i]:-none}]:-}$'\n'
   done
   REX_TABS=$(contract_json -R -s -c --argjson sessions "$sessions" '
     ($sessions.sessions | map({(.session_id): .label}) | add // {}) as $names
     | split("\n") | map(select(. != "") | split("\t"))
     | group_by(.[0] + "\t" + .[1])
     | map({session_id: .[0][0], session: $names[.[0][0]], window_id: .[0][1], label: .[0][2],
-           commands: map(.[3] // "" | select(. != ""))})' <<<"$rows")
+           commands: map(.[3] // "" | select(. != "")),
+           ttys: map(.[4] // "" | select(. != "" and . != "?"))})' <<<"$rows")
 }

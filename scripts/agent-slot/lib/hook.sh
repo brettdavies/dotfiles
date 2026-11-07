@@ -82,6 +82,11 @@ hook_claude_session() {
   slot_session_is_claude "$HOOK_PANE_SESSION"
 }
 
+# A prime's Claude, which a person attends: only the status hook acts for it, so its dialogs show and it gets no context.
+hook_prime_session() {
+  slot_session_is_prime "$HOOK_PANE_SESSION"
+}
+
 # Whether this hook belongs to the pane's top-level Claude: the nearest claude process above it is a child of the
 # pane's shell. A `claude -p` run from that Claude's Bash tool has a tool shell as its parent instead. /proc/<pid>/stat
 # gives comm in parentheses, and comm can hold spaces and parentheses, so ppid is read after the last ") ".

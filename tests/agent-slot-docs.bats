@@ -100,6 +100,11 @@ shell_value() {
   grep -q 'agent-slot-rex sweep' "$BATS_TEST_TMPDIR/p"
 }
 
+@test "the README names a prime's key, in the section that holds what a prime is" {
+  grep -q '^#### Primes$' "$README"
+  grep -qF '<repo>/prime' "$README"
+}
+
 @test "the README names every verb agent-slot and agent-slot-rex accept" {
   local verb missing=()
   for verb in $(verbs_of "$REPO/scripts/agent-slot/lib/help.sh"); do

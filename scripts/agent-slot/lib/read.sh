@@ -12,6 +12,12 @@ repo_is_clone() {
   ((${#dirs[@]} == 2)) && [[ ${dirs[0]} == "${dirs[1]}" ]]
 }
 
+# Usage: repo_origin_of <dir>; prints the origin URL of the clone at <dir>, or returns 1 when <dir> is no clone with one.
+repo_origin_of() {
+  repo_is_clone "$1" || return 1
+  git -C "$1" config --get remote.origin.url 2>/dev/null
+}
+
 # Prime checkouts, as tab-separated name, path, and origin URL, sorted by name. A prime checkout is a clone with an
 # origin, directly under the dev root or named in the extra list, and a slot of it goes by its directory's name.
 repo_primes() {
@@ -23,23 +29,35 @@ repo_primes() {
   unset IFS
   for dir in "${dirs[@]}"; do
     dir=${dir%/}
-    repo_is_clone "$dir" || continue
-    origin=$(git -C "$dir" config --get remote.origin.url 2>/dev/null) || continue
+    origin=$(repo_origin_of "$dir") || continue
     printf '%s\t%s\t%s\n' "${dir##*/}" "$dir" "$origin"
   done | sort -t $'\t' -k1,1 -u
 }
 
-# Usage: repo_prime <name>; sets REPO_PRIME and REPO_ORIGIN, or fails with repo-not-found.
+# Usage: repo_lookup <name>; sets REPO_PRIME and REPO_ORIGIN to the prime checkout repo_primes lists under that name, or
+# returns 1. It looks the name up rather than walking every repo, since list runs it each minute for each old-style prime.
 REPO_PRIME=
 REPO_ORIGIN=
+repo_lookup() {
+  local name=$1 dir extra origin
+  local -a extras dirs=("$AS_DEV/$name")
+  [[ $name =~ ^$SLOT_REPO_PATTERN$ && $name != . && $name != .. ]] || return 1
+  IFS=: read -r -a extras <<<"$AS_EXTRA_PRIMES"
+  for extra in "${extras[@]}"; do
+    extra=${extra%/}
+    [[ ${extra##*/} != "$name" ]] || dirs+=("$extra")
+  done
+  for dir in "${dirs[@]}"; do
+    origin=$(repo_origin_of "$dir") || continue
+    REPO_PRIME=$dir REPO_ORIGIN=$origin
+    return 0
+  done
+  return 1
+}
+
+# Usage: repo_prime <name>; repo_lookup, or fails with repo-not-found.
 repo_prime() {
-  local name path origin
-  while IFS=$'\t' read -r name path origin; do
-    if [[ $name == "$1" ]]; then
-      REPO_PRIME=$path REPO_ORIGIN=$origin
-      return 0
-    fi
-  done < <(repo_primes)
+  repo_lookup "$1" && return 0
   contract_fail repo-not-found "no prime checkout named $1 with an origin, under $AS_DEV or in \
 AGENT_SLOT_EXTRA_PRIMES; a repo goes by its directory's name" --value "$1" --command "agent-slot repos"
 }
@@ -113,11 +131,15 @@ cmd_list() {
       views+=("$SLOT_VIEW")
     done < <(slot_numbers "$repo")
   done < <(slot_repos)
-  contract_ok "$(printf '%s\n' "${views[@]}" | contract_json -s -c '{slots: .}')" '
-    if (.slots | length) == 0 then "no slots"
-    else .slots[] | "\(.key)\t\(.state)\t\(.agent)\t\(.label_name // "-")" +
-      (if (.needs_you | length) > 0 then "\tneeds you: \(.needs_you[0].message)" else "" end)
-    end'
+  prime_list
+  contract_ok "$(printf '%s\n' "${views[@]}" | contract_json -s -c --argjson primes "$PRIME_LIST" \
+    --argjson unread "$PRIME_UNREAD" '{slots: ., primes: $primes, primes_unread: $unread}')" '
+    (if (.slots | length) == 0 then "no slots"
+     else .slots[] | "\(.key)\t\(.state)\t\(.agent)\t\(.label_name // "-")" +
+       (if (.needs_you | length) > 0 then "\tneeds you: \(.needs_you[0].message)" else "" end)
+     end),
+    (.primes[] | "\(.key)\t\(.server)\t\(.session)"),
+    (.primes_unread[] | "primes on the \(.) tmux server: unknown, it did not answer")'
 }
 
 # Usage: slot_at <dir>; prints "<repo> <n>" for the slot holding dir, or returns 1.

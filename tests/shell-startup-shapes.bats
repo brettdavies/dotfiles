@@ -14,6 +14,8 @@
 #
 # Run: bats tests/shell-startup-shapes.bats
 
+load lib/shell-canary
+
 STOW_DIR="$BATS_TEST_DIRNAME/../stow"
 CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 PROFILE="$STOW_DIR/shell/dot-profile"
@@ -37,7 +39,7 @@ _gui_shell() {
 
 # A shell descended from a GUI shell: inherits the assembled PATH and exports.
 _descended_shell() {
-  env TMUXINATOR_CONFIG= DOTFILES_SHELL_DIR= "$@"
+  env UV_MALWARE_CHECK= DOTFILES_SHELL_DIR= "$@"
 }
 
 _skip_unless_deployed() {
@@ -98,36 +100,23 @@ _skip_unless_deployed() {
 # Functional: GUI-launched shells (the regression)
 # ---------------------------------------------------------------------------
 
-@test "GUI-launched login zsh exports TMUXINATOR_CONFIG" {
+@test "GUI-launched login zsh exports UV_MALWARE_CHECK" {
   _skip_unless_deployed
-  command -v tmuxinator >/dev/null 2>&1 || skip "tmuxinator not installed"
-  run _gui_shell zsh -l -c 'echo "CFG=${TMUXINATOR_CONFIG:-UNSET}"'
+  skip_unless_canary
+  run _gui_shell zsh -l -c 'echo "CFG=${UV_MALWARE_CHECK:-UNSET}"'
   [ "$status" -eq 0 ]
-  [[ "$output" == *"CFG=$HOME/dotfiles/stow/tmuxinator/dot-config/tmuxinator"* ]] || {
+  [[ "$output" == *"CFG=1"* ]] || {
     echo "output: $output"
     false
   }
 }
 
-@test "GUI-launched login bash exports TMUXINATOR_CONFIG" {
+@test "GUI-launched login bash exports UV_MALWARE_CHECK" {
   _skip_unless_deployed
-  command -v tmuxinator >/dev/null 2>&1 || skip "tmuxinator not installed"
-  run _gui_shell bash -l -c 'echo "CFG=${TMUXINATOR_CONFIG:-UNSET}"'
+  skip_unless_canary
+  run _gui_shell bash -l -c 'echo "CFG=${UV_MALWARE_CHECK:-UNSET}"'
   [ "$status" -eq 0 ]
-  [[ "$output" == *"CFG=$HOME/dotfiles/stow/tmuxinator/dot-config/tmuxinator"* ]]
-}
-
-@test "GUI-launched login zsh resolves tmuxinator projects" {
-  _skip_unless_deployed
-  command -v tmuxinator >/dev/null 2>&1 || skip "tmuxinator not installed"
-  run _gui_shell zsh -l -c 'tmuxinator list'
-  [ "$status" -eq 0 ]
-  # `list` prints a bare header and exits 0 when it finds no projects, so assert
-  # on a project name rather than on exit status.
-  [[ "$output" == *"dotfiles"* ]] || {
-    echo "tmuxinator found no projects in a GUI-launched shell: $output"
-    false
-  }
+  [[ "$output" == *"CFG=1"* ]]
 }
 
 @test "GUI-launched interactive zsh defines the xurl wrapper" {
@@ -149,10 +138,9 @@ _skip_unless_deployed() {
   [[ "$output" == *"DEFINED"* ]]
 }
 
-# The Vault session's on_project_start hook is `zsh -c 'taildrive-mount vault'`,
-# run from a tmuxinator script under /bin/sh. It reaches the helper only
-# through the rc chain, so a break anywhere in it strands the session.
-@test "a bare zsh -c defines taildrive-mount, the way the Vault hook reaches it" {
+# `zsh -c 'taildrive-mount vault'` reaches the helper only through the rc chain,
+# so a break anywhere in it leaves the mount out of reach of a script.
+@test "a bare zsh -c defines taildrive-mount" {
   _skip_unless_deployed
   [ "$(uname -s)" = "Darwin" ] || skip "taildrive helpers are macOS-only"
   run _gui_shell zsh -c 'typeset -f taildrive-mount >/dev/null && echo DEFINED'
@@ -164,44 +152,44 @@ _skip_unless_deployed() {
 # Functional: shells descended from a GUI shell (must keep working)
 # ---------------------------------------------------------------------------
 
-@test "descended zsh exports TMUXINATOR_CONFIG" {
+@test "descended zsh exports UV_MALWARE_CHECK" {
   _skip_unless_deployed
-  command -v tmuxinator >/dev/null 2>&1 || skip "tmuxinator not installed"
-  run _descended_shell zsh -l -c 'echo "CFG=${TMUXINATOR_CONFIG:-UNSET}"'
+  skip_unless_canary
+  run _descended_shell zsh -l -c 'echo "CFG=${UV_MALWARE_CHECK:-UNSET}"'
   [ "$status" -eq 0 ]
-  [[ "$output" == *"CFG=$HOME/dotfiles/stow/tmuxinator/dot-config/tmuxinator"* ]]
+  [[ "$output" == *"CFG=1"* ]]
 }
 
-@test "descended non-interactive zsh exports TMUXINATOR_CONFIG" {
+@test "descended non-interactive zsh exports UV_MALWARE_CHECK" {
   _skip_unless_deployed
-  command -v tmuxinator >/dev/null 2>&1 || skip "tmuxinator not installed"
-  run _descended_shell zsh -c 'echo "CFG=${TMUXINATOR_CONFIG:-UNSET}"'
+  skip_unless_canary
+  run _descended_shell zsh -c 'echo "CFG=${UV_MALWARE_CHECK:-UNSET}"'
   [ "$status" -eq 0 ]
-  [[ "$output" == *"CFG=$HOME/dotfiles/stow/tmuxinator/dot-config/tmuxinator"* ]]
+  [[ "$output" == *"CFG=1"* ]]
 }
 
 # ---------------------------------------------------------------------------
 # Functional: other shapes — cron, ssh command, non-login
 # ---------------------------------------------------------------------------
 
-@test "cron-shape zsh (no login, bare PATH) exports TMUXINATOR_CONFIG" {
+@test "cron-shape zsh (no login, bare PATH) exports UV_MALWARE_CHECK" {
   _skip_unless_deployed
-  command -v tmuxinator >/dev/null 2>&1 || skip "tmuxinator not installed"
+  skip_unless_canary
   # cron gives a minimal PATH and a non-login, non-interactive shell; .zshenv is
   # the only startup file that runs.
-  run _gui_shell zsh -c 'echo "CFG=${TMUXINATOR_CONFIG:-UNSET}"'
+  run _gui_shell zsh -c 'echo "CFG=${UV_MALWARE_CHECK:-UNSET}"'
   [ "$status" -eq 0 ]
-  [[ "$output" == *"CFG=$HOME/dotfiles/stow/tmuxinator/dot-config/tmuxinator"* ]]
+  [[ "$output" == *"CFG=1"* ]]
 }
 
-@test "ssh-command-shape bash (non-login, bare PATH) exports TMUXINATOR_CONFIG" {
+@test "ssh-command-shape bash (non-login, bare PATH) exports UV_MALWARE_CHECK" {
   _skip_unless_deployed
-  command -v tmuxinator >/dev/null 2>&1 || skip "tmuxinator not installed"
+  skip_unless_canary
   # `ssh host cmd` runs a non-login, non-interactive bash; ~/.bashrc is sourced
   # via the dotfiles BASH_ENV/rc wiring.
-  run _gui_shell bash -c 'source "$HOME/.bashrc" 2>/dev/null; echo "CFG=${TMUXINATOR_CONFIG:-UNSET}"'
+  run _gui_shell bash -c 'source "$HOME/.bashrc" 2>/dev/null; echo "CFG=${UV_MALWARE_CHECK:-UNSET}"'
   [ "$status" -eq 0 ]
-  [[ "$output" == *"CFG=$HOME/dotfiles/stow/tmuxinator/dot-config/tmuxinator"* ]]
+  [[ "$output" == *"CFG=1"* ]]
 }
 
 @test "GUI-launched shells still get a fully assembled PATH" {
