@@ -1166,7 +1166,7 @@ it spawns push interactive zsh past its budget with nothing about the config hav
 | `github.sh`         | GitHub CLI aliases                                             |
 | `gnu-time.sh`       | `gtime` runs Homebrew's GNU time on Linux, as on macOS         |
 | `gogcli.sh`         | Google Workspace CLI keyring password injection                |
-| `languagetool.sh`   | LanguageTool wrapper for the shared prose-lint stage           |
+| `languagetool.sh`   | LanguageTool prose-lint wrapper, default server from Tailscale |
 | `litellm.sh`        | LiteLLM proxy configuration                                    |
 | `lm-studio.sh`      | LM Studio PATH setup                                           |
 | `local-paths.sh`    | Custom local PATH additions                                    |
@@ -1180,6 +1180,11 @@ it spawns push interactive zsh past its budget with nothing about the config hav
 | `telemetry.sh`      | Telemetry opt-out environment variables                        |
 | `xurl.sh`           | Alias `xurl` to the `xr` binary (xurl-rs)                      |
 | `shell-functions`   | Interactive shell utilities (sourced by bashrc/zshrc)          |
+
+`languagetool.sh` uses the `languagetool` Tailscale Service as its server unless `LANGUAGETOOL_URL` or `--lt-url` names
+another, reading the tailnet's name from `tailscale status --json` at call time. An unreachable server, or a tailnet
+name it cannot read, makes `lt_check` exit 2 with a `WARNING:` notice on stderr; see
+[AGENTS.md § LanguageTool server and exit 2](AGENTS.md#languagetool-server-and-exit-2).
 
 ## Secrets Management
 

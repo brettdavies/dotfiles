@@ -291,6 +291,23 @@ interactive (var is set by `.profile`) or non-interactive (var is unset; the lit
 macOS since the dotfiles repo lives at `~/dotfiles` on both). See `scripts/prose-check.sh` in any agentnative-* repo for
 the live pattern.
 
+### LanguageTool server and exit 2
+
+`config/shell/languagetool.sh` serves the prose-check stage of the agentnative-* repos. Given no `LANGUAGETOOL_URL` and
+no `--lt-url`, its functions use the `languagetool` Tailscale Service under the tailnet's full MagicDNS name,
+`https://languagetool.<suffix>`. The suffix comes from `tailscale status --json` when a function runs, so the public
+repo never holds the tailnet's name and sourcing the file asks `tailscale` for nothing. A Service answers https on 443
+only: a short name fails its TLS handshake and an `http://…:8081` URL is refused. The Tailscale CLI therefore has to
+be on `PATH` or, on macOS, at the app bundle's path (`LT_TAILSCALE_APP` overrides it), or `LANGUAGETOOL_URL` has to be
+set.
+
+When the server does not answer, no URL can be worked out, or a file's `/v2/check` request fails, `lt_check` exits 2
+(1 when the files it did check have blocking matches) and prints a `WARNING:` notice on stderr: the cause, what did not
+run, the command that diagnoses it, and how to name another server.
+Exit 2 stays the caller's to read: the agentnative-* scripts continue on Vale's verdict alone, or fail under
+`--lt-only`. A caller that must not pass without grammar checking treats exit 2 as a failure. `tests/languagetool.bats`
+stubs `tailscale` and `curl` to cover both paths.
+
 ---
 
 ## Git Authentication
