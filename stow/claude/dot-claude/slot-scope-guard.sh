@@ -43,17 +43,20 @@ PUSH_NOOP_RE='[[:space:]](--dry-run|--delete|-d)([[:space:]=]|$)'
 # A quoted string is data: an `rg` pattern or an `echo` argument that has `git push` after a `|` or `;` runs nothing. This
 # awk program replaces the separators, brackets, backticks, quote marks, and blanks inside each such string with `_`, so
 # the start rules above cannot begin a command there and the no-op flag test cannot read a flag out of it. A string stays
-# as written when a shell reads it as a script: the one after `bash -c` and its kin, any one after `eval` in the same
-# simple command, and a double-quoted one with `$(` or a backtick, from which on nothing is masked, because quotes nested
-# in a substitution pair up differently. The program hands the command back whole when the pairing cannot be trusted: a
-# heredoc, a comment, an `$'...'` string, or a quote left open.
+# as written when a shell reads it as a script: the one after `bash -c` and its kin or a shell's `<<<`, any one in the same
+# simple command as `eval`, `ssh`, `watch`, `su`, `script`, `flock`, `parallel`, or `tmux`, and a double-quoted one with
+# `$(` or a backtick, from which on nothing is masked, because quotes nested in a substitution pair up differently. The
+# program hands the command back whole when a pipe feeds a shell, and when the pairing cannot be trusted: a heredoc, a
+# comment, an `$'...'` string, or a quote left open.
 # shellcheck disable=SC2016 # an awk program
 SCOPE_MASK_AWK='
 BEGIN { SQ = "\047"; DQ = "\""; STRUCT = "[;&|(){}`\047\" \t\n]" }
 function live(pre) {
-  return pre ~ /(bash|sh|zsh|dash)[ \t]+-[a-z]*c[ \t]+$/ || pre ~ /(^|[ \t(`])eval[ \t]/
+  return pre ~ /(bash|sh|zsh|dash)[ \t]+(-[a-z]*c[ \t]+|<<<[ \t]*)$/ ||
+    pre ~ /(^|[ \t(`])(eval|ssh|watch|su|script|flock|parallel|tmux)[ \t]/
 }
 function mask(s,   n, i, j, c, d, out, cs, inner) {
+  if (s ~ /\|[ \t]*(sudo[ \t]+)?(bash|sh|zsh|dash)([ \t\n;&|)]|$)/) return s
   n = length(s); out = ""; cs = 1
   for (i = 1; i <= n; i++) {
     c = substr(s, i, 1)

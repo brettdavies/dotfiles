@@ -440,7 +440,7 @@ denied() {
   silent 'echo "a; git push"' "echo 'a && git push'" 'printf "%s\n" "x | git push origin"' "grep -c 'x; git push' f" \
     $'echo "it\'s; git push"' $'echo \'say "hi"; git push\'' $'echo "say \\"x\\"; git push"' $'rg \'bash -c "git push"\' f' \
     $'echo \'one\ngit push\ntwo\'' $'git commit -m \'document it; git push comes last\'' "rg 'a|b' f | rg 'c|git push'" \
-    'x=`rg "a; git push" f`' 'cat <<< "a; git push"'
+    'x=`rg "a; git push" f`' 'cat <<< "a; git push"' "echo 'a|b' | rg 'c|git push'"
 }
 
 @test "a real push is still found after, between, and around quoted text that holds separators" {
@@ -455,6 +455,13 @@ denied() {
   denied $'bash -c "rg \'x\' f; git push"' "sh -c 'cd x; git push'" "bash -lc 'x && git push'" 'eval "git status; git push"' \
     "eval 'a && git push'" 'eval "$(echo x)" "a; git push"' "sudo -u me bash -c 'x; git push'" "timeout 5 sh -c 'x | git push'" \
     "x=\$(eval 'a; git push')" '(eval "a; git push")' $'`eval \'a; git push\'`' "{ eval 'a; git push'; }"
+}
+
+@test "a string handed to a tool that runs it as a script is still read as commands" {
+  commit README.md
+  denied "watch -n5 'x; git push'" "ssh host 'cd r; git push'" "su -c 'x; git push'" "tmux send-keys 'x; git push' Enter" \
+    'bash <<< "x; git push"' "echo 'x; git push' | bash" "echo 'x; git push' | sudo sh" "script -c 'x; git push' /dev/null" \
+    "flock f -c 'x; git push'" "parallel 'x; git push' ::: a"
 }
 
 @test "a script that eval runs inside a substitution is still refused as a chain when it moves HEAD" {
