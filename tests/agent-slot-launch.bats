@@ -282,6 +282,20 @@ assert_own_worktree() {
   assert_prime_untouched
 }
 
+@test "a launch that fails and rolls back leaves the prime's sessions" {
+  rm -f "$STUBS/tmux-panes-default"
+  printf 'repoa-prime\nrepoa-prime-files\nrepoa-prime-git\n' >"$STUBS/tmux-sessions"
+  cp "$STUBS/tmux" "$STUBS/tmux.inner"
+  stub tmux '[[ " $* " != *" new-session "*"-s repoa-1-git "* ]] || exit 1
+exec "$STUBS/tmux.inner" "$@"'
+  launch repoa --request-id r-rollback
+  [ "$status" -ne 0 ]
+  jaq -e '.reason == "tmux-failed"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+  [ "$(cat "$STUBS/tmux-sessions")" = $'repoa-prime\nrepoa-prime-files\nrepoa-prime-git' ]
+  run ! grep -q 'kill-session -t =repoa-prime' "$CALLS"
+}
+
 @test "a setup that fails after the worktree is made removes the worktree and its registration" {
   stub tmux 'exit 1'
   launch repoa --request-id r-rollback
@@ -798,7 +812,7 @@ assert_own_worktree() {
   [ "$(cat "$STUBS/typed-repoa-2")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id $session -n t1" ]
 }
 
-@test "the three sessions are rooted at the slot on the slot server, with the tmuxinator commands typed into shells" {
+@test "the three sessions are rooted at the slot on the slot server, with their programs typed into shells" {
   launch repoa --request-id r-sessions
   [ "$status" -eq 0 ]
   local name
@@ -942,6 +956,17 @@ EOF
   [ ! -e "$AGENT_SLOT_ROOT/repoa" ]
 }
 
+@test "a task named after any repo's prime is refused, since that prime would resume its conversation" {
+  local name
+  for name in repoa-prime other-prime; do
+    launch repoa --task "$name"
+    [ "$status" -eq 2 ]
+    jaq -e --arg name "$name" '.reason == "invalid-task-name" and .value == $name and (.message | contains("-prime"))' \
+      <<<"$stderr"
+  done
+  [ ! -e "$AGENT_SLOT_ROOT/repoa" ]
+}
+
 @test "with 8 live slots a ninth launch refuses with slot-limit-reached; the override raises the limit" {
   local n
   for n in 1 2 3 4 5 6 7 8; do slot repoa "$n"; done
@@ -1079,9 +1104,9 @@ EOF
 
 @test "two concurrent resumes create each session once" {
   slot repoa 1
-  "$AGENT_SLOT" resume repoa/1 --output json >/dev/null 2>&1 &
+  AGENT_SLOT_LOCK_WAIT=60 "$AGENT_SLOT" resume repoa/1 --output json >/dev/null 2>&1 &
   local a=$!
-  "$AGENT_SLOT" resume repoa/1 --output json >/dev/null 2>&1 &
+  AGENT_SLOT_LOCK_WAIT=60 "$AGENT_SLOT" resume repoa/1 --output json >/dev/null 2>&1 &
   wait "$a"
   wait $!
   [ "$(grep -c 'new-session' "$CALLS")" -eq 3 ]

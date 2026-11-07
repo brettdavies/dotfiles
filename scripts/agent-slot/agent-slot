@@ -8,7 +8,10 @@
 # Env (each defaults to the path in parentheses):
 #   AGENT_SLOT_ROOT            slot root (~/slots)
 #   AGENT_SLOT_DEV             where prime checkouts live (~/dev)
-#   AGENT_SLOT_EXTRA_PRIMES    colon-separated prime checkouts outside it (~/dotfiles:~/obsidian-vault)
+#   AGENT_SLOT_EXTRA_PRIMES    colon-separated prime checkouts outside it
+#                              (~/dotfiles:~/obsidian-vault:~/box/TX-AI/streams-control:~/gbrain)
+#   AGENT_SLOT_PRIMES          each repo's display name (config/agent-slot-rex/primes.tsv in this repo)
+#   AGENT_SLOT_USER_BUS        the user bus socket a prime's sessions are pointed at (/run/user/<uid>/bus)
 #   AGENT_SLOT_STATE_DIR       ledger and failure logs (~/.local/state/agent-slot)
 #   AGENT_SLOT_RUN_DIR         the status hook's per-pane locks ($XDG_RUNTIME_DIR/agent-slot-<uid>)
 #   AGENT_SLOT_CLAUDE_PROJECTS Claude's per-project directories, read only (~/.claude/projects)
@@ -81,6 +84,8 @@ source "$AS_LIB/deps.sh"
 source "$AS_LIB/profile.sh"
 # shellcheck source=lib/sessions.sh
 source "$AS_LIB/sessions.sh"
+# shellcheck source=lib/prime.sh
+source "$AS_LIB/prime.sh"
 # shellcheck source=lib/head.sh
 source "$AS_LIB/head.sh"
 # shellcheck source=lib/owners.sh
@@ -221,6 +226,12 @@ main() {
       resume_parse_args "${args[@]}"
       exec </dev/null
       cmd_resume "$RESUME_KEY"
+      ;;
+    prime)
+      ((${#args[@]} == 1)) || usage_fail "prime takes one repo" "${args[*]}"
+      [[ ${args[0]} != -* ]] || usage_fail "unknown option ${args[0]}" "${args[0]}"
+      exec </dev/null
+      cmd_prime "${args[0]}"
       ;;
     adopt)
       adopt_parse_args "${args[@]}"

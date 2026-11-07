@@ -47,10 +47,10 @@ many hosts. This repo is as much a reflection of how I work as it is the configu
 ## What This Repo Contains
 
 - **34 directories under `stow/`** — shell/editor config (shell, zsh, bash, git, ssh, gh, github, claude, codex, cursor,
-  opencode, tmux, tmuxinator, lazygit, micro, yazi, ghostty), package state (brew, bun, pip, cargo, local), secrets
-  (secrets, ssh), Linux-oriented daemons (obsidian, rclone, qmd, rust, caddy, codex-proxy, cswap,
-  ollama), workspace tooling (gogcli), and macOS-only (launchagent, rex). Thirty-two deploy through `stow-deploy`;
-  `ollama` and `tmuxinator` are recorded exemptions. See [README.md](README.md#stow-packages) for the full table.
+  opencode, tmux, lazygit, micro, yazi, ghostty), package state (brew, bun, pip, cargo, local), secrets (secrets, ssh),
+  Linux-oriented daemons (obsidian, rclone, qmd, rust, caddy, codex-proxy, cswap, ollama), workspace tooling (gogcli),
+  and macOS-only (launchagent, rex). Thirty-three deploy through `stow-deploy`; `ollama` is the recorded exemption. See
+  [README.md](README.md#stow-packages) for the full table.
 - **19 shell environment fragments** — sourced automatically by `.profile` from `config/shell/`
 - **Brewfile + Brewfile.optional** — declarative macOS package lists
 - **git-crypt encrypted secrets** — API keys, SSH config, allowed signers

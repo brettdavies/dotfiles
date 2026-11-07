@@ -266,6 +266,13 @@ permission request, \`AskUserQuestion\`, and plan mode here; do the work another
 decision only a person can make to the session your brief reports to."* ]]
 }
 
+@test "the context gives the agent one line telling it to search before reading, read a range, and not re-read" {
+  slot repo 1 '{"task": "t"}'
+  run start s1 startup
+  context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
+  grep -Fxq 'Search before you read, read a line range rather than a whole file, and do not re-read a file you have not changed.' <<<"$context"
+}
+
 @test "a slot lock that cannot be opened is logged, and the context still prints" {
   slot repo 1 '{"task": "t"}'
   mkdir -p "$AGENT_SLOT_ROOT/repo/.1.lock"
@@ -322,6 +329,19 @@ issue up/repo#886 (16-bit tRNS lost)."* ]]
   output=$(printf '{"hook_event_name":"SessionStart","session_id":"s1"}' \
     | "$T/pane-shell" "$FAKE/claude" -c "$RUNS" claude "$HOOK")
   [[ $(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output") == *"repo/1"* ]]
+}
+
+@test "a prime's Claude at its checkout gets no slot context, and nothing is recorded" {
+  local session checkout=$AGENT_SLOT_DEV/repoa
+  mkdir -p "$checkout"
+  for session in repoa-prime foo-2-prime; do
+    printf '%s' "$session" >"$STUBS/pane-session"
+    run start s1 startup "$checkout"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+  done
+  [ ! -e "$LEDGER" ]
+  [ ! -e "$checkout/.git" ]
 }
 
 @test "outside the slot socket, or for a Claude not on the pane's shell, the hook prints nothing" {

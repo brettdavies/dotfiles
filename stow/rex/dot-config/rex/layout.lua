@@ -1,4 +1,4 @@
--- The tmuxinator main-vertical window: yazi on the left, a shell top right,
+-- The main-vertical window: yazi on the left, a shell top right,
 -- lazygit bottom right, with the side and bottom panes at a third each.
 local SHELL = "com.superlogical.terminal.shell"
 local TERMINAL = "com.superlogical.terminal"
@@ -27,8 +27,8 @@ local function block(options)
   return rex.layout.block{ flavor = SHELL, options = options }
 end
 
--- initial_input types the command into an interactive shell, as tmuxinator
--- does, so `y` (a shell function) resolves and the pane outlives the program.
+-- initial_input types the command into an interactive shell, so `y` (a shell
+-- function) resolves and the pane outlives the program.
 local function pane(cwd, input)
   local options = { cwd = cwd }
   if input then options.initial_input = input .. "\n" end
