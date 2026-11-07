@@ -1120,7 +1120,7 @@ it spawns push interactive zsh past its budget with nothing about the config hav
 
 `languagetool.sh` uses the `languagetool` Tailscale Service as its server unless `LANGUAGETOOL_URL` or `--lt-url` names
 another, reading the tailnet's name from `tailscale status --json` at call time. An unreachable server, or a tailnet
-name it cannot read, makes `lt_check` exit 2 with a `WARNING:` notice on stderr instead of a one-line skip; see
+name it cannot read, makes `lt_check` exit 2 with a `WARNING:` notice on stderr; see
 [AGENTS.md § LanguageTool server and exit 2](AGENTS.md#languagetool-server-and-exit-2).
 
 ## Secrets Management
