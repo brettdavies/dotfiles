@@ -86,6 +86,40 @@ grant_line() {
 # reason: the denial the last `run` printed.
 reason() { jaq -r .hookSpecificOutput.permissionDecisionReason <<<"$output"; }
 
+# unrelated_branch: the checked-out branch shares no line of work with the task's, so a push the hook judges answers with the
+# retask message.
+unrelated_branch() {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+}
+
+# silent COMMAND...: the hook prints nothing for each; fails naming every command it denied.
+silent() {
+  local c missed=()
+  for c in "$@"; do
+    run bash_call "$c"
+    [ -z "$output" ] || missed+=("$c")
+  done
+  ((${#missed[@]} == 0)) || {
+    printf 'denied: %s\n' "${missed[@]}"
+    false
+  }
+}
+
+# denied COMMAND...: the hook denies each; fails naming every command it let through.
+denied() {
+  local c missed=()
+  for c in "$@"; do
+    run bash_call "$c"
+    [[ $output == *'"deny"'* ]] || missed+=("$c")
+  done
+  ((${#missed[@]} == 0)) || {
+    printf 'not denied: %s\n' "${missed[@]}"
+    false
+  }
+}
+
 @test "a push from a branch unrelated to the task's branch is denied, naming retask" {
   commit scripts/agent-slot/one.sh
   git -C "$SLOT" checkout -q -b feat/two origin/main
@@ -196,7 +230,7 @@ reason() { jaq -r .hookSpecificOutput.permissionDecisionReason <<<"$output"; }
   local c
   for c in "git add -A && git commit --file m && git push" "git commit -m x; git push" "git pull --rebase && git push" \
     "git -C . merge main && git push" "git checkout feat/other && git push origin HEAD" "git switch feat/other && git push" \
-    "git commit -m 'handle the -d flag' && git push"; do
+    "git commit -m 'handle the -d flag' && git push" "git commit -m 'subject; body' && git push"; do
     run bash_call "$c"
     [[ $output == *'"deny"'* ]] || {
       echo "not denied: $c"
@@ -391,6 +425,126 @@ reason() { jaq -r .hookSpecificOutput.permissionDecisionReason <<<"$output"; }
       false
     }
   done
+}
+
+@test "a quoted pattern that mentions a push is not a push, in the commands that stopped xurl-rs/1" {
+  unrelated_branch
+  silent "rg -n 'gh pr edit|body-file|spec-drift-runbook|marker|git push|force' scripts/open-spec-refresh-pr.sh | cut -c1-200 | head -30" \
+    $'cd /tmp && src=$(sed -n 28,36p guard.sh); eval "$src" 2>&1 | head -3; for c in "rg -n \'foo|git push\' file" "rg -n \'git push\' file" "echo done"; do if [[ $c =~ $PUSH_RE ]]; then echo "MATCH: $c"; else echo "no match: $c"; fi; done'
+  run bash_call "git push origin feat/two"
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "separators and push text inside quotes that no shell runs are data, whatever the quote, flag, or line" {
+  commit README.md
+  silent 'echo "a; git push"' "echo 'a && git push'" 'printf "%s\n" "x | git push origin"' "grep -c 'x; git push' f" \
+    $'echo "it\'s; git push"' $'echo \'say "hi"; git push\'' $'echo "say \\"x\\"; git push"' $'rg \'bash -c "git push"\' f' \
+    $'echo \'one\ngit push\ntwo\'' $'git commit -m \'document it; git push comes last\'' "rg 'a|b' f | rg 'c|git push'" \
+    'cat <<< "a; git push"' "echo 'a|b' | rg 'c|git push'"
+}
+
+@test "a real push is still found after, between, and around quoted text that holds separators" {
+  commit README.md
+  denied 'echo "a;b" && git push' "rg 'a|b' f; git push" "echo 'x;y' | git push" "git push origin feat/one && echo 'done; ok'" \
+    $'echo "it\'s"; git push' $'echo \'say "hi"\'; git push' $'echo "a\\" b" ; git push ; echo "c\\" d"' \
+    $'echo \\\' ; git push ; echo \\\'' 'cd "a b" && git push' "git push origin 'feat/one'" 'git push "origin" feat/one'
+}
+
+@test "a quoted script that a shell or eval runs is still read as commands" {
+  commit README.md
+  denied $'bash -c "rg \'x\' f; git push"' "sh -c 'cd x; git push'" "bash -lc 'x && git push'" 'eval "git status; git push"' \
+    "eval 'a && git push'" 'eval "$(echo x)" "a; git push"' "sudo -u me bash -c 'x; git push'" "timeout 5 sh -c 'x | git push'" \
+    "x=\$(eval 'a; git push')" '(eval "a; git push")' $'`eval \'a; git push\'`' "{ eval 'a; git push'; }"
+}
+
+@test "a string handed to a tool that runs it as a script is still read as commands" {
+  commit README.md
+  denied "watch -n5 'x; git push'" "ssh host 'cd r; git push'" "su -c 'x; git push'" "tmux send-keys 'x; git push' Enter" \
+    'bash <<< "x; git push"' "echo 'x; git push' | bash" "echo 'x; git push' | sudo sh" "script -c 'x; git push' /dev/null" \
+    "flock f -c 'x; git push'" "parallel 'x; git push' ::: a"
+}
+
+@test "a script that eval runs inside a substitution is still refused as a chain when it moves HEAD" {
+  commit README.md
+  run bash_call "\$(eval 'git add -A; git commit -m x'); git push"
+  [[ $output == *'"deny"'* ]]
+  [[ $(reason) == *"run \`git push\` as its own command"* ]]
+}
+
+@test "a quoted argument of a push is read as written, so a flag inside it excuses nothing" {
+  commit README.md
+  denied "git push -o 'skip; -d tmp' origin feat/one" "git push -o 'a && --dry-run x' origin feat/one"
+}
+
+@test "a script behind any shell flag, a shell named by a variable, or a here-string is still read as commands" {
+  commit README.md
+  denied "bash -l -c 'x; git push'" "bash --login -c 'x && git push'" "bash -e -c 'x; git push'" "bash -ce 'x; git push'" \
+    "sudo -u me bash -l -c 'x; git push'" "\$SHELL -c 'x; git push'" "\"\$SHELL\" -c 'x; git push'" "bash -s <<< 'x; git push'" \
+    "bash<<<'x; git push'" "source /dev/stdin <<< 'x; git push'" "zsh -f -c 'x; git push'"
+}
+
+@test "a pipe into a shell by any spelling reads the command as written" {
+  commit README.md
+  denied "echo 'x; git push' | /bin/bash" "echo 'x; git push' |& bash" "echo 'x; git push' | env bash" \
+    "echo 'x; git push' | sudo -u me bash" "echo 'x; git push' | ksh" "echo 'cd r; git push' | ssh host" \
+    "echo 'x; git push' | xargs -I{} sh -c {}" $'echo \'x; git push\' |\nbash' "echo 'x; git push' | head -1 | bash"
+}
+
+@test "a string handed to a runner the reader does not name is still read as commands" {
+  commit README.md
+  denied "trap 'x; git push' EXIT" "git submodule foreach 'git add -A; git push'" "git -c alias.p='!x; git push' p" \
+    "source <(echo 'x; git push')" "bash <(echo 'x; git push')" "/usr/bin/flock f -c 'x; git push'" "/usr/bin/ssh host 'cd r; git push'" \
+    "git rebase -x 'x; git push' origin/dev" "python3 -c \"import os; os.system('x; git push')\"" \
+    "ssh host echo 'x; git push'" "sg docker echo 'x; git push'" "sudo -u me sh -c 'x; git push'" \
+    "echo 'x; git push' > >(bash)" "rg 'a; git push' f > >(sh)"
+}
+
+@test "a redirection or a substitution before the string does not turn an ssh or eval string into data" {
+  commit README.md
+  denied "ssh host 2>&1 'cd r; git push'" "eval 2>&1 'x; git push'" "ssh \$(echo host | head -1) 'cd r; git push'" \
+    "eval \$(echo x | head -1) 'x; git push'" "ssh host &>/dev/null 'cd r; git push'"
+}
+
+@test "a string held in a variable or an argument that a later command runs is still read as commands" {
+  commit README.md
+  denied "c='x; git push'; eval \"\$c\"" "c='x; git push'; bash -c \"\$c\"" "bash -c 'eval \"\$1\"' _ 'x; git push'"
+}
+
+@test "quotes nested in a parameter expansion do not hide an unquoted push" {
+  commit README.md
+  denied $'y="${x:-"\'"}"; git push; echo \\\'' $'echo "${n:-"it\'s"}"; git push; echo it\\\'s'
+}
+
+@test "a quoted string inside a substitution, a subshell, or backticks is read as written, whatever starts the command" {
+  commit README.md
+  denied "echo \$(bash -c 'x; git push')" "cat <(bash -c 'x; git push')" "eval \$(echo 'x; git push')" \
+    "x=\`ssh host 'cd r; git push'\`" "rg x \$(ssh host 'cd r; git push')" "echo \`bash -c 'x; git push'\`" \
+    "(rg 'a|b' f; bash -c 'x; git push')" "echo \$(true; bash -c 'x; git push')"
+}
+
+@test "a pattern that names a shell after a pipe is data" {
+  unrelated_branch
+  silent "rg -n 'curl|sh|git push' f" "rg -n 'zsh|bash|git push' f" "rg 'dash|sh|git push' f" "grep -E 'a|sh|b; git push' f" \
+    "rg -n '| bash; git push' f"
+}
+
+@test "a commit that a lost script holds is still refused as a chain" {
+  commit README.md
+  run bash_call "bash -l -c 'git add -A; git commit -m x'; git push"
+  [[ $output == *'"deny"'* ]]
+  [[ $(reason) == *"run \`git push\` as its own command"* ]]
+}
+
+@test "a command substitution inside double quotes is code, nested quotes included" {
+  commit README.md
+  denied 'echo "$(git push)"' $'echo "`git push`"' 'echo "x $(echo "b"; git push)"' 'bash -c "echo $(echo "x"); git push"' \
+    'echo "result: $(git status && git push)"' 'echo "$(date)" "$(echo "b"; git push)"'
+}
+
+@test "text the reader does not model, a heredoc body, a comment, an ANSI-C string, or an open quote, is read as written" {
+  commit README.md
+  denied $'cat <<EOF\necho don\'t\nEOF\ngit push origin x\ncat <<EOF\necho won\'t\nEOF' $'echo x # don\'t\ngit push origin x\necho y # won\'t' \
+    $'echo $\'\\\'\' ; git push ; echo $\'\\\'\'' $'echo \'oops; git push'
 }
 
 @test "a push counts the commits against the slot's base, not the commit before" {

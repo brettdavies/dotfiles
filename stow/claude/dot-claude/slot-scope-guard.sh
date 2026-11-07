@@ -9,6 +9,8 @@
 #                      It also denies a push from a branch that shares no line of work with another of the slot's local
 #                      branches: one session holds one task, and a new task starts a new session through agent-slot
 #                      retask. A stacked branch shares that line, and a probe/ branch stands apart from it.
+# A `git push` named only inside quoted text that a search or print tool holds, such as an `rg` pattern, is no push
+# (scope_mask_quotes).
 # A record with no scope.touches passes the path check. Grants count from the task's start, so a new task, or a reused
 # slot number, starts at none.
 # Anywhere else, and on a payload, record, or base it cannot read, it prints nothing, so the call goes ahead. Always
@@ -38,6 +40,70 @@ PUSH_RE=$GIT_START$'push([[:space:]]|$|[;&|)}`"\'])'
 MOVE_RE=$GIT_START$'(commit|merge|rebase|cherry-pick|revert|am|pull|reset|checkout|switch)([[:space:]]|$|[;&|)}`"\'])'
 # A push that sends no commits.
 PUSH_NOOP_RE='[[:space:]](--dry-run|--delete|-d)([[:space:]=]|$)'
+
+# A quoted string is data only where a tool known to print or search it holds it: the first word of its simple command
+# is `rg`, `grep`, `echo`, `printf`, `cat`, a `for` list, or `git commit`. This awk program replaces the separators,
+# brackets, backticks, quote marks, and blanks inside such a string with `_`, so the start rules above cannot begin a
+# command there. Every other string stays as written, since a shell, `eval`, `ssh`, `trap`, `git -c alias.x=`, or any
+# other runner this list does not name may run it. A string inside parentheses or backticks stays as written too,
+# since a substitution runs its command whatever starts the line around it. The program hands the command back whole
+# at a pipe whose next stage is not a text filter, at a process substitution, which can feed a string to a shell, and
+# when the pairing cannot be trusted: a heredoc, a comment, an `$'...'` string, a quote left open, and a
+# double-quoted string with `$(`, a backtick, or `${`, from which on nothing is masked because quotes nested in a
+# substitution pair up differently.
+# shellcheck disable=SC2016 # an awk program
+SCOPE_MASK_AWK='
+BEGIN {
+  SQ = "\047"; DQ = "\""; STRUCT = "[;&|(){}`\047\" \t\n]"
+  DATA = "^[ \t{!]*(rg|grep|egrep|fgrep|echo|printf|cat|for|"
+  DATA = DATA "git([ \t]+(-[cC][ \t]+[^ \t]+|--[^ \t]+|-[A-Za-z]+))*[ \t]+commit)[ \t]"
+  STAGE = "^&?[ \t\n]*(rg|grep|egrep|fgrep|cut|head|tail|wc|sort|uniq|tr|jq|jaq|cat)([ \t\n;&|)]|$)"
+}
+function mask(s,   n, i, j, c, d, out, cs, inner, depth, bt) {
+  n = length(s); out = ""; cs = 1; depth = 0; bt = 0
+  for (i = 1; i <= n; i++) {
+    c = substr(s, i, 1)
+    if (c == "\\") { out = out substr(s, i, 2); i++; continue }
+    if (c == "#" && (i == 1 || substr(s, i - 1, 1) !~ /[${]/)) return s
+    if ((c == "<" || c == ">") && substr(s, i + 1, 1) == "(") return s
+    if (c == "<" && substr(s, i + 1, 1) == "<") {
+      if (substr(s, i + 2, 1) != "<") return s
+      out = out "<<<"; i += 2; continue
+    }
+    if (c == "|") {
+      if (substr(s, i + 1, 1) == "|") {
+        out = out "||"; i++
+        if (!depth && !bt) cs = length(out) + 1
+        continue
+      }
+      if (substr(s, i + 1) !~ STAGE) return s
+    }
+    if (c == "$" && substr(s, i + 1, 1) == SQ) return s
+    if (c == SQ || c == DQ) {
+      for (j = i + 1; j <= n; j++) {
+        d = substr(s, j, 1)
+        if (d == c) break
+        if (d == "\\" && c == DQ) j++
+      }
+      if (j > n) return s
+      inner = substr(s, i + 1, j - i - 1)
+      if (c == DQ && inner ~ /\$\(|`|\$\{/) return out substr(s, i)
+      if (!depth && !bt && substr(out, cs) ~ DATA) gsub(STRUCT, "_", inner)
+      out = out c inner c; i = j; continue
+    }
+    out = out c
+    if (c == "(") depth++
+    else if (c == ")" && depth > 0) depth--
+    else if (c == "`") bt = !bt
+    else if (c ~ /[;&|\n]/ && !depth && !bt) cs = length(out) + 1
+  }
+  return out
+}
+{ s = (NR == 1 ? $0 : s "\n" $0) }
+END { printf "%s", mask(s) }'
+
+# Usage: scope_mask_quotes <command>; prints the command with its quoted data masked.
+scope_mask_quotes() { LC_ALL=C awk "$SCOPE_MASK_AWK" <<<"$1"; }
 
 # Usage: scope_deny_reason <repo> <n> <touches> <paths> <branch> <base>; <touches> is the comma-separated globs, <paths>
 # one per line.
@@ -74,8 +140,9 @@ pushes, so the hook cannot judge the commits it would push. Run \`git $3\` as it
 # subcommand before the first push that changes HEAD, else nothing.
 SCOPE_REAL_PUSH=0 SCOPE_MOVER=
 scope_command_facts() {
-  local rest=$1 m seg before first=1 t
+  local rest m seg before first=1 t
   SCOPE_REAL_PUSH=0 SCOPE_MOVER=
+  rest=$(scope_mask_quotes "$1") || rest=$1
   while [[ $rest =~ $PUSH_RE ]]; do
     m=${BASH_REMATCH[0]}
     if ((first)); then
