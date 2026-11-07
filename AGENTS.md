@@ -162,6 +162,17 @@ check without `--apply` on every macOS deploy to `$HOME`, so an edit made in pla
 the repo's copy, then run `--apply`. `tests/hex-config.bats` stubs `uname` and points `HEX_CONFIG_DIR` and `HEX_APP` at
 sandbox paths.
 
+### OpenSEO (`config/openseo/`)
+
+Linux server only. `config/openseo/compose.yaml` is upstream's standalone Compose file, byte for byte, and
+`config/openseo/openseo.pin` records the release tag, commit, image digest, and the file's sha256.
+`scripts/openseo-deploy.sh` (libraries in `scripts/openseo/lib/`) renders `~/.config/openseo/local.env` from 1Password
+and the pin, refusing a compose file that differs from the pin; its `up`, `down`, and `create-admin` verbs run docker
+and belong to the operator, while `render`, `serve`, and `status` run no docker. `svc:openseo` binds to `127.0.0.1:8946`
+only once OpenSEO is healthy and has an account; `scripts/tailscale-serve-setup.sh` applies the same gate
+(`scripts/openseo/lib/gate.sh`) at every tailscaled start. `tests/openseo-deploy.bats` stubs `uname`, `tailscale`,
+`curl`, `docker`, and the 1Password helper. Runbook: `docs/runbooks/openseo.md`.
+
 ---
 
 ## Shell Config Chain
@@ -415,11 +426,12 @@ seed every pull request's first run would start cold. The seed checks nothing, s
 The shell-startup perf suite in `tests/perf/` is the one local gate that CI does not exercise: a CI runner has no
 deployed dotfiles, so each of its tests skips there. Locally it times the startup files of the checkout it runs from,
 never the config installed under `$HOME`. Run it by hand from the checkout with `scripts/run-tests --perf-only`; a hand
-run ignores the list below and times the checkout whatever it changed.`tests/lib/startup-home.bash` builds a HOME whose startup files link to the checkout's and whose other entries link to
-the installed home, so oh-my-zsh, the plugins, and the caches are the ones a real shell finds. It leaves out `dotfiles`,
-because `config/shell/gogcli.sh` runs `stow --adopt` on `$HOME/dotfiles/stow`, and gives the HOME its own `.zsh/cache`,
-because oh-my-zsh rebuilds a completion dump built for other paths. A startup file the checkout deleted is absent from
-that HOME, and one still encrypted by git-crypt stays the installed copy.
+run ignores the list below and times the checkout whatever it changed.`tests/lib/startup-home.bash` builds a HOME whose
+startup files link to the checkout's and whose other entries link to the installed home, so oh-my-zsh, the plugins, and
+the caches are the ones a real shell finds. It leaves out `dotfiles`, because `config/shell/gogcli.sh` runs
+`stow --adopt` on `$HOME/dotfiles/stow`, and gives the HOME its own `.zsh/cache`, because oh-my-zsh rebuilds a
+completion dump built for other paths. A startup file the checkout deleted is absent from that HOME, and one still
+encrypted by git-crypt stays the installed copy.
 
 A run needs a changed path on `SHELL_STARTUP_PATHS` in `.githooks/lib/push-scope.sh`, the one list of what the six timed
 shells read from the checkout; when none changes, the suite neither runs nor times anything. `pre-push` judges the paths
@@ -427,9 +439,10 @@ the push delivers, renames and deletions included, and runs the suite first and 
 scope cannot be resolved. `pre-commit` runs it only when a `tests/perf/*.bats` file and a path on the list are both
 staged, alone before its other gates, and prints that the timing runs at `pre-push` when only a startup file is staged,
 or when a commit only deletes or moves one. Each hook prints the first path on the list that made the suite run, and a
-run in which every test skipped is reported as skipped, not passed.The list also names the files the HOME links from the checkout, so it cannot drift from what is timed;
-`tests/pre-push-scope.bats` starts the six shells under -x and fails when one reads a file of the checkout that the list
-omits, or when the checkout holds a file the shells look for under a package the list leaves out.
+run in which every test skipped is reported as skipped, not passed.The list also names the files the HOME links from the
+checkout, so it cannot drift from what is timed; `tests/pre-push-scope.bats` starts the six shells under -x and fails
+when one reads a file of the checkout that the list omits, or when the checkout holds a file the shells look for under a
+package the list leaves out.
 
 `pre-push` is the repo-wide mirror: its steps map one-to-one onto CI jobs, and passing it should mean passing the
 pipeline. `pre-commit` runs the same scripts over staged paths only, so it stays fast enough for every commit while

@@ -11,6 +11,7 @@
 # Bindings:
 #   - service serve: https://ollama.<tailnet>/       -> 127.0.0.1:11500  (svc:ollama VIP)
 #   - service serve: https://codex-proxy.<tailnet>/  -> 127.0.0.1:8080   (svc:codex-proxy VIP)
+#   - service serve: https://openseo.<tailnet>/      -> 127.0.0.1:8946   (svc:openseo VIP, only while this host runs OpenSEO)
 #
 # svc:ollama targets the loopback Caddy proxy on :11500, not Ollama's :11434
 # directly: Ollama 403s any non-localhost Host header, and serve forwards the
@@ -32,6 +33,7 @@
 # cannot be scripted here (one per service):
 #   https://login.tailscale.com/admin/services/svc:ollama
 #   https://login.tailscale.com/admin/services/svc:codex-proxy
+#   https://login.tailscale.com/admin/services/svc:openseo
 #
 # scripts/tailscale-serve-deploy.sh installs a unit that runs this on every
 # tailscaled start.
@@ -50,6 +52,24 @@ fi
 if ! tailscale status >/dev/null 2>&1; then
   echo "ERROR: tailscale is not up. Run 'tailscale up' first." >&2
   exit 1
+fi
+
+# OpenSEO's bind gate runs before any binding or upstream check, so an Ollama or codex-proxy outage cannot leave a
+# first-visitor-admin sign-up bound. jq lives under Homebrew, which the unit's PATH lacks.
+OPENSEO_BREW_BIN="${OPENSEO_BREW_BIN:-/home/linuxbrew/.linuxbrew/bin}"
+PATH="$OPENSEO_BREW_BIN:$PATH"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/openseo/lib/gate.sh"
+# shellcheck disable=SC2034 # gate.sh reads it
+OS_CURL_MAX=3
+OPENSEO_DEPLOY="$HOME/dotfiles/scripts/openseo-deploy.sh"
+OS_GATE=skipped
+if [ -f "$OS_LOCAL_ENV" ]; then
+  os_gate || true
+  if [ "$OS_GATE" = unbind-failed ]; then
+    echo "ERROR: OpenSEO has no account yet and turning off the $OS_SERVICE binding failed. Run: tailscale serve --service=$OS_SERVICE --https=443 off" >&2
+    exit 1
+  fi
 fi
 
 OLLAMA_TARGET="http://127.0.0.1:11500"
@@ -74,6 +94,26 @@ fi
 
 echo "==> service serve: svc:codex-proxy -> ${CODEX_TARGET}"
 tailscale serve --service=svc:codex-proxy --https=443 --yes "${CODEX_TARGET}"
+
+case "$OS_GATE" in
+  skipped)
+    echo "NOTE: $OS_ENV_SHOWN is absent, so this host does not run OpenSEO. Skipping $OS_SERVICE." >&2
+    ;;
+  ok)
+    echo "==> service serve: $OS_SERVICE -> $OS_LOOPBACK"
+    os_publish || {
+      echo "ERROR: $OS_SERVICE did not bind, or the control plane does not list this host for it. Run: $OPENSEO_DEPLOY serve" >&2
+      exit 1
+    }
+    ;;
+  first-account-open)
+    echo "NOTE: OpenSEO has no account yet, so $OS_SERVICE stays unbound. Run: $OPENSEO_DEPLOY create-admin" >&2
+    ;;
+  *)
+    echo "ERROR: $OS_LOOPBACK$OS_ASKED answered '${OS_HEALTH:-nothing}'. Start OpenSEO first: $OPENSEO_DEPLOY up" >&2
+    exit 1
+    ;;
+esac
 
 echo "==> serve status:"
 tailscale serve status --json
