@@ -453,7 +453,20 @@ denied() {
 @test "a quoted script that a shell or eval runs is still read as commands" {
   commit README.md
   denied $'bash -c "rg \'x\' f; git push"' "sh -c 'cd x; git push'" "bash -lc 'x && git push'" 'eval "git status; git push"' \
-    "eval 'a && git push'" 'eval "$(echo x)" "a; git push"' "sudo -u me bash -c 'x; git push'" "timeout 5 sh -c 'x | git push'"
+    "eval 'a && git push'" 'eval "$(echo x)" "a; git push"' "sudo -u me bash -c 'x; git push'" "timeout 5 sh -c 'x | git push'" \
+    "x=\$(eval 'a; git push')" '(eval "a; git push")' $'`eval \'a; git push\'`' "{ eval 'a; git push'; }"
+}
+
+@test "a script that eval runs inside a substitution is still refused as a chain when it moves HEAD" {
+  commit README.md
+  run bash_call "\$(eval 'git add -A; git commit -m x'); git push"
+  [[ $output == *'"deny"'* ]]
+  [[ $(reason) == *"run \`git push\` as its own command"* ]]
+}
+
+@test "a no-op flag inside a quoted string does not excuse the push" {
+  commit README.md
+  denied "git push -o 'skip; -d tmp' origin feat/one" "git push -o 'a && --dry-run x' origin feat/one"
 }
 
 @test "a command substitution inside double quotes is code, nested quotes included" {

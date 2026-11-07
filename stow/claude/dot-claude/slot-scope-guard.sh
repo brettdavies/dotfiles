@@ -41,16 +41,17 @@ MOVE_RE=$GIT_START$'(commit|merge|rebase|cherry-pick|revert|am|pull|reset|checko
 PUSH_NOOP_RE='[[:space:]](--dry-run|--delete|-d)([[:space:]=]|$)'
 
 # A quoted string is data: an `rg` pattern or an `echo` argument that has `git push` after a `|` or `;` runs nothing. This
-# awk program replaces the separators, brackets, backticks, and quote marks inside each such string with `_`, so the start
-# rules above cannot begin a command there. A string stays as written when a shell reads it as a script: the one after
-# `bash -c` and its kin, any one after `eval` in the same simple command, and a double-quoted one with `$(` or a backtick,
-# from which on nothing is masked, because quotes nested in a substitution pair up differently. The program hands the
-# command back whole when the pairing cannot be trusted: a heredoc, a comment, an `$'...'` string, or a quote left open.
+# awk program replaces the separators, brackets, backticks, quote marks, and blanks inside each such string with `_`, so
+# the start rules above cannot begin a command there and the no-op flag test cannot read a flag out of it. A string stays
+# as written when a shell reads it as a script: the one after `bash -c` and its kin, any one after `eval` in the same
+# simple command, and a double-quoted one with `$(` or a backtick, from which on nothing is masked, because quotes nested
+# in a substitution pair up differently. The program hands the command back whole when the pairing cannot be trusted: a
+# heredoc, a comment, an `$'...'` string, or a quote left open.
 # shellcheck disable=SC2016 # an awk program
 SCOPE_MASK_AWK='
-BEGIN { SQ = "\047"; DQ = "\""; STRUCT = "[;&|(){}`\047\"\n]" }
+BEGIN { SQ = "\047"; DQ = "\""; STRUCT = "[;&|(){}`\047\" \t\n]" }
 function live(pre) {
-  return pre ~ /(bash|sh|zsh|dash)[ \t]+-[a-z]*c[ \t]+$/ || pre ~ /(^|[ \t])eval[ \t]/
+  return pre ~ /(bash|sh|zsh|dash)[ \t]+-[a-z]*c[ \t]+$/ || pre ~ /(^|[ \t(`])eval[ \t]/
 }
 function mask(s,   n, i, j, c, d, out, cs, inner) {
   n = length(s); out = ""; cs = 1
