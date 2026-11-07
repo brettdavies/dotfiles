@@ -9,7 +9,8 @@
 #                      It also denies a push from a branch that shares no line of work with another of the slot's local
 #                      branches: one session holds one task, and a new task starts a new session through agent-slot
 #                      retask. A stacked branch shares that line, and a probe/ branch stands apart from it.
-# A `git push` named only inside quoted text that nothing runs, such as an `rg` pattern, is no push (scope_mask_quotes).
+# A `git push` named only inside quoted text that a search or print tool holds, such as an `rg` pattern, is no push
+# (scope_mask_quotes).
 # A record with no scope.touches passes the path check. Grants count from the task's start, so a new task, or a reused
 # slot number, starts at none.
 # Anywhere else, and on a payload, record, or base it cannot read, it prints nothing, so the call goes ahead. Always
@@ -40,31 +41,42 @@ MOVE_RE=$GIT_START$'(commit|merge|rebase|cherry-pick|revert|am|pull|reset|checko
 # A push that sends no commits.
 PUSH_NOOP_RE='[[:space:]](--dry-run|--delete|-d)([[:space:]=]|$)'
 
-# A quoted string is data: an `rg` pattern or an `echo` argument that has `git push` after a `|` or `;` runs nothing. This
-# awk program replaces the separators, brackets, backticks, quote marks, and blanks inside each such string with `_`, so
-# the start rules above cannot begin a command there and the no-op flag test cannot read a flag out of it. A string stays
-# as written when a shell reads it as a script: the one after `bash -c` and its kin or a shell's `<<<`, any one in the same
-# simple command as `eval`, `ssh`, `watch`, `su`, `script`, `flock`, `parallel`, or `tmux`, and a double-quoted one with
-# `$(` or a backtick, from which on nothing is masked, because quotes nested in a substitution pair up differently. The
-# program hands the command back whole when a pipe feeds a shell, and when the pairing cannot be trusted: a heredoc, a
-# comment, an `$'...'` string, or a quote left open.
+# A quoted string is data only where a tool known to print or search it holds it: the first word of its simple command
+# is `rg`, `grep`, `echo`, `printf`, `cat`, a `for` list, or `git commit`. This awk program replaces the separators,
+# brackets, backticks, quote marks, and blanks inside such a string with `_`, so the start rules above cannot begin a
+# command there. Every other string stays as written, since a shell, `eval`, `ssh`, `trap`, `git -c alias.x=`, or any
+# other runner this list does not name may run it. A string inside parentheses or backticks stays as written too,
+# since a substitution runs its command whatever starts the line around it. The program hands the command back whole
+# at a pipe whose next stage is not a text filter, at a process substitution, which can feed a string to a shell, and
+# when the pairing cannot be trusted: a heredoc, a comment, an `$'...'` string, a quote left open, and a
+# double-quoted string with `$(`, a backtick, or `${`, from which on nothing is masked because quotes nested in a
+# substitution pair up differently.
 # shellcheck disable=SC2016 # an awk program
 SCOPE_MASK_AWK='
-BEGIN { SQ = "\047"; DQ = "\""; STRUCT = "[;&|(){}`\047\" \t\n]" }
-function live(pre) {
-  return pre ~ /(bash|sh|zsh|dash)[ \t]+(-[a-z]*c[ \t]+|<<<[ \t]*)$/ ||
-    pre ~ /(^|[ \t(`])(eval|ssh|watch|su|script|flock|parallel|tmux)[ \t]/
+BEGIN {
+  SQ = "\047"; DQ = "\""; STRUCT = "[;&|(){}`\047\" \t\n]"
+  DATA = "^[ \t{!]*(rg|grep|egrep|fgrep|echo|printf|cat|for|"
+  DATA = DATA "git([ \t]+(-[cC][ \t]+[^ \t]+|--[^ \t]+|-[A-Za-z]+))*[ \t]+commit)[ \t]"
+  STAGE = "^&?[ \t\n]*(rg|grep|egrep|fgrep|cut|head|tail|wc|sort|uniq|tr|jq|jaq|cat)([ \t\n;&|)]|$)"
 }
-function mask(s,   n, i, j, c, d, out, cs, inner) {
-  if (s ~ /\|[ \t]*(sudo[ \t]+)?(bash|sh|zsh|dash)([ \t\n;&|)]|$)/) return s
-  n = length(s); out = ""; cs = 1
+function mask(s,   n, i, j, c, d, out, cs, inner, depth, bt) {
+  n = length(s); out = ""; cs = 1; depth = 0; bt = 0
   for (i = 1; i <= n; i++) {
     c = substr(s, i, 1)
     if (c == "\\") { out = out substr(s, i, 2); i++; continue }
     if (c == "#" && (i == 1 || substr(s, i - 1, 1) !~ /[${]/)) return s
+    if ((c == "<" || c == ">") && substr(s, i + 1, 1) == "(") return s
     if (c == "<" && substr(s, i + 1, 1) == "<") {
       if (substr(s, i + 2, 1) != "<") return s
       out = out "<<<"; i += 2; continue
+    }
+    if (c == "|") {
+      if (substr(s, i + 1, 1) == "|") {
+        out = out "||"; i++
+        if (!depth && !bt) cs = length(out) + 1
+        continue
+      }
+      if (substr(s, i + 1) !~ STAGE) return s
     }
     if (c == "$" && substr(s, i + 1, 1) == SQ) return s
     if (c == SQ || c == DQ) {
@@ -75,12 +87,15 @@ function mask(s,   n, i, j, c, d, out, cs, inner) {
       }
       if (j > n) return s
       inner = substr(s, i + 1, j - i - 1)
-      if (c == DQ && inner ~ /\$\(|`/) return out substr(s, i)
-      if (!live(substr(out, cs))) gsub(STRUCT, "_", inner)
+      if (c == DQ && inner ~ /\$\(|`|\$\{/) return out substr(s, i)
+      if (!depth && !bt && substr(out, cs) ~ DATA) gsub(STRUCT, "_", inner)
       out = out c inner c; i = j; continue
     }
     out = out c
-    if (c ~ /[;&|\n]/) cs = length(out) + 1
+    if (c == "(") depth++
+    else if (c == ")" && depth > 0) depth--
+    else if (c == "`") bt = !bt
+    else if (c ~ /[;&|\n]/ && !depth && !bt) cs = length(out) + 1
   }
   return out
 }

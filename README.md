@@ -321,10 +321,13 @@ stand at the push: a push of another branch or another repository than the slot'
 slot's `HEAD`, and a dry run or a branch deletion is not judged. A command that changes `HEAD` before it pushes, such as
 `git commit && git push`, is denied for a slot with a scope, because the hook runs before the commit exists: the agent
 commits first and pushes as its own command. The hook reads the command text for a `git push` at the start of a command,
-past the wrappers it lists, and inside a string that a shell runs: after `bash -c` or a shell's `<<<`, in a command
-with `eval`, `ssh`, `watch`, `su`, `script`, `flock`, `parallel`, or `tmux`, or in a `$(...)`. Other quoted text is
-data, so `rg -n 'a|git push' f` is no push. A command that pipes into a shell, has a heredoc, a comment, or a
-`$'...'` string, or leaves a quote open is read as written, and so is everything after a double-quoted `$(...)`.
+past the wrappers it lists. A quoted string is data only when a text tool holds it: the first word of its command is
+`rg`, `grep`, `echo`, `printf`, `cat`, a `for` list, or `git commit`, so `rg -n 'a|git push' f` is no push. Every other
+quoted string is read as written, since a shell, `eval`, `ssh`, `trap`, or another runner may run it, and so is a quoted
+string inside `$(...)`, parentheses, or backticks. A command that pipes into anything but a text filter (`rg`, `grep`,
+`cut`, `head`, `tail`, `wc`, `sort`, `uniq`, `tr`, `jq`, `cat`), has a process substitution, a heredoc, a comment, or a
+`$'...'` string, or leaves a quote open is read as written, and so is everything after a double-quoted `$(...)`,
+backtick, or `${`.
 
 ```text
 Touches: scripts/agent-slot/**, tests/*.bats, README.md
