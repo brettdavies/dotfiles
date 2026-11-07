@@ -86,6 +86,40 @@ grant_line() {
 # reason: the denial the last `run` printed.
 reason() { jaq -r .hookSpecificOutput.permissionDecisionReason <<<"$output"; }
 
+# unrelated_branch: the checked-out branch shares no line of work with the task's, so a push the hook judges answers with the
+# retask message.
+unrelated_branch() {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+}
+
+# silent COMMAND...: the hook prints nothing for each; fails naming every command it denied.
+silent() {
+  local c missed=()
+  for c in "$@"; do
+    run bash_call "$c"
+    [ -z "$output" ] || missed+=("$c")
+  done
+  ((${#missed[@]} == 0)) || {
+    printf 'denied: %s\n' "${missed[@]}"
+    false
+  }
+}
+
+# denied COMMAND...: the hook denies each; fails naming every command it let through.
+denied() {
+  local c missed=()
+  for c in "$@"; do
+    run bash_call "$c"
+    [[ $output == *'"deny"'* ]] || missed+=("$c")
+  done
+  ((${#missed[@]} == 0)) || {
+    printf 'not denied: %s\n' "${missed[@]}"
+    false
+  }
+}
+
 @test "a push from a branch unrelated to the task's branch is denied, naming retask" {
   commit scripts/agent-slot/one.sh
   git -C "$SLOT" checkout -q -b feat/two origin/main
@@ -196,7 +230,7 @@ reason() { jaq -r .hookSpecificOutput.permissionDecisionReason <<<"$output"; }
   local c
   for c in "git add -A && git commit --file m && git push" "git commit -m x; git push" "git pull --rebase && git push" \
     "git -C . merge main && git push" "git checkout feat/other && git push origin HEAD" "git switch feat/other && git push" \
-    "git commit -m 'handle the -d flag' && git push"; do
+    "git commit -m 'handle the -d flag' && git push" "git commit -m 'subject; body' && git push"; do
     run bash_call "$c"
     [[ $output == *'"deny"'* ]] || {
       echo "not denied: $c"
@@ -391,6 +425,47 @@ reason() { jaq -r .hookSpecificOutput.permissionDecisionReason <<<"$output"; }
       false
     }
   done
+}
+
+@test "a quoted pattern that mentions a push is not a push, in the commands that stopped xurl-rs/1" {
+  unrelated_branch
+  silent "rg -n 'gh pr edit|body-file|spec-drift-runbook|marker|git push|force' scripts/open-spec-refresh-pr.sh | cut -c1-200 | head -30" \
+    $'cd /tmp && src=$(sed -n 28,36p guard.sh); eval "$src" 2>&1 | head -3; for c in "rg -n \'foo|git push\' file" "rg -n \'git push\' file" "echo done"; do if [[ $c =~ $PUSH_RE ]]; then echo "MATCH: $c"; else echo "no match: $c"; fi; done'
+  run bash_call "git push origin feat/two"
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "separators and push text inside quotes that no shell runs are data, whatever the quote, flag, or line" {
+  commit README.md
+  silent 'echo "a; git push"' "echo 'a && git push'" 'printf "%s\n" "x | git push origin"' "grep -c 'x; git push' f" \
+    $'echo "it\'s; git push"' $'echo \'say "hi"; git push\'' $'echo "say \\"x\\"; git push"' $'rg \'bash -c "git push"\' f' \
+    $'echo \'one\ngit push\ntwo\'' $'git commit -m \'document it; git push comes last\'' "rg 'a|b' f | rg 'c|git push'" \
+    'x=`rg "a; git push" f`' 'cat <<< "a; git push"'
+}
+
+@test "a real push is still found after, between, and around quoted text that holds separators" {
+  commit README.md
+  denied 'echo "a;b" && git push' "rg 'a|b' f; git push" "echo 'x;y' | git push" "git push origin feat/one && echo 'done; ok'" \
+    $'echo "it\'s"; git push' $'echo \'say "hi"\'; git push' $'echo "a\\" b" ; git push ; echo "c\\" d"' \
+    $'echo \\\' ; git push ; echo \\\'' 'cd "a b" && git push' "git push origin 'feat/one'" 'git push "origin" feat/one'
+}
+
+@test "a quoted script that a shell or eval runs is still read as commands" {
+  commit README.md
+  denied $'bash -c "rg \'x\' f; git push"' "sh -c 'cd x; git push'" "bash -lc 'x && git push'" 'eval "git status; git push"' \
+    "eval 'a && git push'" 'eval "$(echo x)" "a; git push"' "sudo -u me bash -c 'x; git push'" "timeout 5 sh -c 'x | git push'"
+}
+
+@test "a command substitution inside double quotes is code, nested quotes included" {
+  commit README.md
+  denied 'echo "$(git push)"' $'echo "`git push`"' 'echo "x $(echo "b"; git push)"' 'bash -c "echo $(echo "x"); git push"' \
+    'echo "result: $(git status && git push)"' 'echo "$(date)" "$(echo "b"; git push)"'
+}
+
+@test "text the reader does not model, a heredoc body, a comment, an ANSI-C string, or an open quote, is read as written" {
+  commit README.md
+  denied $'cat <<EOF\ndon\'t\nEOF\ngit push origin x\ncat <<EOF\nwon\'t\nEOF' $'echo x # don\'t\ngit push origin x\necho y # won\'t' \
+    $'echo $\'\\\'\' ; git push ; echo $\'\\\'\'' $'echo \'oops; git push'
 }
 
 @test "a push counts the commits against the slot's base, not the commit before" {
