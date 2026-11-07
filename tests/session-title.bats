@@ -271,3 +271,11 @@ os.execv(sys.argv[1], sys.argv[1:2])'
   grep -Eq 'session-title\[[0-9]+\] reason=lib-load-failed lib=items.sh next="cd ~/dotfiles && scripts/stow-deploy --headless --only claude"$' "$(HOOKS_LOG)" ||
     { cat "$(HOOKS_LOG)" 2>&1; false; }
 }
+
+@test "an origin URL whose repo name holds a newline gets the session no title, and the hook still returns" {
+  checkout "$T/work/widget" feat/dark-mode git@github.com:acme/widget.git
+  git -C "$T/work/widget" config remote.origin.url $'git@github.com:acme/wid\nget.git'
+  run --separate-stderr timeout 20 "$HOOK" <<<"{\"hook_event_name\": \"UserPromptSubmit\", \"cwd\": \"$T/work/widget\"}"
+  [ "$status" -eq 0 ] || { echo "status $status, stdout: $output"; false; }
+  untitled
+}
