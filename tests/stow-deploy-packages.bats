@@ -173,12 +173,9 @@ rex_deploy() {
 # reason, so the exemption is a decision on the record rather than an omission.
 # ---------------------------------------------------------------------------
 
-# tmuxinator — configs resolve through TMUXINATOR_CONFIG straight from the repo.
-#   A copy under ~/.config/tmuxinator shadows it for `start`/`stop` but not
-#   `list`, so nothing is stowed (see tests/tmuxinator-configs.bats).
 # ollama — ships a drop-in under systemd/system/, a root-owned path stow cannot
 #   write. It is installed with sudo and documented in stow/ollama/README.md.
-NOT_DEPLOYED=(tmuxinator ollama)
+NOT_DEPLOYED=(ollama)
 
 @test "every stow package is deployed or explicitly exempt" {
   shared=$(grep '^SHARED_PACKAGES=' "$SCRIPT" | sed 's/.*(\(.*\))/\1/')

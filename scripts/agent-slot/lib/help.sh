@@ -10,6 +10,7 @@ Verbs:
   whoami   print the slot the current directory is inside
   launch   start an agent in a fresh slot of a repo, optionally with its first message
   resume   bring back the tmux sessions and Claude conversation of a slot
+  prime    start the prime of a repo if it is not running, and say where it runs
   retask   give a live slot a new task, in a new Claude session
   warm     trust the slot paths of one repo, or of every repo, in Claude ahead of time
   check    judge whether each slot can be torn down, and list what blocks it
@@ -29,20 +30,23 @@ Every verb takes --output json (one JSON object on stdout, or an error object on
 Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.
 Reasons and their fixes: https://github.com/brettdavies/dotfiles/blob/main/README.md#agent-slot-reasons'
 
-VERBS=' repos list whoami launch resume retask warm check adopt probe close-probe reopen sweep finish grant-review grant-scope release doctor schema '
+VERBS=' repos list whoami launch resume prime retask warm check adopt probe close-probe reopen sweep finish grant-review grant-scope release doctor schema '
 
 verb_help() {
   case $1 in
     repos) printf '%s\n' 'usage: agent-slot repos [--output json]' \
-      'Lists each git repo under ~/dev (and ~/dotfiles and ~/obsidian-vault) that has an origin. A repo goes by its' \
-      "directory's name, so the Obsidian vault is obsidian-vault." \
+      'Lists each git repo under ~/dev, and each one AGENT_SLOT_EXTRA_PRIMES names, that has an origin. A repo goes by' \
+      "its directory's name, so the Obsidian vault is obsidian-vault." \
       'returns: repos[] of {name, prime, origin}' \
       'example: agent-slot repos --output json' ;;
     list) printf '%s\n' 'usage: agent-slot list [--output json]' \
-      'Lists every slot with its state, agent state, label, and its needs-you blockers. A slot'"'"'s label is its name,' \
-      'else its task, else its branch.' \
+      'Lists every slot with its state, agent state, label, and its needs-you blockers, and every running prime. A' \
+      'slot'"'"'s label is its name, else its task, else its branch. A tmux server that does not answer costs only its own' \
+      'primes, and primes_unread names it, so a prime missing from the list is proof only while that is empty.' \
       'returns: slots[] of the slot record plus {key, path, state, branch, label_name, agent, agent_detail, sessions,' \
-      '         needs_you}' \
+      '         needs_you}, and primes[] of {key, repo, server, session, label}, where server is slots, or default for' \
+      '         a session on the default tmux server that holds the prime, and primes_unread[], the servers it could' \
+      '         not read' \
       "example: agent-slot list --output json | jaq '.slots[] | select(.needs_you != [])'" ;;
     whoami) printf '%s\n' 'usage: agent-slot whoami [--path DIR] [--output json]' \
       'Prints the slot that DIR (default: the current directory) is inside. Outside a slot it fails with the error' \
@@ -55,8 +59,10 @@ verb_help() {
       '                         [--task NAME] [--prompt-file FILE] [--requested-at EPOCH] [--opened-at EPOCH]' \
       '                         [--shown-at EPOCH] [--output json]' \
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
-      '--dangerously-skip-permissions on the --model given, at --effort xhigh; a sonnet slot also gets opus as its' \
-      'advisor. Every launch names a model. A repeat with the same --request-id, --task, or work item returns the same' \
+      '--dangerously-skip-permissions on the --model given, at --effort xhigh, on the slot profile, which drops a few' \
+      'tools, skills, and plugins (see the README); a sonnet slot also gets opus as its advisor. It also starts the' \
+      'repo'"'"'s prime, whose Claude runs on the account'"'"'s own model and effort with no profile. Every launch names a' \
+      'model. A repeat with the same --request-id, --task, or work item returns the same' \
       'slot, except that a --prompt-file the slot would not receive (another request, or this request under a' \
       'different brief) is refused with item-held-by-slot rather than dropped, and a --model other than the one that' \
       'slot runs on is refused with model-differs. A --prompt-file needs a line for each of Scope:, Limits:,' \
@@ -65,7 +71,8 @@ verb_help() {
       'it may add or none; both go into the slot record as scope, and slot-scope-guard.sh denies a git push of a path' \
       'no Touches: glob covers.' \
       'Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
-      '-, and /, starting with a letter or digit, up to 64. A new slot pushes a restore to the Rex helper on this' \
+      '-, and /, starting with a letter or digit, up to 64, and not ending in -prime, which names a repo'"'"'s prime. A new' \
+      'slot pushes a restore to the Rex helper on this' \
       "host, so its tab opens in Rex; the push runs in the background and is logged to $AS_STATE_DIR/push.log." \
       '--pr or --issue gives the slot a work item and a name from it, <repo>-pr<N>-<slug> or <repo>-issue<N>-<slug>,' \
       'which its Claude session takes and which is the task when --task is not given. A ref is N (in the origin' \
@@ -90,7 +97,10 @@ verb_help() {
       '         null when the repo has nothing to install or the head is foreign),' \
       '         next_step,' \
       '         prior ({session_id, ts, note} of a torn-down slot on the same item, whose conversation agent-slot' \
-      '         reopen resumes, else null)' \
+      '         reopen resumes, else null), prime (what agent-slot prime returns for the repo, or' \
+      '         {error: {reason, exit_code, message, value, next_step, recovery, log}} when it did not start, which' \
+      '         leaves the slot running;' \
+      '         null when the slot already held the request)' \
       'example: agent-slot launch dotfiles --model sonnet --pr 887 --request-id "$(uuidv7)" --prompt-file brief.md --output json' ;;
     retask) printf '%s\n' 'usage: agent-slot retask <repo>/<N> (--task <name> | --issue <ref>) --prompt-file <file> [--output json]' \
       "A new task in a live slot starts a new Claude session, under the task's name, with the brief as its first message." \
@@ -102,20 +112,31 @@ verb_help() {
       ;;
     resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--model (opus | sonnet)] [--output json]' \
       '--model switches the slot to that model: the record takes it, and an idle Claude is ended and typed again into its' \
-      'pane on that model, resuming the same conversation by session ID. A Claude that is busy, waiting, unreadable, or' \
-      'running background jobs is never ended: resume fails with agent-busy and changes nothing, as it does when the' \
-      "slot's own agent runs it. Naming the model the slot already runs is a plain resume. With --model it also returns" \
-      "model, previous_model, and restarted. Example: agent-slot resume dotfiles/2 --model opus. The README's Commands" \
-      'section has the rest.' \
+      'pane on that model, resuming the same conversation by session ID. A Claude that is busy, waiting, or unreadable' \
+      'is never ended: resume fails with agent-busy and changes nothing. Naming the model the slot already runs is a' \
+      "plain resume. With --model it also returns model, previous_model, and restarted. The README's Commands section" \
+      'has the rest. Example: agent-slot resume dotfiles/2 --model opus' \
       "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID" \
-      'with --dangerously-skip-permissions. Then it deletes each of the slot'"'"'s local branches whose PRs all merged or' \
-      "closed, with origin's branch of that name, keeping the base, origin's default branch, the branch checked out," \
-      'any branch a PR targets, and any branch either side of which holds work its PRs never had. Each delete is a' \
-      'prune line in the ledger.' \
+      "with --dangerously-skip-permissions, and starts the repo's prime if it is not running. Then it deletes each of" \
+      "the slot's local branches whose PRs all merged or closed, with origin's branch of that name, keeping the base," \
+      "origin's default branch, the branch checked out, any branch a PR targets, and any branch either side of which" \
+      'holds work its PRs never had. Each delete is a prune line in the ledger.' \
       'returns: key, started[] (the sessions it created), pruned_branches[], prune_failed[] of {branch, reason}' \
       '         (a delete that failed here or on origin; the next resume retries it), prune_checked (false when' \
-      '         GitHub gave no PR list, so nothing was pruned)' \
+      '         GitHub gave no PR list, so nothing was pruned), prime (as launch reports it)' \
       'example: agent-slot resume dotfiles/2' ;;
+    prime) printf '%s\n' 'usage: agent-slot prime <repo> [--output json]' \
+      "Starts the repo's prime if it is not running: <repo>-prime, <repo>-prime-files, and <repo>-prime-git on the slot" \
+      "server, at the repo's own checkout, with Claude in bypass permissions mode resuming its last conversation under" \
+      'the name <repo>-prime. It creates only what is missing and never touches git or trust, so the checkout keeps its' \
+      'branch and local changes and Claude asks to trust an untrusted one. A session the prime map names for the repo' \
+      'that holds a Claude on the default tmux server is the prime until it is closed, and nothing starts. Nothing that' \
+      'ends a slot ends a prime. Its Claude runs on the account'"'"'s own default model and effort. Each session takes' \
+      'its name only once its program is typed in: a start cut off before then leaves <name>-starting-p<pid>, which' \
+      'the next run kills and lists in cleared[].' \
+      'returns: key, repo, path, name, server (slots or default), session, started[], cleared[],' \
+      '         conversation {mode: running, resumed, or fresh; session_id}, trust_prompt_expected, next_step' \
+      'example: agent-slot prime bird --output json' ;;
     warm) printf '%s\n' 'usage: agent-slot warm <repo> | --all [--count N] [--output json]' \
       "Trusts slot paths 1 through N (default: the per-repo slot limit, $AS_MAX_PER_REPO) in Claude, so no launch there" \
       "spends time on the trust step, when Claude already trusts the repo's prime checkout. --all does it for every" \
@@ -177,7 +198,8 @@ verb_help() {
       'item (item-not-found-in-ledger), and when Claude Code no longer has the transcript (transcript-missing).' \
       'A retry with the request ID of a slot on another model than --model is refused with model-differs.' \
       '--dry-run changes nothing and exits 0 with the plan, or with the refusal a reopen would hit; a ref GitHub' \
-      'cannot read still fails. The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
+      'cannot read still fails. Its command checks the prime for a Cloudflare config, since the slot is not cloned yet.' \
+      'The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
       'the base, fetched from the remote the ledger recorded for it when that is on origin'"'"'s host, else from the' \
       "PR's head repository. A reopen is a foreign head when the source slot was, or when that URL or a PR's head on" \
       'GitHub is. A --prompt-file needs a line for each of Scope:, Limits:, Reviews:, Reports to:, Touches:, and Adds:,' \

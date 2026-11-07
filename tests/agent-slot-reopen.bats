@@ -101,16 +101,29 @@ snapshot() {
     echo "$stderr"
     false
   }
-  jaq -e --arg s "$S1" --arg t "$path" --argjson item "$PR7" '.dry_run == true and .would_reopen == true
+  jaq -e --arg s "$S1" --arg t "$path" --arg p "$(slot_profile_args)" --argjson item "$PR7" '.dry_run == true and .would_reopen == true
     and .refusal == null and .item == $item and .source.event == "teardown" and .source.slot == 1
     and .source.session_id == $s and .session_id == $s and .transcript == $t and .transcript_exists == true
     and .head == {branch: "feat/x", remote: "fork", url: "git@github.com:me/repoa.git", oid: "abc123",
                   source: {branch: "gh", remote: "ledger"}}
     and .slot == "repoa/2" and .name == "repoa-pr7-fix-the-login" and .items == [$item] and .task == "t1"
-    and .command == "claude --dangerously-skip-permissions --settings '\''{\"idleCompaction\":false}'\'' --model claude-opus-5-5 --effort xhigh --resume \($s) -n repoa-pr7-fix-the-login"
+    and .command == "claude --dangerously-skip-permissions \($p) --model claude-opus-5-5 --effort xhigh --resume \($s) -n repoa-pr7-fix-the-login"
     and .prompt_delivered == null' <<<"$output"
   [ "$(snapshot)" = "$before" ]
   [ "$(grep -c 'new-session' "$CALLS")" -eq 0 ]
+}
+
+@test "a dry run's command keeps the cloudflare plugin for a Cloudflare repo, whose slot is not cloned yet" {
+  origin_file repoa wrangler.jsonc '{}'
+  git -C "$AGENT_SLOT_DEV/repoa" pull -q origin main
+  gh_item pr 7 "Fix the login" MERGED "$FORK_HEAD"
+  slot repoa 1 '{"task": "other"}'
+  local path
+  path=$(transcript "$S1")
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$path\", \"prs\": [7], \"branches\": [$FORK_BRANCH]}"
+  reopen repoa --pr 7 --dry-run
+  [ "$status" -eq 0 ]
+  jaq -e --arg p "$(slot_profile_args cloudflare)" '.slot == "repoa/2" and (.command | startswith("claude --dangerously-skip-permissions \($p) --model "))' <<<"$output"
 }
 
 @test "a retask line is a source as a teardown line is, so a session a new task replaced can be reopened" {
@@ -260,7 +273,7 @@ snapshot() {
   run "$AGENT_SLOT" reopen repoa --model opus --pr 7 --dry-run
   [ "$status" -eq 0 ]
   [[ ${lines[0]} == "up/repoa#7: would reopen repoa/2, torn down 2026-10-01T00:00:00Z, in repoa/1 as repoa-pr7-fix-the-login" ]]
-  [[ $output == *"command: claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --resume $S2 -n repoa-pr7-fix-the-login"* ]]
+  [[ $output == *"command: claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --resume $S2 -n repoa-pr7-fix-the-login"* ]]
 }
 
 @test "AE4: a transcript gone from every project directory refuses with transcript-missing and creates no slot" {
@@ -392,7 +405,8 @@ snapshot() {
   [ "$status" -eq 0 ]
   jaq -e '.would_reopen == true and .prompt_delivered == true and .slot == "repoa/1"' <<<"$output"
   local expected
-  printf -v expected 'claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-opus-5-5 --effort xhigh --resume %s -n repoa-pr7-fix-the-login -- "$(cat %q)"' "$S1" \
+  printf -v expected 'claude --dangerously-skip-permissions %s --model claude-opus-5-5 --effort xhigh --resume %s -n repoa-pr7-fix-the-login -- "$(cat %q)"' \
+    "$(slot_profile_args)" "$S1" \
     "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot-prompt.md"
   [ "$(jaq -r .command <<<"$output")" = "$expected" ]
 }
@@ -445,7 +459,8 @@ snapshot() {
     and .reopened_from == {slot: 1, session_id: $s, ts: "2026-10-01T00:00:00Z"} and .finished_by_operator == false
     and ([has("release", "not_yet", "closing_sent_at", "last_check")] | any | not)
     and .created_at != "2026-10-01T00:00:00Z" and .scope == {touches: ["src/**"], adds: "none."}' "$slot/.git/agent-slot.json"
-  printf -v expected 'claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-opus-5-5 --effort xhigh --resume %s -n repoa-pr7-fix-the-login -- "$(cat %q)"' "$S1" \
+  printf -v expected 'claude --dangerously-skip-permissions %s --model claude-opus-5-5 --effort xhigh --resume %s -n repoa-pr7-fix-the-login -- "$(cat %q)"' \
+    "$(slot_profile_args)" "$S1" \
     "$slot/.git/agent-slot-prompt.md"
   [ "$(cat "$STUBS/typed-repoa-1")" = "$expected" ]
   mkdir -p "$T/fakebin"
@@ -468,7 +483,8 @@ snapshot() {
   gh_item issue 12 "Fix the widget"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
     \"name\": \"repoa-issue12-fix-the-widget\"}"
-  local expected="CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' \
+  local expected
+  expected="CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions $(slot_profile_args) \
 --model claude-sonnet-5-5 --effort xhigh --advisor opus --resume $S1 -n repoa-issue12-fix-the-widget"
   reopen repoa --issue 12 --model sonnet --dry-run
   [ "$status" -eq 0 ]
@@ -521,7 +537,7 @@ snapshot() {
   [ "$(git -C "$slot" symbolic-ref --short HEAD)" = feat/x ]
   [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
   [ "$(git -C "$slot" rev-parse --abbrev-ref 'feat/x@{upstream}')" = origin/feat/x ]
-  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --resume $S1 -n repoa-pr7-fix-the-login" ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --resume $S1 -n repoa-pr7-fix-the-login" ]
   jaq -e -s '.[-1] | .event == "reopen" and .head.source == {branch: "gh", remote: "gh"}' "$LEDGER"
   [ "$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")" = "$before" ]
 }
@@ -586,6 +602,20 @@ snapshot() {
   [ "$(grep -c 'new-session' "$CALLS")" -eq 0 ]
   jaq -e -s 'all(.[]; .event != "reopen")' "$LEDGER"
   [ "$(fingerprint "$AGENT_SLOT_CLAUDE_PROJECTS")" = "$before" ]
+}
+
+@test "a reopen starts the repo's prime and reports it" {
+  rm -f "$STUBS/tmux-panes-default"
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$ISSUE12],
+    \"name\": \"repoa-issue12-fix-the-widget\"}"
+  printf 'Scope: pick it back up.\nLimits: the operator set every limit.\nReviews: none.\nReports to: skills-prime.\nTouches: src/**\nAdds: none.\n' \
+    >"$T/brief.md"
+  reopen repoa --issue 12 --request-id r-1 --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  jaq -e '.created == true and .prime.key == "repoa/prime"
+    and .prime.started == ["repoa-prime", "repoa-prime-files", "repoa-prime-git"]' <<<"$output"
+  [ "$(grep -c 'new-session' "$CALLS")" -eq 6 ]
 }
 
 @test "a retry with the reopen's request ID returns its slot; a second reopen without it is refused with item-held-by-slot" {

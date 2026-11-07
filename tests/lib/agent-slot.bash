@@ -34,6 +34,8 @@ agent_slot_setup() {
   export AGENT_SLOT_ROOT=$T/slots
   export AGENT_SLOT_DEV=$T/dev
   export AGENT_SLOT_EXTRA_PRIMES=
+  export AGENT_SLOT_PRIMES=$T/primes.tsv
+  : >"$AGENT_SLOT_PRIMES"
   export AGENT_SLOT_STATE_DIR=$T/state
   export AGENT_SLOT_TMUX_SOCKET=agent-slot-test
   export AGENT_SLOT_TMUX_CONF=$T/slots.conf
@@ -51,15 +53,20 @@ agent_slot_setup() {
   printf '{"projects":{}}\n' >"$AGENT_SLOT_CLAUDE_STATE"
   printf '{"skipDangerousModePermissionPrompt":true}\n' >"$AGENT_SLOT_CLAUDE_SETTINGS"
 
-  # tmux keeps each socket's sessions in a file: no file means no server. capture-pane prints $STUBS/screen. On any
-  # socket but the slot one (the trust step's), Down swaps in $STUBS/screen-down and Enter $STUBS/screen-after when
-  # they exist; with $STUBS/drop-first-down present, the first Down is lost, as a key sent before the dialog listens.
+  # tmux keeps each socket's sessions in a file: no file means no server, and a list-sessions asking for session_path
+  # reads the directory new-session was given from a second file, which session_at writes too. rename-session renames a
+  # session in both, and moves what was typed into it with it. list-panes prints $STUBS/tmux-panes on the
+  # slot socket and $STUBS/tmux-panes-<socket> on any other, where no file means no server. capture-pane prints
+  # $STUBS/screen. On any socket but the slot one (the trust step's), Down swaps in $STUBS/screen-down and Enter
+  # $STUBS/screen-after when they exist; with $STUBS/drop-first-down present, the first Down is lost, as a key sent
+  # before the dialog listens.
   stub tmux '
 sock=default
 while (($#)); do
   case $1 in
     -L | -S) sock=${2##*/}; shift 2 ;;
     -f) shift 2 ;;
+    -u) shift ;;
     *) break ;;
   esac
 done
@@ -67,11 +74,13 @@ cmd=$1
 shift
 sessions=$STUBS/tmux-sessions
 [ "$sock" = agent-slot-test ] || sessions=$STUBS/tmux-sessions-$sock
-target="" name="" last=""
+target="" name="" last="" fmt="" dir=""
 while (($#)); do
   case $1 in
     -t) target=${2#=}; target=${target%:}; shift ;;
     -s) name=$2; shift ;;
+    -F) fmt=$2; shift ;;
+    -c) dir=$2; shift ;;
   esac
   last=$1
   shift
@@ -79,13 +88,37 @@ done
 case $cmd in
   list-sessions)
     [ -f "$sessions" ] || { echo "no server running on /tmp/tmux-test/$sock" >&2; exit 1; }
-    cat "$sessions" ;;
-  new-session) echo "$name" >>"$sessions" ;;
+    case $fmt in
+      *session_path*)
+        while IFS= read -r s; do
+          printf "%s\t%s\n" "$s" "$(awk -F "\t" -v s="$s" "\$1 == s { print \$2; exit }" "$sessions.paths" 2>/dev/null)"
+        done <"$sessions" ;;
+      *) cat "$sessions" ;;
+    esac ;;
+  new-session)
+    echo "$name" >>"$sessions"
+    printf "%s\t%s\n" "$name" "$dir" >>"$sessions.paths" ;;
   kill-session)
     [ -f "$sessions" ] || exit 1
     grep -vxF "$target" "$sessions" >"$sessions.new" || true
     cat "$sessions.new" >"$sessions" ;;
-  list-panes) cat "$STUBS/tmux-panes" 2>/dev/null || true ;;
+  rename-session)
+    [ -f "$sessions" ] && grep -qxF "$target" "$sessions" || { echo "can not find session: $target" >&2; exit 1; }
+    awk -v old="$target" -v new="$last" "{ print (\$0 == old ? new : \$0) }" "$sessions" >"$sessions.new"
+    cat "$sessions.new" >"$sessions"
+    if [ -f "$sessions.paths" ]; then
+      awk -F "\t" -v old="$target" -v new="$last" "BEGIN { OFS = FS } \$1 == old { \$1 = new } { print }" \
+        "$sessions.paths" >"$sessions.new"
+      cat "$sessions.new" >"$sessions.paths"
+    fi
+    [ ! -f "$STUBS/typed-$target" ] || mv "$STUBS/typed-$target" "$STUBS/typed-$last" ;;
+  list-panes)
+    if [ "$sock" = agent-slot-test ]; then
+      cat "$STUBS/tmux-panes" 2>/dev/null || true
+    else
+      [ -f "$STUBS/tmux-panes-$sock" ] || { echo "no server running on /tmp/tmux-test/$sock" >&2; exit 1; }
+      cat "$STUBS/tmux-panes-$sock"
+    fi ;;
   capture-pane) cat "$STUBS/screen" 2>/dev/null || true ;;
   send-keys)
     if [ "$sock" = agent-slot-test ]; then
@@ -197,20 +230,36 @@ seed_origin() {
   git -C "$T/seed-$1" push -q origin HEAD:main
 }
 
-# prime NAME [ORIGIN]: a clone under the dev root whose origin is a bare repo with one commit on main.
+# session_at NAME DIR: a session on the slot server rooted at DIR.
+session_at() {
+  echo "$1" >>"$STUBS/tmux-sessions"
+  printf '%s\t%s\n' "$1" "$2" >>"$STUBS/tmux-sessions.paths"
+}
+
+# prime_runs_old_style NAME: a session of that name holding a Claude on the default tmux server, which is that repo's
+# prime, so a slot made of the repo starts no prime sessions and a suite's session counts stay its slot's own.
+prime_runs_old_style() {
+  printf '%s\tclaude\n' "$1" >>"$STUBS/tmux-panes-default"
+}
+
+# prime NAME [ORIGIN]: a clone under the dev root whose origin is a bare repo with one commit on main, and its prime
+# running as prime_runs_old_style gives it.
 prime() {
   local name=$1 origin=${2:-$T/origins/$1.git}
   seed_origin "$name" "$origin"
   git clone -q "$origin" "$AGENT_SLOT_DEV/$name"
+  prime_runs_old_style "$name"
 }
 
 # split_prime CHECKOUT GIT_DIR: a clone named for its checkout whose .git is a file naming GIT_DIR, the shape
-# `git clone --separate-git-dir` leaves, with a bare origin of one commit on main.
+# `git clone --separate-git-dir` leaves, with a bare origin of one commit on main, and its prime running as
+# prime_runs_old_style gives it.
 split_prime() {
   local name=${1##*/}
   seed_origin "$name" "$T/origins/$name.git"
   mkdir -p "${2%/*}"
   git clone -q --separate-git-dir "$2" "$T/origins/$name.git" "$1"
+  prime_runs_old_style "$name"
 }
 
 # slot REPO N [JSON-FIELDS]: a slot clone with a record; the record merges the given fields over its defaults.
@@ -462,4 +511,19 @@ finished_task() {
   git -C "$SLOT" push -q origin feat/x
   pr 7 MERGED feat/x
   squash_merge feat/x
+}
+
+# slot_profile_args [cloudflare]: the flags a slot's Claude takes between the bypass flag and --model, with the skills
+# and plugins it turns off and the tools it drops. A Cloudflare repo keeps the cloudflare plugin. The lists are a copy
+# kept apart from scripts/agent-slot/lib/profile.sh, so a change there fails the tests until this one moves too.
+slot_profile_args() {
+  local -a skills=(artifact-capabilities artifact-design artifact-diagramming artifact-emulator built-in-browser
+    chrome-browser claude-api code-review computer-use dataviz deep-research docs docx fewer-permission-prompts
+    google-workspace import-memory init keybindings-help loop morning pdf plugin-authoring pptx run schedule
+    security-review simplify skill-creator update-config xlsx)
+  local name overrides='' plugins='"obsidian@obsidian-skills":false'
+  for name in "${skills[@]}"; do overrides+="\"$name\":\"off\","; done
+  [[ ${1:-} == cloudflare ]] || plugins+=',"cloudflare@claude-plugins-official":false'
+  printf '%s' "--settings '{\"idleCompaction\":false,\"skillOverrides\":{${overrides%,}},\"enabledPlugins\":{$plugins}}' \
+--disallowedTools Artifact AskUserQuestion ScheduleWakeup ReportFindings"
 }

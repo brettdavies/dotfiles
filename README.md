@@ -128,15 +128,13 @@ Each directory under `stow/` is a package. Files prefixed with `dot-` become dot
 | `shell`       | `.profile` — the shell config chain's entry file, which auto-sources `config/shell/`                                             |
 | `ssh`         | `.ssh/config` (git-crypt encrypted)                                                                                              |
 | `tmux`        | `.config/tmux/tmux.conf`                                                                                                         |
-| `tmuxinator`  | Session configs read in place from the repo; never stowed (see [Tmuxinator Sessions](#tmuxinator-sessions))                      |
 | `yazi`        | `.config/yazi/` — file manager config, keymaps, theme, packages                                                                  |
 | `zsh`         | `.zshrc`, `.zshenv`, `.zprofile`, `.p10k.zsh`                                                                                    |
 
-Two directories under `stow/` are not in any package set and never deploy through `stow-deploy`: `ollama` targets `/etc`
-rather than `$HOME` and is stowed with `sudo stow -t /etc -d stow ollama` (see
-[stow/ollama/README.md](stow/ollama/README.md)), and `tmuxinator` is read in place rather than symlinked. Both are
-recorded as exemptions in `tests/stow-deploy-packages.bats`, which fails when any other `stow/` directory is missing
-from a package set.
+One directory under `stow/` is in no package set and never deploys through `stow-deploy`: `ollama` targets `/etc` rather
+than `$HOME` and is stowed with `sudo stow -t /etc -d stow ollama` (see [stow/ollama/README.md](stow/ollama/README.md)).
+It is the recorded exemption in `tests/stow-deploy-packages.bats`, which fails when any other `stow/` directory is
+missing from a package set.
 
 ### Local Binaries
 
@@ -162,57 +160,11 @@ knowing where the underlying implementation lives.
 | `qmd-ollama-unload-all` | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely     |
 | `sd-commit-doc`         | Publish `docs/solutions/` files from a slot's worktree or the shared clone without races       |
 | `skill-listing-refresh` | List skills no session used in 30 days by name only in Claude Code's `settings.json`, daily    |
-| `tmux-new-session`      | Write a tmuxinator config for a repo and start its 3-pane session                              |
 | `transcribe-diarize`    | Local GPU speaker-diarized transcription (ffmpeg → whisperx → pyannote)                        |
 | `unslop`                | Machine-level entry point for the prose scorer, resolved through `~/.claude/skills`            |
 | `unslop-gate`           | Git-hook prose gate over `unslop`, scoring only the markdown in the change being pushed        |
 | `uuidv7`                | Print a time-ordered UUIDv7, used for collision-proof `/tmp` artifact names                    |
 | `xurl`                  | Real `xurl` on `PATH` that execs xurl-rs's `xr`, for callers that load no interactive alias    |
-
-### Tmuxinator Sessions
-
-Session configs live in `stow/tmuxinator/dot-config/tmuxinator/` and are **not** stowed. `config/shell/tmuxinator.sh`
-exports `TMUXINATOR_CONFIG` to point at that directory, so tmuxinator reads, writes, and lists projects in the repo
-itself — `tmuxinator new` and `tmuxinator copy` land on the source of truth with no deploy step.
-
-Keep `~/.config/tmuxinator` empty. tmuxinator searches that path in `start` and `stop` but not in `list`, so a config
-sitting there shadows the repo: it starts a session that never appears in `tmuxinator list`. `sudo tmuxinator …` is the
-usual way one gets there, because `sudo` scrubs `TMUXINATOR_CONFIG` and falls back to the XDG path — and it strands the
-tmux server at UID 0, invisible to your own `tmux ls`. Run tmuxinator as yourself.
-
-Every config defines the same 3-pane working layout: yazi on the left (1/3 width, full height), a bare shell top-right
-(2/3 × 2/3), and lazygit bottom-right (2/3 × 1/3), except where the paragraph below notes otherwise. All three panes
-start in the project's root.
-
-tmuxinator renders each config through ERB before parsing it, which is how `vault.yml` serves both machines from one
-file: it branches on `RUBY_PLATFORM`, rooting at the server's checkout on Linux and at the Taildrive share
-(`/Volumes/vault`) on macOS. On macOS an `on_project_start` hook runs `taildrive-mount vault` and ends the start script
-when the share does not mount, so no session is created with its panes pointed at a missing directory. The bottom-right
-pane there is a plain shell rather than lazygit, because the share exposes the vault's files but not its git dir.
-`tests/tmuxinator-configs.bats` renders both branches and checks the emitted script.
-
-The guard covers an absent share, not a wedged one: tmuxinator emits `cd <root>` ahead of every hook, so a mount whose
-server has gone away blocks the start script on that `cd` before `taildrive-mount` can report anything. Recover with
-`taildrive-unmount` (or `diskutil unmount force /Volumes/vault`) and start again.
-
-Start or attach to a configured session with `tmuxinator start <name>` — it creates the session on the first call and
-attaches on every subsequent call, so the same command works whether or not the session is already running:
-
-```bash
-tmuxinator start anc                          # local terminal
-mux start anc                                 # zsh shell alias (same thing)
-ssh <dev-host> -t tmuxinator start anc        # over SSH (preferred connection idiom)
-```
-
-Raw `tmux attach -t <name>` only works after the session has already been started, which makes it the wrong default for
-SSH.
-
-To create a new session from scratch (config + first start in one shot), use `tmux-new-session <name> <repo-path>` — it
-writes a new tmuxinator config into `stow/tmuxinator/dot-config/tmuxinator/`, then runs `tmuxinator start`.
-
-`tmuxinator copy` duplicates a config verbatim, including the source project's `name:` and its `on_project_first_start`
-resize targets. Edit both after copying, or the new session resizes panes in the project it was copied from.
-`tests/tmuxinator-configs.bats` enforces that every config's resize targets match its own `name:`.
 
 ### Yazi Hand-off to the Mac
 
@@ -295,11 +247,25 @@ Slot agents run as the operator on the Linux server, so they can reach its Rex s
 with `rex send` and `rex send-key`, a `sudo` session or a root shell on another host kept in that server included. The
 account already gives them the operator's files and keys, so this adds reach rather than a privilege.
 
+A slot's Claude also starts on a lean profile, which `scripts/agent-slot/lib/profile.sh` defines and the command line
+carries as one inline `--settings` object plus `--disallowedTools`, so a pull needs no restow, and a Claude already
+running takes it at its next start. It drops the `Artifact`, `AskUserQuestion`, `ScheduleWakeup`, and `ReportFindings`
+tools, which a slot cannot use (`AskUserQuestion`, `ReportFindings`) or rarely does (`Artifact`, `ScheduleWakeup`), and
+turns off the skills slots rarely or never call and the obsidian and cloudflare plugins. A repo with a `wrangler.toml`,
+`wrangler.json`, or `wrangler.jsonc` at its root, or one or two directories down, keeps the cloudflare plugin; a repo
+that adds its first one inside a slot gets the plugin from the slot's next Claude start. The object sets skills to `off`
+only and merges over `~/.claude/settings.json`, so the name-only skill entries `skill-listing-refresh` keeps there still
+apply; idle compaction stays off in the same object. The inline object outranks a repo's own settings files, so a skill
+or plugin it turns off stays off whatever `.claude/settings.json` says, and Claude's hint to remove the override from
+settings does not apply: take the name out of `profile.sh`, and slots started after that have it. The profile reaches
+launch, resume, reopen, and a model switch, and the subagents of those sessions. It does not reach primes, generic
+sessions, or a `claude -p` a slot's agent starts, a review run included.
+
 The Obsidian vault takes slots too, several at once, under the name `agent-slot repos` lists it by:
 `agent-slot launch obsidian-vault --model (opus | sonnet) --request-id <id> --prompt-file <brief>`. `~/obsidian-vault`
 keeps its git directory in `~/dev/vault-git`, so its `.git` is a file. A prime's `.git` may be a file when its git
 directory is also its common directory, which rules out a linked worktree; the git directory itself has no `.git` and is
-never listed. The prime map names no prime session for the vault, so the new-agent key always starts a slot of it.
+never listed. Its prime goes by the name `Vault`.
 Nothing automated commits in the vault. A vault slot commits only its own task's work, on main, and runs `git fetch`
 then `git rebase origin/main` before each push, so parallel slots never clobber each other. Its SessionStart context
 carries those rules, and tells it to keep vault content out of `docs/solutions`, other repos, PR bodies, and every
@@ -311,8 +277,9 @@ ignores every new top-level directory.
 Nobody watches a slot's tab, so no agent there waits on a dialog. `slot-unattended.sh` (in `stow/claude/dot-claude/`)
 answers every dialog Claude Code raises in a slot, for the slot's own Claude and for its subagents. It denies a
 permission request, which an ask rule still raises in bypass mode, and a call to `AskUserQuestion`, `EnterPlanMode`, or
-`ExitPlanMode`. The denial message tells the agent to do the work another way within its brief, or to send the decision
-to the session its brief reports to. Each denial appends a `prompt-denied` event to
+`ExitPlanMode`. A session on the slot profile is never offered `AskUserQuestion`, so the hook meets that tool only from
+a `claude -p` the slot's agent starts. The denial message tells the agent to do the work another way within its brief,
+or to send the decision to the session its brief reports to. Each denial appends a `prompt-denied` event to
 `~/.local/state/agent-slot/ledger.jsonl` with the slot, the tool, and the first 200 characters of its input. A dialog
 still waiting after about 6 s got past the hook, for example because the hook failed, which leaves the dialog to show.
 That wait appends a `prompt-waiting` event, and `slot-status.sh` marks the tab blocked. Outside a slot the hook does
@@ -440,12 +407,13 @@ On the Linux server:
    orphan sweep.
 3. `agent-slot-rex doctor` is the checklist from there. Each finding names what is missing with the command that fixes
    it, such as the login server's deploy or rexurrect's. Rerun it until it reports no errors.
-4. Run `claude --dangerously-skip-permissions` once in each repo's prime checkout and accept its trust dialog, which the
-   flag does not skip, and do the same for every repo cloned under `~/dev` later. A slot path is trusted only for a repo
-   whose prime checkout you have trusted in Claude, because trust lets Claude load the repo's own settings and hooks.
-   `agent-slot-warm.timer` runs `agent-slot warm --all` every ten minutes, which trusts every slot path of every repo
-   `agent-slot repos` lists, so a new repo's slots start warm within ten minutes of its prime being trusted. While any
-   prime is untrusted the unit fails, and the failed-units notice at every Claude session start names those repos.
+4. Press the new-agent key in each repo's Rex session to open its prime, or run `claude --dangerously-skip-permissions`
+   once in its checkout, and accept the trust dialog, which the flag does not skip. Do the same for every repo cloned
+   under `~/dev` later. A slot path is trusted only for a repo whose prime checkout you have trusted in Claude, because
+   trust lets Claude load the repo's own settings and hooks. `agent-slot-warm.timer` runs `agent-slot warm --all` every
+   ten minutes, which trusts every slot path of every repo `agent-slot repos` lists, so a new repo's slots start warm
+   within ten minutes of its prime being trusted. While any prime is untrusted the unit fails, and the failed-units
+   notice at every Claude session start names those repos.
 
 On the Mac:
 
@@ -455,23 +423,88 @@ On the Mac:
    server serves at the Mac's localhost, with no ssh tab open.
 3. In Rex.app, connect to the Linux server's host, which reaches its Rex server through the login server.
 
+#### Primes
+
+A repo's prime is the agent you work with in the repo's own checkout: it orchestrates the repo's work, answers other
+sessions, and is the point of contact for other repos, for as long as its session lasts. The slot code builds it, as
+three tmux sessions on the slot server, `<repo>-prime` with Claude in bypass permissions mode, `<repo>-prime-files`, and
+`<repo>-prime-git`, each rooted at the checkout, and one tab in the repo's Rex session shows them. Its key is
+`<repo>/prime`, and other sessions reach its Claude by the name `<repo>-prime`.
+
+`agent-slot prime <repo>` starts whichever of the three is missing and says where the prime runs. The new-agent key runs
+it, and so does every `agent-slot launch`, `reopen`, and `resume` of the repo, so a running slot means a running prime:
+
+```console
+$ agent-slot prime bird
+bird/prime: started bird-prime, bird-prime-files, bird-prime-git, resuming <session id>
+$ agent-slot prime bird
+bird/prime: already running
+$ agent-slot prime xurl-rs
+xurl-rs/prime: runs in XR CLI on the default tmux server; close that session to rebuild it on the slot server
+```
+
+A prime differs from a slot in these ways:
+
+|                  | Slot                                            | Prime                                                                                                                                                                                         |
+| ---------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Path             | `~/slots/<repo>/<N>`, a clone made for the task | The repo's own checkout, which keeps its branch and local changes and gets nothing written to it                                                                                              |
+| Claude's name    | The slot's name, else its task                  | `<repo>-prime`                                                                                                                                                                                |
+| Count            | Up to `AGENT_SLOT_MAX_PER_REPO` per repo        | One per repo per host, outside that limit                                                                                                                                                     |
+| Conversation     | The session ID in its record                    | The newest transcript, in any of Claude's project directories, whose latest title is exactly `<repo>-prime` and whose session no running Claude holds; with none, a fresh one under that name |
+| Attended         | No: a hook denies its dialogs                   | Yes: dialogs and ask rules reach you, and you accept the trust dialog yourself                                                                                                                |
+| Hooks            | Status, unattended, and context                 | Status only                                                                                                                                                                                   |
+| `docs/solutions` | Its own worktree of the solutions repo          | The shared clone                                                                                                                                                                              |
+| Tab              | Reconcile opens, relabels, and closes it        | Reconcile only opens it, first in the session                                                                                                                                                 |
+| Ends             | `release`, `finish`, or `sweep`                 | Only by hand                                                                                                                                                                                  |
+| Model            | The `--model` given, at `--effort xhigh`        | The account's own default model and effort, since you attend it and pick them                                                                                                                 |
+
+`/clear` keeps a session's title, so a prime follows it to its new transcript. A title scan that fails stops the start
+with `script-error` rather than choosing a fresh conversation blind.
+
+Each of a prime's sessions takes its name only once its program is typed in. A start cut off before then, as by a
+timeout around it, leaves a session named `<name>-starting-p<pid>`, which nothing reads as the running prime. It can
+hold a Claude the cut start had already started. The next start kills it, waits up to
+`AGENT_SLOT_PRIME_EXIT_WAIT` seconds (10) for its processes to exit before choosing a conversation, failing `slot-busy`
+if they do not, and names it in `cleared`.
+
+A repo's name in a tab comes from `config/agent-slot-rex/primes.tsv`, such as `XR CLI` for `xurl-rs`, else it is the
+repo's own. A session of that name on the default tmux server that holds a Claude is the repo's prime until you close
+it, and nothing is built beside it. One holding no Claude is no prime.
+
+Every running prime has a tab, in Rex.app at all times: a pass opens one for a prime no tab holds, so a closed prime's
+tab comes back within a minute. A tab holds a prime when a pane's own process is the attach loop of its Claude pane,
+which stays true while the loop waits after a detach, or while the key's tab, already labelled for it, is starting it.
+While its old session runs, a tab also holds it when a pane's own process is `agent-slot-rex prime <repo>`, which stays
+true in the login shell a detach leaves, or when a tmux client of that session runs on a pane's terminal. A label alone
+plays no part, so a renamed tab still counts. A prime's sessions also carry the user bus, so `systemctl --user` works in
+them.
+
+On the Mac, start local sessions with `tmux new -s` by hand. A key pressed in a Linux server session acts on the Linux
+server from either machine.
+
+- **Move a running prime to the slot shape.** Check the conversation's name with `claude agents --json`, and run
+  `/rename <repo>-prime` in it if the name differs. Exit Claude, run
+  `tmux -L default kill-session -t '=<display name>'`, then press the key in the repo's Rex session.
+- **Restart a prime's Claude.** Type `exit` at the pane's shell. The tab brings it back on the same conversation.
+- **Stop a prime.** Close its tab, then right after kill `<repo>-prime`, `<repo>-prime-files`, and `<repo>-prime-git` on
+  `tmux -L agent-slots`. An open tab restarts them, and a pass reopens the closed tab of a prime still running.
+- **Start a slot without the prime's tab first.** Run `agent-slot-rex launch --repo <repo>`.
+
 #### Keys and tab labels
 
-| Key         | Action                                                                                          |
-| ----------- | ----------------------------------------------------------------------------------------------- |
-| `cmd+alt+n` | Open the session's repo prime as its first tab, or start an agent on the repo in a new tab      |
-| `cmd+alt+r` | Give every live slot its tab back, resume dormant slots, and close tabs whose slot is gone      |
-| `cmd+alt+f` | Finish the focused tab's task (no open PR) and delete its slot when nothing in it would be lost |
+| Key         | Action                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| `cmd+alt+n` | Open the session's repo prime as its first tab, or start an agent on the repo in a new tab                   |
+| `cmd+alt+r` | Give every live slot and running prime its tab back, resume dormant slots, and close tabs whose slot is gone |
+| `cmd+alt+f` | Finish the focused tab's task (no open PR) and delete its slot when nothing in it would be lost              |
 
 `cmd+alt+n` opens a tab that comes forward and decides what it becomes from the session's name:
 
-- **A Linux server session named after a repo with a prime.** `config/agent-slot-rex/primes.tsv` names each such repo's
-  prime tmux session on the server's default tmux server, such as `XR CLI` for `xurl-rs`. While no tab of the session is
-  attached to that prime, the new tab becomes the prime's tab: first in the session, labelled with the prime's name,
-  attached from `$HOME` by `agent-slot-rex prime <repo>`, and a login shell once you detach. A tab counts as the prime
-  only while a tmux client of the prime runs in it, so a renamed tab still counts and a detached one does not. Once the
-  prime is open, the key starts a slot of the repo.
-- **A Linux server session named after any other repo.** The key starts a slot of the repo, with no question.
+- **A Linux server session named after a repo.** While no tab of the session holds the repo's [prime](#primes), the new
+  tab becomes the prime's tab: it takes the prime's name, runs `agent-slot prime <repo>`, moves first in the session,
+  and lays out the three panes a slot's tab has. A session on the default tmux server that holds the prime gets one pane
+  attached to it instead, which becomes a login shell once you detach. Once a tab holds the prime, the key starts a slot
+  of the repo, with no question. `agent-slot-rex launch --repo <repo>` starts a slot without opening the prime first.
 - **Any other session, every session on the Mac included.** The tab asks which repo to use, and the agent's tab opens in
   the background in that repo's session on the Linux server.
 
@@ -486,6 +519,10 @@ On the Linux server every tab's label starts with its position in its session, `
 keeps current as tabs open, close, and move; the slot helper matches and relabels tabs past that number and never writes
 it.
 
+A prime's tab is labelled with the prime's name, and reconcile never relabels it, so a name you give it stays.
+`<repo> · prime failed` is a prime's tab that stopped, with the error and its next step; Enter retries a retryable
+failure, and q closes the tab.
+
 A slot's tab is labelled `<repo>/<N>`, then `· <label>` (the slot's name, else its task name, else the agent's branch
 once it has one), then:
 
@@ -497,28 +534,31 @@ once it has one), then:
 
 #### Tabs follow the server
 
-Three triggers on the Linux server keep its Rex tabs in step with the slots, with no client connected, and each one runs
-an `agent-slot-rex restore` pass:
+Three triggers on the Linux server keep its Rex tabs in step with the slots and the running primes, with no client
+connected, and each one runs an `agent-slot-rex restore` pass:
 
-- **Push.** After `agent-slot launch` makes a slot, and after `agent-slot sweep --yes` or `agent-slot finish --yes`
-  tears one down, agent-slot runs `agent-slot-rex restore --by push` in the background. It finds the helper at
-  `AGENT_SLOT_REX_HELPER` (`~/.local/bin/agent-slot-rex`) and pushes nothing without it, and the verb never waits for it
-  unless `AGENT_SLOT_PUSH_WAIT=1`, as the sweep timer and a release's finish set; `AGENT_SLOT_PUSH_TIMEOUT` (60 s)
-  bounds it. A verb the helper ran itself pushes nothing, because the helper reconciles right after it.
+- **Push.** After `agent-slot launch` makes a slot, after `agent-slot prime` starts a session, and after
+  `agent-slot sweep --yes` or `agent-slot finish --yes` tears a slot down, agent-slot runs
+  `agent-slot-rex restore --by push` in the background. It finds the helper at `AGENT_SLOT_REX_HELPER`
+  (`~/.local/bin/agent-slot-rex`) and pushes nothing without it, and the verb never waits for it unless
+  `AGENT_SLOT_PUSH_WAIT=1`, as the sweep timer and a release's finish set; `AGENT_SLOT_PUSH_TIMEOUT` (60 s) bounds it. A
+  verb the helper ran itself pushes nothing, because the helper reconciles right after it.
 - **Timer.** `agent-slot-reconcile.timer` runs `agent-slot-rex restore --by poll` every minute, which catches a push
-  that changed nothing and relabels a tab once its agent has made its branch.
+  that changed nothing, relabels a tab once its agent has made its branch, and brings back the closed tab of a running
+  prime.
 - **Start-up.** When the Rex server loads its config, it starts `agent-slot-rex restore --at-start`, which waits up to
   `AGENT_SLOT_REX_STARTUP_WAIT` seconds (120) for the server to answer, runs `rexurrect auto-restore` once per server
   instance under `AGENT_SLOT_REX_REXURRECT_BOUND` seconds (90), records the instance in
   `~/.local/state/agent-slot-rex/startup.json`, then reconciles with dormant slots resumed. Right before rexurrect, it
   kills each session of the new server that holds nothing but slot tabs, since rexurrect counts a session as live by ID
   and would restore a second one beside it; the reconcile then opens those tabs again. rexurrect brings each prime tab
-  back as a plain shell, so before the reconcile the step makes it the prime again: in each repo session of
-  `config/agent-slot-rex/primes.tsv` with no tab attached to its prime, it types `agent-slot-rex prime <repo>` into the
-  first tab labelled with the prime's name when that tab is one pane at a shell prompt, clearing whatever the prompt
-  holds first. Any other tab is left alone, and so is a prime whose tmux session is not running. A config reload's step
-  types into no tab, since a prime-labelled shell there is a prime you detached. It logs to `restore.log` in that
-  directory.
+  back as plain shells, so before the reconcile the step makes it the prime again, in each repo session with no tab
+  holding its prime. It looks at the first tab labelled with the prime's name. When that tab is three panes each at a
+  shell prompt, the step runs `agent-slot prime <repo>`, opens a fresh tab in its place, and closes the restored one.
+  When it is one pane at a shell prompt, with a session on the default tmux server holding the prime, the step types
+  `agent-slot-rex prime <repo>` into it, clearing whatever the prompt holds first. Any other tab is left alone. A config
+  reload's step changes no tab, since a prime-labelled shell there is a prime you detached. It logs to `restore.log` in
+  that directory.
 
 Every other pass first checks that a Rex server answers and that the start-up step has recorded its instance. A push or
 timer pass that finds either missing changes nothing, says why under `skipped` (`rex-server-down` or `startup-pending`),
@@ -535,14 +575,14 @@ Every trigger is logged, so the interval can be tuned from data. Each pass's lin
 `~/.local/state/agent-slot-rex/reconcile.log` names its trigger in `by`, with `ms` (how long the pass took), `changed`
 (whether it opened, relabelled, or closed a tab), `skipped`, `rexurrect` (the outcome the pass recorded: `done`,
 `failed`, `stopped`, or `skipped`), and `primes`, null except in a start-up step on a new instance, where it holds each
-repo's prime outcome: `reattached`, `unconfirmed` (typed, but no client showed within `AGENT_SLOT_REX_PRIME_WAIT`
-seconds, 5), `already-open`, `no-session`, `no-tab`, `not-idle`, `prime-not-running`, `rex-server-restarted`,
-`rex-server-down`, or the reason of the error that stopped that repo's check. A timer pass with `changed` true found
-work no push had brought. `~/.local/state/agent-slot/push.log` holds one line per push: when it began, the verb and its
-slots, the result (`restored`, `deferred` with the reason in `detail`, `restore-failed`, `timed-out`, or `skipped`), the
-helper's exit code, the time taken, and the helper's last line on a failure. Each of these logs moves to `<log>.1` past
-1 MiB. A timer pass that changes nothing writes about 180 bytes, so the reconcile log holds about four days of passes
-before it moves.
+repo's prime outcome: `reattached`, `unconfirmed` (typed, but no tab of its session held the prime within
+`AGENT_SLOT_REX_PRIME_WAIT` seconds, 5), `reopened` (a restored three-pane tab replaced by a fresh one), `already-open`,
+`no-session`, `no-tab`, `not-idle`, `prime-not-running`, `rex-server-restarted`, `rex-server-down`, or the reason of the
+error that stopped that repo's check. A timer pass with `changed` true found work no push had brought.
+`~/.local/state/agent-slot/push.log` holds one line per push: when it began, the verb and its slots, the result
+(`restored`, `deferred` with the reason in `detail`, `restore-failed`, `timed-out`, or `skipped`), the helper's exit
+code, the time taken, and the helper's last line on a failure. Each of these logs moves to `<log>.1` past 1 MiB. A timer
+pass that changes nothing writes about 180 bytes, so the reconcile log holds about four days of passes before it moves.
 
 #### A slot's tab is missing
 
@@ -569,8 +609,29 @@ check adopts several PRs at once, the earliest created names the slot. `agent-sl
 slot's tab show its `label_name`: the name, else the task, else the branch its clone has checked out. The slot's Claude
 session carries the name as well: launch, resume, and reopen start Claude with `-n <name>` (the task for a slot with no
 name), and a slot named while its agent runs has `/rename <name>` typed into its session, by `adopt` when the agent is
-idle, else by the first automatic sweep that finds it idle, which records the session's name in `named_as`. The agent's
-SessionStart context lists the slot's work items.
+idle, else by the first automatic sweep that finds it idle, which records the session's name in `named_as`. A slot with
+neither a name nor a task gets its own session name, `<repo>-<N>`, whenever Claude starts a conversation fresh. A resume
+that finds its conversation passes no `-n`, which would replace a `/rename`, so a conversation started before this
+naming keeps the title it has. The agent's SessionStart context lists the slot's work items.
+
+A Claude session that is not a slot's is named for its work as well. `session-title.sh` (in `stow/claude/dot-claude/`,
+on `UserPromptSubmit`, not async, 8 s timeout) answers with `hookSpecificOutput.sessionTitle` for a session with no
+custom title in a git checkout on a feature branch: `<repo>-pr<N>-<slug>` when the branch has an open PR in the
+repository itself, else `<repo>-branch-<slug>`, both cut to 64 characters as a slot's name is (`item_name`). The PR
+comes from one `gh pr list --head <branch> --state open` call, bounded to 3 s, made only for a GitHub origin and only
+until the session has a title; a PR from a fork never counts. It prints nothing, and always exits 0, for a session that
+already has a custom title from `-n`, `/rename`, or its own earlier answer, so nothing it does replaces a `/rename`, and
+a prime's Claude, which starts with `-n <repo>-prime`, keeps that name; for a directory under the slot root; on `main`,
+`master`, `dev`, `develop`, `release/*`, the branch origin's HEAD names, or a detached head; and outside a git checkout.
+A session started by hand in a prime checkout is titled like any other. A `claude -p` child is titled the same way when
+its directory qualifies. The checks run cheapest first: a titled session or a base branch costs about 9 ms a prompt, and
+the one prompt that titles a session about 60 ms, or about 0.5 s when the `gh` call runs. A hook that cannot load a
+library, or whose `gh` call fails, leaves a labelled line in `hooks.log` in the agent-slot log directory.
+
+A prime keeps its `<repo>-prime` title, which a resume looks for by name, so its work shows in the status line instead.
+For a session named `*-prime` in a prime checkout on a feature branch, `statusline.sh` adds `task:<label>` after the git
+segment: `<repo>-branch-<slug of the branch>`, or `<repo>-pr<N>-<slug of the branch>` when the payload names an open PR
+(it carries the PR's number and no title), and nothing on a base branch.
 
 A launch on a PR checks out the PR's head branch tracking the remote that holds it: origin, the remote the prime
 checkout has for that repository, or `fork`. A head whose branch or repository is gone is checked out from
@@ -785,42 +846,48 @@ agent-slot close-probe 487 --output json
 #### Commands
 
 On the Linux server, `agent-slot repos` lists the repos a slot can be made from, `agent-slot list` every slot with its
-state, agent, and blockers, and `agent-slot whoami` the slot a directory is in. `agent-slot launch <repo> --model (opus
-| sonnet) --request-id <id> [--prompt-file <file>]` starts an agent on that model at `--effort xhigh` with idle
-compaction off, a Sonnet one with
-Opus as its advisor, and agents use it to hand a task to a slot; a repeat with the same request ID returns the same
-slot, and a `--prompt-file` that finds a slot another request made for the task or item is refused with
-`item-held-by-slot`, so no brief is dropped; `--pr <ref>` or `--issue <ref>` gives the slot that work item, its name,
-and, for a PR, its head branch (see [work items and reopen](#work-items-and-reopen)). `agent-slot resume <repo>/<N>`
-restarts a dormant slot's sessions and conversation, then deletes its local branches whose PRs all merged or closed,
-with origin's branch of each, keeping the base, origin's default branch, the branch checked out, any branch a PR
-targets, and any branch holding work its PRs never had, and reports each delete that failed in `prune_failed`;
-`agent-slot warm <repo>` (or `--all`) trusts slot paths ahead of time, and `agent-slot check [<repo>/<N>]` gives the
-teardown verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or `--issue <ref>`) attaches a PR or issue to a live slot
-and names the slot `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's
-record and its Claude session's name, so it needs no ask. `agent-slot probe <pr>` and `agent-slot close-probe <pr>`, run
-from inside a slot, mark and close a throwaway draft that slot pushed (see [probe PRs](#probe-prs)). `agent-slot reopen
-<repo> --model (opus | sonnet) --pr <ref> --prompt-file <file>` (or `--issue <ref>`) brings a torn-down slot's work on a
-PR or issue back in a fresh slot, with its Claude conversation resumed, and `--dry-run` reports what it would do or the
-refusal it would hit; agents ask before running it, `--dry-run` included. `agent-slot sweep` and `agent-slot finish
-<repo>/<N>` delete slots, so both only report unless given `--yes`, and agents ask before running them. `finish` refuses
-a task with an open PR (`task-has-open-pr`) unless the operator adds `--allow-open-pr` to `--yes`, as in
-`agent-slot finish dotfiles/2 --yes --allow-open-pr`, which ends the task whatever state its PRs are in; a release and
-the finish key never pass it, and the report-only run names it in `would_need`. `agent-slot release`, run from inside a
-slot, hands that slot's teardown upstream; it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks
-every prerequisite and the time from key press to Claude idle. Its `key_to_ready` covers the last 20 launches from the
-new-agent key, from the moment the key's tab opened to the slot's Claude starting its session, with the median of each
-step between: Rex.app showing the tab, the helper's own calls, agent-slot's checks before the clone, the clone, setup,
-trust, and tmux phases, and Claude's start.
+state, agent, and blockers and every running prime, and `agent-slot whoami` the slot a directory is in. `agent-slot
+launch <repo> --model (opus | sonnet) --request-id <id> [--prompt-file <file>]` starts an agent on that model at
+`--effort xhigh` on the slot profile described above, a Sonnet one with Opus as its advisor, and agents use it to hand a
+task to a slot; a repeat with the same request ID returns the same slot, and a `--prompt-file` that finds a slot another
+request made for the task or item is refused with `item-held-by-slot`, so no brief is dropped; `--pr <ref>` or `--issue
+<ref>` gives the slot that work item, its name, and, for a PR, its head branch (see [work items and
+reopen](#work-items-and-reopen)). `agent-slot resume <repo>/<N>` restarts a dormant slot's sessions and conversation,
+then deletes its local branches whose PRs all merged or closed, with origin's branch of each, keeping the base, origin's
+default branch, the branch checked out, any branch a PR targets, and any branch holding work its PRs never had, and
+reports each delete that failed in `prune_failed`; `agent-slot prime <repo>` starts the repo's prime if it is not
+running and says where it runs; `agent-slot warm <repo>` (or `--all`) trusts slot paths ahead of time, and `agent-slot
+check [<repo>/<N>]` gives the teardown verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or `--issue <ref>`) attaches a
+PR or issue to a live slot and names the slot `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>` when it has no name; it
+changes only the slot's record and its Claude session's name, so it needs no ask. `agent-slot probe <pr>` and
+`agent-slot close-probe <pr>`, run from inside a slot, mark and close a throwaway draft that slot pushed (see [probe
+PRs](#probe-prs)). `agent-slot reopen <repo> --model (opus | sonnet) --pr <ref> --prompt-file <file>` (or `--issue
+<ref>`) brings a torn-down slot's work on a PR or issue back in a fresh slot, with its Claude conversation resumed, and
+`--dry-run` reports what it would do or the refusal it would hit, checking the prime for a Cloudflare config because the
+slot is not cloned yet, so a config only the PR's head holds shows the cloudflare plugin off in the dry run and on in
+the reopen; agents ask before running it, `--dry-run` included. `agent-slot sweep` and `agent-slot finish <repo>/<N>`
+delete slots, so both only report unless given `--yes`, and agents ask before running them. `finish` refuses a task with
+an open PR (`task-has-open-pr`) unless the operator adds `--allow-open-pr` to `--yes`, as in `agent-slot finish
+dotfiles/2 --yes --allow-open-pr`, which ends the task whatever state its PRs are in; a release and the finish key never
+pass it, and the report-only run names it in `would_need`. `agent-slot release`, run from inside a slot, hands that
+slot's teardown upstream; it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks every prerequisite
+and the time from key press to Claude idle. Its `key_to_ready` covers the last 20 launches from the new-agent key, from
+the moment the key's tab opened to the slot's Claude starting its session, with the median of each step between: Rex.app
+showing the tab, the helper's own calls, agent-slot's checks before the clone, the clone, setup, trust, and tmux phases,
+and Claude's start.
 
 `agent-slot retask <repo>/<N> (--task <name> | --issue <ref>) --prompt-file <file>` gives a live slot a new task in a
 new Claude session, so one conversation never carries two tasks. Follow-up work on the same task goes to the existing
 session, and work on a PR starts with `launch --pr`. The agent must be idle or absent, else `agent-busy`, and the old
-work pushed, else `slot-work-unfinished`. The clone returns to the base without its other local branches. The record
-takes a new session ID, name, brief, and scope, and a reopen finds the old session in `prior_sessions` and the `retask`
-ledger line. A slot that starts a new task without it is stopped at its push: `slot-scope-guard.sh` denies a branch that
-shares no line of work with the slot's other branches. A stacked branch shares one, and a probe's branch goes under
-`probe/`.
+work pushed, else `slot-work-unfinished`. The `value` of `agent-busy` is the agent's state (`busy`, `waiting`,
+`unknown`), `own-agent` for a `retask` run by the slot's own agent in any state, or one `<pid> <command>` line for each
+Bash command an idle agent's Claude still runs. The `next_step.action` is `retry` for a busy agent and for running
+commands, which the slot's agent or the operator can end, and `ask-operator` otherwise: a waiting or unreadable agent
+needs a person, and a `retask` run by the slot's own agent needs another session, since ending that Claude would end
+the `retask`. The clone returns to the base without its other local branches. The record takes a new session ID, name,
+brief, and scope, and a reopen finds the old session in `prior_sessions` and the `retask` ledger line. A slot that
+starts a new task without it is stopped at its push: `slot-scope-guard.sh` denies a branch that shares no line of work
+with the slot's other branches. A stacked branch shares one, and a probe's branch goes under `probe/`.
 
 `agent-slot resume <repo>/<N> --model (opus | sonnet)` switches a live slot's model. The slot's record takes the model,
 and a Claude that is idle is ended and started again in its own pane through the command line a launch builds, resuming
@@ -831,23 +898,20 @@ the default of every new session; the restarted command line is the only thing t
 `previous_model`, and `restarted`, and a `launch` or `reopen` repeat compares its `--model` with the slot's new model
 (`model-differs`). No ask rule covers `resume`.
 
-A Claude that is busy, waiting at a prompt, or whose state cannot be read is never ended, and neither is one listed idle
-that still has a Bash command running below it: the resume checks the process tree as well as the status. Claude Code
-lists a session with an unfinished background shell, such as a watcher on a CI run, as busy, so that case is refused as
-`busy`. The resume fails with `agent-busy` and changes nothing. `value` is the state (`busy`, `waiting`, `unknown`),
-`own-agent` for a resume run by the slot's own agent, or one `<pid> <command>` line for each running command. The
-`next_step.action` is `retry` for a busy agent and for running commands, which the slot's agent or the operator can end,
-and `ask-operator` otherwise: a waiting or unreadable agent needs a person, and a resume run by the slot's own agent, in
-the foreground or the background, needs another session, since ending that Claude would end the resume. Rerunning while
-commands run changes nothing, so it is the check for them; `agent-slot list --output json` shows each slot's `.agent`
-for the other states. With no Claude running, only the record changes: `agent-slot` starts no Claude in a session that
-exists, so the model applies when the session is created again. Naming the model the slot already runs is a plain
-resume, so a call whose answer was lost can be repeated. A pane the operator has scrolled back in is taken out of copy
-mode first, before anything changes; if tmux cannot, the resume fails with `tmux-failed` and changes nothing. If the
-line cannot be typed after the old Claude is gone, the Claude session is dropped and the error is `tmux-failed`, or
-`tmux-unresponsive` when tmux did not answer, with partial side effects; `agent-slot resume <repo>/<N>` then creates the
-session on the new model. If the session cannot be dropped either, `next_step.command` is the tmux command that drops
-it.
+A Claude that is busy, waiting at a prompt, or whose state cannot be read is never ended. Claude Code lists a session
+with an unfinished background shell, such as a watcher on a CI run, as busy, and a resume run by the slot's own agent
+mid-turn finds that agent busy the same way. The resume fails with `agent-busy` and changes nothing. `value` is the
+state (`busy`, `waiting`, `unknown`). The `next_step.action` is `retry` for a busy agent and `ask-operator` otherwise,
+since a waiting or unreadable agent needs a person; `agent-slot list --output json` shows each slot's `.agent`. A
+resume that the slot's own agent needs is run from another session, since a wait inside the slot's own session, a
+background one included, keeps that agent busy. With no Claude running, only the record changes: `agent-slot` starts
+no Claude in a session that exists, so the model applies when the session is created again. Naming the model the slot
+already runs is a plain resume, so a call whose answer was lost can be repeated. A pane the operator has scrolled
+back in is taken out of copy mode first, before anything changes; if tmux cannot, the resume fails with `tmux-failed`
+and changes nothing. If the line cannot be typed after the old Claude is gone, the Claude session is dropped and the
+error is `tmux-failed`, or `tmux-unresponsive` when tmux did not answer, with partial side effects; `agent-slot resume
+<repo>/<N>` then creates the session on the new model. If the session cannot be dropped either, `next_step.command`
+is the tmux command that drops it.
 
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore
@@ -861,16 +925,17 @@ timer's schedule is `OnCalendar=*:0/10` in `agent-slot-sweep.timer`; change it w
 waits up to `AGENT_SLOT_RELEASE_WAIT` seconds (3600) for the agent, looking every `AGENT_SLOT_RELEASE_POLL` seconds (5).
 
 The keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`, which on the Mac hand the
-verb to the server's helper; each pane runs `agent-slot-rex attach <repo>/<N> claude|files|git`, a prime tab runs
-`agent-slot-rex prime <repo>`, the control session's tab runs `agent-slot-rex sweep`, and `agent-slot-rex doctor` checks
-the server's side. Every verb answers `--help`. Each launch runs the sweep again in the control session's one sweep tab,
-opening it when there is none; the tab stays open while something needs you, and `r` in it sweeps again. Restore, sweep,
-and finish change tabs one at a time: each waits up to `AGENT_SLOT_REX_LOCK_WAIT` seconds (300) for the one ahead of it
-to finish, so it sees the tabs that one opened. Each of those passes appends one JSON line to
-`~/.local/state/agent-slot-rex/reconcile.log`: when it ran, what ran it (`restore`, `restore-at-start`, `push`, `poll`,
-`sweep`, or `finish`), how long it took, whether it changed a tab, the tabs it planned to open, relabel, and close, and
-`ok` or the error that stopped it. Past 1 MiB the log moves to `reconcile.log.1`. Rex takes a tab label of at most 128
-characters, so a longer one is cut at the end of its needs-you message and ends in `…`.
+verb to the server's helper; each pane runs `agent-slot-rex attach <repo>/<N> claude|files|git`, or
+`attach <repo>/prime` for a prime's, the tab of a prime on the default tmux server runs `agent-slot-rex prime <repo>`,
+the control session's tab runs `agent-slot-rex sweep`, and `agent-slot-rex doctor` checks the server's side. Every verb
+answers `--help`. Each launch runs the sweep again in the control session's one sweep tab, opening it when there is
+none; the tab stays open while something needs you, and `r` in it sweeps again. Restore, sweep, and finish change tabs
+one at a time: each waits up to `AGENT_SLOT_REX_LOCK_WAIT` seconds (300) for the one ahead of it to finish, so it sees
+the tabs that one opened. Each of those passes appends one JSON line to `~/.local/state/agent-slot-rex/reconcile.log`:
+when it ran, what ran it (`restore`, `restore-at-start`, `push`, `poll`, `sweep`, or `finish`), how long it took,
+whether it changed a tab, the tabs it planned to open, relabel, and close, and `ok` or the error that stopped it. Past 1
+MiB the log moves to `reconcile.log.1`. Rex takes a tab label of at most 128 characters, so a longer one is cut at the
+end of its needs-you message and ends in `…`.
 
 With `--output json`, every verb prints one JSON object on success and one error object on stderr, with a `reason` from
 the table below, an exit code (0 ok, 1 failed, 2 usage, 77 auth, 78 configuration), a `next_step`, a `recovery` that
@@ -888,8 +953,8 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `not-in-slot`                 | 1    | The directory is not inside a slot                                                             |
 | `repo-not-found`              | 2    | No checkout with that name has an origin; `agent-slot repos` lists the names                   |
 | `slot-not-found`              | 1    | No slot holds that number                                                                      |
-| `slot-busy`                   | 1    | Another `agent-slot` process holds the slot, or it is still setting up; retry                  |
-| `invalid-task-name`           | 2    | A task name uses letters, digits, `-`, `_`, and `/`, and starts with a letter or digit         |
+| `slot-busy`                   | 1    | Another `agent-slot` process holds the slot or prime, or it is still setting up; retry         |
+| `invalid-task-name`           | 2    | A task uses letters, digits, `-`, `_`, `/`, starts alphanumeric, and does not end in `-prime`  |
 | `prompt-file-unreadable`      | 2    | The first-message file cannot be read                                                          |
 | `brief-incomplete`            | 2    | A brief lacks a required line, or its `Touches:` line holds no glob or a glob git rejects      |
 | `slot-limit-reached`          | 78   | The repo holds the most live slots allowed; finish one, or raise `AGENT_SLOT_MAX_PER_REPO`     |
@@ -900,8 +965,8 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `git-crypt-locked`            | 78   | A git-crypt repo could not be unlocked: git-crypt or its key is missing                        |
 | `trust-dialog-unrecognized`   | 78   | Claude showed a screen other than its trust dialog for the path; accept it by hand             |
 | `prime-untrusted`             | 78   | `warm --all` found repos whose prime Claude does not trust; open Claude once in each prime     |
-| `tmux-unresponsive`           | 1    | The `agent-slots` tmux server did not answer in time                                           |
-| `tmux-failed`                 | 1    | A tmux session could not be started; `agent-slot resume` tries again                           |
+| `tmux-unresponsive`           | 1    | A tmux server did not answer in time: `agent-slots`, or `default` for a prime                  |
+| `tmux-failed`                 | 1    | A tmux session could not be started, or a server's read failed; see `next_step.command`        |
 | `pr-state-unknown`            | 1    | `gh` could not read the repo's PRs or a work item; check `gh auth status`, then retry          |
 | `item-not-found`              | 2    | GitHub has no such PR or issue that `gh` can see; `agent-slot launch --help` gives the forms   |
 | `item-kind-mismatch`          | 2    | The number is a PR given as `--issue`, or an issue given as `--pr`; swap the flag              |
@@ -913,7 +978,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `pr-not-from-this-slot`       | 1    | The PR is in another repo, on a branch this slot did not create, or has a head it did not push |
 | `pr-close-failed`             | 1    | `gh pr close` failed, so the PR may or may not be closed; rerunning `close-probe` is safe      |
 | `model-differs`               | 1    | A repeat found its slot on another model than `--model`; `message` names the slot's model      |
-| `agent-busy`                  | 1    | `resume --model` found the agent busy, waiting, unreadable, or running jobs; nothing changed   |
+| `agent-busy`                  | 1    | `resume --model` or `retask` found the agent not idle (see `value`); nothing changed           |
 | `slot-work-unfinished`        | 1    | A new task would strand the old one; `value` names what is left                                |
 | `slot-checkout-failed`        | 1    | `retask` could not reach the base, and changed nothing                                         |
 | `session-in-use`              | 1    | A Claude agent has the session open; the operator closes it, then the reopen runs again        |
@@ -932,7 +997,6 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `bypass-mode-unaccepted`      | 78   | Doctor warning: settings.json does not accept bypass mode; `scripts/stow-deploy claude`        |
 | `version-unverified`          | 0    | Doctor warning: Claude or Rex differs from the version the checklist last ran on               |
 | `repo-required`               | 2    | The new-agent key was pressed outside a repo's session, with no terminal to ask in             |
-| `prime-not-running`           | 1    | The new-agent key found the session's prime tmux session not running; start it, press again    |
 | `server-unreachable`          | 1    | ssh from the Mac to the Linux server failed; retry once the network is back                    |
 | `rex-action-unregistered`     | 78   | Rex has not loaded the agent-slot actions; deploy the `rex` package or run `rex config reload` |
 | `rex-failed`                  | 1    | A `rex` command failed; retry                                                                  |
@@ -1116,7 +1180,6 @@ it spawns push interactive zsh past its budget with nothing about the config hav
 | `supply-chain.sh`   | Supply-chain safety (package age gates)                        |
 | `taildrive.sh`      | Taildrive mount helpers (macOS)                                |
 | `telemetry.sh`      | Telemetry opt-out environment variables                        |
-| `tmuxinator.sh`     | `mux` and `mux-all` tmuxinator wrappers                        |
 | `xurl.sh`           | Alias `xurl` to the `xr` binary (xurl-rs)                      |
 | `shell-functions`   | Interactive shell utilities (sourced by bashrc/zshrc)          |
 
@@ -1168,7 +1231,7 @@ the GitHub Release body. See [RELEASES.md](RELEASES.md).
 
 Shell scripts are tested with [bats-core](https://github.com/bats-core/bats-core) (`scripts/run-tests --all`). Suites
 cover stow-deploy and its package sets, git hooks and the gate dispatchers, the shell config chain and its `PATH`
-matrix, supply-chain age gates, symlinks, the qmd-serve units, tmuxinator configs, and the CLI wrappers.
+matrix, supply-chain age gates, symlinks, the qmd-serve units, and the CLI wrappers.
 
 ## Performance
 

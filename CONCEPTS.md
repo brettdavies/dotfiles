@@ -477,19 +477,28 @@ opened to exercise CI or a workflow and never meant to merge. Nothing infers one
 draft. Closed unmerged it counts like a settled PR, and the slot closes it itself, through a verb that acts only on a
 marked draft on a branch that slot created, whose head it pushed.
 
-### Prime tab
+### Prime
 
-The tab of a repo's Rex session on the Linux server that holds a tmux client of the repo's *prime session*: the tmux
-session on the server's default tmux server where the prime checkout's own work runs, which a map in the repo names for
-each repo that has one. What makes a tab the prime tab is that attachment, never its label or position: a renamed tab
-still is one, and a tab whose client detached is not. The new-agent key opens one, first in the session, while the
-session has none, and starts a slot once it does. After a Rex restart, rexurrect brings a prime tab back as a plain
-shell, and the *start-up step* makes it the prime again by running the key's prime command in it.
+The agent the operator works with in a repo's own *prime checkout*: it orchestrates the repo's work, answers other
+sessions, and is the point of contact for other repos, and it lasts as long as its session does. One runs per repo per
+host, on demand, and a running slot of the repo means a running prime. The code that builds a slot builds it, with the
+checkout as its root and `<repo>-prime` as its Claude's name, so it has a slot's three tmux sessions and three panes.
+Unlike a slot it is attended, keeps whatever branch and local changes the checkout holds, resumes its own last
+conversation by that title rather than by a record, and is never torn down: nothing that ends a slot can name it.
+
+A *prime's tab* is the tab of a repo's Rex session on the Linux server that holds its prime: a pane's own process is the
+attach loop of its Claude pane, or, while the prime still runs as one session on the server's default tmux server, a
+pane's own process is the helper's `prime` verb or a client of that session runs on a pane's terminal. What makes it the
+prime's tab is that hold, never its label or position, so a renamed tab still is one. A session on the default server
+counts only while it holds a Claude. The *slot reconcile* keeps a tab for every running prime, and the *new-agent key*
+opens one, first in the session, while the session has none. After a Rex restart, rexurrect brings a prime's tab back as
+plain shells, and the *start-up step* makes it the prime's again.
 
 ### New-agent key
 
-The Rex key that opens a tab in the session its context names, normally the one the operator is in, and makes it that
-repo's *prime tab*, a new *agent slot*'s tab, or, in a session named after no repo, a picker that launches the chosen
+The Rex key that opens a tab in the session its context names, normally the one the operator is in. In a session named
+after a repo, the tab becomes that repo's *prime*'s tab while no tab holds the prime, starting it if it is not running,
+and a new *agent slot*'s tab once one does. In a session named after no repo, it is a picker that launches the chosen
 repo's slot in that repo's session.
 
 The tab starts nothing until a Rex app *shows* it, because Rex.app can hand the key the context of a pane in another
@@ -501,14 +510,15 @@ becomes its active window with nobody looking.
 
 ### Slot reconcile
 
-The pass that makes the headless host's Rex tabs match its live slots: it resumes dormant slots, opens a tab for each
-live slot without one, relabels a tab whose slot's label changed, and closes a tab whose slot is gone, whose attach loop
-has stopped, or that duplicates another. A tab is matched to its slot by the attach loop it runs, else by its label past
-its position number. Four triggers run it: a *push* after each launch or teardown, a timer every minute, a *start-up
-step* when the Rex server loads its config, which first restores the operator's own tabs with rexurrect once per server
-instance, and the operator's restore. Every pass but the start-up step changes nothing until a Rex server answers and
-its start-up step has run; a pass a trigger ran logs why, and one the operator asked for reports it. One pass changes
-tabs at a time.
+The pass that makes the headless host's Rex tabs match its live slots and running *primes*: it resumes dormant slots,
+opens a tab for each live slot without one, relabels a tab whose slot's label changed, and closes a tab whose slot is
+gone, whose attach loop has stopped, or that duplicates another. A tab is matched to its slot by the attach loop it
+runs, else by its label past its position number. A prime's tab is only ever opened: a pass opens one for a running
+prime no tab holds, first in its repo's session, and never relabels or closes one. Four triggers run it: a *push* after
+each launch or teardown, a timer every minute, a *start-up step* when the Rex server loads its config, which first
+restores the operator's own tabs with rexurrect once per server instance, and the operator's restore. Every pass but the
+start-up step changes nothing until a Rex server answers and its start-up step has run; a pass a trigger ran logs why,
+and one the operator asked for reports it. One pass changes tabs at a time.
 
 A pass holds to the Rex server it started against: when a different server answers partway through, as after a restart,
 or none answers, it makes no further tab change and leaves the tabs to that server's start-up step. That step ends every

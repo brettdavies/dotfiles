@@ -20,7 +20,8 @@ agent_slot_env() {
   AS_ROOT=${AGENT_SLOT_ROOT:-$HOME/slots}
   AS_ROOT_REAL=$(realpath -m "$AS_ROOT")
   AS_DEV=${AGENT_SLOT_DEV:-$HOME/dev}
-  AS_EXTRA_PRIMES=${AGENT_SLOT_EXTRA_PRIMES-$HOME/dotfiles:$HOME/obsidian-vault}
+  AS_EXTRA_PRIMES=${AGENT_SLOT_EXTRA_PRIMES-$HOME/dotfiles:$HOME/obsidian-vault:$HOME/box/TX-AI/streams-control:$HOME/gbrain}
+  AS_PRIMES=${AGENT_SLOT_PRIMES:-${AS_HOME%/*/*}/config/agent-slot-rex/primes.tsv}
   AS_STATE_DIR=${AGENT_SLOT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-slot}
   AS_LEDGER=$AS_STATE_DIR/ledger.jsonl
   AS_LOG_DIR=$AS_STATE_DIR/logs
@@ -30,8 +31,10 @@ agent_slot_env() {
   AS_TMUX_CONF=${AGENT_SLOT_TMUX_CONF:-$HOME/.config/tmux/slots.conf}
   AS_TRUST_SOCKET=${AGENT_SLOT_TRUST_SOCKET:-agent-slot-trust}
   AS_TRUST_TIMEOUT=${AGENT_SLOT_TRUST_TIMEOUT:-45}
+  AS_USER_BUS=${AGENT_SLOT_USER_BUS:-/run/user/$UID/bus}
   AS_MAX_PER_REPO=${AGENT_SLOT_MAX_PER_REPO:-8}
   AS_LOCK_WAIT=${AGENT_SLOT_LOCK_WAIT:-30}
+  AS_PRIME_EXIT_WAIT=${AGENT_SLOT_PRIME_EXIT_WAIT:-10}
   AS_SOLUTIONS=${AGENT_SLOT_SOLUTIONS:-$HOME/dev/solutions-docs}
   AS_REPO_RECON=${AGENT_SLOT_REPO_RECON:-$HOME/dev/repo-recon}
   AS_GIT_CRYPT_KEY=${AGENT_SLOT_GIT_CRYPT_KEY:-$HOME/.config/git-crypt/key}

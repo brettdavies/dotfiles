@@ -1,9 +1,10 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it, and bounded sets its output by name
-# A slot's three tmux sessions on the slot server, each a login shell rooted at the slot with its program typed in:
+# A slot's three tmux sessions on the slot server, each a login shell rooted at the slot with its program typed in, and
+# through the same code a prime's, rooted at the repo's checkout under the names prime.sh gives them:
 #
 #   <repo>-<N>        claude in bypass permissions mode, started with the slot's session ID, the slot's name (else its
-#                     task) when it has one, and the first message read from a file by the shell itself, so the prompt
-#                     never passes through tmux or quoting
+#                     task, else this session's own name), and the first message read from a file by the shell itself,
+#                     so the prompt never passes through tmux or quoting
 #   <repo>-<N>-files  yazi, through the `y` shell function when it exists; on a foreign head (foreign.sh) a listing, since
 #                     yazi's fetchers and previewers parse what the cursor lands on with no key pressed
 #   <repo>-<N>-git    lazygit
@@ -18,9 +19,6 @@
 # path. It starts without its own warning only when ~/.claude/settings.json accepts it (agent-slot doctor checks).
 
 SESSIONS_CLAUDE='claude --dangerously-skip-permissions'
-# A slot waits on review for hours, then takes a short fix or ends. A 7-day replay at a 400k window put idle compaction at
-# 1.6% more cost for slots and 54% more compactions, where it saved primes and generic sessions 8%.
-SESSIONS_SETTINGS="--settings '{\"idleCompaction\":false}'"
 # What a foreign head's Claude adds: no project or local settings, so no hook, status line, helper, or environment from
 # the tree, and none of its CLAUDE.md, rules, skills, commands, or agents. Local stays out because a head can track
 # settings.local.json, and any git restore puts back the file setup would otherwise overwrite. --setting-sources alone
@@ -40,6 +38,12 @@ SESSIONS_EFFORT=xhigh
 SESSIONS_MODELS='opus sonnet'
 SESSIONS_ADVISOR=opus
 SESSIONS_ADVISOR_ENV=CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1
+# What a prime's session is named until its program is typed in: its own name, this, and the starting process's ID. A
+# start cut off in between, as by a timeout around it, then leaves a session nothing reads as the running prime, and the
+# next start kills it. The ID keeps a tmux call the cut start left running, which bounded's timeout holds in a process
+# group of its own, from typing into a later start's session. Only a prime's sessions start this way: nothing but their
+# names says a prime runs. The letter keeps a staging name from reading as a slot's, whose names end in its number.
+SESSIONS_STAGING=-starting-p
 SESSIONS_CREATED=()
 
 # Usage: sessions_model_id <model>; prints the Claude model ID for one of SESSIONS_MODELS, or returns 1.
@@ -51,16 +55,18 @@ sessions_model_id() {
   esac
 }
 
-# Usage: sessions_claude <model>; prints the start of a slot's claude command line for the model: the bypass flag,
-# the slot's settings, the model ID, the effort, and for Sonnet the advisor, behind the variable that turns it on.
+# Usage: sessions_claude <model> <dir>; prints the start of a slot's claude command line for the model: the bypass flag,
+# the slot's profile (profile.sh) as read from the directory, the model ID, the effort, and for Sonnet the advisor,
+# behind the variable that turns it on.
 sessions_claude() {
-  local id
+  local id profile
   id=$(sessions_model_id "$1") || id=$(sessions_model_id opus)
+  profile=$(profile_args "$2")
   if [[ $1 == sonnet ]]; then
     printf '%s %s %s --model %s --effort %s --advisor %s' "$SESSIONS_ADVISOR_ENV" "$SESSIONS_CLAUDE" \
-      "$SESSIONS_SETTINGS" "$id" "$SESSIONS_EFFORT" "$SESSIONS_ADVISOR"
+      "$profile" "$id" "$SESSIONS_EFFORT" "$SESSIONS_ADVISOR"
   else
-    printf '%s %s --model %s --effort %s' "$SESSIONS_CLAUDE" "$SESSIONS_SETTINGS" "$id" "$SESSIONS_EFFORT"
+    printf '%s %s --model %s --effort %s' "$SESSIONS_CLAUDE" "$profile" "$id" "$SESSIONS_EFFORT"
   fi
 }
 
@@ -116,11 +122,16 @@ sessions_foreign() { [[ $(contract_json -r '.head_foreign // false' <<<"$RECORD"
 # Prints the line typed into a session, from the record in RECORD. The slot's own agent can write that record, so every
 # value from it is shell-quoted. A resume or reopen whose conversation was never saved starts Claude as a launch does.
 # In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name,
-# and runs on the record's model through sessions_claude; a record with no model runs on Opus. A record with head_foreign
-# also starts Claude without the tree's settings.
+# and runs on the record's model through sessions_claude; a record with no model runs on Opus. A prime's Claude runs on
+# the account's own default model and effort instead, since a person attends it and picks them, and takes no slot
+# profile. A record with head_foreign also starts Claude without the tree's settings. The slot profile reads the slot's
+# directory, else the record's prime, since a reopen's dry run names the line for a slot not yet cloned.
+# A conversation started fresh for a slot with neither name nor task is named after the slot's session. A resume that
+# finds the conversation passes no name instead: -n would replace a /rename, so a conversation started before that
+# naming keeps the title it has.
 # The first message goes with a launch and a reopen only: a resume brings back a slot that already had it.
 sessions_command() {
-  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude
+  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude root
   case $kind in
     files)
       if sessions_foreign; then printf '%s' 'ls -A'; else printf '%s' 'command -v y >/dev/null && y || yazi'; fi
@@ -128,7 +139,13 @@ sessions_command() {
     git) printf '%s' 'lazygit' ;;
     claude)
       name=$(contract_json -r '.name // .task // ""' <<<"$RECORD")
-      claude=$(sessions_claude "$(contract_json -r '.model // "opus"' <<<"$RECORD")")
+      if [[ $n == "$SLOT_PRIME" ]]; then
+        claude=$SESSIONS_CLAUDE
+      else
+        root=$(slot_path "$repo" "$n")
+        [[ -d $root ]] || root=$(contract_json -r '.prime // ""' <<<"$RECORD")
+        claude=$(sessions_claude "$(contract_json -r '.model // "opus"' <<<"$RECORD")" "$root")
+      fi
       prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
       ! sessions_foreign || claude+=" ${SESSIONS_FOREIGN_ARGS[*]}"
       if [[ $mode != launch ]] && _sessions_conversation_saved; then
@@ -136,6 +153,7 @@ sessions_command() {
         [[ $mode == reopen ]] || prompt=''
       else
         printf -v cmd '%s --session-id %q' "$claude" "$(contract_json -r '.session_id' <<<"$RECORD")"
+        [[ -n $name ]] || name=$(slot_session "$repo" "$n")
       fi
       [[ -z $name ]] || printf -v cmd '%s -n %q' "$cmd" "$name"
       # After --, so a brief whose first character is a dash is the message, not an option.
@@ -145,14 +163,15 @@ sessions_command() {
   esac
 }
 
-# Usage: sessions_start <repo> <n> <launch | resume | reopen>
+# Usage: sessions_start <repo> <n> <launch | resume | reopen> [<root> [<new-session argument>...]]
 # Creates each of the slot's sessions that does not exist yet and types its program in, reading the record from
-# RECORD. Sets SESSIONS_CREATED to the sessions it made. The caller holds the slot lock, so two calls never race to
-# create the same session.
+# RECORD. Each session is rooted at <root>, by default the slot's own path, and a prime's takes its name only after the
+# typing (SESSIONS_STAGING). Sets SESSIONS_CREATED to the sessions it made. The caller holds the slot's or the prime's
+# lock, so two calls never race to create the same session.
 sessions_start() {
-  local repo=$1 n=$2 mode=$3 path kind name shell out setting
-  local -a start env=()
-  path=$(slot_path "$repo" "$n")
+  local repo=$1 n=$2 mode=$3 path=${4:-} kind name made shell out setting
+  local -a start env=() extra=("${@:5}")
+  [[ -n $path ]] || path=$(slot_path "$repo" "$n")
   shell=$(_sessions_shell)
   if sessions_foreign; then
     for setting in "${SESSIONS_FOREIGN_ENV[@]}"; do env+=(-e "$setting"); done
@@ -162,15 +181,18 @@ sessions_start() {
   for kind in "${SLOT_SESSION_KINDS[@]}"; do
     name=$(slot_session "$repo" "$n" "$kind")
     grep -qxF "$name" <<<"$SLOT_SESSIONS" && continue
+    made=$name
+    [[ $n != "$SLOT_PRIME" ]] || made=$name$SESSIONS_STAGING$BASHPID
     start=(/usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$shell" TERM=xterm-256color
       LANG="${LANG:-C.UTF-8}" PATH="$PATH"
-      "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$name" "${env[@]}" -c "$path" "$shell" -l)
+      "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$made" "${env[@]}" -c "$path" "${extra[@]}" "$shell" -l)
     if [[ -n $SLOT_SESSIONS || ${#SESSIONS_CREATED[@]} -gt 0 ]] || ! _sessions_scoped "${start[@]}"; then
       bounded out tmux 10 "${start[@]}" || _sessions_fail "$repo" "$n" "$name"
     fi
-    slot_tmux out 10 send-keys -t "=$name:" -l "$(sessions_command "$repo" "$n" "$kind" "$mode")" \
+    slot_tmux out 10 send-keys -t "=$made:" -l "$(sessions_command "$repo" "$n" "$kind" "$mode")" \
       || _sessions_fail "$repo" "$n" "$name"
-    slot_tmux out 10 send-keys -t "=$name:" Enter || _sessions_fail "$repo" "$n" "$name"
+    slot_tmux out 10 send-keys -t "=$made:" Enter || _sessions_fail "$repo" "$n" "$name"
+    [[ $made == "$name" ]] || slot_tmux out 10 rename-session -t "=$made" "$name" || _sessions_fail "$repo" "$n" "$name"
     SESSIONS_CREATED+=("$name")
   done
 }
@@ -192,8 +214,12 @@ _sessions_scoped() {
 }
 
 _sessions_fail() {
-  ((BOUNDED_STATUS != 124)) || tmux_unresponsive partial
+  local retry="agent-slot prime $1"
+  [[ $2 == "$SLOT_PRIME" ]] || retry=$(printf 'agent-slot resume %s' "$(slot_key "$1" "$2")")
+  ((BOUNDED_STATUS != 124)) || tmux_unresponsive partial "$AS_TMUX_SOCKET" "$retry"
   contract_use_tools tmux
   contract_fail tmux-failed "could not start the tmux session $3" --value "$3" --side-effects partial \
-    --command "agent-slot resume $(slot_key "$1" "$2")" --log "$BOUNDED_LOG"
+    --command "$retry" --log "$BOUNDED_LOG"
 }
+
+session_new_id() { cat /proc/sys/kernel/random/uuid; }

@@ -86,12 +86,12 @@ setup() {
     and (.message | contains("AGENT_SLOT_EXTRA_PRIMES") and contains("directory"))' <<<"$stderr"
 }
 
-@test "the extra primes default to the dotfiles checkout and the vault, whose name is the one its slots go by" {
+@test "the extra primes default to the dotfiles checkout, the vault, and the two repos kept outside the dev root" {
   lib=$BATS_TEST_DIRNAME/../scripts/agent-slot/lib
   run bash -c 'unset AGENT_SLOT_EXTRA_PRIMES
     source "$1/contract.sh"; source "$1/env.sh"; agent_slot_env "$1/.."; printf %s "$AS_EXTRA_PRIMES"' _ "$lib"
   [ "$status" -eq 0 ]
-  [ "$output" = "$HOME/dotfiles:$HOME/obsidian-vault" ]
+  [ "$output" = "$HOME/dotfiles:$HOME/obsidian-vault:$HOME/box/TX-AI/streams-control:$HOME/gbrain" ]
 }
 
 @test "list with no slot root returns an empty list and exits 0" {
@@ -99,6 +99,97 @@ setup() {
   [ "$status" -eq 0 ]
   jaq -e '.ok == true and .slots == []' <<<"$output"
   [ ! -e "$AGENT_SLOT_ROOT" ]
+}
+
+# --- primes in list ---------------------------------------------------------------------------------------------------
+
+@test "list reports a prime running on the slot server, and slots[] keeps its shape" {
+  prime repoa
+  rm -f "$STUBS/tmux-panes-default"
+  session_at repoa-prime "$AGENT_SLOT_DEV/repoa"
+  session_at repoa-prime-files "$AGENT_SLOT_DEV/repoa"
+  session_at repoa-prime-git "$AGENT_SLOT_DEV/repoa"
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.slots == [] and .primes == [{key: "repoa/prime", repo: "repoa", server: "slots", session: "repoa-prime",
+    label: "repoa"}]' <<<"$output"
+}
+
+@test "a prime on the slot server is labelled by the map, and found by its checkout's name whatever tmux stored" {
+  prime a.b
+  rm -f "$STUBS/tmux-panes-default"
+  printf 'a.b\tA B\n' >"$AGENT_SLOT_PRIMES"
+  session_at a_b-prime "$AGENT_SLOT_DEV/a.b"
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  jaq -e '.primes == [{key: "a.b/prime", repo: "a.b", server: "slots", session: "a_b-prime", label: "A B"}]' <<<"$output"
+}
+
+@test "list reports an old-style prime, for a session the map names and for one named by its own repo" {
+  prime repoa
+  prime repob
+  rm -f "$STUBS/tmux-panes-default"
+  printf 'repob\tRepo B\n' >"$AGENT_SLOT_PRIMES"
+  printf 'repoa\tclaude\nRepo B\t2.1.318\nRepo B\tzsh\n' >"$STUBS/tmux-panes-default"
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  [ "$status" -eq 0 ]
+  jaq -e '(.primes | sort_by(.repo)) == [
+    {key: "repoa/prime", repo: "repoa", server: "default", session: "repoa", label: "repoa"},
+    {key: "repob/prime", repo: "repob", server: "default", session: "Repo B", label: "Repo B"}]' <<<"$output"
+}
+
+@test "list omits a blank old session, one holding a Claude with no repo, and a repo with no checkout here" {
+  prime repoa
+  rm -f "$STUBS/tmux-panes-default"
+  printf 'gone\tGone Repo\n' >"$AGENT_SLOT_PRIMES"
+  printf 'repoa\tzsh\nCoordinator\tclaude\nGone Repo\tclaude\n' >"$STUBS/tmux-panes-default"
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.primes == []' <<<"$output"
+}
+
+@test "a session named for a repo the map calls something else is no prime of that repo" {
+  prime repoa
+  rm -f "$STUBS/tmux-panes-default"
+  printf 'repoa\tRepo A\n' >"$AGENT_SLOT_PRIMES"
+  printf 'repoa\tclaude\n' >"$STUBS/tmux-panes-default"
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  jaq -e '.primes == []' <<<"$output"
+}
+
+@test "list with both running reports one row for the repo, the old-style one" {
+  prime repoa
+  session_at repoa-prime "$AGENT_SLOT_DEV/repoa"
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  jaq -e '.primes == [{key: "repoa/prime", repo: "repoa", server: "default", session: "repoa", label: "repoa"}]' <<<"$output"
+}
+
+@test "a session that only ends like a prime's, or whose path names no repo, is no prime" {
+  prime repoa
+  rm -f "$STUBS/tmux-panes-default"
+  session_at other-prime "$AGENT_SLOT_DEV/repoa"
+  session_at repoa-prime-files "$AGENT_SLOT_DEV/repoa"
+  session_at repoa-1 "$AGENT_SLOT_DEV/repoa"
+  session_at nope-prime "$T/nope"
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  jaq -e '.primes == []' <<<"$output"
+}
+
+@test "a default server that does not answer leaves list reporting what it can read" {
+  prime repoa
+  session_at repoa-prime "$AGENT_SLOT_DEV/repoa"
+  cp "$STUBS/tmux" "$STUBS/tmux.inner"
+  stub tmux '[[ " $* " != *" -L default "* ]] || exec sleep 60
+exec "$STUBS/tmux.inner" "$@"'
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.primes == [{key: "repoa/prime", repo: "repoa", server: "slots", session: "repoa-prime", label: "repoa"}]' <<<"$output"
+}
+
+@test "list's text names each running prime and where it runs" {
+  prime repoa
+  run --separate-stderr "$AGENT_SLOT" list
+  [ "$status" -eq 0 ]
+  [ "$output" = $'no slots\nrepoa/prime\tdefault\trepoa' ]
 }
 
 @test "list reports a slot whose tmux session is missing as dormant" {

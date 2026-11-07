@@ -379,6 +379,34 @@ labeled() {
   jaq -e '.ok and .rexurrect == "done"' "$LOG"
 }
 
+@test "the start-up step kills a session holding only tabs a pass opens, prime tabs included, so rexurrect doubles none" {
+  started_by_rex
+  session sess-p A '[{"window_id": "w1", "label": "1: A", "blocks": ["b1"]}]'
+  runs b1 1001 "agent-slot-rex attach A/prime claude"
+  session sess-q B '[{"window_id": "w2", "label": "1: B", "blocks": ["b2"]},
+    {"window_id": "w3", "label": "B/1", "blocks": ["b3"]}]'
+  runs b2 1002 "agent-slot-rex attach B/prime claude"
+  runs b3 1003 "agent-slot-rex attach B/1 claude"
+  session sess-r C '[{"window_id": "w4", "label": "1: C", "blocks": ["b4"]}]'
+  runs b4 1004 "agent-slot-rex prime C"
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  called '^rex kill sess-p$'
+  called '^rex kill sess-q$'
+  called '^rex kill sess-r$'
+}
+
+@test "the start-up step keeps a session holding a prime's tab beside a tab no pass opens" {
+  started_by_rex
+  session sess-p A '[{"window_id": "w1", "label": "1: A", "blocks": ["b1"]},
+    {"window_id": "w2", "label": "2: notes", "blocks": ["b2"]}]'
+  runs b1 1001 "agent-slot-rex attach A/prime claude"
+  runs b2 1002 "zsh"
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex kill '
+}
+
 @test "the start-up step keeps a session that holds a tab the reconcile did not open" {
   started_by_rex
   session sess-own A '[{"window_id": "w1", "label": "prime", "blocks": ["b1"]},
@@ -614,13 +642,26 @@ primes_journaled() {
   started_by_rex
   primes A 'A Prime'
   session sess-a A '[{"window_id": "pw", "label": "1: A Prime", "blocks": ["pb"]}]'
-  runs pb 701 "bash $STUBS/agent-slot-rex prime A"
+  runs pb 701 "bash $STUBS/some-script"
   printf 'pts/9\n' >"$STUBS/tty/701"
   printf '{"child":{"pid":701,"name":"bash"},"foreground":{"pid":701,"name":"bash"}}\n' >"$STUBS/rexdata/process-pb.json"
   run "$AGENT_SLOT_REX" restore --at-start
   [ "$status" -eq 0 ]
   not_called '^rex send '
   primes_journaled '.[0].outcome == "not-idle"'
+}
+
+@test "a tab already running the prime command already holds the prime, so nothing is typed into it" {
+  started_by_rex
+  primes A 'A Prime'
+  session sess-a A '[{"window_id": "pw", "label": "1: A Prime", "blocks": ["pb"]},
+    {"window_id": "nw", "label": "2: notes", "blocks": ["nb"]}]'
+  runs pb 701 "bash $STUBS/agent-slot-rex prime A"
+  runs nb 702 "zsh"
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex send '
+  primes_journaled '.[0].outcome == "already-open"'
 }
 
 @test "a tab with the prime's label that holds more than one pane is left alone" {
@@ -638,12 +679,12 @@ primes_journaled() {
 @test "a restored prime tab whose prime tmux session is not running is left alone and journaled prime-not-running" {
   started_by_rex
   restored_prime
-  tmux_default_answer has-session 1
+  no_old_primes
   run "$AGENT_SLOT_REX" restore --at-start
   [ "$status" -eq 0 ]
   not_called '^rex send '
   primes_journaled '.[0].outcome == "prime-not-running" and .[0].window_id == "pw"'
-  grep -qF "tmux has-session -t '=A Prime'" "$AGENT_SLOT_REX_STATE_DIR/restore.log"
+  grep -qF "no session named A Prime on the default tmux server holds a Claude" "$AGENT_SLOT_REX_STATE_DIR/restore.log"
   called "^rex window new -s sess-a A/1 "
 }
 
@@ -736,8 +777,164 @@ primes_journaled() {
   run "$AGENT_SLOT_REX" restore --at-start
   [ "$status" -eq 0 ]
   not_called '^rex send '
-  not_called '^tmux list-clients'
+  not_called '^tmux -L default list-clients'
   jaq -e 'has("primes") and .primes == null' "$LOG"
+}
+
+# --- a restored prime tab of three panes ------------------------------------------------------------------------------
+
+# prime_answer REPO SERVER STARTED-JSON: what agent-slot prime answers for the repo.
+prime_answer() {
+  slot_answer prime 0 "$(jaq -n -c --arg r "$1" --arg s "$2" --argjson started "$3" '{schema: "dotfiles.agent-slot/1",
+    ok: true, verb: "prime", key: "\($r)/prime", repo: $r, path: "/srv/\($r)", name: "\($r)-prime", server: $s,
+    session: "\($r)-prime", started: $started, conversation: {mode: "fresh", session_id: "s"},
+    trust_prompt_expected: false}')"
+}
+
+# restored_three_panes: rexurrect brought session A back with its prime tab, "1: A Prime", as three plain zsh panes, each
+# at its prompt, and no session on the default server holds a Claude.
+restored_three_panes() {
+  primes A 'A Prime'
+  no_old_primes
+  session sess-a A '[{"window_id": "pw", "label": "1: A Prime", "blocks": ["b1", "b2", "b3"]}]'
+  at_prompt b1 701 pts/9
+  at_prompt b2 702 pts/10
+  at_prompt b3 703 pts/11
+}
+
+@test "a restored prime tab of three idle shells is replaced: the prime starts, a new tab opens first, the old one closes" {
+  started_by_rex
+  slots '[]' '[{"repo": "A", "label": "A Prime"}]'
+  restored_three_panes
+  prime_answer A slots '["A-prime", "A-prime-files", "A-prime-git"]'
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  in_call_order '^rexurrect auto-restore' '^agent-slot prime A --output json$' \
+    "^rex window new -s sess-a A Prime --focus=false --json -- $STUBS/agent-slot-rex attach A/prime claude\$" \
+    '^rex do agent_slot_layout -s sess-a -b blk-new-[0-9]+ key=A/prime block=blk-new-[0-9]+$' \
+    '^rex window move -s sess-a win-new-[0-9]+ --index 1$' \
+    '^rex window close -s sess-a pw$' '^agent-slot list'
+  not_called '^rex send '
+  [ "$(grep -c '^rex window new' "$CALLS")" -eq 1 ]
+  primes_journaled '. == [{repo: "A", prime: "A Prime", outcome: "reopened", session_id: "sess-a", window_id: "pw"}]'
+  grep -q 'A Prime.*reopened' "$AGENT_SLOT_REX_STATE_DIR/restore.log"
+}
+
+@test "with the prime already running, a restored tab of three idle shells is replaced the same way" {
+  started_by_rex
+  slots '[]'
+  restored_three_panes
+  prime_answer A slots '[]'
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  called '^rex window close -s sess-a pw$'
+  primes_journaled '.[0].outcome == "reopened"'
+}
+
+@test "a restored three-pane tab with a pane running a program is left alone, and starts nothing" {
+  started_by_rex
+  slots '[]'
+  restored_three_panes
+  running_in b2 702 pts/10 nvim
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^agent-slot prime'
+  not_called '^rex window (new|close|move)'
+  primes_journaled '.[0].outcome == "not-idle" and .[0].window_id == "pw"'
+}
+
+@test "a server answering that an old-style session holds the prime leaves a restored three-pane tab alone" {
+  started_by_rex
+  slots '[]'
+  restored_three_panes
+  prime_answer A default '[]'
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  called '^agent-slot prime A '
+  not_called '^rex window (new|close|move)'
+  primes_journaled '.[0].outcome == "not-idle"'
+}
+
+@test "an agent-slot prime that fails leaves the restored tab, journals its reason, and the next repo still runs" {
+  started_by_rex
+  slots '[]'
+  restored_three_panes
+  primes B 'B Prime'
+  session sess-b B '[{"window_id": "qw", "label": "1: B Prime", "blocks": ["qb"]}]'
+  at_prompt qb 801 pts/12
+  attaches_on_send qb pts/12
+  slot_answer prime 1 "" "$(server_error tmux-failed "could not start the tmux session A-prime" 1 true)"
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex window close -s sess-a pw$'
+  not_called "^rex window new -s sess-a A Prime "
+  primes_journaled '.[0].outcome == "tmux-failed" and .[0].repo == "A" and .[1].outcome == "reattached" and .[1].repo == "B"'
+  grep -q 'could not start the tmux session A-prime' "$AGENT_SLOT_REX_STATE_DIR/restore.log"
+}
+
+@test "a repo with no map line whose session has a tab labelled with its name is handled, and one with no session is not walked" {
+  started_by_rex
+  slots '[]'
+  repos B C
+  no_old_primes
+  session sess-b B '[{"window_id": "qw", "label": "1: B", "blocks": ["q1", "q2", "q3"]}]'
+  at_prompt q1 801 pts/12
+  at_prompt q2 802 pts/13
+  at_prompt q3 803 pts/14
+  prime_answer B slots '[]'
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  called "^rex window new -s sess-b B --focus=false --json -- $STUBS/agent-slot-rex attach B/prime claude\$"
+  called '^rex window close -s sess-b qw$'
+  primes_journaled '. == [{repo: "B", prime: "B", outcome: "reopened", session_id: "sess-b", window_id: "qw"}]'
+}
+
+@test "a repo the map names is walked once, whatever repos says" {
+  started_by_rex
+  slots '[]'
+  restored_prime
+  attaches_on_send pb pts/9
+  repos A
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  primes_journaled 'length == 1 and .[0].outcome == "reattached"'
+}
+
+@test "a repos call that fails leaves the walk to the map's lines" {
+  started_by_rex
+  slots '[]'
+  restored_prime
+  attaches_on_send pb pts/9
+  slot_answer repos 1 "" "$(server_error tmux-failed "no" 1 true)"
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  primes_journaled '. == [{repo: "A", prime: "A Prime", outcome: "reattached", session_id: "sess-a", window_id: "pw"}]'
+}
+
+@test "a Rex restart while a restored three-pane tab is replaced closes nothing and leaves the tabs to the new instance" {
+  started_by_rex
+  slots '[]'
+  restored_three_panes
+  prime_answer A slots '[]'
+  restarts_after 'window new'
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^rex window close'
+  not_called '^rex do agent_slot_layout'
+  not_called '^agent-slot list'
+  primes_journaled '.[0].outcome == "rex-server-restarted"'
+}
+
+@test "a start-up step on an instance it already recorded, as a config reload runs, replaces no three-pane tab" {
+  started_by_rex
+  recorded "$REX_STUB_INSTANCE" "done"
+  slots '[]'
+  restored_three_panes
+  prime_answer A slots '[]'
+  run "$AGENT_SLOT_REX" restore --at-start
+  [ "$status" -eq 0 ]
+  not_called '^agent-slot prime'
+  not_called '^rex window (new|close|move)'
 }
 
 @test "only the start-up step journals prime outcomes; every other pass journals primes as null" {

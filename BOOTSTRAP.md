@@ -127,8 +127,7 @@ stow --dotfiles --no-folding --target="$HOME" \
   gogcli codex-proxy rex
 ```
 
-`tmuxinator` is deliberately absent from both lists: its session configs are read in place from the repo and stowing
-them would shadow the source of truth. `ollama` is also absent — it targets `/etc`, not `$HOME` (see
+`ollama` is deliberately absent from both lists: it targets `/etc`, not `$HOME` (see
 [stow/ollama/README.md](stow/ollama/README.md)).
 
 ### Restow After Changes
@@ -360,8 +359,8 @@ AppCleaner), which would otherwise close mid-session. A manual `bu` still upgrad
 
 The `rex` package deploys `~/.config/rex/init.lua`, `layout.lua` (the dev layout actions), and `agent-slots.lua` (the
 agent-slot actions and keys) to both machines, and on the Linux server also `slot-startup.lua`, the start-up step that
-restores the operator's own tabs with rexurrect and then gives every live slot its tab. Without that file, as on the
-Mac, `init.lua` runs `rexurrect auto-restore` itself. Rex reads `init.lua` only when it starts and on
+restores the operator's own tabs with rexurrect and then gives every live slot and running prime its tab. Without that
+file, as on the Mac, `init.lua` runs `rexurrect auto-restore` itself. Rex reads `init.lua` only when it starts and on
 `rex config reload`, so `scripts/stow-deploy` runs `rex config reload` after it stows the package; with no rex CLI
 found, or Rex not running, it says so and the deploy still succeeds.
 
@@ -400,8 +399,8 @@ rexurrect save && systemctl --user restart rex-server.service
 ```
 
 `cmd+alt+n` opens the session's repo prime or starts an agent on the repo in a new tab (README.md, "Keys and tab
-labels"), `cmd+alt+r` gives every live slot its tab back, and `cmd+alt+f` finishes the focused tab's task. On the Mac
-each forwards to the Linux server's helper through the ssh alias the `ssh` package defines for it;
+labels"), `cmd+alt+r` gives every live slot and running prime its tab back, and `cmd+alt+f` finishes the focused tab's
+task. On the Mac each forwards to the Linux server's helper through the ssh alias the `ssh` package defines for it;
 `AGENT_SLOT_REX_SERVER` names another. The Mac's dev ports reach the Linux server through the `com.user.bd-tunnel`
 LaunchAgent, which `launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.bd-tunnel.plist` loads. The
 helper logs to `~/.local/state/agent-slot-rex/` on the server: `restore.log` holds the start-up step Rex runs when it
@@ -632,7 +631,8 @@ both as success, so the failed-unit list stays meaningful.
 `agent-slot` hands out clones of a repo for parallel Claude agents ([README](README.md#parallel-agents)). After the
 `tmux` and `local` packages are deployed, enable the slot tmux server's prune timer, check the prerequisites, and trust
 the slot paths of the repos you start agents on. `warm` trusts slot paths only for a repo whose prime checkout you have
-already trusted in Claude:
+already trusted in Claude, which the new-agent key's first press in the repo's Rex session lets you do, by opening its
+prime and showing Claude's trust dialog:
 
 ```bash
 systemctl --user daemon-reload

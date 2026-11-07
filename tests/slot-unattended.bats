@@ -180,6 +180,24 @@ ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
   [ ! -e "$LEDGER" ]
 }
 
+@test "a prime's Claude gets every dialog as usual, whatever digits its repo's name holds, and no ledger line" {
+  local session
+  SLOT=$AGENT_SLOT_DEV/repoa
+  for session in repoa-prime foo-2-prime; do
+    printf '%s' "$session" >"$STUBS/pane-session"
+    run permission
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    run pretool AskUserQuestion
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    run pretool EnterPlanMode
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+  done
+  [ ! -e "$LEDGER" ]
+}
+
 @test "a nested claude inside the slot's pane gets the dialog as usual" {
   run "$T/pane-shell" "$FAKE/claude" -c "$RUNS" claude bash -c "$RUNS" tool "$FAKE/claude" -c "$RUNS" claude "$HOOK" \
     < <(payload PermissionRequest '{"tool_name": "Bash", "tool_input": {"command": "mv a b"}}')
