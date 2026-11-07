@@ -49,6 +49,49 @@ trash_entries() {
 # last_event FILE EVENT: the last line of a JSON-lines log whose event is EVENT.
 last_event() { jaq -c -s --arg e "$2" 'map(select(.event == $e))[-1]' "$1"; }
 
+# prime_sessions: repoa's prime runs on the slot server.
+prime_sessions() {
+  printf 'repoa-prime\nrepoa-prime-files\nrepoa-prime-git\n' >>"$STUBS/tmux-sessions"
+}
+
+# sweeping_leaves_prime [FLAG]: a finished slot beside a running prime goes, and the prime's sessions stay.
+sweeping_leaves_prime() {
+  finished_task
+  idle_agent :
+  prime_sessions
+  run --separate-stderr "$AGENT_SLOT" sweep --yes "$@" --output json
+  [ "$status" -eq 0 ]
+  jaq -e '.torn_down == ["repoa/1"]' <<<"$output"
+  [ ! -e "$SLOT" ]
+  [ "$(sort -u "$STUBS/tmux-sessions")" = $'repoa-prime\nrepoa-prime-files\nrepoa-prime-git' ]
+  run ! grep -q 'kill-session -t =repoa-prime' "$CALLS"
+}
+
+@test "a slot verb given a prime's key is a usage error naming the verb that starts it, and changes nothing" {
+  local args before
+  prime_sessions
+  before=$(cat "$STUBS/tmux-sessions")
+  for args in 'finish repoa/prime --yes' 'check repoa/prime' 'resume repoa/prime'; do
+    # shellcheck disable=SC2086 # each case is its own argument list
+    run --separate-stderr "$AGENT_SLOT" $args --output json
+    [ "$status" -eq 2 ]
+    assert_error_shape "$stderr"
+    jaq -e '.reason == "usage" and .value == "repoa/prime"
+      and (.message | contains("agent-slot prime repoa"))' <<<"$stderr"
+  done
+  [ "$(cat "$STUBS/tmux-sessions")" = "$before" ]
+  run ! grep -q 'kill-session' "$CALLS"
+}
+
+@test "sweep --yes tears down a finished slot beside a running prime and leaves the prime" {
+  sweeping_leaves_prime
+}
+
+@test "sweep --yes --auto tears down a finished slot beside a running prime and leaves the prime" {
+  operator_finished
+  sweeping_leaves_prime --auto
+}
+
 @test "AE7: sweep --yes stops a finished, clean, idle slot's agent, kills its sessions, deletes it, and keeps its history" {
   finished_task
   idle_agent "touch '$T/agent-stopped'"

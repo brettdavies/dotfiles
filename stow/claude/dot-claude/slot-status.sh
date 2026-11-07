@@ -89,7 +89,7 @@ status_report() {
     hook_log "pane $TMUX_PANE not found on $HOOK_SOCKET; dropped state=$record"
     return 0
   fi
-  hook_claude_session && hook_top_level_claude || return 0
+  { hook_claude_session || hook_prime_session; } && hook_top_level_claude || return 0
   if ! status_lock "$TMUX_PANE"; then
     hook_log "pane $TMUX_PANE lock not taken within ${HOOK_TMUX_SECS}s; dropped state=$record"
     return 0

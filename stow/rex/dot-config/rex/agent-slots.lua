@@ -52,7 +52,7 @@ rex.action{
 rex.action{
   name = "agent_slot_restore",
   title = "Restore Agent Tabs",
-  description = "Open a tab for every live slot, resume dormant ones, and close tabs whose slot is gone.",
+  description = "Open a tab for every live slot and running prime, resume dormant slots, and close tabs whose slot is gone.",
   category = "Agents",
   run = function()
     rex.exec.start({ HELPER, "restore", "--tab" }, { detach = true })
@@ -79,13 +79,13 @@ rex.action{
 rex.action{
   name = "agent_slot_layout",
   title = "Agent Slot Layout Around Pane",
-  description = "Add a slot's files pane to the left of a pane and its git pane below it.",
+  description = "Add the files pane of a slot or prime to the left of a pane and its git pane below it.",
   category = "Agents",
   args = {
     type = "object",
     properties = {
-      key = { type = "string", description = "The slot, as <repo>/<N>." },
-      block = { type = "string", description = "The slot's Claude pane; the focused pane when left out." },
+      key = { type = "string", description = "The slot, as <repo>/<N>, or the prime, as <repo>/prime." },
+      block = { type = "string", description = "Its Claude pane; the focused pane when left out." },
     },
     required = { "key" },
   },

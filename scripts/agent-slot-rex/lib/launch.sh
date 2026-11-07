@@ -1,10 +1,12 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
 # launch: the new-agent key's tab. The key opens a background tab running `launch --here`. In a repo's session whose
-# prime is open in none of its tabs, that tab becomes the prime's tab; otherwise, on success it becomes the slot's tab
-# (relabelled, laid out, and attached), and on failure it stays open with the error and, for a retryable reason, a retry
-# under the same request ID, so the server returns the slot the first try may have made.
+# prime is held in none of its tabs, that tab becomes the prime's, starting the prime if it is not running; otherwise, on
+# success it becomes the slot's tab (relabelled, laid out, and attached). On failure it stays open with the error and,
+# for a retryable reason, a retry, under the same request ID for a slot, so the server returns the slot the first try
+# may have made.
 
 LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_HERE=0 LAUNCH_WAIT_SHOWN=0 LAUNCH_PICKED=0 LAUNCH_NAMED=0 LAUNCH_WINDOW=''
+LAUNCH_OF_PRIME=0
 LAUNCH_REPOS='[]'
 LAUNCH_OPENED_AT='' LAUNCH_SHOWN_AT=''
 
@@ -146,14 +148,22 @@ launch_succeeded() {
 
 # Shows the failed call's error in this tab. Returns 0 when the operator asks for a retry.
 launch_failed() {
-  local key
-  launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "${LAUNCH_REPO:-new agent} · launch failed"
-  printf '\nagent-slot-rex: the launch%s failed\n' "${LAUNCH_REPO:+ on $LAUNCH_REPO}"
+  local key label="${LAUNCH_REPO:-new agent} · launch failed" what="the launch${LAUNCH_REPO:+ on $LAUNCH_REPO} failed"
+  local retry='press Enter to retry with the same request ID, or q to close this tab'
+  if ((LAUNCH_OF_PRIME == 1)); then
+    label="$LAUNCH_REPO · prime failed" what="the prime of $LAUNCH_REPO did not start"
+    retry='press Enter to retry, or q to close this tab'
+  fi
+  launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$label"
+  printf '\nagent-slot-rex: %s\n' "$what"
   contract_error_text "$AR_ERROR"
   if [[ $(contract_json -r '.recovery.retryable' <<<"$AR_ERROR") == true ]]; then
-    printf 'press Enter to retry with the same request ID, or q to close this tab\n'
+    printf '%s\n' "$retry"
     while IFS= read -r -n 1 key; do
-      [[ -n $key ]] || return 0
+      if [[ -z $key ]]; then
+        ((LAUNCH_OF_PRIME == 0)) || launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$PRIME_LABEL"
+        return 0
+      fi
       [[ $key != q ]] || return 1
     done
     return 1
@@ -237,21 +247,22 @@ launch_repos() {
   fi
 }
 
-# Makes this tab the repo's prime tab, first in its session and labelled with the prime session's name, and becomes the
-# prime's attach. A prime that is not running stops the tab with the reason, since attaching would fail.
+# Makes this tab the repo's prime tab: labelled first, so a second press knows a prime is on its way, then started, first
+# in its session, and laid out as a slot's tab is unless the prime runs old-style, whose one session fills the pane.
 launch_prime() {
-  if ! prime_running "$PRIME_SESSION"; then
-    launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$LAUNCH_REPO · prime not running"
-    [[ $CONTRACT_OUTPUT != text || ! -t 0 ]] || AR_HOLD=1
-    ar_fail "$(contract_error_json prime-not-running "the prime tmux session of $LAUNCH_REPO, $PRIME_SESSION, is not \
-running on the default tmux server; start it, then press the key again" --value "$PRIME_SESSION" \
-      --command "$(contract_quote tmux has-session -t "=$PRIME_SESSION")")"
-  fi
-  launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$PRIME_SESSION"
-  launch_try rex_or_fail window move -s "$REX_SESSION" "$LAUNCH_WINDOW" --index 1
-  contract_ok "$(contract_json -n -c --arg repo "$LAUNCH_REPO" --arg prime "$PRIME_SESSION" \
-    '{repo: $repo, prime: $prime}')" '"opening the prime of \(.repo), \(.prime)"'
+  local server
+  LAUNCH_OF_PRIME=1
+  launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$PRIME_LABEL"
+  printf 'agent-slot-rex: opening the prime of %s\n' "$LAUNCH_REPO"
+  launch_call "$AR_PRIME_BOUND" prime "$LAUNCH_REPO"
+  launch_try rex_move_first "$REX_SESSION" "$LAUNCH_WINDOW"
+  server=$(contract_json -r '.server' <<<"$SERVER_OUT")
+  [[ $server != slots ]] || launch_try rex_layout "$REX_SESSION" "$REX_BLOCK" "$(slot_key "$LAUNCH_REPO" "$SLOT_PRIME")"
+  contract_ok "$SERVER_OUT" '"opening the prime of \(.repo), in \(.session)"'
   rm -f "$CONTRACT_NOISE"
+  # A pass counts the prime command as holding only an old-style session, so a tab passing through it for a prime on the
+  # slot server would read as unheld and get a second tab.
+  [[ $server != slots ]] || exec "$AR_SELF" attach "$(slot_key "$LAUNCH_REPO" "$SLOT_PRIME")" claude
   exec "$AR_SELF" prime "$LAUNCH_REPO"
 }
 
@@ -263,9 +274,9 @@ launch_here() {
   [[ -z $LAUNCH_TASK ]] || args+=(--task "$LAUNCH_TASK")
   launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$LAUNCH_REPO · launching"
   printf 'agent-slot-rex: starting an agent in a fresh slot of %s (request %s)\n' "$LAUNCH_REPO" "${args[4]}"
-  # Outlasts the server's own bounds end to end: repo lock 60 s, clone 900 s, git-crypt 120 s, trust 45 s, and the
-  # three sessions' tmux calls 90 s.
-  launch_call 1260 launch "${args[@]}"
+  # Outlasts the server's own bounds end to end: repo lock 60 s, clone 900 s, git-crypt 120 s, trust 45 s, the three
+  # sessions' tmux calls 90 s, and the start of the prime.
+  launch_call "$((1260 + AR_PRIME_BOUND))" launch "${args[@]}"
   launch_succeeded
 }
 
@@ -288,8 +299,9 @@ cmd_launch() {
     launch_elsewhere
     return
   fi
-  if ((LAUNCH_NAMED == 1)) && prime_of "$LAUNCH_REPO" && ! prime_tab_open "$REX_SESSION" "$PRIME_SESSION"; then
-    launch_prime
+  if ((LAUNCH_NAMED == 1)); then
+    prime_of "$LAUNCH_REPO"
+    prime_tab_open "$REX_SESSION" "$LAUNCH_REPO" "$PRIME_LABEL" "$LAUNCH_WINDOW" || launch_prime
   fi
   launch_here
 }

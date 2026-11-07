@@ -9,6 +9,8 @@
 # Run: bats tests/claude-bypass-flag.bats
 # run-tests: parallel
 
+load lib/agent-slot
+
 REPO="$BATS_TEST_DIRNAME/.."
 FLAG=--dangerously-skip-permissions
 
@@ -61,6 +63,22 @@ EOF
   [ "${#lines[@]}" -eq 14 ]
   run bare_starts "$dir/good.sh"
   [ -z "$output" ]
+}
+
+@test "a prime's fresh and resumed Claude lines both come from the constant that carries the flag" {
+  [ "$(uname -s)" = Linux ] || skip "Linux only: agent-slot reads /proc for agent state"
+  local id=aaaaaaaa-0000-4000-8000-000000000001
+  agent_slot_setup
+  prime repoa
+  rm -f "$STUBS/tmux-panes-default"
+  "$AGENT_SLOT" prime repoa
+  [[ $(cat "$STUBS/typed-repoa-prime") == "claude $FLAG --session-id "* ]]
+
+  : >"$STUBS/tmux-sessions"
+  mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS/-any"
+  printf '{"type":"custom-title","customTitle":"repoa-prime"}\n' >"$AGENT_SLOT_CLAUDE_PROJECTS/-any/$id.jsonl"
+  "$AGENT_SLOT" prime repoa
+  [ "$(cat "$STUBS/typed-repoa-prime")" = "claude $FLAG --resume $id -n repoa-prime" ]
 }
 
 # agent-slot-rex's prime command and the start-up re-attach attach a tmux client and start no Claude, so a bare start

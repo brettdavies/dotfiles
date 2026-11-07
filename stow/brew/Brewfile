@@ -73,7 +73,6 @@ brew "shfmt"
 
 # Terminal multiplexer
 brew "tmux"
-brew "tmuxinator"
 
 # Terminal file manager + its previewer dependencies. The stowed yazi config
 # pipes markdown through glow and PDFs through pdftotext (from poppler) via
