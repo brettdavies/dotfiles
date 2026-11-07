@@ -30,7 +30,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --output)
       if [ "$#" -lt 2 ] || { [ "$2" != json ] && [ "$2" != text ]; }; then
-        os_fail usage "--output takes json or text" "$OS_DEPLOY --help"
+        os_fail usage "--output takes json or text" "$OS_DEPLOY --help" "${2:-}"
       fi
       OS_OUTPUT=$2
       shift 2
@@ -40,7 +40,7 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     *)
-      os_fail usage "unexpected argument" "$OS_DEPLOY --help" "$1"
+      os_fail usage "unexpected argument $(os_mask "$1"); options follow the verb" "$OS_DEPLOY --help" "$1"
       ;;
   esac
 done
@@ -52,9 +52,9 @@ case "$verb" in
     ;;
   render | up | down | serve | status | create-admin) ;;
   *)
-    os_fail usage "unknown or missing verb" "$OS_DEPLOY --help" "$verb"
+    os_fail usage "unknown or missing verb $(os_mask "$verb")" "$OS_DEPLOY --help" "$verb"
     ;;
 esac
-[ "$OS_OUTPUT" = text ] || [ "$verb" = status ] || os_fail usage "--output json is for status only" "$OS_DEPLOY --help"
+[ "$OS_OUTPUT" = text ] || [ "$verb" = status ] || os_fail usage "--output json is for status only" "$OS_DEPLOY --help" "$verb"
 
 "os_${verb//-/_}"

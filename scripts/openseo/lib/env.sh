@@ -13,8 +13,7 @@ os_item() {
       "~/.claude/skills/1password/scripts/get_item.sh $1" "$1"
   fi
   if ! [[ $out =~ $OS_SAFE_RE ]]; then
-    OS_ACTION=supply-input
-    os_fail value-unsafe "1Password item $1 ($2), field $3, holds a character an env file cannot carry safely; nothing changed" \
+    os_fail_input value-unsafe "1Password item $1 ($2), field $3, holds a character an env file cannot carry safely; nothing changed" \
       "change the field to letters, digits, and + / = . _ : @ - only" "$1"
   fi
   printf -v "$4" '%s' "$out"
@@ -36,8 +35,7 @@ os_keep_storage() {
   local old
   old=$(os_env_get "$OS_LOCAL_ENV" "$1")
   [ -z "$old" ] || [ "$old" = "$2" ] || {
-    OS_ACTION=supply-input
-    os_fail storage-key-changed "$OS_LOCAL_ENV has a different $1 than 1Password item $OS_STORAGE_ITEM (OpenSEO - Storage Secret (openseo)); a restore needs the original storage credentials, so nothing was written" \
+    os_fail_input storage-key-changed "$OS_LOCAL_ENV has a different $1 than 1Password item $OS_STORAGE_ITEM (OpenSEO - Storage Secret (openseo)); a restore needs the original storage credentials, so nothing was written" \
       "put the previous value back in the item from its 1Password history, or restore from a backup (docs/runbooks/openseo.md#storage-key-changed)" "$1"
   }
 }

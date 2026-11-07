@@ -23,14 +23,24 @@ setup() {
   BREW="$BATS_TEST_TMPDIR/brew"
   CALLS="$BATS_TEST_TMPDIR/calls.log"
   mkdir -p "$STUBS" "$BREW" "$BATS_TEST_TMPDIR/openseo"
-  export OPENSEO_ENV_DIR="$BATS_TEST_TMPDIR/openseo" OPENSEO_BREW_BIN="$BREW" CALLS
-  export STUB_HOST=bigdaddy STUB_OLLAMA=up STUB_CODEX=up STUB_HEALTH=ok STUB_FIRST=false STUB_BOUND=0
+  export OPENSEO_ENV_DIR="$BATS_TEST_TMPDIR/openseo" OPENSEO_BREW_BIN="$BREW" CALLS OPENSEO_ADVERTISE_WAIT=1
+  export STUB_HOST=bigdaddy STUB_OLLAMA=up STUB_CODEX=up STUB_HEALTH=ok STUB_FIRST=false STUB_BOUND=0 STUB_CAP=1
+  export STUB_STATUS_FAIL=0 STUB_SERVE_FAIL=0 STUB_OFF_FAIL=0
   _stub hostname 'echo "$STUB_HOST"'
   _stub tailscale 'echo "tailscale $*" >>"$CALLS"
-  [ "$1 $2" = "serve status" ] && [ "$STUB_BOUND" = 1 ] && echo "{\"Services\":{\"svc:openseo\":{}}}"
-  if [ "$1 $2" = "status --json" ]; then
-    echo "{\"MagicDNSSuffix\":\"tail-test.ts.net\",\"Self\":{\"CapMap\":{\"service-host\":[{\"svc:openseo\":[\"100.64.0.9\"]}]}}}"
+  if [ "$1 $2" = "serve status" ]; then
+    [ "$STUB_STATUS_FAIL" != 1 ] || exit 1
+    [ "$STUB_BOUND" = 1 ] && echo "{\"Services\":{\"svc:openseo\":{}}}"
   fi
+  if [ "$1 $2" = "status --json" ]; then
+    cap="[]"
+    [ "$STUB_CAP" != 1 ] || cap="[{\"svc:openseo\":[\"100.64.0.9\"]}]"
+    echo "{\"MagicDNSSuffix\":\"tail-test.ts.net\",\"Self\":{\"CapMap\":{\"service-host\":$cap}}}"
+  fi
+  case "$*" in
+    *--yes*svc:openseo* | *svc:openseo*--yes*) [ "$STUB_SERVE_FAIL" != 1 ] || { echo "serve: refused" >&2; exit 1; } ;;
+    *svc:openseo*" off") [ "$STUB_OFF_FAIL" != 1 ] || { echo "serve: cannot turn it off" >&2; exit 1; } ;;
+  esac
   exit 0'
   _stub curl 'echo "curl ${*: -1}" >>"$CALLS"
   case "${*: -1}" in
@@ -117,4 +127,42 @@ _never() { ! grep -qE "$1" "$CALLS"; }
   STUB_CODEX=down _run
   [ "$status" -eq 1 ]
   [ "$(_serves)" = "svc:ollama " ]
+}
+
+@test "an Ollama proxy that is down still turns off an OpenSEO binding that has no account behind it" {
+  _with_openseo
+  STUB_OLLAMA=down STUB_FIRST=true STUB_BOUND=1 _run
+  [ "$status" -eq 1 ]
+  grep -qF 'tailscale serve --service=svc:openseo --https=443 off' "$CALLS"
+  [[ "$output" == *"not responding"* ]]
+}
+
+@test "a binding that will not turn off fails with unbind-failed and binds nothing else" {
+  _with_openseo
+  STUB_FIRST=true STUB_BOUND=1 STUB_OFF_FAIL=1 _run
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"OpenSEO has no account yet"*"serve --service=svc:openseo --https=443 off"* ]]
+  _never "svc:ollama|svc:codex-proxy"
+}
+
+@test "a refused openseo binding fails with bind-failed" {
+  _with_openseo
+  STUB_SERVE_FAIL=1 _run
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ERROR: svc:openseo did not bind"*"openseo-deploy.sh serve"* ]]
+}
+
+@test "a service the control plane never lists fails after the wait" {
+  _with_openseo
+  STUB_CAP=0 _run
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ERROR:"*"control plane does not list this host"*"openseo-deploy.sh serve"* ]]
+}
+
+@test "a sign-up-status that gives no usable answer fails naming the endpoint" {
+  _with_openseo
+  STUB_FIRST=null _run
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ERROR:"*"/api/sign-up-status"*"nothing usable"* ]]
+  [ "$(_serves)" = "svc:ollama svc:codex-proxy " ]
 }

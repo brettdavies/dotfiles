@@ -3,8 +3,8 @@
 # shellcheck disable=SC2034 # globals are shared through the script that sources this file
 
 pin_bad() {
-  os_fail pin-invalid "the pin has an invalid $1${PIN_LINE:+ at line $PIN_LINE}; nothing changed" \
-    "git checkout -- config/openseo/openseo.pin, or edit it to the shapes in docs/runbooks/openseo.md" "$2"
+  os_fail_input pin-invalid "the pin has an invalid $1${PIN_LINE:+ at line $PIN_LINE}; nothing changed" \
+    "git -C ~/dotfiles checkout -- config/openseo/openseo.pin, or edit it to the shapes in docs/runbooks/openseo.md" "$2"
 }
 
 # pin_load PATH sets PIN_TAG, PIN_COMMIT, PIN_RELEASED, PIN_IMAGE, and PIN_COMPOSE_SHA.
@@ -47,5 +47,5 @@ pin_verify() {
   sum=$(sha256sum "$1")
   sum=${sum%% *}
   [ "$sum" = "$PIN_COMPOSE_SHA" ] || os_fail pin-mismatch "config/openseo/compose.yaml has sha256 $sum but the pin records $PIN_COMPOSE_SHA; nothing changed" \
-    "git checkout -- config/openseo/compose.yaml" "$sum"
+    "git -C ~/dotfiles checkout -- config/openseo/compose.yaml" "$sum"
 }

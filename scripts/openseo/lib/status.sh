@@ -9,19 +9,22 @@ os_status() {
   local addr image
   os_need curl jq tailscale
   os_need_suffix
+  OS_ACTION=ask-operator
   addr=https://openseo.$OS_SUFFIX
   if [ -f "$OS_LOCAL_ENV" ]; then
     os_gate_check || :
     case "$OS_GATE" in
       first-account-open)
-        ! os_bound || os_fail first-account-open "OpenSEO has no account yet and $OS_SERVICE is still bound, so its first visitor would become administrator; nothing changed" "$OS_DEPLOY serve"
+        { os_bound || [ "$?" -ne 1 ]; } && os_fail first-account-open "OpenSEO has no account yet and $OS_SERVICE is, or may still be, bound, so its first visitor could become administrator; nothing changed" "$OS_DEPLOY serve"
         os_fail first-account-open "OpenSEO has no account yet, so $OS_SERVICE is correctly unbound; nothing changed" "$OS_DEPLOY create-admin"
         ;;
-      unhealthy) os_unhealthy "the stack is stopped or still starting; nothing changed; safe to rerun" ;;
+      unhealthy) os_unhealthy "nothing changed; safe to rerun" ;;
     esac
     os_check loopback "$OS_LOOPBACK/api/health ok and an account exists"
     os_advertised || os_fail service-not-advertised "the control plane does not list $OS_SERVICE for this host (nothing changed; safe to rerun)" "$OS_DEPLOY serve"
     os_check service "$OS_SERVICE is listed in CapMap service-host"
+    os_bound || os_fail bind-failed "$OS_SERVICE has no binding on this host, or tailscale could not list it, so peers time out; nothing changed; safe to rerun" "$OS_DEPLOY serve"
+    os_check binding "$OS_SERVICE is bound"
   fi
   os_health "$addr"
   if [ "$OS_HEALTH" = ok ]; then
@@ -29,7 +32,7 @@ os_status() {
   elif [ -f "$OS_LOCAL_ENV" ]; then
     os_note "this host cannot reach its own service address $addr; its loopback and service checks pass, and other hosts can still reach it"
   else
-    os_fail address-unreachable "$addr/api/health refused (nothing changed; safe to rerun)" "$OS_DEPLOY serve   # on the host that runs OpenSEO"
+    os_fail address-unreachable "$addr/api/health refused; run serve on the host that runs OpenSEO; nothing changed; safe to rerun" "$OS_DEPLOY serve" "$addr"
   fi
   if [ -f "$OS_LOCAL_ENV" ]; then
     pin_load "$OS_PIN"

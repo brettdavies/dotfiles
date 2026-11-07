@@ -15,6 +15,7 @@ COMPOSE="$REPO_ROOT/config/openseo/compose.yaml"
 RUNBOOK="$REPO_ROOT/docs/runbooks/openseo.md"
 STORAGE_ITEM=tdkhy4vi4ijxryxihwb4xdjowy
 ADMIN_ITEM=hwacawam6ghon7c4tlxswldzye
+REAL_DOCKER=$(command -v docker || true)
 
 setup_file() {
   load lib/platform
@@ -32,6 +33,7 @@ setup() {
   export CALLS="$BATS_TEST_TMPDIR/calls.log" ACCOUNT="$BATS_TEST_TMPDIR/account" STDIN_FILE="$BATS_TEST_TMPDIR/stdin"
   export OPENSEO_ENV_DIR="$BATS_TEST_TMPDIR/cfg/openseo" OP_SKILL="$STUBS/op"
   export STUB_HEALTH=ok STUB_FIRST=false STUB_ADDR=ok STUB_CAP=1 STUB_BOUND=0
+  export OPENSEO_ADVERTISE_WAIT=1 OPENSEO_HEALTH_WAIT=1 OPENSEO_INIT_TIMEOUT=2 TICKS="$BATS_TEST_TMPDIR/ticks"
   _stub uname 'if [ -n "${STUB_OS:-}" ]; then echo "$STUB_OS"; else command -p uname "$@"; fi'
   _stub op/read_field.sh 'echo "read_field $*" >>"$CALLS"
   [ "${STUB_OP_FAIL:-}" != 1 ] || exit 1
@@ -47,15 +49,24 @@ setup() {
   _stub tailscale 'echo "tailscale $*" >>"$CALLS"
   if [ "$1 $2" = "status --json" ]; then
     [ "${STUB_TS_FAIL:-}" != 1 ] || exit 1
-    cap=""; [ "$STUB_CAP" = 1 ] && cap=",{\"svc:openseo\":[\"100.64.0.9\"]}"
+    echo >>"$TICKS.cap"; cap=""
+    [ "$STUB_CAP" = 1 ] && [ "$(wc -l <"$TICKS.cap")" -ge "${STUB_CAP_AFTER:-1}" ] && cap=",{\"svc:openseo\":[\"100.64.0.9\"]}"
     echo "{\"MagicDNSSuffix\":\"tail-test.ts.net\",\"Self\":{\"CapMap\":{\"service-host\":[{\"svc:ollama\":[\"100.64.0.1\"]}$cap]}}}"
   fi
-  [ "$1 $2" = "serve status" ] && [ "$STUB_BOUND" = 1 ] && echo "{\"Services\":{\"svc:openseo\":{}}}"
+  if [ "$1 $2" = "serve status" ]; then
+    [ "${STUB_STATUS_FAIL:-}" != 1 ] || exit 1
+    [ "$STUB_BOUND" = 1 ] && echo "{\"Services\":{\"svc:openseo\":{}}}"
+  fi
+  [ "${STUB_SERVE_FAIL:-}" != 1 ] || [ "$1" != serve ] || [[ " $* " != *" --yes "* ]] || { echo "serve: not permitted" >&2; exit 1; }
+  [ "${STUB_OFF_FAIL:-}" != 1 ] || [ "${*: -1}" != off ] || { echo "serve: cannot turn it off" >&2; exit 1; }
   exit 0'
   _stub curl 'echo "curl ${*: -1}" >>"$CALLS"
   first=$STUB_FIRST; [ ! -e "$ACCOUNT" ] || first=false
   case "${*: -1}" in
-    http://127.0.0.1:8946/api/health) [ "$STUB_HEALTH" != down ] || exit 22; echo "{\"status\":\"$STUB_HEALTH\"}" ;;
+    http://127.0.0.1:8946/api/health)
+      echo >>"$TICKS.health"
+      [ "$STUB_HEALTH" != down ] && [ "$(wc -l <"$TICKS.health")" -ge "${STUB_HEALTH_AFTER:-1}" ] || exit 22
+      echo "{\"status\":\"$STUB_HEALTH\"}" ;;
     http://127.0.0.1:8946/api/sign-up-status) echo "{\"firstAccount\":$first}" ;;
     https://openseo.tail-test.ts.net/api/health) [ "$STUB_ADDR" = ok ] || exit 22; echo "{\"status\":\"ok\"}" ;;
   esac'
@@ -63,10 +74,13 @@ setup() {
   echo "env COMPOSE_FILE=${COMPOSE_FILE-unset} COMPOSE_ENV_FILES=${COMPOSE_ENV_FILES-unset} PORT=${PORT-unset} OPENSEO_IMAGE=${OPENSEO_IMAGE-unset} OPENROUTER_API_KEY=${OPENROUTER_API_KEY-unset} COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME-unset} DOCKER_HOST=${DOCKER_HOST-unset}" >>"$CALLS"
   case "$2" in
     pull) [ "${STUB_PULL_FAIL:-}" != 1 ] || { echo "pull access denied" >&2; exit 1; } ;;
-    up) [ "${STUB_UP_FAIL:-}" != 1 ] || { echo "up failed" >&2; exit 1; } ;;
-    logs)
+    up)
       [ "${STUB_INIT:-ok}" != hang ] || exec sleep 30
-      if [ "${STUB_INIT:-ok}" = ok ]; then echo "OpenSEO initialized and ready."; else echo "Runtime did not start"; fi ;;
+      [ "${STUB_INIT:-ok}" != fail ] || { echo "service \"init\" didn'"'"'t complete successfully: exit 1" >&2; exit 1; }
+      [ "${STUB_UP_FAIL:-}" != 1 ] || { echo "up failed" >&2; exit 1; } ;;
+    logs)
+      if [ "${STUB_NOREADY:-}" = 1 ]; then echo "Runtime did not start"; else echo "OpenSEO initialized and ready."; fi
+      [[ " $* " != *" -f "* ]] || exec sleep 300 ;;
     exec)
       cat >"$STDIN_FILE"
       [ "${STUB_EXEC_FAIL:-}" != 1 ] || { echo "Account command failed; check the server logs" >&2; exit 1; }
@@ -109,8 +123,9 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
 
 @test "docker compose config pins the three app services and publishes only on loopback" {
   [ "${OPENSEO_TEST_DOCKER:-}" = 1 ] || skip "operator opt-in: OPENSEO_TEST_DOCKER=1 runs docker, which agents never do"
+  [ -n "$REAL_DOCKER" ] || skip "docker is not installed"
   image=$(awk '$1 == "image" { print $2 }' "$PIN")
-  run env COMPOSE_FILE="$COMPOSE" STORAGE_ACCESS_KEY=a STORAGE_SECRET_KEY=b OPENSEO_IMAGE="$image" docker compose config --format json
+  run env COMPOSE_FILE="$COMPOSE" STORAGE_ACCESS_KEY=a STORAGE_SECRET_KEY=b OPENSEO_IMAGE="$image" "$REAL_DOCKER" compose config --format json
   [ "$status" -eq 0 ]
   jq -e --arg i "$image" '[.services.runtime.image, .services.init.image, .services["crawl-gateway"].image] | all(. == $i)' <<<"$output"
   jq -e '[.services[].ports[]?.host_ip] | all(. == "127.0.0.1")' <<<"$output"
@@ -141,7 +156,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   { cat "$COMPOSE"; echo '# hand edit'; } >"$BATS_TEST_TMPDIR/compose.yaml"
   run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "$2"; pin_verify "$3"' _ "$LIB" "$PIN" "$BATS_TEST_TMPDIR/compose.yaml"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: pin-mismatch:"*"fix: git checkout -- config/openseo/compose.yaml"* ]]
+  [[ "$output" == *"ERROR: pin-mismatch:"*"fix: git -C ~/dotfiles checkout -- config/openseo/compose.yaml"* ]]
 }
 
 @test "render writes a mode-600 env file in a mode-700 directory with every key and the tailnet address" {
@@ -215,7 +230,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
 @test "render with tailscale status failing exits 1 naming it and writes nothing" {
   STUB_TS_FAIL=1 _run render
   [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: tailscale-unavailable:"*"tailscale status --json"* ]]
+  [[ "$output" == *"ERROR: tailscale-unavailable:"*"tailscale status --json"*"fix: tailscale status, then tailscale up"* ]]
   [ ! -e "$OPENSEO_ENV_DIR/local.env" ]
 }
 
@@ -258,17 +273,57 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   _never "docker compose up"
 }
 
-@test "up with a failing init exits 1 and prints the logs command" {
+@test "up whose init exits non-zero reports init-failed with the logs command, not up-failed" {
   STUB_INIT=fail _run up
   [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: init-failed:"*"cause: Runtime did not start"*"fix: COMPOSE_FILE="*"docker compose logs init"* ]]
+  [[ "$output" == *"ERROR: init-failed:"*"cause: service \"init\" didn't complete successfully"*"fix: COMPOSE_FILE="*"docker compose logs init"* ]]
   _not_served
 }
 
-@test "up gives up on an init that never finishes" {
+@test "up whose init exits 0 without its ready line reports init-failed with the log's last line" {
+  STUB_NOREADY=1 _run up
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: init-failed:"*"cause: Runtime did not start"* ]]
+  _not_served
+}
+
+@test "up gives up on a start that never finishes, naming the bound and the logs command" {
   OPENSEO_INIT_TIMEOUT=1 STUB_INIT=hang _run up
   [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: init-failed: init did not finish within 1s"* ]]
+  [[ "$output" == *"ERROR: init-failed: init did not complete within 1s"*"docker compose logs init"* ]]
+}
+
+@test "up says what it waits for and how to follow it before the first start, and reads the log without following" {
+  _run up
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"starting the stack"*"docker compose logs -f init"* ]]
+  [[ "$output" == *"init finished"* ]]
+}
+
+@test "up with a failing compose up reports up-failed and names up" {
+  STUB_UP_FAIL=1 _run up
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: up-failed:"*"cause: up failed"*"fix: ~/dotfiles/scripts/openseo-deploy.sh up"* ]]
+}
+
+@test "up turns the binding off before it starts anything, and leaves the address dark when the start fails" {
+  STUB_BOUND=1 STUB_UP_FAIL=1 _run up
+  [ "$status" -eq 1 ]
+  [ "$(grep -nF 'tailscale serve --service=svc:openseo --https=443 off' "$CALLS" | head -1 | cut -d: -f1)" -lt "$(grep -n '^docker compose up' "$CALLS" | head -1 | cut -d: -f1)" ]
+  _not_served
+}
+
+@test "up stops before it starts anything when the binding will not turn off" {
+  STUB_BOUND=1 STUB_OFF_FAIL=1 _run up
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: unbind-failed:"*"cause: serve: cannot turn it off"*"fix: tailscale serve --service=svc:openseo --https=443 off"* ]]
+  _never "docker compose up"
+}
+
+@test "up waits for the health endpoint to answer before it checks the gate" {
+  STUB_HEALTH_AFTER=2 OPENSEO_HEALTH_WAIT=5 _run up
+  [ "$status" -eq 0 ]
+  _served
 }
 
 @test "up and serve with no account yet never bind and name create-admin" {
@@ -309,6 +364,43 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [[ "$output" == *"ERROR: service-not-advertised:"*"openseo.md#service-not-advertised"* ]]
 }
 
+@test "serve waits for the control plane to list the service before it gives up" {
+  _prep
+  STUB_CAP_AFTER=4 OPENSEO_ADVERTISE_WAIT=5 _run serve
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"bound: https://openseo.tail-test.ts.net"* ]]
+}
+
+@test "serve exits 1 with bind-failed when tailscale refuses the binding" {
+  _prep
+  STUB_SERVE_FAIL=1 _run serve
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: bind-failed:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh serve"* ]]
+  [[ "$output" != *"bound: https"* ]]
+}
+
+@test "serve exits 1 with unbind-failed when no account exists, a binding stands, and it will not turn off" {
+  _prep
+  STUB_FIRST=true STUB_BOUND=1 STUB_OFF_FAIL=1 _run serve
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: unbind-failed:"*"cause: serve: cannot turn it off"*"fix: tailscale serve --service=svc:openseo --https=443 off"* ]]
+}
+
+@test "serve treats a serve config it cannot read as bound when no account exists, and tries to turn it off" {
+  _prep
+  STUB_FIRST=true STUB_STATUS_FAIL=1 _run serve
+  [ "$status" -eq 0 ]
+  grep -qF 'tailscale serve --service=svc:openseo --https=443 off' "$CALLS"
+}
+
+@test "serve names the endpoint when sign-up-status gives no usable answer" {
+  _prep
+  STUB_FIRST=null _run serve
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: unhealthy:"*"/api/sign-up-status"*"nothing usable"* ]]
+  _not_served
+}
+
 @test "create-admin sends the password on stdin only, then binds and prints the address, item, and next step" {
   _prep
   STUB_FIRST=true _run create-admin
@@ -320,11 +412,24 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [[ "$output" == *"https://openseo.tail-test.ts.net"*"OpenSEO - Admin Login (openseo)"*"anc.dev"* ]]
 }
 
-@test "create-admin refuses when an account exists and names serve" {
+@test "create-admin refuses when an account exists, asks for a sign-in check, and names serve" {
   _prep
   _run create-admin
   [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: account-exists:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh serve"* ]]
+  [[ "$output" == *"ERROR: account-exists:"*"signing in at http://127.0.0.1:8946"*"fix: ~/dotfiles/scripts/openseo-deploy.sh serve"* ]]
+  _never "docker compose exec"
+}
+
+@test "create-admin turns a standing binding off before it makes the account, and fails when it cannot" {
+  _prep
+  STUB_FIRST=true STUB_BOUND=1 _run create-admin
+  [ "$status" -eq 0 ]
+  [ "$(grep -nF 'tailscale serve --service=svc:openseo --https=443 off' "$CALLS" | head -1 | cut -d: -f1)" -lt "$(grep -n 'docker compose exec' "$CALLS" | head -1 | cut -d: -f1)" ]
+  : >"$CALLS"
+  rm -f "$ACCOUNT"
+  STUB_FIRST=true STUB_BOUND=1 STUB_OFF_FAIL=1 _run create-admin
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: unbind-failed:"*"no account was made"* ]]
   _never "docker compose exec"
 }
 
@@ -332,7 +437,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   _prep
   STUB_FIRST=true STUB_EXEC_FAIL=1 _run create-admin
   [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: create-admin-failed:"*"cause: Account command failed"* ]]
+  [[ "$output" == *"ERROR: create-admin-failed:"*"cause: Account command failed"*"docker compose logs runtime"* ]]
   _not_served
 }
 
@@ -345,9 +450,9 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   _no_volumes
 }
 
-@test "status passes with loopback, the service, and the address healthy, and never calls docker" {
+@test "status passes with loopback, the service, the binding, and the address healthy, and never calls docker" {
   _prep
-  _run status
+  STUB_BOUND=1 _run status
   [ "$status" -eq 0 ]
   [[ "$output" == *"OK: OpenSEO is up at https://openseo.tail-test.ts.net"* ]]
   _never "^docker"
@@ -355,10 +460,10 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
 
 @test "status names up for a stack that is down and serve for a service the control plane lacks" {
   _prep
-  STUB_HEALTH=down _run status
+  STUB_BOUND=1 STUB_HEALTH=down _run status
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: unhealthy:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh up"* ]]
-  STUB_CAP=0 _run status
+  STUB_BOUND=1 STUB_CAP=0 _run status
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: service-not-advertised:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh serve"* ]]
 }
@@ -377,37 +482,68 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [[ "$output" == *"ERROR: address-unreachable:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh serve"* ]]
 }
 
+@test "status fails with bind-failed when the service is advertised but no binding stands" {
+  _prep
+  STUB_BOUND=0 _run status
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: bind-failed:"*"no binding on this host"*"fix: ~/dotfiles/scripts/openseo-deploy.sh serve"* ]]
+}
+
 @test "status on the OpenSEO host passes with a NOTE when only its own address refuses" {
   _prep
-  STUB_ADDR=down _run status
+  STUB_BOUND=1 STUB_ADDR=down _run status
   [ "$status" -eq 0 ]
   [[ "$output" == *"NOTE: this host cannot reach its own service address"* ]]
 }
 
-@test "status with no account yet and the service bound says the first visitor would become administrator" {
+@test "status with no account yet and the service bound says the first visitor could become administrator" {
   _prep
   STUB_FIRST=true STUB_BOUND=1 _run status
   [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: first-account-open:"*"first visitor would become administrator"*"fix: ~/dotfiles/scripts/openseo-deploy.sh serve"* ]]
+  [[ "$output" == *"ERROR: first-account-open:"*"first visitor could become administrator"*"fix: ~/dotfiles/scripts/openseo-deploy.sh serve"* ]]
   _never "tailscale serve --service"
+}
+
+@test "status with no account yet and a serve config it cannot read does not call the service unbound" {
+  _prep
+  STUB_FIRST=true STUB_STATUS_FAIL=1 _run status
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"is, or may still be, bound"*"fix: ~/dotfiles/scripts/openseo-deploy.sh serve"* ]]
 }
 
 @test "status notes an update when the tracked pin differs from the host's image" {
   _prep
   sed -i 's|^OPENSEO_IMAGE=.*|OPENSEO_IMAGE=ghcr.io/every-app/open-seo-standalone@sha256:0000000000000000000000000000000000000000000000000000000000000000|' "$OPENSEO_ENV_DIR/local.env"
-  _run status
+  STUB_BOUND=1 _run status
   [ "$status" -eq 0 ]
   [[ "$output" == *"NOTE: the tracked pin v0.1.25 differs from this host's image; apply it with: ~/dotfiles/scripts/openseo-deploy.sh update"* ]]
 }
 
 @test "status --output json carries the global envelope and its exit_code matches the process" {
   _prep
-  run --separate-stderr "$SCRIPT" status --output json
+  STUB_BOUND=1 run --separate-stderr "$SCRIPT" status --output json
   [ "$status" -eq 0 ]
-  jq -e '.reason == "ok" and .exit_code == 0 and (.next_step | has("action", "command", "docs")) and (.checks | length == 3)' <<<"$output"
-  STUB_HEALTH=down run --separate-stderr "$SCRIPT" status --output json
+  jq -e '.reason == "ok" and .exit_code == 0 and (.next_step | has("action", "command", "docs")) and (.checks | length == 4)' <<<"$output"
+  STUB_BOUND=1 STUB_HEALTH=down run --separate-stderr "$SCRIPT" status --output json
   [ "$status" -eq 1 ]
-  jq -e --argjson c "$status" '.reason == "unhealthy" and .exit_code == $c and .next_step.action == "run-command" and (.next_step.command | endswith("openseo-deploy.sh up")) and (.message | length > 0)' <<<"$output"
+  jq -e --argjson c "$status" '.reason == "unhealthy" and .exit_code == $c and .next_step.action == "ask-operator" and (.next_step.command | endswith("openseo-deploy.sh up")) and (.message | length > 0) and (.checks[-1] | .ok == false and .name == "unhealthy")' <<<"$output"
+}
+
+@test "an error only a person can resolve carries no command in the JSON envelope" {
+  _prep
+  { cat "$PIN"; echo 'mystery value'; } >"$BATS_TEST_TMPDIR/variant.pin"
+  run --separate-stderr bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; OS_OUTPUT=json; pin_load "$2"' _ "$LIB" "$BATS_TEST_TMPDIR/variant.pin"
+  [ "$status" -eq 1 ]
+  jq -e '.reason == "pin-invalid" and .next_step.action == "supply-input" and .next_step.command == null' <<<"$output"
+}
+
+@test "without jq the JSON mode still prints a fixed object, and a tool outside Homebrew is not told to brew install" {
+  run --separate-stderr bash -c 'source "$1/errors.sh"; command() { return 1; }; OS_OUTPUT=json; os_need jq' _ "$LIB"
+  [ "$status" -eq 1 ]
+  [ "$(printf '%s' "$output" | python3 -c 'import json,sys; print(json.load(sys.stdin)["reason"])')" = tool-missing ]
+  run bash -c 'source "$1/errors.sh"; command() { return 1; }; os_need docker' _ "$LIB"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: tool-missing: docker"*"fix: install docker as BOOTSTRAP.md describes"* ]]
 }
 
 @test "--help exits 0, names every verb, and marks the docker verbs; an unknown verb exits 2 and points at --help" {
@@ -425,7 +561,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
 @test "--output json is refused for the operator verbs" {
   _run up --output json
   [ "$status" -eq 2 ]
-  [[ "$output" == *'"reason": "usage"'* ]]
+  [[ "$output" == *'"reason": "usage"'* && "$output" == *'"value": "up"'* ]]
 }
 
 @test "every error the suite can trigger has a reason from the closed set and ends with a fix: line" {

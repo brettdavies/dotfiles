@@ -1,6 +1,6 @@
 # An error is "ERROR: <reason from OS_REASONS>: <message>", any cause: lines, and a final fix: line holding the command
-# to run or what a person must supply. OS_VALUE, OS_CAUSE, and OS_ACTION (run-command or supply-input) refine it. With
-# --output json the same error is one JSON object.
+# to run or what a person must supply. OS_VALUE, OS_CAUSE, and OS_ACTION (run-command, ask-operator, supply-input, or
+# none) refine it. With --output json the same error is one JSON object; its command is null for supply-input.
 # shellcheck disable=SC2034,SC2088 # globals are shared through the sourcing script; the tilde stays literal
 
 OS_DEPLOY='~/dotfiles/scripts/openseo-deploy.sh'
@@ -24,24 +24,35 @@ os_envelope() {
     '{reason: $reason, exit_code: $code, message: $message, value: (if $value == "" then null else $value end),
       cause: (if $cause == "" then null else $cause end),
       next_step: {action: $action,
-        command: (if $command == "" or $action != "run-command" then null else $command end),
+        command: (if $command == "" or $action == "supply-input" then null else $command end),
         docs: (if $reason == "ok" then null else $docs end)},
-      checks: $checks, notes: $notes}'
+      checks: ($checks + (if $reason == "ok" then [] else [{name: $reason, ok: false, detail: $message}] end)),
+      notes: $notes}'
 }
 
-# os_fail REASON MESSAGE FIX [VALUE]: exits 1, or 2 for a usage error.
+# os_fail REASON MESSAGE FIX [VALUE]: exits 1, or 2 for a usage error. Without jq the JSON mode prints a fixed object.
 os_fail() {
   local code=1
   [ "$1" != usage ] || code=2
   [ "$#" -lt 4 ] || OS_VALUE=$(os_mask "$4")
   if [ "$OS_OUTPUT" = json ]; then
-    os_envelope "$1" "$code" "$2" "$3"
-    exit "$code"
+    if command -v jq >/dev/null 2>&1; then
+      os_envelope "$1" "$code" "$2" "$3"
+      exit "$code"
+    fi
+    printf '{"reason":"%s","exit_code":%s,"message":"jq is not on PATH, so the message is on stderr","next_step":{"action":"supply-input","command":null,"docs":"%s#%s"}}\n' \
+      "$1" "$code" "$OS_RUNBOOK_URL" "$1"
   fi
   printf 'ERROR: %s: %s\n' "$1" "$2" >&2
   [ -z "$OS_CAUSE" ] || sed '/./!d; s/^/cause: /' <<<"$OS_CAUSE" >&2
   printf 'fix: %s\n' "$3" >&2
   exit "$code"
+}
+
+# The same, for an error only a person can resolve: its JSON next_step carries no command.
+os_fail_input() {
+  OS_ACTION=supply-input
+  os_fail "$@"
 }
 
 os_note() {
@@ -64,18 +75,29 @@ os_try() {
   return "$rc"
 }
 
-# os_unhealthy TAIL: the failure for a stack whose /api/health did not answer ok.
+# os_unhealthy TAIL: the failure for a stack whose gate endpoint did not answer as a running stack does.
 os_unhealthy() {
-  os_fail unhealthy "OpenSEO answered $OS_LOOPBACK/api/health with '${OS_HEALTH:-no answer}'; $1" "$OS_DEPLOY up" "$OS_HEALTH"
+  os_fail unhealthy "OpenSEO answered $OS_LOOPBACK$OS_ASKED with '${OS_HEALTH:-no answer}', so it is stopped, still starting, or failing a check; $1" "$OS_DEPLOY up" "$OS_HEALTH"
+}
+
+# os_unbind_failed TAIL: the binding is still on and `off` failed; OS_CAUSE holds tailscale's message.
+os_unbind_failed() {
+  os_fail unbind-failed "turning off the $OS_SERVICE binding failed; $1" "tailscale serve --service=$OS_SERVICE --https=443 off"
 }
 
 os_need_suffix() {
-  os_suffix || os_fail tailscale-unavailable "tailscale status --json gave no MagicDNS suffix; nothing changed; safe to rerun" "tailscale up"
+  os_suffix && return 0
+  OS_CAUSE=$(tailscale status 2>&1 | head -n 3 | cut -c1-200 || :)
+  os_fail_input tailscale-unavailable "tailscale status --json gave no MagicDNS suffix; log this host in to the tailnet; nothing changed; safe to rerun" "tailscale status, then tailscale up if it is logged out"
 }
 
 os_need() {
   local tool
   for tool in "$@"; do
-    command -v "$tool" >/dev/null 2>&1 || os_fail tool-missing "$tool is not on PATH; nothing changed" "brew install $tool" "$tool"
+    command -v "$tool" >/dev/null 2>&1 && continue
+    case $tool in
+      jq | curl) os_fail tool-missing "$tool is not on PATH; nothing changed" "brew install $tool" "$tool" ;;
+      *) os_fail_input tool-missing "$tool is not on PATH; nothing changed" "install $tool as BOOTSTRAP.md describes" "$tool" ;;
+    esac
   done
 }

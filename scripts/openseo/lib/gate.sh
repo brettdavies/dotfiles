@@ -10,14 +10,18 @@ OS_LOCAL_ENV=$OS_ENV_DIR/local.env
 OS_ENV_SHOWN=${OS_LOCAL_ENV/#$HOME/\~}
 OS_LOOPBACK=http://127.0.0.1:$OS_PORT
 OS_CURL_MAX=5
+OS_ADVERTISE_WAIT=${OPENSEO_ADVERTISE_WAIT:-15}
 
 os_get() {
   curl -sf --max-time "$OS_CURL_MAX" "$1" 2>/dev/null | jq -r "$2" 2>/dev/null || :
 }
 
-# os_health BASE_URL sets OS_HEALTH to the status of /api/health, empty when nothing answers.
+# os_health BASE_URL sets OS_HEALTH to the status of /api/health, empty when nothing answers. The answer is a status
+# word, so anything else in it is replaced before it reaches a message.
 os_health() {
   OS_HEALTH=$(os_get "$1/api/health" '.status // empty')
+  OS_HEALTH=${OS_HEALTH//[^A-Za-z0-9._ -]/?}
+  OS_HEALTH=${OS_HEALTH:0:40}
 }
 
 # The type test is deliberate: `// empty` would turn false into nothing.
@@ -30,10 +34,11 @@ os_suffix() {
   [[ $OS_SUFFIX =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]
 }
 
-# The service name anywhere in the serve config means a binding exists. grep -q in a pipe could end it early (SIGPIPE).
+# Returns 0 when the serve config names the service, 1 when it does not, and 2 when the config cannot be read. The
+# service name anywhere in it means a binding exists. grep -q in a pipe could end it early (SIGPIPE).
 os_bound() {
   local out
-  out=$(tailscale serve status --json 2>/dev/null) || return 1
+  out=$(tailscale serve status --json 2>/dev/null) || return 2
   [[ $out == *"\"$OS_SERVICE\""* ]]
 }
 
@@ -43,22 +48,40 @@ os_advertised() {
     | jq -e --arg s "$OS_SERVICE" '[.Self.CapMap["service-host"][]? | keys[]] | index($s) != null' >/dev/null 2>&1
 }
 
-# os_publish returns 1 when the bind fails and 2 when the control plane does not list the service.
+# os_publish returns 1 when the bind fails and 2 when the control plane does not list the service within the wait.
 os_publish() {
+  local i
   tailscale serve --service="$OS_SERVICE" --https=443 --yes "$OS_LOOPBACK" || return 1
-  os_advertised || return 2
+  for ((i = 0; i < OS_ADVERTISE_WAIT; i++)); do
+    os_advertised && return 0
+    sleep 1
+  done
+  return 2
 }
 
-# os_gate_check sets OS_GATE to ok, unhealthy (OS_HEALTH holds the answer), or first-account-open.
+# Turns the binding off unless it is certainly absent: a config that cannot be read counts as bound. OS_UNBOUND=1 when
+# it ran `off` successfully; a failure leaves tailscale's message in OS_CAUSE.
+os_unbind() {
+  OS_UNBOUND=0
+  os_bound || [ "$?" -ne 1 ] || return 0
+  if OS_CAUSE=$(tailscale serve --service="$OS_SERVICE" --https=443 off 2>&1 >/dev/null); then
+    OS_UNBOUND=1 OS_CAUSE=
+  else
+    return 1
+  fi
+}
+
+# os_gate_check sets OS_GATE to ok, unhealthy, or first-account-open. OS_ASKED names the endpoint behind an unhealthy
+# answer and OS_HEALTH holds what it said.
 os_gate_check() {
+  OS_ASKED=/api/health OS_GATE=unhealthy
   os_health "$OS_LOOPBACK"
-  OS_GATE=unhealthy
   [ "$OS_HEALTH" = ok ] || return 1
   os_first_account
   case "$OS_FIRST" in
     false) OS_GATE=ok ;;
     true) OS_GATE=first-account-open ;;
-    *) OS_HEALTH='no answer from /api/sign-up-status' ;;
+    *) OS_ASKED=/api/sign-up-status OS_HEALTH='nothing usable' ;;
   esac
   [ "$OS_GATE" = ok ]
 }
@@ -68,8 +91,6 @@ os_gate_check() {
 os_gate() {
   OS_UNBOUND=0
   os_gate_check && return 0
-  if [ "$OS_GATE" = first-account-open ] && os_bound; then
-    if tailscale serve --service="$OS_SERVICE" --https=443 off >/dev/null; then OS_UNBOUND=1; else OS_GATE=unbind-failed; fi
-  fi
+  [ "$OS_GATE" != first-account-open ] || os_unbind || OS_GATE=unbind-failed
   return 1
 }

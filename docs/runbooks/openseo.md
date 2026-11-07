@@ -71,17 +71,34 @@ last steps. All of these use the `tailscale` skill's `ts-api.sh`. The commands r
 
 3. Add a grant and an autoApprover to the policy, then validate and apply it. The grant lets Brett's devices and the
    Linux server's tag reach the address; any process on the Linux server, agent slots included, can then reach the
-   sign-in page, which is why sign-in stays on.
+   sign-in page, which is why sign-in stays on. Fetch the policy to a file:
 
    ```bash
    acl=$(mktemp) && ~/.claude/skills/tailscale/scripts/ts-api.sh acl > "$acl"
-   # In $acl, add under "grants":
-   #   { "src": ["autogroup:member", "tag:<host-tag>"], "dst": ["svc:openseo"], "ip": ["tcp:443"] }
-   # and under "autoApprovers" > "services" (skip it when a tag-keyed entry already covers the service tag):
-   #   "svc:openseo": ["tag:<host-tag>"]
+   ```
+
+   Edit `$acl` by hand. Under `"grants"` add:
+
+   ```json
+   { "src": ["autogroup:member", "tag:<host-tag>"], "dst": ["svc:openseo"], "ip": ["tcp:443"] }
+   ```
+
+   Under `"autoApprovers"` > `"services"` add the next line, unless a tag-keyed entry already covers the service tag:
+
+   ```json
+   "svc:openseo": ["tag:<host-tag>"]
+   ```
+
+   Then validate, and apply only when validation reports no error:
+
+   ```bash
    ~/.claude/skills/tailscale/scripts/ts-api.sh acl-validate "$acl"
    ~/.claude/skills/tailscale/scripts/ts-api.sh acl-apply "$acl"
    ```
+
+   `ts-api.sh` posts the file as `application/json`, and the policy is HuJSON. A policy with comments or trailing commas
+   can fail `acl-validate` with a parse error; nothing has been applied when it does. Stop there rather than working
+   around it with a raw request, and take the fix to the `tailscale` skill.
 
 4. After the first bind (below), confirm the host is approved:
 
@@ -103,15 +120,20 @@ gtime -f '%e s' scripts/openseo-deploy.sh create-admin
 scripts/openseo-deploy.sh status
 ```
 
-- `up` renders `~/.config/openseo/local.env` (mode 600), pulls the pinned image (about 115 MiB), starts the stack,
-  force-recreates `init`, `web`, and `crawl-gateway`, and waits for `init` to print `OpenSEO initialized and ready.`.
-  Upstream allows `init` about two minutes, and `up` prints how to watch it. It then tries to bind the address; with no
+- `up` renders `~/.config/openseo/local.env` (mode 600) and pulls the pinned image (about 115 MiB). It then turns the
+  `svc:openseo` binding off, so the address stays dark for the whole `up` and a restart cannot leave a first-visitor
+  sign-up bound. It starts the stack and force-recreates `init`, `web`, and `crawl-gateway`. Compose holds each
+  `docker compose up -d` until `init` exits, which takes about two minutes, twice; each call is cut off after 360 s.
+  `up` prints the command that follows the log (`docker compose logs -f init`), reads the log once afterwards for
+  `OpenSEO initialized and ready.`, and waits up to 30 s for `/api/health`. It then tries to bind the address; with no
   account yet it stops and names `create-admin`.
 - `create-admin` makes the first account from the host with upstream's operator command, reading the password from the
   admin item on stdin. That closes registration, so the gate passes and `create-admin` binds the address. It prints the
-  address, the item to sign in with, and the next step.
-- `status` exits 0 when the stack, the service, and the address are healthy. It prints `NOTE:` lines for anything worth
-  knowing, such as this host being unable to reach its own service address.
+  address, the item to sign in with, and the next step. A binding still standing when it starts, with no account
+  behind it, is turned off first.
+- `status` exits 0 when the stack, the service, its binding, and the address are healthy. It prints `NOTE:` lines for
+  anything worth knowing, such as this host being unable to reach its own service address. With `--output json`, a
+  failure's `next_step.action` is `ask-operator`: the command names the operator's verb, and an agent does not run it.
 
 Expected: `up` ends with `init finished: OpenSEO initialized and ready.` and a `NOTE:` naming `create-admin`;
 `create-admin` prints `bound: https://openseo.<tailnet>.ts.net` and then the sign-in item; `status` exits 0.
@@ -195,14 +217,15 @@ Only the Linux server runs OpenSEO. `render` refuses on macOS before it reads a 
 
 ### pin-invalid
 
-`config/openseo/openseo.pin` is malformed. The error names the line. `git checkout -- config/openseo/openseo.pin`
-restores it; a hand edit must keep the shapes the parser accepts: a `v` tag, a 40-hex commit, an ISO release time, an
-image reference by digest only, and the compose file's sha256.
+`config/openseo/openseo.pin` is malformed. The error names the line.
+`git -C ~/dotfiles checkout -- config/openseo/openseo.pin` restores it; a hand edit must keep the shapes the parser
+accepts: a `v` tag, a 40-hex commit, an ISO release time, an image reference by digest only, and the compose file's
+sha256.
 
 ### pin-mismatch
 
 `config/openseo/compose.yaml` differs from the checksum the pin records. The file is upstream's, byte for byte, so
-`git checkout -- config/openseo/compose.yaml` restores it.
+`git -C ~/dotfiles checkout -- config/openseo/compose.yaml` restores it.
 
 ### item-unreadable
 
@@ -223,7 +246,8 @@ previous value back in the item from its 1Password history. Do not rotate it.
 
 ### tailscale-unavailable
 
-`tailscale status --json` gave no MagicDNS suffix. Run `tailscale up`, then retry.
+`tailscale status --json` gave no MagicDNS suffix, so this host is logged out or tailscaled is down. The `cause:` lines
+hold `tailscale status`. Run `tailscale up`, then retry.
 
 ### env-missing
 
@@ -237,13 +261,14 @@ the digest in `config/openseo/openseo.pin`, then rerun `scripts/openseo-deploy.s
 
 ### up-failed
 
-`docker compose up` failed. The `cause:` lines show why. Rerun `scripts/openseo-deploy.sh up`, which is safe.
+`docker compose up` failed for a reason other than `init`. The `cause:` lines show why. Rerun
+`scripts/openseo-deploy.sh up`, which is safe.
 
 ### init-failed
 
-`init` did not print its ready line, or took longer than six minutes. Read its log with the command on the `fix:` line.
-The runtime needs a kernel with 4 KiB memory pages and about 4 GiB of memory for Docker. Rerun
-`scripts/openseo-deploy.sh up` once the cause is fixed.
+`init` exited non-zero, exited without printing its ready line, or kept a `docker compose up -d` waiting past 360 s.
+Read its log with the command on the `fix:` line. The runtime needs a kernel with 4 KiB memory pages and about 4 GiB of
+memory for Docker. Rerun `scripts/openseo-deploy.sh up` once the cause is fixed.
 
 ### stop-failed
 
@@ -251,20 +276,25 @@ The runtime needs a kernel with 4 KiB memory pages and about 4 GiB of memory for
 
 ### unhealthy
 
-`http://127.0.0.1:8946/api/health` did not answer `status: ok`. The stack is stopped or still starting. Wait a minute,
-then `scripts/openseo-deploy.sh up` if it stays down. `down` leaves the binding in place, so the tailnet address answers
-with an error until `up` runs.
+The message names the endpoint it asked, `/api/health` or `/api/sign-up-status`, and what it answered. A stack that is
+stopped, still starting, or failing a check answers `/api/health` with something other than `status: ok`; one whose
+`/api/sign-up-status` gives no boolean `firstAccount` cannot be judged safe to bind. Wait a minute, then
+`scripts/openseo-deploy.sh up` if it stays down. `down` leaves the binding in place, so the tailnet address answers with
+an error until `up` runs; `up` turns the binding off first and binds again once the gate passes.
 
 ### first-account-open
 
 OpenSEO has no account, so its first visitor would become administrator. The address stays unbound until
-`scripts/openseo-deploy.sh create-admin` makes the account. If the service is still bound,
-`scripts/openseo-deploy.sh serve` turns the binding off.
+`scripts/openseo-deploy.sh create-admin` makes the account. `status` raises this error when the service is, or may still
+be, bound, for instance because `tailscale serve status` could not be read; `scripts/openseo-deploy.sh serve` turns the
+binding off.
 
 ### account-exists
 
-OpenSEO already has an account, and `create-admin` makes only the first. Run `scripts/openseo-deploy.sh serve` to bind
-the address. Further accounts come from invitations in OpenSEO's Team settings.
+OpenSEO already has an account, and `create-admin` makes only the first. The first account may not be yours: before
+`serve`, sign in at `http://127.0.0.1:8946` with the admin item. Once it works, run `scripts/openseo-deploy.sh serve` to
+bind the address. If it fails, someone else registered first; do not bind. Further accounts come from invitations in
+OpenSEO's Team settings.
 
 ### create-admin-failed
 
@@ -273,13 +303,16 @@ Upstream's operator command failed; the `cause:` lines hold its message. Read th
 
 ### bind-failed
 
-`tailscale serve` could not bind `svc:openseo`. Check that tailscaled is up and that this user is the Tailscale
-operator, then rerun `scripts/openseo-deploy.sh serve`.
+`tailscale serve` could not bind `svc:openseo`, or `status` found the service advertised with no binding on this host
+(or `tailscale serve status` could not be read), so peers time out. Check that tailscaled is up and that this user is
+the Tailscale operator, then rerun `scripts/openseo-deploy.sh serve`.
 
 ### unbind-failed
 
-OpenSEO has no account and the service is bound, and turning the binding off failed. Run the command on the `fix:` line
-by hand; until it succeeds, anyone with a grant can create the administrator account.
+OpenSEO has no account, or `up` is about to start the stack, and the service is bound or its serve config cannot be
+read, and turning the binding off failed. The `cause:` lines hold tailscale's message. Run the command on the `fix:`
+line by hand; until it succeeds, anyone with a grant can create the administrator account. `up` starts nothing while
+this stands.
 
 ### service-not-advertised
 

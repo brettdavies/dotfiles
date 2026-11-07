@@ -13,10 +13,7 @@ os_serve() {
       os_note "OpenSEO has no account yet, so svc:openseo stays unbound; run: $OS_DEPLOY create-admin"
       return 0
       ;;
-    unbind-failed)
-      os_fail unbind-failed "OpenSEO lets its first visitor become administrator while $OS_SERVICE is bound, and turning the binding off failed" \
-        "tailscale serve --service=$OS_SERVICE --https=443 off"
-      ;;
+    unbind-failed) os_unbind_failed "while it is bound, OpenSEO lets its first visitor become administrator" ;;
     *) os_unhealthy "$OS_SERVICE was left as it was; safe to rerun" ;;
   esac
   echo "==> service serve: $OS_SERVICE -> $OS_LOOPBACK"
@@ -25,8 +22,7 @@ os_serve() {
     0) ;;
     1) os_fail bind-failed "tailscale serve could not bind $OS_SERVICE; safe to rerun" "$OS_DEPLOY serve" ;;
     *)
-      OS_ACTION=supply-input
-      os_fail service-not-advertised "$OS_SERVICE is bound but the control plane does not list this host for it; the service is not defined, granted, or approved" \
+      os_fail_input service-not-advertised "$OS_SERVICE is bound but the control plane does not list this host for it; the service is not defined, granted, or approved" \
         "define $OS_SERVICE and approve this host (docs/runbooks/openseo.md#service-not-advertised), then $OS_DEPLOY serve"
       ;;
   esac
