@@ -512,3 +512,18 @@ finished_task() {
   pr 7 MERGED feat/x
   squash_merge feat/x
 }
+
+# slot_profile_args [cloudflare]: the flags a slot's Claude takes between the bypass flag and --model, with the skills
+# and plugins it turns off and the tools it drops. A Cloudflare repo keeps the cloudflare plugin. The lists are a copy
+# kept apart from scripts/agent-slot/lib/profile.sh, so a change there fails the tests until this one moves too.
+slot_profile_args() {
+  local -a skills=(artifact-capabilities artifact-design artifact-diagramming artifact-emulator built-in-browser
+    chrome-browser claude-api code-review computer-use dataviz deep-research docs docx fewer-permission-prompts
+    google-workspace import-memory init keybindings-help loop morning pdf plugin-authoring pptx run schedule
+    security-review simplify skill-creator update-config xlsx)
+  local name overrides='' plugins='"obsidian@obsidian-skills":false'
+  for name in "${skills[@]}"; do overrides+="\"$name\":\"off\","; done
+  [[ ${1:-} == cloudflare ]] || plugins+=',"cloudflare@claude-plugins-official":false'
+  printf '%s' "--settings '{\"idleCompaction\":false,\"skillOverrides\":{${overrides%,}},\"enabledPlugins\":{$plugins}}' \
+--disallowedTools Artifact AskUserQuestion ScheduleWakeup ReportFindings"
+}

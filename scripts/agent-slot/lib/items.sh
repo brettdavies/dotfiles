@@ -75,7 +75,7 @@ item_resolve() {
 # Usage: item_name <item>; prints the slot name of a {kind, repo, number, title} item, <repo>-<kind><N>-<slug>. The repo
 # half is the repo's name with dots as dashes and no leading non-alphanumerics, and the slug the title in lowercase
 # letters, digits, and single dashes. A name past TASK_PATTERN's length loses the slug's last words, then the repo
-# name's last characters, so the number always stays.
+# name's last characters, so the number always stays. An item no valid name can be cut from prints nothing and returns 1.
 item_name() {
   local repo id slug name
   local -a parts
@@ -83,11 +83,15 @@ item_name() {
     (.repo | split("/") | last | gsub("\\."; "-") | sub("^[^A-Za-z0-9]+"; "")),
     "\(.kind)\(.number)",
     ((.title // "") | ascii_downcase | gsub("[^a-z0-9]+"; "-") | sub("^-"; "") | sub("-$"; ""))' <<<"$1")
+  ((${#parts[@]} == 3)) || return 1
   repo=${parts[0]} id=${parts[1]} slug=${parts[2]}
   while [[ -n $repo && ! $repo-$id =~ $TASK_PATTERN ]]; do repo=${repo%?}; done
   while [[ $repo == *- ]]; do repo=${repo%-}; done
   name=${repo:+$repo-}$id${slug:+-$slug}
-  while [[ ! $name =~ $TASK_PATTERN ]]; do name=${name%-*}; done
+  while [[ ! $name =~ $TASK_PATTERN ]]; do
+    [[ $name == *-* ]] || return 1
+    name=${name%-*}
+  done
   printf '%s' "$name"
 }
 

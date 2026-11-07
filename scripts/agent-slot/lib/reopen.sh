@@ -209,9 +209,10 @@ reopen_report() {
     head=$HEAD_PLAN
     foreign=$(_reopen_foreign)
     RECORD=$(contract_json -n -c --arg session "$session" --arg name "$name" --arg task "$task" --arg model "$REOPEN_MODEL" \
-      --arg prompt "${REOPEN_PROMPT:+$(slot_prompt_file "$(slot_path "$repo" "$n")")}" --argjson foreign "$foreign" '
+      --arg prompt "${REOPEN_PROMPT:+$(slot_prompt_file "$(slot_path "$repo" "$n")")}" --arg prime "$REPO_PRIME" \
+      --argjson foreign "$foreign" '
       $foreign + {session_id: $session, name: $name, model: $model, task: (if $task == "" then null else $task end),
-       prompt_file: (if $prompt == "" then null else $prompt end)}')
+       prompt_file: (if $prompt == "" then null else $prompt end), prime: $prime}')
     command=$(sessions_command "$repo" "$n" claude reopen)
   fi
   [[ $REOPEN_REFUSAL != null || -n $REOPEN_HOLDER || $REOPEN_SOURCE == null ]] || would=true

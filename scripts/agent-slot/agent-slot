@@ -80,6 +80,8 @@ source "$AS_LIB/doctor.sh"
 source "$AS_LIB/parity.sh"
 # shellcheck source=lib/deps.sh
 source "$AS_LIB/deps.sh"
+# shellcheck source=lib/profile.sh
+source "$AS_LIB/profile.sh"
 # shellcheck source=lib/sessions.sh
 source "$AS_LIB/sessions.sh"
 # shellcheck source=lib/prime.sh
