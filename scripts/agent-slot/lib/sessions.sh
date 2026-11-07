@@ -118,8 +118,9 @@ sessions_foreign() { [[ $(contract_json -r '.head_foreign // false' <<<"$RECORD"
 # In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name,
 # and runs on the record's model through sessions_claude; a record with no model runs on Opus. A record with head_foreign
 # also starts Claude without the tree's settings.
-# A conversation started fresh for a slot with neither name nor task is named after the slot's session, so no slot's
-# Claude is untitled. A resume that finds the conversation passes no name instead: -n would replace a /rename.
+# A conversation started fresh for a slot with neither name nor task is named after the slot's session. A resume that
+# finds the conversation passes no name instead: -n would replace a /rename, so a conversation started before that
+# naming keeps the title it has.
 # The first message goes with a launch and a reopen only: a resume brings back a slot that already had it.
 sessions_command() {
   local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude
