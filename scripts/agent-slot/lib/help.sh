@@ -111,11 +111,10 @@ verb_help() {
       ;;
     resume) printf '%s\n' 'usage: agent-slot resume <repo>/<N> [--model (opus | sonnet)] [--output json]' \
       '--model switches the slot to that model: the record takes it, and an idle Claude is ended and typed again into its' \
-      'pane on that model, resuming the same conversation by session ID. A Claude that is busy, waiting, unreadable, or' \
-      'running background jobs is never ended: resume fails with agent-busy and changes nothing, as it does when the' \
-      "slot's own agent runs it. Naming the model the slot already runs is a plain resume. With --model it also returns" \
-      "model, previous_model, and restarted. Example: agent-slot resume dotfiles/2 --model opus. The README's Commands" \
-      'section has the rest.' \
+      'pane on that model, resuming the same conversation by session ID. A Claude that is busy, waiting, or unreadable' \
+      'is never ended: resume fails with agent-busy and changes nothing. Naming the model the slot already runs is a' \
+      "plain resume. With --model it also returns model, previous_model, and restarted. The README's Commands section" \
+      'has the rest. Example: agent-slot resume dotfiles/2 --model opus' \
       "Starts whichever of the slot's tmux sessions are missing, resuming its Claude conversation by session ID" \
       "with --dangerously-skip-permissions, and starts the repo's prime if it is not running. Then it deletes each of" \
       "the slot's local branches whose PRs all merged or closed, with origin's branch of that name, keeping the base," \
