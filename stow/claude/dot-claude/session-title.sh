@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # UserPromptSubmit Claude hook: gives a generic session a title from its branch or PR, through hookSpecificOutput's
-# sessionTitle. Generic means a session that is neither a slot's nor a prime's, with no custom title yet, in a git
-# checkout on a feature branch. The title is <repo>-pr<N>-<slug> when the branch has an open PR, the same name a slot for
-# that PR gets (items.sh), else <repo>-branch-<slug>. A session that already has a custom title, from -n, /rename, or
-# this hook's first answer, is left alone, so nothing here replaces a /rename. A slot is found by its directory, a
-# prime by worktitle_is_prime applied to the checkout's top, since scanning every prime would add 0.3 s to each prompt.
+# sessionTitle. Generic means a session that is not a slot's, with no custom title yet, in a git checkout on a feature
+# branch. The title is <repo>-pr<N>-<slug> when the branch has an open PR, the same name a slot for that PR gets
+# (items.sh), else <repo>-branch-<slug>. A session that already has a custom title, from -n, /rename, or this hook's
+# first answer, is left alone, so nothing here replaces a /rename; a prime's Claude is started with -n <repo>-prime, so
+# it is left alone that way. A slot is found by its directory.
 # Prints one JSON object or nothing, and always exits 0; failures go to the agent-slot hooks.log.
 #
 # The checks run cheapest first, and the first two end nearly every prompt before any library loads: the payload's
@@ -72,7 +72,6 @@ title_run() {
   # A machine with no slot root holds no slot; the Mac is one, and its realpath has no -m, which slot_at needs.
   if [[ -d $AS_ROOT ]] && slot_at "$1" >/dev/null; then return 0; fi
   origin=$(git -C "$2" config --get remote.origin.url 2>/dev/null || true)
-  ! worktitle_is_prime "$2" "$origin" || return 0
   repo=${2##*/}
   number='' title=''
   if [[ -n $origin ]]; then

@@ -572,19 +572,19 @@ neither a name nor a task gets its own session name, `<repo>-<N>`, whenever Clau
 that finds its conversation passes no `-n`, which would replace a `/rename`, so a conversation started before this
 naming keeps the title it has. The agent's SessionStart context lists the slot's work items.
 
-A Claude session that is neither a slot's nor a prime's is named for its work as well. `session-title.sh` (in
-`stow/claude/dot-claude/`, on `UserPromptSubmit`, not async, 8 s timeout) answers with `hookSpecificOutput.sessionTitle`
-for a session with no custom title in a git checkout on a feature branch: `<repo>-pr<N>-<slug>` when the branch has an
-open PR in the repository itself, else `<repo>-branch-<slug>`, both cut to 64 characters as a slot's name is
-(`item_name`). The PR comes from one `gh pr list --head <branch> --state open` call, bounded to 3 s, made only for a
-GitHub origin and only until the session has a title; a PR from a fork never counts. It prints nothing, and always
-exits 0, for a session that already has a custom title from `-n`, `/rename`, or its own earlier answer, so nothing it
-does replaces a `/rename`; for a directory under the slot root; for a prime checkout (a clone with an origin directly
-under the dev root or listed in `AGENT_SLOT_EXTRA_PRIMES`); on `main`, `master`, `dev`, `develop`, `release/*`, the
-branch origin's HEAD names, or a detached head; and outside a git checkout. A `claude -p` child is titled the same way
-when its directory qualifies. The checks run cheapest first: a titled session or a base branch costs about 9 ms a
-prompt, and the one prompt that titles a session about 60 ms, or about 0.5 s when the `gh` call runs. A hook that cannot
-load a library, or whose `gh` call fails, leaves a labelled line in `hooks.log` in the agent-slot log directory.
+A Claude session that is not a slot's is named for its work as well. `session-title.sh` (in `stow/claude/dot-claude/`,
+on `UserPromptSubmit`, not async, 8 s timeout) answers with `hookSpecificOutput.sessionTitle` for a session with no
+custom title in a git checkout on a feature branch: `<repo>-pr<N>-<slug>` when the branch has an open PR in the
+repository itself, else `<repo>-branch-<slug>`, both cut to 64 characters as a slot's name is (`item_name`). The PR
+comes from one `gh pr list --head <branch> --state open` call, bounded to 3 s, made only for a GitHub origin and only
+until the session has a title; a PR from a fork never counts. It prints nothing, and always exits 0, for a session that
+already has a custom title from `-n`, `/rename`, or its own earlier answer, so nothing it does replaces a `/rename`, and
+a prime's Claude, which starts with `-n <repo>-prime`, keeps that name; for a directory under the slot root; on `main`,
+`master`, `dev`, `develop`, `release/*`, the branch origin's HEAD names, or a detached head; and outside a git checkout.
+A session started by hand in a prime checkout is titled like any other. A `claude -p` child is titled the same way when
+its directory qualifies. The checks run cheapest first: a titled session or a base branch costs about 9 ms a prompt, and
+the one prompt that titles a session about 60 ms, or about 0.5 s when the `gh` call runs. A hook that cannot load a
+library, or whose `gh` call fails, leaves a labelled line in `hooks.log` in the agent-slot log directory.
 
 A prime keeps its `<repo>-prime` title, which a resume looks for by name, so its work shows in the status line instead.
 For a session named `*-prime` in a prime checkout on a feature branch, `statusline.sh` adds `task:<label>` after the git

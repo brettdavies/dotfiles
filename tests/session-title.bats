@@ -146,20 +146,23 @@ gh_calls() { grep -c '^gh ' "$CALLS" || true; }
   [ "$(gh_calls)" -eq 0 ]
 }
 
-@test "a prime on a feature branch gets no title, so it keeps the name its repo gives it" {
+@test "a session in a prime checkout on a feature branch is titled by its branch, and a prime keeps its own name" {
   prime widget
   git -C "$AGENT_SLOT_DEV/widget" checkout -q -b fix/login-timeout
   run --separate-stderr fire "$AGENT_SLOT_DEV/widget"
+  [ "$status" -eq 0 ]
+  titled widget-branch-fix-login-timeout
+  run --separate-stderr fire "$AGENT_SLOT_DEV/widget" widget-prime
   [ "$status" -eq 0 ]
   untitled
   [ "$(gh_calls)" -eq 0 ]
 }
 
-@test "an extra prime outside the dev root gets no title either" {
+@test "a session in an extra prime outside the dev root is titled by its branch too" {
   checkout "$T/extra/notes" fix/login-timeout git@github.com:acme/notes.git
   AGENT_SLOT_EXTRA_PRIMES=$T/extra/notes run --separate-stderr fire "$T/extra/notes"
   [ "$status" -eq 0 ]
-  untitled
+  titled notes-branch-fix-login-timeout
 }
 
 @test "a linked worktree of a prime is a checkout of its own and is titled by its branch" {
