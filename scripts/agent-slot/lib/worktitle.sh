@@ -1,14 +1,37 @@
 # shellcheck shell=bash
 # What a Claude session outside a slot is called for the work it is on: the PR's name when the branch has one, else the
-# branch's. session-title.sh titles a generic session with it and statusline.sh shows it for a prime, so the two agree
-# with the name a slot for the same PR gets (item_name). Callers source contract.sh, launch.sh, and items.sh first.
+# branch's. session-title.sh titles a generic session with it and statusline.sh shows it for a prime. Both name a PR as
+# a slot for it is named (item_name), but the status line has no PR title, so it slugs the branch where the hook slugs
+# the PR's title. Callers source contract.sh, launch.sh, and items.sh first; worktitle_is_prime also needs env.sh and
+# read.sh, with agent_slot_env run.
 
-# Usage: worktitle_base_branch <branch>; true for a branch that names no work: a base or release branch, or a detached
-# head, which reaches here as an empty name.
+# Usage: worktitle_base_branch <branch> [<checkout>]
+# True for a branch that names no work: a base or release branch, the branch origin's HEAD names when the checkout is
+# given, or a detached head, which reaches here as an empty name.
 worktitle_base_branch() {
+  local default
   case $1 in
     '' | main | master | dev | develop | release/*) return 0 ;;
   esac
+  [[ -n ${2:-} ]] || return 1
+  default=$(git -C "$2" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || return 1
+  [[ $1 == "${default#origin/}" ]]
+}
+
+# Usage: worktitle_is_prime <checkout top> <origin url>
+# True for a prime checkout: a clone with an origin, directly under the dev root or named in the extra list. This is
+# repo_primes' rule applied to one checkout, since listing every prime costs 0.3 s.
+worktitle_is_prime() {
+  local real dev extra
+  local IFS=:
+  [[ -n $2 ]] && repo_is_clone "$1" || return 1
+  real=$(readlink -f "$1") || return 1
+  dev=$(readlink -f "$AS_DEV" 2>/dev/null) || dev=''
+  [[ -z $dev || ${real%/*} != "$dev" ]] || return 0
+  # shellcheck disable=SC2086 # AS_EXTRA_PRIMES is a colon-separated list
+  for extra in $AS_EXTRA_PRIMES; do
+    [[ -z $extra || $real != "$(readlink -f "$extra" 2>/dev/null)" ]] || return 0
+  done
   return 1
 }
 

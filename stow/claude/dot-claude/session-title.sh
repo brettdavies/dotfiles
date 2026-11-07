@@ -4,12 +4,12 @@
 # checkout on a feature branch. The title is <repo>-pr<N>-<slug> when the branch has an open PR, the same name a slot for
 # that PR gets (items.sh), else <repo>-branch-<slug>. A session that already has a custom title, from -n, /rename, or
 # this hook's first answer, is left alone, so nothing here replaces a /rename. A slot is found by its directory, a
-# prime by repo_primes' rule applied to the checkout's top, since scanning every prime would add 0.3 s to each prompt.
+# prime by worktitle_is_prime applied to the checkout's top, since scanning every prime would add 0.3 s to each prompt.
 # Prints one JSON object or nothing, and always exits 0; failures go to the agent-slot hooks.log.
 #
 # The checks run cheapest first, and the first two end nearly every prompt before any library loads: the payload's
 # session_title, then the branch. A PR lookup is one gh call bounded to 3 s, made once per session, since the title it
-# yields ends the hook's work on every later prompt.
+# yields ends the hook's work on every later prompt, and only for a GitHub origin.
 
 if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
   for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
@@ -21,52 +21,65 @@ fi
 
 AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
 PR_LOOKUP_SECS=3
+PR_LOOKUP_LIMIT=100
 
-# Usage: title_is_prime <checkout top> <origin url>
-title_is_prime() {
-  local real dev extra
-  local IFS=:
-  [[ -n $2 ]] && repo_is_clone "$1" || return 1
-  real=$(readlink -f "$1") || return 1
-  dev=$(readlink -f "$AS_DEV" 2>/dev/null) || dev=''
-  [[ -z $dev || ${real%/*} != "$dev" ]] || return 0
-  # shellcheck disable=SC2086 # AS_EXTRA_PRIMES is a colon-separated list
-  for extra in $AS_EXTRA_PRIMES; do
-    [[ -z $extra || $real != "$(readlink -f "$extra" 2>/dev/null)" ]] || return 0
-  done
-  return 1
+# Usage: title_fail <detail>
+# Appends a labelled line to hooks.log. The log's directory is computed here when the libraries that compute it as
+# AS_LOG_DIR did not load, which is the failure a line here most needs to report.
+title_fail() {
+  local dir=${AS_LOG_DIR:-${AGENT_SLOT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-slot}/logs}
+  mkdir -p "$dir" || return 0
+  printf '%s session-title[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" "$1" >>"$dir/hooks.log"
 }
 
-# Usage: title_pr <owner/name> <branch>; prints the number and title of the branch's open PR, tab-separated, or nothing.
-# shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
+# Usage: title_load <library>...; sources each agent-slot library, or logs the one that failed and returns 1.
+title_load() {
+  local lib
+  for lib in "$@"; do
+    # shellcheck source=/dev/null
+    source "$AS_HOME/lib/$lib.sh" && continue
+    title_fail "reason=lib-load-failed lib=$lib.sh next=\"cd ~/dotfiles && scripts/stow-deploy --headless --only claude\""
+    return 1
+  done
+}
+
+# Usage: title_pr <owner/name> <branch>
+# Prints the number and title of the branch's open PR in that repo, tab-separated, or nothing. gh's --head matches the
+# branch name in every fork too, so a PR from another repository never counts.
+# shellcheck disable=SC2016 # a jaq program
 title_pr() {
   local out
   [[ -n $AS_GH ]] || return 0
   if ! bounded out gh "$PR_LOOKUP_SECS" "$AS_GH" pr list --repo "$1" --head "$2" --state open \
-    --json number,title --limit 1; then
+    --json number,title,isCrossRepository --limit "$PR_LOOKUP_LIMIT"; then
+    title_fail "reason=gh-pr-list-failed repo=$1 branch=$2"
     _hook_absorb
     return 0
   fi
-  contract_json -r '.[0] // empty | [.number, (.title | gsub("[\t\n]"; " "))] | @tsv' <<<"$out" 2>/dev/null || true
+  contract_json -r 'map(select(.isCrossRepository != true))[0] // empty | [.number, (.title | gsub("[\t\n]"; " "))] | @tsv' \
+    <<<"$out" 2>/dev/null || true
 }
 
 # Usage: title_run <cwd> <checkout top> <branch>
 # shellcheck disable=SC2016 # a jaq program; its $names are bound with --arg
 title_run() {
-  local lib origin repo number title name
-  for lib in hook items launch prstate; do
-    # shellcheck source=/dev/null
-    source "$AS_HOME/lib/$lib.sh" || return 0
-  done
-  hook_init session-title "$AS_HOME" || return 0
-  ! slot_at "$1" >/dev/null || return 0
+  local origin repo number title name
+  title_load hook items launch prstate || return 0
+  hook_init session-title "$AS_HOME" || {
+    title_fail "reason=hook-init-failed next=\"cd ~/dotfiles && scripts/stow-deploy --headless --only claude\""
+    return 0
+  }
+  # A machine with no slot root holds no slot; the Mac is one, and its realpath has no -m, which slot_at needs.
+  if [[ -d $AS_ROOT ]] && slot_at "$1" >/dev/null; then return 0; fi
   origin=$(git -C "$2" config --get remote.origin.url 2>/dev/null || true)
-  ! title_is_prime "$2" "$origin" || return 0
+  ! worktitle_is_prime "$2" "$origin" || return 0
   repo=${2##*/}
   number='' title=''
   if [[ -n $origin ]]; then
     repo=$(pr_repo_slug "$origin")
-    IFS=$'\t' read -r number title < <(title_pr "$repo" "$3") || true
+    if [[ $origin == *github.com[:/]* ]]; then
+      IFS=$'\t' read -r number title < <(title_pr "$repo" "$3") || true
+    fi
   fi
   name=$(worktitle_name "$repo" "$3" "$number" "$title")
   [[ -n $name ]] || return 0
@@ -82,10 +95,9 @@ main() {
     <<<"$payload" 2>/dev/null) || true
   [[ -z $custom ]] || return 0
   [[ -d $cwd ]] || return 0
-  # shellcheck source=/dev/null
-  source "$AS_HOME/lib/worktitle.sh" || return 0
+  title_load worktitle || return 0
   branch=$(git -C "$cwd" symbolic-ref --short -q HEAD 2>/dev/null) || return 0
-  ! worktitle_base_branch "$branch" || return 0
+  ! worktitle_base_branch "$branch" "$cwd" || return 0
   top=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || return 0
   title_run "$cwd" "$top" "$branch"
 }

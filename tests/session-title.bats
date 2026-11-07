@@ -37,6 +37,14 @@ fire() {
 
 title_of() { jaq -r '.hookSpecificOutput.sessionTitle' <<<"$output"; }
 
+# titled WANT: the last run printed the title WANT; a miss shows what it printed.
+titled() { [ "$(title_of 2>/dev/null)" = "$1" ] || { echo "want title '$1', hook printed: ${output:-nothing}"; false; }; }
+
+# untitled: the last run printed nothing; a miss shows what it printed.
+untitled() { [ -z "$output" ] || { echo "want no title, hook printed: $output"; false; }; }
+
+HOOKS_LOG() { printf '%s' "$AGENT_SLOT_STATE_DIR/logs/hooks.log"; }
+
 gh_calls() { grep -c '^gh ' "$CALLS" || true; }
 
 @test "a feature branch with no PR titles the session after the repo and the branch" {
@@ -52,8 +60,8 @@ gh_calls() { grep -c '^gh ' "$CALLS" || true; }
   printf '%s' '[{"number": 887, "title": "Fix the login timeout"}]' >"$STUBS/gh-out"
   run --separate-stderr fire "$T/work/widget"
   [ "$status" -eq 0 ]
-  [ "$(title_of)" = widget-pr887-fix-the-login-timeout ]
-  grep -qF -- 'gh pr list --repo acme/widget --head fix/login-timeout --state open --json number,title --limit 1' "$CALLS"
+  titled widget-pr887-fix-the-login-timeout
+  grep -qF -- 'gh pr list --repo acme/widget --head fix/login-timeout --state open --json number,title,isCrossRepository --limit 100' "$CALLS"
 }
 
 @test "a gh that fails leaves the title to the branch" {
@@ -61,7 +69,7 @@ gh_calls() { grep -c '^gh ' "$CALLS" || true; }
   printf '1' >"$STUBS/gh-exit"
   run --separate-stderr fire "$T/work/widget"
   [ "$status" -eq 0 ]
-  [ "$(title_of)" = widget-branch-feat-dark-mode ]
+  titled widget-branch-feat-dark-mode
 }
 
 @test "gh answering with something that is not a PR list leaves the title to the branch" {
@@ -69,14 +77,14 @@ gh_calls() { grep -c '^gh ' "$CALLS" || true; }
   printf '%s' 'not json' >"$STUBS/gh-out"
   run --separate-stderr fire "$T/work/widget"
   [ "$status" -eq 0 ]
-  [ "$(title_of)" = widget-branch-feat-dark-mode ]
+  titled widget-branch-feat-dark-mode
 }
 
 @test "a checkout with no origin is titled by its directory's name and never asks gh" {
   checkout "$T/work/scratch" feat/try-it
   run --separate-stderr fire "$T/work/scratch"
   [ "$status" -eq 0 ]
-  [ "$(title_of)" = scratch-branch-feat-try-it ]
+  titled scratch-branch-feat-try-it
   [ "$(gh_calls)" -eq 0 ]
 }
 
@@ -84,7 +92,7 @@ gh_calls() { grep -c '^gh ' "$CALLS" || true; }
   checkout "$T/work/widget" feat/one-two-three-four-five-six-seven-eight-nine-ten-eleven-twelve git@github.com:acme/widget.git
   run --separate-stderr fire "$T/work/widget"
   [ "$status" -eq 0 ]
-  [ "$(title_of)" = widget-branch-feat-one-two-three-four-five-six-seven-eight-nine ]
+  titled widget-branch-feat-one-two-three-four-five-six-seven-eight-nine
   [[ $(title_of) =~ ^[A-Za-z0-9][A-Za-z0-9_/-]{0,63}$ ]]
 }
 
@@ -92,7 +100,7 @@ gh_calls() { grep -c '^gh ' "$CALLS" || true; }
   checkout "$T/work/widget" fix/login-timeout git@github.com:acme/widget.git
   run --separate-stderr fire "$T/work/widget" my-own-name
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  untitled
   [ "$(gh_calls)" -eq 0 ]
 }
 
@@ -103,7 +111,7 @@ gh_calls() { grep -c '^gh ' "$CALLS" || true; }
     checkout "$T/work/widget" "$branch" git@github.com:acme/widget.git
     run --separate-stderr fire "$T/work/widget"
     [ "$status" -eq 0 ]
-    [ -z "$output" ] || { echo "$branch was titled: $output"; false; }
+    untitled || { echo "branch $branch"; false; }
   done
   [ "$(gh_calls)" -eq 0 ]
 }
@@ -113,17 +121,17 @@ gh_calls() { grep -c '^gh ' "$CALLS" || true; }
   git -C "$T/work/widget" checkout -q --detach
   run --separate-stderr fire "$T/work/widget"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  untitled
 }
 
 @test "a directory that is not a git checkout, and one that does not exist, get no title" {
   mkdir -p "$T/work/plain"
   run --separate-stderr fire "$T/work/plain"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  untitled
   run --separate-stderr fire "$T/work/missing"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  untitled
 }
 
 @test "a slot's own Claude gets no title, on a feature branch or from a directory below its root" {
@@ -132,9 +140,9 @@ gh_calls() { grep -c '^gh ' "$CALLS" || true; }
   mkdir -p "$AGENT_SLOT_ROOT/widget/1/src"
   run --separate-stderr fire "$AGENT_SLOT_ROOT/widget/1"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  untitled
   run --separate-stderr fire "$AGENT_SLOT_ROOT/widget/1/src"
-  [ -z "$output" ]
+  untitled
   [ "$(gh_calls)" -eq 0 ]
 }
 
@@ -143,7 +151,7 @@ gh_calls() { grep -c '^gh ' "$CALLS" || true; }
   git -C "$AGENT_SLOT_DEV/widget" checkout -q -b fix/login-timeout
   run --separate-stderr fire "$AGENT_SLOT_DEV/widget"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  untitled
   [ "$(gh_calls)" -eq 0 ]
 }
 
@@ -151,7 +159,7 @@ gh_calls() { grep -c '^gh ' "$CALLS" || true; }
   checkout "$T/extra/notes" fix/login-timeout git@github.com:acme/notes.git
   AGENT_SLOT_EXTRA_PRIMES=$T/extra/notes run --separate-stderr fire "$T/extra/notes"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  untitled
 }
 
 @test "a linked worktree of a prime is a checkout of its own and is titled by its branch" {
@@ -159,14 +167,14 @@ gh_calls() { grep -c '^gh ' "$CALLS" || true; }
   git -C "$AGENT_SLOT_DEV/widget" worktree add -q -b fix/login-timeout "$T/work/widget-wt"
   run --separate-stderr fire "$T/work/widget-wt"
   [ "$status" -eq 0 ]
-  [ "$(title_of)" = widget-branch-fix-login-timeout ]
+  titled widget-branch-fix-login-timeout
 }
 
 @test "a payload with no cwd gets no title, whatever directory the hook runs in" {
   checkout "$T/work/widget" fix/login-timeout git@github.com:acme/widget.git
   run --separate-stderr bash -c 'cd "$1" && printf "{\"hook_event_name\":\"UserPromptSubmit\"}" | "$2"' x "$T/work/widget" "$HOOK"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  untitled
 }
 
 @test "a payload that arrives on a socket, as Claude Code hands it to a hook, is read" {
@@ -182,16 +190,16 @@ os.execv(sys.argv[1], sys.argv[1:2])'
   run --separate-stderr bash -c 'jaq -n -c --arg cwd "$1" "{hook_event_name: \"UserPromptSubmit\", cwd: \$cwd}" | python3 -I -B -c "$2" "$3"' \
     x "$T/work/widget" "$on_socket" "$HOOK"
   [ "$status" -eq 0 ]
-  [ "$(title_of)" = widget-branch-fix-login-timeout ]
+  titled widget-branch-fix-login-timeout
 }
 
 @test "an empty or malformed payload exits 0 and prints nothing" {
   run --separate-stderr bash -c 'printf "" | "$1"' x "$HOOK"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  untitled
   run --separate-stderr bash -c 'printf "{not json" | "$1"' x "$HOOK"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  untitled
 }
 
 @test "the hook is registered for UserPromptSubmit, synchronous, with a timeout" {
@@ -199,4 +207,67 @@ os.execv(sys.argv[1], sys.argv[1:2])'
   run jaq -c '[.hooks.UserPromptSubmit[].hooks[] | select(.command == "~/.claude/session-title.sh")]' "$settings"
   [ "$status" -eq 0 ]
   jaq -e 'length == 1 and (.[0] | .type == "command" and (.async // false) == false and (.timeout | type == "number" and . <= 10))' <<<"$output"
+}
+
+@test "a gh that hangs is cut off at its bound and leaves the title to the branch" {
+  checkout "$T/work/widget" feat/dark-mode git@github.com:acme/widget.git
+  stub gh 'sleep 30'
+  local start=$SECONDS
+  run --separate-stderr fire "$T/work/widget"
+  [ "$status" -eq 0 ]
+  titled widget-branch-feat-dark-mode
+  ((SECONDS - start < 10)) || { echo "the hook took $((SECONDS - start)) s"; false; }
+}
+
+@test "a failed gh lookup leaves a labelled line and gh's own output in hooks.log" {
+  checkout "$T/work/widget" feat/dark-mode git@github.com:acme/widget.git
+  stub gh 'echo "boom from gh" >&2; exit 1'
+  run --separate-stderr fire "$T/work/widget"
+  [ "$status" -eq 0 ]
+  grep -Eq '^[0-9T:Z-]+ session-title\[[0-9]+\] reason=gh-pr-list-failed repo=acme/widget branch=feat/dark-mode$' "$(HOOKS_LOG)" ||
+    { cat "$(HOOKS_LOG)" 2>&1; false; }
+  grep -q 'boom from gh' "$(HOOKS_LOG)" || { cat "$(HOOKS_LOG)" 2>&1; false; }
+}
+
+@test "an origin that is not on GitHub is named from its path and never asked about" {
+  checkout "$T/work/widget" feat/dark-mode https://gitlab.com/group/sub/widget.git
+  printf '%s' '[{"number": 42, "title": "A PR in an unrelated GitHub repo"}]' >"$STUBS/gh-out"
+  run --separate-stderr fire "$T/work/widget"
+  [ "$status" -eq 0 ]
+  titled widget-branch-feat-dark-mode
+  [ "$(gh_calls)" -eq 0 ]
+}
+
+@test "a PR from another repository's fork never counts, and one from this repository does" {
+  checkout "$T/work/widget" patch-1 git@github.com:acme/widget.git
+  printf '%s' '[{"number": 5, "title": "A stranger fix", "isCrossRepository": true}]' >"$STUBS/gh-out"
+  run --separate-stderr fire "$T/work/widget"
+  titled widget-branch-patch-1
+  printf '%s' '[{"number": 5, "title": "A stranger fix", "isCrossRepository": true},
+    {"number": 9, "title": "Our fix", "isCrossRepository": false}]' >"$STUBS/gh-out"
+  run --separate-stderr fire "$T/work/widget"
+  titled widget-pr9-our-fix
+}
+
+@test "the branch origin's HEAD names is a base branch" {
+  checkout "$T/work/widget" trunk git@github.com:acme/widget.git
+  git -C "$T/work/widget" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
+  run --separate-stderr fire "$T/work/widget"
+  [ "$status" -eq 0 ]
+  untitled
+  [ "$(gh_calls)" -eq 0 ]
+}
+
+@test "a library that fails to load leaves a labelled line in hooks.log and prints nothing" {
+  local fake=$T/fake
+  mkdir -p "$fake/stow/claude/dot-claude" "$fake/scripts"
+  cp "$HOOK" "$fake/stow/claude/dot-claude/session-title.sh"
+  cp -R "$BATS_TEST_DIRNAME/../scripts/agent-slot" "$fake/scripts/agent-slot"
+  printf 'if then\n' >"$fake/scripts/agent-slot/lib/items.sh"
+  checkout "$T/work/widget" feat/dark-mode git@github.com:acme/widget.git
+  HOOK=$fake/stow/claude/dot-claude/session-title.sh run --separate-stderr fire "$T/work/widget"
+  [ "$status" -eq 0 ]
+  untitled
+  grep -Eq 'session-title\[[0-9]+\] reason=lib-load-failed lib=items.sh next="cd ~/dotfiles && scripts/stow-deploy --headless --only claude"$' "$(HOOKS_LOG)" ||
+    { cat "$(HOOKS_LOG)" 2>&1; false; }
 }

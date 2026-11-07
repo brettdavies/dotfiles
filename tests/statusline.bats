@@ -4,9 +4,10 @@
 # Run: bats tests/statusline.bats
 #
 # A prime's Claude keeps its <repo>-prime title, so its status line shows the work it is on instead: the label
-# session-title.sh gives a generic session, from the branch or the open PR, and nothing on a base branch. Every other
-# session's line is unchanged. The checkouts are real git repos under BATS_TEST_TMPDIR, and stderr is dropped: a clean
-# repo makes the git counts print "integer expression expected", which leaves the line itself intact.
+# session-title.sh gives a generic session, from the branch or the open PR, and nothing on a base branch. A prime is a
+# session named *-prime in a prime checkout, a clone with an origin directly under the dev root, which these tests put
+# at BATS_TEST_TMPDIR. Every other session's line is unchanged. The checkouts are real git repos, and stderr is dropped:
+# a clean repo makes the git counts print "integer expression expected", which leaves the line itself intact.
 # run-tests: parallel
 
 STATUSLINE="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/statusline.sh"
@@ -18,12 +19,14 @@ setup() {
   git config --file "$GIT_CONFIG_GLOBAL" user.email test@example.com
   git config --file "$GIT_CONFIG_GLOBAL" user.name Test
   git config --file "$GIT_CONFIG_GLOBAL" commit.gpgsign false
+  export AGENT_SLOT_DEV=$T AGENT_SLOT_EXTRA_PRIMES=
 }
 
-# checkout DIR BRANCH: a git checkout on BRANCH with one commit.
+# checkout DIR BRANCH: a git checkout on BRANCH with one commit and an origin no one fetches.
 checkout() {
   git init -q -b "$2" "$1"
   git -C "$1" commit -q --allow-empty -m seed
+  git -C "$1" remote add origin "git@github.com:acme/${1##*/}.git"
 }
 
 # line SESSION_NAME CWD [PR_NUMBER] [REPO_NAME]: the status line Claude Code would draw, colour codes removed.
@@ -100,4 +103,26 @@ line() {
   checkout "$T/widget" fix/login-timeout
   run line widget-prime "$T/widget" 887 widget
   [ "${#lines[@]}" -eq 1 ]
+}
+
+@test "a session named like a prime's, in a checkout that is not a prime's, shows no task" {
+  checkout "$T/elsewhere/widget" fix/login-timeout
+  run line widget-prime "$T/elsewhere/widget" "" widget
+  [ "$status" -eq 0 ]
+  [[ $output != *task:* ]] || { echo "$output"; false; }
+}
+
+@test "a generic session titled from a branch that ends in -prime shows no task" {
+  checkout "$T/elsewhere/widget" fix/agent-slot-prime
+  run line widget-branch-fix-agent-slot-prime "$T/elsewhere/widget" "" widget
+  [ "$status" -eq 0 ]
+  [[ $output != *task:* ]] || { echo "$output"; false; }
+}
+
+@test "a prime on the branch origin's HEAD names shows no task" {
+  checkout "$T/widget" trunk
+  git -C "$T/widget" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
+  run line widget-prime "$T/widget" "" widget
+  [ "$status" -eq 0 ]
+  [[ $output != *task:* ]] || { echo "$output"; false; }
 }
