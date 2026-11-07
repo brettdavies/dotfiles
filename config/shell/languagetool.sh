@@ -22,10 +22,11 @@
 #     repo's prose (see LT_DENY_RULES_BASELINE below).
 #   - Approximate line numbers from byte offsets via awk; LT v1 does not
 #     return line/column natively.
-#   - When LT cannot be reached, or its URL cannot be worked out, exit 2 and
-#     print a WARNING notice on stderr: the reason, that the grammar check did
-#     not run, the command that diagnoses it, and how to name another server.
-#     Callers decide whether exit 2 skips the stage or fails the run.
+#   - When LT cannot be reached, its URL cannot be worked out, or a file's
+#     /v2/check request fails, exit 2 and print a WARNING notice on stderr: the
+#     cause, what did not run, the command that diagnoses it, and how to name
+#     another server. Callers decide whether exit 2 skips the stage or fails the
+#     run.
 #
 # Per-repo denylist extensions go in LT_DENY_RULES, layering on top of
 # the baseline. Example for agentnative-site, where the corpus uses
@@ -53,6 +54,8 @@
 #   LT_DENY_RULES           Inner alternation of rule IDs to suppress
 #                           (default $LT_DENY_RULES_BASELINE)
 #   LT_PROBE_TIMEOUT        /v2/languages probe timeout, seconds (default 2)
+#   LT_TAILSCALE_APP        Tailscale CLI used when `tailscale` is not on PATH (default
+#                           /Applications/Tailscale.app/Contents/MacOS/Tailscale)
 #   LT_CHECK_TIMEOUT        /v2/check timeout per file, seconds (default 30)
 #   LT_JOBS                 Parallel check workers (default 4)
 #
@@ -60,15 +63,18 @@
 #   stdout — one match per line, sorted by input file order:
 #     blocking:  <file>:<line>:LT.<rule_id> (<category>): <message>
 #     warning:   [warn] <file>:<line>:LT.<rule_id> (<category>): <message>
-#   stderr — nothing on a run; on exit 2, the WARNING notice described above.
+#   stderr — nothing on a run; on exit 2, or on 1 with unchecked files, the
+#     WARNING notice described above.
 #
 # Exit:
 #   0  ran, no blocking matches (warnings may still have printed)
 #   1  ran, blocking matches present (also on stdout)
-#   2  LT unreachable, or no URL to try; caller decides whether to proceed
+#   2  LT unreachable, no URL to try, or no file checked (blocking matches in
+#      the files that were checked exit 1 instead); caller decides whether to
+#      proceed
 #   3  usage error (no files, unknown flag)
 #
-# Deps: curl, jaq, awk, xargs, mktemp; tailscale only when no URL is given.
+# Deps: curl, jaq, awk, xargs, mktemp; the Tailscale CLI only when no URL is given.
 #
 # Rule baseline — 10 rules that misfire on technical prose patterns
 # every repo's corpus contains. Override the whole list by setting
@@ -100,13 +106,27 @@
 #                          verb when the actual subject ("Agents") is plural.
 LT_DENY_RULES_BASELINE='MD_BASEFORM|MUST_HAVE_TO|HAVE_PART_AGREEMENT|PREPOSITION_VERB|THIS_NNS|NON_STANDARD_WORD|POSSESSIVE_APOSTROPHE|A_INSTALL|IS_AND_ARE|SINGULAR_NOUN_ADV_AGREEMENT'
 
+# _lt_tailscale_cli: print the command that runs the Tailscale CLI: tailscale
+# when it is on PATH, else the macOS app's bundled binary, which the app does
+# not put on PATH. Fails when neither exists.
+_lt_tailscale_cli() {
+  if command -v tailscale >/dev/null 2>&1; then
+    printf 'tailscale'
+    return 0
+  fi
+  local app="${LT_TAILSCALE_APP:-/Applications/Tailscale.app/Contents/MacOS/Tailscale}"
+  [[ -x "$app" ]] || return 1
+  printf '%s' "$app"
+}
+
 # _lt_default_url OUTVAR: set OUTVAR to the languagetool Tailscale Service's
-# URL. Fails when the tailnet's MagicDNS suffix cannot be read (no tailscale on
-# PATH, Tailscale not running) or is not a bare DNS suffix, so a malformed
+# URL. Fails when the tailnet's MagicDNS suffix cannot be read (no Tailscale
+# CLI, Tailscale not running) or is not a bare DNS suffix, so a malformed
 # value never reaches a URL.
 _lt_default_url() {
-  local suffix
-  suffix=$(tailscale status --json 2>/dev/null | jaq -r '.MagicDNSSuffix // empty' 2>/dev/null) || return 1
+  local cli suffix
+  cli=$(_lt_tailscale_cli) || return 1
+  suffix=$("$cli" status --json 2>/dev/null | jaq -r '.MagicDNSSuffix // empty' 2>/dev/null) || return 1
   case "$suffix" in
     '' | *[!A-Za-z0-9.-]* | .* | *.) return 1 ;;
   esac
@@ -132,12 +152,21 @@ _lt_probe_reason() {
   esac
 }
 
-# _lt_notice_tail DIAGNOSE_COMMAND: the lines that follow every WARNING about
-# a check that could not run.
-_lt_notice_tail() {
-  printf 'WARNING: %s: grammar check NOT RUN; only the other stages vouch for this prose\n' "$1"
+# _lt_notice_not_run CALLER: the line that says no grammar check happened.
+# lt_check is the only function that runs one; the query functions only ask
+# the server about itself.
+_lt_notice_not_run() {
+  if [[ "$1" == lt_check ]]; then
+    printf 'WARNING: %s: grammar check NOT RUN; only the other stages vouch for this prose\n' "$1"
+  fi
+}
+
+# _lt_notice_notes CALLER DIAGNOSE_COMMAND: the NOTE lines that close every
+# notice. LANGUAGETOOL_URL is the override every caller honors; the prose-check
+# scripts accept no --lt-url.
+_lt_notice_notes() {
   printf 'NOTE: %s: diagnose with: %s\n' "$1" "$2"
-  printf 'NOTE: %s: to use another server: export LANGUAGETOOL_URL=<base url>, or pass --lt-url <base url>\n' "$1"
+  printf 'NOTE: %s: to use another server: export LANGUAGETOOL_URL=<base url>\n' "$1"
 }
 
 # _lt_warn_unreachable CALLER URL CURL_EXIT: the stderr notice for a server
@@ -145,7 +174,8 @@ _lt_notice_tail() {
 _lt_warn_unreachable() {
   {
     printf 'WARNING: %s: LanguageTool unreachable at %s: %s\n' "$1" "$2" "$(_lt_probe_reason "$3")"
-    _lt_notice_tail "$1" "curl -sS $2/v2/languages"
+    _lt_notice_not_run "$1"
+    _lt_notice_notes "$1" "curl -sS $2/v2/languages"
   } >&2
 }
 
@@ -154,7 +184,17 @@ _lt_warn_unreachable() {
 _lt_warn_no_url() {
   {
     printf "WARNING: %s: LanguageTool URL unknown: LANGUAGETOOL_URL is unset and the tailnet name could not be read from 'tailscale status --json' (CLI missing, or Tailscale not running)\n" "$1"
-    _lt_notice_tail "$1" 'tailscale status'
+    _lt_notice_not_run "$1"
+    _lt_notice_notes "$1" 'tailscale status'
+  } >&2
+}
+
+# _lt_warn_unchecked CALLER URL UNCHECKED TOTAL: the stderr notice for files
+# whose /v2/check request failed or came back without a matches list.
+_lt_warn_unchecked() {
+  {
+    printf 'WARNING: %s: LanguageTool did not check %s of %s file(s): /v2/check failed or returned no matches list\n' "$1" "$3" "$4"
+    _lt_notice_notes "$1" "curl -sS -d language=en-US -d text=test $2/v2/check"
   } >&2
 }
 
@@ -237,10 +277,13 @@ lt_check() {
         ' _ {} "$tmp" "$lt_url" "$check_timeout" \
     || true
 
-  local f json offset rule_id category message line
+  local f json offset rule_id category message line unchecked=0
   for f in "${files[@]}"; do
     json="$tmp/$(printf '%s' "$f" | tr '/' '_').json"
-    [[ -s "$json" ]] || continue
+    if ! jaq -e '.matches | type == "array"' "$json" >/dev/null 2>&1; then
+      unchecked=$((unchecked + 1))
+      continue
+    fi
     while IFS=$'\t' read -r offset rule_id category message; do
       [[ -z "$offset" ]] && continue
       line=$(awk -v off="$offset" 'BEGIN{cur=0} {cur+=length($0)+1; if (cur>off) {print NR; exit}}' "$f" 2>/dev/null)
@@ -255,7 +298,9 @@ lt_check() {
   done
 
   rm -rf "$tmp"
+  ((unchecked > 0)) && _lt_warn_unchecked lt_check "$lt_url" "$unchecked" "${#files[@]}"
   ((blocking_count > 0)) && return 1
+  ((unchecked > 0)) && return 2
   return 0
 }
 
