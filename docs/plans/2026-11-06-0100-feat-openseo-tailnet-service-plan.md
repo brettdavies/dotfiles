@@ -109,8 +109,8 @@ touch anc.dev or spend money without his decision.
   user-directed — chosen over leaving Search Console to the search-presence skill: Brett wants its data in OpenSEO)
   Governs R10.
 - **The v0.1.25 image is a named exception to the 7-day supply-chain age gate.** (session-settled: user-directed —
-  chosen over waiting until 2026-11-13: every earlier standalone tag has a known Docker defect, and the bump script
-  keeps the gate for every later release) Governs R6.
+  chosen over waiting until 2026-11-13: v0.1.25 is the first release whose notes say DataForSEO works on the Docker
+  edition, and the bump script keeps the gate for every later release) Governs R6.
 - **Brett runs every gate's commands; agents run only `status` and the bump script.** (session-settled: user-directed —
   chosen over a session he lets run `docker`: docker steps stay with a person) Governs R12, R13.
 - **The NAS move gate stands as KTD10 writes it.** (session-settled: user-directed — chosen over keeping OpenSEO on the
@@ -165,8 +165,9 @@ touch anc.dev or spend money without his decision.
   x86_64 with 16 cores, 93 GiB RAM, Docker active, serving `svc:codex-proxy` and `svc:ollama`. Port 8946 is free on
   both. anc.dev's robots.txt allows every agent, its sitemap lists 174 URLs, and it answers the `OpenSEO-Audit/1.0`
   agent with 200.
-- GHCR: `ghcr.io/every-app/open-seo-standalone` carries tags `0.1.20`, `0.1.21`, `0.1.22`, `0.1.24`, `0.1.25` (with `v`
-  forms), `main`, and `latest`. `latest` follows upstream's main branch, not releases. `v0.1.25` resolves to
+- GHCR: `ghcr.io/every-app/open-seo-standalone` carries release tags `0.1.17` through `0.1.22`, `0.1.24`, and `0.1.25`
+  (each with a `v` form), the rolling `0` and `0.1`, `main`, and `latest`; its first release tag, v0.1.17, was published
+  2026-10-26. `latest` follows upstream's main branch, not releases. `v0.1.25` resolves to
   `sha256:6c5d514649b550fc7bdcefaa52314e7a98c7846b7fc5f7a288c486575698bb04`, a multi-arch index.
 - Repo patterns: `scripts/tailscale-serve-setup.sh`, `scripts/host-jobs-enable.sh` (1Password into a mode-600 env file,
   item UUID in a variable), `scripts/upgrade/yazi-pins.sh` (age-gated pin moves),
@@ -485,7 +486,7 @@ These are bets this plan has not verified. Gate A checks each one.
 
 | Risk                                                                                                   | Mitigation                                                                                                          |
 | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Upstream churns fast, and its Docker edition is three weeks old                                        | 7-day gate, backup before every update, reviewer reads upstream's diff in each bump PR (KTD13)                      |
+| Upstream churns fast, and its standalone Docker edition dates from 2026-10-26                          | 7-day gate, backup before every update, reviewer reads upstream's diff in each bump PR (KTD13)                      |
 | v0.1.25 runs before its seventh day, inside the window the age gate exists for                         | The one named exception (Key Decisions); the bump script holds every later release to the gate                      |
 | The NAS runs out of memory with no swap                                                                | Gate B (KTD10); the stack stays on the Linux server if it fails                                                     |
 | OpenSEO's volumes fill the NAS's shared 20 GiB `docker.img`, stopping every container there            | Gate B's disk threshold (KTD10); the stack stays on the Linux server if it fails                                    |
