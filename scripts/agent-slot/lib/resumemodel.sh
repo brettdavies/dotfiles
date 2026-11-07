@@ -97,12 +97,11 @@ _resume_model_refuse_state() {
   _resume_model_fail "$key" "$message" "$AGENT_STATE" "$action"
 }
 
-# Usage: _resume_model_refuse <key> [<jobs>]; the refusal retask gives, which adds two cases to
-# _resume_model_refuse_state. <jobs> holds the "<pid> <command>" lines of an idle agent's Bash tool commands: value is
-# those lines, as release's background-jobs-running gives them, and the action is retry, since they end by themselves.
-# A caller that descends from the agent's Claude is refused in every state, with value own-agent and ask-operator, since
-# ending that Claude would end the caller and only another session can act. Any other call is
-# _resume_model_refuse_state.
+# Usage: _resume_model_refuse <key> [<jobs>]; _resume_model_refuse_state plus two cases for a caller that must not end
+# the agent's Claude. <jobs> holds the "<pid> <command>" lines of an idle agent's Bash tool commands: value is those
+# lines, as release's background-jobs-running gives them, and the action is retry, since they end by themselves. A
+# caller that descends from the agent's Claude is refused in every state, with value own-agent and ask-operator, since
+# ending that Claude would end the caller and only another session can act.
 _resume_model_refuse() {
   local key=$1 jobs=${2:-}
   if [[ -n $jobs ]]; then
