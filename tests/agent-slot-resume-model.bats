@@ -68,6 +68,12 @@ alive() { kill -0 "$AGENT" 2>/dev/null; }
 
 resume_model() { run --separate-stderr "$AGENT_SLOT" resume repoa/1 "$@" --output json; }
 
+# retask_next: retask of repoa/1 to a new task, with a whole brief. Its refusals come before anything changes.
+retask_next() {
+  printf 'Scope: x\nLimits: y\nReviews: ce-code-review\nReports to: z\nTouches: src/**\nAdds: none\n' >"$T/brief.md"
+  run --separate-stderr "$AGENT_SLOT" retask repoa/1 --task next-task --prompt-file "$T/brief.md" --output json
+}
+
 # line_of PATTERN: the number of the first line of the calls log that matches.
 line_of() { grep -n -- "$1" "$CALLS" | head -1 | cut -d: -f1; }
 
@@ -217,6 +223,42 @@ pane_in_mode() { "$REAL_TMUX" -L "$REAL_SOCKET" display-message -p -t =repoa-1: 
     and .next_step.command == "agent-slot resume repoa/1 --model opus"' <<<"$stderr"
   [ "$(record .model)" = sonnet ]
   run ! grep -q 'send-keys' "$CALLS"
+}
+
+@test "retask run by the slot's own agent is refused in every state and told to ask from another session" {
+  local st
+  for st in idle busy; do
+    listed "$st" "$$"
+    retask_next
+    [ "$status" -eq 1 ]
+    jaq -e '.reason == "agent-busy" and .value == "own-agent" and .next_step.action == "ask-operator"
+      and (.message | contains("inside the slot'"'"'s own agent")) and (.message | contains("another session"))
+      and (.next_step.command | startswith("agent-slot retask repoa/1")) and .recovery.side_effects == "none"' <<<"$stderr"
+    [ "$(record .session_id)" = s1 ]
+  done
+}
+
+@test "retask of an idle Claude that still runs a Bash command is refused, and neither is ended" {
+  spawn bash -c "trap 'echo agent-stopped >>\"$CALLS\"; exit 0' TERM; bash -c 'sleep 120 && pwd -P >| $T/claude-0abc12-cwd' & wait" \
+    </dev/null >/dev/null 2>&1 3>&-
+  AGENT=$!
+  listed idle "$AGENT"
+  local i job
+  for ((i = 0; i < 30; i++)); do
+    pgrep -P "$AGENT" >/dev/null && break
+    sleep 0.1
+  done
+  job=$(pgrep -P "$AGENT")
+  retask_next
+  [ "$status" -eq 1 ]
+  jaq -e --arg job "$job" '.reason == "agent-busy" and (.value | startswith($job + " sleep 120")) and .next_step.action == "retry"
+    and (.message | contains("1 background job")) and (.message | contains("PID " + $job))
+    and (.message | contains("changes nothing")) and (.next_step.command | startswith("agent-slot retask repoa/1"))
+    and .recovery.side_effects == "none"' <<<"$stderr"
+  alive
+  pgrep -P "$AGENT" >/dev/null
+  [ "$(record .session_id)" = s1 ]
+  run ! grep -q '^agent-stopped$' "$CALLS"
 }
 
 @test "with no Claude running, the model is recorded and nothing is typed" {

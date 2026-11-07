@@ -814,11 +814,15 @@ trust, and tmux phases, and Claude's start.
 `agent-slot retask <repo>/<N> (--task <name> | --issue <ref>) --prompt-file <file>` gives a live slot a new task in a
 new Claude session, so one conversation never carries two tasks. Follow-up work on the same task goes to the existing
 session, and work on a PR starts with `launch --pr`. The agent must be idle or absent, else `agent-busy`, and the old
-work pushed, else `slot-work-unfinished`. The clone returns to the base without its other local branches. The record
-takes a new session ID, name, brief, and scope, and a reopen finds the old session in `prior_sessions` and the `retask`
-ledger line. A slot that starts a new task without it is stopped at its push: `slot-scope-guard.sh` denies a branch that
-shares no line of work with the slot's other branches. A stacked branch shares one, and a probe's branch goes under
-`probe/`.
+work pushed, else `slot-work-unfinished`. The `value` of `agent-busy` is the agent's state (`busy`, `waiting`,
+`unknown`), `own-agent` for a `retask` run by the slot's own agent in any state, or one `<pid> <command>` line for each
+Bash command an idle agent's Claude still runs. The `next_step.action` is `retry` for a busy agent and for running
+commands, which the slot's agent or the operator can end, and `ask-operator` otherwise: a waiting or unreadable agent
+needs a person, and a `retask` run by the slot's own agent needs another session, since ending that Claude would end
+the `retask`. The clone returns to the base without its other local branches. The record takes a new session ID, name,
+brief, and scope, and a reopen finds the old session in `prior_sessions` and the `retask` ledger line. A slot that
+starts a new task without it is stopped at its push: `slot-scope-guard.sh` denies a branch that shares no line of work
+with the slot's other branches. A stacked branch shares one, and a probe's branch goes under `probe/`.
 
 `agent-slot resume <repo>/<N> --model (opus | sonnet)` switches a live slot's model. The slot's record takes the model,
 and a Claude that is idle is ended and started again in its own pane through the command line a launch builds, resuming
@@ -833,14 +837,16 @@ A Claude that is busy, waiting at a prompt, or whose state cannot be read is nev
 with an unfinished background shell, such as a watcher on a CI run, as busy, and a resume run by the slot's own agent
 mid-turn finds that agent busy the same way. The resume fails with `agent-busy` and changes nothing. `value` is the
 state (`busy`, `waiting`, `unknown`). The `next_step.action` is `retry` for a busy agent and `ask-operator` otherwise,
-since a waiting or unreadable agent needs a person; `agent-slot list --output json` shows each slot's `.agent`. With no
-Claude running, only the record changes: `agent-slot` starts no Claude in a session that exists, so the model applies
-when the session is created again. Naming the model the slot already runs is a plain resume, so a call whose answer was
-lost can be repeated. A pane the operator has scrolled back in is taken out of copy mode first, before anything changes;
-if tmux cannot, the resume fails with `tmux-failed` and changes nothing. If the line cannot be typed after the old
-Claude is gone, the Claude session is dropped and the error is `tmux-failed`, or `tmux-unresponsive` when tmux did not
-answer, with partial side effects; `agent-slot resume <repo>/<N>` then creates the session on the new model. If the
-session cannot be dropped either, `next_step.command` is the tmux command that drops it.
+since a waiting or unreadable agent needs a person; `agent-slot list --output json` shows each slot's `.agent`. A
+resume that the slot's own agent needs is run from another session, since a wait inside the slot's own session, a
+background one included, keeps that agent busy. With no Claude running, only the record changes: `agent-slot` starts
+no Claude in a session that exists, so the model applies when the session is created again. Naming the model the slot
+already runs is a plain resume, so a call whose answer was lost can be repeated. A pane the operator has scrolled
+back in is taken out of copy mode first, before anything changes; if tmux cannot, the resume fails with `tmux-failed`
+and changes nothing. If the line cannot be typed after the old Claude is gone, the Claude session is dropped and the
+error is `tmux-failed`, or `tmux-unresponsive` when tmux did not answer, with partial side effects; `agent-slot resume
+<repo>/<N>` then creates the session on the new model. If the session cannot be dropped either, `next_step.command`
+is the tmux command that drops it.
 
 Every release request, refusal, and `--not-yet`, every `finish --yes`, and every `sweep --yes` pass appends one JSON
 line to `~/.local/state/agent-slot/teardown.log`: what ran it (`operator`, `release`, or `timer`), the slots it tore
@@ -906,7 +912,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `pr-not-from-this-slot`       | 1    | The PR is in another repo, on a branch this slot did not create, or has a head it did not push |
 | `pr-close-failed`             | 1    | `gh pr close` failed, so the PR may or may not be closed; rerunning `close-probe` is safe      |
 | `model-differs`               | 1    | A repeat found its slot on another model than `--model`; `message` names the slot's model      |
-| `agent-busy`                  | 1    | `resume --model` found the agent busy, waiting, or unreadable; nothing changed                 |
+| `agent-busy`                  | 1    | `resume --model` or `retask` found the agent not idle (see `value`); nothing changed           |
 | `slot-work-unfinished`        | 1    | A new task would strand the old one; `value` names what is left                                |
 | `slot-checkout-failed`        | 1    | `retask` could not reach the base, and changed nothing                                         |
 | `session-in-use`              | 1    | A Claude agent has the session open; the operator closes it, then the reopen runs again        |
