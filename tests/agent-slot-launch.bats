@@ -803,10 +803,10 @@ exec "$STUBS/tmux.inner" "$@"'
   cmp "$T/brief.md" "$T/received"
 }
 
-@test "the claude session skips permission prompts and gets its session ID, the task only when given, and the first message only when given" {
+@test "the claude session skips permission prompts and gets its session ID, the task else the slot's own name, and the first message only when given" {
   launch repoa --request-id r-plain
   session=$(jaq -r .session_id <<<"$output")
-  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id $session" ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id $session -n repoa-1" ]
   launch repoa --request-id r-task --task t1
   session=$(jaq -r .session_id <<<"$output")
   [ "$(cat "$STUBS/typed-repoa-2")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id $session -n t1" ]
@@ -1088,6 +1088,22 @@ EOF
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
   [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id aaaaaaaa-1111-2222-3333-444444444444 -n fix-login" ]
+}
+
+@test "resume of a slot with no name or task whose conversation Claude never saved names the session after the slot" {
+  slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444"}'
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id aaaaaaaa-1111-2222-3333-444444444444 -n repoa-1" ]
+}
+
+@test "resume of a slot with no name or task whose conversation is saved passes no name, so a /rename the session carries survives" {
+  slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444"}'
+  mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1"
+  : >"$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1/aaaaaaaa-1111-2222-3333-444444444444.jsonl"
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --resume aaaaaaaa-1111-2222-3333-444444444444" ]
 }
 
 @test "a session ID in the record that holds shell syntax is typed as one argument" {

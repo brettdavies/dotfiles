@@ -516,6 +516,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "~/.claude/session-title.sh",
+            "timeout": 8
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "~/.claude/slot-status.sh",
             "async": true,
             "timeout": 30

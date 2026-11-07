@@ -206,3 +206,19 @@ repoa_887() {
   name '{"kind": "issue", "repo": "x/.github", "number": 4, "title": "Add a template"}'
   [ "$output" = github-issue4-add-a-template ]
 }
+
+@test "an item with no repo name gets no slot name, and item_name returns instead of looping" {
+  local item
+  for item in '{"kind": "branch", "repo": "", "number": "", "title": "feat/x"}' \
+    '{"kind": "pr", "repo": "owner/", "number": 7, "title": ""}' \
+    '{"kind": "branch", "repo": "x/.", "number": "", "title": ""}' \
+    '{"kind": "branch", "repo": "acme/wid\nget", "number": "", "title": "feat/x"}'; do
+    run --separate-stderr timeout 10 bash -c '
+      lib=$1 item=$2
+      for f in env contract names record bounded launch prstate items; do source "$lib/$f.sh"; done
+      agent_slot_env "$lib/.."
+      item_name "$item"' _ "$LIB" "$item"
+    [ "$status" -ne 124 ] || { echo "item_name did not return for $item"; false; }
+    [[ $output =~ ^[A-Za-z0-9][A-Za-z0-9_/-]{0,63}$ || -z $output ]] || { echo "item $item named: $output"; false; }
+  done
+}

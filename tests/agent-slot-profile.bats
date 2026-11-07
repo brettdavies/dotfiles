@@ -84,7 +84,7 @@ OBSIDIAN='obsidian@obsidian-skills'
   launch --request-id r1
   local session
   session=$(jaq -r .session_id <<<"$output")
-  [ "$(typed)" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id $session" ]
+  [ "$(typed)" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id $session -n repoa-1" ]
 }
 
 @test "the settings argument reaches Claude as one JSON object that keeps idle compaction off" {
@@ -147,7 +147,7 @@ OBSIDIAN='obsidian@obsidian-skills'
   launch --request-id r1 --model sonnet
   local session
   session=$(jaq -r .session_id <<<"$output")
-  [ "$(typed)" = "CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions $(slot_profile_args) --model claude-sonnet-5-5 --effort xhigh --advisor opus --session-id $session" ]
+  [ "$(typed)" = "CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions $(slot_profile_args) --model claude-sonnet-5-5 --effort xhigh --advisor opus --session-id $session -n repoa-1" ]
 }
 
 @test "resuming a dormant slot restarts Claude on the profile" {
@@ -163,7 +163,7 @@ OBSIDIAN='obsidian@obsidian-skills'
   wrangler wrangler.jsonc
   launch --request-id r1
   [ "$(plugins)" = "{\"$OBSIDIAN\":false}" ]
-  [ "$(typed)" = "claude --dangerously-skip-permissions $(slot_profile_args cloudflare) --model claude-opus-5-5 --effort xhigh --session-id $(jaq -r .session_id <<<"$output")" ]
+  [ "$(typed)" = "claude --dangerously-skip-permissions $(slot_profile_args cloudflare) --model claude-opus-5-5 --effort xhigh --session-id $(jaq -r .session_id <<<"$output") -n repoa-1" ]
 }
 
 @test "a wrangler.jsonc two directories down keeps the plugin on" {

@@ -607,8 +607,29 @@ check adopts several PRs at once, the earliest created names the slot. `agent-sl
 slot's tab show its `label_name`: the name, else the task, else the branch its clone has checked out. The slot's Claude
 session carries the name as well: launch, resume, and reopen start Claude with `-n <name>` (the task for a slot with no
 name), and a slot named while its agent runs has `/rename <name>` typed into its session, by `adopt` when the agent is
-idle, else by the first automatic sweep that finds it idle, which records the session's name in `named_as`. The agent's
-SessionStart context lists the slot's work items.
+idle, else by the first automatic sweep that finds it idle, which records the session's name in `named_as`. A slot with
+neither a name nor a task gets its own session name, `<repo>-<N>`, whenever Claude starts a conversation fresh. A resume
+that finds its conversation passes no `-n`, which would replace a `/rename`, so a conversation started before this
+naming keeps the title it has. The agent's SessionStart context lists the slot's work items.
+
+A Claude session that is not a slot's is named for its work as well. `session-title.sh` (in `stow/claude/dot-claude/`,
+on `UserPromptSubmit`, not async, 8 s timeout) answers with `hookSpecificOutput.sessionTitle` for a session with no
+custom title in a git checkout on a feature branch: `<repo>-pr<N>-<slug>` when the branch has an open PR in the
+repository itself, else `<repo>-branch-<slug>`, both cut to 64 characters as a slot's name is (`item_name`). The PR
+comes from one `gh pr list --head <branch> --state open` call, bounded to 3 s, made only for a GitHub origin and only
+until the session has a title; a PR from a fork never counts. It prints nothing, and always exits 0, for a session that
+already has a custom title from `-n`, `/rename`, or its own earlier answer, so nothing it does replaces a `/rename`, and
+a prime's Claude, which starts with `-n <repo>-prime`, keeps that name; for a directory under the slot root; on `main`,
+`master`, `dev`, `develop`, `release/*`, the branch origin's HEAD names, or a detached head; and outside a git checkout.
+A session started by hand in a prime checkout is titled like any other. A `claude -p` child is titled the same way when
+its directory qualifies. The checks run cheapest first: a titled session or a base branch costs about 9 ms a prompt, and
+the one prompt that titles a session about 60 ms, or about 0.5 s when the `gh` call runs. A hook that cannot load a
+library, or whose `gh` call fails, leaves a labelled line in `hooks.log` in the agent-slot log directory.
+
+A prime keeps its `<repo>-prime` title, which a resume looks for by name, so its work shows in the status line instead.
+For a session named `*-prime` in a prime checkout on a feature branch, `statusline.sh` adds `task:<label>` after the git
+segment: `<repo>-branch-<slug of the branch>`, or `<repo>-pr<N>-<slug of the branch>` when the payload names an open PR
+(it carries the PR's number and no title), and nothing on a base branch.
 
 A launch on a PR checks out the PR's head branch tracking the remote that holds it: origin, the remote the prime
 checkout has for that repository, or `fork`. A head whose branch or repository is gone is checked out from
