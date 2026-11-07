@@ -42,10 +42,7 @@ os_up() {
   os_compose_env
   image=$(os_env_get "$OS_LOCAL_ENV" OPENSEO_IMAGE)
   echo "==> pulling ${image##*/} (about 115 MiB)"
-  os_try os_compose pull || {
-    OS_VALUE=$image
-    os_fail pull-failed "docker compose pull failed for $(os_mask "$image"); nothing was started; safe to rerun" "$OS_DEPLOY up"
-  }
+  os_try os_compose pull || os_fail pull-failed "docker compose pull failed for $(os_mask "$image"); nothing was started; safe to rerun" "$OS_DEPLOY up" "$image"
   echo "==> starting the stack"
   if ! { os_try os_compose up -d && os_try os_compose up -d --force-recreate init web crawl-gateway; }; then
     os_fail up-failed "docker compose up failed; the stack may be partly started; safe to rerun" "$OS_DEPLOY up"

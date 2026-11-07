@@ -6,12 +6,11 @@ os_check() {
 }
 
 os_status() {
-  local addr has_env=0 image
+  local addr image
   os_need curl jq tailscale
   os_need_suffix
   addr=https://openseo.$OS_SUFFIX
   if [ -f "$OS_LOCAL_ENV" ]; then
-    has_env=1
     os_gate_check || :
     case "$OS_GATE" in
       first-account-open)
@@ -27,12 +26,12 @@ os_status() {
   os_health "$addr"
   if [ "$OS_HEALTH" = ok ]; then
     os_check address "$addr/api/health ok"
-  elif [ "$has_env" = 1 ]; then
+  elif [ -f "$OS_LOCAL_ENV" ]; then
     os_note "this host cannot reach its own service address $addr; its loopback and service checks pass, and other hosts can still reach it"
   else
     os_fail address-unreachable "$addr/api/health refused (nothing changed; safe to rerun)" "$OS_DEPLOY serve   # on the host that runs OpenSEO"
   fi
-  if [ "$has_env" = 1 ]; then
+  if [ -f "$OS_LOCAL_ENV" ]; then
     pin_load "$OS_PIN"
     image=$(os_env_get "$OS_LOCAL_ENV" OPENSEO_IMAGE)
     [ "$image" = "$PIN_IMAGE" ] || os_note "the tracked pin $PIN_TAG differs from this host's image; apply it with: $OS_DEPLOY update"

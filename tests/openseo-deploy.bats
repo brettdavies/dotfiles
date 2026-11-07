@@ -418,6 +418,8 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   _run frobnicate
   [ "$status" -eq 2 ]
   [[ "$output" == *"ERROR: usage:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --help"* ]]
+  run --separate-stderr "$SCRIPT" frobnicate --output json
+  jq -e '.reason == "usage" and .exit_code == 2 and .value == "frobnicate"' <<<"$output"
 }
 
 @test "--output json is refused for the operator verbs" {

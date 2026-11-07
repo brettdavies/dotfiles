@@ -1,7 +1,5 @@
 # shellcheck disable=SC2034,SC2153 # globals are shared through the script that sources this file
 
-OS_BOUND=0
-
 os_serve() {
   local rc=0
   OS_BOUND=0

@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# OpenSEO's standalone Docker stack on the Linux server, behind the tailnet service svc:openseo. The stack is
-# config/openseo/compose.yaml (upstream's file, byte for byte) at the image digest in config/openseo/openseo.pin;
-# `render` writes ~/.config/openseo/local.env from 1Password and the pin. Run it from ~/dotfiles. Runbook:
-# docs/runbooks/openseo.md. The docker verbs (up, down, create-admin) are the operator's; agents run `status`.
-#
-# Usage: scripts/openseo-deploy.sh (render | up | down | serve | status | create-admin) [--output json]
+# OpenSEO's standalone Docker stack on the Linux server, behind the tailnet service svc:openseo: config/openseo/compose.yaml
+# (upstream's file, byte for byte) at the image digest in config/openseo/openseo.pin, with secrets rendered from 1Password.
+# The docker verbs (up, down, create-admin) are the operator's; agents run `status`. Runbook: docs/runbooks/openseo.md.
+# Usage: scripts/openseo-deploy.sh --help
 # shellcheck disable=SC1090,SC1091,SC2034 # the libraries read these globals; shellcheck follows no sourced file
 
 set -euo pipefail
@@ -42,8 +40,7 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     *)
-      OS_VALUE=$(os_mask "$1")
-      os_fail usage "unexpected argument" "$OS_DEPLOY --help"
+      os_fail usage "unexpected argument" "$OS_DEPLOY --help" "$1"
       ;;
   esac
 done
@@ -55,8 +52,7 @@ case "$verb" in
     ;;
   render | up | down | serve | status | create-admin) ;;
   *)
-    OS_VALUE=$(os_mask "$verb")
-    os_fail usage "unknown or missing verb" "$OS_DEPLOY --help"
+    os_fail usage "unknown or missing verb" "$OS_DEPLOY --help" "$verb"
     ;;
 esac
 [ "$OS_OUTPUT" = text ] || [ "$verb" = status ] || os_fail usage "--output json is for status only" "$OS_DEPLOY --help"

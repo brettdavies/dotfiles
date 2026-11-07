@@ -29,18 +29,17 @@ os_envelope() {
       checks: $checks, notes: $notes}'
 }
 
-# os_fail REASON MESSAGE FIX: exits 1, or 2 for a usage error.
+# os_fail REASON MESSAGE FIX [VALUE]: exits 1, or 2 for a usage error.
 os_fail() {
-  local code=1 line
+  local code=1
   [ "$1" != usage ] || code=2
+  [ "$#" -lt 4 ] || OS_VALUE=$(os_mask "$4")
   if [ "$OS_OUTPUT" = json ]; then
     os_envelope "$1" "$code" "$2" "$3"
     exit "$code"
   fi
   printf 'ERROR: %s: %s\n' "$1" "$2" >&2
-  while IFS= read -r line; do
-    [ -z "$line" ] || printf 'cause: %s\n' "$line" >&2
-  done <<<"$OS_CAUSE"
+  [ -z "$OS_CAUSE" ] || sed '/./!d; s/^/cause: /' <<<"$OS_CAUSE" >&2
   printf 'fix: %s\n' "$3" >&2
   exit "$code"
 }
@@ -67,8 +66,7 @@ os_try() {
 
 # os_unhealthy TAIL: the failure for a stack whose /api/health did not answer ok.
 os_unhealthy() {
-  OS_VALUE=$OS_HEALTH
-  os_fail unhealthy "OpenSEO answered $OS_LOOPBACK/api/health with '${OS_HEALTH:-no answer}'; $1" "$OS_DEPLOY up"
+  os_fail unhealthy "OpenSEO answered $OS_LOOPBACK/api/health with '${OS_HEALTH:-no answer}'; $1" "$OS_DEPLOY up" "$OS_HEALTH"
 }
 
 os_need_suffix() {
@@ -78,9 +76,6 @@ os_need_suffix() {
 os_need() {
   local tool
   for tool in "$@"; do
-    command -v "$tool" >/dev/null 2>&1 || {
-      OS_VALUE=$tool
-      os_fail tool-missing "$tool is not on PATH; nothing changed" "brew install $tool"
-    }
+    command -v "$tool" >/dev/null 2>&1 || os_fail tool-missing "$tool is not on PATH; nothing changed" "brew install $tool" "$tool"
   done
 }

@@ -77,10 +77,9 @@ fi
 echo "==> service serve: svc:codex-proxy -> ${CODEX_TARGET}"
 tailscale serve --service=svc:codex-proxy --https=443 --yes "${CODEX_TARGET}"
 
-# svc:openseo is bound only on the host that runs OpenSEO (its env file exists) and only through the bind gate in
-# scripts/openseo/lib/gate.sh, which keeps the address dark while OpenSEO lets its first visitor become administrator.
-# This block runs last, so an unhealthy OpenSEO fails the unit after the other bindings are in place. jq lives under
-# Homebrew, which the unit's PATH lacks.
+# svc:openseo binds only on the host that runs OpenSEO (its env file exists), through the bind gate in
+# scripts/openseo/lib/gate.sh. This block runs last, so an unhealthy OpenSEO fails the unit after the other bindings are in
+# place. jq lives under Homebrew, which the unit's PATH lacks.
 OPENSEO_BREW_BIN="${OPENSEO_BREW_BIN:-/home/linuxbrew/.linuxbrew/bin}"
 PATH="$OPENSEO_BREW_BIN:$PATH"
 # shellcheck source=/dev/null
@@ -90,7 +89,7 @@ OS_CURL_MAX=3
 OPENSEO_DEPLOY="$HOME/dotfiles/scripts/openseo-deploy.sh"
 
 if [ ! -f "$OS_LOCAL_ENV" ]; then
-  echo "NOTE: ${OS_LOCAL_ENV/#$HOME/\~} is absent, so this host does not run OpenSEO. Skipping $OS_SERVICE." >&2
+  echo "NOTE: $OS_ENV_SHOWN is absent, so this host does not run OpenSEO. Skipping $OS_SERVICE." >&2
 else
   os_gate || true
   case "$OS_GATE" in
