@@ -59,9 +59,10 @@ verb_help() {
       '                         [--task NAME] [--prompt-file FILE] [--requested-at EPOCH] [--opened-at EPOCH]' \
       '                         [--shown-at EPOCH] [--output json]' \
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
-      '--dangerously-skip-permissions on the --model given, at --effort xhigh; a sonnet slot also gets opus as its' \
-      'advisor. It also starts the repo'"'"'s prime, whose Claude runs on the account'"'"'s own model and effort. Every' \
-      'launch names a model. A repeat with the same --request-id, --task, or work item returns the same' \
+      '--dangerously-skip-permissions on the --model given, at --effort xhigh, on the slot profile, which drops a few' \
+      'tools, skills, and plugins (see the README); a sonnet slot also gets opus as its advisor. It also starts the' \
+      'repo'"'"'s prime, whose Claude runs on the account'"'"'s own model and effort with no profile. Every launch names a' \
+      'model. A repeat with the same --request-id, --task, or work item returns the same' \
       'slot, except that a --prompt-file the slot would not receive (another request, or this request under a' \
       'different brief) is refused with item-held-by-slot rather than dropped, and a --model other than the one that' \
       'slot runs on is refused with model-differs. A --prompt-file needs a line for each of Scope:, Limits:,' \
@@ -197,7 +198,8 @@ verb_help() {
       'item (item-not-found-in-ledger), and when Claude Code no longer has the transcript (transcript-missing).' \
       'A retry with the request ID of a slot on another model than --model is refused with model-differs.' \
       '--dry-run changes nothing and exits 0 with the plan, or with the refusal a reopen would hit; a ref GitHub' \
-      'cannot read still fails. The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
+      'cannot read still fails. Its command checks the prime for a Cloudflare config, since the slot is not cloned yet.' \
+      'The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
       'the base, fetched from the remote the ledger recorded for it when that is on origin'"'"'s host, else from the' \
       "PR's head repository. A reopen is a foreign head when the source slot was, or when that URL or a PR's head on" \
       'GitHub is. A --prompt-file needs a line for each of Scope:, Limits:, Reviews:, Reports to:, Touches:, and Adds:,' \

@@ -142,7 +142,7 @@ split_prime_named() {
   [ -L "$SPLIT_SLOT/docs/solutions" ]
   [ -f "$SPLIT_SLOT/.claude/settings.local.json" ]
   jaq -e --arg p "$SPLIT_PRIME" '.prime == $p' "$SPLIT_SLOT/.git/agent-slot.json"
-  [ "$(cat "$STUBS/typed-vault-1")" = "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --session-id $(jaq -r .session_id \
+  [ "$(cat "$STUBS/typed-vault-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id $(jaq -r .session_id \
     "$SPLIT_SLOT/.git/agent-slot.json") -n t1" ]
   [ "$(fingerprint "$SPLIT_PRIME")" = "$BEFORE" ]
   [ "$(fingerprint "$SPLIT_GIT_DIR")" = "$GIT_BEFORE" ]
@@ -494,13 +494,13 @@ exec "$STUBS/tmux.inner" "$@"'
   [ "$status" -eq 0 ]
   local session
   session=$(jaq -r .session_id <<<"$output")
-  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh \
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh \
 --session-id $session -n t-opus" ]
   jaq -e '.model == "opus"' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
   launch repoa --request-id r-sonnet --task t-sonnet --model sonnet
   [ "$status" -eq 0 ]
   session=$(jaq -r .session_id <<<"$output")
-  [ "$(cat "$STUBS/typed-repoa-2")" = "CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' \
+  [ "$(cat "$STUBS/typed-repoa-2")" = "CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions $(slot_profile_args) \
 --model claude-sonnet-5-5 --effort xhigh --advisor opus --session-id $session -n t-sonnet" ]
 }
 
@@ -806,10 +806,10 @@ exec "$STUBS/tmux.inner" "$@"'
 @test "the claude session skips permission prompts and gets its session ID, the task else the slot's own name, and the first message only when given" {
   launch repoa --request-id r-plain
   session=$(jaq -r .session_id <<<"$output")
-  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --session-id $session -n repoa-1" ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id $session -n repoa-1" ]
   launch repoa --request-id r-task --task t1
   session=$(jaq -r .session_id <<<"$output")
-  [ "$(cat "$STUBS/typed-repoa-2")" = "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --session-id $session -n t1" ]
+  [ "$(cat "$STUBS/typed-repoa-2")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id $session -n t1" ]
 }
 
 @test "the three sessions are rooted at the slot on the slot server, with their programs typed into shells" {
@@ -1065,7 +1065,7 @@ EOF
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
   jaq -e '.started == ["repoa-1", "repoa-1-files", "repoa-1-git"]' <<<"$output"
-  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-opus-5-5 --effort xhigh --resume aaaaaaaa-1111-2222-3333-444444444444 -n repoa-pr7-fix-login' ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --resume aaaaaaaa-1111-2222-3333-444444444444 -n repoa-pr7-fix-login" ]
 }
 
 @test "resume of a Sonnet slot starts Claude on Sonnet at xhigh with Opus as its advisor, turned on" {
@@ -1076,7 +1076,8 @@ EOF
   : >"$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1/$s.jsonl"
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
-  local expected="CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' \
+  local expected
+  expected="CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions $(slot_profile_args) \
 --model claude-sonnet-5-5 --effort xhigh --advisor opus --resume $s -n repoa-pr7-fix-login"
   [ "$(cat "$STUBS/typed-repoa-1")" = "$expected" ]
   jaq -e '.model == "sonnet"' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
@@ -1086,14 +1087,14 @@ EOF
   slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444", "task": "fix-login"}'
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
-  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-opus-5-5 --effort xhigh --session-id aaaaaaaa-1111-2222-3333-444444444444 -n fix-login' ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id aaaaaaaa-1111-2222-3333-444444444444 -n fix-login" ]
 }
 
 @test "resume of a slot with no name or task whose conversation Claude never saved names the session after the slot" {
   slot repoa 1 '{"session_id": "aaaaaaaa-1111-2222-3333-444444444444"}'
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
-  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-opus-5-5 --effort xhigh --session-id aaaaaaaa-1111-2222-3333-444444444444 -n repoa-1' ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id aaaaaaaa-1111-2222-3333-444444444444 -n repoa-1" ]
 }
 
 @test "resume of a slot with no name or task whose conversation is saved passes no name, so a /rename the session carries survives" {
@@ -1102,7 +1103,7 @@ EOF
   : >"$AGENT_SLOT_CLAUDE_PROJECTS/-srv-slots-repoa-1/aaaaaaaa-1111-2222-3333-444444444444.jsonl"
   run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
   [ "$status" -eq 0 ]
-  [ "$(cat "$STUBS/typed-repoa-1")" = 'claude --dangerously-skip-permissions --settings '\''{"idleCompaction":false}'\'' --model claude-opus-5-5 --effort xhigh --resume aaaaaaaa-1111-2222-3333-444444444444' ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --resume aaaaaaaa-1111-2222-3333-444444444444" ]
 }
 
 @test "a session ID in the record that holds shell syntax is typed as one argument" {
@@ -1149,7 +1150,7 @@ EOF
   [ "$(git -C "$slot" symbolic-ref --short HEAD)" = feat/x ]
   [ "$(git -C "$slot" rev-parse HEAD)" = "$HEAD_SHA" ]
   [ "$(git -C "$slot" rev-parse --abbrev-ref 'feat/x@{upstream}')" = origin/feat/x ]
-  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --session-id $session -n repoa-pr7-fix-the-login" ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id $session -n repoa-pr7-fix-the-login" ]
   jaq -e --argjson items "$items" '.items == $items and .name == "repoa-pr7-fix-the-login"
     and .named_as == "repoa-pr7-fix-the-login" and .prs == [7] and .task == "repoa-pr7-fix-the-login"' \
     "$slot/.git/agent-slot.json"
@@ -1241,7 +1242,7 @@ EOF
   session=$(jaq -r .session_id <<<"$output")
   [ "$(git -C "$slot" symbolic-ref --short HEAD)" = main ]
   jaq -e '.prs == [] and .named_as == "repoa-issue12-widget-breaks-on-resize"' "$slot/.git/agent-slot.json"
-  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions --settings '{\"idleCompaction\":false}' --model claude-opus-5-5 --effort xhigh --session-id $session -n repoa-issue12-widget-breaks-on-resize" ]
+  [ "$(cat "$STUBS/typed-repoa-1")" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id $session -n repoa-issue12-widget-breaks-on-resize" ]
 }
 
 @test "launch --pr of an item a torn-down slot worked on reports that slot as prior and names reopen" {

@@ -19,9 +19,6 @@
 # path. It starts without its own warning only when ~/.claude/settings.json accepts it (agent-slot doctor checks).
 
 SESSIONS_CLAUDE='claude --dangerously-skip-permissions'
-# A slot waits on review for hours, then takes a short fix or ends. A 7-day replay at a 400k window put idle compaction at
-# 1.6% more cost for slots and 54% more compactions, where it saved primes and generic sessions 8%.
-SESSIONS_SETTINGS="--settings '{\"idleCompaction\":false}'"
 # What a foreign head's Claude adds: no project or local settings, so no hook, status line, helper, or environment from
 # the tree, and none of its CLAUDE.md, rules, skills, commands, or agents. Local stays out because a head can track
 # settings.local.json, and any git restore puts back the file setup would otherwise overwrite. --setting-sources alone
@@ -58,16 +55,18 @@ sessions_model_id() {
   esac
 }
 
-# Usage: sessions_claude <model>; prints the start of a slot's claude command line for the model: the bypass flag,
-# the slot's settings, the model ID, the effort, and for Sonnet the advisor, behind the variable that turns it on.
+# Usage: sessions_claude <model> <dir>; prints the start of a slot's claude command line for the model: the bypass flag,
+# the slot's profile (profile.sh) as read from the directory, the model ID, the effort, and for Sonnet the advisor,
+# behind the variable that turns it on.
 sessions_claude() {
-  local id
+  local id profile
   id=$(sessions_model_id "$1") || id=$(sessions_model_id opus)
+  profile=$(profile_args "$2")
   if [[ $1 == sonnet ]]; then
     printf '%s %s %s --model %s --effort %s --advisor %s' "$SESSIONS_ADVISOR_ENV" "$SESSIONS_CLAUDE" \
-      "$SESSIONS_SETTINGS" "$id" "$SESSIONS_EFFORT" "$SESSIONS_ADVISOR"
+      "$profile" "$id" "$SESSIONS_EFFORT" "$SESSIONS_ADVISOR"
   else
-    printf '%s %s --model %s --effort %s' "$SESSIONS_CLAUDE" "$SESSIONS_SETTINGS" "$id" "$SESSIONS_EFFORT"
+    printf '%s %s --model %s --effort %s' "$SESSIONS_CLAUDE" "$profile" "$id" "$SESSIONS_EFFORT"
   fi
 }
 
@@ -124,14 +123,15 @@ sessions_foreign() { [[ $(contract_json -r '.head_foreign // false' <<<"$RECORD"
 # value from it is shell-quoted. A resume or reopen whose conversation was never saved starts Claude as a launch does.
 # In every mode, Claude's session takes the slot's name, else its task, so a resumed session carries the record's name,
 # and runs on the record's model through sessions_claude; a record with no model runs on Opus. A prime's Claude runs on
-# the account's own default model and effort instead, since a person attends it and picks them. A record with
-# head_foreign also starts Claude without the tree's settings.
+# the account's own default model and effort instead, since a person attends it and picks them, and takes no slot
+# profile. A record with head_foreign also starts Claude without the tree's settings. The slot profile reads the slot's
+# directory, else the record's prime, since a reopen's dry run names the line for a slot not yet cloned.
 # A conversation started fresh for a slot with neither name nor task is named after the slot's session. A resume that
 # finds the conversation passes no name instead: -n would replace a /rename, so a conversation started before that
 # naming keeps the title it has.
 # The first message goes with a launch and a reopen only: a resume brings back a slot that already had it.
 sessions_command() {
-  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude
+  local repo=$1 n=$2 kind=$3 mode=${4:-launch} cmd name prompt claude root
   case $kind in
     files)
       if sessions_foreign; then printf '%s' 'ls -A'; else printf '%s' 'command -v y >/dev/null && y || yazi'; fi
@@ -142,7 +142,9 @@ sessions_command() {
       if [[ $n == "$SLOT_PRIME" ]]; then
         claude=$SESSIONS_CLAUDE
       else
-        claude=$(sessions_claude "$(contract_json -r '.model // "opus"' <<<"$RECORD")")
+        root=$(slot_path "$repo" "$n")
+        [[ -d $root ]] || root=$(contract_json -r '.prime // ""' <<<"$RECORD")
+        claude=$(sessions_claude "$(contract_json -r '.model // "opus"' <<<"$RECORD")" "$root")
       fi
       prompt=$(contract_json -r '.prompt_file // ""' <<<"$RECORD")
       ! sessions_foreign || claude+=" ${SESSIONS_FOREIGN_ARGS[*]}"
