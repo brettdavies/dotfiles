@@ -18,11 +18,14 @@ cmd_grant_review() {
   slot_parse_key "$key"
   repo=$SLOT_REPO n=$SLOT_N
   if slot_at "$PWD" >/dev/null; then
-    contract_fail review-grant-from-slot "grant-review is for the operator or a prime, and $PWD is inside a slot" \
+    contract_fail review-grant-from-slot "grant-review is for the operator or a prime, and $PWD is inside a slot; \
+send the request to the coordinating session or the operator, which runs this command from outside it" \
       --value "$PWD" --command "agent-slot grant-review $key"
   elif [[ ${TMUX:-} == */"$AS_TMUX_SOCKET",* ]] && ! grant_from_prime; then
-    contract_fail review-grant-from-slot "grant-review is for the operator or a prime, and this shell runs in a \
-slot's pane on the slot tmux server" --value "${TMUX%%,*}" --command "agent-slot grant-review $key"
+    contract_fail review-grant-from-slot "grant-review is for the operator or a prime's Claude pane, and this shell \
+runs in another pane on the slot tmux server, such as a slot's or a prime's files or git pane; send the request to the \
+coordinating session or the operator, which runs this command" --value "${TMUX%%,*}" \
+      --command "agent-slot grant-review $key"
   fi
   slot_taken "$repo" "$n" || contract_fail slot-not-found "$key holds no slot" --value "$key" --command "agent-slot list"
   branch=$(slot_review_key "$(slot_path "$repo" "$n")")

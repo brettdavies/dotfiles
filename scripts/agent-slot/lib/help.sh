@@ -246,8 +246,9 @@ verb_help() {
       'example: agent-slot finish dotfiles/2 --yes' ;;
     grant-review) printf '%s\n' 'usage: agent-slot grant-review <repo>/<N> [--output json]' \
       "Grants the slot's agent one more ce-code-review round for the PR on the slot's current branch, past the 2 per PR" \
-      "that slot-review-cap.sh allows; each grant is one round. The operator or the coordinating prime runs it: run from" \
-      "a slot's directory or a slot's pane it is refused with review-grant-from-slot. A grant appends a review-grant" \
+      "that slot-review-cap.sh allows; each grant is one round. The operator or a prime runs it, for a round that reviews" \
+      "round 1's P0 or P1 fixes: run from a slot's directory, or from any pane on the slot tmux server but a prime's" \
+      "Claude pane, it is refused with review-grant-from-slot. A grant appends a review-grant" \
       "line to the ledger and changes nothing else; each run is one more round, so run it once per request. On a detached" \
       "head the branch is the commit, and a new commit starts a new count. Other errors: slot-not-found and slot-head-missing." \
       'returns: key, branch, granted_at, rounds (used), allowed (the 2 plus each grant)' \

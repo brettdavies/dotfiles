@@ -93,6 +93,6 @@ remind() {
 
 @test "the reminder bounds each watcher near its usual length and says to read the state on a timeout" {
   remind 'gh workflow run ci.yml'
-  [[ "$CTX" == *"Wrap each in timeout, at about 1.5 times that workflow's usual"* ]]
-  [[ "$CTX" == *"read the run's"$'\n'"state yourself before waiting again."* ]]
+  [[ "$CTX" == *"Wrap each in the shell's timeout command (timeout <seconds> gh run"* ]]
+  [[ "$CTX" == *"gh run view <id> --json status,conclusion before waiting again."* ]]
 }
