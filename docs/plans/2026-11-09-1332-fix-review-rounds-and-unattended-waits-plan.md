@@ -188,3 +188,5 @@ These state the old rules, so they are updated to match:
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `ce-doc-review` | this plan at `5f9dac6` | Opus, `high` | 2026-11-09 19:33 | 2026-11-09 19:51 | 4 P1, 9 P2, 1 P3, 4 decisions; each fixed or decided in this plan |
 | 2 | `ce-code-review` | agent-skills#239 at `036acb1` | Opus, `high` | 2026-11-09 20:04 | | running |
+| 3 | `ce-code-review` | dotfiles#485 at `617047b` | Opus, `high` | 2026-11-09 20:04 | | running |
+| 4 | `/devex-review` | dotfiles#485 at `617047b` | Opus, `high` | 2026-11-09 20:04 | | running |
