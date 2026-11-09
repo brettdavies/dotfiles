@@ -172,13 +172,19 @@ scope_deny() {
 
 # Usage: branch_decide <repo> <n>; RECORD holds the slot's record. Prints the denial, or nothing.
 branch_decide() {
-  local path base head other
+  local path base head other default
   path=$(slot_path "$1" "$2")
   base=$(contract_json -r '.base // empty' <<<"$RECORD")
   head=$(git -C "$path" symbolic-ref --short -q HEAD) || return 0
   [[ -n $base && $head != "$base" && $head != probe/* ]] || return 0
+  # `git clone` leaves a local branch for origin's default, which holds no task while origin's copy has all its commits.
+  default=$(git -C "$path" symbolic-ref -q refs/remotes/origin/HEAD) || default=
+  default=${default#refs/remotes/origin/}
   while IFS= read -r other; do
     [[ $other != "$head" && $other != "$base" && $other != probe/* ]] || continue
+    if [[ $other == "$default" ]]; then
+      git -C "$path" merge-base --is-ancestor "$other" "origin/$default" 2>/dev/null && continue
+    fi
     git -C "$path" merge-base --is-ancestor "$other" HEAD 2>/dev/null && continue
     git -C "$path" merge-base --is-ancestor HEAD "$other" 2>/dev/null && continue
     git -C "$path" merge-base --is-ancestor "$other" "origin/$base" 2>/dev/null && continue
