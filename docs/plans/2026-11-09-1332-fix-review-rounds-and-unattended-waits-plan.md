@@ -1,7 +1,7 @@
 ---
 title: "fix: one review round, reviews fitted to the change, the smallest change, and waits that end"
 type: fix
-status: active
+status: completed
 date: 2026-11-09
 ---
 
