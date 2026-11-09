@@ -11,8 +11,9 @@
 #                      retask. Two branches share a line when one contains the other, when origin/<base> contains the
 #                      other, or when one contains the other's pushed tip (origin/<branch>) and that tip holds a commit
 #                      origin/<base> lacks, so a stack stays one line after its lower branch is rebased or merged onto a
-#                      moved base. A probe/ branch, and origin's default branch while origin's copy holds all its
-#                      commits, are no second task.
+#                      moved base, until that new tip is pushed; rebasing the upper branch onto it joins them again. A
+#                      probe/ branch, and origin's default branch while origin's copy holds all its commits, are no
+#                      second task.
 # A `git push` named only inside quoted text that a search or print tool holds, such as an `rg` pattern, is no push
 # (scope_mask_quotes).
 # A record with no scope.touches passes the path check. Grants count from the task's start, so a new task, or a reused
