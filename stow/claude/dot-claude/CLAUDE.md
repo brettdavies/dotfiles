@@ -75,7 +75,9 @@ coordinating prime both times. The table and the effort per review → the agent
 
 **Smallest change:** build the smallest change that meets the task. Add no verb, flag, option, config key, abstraction,
 or harness it does not name; a reviewer's suggestion of one goes under "Not in scope". When a fix needs its own fix,
-stop and report rather than widening the change.
+stop and report rather than widening the change. Once the change meets the task and its tests pass, push it and start
+its reviews, with no polish first: no rewording, extra test cases, or measurements past the plan's verification. A
+review that wants more says so.
 
 **$100 Rule:** when prevention was missed and a bug slips through, invest in the permanent fix — test, guard, lint rule,
 or docs/solutions entry. Trivial work (<~20 lines: single-file fixes, config tweaks, typos) may skip the full loop.
