@@ -5,7 +5,9 @@
 #                         current branch and appends a `review-round` ledger line; with REVIEW_CAP rounds plus the
 #                         branch's `review-grant` lines already counted, it denies the call instead
 #   PreToolUse on Bash    does the same for a command that starts `claude` with ce-code-review, the way the agent-slot
-#                         skill runs a review: `claude -p` from a throwaway clone of the pushed head
+#                         skill runs a review: `claude -p` from a throwaway clone of the pushed head; and denies a
+#                         command that runs `agent-slot grant-review` from any Claude in a slot's Claude session, since
+#                         grant-review runs without an ask so a prime can grant
 # Rounds and grants count from the slot's created_at, so a reused slot number starts at none. Anywhere else, and on a
 # payload or ledger it cannot read, it prints nothing, so the call goes ahead. Always exits 0; failures go to the
 # agent-slot hooks.log.
@@ -25,6 +27,10 @@ REVIEW_SKILL=compound-engineering:ce-code-review
 # skill name such as ce-code-reviewer.
 REVIEW_COMMAND_CLAUDE='(^|[^[:alnum:]_./-])claude[[:space:]]'
 REVIEW_COMMAND_SKILL='ce-code-review([^[:alnum:]_-]|$)'
+# agent-slot in command position, by name or path, so a quoted search for the words is not a grant.
+GRANT_COMMAND='(^|[[:space:];&|(/])agent-slot[[:space:]]+grant-review([^[:alnum:]_-]|$)'
+GRANT_DENY="A slot cannot grant its own review round. Send the coordinating session the PR, its head SHA, and why it \
+needs another round, as one \`SendMessage\`; it or the operator runs \`agent-slot grant-review\`."
 
 # Usage: review_deny_reason <repo> <n> <rounds> <grants> <branch>; RECORD holds the slot's record.
 # shellcheck disable=SC2016 # a jaq program
@@ -65,6 +71,7 @@ review_decide() {
   exec {fd}>&-
 }
 
+# shellcheck disable=SC2016 # a jaq program
 review_main() {
   local fields event tool skill command repo n branch since
   hook_use_socket "${TMUX%%,*}" || return 0
@@ -72,6 +79,12 @@ review_main() {
   IFS=$'\x1f' read -r event tool skill <<<"$(hook_field "$fields")"
   if [[ $event == PreToolUse && $tool == Bash ]]; then
     command=$(hook_field .tool_input.command)
+    if [[ $command =~ $GRANT_COMMAND ]]; then
+      hook_pane && hook_claude_session || return 0
+      contract_json -n -c --arg m "$GRANT_DENY" \
+        '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $m}}'
+      return 0
+    fi
     [[ $command =~ $REVIEW_COMMAND_CLAUDE && $command =~ $REVIEW_COMMAND_SKILL ]] || return 0
     tool=Skill skill=$REVIEW_SKILL
   fi
@@ -99,8 +112,8 @@ review_main() {
 
 HOOK_PAYLOAD_IN=$(cat)
 [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || exit 0
-# Every Bash call on the host reaches this hook; only one that names the skill can count.
-[[ $HOOK_PAYLOAD_IN == *ce-code-review* ]] || exit 0
+# Every Bash call on the host reaches this hook; only one that names the skill or grant-review can matter.
+[[ $HOOK_PAYLOAD_IN == *ce-code-review* || $HOOK_PAYLOAD_IN == *grant-review* ]] || exit 0
 (
   set -euo pipefail
   shopt -s inherit_errexit

@@ -301,7 +301,8 @@ nothing, and `/devex-review` and `/cso` are not counted.
 The operator or the coordinating prime allows one more round with `agent-slot grant-review <repo>/<N>`, which appends
 a `review-grant` event for the slot's current branch and reports the rounds used and allowed. Each run is one round. It
 refuses with `review-grant-from-slot` when run from a slot's directory or from a pane on the slot tmux server that is
-not a prime's. The cap is a guard, not a trust boundary: an agent with a shell could still write a ledger line.
+not a prime's, and `slot-review-cap.sh` denies a slot's Claude any Bash command that runs it. The cap is a guard, not a
+trust boundary: an agent with a shell could still write a ledger line.
 
 ```bash
 agent-slot grant-review dotfiles/2

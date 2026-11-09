@@ -248,6 +248,35 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
   [ "$(ledger review-round | wc -l)" -eq 2 ]
 }
 
+@test "the agent-slot skill's multi-line review command counts as a round" {
+  local c
+  read -r -d '' c <<'CMD' || true
+cd /tmp/rv && CARGO_TARGET_DIR=/tmp/rv/target CROSS_MODEL_PEERS=none CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5 \
+  CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 timeout -s INT -k 30 2400 \
+  claude -p --model claude-opus-5-5 --effort high --dangerously-skip-permissions \
+  --output-format json "/compound-engineering:ce-code-review PR #12, base dev. $(cat /tmp/rv/brief.md)" >review.json
+CMD
+  run bash_call "$c"
+  [ -z "$output" ]
+  [ "$(ledger review-round | wc -l)" -eq 1 ]
+}
+
+@test "a slot's own grant-review is denied; a search for it and a prime's grant are not" {
+  local c
+  for c in 'agent-slot grant-review repo/1' 'cd /tmp && env -u TMUX ~/.local/bin/agent-slot grant-review repo/1 --output json'; do
+    run bash_call "$c"
+    jaq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$output"
+    reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+    [[ $reason == *"A slot cannot grant its own review round"* ]]
+  done
+  run bash_call "rg -n 'agent-slot grant-review' README.md"
+  [ -z "$output" ]
+  printf '%s' repo-prime >"$STUBS/pane-session"
+  run bash_call 'agent-slot grant-review repo/1'
+  [ -z "$output" ]
+  [ ! -e "$LEDGER" ]
+}
+
 @test "a Bash call that only names ce-code-review, or starts no claude, is not counted" {
   local c
   for c in 'rg -n ce-code-review ~/.claude/plugins' 'cat ~/.claude/skills/ce-code-review/SKILL.md' \
