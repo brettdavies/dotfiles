@@ -174,6 +174,63 @@ denied() {
   push 'git push origin feat/two'
 }
 
+# default_branch_clone SHAPE: a clone whose base is dev and whose local main is the branch origin/HEAD names, as `git clone`
+# leaves it. With SHAPE diverged, dev and main each hold a commit the other lacks; with SHAPE unrelated, dev is a root
+# commit that shares no history with main. Leaves feat/one, cut from origin/dev with a commit on a declared path, checked
+# out.
+default_branch_clone() {
+  local dev
+  jaq -c '.base = "dev"' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  if [[ $1 == diverged ]]; then
+    dev=$(git -C "$SLOT" commit-tree -p main -m dev 'main^{tree}')
+    git -C "$SLOT" checkout -q main
+    git -C "$SLOT" commit -q --allow-empty -m release
+    git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  else
+    dev=$(git -C "$SLOT" commit-tree -m dev 'main^{tree}')
+  fi
+  git -C "$SLOT" update-ref refs/remotes/origin/dev "$dev"
+  git -C "$SLOT" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  git -C "$SLOT" checkout -q -B feat/one origin/dev
+  commit scripts/agent-slot/one.sh
+}
+
+# own_default_commit: the local main, which origin/HEAD names, holds a commit that origin/main lacks.
+own_default_commit() {
+  git -C "$SLOT" checkout -q main
+  git -C "$SLOT" commit -q --allow-empty -m mine
+  git -C "$SLOT" checkout -q feat/one
+}
+
+@test "a local default branch that has diverged from the base is no second task" {
+  default_branch_clone diverged
+  push
+}
+
+@test "a local default branch that shares no history with the base is no second task" {
+  default_branch_clone unrelated
+  push
+}
+
+@test "a diverged local default branch with a commit of its own is a second task, naming retask" {
+  default_branch_clone diverged
+  own_default_commit
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+  [[ $(reason) == *'task is on main'* ]]
+}
+
+@test "an unrelated local default branch with a commit of its own is a second task, naming retask" {
+  default_branch_clone unrelated
+  own_default_commit
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+  [[ $(reason) == *'task is on main'* ]]
+}
+
 @test "a push whose commits change only declared paths is allowed" {
   commit scripts/agent-slot/lib/new.sh tests/a.bats docs/guide.md
   push
