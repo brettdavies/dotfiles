@@ -96,7 +96,7 @@ launch_brief_check() {
   done
   ((${#missing[@]} == 0)) && return 0
   contract_fail brief-incomplete "the brief has no ${missing[*]} line with a value. Every brief states its scope, \
-which of its limits are the operator's and which the coordinating session's, the reviews it runs (at most 2 rounds), \
+which of its limits are the operator's and which the coordinating session's, the reviews the change needs, \
 the session it reports to, the paths it touches, and the public surface it adds, each on a line of its own; launch \
 checks that each line is there with a value and that each Touches: glob is a git pathspec. Touches: takes comma-separated git pathspec globs on one line, and \
 Adds: the public surface it may add, or none" \

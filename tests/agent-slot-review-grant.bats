@@ -53,7 +53,7 @@ operator() {
   [ "$(jaq -s -c 'map(select(.event == "review-grant")) | length' "$LEDGER")" -eq 2 ]
 }
 
-@test "grant-review run from inside the slot is refused, since only the operator grants" {
+@test "grant-review run from inside the slot is refused, since only the operator or a prime grants" {
   run --separate-stderr bash -c 'cd "$1" && shift && exec "$@" --output json' _ "$SLOT" "$AGENT_SLOT" grant-review repo/1
   [ "$status" -eq 1 ]
   jaq -e '.reason == "review-grant-from-slot" and .next_step.action == "ask-operator"' <<<"$stderr"
@@ -65,6 +65,24 @@ operator() {
     "$T" "$AGENT_SLOT" grant-review repo/1
   [ "$status" -eq 1 ]
   jaq -e '.reason == "review-grant-from-slot" and (.value | endswith("'"$AGENT_SLOT_TMUX_SOCKET"'"))' <<<"$stderr"
+  [ ! -e "$LEDGER" ]
+}
+
+@test "grant-review run from a prime's pane on the slot's tmux server is allowed" {
+  stub tmux 'case " $* " in *" display "*) printf "%s\n" repo-prime ;; esac'
+  TMUX="$T/$AGENT_SLOT_TMUX_SOCKET,4242,0" TMUX_PANE=%5 run --separate-stderr bash -c \
+    'cd "$1" && shift && exec "$@" --output json' _ "$T" "$AGENT_SLOT" grant-review repo/1
+  [ "$status" -eq 0 ]
+  jaq -e '.ok == true and .branch == "feat/one"' <<<"$output"
+  jaq -e '.repo == "repo" and .slot == 1' "$LEDGER"
+}
+
+@test "grant-review run from a slot's pane on the slot's tmux server is refused" {
+  stub tmux 'case " $* " in *" display "*) printf "%s\n" repo-1 ;; esac'
+  TMUX="$T/$AGENT_SLOT_TMUX_SOCKET,4242,0" TMUX_PANE=%3 run --separate-stderr bash -c \
+    'cd "$1" && shift && exec "$@" --output json' _ "$T" "$AGENT_SLOT" grant-review repo/1
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "review-grant-from-slot"' <<<"$stderr"
   [ ! -e "$LEDGER" ]
 }
 

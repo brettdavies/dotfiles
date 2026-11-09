@@ -132,16 +132,16 @@ REPO="$BATS_TEST_DIRNAME/.."
 '{"event":"PreToolUse","matcher":"AskUserQuestion|EnterPlanMode|ExitPlanMode","async":false,"onFailure":"unset"}]' ]
 }
 
-# slot-review-cap.sh counts a slot's ce-code-review calls, so it sits on the Skill tool alone. It is synchronous, since
-# its answer is its output, and sets no onFailure: a hook that fails leaves the call allowed rather than denying every
-# Skill call on the host.
-@test "slot-review-cap.sh runs on the Skill tool only and lets the call through when it fails" {
+# slot-review-cap.sh counts a slot's ce-code-review calls, made as a Skill call or as `claude -p` from a Bash call, so it
+# sits on those two tools alone. It is synchronous, since its answer is its output, and sets no onFailure: a hook that
+# fails leaves the call allowed rather than denying every Skill and Bash call on the host.
+@test "slot-review-cap.sh runs on the Skill and Bash tools only and lets the call through when it fails" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   run jaq -c '[.hooks | to_entries[] | .key as $event | .value[]
     | {event: $event, matcher: (.matcher // ""), hook: (.hooks[] | select(.command == "~/.claude/slot-review-cap.sh"))}
     | {event, matcher, async: (.hook.async // false), onFailure: (.hook.onFailure // "unset")}]' "$SETTINGS"
   echo "slot-review-cap.sh registrations: $output"
-  [ "$output" = '[{"event":"PreToolUse","matcher":"Skill","async":false,"onFailure":"unset"}]' ]
+  [ "$output" = '[{"event":"PreToolUse","matcher":"Skill|Bash","async":false,"onFailure":"unset"}]' ]
 }
 
 # slot-scope-guard.sh judges a slot's `git push`, so it sits on the Bash tool alone. It is synchronous, since its answer
@@ -185,12 +185,13 @@ REPO="$BATS_TEST_DIRNAME/.."
   grep -qxF 'Bash(agent-slot reopen *)' <<<"$output"
 }
 
-# grant-review asks first for the same reason, so a slot's agent cannot grant itself a review round.
-@test "agent-slot grant-review asks first" {
+# grant-review runs without asking, so a coordinating prime can grant a slot a review round. The verb itself refuses a
+# slot's own request, from its directory or any slot pane on the slot tmux server.
+@test "agent-slot grant-review runs without asking, so a prime can grant" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
   [ "$status" -eq 0 ]
-  grep -qxF 'Bash(agent-slot grant-review *)' <<<"$output"
+  [[ $output != *'agent-slot grant-review'* ]]
 }
 
 # grant-scope asks first too, so a slot's agent cannot grant its own PR a path outside its brief; the verb also needs a

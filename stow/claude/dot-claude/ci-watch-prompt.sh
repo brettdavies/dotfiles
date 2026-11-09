@@ -168,6 +168,10 @@ reminder=$({
   echo ""
   printf '%s' "$runs" | "$JQ" -r '.[] | "  gh run watch \(.databaseId) --exit-status --interval 30"'
   echo ""
+  echo "Wrap each in timeout, at about 1.5 times that workflow's usual"
+  echo "length rather than a catch-all; when one times out, read the run's"
+  echo "state yourself before waiting again."
+  echo ""
   echo "Watch only the runs your own action started. Never watch with"
   echo "gh pr checks --watch or a loop of gh pr view. When the last watcher"
   echo "completes, verify once by reading the rollup."

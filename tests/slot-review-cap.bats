@@ -53,6 +53,15 @@ skill() {
     tool_name: "Skill", tool_input: {skill: $s, args: "mode:report-only"}, tool_use_id: "tu1"}' | fire
 }
 
+# bash COMMAND: a PreToolUse payload for the Bash tool, from the slot's Claude.
+bash_call() {
+  jaq -n -c --arg cwd "$SLOT" --arg c "$1" '{hook_event_name: "PreToolUse", session_id: "s1", cwd: $cwd,
+    tool_name: "Bash", tool_input: {command: $c, run_in_background: true}, tool_use_id: "tu2"}' | fire
+}
+
+# A review as the agent-slot skill runs it: `claude -p` from a throwaway clone of the pushed head.
+CLONE_REVIEW='cd /tmp/rv && CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 timeout -s INT -k 30 2400 claude -p --model claude-opus-5-5 --effort high "/compound-engineering:ce-code-review PR #12, base dev" >review.json'
+
 ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
 
 # review: a ce-code-review call that the hook allows, so it prints nothing.
@@ -83,9 +92,10 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
   reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
   [[ $reason == *"at most 2 review rounds per PR"* ]]
   [[ $reason == *"feat/one has had 2"* ]]
-  [[ $reason == *"coordinating session the PR and its head SHA ($SHA) as one"* ]]
+  [[ $reason == *"a second only to review round 1's P0 and P1 fixes"* ]]
+  [[ $reason == *"coordinating session the PR, its head SHA ($SHA), and why, as one"* ]]
   [[ $reason == *"If your brief names no such session"* ]]
-  [[ $reason == *"the operator can allow one more round by running \`agent-slot grant-review repo/1\`"* ]]
+  [[ $reason == *"it or the operator can allow one more round by running \`agent-slot grant-review repo/1\`"* ]]
   [[ $reason == *"you cannot run yourself"* ]]
   [[ $reason == *"branch feat/one"* ]]
   [ "$(ledger review-round | wc -l)" -eq 2 ]
@@ -98,7 +108,7 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
   review
   run skill "$REVIEW"
   reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
-  [[ $reason == *"coordinating session PR #463 and its head SHA ($SHA) as one"* ]]
+  [[ $reason == *"coordinating session PR #463, its head SHA ($SHA), and why"* ]]
 }
 
 @test "a grant allows exactly one more round on that branch" {
@@ -113,7 +123,7 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
   run skill "$REVIEW"
   jaq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$output"
   reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
-  [[ $reason == *"allows 2 review rounds per PR plus 1 the operator granted"* ]]
+  [[ $reason == *"allows 2 review rounds per PR plus 1 granted"* ]]
   [[ $reason == *"feat/one has had 3"* ]]
 }
 
@@ -216,6 +226,34 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
 @test "a skill other than ce-code-review is never counted" {
   for name in compound-engineering:ce-compound devex-review cso compound-engineering:ce-code-reviewer; do
     run skill "$name"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+  done
+  [ ! -e "$LEDGER" ]
+}
+
+@test "a review started as claude -p from a Bash call counts as a round" {
+  run bash_call "$CLONE_REVIEW"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  jaq -e '.repo == "repo" and .slot == 1 and .branch == "feat/one"' <<<"$(ledger review-round)"
+}
+
+@test "a third review started from a Bash call is denied, after rounds from either path" {
+  review
+  run bash_call "$CLONE_REVIEW"
+  [ -z "$output" ]
+  run bash_call "$CLONE_REVIEW"
+  jaq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$output"
+  [ "$(ledger review-round | wc -l)" -eq 2 ]
+}
+
+@test "a Bash call that only names ce-code-review, or starts no claude, is not counted" {
+  local c
+  for c in 'rg -n ce-code-review ~/.claude/plugins' 'cat ~/.claude/skills/ce-code-review/SKILL.md' \
+    'gh pr comment 12 --body-file /tmp/ce-code-review-round-1.md' 'claude -p "/compound-engineering:ce-code-reviewer x"' \
+    'claude -p "/devex-review"' 'jaq .result review.json'; do
+    run bash_call "$c"
     [ "$status" -eq 0 ]
     [ -z "$output" ]
   done

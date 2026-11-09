@@ -46,7 +46,7 @@ launch() {
 # the shell's $(cat ...) that hands Claude the brief drops trailing newlines.
 brief() {
   printf 'Scope: fix the login.\nLimits: the operator set the scope; the coordinating session set the time box.\n%s\n%s\n%s\n%s\n%s' \
-    'Reviews: ce-code-review, at most 2 rounds.' 'Reports to: skills-prime.' 'Touches: src/login/**, tests/login.bats' \
+    'Reviews: ce-code-review, one round.' 'Reports to: skills-prime.' 'Touches: src/login/**, tests/login.bats' \
     'Adds: none.' "${2:-}" >"$1"
 }
 
@@ -702,7 +702,7 @@ exec "$STUBS/tmux.inner" "$@"'
 }
 
 @test "a brief whose line holds only its label is refused for that line" {
-  printf '%s\n' 'Scope:' 'Limits: the operator set every limit.' 'Reviews: ce-code-review, at most 2 rounds.' \
+  printf '%s\n' 'Scope:' 'Limits: the operator set every limit.' 'Reviews: ce-code-review, one round.' \
     'Reports to:   ' 'Touches: src/**' 'Adds: none' >"$T/brief.md"
   launch repoa --request-id r-bare --prompt-file "$T/brief.md"
   [ "$status" -eq 2 ]

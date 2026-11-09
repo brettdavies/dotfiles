@@ -144,8 +144,9 @@ permission request, \`AskUserQuestion\`, and plan mode here; do the work another
 decision only a person can make to the session your brief reports to."
   plans=$(
     printf '%s\n' \
-      "Run every plan you write through \`/plan-eng-review\`, \`/plan-devex-review\`, then \
-\`/compound-engineering:ce-doc-review\`, and commit and push the plan once it is written and again after each review." \
+      "Run every plan you write through the plan reviews it needs, one round each: \`/plan-eng-review\`, \
+\`/plan-devex-review\`, \`/compound-engineering:ce-doc-review\`. Commit and push the plan once it is written, and \
+again when each review starts and when it ends, with a line in its \`## Review log\`." \
       "Answer each review question yourself where the code, the repo's docs, \`docs/solutions\`, or precedent settles \
 it, and record the choice and its evidence in the plan." \
       "Nobody watches this tab, so a question asked here, \`AskUserQuestion\` included, is never answered. Send a \

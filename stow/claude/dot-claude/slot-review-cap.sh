@@ -4,6 +4,8 @@
 #   PreToolUse on Skill   counts a call of compound-engineering:ce-code-review as one round for the PR on the slot's
 #                         current branch and appends a `review-round` ledger line; with REVIEW_CAP rounds plus the
 #                         branch's `review-grant` lines already counted, it denies the call instead
+#   PreToolUse on Bash    does the same for a command that starts `claude` with ce-code-review, the way the agent-slot
+#                         skill runs a review: `claude -p` from a throwaway clone of the pushed head
 # Rounds and grants count from the slot's created_at, so a reused slot number starts at none. Anywhere else, and on a
 # payload or ledger it cannot read, it prints nothing, so the call goes ahead. Always exits 0; failures go to the
 # agent-slot hooks.log.
@@ -19,6 +21,10 @@ fi
 AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
 
 REVIEW_SKILL=compound-engineering:ce-code-review
+# A command that starts claude (a word of its own, not a path such as ~/.claude/) and names the skill, not a longer
+# skill name such as ce-code-reviewer.
+REVIEW_COMMAND_CLAUDE='(^|[^[:alnum:]_./-])claude[[:space:]]'
+REVIEW_COMMAND_SKILL='ce-code-review([^[:alnum:]_-]|$)'
 
 # Usage: review_deny_reason <repo> <n> <rounds> <grants> <branch>; RECORD holds the slot's record.
 # shellcheck disable=SC2016 # a jaq program
@@ -27,9 +33,10 @@ review_deny_reason() {
   head=$(git -C "$(slot_path "$1" "$2")" rev-parse --short HEAD 2>/dev/null) || head=
   pr=$(contract_json -r '(.prs // []) | map(select(type == "number")) | last // empty' <<<"$RECORD") || pr=
   [[ -z $pr ]] || which="PR #$pr"
-  (($4 == 0)) || allowed="$REVIEW_CAP review rounds per PR plus $4 the operator granted"
-  printf '%s' "This slot allows $allowed, and branch $5 has had $3. Send the coordinating session $which and its \
-head SHA${head:+ ($head)} as one \`SendMessage\`, and tell it the operator can allow one more round by running \
+  (($4 == 0)) || allowed="$REVIEW_CAP review rounds per PR plus $4 granted"
+  printf '%s' "This slot allows $allowed, and branch $5 has had $3. A PR gets one review round, and a second only to \
+review round 1's P0 and P1 fixes. If this round is needed, send the coordinating session $which, its head SHA\
+${head:+ ($head)}, and why, as one \`SendMessage\`: it or the operator can allow one more round by running \
 \`agent-slot grant-review $1/$2\`, which you cannot run yourself. Keep working on what the review does not block. If \
 your brief names no such session, leave the decision open in your plan and your report."
 }
@@ -59,10 +66,15 @@ review_decide() {
 }
 
 review_main() {
-  local fields event tool skill repo n branch since
+  local fields event tool skill command repo n branch since
   hook_use_socket "${TMUX%%,*}" || return 0
   fields='"\(.hook_event_name // "")\u001f\(.tool_name // "")\u001f\(.tool_input.skill // "")"'
   IFS=$'\x1f' read -r event tool skill <<<"$(hook_field "$fields")"
+  if [[ $event == PreToolUse && $tool == Bash ]]; then
+    command=$(hook_field .tool_input.command)
+    [[ $command =~ $REVIEW_COMMAND_CLAUDE && $command =~ $REVIEW_COMMAND_SKILL ]] || return 0
+    tool=Skill skill=$REVIEW_SKILL
+  fi
   # Claude Code runs the skill under its trimmed name, without one leading slash, and accepts the name without its
   # plugin prefix.
   skill=${skill#"${skill%%[![:space:]]*}"}
@@ -87,6 +99,8 @@ review_main() {
 
 HOOK_PAYLOAD_IN=$(cat)
 [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || exit 0
+# Every Bash call on the host reaches this hook; only one that names the skill can count.
+[[ $HOOK_PAYLOAD_IN == *ce-code-review* ]] || exit 0
 (
   set -euo pipefail
   shopt -s inherit_errexit

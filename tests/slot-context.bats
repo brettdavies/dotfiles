@@ -234,12 +234,12 @@ EOF
   [[ $context == *"watch your own PRs and CI to the end."* ]]
 }
 
-@test "the context runs every plan through three reviews and sends a person's decision to the brief's session" {
+@test "the context runs every plan through the reviews it needs and sends a person's decision to the brief's session" {
   slot repo 1 '{"task": "t"}'
   run start s1 startup
   context=$(jaq -r '.hookSpecificOutput.additionalContext' <<<"$output")
-  [[ $context == *"every plan you write"*"/plan-eng-review"*"/plan-devex-review"*\
-"/compound-engineering:ce-doc-review"*"commit and push the plan once it is written and again after each review."*\
+  [[ $context == *"every plan you write through the plan reviews it needs, one round each"*"/plan-eng-review"*\
+"/plan-devex-review"*"/compound-engineering:ce-doc-review"*"again when each review starts and when it ends"*\
 "Your task is finished when"* ]]
   [[ $context == *"Answer each review question yourself"*"record the choice and its evidence in the plan."* ]]
   [[ $context == *"Nobody watches this tab, so a question asked here, \`AskUserQuestion\` included, is never answered."* ]]
