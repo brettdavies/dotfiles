@@ -195,6 +195,77 @@ base_moves() {
   push 'git push origin feat/one'
 }
 
+@test "a stack's lower branch pushes again after its first push, with the upper branch not restacked" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" rebase -q origin/main
+  pushed feat/one
+  commit scripts/agent-slot/fix.sh
+  push 'git push origin feat/one'
+}
+
+@test "a stack's lower branch that merged a moved base pushes again after its first push" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" merge -q --no-edit origin/main
+  pushed feat/one
+  commit scripts/agent-slot/fix.sh
+  push 'git push origin feat/one'
+}
+
+@test "a lower branch reset to the base and given other work is a second task, before and after its push" {
+  pushed_stack
+  git -C "$SLOT" reset -q --hard origin/main
+  commit scripts/agent-slot/other.sh
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+  pushed feat/one
+  commit scripts/agent-slot/more.sh
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a lower branch whose commit was amended after the stack was pushed is a second task" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" rebase -q origin/main
+  printf 'amended\n' >>"$SLOT/scripts/agent-slot/one.sh"
+  git -C "$SLOT" add scripts/agent-slot/one.sh
+  git -C "$SLOT" commit -q --amend --no-edit
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a lower branch whose commits were squashed into one after the stack was pushed is a second task" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/more.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  git -C "$SLOT" checkout -q feat/one
+  git -C "$SLOT" reset -q --soft origin/main
+  git -C "$SLOT" commit -q -m squashed
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a lower branch is a second task when the reflog of its remote-tracking ref lacks the old tip" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" rebase -q origin/main
+  git -C "$SLOT" update-ref -d refs/remotes/origin/feat/one
+  pushed feat/one
+  commit scripts/agent-slot/fix.sh
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
 @test "two branches that each hold a pushed tip the other lacks are two tasks, naming retask" {
   commit scripts/agent-slot/one.sh
   pushed feat/one

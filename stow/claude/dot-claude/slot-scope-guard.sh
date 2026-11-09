@@ -9,11 +9,13 @@
 #                      It also denies a push from a branch that shares no line of work with another of the slot's local
 #                      branches: one session holds one task, and a new task starts a new session through agent-slot
 #                      retask. Two branches share a line when one contains the other, when origin/<base> contains the
-#                      other, or when one contains the other's pushed tip (origin/<branch>) and that tip holds a commit
-#                      origin/<base> lacks, so a stack stays one line after its lower branch is rebased or merged onto a
-#                      moved base, until that new tip is pushed; rebasing the upper branch onto it joins them again. A
-#                      probe/ branch, and origin's default branch while origin's copy holds all its commits, are no
-#                      second task.
+#                      other, or when one holds a pushed tip of the other: origin/<branch>, or an earlier tip that
+#                      reflog names (git merge-base --fork-point). The tip must hold a commit origin/<base> lacks, and
+#                      the other branch must still carry its commits by patch-id (git cherry), so a stack stays one line
+#                      when its lower branch is rebased or merged onto a moved base, before and after that branch's
+#                      pushes. A lower branch that is reset, amended, or squashed, a tip the base holds, a missing base
+#                      ref, and a reflog without the earlier tip leave two lines. A probe/ branch, and origin's default
+#                      branch while origin's copy holds all its commits, are no second task.
 # A `git push` named only inside quoted text that a search or print tool holds, such as an `rg` pattern, is no push
 # (scope_mask_quotes).
 # A record with no scope.touches passes the path check. Grants count from the task's start, so a new task, or a reused
@@ -177,7 +179,7 @@ scope_deny() {
 
 # Usage: branch_decide <repo> <n>; RECORD holds the slot's record. Prints the denial, or nothing.
 branch_decide() {
-  local path base head other default pair tip rc
+  local path base head other default pair x y tip held rc cherry
   path=$(slot_path "$1" "$2")
   base=$(contract_json -r '.base // empty' <<<"$RECORD")
   head=$(git -C "$path" symbolic-ref --short -q HEAD) || return 0
@@ -193,16 +195,28 @@ branch_decide() {
     git -C "$path" merge-base --is-ancestor "$other" HEAD 2>/dev/null && continue
     git -C "$path" merge-base --is-ancestor HEAD "$other" 2>/dev/null && continue
     git -C "$path" merge-base --is-ancestor "$other" "origin/$base" 2>/dev/null && continue
-    # A stack stays one line of work after its lower branch is rebased or merged onto a moved base: the upper branch still
-    # holds the lower one's pushed tip. A tip the base already holds is in every branch cut from it, so it counts only
-    # with a commit the base lacks. A missing ref or base is no ancestry, so nothing is skipped.
+    # Two branches are one line of work when the upper holds a pushed tip of the lower: origin/<lower>, or an earlier tip
+    # its reflog names, from before the lower branch was rebased or merged onto a moved base. The tip must hold a commit
+    # origin/<base> lacks, since a tip the base holds is in every branch cut from it, and the lower branch must still
+    # carry the tip's commits by patch-id, so a reset, amended, or squashed branch stays a second task. A ref, a base, or
+    # a reflog entry that is missing answers nothing, and nothing is skipped.
     for pair in "$other:HEAD" "$head:$other"; do
-      tip=refs/remotes/origin/${pair%%:*}
+      x=${pair%%:*}
+      y=${pair#*:}
+      tip=refs/remotes/origin/$x
       git -C "$path" rev-parse --verify -q "$tip" >/dev/null || continue
       rc=0
-      git -C "$path" merge-base --is-ancestor "$tip" "refs/remotes/origin/$base" 2>/dev/null || rc=$?
+      git -C "$path" merge-base --is-ancestor "$tip" "$y" 2>/dev/null || rc=$?
+      case $rc in
+        0) held=$tip ;;
+        1) held=$(git -C "$path" merge-base --fork-point "$tip" "$y" 2>/dev/null) || continue ;;
+        *) continue ;;
+      esac
+      rc=0
+      git -C "$path" merge-base --is-ancestor "$held" "refs/remotes/origin/$base" 2>/dev/null || rc=$?
       ((rc == 1)) || continue
-      git -C "$path" merge-base --is-ancestor "$tip" "${pair#*:}" 2>/dev/null && continue 2
+      cherry=$(git -C "$path" cherry "refs/heads/$x" "$held" 2>/dev/null) || continue
+      [[ $'\n'$cherry == *$'\n+'* ]] || continue 2
     done
     scope_deny "This push is from $head, but this slot's task is on $other, and they share no line of work. One session \
 holds one task, so stop here and ask the session you report to to run \`agent-slot retask $1/$2 --task <name> \
