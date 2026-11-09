@@ -193,5 +193,5 @@ These state the old rules, so they are updated to match:
 | 4 | `/devex-review` | dotfiles#485 at `617047b` | Opus, `high` | 2026-11-09 20:04 | 2026-11-09 20:13 | 6/10, no P0; 1 P1 (the cap counts non-review commands), 3 P2, 5 P3; fixes follow |
 | 5 | `ce-code-review` | agent-skills#239 at `ab6a19d` | Opus, `high` | 2026-11-09 20:09 | 2026-11-09 20:11 | stopped to bar polish after the reviews too; rerun below |
 | 6 | `ce-code-review` | dotfiles#485 at `4d76a55` | Opus, `high` | 2026-11-09 20:09 | 2026-11-09 20:11 | stopped to bar polish after the reviews too; rerun below |
-| 7 | `ce-code-review` | agent-skills#239 at `8deecbe` | Opus, `high` | 2026-11-09 20:11 | | running |
-| 8 | `ce-code-review` | dotfiles#485 at `3df9310` | Opus, `high` | 2026-11-09 20:11 | | running |
+| 7 | `ce-code-review` | agent-skills#239 at `8deecbe` | Opus, `high` | 2026-11-09 20:11 | 2026-11-09 20:23 | no P0 or P1; 4 P2, 3 P3, fixed or answered in e625e7f and its PR comment |
+| 8 | `ce-code-review` | dotfiles#485 at `3df9310` | Opus, `high` | 2026-11-09 20:11 | 2026-11-09 20:23 | no P0 or P1; 2 P2, 1 P3, fixed in 8681e61 and d54ee7e |
