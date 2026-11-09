@@ -32,7 +32,8 @@ AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../
 # unjudged.
 GIT_START=$'(^|[;&|({\n`]|(bash|sh|zsh|dash)[[:space:]]+-[a-z]*c[[:space:]]+["\'])[[:space:]]*((!|if|elif|then|do|else|while|until|time|command|exec|nohup|env|nice|sudo)[[:space:]]+'
 GIT_START+=$'(-[A-Za-z]+[[:space:]]+[^-[:space:]][^[:space:]]*[[:space:]]+)?'
-GIT_START+=$'|timeout[[:space:]]+(-[A-Za-z]+[[:space:]]+([^-[:space:]][^[:space:]]*[[:space:]]+)?|--[a-z-]+(=[^[:space:]]*)?[[:space:]]+)*'
+GIT_START+=$'|timeout[[:space:]]+(-[A-Za-z][^[:space:]]*[[:space:]]+([^-[:space:]][^[:space:]]*[[:space:]]+)?'
+GIT_START+=$'|--[a-z-]+(=[^[:space:]]*)?[[:space:]]+([^-[:space:]][^[:space:]]*[[:space:]]+)?)*'
 GIT_START+=$'[0-9.]+[smhd]?[[:space:]]+'
 GIT_START+=$'|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(/[^[:space:]]*/)?git'
 GIT_START+=$'([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace)[[:space:]]+[^[:space:]]+|--[^[:space:]]+|-[A-Za-z]+))*'
