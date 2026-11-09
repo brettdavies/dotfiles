@@ -119,6 +119,9 @@ watch tool is built.
 - `stow/claude/dot-claude/settings.json`: register the cap hook on `Skill|Bash`, and drop the ask rule on
   `agent-slot grant-review`, so a prime can grant. The verb still refuses with `review-grant-from-slot` from a slot's
   directory, and from a pane on the slot tmux server that is not a prime's.
+- At the operator's request, other reviews are kept out of slots: `scripts/agent-slot/lib/profile.sh` turns the
+  `review` and `codex` skills off beside `code-review` and `security-review`, and the cap hook denies a slot's `claude`
+  command whose prompt opens with one of the four, since a `claude` started from a slot loads only the user settings.
 - `stow/claude/dot-claude/slot-scope-guard.sh` and its tests: find `git push` after `timeout` with options, such as the
   skill's documented `timeout -s INT -k 30 1500 git push`, which the guard did not check against the brief's
   `Touches:`.
@@ -195,4 +198,4 @@ These state the old rules, so they are updated to match:
 | 6 | `ce-code-review` | dotfiles#485 at `4d76a55` | Opus, `high` | 2026-11-09 20:09 | 2026-11-09 20:11 | stopped to bar polish after the reviews too; rerun below |
 | 7 | `ce-code-review` | agent-skills#239 at `8deecbe` | Opus, `high` | 2026-11-09 20:11 | 2026-11-09 20:23 | no P0 or P1; 4 P2, 3 P3, fixed or answered in e625e7f and its PR comment |
 | 8 | `ce-code-review` | dotfiles#485 at `3df9310` | Opus, `high` | 2026-11-09 20:11 | 2026-11-09 20:23 | no P0 or P1; 2 P2, 1 P3, fixed in 8681e61 and d54ee7e |
-| 9 | `ce-code-review` round 2, fixes only | dotfiles#485 at `d54ee7e`, base `3df9310`: the devex P1 fix | Opus, `high` | 2026-11-09 20:28 | | running |
+| 9 | `ce-code-review` round 2, fixes only | dotfiles#485 at `d54ee7e`, base `3df9310`: the devex P1 fix | Opus, `high` | 2026-11-09 20:28 | 2026-11-09 20:34 | the P1 fix holds; 1 P1, 1 P2 in the operator-requested deny and the count's anchoring, fixed with no further round; 1 P3 answered here |
