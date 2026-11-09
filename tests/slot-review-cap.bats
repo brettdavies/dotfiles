@@ -289,7 +289,10 @@ CMD
     'gh pr comment 12 --body-file /tmp/ce-code-review-round-1.md' 'claude -p "/compound-engineering:ce-code-reviewer x"' \
     'claude -p "/devex-review"' 'jaq .result review.json' "claude -p '/devex-review PR 12, after ce-code-review'" \
     'claude --version; ls ce-code-review' "ps aux | grep 'claude -p' | grep ce-code-review" \
-    "rg -n 'claude -p' ~/.claude/plugins/x/skills/ce-code-review/SKILL.md" "ps aux | rg 'claude -p.*ce-code-review'"; do
+    "rg -n 'claude -p' ~/.claude/plugins/x/skills/ce-code-review/SKILL.md" "ps aux | rg 'claude -p.*ce-code-review'" \
+    'claude -p "/devex-review PR 12, after /ce-code-review"' \
+    "rg -n 'claude -p \"/compound-engineering:ce-code-review' ~/.claude/skills" \
+    'git commit -m "docs: tell claude to run /ce-code-review first"'; do
     run bash_call "$c"
     [ "$status" -eq 0 ]
     [ -z "$output" ]
@@ -305,11 +308,15 @@ CMD
     jaq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$output"
     [[ $(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output") == *'does not stand in for them'* ]]
   done
-  for c in "rg -n '/review' README.md" 'claude -p "/devex-review PR 12"' 'gh pr view 12 --json reviews'; do
+  for c in "rg -n '/review' README.md" 'claude -p "/devex-review PR 12"' 'gh pr view 12 --json reviews' \
+    'gh pr comment 12 --body "claude skipped /review here"'; do
     run bash_call "$c"
     [ -z "$output" ]
   done
   [ ! -e "$LEDGER" ]
+  run bash_call 'claude -p "/compound-engineering:ce-code-review PR 12. Not /review or /codex: they are off here."'
+  [ -z "$output" ]
+  [ "$(ledger review-round | wc -l)" -eq 1 ]
   printf '%s' repo-prime >"$STUBS/pane-session"
   run bash_call 'claude -p "/review PR #12"'
   [ -z "$output" ]

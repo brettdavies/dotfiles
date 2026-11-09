@@ -26,16 +26,16 @@ fi
 AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
 
 REVIEW_SKILL=compound-engineering:ce-code-review
-# A command that starts claude (a word of its own, not a path such as ~/.claude/) with a prompt that starts with the
-# skill's slash name, not a longer one such as ce-code-reviewer, nor a path or a mention of the skill.
-REVIEW_COMMAND_CLAUDE='(^|[^[:alnum:]_./-])claude[[:space:]]'
-REVIEW_COMMAND_SKILL=$'(^|[[:space:]"\'])/(compound-engineering:)?ce-code-review([^[:alnum:]_/-]|$)'
+# A claude command (a word of its own, not a path such as ~/.claude/ nor quoted text) whose first quoted argument, the
+# prompt, opens with a slash name; a mention of the name elsewhere in the command or the prompt does not match.
+PROMPT_LEAD=$'(^|[^[:alnum:]_./\'"-])claude([[:space:]]+[^"\'[:space:];&|<>]+)*[[:space:]]+["\'][[:space:]]*/'
+REVIEW_COMMAND=$PROMPT_LEAD'(compound-engineering:)?ce-code-review([^[:alnum:]_/-]|$)'
 # agent-slot in command position: at the start or after ; & | ( or a newline, past assignments and `env` with its
 # options, by name or path. A quoted mention of the words is not a grant.
 GRANT_COMMAND=$'(^|[;&|(\n])[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|env|-[A-Za-z-]+|[A-Z_][A-Z0-9_]*)'
 GRANT_COMMAND+=$'[[:space:]]+)*([^[:space:]\'"]*/)?agent-slot[[:space:]]+grant-review([[:space:]]|$)'
 GRANT_HELP='grant-review[[:space:]]+(-h|--help)([[:space:]]|$)'
-OTHER_REVIEW_COMMAND=$'(^|[[:space:]"\'])/([[:alnum:]_-]+:)?(code-review|review|security-review|codex)([^[:alnum:]_/-]|$)'
+OTHER_REVIEW_COMMAND=$PROMPT_LEAD'([[:alnum:]_-]+:)?(code-review|review|security-review|codex)([^[:alnum:]_/-]|$)'
 OTHER_REVIEW_DENY="In a slot the reviews are \`ce-code-review\`, plus \`/devex-review\` and \`/cso\` where the brief names \
 them; \`/code-review\`, \`/review\`, \`/security-review\`, or \`/codex\` does not stand in for them. Run the reviews \
 your brief's \`Reviews:\` line names, as the agent-slot skill's references/slot-rules.md § Reviews shows."
@@ -109,11 +109,11 @@ review_main() {
         '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $m}}'
       return 0
     fi
-    if [[ $command =~ $REVIEW_COMMAND_CLAUDE && $command =~ $OTHER_REVIEW_COMMAND ]]; then
+    if [[ $command =~ $OTHER_REVIEW_COMMAND ]]; then
       deny_in_slot "$OTHER_REVIEW_DENY"
       return 0
     fi
-    [[ $command =~ $REVIEW_COMMAND_CLAUDE && $command =~ $REVIEW_COMMAND_SKILL ]] || return 0
+    [[ $command =~ $REVIEW_COMMAND ]] || return 0
     tool=Skill skill=$REVIEW_SKILL
   fi
   # Claude Code runs the skill under its trimmed name, without one leading slash, and accepts the name without its
