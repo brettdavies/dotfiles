@@ -50,10 +50,11 @@ and the slot and prime transcripts.
 - R2. The slot hook keeps a hard cap of 2 rounds per PR as a backstop, and it counts the documented review path
   (`claude -p` from a throwaway clone) as well as a Skill call.
 - R3. The coordinating prime, as well as Brett, may grant a round past the cap with `agent-slot grant-review`. A slot
-  still cannot grant itself one.
+  cannot grant itself one: the verb refuses a slot's directory and pane, and the cap hook denies a slot's Claude any
+  Bash command that runs it.
 - R4. Every review is recorded twice:
   - When the task has a plan doc, the review gets an entry in the plan's `## Review log`, committed and pushed when the
-    review starts and again when it finishes. A brief-only task posts a PR comment per review, as today.
+    review starts and again when it finishes. Every review's verdict also goes in a PR comment.
   - A slot also messages its coordinating prime when each review starts and when it finishes. That is the second place
     of record, and the prime keeps the count.
 - R5. The reviews are chosen for the change, by the table below. The brief's `Reviews:` line names the picks with a few
@@ -66,7 +67,7 @@ and the slot and prime transcripts.
 
 | The change                                                                        | Reviews                                       |
 | --------------------------------------------------------------------------------- | --------------------------------------------- |
-| Trivial: typo, version or release bump, a one-line config fix, a factual docs fix | none, or `ce-code-review` lite in the session |
+| Trivial: typo, version or release bump, a one-line config fix, a factual docs fix | none, with the reason in the PR body          |
 | Prose only (docs, skill text), no behavior change                                 | `ce-code-review` (the skill picks its depth)  |
 | Code, hooks, or workflow behavior                                                 | `ce-code-review`                              |
 | A new or changed command, verb, flag, output contract, or setup step someone runs | add `/devex-review`                           |
@@ -79,27 +80,28 @@ and the slot and prime transcripts.
 | `ce-code-review` | Opus, every reviewer subagent forced | `high`  |
 | `/devex-review`  | Opus                                 | `high`  |
 | `/cso`           | Opus                                 | `xhigh` |
-| lite, in session | the session's own (Opus)             | as is   |
 
 A brief may raise the effort for a risky change.
 
 ### The smallest change (R7)
 
-Added to the agent-slot skill's "The brief is the scope" and to CLAUDE.md:
+Added to CLAUDE.md, and folded into the agent-slot skill's "The brief is the scope":
 
-> Build the smallest change that meets the brief. Add no verb, flag, option, config key, abstraction, or harness the
-> brief does not name. When a reviewer suggests one, it goes under "Not in scope". When a fix needs its own fix, stop
-> and report rather than widening the change.
+> **Smallest change:** build the smallest change that meets the task. Add no verb, flag, option, config key,
+> abstraction, or harness it does not name; a reviewer's suggestion of one goes under "Not in scope". When a fix needs
+> its own fix, stop and report rather than widening the change.
 
 ### Waits that end (R8)
 
 Added to CLAUDE.md § "Never block on a wait":
 
-> **A wait must end when the thing does.** Before backgrounding a hand-written poll, run its exit test once against the
-> current state, and match names case-insensitively. Watch parallel runs in parallel, one watcher each. Bound each
-> wait by about 1.5 times its usual length, not a catch-all like 3000 s. When a watcher times out, read the state
-> yourself before waiting again.
+> **A wait must end when the thing does.** Before backgrounding a hand-written poll, run its exit test once against a
+> finished example, such as a completed run of the same workflow, and confirm it fires; match names case-insensitively.
+> Watch parallel runs in parallel, one watcher each. Bound each wait by about 1.5 times its usual length, not a
+> catch-all like 3000 s; a bound a documented command sets stands. When a watcher times out, read the state yourself
+> before waiting again.
 
+The CI-watch reminder carries the same guidance with no fixed number, since each workflow's usual length differs.
 `gh run watch` cannot stop at the first failed job, and GitHub reruns a failed job only after the run ends, so no new
 watch tool is built.
 
@@ -108,12 +110,17 @@ watch tool is built.
 ### dotfiles (one PR off `dev`)
 
 - `stow/claude/dot-claude/slot-review-cap.sh`: also count a `PreToolUse` Bash call by the slot's top-level Claude whose
-  command runs `claude` and names `ce-code-review`, through the same decide function and ledger line. The cap stays
-  at 2.
-- `tests/slot-review-cap.bats`: cases for the Bash path: counted, denied at the cap, and not counted outside a slot or
-  for a command that does not start a review.
-- `stow/claude/dot-claude/settings.json`: drop the ask rule on `agent-slot grant-review`, so a prime can grant. The verb
-  still refuses with `review-grant-from-slot` from a slot's directory or its tmux server.
+  command runs `claude` and names `ce-code-review`, through the same decide function and ledger line, and deny a Bash
+  command from a slot's Claude session that runs `agent-slot grant-review`. The cap stays at 2.
+- `tests/slot-review-cap.bats`: cases for the Bash path: counted (the documented multi-line command included), denied at
+  the cap, and not counted outside a slot or for a command that does not start a review; a slot's own grant denied, and
+  a quoted search for it and a prime's grant passed.
+- `stow/claude/dot-claude/settings.json`: register the cap hook on `Skill|Bash`, and drop the ask rule on
+  `agent-slot grant-review`, so a prime can grant. The verb still refuses with `review-grant-from-slot` from a slot's
+  directory, and from a pane on the slot tmux server that is not a prime's.
+- `stow/claude/dot-claude/slot-scope-guard.sh` and its tests: find `git push` after `timeout` with options, such as the
+  skill's documented `timeout -s INT -k 30 1500 git push`, which the guard did not check against the brief's
+  `Touches:`.
 - `scripts/agent-slot/lib/reviewgrant.sh`, `lib/help.sh`, `lib/launch.sh`, and the README review-cap section: the new
   wording (one round, a second on a P0 or P1, the prime may grant).
 - `stow/claude/dot-claude/CLAUDE.md`:
@@ -125,14 +132,16 @@ watch tool is built.
 ### agent-skills (one PR off `main`)
 
 - `agent-slot/SKILL.md`:
-  - the `Reviews:` brief line;
+  - the `Reviews:` brief line, and a `Touches:` line that lists the task's plan doc;
   - "At most 2 review rounds", now R1 and R2;
-  - "Run every review on Opus", now with effort per review;
-  - the R4 messages to the coordinating session;
+  - "Run the reviews as the brief names them", which points at `slot-rules.md` for recording and the command;
   - R7 under "The brief is the scope".
-  - The slot SessionStart hook reads these rules from this file, so slots get them with no code change.
-- `agent-slot/references/slot-rules.md` § Reviews: the two tables (their single source), and a review command that takes
-  the effort from the table.
+  - The slot SessionStart hook reads these rules from this file, so slots get them with no code change. The section
+    stays small enough that a foreign-head slot's start context, the largest, keeps them inline under the hook's
+    9,500-character limit.
+- `agent-slot/references/slot-rules.md` § Reviews: the two tables (their single source), the three places each review is
+  recorded (R4), how a second round reviews only round 1's P0 and P1 fixes, and a review command that takes the effort
+  and bound from the table and keeps the skill name on the command line, where the cap hook counts it.
 - `agent-slot/references/coordinate.md`: the prime keeps the round count from the slot's messages and may grant a round
   past the cap.
 
@@ -148,10 +157,12 @@ These state the old rules, so they are updated to match:
 
 ## Verification
 
-- `bats tests/slot-review-cap.bats`. Each new case is seen failing against the hook without the Bash path.
+- `bats tests/slot-review-cap.bats` and `tests/slot-scope-guard.bats`. Each new case is seen failing against the code
+  without its change.
+- The slot-context hook, run against the new `SKILL.md`, inlines the rules for a normal and a foreign-head slot.
 - The full dotfiles pre-push gate, and agent-skills' markdownlint and prose gate.
-- `rg` over both repos and the memory files finds no remaining "2 review rounds", "at most 2 rounds", or all-`xhigh`
-  review rule.
+- `rg` over the changed rule files and the memory files finds no remaining "2 review rounds", "at most 2 rounds", or
+  all-`xhigh` review rule.
 
 ## Not in scope
 
@@ -167,12 +178,13 @@ These state the old rules, so they are updated to match:
   risk is unclear or conflicting rules across many files, which that review's coherence, feasibility, and scope-guardian
   lenses check.
 - Each PR: one `ce-code-review` round on Opus at `high`.
-- No `/devex-review`: no command, flag, or output contract changes; the deny message's wording is covered by the code
-  review.
-- No `/cso`.
+- dotfiles PR: one `/devex-review` on Opus at `high`, since who may run `agent-slot grant-review`, its refusal, and the
+  cap hook's deny messages change.
+- No `/cso`: a grant appends one ledger line, and the cap is a guard against an agent's mistakes, not a trust boundary.
 
 ## Review log
 
 | # | Review | Of | Model, effort | Started (UTC) | Finished (UTC) | Verdict |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `ce-doc-review` | this plan at `5f9dac6` | Opus, `high` | 2026-11-09 19:33 | | running |
+| 1 | `ce-doc-review` | this plan at `5f9dac6` | Opus, `high` | 2026-11-09 19:33 | 2026-11-09 19:51 | 4 P1, 9 P2, 1 P3, 4 decisions; each fixed or decided in this plan |
+| 2 | `ce-code-review` | agent-skills#239 at `036acb1` | Opus, `high` | 2026-11-09 20:04 | | running |
