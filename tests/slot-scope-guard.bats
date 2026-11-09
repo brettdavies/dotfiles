@@ -246,7 +246,9 @@ denied() {
   commit README.md
   local c
   for c in "timeout 600 git push" "nice -n 5 git push" "git --git-dir .git push" "if ! git push; then :; fi" \
-    "while ! git push; do :; done" 'x=`git push`'; do
+    "while ! git push; do :; done" 'x=`git push`' "timeout -s INT -k 30 1500 git push" \
+    "timeout -s INT -k 30 1500 git push -u origin feat/one" "timeout --kill-after=30 --signal=INT 600 git push" \
+    "timeout --foreground 60s git push"; do
     run bash_call "$c"
     [[ $output == *'"deny"'* ]] || {
       echo "not denied: $c"
