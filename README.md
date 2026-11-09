@@ -898,7 +898,10 @@ needs a person, and a `retask` run by the slot's own agent needs another session
 the `retask`. The clone returns to the base without its other local branches. The record takes a new session ID, name,
 brief, and scope, and a reopen finds the old session in `prior_sessions` and the `retask` ledger line. A slot that
 starts a new task without it is stopped at its push: `slot-scope-guard.sh` denies a branch that shares no line of work
-with the slot's other branches. A stacked branch shares one, and a probe's branch goes under `probe/`.
+with the slot's other branches. Two branches share one when either contains the other, when the base contains the
+other, or when either contains the other's pushed tip (`origin/<branch>`) and that tip holds a commit the base lacks, so
+a stack stays one line after its lower branch is rebased or merged onto a moved base. Origin's default branch, while
+origin's copy holds all its commits, is no second task, and a probe's branch goes under `probe/`.
 
 `agent-slot resume <repo>/<N> --model (opus | sonnet)` switches a live slot's model. The slot's record takes the model,
 and a Claude that is idle is ended and started again in its own pane through the command line a launch builds, resuming

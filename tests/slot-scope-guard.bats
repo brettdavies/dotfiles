@@ -157,6 +157,67 @@ denied() {
   push 'git push origin feat/two'
 }
 
+# pushed BRANCH: the remote-tracking ref a push of BRANCH leaves.
+pushed() { git -C "$SLOT" update-ref "refs/remotes/origin/$1" "$1"; }
+
+# pushed_stack: feat/one and the feat/two stacked on it, each pushed, with feat/one checked out.
+pushed_stack() {
+  commit scripts/agent-slot/one.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  git -C "$SLOT" checkout -q feat/one
+}
+
+# base_moves: origin/main gains a commit that neither branch holds. Leaves feat/one checked out.
+base_moves() {
+  git -C "$SLOT" checkout -q --detach origin/main
+  commit docs/base-moved.md
+  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  git -C "$SLOT" checkout -q feat/one
+}
+
+@test "a stack's lower branch pushes after a rebase onto a base that moved, and so does the upper branch" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" rebase -q origin/main
+  push 'git push origin feat/one'
+  git -C "$SLOT" checkout -q feat/two
+  push 'git push origin feat/two'
+}
+
+@test "a stack's lower branch pushes after a local merge of a base that moved" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" merge -q --no-edit origin/main
+  push 'git push origin feat/one'
+}
+
+@test "two branches that each hold a pushed tip the other lacks are two tasks, naming retask" {
+  commit scripts/agent-slot/one.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+  [[ $(reason) == *'task is on feat/one'* ]]
+}
+
+@test "a pushed tip that carries nothing beyond the base ties no branch to another" {
+  git -C "$SLOT" update-ref refs/remotes/origin/feat/one origin/main
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  run bash_call 'git push origin feat/two'
+  [[ $(reason) == *'task is on feat/one'* ]]
+  git -C "$SLOT" checkout -q feat/one
+  run bash_call 'git push origin feat/one'
+  [[ $(reason) == *'task is on feat/two'* ]]
+}
+
 @test "a probe's branch beside the task's is allowed, whichever one is checked out" {
   commit scripts/agent-slot/one.sh
   git -C "$SLOT" checkout -q -b probe/ci origin/main

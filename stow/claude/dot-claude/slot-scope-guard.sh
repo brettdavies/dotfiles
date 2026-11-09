@@ -8,7 +8,11 @@
 #                        for the slot covers it
 #                      It also denies a push from a branch that shares no line of work with another of the slot's local
 #                      branches: one session holds one task, and a new task starts a new session through agent-slot
-#                      retask. A stacked branch shares that line, and a probe/ branch stands apart from it.
+#                      retask. Two branches share a line when one contains the other, when origin/<base> contains the
+#                      other, or when one contains the other's pushed tip (origin/<branch>) and that tip holds a commit
+#                      origin/<base> lacks, so a stack stays one line after its lower branch is rebased or merged onto a
+#                      moved base. A probe/ branch, and origin's default branch while origin's copy holds all its
+#                      commits, are no second task.
 # A `git push` named only inside quoted text that a search or print tool holds, such as an `rg` pattern, is no push
 # (scope_mask_quotes).
 # A record with no scope.touches passes the path check. Grants count from the task's start, so a new task, or a reused
@@ -172,7 +176,7 @@ scope_deny() {
 
 # Usage: branch_decide <repo> <n>; RECORD holds the slot's record. Prints the denial, or nothing.
 branch_decide() {
-  local path base head other default
+  local path base head other default pair tip rc
   path=$(slot_path "$1" "$2")
   base=$(contract_json -r '.base // empty' <<<"$RECORD")
   head=$(git -C "$path" symbolic-ref --short -q HEAD) || return 0
@@ -188,6 +192,17 @@ branch_decide() {
     git -C "$path" merge-base --is-ancestor "$other" HEAD 2>/dev/null && continue
     git -C "$path" merge-base --is-ancestor HEAD "$other" 2>/dev/null && continue
     git -C "$path" merge-base --is-ancestor "$other" "origin/$base" 2>/dev/null && continue
+    # A stack stays one line of work after its lower branch is rebased or merged onto a moved base: the upper branch still
+    # holds the lower one's pushed tip. A tip the base already holds is in every branch cut from it, so it counts only
+    # with a commit the base lacks. A missing ref or base is no ancestry, so nothing is skipped.
+    for pair in "$other:HEAD" "$head:$other"; do
+      tip=refs/remotes/origin/${pair%%:*}
+      git -C "$path" rev-parse --verify -q "$tip" >/dev/null || continue
+      rc=0
+      git -C "$path" merge-base --is-ancestor "$tip" "refs/remotes/origin/$base" 2>/dev/null || rc=$?
+      ((rc == 1)) || continue
+      git -C "$path" merge-base --is-ancestor "$tip" "${pair#*:}" 2>/dev/null && continue 2
+    done
     scope_deny "This push is from $head, but this slot's task is on $other, and they share no line of work. One session \
 holds one task, so stop here and ask the session you report to to run \`agent-slot retask $1/$2 --task <name> \
 --prompt-file <brief>\`, which starts the new task in a new session. If this is the same task, stack it on $other. A \
