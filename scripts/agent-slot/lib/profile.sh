@@ -13,12 +13,12 @@
 # artifact. Artifact alone is 35.9k characters of definition.
 PROFILE_TOOLS_OFF=(Artifact AskUserQuestion ScheduleWakeup ReportFindings)
 
-# Skills slots rarely or never call: the claude.ai-synced set, the built-ins slots seldom use, and the skills that only
-# serve the Artifact tool. Off removes a skill from the listing and from the Skill tool. tests/lib/agent-slot.bash holds
+# Skills slots rarely or never call: the claude.ai-synced set, the built-ins slots seldom use, the skills that only
+# serve the Artifact tool, and the reviews a slot must not run in place of the ones its brief names. Off removes a skill from the listing and from the Skill tool. tests/lib/agent-slot.bash holds
 # its own copy of this list, so a change here fails the launch-line tests until that copy moves with it.
 PROFILE_SKILLS_OFF=(artifact-capabilities artifact-design artifact-diagramming artifact-emulator built-in-browser
-  chrome-browser claude-api code-review computer-use dataviz deep-research docs docx fewer-permission-prompts
-  google-workspace import-memory init keybindings-help loop morning pdf plugin-authoring pptx run schedule
+  chrome-browser claude-api code-review codex computer-use dataviz deep-research docs docx fewer-permission-prompts
+  google-workspace import-memory init keybindings-help loop morning pdf plugin-authoring pptx review run schedule
   security-review simplify skill-creator update-config xlsx)
 
 # The plugins to turn off. No slot has called an obsidian skill or tool. Slots call the cloudflare plugin's tools mostly

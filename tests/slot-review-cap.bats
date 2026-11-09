@@ -268,9 +268,15 @@ CMD
     jaq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$output"
     reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
     [[ $reason == *"A slot cannot grant its own review round"* ]]
+    [[ $reason == *'`agent-slot grant-review repo/1`'* ]]
+    [[ $reason == *'If your brief names no such session'* ]]
   done
-  run bash_call "rg -n 'agent-slot grant-review' README.md"
-  [ -z "$output" ]
+  for c in "rg -n 'agent-slot grant-review' README.md" 'agent-slot grant-review --help' \
+    "echo 'please run agent-slot grant-review repo/1'" "rg 'run agent-slot grant-review'" \
+    "sed -n '/agent-slot grant-review/p' README.md" 'echo "a prime runs agent-slot grant-review repo/1"'; do
+    run bash_call "$c"
+    [ -z "$output" ]
+  done
   printf '%s' repo-prime >"$STUBS/pane-session"
   run bash_call 'agent-slot grant-review repo/1'
   [ -z "$output" ]
@@ -281,11 +287,38 @@ CMD
   local c
   for c in 'rg -n ce-code-review ~/.claude/plugins' 'cat ~/.claude/skills/ce-code-review/SKILL.md' \
     'gh pr comment 12 --body-file /tmp/ce-code-review-round-1.md' 'claude -p "/compound-engineering:ce-code-reviewer x"' \
-    'claude -p "/devex-review"' 'jaq .result review.json'; do
+    'claude -p "/devex-review"' 'jaq .result review.json' "claude -p '/devex-review PR 12, after ce-code-review'" \
+    'claude --version; ls ce-code-review' "ps aux | grep 'claude -p' | grep ce-code-review" \
+    "rg -n 'claude -p' ~/.claude/plugins/x/skills/ce-code-review/SKILL.md" "ps aux | rg 'claude -p.*ce-code-review'"; do
     run bash_call "$c"
     [ "$status" -eq 0 ]
     [ -z "$output" ]
   done
+  [ ! -e "$LEDGER" ]
+}
+
+@test "a claude -p prompt of /code-review, /review, /security-review, or /codex is denied in a slot" {
+  local c
+  for c in 'claude -p "/review PR #12"' "cd /tmp/rv && timeout 900 claude -p '/security-review' >sr.json" \
+    'claude -p "/code-review high 12"' 'claude -p "/codex review"'; do
+    run bash_call "$c"
+    jaq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$output"
+    [[ $(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output") == *'does not stand in for them'* ]]
+  done
+  for c in "rg -n '/review' README.md" 'claude -p "/devex-review PR 12"' 'gh pr view 12 --json reviews'; do
+    run bash_call "$c"
+    [ -z "$output" ]
+  done
+  [ ! -e "$LEDGER" ]
+  printf '%s' repo-prime >"$STUBS/pane-session"
+  run bash_call 'claude -p "/review PR #12"'
+  [ -z "$output" ]
+}
+
+@test "a review started from Bash outside a slot is not counted" {
+  printf '%s' repo-prime >"$STUBS/pane-session"
+  run bash_call "$CLONE_REVIEW"
+  [ -z "$output" ]
   [ ! -e "$LEDGER" ]
 }
 

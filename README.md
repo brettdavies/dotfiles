@@ -289,14 +289,15 @@ A PR gets one review round, and a second only to review round 1's P0 and P1 fixe
 `references/slot-rules.md` § Reviews holds the rule and which reviews a change needs. As a backstop, a slot's agent gets
 at most 2 review rounds per PR. `slot-review-cap.sh` (also in `stow/claude/dot-claude/`, on `PreToolUse` for the `Skill`
 and `Bash` tools) counts each call of `compound-engineering:ce-code-review`, by the slot's own Claude or its subagents
-and under its bare name too, and each Bash command that starts `claude` with that skill, as a review from a throwaway
-clone does, as one round for the PR on the slot's current branch. It appends a
+and under its bare name too, and each Bash command that runs `claude` with a prompt that starts with the skill's slash
+name, as a review from a throwaway clone does, as one round for the PR on the slot's current branch. It appends a
 `review-round` event to the ledger with the slot and the branch, and denies the third, naming the rule, the count, the
-PR and head commit to send the coordinating session, and the grant command. Rounds are counted per
-branch, so several PRs reviewed from one branch share one cap; on a detached head the commit stands in for the branch,
-and each new commit starts a new count. They count from the slot's `created_at`, so a reused slot number starts at none,
-and a call counts when it starts, so a review that fails at once still uses its round. Outside a slot the hook prints
-nothing, and `/devex-review` and `/cso` are not counted.
+PR and head commit to send the coordinating session, and the grant command. Rounds are counted per branch, so several
+PRs reviewed from one branch share one cap; on a detached head the commit stands in for the branch, and each new commit
+starts a new count. They count from the slot's `created_at`, so a reused slot number starts at none, and a call counts
+when it starts, so a review that fails at once still uses its round. Outside a slot the hook prints nothing, and
+`/devex-review` and `/cso` are not counted. It also denies a slot's `claude` command whose prompt starts `/code-review`,
+`/review`, `/security-review`, or `/codex`; the slot profile turns those skills off for the slot's own Claude.
 
 The operator or the coordinating prime allows one more round with `agent-slot grant-review <repo>/<N>`, which appends
 a `review-grant` event for the slot's current branch and reports the rounds used and allowed. Each run is one round. It

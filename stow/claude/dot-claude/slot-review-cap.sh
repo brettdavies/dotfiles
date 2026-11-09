@@ -8,6 +8,9 @@
 #                         skill runs a review: `claude -p` from a throwaway clone of the pushed head; and denies a
 #                         command that runs `agent-slot grant-review` from any Claude in a slot's Claude session, since
 #                         grant-review runs without an ask so a prime can grant
+#                         It also denies a `claude` command whose prompt starts /code-review, /review,
+#                         /security-review, or /codex: the slot profile (scripts/agent-slot/lib/profile.sh) turns those
+#                         skills off for the slot's own Claude, and a `claude` it starts loads only the user settings
 # Rounds and grants count from the slot's created_at, so a reused slot number starts at none. Anywhere else, and on a
 # payload or ledger it cannot read, it prints nothing, so the call goes ahead. Always exits 0; failures go to the
 # agent-slot hooks.log.
@@ -23,14 +26,34 @@ fi
 AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
 
 REVIEW_SKILL=compound-engineering:ce-code-review
-# A command that starts claude (a word of its own, not a path such as ~/.claude/) and names the skill, not a longer
-# skill name such as ce-code-reviewer.
+# A command that starts claude (a word of its own, not a path such as ~/.claude/) with a prompt that starts with the
+# skill's slash name, not a longer one such as ce-code-reviewer, nor a path or a mention of the skill.
 REVIEW_COMMAND_CLAUDE='(^|[^[:alnum:]_./-])claude[[:space:]]'
-REVIEW_COMMAND_SKILL='ce-code-review([^[:alnum:]_-]|$)'
-# agent-slot in command position, by name or path, so a quoted search for the words is not a grant.
-GRANT_COMMAND='(^|[[:space:];&|(/])agent-slot[[:space:]]+grant-review([^[:alnum:]_-]|$)'
-GRANT_DENY="A slot cannot grant its own review round. Send the coordinating session the PR, its head SHA, and why it \
-needs another round, as one \`SendMessage\`; it or the operator runs \`agent-slot grant-review\`."
+REVIEW_COMMAND_SKILL=$'(^|[[:space:]"\'])/(compound-engineering:)?ce-code-review([^[:alnum:]_/-]|$)'
+# agent-slot in command position: at the start or after ; & | ( or a newline, past assignments and `env` with its
+# options, by name or path. A quoted mention of the words is not a grant.
+GRANT_COMMAND=$'(^|[;&|(\n])[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|env|-[A-Za-z-]+|[A-Z_][A-Z0-9_]*)'
+GRANT_COMMAND+=$'[[:space:]]+)*([^[:space:]\'"]*/)?agent-slot[[:space:]]+grant-review([[:space:]]|$)'
+GRANT_HELP='grant-review[[:space:]]+(-h|--help)([[:space:]]|$)'
+OTHER_REVIEW_COMMAND=$'(^|[[:space:]"\'])/([[:alnum:]_-]+:)?(code-review|review|security-review|codex)([^[:alnum:]_/-]|$)'
+OTHER_REVIEW_DENY="In a slot the reviews are \`ce-code-review\`, plus \`/devex-review\` and \`/cso\` where the brief names \
+them; \`/code-review\`, \`/review\`, \`/security-review\`, or \`/codex\` does not stand in for them. Run the reviews \
+your brief's \`Reviews:\` line names, as the agent-slot skill's references/slot-rules.md § Reviews shows."
+
+# Usage: deny_in_slot <reason>; prints the denial when this is a slot's Claude session.
+# shellcheck disable=SC2016 # a jaq program
+deny_in_slot() {
+  hook_pane && hook_claude_session || return 0
+  contract_json -n -c --arg m "$1" \
+    '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $m}}'
+}
+
+# Usage: grant_deny_reason <repo> <n>
+grant_deny_reason() {
+  printf '%s' "A slot cannot grant its own review round. Send the coordinating session the PR, its head SHA, and why \
+it needs another round, as one \`SendMessage\`; it or the operator runs \`agent-slot grant-review $1/$2\`. If your \
+brief names no such session, leave the decision open in your plan and your report."
+}
 
 # Usage: review_deny_reason <repo> <n> <rounds> <grants> <branch>; RECORD holds the slot's record.
 # shellcheck disable=SC2016 # a jaq program
@@ -79,10 +102,15 @@ review_main() {
   IFS=$'\x1f' read -r event tool skill <<<"$(hook_field "$fields")"
   if [[ $event == PreToolUse && $tool == Bash ]]; then
     command=$(hook_field .tool_input.command)
-    if [[ $command =~ $GRANT_COMMAND ]]; then
+    if [[ $command =~ $GRANT_COMMAND && ! $command =~ $GRANT_HELP ]]; then
       hook_pane && hook_claude_session || return 0
-      contract_json -n -c --arg m "$GRANT_DENY" \
+      read -r repo n <<<"$(hook_slot)"
+      contract_json -n -c --arg m "$(grant_deny_reason "$repo" "$n")" \
         '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $m}}'
+      return 0
+    fi
+    if [[ $command =~ $REVIEW_COMMAND_CLAUDE && $command =~ $OTHER_REVIEW_COMMAND ]]; then
+      deny_in_slot "$OTHER_REVIEW_DENY"
       return 0
     fi
     [[ $command =~ $REVIEW_COMMAND_CLAUDE && $command =~ $REVIEW_COMMAND_SKILL ]] || return 0
@@ -112,8 +140,8 @@ review_main() {
 
 HOOK_PAYLOAD_IN=$(cat)
 [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || exit 0
-# Every Bash call on the host reaches this hook; only one that names the skill or grant-review can matter.
-[[ $HOOK_PAYLOAD_IN == *ce-code-review* || $HOOK_PAYLOAD_IN == *grant-review* ]] || exit 0
+# Every Bash call on the host reaches this hook; only one that names a review or codex can matter.
+[[ $HOOK_PAYLOAD_IN == *review* || $HOOK_PAYLOAD_IN == *codex* ]] || exit 0
 (
   set -euo pipefail
   shopt -s inherit_errexit

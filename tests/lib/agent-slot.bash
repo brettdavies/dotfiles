@@ -518,8 +518,8 @@ finished_task() {
 # kept apart from scripts/agent-slot/lib/profile.sh, so a change there fails the tests until this one moves too.
 slot_profile_args() {
   local -a skills=(artifact-capabilities artifact-design artifact-diagramming artifact-emulator built-in-browser
-    chrome-browser claude-api code-review computer-use dataviz deep-research docs docx fewer-permission-prompts
-    google-workspace import-memory init keybindings-help loop morning pdf plugin-authoring pptx run schedule
+    chrome-browser claude-api code-review codex computer-use dataviz deep-research docs docx fewer-permission-prompts
+    google-workspace import-memory init keybindings-help loop morning pdf plugin-authoring pptx review run schedule
     security-review simplify skill-creator update-config xlsx)
   local name overrides='' plugins='"obsidian@obsidian-skills":false'
   for name in "${skills[@]}"; do overrides+="\"$name\":\"off\","; done
