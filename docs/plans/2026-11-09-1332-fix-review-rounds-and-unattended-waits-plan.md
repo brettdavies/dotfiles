@@ -1,0 +1,174 @@
+---
+title: "fix: one review round, reviews fitted to the change, the smallest change, and waits that end"
+type: fix
+status: active
+date: 2026-11-09
+---
+
+# One review round, reviews fitted to the change, the smallest change, and waits that end
+
+Two PRs: one in dotfiles (base `dev`) and one in agent-skills (base `main`), both ready for Brett's final review by
+21:00 CST on 2026-11-09.
+
+## What the last three days show
+
+Source: 67 brettdavies PRs updated since 2026-11-06 across 11 repos, their 84 review comments, the agent-slot ledger,
+and the slot and prime transcripts.
+
+1. **Round 2 does not change the outcome.** Ten PRs had a second `ce-code-review` round
+   (agent-skills #229, #231, #233, #238; dotfiles #466, #473, #479; xurl-rs #524, #530, #531, #533). Every round 2
+   reported no P0 or P1; its findings were P2 and P3, mostly gaps in round 1's own fixes. Two PRs went to a granted
+   round 3 (agent-skills #231, dotfiles #466).
+2. **Rounds go with size.** The three largest non-release PRs ran 2 or 3 rounds of code and devex review: dotfiles #466
+   (+3182, 48 commits), agent-skills #229 (+2989, 24 commits), agent-skills #231 (+2286, 20 commits).
+3. **The round cap is not enforced.** `slot-review-cap.sh` counts a `ce-code-review` Skill call made by the slot's own
+   top-level Claude. The agent-slot skill has every review run as `claude -p` from a throwaway clone, which the hook
+   never sees, so the ledger has no `review-round` event since 2026-11-05. The "round 1 of 2" labels on PRs are the
+   slots counting themselves.
+4. **Every review runs on Opus at `xhigh`, whatever it reviews**, docs-only and release PRs included.
+5. **Review choice is fixed, not fitted.** Briefs and prime memories say `ce-code-review` on every PR, `/devex-review`
+   for anything a developer uses, and `/cso` for credentials. Lite in-session reviews on small canon-sync PRs
+   (.github#119, agentnative-cli #308/#309, bird #216/#217, homebrew-tap #187, xurl-rs #540) worked.
+6. **Nothing says "smallest change".** The guards against overengineering are the brief's `Scope:`, the `Touches:` push
+   gate, and `Adds:`, which nothing checks. No rule tells an agent to prefer the minimal fix.
+7. **Unattended waits wake late.** In the xurl-rs 4.6.0 release slot (2026-11-07, 04:25 to 06:52 UTC), each time the
+   slot ended its turn it parked on a background wait that woke it late, and Brett's "and?" or "how's it going?" made it
+   look again and move on:
+   - A poll waited on the tap and finalize runs with `case "$f" in *finalize*completed*)`. The run is named "Finalize
+     Release", so the case-sensitive match never fired. Both runs were done at 06:34:58; the slot sat until Brett asked
+     at 06:39, and the loop would have run about 30 minutes.
+   - `gh run watch --exit-status` exits only when the whole run ends. A musl build cell failed early; the slot found it
+     when Brett asked at 06:17, before the watcher's notice at 06:20.
+   - Five CI runs were watched one after another, each under `timeout 3000`; the notice came 11 minutes after the start.
+   - Not stalls: from 04:29 to 06:04 the slot waited on a "cut" from xurl-rs-prime and on Brett's merges.
+
+## Requirements
+
+- R1. One `ce-code-review` round per PR. A second round runs only when round 1 confirmed a P0 or P1, and it reviews only
+  the fixes for those P0 and P1 findings, nothing broader. After the last round, every in-brief finding is fixed with no
+  further review.
+- R2. The slot hook keeps a hard cap of 2 rounds per PR as a backstop, and it counts the documented review path
+  (`claude -p` from a throwaway clone) as well as a Skill call.
+- R3. The coordinating prime, as well as Brett, may grant a round past the cap with `agent-slot grant-review`. A slot
+  still cannot grant itself one.
+- R4. Every review is recorded twice:
+  - When the task has a plan doc, the review gets an entry in the plan's `## Review log`, committed and pushed when the
+    review starts and again when it finishes. A brief-only task posts a PR comment per review, as today.
+  - A slot also messages its coordinating prime when each review starts and when it finishes. That is the second place
+    of record, and the prime keeps the count.
+- R5. The reviews are chosen for the change, by the table below. The brief's `Reviews:` line names the picks with a few
+  words on why, and `none` with a reason is valid. Primes pick the same way for their own PRs.
+- R6. Every review and every reviewer subagent runs on Opus. Effort is set per review, by the table below.
+- R7. Agents build the smallest change that meets the brief.
+- R8. A background wait ends when the thing it waits on ends, or soon after its usual length.
+
+### Reviews fitted to the change (R5)
+
+| The change                                                                        | Reviews                                       |
+| --------------------------------------------------------------------------------- | --------------------------------------------- |
+| Trivial: typo, version or release bump, a one-line config fix, a factual docs fix | none, or `ce-code-review` lite in the session |
+| Prose only (docs, skill text), no behavior change                                 | `ce-code-review` (the skill picks its depth)  |
+| Code, hooks, or workflow behavior                                                 | `ce-code-review`                              |
+| A new or changed command, verb, flag, output contract, or setup step someone runs | add `/devex-review`                           |
+| Credentials, auth, permissions, network egress, or untrusted input                | add `/cso`                                    |
+
+### Model and effort per review (R6)
+
+| Review           | Model                                | Effort  |
+| ---------------- | ------------------------------------ | ------- |
+| `ce-code-review` | Opus, every reviewer subagent forced | `high`  |
+| `/devex-review`  | Opus                                 | `high`  |
+| `/cso`           | Opus                                 | `xhigh` |
+| lite, in session | the session's own (Opus)             | as is   |
+
+A brief may raise the effort for a risky change.
+
+### The smallest change (R7)
+
+Added to the agent-slot skill's "The brief is the scope" and to CLAUDE.md:
+
+> Build the smallest change that meets the brief. Add no verb, flag, option, config key, abstraction, or harness the
+> brief does not name. When a reviewer suggests one, it goes under "Not in scope". When a fix needs its own fix, stop
+> and report rather than widening the change.
+
+### Waits that end (R8)
+
+Added to CLAUDE.md § "Never block on a wait":
+
+> **A wait must end when the thing does.** Before backgrounding a hand-written poll, run its exit test once against the
+> current state, and match names case-insensitively. Watch parallel runs in parallel, one watcher each. Bound each
+> wait by about 1.5 times its usual length, not a catch-all like 3000 s. When a watcher times out, read the state
+> yourself before waiting again.
+
+`gh run watch` cannot stop at the first failed job, and GitHub reruns a failed job only after the run ends, so no new
+watch tool is built.
+
+## Changes
+
+### dotfiles (one PR off `dev`)
+
+- `stow/claude/dot-claude/slot-review-cap.sh`: also count a `PreToolUse` Bash call by the slot's top-level Claude whose
+  command runs `claude` and names `ce-code-review`, through the same decide function and ledger line. The cap stays
+  at 2.
+- `tests/slot-review-cap.bats`: cases for the Bash path: counted, denied at the cap, and not counted outside a slot or
+  for a command that does not start a review.
+- `stow/claude/dot-claude/settings.json`: drop the ask rule on `agent-slot grant-review`, so a prime can grant. The verb
+  still refuses with `review-grant-from-slot` from a slot's directory or its tmux server.
+- `scripts/agent-slot/lib/reviewgrant.sh`, `lib/help.sh`, `lib/launch.sh`, and the README review-cap section: the new
+  wording (one round, a second on a P0 or P1, the prime may grant).
+- `stow/claude/dot-claude/CLAUDE.md`:
+  - a short "Code reviews" rule covering R1, R4, R5, R6, and R7, pointing at the agent-slot skill's
+    `references/slot-rules.md` § Reviews for the tables;
+  - the R8 bullet.
+- `stow/claude/dot-claude/ci-watch-prompt.sh`: print each `gh run watch` under a `timeout`, one watcher per run.
+
+### agent-skills (one PR off `main`)
+
+- `agent-slot/SKILL.md`:
+  - the `Reviews:` brief line;
+  - "At most 2 review rounds", now R1 and R2;
+  - "Run every review on Opus", now with effort per review;
+  - the R4 messages to the coordinating session;
+  - R7 under "The brief is the scope".
+  - The slot SessionStart hook reads these rules from this file, so slots get them with no code change.
+- `agent-slot/references/slot-rules.md` § Reviews: the two tables (their single source), and a review command that takes
+  the effort from the table.
+- `agent-slot/references/coordinate.md`: the prime keeps the round count from the slot's messages and may grant a round
+  past the cap.
+
+### Memory files (local, not in any repo)
+
+These state the old rules, so they are updated to match:
+
+- agent-skills: `feedback_review_stack`, `feedback_brief_is_the_scope`, `feedback_no_outstanding_items_on_pr`.
+- dotfiles: `feedback_brief_is_the_scope`, `feedback_pr_never_merges_with_open_items`.
+- lmgroktfy: `pr-scope-brief-only-two-rounds`.
+- xurl-rs: `feedback_draft_until_reviews_done`.
+- Their `MEMORY.md` index lines.
+
+## Verification
+
+- `bats tests/slot-review-cap.bats`. Each new case is seen failing against the hook without the Bash path.
+- The full dotfiles pre-push gate, and agent-skills' markdownlint and prose gate.
+- `rg` over both repos and the memory files finds no remaining "2 review rounds", "at most 2 rounds", or all-`xhigh`
+  review rule.
+
+## Not in scope
+
+- A new `agent-slot review` verb that runs and counts reviews.
+- A hook that reads finding severity.
+- A fail-fast CI watch tool.
+- Changes to `ce-code-review`, `/devex-review`, or `/cso`.
+- Other repos' docs and runbooks, such as xurl-rs's release runbook watchers.
+
+## Reviews of this work
+
+- This plan: one plan review, `/compound-engineering:ce-doc-review`. The plan is a process and gate change whose main
+  risk is unclear or conflicting rules across many files, which that review's coherence, feasibility, and scope-guardian
+  lenses check.
+- Each PR: one `ce-code-review` round on Opus at `high`.
+- No `/devex-review`: no command, flag, or output contract changes; the deny message's wording is covered by the code
+  review.
+- No `/cso`.
+
+## Review log
