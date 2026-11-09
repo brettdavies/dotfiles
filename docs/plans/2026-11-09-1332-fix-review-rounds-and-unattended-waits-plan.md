@@ -172,3 +172,7 @@ These state the old rules, so they are updated to match:
 - No `/cso`.
 
 ## Review log
+
+| # | Review | Of | Model, effort | Started (UTC) | Finished (UTC) | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `ce-doc-review` | this plan at `5f9dac6` | Opus, `high` | 2026-11-09 19:33 | | running |
