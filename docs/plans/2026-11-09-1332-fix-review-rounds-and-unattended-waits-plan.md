@@ -61,7 +61,7 @@ and the slot and prime transcripts.
   words on why, and `none` with a reason is valid. Primes pick the same way for their own PRs.
 - R6. Every review and every reviewer subagent runs on Opus. Effort is set per review, by the table below.
 - R7. Agents build the smallest change that meets the brief, and start its reviews once it meets the brief and its
-  tests pass, with no polish first.
+  tests pass. From then on they change only what a review finding or a failing check calls for.
 - R8. A background wait ends when the thing it waits on ends, or soon after its usual length.
 
 ### Reviews fitted to the change (R5)
@@ -191,5 +191,7 @@ These state the old rules, so they are updated to match:
 | 2 | `ce-code-review` | agent-skills#239 at `036acb1` | Opus, `high` | 2026-11-09 20:04 | 2026-11-09 20:09 | stopped to add the review-before-polish rule; rerun below |
 | 3 | `ce-code-review` | dotfiles#485 at `617047b` | Opus, `high` | 2026-11-09 20:04 | 2026-11-09 20:09 | stopped to add the review-before-polish rule; rerun below |
 | 4 | `/devex-review` | dotfiles#485 at `617047b` | Opus, `high` | 2026-11-09 20:04 | | running |
-| 5 | `ce-code-review` | agent-skills#239 at `ab6a19d` | Opus, `high` | 2026-11-09 20:09 | | running |
-| 6 | `ce-code-review` | dotfiles#485 at `4d76a55` | Opus, `high` | 2026-11-09 20:09 | | running |
+| 5 | `ce-code-review` | agent-skills#239 at `ab6a19d` | Opus, `high` | 2026-11-09 20:09 | 2026-11-09 20:11 | stopped to bar polish after the reviews too; rerun below |
+| 6 | `ce-code-review` | dotfiles#485 at `4d76a55` | Opus, `high` | 2026-11-09 20:09 | 2026-11-09 20:11 | stopped to bar polish after the reviews too; rerun below |
+| 7 | `ce-code-review` | agent-skills#239 at `8deecbe` | Opus, `high` | 2026-11-09 20:11 | | running |
+| 8 | `ce-code-review` | dotfiles#485 at `3df9310` | Opus, `high` | 2026-11-09 20:11 | | running |
