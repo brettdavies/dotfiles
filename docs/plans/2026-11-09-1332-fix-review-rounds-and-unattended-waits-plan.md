@@ -195,3 +195,4 @@ These state the old rules, so they are updated to match:
 | 6 | `ce-code-review` | dotfiles#485 at `4d76a55` | Opus, `high` | 2026-11-09 20:09 | 2026-11-09 20:11 | stopped to bar polish after the reviews too; rerun below |
 | 7 | `ce-code-review` | agent-skills#239 at `8deecbe` | Opus, `high` | 2026-11-09 20:11 | 2026-11-09 20:23 | no P0 or P1; 4 P2, 3 P3, fixed or answered in e625e7f and its PR comment |
 | 8 | `ce-code-review` | dotfiles#485 at `3df9310` | Opus, `high` | 2026-11-09 20:11 | 2026-11-09 20:23 | no P0 or P1; 2 P2, 1 P3, fixed in 8681e61 and d54ee7e |
+| 9 | `ce-code-review` round 2, fixes only | dotfiles#485 at `d54ee7e`, base `3df9310`: the devex P1 fix | Opus, `high` | 2026-11-09 20:28 | | running |
