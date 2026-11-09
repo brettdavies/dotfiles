@@ -182,9 +182,10 @@ base_moves() {
   pushed_stack
   base_moves
   git -C "$SLOT" rebase -q origin/main
-  push 'git push origin feat/one'
   git -C "$SLOT" checkout -q feat/two
   push 'git push origin feat/two'
+  git -C "$SLOT" checkout -q feat/one
+  push 'git push origin feat/one'
 }
 
 @test "a stack's lower branch pushes after a local merge of a base that moved" {
@@ -204,6 +205,16 @@ base_moves() {
   [ "$status" -eq 0 ]
   [[ $(reason) == *'agent-slot retask repo/1'* ]]
   [[ $(reason) == *'task is on feat/one'* ]]
+}
+
+@test "a stack's lower branch is still a second task when the clone has no origin ref for the base" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" rebase -q origin/main
+  git -C "$SLOT" update-ref -d refs/remotes/origin/main
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
 }
 
 @test "a pushed tip that carries nothing beyond the base ties no branch to another" {
