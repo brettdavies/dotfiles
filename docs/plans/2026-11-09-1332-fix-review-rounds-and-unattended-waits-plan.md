@@ -190,7 +190,7 @@ These state the old rules, so they are updated to match:
 | 1 | `ce-doc-review` | this plan at `5f9dac6` | Opus, `high` | 2026-11-09 19:33 | 2026-11-09 19:51 | 4 P1, 9 P2, 1 P3, 4 decisions; each fixed or decided in this plan |
 | 2 | `ce-code-review` | agent-skills#239 at `036acb1` | Opus, `high` | 2026-11-09 20:04 | 2026-11-09 20:09 | stopped to add the review-before-polish rule; rerun below |
 | 3 | `ce-code-review` | dotfiles#485 at `617047b` | Opus, `high` | 2026-11-09 20:04 | 2026-11-09 20:09 | stopped to add the review-before-polish rule; rerun below |
-| 4 | `/devex-review` | dotfiles#485 at `617047b` | Opus, `high` | 2026-11-09 20:04 | | running |
+| 4 | `/devex-review` | dotfiles#485 at `617047b` | Opus, `high` | 2026-11-09 20:04 | 2026-11-09 20:13 | 6/10, no P0; 1 P1 (the cap counts non-review commands), 3 P2, 5 P3; fixes follow |
 | 5 | `ce-code-review` | agent-skills#239 at `ab6a19d` | Opus, `high` | 2026-11-09 20:09 | 2026-11-09 20:11 | stopped to bar polish after the reviews too; rerun below |
 | 6 | `ce-code-review` | dotfiles#485 at `4d76a55` | Opus, `high` | 2026-11-09 20:09 | 2026-11-09 20:11 | stopped to bar polish after the reviews too; rerun below |
 | 7 | `ce-code-review` | agent-skills#239 at `8deecbe` | Opus, `high` | 2026-11-09 20:11 | | running |
