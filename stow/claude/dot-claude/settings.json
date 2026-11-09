@@ -350,7 +350,6 @@
     ],
     "ask": [
       "Bash(agent-slot finish *)",
-      "Bash(agent-slot grant-review *)",
       "Bash(agent-slot grant-scope *)",
       "Bash(agent-slot reopen *)",
       "Bash(agent-slot sweep *)",
@@ -627,7 +626,7 @@
         ]
       },
       {
-        "matcher": "Skill",
+        "matcher": "Skill|Bash",
         "hooks": [
           {
             "type": "command",

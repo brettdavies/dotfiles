@@ -53,6 +53,15 @@ skill() {
     tool_name: "Skill", tool_input: {skill: $s, args: "mode:report-only"}, tool_use_id: "tu1"}' | fire
 }
 
+# bash COMMAND: a PreToolUse payload for the Bash tool, from the slot's Claude.
+bash_call() {
+  jaq -n -c --arg cwd "$SLOT" --arg c "$1" '{hook_event_name: "PreToolUse", session_id: "s1", cwd: $cwd,
+    tool_name: "Bash", tool_input: {command: $c, run_in_background: true}, tool_use_id: "tu2"}' | fire
+}
+
+# A review as the agent-slot skill runs it: `claude -p` from a throwaway clone of the pushed head.
+CLONE_REVIEW='cd /tmp/rv && CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 timeout -s INT -k 30 2400 claude -p --model claude-opus-5-5 --effort high "/compound-engineering:ce-code-review PR #12, base dev" >review.json'
+
 ledger() { jaq -c "select(.event == \"$1\")" "$LEDGER" 2>/dev/null || true; }
 
 # review: a ce-code-review call that the hook allows, so it prints nothing.
@@ -83,9 +92,10 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
   reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
   [[ $reason == *"at most 2 review rounds per PR"* ]]
   [[ $reason == *"feat/one has had 2"* ]]
-  [[ $reason == *"coordinating session the PR and its head SHA ($SHA) as one"* ]]
+  [[ $reason == *"a second only to review round 1's P0 and P1 fixes"* ]]
+  [[ $reason == *"coordinating session the PR, its head SHA ($SHA), and why, as one"* ]]
   [[ $reason == *"If your brief names no such session"* ]]
-  [[ $reason == *"the operator can allow one more round by running \`agent-slot grant-review repo/1\`"* ]]
+  [[ $reason == *"it or the operator can allow one more round by running \`agent-slot grant-review repo/1\`"* ]]
   [[ $reason == *"you cannot run yourself"* ]]
   [[ $reason == *"branch feat/one"* ]]
   [ "$(ledger review-round | wc -l)" -eq 2 ]
@@ -98,7 +108,7 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
   review
   run skill "$REVIEW"
   reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
-  [[ $reason == *"coordinating session PR #463 and its head SHA ($SHA) as one"* ]]
+  [[ $reason == *"coordinating session PR #463, its head SHA ($SHA), and why"* ]]
 }
 
 @test "a grant allows exactly one more round on that branch" {
@@ -113,7 +123,7 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
   run skill "$REVIEW"
   jaq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$output"
   reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
-  [[ $reason == *"allows 2 review rounds per PR plus 1 the operator granted"* ]]
+  [[ $reason == *"allows 2 review rounds per PR plus 1 granted"* ]]
   [[ $reason == *"feat/one has had 3"* ]]
 }
 
@@ -219,6 +229,103 @@ grant() { env -u TMUX -u TMUX_PANE bash -c 'cd "$1" && shift && exec "$@" --outp
     [ "$status" -eq 0 ]
     [ -z "$output" ]
   done
+  [ ! -e "$LEDGER" ]
+}
+
+@test "a review started as claude -p from a Bash call counts as a round" {
+  run bash_call "$CLONE_REVIEW"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  jaq -e '.repo == "repo" and .slot == 1 and .branch == "feat/one"' <<<"$(ledger review-round)"
+}
+
+@test "a third review started from a Bash call is denied, after rounds from either path" {
+  review
+  run bash_call "$CLONE_REVIEW"
+  [ -z "$output" ]
+  run bash_call "$CLONE_REVIEW"
+  jaq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$output"
+  [ "$(ledger review-round | wc -l)" -eq 2 ]
+}
+
+@test "the agent-slot skill's multi-line review command counts as a round" {
+  local c
+  read -r -d '' c <<'CMD' || true
+cd /tmp/rv && CARGO_TARGET_DIR=/tmp/rv/target CROSS_MODEL_PEERS=none CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5 \
+  CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 timeout -s INT -k 30 2400 \
+  claude -p --model claude-opus-5-5 --effort high --dangerously-skip-permissions \
+  --output-format json "/compound-engineering:ce-code-review PR #12, base dev. $(cat /tmp/rv/brief.md)" >review.json
+CMD
+  run bash_call "$c"
+  [ -z "$output" ]
+  [ "$(ledger review-round | wc -l)" -eq 1 ]
+}
+
+@test "a slot's own grant-review is denied; a search for it and a prime's grant are not" {
+  local c
+  for c in 'agent-slot grant-review repo/1' 'cd /tmp && env -u TMUX ~/.local/bin/agent-slot grant-review repo/1 --output json'; do
+    run bash_call "$c"
+    jaq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$output"
+    reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+    [[ $reason == *"A slot cannot grant its own review round"* ]]
+    [[ $reason == *'`agent-slot grant-review repo/1`'* ]]
+    [[ $reason == *'If your brief names no such session'* ]]
+  done
+  for c in "rg -n 'agent-slot grant-review' README.md" 'agent-slot grant-review --help' \
+    "echo 'please run agent-slot grant-review repo/1'" "rg 'run agent-slot grant-review'" \
+    "sed -n '/agent-slot grant-review/p' README.md" 'echo "a prime runs agent-slot grant-review repo/1"'; do
+    run bash_call "$c"
+    [ -z "$output" ]
+  done
+  printf '%s' repo-prime >"$STUBS/pane-session"
+  run bash_call 'agent-slot grant-review repo/1'
+  [ -z "$output" ]
+  [ ! -e "$LEDGER" ]
+}
+
+@test "a Bash call that only names ce-code-review, or starts no claude, is not counted" {
+  local c
+  for c in 'rg -n ce-code-review ~/.claude/plugins' 'cat ~/.claude/skills/ce-code-review/SKILL.md' \
+    'gh pr comment 12 --body-file /tmp/ce-code-review-round-1.md' 'claude -p "/compound-engineering:ce-code-reviewer x"' \
+    'claude -p "/devex-review"' 'jaq .result review.json' "claude -p '/devex-review PR 12, after ce-code-review'" \
+    'claude --version; ls ce-code-review' "ps aux | grep 'claude -p' | grep ce-code-review" \
+    "rg -n 'claude -p' ~/.claude/plugins/x/skills/ce-code-review/SKILL.md" "ps aux | rg 'claude -p.*ce-code-review'" \
+    'claude -p "/devex-review PR 12, after /ce-code-review"' \
+    "rg -n 'claude -p \"/compound-engineering:ce-code-review' ~/.claude/skills" \
+    'git commit -m "docs: tell claude to run /ce-code-review first"'; do
+    run bash_call "$c"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+  done
+  [ ! -e "$LEDGER" ]
+}
+
+@test "a claude -p prompt of /code-review, /review, /security-review, or /codex is denied in a slot" {
+  local c
+  for c in 'claude -p "/review PR #12"' "cd /tmp/rv && timeout 900 claude -p '/security-review' >sr.json" \
+    'claude -p "/code-review high 12"' 'claude -p "/codex review"'; do
+    run bash_call "$c"
+    jaq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$output"
+    [[ $(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output") == *'does not stand in for them'* ]]
+  done
+  for c in "rg -n '/review' README.md" 'claude -p "/devex-review PR 12"' 'gh pr view 12 --json reviews' \
+    'gh pr comment 12 --body "claude skipped /review here"'; do
+    run bash_call "$c"
+    [ -z "$output" ]
+  done
+  [ ! -e "$LEDGER" ]
+  run bash_call 'claude -p "/compound-engineering:ce-code-review PR 12. Not /review or /codex: they are off here."'
+  [ -z "$output" ]
+  [ "$(ledger review-round | wc -l)" -eq 1 ]
+  printf '%s' repo-prime >"$STUBS/pane-session"
+  run bash_call 'claude -p "/review PR #12"'
+  [ -z "$output" ]
+}
+
+@test "a review started from Bash outside a slot is not counted" {
+  printf '%s' repo-prime >"$STUBS/pane-session"
+  run bash_call "$CLONE_REVIEW"
+  [ -z "$output" ]
   [ ! -e "$LEDGER" ]
 }
 

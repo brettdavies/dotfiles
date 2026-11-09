@@ -1,8 +1,16 @@
 # shellcheck shell=bash
-# grant-review: the operator's grant of one more review round for the PR on a slot's current branch. The hook
-# stow/claude/dot-claude/slot-review-cap.sh allows 2 rounds per branch and counts a `review-grant` ledger line as one
-# more for its branch. A slot's agent never grants: the verb refuses from a slot's directory and from the slot tmux
-# server, and an ask rule in settings.json makes a slot's own request for it a denial.
+# grant-review: one more review round for the PR on a slot's current branch, granted by the operator or by the
+# coordinating prime. The hook stow/claude/dot-claude/slot-review-cap.sh allows 2 rounds per branch and counts a
+# `review-grant` ledger line as one more for its branch. A slot's agent never grants: the verb refuses from a slot's
+# directory and from any pane on the slot tmux server that is not a prime's.
+
+# Usage: grant_from_prime; true when this shell runs in a prime's pane on the slot tmux server.
+grant_from_prime() {
+  local session
+  [[ -n ${TMUX_PANE:-} ]] || return 1
+  slot_tmux session 5 display -p -t "$TMUX_PANE" '#{session_name}' || return 1
+  slot_session_is_prime "$session"
+}
 
 # Usage: cmd_grant_review <repo>/<N>
 cmd_grant_review() {
@@ -10,11 +18,14 @@ cmd_grant_review() {
   slot_parse_key "$key"
   repo=$SLOT_REPO n=$SLOT_N
   if slot_at "$PWD" >/dev/null; then
-    contract_fail review-grant-from-slot "grant-review is the operator's to run, and $PWD is inside a slot" \
+    contract_fail review-grant-from-slot "grant-review is for the operator or a prime, and $PWD is inside a slot; \
+send the request to the coordinating session or the operator, which runs this command from outside it" \
       --value "$PWD" --command "agent-slot grant-review $key"
-  elif [[ ${TMUX:-} == */"$AS_TMUX_SOCKET",* ]]; then
-    contract_fail review-grant-from-slot "grant-review is the operator's to run, and this shell runs on the slot tmux \
-server" --value "${TMUX%%,*}" --command "agent-slot grant-review $key"
+  elif [[ ${TMUX:-} == */"$AS_TMUX_SOCKET",* ]] && ! grant_from_prime; then
+    contract_fail review-grant-from-slot "grant-review is for the operator or a prime's Claude pane, and this shell \
+runs in another pane on the slot tmux server, such as a slot's or a prime's files or git pane; send the request to the \
+coordinating session or the operator, which runs this command" --value "${TMUX%%,*}" \
+      --command "agent-slot grant-review $key"
   fi
   slot_taken "$repo" "$n" || contract_fail slot-not-found "$key holds no slot" --value "$key" --command "agent-slot list"
   branch=$(slot_review_key "$(slot_path "$repo" "$n")")

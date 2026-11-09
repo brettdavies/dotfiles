@@ -27,11 +27,14 @@ fi
 AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
 
 # A git command that starts a command: after a separator, a newline, an opening brace or parenthesis, a backtick, or the
-# quote that opens a `bash -c` script, past any assignments, wrappers (`time`, `timeout 600`, `env`, `sudo -u me`, `!`, and the
+# quote that opens a `bash -c` script, past any assignments, wrappers (`time`, `timeout -k 30 600`, `env`, `sudo -u me`, `!`, and the
 # like), and git's own options. It is a guard, not a trust boundary: a wrapper this does not list runs the command
 # unjudged.
 GIT_START=$'(^|[;&|({\n`]|(bash|sh|zsh|dash)[[:space:]]+-[a-z]*c[[:space:]]+["\'])[[:space:]]*((!|if|elif|then|do|else|while|until|time|command|exec|nohup|env|nice|sudo)[[:space:]]+'
-GIT_START+=$'(-[A-Za-z]+[[:space:]]+[^-[:space:]][^[:space:]]*[[:space:]]+)?|timeout[[:space:]]+[0-9.]+[smhd]?[[:space:]]+'
+GIT_START+=$'(-[A-Za-z]+[[:space:]]+[^-[:space:]][^[:space:]]*[[:space:]]+)?'
+GIT_START+=$'|timeout[[:space:]]+(-[A-Za-z][^[:space:]]*[[:space:]]+([^-[:space:]][^[:space:]]*[[:space:]]+)?'
+GIT_START+=$'|--[a-z-]+(=[^[:space:]]*)?[[:space:]]+([^-[:space:]][^[:space:]]*[[:space:]]+)?)*'
+GIT_START+=$'[0-9.]+[smhd]?[[:space:]]+'
 GIT_START+=$'|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(/[^[:space:]]*/)?git'
 GIT_START+=$'([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace)[[:space:]]+[^[:space:]]+|--[^[:space:]]+|-[A-Za-z]+))*'
 GIT_START+=$'[[:space:]]+'

@@ -285,21 +285,25 @@ still waiting after about 6 s got past the hook, for example because the hook fa
 That wait appends a `prompt-waiting` event, and `slot-status.sh` marks the tab blocked. Outside a slot the hook does
 nothing, so an ask rule prompts there as it always has.
 
-A slot's agent gets at most 2 review rounds per PR. `slot-review-cap.sh` (also in `stow/claude/dot-claude/`, on
-`PreToolUse` for the `Skill` tool) counts each call of `compound-engineering:ce-code-review`, by the slot's own Claude
-or its subagents and under its bare name too, as one round for the PR on the slot's current branch. It appends a
+A PR gets one review round, and a second only to review round 1's P0 and P1 fixes; the agent-slot skill's
+`references/slot-rules.md` § Reviews holds the rule and which reviews a change needs. As a backstop, a slot's agent gets
+at most 2 review rounds per PR. `slot-review-cap.sh` (also in `stow/claude/dot-claude/`, on `PreToolUse` for the `Skill`
+and `Bash` tools) counts each call of `compound-engineering:ce-code-review`, by the slot's own Claude or its subagents
+and under its bare name too, and each Bash command that runs `claude` with a prompt that starts with the skill's slash
+name, as a review from a throwaway clone does, as one round for the PR on the slot's current branch. It appends a
 `review-round` event to the ledger with the slot and the branch, and denies the third, naming the rule, the count, the
-PR and head commit to send the coordinating session, and the grant command for the operator. Rounds are counted per
-branch, so several PRs reviewed from one branch share one cap; on a detached head the commit stands in for the branch,
-and each new commit starts a new count. They count from the slot's `created_at`, so a reused slot number starts at none,
-and a call counts when it starts, so a review that fails at once still uses its round. Outside a slot the hook prints
-nothing, and `/devex-review` and `/cso` are not counted.
+PR and head commit to send the coordinating session, and the grant command. Rounds are counted per branch, so several
+PRs reviewed from one branch share one cap; on a detached head the commit stands in for the branch, and each new commit
+starts a new count. They count from the slot's `created_at`, so a reused slot number starts at none, and a call counts
+when it starts, so a review that fails at once still uses its round. Outside a slot the hook prints nothing, and
+`/devex-review` and `/cso` are not counted. It also denies a slot's `claude` command whose prompt starts `/code-review`,
+`/review`, `/security-review`, or `/codex`; the slot profile turns those skills off for the slot's own Claude.
 
-The operator allows one more round with `agent-slot grant-review <repo>/<N>`, which appends a `review-grant` event for
-the slot's current branch and reports the rounds used and allowed. Each run is one round. It refuses with
-`review-grant-from-slot` when run from a slot's directory or its tmux server, and an ask rule makes a slot's own request
-for it a denial through `slot-unattended.sh`. The cap is a guard, not a trust boundary: an agent with a shell could
-still write a ledger line.
+The operator or the coordinating prime allows one more round with `agent-slot grant-review <repo>/<N>`, which appends
+a `review-grant` event for the slot's current branch and reports the rounds used and allowed. Each run is one round. It
+refuses with `review-grant-from-slot` when run from a slot's directory or from a pane on the slot tmux server that is
+not a prime's, and `slot-review-cap.sh` denies a slot's Claude any Bash command that runs it. The cap is a guard, not a
+trust boundary: an agent with a shell could still write a ledger line.
 
 ```bash
 agent-slot grant-review dotfiles/2
@@ -354,7 +358,7 @@ it a denial through `slot-unattended.sh`. A pathspec git rejects, an exclude pat
 one that covers none of the paths the branch changes are refused with `usage` before the terminal is asked. One run
 grants one pathspec; the grant list is the `scope-grant` events in the ledger, and there is no revoke. This is a guard,
 not a trust boundary: a shell that unsets `CLAUDECODE` and gives a command a pseudo-terminal, or writes the ledger, can
-still grant, as with `grant-review`. The coordinating session relays a slot's request to the operator.
+still grant. The coordinating session relays a slot's request to the operator.
 
 ```bash
 agent-slot grant-scope dotfiles/2 'docs/*.md'
@@ -1027,7 +1031,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `rexurrect-missing`           | 78   | Doctor warning: rexurrect is not installed, so own tabs are not restored after a Rex restart   |
 | `reconcile-stale`             | 1    | The reconcile timer runs but its journal shows no recent good pass; `agent-slot-rex restore`   |
 | `own-tabs-unrestored`         | 0    | Doctor warning: the start-up step did not restore the operator's own tabs into this Rex server |
-| `review-grant-from-slot`      | 1    | `grant-review` refused: run from a slot or its tmux server; only the operator grants           |
+| `review-grant-from-slot`      | 1    | `grant-review` refused: run from a slot or a slot's pane; the operator or a prime grants       |
 | `slot-head-missing`           | 1    | `grant-review` refused: the slot has no branch or commit to count rounds under                 |
 | `scope-grant-from-slot`       | 1    | `grant-scope` refused: run from a slot or its tmux server; only the operator grants scope      |
 | `grant-needs-terminal`        | 1    | `grant-scope` refused: no terminal, or a shell under Claude Code, so no person types the key   |
