@@ -65,12 +65,13 @@ architecture, gates, and tests, `/plan-devex-review` for something a developer o
 review starts and when it ends, each time with a line in its `## Review log`; who answers the review questions →
 `~/.claude/guides/workflows-and-skills.md` § "Reviewing a plan".
 
-**Code reviews:** run the reviews a change needs, not every one: none, or `ce-code-review` lite in the session, for a
-trivial change; `ce-code-review` for code or prose; add `/devex-review` for a new or changed command, flag, output, or
-setup step; add `/cso` for credentials, auth, egress, or untrusted input. One round per PR, and a second only to review
-round 1's P0 and P1 fixes. Every review runs on Opus. When the task has a plan doc, log each review in its
-`## Review log`, committed and pushed when the review starts and when it ends; a slot also tells its coordinating prime
-both times. The table and the effort per review → the agent-slot skill's `references/slot-rules.md` § Reviews.
+**Code reviews:** run the reviews a change needs, not every one: none for a trivial change, with the reason in the PR
+body; `ce-code-review` for code or prose; add `/devex-review` for a new or changed command, flag, output, or setup step;
+add `/cso` for credentials, auth, egress, or untrusted input. One round per PR, and a second only to review round 1's P0
+and P1 fixes. Every review runs on Opus, and each verdict goes in a PR comment. When the task has a plan doc, log each
+review in its `## Review log`, committed and pushed when the review starts and when it ends; a slot also tells its
+coordinating prime both times. The table and the effort per review → the agent-slot skill's `references/slot-rules.md`
+§ Reviews.
 
 **Smallest change:** build the smallest change that meets the task. Add no verb, flag, option, config key, abstraction,
 or harness it does not name; a reviewer's suggestion of one goes under "Not in scope". When a fix needs its own fix,
@@ -245,9 +246,10 @@ completion notice sat queued, and the agent did nothing for 13 hours until the m
   external queue), and turn the poll into a notification: background an `until <condition>; do sleep 10; done` loop
   whose exit wakes you. **No wait exceeds 10 s**, whether a foreground `sleep` or a poll interval: a long sleep blocks
   the session, and a long interval wastes the rest of the interval after the event has already happened.
-- **A wait must end when the thing does.** Before backgrounding a hand-written poll, run its exit test once against the
-  current state, and match names case-insensitively. Watch parallel runs in parallel, one watcher each. Bound each wait
-  by about 1.5 times its usual length, not a catch-all like 3000 s. When a watcher times out, read the state yourself
+- **A wait must end when the thing does.** Before backgrounding a hand-written poll, run its exit test once against a
+  finished example, such as a completed run of the same workflow, and confirm it fires; match names case-insensitively.
+  Watch parallel runs in parallel, one watcher each. Bound each wait by about 1.5 times its usual length, not a
+  catch-all like 3000 s; a bound a documented command sets stands. When a watcher times out, read the state yourself
   before waiting again.
 - **Never end a turn parked on a notice that may not come.** A subagent never stops to wait on its own background job:
   it polls in short checks, or runs the step in the foreground under a `timeout` shorter than the parent's watchdog
