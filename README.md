@@ -899,10 +899,13 @@ the `retask`. The clone returns to the base without its other local branches. Th
 brief, and scope, and a reopen finds the old session in `prior_sessions` and the `retask` ledger line. A slot that
 starts a new task without it is stopped at its push: `slot-scope-guard.sh` denies a branch that shares no line of work
 with the slot's other branches. Two branches share one when either contains the other, when the base contains the
-other, or when either contains the other's pushed tip (`origin/<branch>`) and that tip holds a commit the base lacks, so
-a stack stays one line after its lower branch is rebased or merged onto a moved base, until that new tip is pushed;
-rebasing the upper branch onto it joins them again. Origin's default branch, while origin's copy holds all its commits,
-is no second task, and a probe's branch goes under `probe/`.
+other, or when one holds a pushed tip of the other: `origin/<branch>`, or an earlier tip that reflog names (`git
+merge-base --fork-point`). The tip must hold a commit the base lacks, and the other branch must still carry that tip's
+commits by patch-id (`git cherry`). A stack therefore stays one line when its lower branch is rebased or merged onto
+a moved base, before and after that branch's pushes. The push is still denied when the lower branch was reset,
+amended, or squashed after the stack was built on it, when the tip is one the base already holds, when the clone has
+no ref for the base, and when the reflog of `origin/<branch>` does not name the earlier tip. Origin's default branch,
+while origin's copy holds all its commits, is no second task, and a probe's branch goes under `probe/`.
 
 `agent-slot resume <repo>/<N> --model (opus | sonnet)` switches a live slot's model. The slot's record takes the model,
 and a Claude that is idle is ended and started again in its own pane through the command line a launch builds, resuming
