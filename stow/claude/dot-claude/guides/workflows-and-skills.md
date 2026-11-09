@@ -51,10 +51,11 @@ ad-hoc answers.
 
 ### Reviewing a plan
 
-Every plan an agent writes goes through three reviews, in this order: `/plan-eng-review`, `/plan-devex-review`, then
-`/compound-engineering:ce-doc-review`. The plan lives in the repo under `docs/plans/` and is committed and pushed once
-it is written and again after each review, so each review's changes land as a commit of their own. Planning docs commit
-straight to `dev` under the Branches rule in `~/.claude/CLAUDE.md`.
+Every plan an agent writes goes through the plan reviews it needs, one round each, picked from `/plan-eng-review`,
+`/plan-devex-review`, and `/compound-engineering:ce-doc-review`. The plan lives in the repo under `docs/plans/` and is
+committed and pushed once it is written, and again when each review starts and when it ends, with a line in its
+`## Review log`, so each review's changes land as a commit of their own. Planning docs commit straight to `dev` under
+the Branches rule in `~/.claude/CLAUDE.md`.
 
 Answer each review question yourself where evidence settles it: the code, the repo's docs, `docs/solutions`, or
 precedent. Record the choice and its evidence in the plan. Some decisions only a person can make, such as a name, a

@@ -74,10 +74,10 @@ coordinating prime both times. The table and the effort per review → the agent
 § Reviews.
 
 **Smallest change:** build the smallest change that meets the task. Add no verb, flag, option, config key, abstraction,
-or harness it does not name; a reviewer's suggestion of one goes under "Not in scope". When a fix needs its own fix,
-stop and report rather than widening the change. Once the change meets the task and its tests pass, push it and start
-its reviews. From then on, change only what a review finding or a failing check calls for: no rewording, extra test
-cases, or measurements past the plan's verification, before the reviews or after them.
+or harness it does not name; a reviewer's suggestion of one goes under "Not in scope". When a fix would widen the
+change, stop and report. Once the change meets the task and its tests pass, push it and start its reviews. From then on,
+change only what a review finding or a failing check calls for: no rewording, extra test cases, or measurements past the
+plan's verification, before the reviews or after them.
 
 **$100 Rule:** when prevention was missed and a bug slips through, invest in the permanent fix — test, guard, lint rule,
 or docs/solutions entry. Trivial work (<~20 lines: single-file fixes, config tweaks, typos) may skip the full loop.
