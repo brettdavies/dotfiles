@@ -317,6 +317,64 @@ base_moves() {
   push 'git push origin feat/two'
 }
 
+# squash_merged_stack: feat/one holds two commits and feat/two is stacked on it, each pushed. origin/main then takes
+# feat/one as one squash commit, and feat/two is replayed onto that commit. feat/one's local ref stays; feat/two is checked
+# out.
+squash_merged_stack() {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  git -C "$SLOT" checkout -q --detach origin/main
+  git -C "$SLOT" merge -q --squash feat/one >/dev/null
+  git -C "$SLOT" commit -q -m squash
+  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  git -C "$SLOT" rebase -q --onto origin/main feat/one feat/two
+}
+
+@test "a stack whose lower branch was squash-merged into the base, with the upper branch replayed onto the squash, is one task" {
+  squash_merged_stack
+  push 'git push origin feat/two'
+}
+
+@test "a squash-merged lower branch that holds a commit the squash lacks is still a second task, naming retask" {
+  squash_merged_stack
+  git -C "$SLOT" checkout -q feat/one
+  commit scripts/agent-slot/one-d.sh
+  git -C "$SLOT" checkout -q feat/two
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a squash-merged lower branch that conflicts with a base that changed the squashed lines again is still a second task" {
+  squash_merged_stack
+  git -C "$SLOT" checkout -q --detach origin/main
+  printf 'edited after the squash\n' >"$SLOT/scripts/agent-slot/one.sh"
+  git -C "$SLOT" add scripts/agent-slot/one.sh
+  git -C "$SLOT" commit -q -m edit
+  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  git -C "$SLOT" checkout -q feat/two
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a branch whose only commits are empty, beside the task's branch, is still a second task, naming retask" {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  git -C "$SLOT" commit -q --allow-empty -m empty
+  git -C "$SLOT" checkout -q feat/one
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/two'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
 # default_branch_clone SHAPE: a clone whose base is dev and whose local main is the branch origin/HEAD names, as `git clone`
 # leaves it. With SHAPE diverged, dev and main each hold a commit the other lacks; with SHAPE unrelated, dev is a root
 # commit that shares no history with main. Leaves feat/one, cut from origin/dev with a commit on a declared path, checked
