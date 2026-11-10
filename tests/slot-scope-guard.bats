@@ -375,6 +375,26 @@ squash_merged_stack() {
   [[ $(reason) == *'agent-slot retask repo/1'* ]]
 }
 
+@test "a branch with two merge bases against the base, whose file the base reverted, is still a second task, naming retask" {
+  local b0 m1 revert
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q --detach origin/main
+  commit docs/base-moved.md
+  b0=$(git -C "$SLOT" rev-parse HEAD)
+  git -C "$SLOT" merge -q --no-ff -m base-takes feat/one >/dev/null
+  m1=$(git -C "$SLOT" rev-parse HEAD)
+  revert=$(git -C "$SLOT" commit-tree -p "$m1" -m revert "$b0^{tree}")
+  git -C "$SLOT" update-ref refs/remotes/origin/main "$revert"
+  git -C "$SLOT" checkout -q feat/one
+  git -C "$SLOT" merge -q --no-ff -m branch-takes "$b0" >/dev/null
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
 # default_branch_clone SHAPE: a clone whose base is dev and whose local main is the branch origin/HEAD names, as `git clone`
 # leaves it. With SHAPE diverged, dev and main each hold a commit the other lacks; with SHAPE unrelated, dev is a root
 # commit that shares no history with main. Leaves feat/one, cut from origin/dev with a commit on a declared path, checked
