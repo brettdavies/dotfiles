@@ -13,15 +13,17 @@
 #                      other: origin/<branch>, or an earlier tip that reflog names (git merge-base --fork-point).
 #                      origin/<base> holds a branch's work when the branch changes something against its one merge base
 #                      with origin/<base> and a clean merge of it (git merge-tree --write-tree) leaves origin/<base>'s
-#                      tree as it is, as after a squash merge; a conflicted or failed merge, a branch of empty commits,
-#                      a branch with several merge bases, and a missing base ref skip nothing. For a pushed tip, the
-#                      tip must hold a commit origin/<base> lacks, and the other branch must still carry its commits by
-#                      patch-id (git cherry), so a stack stays one line when its lower branch is rebased or merged onto
-#                      a moved base, before and after that branch's pushes, or is squash-merged into the base with the
-#                      upper branch replayed onto the squash. A lower branch that is reset, amended, or squashed and
-#                      carries work the base lacks, a tip the base holds, a missing base ref, and a reflog without the
-#                      earlier tip leave two lines. A probe/ branch, and origin's default branch while origin's copy
-#                      holds all its commits, are no second task.
+#                      tree as it is, as after a squash merge. That skip also needs the pushing branch to have been
+#                      built on the other: git merge-base --fork-point of the two names a commit origin/<base> lacks. A
+#                      conflicted or failed merge, a branch of empty commits, a branch with several merge bases, a
+#                      pushing branch whose reflog lacks that tie, and a missing base ref skip nothing. For a pushed
+#                      tip, the tip must hold a commit origin/<base> lacks, and the other branch must still carry its
+#                      commits by patch-id (git cherry), so a stack stays one line when its lower branch is rebased or
+#                      merged onto a moved base, before and after that branch's pushes, or is squash-merged into the
+#                      base with the upper branch replayed onto the squash. A lower branch that is reset, amended, or
+#                      squashed and carries work the base lacks, a tip the base holds, a missing base ref, and a reflog
+#                      without the earlier tip leave two lines. A probe/ branch, and origin's default branch while
+#                      origin's copy holds all its commits, are no second task.
 # A `git push` named only inside quoted text that a search or print tool holds, such as an `rg` pattern, is no push
 # (scope_mask_quotes).
 # A record with no scope.touches passes the path check. Grants count from the task's start, so a new task, or a reused
@@ -185,7 +187,7 @@ scope_deny() {
 
 # Usage: branch_decide <repo> <n>; RECORD holds the slot's record. Prints the denial, or nothing.
 branch_decide() {
-  local path base head other default pair x y tip held rc cherry merged basetree mbase mbtree
+  local path base head other default pair x y tip held rc cherry merged basetree mbase mbtree tie
   path=$(slot_path "$1" "$2")
   base=$(contract_json -r '.base // empty' <<<"$RECORD")
   head=$(git -C "$path" symbolic-ref --short -q HEAD) || return 0
@@ -205,13 +207,19 @@ branch_decide() {
     # that branch's work when the branch changes something, its tree differing from that of its one merge base with
     # origin/<base>, and a clean merge of it leaves the base's tree as it is. A branch whose commits are all empty, or
     # cancel out, has no work for the base to hold. With several merge bases, merge-tree's virtual base can already hold
-    # the work the base then reverted, so such a branch is judged by the checks below. A conflicted merge, a git without
-    # `merge-tree --write-tree`, and a missing base ref answer nothing, and nothing is skipped.
+    # the work the base then reverted, so such a branch is judged by the checks below. The pushing branch must also have
+    # been built on the other: its reflog ties them when `merge-base --fork-point` names a commit the base lacks, so a
+    # new task cut from the base after the merge stays a second task, and an upper branch whose reflog lacks the old tip
+    # stays one until the merged branch is deleted. A conflicted merge, a git without `merge-tree --write-tree`, and a
+    # missing base ref answer nothing, and nothing is skipped.
     merged=$(git -C "$path" merge-tree --write-tree "refs/remotes/origin/$base" "refs/heads/$other" 2>/dev/null) || merged=
     basetree=$(git -C "$path" rev-parse --verify -q "refs/remotes/origin/$base^{tree}" 2>/dev/null) || basetree=
     if [[ -n $basetree && ${merged%%$'\n'*} == "$basetree" ]]; then
       mbase=$(git -C "$path" merge-base --all "refs/remotes/origin/$base" "refs/heads/$other" 2>/dev/null) || mbase=
-      if [[ -n $mbase && $mbase != *$'\n'* ]]; then
+      tie=$(git -C "$path" merge-base --fork-point "refs/heads/$head" "refs/heads/$other" 2>/dev/null) || tie=
+      rc=0
+      [[ -z $tie ]] || git -C "$path" merge-base --is-ancestor "$tie" "refs/remotes/origin/$base" 2>/dev/null || rc=$?
+      if [[ -n $mbase && $mbase != *$'\n'* ]] && ((rc == 1)); then
         mbtree=$(git -C "$path" rev-parse --verify -q "$mbase^{tree}" 2>/dev/null) || mbtree=
         [[ -n $mbtree && $mbtree != "$(git -C "$path" rev-parse "refs/heads/$other^{tree}")" ]] && continue
       fi

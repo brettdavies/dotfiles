@@ -317,6 +317,14 @@ base_moves() {
   push 'git push origin feat/two'
 }
 
+# squash_into_base BRANCH: origin/main takes BRANCH as one squash commit. BRANCH's local ref stays.
+squash_into_base() {
+  git -C "$SLOT" checkout -q --detach origin/main
+  git -C "$SLOT" merge -q --squash "$1" >/dev/null
+  git -C "$SLOT" commit -q -m squash
+  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+}
+
 # squash_merged_stack: feat/one holds two commits and feat/two is stacked on it, each pushed. origin/main then takes
 # feat/one as one squash commit, and feat/two is replayed onto that commit. feat/one's local ref stays; feat/two is checked
 # out.
@@ -327,10 +335,7 @@ squash_merged_stack() {
   git -C "$SLOT" checkout -q -b feat/two
   commit scripts/agent-slot/two.sh
   pushed feat/two
-  git -C "$SLOT" checkout -q --detach origin/main
-  git -C "$SLOT" merge -q --squash feat/one >/dev/null
-  git -C "$SLOT" commit -q -m squash
-  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  squash_into_base feat/one
   git -C "$SLOT" rebase -q --onto origin/main feat/one feat/two
 }
 
@@ -390,6 +395,19 @@ squash_merged_stack() {
   git -C "$SLOT" checkout -q -b feat/two origin/main
   commit scripts/agent-slot/two.sh
   run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a new branch cut from the base after a squash merge, with unrelated work, is still a second task, naming retask" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  squash_into_base feat/one
+  git -C "$SLOT" checkout -q -b feat/new
+  commit scripts/agent-slot/new.sh
+  run bash_call 'git push origin feat/new'
   [ "$status" -eq 0 ]
   [[ $(reason) == *'task is on feat/one'* ]]
   [[ $(reason) == *'agent-slot retask repo/1'* ]]

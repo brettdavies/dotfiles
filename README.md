@@ -903,16 +903,20 @@ when the base already holds the other's work, or when one holds a pushed tip of 
 earlier tip that reflog names (`git merge-base --fork-point`). The base holds a branch's work when the branch changes
 something against its one merge base with `origin/<base>` and a clean `git merge-tree --write-tree` of the branch into
 `origin/<base>` leaves the base's tree as it is, which is what a squash merge of the branch leaves, since a squash puts
-one new commit on the base and not the branch's own. A conflicted merge, a merge git cannot run (the option needs git
-2.38), a missing ref for the base, a merge that changes the tree, a branch with several merge bases, and a branch whose
-commits are all empty or cancel out skip nothing, so a branch carrying work the base lacks is still a second task. For
-the pushed tip, the tip must hold a commit the base lacks, and the other branch must still carry that tip's commits by
-patch-id (`git cherry`). A stack therefore stays one line when its lower branch is rebased or merged onto a moved base,
-before and after that branch's pushes, and when its lower branch is squash-merged into the base and the upper branch is
-replayed onto the squash commit. The push is still denied when the lower branch was reset, amended, or squashed after
-the stack was built on it and carries work the base lacks, when the tip is one the base already holds, when the clone
-has no ref for the base, and when the reflog of `origin/<branch>` does not name the earlier tip. Origin's default
-branch, while origin's copy holds all its commits, is no second task, and a probe's branch goes under `probe/`.
+one new commit on the base and not the branch's own. The push must also come from a branch built on it: `git merge-base
+--fork-point` of the pushing branch and the other, read from the pushing branch's reflog, names a commit the base lacks.
+A new task cut from the base after the merge therefore stays a second task, and an upper branch whose reflog lacks the
+old tip is still refused until the merged local branch is deleted. A conflicted merge, a merge git cannot run (the
+option needs git 2.38), a missing ref for the base, a merge that changes the tree, a branch with several merge bases, a
+pushing branch with no such tie, and a branch whose commits are all empty or cancel out skip nothing, so a branch
+carrying work the base lacks is still a second task. For the pushed tip, the tip must hold a commit the base lacks, and
+the other branch must still carry that tip's commits by patch-id (`git cherry`). A stack therefore stays one line when
+its lower branch is rebased or merged onto a moved base, before and after that branch's pushes, and when its lower
+branch is squash-merged into the base and the upper branch is replayed onto the squash commit. The push is still denied
+when the lower branch was reset, amended, or squashed after the stack was built on it and carries work the base lacks,
+when the tip is one the base already holds, when the clone has no ref for the base, and when the reflog of
+`origin/<branch>` does not name the earlier tip. Origin's default branch, while origin's copy holds all its commits, is
+no second task, and a probe's branch goes under `probe/`.
 
 `agent-slot resume <repo>/<N> --model (opus | sonnet)` switches a live slot's model. The slot's record takes the model,
 and a Claude that is idle is ended and started again in its own pane through the command line a launch builds, resuming
