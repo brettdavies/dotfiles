@@ -106,7 +106,7 @@ OBSIDIAN='obsidian@obsidian-skills'
   words 1
   local skill
   word_after --settings | jaq -e '(.skillOverrides | length) > 0' >/dev/null
-  for skill in agent-slot unslop verify devex-review plan-eng-review plan-devex-review 1password qmd investigate \
+  for skill in agent-slot unslop devex-review plan-eng-review plan-devex-review 1password qmd investigate \
     prose-check cso impeccable last30days browse optimize-builds-and-tests homebrew-tap-publish write-skill test-audit; do
     word_after --settings | jaq -e --arg s "$skill" '.skillOverrides | has($s) | not' >/dev/null || {
       echo "the profile turns off $skill"
