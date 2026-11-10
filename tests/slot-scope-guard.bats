@@ -392,8 +392,11 @@ squash_merged_stack() {
   git -C "$SLOT" update-ref refs/remotes/origin/main "$revert"
   git -C "$SLOT" checkout -q feat/one
   git -C "$SLOT" merge -q --no-ff -m branch-takes "$b0" >/dev/null
-  git -C "$SLOT" checkout -q -b feat/two origin/main
+  git -C "$SLOT" checkout -q -b feat/two
   commit scripts/agent-slot/two.sh
+  git -C "$SLOT" checkout -q feat/one
+  git -C "$SLOT" commit -q --allow-empty -m moved-on
+  git -C "$SLOT" checkout -q feat/two
   run bash_call 'git push origin feat/two'
   [ "$status" -eq 0 ]
   [[ $(reason) == *'task is on feat/one'* ]]
@@ -407,6 +410,20 @@ squash_merged_stack() {
   squash_into_base feat/one
   git -C "$SLOT" checkout -q -b feat/new
   commit scripts/agent-slot/new.sh
+  run bash_call 'git push origin feat/new'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a new branch cut from the base before a squash merge, with unrelated work, is still a second task, naming retask" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/new origin/main
+  commit scripts/agent-slot/new.sh
+  squash_into_base feat/one
+  git -C "$SLOT" checkout -q feat/new
   run bash_call 'git push origin feat/new'
   [ "$status" -eq 0 ]
   [[ $(reason) == *'task is on feat/one'* ]]
