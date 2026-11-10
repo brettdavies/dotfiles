@@ -478,9 +478,14 @@ EOF
 }
 
 @test "a run from a checkout other than ~/dotfiles names its own pin in every next step" {
-  run --separate-stderr "$BS_SCRIPT" --check
+  local checkout="$BATS_TEST_TMPDIR/checkout"
+  mkdir -p "$checkout/scripts" "$checkout/config/playwright"
+  cp "$BS_SCRIPT" "$checkout/scripts/"
+  cp -R "$BS_ROOT/scripts/playwright-browsers" "$checkout/scripts/"
+  cp "$BS_PIN" "$checkout/config/playwright/"
+  run --separate-stderr "$checkout/scripts/playwright-browsers-deploy.sh" --check
   [ "$status" -eq 1 ]
-  [[ "$stderr" == *"next: ~/dotfiles/scripts/playwright-browsers-deploy.sh --pin $(printf %q "$BS_PIN")"* ]]
+  [[ "$stderr" == *"next: ~/dotfiles/scripts/playwright-browsers-deploy.sh --pin $(printf %q "$checkout/config/playwright/browsers.pin")"* ]]
 }
 
 @test "a missing curl is named with the command that installs it, and nothing is changed" {
