@@ -16,6 +16,11 @@ REPO="$BATS_TEST_DIRNAME/.."
 # event that fires the hook. gstack's ./setup registers its hooks with exactly
 # such a path by design, so its entries must never be synced into this file;
 # a $HOME-relative form expands under sh and travels.
+@test "every session auto-compacts at a 400k window, and no per-model entry overrides it" {
+  [ "$(jaq -r .autoCompactWindow "$SETTINGS")" = 400000 ]
+  [ "$(jaq -r '[.modelSettings // {} | .[] | select(has("autoCompactWindow"))] | length' "$SETTINGS")" = 0 ]
+}
+
 @test "hook commands carry no machine-absolute home paths" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   run jaq -r '.hooks // {} | .[][] | .hooks[]? | .command // empty' "$SETTINGS"
@@ -78,4 +83,267 @@ REPO="$BATS_TEST_DIRNAME/.."
   echo "permission rules with a machine-absolute home path:"
   echo "$output"
   [ "$status" -eq 1 ]
+}
+
+# Hook scripts deploy into ~/.claude through the claude stow package, and the
+# `~` form is the one path that resolves on every machine.
+@test "hook commands name scripts under ~/.claude by the ~ path" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.hooks // {} | .[][] | .hooks[]? | .command // empty' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  commands="$output"
+  run bash -c "grep -oE '[^[:space:]\"(]*\\.claude/' | grep -vxF '~/.claude/'" <<<"$commands"
+  echo "hook commands reaching ~/.claude by another path:"
+  echo "$output"
+  [ "$status" -eq 1 ]
+}
+
+# Async Claude hooks can finish out of order, and the slot status hook is
+# written for that; registered synchronously it would hold up every tool call.
+@test "slot-status.sh is registered async on every status event" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -c '["SessionStart", "UserPromptSubmit", "PostToolUse", "PermissionRequest", "Elicitation", "PreToolUse",
+      "Notification", "Stop", "StopFailure", "SessionEnd"]
+    - [.hooks | to_entries[]
+       | select(any(.value[]; any(.hooks[]; .command == "~/.claude/slot-status.sh" and .async == true)))
+       | .key]' "$SETTINGS"
+  echo "events without an async slot-status.sh: $output"
+  [ "$output" = "[]" ]
+  run jaq -c '[.hooks.PreToolUse[] | select(any(.hooks[]; .command == "~/.claude/slot-status.sh")) | .matcher]' \
+    "$SETTINGS"
+  [ "$output" = '["AskUserQuestion"]' ]
+  run jaq -c '[.hooks.SessionStart[] | .hooks[] | select(.command == "~/.claude/slot-context.sh")] | length' "$SETTINGS"
+  [ "$output" = 1 ]
+}
+
+# A slot's tab has nobody to answer a dialog, so slot-unattended.sh answers each one Claude Code raises there: a
+# permission request, the tools that wait on a person, and, after about 6 s, a dialog still waiting. The first two are
+# synchronous, since the answer is their output. Neither sets onFailure: a hook that fails or times out leaves the
+# dialog to show, as it does without the hook, rather than denying the call in every session on the host.
+@test "slot-unattended.sh answers each dialog a slot raises, and a failed run leaves the dialog to show" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -c '[.hooks | to_entries[] | .key as $event | .value[]
+    | {event: $event, matcher: (.matcher // ""), hook: (.hooks[] | select(.command == "~/.claude/slot-unattended.sh"))}
+    | {event, matcher, async: (.hook.async // false), onFailure: (.hook.onFailure // "unset")}] | sort_by(.event)' \
+    "$SETTINGS"
+  echo "slot-unattended.sh registrations: $output"
+  [ "$output" = '[{"event":"Notification","matcher":"permission_prompt|elicitation_dialog|agent_needs_input",'\
+'"async":true,"onFailure":"unset"},{"event":"PermissionRequest","matcher":"","async":false,"onFailure":"unset"},'\
+'{"event":"PreToolUse","matcher":"AskUserQuestion|EnterPlanMode|ExitPlanMode","async":false,"onFailure":"unset"}]' ]
+}
+
+# slot-review-cap.sh counts a slot's ce-code-review calls, made as a Skill call or as `claude -p` from a Bash call, so it
+# sits on those two tools alone. It is synchronous, since its answer is its output, and sets no onFailure: a hook that
+# fails leaves the call allowed rather than denying every Skill and Bash call on the host.
+@test "slot-review-cap.sh runs on the Skill and Bash tools only and lets the call through when it fails" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -c '[.hooks | to_entries[] | .key as $event | .value[]
+    | {event: $event, matcher: (.matcher // ""), hook: (.hooks[] | select(.command == "~/.claude/slot-review-cap.sh"))}
+    | {event, matcher, async: (.hook.async // false), onFailure: (.hook.onFailure // "unset")}]' "$SETTINGS"
+  echo "slot-review-cap.sh registrations: $output"
+  [ "$output" = '[{"event":"PreToolUse","matcher":"Skill|Bash","async":false,"onFailure":"unset"}]' ]
+}
+
+# slot-scope-guard.sh judges a slot's `git push`, so it sits on the Bash tool alone. It is synchronous, since its answer
+# is its output, and sets no onFailure: a hook that fails leaves the push allowed rather than denying every Bash call on
+# the host.
+@test "slot-scope-guard.sh runs on the Bash tool only and lets the call through when it fails" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -c '[.hooks | to_entries[] | .key as $event | .value[]
+    | {event: $event, matcher: (.matcher // ""), hook: (.hooks[] | select(.command == "~/.claude/slot-scope-guard.sh"))}
+    | {event, matcher, async: (.hook.async // false), onFailure: (.hook.onFailure // "unset")}]' "$SETTINGS"
+  echo "slot-scope-guard.sh registrations: $output"
+  [ "$output" = '[{"event":"PreToolUse","matcher":"Bash","async":false,"onFailure":"unset"}]' ]
+}
+
+# With no matcher the guard sees every tool, MCP tools and subagents' calls included.
+# Without onFailure a guard that crashes, times out, or is missing lets the call through.
+@test "never-send-guard.sh runs on every tool call and blocks when it fails" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -c '[.hooks.PreToolUse[] | select(any(.hooks[]; .command == "~/.claude/never-send-guard.sh"))]' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  groups="$output"
+  run jaq -e 'length == 1 and (.[0] | has("matcher") | not)' <<<"$groups"
+  echo "PreToolUse groups running the guard: $groups"
+  [ "$status" -eq 0 ]
+  run jaq -e '.[0].hooks[] | select(.command == "~/.claude/never-send-guard.sh")
+    | .onFailure == "block" and (.timeout | type == "number") and (has("async") | not)' <<<"$groups"
+  [ "$status" -eq 0 ]
+}
+
+# agent-slot takes its verb as the first argument, so `agent-slot sweep *`
+# catches every flag order after it, and the bare verb too. An ask rule still
+# prompts in bypass permissions mode, which every slot's Claude starts in, so
+# these rules are what stop a slot's agent from deleting slots, or reopening a
+# torn-down slot's conversation, unasked.
+@test "agent-slot sweep, finish, and reopen ask first" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  grep -qxF 'Bash(agent-slot sweep *)' <<<"$output"
+  grep -qxF 'Bash(agent-slot finish *)' <<<"$output"
+  grep -qxF 'Bash(agent-slot reopen *)' <<<"$output"
+}
+
+# grant-review runs without asking, so a coordinating prime can grant a slot a review round. The verb itself refuses a
+# slot's own request, from its directory or any slot pane on the slot tmux server.
+@test "agent-slot grant-review runs without asking, so a prime can grant" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  [[ $output != *'agent-slot grant-review'* ]]
+}
+
+# grant-scope asks first too, so a slot's agent cannot grant its own PR a path outside its brief; the verb also needs a
+# person at a terminal, which no agent's Bash tool has.
+@test "agent-slot grant-scope asks first" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  grep -qxF 'Bash(agent-slot grant-scope *)' <<<"$output"
+}
+
+# agent-slot-rex runs on the same host as the slots, so its finish and sweep run
+# agent-slot finish --yes and sweep --yes here. They ask first for the same
+# reason agent-slot's own verbs do.
+@test "agent-slot-rex finish and sweep ask first" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  grep -qxF 'Bash(agent-slot-rex finish *)' <<<"$output"
+  grep -qxF 'Bash(agent-slot-rex sweep *)' <<<"$output"
+}
+
+# agent-slot starts every slot's Claude with --dangerously-skip-permissions.
+# Without this acceptance on record, each one stops on the bypass permissions
+# warning until someone answers it in the slot's tab.
+@test "bypass permissions mode stays accepted for agent-slot's Claude sessions" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -e '.skipDangerousModePermissionPrompt == true' "$SETTINGS"
+  [ "$status" -eq 0 ]
+}
+
+# Slot sessions run with --dangerously-skip-permissions while a session the
+# operator opens prompts. Left unset, Claude Code holds a message between the
+# two for approval, so a hand-off from a slot sits undelivered until someone
+# answers it in the receiving session's terminal.
+@test "cross-session messages are delivered without an approval hold" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -e '.crossSessionInbound == "accept"' "$SETTINGS"
+  [ "$status" -eq 0 ]
+}
+
+@test "agent-slot's read-only verbs run without a prompt" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.allow // [] | .[]' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  local verb
+  for verb in repos list whoami check doctor schema; do
+    grep -qxF "Bash(agent-slot $verb *)" <<<"$output" || { echo "missing allow rule: $verb"; false; }
+  done
+}
+
+# adopt changes only a slot's record and its Claude session's name, so it runs
+# without a prompt; an ask rule on it would prompt even in bypass mode.
+@test "agent-slot adopt runs without a prompt, and nothing asks first" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.allow // [] | .[]' "$SETTINGS"
+  grep -qxF 'Bash(agent-slot adopt *)' <<<"$output"
+  run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
+  [[ $output != *'agent-slot adopt'* ]]
+}
+
+# A slot closes its own probes through agent-slot close-probe, whose checks stand in for the prompt. Raw gh pr close keeps
+# its ask rule, which nobody can answer in a slot, and an ask rule on either verb would stop it there the same way.
+@test "gh pr close asks, and nothing asks before agent-slot probe or close-probe" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.permissions.ask // [] | .[]' "$SETTINGS"
+  grep -qxF 'Bash(gh pr close *)' <<<"$output"
+  [[ $output != *'agent-slot probe'* && $output != *'agent-slot close-probe'* ]]
+}
+
+# agent-slot reopen resumes a torn-down slot's Claude conversation by its session ID, and Claude Code deletes a
+# transcript once it has been idle for cleanupPeriodDays (30 when unset).
+@test "Claude Code keeps session transcripts for a year" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -e '.cleanupPeriodDays == 365' "$SETTINGS"
+  [ "$status" -eq 0 ]
+}
+
+# Without onFailure "block", a guard that crashes, hangs, or is missing lets
+# the call through. Hooks that only advise or report must not stop a call
+# when they fail, so they are the exemptions.
+@test "every PreToolUse guard blocks the call when the guard itself fails" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.hooks.PreToolUse[].hooks[] | select(.type == "command" and .onFailure != "block") | .command' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  # shellcheck disable=SC2088 # settings.json names hooks by the literal ~ path
+  # slot-unattended.sh denies only in a slot, and a failed run there leaves the dialog to show; slot-review-cap.sh denies
+  # only in a slot, and a failed run there leaves the call allowed; slot-scope-guard.sh likewise.
+  local exempt=('~/.claude/slot-status.sh' '~/.claude/skills/1password/hooks/op-skill-nudge.sh'
+    '~/.claude/slot-unattended.sh' '~/.claude/slot-review-cap.sh' '~/.claude/slot-scope-guard.sh')
+  local cmd missing=()
+  while IFS= read -r cmd; do
+    [ -n "$cmd" ] || continue
+    [[ " ${exempt[*]} " == *" $cmd "* ]] || missing+=("$cmd")
+  done <<<"$output"
+  echo "PreToolUse hooks without onFailure \"block\": ${missing[*]:-none}"
+  echo "add \"onFailure\": \"block\" to each, or add it to this test's exemptions if it never denies or is meant"
+  echo "to leave the call to its dialog when it fails"
+  [ "${#missing[@]}" -eq 0 ]
+  run jaq -r '.hooks.PreToolUse[].hooks[] | select(.command == "~/.claude/slot-status.sh"
+    or .command == "~/.claude/skills/1password/hooks/op-skill-nudge.sh" or .command == "~/.claude/slot-unattended.sh"
+    or .command == "~/.claude/slot-review-cap.sh" or .command == "~/.claude/slot-scope-guard.sh")
+    | .onFailure // "unset"' "$SETTINGS"
+  [ "$(sort -u <<<"$output")" = unset ]
+}
+
+# Only the claude stow package links a script into ~/.claude, and a pull switches
+# settings.json before any restow can run, so every ~/.claude path a command
+# names has to be a script the package ships, executable. Under onFailure
+# "block" a missing script blocks every call its matcher names, so a blocking
+# hook names such a script and nothing else.
+@test "every ~/.claude script a command names is an executable the claude package ships" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  run jaq -r '.. | objects | select(has("command")) | .command' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  [ -n "$output" ]
+  local path file missing=()
+  while IFS= read -r path; do
+    # ~/.claude/skills is a symlink to the separate agent-skills clone, not part of the package.
+    # shellcheck disable=SC2088 # settings.json names scripts by the literal ~ path
+    [[ $path == '~/.claude/skills/'* ]] && continue
+    file="$REPO/stow/claude/dot-claude/${path#\~/.claude/}"
+    [[ -f $file && -x $file ]] || missing+=("$path")
+  done < <(grep -oE "[~]/\.claude/[^[:space:]\"';|&)]+" <<<"$output" | sort -u)
+
+  run jaq -r '.hooks[][].hooks[]? | select(.onFailure == "block") | .command' "$SETTINGS"
+  [ "$status" -eq 0 ]
+  local cmd blocking=()
+  while IFS= read -r cmd; do
+    [[ $cmd =~ ^~/\.claude/[^[:space:]]+$ ]] || blocking+=("$cmd")
+  done <<<"$output"
+
+  echo "Scripts under ~/.claude that stow/claude/dot-claude does not ship executable: ${missing[*]:-none}"
+  echo "block-on-failure hooks that name something other than one ~/.claude script: ${blocking[*]:-none}"
+  echo "Fix: ship the script under stow/claude/dot-claude/ with mode 755, or exempt the install that owns it in this test."
+  [ "${#missing[@]}" -eq 0 ]
+  [ "${#blocking[@]}" -eq 0 ]
+}
+
+# Slots and primes run the reviews their briefs name: ce-code-review, gstack /devex-review and /cso. The skills below
+# overlap those or send code to another model, so no agent may run them.
+@test "the review skills that overlap the named reviews are denied" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  local skill
+  for skill in code-review codex review security-review; do
+    jaq -e --arg r "Skill($skill)" '.permissions.deny | index($r) != null' "$SETTINGS" >/dev/null
+  done
+}
+
+# Every model runs at xhigh effort, so a Sonnet or Haiku session or subagent never falls back to a lower default.
+@test "every model's settings set xhigh effort" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  jaq -e '.effortLevel == "xhigh" and ([.modelSettings[] | .effortLevel] | all(. == "xhigh"))
+    and (.modelSettings | has("claude-opus-5-5") and has("claude-sonnet-5-5") and has("claude-haiku-5-5"))' "$SETTINGS"
 }

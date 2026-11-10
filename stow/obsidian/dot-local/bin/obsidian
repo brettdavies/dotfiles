@@ -3,7 +3,5 @@
 # The CLI reaches the running app through $XDG_RUNTIME_DIR/.obsidian-cli.sock.
 # Login sessions get XDG_RUNTIME_DIR from pam_systemd; agent shells, cron, and
 # other non-login callers do not, so default it to the user's runtime directory.
-# DISPLAY points at the Xvfb server obsidian.service runs on.
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-export DISPLAY="${DISPLAY:-:99}"
 exec /opt/Obsidian/obsidian-cli "$@"

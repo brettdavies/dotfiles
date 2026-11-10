@@ -10,4 +10,3 @@ ExecStart=/home/brett/dotfiles/scripts/sync/box-bisync.sh
 
 # Hardening
 NoNewPrivileges=true
-PrivateTmp=true

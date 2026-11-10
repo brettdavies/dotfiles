@@ -36,12 +36,28 @@ setup() {
   }
 }
 
-@test "the script's two usage strings agree" {
-  local help_usage err_usage
-  help_usage=$(grep -oE 'usage: \$0 [^"]*' "$SYNC" | sed -n 1p)
-  err_usage=$(grep -oE 'usage: \$0 [^"]*' "$SYNC" | sed -n 2p)
-  [ -n "$help_usage" ]
-  [ "$help_usage" = "$err_usage" ]
+@test "the runbook never names CHANGELOG.md as a backport --only path" {
+  # The script takes CHANGELOG.md from main on every run, before it discovers
+  # candidates, so `--only CHANGELOG.md` is rejected with exit 64 and the
+  # backport opens no PR.
+  local named
+  named=$(grep -oE 'sync-dev-after-release\.sh[^`]*' "$RUNBOOK" \
+    | grep -oE -- '--only [^ ]+' | sort -u)
+  ! grep -qx -- '--only CHANGELOG.md' <<<"$named" || {
+    echo "runbook passes --only CHANGELOG.md, which the backport script rejects" >&2
+    return 1
+  }
+}
+
+@test "the backport script's --help and its no-argument error print the same usage" {
+  local help_usage
+  run "$SYNC" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == usage:* ]]
+  help_usage=$output
+  run "$SYNC"
+  [ "$status" -eq 64 ]
+  [ "$output" = "$help_usage" ]
 }
 
 @test "both guarded-path leak checks filter to added and modified" {

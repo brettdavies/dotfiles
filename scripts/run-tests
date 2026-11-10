@@ -2,29 +2,64 @@
 # Single source of truth for which bats suites run and in what order.
 #
 # Consumed by three callers that must not drift apart:
-#   .github/workflows/bats.yml  --all                    (CI)
+#   .github/workflows/bats.yml  --all --shard I/N        (CI, one shard per runner)
 #   .githooks/pre-push          --perf-only, --no-perf   (mirrors CI)
-#   .githooks/pre-commit        <file>...                (staged test files)
+#   .githooks/pre-commit        <file>..., --perf-only   (staged tests; tests/perf only via --perf-only)
 #
 # Usage:
 #   scripts/run-tests --all        the perf suite, then the main suite
 #   scripts/run-tests --perf-only  the perf suite alone
 #   scripts/run-tests --no-perf    the main suite alone
-#   scripts/run-tests FILE...      run the given .bats files
+#   scripts/run-tests MODE --shard I/N
+#                                  shard I of N of what MODE runs
+#   scripts/run-tests FILE...      run the given .bats files, as the main suite runs
+#
+# --shard deals the main suite's files by size, largest first, in a snake:
+# shards 1 to N, then N back to 1, and so on. Only shard 1 runs the perf suite,
+# and the N shards together run exactly what the mode runs alone. A suite's size
+# tracks its cost closely enough to balance the shards with no table of measured
+# costs to keep current: on one run's per-file times, the slowest of three
+# shards modeled at 75 s dealt this way against 93 s dealt round-robin by name.
+# Each shard also starts its largest suites first.
 #
 # The perf suite measures shell-startup latency against a budget, so it runs
 # alone on an unloaded machine and is never parallelized. The main suite runs
 # one bats process per file, up to RUN_TESTS_JOBS at a time (default: one per
 # core). Each file's output is buffered and replayed whole, in argument order,
-# behind a `# <file>` marker: nothing interleaves, and every file carries its
-# own TAP plan and its own test numbering rather than one run-wide sequence.
-# RUN_TESTS_JOBS=1 restores the single combined stream.
+# behind a `# <file> (<seconds> s)` marker: nothing interleaves, every file
+# carries its own TAP plan and its own test numbering rather than one run-wide
+# sequence, and the log shows which files the run's time went to.
+# RUN_TESTS_JOBS=1 restores the single combined stream. RUN_TESTS_PERL names the
+# perl that resets the signals (default: perl on PATH).
+#
+# A file whose tests share no state, each keeping its own under its own
+# BATS_TEST_TMPDIR, can declare `# run-tests: parallel` on a line of its own.
+# Its tests then run concurrently too, up to four at a time, so
+# one long file no longer runs on one core while the others wait on it.
+# bats starts each of them as a background job, which bash 5.3 starts with
+# SIGINT and SIGQUIT ignored, so a declared suite that interrupts the code under
+# test starts it with the signal reset to its default; tests/run-tests.bats
+# fails one that does not.
+#
+# A bats process that leaves a process running after it exits fails: run-tests
+# gives the process 3 s, then kills it and names it under the bats output. A
+# timeout watchdog's sleep that bats itself left behind is killed without
+# failing the run; tests/lib/processes.bash has its shape, at
+# is_detached_watchdog.
+#
+# Every test fails once it has run for BATS_TEST_TIMEOUT seconds, 60 unless
+# the environment sets it, so a hung test fails as `not ok N <name> # timeout
+# after 60s` instead of holding the run. bats sends SIGTERM to the test and
+# every process below it, then runs its teardown; a foreground command that
+# ignores SIGTERM keeps its test running past the limit. A suite with a
+# deliberately longer test sets BATS_TEST_TIMEOUT at its top level, which bats
+# reads again for each test.
 #
 # The split modes exist so .githooks/pre-push can hold the machine quiet for
 # the perf suite and then overlap the main suite with its lint gates.
 #
-# Exit 0 when everything passes, 1 on a test failure, 2 on usage error,
-# 3 when bats is not installed.
+# Exit 0 when everything passes, 1 on a test failure or a process left
+# running, 2 on usage error, 3 when bats is not installed.
 
 if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
   for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
@@ -45,13 +80,24 @@ if [ "$#" -eq 0 ]; then
   exit "$EXIT_USAGE"
 fi
 
+DEFAULT_TEST_TIMEOUT=60
+TEST_TIMEOUT=${BATS_TEST_TIMEOUT:-$DEFAULT_TEST_TIMEOUT}
+# bats evaluates the value as arithmetic, where a leading 0 reads as octal.
+case "$TEST_TIMEOUT" in
+  0* | *[!0-9]*)
+    echo "run-tests: BATS_TEST_TIMEOUT takes a whole number of seconds above 0, got '$TEST_TIMEOUT'" >&2
+    exit "$EXIT_USAGE"
+    ;;
+esac
+
 if ! command -v bats >/dev/null 2>&1; then
   echo "run-tests: bats-core not installed" >&2
   echo "           install with: brew install bats-core" >&2
   exit "$EXIT_DEPENDENCY"
 fi
 
-if ! command -v perl >/dev/null 2>&1; then
+PERL="${RUN_TESTS_PERL:-perl}"
+if ! command -v "$PERL" >/dev/null 2>&1; then
   echo "run-tests: perl not installed; it resets SIGINT and SIGQUIT before bats starts" >&2
   echo "           install with: brew install perl" >&2
   exit "$EXIT_DEPENDENCY"
@@ -59,6 +105,8 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
+# shellcheck source=tests/lib/processes.bash
+source "$REPO_ROOT/tests/lib/processes.bash"
 
 # git hands hooks a GIT_DIR, and from a worktree it is absolute. An absolute
 # GIT_DIR outranks `-C`, so a test building a fixture with `git -C "$sandbox"`
@@ -71,12 +119,65 @@ cd "$REPO_ROOT"
 # a signal ignored at its own start, so a test that interrupts the code under
 # test would never see the trap fire. perl can reset it, so it restores the
 # defaults before exec'ing bats.
+#
+# Every process bats starts inherits RUN_TESTS_RUN, and bats has exited by the
+# time stop_leaks looks, so a process that still carries this call's value is
+# one a test left running. It keeps this checkout as its working directory,
+# which in an agent slot holds the slot against teardown.
+#
+# bats takes the time limit only from its environment, so a bats that a test
+# starts inherits it too. BATS_killer_pid lets bats stop the watchdog of a test
+# that failed; tests/lib/processes.bash has the why, at BATS_WATCHDOG_JOB.
 _bats() {
+  local run="$$.$BASHPID.$RANDOM" rc=0
   # shellcheck disable=SC2016 # the $SIG and $ARGV in single quotes are perl's
   env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
     -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_NAMESPACE \
-    perl -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "run-tests: exec $ARGV[0]: $!\n"' \
-    bats "$@"
+    RUN_TESTS_RUN="$run" BATS_TEST_TIMEOUT="$TEST_TIMEOUT" BATS_killer_pid="$BATS_WATCHDOG_JOB" \
+    "$PERL" -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "run-tests: exec $ARGV[0]: $!\n"' \
+    bats "${BATS_FLAGS[@]}" "$@" || rc="$EXIT_FAILURE"
+  stop_leaks "RUN_TESTS_RUN=$run" "$*" "bats exited" || rc="$EXIT_FAILURE"
+  return "$rc"
+}
+
+# Flags _bats passes to bats ahead of the files. Flags rather than bats's
+# environment variables, which every bats a test starts would inherit.
+BATS_FLAGS=()
+
+# Usage: _parallel_flags <file> <jobs>; sets BATS_FLAGS so the file's tests run
+# concurrently when the file declares `# run-tests: parallel` on a line of its
+# own. bats coordinates the tests through flock, so without flock the file's
+# tests run one at a time.
+#
+# At most four of a file's tests run at once, so a run with a file per core
+# runs at most four tests per core. A 16-core host running sixteen per file
+# failed a test whose two concurrent resumes each make bounded calls.
+_parallel_flags() {
+  local tests=$2
+  BATS_FLAGS=()
+  [ "$tests" -gt 1 ] || return 0
+  command -v flock >/dev/null 2>&1 || return 0
+  grep -qx '# run-tests: parallel' "$1" || return 0
+  [ "$tests" -le 4 ] || tests=4
+  BATS_FLAGS=(--jobs "$tests" --no-parallelize-across-files)
+}
+
+# Milliseconds since the epoch, from bash 5's EPOCHREALTIME, whose separator
+# follows the locale; bash 4.4 has only whole seconds.
+_now_ms() {
+  local us=${EPOCHREALTIME//[!0-9]/}
+  if [ -n "$us" ]; then
+    printf '%s' "$((us / 1000))"
+  else
+    printf '%s' "$(($(date +%s) * 1000))"
+  fi
+}
+
+# Usage: _seconds_since <ms>; prints the time elapsed since <ms> as seconds
+# with one decimal.
+_seconds_since() {
+  local ms=$(($(_now_ms) - $1))
+  printf '%d.%d' "$((ms / 1000))" "$((ms % 1000 / 100))"
 }
 
 _cpu_count() {
@@ -93,7 +194,7 @@ _cpu_count() {
 # own output and records its own status, so nothing interleaves and a failure
 # is attributed to the file that produced it.
 _run_parallel() {
-  local jobs outdir rc=0 running=0 file key status
+  local jobs outdir rc=0 running=0 file key status started
   jobs="${RUN_TESTS_JOBS:-$(_cpu_count)}"
   case "$jobs" in
     '' | *[!0-9]*) jobs=1 ;;
@@ -101,6 +202,7 @@ _run_parallel() {
   [ "$jobs" -ge 1 ] || jobs=1
 
   if [ "$jobs" -eq 1 ] || [ "$#" -le 1 ]; then
+    [ "$#" -ne 1 ] || _parallel_flags "$1" "$jobs"
     _bats "$@" || return "$EXIT_FAILURE"
     return 0
   fi
@@ -113,8 +215,11 @@ _run_parallel() {
     # file, which would read as a missing result rather than a test failure.
     {
       set +e
+      _parallel_flags "$file" "$jobs"
+      started=$(_now_ms)
       _bats "$file" >"$outdir/$key.out" 2>&1
       printf '%s' "$?" >"$outdir/$key.rc"
+      _seconds_since "$started" >"$outdir/$key.time"
     } &
     running=$((running + 1))
     if [ "$running" -ge "$jobs" ]; then
@@ -127,8 +232,9 @@ _run_parallel() {
   for file in "$@"; do
     key="$(printf '%s' "$file" | tr '/' '_')"
     # Each block restarts its own TAP numbering, so name the file it belongs
-    # to. A TAP comment, so anything parsing the stream ignores it.
-    printf '# %s\n' "$file"
+    # to, with how long it ran. A TAP comment, so anything parsing the stream
+    # ignores it.
+    printf '# %s (%s s)\n' "$file" "$(cat "$outdir/$key.time" 2>/dev/null || echo '?')"
     [ -f "$outdir/$key.out" ] && cat "$outdir/$key.out"
     status="$(cat "$outdir/$key.rc" 2>/dev/null || true)"
     [ "$status" = "0" ] || rc="$EXIT_FAILURE"
@@ -137,7 +243,26 @@ _run_parallel() {
   return "$rc"
 }
 
+SHARD=1
+SHARDS=1
+
+# Usage: _set_shard <I/N>; sets SHARD and SHARDS, or exits with a usage error.
+_set_shard() {
+  case "$1" in
+    [1-9]*/[1-9]*)
+      SHARD=${1%%/*} SHARDS=${1#*/}
+      case "$SHARD$SHARDS" in
+        *[!0-9]*) ;;
+        *) [ "$SHARD" -le "$SHARDS" ] && return 0 ;;
+      esac
+      ;;
+  esac
+  echo "run-tests: --shard takes I/N with 1 <= I <= N, got '$1'" >&2
+  exit "$EXIT_USAGE"
+}
+
 _run_perf() {
+  [ "$SHARD" -eq 1 ] || return 0
   compgen -G "tests/perf/*.bats" >/dev/null || return 0
   # Serial and alone: these assert on wall-clock, and a loaded machine fails
   # them with nothing about the shell config having changed.
@@ -145,14 +270,34 @@ _run_perf() {
 }
 
 _run_main() {
+  local files=() ordered=() i=0 file slot
   compgen -G "tests/*.bats" >/dev/null || return 0
-  _run_parallel tests/*.bats || return "$EXIT_FAILURE"
+  if [ "$SHARDS" -eq 1 ]; then
+    files=(tests/*.bats)
+  else
+    mapfile -t ordered < <(
+      for file in tests/*.bats; do printf '%s\t%s\n' "$(($(wc -c <"$file")))" "$file"; done |
+        sort -t $'\t' -k1,1nr -k2,2 | cut -f2
+    )
+    for file in "${ordered[@]}"; do
+      slot=$((i % SHARDS))
+      if [ $((i / SHARDS % 2)) -eq 1 ]; then slot=$((SHARDS - 1 - slot)); fi
+      if [ "$slot" -eq $((SHARD - 1)) ]; then files+=("$file"); fi
+      i=$((i + 1))
+    done
+  fi
+  [ "${#files[@]}" -gt 0 ] || return 0
+  _run_parallel "${files[@]}" || return "$EXIT_FAILURE"
 }
 
 case "$1" in
   --all | --perf-only | --no-perf)
+    if [ "$#" -ge 2 ] && [ "$2" = --shard ]; then
+      _set_shard "${3:-}"
+      set -- "$1" "${@:4}"
+    fi
     [ "$#" -eq 1 ] || {
-      echo "run-tests: $1 takes no other arguments" >&2
+      echo "run-tests: $1 takes no other arguments but --shard I/N" >&2
       exit "$EXIT_USAGE"
     }
     case "$1" in
@@ -170,9 +315,13 @@ esac
 targets=()
 for f in "$@"; do
   case "$f" in
+    -*)
+      echo "run-tests: $f is not a test file; options follow the mode, as in --all --shard I/N" >&2
+      exit "$EXIT_USAGE"
+      ;;
     *.bats) [ -f "$f" ] && targets+=("$f") ;;
   esac
 done
 
 [ "${#targets[@]}" -gt 0 ] || exit 0
-_bats "${targets[@]}" || exit "$EXIT_FAILURE"
+_run_parallel "${targets[@]}" || exit "$EXIT_FAILURE"

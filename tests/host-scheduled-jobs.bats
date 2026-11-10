@@ -1,27 +1,33 @@
 #!/usr/bin/env bats
-# The Linux server's scheduled jobs: the vault agent-workspace sync and its health check, the OpenClaw settings backup,
-# the GitHub stars sync, and the daily brew and uv tool upgrades. They run as systemd user timers shipped in shared
-# stow packages, so every unit carries ConditionHost=bigdaddy: stow-deploy restarts every timer a package ships on
-# each Linux deploy, and `restart` starts a timer whether or not it was enabled. scripts/host-jobs-enable.sh enables
-# them on that host and retires the crontab lines they replace.
+# The Linux server's scheduled jobs: the vault agent-workspace sync and its health check, the GitHub stars sync, the
+# daily brew and uv tool upgrades, the automatic agent slot sweep, and the agent slot tab reconcile. They run as systemd
+# user timers shipped in shared stow packages, so every unit carries ConditionHost=bigdaddy: stow-deploy restarts every
+# timer a package ships on each Linux deploy, and `restart` starts a timer whether or not it was enabled.
+# scripts/host-jobs-enable.sh enables them on that host and retires the crontab lines they replace. The same script
+# enables the host's long-running user services: the Rex server that keeps the account's tabs up with no client
+# connected.
 #
 # Run: bats tests/host-scheduled-jobs.bats
 
 REPO_ROOT="$BATS_TEST_DIRNAME/.."
 OBS_UNITS="$REPO_ROOT/stow/obsidian/dot-config/systemd/user"
 LOCAL_UNITS="$REPO_ROOT/stow/local/dot-config/systemd/user"
-LOCAL_BIN="$REPO_ROOT/stow/local/dot-local/bin"
 ENABLE="$REPO_ROOT/scripts/host-jobs-enable.sh"
+REX_SERVER="$LOCAL_UNITS/rex-server.service"
+NUMBERS="$LOCAL_UNITS/rex-tab-numbers.service"
 
 HOST_JOBS=(
   "$OBS_UNITS/vault-agent-sync"
   "$OBS_UNITS/vault-agent-sync-check"
-  "$LOCAL_UNITS/openclaw-settings-backup"
   "$LOCAL_UNITS/github-stars"
   "$LOCAL_UNITS/github-stars-clone"
   "$LOCAL_UNITS/brew-upgrade"
   "$LOCAL_UNITS/uv-tools-upgrade"
+  "$LOCAL_UNITS/agent-slot-sweep"
+  "$LOCAL_UNITS/agent-slot-reconcile"
+  "$LOCAL_UNITS/skill-listing-refresh"
 )
+RECONCILE="$LOCAL_UNITS/agent-slot-reconcile"
 
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
@@ -67,6 +73,14 @@ _enable() {
   run env PATH="$STUBS:$PATH" bash "$ENABLE"
 }
 
+# _unit_key FILE SECTION KEY: each value KEY takes in SECTION of the unit FILE, one per line.
+_unit_key() {
+  awk -v sec="[$2]" -v key="$3" '
+    /^\[/ { in_sec = ($0 == sec); next }
+    in_sec && index($0, key "=") == 1 { print substr($0, length(key) + 2) }
+  ' "$1"
+}
+
 _crontab_fixture() {
   cat >"$CRON_FILE" <<'EOF'
 # Keep: unrelated job
@@ -76,7 +90,6 @@ _crontab_fixture() {
 0 * * * * /home/brett/obsidian-vault/scripts/sync-to-pool.sh
 0 * * * * sleep $((RANDOM \% 120)) && /home/brett/obsidian-vault/areas/infrastructure/scripts/github-stars.sh -j 4 >> /home/brett/.openclaw/logs/github-stars.log 2>&1
 15,30,45 * * * * sleep $((RANDOM \% 120)) && /home/brett/obsidian-vault/areas/infrastructure/scripts/github-stars.sh --clone-only -j 4 >> /home/brett/.openclaw/logs/github-stars.log 2>&1
-0 3 * * * /home/brett/obsidian-vault/areas/infrastructure/scripts/backup-openclaw-settings.sh
 5 * * * * /home/brett/obsidian-vault/scripts/pool-sync-check.sh >> /home/brett/.openclaw/logs/pool-sync-check.log 2>&1
 # DISABLED: 0 * * * * /home/brett/obsidian-vault/scripts/sync-to-pool.sh
 30 4 * * * /usr/local/bin/other-job
@@ -120,19 +133,12 @@ EOF
   grep -qx 'OnCalendar=\*-\*-\* \*:00:00' "$OBS_UNITS/vault-agent-sync.timer"
 }
 
-@test "vault sync check runs at five past, appending to its log" {
-  grep -qx 'ExecStart=%h/obsidian-vault/scripts/pool-sync-check.sh' "$OBS_UNITS/vault-agent-sync-check.service"
+@test "vault sync check runs the repo's check at five past, appending to its log and alerting through the journal" {
+  grep -qx 'ExecStart=%h/dotfiles/scripts/vault-agent-sync-check.sh' "$OBS_UNITS/vault-agent-sync-check.service"
   grep -qx 'StandardOutput=append:%h/.openclaw/logs/pool-sync-check.log' "$OBS_UNITS/vault-agent-sync-check.service"
+  grep -qx 'StandardError=journal' "$OBS_UNITS/vault-agent-sync-check.service"
+  grep -qx 'SyslogLevel=err' "$OBS_UNITS/vault-agent-sync-check.service"
   grep -qx 'OnCalendar=\*-\*-\* \*:05:00' "$OBS_UNITS/vault-agent-sync-check.timer"
-}
-
-@test "vault sync check can reach the openclaw CLI for alerts" {
-  grep -qE '^Environment=PATH=.*%h/\.npm-global/bin' "$OBS_UNITS/vault-agent-sync-check.service"
-}
-
-@test "settings backup runs the stowed command daily at 03:00" {
-  grep -qx 'ExecStart=%h/.local/bin/backup-openclaw-settings' "$LOCAL_UNITS/openclaw-settings-backup.service"
-  grep -qx 'OnCalendar=\*-\*-\* 03:00:00' "$LOCAL_UNITS/openclaw-settings-backup.timer"
 }
 
 @test "stars sync runs hourly and the clone pass at quarter hours, both randomized" {
@@ -174,10 +180,83 @@ EOF
   done
 }
 
-@test "backup-openclaw-settings is an executable stowed command with no hardcoded home" {
-  [ -x "$LOCAL_BIN/backup-openclaw-settings" ]
-  run grep -nE '/home/[a-z]' "$LOCAL_BIN/backup-openclaw-settings"
+# --- the Rex server -----------------------------------------------------------
+
+@test "the Rex server unit runs rex server run with no quit-when-empty, reporting ready to systemd, on its host" {
+  [ "$(_unit_key "$REX_SERVER" Service ExecStart)" = '/usr/bin/rex server run' ]
+  [ "$(_unit_key "$REX_SERVER" Service Type)" = notify ]
+  [ "$(_unit_key "$REX_SERVER" Unit ConditionHost)" = bigdaddy ]
+  [ "$(_unit_key "$REX_SERVER" Install WantedBy)" = default.target ]
+}
+
+@test "the Rex server unit restarts always, every 10 s, with no start limit" {
+  [ "$(_unit_key "$REX_SERVER" Service Restart)" = always ]
+  [ "$(_unit_key "$REX_SERVER" Service RestartSec)" = 10s ]
+  [ "$(_unit_key "$REX_SERVER" Unit StartLimitIntervalSec)" = 0 ]
+}
+
+@test "the Rex server unit sets no sandboxing, which every program its tabs run would inherit" {
+  run grep -nE '^(PrivateTmp|ProtectHome|PrivateDevices|NoNewPrivileges)=' "$REX_SERVER"
   [ "$status" -eq 1 ]
+}
+
+@test "systemd accepts the Rex server unit" {
+  command -v systemd-analyze >/dev/null 2>&1 || skip "systemd-analyze not installed"
+  [ -x /usr/bin/rex ] || skip "rex not installed"
+  local runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+  [ -d "$runtime" ] || skip "no user runtime directory"
+  run env XDG_RUNTIME_DIR="$runtime" systemd-analyze --user verify "$REX_SERVER"
+  [ "$status" -eq 0 ]
+  [[ $output != *"rex-server.service:"* ]]
+}
+
+@test "the reconcile timer runs the helper's timer pass every minute, and catches up after downtime" {
+  [ "$(_unit_key "$RECONCILE.service" Service ExecStart)" = '%h/.local/bin/agent-slot-rex restore --by poll --output json' ]
+  [ "$(_unit_key "$RECONCILE.timer" Timer OnCalendar)" = 'minutely' ]
+  [ "$(_unit_key "$RECONCILE.timer" Timer AccuracySec)" = 1s ]
+  [ "$(_unit_key "$RECONCILE.timer" Timer Persistent)" = true ]
+}
+
+@test "the reconcile and sweep services set no sandboxing, which the slots their passes resume would inherit" {
+  local unit
+  for unit in "$RECONCILE.service" "$LOCAL_UNITS/agent-slot-sweep.service"; do
+    run grep -nE '^(PrivateTmp|ProtectHome|PrivateDevices|NoNewPrivileges)=' "$unit"
+    [ "$status" -eq 1 ] || { echo "$unit: $output"; return 1; }
+  done
+}
+
+@test "systemd accepts the reconcile units" {
+  command -v systemd-analyze >/dev/null 2>&1 || skip "systemd-analyze not installed"
+  # verify fails a unit whose ExecStart names a missing file, and the service runs the stowed helper.
+  [ -x "$HOME/.local/bin/agent-slot-rex" ] || skip "agent-slot-rex not deployed"
+  local runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+  [ -d "$runtime" ] || skip "no user runtime directory"
+  run env XDG_RUNTIME_DIR="$runtime" systemd-analyze --user verify "$RECONCILE.service" "$RECONCILE.timer"
+  [ "$status" -eq 0 ]
+  [[ $output != *"agent-slot-reconcile."* ]]
+}
+
+@test "the tab-number watcher runs with the Rex server, restarting every 5 s with no start limit" {
+  [ "$(_unit_key "$NUMBERS" Unit After)" = rex-server.service ]
+  [ "$(_unit_key "$NUMBERS" Unit BindsTo)" = rex-server.service ]
+  [ "$(_unit_key "$NUMBERS" Install WantedBy)" = rex-server.service ]
+  [ "$(_unit_key "$NUMBERS" Unit StartLimitIntervalSec)" = 0 ]
+  [ "$(_unit_key "$NUMBERS" Unit ConditionHost)" = bigdaddy ]
+  [ "$(_unit_key "$NUMBERS" Service Restart)" = always ]
+  [ "$(_unit_key "$NUMBERS" Service RestartSec)" = 5s ]
+  [ "$(_unit_key "$NUMBERS" Service ExecStart)" = '/usr/bin/rex --autostart=false do --all %h/.config/rex/tab-numbers.lua' ]
+  run grep -nE '^(PrivateTmp|ProtectHome|PrivateDevices|NoNewPrivileges)=' "$NUMBERS"
+  [ "$status" -eq 1 ]
+}
+
+@test "systemd accepts the tab-number watcher unit" {
+  command -v systemd-analyze >/dev/null 2>&1 || skip "systemd-analyze not installed"
+  [ -x /usr/bin/rex ] || skip "rex not installed"
+  local runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+  [ -d "$runtime" ] || skip "no user runtime directory"
+  run env XDG_RUNTIME_DIR="$runtime" systemd-analyze --user verify "$REX_SERVER" "$NUMBERS"
+  [ "$status" -eq 0 ]
+  [[ $output != *"rex-tab-numbers.service:"* ]]
 }
 
 # --- enable script ------------------------------------------------------------
@@ -241,11 +320,35 @@ _mode() {
   done
 }
 
+# Under set -e, `enable --now` of a unit no package ships fails the script on the host before the jobs after it.
+@test "every unit the enable script names ships in a package" {
+  local unit count=0
+  while read -r unit; do
+    count=$((count + 1))
+    [ -f "$OBS_UNITS/$unit" ] || [ -f "$LOCAL_UNITS/$unit" ] || { echo "no package ships $unit"; return 1; }
+  done < <(awk '/^(TIMERS|SERVICES)=\(/ { on = 1; next } on && /^\)/ { on = 0 } on { print $1 }' "$ENABLE")
+  [ "$count" -gt 0 ]
+}
+
+@test "enable script enables the Rex server without waiting on its start, and lists it at the end" {
+  # systemd fails a start that waits while the login server's own Rex server holds the account socket.
+  cat >"$STUBS/systemctl" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
+case "$*" in *--now*rex-server.service) case "$*" in *--no-block*) ;; *) exit 1 ;; esac ;; esac
+EOF
+  _enable
+  [ "$status" -eq 0 ]
+  grep -qx -- '--user enable --now --no-block rex-server.service' "$SYSTEMCTL_LOG"
+  grep -qx -- '--user enable --now --no-block rex-tab-numbers.service' "$SYSTEMCTL_LOG"
+  grep -qE -- '^--user list-units .*rex-server\.service rex-tab-numbers\.service' "$SYSTEMCTL_LOG"
+}
+
 @test "enable script retires exactly the crontab lines the timers replace" {
   _crontab_fixture
   _enable
   [ "$status" -eq 0 ]
-  run grep -cE '^[^#]*(sync-to-pool|pool-sync-check|github-stars|backup-openclaw-settings)\.sh' "$CRON_FILE"
+  run grep -cE '^[^#]*(sync-to-pool|pool-sync-check|github-stars)\.sh' "$CRON_FILE"
   [ "$output" = "0" ]
   grep -qx '\*/5 \* \* \* \* /usr/bin/true' "$CRON_FILE"
   grep -qx '30 4 \* \* \* /usr/local/bin/other-job' "$CRON_FILE"
@@ -273,8 +376,8 @@ _mode() {
   [ "$status" -eq 0 ]
 }
 
-@test "enable script and the stowed command pass shellcheck" {
+@test "enable script passes shellcheck" {
   command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
-  run shellcheck "$ENABLE" "$LOCAL_BIN/backup-openclaw-settings"
+  run shellcheck "$ENABLE"
   [ "$status" -eq 0 ]
 }

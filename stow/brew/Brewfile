@@ -46,6 +46,10 @@ brew "ruby"
 brew "bash"
 brew "ripgrep"
 brew "jq"
+# The Claude Code PreToolUse guards in stow/claude/dot-claude/ parse each tool
+# call with jaq, falling back to jq. With neither installed, every guard blocks
+# the calls it checks rather than letting them through unchecked.
+brew "jaq"
 brew "tree"
 brew "wget"
 brew "coreutils"
@@ -69,7 +73,6 @@ brew "shfmt"
 
 # Terminal multiplexer
 brew "tmux"
-brew "tmuxinator"
 
 # Terminal file manager + its previewer dependencies. The stowed yazi config
 # pipes markdown through glow and PDFs through pdftotext (from poppler) via

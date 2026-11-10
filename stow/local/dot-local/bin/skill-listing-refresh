@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# List skills no session used within a rolling window by name only, in Claude Code's settings.json.
+#
+# A use is a Skill tool call or a typed /command in a transcript changed within the window. Claude Code reads
+# skillOverrides at session start, so a change reaches new sessions only. Entries that aren't name-only stay as they are.
+#
+# Usage: skill-listing-refresh [--dry-run] [--window-days N]
+# shellcheck disable=SC2016 # $1, $2, and $unused below belong to rg and jaq, not the shell
+set -euo pipefail
+export LC_ALL=C
+
+window_days=30
+dry_run=false
+# Its description is a guard: it tells an agent to load the skill before any `op` call
+always_described=1password
+
+usage() {
+  echo 'usage: skill-listing-refresh [--dry-run] [--window-days N]' >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case $1 in
+    --dry-run) dry_run=true ;;
+    --window-days)
+      [ $# -gt 1 ] || usage
+      window_days=$2
+      shift
+      ;;
+    *) usage ;;
+  esac
+  shift
+done
+[[ $window_days =~ ^[0-9]+$ ]] || usage
+
+config=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+settings=$config/settings.json
+
+used=$(
+  find -H "$config/projects" -name '*.jsonl' -mtime "-$window_days" -print0 2>/dev/null |
+    xargs -0 -r rg -a --no-config --no-filename --no-line-number --no-messages -o -r '$1$2' \
+      '"name":"Skill","input":\{"skill":"([^"]+)"|<command-name>/?([\w:-]+)</command-name>' || true
+)
+if [ -z "$used" ]; then
+  echo "skill-listing-refresh: no skill use found under $config/projects; leaving settings alone" >&2
+  exit 1
+fi
+
+# disable-model-invocation already keeps a skill out of the listing, so an override on it would change nothing
+listed=$(
+  rg --no-config --files-without-match -i '^disable-model-invocation:\s*true' "$config"/skills/*/SKILL.md |
+    sed 's|/SKILL.md$||; s|.*/||' | sort -u || true
+)
+named=$(rg --no-config --no-filename --no-line-number -o '[/`][\w-]+' "$config/CLAUDE.md" 2>/dev/null | cut -c2- || true)
+current=$(jaq -r '.skillOverrides // {} | to_entries[] | select(.value == "name-only") | .key' "$settings" | sort -u)
+kept=$(jaq -r '.skillOverrides // {} | to_entries[] | select(.value != "name-only") | .key' "$settings")
+
+unused=$(comm -23 <(printf '%s\n' "$listed") <(printf '%s\n' "$used" "$named" "$kept" "$always_described" | sort -u))
+[ "$unused" != "$current" ] || exit 0
+
+echo "name-only added: $(comm -13 <(printf '%s\n' "$current") <(printf '%s\n' "$unused") | xargs)"
+echo "name-only removed: $(comm -23 <(printf '%s\n' "$current") <(printf '%s\n' "$unused") | xargs)"
+! $dry_run || exit 0
+
+updated=$(jaq --arg unused "$unused" '
+  .skillOverrides = ((.skillOverrides // {} | with_entries(select(.value != "name-only")))
+    + ($unused | split("\n") | map(select(. != "") | {key: ., value: "name-only"}) | from_entries))
+' "$settings")
+real=$(readlink -f "$settings")
+printf '%s\n' "$updated" >"$real.refresh"
+chmod --reference="$real" "$real.refresh"
+mv -f "$real.refresh" "$real"
+# A deployed settings.json is tracked, and upstream changes it often enough that a plain pull would keep refusing
+git -C "$(dirname "$real")" config merge.autoStash true 2>/dev/null || true

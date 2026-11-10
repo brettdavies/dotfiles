@@ -1,7 +1,7 @@
 # Concepts
 
 Shared domain vocabulary for this project — entities, named processes, and status concepts with project-specific
-meaning. Seeded with core domain vocabulary, then accretes as ce-compound and ce-compound-refresh process learnings;
+meaning. Seeded with core domain vocabulary, then accretes as ce-compound captures and refreshes learnings;
 direct edits are fine. Glossary only, not a spec or catch-all.
 
 ## Hosts
@@ -119,6 +119,85 @@ every file in a deployed package. On a healthy deployed dotfiles host every stow
 canonical checkout's `stow/` tree. One that resolves anywhere else, or dangles, is drift, and the signature of a deploy
 run from a non-canonical checkout.
 
+Not every link into the `stow/` tree is stow's. Enabling a service-manager unit writes its own link straight at the
+unit's file inside the package, and stow neither owns nor removes it. A restow prunes the links stow made when a file
+leaves its package, but not the enable link: a unit deleted while still enabled leaves it dangling until someone removes
+it by hand. Disabling the unit clears it only while the file is still present, and takes the unit's stow-managed link
+with it, because systemd treats a unit file linked from outside its search path as a link of its own to remove.
+`systemctl reenable` disables first, so it removes that link too and then cannot find the unit to enable; a restow puts
+the link back, and plain `enable` is what repoints an enable link.
+
+### Restow on pull
+
+The git hooks' relinking of a package that a merge or branch checkout changed, so the links match the new tree before
+the git command returns. It covers the packages whose stale links break something at once: `claude`, whose
+`settings.json` switches with the pull while a new hook script it names has no link yet, and `secrets`, which carries a
+file a `claude` hook reads. A checkout restows a package only when it owns that package's stow-managed links in the
+target, which makes the canonical checkout the only one that can. Updates that run no hook (a reset, a squash merge, a
+merge stopped on conflicts) leave the restow to `scripts/stow-deploy` by hand.
+
+## Shared trees
+
+### Foreign subtree
+
+A directory inside one repository's working tree whose contents belong to a different repository, mounted by a symlink
+so the containing repo never tracks them.
+
+A foreign subtree is invisible to the containing repo's version control and fully visible to anything that walks the
+filesystem, which is what makes it hazardous: a tool that writes rewrites another project's content with no signal,
+while the containing repo's status stays clean. Every tool that touches one has to decide deliberately which repository
+it is acting for, and the right answer differs by tool. A tool enforcing the containing repo's exclusions has to
+describe the file by the path it was reached through, because resolving that path to its real location discards the
+prefix those exclusions are written against; a tool meant to judge the content on its owner's terms has to do the
+opposite. An exclusion naming a foreign subtree is in force only once the tool demonstrably matches paths the way the
+exclusion assumes, so presence of the rule is not evidence that it applies.
+
+### Shared clone
+
+The single local checkout of a repository that several working trees mount as a *foreign subtree* and several concurrent
+sessions write to.
+
+One index and one working tree serve every writer, so staging broadly there captures another session's in-progress work:
+a writer commits only the paths it authored, and from an isolated checkout rather than the shared one. That checkout
+also drifts behind its remote while other writers push, so a safe write syncs first rather than assuming the local tip
+is current.
+
+The solutions repo's shared clone, `~/dev/solutions-docs`, is the tree every repo's own checkout drafts in, the one qmd
+indexes, and the object store every *writer worktree* shares. Automation changes it only by fast-forward or by reverting
+a *phantom copy*; any other change it holds that the remote lacks is a *stray*, which is reported to a person and never
+committed or deleted by automation, since it can be a session's draft in progress.
+
+### Writer worktree
+
+A detached worktree of the solutions repo that belongs to one *agent slot*: made at the remote's main branch when the
+slot is set up, recorded in the slot's record, and linked from the slot's `docs/solutions`. The slot's agent drafts
+there and publishes from there in place, so no other session's work ever sits in its tree. A slot is not deleted while
+its writer worktree holds a file, commit, or rebase the remote lacks, and the teardown that deletes the slot removes the
+worktree. One that outlives its slot some other way is an *orphan*: it is reported with what it holds and never removed
+automatically, since it can hold the only copy of a doc.
+
+### Phantom copy
+
+A file in a *shared clone*'s working tree whose content already equals the remote's version of that path, left behind
+when a writer pushed from an isolated checkout and the shared checkout never fast-forwarded over it.
+
+A phantom copy blocks a fast-forward the way real work does, but discarding it loses nothing, and that is the whole
+test: a path is a phantom only when its content matches the remote, and being uncommitted or differing from the remote
+does not make it one. Every other uncommitted change in a shared clone is another writer's in-progress work, which a
+sync carries across or leaves alone and never reverts.
+
+### Canonical browser set
+
+The one set of Playwright browser builds that dotfiles provisions into the machine's shared browser cache for every repo
+and tool, so that no repository installs browsers itself. *Avoid:* the pinned set, the dotfiles browsers
+
+A tool pinned to a slightly older Playwright release asks for its own build by name and is answered by an alias to the
+canonical build, never by a second download; a tool on a newer release installs its own build alongside. Because any
+Playwright install deletes the cache's browser directories that no registered client names, the set survives other
+tools' installs only while it is registered with Playwright's cleanup. It is a test-reproducibility artifact: a pinned
+build lags stable Chrome's security fixes and launches unsandboxed by default, so it is not the browser for pages nobody
+vetted.
+
 ## System configuration
 
 ### System-level unit
@@ -144,6 +223,11 @@ that establishes PATH, the package-manager prefix, secrets, and the per-tool con
 through its own startup file. It is the authoritative place to set environment for shells, and it does not run for a
 *bare launcher*.
 
+One shell skips it on purpose: a non-interactive zsh whose command string opens with the fixed no-op prefix that marks
+an ssh `Match exec` test. ssh runs each such test through the login shell on every connection, the chain costs a
+noticeable fraction of a second to read, and the tests need nothing it sets. The match is on that exact prefix, so every
+other command string still reads the chain.
+
 Order within the chain is load-bearing. A per-tool fragment decides whether to apply by testing, at the moment it is
 sourced, whether its tool is reachable on PATH. A fragment reached before the chain has finished assembling PATH
 therefore finds nothing and silently applies none of its configuration, in every shell that did not inherit a populated
@@ -156,6 +240,11 @@ on a shell's own marker. Order and dialect fail at different scales: a fragment 
 tool, while a construct the reading shell rejects ends the entry file where it stands and costs every export below it.
 The fragments themselves are sourced only by the shells that can parse them, which is why the entry file's dialect
 constraint is stricter than theirs.
+
+Reach is load-bearing as well. Every program a shell starts inherits what the chain exports, so the chain is the right
+home only for a variable all of them should see. A value only one process needs, such as the display a headless service
+draws on, belongs in that process's own unit or wrapper: exported from the chain, it reaches every program a shell
+launches, and a program that would have failed without it runs instead.
 
 ### Bare launcher
 
@@ -180,6 +269,11 @@ shape*, not by whether a human is watching.
 The combination of shell dialect, login versus non-login, and interactive versus non-interactive that decides which
 startup files a shell process reads. Two processes running the same command reach different environments when their
 shapes differ, so the shape is the unit at which shell environment behavior is specified and verified, not the command.
+
+Those three flags do not settle it for bash on their own. A non-login, non-interactive bash running a command string
+reads its interactive startup file when it counts itself as a top-level shell and its standard input is a socket,
+because it takes itself to have been started by a remote shell daemon. A launcher that clears the environment makes
+every bash it starts top-level, so where such a shape's standard input comes from is part of the shape.
 
 A shape that reads no startup file at all is a *bare launcher*. Verification has to reproduce the caller's exact shape:
 a pass obtained under a neighboring shape carries no information about the one that failed, and a shell descended from a
@@ -211,6 +305,13 @@ idle, and a copy that merely *could* appear earlier turns a missing file into a 
 error. Tools are therefore installed from one source per host, and a second copy of the same command is drift to remove,
 not a fallback to keep.
 
+A deliberate wrapper is the one sanctioned second copy: a script installed under a tool's own name, earlier on `PATH`,
+so every call passes through it (to enforce a guard or supply configuration) before it hands off to the real binary. It
+works only while its directory precedes the wrapped copy's in every *invocation shape*. The *shell config chain*
+therefore moves such a directory to the front rather than adding it only when absent, since a PATH inherited from a
+parent can hold it behind the copy it wraps. When that happens the real binary answers, and nothing reports that the
+wrapper's guard never ran.
+
 ### Captured environment
 
 The environment or argument list a long-lived process took at start and continues to serve, regardless of what the files
@@ -221,6 +322,12 @@ config that seeds any of them changes what *new* processes get, and changes noth
 This is why removing an export cannot clear an inherited value: the config stops setting the variable, but nothing
 unsets it in a process that already holds it. Verification has to start a process from outside the captured state — a
 fresh login rather than a new pane — and adopting a change means reloading or restarting whatever holds the old copy.
+
+A multiplexer holds two captured copies, not one. Beside the server-wide environment from its start, each session keeps
+its own copy of a set list of variables, refreshed from whichever client creates or attaches to it, and that copy wins
+for every new pane. A stale value in the session copy is invisible to a check of the server-wide one, and every server
+on the host keeps its own sessions. Both copies can be edited in place, so new panes stop receiving a value without a
+restart; only processes already running need one.
 
 ## Policies
 
@@ -233,6 +340,10 @@ each requires a tool version recent enough to honor it — older versions silent
 paired with a version floor for every PM it covers. The gate is enforced via shell env vars (covering interactive and
 shell-launched processes) and, where the tool supports a global config file, written into that file (covering cron,
 systemd units, and other non-shell invocations).
+
+The gate also covers dependencies pinned to a commit rather than a release, such as editor plugins: the pinned commit
+must have been on its upstream branch for the gate's number of days. That age is measured by the hosting service's
+record of when the commit reached the branch, never by the commit's own dates, which whoever pushes the commit sets.
 
 ## Local checks
 
@@ -249,6 +360,30 @@ run per change, the gate is the only check some work ever gets, so a gate that s
 Activation is per clone and does not travel with the checkout, which makes an unwired gate the common failure: it looks
 identical to a passing one.
 
+### Concurrent suite
+
+A test suite that declares its tests share no state, so the test runner may run several of its tests at once rather than
+only running it alongside other suites. *Avoid:* parallel file, declared file
+
+The declaration is the suite's own promise, and the runner takes it on trust. It obliges every test to keep its state in
+a sandbox of its own and to start any code it interrupts with interrupt handling restored, because the runner starts
+each test as a background job and a shell starts background jobs with interrupts ignored. The runner bounds how many of
+a concurrent suite's tests run at once, since suites already run side by side and the two levels multiply.
+
+### Leak guard
+
+A check that fails a test, or a whole suite run, that leaves a process running after it ends, and kills and names that
+process. *Avoid:* leak check, process guard
+
+The guard finds a test's processes by an environment entry that every program the test runs inherits, so what it sees is
+whatever the test started, however deep and whichever parent each ended with; a process that only forked and never ran a
+program carries the environment its parent started with and is invisible to it. The test framework's own time-limit
+watchdog inherits that entry too: while it runs the guard spares it by its shape rather than its marker, and one the
+framework fails to stop when its test ends is stopped without failing anything. The guard gives what it finds a short
+grace measured in wall clock, not in scans, because a scan reads every process on the host and slows with load. A leak
+matters beyond the test: it keeps the directory the tests ran from as its working directory, so a leak inside an *agent
+slot* holds the slot against teardown.
+
 ### Guard hook
 
 A hook that inspects a proposed action before it happens and answers allow or deny, as opposed to a *local gate*, which
@@ -257,8 +392,25 @@ refusal and allow by emitting nothing at all, so silence is a verdict rather tha
 
 That encoding is what makes a guard's failure mode asymmetric. Any path that ends without an explicit refusal reads as
 permission, so a guard that errors, exits early, or misreads its own check allows the thing it exists to block, and does
-so indistinguishably from a genuine pass. Guards therefore need their allow path tested as deliberately as their deny
-path, and a guard whose verdict is derived from an exit status needs that status to be unambiguous.
+so indistinguishably from a genuine pass. A guard registered to block when it fails narrows that gap without closing it:
+a crash, a hang, or a missing script then refuses the action, but an early exit or a misread check that ends in silence
+still allows it. Guards therefore need their allow path tested as deliberately as their deny path, and a guard whose
+verdict is derived from an exit status needs that status to be unambiguous.
+
+### Format hook
+
+A hook that rewrites a file's contents immediately after a write, as opposed to a *guard hook*, which decides whether an
+action may happen at all, or a *local gate*, which checks content already on disk at a git lifecycle point. It returns
+no allow-or-deny verdict, and its principal output is the modified file, so a wrong decision inside one is committed
+rather than reported. It may still forward findings a reader can act on, which is a report about the content and not a
+verdict on the action.
+
+Which formatting applies is a property of the edited file's own repository rather than of the session the edit was made
+from, and a repository may declare that it owns its own formatting, in which case the hook leaves it untouched. Both
+facts are settled by walking up from the file itself, so a hook that settles them from the session's directory instead
+formats files in one repository under another's rules, and does so silently, because the rewrite it leaves behind looks
+like the file's own style. A format hook also decides whether to run at all from the same lookup, which means a
+mis-resolution can disable the exclusions a repository relies on without any signal that they stopped applying.
 
 ## File hand-off
 
@@ -272,9 +424,134 @@ place through the Taildrive share when the file lives under a shared root, from 
 fire-and-forget. A hand-off happens only when the session is driven from the Mac; otherwise, and whenever the Mac is
 unreachable or the hand-off fails, the file goes to the host's local opener where one exists, with the reason shown.
 
+## Parallel agents
+
+### Foreign head
+
+An *agent slot*'s head in a repository whose owner is not on the trusted owner list or cannot be determined, on a fork
+or on the PR's own repo. Nothing from it runs on its own: Claude starts with user settings only, the tree's Claude and
+tool config stays off disk, git has no hooks and treats no directory in the tree as a repository, and setup leaves out
+each step that acts on what the head tracks. A slot on the base with no PR is not foreign, since trusting the *prime
+checkout* chose that base. A reopen of a foreign slot is foreign whatever branch it comes back on, since its agent can
+have pushed the head's commits anywhere.
+
+### Agent slot
+
+A clone of a repo, at a stable numbered path (`~/slots/<repo>/<N>`) on the headless host, that holds exactly one agent
+task at a time. A slot is set up like the repo's *prime checkout* (the operator's own clone under `~/dev`, or
+`~/dotfiles` or `~/obsidian-vault`, which is never part of the slot pool and never changed by it, except for files left
+for the operator in its `.context/`): the repo's hooks run
+from the slot's own copy, `docs/solutions` links to the slot's own *writer worktree* of the solutions repo,
+`.context/repo-recon` links to the repo's repo-recon store when it has one, Claude reads and writes the repo's single
+auto memory, the prime's local permission grants apply, and a prime that is a partial clone gives the slot a partial
+clone with the same filter. A prime with `node_modules` that Claude trusts also gives a slot on its base branch a frozen
+install of the root lockfile before its agent starts. A slot path is either empty or holds one task. The task keeps its slot through review rounds
+until it has finished: none of its PRs is open or closed without merging and one has merged, the operator finished it,
+whatever state its PRs are in, or its agent released it with no PR open. A task's PRs are those opened from its branches
+after its slot was made, and an older one whose head a branch of the slot holds beyond the base, such as the PR a review
+round works on. The slot's agent ends its task with a *release*: once it has run the closing skills that record its
+learnings and stopped every background job it no longer needs, it hands the slot's teardown upstream, to a finish
+outside the slot that waits for the agent to go idle. An agent still waiting on something, such as CI, never stops that
+wait to release: it records why the slot is *not yet* ready, which keeps the slot off the needs-you list while the agent
+is there and gets the agent reminded later. Of the agent's release and its not-yet, the newer stands: a not-yet
+withdraws an earlier release, and the finish that release started stands down. It never undoes the operator's finish,
+which is the operator's decision rather than the agent's. A *slot sweep* deletes the clone, moving it to the trash and
+purging it from there at once, only when nothing in it is missing from GitHub (a PR's head, origin, or the fork on
+origin's host that one of its branches tracks or pushes to) and its agent is idle or gone; the *automatic sweep*, which
+a timer runs, deletes only a slot its agent released or the operator finished, and first reminds the agent of a finished
+slot held back only by files left in it to clean them up. A slot that fails that check stays put on the *needs-you
+list*, which names each blocker, and is never deleted. A slot whose tmux sessions are gone after a server reboot is
+*dormant* until resume restarts them and its conversation. Each live slot has one tab in its repo's session on the
+headless host's Rex server, which the *slot reconcile* keeps; Rex clients on the macOS development machine and the phone
+only show it.
+
+A slot's *work items* are the GitHub PRs and issues its task works on, each known by kind, repository, and number. A
+slot gets them when it is launched or reopened on one, when one is adopted onto it, and when its own PRs are found. Its
+*slot name*, `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>`, comes from the first and never changes, so an issue's
+slot keeps the issue's name once its PR opens; it labels the slot and its Claude session wherever either is listed. A
+*reopen* brings a torn-down slot's work back by one of its work items: a fresh slot on the branch the old one had
+checked out, whose agent resumes the old slot's Claude conversation by its session ID. A reopened task's *settled PRs*,
+those already merged or closed when it was reopened, neither finish it nor hold its slot back, so only a new outcome
+ends it. A *probe* is a draft PR titled `test(probe): <what it probes>` that the slot's agent has declared throwaway,
+opened to exercise CI or a workflow and never meant to merge. Nothing infers one, and it stops being one if it leaves
+draft. Closed unmerged it counts like a settled PR, and the slot closes it itself, through a verb that acts only on a
+marked draft on a branch that slot created, whose head it pushed.
+
+### Prime
+
+The agent the operator works with in a repo's own *prime checkout*: it orchestrates the repo's work, answers other
+sessions, and is the point of contact for other repos, and it lasts as long as its session does. One runs per repo per
+host, on demand, and a running slot of the repo means a running prime. The code that builds a slot builds it, with the
+checkout as its root and `<repo>-prime` as its Claude's name, so it has a slot's three tmux sessions and three panes.
+Unlike a slot it is attended, keeps whatever branch and local changes the checkout holds, resumes its own last
+conversation by that title rather than by a record, and is never torn down: nothing that ends a slot can name it.
+
+A *prime's tab* is the tab of a repo's Rex session on the Linux server that holds its prime: a pane's own process is the
+attach loop of its Claude pane, or, while the prime still runs as one session on the server's default tmux server, a
+pane's own process is the helper's `prime` verb or a client of that session runs on a pane's terminal. What makes it the
+prime's tab is that hold, never its label or position, so a renamed tab still is one. A session on the default server
+counts only while it holds a Claude. The *slot reconcile* keeps a tab for every running prime, and the *new-agent key*
+opens one, first in the session, while the session has none. After a Rex restart, rexurrect brings a prime's tab back as
+plain shells, and the *start-up step* makes it the prime's again.
+
+### New-agent key
+
+The Rex key that opens a tab in the session its context names, normally the one the operator is in. In a session named
+after a repo, the tab becomes that repo's *prime*'s tab while no tab holds the prime, starting it if it is not running,
+and a new *agent slot*'s tab once one does. In a session named after no repo, it is a picker that launches the chosen
+repo's slot in that repo's session.
+
+The tab starts nothing until a Rex app *shows* it, because Rex.app can hand the key the context of a pane in another
+session, even on another host, where nobody would see the tab; a tab never shown asks for Enter, goes on if it comes,
+and otherwise closes itself. A tab counts as shown once some Rex client has asked the server for a size for its
+terminal, which an app does only for the panes it lays out on screen. The session's active window is never taken as that
+sign: Rex.app can show a tab without the active window moving to it in time, and a tab that opens alone in a session
+becomes its active window with nobody looking.
+
+### Slot reconcile
+
+The pass that makes the headless host's Rex tabs match its live slots and running *primes*: it resumes dormant slots,
+opens a tab for each live slot without one, relabels a tab whose slot's label changed, and closes a tab whose slot is
+gone, whose attach loop has stopped, or that duplicates another. A tab is matched to its slot by the attach loop it
+runs, else by its label past its position number. A prime's tab is only ever opened: a pass opens one for a running
+prime no tab holds, first in its repo's session, and never relabels or closes one. Four triggers run it: a *push* after
+each launch or teardown, a timer every minute, a *start-up step* when the Rex server loads its config, which first
+restores the operator's own tabs with rexurrect once per server instance, and the operator's restore. Every pass but the
+start-up step changes nothing until a Rex server answers and its start-up step has run; a pass a trigger ran logs why,
+and one the operator asked for reports it. One pass changes tabs at a time.
+
+A pass holds to the Rex server it started against: when a different server answers partway through, as after a restart,
+or none answers, it makes no further tab change and leaves the tabs to that server's start-up step. That step ends every
+session holding nothing but slot tabs before rexurrect restores, so rexurrect does not restore a second copy beside a
+session a pass opened early.
+
+### Agent state
+
+What a slot's agent is doing as the slot tooling reads it, from Claude Code's own list of sessions joined on the slot's
+path: *idle* at its prompt, *busy* mid-turn, *waiting* on a permission prompt or a question, or *absent*, with no
+session and no process using the slot other than the slot's own terminal panes. Only idle and absent let an *agent slot*
+be torn down.
+
+The state is *unknown*, and the teardown refused, whenever it cannot be read with certainty: the session list cannot be
+read, more than one session matches, the session reports a status other than idle, busy, or waiting, a Claude process in
+the slot's panes runs with no session matching the slot, or a process outside the slot's panes has its working directory
+or an open file in the slot. A process counts as the panes' own when it descends from one, or when it is the prompt's
+`gitstatusd` daemon and its environment names the slot's terminal server and one of its panes. Every process a pane
+starts inherits that environment, so it marks only `gitstatusd` as the panes' own: a job a pane's command left running,
+such as one a test run in the slot leaked, holds the slot until it exits, like anything else in the slot.
+
 ## Flagged ambiguities
 
 - "Gate" names two different things: a *supply-chain age gate* is a policy applied to package resolution, while a *local
   gate* is a check that runs at a git lifecycle point. These are distinct.
-- A *guard hook* answers allow or deny about an action that has not happened yet; a *local gate* checks content that
-  already exists. Both are sometimes called "hooks" informally, since both are installed as such.
+- A *guard hook* answers allow or deny about an action that has not happened yet, a *format hook* rewrites a file just
+  after it is written, and a *local gate* checks content that already exists at a git lifecycle point. All three are
+  sometimes called "hooks" informally, since all three are installed as such.
+- A *cross-package symlink* and a *foreign subtree* are both symlinks into another source, and they differ in how far
+  they reach: the first stays inside this repo, pointing from one stow package's source into another's, while the second
+  points at a separate repository whose files this repo does not track.
+- A *canonical checkout* is the one clone of this repo, `~/dotfiles`, that may deploy into the real home. A *prime
+  checkout* is the operator's own clone of any repo, as opposed to its *agent slots*. The two do not interchange.
+- A *reopen* brings a torn-down slot's work back in a new slot, while resuming a *dormant* slot restarts that same
+  slot's sessions in place, and the Mac's restore matches Rex tabs to the slots that exist. Reopening a closed PR on
+  GitHub is none of these.

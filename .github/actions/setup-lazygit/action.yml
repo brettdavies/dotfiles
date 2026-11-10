@@ -1,0 +1,56 @@
+name: Setup lazygit
+description: Install a pinned lazygit, so the test of what it loads from a tree runs in CI against the real binary.
+
+# A slot's git session starts lazygit with no key pressed, so what it loads from the tree would run unattended.
+# tests/agent-slot-foreign-head.bats proves it reads no repo-root .lazygit.yml, with a positive control on the same file
+# in a parent directory. That test skips where lazygit is missing, so without this action a release that starts reading
+# the file surfaces only on a machine that runs pre-push.
+#
+# The checksum is the release's checksums.txt entry for the linux_x86_64 tarball.
+#
+# Not cached: fetching, verifying, and unpacking the release took about 0.5 s per shard, less than a cache restore costs.
+#
+# Keep VERSION on one the test has passed on, in step with the Homebrew formula; bumping is a reviewed change.
+
+inputs:
+  version:
+    description: lazygit release version, without the leading v
+    required: false
+    default: 0.66.2
+  sha256:
+    description: Checksum of the linux_x86_64 tarball for that release
+    required: false
+    default: 158efc9ddfa1241fab5fb3526bb442c8dc6c4b1904d73213b9e4e93e03c52034
+
+runs:
+  using: composite
+  steps:
+    - name: Download pinned lazygit
+      shell: bash
+      env:
+        LG_VERSION: ${{ inputs.version }}
+        LG_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        dest="$HOME/.cache/lazygit/${LG_VERSION}"
+        mkdir -p "$dest"
+        url="https://github.com/jesseduffield/lazygit/releases/download/v${LG_VERSION}/lazygit_${LG_VERSION}_linux_x86_64.tar.gz"
+        curl -fsSL --retry 3 --retry-connrefused "$url" -o /tmp/lazygit.tar.gz
+        echo "${LG_SHA256}  /tmp/lazygit.tar.gz" | sha256sum --check --strict
+        tar -xzf /tmp/lazygit.tar.gz -C "$dest" lazygit
+        chmod +x "$dest/lazygit"
+        rm -f /tmp/lazygit.tar.gz
+
+    - name: Put lazygit on PATH
+      shell: bash
+      env:
+        LG_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        dest="$HOME/.cache/lazygit/${LG_VERSION}"
+        [ -x "$dest/lazygit" ] || {
+          echo "setup-lazygit: $dest/lazygit missing after install" >&2
+          exit 1
+        }
+        echo "$dest" >>"$GITHUB_PATH"
+        "$dest/lazygit" --version

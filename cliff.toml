@@ -1,3 +1,5 @@
+# Canonical version: 2026.11.03 (generic)
+# canonical:begin shared-config
 # git-cliff configuration.
 #
 # Two-stage pipeline driven by `scripts/generate-changelog.py`:
@@ -5,9 +7,12 @@
 #      subject line, linking `(#N)` squash-merge references to the PR via
 #      the `[remote.github]` owner/repo below.
 #   2. The script's Python post-processor fetches each PR body from the
-#      GitHub API, extracts its `## Changelog` -> `### Added / Changed /
-#      Fixed / Documentation` subsections, and rewrites the skeleton
-#      bullets with the richer PR-body content. Author + PR links remain.
+#      GitHub API, extracts its `## Changelog` section (a workspace member's
+#      own `## Changelog (<crate>)`) -> `### Breaking changes / Added /
+#      Changed / Deprecated / Fixed / Documentation` subsections, the six
+#      headings of github-repo-setup's references/versioning.md, and rewrites
+#      the skeleton bullets with the richer PR-body content. Author + PR links
+#      remain.
 #
 # The PR body is the source of truth. If a bullet is wrong, edit the PR
 # body on GitHub (PR bodies stay editable after merge) and re-run
@@ -18,10 +23,13 @@
 # can't mangle what we never read.
 
 [changelog]
+# canonical:repo-begin
+# The repo's own: it matches the header atop the repo's CHANGELOG.md, which --prepend keeps.
 header = """
 # Changelog\n
 All notable changes to this project will be documented in this file.\n
 """
+# canonical:repo-end
 body = """
 {% if version %}\
     ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
@@ -45,9 +53,11 @@ footer = ""
 conventional_commits = true
 filter_unconventional = true
 split_commits = false
+# canonical:repo-begin
 # CalVer tags mark releases: `YYYY.MM.DD`, plus a `.N` suffix for same-day
 # reruns. release.yml creates them bare (no `v` prefix) on every push to main.
 tag_pattern = "\\d{4}\\.\\d{2}\\.\\d{2}.*"
+# canonical:repo-end
 sort_commits = "oldest"
 
 commit_parsers = [
@@ -73,5 +83,6 @@ commit_parsers = [
 ]
 
 [remote.github]
+# canonical:end shared-config
 owner = "brettdavies"
 repo = "dotfiles"

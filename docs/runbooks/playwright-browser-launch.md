@@ -1,45 +1,233 @@
-# Playwright / browse browser launch on Linux
+# Playwright / browse browser launch
 
 Why the `browse` tool and Playwright e2e fail to launch browsers on this host, and how to restore them. Three
-independent causes.
+independent causes on Linux; on a Mac only the first applies.
 
-## Browser binaries are dotfiles-provisioned
+## The browser set
 
-The canonical Playwright browser set for the whole machine is provisioned by `scripts/playwright-browsers-deploy.sh`
-into the shared cache (`$PLAYWRIGHT_BROWSERS_PATH`, exported by `config/shell/caches.sh` as `~/.cache/playwright`).
-**Repos never run `playwright install` themselves** — with the binaries already in the shared cache, a per-repo
-`playwright install` scoped to the provisioned browsers is an instant no-op. One canonical version serves every repo;
-updating it is a dotfiles job, not an arbitrary repo's or e2e test's.
+One Chrome for Testing (CfT) build with its headless shell, one WebKit build, and one ffmpeg build serve the Playwrights
+on a host. `scripts/playwright-browsers-deploy.sh` provisions them into the shared cache (`$PLAYWRIGHT_BROWSERS_PATH`,
+exported by `config/shell/caches.sh` as `~/.cache/playwright`), on the Linux server and on Apple silicon Macs, from the
+pin `config/playwright/browsers.pin`. **Repos never run `playwright install` themselves.** A repo's Playwright, from
+1.57 to the pin's `source-release`, finds its Chromium and ffmpeg through aliases. WebKit has no alias: it is the one
+revision that `library-version`'s `browsers.json` names, so only a repo on a Playwright that names that revision finds
+it. Its `playwright install` naming those browsers is an instant no-op; a bare `playwright install` also pulls Firefox,
+which no alias covers. A Playwright newer than `source-release` finds no Chromium or ffmpeg alias, and one whose
+`browsers.json` names another WebKit revision finds no WebKit, until the pin moves. The set moves by editing the pin.
 
-The provisioning uses `curl` + `unzip` rather than `playwright install` because node's own extractor deadlocks on this
-host: on Node 26 / libuv 1.52.1 the io_uring filesystem backend hangs during archive extraction on kernel 6.8 — file
-writes are submitted to io_uring but the completion never wakes libuv's epoll loop, so the extractor stalls in `ep_poll`
-partway through the largest zip. libuv 1.52.1 removed the `UV_USE_IO_URING` escape hatch, so there is no toggle. The
-download itself is fine; only node's extractor wedges. `curl` + `unzip` sidesteps node and produces bit-identical
-browser directories, each carrying the `INSTALLATION_COMPLETE` + `DEPENDENCIES_VALIDATED` markers that make Playwright
-treat them as real installs.
+The cache holds:
 
-**Bumping the canonical version:** edit the revision map in `scripts/playwright-browsers-deploy.sh` (the `case` matching
-`$VERSION`) and set `DEFAULT_VERSION`, then re-run the script. Read the new revisions from any repo's
-`node_modules/playwright-core/browsers.json` (per-browser `revision`, plus chromium's `browserVersion` for the
-Chrome-for-Testing CDN path). The default is **Playwright 1.62.1** (chromium 1234, chromium-headless-shell 1234, webkit
-2336, ffmpeg 1011).
+| Entry                                                             | What it is                                                                                          |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `chromium-<N>`, `chromium_headless_shell-<N>`                     | the CfT build, numbered `build * 1000 + patch` (`157.0.8103.38` is 8103038)                         |
+| `webkit-<revision>`, `ffmpeg-<revision>`                          | Playwright's own builds, at the revisions the pin names                                             |
+| `chromium-<rev>`, `chromium_headless_shell-<rev>`, `ffmpeg-<rev>` | symlinks to the real directories, one per revision a release from 1.57 to `source-release` asks for |
+| `.links/dotfiles-<directory>`, `.dotfiles/clients/<directory>/`   | one client per directory and per alias, so Playwright's cleanup keeps them                          |
+
+The aliases exist because Playwright pins a build for reproducibility and does not enforce it: it chooses a directory
+and a download URL from the revision, then speaks CDP over a pipe with no version check. Chromium and ffmpeg alias in
+both directions. WebKit does not alias, because a Playwright drives only a WebKit near the one its own `browsers.json`
+names: library 1.61.1 on WebKit 2388 fails 98 of agentnative-site's 100 WebKit tests at `newPage` with
+`Emulation.setAuthCredentials` ("Some arguments of method 'Emulation.setAuthCredentials' can't be processed"), and
+1.64.1 on 2311 fails with `Page.overrideSetting`. The set holds the one WebKit `library-version` names, so a Playwright
+that names another revision fails at once with `Executable doesn't exist`, not with a protocol error midway through a
+run. On a Mac, `library-version`'s registry maps macOS 15 and every later release to the macOS 15 archive,
+`webkit-mac-15-arm64.zip`, and macOS 14 to a WebKit revision of its own, so macOS 14 is unsupported. Playwright 1.56 and
+earlier look for `chrome-linux`, so they need `executablePath` or an upgrade.
+
+### What a deploy does
+
+1. Reads the pin through the one parser, `scripts/playwright-browsers/lib/pin.sh`, which accepts only dotted-numeric
+   versions, integer revisions, 64-hex hashes, and the archive names it knows. Download hosts are fixed in
+   `scripts/playwright-browsers/lib/plan.sh`, never read from the pin.
+2. Registers what already exists, then fetches each archive with `curl` (https only, no redirect followed), holds it to
+   the pin's sha256, unpacks it with `unzip` into a stage inside the cache, writes the completion markers and a record
+   of the archive's sha256 and URL (`.dotfiles-record`), and renames it into place. A failure before the rename leaves
+   the existing directory alone.
+3. Points every alias at its real directory by atomic rename, once every directory is verified.
+4. Removes only what it can show it made: a stale `dotfiles-*` client in a shape it writes, and a symlink at a
+   browser-directory name the pin no longer asks for that points at a directory of the set. A real directory or symlink
+   at a set or alias name is replaced; any other directory or symlink stays for `--check` to name, and a client
+   directory that is a symlink is never written through or deleted through.
+
+A deploy prints a `NOTE:` before it replaces an unrecorded directory at a set or alias name, and a failure partway says
+which directories arrived and that no alias moved, so a rerun fetches only the rest. A `next:` that reruns the deploy
+keeps the `--pin` it was given.
+
+A directory counts as provisioned only while its executable is present and its record matches the hash the pin names and
+the URL its version gives, so a changed version fetches from its own URL and a directory whose executable is gone is
+fetched again. A build outside the pin that a deploy recorded stays on disk and registered, and `--check` reports it as
+retained.
+
+The first deploy on a host replaces every unrecorded directory at a set or alias name, `chromium-1248` from another
+tool's install included, so run it with no browser session open there. A run with no arguments deploys the set. The
+deploy takes no Playwright version; a run that passes one exits 2 with `version-argument-removed`.
+
+`scripts/playwright-browsers-deploy.sh` uses `curl` and `unzip` rather than `playwright install` because node's own
+extractor deadlocks on this host: on Node 26 / libuv 1.52.1 the io_uring filesystem backend hangs during archive
+extraction on kernel 6.8, and libuv removed the `UV_USE_IO_URING` escape hatch. The download is fine; only node's
+extractor wedges.
+
+### Other Playwright installs keep the set
+
+Any `playwright install` or `uninstall`, of any version, records its own package in `$PLAYWRIGHT_BROWSERS_PATH/.links`
+and then deletes every browser directory that no `.links` entry names: it reads each entry's `browsers.json` and keeps
+`<name>-<revision>` for the first entry of each browser name. A directory provisioned outside Playwright belongs to no
+package, so the deploy registers a client of its own for each real directory and each alias, under `.dotfiles/clients/`,
+which the cleanup never counts as a browser directory. The cleanup claims revisions as integers, which is why real
+directories carry a number. A client's content is rewritten only when it is wrong, through a file outside `.links`
+renamed into place, because the cleanup reads an empty or half-written client as broken and deletes every directory no
+working client names.
+
+### `--check`
+
+`scripts/playwright-browsers-deploy.sh --check` compares the cache with the pin and changes nothing. It exits 0 with one
+`OK:` line on stdout when the set is whole, and exits 1 with one `ERROR:` line per finding on stderr, each carrying a
+stable reason from the table below, what it changed (nothing), and a command to run next. It prints the first five
+findings of each reason and counts the rest. It reports a missing or incomplete directory, a record that differs from
+the pin, an alias that is missing, dangling, pointing at the wrong build, or a real directory, a directory with no
+client, a `dotfiles-*` link that names nothing in the set, and any browser directory the pin does not name that no
+deploy recorded: the `firefox-*` a bare `playwright install` downloads, or what a consumer below Playwright 1.57
+installs.
+
+```text
+ERROR: chromium-8103038 is missing or incomplete; reason: directory-incomplete; changed nothing; a deploy fetches it again and replaces what is there, so close browsers using it first; next: ~/dotfiles/scripts/playwright-browsers-deploy.sh
+```
+
+`--pin PATH` (or `--pin=PATH`) reads another pin, for checking an edit before it is committed.
+
+### Reasons
+
+Every failure line from `scripts/playwright-browsers-deploy.sh` has the form
+`ERROR: <message>; reason: <reason>[; value: <value>]; <what changed>; next: <command>`. A value from a file or the
+command line is shown with every character outside letters, digits, `.`, `_`, `-`, and space replaced by `?`, cut to 80
+characters. A usage error exits 2 before any work; every other failure exits 1. When `curl`, `unzip`, or another tool
+fails in a way the script did not anticipate, the tool's own message comes first and `unexpected-failure` follows.
+
+| Reason                     | Exit | Meaning                                                                                                                                                                                                                                                                        | Fix                                                                                                                            |
+| -------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `usage`                    | 2    | An unknown option, or `--pin` with no path. Nothing changed.                                                                                                                                                                                                                   | `scripts/playwright-browsers-deploy.sh --help`                                                                                 |
+| `version-argument-removed` | 2    | A Playwright version was passed. The pin names the set. Nothing changed.                                                                                                                                                                                                       | `scripts/playwright-browsers-deploy.sh --help`; to change the set, move the pin.                                               |
+| `pin-not-found`            | 1    | The pin file does not exist or cannot be read. Nothing changed.                                                                                                                                                                                                                | Pass a readable file with `--pin`, or leave `--pin` off for the checkout's.                                                    |
+| `pin-malformed`            | 1    | A line the parser does not know, a `webkit-aliases` line included, or a key that appears twice.                                                                                                                                                                                | Edit the pin: one `key value...` line per field.                                                                               |
+| `pin-invalid-value`        | 1    | A value outside its shape, or a Chromium alias equal to the CfT build's directory number.                                                                                                                                                                                      | Edit the value named; the shapes are in `scripts/playwright-browsers/lib/pin.sh`.                                              |
+| `pin-incomplete`           | 1    | A required key, or a required archive's `sha256` line, is missing.                                                                                                                                                                                                             | Add the line named.                                                                                                            |
+| `running-as-root`          | 1    | The cache must be owned by you. Nothing changed.                                                                                                                                                                                                                               | Run as your normal user.                                                                                                       |
+| `unsupported-platform`     | 1    | The set is built for Linux x86_64 and Apple silicon. Nothing changed.                                                                                                                                                                                                          | Run on a supported host.                                                                                                       |
+| `mac-release-unsupported`  | 1    | The pin has no WebKit archive for this macOS release. Nothing was downloaded.                                                                                                                                                                                                  | Update macOS to the release the message names, or move the pin.                                                                |
+| `tool-missing`             | 1    | `curl`, `unzip`, or a sha256 tool is missing. Nothing changed.                                                                                                                                                                                                                 | Ask the operator to install the tool named: `sudo apt-get install -y <tool>` on Linux, `brew install <tool>` on a Mac.         |
+| `archive-fetch-failed`     | 1    | `curl` could not fetch an archive; the line names the URL. It says which directories arrived and that no alias moved.                                                                                                                                                          | Rerun the deploy; it fetches only what is missing. A 404 means the pin names a build that is gone.                             |
+| `archive-hash-mismatch`    | 1    | A download hashes to something other than the pin's sha256. It says which directories arrived and that no alias moved.                                                                                                                                                         | `next:` hashes the URL. If that prints the pin's hash the download was corrupt, so rerun the deploy; if not, the pin is wrong. |
+| `archive-extract-failed`   | 1    | `unzip` could not unpack an archive. It says which directories arrived and that no alias moved.                                                                                                                                                                                | Rerun the deploy; check the disk.                                                                                              |
+| `archive-incomplete`       | 1    | An archive does not hold the executable Playwright launches. It says which directories arrived and that no alias moved.                                                                                                                                                        | The pin names the wrong archive; compare it with Playwright's registry. `next:` shows this row.                                |
+| `unexpected-failure`       | 1    | A step failed in a way the script did not expect; the line names the command and line. The set may be partly updated.                                                                                                                                                          | Read the tool's message above it, fix that cause, and rerun the deploy; it finishes the work.                                  |
+| `directory-incomplete`     | 1    | A set directory is missing, is a symlink, or lacks `INSTALLATION_COMPLETE` or its executable.                                                                                                                                                                                  | Run the deploy; it replaces what is there, so close browsers using it first.                                                   |
+| `provenance-mismatch`      | 1    | A set directory's record is absent or names another archive or URL.                                                                                                                                                                                                            | Run the deploy; it fetches that directory again.                                                                               |
+| `alias-missing`            | 1    | An alias the pin asks for does not exist.                                                                                                                                                                                                                                      | Run the deploy.                                                                                                                |
+| `alias-wrong-target`       | 1    | An alias points at another build, or at a directory that is not a finished install.                                                                                                                                                                                            | Run the deploy.                                                                                                                |
+| `alias-real-directory`     | 1    | A real directory sits at an alias name, as a `--force` install leaves it.                                                                                                                                                                                                      | Run the deploy; it replaces the directory with the alias, so close browsers using it first.                                    |
+| `client-missing`           | 1    | No correct client registers a directory or alias, so another install deletes it.                                                                                                                                                                                               | Run the deploy.                                                                                                                |
+| `client-unrecognised`      | 1    | A `.links/dotfiles-*` entry names nothing in the set. A deploy removes the regular files in its own shapes (`dotfiles-<directory>` naming `.dotfiles/clients/<directory>`, `dotfiles-playwright-<version>` or `dotfiles-chromium-alias-<revision>` naming `.dotfiles/<name>`). | Run the deploy; inspect what stays, and remove it if nothing needs it.                                                         |
+| `stray-directory`          | 1    | A browser directory outside the pin that no deploy recorded.                                                                                                                                                                                                                   | `next:` shows it. Once nothing uses it, remove it with `trash`.                                                                |
+| `stray-symlink`            | 1    | A symlink at a browser-directory name that is not an alias of the pin.                                                                                                                                                                                                         | A deploy removes one pointing at a directory of the set; remove others by hand.                                                |
+
+### Moving the pin
+
+A move is a person editing `config/playwright/browsers.pin` and rerunning the deploy. Everything new is provisioned and
+verified before any alias moves.
+
+1. **CfT version.** The Stable channel is the version to follow:
+
+   ```bash
+   curl -fsS https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json | jq -r .channels.Stable.version
+   ```
+
+   Set `cft-version`. A build's directory number is its build and patch, so two versions with the same build and patch
+   under different majors collide; the record catches it, and the deploy fetches from the version's own URL.
+2. **The newest release and ffmpeg.** Read the ffmpeg revision from `browsers.json` in the newest Playwright release's
+   npm tarball, without installing it, and record the tarball's sha256 as `source-sha256`:
+
+   ```bash
+   V=$(npm view playwright-core version)
+   T=$(mktemp)
+   curl -fsS -o "$T" "https://registry.npmjs.org/playwright-core/-/playwright-core-$V.tgz"
+   sha256sum "$T"
+   tar -xzOf "$T" package/browsers.json | jq -r '.browsers[] | select(.name == "ffmpeg") | "\(.name) \(.revision)"'
+   ```
+
+   Set `source-release` to `$V`, `source-sha256`, and `ffmpeg-revision`.
+3. **Alias lists.** Read the same file for every stable release from 1.57.0 to the newest; the `grep` drops prereleases
+   such as `1.66.0-alpha-…`:
+
+   ```bash
+   for v in $(npm view playwright-core versions --json | jq -r '.[]' | grep -E '^1\.(5[7-9]|[6-9][0-9])\.[0-9]+$'); do
+     curl -fsS "https://registry.npmjs.org/playwright-core/-/playwright-core-$v.tgz" | tar -xzOf - package/browsers.json |
+       jq -r '.browsers[] | select(.name == "chromium" or .name == "ffmpeg") | "\(.name) \(.revision)"'
+   done | sort -u
+   ```
+
+   `chromium-aliases` lists every `chromium` revision and `ffmpeg-aliases` every `ffmpeg` revision. WebKit has no alias
+   list.
+4. **WebKit and the library.** `library-version` is the Playwright the repos' tests run, and `webkit-revision` is the
+   WebKit its `browsers.json` names, so the two move together. Record the library tarball's sha256 as `library-sha256`:
+
+   ```bash
+   L=<library-version>
+   T=$(mktemp)
+   curl -fsS -o "$T" "https://registry.npmjs.org/playwright-core/-/playwright-core-$L.tgz"
+   sha256sum "$T"
+   tar -xzOf "$T" package/browsers.json | jq -c '.browsers[] | select(.name == "webkit") | {revision, revisionOverrides}'
+   tar -xzOf "$T" --wildcards 'package/lib/*.js' | grep -E 'builds/webkit/%s/webkit-mac'
+   ```
+
+   Set `library-version` to `$L`, `library-sha256`, and `webkit-revision` to the `revision`. A `revisionOverrides` entry
+   for `ubuntu24.04-x64`, `mac15-arm64`, or `mac26-arm64` is that platform's revision instead, and the pin cannot name
+   two, so a library with one needs the set reworked first. The test suite fetches the tarball by the hash and holds
+   `webkit-revision` to what the library names for those three platforms, so a wrong `library-sha256` or a
+   `library-version` moved without `webkit-revision` fails CI. The `grep` shows which archive the library's registry
+   downloads for each macOS release. `scripts/playwright-browsers/lib/plan.sh` selects the same one
+   (`webkit-mac-15-arm64.zip` for macOS 15 and later at 1.61.1), and a library whose registry maps a release elsewhere
+   needs `pw_mac_webkit` and the archive table there moved with the pin.
+5. **Archive hashes.** Hash all eight archives from their URLs, one `sha256` line each. A hash starting `e3b0c442` is
+   the empty download a 404 gives:
+
+   ```bash
+   V=<cft-version> W=<webkit-revision> F=<ffmpeg-revision>
+   G=https://storage.googleapis.com/chrome-for-testing-public/$V P=https://cdn.playwright.dev/builds
+   for u in $G/linux64/chrome-linux64.zip $G/linux64/chrome-headless-shell-linux64.zip \
+     $P/webkit/$W/webkit-ubuntu-24.04.zip $P/ffmpeg/$F/ffmpeg-linux.zip \
+     $G/mac-arm64/chrome-mac-arm64.zip $G/mac-arm64/chrome-headless-shell-mac-arm64.zip \
+     $P/webkit/$W/webkit-mac-15-arm64.zip $P/ffmpeg/$F/ffmpeg-mac-arm64.zip; do
+     echo "sha256 ${u##*/} $(curl -fsS "$u" | sha256sum | cut -d' ' -f1)"
+   done
+   ```
+
+   Also try `$P/webkit/$W/webkit-mac-14-arm64.zip`, and hash it only when step 4's `revisionOverrides` has no
+   `mac14-arm64` entry (at 1.61.1 it names 2251, so the archive at `$W` is not the macOS 14 build Playwright looks for).
+   A 404 for a macOS release's WebKit means that release is unsupported: leave its line out, and a Mac on it is
+   refused. `https://cdn.playwright.dev/builds/` serves WebKit
+   and ffmpeg directly; Playwright's `/dbazure/` path redirects to another host, which the deploy does not follow.
+6. **Check, then deploy.** `scripts/playwright-browsers-deploy.sh --check` shows the differences,
+   `scripts/playwright-browsers-deploy.sh` applies them, and a second `--check` exits 0 once no stray directory remains;
+   it names each one. Time the first deploy on a host with `gtime -f '%e s %M KB'`.
 
 ## Indicators
 
-| Symptom                                                                                         | Cause                                 |
-| ----------------------------------------------------------------------------------------------- | ------------------------------------- |
-| Playwright `browserType.launch: Executable doesn't exist at …/<browser>_<revision>/…`           | Browser binaries not provisioned      |
-| `browse` / Chromium dies with `FATAL:sandbox/linux/services/credentials.cc … Permission denied` | AppArmor userns profile not loaded    |
-| Playwright `browserType.launch: Host system is missing dependencies to run browsers` (WebKit)   | WebKit system libraries not installed |
+| Symptom                                                                                         | Cause                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Playwright `browserType.launch: Executable doesn't exist at …/<browser>_<revision>/…`           | Set not deployed, a Playwright below 1.57 or newer than the pin's `source-release`, or WebKit on a Playwright whose `browsers.json` names another revision than `webkit-revision` |
+| `Removing unused browser at …/chromium-<N>` in another tool's install output                    | Set not registered in `.links`                                                                                                                                                    |
+| `browse` / Chromium dies with `FATAL:sandbox/linux/services/credentials.cc … Permission denied` | AppArmor userns profile not loaded                                                                                                                                                |
+| Playwright `browserType.launch: Host system is missing dependencies to run browsers` (WebKit)   | WebKit system libraries not installed                                                                                                                                             |
 
 Chromium e2e projects can still pass while `browse` fails, because Playwright launches its test Chromium
 sandbox-disabled while `browse` keeps the sandbox on.
 
 ## Root cause
 
-1. **Browser binaries.** Provisioned by `scripts/playwright-browsers-deploy.sh` (see above). A missing or wrong-revision
-   binary surfaces as `Executable doesn't exist at …/<browser>_<revision>/…`; re-run the script to restore it.
+1. **Browser binaries.** Provisioned by `scripts/playwright-browsers-deploy.sh` (see above). A missing binary surfaces
+   as `Executable doesn't exist at …/<browser>_<revision>/…`; `scripts/playwright-browsers-deploy.sh --check` names what
+   is missing, and the deploy restores it.
 
 2. **Chromium sandbox.** Ubuntu 24.04 sets `kernel.apparmor_restrict_unprivileged_userns=1`, which blocks the user
    namespace Chromium's sandbox needs. `config/apparmor.d/playwright` grants `userns` to the Playwright Chromium
@@ -57,33 +245,37 @@ sandbox-disabled while `browse` keeps the sandbox on.
 
 ## Restore (and fresh-machine setup)
 
-Run as your normal user (it escalates to sudo where needed):
+Run as your normal user (it escalates to sudo where needed on Linux):
 
 ```bash
-# Browser binaries + AppArmor profile + boot persistence (Chromium / browse):
+# Linux: the browser set + AppArmor profile + boot persistence (Chromium / browse). Mac: the browser set.
 scripts/playwright-deps-deploy.sh
 
 # Also Safari/iOS e2e (WebKit system libraries, heavy ~380 MB):
 scripts/playwright-deps-deploy.sh --webkit
 ```
 
-`playwright-deps-deploy.sh` always provisions the browser binaries (via `scripts/playwright-browsers-deploy.sh`),
-deploys the AppArmor profile, and enables `apparmor-playwright.service` so it persists across reboots. The `--webkit`
-(and `--chromium`, `--all`) flags additionally install the browser system libraries. WebKit deps are opt-in because they
-are heavy and only needed for Safari/iOS testing. To provision (or re-provision) only the browser binaries, run
+`playwright-deps-deploy.sh` always deploys the browser set (via `scripts/playwright-browsers-deploy.sh`); on Linux it
+also deploys the AppArmor profile and enables `apparmor-playwright.service` so it persists across reboots. The
+`--webkit` (and `--chromium`, `--all`) flags additionally install the browser system libraries, on Linux only. WebKit
+deps are opt-in because they are heavy and only needed for Safari/iOS testing. Those flags run
+`bun x playwright install --with-deps` for the browsers they name, unpinned, so it asks for the newest Playwright's
+WebKit and downloads it when the cache lacks that revision. To deploy only the browser set, run
 `scripts/playwright-browsers-deploy.sh` directly.
 
 ## Verify
 
 ```bash
-scripts/playwright-browsers-deploy.sh                                  # → SKIP lines for all four (already provisioned)
-# From a Playwright project, scoped to the provisioned browsers:
+scripts/playwright-browsers-deploy.sh                                  # → NOTE lines for the four directories, then OK
+scripts/playwright-browsers-deploy.sh --check                          # → one OK line, exit 0
+# From a Playwright project, scoped to the browsers it launches:
 ./node_modules/.bin/playwright install chromium chromium-headless-shell webkit ffmpeg  # → instant no-op, exit 0
-systemctl is-enabled apparmor-playwright.service                       # → enabled
+systemctl is-enabled apparmor-playwright.service                       # → enabled (Linux)
 ~/.claude/skills/gstack/browse/dist/browse goto https://example.com    # → Navigated (200)
 # WebKit, from a Playwright project:
 bun run test:e2e --project=tablet --project=mobile-ios                  # → passes, no launch error
 ```
 
 Bare `playwright install` (no browser args) also pulls firefox, which is in Playwright's default set but not the
-agentnative e2e suite; scope the verify to the four provisioned browsers to keep it a true no-op.
+agentnative e2e suite, and which no alias covers; scope the verify to the browsers the repos launch to keep it a true
+no-op. `--check` names the `firefox-*` directory such an install leaves.

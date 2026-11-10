@@ -49,6 +49,22 @@ ad-hoc answers.
 - Visual audit, design polish → invoke design-review
 - Architecture review → invoke plan-eng-review
 
+### Reviewing a plan
+
+Every plan an agent writes goes through the plan reviews it needs, one round each, picked from `/plan-eng-review`,
+`/plan-devex-review`, and `/compound-engineering:ce-doc-review`. The plan lives in the repo under `docs/plans/` and is
+committed and pushed once it is written, and again when each review starts and when it ends, with a line in its
+`## Review log`, so each review's changes land as a commit of their own. Planning docs commit straight to `dev` under
+the Branches rule in `~/.claude/CLAUDE.md`.
+
+Answer each review question yourself where evidence settles it: the code, the repo's docs, `docs/solutions`, or
+precedent. Record the choice and its evidence in the plan. Some decisions only a person can make, such as a name, a
+breaking change, a version call, or a scope cut. In a session the user is watching, ask them. In an agent slot nobody
+watches the tab, so a question asked there is never answered, and a hook denies `AskUserQuestion` there: send it to the
+session the brief reports to, as one `SendMessage` with the question, the options, a recommendation, and the evidence.
+Keep working on whatever the question does not block, then end the turn; the answer arrives as a message. When the brief
+names no such session, the decision stays open in the plan and in the final report.
+
 ### $100 Rule
 
 When prevention was missed and a bug or regression slips through, invest in the permanent fix — add a test, a guard, a
@@ -92,16 +108,22 @@ Phase 1 symptom-collection, before the first hypothesis — the shared corpus is
 
 ## Shared solutions repo
 
-`docs/solutions/` in every repo is a symlink to `~/dev/solutions-docs` — a separate private git repo
-(`brettdavies/solutions-docs`). This centralizes all compounded solutions so the learnings-researcher agent can search
-across all repos from any working directory.
+`docs/solutions/` in a brettdavies repo links into the solutions repo (`brettdavies/solutions-docs`, a separate private
+repo), which centralizes every compounded solution so the learnings researcher can search it from any working directory.
+Two trees sit behind that link:
 
-**After writing to `docs/solutions/`** (e.g., via `/compound`), you MUST commit and push in the shared repo — but it is
-a **single clone that concurrent agents share**, so committing in it directly races their `git add`/`git commit` on the
-one `.git/index` and `HEAD`. Never `git add -A` there (it bundles other agents' in-flight files under your message), and
-never `git commit --amend` + `git push --force-with-lease` to fix a message on it (the amend can rewrite a concurrent
-agent's commit and force-push publishes it). Use **`sd-commit-doc`** (installed on `PATH` from
-`stow/local/dot-local/bin/`) rather than driving git by hand:
+- **An agent slot's own worktree.** Slot setup makes a detached worktree of the solutions repo at origin/main under
+  `~/slots/<repo>/.solutions/<n>-<suffix>`, records it as the slot record's `solutions_worktree`, and links the slot's
+  `docs/solutions` to it; a tracked link is marked `skip-worktree`, so the re-pointed link never reaches a commit. No
+  other agent writes in it. The slot is not torn down while the worktree holds a file, commit, or rebase origin/main
+  lacks (`solutions-unpublished`, whose `next_step` shows what it holds), and the teardown that deletes the slot removes
+  the worktree. `agent-slot doctor` reports a worktree under the slot root whose slot is gone
+  (`solutions-worktree-orphaned`) and never removes it.
+- **The shared clone, `~/dev/solutions-docs`.** A repo's own checkout links `docs/solutions` here. It is the clone qmd
+  indexes as the `solutions` collection and the object store every slot's worktree shares, and every session in every
+  prime checkout drafts in it, so its index and working tree are shared by concurrent writers.
+
+**Publish with `sd-commit-doc`** (installed on `PATH` from `stow/local/dot-local/bin/`), never by driving git by hand:
 
 ```bash
 #   1. write your doc(s) into docs/solutions/<category>/<slug>.md
@@ -109,31 +131,52 @@ MSG=/tmp/commit-msg-$(uuidv7).md              # 2. author + /unslop it (Conventi
 sd-commit-doc "$MSG" <category>/<slug>.md     # 3. repo-relative path(s); pass several to commit them together
 ```
 
-`sd-commit-doc` runs the whole safe sequence: it snapshots the named files into a throwaway **detached worktree** (its
-own `.git/index`, so parallel compounders cannot bundle each other's files under your message), commits with
-`--file "$MSG"`, pushes with a fetch + rebase + retry when origin has advanced, tears the worktree down, and finally
-`merge --ff-only`s the shared clone to origin so its checkout never drifts behind (the drift that strands the nightly
-autocommit). It never `git add -A`s and never amends + force-pushes. Before any of that work it pre-flights the corpus
-schema through the solutions repo's own `.githooks/lib-validate.sh`, so a doc missing a required frontmatter field fails
-in about a second with the field named instead of aborting part-way through a commit. Read or extend it at
-`~/.local/bin/sd-commit-doc`; its behavior is pinned by `tests/sd-commit-doc.bats` in dotfiles.
+`sd-commit-doc` finds your tree from where you run it: `SD_TREE`, then the current directory when it is inside a
+worktree of the solutions repo, then the checkout's `docs/solutions` link; with no link, or a link to the shared clone,
+it uses the shared clone (`--help` prints the order). Either way it first pre-flights the corpus schema through the
+tree's own `.githooks/lib-validate.sh`, so a doc missing a required frontmatter field fails in about a second with the
+field named.
 
-**Its exit status is the contract.** A failed run prints `sd-commit-doc: FAILED during <step>` on stderr and exits
-non-zero. Read that status directly (`sd-commit-doc "$MSG" <path>; rc=$?`); piping the command into `tail` or `head`
-yields the pipe's status rather than the helper's, so a rejected commit reads as a success and the message file gets
-cleaned up as though it had been used. If a single, exclusive writer is guaranteed (a solo interactive session, no
-background compounding agents), a plain
-`git -C "$SD" add <file> && git -C "$SD" commit --file "$MSG" && git -C "$SD" push` is acceptable — but verify with
-`git show --stat HEAD` afterward regardless. Full rationale:
+- **From a slot's worktree** it stages and commits exactly the named paths by pathspec (name both sides of a rename, and
+  a deleted doc by its old path), so a path another publish staged stays out of the commit. It refuses to rebase when
+  another uncommitted path in the worktree overlaps what origin changed, rebases with `--autostash` onto origin/main,
+  pushes, and fast-forwards the shared clone without reverting anything there.
+- **From the shared clone** it copies the named files into a throwaway detached worktree (its own index, so parallel
+  writers cannot bundle each other's files under your message), commits, pushes with a fetch + rebase retry, puts the
+  shared clone's copies back, and fast-forwards it.
+
+It never `git add -A`s and never amends + force-pushes. Read or extend it at `~/.local/bin/sd-commit-doc`; its behavior
+is pinned by `tests/sd-commit-doc.bats` in dotfiles.
+
+**Its exit status is the contract.** A failed run prints `sd-commit-doc: FAILED during <step>`, then
+`sd-commit-doc: reason: <code>`, `sd-commit-doc: state: <...>`, and `sd-commit-doc: next: <command>` on stderr, and
+exits non-zero. `next:` names what resolves the failure (for some reasons it is the rerun itself), and the same
+`sd-commit-doc` call then publishes; a rerun pushes a commit it already made rather than making a second one. After a
+rebase conflict the lines above the footer list the resume steps. `path-in-shared-clone`'s `next:` is only a `diff`: the
+shared clone's copy can be another session's draft, so copy it into your worktree only when the edit is yours. Read the
+status directly (`sd-commit-doc "$MSG" <path>; rc=$?`); piping the command into `tail` or `head` yields the pipe's
+status rather than the helper's, so a rejected commit reads as a success and the message file gets cleaned up as though
+it had been used. Full rationale:
 `docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
 `docs/solutions/workflow-issues/unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 
-The consuming repo's `git status` will show nothing for `docs/solutions/` because the symlink target is gitignored. If
-the symlink is missing, recreate it from the consuming repo's root with an absolute path (the shell expands `$HOME` at
-execution, baking in the resolved path on the current machine): `ln -s "$HOME/dev/solutions-docs" docs/solutions`.
-Absolute is preferred over a relative target because a relative target depends on how deep the consuming repo lives in
-the filesystem — `../../dev/solutions-docs` resolves correctly only when the repo lives two levels under `$HOME`, and
-silently produces a broken `~/dev/dev/solutions-docs` target when the repo sits at `~/dev/<repo>/`.
+**Edit what qmd finds through your own link.** A hit at `qmd://solutions/<path>` is edited at `docs/solutions/<path>` in
+your checkout, never at `~/dev/solutions-docs/<path>`. From a slot, the shared clone's copy is not yours: a publish
+whose named path differs there, or exists only there, refuses with `path-in-shared-clone` and changes nothing.
+
+**No automation commits in the shared clone.** `nightly-autocommit` runs it in `sync` mode, which fast-forwards and logs
+each change origin lacks as a `WARNING:` line, and the SessionStart autosync hook names the same changes at session
+start (a `systemMessage` in a repo's own checkout, context only in a slot). Such a change can be another session's draft
+waiting for its `sd-commit-doc`, so the report is informational: act only on what you wrote, and never commit by hand in
+the shared clone.
+
+The consuming repo's `git status` shows nothing for `docs/solutions/`: the global gitignore lists it, and a slot marks a
+tracked link `skip-worktree`. If the link is missing **in a repo's own checkout**, recreate it from the repo's root with
+an absolute path (the shell expands `$HOME` at execution, baking in the resolved path on the current machine):
+`ln -s "$HOME/dev/solutions-docs" docs/solutions`. Absolute is preferred over a relative target because a relative
+target depends on how deep the consuming repo lives in the filesystem: `../../dev/solutions-docs` resolves correctly
+only when the repo lives two levels under `$HOME`, and silently produces a broken `~/dev/dev/solutions-docs` target when
+the repo sits at `~/dev/<repo>/`. Never re-point a slot's link: it has to keep naming the slot's own worktree.
 
 ## Waiting without blocking
 
@@ -157,18 +200,29 @@ text (`pgrep -f '[g]it push -u origin fix/x'`). `~/.claude/self-match-guard.sh` 
 the bracketed command.
 
 **Watchdog for a background subagent.** The `Agent` spawn result names the agent's output file. Start this right after
-dispatch; it exits once the file has gone 10 minutes without a write. The output path is a symlink to the live
-transcript, re-pointed when the agent resumes, so `-L` is required: without it `find` reads the link's own age and fires
-on a busy agent (`find -L -mmin` works with GNU and BSD find):
+dispatch. It exits when the file's last line shows the agent finished, or once the file has gone 10 minutes without a
+write. A finished agent's last line is its final assistant message, which ended its turn (`stop_reason` `end_turn`), or
+the result of its `SubagentHandback`: of 447 subagent transcripts on the Linux server over 20 days, 440 end with one of
+the two, and the other seven were stopped or cut off mid-message, which the 10-minute rule still catches. The output
+path is a symlink to the live transcript, re-pointed when the agent resumes, so `-L` is required: without it `find`
+reads the link's own age and fires on a busy agent (`find -L -mmin` works with GNU and BSD find):
 
 ```bash
-out=<agent output file>; while [ -n "$(find -L "$out" -mmin -10)" ]; do sleep 10; done; echo "agent quiet 10 min: $out"
+out=<agent output file>
+finished() { tail -n 1 "$out" | jq -e '.message.stop_reason == "end_turn" or .toolUseResult.message == "Report delivered to your caller."' >/dev/null 2>&1; }
+while [ -n "$(find -L "$out" -mmin -10)" ] && ! finished; do sleep 10; done
+if finished; then echo "agent finished: $out"; else echo "agent quiet 10 min: $out"; fi
 ```
 
-On wake, read the tail of the output file and the processes the agent started. A finished agent needs nothing; a stalled
-one gets a `SendMessage` (resume with a deadline, re-scope, or stop and clean up its processes); a long foreground step
-that is still producing work gets the watchdog re-armed. Background-subagent notices were observed to wait in a queue
-until the main session was next active, so the watchdog belongs to the main session, never to the subagent.
+When the agent's completion notice arrives, stop its watchdog at once with the task tool (`TaskStop`); don't leave it to
+see the finish itself. An agent stopped or failed mid-turn leaves neither last line, so its watchdog would run on for 10
+minutes, and every live background shell keeps the session listed busy, which holds back whatever waits for it to go
+idle, such as a slot's teardown. The 10-minute rule is there only to catch a stall. When the watchdog wakes you with
+`agent finished`, the agent needs nothing beyond reading its result. When it wakes you with `agent quiet 10 min`, read
+the tail of the output file and the processes the agent started: a stalled agent gets a `SendMessage` (resume with a
+deadline, re-scope, or stop and clean up its processes), and a long foreground step that is still producing work gets
+the watchdog re-armed. Background-subagent notices were observed to wait in a queue until the main session was next
+active, so the watchdog belongs to the main session, never to the subagent.
 
 **Brief clause.** Paste into every `Agent` prompt for work that can run past a few minutes, with the deadline filled in:
 

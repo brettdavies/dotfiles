@@ -5,9 +5,12 @@
 # `scripts/prose-check.sh` across agentnative-{spec,cli,site,skill}.
 #
 # The four repos converged on the same LT contract:
-#   - Probe http://languagetool:8081/v2/languages with --max-time 2 to
-#     decide reachability. FQDN avoids macOS+Tailscale short-name DNS
-#     timeouts.
+#   - Probe <base>/v2/languages with --max-time 2 to decide reachability.
+#     With no URL given, <base> is the languagetool Tailscale Service under
+#     the tailnet's full MagicDNS name, https://languagetool.<suffix>, with
+#     <suffix> read from `tailscale status --json` when a function runs (the
+#     name never lives in this repo). A Service answers https on 443 only, and
+#     a short name fails its TLS handshake and times out on macOS.
 #   - POST /v2/check per file with language=en-US and text@<file>.
 #   - Treat matches whose category is TYPOS, GRAMMAR, or CONFUSED_WORDS
 #     as blocking; everything else is advisory. The other LT categories
@@ -19,8 +22,11 @@
 #     repo's prose (see LT_DENY_RULES_BASELINE below).
 #   - Approximate line numbers from byte offsets via awk; LT v1 does not
 #     return line/column natively.
-#   - Skip gracefully when LT is unreachable (R9) so pushes don't block
-#     on Tailscale being off; print a curl-exit-coded reason on stderr.
+#   - When LT cannot be reached, its URL cannot be worked out, or a file's
+#     /v2/check request fails, exit 2 and print a WARNING notice on stderr: the
+#     cause, what did not run, the command that diagnoses it, and how to name
+#     another server. Callers decide whether exit 2 skips the stage or fails the
+#     run.
 #
 # Per-repo denylist extensions go in LT_DENY_RULES, layering on top of
 # the baseline. Example for agentnative-site, where the corpus uses
@@ -41,12 +47,15 @@
 #                                            constants and which block by default.
 #
 # Env (all optional):
-#   LANGUAGETOOL_URL        LT base URL (default http://languagetool:8081)
+#   LANGUAGETOOL_URL        LT base URL (default https://languagetool.<MagicDNS
+#                           suffix>, the suffix read from `tailscale status`)
 #   LT_BLOCKING_CATEGORIES  Anchored category regex
 #                           (default ^(TYPOS|GRAMMAR|CONFUSED_WORDS)$)
 #   LT_DENY_RULES           Inner alternation of rule IDs to suppress
 #                           (default $LT_DENY_RULES_BASELINE)
 #   LT_PROBE_TIMEOUT        /v2/languages probe timeout, seconds (default 2)
+#   LT_TAILSCALE_APP        Tailscale CLI used when `tailscale` is not on PATH (default
+#                           /Applications/Tailscale.app/Contents/MacOS/Tailscale)
 #   LT_CHECK_TIMEOUT        /v2/check timeout per file, seconds (default 30)
 #   LT_JOBS                 Parallel check workers (default 4)
 #
@@ -54,15 +63,18 @@
 #   stdout — one match per line, sorted by input file order:
 #     blocking:  <file>:<line>:LT.<rule_id> (<category>): <message>
 #     warning:   [warn] <file>:<line>:LT.<rule_id> (<category>): <message>
-#   stderr — reachability notice with curl-exit explanation on probe fail.
+#   stderr — nothing on a run; on exit 2, or on 1 with unchecked files, the
+#     WARNING notice described above.
 #
 # Exit:
 #   0  ran, no blocking matches (warnings may still have printed)
 #   1  ran, blocking matches present (also on stdout)
-#   2  LT unreachable; caller decides whether to proceed
+#   2  LT unreachable, no URL to try, or no file checked (blocking matches in
+#      the files that were checked exit 1 instead); caller decides whether to
+#      proceed
 #   3  usage error (no files, unknown flag)
 #
-# Deps: curl, jaq, awk, xargs, mktemp.
+# Deps: curl, jaq, awk, xargs, mktemp; the Tailscale CLI only when no URL is given.
 #
 # Rule baseline — 10 rules that misfire on technical prose patterns
 # every repo's corpus contains. Override the whole list by setting
@@ -94,11 +106,115 @@
 #                          verb when the actual subject ("Agents") is plural.
 LT_DENY_RULES_BASELINE='MD_BASEFORM|MUST_HAVE_TO|HAVE_PART_AGREEMENT|PREPOSITION_VERB|THIS_NNS|NON_STANDARD_WORD|POSSESSIVE_APOSTROPHE|A_INSTALL|IS_AND_ARE|SINGULAR_NOUN_ADV_AGREEMENT'
 
+# _lt_tailscale_cli: print the command that runs the Tailscale CLI: tailscale
+# when it is on PATH, else the macOS app's bundled binary, which the app does
+# not put on PATH. Fails when neither exists.
+_lt_tailscale_cli() {
+  if command -v tailscale >/dev/null 2>&1; then
+    printf 'tailscale'
+    return 0
+  fi
+  local app="${LT_TAILSCALE_APP:-/Applications/Tailscale.app/Contents/MacOS/Tailscale}"
+  [[ -x "$app" ]] || return 1
+  printf '%s' "$app"
+}
+
+# _lt_default_url OUTVAR: set OUTVAR to the languagetool Tailscale Service's
+# URL. Fails when the tailnet's MagicDNS suffix cannot be read (no Tailscale
+# CLI, Tailscale not running) or is not a bare DNS suffix, so a malformed
+# value never reaches a URL.
+_lt_default_url() {
+  local cli suffix
+  cli=$(_lt_tailscale_cli) || return 1
+  suffix=$("$cli" status --json 2>/dev/null | jaq -r '.MagicDNSSuffix // empty' 2>/dev/null) || return 1
+  case "$suffix" in
+    '' | *[!A-Za-z0-9.-]* | .* | *.) return 1 ;;
+  esac
+  printf -v "$1" 'https://languagetool.%s' "$suffix"
+}
+
+# _lt_probe URL: succeed when URL answers /v2/languages. Leaves curl's exit
+# status for _lt_probe_reason.
+_lt_probe() {
+  curl --max-time "${LT_PROBE_TIMEOUT:-2}" -fsS "$1/v2/languages" >/dev/null 2>&1
+}
+
+# _lt_probe_reason CURL_EXIT: why the probe failed, in words.
+_lt_probe_reason() {
+  case "$1" in
+    6) printf "couldn't resolve host (Tailscale likely off, or the name is wrong)" ;;
+    7) printf "couldn't connect (host down, port closed, or a Tailscale Service, which answers https on 443 only)" ;;
+    22) printf 'answered with an HTTP error status (not a LanguageTool server?)' ;;
+    28) printf 'timed out (>%ss; service slow or network impaired)' "${LT_PROBE_TIMEOUT:-2}" ;;
+    35) printf 'TLS handshake failed (an https Service answers only under its full MagicDNS name)' ;;
+    60) printf 'TLS certificate not trusted' ;;
+    *) printf 'curl exit %s' "$1" ;;
+  esac
+}
+
+# _lt_notice_not_run CALLER: the line that says no grammar check happened.
+# lt_check is the only function that runs one; the query functions only ask
+# the server about itself.
+_lt_notice_not_run() {
+  if [[ "$1" == lt_check ]]; then
+    printf 'WARNING: %s: grammar check NOT RUN; only the other stages vouch for this prose\n' "$1"
+  fi
+}
+
+# _lt_notice_notes CALLER DIAGNOSE_COMMAND: the NOTE lines that close every
+# notice. LANGUAGETOOL_URL is the override every caller honors; the prose-check
+# scripts accept no --lt-url.
+_lt_notice_notes() {
+  printf 'NOTE: %s: diagnose with: %s\n' "$1" "$2"
+  printf 'NOTE: %s: to use another server: export LANGUAGETOOL_URL=<base url>\n' "$1"
+}
+
+# _lt_warn_unreachable CALLER URL CURL_EXIT: the stderr notice for a server
+# that did not answer the probe.
+_lt_warn_unreachable() {
+  {
+    printf 'WARNING: %s: LanguageTool unreachable at %s: %s\n' "$1" "$2" "$(_lt_probe_reason "$3")"
+    _lt_notice_not_run "$1"
+    _lt_notice_notes "$1" "curl -sS $2/v2/languages"
+  } >&2
+}
+
+# _lt_warn_no_url CALLER: the stderr notice for a default URL that could not
+# be worked out.
+_lt_warn_no_url() {
+  {
+    printf "WARNING: %s: LanguageTool URL unknown: LANGUAGETOOL_URL is unset and the tailnet name could not be read from 'tailscale status --json' (CLI missing, or Tailscale not running)\n" "$1"
+    _lt_notice_not_run "$1"
+    _lt_notice_notes "$1" 'tailscale status'
+  } >&2
+}
+
+# _lt_warn_unchecked CALLER URL UNCHECKED TOTAL: the stderr notice for files
+# whose /v2/check request failed or came back without a matches list.
+_lt_warn_unchecked() {
+  {
+    printf 'WARNING: %s: LanguageTool did not check %s of %s file(s): /v2/check failed or returned no matches list\n' "$1" "$3" "$4"
+    _lt_notice_notes "$1" "curl -sS -d language=en-US -d text=test $2/v2/check"
+  } >&2
+}
+
+# _lt_url_or_default CALLER OUTVAR EXPLICIT: set OUTVAR to EXPLICIT when it is
+# non-empty, else to the default URL. Prints the notice and returns 2 when
+# there is no default to fall back on.
+_lt_url_or_default() {
+  if [[ -n "$3" ]]; then
+    printf -v "$2" '%s' "$3"
+    return 0
+  fi
+  _lt_default_url "$2" && return 0
+  _lt_warn_no_url "$1"
+  return 2
+}
+
 lt_check() {
-  local lt_url="${LANGUAGETOOL_URL:-http://languagetool:8081}"
+  local lt_url="${LANGUAGETOOL_URL:-}"
   local blocking_re="${LT_BLOCKING_CATEGORIES:-^(TYPOS|GRAMMAR|CONFUSED_WORDS)$}"
   local deny_re="^(${LT_DENY_RULES:-$LT_DENY_RULES_BASELINE})\$"
-  local probe_timeout="${LT_PROBE_TIMEOUT:-2}"
   local check_timeout="${LT_CHECK_TIMEOUT:-30}"
   local jobs="${LT_JOBS:-4}"
   local -a files=()
@@ -138,17 +254,12 @@ lt_check() {
     return 3
   fi
 
+  _lt_url_or_default lt_check lt_url "$lt_url" || return 2
+
   local probe_rc=0
-  curl --max-time "$probe_timeout" -fsS "$lt_url/v2/languages" >/dev/null 2>&1 || probe_rc=$?
+  _lt_probe "$lt_url" || probe_rc=$?
   if ((probe_rc != 0)); then
-    local reason
-    case "$probe_rc" in
-      6) reason="couldn't resolve host (Tailscale likely off, or FQDN drift)" ;;
-      7) reason="couldn't connect (host up, LT service down)" ;;
-      28) reason="timed out (>${probe_timeout}s; service slow or network impaired)" ;;
-      *) reason="curl exit $probe_rc" ;;
-    esac
-    printf 'lt_check: LanguageTool unreachable at %s — %s\n' "$lt_url" "$reason" >&2
+    _lt_warn_unreachable lt_check "$lt_url" "$probe_rc"
     return 2
   fi
 
@@ -166,10 +277,13 @@ lt_check() {
         ' _ {} "$tmp" "$lt_url" "$check_timeout" \
     || true
 
-  local f json offset rule_id category message line
+  local f json offset rule_id category message line unchecked=0
   for f in "${files[@]}"; do
     json="$tmp/$(printf '%s' "$f" | tr '/' '_').json"
-    [[ -s "$json" ]] || continue
+    if ! jaq -e '.matches | type == "array"' "$json" >/dev/null 2>&1; then
+      unchecked=$((unchecked + 1))
+      continue
+    fi
     while IFS=$'\t' read -r offset rule_id category message; do
       [[ -z "$offset" ]] && continue
       line=$(awk -v off="$offset" 'BEGIN{cur=0} {cur+=length($0)+1; if (cur>off) {print NR; exit}}' "$f" 2>/dev/null)
@@ -184,19 +298,21 @@ lt_check() {
   done
 
   rm -rf "$tmp"
+  ((unchecked > 0)) && _lt_warn_unchecked lt_check "$lt_url" "$unchecked" "${#files[@]}"
   ((blocking_count > 0)) && return 1
+  ((unchecked > 0)) && return 2
   return 0
 }
 
-# _lt_resolve_url: shared --lt-url / LANGUAGETOOL_URL parser for the query
-# functions below. Sets the caller-scoped var named in $1 to the resolved URL,
-# consuming "--lt-url URL" / "--lt-url=URL" from the caller's positional args
-# via $2…$N. Echoes any leftover positional args on stdout so the caller can
-# repopulate its own arg list. Returns 0 on success, 3 on unknown flag.
+# _lt_resolve_url OUTVAR [--lt-url URL | --lt-url=URL]: shared flag parser for
+# the query functions below. Sets OUTVAR to the URL the flag gives, else
+# LANGUAGETOOL_URL, else the empty string: the default is _lt_url_or_default's
+# to work out, and only for a function that uses the URL. Returns 0, 3 on an
+# unknown flag (named on stderr), or 4 on -h / --help.
 _lt_resolve_url() {
   local _outvar="$1"
   shift
-  local _url="${LANGUAGETOOL_URL:-http://languagetool:8081}"
+  local _url="${LANGUAGETOOL_URL:-}"
   while (($#)); do
     case "$1" in
       --lt-url)
@@ -232,20 +348,18 @@ lt_info() {
   fi
   ((rc != 0)) && return "$rc"
 
+  if ! _lt_url_or_default lt_info lt_url "$lt_url"; then
+    printf 'URL:           (unknown)\nReachable:     no (no URL to try)\n'
+    return 2
+  fi
+
   local probe_timeout="${LT_PROBE_TIMEOUT:-2}"
   printf 'URL:           %s\n' "$lt_url"
 
   local probe_rc=0
-  curl --max-time "$probe_timeout" -fsS "$lt_url/v2/languages" >/dev/null 2>&1 || probe_rc=$?
+  _lt_probe "$lt_url" || probe_rc=$?
   if ((probe_rc != 0)); then
-    local reason
-    case "$probe_rc" in
-      6) reason="couldn't resolve host" ;;
-      7) reason="couldn't connect" ;;
-      28) reason="timed out (>${probe_timeout}s)" ;;
-      *) reason="curl exit $probe_rc" ;;
-    esac
-    printf 'Reachable:     no (%s)\n' "$reason"
+    printf 'Reachable:     no (%s)\n' "$(_lt_probe_reason "$probe_rc")"
     return 2
   fi
   printf 'Reachable:     yes\n'
@@ -281,12 +395,14 @@ lt_languages() {
   fi
   ((rc != 0)) && return "$rc"
 
-  local probe_timeout="${LT_PROBE_TIMEOUT:-2}"
-  local json
-  json=$(curl -sS --max-time "$probe_timeout" "$lt_url/v2/languages" 2>/dev/null) || {
-    printf 'lt_languages: cannot reach %s\n' "$lt_url" >&2
+  _lt_url_or_default lt_languages lt_url "$lt_url" || return 2
+
+  local json probe_rc=0
+  json=$(curl -fsS --max-time "${LT_PROBE_TIMEOUT:-2}" "$lt_url/v2/languages" 2>/dev/null) || probe_rc=$?
+  if ((probe_rc != 0)); then
+    _lt_warn_unreachable lt_languages "$lt_url" "$probe_rc"
     return 2
-  }
+  fi
   if [[ -z "$json" ]]; then
     printf 'lt_languages: empty response from %s\n' "$lt_url" >&2
     return 2

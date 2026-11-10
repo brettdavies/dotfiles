@@ -1,8 +1,8 @@
 # Git, Commits, Pull Requests & CI
 
 Detail behind the **Branches**, **Commits & PRs**, **Worktree commits and pushes**, and **CI after push** rules in
-`~/.claude/CLAUDE.md`. Open this before authoring any commit message, PR/issue/release body, committing or pushing from
-a linked worktree, or when watching CI after a push.
+`~/.claude/CLAUDE.md`. Read the section a task needs, not the whole file: stacked PRs, rewriting pushed history, or
+committing and pushing from a linked worktree.
 
 ## Branch discipline
 
@@ -72,9 +72,9 @@ into Claude Code's system prompt and any skill/command template (e.g., the offic
 **Enforcement.** The `~/.claude/ai-attribution-guard.sh` PreToolUse Bash hook denies `git commit` and
 `gh pr|issue|release` calls whose message or body carries the trailer. It resolves `--file` / `-F` / `--body-file` /
 `--notes-file` and reads the artifact, so a trailer authored into a `/tmp/` body is caught at the same gate as an inline
-one; a human `Co-Authored-By:` passes. Tests at `tests/ai-attribution-guard.bats` (22 cases) — run with
-`bats tests/ai-attribution-guard.bats`. The hook exists because the rule alone loses to a mid-session harness reminder
-that instructs the opposite, and the cleanup is a signed-history rewrite plus a force-push to a protected branch.
+one; a human `Co-Authored-By:` passes. Tests: `bats tests/ai-attribution-guard.bats`. The hook exists because the rule
+alone loses to a mid-session harness reminder that instructs the opposite, and the cleanup is a signed-history rewrite
+plus a force-push to a protected branch.
 
 ## Rewriting pushed history (reword, force-push)
 
@@ -187,6 +187,112 @@ about to `--body` a hand-written string instead of filling in the template, stop
 the sub-header or label. The "delete empty sections" rule applies ONLY to the `Changelog` block's `### Added` /
 `### Changed` / `### Fixed` / `### Documentation` subsections, per the template's own comment.
 
+## Stacked PRs
+
+A stack is a chain of feature branches where each PR targets the branch below it (`feat/b` → `feat/a` → `dev`). The
+official extension manages them: `gh extension install github/gh-stack`. GitHub tracks the stack server-side as its own
+object with a stack number, separate from the local branch chain.
+
+### Land the whole stack in one atomic merge
+
+`gh stack merge <top-pr> --squash --yes` is the default way to land a stack. It merges every PR up to and including the
+one named in a single all-or-nothing operation: each PR squashes into the base under its own `<title> (#n)` subject and
+body, so a provenance guard that requires the `(#n)` reference still passes, and a failure on any one PR merges none of
+them. Only open/not-draft state is checked client-side; branch protection and rulesets are evaluated server-side when
+the merge runs, and bypassing merge requirements is not supported for stacks.
+
+Prefer it, because merging one PR at a time is quadratic in CI. GitHub restacks every tracked branch above each merge,
+and a workflow triggered on `pull_request` with no path filter cannot tell that the restacked trees are byte-identical,
+so it runs the full battery on every branch again. A ten-PR stack costs about 45 restacks and ninety full workflow runs
+that way. The atomic merge performs no intermediate restack, so nothing re-runs.
+
+Every gate the sequential flow spreads across cycles has to be satisfied before the single call:
+
+- **Every head green**, verified by rollup rather than watcher exit code (below).
+- **Every body validated** against that PR's own `base...HEAD` — `origin/dev...<head>` for the bottom PR,
+  `origin/<parent-branch>...<head>` for each PR above it. That is the diff GitHub shows and the diff its squash carries;
+  `origin/dev...<head>` on a mid-stack PR wrongly includes every layer beneath it.
+- **Stale stack narration rewritten** to present tense. Squash settings that copy `PR_TITLE` + `PR_BODY` put "stacked
+  on #N" and "once #N merges" into permanent history.
+
+### Verify CI by rollup, not by watcher exit code
+
+`gh pr checks --watch` returns once no check it can see is pending, and its exit code says only whether one of them
+failed. In gh 2.36.0 and later it exits 1 when a check ends `FAILURE`, `ERROR`, `TIMED_OUT`, or `ACTION_REQUIRED`, and 0
+when every check ends `SUCCESS`, `SKIPPED`, `NEUTRAL`, or `CANCELLED`; releases before 2.36.0 also exit 1 on `CANCELLED`
+([cli/cli#7960](https://github.com/cli/cli/pull/7960)). `SKIPPED` exits 0 in every release that has `--watch`. Without
+`--watch`, a pending check exits 8 (gh 2.34.0 and later, [cli/cli#7866](https://github.com/cli/cli/pull/7866)). It keeps
+one entry per check, the most recently started: a check run is keyed by its name, workflow, and event, and a status
+context by its context name
+([`eliminateDuplicates`](https://github.com/cli/cli/blob/e95424515725d5dab88fb221a5df00e8b604269e/pkg/cmd/pr/checks/aggregate.go#L96)).
+It counts only the checks registered when it polls, so a workflow that registers after its last poll is never counted.
+Read the rollup instead and assert every live conclusion is `SUCCESS`. In the rollup, a branch GitHub rewrote twice
+shows each check twice: a `CANCELLED` set from the superseded run under the concurrency group plus the live set. Check
+runs and status contexts also report differently — a check run carries `status` plus `conclusion` while a status context
+carries `state`, so a filter that reads only `conclusion // state` counts in-progress check runs as passing:
+
+```bash
+gh pr view <n> --json headRefOid,mergeStateStatus,statusCheckRollup --jq '
+  def st: if .__typename == "CheckRun" then (if .status == "COMPLETED" then .conclusion else .status end) else .state end;
+  {merge: .mergeStateStatus, count: (.statusCheckRollup | length),
+   tally: ([.statusCheckRollup[] | st] | group_by(.) | map({(.[0]): length}) | add)}'
+```
+
+An empty rollup means nothing ran, not that everything passed. `mergeStateStatus` reads `CLEAN` and "every conclusion is
+`SUCCESS`" holds over an empty list, so `count: 0` with `merge: CLEAN` is not a green head. Compare an upper PR's
+workflows with the lower PR's before calling it green; the usual cause is an unlinked stack (see `gh stack link` below).
+
+### Sequential merges, when the stack must land in pieces
+
+Merge the lowest unmerged PR with `gh stack merge <pr> --squash --yes`, then read what GitHub did before touching
+anything locally. It deletes the merged head branch, retargets the next PR to the base, and restacks every branch above
+onto the new tip with the trees preserved and itself as committer. The local side only needs
+`git branch -f <branch> origin/<branch>` per branch (or `git reset --hard origin/<branch>` in a checkout); never
+force-push over GitHub's rewrite, and never delete a branch by hand. Then wait for the restacked heads' CI, which is the
+only gate on a repo whose workflows trigger on `pull_request` alone, and repeat.
+
+The restack happens only while GitHub still tracks the stack. A pair stacked by base branch alone, or removed from the
+stack before the lower PR merges (both timelines show `removed_from_stack`), is retargeted to the base and left as it
+was, and the upper PR goes `DIRTY`: the base now holds the lower PR as one squash commit while the upper branch still
+carries its original commits. Merge the base into the upper branch, resolve hunk by hunk rather than taking whole files,
+and check that the resolved diff's `git patch-id --stable` matches the upper PR's own patch before committing; a chained
+`git merge-tree --write-tree` over the planned squash order shows beforehand which PRs will need this. Steps and
+caveats: `docs/solutions/workflow-issues/resolve-stacked-pr-after-base-squash-merge-and-verify-by-patch-id.md`.
+
+Without the extension, the equivalent is the asynchronous merge endpoint. GitHub refuses the synchronous
+`PUT .../pulls/<n>/merge` for any PR it tracks as part of a stack, including one it rebased itself after the PR below
+merged, so do not retry through it:
+
+```bash
+gh pr view <n> --json body -q .body > <scratchpad>/pr<n>-merge-msg.md      # trash after the merge
+gh api -X PUT repos/<owner>/<repo>/pulls/<n>/merge-async \
+  -f merge_method=squash -f merge_action=direct_merge -f sha=<full-head-sha> \
+  -f commit_title="<pr title> (#<n>)" -F commit_message=@<scratchpad>/pr<n>-merge-msg.md
+gh api repos/<owner>/<repo>/pulls/<n>/merge-async/<uuid>                   # poll until status is "merged"
+```
+
+The 202 response carries `details.uuid`; poll until `status` is `merged` or `failed`. Pass `commit_title` and
+`commit_message` explicitly so the squash keeps the web UI's `<title> (#n)` + body shape. This endpoint also merges
+every PR up to and including the one named, so call it on the lowest unmerged PR.
+
+### Bookkeeping: link, adopt, inspect, detach
+
+- **`gh stack link --base <trunk> <pr...>`** creates or updates the GitHub stack from existing PRs, bottom to top,
+  without adopting local tracking. This is the entry point when the branches are managed by hand or by another tool. It
+  never rewrites the branches. Run it right after opening each upper PR: in a repo whose workflows set
+  `on.pull_request.branches`, a PR whose base is another PR's branch gets none of those workflows until the stack is
+  linked, and `gh pr checks --watch` reports `no checks reported`. Linking starts them without changing the PR's head or
+  base. Background:
+  `docs/solutions/workflow-issues/stacked-pr-in-a-base-filtered-repo-has-no-checks-until-the-stack-is-linked.md`.
+- **`gh stack init --base <trunk> <branch...>`** adopts existing branches into local tracking, bottom to top, leaving
+  every branch SHA untouched.
+- **`gh stack view --short`** lists the chain with each PR's state; `--json` for machine reading. `gh stack rebase`
+  cascades a rebase across the chain and `gh stack push` force-pushes each branch with its own lease.
+- **Detach through the extension, never by hand.** `gh pr edit <n> --base <trunk>` is refused for a PR GitHub tracks as
+  part of a stack. Use `gh stack unstack <stack-number>` to detach on GitHub, or `--local` to drop only local tracking.
+  Never chain a branch deletion after a base edit: deleting the branch a PR targets closes that PR, and a head that has
+  since been rewritten cannot be reopened.
+
 ## Authoring GitHub correspondence: `/tmp/` + `--body-file` + `/unslop`
 
 **Mandatory workflow for all server-side artifacts that ship text to GitHub.** Applies to PR bodies, PR comments, PR
@@ -199,12 +305,15 @@ repo has its own prose-linting pipeline.
 1. **Author in `/tmp/` with a collision-proof name.** Generic names like `/tmp/pr-body.md` clobber parallel sessions,
    and reused tmp files from earlier turns ship stale content. Use one of two filename forms — no exceptions. For
    PR-scoped artifacts (PR body, PR comment, PR review), name the file `/tmp/pr-body-<repo>.<branch>.md` where `<repo>`
-   is `$(basename "$(git rev-parse --show-toplevel)")` and `<branch>` is `$(git rev-parse --abbrev-ref HEAD | tr / -)`
-   (slashes in branch names → `-`). The repo+branch key scopes the file to the current work, so re-runs on the same
-   branch overwrite in place — desired, since resubmitting replaces server-side. For everything else (commit messages,
-   issue bodies, issue comments, release notes, one-off bodies), name the file `/tmp/<kind>-$(uuidv7).md`. The `uuidv7`
-   helper lives at `stow/local/dot-local/bin/uuidv7` (deploys to `~/.local/bin/uuidv7` via `scripts/stow-deploy local`);
-   it's a three-line `python3.14` script around `uuid.uuid7()` (stdlib uuid7 was added in 3.14, so the shebang pins that
+   is `$(basename -s .git "$(git remote get-url origin 2>/dev/null || git rev-parse --show-toplevel)")` and `<branch>`
+   is `$(git rev-parse --abbrev-ref HEAD | tr / -)` (slashes in branch names → `-`). `<repo>` comes from the origin
+   remote, not the checkout's directory: an agent slot's directory is a number (`~/slots/<repo>/<N>`), so parallel slots
+   on one branch name would otherwise share a file; the directory name is only the fallback for a repo with no origin.
+   The repo+branch key scopes the file to the current work, so re-runs on the same branch overwrite in place — desired,
+   since resubmitting replaces server-side. For everything else (commit messages, issue bodies, issue comments, release
+   notes, one-off bodies), name the file `/tmp/<kind>-$(uuidv7).md`. The `uuidv7` helper lives at
+   `stow/local/dot-local/bin/uuidv7` (deploys to `~/.local/bin/uuidv7` via `scripts/stow-deploy local`); it's a
+   three-line `python3.14` script around `uuid.uuid7()` (stdlib uuid7 was added in 3.14, so the shebang pins that
    version). UUIDv7 is time-ordered, so `ls /tmp/commit-msg-*.md` sorts by creation. Use a fresh UUID per file — never
    reuse one across two artifacts. The auto-format hook (`md-wrap.py`) skips `/tmp/` paths, so the file keeps its
    authored shape — no 120-char wrapping inside prose. Write each paragraph and each bullet as **one logical line**;
@@ -226,12 +335,15 @@ repo has its own prose-linting pipeline.
    `git commit --file ...`. Never inline the body via `--body "..."`, `-m "..."`, or a `--body "$(cat <<'EOF' ... EOF)"`
    heredoc. **As soon as the `gh` (or `git commit`) call returns success, delete the tmp file with `trash <path>`.** The
    file is single-use; leaving it around invites accidental reuse with stale content on the next turn and clutters
-   `/tmp/`. If the submit fails, keep the file, fix, resubmit, then delete on success.
+   `/tmp/`. If the submit fails, keep the file, fix, resubmit, then delete on success. Chain the delete on the submit's
+   own status: `git commit --file "$MSG" && trash "$MSG"`. Piping the submit's output first
+   (`git commit --file "$MSG" | tail -2 && trash "$MSG"`) makes the pipeline exit with `tail`'s status, so a failed
+   commit still deletes the message; read the output in a later step instead.
 
 Typical flow (PR body):
 
 ```bash
-REPO=$(basename "$(git rev-parse --show-toplevel)")
+REPO=$(basename -s .git "$(git remote get-url origin 2>/dev/null || git rev-parse --show-toplevel)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD | tr / -)
 BODY=/tmp/pr-body-${REPO}.${BRANCH}.md
 $EDITOR "$BODY"                                  # one logical line per paragraph
@@ -264,9 +376,16 @@ Vale/LT still run `/unslop` as the minimum acceptable scrub.
 **Enforcement.** The `~/.claude/heredoc-pr-guard.sh` PreToolUse Bash hook rejects
 `gh pr (create|edit|comment|review) --body "<heredoc>"`, `gh issue (create|edit|comment) --body "<heredoc>"`,
 `gh release (create|edit) --notes "<heredoc>"`, and `git commit -m "<heredoc>"`. The hook is wired into
-`stow/claude/dot-claude/settings.json` and runs on every Bash tool call. Tests covering 41 cases (positive, negative,
-and adversarial red-team bypasses) live at `tests/heredoc-pr-guard.bats` — run with `bats tests/heredoc-pr-guard.bats`.
-If a legitimate use is blocked, fix the regex; do NOT bypass the hook for individual commands.
+`stow/claude/dot-claude/settings.json` and runs on every Bash tool call. Its tests cover positive, negative, and
+adversarial red-team bypass cases: `bats tests/heredoc-pr-guard.bats`. If a legitimate use is blocked, fix the regex; do
+NOT bypass the hook for individual commands.
+
+The `~/.claude/piped-commit-guard.sh` PreToolUse Bash hook rejects a command that submits a message file, piped, when a
+later step in the same command removes that file with `trash`, `rm`, or `mv`, and its deny carries the command rebuilt
+without the pipe. The submissions it reads are `git commit -F`/`--file`, `sd-commit-doc <msg-file>`,
+`gh pr (create|edit|comment|review)` and `gh issue (create|edit|comment)` with `-F`/`--body-file`, and
+`gh release (create|edit)` with `-F`/`--notes-file`. `set -o pipefail` before the submission, with only `&&` from the
+pipe to that step, passes. Tests: `bats tests/piped-commit-guard.bats`.
 
 Why hook + docs (not docs alone): inline heredoc into `--body` produces wrapped-and-escape-trapped text that lands in
 the PR body AND in the squash-merge commit message. Cleanup after the fact requires either re-submitting via
@@ -296,19 +415,27 @@ categorized bullets verbatim into CHANGELOG.md during release prep. Write for us
 
 After `git push`, `gh pr create`, `gh pr merge`, `gh release create`, `gh workflow run`, or any `gh api .../dispatches`
 call, a PostToolUse hook (`~/.claude/ci-watch-prompt.sh`) enumerates currently-active workflow runs and injects a system
-reminder listing each run id with the exact `gh run watch <id> --exit-status` command to spawn. Comply with the prompt:
-spawn one Bash call per active run with `run_in_background: true` (in parallel), so the harness notifies you when each
-finishes — no polling needed.
+reminder listing each run id with the exact `gh run watch <id> --exit-status --interval 30` command to spawn. Comply
+with the prompt: spawn one Bash call per active run with `run_in_background: true` (in parallel), so the harness
+notifies you when each finishes, with no polling.
 
-For PR-scoped checks (after `gh pr create`/`gh pr merge`), prefer `gh pr checks <pr> --watch` — it covers all checks
-across all triggered workflows on the PR head in a single watcher.
+Watch only with `gh run watch <id> --exit-status --interval 30`, one per run your own action started; a session whose
+own action started no run starts no watcher. Without `--interval`, gh polls the REST API every 3 s, and REST is what CI
+checks fall back on when the GraphQL budget runs out. Never watch with `gh pr checks --watch` or a loop of `gh pr view`:
+both poll the GraphQL API every few seconds until the checks end, and many sessions doing it at once exhaust the
+account's GraphQL budget. When the last watcher completes, verify once: read the rollup query from `~/.claude/CLAUDE.md`
+§ "CI after push" and assert every conclusion is `SUCCESS` (`SKIPPED` is acceptable only for a conditional job); see
+"Stacked PRs" for the duplicated-entry case after a branch rewrite.
 
 After every batch of watchers finishes, re-run `gh run list --branch <branch>` to catch dispatched chains (e.g.
 `release.yml` → homebrew dispatch → `finalize-release`). The hook only fires after the original action; chained runs
 need a manual re-check.
 
-If you push CI-triggering changes via a path the hook doesn't cover (or `gh` is unavailable in the hook's environment),
-run the same flow manually. Never proceed past a red run.
+If you push CI-triggering changes via a path the hook doesn't cover, `gh` is unavailable in the hook's environment, or
+the hook prints nothing (no run was visible within its wait, or `gh` failed), run the same flow manually: list the runs
+once with `gh run list --commit "$(git rev-parse HEAD)"` after a push or `gh pr create`, or
+`gh run list --branch <branch> --limit 5` after anything else, and watch the unfinished ones. Never proceed past a red
+run.
 
 The full policy and matcher list lives in the script header at `~/.claude/ci-watch-prompt.sh` — that's the source of
 truth.

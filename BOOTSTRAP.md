@@ -112,29 +112,32 @@ cd ~/dotfiles/stow
 
 # macOS (shared + desktop). The Linux-only packages are omitted: stow-deploy
 # skips rclone, obsidian, codex-proxy, and cargo on Darwin.
-# --ignore drops the systemd units that cross-platform packages carry, and the
-# .DS_Store Finder leaves in a package, which collides with ~/.DS_Store.
-stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' --ignore='\.DS_Store$' \
+# --ignore drops the systemd units that cross-platform packages carry, the Linux
+# server's Rex start-up step and tab-number watcher, and the .DS_Store Finder
+# leaves in a package, which collides with ~/.DS_Store.
+stow --dotfiles --no-folding --target="$HOME" --ignore='\.(service|timer)$' \
+  --ignore='(^|/)(slot-startup|tab-numbers)\.lua$' --ignore='\.DS_Store$' \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
-  rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent
+  rust tmux lazygit micro yazi qmd caddy gogcli ghostty cursor launchagent rex hex
 
 # Headless (shared only)
 stow --dotfiles --no-folding --target="$HOME" \
   secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew \
   cargo rust tmux lazygit micro yazi rclone qmd obsidian caddy \
-  gogcli codex-proxy
+  gogcli codex-proxy rex
 ```
 
-`tmuxinator` is deliberately absent from both lists: its session configs are read in place from the repo and stowing
-them would shadow the source of truth. `ollama` is also absent — it targets `/etc`, not `$HOME` (see
+`ollama` is deliberately absent from both lists: it targets `/etc`, not `$HOME` (see
 [stow/ollama/README.md](stow/ollama/README.md)).
 
 ### Restow After Changes
 
 ```bash
-cd ~/dotfiles/stow
-stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" -R <package>
+cd ~/dotfiles && scripts/stow-deploy --only <package>
 ```
+
+`stow-deploy` applies each platform's ignores, such as the Linux-only units and Rex start-up step it leaves off the Mac,
+in one place; a hand-run `stow -R` skips them.
 
 ## Install Packages from Brewfile
 
@@ -251,7 +254,7 @@ done < ~/dotfiles/stow/cursor/extensions.txt
 
 ### QMD LaunchAgents (Knowledge-Base Index Maintenance)
 
-macOS port of the Linux systemd timers under `stow/qmd/dot-config/systemd/user/`. Three LaunchAgents keep the qmd
+macOS port of the Linux systemd timers under `stow/local/dot-config/systemd/user/`. Three LaunchAgents keep the qmd
 knowledge-base index fresh:
 
 | Agent                  | Schedule              | What it does                                                            |
@@ -315,7 +318,8 @@ the next fire run.
 
 Their scripts in `scripts/upgrade/` load `config/shell/*.sh` because launchd reads no startup file, so the brew run
 keeps the shell's analytics opt-out and cache location, and the uv run refuses to start unless the release cooldown from
-`config/shell/supply-chain.sh` is set. Load both once:
+`config/shell/supply-chain.sh` is set. After `bu`, the brew run also installs the yazi plugins `package.toml` pins
+([yazi plugin pins](#yazi-plugin-pins)); bumping the pins is the Linux server's job. Load both once:
 
 ```bash
 cd ~/dotfiles/stow && stow --dotfiles --no-folding --ignore='\.DS_Store$' --target="$HOME" launchagent
@@ -335,7 +339,9 @@ Each run appends JSON Lines to `~/Library/Logs/brew-upgrade.jsonl` or `~/Library
 `reason`, what changed, and a `next_step`. `scripts/upgrade/lib/run-log.sh` documents the schema. Anything the script
 itself writes to stderr lands in the matching `.error.log`, which stays empty on a healthy run. Both agents start their
 job through `scripts/launchd-run.sh`, which cuts a log past 1 MiB down to its last 1 MiB before the run, starting at the
-first whole line so the JSON Lines log still parses, and keeps no older copy.
+first whole line so the JSON Lines log still parses, and keeps no older copy. A stop of the job ends the run with a
+`run.end` whose reason is `script-error` and whose counts hold what it had logged, and the next fire runs it again,
+since the daily gate records only a run that exits 0.
 
 ```bash
 jaq -c 'select(.event == "run.end")' ~/Library/Logs/brew-upgrade.jsonl | tail -n 5
@@ -348,6 +354,82 @@ launchd runs a fire missed during sleep at the next wake and cannot order one ag
 both fires the two start together and that uv run may use the uv that `bu` is replacing. The scheduled run skips
 `--greedy`, so it leaves alone the self-updating casks whose upgrade quits their app (Ghostty, Rectangle, Telegram,
 AppCleaner), which would otherwise close mid-session. A manual `bu` still upgrades them.
+
+### Rex config and agent slots
+
+The `rex` package deploys `~/.config/rex/init.lua`, `layout.lua` (the dev layout actions), and `agent-slots.lua` (the
+agent-slot actions and keys) to both machines, and on the Linux server also `slot-startup.lua`, the start-up step that
+restores the operator's own tabs with rexurrect and then gives every live slot and running prime its tab. Without that
+file, as on the Mac, `init.lua` runs `rexurrect auto-restore` itself. Rex reads `init.lua` only when it starts and on
+`rex config reload`, so `scripts/stow-deploy` runs `rex config reload` after it stows the package; with no rex CLI
+found, or Rex not running, it says so and the deploy still succeeds.
+
+Stow does not replace a plain file with a link, so move hand-written copies aside before the first deploy:
+
+```bash
+mv ~/.config/rex/init.lua ~/.config/rex/init.lua.pre-stow
+mv ~/.config/rex/layout.lua ~/.config/rex/layout.lua.pre-stow
+cd ~/dotfiles && scripts/stow-deploy rex
+```
+
+Left in place, the plain files are adopted: `stow-deploy` moves each one into `stow/rex/dot-config/rex/` over the repo's
+version, links it back, and prints the diff (with `--headless`, it restores the repo's version itself). The reload that
+follows then loads the old files, which define no agent-slot actions. To recover, run `git checkout -- stow/rex/` in
+`~/dotfiles`, then `rex config reload` from a Rex terminal.
+
+Every slot and every repo session lives on the Linux server's Rex server, and Rex.app and the Rex iOS app connect to it
+through the Rex login server. On the Linux server, `scripts/stow-deploy --headless --all` deploys the package, and
+`bash scripts/host-jobs-enable.sh` enables and starts the units that run the slot layer:
+
+- `rex-server.service` keeps the account's Rex server running with no client connected.
+- `rex-tab-numbers.service` keeps each tab's position number at the start of its label.
+- `agent-slot-reconcile.timer` matches slot tabs to the live slots every minute.
+
+Then run the checklist, which names each missing piece with the command that adds it:
+
+```bash
+agent-slot-rex doctor
+```
+
+Before a planned restart of the Rex server, such as applying a new preview, save the operator's own tabs first, so a tab
+opened since the last automatic save is not lost; the start-up step restores them when the server starts again:
+
+```bash
+rexurrect save && systemctl --user restart rex-server.service
+```
+
+`cmd+alt+n` opens the session's repo prime or starts an agent on the repo in a new tab (README.md, "Keys and tab
+labels"), `cmd+alt+r` gives every live slot and running prime its tab back, and `cmd+alt+f` finishes the focused tab's
+task. On the Mac each forwards to the Linux server's helper through the ssh alias the `ssh` package defines for it;
+`AGENT_SLOT_REX_SERVER` names another. The Mac's dev ports reach the Linux server through the `com.user.bd-tunnel`
+LaunchAgent, which `launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.user.bd-tunnel.plist` loads. The
+helper logs to `~/.local/state/agent-slot-rex/` on the server: `restore.log` holds the start-up step Rex runs when it
+loads, and `reconcile.log` one line for each pass over the tabs.
+
+### Hex dictation settings
+
+The `hex` package deploys `~/Library/Application Support/hex/settings.json`, the settings of the Hex dictation app
+(`brew install --cask anomalyco/tap/hex`): shortcuts, Labs toggles, per-app modes with their corrections, and the shared
+vocabulary. Hex writes the file whenever a setting changes, from its window or `hex settings set`, and follows the link
+to write the repo's copy, so each change appears in `git status` here to commit or discard. Every file in the package is
+git-crypt encrypted (`stow/hex/**` in `.gitattributes`), because the vocabulary holds people's names and Hex can store
+calendar identifiers and an API key in the same file; `tests/hex-package.bats` fails on a file the rule misses.
+
+Hex keeps its settings in memory and writes all of them back on its next save, so an edit made while it runs is lost.
+Quit it before the first deploy and before editing the file by hand:
+
+```bash
+/Applications/Hex.app/Contents/MacOS/hex quit
+cd ~/dotfiles && scripts/stow-deploy --only hex
+/Applications/Hex.app/Contents/MacOS/hex start
+```
+
+An existing settings file is adopted: it replaces the repo's copy, is linked back, and the diff is printed for review.
+
+Hex's transforms in `~/.config/hex/hex.config.ts` are copied, not stowed: Hex refuses a config whose real path is
+outside that folder, so a symlink into this repo never loads. Edit `config/hex/hex.config.ts` here, then run
+`scripts/hex-config.sh --apply`; Hex reloads it within a second, and every macOS deploy reports drift between the two
+without overwriting either.
 
 ### fseventsd memory check
 
@@ -439,6 +521,20 @@ server started from one; `tmux set-environment -g LANG C.UTF-8` fixes new panes 
 pins `SetEnv LANG=C.UTF-8` on the affected host entries as the client-side half, so a server that still accepts the
 variable gets the right value anyway.
 
+### Kernel settings
+
+`config/sysctl.d/` holds the kernel settings for Linux hosts. `60-pipe-user-pages.conf` turns off
+`fs.pipe-user-pages-soft`: once a user's pipes pass that limit, the kernel creates each new pipe at 8 KiB instead of 64
+KiB, and tools that write a large block before the reader starts (actionlint feeding shellcheck, for one) hang. A
+desktop app with many helper processes, plus the shells of a busy session, is enough to pass it.
+
+```bash
+sudo ~/dotfiles/scripts/sysctl-deploy.sh   # copy to /etc/sysctl.d, restart systemd-sysctl, read each key back
+~/dotfiles/scripts/sysctl-deploy.sh --check  # read-only drift check, no root
+```
+
+The change takes effect for pipes created after the deploy, with no reboot. A pipe that already exists keeps its size.
+
 ### Ollama Host-rewrite proxy (Caddy)
 
 Ollama binds to loopback only (`127.0.0.1:11434`) and 403s any request whose `Host` header is not localhost
@@ -467,8 +563,10 @@ bash ~/dotfiles/scripts/tailscale-serve-setup.sh
 ```
 
 The script binds `https://ollama.<tailnet>/` to `127.0.0.1:11500` (svc:ollama, then Caddy, then Ollama) and
-`https://codex-proxy.<tailnet>/` to `127.0.0.1:8080`, then prints `tailscale serve status`. It is gated to that one host
-and safe to re-run.
+`https://codex-proxy.<tailnet>/` to `127.0.0.1:8080`, then `https://openseo.<tailnet>/` to `127.0.0.1:8946`
+(svc:openseo) where `~/.config/openseo/local.env` exists, and prints `tailscale serve status`. svc:openseo binds only
+once OpenSEO is healthy and has an account, and the unit fails while OpenSEO is down (`docs/runbooks/openseo.md`). It is
+gated to that one host and safe to re-run.
 
 To re-apply it automatically, install the unit that runs it every time tailscaled starts, at boot and after every
 tailscaled restart or upgrade. It runs as the Tailscale operator and retries every 30 seconds until the upstreams
@@ -480,7 +578,35 @@ sudo ~/dotfiles/scripts/tailscale-serve-deploy.sh
 
 > **One-time admin step:** the service host must be approved once in the
 > [admin console](https://login.tailscale.com/admin/services/svc:ollama). An advertised-but-unapproved host gets no VIP
-> and the script's binding routes nowhere.
+> and the script's binding routes nowhere. The same step applies to
+> [svc:openseo](https://login.tailscale.com/admin/services/svc:openseo).
+
+### Rex login server
+
+The Rex login server lets Rex for Mac use the GPU server as a remote host. Each connection runs as the caller's own
+account, on the same server a local `rex` command reaches, so local and remote see the same sessions. It identifies
+callers by their Tailscale login, through the host's own tailscaled, and `/etc/rex/accounts.jsonc` maps each login to an
+account.
+
+Install the `rex` package first with the install command on Superlogical's
+[Linux install page](https://www.superlogical.com/rex/docs/linux/installation), on the preview channel. Until the first
+release, the repository requires the pre-release token from that page in `REX_PACKAGE_TOKEN`, and the script saves it in
+`/etc/apt/auth.conf.d/rex.conf` for later upgrades:
+
+```bash
+curl -fsSL -u "rex:$REX_PACKAGE_TOKEN" https://pkgs.superlogical.com/rex/install.sh | sh -s -- --channel preview
+```
+
+Then write the accounts file and the tailnet listener, and enable the service. `--login` is the Tailscale login to let
+in, and it gets the account that runs `sudo` unless `--account` names another:
+
+```bash
+sudo ~/dotfiles/scripts/rex-login-server-deploy.sh --login <tailscale-login>
+```
+
+The listener is plain HTTP on port 7297 of the host's tailnet addresses, which WireGuard encrypts. In Rex for Mac,
+choose **Add Remote Host…** and enter the host's tailnet name. The client tries HTTPS on 443 and 7297 before HTTP
+on 7297. `rex client ls` on the server shows each connected client's Tailscale login in its `principal` column.
 
 ### cswap auto-switching (systemd)
 
@@ -499,6 +625,26 @@ Read switch decisions with `journalctl --user -u cswap-auto`. Lingering must be 
 
 A tick exits 2 when there is nothing to do and 3 when every account is spent and the credential is held. The unit counts
 both as success, so the failed-unit list stays meaningful.
+
+### Agent slots
+
+`agent-slot` hands out clones of a repo for parallel Claude agents ([README](README.md#parallel-agents)). After the
+`tmux` and `local` packages are deployed, enable the slot tmux server's prune timer, check the prerequisites, and trust
+the slot paths of the repos you start agents on. `warm` trusts slot paths only for a repo whose prime checkout you have
+already trusted in Claude, which the new-agent key's first press in the repo's Rex session lets you do, by opening its
+prime and showing Claude's trust dialog:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now tmux-prune-orphans-slots.timer
+agent-slot doctor
+agent-slot warm <repo>
+```
+
+The timer prunes orphaned clients on the `agent-slots` tmux server daily, as `tmux-prune-orphans.timer` does for the
+default server. `agent-slot doctor` names anything else that is missing, each with the command that fixes it. The Rex
+layer that gives each slot its tab, on this server, and the Mac's forwarding keys are under
+[Rex config and agent slots](#rex-config-and-agent-slots).
 
 ### Scheduled brew and uv upgrades (systemd)
 
@@ -526,16 +672,64 @@ systemctl --user start brew-upgrade.service
 
 An upgrade deletes the kegs it replaces while processes still run their binaries. After `bu`, the brew job restarts each
 long-running user service still running a removed binary (`caddy.service`, `qmd-serve.service`) with
-`systemctl --user try-restart`. Everything else on a removed binary is left running and reported as a warning: a
-oneshot, whose restart would rerun its job, and session processes such as tmux. The scan runs as you, so another user's
-processes, system services among them, are never seen. `run.end` lists each one under `stale_processes` with what was
-done:
+`systemctl --user try-restart`, and counts the restart only if the unit is still active three seconds later and systemd
+has not restarted it on its own meanwhile. A restart that fails or does not stay up is a warning. Everything else on a
+removed binary is left running and reported as a warning: a oneshot or a transient `systemd-run` unit, whose restart
+would rerun its command, and session processes such as tmux. The scan runs as you, so another user's processes, system
+services among them, are never seen. `run.end` lists each one under `stale_processes` with what was done:
 
 ```bash
 journalctl --user -t brew-upgrade -o cat | jaq -Rc 'fromjson? | select(.event == "run.end") | .stale_processes' | tail -n 1
 ```
 
 Lingering must be on for the timers to fire while logged out (`loginctl enable-linger $USER`).
+
+#### yazi plugin pins
+
+After `bu`, the brew job runs `ya pkg install --discard` on both operating systems, so the installed yazi plugins and
+flavor match what `stow/yazi/dot-config/yazi/package.toml` pins; `scripts/stow-deploy` runs the same install after a
+`$HOME` deploy that stows yazi. A failed install is a warning in the run log; the run still succeeds.
+
+`--discard` is what moves an installed package to a new pin. Without it, ya refuses to replace a package whose files
+differ from the hash `package.toml` records, and after a pin moves, the old revision's files always do: the install
+stops at the first such package with `You have modified the contents of the ...` and leaves every package where it was.
+`package.toml` owns the installed plugins and flavor, so nothing under them is a local edit to keep. To install by hand,
+run `ya pkg install --discard`.
+
+On the server, the job also keeps the pins working with the yazi Homebrew installs. When `yazi --version` differs from
+the version the pins were last proven on (`~/.local/state/dotfiles/yazi-pins-proven`), it runs
+`scripts/upgrade/yazi-pins.sh`, which:
+
+1. Clones `dev` into a scratch directory and, for each upstream repo, takes the newest commit that reached its default
+   branch at least seven days ago by GitHub's push time, never moving a pin backwards.
+2. Installs those revisions into a scratch HOME, where `ya` records their hashes, and runs yazi on them in a private
+   tmux server: the git sign must render, no fetcher may fail or stay pending, and a Markdown file must preview through
+   piper.
+3. When the hashes changed and the check passes, opens a PR to `dev`, waits up to 30 minutes for its checks (updating
+   the branch if `dev` moved), squash-merges it at the head the checks passed on, and fast-forwards `~/dotfiles` when it
+   is on `dev` and git can fast-forward, then runs `ya pkg install --discard`.
+
+`run.end` reports the result under `yazi_pins`, `null` on runs that did not bump:
+
+```bash
+journalctl --user -t brew-upgrade -o cat | jaq -Rc 'fromjson? | select(.event == "run.end") | .yazi_pins' | tail -n 1
+```
+
+| `outcome`    | `reason`                                                                                       | Meaning                                                                                                             |
+| ------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `bumped`     | `pr-merged`                                                                                    | The PR merged; `host_update` says whether `~/dotfiles` was pulled, and `next_step` gives the pull when it was not   |
+| `not-needed` | `up-to-date`                                                                                   | The current pins work with this yazi; `value` names any candidate that failed the check                             |
+| `waiting`    | `cooldown`                                                                                     | No pins passed, and a pinned plugin changed upstream within the gate; the next daily run retries                    |
+| `failed`     | `check-failed`                                                                                 | No pins passed, and nothing newer is upstream; the saved screen is in `~/.local/state/dotfiles/yazi-pins-check.txt` |
+| `failed`     | `ci-failed`, `ci-timeout`, `merge-failed`, `pr-open`                                           | The PR's checks, merge, or ownership; `next_step` names the `gh` command to inspect it                              |
+| `failed`     | `upstream-unreachable`, `git-failed`, `gh-failed`, `hash-failed`, `bad-output`, `script-error` | A step failed before a PR existed, or the job ended mid-bump; the next daily run retries                            |
+
+Only `bumped` and `not-needed` write the stamp, so every other outcome retries on the next daily run. The bump also runs
+by hand, with the same output and exit codes (0 done, 75 waiting, 1 failed):
+
+```bash
+~/dotfiles/scripts/upgrade/yazi-pins.sh --help
+```
 
 ## Restart Shell
 

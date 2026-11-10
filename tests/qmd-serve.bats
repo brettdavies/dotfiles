@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for the qmd stow package (qmd-serve, qmd-embed, qmd-update) and the
+# Tests for the qmd wrapper in the qmd stow package, the qmd systemd user units
+# (qmd-serve, qmd-embed, qmd-update, qmd-cleanup) in the local package, and the
 # qmd-serve enable script.
 #
 # Static assertions only — live daemon behavior (sequential VRAM cycling,
@@ -145,9 +146,8 @@ AGENT_DIR="$REPO_ROOT/stow/launchagent/Library/LaunchAgents"
   grep -qE '^RestartSec=[0-9]+' "$SERVE_UNIT"
 }
 
-@test "qmd-serve hardening: NoNewPrivileges + PrivateTmp" {
+@test "qmd-serve hardening: NoNewPrivileges" {
   grep -q '^NoNewPrivileges=true$' "$SERVE_UNIT"
-  grep -q '^PrivateTmp=true$' "$SERVE_UNIT"
 }
 
 @test "qmd-serve install: WantedBy=default.target (autostart on login)" {
@@ -276,9 +276,8 @@ AGENT_DIR="$REPO_ROOT/stow/launchagent/Library/LaunchAgents"
   [ "$status" -eq 0 ]
 }
 
-@test "qmd-embed hardening: NoNewPrivileges + PrivateTmp" {
+@test "qmd-embed hardening: NoNewPrivileges" {
   grep -q '^NoNewPrivileges=true$' "$EMBED_UNIT"
-  grep -q '^PrivateTmp=true$' "$EMBED_UNIT"
 }
 
 # ---------------------------------------------------------------------------
@@ -356,9 +355,8 @@ AGENT_DIR="$REPO_ROOT/stow/launchagent/Library/LaunchAgents"
   grep -q '^Environment=PATH=/home/linuxbrew/\.linuxbrew/bin:' "$UPDATE_UNIT"
 }
 
-@test "qmd-update hardening: NoNewPrivileges + PrivateTmp" {
+@test "qmd-update hardening: NoNewPrivileges" {
   grep -q '^NoNewPrivileges=true$' "$UPDATE_UNIT"
-  grep -q '^PrivateTmp=true$' "$UPDATE_UNIT"
 }
 
 # ---------------------------------------------------------------------------
@@ -383,9 +381,8 @@ AGENT_DIR="$REPO_ROOT/stow/launchagent/Library/LaunchAgents"
   grep -q '^Type=oneshot$' "$CLEANUP_UNIT"
 }
 
-@test "qmd-cleanup hardening: NoNewPrivileges + PrivateTmp" {
+@test "qmd-cleanup hardening: NoNewPrivileges" {
   grep -q '^NoNewPrivileges=true$' "$CLEANUP_UNIT"
-  grep -q '^PrivateTmp=true$' "$CLEANUP_UNIT"
 }
 
 # ---------------------------------------------------------------------------

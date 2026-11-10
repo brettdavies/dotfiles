@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Nightly autocommit: commit and push pending changes in selected repos.
+# Nightly autocommit: fast-forward selected repos, then commit and push their
+# pending changes, or in sync mode only report them.
 # Runs via systemd timer between 2-4 AM CT. Delegates staging and commit
 # message generation to claude -p, which follows the project's Conventional
 # Commits template and applies SRP (multiple commits when appropriate).
@@ -9,23 +10,36 @@ set -euo pipefail
 # Falls back to git add -A + generic message only if claude is unavailable.
 #
 # Usage: nightly-autocommit.sh [--dry-run]
+#
+# NIGHTLY_AUTOCOMMIT_REPOS (newline-separated entries) replaces the repo list
+# below, and NIGHTLY_AUTOCOMMIT_LOG_DIR the log directory.
 
 DRY_RUN=false
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
 
-LOG_DIR="$HOME/.local/share/nightly-autocommit"
+LOG_DIR=${NIGHTLY_AUTOCOMMIT_LOG_DIR:-$HOME/.local/share/nightly-autocommit}
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/nightly-autocommit.log"
 
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" | tee -a "$LOG_FILE"; }
 
 # --- Repo Configuration ---
-# Each entry: path|default_branch
+# Each entry: path|default_branch|mode, where mode is commit (the default) or
+# sync. A sync repo is fast-forwarded and each change origin lacks is logged as
+# a WARNING, never staged, committed, or deleted. solutions-docs is sync because
+# prime sessions draft in it and publish by sd-commit-doc's copy-out, so a
+# change there can be a draft still in progress. The Obsidian vault is never
+# listed: its contents are sensitive, so it is committed by hand.
 REPOS=(
-  "$HOME/obsidian-vault|main"
-  "$HOME/dev/solutions-docs|main"
+  "$HOME/dev/solutions-docs|main|sync"
   "$HOME/dev/agent-skills|main"
 )
+if [[ -n ${NIGHTLY_AUTOCOMMIT_REPOS:-} ]]; then
+  REPOS=()
+  while IFS= read -r entry; do
+    [[ -z $entry ]] || REPOS+=("$entry")
+  done <<<"$NIGHTLY_AUTOCOMMIT_REPOS"
+fi
 
 # Claude timeout: 2 minutes per repo (enough time to read diffs, split commits, write messages)
 CLAUDE_TIMEOUT=120
@@ -33,16 +47,35 @@ CLAUDE_TIMEOUT=120
 COMMITTED=0
 SKIPPED=0
 FAILED=0
+SYNCED=0
+
+# Usage: log_strays <repo_path> <repo_name>; one WARNING line per path that
+# differs from HEAD, untracked files included and ignored ones not.
+log_strays() {
+  local entry
+  while IFS= read -r -d '' entry; do
+    log "WARNING: $2 — stray not committed (sync mode): ${entry:3}"
+  done < <(git -C "$1" status --porcelain=v1 -z --untracked-files=all --no-renames)
+}
 
 log "=== Nightly autocommit started (dry_run=$DRY_RUN) ==="
 
 for entry in "${REPOS[@]}"; do
-  IFS='|' read -r repo_path default_branch <<<"$entry"
+  IFS='|' read -r repo_path default_branch mode <<<"$entry"
+  mode=${mode:-commit}
   repo_name=$(basename "$repo_path")
   log "--- $repo_name ---"
 
-  # Pre-flight: repo exists
-  if [[ ! -d "$repo_path/.git" ]]; then
+  if [[ $mode != commit && $mode != sync ]]; then
+    log "ERROR: $repo_name — unknown mode '$mode' (expected commit or sync); skipping"
+    FAILED=$((FAILED + 1))
+    continue
+  fi
+
+  # Pre-flight: repo exists. Its .git is a directory, or a file naming the git
+  # directory, as `git clone --separate-git-dir` leaves it.
+  if [[ ! -e "$repo_path/.git" ]] \
+    || ! git_dir=$(git -C "$repo_path" rev-parse --absolute-git-dir 2>/dev/null); then
     log "SKIP: $repo_name — not a git repo"
     SKIPPED=$((SKIPPED + 1))
     continue
@@ -57,19 +90,10 @@ for entry in "${REPOS[@]}"; do
   fi
 
   # Pre-flight: no lock file
-  if [[ -f "$repo_path/.git/index.lock" ]]; then
+  if [[ -f "$git_dir/index.lock" ]]; then
     log "SKIP: $repo_name — index.lock exists (another process has the repo)"
     SKIPPED=$((SKIPPED + 1))
     continue
-  fi
-
-  # Pre-flight: git-crypt check (for obsidian-vault)
-  if [[ "$repo_name" == "obsidian-vault" ]]; then
-    if git -C "$repo_path" crypt status -e 2>/dev/null | head -1 | grep -q "encrypted:"; then
-      log "SKIP: $repo_name — git-crypt is locked"
-      SKIPPED=$((SKIPPED + 1))
-      continue
-    fi
   fi
 
   # Sync local branch to origin BEFORE detecting changes. On a shared clone that
@@ -77,16 +101,28 @@ for entry in "${REPOS[@]}"; do
   # up here as phantom working-tree changes and the local branch silently falls
   # behind. Fast-forward first so the sweep below only ever sees genuinely
   # uncommitted leftovers, never a re-commit (or stale re-commit) of upstream
-  # content. --ff-only refuses to merge or clobber if the branch has diverged;
-  # --autostash preserves in-flight edits across the fast-forward.
+  # content. --ff-only refuses to merge or clobber if the branch has diverged.
+  # In commit mode --autostash carries in-flight edits across the fast-forward.
+  # Sync mode never stashes: a conflicting re-apply would write conflict markers
+  # into another session's draft, and a plain fast-forward instead refuses,
+  # writing nothing, when origin changed a path that holds a local change.
+  ff_flags=(--ff-only)
+  [[ $mode == sync ]] || ff_flags+=(--autostash)
   if ! git -C "$repo_path" fetch --quiet origin "$default_branch" 2>>"$LOG_FILE"; then
     log "  WARNING: $repo_name — fetch failed; proceeding without sync"
   elif $DRY_RUN; then
     behind=$(git -C "$repo_path" rev-list --count "HEAD..origin/$default_branch" 2>/dev/null || echo '?')
     log "DRY-RUN: $repo_name — would fast-forward ($behind behind origin/$default_branch)"
-  elif ! git -C "$repo_path" merge --ff-only --autostash "origin/$default_branch" 2>>"$LOG_FILE"; then
-    log "WARNING: $repo_name — local diverged from origin/$default_branch (ff-only refused); skipping, needs manual reconcile"
+  elif ! git -C "$repo_path" merge "${ff_flags[@]}" "origin/$default_branch" 2>>"$LOG_FILE"; then
+    log "WARNING: $repo_name — ff-only to origin/$default_branch refused (diverged, or a local change is in the way); skipping, needs manual reconcile"
     FAILED=$((FAILED + 1))
+    [[ $mode != sync ]] || log_strays "$repo_path" "$repo_name"
+    continue
+  fi
+
+  if [[ $mode == sync ]]; then
+    log_strays "$repo_path" "$repo_name"
+    SYNCED=$((SYNCED + 1))
     continue
   fi
 
@@ -149,10 +185,11 @@ the next group. Use git add -p <file> if a single file has unrelated changes.
 - If multiple skills/modules changed independently, make separate commits for each"
 
     log "  Running claude -p for staging and commit..."
-    if timeout "$CLAUDE_TIMEOUT" claude -p "$PROMPT" \
+    # claude has no flag naming its project: the directory it starts in sets the
+    # Bash tool's cwd and which CLAUDE.md and project settings load.
+    if (cd "$repo_path" && exec timeout "$CLAUDE_TIMEOUT" claude -p "$PROMPT" \
       --allowedTools "Bash(git *)" \
-      -d "$repo_path" \
-      --verbose 2>>"$LOG_FILE" >>"$LOG_FILE"; then
+      --verbose) 2>>"$LOG_FILE" >>"$LOG_FILE"; then
       # Verify claude actually committed (check if working tree is clean)
       if git -C "$repo_path" diff --quiet && git -C "$repo_path" diff --cached --quiet \
         && [[ -z "$(git -C "$repo_path" ls-files --others --exclude-standard)" ]]; then
@@ -206,4 +243,4 @@ the next group. Use git add -p <file> if a single file has unrelated changes.
   COMMITTED=$((COMMITTED + 1))
 done
 
-log "=== Summary: committed=$COMMITTED skipped=$SKIPPED failed=$FAILED ==="
+log "=== Summary: committed=$COMMITTED skipped=$SKIPPED failed=$FAILED synced=$SYNCED ==="

@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh which skills list by name only, daily
+ConditionHost=bigdaddy
+
+[Timer]
+OnCalendar=*-*-* 05:00:00
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

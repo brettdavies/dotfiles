@@ -9,6 +9,7 @@ Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/us
 EnvironmentFile=-%h/.config/github-stars/env
 ExecStart=%h/.local/bin/github-stars --clone-only -j 8
 
-# Hardening
+# Hardening. No PrivateTmp= or other namespace setting: in a user unit it maps root to nobody, and ssh, which git runs
+# here whenever no gh token is available, then rejects every root-owned file /etc/ssh/ssh_config includes
+# (tests/user-unit-sandboxing.bats).
 NoNewPrivileges=true
-PrivateTmp=true

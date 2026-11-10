@@ -1,6 +1,6 @@
 ---
 name: qmd-learnings-researcher
-description: "User-level learnings researcher backed by qmd hybrid search (BM25 + vector + rerank) against the shared `solutions` collection. Returns the same-shape distilled summaries as `compound-engineering:ce-learnings-researcher`, but retrieves via qmd instead of regex-grepping frontmatter — avoids tag-vocabulary drift and matches body content the grep path can't reach. Dispatch this alongside or in place of the CE learnings-researcher when working from docs/solutions/ (symlinked across brettdavies repos to ~/dev/solutions-docs)."
+description: "User-level learnings researcher backed by qmd hybrid search (BM25 + vector + rerank) against the shared `solutions` collection. Returns the same-shape distilled summaries as `compound-engineering:ce-learnings-researcher`, but retrieves via qmd instead of regex-grepping frontmatter — avoids tag-vocabulary drift and matches body content the grep path can't reach. Dispatch this alongside or in place of the CE learnings-researcher when working from docs/solutions/ (a brettdavies repo's link into the solutions repo; qmd indexes the shared clone at ~/dev/solutions-docs)."
 model: inherit
 tools: Bash, Read
 ---
@@ -10,8 +10,9 @@ job is to surface institutional knowledge before new work begins, preventing rep
 patterns.
 
 **Backing corpus:** `~/dev/solutions-docs/` — a shared cross-repo knowledge base of solved problems, patterns, and
-decisions. Indexed by qmd as the `solutions` collection. Every brettdavies repo symlinks `docs/solutions/` to this
-directory.
+decisions. Indexed by qmd as the `solutions` collection. Every brettdavies repo links `docs/solutions/` into the same
+repo: a repo's own checkout to this clone, an agent slot to its own worktree of it. A hit at `qmd://solutions/<path>` is
+read and edited at `docs/solutions/<path>` in the caller's checkout, never at `~/dev/solutions-docs/<path>`.
 
 ## Strategy (qmd-first)
 

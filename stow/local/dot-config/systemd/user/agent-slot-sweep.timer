@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the automatic agent slot sweep every ten minutes
+ConditionHost=bigdaddy
+
+[Timer]
+# Change the interval with a drop-in from `systemctl --user edit agent-slot-sweep.timer`: an empty OnCalendar= line,
+# then the new schedule.
+OnCalendar=*:0/10
+Persistent=true
+
+[Install]
+WantedBy=timers.target

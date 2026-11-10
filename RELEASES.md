@@ -1,3 +1,5 @@
+<!-- canonical: version-scheme calver -->
+
 # Releasing `dotfiles`
 
 Operational runbook. Rationale lives in [`RELEASES-RATIONALE.md`](./RELEASES-RATIONALE.md); the pre-cut go/no-go
@@ -71,14 +73,29 @@ Every PR (feature, fix, docs, release) uses `.github/pull_request_template.md` v
   intermediate state, or how the release branch was assembled.
 - **Zero verification artifacts in the body.** No diff stats, leak-check output, drift-gate output, pre-push gate
   results, CI status, or prose-scrub findings. Anomalies get fixed before push, not audit-trailed.
-- **Changelog** subsections (`### Added` / `### Changed` / `### Fixed` / `### Documentation`): 1-5 bullets each, delete
-  empty subsections, each bullet starts with a verb.
+- **Changelog** subsections (`### Breaking changes` / `### Added` / `### Changed` / `### Deprecated` / `### Fixed` /
+  `### Documentation`): 1-5 bullets each, delete empty subsections, each bullet starts with a verb.
 - **Related Issues/Stories** (`Story:` / `Issue:` / `Architecture:` / `Related PRs:`) and **Files Modified** (`Modified`
   / `Created` / `Renamed` / `Deleted`): every sub-label required even when empty; write `- None.` or `n/a`.
 - **One logical line per paragraph or bullet; no hard wraps.** GitHub soft-wraps for display.
 - **No AI attribution** in commits or PR bodies.
 
 → Rationale: [`RELEASES-RATIONALE.md` § PR body conventions](./RELEASES-RATIONALE.md#pr-body-conventions).
+
+## Versioning
+
+<!-- canonical:begin versioning-calver -->
+
+This repo versions by date: a release is tagged `YYYY.MM.DD`, the day it lands, with `.N` for a later release the same
+day (`YYYY.MM.DD.1`). The tag carries no `v`. The changelog keeps its six headings (`Breaking changes`, `Added`,
+`Changed`, `Deprecated`, `Fixed`, `Documentation`) for the notes; they set no version.
+
+A bare `YYYY.MM.DD` tag sorts below every `v` tag, so a repo moving from `v` tags first makes every version-sorted
+lookup prefix-aware: `previous_tag` in `generate-changelog.py`, `last_tag_on_line` in `scripts/release/_lib.sh`, and the
+previous-tag lookup in `sync-dev-after-release.sh`
+(`docs/solutions/workflow-issues/lower-sorting-tag-scheme-strands-version-sorted-previous-tag-lookups.md`).
+
+<!-- canonical:end versioning-calver -->
 
 ## Releasing dev to main
 
@@ -100,7 +117,8 @@ built as a **clean descendant of `main`** with `dev`'s tree overlaid on top, ass
 
 ```bash
 # 0. Nothing on main that dev never received (security PRs, hotfixes, config). Exits 1
-#    while drift exists. The anchor is the newest CalVer tag on main; gate 0 fails when
+#    while drift exists. The anchor is the newer of the newest CalVer tag on main and
+#    the newest main commit whose subject starts with "release:"; gate 0 fails when
 #    that release's CHANGELOG.md never reached dev, so run the backport step first.
 scripts/release/drift.sh
 
@@ -270,15 +288,20 @@ the release tag and GitHub Release have published, run:
 ```bash
 TAG="$(git describe --tags --abbrev=0 origin/main)"
 
-# 1. Classify first. This creates nothing and is what tells you whether any
-#    contested path needs naming in step 2.
+# 1. Classify first. This creates no branch, commit, or PR, and it tells you
+#    whether any contested path needs naming in step 2. It needs a clean tree,
+#    and like the real run it switches the checkout to dev and fast-forwards
+#    it from origin/dev, then leaves you there.
 scripts/sync-dev-after-release.sh "$TAG" --dry-run
 
 # 2. Sync. With no contested paths, the bare form is enough. Otherwise name the
 #    ones that should come back; anything left unnamed stays diverged.
 scripts/sync-dev-after-release.sh "$TAG"
-scripts/sync-dev-after-release.sh "$TAG" --only CHANGELOG.md --only README.md
+scripts/sync-dev-after-release.sh "$TAG" --only README.md
 ```
+
+`CHANGELOG.md` comes from `main` on every run, so it is never an `--only` path; `--only` names only the release-prep and
+contested paths the dry run lists, and the script exits 64 on any other.
 
 It discovers what to sync by comparing `origin/dev` against `origin/main` and excluding the guarded set, then lands the
 result on a `chore/sync-dev-after-<version>` branch and opens a PR to `dev`. The set is computed, never hardcoded, so a
@@ -386,14 +409,16 @@ gh api -X PUT repos/brettdavies/dotfiles/rulesets/<id> --input .github/rulesets/
 
 - **CalVer, computed in CI.** The tag is `YYYY.MM.DD[.N]`, bare (no `v` prefix), created by `release.yml` on every push
   to `main`. There is no version file in the tree, so the release commit bumps nothing.
-- **`scripts/sync-dev-after-release.sh`** is this repo's CalVer variant of the fleet template. The template builds its
-  synced set by probing for version carriers (`Cargo.toml`, `package.json`, `pyproject.toml`, `VERSION`) and writing the
-  released number into each; this repo has no carrier and must not grow one, so its copy skips that step entirely and
-  keeps only the branch-comparison discovery both share. That makes it a repo-owned fork rather than a verbatim copy.
-- **`scripts/release/drift.sh` anchors on the newest CalVer tag reachable from `main`.** Gate 0 then checks that `dev`
-  already carries that release's `CHANGELOG.md`; a failure there means the backport PR never merged, so run
-  `scripts/sync-dev-after-release.sh <tag>` and merge it before cutting the release. `--since <ref>` overrides the
-  anchor.
+- **`scripts/sync-dev-after-release.sh`** is a verbatim copy of the github-repo-setup skill's template. It writes the
+  released version into each version carrier a repo has (`Cargo.toml`, `package.json`, `pyproject.toml`, `VERSION`).
+  This repo has none and must not grow one; for a bare CalVer tag the script creates no `VERSION`, since the tag is the
+  version, so here the synced set comes from the branch comparison alone.
+- **`scripts/release/drift.sh` anchors on the newest release.** That is the newer of the newest CalVer tag reachable
+  from `main` and the newest `main` commit whose subject starts with `release:`. Every release commit on `main` is
+  tagged once `release.yml` finishes, so the two agree; a release commit whose tag step has not run yet, or failed,
+  anchors as itself. Gate 0 then checks that `dev` already carries that release's `CHANGELOG.md`; a failure there means
+  the backport PR never merged, so run `scripts/sync-dev-after-release.sh <tag>` and merge it before cutting the
+  release. `--since <ref>` overrides the anchor.
 - **Stray or same-day tags.** `release.yml` derives `.N` from the tags already present for today, so a test tag created
   out of band shifts the next same-day suffix. Delete such tags and their GitHub Releases rather than working around
   them.
@@ -411,17 +436,24 @@ Rotate via `op read "op://secrets-dev/dotfiles_RELEASE_TOKEN/credential" | gh se
 **`generate-changelog.py` errors with "could not detect version":** Run it from a `release/YYYY.MM.DD` branch, or pass
 `--tag YYYY.MM.DD` explicitly. Confirm detection without a full run via `scripts/generate-changelog.py --print-tag`.
 
-**`--from-dev-prs` lists PRs that already shipped, or misses recent ones:** The window starts at the earlier of the
-previous release tag's commit time and the previous `release/*` PR's creation time, and PR numbers the changelog already
-lists are dropped. Check `gh pr list --base dev --state merged --search "merged:>=<timestamp>"` against the section, and
-fix the previous section on `main` (via a backport) if it is what is stale.
+**`--from-dev-prs` lists PRs that already shipped, or misses recent ones:** The window opens at the previous release's
+backport commit on `dev` (`chore(release): sync dev after <tag>`). With no backport, it opens at the newest `dev` commit
+at or before the previous tag's commit time, and the generator names that commit on stderr. After a backport boundary,
+PRs merged after the previous cut but before that backport are carried over, and PR numbers the changelog already lists
+are dropped. Find the boundary with
+`git log origin/dev --format='%h %s' | grep -E '^[0-9a-f]+ chore\(release\): (sync dev after|backport) '`, list what
+follows it with `git log <boundary>..origin/dev --format='%s'`, and compare that against the section. Fix the previous
+section on `main` (via a backport) if it is what is stale.
 
 **Empty changelog sections:** Ensure `cliff.toml` has `[remote.github]` with `owner` and `repo` for PR-body expansion,
 and that `gh auth status` succeeds (the script reads `GITHUB_TOKEN` when set and falls back to `gh auth token`).
 
-**`drift.sh` reports dozens of files after a release that clearly shipped:** The anchor resolved to the wrong commit,
-usually because the release tag is not present locally. Run `git fetch --tags` and rerun, or pass `--since <tag>`
-explicitly; see [§ Project specifics](#project-specifics).
+**`drift.sh` reports dozens of files after a release that clearly shipped:** The anchor resolved to an older release
+than the one that shipped. Gate 0's result and gate 1's header name the anchor it used (`tag <tag>` or
+`release commit <sha> <subject>`). A `release:` commit anchors whether or not its tag is in the clone, so an older
+anchor means `--since` pointed too far back, or the shipped release's commit has a subject that does not start with
+`release:` and its tag has not been fetched. Pass `--since <tag>` explicitly, or run `git fetch --tags` and rerun; see
+[§ Project specifics](#project-specifics).
 
 **`drift.sh` fails gate 0 (`origin/dev lacks the tag <tag> bookkeeping`):** The previous release's `CHANGELOG.md`
 backport never merged into `dev`. Run `scripts/sync-dev-after-release.sh <tag>` (see § Backport to dev after release),

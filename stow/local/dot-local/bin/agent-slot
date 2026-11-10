@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Stowed entry point for agent-slot. The implementation stays in the dotfiles checkout beside its libraries; this link
+# resolves back into that checkout, so ~/.local/bin/agent-slot is one stable path for the Rex helper, hooks, and agents.
+set -euo pipefail
+
+impl="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../../scripts/agent-slot/agent-slot"
+if [ ! -x "$impl" ]; then
+  echo "agent-slot: $impl is missing; deploy brettdavies/dotfiles to ~/dotfiles" >&2
+  exit 127
+fi
+exec "$impl" "$@"

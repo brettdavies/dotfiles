@@ -8,9 +8,13 @@ set -euo pipefail
 # to ensure reliable execution on freshly cloned repos across thousands
 # of headless servers. See docs/solutions/.../stow-conflict-resolution-wrapper.md
 #
-# Usage: scripts/stow-deploy [--headless] [--all] [package ...]
+# Usage: scripts/stow-deploy [--headless] [--all | --only] [package ...]
+#        --only deploys exactly the named packages instead of adding them to
+#        SHARED_PACKAGES.
 # Env:   STOW_DEPLOY_TARGET  deploy target directory (default: $HOME). The bats
 #        suite points it at a sandbox so no checkout can re-point live symlinks.
+#        STOW_DEPLOY_REX_PATHS  colon-separated rex CLIs the post-deploy config
+#        reload tries, in place of REX_BIN_DIR, the Mac app paths, and /usr/bin/rex.
 
 # Exit codes — distinct values for automation/CI (all non-zero still indicate failure)
 EXIT_USAGE=2        # Bad arguments or flags
@@ -21,14 +25,24 @@ EXIT_PLATFORM=6     # Platform mismatch (launchagent on Linux)
 
 # Package sets — single source of truth
 # Ordering: secrets first (git-crypt dep), shell (PATH/env), then the rest
-SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew cargo rust tmux lazygit micro yazi rclone qmd obsidian caddy gogcli codex-proxy cswap)
-DESKTOP_PACKAGES=(ghostty cursor launchagent)
+SHARED_PACKAGES=(secrets shell zsh bash git ssh gh github local claude codex opencode pip bun brew cargo rust tmux lazygit micro yazi rclone qmd obsidian caddy gogcli codex-proxy cswap rex)
+DESKTOP_PACKAGES=(ghostty cursor launchagent hex)
+
+# Usage: is_desktop_package <package>
+is_desktop_package() {
+  local _desktop
+  for _desktop in "${DESKTOP_PACKAGES[@]}"; do
+    [ "$_desktop" != "$1" ] || return 0
+  done
+  return 1
+}
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STOW_DIR="$REPO_ROOT/stow"
 TARGET="${STOW_DEPLOY_TARGET:-$HOME}"
 HEADLESS=false
 ALL=false
+ONLY=false
 
 # Parse flags
 while [[ "${1:-}" == --* ]]; do
@@ -41,12 +55,27 @@ while [[ "${1:-}" == --* ]]; do
       ALL=true
       shift
       ;;
+    --only)
+      ONLY=true
+      shift
+      ;;
     *)
       echo "ERROR: Unknown flag: $1" >&2
       exit "$EXIT_USAGE"
       ;;
   esac
 done
+
+if [ "$ONLY" = true ]; then
+  if [ "$ALL" = true ]; then
+    echo "ERROR: --only and --all cannot be combined; use scripts/stow-deploy --only <package>... or scripts/stow-deploy --all" >&2
+    exit "$EXIT_USAGE"
+  fi
+  if [ $# -eq 0 ]; then
+    echo "ERROR: --only needs at least one package name, e.g. scripts/stow-deploy --only claude" >&2
+    exit "$EXIT_USAGE"
+  fi
+fi
 
 # Package expansion
 if [ "$ALL" = true ]; then
@@ -65,7 +94,7 @@ if [ "$ALL" = true ]; then
   esac
 else
   # Extra args extend shared defaults; no args = shared only
-  set -- "${SHARED_PACKAGES[@]}" "$@"
+  [ "$ONLY" = true ] || set -- "${SHARED_PACKAGES[@]}" "$@"
 
   # Deduplicate while preserving order (bash 3.2 compatible — no associative arrays)
   _deduped=()
@@ -108,31 +137,40 @@ for pkg in "$@"; do
   fi
 done
 
-# Check git-crypt unlock status for encrypted packages
-for pkg in "$@"; do
-  case "$pkg" in
-    secrets | ssh | git)
-      if [ -f "$STOW_DIR/secrets/dot-secrets" ]; then
-        # grep -qI treats binary files as non-matching (no `file` command needed)
-        if ! grep -qI '' "$STOW_DIR/secrets/dot-secrets" 2>/dev/null; then
-          echo "FATAL: git-crypt is locked. Encrypted files would be deployed as binary blobs." >&2
-          echo "       Run: git-crypt unlock ~/.config/git-crypt/key" >&2
-          exit "$EXIT_PRECONDITION"
-        fi
+# encrypted_files <pkg>: the package's tracked files that .gitattributes marks
+# filter=git-crypt, NUL-separated, so a newly encrypted package needs no list here.
+encrypted_files() {
+  local path _attr value
+  git -C "$REPO_ROOT" ls-files -z -- "stow/$1" 2>/dev/null |
+    git -C "$REPO_ROOT" check-attr -z --stdin filter 2>/dev/null |
+    while IFS= read -r -d '' path && IFS= read -r -d '' _attr && IFS= read -r -d '' value; do
+      if [ "$value" = git-crypt ]; then
+        printf '%s\0' "$path"
       fi
-      break # only need to check once
-      ;;
-  esac
+    done
+}
+
+# Refuse a package whose encrypted files are still ciphertext: grep -qI reads
+# ciphertext as binary (no `file` command needed).
+for pkg in "$@"; do
+  while IFS= read -r -d '' file; do
+    [ -f "$REPO_ROOT/$file" ] || continue
+    if ! grep -qI '' "$REPO_ROOT/$file" 2>/dev/null; then
+      echo "FATAL: git-crypt is locked. Encrypted files would be deployed as binary blobs." >&2
+      echo "       Locked: $file (package $pkg)" >&2
+      echo "       Run: git-crypt unlock ~/.config/git-crypt/key" >&2
+      exit "$EXIT_PRECONDITION"
+    fi
+  done < <(encrypted_files "$pkg")
 done
 
-# Check for dirty stow directory
-dirty=$(git -C "$REPO_ROOT" status --porcelain stow/ 2>/dev/null || true)
-if [ -n "$dirty" ]; then
-  if [ "$HEADLESS" = true ]; then
-    echo "FATAL: stow/ has uncommitted changes. In --headless mode, --adopt followed" >&2
-    echo "       by git checkout would destroy these changes. Commit first." >&2
-    exit "$EXIT_PRECONDITION"
-  else
+# Check for dirty stow directory. Headless mode instead checks each package
+# just before it would adopt: --adopt followed by its git checkout is the only
+# step that can overwrite an uncommitted edit, and a deployed checkout is
+# routinely dirty (Claude Code writes settings back into stow/claude).
+if [ "$HEADLESS" = false ]; then
+  dirty=$(git -C "$REPO_ROOT" status --porcelain stow/ 2>/dev/null || true)
+  if [ -n "$dirty" ]; then
     echo "WARNING: stow/ has uncommitted changes. If --adopt runs, git diff will" >&2
     echo "         mix your edits with adopted files. Consider committing first." >&2
   fi
@@ -264,12 +302,14 @@ STOW_FLAGS+=(--ignore='\.DS_Store$')
 
 # macOS: skip Linux-only systemd user units that share packages with cross-platform
 # content (e.g. stow/local holds both ~/.local/bin/* helpers AND ~/.config/systemd/user/*
-# units). Stow's --ignore matches file basenames (not directories), so we pattern on
-# the file extension. Every .service and .timer file in this repo is a systemd unit
-# (verified across stow/{local,rclone,rust,obsidian}), so the
-# pattern is safe to apply broadly. No-op on Linux.
+# units). Every .service and .timer file in this repo is a systemd unit, so the
+# extension pattern is safe to apply broadly. No-op on Linux.
 if [ "$(uname -s)" = "Darwin" ]; then
   STOW_FLAGS+=(--ignore='\.(service|timer)$')
+  # The start-up step that restores the slot tabs and the watcher that numbers every tab run only beside the slots, on
+  # the Linux server. Stow matches an ignore against the end of the node's path under the target
+  # (.config/rex/slot-startup.lua), so a name anchored with ^ never matches a nested file.
+  STOW_FLAGS+=(--ignore='(^|/)(slot-startup|tab-numbers)\.lua$')
 fi
 
 cd "$STOW_DIR"
@@ -282,13 +322,9 @@ trap 'rm -f "$adopted_file" "$deployed_file" "$failed_file"' EXIT
 
 for pkg in "$@"; do
   # Platform guards
-  if [ "$(uname -s)" != "Darwin" ]; then
-    case "$pkg" in
-      ghostty | cursor | launchagent)
-        echo "WARNING: $pkg is macOS-only, skipping on $(uname -s)" >&2
-        continue
-        ;;
-    esac
+  if [ "$(uname -s)" != "Darwin" ] && is_desktop_package "$pkg"; then
+    echo "WARNING: $pkg is macOS-only, skipping on $(uname -s)" >&2
+    continue
   fi
   if [ "$(uname -s)" != "Linux" ]; then
     case "$pkg" in
@@ -341,6 +377,17 @@ for pkg in "$@"; do
   fi
 
   # Still failing: adopt existing plain files
+  if [ "$HEADLESS" = true ]; then
+    pkg_dirty=$(git -C "$REPO_ROOT" status --porcelain -- "stow/$pkg/" 2>/dev/null || true)
+    if [ -n "$pkg_dirty" ]; then
+      echo "  ERROR: $pkg: --adopt would overwrite uncommitted changes in stow/$pkg/:" >&2
+      # shellcheck disable=SC2001
+      sed 's/^/    /' <<<"$pkg_dirty" >&2
+      echo "  Fix: commit or stash them, then rerun: scripts/stow-deploy --headless --only $pkg" >&2
+      echo "$pkg" >>"$failed_file"
+      continue
+    fi
+  fi
   echo "  Adopting existing files for $pkg..."
   if ! adopt_err=$(stow "${STOW_FLAGS[@]}" -R --adopt "$pkg" 2>&1); then
     echo "  ERROR: $pkg adopt failed:" >&2
@@ -409,6 +456,37 @@ if [ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ] \
       fi
     done < <(find "$STOW_DIR/$_pkg" -path '*/dot-config/systemd/user/*.timer' -printf '%f\n' 2>/dev/null)
   done <"$deployed_file"
+fi
+
+# --- Reload Rex's config ---
+#
+# Rex reads ~/.config/rex/init.lua when it starts and on `rex config reload`,
+# not when the file changes, so a deploy of the rex package reloads the running
+# server. The CLI is in REX_BIN_DIR inside a Rex terminal, in the app bundle on
+# macOS, and at /usr/bin/rex from the Linux package; STOW_DEPLOY_REX_PATHS, a
+# colon-separated list, replaces those candidates, which is how a test that
+# deploys to its own HOME keeps the reload off the account's live Rex server.
+# Rex being absent or not running is reported and never fails the deploy;
+# --autostart=false keeps the reload from starting a server.
+if [ "$TARGET" = "$HOME" ] && grep -qx "rex" "$deployed_file" 2>/dev/null; then
+  echo ""
+  echo "==> Reloading Rex config"
+  _rex=""
+  _rex_paths=${STOW_DEPLOY_REX_PATHS-"${REX_BIN_DIR:+$REX_BIN_DIR/rex}:/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex:$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex:/usr/bin/rex"}
+  IFS=: read -r -a _rex_candidates <<<"$_rex_paths"
+  for _candidate in "${_rex_candidates[@]+"${_rex_candidates[@]}"}"; do
+    if [ -n "$_candidate" ] && [ -x "$_candidate" ]; then
+      _rex=$_candidate
+      break
+    fi
+  done
+  if [ -z "$_rex" ]; then
+    echo "  NOTE: no rex CLI found; Rex reads the new config when it next starts" >&2
+  elif "$_rex" --autostart=false config reload >/dev/null 2>&1; then
+    echo "  Done: rex config reload"
+  else
+    echo "  WARNING: rex config reload failed (is Rex running?); Rex reads the new config when it next starts" >&2
+  fi
 fi
 
 # --- Post-stow validation ---
@@ -506,6 +584,32 @@ if grep -qx "qmd" "$deployed_file" 2>/dev/null; then
   fi
 fi
 
+# yazi plugins and flavors live outside the repo, at the revisions package.toml
+# pins, and only `ya pkg install` moves them; Homebrew upgrades yazi itself on
+# its own, and a plugin left behind an API change fails on every directory. ya
+# writes the hashes it computes back through the stowed package.toml symlink, so
+# a hash in package.toml that differs from ya's dirties the checkout. ya also
+# refuses to replace an installed package whose files differ from the hash
+# package.toml records, which an older pin's files always do, so the install
+# passes --discard; package.toml owns those directories. The install fetches
+# every package from GitHub into ~/.cache/yazi, so like the timer recovery it
+# is scoped to a real $HOME deploy.
+if [ "$TARGET" = "$HOME" ] && grep -qx "yazi" "$deployed_file" 2>/dev/null; then
+  echo ""
+  echo "==> Installing yazi packages"
+  if ! command -v ya >/dev/null 2>&1; then
+    echo "  ya not installed, skipping (install with: brew install yazi)"
+  elif _ya_out=$(YAZI_CONFIG_HOME="$TARGET/.config/yazi" ya pkg install --discard 2>&1); then
+    echo "  Done: ya pkg install --discard"
+  else
+    echo "  WARNING: ya pkg install failed; yazi keeps the packages it already had:" >&2
+    # shellcheck disable=SC2001
+    sed 's/^/    /' <<<"$_ya_out" >&2
+    echo "  Rerun: ya pkg install --discard" >&2
+  fi
+  unset _ya_out
+fi
+
 # The rustup install profile decides whether every future toolchain drags in
 # rust-docs, ~800MB of offline HTML per toolchain that a headless host has no
 # reader for. It cannot be set from config/shell: rustup has no environment
@@ -542,12 +646,18 @@ fi
 
 # launchd hands GUI applications and LaunchAgents the user PATH it reads at
 # boot, never the shell config chain. Writing that value needs sudo, so a deploy
-# only reports drift; the script's own output names the fix. Scoped to a real
-# $HOME deploy so a sandboxed target never reads the host's launchd config.
+# only reports drift; the script's own output names the fix. Hex's transform
+# config is copied rather than stowed, because Hex refuses a symlinked config;
+# a deploy reports its drift too, so an edit made in place is never overwritten.
+# Scoped to a real $HOME deploy so a sandboxed target never reads the host's
+# launchd or Hex config.
 if [ "$(uname -s)" = "Darwin" ] && [ "$TARGET" = "$HOME" ]; then
   echo ""
   echo "==> Checking launchd user PATH"
   "$REPO_ROOT/scripts/launchd-user-path.sh" || true
+  echo ""
+  echo "==> Checking Hex transforms"
+  "$REPO_ROOT/scripts/hex-config.sh" || true
 fi
 
 # Headless summary

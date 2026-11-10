@@ -1,0 +1,1323 @@
+#!/usr/bin/env bats
+# A slot whose head is in a repository another person owns runs nothing from that head: no Claude project or local
+# settings, no git hooks, and no setup step that follows or acts on what the head tracks. The head repository's owner
+# decides, on a fork or on the PR's own repo. Only a head a trusted owner holds keeps the full setup.
+#
+# Run: bats tests/agent-slot-foreign-head.bats
+#
+# Each head tracks a Claude settings hook and git hooks that touch a marker under $T/marks. git is real, so the git hook
+# tests run real commits and pushes. Claude is the suite's stub, except in the tests that run a typed line through the
+# real binary: those give it a config directory of its own and an API port nothing listens on, and skip where Claude
+# Code is not installed.
+# run-tests: parallel
+
+bats_require_minimum_version 1.5.0
+
+load lib/platform
+load lib/agent-slot
+load lib/processes
+
+setup_file() {
+  require_linux "agent-slot reads /proc for agent state"
+}
+
+setup() {
+  REAL_CLAUDE=$(command -v claude || true)
+  agent_slot_setup
+  export AGENT_SLOT_CLAUDE_PROJECTS=$T/projects AGENT_SLOT_LOCK_WAIT=2 AGENT_SLOT_TRUST_TIMEOUT=3
+  export AGENT_SLOT_TRUSTED_OWNERS=me
+  # A runner's system config sets git-lfs's own filter.lfs.process, which outranks the smudge the LFS tests read.
+  export GIT_CONFIG_NOSYSTEM=1
+  mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS" "$T/marks" "$T/outside"
+  prime repoa
+  local n owner
+  for n in 1 2 3; do trusted "$(realpath -m "$AGENT_SLOT_ROOT/repoa/$n")"; done
+  git config --file "$GIT_CONFIG_GLOBAL" "url.$T/origins/.insteadOf" https://github.com/up/
+  for owner in me evil; do
+    mkdir -p "$T/forks/$owner"
+    git config --file "$GIT_CONFIG_GLOBAL" "url.$T/forks/$owner/.insteadOf" "https://github.com/$owner/"
+    git clone -q --bare "$T/origins/repoa.git" "$T/forks/$owner/repoa.git"
+  done
+  git -C "$AGENT_SLOT_DEV/repoa" remote set-url origin https://github.com/up/repoa.git
+  git -C "$AGENT_SLOT_DEV/repoa" config core.hooksPath .githooks
+  stub_gh_items
+  printf '%s\n' 'Scope: say ok.' 'Limits: none.' 'Reviews: none.' 'Reports to: none.' 'Touches: none.' 'Adds: none.' >"$T/brief"
+  SLOT=$AGENT_SLOT_ROOT/repoa/1
+  LEDGER=$AGENT_SLOT_STATE_DIR/ledger.jsonl
+}
+
+teardown() {
+  stop_spawned
+  assert_no_leaks
+}
+
+# launch and reopen require a model, so these give Opus unless the test names one.
+launch() {
+  local model=(--model opus)
+  [[ " $* " != *" --model "* ]] || model=()
+  run --separate-stderr "$AGENT_SLOT" launch "$@" "${model[@]}" --output json
+}
+
+reopen() {
+  local model=(--model opus)
+  [[ " $* " != *" --model "* ]] || model=()
+  run --separate-stderr "$AGENT_SLOT" reopen "$@" "${model[@]}" --output json
+}
+
+typed() { cat "$STUBS/typed-repoa-1"; }
+
+# head_fields OWNER [IS-CROSS]: gh's answer for a head on feat/x of OWNER/repoa.
+head_fields() {
+  jaq -n -c --arg owner "$1" --argjson cross "${2:-true}" '{headRefName: "feat/x",
+    headRepository: {id: "R_2", name: "repoa"}, headRepositoryOwner: {id: "U_2", login: $owner},
+    isCrossRepository: $cross}'
+}
+
+# hostile_head BARE BRANCH N [EXTRA]: a head on top of main that tracks a Claude settings hook, an API key helper, an MCP
+# server, and git hooks, each touching a marker, pushed to BRANCH of the bare repo BARE, when BRANCH is not empty, and to origin's refs/pull/N/head.
+# EXTRA, when given, is a function run in the seed clone before the commit. Sets HEAD_SHA.
+hostile_head() {
+  local seed=$T/seed-repoa hook
+  git -C "$seed" checkout -q -B "head-$3" main
+  mkdir -p "$seed/.claude" "$seed/.githooks"
+  jaq -n --arg m "$T/marks" '{hooks: {SessionStart: [{hooks: [{type: "command", command: "touch \($m)/settings-hook"}]}]},
+    apiKeyHelper: "touch \($m)/api-key-helper; echo sk-ant-test", enableAllProjectMcpServers: true}' \
+    >"$seed/.claude/settings.json"
+  jaq -n --arg m "$T/marks" '{mcpServers: {tree: {command: "sh", args: ["-c", "touch \($m)/mcp-server; exec cat"]}}}' \
+    >"$seed/.mcp.json"
+  for hook in pre-commit post-commit pre-push post-checkout; do
+    printf '#!/bin/sh\ntouch %s/git-%s\n' "$T/marks" "$hook" >"$seed/.githooks/$hook"
+    chmod +x "$seed/.githooks/$hook"
+  done
+  if [ -n "${4:-}" ]; then (cd "$seed" && "$4"); fi
+  git -C "$seed" add -A -f .
+  git -C "$seed" commit -q -m "head for #$3"
+  HEAD_SHA=$(git -C "$seed" rev-parse HEAD)
+  [ -z "$2" ] || git -C "$seed" push -q "$1" "$HEAD_SHA:refs/heads/$2"
+  git -C "$seed" push -q "$T/origins/repoa.git" "$HEAD_SHA:refs/pull/$3/head"
+  git -C "$seed" checkout -q main
+}
+
+# foreign_pr / own_pr / same_repo_pr: PR 7 with the hostile head on evil's fork, on me's fork, or on origin, which is
+# owned by up. Up is on no list by default, as a third party's repo a prime's origin names is not.
+foreign_pr() {
+  hostile_head "$T/forks/evil/repoa.git" feat/x 7 "${1:-}"
+  gh_item pr 7 "Fix the login" OPEN "$(head_fields evil)"
+}
+own_pr() {
+  hostile_head "$T/forks/me/repoa.git" feat/x 7 "${1:-}"
+  gh_item pr 7 "Fix the login" OPEN "$(head_fields me)"
+}
+same_repo_pr() {
+  hostile_head "$T/origins/repoa.git" feat/x 7 "${1:-}"
+  gh_item pr 7 "Fix the login" OPEN "$(head_fields up false)"
+}
+
+# hooks_path: the slot's core.hooksPath, or nothing.
+hooks_path() { git -C "$SLOT" config --get core.hooksPath || true; }
+
+# assert_unchanged_setup OUTPUT: what a head with the full setup gets: hooks at the tree's path, Claude's project
+# settings loaded, and no foreign field in the output or the record.
+assert_unchanged_setup() {
+  [ "$(hooks_path)" = .githooks ]
+  [ -f "$SLOT/.claude/settings.local.json" ]
+  jaq -e '.head_foreign == false and .head_owner == null' <<<"$1"
+  jaq -e 'has("head_foreign") | not' "$SLOT/.git/agent-slot.json"
+  [[ $(typed) == "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --session-id "* ]]
+}
+
+# real_claude_env: the environment the real claude runs under here: a config directory of its own and an API port nothing
+# listens on, so Claude exits at its first request, after the session-start hooks have run. Called in a subshell.
+real_claude_env() {
+  unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_ENV_FILE CLAUDE_PROJECT_DIR CLAUDE_CODE_SSE_PORT TMUX TMUX_PANE
+  export CLAUDE_CONFIG_DIR=$T/claude-config ANTHROPIC_API_KEY=sk-ant-test ANTHROPIC_BASE_URL=http://127.0.0.1:9
+  export CLAUDE_CODE_MAX_RETRIES=0 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 DISABLE_AUTOUPDATER=1
+  mkdir -p "$CLAUDE_CONFIG_DIR"
+}
+
+# run_typed_line: runs the line typed into the slot's Claude session, in the slot, through the real claude in print mode.
+run_typed_line() {
+  local line
+  line=$(typed)
+  (
+    cd "$SLOT" || exit 1
+    # shellcheck disable=SC2329 # the eval below calls it
+    claude() { "$REAL_CLAUDE" -p "$@"; }
+    real_claude_env
+    eval "$line" </dev/null >"$T/real-claude.out" 2>&1 || true
+  )
+}
+
+# run_plain_claude [DIR]: the real claude in print mode with none of the slot's flags, as a person or a tool in the slot
+# would start it, in DIR under the slot.
+run_plain_claude() {
+  (
+    cd "$SLOT/${1:-}" || exit 1
+    real_claude_env
+    "$REAL_CLAUDE" -p --dangerously-skip-permissions 'say ok' </dev/null >"$T/real-claude.out" 2>&1 || true
+  )
+}
+
+# assert_reached_api: the real Claude's last run got as far as its first request, at the refused port. Without this, empty
+# markers can mean Claude never started: a bad flag or a missing prompt stops it before it loads anything.
+assert_reached_api() {
+  grep -q 'ECONNREFUSED\|Connection refused' "$T/real-claude.out" || {
+    cat "$T/real-claude.out"
+    false
+  }
+}
+
+@test "a foreign head's Claude starts with user settings only, and the output, record, and ledger say so" {
+  foreign_pr
+  launch repoa --pr 7 --request-id r-foreign
+  [ "$status" -eq 0 ]
+  local session
+  session=$(jaq -r .session_id <<<"$output")
+  jaq -e '.head_foreign == true and .head_owner == "evil"' <<<"$output"
+  [ "$(typed)" = "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config --session-id $session -n repoa-pr7-fix-the-login" ]
+  jaq -e '.head_foreign == true and .head_owner == "evil"' "$SLOT/.git/agent-slot.json"
+  jaq -e -s '[.[] | select(.event == "launch")][-1] | .head_foreign == true and .head_owner == "evil"' "$LEDGER"
+  [ "$(git -C "$SLOT" rev-parse HEAD)" = "$HEAD_SHA" ]
+  [ "$(git -C "$SLOT" config --get remote.fork.url)" = https://github.com/evil/repoa.git ]
+}
+
+@test "the text output tells the operator a foreign head runs nothing" {
+  foreign_pr
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --pr 7
+  [ "$status" -eq 0 ]
+  [[ $output == *"its head belongs to evil, so nothing from the head runs"* ]]
+}
+
+@test "a foreign head's settings hook, key helper, and MCP server do not run in the real Claude" {
+  [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
+  foreign_pr
+  launch repoa --pr 7 --prompt-file "$T/brief"
+  [ "$status" -eq 0 ]
+  # With the tree's config back on disk, so this is the flags holding on their own.
+  git -C "$SLOT" sparse-checkout disable
+  [ -f "$SLOT/.claude/settings.json" ]
+  run_typed_line
+  [ -z "$(ls "$T/marks")" ] || {
+    ls "$T/marks"
+    cat "$T/real-claude.out"
+    false
+  }
+  assert_reached_api
+}
+
+@test "an own fork's settings hook, key helper, and MCP server do run in the real Claude, so the test above is not vacuous" {
+  [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
+  own_pr
+  launch repoa --pr 7 --prompt-file "$T/brief"
+  [ "$status" -eq 0 ]
+  run_typed_line
+  [ -e "$T/marks/settings-hook" ] && [ -e "$T/marks/api-key-helper" ] && [ -e "$T/marks/mcp-server" ] || {
+    ls "$T/marks"
+    cat "$T/real-claude.out"
+    false
+  }
+}
+
+@test "a foreign head's git hook does not run on a commit, a checkout, or a push" {
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -f "$SLOT/.githooks/pre-commit" ]
+  [ -z "$(hooks_path)" ]
+  git -C "$SLOT" commit -q --allow-empty -m work
+  git -C "$SLOT" checkout -q -b work-branch
+  git -C "$SLOT" push -q fork HEAD:refs/heads/work-branch
+  [ -z "$(ls "$T/marks")" ]
+}
+
+@test "a hook installed in the prime's git directory is not copied into a foreign head's slot" {
+  git -C "$AGENT_SLOT_DEV/repoa" config --unset core.hooksPath
+  printf '#!/bin/sh\ntouch %s/copied-hook\n' "$T/marks" >"$AGENT_SLOT_DEV/repoa/.git/hooks/pre-commit"
+  chmod +x "$AGENT_SLOT_DEV/repoa/.git/hooks/pre-commit"
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$SLOT/.git/hooks/pre-commit" ]
+  git -C "$SLOT" commit -q --allow-empty -m work
+  [ -z "$(ls "$T/marks")" ]
+}
+
+@test "a same-repo PR on a third party's origin is that third party's code, so it is foreign" {
+  same_repo_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  jaq -e '.head_foreign == true and .head_owner == "up"' <<<"$output"
+  [ -z "$(hooks_path)" ]
+  git -C "$SLOT" commit -q --allow-empty -m work
+  [ -z "$(ls "$T/marks")" ]
+}
+
+@test "a same-repo PR on a trusted owner's origin keeps today's setup, and its git hook runs" {
+  trust_owners 'me up'
+  same_repo_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  assert_unchanged_setup "$output"
+  git -C "$SLOT" commit -q --allow-empty -m work
+  [ -e "$T/marks/git-pre-commit" ]
+}
+
+@test "a launch with no item on a third party's origin keeps today's setup, since the prime chose that base" {
+  launch repoa --task plain
+  [ "$status" -eq 0 ]
+  assert_unchanged_setup "$output"
+}
+
+@test "a PR from a trusted owner's fork keeps today's setup, and its git hook runs" {
+  own_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  assert_unchanged_setup "$output"
+  git -C "$SLOT" commit -q --allow-empty -m work
+  [ -e "$T/marks/git-pre-commit" ]
+}
+
+# trust_owners LIST: the trusted owner list this test's launches read.
+trust_owners() { export AGENT_SLOT_TRUSTED_OWNERS=$1; }
+
+@test "the trusted owner list matches in any case, as GitHub does" {
+  trust_owners 'nobody ME'
+  own_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  assert_unchanged_setup "$output"
+}
+
+@test "an owner on no list counts as foreign, with an empty list trusting nobody" {
+  trust_owners ''
+  own_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  jaq -e '.head_foreign == true and .head_owner == "me"' <<<"$output"
+  [ -z "$(hooks_path)" ]
+}
+
+@test "an owner that cannot be determined counts as foreign: the head's repository is gone" {
+  hostile_head "" "" 7
+  gh_item pr 7 "Fix the login" OPEN '{"headRefName": "feat/x", "headRepository": null, "headRepositoryOwner": null,
+    "isCrossRepository": true}'
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  jaq -e '.head_foreign == true and .head_owner == null and .head_pushable == false' <<<"$output"
+  [ "$(git -C "$SLOT" rev-parse HEAD)" = "$HEAD_SHA" ]
+  [[ $(typed) == "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config "* ]]
+  [ -z "$(hooks_path)" ]
+}
+
+@test "a launch with no item and one on an issue keep today's setup" {
+  gh_item issue 12 "Fix the widget"
+  launch repoa --issue 12
+  [ "$status" -eq 0 ]
+  assert_unchanged_setup "$output"
+  launch repoa --task other
+  [ "$status" -eq 0 ]
+  jaq -e '.head_foreign == false' <<<"$output"
+}
+
+@test "the trust step starts Claude with user settings only for a foreign head, since accepting runs what it loads" {
+  jaq 'del(.projects[$p])' --arg p "$(realpath -m "$SLOT")" "$AGENT_SLOT_CLAUDE_STATE" >"$T/state.new"
+  cp "$T/state.new" "$AGENT_SLOT_CLAUDE_STATE"
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
+  printf '❯ \n' >"$STUBS/screen"
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  grep -E 'new-session .*trust-.* -c .*/claude --setting-sources user --strict-mcp-config$' "$CALLS"
+}
+
+@test "the trust step for an own fork starts Claude as it always has" {
+  jaq 'del(.projects[$p])' --arg p "$(realpath -m "$SLOT")" "$AGENT_SLOT_CLAUDE_STATE" >"$T/state.new"
+  cp "$T/state.new" "$AGENT_SLOT_CLAUDE_STATE"
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
+  printf '❯ \n' >"$STUBS/screen"
+  own_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  grep -E 'new-session .*trust-.* -c .*/claude$' "$CALLS"
+}
+
+# links_out: tracked links that lead out of the slot, as slot setup would write through them.
+links_out() {
+  mkdir -p .claude
+  ln -s "$T/outside/settings.json" .claude/settings.local.json
+  ln -s "$T/outside/context" .context
+}
+
+@test "slot setup writes nothing through a foreign head's tracked links" {
+  printf 'the guard hooks\n' >"$T/outside/settings.json"
+  mkdir -p "$T/outside/context"
+  foreign_pr links_out
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(cat "$T/outside/settings.json")" = 'the guard hooks' ]
+  [ -z "$(ls -A "$T/outside/context")" ]
+}
+
+# docs_out: docs/ as a tracked link out of the slot, where the docs/solutions link would land.
+docs_out() { ln -s "$T/outside/docs" docs; }
+
+@test "a foreign head whose docs is a link out of the slot is refused, with nothing written there" {
+  mkdir -p "$T/outside/docs"
+  foreign_pr docs_out
+  launch repoa --pr 7
+  [ "$status" -ne 0 ]
+  assert_error_shape "$stderr"
+  jaq -e --arg docs "$SLOT/docs" '.reason == "tracked-link-leaves-slot" and .value == $docs' <<<"$stderr"
+  [ -z "$(ls -A "$T/outside/docs")" ]
+  [ ! -e "$SLOT" ]
+}
+
+@test "a foreign head's solutions worktree is linked as usual when docs stays inside the slot" {
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -L "$SLOT/docs/solutions" ]
+  jaq -e '.solutions_worktree != null' "$SLOT/.git/agent-slot.json"
+}
+
+# sibling_link: a tracked link to a sibling checkout beside the slots.
+sibling_link() { ln -s ../other/file sibling-file; }
+
+@test "a foreign head's links to sibling checkouts add no link beside the slots" {
+  prime other
+  foreign_pr sibling_link
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/other" ]
+  jaq -e '.missing_siblings == []' <<<"$output"
+}
+
+@test "an own fork's links to sibling checkouts still get theirs" {
+  prime other
+  own_pr sibling_link
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -L "$AGENT_SLOT_ROOT/repoa/other" ]
+}
+
+# lfs_file: a tracked file under the LFS filter.
+lfs_file() {
+  printf 'big.bin filter=lfs -text\n' >.gitattributes
+  git config --file "$GIT_CONFIG_GLOBAL" filter.lfs.clean cat
+  printf 'x\n' >big.bin
+}
+
+@test "a foreign head's checkout runs no LFS smudge, so its .lfsconfig reaches no server" {
+  command -v git-lfs >/dev/null || skip "git-lfs is not installed"
+  foreign_pr lfs_file
+  git config --file "$GIT_CONFIG_GLOBAL" filter.lfs.smudge "sh -c 'touch $T/marks/lfs-smudge; cat'"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -e "$T/marks/lfs-smudge" ]
+  [ "$(git -C "$SLOT" config --local --get filter.lfs.smudge)" = 'git-lfs smudge --skip -- %f' ]
+  [ "$(git -C "$SLOT" config --local --get filter.lfs.process)" = 'git-lfs filter-process --skip' ]
+}
+
+@test "an own fork's checkout runs the LFS smudge as it always has" {
+  own_pr lfs_file
+  git config --file "$GIT_CONFIG_GLOBAL" filter.lfs.smudge "sh -c 'touch $T/marks/lfs-smudge; cat'"
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -e "$T/marks/lfs-smudge" ]
+  run ! git -C "$SLOT" config --local --get filter.lfs.smudge
+}
+
+# crypt_attr: a .gitattributes naming git-crypt, which asks for an unlock with the host's key.
+crypt_attr() { printf 'lifted.bin filter=git-crypt diff=git-crypt\n' >.gitattributes; }
+
+@test "a foreign head's .gitattributes does not get the host's git-crypt key used when the base does not use it" {
+  foreign_pr crypt_attr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^git-crypt unlock' "$CALLS")" -eq 0 ]
+}
+
+@test "a foreign head on a base that uses git-crypt is never unlocked, and a missing key does not stop the launch" {
+  origin_file repoa .gitattributes 'secret/** filter=git-crypt diff=git-crypt'
+  foreign_pr
+  AGENT_SLOT_GIT_CRYPT_KEY=$T/no-such-key run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --pr 7 --output json
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  [ "$(grep -c '^git-crypt unlock' "$CALLS")" -eq 0 ]
+  [ -z "$(git -C "$SLOT" config --local --get filter.git-crypt.smudge || true)" ]
+}
+
+@test "an own fork on a base that uses git-crypt is still unlocked" {
+  origin_file repoa .gitattributes 'secret/** filter=git-crypt diff=git-crypt'
+  stub git-crypt '[ "$1" != unlock ] || git config filter.git-crypt.smudge cat'
+  own_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^git-crypt unlock' "$CALLS")" -eq 1 ]
+}
+
+@test "resume starts a foreign head's Claude with the same flags" {
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  : >"$STUBS/tmux-sessions"
+  trash "$STUBS/typed-repoa-1"
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
+  [ "$status" -eq 0 ]
+  [[ $(typed) == "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config "* ]]
+}
+
+S1=11111111-2222-4333-8444-555555555555
+PR7='{"kind": "pr", "repo": "up/repoa", "number": 7, "title": "Fix the login"}'
+ISSUE12='{"kind": "issue", "repo": "up/repoa", "number": 12, "title": "Fix the widget"}'
+
+# teardown_event FIELDS: a ledger line for the teardown of repoa/1, whose conversation is saved, with FIELDS merged over.
+teardown_event() {
+  local dir=$AGENT_SLOT_CLAUDE_PROJECTS/-slots-repoa-1
+  mkdir -p "$dir" "$AGENT_SLOT_STATE_DIR"
+  printf '{"type":"user","sessionId":"%s"}\n' "$S1" >"$dir/$S1.jsonl"
+  jaq -n -c --argjson f "$1" --arg s "$S1" --arg t "$dir/$S1.jsonl" '{schema: "dotfiles.agent-slot/1",
+    ts: "2026-10-01T00:00:00Z", event: "teardown", repo: "repoa", slot: 1, task: "t1", session_id: $s, transcript: $t,
+    prs: [], request_id: null} + $f' >>"$LEDGER"
+}
+
+# branch_entry OWNER: a teardown event's feat/x branch at HEAD_SHA, on OWNER's repoa.
+branch_entry() {
+  local remote=fork
+  [ "$1" != up ] || remote=origin
+  jaq -n -c --arg sha "$HEAD_SHA" --arg remote "$remote" --arg url "https://github.com/$1/repoa.git" \
+    '{name: "feat/x", oid: $sha, remote: $remote, url: $url}'
+}
+
+# assert_reopened_foreign OWNER OUTPUT: a reopen's output, typed line, and git config for a foreign head of OWNER.
+assert_reopened_foreign() {
+  jaq -e --arg owner "$1" '.head_foreign == true and .head_owner == $owner' <<<"$2"
+  [[ $(typed) == "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config --resume $S1"* ]]
+  [ -z "$(hooks_path)" ]
+}
+
+@test "a reopen of a foreign slot stays foreign, even when the ledger puts its branch on origin" {
+  same_repo_pr
+  teardown_event "{\"items\": [$PR7], \"prs\": [7], \"head\": \"feat/x\", \"head_foreign\": true,
+    \"head_owner\": \"evil\", \"branches\": [$(branch_entry up)]}"
+  reopen repoa --pr 7
+  [ "$status" -eq 0 ]
+  assert_reopened_foreign evil "$output"
+}
+
+@test "a reopen is foreign when GitHub's head is, whatever a ledger line that predates the field says" {
+  foreign_pr
+  teardown_event "{\"items\": [$PR7], \"prs\": [7], \"head\": \"feat/x\", \"branches\": [$(branch_entry me)]}"
+  git -C "$T/seed-repoa" push -q "$T/forks/me/repoa.git" "$HEAD_SHA:refs/heads/feat/x"
+  reopen repoa --pr 7
+  [ "$status" -eq 0 ]
+  assert_reopened_foreign evil "$output"
+}
+
+@test "a reopen is foreign when the branch the ledger names is on a foreign fork" {
+  own_pr
+  gh_item pr 7 "Fix the login" OPEN "$(head_fields me)"
+  git -C "$T/seed-repoa" push -q "$T/forks/evil/repoa.git" "$HEAD_SHA:refs/heads/feat/x"
+  teardown_event "{\"items\": [$PR7], \"prs\": [7], \"head\": \"feat/x\", \"branches\": [$(branch_entry evil)]}"
+  reopen repoa --pr 7
+  [ "$status" -eq 0 ]
+  assert_reopened_foreign evil "$output"
+}
+
+@test "a reopen on an issue is foreign when the ledger's branch is on a foreign fork" {
+  hostile_head "$T/forks/evil/repoa.git" feat/x 7
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"items\": [$ISSUE12], \"head\": \"feat/x\", \"branches\": [$(branch_entry evil)]}"
+  reopen repoa --issue 12
+  [ "$status" -eq 0 ]
+  assert_reopened_foreign evil "$output"
+}
+
+@test "a reopen of a trusted owner's fork keeps today's setup" {
+  own_pr
+  teardown_event "{\"items\": [$PR7], \"prs\": [7], \"head\": \"feat/x\", \"branches\": [$(branch_entry me)]}"
+  reopen repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(hooks_path)" = .githooks ]
+  jaq -e '.head_foreign == false' <<<"$output"
+  [[ $(typed) == "claude --dangerously-skip-permissions $(slot_profile_args) --model claude-opus-5-5 --effort xhigh --resume $S1"* ]]
+}
+
+@test "a reopen's dry run reports a foreign head and the command it would type" {
+  foreign_pr
+  teardown_event "{\"items\": [$PR7], \"prs\": [7], \"head\": \"feat/x\", \"branches\": [$(branch_entry evil)]}"
+  reopen repoa --pr 7 --dry-run
+  [ "$status" -eq 0 ]
+  jaq -e --arg s "$S1" --arg p "$(slot_profile_args)" '.would_reopen == true and .head_foreign == true and .head_owner == "evil"
+    and (.command | startswith("claude --dangerously-skip-permissions \($p) --model claude-opus-5-5 --effort xhigh --setting-sources user --strict-mcp-config --resume \($s)"))' <<<"$output"
+  [ ! -e "$SLOT" ]
+}
+
+@test "a teardown's ledger line carries the foreign fields, which is what a later reopen reads" {
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  echo '[]' >"$STUBS/gh-prs.json"
+  pr 7 MERGED feat/x
+  run --separate-stderr "$AGENT_SLOT" finish repoa/1 --yes --output json
+  jaq -e -s '[.[] | select(.event == "teardown")][-1] | .head_foreign == true and .head_owner == "evil"' "$LEDGER" || {
+    echo "$output $stderr"
+    false
+  }
+}
+
+# tracked_local_settings: the head tracks .claude/settings.local.json with a hook. Any git operation that restores a
+# tracked file puts it back, so setup overwriting the file could not keep the hook out: only leaving local settings
+# unloaded does.
+tracked_local_settings() {
+  mkdir -p .claude
+  jaq -n --arg m "$T/marks/local-hook" '{hooks: {SessionStart: [{hooks: [{type: "command", command: "touch \($m)"}]}]}}' \
+    >.claude/settings.local.json
+}
+
+@test "the flags alone keep a tracked settings.local.json's hook from running, after any git restore" {
+  [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
+  foreign_pr tracked_local_settings
+  launch repoa --pr 7 --prompt-file "$T/brief"
+  [ "$status" -eq 0 ]
+  git -C "$SLOT" sparse-checkout disable
+  [ -f "$SLOT/.claude/settings.local.json" ]
+  run_typed_line
+  assert_reached_api
+  [ ! -e "$T/marks/local-hook" ]
+  git -C "$SLOT" checkout -q -- .
+  git -C "$SLOT" stash -q || true
+  [ -f "$SLOT/.claude/settings.local.json" ]
+  # Claude refuses a session ID it has already saved, and would stop before loading anything.
+  rm -rf "$T/claude-config/projects"
+  run_typed_line
+  assert_reached_api
+  [ ! -e "$T/marks/local-hook" ]
+}
+
+# nested_config: Claude config below the root too, which a Claude started in that directory would read.
+nested_config() {
+  mkdir -p sub/.claude
+  cp .claude/settings.json sub/.claude/settings.json
+  printf 'nested\n' >sub/CLAUDE.md
+  printf 'nested\n' >sub/AGENTS.md
+  printf 'kept\n' >sub/kept.txt
+  printf 'tree prompt\n' >CLAUDE.md
+  printf 'tree prompt\n' >CLAUDE.local.md
+  printf 'tree prompt\n' >AGENTS.md
+}
+
+@test "a foreign head's Claude config stays off disk through git restores and branch switches" {
+  foreign_pr nested_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local path restored=restored
+  for path in .claude .mcp.json AGENTS.md CLAUDE.md CLAUDE.local.md sub/.claude sub/AGENTS.md sub/CLAUDE.md; do
+    [ ! -e "$SLOT/$path" ]
+  done
+  [ -f "$SLOT/sub/kept.txt" ]
+  [ -f "$SLOT/.githooks/pre-commit" ]
+  [ -z "$(git -C "$SLOT" status --porcelain -- .claude .mcp.json CLAUDE.md CLAUDE.local.md sub)" ]
+  git -C "$SLOT" checkout -q -- .
+  git -C "$SLOT" reset -q --hard
+  git -C "$SLOT" stash -q || true
+  git -C "$SLOT" checkout -q main
+  git -C "$SLOT" checkout -q feat/x
+  [ ! -e "$SLOT/.claude" ] || restored=
+  [ "$restored" = restored ]
+}
+
+@test "a foreign head's Claude config stays readable from git and goes on in what the agent pushes" {
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  git -C "$SLOT" show HEAD:.claude/settings.json | jaq -e '.hooks.SessionStart'
+  git -C "$SLOT" diff --name-only origin/main...HEAD | grep -qx .claude/settings.json
+  git -C "$SLOT" commit -q --allow-empty -m work
+  git -C "$SLOT" push -q fork HEAD:refs/heads/pushed
+  git -C "$T/forks/evil/repoa.git" ls-tree -r --name-only pushed | grep -qx .claude/settings.json
+}
+
+@test "a plain claude started in a foreign head's slot finds no config to run, at the root or below it" {
+  [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
+  foreign_pr nested_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  run_plain_claude
+  run_plain_claude sub
+  [ -z "$(ls "$T/marks")" ] || {
+    ls "$T/marks"
+    false
+  }
+  assert_reached_api
+}
+
+@test "a foreign head's files session starts no file browser, whose previewers would parse the tree unattended" {
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUBS/typed-repoa-1-files")" = 'ls -A' ]
+}
+
+@test "an own fork's files session starts yazi as it always has" {
+  own_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUBS/typed-repoa-1-files")" = 'command -v y >/dev/null && y || yazi' ]
+}
+
+@test "launch's help names the foreign head fields and the owner list" {
+  run "$AGENT_SLOT" launch --help
+  [ "$status" -eq 0 ]
+  [[ $output == *AGENT_SLOT_TRUSTED_OWNERS* ]]
+  [[ $output == *head_foreign* ]]
+  [[ $output == *head_owner* ]]
+}
+
+# lazygit_config: a .lazygit.yml whose pager touches a marker, which lazygit runs to draw a diff as it starts.
+lazygit_config() {
+  printf 'git:\n  pagers:\n    - pager: "sh -c '"'"'touch %s/%s; cat'"'"'"\n' "$T/marks" "$1" >"$2"
+}
+tree_lazygit_config() { lazygit_config lazygit-tree .lazygit.yml; }
+
+# run_lazygit SECONDS MARK: real lazygit in the slot on a tmux server of this test's own, until MARK appears or SECONDS
+# pass. A tree's git session starts it unattended, so what it loads from the tree would run with no key pressed.
+run_lazygit() {
+  local i
+  export TMUX_TMPDIR=$T
+  tmux -L lazygit-test -f /dev/null new-session -d -x 200 -y 50 -c "$SLOT" lazygit
+  for ((i = 0; i < $1 * 10; i++)); do
+    [ ! -e "$T/marks/$2" ] || break
+    sleep 0.1
+  done
+  tmux -L lazygit-test kill-server 2>/dev/null || true
+}
+
+@test "lazygit runs nothing from a .lazygit.yml the head tracks, though the same file in a parent directory does run" {
+  command -v lazygit >/dev/null || skip "lazygit is not installed"
+  command -v tmux >/dev/null || skip "tmux is not installed"
+  foreign_pr tree_lazygit_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  printf 'changed\n' >>"$SLOT/.githooks/pre-commit"
+  run_lazygit 3 lazygit-tree
+  [ ! -e "$T/marks/lazygit-tree" ]
+  lazygit_config lazygit-parent "$AGENT_SLOT_ROOT/repoa/.lazygit.yml"
+  run_lazygit 8 lazygit-parent
+  [ -e "$T/marks/lazygit-parent" ]
+}
+
+# lockfile: a package.json and bun.lock whose install scripts touch a marker, with an install tool that runs them.
+lockfile() {
+  jaq -n --arg m "$T/marks/lifecycle-script" '{name: "tree", version: "1.0.0", scripts: {postinstall: "touch \($m)"}}' \
+    >package.json
+  printf '{"lockfileVersion": 1, "workspaces": {"": {"name": "tree"}}, "packages": {}}\n' >bun.lock
+  printf 'node_modules/\n' >.gitignore
+}
+
+# installing_prime: a prime set up for a slot to install from, and a bun that marks an install.
+installing_prime() {
+  mkdir -p "$AGENT_SLOT_DEV/repoa/node_modules"
+  trusted "$(realpath -m "$AGENT_SLOT_DEV/repoa")"
+  stub bun 'for arg in "$@"; do [ "$arg" != install ] || touch "$T_MARKS/bun-install"; done'
+  export T_MARKS=$T/marks AGENT_SLOT_BUN=$STUBS/bun
+}
+
+@test "a foreign head installs nothing from its lockfile, and its agent gets no advice to" {
+  installing_prime
+  foreign_pr lockfile
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -z "$(ls "$T/marks")" ]
+  jaq -e '(.deps // null) == null' <<<"$output"
+  jaq -e '(.deps // null) == null' "$SLOT/.git/agent-slot.json"
+}
+
+# claude_links: .claude as a tracked link, at the root and below it, to a tracked directory holding the settings.
+claude_links() {
+  mkdir -p cfg sub
+  cp .claude/settings.json cfg/settings.json
+  rm -rf .claude
+  ln -s cfg .claude
+  ln -s ../cfg sub/.claude
+  printf 'kept\n' >sub/kept.txt
+}
+
+@test "a tracked .claude link stays off disk at the root and below it, and a plain claude runs nothing through it" {
+  foreign_pr claude_links
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ ! -L "$SLOT/.claude" ] && [ ! -e "$SLOT/.claude" ]
+  [ ! -L "$SLOT/sub/.claude" ] && [ ! -e "$SLOT/sub/.claude" ]
+  [ -f "$SLOT/sub/kept.txt" ]
+  git -C "$SLOT" checkout -q -- .
+  git -C "$SLOT" reset -q --hard
+  [ ! -L "$SLOT/.claude" ]
+  if [ -n "$REAL_CLAUDE" ]; then
+    run_plain_claude
+    run_plain_claude sub
+    [ -z "$(ls "$T/marks")" ] || {
+      ls "$T/marks"
+      false
+    }
+  fi
+}
+
+# tool_config: what a host tool started in the tree reads from its working directory: a Bun preload and .env files, which
+# every Bun-run CLI loads, and a node_modules/.bin, which bunx prefers over the tool it was asked for.
+tool_config() {
+  printf 'preload = ["./tree-preload.js"]\n' >bunfig.toml
+  printf 'require("fs").writeFileSync("%s/bun-preload", "");\n' "$T/marks" >tree-preload.js
+  printf 'FROM_TREE=1\n' >.env
+  printf 'FROM_TREE=1\n' >.env.local
+  mkdir -p node_modules/.bin sub/node_modules/.bin
+  printf '#!/bin/sh\ntouch %s/tree-bin\n' "$T/marks" >node_modules/.bin/qmd
+  chmod +x node_modules/.bin/qmd
+  printf '#!/bin/sh\ntouch %s/tree-bin\n' "$T/marks" >sub/node_modules/.bin/qmd
+  cp bunfig.toml sub/bunfig.toml
+  printf 'FROM_TREE=1\n' >sub/.env
+}
+
+@test "the config host tools read from their working directory stays off disk on a foreign head" {
+  foreign_pr tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local path
+  for path in bunfig.toml .env .env.local node_modules sub/bunfig.toml sub/.env sub/node_modules; do
+    [ ! -e "$SLOT/$path" ]
+  done
+  [ -f "$SLOT/tree-preload.js" ]
+  git -C "$SLOT" show HEAD:bunfig.toml | grep -q preload
+}
+
+# run_qmd: the real qmd, whose launcher runs under Bun, listing its collections from the slot's root.
+run_qmd() { (cd "$SLOT" && qmd collection list >/dev/null 2>&1) || true; }
+
+@test "the real qmd started in a foreign head's slot runs nothing from the tree" {
+  command -v qmd >/dev/null || skip "qmd is not installed"
+  foreign_pr tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  run_qmd
+  [ -z "$(ls "$T/marks")" ]
+}
+
+@test "the real qmd started in an own fork's slot does run a tracked preload, so the test above is not vacuous" {
+  command -v qmd >/dev/null || skip "qmd is not installed"
+  own_pr tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  run_qmd
+  [ -e "$T/marks/bun-preload" ]
+}
+
+# run_bun_script: a Bun script kept outside the tree and started from the slot's root, as a Bun-run tool such as qmd is:
+# Bun reads its config and .env from the working directory. Prints the value the tree's .env gave it.
+run_bun_script() {
+  printf 'console.log(process.env.FROM_TREE ?? "unset");\n' >"$T/outside/probe.ts"
+  (cd "$SLOT" && bun run "$T/outside/probe.ts" 2>/dev/null </dev/null) || true
+}
+
+@test "a Bun script started in a foreign head's slot runs no preload and reads no .env from the tree" {
+  command -v bun >/dev/null || skip "bun is not installed"
+  foreign_pr tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(run_bun_script)" = unset ]
+  [ -z "$(ls "$T/marks")" ]
+}
+
+@test "the same Bun script in an own fork's slot does both, so the test above is not vacuous" {
+  command -v bun >/dev/null || skip "bun is not installed"
+  own_pr tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(run_bun_script)" = 1 ]
+  [ -e "$T/marks/bun-preload" ]
+}
+
+# bare_shaped: a tracked directory git takes for a bare repository once a command runs below it, whose config runs a
+# command on `git status` and names the directory itself as its work tree.
+bare_shaped() {
+  mkdir -p src/objects/info src/refs/heads src/code
+  printf 'ref: refs/heads/main\n' >src/HEAD
+  printf '[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = .\n\tfsmonitor = touch %s/fsmonitor; false\n' \
+    "$T/marks" >src/config
+  printf 'x\n' >src/objects/info/keep
+  printf 'x\n' >src/refs/heads/keep
+  printf 'x\n' >src/code/file.txt
+}
+
+# session_env KIND: the -e values the slot's session of that kind started with, one per line.
+session_env() {
+  grep -E "^tmux .*new-session .*-s repoa-1$1 " "$CALLS" | grep -oE -- '-e [^ ]+' | cut -d' ' -f2
+}
+
+@test "each of a foreign head's sessions starts with bare repository discovery off" {
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local kind expected
+  expected=$'GIT_CONFIG_COUNT=1\nGIT_CONFIG_KEY_0=safe.bareRepository\nGIT_CONFIG_VALUE_0=explicit'
+  for kind in '' -files -git; do [ "$(session_env "$kind")" = "$expected" ]; done
+}
+
+@test "an own fork's sessions start with no such environment" {
+  own_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -z "$(session_env '')" ]
+}
+
+@test "resume starts a foreign head's sessions with the same environment" {
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  : >"$STUBS/tmux-sessions"
+  : >"$CALLS"
+  run --separate-stderr "$AGENT_SLOT" resume repoa/1 --output json
+  [ "$status" -eq 0 ]
+  [ "$(session_env '' | wc -l)" -eq 3 ]
+}
+
+@test "under that environment git below a bare-shaped directory runs nothing, though without it git does" {
+  foreign_pr bare_shaped
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -f "$SLOT/src/config" ]
+  git -C "$SLOT/src/code" status --short >/dev/null 2>&1 || true
+  [ -e "$T/marks/fsmonitor" ]
+  rm "$T/marks/fsmonitor"
+  local -a settings
+  mapfile -t settings < <(session_env '')
+  (
+    export "${settings[@]}"
+    git -C "$SLOT/src/code" status --short >/dev/null 2>&1 || true
+    "$BATS_TEST_DIRNAME/../stow/claude/dot-claude/statusline.sh" >/dev/null 2>&1 \
+      <<<"{\"workspace\": {\"current_dir\": \"$SLOT/src/code\"}, \"model\": {}, \"cost\": {}, \"context_window\": {}}" || true
+  )
+  [ ! -e "$T/marks/fsmonitor" ]
+}
+
+@test "that environment leaves git working at the slot's root, below it, and in the solutions worktree" {
+  foreign_pr bare_shaped
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local -a settings
+  mapfile -t settings < <(session_env '')
+  (
+    export "${settings[@]}"
+    git -C "$SLOT" status --short >/dev/null
+    git -C "$SLOT/.githooks" log -1 --format=%h >/dev/null
+    git -C "$SLOT/docs/solutions" status --short >/dev/null
+    git -C "$SLOT" commit -q --allow-empty -m work
+    git -C "$SLOT" push -q fork HEAD:refs/heads/pushed
+  )
+}
+
+# tracked_solutions_link: docs/solutions as a tracked link, as this repo's own branches hold it.
+tracked_solutions_link() {
+  mkdir -p docs
+  ln -s ../../dev/solutions-docs docs/solutions
+}
+
+@test "a foreign head's tracked docs/solutions link keeps the slot's worktree and stays out of every commit" {
+  foreign_pr tracked_solutions_link
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local worktree
+  worktree=$(jaq -r .solutions_worktree "$SLOT/.git/agent-slot.json")
+  [ "$(readlink "$SLOT/docs/solutions")" = "$worktree" ]
+  [ -z "$(git -C "$SLOT" status --porcelain -- docs)" ]
+  git -C "$SLOT" checkout -q -b work
+  git -C "$SLOT" reset -q --hard
+  [ "$(readlink "$SLOT/docs/solutions")" = "$worktree" ]
+  [ -z "$(git -C "$SLOT" status --porcelain -- docs)" ]
+  printf 'x\n' >"$SLOT/work.txt"
+  git -C "$SLOT" add -A
+  git -C "$SLOT" commit -q -m work
+  [ "$(git -C "$SLOT" show HEAD:docs/solutions)" = ../../dev/solutions-docs ]
+}
+
+# real_solutions_dir: docs/solutions as a real directory, which the slot's link has nowhere to go.
+real_solutions_dir() {
+  mkdir -p docs/solutions
+  printf 'x\n' >docs/solutions/a.md
+}
+
+@test "a foreign head with a real docs/solutions directory is refused, as any other head is" {
+  foreign_pr real_solutions_dir
+  launch repoa --pr 7
+  [ "$status" -ne 0 ]
+  assert_error_shape "$stderr"
+  jaq -e '.reason == "solutions-symlink-missing"' <<<"$stderr"
+  [ ! -e "$SLOT" ]
+}
+
+@test "a reopen's dry run reports no verdict, rather than a safe one, while a live slot holds the item" {
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  reopen repoa --pr 7 --dry-run
+  [ "$status" -eq 0 ]
+  jaq -e '.would_reopen == false and .head_foreign == null and .head_owner == null' <<<"$output"
+}
+
+@test "a reopen's dry run reports no verdict when no teardown names the item" {
+  foreign_pr
+  reopen repoa --pr 7 --dry-run
+  [ "$status" -eq 0 ]
+  jaq -e '.would_reopen == false and .head_foreign == null and .head_owner == null' <<<"$output"
+}
+
+@test "a reopen on an issue with no branch stays on the base and is not foreign" {
+  gh_item issue 12 "Fix the widget"
+  teardown_event "{\"items\": [$ISSUE12]}"
+  reopen repoa --issue 12
+  [ "$status" -eq 0 ]
+  jaq -e '.head_foreign == false' <<<"$output"
+  [ "$(hooks_path)" = .githooks ]
+}
+
+@test "a refused head's next step shows the PR, since an agent cannot repair a link in someone else's branch" {
+  mkdir -p "$T/outside/docs"
+  foreign_pr docs_out
+  launch repoa --pr 7
+  [ "$status" -ne 0 ]
+  jaq -e '.next_step.action == "ask-operator" and .next_step.command == "gh pr view 7 --repo up/repoa"' <<<"$stderr"
+}
+
+@test "launch and reopen's help say a dry run with no plan reports null, and whoami's says the record carries the verdict" {
+  run "$AGENT_SLOT" reopen --help
+  [ "$status" -eq 0 ]
+  [[ $output == *'head_owner, null when a dry run plans no head'* ]]
+  run "$AGENT_SLOT" whoami --help
+  [ "$status" -eq 0 ]
+  [[ $output == *head_foreign* ]]
+}
+
+@test "a foreign head on a real git-crypt base stays ciphertext, with a clean status and no key in the slot" {
+  command -v git-crypt >/dev/null || skip "git-crypt is not installed"
+  local seed=$T/seed-repoa
+  (cd "$seed" && git-crypt init >/dev/null && git-crypt export-key "$AGENT_SLOT_GIT_CRYPT_KEY")
+  mkdir -p "$seed/secret"
+  printf 'secret/** filter=git-crypt diff=git-crypt\n' >"$seed/.gitattributes"
+  printf 'THE-SECRET\n' >"$seed/secret/x"
+  git -C "$seed" add -A
+  git -C "$seed" commit -q -m 'encrypted base'
+  git -C "$seed" push -q origin HEAD:main
+  export AGENT_SLOT_GIT_CRYPT
+  AGENT_SLOT_GIT_CRYPT=$(command -v git-crypt)
+  foreign_pr
+  launch repoa --pr 7
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  [ "$(head -c 9 "$SLOT/secret/x" | tail -c 8)" = GITCRYPT ]
+  run ! grep -q THE-SECRET "$SLOT/secret/x"
+  [ ! -e "$SLOT/.git/git-crypt" ]
+  [ -z "$(git -C "$SLOT" status --porcelain -- secret)" ]
+}
+
+@test "a fork someone has reviewed gets the full setup by a launch with its owner added for that one command" {
+  foreign_pr
+  AGENT_SLOT_TRUSTED_OWNERS='me evil' run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --pr 7 --output json
+  [ "$status" -eq 0 ]
+  assert_unchanged_setup "$output"
+  [ -f "$SLOT/.claude/settings.json" ]
+}
+
+@test "launch's help says how to run a fork someone has reviewed" {
+  run "$AGENT_SLOT" launch --help
+  [ "$status" -eq 0 ]
+  [[ $output == *'once someone has reviewed it'*AGENT_SLOT_TRUSTED_OWNERS* ]]
+}
+
+# every_git_hook: a marker hook at every event git can fire, a settings.local.json and a docs/solutions link the head
+# tracks, so setup's own index writes have something to fire.
+every_git_hook() {
+  local hook
+  for hook in applypatch-msg commit-msg fsmonitor-watchman post-applypatch post-checkout post-commit post-index-change \
+    post-merge post-receive post-rewrite post-update pre-applypatch pre-auto-gc pre-commit pre-merge-commit pre-push \
+    pre-rebase pre-receive prepare-commit-msg proc-receive push-to-checkout reference-transaction sendemail-validate \
+    update; do
+    printf '#!/bin/sh\ntouch %s/git-%s\n' "$T/marks" "$hook" >".githooks/$hook"
+    chmod +x ".githooks/$hook"
+  done
+  mkdir -p docs
+  ln -s ../../dev/solutions-docs docs/solutions
+  printf '{}\n' >.claude/settings.local.json
+}
+
+@test "no git command setup runs on a foreign head fires a hook the head tracks" {
+  foreign_pr every_git_hook
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -z "$(ls "$T/marks")" ]
+  [ -z "$(hooks_path)" ]
+}
+
+@test "no git command setup runs on an own fork fires a tracked hook either, and its hooks are live once setup ends" {
+  own_pr every_git_hook
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -z "$(ls "$T/marks")" ] || {
+    ls "$T/marks"
+    false
+  }
+  [ "$(hooks_path)" = .githooks ]
+  git -C "$SLOT" commit -q --allow-empty -m work
+  [ -e "$T/marks/git-pre-commit" ]
+}
+
+# conflicted_slot: a foreign head's slot with origin's main moved on the same excluded files, merged, so the conflict puts
+# them back on disk with conflict markers. Sets nothing; the slot is SLOT.
+conflicted_slot() {
+  foreign_pr tool_config
+  launch repoa --pr 7 --prompt-file "$T/brief"
+  origin_file repoa bunfig.toml 'preload = ["./base-preload.js"]'
+  origin_file repoa .claude/settings.json '{"from": "main"}'
+  git -C "$SLOT" fetch -q origin
+  git -C "$SLOT" merge -q --no-edit origin/main >/dev/null 2>&1 || true
+  [ -f "$SLOT/bunfig.toml" ]
+  [ -f "$SLOT/.claude/settings.json" ]
+  git -C "$SLOT" status --porcelain -- bunfig.toml | grep -q '^AA\|^UU'
+}
+
+@test "with a merge conflict back on disk nothing runs it on its own: not the slot's Claude, a plain claude, or the status line" {
+  [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
+  conflicted_slot
+  run_typed_line
+  assert_reached_api
+  [ -z "$(ls "$T/marks")" ]
+  run_plain_claude
+  assert_reached_api
+  [ -z "$(ls "$T/marks")" ]
+  "$BATS_TEST_DIRNAME/../stow/claude/dot-claude/statusline.sh" >/dev/null 2>&1 \
+    <<<"{\"workspace\": {\"current_dir\": \"$SLOT\"}, \"model\": {}, \"cost\": {}, \"context_window\": {}}" || true
+  [ -z "$(ls "$T/marks")" ]
+}
+
+@test "with that conflict resolved to the head's side the slot's Claude still loads none of it, though a plain claude does" {
+  [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
+  conflicted_slot
+  git -C "$SLOT" checkout -q --theirs -- .claude/settings.json 2>/dev/null || true
+  git -C "$SLOT" checkout -q --ours -- .claude/settings.json
+  jaq -e .hooks "$SLOT/.claude/settings.json" >/dev/null
+  run_typed_line
+  assert_reached_api
+  [ -z "$(ls "$T/marks")" ]
+  run_plain_claude
+  [ -e "$T/marks/settings-hook" ]
+}
+
+@test "the session-start hook runs nothing from that conflict, even resolved to the head's side" {
+  command -v qmd >/dev/null || skip "qmd is not installed"
+  conflicted_slot
+  git -C "$SLOT" checkout -q --ours -- bunfig.toml
+  (cd "$SLOT" && XDG_CACHE_HOME=$T/cache timeout 45 "$BATS_TEST_DIRNAME/../stow/claude/dot-claude/session-context.sh" >/dev/null 2>&1 </dev/null) || true
+  [ -z "$(ls "$T/marks")" ]
+  [ -s "$T/cache/claude/tool-inventory.cache" ]
+}
+
+@test "resolving a conflict with git add --sparse and committing leaves the file on disk until sparse-checkout reapply" {
+  conflicted_slot
+  git -C "$SLOT" checkout -q --ours -- bunfig.toml .claude/settings.json
+  git -C "$SLOT" add --sparse -- bunfig.toml .claude/settings.json
+  git -C "$SLOT" commit -q -m merged
+  [ -f "$SLOT/bunfig.toml" ]
+  git -C "$SLOT" sparse-checkout reapply
+  [ ! -e "$SLOT/bunfig.toml" ]
+  [ ! -e "$SLOT/.claude" ]
+  git -C "$SLOT" show HEAD:bunfig.toml >/dev/null
+}
+
+# run_in_real_tmux ENV-ARGS...: git status below the bare-shaped directory, in a pane of a real tmux server of this test's
+# own, with those -e arguments on new-session, as the slot's sessions start.
+run_in_real_tmux() {
+  local i
+  export TMUX_TMPDIR=$T
+  tmux -L env-test -f /dev/null new-session -d -x 200 -y 50 "$@" -c "$SLOT/src/code" \
+    sh -c "git status --short >/dev/null 2>&1; touch $T/pane-done"
+  for ((i = 0; i < 100; i++)); do
+    [ ! -e "$T/pane-done" ] || break
+    sleep 0.1
+  done
+  tmux -L env-test kill-server 2>/dev/null || true
+  [ -e "$T/pane-done" ]
+  rm -f "$T/pane-done"
+}
+
+@test "the session environment reaches git through a real tmux pane, and the same pane without it runs the head's command" {
+  command -v tmux >/dev/null || skip "tmux is not installed"
+  foreign_pr bare_shaped
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  run_in_real_tmux
+  [ -e "$T/marks/fsmonitor" ]
+  rm "$T/marks/fsmonitor"
+  local -a settings=()
+  local setting
+  while read -r setting; do settings+=(-e "$setting"); done < <(session_env '')
+  run_in_real_tmux "${settings[@]}"
+  [ ! -e "$T/marks/fsmonitor" ]
+}
+
+# left_out_change: a commit on the head's own branch in the seed changing bunfig.toml, a file a foreign head leaves out,
+# saved as a diff and as a mailbox patch.
+left_out_change() {
+  local seed=$T/seed-repoa
+  git -C "$seed" checkout -q "head-7"
+  printf 'preload = ["./changed.js"]\n' >"$seed/bunfig.toml"
+  git -C "$seed" commit -q -am 'change the left-out file'
+  git -C "$seed" diff HEAD~1 HEAD >"$T/change.diff"
+  git -C "$seed" format-patch -q -1 --stdout >"$T/change.patch"
+  git -C "$seed" checkout -q main
+}
+
+# assert_back_then_off COMMIT: the left-out file is on disk, and once the slot matches COMMIT again, reapply takes it off.
+assert_back_then_off() {
+  [ -f "$SLOT/bunfig.toml" ]
+  git -C "$SLOT" reset -q --hard "$1"
+  git -C "$SLOT" sparse-checkout reapply
+  [ ! -e "$SLOT/bunfig.toml" ]
+}
+
+@test "each command the context names does put a left-out file back, and reapply takes it off once it matches" {
+  foreign_pr tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  local head
+  head=$(git -C "$SLOT" rev-parse HEAD)
+  left_out_change
+  origin_file repoa bunfig.toml 'preload = ["./base-preload.js"]'
+  git -C "$SLOT" fetch -q origin
+  [ ! -e "$SLOT/bunfig.toml" ]
+  git -C "$SLOT" checkout -q origin/main -- .
+  assert_back_then_off "$head"
+  git -C "$SLOT" restore --source origin/main .
+  assert_back_then_off "$head"
+  git -C "$SLOT" apply --index "$T/change.diff"
+  assert_back_then_off "$head"
+  git -C "$SLOT" am -q "$T/change.patch"
+  assert_back_then_off "$head"
+}
+
+# linked_solutions_tool_config: tool config, and docs/solutions as a tracked link, which turns on the sparse setting the
+# next test reads.
+linked_solutions_tool_config() {
+  tool_config
+  tracked_solutions_link
+}
+
+@test "where the head tracks a solutions link, reapply leaves a restored file and status hides it, as the context says" {
+  foreign_pr linked_solutions_tool_config
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$SLOT" config --get sparse.expectFilesOutsideOfPatterns)" = true ]
+  origin_file repoa bunfig.toml 'preload = ["./base-preload.js"]'
+  git -C "$SLOT" fetch -q origin
+  git -C "$SLOT" restore --source origin/main .
+  [ -f "$SLOT/bunfig.toml" ]
+  git -C "$SLOT" sparse-checkout reapply
+  [ -f "$SLOT/bunfig.toml" ]
+  [ -z "$(git -C "$SLOT" status --porcelain -- bunfig.toml)" ]
+}
+
+# SONNET_LINE: the start of a Sonnet slot's line, with the variable the advisor needs and the advisor itself.
+SONNET_LINE="CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 claude --dangerously-skip-permissions $(slot_profile_args) --model claude-sonnet-5-5 --effort xhigh --advisor opus"
+
+@test "a foreign head on Sonnet keeps its model, effort, and advisor, with the restrictions on top" {
+  foreign_pr
+  launch repoa --pr 7 --model sonnet
+  [ "$status" -eq 0 ]
+  local session
+  session=$(jaq -r .session_id <<<"$output")
+  [ "$(typed)" = "$SONNET_LINE --setting-sources user --strict-mcp-config --session-id $session -n repoa-pr7-fix-the-login" ]
+  jaq -e '.model == "sonnet" and .head_foreign == true' "$SLOT/.git/agent-slot.json"
+}
+
+@test "a foreign head's reopen on Sonnet keeps all of that too" {
+  foreign_pr
+  teardown_event "{\"items\": [$PR7], \"prs\": [7], \"head\": \"feat/x\", \"branches\": [$(branch_entry evil)]}"
+  reopen repoa --pr 7 --model sonnet
+  [ "$status" -eq 0 ]
+  [[ $(typed) == "$SONNET_LINE --setting-sources user --strict-mcp-config --resume $S1"* ]]
+  jaq -e '.head_foreign == true' <<<"$output"
+}
+
+@test "a foreign head's settings hook, key helper, and MCP server do not run on Sonnet in the real Claude either" {
+  [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
+  foreign_pr
+  launch repoa --pr 7 --model sonnet --prompt-file "$T/brief"
+  [ "$status" -eq 0 ]
+  run_typed_line
+  [ -z "$(ls "$T/marks")" ] || {
+    ls "$T/marks"
+    cat "$T/real-claude.out"
+    false
+  }
+  assert_reached_api
+}
+
+@test "an own fork's hooks do run from the same Sonnet line, so the real Claude accepts it and the test above is not vacuous" {
+  [ -n "$REAL_CLAUDE" ] || skip "Claude Code is not installed"
+  own_pr
+  launch repoa --pr 7 --model sonnet --prompt-file "$T/brief"
+  [ "$status" -eq 0 ]
+  run_typed_line
+  [ -e "$T/marks/settings-hook" ] && [ -e "$T/marks/api-key-helper" ] && [ -e "$T/marks/mcp-server" ] || {
+    ls "$T/marks"
+    cat "$T/real-claude.out"
+    false
+  }
+}
+
+# head_the_base_holds OWNER: origin's main holds a lockfile, and PR 7's head is that same commit on OWNER's fork.
+head_the_base_holds() {
+  origin_file repoa .gitignore 'node_modules/'
+  origin_file repoa package.json '{"name": "repoa"}'
+  origin_file repoa bun.lock 'locked'
+  git -C "$T/seed-repoa" push -q "$T/forks/$1/repoa.git" main:refs/heads/feat/x
+  git -C "$T/seed-repoa" push -q origin main:refs/pull/7/head
+  gh_item pr 7 "Fix the login" OPEN "$(head_fields "$1")"
+}
+
+@test "a foreign head installs nothing even when the base holds its commit, which is where a trusted head would install" {
+  installing_prime
+  head_the_base_holds evil
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  jaq -e '.head_foreign == true' <<<"$output"
+  [ ! -e "$T/marks/bun-install" ]
+  jaq -e '(.deps // null) == null' <<<"$output"
+}
+
+@test "the same head on a trusted owner's fork does install, so the test above is not vacuous" {
+  installing_prime
+  head_the_base_holds me
+  launch repoa --pr 7
+  [ "$status" -eq 0 ]
+  [ -e "$T/marks/bun-install" ]
+  jaq -e '.deps.status == "installed"' <<<"$output"
+}
+
+@test "a reopen fetches a branch from the URL it judged, not from an origin that names a third party's repo" {
+  hostile_head "$T/origins/repoa.git" feat/x 7
+  local own_commit
+  own_commit=$(git -C "$T/seed-repoa" rev-parse main)
+  git -C "$T/seed-repoa" push -q "$T/forks/me/repoa.git" main:refs/heads/feat/x
+  gh_item issue 12 "Fix the widget"
+  local entry
+  entry=$(jaq -n -c --arg sha "$own_commit" '{name: "feat/x", oid: $sha, remote: "origin", url: "https://github.com/me/repoa.git"}')
+  teardown_event "{\"items\": [$ISSUE12], \"head\": \"feat/x\", \"branches\": [$entry]}"
+  reopen repoa --issue 12
+  [ "$status" -eq 0 ]
+  jaq -e '.head_foreign == false and .head.remote == "fork"' <<<"$output"
+  [ "$(git -C "$SLOT" rev-parse HEAD)" = "$own_commit" ]
+  [ "$(git -C "$SLOT" config --get remote.fork.url)" = https://github.com/me/repoa.git ]
+  [ -z "$(ls "$T/marks")" ]
+}

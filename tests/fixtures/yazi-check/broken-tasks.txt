@@ -1,0 +1,15 @@
+$SCRATCH/demo
+    after          │   .git                            │   guide.md
+    bad        ╭────────────────────────────────────────────────────────Tasks─────────────────────────────────────────────────────────╮
+    before     │                                                                                                                      │
+    demo       │ ┃    Run fetcher 'git' with 4 target(s)                                                                              │
+    final      │ ┃ Failed, press Enter to view log…                                                                                   │
+    probe      │                                                                                                                      │
+    upstream   │ ┃    Run fetcher 'git' with 7 target(s)                                                                              │
+    empty.tsv  │ ┃ Failed, press Enter to view log…                                                                                   │
+    mkdemo.sh  │                                                                                                                      │
+    proof.sh   │                                                                                                                      │
+    red.txt    │                                                                                                                      │
+    sandbox.sh │                                                                                                                      │
+               ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  NOR   4K   docs                                                                                             3 left        drwxr-xr-x   27%    3/11

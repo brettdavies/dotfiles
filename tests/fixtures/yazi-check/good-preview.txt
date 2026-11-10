@@ -1,0 +1,6 @@
+~/check-repo
+    .cache         │   .git                            │
+    .config        │   pin-check.md                 ?  │   Pin check
+    .local         │   tracked.txt                     │
+    check-repo     │   untracked.txt                ?  │  piper rendered this line.
+  NOR   39B   pin-check.md                                                                                                  -rw-r--r--   50%    2/4

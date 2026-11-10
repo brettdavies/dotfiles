@@ -1,0 +1,9 @@
+[Unit]
+Description=Prune orphaned tmux clients on the agent-slots server (no controlling terminal)
+ConditionPathExists=/tmp/tmux-1000/agent-slots
+
+[Service]
+Type=oneshot
+ExecStart=%h/dotfiles/scripts/tmux/prune-orphans.sh -L agent-slots
+NoNewPrivileges=true
+PrivateTmp=false

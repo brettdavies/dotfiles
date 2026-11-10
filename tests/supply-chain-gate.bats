@@ -18,6 +18,7 @@
 # `pip:*` invocations; the env-var assertion still runs.
 #
 # Run: bats tests/supply-chain-gate.bats
+# run-tests: parallel
 
 REPO_ROOT="$BATS_TEST_DIRNAME/.."
 SUPPLY_CHAIN_SH="$REPO_ROOT/config/shell/supply-chain.sh"

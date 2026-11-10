@@ -1,0 +1,10 @@
+[Unit]
+Description=Keep each live agent slot's Rex tab open, labeled, and attached, and close tabs whose slot is gone
+ConditionHost=bigdaddy
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/agent-slot-rex restore --by poll --output json
+# No sandboxing: a pass resumes dormant slots, and their tmux server and agents would inherit it, NoNewPrivileges= among
+# it, which no later process can drop.

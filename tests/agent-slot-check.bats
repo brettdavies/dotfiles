@@ -1,0 +1,1037 @@
+#!/usr/bin/env bats
+# agent-slot check: the fail-closed teardown verdict.
+#
+# Run: bats tests/agent-slot-check.bats
+#
+# Each test builds a real slot clone of a bare origin (task_slot_setup in tests/lib/agent-slot.bash).
+# run-tests: parallel
+
+bats_require_minimum_version 1.5.0
+
+load lib/platform
+load lib/agent-slot
+load lib/processes
+
+setup_file() {
+  require_linux "agent-slot reads /proc for agent state"
+}
+
+setup() {
+  agent_slot_setup
+  task_slot_setup
+  SLEEPERS=()
+}
+
+teardown() {
+  local pid
+  for pid in "${SLEEPERS[@]}"; do kill "$pid" 2>/dev/null || true; done
+  stop_spawned
+  assert_no_leaks
+}
+
+# Usage: check [dir]; runs from dir with agent-slot exec'd, so no shell of the test's own holds dir as its cwd.
+check() {
+  run --separate-stderr bash -c 'cd "$1" && exec "$2" check repoa/1 --output json' _ "${1:-$PWD}" "$AGENT_SLOT"
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  VERDICT=$(jaq -c '.slots[0]' <<<"$output")
+}
+
+# Usage: check_as_agent <session> <dir> <filter> [jaq args...]; runs check from DIR as Claude Code runs a Bash tool
+# command: as a child of the Claude process, here a stand-in that is the pane of the named tmux session. The filter
+# builds the stubbed claude agents list, with $pid bound to the stand-in and $slot to repoa/1's path.
+check_as_agent() {
+  run --separate-stderr bash -c '
+    printf "%s %s %%1\n" "$1" "$$" >"$STUBS/tmux-panes"
+    jaq -n -c --argjson pid "$$" --arg slot "$4" "${@:6}" "$3" >"$STUBS/claude-agents.json"
+    cd "$2" && "$5" check repoa/1 --output json
+    exit $?' _ "$1" "$2" "$3" "$SLOT" "$AGENT_SLOT" "${@:4}"
+  [ "$status" -eq 0 ] || {
+    echo "$stderr"
+    false
+  }
+  VERDICT=$(jaq -c '.slots[0]' <<<"$output")
+}
+
+# Usage: sleeper <dir>; a process with its working directory in DIR, added to the SLEEPERS teardown kills.
+sleeper() {
+  (cd "$1" && exec sleep 120 >/dev/null 2>&1) &
+  SLEEPERS+=($!)
+}
+
+# Usage: outside_loop <script>; a bash -c SCRIPT with its working directory in the slot and no pane above it, added to
+# the SLEEPERS teardown kills. Sets LOOP to its pid once it has a sleep child.
+outside_loop() {
+  (cd "$SLOT" && exec bash -c "$1" </dev/null >/dev/null 2>&1) &
+  SLEEPERS+=($!)
+  LOOP=$!
+  local n=0
+  until [ "$(readlink "/proc/$LOOP/cwd" 2>/dev/null)" = "$SLOT" ] && pgrep -P "$LOOP" -x sleep >/dev/null \
+    || ((n++ > 50)); do sleep 0.1; done
+}
+
+# Usage: gone_pid; prints the pid of a process that has already exited.
+gone_pid() {
+  sh -c 'exit 0' &
+  local pid=$!
+  wait "$pid"
+  echo "$pid"
+}
+
+# Usage: scan_also_lists <pid>; points check at a find that runs the real one and, for the scan of /proc, also lists PID
+# with its working directory in the slot. That is the scan catching a short-lived child that started after the first
+# read of process parents and exited before the second, which under load happens to a `sleep 0.1`.
+scan_also_lists() {
+  local real
+  real=$(command -v find)
+  cat >"$STUBS/find" <<EOF
+#!/usr/bin/env bash
+"$real" "\$@"
+[[ \$1 != /proc/* ]] || printf '/proc/%s/cwd\t%s\n' '$1' '$SLOT'
+EOF
+  chmod +x "$STUBS/find"
+  export AGENT_SLOT_FIND=$STUBS/find
+}
+
+# Usage: pane_orphan <command...>; runs COMMAND with its working directory in the slot and the TMUX and TMUX_PANE of the
+# slot's pane %11, from a parent that exits at once, as init adopts a job that a pane's command left running. Sets
+# ORPHAN to its pid once it runs with that environment, which /proc shows only from COMMAND's own exec.
+pane_orphan() {
+  local tmux_var="TMUX=/tmp/tmux-test/$AGENT_SLOT_TMUX_SOCKET,1,0" n=0
+  printf 'repoa-1 999991 %%11\n' >"$STUBS/tmux-panes"
+  spawn bash -c 'cd "$1" || exit; "${@:3}" & echo "$!" >"$2"' _ "$SLOT" "$T/orphan.pid" \
+    env "$tmux_var" TMUX_PANE=%11 "$@" </dev/null >/dev/null 2>&1 3>&-
+  wait "$!" || true
+  ORPHAN=$(cat "$T/orphan.pid")
+  until grep -qsazxF "$tmux_var" "/proc/$ORPHAN/environ" || ((n++ > 50)); do sleep 0.1; done
+  grep -qsazxF "$tmux_var" "/proc/$ORPHAN/environ" || {
+    echo "pane_orphan: $* never ran with the pane's environment" >&2
+    return 1
+  }
+}
+
+has_blocker() { jaq -e --arg c "$1" 'any(.blockers[]; .code == $c)' <<<"$VERDICT" >/dev/null; }
+lacks_blocker() { jaq -e --arg c "$1" 'all(.blockers[]; .code != $c)' <<<"$VERDICT" >/dev/null; }
+
+# merged_with PATH...: a finished task whose one squash-merged PR adds the given paths, which the test has written.
+merged_with() {
+  work feat/x
+  git -C "$SLOT" add -- "$@"
+  git -C "$SLOT" commit -q -m 'add files'
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 MERGED feat/x
+  squash_merge feat/x
+}
+
+listed() {
+  git -C "$SLOT" status --porcelain=v1 --ignored=matching --untracked-files=all | grep -qxF "$1"
+}
+
+@test "control: a finished, clean, fully pushed slot with no agent passes" {
+  finished_task
+  check
+  jaq -e '.finished == true and .finished_by == "merge" and .blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "AE5: a merged PR plus one unpushed commit blocks with unpushed-commits, count 1" {
+  finished_task
+  git -C "$SLOT" commit -q --allow-empty -m 'after the merge'
+  check
+  jaq -e '.finished == true and .teardown == false
+    and (.needs_you[] | select(.code == "unpushed-commits") | .count == 1 and .message == "1 unpushed commit")' \
+    <<<"$VERDICT"
+}
+
+@test "AE6: an agent reported busy or waiting blocks with agent-not-idle" {
+  finished_task
+  local status_value
+  for status_value in busy waiting; do
+    jaq -n -c --arg cwd "$SLOT" --arg s "$status_value" '[{pid: 1, cwd: $cwd, status: $s}]' >"$STUBS/claude-agents.json"
+    check
+    has_blocker agent-not-idle
+    jaq -e '.teardown == false' <<<"$VERDICT"
+  done
+}
+
+@test "check run by the slot's own busy agent reports checked-by-own-agent, not agent-not-idle, from any directory" {
+  finished_task
+  local dir
+  for dir in "$SLOT" /; do
+    check_as_agent repoa-1 "$dir" '[{pid: $pid, cwd: $slot, status: "busy"}]'
+    has_blocker checked-by-own-agent
+    lacks_blocker agent-not-idle
+    jaq -e --arg docs https://github.com/brettdavies/dotfiles/blob/main/README.md#teardown-blockers '.teardown == false
+      and (.blockers[] | select(.code == "checked-by-own-agent") | (.message | contains("agent-slot release"))
+        and .next_step == {action: "run", command: "agent-slot release --output json", docs: $docs})' <<<"$VERDICT"
+  done
+}
+
+@test "a finished slot checked by its own agent leaves no needs-you in list, and its record's last_check unchanged" {
+  finished_task
+  jaq -c '.last_check = {at: "2026-01-01T00:00:00Z", finished: true, blockers: []}' "$SLOT/.git/agent-slot.json" \
+    >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  local before
+  before=$(jaq -c .last_check "$SLOT/.git/agent-slot.json")
+  check_as_agent repoa-1 "$SLOT" '[{pid: $pid, cwd: $slot, status: "busy"}]'
+  has_blocker checked-by-own-agent
+  jaq -e '.needs_you == []' <<<"$VERDICT"
+  [ "$(jaq -c .last_check "$SLOT/.git/agent-slot.json")" = "$before" ]
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  jaq -e '.slots[0].needs_you == []' <<<"$output"
+}
+
+@test "check run by another slot's busy agent reports this slot's busy agent as agent-not-idle" {
+  finished_task
+  sleeper "$T"
+  check_as_agent repoa-2 "$T" '[{pid: $pid, cwd: $other, status: "busy"}, {pid: $own, cwd: $slot, status: "busy"}]' \
+    --arg other "$AGENT_SLOT_ROOT/repoa/2" --argjson own "${SLEEPERS[-1]}"
+  has_blocker agent-not-idle
+  lacks_blocker checked-by-own-agent
+}
+
+@test "an idle agent passes" {
+  finished_task
+  jaq -n -c --arg cwd "$SLOT" '[{pid: 1, cwd: $cwd, status: "idle"}]' >"$STUBS/claude-agents.json"
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "check run from inside the slot passes an idle agent; its own /proc scan does not block" {
+  finished_task
+  jaq -n -c --arg cwd "$SLOT" '[{pid: 1, cwd: $cwd, status: "idle"}]' >"$STUBS/claude-agents.json"
+  check "$SLOT"
+  lacks_blocker agent-state-unknown
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "a shell outside the slot's panes with its working directory in the slot blocks with agent-state-unknown" {
+  finished_task
+  (cd "$SLOT" && exec setsid sleep 120 </dev/null >/dev/null 2>&1) &
+  SLEEPERS+=($!)
+  local n=0
+  until [ "$(readlink "/proc/${SLEEPERS[0]}/cwd" 2>/dev/null)" = "$SLOT" ] || ((n++ > 50)); do sleep 0.1; done
+  check
+  has_blocker agent-state-unknown
+}
+
+@test "a loop outside the slot's panes that keeps starting short-lived children there is named by its pid and command" {
+  finished_task
+  outside_loop 'while :; do sleep 0.1; done'
+  check
+  local command='bash -c while :; do sleep 0.1; done'
+  jaq -e --arg v "$LOOP $command" \
+    --arg m "agent state unknown: processes outside the slot's tmux panes use the slot: $LOOP ($command)" \
+    '.blockers[] | select(.code == "agent-state-unknown") | .values == [$v] and .message == $m' <<<"$VERDICT"
+}
+
+@test "a Bash tool command outside the slot's panes that holds the slot is named by the command the agent wrote" {
+  finished_task
+  local command='while :; do sleep 0.1; done'
+  outside_loop "source /dev/null 2>/dev/null || true && eval '$command' < /dev/null && pwd -P >| $T/claude-1a2b-cwd"
+  check
+  jaq -e --arg v "$LOOP $command" '.blockers[] | select(.code == "agent-state-unknown") | .values == [$v]' <<<"$VERDICT"
+}
+
+@test "a process the scan lists but neither read of process parents saw is not named beside the loop that holds the slot" {
+  finished_task
+  outside_loop 'while :; do sleep 0.1; done'
+  scan_also_lists "$(gone_pid)"
+  check
+  local command='bash -c while :; do sleep 0.1; done'
+  jaq -e --arg v "$LOOP $command" '.blockers[] | select(.code == "agent-state-unknown") | .values == [$v]' <<<"$VERDICT"
+}
+
+@test "a process the scan lists but neither read of process parents saw still blocks when nothing else uses the slot" {
+  finished_task
+  local gone
+  gone=$(gone_pid)
+  scan_also_lists "$gone"
+  check
+  jaq -e --arg v "$gone" '.blockers[] | select(.code == "agent-state-unknown") | .values == [$v]' <<<"$VERDICT"
+  jaq -e '.teardown == false' <<<"$VERDICT"
+}
+
+@test "an orphaned loop that carries a slot pane's TMUX and TMUX_PANE blocks, named by its pid and command" {
+  finished_task
+  local command='while :; do sleep 30; done'
+  pane_orphan bash -c "$command"
+  check
+  jaq -e --arg v "$ORPHAN bash -c $command" '.teardown == false
+    and (.blockers[] | select(.code == "agent-state-unknown") | .values == [$v])' <<<"$VERDICT"
+}
+
+@test "powerlevel10k's gitstatusd, carrying a slot pane's TMUX and TMUX_PANE, does not block" {
+  finished_task
+  pane_orphan "$(gitstatusd_standin)" -e 'sleep 120'
+  [ "$(cat "/proc/$ORPHAN/comm")" = gitstatusd-linu ]
+  check
+  lacks_blocker agent-state-unknown
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "a failed claude agents lookup blocks with agent-state-unknown" {
+  finished_task
+  stub claude 'exit 1'
+  check
+  has_blocker agent-state-unknown
+  jaq -e '.teardown == false' <<<"$VERDICT"
+}
+
+@test "AE9: a PR closed without merging blocks with pr-closed-unmerged naming it, though the task has not finished" {
+  work feat/y
+  git -C "$SLOT" push -q origin feat/y
+  pr 9 CLOSED feat/y
+  check
+  jaq -e '.finished == false and (.needs_you[] | select(.code == "pr-closed-unmerged")
+    | .message == "PR #9 closed without merging" and .values == ["9"])' <<<"$VERDICT"
+}
+
+@test "a PR closed without merging before the slot was reopened neither blocks nor finishes the task" {
+  work feat/y
+  git -C "$SLOT" push -q origin feat/y
+  pr 9 CLOSED feat/y
+  jaq '.prs = [9] | .settled_prs = [9]' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  check
+  lacks_blocker pr-closed-unmerged
+  jaq -e '.finished == false and .needs_you == [] and (.prs | map(.number)) == [9]' <<<"$VERDICT"
+}
+
+@test "AE10: a commit pushed after the merge, onto a recreated branch with no PR, blocks with commits-without-pr" {
+  finished_task
+  git -C "$SLOT" commit -q --allow-empty -m 'one more'
+  git -C "$SLOT" push -q origin feat/x
+  check
+  jaq -e '.needs_you[] | select(.code == "commits-without-pr") | .count == 1
+    and .message == "1 commit on a branch with no PR"' <<<"$VERDICT"
+  lacks_blocker unpushed-commits
+}
+
+@test "a dev-based slot passes though the clone's local default branch holds history dev lacks" {
+  git clone -q "$ORIGIN" "$T/devmaker"
+  git -C "$T/devmaker" checkout -q --orphan dev
+  git -C "$T/devmaker" commit -q --allow-empty -m 'dev root'
+  git -C "$T/devmaker" push -q origin dev
+  git -C "$SLOT" fetch -q origin
+  git -C "$SLOT" checkout -q -B dev origin/dev
+  jaq -c '.base = "dev"' "$SLOT/.git/agent-slot.json" >"$T/record" && mv "$T/record" "$SLOT/.git/agent-slot.json"
+  work feat/x 2
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 MERGED feat/x
+  check
+  jaq -e '.finished == true and .blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "a fetch from origin that fails blocks with git-state-unknown" {
+  finished_task
+  git -C "$SLOT" remote set-url origin "$T/missing.git"
+  check
+  jaq -e 'any(.blockers[]; .code == "git-state-unknown" and (.message | startswith("git fetch from origin failed")))
+    and .teardown == false' <<<"$VERDICT"
+}
+
+@test "a commit on a local branch that is neither checked out nor pushed blocks with unpushed-commits" {
+  finished_task
+  git -C "$SLOT" checkout -q -b side
+  git -C "$SLOT" commit -q --allow-empty -m 'side work'
+  git -C "$SLOT" checkout -q feat/x
+  check
+  jaq -e '.blockers[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
+}
+
+@test "a commit reachable only from a local tag blocks with unpushed-commits" {
+  finished_task
+  git -C "$SLOT" commit -q --allow-empty -m 'tagged work'
+  git -C "$SLOT" tag local-only
+  git -C "$SLOT" reset -q --hard HEAD~1
+  check
+  jaq -e '.blockers[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
+}
+
+@test "with no PR, a commit reachable only from a local tag blocks with unpushed-commits" {
+  work feat/y
+  git -C "$SLOT" push -q origin feat/y
+  git -C "$SLOT" commit -q --allow-empty -m 'tagged work'
+  git -C "$SLOT" tag local-only
+  git -C "$SLOT" reset -q --hard HEAD~1
+  check
+  jaq -e '.prs == [] and (.blockers[] | select(.code == "unpushed-commits") | .count == 1)' <<<"$VERDICT"
+}
+
+@test "a tag origin deletes after a check saw it leaves nothing behind that blocks" {
+  finished_task
+  git clone -q "$ORIGIN" "$T/tagger"
+  git -C "$T/tagger" commit -q --allow-empty -m 'release'
+  git -C "$T/tagger" tag v1
+  git -C "$T/tagger" push -q origin v1
+  check
+  git -C "$T/tagger" push -q origin --delete v1
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "a tag origin has, on a commit no origin branch holds, does not block" {
+  finished_task
+  git clone -q "$ORIGIN" "$T/tagger"
+  git -C "$T/tagger" commit -q --allow-empty -m 'release'
+  git -C "$T/tagger" tag v1
+  git -C "$T/tagger" push -q origin v1
+  git -C "$SLOT" fetch -q origin --tags
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "AE11: two PRs, one merged and one open, is not finished" {
+  finished_task
+  git -C "$SLOT" checkout -q -B feat/second main
+  git -C "$SLOT" commit -q --allow-empty -m second
+  git -C "$SLOT" push -q origin feat/second
+  pr 8 OPEN feat/second
+  check
+  jaq -e '.finished == false and .teardown == false and .needs_you == []' <<<"$VERDICT"
+}
+
+@test "a stale remote-tracking ref for a deleted branch does not count once fetch prunes it" {
+  work feat/z
+  git -C "$SLOT" push -q origin feat/z
+  git --git-dir="$ORIGIN" update-ref -d refs/heads/feat/z
+  operator_finished
+  git -C "$SLOT" rev-parse -q --verify refs/remotes/origin/feat/z
+  check
+  jaq -e '.needs_you[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
+}
+
+@test "a task with no PR whose commits are on an origin branch passes once the operator finished it" {
+  work feat/w
+  git -C "$SLOT" push -q origin feat/w
+  operator_finished
+  check
+  jaq -e '.finished == true and .finished_by == "operator" and .teardown == true' <<<"$VERDICT"
+}
+
+@test "a gh failure blocks with pr-state-unknown and never finishes" {
+  finished_task
+  stub gh 'echo boom >&2; exit 1'
+  check
+  jaq -e '.finished == false and .teardown == false
+    and any(.needs_you[]; .code == "pr-state-unknown")' <<<"$VERDICT"
+}
+
+@test "local-only files block; dependency output, the docs/solutions link, and the slot's Claude settings do not" {
+  finished_task
+  printf 'node_modules/\n.claude/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/node_modules/pkg" "$SLOT/.claude" "$SLOT/docs" "$T/shared/notes"
+  touch "$SLOT/node_modules/pkg/index.js" "$T/shared/notes/a.md"
+  echo '{}' >"$SLOT/.claude/settings.local.json"
+  ln -s "$T/shared" "$SLOT/docs/solutions"
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+  mkdir -p "$SLOT/.context/handoffs"
+  touch "$SLOT/.context/handoffs/next.md"
+  check
+  jaq -e '.needs_you[] | select(.code == "local-only-files") | .values == [".context/handoffs/next.md"]' <<<"$VERDICT"
+}
+
+@test "gstack's state and Playwright's output under an ignored .context are tool output; other .context files block" {
+  finished_task
+  echo '.context/' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/.gstack/browse" "$SLOT/.context/test-results"
+  echo '*' >"$SLOT/.gstack/.gitignore"
+  echo started >"$SLOT/.gstack/browse-daemon.log"
+  echo '{}' >"$SLOT/.gstack/browse/state.json"
+  echo '{"status":"passed"}' >"$SLOT/.context/test-results/.last-run.json"
+  listed '!! .context/'
+  listed '!! .gstack/browse-daemon.log'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+  mkdir -p "$SLOT/.context/handoffs"
+  echo next >"$SLOT/.context/handoffs/x.md"
+  check
+  jaq -e '.blockers == [{code: "local-only-files", message: "local-only files: .context/handoffs/x.md", count: 1,
+    values: [".context/handoffs/x.md"]}]' <<<"$VERDICT"
+}
+
+@test "setup's .context/repo-recon link to the repo's store does not block, with a file filed through it" {
+  recon_linked up
+  finished_task
+  echo body >"$SLOT/.context/repo-recon/filed/issue-1.md"
+  listed '!! .context/'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "a .context/repo-recon link to another store, or a real directory there, blocks as local-only" {
+  recon_linked up
+  finished_task
+  recon_store other/repob
+  ln -sfn "$STORE" "$SLOT/.context/repo-recon"
+  check
+  jaq -e '.blockers == [{code: "local-only-files", message: "local-only files: .context/repo-recon", count: 1,
+    values: [".context/repo-recon"]}]' <<<"$VERDICT"
+  rm "$SLOT/.context/repo-recon"
+  mkdir "$SLOT/.context/repo-recon"
+  echo notes >"$SLOT/.context/repo-recon/profile.md"
+  check
+  jaq -e '.blockers == [{code: "local-only-files", message: "local-only files: .context/repo-recon/profile.md",
+    count: 1, values: [".context/repo-recon/profile.md"]}]' <<<"$VERDICT"
+}
+
+# vale_slot PACKAGES: a finished task whose tracked .vale.ini names those packages under StylesPath styles, beside a
+# tracked style of the repo's own.
+vale_slot() {
+  mkdir -p "$SLOT/styles/brand"
+  printf 'StylesPath = styles\nMinAlertLevel = suggestion\nPackages = %s\n\n[*.md]\nBasedOnStyles = Vale, brand\n' "$1" \
+    >"$SLOT/.vale.ini"
+  echo 'message: "brand rule"' >"$SLOT/styles/brand/Rule.yml"
+  merged_with .vale.ini styles/brand/Rule.yml
+}
+
+@test "Vale packages the slot's .vale.ini names are tool output; another ignored style directory still blocks" {
+  vale_slot 'https://github.com/errata-ai/proselint/releases/latest/download/proselint.zip, write-good'
+  printf '/styles/proselint/\n/styles/write-good/\n/styles/mystyle/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/styles/proselint" "$SLOT/styles/write-good"
+  echo 'message: "hedging"' >"$SLOT/styles/proselint/Hedging.yml"
+  echo 'message: "weasel"' >"$SLOT/styles/write-good/Weasel.yml"
+  listed '!! styles/proselint/'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+  mkdir -p "$SLOT/styles/mystyle"
+  echo 'message: "mine"' >"$SLOT/styles/mystyle/x.yml"
+  check
+  jaq -e '.blockers == [{code: "untracked-files", message: "1 untracked file: styles/mystyle", count: 1,
+    values: ["styles/mystyle"]}]' <<<"$VERDICT"
+}
+
+@test "a Vale package blocks when git does not ignore it, and a wholly ignored StylesPath is judged file by file" {
+  printf 'StylesPath = styles\nPackages = proselint\n' >"$SLOT/.vale.ini"
+  merged_with .vale.ini
+  mkdir -p "$SLOT/styles/proselint"
+  echo 'message: "hedging"' >"$SLOT/styles/proselint/Hedging.yml"
+  check
+  jaq -e '.blockers == [{code: "untracked-files", message: "1 untracked file: styles/proselint/Hedging.yml", count: 1,
+    values: ["styles/proselint/Hedging.yml"]}]' <<<"$VERDICT"
+  echo '/styles/' >"$SLOT/.git/info/exclude"
+  listed '!! styles/'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+  mkdir -p "$SLOT/styles/config/vocabularies/Site"
+  echo agentnative >"$SLOT/styles/config/vocabularies/Site/accept.txt"
+  check
+  jaq -e '.blockers == [{code: "untracked-files", count: 1,
+    message: "1 untracked file: styles/config/vocabularies/Site/accept.txt",
+    values: ["styles/config/vocabularies/Site/accept.txt"]}]' <<<"$VERDICT"
+}
+
+@test "untracked files under build- and dist-named source directories block" {
+  finished_task
+  mkdir -p "$SLOT/tools/build" "$SLOT/src/dist"
+  echo deploy >"$SLOT/tools/build/deploy.sh"
+  echo notes >"$SLOT/src/dist/notes.md"
+  check
+  jaq -e '.blockers[] | select(.code == "untracked-files") | .values == ["src/dist/notes.md", "tools/build/deploy.sh"]' \
+    <<<"$VERDICT"
+}
+
+@test "a new ignored file in a build directory that holds tracked files blocks; a wholly ignored one does not" {
+  work feat/x
+  mkdir -p "$SLOT/tools/build"
+  echo tracked >"$SLOT/tools/build/tracked.sh"
+  git -C "$SLOT" add tools/build/tracked.sh
+  git -C "$SLOT" commit -q -m 'tracked build script'
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 MERGED feat/x
+  squash_merge feat/x
+  echo 'build/' >"$SLOT/.git/info/exclude"
+  echo new >"$SLOT/tools/build/new.sh"
+  mkdir -p "$SLOT/out/build"
+  echo object >"$SLOT/out/build/o.o"
+  check
+  jaq -e '.blockers == [{code: "untracked-files", message: "1 untracked file: tools/build/new.sh", count: 1,
+    values: ["tools/build/new.sh"]}]' <<<"$VERDICT"
+}
+
+@test "ignored Astro, Wrangler, Blume, and SwiftPM output that git lists whole does not block" {
+  finished_task
+  printf '.astro/\n.wrangler/\n.blume/\n.build/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/apps/demo/.astro" "$SLOT/workers/web/.wrangler/state" "$SLOT/apps/docs/.blume" "$SLOT/pkg/.build"
+  echo '{}' >"$SLOT/apps/demo/.astro/data-store.json"
+  echo db >"$SLOT/workers/web/.wrangler/state/d1.sqlite"
+  echo '<html>' >"$SLOT/apps/docs/.blume/index.html"
+  echo yaml >"$SLOT/pkg/.build/debug.yaml"
+  listed '!! workers/web/.wrangler/'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "ignored files in a tool directory that also holds tracked files do not block" {
+  mkdir -p "$SLOT/apps/brand/.astro"
+  echo 'declare module "astro:content" {}' >"$SLOT/apps/brand/.astro/types.d.ts"
+  merged_with apps/brand/.astro/types.d.ts
+  echo '.astro/' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/apps/brand/.astro/collections"
+  echo 'export default new Map();' >"$SLOT/apps/brand/.astro/content-modules.mjs"
+  echo '{}' >"$SLOT/apps/brand/.astro/collections/pages.schema.json"
+  listed '!! apps/brand/.astro/content-modules.mjs'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "ignored copies of tracked files do not block, one by one or as a directory git lists whole" {
+  mkdir -p "$SLOT/packages/brand/fonts"
+  echo '<svg/>' >"$SLOT/packages/brand/favicon.svg"
+  echo sans >"$SLOT/packages/brand/fonts/sans.woff2"
+  echo serif >"$SLOT/packages/brand/fonts/serif.woff2"
+  merged_with packages/brand
+  printf '/apps/web/public/favicon.svg\n/apps/web/public/fonts/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/apps/web/public"
+  cp "$SLOT/packages/brand/favicon.svg" "$SLOT/apps/web/public/favicon.svg"
+  cp -r "$SLOT/packages/brand/fonts" "$SLOT/apps/web/public/fonts"
+  listed '!! apps/web/public/fonts/'
+  check
+  jaq -e '.blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "ignored files that are not copies of tracked files block, as does a directory holding one or a symlink" {
+  mkdir -p "$SLOT/packages/brand/fonts"
+  echo sans >"$SLOT/packages/brand/fonts/sans.woff2"
+  merged_with packages/brand
+  printf 'scratch/\n/apps/web/public/fonts/\n/apps/web/public/logo.woff2\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/scratch" "$SLOT/apps/web/public"
+  echo 'work in progress' >"$SLOT/scratch/notes.md"
+  cp -r "$SLOT/packages/brand/fonts" "$SLOT/apps/web/public/fonts"
+  echo edited >"$SLOT/apps/web/public/fonts/new.woff2"
+  ln -s ../../../packages/brand/fonts/sans.woff2 "$SLOT/apps/web/public/logo.woff2"
+  check
+  jaq -e '.blockers == [{code: "untracked-files", count: 3,
+    message: "3 untracked files: apps/web/public/fonts apps/web/public/logo.woff2 scratch",
+    values: ["apps/web/public/fonts", "apps/web/public/logo.woff2", "scratch"]}]' <<<"$VERDICT"
+}
+
+@test "an ignored .env that copies a tracked file blocks as local-only, and a directory holding one blocks" {
+  echo 'API_URL=http://localhost' >"$SLOT/.env.example"
+  merged_with .env.example
+  printf '.env\nconfig/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/config"
+  cp "$SLOT/.env.example" "$SLOT/.env"
+  cp "$SLOT/.env.example" "$SLOT/config/.env.local"
+  check
+  jaq -e '.blockers == [{code: "local-only-files", message: "local-only files: .env", count: 1, values: [".env"]},
+    {code: "untracked-files", message: "1 untracked file: config", count: 1, values: ["config"]}]' <<<"$VERDICT"
+}
+
+@test "untracked files block though they sit in a tool directory or copy a tracked file" {
+  echo '<svg/>' >"$SLOT/favicon.svg"
+  merged_with favicon.svg
+  mkdir -p "$SLOT/apps/web/.astro" "$SLOT/apps/web/public"
+  echo notes >"$SLOT/apps/web/.astro/notes.md"
+  cp "$SLOT/favicon.svg" "$SLOT/apps/web/public/favicon.svg"
+  check
+  jaq -e '.blockers[] | select(.code == "untracked-files")
+    | .values == ["apps/web/.astro/notes.md", "apps/web/public/favicon.svg"]' <<<"$VERDICT"
+}
+
+@test "an untracked file blocks with untracked-files, and a stray file in the slot's .claude/ blocks too" {
+  finished_task
+  touch "$SLOT/notes.txt"
+  printf '.claude/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/.claude"
+  touch "$SLOT/.claude/scratch.md"
+  check
+  jaq -e '.needs_you[] | select(.code == "untracked-files") | .values == [".claude/scratch.md", "notes.txt"]
+    or .values == ["notes.txt", ".claude/scratch.md"]' <<<"$VERDICT"
+}
+
+@test "Claude Code's scheduled-task files in the slot's .claude/ do not block; a file the task wrote there does" {
+  finished_task
+  printf '.claude/\n' >"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/.claude"
+  echo '{"sessionId":"s1","pid":1,"acquiredAt":0}' >"$SLOT/.claude/scheduled_tasks.lock"
+  echo '{"tasks": []}' >"$SLOT/.claude/scheduled_tasks.json"
+  listed '!! .claude/'
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+  : >"$SLOT/.git/info/exclude"
+  listed '?? .claude/scheduled_tasks.lock'
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+  mkdir -p "$SLOT/.claude/commands"
+  touch "$SLOT/.claude/commands/new.md"
+  check
+  jaq -e '.needs_you[] | select(.code == "untracked-files") | .values == [".claude/commands/new.md"]' <<<"$VERDICT"
+  printf '.claude/\n' >"$SLOT/.git/info/exclude"
+  check
+  jaq -e '.needs_you[] | select(.code == "untracked-files") | .values == [".claude/commands/new.md"]' <<<"$VERDICT"
+}
+
+@test "an uncommitted change and a stash each block" {
+  finished_task
+  git -C "$SLOT" checkout -q main
+  git -C "$SLOT" pull -q origin main
+  echo change >"$SLOT/tracked.txt"
+  git -C "$SLOT" add tracked.txt
+  check
+  has_blocker uncommitted-changes
+  git -C "$SLOT" stash -q
+  check
+  has_blocker stash-present
+  lacks_blocker uncommitted-changes
+}
+
+@test "a tracked docs/solutions link that setup points at the solutions repo does not block; any other change to it does" {
+  work feat/x
+  mkdir -p "$SLOT/docs"
+  ln -s ../../dev/solutions-docs "$SLOT/docs/solutions"
+  git -C "$SLOT" add docs/solutions
+  git -C "$SLOT" commit -q -m 'track the solutions link'
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 MERGED feat/x
+  squash_merge feat/x
+  ln -sfn "$AGENT_SLOT_SOLUTIONS" "$SLOT/docs/solutions"
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+  git -C "$SLOT" add docs/solutions
+  check
+  jaq -e '.blockers == [{code: "uncommitted-changes", message: "1 uncommitted change", count: 1}]' <<<"$VERDICT"
+  git -C "$SLOT" reset -q docs/solutions
+  ln -sfn "$T/elsewhere" "$SLOT/docs/solutions"
+  check
+  jaq -e '.blockers == [{code: "uncommitted-changes", message: "1 uncommitted change", count: 1}]' <<<"$VERDICT"
+}
+
+@test "a clean solutions worktree on origin/main does not block" {
+  finished_task
+  own_solutions_worktree
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "an untracked doc in the slot's solutions worktree blocks with solutions-unpublished, named through docs/solutions" {
+  finished_task
+  own_solutions_worktree
+  mkdir -p "$SWT/workflow-issues"
+  echo draft >"$SWT/workflow-issues/new.md"
+  check
+  jaq -e --arg wt "$SWT" '.teardown == false and (.blockers[] | select(.code == "solutions-unpublished")
+    | .values == ["docs/solutions/workflow-issues/new.md"] and .count == 1
+      and .next_step == {action: "run", command: "git -C \($wt) status --short", docs: .next_step.docs}
+      and (.next_step.docs | endswith("#teardown-blockers")))' <<<"$VERDICT"
+}
+
+@test "an edit to a tracked doc in the solutions worktree blocks with solutions-unpublished" {
+  solutions_origin_doc workflow-issues/a.md original
+  finished_task
+  own_solutions_worktree
+  echo edited >"$SWT/workflow-issues/a.md"
+  check
+  jaq -e '.blockers[] | select(.code == "solutions-unpublished") | .values == ["docs/solutions/workflow-issues/a.md"]' \
+    <<<"$VERDICT"
+}
+
+@test "a commit in the solutions worktree that origin/main lacks blocks with its count, and passes once it is pushed" {
+  finished_task
+  own_solutions_worktree
+  echo doc >"$SWT/new.md"
+  git -C "$SWT" add new.md
+  git -C "$SWT" commit -q -m doc
+  check
+  jaq -e '.blockers[] | select(.code == "solutions-unpublished") | .values == ["1 unpublished commit"]' <<<"$VERDICT"
+  git -C "$SWT" push -q origin HEAD:main
+  mv "$T/solutions-origin.git" "$T/solutions-origin.away"
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "a solutions worktree git cannot read blocks with git-state-unknown naming it" {
+  finished_task
+  own_solutions_worktree
+  echo 'gitdir: /nonexistent' >"$SWT/.git"
+  check
+  jaq -e --arg wt "$SWT" '.teardown == false and any(.blockers[]; .code == "git-state-unknown"
+    and (.message | contains($wt)))' <<<"$VERDICT"
+}
+
+@test "a solutions worktree holding only an unpublished commit points its next step at that commit" {
+  finished_task
+  own_solutions_worktree
+  echo doc >"$SWT/new.md"
+  git -C "$SWT" add new.md
+  git -C "$SWT" commit -q -m doc
+  check
+  jaq -e --arg wt "$SWT" '.blockers[] | select(.code == "solutions-unpublished")
+    | .next_step.command == "git -C \($wt) log --stat origin/main..HEAD"' <<<"$VERDICT"
+}
+
+@test "a rebase left in progress in the solutions worktree blocks" {
+  solutions_origin_doc a.md one
+  finished_task
+  own_solutions_worktree
+  echo mine >"$SWT/a.md"
+  git -C "$SWT" commit -q -am mine
+  solutions_origin_doc a.md theirs
+  git -C "$SWT" rebase -q refs/remotes/origin/main >/dev/null 2>&1 || true
+  check
+  jaq -e '.blockers[] | select(.code == "solutions-unpublished") | any(.values[]; . == "rebase in progress")' \
+    <<<"$VERDICT"
+}
+
+@test "a slot whose agent pointed docs/solutions at the shared clone is still judged by its recorded worktree" {
+  finished_task
+  own_solutions_worktree
+  echo draft >"$SWT/new.md"
+  ln -sfn "$AGENT_SLOT_SOLUTIONS" "$SLOT/docs/solutions"
+  check
+  has_blocker solutions-unpublished
+}
+
+@test "a stash or a stray in the shared solutions clone blocks no slot" {
+  finished_task
+  own_solutions_worktree
+  echo wip >"$AGENT_SLOT_SOLUTIONS/wip.md"
+  git -C "$AGENT_SLOT_SOLUTIONS" stash -q -u
+  echo stray >"$AGENT_SLOT_SOLUTIONS/stray.md"
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "a slot with no recorded worktree and a link to the shared clone is judged by its own tree alone" {
+  finished_task
+  mkdir -p "$SLOT/docs"
+  ln -s "$AGENT_SLOT_SOLUTIONS" "$SLOT/docs/solutions"
+  echo draft >"$AGENT_SLOT_SOLUTIONS/draft.md"
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "a tracked docs/solutions link pointed at the slot's recorded worktree does not block" {
+  work feat/x
+  mkdir -p "$SLOT/docs"
+  ln -s ../../dev/solutions-docs "$SLOT/docs/solutions"
+  git -C "$SLOT" add docs/solutions
+  git -C "$SLOT" commit -q -m 'track the solutions link'
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 MERGED feat/x
+  squash_merge feat/x
+  own_solutions_worktree
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+}
+
+@test "a symlink in the home directory into the slot blocks with home-symlink-into-slot" {
+  finished_task
+  mkdir -p "$T/home/.local/bin"
+  ln -s "$SLOT/tool" "$T/home/.local/bin/tool"
+  check
+  jaq -e --arg l "$T/home/.local/bin/tool" '.needs_you[] | select(.code == "home-symlink-into-slot")
+    | .values == [$l]' <<<"$VERDICT"
+}
+
+@test "a home scan that times out, or finds nothing to judge, blocks with home-scan-incomplete" {
+  finished_task
+  local i
+  for i in $(seq 1 3000); do ln -s "$T/elsewhere" "$T/home/l$i"; done
+  AGENT_SLOT_HOME_SCAN_TIMEOUT=0.05 check
+  has_blocker home-scan-incomplete
+  AGENT_SLOT_HOME_SCAN_ROOTS="$T/elsewhere:1" check
+  has_blocker home-scan-incomplete
+}
+
+@test "a linked worktree inside the slot holding an unpushed commit blocks teardown" {
+  finished_task
+  git -C "$SLOT" worktree add -q --detach "$SLOT/wt" main
+  git -C "$SLOT/wt" commit -q --allow-empty -m 'in the worktree'
+  printf 'wt/\n' >>"$SLOT/.git/info/exclude"
+  check
+  jaq -e '.needs_you[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
+}
+
+@test "check records the task's PRs and its needs-you list, which list then shows" {
+  finished_task
+  git -C "$SLOT" commit -q --allow-empty -m 'after the merge'
+  check
+  jaq -e '.prs == [7] and .last_check.finished == true and .last_check.blockers[0].code == "unpushed-commits"' \
+    "$SLOT/.git/agent-slot.json"
+  echo repoa-1 >"$STUBS/tmux-sessions"
+  run --separate-stderr "$AGENT_SLOT" list --output json
+  jaq -e '.slots[0].needs_you[0].message == "1 unpushed commit"' <<<"$output"
+}
+
+record_has() { jaq -e "$1" "$SLOT/.git/agent-slot.json" >/dev/null; }
+
+@test "a slot with no item takes the first PR check adopts as its item and name, and keeps its task" {
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 OPEN feat/x 2026-06-01T00:00:00Z "Add the widget"
+  check
+  jaq -e '.prs[0].title == "Add the widget" and .prs[0].created_at == "2026-06-01T00:00:00Z"' <<<"$VERDICT"
+  record_has '.name == "repoa-pr7-add-the-widget" and .task == "t1" and .prs == [7]
+    and .items == [{kind: "pr", repo: "origins/repoa", number: 7, title: "Add the widget"}]'
+}
+
+@test "AE3: an issue-named slot whose PR check adopts keeps its name and holds both items, once each" {
+  jaq -c '.items = [{kind: "issue", repo: "origins/repoa", number: 12, title: "Fix the widget"}]
+    | .name = "repoa-issue12-fix-the-widget"' "$SLOT/.git/agent-slot.json" >"$T/r"
+  mv "$T/r" "$SLOT/.git/agent-slot.json"
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  pr 13 OPEN feat/x 2026-06-01T00:00:00Z "Fix the widget for good"
+  check
+  check
+  record_has '.name == "repoa-issue12-fix-the-widget" and .prs == [13]
+    and .items == [{kind: "issue", repo: "origins/repoa", number: 12, title: "Fix the widget"},
+                   {kind: "pr", repo: "origins/repoa", number: 13, title: "Fix the widget for good"}]'
+}
+
+@test "of two PRs one check adopts, the earlier created names the slot" {
+  work feat/a
+  git -C "$SLOT" push -q origin feat/a
+  pr 8 OPEN feat/a 2026-06-02T00:00:00Z "Later work"
+  work feat/b
+  git -C "$SLOT" push -q origin feat/b
+  pr 9 OPEN feat/b 2026-06-01T00:00:00Z "Earlier work"
+  check
+  record_has '.name == "repoa-pr9-earlier-work" and .prs == [8, 9] and ([.items[].number] | sort) == [8, 9]'
+}
+
+@test "a check run inside the slot's own agent records no item, as it records no PR; one from outside does" {
+  finished_task
+  check_as_agent repoa-1 "$SLOT" '[{pid: $pid, cwd: $slot, status: "busy"}]'
+  has_blocker checked-by-own-agent
+  record_has '.items == null and .name == null and .prs == []'
+  echo '[]' >"$STUBS/claude-agents.json"
+  check
+  record_has '.name == "repoa-pr7-pr-7" and .prs == [7] and ([.items[].number] == [7])'
+}
+
+# old_pr NUMBER BRANCH: a PR merged before the slot existed, from another clone, whose head the slot never had.
+old_pr() {
+  git clone -q "$ORIGIN" "$T/other"
+  git -C "$T/other" checkout -q -b "$2"
+  git -C "$T/other" commit -q --allow-empty -m 'old work'
+  git -C "$T/other" push -q origin "HEAD:refs/pull/$1/head"
+  pr_listed "$1" MERGED "$2" "$(git -C "$T/other" rev-parse HEAD)" 2025-01-01T00:00:00Z
+}
+
+@test "a PR opened before the slot existed that only reused the branch name does not count as the task's" {
+  old_pr 3 feat/x
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  check
+  jaq -e '.prs == [] and .finished == false' <<<"$VERDICT"
+}
+
+@test "a PR opened before the slot existed whose head main holds through a merge commit does not count as the task's" {
+  old_pr 3 feat/x
+  git -C "$T/other" checkout -q main
+  git -C "$T/other" merge -q --no-ff -m 'Merge pull request #3' feat/x
+  git -C "$T/other" push -q origin main
+  git -C "$SLOT" pull -q --ff-only origin main
+  work feat/x
+  git -C "$SLOT" push -q origin feat/x
+  git -C "$SLOT" merge-base --is-ancestor "$(jaq -r '.[0].headRefOid' "$STUBS/gh-prs.json")" feat/x
+  check
+  jaq -e '.prs == [] and .finished == false' <<<"$VERDICT"
+}
+
+@test "a PR opened before the slot existed whose head the slot's branch holds is the task's, as in a review round" {
+  work fix/r
+  git -C "$SLOT" push -q origin fix/r
+  pr 887 OPEN fix/r 2025-12-01T00:00:00Z
+  git -C "$SLOT" commit -q --allow-empty -m 'address the review'
+  check
+  jaq -e '([.prs[].number] == [887]) and .finished == false
+    and (.blockers[] | select(.code == "unpushed-commits") | .count == 1)' <<<"$VERDICT"
+}
+
+@test "a PR the record names keeps counting though it predates the slot and the slot no longer holds its head" {
+  old_pr 5 feat/x
+  jaq '.prs = [5]' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  check
+  jaq -e '[.prs[].number] == [5]' <<<"$VERDICT"
+}
+
+@test "an operator finish ends a review round whose PR from the fork is still open, once the PR holds every commit" {
+  fork_remote
+  work fix/r 2
+  git -C "$SLOT" push -q -u fork fix/r
+  pr 887 OPEN fix/r 2025-12-01T00:00:00Z
+  operator_finished
+  check
+  jaq -e '([.prs[].number] == [887]) and .finished == true and .finished_by == "operator" and .blockers == []
+    and .teardown == true' <<<"$VERDICT"
+}
+
+@test "a commit on a branch pushed to the fork it tracks, on origin's host, counts as pushed" {
+  fork_remote
+  work feat/f
+  git -C "$SLOT" push -q -u fork feat/f
+  operator_finished
+  check
+  jaq -e '.finished == true and .blockers == [] and .teardown == true' <<<"$VERDICT"
+}
+
+@test "a commit on the fork that no local branch pushes to still counts as unpushed" {
+  fork_remote
+  work feat/f
+  git -C "$SLOT" push -q fork feat/f
+  operator_finished
+  check
+  jaq -e '.blockers[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
+}
+
+@test "a branch's upstream at a local path, off origin's host, does not count as pushed" {
+  git clone -q --bare "$ORIGIN" "$T/backup.git"
+  git -C "$SLOT" remote add backup "$T/backup.git"
+  work feat/f
+  git -C "$SLOT" push -q -u backup feat/f
+  operator_finished
+  check
+  jaq -e '.blockers[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
+}
+
+@test "a branch the fork deletes after a check saw it counts as unpushed again, whatever the slot's fork refs hold" {
+  fork_remote
+  work feat/f
+  git -C "$SLOT" push -q -u fork feat/f
+  operator_finished
+  check
+  jaq -e '.teardown == true' <<<"$VERDICT"
+  git --git-dir="$T/forks/repoa.git" update-ref -d refs/heads/feat/f
+  git -C "$SLOT" rev-parse -q --verify refs/remotes/fork/feat/f
+  check
+  jaq -e '.needs_you[] | select(.code == "unpushed-commits") | .count == 1' <<<"$VERDICT"
+}
+
+@test "a fork its branch pushes to that cannot be fetched blocks with git-state-unknown" {
+  fork_remote
+  work feat/f
+  git -C "$SLOT" push -q -u fork feat/f
+  git -C "$SLOT" remote set-url fork git@github.com:me/missing.git
+  operator_finished
+  check
+  jaq -e 'any(.blockers[]; .code == "git-state-unknown" and (.message | startswith("git fetch from fork failed")))
+    and .teardown == false' <<<"$VERDICT"
+}
+
+@test "a merged PR whose branch the slot deleted after switching to the base, before any check, finishes the task" {
+  finished_task
+  git -C "$SLOT" checkout -q main
+  git -C "$SLOT" pull -q --ff-only origin main
+  git -C "$SLOT" branch -q -D feat/x
+  check
+  jaq -e '.finished == true and .finished_by == "merge" and ([.prs[].number] == [7]) and .teardown == true' \
+    <<<"$VERDICT"
+}
+
+@test "a slot that is still setting up is reported busy and never finished" {
+  jaq '.state = "setting-up"' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+  check
+  jaq -e '.finished == false and .blockers[0].code == "slot-busy"' <<<"$VERDICT"
+}
+
+@test "check of a slot that does not exist exits 1 with slot-not-found" {
+  run --separate-stderr "$AGENT_SLOT" check repoa/9 --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "slot-not-found"' <<<"$stderr"
+}

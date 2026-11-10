@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script --quiet
 # /// script
 # requires-python = ">=3.10"
-# dependencies = []
+# dependencies = ["wcwidth"]
 # ///
 """Reflow GitHub-Flavored Markdown tables to consistent "aligned" column style.
 
@@ -18,6 +18,7 @@ Behavior:
 - Pads each column to the max-content width across header + body, with a
   one-space gutter on both sides of every cell.
 - Escaped pipes inside cells (\\|) are preserved verbatim.
+- Measures cell content in display columns, matching MD060 (see display_width).
 """
 
 from __future__ import annotations
@@ -26,8 +27,26 @@ import re
 import sys
 from pathlib import Path
 
+from wcwidth import wcswidth
+
 FENCE_RE = re.compile(r"^\s*(```+|~~~+)")
 SEP_ROW_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
+
+
+def display_width(text: str) -> int:
+    """Width of `text` in terminal columns, which is what MD060 compares pipes on.
+
+    `len` counts codepoints, so an emoji or CJK character measures one column
+    narrower than it renders and the padded pipe lands left of the header's.
+    The rule reports that as a misalignment this script cannot see, and since
+    MD060 has no autofixer the error survives the whole format chain.
+
+    wcswidth returns -1 for a string carrying a control character; fall back to
+    the codepoint count there, so a cell never measures narrower than it did
+    before and this only ever widens a column.
+    """
+    width = wcswidth(text)
+    return len(text) if width < 0 else width
 
 
 def split_row(line: str) -> list[str]:
@@ -74,7 +93,9 @@ def parse_alignments(sep_cells: list[str]) -> list[str]:
 
 
 def pad(text: str, width: int, align: str) -> str:
-    n = len(text)
+    # `width` is display columns; the padding below is ASCII spaces, one column
+    # each, so only the content measure changes.
+    n = display_width(text)
     if n >= width:
         return text
     extra = width - n
@@ -91,11 +112,12 @@ def format_table(header: list[str], sep: list[str], body: list[list[str]]) -> li
     aligns = parse_alignments(sep)
     cols = len(header)
     body = [row + [""] * (cols - len(row)) if len(row) < cols else row[:cols] for row in body]
-    widths = [len(header[i]) for i in range(cols)]
+    widths = [display_width(header[i]) for i in range(cols)]
     for row in body:
         for i, cell in enumerate(row):
-            if len(cell) > widths[i]:
-                widths[i] = len(cell)
+            cell_width = display_width(cell)
+            if cell_width > widths[i]:
+                widths[i] = cell_width
     # separator needs room for alignment colons
     sep_min = [3 + (1 if a == "left" else 0) + (1 if a == "right" else 0) + (2 if a == "center" else 0) for a in aligns]
     for i in range(cols):

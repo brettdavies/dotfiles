@@ -7,10 +7,15 @@
 # Nothing here invokes `--all`: this file is part of what `--all` runs, so doing
 # so would recurse. The `--all` path is exercised by the gates themselves.
 #
+# The last section covers what the perf suite times. It runs here from a sandbox
+# checkout, through the dispatcher that runs it everywhere.
+#
 # Run: bats tests/run-tests.bats
 
 SCRIPT="$BATS_TEST_DIRNAME/../scripts/run-tests"
 PROBE="$BATS_TEST_DIRNAME/.run-probe.bats"
+
+load lib/processes
 
 teardown() {
   rm -f "$PROBE"
@@ -30,8 +35,9 @@ _require_bats() {
 _sandbox() {
   _require_bats
   SANDBOX="$(mktemp -d)"
-  mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests/perf"
+  mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests/perf" "$SANDBOX/tests/lib"
   cp "$SCRIPT" "$SANDBOX/scripts/run-tests"
+  cp "$BATS_TEST_DIRNAME/lib/processes.bash" "$SANDBOX/tests/lib/"
 }
 
 # _probe <path> <name> <assertion>
@@ -42,6 +48,11 @@ _probe() {
 # Line number of the first output line matching $1, or empty when absent.
 _line_of() {
   printf '%s\n' "$output" | grep -n -- "$1" | head -1 | cut -d: -f1
+}
+
+# Prints the letters of the "<letter> probe" tests in $output, sorted and joined.
+_probes_run() {
+  printf '%s\n' "$output" | sed -n 's/^ok [0-9]* \([a-z]\) probe$/\1/p' | sort | tr -d '\n'
 }
 
 @test "run-tests is executable" {
@@ -92,6 +103,15 @@ _line_of() {
   [ "$status" -eq 1 ]
 }
 
+@test "without perl the runner exits 3 naming it, before any suite runs" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "alpha probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_PERL=/nonexistent/perl "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"run-tests: perl not installed"* ]]
+  [[ "$output" != *"alpha probe"* ]]
+}
+
 @test "the git environment is scrubbed for the test run" {
   _require_bats
   # git hands hooks an absolute GIT_DIR that outranks `git -C`, so a fixture
@@ -105,6 +125,51 @@ _line_of() {
     GIT_ALTERNATE_OBJECT_DIRECTORIES=/nonexistent/alt GIT_PREFIX=sub/ GIT_NAMESPACE=ns \
     "$SCRIPT" "tests/$(basename "$PROBE")"
   [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Time limit
+# ---------------------------------------------------------------------------
+
+@test "a hung test fails at the default time limit, named, and leaves nothing running" {
+  _sandbox
+  # The sandbox copy's default comes down to 2 s, so the hang costs seconds.
+  sed -i.orig 's/^DEFAULT_TEST_TIMEOUT=[0-9]*$/DEFAULT_TEST_TIMEOUT=2/' "$SANDBOX/scripts/run-tests"
+  grep -qx 'DEFAULT_TEST_TIMEOUT=2' "$SANDBOX/scripts/run-tests"
+  # A passthrough stub that finds itself first on PATH re-executes itself forever, all in one process.
+  mkdir "$SANDBOX/stubs"
+  printf '%s\n' '#!/usr/bin/env bash' 'exec /usr/bin/env mktemp "$@"' >"$SANDBOX/stubs/mktemp"
+  chmod +x "$SANDBOX/stubs/mktemp"
+  _probe "$SANDBOX/tests/hang.bats" "hang probe" "PATH=\"$SANDBOX/stubs:\$PATH\" mktemp"
+  local started=$SECONDS
+  HANG_PROBE=$BATS_TEST_TMPDIR run env -u BATS_TEST_TIMEOUT "$SANDBOX/scripts/run-tests" tests/hang.bats
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not ok 1 hang probe # timeout after 2s"* ]]
+  ((SECONDS - started < 15))
+  [ -z "$(processes_with "HANG_PROBE=$BATS_TEST_TMPDIR")" ]
+}
+
+@test "a failing test does not hold the run for the rest of its time limit" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "alpha probe" "false"
+  local started=$SECONDS
+  run env BATS_TEST_TIMEOUT=30 "$SANDBOX/scripts/run-tests" tests/a.bats
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not ok 1 alpha probe"* ]]
+  [[ "$output" != *"timeout"* ]]
+  ((SECONDS - started < 20))
+}
+
+@test "a BATS_TEST_TIMEOUT that is not a whole number of seconds above 0 is a usage error" {
+  local value
+  for value in 0 010 -5 1.5 2s 'x+1'; do
+    run env BATS_TEST_TIMEOUT="$value" "$SCRIPT" README.md
+    [ "$status" -eq 2 ] || {
+      echo "BATS_TEST_TIMEOUT='$value' exited $status"
+      false
+    }
+    [[ "$output" == *"BATS_TEST_TIMEOUT"* ]]
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -140,6 +205,153 @@ _line_of() {
   [ "$(_line_of 'perf probe')" -lt "$(_line_of 'main probe')" ]
 }
 
+# ---------------------------------------------------------------------------
+# Sharding
+# ---------------------------------------------------------------------------
+
+@test "--shard deals files largest first in a snake, so each file runs in exactly one shard" {
+  _sandbox
+  local f pad=0
+  # a is the smallest file and e the largest, so the deal order is e d c b a: e to shard 1, d to 2, then back from
+  # 2, c to 2 and b to 1, then a to 1.
+  for f in a b c d e; do
+    _probe "$SANDBOX/tests/$f.bats" "$f probe" "[ 1 -eq 1 ]"
+    printf '# %*s\n' "$pad" '' >>"$SANDBOX/tests/$f.bats"
+    pad=$((pad + 100))
+  done
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf --shard 1/2
+  [ "$status" -eq 0 ]
+  [ "$(_probes_run)" = abe ]
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf --shard 2/2
+  [ "$status" -eq 0 ]
+  [ "$(_probes_run)" = cd ]
+}
+
+@test "only the first shard runs the perf suite" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "a probe" "[ 1 -eq 1 ]"
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  _probe "$SANDBOX/tests/perf/slow.bats" "perf probe" "[ 1 -eq 1 ]"
+  run "$SANDBOX/scripts/run-tests" --all --shard 1/2
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"perf probe"* ]]
+  [ "$(_probes_run)" = a ]
+  run "$SANDBOX/scripts/run-tests" --all --shard 2/2
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"perf probe"* ]]
+  [ "$(_probes_run)" = b ]
+}
+
+@test "a shard left with no files passes" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "a probe" "[ 1 -eq 1 ]"
+  run "$SANDBOX/scripts/run-tests" --no-perf --shard 3/3
+  [ "$status" -eq 0 ]
+  [ -z "$(_probes_run)" ]
+}
+
+@test "a --shard that is not I/N with 1 <= I <= N is a usage error" {
+  _require_bats
+  local spec
+  for spec in 0/2 3/2 1/0 2 x/2 1/x 1/2/3 ''; do
+    run "$SCRIPT" --no-perf --shard "$spec"
+    [ "$status" -eq 2 ] || {
+      echo "--shard '$spec' exited $status"
+      false
+    }
+    [[ "$output" == *"--shard"* ]]
+  done
+  run "$SCRIPT" --all --shard
+  [ "$status" -eq 2 ]
+}
+
+@test "an option before the mode is a usage error, not a run of no files" {
+  _require_bats
+  run "$SCRIPT" --shard 1/2 --all
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--shard"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Tests within a file in parallel
+# ---------------------------------------------------------------------------
+
+# _rendezvous <path> [marker]: a two-test file whose tests each wait up to 5 s
+# for the other to start, so it passes only when its tests run concurrently.
+_rendezvous() {
+  local wait='deadline=$((SECONDS + 5)); until [ -e "$BATS_FILE_TMPDIR/$2" ]; do ((SECONDS < deadline)) || return 1; sleep 0.1; done'
+  {
+    printf '%s\n' '#!/usr/bin/env bats'
+    [ -z "${2:-}" ] || printf '%s\n' "$2"
+    printf '%s\n' "meet() { touch \"\$BATS_FILE_TMPDIR/\$1\"; $wait; }"
+    printf '%s\n' '@test "first" { meet first second; }' '@test "second" { meet second first; }'
+  } >"$1"
+}
+
+@test "a file that declares run-tests: parallel runs its tests concurrently" {
+  _sandbox
+  command -v flock >/dev/null 2>&1 || skip "flock not installed"
+  _rendezvous "$SANDBOX/tests/a.bats" '# run-tests: parallel'
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok 1 first"* ]]
+  [[ "$output" == *"ok 2 second"* ]]
+}
+
+@test "a file without the declaration runs its tests one at a time" {
+  _sandbox
+  _rendezvous "$SANDBOX/tests/a.bats"
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not ok 1 first"* ]]
+}
+
+@test "a shard left with one declared file still runs its tests concurrently" {
+  _sandbox
+  command -v flock >/dev/null 2>&1 || skip "flock not installed"
+  _rendezvous "$SANDBOX/tests/a.bats" '# run-tests: parallel'
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf --shard 1/2
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok 2 second"* ]]
+}
+
+@test "a suite that declares run-tests: parallel and interrupts the code under test resets the signal first" {
+  # bats starts each concurrent test as a background job, and bash 5.3 starts those with SIGINT and SIGQUIT ignored,
+  # so code under test that traps either must be started with the signal at its default, as perl's $SIG{...} = "DEFAULT"
+  # does before an exec.
+  local f bad=()
+  for f in "$BATS_TEST_DIRNAME"/*.bats; do
+    grep -qx '# run-tests: parallel' "$f" || continue
+    grep -qE 'kill -(INT|QUIT|2|3)\b' "$f" || continue
+    grep -qF '$SIG{' "$f" || bad+=("${f##*/}")
+  done
+  [ "${#bad[@]}" -eq 0 ] || {
+    printf 'declares run-tests: parallel and sends SIGINT or SIGQUIT without resetting it: %s\n' "${bad[@]}"
+    false
+  }
+}
+
+@test "named files run one process each, behind their markers, as the main suite's do" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "a probe" "[ 1 -eq 1 ]"
+  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" tests/a.bats tests/b.bats
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"# tests/a.bats ("* ]]
+  [[ "$output" == *"# tests/b.bats ("* ]]
+}
+
+@test "a declared file named alone still runs its tests concurrently" {
+  _sandbox
+  command -v flock >/dev/null 2>&1 || skip "flock not installed"
+  _rendezvous "$SANDBOX/tests/a.bats" '# run-tests: parallel'
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" tests/a.bats
+  [ "$status" -eq 0 ]
+}
+
 @test "a mode still succeeds when the suite it names is empty" {
   _sandbox
   _probe "$SANDBOX/tests/main.bats" "main probe" "[ 1 -eq 1 ]"
@@ -162,6 +374,20 @@ _line_of() {
   [ "$(_line_of '# tests/a.bats')" -lt "$(_line_of 'alpha probe')" ]
   [ "$(_line_of 'alpha probe')" -lt "$(_line_of '# tests/b.bats')" ]
   [ "$(_line_of 'bravo probe')" -lt "$(_line_of '# tests/c.bats')" ]
+}
+
+@test "each file's marker says how long that file ran" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "alpha probe" "[ 1 -eq 1 ]"
+  _probe "$SANDBOX/tests/b.bats" "bravo probe" "sleep 0.3"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 0 ]
+  local a b
+  a=$(sed -n 's|^# tests/a\.bats (\([0-9]*\.[0-9]\) s)$|\1|p' <<<"$output")
+  b=$(sed -n 's|^# tests/b\.bats (\([0-9]*\.[0-9]\) s)$|\1|p' <<<"$output")
+  [ -n "$a" ]
+  [ -n "$b" ]
+  ((10#${b/./} >= 3))
 }
 
 @test "one failing file fails the run without suppressing the others" {
@@ -222,4 +448,166 @@ _line_of() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"1..2"* ]]
   [[ "$output" != *"# tests/perf/"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# The perf suite times the startup files of the checkout it runs from
+#
+# The shells it starts read their startup files through $HOME, so a timing
+# taken under the real $HOME measures whatever is installed there, never the
+# change being made. tests/lib/startup-home.bash builds a HOME whose startup
+# files are the checkout's; everything else in the real HOME is linked in, so
+# the shells still find oh-my-zsh, the plugins, and the caches they time.
+# ---------------------------------------------------------------------------
+
+# A stow tree standing in for a checkout, and a home standing in for the
+# installed one.
+_startup_fixture() {
+  CHECKOUT="$BATS_TEST_TMPDIR/checkout"
+  FAKE_HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$CHECKOUT/stow/shell" "$CHECKOUT/stow/zsh" "$CHECKOUT/stow/bash" "$CHECKOUT/stow/secrets" \
+    "$CHECKOUT/config/shell" "$CHECKOUT/.githooks/lib" "$FAKE_HOME/.oh-my-zsh" "$FAKE_HOME/.cargo"
+  cp "$BATS_TEST_DIRNAME/../.githooks/lib/push-scope.sh" "$CHECKOUT/.githooks/lib/"
+  printf 'checkout\n' | tee "$CHECKOUT/stow/shell/dot-profile" "$CHECKOUT/stow/zsh/dot-zshrc" \
+    "$CHECKOUT/stow/bash/dot-bashrc" "$CHECKOUT/stow/secrets/dot-secrets" >/dev/null
+  printf 'installed\n' | tee "$FAKE_HOME/.profile" "$FAKE_HOME/.zshrc" "$FAKE_HOME/.zlogin" >/dev/null
+}
+
+# _startup_home [<home>]: the shadow HOME for the fixture checkout, in $SHADOW.
+_startup_home() {
+  load lib/startup-home
+  SHADOW="$BATS_TEST_TMPDIR/shadow"
+  startup_home "$CHECKOUT" "$SHADOW" "${1:-$FAKE_HOME}"
+}
+
+@test "startup_home links each startup file from the checkout" {
+  _startup_fixture
+  _startup_home
+  [ "$(readlink "$SHADOW/.profile")" = "$CHECKOUT/stow/shell/dot-profile" ]
+  [ "$(readlink "$SHADOW/.zshrc")" = "$CHECKOUT/stow/zsh/dot-zshrc" ]
+  [ "$(readlink "$SHADOW/.bashrc")" = "$CHECKOUT/stow/bash/dot-bashrc" ]
+  [ "$(readlink "$SHADOW/.secrets")" = "$CHECKOUT/stow/secrets/dot-secrets" ]
+}
+
+@test "startup_home links the installed home's other entries through" {
+  _startup_fixture
+  _startup_home
+  [ "$(readlink "$SHADOW/.oh-my-zsh")" = "$FAKE_HOME/.oh-my-zsh" ]
+  [ "$(readlink "$SHADOW/.cargo")" = "$FAKE_HOME/.cargo" ]
+  [ "$(readlink "$SHADOW/.zlogin")" = "$FAKE_HOME/.zlogin" ]
+}
+
+@test "startup_home takes a startup file the checkout adds over the installed one" {
+  _startup_fixture
+  printf 'checkout\n' >"$CHECKOUT/stow/zsh/dot-zlogin"
+  _startup_home
+  [ "$(readlink "$SHADOW/.zlogin")" = "$CHECKOUT/stow/zsh/dot-zlogin" ]
+}
+
+@test "startup_home leaves dotfiles out, so no startup file can stow into a checkout" {
+  _startup_fixture
+  mkdir "$FAKE_HOME/dotfiles"
+  _startup_home
+  [ ! -e "$SHADOW/dotfiles" ] && [ ! -L "$SHADOW/dotfiles" ]
+}
+
+@test "startup_home keeps the installed secrets when the checkout's are still encrypted" {
+  _startup_fixture
+  printf '\0GITCRYPT\0ciphertext\n' >"$CHECKOUT/stow/secrets/dot-secrets"
+  printf 'installed\n' >"$FAKE_HOME/.secrets"
+  _startup_home
+  [ "$(readlink "$SHADOW/.secrets")" = "$FAKE_HOME/.secrets" ]
+}
+
+# The six perf tests run under one fixture checkout whose profile leaves a
+# marker file and an installed home whose profile leaves another. Which marker
+# exists after the run says which profile the shells read, whatever the
+# machine's load did to the timings.
+_perf_markers() {
+  _sandbox
+  MARK="$BATS_TEST_TMPDIR/marks"
+  FAKE_HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$MARK" "$FAKE_HOME" "$SANDBOX/.githooks/lib" "$SANDBOX/stow/shell" "$SANDBOX/stow/zsh" \
+    "$SANDBOX/stow/bash" "$SANDBOX/stow/secrets" "$SANDBOX/config/shell"
+  cp "$BATS_TEST_DIRNAME/perf/shell-startup-perf.bats" "$SANDBOX/tests/perf/"
+  cp "$BATS_TEST_DIRNAME"/lib/*.bash "$SANDBOX/tests/lib/"
+  cp "$BATS_TEST_DIRNAME/../.githooks/lib/push-scope.sh" "$SANDBOX/.githooks/lib/"
+  printf ': >"%s/checkout"\n' "$MARK" >"$SANDBOX/stow/shell/dot-profile"
+  printf '. "$HOME/.profile"\n' >"$SANDBOX/stow/bash/dot-bash_profile"
+  : >"$SANDBOX/stow/zsh/dot-zshenv"
+  : >"$SANDBOX/stow/zsh/dot-zshrc"
+  printf ': >"%s/installed"\n' "$MARK" >"$BATS_TEST_TMPDIR/installed-profile"
+  ln -s "$BATS_TEST_TMPDIR/installed-profile" "$FAKE_HOME/.profile"
+  : >"$FAKE_HOME/.zshenv"
+  : >"$FAKE_HOME/.zshrc"
+}
+
+@test "the perf suite times the checkout's startup files, not the installed ones" {
+  _perf_markers
+  run env HOME="$FAKE_HOME" SHELL_PERF_SAMPLES=1 "$SANDBOX/scripts/run-tests" --perf-only
+  # The markers are the assertion; the budgets belong to the hooks, so a slow host
+  # cannot fail this file.
+  [ -e "$MARK/checkout" ]
+  [ ! -e "$MARK/installed" ]
+}
+
+@test "the perf suite still skips on a host with no deployed dotfiles" {
+  _perf_markers
+  rm -f "$FAKE_HOME/.profile"
+  run env HOME="$FAKE_HOME" SHELL_PERF_SAMPLES=1 "$SANDBOX/scripts/run-tests" --perf-only
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | grep -c '# skip dotfiles not deployed')" -eq 6 ]
+  [ ! -e "$MARK/checkout" ] && [ ! -e "$MARK/installed" ]
+}
+
+@test "startup_home gives the HOME its own completion cache, leaving the installed one alone" {
+  _startup_fixture
+  mkdir -p "$FAKE_HOME/.zsh/cache"
+  printf 'installed dump\n' >"$FAKE_HOME/.zsh/cache/zcompdump"
+  _startup_home
+  [ -d "$SHADOW/.zsh/cache" ] && [ ! -L "$SHADOW/.zsh" ]
+  [ ! -e "$SHADOW/.zsh/cache/zcompdump" ]
+  [ "$(cat "$FAKE_HOME/.zsh/cache/zcompdump")" = "installed dump" ]
+}
+
+@test "startup_home drops an installed startup file the checkout no longer holds" {
+  _startup_fixture
+  ln -s "../dotfiles/stow/zsh/dot-zprofile" "$FAKE_HOME/.zprofile"
+  _startup_home
+  [ ! -e "$SHADOW/.zprofile" ] && [ ! -L "$SHADOW/.zprofile" ]
+}
+
+@test "startup_home keeps an installed link into a package the list does not name" {
+  _startup_fixture
+  ln -s "../dotfiles/stow/git/dot-gitconfig" "$FAKE_HOME/.gitconfig"
+  _startup_home
+  [ "$(readlink "$SHADOW/.gitconfig")" = "$FAKE_HOME/.gitconfig" ]
+}
+
+@test "startup_home links files only, so a directory in a startup package hides nothing" {
+  _startup_fixture
+  mkdir -p "$CHECKOUT/stow/zsh/dot-config" "$FAKE_HOME/.config"
+  _startup_home
+  [ "$(readlink "$SHADOW/.config")" = "$FAKE_HOME/.config" ]
+}
+
+@test "startup_home links the installed startup file in place of one still encrypted" {
+  _startup_fixture
+  printf '\0GITCRYPT\0ciphertext\n' >"$CHECKOUT/stow/secrets/dot-secrets"
+  ln -s "../dotfiles/stow/secrets/dot-secrets" "$FAKE_HOME/.secrets"
+  _startup_home
+  [ "$(readlink "$SHADOW/.secrets")" = "$FAKE_HOME/.secrets" ]
+}
+
+@test "a perf failure prints the host's load and core count, and never rules contention out" {
+  _perf_markers
+  # Only bash reads the fixture profile, so one budget fails: login bash, over 500ms.
+  printf 'sleep 0.7\n' >>"$SANDBOX/stow/shell/dot-profile"
+  run env HOME="$FAKE_HOME" SHELL_PERF_SAMPLES=1 "$SANDBOX/scripts/run-tests" --perf-only
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"login bash took"* ]]
+  [[ "$output" != *"not contention"* ]]
+  if [ -r /proc/loadavg ] || command -v sysctl >/dev/null 2>&1; then
+    [[ "$output" =~ [0-9]+-core\ host,\ 1-minute\ load\ [0-9]+\.[0-9]+ ]]
+  fi
 }
