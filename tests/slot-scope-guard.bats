@@ -344,6 +344,27 @@ squash_merged_stack() {
   push 'git push origin feat/two'
 }
 
+@test "a stack replayed onto the squash commit and then given a new commit is one task" {
+  squash_merged_stack
+  commit scripts/agent-slot/two-b.sh
+  push 'git push origin feat/two'
+}
+
+@test "an upper branch not yet replayed onto the squash commit, with the lower branch moved on and pruned from origin, is one task" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  git -C "$SLOT" checkout -q feat/one
+  commit scripts/agent-slot/one-c.sh
+  squash_into_base feat/one
+  git -C "$SLOT" update-ref -d refs/remotes/origin/feat/one
+  git -C "$SLOT" checkout -q feat/two
+  push 'git push origin feat/two'
+}
+
 @test "a squash-merged lower branch that holds a commit the squash lacks is still a second task, naming retask" {
   squash_merged_stack
   git -C "$SLOT" checkout -q feat/one
@@ -425,6 +446,67 @@ squash_merged_stack() {
   squash_into_base feat/one
   git -C "$SLOT" checkout -q feat/new
   run bash_call 'git push origin feat/new'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a branch cut from a squash-merged branch with a commit of its own, then reset to the base and given unrelated work, is still a second task, naming retask" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/new
+  commit scripts/agent-slot/own.sh
+  pushed feat/new
+  squash_into_base feat/one
+  git -C "$SLOT" checkout -q feat/new
+  git -C "$SLOT" reset -q --hard origin/main
+  commit scripts/agent-slot/new.sh
+  run bash_call 'git push origin feat/new'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a stacked branch rebuilt on the base with checkout -B after a squash merge, given unrelated work, is still a second task, naming retask" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  squash_into_base feat/one
+  git -C "$SLOT" checkout -q feat/two
+  git -C "$SLOT" checkout -q -B feat/two origin/main
+  commit scripts/agent-slot/new.sh
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a branch cut from a squash-merged branch with no commit of its own, then reset to the base and given unrelated work, is still a second task, naming retask" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/new
+  pushed feat/new
+  squash_into_base feat/one
+  git -C "$SLOT" checkout -q feat/new
+  git -C "$SLOT" reset -q --hard origin/main
+  commit scripts/agent-slot/new.sh
+  run bash_call 'git push origin feat/new'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "an upper branch amended after it was replayed onto the squash commit is still a second task, naming retask" {
+  squash_merged_stack
+  printf 'amended\n' >>"$SLOT/scripts/agent-slot/two.sh"
+  git -C "$SLOT" add scripts/agent-slot/two.sh
+  git -C "$SLOT" commit -q --amend --no-edit
+  run bash_call 'git push origin feat/two'
   [ "$status" -eq 0 ]
   [[ $(reason) == *'task is on feat/one'* ]]
   [[ $(reason) == *'agent-slot retask repo/1'* ]]
