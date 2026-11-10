@@ -344,6 +344,27 @@ squash_merged_stack() {
   push 'git push origin feat/two'
 }
 
+@test "a stack replayed onto the squash commit and then given a new commit is one task" {
+  squash_merged_stack
+  commit scripts/agent-slot/two-b.sh
+  push 'git push origin feat/two'
+}
+
+@test "an upper branch not yet replayed onto the squash commit, with the lower branch moved on and pruned from origin, is one task" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  git -C "$SLOT" checkout -q feat/one
+  commit scripts/agent-slot/one-c.sh
+  squash_into_base feat/one
+  git -C "$SLOT" update-ref -d refs/remotes/origin/feat/one
+  git -C "$SLOT" checkout -q feat/two
+  push 'git push origin feat/two'
+}
+
 @test "a squash-merged lower branch that holds a commit the squash lacks is still a second task, naming retask" {
   squash_merged_stack
   git -C "$SLOT" checkout -q feat/one
