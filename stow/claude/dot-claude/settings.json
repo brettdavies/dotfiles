@@ -415,6 +415,7 @@
     "repo-recon": "off",
     "scrape": "off",
     "skillify": "off",
+    "verify": "off",
     "_gstack-command": "name-only",
     "agent-web-audit": "name-only",
     "agentnative": "name-only",
