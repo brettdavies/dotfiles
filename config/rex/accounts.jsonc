@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "accounts": {
+    "@ACCOUNT@": { "principals": ["tailscale:@TAILSCALE_LOGIN@"] }
+  },
+  "defaults": { "tailscale:@TAILSCALE_LOGIN@": "@ACCOUNT@" }
+}

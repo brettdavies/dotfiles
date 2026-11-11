@@ -1,0 +1,251 @@
+# shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
+# agent-slot doctor: every launch prerequisite on the Linux server, and launch times against the 30-second target.
+#
+# Each finding is an error object (contract_error_json) plus a severity. A missing prerequisite never stops the other
+# checks. Versions that differ from scripts/agent-slot/verified-versions only warn. Exit 1 when any finding is an
+# error.
+
+DOCTOR_FINDINGS=()
+DOCTOR_TARGET_S=30
+
+# Usage: doctor_finding <error | warning> <reason> <message> [contract_error_json options]
+doctor_finding() {
+  local severity=$1
+  shift
+  DOCTOR_FINDINGS+=("$(contract_error_json "$@" | contract_json -c --arg s "$severity" '. + {severity: $s}')")
+}
+
+_doctor_install_hint() {
+  case $1 in
+    claude) echo 'curl -fsSL https://claude.ai/install.sh | bash' ;;
+    timeout) echo 'brew install coreutils' ;;
+    trash) echo 'brew install trash-cli' ;;
+    jq) echo 'brew install jaq' ;;
+    *) echo "brew install $1" ;;
+  esac
+}
+
+# Prints "<tool> <version>" lines from the verified-versions file.
+doctor_verified() {
+  [[ -r $AS_VERIFIED_VERSIONS ]] || return 0
+  grep -vE '^[[:space:]]*(#|$)' "$AS_VERIFIED_VERSIONS"
+}
+
+doctor_check_tools() {
+  local tool
+  for tool in tmux claude gh git-crypt git flock timeout trash; do
+    [[ -n ${AS_TOOL[$tool]:-} ]] && continue
+    doctor_finding error dependency-missing "$tool is not on the pinned PATH ($PATH)" --value "$tool" \
+      --command "$(_doctor_install_hint "$tool")"
+  done
+}
+
+# Usage: doctor_unit_enabled <unit>; true when the user manager says the unit is enabled, or when there is no systemctl
+# to ask. A shell in a slot has no XDG_RUNTIME_DIR, without which systemctl --user cannot reach the user manager, so the
+# check names the user's own runtime directory.
+doctor_unit_enabled() {
+  [[ -n $AS_SYSTEMCTL ]] || return 0
+  [[ $(XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$UID} "$AS_SYSTEMCTL" --user is-enabled "$1" 2>/dev/null) == enabled ]]
+}
+
+doctor_check_config() {
+  local out
+  if [[ -n ${AS_TOOL[gh]:-} ]] && ! bounded out gh-auth 15 "${AS_TOOL[gh]}" auth status; then
+    doctor_finding error gh-auth-missing "gh is not signed in, so PR state cannot be read" --command "gh auth login" \
+      --log "$BOUNDED_LOG"
+  fi
+  [[ -r $AS_GIT_CRYPT_KEY ]] || doctor_finding error git-crypt-key-missing \
+    "no git-crypt key at $AS_GIT_CRYPT_KEY, so slots of git-crypt repos cannot be unlocked" --value "$AS_GIT_CRYPT_KEY" \
+    --command "op document get 'git-crypt key' --vault secrets-dev --out-file $AS_GIT_CRYPT_KEY"
+  if [[ ! -d $AS_SOLUTIONS/.git ]]; then
+    doctor_finding error solutions-corpus-missing \
+      "the shared solutions repo is missing at $AS_SOLUTIONS, so no slot can get its worktree of it" \
+      --value "$AS_SOLUTIONS" --command "git clone git@github.com:brettdavies/solutions-docs.git $AS_SOLUTIONS"
+  elif ! git -C "$AS_SOLUTIONS" rev-parse -q --verify refs/remotes/origin/main >/dev/null 2>&1; then
+    doctor_finding error solutions-corpus-missing \
+      "the shared solutions repo at $AS_SOLUTIONS has no origin/main, so no slot can get its worktree of it" \
+      --value "$AS_SOLUTIONS" --command "git -C $AS_SOLUTIONS fetch origin main"
+  fi
+  [[ -r $AS_TMUX_CONF ]] || doctor_finding error slots-config-missing \
+    "$AS_TMUX_CONF is missing, so the slot tmux server would load the default config" --value "$AS_TMUX_CONF" \
+    --command "cd ~/dotfiles && scripts/stow-deploy tmux"
+  contract_json -e '.skipDangerousModePermissionPrompt == true' "$AS_CLAUDE_SETTINGS" >/dev/null \
+    || doctor_finding warning bypass-mode-unaccepted \
+      "$AS_CLAUDE_SETTINGS does not accept bypass permissions mode, so every slot's Claude stops on its warning first" \
+      --value "$AS_CLAUDE_SETTINGS" --command "cd ~/dotfiles && scripts/stow-deploy claude"
+  if ! doctor_unit_enabled tmux-prune-orphans-slots.timer; then
+    doctor_finding error prune-timer-inactive "the slot server's orphan-client prune timer is not enabled" \
+      --value tmux-prune-orphans-slots.timer --command "systemctl --user enable --now tmux-prune-orphans-slots.timer"
+  fi
+  if ! doctor_unit_enabled agent-slot-sweep.timer; then
+    doctor_finding error sweep-timer-inactive "the automatic sweep timer is not enabled, so a released slot whose task \
+finishes later is never torn down" --value agent-slot-sweep.timer \
+      --command "systemctl --user enable --now agent-slot-sweep.timer"
+  fi
+  if ! doctor_unit_enabled agent-slot-warm.timer; then
+    doctor_finding error warm-timer-inactive "the warm timer is not enabled, so a slot path nobody warmed by hand \
+spends its first launch on Claude's trust step" --value agent-slot-warm.timer \
+      --command "systemctl --user enable --now agent-slot-warm.timer"
+  fi
+}
+
+doctor_check_trust() {
+  local repo n=1 prime
+  while read -r repo; do
+    [[ -n $repo ]] || continue
+    n=1
+    while slot_taken "$repo" "$n"; do n=$((n + 1)); done
+    ((n <= AS_MAX_PER_REPO)) || continue
+    trust_known "$(slot_path "$repo" "$n")" && continue
+    prime=$(repo_primes | awk -F '\t' -v r="$repo" '$1 == r { print $2 }')
+    if [[ -n $prime ]] && ! trust_known "$prime"; then
+      doctor_finding warning slot-path-untrusted \
+        "$repo's prime $prime is not trusted in Claude, so its slots start at trust needed; open Claude there once" \
+        --value "$prime"
+      continue
+    fi
+    doctor_finding warning slot-path-untrusted \
+      "$(slot_key "$repo" "$n") is not trusted in Claude yet, so its first launch spends time on the trust step" \
+      --value "$(slot_path "$repo" "$n")" --command "agent-slot warm $repo"
+  done < <(slot_repos)
+}
+
+# A worktree of the solutions repo under a repo's slot solutions directory that no live slot's record names belongs to
+# a slot that is gone. Its files can be the only copy of a doc, so it is reported with what it holds that origin/main
+# lacks and never removed here.
+doctor_check_solutions_worktrees() {
+  local repo n wt dirty commits roots=()
+  local -A live=()
+  [[ -d $AS_SOLUTIONS/.git ]] || return 0
+  while read -r repo; do
+    [[ -n $repo ]] || continue
+    roots+=("$(slot_solutions_dir "$repo")")
+    while read -r n; do
+      if [[ -n $n ]] && record_read "$repo" "$n"; then
+        wt=$(record_solutions_worktree)
+        [[ -z $wt ]] || live[$(realpath -m "$wt")]=1
+      fi
+    done < <(slot_numbers "$repo")
+  done < <(slot_repos)
+  ((${#roots[@]} > 0)) || return 0
+  while IFS= read -r wt; do
+    [[ -d $wt && -z ${live[$(realpath -m "$wt")]:-} ]] || continue
+    path_under "$wt" "${roots[@]}" || continue
+    dirty='?' commits='?'
+    if solutions_state "$wt"; then
+      dirty=${#SOLUTIONS_PATHS[@]} commits=$SOLUTIONS_COMMITS
+    fi
+    doctor_finding warning solutions-worktree-orphaned "$wt is a worktree of the solutions repo whose slot is gone; it \
+holds $dirty changed file(s) and $commits unpublished commit(s) that origin/main lacks" \
+      --value "$wt $dirty $commits" --command "git -C $wt status"
+  done < <(git -C "$AS_SOLUTIONS" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+}
+
+doctor_check_versions() {
+  local installed verified message
+  [[ -n ${AS_TOOL[claude]:-} ]] || return 0
+  installed=$(bounded_version claude)
+  verified=$(doctor_verified | awk '$1 == "claude" { print $2 }')
+  [[ -n $installed && $installed != "$verified" ]] || return 0
+  message="Claude Code $installed differs from the version the two-machine checklist last ran on (${verified:-none});"
+  message+=" run the checklist, then update scripts/agent-slot/verified-versions"
+  doctor_finding warning version-unverified "$message" --value "$installed"
+}
+
+bounded_version() {
+  local out
+  bounded out "$1-version" 10 "${AS_TOOL[$1]}" --version || return 0
+  awk 'NR == 1 { print $1 }' <<<"$out"
+}
+
+# Launch times over the last 20 launches, from the ledger's launch lines joined to their ready lines by request ID.
+# A negative duration is clock skew between the two machines and is left out.
+doctor_launch_times() {
+  [[ -r $AS_LEDGER ]] || {
+    contract_json -n -c --argjson t "$DOCTOR_TARGET_S" '{launches: 0, measured: 0, not_ready: [], skewed: 0,
+      median_s: null, p90_s: null, target_s: $t}'
+    return
+  }
+  tail -n 4000 "$AS_LEDGER" | contract_json -s -c --argjson t "$DOCTOR_TARGET_S" '
+    (map(select(.event == "ready")) | map({key: .request_id, value: .ready_at}) | from_entries) as $ready
+    | (map(select(.event == "launch" and (.request_id // "") != "")) | .[-20:]) as $launches
+    | [$launches[] | {request_id, requested_at, ready_at: $ready[.request_id]}] as $rows
+    | [$rows[] | select(.ready_at != null and .requested_at != null) | .ready_at - .requested_at] as $all
+    | ($all | map(select(. >= 0)) | sort) as $d
+    | ($d | length) as $n
+    | {launches: ($launches | length), measured: $n,
+       not_ready: [$rows[] | select(.ready_at == null) | .request_id],
+       skewed: ($all | map(select(. < 0)) | length),
+       median_s: (if $n == 0 then null elif $n % 2 == 1 then $d[($n - 1) / 2 | floor]
+                  else ($d[$n / 2 - 1 | floor] + $d[$n / 2 | floor]) / 2 end),
+       p90_s: (if $n == 0 then null else $d[($n * 0.9 | ceil) - 1 | floor] end),
+       target_s: $t}'
+}
+
+DOCTOR_KEY_PHASES='["app_shows_tab", "helper", "prep", "clone", "setup", "deps", "trust", "tmux", "claude", "claude_start"]'
+
+# Key to ready over the last 20 launches a key's tab asked for, the launch lines with an opened_at: from the tab's
+# process starting to the slot's Claude starting its session, and the median of each step between. The tab's helper and
+# agent-slot share one clock, so no step is left out as skewed.
+#   app_shows_tab  opened_at to shown_at, Rex.app selecting the tab; null when the tab did not wait to be shown
+#   helper         shown_at, else opened_at, to requested_at: the helper's own calls before it asks for the slot
+#   prep           requested_at to started_at: agent-slot's checks and locks before the clone
+#   clone .. claude  the launch's own phases
+#   claude_start   made_at to ready_at: Claude starting, up to its SessionStart hook
+doctor_key_to_ready() {
+  [[ -r $AS_LEDGER ]] || {
+    contract_json -n -c '{launches: 0, measured: 0, not_ready: [], median_s: null, p90_s: null, phases: null}'
+    return
+  }
+  tail -n 4000 "$AS_LEDGER" | contract_json -s -c --argjson names "$DOCTOR_KEY_PHASES" '
+    def r2: if . == null then null else (. * 100 | round) / 100 end;
+    def median: sort | length as $n
+      | if $n == 0 then null elif $n % 2 == 1 then .[($n - 1) / 2 | floor]
+        else (.[$n / 2 - 1 | floor] + .[$n / 2 | floor]) / 2 end;
+    def p90: sort | length as $n | if $n == 0 then null else .[($n * 0.9 | ceil) - 1 | floor] end;
+    (map(select(.event == "ready")) | map({key: .request_id, value: .ready_at}) | from_entries) as $ready
+    | (map(select(.event == "launch" and .opened_at != null and (.request_id // "") != "")) | .[-20:]) as $keys
+    | [$keys[] | . + {ready_at: $ready[.request_id]}] as $rows
+    | [$rows[] | select(.ready_at != null) | {total: (.ready_at - .opened_at),
+        app_shows_tab: (if .shown_at == null then null else .shown_at - .opened_at end),
+        helper: (.requested_at - (.shown_at // .opened_at)),
+        prep: (if .started_at == null then null else .started_at - .requested_at end),
+        clone: .phases.clone, setup: .phases.setup, deps: .phases.deps, trust: .phases.trust, tmux: .phases.tmux,
+        claude: .phases.claude,
+        claude_start: (if .made_at == null then null else .ready_at - .made_at end)}] as $m
+    | {launches: ($keys | length), measured: ($m | length),
+       not_ready: [$rows[] | select(.ready_at == null) | .request_id],
+       median_s: ([$m[].total] | median | r2), p90_s: ([$m[].total] | p90 | r2),
+       phases: (if ($m | length) == 0 then null
+                else reduce $names[] as $k ({}; . + {($k): ([$m[] | .[$k] | select(. != null)] | median | r2)}) end)}'
+}
+
+cmd_doctor() {
+  local findings times keys errors
+  contract_use_tools tmux claude gh git-crypt
+  doctor_check_tools
+  doctor_check_config
+  doctor_check_trust
+  doctor_check_solutions_worktrees
+  doctor_check_versions
+  times=$(doctor_launch_times)
+  keys=$(doctor_key_to_ready)
+  findings=$(printf '%s\n' "${DOCTOR_FINDINGS[@]}" | contract_json -s -c 'map(select(. != null))')
+  errors=$(contract_json '[.[] | select(.severity == "error")] | length' <<<"$findings")
+  contract_ok "$(contract_json -n -c --argjson f "$findings" --argjson t "$times" --argjson k "$keys" \
+    --argjson e "$errors" --arg verified "$(doctor_verified)" '{ok: ($e == 0), findings: $f, launch_times: $t,
+      key_to_ready: $k,
+      verified_versions: ($verified | split("\n") | map(select(. != "") | split(" ")) | map({(.[0]): .[1]}) | add)}')" '
+    def fmt: if . == floor then floor else . end;
+    (.findings[] | "\(.severity | ascii_upcase)\t\(.reason): \(.message)" +
+      (if .next_step.command then "\n\tnext: \(.next_step.command)" else "" end)),
+    (.launch_times | if .measured == 0 then "launch times: none measured yet (target \(.target_s) s)"
+     else "launch times: median \(.median_s) s, p90 \(.p90_s) s over \(.measured) launches (target \(.target_s) s)"
+     end + (if (.not_ready | length) > 0 then ", \(.not_ready | length) not ready" else "" end)),
+    (.key_to_ready | if .measured == 0 then "key to ready: no key press measured yet"
+     else "key to ready: median \(.median_s | fmt) s, p90 \(.p90_s | fmt) s over \(.measured) key presses; "
+       + "median phases (s): " + ([.phases | to_entries[] | select(.value != null) | "\(.key | gsub("_"; " ")) \(.value | fmt)"] | join(", "))
+     end + (if (.not_ready | length) > 0 then ", \(.not_ready | length) not ready" else "" end)),
+    (if .ok then "doctor: no errors" else "doctor: \([.findings[] | select(.severity == "error")] | length) error(s)" end)'
+  ((errors == 0)) || exit "$EXIT_GENERAL"
+}

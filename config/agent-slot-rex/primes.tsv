@@ -1,0 +1,29 @@
+# Each repo's display name, where it differs from the repo's own: it labels the prime's tab, and it names the session on
+# the default tmux server that counts as the prime while it holds a Claude. A repo with no line uses its own name.
+# One line per repo: <repo>, a tab, <display name>. tmux cannot hold `.` or `:` in a session name.
+dotfiles	dotfiles
+xurl-rs	XR CLI
+agentnative-cli	ANC CLI
+agentnative-site	ANC Website
+agent-skills	Agent Skills
+meum-api	Meum API
+meum-sdk	Meum SDK
+meum-ios	Meum iOS
+meum-sites	Meum Sites
+meum-id-dot-github	Meum GitHub
+meum-control	Meum Control
+agentnative-skill	ANC Agent Skill
+agentnative-spec	ANC Spec
+bird	Bird CLI
+bird-skill	Bird Agent Skill
+crawl4ai-skill	Crawl4AI Skill
+dot-github	_github
+homebrew-tap	HB Tap
+home-media-server	Home Media Server
+lmgroktfy	Let Me Grok That For You
+solutions-docs	Compounded Solutions
+streamsgrp	Streams Website
+xurl-rs-skill	XR Agent Skill
+obsidian-vault	Vault
+streams-control	Streams Control
+gbrain	GBrain

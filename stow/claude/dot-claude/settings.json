@@ -1,4 +1,6 @@
 {
+  "cleanupPeriodDays": 365,
+  "autoCompactWindow": 400000,
   "skillListingBudgetFraction": 0.03,
   "env": {
     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
@@ -9,6 +11,13 @@
     "allow": [
       "Bash(./.githooks/pre-push)",
       "Bash(actionlint *)",
+      "Bash(agent-slot adopt *)",
+      "Bash(agent-slot check *)",
+      "Bash(agent-slot doctor *)",
+      "Bash(agent-slot list *)",
+      "Bash(agent-slot repos *)",
+      "Bash(agent-slot schema *)",
+      "Bash(agent-slot whoami *)",
       "Bash(alias:*)",
       "Bash(anc:*)",
       "Bash(ast-grep:*)",
@@ -240,7 +249,6 @@
       "Skill(compound-engineering:ce-brainstorm)",
       "Skill(compound-engineering:ce-code-review)",
       "Skill(compound-engineering:ce-compound)",
-      "Skill(compound-engineering:ce-compound-refresh)",
       "Skill(compound-engineering:ce-ideate)",
       "Skill(compound-engineering:ce-plan)",
       "Skill(compound-engineering:ce-sessions)",
@@ -334,9 +342,19 @@
       "Bash(python3 -m pip:*)",
       "Bash(rm:*)",
       "Bash(rustup self:*)",
-      "Bash(sudo:*)"
+      "Bash(sudo:*)",
+      "Skill(code-review)",
+      "Skill(codex)",
+      "Skill(review)",
+      "Skill(security-review)"
     ],
     "ask": [
+      "Bash(agent-slot finish *)",
+      "Bash(agent-slot grant-scope *)",
+      "Bash(agent-slot reopen *)",
+      "Bash(agent-slot sweep *)",
+      "Bash(agent-slot-rex finish *)",
+      "Bash(agent-slot-rex sweep *)",
       "Bash(apt:*)",
       "Bash(docker:*)",
       "Bash(gh pr close *)",
@@ -396,7 +414,64 @@
     "pdf-annotate-diagrams": "off",
     "repo-recon": "off",
     "scrape": "off",
-    "skillify": "off"
+    "skillify": "off",
+    "verify": "off",
+    "_gstack-command": "name-only",
+    "agent-web-audit": "name-only",
+    "agentnative": "name-only",
+    "ai-signal": "name-only",
+    "autoplan": "name-only",
+    "captain": "name-only",
+    "careful": "name-only",
+    "cli-demo-video": "name-only",
+    "connect-chrome": "name-only",
+    "context-restore": "name-only",
+    "context-save": "name-only",
+    "context7": "name-only",
+    "crawl4ai": "name-only",
+    "design-consultation": "name-only",
+    "design-html": "name-only",
+    "design-motion": "name-only",
+    "design-shotgun": "name-only",
+    "deslop-shared-libs": "name-only",
+    "diagram": "name-only",
+    "document-generate": "name-only",
+    "document-release": "name-only",
+    "eval-plan": "name-only",
+    "expensify": "name-only",
+    "freeze": "name-only",
+    "gstack": "name-only",
+    "guard": "name-only",
+    "harden-email-domain": "name-only",
+    "health": "name-only",
+    "ios-clean": "name-only",
+    "ios-design-review": "name-only",
+    "ios-fix": "name-only",
+    "ios-qa": "name-only",
+    "ios-sync": "name-only",
+    "iphone-extract": "name-only",
+    "landing-report": "name-only",
+    "learn": "name-only",
+    "legal-case-lookup": "name-only",
+    "make-pdf": "name-only",
+    "office-hours": "name-only",
+    "open-gstack-browser": "name-only",
+    "paprika": "name-only",
+    "plan-ceo-review": "name-only",
+    "plan-design-review": "name-only",
+    "qa": "name-only",
+    "qa-only": "name-only",
+    "retro": "name-only",
+    "runaway-stopper": "name-only",
+    "search-presence": "name-only",
+    "ship": "name-only",
+    "spec": "name-only",
+    "typst-template-designer": "name-only",
+    "ubicloud": "name-only",
+    "unfreeze": "name-only",
+    "uv-chart": "name-only",
+    "x-growth-campaign": "name-only",
+    "xlsx-modify": "name-only"
   },
   "hooks": {
     "Notification": [
@@ -406,6 +481,23 @@
           {
             "type": "command",
             "command": "command -v terminal-notifier >/dev/null 2>&1 && terminal-notifier -sound Funky -title \"🔔 Claude Code\" -message \"Claude needs your input\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "permission_prompt|elicitation_dialog|agent_needs_input",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-unattended.sh",
+            "async": true,
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
           }
         ]
       }
@@ -419,16 +511,46 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/session-title.sh",
+            "timeout": 8
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/never-send-guard.sh",
+            "timeout": 10,
+            "onFailure": "block"
+          }
+        ]
+      },
       {
         "matcher": "WebFetch",
         "hooks": [
           {
             "type": "command",
             "command": "~/.claude/defuddle-webfetch.sh",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       },
@@ -438,22 +560,32 @@
           {
             "type": "command",
             "command": "~/.claude/heredoc-pr-guard.sh",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "~/.claude/ai-attribution-guard.sh",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "~/.claude/sleep-guard.sh",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "~/.claude/self-match-guard.sh",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/piped-commit-guard.sh",
+            "timeout": 5,
+            "onFailure": "block"
           },
           {
             "type": "command",
@@ -468,7 +600,82 @@
           {
             "type": "command",
             "command": "~/.claude/model-tier-guard.sh",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion|EnterPlanMode|ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-unattended.sh",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Skill|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-review-cap.sh",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-scope-guard.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-unattended.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Elicitation": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
           }
         ]
       }
@@ -490,6 +697,16 @@
             "type": "command",
             "command": "~/.claude/ci-watch-prompt.sh",
             "timeout": 15
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
           }
         ]
       }
@@ -540,6 +757,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "~/.claude/failed-user-units.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
             "command": "~/dotfiles/scripts/fseventsd-check.sh --claude-hook",
             "timeout": 5
           }
@@ -581,6 +808,36 @@
             "command": "( ~/.local/bin/gstack-config-apply >/dev/null 2>&1 & )"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-context.sh",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh -c 'rex __internal session-start --agent claude 2>/dev/null || true'",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -593,6 +850,17 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
       }
     ],
     "Stop": [
@@ -602,6 +870,29 @@
           {
             "type": "command",
             "command": "command -v terminal-notifier >/dev/null 2>&1 && terminal-notifier -sound Mezzo -title \"✅ Claude Code\" -message \"The task has been completed\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/slot-status.sh",
+            "async": true,
+            "timeout": 30
           }
         ]
       }
@@ -638,6 +929,21 @@
   "awaySummaryEnabled": false,
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
+  "crossSessionInbound": "accept",
   "agentPushNotifEnabled": true,
-  "autoContinueAtUsageLimit": false
+  "autoContinueAtUsageLimit": false,
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "xhigh"
+    },
+    "claude-sonnet-5-5": {
+      "effortLevel": "xhigh"
+    },
+    "claude-haiku-5-5": {
+      "effortLevel": "xhigh"
+    },
+    "claude-fable-5-1": {
+      "effortLevel": "xhigh"
+    }
+  }
 }

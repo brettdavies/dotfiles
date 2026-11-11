@@ -1,0 +1,1018 @@
+#!/usr/bin/env bats
+# Tests for stow/claude/dot-claude/slot-scope-guard.sh, the Claude hook that holds a slot's `git push` to the paths its
+# brief's Touches: line declares: a push whose commits change a path outside the record's scope.touches globs, and that
+# no scope-grant ledger line covers, is denied.
+#
+# Run: bats tests/slot-scope-guard.bats
+#
+# The fixtures are those of tests/slot-review-cap.bats: a pane shell that records its own pid as the pane's #{pane_pid},
+# then `claude` (a symlink to bash, so /proc comm reads claude), then the hook.
+# run-tests: parallel
+
+bats_require_minimum_version 1.5.0
+
+load lib/agent-slot
+
+HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/slot-scope-guard.sh"
+RUNS='"$@"; exit $?'
+
+setup_file() {
+  load lib/platform
+  require_linux "the hook finds the pane's top-level Claude through /proc"
+}
+
+setup() {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  agent_slot_setup
+  export TMUX="$T/$AGENT_SLOT_TMUX_SOCKET,4242,0" TMUX_PANE=%3
+  FAKE=$T/fake
+  mkdir -p "$FAKE"
+  ln -s "$(command -v bash)" "$FAKE/claude"
+  printf '%s' repo-1 >"$STUBS/pane-session"
+  printf '#!/usr/bin/env bash\nprintf %%s "$$" >"$STUBS/pane-pid"\n"$@"\nexit $?\n' >"$T/pane-shell"
+  chmod +x "$T/pane-shell"
+  stub tmux '
+case " $* " in
+  *" display "*) printf "%s\t%s\t%s\n" "$(cat "$STUBS/pane-session")" "$(cat "$STUBS/pane-pid")" /dev/null ;;
+esac'
+  SLOT=$AGENT_SLOT_ROOT/repo/1
+  LEDGER=$AGENT_SLOT_STATE_DIR/ledger.jsonl
+  HOOKS_LOG=$AGENT_SLOT_STATE_DIR/logs/hooks.log
+  slot repo 1 '{"created_at": "2020-01-01T00:00:00Z",
+    "scope": {"touches": ["scripts/agent-slot/**", "tests/*.bats", "docs/guide.md"], "adds": "none"}}'
+  mkdir -p "$SLOT/old" "$SLOT/scripts/agent-slot"
+  printf 'x\n' >"$SLOT/old/legacy.txt"
+  printf 'x\n' >"$SLOT/scripts/agent-slot/verb.sh"
+  git -C "$SLOT" add old scripts
+  git -C "$SLOT" commit -q -m seed
+  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  git -C "$SLOT" checkout -q -b feat/one
+}
+
+fire() { "$T/pane-shell" "$FAKE/claude" -c "$RUNS" claude "$HOOK"; }
+
+# bash_call COMMAND [CWD]: a PreToolUse payload for the Bash tool, from the slot's Claude, which works in CWD (default:
+# the slot).
+bash_call() {
+  jaq -n -c --arg cwd "${2:-$SLOT}" --arg c "$1" '{hook_event_name: "PreToolUse", session_id: "s1", cwd: $cwd,
+    tool_name: "Bash", tool_input: {command: $c}, tool_use_id: "tu1"}' | fire
+}
+
+# commit PATH...: a commit on the slot's branch that writes each path.
+commit() {
+  local p
+  for p in "$@"; do
+    mkdir -p "$SLOT/$(dirname "$p")"
+    printf '%s\n' "$RANDOM" >"$SLOT/$p"
+    git -C "$SLOT" add "$p"
+  done
+  git -C "$SLOT" commit -q -m change
+}
+
+# push: a `git push` the hook allows, so it prints nothing.
+push() {
+  run bash_call "${1:-git push origin feat/one}"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+# grant_line REPO N PATHSPEC: a scope-grant ledger line, as the operator's verb writes one.
+grant_line() {
+  jaq -n -c --arg repo "$1" --argjson n "$2" --arg spec "$3" \
+    '{schema: "dotfiles.agent-slot/1", ts: "2026-01-01T00:00:00Z", event: "scope-grant", repo: $repo, slot: $n,
+      pathspec: $spec}' >>"$LEDGER"
+}
+
+# reason: the denial the last `run` printed.
+reason() { jaq -r .hookSpecificOutput.permissionDecisionReason <<<"$output"; }
+
+# unrelated_branch: the checked-out branch shares no line of work with the task's, so a push the hook judges answers with the
+# retask message.
+unrelated_branch() {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+}
+
+# silent COMMAND...: the hook prints nothing for each; fails naming every command it denied.
+silent() {
+  local c missed=()
+  for c in "$@"; do
+    run bash_call "$c"
+    [ -z "$output" ] || missed+=("$c")
+  done
+  ((${#missed[@]} == 0)) || {
+    printf 'denied: %s\n' "${missed[@]}"
+    false
+  }
+}
+
+# denied COMMAND...: the hook denies each; fails naming every command it let through.
+denied() {
+  local c missed=()
+  for c in "$@"; do
+    run bash_call "$c"
+    [[ $output == *'"deny"'* ]] || missed+=("$c")
+  done
+  ((${#missed[@]} == 0)) || {
+    printf 'not denied: %s\n' "${missed[@]}"
+    false
+  }
+}
+
+@test "a push from a branch unrelated to the task's branch is denied, naming retask" {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+  [[ $(reason) == *feat/one* ]]
+}
+
+@test "the guard holds in a slot whose brief declared no scope" {
+  jaq 'del(.scope)' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  run bash_call 'git push origin feat/two'
+  [[ $(reason) == *'agent-slot retask'* ]]
+}
+
+@test "a branch change chained before the push gets the chain rule, not a verdict on the branch it leaves" {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  run bash_call 'git switch feat/one && git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'as its own command'* ]]
+  [[ $(reason) != *'share no line of work'* ]]
+}
+
+@test "a branch stacked on the task's branch is the same task, and is allowed" {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  push 'git push origin feat/two'
+}
+
+# pushed BRANCH: the remote-tracking ref a push of BRANCH leaves.
+pushed() { git -C "$SLOT" update-ref "refs/remotes/origin/$1" "$1"; }
+
+# pushed_stack: feat/one and the feat/two stacked on it, each pushed, with feat/one checked out.
+pushed_stack() {
+  commit scripts/agent-slot/one.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  git -C "$SLOT" checkout -q feat/one
+}
+
+# base_moves: origin/main gains a commit that neither branch holds. Leaves feat/one checked out.
+base_moves() {
+  git -C "$SLOT" checkout -q --detach origin/main
+  commit docs/base-moved.md
+  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  git -C "$SLOT" checkout -q feat/one
+}
+
+@test "a stack's lower branch pushes after a rebase onto a base that moved, and so does the upper branch" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" rebase -q origin/main
+  git -C "$SLOT" checkout -q feat/two
+  push 'git push origin feat/two'
+  git -C "$SLOT" checkout -q feat/one
+  push 'git push origin feat/one'
+}
+
+@test "a stack's lower branch pushes after a local merge of a base that moved" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" merge -q --no-edit origin/main
+  push 'git push origin feat/one'
+}
+
+@test "a stack's lower branch pushes again after its first push, with the upper branch not restacked" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" rebase -q origin/main
+  pushed feat/one
+  commit scripts/agent-slot/fix.sh
+  push 'git push origin feat/one'
+}
+
+@test "a stack's lower branch that merged a moved base pushes again after its first push" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" merge -q --no-edit origin/main
+  pushed feat/one
+  commit scripts/agent-slot/fix.sh
+  push 'git push origin feat/one'
+}
+
+@test "a lower branch reset to the base and given other work is a second task, before and after its push" {
+  pushed_stack
+  git -C "$SLOT" reset -q --hard origin/main
+  commit scripts/agent-slot/other.sh
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+  pushed feat/one
+  commit scripts/agent-slot/more.sh
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a lower branch whose commit was amended after the stack was pushed is a second task" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" rebase -q origin/main
+  printf 'amended\n' >>"$SLOT/scripts/agent-slot/one.sh"
+  git -C "$SLOT" add scripts/agent-slot/one.sh
+  git -C "$SLOT" commit -q --amend --no-edit
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a lower branch whose commits were squashed into one after the stack was pushed is a second task" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/more.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  git -C "$SLOT" checkout -q feat/one
+  git -C "$SLOT" reset -q --soft origin/main
+  git -C "$SLOT" commit -q -m squashed
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a lower branch is a second task when the reflog of its remote-tracking ref lacks the old tip" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" rebase -q origin/main
+  git -C "$SLOT" update-ref -d refs/remotes/origin/feat/one
+  pushed feat/one
+  commit scripts/agent-slot/fix.sh
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "two branches that each hold a pushed tip the other lacks are two tasks, naming retask" {
+  commit scripts/agent-slot/one.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+  [[ $(reason) == *'task is on feat/one'* ]]
+}
+
+@test "a stack's lower branch is still a second task when the clone has no origin ref for the base" {
+  pushed_stack
+  base_moves
+  git -C "$SLOT" rebase -q origin/main
+  git -C "$SLOT" update-ref -d refs/remotes/origin/main
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a pushed tip that carries nothing beyond the base ties no branch to another" {
+  git -C "$SLOT" update-ref refs/remotes/origin/feat/one origin/main
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  run bash_call 'git push origin feat/two'
+  [[ $(reason) == *'task is on feat/one'* ]]
+  git -C "$SLOT" checkout -q feat/one
+  run bash_call 'git push origin feat/one'
+  [[ $(reason) == *'task is on feat/two'* ]]
+}
+
+@test "a probe's branch beside the task's is allowed, whichever one is checked out" {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b probe/ci origin/main
+  commit scripts/agent-slot/two.sh
+  push 'git push origin probe/ci'
+  git -C "$SLOT" checkout -q feat/one
+  push
+}
+
+@test "a branch whose work the base already holds is no second task" {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" update-ref refs/remotes/origin/main feat/one
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  push 'git push origin feat/two'
+}
+
+# squash_into_base BRANCH: origin/main takes BRANCH as one squash commit. BRANCH's local ref stays.
+squash_into_base() {
+  git -C "$SLOT" checkout -q --detach origin/main
+  git -C "$SLOT" merge -q --squash "$1" >/dev/null
+  git -C "$SLOT" commit -q -m squash
+  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+}
+
+# squash_merged_stack: feat/one holds two commits and feat/two is stacked on it, each pushed. origin/main then takes
+# feat/one as one squash commit, and feat/two is replayed onto that commit. feat/one's local ref stays; feat/two is checked
+# out.
+squash_merged_stack() {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  squash_into_base feat/one
+  git -C "$SLOT" rebase -q --onto origin/main feat/one feat/two
+}
+
+@test "a stack whose lower branch was squash-merged into the base, with the upper branch replayed onto the squash, is one task" {
+  squash_merged_stack
+  push 'git push origin feat/two'
+}
+
+@test "a stack replayed onto the squash commit and then given a new commit is one task" {
+  squash_merged_stack
+  commit scripts/agent-slot/two-b.sh
+  push 'git push origin feat/two'
+}
+
+@test "an upper branch not yet replayed onto the squash commit, with the lower branch moved on and pruned from origin, is one task" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  git -C "$SLOT" checkout -q feat/one
+  commit scripts/agent-slot/one-c.sh
+  squash_into_base feat/one
+  git -C "$SLOT" update-ref -d refs/remotes/origin/feat/one
+  git -C "$SLOT" checkout -q feat/two
+  push 'git push origin feat/two'
+}
+
+@test "a squash-merged lower branch that holds a commit the squash lacks is still a second task, naming retask" {
+  squash_merged_stack
+  git -C "$SLOT" checkout -q feat/one
+  commit scripts/agent-slot/one-d.sh
+  git -C "$SLOT" checkout -q feat/two
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a squash-merged lower branch that conflicts with a base that changed the squashed lines again is still a second task" {
+  squash_merged_stack
+  git -C "$SLOT" checkout -q --detach origin/main
+  printf 'edited after the squash\n' >"$SLOT/scripts/agent-slot/one.sh"
+  git -C "$SLOT" add scripts/agent-slot/one.sh
+  git -C "$SLOT" commit -q -m edit
+  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  git -C "$SLOT" checkout -q feat/two
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a branch whose only commits are empty, beside the task's branch, is still a second task, naming retask" {
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  git -C "$SLOT" commit -q --allow-empty -m empty
+  git -C "$SLOT" checkout -q feat/one
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/two'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a branch with two merge bases against the base, whose file the base reverted, is still a second task, naming retask" {
+  local b0 m1 revert
+  commit scripts/agent-slot/one.sh
+  git -C "$SLOT" checkout -q --detach origin/main
+  commit docs/base-moved.md
+  b0=$(git -C "$SLOT" rev-parse HEAD)
+  git -C "$SLOT" merge -q --no-ff -m base-takes feat/one >/dev/null
+  m1=$(git -C "$SLOT" rev-parse HEAD)
+  revert=$(git -C "$SLOT" commit-tree -p "$m1" -m revert "$b0^{tree}")
+  git -C "$SLOT" update-ref refs/remotes/origin/main "$revert"
+  git -C "$SLOT" checkout -q feat/one
+  git -C "$SLOT" merge -q --no-ff -m branch-takes "$b0" >/dev/null
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  git -C "$SLOT" checkout -q feat/one
+  git -C "$SLOT" commit -q --allow-empty -m moved-on
+  git -C "$SLOT" checkout -q feat/two
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a new branch cut from the base after a squash merge, with unrelated work, is still a second task, naming retask" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  squash_into_base feat/one
+  git -C "$SLOT" checkout -q -b feat/new
+  commit scripts/agent-slot/new.sh
+  run bash_call 'git push origin feat/new'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a new branch cut from the base before a squash merge, with unrelated work, is still a second task, naming retask" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/new origin/main
+  commit scripts/agent-slot/new.sh
+  squash_into_base feat/one
+  git -C "$SLOT" checkout -q feat/new
+  run bash_call 'git push origin feat/new'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a branch cut from a squash-merged branch with a commit of its own, then reset to the base and given unrelated work, is still a second task, naming retask" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/new
+  commit scripts/agent-slot/own.sh
+  pushed feat/new
+  squash_into_base feat/one
+  git -C "$SLOT" checkout -q feat/new
+  git -C "$SLOT" reset -q --hard origin/main
+  commit scripts/agent-slot/new.sh
+  run bash_call 'git push origin feat/new'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a stacked branch rebuilt on the base with checkout -B after a squash merge, given unrelated work, is still a second task, naming retask" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/two
+  commit scripts/agent-slot/two.sh
+  pushed feat/two
+  squash_into_base feat/one
+  git -C "$SLOT" checkout -q feat/two
+  git -C "$SLOT" checkout -q -B feat/two origin/main
+  commit scripts/agent-slot/new.sh
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "a branch cut from a squash-merged branch with no commit of its own, then reset to the base and given unrelated work, is still a second task, naming retask" {
+  commit scripts/agent-slot/one.sh
+  commit scripts/agent-slot/one-b.sh
+  pushed feat/one
+  git -C "$SLOT" checkout -q -b feat/new
+  pushed feat/new
+  squash_into_base feat/one
+  git -C "$SLOT" checkout -q feat/new
+  git -C "$SLOT" reset -q --hard origin/main
+  commit scripts/agent-slot/new.sh
+  run bash_call 'git push origin feat/new'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "an upper branch amended after it was replayed onto the squash commit is still a second task, naming retask" {
+  squash_merged_stack
+  printf 'amended\n' >>"$SLOT/scripts/agent-slot/two.sh"
+  git -C "$SLOT" add scripts/agent-slot/two.sh
+  git -C "$SLOT" commit -q --amend --no-edit
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+# default_branch_clone SHAPE: a clone whose base is dev and whose local main is the branch origin/HEAD names, as `git clone`
+# leaves it. With SHAPE diverged, dev and main each hold a commit the other lacks; with SHAPE unrelated, dev is a root
+# commit that shares no history with main. Leaves feat/one, cut from origin/dev with a commit on a declared path, checked
+# out.
+default_branch_clone() {
+  local dev
+  jaq -c '.base = "dev"' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  if [[ $1 == diverged ]]; then
+    dev=$(git -C "$SLOT" commit-tree -p main -m dev 'main^{tree}')
+    git -C "$SLOT" checkout -q main
+    git -C "$SLOT" commit -q --allow-empty -m release
+    git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  else
+    dev=$(git -C "$SLOT" commit-tree -m dev 'main^{tree}')
+  fi
+  git -C "$SLOT" update-ref refs/remotes/origin/dev "$dev"
+  git -C "$SLOT" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  git -C "$SLOT" checkout -q -B feat/one origin/dev
+  commit scripts/agent-slot/one.sh
+}
+
+# own_default_commit: the local main, which origin/HEAD names, holds a commit that origin/main lacks.
+own_default_commit() {
+  git -C "$SLOT" checkout -q main
+  git -C "$SLOT" commit -q --allow-empty -m mine
+  git -C "$SLOT" checkout -q feat/one
+}
+
+@test "a local default branch that has diverged from the base is no second task" {
+  default_branch_clone diverged
+  push
+}
+
+@test "a local default branch that shares no history with the base is no second task" {
+  default_branch_clone unrelated
+  push
+}
+
+@test "a diverged local default branch with a commit of its own is a second task, naming retask" {
+  default_branch_clone diverged
+  own_default_commit
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+  [[ $(reason) == *'task is on main'* ]]
+}
+
+@test "an unrelated local default branch with a commit of its own is a second task, naming retask" {
+  default_branch_clone unrelated
+  own_default_commit
+  run bash_call 'git push origin feat/one'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+  [[ $(reason) == *'task is on main'* ]]
+}
+
+@test "a push whose commits change only declared paths is allowed" {
+  commit scripts/agent-slot/lib/new.sh tests/a.bats docs/guide.md
+  push
+}
+
+@test "a push with one undeclared path is denied, naming the path and the step that goes on" {
+  commit scripts/agent-slot/lib/new.sh README.md
+  run bash_call "git push origin feat/one"
+  [ "$status" -eq 0 ]
+  jaq -e '.hookSpecificOutput.hookEventName == "PreToolUse"
+    and .hookSpecificOutput.permissionDecision == "deny"' <<<"$output"
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *"README.md"* ]]
+  [[ $reason != *"scripts/agent-slot/lib/new.sh"* ]]
+  [[ $reason == *'`scripts/agent-slot/**`, `tests/*.bats`, `docs/guide.md`'* ]]
+  [[ $reason == *"Revert that change"* ]]
+  [[ $reason == *"git restore --source=origin/main --staged --worktree -- <path>"* ]]
+  [[ $reason != *"git rm"* ]]
+  [[ $reason == *'record it under "Not in scope" in the PR body'* ]]
+  [[ $reason == *"send the coordinating session a request for a scope grant"* ]]
+  [[ $reason == *"the operator grants paths by running \`agent-slot grant-scope repo/1 <pathspec>\` at a terminal, once per pathspec"* ]]
+  [[ $reason == *"which you cannot run yourself"* ]]
+}
+
+@test "every undeclared path is named, a deleted one and both sides of a rename included" {
+  commit src/a.ts docs/other.md
+  git -C "$SLOT" rm -q old/legacy.txt
+  git -C "$SLOT" mv scripts/agent-slot/verb.sh lib-verb.sh
+  git -C "$SLOT" commit -q -m move
+  run bash_call "git push"
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  for p in src/a.ts docs/other.md old/legacy.txt lib-verb.sh; do
+    [[ $reason == *"$p"* ]] || {
+      echo "missing $p in: $reason"
+      false
+    }
+  done
+  [[ $reason != *"scripts/agent-slot/verb.sh"* ]]
+}
+
+@test "a file moved from an undeclared path into a declared one names the old path" {
+  printf 'distinct legacy content\n' >"$SLOT/old/legacy.txt"
+  git -C "$SLOT" commit -q -am "legacy content"
+  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  git -C "$SLOT" mv old/legacy.txt scripts/agent-slot/moved.sh
+  git -C "$SLOT" commit -q -m move
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+  [[ $output == *"old/legacy.txt"* ]]
+}
+
+@test "a commit chained before the push is refused, since the hook cannot judge a commit it has not seen" {
+  commit scripts/agent-slot/ok.sh
+  local c
+  for c in "git add -A && git commit --file m && git push" "git commit -m x; git push" "git pull --rebase && git push" \
+    "git -C . merge main && git push" "git checkout feat/other && git push origin HEAD" "git switch feat/other && git push" \
+    "git commit -m 'handle the -d flag' && git push" "git commit -m 'subject; body' && git push"; do
+    run bash_call "$c"
+    [[ $output == *'"deny"'* ]] || {
+      echo "not denied: $c"
+      false
+    }
+    reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+    [[ $reason == *"run \`git push\` as its own command"* ]]
+  done
+  push "git push"
+}
+
+@test "the push is recognised after timeout, nice, and git options that take a value" {
+  commit README.md
+  local c
+  for c in "timeout 600 git push" "nice -n 5 git push" "git --git-dir .git push" "if ! git push; then :; fi" \
+    "while ! git push; do :; done" 'x=`git push`' "timeout -s INT -k 30 1500 git push" \
+    "timeout -s INT -k 30 1500 git push -u origin feat/one" "timeout --kill-after=30 --signal=INT 600 git push" \
+    "timeout --foreground 60s git push" "timeout --signal INT 600 git push" "timeout --kill-after 30 600 git push" \
+    "timeout -k30 600 git push"; do
+    run bash_call "$c"
+    [[ $output == *'"deny"'* ]] || {
+      echo "not denied: $c"
+      false
+    }
+  done
+}
+
+@test "a pathspec directory and a glob without a slash both cover what git says they cover" {
+  jaq -c '.scope.touches = ["old", "*.md"]' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  commit old/deep/er.txt docs/note.md
+  push
+  commit old.txt
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+  [[ $output == *"old.txt"* ]]
+}
+
+@test "a record without scope.touches is never denied" {
+  jaq -c 'del(.scope)' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  commit README.md
+  push
+}
+
+@test "a scope grant covers its matching paths for its own slot only" {
+  commit README.md docs/other.md
+  grant_line repo 1 README.md
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+  [[ $output == *"docs/other.md"* ]]
+  [[ $output != *"README.md"* ]]
+  grant_line repo 1 'docs/*'
+  push
+  : >"$LEDGER"
+  grant_line repo 2 '*'
+  grant_line other 1 '*'
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+}
+
+@test "a grant the operator's verb wrote covers its paths, and the verb's grant for another slot does not" {
+  slot repo 2
+  commit README.md
+  python3 -I "$BATS_TEST_DIRNAME/lib/with-tty.py" repo/2 env -u TMUX -u TMUX_PANE -u CLAUDECODE "$AGENT_SLOT" grant-scope repo/2 README.md \
+    >/dev/null
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+  python3 -I "$BATS_TEST_DIRNAME/lib/with-tty.py" repo/1 env -u TMUX -u TMUX_PANE -u CLAUDECODE "$AGENT_SLOT" grant-scope repo/1 README.md \
+    >/dev/null
+  jaq -e 'select(.event == "scope-grant") | .repo == "repo" and .slot == 1 and .pathspec == "README.md"' "$LEDGER"
+  push
+}
+
+@test "a grant from before the slot was made does not cover a reused slot" {
+  commit README.md
+  jaq -c '.created_at = "2999-01-01T00:00:00Z"' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  grant_line repo 1 README.md
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+}
+
+@test "the push is recognised in a compound command, after an assignment, and with git's own options" {
+  commit README.md
+  local c
+  for c in "cd $SLOT && git push -u origin feat/one" "FOO=1 git push" "git -C $SLOT push" "git status; git push" \
+    $'git status\ngit push' "(git push)" "git --no-pager push --force-with-lease"; do
+    run bash_call "$c"
+    [[ $output == *'"deny"'* ]] || {
+      echo "not denied: $c"
+      false
+    }
+  done
+}
+
+@test "the push is recognised behind a wrapper, a path, a keyword, or a shell -c" {
+  commit README.md
+  local c
+  for c in "time git push" "/usr/bin/git push" 'bash -c "git push"' "bash -c 'git push origin x'" "if git push; then :; fi" \
+    "{ git push; }" "command git push" "env X=1 git push" "! git push" "nohup git push" "sudo -u me git push"; do
+    run bash_call "$c"
+    [[ $output == *'"deny"'* ]] || {
+      echo "not denied: $c"
+      false
+    }
+  done
+}
+
+@test "a push that sends nothing, a dry run or a branch deletion, is not judged" {
+  commit README.md
+  local c
+  for c in "git push --dry-run" "git push origin --delete feat/stale" "git push -d origin feat/stale"; do
+    run bash_call "$c"
+    [ -z "$output" ] || {
+      echo "denied: $c"
+      false
+    }
+  done
+}
+
+@test "a no-op flag on another command in the line does not excuse the push, and a no-op push does not excuse a later one" {
+  commit README.md
+  local c
+  for c in "git push -u origin feat/one && git branch -d feat/old" "git push && gh pr create -d --title x" \
+    "git push && git push origin --delete feat/stale" "git push origin --delete feat/stale && git push"; do
+    run bash_call "$c"
+    [[ $output == *'"deny"'* ]] || {
+      echo "not denied: $c"
+      false
+    }
+  done
+}
+
+@test "the chained-command denial names the command that moves HEAD, and only one before the push counts" {
+  commit scripts/agent-slot/ok.sh
+  run bash_call "git pull --rebase && git push"
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *"runs \`git pull\` before it pushes"* ]]
+  [[ $reason == *"run \`git push\` as its own command"* ]]
+  push "git push; git reset --soft HEAD"
+}
+
+@test "a grant whose pathspec git rejects is skipped and logged, and the record's own globs still decide" {
+  commit scripts/agent-slot/ok.sh
+  grant_line repo 1 ':(bogus)README.md'
+  push
+  grep -q 'scope-grant pathspec :(bogus)README.md' "$HOOKS_LOG"
+  commit README.md
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *"README.md"* ]]
+  [[ $reason != *"is not a git pathspec"* ]]
+}
+
+@test "the denial says the hook judges the slot's own branch whatever the command pushes" {
+  commit README.md
+  run bash_call "git -C elsewhere push"
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *"The hook judges this slot's branch whatever the command pushes"* ]]
+}
+
+@test "a Touches: glob git rejects in the record denies the push naming it, rather than leaving it unguarded" {
+  jaq -c '.scope.touches = ["src/**", ":(nonsense)x"]' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  commit scripts/agent-slot/ok.sh
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *':(nonsense)x'* ]]
+  [[ $reason == *"is not a git pathspec"* ]]
+}
+
+@test "the denial names the slot, the base it diffed against, and how to ask, and warns about a branch built on another" {
+  commit README.md
+  run bash_call "git push"
+  reason=$(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output")
+  [[ $reason == *"Slot repo/1"* ]]
+  [[ $reason == *"commits on feat/one against origin/main"* ]]
+  [[ $reason == *"as one \`SendMessage\`"* ]]
+  [[ $reason == *"If your brief names no such session, leave the decision open in your plan and your report"* ]]
+  [[ $reason == *"If these paths come from a branch you built on, do not revert them"* ]]
+  [[ $reason == *"\`agent-slot whoami --output json\`"* ]]
+}
+
+@test "a command that is not a git push prints nothing, whatever the commits hold" {
+  commit README.md
+  local c
+  for c in "git status" "git log --oneline" "echo git push" "git pull" "git commit -m 'no push'" "ls" "git pushed" \
+    'echo "git push"' 'rg -n "git push" README.md' 'git commit -m "git push guard docs"' "git commit -m 'run git push later'"; do
+    run bash_call "$c"
+    [ -z "$output" ] || {
+      echo "denied: $c"
+      false
+    }
+  done
+}
+
+@test "a quoted pattern that mentions a push is not a push, in the commands that stopped xurl-rs/1" {
+  unrelated_branch
+  silent "rg -n 'gh pr edit|body-file|spec-drift-runbook|marker|git push|force' scripts/open-spec-refresh-pr.sh | cut -c1-200 | head -30" \
+    $'cd /tmp && src=$(sed -n 28,36p guard.sh); eval "$src" 2>&1 | head -3; for c in "rg -n \'foo|git push\' file" "rg -n \'git push\' file" "echo done"; do if [[ $c =~ $PUSH_RE ]]; then echo "MATCH: $c"; else echo "no match: $c"; fi; done'
+  run bash_call "git push origin feat/two"
+  [[ $(reason) == *'agent-slot retask repo/1'* ]]
+}
+
+@test "separators and push text inside quotes that no shell runs are data, whatever the quote, flag, or line" {
+  commit README.md
+  silent 'echo "a; git push"' "echo 'a && git push'" 'printf "%s\n" "x | git push origin"' "grep -c 'x; git push' f" \
+    $'echo "it\'s; git push"' $'echo \'say "hi"; git push\'' $'echo "say \\"x\\"; git push"' $'rg \'bash -c "git push"\' f' \
+    $'echo \'one\ngit push\ntwo\'' $'git commit -m \'document it; git push comes last\'' "rg 'a|b' f | rg 'c|git push'" \
+    'cat <<< "a; git push"' "echo 'a|b' | rg 'c|git push'"
+}
+
+@test "a real push is still found after, between, and around quoted text that holds separators" {
+  commit README.md
+  denied 'echo "a;b" && git push' "rg 'a|b' f; git push" "echo 'x;y' | git push" "git push origin feat/one && echo 'done; ok'" \
+    $'echo "it\'s"; git push' $'echo \'say "hi"\'; git push' $'echo "a\\" b" ; git push ; echo "c\\" d"' \
+    $'echo \\\' ; git push ; echo \\\'' 'cd "a b" && git push' "git push origin 'feat/one'" 'git push "origin" feat/one'
+}
+
+@test "a quoted script that a shell or eval runs is still read as commands" {
+  commit README.md
+  denied $'bash -c "rg \'x\' f; git push"' "sh -c 'cd x; git push'" "bash -lc 'x && git push'" 'eval "git status; git push"' \
+    "eval 'a && git push'" 'eval "$(echo x)" "a; git push"' "sudo -u me bash -c 'x; git push'" "timeout 5 sh -c 'x | git push'" \
+    "x=\$(eval 'a; git push')" '(eval "a; git push")' $'`eval \'a; git push\'`' "{ eval 'a; git push'; }"
+}
+
+@test "a string handed to a tool that runs it as a script is still read as commands" {
+  commit README.md
+  denied "watch -n5 'x; git push'" "ssh host 'cd r; git push'" "su -c 'x; git push'" "tmux send-keys 'x; git push' Enter" \
+    'bash <<< "x; git push"' "echo 'x; git push' | bash" "echo 'x; git push' | sudo sh" "script -c 'x; git push' /dev/null" \
+    "flock f -c 'x; git push'" "parallel 'x; git push' ::: a"
+}
+
+@test "a script that eval runs inside a substitution is still refused as a chain when it moves HEAD" {
+  commit README.md
+  run bash_call "\$(eval 'git add -A; git commit -m x'); git push"
+  [[ $output == *'"deny"'* ]]
+  [[ $(reason) == *"run \`git push\` as its own command"* ]]
+}
+
+@test "a quoted argument of a push is read as written, so a flag inside it excuses nothing" {
+  commit README.md
+  denied "git push -o 'skip; -d tmp' origin feat/one" "git push -o 'a && --dry-run x' origin feat/one"
+}
+
+@test "a script behind any shell flag, a shell named by a variable, or a here-string is still read as commands" {
+  commit README.md
+  denied "bash -l -c 'x; git push'" "bash --login -c 'x && git push'" "bash -e -c 'x; git push'" "bash -ce 'x; git push'" \
+    "sudo -u me bash -l -c 'x; git push'" "\$SHELL -c 'x; git push'" "\"\$SHELL\" -c 'x; git push'" "bash -s <<< 'x; git push'" \
+    "bash<<<'x; git push'" "source /dev/stdin <<< 'x; git push'" "zsh -f -c 'x; git push'"
+}
+
+@test "a pipe into a shell by any spelling reads the command as written" {
+  commit README.md
+  denied "echo 'x; git push' | /bin/bash" "echo 'x; git push' |& bash" "echo 'x; git push' | env bash" \
+    "echo 'x; git push' | sudo -u me bash" "echo 'x; git push' | ksh" "echo 'cd r; git push' | ssh host" \
+    "echo 'x; git push' | xargs -I{} sh -c {}" $'echo \'x; git push\' |\nbash' "echo 'x; git push' | head -1 | bash"
+}
+
+@test "a string handed to a runner the reader does not name is still read as commands" {
+  commit README.md
+  denied "trap 'x; git push' EXIT" "git submodule foreach 'git add -A; git push'" "git -c alias.p='!x; git push' p" \
+    "source <(echo 'x; git push')" "bash <(echo 'x; git push')" "/usr/bin/flock f -c 'x; git push'" "/usr/bin/ssh host 'cd r; git push'" \
+    "git rebase -x 'x; git push' origin/dev" "python3 -c \"import os; os.system('x; git push')\"" \
+    "ssh host echo 'x; git push'" "sg docker echo 'x; git push'" "sudo -u me sh -c 'x; git push'" \
+    "echo 'x; git push' > >(bash)" "rg 'a; git push' f > >(sh)"
+}
+
+@test "a redirection or a substitution before the string does not turn an ssh or eval string into data" {
+  commit README.md
+  denied "ssh host 2>&1 'cd r; git push'" "eval 2>&1 'x; git push'" "ssh \$(echo host | head -1) 'cd r; git push'" \
+    "eval \$(echo x | head -1) 'x; git push'" "ssh host &>/dev/null 'cd r; git push'"
+}
+
+@test "a string held in a variable or an argument that a later command runs is still read as commands" {
+  commit README.md
+  denied "c='x; git push'; eval \"\$c\"" "c='x; git push'; bash -c \"\$c\"" "bash -c 'eval \"\$1\"' _ 'x; git push'"
+}
+
+@test "quotes nested in a parameter expansion do not hide an unquoted push" {
+  commit README.md
+  denied $'y="${x:-"\'"}"; git push; echo \\\'' $'echo "${n:-"it\'s"}"; git push; echo it\\\'s'
+}
+
+@test "a quoted string inside a substitution, a subshell, or backticks is read as written, whatever starts the command" {
+  commit README.md
+  denied "echo \$(bash -c 'x; git push')" "cat <(bash -c 'x; git push')" "eval \$(echo 'x; git push')" \
+    "x=\`ssh host 'cd r; git push'\`" "rg x \$(ssh host 'cd r; git push')" "echo \`bash -c 'x; git push'\`" \
+    "(rg 'a|b' f; bash -c 'x; git push')" "echo \$(true; bash -c 'x; git push')"
+}
+
+@test "a pattern that names a shell after a pipe is data" {
+  unrelated_branch
+  silent "rg -n 'curl|sh|git push' f" "rg -n 'zsh|bash|git push' f" "rg 'dash|sh|git push' f" "grep -E 'a|sh|b; git push' f" \
+    "rg -n '| bash; git push' f"
+}
+
+@test "a commit that a lost script holds is still refused as a chain" {
+  commit README.md
+  run bash_call "bash -l -c 'git add -A; git commit -m x'; git push"
+  [[ $output == *'"deny"'* ]]
+  [[ $(reason) == *"run \`git push\` as its own command"* ]]
+}
+
+@test "a command substitution inside double quotes is code, nested quotes included" {
+  commit README.md
+  denied 'echo "$(git push)"' $'echo "`git push`"' 'echo "x $(echo "b"; git push)"' 'bash -c "echo $(echo "x"); git push"' \
+    'echo "result: $(git status && git push)"' 'echo "$(date)" "$(echo "b"; git push)"'
+}
+
+@test "text the reader does not model, a heredoc body, a comment, an ANSI-C string, or an open quote, is read as written" {
+  commit README.md
+  denied $'cat <<EOF\necho don\'t\nEOF\ngit push origin x\ncat <<EOF\necho won\'t\nEOF' $'echo x # don\'t\ngit push origin x\necho y # won\'t' \
+    $'echo $\'\\\'\' ; git push ; echo $\'\\\'\'' $'echo \'oops; git push'
+}
+
+@test "a push counts the commits against the slot's base, not the commit before" {
+  commit README.md
+  git -C "$SLOT" update-ref refs/remotes/origin/main HEAD
+  commit scripts/agent-slot/ok.sh
+  push
+}
+
+@test "a base the clone has no origin ref for is logged and the push allowed" {
+  commit README.md
+  jaq -c '.base = "gone"' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+  push
+  grep -q 'origin/gone' "$HOOKS_LOG"
+}
+
+@test "a push from a directory outside the slot is judged for the slot the pane belongs to" {
+  commit README.md
+  mkdir -p "$T/scratch"
+  run bash_call "git push" "$T/scratch"
+  [[ $output == *'"deny"'* ]]
+}
+
+@test "a subagent's push is judged as the slot's" {
+  commit README.md
+  run fire < <(jaq -n -c --arg cwd "$SLOT" '{hook_event_name: "PreToolUse", session_id: "s1", cwd: $cwd,
+    tool_name: "Bash", tool_input: {command: "git push"}, agent_id: "a7", agent_type: "general-purpose"}')
+  [[ $output == *'"deny"'* ]]
+}
+
+@test "a tool other than Bash is never judged" {
+  commit README.md
+  run fire < <(jaq -n -c --arg cwd "$SLOT" '{hook_event_name: "PreToolUse", session_id: "s1", cwd: $cwd,
+    tool_name: "Write", tool_input: {command: "git push"}}')
+  [ -z "$output" ]
+}
+
+@test "outside a slot the hook prints nothing" {
+  commit README.md
+  export TMUX="/tmp/tmux-1000/default,4242,0"
+  run bash_call "git push"
+  [ -z "$output" ]
+  unset TMUX
+  run bash_call "git push"
+  [ -z "$output" ]
+  printf '%s' repo-1-files >"$STUBS/pane-session"
+  export TMUX="$T/$AGENT_SLOT_TMUX_SOCKET,4242,0"
+  run bash_call "git push"
+  [ -z "$output" ]
+}
+
+@test "a slot whose record cannot be read has its push allowed" {
+  commit README.md
+  rm "$SLOT/.git/agent-slot.json"
+  push
+}
+
+@test "a ledger that cannot be read leaves the declared paths in force" {
+  commit README.md
+  mkdir -p "$LEDGER"
+  run bash_call "git push"
+  [[ $output == *'"deny"'* ]]
+}
+
+@test "a malformed payload prints nothing and exits 0" {
+  run fire <<<'not json {'
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  run fire <<<'git push'
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}

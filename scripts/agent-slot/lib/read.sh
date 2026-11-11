@@ -1,0 +1,170 @@
+# shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
+# The read verbs: repos, list, whoami.
+
+# Usage: repo_is_clone <dir>; true when <dir> is the top of a clone: its .git is a directory, or a file naming a git
+# directory of its own, as --separate-git-dir leaves. A linked worktree's .git file names a directory inside the clone
+# it belongs to, which is why its git directory and its common directory differ. A git directory has no .git at all.
+repo_is_clone() {
+  local -a dirs
+  [[ ! -d $1/.git ]] || return 0
+  [[ -f $1/.git ]] || return 1
+  mapfile -t dirs < <(git -C "$1" rev-parse --path-format=absolute --git-dir --git-common-dir 2>/dev/null)
+  ((${#dirs[@]} == 2)) && [[ ${dirs[0]} == "${dirs[1]}" ]]
+}
+
+# Usage: repo_origin_of <dir>; prints the origin URL of the clone at <dir>, or returns 1 when <dir> is no clone with one.
+repo_origin_of() {
+  repo_is_clone "$1" || return 1
+  git -C "$1" config --get remote.origin.url 2>/dev/null
+}
+
+# Prime checkouts, as tab-separated name, path, and origin URL, sorted by name. A prime checkout is a clone with an
+# origin, directly under the dev root or named in the extra list, and a slot of it goes by its directory's name.
+repo_primes() {
+  local dir origin
+  local -a dirs=("$AS_DEV"/*/)
+  local IFS=:
+  # shellcheck disable=SC2206
+  dirs+=($AS_EXTRA_PRIMES)
+  unset IFS
+  for dir in "${dirs[@]}"; do
+    dir=${dir%/}
+    origin=$(repo_origin_of "$dir") || continue
+    printf '%s\t%s\t%s\n' "${dir##*/}" "$dir" "$origin"
+  done | sort -t $'\t' -k1,1 -u
+}
+
+# Usage: repo_lookup <name>; sets REPO_PRIME and REPO_ORIGIN to the prime checkout repo_primes lists under that name, or
+# returns 1. It looks the name up rather than walking every repo, since list runs it each minute for each old-style prime.
+REPO_PRIME=
+REPO_ORIGIN=
+repo_lookup() {
+  local name=$1 dir extra origin
+  local -a extras dirs=("$AS_DEV/$name")
+  [[ $name =~ ^$SLOT_REPO_PATTERN$ && $name != . && $name != .. ]] || return 1
+  IFS=: read -r -a extras <<<"$AS_EXTRA_PRIMES"
+  for extra in "${extras[@]}"; do
+    extra=${extra%/}
+    [[ ${extra##*/} != "$name" ]] || dirs+=("$extra")
+  done
+  for dir in "${dirs[@]}"; do
+    origin=$(repo_origin_of "$dir") || continue
+    REPO_PRIME=$dir REPO_ORIGIN=$origin
+    return 0
+  done
+  return 1
+}
+
+# Usage: repo_prime <name>; repo_lookup, or fails with repo-not-found.
+repo_prime() {
+  repo_lookup "$1" && return 0
+  contract_fail repo-not-found "no prime checkout named $1 with an origin, under $AS_DEV or in \
+AGENT_SLOT_EXTRA_PRIMES; a repo goes by its directory's name" --value "$1" --command "agent-slot repos"
+}
+
+cmd_repos() {
+  local json
+  json=$(repo_primes | contract_json -R -s -c '
+    split("\n") | map(select(. != "") | split("\t") | {name: .[0], prime: .[1], origin: .[2]}) | {repos: .}')
+  contract_ok "$json" '.repos[] | "\(.name)\t\(.prime)"'
+}
+
+# label_name($branch), on a slot record: the one label every surface shows for the slot, its name, else its task, else
+# the branch its clone has checked out ($branch, "" for none).
+SLOT_LABEL_DEF='def label_name($branch): .name // .task // (if $branch == "" then null else $branch end);'
+
+# Usage: slot_branch <path>; prints the branch the slot's clone has checked out, or nothing.
+slot_branch() {
+  [[ ! -d $1/.git ]] || git -C "$1" symbolic-ref --short -q HEAD || true
+}
+
+# Usage: slot_review_key <slot path>; prints what review rounds are counted under: the branch, else, on a detached
+# head, its commit; nothing when the clone has neither.
+slot_review_key() {
+  local key
+  key=$(slot_branch "$1")
+  [[ -n $key || ! -d $1/.git ]] || key=$(git -C "$1" rev-parse --verify -q HEAD || true)
+  printf '%s' "$key"
+}
+
+# Usage: slot_view <repo> <n> <session-list>
+# Sets SLOT_VIEW to the slot as list reports it: the record's fields plus agent state, tmux sessions, branch, the
+# needs-you list, and label_name.
+SLOT_VIEW=
+slot_view() {
+  local repo=$1 n=$2 sessions=$3 rec path state agent branch claude=false files=false git=false
+  path=$(slot_path "$repo" "$n")
+  if record_read "$repo" "$n"; then
+    rec=$RECORD
+  else
+    rec=$(contract_json -n -c --arg r "$repo" --argjson n "$n" '{repo: $r, slot: $n, state: "setting-up"}')
+  fi
+  ! grep -qxF "$(slot_session "$repo" "$n")" <<<"$sessions" || claude=true
+  ! grep -qxF "$(slot_session "$repo" "$n" files)" <<<"$sessions" || files=true
+  ! grep -qxF "$(slot_session "$repo" "$n" git)" <<<"$sessions" || git=true
+  state=$(contract_json -r '.state // "active"' <<<"$rec")
+  [[ $state != active || $claude == true ]] || state=dormant
+  agentstate_of "$repo" "$n"
+  agent=$AGENT_STATE
+  branch=$(slot_branch "$path")
+  SLOT_VIEW=$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$path" --arg state "$state" \
+    --arg agent "$agent" --arg detail "$AGENT_DETAIL" --arg branch "$branch" --argjson claude "$claude" \
+    --argjson files "$files" --argjson git "$git" "$SLOT_LABEL_DEF"'
+    label_name($branch) as $label | (if $branch == "" then null else $branch end) as $branch
+    | . + {key: $key, path: $path, state: $state, branch: $branch, label_name: $label,
+         agent: $agent, agent_detail: (if $detail == "" then null else $detail end),
+         sessions: {claude: $claude, files: $files, git: $git},
+         needs_you: (.last_check.blockers // [])}' <<<"$rec")
+}
+
+cmd_list() {
+  local sessions repo n views=()
+  contract_use_tools tmux claude
+  slot_sessions_or_fail
+  sessions=$SLOT_SESSIONS
+  agentstate_load
+  while read -r repo; do
+    [[ -n $repo ]] || continue
+    while read -r n; do
+      [[ -n $n ]] || continue
+      slot_view "$repo" "$n" "$sessions"
+      views+=("$SLOT_VIEW")
+    done < <(slot_numbers "$repo")
+  done < <(slot_repos)
+  prime_list
+  contract_ok "$(printf '%s\n' "${views[@]}" | contract_json -s -c --argjson primes "$PRIME_LIST" \
+    --argjson unread "$PRIME_UNREAD" '{slots: ., primes: $primes, primes_unread: $unread}')" '
+    (if (.slots | length) == 0 then "no slots"
+     else .slots[] | "\(.key)\t\(.state)\t\(.agent)\t\(.label_name // "-")" +
+       (if (.needs_you | length) > 0 then "\tneeds you: \(.needs_you[0].message)" else "" end)
+     end),
+    (.primes[] | "\(.key)\t\(.server)\t\(.session)"),
+    (.primes_unread[] | "primes on the \(.) tmux server: unknown, it did not answer")'
+}
+
+# Usage: slot_at <dir>; prints "<repo> <n>" for the slot holding dir, or returns 1.
+slot_at() {
+  local dir rel repo n
+  dir=$(realpath -m "$1")
+  [[ $dir == "$AS_ROOT_REAL"/* ]] || return 1
+  rel=${dir#"$AS_ROOT_REAL"/}
+  repo=${rel%%/*}
+  rel=${rel#"$repo"}
+  rel=${rel#/}
+  n=${rel%%/*}
+  [[ -n $repo && $n =~ ^[0-9]+$ ]] || return 1
+  printf '%s %s' "$repo" "$n"
+}
+
+cmd_whoami() {
+  local dir=${WHOAMI_PATH:-$PWD} at='' repo='' n=''
+  at=$(slot_at "$dir") || true
+  [[ -z $at ]] || read -r repo n <<<"$at"
+  if [[ -z $at ]] || ! record_read "$repo" "$n"; then
+    contract_fail not-in-slot "$dir is not inside a slot under $AS_ROOT" --value "$dir" --command "agent-slot list"
+  fi
+  contract_ok "$(contract_json -c --arg key "$(slot_key "$repo" "$n")" --arg path "$(slot_path "$repo" "$n")" \
+    --arg branch "$(slot_branch "$(slot_path "$repo" "$n")")" "$SLOT_LABEL_DEF"'
+    {slot: (. + {key: $key, path: $path, label_name: label_name($branch)})}' <<<"$RECORD")" \
+    '.slot | "\(.key) at \(.path)\(if .label_name then " (\(.label_name))" else "" end)"'
+}

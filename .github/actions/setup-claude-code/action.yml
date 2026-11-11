@@ -1,0 +1,64 @@
+name: Setup Claude Code
+description: Install a pinned Claude Code, so the suites that prove what its flags stop run in CI against the real binary.
+
+# tests/agent-slot-foreign-head.bats runs the real binary, with a config directory of its own and an API port nothing
+# listens on, to prove --setting-sources user and --strict-mcp-config keep a head's hooks, key helper, and MCP server from
+# running, with a positive control proving the same tree fires them without those flags. Those tests skip where Claude Code
+# is missing, so without this action a change in what the flags mean surfaces only on a machine that runs pre-push.
+#
+# The binary comes from the release, verified against the checksum its manifest publishes for this version:
+#   https://downloads.claude.ai/claude-code-releases/<version>/manifest.json, platforms.linux-x64.checksum
+# Nothing here signs in: the tests give it a fake key and a refused API, so no secret reaches the job.
+#
+# Keep the version on one the flag tests have passed on; bumping is a reviewed change.
+
+inputs:
+  version:
+    description: Claude Code release to install
+    required: false
+    default: 2.1.318
+  sha256:
+    description: Checksum of the linux-x64 binary for that release
+    required: false
+    default: 708c77b204db30086ff6f1ed34577bda03e1be74ced80557cbf7b54249ebf0bd
+
+runs:
+  using: composite
+  steps:
+    - name: Restore Claude Code
+      id: cache
+      # The binary is 338 MB, downloaded once per shard otherwise.
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/claude-code/${{ inputs.version }}
+        key: claude-code-${{ inputs.version }}-${{ inputs.sha256 }}
+
+    - name: Download pinned Claude Code
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        CLAUDE_VERSION: ${{ inputs.version }}
+        CLAUDE_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        dest="$HOME/.cache/claude-code/${CLAUDE_VERSION}"
+        mkdir -p "$dest"
+        url="https://downloads.claude.ai/claude-code-releases/${CLAUDE_VERSION}/linux-x64/claude"
+        curl -fsSL --retry 3 --retry-connrefused "$url" -o /tmp/claude-code-binary
+        echo "${CLAUDE_SHA256}  /tmp/claude-code-binary" | sha256sum --check --strict
+        install /tmp/claude-code-binary "$dest/claude"
+        rm -f /tmp/claude-code-binary
+
+    - name: Put Claude Code on PATH
+      shell: bash
+      env:
+        CLAUDE_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        dest="$HOME/.cache/claude-code/${CLAUDE_VERSION}"
+        [ -x "$dest/claude" ] || {
+          echo "setup-claude-code: $dest/claude missing after install" >&2
+          exit 1
+        }
+        echo "$dest" >>"$GITHUB_PATH"
+        DISABLE_AUTOUPDATER=1 "$dest/claude" --version

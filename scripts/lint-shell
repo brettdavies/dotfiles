@@ -71,15 +71,28 @@ _flags_for() {
     # single quotes are deliberate.
     scripts/sync-dev-after-release.sh) echo "--exclude=SC2016" ;;
     stow/shell/dot-profile) echo "--shell=bash --exclude=SC1090,SC1091" ;;
+    # The agent-slot libraries single-quote jaq programs, whose `$` names are bound with --arg; the slot test helper
+    # single-quotes stub bodies for the child shell to expand.
+    scripts/agent-slot/lib/*.sh | scripts/agent-slot-rex/lib/*.sh | tests/lib/agent-slot.bash | tests/lib/agent-slot-rex.bash)
+      echo "--shell=bash --exclude=SC2016"
+      ;;
+    # The one hook library run as a script of its own; it sources git-env.sh.
+    .githooks/lib/restow.sh) echo "-x" ;;
+    # The browser-set test helper hands single-quoted scripts to child shells, which do the expanding.
+    tests/lib/browser-set.bash) echo "--shell=bash --exclude=SC2016" ;;
+    # The browser-set libraries share globals through the script that sources them, and pin.sh sources its two siblings.
+    scripts/playwright-browsers/lib/*.sh) echo "--shell=bash -x --source-path=SCRIPTDIR --exclude=SC2034" ;;
     config/shell/*.sh | .githooks/lib/*.sh | scripts/*/lib/*.sh | tests/lib/*.bash) echo "--shell=bash" ;;
     config/shell/shell-functions) echo "--shell=bash --exclude=SC1003" ;;
-    # -x follows the `# shellcheck source=` directive to lib/report.sh, so the
-    # helpers it defines are known rather than reported as unresolved sources.
-    .githooks/pre-commit | .githooks/pre-push) echo "-x" ;;
+    # -x follows the `# shellcheck source=` directives, such as the hooks' to
+    # lib/report.sh and run-tests' to tests/lib/processes.bash, so the helpers
+    # they define are known rather than reported as unresolved sources.
+    .githooks/pre-commit | .githooks/pre-push | scripts/run-tests) echo "-x" ;;
     # -x follows the `# shellcheck source=lib/...` directives, so the helpers the
     # libraries define are known. It reports nothing inside a sourced file, which
     # is why each scripts/*/lib/*.sh is also a target of its own.
     scripts/tools-atime/tools-atime.sh | scripts/upgrade/*.sh) echo "-x --source-path=SCRIPTDIR" ;;
+    scripts/agent-slot/agent-slot | scripts/agent-slot-rex/agent-slot-rex) echo "-x --source-path=SCRIPTDIR --exclude=SC2016" ;;
     *) echo "" ;;
   esac
 }
@@ -124,18 +137,45 @@ else
   candidates=("$@")
 fi
 
-status=0
-checked=0
+targets=()
 for f in "${candidates[@]}"; do
   [ -f "$f" ] || continue
   _is_target "$f" || continue
-  # Word splitting is the point: _flags_for returns zero or more flags.
-  # shellcheck disable=SC2046
-  if ! shellcheck $(_flags_for "$f") "$f"; then
-    status="$EXIT_FINDINGS"
-  fi
-  checked=$((checked + 1))
+  targets+=("$f")
 done
+
+# One shellcheck per file, as many at a time as there are cores: a sweep covers
+# a few hundred files, and one after another they take tens of seconds. Each
+# file's findings are buffered and printed whole, in target order.
+jobs=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+outdir=$(mktemp -d)
+trap 'rm -rf "$outdir"' EXIT
+running=0
+for i in "${!targets[@]}"; do
+  f=${targets[$i]}
+  # errexit is off inside the job so a file with findings still records its
+  # status rather than ending the job first.
+  {
+    set +e
+    # Word splitting is the point: _flags_for returns zero or more flags.
+    # shellcheck disable=SC2046
+    shellcheck $(_flags_for "$f") "$f" >"$outdir/$i.out" 2>&1
+    printf '%s' "$?" >"$outdir/$i.rc"
+  } &
+  running=$((running + 1))
+  if [ "$running" -ge "$jobs" ]; then
+    wait -n
+    running=$((running - 1))
+  fi
+done
+wait
+
+status=0
+for i in "${!targets[@]}"; do
+  cat "$outdir/$i.out"
+  [ "$(cat "$outdir/$i.rc" 2>/dev/null)" = 0 ] || status="$EXIT_FINDINGS"
+done
+checked=${#targets[@]}
 
 if [ "$status" -eq 0 ]; then
   echo "lint-shell: $checked file(s) clean"

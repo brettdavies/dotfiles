@@ -20,6 +20,10 @@
 # than it looks. This warns rather than fails, because the YAML and expression
 # checks still hold on their own.
 #
+# A run with any workflow in scope also runs scripts/check-workflow-concurrency.sh,
+# a verbatim copy of the github-repo-setup skill's template, which fails a
+# concurrency group that does not start with a literal token.
+#
 # Exit 0 when everything passes, 1 on any finding, 2 on usage error,
 # 3 when actionlint is not installed.
 
@@ -86,8 +90,14 @@ if [ "${#targets[@]}" -eq 0 ]; then
   exit 0
 fi
 
+status=0
 if actionlint "${targets[@]}"; then
   echo "lint-workflows: ${#targets[@]} workflow file(s) clean"
 else
-  exit "$EXIT_FINDINGS"
+  status="$EXIT_FINDINGS"
 fi
+
+# Every workflow, not just the targets: the ownership check pairs a caller
+# with the reusable it names, and the two can sit in different files.
+./scripts/check-workflow-concurrency.sh || status="$EXIT_FINDINGS"
+exit "$status"

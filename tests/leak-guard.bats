@@ -1,0 +1,197 @@
+#!/usr/bin/env bats
+# The leftover-process guards in tests/lib/processes.bash: the one a suite runs after each test, and the one
+# scripts/run-tests runs after each suite, which covers every suite. Each test runs bats nested, as a run from inside an
+# agent slot does, and checks what that run left running.
+#
+# Run: bats tests/leak-guard.bats
+# run-tests: parallel
+
+bats_require_minimum_version 1.5.0
+
+load lib/platform
+load lib/processes
+
+setup_file() {
+  require_linux "the guard reads /proc"
+}
+
+setup() {
+  CWD=$BATS_TEST_TMPDIR/cwd
+  mkdir -p "$CWD"
+}
+
+teardown() {
+  local pid
+  for pid in $(in_cwd); do kill -KILL "$pid" 2>/dev/null || true; done
+}
+
+# in_cwd: prints the pid of each process whose working directory is the scratch directory or below it.
+in_cwd() {
+  find /proc/[0-9]*/cwd -maxdepth 0 \( -lname "$CWD" -o -lname "$CWD/*" \) 2>/dev/null | cut -d/ -f3
+}
+
+# none_in_cwd: true once no process has its working directory under the scratch directory, giving the last ones 3 s.
+none_in_cwd() {
+  local i left pid
+  for ((i = 0; i < 30; i++)); do
+    left=$(in_cwd)
+    [ -n "$left" ] || return 0
+    sleep 0.1
+  done
+  for pid in $left; do echo "still running from $CWD: $pid $(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null)" >&2; done
+  return 1
+}
+
+# nested FILE [FLAG...]: runs bats on FILE from the scratch directory, with any flags given ahead of it, and with the
+# BATS_killer_pid scripts/run-tests gives bats.
+nested() {
+  run --separate-stderr env BATS_killer_pid="$BATS_WATCHDOG_JOB" \
+    bash -c 'cd "$1" && exec bats "${@:3}" "$2"' _ "$CWD" "$1" "${@:2}"
+}
+
+# probe BODY: a one-test suite under the scratch directory whose test runs BODY and whose teardown runs the guard.
+probe() {
+  printf '%s\n' "source '$BATS_TEST_DIRNAME/lib/processes.bash'" \
+    'teardown() { stop_spawned; assert_no_leaks; }' "@test \"probe\" { $1; }" >"$BATS_TEST_TMPDIR/probe.bats"
+}
+
+# orphan_probe FILE: a one-test suite whose test kills its own timeout watchdog's countdown shell, which leaves the
+# watchdog's sleep running under a new parent, as bats does itself when a test's exit trap stops the countdown shell
+# before that shell has set its TERM trap. The test writes the sleep's pid to $BATS_TEST_TMPDIR/watchdog.pid.
+orphan_probe() {
+  printf '%s\n' '@test "orphan" {' \
+    '  local shell watchdog="" i' \
+    '  for ((i = 0; i < 100; i++)); do' \
+    '    for shell in $(pgrep -P $$); do watchdog=$(pgrep -x -P "$shell" sleep) && break 2; done' \
+    '    sleep 0.1' \
+    '  done' \
+    '  [ -n "$watchdog" ]' \
+    "  echo \"\$watchdog\" >'$BATS_TEST_TMPDIR/watchdog.pid'" \
+    '  kill -KILL "$shell"' \
+    '  wait "$shell" 2>/dev/null || true' \
+    "  { cut -d' ' -f1-8 /proc/\$watchdog/stat; tr '\\0' '\\n' </proc/\$watchdog/environ | grep -E '^BATS_(TEST_TIMEOUT|killer_pid)='; } >'$BATS_TEST_TMPDIR/watchdog.diag' 2>&1" \
+    '}' >"$1"
+}
+
+@test "the guard fails a test that leaves a grandchild running, names it, and stops it" {
+  probe "bash -c 'sleep 30 & exit 0'"
+  nested "$BATS_TEST_TMPDIR/probe.bats"
+  [ "$status" -eq 1 ]
+  [[ $output == *"processes this test started were still running after teardown, and were killed:"*"sleep 30"* ]]
+  none_in_cwd
+}
+
+@test "a spawned process is stopped with what it started, even once that has a new parent" {
+  probe "spawn bash -c '(sleep 30 &); exec sleep 31'; until [ \"\$(pgrep -c -x -s \$! sleep)\" -ge 2 ]; do sleep 0.1; done"
+  nested "$BATS_TEST_TMPDIR/probe.bats"
+  [ "$status" -eq 0 ]
+  none_in_cwd
+}
+
+@test "run-tests fails a suite that leaves a process running once bats exits, names it, and stops it" {
+  printf '%s\n' '@test "leak" { sleep 31 </dev/null >/dev/null 2>&1 3>&- & }' >"$CWD/leaky.bats"
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/leaky.bats"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"processes $CWD/leaky.bats started were still running after bats exited, and were killed:"*"sleep 31"* ]]
+  [ -z "$(processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]
+}
+
+@test "run-tests stops a timeout watchdog its countdown shell left running, without failing the run" {
+  orphan_probe "$CWD/orphan.bats"
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=37 \
+    run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/orphan.bats"
+  printf '%s\n' "$output" "$stderr"
+  cat "$BATS_TEST_TMPDIR/watchdog.diag" 2>/dev/null || true
+  [ "$status" -eq 0 ]
+  [[ $output == *"ok 1 orphan"* ]]
+  [[ $stderr != *"were killed"* ]]
+  local watchdog
+  watchdog=$(cat "$BATS_TEST_TMPDIR/watchdog.pid")
+  [ -z "$(tr -d '\0' <"/proc/$watchdog/cmdline" 2>/dev/null)" ]
+}
+
+@test "run-tests still fails a leaked sleep of the time limit whose descriptors match the watchdog's" {
+  # Closed descriptors and stdio on /dev/null are what the watchdog's sleep has on GitHub's runners.
+  printf '%s\n' '@test "leak" {' '  (eval exec {3..255}">&-"; exec sleep 37 </dev/null >/dev/null 2>&1) &' '}' >"$CWD/leaky.bats"
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=37 \
+    run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/leaky.bats"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"processes $CWD/leaky.bats started were still running after bats exited, and were killed:"*"sleep 37"* ]]
+  [ -z "$(processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]
+}
+
+@test "the guard gives a leak at least 3 s of wall clock, however long each scan takes" {
+  # A loaded host makes every scan slow. A leak must still be killed and named inside the window, before a short-lived
+  # one exits on its own and the guard finds nothing.
+  eval "scan_$(declare -f processes_with)"
+  processes_with() {
+    sleep 0.5
+    scan_processes_with "$@"
+  }
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR bash -c 'cd "$1" && exec sleep 30' _ "$CWD" &
+  until [ -n "$(scan_processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]; do sleep 0.1; done
+  local started=$SECONDS
+  run --separate-stderr stop_leaks "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR" "the probe" "the check"
+  [ "$status" -eq 1 ]
+  [[ $stderr == *"sleep 30"* ]]
+  ((SECONDS - started < 10))
+  none_in_cwd
+}
+
+@test "under a time limit, the guard passes a passing test and fails a failing one only for its failure" {
+  probe "true"
+  BATS_TEST_TIMEOUT=60 nested "$BATS_TEST_TMPDIR/probe.bats"
+  [ "$status" -eq 0 ]
+  probe "false"
+  BATS_TEST_TIMEOUT=60 nested "$BATS_TEST_TMPDIR/probe.bats"
+  [ "$status" -eq 1 ]
+  [[ $output != *timeout* ]]
+  [[ $output != *"were killed"* ]]
+  none_in_cwd
+}
+
+@test "a test stopped at the time limit is named, and teardown stops what it left, even what ignores SIGTERM" {
+  probe "spawn bash -c 'trap \"\" TERM; exec sleep 30'; bash -c 'trap \"\" TERM; exec sleep 31' & sleep 32"
+  BATS_TEST_TIMEOUT=2 nested "$BATS_TEST_TMPDIR/probe.bats"
+  [ "$status" -eq 1 ]
+  [[ $output == *"not ok 1 probe # timeout after 2s"* ]]
+  [[ $output == *"processes this test started were still running after teardown, and were killed:"*"sleep 31"* ]]
+  none_in_cwd
+}
+
+@test "run-tests names and stops what a test stopped at the time limit left running, even what ignores SIGTERM" {
+  printf '%s\n' "@test \"hang\" { bash -c 'trap \"\" TERM; exec sleep 31' </dev/null >/dev/null 2>&1 3>&- & sleep 32; }" \
+    >"$CWD/hung.bats"
+  LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=2 \
+    run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/hung.bats"
+  [ "$status" -eq 1 ]
+  [[ $output == *"not ok 1 hang # timeout after 2s"* ]]
+  [[ $stderr == *"processes $CWD/hung.bats started were still running after bats exited, and were killed:"*"sleep 31"* ]]
+  [ -z "$(processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]
+}
+
+# The release suite starts a process in two places: the stand-in agent that `agent` spawns, with its hook child, its
+# background job, and the release it runs as its own Bash tool command; and the teardown that `agent-slot release`
+# detaches into a session of its own. These tests cover each, so nesting the whole suite adds time and no other way a
+# process starts. The teardown's cwd is /, so only the nested suite's own guard, through the exit status, sees it leak.
+RELEASE_PROCESS_TESTS=(
+  "such as a hook, is no job"
+  "never its own shell"
+  "starts the teardown in its own session"
+  "waits for the agent to go idle, then removes a finished slot"
+)
+
+@test "the release suite's process-starting tests, run from a scratch directory, leave no process behind with that directory as its cwd" {
+  local name flags=(--filter "$(IFS='|' && echo "${RELEASE_PROCESS_TESTS[*]}")")
+  # Its tests run concurrently, as scripts/run-tests runs a suite that declares `# run-tests: parallel`.
+  if command -v flock >/dev/null 2>&1; then flags+=(--jobs "${#RELEASE_PROCESS_TESTS[@]}" --no-parallelize-across-files); fi
+  nested "$BATS_TEST_DIRNAME/agent-slot-release.bats" "${flags[@]}"
+  [ "$status" -eq 0 ]
+  for name in "${RELEASE_PROCESS_TESTS[@]}"; do
+    grep -qE "^ok [0-9]+ .*$name" <<<"$output" || {
+      echo "no passing release test matches '$name'" >&2
+      return 1
+    }
+  done
+  none_in_cwd
+}

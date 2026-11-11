@@ -4,10 +4,12 @@ ConditionHost=bigdaddy
 
 [Service]
 Type=oneshot
-Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/obsidian-vault/scripts/pool-sync-check.sh
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/dotfiles/scripts/vault-agent-sync-check.sh
 StandardOutput=append:%h/.openclaw/logs/pool-sync-check.log
+# The check writes only a stall to stderr, so every journal line it leaves is an alert.
+StandardError=journal
+SyslogLevel=err
 
 # Hardening
 NoNewPrivileges=true
-PrivateTmp=true

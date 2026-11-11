@@ -6,12 +6,13 @@
 # Homebrew bin ordering established by .zshenv → .profile and pushing
 # /opt/homebrew/bin behind system paths. `brew doctor` flags this.
 #
-# This file repairs the order by removing any existing brew bin entries
-# from $path (zsh's array-tied view of PATH) and prepending a fresh pair
-# at positions 1-2. Idempotent: rerunning produces the same result.
+# This file repairs the order by removing each entry it manages from $path
+# (zsh's array-tied view of PATH) and prepending it again: the Homebrew bin
+# pair, keg-only Ruby, then ~/.local/bin, which ends up first. Idempotent:
+# rerunning produces the same result.
 #
-# Darwin-gated: Linux has no path_helper and Linuxbrew already lands at
-# the front via .profile. Running this on Linux would be a harmless
+# Darwin-gated: Linux has no path_helper and Linuxbrew already lands ahead
+# of the system paths via .profile. Running this on Linux would be a harmless
 # no-op, but the gate makes intent explicit and matches the platform
 # checks in stow/shell/dot-profile.
 
@@ -36,3 +37,9 @@ if [ -d "$HOMEBREW_PREFIX/opt/ruby/bin" ]; then
   path=("${path[@]:#$HOMEBREW_PREFIX/opt/ruby/bin}")
   path=("$HOMEBREW_PREFIX"/lib/ruby/gems/*/bin(N) "$HOMEBREW_PREFIX/opt/ruby/bin" "${path[@]}")
 fi
+
+# path_helper demotes ~/.local/bin behind /usr/bin too, and the repairs above
+# land Homebrew ahead of it. Its wrappers shadow Homebrew binaries of the same
+# name (gh carries the merge guard), so it goes back in front of everything,
+# where config/shell/local-paths.sh puts it in every other shell.
+path=("$HOME/.local/bin" "${path[@]:#$HOME/.local/bin}")

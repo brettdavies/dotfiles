@@ -55,8 +55,6 @@ if [[ -s "$ZSH_COMPDUMP" && ( ! -s "${ZSH_COMPDUMP}.zwc" || "$ZSH_COMPDUMP" -nt 
     zcompile "$ZSH_COMPDUMP" 2>/dev/null
 fi
 
-# Wire tmuxinator completions to the mux wrapper
-(( $+functions[_tmuxinator] || $+commands[tmuxinator] )) && compdef mux=tmuxinator
 
 # History configuration
 HISTSIZE=10000

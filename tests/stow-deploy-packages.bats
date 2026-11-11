@@ -36,6 +36,7 @@ _require_unlocked_checkout() {
   [[ "$shared" == *"local"* ]]
   [[ "$shared" == *"brew"* ]]
   [[ "$shared" == *"codex-proxy"* ]]
+  [[ " $shared " == *" rex "* ]]
 }
 
 @test "every SHARED_PACKAGES entry exists as a stow package" {
@@ -77,11 +78,37 @@ _require_unlocked_checkout() {
 @test "STOW_FLAGS ignores systemd units on macOS only" {
   # Linux .service/.timer files scattered inside otherwise-shared packages
   # (stow/local, stow/rclone, stow/rust, stow/obsidian) must not symlink to ~/.config/systemd/user/
-  # on a Mac. File-extension regex is required because stow's --ignore
-  # filters file basenames, not directory names. The pattern lives inside
-  # an explicit Darwin gate.
+  # on a Mac. The patterns live inside an explicit Darwin gate.
   grep -q 'if \[ "\$(uname -s)" = "Darwin" \]; then' "$SCRIPT"
   grep -q "STOW_FLAGS+=(--ignore='\\\\.(service|timer)\$')" "$SCRIPT"
+  grep -qF "STOW_FLAGS+=(--ignore='(^|/)(slot-startup|tab-numbers)\\.lua$')" "$SCRIPT"
+}
+
+# rex_deploy OS: deploys only the rex package into $BATS_TEST_TMPDIR/<OS>, from a copy of the script and that
+# package, with uname reporting OS.
+rex_deploy() {
+  command -v stow >/dev/null 2>&1 || skip "stow not installed"
+  local fixture=$BATS_TEST_TMPDIR/fixture-$1
+  mkdir -p "$fixture/scripts" "$fixture/stow" "$fixture/os" "$BATS_TEST_TMPDIR/$1"
+  cp "$SCRIPT" "$fixture/scripts/stow-deploy"
+  cp -R "$STOW_DIR/rex" "$fixture/stow/rex"
+  printf '#!/bin/sh\necho %s\n' "$1" >"$fixture/os/uname"
+  chmod +x "$fixture/os/uname"
+  run env PATH="$fixture/os:$PATH" STOW_DEPLOY_TARGET="$BATS_TEST_TMPDIR/$1" "$fixture/scripts/stow-deploy" --only rex
+}
+
+@test "on Linux the rex package links the start-up module and tab-number watcher beside the shared files, and on macOS it does not" {
+  local rex=$BATS_TEST_TMPDIR/Linux/.config/rex
+  rex_deploy Linux
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [ -L "$rex/init.lua" ] && [ -L "$rex/layout.lua" ] && [ -L "$rex/agent-slots.lua" ] && [ -L "$rex/slot-startup.lua" ]
+  [ -L "$rex/tab-numbers.lua" ]
+  [[ $output != *"rex is macOS-only"* ]]
+  rex=$BATS_TEST_TMPDIR/Darwin/.config/rex
+  rex_deploy Darwin
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [ -L "$rex/init.lua" ] && [ -L "$rex/layout.lua" ] && [ -L "$rex/agent-slots.lua" ]
+  [ ! -e "$rex/slot-startup.lua" ] && [ ! -e "$rex/tab-numbers.lua" ]
 }
 
 @test "DESKTOP_PACKAGES contains expected packages" {
@@ -89,6 +116,28 @@ _require_unlocked_checkout() {
   [[ "$desktop" == *"ghostty"* ]]
   [[ "$desktop" == *"cursor"* ]]
   [[ "$desktop" == *"launchagent"* ]]
+  [[ " $desktop " == *" hex "* ]]
+}
+
+@test "off macOS the platform guard skips exactly DESKTOP_PACKAGES, and no package is in both sets" {
+  # The guard reads the set itself, so moving a package between the sets is one edit.
+  shared=$(grep '^SHARED_PACKAGES=' "$SCRIPT" | sed 's/.*(\(.*\))/\1/')
+  desktop=$(grep '^DESKTOP_PACKAGES=' "$SCRIPT" | sed 's/.*(\(.*\))/\1/')
+  for pkg in $desktop; do
+    [[ " $shared " != *" $pkg "* ]] || { echo "$pkg is in both sets"; return 1; }
+  done
+  grep -q 'is_desktop_package "$pkg"' "$SCRIPT"
+  run grep -nE 'ghostty *\| *cursor' "$SCRIPT"
+  [ "$status" -eq 1 ]
+}
+
+@test "deploying rex reloads Rex's config only on a real \$HOME deploy, on either platform, and never fails on it" {
+  # Rex reads init.lua only at start and on reload. A sandboxed deploy must not
+  # reload the operator's running Rex, and a host without Rex still deploys.
+  grep -qF 'if [ "$TARGET" = "$HOME" ] && grep -qx "rex" "$deployed_file"' "$SCRIPT"
+  grep -qF '"$_rex" --autostart=false config reload' "$SCRIPT"
+  grep -qF ':/usr/bin/rex"}' "$SCRIPT"
+  [ "$(awk '/^# --- Reload Rex/,/^# --- Post-stow/' "$SCRIPT" | grep -cE 'exit|EXIT_')" -eq 0 ]
 }
 
 @test "all SHARED_PACKAGES have stow directories" {
@@ -124,12 +173,9 @@ _require_unlocked_checkout() {
 # reason, so the exemption is a decision on the record rather than an omission.
 # ---------------------------------------------------------------------------
 
-# tmuxinator — configs resolve through TMUXINATOR_CONFIG straight from the repo.
-#   A copy under ~/.config/tmuxinator shadows it for `start`/`stop` but not
-#   `list`, so nothing is stowed (see tests/tmuxinator-configs.bats).
 # ollama — ships a drop-in under systemd/system/, a root-owned path stow cannot
 #   write. It is installed with sudo and documented in stow/ollama/README.md.
-NOT_DEPLOYED=(tmuxinator ollama)
+NOT_DEPLOYED=(ollama)
 
 @test "every stow package is deployed or explicitly exempt" {
   shared=$(grep '^SHARED_PACKAGES=' "$SCRIPT" | sed 's/.*(\(.*\))/\1/')
@@ -237,17 +283,22 @@ NOT_DEPLOYED=(tmuxinator ollama)
   mkdir -p "$units"
   printf '[Timer]\nOnCalendar=daily\n' >"$units/on.timer"
   printf '[Timer]\nOnCalendar=daily\n' >"$units/off.timer"
-  # Stubs keep the live user manager and the real rustup out of it: off.timer reads as not enabled.
+  # Stubs keep the live user manager, the real rustup, and the real ya out of it: off.timer reads as not enabled.
   stubs="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$stubs"
   printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\n[ "$*" != "--user is-enabled --quiet off.timer" ]\n' \
     "$BATS_TEST_TMPDIR/systemctl.log" >"$stubs/systemctl"
   printf '#!/bin/sh\necho minimal\n' >"$stubs/rustup"
+  # The deploy reloads Rex's config when it stows rex to HOME; this rex stands in for the live server's CLI.
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\n' "$BATS_TEST_TMPDIR/rex.log" >"$stubs/rex"
+  printf '#!/bin/sh\n' >"$stubs/ya"
   chmod +x "$stubs"/*
   target="$BATS_TEST_TMPDIR/home"
   mkdir -p "$target"
-  run env HOME="$target" STOW_DEPLOY_TARGET="$target" PATH="$stubs:$PATH" "$fixture/scripts/stow-deploy"
+  run env -u REX_BIN_DIR HOME="$target" STOW_DEPLOY_TARGET="$target" STOW_DEPLOY_REX_PATHS="$stubs/rex" \
+    PATH="$stubs:$PATH" "$fixture/scripts/stow-deploy"
   [ "$status" -eq 0 ]
+  [ "$(cat "$BATS_TEST_TMPDIR/rex.log")" = "--autostart=false config reload" ]
   [[ "$output" == *"Recovered systemd timer: on.timer"* ]]
   grep -qx -- '--user restart on.timer' "$BATS_TEST_TMPDIR/systemctl.log"
   run grep -E -- '(restart|reset-failed) off\.timer' "$BATS_TEST_TMPDIR/systemctl.log"

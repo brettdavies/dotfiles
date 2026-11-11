@@ -3,6 +3,7 @@
 # stubbed `gh` and `git` on PATH and a sandbox STARS_DIR.
 #
 # Run: bats tests/github-stars.bats
+# run-tests: parallel
 
 REPO_ROOT="$BATS_TEST_DIRNAME/.."
 STARS="$REPO_ROOT/stow/local/dot-local/bin/github-stars"

@@ -1,9 +1,8 @@
 # Global User Instructions
 
 These are always-on rules. Detailed procedures, examples, and reference tables live in `~/.claude/guides/*.md` and are
-**not** auto-loaded — open the linked guide with Read when you actually perform that task. **Exception:**
-`git-and-github.md` is `@`-imported at the bottom of this file and is always in context. Every hard prohibition below is
-stated in full here; the guides hold only the elaboration.
+**not** auto-loaded — open the linked guide with Read when you actually perform that task. Every hard prohibition below
+is stated in full here; the guides hold only the elaboration.
 
 ## Core coding principles
 
@@ -60,6 +59,26 @@ gstack owns ideation, planning, shipping, and operations; compound-engineering (
 matches an available skill, ALWAYS invoke it with the Skill tool as your FIRST action — don't answer directly or use
 other tools first.
 
+**Plan reviews:** every plan you write goes through the plan reviews it needs, one round each: `/plan-eng-review` for
+architecture, gates, and tests, `/plan-devex-review` for something a developer or agent runs, and
+`/compound-engineering:ce-doc-review` for prose and process. Commit and push the plan once written, and again when each
+review starts and when it ends, each time with a line in its `## Review log`; who answers the review questions →
+`~/.claude/guides/workflows-and-skills.md` § "Reviewing a plan".
+
+**Code reviews:** run the reviews a change needs, not every one: none for a trivial change, with the reason in the PR
+body; `ce-code-review` for code or prose; add `/devex-review` for a new or changed command, flag, output, or setup step;
+add `/cso` for credentials, auth, egress, or untrusted input. One round per PR, and a second only to review round 1's P0
+and P1 fixes. Every review runs on Opus, and each verdict goes in a PR comment. When the task has a plan doc, log each
+review in its `## Review log`, committed and pushed when the review starts and when it ends; a slot also tells its
+coordinating prime both times. The table and the effort per review → the agent-slot skill's `references/slot-rules.md`
+§ Reviews.
+
+**Smallest change:** build the smallest change that meets the task. Add no verb, flag, option, config key, abstraction,
+or harness it does not name; a reviewer's suggestion of one goes under "Not in scope". When a fix would widen the
+change, stop and report. Once the change meets the task and its tests pass, push it and start its reviews. From then on,
+change only what a review finding or a failing check calls for: no rewording, extra test cases, or measurements past the
+plan's verification, before the reviews or after them.
+
 **$100 Rule:** when prevention was missed and a bug slips through, invest in the permanent fix — test, guard, lint rule,
 or docs/solutions entry. Trivial work (<~20 lines: single-file fixes, config tweaks, typos) may skip the full loop.
 
@@ -94,17 +113,23 @@ Routing table, per-skill rules, and the `qmd-learnings-researcher` companion-dis
 
 ## Solutions repo
 
-`docs/solutions/` is a symlink to `~/dev/solutions-docs` (a separate private repo). The consuming repo's `git status`
-shows nothing for it. **After writing there** (e.g. via `/compound`), commit and push in that repo — but it's a single
-clone that concurrent agents (parallel compounders) share, so committing in it directly races their
-`git add`/`git commit` on the one index. **Commit with `sd-commit-doc`** (dotfiles-provided, on `PATH`): write your
-doc(s) into `docs/solutions/<category>/<slug>.md`, author + `/unslop` a captured-path `/tmp` message (never
-`ls -t | head -1`, never `-m`), then `sd-commit-doc <msg-file> <category>/<slug>.md`. It commits from an isolated
-detached worktree (never `git add -A` the shared index), pushes with fetch/rebase-retry, and fast-forwards the shared
-clone so it never drifts behind origin. **Never** commit directly in the shared clone or amend + force-push it. Script
-source `~/.local/bin/sd-commit-doc`; solo-session exception + symlink-recreate →
-`~/.claude/guides/workflows-and-skills.md`; rationale →
-`docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
+`docs/solutions/` links into the solutions repo (`brettdavies/solutions-docs`, a separate private repo); the consuming
+repo's `git status` shows nothing for it. **In an agent slot** it links to the slot's own detached worktree of that
+repo, under `~/slots/<repo>/.solutions/`, which no other agent writes in. **In a repo's own checkout** it links to the
+shared clone `~/dev/solutions-docs`, which every such checkout drafts in and qmd indexes. Either way, **publish with
+`sd-commit-doc`** (dotfiles-provided, on `PATH`): write your doc(s) into `docs/solutions/<category>/<slug>.md`, author +
+`/unslop` a captured-path `/tmp` message (never `ls -t | head -1`, never `-m`), then
+`sd-commit-doc <msg-file> <category>/<slug>.md`. From a slot's worktree it commits exactly the named paths in place
+(deletions and renames included), rebases, and pushes; from the shared clone it copies them out to a throwaway worktree.
+Both fast-forward the shared clone. A failure ends with `reason:`, `state:`, and `next:` lines; `next:` names what
+resolves it, and the same call then publishes; `path-in-shared-clone`'s `next:` only shows the difference, because that
+copy can be another session's draft. **Never** commit by hand in the shared clone or amend + force-push it, and edit a
+doc a qmd hit names at `docs/solutions/<path>` in your checkout, never at `~/dev/solutions-docs/<path>`. No automation
+commits in the shared clone: the nightly job only fast-forwards it, and session start reports what it holds that origin
+lacks, which can be another session's unpublished draft, so act only on what you wrote. A slot is not torn down while
+its worktree holds anything unpublished (`solutions-unpublished`). Script source `~/.local/bin/sd-commit-doc` (`--help`
+for the resolution order and reasons); the two trees and symlink-recreate → `~/.claude/guides/workflows-and-skills.md`;
+rationale → `docs/solutions/workflow-issues/shared-working-tree-git-add-commit-race-across-concurrent-agents.md` and
 `.../unattended-autocommit-on-shared-clone-must-sync-then-rebase.md`.
 
 ## Secrets & private identifiers
@@ -115,6 +140,19 @@ to private identifiers (account/tenant IDs, internal URLs): if the user routed i
 "not formally a secret" carve-out does not apply. **The retrospective trap:** when owning a prior leak, name the field
 or use a `<placeholder>` — quoting the value to show what happened re-leaks it. Examples and how-to-apply →
 `~/.claude/guides/writing-safety.md`.
+
+**Never send Brett's email address to an outside service:** not in a `User-Agent` header, any other request header, a
+query string, or a payload. An API's etiquette that asks for a contact in the `User-Agent` (crates.io, MusicBrainz,
+Wikipedia) does not override this; identify the client by tool name and repo URL instead, e.g.
+`xurl-rs-release-check (+https://github.com/brettdavies/xurl-rs)`. The address is for git authorship and for finding his
+own work, nothing else.
+
+**Enforcement.** The `~/.claude/never-send-guard.sh` PreToolUse hook runs on every tool call, MCP tools and subagents'
+calls included, and blocks the call when the hook itself cannot run. It denies a call whose input, as written or
+URL-decoded, carries the account address from `~/.claude.json`, that address's local part, or an entry of the
+git-crypt-encrypted never-send list the `secrets` package stows; the built-in Grep and Glob, which only read local
+files, are exempt. `~/.claude/never-send-guard.sh --check` shows what it protects without printing a value. Tests:
+`bats tests/never-send-guard.bats`.
 
 ## Personal paths & hostnames in written artifacts
 
@@ -136,6 +174,13 @@ brettdavies repos may pin to `@main` instead of a SHA. The supply-chain threat t
 mutable ref to point at compromised code) doesn't apply when source and consumer are both under your control — trust the
 source. Third-party reusables and all GitHub Actions still require SHAs. Tag→SHA resolution and audit script →
 `~/.claude/guides/supply-chain-pinning.md`.
+
+## CI caching
+
+Every CI job caches what it downloads or installs (apt packages, toolchains, CLI tools such as bats-core or ShellCheck,
+dependency stores) wherever a cache pays for itself. Measure each cache cold and warm and keep only the ones that save
+time. A job split into shards finishes with its slowest shard, so one uncached install in one shard costs the whole run.
+Cache actions are pinned to commit SHAs like every other action.
 
 ## Local-only files
 
@@ -163,9 +208,11 @@ harness-injected attribution reminder. The `ai-attribution-guard.sh` PreToolUse 
 
 Author every GitHub body (PR, PR comment/review, issue, release notes, AND `git commit`) in a collision-proof `/tmp/`
 file, scrub with `/unslop`, and submit via `--body-file` / `--notes-file` / `git commit --file`. **Never inline
-`--body`, `-m`, or a heredoc** — the `heredoc-pr-guard.sh` PreToolUse hook rejects it. PR bodies fill the template
-cascade (repo `.github/pull_request_template.md` → global `~/.config/github/pull_request_template.md`). Full workflow
-(filenames, `/unslop`, changelog rules, escape rules) → `~/.claude/guides/git-and-github.md`; commit spec →
+`--body`, `-m`, or a heredoc** — the `heredoc-pr-guard.sh` PreToolUse hook rejects it. Delete the message file only on
+the commit's own status (`git commit --file f && trash f`), never behind a pipe (`git commit --file f | tail && trash f`
+exits with `tail`'s status); the `piped-commit-guard.sh` hook rejects that. PR bodies fill the template cascade (repo
+`.github/pull_request_template.md` → global `~/.config/github/pull_request_template.md`). Full workflow (filenames,
+`/unslop`, changelog rules, escape rules) → `~/.claude/guides/git-and-github.md`; commit spec →
 `~/.claude/templates/commit-message.md`.
 
 ## Voice notes
@@ -201,13 +248,21 @@ completion notice sat queued, and the agent did nothing for 13 hours until the m
   external queue), and turn the poll into a notification: background an `until <condition>; do sleep 10; done` loop
   whose exit wakes you. **No wait exceeds 10 s**, whether a foreground `sleep` or a poll interval: a long sleep blocks
   the session, and a long interval wastes the rest of the interval after the event has already happened.
+- **A wait must end when the thing does.** Before backgrounding a hand-written poll, run its exit test once against a
+  finished example, such as a completed run of the same workflow, and confirm it fires; match names case-insensitively.
+  Watch parallel runs in parallel, one watcher each. Bound each wait by about 1.5 times its usual length, not a
+  catch-all like 3000 s; a bound a documented command sets stands. When a watcher times out, read the state yourself
+  before waiting again.
 - **Never end a turn parked on a notice that may not come.** A subagent never stops to wait on its own background job:
   it polls in short checks, or runs the step in the foreground under a `timeout` shorter than the parent's watchdog
   window.
 - **Every delegated long task carries a deadline and a watchdog.** The `Agent` brief states a time box and the rules
-  above. Right after dispatch, the parent backgrounds a watchdog that exits once the agent's output file has gone 10
-  minutes without a write, so a stall wakes the parent instead of costing the night. On wake, read the agent's tail,
-  then `SendMessage` it to resume, re-scope, or stop.
+  above. Right after dispatch, the parent backgrounds a watchdog that exits once the agent's output file shows it
+  finished, or once that file has gone 10 minutes without a write, so a stall wakes the parent instead of costing the
+  night. When the agent's completion notice arrives, the parent stops that watchdog at once: every live background shell
+  keeps the session listed busy, which holds back whatever waits for it to go idle, such as a slot's teardown. The
+  10-minute rule is only there to catch a stalled agent: on that wake, read the agent's tail, then `SendMessage` it to
+  resume, re-scope, or stop.
 
 **Enforcement.** The `~/.claude/sleep-guard.sh` PreToolUse Bash hook denies a foreground `sleep` over 10 s, any
 foreground `while`/`until` polling loop, and a background poll interval or fixed wait over 10 s. Each deny names its
@@ -223,18 +278,20 @@ without blocking".
 ## CI after push
 
 After `git push` / `gh pr create|merge` / `gh release create` / `gh workflow run` / `gh api …/dispatches`, a PostToolUse
-hook lists active runs with the exact `gh run watch <id> --exit-status` to spawn — run one per active run in the
-background (or `gh pr checks <pr> --watch` for PR-scoped). **A completed watcher is NOT a green watcher**:
-`gh pr checks --watch` exits 1 on a failed check but 0 when checks end cancelled/skipped, and it can miss checks that
-register late; `gh run watch` needs `--exit-status` to exit non-zero at all. After every completion notification,
-verify explicitly: `gh pr view <num> --json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus, checks:
-[.statusCheckRollup[] | {name, conclusion}]}'` and assert every conclusion is `SUCCESS`. Same for run-scoped:
-`gh run view <id> --json conclusion --jq .conclusion` must be `success`. Then re-enumerate to catch chained runs — both
+hook lists active runs with the exact `gh run watch <id> --exit-status --interval 30` to spawn: run one per active run
+your own action started, in the background. When the hook prints nothing (no run was visible within its wait, or `gh`
+failed), list the runs once yourself, with `gh run list --commit "$(git rev-parse HEAD)"` after a push or `gh pr create`
+and `gh run list --branch <branch> --limit 5` after anything else, and watch the unfinished ones. Never watch with
+`gh pr checks --watch` or a loop of `gh pr view`: both poll the GraphQL API until the checks end. **A completed watcher
+is NOT a green watcher**: `gh run watch` needs `--exit-status` to exit non-zero at all. When the last watcher completes,
+verify once explicitly: `gh pr view <num> --json statusCheckRollup,mergeStateStatus --jq '{merge: .mergeStateStatus,
+checks: [.statusCheckRollup[] | {name, conclusion}]}'` and assert every conclusion is `SUCCESS`. Same for run-scoped:
+`gh run view <id> --json conclusion --jq .conclusion` must be `success`. Then re-enumerate to catch chained runs, both
 same-repo (`workflow_run` triggers, visible to `gh run list --branch`) AND cross-repo dispatches (`repository_dispatch`
 into another repo, e.g. agentnative-cli release → brettdavies/homebrew-tap → callback to cli's finalize-release; these
-need `gh run list -R <target>` and `gh run watch <id> -R <target> --exit-status`, then a re-query of the originating repo
-for the callback). The chain can bounce multiple times — repeat until both repos quiesce. **Never proceed past a red run
-on any link in the chain.** Policy source of truth: the `~/.claude/ci-watch-prompt.sh` header.
+need `gh run list -R <target>` and `gh run watch <id> -R <target> --exit-status --interval 30`, then a re-query of the
+originating repo for the callback). The chain can bounce multiple times; repeat until both repos quiesce. **Never
+proceed past a red run on any link in the chain.** Policy source of truth: the `~/.claude/ci-watch-prompt.sh` header.
 
 ## CLI tools
 
@@ -251,13 +308,18 @@ Apply before any `uv run`/`pytest` in a repo. `qmd query` for knowledge-base sea
 '%e s %M KB'
 <cmd>` (or `gtime -v`)**, GNU time under one name on macOS and Linux (brew `gnu-time`; `config/shell/gnu-time.sh`
 defines it on Linux). Never `/usr/bin/time`: Ubuntu has none by default and macOS's is BSD time without `-v` or `-f`;
-the shell's `time` keyword has no memory figure. Don't manually wrap markdown — the `md-wrap.py` hook does. **Playwright
-browsers are system-provided** by `~/dotfiles` into the shared `$PLAYWRIGHT_BROWSERS_PATH`; never run
-`playwright install` to download them (the node/libuv io_uring extractor deadlocks on this kernel) —
-`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` stops `bun install` from auto-fetching them (an explicit install still fetches
-missing browsers; the provisioned set is what makes it skip), repos exact-pin the one canonical version, and bumping is
-a dotfiles job. Full preference list (Python cache/venv hygiene, gh auth, Playwright browsers, Rust pre-push) →
-`~/.claude/guides/cli-tools.md`.
+the shell's `time` keyword has no memory figure. Don't manually wrap markdown — the `md-wrap.py` hook does, at the width
+the edited file's own repo declares; a repo setting `MD013.line_length` to 9999 or higher owns its wrapping and the hook
+skips it entirely, so leave that repo's line shapes alone. **Playwright browsers are system-provided** by `~/dotfiles`
+into the shared `$PLAYWRIGHT_BROWSERS_PATH`; never run `playwright install` to download them (the node/libuv io_uring
+extractor deadlocks on this kernel) — `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` stops `bun install` from auto-fetching them
+(an explicit install still fetches missing browsers; the provisioned set is what makes it skip). Repos exact-pin their
+Playwright version instead of a caret range; the set carries an alias for every Chromium and ffmpeg revision a
+Playwright release from 1.57 to the pin's `source-release` asks for, so a repo's bump within that range runs on it with
+no change to the set, WebKit aside (it is the one revision the pin's `library-version` names, with no alias, so a bump
+off `library-version` needs the pin moved first); a bump past `source-release` needs the pin moved first. The set moves
+by editing `config/playwright/browsers.pin` in `~/dotfiles`. Full preference list (Python cache/venv hygiene, gh auth,
+Playwright browsers, Rust pre-push) → `~/.claude/guides/cli-tools.md`.
 
 **Bun follows the machine.** A repo's Bun pin (`.bun-version` and every declaration its pin test holds to it) tracks the
 local `bun --version`: when the pin trails, bump the repo in its own PR. Never download or install an older Bun to
@@ -266,9 +328,17 @@ satisfy a stale pin. Bump steps and the `bun.lock` limits → `~/.claude/guides/
 ## Long artifacts → files
 
 When the user asks for a substantial artifact (detailed prompt, plan, spec, long code block, multi-section doc — roughly
-≥30 lines), write it to a file and summarize in chat in a sentence or two; don't paste the full content. Pick a sensible
-path (`~/.gstack/projects/<slug>/` for repo-scoped planning artifacts; repo root for artifacts that belong with the
-code) or ask. Show diffs if asked to see changes, never the whole file again.
+≥30 lines), write it to a file and summarize in chat in a sentence or two; don't paste the full content. Write it to the
+prime's `.context/` (below) when Brett is meant to read it, or to the repo root when it is committed with the code;
+`~/.gstack/projects/<slug>/` holds only what a gstack skill writes there itself. Show diffs if asked to see changes,
+never the whole file again.
+
+**Files Brett is meant to read go in the prime repo's `.context/` folder**, never in `/tmp` or a session scratchpad: he
+never looks there. The prime is the repo's own checkout (for an agent slot, the one `agent-slot whoami --output json`
+names as `.slot.prime`; a scratch clone or linked worktree is not a prime, and `agent-slot repos --output json` lists
+every one), and `.context/` there is gitignored and local-only. An agent slot writes such files to its prime's
+`.context/` directly; that folder is the only place in a prime checkout a slot may write. `/tmp` and the scratchpad stay
+for the agent's own temporary files.
 
 ## System configs → dotfiles
 
@@ -276,9 +346,21 @@ Machine-level config (AppArmor profiles, sysctl, udev rules, systemd units) live
 — never one-off `sudo bash -c` writes into `/etc/`. When a fix needs a system config file, add it to the dotfiles repo
 with a stow target and document it in `docs/solutions/`.
 
-## Auto-loaded guides
+## Git and GitHub rules
 
-Imported with `@` because the git/GitHub workflow rules are referenced on every commit and PR. Cheaper to keep in
-context than to re-Read each time.
+**Branches**, **Commits & PRs**, **Worktree commits and pushes**, and **CI after push** above cover a routine commit or
+PR, together with these rules. For stacked PRs, rewriting history, or linked-worktree hooks, read that section of
+`~/.claude/guides/git-and-github.md`, not the whole file.
 
-@~/.claude/guides/git-and-github.md
+- **Body files.** A PR-scoped body goes in `/tmp/pr-body-<repo>.<branch>.md`; every other body in
+  `/tmp/<kind>-$(uuidv7).md`, with a fresh UUID per file. Re-paste the literal path in each call; never save it to a
+  sidecar file.
+- **PR template.** Read it before `gh pr create` or `gh pr edit --body-file` and fill it in. Keep all four
+  `Files Modified` sub-headers and all four `Related Issues/Stories` labels, writing `- None.` or `n/a` when empty; only
+  the `## Changelog` subsections may be deleted.
+- **Changelog.** A PR's `## Changelog` section feeds `CHANGELOG.md`, so it lists user-facing changes only. Never edit
+  `CHANGELOG.md` by hand.
+- **Pushed history.** Don't rewrite it; a wrong commit message is almost never worth it. `git history reword` strips
+  signatures, so never use it on a signed repo.
+- **Stacks.** Land with `gh stack merge <top-pr> --squash --yes`. Never force-push over GitHub's restack, delete a
+  stack's branch by hand, or detach a PR any way but `gh stack unstack`.

@@ -3,6 +3,7 @@
 # qmd's stars collection indexes them. Real git against local fixtures, a stubbed converter, no network.
 #
 # Run: bats tests/github-stars-pdf.bats
+# run-tests: parallel
 
 REPO_ROOT="$BATS_TEST_DIRNAME/.."
 CMD="$REPO_ROOT/stow/local/dot-local/bin/github-stars-pdf"

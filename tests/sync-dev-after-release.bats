@@ -48,14 +48,15 @@ STUB
   # annotated signed tag and fails for want of a message.
   git -C "$WORK" config tag.gpgsign false
 
-  # The script resolves the guarded set through the real workflow + resolver.
+  # The script resolves the guarded set through the real workflow + resolver,
+  # and its tag pattern and changelog helpers through the release lib it sources.
   mkdir -p "$WORK/scripts/release" "$WORK/.github/workflows"
-  cp "$REPO_SRC/scripts/release/guarded-paths.sh" "$WORK/scripts/release/"
+  cp "$REPO_SRC/scripts/release/_lib.sh" "$REPO_SRC/scripts/release/guarded-paths.sh" "$WORK/scripts/release/"
   cp "$REPO_SRC/.github/workflows/guard-main-docs.yml" "$WORK/.github/workflows/"
   cp "$REPO_SRC/scripts/sync-dev-after-release.sh" "$WORK/scripts/"
 
   # --- the previous release: main and dev agree here ---
-  mkdir -p "$WORK/docs/plans" "$WORK/stow/tmuxinator"
+  mkdir -p "$WORK/docs/plans" "$WORK/stow/sample"
   echo "old changelog" >"$WORK/CHANGELOG.md"
   echo "readme v1" >"$WORK/README.md"
   echo "settings v1" >"$WORK/settings.json"
@@ -102,11 +103,11 @@ _run_sync_regen() {
 }
 
 @test "adopts a file only the release branch changed" {
-  _release_main bash -c "echo 'new changelog' > '$WORK/CHANGELOG.md'"
+  _release_main bash -c "echo 'readme release' > '$WORK/README.md'"
   _run_sync 2026.02.02 --dry-run
   [ "$status" -eq 0 ]
-  [[ "$output" == *"release-prep"* ]]
-  [[ "$output" == *"CHANGELOG.md"* ]]
+  [[ "$output" == *"syncing ("*"  README.md"* ]]
+  [[ "$output" != *"contested"* ]]
 }
 
 @test "withholds a file both branches changed since the previous tag" {
@@ -143,7 +144,7 @@ _run_sync_regen() {
   # The 2026.09.14 regression: dev added a config after the previous release and
   # the release branch deleted it. A CHANGELOG-only backport missed it entirely.
   git -C "$WORK" switch -q dev
-  echo "session config" >"$WORK/stow/tmuxinator/paxel.yml"
+  echo "session config" >"$WORK/stow/sample/session.yml"
   git -C "$WORK" add -A
   git -C "$WORK" commit -q -m "feat: add a session config"
   git -C "$WORK" push -q origin dev
@@ -152,7 +153,7 @@ _run_sync_regen() {
   # never had it, so the deletion shows up only as a dev-vs-main difference.
   git -C "$WORK" switch -q main
   git -C "$WORK" checkout -q dev -- .
-  rm -f "$WORK/stow/tmuxinator/paxel.yml"
+  rm -f "$WORK/stow/sample/session.yml"
   echo "new changelog" >"$WORK/CHANGELOG.md"
   git -C "$WORK" add -A
   git -C "$WORK" commit -q -m "release: 2026.02.02"
@@ -163,7 +164,7 @@ _run_sync_regen() {
 
   _run_sync 2026.02.02 --dry-run
   [ "$status" -eq 0 ]
-  [[ "$output" == *"paxel.yml"* ]]
+  [[ "$output" == *"session.yml"* ]]
 }
 
 @test "never proposes a guarded path" {
@@ -204,15 +205,16 @@ _run_sync_regen() {
   git -C "$WORK" commit -q -m "docs: dev edits readme"
   git -C "$WORK" push -q origin dev
 
-  _release_main bash -c "echo 'readme release' > '$WORK/README.md'; echo 'new changelog' > '$WORK/CHANGELOG.md'"
+  _release_main bash -c "echo 'readme release' > '$WORK/README.md'; echo 'settings v2' > '$WORK/settings.json'"
 
-  # README.md and CHANGELOG.md both diverged; only the changelog is named.
-  _run_sync 2026.02.02 --only CHANGELOG.md
+  # README.md (contested) and settings.json (release-prep) both diverged; only
+  # the contested one is named.
+  _run_sync 2026.02.02 --only README.md
   [ "$status" -eq 0 ]
 
   run git -C "$WORK" show --name-only --format= "chore/sync-dev-after-2026.02.02"
-  [[ "$output" == *"CHANGELOG.md"* ]]
-  [[ "$output" != *"README.md"* ]]
+  [[ "$output" == *"README.md"* ]]
+  [[ "$output" != *"settings.json"* ]]
 }
 
 @test "--only refuses a path that is not a diverged candidate" {
@@ -239,7 +241,7 @@ _run_sync_regen() {
   # one file and leaves the rest on main, which is how the 2026.09.14 release
   # stranded a stow payload and three session configs.
   git -C "$WORK" switch -q dev
-  echo "session config" >"$WORK/stow/tmuxinator/paxel.yml"
+  echo "session config" >"$WORK/stow/sample/session.yml"
   echo "accounts v1" >"$WORK/settings.json"
   git -C "$WORK" add -A
   git -C "$WORK" commit -q -m "feat: add a session config"
@@ -248,7 +250,7 @@ _run_sync_regen() {
   # The release branch: dev's tree, minus the config, with settings reverted.
   git -C "$WORK" switch -q main
   git -C "$WORK" checkout -q dev -- .
-  rm -f "$WORK/stow/tmuxinator/paxel.yml"
+  rm -f "$WORK/stow/sample/session.yml"
   echo "settings v1" >"$WORK/settings.json"
   echo "new changelog" >"$WORK/CHANGELOG.md"
   git -C "$WORK" add -A
@@ -264,7 +266,7 @@ _run_sync_regen() {
   run git -C "$WORK" show --stat --name-status "chore/sync-dev-after-2026.02.02"
   [ "$status" -eq 0 ]
   [[ "$output" == *"CHANGELOG.md"* ]]
-  [[ "$output" == *"D"*"paxel.yml"* ]]
+  [[ "$output" == *"D"*"session.yml"* ]]
   [[ "$output" == *"settings.json"* ]]
 }
 
@@ -371,7 +373,7 @@ STUB
 +++ CHANGELOG.md (regenerated)
 @@ -1 +1 @@' 2026.02.02
   [ "$status" -eq 0 ]
-  [[ "$output" == *"did not pass for 2026.02.02: DRY RUN: CHANGELOG.md differs only in line wrapping"* ]]
+  [[ "$output" == *"did not pass for CHANGELOG.md at 2026.02.02: DRY RUN: CHANGELOG.md differs only in line wrapping"* ]]
   [[ "$output" != *"@@ -1 +1 @@"* ]]
 }
 

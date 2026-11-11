@@ -1,0 +1,13 @@
+[Unit]
+Description=List skills no session used lately by name only
+ConditionHost=bigdaddy
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/skill-listing-refresh
+Nice=19
+IOSchedulingClass=idle
+
+# Hardening
+NoNewPrivileges=true

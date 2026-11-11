@@ -1,0 +1,529 @@
+# shellcheck shell=bash
+# Fixtures for the agent-slot suites. Each test gets its own slot root, dev root, and state directory under
+# BATS_TEST_TMPDIR, reached through agent-slot's AGENT_SLOT_* overrides; tmux, claude, gh, git-crypt, trash, systemctl,
+# and systemd-run are stubs that record their argv, and the Rex helper is absent, so nothing pushes. git is real, with
+# GIT_CONFIG_GLOBAL pointing at a test config, so no fixture repo inherits the host's signing or URL rewrites. The trash
+# stub runs the real trash-cli on a trash under BATS_TEST_TMPDIR, since a teardown purges the entry trash-cli wrote.
+
+# shellcheck disable=SC2034 # the suites that load this file run it
+AGENT_SLOT="$BATS_TEST_DIRNAME/../scripts/agent-slot/agent-slot"
+
+agent_slot_setup() {
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+  T=$BATS_TEST_TMPDIR
+  STUBS=$T/stubs
+  CALLS=$T/calls.log
+  mkdir -p "$STUBS" "$T/dev" "$T/state"
+  : >"$CALLS"
+  export CALLS STUBS
+
+  export GIT_CONFIG_GLOBAL=$T/gitconfig
+  git config --file "$GIT_CONFIG_GLOBAL" user.email test@example.com
+  git config --file "$GIT_CONFIG_GLOBAL" user.name Test
+  git config --file "$GIT_CONFIG_GLOBAL" commit.gpgsign false
+  git config --file "$GIT_CONFIG_GLOBAL" init.defaultBranch main
+  : >"$T/gitignore"
+  git config --file "$GIT_CONFIG_GLOBAL" core.excludesFile "$T/gitignore"
+
+  # The shared solutions corpus, shaped as ~/dev/solutions-docs is: a clone of a bare origin with one commit on main.
+  git init -q --bare "$T/solutions-origin.git"
+  git clone -q "$T/solutions-origin.git" "$T/solutions" 2>/dev/null
+  git -C "$T/solutions" commit -q --allow-empty -m seed
+  git -C "$T/solutions" push -q origin HEAD:main
+
+  export AGENT_SLOT_ROOT=$T/slots
+  export AGENT_SLOT_DEV=$T/dev
+  export AGENT_SLOT_EXTRA_PRIMES=
+  export AGENT_SLOT_PRIMES=$T/primes.tsv
+  : >"$AGENT_SLOT_PRIMES"
+  export AGENT_SLOT_STATE_DIR=$T/state
+  export AGENT_SLOT_TMUX_SOCKET=agent-slot-test
+  export AGENT_SLOT_TMUX_CONF=$T/slots.conf
+  export AGENT_SLOT_SOLUTIONS=$T/solutions
+  export AGENT_SLOT_REPO_RECON=$T/repo-recon
+  export AGENT_SLOT_GIT_CRYPT_KEY=$T/git-crypt.key
+  export AGENT_SLOT_CLAUDE_STATE=$T/claude.json
+  export AGENT_SLOT_CLAUDE_PROJECTS=$T/claude-projects
+  export AGENT_SLOT_CLAUDE_SETTINGS=$T/claude-settings.json
+  # The owners the fixtures' own heads sit under, so only a suite that names another owner gets a foreign head.
+  export AGENT_SLOT_TRUSTED_OWNERS='me up x'
+  mkdir -p "$AGENT_SLOT_CLAUDE_PROJECTS"
+  : >"$AGENT_SLOT_TMUX_CONF"
+  : >"$AGENT_SLOT_GIT_CRYPT_KEY"
+  printf '{"projects":{}}\n' >"$AGENT_SLOT_CLAUDE_STATE"
+  printf '{"skipDangerousModePermissionPrompt":true}\n' >"$AGENT_SLOT_CLAUDE_SETTINGS"
+
+  # tmux keeps each socket's sessions in a file: no file means no server, and a list-sessions asking for session_path
+  # reads the directory new-session was given from a second file, which session_at writes too. rename-session renames a
+  # session in both, and moves what was typed into it with it. list-panes prints $STUBS/tmux-panes on the
+  # slot socket and $STUBS/tmux-panes-<socket> on any other, where no file means no server. capture-pane prints
+  # $STUBS/screen. On any socket but the slot one (the trust step's), Down swaps in $STUBS/screen-down and Enter
+  # $STUBS/screen-after when they exist; with $STUBS/drop-first-down present, the first Down is lost, as a key sent
+  # before the dialog listens.
+  stub tmux '
+sock=default
+while (($#)); do
+  case $1 in
+    -L | -S) sock=${2##*/}; shift 2 ;;
+    -f) shift 2 ;;
+    -u) shift ;;
+    *) break ;;
+  esac
+done
+cmd=$1
+shift
+sessions=$STUBS/tmux-sessions
+[ "$sock" = agent-slot-test ] || sessions=$STUBS/tmux-sessions-$sock
+target="" name="" last="" fmt="" dir=""
+while (($#)); do
+  case $1 in
+    -t) target=${2#=}; target=${target%:}; shift ;;
+    -s) name=$2; shift ;;
+    -F) fmt=$2; shift ;;
+    -c) dir=$2; shift ;;
+  esac
+  last=$1
+  shift
+done
+case $cmd in
+  list-sessions)
+    [ -f "$sessions" ] || { echo "no server running on /tmp/tmux-test/$sock" >&2; exit 1; }
+    case $fmt in
+      *session_path*)
+        while IFS= read -r s; do
+          printf "%s\t%s\n" "$s" "$(awk -F "\t" -v s="$s" "\$1 == s { print \$2; exit }" "$sessions.paths" 2>/dev/null)"
+        done <"$sessions" ;;
+      *) cat "$sessions" ;;
+    esac ;;
+  new-session)
+    echo "$name" >>"$sessions"
+    printf "%s\t%s\n" "$name" "$dir" >>"$sessions.paths" ;;
+  kill-session)
+    [ -f "$sessions" ] || exit 1
+    grep -vxF "$target" "$sessions" >"$sessions.new" || true
+    cat "$sessions.new" >"$sessions" ;;
+  rename-session)
+    [ -f "$sessions" ] && grep -qxF "$target" "$sessions" || { echo "can not find session: $target" >&2; exit 1; }
+    awk -v old="$target" -v new="$last" "{ print (\$0 == old ? new : \$0) }" "$sessions" >"$sessions.new"
+    cat "$sessions.new" >"$sessions"
+    if [ -f "$sessions.paths" ]; then
+      awk -F "\t" -v old="$target" -v new="$last" "BEGIN { OFS = FS } \$1 == old { \$1 = new } { print }" \
+        "$sessions.paths" >"$sessions.new"
+      cat "$sessions.new" >"$sessions.paths"
+    fi
+    [ ! -f "$STUBS/typed-$target" ] || mv "$STUBS/typed-$target" "$STUBS/typed-$last" ;;
+  list-panes)
+    if [ "$sock" = agent-slot-test ]; then
+      cat "$STUBS/tmux-panes" 2>/dev/null || true
+    else
+      [ -f "$STUBS/tmux-panes-$sock" ] || { echo "no server running on /tmp/tmux-test/$sock" >&2; exit 1; }
+      cat "$STUBS/tmux-panes-$sock"
+    fi ;;
+  capture-pane) cat "$STUBS/screen" 2>/dev/null || true ;;
+  send-keys)
+    if [ "$sock" = agent-slot-test ]; then
+      [ "$last" = Enter ] || printf "%s" "$last" >"$STUBS/typed-$target"
+    elif [ "$last" = Down ] && [ -f "$STUBS/screen-down" ]; then
+      if [ -f "$STUBS/drop-first-down" ]; then
+        rm "$STUBS/drop-first-down"
+      else
+        cp "$STUBS/screen-down" "$STUBS/screen"
+      fi
+    elif [ "$last" = Enter ] && [ -f "$STUBS/screen-after" ]; then
+      cp "$STUBS/screen-after" "$STUBS/screen"
+    fi ;;
+esac'
+  stub claude '
+case "$*" in
+  "agents --json") cat "$STUBS/claude-agents.json" 2>/dev/null || echo "[]" ;;
+  --version) echo "${CLAUDE_STUB_VERSION:-2.1.310} (Claude Code)" ;;
+esac'
+  stub gh 'exit 0'
+  stub git-crypt 'exit 0'
+  export XDG_DATA_HOME=$T/data
+  TRASH=$XDG_DATA_HOME/Trash
+  TRASH_PUT=$(command -v trash-put || true)
+  trash_stub
+  stub systemctl 'echo enabled'
+  export AGENT_SLOT_TMUX=$STUBS/tmux AGENT_SLOT_CLAUDE=$STUBS/claude AGENT_SLOT_GH=$STUBS/gh
+  export AGENT_SLOT_GIT_CRYPT=$STUBS/git-crypt AGENT_SLOT_TRASH=$STUBS/trash AGENT_SLOT_SYSTEMCTL=$STUBS/systemctl
+  export AGENT_SLOT_REX_HELPER=$T/no-rex-helper
+  unset AGENT_SLOT_REX_CLIENT
+  systemd_run_stub
+}
+
+# systemd_run_stub: a systemd-run that logs each call to $STUBS/systemd-run.log as "XDG_RUNTIME_DIR=<value> <argv>", then
+# runs the command after its options as a transient scope would. It keeps every --unit name it ran in
+# $STUBS/systemd-run.units and refuses one it already holds, as systemd refuses a scope that orphaned processes keep
+# alive. With $STUBS/systemd-run.no-bus present it answers as a caller with no user manager gets answered. It logs
+# outside $CALLS, whose tmux lines the suites count.
+systemd_run_stub() {
+  cat >"$STUBS/systemd-run" <<EOF
+#!/usr/bin/env bash
+STUBS='$STUBS'
+EOF
+  cat >>"$STUBS/systemd-run" <<'EOF'
+printf 'XDG_RUNTIME_DIR=%s %s\n' "${XDG_RUNTIME_DIR-}" "$*" >>"$STUBS/systemd-run.log"
+if [ -e "$STUBS/systemd-run.no-bus" ]; then
+  echo 'Failed to connect to bus: No medium found' >&2
+  exit 1
+fi
+unit=
+while (($#)); do
+  case $1 in
+    --unit=*) unit=${1#--unit=} ;;
+    --) shift; break ;;
+    -*) ;;
+    *) break ;;
+  esac
+  shift
+done
+if grep -qxF "$unit" "$STUBS/systemd-run.units" 2>/dev/null; then
+  echo "Failed to start transient scope unit: Unit $unit.scope already exists." >&2
+  exit 1
+fi
+printf '%s\n' "$unit" >>"$STUBS/systemd-run.units"
+exec "$@"
+EOF
+  chmod +x "$STUBS/systemd-run"
+  export AGENT_SLOT_SYSTEMD_RUN=$STUBS/systemd-run
+}
+
+# trash_stub [AFTER]: the trash stub, which runs trash-cli's trash-put on the sandbox trash under $T/data, then AFTER once
+# it succeeds. trash-cli and agent-slot both find the home trash from XDG_DATA_HOME, and the stub sets it again because
+# agent-slot starts some tools from an empty environment: no test ever writes to the real trash.
+trash_stub() {
+  stub trash "[ \"\$1\" != --version ] || { echo 'trash 0.test'; exit 0; }
+[ -n '$TRASH_PUT' ] || { echo 'trash-put not found; install trash-cli' >&2; exit 127; }
+XDG_DATA_HOME='$XDG_DATA_HOME' '$TRASH_PUT' \"\$@\" || exit
+${1:-}"
+}
+
+# stub NAME BODY: an executable that appends "NAME argv" to the calls log, then runs BODY with STUBS and CALLS set.
+# Both paths are written into the stub, because agent-slot starts some tools from an empty environment.
+stub() {
+  cat >"$STUBS/$1" <<EOF
+#!/usr/bin/env bash
+STUBS='$STUBS'
+CALLS='$CALLS'
+printf '%s %s\n' "$1" "\$*" >>"\$CALLS"
+$2
+EOF
+  chmod +x "$STUBS/$1"
+}
+
+# gitstatusd_standin: prints the path of a copy of perl named as powerlevel10k's gitstatusd binary is, so a process
+# started from it, as `"$(gitstatusd_standin)" -e 'sleep 120'`, has the daemon's comm, gitstatusd-linu. Not a copy of
+# sleep: where coreutils is one multicall binary, as uutils is on Ubuntu 26.04, the copy picks its utility by its own
+# name and exits at once.
+gitstatusd_standin() {
+  cp "$(command -v perl)" "$T/gitstatusd-linux-x86_64"
+  printf '%s\n' "$T/gitstatusd-linux-x86_64"
+}
+
+# seed_origin NAME ORIGIN: a bare repo at ORIGIN with one commit on main, pushed from a clone at $T/seed-NAME.
+seed_origin() {
+  [ ! -d "$2" ] || return 0
+  git init -q --bare "$2"
+  git clone -q "$2" "$T/seed-$1" 2>/dev/null
+  git -C "$T/seed-$1" commit -q --allow-empty -m seed
+  git -C "$T/seed-$1" push -q origin HEAD:main
+}
+
+# session_at NAME DIR: a session on the slot server rooted at DIR.
+session_at() {
+  echo "$1" >>"$STUBS/tmux-sessions"
+  printf '%s\t%s\n' "$1" "$2" >>"$STUBS/tmux-sessions.paths"
+}
+
+# prime_runs_old_style NAME: a session of that name holding a Claude on the default tmux server, which is that repo's
+# prime, so a slot made of the repo starts no prime sessions and a suite's session counts stay its slot's own.
+prime_runs_old_style() {
+  printf '%s\tclaude\n' "$1" >>"$STUBS/tmux-panes-default"
+}
+
+# prime NAME [ORIGIN]: a clone under the dev root whose origin is a bare repo with one commit on main, and its prime
+# running as prime_runs_old_style gives it.
+prime() {
+  local name=$1 origin=${2:-$T/origins/$1.git}
+  seed_origin "$name" "$origin"
+  git clone -q "$origin" "$AGENT_SLOT_DEV/$name"
+  prime_runs_old_style "$name"
+}
+
+# split_prime CHECKOUT GIT_DIR: a clone named for its checkout whose .git is a file naming GIT_DIR, the shape
+# `git clone --separate-git-dir` leaves, with a bare origin of one commit on main, and its prime running as
+# prime_runs_old_style gives it.
+split_prime() {
+  local name=${1##*/}
+  seed_origin "$name" "$T/origins/$name.git"
+  mkdir -p "${2%/*}"
+  git clone -q --separate-git-dir "$2" "$T/origins/$name.git" "$1"
+  prime_runs_old_style "$name"
+}
+
+# slot REPO N [JSON-FIELDS]: a slot clone with a record; the record merges the given fields over its defaults.
+slot() {
+  local repo=$1 n=$2 fields=${3:-'{}'} path=$AGENT_SLOT_ROOT/$1/$2
+  mkdir -p "$AGENT_SLOT_ROOT/$repo"
+  git init -q -b main "$path"
+  jaq -n -c --arg repo "$repo" --argjson n "$n" --arg prime "$AGENT_SLOT_DEV/$repo" --argjson f "$fields" \
+    '{schema: "dotfiles.agent-slot/1", repo: $repo, slot: $n, state: "active", task: null, base: "main",
+      prime: $prime, session_id: "11111111-2222-3333-4444-555555555555", prs: []} + $f' \
+    >"$path/.git/agent-slot.json"
+}
+
+# solutions_worktrees: the corpus's linked worktrees, one path per line.
+solutions_worktrees() {
+  git -C "$AGENT_SLOT_SOLUTIONS" worktree list --porcelain | sed -n 's/^worktree //p' | grep -vxF "$AGENT_SLOT_SOLUTIONS" || true
+}
+
+# own_solutions_worktree: gives the task slot its own worktree of the corpus at origin/main, as setup does: the record
+# names it and docs/solutions links to it. Sets SWT to its path.
+own_solutions_worktree() {
+  SWT=$AGENT_SLOT_ROOT/repoa/.solutions/1-test
+  mkdir -p "${SWT%/*}" "$SLOT/docs"
+  git -C "$AGENT_SLOT_SOLUTIONS" worktree add -q --detach "$SWT" refs/remotes/origin/main
+  ln -sfn "$SWT" "$SLOT/docs/solutions"
+  jaq --arg wt "$SWT" '.solutions_worktree = $wt' "$SLOT/.git/agent-slot.json" >"$T/record.new"
+  mv "$T/record.new" "$SLOT/.git/agent-slot.json"
+}
+
+# solutions_origin_doc PATH CONTENT: another writer publishes PATH to the corpus's origin, and the corpus fetches it.
+solutions_origin_doc() {
+  [ -d "$T/solutions-pusher" ] || git clone -q "$T/solutions-origin.git" "$T/solutions-pusher"
+  git -C "$T/solutions-pusher" pull -q origin main
+  mkdir -p "$(dirname "$T/solutions-pusher/$1")"
+  printf '%s\n' "$2" >"$T/solutions-pusher/$1"
+  git -C "$T/solutions-pusher" add "$1"
+  git -C "$T/solutions-pusher" commit -q -m "publish $1"
+  git -C "$T/solutions-pusher" push -q origin HEAD:main
+  git -C "$AGENT_SLOT_SOLUTIONS" fetch -q origin main
+}
+
+# Asserts a JSON error object carries every field the contract promises.
+assert_error_shape() {
+  jaq -e '
+    (.ok == false) and (.reason | type == "string") and (.exit_code | type == "number")
+    and (.message | type == "string") and has("value")
+    and (.next_step | has("action") and has("command") and has("docs"))
+    and (.recovery | has("side_effects") and has("retryable") and has("max_retries") and has("reconcile"))
+    and (.recovery.side_effects != "unknown" or .recovery.reconcile != null)
+    and (.context | has("version") and has("tools") and has("config") and has("env"))
+    and has("log")' <<<"$1" >/dev/null
+}
+
+# origin_file NAME PATH CONTENT: commits a file to the prime's origin, on main.
+origin_file() {
+  mkdir -p "$(dirname "$T/seed-$1/$2")"
+  printf '%s\n' "$3" >"$T/seed-$1/$2"
+  git -C "$T/seed-$1" add "$2"
+  git -C "$T/seed-$1" commit -q -m "add $2"
+  git -C "$T/seed-$1" push -q origin HEAD:main
+}
+
+# origin_symlink NAME PATH TARGET: commits a symlink to the prime's origin, on main.
+origin_symlink() {
+  mkdir -p "$(dirname "$T/seed-$1/$2")"
+  ln -s "$3" "$T/seed-$1/$2"
+  git -C "$T/seed-$1" add "$2"
+  git -C "$T/seed-$1" commit -q -m "link $2"
+  git -C "$T/seed-$1" push -q origin HEAD:main
+}
+
+# fingerprint DIR: one line per file (by content), symlink (by target), and directory under DIR, git objects aside.
+fingerprint() {
+  (
+    cd "$1" || exit 1
+    find . -path ./.git/objects -prune -o -type f -exec sha256sum {} + | sort
+    find . -path ./.git/objects -prune -o -type l -printf '%p -> %l\n' | sort
+    find . -path ./.git/objects -prune -o -type d -print | sort
+  )
+}
+
+# trusted PATH...: marks paths trusted in the sandboxed Claude app-state file, as Claude does once its dialog is accepted.
+trusted() {
+  local path state=$AGENT_SLOT_CLAUDE_STATE
+  for path in "$@"; do
+    jaq --arg p "$path" '.projects[$p] = ((.projects[$p] // {}) + {hasTrustDialogAccepted: true})' "$state" >"$state.new"
+    mv "$state.new" "$state"
+  done
+}
+
+# stub_gh_items: gh answering `pr list` from $STUBS/gh-prs.json, and `api repos/<repo>/issues/<N>` and `pr view <N>`
+# from the fixtures gh_item writes. A number with no fixture gets GitHub's not-found answer. The issues API names the
+# item's repository as gh_item gave it, else as the request did. `pr close <N>` sets the PR's state in both, and fails
+# as an outage does while $STUBS/gh-close-fails exists. While $STUBS/gh-close-lands-then-fails exists it sets the state
+# and then fails, as a close does when GitHub applies it and the answer is lost.
+stub_gh_items() {
+  stub gh '
+case "$1 ${2:-}" in
+  "api repos/"*)
+    n=${2##*/} repo=${2#repos/}
+    [ -f "$STUBS/gh-issue-$n.json" ] || {
+      echo "{\"message\":\"Not Found\",\"status\":\"404\"}"
+      echo "gh: Not Found (HTTP 404)" >&2
+      exit 1
+    }
+    jaq -c --arg url "https://api.github.com/repos/${repo%/issues/*}" "{repository_url: \$url} + ." \
+      "$STUBS/gh-issue-$n.json" ;;
+  "pr view")
+    [ -f "$STUBS/gh-pr-$3.json" ] || {
+      echo "GraphQL: Could not resolve to a PullRequest with the number of $3. (repository.pullRequest)" >&2
+      exit 1
+    }
+    cat "$STUBS/gh-pr-$3.json" ;;
+  "pr close")
+    [ ! -e "$STUBS/gh-close-fails" ] || {
+      echo "HTTP 502: Bad Gateway" >&2
+      exit 1
+    }
+    jaq -c --argjson n "$3" "map(if .number == \$n then .state = \"CLOSED\" else . end)" "$STUBS/gh-prs.json" \
+      >"$STUBS/gh-prs.new"
+    mv "$STUBS/gh-prs.new" "$STUBS/gh-prs.json"
+    jaq -c ".state = \"CLOSED\"" "$STUBS/gh-pr-$3.json" >"$STUBS/gh-pr.new"
+    mv "$STUBS/gh-pr.new" "$STUBS/gh-pr-$3.json"
+    [ ! -e "$STUBS/gh-close-lands-then-fails" ] || {
+      echo "HTTP 502: Bad Gateway" >&2
+      exit 1
+    } ;;
+  *) cat "$STUBS/gh-prs.json" ;;
+esac'
+}
+
+# gh_item KIND NUMBER TITLE [STATE] [PR-FIELDS] [REPO]: an issue or PR the stubbed gh reports. The issues API answers for
+# both, with pull_request set for a PR and the repository GitHub names it under as REPO (owner/name), else as the
+# request names it; `gh pr view` answers for a PR, its head on branch pr-<N> of x/repoa unless PR-FIELDS, which merge
+# over gh's fields, say otherwise.
+gh_item() {
+  local kind=$1 n=$2 title=$3 state=${4:-OPEN} fields=${5:-'{}'} repo=${6:-}
+  jaq -n -c --arg kind "$kind" --argjson n "$n" --arg title "$title" --arg state "$state" --arg repo "$repo" '
+    {number: $n, title: $title, state: (if $state == "OPEN" then "open" else "closed" end)}
+    + (if $repo == "" then {} else {repository_url: "https://api.github.com/repos/\($repo)"} end)
+    + (if $kind == "pr" then {pull_request: {html_url: "https://github.com/x/repoa/pull/\($n)"}} else {} end)' \
+    >"$STUBS/gh-issue-$n.json"
+  [ "$kind" = pr ] || return 0
+  jaq -n -c --argjson n "$n" --arg title "$title" --arg state "$state" --argjson f "$fields" '
+    {headRefName: "pr-\($n)", headRepository: {id: "R_1", name: "repoa"},
+     headRepositoryOwner: {id: "U_1", login: "x"}, isCrossRepository: false, state: $state, title: $title,
+     url: "https://github.com/x/repoa/pull/\($n)"} + $f' >"$STUBS/gh-pr-$n.json"
+}
+
+# task_slot_setup: repoa/1 as a real clone of a bare origin, with an active record, no PRs, no agent, and a home scan
+# root holding one unrelated link. A PR is GitHub's refs/pull/<N>/head ref in the origin plus an entry in the stubbed
+# `gh pr list`; a merge is a squash commit on main with the head branch deleted, as GitHub does.
+task_slot_setup() {
+  mkdir -p "$T/home" "$T/elsewhere"
+  ln -s "$T/elsewhere" "$T/home/unrelated-link"
+  export AGENT_SLOT_HOME_SCAN_ROOTS="$T/home:3"
+  prime repoa
+  ORIGIN=$T/origins/repoa.git
+  SLOT=$AGENT_SLOT_ROOT/repoa/1
+  mkdir -p "$AGENT_SLOT_ROOT/repoa"
+  git clone -q "$ORIGIN" "$SLOT"
+  jaq -n -c --arg prime "$AGENT_SLOT_DEV/repoa" '{schema: "dotfiles.agent-slot/1", repo: "repoa", slot: 1,
+    state: "active", task: "t1", base: "main", prime: $prime, session_id: "s1", prs: [],
+    finished_by_operator: false, created_at: "2026-01-01T00:00:00Z", transcript: "/t/s1.jsonl"}' \
+    >"$SLOT/.git/agent-slot.json"
+  echo '[]' >"$STUBS/gh-prs.json"
+  stub_gh_items
+}
+
+# work BRANCH [N]: N commits (default 1) on BRANCH in the slot.
+work() {
+  local i
+  git -C "$SLOT" checkout -q -B "$1"
+  for ((i = 0; i < ${2:-1}; i++)); do git -C "$SLOT" commit -q --allow-empty -m "work $i on $1"; done
+}
+
+# pr NUMBER STATE BRANCH [CREATED] [TITLE]: a PR whose final head is the branch's current tip in the slot, opened at
+# CREATED, which defaults to a time after the slot's record was made.
+pr() {
+  local sha
+  sha=$(git -C "$SLOT" rev-parse "$3")
+  git -C "$SLOT" push -q origin "$sha:refs/pull/$1/head"
+  pr_listed "$1" "$2" "$3" "$sha" "${4:-2026-06-01T00:00:00Z}" "${5:-}"
+}
+
+# pr_listed NUMBER STATE BRANCH OID CREATED [TITLE]: an entry in the stubbed `gh pr list`, titled "PR <N>" by default.
+pr_listed() {
+  jaq -c --argjson n "$1" --arg state "$2" --arg head "$3" --arg oid "$4" --arg created "$5" --arg title "${6:-PR $1}" \
+    '. + [{number: $n, state: $state, headRefName: $head, headRefOid: $oid, createdAt: $created, title: $title,
+      isCrossRepository: false,
+      url: "https://github.com/x/repoa/pull/\($n)"}]' "$STUBS/gh-prs.json" >"$STUBS/gh-prs.new"
+  mv "$STUBS/gh-prs.new" "$STUBS/gh-prs.json"
+}
+
+# fork_remote: points the slot's origin at GitHub's https URL for up/repoa and adds a remote named fork at GitHub's ssh
+# URL for me/repoa, the shape `gh pr checkout` leaves for a PR from a fork. The test's git config rewrites both URLs to
+# bare repos under $T, so check reads both remotes as on github.com while git reaches the local repos.
+fork_remote() {
+  mkdir -p "$T/forks"
+  git clone -q --bare "$ORIGIN" "$T/forks/repoa.git"
+  git config --file "$GIT_CONFIG_GLOBAL" "url.$T/origins/.insteadOf" https://github.com/up/
+  git config --file "$GIT_CONFIG_GLOBAL" "url.$T/forks/.insteadOf" git@github.com:me/
+  git -C "$SLOT" remote set-url origin https://github.com/up/repoa.git
+  git -C "$SLOT" remote add fork git@github.com:me/repoa.git
+}
+
+# operator_finished: the record of a task the operator finished.
+operator_finished() {
+  jaq '.finished_by_operator = true' "$SLOT/.git/agent-slot.json" >"$T/r" && mv "$T/r" "$SLOT/.git/agent-slot.json"
+}
+
+# squash_merge BRANCH: GitHub's squash merge: one commit on main, and the head branch deleted.
+squash_merge() {
+  git clone -q "$ORIGIN" "$T/merger"
+  git -C "$T/merger" merge -q --squash "origin/$1" >/dev/null
+  git -C "$T/merger" commit -q --allow-empty -m "squash $1"
+  git -C "$T/merger" push -q origin HEAD:main
+  git -C "$T/merger" push -q origin --delete "$1"
+  chmod -R u+w "$T/merger" && find "$T/merger" -delete
+}
+
+# recon_store OWNER/NAME: a repo-recon store under the sandboxed store root, holding a profile and an empty filed/; sets
+# STORE to its path.
+recon_store() {
+  STORE=$AGENT_SLOT_REPO_RECON/$1
+  mkdir -p "$STORE/filed"
+  echo '# profile' >"$STORE/profile.md"
+}
+
+# recon_linked OWNER [UPSTREAM-OWNER]: repoa's prime and slot with origin OWNER/repoa on GitHub, which the test's git
+# config rewrites to the bare origin, and the prime with a remote named upstream at UPSTREAM-OWNER/repoa when given. A
+# repo-recon store for the upstream's repo, else origin's, and the slot with an ignored .context holding setup's link to
+# that store. Sets STORE.
+recon_linked() {
+  local url=https://github.com/$1/repoa.git
+  git config --file "$GIT_CONFIG_GLOBAL" --add "url.$T/origins/.insteadOf" "https://github.com/$1/"
+  git -C "$AGENT_SLOT_DEV/repoa" remote set-url origin "$url"
+  git -C "$SLOT" remote set-url origin "$url"
+  [ -z "${2:-}" ] || git -C "$AGENT_SLOT_DEV/repoa" remote add upstream "https://github.com/$2/repoa.git"
+  recon_store "${2:-$1}/repoa"
+  echo '.context/' >>"$SLOT/.git/info/exclude"
+  mkdir -p "$SLOT/.context"
+  ln -s "$STORE" "$SLOT/.context/repo-recon"
+}
+
+# A finished task: one PR, pushed, squash-merged, with every local commit in the PR's final head.
+finished_task() {
+  work feat/x 2
+  git -C "$SLOT" push -q origin feat/x
+  pr 7 MERGED feat/x
+  squash_merge feat/x
+}
+
+# slot_profile_args [cloudflare]: the flags a slot's Claude takes between the bypass flag and --model, with the skills
+# and plugins it turns off and the tools it drops. A Cloudflare repo keeps the cloudflare plugin. The lists are a copy
+# kept apart from scripts/agent-slot/lib/profile.sh, so a change there fails the tests until this one moves too.
+slot_profile_args() {
+  local -a skills=(artifact-capabilities artifact-design artifact-diagramming artifact-emulator built-in-browser
+    chrome-browser claude-api code-review codex computer-use dataviz deep-research docs docx fewer-permission-prompts
+    google-workspace import-memory init keybindings-help loop morning pdf plugin-authoring pptx review run schedule
+    security-review simplify skill-creator update-config xlsx)
+  local name overrides='' plugins='"obsidian@obsidian-skills":false'
+  for name in "${skills[@]}"; do overrides+="\"$name\":\"off\","; done
+  [[ ${1:-} == cloudflare ]] || plugins+=',"cloudflare@claude-plugins-official":false'
+  printf '%s' "--settings '{\"idleCompaction\":false,\"skillOverrides\":{${overrides%,}},\"enabledPlugins\":{$plugins}}' \
+--disallowedTools Artifact AskUserQuestion ScheduleWakeup ReportFindings"
+}

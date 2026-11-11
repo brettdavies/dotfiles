@@ -20,10 +20,32 @@ else
   GATE_RED='' GATE_GREEN='' GATE_DIM='' GATE_BOLD='' GATE_RESET=''
 fi
 
+# git starts ssh before it runs pre-push, and ssh shares git's stderr. OpenSSH
+# puts each stdio descriptor that is not a terminal into non-blocking mode for
+# as long as the connection is open, and the flag belongs to the open file
+# description, so `git push 2>&1 | tail` hands the hook a non-blocking pipe. A
+# write that finds that pipe full then fails with EAGAIN instead of waiting for
+# the reader, and a gate log replayed with `cat` stops partway through.
+# Terminals and files ignore the flag; clearing it makes a pipe behave like
+# them. No shell builtin or coreutils tool can clear it, and perl is already a
+# dependency of scripts/run-tests.
+gate_blocking_output() {
+  command -v perl >/dev/null 2>&1 || return 0
+  # shellcheck disable=SC2016 # the $fh and $flags in single quotes are perl's
+  perl -MFcntl -e '
+    for my $fh (*STDOUT, *STDERR) {
+      my $flags = fcntl($fh, F_GETFL, 0) or next;
+      fcntl($fh, F_SETFL, $flags & ~O_NONBLOCK) if $flags & O_NONBLOCK;
+    }' || return 0
+}
+gate_blocking_output
+
 gate_header() { printf '%s%s%s\n' "$GATE_BOLD" "$1" "$GATE_RESET"; }
 gate_pass() { printf '  %s✓%s %s\n' "$GATE_GREEN" "$GATE_RESET" "$1"; }
 gate_skip() { printf '  %s- %s%s\n' "$GATE_DIM" "$1" "$GATE_RESET"; }
 gate_done() { printf '%s%s%s%s\n' "$GATE_BOLD" "$GATE_GREEN" "$1" "$GATE_RESET"; }
+# A line that is neither a verdict nor a skip, such as why a gate runs.
+gate_note() { printf '  %s%s%s\n' "$GATE_DIM" "$1" "$GATE_RESET"; }
 
 gate_fail() {
   printf '  %s✗%s %s\n' "$GATE_RED" "$GATE_RESET" "$1" >&2
@@ -71,4 +93,26 @@ gate_collect() {
   fi
   [ "$rc" = "0" ] || gate_fail "$failure"
   gate_pass "$label"
+}
+
+# gate_perf <command>...: run the shell-startup perf suite through <command>,
+# passing its TAP stream through, then report it. A suite whose every test
+# skipped measured nothing, so it is reported as skipped, never as passed.
+# Needs pipefail, which both hooks set.
+gate_perf() {
+  local tap rc=0 measured
+  tap="$(mktemp)"
+  "$@" | tee "$tap" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    rm -f "$tap"
+    gate_fail "shell-startup timing failed; rerun from the checkout with scripts/run-tests --perf-only"
+  fi
+  # grep -c reads the whole stream, so no writer takes SIGPIPE under pipefail.
+  measured=$(grep -E '^ok ' "$tap" | grep -vc '# skip' || true)
+  rm -f "$tap"
+  if [ "${measured:-0}" -gt 0 ]; then
+    gate_pass "shell-startup timing"
+  else
+    gate_skip "shell-startup timing (every test skipped: dotfiles are not deployed on this host)"
+  fi
 }

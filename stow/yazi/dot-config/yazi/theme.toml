@@ -11,13 +11,16 @@
 [flavor]
 use = "catppuccin-mocha"
 
-# git.yazi sign overrides — defaults for modified/added/deleted/updated are
-# blank spaces with colored backgrounds (color-only indicator). Overridden to
-# plain letters matching `git status -s` shorthand so the indicator is legible
-# on any background. Each sign is two columns wide (letter + space) so they
-# align across rows. Colors inherit from catppuccin-mocha's git defaults.
+# git.yazi sign overrides — the plugin's default signs for staged, unstaged,
+# added, deleted, and updated are blank spaces, which show nothing. Overridden
+# to plain letters matching `git status -s` shorthand, so the state reads on any
+# background and on the hovered row, which the plugin draws without color. Each
+# sign is two columns wide so they align across rows; a modification sits in the
+# column `git status -s` gives it: index (staged) first, worktree (unstaged)
+# second. Colors are git.yazi's defaults, since catppuccin-mocha sets no [git].
 [git]
-modified_sign  = "M "
+staged_sign    = "M "
+unstaged_sign  = " M"
 added_sign     = "A "
 deleted_sign   = "D "
 updated_sign   = "U "

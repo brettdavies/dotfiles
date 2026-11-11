@@ -1,3 +1,5 @@
+# Canonical version: 2026.10.02 (generic)
+#
 # Dependabot configuration.
 #
 # One ecosystem: github-actions, for the SHA-pinned actions under
@@ -30,8 +32,6 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 3
-    reviewers:
-      - brettdavies
     labels:
       - dependencies
       - github-actions

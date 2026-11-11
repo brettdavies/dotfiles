@@ -63,11 +63,15 @@ GNU Stow has no `--force` flag. The `scripts/stow-deploy` wrapper handles three 
 scripts/stow-deploy --all                     # macOS: shared + desktop packages
 scripts/stow-deploy --headless --all          # headless: shared packages only
 scripts/stow-deploy ghostty cursor            # shared defaults + explicit extras
+scripts/stow-deploy --headless --only claude  # exactly the named packages
 ```
 
 **Flags:** `--all` expands to `SHARED_PACKAGES` + `DESKTOP_PACKAGES` (macOS) or `SHARED_PACKAGES` only (Linux). Without
-`--all`, extra args extend `SHARED_PACKAGES`. `--headless` auto-restores repo versions after adopt. Encrypted packages
-(`secrets`, `ssh`, `git`) require git-crypt unlock first.
+`--all`, extra args extend `SHARED_PACKAGES`; `--only` deploys exactly the named packages instead. `--headless`
+auto-restores repo versions after adopt, and refuses to adopt into a package whose `stow/<package>/` has uncommitted
+changes, since the restore would overwrite them; it lists that package under `FAILURES` and deploys the rest. A package
+holding any file `.gitattributes` marks `filter=git-crypt` requires git-crypt unlock first: `stow-deploy` refuses to
+deploy it while that file is still ciphertext, and names the file.
 
 ### System-Level Units (`config/systemd/system/`)
 
@@ -81,6 +85,9 @@ are version-controlled in `config/systemd/system/` and deployed via dedicated sc
 - `apparmor-playwright.service` — deployed by `scripts/apparmor-deploy.sh` alongside the profile it reloads at boot
 - `tailscale-serve-setup.service`: deployed by `scripts/tailscale-serve-deploy.sh`, which fills in the Tailscale
   operator and checkout path; re-runs `scripts/tailscale-serve-setup.sh` on every tailscaled start
+- `rex-login-server.service.d/tailnet-listen.conf`: a drop-in for the unit the `rex` package ships, deployed by
+  `scripts/rex-login-server-deploy.sh` together with `/etc/rex/accounts.jsonc`, which it renders from
+  `config/rex/accounts.jsonc` with the Tailscale login given on its command line
 
 **Pattern for adding new system-level units:**
 
@@ -105,6 +112,24 @@ and reloads it with `apparmor_parser -r`. Profiles persist across reboots.
 2. Re-run `sudo scripts/apparmor-deploy.sh` — it copies every file in the directory and reloads each one
 3. Do NOT add to `stow/` or `SHARED_PACKAGES`
 
+### Kernel Settings (`config/sysctl.d/`)
+
+Kernel settings follow the same copy rule. They live in `config/sysctl.d/` and are deployed by
+`scripts/sysctl-deploy.sh`, which copies every `.conf` file to `/etc/sysctl.d/`, restarts `systemd-sysctl.service`, and
+reads each key back from `/proc/sys`. The restart re-applies every drop-in in boot order, so a passing run also shows
+the value survives a reboot; the read-back is the real gate, because neither the restart nor `sysctl --system` fails
+when a later-sorting file overrides a key. `scripts/sysctl-deploy.sh --check` runs the same read-back without root and
+changes nothing. `tests/sysctl-deploy.bats` drives the copy through `--dest DIR` and the read-back through a sandbox
+`SYSCTL_PROC_DIR`.
+
+**Current drop-ins:**
+
+- `60-pipe-user-pages.conf` — sets `fs.pipe-user-pages-soft = 0`. Past the stock soft limit, the kernel creates every
+  new pipe for that user at 8 KiB instead of 64 KiB, and any tool that writes more than 8 KiB before the reader starts
+  blocks forever.
+
+To add a setting, drop a file in `config/sysctl.d/`, run `sudo scripts/sysctl-deploy.sh`, and do not add it to `stow/`.
+
 ### SSH Daemon Locale (`scripts/sshd-locale-deploy.sh`)
 
 There is no config file to copy for this one. `AcceptEnv` accumulates across `/etc/ssh/sshd_config` and every
@@ -126,6 +151,28 @@ never prompts. launchd reads the plist only at boot, so a change reaches GUI app
 reboot. `tests/launchd-user-path.bats` stubs `uname`, `plutil`, `stat`, `sysctl`, and `sudo`, and points
 `LAUNCHD_USER_PLIST` at a sandbox file.
 
+### Hex Transforms (`config/hex/hex.config.ts`)
+
+macOS only. `config/hex/hex.config.ts` holds the Hex dictation app's custom transformations. Hex refuses a config whose
+real path is outside `~/.config/hex` ("only files inside the config folder can be imported"), so a stow symlink never
+loads and the `hex` package cannot own this file. `scripts/hex-config.sh` compares it with
+`~/.config/hex/hex.config.ts`, exits 0 when they match or when Hex is not installed, and on drift prints the diff and
+exits 1; `--apply` copies the repo's file into place, and Hex reloads it within a second. `scripts/stow-deploy` runs the
+check without `--apply` on every macOS deploy to `$HOME`, so an edit made in place is reported, never overwritten. Edit
+the repo's copy, then run `--apply`. `tests/hex-config.bats` stubs `uname` and points `HEX_CONFIG_DIR` and `HEX_APP` at
+sandbox paths.
+
+### OpenSEO (`config/openseo/`)
+
+Linux server only. `config/openseo/compose.yaml` is upstream's standalone Compose file, byte for byte, and
+`config/openseo/openseo.pin` records the release tag, commit, image digest, and the file's sha256.
+`scripts/openseo-deploy.sh` (libraries in `scripts/openseo/lib/`) renders `~/.config/openseo/local.env` from 1Password
+and the pin, refusing a compose file that differs from the pin; its `up`, `down`, and `create-admin` verbs run docker
+and belong to the operator, while `render`, `serve`, and `status` run no docker. `svc:openseo` binds to `127.0.0.1:8946`
+only once OpenSEO is healthy and has an account; `scripts/tailscale-serve-setup.sh` applies the same gate
+(`scripts/openseo/lib/gate.sh`) at every tailscaled start. `tests/openseo-deploy.bats` stubs `uname`, `tailscale`,
+`curl`, `docker`, and the 1Password helper. Runbook: `docs/runbooks/openseo.md`.
+
 ---
 
 ## Shell Config Chain
@@ -142,6 +189,9 @@ Helper files are sourced directly from the repo -- no symlink needed for individ
 ~/.zshenv (symlink) --> stow/zsh/dot-zshenv
   sources: ~/.profile (if not already loaded)
   PURPOSE: ensures non-interactive zsh (SSH commands, cron) has environment
+  EXCEPT: a command string opening with ': ssh-match-exec; ' returns before
+  .profile. ssh runs every ~/.ssh/config Match exec test through $SHELL on
+  every connection, and those tests need nothing the profile sets.
 
 ~/.zprofile (symlink) --> stow/zsh/dot-zprofile
   fires AFTER /etc/zprofile in zsh login shells
@@ -188,9 +238,20 @@ shape that remote tooling reaches. All but one read at least one startup file an
 
 The `bash` non-login non-interactive row is the *bare launcher* case (see [CONCEPTS.md](CONCEPTS.md)): bash has no
 all-invocations file, so the shape inherits whatever its launcher handed it. Scripts in that position source the helper
-they need explicitly, per the section below. Claude Code's Bash tool is wired through `CLAUDE_ENV_FILE` by
-`stow/claude/dot-claude/bash-env-path.sh`, which repairs keg-only Ruby ordering only; it assumes an inherited `PATH`
-rather than assembling one.
+they need explicitly, per the section below. A `bash -c` that counts itself as top-level, as every bash started from
+`env -i` does, is the exception: it reads `.bashrc` when its stdin is a socket, or on Debian and Ubuntu when
+`SSH_CLIENT` or `SSH2_CLIENT` is set, taking itself for an sshd session (see
+[Invocation shape](CONCEPTS.md#invocation-shape)). A heredoc command in the agent Bash tool has a socket on stdin, so an
+`env -i ... bash -c` it starts reads `.bashrc`. Claude Code's Bash tool is wired through `CLAUDE_ENV_FILE` by
+`stow/claude/dot-claude/bash-env-path.sh`, which sources `config/shell/local-paths.sh` before each command to repair the
+order of keg-only Ruby, `~/.npm-global/bin`, and `~/.local/bin`; it assumes an inherited `PATH` rather than assembling
+one.
+
+Every directory whose binaries must shadow a same-named Homebrew or system binary is moved to the front of `PATH`, never
+added only when absent. A shell started under tmux or agent-slot inherits these directories, and `.profile`'s Homebrew
+block prepends itself ahead of the whole inherited `PATH`, so a directory skipped because it was present would stay
+behind Homebrew. `~/.local/bin`, whose `gh` wrapper carries the merge guard, ends up ahead of Homebrew in every shape
+above, including after macOS `path_helper` in a login zsh.
 
 On macOS, launchd is the launcher for every GUI application and LaunchAgent, and what it hands them is its user PATH,
 declared in `config/launchd/user-path` with Homebrew first (see
@@ -241,6 +302,23 @@ interactive (var is set by `.profile`) or non-interactive (var is unset; the lit
 macOS since the dotfiles repo lives at `~/dotfiles` on both). See `scripts/prose-check.sh` in any agentnative-* repo for
 the live pattern.
 
+### LanguageTool server and exit 2
+
+`config/shell/languagetool.sh` serves the prose-check stage of the agentnative-* repos. Given no `LANGUAGETOOL_URL` and
+no `--lt-url`, its functions use the `languagetool` Tailscale Service under the tailnet's full MagicDNS name,
+`https://languagetool.<suffix>`. The suffix comes from `tailscale status --json` when a function runs, so the public
+repo never holds the tailnet's name and sourcing the file asks `tailscale` for nothing. A Service answers https on 443
+only: a short name fails its TLS handshake and an `http://…:8081` URL is refused. The Tailscale CLI therefore has to
+be on `PATH` or, on macOS, at the app bundle's path (`LT_TAILSCALE_APP` overrides it), or `LANGUAGETOOL_URL` has to be
+set.
+
+When the server does not answer, no URL can be worked out, or a file's `/v2/check` request fails, `lt_check` exits 2
+(1 when the files it did check have blocking matches) and prints a `WARNING:` notice on stderr: the cause, what did not
+run, the command that diagnoses it, and how to name another server.
+Exit 2 stays the caller's to read: the agentnative-* scripts continue on Vale's verdict alone, or fail under
+`--lt-only`. A caller that must not pass without grammar checking treats exit 2 as a failure. `tests/languagetool.bats`
+stubs `tailscale` and `curl` to cover both paths.
+
 ---
 
 ## Git Authentication
@@ -289,21 +367,39 @@ This is set during bootstrap (see README) or via `bash .githooks/setup`.
 | Hook            | Purpose                                                            |
 | --------------- | ------------------------------------------------------------------ |
 | `pre-commit`    | Branch + signing policy, then the CI checks scoped to staged files |
-| `post-checkout` | Auto-unlocks git-crypt if key is available, chains Git LFS         |
-| `post-merge`    | Auto-unlocks git-crypt if key is available, chains Git LFS         |
+| `post-checkout` | Auto-unlocks git-crypt, restows changed packages, chains Git LFS   |
+| `post-merge`    | Auto-unlocks git-crypt, restows changed packages, chains Git LFS   |
 | `pre-push`      | Full local CI mirror, then chains Git LFS pre-push                 |
+
+### Restow on pull
+
+A pull switches `~/.claude/settings.json` at once, because it is a symlink into the checkout, while a hook script added
+in the same pull has no link until a restow. `post-merge` and `post-checkout` therefore run `.githooks/lib/restow.sh`,
+which relinks the `claude` and `secrets` packages through `scripts/stow-deploy --headless --only` whenever a merge or a
+branch checkout changed `stow/claude/` or `stow/secrets/`, before git returns. Without it, a hook that blocks on failure
+blocks every Claude Code tool call on the host until someone restows.
+
+- Only the checkout that the deploy target's links already resolve into restows a package. An agent slot or scratch
+  clone runs the same hooks and never touches the live links; a package the host never deployed stays undeployed.
+- A failed restow prints `WARNING: restow-failed` (or `restow-internal-error`), ends with the command to rerun, and
+  never changes the git command's exit status. By hand: `cd ~/dotfiles && scripts/stow-deploy --headless --only claude`.
+- `git reset`, a squash merge, and a merge that stops on conflicts run no restow.
+- To review a deploy before applying it: `git fetch`, `git diff HEAD..@{u} -- stow/`, then `git merge`.
+
+`tests/restow-on-pull.bats` drives the hooks through real pulls, checkouts, and a linked worktree against a sandbox
+target.
 
 ### Local gates mirror CI
 
 The hooks exist so a red pipeline is a surprise rather than a routine. Every check is defined once, in a script that all
 three gates call:
 
-| Check      | Definition                  | CI job                             | pre-push | pre-commit            |
-| ---------- | --------------------------- | ---------------------------------- | -------- | --------------------- |
-| ShellCheck | `scripts/lint-shell`        | `.github/workflows/shellcheck.yml` | `--all`  | staged paths          |
-| actionlint | `scripts/lint-workflows`    | `.github/workflows/shellcheck.yml` | `--all`  | staged workflow files |
-| Bats       | `scripts/run-tests`         | `.github/workflows/bats.yml`       | `--all`  | staged `.bats` files  |
-| Core env   | `scripts/core-env-guard.sh` | `.github/workflows/shellcheck.yml` | sweep    | staged test files     |
+| Check      | Definition                  | CI job                             | pre-push    | pre-commit            |
+| ---------- | --------------------------- | ---------------------------------- | ----------- | --------------------- |
+| ShellCheck | `scripts/lint-shell`        | `.github/workflows/shellcheck.yml` | `--all`     | staged paths          |
+| actionlint | `scripts/lint-workflows`    | `.github/workflows/shellcheck.yml` | `--all`     | staged workflow files |
+| Bats       | `scripts/run-tests`         | `.github/workflows/bats.yml`       | `--no-perf` | staged non-perf tests |
+| Core env   | `scripts/core-env-guard.sh` | `.github/workflows/shellcheck.yml` | sweep       | staged test files     |
 
 actionlint and the core-env guard share the ShellCheck job rather than getting their own. The job id `shellcheck` is a
 required status check in both rulesets under `.github/rulesets/`, so a separate job would need a new required context
@@ -312,7 +408,41 @@ registered before it could block anything. It also runs after ShellCheck is on P
 fails a test that resets `HOME`, `TMPDIR`, an `XDG_*` directory, a tool home, or the whole value of `PATH`;
 `scripts/core-env-allowlist.tsv` holds each exception with its reason, and a sweep fails on an entry that matches
 nothing. The script is a verbatim copy of the github-repo-setup skill's `templates/core-env-guard.sh`, whose own suite
-covers it.
+covers it. `scripts/lint-workflows` also runs `scripts/check-workflow-concurrency.sh`, a verbatim copy of the same
+skill's `templates/check-workflow-concurrency.sh`, whenever a workflow is in scope. It fails a `concurrency.group` that
+starts with an expression rather than a literal token naming its workflow: inside a called workflow `github.workflow` is
+the caller's name, so an unprefixed group collides with the caller's own and cancels it.
+
+The bats workflow is a matrix of shards, each running `scripts/run-tests --all --shard I/N` on its own runner, and a job
+named `bats` that passes only when every shard did. One 4-vCPU runner runs the suite CPU-bound, so more runners are what
+shorten it; `run-tests` decides which files each shard gets, and the `bats` job keeps the required context the rulesets
+name. Locally the suite runs whole, with no `--shard`. A suite whose tests share no state, each keeping its own under
+its own `BATS_TEST_TMPDIR`, declares `# run-tests: parallel` on a line of its own, and `run-tests` then runs its tests
+concurrently as well, so no single long file paces a shard. The shard jobs install their tools through
+`.github/actions/setup-bats-suite`, and `.github/workflows/cache-seed.yml` runs that same action on every push to `dev`:
+a pull request's run can restore caches saved on its base branch but not those of another pull request, so without the
+seed every pull request's first run would start cold. The seed checks nothing, so it has no `pre-push` counterpart.
+
+The shell-startup perf suite in `tests/perf/` is the one local gate that CI does not exercise: a CI runner has no
+deployed dotfiles, so each of its tests skips there. Locally it times the startup files of the checkout it runs from,
+never the config installed under `$HOME`. Run it by hand from the checkout with `scripts/run-tests --perf-only`; a hand
+run ignores the list below and times the checkout whatever it changed.`tests/lib/startup-home.bash` builds a HOME whose
+startup files link to the checkout's and whose other entries link to the installed home, so oh-my-zsh, the plugins, and
+the caches are the ones a real shell finds. It leaves out `dotfiles`, because `config/shell/gogcli.sh` runs
+`stow --adopt` on `$HOME/dotfiles/stow`, and gives the HOME its own `.zsh/cache`, because oh-my-zsh rebuilds a
+completion dump built for other paths. A startup file the checkout deleted is absent from that HOME, and one still
+encrypted by git-crypt stays the installed copy.
+
+A run needs a changed path on `SHELL_STARTUP_PATHS` in `.githooks/lib/push-scope.sh`, the one list of what the six timed
+shells read from the checkout; when none changes, the suite neither runs nor times anything. `pre-push` judges the paths
+the push delivers, renames and deletions included, and runs the suite first and alone when one is on the list or the
+scope cannot be resolved. `pre-commit` runs it only when a `tests/perf/*.bats` file and a path on the list are both
+staged, alone before its other gates, and prints that the timing runs at `pre-push` when only a startup file is staged,
+or when a commit only deletes or moves one. Each hook prints the first path on the list that made the suite run, and a
+run in which every test skipped is reported as skipped, not passed.The list also names the files the HOME links from the
+checkout, so it cannot drift from what is timed; `tests/pre-push-scope.bats` starts the six shells under -x and fails
+when one reads a file of the checkout that the list omits, or when the checkout holds a file the shells look for under a
+package the list leaves out.
 
 `pre-push` is the repo-wide mirror: its steps map one-to-one onto CI jobs, and passing it should mean passing the
 pipeline. `pre-commit` runs the same scripts over staged paths only, so it stays fast enough for every commit while
@@ -333,6 +463,34 @@ only on Linux and a suite gated to macOS would never run there. Mac-side code is
 everywhere, and a check that needs a real Mac tool skips just that test when the tool is missing
 (`command -v plutil || skip`).
 
+A suite whose tests start background processes loads `tests/lib/processes.bash`, starts each one with `spawn`, and ends
+`teardown` with `stop_spawned` and then `assert_no_leaks`. `spawn` gives the process a session of its own, so
+`stop_spawned` kills everything it started, including children that a dead parent left to init. `assert_no_leaks` fails
+the test when any process carrying that test's `BATS_TEST_TMPDIR` outlives teardown, names it, and kills it. A leaked
+process keeps the working directory bats ran from, so a leak in a run inside an agent slot holds the slot against
+teardown until someone kills it by hand. `spawn` works on macOS too, so a suite that runs on both platforms uses it the
+same way. A process the code under test detaches is no job of the test's, so the suite records its pid from a stub and
+kills it in `teardown` before the guard, as `tests/mac-open-here.bats` does for its VS Code stub.
+
+`scripts/run-tests` covers every suite, guard or not: each bats process it starts carries a `RUN_TESTS_RUN` value of its
+own, and once bats exits, any process still carrying it fails the run, named and killed after 3 s. A leak that exits
+before its suite ends gets past this scan, which is what the per-test guard is for. `tests/leak-guard.bats` covers both
+guards, and runs the release suite's tests that start a process of each shape from a scratch directory to check that
+they leave nothing behind there. A whole nested run of the suite outlasts the time limit on a loaded CI shard, so the
+case names those tests in `RELEASE_PROCESS_TESTS` and fails when a name no longer matches a passing test.
+
+Every test runs under a time limit: `scripts/run-tests` hands bats `BATS_TEST_TIMEOUT`, 60 s unless the environment sets
+it. A test that outlives it fails as `not ok N <name> # timeout after 60s`: bats sends SIGTERM to it and to every
+process below it, then runs its `teardown`, so both guards still stop whatever it left. A suite with a deliberately
+longer test sets `BATS_TEST_TIMEOUT` at its top level. bats 1.14 leaves a failed test's watchdog running out the limit
+([bats-core/bats-core#1206](https://github.com/bats-core/bats-core/issues/1206)), which `run-tests` avoids through
+`BATS_killer_pid`; a test that starts bats itself passes the same value, `BATS_WATCHDOG_JOB` from
+`tests/lib/processes.bash`. bats 1.14 can also leave a passing test's watchdog running: its shell forks the `sleep` and
+only then sets the trap that stops it, so a test that ends inside that window on a loaded host leaves the `sleep`
+running under a new parent. Both guards kill that `sleep` without failing anything, recognised by its environment:
+`sleep <limit>` with `BATS_TEST_TIMEOUT=<limit>` and the `BATS_killer_pid` job spec `run-tests` hands bats, which every
+process a test starts carries as the watchdog's pid instead (`is_detached_watchdog`).
+
 ---
 
 ## Branch Workflow
@@ -346,8 +504,8 @@ everywhere, and a check that needs a real Mac tool skips just that test when the
 
 `dev` is never merged into `main` and `main` is never merged into `dev`. The two branches share no common ancestor, so
 either merge produces conflicts on every file both sides touched. Releases go through the overlay recipe in
-[RELEASES.md](RELEASES.md#releasing-dev-to-main), and the released `CHANGELOG.md` returns to `dev` through
-`scripts/sync-dev-after-release.sh`, which copies that one file by PR.
+[RELEASES.md](RELEASES.md#releasing-dev-to-main), and the released `CHANGELOG.md`, with any other path the release
+changed, returns to `dev` by PR through `scripts/sync-dev-after-release.sh`.
 
 Never commit directly to `main`. All work goes through feature branches and PRs.
 
@@ -405,7 +563,8 @@ All workflows live in `.github/workflows/`. When adding or modifying actions:
   `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`; remove it where one still does.
 - **Commit signing:** The release bot (`github-actions[bot]`) creates unsigned commits, and the `dev` ruleset requires
   signed commits, so nothing from `main` can be merged into `dev`. This is one of the reasons the post-release backport
-  is a surgical `CHANGELOG.md` copy on a fresh branch (`scripts/sync-dev-after-release.sh`) rather than a branch merge.
+  is a surgical copy of the released files on a fresh branch (`scripts/sync-dev-after-release.sh`) rather than a branch
+  merge.
 - **Guard workflows:** `guard-main-docs.yml`, `guard-main-provenance.yml`, and `guard-release-branch.yml` run only on
   PRs to `main` and are required checks there. They call first-party reusables in `brettdavies/.github`, which are
   pinned to `@main` deliberately; third-party actions still require commit SHAs.

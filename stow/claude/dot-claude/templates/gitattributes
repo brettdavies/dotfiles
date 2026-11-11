@@ -1,6 +1,6 @@
 # >>> canonical gitattributes >>>
 # Git attributes: canonical source ~/dotfiles/stow/claude/dot-claude/templates/gitattributes
-# Canonical version: 2026.10.05
+# Canonical version: 2026.10.05 (generic)
 #
 # Copied byte for byte to the top of each repository's .gitattributes. Text is
 # stored with LF and checked out with LF on every platform, whatever

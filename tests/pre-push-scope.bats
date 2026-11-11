@@ -35,6 +35,7 @@ teardown() {
 }
 
 commit_file() {
+  mkdir -p "$(dirname "$WORK/$1")"
   printf '%s\n' "$2" >"$WORK/$1"
   git -C "$WORK" add "$1"
   git -C "$WORK" commit -qm "add $1"
@@ -136,6 +137,23 @@ scope() {
   [ -z "$output" ]
 }
 
+@test "a file deleted by the push is delivered" {
+  new=$(git -C "$WORK" rm -q a.sh && git -C "$WORK" commit -qm "drop a.sh" && git -C "$WORK" rev-parse HEAD)
+  scope "refs/heads/dev $new refs/heads/dev $DEV_SHA"
+  [ "$status" -eq 0 ]
+  [ "$output" = "a.sh" ]
+}
+
+@test "a file moved by the push is delivered under both its old and new path" {
+  mkdir -p "$WORK/config/shell"
+  git -C "$WORK" mv a.sh config/shell/a.sh
+  git -C "$WORK" commit -qm "move a.sh"
+  new=$(git -C "$WORK" rev-parse HEAD)
+  scope "refs/heads/dev $new refs/heads/dev $DEV_SHA"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'a.sh\nconfig/shell/a.sh' ]
+}
+
 @test "a delete alongside a content push delivers only the content" {
   git -C "$WORK" switch -qc feat/x
   new=$(commit_file c.sh 'echo c')
@@ -177,6 +195,159 @@ scope() {
 }
 
 # ---------------------------------------------------------------------------
+# paths_read_by_shell_startup: can the change move shell-startup latency
+# ---------------------------------------------------------------------------
+
+startup_paths() {
+  run bash -c '. "$1"; shift; printf "%s\n" "$@" | paths_read_by_shell_startup' _ "$LIB" "$@"
+}
+
+@test "every file a suite shell sources from the checkout is startup-relevant" {
+  startup_paths stow/shell/dot-profile
+  [ "$status" -eq 0 ]
+  startup_paths stow/zsh/dot-zshenv
+  [ "$status" -eq 0 ]
+  startup_paths stow/zsh/dot-p10k.zsh
+  [ "$status" -eq 0 ]
+  startup_paths stow/bash/dot-bash_aliases
+  [ "$status" -eq 0 ]
+  startup_paths stow/secrets/dot-secrets
+  [ "$status" -eq 0 ]
+  startup_paths config/shell/local-paths.sh
+  [ "$status" -eq 0 ]
+  startup_paths config/shell/shell-functions
+  [ "$status" -eq 0 ]
+}
+
+@test "paths no suite shell reads are not startup-relevant" {
+  startup_paths README.md scripts/run-tests tests/perf/shell-startup-perf.bats \
+    stow/git/dot-gitconfig stow/secrets/dot-config/other stow/zshell/dot-x config/shell-other/a.sh
+  [ "$status" -eq 1 ]
+}
+
+@test "one startup path among others is enough, and the first one is printed" {
+  startup_paths README.md scripts/run-tests config/shell/telemetry.sh stow/zsh/dot-zshrc
+  [ "$status" -eq 0 ]
+  [ "$output" = "config/shell/telemetry.sh" ]
+}
+
+@test "no paths are not startup-relevant" {
+  startup_paths
+  [ "$status" -eq 1 ]
+}
+
+# The six commands tests/perf/shell-startup-perf.bats times. A file one of them
+# sources but the list omits is a change the perf suite would measure and the
+# hooks would never run it for, so this reads the real shells rather than the
+# list: each starts under -x with a PS4 that names the file executing each
+# command, and every file of this checkout that appears must be on the list.
+PERF_SHAPES=("zsh -c exit" "bash -c exit" "zsh -i -c exit" "bash -i -c exit" "zsh -l -c exit" "bash -l -c exit")
+
+# startup_reads <home> <shell> <flag>...: the files of this checkout the shell
+# executes while starting up, repo-relative, one per line. A startup file the
+# shell reads from <home> that is not the checkout's, though the checkout holds
+# one of that name, is listed as the checkout's: the list left it out of the
+# files linked into <home>, so the shell timed the installed copy.
+startup_reads() {
+  local home=$1 shell=$2 ps4 path real root name file
+  shift 2
+  root=$(readlink -f "$REPO")
+  case $shell in
+    bash) ps4='+${BASH_SOURCE[0]:-}> ' ;;
+    *) ps4='+%x> ' ;;
+  esac
+  while IFS= read -r path; do
+    [ -e "$path" ] || continue
+    real=$(readlink -f "$path")
+    case $real in
+      "$root"/*) printf '%s\n' "${real#"$root"/}" ;;
+      *)
+        [ "${path%/*}" = "$home" ] || continue
+        name=${path##*/}
+        for file in "$root"/stow/*/dot-"${name#.}"; do
+          [ ! -e "$file" ] || printf '%s\n' "${file#"$root"/}"
+        done
+        ;;
+    esac
+  done < <(
+    HOME=$home ZDOTDIR=$home PS4=$ps4 "$shell" -x "$@" </dev/null 2>&1 >/dev/null |
+      awk '/^\++[^>]*> / {
+        line = $0; sub(/^\++/, "", line)
+        split(line, parts, "> "); print parts[1]
+        rest = substr(line, length(parts[1]) + 3)
+        if (rest ~ /^(\.|source) [^ ]+/) { split(rest, words, " "); print words[2] }
+      }' | sort -u
+  ) | sort -u
+}
+
+@test "the list covers every file the perf suite's shells source from the checkout" {
+  command -v zsh >/dev/null 2>&1 || skip "zsh is not installed"
+  load lib/startup-home
+  # An installed home that holds every top-level startup file of the checkout, so
+  # a file the list leaves out is linked through and read from the checkout on any
+  # host, deployed or not.
+  local installed="$BATS_TEST_TMPDIR/installed" f
+  mkdir -p "$installed"
+  for f in "$REPO"/stow/*/dot-*; do
+    [ -f "$f" ] || continue
+    [ -e "$installed/.${f##*/dot-}" ] || ln -s "$f" "$installed/.${f##*/dot-}"
+  done
+  startup_home "$REPO" "$BATS_TEST_TMPDIR/home" "$installed"
+  # shellcheck source=/dev/null
+  . "$LIB"
+  local shape reads file missing=''
+  for shape in "${PERF_SHAPES[@]}"; do
+    # Each shape is one the perf suite times, spelled the way it spells it.
+    grep -qF "\"$shape\"" "$REPO/tests/perf/shell-startup-perf.bats"
+    # shellcheck disable=SC2086 # the shape is a command line to split
+    reads=$(startup_reads "$BATS_TEST_TMPDIR/home" ${shape%% *} ${shape#* })
+    [ "$shape" = "bash -c exit" ] || grep -qx 'stow/shell/dot-profile' <<<"$reads"
+    while IFS= read -r file; do
+      [ -n "$file" ] || continue
+      paths_read_by_shell_startup <<<"$file" || missing+="$shape reads $file"$'\n'
+    done <<<"$reads"
+  done
+  # A file the shells look for by name, held by a package the list leaves out, is
+  # read once it is deployed, though no shell started above reads it from here.
+  local looked_for
+  for looked_for in zshenv zprofile zshrc zlogin zlogout bash_profile bash_login profile bashrc bash_logout; do
+    for file in "$REPO"/stow/*/dot-"$looked_for"; do
+      [ -e "$file" ] || continue
+      paths_read_by_shell_startup <<<"${file#"$REPO"/}" ||
+        missing+="the shells look for .$looked_for, held at ${file#"$REPO"/}"$'\n'
+    done
+  done
+  [ -z "$missing" ] || {
+    printf 'not on SHELL_STARTUP_PATHS:\n%s' "$missing"
+    false
+  }
+}
+
+@test "no startup package holds a directory, which the test HOME would not link" {
+  # startup_home links files only, so a shell started from a slot would read the
+  # installed copy of anything under such a directory while the list ran the suite.
+  local dir entry found=''
+  # shellcheck source=/dev/null
+  . "$LIB"
+  for entry in "${SHELL_STARTUP_PATHS[@]}"; do
+    case $entry in stow/*/) ;; *) continue ;; esac
+    for dir in "$REPO/$entry"dot-*; do
+      [ ! -d "$dir" ] || found+="${dir#"$REPO"/}"$'\n'
+    done
+  done
+  [ -z "$found" ] || {
+    printf 'directories startup_home does not link:\n%s' "$found"
+    false
+  }
+}
+
+@test "no startup file turns shell tracing off, which the list test reads through" {
+  run grep -rEn 'set \+x|set \+o xtrace|unsetopt +(xtrace|XTRACE)|setopt +no_?xtrace' \
+    "$REPO/stow/shell" "$REPO/stow/zsh" "$REPO/stow/bash" "$REPO/config/shell"
+  [ "$status" -eq 1 ]
+}
+
+# ---------------------------------------------------------------------------
 # pre-push end to end: does the gate run
 # ---------------------------------------------------------------------------
 
@@ -187,7 +358,9 @@ install_hook_with_stubs() {
   cp "$REPO/.githooks/pre-push" "$WORK/.githooks/pre-push"
   cp "$REPO"/.githooks/lib/*.sh "$WORK/.githooks/lib/"
   for s in lint-shell lint-workflows run-tests core-env-guard.sh; do
-    printf '#!/bin/sh\ntouch "%s/ran-%s"\n' "$FIX" "$s" >"$WORK/scripts/$s"
+    printf '#!/bin/sh\ntouch "%s/ran-%s"\nprintf "%%s %%s\\n" "%s" "$*" >>"%s/calls"\n' "$FIX" "$s" "$s" "$FIX" >"$WORK/scripts/$s"
+    # The perf suite prints a TAP stream; a marker file makes every test skip.
+    printf 'case "$*" in --perf-only) if [ -e "%s/perf-skip" ]; then echo "ok 1 probe # skip not deployed"; else echo "ok 1 probe"; fi ;; esac\n' "$FIX" >>"$WORK/scripts/$s"
     chmod +x "$WORK/scripts/$s"
   done
   for t in shellcheck actionlint bats git-lfs; do
@@ -202,6 +375,10 @@ hook() {
 }
 
 gate_ran() { [ -e "$FIX/ran-lint-shell" ] && [ -e "$FIX/ran-run-tests" ]; }
+
+# The shell-startup timing suite is the one run-tests call the hook makes with
+# --perf-only; every call the stubs received is in $FIX/calls, in start order.
+perf_ran() { grep -qx 'run-tests --perf-only' "$FIX/calls"; }
 
 @test "hook: a ref delete skips the gate" {
   install_hook_with_stubs
@@ -264,6 +441,124 @@ gate_ran() { [ -e "$FIX/ran-lint-shell" ] && [ -e "$FIX/ran-run-tests" ]; }
   hook "refs/heads/dev $new refs/heads/dev deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
   [ "$status" -eq 0 ]
   gate_ran
+}
+
+@test "hook: a push that changes no startup file does not run the perf suite" {
+  install_hook_with_stubs
+  new=$(commit_file b.sh 'echo b')
+  hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"shell-startup timing"* ]]
+  gate_ran
+  run ! perf_ran
+}
+
+@test "hook: a push that changes a startup file runs the perf suite first and alone" {
+  install_hook_with_stubs
+  new=$(commit_file config/shell/fragment.sh 'echo f')
+  hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"✓ shell-startup timing"* ]]
+  [ "$(head -n 1 "$FIX/calls")" = "run-tests --perf-only" ]
+  [ "$(grep -c -- '--perf-only' "$FIX/calls")" -eq 1 ]
+}
+
+@test "hook: a push that changes only the perf suite does not run it" {
+  install_hook_with_stubs
+  new=$(commit_file tests/perf/shell-startup-perf.bats '#!/usr/bin/env bats')
+  hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
+  [ "$status" -eq 0 ]
+  gate_ran
+  run ! perf_ran
+}
+
+@test "hook: a run names the pushed path that is on the list" {
+  install_hook_with_stubs
+  new=$(commit_file config/shell/fragment.sh 'echo f')
+  hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"config/shell/fragment.sh is on SHELL_STARTUP_PATHS"* ]]
+}
+
+@test "hook: a perf suite whose every test skipped is reported as skipped, not passed" {
+  install_hook_with_stubs
+  : >"$FIX/perf-skip"
+  new=$(commit_file config/shell/fragment.sh 'echo f')
+  hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"every test skipped"* ]]
+  [[ "$output" != *"✓ shell-startup timing"* ]]
+}
+
+@test "hook: a push that deletes a startup file runs the perf suite" {
+  install_hook_with_stubs
+  old=$(commit_file config/shell/fragment.sh 'echo f')
+  git -C "$WORK" push -q origin dev
+  git -C "$WORK" rm -q config/shell/fragment.sh
+  git -C "$WORK" commit -qm "drop the fragment"
+  new=$(git -C "$WORK" rev-parse HEAD)
+  hook "refs/heads/dev $new refs/heads/dev $old"
+  [ "$status" -eq 0 ]
+  perf_ran
+}
+
+@test "hook: a push that moves a startup file out of the startup tree runs the perf suite" {
+  install_hook_with_stubs
+  old=$(commit_file config/shell/fragment.sh 'echo f')
+  git -C "$WORK" push -q origin dev
+  mkdir -p "$WORK/scripts/lib"
+  git -C "$WORK" mv config/shell/fragment.sh scripts/lib/fragment.sh
+  git -C "$WORK" commit -qm "move the fragment"
+  new=$(git -C "$WORK" rev-parse HEAD)
+  hook "refs/heads/dev $new refs/heads/dev $old"
+  [ "$status" -eq 0 ]
+  perf_ran
+}
+
+@test "hook: a new branch is judged against its base, not the whole tree" {
+  install_hook_with_stubs
+  commit_file stow/zsh/dot-zshrc 'echo z' >/dev/null
+  git -C "$WORK" push -q origin dev
+  git -C "$WORK" switch -qc feat/x
+  new=$(commit_file b.sh 'echo b')
+  hook "refs/heads/feat/x $new refs/heads/feat/x $ZERO"
+  [ "$status" -eq 0 ]
+  gate_ran
+  run ! perf_ran
+}
+
+@test "hook: a new branch that changes a startup file runs the perf suite" {
+  install_hook_with_stubs
+  git -C "$WORK" switch -qc feat/x
+  new=$(commit_file stow/bash/dot-bashrc 'echo b')
+  hook "refs/heads/feat/x $new refs/heads/feat/x $ZERO"
+  [ "$status" -eq 0 ]
+  perf_ran
+}
+
+@test "hook: an unknown scope runs the perf suite" {
+  install_hook_with_stubs
+  new=$(commit_file b.sh 'echo b')
+  hook "refs/heads/dev $new refs/heads/dev deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"push scope unknown, running it"* ]]
+  perf_ran
+}
+
+@test "hook: a push that delivers nothing runs no gate and no perf suite" {
+  install_hook_with_stubs
+  hook ""
+  [ "$status" -eq 0 ]
+  [ ! -e "$FIX/calls" ]
+}
+
+@test "hook: a failing perf suite fails the push" {
+  install_hook_with_stubs
+  # Only the perf call fails, so the push fails on it or on nothing.
+  printf '#!/bin/sh\ncase "$*" in --perf-only) exit 1 ;; esac\n' >"$WORK/scripts/run-tests"
+  new=$(commit_file stow/zsh/dot-zshrc 'echo z')
+  hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
+  [ "$status" -eq 1 ]
 }
 
 @test "hook: a failing gate script fails the push" {

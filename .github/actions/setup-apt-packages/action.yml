@@ -1,0 +1,55 @@
+name: Setup apt packages
+description: Install Ubuntu packages with apt, from cached .deb files when the runner image has not changed.
+
+# The packages come from the runner image's Ubuntu mirror, which is usually fast
+# and sometimes is not: one bats shard spent 87 s fetching 5.3 MB at 61.5 kB/s
+# while its sibling shards took under 5 s. A cache restore of the same files
+# takes 0.9-3 s, about what a healthy mirror takes, so the cache earns its keep
+# on the slow fetches it removes.
+#
+# apt picks package versions from the lists the runner image ships, so one image
+# version always fetches the same files: the key is the image and the package
+# list. Asking apt for the exact files instead costs 0.7-6.5 s per job, as long
+# as the download it saves.
+#
+# The archives directory lives under $HOME because cache restore runs
+# unprivileged; apt reads it through Dir::Cache::Archives. apt leaves files in it
+# that only root can read, so it is handed back to the runner user for the cache
+# save.
+
+inputs:
+  packages:
+    description: Space-separated apt package names
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Key the cache on the runner image and the package list
+      id: key
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        # shellcheck disable=SC2086 # PACKAGES is a list of package names
+        list=$(printf '%s\n' $PACKAGES | sort -u | sha256sum | cut -c1-12)
+        echo "key=apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-$list" >>"$GITHUB_OUTPUT"
+
+    - name: Cache package files
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/apt-archives
+        key: ${{ steps.key.outputs.key }}-${{ runner.arch }}
+
+    - name: Install packages
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        archives="$HOME/.cache/apt-archives"
+        mkdir -p "$archives/partial"
+        # shellcheck disable=SC2086 # PACKAGES is a list of package names
+        sudo apt-get install -y -o Dir::Cache::Archives="$archives" -o APT::Sandbox::User=root $PACKAGES
+        sudo chown -R "$(id -u):$(id -g)" "$archives"

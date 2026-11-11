@@ -10,7 +10,7 @@ set -euo pipefail
 #   0. The canonical browser BINARIES in the shared cache
 #      ($PLAYWRIGHT_BROWSERS_PATH). ALWAYS provisioned by this script via
 #      scripts/playwright-browsers-deploy.sh (curl + unzip, user-space, no
-#      sudo), so `playwright install` in any repo is a no-op. That helper
+#      sudo), so a `playwright install` naming its browsers is a no-op. That helper
 #      bypasses node's extractor, which deadlocks on this kernel's io_uring
 #      filesystem backend; see its header and docs/runbooks for the details.
 #      Without the binaries: browserType.launch "Executable doesn't exist".
@@ -35,7 +35,7 @@ set -euo pipefail
 # Run as your NORMAL user (not via sudo): apparmor-deploy.sh is invoked with
 # sudo explicitly, and the apt-deps step escalates to sudo on its own. The
 # browser-binary provisioning is user-space. Idempotent — re-run any time
-# (e.g. after a browser version bump). On non-Linux it is a no-op.
+# (e.g. after a pin change). On a Mac it deploys the set and skips the rest.
 #
 # Usage:
 #   scripts/playwright-deps-deploy.sh                 # AppArmor profile + boot wiring
@@ -68,11 +68,6 @@ done
 
 # --- Pre-flight ---
 
-if [ "$(uname -s)" != "Linux" ]; then
-  echo "NOTE: not Linux — Playwright browser deps + AppArmor are only needed on Linux. Nothing to do."
-  exit 0
-fi
-
 if [ "$(id -u)" -eq 0 ]; then
   echo "FATAL: run as your normal user, not root — sudo is escalated where needed" >&2
   echo "       (running the whole script as root puts bun outside PATH and mis-owns the browser cache)" >&2
@@ -83,6 +78,11 @@ fi
 
 echo "NOTE: provisioning the canonical Playwright browser binaries (curl + unzip)…"
 "$REPO_ROOT/scripts/playwright-browsers-deploy.sh"
+
+if [ "$(uname -s)" != "Linux" ]; then
+  echo "NOTE: not Linux — the AppArmor profile and browser system libraries are Linux-only; the browser set is deployed." >&2
+  exit 0
+fi
 
 # --- 1. AppArmor profile + boot wiring (always; this is what the browse tool needs) ---
 

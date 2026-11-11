@@ -113,6 +113,30 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   }
 }
 
+# path_helper also pushes ~/.local/bin behind /usr/bin, and the Homebrew repair
+# lands Homebrew ahead of it, which leaves Homebrew's gh shadowing the merge-guard
+# wrapper in every macOS terminal. A uname stub runs the Darwin branch anywhere.
+@test "dot-zprofile puts ~/.local/bin back ahead of Homebrew and /usr/bin" {
+  command -v zsh >/dev/null 2>&1 || skip "zsh not installed"
+  local stub="$BATS_TEST_TMPDIR/stub" brew="$BATS_TEST_TMPDIR/brew"
+  mkdir -p "$stub" "$brew/bin" "$brew/sbin"
+  printf '#!/bin/sh\necho Darwin\n' >"$stub/uname"
+  chmod +x "$stub/uname"
+  # The order path_helper leaves: system dirs first, then the inherited PATH.
+  run zsh -fc "
+    export HOMEBREW_PREFIX='$brew'
+    path=('$stub' /usr/local/bin /usr/bin /bin /usr/sbin /sbin \"\$HOME/.local/bin\" '$brew/bin' '$brew/sbin')
+    source '$STOW_DIR/zsh/dot-zprofile'
+    print -r -- \"\$PATH\"
+  "
+  [ "$status" -eq 0 ]
+  [[ "$output" == "$HOME/.local/bin:$brew/bin:$brew/sbin:"* ]] || {
+    echo "expected ~/.local/bin, then the Homebrew pair, at the front; got:"
+    echo "$output"
+    false
+  }
+}
+
 # Regression: bash and non-login shells (the pre-push bats run, cron, editor
 # shell tools) demote keg-only Homebrew Ruby behind /usr/bin too, but never
 # source dot-zprofile. config/shell/local-paths.sh must FORCE the Ruby bin to
@@ -152,6 +176,26 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 
 @test "zshenv uses DOTFILES_SHELL_DIR sentinel guard" {
   grep -q 'DOTFILES_SHELL_DIR' "$STOW_DIR/zsh/dot-zshenv"
+}
+
+# ssh runs each `Match exec` test in the SSH config as `$SHELL -c '<test>'`, once per test on every ssh.
+@test "zshenv skips the profile only for a command opening with the ssh Match exec marker" {
+  command -v zsh >/dev/null 2>&1 || skip "zsh is not installed"
+  home="$BATS_TEST_TMPDIR/home"
+  log="$BATS_TEST_TMPDIR/profile.log"
+  mkdir -p "$home"
+  ln -s "$STOW_DIR/zsh/dot-zshenv" "$home/.zshenv"
+  printf 'echo read >>"%s"\n' "$log" >"$home/.profile"
+
+  run -0 env HOME="$home" ZDOTDIR="$home" zsh -c ': ssh-match-exec; test 1 = 1 && echo ran'
+  [ "$output" = ran ]
+  run -1 env HOME="$home" ZDOTDIR="$home" zsh -c ': ssh-match-exec; test 1 = 2'
+  [ ! -e "$log" ]
+
+  run -0 env HOME="$home" ZDOTDIR="$home" zsh -c 'test 1 = 1'
+  run -0 env HOME="$home" ZDOTDIR="$home" zsh -c 'true; : ssh-match-exec; true'
+  run -0 env HOME="$home" ZDOTDIR="$home" zsh -c ': ssh-match-exec true'
+  [ "$(wc -l <"$log")" -eq 3 ]
 }
 
 # ---------------------------------------------------------------------------
@@ -229,6 +273,27 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   else
     [ "$output" = "unset" ]
   fi
+}
+
+# ---------------------------------------------------------------------------
+# Headless Obsidian: the Xvfb display stays out of the login environment
+# ---------------------------------------------------------------------------
+# OBSIDIAN_VAULT_PATH is the positive control: it proves the headless-Obsidian
+# block ran, so the two display assertions cannot pass on a skipped branch.
+
+@test "sourcing profile on a headless Obsidian host exports neither DISPLAY nor XAUTHORITY" {
+  [ "$(uname -s)" = "Linux" ] || skip "the headless Obsidian block is Linux-only"
+  local home="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$home/.config/obsidian"
+  : >"$home/.config/obsidian/Xauthority"
+  run env HOME="$home" bash -c \
+    'unset DISPLAY XAUTHORITY OBSIDIAN_VAULT_PATH; . "$1" >/dev/null 2>&1
+     printf "%s\n" "${OBSIDIAN_VAULT_PATH-unset}" "DISPLAY=${DISPLAY-unset}" "XAUTHORITY=${XAUTHORITY-unset}"' \
+    _ "$STOW_DIR/shell/dot-profile"
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "$home/box/TX-AI/streams-control" ]
+  [ "${lines[1]}" = "DISPLAY=unset" ]
+  [ "${lines[2]}" = "XAUTHORITY=unset" ]
 }
 
 # ---------------------------------------------------------------------------

@@ -49,9 +49,17 @@ hook, or unsure what's installed.
   and produces significantly better results than `qmd search` alone. Prefer multiple focused queries with 2-3 terms each
   over one query with many terms. Always search qmd before researching from scratch — check solutions and vault for
   prior art.
-- **Auto-format hook:** A PostToolUse hook wraps markdown prose to 120 characters (`md-wrap.py`) then runs
-  `markdownlint-cli2 --fix`. Do NOT manually wrap markdown lines — the hook handles it. Do NOT use `mdformat`, `pandoc`,
-  or `prettier` for markdown formatting.
+- **Auto-format hook:** A PostToolUse hook wraps markdown prose (`md-wrap.py`), aligns GFM tables
+  (`md-align-tables.py`), then runs `markdownlint-cli2 --fix`. Do NOT manually wrap markdown lines — the hook handles
+  it. Do NOT use `mdformat`, `pandoc`, or `prettier` for markdown formatting. The target width is `MD013.line_length`
+  from the config that governs **the edited file**, located by walking up from the file's own directory to the first
+  `.markdownlint-cli2.yaml` or `.markdownlint.yaml` and stopping at the repository root; a repo declaring none takes the
+  global `~/.markdownlint-cli2.yaml` (120), matching its `ignores` globs from the repo root. The session's directory
+  does not enter into it, so editing a file in one repo from a session rooted in another applies the edited repo's width
+  and ignores. **A repo that sets `line_length` to 9999 or higher owns its own wrapping and table style**, and the hook
+  skips it whole: prose wrap, table align, and lint autofix. The walk is lexical rather than resolved through
+  `realpath`, so a file reached through a symlinked directory (`docs/solutions`) stays described by the tree holding the
+  link, which is the path form the `ignores` globs are written against.
 - **Inline code spans under the auto-format hook:** `md-wrap.py` keeps each inline code span whole on one line with its
   bytes unchanged, so the whitespace runs between the columns of a quoted help-text layout survive the reflow.
   `markdownlint-cli2 --fix` then applies MD038 (`no-space-in-code`), whose fixer rewrites only the spaces next to the
@@ -70,16 +78,22 @@ hook, or unsure what's installed.
   `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` stops `bun install`'s postinstall from auto-fetching browsers, so a dependency
   install never triggers the wedge; it does NOT no-op an explicit `playwright install`, which still fetches any browser
   missing from the cache. The provisioned markers are what make an explicit install skip the browsers a repo uses, so
-  the dotfiles set must cover every browser the repos launch (chromium + webkit today, no firefox). Repos **exact-pin
-  the one canonical version** (`DEFAULT_VERSION` in the deploy script) instead of a caret range, so the resolved version
-  always matches the provisioned browser revisions. **Check what's provisioned** with `ls $PLAYWRIGHT_BROWSERS_PATH` and
-  the script's version map. **To change the version:** bump the map + re-run the dotfiles script, then realign the repo
-  pins — never bump a repo's Playwright independently, and never re-provision from an arbitrary repo or e2e run. **Watch
-  out for `bun x playwright install`:** `bunx` uses a repo's local install only when `node_modules` is present; run
-  standalone (a fresh worktree, before `bun install`, or outside a repo) it floats to the LATEST published Playwright,
-  ignores the repo pin, and tries to fetch whatever browsers that release wants — this is why older setups kept pulling
-  newer-and-newer revisions. Run the repo's local Playwright instead (`bun run test:e2e` → `playwright test` from
-  `node_modules`); `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` neutralizes any stray install call either way.
+  the dotfiles set must cover every browser the repos launch (chromium + webkit today, no firefox). The set is one CfT
+  build, one WebKit, and one ffmpeg, named in `~/dotfiles/config/playwright/browsers.pin`, with an alias for every
+  Chromium and ffmpeg revision a Playwright release from 1.57 to the pin's `source-release` asks for, so a repo's
+  Playwright version within that range need not match the set's for those two. WebKit has no alias: it is the one
+  revision the pin's `library-version` names, so a repo on a Playwright that names another WebKit revision finds no
+  WebKit and needs the pin moved first, as does a Playwright newer than `source-release` for Chromium and ffmpeg. Repos
+  **exact-pin** their Playwright version instead of a caret range. **Check what's provisioned** with
+  `~/dotfiles/scripts/playwright-browsers-deploy.sh --check`, which names every difference from the pin with a reason
+  and the command to run next. **To change the set:** edit the pin and re-run the dotfiles script (the runbook
+  `docs/runbooks/playwright-browser-launch.md` gives the steps); never re-provision from an arbitrary repo or e2e run,
+  and never run `playwright install` yourself. **Watch out for `bun x playwright install`:** `bunx` uses a repo's local
+  install only when `node_modules` is present; run standalone (a fresh worktree, before `bun install`, or outside a
+  repo) it floats to the LATEST published Playwright, ignores the repo pin, and tries to fetch whatever browsers that
+  release wants — this is why older setups kept pulling newer-and-newer revisions. Run the repo's local Playwright
+  instead (`bun run test:e2e` → `playwright test` from `node_modules`); `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` neutralizes
+  any stray install call either way.
 - **Bun pins follow the machine's Bun.** The machine's Bun is the Homebrew `oven-sh/bun/bun` formula from
   `~/dotfiles/stow/brew/Brewfile`, and every repo's Bun pin tracks that binary's `bun --version`. When a repo's
   `.bun-version` trails it, bump the repo in its own PR: `.bun-version` plus every declaration the repo's pin test holds

@@ -1,0 +1,12 @@
+[Unit]
+Description=Reconcile agent slot tabs with the live slots every minute
+ConditionHost=bigdaddy
+
+[Timer]
+OnCalendar=minutely
+# The default accuracy of a minute would let a pass slip by up to a minute more.
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,3 +1,5 @@
+<!-- Canonical version: 2026.11.03 (generic) -->
+
 ## Summary
 
 <!-- Provide a brief overview of the changes in this PR. What feature/fix/improvement does this introduce?
@@ -36,7 +38,7 @@
 - 1-5 bullets per PR. Fewer is better. One-line fixes get one bullet.
 - Delete empty ### sections entirely; don't leave blank categories.
 - Keep the sections in this order, the one generate-changelog.py emits: Breaking changes, Added, Changed, Deprecated,
-  Removed, Fixed, Documentation.
+  Fixed, Documentation.
 - Each bullet starts with a verb: Add, Fix, Change, Remove, Deprecate.
 - Don't duplicate the PR title; expand on it or provide context.
 - If the PR has NO user-facing changes (pure refactor, test-only, CI), leave this section empty or omit it. The PR still
@@ -55,10 +57,6 @@
 -
 
 ### Deprecated
-
--
-
-### Removed
 
 -
 
@@ -84,7 +82,7 @@
 - [ ] `ci`: CI/CD configuration changes
 - [ ] `style`: Code style/formatting changes
 - [ ] `build`: Build system changes
-- [ ] `BREAKING CHANGE`: Breaking API change (requires major version bump)
+- [ ] `BREAKING CHANGE`: Breaking change; list it under `### Breaking changes` in the Changelog above
 
 ## Related Issues/Stories
 

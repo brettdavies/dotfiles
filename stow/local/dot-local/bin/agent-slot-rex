@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Stowed entry point for agent-slot-rex. The implementation stays in the dotfiles checkout beside its libraries and the
+# contract it shares with agent-slot; this link resolves back into that checkout, so ~/.local/bin/agent-slot-rex is the
+# one stable path Rex's config and every slot pane run.
+set -euo pipefail
+
+impl="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../../scripts/agent-slot-rex/agent-slot-rex"
+if [ ! -x "$impl" ]; then
+  echo "agent-slot-rex: $impl is missing; deploy brettdavies/dotfiles to ~/dotfiles" >&2
+  exit 127
+fi
+exec "$impl" "$@"

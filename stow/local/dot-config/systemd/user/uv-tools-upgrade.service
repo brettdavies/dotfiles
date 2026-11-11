@@ -13,6 +13,7 @@ SyslogIdentifier=uv-tools-upgrade
 # every later timer tick would find it already running.
 TimeoutStartSec=1h
 
-# Hardening
+# Hardening. No PrivateTmp= or other namespace setting: in a user unit it maps root to nobody, and ssh, which git runs
+# here for any tool installed from a git URL, then rejects every root-owned file /etc/ssh/ssh_config includes
+# (tests/user-unit-sandboxing.bats).
 NoNewPrivileges=true
-PrivateTmp=true
