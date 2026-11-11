@@ -330,15 +330,15 @@ repo has its own prose-linting pipeline.
    discussion, thread replies); on PR bodies and release notes it's a lighter pass — those stay technical with only
    slight softening. When a draft gets meaningfully rewritten, append the LLM-draft → Brett-rewrite swap in `voice.md`
    with a one-line "why" so the next draft starts closer.
-3. **Submit via file flag, then delete the tmp file.** `gh pr create --body-file <path>`, `gh pr edit --body-file ...`,
-   `gh pr comment --body-file ...`, `gh issue create --body-file ...`, `gh release create --notes-file ...`,
-   `git commit --file ...`. Never inline the body via `--body "..."`, `-m "..."`, or a `--body "$(cat <<'EOF' ... EOF)"`
-   heredoc. **As soon as the `gh` (or `git commit`) call returns success, delete the tmp file with `trash <path>`.** The
-   file is single-use; leaving it around invites accidental reuse with stale content on the next turn and clutters
-   `/tmp/`. If the submit fails, keep the file, fix, resubmit, then delete on success. Chain the delete on the submit's
-   own status: `git commit --file "$MSG" && trash "$MSG"`. Piping the submit's output first
-   (`git commit --file "$MSG" | tail -2 && trash "$MSG"`) makes the pipeline exit with `tail`'s status, so a failed
-   commit still deletes the message; read the output in a later step instead.
+3. **Submit via file flag, then delete the tmp file.** `gh pr create --draft --body-file <path>`,
+   `gh pr edit --body-file ...`, `gh pr comment --body-file ...`, `gh issue create --body-file ...`,
+   `gh release create --notes-file ...`, `git commit --file ...`. Never inline the body via `--body "..."`, `-m "..."`,
+   or a `--body "$(cat <<'EOF' ... EOF)"` heredoc. **As soon as the `gh` (or `git commit`) call returns success, delete
+   the tmp file with `trash <path>`.** The file is single-use; leaving it around invites accidental reuse with stale
+   content on the next turn and clutters `/tmp/`. If the submit fails, keep the file, fix, resubmit, then delete on
+   success. Chain the delete on the submit's own status: `git commit --file "$MSG" && trash "$MSG"`. Piping the submit's
+   output first (`git commit --file "$MSG" | tail -2 && trash "$MSG"`) makes the pipeline exit with `tail`'s status, so
+   a failed commit still deletes the message; read the output in a later step instead.
 
 Typical flow (PR body):
 
@@ -348,8 +348,9 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD | tr / -)
 BODY=/tmp/pr-body-${REPO}.${BRANCH}.md
 $EDITOR "$BODY"                                  # one logical line per paragraph
 /unslop "$BODY"                                  # mandatory scrub pass
-gh pr create --base dev --title "type(scope): description" --body-file "$BODY"
+gh pr create --draft --base dev --title "type(scope): description" --body-file "$BODY"
 trash "$BODY"                                    # delete after successful submit
+gh pr ready <number>                             # only once every review is done, its fixes are in, and each verdict is in a PR comment
 ```
 
 Typical flow (commit message):
@@ -386,6 +387,15 @@ without the pipe. The submissions it reads are `git commit -F`/`--file`, `sd-com
 `gh pr (create|edit|comment|review)` and `gh issue (create|edit|comment)` with `-F`/`--body-file`, and
 `gh release (create|edit)` with `-F`/`--notes-file`. `set -o pipefail` before the submission, with only `&&` from the
 pipe to that step, passes. Tests: `bats tests/piped-commit-guard.bats`.
+
+**Enforcement.** Every PR a session opens starts as a draft, and `gh pr ready <number>` ends the draft once every review
+the PR needs is done, its fixes are in, and each verdict is in a PR comment. The `~/.claude/pr-draft-guard.sh`
+PreToolUse Bash hook rejects `gh pr create` (and its alias `gh pr new`) unless the last `--draft`/`-d` on it is true,
+and `gh stack submit` without `--auto` or with `--open`: `--auto` creates new PRs as drafts, while the interactive
+editor and `--open` create them ready. Its deny carries the whole command rebuilt with the PR opened as a draft. The
+hook reads only the command typed, so text that names `gh pr create` (an `rg`, an `echo`, a heredoc body, a commit
+message), `gh pr create --help`, and a script that runs `gh` itself, such as `scripts/sync-dev-after-release.sh`, pass.
+Tests: `bats tests/pr-draft-guard.bats`.
 
 Why hook + docs (not docs alone): inline heredoc into `--body` produces wrapped-and-escape-trapped text that lands in
 the PR body AND in the squash-merge commit message. Cleanup after the fact requires either re-submitting via
