@@ -67,7 +67,9 @@ head_checkout() {
 # since the slot's own agent wrote them, and are origin when they name origin's repo. A URL recorded under the name
 # origin that names another repo goes under fork: the clone's origin would otherwise answer for it, and that URL is what
 # the verdict judged. Else they are a PR's head repository on GitHub, under the prime's name for it or fork, with a null
-# remote when that repository is gone, so the head comes from refs/pull/<N>/head.
+# remote when that repository is gone, so the head comes from refs/pull/<N>/head. A PR that GitHub reports merged, whose
+# head is the branch picked at the commit the event recorded for it, gives the base instead, since origin's base holds
+# that work and a slot on the branch would stand beside the branch cut from the base for the next step.
 HEAD_PLAN=null
 head_plan() {
   local event=$1 item=$2 kind branch from=ledger entry url remote host origin_slug
@@ -79,6 +81,10 @@ head_plan() {
     branch=$(contract_json -r '.head_branch // ""' <<<"$item") from=gh
   fi
   entry=$(contract_json -c --arg b "$branch" '[.branches[]? | select(.name == $b)] | last // {}' <<<"$event")
+  if _head_merged "$branch" "$entry" "$item"; then
+    _head_plan_json "$PARITY_BASE" origin "$REPO_ORIGIN" '{}' base base
+    return 0
+  fi
   url=$(contract_json -r '.url // ""' <<<"$entry")
   remote=$(contract_json -r '.remote // ""' <<<"$entry")
   host=$(_check_url_host "$REPO_ORIGIN")
@@ -98,6 +104,15 @@ head_plan() {
   else
     _head_plan_json "$PARITY_BASE" origin "$REPO_ORIGIN" '{}' base base
   fi
+}
+
+# Usage: _head_merged <branch> <ledger entry> <item>; succeeds when <item> is a PR GitHub reports merged whose head is
+# <branch> at the commit the entry records for it, or at any commit when the entry records none. A head commit GitHub does
+# not report, or one the entry's differs from, is work the merge may lack, so it fails.
+_head_merged() {
+  [[ -n $1 ]] || return 1
+  contract_json -e --arg b "$1" --argjson e "$2" '.kind == "pr" and .state == "MERGED" and .head_branch == $b
+    and (.head_oid // "") != "" and (($e.oid // "") == "" or $e.oid == .head_oid)' <<<"$3" >/dev/null
 }
 
 _head_plan_json() {

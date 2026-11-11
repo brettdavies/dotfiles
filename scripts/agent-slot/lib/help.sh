@@ -201,7 +201,9 @@ verb_help() {
       'cannot read still fails. Its command checks the prime for a Cloudflare config, since the slot is not cloned yet.' \
       'The head is the branch the slot had checked out, else the PR'"'"'s head branch, else' \
       'the base, fetched from the remote the ledger recorded for it when that is on origin'"'"'s host, else from the' \
-      "PR's head repository. A reopen is a foreign head when the source slot was, or when that URL or a PR's head on" \
+      "PR's head repository. A PR that GitHub reports merged, whose head is that branch at the commit the ledger" \
+      'recorded for it, gives the base instead (head.source.branch is base), since the base holds its work; --dry-run' \
+      "says why. A reopen is a foreign head when the source slot was, or when that URL or a PR's head on" \
       'GitHub is. A --prompt-file needs a line for each of Scope:, Limits:, Reviews:, Reports to:, Touches:, and Adds:,' \
       'each with a value, or the reopen is refused with brief-incomplete. Agents ask the operator first.' \
       'returns: launch'"'"'s fields (key, name, items, session_id, prompt_delivered, ...) plus reopened_from {slot,' \

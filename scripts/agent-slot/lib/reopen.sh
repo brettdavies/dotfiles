@@ -233,7 +233,9 @@ reopen_report() {
         "would reopen \(.source.repo)/\(.source.slot), torn down \(.source.ts), in \(.slot) as \(.name)\n"
         + "  session \(.session_id), transcript \(.transcript)\n"
         + "  head \(.head.branch) " + (if .head.remote then "from \(.head.remote) at \(.head.url)"
-                                       else "from refs/pull/\(.item.number)/head" end) + "\n"
+                                       else "from refs/pull/\(.item.number)/head" end)
+        + (if .item.kind == "pr" and .head.source.branch == "base"
+           then " (PR #\(.item.number) is merged and \(.head.remote)/\(.head.branch) holds its head)" else "" end) + "\n"
         + "  command: \(.command)"
       elif .refusal then
         "would refuse with \(.refusal.reason): \(.refusal.message)"
