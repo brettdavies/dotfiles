@@ -1,0 +1,13 @@
+name: PR cache cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  cleanup:
+    permissions:
+      actions: write
+    uses: brettdavies/.github/.github/workflows/pr-cache-cleanup.yml@main
