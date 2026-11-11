@@ -46,16 +46,17 @@ os_optional() {
 }
 
 os_render() {
-  local secret dfs='' gid='' gsec='' image
+  local secret dfs='' gid='' gsec='' orkey='' image
   [ "$(uname -s)" = Linux ] || os_fail unsupported-host "only the Linux server runs OpenSEO; this host is $(os_mask "$(uname -s)")" "run $OS_DEPLOY on the Linux server" "$(uname -s)"
   pin_load "$OS_PIN"
   pin_verify "$OS_COMPOSE_FILE"
   os_need jq tailscale
   os_need_suffix
   os_item "$OS_STORAGE_ITEM" "OpenSEO - Storage Secret (openseo)" password secret
-  os_optional "$OS_DATAFORSEO_ITEM" "DataForSEO API Key" credential dfs "DATAFORSEO_API_KEY renders empty: its 1Password item's UUID is not committed yet, so only the crawl-only audit works"
-  os_optional "$OS_GOOGLE_ITEM" "OpenSEO - Google OAuth Client (openseo)" client_id gid "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET render empty: their 1Password item's UUID is not committed yet, so Search Console cannot connect"
+  os_optional "$OS_DATAFORSEO_ITEM" "DataForSEO API Key" credential dfs "DATAFORSEO_API_KEY renders empty: OPENSEO_DATAFORSEO_ITEM is empty, so only the crawl-only audit works"
+  os_optional "$OS_GOOGLE_ITEM" "OpenSEO - Google OAuth Client (openseo)" client_id gid "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET render empty: OPENSEO_GOOGLE_ITEM is empty, so Search Console cannot connect"
   os_optional "$OS_GOOGLE_ITEM" "OpenSEO - Google OAuth Client (openseo)" client_secret gsec
+  os_optional "$OS_OPENROUTER_ITEM" "OpenRouter API Key - OpenSEO" credential orkey "OPENROUTER_API_KEY renders empty: OPENSEO_OPENROUTER_ITEM is empty, so OpenSEO makes no OpenRouter call"
   os_keep_storage STORAGE_ACCESS_KEY "$OS_STORAGE_ACCESS_KEY"
   os_keep_storage STORAGE_SECRET_KEY "$secret"
   image=$(os_env_get "$OS_LOCAL_ENV" OPENSEO_IMAGE)
@@ -68,6 +69,7 @@ os_render() {
     printf 'STORAGE_ACCESS_KEY=%s\nSTORAGE_SECRET_KEY=%s\n' "$OS_STORAGE_ACCESS_KEY" "$secret"
     printf 'BETTER_AUTH_URL=https://openseo.%s\nOPENSEO_IMAGE=%s\n' "$OS_SUFFIX" "$image"
     printf 'DATAFORSEO_API_KEY=%s\nGOOGLE_CLIENT_ID=%s\nGOOGLE_CLIENT_SECRET=%s\n' "$dfs" "$gid" "$gsec"
+    printf 'OPENROUTER_API_KEY=%s\nOPENROUTER_MODEL=%s\n' "$orkey" "$OS_OPENROUTER_MODEL"
   } >"$OS_TMP"
   mv -f "$OS_TMP" "$OS_LOCAL_ENV"
   echo "==> wrote $OS_ENV_SHOWN (mode 600; keys: $(sed -n 's/=.*//p' "$OS_LOCAL_ENV" | tr '\n' ' '))"

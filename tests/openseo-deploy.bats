@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 # scripts/openseo-deploy.sh runs OpenSEO's Docker stack on the Linux server and binds it to svc:openseo. The suite
-# stubs docker, tailscale, curl, and the 1Password read, so it runs no container, binds nothing, and reads no secret.
+# stubs docker, tailscale, curl, ssh, and the 1Password read, so it runs no container, binds nothing, and reads no secret.
+# The ssh stub runs the NAS's commands on this host with the NAS's /boot/config and /usr/local/emhttp mapped into
+# $NAS_ROOT, where compose.sh is a stub that logs its arguments.
 # Every stub secret starts with STUBSECRET so a leak into output or an argument list is one grep.
 #
 # Run: bats tests/openseo-deploy.bats
@@ -15,6 +17,10 @@ COMPOSE="$REPO_ROOT/config/openseo/compose.yaml"
 RUNBOOK="$REPO_ROOT/docs/runbooks/openseo.md"
 STORAGE_ITEM=tdkhy4vi4ijxryxihwb4xdjowy
 ADMIN_ITEM=hwacawam6ghon7c4tlxswldzye
+DFS_ITEM=lx26y32x6zcxkfiahuvis6yv2m
+GOOGLE_ITEM=ws3ujqnvak5jvhnikn3zwh4sxi
+OPENROUTER_ITEM=3pyrzbnoefzfsvbdquhh3w5fei
+COMPOSE_SH=/usr/local/emhttp/plugins/compose.manager/scripts/compose.sh
 REAL_DOCKER=$(command -v docker || true)
 
 setup_file() {
@@ -22,14 +28,26 @@ setup_file() {
   require_linux "the script uses GNU timeout, stat, and sha256sum, and refuses to run elsewhere"
 }
 
-_stub() {
-  printf '#!/usr/bin/env bash\n%s\n' "$2" >"$STUBS/$1"
-  chmod +x "$STUBS/$1"
+_stub_at() {
+  printf '#!/usr/bin/env bash\n%s\n' "$2" >"$1"
+  chmod +x "$1"
 }
+_stub() { _stub_at "$STUBS/$1" "$2"; }
 
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$STUBS/op"
+  export NAS_ROOT="$BATS_TEST_TMPDIR/nas"
+  STACK="$NAS_ROOT/boot/config/plugins/compose.manager/projects/openseo"
+  mkdir -p "$NAS_ROOT/emhttp/plugins/compose.manager/scripts"
+  _stub_at "$NAS_ROOT/emhttp/plugins/compose.manager/scripts/compose.sh" 'echo "compose.sh $*" >>"$CALLS"
+  case "$1" in
+    -cup)
+      [ "${STUB_INIT:-ok}" != hang ] || exec sleep 30
+      [ "${STUB_INIT:-ok}" != fail ] || { echo "service \"init\" didn'"'"'t complete successfully: exit 1" >&2; exit 1; }
+      [ "${STUB_UP_FAIL:-}" != 1 ] || { echo "up failed" >&2; exit 1; } ;;
+    -cstop) [ "${STUB_STOP_FAIL:-}" != 1 ] || { echo "stop failed" >&2; exit 1; } ;;
+  esac'
   export CALLS="$BATS_TEST_TMPDIR/calls.log" ACCOUNT="$BATS_TEST_TMPDIR/account" STDIN_FILE="$BATS_TEST_TMPDIR/stdin"
   export OPENSEO_ENV_DIR="$BATS_TEST_TMPDIR/cfg/openseo" OP_SKILL="$STUBS/op"
   export STUB_HEALTH=ok STUB_FIRST=false STUB_ADDR=ok STUB_CAP=1 STUB_BOUND=0
@@ -41,9 +59,10 @@ setup() {
     '$STORAGE_ITEM':password) printf "%s" "${STUB_STORAGE:-STUBSECRET_storage_0123456789}" ;;
     '$ADMIN_ITEM':username) printf "admin@openseo.test" ;;
     '$ADMIN_ITEM':password) printf "STUBSECRET_admin_pw_0123" ;;
-    dfs-item:credential) printf "STUBSECRET_dfs_credential==" ;;
-    google-item:client_id) printf "stub-client-id.apps.test" ;;
-    google-item:client_secret) printf "STUBSECRET_google_secret" ;;
+    dfs-item:credential | '$DFS_ITEM':credential) printf "STUBSECRET_dfs_credential==" ;;
+    google-item:client_id | '$GOOGLE_ITEM':client_id) printf "stub-client-id.apps.test" ;;
+    google-item:client_secret | '$GOOGLE_ITEM':client_secret) printf "STUBSECRET_google_secret" ;;
+    '$OPENROUTER_ITEM':credential) printf "STUBSECRET_openrouter_key" ;;
     *) exit 1 ;;
   esac'
   _stub tailscale 'echo "tailscale $*" >>"$CALLS"
@@ -72,7 +91,8 @@ setup() {
   esac'
   _stub docker 'echo "docker $*" >>"$CALLS"
   echo "env COMPOSE_FILE=${COMPOSE_FILE-unset} COMPOSE_ENV_FILES=${COMPOSE_ENV_FILES-unset} PORT=${PORT-unset} OPENSEO_IMAGE=${OPENSEO_IMAGE-unset} OPENROUTER_API_KEY=${OPENROUTER_API_KEY-unset} COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME-unset} DOCKER_HOST=${DOCKER_HOST-unset}" >>"$CALLS"
-  case "$2" in
+  sub=$2; [ "$sub" != -p ] || sub=$4
+  case "$sub" in
     pull) [ "${STUB_PULL_FAIL:-}" != 1 ] || { echo "pull access denied" >&2; exit 1; } ;;
     up)
       [ "${STUB_INIT:-ok}" != hang ] || exec sleep 30
@@ -91,7 +111,9 @@ setup() {
   while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
   shift 2
   case "$*" in *"${STUB_SSH_MISSING:-@@}"*) echo "sh: 1: $STUB_SSH_MISSING: not found" >&2; exit 127 ;; esac
-  exec sh -c "$*"'
+  rw="s#/boot/config#$NAS_ROOT/boot/config#g;s#/usr/local/emhttp#$NAS_ROOT/emhttp#g"
+  [ "$*" != "sh -s" ] || { sed "$rw" | sh -s; exit; }
+  exec sh -c "$(printf %s "$*" | sed "$rw")"'
   PATH="$STUBS:$PATH"
 }
 
@@ -110,7 +132,8 @@ _no_volumes() { ! grep "^docker" "$CALLS" | grep -qE "(^| )(-v|--volumes)( |$)";
 _all_loopback() { ! grep "ports:" "$COMPOSE" | grep -qv "127.0.0.1:"; }
 _ssh_calls() { grep '^ssh ' "$CALLS"; }
 _remote_only() { awk '/^(curl http:\/\/127\.0\.0\.1|tailscale serve)/ && prev !~ /^ssh .* -- pool / { bad = 1 } { prev = $0 } END { exit bad }' "$CALLS"; }
-_ssh_only_allowed() { ! grep '^ssh ' "$CALLS" | grep -qvE '^ssh -n -o BatchMode=yes -o ConnectTimeout=10 -- pool (tailscale|curl|docker) '; }
+_ssh_only_allowed() { ! grep '^ssh ' "$CALLS" | grep -qvE "^ssh -n -o BatchMode=yes -o ConnectTimeout=10 -- pool (tailscale|curl|docker|test -x|d=.*exec $COMPOSE_SH -c(up|stop)) "; }
+_break_stack_dir() { mkdir -p "${STACK%/*/*}" && : >"${STACK%/*}"; }
 _nas_compose_calls() { grep -c "COMPOSE_ENV_FILES=$OPENSEO_ENV_DIR/nas.env .*DOCKER_HOST=ssh://${1:-pool}\$" "$CALLS"; }
 _pin_variant() { sed "$1" "$PIN" >"$BATS_TEST_TMPDIR/variant.pin"; }
 _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "$2"; echo "$PIN_IMAGE"' _ "$LIB" "$1"; }
@@ -174,7 +197,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [ "$status" -eq 0 ]
   [ "$(stat -c %a "$OPENSEO_ENV_DIR")" = 700 ]
   [ "$(stat -c %a "$OPENSEO_ENV_DIR/local.env")" = 600 ]
-  for key in AUTH_MODE PORT STORAGE_ACCESS_KEY STORAGE_SECRET_KEY BETTER_AUTH_URL OPENSEO_IMAGE DATAFORSEO_API_KEY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET; do
+  for key in AUTH_MODE PORT STORAGE_ACCESS_KEY STORAGE_SECRET_KEY BETTER_AUTH_URL OPENSEO_IMAGE DATAFORSEO_API_KEY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET OPENROUTER_API_KEY OPENROUTER_MODEL; do
     grep -q "^$key=" "$OPENSEO_ENV_DIR/local.env"
   done
   grep -qx 'BETTER_AUTH_URL=https://openseo.tail-test.ts.net' "$OPENSEO_ENV_DIR/local.env"
@@ -189,19 +212,38 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   grep -q '^STORAGE_SECRET_KEY=STUBSECRET_storage' "$OPENSEO_ENV_DIR/local.env"
 }
 
-@test "render writes the DataForSEO key and the Google client when their items are configured" {
-  OPENSEO_DATAFORSEO_ITEM=dfs-item OPENSEO_GOOGLE_ITEM=google-item _run render
+@test "render writes the DataForSEO key and the Google client from the items the script names" {
+  _run render
   [ "$status" -eq 0 ]
+  grep -q "^read_field $DFS_ITEM credential" "$CALLS"
+  grep -q "^read_field $GOOGLE_ITEM client_id" "$CALLS"
   grep -qx 'DATAFORSEO_API_KEY=STUBSECRET_dfs_credential==' "$OPENSEO_ENV_DIR/local.env"
   grep -qx 'GOOGLE_CLIENT_ID=stub-client-id.apps.test' "$OPENSEO_ENV_DIR/local.env"
   grep -qx 'GOOGLE_CLIENT_SECRET=STUBSECRET_google_secret' "$OPENSEO_ENV_DIR/local.env"
 }
 
-@test "render with no DataForSEO item leaves the key empty and says how to add it" {
-  _run render
+@test "render with an empty DataForSEO item leaves the key empty and names the variable" {
+  OPENSEO_DATAFORSEO_ITEM='' _run render
   [ "$status" -eq 0 ]
   grep -qx 'DATAFORSEO_API_KEY=' "$OPENSEO_ENV_DIR/local.env"
-  [[ "$output" == *"NOTE: DATAFORSEO_API_KEY renders empty"* ]]
+  [[ "$output" == *"NOTE: DATAFORSEO_API_KEY renders empty"*"OPENSEO_DATAFORSEO_ITEM"* ]]
+}
+
+@test "render writes OPENROUTER_API_KEY from its item and the model constant, on both hosts" {
+  _run render
+  [ "$status" -eq 0 ]
+  grep -q "^read_field $OPENROUTER_ITEM credential" "$CALLS"
+  grep -qx 'OPENROUTER_API_KEY=STUBSECRET_openrouter_key' "$OPENSEO_ENV_DIR/local.env"
+  grep -qx 'OPENROUTER_MODEL=anthropic/claude-sonnet-5.5' "$OPENSEO_ENV_DIR/local.env"
+  _run render --host nas
+  grep -qx 'OPENROUTER_API_KEY=STUBSECRET_openrouter_key' "$OPENSEO_ENV_DIR/nas.env"
+  grep -qx 'OPENROUTER_MODEL=anthropic/claude-sonnet-5.5' "$OPENSEO_ENV_DIR/nas.env"
+  _no_leaks
+  OPENSEO_OPENROUTER_ITEM='' _run render
+  [ "$status" -eq 0 ]
+  grep -qx 'OPENROUTER_API_KEY=' "$OPENSEO_ENV_DIR/local.env"
+  grep -qx 'OPENROUTER_MODEL=anthropic/claude-sonnet-5.5' "$OPENSEO_ENV_DIR/local.env"
+  [[ "$output" == *"NOTE: OPENROUTER_API_KEY renders empty"*"OPENSEO_OPENROUTER_ITEM"* ]]
 }
 
 @test "render keeps the env file's image when the pin has moved on" {
@@ -585,21 +627,110 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   _no_leaks
 }
 
-@test "up --host nas runs every compose call against the NAS daemon and nas.env, and binds through ssh" {
+@test "up --host nas writes the Compose Manager stack, starts it with the plugin's compose.sh, and binds through ssh" {
   _run --host nas up
   [ "$status" -eq 0 ]
-  [ "$(_nas_compose_calls)" -eq 4 ]
-  grep -q '^docker compose up -d --force-recreate init web crawl-gateway$' "$CALLS"
-  [ "$(_ssh_calls | head -1)" = "ssh -n -o BatchMode=yes -o ConnectTimeout=10 -- pool docker version && curl --version && tailscale version" ]
+  [ "$(_nas_compose_calls)" -eq 1 ]
+  grep -q '^docker compose -p openseo logs --no-color --no-log-prefix init$' "$CALLS"
+  _never "^docker compose (pull|up|stop)"
+  [[ "$output" == *"docker compose -p openseo logs -f init"* ]]
+  [ "$(_ssh_calls | head -1)" = "ssh -n -o BatchMode=yes -o ConnectTimeout=10 -- pool test -x $COMPOSE_SH && docker version && curl --version && tailscale version" ]
+  [ "$(cat "$STACK/name")" = OpenSEO ]
+  [ "$(cat "$STACK/project_name")" = openseo ]
+  [ "$(cat "$STACK/autostart")" = true ]
+  [ -s "$STACK/description" ]
+  cmp "$COMPOSE" "$STACK/compose.yaml"
+  cmp "$REPO_ROOT/config/openseo/compose.override.yaml" "$STACK/compose.override.yaml"
+  cmp "$OPENSEO_ENV_DIR/nas.env" "$STACK/.env"
+  [ "$(stat -c %a "$STACK/.env")" = 600 ]
+  grep -qx "compose.sh -cup --recreate -popenseo -f$STACK/compose.yaml -f$STACK/compose.override.yaml -e$STACK/.env -s$STACK" "$CALLS"
+  _no_leaks
   _ssh_calls | grep -q -- "-- pool tailscale serve --service=svc:openseo --https=443 --yes http://127.0.0.1:8946"
   _ssh_calls | grep -q -- "-- pool curl .*http://127.0.0.1:8946/api/health"
   [ ! -e "$OPENSEO_ENV_DIR/local.env" ]
 }
 
+@test "the override labels every service compose.yaml defines as Compose Manager's" {
+  services() { awk '/^services:/ { in_s = 1; next } /^[^ #]/ { in_s = 0 } in_s && /^  [a-z][a-z-]*:/ { sub(":.*", ""); gsub(" ", ""); print }' "$1"; }
+  override="$REPO_ROOT/config/openseo/compose.override.yaml"
+  [ -n "$(services "$COMPOSE")" ]
+  [ "$(services "$override")" = "$(services "$COMPOSE")" ]
+  [ "$(grep -c 'net.unraid.docker.managed: composeman' "$override")" -eq "$(services "$COMPOSE" | wc -l)" ]
+}
+
+@test "up --host nas keeps a folder's metadata and the dashboard's files, and replaces only the three stack files" {
+  mkdir -p "$STACK"
+  for f in name project_name description autostart icon_url last_result.json; do printf 'dashboard-%s' "$f" >"$STACK/$f"; done
+  printf old >"$STACK/compose.yaml"
+  _run up --host nas
+  [ "$status" -eq 0 ]
+  for f in name project_name description autostart icon_url last_result.json; do [ "$(cat "$STACK/$f")" = "dashboard-$f" ]; done
+  cmp "$COMPOSE" "$STACK/compose.yaml"
+  cmp "$OPENSEO_ENV_DIR/nas.env" "$STACK/.env"
+}
+
+@test "up --host nas puts the stack under PROJECTS_FOLDER from the plugin's config, quoted or not" {
+  cfg="$NAS_ROOT/boot/config/plugins/compose.manager/compose.manager.cfg"
+  mkdir -p "${cfg%/*}"
+  printf 'OTHER="x"\nPROJECTS_FOLDER="%s/quoted"\n' "$NAS_ROOT" >"$cfg"
+  _run up --host nas
+  [ "$status" -eq 0 ]
+  [ -f "$NAS_ROOT/quoted/openseo/compose.yaml" ] && [ ! -e "$STACK" ]
+  grep -q "^compose.sh -cup --recreate -popenseo -f$NAS_ROOT/quoted/openseo/compose.yaml " "$CALLS"
+  printf 'PROJECTS_FOLDER=%s/bare\n' "$NAS_ROOT" >"$cfg"
+  _run up --host nas
+  [ -f "$NAS_ROOT/bare/openseo/.env" ]
+}
+
+@test "up --host nas names the failing step: stack-write-failed, up-failed, or init-failed" {
+  _break_stack_dir
+  _run up --host nas
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: stack-write-failed:"*"nothing was started"*"cause:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
+  _never "^compose.sh"
+  rm -f "${STACK%/*}"
+  STUB_UP_FAIL=1 _run up --host nas
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: up-failed:"*"cause: up failed"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
+  STUB_INIT=fail _run up --host nas
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: init-failed:"*"didn't complete successfully"*"docker compose -p openseo logs init"* ]]
+  OPENSEO_INIT_TIMEOUT=1 STUB_INIT=hang _run up --host nas
+  [[ "$output" == *"ERROR: init-failed: init did not complete within 1s"* ]]
+  _not_served
+}
+
+@test "up and down --host nas without the plugin's compose.sh stop at the probe, before 1Password and the NAS's disk" {
+  chmod -x "$NAS_ROOT/emhttp/plugins/compose.manager/scripts/compose.sh"
+  for verb in up down; do
+    : >"$CALLS"
+    _run "$verb" --host nas
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"ERROR: nas-unreachable:"*"test -x $COMPOSE_SH"*"fix:"* ]]
+    [ "$(wc -l <"$CALLS")" -eq 1 ]
+  done
+  [ ! -e "$STACK" ] && [ ! -e "$OPENSEO_ENV_DIR/nas.env" ]
+  _run render --host nas
+  [ "$status" -eq 0 ]
+}
+
+@test "down --host nas stops the stack with compose.sh and runs no docker compose stop" {
+  _prep
+  _run render --host nas
+  : >"$CALLS"
+  _run down --host nas
+  [ "$status" -eq 0 ]
+  grep -qx "compose.sh -cstop -popenseo -f$STACK/compose.yaml -f$STACK/compose.override.yaml -e$STACK/.env -s$STACK" "$CALLS"
+  _never "^docker compose"
+  STUB_STOP_FAIL=1 _run down --host nas
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: stop-failed:"*"cause: stop failed"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --host nas down"* ]]
+}
+
 @test "OPENSEO_NAS_SSH names another alias, and a value that is not a host alias is a usage error" {
   OPENSEO_NAS_SSH=nashost _run up --host nas
   [ "$status" -eq 0 ]
-  [ "$(_nas_compose_calls nashost)" -eq 4 ]
+  [ "$(_nas_compose_calls nashost)" -eq 1 ]
   _ssh_calls | grep -q -- "-- nashost "
   STUB_HEALTH=issues OPENSEO_NAS_SSH=nashost _run serve --host nas
   [[ "$output" == *"fix: OPENSEO_NAS_SSH=nashost ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
@@ -614,10 +745,11 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [[ "$output" == *"ERROR: usage:"*"--host takes nas"* ]]
 }
 
-@test "no verb under --host nas writes on the NAS: ssh carries only tailscale, curl, and docker, always non-interactive" {
+@test "no verb but up writes on the NAS: ssh carries only tailscale, curl, docker, and compose.sh, always non-interactive" {
   _run render --host nas
   STUB_FIRST=true _run create-admin --host nas
   [ "$status" -eq 0 ]
+  grep -q "^docker compose -p openseo exec -T runtime node /opt/standalone/admin.mjs create-user " "$CALLS"
   grep -q "^env COMPOSE_FILE=$COMPOSE COMPOSE_ENV_FILES=$OPENSEO_ENV_DIR/nas.env .*DOCKER_HOST=ssh://pool$" "$CALLS"
   [ "$(cat "$STDIN_FILE")" = STUBSECRET_admin_pw_0123 ]
   _run down --host nas
@@ -626,8 +758,9 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [ "$status" -eq 0 ]
   STUB_BOUND=1 _run status --host nas
   [ "$status" -eq 0 ]
-  [ "$(_nas_compose_calls)" -ge 2 ]
+  [ "$(_nas_compose_calls)" -ge 1 ]
   for cmd in tailscale curl docker; do _ssh_calls | grep -q -- "-- pool $cmd "; done
+  [ -z "$(find "$NAS_ROOT/boot" -type f)" ]
   _remote_only
   _ssh_only_allowed
 }
@@ -732,7 +865,9 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   STUB_CAP=0 _run serve; _check
   STUB_PULL_FAIL=1 _run up; _check
   STUB_SSH_FAIL=1 _run status --host nas; _check
-  [ "$seen" = " item-unreadable unsupported-host usage env-missing storage-key-changed unhealthy service-not-advertised pull-failed nas-unreachable" ]
+  _break_stack_dir
+  _run up --host nas; _check
+  [ "$seen" = " item-unreadable unsupported-host usage env-missing storage-key-changed unhealthy service-not-advertised pull-failed nas-unreachable stack-write-failed" ]
 }
 
 @test "every reason has a heading in the runbook, and every verb it runs is in --help" {

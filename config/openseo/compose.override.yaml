@@ -1,0 +1,31 @@
+services:
+  storage:
+    labels:
+      net.unraid.docker.managed: composeman
+      net.unraid.docker.icon: ""
+      net.unraid.docker.webui: ""
+      net.unraid.docker.shell: ""
+  runtime:
+    labels:
+      net.unraid.docker.managed: composeman
+      net.unraid.docker.icon: ""
+      net.unraid.docker.webui: ""
+      net.unraid.docker.shell: ""
+  init:
+    labels:
+      net.unraid.docker.managed: composeman
+      net.unraid.docker.icon: ""
+      net.unraid.docker.webui: ""
+      net.unraid.docker.shell: ""
+  crawl-gateway:
+    labels:
+      net.unraid.docker.managed: composeman
+      net.unraid.docker.icon: ""
+      net.unraid.docker.webui: ""
+      net.unraid.docker.shell: ""
+  web:
+    labels:
+      net.unraid.docker.managed: composeman
+      net.unraid.docker.icon: ""
+      net.unraid.docker.webui: ""
+      net.unraid.docker.shell: ""
