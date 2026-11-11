@@ -183,8 +183,8 @@ scripts/release/drift.sh
 git push -u origin "release/$(date +%Y.%m.%d)"
 gh pr create --draft --base main --head "release/$(date +%Y.%m.%d)" --title "release: $(date +%Y.%m.%d)" --body-file /tmp/body.md
 
-# 8. Mark the PR ready once its checks pass.
-gh pr ready "release/$(date +%Y.%m.%d)"
+# 8. Mark the PR ready once its checks pass (from the release branch, so the date is not computed again).
+gh pr ready
 ```
 
 The result is a single commit whose diff against `main` is the release, with `main` as an ancestor, so the PR merges
