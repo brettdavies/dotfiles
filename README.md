@@ -702,7 +702,12 @@ work back. It finds the newest teardown whose items hold the item, or, for a PR 
 hold its number; `--session <id>` instead picks the teardown of the slot whose Claude session that was, for a teardown
 that names no items. It makes a fresh slot as launch does and checks out the head: the branch the old slot had checked
 out, else the PR's head branch, else the base, fetched from the remote the ledger recorded for it when that remote is on
-origin's host, else from the PR's head repository. A branch that remote no longer has comes from a PR's
+origin's host, else from the PR's head repository. A PR that GitHub reports merged into the base, whose head is that
+branch at the commit the teardown recorded for it (or at any commit when the teardown recorded none), gives the base
+instead, since `origin/<base>` holds its work: the slot has no local branch for the merged head, `head.source.branch`
+is `base`, and `--dry-run` says so in its text output. A PR merged into another branch, a merged PR whose head commit
+or target branch GitHub does not report, a closed PR that did not merge, and a branch tip past the merged head keep the
+branch. A branch that remote no longer has comes from a PR's
 `refs/pull/<N>/head`, and for an issue the slot keeps the base; either way the reopen reports `head_pushable: false`. It
 then starts Claude with `--resume <session ID>`, so the agent has the first round's conversation; nothing under
 `~/.claude/projects` moves, since Claude Code resumes a session by its ID from any directory. The `--prompt-file` text
@@ -762,8 +767,9 @@ agent-slot reopen widget --model opus --pr 887 --dry-run --output json
 ```
 
 `head.source` says where the head came from: this teardown recorded no `head`, so the branch is the PR's head branch on
-GitHub (`gh`), and its remote and URL are the ones the teardown's `branches` recorded for it (`ledger`). The reopen
-itself takes the reply as the agent's brief:
+GitHub (`gh`), and its remote and URL are the ones the teardown's `branches` recorded for it (`ledger`). For a PR,
+`head.source.branch` is `base` only when GitHub reports it merged into the base, since a PR always has a head branch of
+its own, and the base then holds its work. The reopen itself takes the reply as the agent's brief:
 
 ```bash
 agent-slot reopen widget --model opus --pr 887 --prompt-file reply.md --output json
@@ -923,7 +929,10 @@ lower branch is squash-merged into the base and the upper branch is replayed ont
 denied when the lower branch was reset, amended, or squashed after the stack was built on it and carries work the base
 lacks, when the tip is one the base already holds, when the clone has no ref for the base, and when the reflog of
 `origin/<branch>` does not name the earlier tip. Origin's default branch, while origin's copy holds all its commits, is
-no second task, and a probe's branch goes under `probe/`.
+no second task, and a probe's branch goes under `probe/`. When the denial is over a branch whose work the base holds (the
+clean-merge test above), it says so and names the way out: a push that continues the same task deletes that local branch
+with `git branch -D <branch>` and pushes again, and a new task still asks for `agent-slot retask`. A denial over a branch
+with work the base lacks names only `retask`, since deleting that branch would lose the work.
 
 `agent-slot resume <repo>/<N> --model (opus | sonnet)` switches a live slot's model. The slot's record takes the model,
 and a Claude that is idle is ended and started again in its own pane through the command line a launch builds, resuming

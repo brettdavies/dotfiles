@@ -27,7 +27,8 @@ item_parse_ref() {
 }
 
 # Usage: item_resolve; reads the item item_parse_ref named from GitHub into ITEM: {kind, repo, number, title, state}, and
-# for a PR also head_branch, head_oid, head_repo (owner/name), head_url, cross_repository, draft, and url, with head_repo
+# for a PR also head_branch, head_oid, base_branch (the branch it targets), head_repo (owner/name), head_url,
+# cross_repository, draft, and url, with head_repo
 # and head_url null once the head's repository is gone. state is gh's OPEN, CLOSED, or MERGED. The caller has required gh.
 #
 # The issues API answers for both kinds and says which one the number is. It also names the repository as GitHub
@@ -60,13 +61,13 @@ item_resolve() {
     return 0
   fi
   _item_gh pr view "$ITEM_NUMBER" --repo "$ITEM_REPO" \
-    --json headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository,isDraft,state,title,url
+    --json baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository,isDraft,state,title,url
   ITEM=$(contract_json -c --arg repo "$ITEM_REPO" --argjson number "$ITEM_NUMBER" '
     if type == "object" and has("headRefName") then . else error("not a PR") end
     | (if .headRepository and .headRepositoryOwner
        then "\(.headRepositoryOwner.login)/\(.headRepository.name)" else null end) as $head
     | {kind: "pr", repo: $repo, number: $number, title: (.title // ""), state, head_branch: .headRefName,
-       head_oid: (.headRefOid // null), head_repo: $head,
+       head_oid: (.headRefOid // null), base_branch: (.baseRefName // null), head_repo: $head,
        head_url: (if $head then "https://github.com/\($head).git" else null end),
        cross_repository: (.isCrossRepository == true), draft: (.isDraft == true), url: (.url // null)}' <<<"$ITEM_GH_OUT") \
     || _item_unreadable "gh answered with something other than a PR"

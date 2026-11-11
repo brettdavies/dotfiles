@@ -390,6 +390,55 @@ squash_merged_stack() {
   [[ $(reason) == *'agent-slot retask repo/1'* ]]
 }
 
+# cut_after_squash: feat/one is squash-merged into origin/main, and feat/two is cut from the new base, as a fresh task or
+# the next step of the merged one would be. feat/one's local ref stays.
+cut_after_squash() {
+  commit scripts/agent-slot/one.sh
+  pushed feat/one
+  squash_into_base feat/one
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+}
+
+@test "a push cut from the base after the task's branch was squash-merged is denied naming the deletion of that branch, and passes once it is deleted" {
+  cut_after_squash
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'task is on feat/one'* ]]
+  [[ $(reason) == *'git branch -D feat/one'* ]]
+  [[ $(reason) == *'agent-slot retask repo/1 --task <name>'* ]]
+  git -C "$SLOT" branch -D feat/one
+  push 'git push origin feat/two'
+}
+
+@test "the deletion the denial names quotes a branch name that holds shell syntax, and running it as written clears the denial" {
+  local name='feat/a;touch$(id)' cmd
+  git -C "$SLOT" branch -m "$name"
+  commit scripts/agent-slot/one.sh
+  squash_into_base "$name"
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'git branch -D feat/a\;touch\$\(id\)'* ]]
+  cmd=$(sed -n 's/.*`\(git branch -D [^`]*\)`.*/\1/p' <<<"$(reason)")
+  (cd "$SLOT" && eval "$cmd")
+  [ -z "$(git -C "$SLOT" branch --list "$name")" ]
+  push 'git push origin feat/two'
+}
+
+@test "the deletion is named only while the branch's work is in the base: a commit the base lacks brings back the retask text alone" {
+  cut_after_squash
+  run bash_call 'git push origin feat/two'
+  [[ $(reason) == *'git branch -D feat/one'* ]]
+  git -C "$SLOT" checkout -q feat/one
+  commit scripts/agent-slot/one-d.sh
+  git -C "$SLOT" checkout -q feat/two
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [ "$(reason)" = "This push is from feat/two, but this slot's task is on feat/one, and they share no line of work. One session holds one task, so stop here and ask the session you report to to run \`agent-slot retask repo/1 --task <name> --prompt-file <brief>\`, which starts the new task in a new session. If this is the same task, stack it on feat/one. A probe's branch goes under probe/." ]
+}
+
 @test "a branch whose only commits are empty, beside the task's branch, is still a second task, naming retask" {
   commit scripts/agent-slot/one.sh
   git -C "$SLOT" checkout -q -b feat/two origin/main
