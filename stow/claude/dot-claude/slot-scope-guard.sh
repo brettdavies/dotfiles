@@ -211,12 +211,14 @@ replayed_own_commits() {
 # Usage: branch_reason <repo> <n> <head> <other> <by_base>; the denial for a push from <head> in a slot whose task is on
 # <other>. <by_base> is 1 when origin/<base> already holds <other>'s work, which leaves <other> a local branch with
 # nothing left to push: deleting it loses nothing, and a push that continues the task then has no second branch beside it.
+# A branch name can hold shell syntax, so the delete command carries it shell-quoted.
 branch_reason() {
-  local retask="agent-slot retask $1/$2 --task <name> --prompt-file <brief>"
+  local retask="agent-slot retask $1/$2 --task <name> --prompt-file <brief>" delete
   if (($5)); then
+    printf -v delete 'git branch -D %q' "$4"
     printf '%s' "This push is from $3, but this slot's task is on $4, and they share no line of work. The base already \
 holds the work of $4, so it is a leftover local branch. If this push continues the same task, delete $4 with \
-\`git branch -D $4\` and push again. A new task stops here instead: ask the session you report to to run \`$retask\`, \
+\`$delete\` and push again. A new task stops here instead: ask the session you report to to run \`$retask\`, \
 which starts the new task in a new session. A probe's branch goes under probe/."
     return 0
   fi

@@ -235,7 +235,7 @@ reopen_report() {
         + "  head \(.head.branch) " + (if .head.remote then "from \(.head.remote) at \(.head.url)"
                                        else "from refs/pull/\(.item.number)/head" end)
         + (if .item.kind == "pr" and .head.source.branch == "base"
-           then " (PR #\(.item.number) is merged and \(.head.remote)/\(.head.branch) holds its head)" else "" end) + "\n"
+           then " (PR #\(.item.number) is merged and \(.head.remote)/\(.head.branch) holds its work)" else "" end) + "\n"
         + "  command: \(.command)"
       elif .refusal then
         "would refuse with \(.refusal.reason): \(.refusal.message)"

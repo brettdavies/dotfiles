@@ -717,7 +717,8 @@ snapshot() {
   jaq -e '.deps.status == "head-not-on-base"' <<<"$output"
 }
 
-MERGED_HEAD='{"headRefName": "feat/x", "headRefOid": "abc123", "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
+MERGED_HEAD='{"headRefName": "feat/x", "headRefOid": "abc123", "baseRefName": "main",
+  "headRepositoryOwner": {"id": "U_1", "login": "up"}}'
 FEAT_X_BRANCH='{"name": "feat/x", "oid": "abc123", "remote": "origin", "url": "https://github.com/up/repoa.git"}'
 BASE_HEAD='{"branch": "main", "remote": "origin", "url": "https://github.com/up/repoa.git", "oid": null,
   "source": {"branch": "base", "remote": "base"}}'
@@ -734,7 +735,7 @@ BASE_HEAD='{"branch": "main", "remote": "origin", "url": "https://github.com/up/
   jaq -e --argjson base "$BASE_HEAD" '.would_reopen == true and .head == $base' <<<"$output"
   run --separate-stderr "$AGENT_SLOT" reopen repoa --pr 7 --model opus --dry-run
   [ "$status" -eq 0 ]
-  [[ $output == *'  head main from origin at https://github.com/up/repoa.git (PR #7 is merged and origin/main holds its head)'* ]]
+  [[ $output == *'  head main from origin at https://github.com/up/repoa.git (PR #7 is merged and origin/main holds its work)'* ]]
   local state
   for state in OPEN CLOSED; do
     gh_item pr 7 "Fix the login" "$state" "$MERGED_HEAD"
@@ -746,7 +747,7 @@ BASE_HEAD='{"branch": "main", "remote": "origin", "url": "https://github.com/up/
       false
     }
   done
-  gh_item pr 7 "Fix the login" MERGED '{"headRefName": "feat/x", "headRefOid": "def456"}'
+  gh_item pr 7 "Fix the login" MERGED '{"headRefName": "feat/x", "headRefOid": "def456", "baseRefName": "main"}'
   reopen repoa --pr 7 --dry-run
   [ "$status" -eq 0 ]
   jaq -e '.head.branch == "feat/x" and .head.source.branch == "ledger"' <<<"$output"
@@ -755,7 +756,7 @@ BASE_HEAD='{"branch": "main", "remote": "origin", "url": "https://github.com/up/
 @test "a reopen of a merged PR makes the slot on the base, with no local branch for the merged head" {
   origin_branch "$T/origins/repoa.git" feat/x
   gh_item pr 7 "Fix the login" MERGED "{\"headRefName\": \"feat/x\", \"headRefOid\": \"$HEAD_SHA\",
-    \"headRepositoryOwner\": {\"id\": \"U_1\", \"login\": \"up\"}}"
+    \"baseRefName\": \"main\", \"headRepositoryOwner\": {\"id\": \"U_1\", \"login\": \"up\"}}"
   teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"items\": [$PR7], \"prs\": [7],
     \"head\": \"feat/x\", \"branches\": [{\"name\": \"feat/x\", \"oid\": \"$HEAD_SHA\", \"remote\": \"origin\",
     \"url\": \"https://github.com/up/repoa.git\"}]}"
@@ -770,4 +771,20 @@ BASE_HEAD='{"branch": "main", "remote": "origin", "url": "https://github.com/up/
   [ "$(git -C "$slot" symbolic-ref --short HEAD)" = main ]
   [ -z "$(git -C "$slot" branch --list feat/x)" ]
   jaq -e -s '.[-1] | .event == "reopen" and .head.source == {branch: "base", remote: "base"}' "$LEDGER"
+}
+
+@test "a merged PR that GitHub does not report as merged into the slot's base keeps the PR's head" {
+  teardown_event "{\"session_id\": \"$S1\", \"transcript\": \"$(transcript "$S1")\", \"prs\": [7], \"head\": \"feat/x\",
+    \"branches\": [$FEAT_X_BRANCH]}"
+  local fields
+  for fields in '{"headRefName": "feat/x", "headRefOid": "abc123", "baseRefName": "release/1"}' \
+    '{"headRefName": "feat/x", "headRefOid": "abc123"}'; do
+    gh_item pr 7 "Fix the login" MERGED "$fields"
+    reopen repoa --pr 7 --dry-run
+    [ "$status" -eq 0 ]
+    jaq -e '.head.branch == "feat/x" and .head.source.branch == "ledger"' <<<"$output" || {
+      echo "$fields: $output"
+      false
+    }
+  done
 }

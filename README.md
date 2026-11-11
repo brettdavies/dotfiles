@@ -702,11 +702,12 @@ work back. It finds the newest teardown whose items hold the item, or, for a PR 
 hold its number; `--session <id>` instead picks the teardown of the slot whose Claude session that was, for a teardown
 that names no items. It makes a fresh slot as launch does and checks out the head: the branch the old slot had checked
 out, else the PR's head branch, else the base, fetched from the remote the ledger recorded for it when that remote is on
-origin's host, else from the PR's head repository. A PR that GitHub reports merged, whose head is that branch at the
-commit the teardown recorded for it (or at any commit when the teardown recorded none), gives the base instead, since
-`origin/<base>` holds its work: the slot has no local branch for the merged head, `head.source.branch` is `base`, and
-`--dry-run` says so in its text output. A merged PR whose head GitHub does not report, a closed PR that did not merge,
-and a branch tip past the merged head keep the branch. A branch that remote no longer has comes from a PR's
+origin's host, else from the PR's head repository. A PR that GitHub reports merged into the base, whose head is that
+branch at the commit the teardown recorded for it (or at any commit when the teardown recorded none), gives the base
+instead, since `origin/<base>` holds its work: the slot has no local branch for the merged head, `head.source.branch`
+is `base`, and `--dry-run` says so in its text output. A PR merged into another branch, a merged PR whose head commit
+or target branch GitHub does not report, a closed PR that did not merge, and a branch tip past the merged head keep the
+branch. A branch that remote no longer has comes from a PR's
 `refs/pull/<N>/head`, and for an issue the slot keeps the base; either way the reopen reports `head_pushable: false`. It
 then starts Claude with `--resume <session ID>`, so the agent has the first round's conversation; nothing under
 `~/.claude/projects` moves, since Claude Code resumes a session by its ID from any directory. The `--prompt-file` text
@@ -766,9 +767,9 @@ agent-slot reopen widget --model opus --pr 887 --dry-run --output json
 ```
 
 `head.source` says where the head came from: this teardown recorded no `head`, so the branch is the PR's head branch on
-GitHub (`gh`), and its remote and URL are the ones the teardown's `branches` recorded for it (`ledger`). A PR whose
-`head.source.branch` is `base` is merged, and the base holds its head. The reopen itself takes the reply as the agent's
-brief:
+GitHub (`gh`), and its remote and URL are the ones the teardown's `branches` recorded for it (`ledger`). For a PR,
+`head.source.branch` is `base` only when GitHub reports it merged into the base, since a PR always has a head branch of
+its own, and the base then holds its work. The reopen itself takes the reply as the agent's brief:
 
 ```bash
 agent-slot reopen widget --model opus --pr 887 --prompt-file reply.md --output json

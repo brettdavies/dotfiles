@@ -411,6 +411,22 @@ cut_after_squash() {
   push 'git push origin feat/two'
 }
 
+@test "the deletion the denial names quotes a branch name that holds shell syntax, and running it as written clears the denial" {
+  local name='feat/a;touch$(id)' cmd
+  git -C "$SLOT" branch -m "$name"
+  commit scripts/agent-slot/one.sh
+  squash_into_base "$name"
+  git -C "$SLOT" checkout -q -b feat/two origin/main
+  commit scripts/agent-slot/two.sh
+  run bash_call 'git push origin feat/two'
+  [ "$status" -eq 0 ]
+  [[ $(reason) == *'git branch -D feat/a\;touch\$\(id\)'* ]]
+  cmd=$(sed -n 's/.*`\(git branch -D [^`]*\)`.*/\1/p' <<<"$(reason)")
+  (cd "$SLOT" && eval "$cmd")
+  [ -z "$(git -C "$SLOT" branch --list "$name")" ]
+  push 'git push origin feat/two'
+}
+
 @test "the deletion is named only while the branch's work is in the base: a commit the base lacks brings back the retask text alone" {
   cut_after_squash
   run bash_call 'git push origin feat/two'
