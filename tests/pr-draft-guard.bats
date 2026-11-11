@@ -125,6 +125,37 @@ assert_denied_and_fixed() {
   assert_denied_and_fixed 'gh pr create -Rd'
 }
 
+@test "a value-taking flag between pr and create: its value is not the subcommand → DENY" {
+  assert_denied_and_fixed 'gh pr --base dev create --title t --body b' 'gh pr --base dev create --draft --title t --body b'
+  assert_denied_and_fixed 'gh pr -t x create --body b' 'gh pr -t x create --draft --body b'
+  assert_denied_and_fixed 'gh pr -B dev create -t x'
+  assert_denied_and_fixed 'gh --repo o/r pr --title x create'
+  assert_denied_and_fixed 'gh pr --title=x create'
+}
+
+@test "a value-taking flag between pr and create, with --draft → ALLOW" {
+  [ "$(classify 'gh pr --base dev create --draft --title t')" = "ALLOW" ]
+  [ "$(classify 'gh pr -t x create -d')" = "ALLOW" ]
+}
+
+@test "gh stack --remote origin submit → DENY" {
+  assert_denied_and_fixed 'gh stack --remote origin submit' 'gh stack --remote origin submit --auto'
+}
+
+@test "the word after a value-taking flag is its value, not a flag" {
+  assert_denied_and_fixed 'gh pr create -t -d' 'gh pr create --draft -t -d'
+  assert_denied_and_fixed 'gh pr create -b -h --title t' 'gh pr create --draft -b -h --title t'
+}
+
+@test "gh pr create -fd=false → DENY, only the d=false cut from the bundle" {
+  assert_denied_and_fixed 'gh pr create -fd=false --title t' 'gh pr create --draft -f --title t'
+}
+
+@test "gh pr create with w in a bundle → DENY, only the w cut from the bundle" {
+  assert_denied_and_fixed 'gh pr create -fw --title t' 'gh pr create --draft -f --title t'
+  assert_denied_and_fixed 'gh pr create -wf --title t' 'gh pr create --draft -f --title t'
+}
+
 # ---------------------------------------------------------------------------
 # DENY: the command sits in a compound command, a wrapper, or a substitution
 # ---------------------------------------------------------------------------
@@ -145,8 +176,29 @@ assert_denied_and_fixed() {
   assert_denied_and_fixed $'git push\ngh pr create --base dev' $'git push\ngh pr create --draft --base dev'
 }
 
-@test "gh pr create wrapped across lines with backslashes → DENY" {
-  assert_denied_and_fixed $'gh pr create \\\n  --base dev \\\n  --title t'
+@test "gh pr create wrapped across lines with backslashes → DENY, the wrapping kept" {
+  assert_denied_and_fixed $'gh pr create \\\n  --base dev \\\n  --title t' \
+    $'gh pr create --draft \\\n  --base dev \\\n  --title t'
+}
+
+@test "a backslash-newline between gh pr and create → DENY" {
+  assert_denied_and_fixed $'gh pr \\\n  create --title t' $'gh pr \\\n  create --draft --title t'
+}
+
+@test "a backslash-newline inside a quoted heredoc and single quotes is rebuilt as typed" {
+  assert_denied_and_fixed $'cat > /tmp/s.sh <<\'EOF\'\nfoo \\\n  bar\nEOF\ngh pr create --title t' \
+    $'cat > /tmp/s.sh <<\'EOF\'\nfoo \\\n  bar\nEOF\ngh pr create --draft --title t'
+  assert_denied_and_fixed $'echo \'a \\\nb\'; gh pr create --title t' $'echo \'a \\\nb\'; gh pr create --draft --title t'
+}
+
+@test "gh pr create --web → DENY, rebuilt without --web, which gh rejects beside --draft" {
+  assert_denied_and_fixed 'gh pr create --web --base dev' 'gh pr create --draft --base dev'
+  assert_denied_and_fixed 'gh pr create -w --base dev' 'gh pr create --draft --base dev'
+  assert_denied_and_fixed 'gh pr create --web=true --base dev' 'gh pr create --draft --base dev'
+}
+
+@test "gh pr create --draft --web → ALLOW: gh itself refuses the pair" {
+  [ "$(classify 'gh pr create --draft --web')" = "ALLOW" ]
 }
 
 @test "gh pr create piped into another command → DENY" {
@@ -242,6 +294,13 @@ assert_denied_and_fixed() {
   [[ $text == *$'\ngh pr ready <number>\n'* ]]
   [[ $text == *$'\ndocs: ~/.claude/guides/git-and-github.md'* ]]
   [ "$(jaq -r '.systemMessage' <<<"$output")" = 'pr-draft-guard denied [pr-not-draft]: `gh pr create` without --draft opens the PR ready for review' ]
+}
+
+@test "two denied commands that fail the same way are named once" {
+  run "$HOOK" <<<"$(bash_payload 'gh pr create -t a; gh pr create -t b --draft; gh pr create -t c')"
+  [ "$status" -eq 0 ]
+  [ "$(jaq -r '.systemMessage' <<<"$output")" = 'pr-draft-guard denied [pr-not-draft]: `gh pr create` without --draft opens the PR ready for review' ]
+  [[ $(jaq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$output") == *$'\ngh pr create --draft -t a; gh pr create -t b --draft; gh pr create --draft -t c\n'* ]]
 }
 
 @test "a gh stack submit deny carries its own reason code" {
@@ -430,6 +489,15 @@ assert_denied_and_fixed() {
 
 @test "with neither jaq nor jq, a call without this guard's trigger text still runs" {
   run_hook_with_parser none "$HOOK" "$(bash_payload 'brew install jaq')"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "with neither jaq nor jq, words that only contain gh in the payload still run" {
+  run_hook_with_parser none "$HOOK" "$(jaq -nc --arg d 'Install jaq through Homebrew' '{tool_name: "Bash", tool_input: {command: "brew install jaq", description: $d}}')"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  run_hook_with_parser none "$HOOK" "$(bash_payload 'gh pr view 12')"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }

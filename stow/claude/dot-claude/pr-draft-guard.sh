@@ -11,7 +11,9 @@
 # Passed: every other command, any of these with -h/--help, and text that only
 # names them (a quoted string, a heredoc body, a comment, a commit message).
 # Only the typed command is read: a script that runs gh itself, a script inside
-# `bash -c '...'`, and a `$( )` inside double quotes are each one word here.
+# `bash -c '...'`, and a `$( )` inside double quotes are each one word here. A
+# wrapper that takes a value of its own (`timeout 60`, `sudo -u bob`,
+# `env -C dir`) hides the command behind it, and so does `xargs`.
 #
 # The command is split the way the shell splits it, and gh's flags are read the
 # way its flag parser reads them: the last occurrence of a flag wins, a bundle
@@ -53,17 +55,18 @@ readonly STACK_VALUE_SHORT=R
 
 INPUT=$(cat)
 
-# Fast path: every command this guard judges runs gh.
+# Fast path: every command this guard judges runs gh, and a denied subcommand
+# has one of these words in it. Both tests run on the raw payload, before the
+# parser lookup, so a host without a parser blocks only calls that could match.
 case "$INPUT" in *gh*) ;; *) exit 0 ;; esac
+case "$INPUT" in *create* | *new* | *submit*) ;; *) exit 0 ;; esac
 JQ=$(command -v jaq || command -v jq) \
   || block 'blocked [json-parser-missing]: neither jaq nor jq is on PATH, so this call could not be checked. It did not run; install jaq, then rerun it.\ndocs: ~/dotfiles/BOOTSTRAP.md § \"Install Packages from Brewfile\"\nnext_step [install-jaq]:\nbrew install jaq' \
     'blocked the call: neither jaq nor jq is installed (brew install jaq)'
 
 CMD=$("$JQ" -r '.tool_input.command // ""' <<<"$INPUT")
 [[ -n "$CMD" ]] || exit 0
-# Every denied subcommand has one of these words in it.
 case "$CMD" in *create* | *new* | *submit*) ;; *) exit 0 ;; esac
-CMD=$(printf '%s\n' "$CMD" | sed -e ':a' -e '/\\$/{N;s/\\\n//;ta' -e '}')
 
 # One token per line: kind, start, end (0-based, exclusive), value. Kinds: W word
 # (value with quotes removed), R redirection with its target, P pipe, L list
@@ -98,7 +101,7 @@ END {
       for (i++; i <= n; i++) { c = substr(s, i, 1); if (c == "\\" && i < n) { i++; val = val substr(s, i, 1); continue } if (c == "\"") break; val = val c }
       continue
     }
-    if (c == "\\") { word(); if (i < n) { i++; val = val substr(s, i, 1) } continue }
+    if (c == "\\") { if (nx == "\n") { i++; continue } word(); if (i < n) { i++; val = val substr(s, i, 1) } continue }
     if (c == "#" && !have) { while (i < n && substr(s, i + 1, 1) != "\n") i++; continue }
     if (c == " " || c == "\t") { flush(); continue }
     if (c == "\n") { op("L", i, i + 1, "\n"); heredoc_bodies(); continue }
@@ -207,18 +210,52 @@ resolve() {
   NAME=${WD[i]##*/} NI=$i
 }
 
+# Succeeds when flag word $1 takes the next word as its value: a long flag
+# listed in $2 with no value attached, or a bundle of short flags that ends on a
+# letter in $3.
+takes_next() {
+  local rest=${1#-} c
+  case $1 in
+    --) return 1 ;;
+    --?*=*) return 1 ;;
+    --?*) [[ $2 == *" $1 "* ]] ;;
+    -?*)
+      while [[ -n $rest ]]; do
+        c=${rest:0:1} rest=${rest:1}
+        if [[ $3 == *"$c"* ]]; then
+          [[ -z $rest ]]
+          return
+        fi
+      done
+      return 1
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 # Sets OPA and OPB to the first two words of gh's arguments that are not flags,
 # and OP1 and OP2 to their indexes in WD (-1 when absent). The argument after
-# -R or --repo is that flag's value.
+# -R or --repo is that flag's value, and once OPA names pr or stack, so is the
+# argument after any flag of that command that takes one.
 read_ops() {
-  local i
+  local i vl="" vs=""
   OPA="" OPB="" OP1=-1 OP2=-1
   for ((i = $1 + 1; i < ${#WD[@]} && OP2 < 0; i++)); do
     case ${WD[i]} in
       -R | --repo) i=$((i + 1)) ;;
-      -*) ;;
+      -*)
+        if [[ -n $vs ]] && takes_next "${WD[i]}" "$vl" "$vs"; then i=$((i + 1)); fi
+        ;;
       *)
-        if ((OP1 < 0)); then OPA=${WD[i]} OP1=$i; else OPB=${WD[i]} OP2=$i; fi
+        if ((OP1 < 0)); then
+          OPA=${WD[i]} OP1=$i
+          case $OPA in
+            pr) vl=$PR_VALUE_LONG vs=$PR_VALUE_SHORT ;;
+            stack) vl=$STACK_VALUE_LONG vs=$STACK_VALUE_SHORT ;;
+          esac
+        else
+          OPB=${WD[i]} OP2=$i
+        fi
         ;;
     esac
   done
@@ -229,9 +266,14 @@ is_true() {
   return 1
 }
 
+mark_cut() {
+  DEL+=("$1") DELR+=("$2")
+}
+
 # Records the value that flag $1 takes in WD[$3]: $2, parsed as a boolean. A
 # word that sets a flag against the draft is queued in DEL, since a rebuilt
-# command keeps it and the last occurrence wins.
+# command keeps it and the last occurrence wins. DELR holds what replaces the
+# word: $4 when the flag sits in a bundle, else nothing.
 note_flag() {
   local on=0 i=$3
   if is_true "$2"; then on=1; fi
@@ -239,17 +281,18 @@ note_flag() {
     --help) HELP=1 ;;
     --draft)
       DRAFT=$on WORD_DRAFT=${WD[i]}
-      if ((on == 0)) && [[ $MODE == pr ]]; then
-        case ${WD[i]%%=*} in --draft | -d) DEL+=("$i") ;; esac
-      fi
+      if ((on == 0)) && [[ $MODE == pr ]]; then mark_cut "$i" "${4-}"; fi
+      ;;
+    --web)
+      if ((on == 1)) && [[ $MODE == pr ]]; then mark_cut "$i" "${4-}"; fi
       ;;
     --auto)
       AUTO=$on
-      if ((on == 0)) && [[ $MODE == stack ]]; then DEL+=("$i"); fi
+      if ((on == 0)) && [[ $MODE == stack ]]; then mark_cut "$i" ""; fi
       ;;
     --open)
       OPEN=$on WORD_OPEN=${WD[i]}
-      if ((on == 1)) && [[ $MODE == stack ]]; then DEL+=("$i"); fi
+      if ((on == 1)) && [[ $MODE == stack ]]; then mark_cut "$i" ""; fi
       ;;
   esac
 }
@@ -258,31 +301,33 @@ note_flag() {
 # and $2 (short), leaving HELP, DRAFT, AUTO, and OPEN as the last occurrence of
 # each sets them.
 scan_flags() {
-  local value_long=$1 value_short=$2 i w rest c v
-  HELP=0 DRAFT=0 AUTO=0 OPEN=0 WORD_DRAFT="" WORD_OPEN="" DEL=()
+  local value_long=$1 value_short=$2 i w rest pre c v left
+  HELP=0 DRAFT=0 AUTO=0 OPEN=0 WORD_DRAFT="" WORD_OPEN="" DEL=() DELR=()
   for ((i = NI + 1; i < ${#WD[@]}; i++)); do
     w=${WD[i]}
     case $w in
       --) break ;;
       --?*=*) note_flag "${w%%=*}" "${w#*=}" "$i" ;;
       --?*)
-        if [[ $value_long == *" $w "* ]]; then i=$((i + 1)); else note_flag "$w" true "$i"; fi
+        if takes_next "$w" "$value_long" "$value_short"; then i=$((i + 1)); else note_flag "$w" true "$i"; fi
         ;;
       -?*)
-        rest=${w#-}
+        rest=${w#-} pre=-
         while [[ -n $rest ]]; do
           c=${rest:0:1} rest=${rest:1}
-          if [[ $value_short == *"$c"* ]]; then
-            if [[ -z $rest ]]; then i=$((i + 1)); fi
-            break
-          fi
+          [[ $value_short != *"$c"* ]] || break
           v=true
           if [[ $rest == =* ]]; then v=${rest#=} rest=; fi
+          left=$pre$rest
+          if [[ $left == - ]]; then left=; fi
           case $c in
-            d) note_flag --draft "$v" "$i" ;;
+            d) note_flag --draft "$v" "$i" "$left" ;;
+            w) note_flag --web "$v" "$i" "$left" ;;
             h) HELP=1 ;;
           esac
+          pre+=$c
         done
+        if takes_next "$w" "$value_long" "$value_short"; then i=$((i + 1)); fi
         ;;
     esac
   done
@@ -293,15 +338,16 @@ queue_insert() {
   QS+=("${E[t]}") QE+=("${E[t]}") QR+=("$1")
 }
 
-# Queues the removal of WD[$1], with the space before it.
-queue_delete() {
+# Queues the replacement of WD[$1] by $2, or its removal with the space before
+# it when $2 is empty.
+queue_cut() {
   local t=${WT[$1]} s=${S[${WT[$1]}]}
-  if ((s > 0)) && [[ ${CMD:s-1:1} == " " ]]; then s=$((s - 1)); fi
-  QS+=("$s") QE+=("${E[t]}") QR+=("")
+  if [[ -z $2 ]] && ((s > 0)) && [[ ${CMD:s-1:1} == " " ]]; then s=$((s - 1)); fi
+  QS+=("$s") QE+=("${E[t]}") QR+=("$2")
 }
 
 # Sets QS, QE, and QR to the edits, in command order, that insert $1 after the
-# second subcommand word and remove the words in DEL.
+# second subcommand word and cut the words in DEL.
 build_edits() {
   local ins=$1 d done_ins=0
   QS=() QE=() QR=()
@@ -311,7 +357,7 @@ build_edits() {
       queue_insert "$ins"
       done_ins=1
     fi
-    queue_delete "${DEL[d]}"
+    queue_cut "${DEL[d]}" "${DELR[d]}"
   done
   if ((done_ins == 0)); then queue_insert "$ins"; fi
 }
@@ -350,14 +396,14 @@ for ((j = 0; j < NC; j++)); do
     if ((OPEN == 1)); then
       what="\`gh stack submit $WORD_OPEN\` marks new and existing PRs ready for review"
     else
-      what="\`gh stack submit\` without --auto opens an editor that creates PRs ready for review"
+      what="\`gh stack submit\` without --auto can open PRs ready for review"
     fi
   fi
 
   build_edits "$ins"
   GS+=("${QS[@]}") GE+=("${QE[@]}") GR+=("${QR[@]}")
   [[ -n $CODE ]] || CODE=$code
-  WHAT="${WHAT:+$WHAT; }$what"
+  case "; $WHAT;" in *"; $what;"*) ;; *) WHAT="${WHAT:+$WHAT; }$what" ;; esac
 done
 [[ -n $CODE ]] || exit 0
 
