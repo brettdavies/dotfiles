@@ -147,6 +147,13 @@ assert_denied_and_fixed() {
   assert_denied_and_fixed 'gh pr create -b -h --title t' 'gh pr create --draft -b -h --title t'
 }
 
+@test "a value attached with = ends the bundle: the next word is still a flag → DENY" {
+  assert_denied_and_fixed 'gh pr create -d=t --draft=false' 'gh pr create --draft -d=t'
+  assert_denied_and_fixed 'gh pr create -d=T --draft=false' 'gh pr create --draft -d=T'
+  assert_denied_and_fixed 'gh pr create -w=t --draft=false' 'gh pr create --draft'
+  assert_denied_and_fixed 'gh pr create -t=x --draft=false' 'gh pr create --draft -t=x'
+}
+
 @test "gh pr create -fd=false → DENY, only the d=false cut from the bundle" {
   assert_denied_and_fixed 'gh pr create -fd=false --title t' 'gh pr create --draft -f --title t'
 }

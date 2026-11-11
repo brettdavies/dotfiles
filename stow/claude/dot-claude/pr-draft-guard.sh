@@ -212,7 +212,7 @@ resolve() {
 
 # Succeeds when flag word $1 takes the next word as its value: a long flag
 # listed in $2 with no value attached, or a bundle of short flags that ends on a
-# letter in $3.
+# letter in $3. An = ends the bundle, since what follows it is that letter's value.
 takes_next() {
   local rest=${1#-} c
   case $1 in
@@ -222,6 +222,7 @@ takes_next() {
     -?*)
       while [[ -n $rest ]]; do
         c=${rest:0:1} rest=${rest:1}
+        if [[ $c == = ]]; then return 1; fi
         if [[ $3 == *"$c"* ]]; then
           [[ -z $rest ]]
           return
