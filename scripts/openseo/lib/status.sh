@@ -12,7 +12,7 @@ os_status() {
   OS_ACTION=ask-operator
   addr=https://openseo.$OS_SUFFIX
   [ "$OS_HOST" = nas ] || [ -f "$OS_LOCAL_ENV" ] || [ ! -f "$OS_NAS_ENV" ] || OS_DEPLOY="$OS_DEPLOY --host nas"
-  if [ -f "$OS_LOCAL_ENV" ]; then
+  if [ "$OS_HOST" = nas ] || [ -f "$OS_LOCAL_ENV" ]; then
     os_gate_check || :
     case "$OS_GATE" in
       first-account-open)

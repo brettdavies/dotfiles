@@ -109,6 +109,7 @@ _not_served() { ! _served; }
 _no_volumes() { ! grep "^docker" "$CALLS" | grep -qE "(^| )(-v|--volumes)( |$)"; }
 _all_loopback() { ! grep "ports:" "$COMPOSE" | grep -qv "127.0.0.1:"; }
 _ssh_calls() { grep '^ssh ' "$CALLS"; }
+_remote_only() { awk '/^(curl http:\/\/127\.0\.0\.1|tailscale serve)/ && prev !~ /^ssh .* -- pool / { bad = 1 } { prev = $0 } END { exit bad }' "$CALLS"; }
 _ssh_only_allowed() { ! grep '^ssh ' "$CALLS" | grep -qvE '^ssh -n -o BatchMode=yes -o ConnectTimeout=10 -- pool (tailscale|curl|docker) '; }
 _nas_compose_calls() { grep -c "COMPOSE_ENV_FILES=$OPENSEO_ENV_DIR/nas.env .*DOCKER_HOST=ssh://${1:-pool}\$" "$CALLS"; }
 _pin_variant() { sed "$1" "$PIN" >"$BATS_TEST_TMPDIR/variant.pin"; }
@@ -600,12 +601,14 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [ "$status" -eq 0 ]
   [ "$(_nas_compose_calls nashost)" -eq 4 ]
   _ssh_calls | grep -q -- "-- nashost "
+  STUB_HEALTH=issues OPENSEO_NAS_SSH=nashost _run serve --host nas
+  [[ "$output" == *"fix: OPENSEO_NAS_SSH=nashost ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
   OPENSEO_NAS_SSH='-oProxyCommand=x' _run up --host nas
   [ "$status" -eq 2 ]
   [[ "$output" == *"ERROR: usage:"*"OPENSEO_NAS_SSH"* ]]
   OPENSEO_NAS_SSH='-oProxyCommand=x' run --separate-stderr "$SCRIPT" status --host nas --output json
   [ "$status" -eq 2 ]
-  jq -e '.reason == "usage" and .exit_code == 2 and (.message | contains("OPENSEO_NAS_SSH"))' <<<"$output"
+  jq -e '.reason == "usage" and .exit_code == 2 and (.message | contains("OPENSEO_NAS_SSH")) and .next_step.action == "supply-input" and .next_step.command == null' <<<"$output"
   _run up --host mars
   [ "$status" -eq 2 ]
   [[ "$output" == *"ERROR: usage:"*"--host takes nas"* ]]
@@ -625,6 +628,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [ "$status" -eq 0 ]
   [ "$(_nas_compose_calls)" -ge 2 ]
   for cmd in tailscale curl docker; do _ssh_calls | grep -q -- "-- pool $cmd "; done
+  _remote_only
   _ssh_only_allowed
 }
 
@@ -659,6 +663,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   STUB_FIRST=true STUB_BOUND=1 STUB_OFF_FAIL=1 _run serve --host nas
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: unbind-failed:"*"fix: ssh pool tailscale serve --service=svc:openseo --https=443 off"* ]]
+  _remote_only
 }
 
 @test "status --host nas reads the NAS's loopback and binding over ssh and the address from this host" {
@@ -682,6 +687,15 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   STUB_BOUND=1 STUB_HEALTH=down _run status --host nas
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: unhealthy:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
+  _remote_only
+}
+
+@test "status --host nas without a nas.env still runs the NAS gate, and a bound NAS with no account fails" {
+  STUB_FIRST=true STUB_BOUND=1 _run status --host nas
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: first-account-open:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --host nas serve"* ]]
+  _ssh_calls | grep -q -- "-- pool curl .*/api/sign-up-status"
+  _remote_only
 }
 
 @test "status with no local.env and a nas.env names the --host nas fix for a refused address" {

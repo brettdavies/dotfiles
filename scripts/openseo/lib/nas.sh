@@ -15,6 +15,7 @@ os_use_host() {
   [ "$OS_HOST" != nas ] || return 0
   OS_HOST=nas OS_DOCKER_HOST=ssh://$OS_NAS_SSH
   OS_LOCAL_ENV=$OS_NAS_ENV OS_ENV_SHOWN=${OS_LOCAL_ENV/#$HOME/\~}
+  [ "$OS_NAS_SSH" = pool ] || OS_DEPLOY="OPENSEO_NAS_SSH=$(os_mask "$OS_NAS_SSH") $OS_DEPLOY"
   OS_DEPLOY="$OS_DEPLOY --host nas" OS_ON_HOST_PREFIX="ssh $OS_NAS_SSH " OS_WHERE='the NAS' OS_AT_NAS=' on the NAS'
   OS_LOGS_CMD="DOCKER_HOST=$OS_DOCKER_HOST ${OS_LOGS_CMD/local.env/nas.env}"
   OS_WATCH_CMD=${OS_LOGS_CMD/logs init/logs -f init}
@@ -27,7 +28,7 @@ os_use_host() {
 os_nas_preflight() {
   local probe='curl --version && tailscale version'
   [[ $OS_NAS_SSH =~ ^[A-Za-z0-9][A-Za-z0-9._@-]*$ ]] \
-    || os_fail usage "OPENSEO_NAS_SSH must be an ssh host alias, not $(os_mask "$OS_NAS_SSH")" "unset OPENSEO_NAS_SSH, or set it to the alias in ~/.ssh/config" "$OS_NAS_SSH"
+    || os_fail_input usage "OPENSEO_NAS_SSH must be an ssh host alias, not $(os_mask "$OS_NAS_SSH")" "unset OPENSEO_NAS_SSH, or set it to the alias in ~/.ssh/config" "$OS_NAS_SSH"
   [ "$1" = status ] || probe="docker version && $probe"
   os_need ssh
   os_try os_nas_ssh "$probe" >/dev/null \
