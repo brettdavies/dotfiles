@@ -8,8 +8,8 @@ OS_RUNBOOK_URL='https://github.com/brettdavies/dotfiles/blob/dev/docs/runbooks/o
 OS_REASONS='usage tool-missing unsupported-host pin-invalid pin-mismatch item-unreadable value-unsafe
   storage-key-changed tailscale-unavailable env-missing pull-failed up-failed init-failed stop-failed unhealthy
   first-account-open account-exists create-admin-failed bind-failed unbind-failed service-not-advertised
-  address-unreachable'
-OS_OUTPUT=text OS_ACTION=run-command OS_VALUE='' OS_CAUSE=''
+  address-unreachable nas-unreachable'
+OS_OUTPUT=text OS_ACTION=run-command OS_VALUE='' OS_CAUSE='' OS_ON_HOST_PREFIX='' OS_WHERE='this host' OS_AT_NAS=''
 OS_CHECKS='[]' OS_NOTES='[]'
 
 os_mask() {
@@ -77,12 +77,12 @@ os_try() {
 
 # os_unhealthy TAIL: the failure for a stack whose gate endpoint did not answer as a running stack does.
 os_unhealthy() {
-  os_fail unhealthy "OpenSEO answered $OS_LOOPBACK$OS_ASKED with '${OS_HEALTH:-no answer}', so it is stopped, still starting, or failing a check; $1" "$OS_DEPLOY up" "$OS_HEALTH"
+  os_fail unhealthy "OpenSEO answered $OS_LOOPBACK$OS_ASKED$OS_AT_NAS with '${OS_HEALTH:-no answer}', so it is stopped, still starting, or failing a check; $1" "$OS_DEPLOY up" "$OS_HEALTH"
 }
 
 # os_unbind_failed TAIL: the binding is still on and `off` failed; OS_CAUSE holds tailscale's message.
 os_unbind_failed() {
-  os_fail unbind-failed "turning off the $OS_SERVICE binding failed; $1" "tailscale serve --service=$OS_SERVICE --https=443 off"
+  os_fail unbind-failed "turning off the $OS_SERVICE binding failed; $1" "${OS_ON_HOST_PREFIX}tailscale serve --service=$OS_SERVICE --https=443 off"
 }
 
 os_need_suffix() {

@@ -22,8 +22,8 @@ os_serve() {
     0) ;;
     1) os_fail bind-failed "tailscale serve could not bind $OS_SERVICE; safe to rerun" "$OS_DEPLOY serve" ;;
     *)
-      os_fail_input service-not-advertised "$OS_SERVICE is bound but the control plane does not list this host for it; the service is not defined, granted, or approved" \
-        "define $OS_SERVICE and approve this host (docs/runbooks/openseo.md#service-not-advertised), then $OS_DEPLOY serve"
+      os_fail_input service-not-advertised "$OS_SERVICE is bound but the control plane does not list $OS_WHERE for it; the service is not defined, granted, or approved" \
+        "define $OS_SERVICE and approve $OS_WHERE (docs/runbooks/openseo.md#service-not-advertised), then $OS_DEPLOY serve"
       ;;
   esac
   OS_BOUND=1

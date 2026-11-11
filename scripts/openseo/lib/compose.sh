@@ -12,7 +12,8 @@ os_compose_env() {
 
 # Compose lets an exported variable override the env file, so a shell that exports PORT, a provider key, or
 # OPENSEO_IMAGE would reconfigure the stack silently, the image past the backup an update takes. Every variable the
-# vendored file interpolates, the project name, and the daemon selectors are unset for the call; OS_TIMEOUT bounds it.
+# vendored file interpolates, the project name, and the daemon selectors are unset for the call, and --host nas sets
+# DOCKER_HOST; OS_TIMEOUT bounds it.
 os_compose() {
   local cmd=() v
   [ -z "${OS_TIMEOUT:-}" ] || cmd=(timeout "$OS_TIMEOUT")
@@ -21,6 +22,7 @@ os_compose() {
     COMPOSE_PROJECT_NAME COMPOSE_PROFILES DOCKER_HOST DOCKER_CONTEXT; do
     cmd+=(-u "$v")
   done
+  [ -z "$OS_DOCKER_HOST" ] || cmd+=("DOCKER_HOST=$OS_DOCKER_HOST")
   "${cmd[@]}" docker compose "$@"
 }
 
@@ -92,7 +94,7 @@ os_create_admin() {
   case "$OS_GATE" in
     unhealthy) os_unhealthy "no account was made; safe to rerun" ;;
     unbind-failed) os_unbind_failed "no account was made; safe to rerun" ;;
-    ok) os_fail account-exists "OpenSEO already has an account, and create-admin makes only the first; before serve, confirm the account is yours by signing in at $OS_LOOPBACK with the admin item; nothing changed" "$OS_DEPLOY serve" ;;
+    ok) os_fail account-exists "OpenSEO already has an account, and create-admin makes only the first; before serve, confirm the account is yours by signing in at ${OS_SIGNIN_AT:-$OS_LOOPBACK} with the admin item; nothing changed" "$OS_DEPLOY serve" ;;
   esac
   os_item "$OS_ADMIN_ITEM" "OpenSEO - Admin Login (openseo)" username email
   os_item "$OS_ADMIN_ITEM" "OpenSEO - Admin Login (openseo)" password password

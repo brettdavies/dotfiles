@@ -12,14 +12,22 @@ OS_LOOPBACK=http://127.0.0.1:$OS_PORT
 OS_CURL_MAX=5
 OS_ADVERTISE_WAIT=${OPENSEO_ADVERTISE_WAIT:-15}
 
-os_get() {
-  curl -sf --max-time "$OS_CURL_MAX" "$1" 2>/dev/null | jq -r "$2" 2>/dev/null || :
+os_here() { "$@"; }
+
+# Runs a command on the host that runs OpenSEO: this one, or the NAS over ssh under --host nas (scripts/openseo/lib/nas.sh).
+os_on_host() {
+  if [ "${OS_HOST:-local}" = nas ]; then os_nas_ssh "$@"; else "$@"; fi
 }
 
-# os_health BASE_URL sets OS_HEALTH to the status of /api/health, empty when nothing answers. The answer is a status
-# word, so anything else in it is replaced before it reaches a message.
+# os_get URL JQ_FILTER [RUNNER]: RUNNER defaults to os_on_host; os_here reads from this host whatever OS_HOST is.
+os_get() {
+  "${3:-os_on_host}" curl -sf --max-time "$OS_CURL_MAX" "$1" 2>/dev/null | jq -r "$2" 2>/dev/null || :
+}
+
+# os_health BASE_URL [RUNNER] sets OS_HEALTH to the status of /api/health, empty when nothing answers. The answer is a
+# status word, so anything else in it is replaced before it reaches a message.
 os_health() {
-  OS_HEALTH=$(os_get "$1/api/health" '.status // empty')
+  OS_HEALTH=$(os_get "$1/api/health" '.status // empty' "${2:-}")
   OS_HEALTH=${OS_HEALTH//[^A-Za-z0-9._ -]/?}
   OS_HEALTH=${OS_HEALTH:0:40}
 }
@@ -38,20 +46,20 @@ os_suffix() {
 # service name anywhere in it means a binding exists. grep -q in a pipe could end it early (SIGPIPE).
 os_bound() {
   local out
-  out=$(tailscale serve status --json 2>/dev/null) || return 2
+  out=$(os_on_host tailscale serve status --json 2>/dev/null) || return 2
   [[ $out == *"\"$OS_SERVICE\""* ]]
 }
 
 # Proof that the control plane lists this host for the service, which the exit code of `serve` is not.
 os_advertised() {
-  tailscale status --json 2>/dev/null \
+  os_on_host tailscale status --json 2>/dev/null \
     | jq -e --arg s "$OS_SERVICE" '[.Self.CapMap["service-host"][]? | keys[]] | index($s) != null' >/dev/null 2>&1
 }
 
 # os_publish returns 1 when the bind fails and 2 when the control plane does not list the service within the wait.
 os_publish() {
   local i
-  tailscale serve --service="$OS_SERVICE" --https=443 --yes "$OS_LOOPBACK" || return 1
+  os_on_host tailscale serve --service="$OS_SERVICE" --https=443 --yes "$OS_LOOPBACK" || return 1
   for ((i = 0; i < OS_ADVERTISE_WAIT; i++)); do
     os_advertised && return 0
     sleep 1
@@ -64,7 +72,7 @@ os_publish() {
 os_unbind() {
   OS_UNBOUND=0
   os_bound || [ "$?" -ne 1 ] || return 0
-  if OS_CAUSE=$(tailscale serve --service="$OS_SERVICE" --https=443 off 2>&1 >/dev/null); then
+  if OS_CAUSE=$(os_on_host tailscale serve --service="$OS_SERVICE" --https=443 off 2>&1 >/dev/null); then
     OS_UNBOUND=1 OS_CAUSE=
   else
     return 1

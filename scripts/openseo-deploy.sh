@@ -19,11 +19,12 @@ OS_ADMIN_ITEM=hwacawam6ghon7c4tlxswldzye        # OpenSEO - Admin Login (openseo
 OS_DATAFORSEO_ITEM=${OPENSEO_DATAFORSEO_ITEM:-} # DataForSEO API Key
 OS_GOOGLE_ITEM=${OPENSEO_GOOGLE_ITEM:-}         # OpenSEO - Google OAuth Client (openseo)
 
-for lib in errors gate pin env serve compose status help; do
+for lib in errors gate nas pin env serve compose status help; do
   source "$OS_REPO/scripts/openseo/lib/$lib.sh"
 done
 trap 'rm -f "${OS_TMP:-}"' EXIT
 
+[ "${1:-}" != --host ] || { os_use_host "${2:-}"; shift 2; }
 verb=${1:-}
 [ "$#" -eq 0 ] || shift
 while [ "$#" -gt 0 ]; do
@@ -33,6 +34,10 @@ while [ "$#" -gt 0 ]; do
         os_fail usage "--output takes json or text" "$OS_DEPLOY --help" "${2:-}"
       fi
       OS_OUTPUT=$2
+      shift 2
+      ;;
+    --host)
+      os_use_host "${2:-}"
       shift 2
       ;;
     -h | --help)
@@ -57,4 +62,5 @@ case "$verb" in
 esac
 [ "$OS_OUTPUT" = text ] || [ "$verb" = status ] || os_fail usage "--output json is for status only" "$OS_DEPLOY --help" "$verb"
 
+[ "$OS_HOST" = local ] || os_nas_preflight "$verb"
 "os_${verb//-/_}"
