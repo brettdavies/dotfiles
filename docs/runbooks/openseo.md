@@ -35,6 +35,10 @@ of `scripts/openseo-deploy.sh`. To check one without revealing it:
 ~/.claude/skills/1password/scripts/get_item.sh hwacawam6ghon7c4tlxswldzye   # OpenSEO - Admin Login (openseo)
 ```
 
+`render` also reads three optional items by the UUIDs in the same header: DataForSEO API Key, OpenSEO - Google OAuth Client
+(openseo), and OpenRouter API Key - OpenSEO. `OPENSEO_DATAFORSEO_ITEM`, `OPENSEO_GOOGLE_ITEM`, and
+`OPENSEO_OPENROUTER_ITEM` override their UUIDs, and an empty value skips the item and renders its keys empty.
+
 To rebuild a lost item, use `create_item.sh`. Rebuilding the storage item gives it a new value, so do it only for a host
 with no volumes and no env file; with existing data, recover the old value from the item's 1Password history instead
 ([storage-key-changed](#storage-key-changed)). A new item has a new UUID, which goes into the script's header.
@@ -158,39 +162,70 @@ Expected: `up` ends with `init finished: OpenSEO initialized and ready.` and a `
 
 ## Run on the NAS
 
-`--host nas` points a verb at the NAS's Docker daemon instead of this host's. The script still runs on the Linux server:
-compose reads the vendored file and `~/.config/openseo/nas.env` here and creates the containers and named volumes on the
-NAS through `DOCKER_HOST=ssh://pool`. The loopback checks and `tailscale serve` run on the NAS through `ssh pool`.
-Nothing is written on the NAS's disk outside Docker, and the script's own ssh calls carry only `tailscale`, `curl`, and
-`docker`, each with `-o BatchMode=yes -o ConnectTimeout=10`. `OPENSEO_NAS_SSH=<alias>` names another ssh alias.
-`--host nas` goes before or after the verb: `scripts/openseo-deploy.sh --host nas serve` and
+On the NAS, OpenSEO is the Unraid Compose Manager stack `openseo`, so its five containers show in the Docker tab as a
+Compose Stack, never as "3rd Party". `--host nas` drives that stack from the Linux server over ssh: `up` writes the stack
+folder and starts it with the plugin's own `compose.sh`, `down` stops it with the same script, `create-admin` runs
+upstream's operator command in the stack's `runtime` container, and the other verbs read the running stack. Compose
+here reads the vendored file and `~/.config/openseo/nas.env` and reaches the NAS's Docker daemon through
+`DOCKER_HOST=ssh://pool`, always with `-p openseo`; the loopback checks and `tailscale serve` run on the NAS through
+`ssh pool`. The script's ssh calls carry `-o BatchMode=yes -o ConnectTimeout=10`. `OPENSEO_NAS_SSH=<alias>` names another
+ssh alias. `--host nas` goes before or after the verb: `scripts/openseo-deploy.sh --host nas serve` and
 `scripts/openseo-deploy.sh serve --host nas` are the same command, and the error messages print the first form.
 
-This section is a fresh install: the NAS gets empty volumes and no data moves. The NAS has 7.5 GiB of memory and no
+This section is a fresh install: the stack gets empty volumes and no data moves. The NAS has 7.5 GiB of memory and no
 swap, so an overrun there ends in the kernel's OOM killer, and its 20 GiB `docker.img` is shared by every container on
 it.
 
 ### Before the first `--host nas` verb
 
-1. `ssh pool 'docker version && curl --version && tailscale version'` answers from the Linux server without a prompt.
-   Every `--host nas` verb, `render` included, starts by running it, and stops with [nas-unreachable](#nas-unreachable)
-   when it fails. `status` runs no docker, so its check leaves `docker version` out.
+1. `ssh pool 'test -x /usr/local/emhttp/plugins/compose.manager/scripts/compose.sh && docker version && curl --version && tailscale version'`
+   answers from the Linux server without a prompt. Every `--host nas` verb, `render` included, starts by running its
+   share of it, and stops with [nas-unreachable](#nas-unreachable) when it fails. Only `up` and `down` need the plugin's
+   `compose.sh`, so only they test for it; `status` runs no docker, so its check leaves `docker version` out.
 2. `svc:openseo` is defined, granted, and approved for the NAS. Follow [Tailnet policy](#tailnet-policy) with the NAS's
    tag from `ts-api.sh devices --verbose` as the `autoApprovers` entry, unless a tag-keyed entry already covers the
    service tag. Keep the Linux server's tag in the grant, so `status` reaches the address from there.
-3. No other host advertises `svc:openseo`. One at a time: a host that already advertises it turns its advertisement off
-   first, and only then does the NAS bind. The script does not look for another advertiser. On the host that has it (the
-   Linux server, when it ran the stack):
+3. No other host advertises `svc:openseo`. One at a time: a host that already advertises it drains the service first,
+   and only then does the NAS bind. Turning the binding off with `--https=443 off` is not enough, because the host keeps
+   advertising the service. The script does not look for another advertiser. On the host that has it (the Linux server,
+   when it ran the stack):
 
    ```bash
-   tailscale serve --service=svc:openseo --https=443 off
+   tailscale serve drain svc:openseo
    scripts/openseo-deploy.sh down
    trash ~/.config/openseo/local.env
    ```
 
-   The first command ends the advertisement. `down` stops the stack and keeps its volumes. Without `local.env`,
+   `drain` ends the advertisement. `down` stops the stack and keeps its volumes. Without `local.env`,
    `tailscale-serve-setup.service` skips its OpenSEO block, so the next tailscaled start does not bind it again; that host's
    data does not move to the NAS.
+
+### What `up --host nas` writes
+
+The stack folder is `openseo` under `PROJECTS_FOLDER`, which `up` reads from
+`/boot/config/plugins/compose.manager/compose.manager.cfg` on the NAS and which defaults to
+`/boot/config/plugins/compose.manager/projects`. One ssh call writes everything, with the files on its stdin under
+`umask 077`, so no secret is in an argument list.
+
+- A folder that does not exist yet gets `name` (`OpenSEO`), `project_name` (`openseo`), `description`, and `autostart`
+  (`true`) in that same call. An open dashboard writes `name` and `project_name` into any folder it finds, so they
+  cannot wait for a second call.
+- Every `up` replaces `compose.yaml` (upstream's file, checked against the pin's sha256 before anything is written),
+  `compose.override.yaml` (`config/openseo/compose.override.yaml`: the label `net.unraid.docker.managed: composeman` and an
+  empty icon, webui, and shell on each of the five services), and `.env` (a copy of `nas.env`).
+- Each of the three is written under a new name and moved into place, so an `.env` that already exists ends up mode 600
+  on a filesystem that keeps modes, and a dropped connection leaves the old file whole.
+- It never rewrites `name`, `project_name`, `description`, `autostart`, or a file the dashboard owns (`icon_url`,
+  `webui_url`, `last_result.json`, `started_at`, `has_build`).
+
+The `.env` holds the generated storage secret and the provider keys. The NAS's flash does not enforce file modes, so
+treat `.env` as readable by anyone who can read the flash; `nas.env` here stays mode 600.
+
+`up` then turns the `svc:openseo` binding off and runs
+`compose.sh -cup --recreate -popenseo -f<dir>/compose.yaml -f<dir>/compose.override.yaml -e<dir>/.env -s<dir>`, the
+command the dashboard runs, with its recreate option. Every service is recreated, so settings reach `init`, `web`, and
+`crawl-gateway`. There is no separate pull step: the plugin pulls what is missing, and a failure there is
+[up-failed](#up-failed). `up` waits for `init`, then for `/api/health`, and tries to bind the address.
 
 ### Fresh install
 
@@ -202,11 +237,23 @@ scripts/openseo-deploy.sh status --host nas
 ```
 
 These are the steps of [First deploy](#first-deploy) on the NAS. `up --host nas` renders `nas.env` here (mode 600),
-pulls the pinned image on the NAS, starts the stack, waits for `init`, and ends with a `NOTE:` naming
-`scripts/openseo-deploy.sh --host nas create-admin`. `create-admin --host nas` makes the first account on the NAS, which
-closes registration, and binds `svc:openseo` from the NAS. Then sign in and create the project as in
-[First read-only run](#first-read-only-run). If the stack's own sign-in page is needed before the address binds, tunnel
-the NAS's loopback: `ssh -L 8946:127.0.0.1:8946 pool`.
+writes the stack, starts it, waits for `init`, and ends with a `NOTE:` naming
+`scripts/openseo-deploy.sh --host nas create-admin`. `create-admin --host nas` makes the first account in the stack's
+`runtime` container, which closes registration, and binds `svc:openseo` from the NAS. Then sign in and create the
+project as in [First read-only run](#first-read-only-run). If the stack's own sign-in page is needed before the address
+binds, tunnel the NAS's loopback: `ssh -L 8946:127.0.0.1:8946 pool`.
+
+### Start, stop, and change settings
+
+- The dashboard's Compose Manager tab starts and stops the stack with the same `compose.sh`, and `autostart` starts it
+  with the array. The script does the same: `up --host nas` starts it and `down --host nas` runs
+  `compose.sh -cstop`, which stops the containers and keeps them, the volumes, the generated secrets, `nas.env`, and the
+  stack folder. A start from the dashboard leaves the `svc:openseo` binding as it was; `status --host nas` shows whether it
+  stands.
+- An env change reaches the NAS in two steps. `render --host nas` rewrites `nas.env` here and touches nothing on the
+  NAS; `up --host nas` then copies it to the stack's `.env` and recreates every service.
+- The address moves between hosts with `tailscale serve drain svc:openseo` on the host that has it. `--https=443 off`
+  only removes the binding, and the host stays in the service's host list.
 
 ### What `status` shows
 
@@ -217,18 +264,18 @@ and `address`, and exits 0. A refused address exits 1 with [address-unreachable]
 `scripts/openseo-deploy.sh --host nas serve`; a NAS whose loopback is down exits 1 with [unhealthy](#unhealthy) and the
 fix `scripts/openseo-deploy.sh --host nas up`; an unreachable NAS exits 1 with [nas-unreachable](#nas-unreachable).
 Plain `status` on a host with `nas.env` and no `local.env` checks only the address and names the `--host nas` fix. After
-the NAS restarts, run `status --host nas`: the NAS's Docker service may not restart a stack it did not start, and a
-tailscaled restart there drops the binding.
+the NAS restarts, run `status --host nas`: `autostart` brings the stack back, and a tailscaled restart there drops the
+binding.
 
 ### Stop it
 
 ```bash
-ssh pool tailscale serve --service=svc:openseo --https=443 off
+ssh pool tailscale serve drain svc:openseo
 scripts/openseo-deploy.sh down --host nas
 ```
 
 The first command ends the advertisement; `down --host nas` stops the stack and keeps the volumes, the generated
-secrets, and `nas.env`. `up --host nas` starts it again. No verb removes the volumes.
+secrets, `nas.env`, and the stack folder. `up --host nas` starts it again. No verb removes the volumes.
 
 ## First read-only run
 
@@ -263,13 +310,16 @@ Google Cloud console and Search Console; the seventh happens in OpenSEO at the f
 5. Confirm Brett's Google account has access to the anc.dev property in Search Console. Adding it, if it is missing, is
    his own change there.
 6. Store the client in `secrets-dev` as `OpenSEO - Google OAuth Client (openseo)`, an API Credential with `client_id` as
-   text and `client_secret` concealed, and set the item's UUID in the script's header (`OS_GOOGLE_ITEM`). Until then
-   `render` leaves both keys empty and says so.
+   text and `client_secret` concealed. The script's header names the item's UUID (`OS_GOOGLE_ITEM`); setting
+   `OPENSEO_GOOGLE_ITEM=` to the empty string makes `render` leave both keys empty and say so.
 7. After `render` and `up` have applied the keys, sign in, open Integrations, connect with Google, and bind the anc.dev
    property. OpenSEO shows its clicks and impressions.
 
-The DataForSEO key works the same way: Brett creates the account with no automatic top-up, stores the Base64 credential
-in an item named `DataForSEO API Key` (field `credential`), and sets the item's UUID in `OS_DATAFORSEO_ITEM`.
+The DataForSEO key works the same way: Brett creates the account with no automatic top-up and stores the Base64
+credential in an item named `DataForSEO API Key` (field `credential`), whose UUID the header names as
+`OS_DATAFORSEO_ITEM`. The OpenRouter key is the item `OpenRouter API Key - OpenSEO` (field `credential`), named by
+`OS_OPENROUTER_ITEM`; `render` writes it as `OPENROUTER_API_KEY` beside `OPENROUTER_MODEL`, the constant
+`OS_OPENROUTER_MODEL` in the header.
 
 ## Troubleshooting
 
@@ -309,7 +359,9 @@ sha256.
 
 A 1Password read failed. The error names the item's UUID and title. Check that the item exists and that the service
 account reaches `secrets-dev` with `get_item.sh <uuid>` (it redacts secret fields). `render` changes nothing on this
-error, so a rerun is safe.
+error, so a rerun is safe. For the DataForSEO, Google, and OpenRouter items the message also names the variable that
+skips the item: `OPENSEO_DATAFORSEO_ITEM=`, `OPENSEO_GOOGLE_ITEM=`, or `OPENSEO_OPENROUTER_ITEM=` set to the empty string
+renders its keys empty.
 
 ### value-unsafe
 
@@ -339,7 +391,8 @@ the digest in `config/openseo/openseo.pin`, then rerun `scripts/openseo-deploy.s
 
 ### up-failed
 
-`docker compose up` failed for a reason other than `init`. The `cause:` lines show why. Rerun
+`docker compose up` failed for a reason other than `init`, or under `--host nas` the plugin's `compose.sh -cup` did, which
+includes an image it could not pull. The `cause:` lines show why. Rerun
 `scripts/openseo-deploy.sh up`, which is safe.
 
 ### init-failed
@@ -350,7 +403,8 @@ memory for Docker. Rerun `scripts/openseo-deploy.sh up` once the cause is fixed.
 
 ### stop-failed
 
-`docker compose stop` failed. Rerun `scripts/openseo-deploy.sh down`.
+`docker compose stop` failed, or under `--host nas` the plugin's `compose.sh -cstop` did. The `cause:` lines show why.
+Rerun `scripts/openseo-deploy.sh down`.
 
 ### unhealthy
 
@@ -405,10 +459,21 @@ granted, or approved. Follow [Tailnet policy](#tailnet-policy), then `scripts/op
 ### nas-unreachable
 
 A `--host nas` verb could not run `ssh pool 'docker version && curl --version && tailscale version'` (or the alias in
-`OPENSEO_NAS_SSH`; `status` leaves out `docker version`) from this host, so it changed nothing, read nothing from
+`OPENSEO_NAS_SSH`; `status` leaves out `docker version`, and `up` and `down` start with
+`test -x /usr/local/emhttp/plugins/compose.manager/scripts/compose.sh`) from this host, so it changed nothing, read nothing from
 1Password, and started nothing. The `cause:` lines hold what ssh or the NAS's shell said. Run the command by hand to see
 the failure: the key is not loaded, the alias is missing from `~/.ssh/config`, the NAS is off, its Docker service is
-stopped, or `docker`, `curl`, or `tailscale` is not on root's `PATH` there. Every verb is safe to rerun once it answers.
+stopped, the Compose Manager plugin is not installed (the `cause:` line then says so), or `docker`, `curl`, or `tailscale`
+is not on root's `PATH` there. Every verb is safe to rerun once it answers.
+
+### stack-write-failed
+
+`up --host nas` could not write the stack folder `openseo` under `PROJECTS_FOLDER` on the NAS, so it started nothing and
+changed nothing outside that folder. The `cause:` lines hold what the NAS's shell said. A rerun fails the same way until
+the cause is fixed. The `fix:` line prints a command that shows `PROJECTS_FOLDER` from
+`/boot/config/plugins/compose.manager/compose.manager.cfg` (default `/boot/config/plugins/compose.manager/projects`) and
+whether the flash is mounted read-write. Check that the folder is a directory and that the mount is `rw`, then rerun
+`scripts/openseo-deploy.sh --host nas up`; the files it replaces are the same every time.
 
 ## Reporting problems upstream
 

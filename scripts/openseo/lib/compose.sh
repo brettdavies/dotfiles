@@ -13,7 +13,7 @@ os_compose_env() {
 # Compose lets an exported variable override the env file, so a shell that exports PORT, a provider key, or
 # OPENSEO_IMAGE would reconfigure the stack silently, the image past the backup an update takes. Every variable the
 # vendored file interpolates, the project name, and the daemon selectors are unset for the call, and --host nas sets
-# DOCKER_HOST; OS_TIMEOUT bounds it.
+# DOCKER_HOST; OS_TIMEOUT bounds it. Under --host nas the calls name the project of the NAS's Compose Manager stack.
 os_compose() {
   local cmd=() v
   [ -z "${OS_TIMEOUT:-}" ] || cmd=(timeout "$OS_TIMEOUT")
@@ -23,19 +23,21 @@ os_compose() {
     cmd+=(-u "$v")
   done
   [ -z "$OS_DOCKER_HOST" ] || cmd+=("DOCKER_HOST=$OS_DOCKER_HOST")
-  "${cmd[@]}" docker compose "$@"
+  cmd+=(docker compose)
+  [ -z "$OS_PROJECT" ] || cmd+=(-p "$OS_PROJECT")
+  "${cmd[@]}" "$@"
 }
 
-# `up -d` returns only once init has exited 0, because web and crawl-gateway wait for it to complete, so the wait and
-# its bound belong to the call. Following an exited container's log never ends, so the ready line is read as a snapshot.
+# A start returns only once init has exited 0, because web and crawl-gateway wait for it to complete, so the wait and its
+# bound belong to the call. Following an exited container's log never ends, so the ready line is read as a snapshot.
 os_up_step() {
   local rc=0
-  OS_TIMEOUT=$OS_INIT_TIMEOUT os_try os_compose up -d "$@" || rc=$?
+  OS_TIMEOUT=$OS_INIT_TIMEOUT os_try "$@" || rc=$?
   [ "$rc" -ne 0 ] || return 0
   if [ "$rc" -eq 124 ] || [[ $OS_CAUSE == *"didn't complete successfully"* ]]; then
     os_fail init-failed "init did not complete within ${OS_INIT_TIMEOUT}s; the stack is partly started; safe to rerun once the cause is fixed" "$OS_LOGS_CMD"
   fi
-  os_fail up-failed "docker compose up failed; the stack may be partly started; safe to rerun" "$OS_DEPLOY up"
+  os_fail up-failed "the stack start failed; the stack may be partly started; safe to rerun" "$OS_DEPLOY up"
 }
 
 os_wait_init() {
@@ -62,13 +64,22 @@ os_up() {
   os_render
   os_need docker curl
   os_compose_env
-  image=$(os_env_get "$OS_LOCAL_ENV" OPENSEO_IMAGE)
-  echo "==> pulling ${image##*/} (about 115 MiB)"
-  os_try os_compose pull || os_fail pull-failed "docker compose pull failed for $(os_mask "$image"); nothing was started; safe to rerun" "$OS_DEPLOY up" "$image"
+  if [ "$OS_HOST" = nas ]; then
+    echo "==> writing the Compose Manager stack $OS_STACK on the NAS"
+    os_stack_write
+  else
+    image=$(os_env_get "$OS_LOCAL_ENV" OPENSEO_IMAGE)
+    echo "==> pulling ${image##*/} (about 115 MiB)"
+    os_try os_compose pull || os_fail pull-failed "docker compose pull failed for $(os_mask "$image"); nothing was started; safe to rerun" "$OS_DEPLOY up" "$image"
+  fi
   os_unbind || os_unbind_failed "nothing was started; safe to rerun"
-  echo "==> starting the stack with $OS_SERVICE unbound; init runs first, about 2 minutes, twice; to watch: $OS_WATCH_CMD"
-  os_up_step
-  os_up_step --force-recreate init web crawl-gateway
+  echo "==> starting the stack with $OS_SERVICE unbound; init runs first, about 2 minutes, $OS_INIT_RUNS; to watch: $OS_WATCH_CMD"
+  if [ "$OS_HOST" = nas ]; then
+    os_up_step os_stack up --recreate
+  else
+    os_up_step os_compose up -d
+    os_up_step os_compose up -d --force-recreate init web crawl-gateway
+  fi
   os_wait_init
   os_wait_health
   os_serve
@@ -78,8 +89,11 @@ os_down() {
   os_require_env
   os_need docker
   os_compose_env
-  os_try os_compose stop \
-    || os_fail stop-failed "docker compose stop failed; safe to rerun" "$OS_DEPLOY down"
+  if [ "$OS_HOST" = nas ]; then
+    os_try os_stack stop
+  else
+    os_try os_compose stop
+  fi || os_fail stop-failed "the stack stop failed; safe to rerun" "$OS_DEPLOY down"
   echo "==> stopped; the volumes and the generated secrets are untouched"
 }
 

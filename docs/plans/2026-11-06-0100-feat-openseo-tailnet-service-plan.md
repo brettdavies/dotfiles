@@ -212,9 +212,10 @@ touch anc.dev or spend money without his decision.
   `deploy/standalone/compose.yaml` at the pinned commit, unedited, and `config/openseo/backup.mjs` (PR2) is its
   `scripts/celld/backup.mjs` from the same commit, whose manifest checks only its format and celld version, not the
   OpenSEO image, so the backup's own recorded image (U6) is the only image check on restore. A bump is a copy plus
-  checksums. Upstream already binds the web port to `127.0.0.1` and digest-pins RustFS and nginx, so no override file is
-  needed. The file sets `name: openseo-standalone`, and every compose call keeps that project name, because the backup
-  script finds volumes through it. Instantiates R2, R5.
+  checksums. Upstream already binds the web port to `127.0.0.1` and digest-pins RustFS and nginx, so the file needs no
+  edit for either. The file sets `name: openseo-standalone`, the project name on the Linux server, and the backup script
+  finds volumes through the project name. The NAS stack's project is `openseo` (KTD11), so its volumes are `openseo_*`
+  and the script takes the project from the host. Instantiates R2, R5.
 - KTD3. **One pin file holds the version, and it reaches compose through `OPENSEO_IMAGE`.** `config/openseo/openseo.pin`
   records the upstream tag, its commit, its release time, the image as
   `ghcr.io/every-app/open-seo-standalone@sha256:<digest>`, and the sha256 of each vendored file. One parser in
@@ -306,14 +307,20 @@ touch anc.dev or spend money without his decision.
   2026-11-06: `/boot/config/docker.cfg`, `df /var/lib/docker`], and a full file stops all of them. OpenSEO also moves
   only if that file keeps at least 5 GiB free with OpenSEO's images plus three times its measured volume size. The image
   is 115 MiB compressed for amd64 [measured: GHCR manifest]; volume growth is unknown until the soak. Instantiates R4.
-- KTD11. **The NAS is driven from the Linux server through `DOCKER_HOST=ssh://pool`, with its definition in dotfiles.**
-  (session-settled: user-approved — chosen over a compose.manager project defined in home-media-server: one copy serves
-  both hosts and no env file lands on the NAS's flash) Compose reads the vendored file and `nas.env` on the Linux server
-  and creates the containers and named volumes on the NAS's daemon, and the backup script streams archives over the same
-  connection. Nothing is written to the NAS's disk outside Docker. That keeps the env file off the NAS's vfat flash,
-  where it could not be mode 600, needs no 1Password CLI there, and keeps the project name `openseo-standalone` that a
-  compose.manager project might change. `serve --host nas` runs `tailscale serve` on the NAS through `ssh pool`. The
-  NAS's containers keep running when the Linux server is down; only changes need it. Instantiates R4, R7, R8.
+- KTD11. **The NAS runs OpenSEO as its Unraid Compose Manager stack `openseo`, written and started from the Linux server
+  over ssh, with its definition in dotfiles.** (session-settled: user-approved 2026-11-11: every container on the NAS
+  shows in Unraid's Docker tab as a managed Compose Stack, never "3rd Party") `up --host nas` writes the pinned
+  `compose.yaml`, `compose.override.yaml` (the `net.unraid.docker.managed: composeman` label and an empty icon, webui, and
+  shell on each service), and `.env` (from `nas.env`) into the stack folder under the plugin's `PROJECTS_FOLDER`, over ssh
+  stdin under `umask 077`, and runs the plugin's own `compose.sh -cup --recreate`; `down --host nas` runs `-cstop`.
+  A new folder gets `name`, `project_name`, `description`, and `autostart` in one ssh call, because an open dashboard
+  writes `name` and `project_name` into any folder it finds; an existing folder keeps those four and every file the
+  dashboard owns. One copy of the definition serves both hosts. The stack's project name is `openseo`, and
+  `create-admin`, the init check, and the logs commands name it with `-p openseo`. The env file on the NAS sits on its
+  vfat flash, which enforces no file modes. `serve --host nas` runs `tailscale serve` on the NAS through `ssh pool`,
+  and a host gives up `svc:openseo` with `tailscale serve drain svc:openseo`, because `--https=443 off` leaves it
+  advertising the service. The NAS's containers keep running when the Linux server is down; only changes need it.
+  Instantiates R4, R7, R8.
 - KTD12. **The move freezes writes first, and only one host answers at a time.** In order:
   1. On the Linux server, `retire`, one verb that turns off its `svc:openseo` advertisement, takes a `backup` (the
      backup script stops the app while it archives, then restarts it on loopback only), runs `down`, and deletes
@@ -527,7 +534,8 @@ without the two vault-internal ones; PR2 commits any UUID that comes later.
   because it puts OpenSEO on the public internet.
 - **A stow package plus a user unit**, in the shape of `stow/codex-proxy/`: rejected (KTD4). That precedent also runs an
   unpinned `:latest` with a mode-644 `.env`.
-- **A compose.manager project on the NAS**, as pinchflat uses: rejected (KTD11).
+- **A bare compose project on the NAS's daemon through `DOCKER_HOST=ssh://pool`**: rejected, because Unraid lists its
+  containers as "3rd Party"; the NAS runs a Compose Manager stack instead (KTD11).
 - **Running from source with pnpm** (`docs/LOCAL_DEVELOPMENT.md`): a development server, not a service.
 
 ---
