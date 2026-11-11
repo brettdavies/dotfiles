@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2026.11.09] - 2026-11-10
+## [2026.11.10] - 2026-11-10
 
 ### Breaking changes
 
@@ -375,7 +375,7 @@ All notable changes to this project will be documented in this file.
 - Remove `~/.npm-global/bin` from the vault sync check's PATH. by @brettdavies in [#420](https://github.com/brettdavies/dotfiles/pull/420)
 - Remove the Obsidian vault from the nightly autocommit. The job covers `~/dev/solutions-docs` (sync only) and `~/dev/agent-skills`, and never commits or pushes the vault. by @brettdavies in [#425](https://github.com/brettdavies/dotfiles/pull/425)
 
-**Full Changelog**: [2026.10.25...2026.11.09](https://github.com/brettdavies/dotfiles/compare/2026.10.25...2026.11.09)
+**Full Changelog**: [2026.10.25...2026.11.10](https://github.com/brettdavies/dotfiles/compare/2026.10.25...2026.11.10)
 
 ## [2026.10.25] - 2026-10-25
 
