@@ -10,8 +10,8 @@
 #     and existing PRs ready
 # Passed: every other command, any of these with -h/--help, and text that only
 # names them (a quoted string, a heredoc body, a comment, a commit message).
-# Only the typed command is read: a script that runs gh itself, or a script
-# inside `bash -c '...'`, is one word here.
+# Only the typed command is read: a script that runs gh itself, a script inside
+# `bash -c '...'`, and a `$( )` inside double quotes are each one word here.
 #
 # The command is split the way the shell splits it, and gh's flags are read the
 # way its flag parser reads them: the last occurrence of a flag wins, a bundle
