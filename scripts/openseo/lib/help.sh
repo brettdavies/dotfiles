@@ -13,6 +13,7 @@ Runs OpenSEO's Docker stack on this host (the Linux server) and binds it to the 
 
   --host nas    [operator: docker, ssh] run the verb on the NAS's Docker daemon (DOCKER_HOST=ssh://pool, or the alias in
                 OPENSEO_NAS_SSH) with ~/.config/openseo/nas.env; before or after the verb. Nothing is written on the NAS.
+                `status --host nas` runs no docker, only curl and tailscale over ssh, so any agent may run it.
 
 --output json (status only) prints one JSON object with reason, exit_code, message, and next_step.
 Exit codes: 0 success; 1 an error, printed as "ERROR: <reason>: <message>" and a "fix:" line; 2 a usage error.

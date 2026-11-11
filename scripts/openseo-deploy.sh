@@ -62,5 +62,5 @@ case "$verb" in
 esac
 [ "$OS_OUTPUT" = text ] || [ "$verb" = status ] || os_fail usage "--output json is for status only" "$OS_DEPLOY --help" "$verb"
 
-[ "$OS_HOST" = local ] || os_nas_preflight
+[ "$OS_HOST" = local ] || os_nas_preflight "$verb"
 "os_${verb//-/_}"

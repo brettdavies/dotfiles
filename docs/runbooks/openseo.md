@@ -14,6 +14,7 @@ from inside the tailnet and nowhere else.
 | tailnet policy edits, `sudo systemctl` restarts                         | the operator                 |
 | `render`, `serve` (no docker; `serve` changes what the tailnet can see) | the operator                 |
 | `status` (no docker, no sudo; read-only)                                | the operator or any agent    |
+| `status --host nas` (ssh to the NAS; no docker; read-only)              | the operator or any agent    |
 | Google Cloud and Search Console setup, creating the DataForSEO account  | Brett, on his own decision   |
 
 If `docker` answers `permission denied` on its socket, run a command through the group: `sg docker -c '<command>'`.
@@ -171,8 +172,9 @@ it.
 
 ### Before the first `--host nas` verb
 
-1. `ssh pool docker version` answers from the Linux server without a prompt. Every `--host nas` verb, `render` included,
-   starts by running it, and stops with [nas-unreachable](#nas-unreachable) when it fails.
+1. `ssh pool 'docker version && curl --version && tailscale version'` answers from the Linux server without a prompt.
+   Every `--host nas` verb, `render` included, starts by running it, and stops with [nas-unreachable](#nas-unreachable)
+   when it fails. `status` runs no docker, so its check leaves `docker version` out.
 2. `svc:openseo` is defined, granted, and approved for the NAS. Follow [Tailnet policy](#tailnet-policy) with the NAS's
    tag from `ts-api.sh devices --verbose` as the `autoApprovers` entry, unless a tag-keyed entry already covers the
    service tag. Keep the Linux server's tag in the grant, so `status` reaches the address from there.
@@ -208,14 +210,15 @@ the NAS's loopback: `ssh -L 8946:127.0.0.1:8946 pool`.
 
 ### What `status` shows
 
-`status --host nas` runs the loopback gate, the `CapMap` check, and the binding check on the NAS through ssh, and
-fetches the tailnet address from the Linux server. It prints `OK: OpenSEO is up at https://openseo.<tailnet>.ts.net` and
-one `ok:` line each for `loopback`, `service`, `binding`, and `address`, and exits 0. A refused address exits 1 with
-[address-unreachable](#address-unreachable) and the fix `scripts/openseo-deploy.sh --host nas serve`; a NAS whose
-loopback is down exits 1 with [unhealthy](#unhealthy) and the fix `scripts/openseo-deploy.sh --host nas up`; an
-unreachable NAS exits 1 with [nas-unreachable](#nas-unreachable). Plain `status` on a host with `nas.env` and no
-`local.env` checks only the address and names the `--host nas` fix. After the NAS restarts, run `status --host nas`: the
-NAS's Docker service may not restart a stack it did not start, and a tailscaled restart there drops the binding.
+`status --host nas` runs the loopback gate, the `CapMap` check, and the binding check on the NAS through ssh, with no
+docker, and fetches the tailnet address from the Linux server. It prints
+`OK: OpenSEO is up at https://openseo.<tailnet>.ts.net` and one `ok:` line each for `loopback`, `service`, `binding`,
+and `address`, and exits 0. A refused address exits 1 with [address-unreachable](#address-unreachable) and the fix
+`scripts/openseo-deploy.sh --host nas serve`; a NAS whose loopback is down exits 1 with [unhealthy](#unhealthy) and the
+fix `scripts/openseo-deploy.sh --host nas up`; an unreachable NAS exits 1 with [nas-unreachable](#nas-unreachable).
+Plain `status` on a host with `nas.env` and no `local.env` checks only the address and names the `--host nas` fix. After
+the NAS restarts, run `status --host nas`: the NAS's Docker service may not restart a stack it did not start, and a
+tailscaled restart there drops the binding.
 
 ### Stop it
 
@@ -273,6 +276,9 @@ in an item named `DataForSEO API Key` (field `credential`), and sets the item's 
 An error prints `ERROR: <reason>: <message>`, any `cause:` lines holding the failing command's last stderr, and a final
 `fix:` line. `status --output json` prints the same error as one JSON object whose `next_step.docs` links to the
 reason's heading below. Messages say whether a rerun is safe.
+
+An error from a `--host nas` verb is about the NAS: read "this host" as the NAS, run the `fix:` line as printed
+(`scripts/openseo-deploy.sh --host nas <verb>`), and run any `tailscale` command below as `ssh pool tailscale ...`.
 
 ### usage
 
@@ -398,10 +404,11 @@ granted, or approved. Follow [Tailnet policy](#tailnet-policy), then `scripts/op
 
 ### nas-unreachable
 
-A `--host nas` verb could not run `ssh pool docker version` (or the alias in `OPENSEO_NAS_SSH`) from this host, so it
-changed nothing, read nothing from 1Password, and started nothing. Run that command by hand to see the failure: the key
-is not loaded, the alias is missing from `~/.ssh/config`, the NAS is off, or its Docker service is stopped. Every verb
-is safe to rerun once it answers.
+A `--host nas` verb could not run `ssh pool 'docker version && curl --version && tailscale version'` (or the alias in
+`OPENSEO_NAS_SSH`; `status` leaves out `docker version`) from this host, so it changed nothing, read nothing from
+1Password, and started nothing. The `cause:` lines hold what ssh or the NAS's shell said. Run the command by hand to see
+the failure: the key is not loaded, the alias is missing from `~/.ssh/config`, the NAS is off, its Docker service is
+stopped, or `docker`, `curl`, or `tailscale` is not on root's `PATH` there. Every verb is safe to rerun once it answers.
 
 ## Reporting problems upstream
 

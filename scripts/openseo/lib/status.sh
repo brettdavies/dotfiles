@@ -22,9 +22,9 @@ os_status() {
       unhealthy) os_unhealthy "nothing changed; safe to rerun" ;;
     esac
     os_check loopback "$OS_LOOPBACK/api/health ok and an account exists"
-    os_advertised || os_fail service-not-advertised "the control plane does not list $OS_SERVICE for this host (nothing changed; safe to rerun)" "$OS_DEPLOY serve"
+    os_advertised || os_fail service-not-advertised "the control plane does not list $OS_SERVICE for $OS_WHERE (nothing changed; safe to rerun)" "$OS_DEPLOY serve"
     os_check service "$OS_SERVICE is listed in CapMap service-host"
-    os_bound || os_fail bind-failed "$OS_SERVICE has no binding on this host, or tailscale could not list it, so peers time out; nothing changed; safe to rerun" "$OS_DEPLOY serve"
+    os_bound || os_fail bind-failed "$OS_SERVICE has no binding on $OS_WHERE, or tailscale could not list it, so peers time out; nothing changed; safe to rerun" "$OS_DEPLOY serve"
     os_check binding "$OS_SERVICE is bound"
   fi
   os_health "$addr" os_here
@@ -38,7 +38,7 @@ os_status() {
   if [ -f "$OS_LOCAL_ENV" ]; then
     pin_load "$OS_PIN"
     image=$(os_env_get "$OS_LOCAL_ENV" OPENSEO_IMAGE)
-    [ "$image" = "$PIN_IMAGE" ] || os_note "the tracked pin $PIN_TAG differs from this host's image; apply it with: $OS_DEPLOY update"
+    [ "$image" = "$PIN_IMAGE" ] || os_note "the tracked pin $PIN_TAG differs from $OS_WHERE's image; apply it with: $OS_DEPLOY update"
   fi
   if [ "$OS_OUTPUT" = json ]; then
     OS_ACTION=none

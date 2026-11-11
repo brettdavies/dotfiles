@@ -90,7 +90,8 @@ setup() {
   [ "${STUB_SSH_FAIL:-}" != 1 ] || { echo "ssh: connect to host pool port 22: Connection refused" >&2; exit 255; }
   while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
   shift 2
-  exec "$@"'
+  case "$*" in *"${STUB_SSH_MISSING:-@@}"*) echo "sh: 1: $STUB_SSH_MISSING: not found" >&2; exit 127 ;; esac
+  exec sh -c "$*"'
   PATH="$STUBS:$PATH"
 }
 
@@ -588,6 +589,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [ "$status" -eq 0 ]
   [ "$(_nas_compose_calls)" -eq 4 ]
   grep -q '^docker compose up -d --force-recreate init web crawl-gateway$' "$CALLS"
+  [ "$(_ssh_calls | head -1)" = "ssh -n -o BatchMode=yes -o ConnectTimeout=10 -- pool docker version && curl --version && tailscale version" ]
   _ssh_calls | grep -q -- "-- pool tailscale serve --service=svc:openseo --https=443 --yes http://127.0.0.1:8946"
   _ssh_calls | grep -q -- "-- pool curl .*http://127.0.0.1:8946/api/health"
   [ ! -e "$OPENSEO_ENV_DIR/local.env" ]
@@ -601,6 +603,9 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   OPENSEO_NAS_SSH='-oProxyCommand=x' _run up --host nas
   [ "$status" -eq 2 ]
   [[ "$output" == *"ERROR: usage:"*"OPENSEO_NAS_SSH"* ]]
+  OPENSEO_NAS_SSH='-oProxyCommand=x' run --separate-stderr "$SCRIPT" status --host nas --output json
+  [ "$status" -eq 2 ]
+  jq -e '.reason == "usage" and .exit_code == 2 and (.message | contains("OPENSEO_NAS_SSH"))' <<<"$output"
   _run up --host mars
   [ "$status" -eq 2 ]
   [[ "$output" == *"ERROR: usage:"*"--host takes nas"* ]]
@@ -631,6 +636,11 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
     [[ "$output" == *"ERROR: nas-unreachable:"*"ssh pool"*"fix:"* ]]
     [ "$(wc -l <"$CALLS")" -eq 1 ]
   done
+  : >"$CALLS"
+  STUB_SSH_MISSING=curl _run serve --host nas
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: nas-unreachable:"*"cause: sh: 1: curl: not found"*"fix:"* ]]
+  [ "$(wc -l <"$CALLS")" -eq 1 ]
   STUB_SSH_FAIL=1 run --separate-stderr "$SCRIPT" status --host nas --output json
   jq -e '.reason == "nas-unreachable" and .exit_code == 1 and .next_step.action == "supply-input" and .next_step.command == null' <<<"$output"
 }
@@ -640,8 +650,12 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   STUB_HEALTH=issues _run serve --host nas
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: unhealthy:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
+  [[ "$output" == *"answered http://127.0.0.1:8946/api/health on the NAS"* ]]
   _ssh_calls | grep -q -- "-- pool curl .*/api/health"
   _not_served
+  STUB_CAP=0 _run serve --host nas
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: service-not-advertised:"*"does not list the NAS for it"*"approve the NAS"* ]]
   STUB_FIRST=true STUB_BOUND=1 STUB_OFF_FAIL=1 _run serve --host nas
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: unbind-failed:"*"fix: ssh pool tailscale serve --service=svc:openseo --https=443 off"* ]]
@@ -649,13 +663,19 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
 
 @test "status --host nas reads the NAS's loopback and binding over ssh and the address from this host" {
   _run render --host nas
+  : >"$CALLS"
   STUB_BOUND=1 _run status --host nas
   [ "$status" -eq 0 ]
   [[ "$output" == *"OK: OpenSEO is up at https://openseo.tail-test.ts.net"* ]]
+  [ "$(_ssh_calls | head -1)" = "ssh -n -o BatchMode=yes -o ConnectTimeout=10 -- pool curl --version && tailscale version" ]
+  _never "^docker"
   _ssh_calls | grep -q -- "-- pool tailscale serve status --json"
   _ssh_calls | grep -q -- "-- pool tailscale status --json"
   grep -q '^curl https://openseo.tail-test.ts.net/api/health$' "$CALLS"
   [ "$(_ssh_calls | grep -c 'https://openseo' || true)" -eq 0 ]
+  STUB_BOUND=0 _run status --host nas
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: bind-failed:"*"no binding on the NAS"* ]]
   STUB_BOUND=1 STUB_ADDR=down _run status --host nas
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: address-unreachable:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --host nas serve"* ]]
