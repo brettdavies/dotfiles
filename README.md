@@ -63,7 +63,7 @@ dotfiles/
 │   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama, svc:codex-proxy, svc:openseo)
 │   ├── tailscale-serve-deploy.sh  System unit that re-runs the serve setup on every tailscaled start
 │   ├── rex-login-server-deploy.sh Rex login server accounts + tailnet listener, then enable the service
-│   ├── openseo-deploy.sh  OpenSEO on the Linux server: render, up, down, serve, status, create-admin (libraries in openseo/lib)
+│   ├── openseo-deploy.sh  OpenSEO on the Linux server, or on the NAS with --host nas: render, up, down, serve, status, create-admin (libraries in openseo/lib)
 │   ├── macos-gpu-monitor.sh       Metal GPU residency/power trace around any command (macOS)
 │   ├── launchd-user-path.sh       Check (or --apply) the launchd user PATH against config/launchd/ (macOS)
 │   ├── fseventsd-check.sh         Warn when fseventsd outgrows its launchd memory budget (macOS, run at Claude Code session start)

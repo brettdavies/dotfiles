@@ -11,6 +11,7 @@ os_status() {
   os_need_suffix
   OS_ACTION=ask-operator
   addr=https://openseo.$OS_SUFFIX
+  [ "$OS_HOST" = nas ] || [ -f "$OS_LOCAL_ENV" ] || [ ! -f "$OS_NAS_ENV" ] || OS_DEPLOY="$OS_DEPLOY --host nas"
   if [ -f "$OS_LOCAL_ENV" ]; then
     os_gate_check || :
     case "$OS_GATE" in
@@ -26,10 +27,10 @@ os_status() {
     os_bound || os_fail bind-failed "$OS_SERVICE has no binding on this host, or tailscale could not list it, so peers time out; nothing changed; safe to rerun" "$OS_DEPLOY serve"
     os_check binding "$OS_SERVICE is bound"
   fi
-  os_health "$addr"
+  os_health "$addr" os_here
   if [ "$OS_HEALTH" = ok ]; then
     os_check address "$addr/api/health ok"
-  elif [ -f "$OS_LOCAL_ENV" ]; then
+  elif [ "$OS_HOST" = local ] && [ -f "$OS_LOCAL_ENV" ]; then
     os_note "this host cannot reach its own service address $addr; its loopback and service checks pass, and other hosts can still reach it"
   else
     os_fail address-unreachable "$addr/api/health refused; run serve on the host that runs OpenSEO; nothing changed; safe to rerun" "$OS_DEPLOY serve" "$addr"

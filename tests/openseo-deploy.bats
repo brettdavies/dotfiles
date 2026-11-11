@@ -86,6 +86,11 @@ setup() {
       [ "${STUB_EXEC_FAIL:-}" != 1 ] || { echo "Account command failed; check the server logs" >&2; exit 1; }
       : >"$ACCOUNT" ;;
   esac'
+  _stub ssh 'echo "ssh $*" >>"$CALLS"
+  [ "${STUB_SSH_FAIL:-}" != 1 ] || { echo "ssh: connect to host pool port 22: Connection refused" >&2; exit 255; }
+  while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
+  shift 2
+  exec "$@"'
   PATH="$STUBS:$PATH"
 }
 
@@ -102,6 +107,9 @@ _no_leaks() { [[ $output != *STUBSECRET* ]] && ! grep -q STUBSECRET "$CALLS"; }
 _not_served() { ! _served; }
 _no_volumes() { ! grep "^docker" "$CALLS" | grep -qE "(^| )(-v|--volumes)( |$)"; }
 _all_loopback() { ! grep "ports:" "$COMPOSE" | grep -qv "127.0.0.1:"; }
+_ssh_calls() { grep '^ssh ' "$CALLS"; }
+_ssh_only_allowed() { ! grep '^ssh ' "$CALLS" | grep -qvE '^ssh -n -o BatchMode=yes -o ConnectTimeout=10 -- pool (tailscale|curl|docker) '; }
+_nas_compose_calls() { grep -c "COMPOSE_ENV_FILES=$OPENSEO_ENV_DIR/nas.env .*DOCKER_HOST=ssh://${1:-pool}\$" "$CALLS"; }
 _pin_variant() { sed "$1" "$PIN" >"$BATS_TEST_TMPDIR/variant.pin"; }
 _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "$2"; echo "$PIN_IMAGE"' _ "$LIB" "$1"; }
 
@@ -551,6 +559,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [ "$status" -eq 0 ]
   for verb in render up down serve status create-admin; do [[ "$output" == *"  $verb "* ]]; done
   [[ "$output" == *"up"*"[operator: docker]"* ]]
+  [[ "$output" == *"  --host nas "* ]]
   _run frobnicate
   [ "$status" -eq 2 ]
   [[ "$output" == *"ERROR: usage:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --help"* ]]
@@ -562,6 +571,106 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   _run up --output json
   [ "$status" -eq 2 ]
   [[ "$output" == *'"reason": "usage"'* && "$output" == *'"value": "up"'* ]]
+}
+
+@test "render --host nas writes nas.env beside no local.env, with the same keys and mode" {
+  _run render --host nas
+  [ "$status" -eq 0 ]
+  [ ! -e "$OPENSEO_ENV_DIR/local.env" ]
+  [ "$(stat -c %a "$OPENSEO_ENV_DIR/nas.env")" = 600 ]
+  grep -qx 'PORT=8946' "$OPENSEO_ENV_DIR/nas.env"
+  grep -qx 'BETTER_AUTH_URL=https://openseo.tail-test.ts.net' "$OPENSEO_ENV_DIR/nas.env"
+  _no_leaks
+}
+
+@test "up --host nas runs every compose call against the NAS daemon and nas.env, and binds through ssh" {
+  _run --host nas up
+  [ "$status" -eq 0 ]
+  [ "$(_nas_compose_calls)" -eq 4 ]
+  grep -q '^docker compose up -d --force-recreate init web crawl-gateway$' "$CALLS"
+  _ssh_calls | grep -q -- "-- pool tailscale serve --service=svc:openseo --https=443 --yes http://127.0.0.1:8946"
+  _ssh_calls | grep -q -- "-- pool curl .*http://127.0.0.1:8946/api/health"
+  [ ! -e "$OPENSEO_ENV_DIR/local.env" ]
+}
+
+@test "OPENSEO_NAS_SSH names another alias, and a value that is not a host alias is a usage error" {
+  OPENSEO_NAS_SSH=nashost _run up --host nas
+  [ "$status" -eq 0 ]
+  [ "$(_nas_compose_calls nashost)" -eq 4 ]
+  _ssh_calls | grep -q -- "-- nashost "
+  OPENSEO_NAS_SSH='-oProxyCommand=x' _run up --host nas
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"ERROR: usage:"*"OPENSEO_NAS_SSH"* ]]
+  _run up --host mars
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"ERROR: usage:"*"--host takes nas"* ]]
+}
+
+@test "no verb under --host nas writes on the NAS: ssh carries only tailscale, curl, and docker, always non-interactive" {
+  _run render --host nas
+  STUB_FIRST=true _run create-admin --host nas
+  [ "$status" -eq 0 ]
+  grep -q "^env COMPOSE_FILE=$COMPOSE COMPOSE_ENV_FILES=$OPENSEO_ENV_DIR/nas.env .*DOCKER_HOST=ssh://pool$" "$CALLS"
+  [ "$(cat "$STDIN_FILE")" = STUBSECRET_admin_pw_0123 ]
+  _run down --host nas
+  [ "$status" -eq 0 ]
+  _run serve --host nas
+  [ "$status" -eq 0 ]
+  STUB_BOUND=1 _run status --host nas
+  [ "$status" -eq 0 ]
+  [ "$(_nas_compose_calls)" -ge 2 ]
+  for cmd in tailscale curl docker; do _ssh_calls | grep -q -- "-- pool $cmd "; done
+  _ssh_only_allowed
+}
+
+@test "every --host nas verb exits 1 naming ssh pool when the NAS does not answer, and makes no further call" {
+  for verb in render up down serve create-admin status; do
+    : >"$CALLS"
+    STUB_SSH_FAIL=1 _run "$verb" --host nas
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"ERROR: nas-unreachable:"*"ssh pool"*"fix:"* ]]
+    [ "$(wc -l <"$CALLS")" -eq 1 ]
+  done
+  STUB_SSH_FAIL=1 run --separate-stderr "$SCRIPT" status --host nas --output json
+  jq -e '.reason == "nas-unreachable" and .exit_code == 1 and .next_step.action == "supply-input" and .next_step.command == null' <<<"$output"
+}
+
+@test "serve --host nas refuses when the NAS's gate fails, and a binding it cannot turn off names the ssh command" {
+  _run render --host nas
+  STUB_HEALTH=issues _run serve --host nas
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: unhealthy:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
+  _ssh_calls | grep -q -- "-- pool curl .*/api/health"
+  _not_served
+  STUB_FIRST=true STUB_BOUND=1 STUB_OFF_FAIL=1 _run serve --host nas
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: unbind-failed:"*"fix: ssh pool tailscale serve --service=svc:openseo --https=443 off"* ]]
+}
+
+@test "status --host nas reads the NAS's loopback and binding over ssh and the address from this host" {
+  _run render --host nas
+  STUB_BOUND=1 _run status --host nas
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"OK: OpenSEO is up at https://openseo.tail-test.ts.net"* ]]
+  _ssh_calls | grep -q -- "-- pool tailscale serve status --json"
+  _ssh_calls | grep -q -- "-- pool tailscale status --json"
+  grep -q '^curl https://openseo.tail-test.ts.net/api/health$' "$CALLS"
+  [ "$(_ssh_calls | grep -c 'https://openseo' || true)" -eq 0 ]
+  STUB_BOUND=1 STUB_ADDR=down _run status --host nas
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: address-unreachable:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --host nas serve"* ]]
+  STUB_BOUND=1 STUB_HEALTH=down _run status --host nas
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: unhealthy:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
+}
+
+@test "status with no local.env and a nas.env names the --host nas fix for a refused address" {
+  mkdir -p "$OPENSEO_ENV_DIR"
+  : >"$OPENSEO_ENV_DIR/nas.env"
+  STUB_ADDR=down _run status
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: address-unreachable:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --host nas serve"* ]]
+  _never "^ssh "
 }
 
 @test "every error the suite can trigger has a reason from the closed set and ends with a fix: line" {
@@ -588,7 +697,8 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   STUB_HEALTH=issues _run serve; _check
   STUB_CAP=0 _run serve; _check
   STUB_PULL_FAIL=1 _run up; _check
-  [ "$seen" = " item-unreadable unsupported-host usage env-missing storage-key-changed unhealthy service-not-advertised pull-failed" ]
+  STUB_SSH_FAIL=1 _run status --host nas; _check
+  [ "$seen" = " item-unreadable unsupported-host usage env-missing storage-key-changed unhealthy service-not-advertised pull-failed nas-unreachable" ]
 }
 
 @test "every reason has a heading in the runbook, and every verb it runs is in --help" {
