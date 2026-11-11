@@ -39,7 +39,9 @@ git checkout dev && git pull
 git checkout -b feat/short-description
 # ... work ...
 git push -u origin feat/short-description
-gh pr create --base dev --title "feat(scope): what changed"
+gh pr create --draft --base dev --title "feat(scope): what changed"
+# Every review the PR needs is done, its fixes are in, and each verdict is in a PR comment → mark it ready
+gh pr ready
 # Checks pass → squash-merge (PR body becomes the dev commit message)
 ```
 
@@ -179,7 +181,10 @@ scripts/release/drift.sh
 
 # 7. Push and open the PR (scrub the body in /tmp/ first).
 git push -u origin "release/$(date +%Y.%m.%d)"
-gh pr create --base main --head "release/$(date +%Y.%m.%d)" --title "release: $(date +%Y.%m.%d)" --body-file /tmp/body.md
+gh pr create --draft --base main --head "release/$(date +%Y.%m.%d)" --title "release: $(date +%Y.%m.%d)" --body-file /tmp/body.md
+
+# 8. Mark the PR ready once its checks pass.
+gh pr ready "release/$(date +%Y.%m.%d)"
 ```
 
 The result is a single commit whose diff against `main` is the release, with `main` as an ancestor, so the PR merges
