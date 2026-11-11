@@ -19,7 +19,8 @@ os_stack_dir() {
 
 # The shell script the NAS runs from stdin. A new folder gets name, project_name, description and autostart in this one
 # run, because an open dashboard writes name and project_name into any folder it finds; an existing folder keeps those
-# four and every file the dashboard owns, and only the three files below are replaced.
+# four and every file the dashboard owns, and only the three files below are replaced. Each is written under a new name
+# and moved into place, because umask 077 sets the mode of a new file only: an existing .env keeps its mode otherwise.
 os_stack_script() {
   local f
   printf 'set -e\numask 077\n%s\nif [ ! -d "$d" ]; then\n  mkdir -p "$d"\n' "$(os_stack_dir)"
@@ -28,15 +29,17 @@ os_stack_script() {
   done
   printf 'fi\n'
   for f in "compose.yaml:$OS_COMPOSE_FILE" "compose.override.yaml:$OS_OVERRIDE_FILE" ".env:$OS_LOCAL_ENV"; do
-    printf 'cat >"$d/%s" <<'"'%s'"'\n' "${f%%:*}" "$OS_EOF"
+    printf 'cat >"$d/%s.new" <<'"'%s'"'\n' "${f%%:*}" "$OS_EOF"
     cat "${f#*:}"
-    printf '%s\n' "$OS_EOF"
+    printf '%s\nmv -f "$d/%s.new" "$d/%s"\n' "$OS_EOF" "${f%%:*}" "${f%%:*}"
   done
+  printf 'printf "==> wrote the stack folder %%s on the NAS\\n" "$d"\n'
 }
 
 os_stack_write() {
   os_try os_nas_ssh_in sh -s < <(os_stack_script) \
-    || os_fail stack-write-failed "writing the Compose Manager stack $OS_STACK on the NAS failed; nothing was started; safe to rerun" "$OS_DEPLOY up"
+    || os_fail_input stack-write-failed "writing the Compose Manager stack $OS_STACK on the NAS failed; nothing was started; safe to rerun once the cause is fixed" \
+      "ssh $OS_NAS_SSH \"grep PROJECTS_FOLDER $OS_PROJECTS_CFG; grep ' /boot ' /proc/mounts\" shows the stack folder and whether the flash is writable; then $OS_DEPLOY up" "$OS_STACK"
 }
 
 # os_stack ACTION [OPTION...] runs the plugin's compose.sh on the NAS: up or stop. Its --recreate option recreates every
@@ -44,5 +47,5 @@ os_stack_write() {
 os_stack() {
   local action=$1
   shift
-  os_nas_ssh "$(os_stack_dir); exec $OS_COMPOSE_SH -c$action${*:+ $*} -p$OS_STACK -f\"\$d/compose.yaml\" -f\"\$d/compose.override.yaml\" -e\"\$d/.env\" -s\"\$d\""
+  os_nas_ssh "$(os_stack_dir); exec $OS_COMPOSE_SH -c$action${*:+ $*} -p$OS_STACK -f\"\$d/compose.yaml\" -f\"\$d/compose.override.yaml\" -e\"\$d/.env\" -s\"\$d\" >&2"
 }

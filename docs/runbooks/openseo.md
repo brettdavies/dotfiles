@@ -213,6 +213,8 @@ The stack folder is `openseo` under `PROJECTS_FOLDER`, which `up` reads from
 - Every `up` replaces `compose.yaml` (upstream's file, checked against the pin's sha256 before anything is written),
   `compose.override.yaml` (`config/openseo/compose.override.yaml`: the label `net.unraid.docker.managed: composeman` and an
   empty icon, webui, and shell on each of the five services), and `.env` (a copy of `nas.env`).
+- Each of the three is written under a new name and moved into place, so an `.env` that already exists ends up mode 600
+  on a filesystem that keeps modes, and a dropped connection leaves the old file whole.
 - It never rewrites `name`, `project_name`, `description`, `autostart`, or a file the dashboard owns (`icon_url`,
   `webui_url`, `last_result.json`, `started_at`, `has_build`).
 
@@ -357,7 +359,9 @@ sha256.
 
 A 1Password read failed. The error names the item's UUID and title. Check that the item exists and that the service
 account reaches `secrets-dev` with `get_item.sh <uuid>` (it redacts secret fields). `render` changes nothing on this
-error, so a rerun is safe.
+error, so a rerun is safe. For the DataForSEO, Google, and OpenRouter items the message also names the variable that
+skips the item: `OPENSEO_DATAFORSEO_ITEM=`, `OPENSEO_GOOGLE_ITEM=`, or `OPENSEO_OPENROUTER_ITEM=` set to the empty string
+renders its keys empty.
 
 ### value-unsafe
 
@@ -459,17 +463,17 @@ A `--host nas` verb could not run `ssh pool 'docker version && curl --version &&
 `test -x /usr/local/emhttp/plugins/compose.manager/scripts/compose.sh`) from this host, so it changed nothing, read nothing from
 1Password, and started nothing. The `cause:` lines hold what ssh or the NAS's shell said. Run the command by hand to see
 the failure: the key is not loaded, the alias is missing from `~/.ssh/config`, the NAS is off, its Docker service is
-stopped, the Compose Manager plugin is not installed, or `docker`, `curl`, or `tailscale` is not on root's `PATH` there.
-Every verb is safe to rerun once it answers.
+stopped, the Compose Manager plugin is not installed (the `cause:` line then says so), or `docker`, `curl`, or `tailscale`
+is not on root's `PATH` there. Every verb is safe to rerun once it answers.
 
 ### stack-write-failed
 
 `up --host nas` could not write the stack folder `openseo` under `PROJECTS_FOLDER` on the NAS, so it started nothing and
-changed nothing outside that folder. The `cause:` lines hold what the NAS's shell said. Check that the folder named by
-`PROJECTS_FOLDER` in `/boot/config/plugins/compose.manager/compose.manager.cfg` (default
-`/boot/config/plugins/compose.manager/projects`) is a directory and that the flash is mounted read-write:
-`ssh pool "ls -ld /boot/config/plugins/compose.manager/projects; grep ' /boot ' /proc/mounts"`.
-Rerun `scripts/openseo-deploy.sh --host nas up` once the write works; the files it replaces are the same every time.
+changed nothing outside that folder. The `cause:` lines hold what the NAS's shell said. A rerun fails the same way until
+the cause is fixed. The `fix:` line prints a command that shows `PROJECTS_FOLDER` from
+`/boot/config/plugins/compose.manager/compose.manager.cfg` (default `/boot/config/plugins/compose.manager/projects`) and
+whether the flash is mounted read-write. Check that the folder is a directory and that the mount is `rw`, then rerun
+`scripts/openseo-deploy.sh --host nas up`; the files it replaces are the same every time.
 
 ## Reporting problems upstream
 

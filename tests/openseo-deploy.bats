@@ -44,9 +44,9 @@ setup() {
   case "$1" in
     -cup)
       [ "${STUB_INIT:-ok}" != hang ] || exec sleep 30
-      [ "${STUB_INIT:-ok}" != fail ] || { echo "service \"init\" didn'"'"'t complete successfully: exit 1" >&2; exit 1; }
-      [ "${STUB_UP_FAIL:-}" != 1 ] || { echo "up failed" >&2; exit 1; } ;;
-    -cstop) [ "${STUB_STOP_FAIL:-}" != 1 ] || { echo "stop failed" >&2; exit 1; } ;;
+      [ "${STUB_INIT:-ok}" != fail ] || { echo "service \"init\" didn'"'"'t complete successfully: exit 1"; exit 1; }
+      [ "${STUB_UP_FAIL:-}" != 1 ] || { echo "up failed"; exit 1; } ;;
+    -cstop) [ "${STUB_STOP_FAIL:-}" != 1 ] || { echo "stop failed"; exit 1; } ;;
   esac'
   export CALLS="$BATS_TEST_TMPDIR/calls.log" ACCOUNT="$BATS_TEST_TMPDIR/account" STDIN_FILE="$BATS_TEST_TMPDIR/stdin"
   export OPENSEO_ENV_DIR="$BATS_TEST_TMPDIR/cfg/openseo" OP_SKILL="$STUBS/op"
@@ -227,6 +227,16 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [ "$status" -eq 0 ]
   grep -qx 'DATAFORSEO_API_KEY=' "$OPENSEO_ENV_DIR/local.env"
   [[ "$output" == *"NOTE: DATAFORSEO_API_KEY renders empty"*"OPENSEO_DATAFORSEO_ITEM"* ]]
+}
+
+@test "an optional item that cannot be read names the variable that skips it, and the storage item does not" {
+  OPENSEO_GOOGLE_ITEM=missing-item _run render
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: item-unreadable:"*"missing-item"*"set OPENSEO_GOOGLE_ITEM to the empty string"* ]]
+  OPENSEO_GOOGLE_ITEM='' _run render
+  [ "$status" -eq 0 ]
+  STUB_OP_FAIL=1 _run render
+  [[ "$output" != *"to render without it"* ]]
 }
 
 @test "render writes OPENROUTER_API_KEY from its item and the model constant, on both hosts" {
@@ -634,7 +644,8 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   grep -q '^docker compose -p openseo logs --no-color --no-log-prefix init$' "$CALLS"
   _never "^docker compose (pull|up|stop)"
   [[ "$output" == *"docker compose -p openseo logs -f init"* ]]
-  [ "$(_ssh_calls | head -1)" = "ssh -n -o BatchMode=yes -o ConnectTimeout=10 -- pool test -x $COMPOSE_SH && docker version && curl --version && tailscale version" ]
+  [ "$(_ssh_calls | head -1)" = "ssh -n -o BatchMode=yes -o ConnectTimeout=10 -- pool test -x $COMPOSE_SH || { echo \"Compose Manager plugin not installed: $COMPOSE_SH\" >&2; exit 1; }; docker version && curl --version && tailscale version" ]
+  [[ "$output" == *"==> wrote the stack folder $STACK on the NAS"* ]]
   [ "$(cat "$STACK/name")" = OpenSEO ]
   [ "$(cat "$STACK/project_name")" = openseo ]
   [ "$(cat "$STACK/autostart")" = true ]
@@ -662,8 +673,12 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   mkdir -p "$STACK"
   for f in name project_name description autostart icon_url last_result.json; do printf 'dashboard-%s' "$f" >"$STACK/$f"; done
   printf old >"$STACK/compose.yaml"
+  printf old >"$STACK/.env"
+  chmod 644 "$STACK/.env"
   _run up --host nas
   [ "$status" -eq 0 ]
+  [ "$(stat -c %a "$STACK/.env")" = 600 ]
+  [ -z "$(find "$STACK" -name '*.new')" ]
   for f in name project_name description autostart icon_url last_result.json; do [ "$(cat "$STACK/$f")" = "dashboard-$f" ]; done
   cmp "$COMPOSE" "$STACK/compose.yaml"
   cmp "$OPENSEO_ENV_DIR/nas.env" "$STACK/.env"
@@ -686,7 +701,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   _break_stack_dir
   _run up --host nas
   [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: stack-write-failed:"*"nothing was started"*"cause:"*"fix: ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
+  [[ "$output" == *"ERROR: stack-write-failed:"*"nothing was started"*"cause:"*'fix: ssh pool "grep PROJECTS_FOLDER /boot/config/plugins/compose.manager/compose.manager.cfg;'*"then ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
   _never "^compose.sh"
   rm -f "${STACK%/*}"
   STUB_UP_FAIL=1 _run up --host nas
@@ -706,7 +721,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
     : >"$CALLS"
     _run "$verb" --host nas
     [ "$status" -eq 1 ]
-    [[ "$output" == *"ERROR: nas-unreachable:"*"test -x $COMPOSE_SH"*"fix:"* ]]
+    [[ "$output" == *"ERROR: nas-unreachable:"*"test -x $COMPOSE_SH"*"cause: Compose Manager plugin not installed: "*"fix:"* ]]
     [ "$(wc -l <"$CALLS")" -eq 1 ]
   done
   [ ! -e "$STACK" ] && [ ! -e "$OPENSEO_ENV_DIR/nas.env" ]

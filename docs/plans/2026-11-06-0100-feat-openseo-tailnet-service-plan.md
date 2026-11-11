@@ -212,9 +212,10 @@ touch anc.dev or spend money without his decision.
   `deploy/standalone/compose.yaml` at the pinned commit, unedited, and `config/openseo/backup.mjs` (PR2) is its
   `scripts/celld/backup.mjs` from the same commit, whose manifest checks only its format and celld version, not the
   OpenSEO image, so the backup's own recorded image (U6) is the only image check on restore. A bump is a copy plus
-  checksums. Upstream already binds the web port to `127.0.0.1` and digest-pins RustFS and nginx, so no override file is
-  needed. The file sets `name: openseo-standalone`, and every compose call keeps that project name, because the backup
-  script finds volumes through it. Instantiates R2, R5.
+  checksums. Upstream already binds the web port to `127.0.0.1` and digest-pins RustFS and nginx, so the file needs no
+  edit for either. The file sets `name: openseo-standalone`, the project name on the Linux server, and the backup script
+  finds volumes through the project name. The NAS stack's project is `openseo` (KTD11), so its volumes are `openseo_*`
+  and the script takes the project from the host. Instantiates R2, R5.
 - KTD3. **One pin file holds the version, and it reaches compose through `OPENSEO_IMAGE`.** `config/openseo/openseo.pin`
   records the upstream tag, its commit, its release time, the image as
   `ghcr.io/every-app/open-seo-standalone@sha256:<digest>`, and the sha256 of each vendored file. One parser in

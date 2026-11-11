@@ -35,14 +35,15 @@ os_use_host() {
 }
 
 # One ssh call that runs every tool the verb will run there, so a missing tool or plugin is named before anything is read
-# or started. status runs no docker, so it checks none; up and down run the plugin's compose.sh. The alias is a ssh destination and part of DOCKER_HOST, so a value
-# ssh could read as an option is refused; that check waits for here, after --output is known.
+# or started. status runs no docker, so it checks none; up and down run the plugin's compose.sh. The alias is a ssh
+# destination and part of DOCKER_HOST, so a value ssh could read as an option is refused; that check waits for here,
+# after --output is known.
 os_nas_preflight() {
   local probe='curl --version && tailscale version'
   [[ $OS_NAS_SSH =~ ^[A-Za-z0-9][A-Za-z0-9._@-]*$ ]] \
     || os_fail_input usage "OPENSEO_NAS_SSH must be an ssh host alias, not $(os_mask "$OS_NAS_SSH")" "unset OPENSEO_NAS_SSH, or set it to the alias in ~/.ssh/config" "$OS_NAS_SSH"
   [ "$1" = status ] || probe="docker version && $probe"
-  case "$1" in up | down) probe="test -x $OS_COMPOSE_SH && $probe" ;; esac
+  case "$1" in up | down) probe="test -x $OS_COMPOSE_SH || { echo \"Compose Manager plugin not installed: $OS_COMPOSE_SH\" >&2; exit 1; }; $probe" ;; esac
   os_need ssh
   os_try os_nas_ssh "$probe" >/dev/null \
     || os_fail_input nas-unreachable "the NAS did not answer ssh $OS_NAS_SSH '$probe'; nothing was changed; safe to rerun" \

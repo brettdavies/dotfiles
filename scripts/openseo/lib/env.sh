@@ -9,7 +9,7 @@ OS_SAFE_RE='^[A-Za-z0-9+/=._:@-]+$'
 os_item() {
   local out
   if ! out=$("$OP_SKILL/read_field.sh" "$1" "$3" 2>/dev/null) || [ -z "$out" ]; then
-    os_fail item-unreadable "1Password item $1 ($2), field $3, could not be read; nothing changed; safe to rerun" \
+    os_fail item-unreadable "1Password item $1 ($2), field $3, could not be read; nothing changed; safe to rerun${OS_SKIP_VAR:+; to render without it, set $OS_SKIP_VAR to the empty string}" \
       "~/.claude/skills/1password/scripts/get_item.sh $1" "$1"
   fi
   if ! [[ $out =~ $OS_SAFE_RE ]]; then
@@ -40,9 +40,10 @@ os_keep_storage() {
   }
 }
 
-# os_optional ITEM TITLE FIELD VAR [NOTE]: like os_item, but an item with no UUID yet leaves VAR empty and says NOTE.
+# os_optional ITEM TITLE FIELD VAR NOTE ENVVAR: like os_item, but an empty ITEM leaves VAR empty and says NOTE, and an
+# unreadable item names ENVVAR as the way to skip it.
 os_optional() {
-  if [ -n "$1" ]; then os_item "$1" "$2" "$3" "$4"; elif [ -n "${5:-}" ]; then os_note "$5"; fi
+  if [ -n "$1" ]; then OS_SKIP_VAR=$6 os_item "$1" "$2" "$3" "$4"; elif [ -n "${5:-}" ]; then os_note "$5"; fi
 }
 
 os_render() {
@@ -53,10 +54,10 @@ os_render() {
   os_need jq tailscale
   os_need_suffix
   os_item "$OS_STORAGE_ITEM" "OpenSEO - Storage Secret (openseo)" password secret
-  os_optional "$OS_DATAFORSEO_ITEM" "DataForSEO API Key" credential dfs "DATAFORSEO_API_KEY renders empty: OPENSEO_DATAFORSEO_ITEM is empty, so only the crawl-only audit works"
-  os_optional "$OS_GOOGLE_ITEM" "OpenSEO - Google OAuth Client (openseo)" client_id gid "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET render empty: OPENSEO_GOOGLE_ITEM is empty, so Search Console cannot connect"
-  os_optional "$OS_GOOGLE_ITEM" "OpenSEO - Google OAuth Client (openseo)" client_secret gsec
-  os_optional "$OS_OPENROUTER_ITEM" "OpenRouter API Key - OpenSEO" credential orkey "OPENROUTER_API_KEY renders empty: OPENSEO_OPENROUTER_ITEM is empty, so OpenSEO makes no OpenRouter call"
+  os_optional "$OS_DATAFORSEO_ITEM" "DataForSEO API Key" credential dfs "DATAFORSEO_API_KEY renders empty: OPENSEO_DATAFORSEO_ITEM is empty, so only the crawl-only audit works" OPENSEO_DATAFORSEO_ITEM
+  os_optional "$OS_GOOGLE_ITEM" "OpenSEO - Google OAuth Client (openseo)" client_id gid "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET render empty: OPENSEO_GOOGLE_ITEM is empty, so Search Console cannot connect" OPENSEO_GOOGLE_ITEM
+  os_optional "$OS_GOOGLE_ITEM" "OpenSEO - Google OAuth Client (openseo)" client_secret gsec '' OPENSEO_GOOGLE_ITEM
+  os_optional "$OS_OPENROUTER_ITEM" "OpenRouter API Key - OpenSEO" credential orkey "OPENROUTER_API_KEY renders empty: OPENSEO_OPENROUTER_ITEM is empty, so OpenSEO makes no OpenRouter call" OPENSEO_OPENROUTER_ITEM
   os_keep_storage STORAGE_ACCESS_KEY "$OS_STORAGE_ACCESS_KEY"
   os_keep_storage STORAGE_SECRET_KEY "$secret"
   image=$(os_env_get "$OS_LOCAL_ENV" OPENSEO_IMAGE)
