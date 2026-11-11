@@ -928,7 +928,10 @@ lower branch is squash-merged into the base and the upper branch is replayed ont
 denied when the lower branch was reset, amended, or squashed after the stack was built on it and carries work the base
 lacks, when the tip is one the base already holds, when the clone has no ref for the base, and when the reflog of
 `origin/<branch>` does not name the earlier tip. Origin's default branch, while origin's copy holds all its commits, is
-no second task, and a probe's branch goes under `probe/`.
+no second task, and a probe's branch goes under `probe/`. When the denial is over a branch whose work the base holds (the
+clean-merge test above), it says so and names the way out: a push that continues the same task deletes that local branch
+with `git branch -D <branch>` and pushes again, and a new task still asks for `agent-slot retask`. A denial over a branch
+with work the base lacks names only `retask`, since deleting that branch would lose the work.
 
 `agent-slot resume <repo>/<N> --model (opus | sonnet)` switches a live slot's model. The slot's record takes the model,
 and a Claude that is idle is ended and started again in its own pane through the command line a launch builds, resuming

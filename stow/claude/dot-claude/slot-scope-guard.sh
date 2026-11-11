@@ -208,9 +208,26 @@ replayed_own_commits() {
   [[ $'\n'$cherry != *$'\n+'* ]]
 }
 
+# Usage: branch_reason <repo> <n> <head> <other> <by_base>; the denial for a push from <head> in a slot whose task is on
+# <other>. <by_base> is 1 when origin/<base> already holds <other>'s work, which leaves <other> a local branch with
+# nothing left to push: deleting it loses nothing, and a push that continues the task then has no second branch beside it.
+branch_reason() {
+  local retask="agent-slot retask $1/$2 --task <name> --prompt-file <brief>"
+  if (($5)); then
+    printf '%s' "This push is from $3, but this slot's task is on $4, and they share no line of work. The base already \
+holds the work of $4, so it is a leftover local branch. If this push continues the same task, delete $4 with \
+\`git branch -D $4\` and push again. A new task stops here instead: ask the session you report to to run \`$retask\`, \
+which starts the new task in a new session. A probe's branch goes under probe/."
+    return 0
+  fi
+  printf '%s' "This push is from $3, but this slot's task is on $4, and they share no line of work. One session holds one \
+task, so stop here and ask the session you report to to run \`$retask\`, which starts the new task in a new session. If \
+this is the same task, stack it on $4. A probe's branch goes under probe/."
+}
+
 # Usage: branch_decide <repo> <n>; RECORD holds the slot's record. Prints the denial, or nothing.
 branch_decide() {
-  local path base head other default pair x y tip held rc cherry merged basetree mbase mbtree tie
+  local path base head other default pair x y tip held rc cherry merged basetree mbase mbtree tie by_base
   path=$(slot_path "$1" "$2")
   base=$(contract_json -r '.base // empty' <<<"$RECORD")
   head=$(git -C "$path" symbolic-ref --short -q HEAD) || return 0
@@ -238,7 +255,9 @@ branch_decide() {
     # held of its own on top of the tie (replayed_own_commits). A replay keeps them by patch-id unless the base changed
     # the lines around one; a reset drops them or never had any, unless the base holds its own commit too; and an own
     # commit that an amend or a squash changed after the replay no longer matches. A conflicted merge, a git without
-    # `merge-tree --write-tree`, and a missing base ref answer nothing, and nothing is skipped.
+    # `merge-tree --write-tree`, and a missing base ref answer nothing, and nothing is skipped. A denial over a branch
+    # the base holds the work of says so (branch_reason); one over a branch with work the base lacks does not.
+    by_base=0
     merged=$(git -C "$path" merge-tree --write-tree "refs/remotes/origin/$base" "refs/heads/$other" 2>/dev/null) || merged=
     basetree=$(git -C "$path" rev-parse --verify -q "refs/remotes/origin/$base^{tree}" 2>/dev/null) || basetree=
     if [[ -n $basetree && ${merged%%$'\n'*} == "$basetree" ]]; then
@@ -246,11 +265,13 @@ branch_decide() {
       tie=$(git -C "$path" merge-base --fork-point "refs/heads/$head" "refs/heads/$other" 2>/dev/null) || tie=
       rc=0
       [[ -z $tie ]] || git -C "$path" merge-base --is-ancestor "$tie" "refs/remotes/origin/$base" 2>/dev/null || rc=$?
-      if [[ -n $mbase && $mbase != *$'\n'* ]] && ((rc == 1)); then
+      if [[ -n $mbase && $mbase != *$'\n'* ]]; then
         mbtree=$(git -C "$path" rev-parse --verify -q "$mbase^{tree}" 2>/dev/null) || mbtree=
-        if [[ -n $mbtree && $mbtree != "$(git -C "$path" rev-parse "refs/heads/$other^{tree}")" ]] \
-          && replayed_own_commits "$path" "$head" "$tie"; then
-          continue
+        if [[ -n $mbtree && $mbtree != "$(git -C "$path" rev-parse "refs/heads/$other^{tree}")" ]]; then
+          by_base=1
+          if ((rc == 1)) && replayed_own_commits "$path" "$head" "$tie"; then
+            continue
+          fi
         fi
       fi
     fi
@@ -277,10 +298,7 @@ branch_decide() {
       cherry=$(git -C "$path" cherry "refs/heads/$x" "$held" 2>/dev/null) || continue
       [[ $'\n'$cherry == *$'\n+'* ]] || continue 2
     done
-    scope_deny "This push is from $head, but this slot's task is on $other, and they share no line of work. One session \
-holds one task, so stop here and ask the session you report to to run \`agent-slot retask $1/$2 --task <name> \
---prompt-file <brief>\`, which starts the new task in a new session. If this is the same task, stack it on $other. A \
-probe's branch goes under probe/."
+    scope_deny "$(branch_reason "$1" "$2" "$head" "$other" "$by_base")"
     return 0
   done < <(git -C "$path" for-each-ref --format='%(refname:short)' refs/heads)
 }
