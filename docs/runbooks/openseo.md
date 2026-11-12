@@ -207,16 +207,21 @@ The stack folder is `openseo` under `PROJECTS_FOLDER`, which `up` reads from
 `/boot/config/plugins/compose.manager/projects`. One ssh call writes everything, with the files on its stdin under
 `umask 077`, so no secret is in an argument list.
 
-- A folder that does not exist yet gets `name` (`OpenSEO`), `project_name` (`openseo`), `description`, and `autostart`
-  (`true`) in that same call. An open dashboard writes `name` and `project_name` into any folder it finds, so they
-  cannot wait for a second call.
+- A folder that does not exist yet gets `name` (`OpenSEO`), `project_name` (`openseo`), `description`, `autostart`
+  (`true`), `icon_url` (the OpenSEO app icon, a PNG at a pinned commit of upstream's repository), and `webui_url` (the
+  address from `nas.env`'s `BETTER_AUTH_URL`, with a trailing slash) in that same call. An open dashboard writes `name`
+  and `project_name` into any folder it finds, so they cannot wait for a second call.
 - Every `up` replaces `compose.yaml` (upstream's file, checked against the pin's sha256 before anything is written),
   `compose.override.yaml` (`config/openseo/compose.override.yaml`: the label `net.unraid.docker.managed: composeman` and an
-  empty icon, webui, and shell on each of the five services), and `.env` (a copy of `nas.env`).
+  empty icon, webui, and shell on each of the five services, except that `web`'s `net.unraid.docker.webui` is
+  `nas.env`'s `BETTER_AUTH_URL` with a trailing slash), and `.env` (a copy of `nas.env`). The tracked override holds
+  `@WEBUI_URL@` for that address, because no tracked file holds the tailnet's name; `up` fills it in from `nas.env` as
+  it writes the file, so a `web` label edited in the dashboard is replaced by the next `up`.
 - Each of the three is written under a new name and moved into place, so an `.env` that already exists ends up mode 600
   on a filesystem that keeps modes, and a dropped connection leaves the old file whole.
-- It never rewrites `name`, `project_name`, `description`, `autostart`, or a file the dashboard owns (`icon_url`,
-  `webui_url`, `last_result.json`, `started_at`, `has_build`).
+- It never rewrites `name`, `project_name`, `description`, `autostart`, `icon_url`, `webui_url`, or a file the dashboard
+  owns (`last_result.json`, `started_at`, `has_build`) in a folder that exists, so an `icon_url` or `webui_url` changed
+  in the dashboard stays.
 
 The `.env` holds the generated storage secret and the provider keys. The NAS's flash does not enforce file modes, so
 treat `.env` as readable by anyone who can read the flash; `nas.env` here stays mode 600.
