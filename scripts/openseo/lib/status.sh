@@ -36,9 +36,8 @@ os_status() {
     os_fail address-unreachable "$addr/api/health refused; run serve on the host that runs OpenSEO; nothing changed; safe to rerun" "$OS_DEPLOY serve" "$addr"
   fi
   if [ -f "$OS_LOCAL_ENV" ]; then
-    pin_load "$OS_PIN"
     image=$(os_env_get "$OS_LOCAL_ENV" OPENSEO_IMAGE)
-    [ "$image" = "$PIN_IMAGE" ] || os_note "the pin's image $PIN_IMAGE differs from the image in $OS_ENV_SHOWN ($(os_mask "$image")); apply it with: $OS_DEPLOY up"
+    [ "$image" = "$OS_IMAGE" ] || os_note "the script's image $OS_IMAGE differs from the image in $OS_ENV_SHOWN ($(os_mask "$image")); apply it with: $OS_DEPLOY up"
   fi
   if [ "$OS_OUTPUT" = json ]; then
     OS_ACTION=none

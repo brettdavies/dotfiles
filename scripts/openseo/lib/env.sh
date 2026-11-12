@@ -1,4 +1,4 @@
-# The host's env file: rendered from 1Password and the pin, read back by key, never sourced and never printed.
+# The host's env file: rendered from 1Password and OS_IMAGE, read back by key, never sourced and never printed.
 # shellcheck disable=SC2034,SC2088 # the tilde stays literal; globals are shared through the script that sources this file
 
 OS_STORAGE_ACCESS_KEY=openseo
@@ -49,8 +49,6 @@ os_optional() {
 os_render() {
   local secret dfs='' gid='' gsec='' orkey=''
   [ "$(uname -s)" = Linux ] || os_fail unsupported-host "only the Linux server runs OpenSEO; this host is $(os_mask "$(uname -s)")" "run $OS_DEPLOY on the Linux server" "$(uname -s)"
-  pin_load "$OS_PIN"
-  pin_verify "$OS_COMPOSE_FILE"
   os_need jq tailscale
   os_need_suffix
   os_item "$OS_STORAGE_ITEM" "OpenSEO - Storage Secret (openseo)" password secret
@@ -66,7 +64,7 @@ os_render() {
   {
     printf 'AUTH_MODE=password\nPORT=%s\n' "$OS_PORT"
     printf 'STORAGE_ACCESS_KEY=%s\nSTORAGE_SECRET_KEY=%s\n' "$OS_STORAGE_ACCESS_KEY" "$secret"
-    printf 'BETTER_AUTH_URL=https://openseo.%s\nOPENSEO_IMAGE=%s\n' "$OS_SUFFIX" "$PIN_IMAGE"
+    printf 'BETTER_AUTH_URL=https://openseo.%s\nOPENSEO_IMAGE=%s\n' "$OS_SUFFIX" "$OS_IMAGE"
     printf 'DATAFORSEO_API_KEY=%s\nGOOGLE_CLIENT_ID=%s\nGOOGLE_CLIENT_SECRET=%s\n' "$dfs" "$gid" "$gsec"
     printf 'OPENROUTER_API_KEY=%s\nOPENROUTER_MODEL=%s\n' "$orkey" "$OS_OPENROUTER_MODEL"
   } >"$OS_TMP"

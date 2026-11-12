@@ -5,7 +5,7 @@
 
 OS_DEPLOY='~/dotfiles/scripts/openseo-deploy.sh'
 OS_RUNBOOK_URL='https://github.com/brettdavies/dotfiles/blob/dev/docs/runbooks/openseo.md'
-OS_REASONS='usage tool-missing unsupported-host pin-invalid pin-mismatch item-unreadable value-unsafe
+OS_REASONS='usage tool-missing unsupported-host item-unreadable value-unsafe
   storage-key-changed tailscale-unavailable env-missing pull-failed up-failed init-failed stop-failed unhealthy
   first-account-open account-exists create-admin-failed bind-failed unbind-failed service-not-advertised
   address-unreachable nas-unreachable stack-write-failed'
