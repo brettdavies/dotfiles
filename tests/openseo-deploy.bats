@@ -12,7 +12,6 @@ bats_require_minimum_version 1.5.0
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 SCRIPT="$REPO_ROOT/scripts/openseo-deploy.sh"
 LIB="$REPO_ROOT/scripts/openseo/lib"
-PIN="$REPO_ROOT/config/openseo/openseo.pin"
 COMPOSE="$REPO_ROOT/config/openseo/compose.yaml"
 RUNBOOK="$REPO_ROOT/docs/runbooks/openseo.md"
 STORAGE_ITEM=tdkhy4vi4ijxryxihwb4xdjowy
@@ -136,13 +135,7 @@ _ssh_only_allowed() { ! grep '^ssh ' "$CALLS" | grep -qvE "^ssh -n -o BatchMode=
 _web_label() { awk '/^  [a-z][a-z-]*:/ { svc = $1 } svc == "web:" && $1 == "net.unraid.docker.webui:" { print $2 }' "$1" | tr -d '"'; }
 _break_stack_dir() { mkdir -p "${STACK%/*/*}" && : >"${STACK%/*}"; }
 _nas_compose_calls() { grep -c "COMPOSE_ENV_FILES=$OPENSEO_ENV_DIR/nas.env .*DOCKER_HOST=ssh://${1:-pool}\$" "$CALLS"; }
-_pin_image() { sed "s|^image .*|image $1|" "$PIN" >"$BATS_TEST_TMPDIR/variant.pin"; }
-_load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "$2"; echo "$PIN_IMAGE"' _ "$LIB" "$1"; }
-
-@test "the vendored compose file is the one the pin records" {
-  want=$(awk '$1 == "sha256" && $2 == "compose.yaml" { print $3 }' "$PIN")
-  [ "$(sha256sum "$COMPOSE" | cut -d' ' -f1)" = "$want" ]
-}
+_script_image() { sed -n 's/^OS_IMAGE=//p' "$SCRIPT"; }
 
 @test "every image but the OPENSEO_IMAGE default is pinned by digest, and every port binds loopback" {
   run grep -E '^[[:space:]]+image:' "$COMPOSE"
@@ -158,57 +151,15 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
 @test "docker compose config pins the three app services and publishes only on loopback" {
   [ "${OPENSEO_TEST_DOCKER:-}" = 1 ] || skip "operator opt-in: OPENSEO_TEST_DOCKER=1 runs docker, which agents never do"
   [ -n "$REAL_DOCKER" ] || skip "docker is not installed"
-  image=$(awk '$1 == "image" { print $2 }' "$PIN")
+  image=$(_script_image)
   run env COMPOSE_FILE="$COMPOSE" STORAGE_ACCESS_KEY=a STORAGE_SECRET_KEY=b OPENSEO_IMAGE="$image" "$REAL_DOCKER" compose config --format json
   [ "$status" -eq 0 ]
   jq -e --arg i "$image" '[.services.runtime.image, .services.init.image, .services["crawl-gateway"].image] | all(. == $i)' <<<"$output"
   jq -e '[.services[].ports[]?.host_ip] | all(. == "127.0.0.1")' <<<"$output"
 }
 
-@test "the pin parser accepts the committed pin and prints its image, the rolling tag :0" {
-  _load_pin "$PIN"
-  [ "$status" -eq 0 ]
-  [ "$output" = "$(awk '$1 == "image" { print $2 }' "$PIN")" ]
-  [ "$output" = ghcr.io/every-app/open-seo-standalone:0 ]
-}
-
-@test "the pin parser accepts a numeric rolling tag on the app repository" {
-  for ref in ghcr.io/every-app/open-seo-standalone:0 ghcr.io/every-app/open-seo-standalone:0.1; do
-    _pin_image "$ref"
-    _load_pin "$BATS_TEST_TMPDIR/variant.pin"
-    [ "$status" -eq 0 ]
-    [ "$output" = "$ref" ]
-  done
-}
-
-@test "the pin parser rejects latest, main, a digest, a release tag, and another repository, naming the line" {
-  digest=$(printf '0%.0s' {1..64})
-  for ref in ghcr.io/every-app/open-seo-standalone:latest ghcr.io/every-app/open-seo-standalone:main \
-    "ghcr.io/every-app/open-seo-standalone@sha256:$digest" ghcr.io/every-app/open-seo-standalone:0.1.27 \
-    ghcr.io/every-app/open-seo-standalone:v0 ghcr.io/every-app/open-seo-standalone: ghcr.io/every-app/other:0; do
-    _pin_image "$ref"
-    _load_pin "$BATS_TEST_TMPDIR/variant.pin"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"ERROR: pin-invalid:"*"image at line "* ]]
-  done
-}
-
-@test "the pin parser rejects an unknown key and a repeated key, naming the line" {
-  { cat "$PIN"; echo 'mystery value'; } >"$BATS_TEST_TMPDIR/variant.pin"
-  _load_pin "$BATS_TEST_TMPDIR/variant.pin"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: pin-invalid:"*" at line "* ]]
-  { cat "$PIN"; grep '^tag ' "$PIN"; } >"$BATS_TEST_TMPDIR/variant.pin"
-  _load_pin "$BATS_TEST_TMPDIR/variant.pin"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: pin-invalid:"*"repeat of tag"* ]]
-}
-
-@test "a compose file that differs from the pin's checksum is refused" {
-  { cat "$COMPOSE"; echo '# hand edit'; } >"$BATS_TEST_TMPDIR/compose.yaml"
-  run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "$2"; pin_verify "$3"' _ "$LIB" "$PIN" "$BATS_TEST_TMPDIR/compose.yaml"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: pin-mismatch:"*"fix: git -C ~/dotfiles checkout -- config/openseo/compose.yaml"* ]]
+@test "the script's app image is the rolling tag :0 on the app repository" {
+  [ "$(_script_image)" = ghcr.io/every-app/open-seo-standalone:0 ]
 }
 
 @test "render writes a mode-600 env file in a mode-700 directory with every key and the tailnet address" {
@@ -221,7 +172,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   done
   grep -qx 'BETTER_AUTH_URL=https://openseo.tail-test.ts.net' "$OPENSEO_ENV_DIR/local.env"
   grep -qx 'PORT=8946' "$OPENSEO_ENV_DIR/local.env"
-  grep -qx "OPENSEO_IMAGE=$(awk '$1 == "image" { print $2 }' "$PIN")" "$OPENSEO_ENV_DIR/local.env"
+  grep -qx "OPENSEO_IMAGE=$(_script_image)" "$OPENSEO_ENV_DIR/local.env"
 }
 
 @test "render prints no secret and passes none to any command" {
@@ -275,12 +226,12 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [[ "$output" == *"NOTE: OPENROUTER_API_KEY renders empty"*"OPENSEO_OPENROUTER_ITEM"* ]]
 }
 
-@test "render writes the pin's image over the one already in the env file" {
+@test "render writes the script's image over the one already in the env file" {
   _prep
   sed -i 's|^OPENSEO_IMAGE=.*|OPENSEO_IMAGE=ghcr.io/every-app/open-seo-standalone@sha256:0000000000000000000000000000000000000000000000000000000000000000|' "$OPENSEO_ENV_DIR/local.env"
   _run render
   [ "$status" -eq 0 ]
-  grep -qx "OPENSEO_IMAGE=$(awk '$1 == "image" { print $2 }' "$PIN")" "$OPENSEO_ENV_DIR/local.env"
+  grep -qx "OPENSEO_IMAGE=$(_script_image)" "$OPENSEO_ENV_DIR/local.env"
   [ "$(grep -c '^OPENSEO_IMAGE=' "$OPENSEO_ENV_DIR/local.env")" -eq 1 ]
 }
 
@@ -593,12 +544,13 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [[ "$output" == *"is, or may still be, bound"*"fix: ~/dotfiles/scripts/openseo-deploy.sh serve"* ]]
 }
 
-@test "status names up, never an update verb, when the env file's image is not the pin's" {
+@test "status names up, never an update verb, when the env file's image is not the script's" {
   _prep
+  img=$(_script_image)
   sed -i 's|^OPENSEO_IMAGE=.*|OPENSEO_IMAGE=ghcr.io/every-app/open-seo-standalone@sha256:0000000000000000000000000000000000000000000000000000000000000000|' "$OPENSEO_ENV_DIR/local.env"
   STUB_BOUND=1 _run status
   [ "$status" -eq 0 ]
-  [[ "$output" == *"NOTE: the pin's image ghcr.io/every-app/open-seo-standalone:0 differs from the image in "*"local.env (ghcr.io/every-app/open-seo-standalone@sha256:0000"*"); apply it with: ~/dotfiles/scripts/openseo-deploy.sh up"* ]]
+  [[ "$output" == *"NOTE: the script's image $img differs from the image in "*"local.env (ghcr.io/every-app/open-seo-standalone@sha256:0000"*"); apply it with: ~/dotfiles/scripts/openseo-deploy.sh up"* ]]
   [[ "$output" != *update* ]]
   STUB_BOUND=1 run --separate-stderr "$SCRIPT" status --output json
   [ "$status" -eq 0 ]
@@ -612,7 +564,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [[ "$output" != *update* ]]
 }
 
-@test "status notes nothing about the image when the env file holds the pin's" {
+@test "status notes nothing about the image when the env file holds the script's" {
   _prep
   STUB_BOUND=1 _run status
   [ "$status" -eq 0 ]
@@ -627,14 +579,6 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   STUB_BOUND=1 STUB_HEALTH=down run --separate-stderr "$SCRIPT" status --output json
   [ "$status" -eq 1 ]
   jq -e --argjson c "$status" '.reason == "unhealthy" and .exit_code == $c and .next_step.action == "ask-operator" and (.next_step.command | endswith("openseo-deploy.sh up")) and (.message | length > 0) and (.checks[-1] | .ok == false and .name == "unhealthy")' <<<"$output"
-}
-
-@test "an error only a person can resolve carries no command in the JSON envelope" {
-  _prep
-  { cat "$PIN"; echo 'mystery value'; } >"$BATS_TEST_TMPDIR/variant.pin"
-  run --separate-stderr bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; OS_OUTPUT=json; pin_load "$2"' _ "$LIB" "$BATS_TEST_TMPDIR/variant.pin"
-  [ "$status" -eq 1 ]
-  jq -e '.reason == "pin-invalid" and .next_step.action == "supply-input" and .next_step.command == null' <<<"$output"
 }
 
 @test "without jq the JSON mode still prints a fixed object, and a tool outside Homebrew is not told to brew install" {

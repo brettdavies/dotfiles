@@ -4,7 +4,7 @@ usage: openseo-deploy.sh [--host nas] VERB [--output json]
 
 Runs OpenSEO's Docker stack on this host (the Linux server) and binds it to the tailnet service svc:openseo.
 
-  render        write ~/.config/openseo/local.env from 1Password and the pin; no docker
+  render        write ~/.config/openseo/local.env from 1Password and the script's image; no docker
   up            [operator: docker] render, pull, start, wait for init, then serve; with --host nas, write the stack
                 folder and start it through Compose Manager
   down          [operator: docker] stop the stack; the volumes and generated secrets stay

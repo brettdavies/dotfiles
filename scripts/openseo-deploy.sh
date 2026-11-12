@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # OpenSEO's standalone Docker stack on the Linux server, or with --host nas the NAS's Unraid Compose Manager stack, behind
 # the tailnet service svc:openseo: config/openseo/compose.yaml (upstream's file, byte for byte) on the rolling image tag
-# in config/openseo/openseo.pin, with secrets rendered from 1Password. The docker verbs (up, down, create-admin) are the
-# operator's; agents run `status`. Runbook: docs/runbooks/openseo.md.
+# OS_IMAGE names, with secrets rendered from 1Password. The docker verbs (up, down, create-admin) are the operator's;
+# agents run `status`. Runbook: docs/runbooks/openseo.md.
 # Usage: scripts/openseo-deploy.sh --help
 # shellcheck disable=SC1090,SC1091,SC2034 # the libraries read these globals; shellcheck follows no sourced file
 
@@ -10,7 +10,6 @@ set -euo pipefail
 umask 077
 
 OS_REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-OS_PIN=$OS_REPO/config/openseo/openseo.pin
 OS_COMPOSE_FILE=$OS_REPO/config/openseo/compose.yaml
 OP_SKILL="${OP_SKILL:-$HOME/.claude/skills/1password/scripts}"
 
@@ -22,7 +21,13 @@ OS_GOOGLE_ITEM=${OPENSEO_GOOGLE_ITEM-ws3ujqnvak5jvhnikn3zwh4sxi}           # Ope
 OS_OPENROUTER_ITEM=${OPENSEO_OPENROUTER_ITEM-3pyrzbnoefzfsvbdquhh3w5fei}   # OpenRouter API Key - OpenSEO
 OS_OPENROUTER_MODEL=anthropic/claude-sonnet-5.5
 
-for lib in errors gate nas stack pin env serve compose status help; do
+# The app image, a rolling tag on GHCR that render writes to every host's env file. 0 moves to each 0.x release and to
+# no other build; latest moves with every merge to upstream's main branch, so it is not used. Following 0 is a
+# deliberate exception to pinning by digest. The stack's other two images stay pinned by digest, as upstream's compose
+# file has them.
+OS_IMAGE=ghcr.io/every-app/open-seo-standalone:0
+
+for lib in errors gate nas stack env serve compose status help; do
   source "$OS_REPO/scripts/openseo/lib/$lib.sh"
 done
 trap 'rm -f "${OS_TMP:-}"' EXIT

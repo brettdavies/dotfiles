@@ -165,11 +165,11 @@ sandbox paths.
 ### OpenSEO (`config/openseo/`)
 
 The stack runs on the NAS, and its deploy script runs on the Linux server only. `config/openseo/compose.yaml` is
-upstream's standalone Compose file, byte for byte, and `config/openseo/openseo.pin` records that file's release tag,
-commit, and sha256, and the app image: upstream's rolling `0` tag, which moves to each 0.x release. Following it is a
-deliberate exception to digest pinning; RustFS and nginx stay pinned by digest, as upstream's file has them.
-`scripts/openseo-deploy.sh` (libraries in `scripts/openseo/lib/`) renders `~/.config/openseo/local.env` from 1Password
-and the pin, always writing the pin's image and refusing a compose file that differs from the pin; its `up`, `down`, and
+upstream's standalone Compose file, byte for byte; a re-vendor PR copies upstream's `deploy/standalone/compose.yaml` and
+nothing else. The app image is `OS_IMAGE` in the header of `scripts/openseo-deploy.sh`: upstream's rolling `0` tag,
+which moves to each 0.x release. Following it is a deliberate exception to digest pinning; RustFS and nginx stay pinned
+by digest, as upstream's file has them. `scripts/openseo-deploy.sh` (libraries in `scripts/openseo/lib/`) renders
+`~/.config/openseo/local.env` from 1Password and `OS_IMAGE`, always writing that image; its `up`, `down`, and
 `create-admin` verbs run docker and belong to the operator, while `render`, `serve`, and `status` run no docker. The
 script builds the NAS stack and applies secret changes to it; the Compose tab's Update pulls the newest 0.x release with
 no script step. `svc:openseo` binds to `127.0.0.1:8946` only once OpenSEO is healthy and has an account;
