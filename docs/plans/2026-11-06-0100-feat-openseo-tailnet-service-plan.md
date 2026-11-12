@@ -17,8 +17,8 @@ deepened: 2026-11-06
   his agents can check that it is up there, while anc.dev, its search-console records, and Brett's spending stay exactly
   as he left them.
 - **Means:** upstream's standalone Docker Compose edition, vendored in this repo with its app image on upstream's
-  rolling `0` tag and driven by one repo script, running first on the Linux server and later on the NAS, behind the
-  Tailscale Service `svc:openseo` (KTD1, KTD4, KTD6, KTD10).
+  rolling `0` tag and set up by one repo script, running first on the Linux server and later on the NAS, where the
+  Compose tab's Update takes each release, behind the Tailscale Service `svc:openseo` (KTD1, KTD4, KTD6, KTD10).
 - **Authority:** Brett's limits (R10, R11) outrank every other line here. This plan's R-IDs decide behavior. KTDs decide
   mechanism within them. Upstream's docs at the pinned tag decide how the stack itself runs.
 - **Execution profile:** three PRs to `dev` (PR1, PR2, PR3), each sized for two review rounds, built by agent slots.
