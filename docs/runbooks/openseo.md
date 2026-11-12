@@ -1,10 +1,10 @@
 # OpenSEO on the Linux server
 
 OpenSEO is a self-hosted SEO research and site-audit tool (`every-app/open-seo`, MIT). Its standalone Docker edition is
-a five-container Compose stack. This repo vendors that stack in `config/openseo/` and pins the image by digest, and
-`scripts/openseo-deploy.sh` renders its secrets from 1Password and runs it. The stack publishes one nginx port on
-loopback (8946). The Tailscale Service `svc:openseo` is the only way in: `https://openseo.<tailnet>.ts.net`, reachable
-from inside the tailnet and nowhere else.
+a five-container Compose stack. This repo vendors that stack in `config/openseo/`, runs the app image at upstream's
+rolling `0` tag, and `scripts/openseo-deploy.sh` renders its secrets from 1Password and runs it. The stack publishes one
+nginx port on loopback (8946). The Tailscale Service `svc:openseo` is the only way in:
+`https://openseo.<tailnet>.ts.net`, reachable from inside the tailnet and nowhere else.
 
 ## Who runs what
 
@@ -125,7 +125,7 @@ gtime -f '%e s' scripts/openseo-deploy.sh create-admin
 scripts/openseo-deploy.sh status
 ```
 
-- `up` renders `~/.config/openseo/local.env` (mode 600) and pulls the pinned image (about 115 MiB). It then turns the
+- `up` renders `~/.config/openseo/local.env` (mode 600) and pulls the pin's image (about 115 MiB). It then turns the
   `svc:openseo` binding off, so the address stays dark for the whole `up` and a restart cannot leave a first-visitor
   sign-up bound. It starts the stack and force-recreates `init`, `web`, and `crawl-gateway`. Compose holds each
   `docker compose up -d` until `init` exits, which takes about two minutes, twice; each call is cut off after 360 s.
@@ -229,8 +229,9 @@ treat `.env` as readable by anyone who can read the flash; `nas.env` here stays 
 `up` then turns the `svc:openseo` binding off and runs
 `compose.sh -cup --recreate -popenseo -f<dir>/compose.yaml -f<dir>/compose.override.yaml -e<dir>/.env -s<dir>`, the
 command the dashboard runs, with its recreate option. Every service is recreated, so settings reach `init`, `web`, and
-`crawl-gateway`. There is no separate pull step: the plugin pulls what is missing, and a failure there is
-[up-failed](#up-failed). `up` waits for `init`, then for `/api/health`, and tries to bind the address.
+`crawl-gateway`. There is no separate pull step: the plugin pulls an image the NAS lacks and no newer release of one it
+has, so [Update OpenSEO](#update-openseo) is how a newer release arrives. A pull failure is [up-failed](#up-failed).
+`up` waits for `init`, then for `/api/health`, and tries to bind the address.
 
 ### Fresh install
 
@@ -265,7 +266,8 @@ binds, tunnel the NAS's loopback: `ssh -L 8946:127.0.0.1:8946 pool`.
 `status --host nas` runs the loopback gate, the `CapMap` check, and the binding check on the NAS through ssh, with no
 docker, and fetches the tailnet address from the Linux server. It prints
 `OK: OpenSEO is up at https://openseo.<tailnet>.ts.net` and one `ok:` line each for `loopback`, `service`, `binding`,
-and `address`, and exits 0. A refused address exits 1 with [address-unreachable](#address-unreachable) and the fix
+and `address`, and exits 0, with a `NOTE:` that names `up` when the env file here names an image other than the pin's. A
+refused address exits 1 with [address-unreachable](#address-unreachable) and the fix
 `scripts/openseo-deploy.sh --host nas serve`; a NAS whose loopback is down exits 1 with [unhealthy](#unhealthy) and the
 fix `scripts/openseo-deploy.sh --host nas up`; an unreachable NAS exits 1 with [nas-unreachable](#nas-unreachable).
 Plain `status` on a host with `nas.env` and no `local.env` checks only the address and names the `--host nas` fix. After
@@ -281,6 +283,49 @@ scripts/openseo-deploy.sh down --host nas
 
 The first command ends the advertisement; `down --host nas` stops the stack and keeps the volumes, the generated
 secrets, `nas.env`, and the stack folder. `up --host nas` starts it again. No verb removes the volumes.
+
+## Update OpenSEO
+
+The app image is `ghcr.io/every-app/open-seo-standalone:0`, the tag upstream moves to each 0.x release, so a pull takes
+the newest release with no cooldown. RustFS and nginx stay pinned by digest, as upstream's compose file has them.
+`latest` is not used: it follows upstream's main branch and moves with every merge there.
+
+### Before updating
+
+Upstream's migrations only go forward, and no backup exists yet, so pulling an older image does not undo a bad release.
+
+### Update
+
+- **NAS.** In the dashboard's Compose tab, press Update for the `openseo` stack. It pulls the newest 0.x release and
+  recreates the stack. Then run `scripts/openseo-deploy.sh status --host nas`.
+- **Linux server.** `scripts/openseo-deploy.sh up` pulls the newest 0.x release and recreates `init`, `web`, and
+  `crawl-gateway`. Then run `scripts/openseo-deploy.sh status`.
+
+### After updating
+
+The pull leaves the replaced image on disk with no tag. Remove it by its ID, because the NAS's `docker.img` is 20 GiB
+shared by every container on it:
+
+```bash
+docker image ls ghcr.io/every-app/open-seo-standalone
+docker image rm <IMAGE ID of the row whose TAG is <none>>
+```
+
+On the NAS, put `ssh pool` before each command. Never use `docker image prune`: it removes every untagged image, and
+LanguageTool keeps a replaced image on purpose.
+
+### When upstream changes the compose file
+
+The Update button refreshes images only, so the vendored `config/openseo/compose.yaml` stays at the commit the pin
+records. This command compares it with the file in upstream's latest release and prints nothing when they match:
+
+```bash
+cd ~/dotfiles && diff <(gh api -H 'Accept: application/vnd.github.raw+json' "repos/every-app/open-seo/contents/deploy/standalone/compose.yaml?ref=$(gh api repos/every-app/open-seo/releases/latest --jq .tag_name)") config/openseo/compose.yaml
+```
+
+A difference means a PR that re-vendors the file and updates the pin's `tag`, `commit`, and `sha256` lines. After it
+merges, run `scripts/openseo-deploy.sh up --host nas` to write the file and recreate the stack, then press Update for
+the newest release.
 
 ## First read-only run
 
@@ -326,6 +371,12 @@ credential in an item named `DataForSEO API Key` (field `credential`), whose UUI
 `OS_OPENROUTER_ITEM`; `render` writes it as `OPENROUTER_API_KEY` beside `OPENROUTER_MODEL`, the constant
 `OS_OPENROUTER_MODEL` in the header.
 
+## OpenSEO API keys
+
+OpenSEO's API keys are rows in each install's own database, the `apikey` table in upstream's
+`src/db/better-auth-schema.ts`. A key made on another install returns 401, and so does a key made before `svc:openseo`
+moved to a host with a different install, because the two installs share no data. Make the key in the install you call.
+
 ## Troubleshooting
 
 An error prints `ERROR: <reason>: <message>`, any `cause:` lines holding the failing command's last stderr, and a final
@@ -352,8 +403,8 @@ Only the Linux server runs OpenSEO. `render` refuses on macOS before it reads a 
 
 `config/openseo/openseo.pin` is malformed. The error names the line.
 `git -C ~/dotfiles checkout -- config/openseo/openseo.pin` restores it; a hand edit must keep the shapes the parser
-accepts: a `v` tag, a 40-hex commit, an ISO release time, an image reference by digest only, and the compose file's
-sha256.
+accepts: a `v` tag, a 40-hex commit, an image on `ghcr.io/every-app/open-seo-standalone` at a rolling tag of digits (`0`
+or `0.1`; `latest`, `main`, a release tag, and a digest are refused), and the compose file's sha256.
 
 ### pin-mismatch
 
@@ -391,8 +442,8 @@ none by design.
 
 ### pull-failed
 
-`docker compose pull` failed for the pinned image. The `cause:` lines show Docker's message. Check that GHCR answers for
-the digest in `config/openseo/openseo.pin`, then rerun `scripts/openseo-deploy.sh up`; nothing was started.
+`docker compose pull` failed for the pin's image tag. The `cause:` lines show Docker's message. Check that GHCR answers
+for the tag in `config/openseo/openseo.pin`, then rerun `scripts/openseo-deploy.sh up`; nothing was started.
 
 ### up-failed
 
