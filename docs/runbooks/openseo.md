@@ -1,10 +1,11 @@
-# OpenSEO on the Linux server
+# OpenSEO
 
 OpenSEO is a self-hosted SEO research and site-audit tool (`every-app/open-seo`, MIT). Its standalone Docker edition is
 a five-container Compose stack. This repo vendors that stack in `config/openseo/`, runs the app image at upstream's
-rolling `0` tag, and `scripts/openseo-deploy.sh` renders its secrets from 1Password and runs it. The stack publishes one
-nginx port on loopback (8946). The Tailscale Service `svc:openseo` is the only way in:
-`https://openseo.<tailnet>.ts.net`, reachable from inside the tailnet and nowhere else.
+rolling `0` tag, and `scripts/openseo-deploy.sh` renders its secrets from 1Password and builds the stack. On the NAS,
+the Compose tab's Update pulls each new release with no script step. The stack publishes one nginx port on loopback
+(8946). The Tailscale Service `svc:openseo` is the only way in: `https://openseo.<tailnet>.ts.net`, reachable from
+inside the tailnet and nowhere else.
 
 ## Who runs what
 
