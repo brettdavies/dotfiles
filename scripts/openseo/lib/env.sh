@@ -47,7 +47,7 @@ os_optional() {
 }
 
 os_render() {
-  local secret dfs='' gid='' gsec='' orkey='' image
+  local secret dfs='' gid='' gsec='' orkey=''
   [ "$(uname -s)" = Linux ] || os_fail unsupported-host "only the Linux server runs OpenSEO; this host is $(os_mask "$(uname -s)")" "run $OS_DEPLOY on the Linux server" "$(uname -s)"
   pin_load "$OS_PIN"
   pin_verify "$OS_COMPOSE_FILE"
@@ -60,15 +60,13 @@ os_render() {
   os_optional "$OS_OPENROUTER_ITEM" "OpenRouter API Key - OpenSEO" credential orkey "OPENROUTER_API_KEY renders empty: OPENSEO_OPENROUTER_ITEM is empty, so OpenSEO makes no OpenRouter call" OPENSEO_OPENROUTER_ITEM
   os_keep_storage STORAGE_ACCESS_KEY "$OS_STORAGE_ACCESS_KEY"
   os_keep_storage STORAGE_SECRET_KEY "$secret"
-  image=$(os_env_get "$OS_LOCAL_ENV" OPENSEO_IMAGE)
-  : "${image:=$PIN_IMAGE}"
   mkdir -p "$OS_ENV_DIR"
   chmod 700 "$OS_ENV_DIR"
   OS_TMP=$(mktemp "$OS_ENV_DIR/.local.env.XXXXXX")
   {
     printf 'AUTH_MODE=password\nPORT=%s\n' "$OS_PORT"
     printf 'STORAGE_ACCESS_KEY=%s\nSTORAGE_SECRET_KEY=%s\n' "$OS_STORAGE_ACCESS_KEY" "$secret"
-    printf 'BETTER_AUTH_URL=https://openseo.%s\nOPENSEO_IMAGE=%s\n' "$OS_SUFFIX" "$image"
+    printf 'BETTER_AUTH_URL=https://openseo.%s\nOPENSEO_IMAGE=%s\n' "$OS_SUFFIX" "$PIN_IMAGE"
     printf 'DATAFORSEO_API_KEY=%s\nGOOGLE_CLIENT_ID=%s\nGOOGLE_CLIENT_SECRET=%s\n' "$dfs" "$gid" "$gsec"
     printf 'OPENROUTER_API_KEY=%s\nOPENROUTER_MODEL=%s\n' "$orkey" "$OS_OPENROUTER_MODEL"
   } >"$OS_TMP"

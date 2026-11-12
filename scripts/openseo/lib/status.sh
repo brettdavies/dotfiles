@@ -38,7 +38,7 @@ os_status() {
   if [ -f "$OS_LOCAL_ENV" ]; then
     pin_load "$OS_PIN"
     image=$(os_env_get "$OS_LOCAL_ENV" OPENSEO_IMAGE)
-    [ "$image" = "$PIN_IMAGE" ] || os_note "the tracked pin $PIN_TAG differs from $OS_WHERE's image; apply it with: $OS_DEPLOY update"
+    [ "$image" = "$PIN_IMAGE" ] || os_note "the pin's image $PIN_IMAGE differs from $OS_WHERE's env file ($(os_mask "$image")); apply it with: $OS_DEPLOY up"
   fi
   if [ "$OS_OUTPUT" = json ]; then
     OS_ACTION=none
