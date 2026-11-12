@@ -592,8 +592,8 @@ strict shapes, a header naming the parser).
 
 ### U2. Env render from 1Password
 
-**Goal:** `scripts/openseo-deploy.sh render` writes the host's env file from 1Password and the pin, with no secret ever
-printed.
+**Goal:** `scripts/openseo-deploy.sh render` writes the host's env file from 1Password and `OS_IMAGE`, with no secret
+ever printed.
 
 **Requirements:** R7; KTD3, KTD5, KTD7.
 
@@ -607,7 +607,7 @@ printed.
    variables are set; otherwise leave them empty with a `NOTE:`.
 2. Write `AUTH_MODE=password`, `PORT=8946`, `STORAGE_ACCESS_KEY=openseo`, `OPENSEO_IMAGE`, and
    `BETTER_AUTH_URL=https://openseo.<MagicDNSSuffix>` from `tailscale status --json`. `OPENSEO_IMAGE` always comes from
-   the tracked pin, over any value an existing file holds (KTD13).
+   `OS_IMAGE`, over any value an existing file holds (KTD13).
 3. Refuse when an existing file's `STORAGE_*` values differ from the new ones (KTD5).
 4. Write under `umask 077` to a temporary file in the same directory, then rename it, so a failed read leaves the
    previous file intact.
@@ -623,7 +623,7 @@ log.
 - With `read_field.sh` and `tailscale` stubbed, render writes `local.env` with mode 600 in a mode-700 directory, holding
   every key in step 2 with the stubbed suffix in `BETTER_AUTH_URL`.
 - The stub secret values appear in neither stdout, stderr, nor any stub's argv log.
-- With an existing env file that holds another image, render writes the pin's `OPENSEO_IMAGE`.
+- With an existing env file that holds another image, render writes `OS_IMAGE` as `OPENSEO_IMAGE`.
 - A failing read of the storage item exits 1 with an `ERROR:` naming the item title and the 1password skill command to
   inspect it, and leaves an existing env file byte-identical.
 - An existing env file whose `STORAGE_SECRET_KEY` differs from the item's exits 1, names both the item and the restore
@@ -667,7 +667,7 @@ each, and any agent can check it.
 - `status` needs no docker. On a host holding `local.env` it runs the gate on loopback and checks
   `CapMap."service-host"`; from anywhere it fetches `/api/health` at the tailnet address with `curl --max-time 5`. It
   exits 0 when healthy, 1 with an `ERROR:` naming the failing check and its fix command, and 2 on usage errors. On the
-  OpenSEO host it also prints a `NOTE:` naming `up` when the env file's image is not the pin's. With `--output json` it
+  OpenSEO host it also prints a `NOTE:` naming `up` when the env file's image is not `OS_IMAGE`. With `--output json` it
   prints KTD15's envelope. On the host holding `local.env`, when the loopback gate and `CapMap."service-host"` both pass
   but the address fetch fails, it exits 0 with a `NOTE:` that this host cannot reach its own service address, since
   agents elsewhere still can.
@@ -697,8 +697,8 @@ modes in `scripts/sysctl-deploy.sh`.
 - `status --output json` parses with `jq`, carries `reason`, `exit_code`, `message`, and `next_step`, and its
   `exit_code` matches the process's.
 - `--help` exits 0, names every verb, and marks the docker verbs; an unknown verb exits 2 and points at `--help`.
-- `status` on the OpenSEO host with an env file whose image is not the pin's exits 0 and prints the `NOTE:` naming `up`,
-  never an `update` verb.
+- `status` on the OpenSEO host with an env file whose image is not `OS_IMAGE` exits 0 and prints the `NOTE:` naming
+  `up`, never an `update` verb.
 - No verb passes `-v` or `--volumes` to compose.
 - `status` with both checks passing exits 0; with the address refusing it exits 1 and names `serve`; with loopback down
   it names `up`.
@@ -814,10 +814,10 @@ backup.
    `~/.local/share/openseo/backups` (mode 700, since a backup holds credentials), because upstream's script creates the
    target itself with a plain `mkdir` and refuses one that exists. It runs `node config/openseo/backup.mjs backup <dir>`
    with the compose variables from KTD4, and after that succeeds writes the host env file's `OPENSEO_IMAGE`, the image
-   that wrote the data, into the directory as the backup's pin. It never records the script's `OS_IMAGE`, which may
-   already name a newer image.
-3. `restore <dir>` writes `OPENSEO_IMAGE` from the backup's own pin into the host's env file (KTD13), warns when that
-   differs from `OS_IMAGE`, and surfaces upstream's refusal of a non-empty install as an `ERROR:` naming
+   that wrote the data, into the directory as the backup's image record. It never records the script's `OS_IMAGE`,
+   which may already name a newer image.
+3. `restore <dir>` writes `OPENSEO_IMAGE` from the backup's image record into the host's env file (KTD13), warns when
+   that differs from `OS_IMAGE`, and surfaces upstream's refusal of a non-empty install as an `ERROR:` naming
    `rollback`.
 
 **Test scenarios:**
@@ -825,10 +825,11 @@ backup.
 - The vendored `backup.mjs` matches the sha256 in step 1.
 - `backup` with `node` and `docker` stubbed calls `node` with `COMPOSE_FILE` and `COMPOSE_ENV_FILES` set; the parent
   exists with mode 700 and the target directory does not exist when `node` is called.
-- With `OS_IMAGE` differing from the env file's image, `backup` records the env file's image as the backup's pin.
-- `restore` passes the backup's pinned image to compose, not `OS_IMAGE`, and prints a `WARNING:` when they differ.
+- With `OS_IMAGE` differing from the env file's image, `backup` records the env file's image as the backup's image
+  record.
+- `restore` passes the backup's recorded image to compose, not `OS_IMAGE`, and prints a `WARNING:` when they differ.
 - `restore` into a non-empty install (the stub exits non-zero with upstream's message) exits 1 and names `rollback`.
-- `restore` with a missing directory or a directory without a pin file exits 2.
+- `restore` with a missing directory or a directory without an image record exits 2.
 
 **Verification:** the suite passes. The first live backup happens at the first operator-run `backup` or at Gate C.
 
