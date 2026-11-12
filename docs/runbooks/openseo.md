@@ -307,11 +307,9 @@ release's migrations against the older file.
 
 ### Update
 
-- **NAS.** The Update button reads the stack's own `.env`, which only `up --host nas` writes, so run
-  `scripts/openseo-deploy.sh status --host nas` first. If it prints the image `NOTE:`, run
-  `scripts/openseo-deploy.sh up --host nas`: it writes the pin's image into the stack's `.env` and pulls an image the
-  NAS lacks. Otherwise press Update for the `openseo` stack in the dashboard's Compose tab: it pulls the newest 0.x
-  release and recreates the stack. Then run `status --host nas` again.
+- **NAS.** Press Update for the `openseo` stack in the dashboard's Compose tab. It pulls the image the stack's `.env`
+  names, `:0`, and recreates the stack; no script runs. `scripts/openseo-deploy.sh up --host nas` writes that `.env`
+  only when it builds the stack or applies a secret change, and it writes the same `:0`.
 - **Linux server.** `scripts/openseo-deploy.sh up` pulls the newest 0.x release and recreates `init`, `web`, and
   `crawl-gateway`. Then run `scripts/openseo-deploy.sh status`.
 - **After a re-vendor PR merges.** On the NAS, pull the image first, so one recreate runs the new file with the new
