@@ -27,5 +27,5 @@ services:
     labels:
       net.unraid.docker.managed: composeman
       net.unraid.docker.icon: ""
-      net.unraid.docker.webui: ""
+      net.unraid.docker.webui: "@WEBUI_URL@"
       net.unraid.docker.shell: ""

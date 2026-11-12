@@ -133,6 +133,7 @@ _all_loopback() { ! grep "ports:" "$COMPOSE" | grep -qv "127.0.0.1:"; }
 _ssh_calls() { grep '^ssh ' "$CALLS"; }
 _remote_only() { awk '/^(curl http:\/\/127\.0\.0\.1|tailscale serve)/ && prev !~ /^ssh .* -- pool / { bad = 1 } { prev = $0 } END { exit bad }' "$CALLS"; }
 _ssh_only_allowed() { ! grep '^ssh ' "$CALLS" | grep -qvE "^ssh -n -o BatchMode=yes -o ConnectTimeout=10 -- pool (tailscale|curl|docker|test -x|d=.*exec $COMPOSE_SH -c(up|stop)) "; }
+_web_label() { awk '/^  [a-z][a-z-]*:/ { svc = $1 } svc == "web:" && $1 == "net.unraid.docker.webui:" { print $2 }' "$1" | tr -d '"'; }
 _break_stack_dir() { mkdir -p "${STACK%/*/*}" && : >"${STACK%/*}"; }
 _nas_compose_calls() { grep -c "COMPOSE_ENV_FILES=$OPENSEO_ENV_DIR/nas.env .*DOCKER_HOST=ssh://${1:-pool}\$" "$CALLS"; }
 _pin_variant() { sed "$1" "$PIN" >"$BATS_TEST_TMPDIR/variant.pin"; }
@@ -650,8 +651,12 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [ "$(cat "$STACK/project_name")" = openseo ]
   [ "$(cat "$STACK/autostart")" = true ]
   [ -s "$STACK/description" ]
+  [ "$(cat "$STACK/icon_url")" = https://raw.githubusercontent.com/every-app/open-seo/505d4859622c02175e203e528c1669fdf10dcfe4/src/public/apple-touch-icon.png ]
+  [ "$(cat "$STACK/webui_url")" = https://openseo.tail-test.ts.net/ ]
   cmp "$COMPOSE" "$STACK/compose.yaml"
-  cmp "$REPO_ROOT/config/openseo/compose.override.yaml" "$STACK/compose.override.yaml"
+  sed 's|@WEBUI_URL@|https://openseo.tail-test.ts.net/|' "$REPO_ROOT/config/openseo/compose.override.yaml" | cmp - "$STACK/compose.override.yaml"
+  [ "$(_web_label "$STACK/compose.override.yaml")" = https://openseo.tail-test.ts.net/ ]
+  [ "$(grep -c 'net.unraid.docker.webui: ""' "$STACK/compose.override.yaml")" -eq 4 ]
   cmp "$OPENSEO_ENV_DIR/nas.env" "$STACK/.env"
   [ "$(stat -c %a "$STACK/.env")" = 600 ]
   grep -qx "compose.sh -cup --recreate -popenseo -f$STACK/compose.yaml -f$STACK/compose.override.yaml -e$STACK/.env -s$STACK" "$CALLS"
@@ -669,9 +674,16 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [ "$(grep -c 'net.unraid.docker.managed: composeman' "$override")" -eq "$(services "$COMPOSE" | wc -l)" ]
 }
 
+@test "the tracked override holds the address placeholder in web only, never a tailnet name" {
+  override="$REPO_ROOT/config/openseo/compose.override.yaml"
+  [ "$(grep -c '@WEBUI_URL@' "$override")" -eq 1 ]
+  [ "$(_web_label "$override")" = @WEBUI_URL@ ]
+  run ! grep -qE 'ts\.net|https?://' "$override"
+}
+
 @test "up --host nas keeps a folder's metadata and the dashboard's files, and replaces only the three stack files" {
   mkdir -p "$STACK"
-  for f in name project_name description autostart icon_url last_result.json; do printf 'dashboard-%s' "$f" >"$STACK/$f"; done
+  for f in name project_name description autostart icon_url webui_url last_result.json; do printf 'dashboard-%s' "$f" >"$STACK/$f"; done
   printf old >"$STACK/compose.yaml"
   printf old >"$STACK/.env"
   chmod 644 "$STACK/.env"
@@ -679,8 +691,9 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [ "$status" -eq 0 ]
   [ "$(stat -c %a "$STACK/.env")" = 600 ]
   [ -z "$(find "$STACK" -name '*.new')" ]
-  for f in name project_name description autostart icon_url last_result.json; do [ "$(cat "$STACK/$f")" = "dashboard-$f" ]; done
+  for f in name project_name description autostart icon_url webui_url last_result.json; do [ "$(cat "$STACK/$f")" = "dashboard-$f" ]; done
   cmp "$COMPOSE" "$STACK/compose.yaml"
+  [ "$(_web_label "$STACK/compose.override.yaml")" = https://openseo.tail-test.ts.net/ ]
   cmp "$OPENSEO_ENV_DIR/nas.env" "$STACK/.env"
 }
 

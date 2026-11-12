@@ -5,6 +5,7 @@
 OS_STACK=openseo
 OS_STACK_NAME=OpenSEO
 OS_STACK_DESCRIPTION='OpenSEO standalone stack, written by scripts/openseo-deploy.sh'
+OS_STACK_ICON_URL=https://raw.githubusercontent.com/every-app/open-seo/505d4859622c02175e203e528c1669fdf10dcfe4/src/public/apple-touch-icon.png
 OS_OVERRIDE_FILE=$OS_REPO/config/openseo/compose.override.yaml
 OS_COMPOSE_SH=/usr/local/emhttp/plugins/compose.manager/scripts/compose.sh
 OS_PROJECTS_CFG=/boot/config/plugins/compose.manager/compose.manager.cfg
@@ -17,27 +18,39 @@ os_stack_dir() {
     "; d=\${d:-$OS_PROJECTS_DEFAULT}/$OS_STACK"
 }
 
-# The shell script the NAS runs from stdin. A new folder gets name, project_name, description and autostart in this one
-# run, because an open dashboard writes name and project_name into any folder it finds; an existing folder keeps those
-# four and every file the dashboard owns, and only the three files below are replaced. Each is written under a new name
-# and moved into place, because umask 077 sets the mode of a new file only: an existing .env keeps its mode otherwise.
+# The override with the address in place of @WEBUI_URL@: the one label whose value is the tailnet's name, which no
+# tracked file holds.
+os_stack_override() {
+  local line
+  while IFS= read -r line || [ -n "$line" ]; do
+    printf '%s\n' "${line//@WEBUI_URL@/"$1"}"
+  done <"$OS_OVERRIDE_FILE"
+}
+
+# os_stack_script URL: the shell script the NAS runs from stdin, URL being the address with a trailing slash. A new
+# folder gets name, project_name, description, autostart, icon_url and webui_url in this one run, because an open
+# dashboard writes name and project_name into any folder it finds; an existing folder keeps those six and every file the
+# dashboard owns, and only the three files below are replaced. Each is written under a new name and moved into place,
+# because umask 077 sets the mode of a new file only: an existing .env keeps its mode otherwise.
 os_stack_script() {
   local f
   printf 'set -e\numask 077\n%s\nif [ ! -d "$d" ]; then\n  mkdir -p "$d"\n' "$(os_stack_dir)"
-  for f in "name:$OS_STACK_NAME" "project_name:$OS_STACK" "description:$OS_STACK_DESCRIPTION" autostart:true; do
+  for f in "name:$OS_STACK_NAME" "project_name:$OS_STACK" "description:$OS_STACK_DESCRIPTION" autostart:true "icon_url:$OS_STACK_ICON_URL" "webui_url:$1"; do
     printf '  printf %%s %q >"$d/%s"\n' "${f#*:}" "${f%%:*}"
   done
   printf 'fi\n'
   for f in "compose.yaml:$OS_COMPOSE_FILE" "compose.override.yaml:$OS_OVERRIDE_FILE" ".env:$OS_LOCAL_ENV"; do
     printf 'cat >"$d/%s.new" <<'"'%s'"'\n' "${f%%:*}" "$OS_EOF"
-    cat "${f#*:}"
+    if [ "${f#*:}" = "$OS_OVERRIDE_FILE" ]; then os_stack_override "$1"; else cat "${f#*:}"; fi
     printf '%s\nmv -f "$d/%s.new" "$d/%s"\n' "$OS_EOF" "${f%%:*}" "${f%%:*}"
   done
   printf 'printf "==> wrote the stack folder %%s on the NAS\\n" "$d"\n'
 }
 
 os_stack_write() {
-  os_try os_nas_ssh_in sh -s < <(os_stack_script) \
+  local url
+  url=$(os_env_get "$OS_LOCAL_ENV" BETTER_AUTH_URL)/
+  os_try os_nas_ssh_in sh -s < <(os_stack_script "$url") \
     || os_fail_input stack-write-failed "writing the Compose Manager stack $OS_STACK on the NAS failed; nothing was started; safe to rerun once the cause is fixed" \
       "ssh $OS_NAS_SSH \"grep PROJECTS_FOLDER $OS_PROJECTS_CFG; grep ' /boot ' /proc/mounts\" shows the stack folder and whether the flash is writable; then $OS_DEPLOY up" "$OS_STACK"
 }
