@@ -294,28 +294,6 @@ the newest release with no cooldown. RustFS and nginx stay pinned by digest, as 
 
 Upstream's migrations only go forward, and no backup exists yet, so pulling an older image does not undo a bad release.
 
-### Update
-
-- **NAS.** In the dashboard's Compose tab, press Update for the `openseo` stack. It pulls the newest 0.x release and
-  recreates the stack. Then run `scripts/openseo-deploy.sh status --host nas`.
-- **Linux server.** `scripts/openseo-deploy.sh up` pulls the newest 0.x release and recreates `init`, `web`, and
-  `crawl-gateway`. Then run `scripts/openseo-deploy.sh status`.
-
-### After updating
-
-The pull leaves the replaced image on disk with no tag. Remove it by its ID, because the NAS's `docker.img` is 20 GiB
-shared by every container on it:
-
-```bash
-docker image ls ghcr.io/every-app/open-seo-standalone
-docker image rm <IMAGE ID of the row whose TAG is <none>>
-```
-
-On the NAS, put `ssh pool` before each command. Never use `docker image prune`: it removes every untagged image, and
-LanguageTool keeps a replaced image on purpose.
-
-### When upstream changes the compose file
-
 The Update button refreshes images only, so the vendored `config/openseo/compose.yaml` stays at the commit the pin
 records. This command compares it with the file in upstream's latest release and prints nothing when they match:
 
@@ -323,9 +301,35 @@ records. This command compares it with the file in upstream's latest release and
 cd ~/dotfiles && diff <(gh api -H 'Accept: application/vnd.github.raw+json' "repos/every-app/open-seo/contents/deploy/standalone/compose.yaml?ref=$(gh api repos/every-app/open-seo/releases/latest --jq .tag_name)") config/openseo/compose.yaml
 ```
 
-A difference means a PR that re-vendors the file and updates the pin's `tag`, `commit`, and `sha256` lines. After it
-merges, run `scripts/openseo-deploy.sh up --host nas` to write the file and recreate the stack, then press Update for
-the newest release.
+A difference means the vendored file lags upstream. Open a PR that re-vendors the file and updates the pin's `tag`,
+`commit`, and `sha256` lines, merge it, and update with the re-vendor step below, because updating first runs a
+release's migrations against the older file.
+
+### Update
+
+- **NAS.** The Update button reads the stack's own `.env`, which only `up --host nas` writes, so run
+  `scripts/openseo-deploy.sh status --host nas` first. If it prints the image `NOTE:`, run
+  `scripts/openseo-deploy.sh up --host nas`: it writes the pin's image into the stack's `.env` and pulls an image the
+  NAS lacks. Otherwise press Update for the `openseo` stack in the dashboard's Compose tab: it pulls the newest 0.x
+  release and recreates the stack. Then run `status --host nas` again.
+- **Linux server.** `scripts/openseo-deploy.sh up` pulls the newest 0.x release and recreates `init`, `web`, and
+  `crawl-gateway`. Then run `scripts/openseo-deploy.sh status`.
+- **After a re-vendor PR merges.** On the NAS, pull the image first, so one recreate runs the new file with the new
+  release: `ssh pool docker pull ghcr.io/every-app/open-seo-standalone:0`, then
+  `scripts/openseo-deploy.sh up --host nas`. On the Linux server, `up` pulls and recreates in one run.
+
+### After updating
+
+A pull can leave the replaced image on disk with no tag. List the images, and remove each row whose TAG is `<none>` by
+its ID, because the NAS's `docker.img` is 20 GiB shared by every container on it:
+
+```bash
+docker image ls ghcr.io/every-app/open-seo-standalone
+docker image rm IMAGE_ID
+```
+
+Replace `IMAGE_ID` with the ID on that row. On the NAS, put `ssh pool` before each command. Never use
+`docker image prune`: it removes every untagged image, and LanguageTool keeps a replaced image on purpose.
 
 ## First read-only run
 
@@ -376,6 +380,7 @@ credential in an item named `DataForSEO API Key` (field `credential`), whose UUI
 OpenSEO's API keys are rows in each install's own database, the `apikey` table in upstream's
 `src/db/better-auth-schema.ts`. A key made on another install returns 401, and so does a key made before `svc:openseo`
 moved to a host with a different install, because the two installs share no data. Make the key in the install you call.
+A new key needs Brett's decision, like any new key (see the limits at the top).
 
 ## Troubleshooting
 
@@ -443,7 +448,8 @@ none by design.
 ### pull-failed
 
 `docker compose pull` failed for the pin's image tag. The `cause:` lines show Docker's message. Check that GHCR answers
-for the tag in `config/openseo/openseo.pin`, then rerun `scripts/openseo-deploy.sh up`; nothing was started.
+for the tag with `docker pull ghcr.io/every-app/open-seo-standalone:0`, then rerun `scripts/openseo-deploy.sh up`;
+nothing was started.
 
 ### up-failed
 
