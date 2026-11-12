@@ -136,7 +136,7 @@ _ssh_only_allowed() { ! grep '^ssh ' "$CALLS" | grep -qvE "^ssh -n -o BatchMode=
 _web_label() { awk '/^  [a-z][a-z-]*:/ { svc = $1 } svc == "web:" && $1 == "net.unraid.docker.webui:" { print $2 }' "$1" | tr -d '"'; }
 _break_stack_dir() { mkdir -p "${STACK%/*/*}" && : >"${STACK%/*}"; }
 _nas_compose_calls() { grep -c "COMPOSE_ENV_FILES=$OPENSEO_ENV_DIR/nas.env .*DOCKER_HOST=ssh://${1:-pool}\$" "$CALLS"; }
-_pin_variant() { sed "$1" "$PIN" >"$BATS_TEST_TMPDIR/variant.pin"; }
+_pin_image() { sed "s|^image .*|image $1|" "$PIN" >"$BATS_TEST_TMPDIR/variant.pin"; }
 _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "$2"; echo "$PIN_IMAGE"' _ "$LIB" "$1"; }
 
 @test "the vendored compose file is the one the pin records" {
@@ -165,25 +165,43 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   jq -e '[.services[].ports[]?.host_ip] | all(. == "127.0.0.1")' <<<"$output"
 }
 
-@test "the pin parser accepts the committed pin and prints its image" {
+@test "the pin parser accepts the committed pin and prints its image, the rolling tag :0" {
   _load_pin "$PIN"
   [ "$status" -eq 0 ]
   [ "$output" = "$(awk '$1 == "image" { print $2 }' "$PIN")" ]
+  [ "$output" = ghcr.io/every-app/open-seo-standalone:0 ]
 }
 
-@test "the pin parser rejects a tag-only image, a short digest, and an unknown key, naming the line" {
-  _pin_variant 's/@sha256:[0-9a-f]*/:v0.1.25/'
-  _load_pin "$BATS_TEST_TMPDIR/variant.pin"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: pin-invalid:"*"image at line "* ]]
-  _pin_variant 's/\(image .*@sha256:\)[0-9a-f]\{64\}/\1abc123/'
-  _load_pin "$BATS_TEST_TMPDIR/variant.pin"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: pin-invalid:"*"image at line "* ]]
+@test "the pin parser accepts a numeric rolling tag on the app repository" {
+  for ref in ghcr.io/every-app/open-seo-standalone:0 ghcr.io/every-app/open-seo-standalone:0.1; do
+    _pin_image "$ref"
+    _load_pin "$BATS_TEST_TMPDIR/variant.pin"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$ref" ]
+  done
+}
+
+@test "the pin parser rejects latest, main, a digest, a release tag, and another repository, naming the line" {
+  digest=$(printf '0%.0s' {1..64})
+  for ref in ghcr.io/every-app/open-seo-standalone:latest ghcr.io/every-app/open-seo-standalone:main \
+    "ghcr.io/every-app/open-seo-standalone@sha256:$digest" ghcr.io/every-app/open-seo-standalone:0.1.27 \
+    ghcr.io/every-app/open-seo-standalone:v0 ghcr.io/every-app/open-seo-standalone: ghcr.io/every-app/other:0; do
+    _pin_image "$ref"
+    _load_pin "$BATS_TEST_TMPDIR/variant.pin"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"ERROR: pin-invalid:"*"image at line "* ]]
+  done
+}
+
+@test "the pin parser rejects an unknown key and a repeated key, naming the line" {
   { cat "$PIN"; echo 'mystery value'; } >"$BATS_TEST_TMPDIR/variant.pin"
   _load_pin "$BATS_TEST_TMPDIR/variant.pin"
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: pin-invalid:"*" at line "* ]]
+  { cat "$PIN"; grep '^tag ' "$PIN"; } >"$BATS_TEST_TMPDIR/variant.pin"
+  _load_pin "$BATS_TEST_TMPDIR/variant.pin"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: pin-invalid:"*"repeat of tag"* ]]
 }
 
 @test "a compose file that differs from the pin's checksum is refused" {
@@ -257,12 +275,13 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [[ "$output" == *"NOTE: OPENROUTER_API_KEY renders empty"*"OPENSEO_OPENROUTER_ITEM"* ]]
 }
 
-@test "render keeps the env file's image when the pin has moved on" {
+@test "render writes the pin's image over the one already in the env file" {
   _prep
   sed -i 's|^OPENSEO_IMAGE=.*|OPENSEO_IMAGE=ghcr.io/every-app/open-seo-standalone@sha256:0000000000000000000000000000000000000000000000000000000000000000|' "$OPENSEO_ENV_DIR/local.env"
   _run render
   [ "$status" -eq 0 ]
-  grep -q '^OPENSEO_IMAGE=.*@sha256:0\{64\}$' "$OPENSEO_ENV_DIR/local.env"
+  grep -qx "OPENSEO_IMAGE=$(awk '$1 == "image" { print $2 }' "$PIN")" "$OPENSEO_ENV_DIR/local.env"
+  [ "$(grep -c '^OPENSEO_IMAGE=' "$OPENSEO_ENV_DIR/local.env")" -eq 1 ]
 }
 
 @test "a failed 1Password read exits 1 naming the item and leaves an existing env file byte-identical" {
@@ -332,7 +351,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
 @test "up with a failing pull exits 1 naming the image and never starts the stack" {
   STUB_PULL_FAIL=1 _run up
   [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: pull-failed:"*"open-seo-standalone@sha256:"*"cause: pull access denied"* ]]
+  [[ "$output" == *"ERROR: pull-failed:"*"open-seo-standalone:0"*"cause: pull access denied"* ]]
   _never "docker compose up"
 }
 
@@ -574,12 +593,30 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   [[ "$output" == *"is, or may still be, bound"*"fix: ~/dotfiles/scripts/openseo-deploy.sh serve"* ]]
 }
 
-@test "status notes an update when the tracked pin differs from the host's image" {
+@test "status names up, never an update verb, when the env file's image is not the pin's" {
   _prep
   sed -i 's|^OPENSEO_IMAGE=.*|OPENSEO_IMAGE=ghcr.io/every-app/open-seo-standalone@sha256:0000000000000000000000000000000000000000000000000000000000000000|' "$OPENSEO_ENV_DIR/local.env"
   STUB_BOUND=1 _run status
   [ "$status" -eq 0 ]
-  [[ "$output" == *"NOTE: the tracked pin v0.1.25 differs from this host's image; apply it with: ~/dotfiles/scripts/openseo-deploy.sh update"* ]]
+  [[ "$output" == *"NOTE: the pin's image ghcr.io/every-app/open-seo-standalone:0 differs from the image in "*"local.env (ghcr.io/every-app/open-seo-standalone@sha256:0000"*"); apply it with: ~/dotfiles/scripts/openseo-deploy.sh up"* ]]
+  [[ "$output" != *update* ]]
+  STUB_BOUND=1 run --separate-stderr "$SCRIPT" status --output json
+  [ "$status" -eq 0 ]
+  jq -e '.notes | length == 1 and (.[0] | endswith("openseo-deploy.sh up") and (contains("update") | not))' <<<"$output"
+  _run render --host nas
+  [ "$status" -eq 0 ]
+  sed -i 's|^OPENSEO_IMAGE=.*|OPENSEO_IMAGE=ghcr.io/every-app/open-seo-standalone@sha256:0000000000000000000000000000000000000000000000000000000000000000|' "$OPENSEO_ENV_DIR/nas.env"
+  STUB_BOUND=1 _run status --host nas
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"differs from the image in "*"nas.env (ghcr.io/every-app/open-seo-standalone@sha256:0000"*"); apply it with: ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
+  [[ "$output" != *update* ]]
+}
+
+@test "status notes nothing about the image when the env file holds the pin's" {
+  _prep
+  STUB_BOUND=1 _run status
+  [ "$status" -eq 0 ]
+  [[ "$output" != *NOTE* ]]
 }
 
 @test "status --output json carries the global envelope and its exit_code matches the process" {

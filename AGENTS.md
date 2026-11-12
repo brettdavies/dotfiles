@@ -165,13 +165,16 @@ sandbox paths.
 ### OpenSEO (`config/openseo/`)
 
 Linux server only. `config/openseo/compose.yaml` is upstream's standalone Compose file, byte for byte, and
-`config/openseo/openseo.pin` records the release tag, commit, image digest, and the file's sha256.
-`scripts/openseo-deploy.sh` (libraries in `scripts/openseo/lib/`) renders `~/.config/openseo/local.env` from 1Password
-and the pin, refusing a compose file that differs from the pin; its `up`, `down`, and `create-admin` verbs run docker
-and belong to the operator, while `render`, `serve`, and `status` run no docker. `svc:openseo` binds to `127.0.0.1:8946`
-only once OpenSEO is healthy and has an account; `scripts/tailscale-serve-setup.sh` applies the same gate
-(`scripts/openseo/lib/gate.sh`) at every tailscaled start. `tests/openseo-deploy.bats` stubs `uname`, `tailscale`,
-`curl`, `docker`, and the 1Password helper. Runbook: `docs/runbooks/openseo.md`.
+`config/openseo/openseo.pin` records that file's release tag, commit, and sha256, and the app image: upstream's rolling
+`0` tag, which moves to each 0.x release. Following it is a deliberate exception to digest pinning; RustFS and nginx
+stay pinned by digest, as upstream's file has them. `scripts/openseo-deploy.sh` (libraries in `scripts/openseo/lib/`)
+renders `~/.config/openseo/local.env` from 1Password and the pin, always writing the pin's image and refusing a compose
+file that differs from the pin; its `up`, `down`, and `create-admin` verbs run docker and belong to the operator, while
+`render`, `serve`, and `status` run no docker. `up` and, on the NAS, the Compose tab's Update pull the newest 0.x
+release. `svc:openseo` binds to `127.0.0.1:8946` only once OpenSEO is healthy and has an account;
+`scripts/tailscale-serve-setup.sh` applies the same gate (`scripts/openseo/lib/gate.sh`) at every tailscaled start.
+`tests/openseo-deploy.bats` stubs `uname`, `tailscale`, `curl`, `docker`, and the 1Password helper. Runbook:
+`docs/runbooks/openseo.md`.
 
 ---
 

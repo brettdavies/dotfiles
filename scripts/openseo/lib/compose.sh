@@ -11,9 +11,9 @@ os_compose_env() {
 }
 
 # Compose lets an exported variable override the env file, so a shell that exports PORT, a provider key, or
-# OPENSEO_IMAGE would reconfigure the stack silently, the image past the backup an update takes. Every variable the
-# vendored file interpolates, the project name, and the daemon selectors are unset for the call, and --host nas sets
-# DOCKER_HOST; OS_TIMEOUT bounds it. Under --host nas the calls name the project of the NAS's Compose Manager stack.
+# OPENSEO_IMAGE would reconfigure the stack silently. Every variable the vendored file interpolates, the project name,
+# and the daemon selectors are unset for the call, and --host nas sets DOCKER_HOST; OS_TIMEOUT bounds it. Under --host
+# nas the calls name the project of the NAS's Compose Manager stack.
 os_compose() {
   local cmd=() v
   [ -z "${OS_TIMEOUT:-}" ] || cmd=(timeout "$OS_TIMEOUT")

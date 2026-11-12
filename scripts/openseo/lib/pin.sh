@@ -7,10 +7,10 @@ pin_bad() {
     "git -C ~/dotfiles checkout -- config/openseo/openseo.pin, or edit it to the shapes in docs/runbooks/openseo.md" "$2"
 }
 
-# pin_load PATH sets PIN_TAG, PIN_COMMIT, PIN_RELEASED, PIN_IMAGE, and PIN_COMPOSE_SHA.
+# pin_load PATH sets PIN_TAG, PIN_COMMIT, PIN_IMAGE, and PIN_COMPOSE_SHA.
 pin_load() {
   local line key rest name hex extra re var seen=" " n=0
-  PIN_TAG='' PIN_COMMIT='' PIN_RELEASED='' PIN_IMAGE='' PIN_COMPOSE_SHA='' PIN_LINE=''
+  PIN_TAG='' PIN_COMMIT='' PIN_IMAGE='' PIN_COMPOSE_SHA='' PIN_LINE=''
   [ -r "$1" ] || pin_bad "file (it is not readable)" "$1"
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n + 1))
@@ -21,8 +21,7 @@ pin_load() {
     case "$key" in
       tag) re='^v[0-9]+\.[0-9]+\.[0-9]+$' var=PIN_TAG ;;
       commit) re='^[0-9a-f]{40}$' var=PIN_COMMIT ;;
-      released) re='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' var=PIN_RELEASED ;;
-      image) re='^ghcr\.io/every-app/open-seo-standalone@sha256:[0-9a-f]{64}$' var=PIN_IMAGE ;;
+      image) re='^ghcr\.io/every-app/open-seo-standalone:[0-9]+(\.[0-9]+)?$' var=PIN_IMAGE ;;
       sha256)
         read -r name hex extra <<<"$rest"
         [ "$name" = compose.yaml ] && [[ $hex =~ ^[0-9a-f]{64}$ ]] && [ -z "$extra" ] || pin_bad sha256 "$rest"
@@ -36,7 +35,7 @@ pin_load() {
     printf -v "$var" '%s' "$rest"
   done <"$1"
   PIN_LINE=
-  for var in PIN_TAG PIN_COMMIT PIN_RELEASED PIN_IMAGE PIN_COMPOSE_SHA; do
+  for var in PIN_TAG PIN_COMMIT PIN_IMAGE PIN_COMPOSE_SHA; do
     [ -n "${!var}" ] || pin_bad "pin (it lacks a required key, $var)" ""
   done
 }

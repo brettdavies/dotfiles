@@ -47,7 +47,7 @@ dotfiles/
 │   ├── apparmor.d/        System-level AppArmor profiles (deployed via apparmor-deploy.sh)
 │   ├── launchd/           macOS launchd user PATH for GUI apps and LaunchAgents (via launchd-user-path.sh)
 │   ├── playwright/        The system browser set's pin: versions, revisions, aliases, archive hashes (via playwright-browsers-deploy.sh)
-│   ├── openseo/           OpenSEO standalone compose file (upstream, byte for byte) and its image pin (via openseo-deploy.sh)
+│   ├── openseo/           OpenSEO standalone compose file (upstream, byte for byte) and its pin, the rolling 0 image tag (via openseo-deploy.sh)
 │   ├── rex/               Rex login server accounts template (via rex-login-server-deploy.sh)
 │   ├── sysctl.d/          Kernel settings copied to /etc/sysctl.d (via sysctl-deploy.sh)
 │   └── systemd/system/    System-level units (NAS mounts via nas-deploy.sh, apparmor-playwright via apparmor-deploy.sh)

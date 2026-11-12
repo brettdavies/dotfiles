@@ -16,8 +16,9 @@ deepened: 2026-11-06
 - **Objective:** Brett opens OpenSEO at one tailnet-only HTTPS address and uses it to research and audit anc.dev, and
   his agents can check that it is up there, while anc.dev, its search-console records, and Brett's spending stay exactly
   as he left them.
-- **Means:** upstream's standalone Docker Compose edition, pinned in this repo and driven by one repo script, running
-  first on the Linux server and later on the NAS, behind the Tailscale Service `svc:openseo` (KTD1, KTD4, KTD6, KTD10).
+- **Means:** upstream's standalone Docker Compose edition, vendored in this repo with its app image on upstream's
+  rolling `0` tag and driven by one repo script, running first on the Linux server and later on the NAS, behind the
+  Tailscale Service `svc:openseo` (KTD1, KTD4, KTD6, KTD10).
 - **Authority:** Brett's limits (R10, R11) outrank every other line here. This plan's R-IDs decide behavior. KTDs decide
   mechanism within them. Upstream's docs at the pinned tag decide how the stack itself runs.
 - **Execution profile:** three PRs to `dev` (PR1, PR2, PR3), each sized for two review rounds, built by agent slots.
@@ -26,8 +27,8 @@ deepened: 2026-11-06
 - **Stop conditions:** stop and report to dotfiles-prime when a step would write to anc.dev or any system listed in R10,
   when it needs an outside account, key, or spend (R11), when Gate B fails (OpenSEO stays on the Linux server), or when
   an upstream release changes the services or volumes of `deploy/standalone/compose.yaml`.
-- **Who finishes:** build slots write and test each PR. Brett runs every gate's commands; agents run only `status` and
-  the bump script. dotfiles-prime creates the two vault items before PR1's slot launches, and merges.
+- **Who finishes:** build slots write and test each PR. Brett runs every gate's commands; agents run only `status`.
+  dotfiles-prime creates the two vault items before PR1's slot launches, and merges.
 
 ---
 
@@ -37,10 +38,11 @@ deepened: 2026-11-06
 
 OpenSEO is an MIT-licensed, self-hosted alternative to Semrush and Ahrefs (`every-app/open-seo`). Its Docker edition is
 a five-container Compose stack that publishes one nginx port on loopback. This plan vendors that stack into
-`config/openseo/`, pins every image by digest, and adds `scripts/openseo-deploy.sh` to render its secrets from 1Password
-and run it. The stack runs first on the Linux server, reached only through the Tailscale Service `svc:openseo` at
-`https://openseo.<tailnet>.ts.net`. It moves to the NAS once a measured soak shows it fits there. The first run against
-anc.dev is a crawl-only site audit that spends nothing and writes nowhere.
+`config/openseo/`, runs the app image on upstream's rolling `0` tag, keeps the other images pinned by digest, and adds
+`scripts/openseo-deploy.sh` to render its secrets from 1Password and run it. The stack runs first on the Linux server,
+reached only through the Tailscale Service `svc:openseo` at `https://openseo.<tailnet>.ts.net`. It moves to the NAS once
+a measured soak shows it fits there. The first run against anc.dev is a crawl-only site audit that spends nothing and
+writes nowhere.
 
 ### Problem Frame
 
@@ -66,12 +68,13 @@ touch anc.dev or spend money without his decision.
 
 **Versions**
 
-- R5. Every image the stack runs is pinned by digest in a tracked file, with its version beside it, and no mutable tag
-  reaches a host.
-- R6. The tracked pin moves only forward, except a PR that reverts a pin whose `update` failed and was rolled back
-  (KTD13). A forward move goes only to an upstream release at least 7 days old, and a host applies a new pin only after
-  backing up its data. The first pin, the v0.1.25 image, is the one named exception to the 7-day age gate and may be
-  deployed before its seventh day.
+- R5. The app image follows upstream's rolling `0` tag, named in a tracked file, so each pull takes the newest 0.x
+  release. Every other image the stack runs is pinned by digest, as upstream's compose file has them, and no other
+  mutable tag reaches a host.
+- R6. The app image has no age gate: each pull takes the newest 0.x release (Key Decisions). Upstream's migrations only
+  go forward, so pulling an older image does not undo a release, and the runbook says before each update that no backup
+  exists until U6 is built. The vendored compose file and the pin's `tag`, `commit`, and `sha256` lines move together,
+  only by a PR that re-vendors the file (KTD13).
 
 **Config, data, and secrets**
 
@@ -108,11 +111,12 @@ touch anc.dev or spend money without his decision.
 - **Search Console connects inside OpenSEO, through Brett's own Google OAuth web client.** (session-settled:
   user-directed — chosen over leaving Search Console to the search-presence skill: Brett wants its data in OpenSEO)
   Governs R10.
-- **The v0.1.25 image is a named exception to the 7-day supply-chain age gate.** (session-settled: user-directed —
-  chosen over waiting until 2026-11-13: v0.1.25 is the first release whose notes say DataForSEO works on the Docker
-  edition, and the bump script keeps the gate for every later release) Governs R6.
-- **Brett runs every gate's commands; agents run only `status` and the bump script.** (session-settled: user-directed —
-  chosen over a session he lets run `docker`: docker steps stay with a person) Governs R12, R13.
+- **The app image follows upstream's rolling `0` tag, with no age gate.** (session-settled: user-directed 2026-11-11 -
+  chosen over digest pins moved by an age-gated bump script, after being told that Docker has no release-age cooldown,
+  that `latest` follows upstream's main branch, and that `0` follows every 0.x release: an update is one button press on
+  the NAS and one `up` on the Linux server) Governs R5, R6.
+- **Brett runs every gate's commands; agents run only `status`.** (session-settled: user-directed — chosen over a
+  session he lets run `docker`: docker steps stay with a person) Governs R12, R13.
 - **The NAS move gate stands as KTD10 writes it.** (session-settled: user-directed — chosen over keeping OpenSEO on the
   Linux server for good: the NAS stays the home once the stack fits) Governs R4.
 - **dotfiles-prime creates the two vault-internal 1Password items before PR1's slot launches, and PR1 commits their
@@ -130,16 +134,16 @@ touch anc.dev or spend money without his decision.
 
 **Not built (considered and judged unnecessary)**
 
-- Backup rotation. Backups happen before each update and before the move, and the operator prunes them. Revisit if the
+- Backup rotation. Backups happen when the operator runs `backup` (U6), and the operator prunes them. Revisit if the
   backup directory passes a few GiB.
-- A deploy-time refusal of pins younger than 7 days. The bump script (U7) is where the tracked pin moves, and a hand
-  edit is reviewed in its PR.
+- An age gate on releases. The app image follows the `0` tag with no cooldown (Key Decisions), and the vendored compose
+  file moves by a reviewed PR.
 - Uptime alerting. OpenSEO is used interactively, so an outage shows when someone opens it, and `status` (U3) names the
   fix.
-- Per-host 1Password items. Every value re-renders from the same items, and retiring a host deletes its env file
-  (KTD12).
-- A one-shot `move` verb. The cutover runs as one verb per step (U9, U10), because each step has a check a person should
-  see before the next.
+- Per-host 1Password items. Every value re-renders from the same items, and a host that stops running OpenSEO has its
+  env file deleted by hand (KTD12).
+- A one-shot `move` verb. The cutover runs as one command per step (U9, U10), because each step has a check a person
+  should see before the next.
 
 **Deferred to Follow-Up Work**
 
@@ -147,7 +151,6 @@ touch anc.dev or spend money without his decision.
   this needs a decision on agent keys and a tool allowlist that excludes write tools such as `submit_indexnow_urls`.
 - DataForSEO-backed recurring work (rank trackers, AI visibility), once Brett decides on spend beyond the signup credit
   after Gate A.
-- A scheduled job that opens bump PRs, in the shape of `scripts/upgrade/yazi-pins.sh`. U7 runs by hand first.
 - Re-binding the NAS's Serve bindings after a tailscaled restart, for every service on the NAS (`svc:pinchflat`,
   `svc:languagetool`, and `svc:openseo`). Nothing does this today.
 - SAM, OpenSEO's in-app agent, pointed at the Linux server's Ollama through `OPENROUTER_BASE_URL`, which would cost
@@ -211,18 +214,19 @@ touch anc.dev or spend money without his decision.
 - KTD2. **Byte-identical copies of upstream's files.** `config/openseo/compose.yaml` is upstream's
   `deploy/standalone/compose.yaml` at the pinned commit, unedited, and `config/openseo/backup.mjs` (PR2) is its
   `scripts/celld/backup.mjs` from the same commit, whose manifest checks only its format and celld version, not the
-  OpenSEO image, so the backup's own recorded image (U6) is the only image check on restore. A bump is a copy plus
+  OpenSEO image, so the backup's own recorded image (U6) is the only image check on restore. A re-vendor is a copy plus
   checksums. Upstream already binds the web port to `127.0.0.1` and digest-pins RustFS and nginx, so the file needs no
   edit for either. The file sets `name: openseo-standalone`, the project name on the Linux server, and the backup script
   finds volumes through the project name. The NAS stack's project is `openseo` (KTD11), so its volumes are `openseo_*`
   and the script takes the project from the host. Instantiates R2, R5.
-- KTD3. **One pin file holds the version, and it reaches compose through `OPENSEO_IMAGE`.** `config/openseo/openseo.pin`
-  records the upstream tag, its commit, its release time, the image as
-  `ghcr.io/every-app/open-seo-standalone@sha256:<digest>`, and the sha256 of each vendored file. One parser in
-  `scripts/openseo/lib/pin.sh` reads it, accepting only those keys. The env render writes `OPENSEO_IMAGE` from it, which
-  upstream's `x-app` anchor applies to runtime, init, and crawl-gateway. An override file would not work: the backup
-  script passes compose exactly one file, so a restore would pull `:latest`. A compose run without the env file fails on
-  upstream's required `STORAGE_ACCESS_KEY` before it can pull anything. Instantiates R5.
+- KTD3. **One pin file holds the image tag and the vendored file's version, and the tag reaches compose through
+  `OPENSEO_IMAGE`.** `config/openseo/openseo.pin` records the upstream tag and commit of the vendored compose file, the
+  app image as `ghcr.io/every-app/open-seo-standalone:0`, and the sha256 of each vendored file. One parser in
+  `scripts/openseo/lib/pin.sh` reads it, accepting only those keys, and for the image only a numeric rolling tag on that
+  repository. The env render always writes `OPENSEO_IMAGE` from it, which upstream's `x-app` anchor applies to runtime,
+  init, and crawl-gateway. An override file would not work: the backup script passes compose exactly one file, so a
+  restore would pull `:latest`. A compose run without the env file fails on upstream's required `STORAGE_ACCESS_KEY`
+  before it can pull anything. Instantiates R5.
 - KTD4. **`scripts/openseo-deploy.sh` plus `config/openseo/`, with no stow package, no systemd unit, and no project
   files on either host.** One copy serves both hosts, and stow cannot reach the NAS. Every service except `init` has
   `restart: unless-stopped`, so dockerd brings the stack back after a reboot (verified at Gate A). The script runs from
@@ -298,15 +302,16 @@ touch anc.dev or spend money without his decision.
   verdicts. Instantiates R10, R11.
 - KTD10. **The NAS gate.** After at least 7 days of use on the Linux server, including one reboot, the operator sums
   each OpenSEO container's cgroup `memory.peak` and reads the NAS's `MemAvailable` while Plex is idle. A container's
-  `memory.peak` counts only since that container last started, and a reboot, a dockerd restart, `up`, `update`, and
-  `backup` all restart containers. So the reading is taken after a full-site audit of anc.dev that began after the
-  stack's last container start, with no restart between that audit and the reading. OpenSEO moves only if `MemAvailable`
-  minus that peak leaves at least 1.5 GiB. The NAS has 7.5 GiB and no swap, so an overrun means the kernel's OOM killer,
-  not slowness. The operator also records the stack's image and volume sizes. The NAS keeps every image and named volume
-  in one 20 GiB `docker.img` file with 12 GiB free, shared by Plex, pinchflat, LanguageTool, and Postgres [measured
-  2026-11-06: `/boot/config/docker.cfg`, `df /var/lib/docker`], and a full file stops all of them. OpenSEO also moves
-  only if that file keeps at least 5 GiB free with OpenSEO's images plus three times its measured volume size. The image
-  is 115 MiB compressed for amd64 [measured: GHCR manifest]; volume growth is unknown until the soak. Instantiates R4.
+  `memory.peak` counts only since that container last started, and a reboot, a dockerd restart, `up`, an Update from the
+  Compose tab, and `backup` all restart containers. So the reading is taken after a full-site audit of anc.dev that
+  began after the stack's last container start, with no restart between that audit and the reading. OpenSEO moves only
+  if `MemAvailable` minus that peak leaves at least 1.5 GiB. The NAS has 7.5 GiB and no swap, so an overrun means the
+  kernel's OOM killer, not slowness. The operator also records the stack's image and volume sizes. The NAS keeps every
+  image and named volume in one 20 GiB `docker.img` file with 12 GiB free, shared by Plex, pinchflat, LanguageTool, and
+  Postgres [measured 2026-11-06: `/boot/config/docker.cfg`, `df /var/lib/docker`], and a full file stops all of them.
+  OpenSEO also moves only if that file keeps at least 5 GiB free with OpenSEO's images plus three times its measured
+  volume size. The image is 115 MiB compressed for amd64 [measured: GHCR manifest]; volume growth is unknown until the
+  soak. Instantiates R4.
 - KTD11. **The NAS runs OpenSEO as its Unraid Compose Manager stack `openseo`, written and started from the Linux server
   over ssh, with its definition in dotfiles.** (session-settled: user-approved 2026-11-11: every container on the NAS
   shows in Unraid's Docker tab as a managed Compose Stack, never "3rd Party") `up --host nas` writes the pinned
@@ -322,45 +327,38 @@ touch anc.dev or spend money without his decision.
   advertising the service. The NAS's containers keep running when the Linux server is down; only changes need it.
   Instantiates R4, R7, R8.
 - KTD12. **The move freezes writes first, and only one host answers at a time.** In order:
-  1. On the Linux server, `retire`, one verb that turns off its `svc:openseo` advertisement, takes a `backup` (the
-     backup script stops the app while it archives, then restarts it on loopback only), runs `down`, and deletes
-     `local.env`, so the setup block skips from then on. It stops at the first failure with everything still in place
-     and prints the backup directory.
+  1. On the Linux server, the operator ends the `svc:openseo` advertisement with `tailscale serve drain svc:openseo`,
+     takes a `backup` (the backup script stops the app while it archives, then restarts it on loopback only), runs
+     `down`, and deletes `local.env`, so the setup block skips from then on. Each command runs only after the one before
+     it succeeded.
   2. `render --host nas`, then `restore --host nas` from that directory into empty volumes, then
      `up --host nas --expect-restored`.
   3. Check the NAS on its own loopback through ssh: health, `firstAccount: false`, the anc.dev project present.
   4. `serve --host nas`, then `status` from the Linux server.
 
-  The Linux server keeps its volumes for 14 days. Rollback before the NAS advertises: on the Linux server `render`,
-  `up`, which binds again. Rollback after it advertises: `retire --host nas`, which does the same four things on the
-  NAS, then on the Linux server `render` and `rollback <that NAS backup> --yes`, so the Linux server resumes with the
-  NAS's data and the image that last wrote it. Instantiates R3, R8.
-- KTD13. **Pin bumps are agent-runnable; applying and rolling back are not.** `scripts/upgrade/openseo-pin.sh` uses only
-  `gh api` and GHCR's anonymous token endpoint, so a slot can run it and open the PR. It picks the newest release whose
-  GitHub `published_at` is at least 7 days old and that has a standalone image tag (v0.1.23 has none), and refuses to
-  move backwards. The first pin, v0.1.25, entered before its seventh day as the one named exception (Key Decisions); the
-  script makes no exception of its own. It copies the compose file and backup script from that release's commit, writes
-  the pin file, and prints upstream's diff of `deploy/standalone/` and `docs/SELF_HOSTING_DOCKER.md` for the reviewer.
-  Applying a pin is `update` (U8): back up, pull, stop `web`, `crawl-gateway`, and `runtime`, start, wait for `init`,
-  check health. Migrations only go forward, so a failed update rolls back by restoring the backup with the pin it
-  recorded, the one sanctioned move to an older version; a PR then reverts the tracked pin. On a host, `OPENSEO_IMAGE`
-  changes only through `update` (forward to the tracked pin, after its backup) and `rollback` or `restore` (to the
-  backup's pin). `render` and `up` keep the value already in the host's env file and write the tracked pin only into a
-  new file, so an `up` after a bump merges cannot apply the new image, and its one-way migrations, without a backup.
-  `status` notes when the tracked pin is newer than the host's. Instantiates R5, R6.
+  The Linux server keeps its volumes for 14 days. Before the NAS advertises, the Linux server resumes with `render` and
+  `up`, which binds again. No `retire` or `rollback` verb exists. Instantiates R3, R8.
+- KTD13. **The app image moves by a pull, and the vendored compose file moves by a PR; both are the operator's.** The
+  `0` tag moves upstream with each 0.x release, so a host takes a new release when it pulls: the Compose tab's Update on
+  the NAS, `up` on the Linux server. `render` always writes the pin's image into the env file, so no env file holds an
+  image the pin does not name, and `status` notes a difference and names `up`. Upstream's migrations only go forward, so
+  pulling an older image does not undo a release, and no verb takes a backup before a pull. After an update the operator
+  removes the replaced image by its ID (the runbook), because the NAS's shared `docker.img` fills otherwise. The
+  vendored compose file, `backup.mjs` (U6), and the pin's `tag`, `commit`, and `sha256` lines move together by a PR that
+  re-vendors them, and the runbook gives the `diff` that shows whether upstream's latest release changed the compose
+  file. Instantiates R5, R6.
 - KTD14. **Live docker steps belong to the operator.** `docker` and `sg docker` are ask rules for agent tool calls, and
   nobody answers prompts in a slot. Wrapping docker in a script to avoid that prompt would sidestep the rule, so slots
   test the script with docker stubbed, and every check an agent runs goes through `status`, which needs no docker.
   Instantiates R12, R13.
 - KTD15. **Errors follow the global error contract, and the agent-facing commands speak JSON.** Every `ERROR:` line from
-  the deploy script and the bump script starts with a stable kebab-case reason from one closed set in
-  `scripts/openseo/lib/errors.sh`, names the values involved, says whether a rerun is safe or what to run first, and
-  ends with a `fix:` line holding the exact command or the precise thing a person must supply. The runbook's
-  troubleshooting section has one anchor per reason. `status` and `scripts/upgrade/openseo-pin.sh`, the two commands
-  agents run, take `--output json` and print the global envelope: `reason`, `exit_code`, `message`, the offending value,
-  and `next_step` `{action, command, docs}`, with `action` from a closed set; `status` adds its per-check results.
-  Operator verbs stay text, since a person runs them. `--help` lists every verb, marks the ones that need docker as
-  operator steps, and lists the exit codes. Every ssh call an agent can trigger passes
+  the deploy script starts with a stable kebab-case reason from one closed set in `scripts/openseo/lib/errors.sh`, names
+  the values involved, says whether a rerun is safe or what to run first, and ends with a `fix:` line holding the exact
+  command or the precise thing a person must supply. The runbook's troubleshooting section has one anchor per reason.
+  `status`, the one command agents run, takes `--output json` and prints the global envelope: `reason`, `exit_code`,
+  `message`, the offending value, and `next_step` `{action, command, docs}`, with `action` from a closed set; `status`
+  adds its per-check results. Operator verbs stay text, since a person runs them. `--help` lists every verb, marks the
+  ones that need docker as operator steps, and lists the exit codes. Every ssh call an agent can trigger passes
   `-o BatchMode=yes -o ConnectTimeout=10`, so a missing key fails at once instead of waiting for a terminal. When a
   command the script runs (compose, node, ssh, tailscale) fails in a way the script does not expect, the error carries
   that command's last stderr lines under `cause:`. While `up` waits for `init`, which upstream gives up to two minutes,
@@ -413,12 +411,10 @@ Where OpenSEO lives across the gates:
 ```mermaid
 stateDiagram-v2
   [*] --> LinuxServer: Gate A, operator runs up, then create-admin
-  LinuxServer --> LinuxServer: update to a newer pin
+  LinuxServer --> LinuxServer: pull a newer 0.x release
   LinuxServer --> StaysOnLinuxServer: Gate B fails
   LinuxServer --> Cutover: Gate B passes and PR3 merged
   Cutover --> NAS: NAS checks pass, NAS advertises
-  Cutover --> LinuxServer: rollback before the NAS advertises
-  NAS --> LinuxServer: rollback within 14 days
   NAS --> NASOnly: day 14, Linux server volumes removed
 ```
 
@@ -446,9 +442,9 @@ sequenceDiagram
   participant L as Linux server stack
   participant N as NAS daemon over DOCKER_HOST ssh
   participant T as svc:openseo
-  Op->>T: retire turns off the Linux server's advertisement
-  Op->>L: retire continues with backup, then down
-  Op->>Op: retire deletes local.env and prints the backup directory
+  Op->>T: tailscale serve drain turns off the Linux server's advertisement
+  Op->>L: backup, then down
+  Op->>Op: delete local.env
   Op->>Op: render --host nas
   Op->>N: restore --host nas into empty volumes
   Op->>N: up --host nas --expect-restored
@@ -493,13 +489,13 @@ These are bets this plan has not verified. Gate A checks each one.
 
 | Risk                                                                                                   | Mitigation                                                                                                          |
 | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Upstream churns fast, and its standalone Docker edition dates from 2026-10-26                          | 7-day gate, backup before every update, reviewer reads upstream's diff in each bump PR (KTD13)                      |
-| v0.1.25 runs before its seventh day, inside the window the age gate exists for                         | The one named exception (Key Decisions); the bump script holds every later release to the gate                      |
+| Upstream churns fast, and its standalone Docker edition dates from 2026-10-26                          | Accepted (Key Decisions); the runbook warns that migrations only go forward and no backup exists                    |
+| The `0` tag delivers a release inside the window an age gate would hold back                           | Accepted (Key Decisions); `latest` is unused, so only tagged 0.x releases arrive                                    |
 | The NAS runs out of memory with no swap                                                                | Gate B (KTD10); the stack stays on the Linux server if it fails                                                     |
 | OpenSEO's volumes fill the NAS's shared 20 GiB `docker.img`, stopping every container there            | Gate B's disk threshold (KTD10); the stack stays on the Linux server if it fails                                    |
-| An `up` after a bump merges applies the new image without a backup                                     | Only `update` and `rollback` change a host's image (KTD13)                                                          |
+| An `up` or an Update takes a new release with no backup                                                | Accepted until U6 exists; the runbook's Before updating says so (KTD13)                                             |
 | The NAS drops `svc:openseo` after a tailscaled upgrade, as it can for its other services today         | `status` reports the dead address and names `scripts/openseo-deploy.sh --host nas serve`; a general fix is deferred |
-| A tailscaled restart on the Linux server re-binds mid-move                                             | `retire` deletes `local.env` before the NAS advertises (KTD12), so the block skips                                  |
+| A tailscaled restart on the Linux server re-binds mid-move                                             | Deleting `local.env` before the NAS advertises (KTD12) makes the block skip                                         |
 | The NAS's Docker service may not restart a stack it did not start, so a NAS reboot leaves OpenSEO down | Gate C restarts the NAS's array once and runs `status`; if the stack stays down, `status` names `up --host nas`     |
 | DataForSEO spend runs past intent                                                                      | Prepaid credit with no automatic top-up (Key Decisions), recurring jobs off (KTD9)                                  |
 | Search Console quota is shared with search-presence                                                    | search-presence's ledger already stops on a provider refusal                                                        |
@@ -509,11 +505,11 @@ These are bets this plan has not verified. Gate A checks each one.
 
 | Phase  | Kind     | Delivers                                                                                                              | Requirements                       | After                              | Budget, script / tests [estimated] |
 | ------ | -------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------- | ---------------------------------- |
-| PR1    | PR       | Pinned stack, env render, `up`, `down`, `serve`, `status`, `create-admin`, `svc:openseo` on the Linux server, runbook | R1, R2, R5, R7, R9, R12, R13       | none                               | 380 / 520                          |
+| PR1    | PR       | Stack, env render, `up`, `down`, `serve`, `status`, `create-admin`, `svc:openseo` on the Linux server, runbook        | R1, R2, R5, R7, R9, R12, R13       | none                               | 380 / 520                          |
 | Gate A | Operator | Tailnet policy, first deploy, admin, first read-only run, Search Console connect                                      | R10, R11, success criteria 1 and 2 | PR1 merged                         | none                               |
-| PR2    | PR       | `backup`, `restore`, `update`, `rollback`, the bump script                                                            | R6, R8                             | PR1                                | 320 / 430                          |
+| PR2    | PR       | `backup` and `restore`                                                                                                | R8                                 | PR1                                | 320 / 430                          |
 | Gate B | Operator | Soak, a reboot, the memory and disk readings                                                                          | R4                                 | Gate A plus 7 days                 | none                               |
-| PR3    | PR       | `--host nas` for every verb, `retire`, the cutover runbook                                                            | R3, R4, R8                         | PR2; started only if Gate B passes | 200 / 300                          |
+| PR3    | PR       | `--host nas` for every verb, the cutover runbook                                                                      | R3, R4, R8                         | PR2; started only if Gate B passes | 200 / 300                          |
 | Gate C | Operator | Cutover; day-14 cleanup                                                                                               | R3, success criterion 3            | PR3 merged                         | none                               |
 
 Rules for every PR, taken from the browser plan's build phases: each slot's brief copies its phase's `Touches:` and
@@ -556,7 +552,8 @@ Adds: `config/openseo/compose.yaml`, `config/openseo/openseo.pin`, `scripts/open
 
 ### U1. Vendored stack and pin file
 
-**Goal:** the stack's definition and its one version record live in the repo, verifiably unedited and fully pinned.
+**Goal:** the stack's definition and its one version record live in the repo, verifiably unedited, with the app image on
+its rolling tag and the other images pinned by digest.
 
 **Requirements:** R5; KTD1, KTD2, KTD3.
 
@@ -569,11 +566,11 @@ Adds: `config/openseo/compose.yaml`, `config/openseo/openseo.pin`, `scripts/open
 
 1. Copy `deploy/standalone/compose.yaml` from commit `505d4859622c02175e203e528c1669fdf10dcfe4` byte for byte. Its
    sha256 at that commit is `a0f02d293cb923796908b09ea3ab70ea639fb896dfe3199a4eceb30b56c9cbda`.
-2. Write the pin file: tag `v0.1.25`, the commit, the release time `2026-11-06T05:00:18Z`, the image by digest, and the
-   compose file's sha256. Paste the digests from command output, not from this plan, and check that the digest resolves
-   on GHCR before committing. v0.1.25 is pinned before its seventh day as the one named age-gate exception (Key
-   Decisions), and the pin file's header says so.
-3. `pin.sh` parses the file strictly: known keys, a 64-hex digest, an image reference by digest only.
+2. Write the pin file: tag `v0.1.25`, the commit, the image `ghcr.io/every-app/open-seo-standalone:0`, and the compose
+   file's sha256. Paste the sha256 from command output, not from this plan, and check that the tag resolves on GHCR
+   before committing. The pin file's header says why the image follows a rolling tag and why that tag is not `latest`.
+3. `pin.sh` parses the file strictly: known keys, a 64-hex sha256, and for the image a numeric rolling tag on the app
+   repository.
 
 **Patterns to follow:** `config/playwright/browsers.pin` and `scripts/playwright-browsers/lib/pin.sh` (one parser,
 strict shapes, a header naming the parser).
@@ -584,14 +581,14 @@ strict shapes, a header naming the parser).
 - Every `image:` line in the compose file except the `${OPENSEO_IMAGE...}` one carries `@sha256:` with 64 hex
   characters.
 - The parser accepts the committed pin file and prints the image reference.
-- The parser rejects a pin whose image has a tag and no digest, a digest shorter than 64 hex characters, and an unknown
-  key, each with exit 1 and an `ERROR:` naming the line.
-- Where `docker` is installed, `docker compose config` over the vendored file with a fixture env shows the pinned digest
+- The parser accepts `:0` and `:0.1`, and rejects `latest`, `main`, a release tag, a digest, another repository, and an
+  unknown key, each with exit 1 and an `ERROR:` naming the line.
+- Where `docker` is installed, `docker compose config` over the vendored file with a fixture env shows the pin's image
   on `runtime`, `init`, and `crawl-gateway`, and no port published on anything but `127.0.0.1`. The test skips without
   `docker`. This seam catches a compose shape that publishes beyond loopback or loses the pin; it says nothing about
   runtime behavior.
 
-**Verification:** the suite passes, and the pin's digest is the one GHCR serves for the tag.
+**Verification:** the suite passes, and the pin's tag resolves on GHCR.
 
 ### U2. Env render from 1Password
 
@@ -609,8 +606,8 @@ printed.
 1. Read `STORAGE_SECRET_KEY` from the storage item. Read `DATAFORSEO_API_KEY` and `GOOGLE_CLIENT_*` only when their UUID
    variables are set; otherwise leave them empty with a `NOTE:`.
 2. Write `AUTH_MODE=password`, `PORT=8946`, `STORAGE_ACCESS_KEY=openseo`, `OPENSEO_IMAGE`, and
-   `BETTER_AUTH_URL=https://openseo.<MagicDNSSuffix>` from `tailscale status --json`. `OPENSEO_IMAGE` comes from the
-   tracked pin only for a new file; an existing file keeps its value (KTD13).
+   `BETTER_AUTH_URL=https://openseo.<MagicDNSSuffix>` from `tailscale status --json`. `OPENSEO_IMAGE` always comes from
+   the tracked pin, over any value an existing file holds (KTD13).
 3. Refuse when an existing file's `STORAGE_*` values differ from the new ones (KTD5).
 4. Write under `umask 077` to a temporary file in the same directory, then rename it, so a failed read leaves the
    previous file intact.
@@ -626,7 +623,7 @@ log.
 - With `read_field.sh` and `tailscale` stubbed, render writes `local.env` with mode 600 in a mode-700 directory, holding
   every key in step 2 with the stubbed suffix in `BETTER_AUTH_URL`.
 - The stub secret values appear in neither stdout, stderr, nor any stub's argv log.
-- With an existing env file and a pin file whose image has since changed, render keeps the file's `OPENSEO_IMAGE`.
+- With an existing env file that holds another image, render writes the pin's `OPENSEO_IMAGE`.
 - A failing read of the storage item exits 1 with an `ERROR:` naming the item title and the 1password skill command to
   inspect it, and leaves an existing env file byte-identical.
 - An existing env file whose `STORAGE_SECRET_KEY` differs from the item's exits 1, names both the item and the restore
@@ -670,10 +667,10 @@ each, and any agent can check it.
 - `status` needs no docker. On a host holding `local.env` it runs the gate on loopback and checks
   `CapMap."service-host"`; from anywhere it fetches `/api/health` at the tailnet address with `curl --max-time 5`. It
   exits 0 when healthy, 1 with an `ERROR:` naming the failing check and its fix command, and 2 on usage errors. On the
-  OpenSEO host it also prints a `NOTE:` naming `update` when the tracked pin is newer than the env file's image. With
-  `--output json` it prints KTD15's envelope. On the host holding `local.env`, when the loopback gate and
-  `CapMap."service-host"` both pass but the address fetch fails, it exits 0 with a `NOTE:` that this host cannot reach
-  its own service address, since agents elsewhere still can.
+  OpenSEO host it also prints a `NOTE:` naming `up` when the env file's image is not the pin's. With `--output json` it
+  prints KTD15's envelope. On the host holding `local.env`, when the loopback gate and `CapMap."service-host"` both pass
+  but the address fetch fails, it exits 0 with a `NOTE:` that this host cannot reach its own service address, since
+  agents elsewhere still can.
 - `serve` and `up` follow KTD6's unbind rule: finding `firstAccount: true` on a bound host turns the binding off.
 - Errors and `--help` follow KTD15.
 
@@ -700,8 +697,8 @@ modes in `scripts/sysctl-deploy.sh`.
 - `status --output json` parses with `jq`, carries `reason`, `exit_code`, `message`, and `next_step`, and its
   `exit_code` matches the process's.
 - `--help` exits 0, names every verb, and marks the docker verbs; an unknown verb exits 2 and points at `--help`.
-- `status` on the OpenSEO host with a tracked pin newer than the env file's image exits 0 and prints the `update`
-  `NOTE:`.
+- `status` on the OpenSEO host with an env file whose image is not the pin's exits 0 and prints the `NOTE:` naming `up`,
+  never an `update` verb.
 - No verb passes `-v` or `--volumes` to compose.
 - `status` with both checks passing exits 0; with the address refusing it exits 1 and names `serve`; with loopback down
   it names `up`.
@@ -782,18 +779,22 @@ block goes after the existing binds.
 
 **Verification:** every command in the runbook exists in the script with the same flags.
 
-### PR2: Backup, restore, and pin updates
+### PR2: Backup and restore
 
 Waits on: PR1, merge order only. A separate PR because the brief caps each PR at two review rounds and PR1 already fills
 its budget.
 
-Touches: `config/openseo/**`, `scripts/openseo-deploy.sh`, `scripts/openseo/**`, `scripts/upgrade/openseo-pin.sh`,
-`tests/openseo-deploy.bats`, `tests/openseo-pin.bats`, `docs/runbooks/openseo.md`
+Touches: `config/openseo/**`, `scripts/openseo-deploy.sh`, `scripts/openseo/**`, `tests/openseo-deploy.bats`,
+`docs/runbooks/openseo.md`
 
-Adds: `config/openseo/backup.mjs`, verbs `backup`, `restore`, `update`, `rollback`, `scripts/upgrade/openseo-pin.sh`,
-`tests/openseo-pin.bats`.
+Adds: `config/openseo/backup.mjs`, verbs `backup`, `restore`.
 
 ### U6. Backup and restore
+
+**Status:** still planned. **Open:** a backup records the host's `OPENSEO_IMAGE`, which is the rolling tag, so the
+recorded image names no fixed version, and the `OPENSEO_IMAGE` that `restore` writes is replaced by the pin's image at
+the next `render`. Its refusal of a non-empty install names `rollback`, a verb that is skipped (U8). U6 settles both
+when it is built.
 
 **Goal:** the operator backs up the running stack and restores it into an empty install, with the image that made the
 backup.
@@ -829,9 +830,12 @@ backup.
 - `restore` into a non-empty install (the stub exits non-zero with upstream's message) exits 1 and names `rollback`.
 - `restore` with a missing directory or a directory without a pin file exits 2.
 
-**Verification:** the suite passes. The first live backup happens at the first `update` or at Gate C.
+**Verification:** the suite passes. The first live backup happens at the first operator-run `backup` or at Gate C.
 
 ### U7. Pin bump script
+
+**Status:** skipped by Brett on 2026-11-11. The app image follows the rolling `0` tag, so no pin moves, and a hand-made
+PR re-vendors the compose file.
 
 **Goal:** a slot can move the tracked pin to the newest eligible upstream release and open a reviewable PR, with no
 docker.
@@ -876,6 +880,10 @@ host's record, never backwards).
 
 ### U8. Update and rollback verbs
 
+**Status:** skipped by Brett on 2026-11-11, who called the update verb overengineering for a local deploy script that is
+unlikely to run again. The Compose tab's Update (NAS) and `up` (Linux server) pull the newest release, and the runbook
+covers the image cleanup. Rollback needs the backup that U6 builds.
+
 **Goal:** the operator applies a merged pin with one command, backed up first, and can return to the backup if it fails.
 
 **Requirements:** R4 (Gate B's runbook steps), R6, R8; KTD10, KTD13.
@@ -919,9 +927,12 @@ because whether to build it at all depends on Gate B, which comes 7 days after G
 Touches: `scripts/openseo-deploy.sh`, `scripts/openseo/**`, `tests/openseo-deploy.bats`, `docs/runbooks/openseo.md`,
 `README.md`
 
-Adds: `--host nas` for every verb; verb `retire`.
+Adds: `--host nas` for every verb.
 
 ### U9. NAS target and retire
+
+**Status:** the `retire` verb is skipped by Brett on 2026-11-11, and the rest of U9 stands. The runbook steps the Linux
+server down with `tailscale serve drain`, `down`, and deleting `local.env`.
 
 **Goal:** every verb runs against the NAS from the Linux server, and the Linux server can step down cleanly.
 
@@ -965,6 +976,9 @@ Adds: `--host nas` for every verb; verb `retire`.
 
 ### U10. Cutover and rollback runbook
 
+**Status:** the rollback part is skipped by Brett on 2026-11-11, because the `rollback` verb (U8) and `retire` (U9) are
+skipped; the rest of U10 stands.
+
 **Goal:** the operator moves OpenSEO with one documented command per KTD12 step and can roll back for 14 days.
 
 **Requirements:** R3, R8; KTD10, KTD12.
@@ -987,10 +1001,10 @@ cleanup (volume removal on the Linux server). README names the NAS target.
 
 | Check                  | Command                                                                                                                                                                                                                                                               | When                           | Pass signal                                                                                                                                                                                                      |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bats                   | `scripts/run-tests tests/openseo-deploy.bats tests/openseo-pin.bats tests/tailscale-serve-setup.bats tests/tailscale-serve-deploy.bats`                                                                                                                               | each PR, for the suites it has | all pass                                                                                                                                                                                                         |
+| Bats                   | `scripts/run-tests tests/openseo-deploy.bats tests/tailscale-serve-setup.bats tests/tailscale-serve-deploy.bats`                                                                                                                                                      | each PR, for the suites it has | all pass                                                                                                                                                                                                         |
 | ShellCheck             | `scripts/lint-shell` over the changed scripts                                                                                                                                                                                                                         | each PR                        | clean                                                                                                                                                                                                            |
 | Pre-push mirror        | `.githooks/pre-push` (runs on `git push`)                                                                                                                                                                                                                             | each PR                        | passes                                                                                                                                                                                                           |
-| Pin resolves           | GHCR manifest request for the pinned digest                                                                                                                                                                                                                           | PR1, each bump                 | 200                                                                                                                                                                                                              |
+| Pin resolves           | GHCR manifest request for the pin's image tag                                                                                                                                                                                                                         | PR1                            | 200                                                                                                                                                                                                              |
 | Gate A, operator       | runbook "First deploy": `up`, `create-admin`, each timed with `gtime -f '%e s'` for the Gate A note                                                                                                                                                                   | after PR1 merges               | `init` prints its ready line; `serve` sees the service in `CapMap`                                                                                                                                               |
 | Gate A, any agent      | `scripts/openseo-deploy.sh status` on the Linux server                                                                                                                                                                                                                | after the operator steps       | exit 0                                                                                                                                                                                                           |
 | Gate A, reach          | from the Mac the address loads and sign-in works; from a LAN host port 8946 is refused                                                                                                                                                                                | after the operator steps       | as stated                                                                                                                                                                                                        |
@@ -1006,9 +1020,9 @@ cleanup (volume removal on the Linux server). README names the NAS target.
 
 - Each PR: its units' tests pass in `scripts/run-tests`, ShellCheck is clean, its diff stays within 1.5 times its
   budget, and it changes only its `Touches:` paths.
-- No tracked file holds a secret, a tailnet name, an email address, or a mutable image tag, except the
-  `${OPENSEO_IMAGE:-...:latest}` default in the byte-identical vendored compose file, which the env file's digest always
-  overrides (KTD2, KTD3).
+- No tracked file holds a secret, a tailnet name, an email address, or a mutable image tag, except the rolling `0` tag
+  in the pin file and the `${OPENSEO_IMAGE:-...:latest}` default in the byte-identical vendored compose file, which the
+  env file's image always overrides (KTD2, KTD3).
 - Every verb in the runbook exists in the script with the same flags, and every operator step is marked as one.
 - Gate A's results, including the first run's findings, reach Brett as a note in the prime's `.context/`.
 - Abandoned attempts are removed from each diff before review.

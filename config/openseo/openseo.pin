@@ -1,12 +1,13 @@
-# The OpenSEO release this repo runs: one line per field, "key value...". Read only through
-# scripts/openseo/lib/pin.sh, which accepts nothing but the shapes it lists.
+# The OpenSEO image this repo runs and the upstream release whose compose file it vendors: one line per field, "key
+# value...". Read only through scripts/openseo/lib/pin.sh, which accepts nothing but the shapes it lists.
 #
-# image is the multi-arch index the tag resolves to on GHCR. The sha256 line records the vendored compose.yaml, which is
-# upstream's deploy/standalone/compose.yaml at commit, byte for byte. v0.1.25 is the one pin held under an exception to
-# the 7-day release age gate.
+# image is a rolling tag on GHCR. 0 moves to each 0.x release and to no other build; latest moves with every merge to
+# upstream's main branch, so the pin does not name it. Following 0 is a deliberate exception to pinning by digest, and
+# render writes it to every host's env file. The stack's other two images stay pinned by digest, as upstream's compose
+# file has them. tag, commit, and the sha256 line record the vendored compose.yaml, which is upstream's
+# deploy/standalone/compose.yaml at commit, byte for byte.
 
 tag v0.1.25
 commit 505d4859622c02175e203e528c1669fdf10dcfe4
-released 2026-11-06T05:00:18Z
-image ghcr.io/every-app/open-seo-standalone@sha256:6c5d514649b550fc7bdcefaa52314e7a98c7846b7fc5f7a288c486575698bb04
+image ghcr.io/every-app/open-seo-standalone:0
 sha256 compose.yaml a0f02d293cb923796908b09ea3ab70ea639fb896dfe3199a4eceb30b56c9cbda

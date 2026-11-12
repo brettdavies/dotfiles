@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # OpenSEO's standalone Docker stack on the Linux server, or with --host nas the NAS's Unraid Compose Manager stack, behind
-# the tailnet service svc:openseo: config/openseo/compose.yaml (upstream's file, byte for byte) at the image digest in
-# config/openseo/openseo.pin, with secrets rendered from 1Password. The docker verbs (up, down, create-admin) are the
+# the tailnet service svc:openseo: config/openseo/compose.yaml (upstream's file, byte for byte) on the rolling image tag
+# in config/openseo/openseo.pin, with secrets rendered from 1Password. The docker verbs (up, down, create-admin) are the
 # operator's; agents run `status`. Runbook: docs/runbooks/openseo.md.
 # Usage: scripts/openseo-deploy.sh --help
 # shellcheck disable=SC1090,SC1091,SC2034 # the libraries read these globals; shellcheck follows no sourced file
