@@ -598,7 +598,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   sed -i 's|^OPENSEO_IMAGE=.*|OPENSEO_IMAGE=ghcr.io/every-app/open-seo-standalone@sha256:0000000000000000000000000000000000000000000000000000000000000000|' "$OPENSEO_ENV_DIR/local.env"
   STUB_BOUND=1 _run status
   [ "$status" -eq 0 ]
-  [[ "$output" == *"NOTE: the pin's image ghcr.io/every-app/open-seo-standalone:0 differs from this host's env file"*"apply it with: ~/dotfiles/scripts/openseo-deploy.sh up"* ]]
+  [[ "$output" == *"NOTE: the pin's image ghcr.io/every-app/open-seo-standalone:0 differs from the image in "*"local.env (ghcr.io/every-app/open-seo-standalone@sha256:0000"*"); apply it with: ~/dotfiles/scripts/openseo-deploy.sh up"* ]]
   [[ "$output" != *update* ]]
   STUB_BOUND=1 run --separate-stderr "$SCRIPT" status --output json
   [ "$status" -eq 0 ]
@@ -608,7 +608,7 @@ _load_pin() { run bash -c 'source "$1/errors.sh"; source "$1/pin.sh"; pin_load "
   sed -i 's|^OPENSEO_IMAGE=.*|OPENSEO_IMAGE=ghcr.io/every-app/open-seo-standalone@sha256:0000000000000000000000000000000000000000000000000000000000000000|' "$OPENSEO_ENV_DIR/nas.env"
   STUB_BOUND=1 _run status --host nas
   [ "$status" -eq 0 ]
-  [[ "$output" == *"differs from the NAS's env file"*"apply it with: ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
+  [[ "$output" == *"differs from the image in "*"nas.env (ghcr.io/every-app/open-seo-standalone@sha256:0000"*"); apply it with: ~/dotfiles/scripts/openseo-deploy.sh --host nas up"* ]]
   [[ "$output" != *update* ]]
 }
 
