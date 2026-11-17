@@ -777,6 +777,7 @@ Linux server's pre-push and is checked live at Gate B.
 
 | #   | Review | Of  | Model, effort | Started (UTC) | Finished (UTC) | Verdict |
 | --- | ------ | --- | ------------- | ------------- | -------------- | ------- |
+| 1 | `/plan-eng-review` | this plan at `71d701f` | Opus, inline in the slot session | 2026-11-17 02:03 | | running |
 
 ---
 
