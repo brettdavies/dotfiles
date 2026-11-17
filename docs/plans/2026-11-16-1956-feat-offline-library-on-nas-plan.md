@@ -822,6 +822,7 @@ Linux server's pre-push and is checked live at Gate B.
 | #   | Review             | Of                     | Model, effort                    | Started (UTC)    | Finished (UTC) | Verdict |
 | --- | ------------------ | ---------------------- | -------------------------------- | ---------------- | -------------- | ------- |
 | 1 | `/plan-eng-review` | this plan at `71d701f` | Opus, inline in the slot session | 2026-11-17 02:03 | 2026-11-17 02:14 | 17 findings (8 architecture, 3 code quality, 3 test gaps, 3 performance), 0 critical gaps; 13 choices decided from evidence and fixed in this plan |
+| 2 | `/plan-devex-review` | this plan at `87340dc` | Opus, inline in the slot session | 2026-11-17 02:16 | | running |
 
 ---
 
