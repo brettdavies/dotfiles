@@ -859,6 +859,7 @@ adds a cache only if it saves time.
 | --- | -------------------- | ---------------------- | -------------------------------- | ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | `/plan-eng-review`   | this plan at `71d701f` | Opus, inline in the slot session | 2026-11-17 02:03 | 2026-11-17 02:14 | 17 findings (8 architecture, 3 code quality, 3 test gaps, 3 performance), 0 critical gaps; 13 choices decided from evidence and fixed in this plan |
 | 2   | `/plan-devex-review` | this plan at `87340dc` | Opus, inline in the slot session | 2026-11-17 02:16 | 2026-11-17 02:29 | score 5/10 → 7/10; 1 CAP4 and 4 CAP6 error paths fixed; 15 choices decided from evidence and 2 factual errors corrected in this plan               |
+| 3 | `/compound-engineering:ce-doc-review` | this plan at `b357562` | Opus, inline in the slot session, reviewers dispatched on Opus | 2026-11-17 02:31 | | running |
 
 ---
 
