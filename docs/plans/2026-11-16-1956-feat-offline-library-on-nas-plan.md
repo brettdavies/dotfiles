@@ -182,7 +182,7 @@ Outside this product's identity:
   `docs/SETUP-API.md`; `engine/setup/README.md`; `derived/packs/pack-spec.json` (All: 231.75 GB of video, 80.5 GB of
   map, 61.75 GB of ZIMs including `wikipedia_en_all_nopic_2026-06.zim`, 12.3 GB of documents); `server.py` `host_ok`,
   `origin_ok`, `lan_ok` and `serve`; `engine/setup/api.py` `handle` and `engine/update.py` `handle`, each refusing
-  non-loopback clients.
+  non-loopback clients. `main` moved to `8767e98` on 2026-11-16 with no change to `server.py` or `engine/`.
 - Upstream PR #33, "Docker: run the library server in a container", head `30dc38181b94673129c53d84b01f386be2c6563d` on
   `mfbergmann/lastbook`: `packaging/docker/{Dockerfile,entrypoint.sh,headless_setup.py,compose.example.yml,README.md}`.
 - Kiwix OPDS catalog, `https://library.kiwix.org/catalog/v2/entries?count=-1` (3,680 entries on 2026-11-16);
@@ -244,7 +244,11 @@ reaches the NAS over `ssh pool`.
   3. It rewrites `Origin` to `http://127.0.0.1:8890` only when the Origin's host equals the request's `Host`. Any other
      Origin passes through unchanged, so `origin_ok` still refuses a cross-site POST.
 
-  Responses, streaming and `Range` requests pass through untouched. Lastbook's redirects are path-relative, so they survive the `Host` rewrite. Setup and update answer non-loopback clients with 403, so R3 holds by upstream's own rule. Rejected: running Caddy in Lastbook's network namespace, which turns every request into loopback with setup rights and leaves R3 to a proxy deny-list that must track upstream's routes. Rejected: upstream's own LAN link, which refuses host names (no `ts.net` address) and needs a LAN-facing port.
+  Responses, streaming and `Range` requests pass through untouched. Lastbook's redirects are path-relative, so they
+  survive the `Host` rewrite. Setup and update answer non-loopback clients with 403, so R3 holds by upstream's own rule.
+  Rejected: running Caddy in Lastbook's network namespace, which turns every request into loopback with setup rights and
+  leaves R3 to a proxy deny-list that must track upstream's routes. Rejected: upstream's own LAN link, which refuses
+  host names (no `ts.net` address) and needs a LAN-facing port.
 - KTD5. **Loopback ports 8947 and 8948, and one Tailscale Service each.** `lastbook-proxy` publishes `127.0.0.1:8947`,
   and `kiwix` publishes `127.0.0.1:8948`. `svc:lastbook` and `svc:kiwix` on `tcp:443` are defined, granted to
   `autogroup:member` and the Linux server's tag, auto-approved for the NAS's tag, and bound on the NAS with
@@ -257,14 +261,19 @@ reaches the NAS over `ssh pool`.
   read whole. Both are created before any data lands, since record size applies only to new writes. Every bind mount
   uses long syntax with `create_host_path: false`: if the pool is not mounted, the container fails to start instead of
   writing 388 GB into the NAS's RAM-backed root filesystem. Creating the share in the Shares tab keeps it visible there,
-  which matches Brett's preference for the Docker tab.
+  which matches Brett's preference for the Docker tab. `zfs create` leaves a child dataset owned by root, so Gate A
+  gives `pool/library/lastbook` to `99:100`, the user `lastbook` runs as; its entrypoint's first act is creating
+  `/data/config`, and under `set -e` a refusal there stops the container. `pool/library/zim` stays root's: the sync
+  writes it as root, and kiwix's uid 1001 reads files at mode 0644.
 - KTD7. **kiwix-serve reads two read-only trees.** `ghcr.io/kiwix/kiwix-serve:3.8.2` is pinned by digest. It mounts
   `pool/library/zim` at `/zim/shelf` and the Lastbook data root at `/zim/lastbook`, both read-only, and serves `*.zim`
   from the shelf and from `LastbookData/library-data/collections/`. It runs with `--nodatealiases`, so URLs stay stable
   across releases, and `--skipInvalid`, so a bad file is skipped and does not stop the server. Mounting the data root
-  rather than the collections folder lets kiwix start before the Lastbook install finishes and survive a pack swap. A
-  container restart picks up new or replaced files. Rejected: a library XML with `--monitorLibrary`, which needs a
-  writable XML and `kiwix-manage` calls to avoid a restart that takes seconds.
+  rather than the collections folder lets kiwix start before the Lastbook install finishes and survive a pack swap: with
+  `--skipInvalid`, a pattern that matches nothing is skipped and kiwix serves an empty library. The image's `start.sh`
+  expands the patterns once, when the container starts, so a restart picks up new or replaced files, and Lastbook's four
+  ZIMs appear only after the restart that follows the install (Gate B). Rejected: a library XML with `--monitorLibrary`,
+  which needs a writable XML and `kiwix-manage` calls to avoid a restart that takes seconds.
 - KTD8. **The shelf is a list resolved against Kiwix's catalog at sync time.** `config/library/zims.tsv` holds five
   columns per row: tier, enabled, book, flavour and why. `zims plan` fetches the OPDS catalog, takes the newest release
   of each enabled book and flavour, and skips any book whose file is already in Lastbook's `collections/` (R6). It then
@@ -279,14 +288,24 @@ reaches the NAS over `ssh pool`.
   2. Check the file against the `.sha256` published beside it.
   3. Rename it into place.
 
-  When every download has verified, it restarts the `kiwix` container once, then deletes superseded releases and the files of disabled entries. It records state and a log in `.sync/`. Rejected: a one-shot service in the stack, whose script would have to live inside `compose.yaml` and which the Compose tab cannot start on its own. Rejected: downloading on the Linux server and copying, which moves every byte twice.
-- KTD10. **Every container has a memory cap and bounded caches.** Starting caps are 1 GiB for `lastbook`, 128 MiB for
-  `lastbook-proxy` and 768 MiB for `kiwix`. kiwix gets bounded `KIWIX_ARCHIVE_CACHE_SIZE` and
-  `KIWIX_SEARCHER_CACHE_SIZE` and a `--searchLimit`. `lastbook` runs `--no-index`: packs ship no embedding model, so its
-  five-minute semantic-index loop has nothing to do. Gate C reads each container's `memory.peak` after a load that began
-  after its last restart, and sets the final caps. The NAS has about 2.1 GiB available and no swap. kiwix-serve's caches
-  are bounded only by count, and Kiwix reports about 10 GB of growth in 3.5 days on library.kiwix.org (libkiwix#1025,
-  kiwix/operations#147). With a cap, an overrun kills the offending container instead of Plex.
+  When every download has verified, it deletes superseded releases and the files of disabled entries, then restarts the
+  `kiwix` container once. Deleting first matters: kiwix holds every file open, so a file deleted after the restart stays
+  in its library and keeps its disk space until the next one. When a download failed, nothing is deleted, and kiwix
+  restarts only if another file was placed. It records state and a log in `.sync/`. Rejected: a one-shot service in the
+  stack, whose script would have to live inside `compose.yaml` and which the Compose tab cannot start on its own.
+  Rejected: downloading on the Linux server and copying, which moves every byte twice.
+- KTD10. **Every container has a memory cap and bounded caches, and the caps fit one budget.** Starting caps are 1 GiB
+  for `lastbook`, 128 MiB for `lastbook-proxy` and 768 MiB for `kiwix`; they are ceilings for Gate C's measurement, not
+  the final values. kiwix gets bounded `KIWIX_ARCHIVE_CACHE_SIZE` and `KIWIX_SEARCHER_CACHE_SIZE` and a `--searchLimit`.
+  `lastbook` runs `--no-index`: packs ship no embedding model, so its five-minute semantic-index loop has nothing to do.
+  Gate C reads each container's `memory.peak`, the `anon` line of `memory.stat` and the `oom_kill` count in
+  `memory.events` after a load that began after its last restart. Each final cap is its peak plus a third. The final
+  caps together must fit the budget: `MemAvailable` read before the stack starts, less 1 GiB, so the NAS keeps 1 GiB
+  even with every container at its cap. With 2.19 GiB available on 2026-11-16 the budget is about 1.19 GiB, and the
+  starting caps sum to 1.875 GiB, so they would not hold the floor if kept. Caps that cannot fit the budget are a stop
+  condition. kiwix-serve's caches are bounded only by count, and Kiwix reports about 10 GB of growth in 3.5 days on
+  library.kiwix.org (libkiwix#1025, kiwix/operations#147). With a cap, an overrun kills the offending container instead
+  of Plex.
 - KTD11. **Chat goes through the proxy to `svc:ollama`.** Chat is off by default. When the stack's `.env` sets the three
   Chat values, Lastbook's entrypoint forwards `127.0.0.1:11434` inside its container to an internal port on
   `lastbook-proxy`. That port is not published. The proxy forwards it over HTTPS to `svc:ollama`, and the Linux server's
@@ -297,15 +316,20 @@ reaches the NAS over `ssh pool`.
 - KTD12. **Each kind of update has its own path.** For new Lastbook code, a PR moves KTD2's SHA, then the operator
   rebuilds and recreates the stack. For Kiwix and Caddy, a PR moves the digest. For a new Lastbook pack:
   1. `headless_setup.py status`, run through `docker exec`, reports `update_available`.
-  2. `stage --into /data/next` builds the new library beside the old one, about 776 GB more at peak.
+  2. `stage --into /data/next`, started with `docker exec -d` so it outlives the ssh session, builds the new library
+     beside the old one, about 776 GB more at peak. It writes the same job file as the install, so `status` follows it.
   3. With the stack stopped, the operator swaps the two directories, starts the stack, and deletes the old copy only
      once the new one serves.
 
-  The Compose tab's Update has nothing to pull for `lastbook`. Gate B records what pressing it does, and the runbook says so.
+  The Compose tab's Update has nothing to pull for `lastbook`. Gate B records what pressing it does, and the runbook
+  says so.
 - KTD13. **The stack keeps one secret.** It is the LAN key, which the operator generates at the first stack write and
   keeps in the stack's `.env` on the flash drive, root-only by the flash's mount mode. Both `lastbook`
   (`LASTBOOK_LAN_KEY`) and `lastbook-proxy` read it. It has no 1Password item: it guards nothing outside the stack's own
-  network, and a lost key is replaced by writing a new one and recreating the stack.
+  network. Lastbook also prints it in its startup log, which the Docker tab shows to root alone. The entrypoint writes
+  the key to `derived/lan-key` only when that file is missing or empty, so a new key takes three steps: write it to
+  `.env`, delete `derived/lan-key`, and recreate the stack. Skipping the delete leaves Lastbook on the old key while the
+  proxy sends the new one, and every request answers 403; `status` names that case `lan-key-mismatch`.
 - KTD14. **The operator writes and agents read.** The operator runs the share and dataset setup, tailnet policy, stack
   writes and starts, `tailscale serve`, `zims sync`, pack swaps and turning Chat on. Agents run `status` and
   `zims plan`. This is the OpenSEO runbook's split.
@@ -313,7 +337,11 @@ reaches the NAS over `ssh pool`.
   `zims sync`. Output is text by default, or one JSON object with `--output json`. Each error carries `reason` (a closed
   kebab-case set), `exit_code`, `message`, `value`, `next_step` (`action` from `run-command`, `ask-operator`, `retry` or
   `none`, plus `command` and `docs`), and `checks` and `notes`. It is modeled on `scripts/openseo/lib/errors.sh`.
-  `status` reads the install's progress from upstream's setup job file under the data share, so it needs no docker call.
+  `status` reads the install's progress from upstream's setup job file, `config/Lastbook/setup/job.json` in the
+  `lastbook` dataset: the `state`, `error` and per-item byte counts that `headless_setup.py`'s own `progress()` reads.
+  It needs no docker call. Whether a newer pack is published is not a `status` check: `headless_setup.py status` owns
+  that rule, and the runbook's update procedure runs it. The ports, data paths, container names and service names the
+  scripts use are defined once, in `scripts/library/lib/nas.sh`, and a test holds `compose.yaml` to them.
 - KTD16. **Stack writes use the `unraid-compose` skill.** The runbook creates and updates the stack with
   `stack-push.sh --name library --autostart --webui ...` and starts it with `stack-compose.sh library up`. Both print a
   plan first and act only with `--yes`. The `--webui` values carry the tailnet addresses, so the tailnet name never
@@ -406,8 +434,8 @@ flowchart TB
   check -->|yes| place[rename into place]
   place --> all{every file verified?}
   fail --> all
-  all -->|no| done1[record failures, remove nothing]
-  all -->|yes| restart[restart kiwix once] --> prune[delete superseded releases and disabled entries] --> done2[record ok]
+  all -->|no| done1[record failures, remove nothing, restart kiwix if a file was placed]
+  all -->|yes| prune[delete superseded releases and disabled entries] --> restart[restart kiwix once if anything changed] --> done2[record ok]
 ```
 
 ### Output Structure
@@ -424,7 +452,7 @@ scripts/library/remote/   zim-sync.sh, the worker the NAS runs
 tests/library-stack.bats
 tests/library-status.bats
 tests/library-zims.bats
-tests/fixtures/library/   catalog snapshot, job files, a header-echo server
+tests/fixtures/library/   catalog snapshot, job files
 docs/runbooks/library.md
 ```
 
@@ -465,8 +493,10 @@ docs/runbooks/library.md
 | Trusting a fork commit                                                   | Immutable SHA; its five files were read in full; the code sees only the library share and the network                                           |
 | NAS memory runs out                                                      | Per-container caps (KTD10), the Gate C measurement, and a stop condition; the RAM upgrade is in the vault backlog                               |
 | kiwix-serve memory grows with uptime and with large ZIMs                 | Count-bounded caches, `--searchLimit`, the cap, and `restart: unless-stopped`; Gate F re-measures after each large tier                         |
+| Cold reads are slow: ARC is capped near 0.94 GiB over HDD raidz1 | Gate C notes search and map response times; the RAM upgrade is the remedy |
 | BuildKit cache fills `docker.img`                                        | The runbook prunes the build cache after each build; `status` fails above 75% used                                                              |
 | The install stops partway                                                | Upstream resumes by range with an ETag check, and the restart policy restarts it                                                                |
+| A checksum failure repeats, and each restart downloads 388 GB again | Upstream deletes a download that fails its checksum (`engine/setup/download.py`); `status` reports `lastbook-install-failed`, and that reason's runbook entry stops the stack first |
 | A drive fails during or after the install                                | raidz1 survives one disk; the cold copy is deferred and named in the runbook                                                                    |
 | Containers cannot resolve or reach `svc:ollama`                          | Gate E checks it; the runbook gives the fallback of the service's tailnet address with an explicit TLS server name                              |
 | Upstream adds an admin route that LAN clients can reach                  | Gate B's 403 checks through the proxy run again after every SHA bump                                                                            |
@@ -486,9 +516,9 @@ docs/runbooks/library.md
 | Step   | Who                                 | What                                                                                                                                                                                                   | Pass                                                                                                                                                                                                               |
 | ------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | PR1    | build slot                          | U1 to U5                                                                                                                                                                                               | CI green, reviews logged, merged to `dev`                                                                                                                                                                          |
-| Gate A | Brett                               | Create the `library` share on the pool in the Shares tab (no SMB export) and the two child datasets with their properties (KTD6); define, grant and auto-approve `svc:lastbook` and `svc:kiwix` (KTD5) | `zfs get` shows the properties; `ts-api.sh service-get` lists both services                                                                                                                                        |
-| Gate B | Brett                               | Generate the `.env` (KTD13), push and start the stack (KTD16), wait for the All install, bind both services, prune the build cache                                                                     | `scripts/library.sh status` exits 0; the first three Success Criteria hold; through the proxy, `/api/setup/state` answers 403 and a POST with a foreign Origin answers 403; Update's effect on `lastbook` recorded |
-| Gate C | Brett                               | The load: 20 guides opened, 3 videos played and sought, the map panned in 3 states, 30 searches on each service including a multi-ZIM search; then each container's `memory.peak`                      | Each peak stays under its cap with at least 25% margin and 1 GiB stays available; final caps go back to the repo by PR if they changed                                                                             |
+| Gate A | Brett                               | Create the `library` share on the pool in the Shares tab (no SMB export) and the two child datasets with their properties, `pool/library/lastbook` owned by `99:100` (KTD6); define, grant and auto-approve `svc:lastbook` and `svc:kiwix` (KTD5) | `zfs get` shows the properties; `ts-api.sh service-get` lists both services                                                                                                                                        |
+| Gate B | Brett                               | Generate the `.env` (KTD13), push and start the stack (KTD16), wait for the All install, restart `kiwix` once so it opens Lastbook's ZIMs (KTD7), bind both services, prune the build cache                                                                     | `scripts/library.sh status` exits 0; the first three Success Criteria hold; through the proxy, `/api/setup/state` answers 403 and a POST with a foreign Origin answers 403; Update's effect on `lastbook` recorded |
+| Gate C | Brett                               | The load: 20 guides opened, 3 videos played and sought, the map panned in 3 states, 30 searches on each service including a multi-ZIM search; then each container's `memory.peak`, `anon` and `oom_kill` (KTD10)                      | No `oom_kill`; each final cap is its peak plus a third, and the final caps sum to at most `MemAvailable` before the stack, less 1 GiB; the final caps go back to the repo by PR                                                                             |
 | Gate D | Brett                               | `zims plan`, read the plan, then `zims sync` for the core tiers                                                                                                                                        | `status` shows the shelf in sync; the second Success Criterion holds                                                                                                                                               |
 | Gate E | Brett, optional                     | Grant the NAS's tag to `svc:ollama`, set the three Chat values, recreate                                                                                                                               | A Chat question returns an answer citing library pages                                                                                                                                                             |
 | Gate F | Brett, optional, one tier at a time | Enable a large tier, then plan, sync and re-measure kiwix                                                                                                                                              | Gate C's memory rule still holds                                                                                                                                                                                   |
@@ -531,18 +561,21 @@ R3, R6 and R11.
 - `config/library/compose.override.yaml`
 - `config/library/env.example`
 - `tests/library-stack.bats`
-- `tests/fixtures/library/echo-headers.py`
 
 **Approach:**
 
 1. Write `lastbook` per KTD2, KTD3 and KTD10: the git build context pinned to the full SHA, the image tag,
    `user: "99:100"` (Unraid's `nobody:users`), the data bind mount, `LASTBOOK_PACK=all`, `LASTBOOK_LAN_KEY`, the three
    Chat variables defaulting to empty, `command: ["--no-index"]`, the memory cap, `restart: unless-stopped`, and no
-   `ports`.
+   `ports`. No service waits on `lastbook`'s health: its image's healthcheck allows a 24-hour start period for the
+   install, and `docker compose up -d` blocks on a `service_healthy` condition until it passes.
 2. Write `lastbook-proxy` per KTD4 and KTD11. Pin a Caddy Alpine image by digest. Its Caddyfile is a top-level `configs`
    entry with inline `content`, so it travels inside `compose.yaml` through `stack-push.sh`. Turn off admin and
    automatic HTTPS, use tmpfs for Caddy's data and config, publish `127.0.0.1:8947`, run the internal Chat listener that
-   answers 503 when no upstream is set, and set the memory cap.
+   answers 503 when no upstream is set, and set the memory cap. Compose interpolates `$` in inline config content, so
+   the LAN key enters the Caddyfile as `${LASTBOOK_LAN_KEY}` and any Caddy placeholder that holds a `$` is written
+   `$$`. Caddy 2.11.9 accepts the three header rules as an `expression` matcher on `Origin` against
+   `{http.request.hostport}`, a `request_header` for the matched case, and `header_up` for `Host` and `Cookie`.
 3. Write `kiwix` per KTD7 and KTD10: the image pinned by digest, the two read-only mounts, the flags and cache
    variables, `127.0.0.1:8948`, a healthcheck, and the memory cap.
 4. Mirror `config/openseo/compose.override.yaml` in the override: `net.unraid.docker.managed: composeman` and empty
@@ -550,8 +583,7 @@ R3, R6 and R11.
    (KTD16).
 5. In `env.example`, name every key `.env` takes, each with a one-line purpose and no value.
 
-**Patterns to follow:** `config/openseo/compose.override.yaml`; the label checks in `tests/openseo-deploy.bats`;
-`tests/lib/processes.bash` (`spawn`, `stop_spawned`, `assert_no_leaks`) for the proxy test's background processes.
+**Patterns to follow:** `config/openseo/compose.override.yaml`; the label checks in `tests/openseo-deploy.bats`.
 
 **Test scenarios:**
 
@@ -563,12 +595,18 @@ R3, R6 and R11.
   `kiwix`'s mounts are read-only.
 - Every service sets a memory limit.
 - Every pulled image carries `@sha256:`, and the `lastbook` build context ends in `#` plus 40 hex characters.
+- No `depends_on` entry names `lastbook` with `condition: service_healthy`.
+- The published ports, bind-mount sources and project name in `compose.yaml` equal the constants in
+  `scripts/library/lib/nas.sh`.
 - `docker compose config` over both files with `env.example`'s keys set to sample values exits 0. It skips with an
   install hint when `docker compose` is missing.
-- With `caddy` on `PATH`, the inline Caddyfile runs against `echo-headers.py`, and the echo shows: `Host` is
-  `127.0.0.1:8890`; the cookie is `sg_key=<sample key>`; a same-host Origin arrives as `http://127.0.0.1:8890`; a
-  foreign Origin arrives unchanged; a `Range` header arrives unchanged. It skips when `caddy` is missing. This seam
-  proves the proxy's header handling, not Lastbook's response to it, which Gate B checks live.
+- The Caddyfile that `docker compose config` renders with the sample `.env` runs in the pinned Caddy image, with its
+  upstream pointed at a second Caddy site in the same process that answers with the request headers it received. The
+  echo shows: `Host` is `127.0.0.1:8890`; the cookie is `sg_key=<sample key>`; a same-host Origin arrives as
+  `http://127.0.0.1:8890`; a foreign Origin arrives unchanged; a `Range` header arrives unchanged. Reading the rendered
+  file catches a key lost to interpolation. The container is started with `--rm` under a per-test name and removed in
+  `teardown`. It skips with an install hint when `docker` is missing; CI has Docker, so CI runs it. This seam proves
+  the proxy's header handling, not Lastbook's response to it, which Gate B checks live.
 
 **Verification:** the stack definition passes its suite. A `stack-push.sh` plan run against the NAS (Gate B) reads
 `mode: create` with no unlabeled services.
@@ -597,7 +635,7 @@ R3, R6 and R11.
 **Test scenarios:**
 
 - Every row has exactly five tab-separated fields.
-- Every tier is one of the tiers in Appendix A.
+- Every tier matches `^(core|big)-[a-z0-9-]+$`.
 - `enabled` is `yes` or `no`.
 - Every book matches `^[a-z0-9._-]+$`.
 - Every flavour is one of `nopic`, `maxi`, `mini` or `-`.
@@ -629,13 +667,15 @@ Gate D.
 1. The dispatcher parses `status`, `zims plan`, `zims sync` and `--output json`, and prints usage when given no verb.
 2. `errors.sh` follows KTD15's envelope, with `docs` pointing to the runbook's reason anchors.
 3. `nas.sh` makes every NAS call one `ssh pool` with `-o BatchMode=yes -o ConnectTimeout=10`. `LIBRARY_NAS_SSH`
-   overrides the alias, as `OPENSEO_NAS_SSH` does.
+   overrides the alias, as `OPENSEO_NAS_SSH` does. It also holds the one definition of the ports, data paths,
+   container names and service names (KTD15).
 4. `status.sh` runs its checks in this order and stops at the first failure: NAS reachable; the install's state from
-   upstream's job file, then the stamp file once installed; the proxy's `/api/health` on 8947; kiwix on 8948; both serve
+   upstream's job file, then the stamp file once installed; the proxy's `/api/health` on 8947, where a 403 means the
+   proxy and Lastbook hold different LAN keys (KTD13); kiwix on 8948; both serve
    bindings; both tailnet addresses from the Linux server, with the suffix read from `tailscale status --json`;
    available memory at least 1 GiB; `docker.img` at most 75% used; `pool/library` at least 2 TB available; the shelf's
    last sync state.
-5. Notes that do not fail the run: a newer published pack, an empty shelf, and Chat being off.
+5. Notes that do not fail the run: an empty shelf, and Chat being off.
 
 **Patterns to follow:** `scripts/openseo-deploy.sh` and `scripts/openseo/lib/{errors,nas,status}.sh`; the `tailscale`
 and `curl` stubs in `tests/openseo-deploy.bats`.
@@ -648,13 +688,13 @@ and `curl` stubs in `tests/openseo-deploy.bats`.
   percentage and rate.
 - The job file shows `failed` with code `checksum`: `lastbook-install-failed`, carrying upstream's error sentence.
 - The proxy answers 502: `lastbook-down`.
+- The proxy answers 403 on `/api/health`: `lan-key-mismatch`, with `next_step.docs` at the runbook's key steps.
 - kiwix refuses the connection: `kiwix-down`.
 - `tailscale serve status` lacks `svc:kiwix`: `not-served`, with the exact bind command.
 - Loopback answers but the tailnet address times out: `address-unreachable`.
 - `MemAvailable` reads 700 MiB: `low-memory`.
 - `docker.img` is 80% used: `docker-img-full`.
 - The pool has 1.5 TB available: `pool-low`.
-- The stamp's SHA-256 differs from the manifest's: exit 0, with an `update-available` note.
 - The shelf's state file reads `failed`: `sync-failed`, naming the log path.
 - An unknown verb or flag: `usage`, exit 2.
 - `--output json` prints exactly one JSON object on stdout in every case above.
@@ -683,8 +723,9 @@ and `curl` stubs in `tests/openseo-deploy.bats`.
    space after downloading.
 2. `zims sync` (per KTD9) recomputes the plan, refuses on any plan error, writes the plan and worker to `.sync/` in one
    ssh call, starts the worker detached, and prints the log path and the `status` command to follow it.
-3. The worker is bash run by the NAS's own shell. It does per-file download, check and rename; then one restart of
-   `library-kiwix-1`; then removals, only when every download verified; with state written after each file.
+3. The worker is bash run by the NAS's own shell. It does per-file download, check and rename; then removals, only
+   when every download verified; then one restart of `library-kiwix-1` when anything changed; with state written after
+   each file.
 
 **Execution note:** test the worker against a sandbox directory with stubbed `curl`, `sha256sum` results and `docker`,
 never against the NAS.
@@ -702,8 +743,11 @@ never against the NAS.
 - The worker meets a mismatched SHA-256: no `<name>.zim` appears, the `.part` is deleted, the old release stays, and the
   state reads `failed`.
 - A `.part` file already exists: the stubbed `curl` is called with resume.
-- Every file verifies: the `docker` stub is called once with `restart library-kiwix-1`, before any removal.
+- Every file verifies: the `docker` stub is called once with `restart library-kiwix-1`, after the removals.
 - One file fails: no removal happens, and kiwix is still restarted when another file did change.
+- `curl` exits non-zero partway: the `.part` stays for the next run to resume, the state reads `failed`, and nothing is
+  removed.
+- Nothing changed (every planned file already present, nothing to remove): no download, no restart.
 
 **Verification:** the suite passes, and at Gate D one plan-then-sync brings `status`'s shelf check to ok.
 
@@ -775,9 +819,9 @@ Linux server's pre-push and is checked live at Gate B.
 
 ## Review log
 
-| #   | Review | Of  | Model, effort | Started (UTC) | Finished (UTC) | Verdict |
-| --- | ------ | --- | ------------- | ------------- | -------------- | ------- |
-| 1 | `/plan-eng-review` | this plan at `71d701f` | Opus, inline in the slot session | 2026-11-17 02:03 | | running |
+| #   | Review             | Of                     | Model, effort                    | Started (UTC)    | Finished (UTC) | Verdict |
+| --- | ------------------ | ---------------------- | -------------------------------- | ---------------- | -------------- | ------- |
+| 1 | `/plan-eng-review` | this plan at `71d701f` | Opus, inline in the slot session | 2026-11-17 02:03 | 2026-11-17 02:14 | 17 findings (8 architecture, 3 code quality, 3 test gaps, 3 performance), 0 critical gaps; 13 choices decided from evidence and fixed in this plan |
 
 ---
 
@@ -820,3 +864,310 @@ Canadian Prepper, Urban Prepper, S2 Underground and Learning Self-Reliance chann
   databases or directory listings (`docs/LIBRARY-SERVER.md`, "Sharing with phones on the same network").
 - The assistant calls an OpenAI-compatible `/v1/chat/completions` with tools and streaming at `SURVIVAL_MODEL_BASE`,
   which must be a loopback address. PR #34 lets the server version set `reasoning_effort`.
+
+---
+
+## Appendix: Engineering Review (plan-eng-review, 2026-11-16)
+
+Target: this plan at `71d701f`. The review ran in an unattended agent slot, where the question tool is denied, so each
+choice below was decided on its recommendation from the evidence named and is recorded here. Brett's own decisions stay
+under Key Decisions; this review made none of them. Evidence kinds: static reads of upstream source at `aa8bc54` and of
+PR #33's diff at `30dc381`, read-only probes of the NAS on 2026-11-16, `caddy adapt` on a sample Caddyfile with Caddy
+2.11.9, and repo precedent. No proposed code ran.
+
+### Scope Challenge
+
+- **What already exists.** Upstream's setup engine and `headless_setup.py` (install, stage, status, resume, checksum,
+  one-rename switch); the `unraid-compose` skill's `stack-push.sh` (repeatable `--webui`, `.env` handling) and
+  `stack-compose.sh`; the OpenSEO deploy script's error envelope, ssh wrapper and stubs; the Tailscale Service steps in
+  the OpenSEO runbook. The plan reuses each and rebuilds none.
+- **Minimum change.** U1 and U5 alone put Lastbook on the tailnet; U2 to U4 serve the shelf (R6 to R9) and R14. Every
+  verb traces to a requirement, so no feature cut is proposed.
+- **Complexity.** About 20 repo paths and three new services plus one script family [estimated from Output
+  Structure]. The gate trips; E-D1 settles the arrangement.
+- **Search.** Caddy header rewriting behind a reverse proxy, Compose `configs` with inline `content`, a BuildKit git
+  build context and kiwix-serve are standard [Layer 1]. No web search ran beyond the upstream reads; in-distribution
+  knowledge otherwise.
+- **TODOS.** The repo tracks no TODOS file; local TODO files are gitignored by policy.
+- **Distribution.** Nothing is published. The Lastbook image is built on the NAS from a pinned commit; the others pull
+  by digest.
+- **Prior learnings applied:** `compose-stub-hides-init-blocking` (9/10, 2026-11-07), behind E-D4;
+  `tailscale-skill-ts-api-services` (9/10, 2026-11-06), already used by Gate A's pass check.
+- **Retrospective.** Every named path is new; `git log origin/dev --since=2026-11-12` touches none of them.
+
+```text
+REALITY: premise-table pass about 45 factual claims carry source, probe, manifest or catalog receipts; unverified=5 (tailscale serve passes Host unchanged, containers reach svc:ollama, the Compose tab's Update on a build service, the containers' real memory use, a BuildKit git context fetching a bare SHA on the NAS) docs/plans/2026-11-16-1956-feat-offline-library-on-nas-plan.md:197
+REALITY: already-done pass origin/dev since 2026-11-12 touches none of config/library, scripts/library*, docs/runbooks/library.md or tests/library-* docs/plans/2026-11-16-1956-feat-offline-library-on-nas-plan.md:1
+REALITY: surface-check finding server.py --lan, --port and --no-index, headless_setup.py install, stage --into and status, kiwix-serve 3.8.2 --nodatealiases, --skipInvalid and --searchLimit, and stack-push.sh's repeatable --webui all verified; the plan never restarted kiwix after the install, though start.sh expands its patterns only at start (A4) docs/plans/2026-11-16-1956-feat-offline-library-on-nas-plan.md:268
+REALITY: binding-decisions pass no recorded decision touches Lastbook, kiwix or the library share; the OpenSEO review's docker.img gate is carried in R10 docs/plans/2026-11-16-1956-feat-offline-library-on-nas-plan.md:97
+REALITY: numbers finding the starting memory caps sum to 1.875 GiB against 2.19 GiB available [measured: /proc/meminfo on the NAS], so they could not hold the 1 GiB floor; now a budget rule (E-D5); pack and shelf sizes are [measured: manifest, catalog], image size [estimated] docs/plans/2026-11-16-1956-feat-offline-library-on-nas-plan.md:297
+REALITY: deferred-asks pass no linked issue; Brett's asks (full-size Lastbook, a compose stack on the NAS, a Tailscale Service, localhost access, Wikipedia without media, other preparedness sets) each map to R1, R11, R2, R6, R8 and R7 docs/plans/2026-11-16-1956-feat-offline-library-on-nas-plan.md:79
+REALITY: pr-count pass no ship policy on file; one PR for U1 to U5, then operator gates docs/plans/2026-11-16-1956-feat-offline-library-on-nas-plan.md:13
+```
+
+Scope result: scope accepted as-is. MODE: FULL_REVIEW.
+
+### Decision ledger
+
+Each choice was decided on its recommendation from the evidence named, because no person answers in the slot.
+
+| ID    | Finding        | Options                                                                                                                | Chosen                    | Evidence                                                                                                                                                                                               | Accepted scope                                         |
+| ----- | -------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| E-D1  | Complexity     | Original arrangement; fold `status.sh` and `zims.sh` into `library.sh`                                                 | Original                  | Folding puts the dispatcher, status and sync in one file past the 200-line trigger; the layout matches `scripts/openseo/`                                                                              | No change                                              |
+| E-D2  | A1             | Three-step rotation and a `lan-key-mismatch` reason (10/10); document the rotation only (7/10); proxy reads the key file | Rotation and reason       | `entrypoint.sh` writes `derived/lan-key` only when `[ ! -s ... ]`; `server.py` `do_GET` applies `lan_ok` before every route, `/api/health` included                                                    | KTD13; U3 step 4; one U3 scenario                      |
+| E-D3  | A2             | Gate A gives `pool/library/lastbook` to `99:100`; run `lastbook` as root                                                | Chown in Gate A           | PR #33's own example runs as `user: "1000:1000"`, "the owner of the folder below"; shares are `nobody:users` 777 but `zfs create` children are root's                                                  | KTD6; Gate A                                           |
+| E-D4  | A3             | No `service_healthy` wait on `lastbook`, held by a test (10/10); leave it to the implementer (7/10)                     | No wait, with a test      | Dockerfile `HEALTHCHECK --start-period=24h`; prior learning `compose-stub-hides-init-blocking`                                                                                                         | U1 step 1; one U1 scenario                             |
+| E-D5  | P1, P2         | Caps fit one budget and Gate C reads `anon` and `oom_kill` (10/10); per-container margin only (7/10)                    | Budget                    | Caps 1 GiB + 128 MiB + 768 MiB = 1.875 GiB; `MemAvailable` 2.19 GiB [measured]; cgroup v2 [measured: `stat -f /sys/fs/cgroup`] counts file pages in `memory.peak`                                     | KTD10; Gate C                                          |
+| E-D6  | A5             | Drop the new-pack note from `status`; re-implement upstream's rule in `status`                                         | Drop                      | `headless_setup.py` `cmd_status` owns the rule (SHA-256 list and revision); R14 does not ask for it                                                                                                    | KTD15; U3 step 5; one U3 scenario removed              |
+| E-D7  | A6             | One constants block in `nas.sh`, held to `compose.yaml` by a test; copies in each file                                 | One block                 | Ports, data paths, container names and service names appear in `compose.yaml`, `status.sh`, `zims.sh` and the worker (red flag 8)                                                                      | KTD15; U3 step 3; one U1 scenario                      |
+| E-D8  | A7             | `stage` with `docker exec -d`; foreground as PR #33's README shows                                                     | Detached                  | A 388 GB stage outlives any ssh session; it writes the same `job.json`, so `status` follows it                                                                                                         | KTD12 step 2                                           |
+| E-D9  | A8             | Delete superseded files, then restart kiwix; restart, then delete                                                      | Delete first              | kiwix holds every ZIM open from start (`kiwix-serve.cpp` adds books at startup only); an unlinked open file keeps its space and stays listed until the next restart                                     | KTD9; sync diagram; U4 step 3; one U4 scenario changed |
+| E-D10 | Q1             | Tier pattern `^(core\|big)-[a-z0-9-]+$`; the test reads Appendix A                                                      | Pattern                   | A test that reads a plan couples the shipped suite to an unshipped document (red flag 8)                                                                                                               | U2 scenario                                            |
+| E-D11 | Q2, Q3, T1     | Rendered Caddyfile in the pinned image under Docker, Caddy echo site (10/10); local `caddy` and a Python echo (6/10)    | Rendered, pinned, Docker  | Compose interpolates `$` in `configs.content`; CI has Docker and no Caddy, and AGENTS.md makes CI the backstop for a skipped tool; `caddy adapt` accepted the three rules                               | U1 step 2, scenarios and Files; Output Structure       |
+| E-D12 | T2, T3         | Add the `curl`-failure and no-change worker scenarios (10/10); keep the twelve (7/10)                                   | Add both                  | R12: a broken download must resume and keep the old release; neither path had a scenario                                                                                                               | Two U4 scenarios                                       |
+| E-D13 | Failure mode 2 | Runbook stops the stack on `lastbook-install-failed`, plus a Risks row (10/10); Risks row only (7/10)                   | Runbook and row           | `engine/setup/download.py` discards a file that fails its checksum, so each restart under `unless-stopped` downloads 388 GB again                                                                      | Risks; U5 troubleshooting anchor                       |
+
+Factual corrections, no question needed: F1, Gate B now restarts `kiwix` once the install is done, and KTD7 says why;
+without it the second Success Criterion cannot hold at Gate B. F2, the Sources line records that upstream `main` moved
+to `8767e98` with no change to `server.py` or `engine/`. F3, a Risks row names cold reads with ARC capped near
+0.94 GiB [measured: `zfs_arc_max` 1007322624].
+
+Regression contract: none. Every path is new, and no existing behavior changes.
+
+Approval readiness: PASS (E-D1 to E-D13, decided from evidence in an unattended slot; F1 to F3 change no approved
+behavior).
+
+### 1. Architecture
+
+```text
+ browser / agent ──HTTPS──▶ tailscaled (tailscale serve, svc:lastbook / svc:kiwix)
+                                   │ http 127.0.0.1:8947             │ http 127.0.0.1:8948
+                                   ▼                                 ▼
+                     lastbook-proxy (Caddy)                     kiwix (kiwix-serve, uid 1001)
+                     Host ▶ 127.0.0.1:8890                       --nodatealiases --skipInvalid
+                     Cookie ▶ sg_key=<key from .env>             patterns expanded once at start
+                     same-host Origin ▶ http://127.0.0.1:8890            │ read-only
+                                   │ 172.x, a LAN client                 │
+                                   ▼                                     ▼
+                     lastbook (server.py --lan, 99:100) ──▶ /data = pool/library/lastbook ◀── kiwix /zim/lastbook
+                       host_ok ▶ origin_ok ▶ lan_ok(derived/lan-key) ▶ routes   pool/library/zim ◀── kiwix /zim/shelf
+                       /api/setup/*, /api/update/*: 403 to any non-loopback client
+
+ scripts/library.sh (Linux server) ──ssh pool──▶ reads job.json, .sync/state, meminfo, df
+                                              └─▶ starts the root sync worker, which writes pool/library/zim under flock
+```
+
+Findings, most severe first:
+
+- [INFORMATIONAL] (confidence: 9/10) KTD13 — A1, "a lost key is replaced by writing a new one and recreating the
+  stack". PR #33's `entrypoint.sh` writes the key only when `[ ! -s "$LASTBOOK_DATA/derived/lan-key" ]`, so after that
+  recreate the proxy sends the new key, Lastbook holds the old one, and `lan_ok` refuses every request, `/api/health`
+  included. Fixed by E-D2.
+- [INFORMATIONAL] (confidence: 9/10) KTD7 and Gate B — A4, kiwix is started before the install finishes, and
+  `start.sh` runs `CMD="/usr/local/bin/kiwix-serve --port=$PORT $@"` once, so Lastbook's four ZIMs never appear until
+  something restarts kiwix. Corrected by F1.
+- [INFORMATIONAL] (confidence: 8/10) KTD6 — A2, `user: "99:100"` with a root-owned child dataset. The entrypoint opens
+  with `set -e` and `mkdir -p "$XDG_CONFIG_HOME"` under `/data`, so the container exits at once. Fixed by E-D3.
+- [INFORMATIONAL] (confidence: 8/10) KTD9 — A8, "restarts the `kiwix` container once, then deletes superseded
+  releases". Fixed by E-D9.
+- [INFORMATIONAL] (confidence: 8/10) U3 and U4 — A6, the same ports, paths and names in YAML and three bash files.
+  Fixed by E-D7.
+- [INFORMATIONAL] (confidence: 7/10) U1 — A3, nothing stopped a `depends_on` on `lastbook`'s health, which would hold
+  `stack-compose.sh up` for up to 24 hours. Fixed by E-D4.
+- [INFORMATIONAL] (confidence: 7/10) U3 — A5, "The stamp's SHA-256 differs from the manifest's" re-implements
+  `headless_setup.py`'s rule (red flag 6). Fixed by E-D6.
+- [INFORMATIONAL] (confidence: 6/10) KTD12 — A7, a multi-hour `stage` in a foreground `docker exec`. Medium
+  confidence: whether dockerd ends a non-tty exec when its client goes away was not tested. Fixed by E-D8.
+
+Two shapes. Shape 1 (the plan): a Linux-server CLI that reaches the NAS over ssh and starts a detached worker there.
+Shape 2: the whole of `status` and the sync on the NAS, called over ssh as one remote script. Shape 2 needs a catalog
+parser on a host with no Python and no XML tools, so the plan keeps shape 1, which hides ssh, the catalog and the
+dedupe behind three verbs. Red flags: 6 and 8 found and fixed (E-D6, E-D7, E-D10); split ownership checked, with one
+writer each for `job.json` (upstream), `.sync/state` (the worker) and `derived/lan-key` (the entrypoint).
+
+Security: R3 rests on upstream's `client_address[0]` checks (`engine/setup/api.py:1258`, `engine/update.py:229`),
+which a proxy on another address cannot pass. `origin_ok` still refuses a foreign Origin, because the proxy rewrites
+only a same-host one. Dispositions: A1 to A8 accepted.
+
+### 2. Code quality
+
+- [INFORMATIONAL] (confidence: 8/10) U1 step 2 — Q2, an inline Caddyfile in `compose.yaml` passes through Compose's
+  interpolation, so a Caddy `{$VAR}` loses its `$` and the key can arrive empty. Fixed by E-D11.
+- [INFORMATIONAL] (confidence: 8/10) U2 — Q1, "Every tier is one of the tiers in Appendix A". Fixed by E-D10.
+- [INFORMATIONAL] (confidence: 7/10) U1 Files — Q3, `echo-headers.py` brings a Python fixture where Caddy, already
+  needed, can echo headers itself. Fixed by E-D11.
+
+Shared code: `scripts/openseo/lib/errors.sh` and `scripts/playwright-browsers/lib/errors.sh` are two verified callers
+of the same envelope, and `library` would be the third. Extracting it would touch both existing script families and
+their suites, outside this brief; it stays under Deferred to Follow-Up Work. Dispositions: Q1 to Q3 accepted.
+
+### 3. Tests
+
+Framework: bats through `scripts/run-tests` (AGENTS.md, Local gates mirror CI).
+
+```text
+CODE PATHS                                               USER FLOWS
+[+] config/library (U1)                                  [+] First deploy (Gates A, B)
+  ├── [★★★ PLANNED] labels, ports, mounts, caps, pins      ├── [LIVE] share, chown, push, up, install, kiwix restart
+  ├── [★★  PLANNED] no service_healthy wait (E-D4)        └── [LIVE] bind both services, status exits 0
+  ├── [★★  PLANNED] compose.yaml equals nas.sh (E-D7)    [+] Reading over the tailnet
+  ├── [★★  PLANNED] docker compose config                 ├── [LIVE] search, PDF page, video seek, map
+  └── [★★★ PLANNED] rendered Caddyfile headers (E-D11)    └── [LIVE] setup and foreign-Origin POST answer 403
+[+] config/library/zims.tsv (U2)                         [+] Agents (R4)
+  └── [★★★ PLANNED] fields, tier pattern, flavours, dups   └── [LIVE] /api/find and kiwix catalog from the Linux server
+[+] scripts/library.sh status (U3)                       [+] Shelf sync (Gate D)
+  ├── [★★★ PLANNED] 15 reasons incl. lan-key-mismatch      └── [LIVE] plan, sync, status shows in sync
+  └── [★★  PLANNED] one JSON object per case             [+] Error states
+[+] zims plan / sync and worker (U4)                       ├── [★★★ PLANNED] install failed: reason and runbook stop
+  ├── [★★★ PLANNED] newest release, dedupe, removals       └── [★★★ PLANNED] key mismatch: reason, not lastbook-down
+  ├── [★★★ PLANNED] space-short, not-found, lock held
+  └── [★★★ PLANNED] verify ok/bad, resume, curl failure,
+                    delete-then-restart, no change
+
+COVERAGE: every planned path has a planned test or a live gate check
+QUALITY: no ★ tests planned  |  GAPS: 3 found and closed (E-D11, E-D12)  |  [LIVE] = operator gate, not CI
+```
+
+Legend: ★★★ behavior + edge + error | ★★ happy path | [LIVE] checked at an operator gate.
+
+- [INFORMATIONAL] (confidence: 7/10) U1 — T1, the header test skipped in CI and read the Caddyfile before
+  interpolation. Fixed by E-D11.
+- [INFORMATIONAL] (confidence: 8/10) U4 — T2, no scenario for `curl` failing partway. Fixed by E-D12.
+- [INFORMATIONAL] (confidence: 7/10) U4 — T3, no scenario for a sync with nothing to do. Fixed by E-D12.
+
+No LLM or prompt change: Chat uses upstream's assistant unchanged, so no eval applies. Tests made obsolete: none. Test
+plan artifact: `~/.gstack/projects/brettdavies-dotfiles/brett-dev-eng-review-test-plan-20261117-022500.md`.
+Dispositions: T1 to T3 accepted.
+
+### 4. Performance
+
+- [INFORMATIONAL] (confidence: 9/10) KTD10 — P1, the starting caps sum to 1.875 GiB against 2.19 GiB available
+  [measured], so a stack at its caps leaves 0.31 GiB, below Success Criteria's 1 GiB. Fixed by E-D5.
+- [INFORMATIONAL] (confidence: 6/10) Gate C — P2, `memory.peak` on cgroup v2 includes file pages charged to the
+  container. Medium confidence: reads through ZFS go to ARC, which is not charged, so the effect may be small; mmap'd
+  files and tmpfs are charged. Fixed by E-D5.
+- [INFORMATIONAL] (confidence: 5/10) Risks — P3, ARC is capped at 0.94 GiB over three HDDs in raidz1, so cold map and
+  search reads go to disk. Medium confidence, verify this is actually an issue at Gate C. Corrected by F3.
+
+Per-request paths: the proxy streams and buffers nothing large; kiwix's caches are bounded by count and its multi-ZIM
+search by `--searchLimit`; Lastbook's semantic index is off. Scale: one household's readers plus agents [estimated].
+Dispositions: P1 and P2 accepted; P3 recorded as a risk.
+
+### Outside voice
+
+Disabled: `codex_reviews` is `disabled` in gstack's config, so no outside reviewer and no native fallback ran.
+
+### NOT in scope
+
+- Proxy reads the key from `derived/lan-key` instead of `.env`: one owner for the key, but it mounts Lastbook's
+  `derived/` into the proxy and rests on a Caddy file placeholder this review did not verify.
+- One shared `errors.sh` for the three script families: already under Deferred to Follow-Up Work.
+- Response-time thresholds for map and search: Gate C records times, and the RAM upgrade is the remedy if they are poor.
+
+### What already exists
+
+Upstream's setup engine and `headless_setup.py` (reused whole); `stack-push.sh` and `stack-compose.sh` (reused, no
+wrapper); `scripts/openseo/lib/{errors,nas,status}.sh` and the stubs in `tests/openseo-deploy.bats` (patterns copied,
+not shared, per Code quality); the OpenSEO runbook's Tailnet policy steps (cited, not copied).
+
+### Failure modes
+
+| Path                         | Realistic failure                                     | Test or handling                               | User sees                                        |
+| ---------------------------- | ----------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------ |
+| Proxy to Lastbook            | LAN keys differ after a rotation                      | `lan-key-mismatch` scenario; KTD13's steps     | `status` names the cause; readers see a 403 page |
+| First install                | Checksum fails repeatedly, each restart redownloads   | `lastbook-install-failed` scenario; runbook    | `status` reason with the stop step               |
+| First install                | Child dataset root-owned                              | Gate A's chown                                 | Container exits; Docker tab shows it stopped     |
+| kiwix after install          | Lastbook's ZIMs missing                               | Gate B restart                                 | kiwix lists only the shelf                       |
+| Shelf sync                   | Mirror breaks mid-file                                | `curl`-failure scenario                        | `status` reports `sync-failed` with the log      |
+| Shelf sync                   | Old release deleted after the restart                 | delete-then-restart scenario                   | none once fixed                                  |
+| Memory                       | All containers at their caps at once                  | Gate C's budget rule; stop condition           | Gate C fails before the soak                     |
+| Chat                         | Containers cannot reach `svc:ollama`                  | Gate E                                         | Chat lists matching pages without an answer      |
+
+Critical gaps: 0. Every failure has a test or a gate, and none is silent once `status` runs.
+
+### Parallelization
+
+| Step | Modules touched                         | Depends on |
+| ---- | --------------------------------------- | ---------- |
+| U1   | `config/library/`, `tests/`             | none       |
+| U2   | `config/library/`, `tests/`             | none       |
+| U3   | `scripts/library/`, `tests/`            | U1         |
+| U4   | `scripts/library/`, `tests/`            | U2, U3     |
+| U5   | `docs/runbooks/`, `AGENTS.md`, `README` | U1 to U4   |
+
+Lane A: U1, then U3, then U4. Lane B: U2. Both share `config/library/` and `tests/`, and the plan ships as one PR, so
+one slot builds them in order; U2 can be written while U1's suite runs. Sequential implementation in one slot.
+
+### Implementation Tasks
+
+Synthesized from this review's findings; each is already written into the unit it names.
+
+- [ ] **T1 (P1, human: ~30min / CC: ~5min)** — status — Map a 403 from the proxy's `/api/health` to `lan-key-mismatch`
+  - Surfaced by: Architecture A1
+  - Files: `scripts/library/lib/status.sh`, `tests/library-status.bats`, `docs/runbooks/library.md`
+  - Verify: `scripts/run-tests tests/library-status.bats`
+- [ ] **T2 (P1, human: ~30min / CC: ~5min)** — stack — No `service_healthy` wait on `lastbook`, held by a test
+  - Surfaced by: Architecture A3
+  - Files: `config/library/compose.yaml`, `tests/library-stack.bats`
+  - Verify: `scripts/run-tests tests/library-stack.bats`
+- [ ] **T3 (P1, human: ~1h / CC: ~10min)** — stack — One constants block in `nas.sh`, held to `compose.yaml`
+  - Surfaced by: Architecture A6
+  - Files: `scripts/library/lib/nas.sh`, `tests/library-stack.bats`
+  - Verify: `scripts/run-tests tests/library-stack.bats`
+- [ ] **T4 (P1, human: ~1h / CC: ~10min)** — worker — Delete, then restart kiwix once when anything changed
+  - Surfaced by: Architecture A8, Tests T2 and T3
+  - Files: `scripts/library/remote/zim-sync.sh`, `tests/library-zims.bats`
+  - Verify: `scripts/run-tests tests/library-zims.bats`
+- [ ] **T5 (P1, human: ~2h / CC: ~20min)** — stack tests — Header test on the rendered Caddyfile in the pinned image
+  - Surfaced by: Code quality Q2 and Q3, Tests T1
+  - Files: `tests/library-stack.bats`
+  - Verify: the test runs, not skips, in CI's bats shard
+- [ ] **T6 (P2, human: ~30min / CC: ~5min)** — runbook — Gate A chown, Gate B kiwix restart, detached stage, key
+  rotation, stop on `lastbook-install-failed`
+  - Surfaced by: Architecture A1, A2, A4, A7; Failure modes
+  - Files: `docs/runbooks/library.md`
+  - Verify: a reader runs Gate B from the runbook alone
+- [ ] **T7 (P2, human: ~15min / CC: ~5min)** — shelf tests — Tier pattern instead of Appendix A
+  - Surfaced by: Code quality Q1
+  - Files: `tests/library-zims.bats`
+  - Verify: `scripts/run-tests tests/library-zims.bats`
+
+_No new tasks from Performance beyond Gate C's budget rule, which is an operator step._
+
+### Unresolved decisions
+
+None from this review. Open Questions 1 and 2 are Brett's and predate it.
+
+### Completion summary
+
+- Step 0: Scope Challenge — scope accepted as-is
+- Reality rows: 7/7 applicable rows emitted, 5 unverified premises
+- Architecture Review: 8 issues found
+- Code Quality Review: 3 issues found
+- Test Review: diagram produced, 3 gaps identified
+- Performance Review: 3 issues found
+- NOT in scope: written
+- What already exists: written
+- TODOS.md updates: 0 items proposed to user
+- Failure modes: 0 critical gaps flagged
+- Unresolved decisions: 0 in this review
+- Outside voice: codex, disabled (`codex_reviews` disabled)
+- Parallelization: 2 lanes, 0 parallel / 2 sequential
+- Lake Score: 6/6
+
+## GSTACK REVIEW REPORT
+
+| Review         | Trigger                                 | Why                             | Runs | Status             | Findings                    |
+| -------------- | --------------------------------------- | ------------------------------- | ---- | ------------------ | --------------------------- |
+| CEO Review     | `/plan-ceo-review`                      | Scope & strategy                | 0    | not run            | —                           |
+| Outside Review | codex, plan-eng-review outside voice    | Independent 2nd opinion         | 24   | disabled           | —                           |
+| Eng Review     | `/plan-eng-review`                      | Architecture & tests (required) | 15   | ISSUES OPEN (PLAN) | 17 issues, 0 critical gaps  |
+| Design Review  | `/plan-design-review`                   | UI/UX gaps                      | 0    | not run            | —                           |
+| DX Review      | `/plan-devex-review`                    | Developer experience gaps       | 14   | not run (pending)  | —                           |
+
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by `codex_reviews`; no outside reviewer and no native
+  fallback ran.
+- **VERDICT:** Eng Review ISSUES OPEN: all 17 findings are fixed in this plan's text, so none remains open as work; eng
+  review required stays on the dashboard until a clean run.
+
+NO UNRESOLVED DECISIONS
