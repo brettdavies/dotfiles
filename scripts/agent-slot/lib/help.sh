@@ -70,11 +70,11 @@ verb_help() {
       'Touches: lists the paths the PR may change as comma-separated git pathspec globs, and Adds: the public surface' \
       'it may add or none; both go into the slot record as scope, and slot-scope-guard.sh denies a git push of a path' \
       'no Touches: glob covers.' \
-      '--skills SET turns on, in this slot only, the skills listed in the file config/agent-slot/skill-sets/SET of' \
-      'the dotfiles checkout, by writing skillOverrides into the slot'"'"'s settings.local.json; each must be off in the' \
-      'user'"'"'s ~/.claude/settings.json. An unknown SET is refused with skill-set-unknown before anything is cloned, and' \
-      'a foreign head, whose slot loads no local settings, with usage. A repeat that finds a slot reports the set that' \
-      'slot was made with. reopen and resume take no --skills.' \
+      "--skills SET turns on, in this slot only, the skills listed in the file $(realpath -m "$SKILL_SETS_DIR")/SET," \
+      'by writing skillOverrides into the slot'"'"'s settings.local.json; each must be off in the user'"'"'s' \
+      "settings, ~/.claude/settings.json. The sets: $(skill_set_list | paste -sd ' ' -). An unknown SET is refused" \
+      'with skill-set-unknown before anything is cloned, and a foreign head, whose slot loads no local settings, with' \
+      'usage. A repeat that finds a slot reports the set that slot was made with. reopen and resume take no --skills.' \
       'Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
       '-, and /, starting with a letter or digit, up to 64, and not ending in -prime, which names a repo'"'"'s prime. A new' \
       'slot pushes a restore to the Rex helper on this' \

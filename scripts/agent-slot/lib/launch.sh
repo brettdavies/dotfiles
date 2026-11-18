@@ -95,7 +95,7 @@ skill_set_list() {
 # file in SKILL_SETS_DIR.
 skill_set_check() {
   [[ $1 =~ $SKILL_SET_PATTERN && -f $SKILL_SETS_DIR/$1 && -r $SKILL_SETS_DIR/$1 ]] && return 0
-  contract_fail skill-set-unknown "no skill set is named $1; the sets are: $(skill_set_list | paste -sd ' ' -)" --value "$1" \
+  contract_fail skill-set-unknown "no skill set is named '$1'; the sets are: $(skill_set_list | paste -sd ' ' -)" --value "$1" \
     --command "$(contract_quote ls "$(realpath -m "$SKILL_SETS_DIR")")"
 }
 

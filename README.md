@@ -265,13 +265,14 @@ sessions, or a `claude -p` a slot's agent starts, a review run included.
 
 `~/.claude/settings.json` turns some skills off in every session, such as the SEO skills. `agent-slot launch <repo>
 --skills <set>` turns a named list of them on in the new slot alone. Each file in `config/agent-slot/skill-sets/` is one
-set, named by the word `--skills` takes, with one skill name per line and `#` comments; the one set is `seo`. Setup
-writes each name as `"on"` under `skillOverrides` in the slot's `.claude/settings.local.json`, which Claude ranks above
-`~/.claude/settings.json`. A name that file does not turn off needs no set, and `tests/agent-slot-skill-sets.bats` fails
-a set that names one. A skill the slot profile also turns off stays off, since the inline profile object outranks the
-local file. A set that is not a file there is refused with `skill-set-unknown` before anything is cloned, and a foreign
-head, whose slot loads no local settings, with `usage`. The launch reports the set as `skill_set`, null without the
-flag, and a repeat that finds a slot reports the set that slot was made with. `reopen` and `resume` take no `--skills`.
+set, named by the word `--skills` takes (lowercase letters, digits, and `-`), with one skill name per line and `#`
+comments; the one set is `seo`. Setup writes each name as `"on"` under `skillOverrides` in the slot's
+`.claude/settings.local.json`, which Claude ranks above `~/.claude/settings.json`. A name that file does not turn off
+needs no set, and `tests/agent-slot-skill-sets.bats` fails a set that names one. A skill the slot profile also turns off
+stays off, since the inline profile object outranks the local file. A set that is not a file there is refused with
+`skill-set-unknown` before anything is cloned, and a foreign head, whose slot loads no local settings, with `usage`. The
+launch reports the set as `skill_set`, null without the flag, and a repeat that finds a slot reports the set that slot
+was made with. `reopen` and `resume` take no `--skills`.
 
 The Obsidian vault takes slots too, several at once, under the name `agent-slot repos` lists it by:
 `agent-slot launch obsidian-vault --model (opus | sonnet) --request-id <id> --prompt-file <brief>`. `~/obsidian-vault`

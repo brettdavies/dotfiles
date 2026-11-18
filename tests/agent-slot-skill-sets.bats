@@ -41,3 +41,13 @@ names_of() {
   done
   ((checked > 0))
 }
+
+@test "every set file is named a word that launch --skills takes" {
+  local file
+  for file in "$SETS"/*; do
+    [[ ${file##*/} =~ ^[a-z0-9][a-z0-9-]*$ ]] || {
+      echo "${file##*/} is not a lowercase word of letters, digits, and -, so launch --skills refuses it"
+      false
+    }
+  done
+}
