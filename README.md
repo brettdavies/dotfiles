@@ -261,6 +261,18 @@ settings does not apply: take the name out of `profile.sh`, and slots started af
 launch, resume, reopen, and a model switch, and the subagents of those sessions. It does not reach primes, generic
 sessions, or a `claude -p` a slot's agent starts, a review run included.
 
+#### Skill sets
+
+`~/.claude/settings.json` turns some skills off in every session, such as the SEO skills. `agent-slot launch <repo>
+--skills <set>` turns a named list of them on in the new slot alone. Each file in `config/agent-slot/skill-sets/` is one
+set, named by the word `--skills` takes, with one skill name per line and `#` comments; the one set is `seo`. Setup
+writes each name as `"on"` under `skillOverrides` in the slot's `.claude/settings.local.json`, which Claude ranks above
+`~/.claude/settings.json`. A name that file does not turn off needs no set, and `tests/agent-slot-skill-sets.bats` fails
+a set that names one. A skill the slot profile also turns off stays off, since the inline profile object outranks the
+local file. A set that is not a file there is refused with `skill-set-unknown` before anything is cloned, and a foreign
+head, whose slot loads no local settings, with `usage`. The launch reports the set as `skill_set`, null without the
+flag, and a repeat that finds a slot reports the set that slot was made with. `reopen` and `resume` take no `--skills`.
+
 The Obsidian vault takes slots too, several at once, under the name `agent-slot repos` lists it by:
 `agent-slot launch obsidian-vault --model (opus | sonnet) --request-id <id> --prompt-file <brief>`. `~/obsidian-vault`
 keeps its git directory in `~/dev/vault-git`, so its `.git` is a file. A prime's `.git` may be a file when its git
@@ -864,10 +876,12 @@ agent-slot close-probe 487 --output json
 
 On the Linux server, `agent-slot repos` lists the repos a slot can be made from, `agent-slot list` every slot with its
 state, agent, and blockers and every running prime, and `agent-slot whoami` the slot a directory is in. `agent-slot
-launch <repo> --model (opus | sonnet) --request-id <id> [--prompt-file <file>]` starts an agent on that model at
-`--effort xhigh` on the slot profile described above, a Sonnet one with Opus as its advisor, and agents use it to hand a
-task to a slot; a repeat with the same request ID returns the same slot, and a `--prompt-file` that finds a slot another
-request made for the task or item is refused with `item-held-by-slot`, so no brief is dropped; `--pr <ref>` or `--issue
+launch <repo> --model (opus | sonnet) --request-id <id> [--prompt-file <file>] [--skills <set>]` starts an agent on that
+model at `--effort xhigh` on the slot profile described above, a Sonnet one with Opus as its advisor, and agents use it
+to hand a task to a slot; a repeat with the same request ID returns the same slot, and a `--prompt-file` that finds a
+slot another request made for the task or item is refused with `item-held-by-slot`, so no brief is dropped; `--skills
+<set>` turns on the skills the file `config/agent-slot/skill-sets/<set>` lists, in that slot only (see [skill
+sets](#skill-sets)); `--pr <ref>` or `--issue
 <ref>` gives the slot that work item, its name, and, for a PR, its head branch (see [work items and
 reopen](#work-items-and-reopen)). `agent-slot resume <repo>/<N>` restarts a dormant slot's sessions and conversation,
 then deletes its local branches whose PRs all merged or closed, with origin's branch of each, keeping the base, origin's
@@ -1002,6 +1016,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `invalid-task-name`           | 2    | A task uses letters, digits, `-`, `_`, `/`, starts alphanumeric, and does not end in `-prime`  |
 | `prompt-file-unreadable`      | 2    | The first-message file cannot be read                                                          |
 | `brief-incomplete`            | 2    | A brief lacks a required line, or its `Touches:` line holds no glob or a glob git rejects      |
+| `skill-set-unknown`           | 2    | `--skills` names no file in `config/agent-slot/skill-sets/`; the message lists the sets        |
 | `slot-limit-reached`          | 78   | The repo holds the most live slots allowed; finish one, or raise `AGENT_SLOT_MAX_PER_REPO`     |
 | `clone-failed`                | 1    | Cloning from origin failed; retry with the same request ID                                     |
 | `solutions-symlink-missing`   | 78   | The solutions repo is missing or has no origin/main, so the slot gets no worktree of it        |

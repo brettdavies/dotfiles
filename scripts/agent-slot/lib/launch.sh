@@ -7,7 +7,7 @@ TASK_RULE='a task name uses letters, digits, -, _, and /, starts with a letter o
 REQUEST_PATTERN='^[A-Za-z0-9._-]{1,128}$'
 
 LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_TASK_GIVEN='' LAUNCH_REQUEST='' LAUNCH_PROMPT='' LAUNCH_REQUESTED_AT=''
-LAUNCH_MODEL=''
+LAUNCH_MODEL='' LAUNCH_SKILLS=''
 LAUNCH_OPENED_AT='' LAUNCH_SHOWN_AT=''
 EPOCH_PATTERN='^[0-9]+(\.[0-9]+)?$'
 LAUNCH_ITEM_KIND='' LAUNCH_ITEM_REF='' LAUNCH_ITEM='' LAUNCH_NAME=''
@@ -24,10 +24,14 @@ launch_parse_args() {
         LAUNCH_ITEM_KIND=${1#--} LAUNCH_ITEM_REF=$2
         shift 2
         ;;
-      --task | --request-id | --prompt-file | --requested-at | --opened-at | --shown-at | --model)
+      --task | --request-id | --prompt-file | --requested-at | --opened-at | --shown-at | --model | --skills)
         (($# >= 2)) || usage_fail "$1 needs a value" "$1"
         case $1 in
           --model) LAUNCH_MODEL=$2 ;;
+          --skills)
+            skill_set_check "$2"
+            LAUNCH_SKILLS=$2
+            ;;
           --task) LAUNCH_TASK=$2 LAUNCH_TASK_GIVEN=$2 ;;
           --request-id) LAUNCH_REQUEST=$2 ;;
           --prompt-file)
@@ -72,6 +76,33 @@ launch_parse_args() {
     value=${flag#* }
     [[ -z $value || $value =~ $EPOCH_PATTERN ]] || usage_fail "--${flag%% *} takes seconds since the epoch" "$value"
   done
+}
+
+# Where the skill sets live: one file per set, named by the word `launch --skills` takes, holding the skill names it turns
+# on, one per line, with `#` comments.
+SKILL_SETS_DIR=${BASH_SOURCE[0]%/*}/../../../config/agent-slot/skill-sets
+SKILL_SET_PATTERN='^[a-z0-9][a-z0-9-]*$'
+
+# Usage: skill_set_list; prints the names of the skill sets, one per line.
+skill_set_list() {
+  local file
+  for file in "$SKILL_SETS_DIR"/*; do
+    if [[ -f $file && ${file##*/} =~ $SKILL_SET_PATTERN ]]; then printf '%s\n' "${file##*/}"; fi
+  done
+}
+
+# Usage: skill_set_check <set>; refuses with skill-set-unknown, naming the sets there are, unless <set> names a readable
+# file in SKILL_SETS_DIR.
+skill_set_check() {
+  [[ $1 =~ $SKILL_SET_PATTERN && -f $SKILL_SETS_DIR/$1 && -r $SKILL_SETS_DIR/$1 ]] && return 0
+  contract_fail skill-set-unknown "no skill set is named $1; the sets are: $(skill_set_list | paste -sd ' ' -)" --value "$1" \
+    --command "$(contract_quote ls "$(realpath -m "$SKILL_SETS_DIR")")"
+}
+
+# Usage: skill_set_overrides <set>; prints the JSON object that sets each skill name in the set's file to on.
+skill_set_overrides() {
+  sed 's/#.*//' "$SKILL_SETS_DIR/$1" | tr -s ' \t\n' '\n' \
+    | contract_json -R -s -c 'split("\n") | map(select(. != "") | {(.): "on"}) | add // {}'
 }
 
 # Usage: model_check <model> <verb>; refuses a launch or reopen with no --model, or one SESSIONS_MODELS lacks.
@@ -206,6 +237,7 @@ _launch_command() {
   local -a cmd=(agent-slot launch "$LAUNCH_REPO" --model "$LAUNCH_MODEL")
   [[ -z $LAUNCH_ITEM_KIND ]] || cmd+=("--$LAUNCH_ITEM_KIND" "$LAUNCH_ITEM_REF")
   [[ -z $LAUNCH_TASK_GIVEN ]] || cmd+=(--task "$LAUNCH_TASK_GIVEN")
+  [[ -z $LAUNCH_SKILLS ]] || cmd+=(--skills "$LAUNCH_SKILLS")
   [[ -z $LAUNCH_PROMPT ]] || cmd+=(--prompt-file "$LAUNCH_PROMPT")
   contract_quote "${cmd[@]}"
 }
@@ -229,7 +261,7 @@ launch_output() {
     --argjson missing "$(printf '%s\n' "${PARITY_MISSING_SIBLINGS[@]}" | contract_json -R -s -c 'split("\n") | map(select(. != ""))')" \
     "$SLOT_LABEL_DEF$FOREIGN_FIELDS_DEF"'{created: $created, key: $key, repo: .repo, slot: .slot, path: $path, state: .state, task: .task,
       name: .name, items: (.items // []), label_name: label_name($branch), request_id: .request_id,
-      session_id: .session_id, base: .base, head_pushable: $pushable, trust_prompt_expected: $trust,
+      session_id: .session_id, base: .base, skill_set: (.skill_set // null), head_pushable: $pushable, trust_prompt_expected: $trust,
       prompt_delivered: $delivered, missing_siblings: $missing, phases: $phases, deps: .deps, prime: $prime,
       next_step: {action: "run", command: "agent-slot check \($key) --output json", docs: $docs,
                   note: ("each Rex client is asked to open this slot'"'"'s tab when the slot is made; a Mac that"
@@ -276,6 +308,9 @@ cmd_launch() {
   if [[ $LAUNCH_ITEM_KIND == pr ]]; then
     head=_launch_head
     foreign=$(foreign_fields "$(contract_json -r '.head_url // ""' <<<"$ITEM")")
+    [[ -z $LAUNCH_SKILLS || $(contract_json -r '.head_foreign // false' <<<"$foreign") != true ]] \
+      || usage_fail "--skills does not apply to a foreign head: its slot loads no local settings, which is where a skill set turns skills on" \
+        "$LAUNCH_SKILLS"
   fi
 
   mkdir -p "$AS_ROOT/$repo"
@@ -315,10 +350,11 @@ there with agent-slot retask, or launch again once that slot is torn down" \
   seed=$(contract_json -n -c --arg task "$LAUNCH_TASK" --arg request "$LAUNCH_REQUEST" \
     --argjson requested "$LAUNCH_REQUESTED_AT" --argjson item "${LAUNCH_ITEM:-null}" --arg name "$LAUNCH_NAME" \
     --arg origin "$(pr_repo_slug "$REPO_ORIGIN")" --arg model "$LAUNCH_MODEL" --argjson foreign "$foreign" \
-    --argjson scope "$LAUNCH_SCOPE" "$ITEM_SAME_DEF"'
+    --argjson scope "$LAUNCH_SCOPE" --arg skills "$LAUNCH_SKILLS" "$ITEM_SAME_DEF"'
     $foreign + {task: (if $task == "" then null else $task end), request_id: (if $request == "" then null else $request end),
      requested_at: $requested, model: $model}
     + (if $scope == null then {} else {scope: $scope} end)
+    + (if $skills == "" then {} else {skill_set: $skills} end)
     + if $item == null then {} else
         {prs: (if $item.kind == "pr" and same_repo($item.repo; $origin) then [$item.number] else [] end),
          items: [$item], name: $name, named_as: $name}

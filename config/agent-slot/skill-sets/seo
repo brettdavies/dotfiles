@@ -1,0 +1,42 @@
+# The skills `agent-slot launch <repo> --skills seo` turns on in the new slot only, for search-engine work such as
+# keyword research, site audits, and AI-answer visibility. One skill name per line; `#` starts a comment.
+#
+# Each name must be off in stow/claude/dot-claude/settings.json: the launch writes `on` into the slot's
+# settings.local.json, which outranks that file, and a name the file leaves on is on in every session already.
+# tests/agent-slot-skill-sets.bats holds the two together.
+chatgpt-business-setup
+competitor-strategy
+customer-keywords
+free-tool
+keyword-gap
+money-pages
+rank-on-ai
+reverse-engineer-seo
+seo-manager-agent
+ai-seo
+programmatic-seo
+schema
+site-architecture
+directory-submissions
+seo-ai-visibility
+seo-roast
+internal-linking
+content-coverage
+vs-and-alternatives
+unslop-seo
+geo-optimizer
+seo-analysis
+sitemap-audit
+seo-drift
+ai-prompt-research
+ai-visibility-audit
+competitive-landscape
+competitor-analysis
+keyword-clustering
+keyword-research
+link-prospecting
+local-seo
+seo-audit
+seo-coach
+seo-project-setup
+seo-report
