@@ -15,8 +15,8 @@ REPO="$BATS_TEST_DIRNAME/.."
 ZSHRC="$REPO/stow/zsh/dot-zshrc"
 
 # _checkout_home [plugins]: sets CHECKOUT_HOME to a HOME built from this
-# checkout. With an argument, its ~/.config/op/plugins.sh aliases dog the way
-# `op plugin init dog` writes it; without one, it has no ~/.config at all.
+# checkout. With an argument, its ~/.config/op/plugins.sh defines a dog wrapper,
+# here an alias; without one, it has no ~/.config at all.
 _checkout_home() {
   local installed="$BATS_TEST_TMPDIR/installed"
   mkdir -p "$installed"
