@@ -309,7 +309,7 @@ cmd_launch() {
     head=_launch_head
     foreign=$(foreign_fields "$(contract_json -r '.head_url // ""' <<<"$ITEM")")
     [[ -z $LAUNCH_SKILLS || $(contract_json -r '.head_foreign // false' <<<"$foreign") != true ]] \
-      || usage_fail "--skills does not apply to a foreign head: its slot loads no local settings, which is where a skill set turns skills on" \
+      || usage_fail "--skills does not apply to a foreign head: its slot starts Claude with user settings only, so it never reads the slot's local settings, which is where a skill set turns skills on" \
         "$LAUNCH_SKILLS"
   fi
 

@@ -517,7 +517,8 @@ SKILL_SETS_DIR=$BATS_TEST_DIRNAME/../config/agent-slot/skill-sets
   gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
   launch repoa --pr 7 --request-id r-skills-foreign --skills seo
   [ "$status" -eq 2 ]
-  jaq -e '.reason == "usage" and (.message | contains("foreign head")) and .value == "seo"' <<<"$stderr"
+  jaq -e '.reason == "usage" and (.message | contains("foreign head")) and (.message | contains("user settings only"))
+    and .value == "seo"' <<<"$stderr"
   [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
   [ "$(grep -c 'new-session' "$CALLS")" -eq 0 ]
 }
