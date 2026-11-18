@@ -39,6 +39,7 @@ setup() {
     echo "$STUB_TEMPLATE_ATTRS"'
   stub sudo 'log sudo "$@"
     [ -z "${STUB_SUDO_FAIL:-}" ] || exit 1
+    [ -z "${STUB_SUDO_SWAP:-}" ] || printf "auth       required       pam_deny.so\n" >"${@: -2:1}"
     [ -n "${STUB_SUDO_NOOP:-}" ] || cp "${@: -2:1}" "${@: -1}"'
   PATH="$STUBS:$PATH"
 }
@@ -171,7 +172,18 @@ assert_target_untouched() {
   run "$SCRIPT"
   [ "$status" -eq 3 ]
   [[ "$output" == *"ERROR: template-unreadable:"* ]]
+  [[ "$output" == *"does not exist"* ]]
   [[ "$output" != *"fix:"* ]]
+}
+
+@test "a template this user cannot read is named as unreadable, not as missing" {
+  [ "$(id -u)" -ne 0 ] || skip "root reads any file"
+  chmod 000 "$PAM_SUDO_LOCAL_TEMPLATE"
+  run "$SCRIPT"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"ERROR: template-unreadable:"* ]]
+  [[ "$output" == *"is not readable"* ]]
+  [[ "$output" != *"does not exist"* ]]
 }
 
 @test "--apply with a missing template refuses and changes nothing" {
@@ -186,13 +198,16 @@ assert_target_untouched() {
 
 @test "--apply with a template whose attributes do not parse refuses and changes nothing" {
   seed_target
-  for attrs in "" "root wheel" "root wheel 99" "root wheel 4444x" 'ro ot wheel 444' 'root wheel 444 extra' 'root; reboot wheel 444'; do
+  for attrs in "" "root wheel" "root wheel 99" "root wheel 4444x" 'ro ot wheel 444' 'root wheel 444 extra' 'root; reboot wheel 444' \
+    "root wheel 666" "root wheel 664" "root wheel 646" "root wheel 4755" "root wheel 0644"; do
     STUB_TEMPLATE_ATTRS="$attrs" run "$SCRIPT" --apply
     [ "$status" -eq 3 ] || {
       echo "attrs '$attrs' gave status $status" >&2
       return 1
     }
     [[ "$output" == *"ERROR: template-unreadable:"* ]]
+    [[ "$output" == *"returned no usable owner, group and mode"* ]]
+    [[ "$output" == *"/usr/bin/stat"* ]]
   done
   run ! grep -q '^sudo' "$CALLS"
   assert_target_untouched
@@ -217,11 +232,14 @@ assert_target_untouched() {
   grep -qxF "$fix" "$CALLS"
 }
 
-@test "--apply tells the operator to keep the terminal open and test from a second one" {
-  run "$SCRIPT" --apply
+@test "--apply tells the operator to keep the terminal open, test from a second one, and undo from the first" {
+  run --separate-stderr "$SCRIPT" --apply
   [ "$status" -eq 0 ]
-  [[ "$output" == *"keep this terminal open"* ]]
-  [[ "$output" == *"sudo -k; sudo true"* ]]
+  [[ "$stderr" == *"NOTE: keep this terminal open"* ]]
+  [[ "$stderr" == *"sudo -k; sudo true"* ]]
+  [[ "$stderr" == *"sudo rm $PAM_SUDO_LOCAL"* ]]
+  [[ "$stderr" == *"in this terminal right away"* ]]
+  [[ "$output" != *"keep this terminal open"* ]]
 }
 
 @test "--apply on an in-sync target runs nothing" {
@@ -231,20 +249,33 @@ assert_target_untouched() {
   run ! grep -q '^sudo' "$CALLS"
 }
 
-@test "--apply fails with apply-failed when sudo fails, and the target is as it was" {
+@test "--apply fails with apply-failed when sudo fails, and tells the operator to check the target" {
   seed_target
   STUB_SUDO_FAIL=1 run "$SCRIPT" --apply
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: apply-failed:"* ]]
+  [[ "$output" == *"check $PAM_SUDO_LOCAL"* ]]
+  [[ "$output" != *"as it was"* ]]
   assert_target_untouched
 }
 
-@test "--apply fails with apply-failed when the target still differs after the install" {
+@test "--apply fails with apply-failed when the target is not the known-good line after the install" {
   seed_target
   STUB_SUDO_NOOP=1 run "$SCRIPT" --apply
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: apply-failed:"* ]]
-  [[ "$output" == *"still differs"* ]]
+  [[ "$output" == *"is not the known-good line"* ]]
+}
+
+@test "--apply fails with apply-failed and the undo command when the repo file changes between the check and the install" {
+  sandbox_repo "$KNOWN_GOOD"$'\n'
+  seed_target
+  STUB_SUDO_SWAP=1 run "$SANDBOX_SCRIPT" --apply
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: apply-failed:"* ]]
+  [[ "$output" == *"is not the known-good line"* ]]
+  [[ "$output" == *"sudo rm $PAM_SUDO_LOCAL"* ]]
+  [[ "$output" != *"sudo_local installed"* ]]
 }
 
 # --- Known-good gate ---
@@ -277,6 +308,19 @@ assert_target_untouched() {
   assert_target_untouched
 }
 
+@test "a repo file with a NUL byte after the known-good line is refused" {
+  sandbox_repo "$KNOWN_GOOD"$'\n'
+  printf '\0' >>"$BATS_TEST_TMPDIR/sandbox-repo/config/pam.d/sudo_local"
+  seed_target
+  for mode in "" --apply; do
+    run "$SANDBOX_SCRIPT" $mode
+    [ "$status" -eq 3 ]
+    [[ "$output" == *"ERROR: repo-file-not-known-good:"* ]]
+  done
+  run ! grep -q '^sudo' "$CALLS"
+  assert_target_untouched
+}
+
 @test "a missing repo file is refused as not known good" {
   sandbox_repo "$KNOWN_GOOD"$'\n'
   rm "$BATS_TEST_TMPDIR/sandbox-repo/config/pam.d/sudo_local"
@@ -303,7 +347,7 @@ assert_target_untouched() {
   local block
   block=$(awk '/^if \[ "\$\(uname -s\)" = "Darwin" \] && \[ "\$TARGET" = "\$HOME" \]; then$/ { on = 1 }
     on { print } on && /^fi$/ { exit }' "$STOW_DEPLOY")
-  [[ "$block" == *'scripts/pam-sudo-local.sh"'* ]]
+  [[ "$block" == *'scripts/pam-sudo-local.sh" || true'* ]]
   run ! grep -q 'pam-sudo-local.sh.*--apply' "$STOW_DEPLOY"
 }
 

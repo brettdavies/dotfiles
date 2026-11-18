@@ -226,7 +226,9 @@ bash ~/dotfiles/scripts/pam-sudo-local.sh --apply   # prompts for sudo
 ```
 
 A bad PAM line can lock sudo out, so keep the first terminal open after `--apply`, and from a second terminal run
-`sudo -k; sudo true`. Close the first terminal only after that prompt takes Touch ID or your password.
+`sudo -k; sudo true`. Close the first terminal only after that prompt takes Touch ID or your password. If the test
+fails, run `sudo rm /etc/pam.d/sudo_local` in the first terminal right away, while the sudo credential from `--apply` is
+still cached, then test again from the second. A second terminal would meet the same broken PAM stack.
 
 The script installs the repo file whole, with the owner, group and mode of `/etc/pam.d/sudo_local.template`, and
 replaces whatever else `/etc/pam.d/sudo_local` held. It refuses to run unless the repo file is exactly that one line.

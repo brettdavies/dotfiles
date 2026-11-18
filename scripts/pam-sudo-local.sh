@@ -55,15 +55,10 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 0
 fi
 
-# True when FILE holds KNOWN_GOOD and its newline, and nothing else. The
-# trailing x keeps command substitution from trimming extra newlines.
+# True when FILE holds KNOWN_GOOD and its newline, byte for byte. Comparing
+# bytes keeps a NUL, which command substitution would drop, from passing.
 is_known_good() {
-  local content
-  content=$(
-    cat "$1" 2>/dev/null
-    printf x
-  )
-  [ "$content" = "$KNOWN_GOOD"$'\n'x ]
+  cmp -s "$1" <(printf '%s\n' "$KNOWN_GOOD") 2>/dev/null
 }
 
 is_known_good "$DECLARED_FILE" \
@@ -75,28 +70,39 @@ if cmp -s "$DECLARED_FILE" "$TARGET" 2>/dev/null; then
   exit 0
 fi
 
+# attrs_usable OWNER GROUP MODE EXTRA: true for an account name pair and a mode
+# of three octal digits whose group and other digits carry no write bit, with
+# nothing after them. A fourth digit means setuid, setgid or sticky.
+attrs_usable() {
+  [ -z "$4" ] || return 1
+  case "$1" in '' | *[!A-Za-z0-9_.-]*) return 1 ;; esac
+  case "$2" in '' | *[!A-Za-z0-9_.-]*) return 1 ;; esac
+  case "$3" in
+    [0-7][0145][0145]) ;;
+    *) return 1 ;;
+  esac
+}
+
 # Sets owner, group and mode from the template, which carries what macOS
 # expects of a sudo_local file. Anything BSD stat does not return as three
 # plain words is refused, so a stat from another toolset cannot reach the
 # install command.
 read_template_attrs() {
-  local attrs extra
-  [ -r "$TEMPLATE" ] || return 1
-  attrs=$(stat -f '%Su %Sg %Lp' "$TEMPLATE" 2>/dev/null) || return 1
+  local attrs extra=""
+  [ -e "$TEMPLATE" ] \
+    || fail "$EXIT_CONFIG" template-unreadable \
+      "$TEMPLATE does not exist; macOS 14 and later ship it, and without it there is no known file to install"
+  [ -r "$TEMPLATE" ] \
+    || fail "$EXIT_CONFIG" template-unreadable "$TEMPLATE is not readable by this user"
+  attrs=$(stat -f '%Su %Sg %Lp' "$TEMPLATE" 2>/dev/null) || attrs=""
   read -r owner group mode extra <<<"$attrs"
-  [ -z "$extra" ] || return 1
-  case "$owner" in '' | *[!A-Za-z0-9_.-]*) return 1 ;; esac
-  case "$group" in '' | *[!A-Za-z0-9_.-]*) return 1 ;; esac
-  case "$mode" in
-    [0-7][0-7][0-7] | [0-7][0-7][0-7][0-7]) ;;
-    *) return 1 ;;
-  esac
+  attrs_usable "$owner" "$group" "$mode" "$extra" \
+    || fail "$EXIT_CONFIG" template-unreadable \
+      "stat -f '%Su %Sg %Lp' returned no usable owner, group and mode for $TEMPLATE (a mode is three octal digits with no group or other write bit); the script needs macOS's /usr/bin/stat ahead of any other stat on PATH"
 }
 
 owner="" group="" mode=""
-read_template_attrs \
-  || fail "$EXIT_CONFIG" template-unreadable \
-    "cannot read the owner, group and mode of $TEMPLATE; macOS 14 and later ship it, and without it there is no known file to install"
+read_template_attrs
 
 # GNU install, ahead of Apple's on a PATH that holds coreutils' gnubin, reads
 # -S as a suffix option.
@@ -119,10 +125,14 @@ fi
 
 echo "==> $fix"
 "${install_cmd[@]}" \
-  || fail "$EXIT_DRIFT" apply-failed "sudo install did not complete; $TARGET is as it was"
-cmp -s "$DECLARED_FILE" "$TARGET" 2>/dev/null \
-  || fail "$EXIT_DRIFT" apply-failed "$TARGET still differs from config/pam.d/sudo_local after the install"
+  || fail "$EXIT_DRIFT" apply-failed "sudo install did not complete; check $TARGET before closing this terminal"
+is_known_good "$TARGET" \
+  || fail "$EXIT_DRIFT" apply-failed "$TARGET is not the known-good line after the install; undo it with: sudo rm $TARGET"
 
 echo "sudo_local installed: $TARGET"
-echo "NOTE: keep this terminal open. From a second terminal run \`sudo -k; sudo true\`;"
-echo "      close this one only after that prompt takes Touch ID or your password."
+{
+  echo "NOTE: keep this terminal open. From a second terminal run \`sudo -k; sudo true\`."
+  echo "      If that fails, run \`sudo rm $TARGET\` in this terminal right away, while the sudo"
+  echo "      credential from this install is cached, then test again from the second terminal."
+  echo "      Close this one only after that prompt takes Touch ID or your password."
+} >&2
