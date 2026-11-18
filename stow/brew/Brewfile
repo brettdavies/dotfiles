@@ -144,6 +144,7 @@ cask "docker-desktop"
 cask "rectangle"
 cask "codexbar"
 cask "keepingyouawake"
+cask "github"
 
 # Homebrew's official GUI (BrewUI). The cask requires macOS 26 or later, and
 # `brew bundle` treats an unmet cask requirement as a failure rather than a
