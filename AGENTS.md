@@ -151,6 +151,24 @@ never prompts. launchd reads the plist only at boot, so a change reaches GUI app
 reboot. `tests/launchd-user-path.bats` stubs `uname`, `plutil`, `stat`, `sysctl`, and `sudo`, and points
 `LAUNCHD_USER_PLIST` at a sandbox file.
 
+### Touch ID for sudo (`config/pam.d/sudo_local`)
+
+macOS only. `config/pam.d/sudo_local` holds one line, the one `/etc/pam.d/sudo_local.template` ships commented out:
+`auth       sufficient     pam_tid.so`. It lives beside the other system-level config because its target,
+`/etc/pam.d/sudo_local`, is root-owned, so stow cannot own it. macOS keeps that file across OS updates, and nothing here
+reads or writes `/etc/pam.d/sudo`. `scripts/pam-sudo-local.sh` compares the repo file with the target, exits 0 when they
+match, and on drift (missing or different) prints the exact `sudo /usr/bin/install -S -o … -g … -m …` command and exits
+1; `--apply` runs it, which prompts for sudo. The owner, group and mode come from `stat` on the template at run time,
+and `install -S` writes a temporary file and renames it, so a partial file never lands. A bad PAM line can lock sudo
+out, so both modes refuse, changing nothing, unless the repo file is exactly the known-good line and its newline
+(`repo-file-not-known-good`, exit 3), and both stop on drift when the template cannot be read, since then there is no
+known file to install (`template-unreadable`, exit 3). The other errors are `bad-usage` (exit 2) and `apply-failed`
+(exit 1); an error reads `ERROR: <reason>: <message>` and drift reads `WARNING: drift: …`. After `--apply`, keep the
+first terminal open and test with `sudo -k; sudo true` from a second terminal before closing the first.
+`scripts/stow-deploy` runs the check without `--apply` on every macOS deploy to `$HOME`, so a deploy reports drift and
+never prompts. `tests/pam-sudo-local.bats` stubs `uname`, `stat`, and `sudo`, and points `PAM_SUDO_LOCAL` and
+`PAM_SUDO_LOCAL_TEMPLATE` at sandbox files.
+
 ### Hex Transforms (`config/hex/hex.config.ts`)
 
 macOS only. `config/hex/hex.config.ts` holds the Hex dictation app's custom transformations. Hex refuses a config whose

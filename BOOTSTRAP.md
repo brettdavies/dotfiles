@@ -216,6 +216,23 @@ bash ~/dotfiles/scripts/launchd-user-path.sh --apply   # prompts for sudo
 
 `scripts/stow-deploy` runs the same script without `--apply` on every deploy and prints the fix if the value drifts.
 
+### Touch ID for sudo
+
+`config/pam.d/sudo_local` holds the one line that lets Touch ID approve `sudo`. macOS 14 and later include
+`/etc/pam.d/sudo_local` from `/etc/pam.d/sudo` and keep it across OS updates. Install the file once per Mac:
+
+```bash
+bash ~/dotfiles/scripts/pam-sudo-local.sh --apply   # prompts for sudo
+```
+
+A bad PAM line can lock sudo out, so keep the first terminal open after `--apply`, and from a second terminal run
+`sudo -k; sudo true`. Close the first terminal only after that prompt takes Touch ID or your password.
+
+The script installs the repo file whole, with the owner, group and mode of `/etc/pam.d/sudo_local.template`, and
+replaces whatever else `/etc/pam.d/sudo_local` held. It refuses to run unless the repo file is exactly that one line.
+`scripts/stow-deploy` runs the same script without `--apply` on every deploy and prints the fix if the file is missing
+or different. Inside tmux, Touch ID does not reach `sudo`, which asks for the password there.
+
 ### Ghostty Application Support Symlink
 
 Ghostty checks both `~/.config/ghostty/` (created by stow) and `~/Library/Application Support/com.mitchellh.ghostty/`:
