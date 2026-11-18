@@ -451,6 +451,78 @@ exec "$STUBS/tmux.inner" "$@"'
   assert_prime_untouched
 }
 
+SKILL_SETS_DIR=$BATS_TEST_DIRNAME/../config/agent-slot/skill-sets
+
+@test "launch --skills seo turns exactly the names in the seo file on, beside the keys setup always writes" {
+  local prime=$AGENT_SLOT_DEV/repoa file=$AGENT_SLOT_ROOT/repoa/1/.claude/settings.local.json expected
+  mkdir -p "$prime/.claude"
+  jaq -n '{permissions: {allow: ["Bash(ls)"], deny: []}}' >"$prime/.claude/settings.local.json"
+  BEFORE=$(fingerprint "$prime")
+  launch repoa --request-id r-skills --skills seo
+  [ "$status" -eq 0 ]
+  jaq -e '.skill_set == "seo" and .created == true' <<<"$output"
+  expected=$(sed 's/#.*//' "$SKILL_SETS_DIR/seo" | tr -s ' \t\n' '\n' | grep . | sort)
+  [ -n "$expected" ]
+  jaq -e '(keys == ["autoMemoryDirectory", "permissions", "skillOverrides"]) and ([.skillOverrides[]] | unique == ["on"])' "$file"
+  diff <(echo "$expected") <(jaq -r '.skillOverrides | keys[]' "$file" | sort)
+  assert_prime_untouched
+}
+
+@test "a launch without --skills writes no skillOverrides and reports skill_set null" {
+  launch repoa --request-id r-noskills
+  [ "$status" -eq 0 ]
+  jaq -e 'has("skill_set") and .skill_set == null' <<<"$output"
+  jaq -e 'has("skillOverrides") | not' "$AGENT_SLOT_ROOT/repoa/1/.claude/settings.local.json"
+}
+
+@test "an unknown skill set refuses with skill-set-unknown before anything is cloned" {
+  local value
+  for value in nonesuch '' SEO ../seo seo/ .seo 'seo seo'; do
+    launch repoa --request-id r-skills-bad --skills "$value"
+    [ "$status" -eq 2 ]
+    jaq -e --arg v "$value" '.reason == "skill-set-unknown" and .exit_code == 2 and .value == $v
+      and (.message | contains("seo")) and .next_step.action == "run"
+      and (.next_step.command | test("^ls .*/config/agent-slot/skill-sets$"))' <<<"$stderr"
+    [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+    [ -z "$(ls -A "$AGENT_SLOT_ROOT/repoa" 2>/dev/null)" ]
+    [ "$(grep -c 'new-session' "$CALLS")" -eq 0 ]
+  done
+  assert_prime_untouched
+}
+
+@test "a refused launch's retry command keeps --skills" {
+  AGENT_SLOT_MAX_PER_REPO=0 launch repoa --request-id r-skills-retry --skills seo
+  [ "$status" -eq 78 ]
+  jaq -e '.reason == "slot-limit-reached" and (.next_step.command | contains("--skills seo"))' <<<"$stderr"
+}
+
+@test "a repeat launch reports the skill set its slot was made with, not the one the repeat names" {
+  launch repoa --request-id r-skills-seen --skills seo
+  [ "$status" -eq 0 ]
+  launch repoa --request-id r-skills-seen
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false and .skill_set == "seo"' <<<"$output"
+  launch repoa --request-id r-skills-none
+  [ "$status" -eq 0 ]
+  launch repoa --request-id r-skills-none --skills seo
+  [ "$status" -eq 0 ]
+  jaq -e '.created == false and .skill_set == null' <<<"$output"
+}
+
+@test "launch --skills on a foreign head is refused, since that slot loads no local settings" {
+  export AGENT_SLOT_TRUSTED_OWNERS=up
+  github_origin
+  fork_repo
+  pr_head "$T/forks/repoa.git" feat/x 7
+  gh_item pr 7 "Fix the login" OPEN "$FORK_HEAD"
+  launch repoa --pr 7 --request-id r-skills-foreign --skills seo
+  [ "$status" -eq 2 ]
+  jaq -e '.reason == "usage" and (.message | contains("foreign head")) and (.message | contains("user settings only"))
+    and .value == "seo"' <<<"$stderr"
+  [ ! -e "$AGENT_SLOT_ROOT/repoa/1" ]
+  [ "$(grep -c 'new-session' "$CALLS")" -eq 0 ]
+}
+
 @test "a tracked link to a sibling repo resolves in the slot through a link to the sibling's prime" {
   prime meum-control
   origin_file meum-control brand/VOICE.md 'the voice'

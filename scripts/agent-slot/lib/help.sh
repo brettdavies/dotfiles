@@ -56,8 +56,8 @@ verb_help() {
       'example: agent-slot whoami --output json' ;;
     launch) printf '%s\n' \
       'usage: agent-slot launch <repo> --model (opus | sonnet) [--pr <ref> | --issue <ref>] [--request-id ID]' \
-      '                         [--task NAME] [--prompt-file FILE] [--requested-at EPOCH] [--opened-at EPOCH]' \
-      '                         [--shown-at EPOCH] [--output json]' \
+      '                         [--task NAME] [--prompt-file FILE] [--skills SET] [--requested-at EPOCH]' \
+      '                         [--opened-at EPOCH] [--shown-at EPOCH] [--output json]' \
       'Clones the repo into its lowest free slot, sets it up like the prime checkout, and starts Claude there with' \
       '--dangerously-skip-permissions on the --model given, at --effort xhigh, on the slot profile, which drops a few' \
       'tools, skills, and plugins (see the README); a sonnet slot also gets opus as its advisor. It also starts the' \
@@ -70,6 +70,11 @@ verb_help() {
       'Touches: lists the paths the PR may change as comma-separated git pathspec globs, and Adds: the public surface' \
       'it may add or none; both go into the slot record as scope, and slot-scope-guard.sh denies a git push of a path' \
       'no Touches: glob covers.' \
+      "--skills SET turns on, in this slot only, the skills listed in the file $(realpath -m "$SKILL_SETS_DIR")/SET," \
+      'by writing skillOverrides into the slot'"'"'s settings.local.json; each must be off in the user'"'"'s' \
+      "settings, ~/.claude/settings.json. The sets: $(skill_set_list | paste -sd ' ' -). An unknown SET is refused" \
+      'with skill-set-unknown before anything is cloned, and a foreign head, whose slot loads no local settings, with' \
+      'usage. A repeat that finds a slot reports the set that slot was made with. reopen and resume take no --skills.' \
       'Agents always pass --request-id. ID: letters, digits, ., _, and -, up to 128. NAME: letters, digits, _,' \
       '-, and /, starting with a letter or digit, up to 64, and not ending in -prime, which names a repo'"'"'s prime. A new' \
       'slot pushes a restore to the Rex helper on this' \
@@ -89,7 +94,8 @@ verb_help() {
       'for a launch from the new-agent key, when its tab opened and when Rex.app showed it; the launch'"'"'s ledger' \
       'line keeps them for doctor'"'"'s key to ready.' \
       'returns: created, key, repo, slot, path, state, task, name, items[] of {kind, repo, number, title}, label_name,' \
-      '         request_id, session_id, base, head_pushable (null without a PR head), trust_prompt_expected,' \
+      '         request_id, session_id, base, skill_set (the --skills set the slot was made with, else null),' \
+      '         head_pushable (null without a PR head), trust_prompt_expected,' \
       '         prompt_delivered (null without --prompt-file), missing_siblings, phases,' \
       '         head_foreign, head_owner (null when unknown or not foreign),' \
       '         deps ({manager, command, status, log} of the frozen install of the root lockfile, status one of' \

@@ -145,7 +145,7 @@ slot_make() {
     parity_git_crypt "$path"
     parity_solutions "$repo" "$n" "$path"
     parity_repo_recon "$REPO_PRIME" "$path"
-    parity_claude_settings "$REPO_PRIME" "$path"
+    parity_claude_settings "$REPO_PRIME" "$path" "$(contract_json -r '.skill_set // ""' <<<"$seed")"
     parity_siblings "$repo" "$path"
     parity_hooks "$REPO_PRIME" "$path"
   fi

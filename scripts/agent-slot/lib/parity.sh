@@ -213,13 +213,16 @@ parity_memory_dir() {
   printf '%s/memory' "$guess"
 }
 
-# Usage: parity_claude_settings <prime> <slot>
+# Usage: parity_claude_settings <prime> <slot> [<skill set>]
 # Writes the slot's .claude/settings.local.json with two keys: the prime's auto memory directory, and the prime's
-# permission rules with the prime's path rewritten to the slot's wherever it is not the start of a longer name. Copied, never linked: Claude rewrites the file in
+# permission rules with the prime's path rewritten to the slot's wherever it is not the start of a longer name. A skill
+# set adds a third, skillOverrides, turning each skill in the set on. Copied, never linked: Claude rewrites the file in
 # place. A branch can track the file, even as a link to a file outside the slot, so a link is replaced rather than
 # written through, and a tracked file is marked skip-worktree, so the slot's copy never reaches a commit.
 parity_claude_settings() {
-  local prime=$1 slot=$2 perms='null' file=$1/.claude/settings.local.json target=$2/.claude/settings.local.json
+  local prime=$1 slot=$2 perms='null' skills='null'
+  local file=$1/.claude/settings.local.json target=$2/.claude/settings.local.json
+  [[ -z ${3:-} ]] || skills=$(skill_set_overrides "$3")
   if [[ -r $file ]]; then
     perms=$(contract_json -c --arg p "$prime" --arg s "$slot" '
       def swap_string: split($p) as $parts
@@ -232,8 +235,9 @@ parity_claude_settings() {
   parity_dir_in_slot "$slot" .claude
   mkdir -p "$slot/.claude"
   [[ ! -L $target ]] || rm -f "$target"
-  contract_json -n --arg mem "$(parity_memory_dir "$prime")" --argjson perms "$perms" \
-    '{autoMemoryDirectory: $mem} + (if $perms == null then {} else {permissions: $perms} end)' >"$target"
+  contract_json -n --arg mem "$(parity_memory_dir "$prime")" --argjson perms "$perms" --argjson skills "$skills" \
+    '{autoMemoryDirectory: $mem} + (if $perms == null then {} else {permissions: $perms} end)
+      + (if $skills == null then {} else {skillOverrides: $skills} end)' >"$target"
   if git -C "$slot" ls-files --error-unmatch -- .claude/settings.local.json >/dev/null 2>&1; then
     git -C "$slot" update-index --skip-worktree -- .claude/settings.local.json
   fi
