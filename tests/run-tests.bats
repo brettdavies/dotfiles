@@ -648,13 +648,18 @@ _perf_markers() {
   [[ "$output" != *'"fast probe" took'* ]]
 }
 
+# Usage: _default_budget <ms>; sets the sandbox guard's default budget, so a probe can exceed it in a quarter second
+# rather than sleep past 3000 ms twice.
+_default_budget() {
+  local guard="$SANDBOX/scripts/test-cost-guard.sh"
+  sed "s/RUN_TESTS_BUDGET_MS:-3000}/RUN_TESTS_BUDGET_MS:-$1}/" "$guard" >"$guard.new"
+  cat "$guard.new" >"$guard"
+  grep -q "RUN_TESTS_BUDGET_MS:-$1}" "$guard"
+}
+
 @test "an over-budget test is reported without failing the run until RUN_TESTS_BUDGET_MS is set" {
   _sandbox
-  local guard="$SANDBOX/scripts/test-cost-guard.sh"
-  # A default budget the probe can exceed in a quarter second, rather than a test that sleeps past 3000 ms twice.
-  sed 's/RUN_TESTS_BUDGET_MS:-3000}/RUN_TESTS_BUDGET_MS:-120}/' "$guard" >"$guard.new"
-  cat "$guard.new" >"$guard"
-  grep -q 'RUN_TESTS_BUDGET_MS:-120}' "$guard"
+  _default_budget 120
   _probe "$SANDBOX/tests/a.bats" "slow probe" "sleep 0.25"
   run env -u RUN_TESTS_BUDGET_MS "$SANDBOX/scripts/run-tests" tests/a.bats
   echo "$output"
@@ -663,6 +668,47 @@ _perf_markers() {
   run env RUN_TESTS_BUDGET_MS=120 "$SANDBOX/scripts/run-tests" tests/a.bats
   [ "$status" -eq 1 ]
   [[ "$output" == *'"slow probe" took '*' ms alone, over the 120 ms of RUN_TESTS_BUDGET_MS'* ]]
+}
+
+@test "a test whose name the source escapes is still timed alone" {
+  _sandbox
+  printf '%s\n' '@test "reads \$HOME, \"q\", \` and \\ probe" {' '  sleep 0.25' '}' >"$SANDBOX/tests/a.bats"
+  run env RUN_TESTS_BUDGET_MS=120 "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'run-tests: over-budget: tests/a.bats: "reads $HOME, "q", ` and \ probe" took '*' ms alone,'* ]]
+}
+
+@test "an over-budget test that fails alone is named with its time in the loaded run" {
+  _sandbox
+  printf '%s\n' '@test "seed" {' '  touch "$BATS_FILE_TMPDIR/seed"' '}' \
+    '@test "slow user of seed" {' '  [ -e "$BATS_FILE_TMPDIR/seed" ]' '  sleep 0.25' '}' >"$SANDBOX/tests/a.bats"
+  run env RUN_TESTS_BUDGET_MS=120 "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'run-tests: over-budget: tests/a.bats: "slow user of seed" took '*' ms in the loaded run and could not be timed alone, over the 120 ms of RUN_TESTS_BUDGET_MS'* ]]
+}
+
+@test "the time check covers a run of several files at once" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "fast probe" ":"
+  _probe "$SANDBOX/tests/b.bats" "slow probe" "sleep 0.25"
+  run env RUN_TESTS_JOBS=2 RUN_TESTS_BUDGET_MS=120 "$SANDBOX/scripts/run-tests" --no-perf
+  echo "$output"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'run-tests: over-budget: tests/b.bats: "slow probe" took '*' ms alone,'* ]]
+}
+
+@test "a process the alone rerun leaves running fails the run while the budget only reports" {
+  _sandbox
+  _default_budget 120
+  _probe "$SANDBOX/tests/a.bats" "slow probe" \
+    "if [ -e \"\$BATS_TEST_DIRNAME/.seen\" ]; then sleep 30 >/dev/null 2>&1 3>&- & fi; touch \"\$BATS_TEST_DIRNAME/.seen\"; sleep 0.25"
+  run env -u RUN_TESTS_BUDGET_MS "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"processes tests/a.bats started were still running after bats exited"* ]]
+  [[ "$output" == *'"slow probe" took '*' ms alone, over the default 120 ms (reported only'* ]]
 }
 
 @test "a test tests/slow-tests.tsv lists passes over the time budget" {

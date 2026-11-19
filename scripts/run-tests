@@ -140,6 +140,8 @@ source "$REPO_ROOT/tests/lib/processes.bash"
 # bats takes the time limit only from its environment, so a bats that a test
 # starts inherits it too. BATS_killer_pid lets bats stop the watchdog of a test
 # that failed; tests/lib/processes.bash has the why, at BATS_WATCHDOG_JOB.
+#
+# Returns 1 when bats failed, 2 when only the leak check failed, 3 when both did.
 _bats_run() {
   local run="$$.$BASHPID.$RANDOM" rc=0
   # shellcheck disable=SC2016 # the $SIG and $ARGV in single quotes are perl's
@@ -147,8 +149,8 @@ _bats_run() {
     -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_NAMESPACE \
     RUN_TESTS_RUN="$run" BATS_TEST_TIMEOUT="$TEST_TIMEOUT" BATS_killer_pid="$BATS_WATCHDOG_JOB" \
     "$PERL" -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "run-tests: exec $ARGV[0]: $!\n"' \
-    bats "${BATS_FLAGS[@]}" "$@" || rc="$EXIT_FAILURE"
-  stop_leaks "RUN_TESTS_RUN=$run" "$*" "bats exited" || rc="$EXIT_FAILURE"
+    bats "${BATS_FLAGS[@]}" "$@" || rc=1
+  stop_leaks "RUN_TESTS_RUN=$run" "$*" "bats exited" || rc=$((rc + 2))
   return "$rc"
 }
 
@@ -167,38 +169,60 @@ _bats() {
   return "$rc"
 }
 
+# Usage: _over_line <file> <name> <ms> <how it was timed> <budget ms>; names a
+# test over the budget.
+_over_line() {
+  local over="over the default $5 ms (reported only until RUN_TESTS_BUDGET_MS is set)"
+  [ -z "${RUN_TESTS_BUDGET_MS:-}" ] || over="over the $5 ms of RUN_TESTS_BUDGET_MS"
+  echo "run-tests: over-budget: $1: \"$2\" took $3 ms $4, $over" >&2
+  echo "           build what its tests share once in setup_file, or list it in tests/slow-tests.tsv with the reason it takes this long" >&2
+}
+
 # Usage: _over_budget <candidates>...; runs the tests the files list again once
 # every suite has finished, one file at a time and each file's tests one after
 # another, and names each test that is over the budget alone too: a loaded run
-# slows every test in it. A named test fails the run only when
-# RUN_TESTS_BUDGET_MS is set.
+# slows every test in it. A test the rerun cannot time, because it fails or
+# skips alone or its name defeats the filter, is named with its loaded time. A
+# named test fails the run only when RUN_TESTS_BUDGET_MS is set; a process the
+# rerun leaves running fails it whatever the budget.
 _over_budget() {
-  local alone again file name ms budget filter status rc=0 files=()
-  local -A filters=()
+  local alone again cand file f name ms budget filter line rerun status rc=0 files=() cands=()
+  local -A filters=() passed=()
   while IFS=$'\t' read -r file name ms budget; do
     [ -n "$name" ] || continue
-    filter=$(printf '%s' "$name" | sed 's/[][\.*^$+?(){}|]/\\&/g')
+    # bats matches --filter against the name as the source spells it, where a
+    # backslash escapes \, ", $ and ` inside the double quotes.
+    filter=$(printf '%s' "$name" | sed -e 's/[\\"$`]/\\&/g' -e 's/[][\.*^$+?(){}|]/\\&/g')
     [ -n "${filters[$file]:-}" ] || files+=("$file")
     filters[$file]+="${filters[$file]:+|}$filter"
+    cands+=("$file"$'\t'"$name"$'\t'"$ms"$'\t'"$budget")
   done < <(cat "$@")
   for file in ${files[@]+"${files[@]}"}; do
     alone=$(mktemp -d)
-    local BATS_FLAGS=(--report-formatter junit --output "$alone" --filter "^(${filters[$file]})\$")
-    _bats_run "$file" >/dev/null 2>&1 || true
-    status=0
-    again=$("$COST_GUARD" --report "$alone/report.xml" "$file") || status=$?
+    local BATS_FLAGS=(--report-formatter junit --output "$alone" --allow-empty-suite
+      --filter "^(${filters[$file]})\$")
+    rerun=0
+    _bats_run "$file" >"$alone/tap" || rerun=$?
+    ((rerun < 2)) || rc="$EXIT_FAILURE"
+    passed=()
+    while IFS= read -r line; do
+      if [[ $line =~ ^ok\ [0-9]+\ (.*)\ \#\ in\ [0-9]+\ ms$ ]]; then passed["${BASH_REMATCH[1]}"]=1; fi
+    done <"$alone/tap"
+    status=0 again=
+    if ((${#passed[@]})); then again=$("$COST_GUARD" --report "$alone/report.xml" "$file") || status=$?; fi
     rm -rf "$alone"
-    [ "$status" -ne 0 ] || continue
-    if [ "$status" -gt 1 ] || [ -n "${RUN_TESTS_BUDGET_MS:-}" ]; then rc="$EXIT_FAILURE"; fi
-    while IFS=$'\t' read -r file name ms budget; do
+    [ "$status" -le 1 ] || rc="$EXIT_FAILURE"
+    while IFS=$'\t' read -r _ name ms budget; do
       [ -n "$name" ] || continue
-      if [ -n "${RUN_TESTS_BUDGET_MS:-}" ]; then
-        echo "run-tests: over-budget: $file: \"$name\" took $ms ms alone, over the $budget ms of RUN_TESTS_BUDGET_MS" >&2
-      else
-        echo "run-tests: over-budget: $file: \"$name\" took $ms ms alone, over the default $budget ms (reported only until RUN_TESTS_BUDGET_MS is set)" >&2
-      fi
-      echo "           build what its tests share once in setup_file, or list it in tests/slow-tests.tsv with the reason it takes this long" >&2
+      _over_line "$file" "$name" "$ms" alone "$budget"
+      [ -z "${RUN_TESTS_BUDGET_MS:-}" ] || rc="$EXIT_FAILURE"
     done <<<"$again"
+    for cand in "${cands[@]}"; do
+      IFS=$'\t' read -r f name ms budget <<<"$cand"
+      if [ "$f" != "$file" ] || [ -n "${passed["$name"]:-}" ]; then continue; fi
+      _over_line "$file" "$name" "$ms" "in the loaded run and could not be timed alone" "$budget"
+      [ -z "${RUN_TESTS_BUDGET_MS:-}" ] || rc="$EXIT_FAILURE"
+    done
   done
   return "$rc"
 }

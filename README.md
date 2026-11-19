@@ -1302,8 +1302,8 @@ matrix, supply-chain age gates, symlinks, the qmd-serve units, and the CLI wrapp
 `scripts/run-tests` prints each test's time on its line (`ok N <name> # in <ms> ms`) and names a test that runs longer
 than 3000 ms when rerun alone; it fails one only when `RUN_TESTS_BUDGET_MS` sets the budget (0 turns the check off). It
 fails a suite whose `setup()` builds a repository for every test. Either passes when `tests/slow-tests.tsv` lists it
-with the reason it must cost that. `scripts/test-cost-guard.sh` holds both rules; see [AGENTS.md § Test
-cost](AGENTS.md#test-cost).
+with the reason it must cost that. `scripts/test-cost-guard.sh` holds both rules; see
+[AGENTS.md § Test cost](AGENTS.md#test-cost).
 
 ## Performance
 
