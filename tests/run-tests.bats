@@ -648,6 +648,23 @@ _perf_markers() {
   [[ "$output" != *'"fast probe" took'* ]]
 }
 
+@test "an over-budget test is reported without failing the run until RUN_TESTS_BUDGET_MS is set" {
+  _sandbox
+  local guard="$SANDBOX/scripts/test-cost-guard.sh"
+  # A default budget the probe can exceed in a quarter second, rather than a test that sleeps past 3000 ms twice.
+  sed 's/RUN_TESTS_BUDGET_MS:-3000}/RUN_TESTS_BUDGET_MS:-120}/' "$guard" >"$guard.new"
+  cat "$guard.new" >"$guard"
+  grep -q 'RUN_TESTS_BUDGET_MS:-120}' "$guard"
+  _probe "$SANDBOX/tests/a.bats" "slow probe" "sleep 0.25"
+  run env -u RUN_TESTS_BUDGET_MS "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'run-tests: over-budget: tests/a.bats: "slow probe" took '*' ms alone, over the default 120 ms (reported only until RUN_TESTS_BUDGET_MS is set)'* ]]
+  run env RUN_TESTS_BUDGET_MS=120 "$SANDBOX/scripts/run-tests" tests/a.bats
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'"slow probe" took '*' ms alone, over the 120 ms of RUN_TESTS_BUDGET_MS'* ]]
+}
+
 @test "a test tests/slow-tests.tsv lists passes over the time budget" {
   _sandbox
   _probe "$SANDBOX/tests/a.bats" "slow|one probe" "sleep 0.25"

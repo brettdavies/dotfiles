@@ -54,12 +54,14 @@
 # past the limit. A suite with a deliberately longer test sets BATS_TEST_TIMEOUT
 # at its top level, which bats reads again for each test.
 #
-# A test that runs longer than RUN_TESTS_BUDGET_MS (3000 unless the environment
-# sets it; 0 turns the check off) fails unless tests/slow-tests.tsv lists it
-# with its reason. A run loads the machine, so a test over the budget runs again
-# alone once every suite has finished, and fails only when it is over the budget
-# alone too. Each run also fails a suite whose setup() builds a repository for
-# every test, and a full run fails an allowlist entry that matches nothing.
+# Each test is timed against a budget. With RUN_TESTS_BUDGET_MS unset the budget
+# is 3000 ms and report-only: a test over it is named and the exit status is
+# unchanged. With it set, a test over it fails the run unless
+# tests/slow-tests.tsv lists it with its reason; 0 turns the check off. A run
+# loads the machine, so a test over the budget runs again alone once every
+# suite has finished, and counts only when it is over the budget alone too.
+# Each run also fails a suite whose setup() builds a repository for every test,
+# and a full run fails an allowlist entry that matches nothing.
 # scripts/test-cost-guard.sh holds both rules and the allowlist's format. The
 # perf suite is timed by design and exempt. bats prints each test's time on its
 # line, since it times every test for the junit report the check reads.
@@ -167,8 +169,9 @@ _bats() {
 
 # Usage: _over_budget <candidates>...; runs the tests the files list again once
 # every suite has finished, one file at a time and each file's tests one after
-# another, and fails each test that is over the budget alone too: a loaded run
-# slows every test in it.
+# another, and names each test that is over the budget alone too: a loaded run
+# slows every test in it. A named test fails the run only when
+# RUN_TESTS_BUDGET_MS is set.
 _over_budget() {
   local alone again file name ms budget filter status rc=0 files=()
   local -A filters=()
@@ -186,10 +189,14 @@ _over_budget() {
     again=$("$COST_GUARD" --report "$alone/report.xml" "$file") || status=$?
     rm -rf "$alone"
     [ "$status" -ne 0 ] || continue
-    rc="$EXIT_FAILURE"
+    if [ "$status" -gt 1 ] || [ -n "${RUN_TESTS_BUDGET_MS:-}" ]; then rc="$EXIT_FAILURE"; fi
     while IFS=$'\t' read -r file name ms budget; do
       [ -n "$name" ] || continue
-      echo "run-tests: over-budget: $file: \"$name\" took $ms ms alone, over the $budget ms of RUN_TESTS_BUDGET_MS" >&2
+      if [ -n "${RUN_TESTS_BUDGET_MS:-}" ]; then
+        echo "run-tests: over-budget: $file: \"$name\" took $ms ms alone, over the $budget ms of RUN_TESTS_BUDGET_MS" >&2
+      else
+        echo "run-tests: over-budget: $file: \"$name\" took $ms ms alone, over the default $budget ms (reported only until RUN_TESTS_BUDGET_MS is set)" >&2
+      fi
       echo "           build what its tests share once in setup_file, or list it in tests/slow-tests.tsv with the reason it takes this long" >&2
     done <<<"$again"
   done

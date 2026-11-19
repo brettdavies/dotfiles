@@ -520,16 +520,17 @@ process a test starts carries as the watchdog's pid instead (`is_detached_watchd
 
 ### Test cost
 
-`scripts/run-tests` fails a test that costs more than it has to, by two rules that `scripts/test-cost-guard.sh` holds:
+`scripts/run-tests` checks what each test costs by two rules that `scripts/test-cost-guard.sh` holds:
 
-- A test that runs longer than `RUN_TESTS_BUDGET_MS` (3000 unless the environment sets it, 0 turns it off) fails unless
-  `tests/slow-tests.tsv` lists it with the reason it must take that long. A test over the budget in a loaded run runs
-  again alone once every suite has finished, and fails only when it is over the budget alone too, as
-  `run-tests: over-budget: <file>: "<name>" took <ms> ms alone`. The perf suite is exempt. bats prints each test's time
-  on its line, `ok N <name> # in <ms> ms`.
-- A suite whose `setup()` runs `git clone`, `git commit`, `git push`, or `fixture_repo` fails, unless
-  `tests/slow-tests.tsv` lists its `setup()` with the reason. The check reads `setup()` itself, not the helpers it
-  calls. A full run also fails an allowlist entry that matches nothing, each named on a `test-cost-guard:` line.
+- Each test is timed against a budget. With `RUN_TESTS_BUDGET_MS` unset the budget is 3000 ms and report-only: a test
+over it is named and the run's exit status is unchanged. With it set, a test over it fails the run unless
+`tests/slow-tests.tsv` lists it with the reason it must take that long; 0 turns the check off. A test over the budget in
+a loaded run runs again alone once every suite has finished, and counts only when it is over the budget alone too, as
+`run-tests: over-budget: <file>: "<name>" took <ms> ms alone`. The perf suite is exempt. bats prints each test's time on
+its line, `ok N <name> # in <ms> ms`. - A suite whose `setup()` runs `git clone`, `git commit`, `git push`, or
+`fixture_repo` fails, unless `tests/slow-tests.tsv` lists its `setup()` with the reason. The check reads `setup()`
+itself, not the helpers it calls. A full run also fails an allowlist entry that matches nothing, each named on a
+`test-cost-guard:` line.
 
 `tests/slow-tests.tsv` holds one entry per line: the suite's file name, a tab, the test's name as bats prints it or
 `setup()`, a tab, and the reason.
