@@ -107,9 +107,11 @@ EOF
   chmod +x "$STUBS/tmux"
 }
 
-# real_pane [SHELL...]: with REAL_TMUX set, the three sessions of repoa/1 on a scratch tmux server under $T, each a shell
-# (bash --norc --noprofile by default) with a fake claude first on its PATH. It types `claude first` into the Claude
-# session, waits for it to run, and lists it idle. The fake logs its arguments to $T/pane-claude.log and its pid to
+# real_pane [SHELL...]: with REAL_TMUX set, the three sessions of repoa/1 and the three of its prime, rooted at the
+# prime's checkout, on a scratch tmux server under $T, each a shell (bash --norc --noprofile by default) with a fake claude first on its PATH. The resume
+# then finds the prime running and starts none of its sessions: a start runs the account's login shell with the real
+# HOME and PATH, and types the prime's real claude into it. It types `claude first` into the Claude session of repoa/1,
+# waits for it to run, and lists it idle. The fake logs its arguments to $T/pane-claude.log and its pid to
 # $T/pane-claude.pid, and copies what it reads from its terminal to $T/claude-input, which stays empty while nothing is
 # typed into it. Sets OLD to that pid.
 real_pane() {
@@ -123,11 +125,13 @@ echo \$\$ >'$T/pane-claude.pid'
 exec cat >>'$T/claude-input'
 EOF
   chmod +x "$T/bin/claude"
-  local name
+  local name dir
   local -a shell=("$@")
   ((${#shell[@]} > 0)) || shell=(bash --norc --noprofile)
-  for name in repoa-1 repoa-1-files repoa-1-git; do
-    "$REAL_TMUX" -L "$REAL_SOCKET" -f "$AGENT_SLOT_TMUX_CONF" new-session -d -s "$name" -c "$SLOT" \
+  for name in repoa-1 repoa-1-files repoa-1-git repoa-prime repoa-prime-files repoa-prime-git; do
+    dir=$SLOT
+    [[ $name != repoa-prime* ]] || dir=$AGENT_SLOT_DEV/repoa
+    "$REAL_TMUX" -L "$REAL_SOCKET" -f "$AGENT_SLOT_TMUX_CONF" new-session -d -s "$name" -c "$dir" \
       "env PATH=$T/bin:$PATH ${shell[*]}"
   done
   export AGENT_SLOT_TMUX=$REAL_TMUX AGENT_SLOT_TMUX_SOCKET=$REAL_SOCKET
