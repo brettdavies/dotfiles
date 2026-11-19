@@ -6,6 +6,7 @@
 # time and never prints or writes it.
 #
 # Run: bats tests/never-send-guard.bats
+# run-tests: parallel
 
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/never-send-guard.sh"
 

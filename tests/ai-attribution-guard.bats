@@ -3,6 +3,7 @@
 # reaching a commit object or a GitHub artifact.
 #
 # Run: bats tests/ai-attribution-guard.bats
+# run-tests: parallel
 
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/ai-attribution-guard.sh"
 
