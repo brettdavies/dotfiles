@@ -21,6 +21,7 @@ setup() {
   git -C "$WORK" config user.email test@example.com
   git -C "$WORK" config user.name test
   git -C "$WORK" config commit.gpgsign false
+  git -C "$WORK" config tag.gpgsign false
   git -C "$WORK" config core.hooksPath /dev/null
   printf '#!/bin/sh\necho a\n' >"$WORK/a.sh"
   git -C "$WORK" add a.sh
