@@ -11,29 +11,12 @@ SCRIPT="$BATS_TEST_DIRNAME/../scripts/lint-shell"
 # the bats workflow use, so a stray probe cannot join the real suite.
 PROBE="$BATS_TEST_DIRNAME/.lint-probe.bats"
 
-# One --all sweep serves every test that asserts on it: a sweep runs ShellCheck
-# over every target in the tree, which takes tens of seconds, and the tree does
-# not change between tests. It runs before any test writes $PROBE, so it never
-# lints a probe.
-setup_file() {
-  command -v shellcheck >/dev/null 2>&1 || return 0
-  local status=0
-  "$SCRIPT" --all >"$BATS_FILE_TMPDIR/all.out" 2>&1 || status=$?
-  printf '%s' "$status" >"$BATS_FILE_TMPDIR/all.status"
-}
-
 teardown() {
   rm -f "$PROBE"
 }
 
 _require_shellcheck() {
   command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
-}
-
-# Sets status and output from the file's --all sweep, as `run "$SCRIPT" --all` would.
-_all_sweep() {
-  status=$(cat "$BATS_FILE_TMPDIR/all.status")
-  output=$(cat "$BATS_FILE_TMPDIR/all.out")
 }
 
 @test "lint-shell is executable" {
@@ -52,18 +35,14 @@ _all_sweep() {
   [ "$status" -eq 2 ]
 }
 
-@test "--all passes over the current tree" {
-  _require_shellcheck
-  _all_sweep
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"file(s) clean"* ]]
-}
-
 @test "--all covers every category" {
-  _require_shellcheck
   # A category silently dropping out of _all_targets would shrink this count
-  # without failing anything else.
-  _all_sweep
+  # without failing anything else. ShellCheck's verdict on the tree is the
+  # pre-push lint gate's, so a stub stands in for it and the sweep only counts.
+  mkdir "$BATS_TEST_TMPDIR/bin"
+  printf '%s\n' '#!/bin/sh' 'exit 0' >"$BATS_TEST_TMPDIR/bin/shellcheck"
+  chmod +x "$BATS_TEST_TMPDIR/bin/shellcheck"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" run "$SCRIPT" --all
   [ "$status" -eq 0 ]
   count=$(printf '%s' "$output" | sed -n 's/^lint-shell: \([0-9]*\) file.*/\1/p')
   if [ -z "$count" ] || [ "$count" -le 40 ]; then
@@ -113,7 +92,8 @@ _all_sweep() {
   # A script missing from the target rule is skipped by every gate at once:
   # pre-commit, pre-push, and CI all report it as zero files rather than fail.
   # Whether a file is a target shows in the count alone, so a shellcheck that
-  # passes everything stands in for the real one, which the --all tests run.
+  # passes everything stands in for the real one, whose verdict on the tree is
+  # the pre-push lint gate's.
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$BATS_TEST_TMPDIR/bin/shellcheck"
   chmod +x "$BATS_TEST_TMPDIR/bin/shellcheck"
