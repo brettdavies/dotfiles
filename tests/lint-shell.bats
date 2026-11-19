@@ -92,7 +92,8 @@ _require_shellcheck() {
   # A script missing from the target rule is skipped by every gate at once:
   # pre-commit, pre-push, and CI all report it as zero files rather than fail.
   # Whether a file is a target shows in the count alone, so a shellcheck that
-  # passes everything stands in for the real one, which the --all tests run.
+  # passes everything stands in for the real one, whose verdict on the tree is
+  # the pre-push lint gate's.
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$BATS_TEST_TMPDIR/bin/shellcheck"
   chmod +x "$BATS_TEST_TMPDIR/bin/shellcheck"
