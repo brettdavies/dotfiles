@@ -3,18 +3,19 @@
 # holding a browsers.json. One client per directory and per alias keeps the set
 # through that cleanup, since a browsers.json holds one revision per browser.
 
+# pw_client_json NAME: PW_JSON is the browsers.json of the client for NAME.
 pw_client_json() {
   local name=${1%-*}
-  printf '{"browsers": [{"name": "%s", "revision": "%s"}]}\n' "${name//_/-}" "${1##*-}"
+  printf -v PW_JSON '{"browsers": [{"name": "%s", "revision": "%s"}]}\n' "${name//_/-}" "${1##*-}"
 }
 
-# The trailing x keeps a newline that $(...) would strip and Playwright would not.
+# The link is compared whole: a trailing newline is not part of the path Playwright reads.
 pw_client_ok() {
-  [ "$(cat "$PW_CLIENTS/$1/browsers.json" 2>/dev/null)" = "$(pw_client_json "$1")" ] \
-    && [ "$(
-      cat "$PW_LINKS/dotfiles-$1" 2>/dev/null
-      printf x
-    )" = "$PW_CLIENTS/${1}x" ]
+  pw_client_json "$1"
+  pw_read_text "$PW_CLIENTS/$1/browsers.json"
+  [ "$PW_READ" = "${PW_JSON%$'\n'}" ] || return 1
+  pw_read "$PW_LINKS/dotfiles-$1"
+  [ "$PW_READ" = "$PW_CLIENTS/$1" ]
 }
 
 # A correct client is not touched. Otherwise the file is written outside .links
@@ -24,7 +25,8 @@ pw_register() {
   pw_client_ok "$1" && return 0
   if [ -L "$PW_CLIENTS/$1" ]; then rm -f "$PW_CLIENTS/$1"; fi
   mkdir -p "$PW_CLIENTS/$1"
-  pw_client_json "$1" >"$STAGE/json"
+  pw_client_json "$1"
+  printf '%s' "$PW_JSON" >"$STAGE/json"
   pw_rename_over "$STAGE/json" "$PW_CLIENTS/$1/browsers.json"
   printf '%s' "$PW_CLIENTS/$1" >"$STAGE/link"
   pw_rename_over "$STAGE/link" "$PW_LINKS/dotfiles-$1"
@@ -53,11 +55,8 @@ pw_prune_clients() {
     { [ -f "$link" ] && [ -r "$link" ]; } || continue
     n=${link##*/dotfiles-}
     ! pw_in "$n" "${PW_WANTED[@]}" || continue
-    body=$(
-      cat "$link"
-      printf x
-    )
-    body=${body%x}
+    pw_read "$link"
+    body=$PW_READ
     if [[ $n =~ $PW_DIR_RE ]]; then
       base=$PW_CLIENTS
     elif [[ $n =~ ^(playwright-[0-9]+\.[0-9]+\.[0-9]+|chromium-alias-[0-9]+)$ ]]; then
