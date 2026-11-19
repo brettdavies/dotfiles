@@ -79,7 +79,7 @@ _require_unlocked_checkout() {
   # Linux .service/.timer files scattered inside otherwise-shared packages
   # (stow/local, stow/rclone, stow/rust, stow/obsidian) must not symlink to ~/.config/systemd/user/
   # on a Mac. The patterns live inside an explicit Darwin gate.
-  grep -q 'if \[ "\$(uname -s)" = "Darwin" \]; then' "$SCRIPT"
+  grep -q 'if \[ "\$PLATFORM" = "Darwin" \]; then' "$SCRIPT"
   grep -q "STOW_FLAGS+=(--ignore='\\\\.(service|timer)\$')" "$SCRIPT"
   grep -qF "STOW_FLAGS+=(--ignore='(^|/)(slot-startup|tab-numbers)\\.lua$')" "$SCRIPT"
 }
@@ -308,7 +308,7 @@ NOT_DEPLOYED=(ollama)
 @test "systemd timer recovery is guarded to a real Linux \$HOME deploy" {
   # Must not touch the live user manager from a sandboxed test target or on
   # macOS (launchd); guard requires Linux AND TARGET == HOME.
-  grep -qF '[ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ]' "$SCRIPT"
+  grep -qF '[ "$PLATFORM" = "Linux" ] && [ "$TARGET" = "$HOME" ]' "$SCRIPT"
 }
 
 # ---------------------------------------------------------------------------
