@@ -31,7 +31,6 @@ session-title.bats	a gh that hangs is cut off at its bound and leaves the title 
 slot-review-cap.bats	setup()	not yet triaged: setup() commits for every test
 slot-scope-guard.bats	setup()	not yet triaged: setup() commits for every test
 solutions-clone-autosync.bats	setup()	not yet triaged: setup() clones, commits and pushes for every test
-stow-deploy-gitcrypt.bats	setup()	not yet triaged: setup() runs fixture_repo for every test
 subagent-watchdog.bats	the watchdog keeps waiting on an agent that is still writing	not yet triaged: 3195 ms alone on a CI runner
 sync-dev-after-release.bats	setup()	not yet triaged: setup() clones, commits and pushes for every test
 tmux-prune-orphans.bats	a tmux client that ignores SIGTERM is killed after the grace period and the prune still fails	not yet triaged: 6042 ms alone on a CI runner
