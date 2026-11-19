@@ -683,16 +683,18 @@ lazygit_config() {
 tree_lazygit_config() { lazygit_config lazygit-tree .lazygit.yml; }
 
 # run_lazygit SECONDS MARK: real lazygit in the slot on a tmux server of this test's own, until MARK appears or SECONDS
-# pass. A tree's git session starts it unattended, so what it loads from the tree would run with no key pressed.
+# pass. A tree's git session starts it unattended, so what it loads from the tree would run with no key pressed. Each
+# MARK gets its own server socket: kill-server returns before the server it kills has closed its socket, and a client
+# that connects in that gap fails with "server exited unexpectedly".
 run_lazygit() {
   local i
   export TMUX_TMPDIR=$T
-  tmux -L lazygit-test -f /dev/null new-session -d -x 200 -y 50 -c "$SLOT" lazygit
+  tmux -L "lazygit-$2" -f /dev/null new-session -d -x 200 -y 50 -c "$SLOT" lazygit
   for ((i = 0; i < $1 * 10; i++)); do
     [ ! -e "$T/marks/$2" ] || break
     sleep 0.1
   done
-  tmux -L lazygit-test kill-server 2>/dev/null || true
+  tmux -L "lazygit-$2" kill-server 2>/dev/null || true
 }
 
 @test "lazygit runs nothing from a .lazygit.yml the head tracks, though the same file in a parent directory does run" {
