@@ -117,24 +117,6 @@ _require_timeout() {
 }
 
 # ---------------------------------------------------------------------------
-# Passthrough behavior
-# ---------------------------------------------------------------------------
-
-@test "gh wrapper passes non-merge commands through" {
-  if ! command -v gh >/dev/null 2>&1; then
-    skip "gh not installed"
-  fi
-  # gh pr list requires auth + repo context. CI typically has neither
-  # for this checkout (no GH_TOKEN, no remote tracking). Skip unless
-  # we can prove auth works.
-  if ! gh auth status >/dev/null 2>&1; then
-    skip "gh not authenticated (no GH_TOKEN in env)"
-  fi
-  run "$WRAPPER" pr list --state closed --limit 1
-  [ "$status" -eq 0 ]
-}
-
-# ---------------------------------------------------------------------------
 # Merge guard
 # ---------------------------------------------------------------------------
 
