@@ -31,6 +31,7 @@
 # looks correct no matter what its own startup files do.
 #
 # Run: bats tests/shell-path-matrix.bats
+# run-tests: parallel
 
 load lib/shell-canary
 

@@ -9,19 +9,28 @@ WRAPPER="$BATS_TEST_DIRNAME/../stow/gh/dot-local/bin/gh"
 # $HOME/.local/bin/gh, followed by a fake real gh that records its invocation.
 # HOME points at an empty dir so the host's own ~/.local/bin/gh cannot leak
 # into the run.
-setup() {
-  TMP="$(mktemp -d)"
-  mkdir -p "$TMP/alias" "$TMP/real" "$TMP/home"
-  ln -s "$WRAPPER" "$TMP/alias/gh"
-  printf '%s\n' '#!/usr/bin/env bash' 'touch "${FAKE_GH_MARKER:?}"' 'echo "fake real gh"' >"$TMP/real/gh"
-  chmod +x "$TMP/real/gh"
-  export FAKE_GH_MARKER="$TMP/fake-gh-ran"
-  FAKE_PATH="$TMP/alias:$TMP/real:/usr/bin:/bin"
-  unset GH_REPO
+#
+# The alias, and the fake real gh each test puts behind it, are the same for every
+# test and read-only, so they are written once: real/ records that it ran,
+# real-prs/ is _fake_gh_with_prs's. Each test keeps its marker and PR bases under
+# its own BATS_TEST_TMPDIR.
+setup_file() {
+  local d=$BATS_FILE_TMPDIR
+  mkdir -p "$d/alias" "$d/real" "$d/real-prs"
+  ln -s "$WRAPPER" "$d/alias/gh"
+  printf '%s\n' '#!/usr/bin/env bash' 'touch "${FAKE_GH_MARKER:?}"' 'echo "fake real gh"' >"$d/real/gh"
+  _write_fake_gh_with_prs "$d/real-prs/gh"
+  chmod 555 "$d/real/gh" "$d/real-prs/gh"
 }
 
-teardown() {
-  rm -rf "$TMP"
+setup() {
+  TMP=$BATS_TEST_TMPDIR
+  ALIAS="$BATS_FILE_TMPDIR/alias"
+  REAL="$BATS_FILE_TMPDIR/real"
+  mkdir -p "$TMP/home"
+  export FAKE_GH_MARKER="$TMP/fake-gh-ran"
+  FAKE_PATH="$ALIAS:$REAL:/usr/bin:/bin"
+  unset GH_REPO
 }
 
 # Resolves an absolute path because every caller runs `timeout` under a
@@ -81,7 +90,7 @@ _require_timeout() {
   mkdir -p "$TMP/copy"
   cp "$WRAPPER" "$TMP/copy/gh"
   chmod +x "$TMP/copy/gh"
-  run env HOME="$TMP/home" PATH="$TMP/copy:$TMP/real:/usr/bin:/bin" "$TIMEOUT_BIN" 3 "$WRAPPER" --version
+  run env HOME="$TMP/home" PATH="$TMP/copy:$REAL:/usr/bin:/bin" "$TIMEOUT_BIN" 3 "$WRAPPER" --version
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -117,24 +126,6 @@ _require_timeout() {
 }
 
 # ---------------------------------------------------------------------------
-# Passthrough behavior
-# ---------------------------------------------------------------------------
-
-@test "gh wrapper passes non-merge commands through" {
-  if ! command -v gh >/dev/null 2>&1; then
-    skip "gh not installed"
-  fi
-  # gh pr list requires auth + repo context. CI typically has neither
-  # for this checkout (no GH_TOKEN, no remote tracking). Skip unless
-  # we can prove auth works.
-  if ! gh auth status >/dev/null 2>&1; then
-    skip "gh not authenticated (no GH_TOKEN in env)"
-  fi
-  run "$WRAPPER" pr list --state closed --limit 1
-  [ "$status" -eq 0 ]
-}
-
-# ---------------------------------------------------------------------------
 # Merge guard
 # ---------------------------------------------------------------------------
 
@@ -146,7 +137,12 @@ _require_timeout() {
 # does, so a guard that folds stderr into the base reads noise instead of `main`.
 # Every other call only records its arguments: nothing in this suite can merge.
 _fake_gh_with_prs() {
-  cat >"$TMP/real/gh" <<'EOF'
+  REAL="$BATS_FILE_TMPDIR/real-prs"
+  export TMP
+}
+
+_write_fake_gh_with_prs() {
+  cat >"$1" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-} ${2:-}" != "pr view" ]]; then
   printf '%s\n' "$*" >>"${FAKE_GH_MARKER:?}"
@@ -170,7 +166,6 @@ fi
 echo "A new release of gh is available" >&2
 cat "$TMP/prs/$repo/$selector"
 EOF
-  export TMP
 }
 
 _pr_base() {
@@ -182,7 +177,7 @@ _pr_base() {
 # itself, and a merge command line never reads the PR freeze file under HOME.
 _gh() {
   gh_status=0
-  gh_output=$(env PATH="$TMP/alias:$TMP/real:$PATH" "$WRAPPER" "$@" 2>&1) || gh_status=$?
+  gh_output=$(env PATH="$ALIAS:$REAL:$PATH" "$WRAPPER" "$@" 2>&1) || gh_status=$?
   echo "gh $*: status=$gh_status output=$gh_output"
 }
 

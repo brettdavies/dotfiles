@@ -49,6 +49,33 @@ processes_with() {
   done
 }
 
+# Usage: processes_in <dir> <test pid>; prints "<pid> <command>" for each live process outside the session of the test
+# running as <test pid> whose working directory is <dir> or below it. It finds what the environment scan misses: a
+# process started from an empty environment, as `env -i` starts one, such as a pane of a tmux server that such a start
+# put on a socket outside <dir>. The test's own shell and every command it runs share its session, and may work in
+# <dir>.
+processes_in() {
+  local link pid sid own cmd
+  [ -d /proc/self ] || return 0
+  own=$(session_of "$2")
+  while IFS= read -r link; do
+    pid=${link#/proc/}
+    pid=${pid%%/*}
+    sid=$(session_of "$pid")
+    [ -n "$sid" ] && [ "$sid" != "$own" ] || continue
+    cmd=$(tr '\0' ' ' 2>/dev/null <"/proc/$pid/cmdline" | cut -c1-160)
+    printf '%s %s\n' "$pid" "$cmd"
+  done < <(find /proc/[0-9]*/cwd -maxdepth 0 \( -lname "$1" -o -lname "$1/*" \) 2>/dev/null)
+}
+
+# Usage: session_of <pid>; prints the session id of a live process, and nothing for one that is gone.
+session_of() {
+  local stat _ sid
+  read -r stat 2>/dev/null <"/proc/$1/stat" || return 0
+  read -r _ _ _ sid _ <<<"${stat##*) }"
+  printf '%s\n' "$sid"
+}
+
 # Usage: is_timeout_watchdog <pid> <command> <test pid>; true when the process is the `sleep $BATS_TEST_TIMEOUT` with
 # which bats times out the test running as <test pid>. bats runs that sleep from a subshell of the test process, starts
 # it after exporting BATS_TEST_TMPDIR and before setup, and stops it after teardown. The subshell can exec the sleep
@@ -86,14 +113,16 @@ parent_of() {
   printf '%s\n' "$ppid"
 }
 
-# Usage: stop_leaks <NAME=value> <who> <when> [<test pid>]; gives each process whose environment holds the entry, other
-# than the timeout watchdog of <test pid>, at least 3 s of wall clock to exit, then kills whatever is left, lists it
-# under "processes WHO started were still running after WHEN, and were killed:" on stderr, and fails. The deadline is
-# wall clock because a scan reads every process's environment, which takes longest on a loaded host, where a count of
-# scans could outlast a leak that exits on its own.
+# Usage: stop_leaks <NAME=value> <who> <when> [<test pid> [<dir>]]; gives each process whose environment holds the
+# entry, other than the timeout watchdog of <test pid>, and each that processes_in finds in <dir>, at least 3 s of wall
+# clock to exit, then kills whatever is left, lists it under "processes WHO started were still running after WHEN, and
+# were killed:" on stderr, and fails. The deadline is wall clock because a scan reads every process's environment, which
+# takes longest on a loaded host, where a count of scans could outlast a leak that exits on its own.
 stop_leaks() {
   local left pid _ deadline=$((SECONDS + 4))
-  while left=$(processes_with "$1" "${4:-}"); [ -n "$left" ] && ((SECONDS < deadline)); do
+  while left=$(processes_with "$1" "${4:-}"; [ -z "${5:-}" ] || processes_in "$5" "$4")
+    left=$(awk '!seen[$1]++' <<<"$left")
+    [ -n "$left" ] && ((SECONDS < deadline)); do
     sleep 0.1
   done
   [ -n "$left" ] || return 0
@@ -114,7 +143,8 @@ BATS_WATCHDOG_JOB='%?bats_kill_processes_of'
 
 # Usage: assert_no_leaks; last in teardown. bats exports BATS_TEST_TMPDIR to every command a test runs, and bats's own
 # processes were started before it was set, so the processes that carry it are the ones this test started, all but the
-# timeout watchdog's sleep. Teardown runs in the test process, so $$ names it.
+# timeout watchdog's sleep. A process started from an empty environment carries nothing, so the guard also takes each
+# process outside the test's session that works in BATS_TEST_TMPDIR. Teardown runs in the test process, so $$ names it.
 assert_no_leaks() {
-  stop_leaks "BATS_TEST_TMPDIR=$BATS_TEST_TMPDIR" "this test" teardown "$$"
+  stop_leaks "BATS_TEST_TMPDIR=$BATS_TEST_TMPDIR" "this test" teardown "$$" "$BATS_TEST_TMPDIR"
 }

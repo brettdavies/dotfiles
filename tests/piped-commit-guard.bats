@@ -3,6 +3,7 @@
 # message file a later step deletes or moves.
 #
 # Run: bats tests/piped-commit-guard.bats
+# run-tests: parallel
 
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/piped-commit-guard.sh"
 

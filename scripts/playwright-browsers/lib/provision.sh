@@ -14,17 +14,34 @@ pw_moved() {
 }
 
 pw_sha256() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
+  local out
+  if command -v sha256sum >/dev/null 2>&1; then out=$(sha256sum "$1"); else out=$(shasum -a 256 "$1"); fi
+  printf '%s\n' "${out%% *}"
+}
+
+# pw_read FILE: PW_READ is FILE's content up to its first NUL byte, or empty when
+# FILE cannot be read. read is a builtin, so a call starts no process.
+pw_read() {
+  PW_READ=
+  { IFS= read -r -d '' PW_READ <"$1"; } 2>/dev/null || true
+}
+
+# pw_read_text FILE: pw_read with trailing newlines stripped, as command substitution strips them.
+pw_read_text() {
+  pw_read "$1"
+  while [[ $PW_READ == *$'\n' ]]; do PW_READ=${PW_READ%$'\n'}; done
 }
 
 # Atomic rename that replaces a file or a symlink and never moves into a
 # directory: -T on GNU mv, -h on the BSD one.
+if mv --version >/dev/null 2>&1; then PW_MV_OVER=-fT; else PW_MV_OVER=-fh; fi
 pw_rename_over() {
-  if mv --version >/dev/null 2>&1; then mv -fT "$1" "$2"; else mv -fh "$1" "$2"; fi
+  mv "$PW_MV_OVER" "$1" "$2"
 }
 
+# pw_record INDEX: PW_RECORD is the record of the archive and URL directory INDEX comes from.
 pw_record() {
-  printf 'sha256 %s\nurl %s\n' "${PIN_SHA[${PW_ARCHIVE[$1]}]}" "${PW_URL[$1]}"
+  printf -v PW_RECORD 'sha256 %s\nurl %s\n' "${PIN_SHA[${PW_ARCHIVE[$1]}]}" "${PW_URL[$1]}"
 }
 
 pw_dir_complete() {
@@ -33,7 +50,10 @@ pw_dir_complete() {
 }
 
 pw_provisioned() {
-  pw_dir_complete "$1" && [ "$(cat "$BP/${PW_DIR[$1]}/.dotfiles-record" 2>/dev/null)" = "$(pw_record "$1")" ]
+  pw_dir_complete "$1" || return 1
+  pw_record "$1"
+  pw_read_text "$BP/${PW_DIR[$1]}/.dotfiles-record"
+  [ "$PW_READ" = "${PW_RECORD%$'\n'}" ]
 }
 
 # pw_provision INDEX: fetch, verify, unpack and mark in the stage, then rename
@@ -61,9 +81,11 @@ pw_provision() {
       "$(pw_moved)" "grep -n archive-incomplete $PW_RUNBOOK"
   : >"$STAGE/$dir/INSTALLATION_COMPLETE"
   : >"$STAGE/$dir/DEPENDENCIES_VALIDATED"
-  pw_record "$i" >"$STAGE/$dir/.dotfiles-record"
+  pw_record "$i"
+  printf '%s' "$PW_RECORD" >"$STAGE/$dir/.dotfiles-record"
   if [ -e "$BP/$dir" ] || [ -L "$BP/$dir" ]; then
-    if [ "$(cat "$BP/$dir/.dotfiles-record" 2>/dev/null)" = "$(pw_record "$i")" ]; then
+    pw_read_text "$BP/$dir/.dotfiles-record"
+    if [ "$PW_READ" = "${PW_RECORD%$'\n'}" ]; then
       pw_note "replacing $dir, whose executable or install marker is gone"
     else
       pw_note "replacing $dir, which is not from this pin"
