@@ -482,12 +482,15 @@ in the script, never in a hook or a workflow, so the three cannot drift. `tests/
 A missing tool skips its step with an install hint instead of failing, so a machine without the full toolchain can still
 commit and push; CI stays the backstop. `.githooks/lib/report.sh` holds the shared pass/skip/fail output helpers.
 
-A suite whose code under test can run only on Linux skips itself elsewhere, so `pre-push` on the Mac and CI on Linux
-each pass on what they can run: its `setup_file` loads `tests/lib/platform.bash` and calls `require_linux "<why>"`.
-`mac-open.bats` and `tailscale-serve-deploy.bats` are gated this way. There is no macOS counterpart, because CI runs
-only on Linux and a suite gated to macOS would never run there. Mac-side code is tested through `uname` stubs, which run
-everywhere, and a check that needs a real Mac tool skips just that test when the tool is missing
-(`command -v plutil || skip`).
+Every platform decision a suite makes goes through `tests/lib/platform.bash`. A suite whose code under test can run only
+on Linux skips itself elsewhere, so `pre-push` on the Mac and CI on Linux each pass on what they can run: its
+`setup_file` loads the helper and calls `require_linux "<why>"`, and a single test can call it to skip only itself.
+`mac-open.bats` and `tailscale-serve-deploy.bats` are gated this way. No gate skips a whole suite on Linux, because CI
+runs only on Linux and such a suite would never run there. Mac-side code is tested on Linux through `stub_uname <dir>`,
+which writes a `uname` answering `STUB_UNAME` for `-s`, `STUB_UNAME_R` for `-r`, and `STUB_UNAME_M` for `-m`, each the
+real value when unset. A test that needs the real macOS calls `require_macos "<why>"`, which skips that test alone, and
+a check that needs a real Mac tool skips just that test when the tool is missing (`command -v plutil || skip`).
+`tests/platform.bats` fails when any other suite writes its own `uname` stub or skips on the host's OS name inline.
 
 A suite whose tests start background processes loads `tests/lib/processes.bash`, starts each one with `spawn`, and ends
 `teardown` with `stop_spawned` and then `assert_no_leaks`. `spawn` gives the process a session of its own, so

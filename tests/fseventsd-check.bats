@@ -16,7 +16,9 @@ CHECK="$BATS_TEST_DIRNAME/../scripts/fseventsd-check.sh"
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$STUBS"
-  stub uname 'echo "${STUB_UNAME:-Darwin}"'
+  load lib/platform
+  stub_uname "$STUBS"
+  export STUB_UNAME=Darwin
   stub pgrep '[ -z "${STUB_NO_DAEMON-}" ] || exit 1
     echo 106'
   stub ps 'printf "%6s\n" "$STUB_RSS_KB"'
