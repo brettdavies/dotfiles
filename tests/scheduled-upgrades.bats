@@ -360,15 +360,29 @@ PINS_WAITING='{"outcome":"waiting","reason":"cooldown","exit_code":75,"message":
     '["failure","script-error",null,"rerun"]' ]
 }
 
+@test "a run through the agent's chain says launchd, though macOS resets XPC_SERVICE_NAME to 0 in the job's children" {
+  command -v jaq >/dev/null 2>&1 || skip "jaq not available"
+  logs=$BATS_TEST_TMPDIR/Logs
+  mkdir -p "$logs"
+  # launchd names the job only in the job's own process, which the wrapper and the gate exec into; the job script is the
+  # gate's child and starts with 0. Only a real launchd makes that reset, so the inner env stands in for it.
+  run env -u DOTFILES_SHELL_DIR -u INVOCATION_ID XPC_SERVICE_NAME=com.user.uv-tools-upgrade PATH="$STUBS:$PATH" \
+    LAUNCHD_LOG_DIR="$logs" UPGRADE_STATE_DIR="$BATS_TEST_TMPDIR/state" \
+    "$REPO_ROOT/scripts/launchd-run.sh" uv-tools-upgrade.jsonl \
+    "$REPO_ROOT/scripts/upgrade/daily-gate.sh" uv-tools-upgrade env XPC_SERVICE_NAME=0 bash "$UV_JOB"
+  [ "$status" -eq 0 ]
+  [ "$(head -n 1 "$logs/uv-tools-upgrade.jsonl" | jaq -r .trigger)" = launchd ]
+}
+
 @test "run.start names what started the run" {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   run env -u DOTFILES_SHELL_DIR INVOCATION_ID=0123abcd PATH="$STUBS:$PATH" bash "$UV_JOB"
   [ "$(printf '%s\n' "$output" | head -n 1 | jaq -c '[.trigger, .run_id]')" = '["systemd","0123abcd"]' ]
-  run env -u DOTFILES_SHELL_DIR -u INVOCATION_ID XPC_SERVICE_NAME=com.user.uv-tools-upgrade PATH="$STUBS:$PATH" \
+  run env -u DOTFILES_SHELL_DIR -u INVOCATION_ID LAUNCHD_JOB_LABEL=com.user.uv-tools-upgrade PATH="$STUBS:$PATH" \
     bash "$UV_JOB"
   [ "$(printf '%s\n' "$output" | head -n 1 | jaq -r .trigger)" = launchd ]
-  run env -u DOTFILES_SHELL_DIR -u INVOCATION_ID XPC_SERVICE_NAME=application.com.mitchellh.ghostty.1 \
-    PATH="$STUBS:$PATH" bash "$UV_JOB"
+  run env -u DOTFILES_SHELL_DIR -u INVOCATION_ID LAUNCHD_JOB_LABEL=com.user.brew-upgrade PATH="$STUBS:$PATH" \
+    bash "$UV_JOB"
   [ "$(printf '%s\n' "$output" | head -n 1 | jaq -r .trigger)" = manual ]
 }
 

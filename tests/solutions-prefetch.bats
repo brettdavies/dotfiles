@@ -22,6 +22,14 @@
 
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/solutions-prefetch.sh"
 
+# The reminder names qmd, so the hook fires only where qmd runs; a stub that exits 0 stands in for it.
+setup() {
+  mkdir -p "$BATS_TEST_TMPDIR/stubs"
+  printf '#!/bin/sh\nexit 0\n' >"$BATS_TEST_TMPDIR/stubs/qmd"
+  chmod +x "$BATS_TEST_TMPDIR/stubs/qmd"
+  PATH="$BATS_TEST_TMPDIR/stubs:$PATH"
+}
+
 # Feed a prompt string as the hook's JSON stdin; echo FIRE or SILENT.
 fires() {
   local prompt=$1 out
@@ -134,4 +142,18 @@ _log_padding() {
 
 @test "negative: a long prompt with no debugging signal stays silent" {
   [ "$(fires "$(printf 'please add a changelog entry\n%s\n' "$(_log_padding)")")" = SILENT ]
+}
+
+# ---------------------------------------------------------------------------
+# NO QMD — the reminder sends the agent to qmd, so a host without it gets none
+# ---------------------------------------------------------------------------
+
+@test "no qmd: a debugging prompt stays silent on a host without qmd" {
+  PATH="$(dirname "$(command -v jaq)"):/usr/bin:/bin"
+  [ "$(fires "the login page is broken")" = SILENT ]
+}
+
+@test "no qmd: a debugging prompt stays silent when the qmd on PATH cannot run, as the stowed dispatcher with no qmd behind it" {
+  printf '#!/bin/sh\nexit 127\n' >"$BATS_TEST_TMPDIR/stubs/qmd"
+  [ "$(fires "the login page is broken")" = SILENT ]
 }

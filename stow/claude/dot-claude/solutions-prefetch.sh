@@ -14,7 +14,8 @@
 # standalone numbers) — caught only in unambiguous shapes (ALL-CAPS ERROR,
 # PascalCase *Error/*Exception, "Error:" prefix, "NNN error/status").
 #
-# Fail-open + zero latency (two greps, no subprocess to qmd).
+# Fail-open. A prompt that matches neither pattern never starts qmd; a match runs
+# `qmd --version` once, to check that qmd can run.
 set -uo pipefail
 
 input=$(cat)
@@ -34,6 +35,9 @@ LOG='\bFATAL\b|\bERROR\b|\bException\b|\bTraceback\b|\b[A-Z][A-Za-z]{2,}(Error|E
 # the match into a non-zero pipeline — reading a long debugging prompt as no
 # match at all, which is the one case this hook exists for.
 if grep -qiE "$CONV" <<<"$prompt" || grep -qE "$LOG" <<<"$prompt"; then
+  # The reminder sends the agent to qmd, so a host where qmd cannot run gets none. Only a run tells: the qmd stow package
+  # puts its dispatcher on every host's PATH, including one with no qmd checkout behind it.
+  qmd --version >/dev/null 2>&1 || exit 0
   # shellcheck disable=SC2016  # backticks are literal markdown in the reminder text, not command substitution
   printf 'Debugging task: before investigating, run `qmd query "<focused: component + error>" --collection solutions`. A documented root cause/fix may already exist; /investigate does NOT search the docs/solutions corpus. Use focused keywords, not the raw log (raw pastes mis-rank).\n'
 fi
