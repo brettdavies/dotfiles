@@ -22,14 +22,11 @@ LT_SH="$BATS_TEST_DIRNAME/../config/shell/languagetool.sh"
 SUFFIX="example-tailnet.ts.net"
 SERVICE_URL="https://languagetool.$SUFFIX"
 
-setup() {
-  STUBS="$BATS_TEST_TMPDIR/stubs"
-  CALLS="$BATS_TEST_TMPDIR/calls.log"
+# The stubs answer from per-test variables and log to the test's own CALLS, so one
+# read-only copy serves every test.
+setup_file() {
+  local STUBS="$BATS_FILE_TMPDIR/stubs"
   mkdir -p "$STUBS"
-  : >"$CALLS"
-  export CALLS
-  PATH="$STUBS:$PATH"
-  unset LANGUAGETOOL_URL LT_DENY_RULES LT_BLOCKING_CATEGORIES LT_PROBE_TIMEOUT
 
   cat >"$STUBS/tailscale" <<'STUB'
 #!/usr/bin/env bash
@@ -59,7 +56,15 @@ case $url in
     fi ;;
 esac
 STUB
-  chmod +x "$STUBS/tailscale" "$STUBS/curl"
+  chmod 555 "$STUBS/tailscale" "$STUBS/curl"
+}
+
+setup() {
+  CALLS="$BATS_TEST_TMPDIR/calls.log"
+  : >"$CALLS"
+  export CALLS
+  PATH="$BATS_FILE_TMPDIR/stubs:$PATH"
+  unset LANGUAGETOOL_URL LT_DENY_RULES LT_BLOCKING_CATEGORIES LT_PROBE_TIMEOUT
 
   DOC="$BATS_TEST_TMPDIR/doc.md"
   printf 'Their is a typo here.\n' >"$DOC"
