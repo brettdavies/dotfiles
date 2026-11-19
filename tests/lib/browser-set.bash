@@ -23,15 +23,19 @@ BS_ARCHIVE_SPECS=(
 )
 
 bs_sha256() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
+  local out
+  if command -v sha256sum >/dev/null 2>&1; then out=$(sha256sum "$1"); else out=$(shasum -a 256 "$1"); fi
+  printf '%s\n' "${out%% *}"
 }
 
-# setup_file: BS_ARCHIVES (fixture archives) and BS_TEST_PIN, the repo's pin
-# with each archive's hash replaced by its fixture's.
+# setup_file: BS_ARCHIVES (fixture archives), BS_TEST_PIN, the repo's pin with
+# each archive's hash set to its fixture's, and the uname and curl stubs
+# bs_sandbox puts on PATH. The stubs are written once per file, not per test.
 bs_build_archives() {
   BS_ARCHIVES="$BATS_FILE_TMPDIR/archives"
   BS_TEST_PIN="$BATS_FILE_TMPDIR/test.pin"
-  mkdir -p "$BS_ARCHIVES"
+  mkdir -p "$BS_ARCHIVES" "$BATS_FILE_TMPDIR/stubs"
+  bs_write_stubs "$BATS_FILE_TMPDIR/stubs"
   python3 -B -I -c '
 import sys, zipfile
 out = sys.argv[1]
@@ -51,12 +55,11 @@ for spec in sys.argv[2:]:
   export BS_ARCHIVES BS_TEST_PIN
 }
 
-# setup: a sandbox cache, a uname that reports BS_OS/BS_ARCH/BS_KERNEL, and a
-# curl that serves the fixture named by the URL's last component and logs its
-# command line. A URL containing BS_CURL_404 answers 404; BS_CURL_SERVE replaces the bytes.
-bs_sandbox() {
-  local stubs="$BATS_TEST_TMPDIR/stubs"
-  mkdir -p "$stubs"
+# A uname that reports BS_OS/BS_ARCH/BS_KERNEL, and a curl that serves the
+# fixture named by the URL's last component and logs its command line to
+# BS_CURL_LOG. A URL containing BS_CURL_404 answers 404; BS_CURL_SERVE replaces the bytes.
+bs_write_stubs() {
+  local stubs=$1
   cat >"$stubs/uname" <<'EOF'
 #!/usr/bin/env bash
 case "${1:-}" in -m) echo "${BS_ARCH:-x86_64}" ;; -r) echo "${BS_KERNEL:-6.8.0}" ;; *) echo "${BS_OS:-Linux}" ;; esac
@@ -75,12 +78,46 @@ case "$url" in *"${BS_CURL_404:-@none@}"*) src=/nonexistent ;; *) src="$BS_ARCHI
 cp "${BS_CURL_SERVE:-$src}" "$out"
 EOF
   chmod +x "$stubs/uname" "$stubs/curl"
-  PATH="$stubs:$PATH"
+}
+
+# setup: a sandbox cache, and the file's stubs on PATH behind the test's own
+# stubs directory, where a test adds any other stub.
+bs_sandbox() {
+  mkdir -p "$BATS_TEST_TMPDIR/stubs"
+  PATH="$BATS_TEST_TMPDIR/stubs:$BATS_FILE_TMPDIR/stubs:$PATH"
   export BS_CURL_LOG="$BATS_TEST_TMPDIR/curl.log"
   : >"$BS_CURL_LOG"
   export PLAYWRIGHT_BROWSERS_PATH="$BATS_TEST_TMPDIR/browsers"
   BP="$PLAYWRIGHT_BROWSERS_PATH"
   unset PLAYWRIGHT_SKIP_BROWSER_GC PLAYWRIGHT_DOWNLOAD_HOST BS_OS BS_ARCH BS_KERNEL BS_CURL_404 BS_CURL_SERVE
+}
+
+# setup_file, after bs_build_archives: BS_DEPLOYED, a first deploy of the test pin
+# made by the script itself on the stubs' default Linux host, with its stdout in
+# BS_DEPLOYED_OUT and its curl log in BS_DEPLOYED_CURL_LOG. Tests read it or copy
+# it; none writes to it.
+bs_build_deployed() {
+  BS_DEPLOYED="$BATS_FILE_TMPDIR/deployed"
+  BS_DEPLOYED_OUT="$BATS_FILE_TMPDIR/deployed.out"
+  BS_DEPLOYED_CURL_LOG="$BATS_FILE_TMPDIR/deployed-curl.log"
+  (
+    unset PLAYWRIGHT_SKIP_BROWSER_GC PLAYWRIGHT_DOWNLOAD_HOST BS_OS BS_ARCH BS_KERNEL BS_CURL_404 BS_CURL_SERVE
+    export PATH="$BATS_FILE_TMPDIR/stubs:$PATH" BS_CURL_LOG="$BS_DEPLOYED_CURL_LOG"
+    : >"$BS_CURL_LOG"
+    PLAYWRIGHT_BROWSERS_PATH="$BS_DEPLOYED" "$BS_SCRIPT" --pin "$BS_TEST_PIN" >"$BS_DEPLOYED_OUT"
+  )
+  export BS_DEPLOYED BS_DEPLOYED_OUT BS_DEPLOYED_CURL_LOG
+}
+
+# BP becomes a copy of BS_DEPLOYED. A deploy writes the cache's own path into its
+# client links and nowhere else, so each link is rewritten to name BP, as a
+# deploy to BP writes it.
+bs_copy_deployed() {
+  local link
+  cp -RP "$BS_DEPLOYED" "$BP"
+  for link in "$BP"/.links/dotfiles-*; do
+    printf '%s' "$BP/.dotfiles/clients/${link##*/dotfiles-}" >"$link"
+  done
 }
 
 # A Mac of the given Darwin kernel (25 is macOS 26, 24 is 15, 23 is 14).

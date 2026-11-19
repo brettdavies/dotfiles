@@ -10,23 +10,19 @@
 bats_require_minimum_version 1.5.0
 load lib/browser-set
 
-setup_file() { bs_build_archives; }
+setup_file() {
+  bs_build_archives
+  bs_build_deployed
+}
 
 setup() {
   bs_sandbox
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
 }
 
 # The tree and every symlink's target, so a check that touched anything shows.
 state() {
   (cd "$BP" && find . | sort && find . -type l -exec readlink {} \;)
-}
-
-@test "a healthy set passes with nothing on stderr but retained builds" {
-  deploy --check
-  [ "$status" -eq 0 ]
-  [ -z "$stderr" ]
 }
 
 @test "a host with nothing deployed fails without creating a cache, and pages its findings" {

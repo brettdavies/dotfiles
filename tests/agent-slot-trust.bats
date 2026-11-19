@@ -108,6 +108,23 @@ EOF
   [ "$keys" = "Down Enter" ]
 }
 
+@test "with TMUX_TMPDIR set, the sessions and the trust step start on the socket every later tmux call reaches" {
+  dialog_fixture "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")"
+  mv "$STUBS/tmux" "$STUBS/tmux-base"
+  cat >"$STUBS/tmux" <<EOF
+#!/usr/bin/env bash
+printf '%s %s\n' "\${TMUX_TMPDIR:-unset}" "\$*" >>'$T/tmux-dirs'
+exec '$STUBS/tmux-base' "\$@"
+EOF
+  chmod +x "$STUBS/tmux"
+  export TMUX_TMPDIR=$T/sockets
+  run --separate-stderr "$AGENT_SLOT" launch repoa --model opus --request-id r1 --output json
+  [ "$status" -eq 0 ]
+  grep -qF -- "$T/sockets -L agent-slot-trust -f /dev/null new-session -d -s trust-" "$T/tmux-dirs"
+  grep -qF -- "$T/sockets -L agent-slot-test -f $AGENT_SLOT_TMUX_CONF new-session -d -s repoa-1 " "$T/tmux-dirs"
+  run ! grep -vF -- "$T/sockets " "$T/tmux-dirs"
+}
+
 @test "launch of a repo whose prime checkout is untrusted sends no keys and expects the prompt" {
   untrust_prime
   dialog_fixture "$(realpath -m "$AGENT_SLOT_ROOT/repoa/1")"

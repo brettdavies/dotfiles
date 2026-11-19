@@ -21,11 +21,11 @@ teardown() {
   assert_no_leaks
 }
 
-setup() {
-  STUBS="$BATS_TEST_TMPDIR/stubs"
+# The stubs every test starts with are written once and read-only. Each one reads its log and state paths from
+# variables that setup exports per test. A test adds or overrides a stub in its own $STUBS, which comes first on PATH.
+setup_file() {
+  local STUBS="$BATS_FILE_TMPDIR/stubs"
   mkdir -p "$STUBS"
-  export UV_LOG="$BATS_TEST_TMPDIR/uv.log" BREW_LOG="$BATS_TEST_TMPDIR/brew.log" SYSTEMCTL_LOG="$BATS_TEST_TMPDIR/systemctl.log"
-  export STUB_BREW_PREFIX="$BATS_TEST_TMPDIR/prefix"
   cat >"$STUBS/uv" <<'EOF'
 #!/bin/sh
 case "$*" in
@@ -86,7 +86,6 @@ EOF
   # The daily gate's connectivity probe always answers, so no test reaches the network.
   printf '#!/bin/sh\nexit 0\n' >"$STUBS/curl"
   # Records whether bu had finished (its cleanup step logged) when ya ran, and fails on STUB_YA_FAIL.
-  export YA_LOG="$BATS_TEST_TMPDIR/ya.log"
   cat >"$STUBS/ya" <<'EOF'
 #!/bin/sh
 after=no
@@ -96,11 +95,6 @@ echo "Deploying package \`git.yazi\`"
 [ -n "${STUB_YA_FAIL-}" ] && { echo "Error: failed to fetch yazi-rs/plugins" >&2; exit 1; }
 echo "Done!"
 EOF
-  # The pins are proven on the stub yazi's version, so a run bumps nothing unless a test changes the stamp; the bump
-  # stub logs that it ran, prints a line of progress, and prints STUB_PINS_OUT as its outcome.
-  export YAZI_PINS_STATE_DIR="$BATS_TEST_TMPDIR/state" PINS_LOG="$BATS_TEST_TMPDIR/pins.log"
-  mkdir -p "$YAZI_PINS_STATE_DIR"
-  echo 26.10.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
   printf '#!/bin/sh\nprintf "Yazi\\n    Version: 26.10.1 (Homebrew 2026-10-30)\\n"\n' >"$STUBS/yazi"
   cat >"$STUBS/yazi-pins" <<'EOF'
 #!/bin/sh
@@ -108,8 +102,22 @@ echo ran >>"$PINS_LOG"
 echo "yazi-pins: checking the candidates" >&2
 printf '%s\n' "${STUB_PINS_OUT-}"
 EOF
-  export YAZI_PINS_CMD="$STUBS/yazi-pins"
-  chmod +x "$STUBS"/*
+  chmod 555 "$STUBS"/*
+}
+
+setup() {
+  STUBS="$BATS_TEST_TMPDIR/stubs"
+  mkdir -p "$STUBS"
+  PATH="$BATS_FILE_TMPDIR/stubs:$PATH"
+  export UV_LOG="$BATS_TEST_TMPDIR/uv.log" BREW_LOG="$BATS_TEST_TMPDIR/brew.log" SYSTEMCTL_LOG="$BATS_TEST_TMPDIR/systemctl.log"
+  export STUB_BREW_PREFIX="$BATS_TEST_TMPDIR/prefix"
+  export YA_LOG="$BATS_TEST_TMPDIR/ya.log"
+  # The pins are proven on the stub yazi's version, so a run bumps nothing unless a test changes the stamp; the bump
+  # stub logs that it ran, prints a line of progress, and prints STUB_PINS_OUT as its outcome.
+  export YAZI_PINS_STATE_DIR="$BATS_TEST_TMPDIR/state" PINS_LOG="$BATS_TEST_TMPDIR/pins.log"
+  mkdir -p "$YAZI_PINS_STATE_DIR"
+  echo 26.10.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
+  export YAZI_PINS_CMD="$BATS_FILE_TMPDIR/stubs/yazi-pins"
 }
 
 # Every line is one JSON object carrying the fields an agent filters on, and the last is the run's run.end.

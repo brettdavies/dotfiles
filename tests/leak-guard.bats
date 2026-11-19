@@ -81,6 +81,15 @@ orphan_probe() {
   none_in_cwd
 }
 
+@test "the guard fails a test that leaves a process without BATS_TEST_TMPDIR working in its directory, and stops it" {
+  probe "cd \"\$BATS_TEST_TMPDIR\" && (env -u BATS_TEST_TMPDIR setsid sleep 32 </dev/null >/dev/null 2>&1 3>&- &)"
+  nested "$BATS_TEST_TMPDIR/probe.bats"
+  [ "$status" -eq 1 ]
+  [[ $output == *"processes this test started were still running after teardown, and were killed:"*"sleep 32"* ]]
+  pid=$(grep -oE '[0-9]+ sleep 32' <<<"$output" | cut -d' ' -f1)
+  run ! kill -0 "$pid"
+}
+
 @test "a spawned process is stopped with what it started, even once that has a new parent" {
   probe "spawn bash -c '(sleep 30 &); exec sleep 31'; until [ \"\$(pgrep -c -x -s \$! sleep)\" -ge 2 ]; do sleep 0.1; done"
   nested "$BATS_TEST_TMPDIR/probe.bats"
