@@ -65,7 +65,7 @@ run_log_start() {
   local trigger=manual settings='' var
   if [ -n "${INVOCATION_ID:-}" ]; then
     trigger=systemd
-  elif [ "${XPC_SERVICE_NAME:-}" = "com.user.$RUN_JOB" ]; then
+  elif [ "${LAUNCHD_JOB_LABEL:-}" = "com.user.$RUN_JOB" ]; then
     trigger=launchd
   fi
   for var in "${@:4}"; do

@@ -17,4 +17,7 @@ for log in "$out" "$err"; do
     tail -c 1048576 "$log" | tail -n +2 >"$log.tmp" && mv -f "$log.tmp" "$log"
   fi
 done
+# launchd names the job in XPC_SERVICE_NAME only in the job's own process, which this script runs in; macOS sets it to 0
+# in every child, such as the job script that daily-gate.sh starts. The job reads its label from here instead.
+export LAUNCHD_JOB_LABEL="${XPC_SERVICE_NAME:-}"
 exec "$@" >>"$out" 2>>"$err"
