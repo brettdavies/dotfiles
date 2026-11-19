@@ -15,7 +15,10 @@
 bats_require_minimum_version 1.5.0
 load lib/browser-set
 
-setup_file() { bs_build_archives; }
+setup_file() {
+  bs_build_archives
+  bs_build_deployed
+}
 setup() { bs_sandbox; }
 
 # The inode of a path: a file replaced by rename gets a new one, one written in place keeps it.
@@ -32,18 +35,16 @@ links() {
 }
 
 @test "a first deploy fetches four archives from the two fixed hosts, over https, following no redirect" {
-  deploy
-  [ "$status" -eq 0 ]
-  [ "$(wc -l <"$BS_CURL_LOG")" -eq 4 ]
-  [ "$(grep -c -- "--proto =https" "$BS_CURL_LOG")" -eq 4 ]
-  [ "$(grep -cE ' https://(storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux64|cdn.playwright.dev/builds/(webkit/2311|ffmpeg/1013))/[^/]+$' "$BS_CURL_LOG")" -eq 4 ]
-  [[ "$output" == *"OK: browser set deployed"* ]]
-  run ! grep -qE '(^| )(-L|--location)( |$)' "$BS_CURL_LOG"
+  local log=$BS_DEPLOYED_CURL_LOG
+  [ "$(wc -l <"$log")" -eq 4 ]
+  [ "$(grep -c -- "--proto =https" "$log")" -eq 4 ]
+  [ "$(grep -cE ' https://(storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux64|cdn.playwright.dev/builds/(webkit/2311|ffmpeg/1013))/[^/]+$' "$log")" -eq 4 ]
+  grep -q "OK: browser set deployed" "$BS_DEPLOYED_OUT"
+  run ! grep -qE '(^| )(-L|--location)( |$)' "$log"
 }
 
 @test "real directories are numbered from the CfT build and patch, with markers and a record of archive and URL" {
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
   for d in chromium-8103038 chromium_headless_shell-8103038 webkit-2311 ffmpeg-1013; do
     [ -d "$BP/$d" ]
     [ ! -L "$BP/$d" ]
@@ -55,8 +56,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 }
 
 @test "every released Chromium and ffmpeg revision is an alias to the real directory, and WebKit has no alias" {
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
   run links
   [[ "$output" == *"chromium-1228 -> chromium-8103038"* ]]
   [[ "$output" == *"chromium_headless_shell-1254 -> chromium_headless_shell-8103038"* ]]
@@ -83,16 +83,15 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 }
 
 @test "--check passes on a deployed set, naming the versions on stdout" {
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
   deploy --check
   [ "$status" -eq 0 ]
   [[ "$output" == "OK: browser set "*"CfT 157.0.8103.38, WebKit 2311, ffmpeg 1013: 19 aliases, 23 clients" ]]
+  [ -z "$stderr" ]
 }
 
 @test "a hash that differs from the pin stops the deploy, names both hashes, and leaves the set in place" {
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
   local before
   before="$(links)"
   sed 's/^cft-version .*/cft-version 157.0.8103.99/' "$BS_TEST_PIN" >"$BATS_TEST_TMPDIR/next.pin"
@@ -144,8 +143,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 }
 
 @test "a directory whose executable is gone is fetched again, and --check names it first" {
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
   rm "$BP/chromium-8103038/chrome-linux64/chrome"
   deploy --check
   [ "$status" -eq 1 ]
@@ -167,9 +165,8 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 }
 
 @test "the deploy's own scratch directory never survives it" {
-  deploy
-  [ "$status" -eq 0 ]
-  [ -z "$(find "$BP/.dotfiles" -maxdepth 1 -name 'stage.*')" ]
+  [ -z "$(find "$BS_DEPLOYED/.dotfiles" -maxdepth 1 -name 'stage.*')" ]
+  bs_copy_deployed
   sed 's/^cft-version .*/cft-version 157.0.8103.99/' "$BS_TEST_PIN" >"$BATS_TEST_TMPDIR/n.pin"
   BS_CURL_404=chrome-linux64 run --separate-stderr "$BS_SCRIPT" --pin "$BATS_TEST_TMPDIR/n.pin"
   [ "$status" -eq 1 ]
@@ -177,8 +174,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 }
 
 @test "a real directory at an alias name, as a --force install leaves it, is replaced by the alias" {
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
   rm "$BP/chromium-1228"
   bs_seed chromium-1228 chrome-linux64/chrome
   deploy --check
@@ -192,8 +188,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 }
 
 @test "a browser directory outside the pin, as a tool below the floor leaves it, survives and --check names it" {
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
   bs_seed chromium-1155 chrome-linux/chrome
   bs_seed firefox-1497 firefox/firefox
   deploy
@@ -245,8 +240,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 }
 
 @test "a symlink to a directory outside the set survives a deploy, and --check names it" {
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
   bs_seed chromium-1179 chrome-linux/chrome
   ln -s chromium-1179 "$BP/chromium-1187"
   deploy
@@ -258,8 +252,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 }
 
 @test "a .links entry that is not a readable file is left alone and named, and does not stop the deploy" {
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
   mkdir "$BP/.links/dotfiles-chromium-7777"
   deploy
   [ "$status" -eq 0 ]
@@ -270,8 +263,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 }
 
 @test "a client link naming a path with .. or a record file, and a symlink out of the cache, survive a deploy" {
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
   mkdir -p "$BATS_TEST_TMPDIR/outside"
   echo keep >"$BATS_TEST_TMPDIR/outside/file"
   printf '%s' "$BP/.dotfiles/clients/../../../outside" >"$BP/.links/dotfiles-chromium-9998"
@@ -291,8 +283,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 }
 
 @test "a client directory that is a symlink is neither written through nor deleted through" {
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
   mkdir -p "$BATS_TEST_TMPDIR/outside"
   echo keep-stale >"$BATS_TEST_TMPDIR/outside/browsers.json"
   echo keep-wanted >"$BATS_TEST_TMPDIR/outside/other.json"
@@ -334,8 +325,7 @@ url https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux
 }
 
 @test "a damaged client is replaced by rename, never rewritten in place" {
-  deploy
-  [ "$status" -eq 0 ]
+  bs_copy_deployed
   local link="$BP/.links/dotfiles-webkit-2311" json="$BP/.dotfiles/clients/webkit-2311/browsers.json" i j
   i="$(inode "$json")"
   echo '{' >"$json"
