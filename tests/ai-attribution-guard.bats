@@ -10,11 +10,7 @@ HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/ai-attribution-guard.sh"
 load lib/json-parser
 
 setup() {
-  TMPDIR_T=$(mktemp -d)
-}
-
-teardown() {
-  rm -rf "$TMPDIR_T"
+  TMPDIR_T=$BATS_TEST_TMPDIR
 }
 
 # Echoes one of: ALLOW, DENY, HOOK_ERROR.
