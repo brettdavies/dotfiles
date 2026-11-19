@@ -222,7 +222,13 @@ _commit_fixture() {
   cp "$HOOKS_DIR"/lib/*.sh "$WORK/.githooks/lib/"
   local s t
   for s in lint-shell lint-workflows run-tests core-env-guard.sh; do
-    printf '#!/bin/sh\nprintf "%%s %%s\\n" "%s" "$*" >>"%s/calls"\n' "$s" "$FIX" >"$WORK/scripts/$s"
+    printf '#!/bin/sh\n' >"$WORK/scripts/$s"
+    # --affected-by is a lookup, not a run, so it stays out of the calls log. It prints $FIX/affected when a test
+    # writes one, and otherwise answers as the real one does for a staged suite.
+    [ "$s" != run-tests ] ||
+      printf 'if [ "$1" = --affected-by ]; then shift; echo "$*" >>"%s/lookups"; if [ -e "%s/affected" ]; then cat "%s/affected"; exit 0; fi; for p; do case $p in tests/perf/*) ;; *.bats) echo "$p" ;; esac; done; exit 0; fi\n' \
+        "$FIX" "$FIX" "$FIX" >>"$WORK/scripts/$s"
+    printf 'printf "%%s %%s\\n" "%s" "$*" >>"%s/calls"\n' "$s" "$FIX" >>"$WORK/scripts/$s"
     # The perf suite prints a TAP stream; a marker file makes every test skip.
     printf 'case "$*" in --perf-only) if [ -e "%s/perf-skip" ]; then echo "ok 1 probe # skip not deployed"; else echo "ok 1 probe"; fi ;; esac\n' "$FIX" >>"$WORK/scripts/$s"
     chmod +x "$WORK/scripts/$s"
@@ -259,8 +265,28 @@ _called() { grep -qx -- "$1" "$FIX/calls"; }
   _precommit
   [ "$status" -eq 0 ]
   [[ "$output" == *"no staged path is on SHELL_STARTUP_PATHS"* ]]
-  [[ "$output" == *"no staged test files besides the perf suite"* ]]
+  [[ "$output" == *"no suite tests a staged path"* ]]
   [ ! -e "$FIX/calls" ] || ! grep -q 'run-tests' "$FIX/calls"
+}
+
+@test "pre-commit: a staged path that is not a test runs the suites run-tests --affected-by names for it" {
+  _commit_fixture
+  echo tests/other.bats >"$FIX/affected"
+  _touch README.md
+  _precommit
+  [ "$status" -eq 0 ]
+  grep -qx 'README.md' "$FIX/lookups"
+  _called 'run-tests tests/other.bats'
+}
+
+@test "pre-commit: a staged path no suite names runs no bats, and says pre-push runs them all" {
+  _commit_fixture
+  : >"$FIX/affected"
+  _touch README.md
+  _precommit
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"bats (no suite tests a staged path; pre-push runs them all)"* ]]
+  [ ! -e "$FIX/calls" ] || ! grep -q '^run-tests' "$FIX/calls"
 }
 
 @test "pre-commit: a staged perf suite with a startup file staged runs alone through --perf-only" {

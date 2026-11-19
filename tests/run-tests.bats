@@ -89,6 +89,50 @@ _probes_run() {
   [ "$status" -eq 0 ]
 }
 
+# A sandbox whose suites name a path, load a helper that names one, or name nothing.
+_affected_sandbox() {
+  _sandbox
+  printf '%s\n' 'HOOK="$BATS_TEST_DIRNAME/../stow/claude/guard.sh"' >"$SANDBOX/tests/names-path.bats"
+  printf '%s\n' 'AGENTS="$BATS_TEST_DIRNAME/../stow/agents"' '"$AGENTS/com.example.job.plist"' >"$SANDBOX/tests/names-file.bats"
+  printf '%s\n' 'load lib/fixture' >"$SANDBOX/tests/loads-lib.bats"
+  printf '%s\n' 'TOOL="$BATS_TEST_DIRNAME/../scripts/tool"' >"$SANDBOX/tests/lib/fixture.bash"
+  printf '%s\n' 'true' >"$SANDBOX/tests/unrelated.bats"
+  printf '%s\n' 'true' >"$SANDBOX/tests/perf/startup.bats"
+}
+
+@test "--affected-by lists the suites a path can break: the suite itself, one naming it, one whose helper names it" {
+  _affected_sandbox
+  cd "$SANDBOX"
+  run scripts/run-tests --affected-by stow/claude/guard.sh
+  [ "$status" -eq 0 ]
+  [ "$output" = tests/names-path.bats ]
+  run scripts/run-tests --affected-by tests/unrelated.bats
+  [ "$output" = tests/unrelated.bats ]
+  run scripts/run-tests --affected-by scripts/tool
+  [ "$output" = tests/loads-lib.bats ]
+  run scripts/run-tests --affected-by tests/lib/fixture.bash
+  [ "$output" = tests/loads-lib.bats ]
+  run scripts/run-tests --affected-by stow/agents/sub/com.example.job.plist
+  [ "$output" = tests/names-file.bats ]
+}
+
+@test "--affected-by lists nothing for a path no suite names, and never the perf suite" {
+  _affected_sandbox
+  cd "$SANDBOX"
+  run scripts/run-tests --affected-by stow/ghostty/config tests/perf/startup.bats README.md
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+# The time limit is the first thing a test run checks, ahead of bats and perl, so a bad one shows the lookup comes first.
+@test "--affected-by answers before the checks a test run makes, so it needs neither bats nor perl, from any directory" {
+  _affected_sandbox
+  cd "$SANDBOX/tests"
+  run env BATS_TEST_TIMEOUT=0 RUN_TESTS_PERL=no-such-perl "$SANDBOX/scripts/run-tests" --affected-by stow/claude/guard.sh
+  [ "$status" -eq 0 ]
+  [ "$output" = tests/names-path.bats ]
+}
+
 @test "a passing test file exits 0" {
   _require_bats
   printf '%s\n' '#!/usr/bin/env bats' '' '@test "probe" {' '  [ 1 -eq 1 ]' '}' >"$PROBE"

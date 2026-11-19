@@ -4,7 +4,8 @@
 # Consumed by three callers that must not drift apart:
 #   .github/workflows/bats.yml  --all --shard I/N        (CI, one shard per runner)
 #   .githooks/pre-push          --perf-only, --no-perf   (mirrors CI)
-#   .githooks/pre-commit        <file>..., --perf-only   (staged tests; tests/perf only via --perf-only)
+#   .githooks/pre-commit        --affected-by <staged>, then <file>..., --perf-only
+#                               (the suites the staged paths affect; tests/perf only via --perf-only)
 #
 # Usage:
 #   scripts/run-tests --all        the perf suite, then the main suite
@@ -13,6 +14,9 @@
 #   scripts/run-tests MODE --shard I/N
 #                                  shard I of N of what MODE runs
 #   scripts/run-tests FILE...      run the given .bats files, as the main suite runs
+#   scripts/run-tests --affected-by PATH...
+#                                  print the main suite's files a change to the
+#                                  paths can break, one per line, and run nothing
 #
 # --shard deals the main suite's files by size, largest first, in a snake:
 # shards 1 to N, then N back to 1, and so on. Only shard 1 runs the perf suite,
@@ -76,8 +80,51 @@ EXIT_USAGE=2
 EXIT_DEPENDENCY=3
 
 if [ "$#" -eq 0 ]; then
-  echo "usage: $0 --all | $0 --perf-only | $0 --no-perf | $0 FILE..." >&2
+  echo "usage: $0 --all | $0 --perf-only | $0 --no-perf | $0 FILE... | $0 --affected-by PATH..." >&2
   exit "$EXIT_USAGE"
+fi
+
+# Usage: _affected_by PATH...; prints each main-suite file a change to one of
+# the paths can break: the suite itself, or a suite whose text, or the text of a
+# tests/lib helper it names, holds the path, a helper's name, or a distinctive
+# basename (one with a dot or a hyphen), which catches a suite that builds the
+# path from a directory variable. A path no suite names prints nothing; pre-push
+# still runs every suite.
+#
+# grep does the matching: bash's own `*text*` match over a suite and its
+# helpers takes about 16 s per path on this repo's suites.
+_affected_by() {
+  local path base file suite lib helper needles=()
+  local -A named=() hit=()
+  for path in "$@"; do
+    named[$path]=1
+    base=${path##*/}
+    needles+=(-e "$path")
+    [[ $path != tests/lib/* ]] || needles+=(-e "lib/${base%.bash}")
+    [[ $base != *[.-]* ]] || needles+=(-e "$base")
+  done
+  [ "${#needles[@]}" -gt 0 ] || return 0
+  while IFS= read -r file; do
+    hit[$file]=1
+  done < <(grep -lF "${needles[@]}" -- tests/*.bats tests/lib/* 2>/dev/null)
+  while IFS=: read -r suite lib; do
+    lib=${lib#lib/}
+    for helper in "tests/lib/$lib" "tests/lib/$lib.bash"; do
+      [ -z "${hit[$helper]:-}" ] || hit[$suite]=1
+    done
+  done < <(grep -oHE 'lib/[A-Za-z0-9_.-]+' -- tests/*.bats 2>/dev/null)
+  for file in tests/*.bats; do
+    if [ -n "${named[$file]:-}${hit[$file]:-}" ]; then printf '%s\n' "$file"; fi
+  done
+}
+
+# The lookup runs no test, so it needs neither bats nor perl, and a host
+# without bats still reaches pre-commit's install hint.
+if [ "$1" = --affected-by ]; then
+  shift
+  cd "$(dirname "${BASH_SOURCE[0]}")/.."
+  _affected_by "$@"
+  exit 0
 fi
 
 DEFAULT_TEST_TIMEOUT=60
