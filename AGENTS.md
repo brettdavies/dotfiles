@@ -492,11 +492,13 @@ everywhere, and a check that needs a real Mac tool skips just that test when the
 A suite whose tests start background processes loads `tests/lib/processes.bash`, starts each one with `spawn`, and ends
 `teardown` with `stop_spawned` and then `assert_no_leaks`. `spawn` gives the process a session of its own, so
 `stop_spawned` kills everything it started, including children that a dead parent left to init. `assert_no_leaks` fails
-the test when any process carrying that test's `BATS_TEST_TMPDIR` outlives teardown, names it, and kills it. A leaked
-process keeps the working directory bats ran from, so a leak in a run inside an agent slot holds the slot against
-teardown until someone kills it by hand. `spawn` works on macOS too, so a suite that runs on both platforms uses it the
-same way. A process the code under test detaches is no job of the test's, so the suite records its pid from a stub and
-kills it in `teardown` before the guard, as `tests/mac-open-here.bats` does for its VS Code stub.
+the test when any process carrying that test's `BATS_TEST_TMPDIR` outlives teardown, names it, and kills it. It does the
+same for a process outside the test's own session whose working directory is in `BATS_TEST_TMPDIR`, since a process
+started from an empty environment, such as a tmux pane on a server started through `env -i`, carries no
+`BATS_TEST_TMPDIR`. A leaked process keeps the working directory bats ran from, so a leak in a run inside an agent slot
+holds the slot against teardown until someone kills it by hand. `spawn` works on macOS too, so a suite that runs on both
+platforms uses it the same way. A process the code under test detaches is no job of the test's, so the suite records its
+pid from a stub and kills it in `teardown` before the guard, as `tests/mac-open-here.bats` does for its VS Code stub.
 
 `scripts/run-tests` covers every suite, guard or not: each bats process it starts carries a `RUN_TESTS_RUN` value of its
 own, and once bats exits, any process still carrying it fails the run, named and killed after 3 s. A leak that exits
