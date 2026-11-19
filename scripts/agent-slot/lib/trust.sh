@@ -61,7 +61,7 @@ trust_accept() {
   TRUST_LOG=
   contract_on_exit _trust_kill "$session"
   if ! bounded out trust-start 10 /usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" \
-    TERM=xterm-256color LANG="${LANG:-C.UTF-8}" PATH="$PATH" \
+    TERM=xterm-256color LANG="${LANG:-C.UTF-8}" PATH="$PATH" ${TMUX_TMPDIR:+"TMUX_TMPDIR=$TMUX_TMPDIR"} \
     "$AS_TMUX" -L "$AS_TRUST_SOCKET" -f /dev/null new-session -d -s "$session" -x 240 -y 50 -c "$path" "$AS_CLAUDE" "$@"; then
     TRUST_LOG=$BOUNDED_LOG
     return 1
