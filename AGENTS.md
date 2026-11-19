@@ -444,12 +444,11 @@ named `bats` that passes only when every shard did. One 4-vCPU runner runs the s
 shorten it; `run-tests` decides which files each shard gets, and the `bats` job keeps the required context the rulesets
 name. Locally the suite runs whole, with no `--shard`. A suite whose tests share no state, each keeping its own under
 its own `BATS_TEST_TMPDIR`, declares `# run-tests: parallel` on a line of its own, and `run-tests` then runs its tests
-concurrently on the jobs its other files leave free, up to four at a time: a shard or a full run, with more files than
-jobs, runs each file's tests one after another, and a run of one or two files runs them in parallel. Every run starts
-its largest files first. The shard jobs install their tools through `.github/actions/setup-bats-suite`, and
-`.github/workflows/cache-seed.yml` runs that same action on every push to `dev`: a pull request's run can restore caches
-saved on its base branch but not those of another pull request, so without the seed every pull request's first run would
-start cold. The seed checks nothing, so it has no `pre-push` counterpart.
+concurrently as well, so no single long file paces a shard. Every run starts its largest files first. The shard jobs
+install their tools through `.github/actions/setup-bats-suite`, and `.github/workflows/cache-seed.yml` runs that same
+action on every push to `dev`: a pull request's run can restore caches saved on its base branch but not those of another
+pull request, so without the seed every pull request's first run would start cold. The seed checks nothing, so it has no
+`pre-push` counterpart.
 
 The shell-startup perf suite in `tests/perf/` is the one local gate that CI does not exercise: a CI runner has no
 deployed dotfiles, so each of its tests skips there. Locally it times the startup files of the checkout it runs from,

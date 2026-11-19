@@ -24,18 +24,17 @@
 # The perf suite measures shell-startup latency against a budget, so it runs
 # alone on an unloaded machine and is never parallelized. The main suite runs
 # one bats process per file, largest first, up to RUN_TESTS_JOBS at a time
-# (default: one per core). Each file's output is buffered and replayed whole, in argument order,
-# behind a `# <file> (<seconds> s)` marker: nothing interleaves, every file
-# carries its own TAP plan and its own test numbering rather than one run-wide
-# sequence, and the log shows which files the run's time went to.
+# (default: one per core). Each file's output is buffered and replayed whole, in
+# argument order, behind a `# <file> (<seconds> s)` marker: nothing interleaves,
+# every file carries its own TAP plan and its own test numbering rather than one
+# run-wide sequence, and the log shows which files the run's time went to.
 # RUN_TESTS_JOBS=1 restores the single combined stream. RUN_TESTS_PERL names the
 # perl that resets the signals (default: perl on PATH).
 #
 # A file whose tests share no state, each keeping its own under its own
 # BATS_TEST_TMPDIR, can declare `# run-tests: parallel` on a line of its own.
-# Its tests then run concurrently too, on the jobs left over when there are
-# fewer files than jobs, up to four at a time, so a commit that runs one or two
-# files uses the cores a full run fills with other files.
+# Its tests then run concurrently too, up to four at a time, so
+# one long file no longer runs on one core while the others wait on it.
 # bats starts each of them as a background job, which bash 5.3 starts with
 # SIGINT and SIGQUIT ignored, so a declared suite that interrupts the code under
 # test starts it with the signal reset to its default; tests/run-tests.bats
@@ -47,13 +46,13 @@
 # failing the run; tests/lib/processes.bash has its shape, at
 # is_detached_watchdog.
 #
-# Every test fails once it has run for BATS_TEST_TIMEOUT seconds, 60 unless
-# the environment sets it, so a hung test fails as `not ok N <name> # in <ms> ms
-# # timeout after 60 s` instead of holding the run. bats sends SIGTERM to the test and
-# every process below it, then runs its teardown; a foreground command that
-# ignores SIGTERM keeps its test running past the limit. A suite with a
-# deliberately longer test sets BATS_TEST_TIMEOUT at its top level, which bats
-# reads again for each test.
+# Every test fails once it has run for BATS_TEST_TIMEOUT seconds, 60 unless the
+# environment sets it, so a hung test fails as
+# `not ok N <name> # in <ms> ms # timeout after 60 s` instead of holding the
+# run. bats sends SIGTERM to the test and every process below it, then runs its
+# teardown; a foreground command that ignores SIGTERM keeps its test running
+# past the limit. A suite with a deliberately longer test sets BATS_TEST_TIMEOUT
+# at its top level, which bats reads again for each test.
 #
 # A test that runs longer than RUN_TESTS_BUDGET_MS (3000 unless the environment
 # sets it; 0 turns the check off) fails unless tests/slow-tests.tsv lists it
@@ -206,12 +205,9 @@ BATS_FLAGS=()
 # own. bats coordinates the tests through flock, so without flock the file's
 # tests run one at a time.
 #
-# <jobs> is the file's share of the run's jobs, so a full run, which has a file
-# for every job, runs each file's tests one at a time: process launches stop
-# scaling past about four at once on Apple silicon, and four tests per file on
-# top of six files took a full run there from 110 s to 128 s. At most four of a
-# file's tests run at once; a 16-core host running sixteen per file failed a
-# test whose two concurrent resumes each make bounded calls.
+# At most four of a file's tests run at once, so a run with a file per core
+# runs at most four tests per core. A 16-core host running sixteen per file
+# failed a test whose two concurrent resumes each make bounded calls.
 _parallel_flags() {
   local tests=$2
   BATS_FLAGS=()
@@ -287,7 +283,7 @@ _run_parallel() {
     # file, which would read as a missing result rather than a test failure.
     {
       set +e
-      _parallel_flags "$file" "$((jobs / $#))"
+      _parallel_flags "$file" "$jobs"
       started=$(_now_ms)
       _bats "$outdir/$key.over" "$file" >"$outdir/$key.out" 2>&1
       printf '%s' "$?" >"$outdir/$key.rc"

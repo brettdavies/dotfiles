@@ -296,20 +296,10 @@ _rendezvous() {
   command -v flock >/dev/null 2>&1 || skip "flock not installed"
   _rendezvous "$SANDBOX/tests/a.bats" '# run-tests: parallel'
   _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
-  run env RUN_TESTS_JOBS=4 "$SANDBOX/scripts/run-tests" --no-perf
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
   [ "$status" -eq 0 ]
   [[ "$output" == *"ok 1 first"* ]]
   [[ "$output" == *"ok 2 second"* ]]
-}
-
-@test "a declared file with no jobs to spare beside the other files runs its tests one at a time" {
-  _sandbox
-  command -v flock >/dev/null 2>&1 || skip "flock not installed"
-  _rendezvous "$SANDBOX/tests/a.bats" '# run-tests: parallel' 1
-  _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
-  run env RUN_TESTS_JOBS=3 "$SANDBOX/scripts/run-tests" --no-perf
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"not ok 1 first"* ]]
 }
 
 @test "a file without the declaration runs its tests one at a time" {
@@ -391,8 +381,12 @@ _rendezvous() {
 
 @test "the largest files start first, and the output still follows argument order" {
   _sandbox
-  local f
-  for f in a b c; do _probe "$SANDBOX/tests/$f.bats" "$f probe" "echo $f >>\"\$BATS_TEST_DIRNAME/started\""; done
+  # c and b take the two jobs and a starts once one of them is done. Each of c and b waits up to 5 s for the other to
+  # have started, so both lines are written before a can start, however slowly either one starts.
+  local seen='echo $1 >>"$BATS_TEST_DIRNAME/started"; d=$((SECONDS + 5)); until grep -qx "$2" "$BATS_TEST_DIRNAME/started"; do ((SECONDS < d)) || return 1; sleep 0.05; done'
+  _probe "$SANDBOX/tests/a.bats" "a probe" "echo a >>\"\$BATS_TEST_DIRNAME/started\""
+  _probe "$SANDBOX/tests/b.bats" "b probe" "seen() { $seen; }; seen b c"
+  _probe "$SANDBOX/tests/c.bats" "c probe" "seen() { $seen; }; seen c b"
   head -c 4000 /dev/zero | tr '\0' '#' >>"$SANDBOX/tests/c.bats"
   head -c 2000 /dev/zero | tr '\0' '#' >>"$SANDBOX/tests/b.bats"
   run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
