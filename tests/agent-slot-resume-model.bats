@@ -108,12 +108,12 @@ EOF
 }
 
 # real_pane [SHELL...]: with REAL_TMUX set, the three sessions of repoa/1 and the three of its prime, rooted at the
-# prime's checkout, on a scratch tmux server under $T, each a shell (bash --norc --noprofile by default) with a fake claude first on its PATH. The resume
-# then finds the prime running and starts none of its sessions: a start runs the account's login shell with the real
-# HOME and PATH, and types the prime's real claude into it. It types `claude first` into the Claude session of repoa/1,
-# waits for it to run, and lists it idle. The fake logs its arguments to $T/pane-claude.log and its pid to
-# $T/pane-claude.pid, and copies what it reads from its terminal to $T/claude-input, which stays empty while nothing is
-# typed into it. Sets OLD to that pid.
+# prime's checkout, on a scratch tmux server under $T, each a shell (bash --norc --noprofile by default) with a fake
+# claude first on its PATH. The resume then finds the prime running and starts none of its sessions: a start runs the
+# account's login shell with the real HOME and PATH, and types the prime's real claude into it. It types `claude first`
+# into the Claude session of repoa/1, waits for it to run, and lists it idle. The fake logs its arguments to
+# $T/pane-claude.log and its pid to $T/pane-claude.pid, and copies what it reads from its terminal to $T/claude-input,
+# which stays empty while nothing is typed into it. Sets OLD to that pid.
 real_pane() {
   REAL_SOCKET=agent-slot-test-model
   export TMUX_TMPDIR=$T
