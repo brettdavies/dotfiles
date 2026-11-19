@@ -5,20 +5,26 @@
 #
 # Run: bats tests/stow-deploy-gitcrypt.bats
 #
-# Each test runs a copy of the script in a fixture repo (tests/lib/dotfiles-fixture.bash)
+# Each test runs a copy of the script in its own copy of a fixture repo (tests/lib/dotfiles-fixture.bash)
 # whose .gitattributes marks one file filter=git-crypt. The fixture configures no
 # git-crypt filter, so the file is committed as written: ciphertext is simulated with
 # git-crypt's own header, which grep -I reads as binary.
 
 EXIT_PRECONDITION=4
 
-setup() {
+# The fixture repo holds no absolute path, so it is built once and copied per test.
+setup_file() {
   command -v stow >/dev/null 2>&1 || skip "stow not installed"
+  load lib/dotfiles-fixture
+  fixture_repo "$BATS_FILE_TMPDIR/repo"
+}
+
+setup() {
   export STOW_DEPLOY_TARGET="$BATS_TEST_TMPDIR/home"
   mkdir -p "$STOW_DEPLOY_TARGET"
   load lib/dotfiles-fixture
   REPO="$BATS_TEST_TMPDIR/repo"
-  fixture_repo "$REPO"
+  cp -R "$BATS_FILE_TMPDIR/repo" "$REPO"
 }
 
 # encrypt_in_repo <path> <ciphertext|plaintext>: mark <path> filter=git-crypt and commit it
