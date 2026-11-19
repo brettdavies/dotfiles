@@ -220,8 +220,11 @@ scope() {
 # paths_read_by_shell_startup: can the change move shell-startup latency
 # ---------------------------------------------------------------------------
 
+# A here-string, not a pipe: the function returns at its first match, and printf
+# writes each path separately, so a later write can reach the closed pipe and
+# print "write error: Broken pipe" into run's output when SIGPIPE is ignored.
 startup_paths() {
-  run bash -c '. "$1"; shift; printf "%s\n" "$@" | paths_read_by_shell_startup' _ "$LIB" "$@"
+  run bash -c '. "$1"; shift; paths_read_by_shell_startup <<<"$(printf "%s\n" "$@")"' _ "$LIB" "$@"
 }
 
 @test "every file a suite shell sources from the checkout is startup-relevant" {
