@@ -15,8 +15,8 @@
 #                                  shard I of N of what MODE runs
 #   scripts/run-tests FILE...      run the given .bats files, as the main suite runs
 #   scripts/run-tests --affected-by PATH...
-#                                  print the main suite's files a change to the
-#                                  paths can break, one per line, and run nothing
+#                                  print the main suite's files that name the
+#                                  paths, one per line, and run nothing
 #
 # --shard deals the main suite's files by size, largest first, in a snake:
 # shards 1 to N, then N back to 1, and so on. Only shard 1 runs the perf suite,
@@ -84,12 +84,13 @@ if [ "$#" -eq 0 ]; then
   exit "$EXIT_USAGE"
 fi
 
-# Usage: _affected_by PATH...; prints each main-suite file a change to one of
-# the paths can break: the suite itself, or a suite whose text, or the text of a
-# tests/lib helper it names, holds the path, a helper's name, or a distinctive
-# basename (one with a dot or a hyphen), which catches a suite that builds the
-# path from a directory variable. A path no suite names prints nothing; pre-push
-# still runs every suite.
+# Usage: _affected_by PATH...; prints each main-suite file that names one of
+# the paths: the suite itself, or a suite whose text, or the text of a tests/lib
+# helper it names, holds the path, a helper's name, or a distinctive basename
+# (one with a dot or a hyphen), which catches a suite that builds the path from
+# a directory variable. A file in a tool's lib/ also matches the folder that
+# holds lib/, since suites reach those files only through the tool's folder. A
+# path no suite names prints nothing; pre-push still runs every suite.
 #
 # grep does the matching: bash's own `*text*` match over a suite and its
 # helpers takes about 16 s per path on this repo's suites.
@@ -101,6 +102,7 @@ _affected_by() {
     base=${path##*/}
     needles+=(-e "$path")
     [[ $path != tests/lib/* ]] || needles+=(-e "lib/${base%.bash}")
+    [[ $path != */lib/* || $path == tests/lib/* ]] || needles+=(-e "${path%/lib/*}/")
     [[ $base != *[.-]* ]] || needles+=(-e "$base")
   done
   [ "${#needles[@]}" -gt 0 ] || return 0
@@ -122,6 +124,10 @@ _affected_by() {
 # without bats still reaches pre-commit's install hint.
 if [ "$1" = --affected-by ]; then
   shift
+  if [ "$#" -eq 0 ]; then
+    echo "usage: $0 --affected-by PATH..." >&2
+    exit "$EXIT_USAGE"
+  fi
   cd "$(dirname "${BASH_SOURCE[0]}")/.."
   _affected_by "$@"
   exit 0

@@ -474,9 +474,11 @@ package the list leaves out.
 pipeline. `pre-commit` runs the same scripts over staged paths only, so it stays fast enough for every commit while
 catching the same class of failure. Its bats step runs the suites `scripts/run-tests --affected-by <staged path>...`
 prints: each staged suite, and each suite whose text, or the text of a `tests/lib` helper it names, holds a staged path,
-a staged helper's name, or a staged file's basename when that has a dot or a hyphen. A staged path no suite names runs
-no bats there, and `pre-push` still runs every suite. The two policy checks in `pre-commit` (protected branch, signing)
-have no CI equivalent because they govern how a commit is made rather than what is in it.
+a staged helper's name, or a staged file's basename when that has a dot or a hyphen; a staged file in a tool's `lib/`
+also matches the folder that holds `lib/`. A moved or deleted path counts as staged, under both names of a move. A
+staged path no suite names runs no bats there, and `pre-push` still runs every suite. The two policy checks in
+`pre-commit` (protected branch, signing) have no CI equivalent because they govern how a commit is made rather than what
+is in it.
 
 **Adding a CI job means adding a step to `pre-push` that calls the same script.** Put the target list and per-tool flags
 in the script, never in a hook or a workflow, so the three cannot drift. `tests/lint-shell.bats`,

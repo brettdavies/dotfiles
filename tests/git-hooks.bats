@@ -265,7 +265,7 @@ _called() { grep -qx -- "$1" "$FIX/calls"; }
   _precommit
   [ "$status" -eq 0 ]
   [[ "$output" == *"no staged path is on SHELL_STARTUP_PATHS"* ]]
-  [[ "$output" == *"no suite tests a staged path"* ]]
+  [[ "$output" == *"no suite names a staged path"* ]]
   [ ! -e "$FIX/calls" ] || ! grep -q 'run-tests' "$FIX/calls"
 }
 
@@ -285,8 +285,31 @@ _called() { grep -qx -- "$1" "$FIX/calls"; }
   _touch README.md
   _precommit
   [ "$status" -eq 0 ]
-  [[ "$output" == *"bats (no suite tests a staged path; pre-push runs them all)"* ]]
+  [[ "$output" == *"bats (no suite names a staged path; pre-push runs them all)"* ]]
   [ ! -e "$FIX/calls" ] || ! grep -q '^run-tests' "$FIX/calls"
+}
+
+@test "pre-commit: a commit that only moves a path runs the suites that name either of its names" {
+  _commit_fixture
+  echo tests/other.bats >"$FIX/affected"
+  mkdir -p "$WORK/scripts/lib"
+  git -C "$WORK" mv config/shell/fragment.sh scripts/lib/fragment.sh
+  _precommit
+  [ "$status" -eq 0 ]
+  grep -qx 'config/shell/fragment.sh scripts/lib/fragment.sh' "$FIX/lookups"
+  _called 'run-tests tests/other.bats'
+  [[ "$output" == *"shellcheck (no staged file to lint)"* ]]
+  run ! grep -q '^lint-shell' "$FIX/calls"
+}
+
+@test "pre-commit: a commit that only deletes a path runs the suites that name it" {
+  _commit_fixture
+  echo tests/other.bats >"$FIX/affected"
+  git -C "$WORK" rm -q config/shell/fragment.sh
+  _precommit
+  [ "$status" -eq 0 ]
+  grep -qx 'config/shell/fragment.sh' "$FIX/lookups"
+  _called 'run-tests tests/other.bats'
 }
 
 @test "pre-commit: a staged perf suite with a startup file staged runs alone through --perf-only" {

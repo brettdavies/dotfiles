@@ -62,10 +62,16 @@ if [ "$gpgsign" != "true" ]; then
 fi
 
 mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACM)
-# A deleted or moved startup file changes startup as much as an edited one, and
-# neither is in $staged, which lists only added, copied, and modified paths.
+# A deleted or moved file breaks the suites that name it, and changes startup,
+# as much as an edited one, and neither is in $staged, which lists only added,
+# copied, and modified paths. $changed holds both names of a move.
 changed=$(git diff --cached --name-only --no-renames)
-if [ "${#staged[@]}" -eq 0 ]; then
+affected_bats=()
+if [ -n "$changed" ]; then
+  mapfile -t changed_paths <<<"$changed"
+  mapfile -t affected_bats < <(git_env_isolated ./scripts/run-tests --affected-by "${changed_paths[@]}")
+fi
+if [ "${#staged[@]}" -eq 0 ] && [ "${#affected_bats[@]}" -eq 0 ]; then
   if paths_read_by_shell_startup <<<"$changed" >/dev/null; then
     gate_skip "shell-startup timing (runs at pre-push)"
   fi
@@ -75,7 +81,6 @@ fi
 mapfile -t staged_wf < <(printf '%s\n' "${staged[@]}" | grep '^\.github/workflows/.*\.ya\?ml$' || true)
 mapfile -t staged_perf < <(printf '%s\n' "${staged[@]}" | grep '^tests/perf/.*\.bats$' || true)
 mapfile -t staged_tests < <(printf '%s\n' "${staged[@]}" | grep -E '\.(bats|bash)$|(^|/)tests?/.*\.sh$' || true)
-mapfile -t affected_bats < <(git_env_isolated ./scripts/run-tests --affected-by "${staged[@]}")
 
 gate_header "Running pre-commit checks..."
 
@@ -102,7 +107,7 @@ fi
 gate_begin
 
 # 1. ShellCheck — .github/workflows/shellcheck.yml, staged subset
-if command -v shellcheck >/dev/null 2>&1; then
+if [ "${#staged[@]}" -gt 0 ] && command -v shellcheck >/dev/null 2>&1; then
   gate_spawn shellcheck git_env_isolated ./scripts/lint-shell "${staged[@]}"
 fi
 # 2. actionlint — same CI job as ShellCheck, staged workflow files only. The
@@ -122,7 +127,9 @@ if [ "${#staged_tests[@]}" -gt 0 ]; then
 fi
 wait
 
-if command -v shellcheck >/dev/null 2>&1; then
+if [ "${#staged[@]}" -eq 0 ]; then
+  gate_skip "shellcheck (no staged file to lint)"
+elif command -v shellcheck >/dev/null 2>&1; then
   gate_collect shellcheck "shellcheck" "lint-shell (staged)"
 else
   gate_skip "shellcheck (install via \`brew install shellcheck\`)"
@@ -137,7 +144,7 @@ else
 fi
 
 if [ "${#affected_bats[@]}" -eq 0 ]; then
-  gate_skip "bats (no suite tests a staged path; pre-push runs them all)"
+  gate_skip "bats (no suite names a staged path; pre-push runs them all)"
 elif command -v bats >/dev/null 2>&1; then
   gate_collect bats "bats (${#affected_bats[@]} file(s))" "run-tests (affected)"
 else
