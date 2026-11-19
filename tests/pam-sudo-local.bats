@@ -345,7 +345,7 @@ assert_target_untouched() {
 
 @test "stow-deploy runs the check inside the macOS \$HOME block and never applies it" {
   local block
-  block=$(awk '/^if \[ "\$\(uname -s\)" = "Darwin" \] && \[ "\$TARGET" = "\$HOME" \]; then$/ { on = 1 }
+  block=$(awk '/^if \[ "\$PLATFORM" = "Darwin" \] && \[ "\$TARGET" = "\$HOME" \]; then$/ { on = 1 }
     on { print } on && /^fi$/ { exit }' "$STOW_DEPLOY")
   [[ "$block" == *'scripts/pam-sudo-local.sh" || true'* ]]
   run ! grep -q 'pam-sudo-local.sh.*--apply' "$STOW_DEPLOY"

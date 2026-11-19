@@ -46,12 +46,17 @@ cd "$REPO_ROOT"
 # the lint. Under scripts/ it is the whole rule: a new script there is covered
 # without being registered, and a shebang-less library is linted through the
 # script that sources it.
+# Builtins only: it runs once per candidate file, so a process per call adds up
+# to hundreds a sweep.
 _has_shell_shebang() {
-  head -n1 "$1" 2>/dev/null | grep -qE '^#!.*\b(sh|bash)\b'
+  local first=
+  { IFS= read -r first <"$1"; } 2>/dev/null || true
+  [[ $first =~ ^#!(.*[^[:alnum:]_])?(sh|bash)([^[:alnum:]_]|$) ]]
 }
 
-# Per-category shellcheck flags. Adding a category means editing this function
-# and _is_target below, and nothing else.
+# Per-category shellcheck flags, set in FLAGS because a command substitution
+# would fork once per file. Adding a category means editing this function and
+# _is_target below, and nothing else.
 #
 # SC1090/SC1091: dot-profile sources paths shellcheck cannot follow.
 # SC2016: bats tests hand single-quoted scripts to child shells on purpose, so
@@ -65,35 +70,35 @@ _has_shell_shebang() {
 #   escape a quote; here it is the ST terminator the sequence requires.
 _flags_for() {
   case "$1" in
-    *.bats) echo "--shell=bash --exclude=SC2016" ;;
-    scripts/claude-token-totals | scripts/codexbar-config) echo "--exclude=SC2016" ;;
+    *.bats) FLAGS="--shell=bash --exclude=SC2016" ;;
+    scripts/claude-token-totals | scripts/codexbar-config) FLAGS="--exclude=SC2016" ;;
     # The backticks in its PR-body printf templates are literal markdown, so the
     # single quotes are deliberate.
-    scripts/sync-dev-after-release.sh) echo "--exclude=SC2016" ;;
-    stow/shell/dot-profile) echo "--shell=bash --exclude=SC1090,SC1091" ;;
+    scripts/sync-dev-after-release.sh) FLAGS="--exclude=SC2016" ;;
+    stow/shell/dot-profile) FLAGS="--shell=bash --exclude=SC1090,SC1091" ;;
     # The agent-slot libraries single-quote jaq programs, whose `$` names are bound with --arg; the slot test helper
     # single-quotes stub bodies for the child shell to expand.
     scripts/agent-slot/lib/*.sh | scripts/agent-slot-rex/lib/*.sh | tests/lib/agent-slot.bash | tests/lib/agent-slot-rex.bash)
-      echo "--shell=bash --exclude=SC2016"
+      FLAGS="--shell=bash --exclude=SC2016"
       ;;
     # The one hook library run as a script of its own; it sources git-env.sh.
-    .githooks/lib/restow.sh) echo "-x" ;;
+    .githooks/lib/restow.sh) FLAGS="-x" ;;
     # The browser-set test helper hands single-quoted scripts to child shells, which do the expanding.
-    tests/lib/browser-set.bash) echo "--shell=bash --exclude=SC2016" ;;
+    tests/lib/browser-set.bash) FLAGS="--shell=bash --exclude=SC2016" ;;
     # The browser-set libraries share globals through the script that sources them, and pin.sh sources its two siblings.
-    scripts/playwright-browsers/lib/*.sh) echo "--shell=bash -x --source-path=SCRIPTDIR --exclude=SC2034" ;;
-    config/shell/*.sh | .githooks/lib/*.sh | scripts/*/lib/*.sh | tests/lib/*.bash) echo "--shell=bash" ;;
-    config/shell/shell-functions) echo "--shell=bash --exclude=SC1003" ;;
+    scripts/playwright-browsers/lib/*.sh) FLAGS="--shell=bash -x --source-path=SCRIPTDIR --exclude=SC2034" ;;
+    config/shell/*.sh | .githooks/lib/*.sh | scripts/*/lib/*.sh | tests/lib/*.bash) FLAGS="--shell=bash" ;;
+    config/shell/shell-functions) FLAGS="--shell=bash --exclude=SC1003" ;;
     # -x follows the `# shellcheck source=` directives, such as the hooks' to
     # lib/report.sh and run-tests' to tests/lib/processes.bash, so the helpers
     # they define are known rather than reported as unresolved sources.
-    .githooks/pre-commit | .githooks/pre-push | scripts/run-tests) echo "-x" ;;
+    .githooks/pre-commit | .githooks/pre-push | scripts/run-tests) FLAGS="-x" ;;
     # -x follows the `# shellcheck source=lib/...` directives, so the helpers the
     # libraries define are known. It reports nothing inside a sourced file, which
     # is why each scripts/*/lib/*.sh is also a target of its own.
-    scripts/tools-atime/tools-atime.sh | scripts/upgrade/*.sh) echo "-x --source-path=SCRIPTDIR" ;;
-    scripts/agent-slot/agent-slot | scripts/agent-slot-rex/agent-slot-rex) echo "-x --source-path=SCRIPTDIR --exclude=SC2016" ;;
-    *) echo "" ;;
+    scripts/tools-atime/tools-atime.sh | scripts/upgrade/*.sh) FLAGS="-x --source-path=SCRIPTDIR" ;;
+    scripts/agent-slot/agent-slot | scripts/agent-slot-rex/agent-slot-rex) FLAGS="-x --source-path=SCRIPTDIR --exclude=SC2016" ;;
+    *) FLAGS="" ;;
   esac
 }
 
@@ -157,9 +162,10 @@ for i in "${!targets[@]}"; do
   # status rather than ending the job first.
   {
     set +e
-    # Word splitting is the point: _flags_for returns zero or more flags.
-    # shellcheck disable=SC2046
-    shellcheck $(_flags_for "$f") "$f" >"$outdir/$i.out" 2>&1
+    _flags_for "$f"
+    # Word splitting is the point: FLAGS holds zero or more flags.
+    # shellcheck disable=SC2086
+    shellcheck $FLAGS "$f" >"$outdir/$i.out" 2>&1
     printf '%s' "$?" >"$outdir/$i.rc"
   } &
   running=$((running + 1))
@@ -172,8 +178,10 @@ wait
 
 status=0
 for i in "${!targets[@]}"; do
-  cat "$outdir/$i.out"
-  [ "$(cat "$outdir/$i.rc" 2>/dev/null)" = 0 ] || status="$EXIT_FINDINGS"
+  [ ! -s "$outdir/$i.out" ] || cat "$outdir/$i.out"
+  rc=
+  { read -r rc <"$outdir/$i.rc"; } 2>/dev/null || true
+  [ "$rc" = 0 ] || status="$EXIT_FINDINGS"
 done
 checked=${#targets[@]}
 
