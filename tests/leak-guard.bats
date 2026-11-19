@@ -165,7 +165,7 @@ orphan_probe() {
   LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR BATS_TEST_TIMEOUT=2 \
     run --separate-stderr "$BATS_TEST_DIRNAME/../scripts/run-tests" "$CWD/hung.bats"
   [ "$status" -eq 1 ]
-  [[ $output == *"not ok 1 hang # timeout after 2s"* ]]
+  [[ $output == *"not ok 1 hang # in "*" ms # timeout after 2 s"* ]]
   [[ $stderr == *"processes $CWD/hung.bats started were still running after bats exited, and were killed:"*"sleep 31"* ]]
   [ -z "$(processes_with "LEAK_GUARD_PROBE=$BATS_TEST_TMPDIR")" ]
 }
