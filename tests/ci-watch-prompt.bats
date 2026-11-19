@@ -10,13 +10,15 @@
 
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/ci-watch-prompt.sh"
 
-setup() {
+# The repository, the runs fixture and the stubs are the same for every test, and
+# no test writes to them, so they are built once and shared.
+setup_file() {
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   # An inherited GIT_DIR outranks the fixture's cwd, and git exports it to hooks.
   unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
   export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 
-  REPO="$BATS_TEST_TMPDIR/repo"
+  export REPO="$BATS_FILE_TMPDIR/repo"
   git init -q -b feat/x "$REPO"
   commit() { git -C "$REPO" -c user.name=Test -c user.email=test@example.com commit -q --allow-empty -m "$1"; }
   commit one
@@ -26,14 +28,14 @@ setup() {
 
   # 101 is the replaced head's run, still in progress while cancel-in-progress
   # stops it; 202 is the pushed head's run, pending behind it.
-  export RUNS="$BATS_TEST_TMPDIR/runs.json"
+  export RUNS="$BATS_FILE_TMPDIR/runs.json"
   jaq -n --arg old "$OLD_SHA" --arg head "$HEAD_SHA" '[
     {databaseId: 101, headSha: $old, headBranch: "feat/x", status: "in_progress"},
     {databaseId: 202, headSha: $head, headBranch: "feat/x", status: "pending"},
     {databaseId: 303, headSha: $old, headBranch: "feat/x", status: "completed"}
   ] | map(. + {name: "CI", workflowName: "CI", event: "push", createdAt: "2026-11-04T00:00:00Z"})' >"$RUNS"
 
-  STUBS="$BATS_TEST_TMPDIR/bin"
+  export STUBS="$BATS_FILE_TMPDIR/bin"
   mkdir -p "$STUBS"
   printf '#!/bin/sh\nexit 0\n' >"$STUBS/sleep"
   cat >"$STUBS/gh" <<'EOF'
@@ -54,7 +56,7 @@ done
 jaq -c --arg c "$commit" --arg b "$branch" \
   'map(select(($c == "" or .headSha == $c) and ($b == "" or .headBranch == $b)))' "$RUNS" | jaq -c "$filter"
 EOF
-  chmod +x "$STUBS/sleep" "$STUBS/gh"
+  chmod 555 "$STUBS/sleep" "$STUBS/gh"
 }
 
 # Runs the hook after a Bash call of the given command. Sets CTX to the

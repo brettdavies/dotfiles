@@ -4,6 +4,7 @@
 # without --auto or with --open.
 #
 # Run: bats tests/pr-draft-guard.bats
+# run-tests: parallel
 
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/pr-draft-guard.sh"
 SETTINGS="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/settings.json"

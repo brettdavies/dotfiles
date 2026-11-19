@@ -8,33 +8,31 @@ WRAPPER="$BATS_TEST_DIRNAME/../stow/gh/dot-local/bin/gh"
 
 # A fake real gh that records that it ran and echoes its stdin, sits right
 # behind the wrapper at the front of PATH, so the wrapper's PATH walk stops
-# there before the host's own gh. GH_PR_FREEZE_FILE keeps the host's freeze
-# file out of the run.
-setup() {
-  TMP="$(mktemp -d)"
-  mkdir -p "$TMP/alias" "$TMP/real"
-  ln -s "$WRAPPER" "$TMP/alias/gh"
-  printf '%s\n' '#!/usr/bin/env bash' 'touch "${FAKE_GH_MARKER:?}"' 'echo "fake real gh"' '[ -t 0 ] || cat' >"$TMP/real/gh"
-  chmod +x "$TMP/real/gh"
-  export FAKE_GH_MARKER="$TMP/fake-gh-ran"
-  export PATH="$TMP/alias:$TMP/real:$PATH"
-  unset GH_REPO
-
-  export GH_PR_FREEZE_FILE="$TMP/freeze.txt"
-  printf '%s\n' '# frozen upstreams' 'tobi/qmd  # vetted on the fork first' '# someone/else' >"$GH_PR_FREEZE_FILE"
-
-  FORK="$TMP/fork-clone"
-  git init -q "$FORK"
-  git -C "$FORK" remote add origin https://github.com/brettdavies/qmd.git
-  git -C "$FORK" remote add upstream git@github.com:tobi/qmd.git
-
-  OTHER="$TMP/other-clone"
-  git init -q "$OTHER"
-  git -C "$OTHER" remote add origin https://github.com/brettdavies/dotfiles.git
+# there before the host's own gh; and the two checkouts whose remotes the
+# wrapper reads. Built once and shared: no test writes to them, and the
+# fake gh only touches the marker in its own BATS_TEST_TMPDIR.
+setup_file() {
+  local d=$BATS_FILE_TMPDIR
+  mkdir -p "$d/alias" "$d/real"
+  ln -s "$WRAPPER" "$d/alias/gh"
+  printf '%s\n' '#!/usr/bin/env bash' 'touch "${FAKE_GH_MARKER:?}"' 'echo "fake real gh"' '[ -t 0 ] || cat' >"$d/real/gh"
+  chmod 555 "$d/real/gh"
+  git init -q "$d/fork-clone"
+  git -C "$d/fork-clone" remote add origin https://github.com/brettdavies/qmd.git
+  git -C "$d/fork-clone" remote add upstream git@github.com:tobi/qmd.git
+  git init -q "$d/other-clone"
+  git -C "$d/other-clone" remote add origin https://github.com/brettdavies/dotfiles.git
 }
 
-teardown() {
-  rm -rf "$TMP"
+# GH_PR_FREEZE_FILE keeps the host's freeze file out of the run.
+setup() {
+  FORK="$BATS_FILE_TMPDIR/fork-clone"
+  OTHER="$BATS_FILE_TMPDIR/other-clone"
+  export FAKE_GH_MARKER="$BATS_TEST_TMPDIR/fake-gh-ran"
+  export PATH="$BATS_FILE_TMPDIR/alias:$BATS_FILE_TMPDIR/real:$PATH"
+  unset GH_REPO
+  export GH_PR_FREEZE_FILE="$BATS_TEST_TMPDIR/freeze.txt"
+  printf '%s\n' '# frozen upstreams' 'tobi/qmd  # vetted on the fork first' '# someone/else' >"$GH_PR_FREEZE_FILE"
 }
 
 # Runs the wrapper from checkout $1 with the remaining args.

@@ -25,7 +25,8 @@ _json_parser_link_dir() {
 
 run_hook_with_parser() {
   local mode=$1 hook=$2 payload=$3
-  local root="$BATS_FILE_TMPDIR/json-parser"
+  # Per test, not per file: tests of a parallel suite would race to build it.
+  local root="$BATS_TEST_TMPDIR/json-parser"
   local shim="$root/shim-$mode"
   if [[ ! -d $root/usr-bin ]]; then
     _json_parser_link_dir /usr/bin "$root/usr-bin"

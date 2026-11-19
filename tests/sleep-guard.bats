@@ -2,6 +2,7 @@
 # Tests for the PreToolUse Bash hook that denies blocking waits and slow polls.
 #
 # Run: bats tests/sleep-guard.bats
+# run-tests: parallel
 
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/sleep-guard.sh"
 

@@ -3,6 +3,7 @@
 # in gh PR/issue/release/comment commands and git commit -m.
 #
 # Run: bats tests/heredoc-pr-guard.bats
+# run-tests: parallel
 
 HOOK="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/heredoc-pr-guard.sh"
 
