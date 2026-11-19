@@ -15,8 +15,8 @@ REPO="$BATS_TEST_DIRNAME/.."
 GATES='lint-shell lint-workflows run-tests core-env-guard.sh'
 
 # The origin, the main clone and its linked worktree are built once and copied
-# per test. The copy's origin URL and the two worktree links are the only
-# absolute paths it holds; each probe finds its test through HOOK_FIX.
+# per test. The copy's origin URL and the two worktree links are the only paths
+# into the template it holds; each probe finds its test through HOOK_FIX.
 setup_file() {
   # An inherited GIT_DIR outranks `-C`, so every git call below would retarget
   # whichever repo the caller was in. Git exports these to hooks, so a

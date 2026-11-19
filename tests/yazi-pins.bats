@@ -25,7 +25,8 @@ _pins() { # <rev for plugins> <rev for the flavor>: a package.toml in ya's layou
 
 # The origin, the host checkout, the default stub answers and the stubs are built
 # once. Each test copies the first three; the checkout's origin URL is the only
-# absolute path they hold. The stubs find the test's directory through T.
+# absolute path they hold, once the origin's own remote and the checkout's reflogs
+# are gone. The stubs find the test's directory through T.
 setup_file() {
   local F=$BATS_FILE_TMPDIR
   local B=$F/bin Y=$F/template
@@ -41,6 +42,7 @@ setup_file() {
   git -C "$F/seed" add -A
   git -C "$F/seed" commit -q -m seed
   git clone -q --bare "$F/seed" "$Y/origin.git"
+  git --git-dir="$Y/origin.git" remote remove origin
   git clone -q -b dev "$Y/origin.git" "$Y/checkout"
   # The clone's reflogs name the path it cloned from, which a copy must not hold.
   rm -rf "$Y/checkout/.git/logs"
