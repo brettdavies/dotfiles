@@ -1,19 +1,26 @@
 # Tests and setup() blocks allowed to cost more than scripts/test-cost-guard.sh permits.
 # One per line: suite<TAB>test name as bats prints it, or setup()<TAB>why it has to take that long.
+agent-slot-check.bats	a home scan that times out, or finds nothing to judge, blocks with home-scan-incomplete	not yet triaged: 8818 ms alone on a CI runner
 agent-slot-contract.bats	a tmux that never answers yields tmux-unresponsive within its bound	not yet triaged: 10210 ms alone on a CI runner
 agent-slot-deps.bats	an install that ignores its stop signal and has to be killed still reads as timed-out	not yet triaged: 3866 ms alone on a CI runner
 agent-slot-foreign-head.bats	an own fork's hooks do run from the same Sonnet line, so the real Claude accepts it and the test above is not vacuous	not yet triaged: 3155 ms alone on a CI runner
 agent-slot-foreign-head.bats	an own fork's settings hook, key helper, and MCP server do run in the real Claude, so the test above is not vacuous	not yet triaged: 3136 ms alone on a CI runner
 agent-slot-foreign-head.bats	lazygit runs nothing from a .lazygit.yml the head tracks, though the same file in a parent directory does run	not yet triaged: 4003 ms alone on a CI runner
 agent-slot-foreign-head.bats	setup()	not yet triaged: setup() clones for every test
+agent-slot-launch.bats	a Touches: line that is a bare glob, with or without emphasis, counts as having a value	not yet triaged: 3345 ms alone on a CI runner
 agent-slot-launch.bats	a launch holding slot 2's lock is left alone: the next launch takes slot 3 and resume of slot 2 waits	not yet triaged: 3295 ms alone on a CI runner
+agent-slot-prime.bats	a default server that does not answer exits tmux-unresponsive naming that socket, and starts nothing	not yet triaged: 5308 ms alone on a CI runner
+agent-slot-prime.bats	list names a tmux server whose primes it could not read, and still answers	not yet triaged: 10720 ms alone on a CI runner
+agent-slot-prime.bats	list names the slot server when only its second read goes unanswered, and neither when both answer	not yet triaged: 5565 ms alone on a CI runner
 agent-slot-probe.bats	probe reports slot-busy and marks nothing while another process holds the record's lock	not yet triaged: 10647 ms alone on a CI runner
 agent-slot-read.bats	a default server that does not answer leaves list reporting what it can read	not yet triaged: 5367 ms alone on a CI runner
+agent-slot-resume-model.bats	when tmux does not answer while the new line is typed, the error says the Claude was ended and how to bring it back	not yet triaged: 10595 ms alone on a CI runner
 agent-slot-rex.bats	two restores at once open one tab for a slot that has none	not yet triaged: 3228 ms alone on a CI runner
 agent-slot-scope-grant.bats	setup()	not yet triaged: setup() commits for every test
 agent-slot-trust.bats	a Down the dialog misses is sent again a full second later, and Enter goes only to a highlighted Yes	not yet triaged: 3913 ms alone on a CI runner
 agent-slot-trust.bats	an unknown screen sends no keys and yields trust-dialog-unrecognized from warm after the full timeout, with the screen in its log	not yet triaged: 3694 ms alone on a CI runner
 ci-watch-prompt.bats	setup()	not yet triaged: setup() commits for every test
+github-stars.bats	a clone that keeps changing keeps a bounded object store	not yet triaged: 3269 ms alone on a CI runner
 hook-git-env.bats	setup()	not yet triaged: setup() commits and pushes for every test
 leak-guard.bats	a test stopped at the time limit is named, and teardown stops what it left, even what ignores SIGTERM	not yet triaged: 5579 ms alone on a CI runner
 leak-guard.bats	run-tests fails a suite that leaves a process running once bats exits, names it, and stops it	not yet triaged: 3944 ms alone on a CI runner
@@ -25,6 +32,7 @@ leak-guard.bats	the release suite's process-starting tests, run from a scratch d
 mac-open.bats	a tmux client that ignores SIGTERM is killed after the grace and the guard fails closed	not yet triaged: 5065 ms alone on a CI runner
 mac-open.bats	with neither jaq nor jq installed the guard fails closed naming the tool	not yet triaged: 5878 ms alone on a CI runner
 pre-push-scope.bats	setup()	not yet triaged: setup() commits and pushes for every test
+pre-push-scope.bats	the list covers every file the perf suite's shells source from the checkout	not yet triaged: 3671 ms alone on a CI runner
 restow-on-pull.bats	setup()	not yet triaged: setup() runs fixture_repo, commits and pushes for every test
 sd-commit-doc.bats	setup()	not yet triaged: setup() clones, commits and pushes for every test
 session-title.bats	a gh that hangs is cut off at its bound and leaves the title to the branch	not yet triaged: 3194 ms alone on a CI runner
