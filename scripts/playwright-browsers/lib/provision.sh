@@ -19,8 +19,8 @@ pw_sha256() {
   printf '%s\n' "${out%% *}"
 }
 
-# pw_read FILE: PW_READ is FILE's content, or empty when FILE cannot be read.
-# read is a builtin, so a call starts no process.
+# pw_read FILE: PW_READ is FILE's content up to its first NUL byte, or empty when
+# FILE cannot be read. read is a builtin, so a call starts no process.
 pw_read() {
   PW_READ=
   { IFS= read -r -d '' PW_READ <"$1"; } 2>/dev/null || true

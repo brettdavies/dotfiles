@@ -9,7 +9,7 @@ pw_client_json() {
   printf -v PW_JSON '{"browsers": [{"name": "%s", "revision": "%s"}]}\n' "${name//_/-}" "${1##*-}"
 }
 
-# The link is compared whole: a trailing newline is not part of the path Playwright reads.
+# The link is compared whole: Playwright does not strip a trailing newline from it.
 pw_client_ok() {
   pw_client_json "$1"
   pw_read_text "$PW_CLIENTS/$1/browsers.json"
@@ -55,8 +55,11 @@ pw_prune_clients() {
     { [ -f "$link" ] && [ -r "$link" ]; } || continue
     n=${link##*/dotfiles-}
     ! pw_in "$n" "${PW_WANTED[@]}" || continue
-    pw_read "$link"
-    body=$PW_READ
+    body=$(
+      cat "$link"
+      printf x
+    )
+    body=${body%x}
     if [[ $n =~ $PW_DIR_RE ]]; then
       base=$PW_CLIENTS
     elif [[ $n =~ ^(playwright-[0-9]+\.[0-9]+\.[0-9]+|chromium-alias-[0-9]+)$ ]]; then
