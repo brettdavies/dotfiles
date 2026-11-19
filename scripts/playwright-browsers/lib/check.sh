@@ -35,7 +35,7 @@ pw_check() {
   for l in "$PW_LINKS"/dotfiles-*; do
     [ -L "$l" ] || [ -e "$l" ] || continue
     ! pw_in "${l##*/dotfiles-}" "${PW_WANTED[@]}" || continue
-    q=$(printf %q "$l")
+    printf -v q %q "$l"
     pw_finding "a client link names nothing in the set" client-unrecognised \
       "changed nothing; a deploy removes the ones it wrote" "ls -l $q" "${l##*/}"
   done
@@ -43,7 +43,7 @@ pw_check() {
     n=${e##*/}
     [[ $n =~ $PW_BROWSER_RE ]] || continue
     ! pw_in "$n" "${PW_WANTED[@]}" || continue
-    q=$(printf %q "$e")
+    printf -v q %q "$e"
     if [ -L "$e" ]; then
       pw_finding "a symlink at a browser-directory name is not an alias of the pin" stray-symlink \
         "changed nothing; a deploy removes the ones that point at a directory of the set" "ls -l $q" "$n"
