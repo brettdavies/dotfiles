@@ -12,7 +12,7 @@
 
 EXIT_PRECONDITION=4
 
-# The fixture repo holds no absolute path, so it is built once and copied per test.
+# The fixture repo holds no path to its own location, so it is built once and copied per test.
 setup_file() {
   command -v stow >/dev/null 2>&1 || skip "stow not installed"
   load lib/dotfiles-fixture
