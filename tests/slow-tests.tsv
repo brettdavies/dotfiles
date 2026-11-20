@@ -2,12 +2,8 @@
 # One per line: suite<TAB>test name as bats prints it, or setup()<TAB>why it has to take that long.
 agent-slot-foreign-head.bats	setup()	not yet triaged: setup() clones for every test
 agent-slot-scope-grant.bats	setup()	not yet triaged: setup() commits for every test
-hook-git-env.bats	setup()	not yet triaged: setup() commits and pushes for every test
-pre-push-scope.bats	setup()	not yet triaged: setup() commits and pushes for every test
-restow-on-pull.bats	setup()	not yet triaged: setup() runs fixture_repo, commits and pushes for every test
 sd-commit-doc.bats	setup()	not yet triaged: setup() clones, commits and pushes for every test
 slot-review-cap.bats	setup()	not yet triaged: setup() commits for every test
 slot-scope-guard.bats	setup()	not yet triaged: setup() commits for every test
 solutions-clone-autosync.bats	setup()	not yet triaged: setup() clones, commits and pushes for every test
 sync-dev-after-release.bats	setup()	not yet triaged: setup() clones, commits and pushes for every test
-yazi-pins.bats	setup()	not yet triaged: setup() commits and clones for every test
