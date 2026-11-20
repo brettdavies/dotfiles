@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Sends a message to a repo's prime on the Linux server, and says whether the
+# prime can take it now. A session on a Mac signed in to a different claude.ai
+# account than the server can't reach the server with SendMessage: Remote
+# Control links only sessions signed in to one account. So a headless Claude on
+# the server sends it with SendMessage, and the prime's inbox holds it until the
+# prime can take it.
+#
+# Usage: msg-prime <repo> <message>
+#        msg-prime <repo> - < message.txt
+set -euo pipefail
+
+server=${AGENT_SLOT_REX_SERVER:-bigdaddy}
+
+usage='usage: msg-prime <repo> <message>   (or - to read the message from stdin)'
+if [[ $# -ne 2 ]]; then
+  echo "$usage" >&2
+  exit 2
+fi
+repo=$1 msg=$2
+[[ $msg == - ]] && msg=$(cat)
+if [[ -z ${msg//[[:space:]]/} ]]; then
+  echo "msg-prime: the message is empty. $usage" >&2
+  exit 2
+fi
+if [[ ! $repo =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "msg-prime: '$repo' is not a repo name. List them with: ssh $server 'agent-slot repos'" >&2
+  exit 2
+fi
+session="$repo-prime"
+
+# Every question and permission prompt ends with an "Esc to cancel" hint, and
+# the spinner line sits just above the input box while a turn runs, as in
+# "✢ Transfiguring… (1m 2s · ↓ 2.0k tokens)".
+state=$(timeout 30 ssh -o BatchMode=yes "$server" "
+  tmux -L agent-slots has-session -t '=$session' 2>/dev/null || { echo missing; exit 0; }
+  pane=\$(tmux -L agent-slots capture-pane -p -t '=$session:' | tail -15)
+  if grep -q 'Esc to cancel' <<<\"\$pane\"; then echo question
+  elif grep -Eq '… \\([0-9]+[hms]|esc to interrupt' <<<\"\$pane\"; then echo working
+  else echo idle; fi")
+
+case $state in
+  missing)
+    echo "msg-prime: no $session session on the Linux server. Start it with: ssh $server 'agent-slot prime $repo'" >&2
+    exit 3
+    ;;
+  question) echo "$session is busy: it has a question or permission prompt open. The message will wait in its inbox until it can take it." ;;
+  working) echo "$session is busy: it is mid-turn. The message will wait in its inbox until the turn ends." ;;
+  idle) echo "$session is idle: it takes the message now." ;;
+  *)
+    echo "msg-prime: could not read $session's state (got '$state')." >&2
+    exit 1
+    ;;
+esac
+
+prompt="Send one message with the SendMessage tool to the session named exactly $session.
+The message is the text between the two marker lines below. Send it verbatim: add,
+drop, or reword nothing. Make no other tool call. Then reply with exactly SENT if the
+tool result says the message was sent or delivered, or FAILED: followed by the tool
+result otherwise.
+-----BEGIN MESSAGE-----
+$msg
+-----END MESSAGE-----"
+
+result=$(timeout 180 ssh -o BatchMode=yes "$server" \
+  'cd ~ && claude -p --model haiku --name msg-prime --tools SendMessage --allowedTools SendMessage' \
+  <<<"$prompt" 2>&1) || true
+
+if [[ $result == SENT* ]]; then
+  echo "Sent to $session."
+else
+  echo "msg-prime: the send to $session failed: ${result:-no output}" >&2
+  exit 1
+fi
