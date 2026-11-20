@@ -444,10 +444,11 @@ named `bats` that passes only when every shard did. One 4-vCPU runner runs the s
 shorten it; `run-tests` decides which files each shard gets, and the `bats` job keeps the required context the rulesets
 name. Locally the suite runs whole, with no `--shard`. A suite whose tests share no state, each keeping its own under
 its own `BATS_TEST_TMPDIR`, declares `# run-tests: parallel` on a line of its own, and `run-tests` then runs its tests
-concurrently as well, so no single long file paces a shard. The shard jobs install their tools through
-`.github/actions/setup-bats-suite`, and `.github/workflows/cache-seed.yml` runs that same action on every push to `dev`:
-a pull request's run can restore caches saved on its base branch but not those of another pull request, so without the
-seed every pull request's first run would start cold. The seed checks nothing, so it has no `pre-push` counterpart.
+concurrently as well, so no single long file paces a shard. Every run starts its largest files first. The shard jobs
+install their tools through `.github/actions/setup-bats-suite`, and `.github/workflows/cache-seed.yml` runs that same
+action on every push to `dev`: a pull request's run can restore caches saved on its base branch but not those of another
+pull request, so without the seed every pull request's first run would start cold. The seed checks nothing, so it has no
+`pre-push` counterpart.
 
 The shell-startup perf suite in `tests/perf/` is the one local gate that CI does not exercise: a CI runner has no
 deployed dotfiles, so each of its tests skips there. Locally it times the startup files of the checkout it runs from,
@@ -509,16 +510,52 @@ they leave nothing behind there. A whole nested run of the suite outlasts the ti
 case names those tests in `RELEASE_PROCESS_TESTS` and fails when a name no longer matches a passing test.
 
 Every test runs under a time limit: `scripts/run-tests` hands bats `BATS_TEST_TIMEOUT`, 60 s unless the environment sets
-it. A test that outlives it fails as `not ok N <name> # timeout after 60s`: bats sends SIGTERM to it and to every
-process below it, then runs its `teardown`, so both guards still stop whatever it left. A suite with a deliberately
-longer test sets `BATS_TEST_TIMEOUT` at its top level. bats 1.14 leaves a failed test's watchdog running out the limit
-([bats-core/bats-core#1206](https://github.com/bats-core/bats-core/issues/1206)), which `run-tests` avoids through
-`BATS_killer_pid`; a test that starts bats itself passes the same value, `BATS_WATCHDOG_JOB` from
+it. A test that outlives it fails as `not ok N <name> # in <ms> ms # timeout after 60 s`: bats sends SIGTERM to it and
+to every process below it, then runs its `teardown`, so both guards still stop whatever it left. A suite with a
+deliberately longer test sets `BATS_TEST_TIMEOUT` at its top level. bats 1.14 leaves a failed test's watchdog running
+out the limit ([bats-core/bats-core#1206](https://github.com/bats-core/bats-core/issues/1206)), which `run-tests` avoids
+through `BATS_killer_pid`; a test that starts bats itself passes the same value, `BATS_WATCHDOG_JOB` from
 `tests/lib/processes.bash`. bats 1.14 can also leave a passing test's watchdog running: its shell forks the `sleep` and
 only then sets the trap that stops it, so a test that ends inside that window on a loaded host leaves the `sleep`
 running under a new parent. Both guards kill that `sleep` without failing anything, recognised by its environment:
 `sleep <limit>` with `BATS_TEST_TIMEOUT=<limit>` and the `BATS_killer_pid` job spec `run-tests` hands bats, which every
 process a test starts carries as the watchdog's pid instead (`is_detached_watchdog`).
+
+### Test cost
+
+`scripts/run-tests` checks what each test costs by two rules that `scripts/test-cost-guard.sh` holds:
+
+- Each test is timed against a budget. With `RUN_TESTS_BUDGET_MS` unset the budget is 3000 ms and report-only: a test
+  over it is named and the run's exit status is unchanged. With it set, a test over it fails the run unless
+  `tests/slow-tests.tsv` lists it with the reason it must take that long; 0 turns the check off. A test over the budget
+  in a loaded run runs again alone once every suite has finished, and counts only when it is over the budget alone too,
+  as `run-tests: over-budget: <file>: "<name>" took <ms> ms alone`. A test the rerun cannot time, because it fails or
+  skips alone or its name defeats bats's `--filter`, is named with its time in the loaded run instead, and a process the
+  rerun leaves running fails the run as any leak does. The perf suite is exempt. bats prints each test's time on its
+  line, `ok N <name> # in <ms> ms`.
+- A suite whose `setup()` runs `git clone`, `git commit`, `git push`, `fixture_repo`, or `fixture_git <dir> commit` or
+  `push` fails, unless `tests/slow-tests.tsv` lists its `setup()` with the reason. The check reads `setup()` itself, not
+  the helpers it calls. A full run also fails an allowlist entry that matches nothing, each named on a
+  `test-cost-guard:` line.
+
+`tests/slow-tests.tsv` holds one entry per line: the suite's file name, a tab, the test's name as bats prints it or
+`setup()`, a tab, and the reason.
+
+A suite's time is set by how many processes it starts more than by CPU: on the Mac, process launches top out at about
+900 a second across the machine. Write a suite so that each test pays only for what differs between tests:
+
+- Build what every test needs alike once, in `setup_file` under `BATS_FILE_TMPDIR`. Tests that only read it share it;
+  tests that write to it each get a `cp -R` copy. A copy keeps every absolute path its template recorded, such as a
+  clone's origin URL, a linked worktree's two `gitdir` links, or links into a deployed tree, so rewrite each one after
+  the copy and check once that the copy holds no path of the template.
+- Write stubs that are the same for every test once in `setup_file` and `chmod 555` them, with a per-test stubs
+  directory ahead of them on `PATH` for a test that overrides one. A stub that needs the test's directory reads it from
+  an exported variable instead of having it written in.
+- Stub an external tool or a network call unless the test is about that tool, and drop a test that repeats a check a
+  gate already runs.
+- In the code under test as in the suite, use a builtin where one does the job: `read` over `$(cat file)`, `printf -v`
+  over `$(printf …)`, parameter expansion over `cut`, `sed`, or `basename`, and one `uname -s` per run rather than one
+  per loop pass.
 
 ---
 
