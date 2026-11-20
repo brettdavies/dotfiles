@@ -332,19 +332,20 @@ REPO="$BATS_TEST_DIRNAME/.."
 }
 
 # Claude Code hands a hook a socket on fd 0. On Linux, opening /dev/stdin on a socket fails with ENXIO, so
-# `$(</dev/stdin)` reads an empty payload and exits 0 without a sound, and a guard that reads it allows every call.
-# `cat` reads fd 0 directly and works on both platforms.
+# `$(</dev/stdin)` reads nothing: a script without errexit carries on with an empty payload and allows the call, and one
+# under `set -e` exits 1. `cat` reads fd 0 directly and works on both platforms. grep -a keeps a line that holds a byte
+# that is not valid UTF-8 from passing as binary, and `$(...)` collects the hits because bash's read drops such a line.
 @test "no script the claude package ships opens /dev/stdin" {
-  local file line hits=()
+  local file lines hits=""
   for file in "$REPO"/stow/claude/dot-claude/*; do
     [[ -f $file && -x $file ]] || continue
-    while IFS= read -r line; do
-      hits+=("${file##*/}:$line")
-    done < <(grep -nE '/dev/stdin' "$file" | grep -vE '^[0-9]+:[[:space:]]*#' || true)
+    lines=$(grep -anE '/dev/stdin' "$file" | grep -avE '^[0-9]+:[[:space:]]*#' || true)
+    [ -z "$lines" ] || hits+="${file##*/}: $lines"$'\n'
   done
-  echo "scripts that open /dev/stdin, which fails with ENXIO on a socket: ${hits[*]:-none}"
+  echo "scripts that open /dev/stdin, which fails with ENXIO on a socket:"
+  echo "${hits:-none}"
   echo "Fix: read the payload with \$(cat)."
-  [ "${#hits[@]}" -eq 0 ]
+  [ -z "$hits" ]
 }
 
 # Slots and primes run the reviews their briefs name: ce-code-review, gstack /devex-review and /cso. The skills below
