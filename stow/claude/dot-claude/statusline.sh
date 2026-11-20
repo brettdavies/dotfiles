@@ -10,10 +10,12 @@ fi
 
 # Claude Code redraws the line on every update, so each process it starts is paid many times a session: one jq reads
 # every field from the JSON on stdin, joined by the unit separator, and the rest uses builtins wherever one does the job.
-fields=$(jq -r '[(.model.display_name // .model.id), .workspace.current_dir, (.output_style.name // ""),
-  (.context_window.remaining_percentage // ""), (.session_name // ""),
-  (.workspace.repo | if . then "\(.owner)/\(.name)" else "" end), (.pr.number // "")] | map(tostring) | join("\u001f")')
-IFS=$'\037' read -r model cwd output_style context_remaining_pct session_name payload_repo payload_pr <<<"$fields"
+# A field of the wrong JSON type blanks only itself, as a jq call per field did, and -d '' keeps a newline inside a field.
+IFS=$'\037' read -r -d '' model cwd output_style context_remaining_pct session_name payload_repo payload_pr < <(jq -j '
+  (try [(.workspace.repo | if . then "\(.owner)/\(.name)" else "" end), (.pr.number // "")] catch ["", ""]) as [$repo, $pr]
+  | [(try (.model.display_name // .model.id) catch ""), (try .workspace.current_dir catch ""),
+    (try (.output_style.name // "") catch ""), (try (.context_window.remaining_percentage // "") catch ""),
+    (try (.session_name // "") catch ""), $repo, $pr] | map(tostring) | join("\u001f")')
 
 # A prime's Claude keeps its <repo>-prime title, so the work it is on shows in the line instead, named as session-title.sh
 # names a generic session, with the branch in place of the PR's title, which the payload does not carry: the open PR's
@@ -57,6 +59,7 @@ fi
 # reads but has no work tree for, such as .git itself or a bare repo, fails it and shows the branch alone. Its stderr
 # comes along so that a directory outside any repository skips that second call: a warning matches no status line.
 git_info=""
+branch=
 if command -v git >/dev/null 2>&1; then
   staged=0 unstaged=0 untracked=0
   if git_status=$(git -C "$cwd" --no-optional-locks status --porcelain=v2 --branch --no-ahead-behind 2>&1); then
